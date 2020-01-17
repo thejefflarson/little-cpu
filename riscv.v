@@ -1,5 +1,5 @@
 module riscv (
-  input         clk, resetn,
+  input         clk, reset,
   // 32bit AXI4-lite
 
   output        awvalid, // we wrote the address
@@ -10,7 +10,7 @@ module riscv (
   output        wvalid, // we wrote the value
   input         wready, // value is ready
   output [31:0] wdata, // value to write
-  output [3:0]  wrstrb, // what byte we wrote, here this will always be b'1111
+  output [3:0]  wrstrb, // what bytes we wrote, here this will always be b'1111, or all 32bits
 
   output        bvalid, // we received the response
   input         bready, // status is ready
@@ -27,9 +27,12 @@ module riscv (
   input         rresp // status of our read request
 );
   reg [31:0] regs[0:31];
-  assign regs[0] = 32b'0;
+  assign wrstrb = 4'b1;
 
   always @(posedge clk) begin
-     a <= ~clk;
+     if (reset) begin
+        for (integer i = 0; i < 32; i = i + 1)
+          regs[i] <= 0;
+     end
   end
 endmodule
