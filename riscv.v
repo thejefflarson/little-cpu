@@ -1,33 +1,34 @@
 module riscv (
-  input         clk, reset,
-  // 32bit AXI4-lite
-  output        awvalid, // we wrote the address
-  input         awready, // address is ready for write
-  output [31:0] awaddress, // address to write
-  output [2:0]  awprot, // permissions
+  input 	    clk, reset,
 
-  output        wvalid, // we wrote the value
-  input         wready, // value is ready
-  output [31:0] wdata, // value to write
-  output [3:0]  wrstrb, // what bytes we wrote, here this will always be b'1111, or all 32bits
+  // 32bit AXI4-lite memory interface
+  output reg 	    awvalid, // we wrote the address
+  input 	    awready, // address is ready for write
+  output reg [31:0] awaddress, // address to write
+  output reg [2:0]  awprot, // permissions
 
-  output        bvalid, // we received the response
-  input         bready, // status is ready
-  input         bresp, // status of our write request
+  output reg 	    wvalid, // we wrote the value
+  input 	    wready, // value is ready
+  output reg [31:0] wdata, // value to write
+  output reg [3:0]  wrstrb, // what bytes we wrote, here this will always be b'1111, or all 32bits
 
-  output        arvalid, // we put something in the read addreas
-  input         arready, // they are reading the value
-  output [31:0] araddress, // address to read
-  output [2:0]  arprot, // permissions
+  output reg 	    bvalid, // we received the response
+  input 	    bready, // status is ready
+  input 	    bresp, // status of our write request
 
-  input         rvalid, // Data is valid and can be read by us
-  output        rready, // we are ready to read
-  input [31:0]  rdata, // value to read
-  input [1:0]   rresp, // status of our read request
+  output reg 	    arvalid, // we put something in the read addreas
+  input 	    arready, // they are reading the value
+  output reg [31:0] araddress, // address to read
+  output reg [2:0]  arprot, // permissions
+
+  input 	    rvalid, // Data is valid and can be read by us
+  output reg 	    rready, // we are ready to read
+  input [31:0] 	    rdata, // value to read
+  input [1:0] 	    rresp, // status of our read request
 
   // outputs
-  output        trap,
-  output [1:0]  trap_code
+  output reg 	    trap,
+  output reg [1:0]  trap_code
 );
   reg [31:0] regs[0:31];
   reg [31:0] pc;
@@ -88,6 +89,7 @@ module riscv (
       rready <= 1;
     end
   end
+
   localparam rresp_ok = 2'b00;
   localparam rresp_xok = 2'b01;
   // memory fetch
@@ -108,7 +110,6 @@ module riscv (
       arvalid <= 0;
     end
   end
-
 
   // opcode decoder
   always @(posedge clk) begin
