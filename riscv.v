@@ -37,11 +37,11 @@ module riscv (
   `define gp regs[3];
   `define fp regs[8];
 
-   reg [31:0] pc;
+  reg [31:0] pc;
   reg [31:0] instr;
 
+  // memory error
   localparam trap_mem = 2'b00;
-
   // we can execute, no memory operations pending
   reg        execute;
   // load an instruction, otherwise load memory
@@ -133,10 +133,19 @@ module riscv (
     end
   end
 
+  reg [4:0] cpu_state;
+  localparam fetch_instr = 5'b00001;
   // state_machine
   always @(posedge clk) begin
     if (!reset) begin
+      cpu_state <= fetch_instr;
+    end else begin
+      case (cpu_state)
+	fetch_instr: begin
+	end
+	default: begin
+	end
+      endcase
     end
   end
-
 endmodule
