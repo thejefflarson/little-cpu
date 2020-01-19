@@ -31,17 +31,25 @@ module riscv (
   output reg [1:0]  trap_code
 );
   reg [31:0] regs[0:31];
-  reg [31:0] pc;
+  `define zero regs[0];
+  `define ra regs[1];
+  `define sp regs[2];
+  `define gp regs[3];
+  `define fp regs[8];
+
+   reg [31:0] pc;
   reg [31:0] instr;
 
   localparam trap_mem = 2'b00;
 
   // we can execute, no memory operations pending
   reg        execute;
-  // please laod an instruction
+  // load an instruction, otherwise load memory
   reg        load_instr;
+  // storage for requested memory and address
   reg [31:0] load_address;
   reg [31:0] load_data;
+  // storage for the next program counter and instruction
   reg [31:0] next_pc;
   reg [31:0] next_instr;
 
@@ -69,9 +77,9 @@ module riscv (
       load_data <= 32'b0;
     end
   end
-  // privileged, insecure and instruction
+  // privileged, insecure and instruction protection flag
   localparam inst_prot = 3'b101;
-  // privileged, insecure and data
+  // privileged, insecure and data protection flag
   localparam data_prot = 3'b000;
   // memory request
   always @(posedge clk) begin
