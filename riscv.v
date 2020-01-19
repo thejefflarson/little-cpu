@@ -48,20 +48,19 @@ module riscv (
 
   // reset registers
   always @(posedge clk) begin
-     if (!reset) begin
-        for (i = 0; i < 32; i = i + 1) begin
-          regs[i] <= 32'b1;
-        end
-     end
+    if (!reset) begin
+      for (i = 0; i < 32; i = i + 1) begin
+        regs[i] <= 32'b1;
+      end
+    end
   end
 
-  // reset memory module
+  // reset memory
   always @(posedge clk) begin
     if (!reset) begin
       arvalid <= 0; // we haven't put anything in the address
       rready <= 0; // we are ready to read
       execute <= 0;
-      pc <= 32'b0;
       next_pc <= 32'b0;
       arprot <= inst_prot;
       load_instr <= 0;
