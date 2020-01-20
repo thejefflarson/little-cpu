@@ -10,7 +10,7 @@ module riscv (
   output reg 	    wvalid, // we wrote the value
   input 	    wready, // value is ready
   output reg [31:0] wdata, // value to write
-  output reg [3:0]  wrstrb, // what bytes we wrote, here this will always be b'1111, or all 32bits
+  output reg [3:0]  wrstrb, // what bytes we wrote
 
   output reg 	    bvalid, // we received the response
   input 	    bready, // status is ready
@@ -119,22 +119,30 @@ module riscv (
     end
   end
 
-  // opcode decoder
-  always @(posedge clk) begin
-    if (!reset) begin
-
-    end
-  end
-
   // instruction decoder
-  always @(posedge clk) begin
-    if (!reset) begin
+  logic [6:0] opcode = instr[6:0];
+  logic [4:0] rd = instr[11:7];
+  logic [4:0] rs1 = instr[19:15];
+  logic [4:0] rs2 = instr[24:20];
+  logic [2:0] funct3 = instr[14:12];
+  logic [6:0] funct7 = instr[31:25];
 
-    end
-  end
+  logic is_load = opcode == 7'b0000011;
+  logic is_lb = is_load && funct3 == 3'b000;
+  logic is_lh = is_load && funct3 == 3'b001;
+  logic is_lw = is_load && funct3 == 3'b010;
+  logic is_lbu = is_load && funct3 == 3'b100;
+  logic is_lhu = is_load && funct3 == 3'b101;
+  logic is_store = opcode == 7'b0100011;
 
   reg [4:0] cpu_state;
   localparam fetch_instr = 5'b00001;
+  localparam execute_instr = 5'b00010;
+  localparam finish_load = 5'b00011;
+  localparam finish_store = 5'b00100;
+  localparam cpu_trap = 5'b00000;
+
+
   // state_machine
   always @(posedge clk) begin
     if (!reset) begin
@@ -142,8 +150,59 @@ module riscv (
     end else begin
       case (cpu_state)
 	fetch_instr: begin
+	  if (execute) begin
+	    pc <= next_pc;
+	    instr <= next_instr;
+	    cpu_state <= execute_instr;
+	  end else begin
+	    load_instr <= 1;
+	    next_pc <= pc + 4;
+	  end
 	end
+
+	execute_instr: begin
+          case (1'b1)
+	    is_lb || is_lh || is_lw || is_lbu || is_lhu: begin
+              if (rd == 0) begin
+		cpu_state <= cpu_trap;
+	      end else begin
+		load_address <= $signed({{20{instr[31:20][11]}}, instr[31:20]}) + $signed(regs[rs1]);
+		load_instr <= 0;
+		cpu_state <= finish_load;
+		execute <= 0; // kick off a memory request
+	      end
+	    end
+	    //is_sw || is_sb || is_sh: begin
+	    //  execute <= 0;
+	    //end
+	  endcase
+	end
+
+	finish_load: begin
+          if (execute == 1) begin
+	    case (1'b1)
+	      is_lb: regs[rs2] <= {24'b0, load_data[7:0]};
+	      is_lbu: regs[rs2] <= {{24{load_data[7]}}, load_data[7:0]};
+	      is_lh: regs[rs2] <= {16'b0, load_data[15:0]};
+	      is_lhu: regs[rs2] <= {{16{load_data[7]}}, load_data[15:0]};
+	      is_lw: regs[rs2] <= load_data;
+            endcase
+	    cpu_state <= fetch_instr;
+          end
+	end
+
+	finish_store: begin
+	  if (execute == 1) begin
+	    cpu_state <= fetch_instr;
+	  end
+	end
+
+	cpu_trap: begin
+	  trap <= 1;
+	end
+
 	default: begin
+	  cpu_state <= cpu_trap;
 	end
       endcase
     end
