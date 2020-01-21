@@ -143,13 +143,19 @@ module riscv (
     end
   end
 
-  // instruction decoder
+  // instruction decoder (figure 2.3)
   logic [6:0] opcode = instr[6:0];
   logic [4:0] rd = instr[11:7];
   logic [4:0] rs1 = instr[19:15];
   logic [4:0] rs2 = instr[24:20];
   logic [2:0] funct3 = instr[14:12];
   logic [6:0] funct7 = instr[31:25];
+  // immediate decoder (figure 2.4)
+  logic [31:0] i_immediate = {{20{instr[31]}}, instr[31:20]};
+  logic [31:0] s_immediate = {{20{instr[31]}}, instr[31:25], instr[11:7]};
+  logic [31:0] b_immediate = {{20{instr[31]}}, instr[7], instr[30:25], instr[11:8], 1'b0};
+  logic [31:0] u_immediate = {instr[31], instr[30:20], instr[19:12], 12'b0};
+  logic [31:0] j_immediate = {{12{instr[31]}}, instr[19:12], instr[20], instr[30:21], 1'b0};
 
   logic is_load = opcode == 7'b0000011;
   logic is_lb = is_load && funct3 == 3'b000;
@@ -157,14 +163,13 @@ module riscv (
   logic is_lw = is_load && funct3 == 3'b010;
   logic is_lbu = is_load && funct3 == 3'b100;
   logic is_lhu = is_load && funct3 == 3'b101;
-  logic [11:0] load_immediate = instr[31:20];
-
+  logic [31:0] load_immediate = i_immediate;
 
   logic is_store = opcode == 7'b0100011;
   logic is_sb = is_store && funct3 == 3'b000;
   logic is_sh = is_store && funct3 == 3'b010;
   logic is_sw = is_store && funct3 == 3'b100;
-  logic [11:0] store_immediate = {instr[31:25], instr[11:7]};
+  logic [31:0] store_immediate = s_immediate;
 
   reg [4:0] cpu_state;
   localparam fetch_instr = 5'b00001;
@@ -196,7 +201,7 @@ module riscv (
               if (rd == 0) begin // can't load into x0
                 cpu_state <= cpu_trap;
               end else begin
-                load_address <= $signed({{20{load_immediate[11]}}, load_immediate}) + $signed(regs[rs1]);
+                load_address <= $signed(load_immediate) + $signed(regs[rs1]);
                 load_instr <= 0;
                 cpu_state <= finish_load;
                 execute <= 0; // kick off a memory request
@@ -204,7 +209,7 @@ module riscv (
             end
 
             is_sw || is_sb || is_sh: begin
-              awaddress <= $signed({{20{store_immediate[11]}}, store_immediate}) + $signed(regs[rs1]);
+              awaddress <= $signed(store_immediate) + $signed(regs[rs1]);
 	      wdata <= regs[rs2];
 	      case (1'b1)
 		is_sw: wstrb <= 4'b1111;
