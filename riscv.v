@@ -202,7 +202,7 @@ module riscv (
                 cpu_state <= cpu_trap;
               end else begin
                 load_address <= $signed(load_immediate) + $signed(regs[rs1]);
-                load_instr <= 0;
+                load_instr <= 0; // can we have data
                 cpu_state <= finish_load;
                 execute <= 0; // kick off a memory request
               end
@@ -232,7 +232,7 @@ module riscv (
               is_lh: regs[rs2] <= {16'b0, load_data[15:0]};
               is_lhu: regs[rs2] <= {{16{load_data[7]}}, load_data[15:0]};
               is_lw: regs[rs2] <= load_data;
-            endcase // case (1'b1)
+            endcase
 	    if (trap)
 	      cpu_state <= cpu_trap;
 	    else
