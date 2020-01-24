@@ -58,7 +58,7 @@ module riscv (
   integer i;
 
   // reset registers
-  always @(posedge clk) begin
+  always_ff @(posedge clk) begin
     if (!reset) begin
       for (i = 0; i < 32; i = i + 1) begin
         regs[i] <= 32'b1;
@@ -67,7 +67,7 @@ module riscv (
   end
 
   // reset memory
-  always @(posedge clk) begin
+  always_ff @(posedge clk) begin
     if (!reset) begin
       arvalid <= 0; // we haven't put anything in the address
       rready <= 0; // we are ready to read
@@ -84,7 +84,7 @@ module riscv (
   // privileged, insecure and data protection flag
   localparam data_prot = 3'b000;
   // memory request
-  always @(posedge clk) begin
+  always_ff @(posedge clk) begin
     // we aren't executing and we haven't requested a read
     if (reset && !execute && !arvalid) begin
       if (load_instr) begin
@@ -103,7 +103,7 @@ module riscv (
   localparam rresp_ok = 2'b00;
   localparam rresp_xok = 2'b01;
   // memory fetch
-  always @(posedge clk) begin
+  always_ff @(posedge clk) begin
     // everyone is ready
     if (reset && rready && rvalid && arready && arvalid) begin
       if (rresp == rresp_ok || rresp == rresp_xok) begin
@@ -123,7 +123,7 @@ module riscv (
   localparam bresp_ok = 2'b01;
   localparam bresp_xok = 2'b00;
   // memory store
-  always @(posedge clk) begin
+  always_ff @(posedge clk) begin
     // We wrote something and are waiting for the response
     if (reset && !execute && wvalid && awvalid) begin
       // We can check the status of our write request
@@ -147,6 +147,10 @@ module riscv (
   logic [4:0] rd = instr[11:7];
   logic [4:0] rs1 = instr[19:15];
   logic [4:0] rs2 = instr[24:20];
+  // For shift immediates
+  logic [4:0] shamt = rs2;
+  logic math_flag = instr[31:25] == 7'b0100000;
+
   logic [2:0] funct3 = instr[14:12];
   logic [6:0] funct7 = instr[31:25];
   // immediate decoder (figure 2.4)
@@ -156,29 +160,72 @@ module riscv (
   logic [31:0] u_immediate = {instr[31], instr[30:20], instr[19:12], 12'b0};
   logic [31:0] j_immediate = {{12{instr[31]}}, instr[19:12], instr[20], instr[30:21], 1'b0};
 
+  // Table 24.2 RV32I
+  logic is_lui = opcode == 7'b0110111;
+  logic is_auipc = opcode == 7'b0010111;
+  logic is_jal = opcode == 7'b1101111;
+  logic is_jalr = opcode == 7'b1100111;
+
+  logic is_branch = opcode == 7'b1100011;
+  logic is_beq = is_branch && funct3 == 3'b000;
+  logic is_bne = is_branch && funct3 == 3'b001;
+  logic is_blt = is_branch && funct3 == 3'b100;
+  logic is_bge = is_branch && funct3 == 3'b101;
+  logic is_bltu = is_branch && funct3 == 3'b110;
+  logic is_bgeu = is_branch && funct3 == 3'b111;
+
   logic is_load = opcode == 7'b0000011;
   logic is_lb = is_load && funct3 == 3'b000;
   logic is_lh = is_load && funct3 == 3'b001;
   logic is_lw = is_load && funct3 == 3'b010;
   logic is_lbu = is_load && funct3 == 3'b100;
   logic is_lhu = is_load && funct3 == 3'b101;
-  logic [31:0] load_immediate = i_immediate;
 
   logic is_store = opcode == 7'b0100011;
   logic is_sb = is_store && funct3 == 3'b000;
   logic is_sh = is_store && funct3 == 3'b010;
   logic is_sw = is_store && funct3 == 3'b100;
-  logic [31:0] store_immediate = s_immediate;
 
-  logic immediate;
-  always @(*) begin
+  logic is_math_immediate = opcode == 7'b0010011;
+  logic is_addi = is_math_immediate && funct3 == 3'b000;
+  logic is_slti = is_math_immediate && funct3 == 3'b010;
+  logic is_sltiu = is_math_immediate && funct3 == 3'b011;
+  logic is_xori = is_math_immediate && funct3 == 3'b100;
+  logic is_ori = is_math_immediate && funct3 == 3'b110;
+  logic is_andi = is_math_immediate && funct3 == 3'b111;
+  logic is_slli = is_math_immediate && funct3 == 3'b001;
+  logic is_srli = is_math_immediate && !math_flag && funct3 == 3'b101;
+  logic is_srai = is_math_immediate && math_flag && funct3 == 3'b101;
+
+  logic is_math = opcode == 7'b0110011;
+  logic is_add = is_math && !math_flag && funct3 == 3'b000;
+  logic is_sub = is_math && math_flag && funct3 == 3'b000;
+  logic is_sll = is_math && funct3 == 3'b001;
+  logic is_slt = is_math && funct3 == 3'b010;
+  logic is_sltu = is_math && funct3 == 3'b011;
+  logic is_xor = is_math && funct3 == 3'b100;
+  logic is_srl = is_math && !math_flag && funct3 == 3'b101;
+  logic is_sra = is_math && math_flag && funct3 == 3'b101;
+  logic is_or = is_math && funct3 == 3'b110;
+  logic is_and = is_math && funct3 == 3'b111;
+
+  logic is_fence = opcode == 7'b0001111;
+  logic is_error = opcode == 7'b1110011;
+  logic is_ecall = is_error && !instr[20];
+  logic is_ebreak = is_error && instr[20];
+
+
+  logic [31:0]immediate;
+  always_comb begin
     case (1'b1)
-      is_load: immediate = i_immediate;
+      is_load || is_jalr: immediate = i_immediate;
       is_store: immediate = s_immediate;
+      is_lui || is_auipc: immediate = u_immediate;
+      is_jal: immediate = j_immediate;
+      is_branch: immediate = b_immediate;
+      default: immediate = 32'b0;
     endcase
   end
-
-
 
   reg [4:0] cpu_state;
   localparam fetch_instr = 5'b00001;
@@ -188,7 +235,7 @@ module riscv (
   localparam cpu_trap = 5'b00000;
 
   // state_machine
-  always @(posedge clk) begin
+  always_ff @(posedge clk) begin
     if (!reset) begin
       cpu_state <= fetch_instr;
     end else begin
