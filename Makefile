@@ -16,3 +16,6 @@ clean:
 	rm -f riscv.asc
 	rm -f timing
 	rm -f pll.v
+
+riscv-formal:
+	git clone https://github.com/SymbioticEDA/riscv-formal

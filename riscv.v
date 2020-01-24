@@ -39,13 +39,14 @@ module riscv (
 
   reg [31:0] pc;
   reg [31:0] instr;
-
-  // memory error
+  // did we get a memory fault
+  reg mem_trap;
+  // memory error code
   localparam trap_mem = 2'b00;
   // we can execute, no memory operations pending
-  reg        execute;
+  reg execute;
   // load an instruction, otherwise load memory
-  reg        load_instr;
+  reg load_instr;
   // storage for requested memory and address
   reg [31:0] load_address;
   reg [31:0] load_data;
@@ -112,8 +113,7 @@ module riscv (
         else
           load_data <= rdata;
       end else begin
-        trap <= 1;
-        trap_code <= trap_mem;
+        mem_trap <= 1;
       end
       rready <= 0;
       arvalid <= 0;
@@ -131,8 +131,7 @@ module riscv (
         awvalid <= 0;
         wvalid <= 0;
         if (bresp != bresp_ok || bresp != bresp_xok) begin
-          trap <= 1;
-          trap_code <= trap_mem;
+          mem_trap <= 1;
         end else begin
           execute <= 1;
         end
@@ -170,6 +169,16 @@ module riscv (
   logic is_sh = is_store && funct3 == 3'b010;
   logic is_sw = is_store && funct3 == 3'b100;
   logic [31:0] store_immediate = s_immediate;
+
+  logic immediate;
+  always @(*) begin
+    case (1'b1)
+      is_load: immediate = i_immediate;
+      is_store: immediate = s_immediate;
+    endcase
+  end
+
+
 
   reg [4:0] cpu_state;
   localparam fetch_instr = 5'b00001;
@@ -233,18 +242,20 @@ module riscv (
               is_lhu: regs[rs2] <= {{16{load_data[7]}}, load_data[15:0]};
               is_lw: regs[rs2] <= load_data;
             endcase
-	    if (trap)
+	    if (mem_trap) begin
 	      cpu_state <= cpu_trap;
-	    else
+	      trap_code <= trap_mem;
+	    end else
               cpu_state <= fetch_instr;
           end
         end
 
         finish_store: begin
           if (execute) begin
-            if (trap)
+            if (mem_trap) begin
 	      cpu_state <= cpu_trap;
-	    else
+	      trap_code <= trap_mem;
+	    end else
               cpu_state <= fetch_instr;
           end
         end
