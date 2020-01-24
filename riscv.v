@@ -257,7 +257,7 @@ module riscv (
               if (rd == 0) begin // can't load into x0
                 cpu_state <= cpu_trap;
               end else begin
-                load_address <= $signed(load_immediate) + $signed(regs[rs1]);
+                load_address <= $signed(immediate) + $signed(regs[rs1]);
                 load_instr <= 0; // can we have data
                 cpu_state <= finish_load;
                 execute <= 0; // kick off a memory request
@@ -265,7 +265,7 @@ module riscv (
             end
 
             is_sw || is_sb || is_sh: begin
-              awaddress <= $signed(store_immediate) + $signed(regs[rs1]);
+              awaddress <= $signed(immediate) + $signed(regs[rs1]);
 	      wdata <= regs[rs2];
 	      case (1'b1)
 		is_sw: wstrb <= 4'b1111;
