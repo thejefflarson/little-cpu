@@ -1,66 +1,70 @@
 module riscv (
-  input             clk, reset,
+  input  var        clk, reset,
 
   // 32bit AXI4-lite memory interface
-  output reg        awvalid, // we wrote the address
-  input             awready, // address is ready for write
-  output reg [31:0] awaddress, // address to write
-  output reg [2:0]  awprot, // permissions
+  output var        awvalid, // we wrote the address
+  input  var        awready, // address is ready for write
+  output var [31:0] awaddress, // address to write
+  output var [2:0]  awprot, // permissions
 
-  output reg        wvalid, // we wrote the value
-  input             wready, // value is ready
-  output reg [31:0] wdata, // value to write
-  output reg [3:0]  wstrb, // what bytes we wrote
+  output var        wvalid, // we wrote the value
+  input  var        wready, // value is ready
+  output var [31:0] wdata, // value to write
+  output var [3:0]  wstrb, // what bytes we wrote
 
-  output reg        bvalid, // we received the response
-  input             bready, // status is ready
-  input      [1:0]  bresp, // status of our write request
+  output var        bvalid, // we received the response
+  input  var        bready, // status is ready
+  input  var [1:0]  bresp, // status of our write request
 
-  output reg        arvalid, // we put something in the read addreas
-  input             arready, // they are reading the value
-  output reg [31:0] araddress, // address to read
-  output reg [2:0]  arprot, // permissions
+  output var        arvalid, // we put something in the read addreas
+  input  var        arready, // they are reading the value
+  output var [31:0] araddress, // address to read
+  output var [2:0]  arprot, // permissions
 
-  input             rvalid, // Data is valid and can be read by us
-  output reg        rready, // we are ready to read
-  input      [31:0] rdata, // value to read
-  input      [1:0]  rresp, // status of our read request
+  input  var        rvalid, // Data is valid and can be read by us
+  output var        rready, // we are ready to read
+  input  var [31:0] rdata, // value to read
+  input  var [1:0]  rresp, // status of our read request
 
   // outputs
-  output reg        trap,
-  output reg [1:0]  trap_code
+  output var        trap,
+  output var [1:0]  trap_code
+
+  // Formal
+`ifdef RISCV_FORMAL
+   ,
+   `RVFI_OUTPUTS
+`endif
 );
-  reg [31:0] regs[0:31];
+  logic [31:0] regs[0:31];
   `define zero regs[0];
   `define ra regs[1];
   `define sp regs[2];
   `define gp regs[3];
   `define fp regs[8];
 
-  reg [31:0] pc;
-  reg [31:0] instr;
+  logic [31:0] pc;
+  logic [31:0] instr;
   // did we get a memory fault
-  reg mem_trap;
+  logic mem_trap;
   // memory error code
   localparam trap_mem = 2'b00;
   // we can execute, no memory operations pending
-  reg execute;
+  logic execute;
   // load an instruction, otherwise load memory
-  reg load_instr;
+  logic load_instr;
   // storage for requested memory and address
-  reg [31:0] load_address;
-  reg [31:0] load_data;
+  logic [31:0] load_address;
+  logic [31:0] load_data;
 
   // storage for the next program counter and instruction
-  reg [31:0] next_pc;
-  reg [31:0] next_instr;
-
-  integer i;
+  logic [31:0] next_pc;
+  logic [31:0] next_instr;
 
   // reset registers
   always_ff @(posedge clk) begin
     if (!reset) begin
-      for (i = 0; i < 32; i = i + 1) begin
+      for (integer i = 0; i < 32; i = i + 1) begin
         regs[i] <= 32'b1;
       end
     end
@@ -108,10 +112,11 @@ module riscv (
     if (reset && rready && rvalid && arready && arvalid) begin
       if (rresp == rresp_ok || rresp == rresp_xok) begin
         execute <= 1;
-        if (load_instr)
+        if (load_instr) begin
           next_instr <= rdata;
-        else
+        end else begin
           load_data <= rdata;
+        end
       end else begin
         mem_trap <= 1;
       end
@@ -214,7 +219,6 @@ module riscv (
   logic is_ecall = is_error && !instr[20];
   logic is_ebreak = is_error && instr[20];
 
-
   logic [31:0]immediate;
   always_comb begin
     case (1'b1)
@@ -227,7 +231,7 @@ module riscv (
     endcase
   end
 
-  reg [4:0] cpu_state;
+  logic [4:0] cpu_state;
   localparam fetch_instr = 5'b00001;
   localparam execute_instr = 5'b00010;
   localparam finish_load = 5'b00011;
@@ -266,13 +270,13 @@ module riscv (
 
             is_sw || is_sb || is_sh: begin
               awaddress <= $signed(immediate) + $signed(regs[rs1]);
-	      wdata <= regs[rs2];
-	      case (1'b1)
-		is_sw: wstrb <= 4'b1111;
-		is_sh: wstrb <= 4'b0011;
-		is_sb: wstrb <= 4'b0001;
-	      endcase
-	      awprot <= data_prot;
+              wdata <= regs[rs2];
+              case (1'b1)
+                is_sw: wstrb <= 4'b1111;
+                is_sh: wstrb <= 4'b0011;
+                is_sb: wstrb <= 4'b0001;
+              endcase
+              awprot <= data_prot;
               wvalid <= 1;
               awvalid <= 1;
               execute <= 0; // kick off a memory request
@@ -289,21 +293,23 @@ module riscv (
               is_lhu: regs[rs2] <= {{16{load_data[7]}}, load_data[15:0]};
               is_lw: regs[rs2] <= load_data;
             endcase
-	    if (mem_trap) begin
-	      cpu_state <= cpu_trap;
-	      trap_code <= trap_mem;
-	    end else
+            if (mem_trap) begin
+              cpu_state <= cpu_trap;
+              trap_code <= trap_mem;
+            end else begin
               cpu_state <= fetch_instr;
+            end
           end
         end
 
         finish_store: begin
           if (execute) begin
             if (mem_trap) begin
-	      cpu_state <= cpu_trap;
-	      trap_code <= trap_mem;
-	    end else
+              cpu_state <= cpu_trap;
+              trap_code <= trap_mem;
+            end else begin
               cpu_state <= fetch_instr;
+            end
           end
         end
 
@@ -317,4 +323,8 @@ module riscv (
       endcase
     end
   end
+
+`ifdef RISCV_FORMAL
+
+`endif
 endmodule
