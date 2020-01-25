@@ -36,41 +36,20 @@ module riscv (
    `RVFI_OUTPUTS
 `endif
 );
-  logic [31:0] regs[0:31];
-  `define zero regs[0];
-  `define ra regs[1];
-  `define sp regs[2];
-  `define gp regs[3];
-  `define fp regs[8];
-
-  logic [31:0] pc;
-  logic [31:0] instr;
   // did we get a memory fault
   logic mem_trap;
   // memory error code
   localparam trap_mem = 2'b00;
-  // we can execute, no memory operations pending
-  logic execute;
-  // load an instruction, otherwise load memory
-  logic load_instr;
-  // storage for requested memory and address
-  logic [31:0] load_address;
-  logic [31:0] load_data;
+  // privileged, insecure and instruction protection flag
+  localparam inst_prot = 3'b101;
+  // privileged, insecure and data protection flag
+  localparam data_prot = 3'b000;
+  localparam rresp_ok = 2'b00;
+  localparam rresp_xok = 2'b01;
+  localparam bresp_ok = 2'b01;
+  localparam bresp_xok = 2'b00;
 
-  // storage for the next program counter and instruction
-  logic [31:0] next_pc;
-  logic [31:0] next_instr;
-
-  // reset registers
-  always_ff @(posedge clk) begin
-    if (!reset) begin
-      for (integer i = 0; i < 32; i = i + 1) begin
-        regs[i] <= 32'b1;
-      end
-    end
-  end
-
-  // reset memory
+  // memory interface TODO this would be better as a module
   always_ff @(posedge clk) begin
     if (!reset) begin
       arvalid <= 0; // we haven't put anything in the address
@@ -78,17 +57,9 @@ module riscv (
       execute <= 0;
       next_pc <= 32'b0;
       arprot <= inst_prot;
-      load_instr <= 0;
-      load_address <= 32'b0;
-      load_data <= 32'b0;
     end
-  end
-  // privileged, insecure and instruction protection flag
-  localparam inst_prot = 3'b101;
-  // privileged, insecure and data protection flag
-  localparam data_prot = 3'b000;
-  // memory request
-  always_ff @(posedge clk) begin
+
+    // reset memory
     // we aren't executing and we haven't requested a read
     if (reset && !execute && !arvalid) begin
       if (load_instr) begin
@@ -102,12 +73,8 @@ module riscv (
       arvalid <= 1;
       rready <= 1;
     end
-  end
 
-  localparam rresp_ok = 2'b00;
-  localparam rresp_xok = 2'b01;
-  // memory fetch
-  always_ff @(posedge clk) begin
+    // memory fetch
     // everyone is ready
     if (reset && rready && rvalid && arready && arvalid) begin
       if (rresp == rresp_ok || rresp == rresp_xok) begin
@@ -123,12 +90,8 @@ module riscv (
       rready <= 0;
       arvalid <= 0;
     end
-  end
 
-  localparam bresp_ok = 2'b01;
-  localparam bresp_xok = 2'b00;
-  // memory store
-  always_ff @(posedge clk) begin
+    // memory store
     // We wrote something and are waiting for the response
     if (reset && !execute && wvalid && awvalid) begin
       // We can check the status of our write request
@@ -154,7 +117,7 @@ module riscv (
   logic [4:0] rs2 = instr[24:20];
   // For shift immediates
   logic [4:0] shamt = rs2;
- 
+
   logic [2:0] funct3 = instr[14:12];
   logic [6:0] funct7 = instr[31:25];
   logic math_flag = funct7 == 7'b0100000;
@@ -232,16 +195,51 @@ module riscv (
     endcase
   end
 
+  // registers
+  logic [31:0] regs[0:31];
+  `define zero regs[0];
+  `define ra regs[1];
+  `define sp regs[2];
+  `define gp regs[3];
+  `define fp regs[8];
+  logic [31:0] pc;
+  logic [31:0] instr;
+  // storage for the next program counter and instruction
+  logic [31:0] next_pc;
+  logic [31:0] next_instr;
+  // memory requests
+  // we can execute, no memory operations pending
+  logic execute;
+  // load an instruction, otherwise load memory
+  logic load_instr;
+  // storage for requested memory and address
+  logic [31:0] load_address;
+  logic [31:0] load_data;
+  // store instruction or memory
+  logic       store_instr;
+  // storage for memory request
+  logic [31:0] store_address;
+  logic [31:0] store_data;
+
+  // state_machine
   logic [4:0] cpu_state;
   localparam fetch_instr = 5'b00001;
   localparam execute_instr = 5'b00010;
   localparam finish_load = 5'b00011;
   localparam finish_store = 5'b00100;
   localparam cpu_trap = 5'b00000;
-
-  // state_machine
+  integer i;
   always_ff @(posedge clk) begin
     if (!reset) begin
+      for (i = 0; i < 32; i = i + 1) begin
+        regs[i] <= 32'b1;
+      end
+      load_instr <= 0;
+      load_address <= 32'b0;
+      load_data <= 32'b0;
+      store_instr <= 0;
+      store_address <= 32'b0;
+      store_data <= 32'b0;
       cpu_state <= fetch_instr;
     end else begin
       case (cpu_state)

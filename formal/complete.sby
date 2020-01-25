@@ -1,0 +1,37 @@
+[options]
+mode bmc
+aigsmt z3
+depth 20
+
+[engines]
+abc bmc3
+
+[script]
+verilog_defines -D RISCV_FORMAL
+verilog_defines -D RISCV_FORMAL_NRET=1
+verilog_defines -D RISCV_FORMAL_XLEN=32
+verilog_defines -D RISCV_FORMAL_ILEN=32
+read_verilog -sv rvfi_macros.vh
+read_verilog -sv riscv.v
+
+--pycode-begin--
+with open("riscv-formal/insns/isa_rv32i.txt") as f:
+  for line in f:
+    output("read_verilog -sv insn_%s.v" % line.strip())
+--pycode-end--
+
+read_verilog -sv isa_rv32i.v
+read_verilog -sv complete.v
+prep -nordff -top testbench
+
+[files]
+complete.v
+../riscv.v
+riscv-formal/checks/rvfi_macros.vh
+riscv-formal/insns/isa_rv32i.v
+
+--pycode-begin--
+with open("riscv-formal/insns/isa_rv32i.txt") as f:
+  for line in f:
+    output("riscv-formal/insns/insn_%s.v" % line.strip())
+--pycode-end--

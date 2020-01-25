@@ -2,3 +2,5 @@ riscv.json
 riscv.asc
 timing
 pll.v
+formal/riscv-formal
+formal/complete
