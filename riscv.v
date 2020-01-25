@@ -52,32 +52,33 @@ module riscv (
   logic [31:0] load_data;
   // memory interface TODO this would be better as a module
   always_ff @(posedge clk) begin
+    // reset memory
     if (!reset) begin
-      arvalid <= 0; // we haven't put anything in the address
-      rready <= 0; // we are ready to read
+      arvalid <= 0;
+      rready <= 0;
       execute <= 0;
       arprot <= inst_prot;
       load_data <= 32'b0;
     end
 
-    // reset memory
-    // we aren't executing and we haven't requested a read
-    if (reset && !execute && !arvalid) begin
+    // memory fetch
+    // the core has requested a read but we haven't forwarded to memory
+    if (reset && memory && load && !arvalid) begin
       if (load_instr) begin
         araddress <= next_pc;
         arprot <= inst_prot;
       end else begin
-        araddress <= load_address;
+        araddress <= memory_address;
         arprot <= data_prot;
       end
       // we're ready to read
       arvalid <= 1;
       rready <= 1;
+      execute <= 0;
     end
 
-    // memory fetch
-    // everyone is ready
-    if (reset && rready && rvalid && arready && arvalid) begin
+    // everyone is ready to finish the read and start executing
+    if (reset && memory && !execute && rready && rvalid && arready && arvalid) begin
       if (rresp == rresp_ok || rresp == rresp_xok) begin
         execute <= 1;
         if (load_instr) begin
@@ -93,8 +94,21 @@ module riscv (
     end
 
     // memory store
+    if (reset && memory && store && !wvalid && !awvalid) begin
+      awaddress <= memory_address;
+      wdata <= store_data;
+      if (store_instr) begin
+        awprot <= inst_prot;
+      end else begin
+        awprot <= data_prot;
+      end
+      wvalid <= 1;
+      awvalid <= 1;
+      execute <= 0;
+    end
+
     // We wrote something and are waiting for the response
-    if (reset && !execute && wvalid && awvalid) begin
+    if (reset && memory && !execute && wvalid && awvalid) begin
       // We can check the status of our write request
       if (awready && wready && bready) begin
         awvalid <= 0;
@@ -208,18 +222,25 @@ module riscv (
   // storage for the next program counter and instruction
   logic [31:0] next_pc;
   logic [31:0] next_instr;
+
   // memory requests
   // we can execute, no memory operations pending
   logic execute;
+  // we are waiting on memory
+  logic memory;
+  // we would like to load
+  logic load;
   // load an instruction, otherwise load memory
   logic load_instr;
   // storage for requested address
-  logic [31:0] load_address;
+  // we would like to store
+  logic store;
   // store instruction or memory
-  logic       store_instr;
+  logic store_instr;
   // storage for memory request
-  logic [31:0] store_address;
   logic [31:0] store_data;
+  logic [31:0] memory_address;
+
 
   // state_machine
   logic [4:0] cpu_state;
@@ -236,11 +257,11 @@ module riscv (
       end
       next_pc <= 32'b0;
       load_instr <= 0;
-      load_address <= 32'b0;
       store_instr <= 0;
-      store_address <= 32'b0;
+      memory_address <= 32'b0;
       store_data <= 32'b0;
       cpu_state <= fetch_instr;
+      memory <= 1;
     end else begin
       case (cpu_state)
         fetch_instr: begin
@@ -249,8 +270,10 @@ module riscv (
             instr <= next_instr;
             cpu_state <= execute_instr;
           end else begin
+            load <= 1;
             load_instr <= 1;
             next_pc <= pc + 4;
+            memory <= 1;
           end
         end
 
@@ -260,25 +283,25 @@ module riscv (
               if (rd == 0) begin // can't load into x0
                 cpu_state <= cpu_trap;
               end else begin
-                load_address <= $signed(immediate) + $signed(regs[rs1]);
+                load <= 1;
+                memory_address <= $signed(immediate) + $signed(regs[rs1]);
                 load_instr <= 0; // can we have data
+                memory <= 1; // kick off a memory request
                 cpu_state <= finish_load;
-                execute <= 0; // kick off a memory request
               end
             end
 
             is_sw || is_sb || is_sh: begin
-              awaddress <= $signed(immediate) + $signed(regs[rs1]);
-              wdata <= regs[rs2];
+              memory_address <= $signed(immediate) + $signed(regs[rs1]);
+              store_data <= regs[rs2];
               case (1'b1)
                 is_sw: wstrb <= 4'b1111;
                 is_sh: wstrb <= 4'b0011;
                 is_sb: wstrb <= 4'b0001;
               endcase
-              awprot <= data_prot;
-              wvalid <= 1;
-              awvalid <= 1;
-              execute <= 0; // kick off a memory request
+              store <= 1;
+              memory <= 1; // kick off a memory request
+              cpu_state <= finish_store;
             end
           endcase
         end
@@ -298,6 +321,7 @@ module riscv (
             end else begin
               cpu_state <= fetch_instr;
             end
+            memory <= 0;
           end
         end
 
@@ -309,6 +333,7 @@ module riscv (
             end else begin
               cpu_state <= fetch_instr;
             end
+            memory <= 0;
           end
         end
 

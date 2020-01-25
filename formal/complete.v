@@ -1,38 +1,37 @@
-// Silence warnings
-`ifndef RISCV_FORMAL
-  `define RVFI_WIRES
-  `define RVFI_CONN
-  `define COMMA ,
-  `define RISCV_FORMAL_XLEN 32
-`else
-  `define COMMA
-`endif
 module testbench (
-  input var clk
+  input var clk,
+  output var        awvalid, // we wrote the address
+  input  var        awready, // address is ready for write
+  output var [31:0] awaddress, // address to write
+  output var [2:0]  awprot, // permissions
+
+  output var        wvalid, // we wrote the value
+  input  var        wready, // value is ready
+  output var [31:0] wdata, // value to write
+  output var [3:0]  wstrb, // what bytes we wrote
+
+  output var        bvalid, // we received the response
+  input  var        bready, // status is ready
+  input  var [1:0]  bresp, // status of our write request
+
+  output var        arvalid, // we put something in the read addreas
+  input  var        arready, // they are reading the value
+  output var [31:0] araddress, // address to read
+  output var [2:0]  arprot, // permissions
+
+  input  var        rvalid, // Data is valid and can be read by us
+  output var        rready, // we are ready to read
+  input  var [31:0] rdata, // value to read
+  input  var [1:0]  rresp, // status of our read request
+
+  // outputs
+  output var        trap,
+  output var [1:0]  trap_code
+
 );
   logic reset;
   always @(posedge clk) reset <= 1;
   logic trap;
-
-  (* keep *) logic        awvalid;
-  (* keep *) logic        awready;
-  (* keep *) logic [31:0] awaddress;
-  (* keep *) logic [2:0]  awprot;
-  (* keep *) logic        wvalid;
-  (* keep *) logic        wready;
-  (* keep *) logic [31:0] wdata;
-  (* keep *) logic [3:0]  wstrb;
-  (* keep *) logic        bvalid;
-  (* keep *) logic        bready;
-  (* keep *) logic [1:0]  bresp;
-  (* keep *) logic        arvalid;
-  (* keep *) logic        arready;
-  (* keep *) logic [31:0] araddress;
-  (* keep *) logic [2:0]  arprot;
-  (* keep *) logic        rvalid;
-  (* keep *) logic        rready;
-  (* keep *) logic [31:0] rdata;
-  (* keep *) logic [1:0]  rresp;
 
   `RVFI_WIRES
 
@@ -59,6 +58,7 @@ module testbench (
     .rdata(rdata),
     .rresp(rresp),
     .trap(trap),
+    .trap(trap_code),
     `RVFI_CONN
   );
 
