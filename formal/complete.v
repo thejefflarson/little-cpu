@@ -58,7 +58,7 @@ module testbench (
     .rdata(rdata),
     .rresp(rresp),
     .trap(trap),
-    .trap(trap_code),
+    .trap_code(trap_code),
     `RVFI_CONN
   );
 
