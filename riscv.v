@@ -49,14 +49,15 @@ module riscv (
   localparam bresp_ok = 2'b01;
   localparam bresp_xok = 2'b00;
 
+  logic [31:0] load_data;
   // memory interface TODO this would be better as a module
   always_ff @(posedge clk) begin
     if (!reset) begin
       arvalid <= 0; // we haven't put anything in the address
       rready <= 0; // we are ready to read
       execute <= 0;
-      next_pc <= 32'b0;
       arprot <= inst_prot;
+      load_data <= 32'b0;
     end
 
     // reset memory
@@ -212,9 +213,8 @@ module riscv (
   logic execute;
   // load an instruction, otherwise load memory
   logic load_instr;
-  // storage for requested memory and address
+  // storage for requested address
   logic [31:0] load_address;
-  logic [31:0] load_data;
   // store instruction or memory
   logic       store_instr;
   // storage for memory request
@@ -234,9 +234,9 @@ module riscv (
       for (i = 0; i < 32; i = i + 1) begin
         regs[i] <= 32'b1;
       end
+      next_pc <= 32'b0;
       load_instr <= 0;
       load_address <= 32'b0;
-      load_data <= 32'b0;
       store_instr <= 0;
       store_address <= 32'b0;
       store_data <= 32'b0;
