@@ -154,10 +154,11 @@ module riscv (
   logic [4:0] rs2 = instr[24:20];
   // For shift immediates
   logic [4:0] shamt = rs2;
-  logic math_flag = instr[31:25] == 7'b0100000;
-
+ 
   logic [2:0] funct3 = instr[14:12];
   logic [6:0] funct7 = instr[31:25];
+  logic math_flag = funct7 == 7'b0100000;
+
   // immediate decoder (figure 2.4)
   logic [31:0] i_immediate = {{20{instr[31]}}, instr[31:20]};
   logic [31:0] s_immediate = {{20{instr[31]}}, instr[31:25], instr[11:7]};
