@@ -1,4 +1,4 @@
-module complete (
+module testbench (
   input var clk,
   output var        awvalid, // we wrote the address
   input  var        awready, // address is ready for write

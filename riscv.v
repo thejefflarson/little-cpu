@@ -197,6 +197,15 @@ module riscv (
   logic is_error = opcode == 7'b1110011;
   logic is_ecall = is_error && !instr[20];
   logic is_ebreak = is_error && instr[20];
+  logic instr_valid = is_store ||
+    is_load ||
+    is_math_immediate ||
+    is_math ||
+    is_fence ||
+    is_error ||
+    is_ecall ||
+    is_ebreak;
+
 
   logic [31:0]immediate;
   always_comb begin
@@ -349,7 +358,7 @@ module riscv (
   end
 
 `ifdef RISCV_FORMAL
-  assign rvfi_valid = !reset && execute && !memory;
+  assign rvfi_valid = !reset && execute && !memory && instr_valid;
   assign rvfi_rs2_addr = rs2;
   assign rvfi_rs1_addr = rs1;
   assign rvfi_insn = opcode;
