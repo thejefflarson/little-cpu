@@ -307,7 +307,7 @@ module riscv (
         end
 
         finish_load: begin
-          if (execute) begin
+          if (execute && memory) begin
             case (1'b1)
               is_lb: regs[rs2] <= {24'b0, load_data[7:0]};
               is_lbu: regs[rs2] <= {{24{load_data[7]}}, load_data[7:0]};
@@ -326,7 +326,7 @@ module riscv (
         end
 
         finish_store: begin
-          if (execute) begin
+          if (execute && memory) begin
             if (mem_trap) begin
               cpu_state <= cpu_trap;
               trap_code <= trap_mem;
@@ -349,6 +349,26 @@ module riscv (
   end
 
 `ifdef RISCV_FORMAL
-
+  assign rvfi_valid = !reset && execute && !memory;
+  assign rvfi_rs2_addr = rs2;
+  assign rvfi_rs1_addr = rs1;
+  assign rvfi_insn = opcode;
+  assign rvfi_rd_addr = rd;
+  assign rvfi_trap = trap;
+  assign rvfi_halt = trap;
+  assign rvfi_pc_rdata = pc;
+  assign rvfi_mem_rdata = 0;
+  assign rvfi_rs2_rdata = 0;
+  assign rvfi_rs1_rdata = 0;
+  assign rvfi_rd_wdata = 0;
+  assign rvfi_pc_wdata = 0;
+  assign rvfi_order = 0;
+  assign rvfi_mode = 3;
+  assign rvfi_ixl = 1;
+  assign rvfi_mem_wmask = 0;
+  assign rvfi_mem_wdata = 0;
+  assign rvfi_mem_rmask = 0;
+  assign rvfi_mem_addr = 0;
+  assign rvfi_intr = 0;
 `endif
 endmodule

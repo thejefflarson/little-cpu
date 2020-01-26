@@ -1,4 +1,4 @@
-module testbench (
+module complete (
   input var clk,
   output var        awvalid, // we wrote the address
   input  var        awready, // address is ready for write
@@ -29,7 +29,7 @@ module testbench (
   output var [1:0]  trap_code
 
 );
-  logic reset;
+  logic reset = 0;
   always @(posedge clk) reset <= 1;
   logic trap;
 
@@ -93,4 +93,12 @@ module testbench (
     .spec_mem_wmask(spec_mem_wmask),
     .spec_mem_wdata(spec_mem_wdata)
   );
+  // do the instruction check
+  always @* begin
+    if (reset && rvfi_valid && !rvfi_trap) begin
+      if (rvfi_insn[6:0] != 7'b1110011) begin
+        assert(spec_valid && !spec_trap);
+      end
+    end
+  end
 endmodule
