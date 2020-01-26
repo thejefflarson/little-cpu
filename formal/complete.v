@@ -1,4 +1,4 @@
-module testbench (
+module rvfi_testbench (
   input var clk,
   output var        awvalid, // we wrote the address
   input  var        awready, // address is ready for write
@@ -35,7 +35,7 @@ module testbench (
 
   `RVFI_WIRES
 
-  riscv uut (
+  riscv wrapper (
     .clk(clk),
     .reset(!reset),
     .awvalid(awvalid),

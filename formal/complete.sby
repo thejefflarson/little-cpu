@@ -22,7 +22,7 @@ with open("riscv-formal/insns/isa_rv32i.txt") as f:
 
 read_verilog -sv isa_rv32i.v
 read_verilog -sv complete.v
-prep -nordff -top testbench
+prep -nordff -top rvfi_testbench
 
 [files]
 complete.v
