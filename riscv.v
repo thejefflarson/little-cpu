@@ -124,10 +124,6 @@ module riscv (
     end
   end
 
-
-
-
-
   // instruction decoder (figure 2.3)
   logic [6:0] opcode;
   logic [4:0] rd, rs1, rs2, shamt;
