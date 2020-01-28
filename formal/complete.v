@@ -1,39 +1,35 @@
 module rvfi_testbench (
   input var clk,
-  output var        awvalid, // we wrote the address
-  input  var        awready, // address is ready for write
-  output var [31:0] awaddress, // address to write
-  output var [2:0]  awprot, // permissions
 
-  output var        wvalid, // we wrote the value
-  input  var        wready, // value is ready
-  output var [31:0] wdata, // value to write
-  output var [3:0]  wstrb, // what bytes we wrote
+  output var        arvalid,
+  input  var        arready,
+  output var [31:0] araddress,
+  output var [2:0]  arprot,
 
-  output var        bvalid, // we received the response
-  input  var        bready, // status is ready
-  input  var [1:0]  bresp, // status of our write request
-
-  output var        arvalid, // we put something in the read addreas
-  input  var        arready, // they are reading the value
-  output var [31:0] araddress, // address to read
-  output var [2:0]  arprot, // permissions
-
-  input  var        rvalid, // Data is valid and can be read by us
-  output var        rready, // we are ready to read
-  input  var [31:0] rdata, // value to read
-  input  var [1:0]  rresp, // status of our read request
-
-  // outputs
+  input  var        rvalid,
+  output var        rready,
+  input  var [31:0] rdata,
+  input  var [1:0]  rresp,
   output var        trap,
   output var [1:0]  trap_code
-
 );
   logic reset = 0;
   always @(posedge clk) reset <= 1;
   logic trap;
 
   `RVFI_WIRES
+
+  (* keep *) logic        awready;
+  (* keep *) logic        awready;
+  (* keep *) logic [31:0] awaddress;
+  (* keep *) logic [2:0]  awprot;
+  (* keep *) logic        wvalid;
+  (* keep *) logic        wready;
+  (* keep *) logic [31:0] wdata;
+  (* keep *) logic [3:0]  wstrb;
+  (* keep *) logic        bvalid;
+  (* keep *) logic        bready;
+  (* keep *) logic [1:0]  bresp;
 
   riscv wrapper (
     .clk(clk),
@@ -96,10 +92,8 @@ module rvfi_testbench (
 
   // do the instruction check
   always_comb begin
-    if (reset && rvfi_valid && !rvfi_trap) begin
-      if (rvfi_insn[6:0] != 7'b1110011) begin
-        assert(spec_valid && !spec_trap);
-      end
+    if (rvfi_insn[6:0] != 7'b1110011) begin
+       assert(spec_valid == rvfi_valid);
     end
   end
 endmodule

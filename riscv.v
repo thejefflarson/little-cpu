@@ -203,11 +203,11 @@ module riscv (
   assign is_or = is_math && funct3 == 3'b110;
   assign is_and = is_math && funct3 == 3'b111;
 
-  logic is_fence, is_error, is_ecall, is_ebreak, instr_valid;
+  logic is_error, is_ecall, is_ebreak, instr_valid;
   assign is_error = opcode == 7'b1110011;
   assign is_ecall = is_error && !instr[20];
   assign is_ebreak = is_error && instr[20];
-  assign instr_valid = is_store ||
+  assign instr_valid = is_add ||
     is_load ||
     is_math_immediate ||
     is_math ||
@@ -378,7 +378,8 @@ module riscv (
   end
 
 `ifdef RISCV_FORMAL
-  assign rvfi_valid = !reset && instr_valid && execute && !memory;
+  assign rvfi_valid = instr_valid;
+
   assign rvfi_rs2_addr = rs2;
   assign rvfi_rs1_addr = rs1;
   assign rvfi_insn = opcode;
