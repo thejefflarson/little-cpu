@@ -4,3 +4,5 @@ timing
 pll.v
 formal/riscv-formal
 formal/complete
+.vcd
+.vvp

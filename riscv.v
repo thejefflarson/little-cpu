@@ -1,40 +1,40 @@
 module riscv (
-  input  var        clk, reset,
+  input logic clk, reset,
 
   // 32bit AXI4-lite memory interface
-  output var        awvalid, // we wrote the address
-  input  var        awready, // address is ready for write
-  output var [31:0] awaddress, // address to write
-  output var [2:0]  awprot, // permissions
+  output logic awvalid, // we wrote the address
+  input  logic awready, // address is ready for write
+  output logic [31:0] awaddress, // address to write
+  output logic [2:0] awprot, // permissions
 
-  output var        wvalid, // we wrote the value
-  input  var        wready, // value is ready
-  output var [31:0] wdata, // value to write
-  output var [3:0]  wstrb, // what bytes we wrote
+  output logic wvalid, // we wrote the value
+  input  logic wready, // value is ready
+  output logic [31:0] wdata, // value to write
+  output logic [3:0] wstrb, // what bytes we wrote
 
-  output var        bvalid, // we received the response
-  input  var        bready, // status is ready
-  input  var [1:0]  bresp, // status of our write request
+  output logic bvalid, // we received the response
+  input  logic bready, // status is ready
+  input  logic [1:0] bresp, // status of our write request
 
-  output var        arvalid, // we put something in the read addreas
-  input  var        arready, // they are reading the value
-  output var [31:0] araddress, // address to read
-  output var [2:0]  arprot, // permissions
+  output logic arvalid, // we put something in the read addreas
+  input  logic arready, // they are reading the value
+  output logic [31:0] araddress, // address to read
+  output logic [2:0] arprot, // permissions
 
-  input  var        rvalid, // Data is valid and can be read by us
-  output var        rready, // we are ready to read
-  input  var [31:0] rdata, // value to read
-  input  var [1:0]  rresp, // status of our read request
+  input  logic rvalid, // Data is valid and can be read by us
+  output logic rready, // we are ready to read
+  input  logic [31:0] rdata, // value to read
+  input  logic [1:0] rresp, // status of our read request
 
-  // outputs
-  output var        trap,
-  output var [1:0]  trap_code
+  // outplogic uts
+  output logic trap,
+  output logic [1:0] trap_code
 
   // Formal
-`ifdef RISCV_FORMAL
-   ,
-   `RVFI_OUTPUTS
-`endif
+  `ifdef RISCV_FORMAL
+    ,
+    `RVFI_OUTPUTS
+  `endif
 );
   // did we get a memory fault
   logic mem_trap;
@@ -78,7 +78,7 @@ module riscv (
     end
 
     // everyone is ready to finish the read and start executing
-    if (reset && memory && !execute && rready && rvalid && arready && arvalid) begin
+    if (reset && memory && !execute && load && rready && rvalid && arready && arvalid) begin
       if (rresp == rresp_ok || rresp == rresp_xok) begin
         execute <= 1;
         if (load_instr) begin
@@ -108,16 +108,15 @@ module riscv (
     end
 
     // We wrote something and are waiting for the response
-    if (reset && memory && !execute && wvalid && awvalid) begin
+    if (reset && memory && store && !execute && wvalid && awvalid) begin
       // We can check the status of our write request
       if (awready && wready && bready) begin
         awvalid <= 0;
         wvalid <= 0;
         if (bresp != bresp_ok || bresp != bresp_xok) begin
           mem_trap <= 1;
-        end else begin
-          execute <= 1;
         end
+        execute <= 1;
         bvalid <= 1; // we're all done
       end else begin
         bvalid <= 0;
@@ -125,83 +124,97 @@ module riscv (
     end
   end
 
-  // instruction decoder (figure 2.3)
-  logic [6:0] opcode = instr[6:0];
-  logic [4:0] rd = instr[11:7];
-  logic [4:0] rs1 = instr[19:15];
-  logic [4:0] rs2 = instr[24:20];
-  // For shift immediates
-  logic [4:0] shamt = rs2;
 
-  logic [2:0] funct3 = instr[14:12];
-  logic [6:0] funct7 = instr[31:25];
-  logic math_flag = funct7 == 7'b0100000;
+
+
+
+  // instruction decoder (figure 2.3)
+  logic [6:0] opcode;
+  logic [4:0] rd, rs1, rs2, shamt;
+  logic [2:0] funct3;
+  logic [6:0] funct7;
+  logic      math_flag;
+  assign opcode = instr[6:0];
+  assign rd = instr[11:7];
+  assign rs1 = instr[19:15];
+  assign rs2 = instr[24:20];
+  // For shift immediates
+  assign shamt = rs2;
+  assign funct3 = instr[14:12];
+  assign funct7 = instr[31:25];
+  assign math_flag = funct7 == 7'b0100000;
 
   // immediate decoder (figure 2.4)
-  logic [31:0] i_immediate = {{20{instr[31]}}, instr[31:20]};
-  logic [31:0] s_immediate = {{20{instr[31]}}, instr[31:25], instr[11:7]};
-  logic [31:0] b_immediate = {{20{instr[31]}}, instr[7], instr[30:25], instr[11:8], 1'b0};
-  logic [31:0] u_immediate = {instr[31], instr[30:20], instr[19:12], 12'b0};
-  logic [31:0] j_immediate = {{12{instr[31]}}, instr[19:12], instr[20], instr[30:21], 1'b0};
+  logic [31:0] i_immediate, s_immediate, b_immediate, u_immediate, j_immediate;
+  assign i_immediate = {{20{instr[31]}}, instr[31:20]};
+  assign s_immediate = {{20{instr[31]}}, instr[31:25], instr[11:7]};
+  assign b_immediate = {{20{instr[31]}}, instr[7], instr[30:25], instr[11:8], 1'b0};
+  assign u_immediate = {instr[31], instr[30:20], instr[19:12], 12'b0};
+  assign j_immediate = {{12{instr[31]}}, instr[19:12], instr[20], instr[30:21], 1'b0};
 
   // Table 24.2 RV32I
-  logic is_lui = opcode == 7'b0110111;
-  logic is_auipc = opcode == 7'b0010111;
-  logic is_jal = opcode == 7'b1101111;
-  logic is_jalr = opcode == 7'b1100111;
+  logic is_lui, is_auipc, is_jal, is_jalr;
+  assign is_lui = opcode == 7'b0110111;
+  assign is_auipc = opcode == 7'b0010111;
+  assign is_jal = opcode == 7'b1101111;
+  assign is_jalr = opcode == 7'b1100111;
 
-  logic is_branch = opcode == 7'b1100011;
-  logic is_beq = is_branch && funct3 == 3'b000;
-  logic is_bne = is_branch && funct3 == 3'b001;
-  logic is_blt = is_branch && funct3 == 3'b100;
-  logic is_bge = is_branch && funct3 == 3'b101;
-  logic is_bltu = is_branch && funct3 == 3'b110;
-  logic is_bgeu = is_branch && funct3 == 3'b111;
+  logic is_branch, is_beq, is_bne, is_blt, is_bge, is_bltu, is_bgeu;
+  assign is_branch = opcode == 7'b1100011;
+  assign is_beq = is_branch && funct3 == 3'b000;
+  assign is_bne = is_branch && funct3 == 3'b001;
+  assign is_blt = is_branch && funct3 == 3'b100;
+  assign is_bge = is_branch && funct3 == 3'b101;
+  assign is_bltu = is_branch && funct3 == 3'b110;
+  assign is_bgeu = is_branch && funct3 == 3'b111;
 
-  logic is_load = opcode == 7'b0000011;
-  logic is_lb = is_load && funct3 == 3'b000;
-  logic is_lh = is_load && funct3 == 3'b001;
-  logic is_lw = is_load && funct3 == 3'b010;
-  logic is_lbu = is_load && funct3 == 3'b100;
-  logic is_lhu = is_load && funct3 == 3'b101;
+  logic is_load, is_lb, is_lh, is_lw, is_lbu, is_lhu;
+  assign is_load = opcode == 7'b0000011;
+  assign is_lb = is_load && funct3 == 3'b000;
+  assign is_lh = is_load && funct3 == 3'b001;
+  assign is_lw = is_load && funct3 == 3'b010;
+  assign is_lbu = is_load && funct3 == 3'b100;
+  assign is_lhu = is_load && funct3 == 3'b101;
 
-  logic is_store = opcode == 7'b0100011;
-  logic is_sb = is_store && funct3 == 3'b000;
-  logic is_sh = is_store && funct3 == 3'b010;
-  logic is_sw = is_store && funct3 == 3'b100;
+  logic is_store, is_sb, is_sh, is_sw;
+  assign is_store = opcode == 7'b0100011;
+  assign is_sb = is_store && funct3 == 3'b000;
+  assign is_sh = is_store && funct3 == 3'b010;
+  assign is_sw = is_store && funct3 == 3'b100;
 
-  logic is_math_immediate = opcode == 7'b0010011;
-  logic is_addi = is_math_immediate && funct3 == 3'b000;
-  logic is_slti = is_math_immediate && funct3 == 3'b010;
-  logic is_sltiu = is_math_immediate && funct3 == 3'b011;
-  logic is_xori = is_math_immediate && funct3 == 3'b100;
-  logic is_ori = is_math_immediate && funct3 == 3'b110;
-  logic is_andi = is_math_immediate && funct3 == 3'b111;
-  logic is_slli = is_math_immediate && funct3 == 3'b001;
-  logic is_srli = is_math_immediate && !math_flag && funct3 == 3'b101;
-  logic is_srai = is_math_immediate && math_flag && funct3 == 3'b101;
+   logic is_math_immediate, is_addi, is_slti, is_sltiu, is_xori, is_ori, is_andi, is_slli, is_srli, is_srai;
+  assign is_math_immediate = opcode == 7'b0010011;
+  assign is_addi = is_math_immediate && funct3 == 3'b000;
+  assign is_slti = is_math_immediate && funct3 == 3'b010;
+  assign is_sltiu = is_math_immediate && funct3 == 3'b011;
+  assign is_xori = is_math_immediate && funct3 == 3'b100;
+  assign is_ori = is_math_immediate && funct3 == 3'b110;
+  assign is_andi = is_math_immediate && funct3 == 3'b111;
+  assign is_slli = is_math_immediate && funct3 == 3'b001;
+  assign is_srli = is_math_immediate && !math_flag && funct3 == 3'b101;
+  assign is_srai = is_math_immediate && math_flag && funct3 == 3'b101;
 
-  logic is_math = opcode == 7'b0110011;
-  logic is_add = is_math && !math_flag && funct3 == 3'b000;
-  logic is_sub = is_math && math_flag && funct3 == 3'b000;
-  logic is_sll = is_math && funct3 == 3'b001;
-  logic is_slt = is_math && funct3 == 3'b010;
-  logic is_sltu = is_math && funct3 == 3'b011;
-  logic is_xor = is_math && funct3 == 3'b100;
-  logic is_srl = is_math && !math_flag && funct3 == 3'b101;
-  logic is_sra = is_math && math_flag && funct3 == 3'b101;
-  logic is_or = is_math && funct3 == 3'b110;
-  logic is_and = is_math && funct3 == 3'b111;
+  logic is_math, is_add, is_sub, is_sll, is_slt, is_sltu, is_xor, is_srl, is_sra, is_or, is_and;
+  assign is_math = opcode == 7'b0110011;
+  assign is_add = is_math && !math_flag && funct3 == 3'b000;
+  assign is_sub = is_math && math_flag && funct3 == 3'b000;
+  assign is_sll = is_math && funct3 == 3'b001;
+  assign is_slt = is_math && funct3 == 3'b010;
+  assign is_sltu = is_math && funct3 == 3'b011;
+  assign is_xor = is_math && funct3 == 3'b100;
+  assign is_srl = is_math && !math_flag && funct3 == 3'b101;
+  assign is_sra = is_math && math_flag && funct3 == 3'b101;
+  assign is_or = is_math && funct3 == 3'b110;
+  assign is_and = is_math && funct3 == 3'b111;
 
-  logic is_fence = opcode == 7'b0001111;
-  logic is_error = opcode == 7'b1110011;
-  logic is_ecall = is_error && !instr[20];
-  logic is_ebreak = is_error && instr[20];
-  logic instr_valid = is_store ||
+  logic is_fence, is_error, is_ecall, is_ebreak, instr_valid;
+  assign is_error = opcode == 7'b1110011;
+  assign is_ecall = is_error && !instr[20];
+  assign is_ebreak = is_error && instr[20];
+  assign instr_valid = is_store ||
     is_load ||
     is_math_immediate ||
     is_math ||
-    is_fence ||
     is_error ||
     is_ecall ||
     is_ebreak;
@@ -254,9 +267,10 @@ module riscv (
   // state_machine
   logic [4:0] cpu_state;
   localparam fetch_instr = 5'b00001;
-  localparam execute_instr = 5'b00010;
-  localparam finish_load = 5'b00011;
-  localparam finish_store = 5'b00100;
+  localparam ready_instr = 5'b00010;
+  localparam execute_instr = 5'b00011;
+  localparam finish_load = 5'b00100;
+  localparam finish_store = 5'b00101;
   localparam cpu_trap = 5'b00000;
   integer i;
   always_ff @(posedge clk) begin
@@ -264,25 +278,30 @@ module riscv (
       for (i = 0; i < 32; i = i + 1) begin
         regs[i] <= 32'b1;
       end
+      pc <= 32'b0;
       next_pc <= 32'b0;
       load_instr <= 0;
+      load <= 0;
+      memory <= 0;
       store_instr <= 0;
       memory_address <= 32'b0;
       store_data <= 32'b0;
       cpu_state <= fetch_instr;
-      memory <= 1;
     end else begin
       case (cpu_state)
         fetch_instr: begin
+          load <= 1;
+          load_instr <= 1;
+          memory <= 1;
+          cpu_state <= ready_instr;
+        end
+
+        ready_instr: begin
           if (execute) begin
+            memory <= 0;
             pc <= next_pc;
             instr <= next_instr;
             cpu_state <= execute_instr;
-          end else begin
-            load <= 1;
-            load_instr <= 1;
-            next_pc <= pc + 4;
-            memory <= 1;
           end
         end
 
@@ -312,7 +331,10 @@ module riscv (
               memory <= 1; // kick off a memory request
               cpu_state <= finish_store;
             end
-          endcase
+            default: begin
+              cpu_state <= fetch_instr;
+            end
+          endcase // case (1'b1)
         end
 
         finish_load: begin
@@ -331,6 +353,7 @@ module riscv (
               cpu_state <= fetch_instr;
             end
             memory <= 0;
+            next_pc <= pc + 4;
           end
         end
 
@@ -343,6 +366,7 @@ module riscv (
               cpu_state <= fetch_instr;
             end
             memory <= 0;
+            next_pc <= pc + 4;
           end
         end
 
@@ -351,27 +375,26 @@ module riscv (
         end
 
         default: begin
-          cpu_state <= cpu_trap;
+          cpu_state <= fetch_instr;
         end
       endcase
     end
   end
 
 `ifdef RISCV_FORMAL
-  assign rvfi_valid = !reset && execute && !memory && instr_valid;
+  assign rvfi_valid = !reset && instr_valid && execute && !memory;
   assign rvfi_rs2_addr = rs2;
   assign rvfi_rs1_addr = rs1;
   assign rvfi_insn = opcode;
   assign rvfi_rd_addr = rd;
-  assign rvfi_trap = trap;
-  assign rvfi_halt = trap;
+  assign rvfi_trap = 0;
+  assign rvfi_halt = 0;
   assign rvfi_pc_rdata = pc;
   assign rvfi_mem_rdata = 0;
   assign rvfi_rs2_rdata = 0;
   assign rvfi_rs1_rdata = 0;
   assign rvfi_rd_wdata = 0;
   assign rvfi_pc_wdata = 0;
-  assign rvfi_order = 0;
   assign rvfi_mode = 3;
   assign rvfi_ixl = 1;
   assign rvfi_mem_wmask = 0;
@@ -379,5 +402,14 @@ module riscv (
   assign rvfi_mem_rmask = 0;
   assign rvfi_mem_addr = 0;
   assign rvfi_intr = 0;
+  reg [63:0] order;
+  assign rvfi_order = order;
+
+  always_ff @(posedge clk) begin
+    if (!reset)
+      order <= 0;
+    if (rvfi_valid)
+      order <= order + 1;
+  end
 `endif
 endmodule

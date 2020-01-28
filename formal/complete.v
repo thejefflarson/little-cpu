@@ -93,8 +93,9 @@ module rvfi_testbench (
     .spec_mem_wmask(spec_mem_wmask),
     .spec_mem_wdata(spec_mem_wdata)
   );
+
   // do the instruction check
-  always @* begin
+  always_comb begin
     if (reset && rvfi_valid && !rvfi_trap) begin
       if (rvfi_insn[6:0] != 7'b1110011) begin
         assert(spec_valid && !spec_trap);

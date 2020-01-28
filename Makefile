@@ -1,4 +1,11 @@
-# https://hackaday.com/2018/10/03/icestorm-tools-roundup/
+
+test: testbench.vvp
+	vvp -N $<
+
+testbench.vvp: testbench.v riscv.v
+	iverilog -g2012 -o $@ $^
+	chmod +x $@
+
 pll.v: timing
 	icepll -m -f $@ -i 12 -o $(shell cat $^)
 
@@ -16,6 +23,7 @@ clean:
 	rm -f riscv.asc
 	rm -f timing
 	rm -f pll.v
+	rm -f testbench.vvp
 
 riscv-formal:
 	git clone https://github.com/SymbioticEDA/riscv-formal
