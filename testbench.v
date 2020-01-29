@@ -37,7 +37,6 @@ module testbench;
   logic        trap;
   logic [1:0]  trap_code;
 
-
   always @(posedge clk) begin
     arready <= 0;
     rvalid <= 0;
