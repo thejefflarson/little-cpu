@@ -1,9 +1,8 @@
 check: checks
-	cd checks
-	make
-	cd ..
+	make -C $< -j$(nproc)
 
 checks: genchecks.py riscv-formal checks.cfg
+	rm -rf $@
 	python3 $<
 
 complete: riscv-formal
@@ -12,4 +11,4 @@ complete: riscv-formal
 riscv-formal:
 	git clone https://github.com/SymbioticEDA/riscv-formal
 
-.PHONY: complete
+.PHONY: complete check

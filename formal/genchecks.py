@@ -27,7 +27,7 @@ depths = list()
 blackbox = False
 
 cfgname = "checks"
-basedir = os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
+basedir = os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__file__)), "riscv-formal"))
 corename = os.getcwd().split("/")[-1]
 solver = "boolector"
 dumpsmt2 = False
