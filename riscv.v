@@ -330,7 +330,7 @@ module riscv (
             default: begin
               cpu_state <= fetch_instr;
             end
-          endcase // case (1'b1)
+          endcase
         end
 
         finish_load: begin

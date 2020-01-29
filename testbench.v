@@ -81,8 +81,7 @@ module testbench;
   );
 
   initial begin
-    memory[0] = 32'h0000000f; // fence
-    memory[1] = 32'h00000073; // ebreak
+    memory[0] = 32'h00000073; // ebreak
   end
 
   always_ff @(posedge clk) begin
@@ -94,4 +93,4 @@ module testbench;
       end
     end
   end
-endmodule // testbench
+endmodule

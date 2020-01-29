@@ -15,12 +15,11 @@ module rvfi_testbench (
 );
   logic reset = 0;
   always @(posedge clk) reset <= 1;
-  logic trap;
 
   `RVFI_WIRES
 
   (* keep *) logic        awready;
-  (* keep *) logic        awready;
+  (* keep *) logic        awvalid;
   (* keep *) logic [31:0] awaddress;
   (* keep *) logic [2:0]  awprot;
   (* keep *) logic        wvalid;

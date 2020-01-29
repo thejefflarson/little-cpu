@@ -1,3 +1,11 @@
+check: checks
+	cd checks
+	make
+	cd ..
+
+checks: genchecks.py riscv-formal checks.cfg
+	python3 $<
+
 complete: riscv-formal
 	sby -f complete.sby
 
