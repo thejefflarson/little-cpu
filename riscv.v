@@ -138,6 +138,13 @@ module riscv (
   assign funct3 = instr[14:12];
   assign funct7 = instr[31:25];
   assign math_flag = funct7 == 7'b0100000;
+  // for load and store
+  logic [31:0] load_store_address;
+  assign load_store_address = immediate + regs[rs1];
+
+  // for jump and link
+  logic [31:0] jump_address;
+  assign jump_address = is_jalr ? (immediate + regs[rs2] & 32'hfffffe) : immediate;
 
   // immediate decoder (figure 2.4)
   logic [31:0] i_immediate, s_immediate, b_immediate, u_immediate, j_immediate;
@@ -191,7 +198,6 @@ module riscv (
   assign is_srai = is_math_immediate && math_flag && funct3 == 3'b101;
 
   logic is_math, is_add, is_sub, is_sll, is_slt, is_sltu, is_xor, is_srl, is_sra, is_or, is_and;
-
   assign is_math = opcode == 7'b0110011;
   assign is_add = is_math && !math_flag && funct3 == 3'b000;
   assign is_sub = is_math && math_flag && funct3 == 3'b000;
@@ -218,7 +224,6 @@ module riscv (
     end
   end
   assign math_arg = is_math_immediate ? {{27{rs2[4]}}, rs2} : regs[rs2];
-
 
   logic is_error, is_ecall, is_ebreak, instr_valid;
   assign is_error = opcode == 7'b1110011;
@@ -276,7 +281,6 @@ module riscv (
   logic [31:0] store_data;
   logic [31:0] memory_address;
 
-
   // state_machine
   logic [4:0] cpu_state;
   localparam fetch_instr = 5'b00001;
@@ -285,13 +289,13 @@ module riscv (
   localparam finish_load = 5'b00100;
   localparam finish_store = 5'b00101;
   localparam cpu_trap = 5'b00000;
-  integer i;
 
   task do_next_instr;
     cpu_state <= fetch_instr;
     next_pc <= pc + 4;
   endtask
 
+  integer i;
   always_ff @(posedge clk) begin
     if (!reset) begin
       for (i = 0; i < 32; i = i + 1) begin
@@ -334,6 +338,17 @@ module riscv (
             is_auipc: begin
               regs[rd] <= immediate + pc;
               do_next_instr();
+            end
+
+            is_jal || is_jalr: begin
+              regs[rd] <= pc + 4;
+              next_pc <= is_jalr ? (immediate + regs[rs2] & 32'hfffffe) : immediate;
+              if (|jump_address[1:0]) begin
+                cpu_state <= cpu_trap;
+              end else begin
+                next_pc <= jump_address;
+                cpu_state <= fetch_instr;
+              end
             end
 
             is_math || is_math_immediate: begin
@@ -382,11 +397,12 @@ module riscv (
             end
 
             is_load: begin
-              if (rd == 0) begin // can't load into x0
+              // can't load into x0 and can't load misaligned addresses
+              if (rd == 0 || |load_store_address[1:0]) begin
                 cpu_state <= cpu_trap;
               end else begin
                 load <= 1;
-                memory_address <= immediate + regs[rs1];
+                memory_address <= load_store_address;
                 load_instr <= 0; // can we have data
                 memory <= 1; // kick off a memory request
                 cpu_state <= finish_load;
@@ -394,16 +410,22 @@ module riscv (
             end
 
             is_store: begin
-              memory_address <= immediate + regs[rs1];
-              store_data <= regs[rs2];
-              case (1'b1)
-                is_sw: wstrb <= 4'b1111;
-                is_sh: wstrb <= 4'b0011;
-                is_sb: wstrb <= 4'b0001;
-              endcase
-              store <= 1;
-              memory <= 1; // kick off a memory request
-              cpu_state <= finish_store;
+              // Check for misalignment
+              if ((is_sw && |load_store_address[1:0]) ||
+                  (is_sh && load_store_address[0])) begin
+                cpu_state <= cpu_trap;
+              end else begin
+                memory_address <= load_store_address;
+                store_data <= regs[rs2];
+                case (1'b1)
+                  is_sw: wstrb <= 4'b1111;
+                  is_sh: wstrb <= 4'b0011;
+                  is_sb: wstrb <= 4'b0001;
+                endcase
+                store <= 1;
+                memory <= 1; // kick off a memory request
+                cpu_state <= finish_store;
+              end
             end
 
             default: begin
