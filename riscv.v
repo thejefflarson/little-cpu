@@ -26,7 +26,6 @@ module riscv (
   input  logic [31:0] rdata, // value to read
   input  logic [1:0] rresp, // status of our read request
 
-  // outplogic uts
   output logic trap,
   output logic [1:0] trap_code
 
@@ -161,7 +160,7 @@ module riscv (
   assign is_jal = opcode == 7'b1101111;
   assign is_jalr = opcode == 7'b1100111;
 
-  logic is_branch, is_beq, is_bne, is_blt, is_bge, is_bltu, is_bgeu;
+  logic is_branch, is_beq, is_bne, is_blt, is_bltu, is_bge, is_bgeu;
   assign is_branch = opcode == 7'b1100011;
   assign is_beq = is_branch && funct3 == 3'b000;
   assign is_bne = is_branch && funct3 == 3'b001;
@@ -223,7 +222,6 @@ module riscv (
       math_arg = regs[rs2];
     end
   end
-  assign math_arg = is_math_immediate ? {{27{rs2[4]}}, rs2} : regs[rs2];
 
   logic is_error, is_ecall, is_ebreak, instr_valid;
   assign is_error = opcode == 7'b1110011;
@@ -236,7 +234,6 @@ module riscv (
     is_error ||
     is_ecall ||
     is_ebreak;
-
 
   logic [31:0]immediate;
   always_comb begin
@@ -349,6 +346,19 @@ module riscv (
                 next_pc <= jump_address;
                 cpu_state <= fetch_instr;
               end
+            end
+
+            is_branch: begin
+              case(1'b1)
+                is_beq: next_pc <= regs[rs1] == regs[rs2] ? immediate : pc + 4;
+                is_bne: next_pc <= regs[rs1] != regs[rs2] ? immediate : pc + 4;
+                is_blt: next_pc <= $signed(regs[rs1]) < $signed(regs[rs2]) ? immediate : pc + 4;
+                is_bltu: next_pc <= regs[rs1] < regs[rs2] ? immediate : pc + 4;
+                is_bge: next_pc <= $signed(regs[rs1]) >= $signed(regs[rs2]) ? immediate : pc + 4;
+                is_bgeu: next_pc <= regs[rs1] >= regs[rs2] ? immediate : pc + 4;
+                default: cpu_state <= cpu_trap;
+              endcase
+              cpu_state <= fetch_instr;
             end
 
             is_math || is_math_immediate: begin

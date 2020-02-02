@@ -11,4 +11,7 @@ complete: riscv-formal
 riscv-formal:
 	git clone https://github.com/SymbioticEDA/riscv-formal
 
-.PHONY: complete check
+clean:
+	rm -rf {checks,complete,riscv-formal}
+
+.PHONY: complete check clean
