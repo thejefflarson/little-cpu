@@ -135,7 +135,6 @@ module riscv (
   assign rs1 = instr[19:15];
   assign rs2 = instr[24:20];
   // For shift immediates
-  assign shamt = rs2;
   assign funct3 = instr[14:12];
   assign funct7 = instr[31:25];
   assign math_flag = funct7 == 7'b0100000;
@@ -178,7 +177,8 @@ module riscv (
   assign is_sh = is_store && funct3 == 3'b010;
   assign is_sw = is_store && funct3 == 3'b100;
 
-   logic is_math_immediate, is_addi, is_slti, is_sltiu, is_xori, is_ori, is_andi, is_slli, is_srli, is_srai;
+  logic [31:0] math_arg;
+  logic is_math_immediate, is_addi, is_slti, is_sltiu, is_xori, is_ori, is_andi, is_slli, is_srli, is_srai;
   assign is_math_immediate = opcode == 7'b0010011;
   assign is_addi = is_math_immediate && funct3 == 3'b000;
   assign is_slti = is_math_immediate && funct3 == 3'b010;
@@ -191,6 +191,7 @@ module riscv (
   assign is_srai = is_math_immediate && math_flag && funct3 == 3'b101;
 
   logic is_math, is_add, is_sub, is_sll, is_slt, is_sltu, is_xor, is_srl, is_sra, is_or, is_and;
+
   assign is_math = opcode == 7'b0110011;
   assign is_add = is_math && !math_flag && funct3 == 3'b000;
   assign is_sub = is_math && math_flag && funct3 == 3'b000;
@@ -202,6 +203,22 @@ module riscv (
   assign is_sra = is_math && math_flag && funct3 == 3'b101;
   assign is_or = is_math && funct3 == 3'b110;
   assign is_and = is_math && funct3 == 3'b111;
+  assign shamt = is_math_immediate ? rs2 : regs[rs2][4:0];
+
+  always_comb begin
+    if (is_math_immediate) begin
+      // signed operations
+      if (is_srai || is_slti) begin
+        math_arg = {{27{rs2[4]}}, rs2};
+      end else begin
+        math_arg = {27'b0, rs2};
+      end
+    end else begin
+      math_arg = regs[rs2];
+    end
+  end
+  assign math_arg = is_math_immediate ? {{27{rs2[4]}}, rs2} : regs[rs2];
+
 
   logic is_error, is_ecall, is_ebreak, instr_valid;
   assign is_error = opcode == 7'b1110011;
@@ -319,52 +336,52 @@ module riscv (
               do_next_instr();
             end
 
-            is_math: begin
+            is_math || is_math_immediate: begin
               case(1'b1)
-                is_add: begin
-                  regs[rd] <= regs[rs1] + regs[rs2];
+                is_add || is_addi: begin
+                  regs[rd] <= regs[rs1] + math_arg;
                 end
 
                 is_sub: begin
-                  regs[rd] <= regs[rs1] - regs[rs2];
+                  regs[rd] <= regs[rs1] - math_arg;
                 end
 
-                is_sll: begin
+                is_sll || is_slli: begin
                   regs[rd] <= regs[rs1] << shamt;
                 end
 
-                is_slt: begin
-                  regs[rd] <= {31'b0, $signed(regs[rs1]) < $signed(regs[rs2])};
+                is_slt || is_slti: begin
+                  regs[rd] <= {31'b0, $signed(regs[rs1]) < $signed(math_arg)};
                 end
 
-                is_sltu: begin
-                  regs[rd] <= {31'b0, regs[rs1] < regs[rs2]};
+                is_sltu || is_sltiu: begin
+                  regs[rd] <= {31'b0, regs[rs1] < math_arg};
                 end
 
-                is_xor: begin
-                  regs[rd] <= regs[rs1] ^ regs[rs2];
+                is_xor || is_xori: begin
+                  regs[rd] <= regs[rs1] ^ math_arg;
                 end
 
-                is_srl: begin
+                is_srl || is_srli: begin
                   regs[rd] <= regs[rs1] >> shamt;
                 end
 
-                is_sra: begin
-                  regs[rd] <= $signed(regs[rs1]) >> shamt;
+                is_sra || is_srai: begin
+                  regs[rd] <= $signed(regs[rs1]) >>> shamt;
                 end
 
-                is_or: begin
-                  regs[rd] <= regs[rs1] | regs[rs2];
+                is_or || is_ori: begin
+                  regs[rd] <= regs[rs1] | math_arg;
                 end
 
-                is_and: begin
-                  regs[rd] <= regs[rs1] & regs[rs2];
+                is_and || is_andi: begin
+                  regs[rd] <= regs[rs1] & math_arg;
                 end
               endcase
               do_next_instr();
             end
 
-            is_lb || is_lh || is_lw || is_lbu || is_lhu: begin
+            is_load: begin
               if (rd == 0) begin // can't load into x0
                 cpu_state <= cpu_trap;
               end else begin
@@ -376,7 +393,7 @@ module riscv (
               end
             end
 
-            is_sw || is_sb || is_sh: begin
+            is_store: begin
               memory_address <= immediate + regs[rs1];
               store_data <= regs[rs2];
               case (1'b1)
