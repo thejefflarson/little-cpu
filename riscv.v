@@ -269,6 +269,12 @@ module riscv (
   localparam finish_store = 5'b00101;
   localparam cpu_trap = 5'b00000;
   integer i;
+
+  task do_next_instr;
+    cpu_state <= fetch_instr;
+    next_pc <= pc + 4;
+  endtask
+
   always_ff @(posedge clk) begin
     if (!reset) begin
       for (i = 0; i < 32; i = i + 1) begin
@@ -303,12 +309,67 @@ module riscv (
 
         execute_instr: begin
           case (1'b1)
+            is_lui: begin
+              regs[rd] <= immediate;
+              do_next_instr();
+            end
+
+            is_auipc: begin
+              regs[rd] <= immediate + pc;
+              do_next_instr();
+            end
+
+            is_math: begin
+              case(1'b1)
+                is_add: begin
+                  regs[rd] <= regs[rs1] + regs[rs2];
+                end
+
+                is_sub: begin
+                  regs[rd] <= regs[rs1] - regs[rs2];
+                end
+
+                is_sll: begin
+                  regs[rd] <= regs[rs1] << shamt;
+                end
+
+                is_slt: begin
+                  regs[rd] <= {31'b0, $signed(regs[rs1]) < $signed(regs[rs2])};
+                end
+
+                is_sltu: begin
+                  regs[rd] <= {31'b0, regs[rs1] < regs[rs2]};
+                end
+
+                is_xor: begin
+                  regs[rd] <= regs[rs1] ^ regs[rs2];
+                end
+
+                is_srl: begin
+                  regs[rd] <= regs[rs1] >> shamt;
+                end
+
+                is_sra: begin
+                  regs[rd] <= $signed(regs[rs1]) >> shamt;
+                end
+
+                is_or: begin
+                  regs[rd] <= regs[rs1] | regs[rs2];
+                end
+
+                is_and: begin
+                  regs[rd] <= regs[rs1] & regs[rs2];
+                end
+              endcase
+              do_next_instr();
+            end
+
             is_lb || is_lh || is_lw || is_lbu || is_lhu: begin
               if (rd == 0) begin // can't load into x0
                 cpu_state <= cpu_trap;
               end else begin
                 load <= 1;
-                memory_address <= $signed(immediate) + $signed(regs[rs1]);
+                memory_address <= immediate + regs[rs1];
                 load_instr <= 0; // can we have data
                 memory <= 1; // kick off a memory request
                 cpu_state <= finish_load;
@@ -316,7 +377,7 @@ module riscv (
             end
 
             is_sw || is_sb || is_sh: begin
-              memory_address <= $signed(immediate) + $signed(regs[rs1]);
+              memory_address <= immediate + regs[rs1];
               store_data <= regs[rs2];
               case (1'b1)
                 is_sw: wstrb <= 4'b1111;
@@ -327,6 +388,7 @@ module riscv (
               memory <= 1; // kick off a memory request
               cpu_state <= finish_store;
             end
+
             default: begin
               cpu_state <= fetch_instr;
             end
@@ -348,8 +410,7 @@ module riscv (
             end else begin
               cpu_state <= fetch_instr;
             end
-            memory <= 0;
-            next_pc <= pc + 4;
+            do_next_instr();
           end
         end
 
@@ -361,8 +422,7 @@ module riscv (
             end else begin
               cpu_state <= fetch_instr;
             end
-            memory <= 0;
-            next_pc <= pc + 4;
+            do_next_instr();
           end
         end
 
