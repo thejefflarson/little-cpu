@@ -9,87 +9,83 @@ module testbench;
   initial begin
     $dumpfile("testbench.vcd");
     $dumpvars(0, testbench);
-    repeat (1) @(posedge clk);
+    repeat (10) @(posedge clk);
     reset <= 1;
-    repeat (20) @(posedge clk);
+    mem_ready <= 1;
+
+    repeat (100) @(posedge clk);
     $finish;
   end
 
-  logic        awvalid;
-  logic        awready;
-  logic [31:0] awaddress;
-  logic [2:0]  awprot;
-  logic        wvalid;
-  logic        wready;
-  logic [31:0] wdata;
-  logic [3:0]  wstrb;
-  logic        bvalid;
-  logic        bready;
-  logic [1:0]  bresp;
-  logic        arvalid;
-  logic        arready;
-  logic [31:0] araddress;
-  logic [2:0]  arprot;
-  logic        rvalid;
-  logic        rready;
-  logic [31:0] rdata;
-  logic [1:0]  rresp;
+  logic        mem_valid;
+  logic        mem_instr;
+  logic        mem_ready;
+  logic [31:0] mem_addr;
+  logic [31:0] mem_wdata;
+  logic [3:0]  mem_wstrb;
+  logic [31:0] mem_rdata;
   logic        trap;
   logic [1:0]  trap_code;
 
-  always @(posedge clk) begin
-    arready <= 0;
-    rvalid <= 0;
+  always_ff @(posedge clk) begin
+    if (mem_valid && mem_wstrb == 4'b0) begin
+              $display("mem_addr %8x", mem_addr);
 
-    if (arvalid && !arready && rready && !rvalid) begin
-      arready <= 1;
-      rvalid <= 1;
-      if (araddress < 1024) begin
-        rdata <= memory[araddress >> 2];
-        rresp <= 2'b00;
-      end else begin
-        rresp <= 3'b11;
+      if (mem_addr < 1024) begin
+        $display("hi");
+
+        mem_rdata <= memory[mem_addr >> 2];
+        mem_ready <= 1;
+      end
+    end
+  end
+
+  always_ff @(posedge clk) begin
+    if(mem_valid && mem_wstrb != 4'b0) begin
+      if (mem_addr < 1024) begin
+        memory[mem_addr < 1024] <= mem_wdata;
+        mem_ready <= 1;
       end
     end
   end
 
   riscv uut (
     .clk(clk),
-    .reset(reset),
-    .awvalid(awvalid),
-    .awready(awready),
-    .awaddress(awaddress),
-    .awprot(awprot),
-    .wvalid(wvalid),
-    .wready(wready),
-    .wdata(wdata),
-    .wstrb(wstrb),
-    .bvalid(bvalid),
-    .bready(bready),
-    .bresp(bresp),
-    .arvalid(arvalid),
-    .arready(arready),
-    .araddress(araddress),
-    .arprot(arprot),
-    .rvalid(rvalid),
-    .rready(rready),
-    .rdata(rdata),
-    .rresp(rresp),
+    .mem_valid(mem_valid),
+    .mem_instr(mem_instr),
+    .mem_ready(mem_ready),
+    .mem_addr(mem_addr),
+    .mem_wdata(mem_wdata),
+    .mem_wstrb(mem_wstrb),
+    .mem_rdata(mem_rdata),
     .trap(trap),
     .trap_code(trap_code)
   );
 
   initial begin
-    memory[0] = 32'h00000073; // ebreak
+    memory[0] = 32'h 3fc00093; //       li      x1,1020
+    memory[1] = 32'h 0000a023; //       sw      x0,0(x1)
+    memory[2] = 32'h 0000a103; // loop: lw      x2,0(x1)
+    memory[3] = 32'h 00110113; //       addi    x2,x2,1
+    memory[4] = 32'h 0020a023; //       sw      x2,0(x1)
+    memory[5] = 32'h ff5ff06f; //       j       <loop>
   end
 
   always_ff @(posedge clk) begin
-    if (arvalid && arready && rvalid && rready) begin
-      if (arprot == 3'b101) begin
-        $display("fetch 0x%08x: 0x%08x", araddress, rdata);
+    if (mem_valid && mem_wstrb == 4'b0) begin
+      if (mem_instr) begin
+        $display("fetch insn 0x%08x: 0x%08x", mem_addr, mem_rdata);
       end else begin
-        $display("read 0x%08x: 0x%08x", araddress, rdata);
+        $display("fetch data 0x%08x: 0x%08x", mem_addr, mem_rdata);
       end
+    end
+
+    if (mem_valid && mem_wstrb != 4'b0) begin
+      $display("write 0x%08x: 0x%08x", mem_addr, mem_wdata);
+    end
+
+    if (trap) begin
+      $display("trap!");
     end
   end
 endmodule
