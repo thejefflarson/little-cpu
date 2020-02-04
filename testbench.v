@@ -11,8 +11,6 @@ module testbench;
     $dumpvars(0, testbench);
     repeat (10) @(posedge clk);
     reset <= 1;
-    mem_ready <= 1;
-
     repeat (100) @(posedge clk);
     $finish;
   end
@@ -28,22 +26,11 @@ module testbench;
   logic [1:0]  trap_code;
 
   always_ff @(posedge clk) begin
-    if (mem_valid && mem_wstrb == 4'b0) begin
-              $display("mem_addr %8x", mem_addr);
-
+    mem_ready <= 0;
+    if (mem_valid && !mem_ready) begin
       if (mem_addr < 1024) begin
-        $display("hi");
-
         mem_rdata <= memory[mem_addr >> 2];
-        mem_ready <= 1;
-      end
-    end
-  end
-
-  always_ff @(posedge clk) begin
-    if(mem_valid && mem_wstrb != 4'b0) begin
-      if (mem_addr < 1024) begin
-        memory[mem_addr < 1024] <= mem_wdata;
+        if(mem_wstrb[0]) memory[mem_addr < 1024][7:0] <= mem_wdata[7:0];
         mem_ready <= 1;
       end
     end
@@ -72,18 +59,15 @@ module testbench;
   end
 
   always_ff @(posedge clk) begin
-    if (mem_valid && mem_wstrb == 4'b0) begin
+    if (mem_valid && mem_ready) begin
       if (mem_instr) begin
         $display("fetch insn 0x%08x: 0x%08x", mem_addr, mem_rdata);
+      end else if (mem_wstrb != 4'b0) begin
+        $display("write 0x%08x: 0x%08x", mem_addr, mem_wdata);
       end else begin
         $display("fetch data 0x%08x: 0x%08x", mem_addr, mem_rdata);
       end
     end
-
-    if (mem_valid && mem_wstrb != 4'b0) begin
-      $display("write 0x%08x: 0x%08x", mem_addr, mem_wdata);
-    end
-
     if (trap) begin
       $display("trap!");
     end

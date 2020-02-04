@@ -189,13 +189,14 @@ module riscv (
         regs[i] <= 0;
       end
       pc <= 0;
+      instr <= 0;
       next_pc <= 0;
       cpu_state <= fetch_instr;
       mem_valid <= 0;
     end else begin
       case (cpu_state)
         fetch_instr: begin
-          mem_wstrb <= 4'b0;
+          mem_wstrb <= 4'b0000;
           mem_instr <= 1;
           mem_valid <= 1;
           cpu_state <= ready_instr;
@@ -204,18 +205,14 @@ module riscv (
 
         ready_instr: begin
           if (mem_ready) begin
-            $display(mem_rdata);
-
             mem_valid <= 0;
-            pc <= next_pc;
+            pc <= mem_addr;
             instr <= mem_rdata;
             cpu_state <= execute_instr;
           end
         end
 
         execute_instr: begin
-          $display("next");
-
           case (1'b1)
             is_lui: begin
               regs[rd] <= immediate;
@@ -326,9 +323,7 @@ module riscv (
             end
 
             default: begin
-              $display("oppee");
-
-              cpu_state <= fetch_instr;
+              cpu_state <= cpu_trap;
             end
           endcase
         end
