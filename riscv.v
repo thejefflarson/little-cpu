@@ -8,8 +8,7 @@ module riscv (
   output logic [31:0] mem_wdata,
   output logic [3:0]  mem_wstrb,
   input  logic [31:0] mem_rdata,
-  output logic        trap,
-  output logic [1:0]  trap_code
+  output logic        trap
   // Formal
   `ifdef RISCV_FORMAL
      ,
@@ -84,8 +83,8 @@ module riscv (
   logic is_store, is_sb, is_sh, is_sw;
   assign is_store = opcode == 7'b0100011;
   assign is_sb = is_store && funct3 == 3'b000;
-  assign is_sh = is_store && funct3 == 3'b010;
-  assign is_sw = is_store && funct3 == 3'b100;
+  assign is_sh = is_store && funct3 == 3'b001;
+  assign is_sw = is_store && funct3 == 3'b010;
 
   logic [31:0] math_arg;
   logic [31:0] math_arg_signed;
@@ -165,7 +164,7 @@ module riscv (
   `define fp regs[8];
   logic [31:0] pc;
   logic [31:0] instr;
-  // storage for the next program counter and instruction
+  // storage for the next program counte
   logic [31:0] next_pc;
 
   // state_machine
@@ -191,6 +190,9 @@ module riscv (
       pc <= 0;
       instr <= 0;
       next_pc <= 0;
+      mem_addr <= 0;
+      mem_wstrb <= 0;
+
       cpu_state <= fetch_instr;
       mem_valid <= 0;
     end else begin
@@ -371,14 +373,14 @@ module riscv (
   assign rvfi_trap = trap;
   assign rvfi_halt = trap;
   assign rvfi_pc_rdata = pc;
-  assign rvfi_mem_rdata = rdata;
+  assign rvfi_mem_rdata = mem_rdata;
   assign rvfi_rs2_rdata = regs[rs2];
   assign rvfi_rs1_rdata = regs[rs1];
   assign rvfi_rd_wdata = regs[rd];
   assign rvfi_pc_wdata = next_pc;
   assign rvfi_mode = 3;
   assign rvfi_ixl = 1;
-  assign rvfi_mem_wmask = wstrb;
+  assign rvfi_mem_wmask = mem_wstrb;
   assign rvfi_mem_wdata = regs[rs2];
   assign rvfi_mem_rmask = 4'b1111;
   assign rvfi_mem_addr = load_store_address;

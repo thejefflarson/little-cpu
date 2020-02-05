@@ -1,59 +1,30 @@
 module rvfi_testbench (
   input var clk,
-
-  output var        arvalid,
-  input  var        arready,
-  output var [31:0] araddress,
-  output var [2:0]  arprot,
-
-  input  var        rvalid,
-  output var        rready,
-  input  var [31:0] rdata,
-  input  var [1:0]  rresp,
-  output var        trap,
-  output var [1:0]  trap_code
+  output logic        mem_valid,
+  output logic        mem_instr,
+  input  logic        mem_ready,
+  output logic [31:0] mem_addr,
+  output logic [31:0] mem_wdata,
+  output logic [3:0]  mem_wstrb,
+  input  logic [31:0] mem_rdata,
 );
   logic reset = 0;
   always @(posedge clk) reset <= 1;
 
   `RVFI_WIRES
-
-  (* keep *) logic        awready;
-  (* keep *) logic        awvalid;
-  (* keep *) logic [31:0] awaddress;
-  (* keep *) logic [2:0]  awprot;
-  (* keep *) logic        wvalid;
-  (* keep *) logic        wready;
-  (* keep *) logic [31:0] wdata;
-  (* keep *) logic [3:0]  wstrb;
-  (* keep *) logic        bvalid;
-  (* keep *) logic        bready;
-  (* keep *) logic [1:0]  bresp;
+  logic trap;
 
   riscv wrapper (
     .clk(clk),
     .reset(!reset),
-    .awvalid(awvalid),
-    .awready(awready),
-    .awaddress(awaddress),
-    .awprot(awprot),
-    .wvalid(wvalid),
-    .wready(wready),
-    .wdata(wdata),
-    .wstrb(wstrb),
-    .bvalid(bvalid),
-    .bready(bready),
-    .bresp(bresp),
-    .arvalid(arvalid),
-    .arready(arready),
-    .araddress(araddress),
-    .arprot(arprot),
-    .rvalid(rvalid),
-    .rready(rready),
-    .rdata(rdata),
-    .rresp(rresp),
+    .mem_valid(mem_valid),
+    .mem_instr(mem_instr),
+    .mem_ready(mem_ready),
+    .mem_addr(mem_addr),
+    .mem_wdata(mem_wdata),
+    .mem_wstrb(mem_wstrb),
+    .mem_rdata(mem_rdata),
     .trap(trap),
-    .trap_code(trap_code),
     `RVFI_CONN
   );
 
