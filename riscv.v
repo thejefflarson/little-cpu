@@ -164,14 +164,9 @@ module riscv (
 
   // registers
   logic [31:0] regs[0:31];
-  `define zero regs[0];
-  `define ra regs[1];
-  `define sp regs[2];
-  `define gp regs[3];
-  `define fp regs[8];
   logic [31:0] pc;
   logic [31:0] instr;
-  // storage for the next program counte
+  // storage for the next program counter
   logic [31:0] next_pc;
 
   // state_machine
@@ -366,23 +361,15 @@ module riscv (
         end
 
         default: begin
-          cpu_state <= fetch_instr;
+          cpu_state <= cpu_trap;
         end
       endcase
     end
   end
 
 `ifdef RISCV_FORMAL
-  logic instr_valid;
-  assign instr_valid = is_add ||
-    is_load ||
-    is_math_immediate ||
-    is_math ||
-    is_error ||
-    is_ecall ||
-    is_ebreak;
   always_ff @(posedge clk) begin
-    rvfi_valid <= !reset && instr_valid && (trap || cpu_state == execute_instr);
+    rvfi_valid <= !reset && ((cpu_state == cpu_trap) || (cpu_state == fetch_instr));
     rvfi_rs2_addr <= rs2;
     rvfi_rs1_addr <= rs1;
     rvfi_insn <= opcode;
@@ -404,6 +391,8 @@ module riscv (
     rvfi_intr <= 0;
     rvfi_order <= !reset ? rvfi_order + rvfi_valid : 0;
   end
-  restrict property (reset != $initstate);
+  // don't bother checking while we're in a reset state
+  //restrict property (reset != 0);
+  //assume property (mem_valid || !mem_ready);
 `endif
 endmodule

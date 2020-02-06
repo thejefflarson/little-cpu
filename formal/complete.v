@@ -8,15 +8,15 @@ module rvfi_testbench (
   output logic [3:0]  mem_wstrb,
   input  logic [31:0] mem_rdata,
 );
-  logic reset = 0;
-  always @(posedge clk) reset <= 1;
+  logic reset = 1;
+  always @(posedge clk) reset <= 0;
 
   `RVFI_WIRES
   logic trap;
 
   riscv wrapper (
     .clk(clk),
-    .reset(!reset),
+    .reset(reset),
     .mem_valid(mem_valid),
     .mem_instr(mem_instr),
     .mem_ready(mem_ready),
@@ -61,7 +61,7 @@ module rvfi_testbench (
   );
 
   // do the instruction check
-  always_ff @(posedge clk) begin
+  always_comb begin
     if (!reset && rvfi_valid && !rvfi_trap) begin
       if (rvfi_insn[6:0] != 7'b1110011) begin
         assert(spec_valid && !spec_trap);
