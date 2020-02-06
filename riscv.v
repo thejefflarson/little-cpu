@@ -12,15 +12,29 @@ module riscv (
   // Formal
   `ifdef RISCV_FORMAL
      ,
-     `RVFI_OUTPUTS
+     output logic        rvfi_valid,
+     output logic [63:0] rvfi_order,
+     output logic [31:0] rvfi_insn,
+     output logic        rvfi_trap,
+     output logic        rvfi_halt,
+     output logic        rvfi_intr,
+     output logic [ 1:0] rvfi_mode,
+     output logic [ 1:0] rvfi_ixl,
+     output logic [ 4:0] rvfi_rs1_addr,
+     output logic [ 4:0] rvfi_rs2_addr,
+     output logic [31:0] rvfi_rs1_rdata,
+     output logic [31:0] rvfi_rs2_rdata,
+     output logic [ 4:0] rvfi_rd_addr,
+     output logic [31:0] rvfi_rd_wdata,
+     output logic [31:0] rvfi_pc_rdata,
+     output logic [31:0] rvfi_pc_wdata,
+     output logic [31:0] rvfi_mem_addr,
+     output logic [ 3:0] rvfi_mem_rmask,
+     output logic [ 3:0] rvfi_mem_wmask,
+     output logic [31:0] rvfi_mem_rdata,
+     output logic [31:0] rvfi_mem_wdata,
   `endif
   );
-  // memory error code
-  localparam trap_mem = 2'b00;
-  // privileged, insecure and instruction protection flag
-  localparam inst_prot = 3'b101;
-  // privileged, insecure and data protection flag
-  localparam data_prot = 3'b000;
   localparam rresp_ok = 2'b00;
   localparam rresp_xok = 2'b01;
   localparam bresp_ok = 2'b01;
@@ -131,17 +145,10 @@ module riscv (
     end
   end
 
-  logic is_error, is_ecall, is_ebreak, instr_valid;
+  logic is_error, is_ecall, is_ebreak;
   assign is_error = opcode == 7'b1110011;
   assign is_ecall = is_error && !instr[20];
   assign is_ebreak = is_error && instr[20];
-  assign instr_valid = is_add ||
-    is_load ||
-    is_math_immediate ||
-    is_math ||
-    is_error ||
-    is_ecall ||
-    is_ebreak;
 
   logic [31:0]immediate;
   always_comb begin
@@ -191,8 +198,9 @@ module riscv (
       instr <= 0;
       next_pc <= 0;
       mem_addr <= 0;
+      mem_wdata <= 0;
       mem_wstrb <= 0;
-
+      trap <= 0;
       cpu_state <= fetch_instr;
       mem_valid <= 0;
     end else begin
@@ -365,33 +373,37 @@ module riscv (
   end
 
 `ifdef RISCV_FORMAL
-  assign rvfi_valid = !reset && instr_valid;
-  assign rvfi_rs2_addr = rs2;
-  assign rvfi_rs1_addr = rs1;
-  assign rvfi_insn = opcode;
-  assign rvfi_rd_addr = rd;
-  assign rvfi_trap = trap;
-  assign rvfi_halt = trap;
-  assign rvfi_pc_rdata = pc;
-  assign rvfi_mem_rdata = mem_rdata;
-  assign rvfi_rs2_rdata = regs[rs2];
-  assign rvfi_rs1_rdata = regs[rs1];
-  assign rvfi_rd_wdata = regs[rd];
-  assign rvfi_pc_wdata = next_pc;
-  assign rvfi_mode = 3;
-  assign rvfi_ixl = 1;
-  assign rvfi_mem_wmask = mem_wstrb;
-  assign rvfi_mem_wdata = regs[rs2];
-  assign rvfi_mem_rmask = 4'b1111;
-  assign rvfi_mem_addr = load_store_address;
-  assign rvfi_intr = 0;
-  reg [63:0] order;
-  assign rvfi_order = order;
-
+  logic instr_valid;
+  assign instr_valid = is_add ||
+    is_load ||
+    is_math_immediate ||
+    is_math ||
+    is_error ||
+    is_ecall ||
+    is_ebreak;
   always_ff @(posedge clk) begin
-    if (!reset)
-      order <= 0;
-    order <= order + rvfi_valid;
+    rvfi_valid <= !reset && instr_valid && (trap || cpu_state == execute_instr);
+    rvfi_rs2_addr <= rs2;
+    rvfi_rs1_addr <= rs1;
+    rvfi_insn <= opcode;
+    rvfi_rd_addr <= rd;
+    rvfi_trap <= trap;
+    rvfi_halt <= trap;
+    rvfi_pc_rdata <= pc;
+    rvfi_mem_rdata <= mem_rdata;
+    rvfi_rs2_rdata <= regs[rs2];
+    rvfi_rs1_rdata <= regs[rs1];
+    rvfi_rd_wdata <= regs[rd];
+    rvfi_pc_wdata <= next_pc;
+    rvfi_mode <= 3;
+    rvfi_ixl <= 1;
+    rvfi_mem_wmask <= mem_wstrb;
+    rvfi_mem_wdata <= regs[rs2];
+    rvfi_mem_rmask <= 4'b1111;
+    rvfi_mem_addr <= load_store_address;
+    rvfi_intr <= 0;
+    rvfi_order <= !reset ? rvfi_order + rvfi_valid : 0;
   end
+  restrict property (reset != $initstate);
 `endif
 endmodule

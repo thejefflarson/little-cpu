@@ -7,6 +7,7 @@ checks: genchecks.py riscv-formal checks.cfg
 
 complete: riscv-formal
 	sby -f complete.sby
+	python3 ./riscv-formal/cores/picorv32/disasm.py complete/engine_0/trace.vcd
 
 riscv-formal:
 	git clone https://github.com/SymbioticEDA/riscv-formal
