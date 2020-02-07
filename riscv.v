@@ -100,7 +100,6 @@ module riscv (
   assign is_sh = is_store && funct3 == 3'b001;
   assign is_sw = is_store && funct3 == 3'b010;
 
-  logic [31:0] math_arg;
   logic is_math_immediate, is_addi, is_slti, is_sltiu, is_xori, is_ori, is_andi, is_slli, is_srli, is_srai;
   assign is_math_immediate = opcode == 7'b0010011;
   assign is_addi = is_math_immediate && funct3 == 3'b000;
@@ -127,14 +126,6 @@ module riscv (
   assign is_and = is_math && funct3 == 3'b111;
   assign shamt = is_math_immediate ? rs2 : regs[rs2][4:0];
 
-  always_comb begin
-    if (is_math_immediate) begin
-      math_arg = immediate;
-    end else begin
-      math_arg = regs[rs2];
-    end
-  end
-
   logic is_error, is_ecall, is_ebreak;
   assign is_error = opcode == 7'b1110011;
   assign is_ecall = is_error && !instr[20];
@@ -151,6 +142,15 @@ module riscv (
       is_math_immediate: immediate = i_immediate;
       default: immediate = 32'b0;
     endcase
+  end
+
+  logic [31:0] math_arg;
+  always_comb begin
+    if (is_math_immediate) begin
+      math_arg = immediate;
+    end else begin
+      math_arg = regs[rs2];
+    end
   end
 
   // registers
@@ -246,8 +246,6 @@ module riscv (
             is_math || is_math_immediate: begin
               case(1'b1)
                 is_add || is_addi: begin
-                  $display(math_arg);
-
                   regs[rd] <= regs[rs1] + math_arg;
                 end
 
