@@ -1,5 +1,5 @@
 `timescale 1 ns / 1 ps
-
+`define RISCV_FORMAL
 module testbench;
   logic [31:0] memory[0:255];
   logic clk = 0;
@@ -11,7 +11,7 @@ module testbench;
     $dumpvars(0, testbench);
     repeat (10) @(posedge clk);
     reset <= 1;
-    repeat (1000) @(posedge clk);
+    repeat (200) @(posedge clk);
     $finish;
   end
 
@@ -23,6 +23,25 @@ module testbench;
   logic [3:0]  mem_wstrb;
   logic [31:0] mem_rdata;
   logic        trap;
+  logic        rvfi_valid;
+  logic [63:0] rvfi_order;
+  logic [31:0] rvfi_insn;
+  logic        rvfi_trap;
+  logic        rvfi_halt;
+  logic        rvfi_intr;
+  logic [4:0]  rvfi_rs1_addr;
+  logic [4:0]  rvfi_rs2_addr;
+  logic [31:0] rvfi_rs1_rdata;
+  logic [31:0] rvfi_rs2_rdata;
+  logic [4:0]  rvfi_rd_addr;
+  logic [31:0] rvfi_rd_wdata;
+  logic [31:0] rvfi_pc_rdata;
+  logic [31:0] rvfi_pc_wdata;
+  logic [31:0] rvfi_mem_addr;
+  logic [3:0]  rvfi_mem_rmask;
+  logic [3:0]  rvfi_mem_wmask;
+  logic [31:0] rvfi_mem_rdata;
+  logic [31:0] rvfi_mem_wdata;
 
   always_ff @(posedge clk) begin
     mem_ready <= 0;
@@ -49,7 +68,50 @@ module testbench;
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
     .mem_rdata(mem_rdata),
-    .trap(trap)
+    .trap(trap),
+    .rvfi_valid(rvfi_valid),
+    .rvfi_order(rvfi_order),
+    .rvfi_insn(rvfi_insn),
+    .rvfi_trap(rvfi_trap),
+    .rvfi_halt(rvfi_halt),
+    .rvfi_intr(rvfi_intr),
+    .rvfi_rs1_addr(rvfi_rs1_addr),
+    .rvfi_rs2_addr(rvfi_rs2_addr),
+    .rvfi_rs1_rdata(rvfi_rs1_rdata),
+    .rvfi_rs2_rdata(rvfi_rs2_rdata),
+    .rvfi_rd_addr(rvfi_rd_addr),
+    .rvfi_rd_wdata(rvfi_rd_wdata),
+    .rvfi_pc_rdata(rvfi_pc_rdata),
+    .rvfi_pc_wdata(rvfi_pc_wdata),
+    .rvfi_mem_addr(rvfi_mem_addr),
+    .rvfi_mem_rmask(rvfi_mem_rmask),
+    .rvfi_mem_wmask(rvfi_mem_wmask),
+    .rvfi_mem_rdata(rvfi_mem_rdata),
+    .rvfi_mem_wdata(rvfi_mem_wdata)
+  );
+
+  monitor monitor (
+    .clock(clk),
+    .reset(!reset),
+    .rvfi_valid(rvfi_valid),
+    .rvfi_order(rvfi_order),
+    .rvfi_insn(rvfi_insn),
+    .rvfi_trap(rvfi_trap),
+    .rvfi_halt(rvfi_halt),
+    .rvfi_intr(rvfi_intr),
+    .rvfi_rs1_addr(rvfi_rs1_addr),
+    .rvfi_rs2_addr(rvfi_rs2_addr),
+    .rvfi_rs1_rdata(rvfi_rs1_rdata),
+    .rvfi_rs2_rdata(rvfi_rs2_rdata),
+    .rvfi_rd_addr(rvfi_rd_addr),
+    .rvfi_rd_wdata(rvfi_rd_wdata),
+    .rvfi_pc_rdata(rvfi_pc_rdata),
+    .rvfi_pc_wdata(rvfi_pc_wdata),
+    .rvfi_mem_addr(rvfi_mem_addr),
+    .rvfi_mem_rmask(rvfi_mem_rmask),
+    .rvfi_mem_wmask(rvfi_mem_wmask),
+    .rvfi_mem_rdata(rvfi_mem_rdata),
+    .rvfi_mem_wdata(rvfi_mem_wdata)
   );
 
   initial begin
@@ -61,15 +123,14 @@ module testbench;
     memory[5] = 32'h ff5ff06f; //       j       <loop>
   end
 
-  always_ff @(posedge clk) begin
+  always @(posedge clk) begin
     if (mem_valid && mem_ready) begin
       if (mem_instr) begin
-        $display("fetch insn 0x%08x: 0x%08x", mem_addr, mem_rdata);
+        $display("ifetch 0x%08x: 0x%08x", mem_addr, mem_rdata);
+      end else if (mem_wstrb) begin
+        $display("write  0x%08x: 0x%08x (wstrb=%b)", mem_addr, mem_wdata, mem_wstrb);
       end else begin
-        $display("fetch data 0x%08x: 0x%08x", mem_addr, mem_rdata);
-      end
-      if (mem_wstrb) begin
-        $display("write 0x%08x: 0x%08x", mem_addr, mem_wdata);
+        $display("read   0x%08x: 0x%08x", mem_addr, mem_rdata);
       end
     end
     if (trap) begin

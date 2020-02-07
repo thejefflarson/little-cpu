@@ -1,9 +1,8 @@
-
 test: testbench.vvp
 	vvp -N $<
 
-testbench.vvp: testbench.v riscv.v
-	iverilog -g2012 -o $@ $^
+testbench.vvp: testbench.v riscv.v monitor.v
+	iverilog -DRISCV_FORMAL -g2012 -o $@ $^
 	chmod +x $@
 
 pll.v: timing

@@ -32,7 +32,7 @@ module riscv (
      output logic [ 3:0] rvfi_mem_rmask,
      output logic [ 3:0] rvfi_mem_wmask,
      output logic [31:0] rvfi_mem_rdata,
-     output logic [31:0] rvfi_mem_wdata,
+     output logic [31:0] rvfi_mem_wdata
   `endif
   );
   localparam rresp_ok = 2'b00;
@@ -312,7 +312,8 @@ module riscv (
                   is_sw: mem_wstrb <= 4'b1111;
                   is_sh: mem_wstrb <= 4'b0011;
                   is_sb: mem_wstrb <= 4'b0001;
-                endcase
+                endcase // case (1'b1)
+                mem_instr <= 0;
                 mem_valid <= 1; // kick off a memory request
                 cpu_state <= finish_store;
               end
@@ -360,10 +361,10 @@ module riscv (
 
 `ifdef RISCV_FORMAL
   always_ff @(posedge clk) begin
-    rvfi_valid <= !reset && ((cpu_state == cpu_trap) || (cpu_state == fetch_instr));
+    rvfi_valid <= reset && ((cpu_state == cpu_trap) || (cpu_state == fetch_instr));
     rvfi_rs2_addr <= rs2;
     rvfi_rs1_addr <= rs1;
-    rvfi_insn <= opcode;
+    rvfi_insn <= instr;
     rvfi_rd_addr <= rd;
     rvfi_trap <= trap;
     rvfi_halt <= trap;
@@ -371,19 +372,19 @@ module riscv (
     rvfi_mem_rdata <= mem_rdata;
     rvfi_rs2_rdata <= regs[rs2];
     rvfi_rs1_rdata <= regs[rs1];
-    rvfi_rd_wdata <= regs[rd];
+    rvfi_rd_wdata <= rd ? regs[rd] : 0;
     rvfi_pc_wdata <= next_pc;
     rvfi_mode <= 3;
     rvfi_ixl <= 1;
     rvfi_mem_wmask <= mem_wstrb;
     rvfi_mem_wdata <= regs[rs2];
-    rvfi_mem_rmask <= 4'b1111;
-    rvfi_mem_addr <= load_store_address;
+    rvfi_mem_rmask <= mem_wstrb ? 0 : ~0;
+    rvfi_mem_addr <= regs[rs1];
     rvfi_intr <= 0;
     rvfi_order <= !reset ? rvfi_order + rvfi_valid : 0;
   end
   // don't bother checking while we're in a reset state
-  //restrict property (reset != 0);
+  //restrict property (reset != $initstate);
   //assume property (mem_valid || !mem_ready);
 `endif
 endmodule
