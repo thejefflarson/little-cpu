@@ -65,10 +65,11 @@ module testbench;
     if (mem_valid && mem_ready) begin
       if (mem_instr) begin
         $display("fetch insn 0x%08x: 0x%08x", mem_addr, mem_rdata);
-      end else if (mem_wstrb != 4'b0) begin
-        $display("write 0x%08x: 0x%08x", mem_addr, mem_wdata);
       end else begin
         $display("fetch data 0x%08x: 0x%08x", mem_addr, mem_rdata);
+      end
+      if (mem_wstrb) begin
+        $display("write 0x%08x: 0x%08x", mem_addr, mem_wdata);
       end
     end
     if (trap) begin

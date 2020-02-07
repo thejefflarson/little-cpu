@@ -101,11 +101,6 @@ module riscv (
   assign is_sw = is_store && funct3 == 3'b010;
 
   logic [31:0] math_arg;
-  logic [31:0] math_arg_signed;
-  assign math_arg_signed = {{27{rs2[4]}}, rs2};
-  logic [31:0] math_arg_unsigned;
-  assign math_arg_unsigned = {27'b0, rs2};
-
   logic is_math_immediate, is_addi, is_slti, is_sltiu, is_xori, is_ori, is_andi, is_slli, is_srli, is_srai;
   assign is_math_immediate = opcode == 7'b0010011;
   assign is_addi = is_math_immediate && funct3 == 3'b000;
@@ -134,12 +129,7 @@ module riscv (
 
   always_comb begin
     if (is_math_immediate) begin
-      // signed operations
-      if (is_srai || is_slti) begin
-        math_arg = math_arg_signed;
-      end else begin
-        math_arg = math_arg_unsigned;
-      end
+      math_arg = immediate;
     end else begin
       math_arg = regs[rs2];
     end
@@ -158,6 +148,7 @@ module riscv (
       is_lui || is_auipc: immediate = u_immediate;
       is_jal: immediate = j_immediate;
       is_branch: immediate = b_immediate;
+      is_math_immediate: immediate = i_immediate;
       default: immediate = 32'b0;
     endcase
   end
@@ -255,6 +246,8 @@ module riscv (
             is_math || is_math_immediate: begin
               case(1'b1)
                 is_add || is_addi: begin
+                  $display(math_arg);
+
                   regs[rd] <= regs[rs1] + math_arg;
                 end
 
