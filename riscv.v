@@ -8,37 +8,31 @@ module riscv (
   output logic [31:0] mem_wdata,
   output logic [3:0]  mem_wstrb,
   input  logic [31:0] mem_rdata,
+ `ifdef RISCV_FORMAL
+  output logic        rvfi_valid,
+  output logic [63:0] rvfi_order,
+  output logic [31:0] rvfi_insn,
+  output logic        rvfi_trap,
+  output logic        rvfi_halt,
+  output logic        rvfi_intr,
+  output logic [ 1:0] rvfi_mode,
+  output logic [ 1:0] rvfi_ixl,
+  output logic [ 4:0] rvfi_rs1_addr,
+  output logic [ 4:0] rvfi_rs2_addr,
+  output logic [31:0] rvfi_rs1_rdata,
+  output logic [31:0] rvfi_rs2_rdata,
+  output logic [ 4:0] rvfi_rd_addr,
+  output logic [31:0] rvfi_rd_wdata,
+  output logic [31:0] rvfi_pc_rdata,
+  output logic [31:0] rvfi_pc_wdata,
+  output logic [31:0] rvfi_mem_addr,
+  output logic [ 3:0] rvfi_mem_rmask,
+  output logic [ 3:0] rvfi_mem_wmask,
+  output logic [31:0] rvfi_mem_rdata,
+  output logic [31:0] rvfi_mem_wdata,
+ `endif
   output logic        trap
-  // Formal
-  `ifdef RISCV_FORMAL
-     ,
-     output logic        rvfi_valid,
-     output logic [63:0] rvfi_order,
-     output logic [31:0] rvfi_insn,
-     output logic        rvfi_trap,
-     output logic        rvfi_halt,
-     output logic        rvfi_intr,
-     output logic [ 1:0] rvfi_mode,
-     output logic [ 1:0] rvfi_ixl,
-     output logic [ 4:0] rvfi_rs1_addr,
-     output logic [ 4:0] rvfi_rs2_addr,
-     output logic [31:0] rvfi_rs1_rdata,
-     output logic [31:0] rvfi_rs2_rdata,
-     output logic [ 4:0] rvfi_rd_addr,
-     output logic [31:0] rvfi_rd_wdata,
-     output logic [31:0] rvfi_pc_rdata,
-     output logic [31:0] rvfi_pc_wdata,
-     output logic [31:0] rvfi_mem_addr,
-     output logic [ 3:0] rvfi_mem_rmask,
-     output logic [ 3:0] rvfi_mem_wmask,
-     output logic [31:0] rvfi_mem_rdata,
-     output logic [31:0] rvfi_mem_wdata
-  `endif
   );
-  localparam rresp_ok = 2'b00;
-  localparam rresp_xok = 2'b01;
-  localparam bresp_ok = 2'b01;
-  localparam bresp_xok = 2'b00;
 
   // instruction decoder (figure 2.3)
   logic [6:0] opcode;
@@ -133,6 +127,7 @@ module riscv (
 
   logic [31:0]immediate;
   always_comb begin
+    (* parallel_case, full_case *)
     case (1'b1)
       is_load || is_jalr: immediate = i_immediate;
       is_store: immediate = s_immediate;
@@ -190,6 +185,7 @@ module riscv (
       cpu_state <= fetch_instr;
       mem_valid <= 0;
     end else begin
+      (* parallel_case, full_case *)
       case (cpu_state)
         fetch_instr: begin
           mem_wstrb <= 4'b0000;
@@ -209,6 +205,7 @@ module riscv (
         end
 
         execute_instr: begin
+          (* parallel_case, full_case *)
           case (1'b1)
             is_lui: begin
               regs[rd] <= immediate;
@@ -233,6 +230,7 @@ module riscv (
             end
 
             is_branch: begin
+              (* parallel_case, full_case *)
               case(1'b1)
                 is_beq: next_pc <= regs[rs1] == regs[rs2] ? immediate : pc + 4;
                 is_bne: next_pc <= regs[rs1] != regs[rs2] ? immediate : pc + 4;
@@ -240,12 +238,12 @@ module riscv (
                 is_bltu: next_pc <= regs[rs1] < regs[rs2] ? immediate : pc + 4;
                 is_bge: next_pc <= $signed(regs[rs1]) >= $signed(regs[rs2]) ? immediate : pc + 4;
                 is_bgeu: next_pc <= regs[rs1] >= regs[rs2] ? immediate : pc + 4;
-                default: cpu_state <= cpu_trap;
               endcase
               cpu_state <= fetch_instr;
             end
 
             is_math || is_math_immediate: begin
+              (* parallel_case, full_case *)
               case(1'b1)
                 is_add || is_addi: begin
                   regs[rd] <= regs[rs1] + math_arg;
@@ -311,6 +309,7 @@ module riscv (
               end else begin
                 mem_addr <= load_store_address;
                 mem_wdata <= regs[rs2];
+                (* parallel_case, full_case *)
                 case (1'b1)
                   is_sw: mem_wstrb <= 4'b1111;
                   is_sh: mem_wstrb <= 4'b0011;
@@ -324,8 +323,8 @@ module riscv (
 
             default: begin
               cpu_state <= cpu_trap;
-            end
-          endcase
+           end
+         endcase
         end
 
         finish_load: begin
@@ -354,10 +353,6 @@ module riscv (
         cpu_trap: begin
           trap <= 1;
         end
-
-        default: begin
-          cpu_state <= cpu_trap;
-        end
       endcase
     end
   end
@@ -365,13 +360,54 @@ module riscv (
  `ifdef RISCV_FORMAL
   logic is_fetch;
   assign is_fetch = cpu_state == fetch_instr;
+  logic is_valid;
+  assign is_valid = is_lui ||
+    is_auipc ||
+    is_jal ||
+    is_jalr ||
+    is_beq ||
+    is_bne ||
+    is_blt ||
+    is_bge ||
+    is_bltu ||
+    is_bgeu ||
+    is_lb ||
+    is_lh ||
+    is_lbu ||
+    is_lhu ||
+    is_sb ||
+    is_sh ||
+    is_sw ||
+    is_addi ||
+    is_slti ||
+    is_sltiu ||
+    is_xori ||
+    is_ori ||
+    is_andi ||
+    is_slli ||
+    is_srai ||
+    is_add ||
+    is_sub ||
+    is_sll ||
+    is_slt ||
+    is_sltu ||
+    is_xor ||
+    is_srl ||
+    is_or ||
+    is_and ||
+    is_error ||
+    is_ecall ||
+    is_ebreak;
+
   always_ff @(posedge clk) begin
-    rvfi_valid <= reset && (trap || is_fetch);
-    // what were our registers right before we did anything?
+    rvfi_valid <= reset && (trap || is_fetch); // && is_valid;
+
+    // what were our read registers while this instruction was executing?
     if (cpu_state == execute_instr) begin
       rvfi_rs1_rdata <= regs[rs1];
       rvfi_rs2_rdata <= regs[rs2];
     end
+
     rvfi_rs1_addr <= rs1;
     rvfi_rs2_addr <= rs2;
     rvfi_insn <= instr;
@@ -394,7 +430,7 @@ module riscv (
       rvfi_mem_wmask <= 0;
       rvfi_mem_wdata <= 0;
     // what exactly came back from memory?
-    end else if (mem_valid &&mem_ready) begin
+    end else if (mem_valid && mem_ready) begin
       rvfi_mem_addr <= mem_addr;
       rvfi_mem_wmask <= mem_wstrb;
       rvfi_mem_wdata <= mem_wdata;

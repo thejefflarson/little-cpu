@@ -15,7 +15,7 @@ module rvfi_wrapper (
 
   riscv wrapper (
     .clk(clock),
-    .reset(reset),
+    .reset(!reset),
     .mem_valid(mem_valid),
     .mem_instr(mem_instr),
     .mem_ready(mem_ready),

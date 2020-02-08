@@ -1,5 +1,5 @@
 check: checks
-	make -C $< -j$(nproc)
+	make -C $< -j3
 
 checks: genchecks.py riscv-formal checks.cfg
 	rm -rf $@
