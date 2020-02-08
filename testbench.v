@@ -1,5 +1,5 @@
 `timescale 1 ns / 1 ps
-`define RISCV_FORMAL
+//`define RISCV_FORMAL
 module testbench;
   logic [31:0] memory[0:255];
   logic clk = 0;
@@ -29,6 +29,7 @@ module testbench;
   logic        rvfi_trap;
   logic        rvfi_halt;
   logic        rvfi_intr;
+ `ifdef RISCV_FORMAL
   logic [4:0]  rvfi_rs1_addr;
   logic [4:0]  rvfi_rs2_addr;
   logic [31:0] rvfi_rs1_rdata;
@@ -42,7 +43,7 @@ module testbench;
   logic [3:0]  rvfi_mem_wmask;
   logic [31:0] rvfi_mem_rdata;
   logic [31:0] rvfi_mem_wdata;
-
+ `endif
   always_ff @(posedge clk) begin
     mem_ready <= 0;
     if (mem_valid && !mem_ready) begin
@@ -68,7 +69,7 @@ module testbench;
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
     .mem_rdata(mem_rdata),
-    .trap(trap),
+   `ifdef RISCV_FORMAL
     .rvfi_valid(rvfi_valid),
     .rvfi_order(rvfi_order),
     .rvfi_insn(rvfi_insn),
@@ -87,9 +88,11 @@ module testbench;
     .rvfi_mem_rmask(rvfi_mem_rmask),
     .rvfi_mem_wmask(rvfi_mem_wmask),
     .rvfi_mem_rdata(rvfi_mem_rdata),
-    .rvfi_mem_wdata(rvfi_mem_wdata)
+    .rvfi_mem_wdata(rvfi_mem_wdata),
+   `endif
+    .trap(trap)
   );
-
+ `ifdef RISCV_FORMAL
   monitor monitor (
     .clock(clk),
     .reset(!reset),
@@ -113,7 +116,7 @@ module testbench;
     .rvfi_mem_rdata(rvfi_mem_rdata),
     .rvfi_mem_wdata(rvfi_mem_wdata)
   );
-
+ `endif
   initial begin
     memory[0] = 32'h 3fc00093; //       li      x1,1020
     memory[1] = 32'h 0000a023; //       sw      x0,0(x1)

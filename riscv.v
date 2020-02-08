@@ -293,6 +293,7 @@ module riscv (
               if (rd == 0 || |load_store_address[1:0]) begin
                 cpu_state <= cpu_trap;
               end else begin
+                mem_wstrb <= 4'b0000;
                 mem_addr <= load_store_address;
                 mem_instr <= 0; // can we have data
                 mem_valid <= 1; // kick off a memory request
@@ -312,7 +313,7 @@ module riscv (
                   is_sw: mem_wstrb <= 4'b1111;
                   is_sh: mem_wstrb <= 4'b0011;
                   is_sb: mem_wstrb <= 4'b0001;
-                endcase // case (1'b1)
+                endcase
                 mem_instr <= 0;
                 mem_valid <= 1; // kick off a memory request
                 cpu_state <= finish_store;
@@ -328,11 +329,11 @@ module riscv (
         finish_load: begin
           if (mem_ready) begin
             case (1'b1)
-              is_lb: regs[rs2] <= {24'b0, mem_rdata[7:0]};
-              is_lbu: regs[rs2] <= {{24{mem_rdata[7]}}, mem_rdata[7:0]};
-              is_lh: regs[rs2] <= {16'b0, mem_rdata[15:0]};
-              is_lhu: regs[rs2] <= {{16{mem_rdata[7]}}, mem_rdata[15:0]};
-              is_lw: regs[rs2] <= mem_rdata;
+              is_lb: regs[rd] <= {24'b0, mem_rdata[7:0]};
+              is_lbu: regs[rd] <= {{24{mem_rdata[7]}}, mem_rdata[7:0]};
+              is_lh: regs[rd] <= {16'b0, mem_rdata[15:0]};
+              is_lhu: regs[rd] <= {{16{mem_rdata[7]}}, mem_rdata[15:0]};
+              is_lw: regs[rd] <= mem_rdata;
             endcase
             cpu_state <= fetch_instr;
             mem_valid <= 0;
@@ -359,32 +360,42 @@ module riscv (
     end
   end
 
-`ifdef RISCV_FORMAL
+ `ifdef RISCV_FORMAL
+  logic is_fetch;
+  assign is_fetch = cpu_state == fetch_instr;
   always_ff @(posedge clk) begin
-    rvfi_valid <= reset && ((cpu_state == cpu_trap) || (cpu_state == fetch_instr));
-    rvfi_rs2_addr <= rs2;
+    rvfi_valid <= reset && (trap || is_fetch);
+    if (is_fetch) begin
+      rvfi_rs1_rdata <= regs[rs1];
+      rvfi_rs2_rdata <= regs[rs2];
+    end
     rvfi_rs1_addr <= rs1;
+    rvfi_rs2_addr <= rs2;
     rvfi_insn <= instr;
     rvfi_rd_addr <= rd;
     rvfi_trap <= trap;
     rvfi_halt <= trap;
     rvfi_pc_rdata <= pc;
     rvfi_mem_rdata <= mem_rdata;
-    rvfi_rs2_rdata <= regs[rs2];
-    rvfi_rs1_rdata <= regs[rs1];
-    rvfi_rd_wdata <= rd ? regs[rd] : 0;
     rvfi_pc_wdata <= next_pc;
     rvfi_mode <= 3;
     rvfi_ixl <= 1;
-    rvfi_mem_wmask <= mem_wstrb;
-    rvfi_mem_wdata <= regs[rs2];
-    rvfi_mem_rmask <= mem_wstrb ? 0 : ~0;
-    rvfi_mem_addr <= regs[rs1];
     rvfi_intr <= 0;
-    rvfi_order <= !reset ? rvfi_order + rvfi_valid : 0;
+    rvfi_order <= reset ? rvfi_order + rvfi_valid : 0;
+
+    if (mem_instr) begin
+      rvfi_mem_addr <= 0;
+      rvfi_mem_wmask <= 0;
+      rvfi_mem_rmask <= 0;
+      rvfi_mem_wmask <= 0;
+      rvfi_mem_wdata <= 0;
+    end else if (mem_valid &&mem_ready) begin
+      rvfi_mem_addr <= mem_addr;
+      rvfi_mem_wmask <= mem_wstrb;
+      rvfi_mem_wdata <= mem_wdata;
+      rvfi_mem_rmask <= (mem_wstrb == 4'b0000) && is_load ? ~0 : 0;
+      rvfi_mem_addr <= mem_addr;
+    end
   end
-  // don't bother checking while we're in a reset state
-  //restrict property (reset != $initstate);
-  //assume property (mem_valid || !mem_ready);
 `endif
 endmodule
