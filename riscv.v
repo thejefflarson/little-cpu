@@ -221,7 +221,9 @@ module riscv (
             end
 
             is_jal || is_jalr: begin
-              regs[rd] <= pc + 4;
+              if (is_jalr) begin
+                regs[rd] <= pc + 4;
+              end
               if (|jump_address[1:0]) begin
                 cpu_state <= cpu_trap;
               end else begin
@@ -365,7 +367,8 @@ module riscv (
   assign is_fetch = cpu_state == fetch_instr;
   always_ff @(posedge clk) begin
     rvfi_valid <= reset && (trap || is_fetch);
-    if (is_fetch) begin
+    // what were our registers right before we did anything?
+    if (cpu_state == execute_instr) begin
       rvfi_rs1_rdata <= regs[rs1];
       rvfi_rs2_rdata <= regs[rs2];
     end
@@ -373,6 +376,7 @@ module riscv (
     rvfi_rs2_addr <= rs2;
     rvfi_insn <= instr;
     rvfi_rd_addr <= rd;
+    rvfi_rd_wdata <= regs[rd];
     rvfi_trap <= trap;
     rvfi_halt <= trap;
     rvfi_pc_rdata <= pc;
@@ -389,6 +393,7 @@ module riscv (
       rvfi_mem_rmask <= 0;
       rvfi_mem_wmask <= 0;
       rvfi_mem_wdata <= 0;
+    // what exactly came back from memory?
     end else if (mem_valid &&mem_ready) begin
       rvfi_mem_addr <= mem_addr;
       rvfi_mem_wmask <= mem_wstrb;
