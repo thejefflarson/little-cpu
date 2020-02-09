@@ -36,7 +36,7 @@ module riscv (
 
   // instruction decoder (figure 2.3)
   logic [6:0] opcode;
-  logic [4:0] rd, rs1, rs2, shamt;
+  logic [4:0] rd, rs1, rs2;
   logic [2:0] funct3;
   logic [6:0] funct7;
   logic math_flag;
@@ -69,7 +69,7 @@ module riscv (
   assign is_lui = opcode == 7'b0110111;
   assign is_auipc = opcode == 7'b0010111;
   assign is_jal = opcode == 7'b1101111;
-  assign is_jalr = opcode == 7'b1100111;
+  assign is_jalr = opcode == 7'b1100111 && funct3 == 3'b000;
 
   logic is_branch, is_beq, is_bne, is_blt, is_bltu, is_bge, is_bgeu;
   assign is_branch = opcode == 7'b1100011;
@@ -118,12 +118,16 @@ module riscv (
   assign is_sra = is_math && math_flag && funct3 == 3'b101;
   assign is_or = is_math && funct3 == 3'b110;
   assign is_and = is_math && funct3 == 3'b111;
+  logic [31:0] math_arg;
+  assign math_arg = is_math_immediate ? immediate : regs[rs2];
+  logic [4:0] shamt;
   assign shamt = is_math_immediate ? rs2 : regs[rs2][4:0];
 
   logic is_error, is_ecall, is_ebreak;
   assign is_error = opcode == 7'b1110011;
   assign is_ecall = is_error && !instr[20];
   assign is_ebreak = is_error && instr[20];
+  logic is_valid;
   assign is_valid = is_lui ||
     is_auipc ||
     is_jal ||
@@ -175,15 +179,6 @@ module riscv (
       is_math_immediate: immediate = i_immediate;
       default: immediate = 32'b0;
     endcase
-  end
-
-  logic [31:0] math_arg;
-  always_comb begin
-    if (is_math_immediate) begin
-      math_arg = immediate;
-    end else begin
-      math_arg = regs[rs2];
-    end
   end
 
   // registers
@@ -400,8 +395,6 @@ module riscv (
  `ifdef RISCV_FORMAL
   logic is_fetch;
   assign is_fetch = cpu_state == fetch_instr;
-  logic is_valid;
-
 
   always_ff @(posedge clk) begin
     rvfi_valid <= reset && (trap || is_fetch) && is_valid;
