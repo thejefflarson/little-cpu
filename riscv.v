@@ -102,7 +102,7 @@ module riscv (
   assign is_xori = is_math_immediate && funct3 == 3'b100;
   assign is_ori = is_math_immediate && funct3 == 3'b110;
   assign is_andi = is_math_immediate && funct3 == 3'b111;
-  assign is_slli = is_math_immediate && funct3 == 3'b001;
+  assign is_slli = is_math_immediate && !math_flag && funct3 == 3'b001;
   assign is_srli = is_math_immediate && !math_flag && funct3 == 3'b101;
   assign is_srai = is_math_immediate && math_flag && funct3 == 3'b101;
 
@@ -226,6 +226,8 @@ module riscv (
           mem_valid <= 1;
           cpu_state <= ready_instr;
           mem_addr <= next_pc;
+          // clear x0
+          regs[0] <= 0;
         end
 
         ready_instr: begin
@@ -403,7 +405,6 @@ module riscv (
     if (cpu_state == execute_instr) begin
       rvfi_rs1_rdata <= regs[rs1];
       rvfi_rs2_rdata <= regs[rs2];
-
     end
 
     rvfi_rs1_addr <= rs1;
