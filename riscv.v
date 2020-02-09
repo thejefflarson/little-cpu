@@ -124,6 +124,44 @@ module riscv (
   assign is_error = opcode == 7'b1110011;
   assign is_ecall = is_error && !instr[20];
   assign is_ebreak = is_error && instr[20];
+  assign is_valid = is_lui ||
+    is_auipc ||
+    is_jal ||
+    is_jalr ||
+    is_beq ||
+    is_bne ||
+    is_blt ||
+    is_bge ||
+    is_bltu ||
+    is_bgeu ||
+    is_lb ||
+    is_lh ||
+    is_lbu ||
+    is_lhu ||
+    is_lw ||
+    is_sb ||
+    is_sh ||
+    is_sw ||
+    is_addi ||
+    is_slti ||
+    is_sltiu ||
+    is_xori ||
+    is_ori ||
+    is_andi ||
+    is_slli ||
+    is_srai ||
+    is_add ||
+    is_sub ||
+    is_sll ||
+    is_slt ||
+    is_sltu ||
+    is_xor ||
+    is_srl ||
+    is_or ||
+    is_and ||
+    is_error ||
+    is_ecall ||
+    is_ebreak;
 
   logic [31:0]immediate;
   always_comb begin
@@ -205,8 +243,9 @@ module riscv (
         end
 
         execute_instr: begin
-          (* parallel_case, full_case *)
-          case (1'b1)
+          if (!is_valid) begin
+            cpu_state <= cpu_trap;
+          end else (* parallel_case, full_case *) case (1'b1)
             is_lui: begin
               regs[rd] <= immediate;
               do_next_instr();
@@ -329,6 +368,7 @@ module riscv (
 
         finish_load: begin
           if (mem_ready) begin
+             (* parallel_case, full_case *)
             case (1'b1)
               is_lb: regs[rd] <= {24'b0, mem_rdata[7:0]};
               is_lbu: regs[rd] <= {{24{mem_rdata[7]}}, mem_rdata[7:0]};
@@ -361,51 +401,16 @@ module riscv (
   logic is_fetch;
   assign is_fetch = cpu_state == fetch_instr;
   logic is_valid;
-  assign is_valid = is_lui ||
-    is_auipc ||
-    is_jal ||
-    is_jalr ||
-    is_beq ||
-    is_bne ||
-    is_blt ||
-    is_bge ||
-    is_bltu ||
-    is_bgeu ||
-    is_lb ||
-    is_lh ||
-    is_lbu ||
-    is_lhu ||
-    is_sb ||
-    is_sh ||
-    is_sw ||
-    is_addi ||
-    is_slti ||
-    is_sltiu ||
-    is_xori ||
-    is_ori ||
-    is_andi ||
-    is_slli ||
-    is_srai ||
-    is_add ||
-    is_sub ||
-    is_sll ||
-    is_slt ||
-    is_sltu ||
-    is_xor ||
-    is_srl ||
-    is_or ||
-    is_and ||
-    is_error ||
-    is_ecall ||
-    is_ebreak;
+
 
   always_ff @(posedge clk) begin
-    rvfi_valid <= reset && (trap || is_fetch); // && is_valid;
+    rvfi_valid <= reset && (trap || is_fetch) && is_valid;
 
     // what were our read registers while this instruction was executing?
     if (cpu_state == execute_instr) begin
       rvfi_rs1_rdata <= regs[rs1];
       rvfi_rs2_rdata <= regs[rs2];
+
     end
 
     rvfi_rs1_addr <= rs1;
@@ -416,7 +421,6 @@ module riscv (
     rvfi_trap <= trap;
     rvfi_halt <= trap;
     rvfi_pc_rdata <= pc;
-    rvfi_mem_rdata <= mem_rdata;
     rvfi_pc_wdata <= next_pc;
     rvfi_mode <= 3;
     rvfi_ixl <= 1;
@@ -427,15 +431,15 @@ module riscv (
       rvfi_mem_addr <= 0;
       rvfi_mem_wmask <= 0;
       rvfi_mem_rmask <= 0;
-      rvfi_mem_wmask <= 0;
+      rvfi_mem_rdata <= 0;
       rvfi_mem_wdata <= 0;
     // what exactly came back from memory?
     end else if (mem_valid && mem_ready) begin
       rvfi_mem_addr <= mem_addr;
       rvfi_mem_wmask <= mem_wstrb;
-      rvfi_mem_wdata <= mem_wdata;
       rvfi_mem_rmask <= (mem_wstrb == 4'b0000) && is_load ? ~0 : 0;
-      rvfi_mem_addr <= mem_addr;
+      rvfi_mem_rdata <= mem_rdata;
+      rvfi_mem_wdata <= mem_wdata;
     end
   end
 `endif
