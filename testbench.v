@@ -3,14 +3,14 @@
 module testbench;
   logic [31:0] memory[0:255];
   logic clk = 0;
-  logic reset = 0;
+  logic reset = 1;
   always #5 clk = ~clk;
 
   initial begin
     $dumpfile("testbench.vcd");
     $dumpvars(0, testbench);
-    repeat (10) @(posedge clk);
-    reset <= 1;
+    repeat (1) @(posedge clk);
+    reset <= 0;
     repeat (200) @(posedge clk);
     $finish;
   end
@@ -95,7 +95,7 @@ module testbench;
  `ifdef RISCV_FORMAL
   monitor monitor (
     .clock(clk),
-    .reset(!reset),
+    .reset(reset),
     .rvfi_valid(rvfi_valid),
     .rvfi_order(rvfi_order),
     .rvfi_insn(rvfi_insn),

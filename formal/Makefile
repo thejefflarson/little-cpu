@@ -1,9 +1,10 @@
 check: checks
-	make -C $< -j3
+	make -C $< -j$(nproc)
 
 checks: genchecks.py riscv-formal checks.cfg
 	rm -rf $@
 	python3 $<
+	find ./checks -name '*.sby' | xargs gsed -i 's/prep/synth/g'
 
 complete: riscv-formal
 	sby -f complete.sby

@@ -39,22 +39,18 @@ module riscv (
   logic [4:0] rd, rs1, rs2;
   logic [2:0] funct3;
   logic [6:0] funct7;
-  logic math_flag;
   assign opcode = instr[6:0];
-  assign rd = instr[11:7];
+  assign rd = is_branch || is_store ? 0 : instr[11:7];
   assign rs1 = instr[19:15];
   assign rs2 = instr[24:20];
   // For shift immediates
   assign funct3 = instr[14:12];
   assign funct7 = instr[31:25];
-  assign math_flag = funct7 == 7'b0100000;
   // for load and store
   logic [31:0] load_store_address;
-  assign load_store_address = immediate + regs[rs1];
+  assign load_store_address = $signed(immediate) + $signed(regs[rs1]);
 
-  // for jump and link
-  logic [31:0] jump_address;
-  assign jump_address = is_jalr ? ($signed(immediate) + $signed(regs[rs2] & 32'hfffffe)) : $signed(pc) + $signed(immediate);
+
 
   // immediate decoder (figure 2.4)
   logic [31:0] i_immediate, s_immediate, b_immediate, u_immediate, j_immediate;
@@ -70,6 +66,11 @@ module riscv (
   assign is_auipc = opcode == 7'b0010111;
   assign is_jal = opcode == 7'b1101111;
   assign is_jalr = opcode == 7'b1100111 && funct3 == 3'b000;
+  logic [31:0] jump_address;
+  assign jump_address = is_jalr ?
+    ($signed(immediate) + $signed(regs[rs1])) & 32'hfffffffe  :
+    $signed(pc) + $signed(immediate);
+
 
   logic is_branch, is_beq, is_bne, is_blt, is_bltu, is_bge, is_bgeu;
   assign is_branch = opcode == 7'b1100011;
@@ -102,22 +103,22 @@ module riscv (
   assign is_xori = is_math_immediate && funct3 == 3'b100;
   assign is_ori = is_math_immediate && funct3 == 3'b110;
   assign is_andi = is_math_immediate && funct3 == 3'b111;
-  assign is_slli = is_math_immediate && !math_flag && funct3 == 3'b001;
-  assign is_srli = is_math_immediate && !math_flag && funct3 == 3'b101;
-  assign is_srai = is_math_immediate && math_flag && funct3 == 3'b101;
+  assign is_slli = is_math_immediate && funct7 == 7'b0000000 && funct3 == 3'b001;
+  assign is_srli = is_math_immediate && funct7 == 7'b0000000 && funct3 == 3'b101;
+  assign is_srai = is_math_immediate && funct7 == 7'b0100000 && funct3 == 3'b101;
 
   logic is_math, is_add, is_sub, is_sll, is_slt, is_sltu, is_xor, is_srl, is_sra, is_or, is_and;
   assign is_math = opcode == 7'b0110011;
-  assign is_add = is_math && !math_flag && funct3 == 3'b000;
-  assign is_sub = is_math && math_flag && funct3 == 3'b000;
+  assign is_add = is_math && funct7 == 7'b0000000 && funct3 == 3'b000;
+  assign is_sub = is_math && funct7 == 7'b0100000 && funct3 == 3'b000;
   assign is_sll = is_math && funct3 == 3'b001;
   assign is_slt = is_math && funct3 == 3'b010;
   assign is_sltu = is_math && funct3 == 3'b011;
-  assign is_xor = is_math && funct3 == 3'b100;
-  assign is_srl = is_math && !math_flag && funct3 == 3'b101;
-  assign is_sra = is_math && math_flag && funct3 == 3'b101;
-  assign is_or = is_math && funct3 == 3'b110;
-  assign is_and = is_math && funct3 == 3'b111;
+  assign is_xor = is_math && funct7 == 7'b0000000 && funct3 == 3'b100;
+  assign is_srl = is_math && funct7 == 7'b0000000 && funct3 == 3'b101;
+  assign is_sra = is_math && funct7 == 7'b0100000 && funct3 == 3'b101;
+  assign is_or = is_math && funct7 == 7'b0000000 && funct3 == 3'b110;
+  assign is_and = is_math && funct7 == 7'b0000000 && funct3 == 3'b111;
   logic [31:0] math_arg;
   assign math_arg = is_math_immediate ? immediate : regs[rs2];
   logic [4:0] shamt;
@@ -189,13 +190,14 @@ module riscv (
   logic [31:0] next_pc;
 
   // state_machine
-  logic [4:0] cpu_state;
-  localparam fetch_instr = 5'b00001;
-  localparam ready_instr = 5'b00010;
-  localparam execute_instr = 5'b00011;
-  localparam finish_load = 5'b00100;
-  localparam finish_store = 5'b00101;
-  localparam cpu_trap = 5'b00000;
+  logic [2:0] cpu_state;
+  localparam fetch_instr = 3'b001;
+  localparam ready_instr = 3'b010;
+  localparam execute_instr = 3'b011;
+  localparam finish_load = 3'b100;
+  localparam finish_store = 3'b101;
+  localparam check_pc = 3'b111;
+  localparam cpu_trap = 3'b000;
 
   task automatic do_next_instr;
     cpu_state <= fetch_instr;
@@ -204,7 +206,7 @@ module riscv (
 
   integer i;
   always_ff @(posedge clk) begin
-    if (!reset) begin
+    if (reset) begin
       for (i = 0; i < 32; i = i + 1) begin
         regs[i] <= 0;
       end
@@ -242,125 +244,127 @@ module riscv (
         execute_instr: begin
           if (!is_valid) begin
             cpu_state <= cpu_trap;
-          end else (* parallel_case, full_case *) case (1'b1)
-            is_lui: begin
-              regs[rd] <= immediate;
-              do_next_instr();
-            end
+          end else begin
+            (* parallel_case, full_case *)
+            case (1'b1)
+              is_lui: begin
+                regs[rd] <= immediate;
+                do_next_instr();
+              end
 
-            is_auipc: begin
-              regs[rd] <= immediate + pc;
-              do_next_instr();
-            end
+              is_auipc: begin
+                regs[rd] <= immediate + pc;
+                do_next_instr();
+              end
 
-            is_jal || is_jalr: begin
-              if (is_jalr) begin
+              is_jal || is_jalr: begin
                 regs[rd] <= pc + 4;
-              end
-              if (|jump_address[1:0]) begin
-                cpu_state <= cpu_trap;
-              end else begin
                 next_pc <= jump_address;
-                cpu_state <= fetch_instr;
+                cpu_state <= check_pc;
               end
-            end
 
-            is_branch: begin
-              (* parallel_case, full_case *)
-              case(1'b1)
-                is_beq: next_pc <= regs[rs1] == regs[rs2] ? immediate : pc + 4;
-                is_bne: next_pc <= regs[rs1] != regs[rs2] ? immediate : pc + 4;
-                is_blt: next_pc <= $signed(regs[rs1]) < $signed(regs[rs2]) ? immediate : pc + 4;
-                is_bltu: next_pc <= regs[rs1] < regs[rs2] ? immediate : pc + 4;
-                is_bge: next_pc <= $signed(regs[rs1]) >= $signed(regs[rs2]) ? immediate : pc + 4;
-                is_bgeu: next_pc <= regs[rs1] >= regs[rs2] ? immediate : pc + 4;
-              endcase
-              cpu_state <= fetch_instr;
-            end
-
-            is_math || is_math_immediate: begin
-              (* parallel_case, full_case *)
-              case(1'b1)
-                is_add || is_addi: begin
-                  regs[rd] <= regs[rs1] + math_arg;
-                end
-
-                is_sub: begin
-                  regs[rd] <= regs[rs1] - math_arg;
-                end
-
-                is_sll || is_slli: begin
-                  regs[rd] <= regs[rs1] << shamt;
-                end
-
-                is_slt || is_slti: begin
-                  regs[rd] <= {31'b0, $signed(regs[rs1]) < $signed(math_arg)};
-                end
-
-                is_sltu || is_sltiu: begin
-                  regs[rd] <= {31'b0, regs[rs1] < math_arg};
-                end
-
-                is_xor || is_xori: begin
-                  regs[rd] <= regs[rs1] ^ math_arg;
-                end
-
-                is_srl || is_srli: begin
-                  regs[rd] <= regs[rs1] >> shamt;
-                end
-
-                is_sra || is_srai: begin
-                  regs[rd] <= $signed(regs[rs1]) >>> shamt;
-                end
-
-                is_or || is_ori: begin
-                  regs[rd] <= regs[rs1] | math_arg;
-                end
-
-                is_and || is_andi: begin
-                  regs[rd] <= regs[rs1] & math_arg;
-                end
-              endcase
-              do_next_instr();
-            end
-
-            is_load: begin
-              // can't load into x0 and can't load misaligned addresses
-              if (rd == 0 || |load_store_address[1:0]) begin
-                cpu_state <= cpu_trap;
-              end else begin
-                mem_wstrb <= 4'b0000;
-                mem_addr <= load_store_address;
-                mem_instr <= 0; // can we have data
-                mem_valid <= 1; // kick off a memory request
-                cpu_state <= finish_load;
-              end
-            end
-
-            is_store: begin
-              // Check for misalignment
-              if ((is_sw && |load_store_address[1:0]) ||
-                  (is_sh && load_store_address[0])) begin
-                cpu_state <= cpu_trap;
-              end else begin
-                mem_addr <= load_store_address;
-                mem_wdata <= regs[rs2];
+              is_branch: begin
                 (* parallel_case, full_case *)
-                case (1'b1)
-                  is_sw: mem_wstrb <= 4'b1111;
-                  is_sh: mem_wstrb <= 4'b0011;
-                  is_sb: mem_wstrb <= 4'b0001;
+                case(1'b1)
+                  is_beq: next_pc <= regs[rs1] == regs[rs2] ? pc + immediate : pc + 4;
+                  is_bne: next_pc <= regs[rs1] != regs[rs2] ? pc + immediate : pc + 4;
+                  is_blt: next_pc <= $signed(regs[rs1]) < $signed(regs[rs2]) ? pc + immediate : pc + 4;
+                  is_bltu: next_pc <= regs[rs1] < regs[rs2] ? pc + immediate : pc + 4;
+                  is_bge: next_pc <= $signed(regs[rs1]) >= $signed(regs[rs2]) ? pc + immediate : pc + 4;
+                  is_bgeu: next_pc <= regs[rs1] >= regs[rs2] ? pc + immediate : pc + 4;
                 endcase
-                mem_instr <= 0;
-                mem_valid <= 1; // kick off a memory request
-                cpu_state <= finish_store;
+                cpu_state <= check_pc;
               end
-            end
 
-            default: begin
-              cpu_state <= cpu_trap;
-           end
-         endcase
+              is_math || is_math_immediate: begin
+                (* parallel_case, full_case *)
+                case(1'b1)
+                  is_add || is_addi: begin
+                    regs[rd] <= regs[rs1] + math_arg;
+                  end
+
+                  is_sub: begin
+                    regs[rd] <= regs[rs1] - math_arg;
+                  end
+
+                  is_sll || is_slli: begin
+                    regs[rd] <= regs[rs1] << shamt;
+                  end
+
+                  is_slt || is_slti: begin
+                    regs[rd] <= {31'b0, $signed(regs[rs1]) < $signed(math_arg)};
+                  end
+
+                  is_sltu || is_sltiu: begin
+                    regs[rd] <= {31'b0, regs[rs1] < math_arg};
+                  end
+
+                  is_xor || is_xori: begin
+                    regs[rd] <= regs[rs1] ^ math_arg;
+                  end
+
+                  is_srl || is_srli: begin
+                    regs[rd] <= regs[rs1] >> shamt;
+                  end
+
+                  is_sra || is_srai: begin
+                    regs[rd] <= $signed(regs[rs1]) >>> shamt;
+                  end
+
+                  is_or || is_ori: begin
+                    regs[rd] <= regs[rs1] | math_arg;
+                  end
+
+                  is_and || is_andi: begin
+                    regs[rd] <= regs[rs1] & math_arg;
+                  end
+                endcase
+                do_next_instr();
+              end
+
+              is_load: begin
+                // can't load into x0 and can't load misaligned addresses
+                if (rd == 0 || |load_store_address[1:0]) begin
+                  cpu_state <= cpu_trap;
+                end else begin
+                  mem_wstrb <= 4'b0000;
+                  mem_addr <= load_store_address;
+                  mem_instr <= 0; // can we have data
+                  mem_valid <= 1; // kick off a memory request
+                  cpu_state <= finish_load;
+                end
+              end
+
+              is_store: begin
+                // Check for misalignment
+                if ((is_sw && |load_store_address[1:0]) ||
+                    (is_sh && load_store_address[0])) begin
+                  cpu_state <= cpu_trap;
+                end else begin
+                  mem_addr <= load_store_address;
+                  mem_wdata <= regs[rs2];
+                  (* parallel_case, full_case *)
+                  case (1'b1)
+                    is_sw: mem_wstrb <= 4'b1111;
+                    is_sh: mem_wstrb <= 4'b0011;
+                    is_sb: mem_wstrb <= 4'b0001;
+                  endcase
+                  mem_instr <= 0;
+                  mem_valid <= 1; // kick off a memory request
+                  cpu_state <= finish_store;
+                end
+              end
+
+              default: begin
+                cpu_state <= cpu_trap;
+              end
+            endcase
+          end
+        end
+
+        // for branches and jumps: if the next program counter is misaligned we need to trap
+        check_pc: begin
+          cpu_state <= |next_pc[1:0] ? cpu_trap : fetch_instr;
         end
 
         finish_load: begin
@@ -397,9 +401,15 @@ module riscv (
  `ifdef RISCV_FORMAL
   logic is_fetch;
   assign is_fetch = cpu_state == fetch_instr;
+  logic skip;
 
   always_ff @(posedge clk) begin
-    rvfi_valid <= reset && (trap || is_fetch) && is_valid;
+    if (reset) begin
+      skip <= 1;
+    end else if (cpu_state == fetch_instr) begin // not our first rodeo
+      skip <= 0;
+    end
+    rvfi_valid <= !reset && (trap || is_fetch) && is_valid && !skip;
 
     // what were our read registers while this instruction was executing?
     if (cpu_state == execute_instr) begin
@@ -410,8 +420,9 @@ module riscv (
     rvfi_rs1_addr <= rs1;
     rvfi_rs2_addr <= rs2;
     rvfi_insn <= instr;
+
     rvfi_rd_addr <= rd;
-    rvfi_rd_wdata <= regs[rd];
+    rvfi_rd_wdata <= |rd ? regs[rd] : 0;
     rvfi_trap <= trap;
     rvfi_halt <= trap;
     rvfi_pc_rdata <= pc;
@@ -419,7 +430,7 @@ module riscv (
     rvfi_mode <= 3;
     rvfi_ixl <= 1;
     rvfi_intr <= 0;
-    rvfi_order <= reset ? rvfi_order + rvfi_valid : 0;
+    rvfi_order <= !reset ? rvfi_order + rvfi_valid : 0;
 
     if (mem_instr) begin
       rvfi_mem_addr <= 0;
