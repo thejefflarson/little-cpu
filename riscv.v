@@ -323,8 +323,7 @@ module riscv (
               end
 
               is_load: begin
-                // can't load into x0 and can't load misaligned addresses
-                if (rd == 0 || |load_store_address[1:0]) begin
+                if (|load_store_address[1:0]) begin
                   cpu_state <= cpu_trap;
                 end else begin
                   mem_wstrb <= 4'b0000;
@@ -336,7 +335,6 @@ module riscv (
               end
 
               is_store: begin
-                // Check for misalignment
                 if ((is_sw && |load_store_address[1:0]) ||
                     (is_sh && load_store_address[0])) begin
                   cpu_state <= cpu_trap;
@@ -369,7 +367,7 @@ module riscv (
 
         finish_load: begin
           if (mem_ready) begin
-             (* parallel_case, full_case *)
+            (* parallel_case, full_case *)
             case (1'b1)
               is_lb: regs[rd] <= {24'b0, mem_rdata[7:0]};
               is_lbu: regs[rd] <= {{24{mem_rdata[7]}}, mem_rdata[7:0]};
