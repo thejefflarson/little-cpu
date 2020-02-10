@@ -50,8 +50,6 @@ module riscv (
   logic [31:0] load_store_address;
   assign load_store_address = $signed(immediate) + $signed(regs[rs1]);
 
-
-
   // immediate decoder (figure 2.4)
   logic [31:0] i_immediate, s_immediate, b_immediate, u_immediate, j_immediate;
   assign i_immediate = {{20{instr[31]}}, instr[31:20]};
@@ -70,7 +68,6 @@ module riscv (
   assign jump_address = is_jalr ?
     ($signed(immediate) + $signed(regs[rs1])) & 32'hfffffffe  :
     $signed(pc) + $signed(immediate);
-
 
   logic is_branch, is_beq, is_bne, is_blt, is_bltu, is_bge, is_bgeu;
   assign is_branch = opcode == 7'b1100011;
