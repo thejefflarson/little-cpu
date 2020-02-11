@@ -1,7 +1,7 @@
 [options]
 mode bmc
 aigsmt z3
-depth 20
+depth 10
 
 [engines]
 abc bmc3
@@ -22,7 +22,7 @@ with open("riscv-formal/insns/isa_rv32i.txt") as f:
 
 read_verilog -sv isa_rv32i.v
 read_verilog -sv complete.v
-synth -nordff -top rvfi_testbench
+prep -nordff -top rvfi_testbench
 
 [files]
 complete.v

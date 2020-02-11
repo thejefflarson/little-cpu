@@ -1,5 +1,6 @@
 module riscv (
-  input  logic        clk, reset,
+  input  logic        clk,
+  input  logic        reset,
   // picorv32 memory interface, cuz it is nice
   output logic        mem_valid,
   output logic        mem_instr,
@@ -43,14 +44,10 @@ module riscv (
   assign rd = is_branch || is_store ? 0 : instr[11:7];
   assign rs1 = instr[19:15];
   assign rs2 = instr[24:20];
-  // For shift immediates
   assign funct3 = instr[14:12];
   assign funct7 = instr[31:25];
-  // for load and store
   logic [31:0] load_store_address;
   assign load_store_address = $signed(immediate) + $signed(regs[rs1]);
-
-
 
   // immediate decoder (figure 2.4)
   logic [31:0] i_immediate, s_immediate, b_immediate, u_immediate, j_immediate;
@@ -70,7 +67,6 @@ module riscv (
   assign jump_address = is_jalr ?
     ($signed(immediate) + $signed(regs[rs1])) & 32'hfffffffe  :
     $signed(pc) + $signed(immediate);
-
 
   logic is_branch, is_beq, is_bne, is_blt, is_bltu, is_bge, is_bgeu;
   assign is_branch = opcode == 7'b1100011;
@@ -188,28 +184,25 @@ module riscv (
   logic [31:0] instr;
   // storage for the next program counter
   logic [31:0] next_pc;
+  // register write addr
+  logic [31:0] reg_wdata;
 
   // state_machine
   logic [2:0] cpu_state;
+  logic skip_pc_check;
   localparam fetch_instr = 3'b001;
   localparam ready_instr = 3'b010;
   localparam execute_instr = 3'b011;
   localparam finish_load = 3'b100;
   localparam finish_store = 3'b101;
   localparam check_pc = 3'b111;
+  localparam reg_write = 3'b110;
   localparam cpu_trap = 3'b000;
 
-  task automatic do_next_instr;
-    cpu_state <= fetch_instr;
-    next_pc <= pc + 4;
-  endtask
+  //integer i;
 
-  integer i;
   always_ff @(posedge clk) begin
     if (reset) begin
-      for (i = 0; i < 32; i = i + 1) begin
-        regs[i] <= 0;
-      end
       pc <= 0;
       instr <= 0;
       next_pc <= 0;
@@ -228,12 +221,14 @@ module riscv (
           mem_valid <= 1;
           cpu_state <= ready_instr;
           mem_addr <= next_pc;
-          // clear x0
+          skip_pc_check <= 0;
           regs[0] <= 0;
         end
 
         ready_instr: begin
           if (mem_ready) begin
+            assert(mem_valid && mem_instr);
+
             mem_valid <= 0;
             pc <= mem_addr;
             instr <= mem_rdata;
@@ -248,17 +243,21 @@ module riscv (
             (* parallel_case, full_case *)
             case (1'b1)
               is_lui: begin
-                regs[rd] <= immediate;
-                do_next_instr();
+                reg_wdata <= immediate;
+                cpu_state <= reg_write;
+                skip_pc_check <= 1;
+                next_pc <= pc + 4;
               end
 
               is_auipc: begin
-                regs[rd] <= immediate + pc;
-                do_next_instr();
+                reg_wdata <= immediate + pc;
+                cpu_state <= reg_write;
+                skip_pc_check <= 1;
+                next_pc <= pc + 4;
               end
 
               is_jal || is_jalr: begin
-                regs[rd] <= pc + 4;
+                reg_wdata <= pc + 4;
                 next_pc <= jump_address;
                 cpu_state <= check_pc;
               end
@@ -277,49 +276,51 @@ module riscv (
               end
 
               is_math || is_math_immediate: begin
+                cpu_state <= reg_write;
+                next_pc <= pc + 4;
+                skip_pc_check <= 1;
                 (* parallel_case, full_case *)
                 case(1'b1)
                   is_add || is_addi: begin
-                    regs[rd] <= regs[rs1] + math_arg;
+                    reg_wdata <= regs[rs1] + math_arg;
                   end
 
                   is_sub: begin
-                    regs[rd] <= regs[rs1] - math_arg;
+                    reg_wdata <= regs[rs1] - math_arg;
                   end
 
                   is_sll || is_slli: begin
-                    regs[rd] <= regs[rs1] << shamt;
+                    reg_wdata <= regs[rs1] << shamt;
                   end
 
                   is_slt || is_slti: begin
-                    regs[rd] <= {31'b0, $signed(regs[rs1]) < $signed(math_arg)};
+                    reg_wdata <= {31'b0, $signed(regs[rs1]) < $signed(math_arg)};
                   end
 
                   is_sltu || is_sltiu: begin
-                    regs[rd] <= {31'b0, regs[rs1] < math_arg};
+                    reg_wdata <= {31'b0, regs[rs1] < math_arg};
                   end
 
                   is_xor || is_xori: begin
-                    regs[rd] <= regs[rs1] ^ math_arg;
+                    reg_wdata <= regs[rs1] ^ math_arg;
                   end
 
                   is_srl || is_srli: begin
-                    regs[rd] <= regs[rs1] >> shamt;
+                    reg_wdata <= regs[rs1] >> shamt;
                   end
 
                   is_sra || is_srai: begin
-                    regs[rd] <= $signed(regs[rs1]) >>> shamt;
+                    reg_wdata <= $signed(regs[rs1]) >>> shamt;
                   end
 
                   is_or || is_ori: begin
-                    regs[rd] <= regs[rs1] | math_arg;
+                    reg_wdata <= regs[rs1] | math_arg;
                   end
 
                   is_and || is_andi: begin
-                    regs[rd] <= regs[rs1] & math_arg;
+                    reg_wdata <= regs[rs1] & math_arg;
                   end
                 endcase
-                do_next_instr();
               end
 
               is_load: begin
@@ -360,6 +361,15 @@ module riscv (
           end
         end
 
+        reg_write: begin
+          regs[rd] <= reg_wdata;
+          if (|skip_pc_check) begin
+            cpu_state <= fetch_instr;
+          end else begin
+            cpu_state <= check_pc;
+          end
+        end
+
         // for branches and jumps: if the next program counter is misaligned we need to trap
         check_pc: begin
           cpu_state <= |next_pc[1:0] ? cpu_trap : fetch_instr;
@@ -367,6 +377,7 @@ module riscv (
 
         finish_load: begin
           if (mem_ready) begin
+            assert(mem_valid && !mem_instr && !{|mem_wstrb});
             (* parallel_case, full_case *)
             case (1'b1)
               is_lb: regs[rd] <= {24'b0, mem_rdata[7:0]};
@@ -377,15 +388,17 @@ module riscv (
             endcase
             cpu_state <= fetch_instr;
             mem_valid <= 0;
-            do_next_instr();
+            next_pc <= pc + 4;
           end
         end
 
         finish_store: begin
           if (mem_ready) begin
+            assert(mem_valid && !mem_instr && |mem_wstrb);
+
             cpu_state <= fetch_instr;
             mem_valid <= 0;
-            do_next_instr();
+            next_pc <= pc + 4;
           end
         end
 
@@ -445,5 +458,5 @@ module riscv (
       rvfi_mem_wdata <= mem_wdata;
     end
   end
-`endif
+ `endif
 endmodule
