@@ -259,7 +259,7 @@ module riscv (
               is_jal || is_jalr: begin
                 reg_wdata <= pc + 4;
                 next_pc <= jump_address;
-                cpu_state <= check_pc;
+                cpu_state <= reg_write;
               end
 
               is_branch: begin
