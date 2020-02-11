@@ -1,3 +1,7 @@
+`ifdef RISCV_FORMAL
+
+`endif
+
 module riscv (
   input  logic        clk,
   input  logic        reset,
@@ -199,8 +203,6 @@ module riscv (
   localparam reg_write = 3'b110;
   localparam cpu_trap = 3'b000;
 
-  //integer i;
-
   always_ff @(posedge clk) begin
     if (reset) begin
       pc <= 0;
@@ -227,8 +229,6 @@ module riscv (
 
         ready_instr: begin
           if (mem_ready) begin
-            assert(mem_valid && mem_instr);
-
             mem_valid <= 0;
             pc <= mem_addr;
             instr <= mem_rdata;
@@ -377,7 +377,6 @@ module riscv (
 
         finish_load: begin
           if (mem_ready) begin
-            assert(mem_valid && !mem_instr && !{|mem_wstrb});
             (* parallel_case, full_case *)
             case (1'b1)
               is_lb: regs[rd] <= {24'b0, mem_rdata[7:0]};
@@ -394,8 +393,6 @@ module riscv (
 
         finish_store: begin
           if (mem_ready) begin
-            assert(mem_valid && !mem_instr && |mem_wstrb);
-
             cpu_state <= fetch_instr;
             mem_valid <= 0;
             next_pc <= pc + 4;
