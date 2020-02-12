@@ -1,7 +1,3 @@
-`ifdef RISCV_FORMAL
-
-`endif
-
 module riscv (
   input  logic        clk,
   input  logic        reset,
