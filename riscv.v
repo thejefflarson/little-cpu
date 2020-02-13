@@ -324,34 +324,25 @@ module riscv (
               end
 
               is_load: begin
-                if (|load_store_address[1:0]) begin
-                  cpu_state <= cpu_trap;
-                end else begin
-                  mem_wstrb <= 4'b0000;
-                  mem_addr <= load_store_address;
-                  mem_instr <= 0; // can we have data
-                  mem_valid <= 1; // kick off a memory request
-                  cpu_state <= finish_load;
-                end
+                mem_wstrb <= 4'b0000;
+                mem_addr <= load_store_address;
+                mem_instr <= 0; // can we have data
+                mem_valid <= 1; // kick off a memory request
+                cpu_state <= finish_load;
               end
 
               is_store: begin
-                if ((is_sw && |load_store_address[1:0]) ||
-                    (is_sh && load_store_address[0])) begin
-                  cpu_state <= cpu_trap;
-                end else begin
-                  mem_addr <= load_store_address;
-                  mem_wdata <= regs[rs2];
-                  (* parallel_case, full_case *)
-                  case (1'b1)
-                    is_sw: mem_wstrb <= 4'b1111;
-                    is_sh: mem_wstrb <= 4'b0011;
-                    is_sb: mem_wstrb <= 4'b0001;
-                  endcase
-                  mem_instr <= 0;
-                  mem_valid <= 1; // kick off a memory request
-                  cpu_state <= finish_store;
-                end
+                mem_addr <= load_store_address;
+                mem_wdata <= regs[rs2];
+                (* parallel_case, full_case *)
+                case (1'b1)
+                  is_sw: mem_wstrb <= 4'b1111;
+                  is_sh: mem_wstrb <= 4'b0011;
+                  is_sb: mem_wstrb <= 4'b0001;
+                endcase
+                mem_instr <= 0;
+                mem_valid <= 1; // kick off a memory request
+                cpu_state <= finish_store;
               end
 
               default: begin
@@ -379,10 +370,10 @@ module riscv (
           if (mem_ready) begin
             (* parallel_case, full_case *)
             case (1'b1)
-              is_lb: regs[rd] <= {24'b0, mem_rdata[7:0]};
-              is_lbu: regs[rd] <= {{24{mem_rdata[7]}}, mem_rdata[7:0]};
-              is_lh: regs[rd] <= {16'b0, mem_rdata[15:0]};
-              is_lhu: regs[rd] <= {{16{mem_rdata[7]}}, mem_rdata[15:0]};
+              is_lb: regs[rd] <= {{24{mem_rdata[7]}}, mem_rdata[7:0]};
+              is_lbu: regs[rd] <= {24'b0, mem_rdata[7:0]};
+              is_lh: regs[rd] <= {{16{mem_rdata[15]}}, mem_rdata[15:0]};
+              is_lhu: regs[rd] <= {16'b0, mem_rdata[15:0]};
               is_lw: regs[rd] <= mem_rdata;
             endcase
             cpu_state <= fetch_instr;
@@ -450,7 +441,7 @@ module riscv (
     end else if (mem_valid && mem_ready) begin
       rvfi_mem_addr <= mem_addr;
       rvfi_mem_wmask <= mem_wstrb;
-      rvfi_mem_rmask <= (mem_wstrb == 4'b0000) && is_load ? ~0 : 0;
+      rvfi_mem_rmask <= |mem_wstrb ? 0 : ~0;
       rvfi_mem_rdata <= mem_rdata;
       rvfi_mem_wdata <= mem_wdata;
     end
