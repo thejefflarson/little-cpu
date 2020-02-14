@@ -155,8 +155,10 @@ module riscv (
     is_xori ||
     is_ori ||
     is_andi ||
+    is_srli ||
     is_slli ||
     is_srai ||
+    is_sra ||
     is_add ||
     is_sub ||
     is_sll ||
