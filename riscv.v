@@ -48,6 +48,12 @@ module riscv (
   assign funct7 = instr[31:25];
   logic [31:0] load_store_address;
   assign load_store_address = $signed(immediate) + $signed(regs[rs1]);
+  logic [1:0] load24;
+  assign load24 = load_store_address[1:0];
+  logic load16;
+  assign load16 = load_store_address[1];
+  logic load8;
+  assign load8 = load_store_address[0];
 
   // immediate decoder (figure 2.4)
   logic [31:0] i_immediate, s_immediate, b_immediate, u_immediate, j_immediate;
@@ -253,8 +259,8 @@ module riscv (
               end
 
               is_jal || is_jalr: begin
-                reg_wdata <= pc + 4;
                 next_pc <= jump_address;
+                reg_wdata <= pc + 4;
                 cpu_state <= reg_write;
               end
 
@@ -320,25 +326,47 @@ module riscv (
               end
 
               is_load: begin
-                mem_wstrb <= 4'b0000;
-                mem_addr <= load_store_address;
-                mem_instr <= 0; // can we have data
-                mem_valid <= 1; // kick off a memory request
-                cpu_state <= finish_load;
+                if ((is_lw && |load24) ||
+                   ((is_lh || is_lhu) && load8)) begin
+                  cpu_state <= cpu_trap;
+                end else begin
+                  mem_wstrb <= 4'b0000;
+                  mem_addr <= {load_store_address[31:2], 2'b00};
+                  mem_instr <= 0; // can we have data
+                  mem_valid <= 1; // kick off a memory request
+                  cpu_state <= finish_load;
+                end
               end
 
               is_store: begin
-                mem_addr <= load_store_address;
-                mem_wdata <= regs[rs2];
-                (* parallel_case, full_case *)
-                case (1'b1)
-                  is_sw: mem_wstrb <= 4'b1111;
-                  is_sh: mem_wstrb <= 4'b0011;
-                  is_sb: mem_wstrb <= 4'b0001;
-                endcase
-                mem_instr <= 0;
-                mem_valid <= 1; // kick off a memory request
-                cpu_state <= finish_store;
+                if ((is_sw && |load24) ||
+                    (is_sh && load8)) begin
+                  cpu_state <= cpu_trap;
+                end else begin
+                  (* parallel_case, full_case *)
+                  case (1'b1)
+                    is_sw: begin
+                      mem_addr <= load_store_address;
+                      mem_wstrb <= 4'b1111;
+                      mem_wdata <= regs[rs2];
+                    end
+
+                    is_sh: begin
+                      // Offset to the right position
+                      mem_wstrb <= load16 ? 4'b1100 : 4'b0011;
+                      mem_wdata <= {2{regs[rs2][15:0]}};
+                    end
+
+                    is_sb: begin
+                      mem_wstrb <= 4'b0001 << load24;
+                      mem_wdata <= {4{regs[rs2][7:0]}};
+                    end
+                  endcase // case (1'b1)
+                  mem_addr <= {load_store_address[31:2], 2'b00};
+                  mem_instr <= 0;
+                  mem_valid <= 1; // kick off a memory request
+                  cpu_state <= finish_store;
+                end
               end
 
               default: begin
@@ -366,14 +394,44 @@ module riscv (
           if (mem_ready) begin
             (* parallel_case, full_case *)
             case (1'b1)
-              is_lb: regs[rd] <= {{24{mem_rdata[7]}}, mem_rdata[7:0]};
-              is_lbu: regs[rd] <= {24'b0, mem_rdata[7:0]};
-              is_lh: regs[rd] <= {{16{mem_rdata[15]}}, mem_rdata[15:0]};
-              is_lhu: regs[rd] <= {16'b0, mem_rdata[15:0]};
-              is_lw: regs[rd] <= mem_rdata;
+              // unpack the alignment from above
+              is_lb: begin
+                case (load24)
+                  2'b00: reg_wdata <= {{24{mem_rdata[7]}}, mem_rdata[7:0]};
+                  2'b01: reg_wdata <= {{24{mem_rdata[15]}}, mem_rdata[15:8]};
+                  2'b10: reg_wdata <= {{24{mem_rdata[23]}}, mem_rdata[23:16]};
+                  2'b11: reg_wdata <= {{24{mem_rdata[31]}}, mem_rdata[31:24]};
+                endcase
+              end
+
+              is_lbu: begin
+                case (load24)
+                  2'b00: reg_wdata <= {24'b0, mem_rdata[7:0]};
+                  2'b01: reg_wdata <= {24'b0, mem_rdata[15:8]};
+                  2'b10: reg_wdata <= {24'b0, mem_rdata[23:16]};
+                  2'b11: reg_wdata <= {24'b0, mem_rdata[31:24]};
+                endcase
+              end
+
+              is_lh: begin
+                case (load16)
+                  1'b0: reg_wdata <= {{16{mem_rdata[15]}}, mem_rdata[15:0]};
+                  1'b1: reg_wdata <= {{16{mem_rdata[31]}}, mem_rdata[31:16]};
+                endcase
+              end
+
+              is_lhu: begin
+                case (load16)
+                  1'b0: reg_wdata <= {16'b0, mem_rdata[15:0]};
+                  1'b1: reg_wdata <= {16'b0, mem_rdata[31:16]};
+                endcase
+              end
+
+              is_lw: reg_wdata <= mem_rdata;
             endcase
-            cpu_state <= fetch_instr;
+            cpu_state <= reg_write;
             mem_valid <= 0;
+            skip_pc_check <= 1;
             next_pc <= pc + 4;
           end
         end
@@ -397,7 +455,9 @@ module riscv (
   logic is_fetch;
   assign is_fetch = cpu_state == fetch_instr;
   logic skip;
-
+  logic rs1_valid, rs2_valid, rd_valid;
+  assign rs1_valid = !is_lui || !is_jal || !is_auipc;
+  assign rs2_valid = !is_lui || !is_jal || !is_auipc || !is_jalr || !is_load;
   always_ff @(posedge clk) begin
     if (reset) begin
       skip <= 1;
@@ -408,12 +468,12 @@ module riscv (
 
     // what were our read registers while this instruction was executing?
     if (cpu_state == execute_instr) begin
-      rvfi_rs1_rdata <= regs[rs1];
-      rvfi_rs2_rdata <= regs[rs2];
+      rvfi_rs1_rdata <= rs1_valid ? regs[rs1] : 0;
+      rvfi_rs2_rdata <= rs2_valid ? regs[rs2] : 0;
     end
 
-    rvfi_rs1_addr <= rs1;
-    rvfi_rs2_addr <= rs2;
+    rvfi_rs1_addr <= rs1_valid ? rs1 : 0;
+    rvfi_rs2_addr <= rs2_valid ? rs2 : 0;
     rvfi_insn <= instr;
 
     rvfi_rd_addr <= rd;

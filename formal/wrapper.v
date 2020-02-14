@@ -26,4 +26,13 @@ module rvfi_wrapper (
     .trap(trap),
     `RVFI_CONN
   );
+
+ `ifdef RISCV_FAIRNESS
+  // from picorv32
+  logic [2:0] mem_wait = 0;
+  always_ff @(posedge clock) begin
+    mem_wait <= {mem_wait, mem_valid && ! mem_ready};
+    assume(~mem_wait || trap);
+  end
+ `endif
 endmodule
