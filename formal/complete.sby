@@ -1,7 +1,7 @@
 [options]
 mode bmc
 aigsmt z3
-depth 10
+depth 30
 
 [engines]
 abc bmc3

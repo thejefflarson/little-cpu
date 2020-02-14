@@ -113,9 +113,9 @@ module riscv (
   assign is_math = opcode == 7'b0110011;
   assign is_add = is_math && funct7 == 7'b0000000 && funct3 == 3'b000;
   assign is_sub = is_math && funct7 == 7'b0100000 && funct3 == 3'b000;
-  assign is_sll = is_math && funct3 == 3'b001;
-  assign is_slt = is_math && funct3 == 3'b010;
-  assign is_sltu = is_math && funct3 == 3'b011;
+  assign is_sll = is_math && funct7 == 7'b0000000 && funct3 == 3'b001;
+  assign is_slt = is_math && funct7 == 7'b0000000 && funct3 == 3'b010;
+  assign is_sltu = is_math && funct7 == 7'b0000000 && funct3 == 3'b011;
   assign is_xor = is_math && funct7 == 7'b0000000 && funct3 == 3'b100;
   assign is_srl = is_math && funct7 == 7'b0000000 && funct3 == 3'b101;
   assign is_sra = is_math && funct7 == 7'b0100000 && funct3 == 3'b101;
@@ -127,9 +127,9 @@ module riscv (
   assign shamt = is_math_immediate ? rs2 : regs[rs2][4:0];
 
   logic is_error, is_ecall, is_ebreak;
-  assign is_error = opcode == 7'b1110011;
-  assign is_ecall = is_error && !instr[20];
-  assign is_ebreak = is_error && instr[20];
+  assign is_error = opcode == 7'b1110011 && funct3 == 0 && rs1 == 0 && rd == 0;
+  assign is_ecall = is_error && !{|instr[31:20]};
+  assign is_ebreak = is_error && |instr[31:20];
   logic is_valid;
   assign is_valid = is_lui ||
     is_auipc ||
@@ -168,7 +168,6 @@ module riscv (
     is_srl ||
     is_or ||
     is_and ||
-    is_error ||
     is_ecall ||
     is_ebreak;
 
@@ -371,6 +370,10 @@ module riscv (
                 end
               end
 
+              is_error: begin
+                cpu_state <= cpu_trap;
+              end
+
               default: begin
                 cpu_state <= cpu_trap;
               end
@@ -458,15 +461,10 @@ module riscv (
   assign is_fetch = cpu_state == fetch_instr;
   logic skip;
   logic rs1_valid, rs2_valid, rd_valid;
-  assign rs1_valid = !is_lui || !is_jal || !is_auipc;
-  assign rs2_valid = !is_lui || !is_jal || !is_auipc || !is_jalr || !is_load;
+  assign rs1_valid = !is_lui && !is_jal && !is_auipc;
+  assign rs2_valid = !is_lui && !is_jal && !is_auipc && !is_jalr && !is_load;
   always_ff @(posedge clk) begin
-    if (reset) begin
-      skip <= 1;
-    end else if (cpu_state == fetch_instr) begin // not our first rodeo
-      skip <= 0;
-    end
-    rvfi_valid <= !reset && (trap || is_fetch) && is_valid && !skip;
+    rvfi_valid <= !reset && (trap || is_fetch) && is_valid;
 
     // what were our read registers while this instruction was executing?
     if (cpu_state == execute_instr) begin
