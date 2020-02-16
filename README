@@ -1,0 +1,34 @@
+ .|-|-|-|-|-|-|-|-|.
+-|  .:::.   .:::.  |-
+-| :::::::.::::::: |-
+-| ::::::::::::::: |-
+-| ':::::::::::::' |-
+-|   ':::::::::'   |-
+-|     ':::::'     |-
+-|       ':'       |-
+ `|-|-|-|-|-|-|-|-|'
+
+Little CPU
+==========
+
+Little CPU is an implementation of the RISCV 32 base ISA (I) in verilog.
+
+You can run a simple test suite by installing the latest development version of icarus-verilog.
+On OSX, you can install it using brew, and then the suite is just a make away:
+
+  brew install icarus-verilog --HEAD
+  make test
+
+It is formally verified with: https://github.com/SymbioticEDA/riscv-formal
+
+To run the formal test suite install SymbiYosys by following:
+https://symbiyosys.readthedocs.io/en/latest/quickstart.html#installing
+
+And then run:
+
+  cd checks
+  make
+  make complete
+
+I'm unreasonably proud and excited by this project, it was made with love, and I hope that it is a
+good read. There's much more to come!
