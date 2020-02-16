@@ -466,7 +466,7 @@ module riscv (
   assign rs1_valid = !is_lui && !is_jal && !is_auipc;
   assign rs2_valid = !is_lui && !is_jal && !is_auipc && !is_jalr && !is_load;
   always_ff @(posedge clk) begin
-    rvfi_valid <= !reset && (trap || is_fetch) && is_valid;
+    rvfi_valid <= !reset && ((is_fetch && is_valid) || trap);
 
     // what were our read registers while this instruction was executing?
     if (cpu_state == execute_instr) begin
