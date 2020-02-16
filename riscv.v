@@ -40,6 +40,7 @@ module riscv (
   logic [4:0] rd, rs1, rs2;
   logic [2:0] funct3;
   logic [6:0] funct7;
+
   assign opcode = instr[6:0];
   assign rd = is_branch || is_store ? 0 : instr[11:7];
   assign rs1 = instr[19:15];
@@ -193,10 +194,12 @@ module riscv (
   logic [31:0] next_pc;
   // register write addr
   logic [31:0] reg_wdata;
+  // pc write
+  logic [31:0] pc_wdata;
 
   // state_machine
   logic [2:0] cpu_state;
-  logic skip_pc_check;
+  logic skip_reg_write;
   localparam fetch_instr = 3'b001;
   localparam ready_instr = 3'b010;
   localparam execute_instr = 3'b011;
@@ -226,7 +229,7 @@ module riscv (
           mem_valid <= 1;
           cpu_state <= ready_instr;
           mem_addr <= next_pc;
-          skip_pc_check <= 0;
+          skip_reg_write <= 0;
           regs[0] <= 0;
         end
 
@@ -248,40 +251,39 @@ module riscv (
               is_lui: begin
                 reg_wdata <= immediate;
                 cpu_state <= reg_write;
-                skip_pc_check <= 1;
                 next_pc <= pc + 4;
               end
 
               is_auipc: begin
                 reg_wdata <= immediate + pc;
                 cpu_state <= reg_write;
-                skip_pc_check <= 1;
                 next_pc <= pc + 4;
               end
 
               is_jal || is_jalr: begin
-                next_pc <= jump_address;
+                pc_wdata <= jump_address;
                 reg_wdata <= pc + 4;
-                cpu_state <= reg_write;
+                skip_reg_write <= 0;
+                cpu_state <= check_pc;
               end
 
               is_branch: begin
                 (* parallel_case, full_case *)
                 case(1'b1)
-                  is_beq: next_pc <= regs[rs1] == regs[rs2] ? pc + immediate : pc + 4;
-                  is_bne: next_pc <= regs[rs1] != regs[rs2] ? pc + immediate : pc + 4;
-                  is_blt: next_pc <= $signed(regs[rs1]) < $signed(regs[rs2]) ? pc + immediate : pc + 4;
-                  is_bltu: next_pc <= regs[rs1] < regs[rs2] ? pc + immediate : pc + 4;
-                  is_bge: next_pc <= $signed(regs[rs1]) >= $signed(regs[rs2]) ? pc + immediate : pc + 4;
-                  is_bgeu: next_pc <= regs[rs1] >= regs[rs2] ? pc + immediate : pc + 4;
+                  is_beq: pc_wdata <= regs[rs1] == regs[rs2] ? pc + immediate : pc + 4;
+                  is_bne: pc_wdata <= regs[rs1] != regs[rs2] ? pc + immediate : pc + 4;
+                  is_blt: pc_wdata <= $signed(regs[rs1]) < $signed(regs[rs2]) ? pc + immediate : pc + 4;
+                  is_bltu: pc_wdata <= regs[rs1] < regs[rs2] ? pc + immediate : pc + 4;
+                  is_bge: pc_wdata <= $signed(regs[rs1]) >= $signed(regs[rs2]) ? pc + immediate : pc + 4;
+                  is_bgeu: pc_wdata <= regs[rs1] >= regs[rs2] ? pc + immediate : pc + 4;
                 endcase
+                skip_reg_write <= 1;
                 cpu_state <= check_pc;
               end
 
               is_math || is_math_immediate: begin
                 cpu_state <= reg_write;
                 next_pc <= pc + 4;
-                skip_pc_check <= 1;
                 (* parallel_case, full_case *)
                 case(1'b1)
                   is_add || is_addi: begin
@@ -383,16 +385,17 @@ module riscv (
 
         reg_write: begin
           regs[rd] <= reg_wdata;
-          if (|skip_pc_check) begin
-            cpu_state <= fetch_instr;
-          end else begin
-            cpu_state <= check_pc;
-          end
+          cpu_state <= fetch_instr;
         end
 
         // for branches and jumps: if the next program counter is misaligned we need to trap
         check_pc: begin
-          cpu_state <= |next_pc[1:0] ? cpu_trap : fetch_instr;
+          if (|pc_wdata[1:0]) begin
+            cpu_state <= cpu_trap;
+          end else begin
+            next_pc <= pc_wdata;
+            cpu_state <= skip_reg_write ? fetch_instr : reg_write;
+          end
         end
 
         finish_load: begin
@@ -436,7 +439,6 @@ module riscv (
             endcase
             cpu_state <= reg_write;
             mem_valid <= 0;
-            skip_pc_check <= 1;
             next_pc <= pc + 4;
           end
         end
