@@ -9,13 +9,13 @@
 
 module testbench (
   input clk,
-  input   mem_ready,
-  output  mem_valid,
-  output  mem_instr,
+  input mem_ready,
+  output mem_valid,
+  output mem_instr,
   output [31:0] mem_addr,
   output [31:0] mem_wdata,
-  output [3:0]  mem_wstrb,
-  input  [31:0] mem_rdata
+  output [3:0] mem_wstrb,
+  input [31:0] mem_rdata
 );
   reg resetn = 0;
   wire trap;

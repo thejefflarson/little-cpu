@@ -1,9 +1,15 @@
 check: checks complete dmemcheck imemcheck
 	make -C $< -j$(nproc)
-        find . -name FAIL | $(exit $(wc -l))
+	find . -name FAIL | $(exit $(wc -l))
 
 checks: genchecks.py riscv-formal checks.cfg
 	python3 $<
+
+dmemcheck: dmemcheck.sby dememcheck.sv
+	sby -f $<
+
+imemcheck: imemcheck.sby imemcheck.sv
+	sby -f $<
 
 complete: riscv-formal
 	sby -f complete.sby
