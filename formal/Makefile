@@ -1,5 +1,6 @@
-check: checks
+check: checks complete dmemcheck imemcheck
 	make -C $< -j$(nproc)
+        find . -name FAIL | $(exit $(wc -l))
 
 checks: genchecks.py riscv-formal checks.cfg
 	python3 $<
@@ -12,6 +13,6 @@ riscv-formal:
 	git clone https://github.com/SymbioticEDA/riscv-formal
 
 clean:
-	rm -rf {checks,complete,riscv-formal}
+	rm -rf {checks,complete,riscv-formal,dmemcheck}
 
 .PHONY: complete check clean

@@ -5,5 +5,9 @@ pll.v
 formal/riscv-formal
 formal/complete
 formal/checks
-.vcd
-.vvp
+formal/dmemcheck
+formal/imemcheck
+*.vcd
+*.vvp
+disasm.s
+disasm.o
