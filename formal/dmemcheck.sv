@@ -36,7 +36,7 @@ module testbench (
     `RVFI_CONN
   );
 
-  always @(posedge clk) begin
+  always_ff @(posedge clk) begin
     if (resetn && mem_valid && mem_ready && mem_addr == dmem_addr) begin
       if (mem_wstrb[0]) dmem_data[ 7: 0] <= mem_wdata[ 7: 0];
       if (mem_wstrb[1]) dmem_data[15: 8] <= mem_wdata[15: 8];
@@ -45,7 +45,7 @@ module testbench (
     end
   end
 
-  always @* begin
+  always_comb begin
     if (resetn && mem_valid && mem_ready && mem_addr == dmem_addr && !mem_wstrb)
       assume(dmem_data == mem_rdata);
   end
@@ -66,7 +66,7 @@ module testbench (
   );
 
   reg [4:0] mem_wait = 0;
-  always @(posedge clk) begin
+  always_ff @(posedge clk) begin
     mem_wait <= {mem_wait, mem_valid && !mem_ready};
   end
 endmodule

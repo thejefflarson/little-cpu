@@ -36,6 +36,7 @@ module riscv (
   );
 
   // instruction decoder (figure 2.3)
+  logic [31:0] instr;
   logic [6:0] opcode;
   logic [4:0] rd, rs1, rs2;
   logic [2:0] funct3;
@@ -189,7 +190,6 @@ module riscv (
   // registers
   logic [31:0] regs[0:31];
   logic [31:0] pc;
-  logic [31:0] instr;
   // storage for the next program counter
   logic [31:0] next_pc;
   // register write addr
@@ -461,7 +461,6 @@ module riscv (
  `ifdef RISCV_FORMAL
   logic is_fetch;
   assign is_fetch = cpu_state == fetch_instr;
-  logic skip;
   logic rs1_valid, rs2_valid, rd_valid;
   assign rs1_valid = !is_lui && !is_jal && !is_auipc;
   assign rs2_valid = !is_lui && !is_jal && !is_auipc && !is_jalr && !is_load;

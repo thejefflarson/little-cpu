@@ -1,19 +1,19 @@
-check: checks complete dmemcheck imemcheck
-	make -C $< -j$(nproc)
-	find . -name FAIL | $(exit $(wc -l))
+all: complete check dmemcheck imemcheck
+
+check: checks riscv-formal
+	make -BC $< -j$(nproc)
 
 checks: genchecks.py riscv-formal checks.cfg
 	python3 $<
 
-dmemcheck: dmemcheck.sby dememcheck.sv
+dmemcheck: dmemcheck.sby dmemcheck.sv riscv-formal
 	sby -f $<
 
-imemcheck: imemcheck.sby imemcheck.sv
+imemcheck: imemcheck.sby imemcheck.sv riscv-formal
 	sby -f $<
 
-complete: riscv-formal
-	sby -f complete.sby
-	python3 ./riscv-formal/cores/picorv32/disasm.py complete/engine_0/trace.vcd
+complete: complete.sby riscv-formal
+	sby -f $<
 
 riscv-formal:
 	git clone https://github.com/SymbioticEDA/riscv-formal
@@ -21,4 +21,4 @@ riscv-formal:
 clean:
 	rm -rf {checks,complete,riscv-formal,dmemcheck}
 
-.PHONY: complete check clean
+.PHONY: all clean
