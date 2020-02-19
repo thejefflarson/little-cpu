@@ -230,6 +230,7 @@ module riscv (
           cpu_state <= ready_instr;
           mem_addr <= next_pc;
           skip_reg_write <= 0;
+          instr <= 0;
           regs[0] <= 0;
         end
 

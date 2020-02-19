@@ -2,7 +2,7 @@
 mode bmc
 append 0
 tbtop testbench.uut
-depth 22
+depth 15
 
 [engines]
 smtbmc --presat --unroll boolector

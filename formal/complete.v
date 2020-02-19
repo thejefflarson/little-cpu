@@ -9,7 +9,8 @@ module rvfi_testbench (
   input  logic [31:0] mem_rdata,
 );
   logic reset = 1;
-  always_ff @(posedge clk) reset <= 0;
+  always_ff @(posedge clk)
+    reset <= 0;
 
   `RVFI_WIRES
   logic trap;

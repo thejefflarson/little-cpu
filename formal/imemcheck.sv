@@ -17,20 +17,20 @@ module testbench (
   output [3:0] mem_wstrb,
   input [31:0] mem_rdata
 );
-  reg resetn = 0;
-  wire trap;
+  logic reset = 1;
+  logic trap;
 
-  always @(posedge clk)
-    resetn <= 1;
+  always_ff @(posedge clk)
+    reset <= 0;
 
   `RVFI_WIRES
 
-  wire [31:0] imem_addr;
-  wire [15:0] imem_data;
+  logic [31:0] imem_addr;
+  logic [15:0] imem_data;
 
   rvfi_imem_check checker_inst (
     .clock(clk),
-    .reset(!resetn),
+    .reset(reset),
     .enable(1'b1),
     .imem_addr(imem_addr),
     .imem_data(imem_data),
@@ -38,7 +38,7 @@ module testbench (
   );
 
   always_comb begin
-    if (resetn && mem_valid && mem_ready) begin
+    if (!reset && mem_valid && mem_ready) begin
       if (mem_addr == imem_addr)
         assume(mem_rdata[15:0] == imem_data);
       if (mem_addr + 2 == imem_addr)
@@ -48,7 +48,7 @@ module testbench (
 
   riscv uut (
     .clk(clk),
-    .reset(resetn),
+    .reset(reset),
     .trap(trap),
     .mem_valid(mem_valid),
     .mem_instr(mem_instr),
@@ -59,10 +59,4 @@ module testbench (
     .mem_rdata(mem_rdata),
     `RVFI_CONN
   );
-
-  reg [4:0] mem_wait = 0;
-  always_ff @(posedge clk) begin
-    mem_wait <= {mem_wait, mem_valid && !mem_ready};
-    assume(~mem_wait || trap);
-  end
 endmodule
