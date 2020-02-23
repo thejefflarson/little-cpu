@@ -50,12 +50,12 @@ module riscv (
   assign funct7 = instr[31:25];
   logic [31:0] load_store_address;
   assign load_store_address = $signed(immediate) + $signed(regs[rs1]);
-  logic [1:0] load24;
-  assign load24 = load_store_address[1:0];
-  logic load16;
-  assign load16 = load_store_address[1];
-  logic load8;
-  assign load8 = load_store_address[0];
+  logic [1:0] addr24;
+  assign addr24 = load_store_address[1:0];
+  logic addr16;
+  assign addr16 = load_store_address[1];
+  logic addr8;
+  assign addr8 = load_store_address[0];
 
   // immediate decoder (figure 2.4)
   logic [31:0] i_immediate, s_immediate, b_immediate, u_immediate, j_immediate;
@@ -111,7 +111,8 @@ module riscv (
   assign is_srli = is_math_immediate && funct7 == 7'b0000000 && funct3 == 3'b101;
   assign is_srai = is_math_immediate && funct7 == 7'b0100000 && funct3 == 3'b101;
 
-  logic is_math, is_add, is_sub, is_sll, is_slt, is_sltu, is_xor, is_srl, is_sra, is_or, is_and;
+  logic is_math, is_add, is_sub, is_sll, is_slt, is_sltu, is_xor, is_srl, is_sra, is_or, is_and,
+    is_multiply, is_mul, is_mulh, is_mulhu, is_mulhsu;
   assign is_math = opcode == 7'b0110011;
   assign is_add = is_math && funct7 == 7'b0000000 && funct3 == 3'b000;
   assign is_sub = is_math && funct7 == 7'b0100000 && funct3 == 3'b000;
@@ -123,6 +124,12 @@ module riscv (
   assign is_sra = is_math && funct7 == 7'b0100000 && funct3 == 3'b101;
   assign is_or = is_math && funct7 == 7'b0000000 && funct3 == 3'b110;
   assign is_and = is_math && funct7 == 7'b0000000 && funct3 == 3'b111;
+  assign is_mul = is_math && funct7 == 7'b0000001 && funct3 == 3'b000;
+  assign is_mulh = is_math && funct7 == 7'b0000001 && funct3== 3'b001;
+  assign is_mulhu = is_math && funct7 == 7'b0000001 && funct3== 3'b011;
+  assign is_mulhsu = is_math && funct7 == 7'b0000001 && funct3== 3'b010;
+  assign is_multiply = is_mul || is_mulh || is_mulhu || is_mulhsu;
+
   logic [31:0] math_arg;
   assign math_arg = is_math_immediate ? immediate : regs[rs2];
   logic [4:0] shamt;
@@ -163,6 +170,10 @@ module riscv (
     is_sra ||
     is_add ||
     is_sub ||
+    is_mul ||
+    is_mulh ||
+    is_mulhu ||
+    is_mulhsu ||
     is_sll ||
     is_slt ||
     is_sltu ||
@@ -196,18 +207,25 @@ module riscv (
   logic [31:0] reg_wdata;
   // pc write
   logic [31:0] pc_wdata;
+  // multiply and divide state
+  logic [63:0] mul_div_store;
+  logic [6:0] mul_div_counter;
+  logic [63:0] mul_div_x;
+  logic [63:0] mul_div_y;
 
-  // state_machine
-  logic [2:0] cpu_state;
+  // state machine
+  logic [3:0] cpu_state;
   logic skip_reg_write;
-  localparam fetch_instr = 3'b001;
-  localparam ready_instr = 3'b010;
-  localparam execute_instr = 3'b011;
-  localparam finish_load = 3'b100;
-  localparam finish_store = 3'b101;
-  localparam check_pc = 3'b111;
-  localparam reg_write = 3'b110;
-  localparam cpu_trap = 3'b000;
+  localparam cpu_trap = 4'b0000;
+  localparam fetch_instr = 4'b0001;
+  localparam ready_instr = 4'b0010;
+  localparam execute_instr = 4'b0011;
+  localparam finish_load = 4'b0100;
+  localparam finish_store = 4'b0101;
+  localparam check_pc = 4'b0110;
+  localparam reg_write = 4'b0111;
+  localparam multiply = 4'b1000;
+  localparam divide = 4'b1001;
 
   always_ff @(posedge clk) begin
     if (reset) begin
@@ -325,12 +343,35 @@ module riscv (
                   is_and || is_andi: begin
                     reg_wdata <= regs[rs1] & math_arg;
                   end
+
+                  is_multiply: begin
+                    mul_div_counter <= is_mul ? 32 : 64;
+                    cpu_state <= multiply;
+                    mul_div_store <= 0;
+                    (* parallel_case, full_case *)
+                    case(1'b1)
+                      is_mul || is_mulhu: begin
+                        mul_div_x <= {32'b0,regs[rs1]};
+                        mul_div_y <= {32'b0,regs[rs2]};
+                      end
+
+                      is_mulh: begin
+                        mul_div_x <= {{32{regs[rs1][31]}},regs[rs1]};
+                        mul_div_y <= {{32{regs[rs2][31]}},regs[rs2]};
+                      end
+
+                      is_mulhsu: begin
+                        mul_div_x <= {{32{regs[rs1][31]}},regs[rs1]};
+                        mul_div_y <= {{32'b0},regs[rs2]};
+                      end
+                    endcase
+                  end
                 endcase
               end
 
               is_load: begin
-                if ((is_lw && |load24) ||
-                   ((is_lh || is_lhu) && load8)) begin
+                if ((is_lw && |addr24) ||
+                   ((is_lh || is_lhu) && addr8)) begin
                   cpu_state <= cpu_trap;
                 end else begin
                   mem_wstrb <= 4'b0000;
@@ -342,8 +383,8 @@ module riscv (
               end
 
               is_store: begin
-                if ((is_sw && |load24) ||
-                    (is_sh && load8)) begin
+                if ((is_sw && |addr24) ||
+                    (is_sh && addr8)) begin
                   cpu_state <= cpu_trap;
                 end else begin
                   (* parallel_case, full_case *)
@@ -356,15 +397,15 @@ module riscv (
 
                     is_sh: begin
                       // Offset to the right position
-                      mem_wstrb <= load16 ? 4'b1100 : 4'b0011;
+                      mem_wstrb <= addr16 ? 4'b1100 : 4'b0011;
                       mem_wdata <= {2{regs[rs2][15:0]}};
                     end
 
                     is_sb: begin
-                      mem_wstrb <= 4'b0001 << load24;
+                      mem_wstrb <= 4'b0001 << addr24;
                       mem_wdata <= {4{regs[rs2][7:0]}};
                     end
-                  endcase // case (1'b1)
+                  endcase
                   mem_addr <= {load_store_address[31:2], 2'b00};
                   mem_instr <= 0;
                   mem_valid <= 1; // kick off a memory request
@@ -381,6 +422,33 @@ module riscv (
               end
             endcase
           end
+        end
+
+        multiply: begin
+         `ifndef RISCV_FORMAL_ALTOPS
+          if (mul_div_counter > 0) begin
+            mul_div_store <= mul_div_y[0] ? mul_div_store + mul_div_x : mul_div_store;
+            mul_div_x <= mul_div_x << 1;
+            mul_div_y <= mul_div_y >> 1;
+            mul_div_counter <= mul_div_counter - 1;
+          end else begin
+            if (is_mul) begin
+              reg_wdata <= mul_div_store[31:0];
+            end else begin
+              reg_wdata <= mul_div_store[63:32];
+            end
+            cpu_state <= reg_write;
+          end
+         `else
+          cpu_state <= reg_write;
+          (* parallel_case, full_case *)
+          case (1'b1)
+            is_mul: reg_wdata <= (regs[rs1] + regs[rs2]) ^ 32'h5876063e;
+            is_mulh: reg_wdata <= (regs[rs1] + regs[rs2]) ^ 32'hf6583fb7;
+            is_mulhu: reg_wdata <= (regs[rs1] + regs[rs2]) ^ 32'h949ce5e8;
+            is_mulhsu: reg_wdata <= (regs[rs1] - regs[rs2]) ^ 32'hecfbe137;
+          endcase
+         `endif
         end
 
         reg_write: begin
@@ -404,7 +472,7 @@ module riscv (
             case (1'b1)
               // unpack the alignment from above
               is_lb: begin
-                case (load24)
+                case (addr24)
                   2'b00: reg_wdata <= {{24{mem_rdata[7]}}, mem_rdata[7:0]};
                   2'b01: reg_wdata <= {{24{mem_rdata[15]}}, mem_rdata[15:8]};
                   2'b10: reg_wdata <= {{24{mem_rdata[23]}}, mem_rdata[23:16]};
@@ -413,7 +481,7 @@ module riscv (
               end
 
               is_lbu: begin
-                case (load24)
+                case (addr24)
                   2'b00: reg_wdata <= {24'b0, mem_rdata[7:0]};
                   2'b01: reg_wdata <= {24'b0, mem_rdata[15:8]};
                   2'b10: reg_wdata <= {24'b0, mem_rdata[23:16]};
@@ -422,14 +490,14 @@ module riscv (
               end
 
               is_lh: begin
-                case (load16)
+                case (addr16)
                   1'b0: reg_wdata <= {{16{mem_rdata[15]}}, mem_rdata[15:0]};
                   1'b1: reg_wdata <= {{16{mem_rdata[31]}}, mem_rdata[31:16]};
                 endcase
               end
 
               is_lhu: begin
-                case (load16)
+                case (addr16)
                   1'b0: reg_wdata <= {16'b0, mem_rdata[15:0]};
                   1'b1: reg_wdata <= {16'b0, mem_rdata[31:16]};
                 endcase
