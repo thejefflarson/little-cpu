@@ -112,7 +112,7 @@ module riscv (
   assign is_srai = is_math_immediate && funct7 == 7'b0100000 && funct3 == 3'b101;
 
   logic is_math, is_add, is_sub, is_sll, is_slt, is_sltu, is_xor, is_srl, is_sra, is_or, is_and,
-    is_multiply, is_mul, is_mulh, is_mulhu, is_mulhsu;
+    is_multiply, is_mul, is_mulh, is_mulhu, is_mulhsu, is_divide, is_div, is_divu, is_rem, is_remu;
   assign is_math = opcode == 7'b0110011;
   assign is_add = is_math && funct7 == 7'b0000000 && funct3 == 3'b000;
   assign is_sub = is_math && funct7 == 7'b0100000 && funct3 == 3'b000;
@@ -129,6 +129,11 @@ module riscv (
   assign is_mulhu = is_math && funct7 == 7'b0000001 && funct3== 3'b011;
   assign is_mulhsu = is_math && funct7 == 7'b0000001 && funct3== 3'b010;
   assign is_multiply = is_mul || is_mulh || is_mulhu || is_mulhsu;
+  assign is_div = is_math && funct7 == 7'b0000001 && funct3 == 3'b100;
+  assign is_divu = is_math && funct7 == 7'b0000001 && funct3 == 3'b101;
+  assign is_rem = is_math && funct7 == 7'b0000001 && funct3 == 3'b110;
+  assign is_remu = is_math && funct7 == 7'b0000001 && funct3 == 3'b111;
+  assign is_divide = is_div || is_divu || is_rem || is_remu;
 
   logic [31:0] math_arg;
   assign math_arg = is_math_immediate ? immediate : regs[rs2];
@@ -212,6 +217,7 @@ module riscv (
   logic [6:0] mul_div_counter;
   logic [63:0] mul_div_x;
   logic [63:0] mul_div_y;
+
 
   // state machine
   logic [3:0] cpu_state;
@@ -366,6 +372,14 @@ module riscv (
                       end
                     endcase
                   end
+
+                  is_divide: begin
+                    mul_div_counter <= 65;
+                    cpu_state <= divide;
+                    mul_div_store <= 0;
+                    mul_div_x <= {32'b0,regs[rs1]};
+                    mul_div_y <= {32'b0,regs[rs2]};
+                  end
                 endcase
               end
 
@@ -449,6 +463,28 @@ module riscv (
             is_mulhsu: reg_wdata <= (regs[rs1] - regs[rs2]) ^ 32'hecfbe137;
           endcase
          `endif
+        end
+
+        divide: begin
+          if (mul_div_counter > 0) begin
+            if (mul_div_x <= mul_div_y) begin
+              mul_div_store <= (mul_div_store << 1) | 1'b1;
+              mul_div_x <= mul_div_x - mul_div_y;
+            end else begin
+              mul_div_store <= mul_div_store << 1;
+            end
+            mul_div_y <= mul_div_y >> 1;
+            mul_div_counter <= mul_div_counter - 1;
+          end else begin
+            (* parallel_case, full_case *)
+            case(1'b1)
+              is_div: reg_wdata <= regs[rs1][31] != regs[rs2][31] ? -mul_div_store[31:0] : mul_div_store[31:0];
+              is_divu: reg_wdata <= mul_div_store[31:0];
+              is_rem: reg_wdata <= regs[rs1][31] ? -mul_div_x[31:0] : mul_div_x[31:0];
+
+              is_remu: reg_wdata <= mul_div_x[31:0];
+            endcase
+          end
         end
 
         reg_write: begin
