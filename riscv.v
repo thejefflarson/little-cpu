@@ -179,6 +179,10 @@ module riscv (
     is_mulh ||
     is_mulhu ||
     is_mulhsu ||
+    is_div ||
+    is_divu ||
+    is_rem ||
+    is_remu ||
     is_sll ||
     is_slt ||
     is_sltu ||
@@ -466,9 +470,10 @@ module riscv (
         end
 
         divide: begin
+         `ifndef RISCV_FORMAL_ALTOPS
           if (mul_div_counter > 0) begin
             if (mul_div_x <= mul_div_y) begin
-              mul_div_store <= (mul_div_store << 1) | 1'b1;
+              mul_div_store <= (mul_div_store << 1) | 1;
               mul_div_x <= mul_div_x - mul_div_y;
             end else begin
               mul_div_store <= mul_div_store << 1;
@@ -481,10 +486,20 @@ module riscv (
               is_div: reg_wdata <= regs[rs1][31] != regs[rs2][31] ? -mul_div_store[31:0] : mul_div_store[31:0];
               is_divu: reg_wdata <= mul_div_store[31:0];
               is_rem: reg_wdata <= regs[rs1][31] ? -mul_div_x[31:0] : mul_div_x[31:0];
-
               is_remu: reg_wdata <= mul_div_x[31:0];
             endcase
+            cpu_state <= reg_write;
           end
+         `else
+          cpu_state <= reg_write;
+          (* parallel_case, full_case *)
+          case (1'b1)
+            is_div: reg_wdata <= (regs[rs1] - regs[rs2]) ^ 32'h7f8529ec;
+            is_divu: reg_wdata <= (regs[rs1] - regs[rs2]) ^ 32'h10e8fd70;
+            is_rem: reg_wdata <= (regs[rs1] - regs[rs2]) ^ 32'h8da68fa5;
+            is_remu: reg_wdata <= (regs[rs1] - regs[rs2]) ^ 32'h3138d0e1;
+          endcase
+         `endif
         end
 
         reg_write: begin
