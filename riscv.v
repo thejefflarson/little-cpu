@@ -38,14 +38,18 @@ module riscv (
   // instruction decoder (figure 2.3)
   logic [31:0] instr;
   logic [6:0] opcode;
-  logic [1:0] quadrant;
-  logic [4:0] rd, rs1, rs2;
-  logic [2:0] funct3;
-  logic [6:0] funct7;
   assign opcode = instr[6:0];
+  logic [1:0] quadrant;
   assign quadrant = opcode[1:0];
+  logic [2:0] funct3, cfunct3;
+  assign funct3 = instr[14:12];
+  assign cfunct3 = instr[15:13];
+  logic [6:0] funct7;
+  assign funct7 = instr[31:25];
+
+  logic [4:0] rd, rs1, rs2;
   assign rd = is_branch || is_store ? 0 : instr[11:7];
-  always_comb begin             //
+  always_comb begin
     (* parallel_case, full_case *)
     case (1'b1)
       is_clwsp: rs1 = 2;
@@ -53,8 +57,8 @@ module riscv (
     endcase
   end
   assign rs2 = instr[24:20];
-  assign funct3 = instr[14:12];
-  assign funct7 = instr[31:25];
+
+
   logic [31:0] load_store_address;
   assign load_store_address = $signed(immediate) + $signed(regs[rs1]);
   logic [1:0] addr24;
@@ -74,7 +78,7 @@ module riscv (
 
   // compressed instructions
   logic [31:0] cl_immediate;
-  assign cl_immediate = {24'b0, instr[3:2], instr[5], instr[6:4], 2'b00};
+  assign cl_immediate = {24'b0, instr[3:2], instr[12], instr[6:4], 2'b00};
 
   logic [31:0] immediate;
   always_comb begin
@@ -118,7 +122,7 @@ module riscv (
   assign is_lw = is_load && funct3 == 3'b010;
   assign is_lbu = is_load && funct3 == 3'b100;
   assign is_lhu = is_load && funct3 == 3'b101;
-  assign is_clwsp = quadrant == 2'b10 && funct3 == 3'b10 && instr[11:7] != 5'b0;
+  assign is_clwsp = quadrant == 2'b10 && cfunct3 == 3'b010 && instr[11:7] != 5'b0;
 
   logic is_store, is_sb, is_sh, is_sw;
   assign is_store = opcode == 7'b0100011;
@@ -130,7 +134,8 @@ module riscv (
   assign math_low = funct7 == 7'b0000000;
   logic math_high;
   assign math_high = funct7 == 7'b0100000;
-  logic is_math_immediate, is_addi, is_slti, is_sltiu, is_xori, is_ori, is_andi, is_slli, is_srli, is_srai;
+  logic is_math_immediate, is_addi, is_slti, is_sltiu, is_xori, is_ori, is_andi,
+    is_slli, is_srli, is_srai;
   assign is_math_immediate = opcode == 7'b0010011;
   assign is_addi = is_math_immediate && funct3 == 3'b000;
   assign is_slti = is_math_immediate && funct3 == 3'b010;
@@ -225,6 +230,9 @@ module riscv (
   logic [31:0] pc;
   // storage for the next program counter
   logic [31:0] next_pc;
+  logic [31:0] pc_inc;
+  assign pc_inc = quadrant == 2'b11 ? 4 : 2;
+
   // register write addr
   logic [31:0] reg_wdata;
   // pc write
@@ -399,9 +407,9 @@ module riscv (
                 endcase
               end
 
-              is_load: begin
-                if ((is_lw && |addr24) ||
-                   ((is_lh || is_lhu) && addr8)) begin
+              is_load || is_clwsp: begin
+                if (((is_lw || is_clwsp) && |addr24) ||
+                    ((is_lh || is_lhu) && addr8)) begin
                   cpu_state <= cpu_trap;
                 end else begin
                   mem_wstrb <= 4'b0000;
@@ -570,7 +578,7 @@ module riscv (
             endcase
             cpu_state <= reg_write;
             mem_valid <= 0;
-            next_pc <= pc + 4;
+            next_pc <= pc + pc_inc;
           end
         end
 
