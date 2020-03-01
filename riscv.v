@@ -38,13 +38,20 @@ module riscv (
   // instruction decoder (figure 2.3)
   logic [31:0] instr;
   logic [6:0] opcode;
+  logic [1:0] quadrant;
   logic [4:0] rd, rs1, rs2;
   logic [2:0] funct3;
   logic [6:0] funct7;
-
   assign opcode = instr[6:0];
+  assign quadrant = opcode[1:0];
   assign rd = is_branch || is_store ? 0 : instr[11:7];
-  assign rs1 = is_clwsp ? 2 : instr[19:15];
+  always_comb begin             //
+    (* parallel_case, full_case *)
+    case (1'b1)
+      is_clwsp: rs1 = 2;
+      default: rs1 = instr[19:15];
+    endcase
+  end
   assign rs2 = instr[24:20];
   assign funct3 = instr[14:12];
   assign funct7 = instr[31:25];
@@ -111,7 +118,7 @@ module riscv (
   assign is_lw = is_load && funct3 == 3'b010;
   assign is_lbu = is_load && funct3 == 3'b100;
   assign is_lhu = is_load && funct3 == 3'b101;
-  assign is_clwsp = opcode[1:0] == 2'b10 && funct3 == 3'b101 && rd != 0;
+  assign is_clwsp = quadrant == 2'b10 && funct3 == 3'b10 && instr[11:7] != 5'b0;
 
   logic is_store, is_sb, is_sh, is_sw;
   assign is_store = opcode == 7'b0100011;
@@ -119,6 +126,10 @@ module riscv (
   assign is_sh = is_store && funct3 == 3'b001;
   assign is_sw = is_store && funct3 == 3'b010;
 
+  logic math_low;
+  assign math_low = funct7 == 7'b0000000;
+  logic math_high;
+  assign math_high = funct7 == 7'b0100000;
   logic is_math_immediate, is_addi, is_slti, is_sltiu, is_xori, is_ori, is_andi, is_slli, is_srli, is_srai;
   assign is_math_immediate = opcode == 7'b0010011;
   assign is_addi = is_math_immediate && funct3 == 3'b000;
@@ -127,39 +138,40 @@ module riscv (
   assign is_xori = is_math_immediate && funct3 == 3'b100;
   assign is_ori = is_math_immediate && funct3 == 3'b110;
   assign is_andi = is_math_immediate && funct3 == 3'b111;
-  assign is_slli = is_math_immediate && funct7 == 7'b0000000 && funct3 == 3'b001;
-  assign is_srli = is_math_immediate && funct7 == 7'b0000000 && funct3 == 3'b101;
-  assign is_srai = is_math_immediate && funct7 == 7'b0100000 && funct3 == 3'b101;
+  assign is_slli = is_math_immediate && math_low && funct3 == 3'b001;
+  assign is_srli = is_math_immediate && math_low && funct3 == 3'b101;
+  assign is_srai = is_math_immediate && math_high && funct3 == 3'b101;
 
   logic is_math, is_add, is_sub, is_sll, is_slt, is_sltu, is_xor, is_srl, is_sra, is_or, is_and,
     is_multiply, is_mul, is_mulh, is_mulhu, is_mulhsu, is_divide, is_div, is_divu, is_rem, is_remu;
   assign is_math = opcode == 7'b0110011;
-  assign is_add = is_math && funct7 == 7'b0000000 && funct3 == 3'b000;
-  assign is_sub = is_math && funct7 == 7'b0100000 && funct3 == 3'b000;
-  assign is_sll = is_math && funct7 == 7'b0000000 && funct3 == 3'b001;
-  assign is_slt = is_math && funct7 == 7'b0000000 && funct3 == 3'b010;
-  assign is_sltu = is_math && funct7 == 7'b0000000 && funct3 == 3'b011;
-  assign is_xor = is_math && funct7 == 7'b0000000 && funct3 == 3'b100;
-  assign is_srl = is_math && funct7 == 7'b0000000 && funct3 == 3'b101;
-  assign is_sra = is_math && funct7 == 7'b0100000 && funct3 == 3'b101;
-  assign is_or = is_math && funct7 == 7'b0000000 && funct3 == 3'b110;
-  assign is_and = is_math && funct7 == 7'b0000000 && funct3 == 3'b111;
-  assign is_mul = is_math && funct7 == 7'b0000001 && funct3 == 3'b000;
-  assign is_mulh = is_math && funct7 == 7'b0000001 && funct3== 3'b001;
-  assign is_mulhu = is_math && funct7 == 7'b0000001 && funct3== 3'b011;
-  assign is_mulhsu = is_math && funct7 == 7'b0000001 && funct3== 3'b010;
+  assign is_add = is_math && math_low && funct3 == 3'b000;
+  assign is_sub = is_math && math_high && funct3 == 3'b000;
+  assign is_sll = is_math && math_low && funct3 == 3'b001;
+  assign is_slt = is_math && math_low && funct3 == 3'b010;
+  assign is_sltu = is_math && math_low && funct3 == 3'b011;
+  assign is_xor = is_math && math_low && funct3 == 3'b100;
+  assign is_srl = is_math && math_low && funct3 == 3'b101;
+  assign is_sra = is_math && math_high && funct3 == 3'b101;
+  assign is_or = is_math && math_low && funct3 == 3'b110;
+  assign is_and = is_math && math_low && funct3 == 3'b111;
+  logic is_m;
+  assign is_m = is_math && funct7 == 7'b0000001;
+  assign is_mul = is_m && funct3 == 3'b000;
+  assign is_mulh = is_m && funct3 == 3'b001;
+  assign is_mulhu = is_m && funct3 == 3'b011;
+  assign is_mulhsu = is_m && funct3 == 3'b010;
   assign is_multiply = is_mul || is_mulh || is_mulhu || is_mulhsu;
-  assign is_div = is_math && funct7 == 7'b0000001 && funct3 == 3'b100;
-  assign is_divu = is_math && funct7 == 7'b0000001 && funct3 == 3'b101;
-  assign is_rem = is_math && funct7 == 7'b0000001 && funct3 == 3'b110;
-  assign is_remu = is_math && funct7 == 7'b0000001 && funct3 == 3'b111;
+  assign is_div = is_m && funct3 == 3'b100;
+  assign is_divu = is_m && funct3 == 3'b101;
+  assign is_rem = is_m && funct3 == 3'b110;
+  assign is_remu = is_m && funct3 == 3'b111;
   assign is_divide = is_div || is_divu || is_rem || is_remu;
 
   logic [31:0] math_arg;
   assign math_arg = is_math_immediate ? immediate : regs[rs2];
   logic [4:0] shamt;
   assign shamt = is_math_immediate ? rs2 : regs[rs2][4:0];
-
   logic is_error, is_ecall, is_ebreak;
   assign is_error = opcode == 7'b1110011 && funct3 == 0 && rs1 == 0 && rd == 0;
   assign is_ecall = is_error && !{|instr[31:20]};
@@ -196,14 +208,8 @@ module riscv (
     is_sra ||
     is_add ||
     is_sub ||
-    is_mul ||
-    is_mulh ||
-    is_mulhu ||
-    is_mulhsu ||
-    is_div ||
-    is_divu ||
-    is_rem ||
-    is_remu ||
+    is_multiply ||
+    is_divide ||
     is_sll ||
     is_slt ||
     is_sltu ||
