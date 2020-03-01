@@ -44,7 +44,7 @@ module riscv (
 
   assign opcode = instr[6:0];
   assign rd = is_branch || is_store ? 0 : instr[11:7];
-  assign rs1 = instr[19:15];
+  assign rs1 = is_clwsp ? 2 : instr[19:15];
   assign rs2 = instr[24:20];
   assign funct3 = instr[14:12];
   assign funct7 = instr[31:25];
@@ -57,13 +57,32 @@ module riscv (
   logic addr8;
   assign addr8 = load_store_address[0];
 
-  // immediate decoder (figure 2.4)
+  // immediate decoder (figure 2.4 & table 16.1)
   logic [31:0] i_immediate, s_immediate, b_immediate, u_immediate, j_immediate;
   assign i_immediate = {{20{instr[31]}}, instr[31:20]};
   assign s_immediate = {{20{instr[31]}}, instr[31:25], instr[11:7]};
   assign b_immediate = {{20{instr[31]}}, instr[7], instr[30:25], instr[11:8], 1'b0};
   assign u_immediate = {instr[31], instr[30:20], instr[19:12], 12'b0};
   assign j_immediate = {{12{instr[31]}}, instr[19:12], instr[20], instr[30:21], 1'b0};
+
+  // compressed instructions
+  logic [31:0] cl_immediate;
+  assign cl_immediate = {24'b0, instr[3:2], instr[5], instr[6:4], 2'b00};
+
+  logic [31:0] immediate;
+  always_comb begin
+    (* parallel_case, full_case *)
+    case (1'b1)
+      is_load || is_jalr: immediate = i_immediate;
+      is_store: immediate = s_immediate;
+      is_lui || is_auipc: immediate = u_immediate;
+      is_jal: immediate = j_immediate;
+      is_branch: immediate = b_immediate;
+      is_math_immediate: immediate = i_immediate;
+      is_clwsp: immediate = cl_immediate;
+      default: immediate = 32'b0;
+    endcase
+  end
 
   // Table 24.2 RV32I
   logic is_lui, is_auipc, is_jal, is_jalr;
@@ -73,7 +92,7 @@ module riscv (
   assign is_jalr = opcode == 7'b1100111 && funct3 == 3'b000;
   logic [31:0] jump_address;
   assign jump_address = is_jalr ?
-    ($signed(immediate) + $signed(regs[rs1])) & 32'hfffffffe  :
+    ($signed(immediate) + $signed(regs[rs1])) & 32'hfffffffe :
     $signed(pc) + $signed(immediate);
 
   logic is_branch, is_beq, is_bne, is_blt, is_bltu, is_bge, is_bgeu;
@@ -85,13 +104,14 @@ module riscv (
   assign is_bltu = is_branch && funct3 == 3'b110;
   assign is_bgeu = is_branch && funct3 == 3'b111;
 
-  logic is_load, is_lb, is_lh, is_lw, is_lbu, is_lhu;
+  logic is_load, is_lb, is_lh, is_lw, is_lbu, is_lhu, is_clwsp;
   assign is_load = opcode == 7'b0000011;
   assign is_lb = is_load && funct3 == 3'b000;
   assign is_lh = is_load && funct3 == 3'b001;
   assign is_lw = is_load && funct3 == 3'b010;
   assign is_lbu = is_load && funct3 == 3'b100;
   assign is_lhu = is_load && funct3 == 3'b101;
+  assign is_clwsp = opcode[1:0] == 2'b10 && funct3 == 3'b101 && rd != 0;
 
   logic is_store, is_sb, is_sh, is_sw;
   assign is_store = opcode == 7'b0100011;
@@ -160,6 +180,7 @@ module riscv (
     is_lbu ||
     is_lhu ||
     is_lw ||
+    is_clwsp ||
     is_sb ||
     is_sh ||
     is_sw ||
@@ -193,20 +214,6 @@ module riscv (
     is_ecall ||
     is_ebreak;
 
-  logic [31:0]immediate;
-  always_comb begin
-    (* parallel_case, full_case *)
-    case (1'b1)
-      is_load || is_jalr: immediate = i_immediate;
-      is_store: immediate = s_immediate;
-      is_lui || is_auipc: immediate = u_immediate;
-      is_jal: immediate = j_immediate;
-      is_branch: immediate = b_immediate;
-      is_math_immediate: immediate = i_immediate;
-      default: immediate = 32'b0;
-    endcase
-  end
-
   // registers
   logic [31:0] regs[0:31];
   logic [31:0] pc;
@@ -221,7 +228,6 @@ module riscv (
   logic [6:0] mul_div_counter;
   logic [63:0] mul_div_x;
   logic [63:0] mul_div_y;
-
 
   // state machine
   logic [3:0] cpu_state;
@@ -509,7 +515,7 @@ module riscv (
 
         // for branches and jumps: if the next program counter is misaligned we need to trap
         check_pc: begin
-          if (|pc_wdata[1:0]) begin
+          if (pc_wdata[0]) begin
             cpu_state <= cpu_trap;
           end else begin
             next_pc <= pc_wdata;
