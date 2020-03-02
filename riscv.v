@@ -192,8 +192,8 @@ module riscv (
     is_store ||
     is_math ||
     is_math_immediate ||
-    //is_multiply ||
-    //is_divide ||
+    is_multiply ||
+    is_divide ||
     is_ecall ||
     is_ebreak;
 
@@ -259,8 +259,6 @@ module riscv (
             mem_valid <= 0;
             pc <= mem_addr;
             instr <= mem_rdata;
-            rs1 <= mem_rdata[19:15];
-            rs2 <= mem_rdata[24:20];
             cpu_state <= decode_instr;
           end
         end
@@ -311,7 +309,7 @@ module riscv (
                 cpu_state <= check_pc;
               end
 
-              is_math_op || is_math_immediate_op /*|| is_m*/: begin
+              is_math_op || is_math_immediate_op || is_m: begin
                 cpu_state <= reg_write;
                 next_pc <= pc + 4;
                 (* parallel_case, full_case *)
