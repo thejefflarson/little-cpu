@@ -50,15 +50,6 @@ module riscv (
   assign funct7 = instr[31:25];
 
   logic [4:0] rd, rs1, rs2;
-  assign rd = is_branch || is_store ? 0 : instr[11:7];
-  always_comb begin
-    (* parallel_case, full_case *)
-    case (1'b1)
-      is_clwsp: rs1 = 2;
-      default: rs1 = instr[19:15];
-    endcase
-  end
-  assign rs2 = instr[24:20];
 
   logic [31:0] load_store_address;
   assign load_store_address = $signed(immediate) + $signed(regs[rs1]);
@@ -150,7 +141,7 @@ module riscv (
   assign is_slli = is_math_immediate_op && math_low && funct3 == 3'b001;
   assign is_srli = is_math_immediate_op && math_low && funct3 == 3'b101;
   assign is_srai = is_math_immediate_op && math_high && funct3 == 3'b101;
-  assign is_math_immediate = is_addi || is_slti || is_xori || is_ori || is_andi ||
+  assign is_math_immediate = is_addi || is_slti || is_sltiu || is_xori || is_ori || is_andi ||
     is_slli || is_srli || is_srai;
 
   logic is_math_op, is_math, is_add, is_sub, is_sll, is_slt, is_sltu, is_xor, is_srl, is_sra, is_or,
@@ -167,8 +158,8 @@ module riscv (
   assign is_sra = is_math_op && math_high && funct3 == 3'b101;
   assign is_or = is_math_op && math_low && funct3 == 3'b110;
   assign is_and = is_math_op && math_low && funct3 == 3'b111;
-  assign is_math = is_add || is_sub || is_sll || is_slt || is_sltu || is_sltiu || is_xor ||
-    is_srl || is_sra || is_or || is_and;
+  assign is_math = is_add || is_sub || is_sll || is_slt || is_sltu || is_xor || is_srl || is_sra ||
+    is_or || is_and;
 
   logic is_m;
   assign is_m = is_math_op && funct7 == 7'b0000001;
@@ -201,8 +192,8 @@ module riscv (
     is_store ||
     is_math ||
     is_math_immediate ||
-    is_multiply ||
-    is_divide ||
+    //is_multiply ||
+    //is_divide ||
     is_ecall ||
     is_ebreak;
 
@@ -229,14 +220,15 @@ module riscv (
   logic skip_reg_write;
   localparam cpu_trap = 4'b0000;
   localparam fetch_instr = 4'b0001;
-  localparam ready_instr = 4'b0010;
-  localparam execute_instr = 4'b0011;
-  localparam finish_load = 4'b0100;
-  localparam finish_store = 4'b0101;
-  localparam check_pc = 4'b0110;
-  localparam reg_write = 4'b0111;
-  localparam multiply = 4'b1000;
-  localparam divide = 4'b1001;
+  localparam decode_instr = 4'b0010;
+  localparam ready_instr = 4'b0011;
+  localparam execute_instr = 4'b0100;
+  localparam finish_load = 4'b0101;
+  localparam finish_store = 4'b0110;
+  localparam check_pc = 4'b0111;
+  localparam reg_write = 4'b1000;
+  localparam multiply = 4'b1001;
+  localparam divide = 4'b1011;
 
   always_ff @(posedge clk) begin
     if (reset) begin
@@ -267,8 +259,17 @@ module riscv (
             mem_valid <= 0;
             pc <= mem_addr;
             instr <= mem_rdata;
-            cpu_state <= execute_instr;
+            rs1 <= mem_rdata[19:15];
+            rs2 <= mem_rdata[24:20];
+            cpu_state <= decode_instr;
           end
+        end
+
+        decode_instr: begin
+          rd <= is_branch || is_store ? 0 : instr[11:7];
+          rs1 <= is_clwsp ? 2 : instr[19:15];
+          rs2 <= instr[24:20];
+          cpu_state <= execute_instr;
         end
 
         execute_instr: begin
@@ -310,7 +311,7 @@ module riscv (
                 cpu_state <= check_pc;
               end
 
-              is_math_op || is_math_immediate_op || is_m: begin
+              is_math_op || is_math_immediate_op /*|| is_m*/: begin
                 cpu_state <= reg_write;
                 next_pc <= pc + 4;
                 (* parallel_case, full_case *)
