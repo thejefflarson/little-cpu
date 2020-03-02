@@ -37,10 +37,12 @@ module riscv (
 
   // instruction decoder (figure 2.3)
   logic [31:0] instr;
-  logic [6:0] opcode;
-  assign opcode = instr[6:0];
+  logic [5:0] opcode;
+  assign opcode = instr[6:2];
   logic [1:0] quadrant;
-  assign quadrant = opcode[1:0];
+  assign quadrant = instr[1:0];
+  logic uncompressed;
+  assign uncompressed = quadrant == 2'b11;
   logic [2:0] funct3, cfunct3;
   assign funct3 = instr[14:12];
   assign cfunct3 = instr[15:13];
@@ -57,7 +59,6 @@ module riscv (
     endcase
   end
   assign rs2 = instr[24:20];
-
 
   logic [31:0] load_store_address;
   assign load_store_address = $signed(immediate) + $signed(regs[rs1]);
@@ -84,12 +85,12 @@ module riscv (
   always_comb begin
     (* parallel_case, full_case *)
     case (1'b1)
-      is_load || is_jalr: immediate = i_immediate;
-      is_store: immediate = s_immediate;
+      is_load_op || is_jalr: immediate = i_immediate;
+      is_store_op: immediate = s_immediate;
       is_lui || is_auipc: immediate = u_immediate;
       is_jal: immediate = j_immediate;
-      is_branch: immediate = b_immediate;
-      is_math_immediate: immediate = i_immediate;
+      is_branch_op: immediate = b_immediate;
+      is_math_immediate_op: immediate = i_immediate;
       is_clwsp: immediate = cl_immediate;
       default: immediate = 32'b0;
     endcase
@@ -97,71 +98,80 @@ module riscv (
 
   // Table 24.2 RV32I
   logic is_lui, is_auipc, is_jal, is_jalr;
-  assign is_lui = opcode == 7'b0110111;
-  assign is_auipc = opcode == 7'b0010111;
-  assign is_jal = opcode == 7'b1101111;
-  assign is_jalr = opcode == 7'b1100111 && funct3 == 3'b000;
+  assign is_lui = opcode == 5'b01101 && uncompressed;
+  assign is_auipc = opcode == 5'b00101 && uncompressed;
+  assign is_jal = opcode == 5'b11011 && uncompressed;
+  assign is_jalr = opcode == 5'b11001 && uncompressed && funct3 == 3'b000;
   logic [31:0] jump_address;
   assign jump_address = is_jalr ?
     ($signed(immediate) + $signed(regs[rs1])) & 32'hfffffffe :
     $signed(pc) + $signed(immediate);
 
-  logic is_branch, is_beq, is_bne, is_blt, is_bltu, is_bge, is_bgeu;
-  assign is_branch = opcode == 7'b1100011;
-  assign is_beq = is_branch && funct3 == 3'b000;
-  assign is_bne = is_branch && funct3 == 3'b001;
-  assign is_blt = is_branch && funct3 == 3'b100;
-  assign is_bge = is_branch && funct3 == 3'b101;
-  assign is_bltu = is_branch && funct3 == 3'b110;
-  assign is_bgeu = is_branch && funct3 == 3'b111;
+  logic is_branch_op, is_branch, is_beq, is_bne, is_blt, is_bltu, is_bge, is_bgeu;
+  assign is_branch_op = opcode == 5'b11000 && uncompressed;
+  assign is_beq = is_branch_op && funct3 == 3'b000;
+  assign is_bne = is_branch_op && funct3 == 3'b001;
+  assign is_blt = is_branch_op && funct3 == 3'b100;
+  assign is_bge = is_branch_op && funct3 == 3'b101;
+  assign is_bltu = is_branch_op && funct3 == 3'b110;
+  assign is_bgeu = is_branch_op && funct3 == 3'b111;
+  assign is_branch = is_beq || is_bne || is_blt || is_bge || is_bltu || is_bgeu;
 
-  logic is_load, is_lb, is_lh, is_lw, is_lbu, is_lhu, is_clwsp;
-  assign is_load = opcode == 7'b0000011;
-  assign is_lb = is_load && funct3 == 3'b000;
-  assign is_lh = is_load && funct3 == 3'b001;
-  assign is_lw = is_load && funct3 == 3'b010;
-  assign is_lbu = is_load && funct3 == 3'b100;
-  assign is_lhu = is_load && funct3 == 3'b101;
+  logic is_load_op, is_load, is_lb, is_lh, is_lw, is_lbu, is_lhu, is_clwsp;
+  assign is_load_op = opcode == 5'b00000 && uncompressed;
+  assign is_lb = is_load_op && funct3 == 3'b000;
+  assign is_lh = is_load_op && funct3 == 3'b001;
+  assign is_lw = (is_load_op && funct3 == 3'b010) || is_clwsp;
+  assign is_lbu = is_load_op && funct3 == 3'b100;
+  assign is_lhu = is_load_op && funct3 == 3'b101;
   assign is_clwsp = quadrant == 2'b10 && cfunct3 == 3'b010 && instr[11:7] != 5'b0;
+  assign is_load = is_lb || is_lh || is_lw || is_lbu || is_lhu;
 
-  logic is_store, is_sb, is_sh, is_sw;
-  assign is_store = opcode == 7'b0100011;
-  assign is_sb = is_store && funct3 == 3'b000;
-  assign is_sh = is_store && funct3 == 3'b001;
-  assign is_sw = is_store && funct3 == 3'b010;
+  logic is_store, is_store_op, is_sb, is_sh, is_sw;
+  assign is_store_op = opcode == 5'b01000 && uncompressed;
+  assign is_sb = is_store_op && funct3 == 3'b000;
+  assign is_sh = is_store_op && funct3 == 3'b001;
+  assign is_sw = is_store_op && funct3 == 3'b010;
+  assign is_store = is_sb || is_sh || is_sw;
 
   logic math_low;
   assign math_low = funct7 == 7'b0000000;
   logic math_high;
   assign math_high = funct7 == 7'b0100000;
-  logic is_math_immediate, is_addi, is_slti, is_sltiu, is_xori, is_ori, is_andi,
+  logic is_math_immediate_op, is_math_immediate, is_addi, is_slti, is_sltiu, is_xori, is_ori, is_andi,
     is_slli, is_srli, is_srai;
-  assign is_math_immediate = opcode == 7'b0010011;
-  assign is_addi = is_math_immediate && funct3 == 3'b000;
-  assign is_slti = is_math_immediate && funct3 == 3'b010;
-  assign is_sltiu = is_math_immediate && funct3 == 3'b011;
-  assign is_xori = is_math_immediate && funct3 == 3'b100;
-  assign is_ori = is_math_immediate && funct3 == 3'b110;
-  assign is_andi = is_math_immediate && funct3 == 3'b111;
-  assign is_slli = is_math_immediate && math_low && funct3 == 3'b001;
-  assign is_srli = is_math_immediate && math_low && funct3 == 3'b101;
-  assign is_srai = is_math_immediate && math_high && funct3 == 3'b101;
+  assign is_math_immediate_op = opcode == 5'b00100 && uncompressed;
+  assign is_addi = is_math_immediate_op && funct3 == 3'b000;
+  assign is_slti = is_math_immediate_op && funct3 == 3'b010;
+  assign is_sltiu = is_math_immediate_op && funct3 == 3'b011;
+  assign is_xori = is_math_immediate_op && funct3 == 3'b100;
+  assign is_ori = is_math_immediate_op && funct3 == 3'b110;
+  assign is_andi = is_math_immediate_op && funct3 == 3'b111;
+  assign is_slli = is_math_immediate_op && math_low && funct3 == 3'b001;
+  assign is_srli = is_math_immediate_op && math_low && funct3 == 3'b101;
+  assign is_srai = is_math_immediate_op && math_high && funct3 == 3'b101;
+  assign is_math_immediate = is_addi || is_slti || is_xori || is_ori || is_andi ||
+    is_slli || is_srli || is_srai;
 
-  logic is_math, is_add, is_sub, is_sll, is_slt, is_sltu, is_xor, is_srl, is_sra, is_or, is_and,
-    is_multiply, is_mul, is_mulh, is_mulhu, is_mulhsu, is_divide, is_div, is_divu, is_rem, is_remu;
-  assign is_math = opcode == 7'b0110011;
-  assign is_add = is_math && math_low && funct3 == 3'b000;
-  assign is_sub = is_math && math_high && funct3 == 3'b000;
-  assign is_sll = is_math && math_low && funct3 == 3'b001;
-  assign is_slt = is_math && math_low && funct3 == 3'b010;
-  assign is_sltu = is_math && math_low && funct3 == 3'b011;
-  assign is_xor = is_math && math_low && funct3 == 3'b100;
-  assign is_srl = is_math && math_low && funct3 == 3'b101;
-  assign is_sra = is_math && math_high && funct3 == 3'b101;
-  assign is_or = is_math && math_low && funct3 == 3'b110;
-  assign is_and = is_math && math_low && funct3 == 3'b111;
+  logic is_math_op, is_math, is_add, is_sub, is_sll, is_slt, is_sltu, is_xor, is_srl, is_sra, is_or,
+    is_and, is_multiply, is_mul, is_mulh, is_mulhu, is_mulhsu, is_divide, is_div, is_divu, is_rem,
+    is_remu;
+  assign is_math_op = opcode == 5'b01100 && uncompressed;
+  assign is_add = is_math_op && math_low && funct3 == 3'b000;
+  assign is_sub = is_math_op && math_high && funct3 == 3'b000;
+  assign is_sll = is_math_op && math_low && funct3 == 3'b001;
+  assign is_slt = is_math_op && math_low && funct3 == 3'b010;
+  assign is_sltu = is_math_op && math_low && funct3 == 3'b011;
+  assign is_xor = is_math_op && math_low && funct3 == 3'b100;
+  assign is_srl = is_math_op && math_low && funct3 == 3'b101;
+  assign is_sra = is_math_op && math_high && funct3 == 3'b101;
+  assign is_or = is_math_op && math_low && funct3 == 3'b110;
+  assign is_and = is_math_op && math_low && funct3 == 3'b111;
+  assign is_math = is_add || is_sub || is_sll || is_slt || is_sltu || is_sltiu || is_xor ||
+    is_srl || is_sra || is_or || is_and;
+
   logic is_m;
-  assign is_m = is_math && funct7 == 7'b0000001;
+  assign is_m = is_math_op && funct7 == 7'b0000001;
   assign is_mul = is_m && funct3 == 3'b000;
   assign is_mulh = is_m && funct3 == 3'b001;
   assign is_mulhu = is_m && funct3 == 3'b011;
@@ -178,7 +188,7 @@ module riscv (
   logic [4:0] shamt;
   assign shamt = is_math_immediate ? rs2 : regs[rs2][4:0];
   logic is_error, is_ecall, is_ebreak;
-  assign is_error = opcode == 7'b1110011 && funct3 == 0 && rs1 == 0 && rd == 0;
+  assign is_error = opcode == 5'b11100 && uncompressed && funct3 == 0 && rs1 == 0 && rd == 0;
   assign is_ecall = is_error && !{|instr[31:20]};
   assign is_ebreak = is_error && |instr[31:20];
   logic is_valid;
@@ -186,42 +196,13 @@ module riscv (
     is_auipc ||
     is_jal ||
     is_jalr ||
-    is_beq ||
-    is_bne ||
-    is_blt ||
-    is_bge ||
-    is_bltu ||
-    is_bgeu ||
-    is_lb ||
-    is_lh ||
-    is_lbu ||
-    is_lhu ||
-    is_lw ||
-    is_clwsp ||
-    is_sb ||
-    is_sh ||
-    is_sw ||
-    is_addi ||
-    is_slti ||
-    is_sltiu ||
-    is_xori ||
-    is_ori ||
-    is_andi ||
-    is_srli ||
-    is_slli ||
-    is_srai ||
-    is_sra ||
-    is_add ||
-    is_sub ||
+    is_branch ||
+    is_load ||
+    is_store ||
+    is_math ||
+    is_math_immediate ||
     is_multiply ||
     is_divide ||
-    is_sll ||
-    is_slt ||
-    is_sltu ||
-    is_xor ||
-    is_srl ||
-    is_or ||
-    is_and ||
     is_ecall ||
     is_ebreak;
 
@@ -231,7 +212,7 @@ module riscv (
   // storage for the next program counter
   logic [31:0] next_pc;
   logic [31:0] pc_inc;
-  assign pc_inc = quadrant == 2'b11 ? 4 : 2;
+  assign pc_inc = uncompressed ? 4 : 2;
 
   // register write addr
   logic [31:0] reg_wdata;
@@ -315,7 +296,7 @@ module riscv (
                 cpu_state <= check_pc;
               end
 
-              is_branch: begin
+              is_branch_op: begin
                 (* parallel_case, full_case *)
                 case(1'b1)
                   is_beq: pc_wdata <= regs[rs1] == regs[rs2] ? pc + immediate : pc + 4;
@@ -329,7 +310,7 @@ module riscv (
                 cpu_state <= check_pc;
               end
 
-              is_math || is_math_immediate: begin
+              is_math_op || is_math_immediate_op || is_m: begin
                 cpu_state <= reg_write;
                 next_pc <= pc + 4;
                 (* parallel_case, full_case *)
@@ -407,8 +388,8 @@ module riscv (
                 endcase
               end
 
-              is_load || is_clwsp: begin
-                if (((is_lw || is_clwsp) && |addr24) ||
+              is_load_op || is_clwsp: begin
+                if ((is_lw && |addr24) ||
                     ((is_lh || is_lhu) && addr8)) begin
                   cpu_state <= cpu_trap;
                 end else begin
@@ -420,7 +401,7 @@ module riscv (
                 end
               end
 
-              is_store: begin
+              is_store_op: begin
                 if ((is_sw && |addr24) ||
                     (is_sh && addr8)) begin
                   cpu_state <= cpu_trap;
@@ -600,7 +581,7 @@ module riscv (
  `ifdef RISCV_FORMAL
   logic is_fetch;
   assign is_fetch = cpu_state == fetch_instr;
-  logic rs1_valid, rs2_valid, rd_valid;
+  logic rs1_valid, rs2_valid;
   assign rs1_valid = !is_lui && !is_jal && !is_auipc;
   assign rs2_valid = !is_lui && !is_jal && !is_auipc && !is_jalr && !is_load;
   always_ff @(posedge clk) begin
