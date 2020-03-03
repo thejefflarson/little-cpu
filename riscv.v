@@ -69,8 +69,9 @@ module riscv (
   assign j_immediate = {{12{instr[31]}}, instr[19:12], instr[20], instr[30:21], 1'b0};
 
   // compressed instructions
-  logic [31:0] cl_immediate;
+  logic [31:0] cl_immediate, css_immediate;
   assign cl_immediate = {24'b0, instr[3:2], instr[12], instr[6:4], 2'b00};
+  assign css_immediate = {24'b0, instr[8:7], instr[12:9], 2'b00};
 
   logic [31:0] immediate;
   always_comb begin
@@ -83,6 +84,7 @@ module riscv (
       is_branch_op: immediate = b_immediate;
       is_math_immediate_op: immediate = i_immediate;
       is_clwsp: immediate = cl_immediate;
+      is_cswsp: immediate = css_immediate;
       default: immediate = 32'b0;
     endcase
   end
@@ -118,11 +120,12 @@ module riscv (
   assign is_clwsp = quadrant == 2'b10 && cfunct3 == 3'b010 && instr[11:7] != 5'b0;
   assign is_load = is_lb || is_lh || is_lw || is_lbu || is_lhu;
 
-  logic is_store, is_store_op, is_sb, is_sh, is_sw;
+  logic is_store, is_store_op, is_sb, is_sh, is_sw, is_cswsp;
   assign is_store_op = opcode == 5'b01000 && uncompressed;
   assign is_sb = is_store_op && funct3 == 3'b000;
   assign is_sh = is_store_op && funct3 == 3'b001;
-  assign is_sw = is_store_op && funct3 == 3'b010;
+  assign is_sw = (is_store_op && funct3 == 3'b010) || is_cswsp;
+  assign is_cswsp = quadrant == 2'b10 && cfunct3 == 3'b110;
   assign is_store = is_sb || is_sh || is_sw;
 
   logic math_low;
@@ -265,8 +268,8 @@ module riscv (
 
         decode_instr: begin
           rd <= is_branch || is_store ? 0 : instr[11:7];
-          rs1 <= is_clwsp ? 2 : instr[19:15];
-          rs2 <= instr[24:20];
+          rs1 <= is_clwsp || is_cswsp ? 2 : instr[19:15];
+          rs2 <= is_cswsp ? instr[6:2] : instr[24:20];
           cpu_state <= execute_instr;
         end
 
@@ -400,7 +403,7 @@ module riscv (
                 end
               end
 
-              is_store_op: begin
+              is_store_op || is_cswsp: begin
                 if ((is_sw && |addr24) ||
                     (is_sh && addr8)) begin
                   cpu_state <= cpu_trap;
@@ -566,7 +569,7 @@ module riscv (
           if (mem_ready) begin
             cpu_state <= fetch_instr;
             mem_valid <= 0;
-            next_pc <= pc + 4;
+            next_pc <= pc + pc_inc;
           end
         end
 
