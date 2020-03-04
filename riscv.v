@@ -37,7 +37,7 @@ module riscv (
 
   // instruction decoder (figure 2.3)
   logic [31:0] instr;
-  logic [5:0] opcode;
+  logic [4:0] opcode;
   assign opcode = instr[6:2];
   logic [1:0] quadrant;
   assign quadrant = instr[1:0];
@@ -49,17 +49,6 @@ module riscv (
   logic [6:0] funct7;
   assign funct7 = instr[31:25];
 
-  logic [4:0] rd, rs1, rs2;
-
-  logic [31:0] load_store_address;
-  assign load_store_address = $signed(immediate) + $signed(regs[rs1]);
-  logic [1:0] addr24;
-  assign addr24 = load_store_address[1:0];
-  logic addr16;
-  assign addr16 = load_store_address[1];
-  logic addr8;
-  assign addr8 = load_store_address[0];
-
   // immediate decoder (figure 2.4 & table 16.1)
   logic [31:0] i_immediate, s_immediate, b_immediate, u_immediate, j_immediate;
   assign i_immediate = {{20{instr[31]}}, instr[31:20]};
@@ -69,9 +58,11 @@ module riscv (
   assign j_immediate = {{12{instr[31]}}, instr[19:12], instr[20], instr[30:21], 1'b0};
 
   // compressed instructions
-  logic [31:0] cl_immediate, css_immediate;
-  assign cl_immediate = {24'b0, instr[3:2], instr[12], instr[6:4], 2'b00};
+  logic [31:0] cl_immediate, ci_immediate, css_immediate;
+  assign ci_immediate = {24'b0, instr[3:2], instr[12], instr[6:4], 2'b00};
   assign css_immediate = {24'b0, instr[8:7], instr[12:9], 2'b00};
+  assign cl_immediate = {25'b0, instr[5], instr[12:10], instr[6], 2'b00};
+
 
   logic [31:0] immediate;
   always_comb begin
@@ -83,8 +74,9 @@ module riscv (
       is_jal: immediate = j_immediate;
       is_branch_op: immediate = b_immediate;
       is_math_immediate_op: immediate = i_immediate;
-      is_clwsp: immediate = cl_immediate;
+      is_clwsp: immediate = ci_immediate;
       is_cswsp: immediate = css_immediate;
+      is_clw: immediate = cl_immediate;
       default: immediate = 32'b0;
     endcase
   end
@@ -110,14 +102,15 @@ module riscv (
   assign is_bgeu = is_branch_op && funct3 == 3'b111;
   assign is_branch = is_beq || is_bne || is_blt || is_bge || is_bltu || is_bgeu;
 
-  logic is_load_op, is_load, is_lb, is_lh, is_lw, is_lbu, is_lhu, is_clwsp;
+  logic is_load_op, is_load, is_lb, is_lh, is_lw, is_lbu, is_lhu, is_clwsp, is_clw;
   assign is_load_op = opcode == 5'b00000 && uncompressed;
   assign is_lb = is_load_op && funct3 == 3'b000;
   assign is_lh = is_load_op && funct3 == 3'b001;
-  assign is_lw = (is_load_op && funct3 == 3'b010) || is_clwsp;
+  assign is_lw = (is_load_op && funct3 == 3'b010) || is_clwsp || is_clw;
   assign is_lbu = is_load_op && funct3 == 3'b100;
   assign is_lhu = is_load_op && funct3 == 3'b101;
   assign is_clwsp = quadrant == 2'b10 && cfunct3 == 3'b010 && instr[11:7] != 5'b0;
+  assign is_clw = quadrant == 2'b00 && cfunct3 == 3'b010;
   assign is_load = is_lb || is_lh || is_lw || is_lbu || is_lhu;
 
   logic is_store, is_store_op, is_sb, is_sh, is_sw, is_cswsp;
@@ -203,6 +196,16 @@ module riscv (
   // registers
   logic [31:0] regs[0:31];
   logic [31:0] pc;
+  logic [4:0] rd, rs1, rs2;
+  logic [31:0] load_store_address;
+  assign load_store_address = $signed(immediate) + $signed(regs[rs1]);
+  logic [1:0] addr24;
+  assign addr24 = load_store_address[1:0];
+  logic addr16;
+  assign addr16 = load_store_address[1];
+  logic addr8;
+  assign addr8 = load_store_address[0];
+
   // storage for the next program counter
   logic [31:0] next_pc;
   logic [31:0] pc_inc;
@@ -267,9 +270,24 @@ module riscv (
         end
 
         decode_instr: begin
-          rd <= is_branch || is_store ? 0 : instr[11:7];
-          rs1 <= is_clwsp || is_cswsp ? 2 : instr[19:15];
-          rs2 <= is_cswsp ? instr[6:2] : instr[24:20];
+          (* parallel_case, full_case *)
+          case (1'b1)
+            is_branch || is_store: rd <= 0;
+            is_clw: rd <= {2'b01, instr[4:2]};
+            default: rd <= instr[11:7];
+          endcase
+
+          (* parallel_case, full_case *)
+          case (1'b1)
+            is_clwsp || is_cswsp: rs1 <= 2;
+            is_clw: rs1 <= {2'b01, instr[9:7]};
+            default: rs1 <= instr[19:15];
+          endcase
+
+          case(1'b1)
+            is_cswsp: rs2 <= instr[6:2];
+            default: rs2 <= instr[24:20];
+          endcase
           cpu_state <= execute_instr;
         end
 
@@ -385,12 +403,12 @@ module riscv (
                     cpu_state <= divide;
                     mul_div_store <= 0;
                     mul_div_x <= {32'b0,regs[rs1]};
-                    mul_div_y <= {32'b0,regs[rs2]};
+                    mul_div_y <= {1'b0,regs[rs2],31'b0};
                   end
                 endcase
               end
 
-              is_load_op || is_clwsp: begin
+              is_load_op || is_clwsp || is_clw: begin
                 if ((is_lw && |addr24) ||
                     ((is_lh || is_lhu) && addr8)) begin
                   cpu_state <= cpu_trap;
