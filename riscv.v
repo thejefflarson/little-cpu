@@ -58,11 +58,12 @@ module riscv (
   assign j_immediate = {{12{instr[31]}}, instr[19:12], instr[20], instr[30:21], 1'b0};
 
   // compressed instructions
-  logic [31:0] cl_immediate, ci_immediate, css_immediate;
+  logic [31:0] cl_immediate, ci_immediate, css_immediate, cj_immediate;
   assign ci_immediate = {24'b0, instr[3:2], instr[12], instr[6:4], 2'b00};
   assign css_immediate = {24'b0, instr[8:7], instr[12:9], 2'b00};
   assign cl_immediate = {25'b0, instr[5], instr[12:10], instr[6], 2'b00};
-
+  assign cj_immediate = {{20{instr[12]}}, instr[12], instr[8], instr[10], instr[9], instr[6],
+                           instr[7], instr[2], instr[11], instr[5], instr[4], instr[3], 1'b0};
 
   logic [31:0] immediate;
   always_comb begin
@@ -71,22 +72,27 @@ module riscv (
       is_load_op || is_jalr: immediate = i_immediate;
       is_store_op: immediate = s_immediate;
       is_lui || is_auipc: immediate = u_immediate;
-      is_jal: immediate = j_immediate;
+      is_jal_op: immediate = j_immediate;
       is_branch_op: immediate = b_immediate;
       is_math_immediate_op: immediate = i_immediate;
       is_clwsp: immediate = ci_immediate;
       is_cswsp: immediate = css_immediate;
       is_clw: immediate = cl_immediate;
+      is_cj || is_cjal: immediate = cj_immediate;
       default: immediate = 32'b0;
     endcase
   end
 
   // Table 24.2 RV32I
-  logic is_lui, is_auipc, is_jal, is_jalr;
+  logic is_lui, is_auipc, is_jal, is_jal_op, is_jalr, is_jalr_op, is_cj, is_cjal;
   assign is_lui = opcode == 5'b01101 && uncompressed;
   assign is_auipc = opcode == 5'b00101 && uncompressed;
-  assign is_jal = opcode == 5'b11011 && uncompressed;
-  assign is_jalr = opcode == 5'b11001 && uncompressed && funct3 == 3'b000;
+  assign is_jal_op = opcode == 5'b11011 && uncompressed;
+  assign is_jal = is_jal_op || is_cj || is_cjal;
+  assign is_jalr_op = opcode == 5'b11001 && uncompressed && funct3 == 3'b000;
+  assign is_jalr = is_jalr_op;
+  assign is_cj = quadrant == 2'b01 && cfunct3 == 3'b101;
+  assign is_cjal = quadrant == 2'b01 && cfunct3 == 3'b001;
   logic [31:0] jump_address;
   assign jump_address = is_jalr ?
     ($signed(immediate) + $signed(regs[rs1])) & 32'hfffffffe :
@@ -272,7 +278,8 @@ module riscv (
         decode_instr: begin
           (* parallel_case, full_case *)
           case (1'b1)
-            is_branch || is_store: rd <= 0;
+            is_branch || is_store || is_cj: rd <= 0;
+            is_cjal: rd <= 1;
             is_clw: rd <= {2'b01, instr[4:2]};
             default: rd <= instr[11:7];
           endcase
@@ -309,9 +316,9 @@ module riscv (
                 next_pc <= pc + 4;
               end
 
-              is_jal || is_jalr: begin
+              is_jal || is_jalr || is_cj || is_cjal: begin
                 pc_wdata <= jump_address;
-                reg_wdata <= pc + 4;
+                reg_wdata <= pc + pc_inc;
                 skip_reg_write <= 0;
                 cpu_state <= check_pc;
               end
