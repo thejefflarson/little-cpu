@@ -58,12 +58,14 @@ module riscv (
   assign j_immediate = {{12{instr[31]}}, instr[19:12], instr[20], instr[30:21], 1'b0};
 
   // compressed instructions
-  logic [31:0] cl_immediate, ci_immediate, css_immediate, cj_immediate;
+  logic [31:0] cl_immediate, ci_immediate, css_immediate, cj_immediate, cb_immediate;
   assign ci_immediate = {24'b0, instr[3:2], instr[12], instr[6:4], 2'b00};
   assign css_immediate = {24'b0, instr[8:7], instr[12:9], 2'b00};
   assign cl_immediate = {25'b0, instr[5], instr[12:10], instr[6], 2'b00};
   assign cj_immediate = {{20{instr[12]}}, instr[12], instr[8], instr[10], instr[9], instr[6],
-                           instr[7], instr[2], instr[11], instr[5], instr[4], instr[3], 1'b0};
+                          instr[7], instr[2], instr[11], instr[5], instr[4], instr[3], 1'b0};
+  assign cb_immediate = {{23{instr[12]}}, instr[12], instr[6:5], instr[2], instr[11:10], instr[4:3], 1'b0};
+
 
   logic [31:0] immediate;
   always_comb begin
@@ -79,33 +81,38 @@ module riscv (
       is_cswsp: immediate = css_immediate;
       is_clw: immediate = cl_immediate;
       is_cj || is_cjal: immediate = cj_immediate;
+      is_cbeqz || is_cbnez: immediate = cb_immediate;
       default: immediate = 32'b0;
     endcase
   end
 
   // Table 24.2 RV32I
-  logic is_lui, is_auipc, is_jal, is_jal_op, is_jalr, is_jalr_op, is_cj, is_cjal;
+  logic is_lui, is_auipc, is_jal, is_jal_op, is_jalr, is_jalr_op, is_cj, is_cjal, is_cjr, is_cjalr;
   assign is_lui = opcode == 5'b01101 && uncompressed;
   assign is_auipc = opcode == 5'b00101 && uncompressed;
   assign is_jal_op = opcode == 5'b11011 && uncompressed;
   assign is_jal = is_jal_op || is_cj || is_cjal;
   assign is_jalr_op = opcode == 5'b11001 && uncompressed && funct3 == 3'b000;
-  assign is_jalr = is_jalr_op;
+  assign is_jalr = is_jalr_op || is_cjr || is_cjalr;
   assign is_cj = quadrant == 2'b01 && cfunct3 == 3'b101;
   assign is_cjal = quadrant == 2'b01 && cfunct3 == 3'b001;
+  assign is_cjr = quadrant == 2'b10 && cfunct3 == 3'b100 && instr[12] == 0 && instr[6:2] == 0 && instr[11:7] != 0;
+  assign is_cjalr = quadrant == 2'b10 && cfunct3 == 3'b100 && instr[12] == 1 && instr[6:2] == 0 && instr[11:7] != 0;
   logic [31:0] jump_address;
-  assign jump_address = is_jalr ?
+  assign jump_address = is_jalr || is_cjr || is_cjalr ?
     ($signed(immediate) + $signed(regs[rs1])) & 32'hfffffffe :
     $signed(pc) + $signed(immediate);
 
-  logic is_branch_op, is_branch, is_beq, is_bne, is_blt, is_bltu, is_bge, is_bgeu;
+  logic is_branch_op, is_branch, is_beq, is_bne, is_blt, is_bltu, is_bge, is_bgeu, is_cbeqz, is_cbnez;
   assign is_branch_op = opcode == 5'b11000 && uncompressed;
-  assign is_beq = is_branch_op && funct3 == 3'b000;
-  assign is_bne = is_branch_op && funct3 == 3'b001;
+  assign is_beq = (is_branch_op && funct3 == 3'b000) || is_cbeqz;
+  assign is_bne = (is_branch_op && funct3 == 3'b001) || is_cbnez;
   assign is_blt = is_branch_op && funct3 == 3'b100;
   assign is_bge = is_branch_op && funct3 == 3'b101;
   assign is_bltu = is_branch_op && funct3 == 3'b110;
   assign is_bgeu = is_branch_op && funct3 == 3'b111;
+  assign is_cbeqz = quadrant == 2'b01 && cfunct3 == 3'b110;
+  assign is_cbnez = quadrant == 2'b01 && cfunct3 == 3'b111;
   assign is_branch = is_beq || is_bne || is_blt || is_bge || is_bltu || is_bgeu;
 
   logic is_load_op, is_load, is_lb, is_lh, is_lw, is_lbu, is_lhu, is_clwsp, is_clw;
@@ -147,8 +154,8 @@ module riscv (
     is_slli || is_srli || is_srai;
 
   logic is_math_op, is_math, is_add, is_sub, is_sll, is_slt, is_sltu, is_xor, is_srl, is_sra, is_or,
-    is_and, is_multiply, is_mul, is_mulh, is_mulhu, is_mulhsu, is_divide, is_div, is_divu, is_rem,
-    is_remu;
+    is_and;
+
   assign is_math_op = opcode == 5'b01100 && uncompressed;
   assign is_add = is_math_op && math_low && funct3 == 3'b000;
   assign is_sub = is_math_op && math_high && funct3 == 3'b000;
@@ -163,7 +170,8 @@ module riscv (
   assign is_math = is_add || is_sub || is_sll || is_slt || is_sltu || is_xor || is_srl || is_sra ||
     is_or || is_and;
 
-  logic is_m;
+  logic is_m, is_multiply, is_mul, is_mulh, is_mulhu, is_mulhsu, is_divide, is_div, is_divu, is_rem,
+    is_remu;
   assign is_m = is_math_op && funct7 == 7'b0000001;
   assign is_mul = is_m && funct3 == 3'b000;
   assign is_mulh = is_m && funct3 == 3'b001;
@@ -278,8 +286,8 @@ module riscv (
         decode_instr: begin
           (* parallel_case, full_case *)
           case (1'b1)
-            is_branch || is_store || is_cj: rd <= 0;
-            is_cjal: rd <= 1;
+            is_branch || is_store || is_cj || is_cjr: rd <= 0;
+            is_cjal || is_cjalr: rd <= 1;
             is_clw: rd <= {2'b01, instr[4:2]};
             default: rd <= instr[11:7];
           endcase
@@ -287,12 +295,14 @@ module riscv (
           (* parallel_case, full_case *)
           case (1'b1)
             is_clwsp || is_cswsp: rs1 <= 2;
-            is_clw: rs1 <= {2'b01, instr[9:7]};
+            is_clw || is_cbeqz || is_cbnez: rs1 <= {2'b01, instr[9:7]};
+            is_cjr || is_cjalr: rs1 <= instr[11:7];
             default: rs1 <= instr[19:15];
           endcase
 
           case(1'b1)
             is_cswsp: rs2 <= instr[6:2];
+            is_cbeqz || is_cbnez: rs2 <= 0;
             default: rs2 <= instr[24:20];
           endcase
           cpu_state <= execute_instr;
@@ -316,18 +326,18 @@ module riscv (
                 next_pc <= pc + 4;
               end
 
-              is_jal || is_jalr || is_cj || is_cjal: begin
+              is_jal || is_jalr: begin
                 pc_wdata <= jump_address;
                 reg_wdata <= pc + pc_inc;
                 skip_reg_write <= 0;
                 cpu_state <= check_pc;
               end
 
-              is_branch_op: begin
+              is_branch: begin
                 (* parallel_case, full_case *)
                 case(1'b1)
-                  is_beq: pc_wdata <= regs[rs1] == regs[rs2] ? pc + immediate : pc + 4;
-                  is_bne: pc_wdata <= regs[rs1] != regs[rs2] ? pc + immediate : pc + 4;
+                  is_beq: pc_wdata <= regs[rs1] == regs[rs2] ? pc + immediate : pc + pc_inc;
+                  is_bne: pc_wdata <= regs[rs1] != regs[rs2] ? pc + immediate : pc + pc_inc;
                   is_blt: pc_wdata <= $signed(regs[rs1]) < $signed(regs[rs2]) ? pc + immediate : pc + 4;
                   is_bltu: pc_wdata <= regs[rs1] < regs[rs2] ? pc + immediate : pc + 4;
                   is_bge: pc_wdata <= $signed(regs[rs1]) >= $signed(regs[rs2]) ? pc + immediate : pc + 4;
