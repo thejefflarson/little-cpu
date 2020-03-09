@@ -148,7 +148,6 @@ module riscv (
   assign is_addi = (is_math_immediate_op && funct3 == 3'b000) || is_cli;
   // c.li is addi in disguise
   assign is_cli = quadrant == 2'b01 && cfunct3 == 3'b010;
-// && instr[11:7] != 0;
   assign is_slti = is_math_immediate_op && funct3 == 3'b010;
   assign is_sltiu = is_math_immediate_op && funct3 == 3'b011;
   assign is_xori = is_math_immediate_op && funct3 == 3'b100;
