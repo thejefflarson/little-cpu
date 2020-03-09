@@ -58,15 +58,16 @@ module riscv (
   assign j_immediate = {{12{instr[31]}}, instr[19:12], instr[20], instr[30:21], 1'b0};
 
   // compressed instructions
-  logic [31:0] cl_immediate, clwsp_immediate, cli_immediate, css_immediate, cj_immediate, cb_immediate;
+  logic [31:0] cl_immediate, clwsp_immediate, cli_immediate, css_immediate, cj_immediate,
+    cb_immediate, clui_immediate;
+  assign cl_immediate = {25'b0, instr[5], instr[12:10], instr[6], 2'b00};
   assign clwsp_immediate = {24'b0, instr[3:2], instr[12], instr[6:4], 2'b00};
   assign cli_immediate = {{26{instr[12]}}, instr[12], instr[6:2]};
   assign css_immediate = {24'b0, instr[8:7], instr[12:9], 2'b00};
-  assign cl_immediate = {25'b0, instr[5], instr[12:10], instr[6], 2'b00};
   assign cj_immediate = {{20{instr[12]}}, instr[12], instr[8], instr[10], instr[9], instr[6],
                           instr[7], instr[2], instr[11], instr[5], instr[4], instr[3], 1'b0};
   assign cb_immediate = {{23{instr[12]}}, instr[12], instr[6:5], instr[2], instr[11:10], instr[4:3], 1'b0};
-
+  assign clui_immediate = {{14{instr[12]}}, instr[12],instr[6:2],12'b0};
 
   logic [31:0] immediate;
   always_comb begin
@@ -74,7 +75,7 @@ module riscv (
     case (1'b1)
       is_load_op || is_jalr: immediate = i_immediate;
       is_store_op: immediate = s_immediate;
-      is_lui || is_auipc: immediate = u_immediate;
+      is_lui_op || is_auipc: immediate = u_immediate;
       is_jal_op: immediate = j_immediate;
       is_branch_op: immediate = b_immediate;
       is_math_immediate_op: immediate = i_immediate;
@@ -84,30 +85,36 @@ module riscv (
       is_cj || is_cjal: immediate = cj_immediate;
       is_cbeqz || is_cbnez: immediate = cb_immediate;
       is_cli: immediate = cli_immediate;
+      is_clui: immediate = clui_immediate;
       default: immediate = 32'b0;
     endcase
   end
 
   // Table 24.2 RV32I and Table 16.5-7
-  logic is_lui, is_auipc, is_jal, is_jal_op, is_jalr, is_jalr_op, is_cj, is_cjal, is_cjr, is_cjalr,
-    is_cli;
-  assign is_lui = opcode == 5'b01101 && uncompressed;
+  logic is_lui, is_lui_op, is_auipc, is_jal, is_jal_op, is_jalr, is_jalr_op, is_cj, is_cjal, is_cjr,
+    is_cjalr, is_clui;
+  assign is_lui_op = opcode == 5'b01101 && uncompressed;
+  assign is_lui = (opcode == 5'b01101 && uncompressed) || is_clui;
+  assign is_clui = quadrant == 2'b01 && cfunct3 == 3'b011 && {instr[12], instr[6:2]} != 0 &&
+    instr[11:7] != 2;
   assign is_auipc = opcode == 5'b00101 && uncompressed;
-
   assign is_jal_op = opcode == 5'b11011 && uncompressed;
   assign is_jal = is_jal_op || is_cj || is_cjal;
   assign is_jalr_op = opcode == 5'b11001 && uncompressed && funct3 == 3'b000;
   assign is_jalr = is_jalr_op || is_cjr || is_cjalr;
   assign is_cj = quadrant == 2'b01 && cfunct3 == 3'b101;
   assign is_cjal = quadrant == 2'b01 && cfunct3 == 3'b001;
-  assign is_cjr = quadrant == 2'b10 && cfunct3 == 3'b100 && instr[12] == 0 && instr[6:2] == 0 && instr[11:7] != 0;
-  assign is_cjalr = quadrant == 2'b10 && cfunct3 == 3'b100 && instr[12] == 1 && instr[6:2] == 0 && instr[11:7] != 0;
+  assign is_cjr = quadrant == 2'b10 && cfunct3 == 3'b100 && instr[12] == 0 && instr[6:2] == 0 &&
+    instr[11:7] != 0;
+  assign is_cjalr = quadrant == 2'b10 && cfunct3 == 3'b100 && instr[12] == 1 && instr[6:2] == 0 &&
+    instr[11:7] != 0;
   logic [31:0] jump_address;
   assign jump_address = is_jalr || is_cjr || is_cjalr ?
     ($signed(immediate) + $signed(regs[rs1])) & 32'hfffffffe :
     $signed(pc) + $signed(immediate);
 
-  logic is_branch_op, is_branch, is_beq, is_bne, is_blt, is_bltu, is_bge, is_bgeu, is_cbeqz, is_cbnez;
+  logic is_branch_op, is_branch, is_beq, is_bne, is_blt, is_bltu, is_bge, is_bgeu, is_cbeqz,
+    is_cbnez;
   assign is_branch_op = opcode == 5'b11000 && uncompressed;
   assign is_beq = (is_branch_op && funct3 == 3'b000) || is_cbeqz;
   assign is_bne = (is_branch_op && funct3 == 3'b001) || is_cbnez;
@@ -142,8 +149,8 @@ module riscv (
   assign math_low = funct7 == 7'b0000000;
   logic math_high;
   assign math_high = funct7 == 7'b0100000;
-  logic is_math_immediate_op, is_math_immediate, is_addi, is_slti, is_sltiu, is_xori, is_ori, is_andi,
-    is_slli, is_srli, is_srai;
+  logic is_math_immediate_op, is_math_immediate, is_addi, is_slti, is_sltiu, is_xori, is_ori,
+    is_andi, is_slli, is_srli, is_srai, is_cli;
   assign is_math_immediate_op = opcode == 5'b00100 && uncompressed;
   assign is_addi = (is_math_immediate_op && funct3 == 3'b000) || is_cli;
   // c.li is addi in disguise
@@ -325,7 +332,7 @@ module riscv (
               is_lui: begin
                 reg_wdata <= immediate;
                 cpu_state <= reg_write;
-                next_pc <= pc + 4;
+                next_pc <= pc + pc_inc;
               end
 
               is_auipc: begin
