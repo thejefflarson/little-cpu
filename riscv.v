@@ -58,8 +58,9 @@ module riscv (
   assign j_immediate = {{12{instr[31]}}, instr[19:12], instr[20], instr[30:21], 1'b0};
 
   // compressed instructions
-  logic [31:0] cl_immediate, ci_immediate, css_immediate, cj_immediate, cb_immediate;
-  assign ci_immediate = {24'b0, instr[3:2], instr[12], instr[6:4], 2'b00};
+  logic [31:0] cl_immediate, clwsp_immediate, cli_immediate, css_immediate, cj_immediate, cb_immediate;
+  assign clwsp_immediate = {24'b0, instr[3:2], instr[12], instr[6:4], 2'b00};
+  assign cli_immediate = {{26{instr[12]}}, instr[12], instr[6:2]};
   assign css_immediate = {24'b0, instr[8:7], instr[12:9], 2'b00};
   assign cl_immediate = {25'b0, instr[5], instr[12:10], instr[6], 2'b00};
   assign cj_immediate = {{20{instr[12]}}, instr[12], instr[8], instr[10], instr[9], instr[6],
@@ -77,19 +78,22 @@ module riscv (
       is_jal_op: immediate = j_immediate;
       is_branch_op: immediate = b_immediate;
       is_math_immediate_op: immediate = i_immediate;
-      is_clwsp: immediate = ci_immediate;
+      is_clwsp: immediate = clwsp_immediate;
       is_cswsp: immediate = css_immediate;
       is_clw: immediate = cl_immediate;
       is_cj || is_cjal: immediate = cj_immediate;
       is_cbeqz || is_cbnez: immediate = cb_immediate;
+      is_cli: immediate = cli_immediate;
       default: immediate = 32'b0;
     endcase
   end
 
-  // Table 24.2 RV32I
-  logic is_lui, is_auipc, is_jal, is_jal_op, is_jalr, is_jalr_op, is_cj, is_cjal, is_cjr, is_cjalr;
+  // Table 24.2 RV32I and Table 16.5-7
+  logic is_lui, is_auipc, is_jal, is_jal_op, is_jalr, is_jalr_op, is_cj, is_cjal, is_cjr, is_cjalr,
+    is_cli;
   assign is_lui = opcode == 5'b01101 && uncompressed;
   assign is_auipc = opcode == 5'b00101 && uncompressed;
+
   assign is_jal_op = opcode == 5'b11011 && uncompressed;
   assign is_jal = is_jal_op || is_cj || is_cjal;
   assign is_jalr_op = opcode == 5'b11001 && uncompressed && funct3 == 3'b000;
@@ -141,7 +145,10 @@ module riscv (
   logic is_math_immediate_op, is_math_immediate, is_addi, is_slti, is_sltiu, is_xori, is_ori, is_andi,
     is_slli, is_srli, is_srai;
   assign is_math_immediate_op = opcode == 5'b00100 && uncompressed;
-  assign is_addi = is_math_immediate_op && funct3 == 3'b000;
+  assign is_addi = (is_math_immediate_op && funct3 == 3'b000) || is_cli;
+  // c.li is addi in disguise
+  assign is_cli = quadrant == 2'b01 && cfunct3 == 3'b010;
+// && instr[11:7] != 0;
   assign is_slti = is_math_immediate_op && funct3 == 3'b010;
   assign is_sltiu = is_math_immediate_op && funct3 == 3'b011;
   assign is_xori = is_math_immediate_op && funct3 == 3'b100;
@@ -240,8 +247,8 @@ module riscv (
   logic skip_reg_write;
   localparam cpu_trap = 4'b0000;
   localparam fetch_instr = 4'b0001;
-  localparam decode_instr = 4'b0010;
-  localparam ready_instr = 4'b0011;
+  localparam ready_instr = 4'b0010;
+  localparam decode_instr = 4'b0011;
   localparam execute_instr = 4'b0100;
   localparam finish_load = 4'b0101;
   localparam finish_store = 4'b0110;
@@ -297,9 +304,11 @@ module riscv (
             is_clwsp || is_cswsp: rs1 <= 2;
             is_clw || is_cbeqz || is_cbnez: rs1 <= {2'b01, instr[9:7]};
             is_cjr || is_cjalr: rs1 <= instr[11:7];
+            is_cli: rs1 <= 0;
             default: rs1 <= instr[19:15];
           endcase
 
+          (* parallel_case, full_case *)
           case(1'b1)
             is_cswsp: rs2 <= instr[6:2];
             is_cbeqz || is_cbnez: rs2 <= 0;
@@ -347,9 +356,9 @@ module riscv (
                 cpu_state <= check_pc;
               end
 
-              is_math_op || is_math_immediate_op || is_m: begin
+              is_math || is_math_immediate || is_m: begin
                 cpu_state <= reg_write;
-                next_pc <= pc + 4;
+                next_pc <= pc + pc_inc;
                 (* parallel_case, full_case *)
                 case(1'b1)
                   is_add || is_addi: begin
