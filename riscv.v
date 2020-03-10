@@ -59,7 +59,7 @@ module riscv (
 
   // compressed instructions
   logic [31:0] cl_immediate, clwsp_immediate, cli_immediate, css_immediate, cj_immediate,
-    cb_immediate, clui_immediate;
+    cb_immediate, clui_immediate, caddi_immediate;
   assign cl_immediate = {25'b0, instr[5], instr[12:10], instr[6], 2'b00};
   assign clwsp_immediate = {24'b0, instr[3:2], instr[12], instr[6:4], 2'b00};
   assign cli_immediate = {{26{instr[12]}}, instr[12], instr[6:2]};
@@ -67,7 +67,9 @@ module riscv (
   assign cj_immediate = {{20{instr[12]}}, instr[12], instr[8], instr[10], instr[9], instr[6],
                           instr[7], instr[2], instr[11], instr[5], instr[4], instr[3], 1'b0};
   assign cb_immediate = {{23{instr[12]}}, instr[12], instr[6:5], instr[2], instr[11:10], instr[4:3], 1'b0};
-  assign clui_immediate = {{14{instr[12]}}, instr[12],instr[6:2],12'b0};
+  assign clui_immediate = {{14{instr[12]}}, instr[12], instr[6:2],12'b0};
+  assign caddi_immediate = {{26{instr[12]}}, instr[12], instr[6:2]};
+
 
   logic [31:0] immediate;
   always_comb begin
@@ -86,6 +88,7 @@ module riscv (
       is_cbeqz || is_cbnez: immediate = cb_immediate;
       is_cli: immediate = cli_immediate;
       is_clui: immediate = clui_immediate;
+      is_caddi: immediate = caddi_immediate;
       default: immediate = 32'b0;
     endcase
   end
@@ -94,7 +97,7 @@ module riscv (
   logic is_lui, is_lui_op, is_auipc, is_jal, is_jal_op, is_jalr, is_jalr_op, is_cj, is_cjal, is_cjr,
     is_cjalr, is_clui;
   assign is_lui_op = opcode == 5'b01101 && uncompressed;
-  assign is_lui = (opcode == 5'b01101 && uncompressed) || is_clui;
+  assign is_lui = is_lui_op || is_clui;
   assign is_clui = quadrant == 2'b01 && cfunct3 == 3'b011 && {instr[12], instr[6:2]} != 0 &&
     instr[11:7] != 2;
   assign is_auipc = opcode == 5'b00101 && uncompressed;
@@ -150,9 +153,10 @@ module riscv (
   logic math_high;
   assign math_high = funct7 == 7'b0100000;
   logic is_math_immediate_op, is_math_immediate, is_addi, is_slti, is_sltiu, is_xori, is_ori,
-    is_andi, is_slli, is_srli, is_srai, is_cli;
+    is_andi, is_slli, is_srli, is_srai, is_cli, is_caddi;
   assign is_math_immediate_op = opcode == 5'b00100 && uncompressed;
-  assign is_addi = (is_math_immediate_op && funct3 == 3'b000) || is_cli;
+  assign is_addi = (is_math_immediate_op && funct3 == 3'b000) || is_cli || is_caddi;
+  assign is_caddi = quadrant == 2'b01 && cfunct3 == 3'b000;
   // c.li is addi in disguise
   assign is_cli = quadrant == 2'b01 && cfunct3 == 3'b010;
   assign is_slti = is_math_immediate_op && funct3 == 3'b010;
@@ -311,6 +315,7 @@ module riscv (
             is_clw || is_cbeqz || is_cbnez: rs1 <= {2'b01, instr[9:7]};
             is_cjr || is_cjalr: rs1 <= instr[11:7];
             is_cli: rs1 <= 0;
+            is_caddi: rs1 <= instr[11:7];
             default: rs1 <= instr[19:15];
           endcase
 
