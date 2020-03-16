@@ -11,7 +11,7 @@
 Little CPU
 ==========
 
-Little CPU is an implementation of the RISCV 32 base ISA (I) in verilog.
+Little CPU is an implementation of the RISCV 32 base ISA (IM) in verilog.
 
 You can run a simple test suite by installing the latest development version of icarus-verilog.
 On OSX, you can install it using brew, and then the suite is just a make away:
