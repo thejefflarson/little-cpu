@@ -68,10 +68,11 @@ module riscv (
   assign cj_immediate = {{20{instr[12]}}, instr[12], instr[8], instr[10], instr[9], instr[6],
                           instr[7], instr[2], instr[11], instr[5], instr[4], instr[3], 1'b0};
   assign cb_immediate = {{23{instr[12]}}, instr[12], instr[6:5], instr[2], instr[11:10], instr[4:3], 1'b0};
-  assign clui_immediate = {{14{instr[12]}}, instr[12], instr[6:2],12'b0};
+  assign clui_immediate = {{14{instr[12]}}, instr[12], instr[6:2], 12'b0};
   assign caddi_immediate = {{26{instr[12]}}, instr[12], instr[6:2]};
   assign caddi16sp_immediate = {{22{instr[12]}}, instr[12], instr[4:3], instr[5], instr[2], instr[6], 4'b0};
   assign caddi4spn_immediate = {22'b0, instr[10:7], instr[12:11], instr[5], instr[6], 2'b00};
+
 
   logic [31:0] immediate;
   always_comb begin
@@ -93,6 +94,7 @@ module riscv (
       is_caddi: immediate = caddi_immediate;
       is_caddi16sp: immediate = caddi16sp_immediate;
       is_caddi4spn: immediate = caddi4spn_immediate;
+      is_candi: immediate = caddi_immediate;
       default: immediate = 32'b0;
     endcase
   end
@@ -158,7 +160,7 @@ module riscv (
   assign math_high = funct7 == 7'b0100000;
   logic is_math_immediate_op, is_math_immediate, is_addi, is_slti, is_sltiu, is_xori, is_ori,
     is_andi, is_slli, is_srli, is_srai, is_cli, is_caddi, is_caddi16sp, is_caddi4spn, is_cslli,
-    is_csrli, is_csrai;
+    is_csrli, is_csrai, is_candi;
   assign is_math_immediate_op = opcode == 5'b00100 && uncompressed;
   assign is_addi = (is_math_immediate_op && funct3 == 3'b000) || is_cli || is_caddi ||
     is_caddi16sp || is_caddi4spn;
@@ -172,11 +174,12 @@ module riscv (
   assign is_sltiu = is_math_immediate_op && funct3 == 3'b011;
   assign is_xori = is_math_immediate_op && funct3 == 3'b100;
   assign is_ori = is_math_immediate_op && funct3 == 3'b110;
-  assign is_andi = is_math_immediate_op && funct3 == 3'b111;
+  assign is_andi = (is_math_immediate_op && funct3 == 3'b111) || is_candi;
+  assign is_candi = quadrant == 2'b01 && cfunct3 == 3'b100 && cfunct2 == 2'b10;
   assign is_slli = (is_math_immediate_op && math_low && funct3 == 3'b001) || is_cslli;
   assign is_srli = (is_math_immediate_op && math_low && funct3 == 3'b101) || is_csrli;
   assign is_srai = (is_math_immediate_op && math_high && funct3 == 3'b101) || is_csrai;
-  assign is_cslli = quadrant == 2'b10 && cfunct3 == 3'b000 && instr[12] == 0;
+  assign is_cslli = quadrant == 2'b10 && cfunct3 == 3'b000 && !instr[12];
   assign is_csrli = quadrant == 2'b01 && cfunct3 == 3'b100 && cfunct2 == 2'b00 && !instr[12];
   assign is_csrai = quadrant == 2'b01 && cfunct3 == 3'b100 && cfunct2 == 2'b01 &&
 !instr[12];
@@ -319,14 +322,15 @@ module riscv (
             is_branch || is_store || is_cj || is_cjr: rd <= 0;
             is_cjal || is_cjalr: rd <= 1;
             is_clw || is_caddi4spn: rd <= {2'b01, instr[4:2]};
-            is_csrai || is_csrli: rd <= {2'b01, instr[9:7]};
+            is_csrai || is_csrli || is_candi: rd <= {2'b01, instr[9:7]};
             default: rd <= instr[11:7];
           endcase
 
           (* parallel_case, full_case *)
           case (1'b1)
             is_clwsp || is_cswsp || is_caddi4spn: rs1 <= 2;
-            is_clw || is_cbeqz || is_cbnez || is_csrai || is_csrli: rs1 <= {2'b01, instr[9:7]};
+            is_clw || is_cbeqz || is_cbnez || is_csrai ||
+              is_csrli || is_candi: rs1 <= {2'b01, instr[9:7]};
             is_cjr || is_cjalr || is_cslli: rs1 <= instr[11:7];
             is_cli: rs1 <= 0;
             is_caddi || is_caddi16sp: rs1 <= instr[11:7];
