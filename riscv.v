@@ -37,16 +37,19 @@ module riscv (
 
   // instruction decoder (figure 2.3)
   logic [31:0] instr;
-  logic [4:0] opcode;
+   logic [4:0] opcode;
   assign opcode = instr[6:2];
   logic [1:0] quadrant, cfunct2;
   assign quadrant = instr[1:0];
   logic uncompressed;
   assign uncompressed = quadrant == 2'b11;
   logic [2:0] funct3, cfunct3;
+  logic [3:0] cfunct4;
   assign funct3 = instr[14:12];
   assign cfunct3 = instr[15:13];
   assign cfunct2 = instr[11:10];
+  assign cfunct4 = instr[15:12];
+
   logic [6:0] funct7;
   assign funct7 = instr[31:25];
 
@@ -72,7 +75,6 @@ module riscv (
   assign caddi_immediate = {{26{instr[12]}}, instr[12], instr[6:2]};
   assign caddi16sp_immediate = {{22{instr[12]}}, instr[12], instr[4:3], instr[5], instr[2], instr[6], 4'b0};
   assign caddi4spn_immediate = {22'b0, instr[10:7], instr[12:11], instr[5], instr[6], 2'b00};
-
 
   logic [31:0] immediate;
   always_comb begin
@@ -179,18 +181,17 @@ module riscv (
   assign is_slli = (is_math_immediate_op && math_low && funct3 == 3'b001) || is_cslli;
   assign is_srli = (is_math_immediate_op && math_low && funct3 == 3'b101) || is_csrli;
   assign is_srai = (is_math_immediate_op && math_high && funct3 == 3'b101) || is_csrai;
-  assign is_cslli = quadrant == 2'b10 && cfunct3 == 3'b000 && !instr[12];
-  assign is_csrli = quadrant == 2'b01 && cfunct3 == 3'b100 && cfunct2 == 2'b00 && !instr[12];
-  assign is_csrai = quadrant == 2'b01 && cfunct3 == 3'b100 && cfunct2 == 2'b01 &&
-!instr[12];
+  assign is_cslli = quadrant == 2'b10 && cfunct4 == 4'b0000;
+  assign is_csrli = quadrant == 2'b01 && cfunct4 == 4'b1000 && cfunct2 == 2'b00;
+  assign is_csrai = quadrant == 2'b01 && cfunct4 == 4'b1000 && cfunct2 == 2'b01;
   assign is_math_immediate = is_addi || is_slti || is_sltiu || is_xori || is_ori || is_andi ||
     is_slli || is_srli || is_srai;
 
   logic is_math_op, is_math, is_add, is_sub, is_sll, is_slt, is_sltu, is_xor, is_srl, is_sra, is_or,
-    is_and;
-
+    is_and, is_cmv, is_cadd, is_cand, is_cor, is_cxor, is_csub;
   assign is_math_op = opcode == 5'b01100 && uncompressed;
-  assign is_add = is_math_op && math_low && funct3 == 3'b000;
+  assign is_add = (is_math_op && math_low && funct3 == 3'b000) || is_cmv;
+  assign is_cmv = quadrant == 2'b10 && cfunct4 == 4'b1000 && instr[6:2] != 0;
   assign is_sub = is_math_op && math_high && funct3 == 3'b000;
   assign is_sll = is_math_op && math_low && funct3 == 3'b001;
   assign is_slt = is_math_op && math_low && funct3 == 3'b010;
@@ -332,14 +333,14 @@ module riscv (
             is_clw || is_cbeqz || is_cbnez || is_csrai ||
               is_csrli || is_candi: rs1 <= {2'b01, instr[9:7]};
             is_cjr || is_cjalr || is_cslli: rs1 <= instr[11:7];
-            is_cli: rs1 <= 0;
+            is_cli || is_cmv: rs1 <= 0;
             is_caddi || is_caddi16sp: rs1 <= instr[11:7];
             default: rs1 <= instr[19:15];
           endcase
 
           (* parallel_case, full_case *)
           case(1'b1)
-            is_cswsp || is_cslli || is_csrai || is_csrli: rs2 <= instr[6:2];
+            is_cswsp || is_cslli || is_csrai || is_csrli || is_cmv: rs2 <= instr[6:2];
             is_cbeqz || is_cbnez: rs2 <= 0;
             default: rs2 <= instr[24:20];
           endcase
