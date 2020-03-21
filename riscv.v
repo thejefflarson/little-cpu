@@ -190,8 +190,9 @@ module riscv (
   logic is_math_op, is_math, is_add, is_sub, is_sll, is_slt, is_sltu, is_xor, is_srl, is_sra, is_or,
     is_and, is_cmv, is_cadd, is_cand, is_cor, is_cxor, is_csub;
   assign is_math_op = opcode == 5'b01100 && uncompressed;
-  assign is_add = (is_math_op && math_low && funct3 == 3'b000) || is_cmv;
+  assign is_add = (is_math_op && math_low && funct3 == 3'b000) || is_cmv || is_cadd;
   assign is_cmv = quadrant == 2'b10 && cfunct4 == 4'b1000 && instr[6:2] != 0;
+  assign is_cadd = quadrant == 2'b10 && cfunct4 == 4'b1001 && instr[6:2] != 0;
   assign is_sub = is_math_op && math_high && funct3 == 3'b000;
   assign is_sll = is_math_op && math_low && funct3 == 3'b001;
   assign is_slt = is_math_op && math_low && funct3 == 3'b010;
@@ -334,13 +335,13 @@ module riscv (
               is_csrli || is_candi: rs1 <= {2'b01, instr[9:7]};
             is_cjr || is_cjalr || is_cslli: rs1 <= instr[11:7];
             is_cli || is_cmv: rs1 <= 0;
-            is_caddi || is_caddi16sp: rs1 <= instr[11:7];
+            is_caddi || is_caddi16sp || is_cadd: rs1 <= instr[11:7];
             default: rs1 <= instr[19:15];
           endcase
 
           (* parallel_case, full_case *)
           case(1'b1)
-            is_cswsp || is_cslli || is_csrai || is_csrli || is_cmv: rs2 <= instr[6:2];
+            is_cswsp || is_cslli || is_csrai || is_csrli || is_cmv || is_cadd: rs2 <= instr[6:2];
             is_cbeqz || is_cbnez: rs2 <= 0;
             default: rs2 <= instr[24:20];
           endcase
