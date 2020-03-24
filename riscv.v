@@ -37,7 +37,7 @@ module riscv (
 
   // instruction decoder (figure 2.3)
   logic [31:0] instr;
-   logic [4:0] opcode;
+  logic [4:0] opcode;
   assign opcode = instr[6:2];
   logic [1:0] quadrant, cfunct2, cmath_funct2;
   assign quadrant = instr[1:0];
