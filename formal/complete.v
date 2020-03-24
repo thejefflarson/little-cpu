@@ -41,7 +41,7 @@ module rvfi_testbench (
   (* keep *) wire [`RISCV_FORMAL_XLEN/8 - 1:0] spec_mem_wmask;
   (* keep *) wire [`RISCV_FORMAL_XLEN   - 1:0] spec_mem_wdata;
 
-  rvfi_isa_rv32im isa_spec (
+  rvfi_isa_rv32imc isa_spec (
     .rvfi_valid(rvfi_valid),
     .rvfi_insn(rvfi_insn),
     .rvfi_pc_rdata(rvfi_pc_rdata),

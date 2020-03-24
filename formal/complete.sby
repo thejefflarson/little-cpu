@@ -11,16 +11,18 @@ verilog_defines -D RISCV_FORMAL
 verilog_defines -D RISCV_FORMAL_NRET=1
 verilog_defines -D RISCV_FORMAL_XLEN=32
 verilog_defines -D RISCV_FORMAL_ILEN=32
+verilog_defines -D RISCV_FORMAL_COMPRESSED
+verilog_defines -D RISCV_FORMAL_ALIGNED_MEM
 read_verilog -sv rvfi_macros.vh
 read_verilog -sv riscv.v
 
 --pycode-begin--
-with open("riscv-formal/insns/isa_rv32im.txt") as f:
+with open("riscv-formal/insns/isa_rv32imc.txt") as f:
   for line in f:
     output("read_verilog -sv insn_%s.v" % line.strip())
 --pycode-end--
 
-read_verilog -sv isa_rv32im.v
+read_verilog -sv isa_rv32imc.v
 read_verilog -sv complete.v
 prep -nordff -top rvfi_testbench
 
@@ -28,10 +30,10 @@ prep -nordff -top rvfi_testbench
 complete.v
 ../riscv.v
 riscv-formal/checks/rvfi_macros.vh
-riscv-formal/insns/isa_rv32im.v
+riscv-formal/insns/isa_rv32imc.v
 
 --pycode-begin--
-with open("riscv-formal/insns/isa_rv32im.txt") as f:
+with open("riscv-formal/insns/isa_rv32imc.txt") as f:
   for line in f:
     output("riscv-formal/insns/insn_%s.v" % line.strip())
 --pycode-end--
