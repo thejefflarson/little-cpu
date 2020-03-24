@@ -90,6 +90,7 @@ module riscv (
       is_math_immediate_op: immediate = i_immediate;
       is_clwsp: immediate = clwsp_immediate;
       is_cswsp: immediate = css_immediate;
+      is_csw: immediate = cl_immediate;
       is_clw: immediate = cl_immediate;
       is_cj || is_cjal: immediate = cj_immediate;
       is_cbeqz || is_cbnez: immediate = cb_immediate;
@@ -150,12 +151,13 @@ module riscv (
   assign is_clw = quadrant == 2'b00 && cfunct3 == 3'b010;
   assign is_load = is_lb || is_lh || is_lw || is_lbu || is_lhu;
 
-  logic is_store, is_store_op, is_sb, is_sh, is_sw, is_cswsp;
+  logic is_store, is_store_op, is_sb, is_sh, is_sw, is_cswsp, is_csw;
   assign is_store_op = opcode == 5'b01000 && uncompressed;
   assign is_sb = is_store_op && funct3 == 3'b000;
   assign is_sh = is_store_op && funct3 == 3'b001;
-  assign is_sw = (is_store_op && funct3 == 3'b010) || is_cswsp;
+  assign is_sw = (is_store_op && funct3 == 3'b010) || is_cswsp || is_csw;
   assign is_cswsp = quadrant == 2'b10 && cfunct3 == 3'b110;
+  assign is_csw = quadrant == 2'b00 && cfunct3 == 3'b110;
   assign is_store = is_sb || is_sh || is_sw;
 
   logic math_low;
@@ -195,7 +197,8 @@ module riscv (
   assign is_add = (is_math_op && math_low && funct3 == 3'b000) || is_cmv || is_cadd;
   assign is_cmv = quadrant == 2'b10 && cfunct4 == 4'b1000 && instr[6:2] != 0;
   assign is_cadd = quadrant == 2'b10 && cfunct4 == 4'b1001 && instr[6:2] != 0;
-  assign is_sub = is_math_op && math_high && funct3 == 3'b000;
+  assign is_sub = (is_math_op && math_high && funct3 == 3'b000) || is_csub;
+  assign is_csub = quadrant == 2'b01 && cfunct6 == 6'b100011 && cmath_funct2 == 2'b00;
   assign is_sll = is_math_op && math_low && funct3 == 3'b001;
   assign is_slt = is_math_op && math_low && funct3 == 3'b010;
   assign is_sltu = is_math_op && math_low && funct3 == 3'b011;
@@ -330,15 +333,16 @@ module riscv (
             is_cjal || is_cjalr: rd <= 1;
             is_clw || is_caddi4spn: rd <= {2'b01, instr[4:2]};
             is_csrai || is_csrli || is_candi || is_cand ||
-              is_cor || is_cxor: rd <= {2'b01, instr[9:7]};
+              is_cor || is_cxor || is_csub: rd <= {2'b01, instr[9:7]};
             default: rd <= instr[11:7];
           endcase
 
           (* parallel_case, full_case *)
           case (1'b1)
             is_clwsp || is_cswsp || is_caddi4spn: rs1 <= 2;
-            is_clw || is_cbeqz || is_cbnez || is_csrai ||
-              is_csrli || is_candi || is_cand || is_cor || is_cxor: rs1 <= {2'b01, instr[9:7]};
+            is_clw || is_csw || is_cbeqz || is_cbnez ||
+              is_csrai || is_csrli || is_candi || is_cand ||
+              is_cor || is_cxor || is_csub: rs1 <= {2'b01, instr[9:7]};
             is_cjr || is_cjalr || is_cslli: rs1 <= instr[11:7];
             is_cli || is_cmv: rs1 <= 0;
             is_caddi || is_caddi16sp || is_cadd: rs1 <= instr[11:7];
@@ -347,9 +351,8 @@ module riscv (
 
           (* parallel_case, full_case *)
           case(1'b1)
-            is_cswsp || is_cslli || is_csrai || is_csrli ||
-              is_cmv || is_cadd || is_cxor: rs2 <= instr[6:2];
-            is_cand || is_cor: rs2 <= {2'b01, instr[4:2]};
+            is_cswsp || is_cslli || is_csrai || is_csrli || is_cmv || is_cadd: rs2 <= instr[6:2];
+            is_csw || is_cand || is_cor || is_cxor || is_csub: rs2 <= {2'b01, instr[4:2]};
             is_cbeqz || is_cbnez: rs2 <= 0;
             default: rs2 <= instr[24:20];
           endcase
@@ -486,7 +489,7 @@ module riscv (
                 end
               end
 
-              is_store_op || is_cswsp: begin
+              is_store_op || is_cswsp || is_csw: begin
                 if ((is_sw && |addr24) ||
                     (is_sh && addr8)) begin
                   cpu_state <= cpu_trap;
