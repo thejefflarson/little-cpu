@@ -321,7 +321,7 @@ module riscv (
           if (mem_ready) begin
             mem_valid <= 0;
             pc <= mem_addr;
-            instr <= uncompressed ? mem_rdata : {16'b0, instr[15:0]};
+            instr <= mem_rdata[1:0] == 2'b11 ? mem_rdata : {16'b0, mem_rdata[15:0]};
             cpu_state <= decode_instr;
           end
         end
