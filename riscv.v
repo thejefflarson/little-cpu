@@ -226,11 +226,20 @@ module riscv (
   assign is_rem = is_m && funct3 == 3'b110;
   assign is_remu = is_m && funct3 == 3'b111;
   assign is_divide = is_div || is_divu || is_rem || is_remu;
-
   logic [31:0] math_arg;
   assign math_arg = is_math_immediate ? immediate : regs[rs2];
   logic [4:0] shamt;
   assign shamt = is_math_immediate ? rs2 : regs[rs2][4:0];
+
+  logic is_csr, is_csrrw, is_csrrs, is_csrrc, is_csrrwi, is_csrrsi, is_csrrci;
+  assign is_csr = opcode == 5'b11100 && uncompressed;
+  assign is_csrrw = is_csr && funct3 == 3'b001;
+  assign is_csrrs = is_csr && funct3 == 3'b010;
+  assign is_csrrc = is_csr && funct3 == 3'b011;
+  assign is_csrrwi = is_csr && funct3 == 3'b101;
+  assign is_csrrsi = is_csr && funct3 == 3'b110;
+  assign is_csrrci = is_csr && funct3 == 3'b111;
+
   logic is_error, is_ecall, is_ebreak;
   assign is_error = opcode == 5'b11100 && uncompressed && funct3 == 0 && rs1 == 0 && rd == 0;
   assign is_ecall = is_error && !{|instr[31:20]};
