@@ -9,30 +9,10 @@ module riscv (
   output logic [31:0] mem_wdata,
   output logic [3:0]  mem_wstrb,
   input  logic [31:0] mem_rdata,
- `ifdef RISCV_FORMAL
-  output logic        rvfi_valid,
-  output logic [63:0] rvfi_order,
-  output logic [31:0] rvfi_insn,
-  output logic        rvfi_trap,
-  output logic        rvfi_halt,
-  output logic        rvfi_intr,
-  output logic [ 1:0] rvfi_mode,
-  output logic [ 1:0] rvfi_ixl,
-  output logic [ 4:0] rvfi_rs1_addr,
-  output logic [ 4:0] rvfi_rs2_addr,
-  output logic [31:0] rvfi_rs1_rdata,
-  output logic [31:0] rvfi_rs2_rdata,
-  output logic [ 4:0] rvfi_rd_addr,
-  output logic [31:0] rvfi_rd_wdata,
-  output logic [31:0] rvfi_pc_rdata,
-  output logic [31:0] rvfi_pc_wdata,
-  output logic [31:0] rvfi_mem_addr,
-  output logic [ 3:0] rvfi_mem_rmask,
-  output logic [ 3:0] rvfi_mem_wmask,
-  output logic [31:0] rvfi_mem_rdata,
-  output logic [31:0] rvfi_mem_wdata,
- `endif
   output logic        trap
+ `ifdef RISCV_FORMAL
+   , `RVFI_OUTPUTS
+ `endif
   );
 
   // instruction decoder (figure 2.3)
