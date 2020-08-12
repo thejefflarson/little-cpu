@@ -600,11 +600,6 @@ module riscv (
          `endif
         end
 
-        reg_write: begin
-          regs[rd] <= reg_wdata;
-          cpu_state <= fetch_instr;
-        end
-
         // for branches and jumps: if the next program counter is misaligned we need to trap
         check_pc: begin
           if (pc_wdata[0]) begin
@@ -613,6 +608,11 @@ module riscv (
             next_pc <= pc_wdata;
             cpu_state <= skip_reg_write ? fetch_instr : reg_write;
           end
+        end
+
+        reg_write: begin
+          regs[rd] <= reg_wdata;
+          cpu_state <= fetch_instr;
         end
 
         finish_load: begin

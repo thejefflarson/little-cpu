@@ -24,6 +24,7 @@ csrs = set()
 compr = False
 
 depths = list()
+groups = [None]
 blackbox = False
 
 cfgname = "checks"
@@ -42,6 +43,7 @@ if len(sys.argv) > 1:
 print("Reading %s.cfg." % cfgname)
 with open("%s.cfg" % cfgname, "r") as f:
     cfgsection = None
+    cfgsubsection = None
     for line in f:
         line = line.strip()
 
@@ -50,12 +52,21 @@ with open("%s.cfg" % cfgname, "r") as f:
 
         if line.startswith("[") and line.endswith("]"):
             cfgsection = line.lstrip("[").rstrip("]")
+            cfgsubsection = None
+            if cfgsection.startswith("assume ") or cfgsection == "assume":
+                cfgsubsection = cfgsection.split()[1:]
+                cfgsection = "assume"
             continue
 
         if cfgsection is not None:
-            if cfgsection not in config:
-                config[cfgsection] = ""
-            config[cfgsection] += line + "\n"
+            if cfgsubsection is None:
+                if cfgsection not in config:
+                    config[cfgsection] = ""
+                config[cfgsection] += line + "\n"
+            else:
+                if cfgsection not in config:
+                    config[cfgsection] = []
+                config[cfgsection].append((cfgsubsection, line))
 
 if "options" in config:
     for line in config["options"].split("\n"):
@@ -104,6 +115,9 @@ if "64" in isa:
 if "c" in isa:
     compr = True
 
+if "groups" in config:
+    groups += config["groups"].split()
+
 print("Creating %s directory." % cfgname)
 shutil.rmtree(cfgname, ignore_errors=True)
 os.mkdir(cfgname)
@@ -127,12 +141,18 @@ hargs["ilen"] = ilen
 hargs["append"] = 0
 hargs["mode"] = mode
 
+if "cover" in config:
+    hargs["cover"] = config["cover"]
+
 instruction_checks = set()
 consistency_checks = set()
 
 if solver == "bmc3":
     hargs["engine"] = "abc bmc3"
     hargs["ilang_file"] = corename + "-gates.il"
+elif solver == "btormc":
+    hargs["engine"] = "btor btormc"
+    hargs["ilang_file"] = corename + "-hier.il"
 else:
     hargs["engine"] = "smtbmc %s%s" % ("--dumpsmt2 " if dumpsmt2 else "", solver)
     hargs["ilang_file"] = corename + "-hier.il"
@@ -161,13 +181,14 @@ def get_depth_cfg(patterns):
 
 # ------------------------------ Instruction Checkers ------------------------------
 
-def check_insn(insn, chanidx, csr_mode=False):
+def check_insn(grp, insn, chanidx, csr_mode=False):
+    pf = "" if grp is None else grp+"_"
     if csr_mode:
-        check = "csrw_%s_ch%d" % (insn, chanidx)
-        depth_cfg = get_depth_cfg(["csrw", "csrw_ch%d" % chanidx, "csrw_%s" % insn, "csrw_%s_ch%d" % (insn, chanidx)])
+        check = "%scsrw_%s_ch%d" % (pf, insn, chanidx)
+        depth_cfg = get_depth_cfg(["%scsrw" % (pf,), "%scsrw_ch%d" % (pf, chanidx), "%scsrw_%s" % (pf, insn), "%scsrw_%s_ch%d" % (pf, insn, chanidx)])
     else:
-        check = "insn_%s_ch%d" % (insn, chanidx)
-        depth_cfg = get_depth_cfg(["insn", "insn_ch%d" % chanidx, "insn_%s" % insn, "insn_%s_ch%d" % (insn, chanidx)])
+        check = "%sinsn_%s_ch%d" % (pf, insn, chanidx)
+        depth_cfg = get_depth_cfg(["%sinsn" % (pf,), "%sinsn_ch%d" % (pf, chanidx), "%sinsn_%s" % (pf, insn), "%sinsn_%s_ch%d" % (pf, insn, chanidx)])
 
     if depth_cfg is None: return
     assert len(depth_cfg) == 1
@@ -188,7 +209,6 @@ def check_insn(insn, chanidx, csr_mode=False):
                 : mode @mode@
                 : expect pass,fail
                 : append @append@
-                : tbtop wrapper.uut
                 : depth @depth_plus@
                 : skip @skip@
                 :
@@ -244,6 +264,9 @@ def check_insn(insn, chanidx, csr_mode=False):
                 : `define RISCV_FORMAL_CHANNEL_IDX @channel@
         """, **hargs)
 
+        if "assume" in config:
+            print("`define RISCV_FORMAL_ASSUME", file=sby_file)
+
         if mode == "prove":
             print("`define RISCV_FORMAL_UNBOUNDED", file=sby_file)
 
@@ -292,25 +315,44 @@ def check_insn(insn, chanidx, csr_mode=False):
                     : `include "insn_@insn@.v"
             """, **hargs)
 
-with open(os.path.join(basedir, "insns", "isa_%s.txt" % isa)) as isa_file:
-    for insn in isa_file:
-        for chanidx in range(nret):
-            check_insn(insn.strip(), chanidx)
+        if "assume" in config:
+            print("", file=sby_file)
+            print("[file assume_stmts.vh]", file=sby_file)
+            for pat, line in config["assume"]:
+                enabled = True
+                for p in pat:
+                    if p.startswith("!"):
+                        p = p[1:]
+                        enabled = False
+                    else:
+                        enabled = True
+                    if re.match(p, check):
+                        enabled = not enabled
+                        break
+                if enabled:
+                    print(line, file=sby_file)
 
-for csr in sorted(csrs):
-    for chanidx in range(nret):
-        check_insn(csr, chanidx, csr_mode=True)
+for grp in groups:
+    with open("riscv-formal/insns/isa_%s.txt" % isa) as isa_file:
+        for insn in isa_file:
+            for chanidx in range(nret):
+                check_insn(grp, insn.strip(), chanidx)
+
+    for csr in sorted(csrs):
+        for chanidx in range(nret):
+            check_insn(grp, csr, chanidx, csr_mode=True)
 
 # ------------------------------ Consistency Checkers ------------------------------
 
-def check_cons(check, chanidx=None, start=None, trig=None, depth=None, csr_mode=False):
+def check_cons(grp, check, chanidx=None, start=None, trig=None, depth=None, csr_mode=False):
+    pf = "" if grp is None else grp+"_"
     if csr_mode:
         csr_name = check
-        check = "csrc_" + csr_name
+        check = pf + "csrc_" + csr_name
         hargs["check"] = "csrc"
 
         if chanidx is not None:
-            depth_cfg = get_depth_cfg(["csrc", check, "csrc_ch%d" % chanidx, "%s_ch%d" % (check, chanidx)])
+            depth_cfg = get_depth_cfg(["%scsrc" % (pf,), check, "%scsrc_ch%d" % (pf, chanidx), "%s_ch%d" % (check, chanidx)])
             hargs["channel"] = "%d" % chanidx
             check += "_ch%d" % chanidx
 
@@ -318,6 +360,7 @@ def check_cons(check, chanidx=None, start=None, trig=None, depth=None, csr_mode=
             depth_cfg = get_depth_cfg(["csrc", check])
     else:
         hargs["check"] = check
+        check = pf + check
 
         if chanidx is not None:
             depth_cfg = get_depth_cfg([check, "%s_ch%d" % (check, chanidx)])
@@ -347,16 +390,18 @@ def check_cons(check, chanidx=None, start=None, trig=None, depth=None, csr_mode=
 
     hargs["checkch"] = check
 
+    hargs["xmode"] = hargs["mode"]
+    if check == "cover": hargs["xmode"] = "cover"
+
     if test_disabled(check): return
     consistency_checks.add(check)
 
     with open("%s/%s.sby" % (cfgname, check), "w") as sby_file:
         print_hfmt(sby_file, """
                 : [options]
-                : mode @mode@
+                : mode @xmode@
                 : expect pass,fail
                 : append @append@
-                : tbtop wrapper.uut
                 : depth @depth_plus@
                 : skip @skip@
                 :
@@ -408,6 +453,9 @@ def check_cons(check, chanidx=None, start=None, trig=None, depth=None, csr_mode=
                 : `define RISCV_FORMAL_CHECK_CYCLE @depth@
         """, **hargs)
 
+        if "assume" in config:
+            print("`define RISCV_FORMAL_ASSUME", file=sby_file)
+
         if mode == "prove":
             print("`define RISCV_FORMAL_UNBOUNDED", file=sby_file)
 
@@ -450,20 +498,46 @@ def check_cons(check, chanidx=None, start=None, trig=None, depth=None, csr_mode=
                 : `include "rvfi_@check@_check.sv"
         """, **hargs)
 
-for i in range(nret):
-    check_cons("reg", chanidx=i, start=0, depth=1)
-    check_cons("pc_fwd", chanidx=i, start=0, depth=1)
-    check_cons("pc_bwd", chanidx=i, start=0, depth=1)
-    check_cons("liveness", chanidx=i, start=0, trig=1, depth=2)
-    check_cons("unique", chanidx=i, start=0, trig=1, depth=2)
-    check_cons("causal", chanidx=i, start=0, depth=1)
-    check_cons("ill", chanidx=i, depth=0)
+        if check == pf+"cover":
+            print_hfmt(sby_file, """
+                    :
+                    : [file cover_stmts.vh]
+                    : @cover@
+            """, **hargs)
 
-check_cons("hang", start=0, depth=1)
+        if "assume" in config:
+            print("", file=sby_file)
+            print("[file assume_stmts.vh]", file=sby_file)
+            for pat, line in config["assume"]:
+                enabled = True
+                for p in pat:
+                    if p.startswith("!"):
+                        p = p[1:]
+                        enabled = False
+                    else:
+                        enabled = True
+                    if re.match(p, check):
+                        enabled = not enabled
+                        break
+                if enabled:
+                    print(line, file=sby_file)
 
-for csr in sorted(csrs):
-    for chanidx in range(nret):
-        check_cons(csr, chanidx, start=0, depth=1, csr_mode=True)
+for grp in groups:
+    for i in range(nret):
+        check_cons(grp, "reg", chanidx=i, start=0, depth=1)
+        check_cons(grp, "pc_fwd", chanidx=i, start=0, depth=1)
+        check_cons(grp, "pc_bwd", chanidx=i, start=0, depth=1)
+        check_cons(grp, "liveness", chanidx=i, start=0, trig=1, depth=2)
+        check_cons(grp, "unique", chanidx=i, start=0, trig=1, depth=2)
+        check_cons(grp, "causal", chanidx=i, start=0, depth=1)
+        check_cons(grp, "ill", chanidx=i, depth=0)
+
+    check_cons(grp, "hang", start=0, depth=1)
+    check_cons(grp, "cover", start=0, depth=1)
+
+    for csr in sorted(csrs):
+        for chanidx in range(nret):
+            check_cons(grp, csr, chanidx, start=0, depth=1, csr_mode=True)
 
 # ------------------------------ Makefile ------------------------------
 
