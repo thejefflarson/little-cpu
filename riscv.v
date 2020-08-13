@@ -26,6 +26,8 @@ module riscv (
         is_sub, is_divu, is_xor, is_or, is_and, is_sll, is_slt, is_sltu, is_srl, is_sra,
         is_lui, is_lb, is_lh;
 
+  logic [4:0] rd, rs1, rs2;
+
   decoder decoder (
      .instr(instr),
      .pc(pc),
@@ -34,6 +36,9 @@ module riscv (
      .decode(decode),
      .decoded(decoded),
      .uncompressed(uncompressed),
+     .rd(rd),
+     .rs1(rs1),
+     .rs2(rs2),
      .is_auipc(is_auipc),
      .is_jal(is_jal),
      .is_beq(is_beq),
