@@ -24,7 +24,7 @@ module riscv (
   // all instructions
   logic is_auipc, is_jal, is_beq, is_bne, is_blt, is_bltu, is_bge, is_bgeu, is_add,
         is_sub, is_divu, is_xor, is_or, is_and, is_sll, is_slt, is_sltu, is_srl, is_sra,
-        is_lui, is_lb, is_lh;
+        is_lui, is_lb, is_lh, is_sb;
 
   logic [4:0] rd, rs1, rs2;
 
@@ -61,25 +61,25 @@ module riscv (
      .is_srai(is_srai),
      .is_lui(is_lui),
      .is_lb(is_lb),
-     .is_lh(is_lh)
+     .is_lh(is_lh),
+     .is_sb(is_sb)
   );
 
   logic [31:0] math_arg;
   assign math_arg = is_math_immediate ? immediate : regs[rs2];
-  logic [4:0] shamt;
   assign shamt = is_math_immediate ? rs2 : regs[rs2][4:0];
-
   assign is_divide = is_div || is_divu || is_rem || is_remu;
   assign is_math = is_add || is_sub || is_sll || is_slt || is_sltu || is_xor || is_srl || is_sra ||
     is_or || is_and;
   assign is_math_immediate = is_addi || is_slti || is_sltiu || is_xori || is_ori || is_andi ||
     is_slli || is_srli || is_srai;
-    assign is_load = is_lb || is_lh || is_lw || is_lbu || is_lhu;
+    logic [4:0] shamt, is_divide, is_math, is_math_immediate, is_load, is_store;
+
+  assign is_load = is_lb || is_lh || is_lw || is_lbu || is_lhu;
   assign is_store = is_sb || is_sh || is_sw;
 
   // registers
   logic [31:0] regs[0:31];
-  logic [4:0] rd, rs1, rs2;
   logic [31:0] load_store_address;
   assign load_store_address = $signed(immediate) + $signed(regs[rs1]);
   logic [1:0] addr24;
@@ -242,7 +242,7 @@ module riscv (
                       reg_wdata <= regs[rs1] & math_arg;
                     end
 
-                    is_multiply: begin
+                    is_mul || is_mulhu || is_mulh || is_mulhsu: begin
                       mul_div_counter <= is_mul ? 32 : 64;
                       cpu_state <= multiply;
                       mul_div_store <= 0;
