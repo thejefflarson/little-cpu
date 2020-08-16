@@ -125,14 +125,12 @@ module riscv (
 
   // registers
   logic [31:0] regs[0:31];
+
+  // memory
   logic [31:0] load_store_address;
   assign load_store_address = $signed(immediate) + $signed(regs[rs1]);
   logic [1:0] addr24;
-  assign addr24 = load_store_address[1:0];
-  logic addr16;
-  assign addr16 = load_store_address[1];
-  logic addr8;
-  assign addr8 = load_store_address[0];
+  logic addr16, addr8;
 
   // storage for the next program counter
   logic [31:0] next_pc;
@@ -320,8 +318,12 @@ module riscv (
                 end
 
                 is_lw || is_lh || is_lhu || is_lb || is_lbu: begin
-                  if ((is_lw && |addr24) ||
-                      ((is_lh || is_lhu) && addr8)) begin
+                  addr24 <= load_store_address[1:0];
+                  addr16 <= load_store_address[1];
+                  addr8 <= load_store_address[0];
+
+                  if ((is_lw && |load_store_address[1:0]) ||
+                      ((is_lh || is_lhu) && load_store_address[0])) begin
                     cpu_state <= cpu_trap;
                   end else begin
                     mem_wstrb <= 4'b0000;
@@ -333,8 +335,8 @@ module riscv (
                 end
 
                 is_sw || is_sh || is_sb: begin
-                  if ((is_sw && |addr24) ||
-                      (is_sh && addr8)) begin
+                  if ((is_sw && |load_store_address[1:0]) ||
+                      (is_sh && load_store_address[0])) begin
                     cpu_state <= cpu_trap;
                   end else begin
                     (* parallel_case, full_case *)
@@ -347,12 +349,12 @@ module riscv (
 
                       is_sh: begin
                         // Offset to the right position
-                        mem_wstrb <= addr16 ? 4'b1100 : 4'b0011;
+                        mem_wstrb <= load_store_address[1] ? 4'b1100 : 4'b0011;
                         mem_wdata <= {2{regs[rs2][15:0]}};
                       end
 
                       is_sb: begin
-                        mem_wstrb <= 4'b0001 << addr24;
+                        mem_wstrb <= 4'b0001 << load_store_address[1:0];
                         mem_wdata <= {4{regs[rs2][7:0]}};
                       end
                     endcase
