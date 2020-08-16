@@ -22,9 +22,9 @@ module riscv (
   logic decode, decoded;
   logic uncompressed;
   // all instructions
-  logic is_auipc, is_jal, is_beq, is_bne, is_blt, is_bltu, is_bge, is_bgeu, is_add,
-        is_sub, is_divu, is_xor, is_or, is_and, is_sll, is_slt, is_sltu, is_srl, is_sra,
-        is_lui, is_lb, is_lh, is_sb;
+  logic is_auipc, is_jal, is_jalr, is_beq, is_bne, is_blt, is_bltu, is_bge, is_bgeu, is_add,
+        is_sub, is_mul, is_div, is_divu, is_xor, is_or, is_and, is_sll, is_slt, is_sltu, is_srl, is_sra,
+        is_lui, is_lb, is_lh, is_lw, is_sb;
 
   logic [4:0] rd, rs1, rs2;
 
@@ -41,6 +41,7 @@ module riscv (
      .rs2(rs2),
      .is_auipc(is_auipc),
      .is_jal(is_jal),
+     .is_jalr(is_jalr),
      .is_beq(is_beq),
      .is_bne(is_bne),
      .is_blt(is_blt),
@@ -49,6 +50,8 @@ module riscv (
      .is_bgeu(is_bgeu),
      .is_add(is_add),
      .is_sub(is_sub),
+     .is_mul(is_mul),
+     .is_div(is_div),
      .is_divu(is_divu),
      .is_xor(is_xor),
      .is_or(is_or),
@@ -62,6 +65,7 @@ module riscv (
      .is_lui(is_lui),
      .is_lb(is_lb),
      .is_lh(is_lh),
+     .is_lw(is_lw),
      .is_sb(is_sb)
   );
 
@@ -73,8 +77,7 @@ module riscv (
     is_or || is_and;
   assign is_math_immediate = is_addi || is_slti || is_sltiu || is_xori || is_ori || is_andi ||
     is_slli || is_srli || is_srai;
-    logic [4:0] shamt, is_divide, is_math, is_math_immediate, is_load, is_store;
-
+  logic [4:0] shamt, is_divide, is_math, is_math_immediate, is_load, is_store;
   assign is_load = is_lb || is_lh || is_lw || is_lbu || is_lhu;
   assign is_store = is_sb || is_sh || is_sw;
 

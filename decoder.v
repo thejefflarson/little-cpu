@@ -12,6 +12,7 @@ module decoder (
   output logic        uncompressed,
   output logic        is_auipc,
   output logic        is_jal,
+  output logic        is_jalr,
   output logic        is_beq,
   output logic        is_bne,
   output logic        is_blt,
@@ -27,6 +28,8 @@ module decoder (
   output logic        is_ori,
   output logic        is_and,
   output logic        is_andi,
+  output logic        is_mul,
+  output logic        is_div,
   output logic        is_divu,
   output logic        is_sll,
   output logic        is_slli,
@@ -41,6 +44,7 @@ module decoder (
   output logic        is_lui,
   output logic        is_lb,
   output logic        is_lh,
+  output logic        is_lw,
   output logic        is_sb,
   output logic        is_sh,
   output logic        is_sw
@@ -241,6 +245,7 @@ module decoder (
     is_bgeu ||
     is_add ||
     is_sub ||
+    is_mul ||
     is_div ||
     is_divu ||
     is_xor ||
