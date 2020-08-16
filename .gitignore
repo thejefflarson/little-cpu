@@ -12,3 +12,4 @@ formal/imemcheck
 disasm.s
 disasm.o
 rvfi_macros.vh
+.hdl_checker

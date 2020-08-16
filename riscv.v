@@ -540,6 +540,14 @@ module riscv (
     rvfi_ixl <= 1;
     rvfi_intr <= 0;
     rvfi_order <= !reset ? rvfi_order + rvfi_valid : 0;
+    rvfi_csr_mcycle_rmask <= 64'b0;
+   	rvfi_csr_mcycle_wmask <= 64'b0;
+   	rvfi_csr_mcycle_rdata <= 64'b0;
+	  rvfi_csr_mcycle_wdata <= 64'b0;
+	  rvfi_csr_minstret_rmask <= 64'b0;
+	  rvfi_csr_minstret_wmask <= 64'b0;
+	  rvfi_csr_minstret_rdata <= 64'b0;
+	  rvfi_csr_minstret_wdata <= 64'b0;
 
     if (mem_instr) begin
       rvfi_mem_addr <= 0;
