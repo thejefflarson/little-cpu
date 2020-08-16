@@ -11,3 +11,4 @@ formal/imemcheck
 *.vvp
 disasm.s
 disasm.o
+rvfi_macros.vh

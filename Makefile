@@ -1,8 +1,11 @@
 test: testbench.vvp
 	vvp -N $<
 
-testbench.vvp: testbench.v riscv.v monitor.v
-	iverilog -DRISCV_FORMAL -g2012 -o $@ $^
+rvfi_macros.vh: formal/riscv-formal/checks/rvfi_macros.py
+	python $^ > $@
+
+testbench.vvp: rvfi_macros.vh testbench.v riscv.v monitor.v decoder.v
+	iverilog -DRISCV_FORMAL -DRISCV_FORMAL_COMPRESSED -DRISCV_FORMAL_ALIGNED_MEM -DRISCV_FORMAL_NRET=1 -DRISCV_FORMAL_XLEN=32 -DRISCV_FORMAL_ILEN=32 -g2012 -o $@ $^
 	chmod +x $@
 
 pll.v: timing

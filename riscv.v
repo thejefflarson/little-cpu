@@ -23,8 +23,8 @@ module riscv (
   logic uncompressed;
   // all instructions
   logic is_auipc, is_jal, is_jalr, is_beq, is_bne, is_blt, is_bltu, is_bge, is_bgeu, is_add,
-        is_sub, is_mul, is_div, is_divu, is_xor, is_or, is_and, is_sll, is_slt, is_sltu, is_srl, is_sra,
-        is_lui, is_lb, is_lh, is_lw, is_sb;
+        is_sub, is_mul, is_div, is_divu, is_xor, is_or, is_and, is_sll, is_slt, is_sltu, is_srl,
+        is_sra, is_lui, is_lb, is_lh, is_lw, is_sb, is_sh, is_sw;
 
   logic [4:0] rd, rs1, rs2;
 
@@ -66,7 +66,10 @@ module riscv (
      .is_lb(is_lb),
      .is_lh(is_lh),
      .is_lw(is_lw),
-     .is_sb(is_sb)
+     .is_sb(is_sb),
+     .is_sh(is_sh),
+     .is_sw(is_sw)
+
   );
 
   logic [31:0] math_arg;
@@ -278,7 +281,7 @@ module riscv (
                   endcase
                 end
 
-                is_load_op || is_clwsp || is_clw: begin
+                is_lw || is_lh || is_lb: begin
                   if ((is_lw && |addr24) ||
                       ((is_lh || is_lhu) && addr8)) begin
                     cpu_state <= cpu_trap;
@@ -291,7 +294,7 @@ module riscv (
                   end
                 end
 
-                is_store_op || is_cswsp || is_csw: begin
+                is_sw || is_sh || is_sb: begin
                   if ((is_sw && |addr24) ||
                       (is_sh && addr8)) begin
                     cpu_state <= cpu_trap;
