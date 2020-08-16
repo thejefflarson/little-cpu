@@ -15,6 +15,7 @@ verilog_defines -D RISCV_FORMAL_COMPRESSED
 verilog_defines -D RISCV_FORMAL_ALIGNED_MEM
 read_verilog -sv rvfi_macros.vh
 read_verilog -sv riscv.v
+read_verilog -sv decoder.v
 
 --pycode-begin--
 with open("riscv-formal/insns/isa_rv32imc.txt") as f:
@@ -29,6 +30,7 @@ prep -nordff -top rvfi_testbench
 [files]
 complete.v
 ../riscv.v
+../decoder.v
 riscv-formal/checks/rvfi_macros.vh
 riscv-formal/insns/isa_rv32imc.v
 

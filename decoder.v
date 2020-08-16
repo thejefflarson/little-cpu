@@ -8,6 +8,7 @@ module decoder (
   output logic [4:0]  rs1,
   output logic [4:0]  rs2,
   output logic [31:0] immediate,
+  output logic        is_math_immediate,
   output logic        is_valid,
   output logic        uncompressed,
   output logic        is_auipc,
@@ -20,35 +21,39 @@ module decoder (
   output logic        is_bge,
   output logic        is_bgeu,
   output logic        is_add,
-  output logic        is_addi,
   output logic        is_sub,
   output logic        is_xor,
-  output logic        is_xori,
   output logic        is_or,
-  output logic        is_ori,
   output logic        is_and,
-  output logic        is_andi,
   output logic        is_mul,
+  output logic        is_mulh,
+  output logic        is_mulhu,
+  output logic        is_mulhsu,
   output logic        is_div,
   output logic        is_divu,
+  output logic        is_rem,
+  output logic        is_remu,
   output logic        is_sll,
-  output logic        is_slli,
   output logic        is_slt,
-  output logic        is_slti,
   output logic        is_sltu,
-  output logic        is_sltiu,
   output logic        is_srl,
-  output logic        is_srli,
   output logic        is_sra,
-  output logic        is_srai,
   output logic        is_lui,
   output logic        is_lb,
+  output logic        is_lbu,
+  output logic        is_lhu,
   output logic        is_lh,
   output logic        is_lw,
   output logic        is_sb,
   output logic        is_sh,
-  output logic        is_sw
+  output logic        is_sw,
+  output logic        is_ecall,
+  output logic        is_ebreak,
+  output logic        is_csrrw,
+  output logic        is_csrrs,
+  output logic        is_csrrc
   );
+
   // instruction decoder (figure 2.3)
   logic [4:0] opcode;
   assign opcode = instr[6:2];
@@ -134,7 +139,7 @@ module decoder (
   assign is_cjalr = quadrant == 2'b10 && cfunct3 == 3'b100 && instr[12] == 1 && instr[6:2] == 0 &&
     instr[11:7] != 0;
 
-  logic is_branch_op;
+  logic is_branch_op, is_cbeqz, is_cbnez;
   assign is_branch_op = opcode == 5'b11000 && uncompressed;
   assign is_beq = (is_branch_op && funct3 == 3'b000) || is_cbeqz;
   assign is_bne = (is_branch_op && funct3 == 3'b001) || is_cbnez;
@@ -145,7 +150,7 @@ module decoder (
   assign is_cbeqz = quadrant == 2'b01 && cfunct3 == 3'b110;
   assign is_cbnez = quadrant == 2'b01 && cfunct3 == 3'b111;
 
-  logic is_load_op;
+  logic is_load_op, is_clwsp, is_clw;
   assign is_load_op = opcode == 5'b00000 && uncompressed;
   assign is_lb = is_load_op && funct3 == 3'b000;
   assign is_lh = is_load_op && funct3 == 3'b001;
@@ -155,7 +160,7 @@ module decoder (
   assign is_clwsp = quadrant == 2'b10 && cfunct3 == 3'b010 && instr[11:7] != 5'b0;
   assign is_clw = quadrant == 2'b00 && cfunct3 == 3'b010;
 
-  logic is_store_op;
+  logic is_store_op, is_cswsp, is_csw;
   assign is_store_op = opcode == 5'b01000 && uncompressed;
   assign is_sb = is_store_op && funct3 == 3'b000;
   assign is_sh = is_store_op && funct3 == 3'b001;
@@ -168,7 +173,8 @@ module decoder (
   logic math_high;
   assign math_high = funct7 == 7'b0100000;
   logic is_math_immediate_op, is_cli, is_caddi, is_caddi16sp, is_caddi4spn, is_cslli,
-    is_csrli, is_csrai, is_candi;
+    is_csrli, is_csrai, is_candi, is_addi, is_slti, is_sltiu, is_xori, is_ori, is_andi,
+    is_slli, is_srli, is_srai;
   assign is_math_immediate_op = opcode == 5'b00100 && uncompressed;
   assign is_addi = (is_math_immediate_op && funct3 == 3'b000) || is_cli || is_caddi ||
     is_caddi16sp || is_caddi4spn;
@@ -190,24 +196,26 @@ module decoder (
   assign is_cslli = quadrant == 2'b10 && cfunct4 == 4'b0000;
   assign is_csrli = quadrant == 2'b01 && cfunct4 == 4'b1000 && cfunct2 == 2'b00;
   assign is_csrai = quadrant == 2'b01 && cfunct4 == 4'b1000 && cfunct2 == 2'b01;
+  assign is_math_immediate = is_addi || is_slti || is_sltiu || is_xori || is_ori || is_andi ||
+    is_slli || is_srli || is_srai;
 
   logic is_math_op, is_cmv, is_cadd, is_cand, is_cor, is_cxor, is_csub;
   assign is_math_op = opcode == 5'b01100 && uncompressed;
-  assign is_add = (is_math_op && math_low && funct3 == 3'b000) || is_cmv || is_cadd;
+  assign is_add = (is_math_op && math_low && funct3 == 3'b000) || is_cmv || is_cadd || is_addi;
   assign is_cmv = quadrant == 2'b10 && cfunct4 == 4'b1000 && instr[6:2] != 0;
   assign is_cadd = quadrant == 2'b10 && cfunct4 == 4'b1001 && instr[6:2] != 0;
   assign is_sub = (is_math_op && math_high && funct3 == 3'b000) || is_csub;
   assign is_csub = quadrant == 2'b01 && cfunct6 == 6'b100011 && cmath_funct2 == 2'b00;
-  assign is_sll = is_math_op && math_low && funct3 == 3'b001;
-  assign is_slt = is_math_op && math_low && funct3 == 3'b010;
-  assign is_sltu = is_math_op && math_low && funct3 == 3'b011;
-  assign is_xor = (is_math_op && math_low && funct3 == 3'b100) || is_cxor;
+  assign is_sll = is_math_op && math_low && funct3 == 3'b001 || is_slli;
+  assign is_slt = is_math_op && math_low && funct3 == 3'b010 || is_slti;
+  assign is_sltu = is_math_op && math_low && funct3 == 3'b011 || is_sltiu;
+  assign is_xor = (is_math_op && math_low && funct3 == 3'b100) || is_cxor || is_xori;
   assign is_cxor = quadrant == 2'b01 && cfunct6 == 6'b100011 && cmath_funct2 == 2'b01;
-  assign is_srl = is_math_op && math_low && funct3 == 3'b101;
-  assign is_sra = is_math_op && math_high && funct3 == 3'b101;
-  assign is_or = (is_math_op && math_low && funct3 == 3'b110) || is_cor;
+  assign is_srl = is_math_op && math_low && funct3 == 3'b101 || is_srli;
+  assign is_sra = is_math_op && math_high && funct3 == 3'b101 || is_srai;
+  assign is_or = (is_math_op && math_low && funct3 == 3'b110) || is_cor || is_ori;
   assign is_cor = quadrant == 2'b01 && cfunct6 == 6'b100011 && cmath_funct2 == 2'b10;
-  assign is_and = (is_math_op && math_low && funct3 == 3'b111) || is_cand;
+  assign is_and = (is_math_op && math_low && funct3 == 3'b111) || is_cand || is_andi;
   assign is_cand = quadrant == 2'b01 && cfunct6 == 6'b100011 && cmath_funct2 == 2'b11;
 
   logic is_m;
@@ -221,16 +229,16 @@ module decoder (
   assign is_rem = is_m && funct3 == 3'b110;
   assign is_remu = is_m && funct3 == 3'b111;
 
-  logic is_csr;
+  logic is_csr, is_csrrwi, is_csrrsi, is_csrrci;
   assign is_csr = opcode == 5'b11100 && uncompressed;
-  assign is_csrrw = is_csr && funct3 == 3'b001;
-  assign is_csrrs = is_csr && funct3 == 3'b010;
-  assign is_csrrc = is_csr && funct3 == 3'b011;
+  assign is_csrrw = is_csr && funct3 == 3'b001 || is_csrrwi;
+  assign is_csrrs = is_csr && funct3 == 3'b010 || is_csrrs;
+  assign is_csrrc = is_csr && funct3 == 3'b011 || is_csrrci;
   assign is_csrrwi = is_csr && funct3 == 3'b101;
   assign is_csrrsi = is_csr && funct3 == 3'b110;
   assign is_csrrci = is_csr && funct3 == 3'b111;
 
-  logic is_error, is_ecall, is_ebreak;
+  logic is_error;
   assign is_error = opcode == 5'b11100 && uncompressed && funct3 == 0 && rs1 == 0 && rd == 0;
   assign is_ecall = is_error && !{|instr[31:20]};
   assign is_ebreak = is_error && |instr[31:20];
@@ -245,12 +253,17 @@ module decoder (
     is_bgeu ||
     is_add ||
     is_sub ||
-    is_mul ||
-    is_div ||
-    is_divu ||
     is_xor ||
     is_or ||
     is_and ||
+    is_mul ||
+    is_mulh ||
+    is_mulhu ||
+    is_mulhsu ||
+    is_div ||
+    is_divu ||
+    is_rem ||
+    is_remu ||
     is_sll ||
     is_slt ||
     is_sltu ||
@@ -258,8 +271,15 @@ module decoder (
     is_sra ||
     is_lui ||
     is_lb ||
+    is_lbu ||
     is_lh ||
-    is_sb
+    is_lhu ||
+    is_lw ||
+    is_sb ||
+    is_sh ||
+    is_sw ||
+    is_ecall ||
+    is_ebreak
     ;
 
   always_ff @(posedge clk) begin

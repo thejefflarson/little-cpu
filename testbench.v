@@ -23,13 +23,13 @@ module testbench;
   logic [3:0]  mem_wstrb;
   logic [31:0] mem_rdata;
   logic        trap;
+ `ifdef RISCV_FORMAL
   logic        rvfi_valid;
   logic [63:0] rvfi_order;
   logic [31:0] rvfi_insn;
   logic        rvfi_trap;
   logic        rvfi_halt;
   logic        rvfi_intr;
- `ifdef RISCV_FORMAL
   logic [4:0]  rvfi_rs1_addr;
   logic [4:0]  rvfi_rs2_addr;
   logic [31:0] rvfi_rs1_rdata;
@@ -69,8 +69,9 @@ module testbench;
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
     .mem_rdata(mem_rdata),
+    .trap(trap)
    `ifdef RISCV_FORMAL
-    .rvfi_valid(rvfi_valid),
+    , .rvfi_valid(rvfi_valid),
     .rvfi_order(rvfi_order),
     .rvfi_insn(rvfi_insn),
     .rvfi_trap(rvfi_trap),
@@ -88,9 +89,8 @@ module testbench;
     .rvfi_mem_rmask(rvfi_mem_rmask),
     .rvfi_mem_wmask(rvfi_mem_wmask),
     .rvfi_mem_rdata(rvfi_mem_rdata),
-    .rvfi_mem_wdata(rvfi_mem_wdata),
+    .rvfi_mem_wdata(rvfi_mem_wdata)
    `endif
-    .trap(trap)
   );
  `ifdef RISCV_FORMAL
   monitor monitor (
