@@ -179,9 +179,9 @@ module riscv (
       (* parallel_case, full_case *)
       case (cpu_state)
         fetch_instr: begin
+          mem_valid <= 1;
           mem_wstrb <= 4'b0000;
           mem_instr <= 1;
-          mem_valid <= 1;
           cpu_state <= ready_instr;
           mem_addr <= next_pc;
           skip_reg_write <= 0;
@@ -204,7 +204,6 @@ module riscv (
             if (!is_valid) begin
               cpu_state <= cpu_trap;
             end else begin
-              decode <= 0;
               (* parallel_case, full_case *)
               case (1'b1)
                 is_lui: begin
@@ -287,7 +286,7 @@ module riscv (
                       reg_wdata <= regs[rs1] & math_arg;
                     end
 
-                    is_mul || is_mulhu || is_mulh || is_mulhsu: begin
+                    is_mul || is_mulh || is_mulhu || is_mulhsu: begin
                       mul_div_counter <= is_mul ? 32 : 64;
                       cpu_state <= multiply;
                       mul_div_store <= 0;
@@ -320,7 +319,7 @@ module riscv (
                   endcase
                 end
 
-                is_lw || is_lh || is_lb: begin
+                is_lw || is_lh || is_lhu || is_lb || is_lbu: begin
                   if ((is_lw && |addr24) ||
                       ((is_lh || is_lhu) && addr8)) begin
                     cpu_state <= cpu_trap;

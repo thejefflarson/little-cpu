@@ -11,7 +11,7 @@ testbench.vvp: rvfi_macros.vh testbench.v riscv.v monitor.v decoder.v
 pll.v: timing
 	icepll -m -f $@ -i 12 -o $(shell cat $^)
 
-riscv.json: riscv.v
+riscv.json: riscv.v decoder.v
 	yosys -p 'read_verilog -sv $^; synth_ice40 -top riscv -json $@'
 
 riscv.asc: riscv.json riscv.pcf
