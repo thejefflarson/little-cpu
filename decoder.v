@@ -232,7 +232,7 @@ module decoder (
   logic is_csr, is_csrrwi, is_csrrsi, is_csrrci;
   assign is_csr = opcode == 5'b11100 && uncompressed;
   assign is_csrrw = is_csr && funct3 == 3'b001 || is_csrrwi;
-  assign is_csrrs = is_csr && funct3 == 3'b010 || is_csrrs;
+  assign is_csrrs = is_csr && funct3 == 3'b010 || is_csrrsi;
   assign is_csrrc = is_csr && funct3 == 3'b011 || is_csrrci;
   assign is_csrrwi = is_csr && funct3 == 3'b101;
   assign is_csrrsi = is_csr && funct3 == 3'b110;

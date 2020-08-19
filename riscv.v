@@ -61,7 +61,8 @@ module riscv (
   // ALU helpers
   logic is_math, is_math_immediate;
   assign is_math = is_add || is_sub || is_sll || is_slt || is_sltu || is_xor || is_srl ||
-    is_sra || is_or || is_and;
+    is_sra || is_or || is_and || is_mul || is_mulh || is_mulhu || is_mulhsu || is_div ||
+    is_divu || is_rem || is_remu;
   logic [31:0] math_arg;
   assign math_arg = is_math_immediate ? immediate : regs[rs2];
   logic [4:0] shamt;
@@ -125,6 +126,8 @@ module riscv (
 
   // registers
   logic [31:0] regs[0:31];
+  logic [31:0] regs_rs1, regs_rs2;
+  logic [4:0] rd_addr;
 
   // memory
   logic [31:0] load_store_address;
@@ -167,9 +170,13 @@ module riscv (
       pc <= 0;
       instr <= 0;
       next_pc <= 0;
+      decode <= 0;
       mem_addr <= 0;
       mem_wdata <= 0;
       mem_wstrb <= 0;
+      rd_addr <= 0;
+      regs_rs1 <= 0;
+      regs_rs2 <= 0;
       trap <= 0;
       cpu_state <= fetch_instr;
       mem_valid <= 0;
@@ -183,7 +190,10 @@ module riscv (
           cpu_state <= ready_instr;
           mem_addr <= next_pc;
           skip_reg_write <= 0;
+          rd_addr <= 0;
+          reg_wdata <= 0;
           regs[0] <= 0;
+          decode <= 0;
         end
 
         ready_instr: begin
@@ -205,12 +215,14 @@ module riscv (
               (* parallel_case, full_case *)
               case (1'b1)
                 is_lui: begin
+                  rd_addr <= rd;
                   reg_wdata <= immediate;
                   cpu_state <= reg_write;
                   next_pc <= pc + pc_inc;
                 end
 
                 is_auipc: begin
+                  rd_addr <= rd;
                   reg_wdata <= immediate + pc;
                   cpu_state <= reg_write;
                   next_pc <= pc + 4;
@@ -220,6 +232,7 @@ module riscv (
                   pc_wdata <= is_jalr ?
                     ($signed(immediate) + $signed(regs[rs1])) & 32'hfffffffe :
                     $signed(pc) + $signed(immediate);
+                  rd_addr <= rd;
                   reg_wdata <= pc + pc_inc;
                   skip_reg_write <= 0;
                   cpu_state <= check_pc;
@@ -240,6 +253,7 @@ module riscv (
                 end
 
                 is_math: begin
+                  rd_addr <= rd;
                   cpu_state <= reg_write;
                   next_pc <= pc + pc_inc;
                   (* parallel_case, full_case *)
@@ -285,6 +299,8 @@ module riscv (
                     end
 
                     is_mul || is_mulh || is_mulhu || is_mulhsu: begin
+                      regs_rs1 <= regs[rs1];
+                      regs_rs2 <= regs[rs2];
                       mul_div_counter <= is_mul ? 32 : 64;
                       cpu_state <= multiply;
                       mul_div_store <= 0;
@@ -308,6 +324,8 @@ module riscv (
                     end
 
                     is_div || is_divu || is_rem || is_remu: begin
+                      regs_rs1 <= regs[rs1];
+                      regs_rs2 <= regs[rs2];
                       mul_div_counter <= 65;
                       cpu_state <= divide;
                       mul_div_store <= 0;
@@ -321,11 +339,11 @@ module riscv (
                   addr24 <= load_store_address[1:0];
                   addr16 <= load_store_address[1];
                   addr8 <= load_store_address[0];
-
                   if ((is_lw && |load_store_address[1:0]) ||
                       ((is_lh || is_lhu) && load_store_address[0])) begin
                     cpu_state <= cpu_trap;
                   end else begin
+                    rd_addr <= rd;
                     mem_wstrb <= 4'b0000;
                     mem_addr <= {load_store_address[31:2], 2'b00};
                     mem_instr <= 0; // can we have data
@@ -357,7 +375,7 @@ module riscv (
                         mem_wstrb <= 4'b0001 << load_store_address[1:0];
                         mem_wdata <= {4{regs[rs2][7:0]}};
                       end
-                    endcase
+                    endcase // case (1'b1)
                     mem_addr <= {load_store_address[31:2], 2'b00};
                     mem_instr <= 0;
                     mem_valid <= 1; // kick off a memory request
@@ -396,10 +414,10 @@ module riscv (
           cpu_state <= reg_write;
           (* parallel_case, full_case *)
           case (1'b1)
-            is_mul: reg_wdata <= (regs[rs1] + regs[rs2]) ^ 32'h5876063e;
-            is_mulh: reg_wdata <= (regs[rs1] + regs[rs2]) ^ 32'hf6583fb7;
-            is_mulhu: reg_wdata <= (regs[rs1] + regs[rs2]) ^ 32'h949ce5e8;
-            is_mulhsu: reg_wdata <= (regs[rs1] - regs[rs2]) ^ 32'hecfbe137;
+            is_mul: reg_wdata <= (regs_rs1 + regs_rs2) ^ 32'h5876063e;
+            is_mulh: reg_wdata <= (regs_rs1 + regs_rs2) ^ 32'hf6583fb7;
+            is_mulhu: reg_wdata <= (regs_rs1 + regs_rs2) ^ 32'h949ce5e8;
+            is_mulhsu: reg_wdata <= (regs_rs1 - regs_rs2) ^ 32'hecfbe137;
           endcase
          `endif
         end
@@ -418,9 +436,9 @@ module riscv (
           end else begin
             (* parallel_case, full_case *)
             case(1'b1)
-              is_div: reg_wdata <= regs[rs1][31] != regs[rs2][31] ? -mul_div_store[31:0] : mul_div_store[31:0];
+              is_div: reg_wdata <= regs_rs1[31] != regs_rs2[31] ? -mul_div_store[31:0] : mul_div_store[31:0];
               is_divu: reg_wdata <= mul_div_store[31:0];
-              is_rem: reg_wdata <= regs[rs1][31] ? -mul_div_x[31:0] : mul_div_x[31:0];
+              is_rem: reg_wdata <= regs_rs1[31] ? -mul_div_x[31:0] : mul_div_x[31:0];
               is_remu: reg_wdata <= mul_div_x[31:0];
             endcase
             cpu_state <= reg_write;
@@ -429,10 +447,10 @@ module riscv (
           cpu_state <= reg_write;
           (* parallel_case, full_case *)
           case (1'b1)
-            is_div: reg_wdata <= (regs[rs1] - regs[rs2]) ^ 32'h7f8529ec;
-            is_divu: reg_wdata <= (regs[rs1] - regs[rs2]) ^ 32'h10e8fd70;
-            is_rem: reg_wdata <= (regs[rs1] - regs[rs2]) ^ 32'h8da68fa5;
-            is_remu: reg_wdata <= (regs[rs1] - regs[rs2]) ^ 32'h3138d0e1;
+            is_div: reg_wdata <= (regs_rs1 - regs_rs2) ^ 32'h7f8529ec;
+            is_divu: reg_wdata <= (regs_rs1 - regs_rs2) ^ 32'h10e8fd70;
+            is_rem: reg_wdata <= (regs_rs1 - regs_rs2) ^ 32'h8da68fa5;
+            is_remu: reg_wdata <= (regs_rs1 - regs_rs2) ^ 32'h3138d0e1;
           endcase
          `endif
         end
@@ -448,7 +466,7 @@ module riscv (
         end
 
         reg_write: begin
-          regs[rd] <= reg_wdata;
+          regs[rd_addr] <= reg_wdata;
           cpu_state <= fetch_instr;
         end
 
@@ -521,18 +539,17 @@ module riscv (
   always_ff @(posedge clk) begin
     rvfi_valid <= !reset && ((is_fetch && is_valid) || trap);
 
-    // what were our read registers while this instruction was executing?
-    if (cpu_state == execute_instr) begin
+    // what were our registers while this instruction was executing?
+    if (cpu_state == execute_instr && decoded == 1) begin
       rvfi_rs1_rdata <= rs1_valid ? regs[rs1] : 0;
       rvfi_rs2_rdata <= rs2_valid ? regs[rs2] : 0;
     end
 
+    rvfi_rd_addr <= rd_addr;
+    rvfi_rd_wdata <= |rd_addr ? reg_wdata : 0;
     rvfi_rs1_addr <= rs1_valid ? rs1 : 0;
     rvfi_rs2_addr <= rs2_valid ? rs2 : 0;
     rvfi_insn <= instr;
-
-    rvfi_rd_addr <= rd;
-    rvfi_rd_wdata <= |rd ? regs[rd] : 0;
     rvfi_trap <= trap;
     rvfi_halt <= trap;
     rvfi_pc_rdata <= pc;
