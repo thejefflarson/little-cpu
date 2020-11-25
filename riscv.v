@@ -11,34 +11,34 @@ module riscv (
   input  logic [31:0] mem_rdata,
  `ifdef RISCV_FORMAL
   output logic        rvfi_valid,
-	output logic [63:0] rvfi_order,
-	output logic [31:0] rvfi_insn,
-	output logic        rvfi_trap,
-	output logic        rvfi_halt,
-	output logic        rvfi_intr,
-	output logic [ 1:0] rvfi_mode,
-	output logic [ 1:0] rvfi_ixl,
-	output logic [ 4:0] rvfi_rs1_addr,
-	output logic [ 4:0] rvfi_rs2_addr,
-	output logic [31:0] rvfi_rs1_rdata,
-	output logic [31:0] rvfi_rs2_rdata,
-	output logic [ 4:0] rvfi_rd_addr,
-	output logic [31:0] rvfi_rd_wdata,
-	output logic [31:0] rvfi_pc_rdata,
-	output logic [31:0] rvfi_pc_wdata,
-	output logic [31:0] rvfi_mem_addr,
-	output logic [ 3:0] rvfi_mem_rmask,
-	output logic [ 3:0] rvfi_mem_wmask,
-	output logic [31:0] rvfi_mem_rdata,
-	output logic [31:0] rvfi_mem_wdata,
-	output logic [63:0] rvfi_csr_mcycle_rmask,
-	output logic [63:0] rvfi_csr_mcycle_wmask,
-	output logic [63:0] rvfi_csr_mcycle_rdata,
-	output logic [63:0] rvfi_csr_mcycle_wdata,
-	output logic [63:0] rvfi_csr_minstret_rmask,
-	output logic [63:0] rvfi_csr_minstret_wmask,
-	output logic [63:0] rvfi_csr_minstret_rdata,
-	output logic [63:0] rvfi_csr_minstret_wdata,
+  output logic [63:0] rvfi_order,
+  output logic [31:0] rvfi_insn,
+  output logic        rvfi_trap,
+  output logic        rvfi_halt,
+  output logic        rvfi_intr,
+  output logic [ 1:0] rvfi_mode,
+  output logic [ 1:0] rvfi_ixl,
+  output logic [ 4:0] rvfi_rs1_addr,
+  output logic [ 4:0] rvfi_rs2_addr,
+  output logic [31:0] rvfi_rs1_rdata,
+  output logic [31:0] rvfi_rs2_rdata,
+  output logic [ 4:0] rvfi_rd_addr,
+  output logic [31:0] rvfi_rd_wdata,
+  output logic [31:0] rvfi_pc_rdata,
+  output logic [31:0] rvfi_pc_wdata,
+  output logic [31:0] rvfi_mem_addr,
+  output logic [ 3:0] rvfi_mem_rmask,
+  output logic [ 3:0] rvfi_mem_wmask,
+  output logic [31:0] rvfi_mem_rdata,
+  output logic [31:0] rvfi_mem_wdata,
+  output logic [63:0] rvfi_csr_mcycle_rmask,
+  output logic [63:0] rvfi_csr_mcycle_wmask,
+  output logic [63:0] rvfi_csr_mcycle_rdata,
+  output logic [63:0] rvfi_csr_mcycle_wdata,
+  output logic [63:0] rvfi_csr_minstret_rmask,
+  output logic [63:0] rvfi_csr_minstret_wmask,
+  output logic [63:0] rvfi_csr_minstret_rdata,
+  output logic [63:0] rvfi_csr_minstret_wdata,
  `endif //  `ifdef RISCV_FORMAL
   output logic        trap
   );
@@ -559,13 +559,13 @@ module riscv (
     rvfi_intr <= 0;
     rvfi_order <= !reset ? rvfi_order + rvfi_valid : 0;
     rvfi_csr_mcycle_rmask <= 64'b0;
-   	rvfi_csr_mcycle_wmask <= 64'b0;
-   	rvfi_csr_mcycle_rdata <= 64'b0;
-	  rvfi_csr_mcycle_wdata <= 64'b0;
-	  rvfi_csr_minstret_rmask <= 64'b0;
-	  rvfi_csr_minstret_wmask <= 64'b0;
-	  rvfi_csr_minstret_rdata <= 64'b0;
-	  rvfi_csr_minstret_wdata <= 64'b0;
+    rvfi_csr_mcycle_wmask <= 64'b0;
+    rvfi_csr_mcycle_rdata <= 64'b0;
+    rvfi_csr_mcycle_wdata <= 64'b0;
+    rvfi_csr_minstret_rmask <= 64'b0;
+    rvfi_csr_minstret_wmask <= 64'b0;
+    rvfi_csr_minstret_rdata <= 64'b0;
+    rvfi_csr_minstret_wdata <= 64'b0;
 
     if (mem_instr) begin
       rvfi_mem_addr <= 0;

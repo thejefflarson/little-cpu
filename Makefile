@@ -15,10 +15,10 @@ riscv.json: riscv.v decoder.v
 	yosys -p 'read_verilog -sv $^; synth_ice40 -top riscv -json $@'
 
 riscv.asc: riscv.json riscv.pcf
-	nextpnr-ice40 --up5k --json $< --pcf riscv.pcf --asc $@ --package sg48 --pcf-allow-unconstrained
+	nextpnr-ice40 --hx8k --json $< --pcf riscv.pcf --asc $@ --package sg48 --pcf-allow-unconstrained
 
 timing: riscv.asc
-	icetime -d up5k $^ | egrep -oi '\(\d+' | egrep -o '\d+' > $@
+	icetime -d hx8k $^ | egrep -oi '\(\d+' | egrep -o '\d+' > $@
 
 clean:
 	rm -f riscv.json
