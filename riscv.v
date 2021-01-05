@@ -124,6 +124,33 @@ module riscv (
      .is_csrrc(is_csrrc)
   );
 
+  logic [31:0] alu_rs1;
+  logic [31:0] alu_rs2;
+  logic [4:0]  alu_shamt;
+  logic [31:0] alu_out;
+  logic       alu_ready;
+  logic       alu_valid;
+  alu alu (
+    .clk(clk),
+    .rs1(alu_rs1),
+    .rs2(alu_rs2),
+    .shamt(alu_shamt),
+    .out(alu_out),
+    .is_add(is_add),
+    .is_sub(is_sub),
+    .is_xor(is_xor),
+    .is_or(is_or),
+    .is_and(is_and),
+    .is_sll(is_sll),
+    .is_slt(is_slt),
+    .is_sltu(is_sltu),
+    .is_srl(is_srl),
+    .is_sra(is_sra),
+    .ready(alu_ready),
+    .valid(alu_valid)
+  );
+
+
   // registers
   logic [31:0] regs[0:31];
   logic [31:0] regs_rs1, regs_rs2;
@@ -162,6 +189,7 @@ module riscv (
   localparam finish_store = 4'b0110;
   localparam check_pc = 4'b0111;
   localparam reg_write = 4'b1000;
+  localparam alu_wait = 4'b1010;
   localparam multiply = 4'b1001;
   localparam divide = 4'b1011;
 
@@ -171,6 +199,7 @@ module riscv (
       instr <= 0;
       next_pc <= 0;
       decode <= 0;
+      alu_valid <= 0;
       mem_addr <= 0;
       mem_wdata <= 0;
       mem_wstrb <= 0;
@@ -194,6 +223,7 @@ module riscv (
           reg_wdata <= 0;
           regs[0] <= 0;
           decode <= 0;
+          alu_valid <= 0;
         end
 
         ready_instr: begin
@@ -254,50 +284,14 @@ module riscv (
 
                 is_math: begin
                   rd_addr <= rd;
-                  cpu_state <= reg_write;
+                  cpu_state <= alu_wait;
                   next_pc <= pc + pc_inc;
+                  alu_rs1 <= regs[rs1];
+                  alu_rs2 <= math_arg;
+                  alu_shamt <= shamt;
+                  alu_valid <= 1;
                   (* parallel_case, full_case *)
                   case(1'b1)
-                    is_add: begin
-                      reg_wdata <= regs[rs1] + math_arg;
-                    end
-
-                    is_sub: begin
-                      reg_wdata <= regs[rs1] - math_arg;
-                    end
-
-                    is_sll: begin
-                      reg_wdata <= regs[rs1] << shamt;
-                    end
-
-                    is_slt: begin
-                      reg_wdata <= {31'b0, $signed(regs[rs1]) < $signed(math_arg)};
-                    end
-
-                    is_sltu: begin
-                      reg_wdata <= {31'b0, regs[rs1] < math_arg};
-                    end
-
-                    is_xor: begin
-                      reg_wdata <= regs[rs1] ^ math_arg;
-                    end
-
-                    is_srl: begin
-                      reg_wdata <= regs[rs1] >> shamt;
-                    end
-
-                    is_sra: begin
-                      reg_wdata <= $signed(regs[rs1]) >>> shamt;
-                    end
-
-                    is_or: begin
-                      reg_wdata <= regs[rs1] | math_arg;
-                    end
-
-                    is_and: begin
-                      reg_wdata <= regs[rs1] & math_arg;
-                    end
-
                     is_mul || is_mulh || is_mulhu || is_mulhsu: begin
                       regs_rs1 <= regs[rs1];
                       regs_rs2 <= regs[rs2];
@@ -462,6 +456,14 @@ module riscv (
           end else begin
             next_pc <= pc_wdata;
             cpu_state <= skip_reg_write ? fetch_instr : reg_write;
+          end
+        end
+
+        alu_wait: begin
+          if (alu_ready) begin
+            alu_valid <= 0;
+            cpu_state <= reg_write;
+            reg_wdata <= alu_out;
           end
         end
 
