@@ -19,6 +19,6 @@ riscv-formal:
 	git clone https://github.com/SymbioticEDA/riscv-formal
 
 clean:
-	rm -rf {checks,complete,riscv-formal,dmemcheck}
+	rm -rf {checks,complete,riscv-formal,dmemcheck,imemcheck}
 
 .PHONY: all clean
