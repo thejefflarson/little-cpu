@@ -4,6 +4,7 @@ timing
 pll.v
 formal/riscv-formal
 formal/complete
+formal/cover
 formal/checks
 formal/dmemcheck
 formal/imemcheck

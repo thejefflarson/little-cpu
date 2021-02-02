@@ -1,7 +1,7 @@
 [options]
 mode bmc
 aigsmt z3
-depth 30
+depth 50
 
 [engines]
 abc bmc3
@@ -30,9 +30,9 @@ prep -nordff -top rvfi_testbench
 
 [files]
 complete.v
-../riscv.v
-../decoder.v
-../alu.v
+../rtl/riscv.v
+../rtl/decoder.v
+../rtl/alu.v
 riscv-formal/checks/rvfi_macros.vh
 riscv-formal/insns/isa_rv32imc.v
 

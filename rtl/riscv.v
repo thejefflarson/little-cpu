@@ -158,7 +158,6 @@ module riscv (
     .valid(alu_valid)
   );
 
-
   // registers
   logic [31:0] regs[0:31];
   logic [31:0] regs_rs1, regs_rs2;
@@ -172,7 +171,7 @@ module riscv (
 
   // storage for the next program counter
   logic [31:0] next_pc;
-  logic [31:0] pc_inc;
+  logic [3:0] pc_inc;
   assign pc_inc = uncompressed ? 4 : 2;
 
   // register write addr
@@ -256,7 +255,7 @@ module riscv (
                   rd_addr <= rd;
                   reg_wdata <= immediate + pc;
                   cpu_state <= reg_write;
-                  next_pc <= pc + 4;
+                  next_pc <= pc + pc_inc;
                 end
 
                 is_jal || is_jalr: begin
@@ -274,10 +273,10 @@ module riscv (
                   case(1'b1)
                     is_beq: pc_wdata <= regs[rs1] == regs[rs2] ? pc + immediate : pc + pc_inc;
                     is_bne: pc_wdata <= regs[rs1] != regs[rs2] ? pc + immediate : pc + pc_inc;
-                    is_blt: pc_wdata <= $signed(regs[rs1]) < $signed(regs[rs2]) ? pc + immediate : pc + 4;
-                    is_bltu: pc_wdata <= regs[rs1] < regs[rs2] ? pc + immediate : pc + 4;
-                    is_bge: pc_wdata <= $signed(regs[rs1]) >= $signed(regs[rs2]) ? pc + immediate : pc + 4;
-                    is_bgeu: pc_wdata <= regs[rs1] >= regs[rs2] ? pc + immediate : pc + 4;
+                    is_blt: pc_wdata <= $signed(regs[rs1]) < $signed(regs[rs2]) ? pc + immediate : pc + pc_inc;
+                    is_bltu: pc_wdata <= regs[rs1] < regs[rs2] ? pc + immediate : pc + pc_inc;
+                    is_bge: pc_wdata <= $signed(regs[rs1]) >= $signed(regs[rs2]) ? pc + immediate : pc + pc_inc;
+                    is_bgeu: pc_wdata <= regs[rs1] >= regs[rs2] ? pc + immediate : pc + pc_inc;
                   endcase
                   skip_reg_write <= 1;
                   cpu_state <= check_pc;

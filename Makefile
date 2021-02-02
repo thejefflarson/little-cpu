@@ -4,14 +4,14 @@ test: testbench.vvp
 rvfi_macros.vh: formal/riscv-formal/checks/rvfi_macros.py
 	python $^ > $@
 
-testbench.vvp: rvfi_macros.vh testbench.v riscv.v monitor.v decoder.v alu.v
+testbench.vvp: rvfi_macros.vh test/testbench.v rtl/riscv.v test/monitor.v rtl/decoder.v rtl/alu.v
 	iverilog -DRISCV_FORMAL -DRISCV_FORMAL_COMPRESSED -DRISCV_FORMAL_ALIGNED_MEM -DRISCV_FORMAL_NRET=1 -DRISCV_FORMAL_XLEN=32 -DRISCV_FORMAL_ILEN=32 -g2012 -o $@ $^
 	chmod +x $@
 
 pll.v: timing
 	icepll -m -f $@ -i 12 -o $(shell cat $^)
 
-riscv.json: riscv.v decoder.v alu.v
+riscv.json: rtl/riscv.v rtl/decoder.v rtl/alu.v
 	yosys -p 'read_verilog -sv $^; synth_ice40 -top riscv -json $@'
 
 riscv.asc: riscv.json riscv.pcf

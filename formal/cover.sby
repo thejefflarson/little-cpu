@@ -1,0 +1,26 @@
+[options]
+mode cover
+depth 100
+
+[engines]
+smtbmc boolector
+
+[script]
+verilog_defines -D RISCV_FORMAL
+verilog_defines -D RISCV_FORMAL_NRET=1
+verilog_defines -D RISCV_FORMAL_XLEN=32
+verilog_defines -D RISCV_FORMAL_ILEN=32
+verilog_defines -D RISCV_FORMAL_ALIGNED_MEM
+read_verilog rvfi_macros.vh
+read_verilog -sv decoder.v
+read_verilog -sv riscv.v
+read_verilog -sv alu.v
+read_verilog -sv cover.sv
+prep -nordff -top testbench
+
+[files]
+../decoder.v
+../riscv.v
+../alu.v
+riscv-formal/checks/rvfi_macros.vh
+cover.sv

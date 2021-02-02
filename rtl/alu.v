@@ -30,7 +30,8 @@ module alu (
   localparam multiply = 2'b01;
   localparam divide = 2'b10;
   logic [4:0]  mul_div_counter;
-  logic [31:0] mul_div_x, mul_div_y, mul_div_store;
+  logic [31:0] mul_div_x, mul_div_y;
+  logic [63:0] mul_div_store;
 
   always_ff @(posedge clk) begin
     if (!valid) begin

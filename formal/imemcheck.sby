@@ -15,9 +15,9 @@ read_verilog -sv alu.v
 prep -nordff -top testbench
 
 [files]
-../decoder.v
-../riscv.v
-../alu.v
+../rtl/decoder.v
+../rtl/riscv.v
+../rtl/alu.v
 imemcheck.sv
 riscv-formal/checks/rvfi_macros.vh
 riscv-formal/checks/rvfi_channel.sv
