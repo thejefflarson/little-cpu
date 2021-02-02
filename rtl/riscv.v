@@ -41,7 +41,7 @@ module riscv (
   output logic [63:0] rvfi_csr_minstret_wdata,
  `endif //  `ifdef RISCV_FORMAL
   output logic        trap
-  );
+);
 
   logic [31:0] instr;
   logic [31:0] immediate;
