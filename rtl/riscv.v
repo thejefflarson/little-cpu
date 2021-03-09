@@ -58,16 +58,6 @@ module riscv (
 
   logic [4:0] rd, rs1, rs2;
 
-  // ALU helpers
-  logic is_math, is_math_immediate;
-  assign is_math = is_add || is_sub || is_sll || is_slt || is_sltu || is_xor || is_srl ||
-    is_sra || is_or || is_and || is_mul || is_mulh || is_mulhu || is_mulhsu || is_div ||
-    is_divu || is_rem || is_remu;
-  logic [31:0] math_arg;
-  assign math_arg = is_math_immediate ? immediate : regs[rs2];
-  logic [4:0] shamt;
-  assign shamt = is_math_immediate ? rs2 : regs[rs2][4:0];
-
   decoder decoder (
     .clk(clk),
     .instr(instr),
@@ -123,6 +113,16 @@ module riscv (
     .is_csrrs(is_csrrs),
     .is_csrrc(is_csrrc)
   );
+
+  // ALU helpers
+  logic is_math, is_math_immediate;
+  assign is_math = is_add || is_sub || is_sll || is_slt || is_sltu || is_xor || is_srl ||
+    is_sra || is_or || is_and || is_mul || is_mulh || is_mulhu || is_mulhsu || is_div ||
+    is_divu || is_rem || is_remu;
+  logic [31:0] math_arg;
+  assign math_arg = is_math_immediate ? immediate : regs[rs2];
+  logic [4:0] shamt;
+  assign shamt = is_math_immediate ? rs2 : regs[rs2][4:0];
 
   logic [31:0] alu_rs1;
   logic [31:0] alu_rs2;
