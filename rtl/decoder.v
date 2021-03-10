@@ -285,38 +285,41 @@ module decoder (
   always_ff @(posedge clk) begin
     if (!decode) begin
       decoded <= 0;
+      rd <= 0;
+      rs1 <= 0;
+      rs2 <= 0;
     end else begin
-       (* parallel_case, full_case *)
-       case (1'b1)
-         is_beq || is_bne || is_blt || is_bge || is_bltu || is_bgeu ||
-           is_sb || is_sh || is_sw || is_cj || is_cjr: rd <= 0;
-         is_cjal || is_cjalr: rd <= 1;
-         is_clw || is_caddi4spn: rd <= {2'b01, instr[4:2]};
-         is_csrai || is_csrli || is_candi || is_cand ||
-           is_cor || is_cxor || is_csub: rd <= {2'b01, instr[9:7]};
-         default: rd <= instr[11:7];
-       endcase
+      (* parallel_case, full_case *)
+      case (1'b1)
+        is_beq || is_bne || is_blt || is_bge || is_bltu || is_bgeu ||
+          is_sb || is_sh || is_sw || is_cj || is_cjr: rd <= 0;
+        is_cjal || is_cjalr: rd <= 1;
+        is_clw || is_caddi4spn: rd <= {2'b01, instr[4:2]};
+        is_csrai || is_csrli || is_candi || is_cand ||
+          is_cor || is_cxor || is_csub: rd <= {2'b01, instr[9:7]};
+        default: rd <= instr[11:7];
+      endcase
 
-       (* parallel_case, full_case *)
-       case (1'b1)
-         is_clwsp || is_cswsp || is_caddi4spn: rs1 <= 2;
-         is_clw || is_csw || is_cbeqz || is_cbnez ||
-           is_csrai || is_csrli || is_candi || is_cand ||
-           is_cor || is_cxor || is_csub: rs1 <= {2'b01, instr[9:7]};
-         is_cjr || is_cjalr || is_cslli: rs1 <= instr[11:7];
-         is_cli || is_cmv: rs1 <= 0;
-         is_caddi || is_caddi16sp || is_cadd: rs1 <= instr[11:7];
-         default: rs1 <= instr[19:15];
-       endcase
+      (* parallel_case, full_case *)
+      case (1'b1)
+        is_clwsp || is_cswsp || is_caddi4spn: rs1 <= 2;
+        is_clw || is_csw || is_cbeqz || is_cbnez ||
+          is_csrai || is_csrli || is_candi || is_cand ||
+          is_cor || is_cxor || is_csub: rs1 <= {2'b01, instr[9:7]};
+        is_cjr || is_cjalr || is_cslli: rs1 <= instr[11:7];
+        is_cli || is_cmv: rs1 <= 0;
+        is_caddi || is_caddi16sp || is_cadd: rs1 <= instr[11:7];
+        default: rs1 <= instr[19:15];
+      endcase
 
-       (* parallel_case, full_case *)
-       case(1'b1)
-         is_cswsp || is_cslli || is_csrai || is_csrli || is_cmv || is_cadd: rs2 <= instr[6:2];
-         is_csw || is_cand || is_cor || is_cxor || is_csub: rs2 <= {2'b01, instr[4:2]};
-         is_cbeqz || is_cbnez: rs2 <= 0;
-         default: rs2 <= instr[24:20];
-       endcase
-       decoded <= 1;
+      (* parallel_case, full_case *)
+      case(1'b1)
+        is_cswsp || is_cslli || is_csrai || is_csrli || is_cmv || is_cadd: rs2 <= instr[6:2];
+        is_csw || is_cand || is_cor || is_cxor || is_csub: rs2 <= {2'b01, instr[4:2]};
+        is_cbeqz || is_cbnez: rs2 <= 0;
+        default: rs2 <= instr[24:20];
+      endcase
+      decoded <= 1;
     end
   end
 endmodule

@@ -86,12 +86,12 @@ module pipeline(
     .decoder_ready(decode_ready),
     .decoder_valid(decode_valid),
     .executor_ready(executor_ready),
-    // forward
-    .fetcher_pc(fetcher_pc),
-    .decoder_pc(decoder_pc),
     // inputs
     .instr(instr),
     // outputs
+    .fetcher_pc(fetcher_pc),
+    // The whole trick! we update the program counter here to keep the pipeline filled
+    .pc(pc),
     .immediate(immediate),
     .is_math_immediate(is_math_immediate),
     .is_valid_instr(is_valid_instr),
@@ -175,13 +175,11 @@ module pipeline(
     .rd(rd),
     .reg_rs1(reg_rs1),
     .reg_rs2(reg_rs2),
-    .decoder_pc(decoder_pc),
     .load_store_address(load_store_address)
     // forwards
     .executor_load_store_address(executor_load_store_address),
     // outputs
-    // The whole trick! we update the program counter here to keep the pipeline filled
-    .pc(pc),
+
     .executor_waddr(executor_waddr),
     .executor_wdata(executor_wdata),
   );
@@ -214,7 +212,7 @@ module pipeline(
     // handshake
     .writeback_ready(writeback_ready),
     .writeback_valid(writeback_valid),
-    // forward
+    // inputs
     .accessor_waddr(accessor_waddr),
     .accessor_wdata(accessor_wdata),
     // outputs
