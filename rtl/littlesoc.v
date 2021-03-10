@@ -1,21 +1,23 @@
+`default_nettype none
 module littlesoc (
-  input  clk,
-  input  reset,
-  output flash_cs,
-  output flash_clk,
-  inout  flash_io0,
-  inout  flash_io1,
-  inout  flash_io2,
-  inout  flash_io3
+  input  var clk,
+  input  var reset,
+  output var flash_cs,
+  output var flash_clk,
+  inout  tri flash_io0,
+  inout  tri flash_io1,
+  inout  tri flash_io2,
+  inout  tri flash_io3
 );
   logic int_flash_clk;
   assign flash_clk = int_flash_clk;
   // TODO SPI mem
   always_ff @(posedge clk) begin
-    if (reset)
-      int_flash_clk <= 0;
-    else
-      int_flash_clk <= !int_flash_clk;
+   if (reset) begin
+     int_flash_clk <= 0;
+   end else begin
+     int_flash_clk <= !int_flash_clk;
+   end
   end
 
   // Internal mem
@@ -26,7 +28,7 @@ module littlesoc (
   logic [31:0] mem_wdata;
   logic [3:0]  mem_wstrb;
   logic [31:0] mem_rdata;
-  fastmem mem (
+  mem mem (
     .clk(clk),
     .reset(reset),
     .mem_valid(mem_valid),
@@ -50,23 +52,22 @@ module littlesoc (
   );
 endmodule // littlesoc
 
-module fastmem #(
+module mem #(
   parameter integer WORDS = 256
 ) (
-  input  logic        clk,
-  input  logic        reset,
-  input  logic        mem_valid,
-  output logic        mem_ready,
-  input  logic [31:0] mem_addr,
-  input  logic [31:0] mem_wdata,
-  input  logic [3:0]  mem_wstrb,
-  output logic [31:0] mem_rdata
+  input  var logic        clk,
+  input  var logic        reset,
+  input  var logic        mem_valid,
+  output var logic        mem_ready,
+  input  var logic [31:0] mem_addr,
+  input  var logic [31:0] mem_wdata,
+  input  var logic [3:0]  mem_wstrb,
+  output var logic [31:0] mem_rdata
 );
-  integer      i;
   logic [31:0] memory[0:WORDS-1];
   always_ff @(posedge clk) begin
     if (reset) begin
-      for(i = 0; i < WORDS; i = i + 1) memory[i] <= 32'b0;
+      for(integer i = 0; i < WORDS; i = i + 1) memory[i] <= 32'b0;
     end else begin
       mem_ready <= 0;
       if (mem_valid && !mem_ready) begin

@@ -1,3 +1,4 @@
+`default_nettype none
 module pipeline(
   input  logic        clk,
   input  logic        reset,
@@ -62,7 +63,7 @@ module pipeline(
     .mem_ready(mem_ready),
     .mem_addr(mem_addr),
     .mem_wdata(mem_addr),
-    .mem_wstrb(mem_wstrb),
+    .mem_wstrb(mem_wstrb)
   );
 
   logic        decoder_ready, decoder_valid;
@@ -144,7 +145,7 @@ module pipeline(
   );
 
   logic [31:0] rs1, rs2, reg_rs1, reg_rs2, rd, reg_wdata;
-  logic wen,
+  logic        wen;
   regfile regfile(
     .clk(clk),
     .reset(reset),
@@ -154,7 +155,7 @@ module pipeline(
     .reg_rs2(reg_rs2),
     .wen(wen),
     .waddr(waddr),
-    .wdata(wdata),
+    .wdata(wdata)
   );
 
   logic executor_ready, executor_valid;
@@ -175,13 +176,12 @@ module pipeline(
     .rd(rd),
     .reg_rs1(reg_rs1),
     .reg_rs2(reg_rs2),
-    .load_store_address(load_store_address)
+    .load_store_address(load_store_address),
     // forwards
     .executor_load_store_address(executor_load_store_address),
     // outputs
-
     .executor_waddr(executor_waddr),
-    .executor_wdata(executor_wdata),
+    .executor_wdata(executor_wdata)
   );
 
   logic        accessor_ready, accessor_valid;
@@ -218,6 +218,6 @@ module pipeline(
     // outputs
     .wen(wen),
     .waddr(waddr),
-    .wdata(wdata),
+    .wdata(wdata)
   );
 endmodule

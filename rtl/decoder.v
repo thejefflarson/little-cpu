@@ -285,9 +285,6 @@ module decoder (
   always_ff @(posedge clk) begin
     if (!decode) begin
       decoded <= 0;
-      rd <= 0;
-      rs1 <= 0;
-      rs2 <= 0;
     end else begin
       (* parallel_case, full_case *)
       case (1'b1)

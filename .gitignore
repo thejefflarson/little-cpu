@@ -8,8 +8,9 @@ formal/cover
 formal/checks
 formal/dmemcheck
 formal/imemcheck
-*.vcd
+test/rtl.cc
 *.vvp
+*.vcd
 disasm.s
 disasm.o
 rvfi_macros.vh

@@ -25,11 +25,11 @@ with open("riscv-formal/insns/isa_rv32imc.txt") as f:
 --pycode-end--
 
 read_verilog -sv isa_rv32imc.v
-read_verilog -sv complete.v
+read_verilog -sv complete.sv
 prep -nordff -top rvfi_testbench
 
 [files]
-complete.v
+complete.sv
 ../rtl/riscv.v
 ../rtl/decoder.v
 ../rtl/alu.v
