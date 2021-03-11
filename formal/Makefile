@@ -1,4 +1,4 @@
-all: complete check dmemcheck imemcheck
+all: complete check dmemcheck imemcheck fetcher
 
 check: checks riscv-formal
 	make -BC $< -j$(nproc)
@@ -16,6 +16,9 @@ complete: complete.sby complete.sv riscv-formal
 	sby -f $<
 
 cover: cover.sby cover.sv riscv-formal
+	sby -f $<
+
+fetcher: fetcher.sby ../rtl/fetcher.v
 	sby -f $<
 
 riscv-formal:

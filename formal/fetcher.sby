@@ -1,0 +1,12 @@
+[options]
+mode prove
+
+[engines]
+smtbmc
+
+[script]
+read -formal fetcher.v
+prep -top fetcher
+
+[files]
+../rtl/fetcher.v

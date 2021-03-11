@@ -51,19 +51,18 @@ module pipeline(
     .clk(clk),
     .reset(reset),
     // handshake
-    .decoder_ready(decoder_ready),
+    .mem_valid(mem_valid),
     .fetcher_valid(fetcher_valid),
+    .decoder_ready(decoder_ready),
     // inputs
     .pc(pc),
     // outputs
     .instr(instr),
     .fetcher_pc(fetcher_pc),
-    .mem_valid(mem_valid),
     .mem_instr(mem_instr),
     .mem_ready(mem_ready),
     .mem_addr(mem_addr),
-    .mem_wdata(mem_addr),
-    .mem_wstrb(mem_wstrb)
+    .mem_wdata(mem_addr)
   );
 
   logic        decoder_ready, decoder_valid;
@@ -84,8 +83,8 @@ module pipeline(
     .reset(reset),
     // handshake
     .fetcher_valid(fetcher_valid),
-    .decoder_ready(decode_ready),
-    .decoder_valid(decode_valid),
+    .decoder_ready(decoder_ready),
+    .decoder_valid(decoder_valid),
     .executor_ready(executor_ready),
     // inputs
     .instr(instr),

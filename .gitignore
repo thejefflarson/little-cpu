@@ -8,8 +8,9 @@ formal/cover
 formal/checks
 formal/dmemcheck
 formal/imemcheck
+formal/fetcher
 test/rtl.cc
-*.vvp
+*.vvpemacscl
 *.vcd
 disasm.s
 disasm.o
