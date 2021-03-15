@@ -17,14 +17,14 @@ module fetcher(
   output var logic [31:0] mem_addr,
   output var logic [3:0]  mem_wstrb
 );
-  logic stalled, waiting, en;
+  logic stalled;
   assign stalled = fetcher_valid && !decoder_ready;
-  assign waiting = !fetcher_valid && decoder_ready;
 
+  // handshake
   always_ff @(posedge clk) begin
     if (reset) begin
       fetcher_valid <= 0;
-    // we've recieved a request and we can pass it along
+    // we've received a request and we can pass it along
     end else if (mem_valid && !stalled) begin
       fetcher_valid <= mem_valid;
     end else if (!decoder_ready) begin
@@ -32,17 +32,17 @@ module fetcher(
     end
   end // always_ff @ (posedge clk)
 
-  // make the request when we the decoder is ready
+  // make the request whenever we're not valid, and the memory isn't busy
   always_ff @(posedge clk) begin
     if (reset) begin
       mem_ready <= 0;
       mem_instr <= 0;
       mem_addr <= 0;
-      mem_wstrb <= 4'b0000;
-    end else if(!mem_valid && waiting) begin
+      mem_wstrb <= 3'b000;
+    end else if(!mem_valid && !fetcher_valid) begin
       mem_ready <= 1;
       mem_addr <= pc;
-      mem_wstrb <= 4'b0000;
+      mem_wstrb <= 3'b000;
       mem_instr <= 1;
       fetcher_pc <= pc;
     end else begin
@@ -60,17 +60,27 @@ module fetcher(
   end
 
  `ifdef FORMAL
-  // can't be not ready and valid at the same time
-  always_ff @(posedge clk) assert(!(!decoder_ready && fetcher_valid));
-  // if noone has asked for anything, we shouldn't have anything
-  always_ff @(posedge clk) if(!decoder_ready) assume(!fetcher_valid);
-  // set up a clock
   logic clocked;
   initial clocked = 0;
   always_ff @(posedge clk) clocked = 1;
   // assume we've reset at clk 0
   initial assume(reset);
   always @(*) if(!clocked) assume(reset);
+
+  // no writing! always get an instruction!
+  always_ff @(posedge clk) begin
+    if(clocked && mem_ready) begin
+      assert(mem_wstrb == 4'b0000);
+      assert(mem_instr == 1);
+    end
+  end
+
+  // if we've been valid but stalled, we're not valid anymore
+  always_ff @(posedge clk) if(clocked && $past(fetcher_valid) && $past(stalled)) assert(!fetcher_valid);
+
+  // if we've been valid but the next stage is busy, we're not valid anymore
+  always_ff @(posedge clk) if(clocked && $past(fetcher_valid) && $past(!decoder_ready)) assert(!fetcher_valid);
+
   // nothing changes as long as we're valid
   always_ff @(posedge clk) begin
     if(clocked && $past(fetcher_valid) && fetcher_valid) begin

@@ -65,12 +65,27 @@ module pipeline(
     .mem_wdata(mem_addr)
   );
 
+  logic [31:0] rs1, rs2, reg_rs1, reg_rs2, rd, reg_wdata;
+  logic        wen;
+  regfile regfile(
+    .clk(clk),
+    .reset(reset),
+    // from the decoder
+    .rs1(rs1),
+    .rs2(rs2),
+    .reg_rs1(reg_rs1),
+    .reg_rs2(reg_rs2),
+    .wen(wen),
+    .waddr(waddr),
+    .wdata(wdata)
+  );
+
   logic        decoder_ready, decoder_valid;
   logic [31:0] instr;
   logic [31:0] immediate;
-  logic [31:0] decoder_pc;
-  logic [4:0] rd, rs1, rs2;
-  logic is_valid_instr, flush;
+  logic [31:0] decoder_pc, decoder_reg_rs1, decoder_reg_rs2;
+  logic [4:0]  rs1, rs2, decoder_rd, decoder_rs1, decoder_rs2;
+  logic is_valid_instr;
   logic uncompressed;
   // all instructions
   logic is_auipc, is_jal, is_jalr, is_beq, is_bne, is_blt, is_bltu, is_bge, is_bgeu, is_add,
@@ -88,18 +103,26 @@ module pipeline(
     .executor_ready(executor_ready),
     // inputs
     .instr(instr),
+    // The decoder is largely synchronous so these are assigned a clock cycle early
+    .reg_rs1(reg_rs1),
+    .reg_rs2(reg_rs2),
     // outputs
     .fetcher_pc(fetcher_pc),
+    // forwards
+    .decoder_reg_rs1(decoder_reg_rs1),
+    .decoder_reg_rs2(decoder_reg_rs2),
+    .decoder_rs1(decoder_rs1),
+    .decoder_rs2(decoder_rs2),
+    .decoder_rd(decoder_rd),
     // The whole trick! we update the program counter here to keep the pipeline filled
     .pc(pc),
+     // rs1 and rs2 are not latched: used to get reg_rs1 and reg_rs2 from the reg file
+    .rs1(rs1),
+    .rs2(rs2),
     .immediate(immediate),
     .is_math_immediate(is_math_immediate),
     .is_valid_instr(is_valid_instr),
-    .flush(flush),
     .uncompressed(uncompressed),
-    .rd(rd),
-    .rs1(rs1),
-    .rs2(rs2),
     .is_auipc(is_auipc),
     .is_jal(is_jal),
     .is_jalr(is_jalr),
@@ -143,20 +166,6 @@ module pipeline(
     .is_csrrc(is_csrrc)
   );
 
-  logic [31:0] rs1, rs2, reg_rs1, reg_rs2, rd, reg_wdata;
-  logic        wen;
-  regfile regfile(
-    .clk(clk),
-    .reset(reset),
-    .rs1(rs1),
-    .rs2(rs2),
-    .reg_rs1(reg_rs1),
-    .reg_rs2(reg_rs2),
-    .wen(wen),
-    .waddr(waddr),
-    .wdata(wdata)
-  );
-
   logic executor_ready, executor_valid;
   logic [31:0] load_store_address, executor_load_store_address;
   executor executor(
@@ -173,8 +182,10 @@ module pipeline(
     .wdata(wdata),
     // inputs
     .rd(rd),
-    .reg_rs1(reg_rs1),
-    .reg_rs2(reg_rs2),
+    .decoder_reg_rs1(decoder_reg_rs1),
+    .decoder_reg_rs2(decoder_reg_rs2),
+    .decoder_rs1(decoder_rs1),
+    .decoder_rs2(decoder_rs2),
     .load_store_address(load_store_address),
     // forwards
     .executor_load_store_address(executor_load_store_address),

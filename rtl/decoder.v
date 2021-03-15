@@ -1,57 +1,73 @@
+`default_nettype none
 module decoder (
-  input logic         clk,
-  input logic [31:0]  instr,
-  input logic [31:0]  pc,
-  input logic         decode,
-  output logic        decoded,
-  output logic [4:0]  rd,
-  output logic [4:0]  rs1,
-  output logic [4:0]  rs2,
-  output logic [31:0] immediate,
-  output logic        is_math_immediate,
-  output logic        is_valid,
-  output logic        uncompressed,
-  output logic        is_auipc,
-  output logic        is_jal,
-  output logic        is_jalr,
-  output logic        is_beq,
-  output logic        is_bne,
-  output logic        is_blt,
-  output logic        is_bltu,
-  output logic        is_bge,
-  output logic        is_bgeu,
-  output logic        is_add,
-  output logic        is_sub,
-  output logic        is_xor,
-  output logic        is_or,
-  output logic        is_and,
-  output logic        is_mul,
-  output logic        is_mulh,
-  output logic        is_mulhu,
-  output logic        is_mulhsu,
-  output logic        is_div,
-  output logic        is_divu,
-  output logic        is_rem,
-  output logic        is_remu,
-  output logic        is_sll,
-  output logic        is_slt,
-  output logic        is_sltu,
-  output logic        is_srl,
-  output logic        is_sra,
-  output logic        is_lui,
-  output logic        is_lb,
-  output logic        is_lbu,
-  output logic        is_lhu,
-  output logic        is_lh,
-  output logic        is_lw,
-  output logic        is_sb,
-  output logic        is_sh,
-  output logic        is_sw,
-  output logic        is_ecall,
-  output logic        is_ebreak,
-  output logic        is_csrrw,
-  output logic        is_csrrs,
-  output logic        is_csrrc
+  input  var logic clk,
+  input  var logic reset,
+  // handshake
+  input  var logic fetcher_valid,
+  output var logic decoder_ready,
+  input  var logic decoder_valid,
+  input  var logic executor_ready,
+  // inputs
+  input  var logic [31:0] instr,
+  input  var logic [31:0] reg_rs1,
+  input  var logic [31:0] reg_rs2,
+  // forwards
+  output var logic [31:0] decoder_reg_rs1,
+  output var logic [31:0] decoder_reg_rs2,
+  output var logic [31:0] decoder_rs1,
+  output var logic [31:0] decoder_rs2,
+  output var logic [31:0] decoder_rd,
+  // outputs
+  output var logic [31:0] pc,
+  // rs1 and rs2 are synchronous outputs
+  output var logic [4:0] rs1,
+  output var logic [4:0] rs2,
+  // asynchrous
+  output var logic [31:0] immediate,
+  output var logic is_math_immediate,
+  output var logic is_valid,
+  output var logic uncompressed,
+  output var logic is_auipc,
+  output var logic is_jal,
+  output var logic is_jalr,
+  output var logic is_beq,
+  output var logic is_bne,
+  output var logic is_blt,
+  output var logic is_bltu,
+  output var logic is_bge,
+  output var logic is_bgeu,
+  output var logic is_add,
+  output var logic is_sub,
+  output var logic is_xor,
+  output var logic is_or,
+  output var logic is_and,
+  output var logic is_mul,
+  output var logic is_mulh,
+  output var logic is_mulhu,
+  output var logic is_mulhsu,
+  output var logic is_div,
+  output var logic is_divu,
+  output var logic is_rem,
+  output var logic is_remu,
+  output var logic is_sll,
+  output var logic is_slt,
+  output var logic is_sltu,
+  output var logic is_srl,
+  output var logic is_sra,
+  output var logic is_lui,
+  output var logic is_lb,
+  output var logic is_lbu,
+  output var logic is_lhu,
+  output var logic is_lh,
+  output var logic is_lw,
+  output var logic is_sb,
+  output var logic is_sh,
+  output var logic is_sw,
+  output var logic is_ecall,
+  output var logic is_ebreak,
+  output var logic is_csrrw,
+  output var logic is_csrrs,
+  output var logic is_csrrc
   );
 
   // instruction decoder (figure 2.3)
@@ -282,41 +298,92 @@ module decoder (
     is_ebreak
     ;
 
-  always_ff @(posedge clk) begin
-    if (!decode) begin
-      decoded <= 0;
-    end else begin
-      (* parallel_case, full_case *)
-      case (1'b1)
-        is_beq || is_bne || is_blt || is_bge || is_bltu || is_bgeu ||
-          is_sb || is_sh || is_sw || is_cj || is_cjr: rd <= 0;
-        is_cjal || is_cjalr: rd <= 1;
-        is_clw || is_caddi4spn: rd <= {2'b01, instr[4:2]};
+  always_comb begin
+    (* parallel_case, full_case *)
+    case (1'b1)
+      is_beq || is_bne || is_blt || is_bge || is_bltu || is_bgeu ||
+        is_sb || is_sh || is_sw || is_cj || is_cjr: rd = 0;
+      is_cjal || is_cjalr: rd = 1;
+      is_clw || is_caddi4spn: rd = {2'b01, instr[4:2]};
+      is_csrai || is_csrli || is_candi || is_cand ||
+        is_cor || is_cxor || is_csub: rd = {2'b01, instr[9:7]};
+      default: rd = instr[11:7];
+    endcase
+
+    (* parallel_case, full_case *)
+    case (1'b1)
+      is_clwsp || is_cswsp || is_caddi4spn: rs1 = 2;
+      is_clw || is_csw || is_cbeqz || is_cbnez ||
         is_csrai || is_csrli || is_candi || is_cand ||
-          is_cor || is_cxor || is_csub: rd <= {2'b01, instr[9:7]};
-        default: rd <= instr[11:7];
-      endcase
+        is_cor || is_cxor || is_csub: rs1 = {2'b01, instr[9:7]};
+      is_cjr || is_cjalr || is_cslli: rs1 = instr[11:7];
+      is_cli || is_cmv: rs1 = 0;
+      is_caddi || is_caddi16sp || is_cadd: rs1 = instr[11:7];
+      default: rs1 = instr[19:15];
+    endcase
 
-      (* parallel_case, full_case *)
-      case (1'b1)
-        is_clwsp || is_cswsp || is_caddi4spn: rs1 <= 2;
-        is_clw || is_csw || is_cbeqz || is_cbnez ||
-          is_csrai || is_csrli || is_candi || is_cand ||
-          is_cor || is_cxor || is_csub: rs1 <= {2'b01, instr[9:7]};
-        is_cjr || is_cjalr || is_cslli: rs1 <= instr[11:7];
-        is_cli || is_cmv: rs1 <= 0;
-        is_caddi || is_caddi16sp || is_cadd: rs1 <= instr[11:7];
-        default: rs1 <= instr[19:15];
-      endcase
+    (* parallel_case, full_case *)
+    case(1'b1)
+      is_cswsp || is_cslli || is_csrai || is_csrli || is_cmv || is_cadd: rs2 = instr[6:2];
+      is_csw || is_cand || is_cor || is_cxor || is_csub: rs2 = {2'b01, instr[4:2]};
+      is_cbeqz || is_cbnez: rs2 = 0;
+      default: rs2 = instr[24:20];
+    endcase
+  end // always_comb
 
-      (* parallel_case, full_case *)
-      case(1'b1)
-        is_cswsp || is_cslli || is_csrai || is_csrli || is_cmv || is_cadd: rs2 <= instr[6:2];
-        is_csw || is_cand || is_cor || is_cxor || is_csub: rs2 <= {2'b01, instr[4:2]};
-        is_cbeqz || is_cbnez: rs2 <= 0;
-        default: rs2 <= instr[24:20];
-      endcase
-      decoded <= 1;
+
+  // handshake
+  logic stalled = decoder_valid && !executor_ready;
+  always_ff @(posedge clk) begin
+    if (reset) begin
+      decoder_valid <= 0;
+    end else if (fetcher_valid && !stalled) begin
+      decoder_valid <= fetcher_valid;
+    end else if (!executor_ready) begin
+      decoder_valid <= 0;
     end
   end
+
+  // request something from the fetcher
+  always_ff @(posedge clk) begin
+    if (reset) begin
+      decoder_ready <= 0;
+    end else if(!fetcher_valid && !decoder_valid) begin
+      decoder_ready <= 1;
+    end else begin
+      decoder_ready <= 0;
+    end
+  end
+
+  // publish the decoded results
+  always_ff @(posedge clk) begin
+    if (reset) begin
+      // zero out what we're passing on
+    end else if (fetcher_valid && !decoder_valid) begin
+      // publish our pipeline
+    end
+  end
+
+ `ifdef FORMAL
+  // We just check the handshake and stability of signals the rest is handled by riscv-formal
+  logic clocked;
+  initial clocked = 0;
+  always_ff @(posedge clk) clocked = 1;
+  // assume we've reset at clk 0
+  initial assume(reset);
+  always @(*) if(!clocked) assume(reset);
+  // if we've been valid but stalled, we're not valid anymore
+  always_ff @(posedge clk) if(clocked && $past(decoder_valid) && $past(stalled)) assert(!decoder_valid);
+
+  // if we've been valid but the next stage is busy, we're not valid anymore
+  always_ff @(posedge clk) if(clocked && $past(decoder_valid) && $past(!executor_ready)) assert(!decoder_valid);
+
+  // nothing changes as long as we're valid
+  always_ff @(posedge clk) begin
+    if(clocked && $past(fetcher_valid) && fetcher_valid) begin
+      assert($stable(pc));
+      // todo rest of the stables
+    end
+  end
+ `endif
 endmodule
