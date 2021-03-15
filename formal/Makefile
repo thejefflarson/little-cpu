@@ -1,25 +1,20 @@
-all: complete check dmemcheck imemcheck fetcher
+all: complete check dmemcheck imemcheck fetcher decoder
 
-check: checks riscv-formal
+%: %.sby
+	sby -f $<
+
+check: checks | riscv-formal
 	make -BC $< -j$(nproc)
 
 checks: genchecks.py riscv-formal checks.cfg
 	python3 $<
 
-dmemcheck: dmemcheck.sby dmemcheck.sv riscv-formal
-	sby -f $<
-
-imemcheck: imemcheck.sby imemcheck.sv riscv-formal
-	sby -f $<
-
-complete: complete.sby complete.sv riscv-formal
-	sby -f $<
-
-cover: cover.sby cover.sv riscv-formal
-	sby -f $<
-
-fetcher: fetcher.sby ../rtl/fetcher.v
-	sby -f $<
+dmemcheck: dmemcheck.sby | dmemcheck.sv riscv-formal
+imemcheck: imemcheck.sby | imemcheck.sv riscv-formal
+complete: complete.sby | complete.sv riscv-formal
+cover: cover.sby | cover.sv riscv-formal
+fetcher: fetcher.sby | ../rtl/fetcher.v
+decoder: decoder.sby | ../rtl/decoder.v
 
 riscv-formal:
 	git clone https://github.com/SymbioticEDA/riscv-formal
