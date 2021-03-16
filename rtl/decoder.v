@@ -356,17 +356,21 @@ module decoder (
     end
   end
 
+  logic [3:0] pc_inc;
+  assign pc_inc = uncompressed ? 4 : 2;
   // publish the decoded results
   always_ff @(posedge clk) begin
     if (reset) begin
       // zero out what we're passing on
+      pc <= 0;
     end else if (fetcher_valid && !decoder_valid) begin
       // publish our pipeline
+      pc <= pc + pc_inc;
     end
   end
 
  `ifdef FORMAL
-  // We just check the handshake and stability of signals the rest is handled by riscv-formal
+  // We just check the handshake and stability of signals. The rest is handled by riscv-formal.
   logic clocked;
   initial clocked = 0;
   always_ff @(posedge clk) clocked = 1;
@@ -381,7 +385,7 @@ module decoder (
 
   // nothing changes as long as we're valid
   always_ff @(posedge clk) begin
-    if(clocked && $past(fetcher_valid) && fetcher_valid) begin
+    if(clocked && $past(decoder_valid) && decoder_valid) begin
       assert($stable(pc));
       // todo rest of the stables
     end
