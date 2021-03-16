@@ -298,6 +298,7 @@ module decoder (
     is_ebreak
     ;
 
+  logic rd;
   always_comb begin
     (* parallel_case, full_case *)
     case (1'b1)
