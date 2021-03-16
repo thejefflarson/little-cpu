@@ -103,17 +103,17 @@ module pipeline(
     .executor_ready(executor_ready),
     // inputs
     .instr(instr),
+    .fetcher_pc(fetcher_pc),
     // The decoder is largely synchronous so these are assigned a clock cycle early
     .reg_rs1(reg_rs1),
     .reg_rs2(reg_rs2),
-    // outputs
-    .fetcher_pc(fetcher_pc),
     // forwards
     .decoder_reg_rs1(decoder_reg_rs1),
     .decoder_reg_rs2(decoder_reg_rs2),
     .decoder_rs1(decoder_rs1),
     .decoder_rs2(decoder_rs2),
     .decoder_rd(decoder_rd),
+    // outputs
     // The whole trick! we update the program counter here to keep the pipeline filled
     .pc(pc),
      // rs1 and rs2 are not latched: used to get reg_rs1 and reg_rs2 from the reg file

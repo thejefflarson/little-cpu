@@ -9,6 +9,7 @@ module decoder (
   input  var logic executor_ready,
   // inputs
   input  var logic [31:0] instr,
+  input  var logic [31:0] fetcher_pc,
   input  var logic [31:0] reg_rs1,
   input  var logic [31:0] reg_rs2,
   // forwards
@@ -364,8 +365,13 @@ module decoder (
       // zero out what we're passing on
       pc <= 0;
     end else if (fetcher_valid && !decoder_valid) begin
-      // publish our pipeline
-      pc <= pc + pc_inc;
+      // update pc
+      pc <= fetcher_pc + pc_inc;
+      // forwards
+      decoder_reg_rs1 <= reg_rs1;
+      decoder_reg_rs2 <= reg_rs2;
+      decoder_rs1 <= rs1;
+      decoder_rs2 <= rs2;
     end
   end
 
@@ -387,6 +393,10 @@ module decoder (
   always_ff @(posedge clk) begin
     if(clocked && $past(decoder_valid) && decoder_valid) begin
       assert($stable(pc));
+      assert($stable(decoder_reg_rs1));
+      assert($stable(decoder_reg_rs2));
+      assert($stable(decoder_rs1));
+      assert($stable(decoder_rs2));
       // todo rest of the stables
     end
   end
