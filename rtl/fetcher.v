@@ -54,7 +54,7 @@ module fetcher(
   always_ff @(posedge clk) begin
     if (reset) begin
       instr <= 0;
-    end else if (mem_valid && fetcher_valid && decoder_ready) begin
+    end else if (mem_valid && !fetcher_valid) begin
       instr <= mem_rdata;
     end
   end
@@ -80,5 +80,13 @@ module fetcher(
 
   // if we've been valid but the next stage is busy, we're not valid anymore
   always_ff @(posedge clk) if(clocked && $past(fetcher_valid) && $past(!decoder_ready)) assert(!fetcher_valid);
+
+  // nothing changes as long as we're valid
+  always_ff @(posedge clk) begin
+    if(clocked && $past(fetcher_valid) && fetcher_valid) begin
+      assert($stable(fetcher_pc));
+      assert($stable(instr));
+    end
+  end
  `endif
 endmodule
