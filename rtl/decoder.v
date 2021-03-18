@@ -364,7 +364,7 @@ module decoder (
     if (reset) begin
       // zero out what we're passing on
       pc <= 0;
-    end else if (fetcher_valid && !decoder_valid) begin
+    end else if (fetcher_valid && decoder_valid && executor_ready) begin
       // update pc
       pc <= fetcher_pc + pc_inc;
       // forwards
@@ -372,6 +372,30 @@ module decoder (
       decoder_reg_rs2 <= reg_rs2;
       decoder_rs1 <= rs1;
       decoder_rs2 <= rs2;
+      decoder_rd <= rd;
+      // calculate branch
+      (* parallel_case, full_case *)
+      case(1'b1)
+        is_jal || is_jalr: begin
+            pc <= is_jalr ?
+              ($signed(immediate) + $signed(regs[rs1])) & 32'hfffffffe :
+              $signed(pc) + $signed(immediate);
+            reg_wdata <= pc + pc_inc;
+          end
+
+          is_beq || is_bne || is_blt || is_bltu || is_bge || is_bgeu: begin
+            (* parallel_case, full_case *)
+            case(1'b1)
+              is_beq: pc <= regs_rs1 == regs_rs2 ? fetcher_pc + immediate : fetcher_pc + pc_inc;
+              is_bne: pc <= regs_rs1 != regs_rs2 ? fetcher_pc + immediate : fetcher_pc + pc_inc;
+              is_blt: pc <= $signed(regs_rs1) < $signed(regs_rs2) ? fetcher_pc + immediate : fetcher_pc + pc_inc;
+              is_bltu: pc <= regs_rs1 < regs_rs2 ? fetcher_pc + immediate : fetcher_pc + pc_inc;
+              is_bge: pc <= $signed(regs_rs1) >= $signed(regs_rs2) ? fetcher_pc + immediate : fetcher_pc + pc_inc;
+              is_bgeu: pc_wdata <= regs_rs1 >= regs_rs2 ? fetcher_pc + immediate : fetcher_pc + pc_inc;
+            endcase
+          end
+      endcase
+
     end
   end
 
