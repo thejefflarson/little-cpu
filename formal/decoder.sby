@@ -1,0 +1,12 @@
+[options]
+mode prove
+
+[engines]
+smtbmc
+
+[script]
+read -formal decoder.v
+prep -top decoder
+
+[files]
+../rtl/decoder.v
