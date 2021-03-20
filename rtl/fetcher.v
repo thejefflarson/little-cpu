@@ -17,15 +17,12 @@ module fetcher(
   output var logic [31:0] mem_addr,
   output var logic [3:0]  mem_wstrb
 );
-  logic stalled;
-  assign stalled = fetcher_valid && !decoder_ready;
-
   // handshake
   always_ff @(posedge clk) begin
     if (reset) begin
       fetcher_valid <= 0;
     // we've received a request and we can pass it along
-    end else if (mem_valid && !stalled) begin
+    end else if (mem_valid && !fetcher_valid && decoder_ready) begin
       fetcher_valid <= mem_valid;
     end else if (!decoder_ready) begin
       fetcher_valid <= 0;
@@ -54,7 +51,7 @@ module fetcher(
   always_ff @(posedge clk) begin
     if (reset) begin
       instr <= 0;
-    end else if (mem_valid && !fetcher_valid) begin
+    end else if (mem_valid) begin
       instr <= mem_rdata;
     end
   end
@@ -80,13 +77,5 @@ module fetcher(
 
   // if we've been valid but the next stage is busy, we're not valid anymore
   always_ff @(posedge clk) if(clocked && $past(fetcher_valid) && $past(!decoder_ready)) assert(!fetcher_valid);
-
-  // nothing changes as long as we're valid
-  always_ff @(posedge clk) begin
-    if(clocked && $past(fetcher_valid) && fetcher_valid) begin
-      assert($stable(fetcher_pc));
-      assert($stable(instr));
-    end
-  end
  `endif
 endmodule

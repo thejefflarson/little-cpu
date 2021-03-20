@@ -348,13 +348,10 @@ module decoder (
     end
   end
 
-
-  // handshake
-  logic stalled = decoder_valid && !executor_ready;
   always_ff @(posedge clk) begin
     if (reset) begin
       decoder_valid <= 0;
-    end else if (fetcher_valid && !stalled) begin
+    end else if (fetcher_valid && !decoder_valid && executor_ready) begin
       decoder_valid <= fetcher_valid;
     end else if (!executor_ready) begin
       decoder_valid <= 0;
@@ -379,7 +376,7 @@ module decoder (
     if (reset) begin
       // zero out the pc
       pc <= 0;
-    end else if (fetcher_valid && !decoder_valid) begin
+    end else if (fetcher_valid) begin
       // update pc
       pc <= fetcher_pc + pc_inc;
       decoder_mem_addr <=  $signed(immediate) + $signed(reg_rs1);
@@ -470,21 +467,9 @@ module decoder (
   initial assume(reset);
   always @(*) if(!clocked) assume(reset);
   // if we've been valid but stalled, we're not valid anymore
-  always_ff @(posedge clk) if(clocked && $past(decoder_valid) && $past(stalled)) assert(!decoder_valid);
+  always_ff @(posedge clk) if(clocked && $past(decoder_valid) && $past(decoder_valid && !executor_ready)) assert(!decoder_valid);
 
   // if we've been valid but the next stage is busy, we're not valid anymore
   always_ff @(posedge clk) if(clocked && $past(decoder_valid) && $past(!executor_ready)) assert(!decoder_valid);
-
-  // nothing changes as long as we're valid
-  always_ff @(posedge clk) begin
-    if(clocked && $past(decoder_valid) && decoder_valid) begin
-      assert($stable(pc));
-      assert($stable(decoder_reg_rs1));
-      assert($stable(decoder_reg_rs2));
-      assert($stable(decoder_rs1));
-      assert($stable(decoder_rs2));
-      // todo rest of the stables
-    end
-  end
  `endif
 endmodule

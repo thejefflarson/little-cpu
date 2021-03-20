@@ -3,9 +3,9 @@ module pipeline(
   input  logic        clk,
   input  logic        reset,
   // picorv32 memory interface, cuz it is nice
-  output logic        mem_valid,
+  input  logic        mem_valid,
   output logic        mem_instr,
-  input  logic        mem_ready,
+  output logic        mem_ready,
   output logic [31:0] mem_addr,
   output logic [31:0] mem_wdata,
   output logic [3:0]  mem_wstrb,
@@ -221,48 +221,49 @@ module pipeline(
   );
 
   logic        accessor_ready, accessor_valid;
-  logic [31:0] accessor_reg_data;
-  logic [4:0]  accessor_reg_addr;
-  accessor accessor(
-    .clk(clk),
-    .reset(reset),
-    // handshake
-    .executor_valid(executor_valid),
-    .accessor_ready(accessor_ready),
-    .accessor_valid(accessor_valid),
-    .writeback_ready(writeback_ready),
-    // forwards
-    .executor_reg_addr(executor_waddr),
-    .executor_reg_data(executor_wdata),
-    // inputs
-    .executor_load_store_address(executor_lood_store_address),
-    .executor_is_lui(is_lui),
-    .executor_is_lb(is_lb),
-    .executor_is_lbu(is_lbu),
-    .executor_is_lh(is_lh),
-    .executor_is_lhu(is_lhu),
-    .executor_is_lw(is_lw),
-    .executor_is_sb(is_sb),
-    .executor_is_sh(is_sh),
-    .executor_is_sw(is_sw),
-    // outputs
-    .accessor_reg_addr(executor_waddr),
-    .accessor_reg_data(executor_wdata)
-  );
+  // logic [31:0] accessor_rd;
+  // logic [4:0]  accessor_rd_data;
+  // accessor accessor(
+  //   .clk(clk),
+  //   .reset(reset),
+  //   // handshake
+  //   .executor_valid(executor_valid),
+  //   .accessor_ready(accessor_ready),
+  //   .accessor_valid(accessor_valid),
+  //   .writeback_ready(writeback_ready),
+  //   // forwards
+  //   .executor_rd(executor_rd),
+  //   .executor_rd_data(executor_rd_data),
+  //   // inputs
+  //   .executor_mem_addr(executor_mem_addr),
+  //   .executor_mem_data(executor_mem_data),
+  //   .executor_is_lui(is_lui),
+  //   .executor_is_lb(is_lb),
+  //   .executor_is_lbu(is_lbu),
+  //   .executor_is_lh(is_lh),
+  //   .executor_is_lhu(is_lhu),
+  //   .executor_is_lw(is_lw),
+  //   .executor_is_sb(is_sb),
+  //   .executor_is_sh(is_sh),
+  //   .executor_is_sw(is_sw),
+  //   // outputs
+  //   .accessor_rd(accessor_rd),
+  //   .accessor_rd_data(accessor_rd_data)
+  // );
 
-  logic        writeback_ready, writeback_valid;
-  writeback writeback(
-    .clk(clk),
-    .reset(reset),
-    // handshake
-    .writeback_ready(writeback_ready),
-    .writeback_valid(writeback_valid),
-    // inputs
-    .accessor_reg_addr(accessor_waddr),
-    .accessor_reg_data(accessor_wdata),
-    // outputs
-    .wen(wen),
-    .waddr(waddr),
-    .wdata(wdata)
-  );
+  // logic        writeback_ready, writeback_valid;
+  // writeback writeback(
+  //   .clk(clk),
+  //   .reset(reset),
+  //   // handshake
+  //   .writeback_ready(writeback_ready),
+  //   .writeback_valid(writeback_valid),
+  //   // inputs
+  //   .accessor_rd(accessor_rd),
+  //   .accessor_rd_data(accessor_rd_data),
+  //   // outputs
+  //   .wen(wen),
+  //   .waddr(waddr),
+  //   .wdata(wdata)
+  // );
 endmodule
