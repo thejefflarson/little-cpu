@@ -471,5 +471,20 @@ module decoder (
 
   // if we've been valid but the next stage is busy, we're not valid anymore
   always_ff @(posedge clk) if(clocked && $past(decoder_valid) && $past(!executor_ready)) assert(!decoder_valid);
+
+  logic one_of;
+  assign one_of = instr_auipc ^ instr_jal ^ instr_jalr ^ instr_beq ^ instr_bne ^ instr_blt ^
+           instr_bltu ^ instr_bge ^ instr_bgeu ^ instr_add ^ instr_sub ^ instr_xor ^ instr_or ^
+           instr_and ^ instr_mul ^ instr_mulh ^ instr_mulhu ^ instr_mulhsu ^ instr_div ^ instr_divu
+           ^ instr_rem ^ instr_remu ^ instr_sll ^ instr_slt ^ instr_sltu ^ instr_srl ^ instr_sra ^
+           instr_lui ^ instr_lb ^ instr_lbu ^ instr_lh ^ instr_lhu ^ instr_lw ^ instr_sb ^ instr_sh
+           ^ instr_sw ^ instr_ecall ^ instr_ebreak;
+
+  // we should only get one type of instruction
+  always_comb
+    if (instr_valid)
+      assert(one_of);
+
+
  `endif
 endmodule
