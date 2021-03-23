@@ -17,7 +17,7 @@ fetcher: fetcher.sby ../rtl/fetcher.v
 decoder: decoder.sby ../rtl/decoder.v
 
 riscv-formal:
-	git clone https://github.com/SymbioticEDA/riscv-formal
+	git clone https://github.com/YosysHQ/riscv-formal.git
 
 clean:
 	rm -rf {checks,complete,cover,riscv-formal,dmemcheck,imemcheck}
