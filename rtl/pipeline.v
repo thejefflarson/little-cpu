@@ -153,7 +153,7 @@ module pipeline(
   );
 
   logic executor_ready, executor_valid;
-  logic [31:0] executor_rd_data, mem_address, executor_mem_addr, executor_mem_data;
+  logic [31:0] executor_data, mem_address, executor_mem_addr;
   logic [4:0]  executor_rd;
   executor executor(
     .clk(clk),
@@ -205,10 +205,9 @@ module pipeline(
     .is_csrrc(is_csrrc),
     // forwards
     .executor_mem_addr(executor_mem_addr),
-    .executor_mem_data(executor_mem_data),
     // outputs
     .executor_rd(executor_rd),
-    .executor_rd_data(executor_rd_data),
+    .executor_rd_data(executor_data),
     .executor_is_lui(is_lui),
     .executor_is_lb(is_lb),
     .executor_is_lbu(is_lbu),

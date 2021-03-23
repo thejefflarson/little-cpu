@@ -13,11 +13,11 @@ module decoder (
   input  var logic [31:0] reg_rs1,
   input  var logic [31:0] reg_rs2,
   // forwards
+  output var logic [4:0] decoder_rd,
   output var logic [31:0] decoder_reg_rs1,
   output var logic [31:0] decoder_reg_rs2,
   output var logic [31:0] decoder_rs1,
   output var logic [31:0] decoder_rs2,
-  output var logic [4:0] decoder_rd,
   // outputs
   output var logic [31:0] pc,
   // rs1 and rs2 are synchronous outputs
@@ -329,11 +329,11 @@ module decoder (
   // request something from the fetcher
   always_ff @(posedge clk) begin
     if (reset) begin
-      decoder_ready <= 0;
+      fetcher_ready <= 0;
     end else if(!fetcher_valid && !decoder_valid) begin
-      decoder_ready <= 1;
+      fetcher_ready <= 1;
     end else begin
-      decoder_ready <= 0;
+      fetcher_ready <= 0;
     end
   end
 
@@ -347,7 +347,8 @@ module decoder (
     end else if (fetcher_valid) begin
       // update pc
       pc <= fetcher_pc + pc_inc;
-      decoder_mem_addr <=  $signed(immediate) + $signed(reg_rs1);
+      decoder_mem_addr <= $signed(immediate) + $signed(reg_rs1);
+      decoder_mem_data <= is_store ? 0 : regs_rs2;
       // forwards
       decoder_reg_rs1 <= reg_rs1;
       decoder_reg_rs2 <= instr_math ? math_arg : reg_rs2;
