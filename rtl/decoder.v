@@ -449,8 +449,6 @@ module decoder (
     instr_ebreak;
 
   // we should only get one type of instruction
-  always_comb
-    if (instr_valid)
-      assert(one_of);
+  always_comb if (instr_valid) assert(one_of);
  `endif
 endmodule

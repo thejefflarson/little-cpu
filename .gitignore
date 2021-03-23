@@ -9,6 +9,7 @@ formal/checks
 formal/dmemcheck
 formal/imemcheck
 formal/fetcher
+formal/decoder
 test/rtl.cc
 *.vvpemacscl
 *.vcd
