@@ -64,6 +64,13 @@ module fetcher(
   initial assume(reset);
   always @(*) if(!clocked) assume(reset);
 
+  // mem_ready and mem_valid happen in tandem
+  logic past_valid = 0;
+  always_ff @(posedge clk) begin
+    past_valid <= mem_valid;
+    if (past_valid && mem_ready) assume(mem_valid);
+  end
+
   // no writing! always get an instruction!
   always_ff @(posedge clk) begin
     if(clocked && mem_ready) begin
@@ -73,7 +80,7 @@ module fetcher(
   end
 
   // if we've been valid but stalled, we're not valid anymore
-  always_ff @(posedge clk) if(clocked && $past(fetcher_valid) && $past(stalled)) assert(!fetcher_valid);
+  always_ff @(posedge clk) if(clocked && $past(fetcher_valid) && $past(fetcher_valid && !decoder_ready)) assert(!fetcher_valid);
 
   // if we've been valid but the next stage is busy, we're not valid anymore
   always_ff @(posedge clk) if(clocked && $past(fetcher_valid) && $past(!decoder_ready)) assert(!fetcher_valid);
