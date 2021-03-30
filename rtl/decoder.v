@@ -4,7 +4,7 @@ module decoder (
   input  var logic reset,
   // handshake
   input  var logic fetcher_valid,
-  input  var logic decoder_ready,
+  output var logic decoder_ready,
   output var logic decoder_valid,
   input  var logic executor_ready,
   // inputs
