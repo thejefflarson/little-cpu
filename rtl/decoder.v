@@ -316,6 +316,7 @@ module decoder (
     end
   end
 
+  // handshake
   always_ff @(posedge clk) begin
     if (reset) begin
       decoder_valid <= 0;

@@ -8,8 +8,7 @@ formal/cover
 formal/checks
 formal/dmemcheck
 formal/imemcheck
-formal/fetcher
-formal/decoder
+formal/components_*
 test/rtl.cc
 *.vvpemacscl
 *.vcd

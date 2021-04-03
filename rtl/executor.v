@@ -4,7 +4,7 @@ module executor(
   input  var logic reset,
   // handshake
   input  var logic decoder_valid,
-  input  var logic executor_ready,
+  output var logic executor_ready,
   output var logic executor_valid,
   input  var logic accessor_ready,
   // inputs
@@ -61,6 +61,49 @@ module executor(
   output var logic        executor_is_sh,
   output var logic        executor_is_sw
 );
-// handshake
-// state machine
+  logic alu_wait, stalled;
+  assign stalled = alu_wait;
+  // handshake
+  always_ff @(posedge clk) begin
+    if (reset) begin
+      executor_valid <= 0;
+    end else if (decoder_valid && !executor_valid && accessor_ready && !stalled) begin
+      executor_valid <= executor_valid;
+    end else if (!accessor_ready) begin
+      executor_valid <= 0;
+    end
+  end
+
+  // request something from the fetcher
+  always_ff @(posedge clk) begin
+    if (reset) begin
+      executor_ready <= 0;
+    end else if(!decoder_valid && !executor_valid && !stalled) begin
+      executor_ready <= 1;
+    end else begin
+      executor_ready <= 0;
+    end
+  end
+  // state machine
+  always_ff @(posedge clk) begin
+    alu_wait <= 0;
+  end
+
+  // state machine
+ `ifdef FORMAL
+  logic clocked;
+  initial clocked = 0;
+  always_ff @(posedge clk) clocked = 1;
+  // assume we've reset at clk 0
+  initial assume(reset);
+  always @(*) if(!clocked) assume(reset);
+  // if we've been valid but stalled, we're not valid anymore
+  always_ff @(posedge clk) if(clocked && $past(executor_valid) && $past(executor_valid && !accessor_ready)) assert(!executor_valid);
+
+  // if we've been valid but the next stage is busy, we're not valid anymore
+  always_ff @(posedge clk) if(clocked && $past(executor_valid) && $past(!accessor_ready)) assert(!executor_valid);
+
+  // if we're stalled we aren't requesting anytthing, and we're not publishing anything
+  always_ff @(posedge clk) if(clocked && $past(stalled)) assert(!executor_valid && !executor_ready);
+ `endif
 endmodule

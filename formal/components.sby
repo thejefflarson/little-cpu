@@ -1,0 +1,34 @@
+[tasks]
+executor all
+decoder all
+fetcher all
+
+[options]
+all: mode prove
+
+[engines]
+all: smtbmc
+
+[script]
+decoder:
+read -formal decoder.v
+prep -top decoder
+
+fetcher:
+read -formal fetcher.v
+prep -top fetcher
+
+executor:
+read -formal executor.v
+prep -top executor
+--
+[files]
+fetcher:
+../rtl/fetcher.v
+
+executor:
+../rtl/executor.v
+
+decoder:
+../rtl/decoder.v
+--
