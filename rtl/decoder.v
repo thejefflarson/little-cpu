@@ -428,7 +428,6 @@ module decoder (
   end
 
  `ifdef FORMAL
-  // We just check the handshake and stability of signals. The rest is handled by riscv-formal.
   logic clocked;
   initial clocked = 0;
   always_ff @(posedge clk) clocked = 1;

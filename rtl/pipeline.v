@@ -202,11 +202,11 @@ module pipeline(
     .is_csrrw(is_csrrw),
     .is_csrrs(is_csrrs),
     .is_csrrc(is_csrrc),
-    // forwards
-    .executor_mem_addr(executor_mem_addr),
     // outputs
     .executor_rd(executor_rd),
     .executor_rd_data(executor_data),
+    // forwards
+    .executor_mem_addr(executor_mem_addr),
     .executor_is_lui(is_lui),
     .executor_is_lb(is_lb),
     .executor_is_lbu(is_lbu),
