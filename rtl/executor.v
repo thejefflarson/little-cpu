@@ -101,7 +101,7 @@ module executor(
     if (reset) begin
       alu_wait <= 0;
       state <= init;
-    end else begin
+    end else if(decoder_valid || stalled) begin
       executor_rd_data <= 0;
       alu_wait <= 0;
       executor_mem_addr <= decoder_mem_addr;
