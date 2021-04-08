@@ -1,63 +1,61 @@
 `default_nettype none
 module decoder (
-  input  var logic clk,
-  input  var logic reset,
+  input  var logic        clk,
+  input  var logic        reset,
   // handshake
-  input  var logic fetcher_valid,
-  output var logic decoder_ready,
-  output var logic decoder_valid,
-  input  var logic executor_ready,
+  input  var logic        fetcher_valid,
+  output var logic        decoder_ready,
+  output var logic        decoder_valid,
+  input  var logic        executor_ready,
   // inputs
   input  var logic [31:0] instr,
   input  var logic [31:0] fetcher_pc,
   input  var logic [31:0] reg_rs1,
   input  var logic [31:0] reg_rs2,
   // forwards
-  output var logic [4:0] decoder_rd,
+  output var logic [4:0]  decoder_rd,
   output var logic [31:0] decoder_reg_rs1,
   output var logic [31:0] decoder_reg_rs2,
-  output var logic [31:0] decoder_rs1,
-  output var logic [31:0] decoder_rs2,
   // outputs
   output var logic [31:0] pc,
   // rs1 and rs2 are synchronous outputs
-  output var logic [4:0] rs1,
-  output var logic [4:0] rs2,
+  output var logic [4:0]  rs1,
+  output var logic [4:0]  rs2,
   // asynchrous
   output var logic [31:0] decoder_mem_addr,
-  output var logic is_valid_instr,
-  output var logic is_add,
-  output var logic is_sub,
-  output var logic is_xor,
-  output var logic is_or,
-  output var logic is_and,
-  output var logic is_mul,
-  output var logic is_mulh,
-  output var logic is_mulhu,
-  output var logic is_mulhsu,
-  output var logic is_div,
-  output var logic is_divu,
-  output var logic is_rem,
-  output var logic is_remu,
-  output var logic is_sll,
-  output var logic is_slt,
-  output var logic is_sltu,
-  output var logic is_srl,
-  output var logic is_sra,
-  output var logic is_lui,
-  output var logic is_lb,
-  output var logic is_lbu,
-  output var logic is_lhu,
-  output var logic is_lh,
-  output var logic is_lw,
-  output var logic is_sb,
-  output var logic is_sh,
-  output var logic is_sw,
-  output var logic is_ecall,
-  output var logic is_ebreak,
-  output var logic is_csrrw,
-  output var logic is_csrrs,
-  output var logic is_csrrc
+  output var logic        is_valid_instr,
+  output var logic        is_add,
+  output var logic        is_sub,
+  output var logic        is_xor,
+  output var logic        is_or,
+  output var logic        is_and,
+  output var logic        is_mul,
+  output var logic        is_mulh,
+  output var logic        is_mulhu,
+  output var logic        is_mulhsu,
+  output var logic        is_div,
+  output var logic        is_divu,
+  output var logic        is_rem,
+  output var logic        is_remu,
+  output var logic        is_sll,
+  output var logic        is_slt,
+  output var logic        is_sltu,
+  output var logic        is_srl,
+  output var logic        is_sra,
+  output var logic        is_lui,
+  output var logic        is_lb,
+  output var logic        is_lbu,
+  output var logic        is_lhu,
+  output var logic        is_lh,
+  output var logic        is_lw,
+  output var logic        is_sb,
+  output var logic        is_sh,
+  output var logic        is_sw,
+  output var logic        is_ecall,
+  output var logic        is_ebreak,
+  output var logic        is_csrrw,
+  output var logic        is_csrrs,
+  output var logic        is_csrrc
   );
 
   // instruction decoder (figure 2.3)
@@ -266,7 +264,7 @@ module decoder (
     instr_lui || instr_lb || instr_lbu || instr_lh || instr_lhu || instr_lw || instr_sb || instr_sh
     || instr_sw || instr_ecall || instr_ebreak;
 
-  logic rd;
+  logic [4:0] rd;
   always_comb begin
     (* parallel_case, full_case *)
     case (1'b1)
@@ -310,7 +308,7 @@ module decoder (
   logic [31:0] math_arg;
   always_comb begin
     if (instr_math_immediate) begin
-      math_arg = instr_shift ? rs2 : immediate;
+      math_arg = instr_shift ? {27'b0, rs2} : immediate;
     end else begin
       math_arg = reg_rs2;
     end
@@ -352,8 +350,6 @@ module decoder (
       // forwards
       decoder_reg_rs1 <= reg_rs1;
       decoder_reg_rs2 <= instr_math ? math_arg : reg_rs2;
-      decoder_rs1 <= rs1;
-      decoder_rs2 <= rs2;
       decoder_rd <= rd;
       // outputs
       is_add <= instr_add;
@@ -394,8 +390,8 @@ module decoder (
       case(1'b1)
         instr_auipc: begin
           decoder_rd <= rd;
-          decoder_rs1 <= reg_rs1;
-          decoder_rs2 <= reg_rs2;
+          decoder_reg_rs1 <= reg_rs1;
+          decoder_reg_rs2 <= reg_rs2;
           is_add <= 1;
         end
 
@@ -403,8 +399,8 @@ module decoder (
           pc <= instr_jalr ?
             ($signed(immediate) + $signed(reg_rs1)) & 32'hfffffffe :
             $signed(pc) + $signed(immediate);
-          decoder_rs1 <= pc;
-          decoder_rs2 <= pc_inc;
+          decoder_reg_rs1 <= pc;
+          decoder_reg_rs2 <= pc_inc;
           decoder_rd <= rd;
           is_add <= 1;
         end
@@ -419,8 +415,8 @@ module decoder (
             instr_bge: pc <= $signed(reg_rs1) >= $signed(reg_rs2) ? fetcher_pc + immediate : fetcher_pc + pc_inc;
             instr_bgeu: pc <= reg_rs1 >= reg_rs2 ? fetcher_pc + immediate : fetcher_pc + pc_inc;
           endcase // case (1'b1)
-          decoder_rs1 <= 0;
-          decoder_rs2 <= 0;
+          decoder_reg_rs1 <= 0;
+          decoder_reg_rs2 <= 0;
           decoder_rd <= 0;
         end
       endcase

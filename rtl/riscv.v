@@ -128,8 +128,8 @@ module riscv (
   logic [31:0] alu_rs2;
   logic [4:0]  alu_shamt;
   logic [31:0] alu_out;
-  logic       alu_ready;
-  logic       alu_valid;
+  logic        alu_ready;
+  logic        alu_valid;
   alu alu (
     .clk(clk),
     .rs1(alu_rs1),

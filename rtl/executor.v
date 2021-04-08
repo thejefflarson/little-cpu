@@ -11,8 +11,6 @@ module executor(
   input  var logic [4:0]  decoder_rd,
   input  var logic [31:0] decoder_reg_rs1,
   input  var logic [31:0] decoder_reg_rs2,
-  input  var logic [31:0] decoder_rs1,
-  input  var logic [31:0] decoder_rs2,
   input  var logic [31:0] decoder_mem_addr,
   input  var logic        is_valid_instr,
   input  var logic        is_add,
@@ -89,21 +87,24 @@ module executor(
     end
   end
 
-  logic state;
+  logic [1:0]  state;
   localparam init = 2'b00;
   localparam multiply = 2'b01;
   localparam divide = 2'b10;
   logic [4:0]  mul_div_counter;
-  logic [31:0] mul_div_x, mul_div_y;
+  logic [63:0] mul_div_x, mul_div_y;
   logic [63:0] mul_div_store;
+
+  always_ff @(posedge clk) begin
+    alu_wait <= state != init;
+  end
+
   // state machine
   always_ff @(posedge clk) begin
     if (reset) begin
-      alu_wait <= 0;
       state <= init;
     end else if(decoder_valid || stalled) begin
       executor_rd_data <= 0;
-      alu_wait <= 0;
       executor_mem_addr <= decoder_mem_addr;
       executor_rd <= decoder_rd;
       executor_rd_data <= 0;
@@ -116,8 +117,9 @@ module executor(
       executor_is_sb <= is_sb;
       executor_is_sh <= is_sh;
       executor_is_sw <= is_sw;
+
       (* parallel_case, full_case *)
-      case(state)
+      case (state)
         init: begin
           (* parallel_case, full_case *)
           case(1'b1)
@@ -133,7 +135,6 @@ module executor(
             is_and: executor_rd_data <= rs1 & rs2;
 
             is_mul || is_mulh || is_mulhu || is_mulhsu: begin
-              alu_wait <= 1;
               mul_div_counter <= is_mul ? 32 : 64;
               state <= multiply;
               mul_div_store <= 0;
@@ -157,7 +158,6 @@ module executor(
             end
 
             is_div || is_divu || is_rem || is_remu: begin
-              alu_wait <= 1;
               mul_div_counter <= 65;
               state <= divide;
               mul_div_store <= 0;
@@ -181,7 +181,6 @@ module executor(
               executor_rd_data <= mul_div_store[63:32];
             end
             state <= init;
-            alu_wait <= 0;
           end
          `else
           (* parallel_case, full_case *)
@@ -192,7 +191,6 @@ module executor(
             is_mulhsu: executor_rd_data <= (rs1 - rs2) ^ 32'hecfbe137;
           endcase
           state <= init;
-          alu_wait <= 0;
          `endif
         end
 
@@ -216,7 +214,6 @@ module executor(
               is_remu: executor_rd_data <= mul_div_x[31:0];
             endcase
             state <= init;
-            alu_wait <= 1;
           end
          `else
           (* parallel_case, full_case *)
@@ -227,7 +224,6 @@ module executor(
             is_remu: executor_rd_data <= (rs1 - rs2) ^ 32'h3138d0e1;
           endcase
           state <= init;
-          alu_wait <= 1;
          `endif
         end
       endcase;

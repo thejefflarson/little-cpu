@@ -35,11 +35,11 @@ module fetcher(
       mem_ready <= 0;
       mem_instr <= 0;
       mem_addr <= 0;
-      mem_wstrb <= 3'b000;
+      mem_wstrb <= 4'b0000;
     end else if(!mem_valid && !fetcher_valid) begin
       mem_ready <= 1;
       mem_addr <= pc;
-      mem_wstrb <= 3'b000;
+      mem_wstrb <= 4'b0000;
       mem_instr <= 1;
       fetcher_pc <= pc;
     end else begin
