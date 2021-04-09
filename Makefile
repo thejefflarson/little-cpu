@@ -19,7 +19,7 @@ riscv.json: rtl/riscv.v rtl/decoder.v rtl/alu.v
 	yosys -p 'read_verilog -sv $^; synth_ice40 -top riscv -json $@'
 
 riscv.asc: riscv.json riscv.pcf
-	nextpnr-ice40 --lp8k --json riscv.json --pcf riscv.pcf --asc riscv.asc --pcf-allow-unconstrained --package ct256 --opt-timing
+	nextpnr-ice40 --up5k --json riscv.json --pcf riscv.pcf --asc riscv.asc --pcf-allow-unconstrained --package ct256 --opt-timing
 
 timing: riscv.asc
 	icetime -d lp8k $^ | egrep -oi '\(\d+' | egrep -o '\d+' > $@
