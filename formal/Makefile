@@ -1,4 +1,4 @@
-all: complete check dmemcheck imemcheck fetcher decoder
+all: complete check dmemcheck imemcheck fetcher
 
 %: %.sby
 	sby -f $<
@@ -13,8 +13,16 @@ dmemcheck: dmemcheck.sby dmemcheck.sv riscv-formal
 imemcheck: imemcheck.sby imemcheck.sv riscv-formal
 complete: complete.sby complete.sv riscv-formal
 cover: cover.sby cover.sv riscv-formal
-fetcher: fetcher.sby ../rtl/fetcher.v
-decoder: decoder.sby ../rtl/decoder.v
+
+# pipeline stages
+components_fetcher: components.sby ../rtl/fetcher.v
+		sby -f $< fetcher
+components_decoder: components.sby ../rtl/decoder.v
+		sby -f $< decoder
+components_executor: components.sby ../rtl/executor.v
+		sby -f $< executor
+components_accessor: components.sby ../rtl/accessor.v
+		sby -f $< accessor
 
 riscv-formal:
 	git clone https://github.com/YosysHQ/riscv-formal.git

@@ -60,8 +60,6 @@ module executor(
   output var logic        executor_is_sh,
   output var logic        executor_is_sw
 );
-  logic alu_wait, stalled;
-  assign stalled = alu_wait;
   logic [31:0] rs1, rs2;
   assign rs1 = decoder_reg_rs1;
   assign rs2 = decoder_reg_rs2;
@@ -94,9 +92,9 @@ module executor(
   logic [4:0]  mul_div_counter;
   logic [63:0] mul_div_x, mul_div_y;
   logic [63:0] mul_div_store;
-
+  logic stalled;
   always_ff @(posedge clk) begin
-    alu_wait <= state != init;
+    stalled <= state != init;
   end
 
   // state machine

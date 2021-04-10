@@ -15,7 +15,7 @@ module memory #(
   output var logic [31:0] mem_rdata
 );
   logic [31:0] instr[0:INSTR-1];
-  initial $readmemb(ROM, instr);
+  initial $readmemh(ROM, instr);
 
   logic [31:0] ram_addr;
   assign ram_addr = mem_addr - (INSTR << 2);

@@ -2,6 +2,7 @@
 executor all
 decoder all
 fetcher all
+accessor all
 
 [options]
 all: mode prove
@@ -21,14 +22,21 @@ prep -top fetcher
 executor:
 read -formal executor.v
 prep -top executor
+
+accessor:
+read -formal accessor.v
+prep -top accessor
 --
 [files]
 fetcher:
 ../rtl/fetcher.v
 
+decoder:
+../rtl/decoder.v
+
 executor:
 ../rtl/executor.v
 
-decoder:
-../rtl/decoder.v
+accessor:
+../rtl/accessor.v
 --
