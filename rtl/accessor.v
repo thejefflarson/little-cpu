@@ -33,7 +33,7 @@ module accessor(
     output var logic [31:0] accessor_rd_data
 );
   logic stalled;
-  assign stalled = mem_ready && !mem_valid && !mem_instr;
+  assign stalled = mem_ready && !mem_valid || mem_instr;
     // handshake
   always_ff @(posedge clk) begin
     if (reset) begin

@@ -9,7 +9,7 @@ module regfile(
   input  var logic [4:0]  waddr,
   input  var logic [31:0] wdata
 );
-  logic [31:0] regs[0:30];
+  logic [31:0] regs[30:0];
 
   always_ff @(posedge clk) begin
     reg_rs1 <= rs1 > 0 ? regs[rs1 - 1] : 0;
