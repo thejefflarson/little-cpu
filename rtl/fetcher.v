@@ -36,7 +36,7 @@ module fetcher(
       mem_instr <= 0;
       mem_addr <= 0;
       mem_wstrb <= 4'b0000;
-    end else if(!mem_valid && !fetcher_valid) begin
+    end else if(!mem_valid && !fetcher_valid && !mem_instr) begin
       mem_ready <= 1;
       mem_addr <= pc;
       mem_wstrb <= 4'b0000;
@@ -44,6 +44,7 @@ module fetcher(
       fetcher_pc <= pc;
     end else begin
       mem_ready <= 0;
+      mem_instr <= 0;
     end
   end // always_ff @ (posedge clk)
 
@@ -51,7 +52,7 @@ module fetcher(
   always_ff @(posedge clk) begin
     if (reset) begin
       instr <= 0;
-    end else if (mem_valid) begin
+    end else if (mem_valid && mem_instr) begin
       instr <= mem_rdata;
     end
   end

@@ -3,7 +3,6 @@ module pipeline(
   input  var logic        clk,
   input  var logic        reset,
   input  var logic        mem_valid,
-  output var logic        mem_instr,
   output var logic        mem_ready,
   output var logic [31:0] mem_addr,
   output var logic [31:0] mem_wdata,
@@ -43,7 +42,7 @@ module pipeline(
   output var logic [63:0] rvfi_csr_minstret_wdata
  `endif //  `ifdef RISCV_FORMAL
 );
-
+  logic        mem_instr;
   logic        fetcher_ready, fetcher_valid;
   logic [31:0] pc, instr, fetcher_pc;
   fetcher fetcher(
@@ -55,6 +54,7 @@ module pipeline(
     .decoder_ready(decoder_ready),
     // inputs
     .pc(pc),
+    .mem_rdata(mem_rdata),
     // outputs
     .instr(instr),
     .fetcher_pc(fetcher_pc),
@@ -106,8 +106,6 @@ module pipeline(
     // forwards
     .decoder_reg_rs1(decoder_reg_rs1),
     .decoder_reg_rs2(decoder_reg_rs2),
-    .decoder_rs1(decoder_rs1),
-    .decoder_rs2(decoder_rs2),
     .decoder_rd(decoder_rd),
     // outputs
     // The whole trick! we update the program counter here to keep the pipeline filled
