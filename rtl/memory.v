@@ -1,6 +1,7 @@
 `default_nettype none
 module memory #(
-  // in four byte words, this will take up all of the embedded memory in an up5k with room for the register file.
+  // in four byte words, this will take up all of the embedded memory in an up5k with room for the
+  // register file.
   parameter integer RAM = 31744,
   parameter string  ROM = "./rom.mem"
 ) (
