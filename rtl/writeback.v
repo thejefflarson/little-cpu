@@ -5,11 +5,11 @@ module writeback(
   // handshake
   input  var logic        accessor_valid,
   // inputs
-  input  var logic        accessor_rd,
+  input  var logic [4:0]  accessor_rd,
   input  var logic [31:0] accessor_rd_data,
   // outputs
   output var logic        wen,
-  output var logic        waddr,
+  output var logic [4:0]  waddr,
   output var logic [31:0] wdata
 );
   always_ff @(posedge clk) begin

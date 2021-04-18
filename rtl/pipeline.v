@@ -43,7 +43,7 @@ module pipeline(
  `endif //  `ifdef RISCV_FORMAL
 );
   logic        mem_instr;
-  logic        fetcher_ready, fetcher_valid;
+  logic        fetcher_valid;
   logic [31:0] pc, instr, fetcher_pc;
   fetcher fetcher(
     .clk(clk),
@@ -64,7 +64,7 @@ module pipeline(
     .mem_wstrb(mem_wstrb)
   );
 
-  logic [31:0] reg_rs1, reg_rs2, rd, reg_wdata, wdata;
+  logic [31:0] reg_rs1, reg_rs2, wdata;
   logic [4:0]  waddr;
   logic        wen;
   regfile regfile(
@@ -80,12 +80,10 @@ module pipeline(
   );
 
   logic        decoder_ready, decoder_valid;
-  logic [31:0] instr;
-  logic [31:0] decoder_pc, decoder_reg_rs1, decoder_reg_rs2;
+  logic [31:0] decoder_reg_rs1, decoder_reg_rs2;
   logic [31:0] decoder_mem_addr;
-  logic [4:0]  rs1, rs2, decoder_rd, decoder_rs1, decoder_rs2;
+  logic [4:0]  rs1, rs2, decoder_rd;
   logic is_valid_instr;
-  logic uncompressed;
   logic is_add, is_sub, is_mul, is_mulh, is_mulhu, is_mulhsu, is_div, is_divu, is_rem, is_remu,
     is_xor, is_or, is_and, is_sll, is_slt, is_sltu, is_srl, is_sra, is_lui, is_lb, is_lbu, is_lhu,
     is_lh, is_lw, is_sb, is_sh, is_sw, is_ecall, is_ebreak, is_csrrw, is_csrrs, is_csrrc;
@@ -150,7 +148,7 @@ module pipeline(
   );
 
   logic executor_ready, executor_valid;
-  logic [31:0] executor_rd_data, mem_address, executor_mem_addr, executor_mem_data;
+  logic [31:0] executor_rd_data, executor_mem_addr, executor_mem_data;
   logic [4:0]  executor_rd;
   executor executor(
     .clk(clk),
@@ -161,7 +159,7 @@ module pipeline(
     .executor_valid(executor_valid),
     .accessor_ready(accessor_ready),
     // inputs
-    .decoder_rd(rd),
+    .decoder_rd(decoder_rd),
     .decoder_reg_rs1(decoder_reg_rs1),
     .decoder_reg_rs2(decoder_reg_rs2),
     .decoder_mem_addr(decoder_mem_addr),
@@ -216,8 +214,8 @@ module pipeline(
   );
 
   logic        accessor_ready, accessor_valid;
-  logic [31:0] accessor_rd;
-  logic [4:0]  accessor_rd_data;
+  logic [4:0]  accessor_rd;
+  logic [31:0] accessor_rd_data;
   accessor accessor(
     .clk(clk),
     .reset(reset),
@@ -225,7 +223,6 @@ module pipeline(
     .executor_valid(executor_valid),
     .accessor_ready(accessor_ready),
     .accessor_valid(accessor_valid),
-    .writeback_ready(writeback_ready),
     // forwards
     .executor_rd(executor_rd),
     .executor_rd_data(executor_rd_data),
@@ -242,6 +239,7 @@ module pipeline(
     .executor_is_sh(is_sh),
     .executor_is_sw(is_sw),
     // memory access
+    .mem_instr(mem_instr),
     .mem_ready(mem_ready),
     .mem_valid(mem_valid),
     .mem_wstrb(mem_wstrb),

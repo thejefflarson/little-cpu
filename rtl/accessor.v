@@ -1,35 +1,34 @@
 `default_nettype none
 module accessor(
-    input  var logic clk,
-    input  var logic reset,
+    input  var logic        clk,
+    input  var logic        reset,
     // handshake
-    input  var logic executor_valid,
-    output var logic accessor_ready,
-    output var logic accessor_valid,
-    input  var logic writeback_ready,
+    input  var logic        executor_valid,
+    output var logic        accessor_ready,
+    output var logic        accessor_valid,
     // forwards
-    input  var logic [4:0] executor_rd,
+    input  var logic [4:0]  executor_rd,
     input  var logic [31:0] executor_rd_data,
     // inputs
     input  var logic [31:0] executor_mem_addr,
     input  var logic [31:0] executor_mem_data,
-    input  var logic executor_is_lui,
-    input  var logic executor_is_lb,
-    input  var logic executor_is_lbu,
-    input  var logic executor_is_lh,
-    input  var logic executor_is_lhu,
-    input  var logic executor_is_lw,
-    input  var logic executor_is_sb,
-    input  var logic executor_is_sh,
-    input  var logic executor_is_sw,
+    input  var logic        executor_is_lui,
+    input  var logic        executor_is_lb,
+    input  var logic        executor_is_lbu,
+    input  var logic        executor_is_lh,
+    input  var logic        executor_is_lhu,
+    input  var logic        executor_is_lw,
+    input  var logic        executor_is_sb,
+    input  var logic        executor_is_sh,
+    input  var logic        executor_is_sw,
     // memory access
-    input  var logic mem_instr, // is the fetcher currently grabbing something?
-    output var logic mem_ready,
-    input  var logic mem_valid,
-    output var logic [3:0] mem_wstrb,
+    input  var logic        mem_instr, // is the fetcher currently grabbing something?
+    output var logic        mem_ready,
+    input  var logic        mem_valid,
+    output var logic [3:0]  mem_wstrb,
     output var logic [31:0] mem_wdata,
     // outputs
-    output var logic [4:0] accessor_rd,
+    output var logic [4:0]  accessor_rd,
     output var logic [31:0] accessor_rd_data
 );
   logic stalled;
@@ -38,7 +37,7 @@ module accessor(
   always_ff @(posedge clk) begin
     if (reset) begin
       accessor_valid <= 0;
-    end else if (executor_valid && !accessor_valid && writeback_ready && !stalled) begin
+    end else if (executor_valid && !accessor_valid && !stalled) begin
       accessor_valid <= executor_valid;
     end else if (!accessor_ready) begin
       accessor_valid <= 0;
@@ -58,7 +57,13 @@ module accessor(
 
   // state machine
   always_ff @(posedge clk) begin
-
+    if(reset) begin
+    end else begin
+      if(accessor_valid) begin
+        accessor_rd_data <= executor_rd_data;
+        accessor_rd <= executor_rd;
+      end
+    end
   end
  `ifdef FORMAL
   logic clocked;
@@ -68,10 +73,7 @@ module accessor(
   initial assume(reset);
   always @(*) if(!clocked) assume(reset);
   // if we've been valid but stalled, we're not valid anymore
-  always_ff @(posedge clk) if(clocked && $past(accessor_valid) && $past(accessor_valid && !writeback_ready)) assert(!accessor_valid);
-
-  // if we've been valid but the next stage is busy, we're not valid anymore
-  always_ff @(posedge clk) if(clocked && $past(accessor_valid) && $past(!writeback_ready)) assert(!accessor_valid);
+  always_ff @(posedge clk) if(clocked && $past(accessor_valid) && stalled) assert(!accessor_valid);
 
   // if we're stalled we aren't requesting anytthing, and we're not publishing anything
   always_ff @(posedge clk) if(clocked && $past(stalled)) assert(!accessor_valid && !accessor_ready);
