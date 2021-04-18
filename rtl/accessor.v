@@ -23,9 +23,9 @@ module accessor(
     input  var logic executor_is_sh,
     input  var logic executor_is_sw,
     // memory access
-    input var logic mem_instr, // is the fetcher currently grabbing something?
+    input  var logic mem_instr, // is the fetcher currently grabbing something?
     output var logic mem_ready,
-    output var logic mem_valid,
+    input  var logic mem_valid,
     output var logic [3:0] mem_wstrb,
     output var logic [31:0] mem_wdata,
     // outputs
@@ -33,7 +33,7 @@ module accessor(
     output var logic [31:0] accessor_rd_data
 );
   logic stalled;
-  assign stalled = mem_ready && !mem_valid || mem_instr;
+  assign stalled = (mem_ready && !mem_valid) || mem_instr;
     // handshake
   always_ff @(posedge clk) begin
     if (reset) begin

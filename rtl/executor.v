@@ -50,6 +50,7 @@ module executor(
   output var logic [31:0] executor_rd_data,
   // forwards
   output var logic [31:0] executor_mem_addr,
+  output var logic [31:0] executor_mem_data,
   output var logic        executor_is_lui,
   output var logic        executor_is_lb,
   output var logic        executor_is_lbu,
@@ -104,6 +105,7 @@ module executor(
     end else if(decoder_valid || stalled) begin
       executor_rd_data <= 0;
       executor_mem_addr <= decoder_mem_addr;
+      executor_mem_data <= decoder_reg_rs2;
       executor_rd <= decoder_rd;
       executor_rd_data <= 0;
       executor_is_lui <= is_lui;

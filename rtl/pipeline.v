@@ -150,7 +150,7 @@ module pipeline(
   );
 
   logic executor_ready, executor_valid;
-  logic [31:0] executor_data, mem_address, executor_mem_addr;
+  logic [31:0] executor_rd_data, mem_address, executor_mem_addr, executor_mem_data;
   logic [4:0]  executor_rd;
   executor executor(
     .clk(clk),
@@ -164,8 +164,6 @@ module pipeline(
     .decoder_rd(rd),
     .decoder_reg_rs1(decoder_reg_rs1),
     .decoder_reg_rs2(decoder_reg_rs2),
-    .decoder_rs1(decoder_rs1),
-    .decoder_rs2(decoder_rs2),
     .decoder_mem_addr(decoder_mem_addr),
     .is_valid_instr(is_valid_instr),
     .is_add(is_add),
@@ -202,9 +200,10 @@ module pipeline(
     .is_csrrc(is_csrrc),
     // outputs
     .executor_rd(executor_rd),
-    .executor_rd_data(executor_data),
+    .executor_rd_data(executor_rd_data),
     // forwards
     .executor_mem_addr(executor_mem_addr),
+    .executor_mem_data(executor_mem_data),
     .executor_is_lui(is_lui),
     .executor_is_lb(is_lb),
     .executor_is_lbu(is_lbu),
@@ -252,19 +251,19 @@ module pipeline(
     .accessor_rd_data(accessor_rd_data)
   );
 
-  // logic        writeback_ready, writeback_valid;
-  // writeback writeback(
-  //   .clk(clk),
-  //   .reset(reset),
-  //   // handshake
-  //   .writeback_ready(writeback_ready),
-  //   .writeback_valid(writeback_valid),
-  //   // inputs
-  //   .accessor_rd(accessor_rd),
-  //   .accessor_rd_data(accessor_rd_data),
-  //   // outputs
-  //   .wen(wen),
-  //   .waddr(waddr),
-  //   .wdata(wdata)
-  // );
+  logic        writeback_ready, writeback_valid;
+  writeback writeback(
+    .clk(clk),
+    .reset(reset),
+    // handshake
+    .writeback_ready(writeback_ready),
+    .writeback_valid(writeback_valid),
+    // inputs
+    .accessor_rd(accessor_rd),
+    .accessor_rd_data(accessor_rd_data),
+    // outputs
+    .wen(wen),
+    .waddr(waddr),
+    .wdata(wdata)
+  );
 endmodule

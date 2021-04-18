@@ -3,6 +3,7 @@ executor all
 decoder all
 fetcher all
 accessor all
+writeback all
 
 [options]
 all: mode prove
@@ -26,6 +27,10 @@ prep -top executor
 accessor:
 read -formal accessor.v
 prep -top accessor
+
+writeback:
+read -formal writeback.v
+prep -top writeback
 --
 [files]
 fetcher:
@@ -39,4 +44,7 @@ executor:
 
 accessor:
 ../rtl/accessor.v
+
+writeback:
+../rtl/writeback.v
 --
