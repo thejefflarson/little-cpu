@@ -251,13 +251,11 @@ module pipeline(
     .accessor_rd_data(accessor_rd_data)
   );
 
-  logic        writeback_ready, writeback_valid;
   writeback writeback(
     .clk(clk),
     .reset(reset),
     // handshake
-    .writeback_ready(writeback_ready),
-    .writeback_valid(writeback_valid),
+    .accessor_valid(accessor_valid),
     // inputs
     .accessor_rd(accessor_rd),
     .accessor_rd_data(accessor_rd_data),
