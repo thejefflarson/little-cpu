@@ -90,7 +90,7 @@ module executor(
   localparam init = 2'b00;
   localparam multiply = 2'b01;
   localparam divide = 2'b10;
-  logic [4:0]  mul_div_counter;
+  logic [6:0]  mul_div_counter;
   logic [63:0] mul_div_x, mul_div_y;
   logic [63:0] mul_div_store;
   logic stalled;
@@ -102,7 +102,7 @@ module executor(
   always_ff @(posedge clk) begin
     if (reset) begin
       state <= init;
-    end else if(decoder_valid || stalled) begin
+    end else if(decoder_valid && !stalled) begin
       executor_rd_data <= 0;
       executor_mem_addr <= decoder_mem_addr;
       executor_mem_data <= decoder_reg_rs2;
@@ -135,7 +135,7 @@ module executor(
             is_and: executor_rd_data <= rs1 & rs2;
 
             is_mul || is_mulh || is_mulhu || is_mulhsu: begin
-              mul_div_counter <= is_mul ? 32 : 64;
+              mul_div_counter <= is_mul ? 7'b0100000 : 7'b1000000; // 32 : 64
               state <= multiply;
               mul_div_store <= 0;
               (* parallel_case, full_case *)
@@ -158,7 +158,7 @@ module executor(
             end
 
             is_div || is_divu || is_rem || is_remu: begin
-              mul_div_counter <= 65;
+              mul_div_counter <= 7'b1000001; // 65
               state <= divide;
               mul_div_store <= 0;
               mul_div_x <= {32'b0,rs1};
