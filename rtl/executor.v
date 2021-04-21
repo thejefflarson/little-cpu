@@ -135,7 +135,7 @@ module executor(
             is_and: executor_rd_data <= rs1 & rs2;
 
             is_mul || is_mulh || is_mulhu || is_mulhsu: begin
-              mul_div_counter <= is_mul ? 7'b0100000 : 7'b1000000; // 32 : 64
+              mul_div_counter <= is_mul ? 32 : 64;
               state <= multiply;
               mul_div_store <= 0;
               (* parallel_case, full_case *)
@@ -158,7 +158,7 @@ module executor(
             end
 
             is_div || is_divu || is_rem || is_remu: begin
-              mul_div_counter <= 7'b1000001; // 65
+              mul_div_counter <= 65;
               state <= divide;
               mul_div_store <= 0;
               mul_div_x <= {32'b0,rs1};
