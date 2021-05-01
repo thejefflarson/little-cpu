@@ -1,5 +1,5 @@
 `default_nettype none
-module pipeline(
+module littlecpu(
   input  var logic        clk,
   input  var logic        reset,
   input  var logic        mem_valid,
