@@ -23,6 +23,8 @@ components_executor: components.sby ../rtl/executor.v
 		sby -f $< executor
 components_accessor: components.sby ../rtl/accessor.v
 		sby -f $< accessor
+components_writeback: components.sby ../rtl/writeback.v
+		sby -f $< writeback
 
 riscv-formal:
 	git clone https://github.com/YosysHQ/riscv-formal.git
