@@ -14,15 +14,17 @@ module littlesoc (
   // TODO SPI mem
   always_ff @(posedge clk) begin
    if (reset) begin
+     flash_cs <= 0;
      int_flash_clk <= 0;
    end else begin
+     flash_cs <= 1;
      int_flash_clk <= !int_flash_clk;
    end
   end
 
   // Internal mem
   logic        mem_valid;
-  logic        mem_instr;
+  logic        trap;
   logic        mem_ready;
   logic [31:0] mem_addr;
   logic [31:0] mem_wdata;
@@ -30,7 +32,6 @@ module littlesoc (
   logic [31:0] mem_rdata;
   memory memory (
     .clk(clk),
-    .reset(reset),
     .mem_valid(mem_valid),
     .mem_ready(mem_ready),
     .mem_addr(mem_addr),
@@ -39,15 +40,15 @@ module littlesoc (
     .mem_rdata(mem_rdata)
   );
 
-  riscv riscv (
+  littlecpu riscv (
     .clk(clk),
     .reset(reset),
     .mem_valid(mem_valid),
-    .mem_instr(mem_instr),
     .mem_ready(mem_ready),
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
-    .mem_rdata(mem_rdata)
+    .mem_rdata(mem_rdata),
+    .trap(trap)
   );
 endmodule // littlesoc
