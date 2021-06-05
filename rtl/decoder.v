@@ -56,7 +56,7 @@ module decoder (
   output var logic        is_csrrw,
   output var logic        is_csrrs,
   output var logic        is_csrrc
-  );
+);
 
   // instruction decoder (figure 2.3)
   logic [4:0] opcode;

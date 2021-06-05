@@ -9,14 +9,14 @@ testbench.vvp: rvfi_macros.vh test/testbench.v rtl/riscv.v test/monitor.v rtl/de
 	chmod +x $@
 
 # Not sure why this doesn't work :(
-test/rtl.cc: rtl/riscv.v rtl/decoder.v rtl/alu.v rvfi_macros.vh test/testbench.v
+test/rtl.cc: rtl/littlecpu.v rtl/decoder.v rtl/alu.v rvfi_macros.vh test/testbench.v
 	yosys -p 'read_verilog -sv $^; hierarchy -top testbench; write_cxxrtl -nohierarchy $@'
 
 pll.v: timing
 	icepll -m -f $@ -i 12 -o $(shell cat $^)
 
-riscv.json: rtl/riscv.v rtl/decoder.v rtl/alu.v
-	yosys -p 'read_verilog -sv $^; synth_ice40 -top riscv -json $@'
+riscv.json: rtl/littlecpu.v  rtl/fetcher.v rtl/rtl/decoder.v rtl/
+	yosys -p 'read_verilog -sv $^; synth_ice40 -top littlecpu -json $@'
 
 riscv.asc: riscv.json riscv.pcf
 	nextpnr-ice40 --up5k --json riscv.json --pcf riscv.pcf --asc riscv.asc --pcf-allow-unconstrained --package ct256 --opt-timing
