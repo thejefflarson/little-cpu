@@ -317,33 +317,27 @@ module decoder (
   // handshake
   always_ff @(posedge clk) begin
     if (reset) begin
-      decoder_valid <= 0;
-    end else if (fetcher_valid && !decoder_valid && executor_ready) begin
-      decoder_valid <= fetcher_valid;
-    end else if (!executor_ready) begin
-      decoder_valid <= 0;
-    end
-  end
-
-  // request something from the fetcher
-  always_ff @(posedge clk) begin
-    if (reset) begin
-      decoder_ready <= 0;
-    end else if(!fetcher_valid && !decoder_valid) begin
       decoder_ready <= 1;
+      decoder_valid <= 0;
     end else begin
-      decoder_ready <= 0;
+      decoder_ready <= 1;
+      decoder_valid <= 0;
+      if (!executor_ready || !fetcher_valid) begin
+        decoder_ready <= 0;
+      end else if(fetcher_valid && executor_ready) begin
+        decoder_valid <= 1;
+      end
     end
   end
 
-  logic [3:0] pc_inc;
+  logic [31:0] pc_inc;
   assign pc_inc = uncompressed ? 4 : 2;
   // publish the decoded results
   always_ff @(posedge clk) begin
     if (reset) begin
       // zero out the pc
       pc <= 0;
-    end else if (fetcher_valid) begin
+    end else if (fetcher_valid && executor_ready) begin
       // update pc
       pc <= fetcher_pc + pc_inc;
       decoder_mem_addr <= $signed(immediate) + $signed(reg_rs1);

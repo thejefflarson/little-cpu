@@ -1,21 +1,21 @@
 `default_nettype none
 module fetcher(
-  input  var logic        clk,
-  input  var logic        reset,
+  input  var logic clk,
+  input  var logic reset,
   // handshake
-  input  var logic        decoder_ready,
-  output var logic        fetcher_valid,
+  input  var logic decoder_ready,
+  output var logic fetcher_valid,
+  input  var logic mem_valid,
+  output var logic mem_ready,
   // inputs
   input  var logic [31:0] pc,
-  input  var logic        mem_valid,
   input  var logic [31:0] mem_rdata,
   // outputs
   output var logic [31:0] instr,
   output var logic [31:0] fetcher_pc,
-  output var logic        mem_ready,
-  output var logic        mem_instr,
+  output var logic mem_instr,
   output var logic [31:0] mem_addr,
-  output var logic [3:0]  mem_wstrb
+  output var logic [3:0] mem_wstrb
 );
   // handshake
   always_ff @(posedge clk) begin
@@ -52,7 +52,7 @@ module fetcher(
   always_ff @(posedge clk) begin
     if (reset) begin
       instr <= 0;
-    end else if (mem_valid && mem_instr) begin
+    end else if (mem_valid && decoder_ready) begin
       instr <= mem_rdata;
     end
   end
