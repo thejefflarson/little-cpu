@@ -4,6 +4,7 @@ decoder all
 fetcher all
 accessor all
 writeback all
+handshake all
 
 [options]
 all: mode prove
@@ -31,6 +32,10 @@ prep -top accessor
 writeback:
 read -formal writeback.v
 prep -top writeback
+
+handshake:
+read -formal handshake.v
+prep -top handshake
 --
 [files]
 fetcher:
@@ -47,4 +52,7 @@ accessor:
 
 writeback:
 ../rtl/writeback.v
+
+handshake:
+../rtl/handshake.v
 --

@@ -16,15 +16,17 @@ cover: cover.sby cover.sv riscv-formal
 
 # pipeline stages
 components_fetcher: components.sby ../rtl/fetcher.v
-		sby -f $< fetcher
+	sby -f $< fetcher
 components_decoder: components.sby ../rtl/decoder.v
-		sby -f $< decoder
+	sby -f $< decoder
 components_executor: components.sby ../rtl/executor.v
-		sby -f $< executor
+	sby -f $< executor
 components_accessor: components.sby ../rtl/accessor.v
-		sby -f $< accessor
+	sby -f $< accessor
 components_writeback: components.sby ../rtl/writeback.v
-		sby -f $< writeback
+	sby -f $< writeback
+components_handshake: components.sby ../rtl/handshake.v
+	sby -f $< handshake
 
 riscv-formal:
 	git clone https://github.com/YosysHQ/riscv-formal.git
