@@ -69,7 +69,7 @@ module executor(
     if (reset) begin
       executor_valid <= 0;
     end else if (decoder_valid && !executor_valid && accessor_ready && !stalled) begin
-      executor_valid <= executor_valid;
+      executor_valid <= decoder_valid;
     end else if (!accessor_ready) begin
       executor_valid <= 0;
     end
