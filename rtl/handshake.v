@@ -2,29 +2,29 @@
 module handshake(
   input  var logic clk,
   input  var logic reset,
-  output var logic ready,
-  output var logic valid,
-  input  var logic busy,
-  input  var logic next_ready,
-  input  var logic prev_valid
+  output var logic input_ready,
+  input  var logic input_valid,
+  input  var logic output_ready,
+  output var logic output_valid,
+  input  var logic busy
 );
   always_ff @(posedge clk) begin
     if (reset) begin
-      ready <= 1;
-    end else if (next_ready && !prev_valid && !busy) begin
-      ready <= 1;
+      input_ready <= 1;
+    end else if (output_ready && !input_valid && !busy) begin
+      input_ready <= 1;
     end else if (busy) begin
-      ready <= 0;
+      input_ready <= 0;
     end
   end
 
   always_ff @(posedge clk) begin
     if (reset) begin
-      valid <= 0;
-    end else if (prev_valid && next_ready && !busy) begin
-      valid <= 1;
+      output_valid <= 0;
+    end else if (input_valid && output_ready && !busy) begin
+      output_valid <= 1;
     end else begin
-      valid <= 0;
+      output_valid <= 0;
     end
   end
 
@@ -34,10 +34,10 @@ module handshake(
   always_ff @(posedge clk) clocked = 1;
   initial assume(reset);
   always @(*) if(!clocked) assume(reset);
-  always_ff @(posedge clk) if(clocked && $past(prev_valid) && $past(next_ready) && $past(!busy) && $past(!reset)) assert(valid);
-  always_ff @(posedge clk) if(clocked && $past(next_ready) && $past(!prev_valid) && $past(!busy) && $past(!reset)) assert(ready);
-  always_ff @(posedge clk) if(clocked && $past(busy)) assert(!valid);
-  always_ff @(posedge clk) if(clocked && $past(busy) && $past(!reset)) assert(!ready);
-  always_ff @(posedge clk) if($past(reset)) assert(ready && !valid);
+  always_ff @(posedge clk) if(clocked && $past(input_valid) && $past(output_ready) && $past(!busy) && $past(!reset)) assert(output_valid);
+  always_ff @(posedge clk) if(clocked && $past(output_ready) && $past(!input_valid) && $past(!busy) && $past(!reset)) assert(input_ready);
+  always_ff @(posedge clk) if(clocked && $past(busy)) assert(!output_valid);
+  always_ff @(posedge clk) if(clocked && $past(busy) && $past(!reset)) assert(!input_ready);
+  always_ff @(posedge clk) if(clocked && $past(reset)) assert(input_ready && !output_valid);
  `endif
 endmodule
