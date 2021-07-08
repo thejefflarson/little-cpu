@@ -15,6 +15,8 @@ module skidbuffer
 );
   logic [WIDTH-1:0] buffer;
   logic [WIDTH-1:0] out;
+  logic [WIDTH-1:0] selected_data;
+
   logic             insert;
   logic             remove;
   always_comb begin
@@ -22,11 +24,16 @@ module skidbuffer
     remove = (output_ready && output_valid);
   end
 
+  always_comb begin
+    output_data = out;
+  end
+
   logic [1:0] state;
   localparam empty = 2'b00;
   localparam busy = 2'b01;
   localparam full = 2'b10;
 
+  // TODO: buffer handling
   always_ff @(posedge clk) begin
     if (reset) begin
       input_ready <= 1;
@@ -40,17 +47,24 @@ module skidbuffer
         empty: if (insert && !remove) begin
           state <= busy;
           output_valid <= 0;
+          out <= input_data;
         end
         busy: if (insert && !remove) begin
+          buffer <= input_data;
           state <= full;
         end else if (!insert && remove) begin
           state <= empty;
         end else if (insert && remove) begin
           state <= busy;
+          out <= input_data;
         end
         full: if (!insert && remove) begin
           state <= busy;
           input_ready <= 0;
+          out <= buffer;
+        end else if (insert && remove) begin
+          buffer <= input_data;
+          out <= buffer;
         end
       endcase
     end
