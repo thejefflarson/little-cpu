@@ -27,11 +27,13 @@ components_writeback: components.sby ../rtl/writeback.v
 	sby -f $< writeback
 components_handshake: components.sby ../rtl/handshake.v
 	sby -f $< handshake
+components_skidbuffer: components.sby ../rtl/skidbuffer.v
+	sby -f $< skidbuffer
 
 riscv-formal:
 	git clone https://github.com/YosysHQ/riscv-formal.git
 
 clean:
-	rm -rf {checks,complete,cover,riscv-formal,dmemcheck,imemcheck}
+	rm -rf {checks,complete,cover,riscv-formal,dmemcheck,imemcheck,components_*}
 
 .PHONY: all clean

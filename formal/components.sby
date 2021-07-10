@@ -5,6 +5,7 @@ fetcher all
 accessor all
 writeback all
 handshake all
+skidbuffer all
 
 [options]
 all: mode prove
@@ -36,6 +37,10 @@ prep -top writeback
 handshake:
 read -formal handshake.v
 prep -top handshake
+
+skidbuffer:
+read -formal skidbuffer.v
+prep -top skidbuffer
 --
 [files]
 fetcher:
@@ -55,4 +60,7 @@ writeback:
 
 handshake:
 ../rtl/handshake.v
+
+skidbuffer:
+../rtl/skidbuffer.v
 --

@@ -33,7 +33,6 @@ module skidbuffer
   localparam busy = 2'b01;
   localparam full = 2'b10;
 
-  // TODO: buffer handling
   always_ff @(posedge clk) begin
     if (reset) begin
       input_ready <= 1;
@@ -68,5 +67,15 @@ module skidbuffer
         end
       endcase
     end
-  end
+  end // always_ff @ (posedge clk)
+ `ifdef FORMAL
+  logic clocked;
+  initial clocked = 0;
+  always_ff @(posedge clk) clocked = 1;
+  initial assume(reset);
+  always_comb if(!clocked) assume(reset);
+  // data stability tests
+  always_ff @(posedge clk) if(clocked && !reset && $past(input_valid) && $past(!output_ready)) assume(input_valid && $stable(input_data));
+  always_ff @(posedge clk) if(clocked && !reset && $past(output_valid) && $past(!input_ready)) assert(output_valid && $stable(output_data));
+ `endif
 endmodule
