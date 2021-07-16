@@ -39,7 +39,7 @@ read -formal handshake.v
 prep -top handshake
 
 skidbuffer:
-read -formal skidbuffer.v
+read -formal -sv skidbuffer.v
 prep -top skidbuffer
 --
 [files]

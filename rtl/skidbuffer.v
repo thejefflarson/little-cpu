@@ -28,11 +28,10 @@ module skidbuffer
     output_data = out;
   end
 
-  logic [1:0] state;
   localparam empty = 2'b00;
   localparam busy = 2'b01;
   localparam full = 2'b10;
-
+  logic [1:0] state = empty;
   always_ff @(posedge clk) begin
     if (reset) begin
       input_ready <= 1;
@@ -40,13 +39,14 @@ module skidbuffer
       state <= empty;
     end begin
       input_ready <= 1;
-      output_valid <= output_ready;
+      output_valid <= 1;
       (* parallel_case, full_case *)
       case(state)
         empty: if (insert && !remove) begin
           state <= busy;
-          output_valid <= 0;
           out <= input_data;
+        end else begin
+          output_valid <= 0;
         end
         busy: if (insert && !remove) begin
           buffer <= input_data;
@@ -74,8 +74,13 @@ module skidbuffer
   always_ff @(posedge clk) clocked = 1;
   initial assume(reset);
   always_comb if(!clocked) assume(reset);
+  (* keep *) logic stable;
+  always_ff @(posedge clk) stable <= output_valid == $past(output_valid);
   // data stability tests
-  always_ff @(posedge clk) if(clocked && !reset && $past(input_valid) && $past(!output_ready)) assume(input_valid && $stable(input_data));
-  always_ff @(posedge clk) if(clocked && !reset && $past(output_valid) && $past(!input_ready)) assert(output_valid && $stable(output_data));
+  always_ff @(posedge clk) if(clocked && $past(!reset) && $past(input_valid) && $past(!input_ready)) assume(input_valid && $stable(input_data));
+  always_ff @(posedge clk) if(clocked && $past(!reset) && $past(output_valid) && $past(!output_ready)) begin
+    assert(output_valid);
+    assert($stable(output_data));
+  end
  `endif
 endmodule
