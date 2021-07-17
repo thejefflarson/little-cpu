@@ -37,7 +37,7 @@ module skidbuffer
       input_ready <= 1;
       output_valid <= 0;
       state <= empty;
-    end begin
+    end else begin
       input_ready <= 1;
       output_valid <= 1;
       (* parallel_case, full_case *)
@@ -74,8 +74,6 @@ module skidbuffer
   always_ff @(posedge clk) clocked = 1;
   initial assume(reset);
   always_comb if(!clocked) assume(reset);
-  (* keep *) logic stable;
-  always_ff @(posedge clk) stable <= output_valid == $past(output_valid);
   // data stability tests
   always_ff @(posedge clk) if(clocked && $past(!reset) && $past(input_valid) && $past(!input_ready)) assume(input_valid && $stable(input_data));
   always_ff @(posedge clk) if(clocked && $past(!reset) && $past(output_valid) && $past(!output_ready)) begin
