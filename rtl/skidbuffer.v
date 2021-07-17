@@ -65,6 +65,8 @@ module skidbuffer
         end else if (insert && remove) begin
           buffer <= input_data;
           out <= buffer;
+        end else begin
+          input_ready <= 0;
         end
       endcase
     end
@@ -75,11 +77,36 @@ module skidbuffer
   always_ff @(posedge clk) clocked = 1;
   initial assume(reset);
   always_comb if(!clocked) assume(reset);
-  // data stability tests
+  // registers for insert and remove
+  logic insert_r;
+  logic remove_r;
+  always_ff @(posedge clk) begin
+    insert_r <= insert;
+    remove_r <= remove;
+  end
+
+  // anytime input_valid is high input_data doesn't change
   always_ff @(posedge clk) if(clocked && $past(!reset) && $past(input_valid) && $past(!input_ready)) assume(input_valid && $stable(input_data));
-  always_ff @(posedge clk) if(clocked && $past(!reset) && $past(output_valid) && $past(!output_ready) && !output_ready) begin
+  // check that if we have data on the output and the receiver isn't ready, we don't change it.
+  always_ff @(posedge clk) if(clocked && $past(!reset) && $past(output_valid) && $past(!output_ready)) begin
     assert(output_valid);
     assert($stable(output_data));
+  end
+
+  // check that data gets stored in out buffer when we've skid to a halt
+  always_ff @(posedge clk) if(clocked && $past(!reset) && insert_r && !remove_r && $past(state == busy)) begin
+    assert(buffer == $past(input_data));
+    assert(state == full);
+  end
+
+  // check that data flows through the buffer and isn't dropped
+  always_ff @(posedge clk) if(clocked && $past(!reset) && remove_r && $past(state == full)) begin
+    assert(out == $past(buffer));
+  end
+
+  // check that we can't raise valid if we're empty
+  always_ff @(posedge clk) if(clocked && $past(!reset) && $past(state == empty) && !insert_r) begin
+    assert(!output_valid);
   end
  `endif
 endmodule
