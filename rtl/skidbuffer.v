@@ -52,6 +52,7 @@ module skidbuffer
           buffer <= input_data;
           state <= full;
         end else if (!insert && remove) begin
+          output_valid <= 0;
           state <= empty;
         end else if (insert && remove) begin
           state <= busy;
@@ -76,7 +77,7 @@ module skidbuffer
   always_comb if(!clocked) assume(reset);
   // data stability tests
   always_ff @(posedge clk) if(clocked && $past(!reset) && $past(input_valid) && $past(!input_ready)) assume(input_valid && $stable(input_data));
-  always_ff @(posedge clk) if(clocked && $past(!reset) && $past(output_valid) && $past(!output_ready)) begin
+  always_ff @(posedge clk) if(clocked && $past(!reset) && $past(output_valid) && $past(!output_ready) && !output_ready) begin
     assert(output_valid);
     assert($stable(output_data));
   end
