@@ -93,7 +93,7 @@ module skidbuffer
     assert($stable(output_data));
   end
 
-  // check that data gets stored in out buffer when we've skid to a halt
+  // check that data gets stored in our buffer when we've skid to a halt
   always_ff @(posedge clk) if(clocked && $past(!reset) && insert_r && !remove_r && $past(state == busy)) begin
     assert(buffer == $past(input_data));
     assert(state == full);

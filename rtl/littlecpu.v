@@ -45,6 +45,7 @@ module littlecpu(
   logic        mem_instr;
   logic        fetcher_valid;
   logic [31:0] pc, instr, fetcher_pc;
+  fetcher_output fetcher_out;
   fetcher fetcher(
     .clk(clk),
     .reset(reset),
@@ -56,8 +57,7 @@ module littlecpu(
     .pc(pc),
     .mem_rdata(mem_rdata),
     // outputs
-    .instr(instr),
-    .fetcher_pc(fetcher_pc),
+    .out(fetcher_out),
     .mem_instr(mem_instr),
     .mem_ready(mem_ready),
     .mem_addr(mem_addr),

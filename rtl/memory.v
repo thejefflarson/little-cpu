@@ -2,8 +2,7 @@
 module memory #(
   // in four byte words, this will take up all of the embedded memory in an up5k with room for the
   // register file.
-  parameter integer RAM = 31744,
-  parameter string  ROM = "./rom.mem"
+  parameter integer RAM = 31744
 ) (
   input  var logic        clk,
   input  var logic        mem_ready,
@@ -13,7 +12,7 @@ module memory #(
   input  var logic [3:0]  mem_wstrb,
   output var logic [31:0] mem_rdata
 );
-  initial $readmemh(ROM, ram);
+  initial $readmemh("./rom.mem", ram);
   logic [31:0] ram[RAM-1:0];
   always_ff @(posedge clk) begin
       mem_valid <= 0;

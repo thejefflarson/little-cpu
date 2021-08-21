@@ -4,10 +4,10 @@ module littlesoc (
   input  var reset,
   output var flash_cs,
   output var flash_clk,
-  inout  tri flash_io0,
-  inout  tri flash_io1,
-  inout  tri flash_io2,
-  inout  tri flash_io3
+  inout  var flash_io0,
+  inout  var flash_io1,
+  inout  var flash_io2,
+  inout  var flash_io3
 );
   logic int_flash_clk;
   assign flash_clk = int_flash_clk;

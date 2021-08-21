@@ -15,11 +15,11 @@ all: smtbmc
 
 [script]
 decoder:
-read -formal decoder.v
+read -sv -formal decoder.v
 prep -top decoder
 
 fetcher:
-read -formal fetcher.v
+read -sv -formal structs.v fetcher.v
 prep -top fetcher
 
 executor:
@@ -45,6 +45,7 @@ prep -top skidbuffer
 [files]
 fetcher:
 ../rtl/fetcher.v
+../rtl/structs.v
 
 decoder:
 ../rtl/decoder.v

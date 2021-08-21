@@ -11,8 +11,7 @@ module fetcher(
   input  var logic [31:0] pc,
   input  var logic [31:0] mem_rdata,
   // outputs
-  output var logic [31:0] instr,
-  output var logic [31:0] fetcher_pc,
+  output     fetcher_output out,
   output var logic mem_instr,
   output var logic [31:0] mem_addr,
   output var logic [3:0] mem_wstrb
@@ -41,7 +40,7 @@ module fetcher(
       mem_addr <= pc;
       mem_wstrb <= 4'b0000;
       mem_instr <= 1;
-      fetcher_pc <= pc;
+      out.pc <= pc;
     end else begin
       mem_ready <= 0;
       mem_instr <= 0;
@@ -51,19 +50,19 @@ module fetcher(
   // we have something from memory
   always_ff @(posedge clk) begin
     if (reset) begin
-      instr <= 0;
+      out.instr <= 0;
     end else if (mem_valid && decoder_ready) begin
-      instr <= mem_rdata;
+      out.instr <= mem_rdata;
     end
   end
 
  `ifdef FORMAL
   logic clocked;
   initial clocked = 0;
-  always_ff @(posedge clk) clocked = 1;
+  always_ff @(posedge clk) clocked <= 1;
   // assume we've reset at clk 0
   initial assume(reset);
-  always @(*) if(!clocked) assume(reset);
+  always_comb if(!clocked) assume(reset);
 
   // mem_ready and mem_valid happen in tandem
   logic past_valid = 0;

@@ -1,0 +1,6 @@
+[verilog]
+include_paths = ["rtl/"]
+defines = ["FORMAL"]
+
+[option]
+linter = true
