@@ -44,7 +44,7 @@ module littlecpu(
 );
   logic        mem_instr;
   logic        fetcher_valid;
-  logic [31:0] pc, instr, fetcher_pc;
+  logic [31:0] pc;
   fetcher_output fetcher_out;
   fetcher fetcher(
     .clk(clk),
@@ -52,7 +52,7 @@ module littlecpu(
     // handshake
     .mem_valid(mem_valid),
     .fetcher_valid(fetcher_valid),
-    .decoder_ready(decoder_ready),
+    .fetcher_ready(fetcher_decoder_ready),
     // inputs
     .pc(pc),
     .mem_rdata(mem_rdata),
@@ -62,6 +62,19 @@ module littlecpu(
     .mem_ready(mem_ready),
     .mem_addr(mem_addr),
     .mem_wstrb(mem_wstrb)
+  );
+
+  logic        fetcher_decoder_ready, fetcher_decoder_valid;
+  fetcher_output  fetcher_decoder_out;
+  skidbuffer #(.WIDTH($bits(fetcher_out))) fetcher_decoder(
+    .clk(clk),
+    .reset(reset),
+    .input_ready(fetcher_decoder_ready),
+    .input_valid(fetcher_valid),
+    .input_data(fetcher_out),
+    .output_ready(decoder_ready),
+    .output_valid(fetcher_decoder_valid),
+    .output_data(fetcher_decoder_out)
   );
 
   logic [31:0] reg_rs1, reg_rs2, wdata;
@@ -91,13 +104,12 @@ module littlecpu(
     .clk(clk),
     .reset(reset),
     // handshake
-    .fetcher_valid(fetcher_valid),
+    .fetcher_valid(fetcher_decoder_valid),
     .decoder_ready(decoder_ready),
     .decoder_valid(decoder_valid),
     .executor_ready(executor_ready),
     // inputs
-    .instr(instr),
-    .fetcher_pc(fetcher_pc),
+    .in(fetcher_decoder_out),
     // The decoder is largely synchronous so these are assigned a clock cycle early
     .reg_rs1(reg_rs1),
     .reg_rs2(reg_rs2),

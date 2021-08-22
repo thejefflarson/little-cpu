@@ -1,6 +1,6 @@
 [verilog]
 include_paths = ["rtl/"]
-defines = ["FORMAL"]
+defines = ["FORMAL", "RISCV_FORMAL"]
 
 [option]
 linter = true

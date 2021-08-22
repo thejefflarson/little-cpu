@@ -8,8 +8,7 @@ module decoder (
   output var logic        decoder_valid,
   input  var logic        executor_ready,
   // inputs
-  input  var logic [31:0] instr,
-  input  var logic [31:0] fetcher_pc,
+  input  fetcher_output   in,
   input  var logic [31:0] reg_rs1,
   input  var logic [31:0] reg_rs2,
   // forwards
@@ -58,6 +57,10 @@ module decoder (
   output var logic        is_csrrc
 );
 
+  logic [31:0] instr;
+  assign instr = in.instr;
+  logic [31:0] fetcher_pc;
+  assign fetcher_pc = in.pc;
   // instruction decoder (figure 2.3)
   logic [4:0] opcode;
   assign opcode = instr[6:2];
@@ -420,10 +423,10 @@ module decoder (
  `ifdef FORMAL
   logic clocked;
   initial clocked = 0;
-  always_ff @(posedge clk) clocked = 1;
+  always_ff @(posedge clk) clocked <= 1;
   // assume we've reset at clk 0
   initial assume(reset);
-  always @(*) if(!clocked) assume(reset);
+  always_comb if(!clocked) assume(reset);
   // if we've been valid but stalled, we're not valid anymore
   always_ff @(posedge clk) if(clocked && $past(decoder_valid) && $past(decoder_valid && !executor_ready)) assert(!decoder_valid);
 

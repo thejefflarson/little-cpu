@@ -3,7 +3,7 @@ module fetcher(
   input  var logic clk,
   input  var logic reset,
   // handshake
-  input  var logic decoder_ready,
+  input  var logic fetcher_ready,
   output var logic fetcher_valid,
   input  var logic mem_valid,
   output var logic mem_ready,
@@ -21,9 +21,9 @@ module fetcher(
     if (reset) begin
       fetcher_valid <= 0;
     // we've received a request and we can pass it along
-    end else if (mem_valid && !fetcher_valid && decoder_ready) begin
+    end else if (mem_valid && !fetcher_valid && fetcher_ready) begin
       fetcher_valid <= mem_valid;
-    end else if (!decoder_ready) begin
+    end else if (!fetcher_ready) begin
       fetcher_valid <= 0;
     end
   end // always_ff @ (posedge clk)
@@ -51,7 +51,7 @@ module fetcher(
   always_ff @(posedge clk) begin
     if (reset) begin
       out.instr <= 0;
-    end else if (mem_valid && decoder_ready) begin
+    end else if (mem_valid && fetcher_ready) begin
       out.instr <= mem_rdata;
     end
   end
@@ -80,9 +80,9 @@ module fetcher(
   end
 
   // if we've been valid but stalled, we're not valid anymore
-  always_ff @(posedge clk) if(clocked && $past(fetcher_valid) && $past(fetcher_valid && !decoder_ready)) assert(!fetcher_valid);
+  always_ff @(posedge clk) if(clocked && $past(fetcher_valid) && $past(fetcher_valid && !fetcher_ready)) assert(!fetcher_valid);
 
   // if we've been valid but the next stage is busy, we're not valid anymore
-  always_ff @(posedge clk) if(clocked && $past(fetcher_valid) && $past(!decoder_ready)) assert(!fetcher_valid);
+  always_ff @(posedge clk) if(clocked && $past(fetcher_valid) && $past(!fetcher_ready)) assert(!fetcher_valid);
  `endif
 endmodule
