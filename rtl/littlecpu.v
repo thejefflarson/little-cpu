@@ -43,7 +43,9 @@ module littlecpu(
  `endif //  `ifdef RISCV_FORMAL
 );
   logic        mem_instr;
-  logic        fetcher_valid;
+  logic        fetcher_valid, fetcher_mem_ready, accessor_mem_ready;
+  // possible hazard here
+  assign mem_ready = fetcher_mem_ready || accessor_mem_ready;
   logic [31:0] pc;
   fetcher_output fetcher_out;
   fetcher fetcher(
@@ -59,9 +61,8 @@ module littlecpu(
     // outputs
     .out(fetcher_out),
     .mem_instr(mem_instr),
-    .mem_ready(mem_ready),
-    .mem_addr(mem_addr),
-    .mem_wstrb(mem_wstrb)
+    .mem_ready(fetcher_mem_ready),
+    .mem_addr(mem_addr)
   );
 
   logic        fetcher_decoder_ready, fetcher_decoder_valid;
@@ -252,7 +253,7 @@ module littlecpu(
     .executor_is_sw(is_sw),
     // memory access
     .mem_instr(mem_instr),
-    .mem_ready(mem_ready),
+    .mem_ready(accessor_mem_ready),
     .mem_valid(mem_valid),
     .mem_wstrb(mem_wstrb),
     .mem_wdata(mem_wdata),

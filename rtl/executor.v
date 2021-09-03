@@ -234,10 +234,10 @@ module executor(
  `ifdef FORMAL
   logic clocked;
   initial clocked = 0;
-  always_ff @(posedge clk) clocked = 1;
+  always_ff @(posedge clk) clocked <= 1;
   // assume we've reset at clk 0
   initial assume(reset);
-  always @(*) if(!clocked) assume(reset);
+  always_comb if(!clocked) assume(reset);
   // if we've been valid but stalled, we're not valid anymore
   always_ff @(posedge clk) if(clocked && $past(executor_valid) && $past(executor_valid && !accessor_ready)) assert(!executor_valid);
 
