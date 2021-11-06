@@ -74,7 +74,7 @@ module skidbuffer
  `ifdef FORMAL
   logic clocked;
   initial clocked = 0;
-  always_ff @(posedge clk) clocked = 1;
+  always_ff @(posedge clk) clocked <= 1;
   initial assume(reset);
   always_comb if(!clocked) assume(reset);
   // registers for insert and remove

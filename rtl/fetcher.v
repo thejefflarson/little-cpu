@@ -11,7 +11,7 @@ module fetcher(
   input  var logic [31:0] pc,
   input  var logic [31:0] mem_rdata,
   // outputs
-  output     fetcher_output out,
+  output fetcher_output out,
   output var logic mem_instr,
   output var logic [31:0] mem_addr,
   output var logic [3:0] mem_wstrb
@@ -34,11 +34,9 @@ module fetcher(
       mem_ready <= 0;
       mem_instr <= 0;
       mem_addr <= 0;
-      mem_wstrb <= 4'b0000;
-    end else if(!mem_valid && !fetcher_valid && !mem_instr) begin
+    end else if(!mem_valid && !fetcher_valid) begin
       mem_ready <= 1;
       mem_addr <= pc;
-      mem_wstrb <= 4'b0000;
       mem_instr <= 1;
       out.pc <= pc;
     end else begin
