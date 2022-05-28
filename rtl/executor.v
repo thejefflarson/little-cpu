@@ -64,25 +64,25 @@ module executor(
   logic [31:0] rs1, rs2;
   assign rs1 = decoder_reg_rs1;
   assign rs2 = decoder_reg_rs2;
+
   // handshake
   always_ff @(posedge clk) begin
-    if (reset) begin
-      executor_valid <= 0;
-    end else if (decoder_valid && !executor_valid && accessor_ready && !stalled) begin
-      executor_valid <= decoder_valid;
-    end else if (!accessor_ready) begin
-      executor_valid <= 0;
-    end
-  end
-
-  // request something from the fetcher
-  always_ff @(posedge clk) begin
-    if (reset) begin
-      executor_ready <= 0;
-    end else if(!decoder_valid && !executor_valid && !stalled) begin
+    if(reset) begin
+      executor_ready <= 1;
+    end else if (!stalled && decoder_valid && accessor_ready) begin
       executor_ready <= 1;
     end else begin
       executor_ready <= 0;
+    end
+  end
+
+  always_ff @(posedge clk) begin
+    if(reset) begin
+      executor_valid <= 0;
+    end else if(!stalled && !executor_valid && accessor_ready) begin
+      executor_valid <= 1;
+    end else begin
+      executor_valid <= 0;
     end
   end
 
@@ -102,7 +102,7 @@ module executor(
   always_ff @(posedge clk) begin
     if (reset) begin
       state <= init;
-    end else if(decoder_valid && !stalled) begin
+    end else begin
       executor_rd_data <= 0;
       executor_mem_addr <= decoder_mem_addr;
       executor_mem_data <= decoder_reg_rs2;
@@ -245,6 +245,7 @@ module executor(
   always_ff @(posedge clk) if(clocked && $past(executor_valid) && $past(!accessor_ready)) assert(!executor_valid);
 
   // if we're stalled we aren't requesting anytthing, and we're not publishing anything
-  always_ff @(posedge clk) if(clocked && $past(stalled)) assert(!executor_valid && !executor_ready);
+  //always_ff @(posedge clk) if(clocked && $past(stalled)) assert(!executor_valid);
+  always_ff @(posedge clk) if(clocked && !$past(reset) && $past(stalled)) assert(!executor_ready);
  `endif
 endmodule

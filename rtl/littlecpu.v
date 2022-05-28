@@ -94,13 +94,7 @@ module littlecpu(
   );
 
   logic        decoder_ready, decoder_valid;
-  logic [31:0] decoder_reg_rs1, decoder_reg_rs2;
-  logic [31:0] decoder_mem_addr;
-  logic [4:0]  rs1, rs2, decoder_rd;
-  logic is_valid_instr;
-  logic is_add, is_sub, is_mul, is_mulh, is_mulhu, is_mulhsu, is_div, is_divu, is_rem, is_remu,
-    is_xor, is_or, is_and, is_sll, is_slt, is_sltu, is_srl, is_sra, is_lui, is_lb, is_lbu, is_lhu,
-    is_lh, is_lw, is_sb, is_sh, is_sw, is_ecall, is_ebreak, is_csrrw, is_csrrs, is_csrrc;
+  decoder_output decoder_out;
   decoder decoder(
     .clk(clk),
     .reset(reset),
@@ -124,40 +118,7 @@ module littlecpu(
      // rs1 and rs2 are not latched: used to get reg_rs1 and reg_rs2 from the reg file
     .rs1(rs1),
     .rs2(rs2),
-    .decoder_mem_addr(decoder_mem_addr),
-    .is_valid_instr(is_valid_instr),
-    .is_add(is_add),
-    .is_sub(is_sub),
-    .is_xor(is_xor),
-    .is_or(is_or),
-    .is_and(is_and),
-    .is_mul(is_mul),
-    .is_mulh(is_mulh),
-    .is_mulhu(is_mulhu),
-    .is_mulhsu(is_mulhsu),
-    .is_div(is_div),
-    .is_divu(is_divu),
-    .is_rem(is_rem),
-    .is_remu(is_remu),
-    .is_sll(is_sll),
-    .is_slt(is_slt),
-    .is_sltu(is_sltu),
-    .is_srl(is_srl),
-    .is_sra(is_sra),
-    .is_lui(is_lui),
-    .is_lb(is_lb),
-    .is_lbu(is_lbu),
-    .is_lh(is_lh),
-    .is_lhu(is_lhu),
-    .is_lw(is_lw),
-    .is_sb(is_sb),
-    .is_sh(is_sh),
-    .is_sw(is_sw),
-    .is_ecall(is_ecall),
-    .is_ebreak(is_ebreak),
-    .is_csrrw(is_csrrw),
-    .is_csrrs(is_csrrs),
-    .is_csrrc(is_csrrc)
+    .out(decoder_out)
   );
 
   logic executor_ready, executor_valid;
@@ -172,43 +133,7 @@ module littlecpu(
     .executor_valid(executor_valid),
     .accessor_ready(accessor_ready),
     // inputs
-    .decoder_rd(decoder_rd),
-    .decoder_reg_rs1(decoder_reg_rs1),
-    .decoder_reg_rs2(decoder_reg_rs2),
-    .decoder_mem_addr(decoder_mem_addr),
-    .is_valid_instr(is_valid_instr),
-    .is_add(is_add),
-    .is_sub(is_sub),
-    .is_xor(is_xor),
-    .is_or(is_or),
-    .is_and(is_and),
-    .is_mul(is_mul),
-    .is_mulh(is_mulh),
-    .is_mulhu(is_mulhu),
-    .is_mulhsu(is_mulhsu),
-    .is_div(is_div),
-    .is_divu(is_divu),
-    .is_rem(is_rem),
-    .is_remu(is_remu),
-    .is_sll(is_sll),
-    .is_slt(is_slt),
-    .is_sltu(is_sltu),
-    .is_srl(is_srl),
-    .is_sra(is_sra),
-    .is_lui(is_lui),
-    .is_lb(is_lb),
-    .is_lbu(is_lbu),
-    .is_lh(is_lh),
-    .is_lhu(is_lhu),
-    .is_lw(is_lw),
-    .is_sb(is_sb),
-    .is_sh(is_sh),
-    .is_sw(is_sw),
-    .is_ecall(is_ecall),
-    .is_ebreak(is_ebreak),
-    .is_csrrw(is_csrrw),
-    .is_csrrs(is_csrrs),
-    .is_csrrc(is_csrrc),
+    .in(decoder_out),
     // outputs
     .executor_rd(executor_rd),
     .executor_rd_data(executor_rd_data),

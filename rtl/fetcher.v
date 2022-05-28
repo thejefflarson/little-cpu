@@ -30,6 +30,7 @@ module fetcher(
 
   // make the request whenever we're not valid, and the memory isn't busy
   always_ff @(posedge clk) begin
+    mem_wstrb <= 4'b0000;
     if (reset) begin
       mem_ready <= 0;
       mem_instr <= 0;

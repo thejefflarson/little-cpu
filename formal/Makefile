@@ -1,4 +1,4 @@
-all: complete check dmemcheck imemcheck fetcher
+all: complete check dmemcheck imemcheck components_fetcher
 
 %: %.sby
 	sby -f $<
