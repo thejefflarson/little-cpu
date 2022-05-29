@@ -65,26 +65,15 @@ module executor(
   assign rs1 = decoder_reg_rs1;
   assign rs2 = decoder_reg_rs2;
 
-  // handshake
-  always_ff @(posedge clk) begin
-    if(reset) begin
-      executor_ready <= 1;
-    end else if (!stalled && decoder_valid && accessor_ready) begin
-      executor_ready <= 1;
-    end else begin
-      executor_ready <= 0;
-    end
-  end
-
-  always_ff @(posedge clk) begin
-    if(reset) begin
-      executor_valid <= 0;
-    end else if(!stalled && !executor_valid && accessor_ready) begin
-      executor_valid <= 1;
-    end else begin
-      executor_valid <= 0;
-    end
-  end
+  handshake handshake(
+    .clk(clk),
+    .reset(reset),
+    .unit_ready(executor_ready),
+    .input_valid(decoder_valid),
+    .output_ready(accessor_ready),
+    .unit_valid(executor_valid),
+    .busy(stalled)
+  );
 
   logic [1:0]  state;
   localparam init = 2'b00;
@@ -102,8 +91,7 @@ module executor(
   always_ff @(posedge clk) begin
     if (reset) begin
       state <= init;
-    end else begin
-      executor_rd_data <= 0;
+    end else if(decoder_valid || stalled) begin
       executor_mem_addr <= decoder_mem_addr;
       executor_mem_data <= decoder_reg_rs2;
       executor_rd <= decoder_rd;

@@ -279,21 +279,15 @@ module decoder (
 
 
   // handshake
-  always_ff @(posedge clk) begin
-    if (reset) begin
-      decoder_ready <= 1;
-      decoder_valid <= 0;
-    end else begin
-      decoder_ready <= 1;
-      decoder_valid <= 0;
-      if (!executor_ready || !fetcher_valid) begin
-        decoder_ready <= 0;
-      end else if(fetcher_valid && executor_ready) begin
-        decoder_valid <= 1;
-      end
-    end
-  end
-
+  handshake handshake(
+    .clk(clk),
+    .reset(reset),
+    .unit_ready(decoder_ready),
+    .input_valid(fetcher_valid),
+    .output_ready(executor_ready),
+    .unit_valid(decoder_valid),
+    .busy(0)
+  );
   logic [31:0] pc_inc;
   assign pc_inc = uncompressed ? 4 : 2;
   // publish the decoded results

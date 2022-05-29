@@ -15,7 +15,7 @@ all: smtbmc
 
 [script]
 decoder:
-read -sv -formal structs.v decoder.v
+read -sv -formal handshake.v structs.v decoder.v
 prep -top decoder
 
 fetcher:
@@ -23,7 +23,7 @@ read -sv -formal structs.v fetcher.v
 prep -top fetcher
 
 executor:
-read -formal structs.v executor.v
+read -formal structs.v handshake.v executor.v
 prep -top executor
 
 accessor:
@@ -49,10 +49,12 @@ fetcher:
 
 decoder:
 ../rtl/decoder.v
+../rtl/handshake.v
 ../rtl/structs.v
 
 executor:
 ../rtl/executor.v
+../rtl/handshake.v
 ../rtl/structs.v
 
 accessor:
