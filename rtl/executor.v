@@ -8,62 +8,15 @@ module executor(
   output var logic executor_valid,
   input  var logic accessor_ready,
   // inputs
-  input  var logic [4:0]  decoder_rd,
-  input  var logic [31:0] decoder_reg_rs1,
-  input  var logic [31:0] decoder_reg_rs2,
-  input  var logic [31:0] decoder_mem_addr,
-  input  var logic        is_valid_instr,
-  input  var logic        is_add,
-  input  var logic        is_sub,
-  input  var logic        is_xor,
-  input  var logic        is_or,
-  input  var logic        is_and,
-  input  var logic        is_mul,
-  input  var logic        is_mulh,
-  input  var logic        is_mulhu,
-  input  var logic        is_mulhsu,
-  input  var logic        is_div,
-  input  var logic        is_divu,
-  input  var logic        is_rem,
-  input  var logic        is_remu,
-  input  var logic        is_sll,
-  input  var logic        is_slt,
-  input  var logic        is_sltu,
-  input  var logic        is_srl,
-  input  var logic        is_sra,
-  input  var logic        is_lui,
-  input  var logic        is_lb,
-  input  var logic        is_lbu,
-  input  var logic        is_lh,
-  input  var logic        is_lhu,
-  input  var logic        is_lw,
-  input  var logic        is_sb,
-  input  var logic        is_sh,
-  input  var logic        is_sw,
-  input  var logic        is_ecall,
-  input  var logic        is_ebreak,
-  input  var logic        is_csrrw,
-  input  var logic        is_csrrs,
-  input  var logic        is_csrrc,
+  input  decoder_output in,
   // outputs
-  output var logic [4:0]  executor_rd,
-  output var logic [31:0] executor_rd_data,
+  output executor_output out,
   // forwards
-  output var logic [31:0] executor_mem_addr,
-  output var logic [31:0] executor_mem_data,
-  output var logic        executor_is_lui,
-  output var logic        executor_is_lb,
-  output var logic        executor_is_lbu,
-  output var logic        executor_is_lh,
-  output var logic        executor_is_lhu,
-  output var logic        executor_is_lw,
-  output var logic        executor_is_sb,
-  output var logic        executor_is_sh,
-  output var logic        executor_is_sw
+  output executor_forward forward,
 );
   logic [31:0] rs1, rs2;
-  assign rs1 = decoder_reg_rs1;
-  assign rs2 = decoder_reg_rs2;
+  assign rs1 = in.reg_rs1;
+  assign rs2 = in.reg_rs2;
 
   handshake handshake(
     .clk(clk),
@@ -87,65 +40,99 @@ module executor(
     stalled <= state != init;
   end
 
+  typedef struct packed {
+    logic        is_mul;
+    `ifdef RISCV_FORMAL_ALTOPS
+    logic        is_mulh;
+    logic        is_mulhu;
+    logic        is_mulhsu;
+    logic [31:0] rs1;
+    logic [31:0] rs2;
+    `endif
+  } mul_reg_args;
+  mul_reg_args mul_reg;
+  typedef struct packed {
+    logic        is_div;
+    logic        is_divu;
+    logic        is_rem;
+    logic        is_remu;
+    logic [31:0] rs1;
+    logic [31:0] rs2;
+  } div_reg_args;
+  div_reg_args div_reg;
   // state machine
   always_ff @(posedge clk) begin
     if (reset) begin
       state <= init;
+      out <= 0;
+      forward <= 0;
+      div_reg <= 0;
+      mul_reg <= 0;
+      mul_div_counter <= 0;
+      mul_div_store <= 0;
+      mul_div_x <= 0;
+      mul_div_y <= 0;
     end else if(decoder_valid || stalled) begin
-      executor_mem_addr <= decoder_mem_addr;
-      executor_mem_data <= decoder_reg_rs2;
-      executor_rd <= decoder_rd;
-      executor_rd_data <= 0;
-      executor_is_lui <= is_lui;
-      executor_is_lb <= is_lb;
-      executor_is_lbu <= is_lbu;
-      executor_is_lh <= is_lh;
-      executor_is_lhu <= is_lhu;
-      executor_is_lw <= is_lw;
-      executor_is_sb <= is_sb;
-      executor_is_sh <= is_sh;
-      executor_is_sw <= is_sw;
-
       (* parallel_case, full_case *)
       case (state)
         init: begin
+          out.rd <= in.rd;
+          out.rd_data <= 0;
+          forward.mem_addr <= in.mem_addr;
+          forward.mem_data <= in.reg_rs2;
+          forward.is_lui <= in.is_lui;
+          forward.is_lb <= in.is_lb;
+          forward.is_lbu <= in.is_lbu;
+          forward.is_lh <= in.is_lh;
+          forward.is_lhu <= in.is_lhu;
+          forward.is_lw <= in.is_lw;
+          forward.is_sb <= in.is_sb;
+          forward.is_sh <= in.is_sh;
+          forward.is_sw <= in.is_sw;
           (* parallel_case, full_case *)
           case(1'b1)
-            is_add: executor_rd_data <= rs1 + rs2;
-            is_sub: executor_rd_data <= rs1 - rs2;
-            is_sll: executor_rd_data <= rs1 << rs2;
-            is_slt: executor_rd_data <= {31'b0, $signed(rs1) < $signed(rs2)};
-            is_sltu: executor_rd_data <= {31'b0, rs1 < rs2};
-            is_xor: executor_rd_data <= rs1 ^ rs2;
-            is_srl: executor_rd_data <= rs1 >> rs2;
-            is_sra: executor_rd_data <= $signed(rs1) >>> rs2;
-            is_or: executor_rd_data <= rs1 | rs2;
-            is_and: executor_rd_data <= rs1 & rs2;
-
-            is_mul || is_mulh || is_mulhu || is_mulhsu: begin
-              mul_div_counter <= is_mul ? 32 : 64;
+            in.is_add: out.rd_data <= rs1 + rs2;
+            in.is_sub: out.rd_data <= rs1 - rs2;
+            in.is_sll: out.rd_data <= rs1 << rs2;
+            in.is_slt: out.rd_data <= {31'b0, $signed(rs1) < $signed(rs2)};
+            in.is_sltu: out.rd_data <= {31'b0, rs1 < rs2};
+            in.is_xor: out.rd_data <= rs1 ^ rs2;
+            in.is_srl: out.rd_data <= rs1 >> rs2;
+            in.is_sra: out.rd_data <= $signed(rs1) >>> rs2;
+            in.is_or: out.rd_data <= rs1 | rs2;
+            in.is_and: out.rd_data <= rs1 & rs2;
+            in.is_mul || in.is_mulh || in.is_mulhu || in.is_mulhsu: begin
+              mul_div_counter <= in.is_mul ? 32 : 64;
               state <= multiply;
               mul_div_store <= 0;
+              mul_reg.is_mul <= in.is_mul;
+             `ifdef RISCV_FORMAL_ALTOPS
+              mul_reg.is_mulhu <= in.is_mulhu;
+              mul_reg.is_mulh <= in.is_mulh;
+              mul_reg.is_mulhsu <= in.is_mulhsu;
+              mul_reg.rs1 <= rs1;
+              mul_reg.rs2 <= rs2;
+              `endif
               (* parallel_case, full_case *)
               case(1'b1)
-                is_mul || is_mulhu: begin
+                in.is_mul || in.is_mulhu: begin
                   mul_div_x <= {32'b0,rs1};
                   mul_div_y <= {32'b0,rs2};
                 end
 
-                is_mulh: begin
+                in.is_mulh: begin
                   mul_div_x <= {{32{rs1[31]}},rs1};
                   mul_div_y <= {{32{rs2[31]}},rs2};
                 end
 
-                is_mulhsu: begin
+                in.is_mulhsu: begin
                   mul_div_x <= {{32{rs1[31]}},rs1};
                   mul_div_y <= {{32'b0},rs2};
                 end
               endcase
             end
 
-            is_div || is_divu || is_rem || is_remu: begin
+            in.is_div || in.is_divu || in.is_rem || in.is_remu: begin
               mul_div_counter <= 65;
               state <= divide;
               mul_div_store <= 0;
@@ -163,20 +150,20 @@ module executor(
             mul_div_y <= mul_div_y >> 1;
             mul_div_counter <= mul_div_counter - 1;
           end else begin
-            if (is_mul) begin
-              executor_rd_data <= mul_div_store[31:0];
+            if (mul_reg.is_mul) begin
+              out.rd_data <= mul_div_store[31:0];
             end else begin
-              executor_rd_data <= mul_div_store[63:32];
+              out.rd_data <= mul_div_store[63:32];
             end
             state <= init;
           end
          `else
           (* parallel_case, full_case *)
           case (1'b1)
-            is_mul: executor_rd_data <= (rs1 + rs2) ^ 32'h5876063e;
-            is_mulh: executor_rd_data <= (rs1 + rs2) ^ 32'hf6583fb7;
-            is_mulhu: executor_rd_data <= (rs1 + rs2) ^ 32'h949ce5e8;
-            is_mulhsu: executor_rd_data <= (rs1 - rs2) ^ 32'hecfbe137;
+            in.is_mul: out.rd_data <= (mul_reg.rs1 + mul_reg.rs2) ^ 32'h5876063e;
+            in.is_mulh: out.rd_data <= (mul_reg.rs1 + mul_reg.rs2) ^ 32'hf6583fb7;
+            in.is_mulhu: out.rd_data <= (mul_reg.rs1 + mul_reg.rs2) ^ 32'h949ce5e8;
+            in.is_mulhsu: out.rd_data <= (mul_reg.rs1 - mul_reg.rs2) ^ 32'hecfbe137;
           endcase
           state <= init;
          `endif
@@ -196,20 +183,20 @@ module executor(
           end else begin
             (* parallel_case, full_case *)
             case(1'b1)
-              is_div: executor_rd_data <= rs1[31] != rs2[31] ? -mul_div_store[31:0] : mul_div_store[31:0];
-              is_divu: executor_rd_data <= mul_div_store[31:0];
-              is_rem: executor_rd_data <= rs1[31] ? -mul_div_x[31:0] : mul_div_x[31:0];
-              is_remu: executor_rd_data <= mul_div_x[31:0];
+              div_reg.is_div: out.rd_data <= div_reg.rs1[31] != div_reg.rs2[31] ? -mul_div_store[31:0] : mul_div_store[31:0];
+              div_reg.is_divu: out.rd_data <= mul_div_store[31:0];
+              div_reg.is_rem: out.rd_data <= div_reg.rs1[31] ? -mul_div_x[31:0] : mul_div_x[31:0];
+              div_reg.is_remu: out.rd_data <= mul_div_x[31:0];
             endcase
             state <= init;
           end
          `else
           (* parallel_case, full_case *)
           case (1'b1)
-            is_div: executor_rd_data <= (rs1 - rs2) ^ 32'h7f8529ec;
-            is_divu: executor_rd_data <= (rs1 - rs2) ^ 32'h10e8fd70;
-            is_rem: executor_rd_data <= (rs1 - rs2) ^ 32'h8da68fa5;
-            is_remu: executor_rd_data <= (rs1 - rs2) ^ 32'h3138d0e1;
+            div_reg.is_div: out.rd_data <= (div_reg.rs1 - div_reg.rs2) ^ 32'h7f8529ec;
+            div_reg.is_divu: out.rd_data <= (div_reg.rs1 - div_reg.rs2) ^ 32'h10e8fd70;
+            div_reg.is_rem: out.rd_data <= (div_reg.rs1 - div_reg.rs2) ^ 32'h8da68fa5;
+            div_reg.is_remu: out.rd_data <= (div_reg.rs1 - div_reg.rs2) ^ 32'h3138d0e1;
           endcase
           state <= init;
          `endif
@@ -233,7 +220,7 @@ module executor(
   always_ff @(posedge clk) if(clocked && $past(executor_valid) && $past(!accessor_ready)) assert(!executor_valid);
 
   // if we're stalled we aren't requesting anytthing, and we're not publishing anything
-  //always_ff @(posedge clk) if(clocked && $past(stalled)) assert(!executor_valid);
+  always_ff @(posedge clk) if(clocked && $past(stalled)) assert(!executor_valid);
   always_ff @(posedge clk) if(clocked && !$past(reset) && $past(stalled)) assert(!executor_ready);
  `endif
 endmodule

@@ -5,7 +5,6 @@ typedef struct packed {
   logic [31:0] instr;
 } fetcher_output;
 
-
 typedef struct packed {
   logic [4:0]  rd;
   logic [4:0]  reg_rs1;
@@ -58,6 +57,8 @@ typedef struct packed {
   logic        is_lb;
   logic        is_lbu;
   logic        is_lh;
+  logic        is_lhu;
+  logic        is_lw;
   logic        is_sb;
   logic        is_sh;
   logic        is_sw;
