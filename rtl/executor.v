@@ -10,9 +10,7 @@ module executor(
   // inputs
   input  decoder_output in,
   // outputs
-  output executor_output out,
-  // forwards
-  output executor_forward forward,
+  output executor_output out
 );
   logic [31:0] rs1, rs2;
   assign rs1 = in.reg_rs1;
@@ -78,17 +76,17 @@ module executor(
         init: begin
           out.rd <= in.rd;
           out.rd_data <= 0;
-          forward.mem_addr <= in.mem_addr;
-          forward.mem_data <= in.reg_rs2;
-          forward.is_lui <= in.is_lui;
-          forward.is_lb <= in.is_lb;
-          forward.is_lbu <= in.is_lbu;
-          forward.is_lh <= in.is_lh;
-          forward.is_lhu <= in.is_lhu;
-          forward.is_lw <= in.is_lw;
-          forward.is_sb <= in.is_sb;
-          forward.is_sh <= in.is_sh;
-          forward.is_sw <= in.is_sw;
+          out.mem_addr <= in.mem_addr;
+          out.mem_data <= in.reg_rs2;
+          out.is_lui <= in.is_lui;
+          out.is_lb <= in.is_lb;
+          out.is_lbu <= in.is_lbu;
+          out.is_lh <= in.is_lh;
+          out.is_lhu <= in.is_lhu;
+          out.is_lw <= in.is_lw;
+          out.is_sb <= in.is_sb;
+          out.is_sh <= in.is_sh;
+          out.is_sw <= in.is_sw;
           (* parallel_case, full_case *)
           case(1'b1)
             in.is_add: out.rd_data <= rs1 + rs2;

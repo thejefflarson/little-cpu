@@ -27,11 +27,11 @@ read -formal structs.v handshake.v executor.v
 prep -top executor
 
 accessor:
-read -formal accessor.v
+read -formal structs.v handshake.v accessor.v
 prep -top accessor
 
 writeback:
-read -formal writeback.v
+read -formal structs.v writeback.v
 prep -top writeback
 
 handshake:
@@ -59,9 +59,12 @@ executor:
 
 accessor:
 ../rtl/accessor.v
+../rtl/handshake.v
+../rtl/structs.v
 
 writeback:
 ../rtl/writeback.v
+../rtl/structs.v
 
 handshake:
 ../rtl/handshake.v

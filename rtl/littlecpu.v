@@ -42,8 +42,8 @@ module littlecpu(
   output var logic [63:0] rvfi_csr_minstret_wdata
  `endif //  `ifdef RISCV_FORMAL
 );
-  logic        mem_instr;
-  logic        fetcher_valid, fetcher_mem_ready, accessor_mem_ready;
+  logic mem_instr;
+  logic fetcher_valid, fetcher_mem_ready, accessor_mem_ready;
   // possible hazard here
   assign mem_ready = fetcher_mem_ready || accessor_mem_ready;
   logic [31:0] pc;
@@ -65,7 +65,7 @@ module littlecpu(
     .mem_addr(mem_addr)
   );
 
-  logic        fetcher_decoder_ready, fetcher_decoder_valid;
+  logic fetcher_decoder_ready, fetcher_decoder_valid;
   fetcher_output  fetcher_decoder_out;
   skidbuffer #(.WIDTH($bits(fetcher_out))) fetcher_decoder(
     .clk(clk),
@@ -93,7 +93,7 @@ module littlecpu(
     .wdata(wdata)
   );
 
-  logic        decoder_ready, decoder_valid;
+  logic decoder_ready, decoder_valid;
   decoder_output decoder_out;
   decoder decoder(
     .clk(clk),
@@ -108,10 +108,6 @@ module littlecpu(
     // The decoder is largely synchronous so these are assigned a clock cycle early
     .reg_rs1(reg_rs1),
     .reg_rs2(reg_rs2),
-    // forwards
-    .decoder_reg_rs1(decoder_reg_rs1),
-    .decoder_reg_rs2(decoder_reg_rs2),
-    .decoder_rd(decoder_rd),
     // outputs
     // The whole trick! we update the program counter here to keep the pipeline filled
     .pc(pc),
@@ -121,39 +117,50 @@ module littlecpu(
     .out(decoder_out)
   );
 
+  logic decoder_executor_ready, decoder_executor_valid;
+  decoder_output decoder_executor_output;
+    skidbuffer #(.WIDTH($bits(decoder_out))) decoder_executor(
+    .clk(clk),
+    .reset(reset),
+    .input_ready(decoder_executor_ready),
+    .input_valid(decoder_valid),
+    .input_data(decoder_out),
+    .output_ready(executor_ready),
+    .output_valid(decoder_executor_valid),
+    .output_data(decoder_executor_out)
+  );
+
   logic executor_ready, executor_valid;
-  logic [31:0] executor_rd_data, executor_mem_addr, executor_mem_data;
-  logic [4:0]  executor_rd;
+  executor_output executor_out;
   executor executor(
     .clk(clk),
     .reset(reset),
     // handshake
-    .decoder_valid(decoder_valid),
+    .decoder_valid(decoder_executor_valid),
     .executor_ready(executor_ready),
     .executor_valid(executor_valid),
     .accessor_ready(accessor_ready),
     // inputs
-    .in(decoder_out),
+    .in(decoder_executor_out),
     // outputs
-    .executor_rd(executor_rd),
-    .executor_rd_data(executor_rd_data),
-    // forwards
-    .executor_mem_addr(executor_mem_addr),
-    .executor_mem_data(executor_mem_data),
-    .executor_is_lui(is_lui),
-    .executor_is_lb(is_lb),
-    .executor_is_lbu(is_lbu),
-    .executor_is_lh(is_lh),
-    .executor_is_lhu(is_lhu),
-    .executor_is_lw(is_lw),
-    .executor_is_sb(is_sb),
-    .executor_is_sh(is_sh),
-    .executor_is_sw(is_sw)
+    .out(executor_out)
   );
 
-  logic        accessor_ready, accessor_valid;
-  logic [4:0]  accessor_rd;
-  logic [31:0] accessor_rd_data;
+  logic executor_accessor_ready, executor_accessor_valid;
+  executor_output executor_accessor_output;
+  skidbuffer #(.WIDTH($bits(executor_out))) executor_accessor(
+    .clk(clk),
+    .reset(reset),
+    .input_ready(executor_accessor_ready),
+    .input_valid(executor_valid),
+    .input_data(executor_out),
+    .output_ready(accessor_ready),
+    .output_valid(executor_accessor_valid),
+    .output_data(executor_accessor_out)
+  );
+
+  logic accessor_ready, accessor_valid;
+  accessor_output accessor_out;
   accessor accessor(
     .clk(clk),
     .reset(reset),
@@ -161,40 +168,28 @@ module littlecpu(
     .executor_valid(executor_valid),
     .accessor_ready(accessor_ready),
     .accessor_valid(accessor_valid),
-    // forwards
-    .executor_rd(executor_rd),
-    .executor_rd_data(executor_rd_data),
+    .writeback_ready(writeback_ready),
     // inputs
-    .executor_mem_addr(executor_mem_addr),
-    .executor_mem_data(executor_mem_data),
-    .executor_is_lui(is_lui),
-    .executor_is_lb(is_lb),
-    .executor_is_lbu(is_lbu),
-    .executor_is_lh(is_lh),
-    .executor_is_lhu(is_lhu),
-    .executor_is_lw(is_lw),
-    .executor_is_sb(is_sb),
-    .executor_is_sh(is_sh),
-    .executor_is_sw(is_sw),
+    .in(executor_accessor_out),
     // memory access
     .mem_instr(mem_instr),
     .mem_ready(accessor_mem_ready),
     .mem_valid(mem_valid),
     .mem_wstrb(mem_wstrb),
     .mem_wdata(mem_wdata),
-    // outputs
-    .accessor_rd(accessor_rd),
-    .accessor_rd_data(accessor_rd_data)
+    // forwards
+    .out(accessor_out)
   );
 
+  logic writeback_ready;
   writeback writeback(
     .clk(clk),
     .reset(reset),
     // handshake
+    .writeback_ready(writeback_ready),
     .accessor_valid(accessor_valid),
     // inputs
-    .accessor_rd(accessor_rd),
-    .accessor_rd_data(accessor_rd_data),
+    .in(accessor_out),
     // outputs
     .wen(wen),
     .waddr(waddr),

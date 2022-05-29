@@ -4,11 +4,9 @@ module accessor(
     input  var logic reset,
     // handshake
     input  var logic executor_valid,
-    input  var logic fetcher_ready,
     output var logic accessor_ready,
     output var logic accessor_valid,
-    // forwards
-    input executor_forward forward,
+    output var logic writeback_ready,
     // inputs
     input executor_output in,
     // memory access
@@ -21,28 +19,17 @@ module accessor(
     output accessor_output out
 );
   logic stalled;
-  assign stalled = (mem_ready && !mem_valid) || !fetcher_ready;
-    // handshake
-  always_ff @(posedge clk) begin
-    if (reset) begin
-      accessor_valid <= 0;
-    end else if (executor_valid && !accessor_valid && !stalled) begin
-      accessor_valid <= executor_valid;
-    end else if (!accessor_ready) begin
-      accessor_valid <= 0;
-    end
-  end
-
-  // request something from the executor
-  always_ff @(posedge clk) begin
-    if (reset) begin
-      accessor_ready <= 0;
-    end else if(!executor_valid && !accessor_valid && !stalled) begin
-      accessor_ready <= 1;
-    end else begin
-      accessor_ready <= 0;
-    end
-  end
+  assign stalled = (mem_ready && !mem_valid);
+  // handshake
+  handshake handshake(
+    .clk(clk),
+    .reset(reset),
+    .unit_ready(accessor_ready),
+    .input_valid(executor_valid),
+    .output_ready(writeback_ready),
+    .unit_valid(accessor_valid),
+    .busy(stalled)
+  );
 
   // make the request
   always_ff @(posedge clk) begin
@@ -54,7 +41,7 @@ module accessor(
       mem_ready <= 1;
       (* parallel_case, full_case *)
       case (1'b1)
-        forward.is_lw || forward.is_lh || forward.is_lhu || forward.is_lb || forward.is_lbu: begin
+        in.is_lw || in.is_lh || in.is_lhu || in.is_lb || in.is_lbu: begin
           addr24 <= load_store_address[1:0];
           addr16 <= load_store_address[1];
           addr8 <= load_store_address[0];
@@ -66,11 +53,11 @@ module accessor(
             mem_wstrb <= 4'b0000;
             mem_addr <= {load_store_address[31:2], 2'b00};
             mem_valid <= 1; // kick off a memory request
-            cpu_state <= finish_load;
+            state <= finish_load;
           end
         end
 
-        forward.is_sw || forward.is_sh || forward.is_sb: begin
+        in.is_sw || in.is_sh || in.is_sb: begin
           (* parallel_case, full_case *)
           case (1'b1)
             is_sw: begin
@@ -93,7 +80,7 @@ module accessor(
           mem_addr <= {load_store_address[31:2], 2'b00};
           mem_instr <= 0;
           mem_valid <= 1; // kick off a memory request
-          cpu_state <= finish_store;
+          state <= finish_store;
         end // case: is_sw || is_sh || is_sb
       endcase
     end else begin

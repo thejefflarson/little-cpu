@@ -48,9 +48,6 @@ typedef struct packed {
 typedef struct packed {
   logic [4:0]  rd;
   logic [31:0] rd_data;
-} executor_output;
-
-typedef struct packed {
   logic [31:0] mem_addr;
   logic [31:0] mem_data;
   logic        is_lui;
@@ -62,7 +59,7 @@ typedef struct packed {
   logic        is_sb;
   logic        is_sh;
   logic        is_sw;
-} executor_forward;
+} executor_output;
 
 typedef struct packed {
   logic [4:0] rd;
