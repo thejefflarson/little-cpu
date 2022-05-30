@@ -13,8 +13,8 @@ module executor(
   output executor_output out
 );
   logic [31:0] rs1, rs2;
-  assign rs1 = in.reg_rs1;
-  assign rs2 = in.reg_rs2;
+  assign rs1 = in.rs1;
+  assign rs2 = in.rs2;
 
   handshake handshake(
     .clk(clk),
@@ -38,34 +38,11 @@ module executor(
     stalled <= state != init;
   end
 
-  typedef struct packed {
-    logic        is_mul;
-    `ifdef RISCV_FORMAL_ALTOPS
-    logic        is_mulh;
-    logic        is_mulhu;
-    logic        is_mulhsu;
-    logic [31:0] rs1;
-    logic [31:0] rs2;
-    `endif
-  } mul_reg_args;
-  mul_reg_args mul_reg;
-  typedef struct packed {
-    logic        is_div;
-    logic        is_divu;
-    logic        is_rem;
-    logic        is_remu;
-    logic [31:0] rs1;
-    logic [31:0] rs2;
-  } div_reg_args;
-  div_reg_args div_reg;
   // state machine
   always_ff @(posedge clk) begin
     if (reset) begin
       state <= init;
       out <= 0;
-      forward <= 0;
-      div_reg <= 0;
-      mul_reg <= 0;
       mul_div_counter <= 0;
       mul_div_store <= 0;
       mul_div_x <= 0;
@@ -77,7 +54,7 @@ module executor(
           out.rd <= in.rd;
           out.rd_data <= 0;
           out.mem_addr <= in.mem_addr;
-          out.mem_data <= in.reg_rs2;
+          out.mem_data <= in.rs2;
           out.is_lui <= in.is_lui;
           out.is_lb <= in.is_lb;
           out.is_lbu <= in.is_lbu;
@@ -103,18 +80,10 @@ module executor(
               mul_div_counter <= in.is_mul ? 32 : 64;
               state <= multiply;
               mul_div_store <= 0;
-              mul_reg.is_mul <= in.is_mul;
-             `ifdef RISCV_FORMAL_ALTOPS
-              mul_reg.is_mulhu <= in.is_mulhu;
-              mul_reg.is_mulh <= in.is_mulh;
-              mul_reg.is_mulhsu <= in.is_mulhsu;
-              mul_reg.rs1 <= rs1;
-              mul_reg.rs2 <= rs2;
-              `endif
               (* parallel_case, full_case *)
               case(1'b1)
                 in.is_mul || in.is_mulhu: begin
-                  mul_div_x <= {32'b0,rs1};
+                  mul_div_x <= {32'sb0,rs1};
                   mul_div_y <= {32'b0,rs2};
                 end
 
@@ -148,7 +117,7 @@ module executor(
             mul_div_y <= mul_div_y >> 1;
             mul_div_counter <= mul_div_counter - 1;
           end else begin
-            if (mul_reg.is_mul) begin
+            if (in.is_mul) begin
               out.rd_data <= mul_div_store[31:0];
             end else begin
               out.rd_data <= mul_div_store[63:32];
@@ -158,10 +127,10 @@ module executor(
          `else
           (* parallel_case, full_case *)
           case (1'b1)
-            in.is_mul: out.rd_data <= (mul_reg.rs1 + mul_reg.rs2) ^ 32'h5876063e;
-            in.is_mulh: out.rd_data <= (mul_reg.rs1 + mul_reg.rs2) ^ 32'hf6583fb7;
-            in.is_mulhu: out.rd_data <= (mul_reg.rs1 + mul_reg.rs2) ^ 32'h949ce5e8;
-            in.is_mulhsu: out.rd_data <= (mul_reg.rs1 - mul_reg.rs2) ^ 32'hecfbe137;
+            in.is_mul: out.rd_data <= (in.rs1 + in.rs2) ^ 32'h5876063e;
+            in.is_mulh: out.rd_data <= (in.rs1 + in.rs2) ^ 32'hf6583fb7;
+            in.is_mulhu: out.rd_data <= (in.rs1 + in.rs2) ^ 32'h949ce5e8;
+            in.is_mulhsu: out.rd_data <= (in.rs1 - in.rs2) ^ 32'hecfbe137;
           endcase
           state <= init;
          `endif
@@ -181,20 +150,20 @@ module executor(
           end else begin
             (* parallel_case, full_case *)
             case(1'b1)
-              div_reg.is_div: out.rd_data <= div_reg.rs1[31] != div_reg.rs2[31] ? -mul_div_store[31:0] : mul_div_store[31:0];
-              div_reg.is_divu: out.rd_data <= mul_div_store[31:0];
-              div_reg.is_rem: out.rd_data <= div_reg.rs1[31] ? -mul_div_x[31:0] : mul_div_x[31:0];
-              div_reg.is_remu: out.rd_data <= mul_div_x[31:0];
+              in.is_div: out.rd_data <= in.rs1[31] != in.rs2[31] ? -mul_div_store[31:0] : mul_div_store[31:0];
+              in.is_divu: out.rd_data <= mul_div_store[31:0];
+              in.is_rem: out.rd_data <= in.rs1[31] ? -mul_div_x[31:0] : mul_div_x[31:0];
+              in.is_remu: out.rd_data <= mul_div_x[31:0];
             endcase
             state <= init;
           end
          `else
           (* parallel_case, full_case *)
           case (1'b1)
-            div_reg.is_div: out.rd_data <= (div_reg.rs1 - div_reg.rs2) ^ 32'h7f8529ec;
-            div_reg.is_divu: out.rd_data <= (div_reg.rs1 - div_reg.rs2) ^ 32'h10e8fd70;
-            div_reg.is_rem: out.rd_data <= (div_reg.rs1 - div_reg.rs2) ^ 32'h8da68fa5;
-            div_reg.is_remu: out.rd_data <= (div_reg.rs1 - div_reg.rs2) ^ 32'h3138d0e1;
+            in.is_div: out.rd_data <= (in.rs1 - in.rs2) ^ 32'h7f8529ec;
+            in.is_divu: out.rd_data <= (in.rs1 - in.rs2) ^ 32'h10e8fd70;
+            in.is_rem: out.rd_data <= (in.rs1 - in.rs2) ^ 32'h8da68fa5;
+            in.is_remu: out.rd_data <= (in.rs1 - in.rs2) ^ 32'h3138d0e1;
           endcase
           state <= init;
          `endif

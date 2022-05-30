@@ -7,8 +7,8 @@ typedef struct packed {
 
 typedef struct packed {
   logic [4:0]  rd;
-  logic [4:0]  reg_rs1;
-  logic [4:0]  reg_rs2;
+  logic [4:0]  rs1;
+  logic [4:0]  rs2;
   logic [31:0] mem_addr;
   logic        is_valid_instr;
   logic        is_add;

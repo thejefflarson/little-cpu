@@ -174,9 +174,11 @@ module littlecpu(
     // memory access
     .mem_instr(mem_instr),
     .mem_ready(accessor_mem_ready),
+    .mem_addr(mem_addr),
     .mem_valid(mem_valid),
     .mem_wstrb(mem_wstrb),
     .mem_wdata(mem_wdata),
+    .mem_rdata(mem_rdata),
     // forwards
     .out(accessor_out)
   );

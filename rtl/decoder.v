@@ -300,8 +300,8 @@ module decoder (
       pc <= fetcher_pc + pc_inc;
       out.mem_addr <= $signed(immediate) + $signed(reg_rs1);
       // forwards
-      out.reg_rs1 <= reg_rs1;
-      out.reg_rs2 <= instr_math ? math_arg : reg_rs2;
+      out.rs1 <= reg_rs1;
+      out.rs2 <= instr_math ? math_arg : reg_rs2;
       out.rd <= rd;
       // outputs
       out.is_add <= instr_add;
@@ -342,8 +342,8 @@ module decoder (
       case(1'b1)
         instr_auipc: begin
           out.rd <= rd;
-          out.reg_rs1 <= reg_rs1;
-          out.reg_rs2 <= reg_rs2;
+          out.rs1 <= reg_rs1;
+          out.rs2 <= reg_rs2;
           out.is_add <= 1;
         end
 
@@ -351,8 +351,8 @@ module decoder (
           pc <= instr_jalr ?
             ($signed(immediate) + $signed(reg_rs1)) & 32'hfffffffe :
             $signed(pc) + $signed(immediate);
-          out.reg_rs1 <= pc;
-          out.reg_rs2 <= pc_inc;
+          out.rs1 <= pc;
+          out.rs2 <= pc_inc;
           out.rd <= rd;
           out.is_add <= 1;
         end
@@ -367,8 +367,8 @@ module decoder (
             instr_bge: pc <= $signed(reg_rs1) >= $signed(reg_rs2) ? fetcher_pc + immediate : fetcher_pc + pc_inc;
             instr_bgeu: pc <= reg_rs1 >= reg_rs2 ? fetcher_pc + immediate : fetcher_pc + pc_inc;
           endcase // case (1'b1)
-          out.reg_rs1 <= 0;
-          out.reg_rs2 <= 0;
+          out.rs1 <= 0;
+          out.rs2 <= 0;
           out.rd <= 0;
         end
       endcase
