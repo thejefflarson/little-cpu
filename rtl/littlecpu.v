@@ -1,22 +1,24 @@
 `default_nettype none
 module littlecpu(
-  input  var logic        clk,
-  input  var logic        reset,
-  input  var logic        mem_valid,
-  output var logic        mem_ready,
+  input  var logic clk,
+  input  var logic reset,
+  output var logic imem_addr,
+  input  var logic imem_data,
+  input  var logic mem_valid,
+  output var logic mem_ready,
   output var logic [31:0] mem_addr,
   output var logic [31:0] mem_wdata,
-  output var logic [3:0]  mem_wstrb,
+  output var logic [3:0] mem_wstrb,
   input  var logic [31:0] mem_rdata,
-  output var logic        trap
- `ifdef RISCV_FORMAL
-  ,
-  output var logic        rvfi_valid,
+  output var logic trap
+         `ifdef RISCV_FORMAL
+         ,
+  output var logic rvfi_valid,
   output var logic [63:0] rvfi_order,
   output var logic [31:0] rvfi_insn,
-  output var logic        rvfi_trap,
-  output var logic        rvfi_halt,
-  output var logic        rvfi_intr,
+  output var logic rvfi_trap,
+  output var logic rvfi_halt,
+  output var logic rvfi_intr,
   output var logic [ 1:0] rvfi_mode,
   output var logic [ 1:0] rvfi_ixl,
   output var logic [ 4:0] rvfi_rs1_addr,
@@ -40,8 +42,8 @@ module littlecpu(
   output var logic [63:0] rvfi_csr_minstret_wmask,
   output var logic [63:0] rvfi_csr_minstret_rdata,
   output var logic [63:0] rvfi_csr_minstret_wdata
- `endif //  `ifdef RISCV_FORMAL
-);
+         `endif //  `ifdef RISCV_FORMAL
+  );
   logic mem_instr;
   logic fetcher_valid, fetcher_mem_ready, accessor_mem_ready;
   // possible hazard here

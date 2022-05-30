@@ -40,9 +40,19 @@ module littlesoc (
     .mem_rdata(mem_rdata)
   );
 
+  logic [31:0] imem_addr;
+  logic [31:0] imem_data;
+  imemory imemory(
+    .clk(clk),
+    .imem_addr(imem_addr),
+    .imem_data(imem_data)
+  );
+
   littlecpu riscv (
     .clk(clk),
     .reset(reset),
+    .imem_addr(imem_addr),
+    .imem_data(imem_data),
     .mem_valid(mem_valid),
     .mem_ready(mem_ready),
     .mem_addr(mem_addr),
