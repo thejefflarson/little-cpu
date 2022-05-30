@@ -21,7 +21,9 @@ module accessor(
     output accessor_output out
 );
   logic stalled;
-  assign stalled = (mem_ready && !mem_valid);
+  always_ff @(posedge clk) begin
+    stalled <= state != init;
+  end
   // handshake
   handshake handshake(
     .clk(clk),
@@ -45,7 +47,7 @@ module accessor(
       mem_addr <= 0;
       mem_wstrb <= 0;
       mem_wdata <= 0;
-    end else if(!mem_valid && !accessor_valid && !stalled) begin
+    end else if(executor_valid || stalled) begin
       out.rd_data <= in.rd_data;
       out.rd <= in.rd;
       mem_ready <= 1;
@@ -154,9 +156,10 @@ module accessor(
   initial assume(reset);
   always_comb if(!clocked) assume(reset);
   // if we've been valid but stalled, we're not valid anymore
-  always_ff @(posedge clk) if(clocked && $past(accessor_valid) && stalled) assert(!accessor_valid);
+  always_ff @(posedge clk) if(clocked && $past(accessor_valid) && $past(!writeback_ready)) assert(!accessor_valid);
 
   // if we're stalled we aren't requesting anytthing, and we're not publishing anything
-  always_ff @(posedge clk) if(clocked && $past(stalled)) assert(!accessor_valid && !accessor_ready);
+    always_ff @(posedge clk) if(clocked && $past(stalled)) assert(!accessor_valid);
+  always_ff @(posedge clk) if(clocked && !$past(reset) && $past(stalled)) assert(!accessor_ready);
  `endif
 endmodule
