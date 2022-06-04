@@ -1,21 +1,21 @@
 `default_nettype none
 module decoder (
-  input  var logic clk,
-  input  var logic reset,
+  input  logic clk,
+  input  logic reset,
   // handshake
-  input  var logic fetcher_valid,
-  output var logic decoder_ready,
-  output var logic decoder_valid,
-  input  var logic executor_ready,
+  input  logic fetcher_valid,
+  output logic decoder_ready,
+  output logic decoder_valid,
+  input  logic executor_ready,
   // inputs
   input  fetcher_output in,
-  input  var logic [31:0] reg_rs1,
-  input  var logic [31:0] reg_rs2,
+  input  logic [31:0] reg_rs1,
+  input  logic [31:0] reg_rs2,
   // outputs
-  output var logic [31:0] pc,
+  output logic [31:0] pc,
   // rs1 and rs2 are synchronous outputs
-  output var logic [4:0] rs1,
-  output var logic [4:0] rs2,
+  output logic [4:0] rs1,
+  output logic [4:0] rs2,
   // forwards
   output decoder_output out
 );
@@ -231,7 +231,7 @@ module decoder (
     || instr_sw || instr_ecall || instr_ebreak;
 
   logic [4:0] rd;
-  always_comb
+  always_comb begin
     (* parallel_case, full_case *)
     case (1'b1)
       instr_beq || instr_bne || instr_blt || instr_bge || instr_bltu || instr_bgeu ||
@@ -242,8 +242,8 @@ module decoder (
         instr_cor || instr_cxor || instr_csub: rd = {2'b01, instr[9:7]};
       default: rd = instr[11:7];
     endcase
-
-  always_comb
+  end
+  always_comb begin
     (* parallel_case, full_case *)
     case (1'b1)
       instr_clwsp || instr_cswsp || instr_caddi4spn: rs1 = 2;
@@ -254,9 +254,10 @@ module decoder (
       instr_cli || instr_cmv: rs1 = 0;
       instr_caddi || instr_caddi16sp || instr_cadd: rs1 = instr[11:7];
       default: rs1 = instr[19:15];
-    endcase
+    endcase // case (1'b1)
+  end
 
-  always_comb
+  always_comb begin
     (* parallel_case, full_case *)
     case(1'b1)
       instr_cswsp || instr_cslli || instr_csrai || instr_csrli || instr_cmv || instr_cadd: rs2 = instr[6:2];
@@ -264,7 +265,7 @@ module decoder (
       instr_cbeqz || instr_cbnez: rs2 = 0;
       default: rs2 = instr[24:20];
     endcase
-
+  end
   // ALU handling
   logic instr_math, instr_shift;
   assign instr_math = instr_add || instr_sub || instr_sll || instr_slt || instr_sltu || instr_xor || instr_srl ||
@@ -286,7 +287,7 @@ module decoder (
     .input_valid(fetcher_valid),
     .output_ready(executor_ready),
     .unit_valid(decoder_valid),
-    .busy(0)
+    .busy(1'b0)
   );
   logic [31:0] pc_inc;
   assign pc_inc = uncompressed ? 4 : 2;

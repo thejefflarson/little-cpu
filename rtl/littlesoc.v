@@ -1,13 +1,13 @@
 `default_nettype none
 module littlesoc (
-  input  var clk,
-  input  var reset,
-  output var flash_cs,
-  output var flash_clk,
-  inout  var flash_io0,
-  inout  var flash_io1,
-  inout  var flash_io2,
-  inout  var flash_io3
+  input  clk,
+  input  reset,
+  output flash_cs,
+  output flash_clk,
+  inout  flash_io0,
+  inout  flash_io1,
+  inout  flash_io2,
+  inout  flash_io3
 );
   logic int_flash_clk;
   assign flash_clk = int_flash_clk;

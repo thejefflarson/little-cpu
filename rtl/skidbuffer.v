@@ -4,14 +4,14 @@ module skidbuffer
   parameter WIDTH = 32
 )
 (
-  input  var logic             clk,
-  input  var logic             reset,
-  output var logic             input_ready,
-  input  var logic             input_valid,
-  input  var logic [WIDTH-1:0] input_data,
-  input  var logic             output_ready,
-  output var logic             output_valid,
-  output var logic [WIDTH-1:0] output_data
+  input  logic             clk,
+  input  logic             reset,
+  output logic             input_ready,
+  input  logic             input_valid,
+  input  logic [WIDTH-1:0] input_data,
+  input  logic             output_ready,
+  output logic             output_valid,
+  output logic [WIDTH-1:0] output_data
 );
   logic [WIDTH-1:0] buffer;
   logic [WIDTH-1:0] out;

@@ -1,18 +1,17 @@
 `default_nettype none
 module memory #(
-  // in four byte words, this will take up all of the embedded memory in an up5k with room for the
+  // in four byte words, this will take up half of the embedded memory in an up5k with room for the
   // register file.
-  parameter integer RAM = 31744
+  parameter integer RAM = 15872
 ) (
-  input  var logic        clk,
-  input  var logic        mem_ready,
-  output var logic        mem_valid,
-  input  var logic [31:0] mem_addr,
-  input  var logic [31:0] mem_wdata,
-  input  var logic [3:0]  mem_wstrb,
-  output var logic [31:0] mem_rdata
+  input  logic        clk,
+  input  logic        mem_ready,
+  output logic        mem_valid,
+  input  logic [31:0] mem_addr,
+  input  logic [31:0] mem_wdata,
+  input  logic [3:0]  mem_wstrb,
+  output logic [31:0] mem_rdata
 );
-  initial $readmemh("./rom.mem", ram);
   logic [31:0] ram[RAM-1:0];
   always_ff @(posedge clk) begin
       mem_valid <= 0;

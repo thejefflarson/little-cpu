@@ -1,19 +1,19 @@
 `default_nettype none
 module handshake(
-  input  var logic clk,
-  input  var logic reset,
-  output var logic unit_ready,
-  input  var logic input_valid,
-  input  var logic output_ready,
-  output var logic unit_valid,
-  input  var logic busy
+  input  logic clk,
+  input  logic reset,
+  output logic unit_ready,
+  input  logic input_valid,
+  input  logic output_ready,
+  output logic unit_valid,
+  input  logic busy
 );
   always_ff @(posedge clk) begin
     if (reset) begin
       unit_ready <= 1;
     end else if (output_ready && !input_valid && !busy) begin
       unit_ready <= 1;
-    end else if (busy) begin
+    end else begin
       unit_ready <= 0;
     end
   end

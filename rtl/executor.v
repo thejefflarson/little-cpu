@@ -1,12 +1,12 @@
 `default_nettype none
 module executor(
-  input  var logic clk,
-  input  var logic reset,
+  input  logic clk,
+  input  logic reset,
   // handshake
-  input  var logic decoder_valid,
-  output var logic executor_ready,
-  output var logic executor_valid,
-  input  var logic accessor_ready,
+  input  logic decoder_valid,
+  output logic executor_ready,
+  output logic executor_valid,
+  input  logic accessor_ready,
   // inputs
   input  decoder_output in,
   // outputs
@@ -34,9 +34,8 @@ module executor(
   logic [63:0] mul_div_x, mul_div_y;
   logic [63:0] mul_div_store;
   logic stalled;
-  always_ff @(posedge clk) begin
-    stalled <= state != init;
-  end
+  always_comb
+    stalled = state != init;
 
   // state machine
   always_ff @(posedge clk) begin
