@@ -1,3 +1,4 @@
+`timescale 1 ns / 1 ps
 `default_nettype none
 module memory #(
   // in four byte words, this will take up half of the embedded memory in an up5k with room for the

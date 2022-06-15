@@ -1,3 +1,4 @@
+`timescale 1 ns / 1 ps
 `default_nettype none
 module executor(
   input  logic clk,
@@ -54,7 +55,6 @@ module executor(
           out.rd_data <= 0;
           out.mem_addr <= in.mem_addr;
           out.mem_data <= in.rs2;
-          out.is_lui <= in.is_lui;
           out.is_lb <= in.is_lb;
           out.is_lbu <= in.is_lbu;
           out.is_lh <= in.is_lh;
@@ -66,6 +66,7 @@ module executor(
           (* parallel_case, full_case *)
           case(1'b1)
             in.is_add: out.rd_data <= rs1 + rs2;
+            in.is_lui: out.rd_data <= rs1;
             in.is_sub: out.rd_data <= rs1 - rs2;
             in.is_sll: out.rd_data <= rs1 << rs2;
             in.is_slt: out.rd_data <= {31'b0, $signed(rs1) < $signed(rs2)};
@@ -105,6 +106,8 @@ module executor(
               mul_div_x <= {32'b0,rs1};
               mul_div_y <= {1'b0,rs2,31'b0};
             end
+            in.is_ecall || in.is_ebreak || in.is_csrrw || in.is_csrrs || in.is_csrrc: ;
+            in.is_valid_instr: ;
           endcase // case (1'b1)
         end // case: init
 
@@ -166,7 +169,8 @@ module executor(
           endcase
           state <= init;
          `endif
-        end
+        end // case: divide
+        default: ;
       endcase;
     end
   end

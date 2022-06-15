@@ -1,3 +1,4 @@
+`timescale 1 ns / 1 ps
 `default_nettype none
 module accessor(
     input  logic clk,
@@ -33,8 +34,8 @@ module accessor(
     .unit_valid(accessor_valid),
     .busy(stalled)
   );
-  logic addr24, addr16, addr8;
-  logic [1:0] state;
+  logic addr16;
+  logic [1:0] state, addr24;
   localparam init = 2'b00;
   localparam load = 2'b01;
   localparam store = 2'b10;
@@ -58,7 +59,6 @@ module accessor(
             in.is_lw || in.is_lh || in.is_lhu || in.is_lb || in.is_lbu: begin
               addr24 <= in.mem_addr[1:0];
               addr16 <= in.mem_addr[1];
-              addr8 <= in.mem_addr[0];
               out.rd <= in.rd;
               mem_wstrb <= 4'b0000;
               mem_addr <= {in.mem_addr[31:2], 2'b00};
@@ -141,6 +141,7 @@ module accessor(
             mem_ready <= 0;
           end
         end
+        default: $stop;
       endcase
     end else begin
       mem_ready <= 0;

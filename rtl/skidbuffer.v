@@ -1,3 +1,4 @@
+`timescale 1 ns / 1 ps
 `default_nettype none
 module skidbuffer
 #(
@@ -13,9 +14,9 @@ module skidbuffer
   output logic             output_valid,
   output logic [WIDTH-1:0] output_data
 );
+  //TODO: https://www.autonomousvision.io/blog/readyvalid-pipeline
   logic [WIDTH-1:0] buffer;
   logic [WIDTH-1:0] out;
-  logic [WIDTH-1:0] selected_data;
 
   logic             insert;
   logic             remove;
@@ -68,6 +69,7 @@ module skidbuffer
         end else begin
           input_ready <= 0;
         end
+        default: ;
       endcase
     end
   end // always_ff @ (posedge clk)

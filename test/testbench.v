@@ -1,25 +1,15 @@
 `timescale 1 ns / 1 ps
 //`define RISCV_FORMAL
-module testbench;
+module testbench(
+	input clk,
+	input reset
+);
   logic [31:0] memory[0:255];
   logic [31:0] rom[0:255];
-  logic clk = 0;
-  logic reset = 1;
-  // always #5 clk = ~clk;
-
-  // initial begin
-  //   $dumpfile("testbench.vcd");
-  //   $dumpvars(0, testbench);
-  //   repeat (1) @(posedge clk);
-  //   reset <= 0;
-  //   repeat (200) @(posedge clk);
-  //   $finish;
-  // end
 
   logic [31:0] imem_addr;
   logic [31:0] imem_data;
   logic        mem_valid;
-  logic        mem_instr;
   logic        mem_ready;
   logic [31:0] mem_addr;
   logic [31:0] mem_wdata;
@@ -47,7 +37,10 @@ module testbench;
   logic [31:0] rvfi_mem_rdata;
   logic [31:0] rvfi_mem_wdata;
  `endif
-
+  initial begin
+    $dumpfile("testbench.vcd");
+    $dumpvars(0, testbench);
+  end
   always_ff @(posedge clk) begin
     mem_valid <= 0;
     if (!mem_valid && mem_ready) begin
@@ -63,7 +56,7 @@ module testbench;
   end // always_ff @ (posedge clk)
 
   always_ff @(posedge clk) begin
-    imem_data <= rom[imem_addr[31:2]];
+    imem_data <= rom[imem_addr[9:2]];
   end
 
   littlecpu uut (
@@ -138,14 +131,14 @@ module testbench;
   initial past_addr = 32'b1;
   always_ff @(posedge clk) begin
     if (past_addr != imem_addr) begin
-      $display("ifetch 0x%08x: 0x%08x", imem_addr, imem_data);
+      $display("ifetch 0x%08x: 0x%08x", past_addr, imem_data);
       past_addr <= imem_addr;
     end
   end
 
   always_ff @(posedge clk) begin
     if (mem_valid && mem_ready) begin
-      if (mem_wstrb) begin
+      if (mem_wstrb != 4'b0000) begin
         $display("write  0x%08x: 0x%08x (wstrb=%b)", mem_addr, mem_wdata, mem_wstrb);
       end else begin
         $display("read   0x%08x: 0x%08x", mem_addr, mem_rdata);

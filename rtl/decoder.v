@@ -1,3 +1,4 @@
+`timescale 1 ns / 1 ps
 `default_nettype none
 module decoder (
   input  logic clk,
@@ -19,7 +20,6 @@ module decoder (
   // forwards
   output decoder_output out
 );
-
   logic [31:0] instr;
   assign instr = in.instr;
   logic [31:0] fetcher_pc;
@@ -296,12 +296,12 @@ module decoder (
     if (reset) begin
       // zero out the pc
       pc <= 0;
-    end else if (fetcher_valid && executor_ready) begin
+    end else if(fetcher_valid) begin
       // update pc
       pc <= fetcher_pc + pc_inc;
       out.mem_addr <= $signed(immediate) + $signed(reg_rs1);
       // forwards
-      out.rs1 <= reg_rs1;
+      out.rs1 <= instr_lui ? immediate : reg_rs1;
       out.rs2 <= instr_math ? math_arg : reg_rs2;
       out.rd <= rd;
       // outputs
@@ -351,8 +351,8 @@ module decoder (
         instr_jal || instr_jalr: begin
           pc <= instr_jalr ?
             ($signed(immediate) + $signed(reg_rs1)) & 32'hfffffffe :
-            $signed(pc) + $signed(immediate);
-          out.rs1 <= pc;
+            $signed(fetcher_pc) + $signed(immediate);
+          out.rs1 <= fetcher_pc;
           out.rs2 <= pc_inc;
           out.rd <= rd;
           out.is_add <= 1;
@@ -383,11 +383,18 @@ module decoder (
   // assume we've reset at clk 0
   initial assume(reset);
   always_comb if(!clocked) assume(reset);
+  always_comb if(reset) assume(!fetcher_valid);
   // if we've been valid but stalled, we're not valid anymore
   always_ff @(posedge clk) if(clocked && $past(decoder_valid) && $past(decoder_valid && !executor_ready)) assert(!decoder_valid);
 
   // if we've been valid but the next stage is busy, we're not valid anymore
   always_ff @(posedge clk) if(clocked && $past(decoder_valid) && $past(!executor_ready)) assert(!decoder_valid);
+
+  // pc increment logic
+  logic branch_jump;
+  always_ff @(posedge clk) branch_jump <= instr_jal || instr_jalr || instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu;
+  always_ff @(posedge clk) if(clocked && !branch_jump && $past(fetcher_valid) && $past(uncompressed)) assert($past(fetcher_pc + 4) == pc);
+  always_ff @(posedge clk) if(clocked && !branch_jump && $past(fetcher_valid) && $past(!uncompressed)) assert($past(fetcher_pc + 2) == pc);
 
   logic one_of;
   assign one_of = instr_auipc ^ instr_jal ^ instr_jalr ^ instr_beq ^ instr_bne ^ instr_blt ^

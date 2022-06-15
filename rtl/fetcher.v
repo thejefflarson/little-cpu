@@ -1,3 +1,4 @@
+`timescale 1 ns / 1 ps
 `default_nettype none
 module fetcher(
   input  logic clk,
@@ -13,21 +14,18 @@ module fetcher(
   output fetcher_output out
 );
 
-  // handshake
+  assign imem_addr = pc;
   always_ff @(posedge clk) begin
-    if (reset) begin
-      out.instr <= 32'b0;
-      imem_addr <= 0;
-    // we've received a request and we can pass it along
-    end else if (decoder_ready && !fetcher_valid) begin
+    if(reset) begin
+      fetcher_valid <= 0;
+    end else if(!fetcher_valid && decoder_ready) begin
       out.instr <= imem_data;
       out.pc <= imem_addr;
       fetcher_valid <= 1;
     end else begin
-      imem_addr <= pc;
       fetcher_valid <= 0;
     end
-  end // always_ff @ (posedge clk)
+  end
 
  `ifdef FORMAL
   logic clocked;
