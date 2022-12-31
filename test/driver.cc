@@ -14,7 +14,10 @@ int main(int argc, char** argv, char** env) {
     Vtestbench* top = new Vtestbench{contextp};
     top->clk = 0;
     int t = 0;
+          std::cout << "wtf";
+
     while (!Verilated::gotFinish()) {
+      std::cout << "wtf";
       contextp->timeInc(1);
       if (!top->clk) {
         if (contextp->time() > 1 && contextp->time() < 10) {

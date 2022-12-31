@@ -6,7 +6,6 @@ module testbench(
 );
   logic [31:0] memory[0:255];
   logic [31:0] rom[0:255];
-
   logic [31:0] imem_addr;
   logic [31:0] imem_data;
   logic        mem_valid;

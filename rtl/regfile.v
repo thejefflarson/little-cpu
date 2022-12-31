@@ -10,13 +10,13 @@ module regfile(
   input  logic [4:0]  waddr,
   input  logic [31:0] wdata
 );
-  logic [31:0] regs[30:0];
+  logic [32:0] regs[31:0];
 
   always_ff @(posedge clk) begin
-    reg_rs1 <= rs1 > 0 ? regs[rs1 - 1] : 0;
-    reg_rs2 <= rs2 > 0 ? regs[rs2 - 1] : 0;
+    reg_rs1 <= rs1 > 0 ? regs[rs1] : 0;
+    reg_rs2 <= rs2 > 0 ? regs[rs2] : 0;
     if (wen) begin
-      if(waddr > 0) regs[waddr - 1] <= wdata;
+      if(waddr > 0) regs[waddr] <= wdata;
     end
   end
 endmodule

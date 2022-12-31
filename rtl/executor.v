@@ -13,6 +13,7 @@ module executor(
   // outputs
   output executor_output out
 );
+
   logic [31:0] rs1, rs2;
   assign rs1 = in.rs1;
   assign rs2 = in.rs2;
@@ -38,8 +39,8 @@ module executor(
     stalled = state != init;
 
   // multiply from:
-  logic mul_sign_x = in.rs1 & in.is_mulh;
-  logic mul_sign_y = in.rs2 & (in.is_mulh | in.is_mulhsu);
+  logic mul_sign_x = in.rs1[0] & in.is_mulh;
+  logic mul_sign_y = in.rs2[0] & (in.is_mulh | in.is_mulhsu);
   logic signed [63:0] multiply = {mul_sign_x, in.rs1} * {mul_sign_y, in.rs2};
 
   // state machine

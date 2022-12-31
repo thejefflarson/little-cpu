@@ -16,9 +16,9 @@ module fetcher(
 
   assign imem_addr = pc;
   always_ff @(posedge clk) begin
-    if(reset) begin
+    if (reset) begin
       fetcher_valid <= 0;
-    end else if(!fetcher_valid && decoder_ready) begin
+    end else if (!fetcher_valid && decoder_ready) begin
       out.instr <= imem_data;
       out.pc <= imem_addr;
       fetcher_valid <= 1;
