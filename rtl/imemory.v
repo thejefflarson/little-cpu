@@ -13,5 +13,4 @@ module imemory #(
   logic [31:0] rom[ROM-1:0];
   always_comb
     imem_data = rom[imem_addr[31:2]];
-  end
 endmodule

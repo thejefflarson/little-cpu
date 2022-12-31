@@ -29,7 +29,6 @@ module executor(
 
   logic [1:0]  state;
   localparam init = 2'b00;
-  localparam multiply = 2'b01;
   localparam divide = 2'b10;
   logic [6:0]  mul_div_counter;
   logic [63:0] mul_div_x, mul_div_y;
@@ -37,6 +36,11 @@ module executor(
   logic stalled;
   always_comb
     stalled = state != init;
+
+  // multiply from:
+  logic mul_sign_x = in.rs1 & in.is_mulh;
+  logic mul_sign_y = in.rs2 & (in.is_mulh | in.is_mulhsu);
+  logic signed [63:0] multiply = {mul_sign_x, in.rs1} * {mul_sign_y, in.rs2};
 
   // state machine
   always_ff @(posedge clk) begin
@@ -47,7 +51,7 @@ module executor(
       mul_div_store <= 0;
       mul_div_x <= 0;
       mul_div_y <= 0;
-    end else if(decoder_valid || stalled) begin
+    end else if (decoder_valid || stalled) begin
       (* parallel_case, full_case *)
       case (state)
         init: begin
@@ -64,7 +68,7 @@ module executor(
           out.is_sh <= in.is_sh;
           out.is_sw <= in.is_sw;
           (* parallel_case, full_case *)
-          case(1'b1)
+          case (1'b1)
             in.is_add: out.rd_data <= rs1 + rs2;
             in.is_lui: out.rd_data <= rs1;
             in.is_sub: out.rd_data <= rs1 - rs2;
@@ -77,66 +81,34 @@ module executor(
             in.is_or: out.rd_data <= rs1 | rs2;
             in.is_and: out.rd_data <= rs1 & rs2;
             in.is_mul || in.is_mulh || in.is_mulhu || in.is_mulhsu: begin
-              mul_div_counter <= in.is_mul ? 32 : 64;
-              state <= multiply;
-              mul_div_store <= 0;
+             `ifndef RISCV_FORMAL_ALTOPS
+              if (in.is_mul) begin
+                out.rd_data <= multiply[31:0];
+              end else begin
+                out.rd_data <= multiply[63:32];
+              end
+             `else
               (* parallel_case, full_case *)
-              case(1'b1)
-                in.is_mul || in.is_mulhu: begin
-                  mul_div_x <= {32'sb0,rs1};
-                  mul_div_y <= {32'b0,rs2};
-                end
-
-                in.is_mulh: begin
-                  mul_div_x <= {{32{rs1[31]}},rs1};
-                  mul_div_y <= {{32{rs2[31]}},rs2};
-                end
-
-                in.is_mulhsu: begin
-                  mul_div_x <= {{32{rs1[31]}},rs1};
-                  mul_div_y <= {{32'b0},rs2};
-                end
+              case (1'b1)
+                in.is_mul: out.rd_data <= (in.rs1 + in.rs2) ^ 32'h5876063e;
+                in.is_mulh: out.rd_data <= (in.rs1 + in.rs2) ^ 32'hf6583fb7;
+                in.is_mulhu: out.rd_data <= (in.rs1 + in.rs2) ^ 32'h949ce5e8;
+                in.is_mulhsu: out.rd_data <= (in.rs1 - in.rs2) ^ 32'hecfbe137;
               endcase
+             `endif
             end
 
             in.is_div || in.is_divu || in.is_rem || in.is_remu: begin
               mul_div_counter <= 65;
               state <= divide;
               mul_div_store <= 0;
-              mul_div_x <= {32'b0,rs1};
-              mul_div_y <= {1'b0,rs2,31'b0};
+              mul_div_x <= {32'b0, rs1};
+              mul_div_y <= {1'b0, rs2, 31'b0};
             end
             in.is_ecall || in.is_ebreak || in.is_csrrw || in.is_csrrs || in.is_csrrc: ;
             in.is_valid_instr: ;
           endcase // case (1'b1)
         end // case: init
-
-        multiply: begin
-         `ifndef RISCV_FORMAL_ALTOPS
-          if (mul_div_counter > 0) begin
-            mul_div_store <= mul_div_y[0] ? mul_div_store + mul_div_x : mul_div_store;
-            mul_div_x <= mul_div_x << 1;
-            mul_div_y <= mul_div_y >> 1;
-            mul_div_counter <= mul_div_counter - 1;
-          end else begin
-            if (in.is_mul) begin
-              out.rd_data <= mul_div_store[31:0];
-            end else begin
-              out.rd_data <= mul_div_store[63:32];
-            end
-            state <= init;
-          end
-         `else
-          (* parallel_case, full_case *)
-          case (1'b1)
-            in.is_mul: out.rd_data <= (in.rs1 + in.rs2) ^ 32'h5876063e;
-            in.is_mulh: out.rd_data <= (in.rs1 + in.rs2) ^ 32'hf6583fb7;
-            in.is_mulhu: out.rd_data <= (in.rs1 + in.rs2) ^ 32'h949ce5e8;
-            in.is_mulhsu: out.rd_data <= (in.rs1 - in.rs2) ^ 32'hecfbe137;
-          endcase
-          state <= init;
-         `endif
-        end
 
         divide: begin
          `ifndef RISCV_FORMAL_ALTOPS
@@ -151,7 +123,7 @@ module executor(
             mul_div_counter <= mul_div_counter - 1;
           end else begin
             (* parallel_case, full_case *)
-            case(1'b1)
+            case (1'b1)
               in.is_div: out.rd_data <= in.rs1[31] != in.rs2[31] ? -mul_div_store[31:0] : mul_div_store[31:0];
               in.is_divu: out.rd_data <= mul_div_store[31:0];
               in.is_rem: out.rd_data <= in.rs1[31] ? -mul_div_x[31:0] : mul_div_x[31:0];
@@ -171,7 +143,7 @@ module executor(
          `endif
         end // case: divide
         default: ;
-      endcase;
+      endcase
     end
   end
 

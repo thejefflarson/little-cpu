@@ -19,7 +19,7 @@ pll.v: timing
 	icepll -m -f $@ -i 12 -o $(shell cat $^)
 
 riscv.json: rtl/littlecpu.v  rtl/fetcher.v rtl/rtl/decoder.v rtl/
-	yosys -p 'read_verilog -sv $^; synth_ice40 -top littlecpu -json $@'
+	yosys -p 'read_verilog -sv $^; synth_ice40 -dsp -top littlecpu -json $@'
 
 riscv.asc: riscv.json riscv.pcf
 	nextpnr-ice40 --up5k --json riscv.json --pcf riscv.pcf --asc riscv.asc --pcf-allow-unconstrained --package ct256 --opt-timing

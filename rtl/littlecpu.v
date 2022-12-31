@@ -104,13 +104,11 @@ module littlecpu(
     .executor_ready(executor_ready),
     // inputs
     .in(fetcher_out),
-    // The decoder is largely synchronous so these are assigned a clock cycle early
     .reg_rs1(reg_rs1),
     .reg_rs2(reg_rs2),
     // outputs
     // The whole trick! we update the program counter here to keep the pipeline filled
     .pc(pc),
-     // rs1 and rs2 are not latched: used to get reg_rs1 and reg_rs2 from the reg file
     .rs1(rs1),
     .rs2(rs2),
     .out(decoder_out)

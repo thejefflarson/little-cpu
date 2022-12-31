@@ -141,7 +141,7 @@ module accessor(
             mem_ready <= 0;
           end
         end
-        default: $stop;
+        default: ;
       endcase
     end else begin
       mem_ready <= 0;
