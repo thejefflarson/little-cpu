@@ -16,3 +16,11 @@ disasm.s
 disasm.o
 rvfi_macros.vh
 .hdl_checker
+.emacs/
+a.out.dSYM/
+obj_dir/
+rtl/rom.mem
+sim
+sim.dSYM/
+test/a.out.dSYM/
+testbench.vvp

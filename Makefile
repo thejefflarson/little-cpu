@@ -13,14 +13,14 @@ test/rtl.cc: rtl/structs.v rtl/handshake.v rtl/accessor.v rtl/decoder.v rtl/exec
 pll.v: timing
 	icepll -m -f $@ -i 12 -o $(shell cat $^)
 
-riscv.json: rtl/littlecpu.v  rtl/fetcher.v rtl/rtl/decoder.v rtl/
-	yosys -p 'read_verilog -sv $^; synth_ice40 -dsp -top littlecpu -json $@'
+riscv.json:  rtl/structs.v rtl/handshake.v rtl/accessor.v rtl/decoder.v rtl/executor.v rtl/fetcher.v rtl/regfile.v rtl/skidbuffer.v rtl/writeback.v rtl/littlecpu.v rtl/littlesoc.v rtl/imemory.v rtl/memory.v
+	yosys -p 'read_verilog -sv $^; synth_ice40 -dsp -top littlesoc -json $@'
 
 riscv.asc: riscv.json riscv.pcf
-	nextpnr-ice40 --up5k --json riscv.json --pcf riscv.pcf --asc riscv.asc --pcf-allow-unconstrained --package ct256 --opt-timing
+	nextpnr-ice40 --up5k --json riscv.json --pcf riscv.pcf --asc riscv.asc --pcf-allow-unconstrained --opt-timing
 
 timing: riscv.asc
-	icetime -d lp8k $^ | egrep -oi '\(\d+' | egrep -o '\d+' > $@
+	icetime -d up5k $^ | egrep -oi '\(\d+' | egrep -o '\d+' > $@
 
 clean:
 	rm -f riscv.json
