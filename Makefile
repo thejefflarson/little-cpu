@@ -10,6 +10,9 @@ sim: test/cxxrtl.cc test/rtl.cc
 test/rtl.cc: rtl/structs.v rtl/handshake.v rtl/accessor.v rtl/decoder.v rtl/executor.v rtl/fetcher.v rtl/regfile.v rtl/skidbuffer.v rtl/writeback.v rtl/littlecpu.v rvfi_macros.vh test/testbench.v
 	yosys -p 'read_verilog -sv $^; hierarchy -top testbench; write_cxxrtl $@'
 
+test/monitor.v: formal/riscv-formal/monitor/generate.py
+	python ./$^ -i rv32imc -c 1 -a -p monitor > $@
+
 pll.v: timing
 	icepll -m -f $@ -i 12 -o $(shell cat $^)
 
