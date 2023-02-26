@@ -44,8 +44,7 @@ module littlesoc (
   logic [31:0] imem_addr;
   logic [31:0] imem_data;
   imemory imemory(
-    .clk(clk),
-    .imem_addr(imem_addr),
+    .imem_addr(imem_addr[15:2]),
     .imem_data(imem_data)
   );
 

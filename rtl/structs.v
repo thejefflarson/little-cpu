@@ -1,5 +1,6 @@
 `default_nettype none
-
+`ifndef STRUCTS_V
+`define STRUCTS_V
 typedef struct packed {
   logic [31:0] pc;
   logic [31:0] instr;
@@ -70,3 +71,4 @@ typedef struct packed {
   logic [31:0] waddr;
   logic [31:0] wdata;
 } writeback_output;
+`endif
