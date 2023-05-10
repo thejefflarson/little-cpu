@@ -1,8 +1,8 @@
 `timescale 1 ns / 1 ps
 //`define RISCV_FORMAL
 module testbench(
-	//input clk //,
-//	input reset
+	input clk,
+	input reset
 );
   logic [31:0] memory[0:255];
   logic [31:0] rom[0:255];
@@ -35,17 +35,10 @@ module testbench(
   logic [3:0]  rvfi_mem_wmask;
   logic [31:0] rvfi_mem_rdata;
   logic [31:0] rvfi_mem_wdata;
- `endif //  `ifdef RISCV_FORMAL
-  logic        reset = 1;
-  logic        clk = 0;
-  always #5 clk = ~clk;
+ `endif
   initial begin
     $dumpfile("testbench.vcd");
     $dumpvars(0, testbench);
-    repeat (1) @(posedge clk);
-    reset <= 0;
-    repeat (300) @(posedge clk);
-    $finish;
   end
   always_ff @(posedge clk) begin
     mem_valid <= 0;
@@ -134,12 +127,12 @@ module testbench(
   end
 
   logic [31:0] past_addr;
-  initial past_addr = 32'b0;
+  initial past_addr = 32'b1;
   always @(posedge clk) begin
-    //if (past_addr != imem_addr) begin
+    if (past_addr != imem_addr) begin
       $display("ifetch 0x%08x: 0x%08x", past_addr, imem_data);
       past_addr <= imem_addr;
-    //end
+    end
   end
 
   always @(posedge clk) begin

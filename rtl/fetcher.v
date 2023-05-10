@@ -1,5 +1,6 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
+`include "structs.v"
 module fetcher(
   input  logic clk,
   input  logic reset,
