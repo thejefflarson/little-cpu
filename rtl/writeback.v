@@ -4,9 +4,6 @@
 module writeback(
   input  logic clk,
   input  logic reset,
-  // handshake
-  input  logic accessor_valid,
-  output logic writeback_ready,
   // inputs
   input accessor_output in,
   // outputs
@@ -15,13 +12,12 @@ module writeback(
   output logic [31:0] wdata
 );
   always_ff @(posedge clk) begin
-    writeback_ready <= 1;
     if(reset) begin
       wen <= 0;
       waddr <= 0;
       wdata <= 32'b0;
     end else begin
-      if (accessor_valid) begin
+      if (1) begin
         wen <= 1;
         waddr <= in.rd;
         wdata <= in.rd_data;

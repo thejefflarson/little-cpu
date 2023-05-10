@@ -4,16 +4,9 @@
 module accessor(
     input  logic clk,
     input  logic reset,
-    // handshake
-    input  logic executor_valid,
-    output logic accessor_ready,
-    output logic accessor_valid,
-    input  logic writeback_ready,
     // inputs
     input  executor_output in,
     // memory access
-    output logic mem_ready,
-    input  logic mem_valid,
     output logic [31:0] mem_addr,
     output logic [3:0]  mem_wstrb,
     output logic [31:0] mem_wdata,
@@ -25,16 +18,6 @@ module accessor(
   always_comb
     stalled = state != init;
 
-  // handshake
-  handshake handshake(
-    .clk(clk),
-    .reset(reset),
-    .unit_ready(accessor_ready),
-    .input_valid(executor_valid),
-    .output_ready(writeback_ready),
-    .unit_valid(accessor_valid),
-    .busy(stalled)
-  );
   logic addr16;
   logic [1:0] state, addr24;
   localparam init = 2'b00;
@@ -43,13 +26,12 @@ module accessor(
   // make the request
   always_ff @(posedge clk) begin
     if(reset) begin
-      mem_ready <= 0;
       out <= 0;
       mem_addr <= 0;
       mem_wstrb <= 0;
       mem_wdata <= 0;
       state <= init;
-    end else if(executor_valid || stalled) begin
+    end else if(stalled) begin
       out.rd_data <= in.rd_data;
       out.rd <= in.rd;
       (* parallel_case, full_case *)
@@ -63,7 +45,6 @@ module accessor(
               out.rd <= in.rd;
               mem_wstrb <= 4'b0000;
               mem_addr <= {in.mem_addr[31:2], 2'b00};
-              mem_ready <= 1; // kick off a memory request
               state <= load;
             end
 
@@ -88,13 +69,12 @@ module accessor(
                 end
               endcase // case (1'b1)
               mem_addr <= {in.mem_addr[31:2], 2'b00};
-              mem_ready <= 1; // kick off a memory request
               state <= store;
             end // case: in.is_sw || in.is_sh || in.is_sb
           endcase // case (1'b1)
         end // case: init
         load: begin
-           if (mem_valid) begin
+           if (1) begin
             (* parallel_case, full_case *)
             case (1'b1)
               // unpack the alignment from above
@@ -133,19 +113,16 @@ module accessor(
               in.is_lw: out.rd_data <= mem_rdata;
             endcase
             state <= init;
-            mem_ready <= 0;
           end
         end
         store: begin
-          if (mem_valid) begin
+          if (1) begin
             state <= init;
-            mem_ready <= 0;
           end
         end
         default: ;
       endcase
     end else begin
-      mem_ready <= 0;
     end
   end
  `ifdef FORMAL

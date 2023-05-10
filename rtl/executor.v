@@ -4,30 +4,15 @@
 module executor(
   input  logic clk,
   input  logic reset,
-  // handshake
-  input  logic decoder_valid,
-  output logic executor_ready,
-  output logic executor_valid,
-  input  logic accessor_ready,
+
   // inputs
   input  decoder_output in,
   // outputs
   output executor_output out
 );
-
   logic [31:0] rs1, rs2;
   assign rs1 = in.rs1;
   assign rs2 = in.rs2;
-
-  handshake handshake(
-    .clk(clk),
-    .reset(reset),
-    .unit_ready(executor_ready),
-    .input_valid(decoder_valid),
-    .output_ready(accessor_ready),
-    .unit_valid(executor_valid),
-    .busy(stalled)
-  );
 
   logic [1:0]  state;
   localparam init = 2'b00;
@@ -53,7 +38,7 @@ module executor(
       mul_div_store <= 0;
       mul_div_x <= 0;
       mul_div_y <= 0;
-    end else if (decoder_valid || stalled) begin
+    end else begin
       (* parallel_case, full_case *)
       case (state)
         init: begin

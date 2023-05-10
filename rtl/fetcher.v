@@ -18,7 +18,7 @@ module fetcher(
       out.pc <= 32'b0;
     else begin
       out.instr <= imem_data;
-      out.pc <= imem_addr;
+      out.pc <= pc;
     end
   end
 

@@ -33,8 +33,6 @@ module littlesoc (
   logic [31:0] mem_rdata;
   memory memory (
     .clk(clk),
-    .mem_valid(mem_valid),
-    .mem_ready(mem_ready),
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
@@ -53,8 +51,6 @@ module littlesoc (
     .reset(reset),
     .imem_addr(imem_addr),
     .imem_data(imem_data),
-    .mem_valid(mem_valid),
-    .mem_ready(mem_ready),
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),

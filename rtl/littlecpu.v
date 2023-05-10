@@ -1,12 +1,11 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
+`include "structs.v"
 module littlecpu(
   input  logic clk,
   input  logic reset,
   output logic [31:0] imem_addr,
   input  logic [31:0] imem_data,
-  input  logic mem_valid,
-  output logic mem_ready,
   output logic [31:0] mem_addr,
   output logic [31:0] mem_wdata,
   output logic [3:0]  mem_wstrb,
@@ -84,7 +83,6 @@ module littlecpu(
     .reg_rs1(reg_rs1),
     .reg_rs2(reg_rs2),
     // outputs
-    // The whole trick! we update the program counter here to keep the pipeline filled
     .pc(pc),
     .rs1(rs1),
     .rs2(rs2),
@@ -108,9 +106,7 @@ module littlecpu(
     // inputs
     .in(executor_out),
     // memory access
-    .mem_ready(mem_ready),
     .mem_addr(mem_addr),
-    .mem_valid(mem_valid),
     .mem_wstrb(mem_wstrb),
     .mem_wdata(mem_wdata),
     .mem_rdata(mem_rdata),
