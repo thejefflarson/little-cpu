@@ -16,6 +16,7 @@ module fetcher(
   always_ff @(posedge clk) begin
     if (reset)
       out.pc <= 32'b0;
+      out.instr <= 32'b0;
     else begin
       out.instr <= imem_data;
       out.pc <= pc;
