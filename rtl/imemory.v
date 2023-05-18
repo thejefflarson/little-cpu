@@ -5,7 +5,7 @@ module imemory #(
   // register file.
   parameter integer ROM = 15872
 ) (
-  input  logic [13:0] imem_addr,
+  input logic [13:0]  imem_addr,
   output logic [31:0] imem_data
 );
   initial $readmemh("./rom.mem", rom);

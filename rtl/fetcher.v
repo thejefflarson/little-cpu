@@ -13,13 +13,13 @@ module fetcher(
 );
 
   assign imem_addr = pc;
-  always_ff @(posedge clk) begin
-    if (reset)
-      out.pc <= 32'b0;
-      out.instr <= 32'b0;
-    else begin
-      out.instr <= imem_data;
-      out.pc <= pc;
+  always_comb begin
+    if (reset) begin
+      out.pc = 32'b0;
+      out.instr = 32'b0;
+    end else begin
+      out.instr = imem_data;
+      out.pc = pc;
     end
   end
 

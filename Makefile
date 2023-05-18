@@ -1,7 +1,7 @@
 rvfi_macros.vh: formal/riscv-formal/checks/rvfi_macros.py
 	python $^ > $@
 
-testbench.vvp: rtl/structs.v rtl/handshake.v rtl/accessor.v rtl/decoder.v rtl/executor.v rtl/fetcher.v rtl/regfile.v rtl/writeback.v rtl/littlecpu.v rvfi_macros.vh test/testbench.v test/monitor.v
+testbench.vvp: rtl/structs.v rtl/accessor.v rtl/decoder.v rtl/executor.v rtl/fetcher.v rtl/regfile.v rtl/writeback.v rtl/littlecpu.v rvfi_macros.vh test/testbench.v test/monitor.v
 	iverilog -I./rtl/ -DICARUS -DRISCV_FORMAL -DRISCV_FORMAL_COMPRESSED -DRISCV_FORMAL_ALIGNED_MEM -DRISCV_FORMAL_NRET=1 -DRISCV_FORMAL_XLEN=32 -DRISCV_FORMAL_ILEN=32 -g2012 -o $@ $^
 
 waves.vcd: sim

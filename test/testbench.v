@@ -9,9 +9,7 @@ module testbench(
   logic [31:0] memory[0:255];
   logic [31:0] rom[0:255];
   logic [31:0] imem_addr;
-  logic [31:0] imem_data;
-  logic        mem_valid;
-  logic        mem_ready;
+  logic [31:0] imem_data = 32'b0;
   logic [31:0] mem_addr;
   logic [31:0] mem_wdata;
   logic [3:0]  mem_wstrb;
@@ -53,29 +51,27 @@ module testbench(
   end
  `endif
   always_ff @(posedge clk) begin
-    mem_valid <= 0;
-    if (!mem_valid && mem_ready) begin
-      if (mem_addr < 1024) begin
-        mem_rdata <= memory[mem_addr >> 2];
-        if(mem_wstrb[0]) memory[mem_addr >> 2][7:0] <= mem_wdata[7:0];
-        if(mem_wstrb[1]) memory[mem_addr >> 2][15:8] <= mem_wdata[15:8];
-        if(mem_wstrb[2]) memory[mem_addr >> 2][23:16] <= mem_wdata[23:16];
-        if(mem_wstrb[3]) memory[mem_addr >> 2][31:24] <= mem_wdata[31:24];
-        mem_valid <= 1;
-      end
+    if (mem_addr < 1024) begin
+      mem_rdata <= memory[mem_addr >> 2];
+      if(mem_wstrb[0]) memory[mem_addr >> 2][7:0] <= mem_wdata[7:0];
+      if(mem_wstrb[1]) memory[mem_addr >> 2][15:8] <= mem_wdata[15:8];
+      if(mem_wstrb[2]) memory[mem_addr >> 2][23:16] <= mem_wdata[23:16];
+      if(mem_wstrb[3]) memory[mem_addr >> 2][31:24] <= mem_wdata[31:24];
     end
   end // always_ff @ (posedge clk)
 
-  always_ff @(posedge clk)
-    imem_data <= rom[imem_addr[9:2]];
+  always_comb //@(posedge clk)
+    if(reset) begin
+      imem_data = 32'b0;
+    end else begin
+      imem_data = rom[imem_addr[9:2]];
+    end
 
   littlecpu uut (
     .clk(clk),
     .reset(reset),
     .imem_addr(imem_addr),
     .imem_data(imem_data),
-    .mem_valid(mem_valid),
-    .mem_ready(mem_ready),
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
@@ -147,12 +143,10 @@ module testbench(
   end
 
   always @(posedge clk) begin
-    if (mem_valid && mem_ready) begin
-      if (mem_wstrb != 4'b0000) begin
-        $display("write  0x%08x: 0x%08x (wstrb=%b)", mem_addr, mem_wdata, mem_wstrb);
-      end else begin
-        $display("read   0x%08x: 0x%08x", mem_addr, mem_rdata);
-      end
+    if (mem_wstrb != 4'b0000) begin
+      $display("write  0x%08x: 0x%08x (wstrb=%b)", mem_addr, mem_wdata, mem_wstrb);
+    end else begin
+      $display("read   0x%08x: 0x%08x", mem_addr, mem_rdata);
     end
     if (trap) begin
       $display("trap!");
