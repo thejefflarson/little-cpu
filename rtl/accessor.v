@@ -14,117 +14,99 @@ module accessor(
     // outputs
     output accessor_output out
 );
-  logic stalled;
-  always_comb
-    stalled = state != init;
-
   logic addr16;
-  logic [1:0] state, addr24;
-  localparam init = 2'b00;
-  localparam load = 2'b01;
-  localparam store = 2'b10;
+  logic [1:0] addr24;
   // make the request
-  always_ff @(posedge clk) begin
+  always_comb begin
     if(reset) begin
+      mem_addr = 0;
+      mem_wstrb = 0;
+      mem_wdata = 0;
+    end else begin
+      // request is synchronous
+      (* parallel_case, full_case *)
+      case (1'b1)
+        in.is_lw || in.is_lh || in.is_lhu || in.is_lb || in.is_lbu: begin
+          addr24 = in.mem_addr[1:0];
+          addr16 = in.mem_addr[1];
+          mem_wstrb = 4'b0000;
+          mem_addr = {in.mem_addr[31:2], 2'b00};
+        end
+
+        in.is_sw || in.is_sh || in.is_sb: begin
+          (* parallel_case, full_case *)
+          case (1'b1)
+            in.is_sw: begin
+              mem_addr = in.mem_addr;
+              mem_wstrb = 4'b1111;
+              mem_wdata = in.mem_data;
+            end
+
+            in.is_sh: begin
+              // Offset to the right position
+              mem_wstrb = in.mem_addr[1] ? 4'b1100 : 4'b0011;
+              mem_wdata = {2{in.mem_data[15:0]}};
+            end
+
+            in.is_sb: begin
+              mem_wstrb = 4'b0001 << in.mem_addr[1:0];
+              mem_wdata = {4{in.mem_data[7:0]}};
+            end
+          endcase // case (1'b1)
+          mem_addr = {in.mem_addr[31:2], 2'b00};
+
+        end // case: in.is_sw || in.is_sh || in.is_sb
+      endcase // case (1'b1)
+    end // else: !if(reset)
+  end // always_comb
+
+  always_ff @(posedge clk) begin
+    // response is registered
+    if (reset) begin
       out <= 0;
-      mem_addr <= 0;
-      mem_wstrb <= 0;
-      mem_wdata <= 0;
-      state <= init;
-    end else if(stalled) begin
+    end else begin
       out.rd_data <= in.rd_data;
       out.rd <= in.rd;
       (* parallel_case, full_case *)
-      case(state)
-        init: begin
-          (* parallel_case, full_case *)
-          case (1'b1)
-            in.is_lw || in.is_lh || in.is_lhu || in.is_lb || in.is_lbu: begin
-              addr24 <= in.mem_addr[1:0];
-              addr16 <= in.mem_addr[1];
-              out.rd <= in.rd;
-              mem_wstrb <= 4'b0000;
-              mem_addr <= {in.mem_addr[31:2], 2'b00};
-              state <= load;
-            end
-
-            in.is_sw || in.is_sh || in.is_sb: begin
-              (* parallel_case, full_case *)
-              case (1'b1)
-                in.is_sw: begin
-                  mem_addr <= in.mem_addr;
-                  mem_wstrb <= 4'b1111;
-                  mem_wdata <= in.mem_data;
-                end
-
-                in.is_sh: begin
-                  // Offset to the right position
-                  mem_wstrb <= in.mem_addr[1] ? 4'b1100 : 4'b0011;
-                  mem_wdata <= {2{in.mem_data[15:0]}};
-                end
-
-                in.is_sb: begin
-                  mem_wstrb <= 4'b0001 << in.mem_addr[1:0];
-                  mem_wdata <= {4{in.mem_data[7:0]}};
-                end
-              endcase // case (1'b1)
-              mem_addr <= {in.mem_addr[31:2], 2'b00};
-              state <= store;
-            end // case: in.is_sw || in.is_sh || in.is_sb
-          endcase // case (1'b1)
-        end // case: init
-        load: begin
-           if (1) begin
-            (* parallel_case, full_case *)
-            case (1'b1)
-              // unpack the alignment from above
-              in.is_lb: begin
-                case (addr24)
-                  2'b00: out.rd_data <= {{24{mem_rdata[7]}}, mem_rdata[7:0]};
-                  2'b01: out.rd_data <= {{24{mem_rdata[15]}}, mem_rdata[15:8]};
-                  2'b10: out.rd_data <= {{24{mem_rdata[23]}}, mem_rdata[23:16]};
-                  2'b11: out.rd_data <= {{24{mem_rdata[31]}}, mem_rdata[31:24]};
-                endcase
-              end
-
-              in.is_lbu: begin
-                case (addr24)
-                  2'b00: out.rd_data <= {24'b0, mem_rdata[7:0]};
-                  2'b01: out.rd_data <= {24'b0, mem_rdata[15:8]};
-                  2'b10: out.rd_data <= {24'b0, mem_rdata[23:16]};
-                  2'b11: out.rd_data <= {24'b0, mem_rdata[31:24]};
-                endcase
-              end
-
-              in.is_lh: begin
-                case (addr16)
-                  1'b0: out.rd_data <= {{16{mem_rdata[15]}}, mem_rdata[15:0]};
-                  1'b1: out.rd_data <= {{16{mem_rdata[31]}}, mem_rdata[31:16]};
-                endcase
-              end
-
-              in.is_lhu: begin
-                case (addr16)
-                  1'b0: out.rd_data <= {16'b0, mem_rdata[15:0]};
-                  1'b1: out.rd_data <= {16'b0, mem_rdata[31:16]};
-                endcase
-              end
-
-              in.is_lw: out.rd_data <= mem_rdata;
-            endcase
-            state <= init;
-          end
+      case (1'b1)
+        // unpack the alignment from above
+        in.is_lb: begin
+          case (addr24)
+            2'b00: out.rd_data <= {{24{mem_rdata[7]}}, mem_rdata[7:0]};
+            2'b01: out.rd_data <= {{24{mem_rdata[15]}}, mem_rdata[15:8]};
+            2'b10: out.rd_data <= {{24{mem_rdata[23]}}, mem_rdata[23:16]};
+            2'b11: out.rd_data <= {{24{mem_rdata[31]}}, mem_rdata[31:24]};
+          endcase
         end
-        store: begin
-          if (1) begin
-            state <= init;
-          end
+
+        in.is_lbu: begin
+          case (addr24)
+            2'b00: out.rd_data <= {24'b0, mem_rdata[7:0]};
+            2'b01: out.rd_data <= {24'b0, mem_rdata[15:8]};
+            2'b10: out.rd_data <= {24'b0, mem_rdata[23:16]};
+            2'b11: out.rd_data <= {24'b0, mem_rdata[31:24]};
+          endcase
         end
-        default: ;
+
+        in.is_lh: begin
+          case (addr16)
+            1'b0: out.rd_data <= {{16{mem_rdata[15]}}, mem_rdata[15:0]};
+            1'b1: out.rd_data <= {{16{mem_rdata[31]}}, mem_rdata[31:16]};
+          endcase
+        end
+
+        in.is_lhu: begin
+          case (addr16)
+            1'b0: out.rd_data <= {16'b0, mem_rdata[15:0]};
+            1'b1: out.rd_data <= {16'b0, mem_rdata[31:16]};
+          endcase
+        end
+
+        in.is_lw: out.rd_data <= mem_rdata;
       endcase
-    end else begin
-    end
+    end // else: !if(reset)
   end
+
  `ifdef FORMAL
   logic clocked;
   initial clocked = 0;
