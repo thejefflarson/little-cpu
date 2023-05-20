@@ -11,21 +11,19 @@ module writeback(
   output logic [4:0] waddr,
   output logic [31:0] wdata
 );
-  always_ff @(posedge clk) begin
+  always_comb begin
     if(reset) begin
-      wen <= 0;
-      waddr <= 0;
-      wdata <= 32'b0;
+      wen = 0;
+      waddr = 0;
+      wdata = 32'b0;
     end else begin
-      if (1) begin
-        wen <= 1;
-        waddr <= in.rd;
-        wdata <= in.rd_data;
-      end else begin
-        wen <= 0;
-      end
+      wen = 1;
+      waddr = in.rd;
+      wdata = in.rd_data;
     end
-  end // always_ff @ (posedge clk)
+  end // always_comb
+  // TODO: csrs
+
  `ifdef FORMAL
   logic clocked;
   initial clocked = 0;

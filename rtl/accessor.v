@@ -15,20 +15,22 @@ module accessor(
     output accessor_output out
 );
   logic addr16;
+  assign addr16 = in.mem_addr[1];
   logic [1:0] addr24;
+  assign addr24 = in.mem_addr[1:0];
+  logic [31:0] write_request;
   // make the request
   always_comb begin
     if(reset) begin
       mem_addr = 0;
       mem_wstrb = 0;
-      mem_wdata = 0;
+      write_request = 0;
     end else begin
+      write_request = in.mem_data;
       // request is synchronous
       (* parallel_case, full_case *)
       case (1'b1)
         in.is_lw || in.is_lh || in.is_lhu || in.is_lb || in.is_lbu: begin
-          addr24 = in.mem_addr[1:0];
-          addr16 = in.mem_addr[1];
           mem_wstrb = 4'b0000;
           mem_addr = {in.mem_addr[31:2], 2'b00};
         end
@@ -39,22 +41,21 @@ module accessor(
             in.is_sw: begin
               mem_addr = in.mem_addr;
               mem_wstrb = 4'b1111;
-              mem_wdata = in.mem_data;
+              write_request = in.mem_data;
             end
 
             in.is_sh: begin
               // Offset to the right position
               mem_wstrb = in.mem_addr[1] ? 4'b1100 : 4'b0011;
-              mem_wdata = {2{in.mem_data[15:0]}};
+              write_request = {2{in.mem_data[15:0]}};
             end
 
             in.is_sb: begin
               mem_wstrb = 4'b0001 << in.mem_addr[1:0];
-              mem_wdata = {4{in.mem_data[7:0]}};
+              write_request = {4{in.mem_data[7:0]}};
             end
           endcase // case (1'b1)
           mem_addr = {in.mem_addr[31:2], 2'b00};
-
         end // case: in.is_sw || in.is_sh || in.is_sb
       endcase // case (1'b1)
     end // else: !if(reset)
@@ -64,7 +65,9 @@ module accessor(
     // response is registered
     if (reset) begin
       out <= 0;
+      mem_wdata <= 0;
     end else begin
+      mem_wdata <= write_request;
       out.rd_data <= in.rd_data;
       out.rd <= in.rd;
       (* parallel_case, full_case *)
