@@ -40,11 +40,15 @@ module littlesoc (
   );
 
   logic [31:0] imem_addr;
+  logic [31:0] imem_data_raw;
   logic [31:0] imem_data;
   imemory imemory(
     .imem_addr(imem_addr[15:2]),
-    .imem_data(imem_data)
+    .imem_data(imem_data_raw)
   );
+  // Return zero (illegal instruction) if PC >= 0x10000 so out-of-range PCs
+  // do not silently alias back into the ROM via bit truncation.
+  assign imem_data = (|imem_addr[31:16]) ? 32'b0 : imem_data_raw;
 
   littlecpu riscv (
     .clk(clk),

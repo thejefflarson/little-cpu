@@ -17,7 +17,7 @@ module writeback(
       waddr = 0;
       wdata = 32'b0;
     end else begin
-      wen = 1;
+      wen = (in.rd != 0); // only assert wen when writing to a non-zero register
       waddr = in.rd;
       wdata = in.rd_data;
     end

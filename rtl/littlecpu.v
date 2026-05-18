@@ -44,7 +44,11 @@ module littlecpu(
   output logic [63:0] rvfi_csr_minstret_wdata
   `endif //  `ifdef RISCV_FORMAL
   );
-  assign trap = 0;
+  // trap is asserted when the decoded instruction is unrecognized (illegal-instruction)
+  // or when the accessor detects a misaligned memory access.  Gated by !reset so that
+  // the pipeline flush state does not produce spurious traps.
+  logic mem_misaligned_trap;
+  assign trap = !reset && (!decoder_out.is_valid_instr || mem_misaligned_trap);
   logic  [31:0] pc;
   fetcher_output fetcher_out;
   fetcher fetcher(
@@ -110,6 +114,8 @@ module littlecpu(
     .mem_wstrb(mem_wstrb),
     .mem_wdata(mem_wdata),
     .mem_rdata(mem_rdata),
+    // fault signals
+    .mem_misaligned(mem_misaligned_trap),
     // forwards
     .out(accessor_out)
   );

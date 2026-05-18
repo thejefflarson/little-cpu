@@ -31,7 +31,7 @@ components_skidbuffer: components.sby ../rtl/skidbuffer.v
 	sby -f $< skidbuffer
 
 riscv-formal:
-	git clone https://github.com/YosysHQ/riscv-formal.git
+	git clone --depth 1 https://github.com/YosysHQ/riscv-formal.git
 
 clean:
 	rm -rf {checks,complete,cover,riscv-formal,dmemcheck,imemcheck,components_*}
