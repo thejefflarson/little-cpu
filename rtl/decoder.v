@@ -71,7 +71,7 @@ module decoder (
   assign caddi4spn_immediate = {22'b0, instr[10:7], instr[12:11], instr[5], instr[6], 2'b00};
 
   always_comb begin
-    (* parallel_case, full_case *)
+    (* parallel_case *)
     case (1'b1)
       instr_load_op || instr_jalr: immediate = i_immediate;
       instr_store_op: immediate = s_immediate;
@@ -326,6 +326,7 @@ module decoder (
       // calculate branch
       (* parallel_case *)
       case(1'b1)
+        default: ;
         instr_auipc: begin
           out.rd <= rd;
           out.rs1 <= reg_rs1;
@@ -358,6 +359,19 @@ module decoder (
           out.rd <= 0;
         end
       endcase
+      // Suppress all execution flags for unrecognized instructions (covers illegal opcodes,
+      // reserved encodings, and unimplemented CSR — prevents silent pipeline corruption)
+      if (!instr_valid) begin
+        out.is_add <= 0; out.is_sub <= 0; out.is_xor <= 0; out.is_or <= 0; out.is_and <= 0;
+        out.is_mul <= 0; out.is_mulh <= 0; out.is_mulhu <= 0; out.is_mulhsu <= 0;
+        out.is_div <= 0; out.is_divu <= 0; out.is_rem <= 0; out.is_remu <= 0;
+        out.is_sll <= 0; out.is_slt <= 0; out.is_sltu <= 0; out.is_srl <= 0; out.is_sra <= 0;
+        out.is_lui <= 0; out.is_lb <= 0; out.is_lbu <= 0; out.is_lhu <= 0; out.is_lh <= 0; out.is_lw <= 0;
+        out.is_sb <= 0; out.is_sh <= 0; out.is_sw <= 0;
+        out.is_ecall <= 0; out.is_ebreak <= 0;
+        out.is_csrrw <= 0; out.is_csrrs <= 0; out.is_csrrc <= 0;
+        out.rd <= 0; // prevent writeback to arbitrary register
+      end
     end
   end
 
@@ -378,12 +392,14 @@ module decoder (
   always_ff @(posedge clk) if(clocked && !branch_jump && $past(!uncompressed)) assert(past_pc + 2 == pc);
 
   logic one_of;
-  assign one_of = instr_auipc ^ instr_jal ^ instr_jalr ^ instr_beq ^ instr_bne ^ instr_blt ^
-    instr_bltu ^ instr_bge ^ instr_bgeu ^ instr_add ^ instr_sub ^ instr_xor ^ instr_or ^ instr_and ^
-    instr_mul ^ instr_mulh ^ instr_mulhu ^ instr_mulhsu ^ instr_div ^ instr_divu ^ instr_rem ^
-    instr_remu ^ instr_sll ^ instr_slt ^ instr_sltu ^ instr_srl ^ instr_sra ^ instr_lui ^ instr_lb ^
-    instr_lbu ^ instr_lh ^ instr_lhu ^ instr_lw ^ instr_sb ^ instr_sh ^ instr_sw ^ instr_ecall ^
-    instr_ebreak;
+  // Use $onehot() so pairwise overlaps (even count of flags) are detected rather than
+  // cancelling out as they would with XOR.
+  assign one_of = $onehot({instr_auipc, instr_jal, instr_jalr, instr_beq, instr_bne, instr_blt,
+    instr_bltu, instr_bge, instr_bgeu, instr_add, instr_sub, instr_xor, instr_or, instr_and,
+    instr_mul, instr_mulh, instr_mulhu, instr_mulhsu, instr_div, instr_divu, instr_rem,
+    instr_remu, instr_sll, instr_slt, instr_sltu, instr_srl, instr_sra, instr_lui, instr_lb,
+    instr_lbu, instr_lh, instr_lhu, instr_lw, instr_sb, instr_sh, instr_sw, instr_ecall,
+    instr_ebreak});
 
   // we should only get one type of instruction
   always_comb if (instr_valid) assert(one_of);
