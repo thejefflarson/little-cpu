@@ -6,8 +6,18 @@ module testbench(
 	input reset
 `endif
 );
-  logic [31:0] memory[0:255];
-  logic [31:0] rom[0:255];
+  // Sized to test/asm/sections.lds (ADR-0008): rom holds >=8K of .text,
+  // memory (RAM) holds >=4K of .data/.rodata/.bss based at RAM_BASE, which
+  // matches the ram region's ORIGIN there. RAM_BASE is non-zero so a wild
+  // store through an uninitialized/zero pointer lands outside the mapped
+  // region instead of silently aliasing real test data. The cxxrtl runner
+  // (test/cxxrtl.cc) subtracts RAM_BASE back out of the `--ram` image's
+  // word addresses before poking `memory` via debug_items.
+  localparam logic [31:0] RAM_BASE  = 32'h0001_0000;
+  localparam int          ROM_WORDS = 2048;
+  localparam int          RAM_WORDS = 1024;
+  logic [31:0] memory[0:RAM_WORDS-1];
+  logic [31:0] rom[0:ROM_WORDS-1];
   logic [31:0] imem_addr;
   logic [31:0] imem_data = 32'b0;
   logic [31:0] mem_addr;
@@ -51,12 +61,12 @@ module testbench(
   end
  `endif
   always_ff @(posedge clk) begin
-    if (mem_addr < 1024) begin
-      mem_rdata <= memory[mem_addr >> 2];
-      if(mem_wstrb[0]) memory[mem_addr >> 2][7:0] <= mem_wdata[7:0];
-      if(mem_wstrb[1]) memory[mem_addr >> 2][15:8] <= mem_wdata[15:8];
-      if(mem_wstrb[2]) memory[mem_addr >> 2][23:16] <= mem_wdata[23:16];
-      if(mem_wstrb[3]) memory[mem_addr >> 2][31:24] <= mem_wdata[31:24];
+    if (mem_addr >= RAM_BASE && mem_addr < RAM_BASE + RAM_WORDS * 4) begin
+      mem_rdata <= memory[(mem_addr - RAM_BASE) >> 2];
+      if(mem_wstrb[0]) memory[(mem_addr - RAM_BASE) >> 2][7:0] <= mem_wdata[7:0];
+      if(mem_wstrb[1]) memory[(mem_addr - RAM_BASE) >> 2][15:8] <= mem_wdata[15:8];
+      if(mem_wstrb[2]) memory[(mem_addr - RAM_BASE) >> 2][23:16] <= mem_wdata[23:16];
+      if(mem_wstrb[3]) memory[(mem_addr - RAM_BASE) >> 2][31:24] <= mem_wdata[31:24];
     end
   end // always_ff @ (posedge clk)
 
@@ -64,7 +74,7 @@ module testbench(
     if(reset) begin
       imem_data = 32'b0;
     end else begin
-      imem_data = rom[imem_addr[9:2]];
+      imem_data = rom[imem_addr[12:2]];
     end
 
   littlecpu uut (
