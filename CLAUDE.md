@@ -19,9 +19,17 @@ The README is the project's voice and is deliberately left as-is. **Ground truth
 What does not work right now:
 
 - **The core computes wrong results.** `rtl/regfile.v` reads registers synchronously with no
-  compensating structure, so operands are one instruction stale — always.
-- **`make test` does not exist** despite the README advertising it. No RISC-V cross compiler is
-  installed by default; `test/asm/riscv_test.h` is missing though every `.S` includes it.
+  compensating structure, so operands are one instruction stale — always. Confirmed still true
+  while landing JEF-606: `rtl/decoder.v` consumes `reg_rs1`/`reg_rs2` the same cycle it asserts a
+  *new* `rs1`/`rs2` request, one cycle before that request's answer is back, so every non-`x0`
+  operand — including the pass/fail write to `tohost` — is actually the regfile's answer to the
+  *previous* instruction's read. This is why all 46 `.S` tests currently time out, `simple.S`
+  included; see `test/EXPECTED_FAIL` and the JEF-606 PR for the trace.
+- **`make test` now exists** (JEF-606): `test/asm/riscv_test.h`, a two-region `sections.lds`
+  (ADR-0008), and a cxxrtl runner (`test/cxxrtl.cc`, ADR-0007) assemble and run every
+  `test/asm/*.S` and check the result against `test/EXPECTED_FAIL`, the sprint-1 baseline. Right
+  now that file lists all 46 tests — burn it down as the regfile bug above and others get fixed,
+  not in one shot.
 - **The iverilog leg does not elaborate at all** — ~60 declaration-after-use bind errors in
   `rtl/decoder.v` and `rtl/littlecpu.v`. Yosys tolerates these; iverilog does not.
 - **`test/monitor.v` does not elaborate under yosys** — `$time` inside `$display` at line 90 hits
