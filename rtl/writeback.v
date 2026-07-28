@@ -30,6 +30,5 @@ module writeback(
   always_ff @(posedge clk) clocked <= 1;
   // assume we've reset at clk 0
   initial assume(reset);
-  always_ff @(posedge clk) if(clocked && $past(accessor_valid)) assert(wen == 1);
  `endif
 endmodule

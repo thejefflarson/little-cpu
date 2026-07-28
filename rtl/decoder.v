@@ -238,7 +238,8 @@ module decoder (
         instr_cor || instr_cxor || instr_csub: rd = {2'b01, instr[9:7]};
       default: rd = instr[11:7];
     endcase
-  end
+  end // always_comb
+
   always_comb begin
     (* parallel_case, full_case *)
     case (1'b1)

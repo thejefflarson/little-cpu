@@ -8,9 +8,9 @@ waves.vcd: sim
 	./sim
 
 sim: test/cxxrtl.cc test/rtl.cc
-	clang++ -g -std=c++14 -I $$(yosys-config --datdir)/include $< -o $@
+	clang++ -g -std=c++14 -I $$(yosys-config --datdir)/include/backends/cxxrtl/runtime $< -o $@
 
-test/rtl.cc: rtl/structs.v rtl/handshake.v rtl/accessor.v rtl/decoder.v rtl/executor.v rtl/fetcher.v rtl/regfile.v rtl/writeback.v rtl/littlecpu.v rvfi_macros.vh test/testbench.v
+test/rtl.cc: rtl/structs.v rtl/accessor.v rtl/decoder.v rtl/executor.v rtl/fetcher.v rtl/regfile.v rtl/writeback.v rtl/littlecpu.v rvfi_macros.vh test/testbench.v
 	yosys -p 'read_verilog -sv $^; hierarchy -top testbench; write_cxxrtl $@'
 
 test/monitor.v: formal/riscv-formal/monitor/generate.py

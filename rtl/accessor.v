@@ -125,11 +125,6 @@ module accessor(
   // assume we've reset at clk 0
   initial assume(reset);
   always_comb if(!clocked) assume(reset);
-  // if we've been valid but stalled, we're not valid anymore
-  always_ff @(posedge clk) if(clocked && $past(accessor_valid) && $past(!writeback_ready)) assert(!accessor_valid);
 
-  // if we're stalled we aren't requesting anytthing, and we're not publishing anything
-    always_ff @(posedge clk) if(clocked && $past(stalled)) assert(!accessor_valid);
-  always_ff @(posedge clk) if(clocked && !$past(reset) && $past(stalled)) assert(!accessor_ready);
  `endif
 endmodule

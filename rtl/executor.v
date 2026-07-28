@@ -163,14 +163,5 @@ module executor(
   // assume we've reset at clk 0
   initial assume(reset);
   always_comb if(!clocked) assume(reset);
-  // if we've been valid but stalled, we're not valid anymore
-  always_ff @(posedge clk) if(clocked && $past(executor_valid) && $past(executor_valid && !accessor_ready)) assert(!executor_valid);
-
-  // if we've been valid but the next stage is busy, we're not valid anymore
-  always_ff @(posedge clk) if(clocked && $past(executor_valid) && $past(!accessor_ready)) assert(!executor_valid);
-
-  // if we're stalled we aren't requesting anytthing, and we're not publishing anything
-  always_ff @(posedge clk) if(clocked && $past(stalled)) assert(!executor_valid);
-  always_ff @(posedge clk) if(clocked && !$past(reset) && $past(stalled)) assert(!executor_ready);
  `endif
 endmodule

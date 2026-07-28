@@ -120,7 +120,6 @@ module littlecpu(
     .out(accessor_out)
   );
 
-  logic writeback_ready;
   writeback writeback(
     .clk(clk),
     .reset(reset),

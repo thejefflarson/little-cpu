@@ -27,8 +27,6 @@ components_writeback: components.sby ../rtl/writeback.v
 	sby -f $< writeback
 components_handshake: components.sby ../rtl/handshake.v
 	sby -f $< handshake
-components_skidbuffer: components.sby ../rtl/skidbuffer.v
-	sby -f $< skidbuffer
 
 riscv-formal:
 	git clone --depth 1 https://github.com/YosysHQ/riscv-formal.git
