@@ -44,6 +44,9 @@ module littlecpu(
   output logic [63:0] rvfi_csr_minstret_wdata
   `endif //  `ifdef RISCV_FORMAL
   );
+  // Declared here (ahead of the decoder instantiation below) because the trap
+  // assignment below references it; iverilog requires declare-before-use.
+  decoder_output decoder_out;
   // trap is asserted when the decoded instruction is unrecognized (illegal-instruction)
   // or when the accessor detects a misaligned memory access.  Gated by !reset so that
   // the pipeline flush state does not produce spurious traps.
@@ -78,7 +81,6 @@ module littlecpu(
     .wdata(wdata)
   );
 
-  decoder_output decoder_out;
   decoder decoder(
     .clk(clk),
     .reset(reset),

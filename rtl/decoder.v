@@ -39,6 +39,20 @@ module decoder (
   logic [6:0] funct7;
   assign funct7 = instr[31:25];
 
+  // Forward declarations: the immediate-select and rd-select blocks below reference
+  // these before their own assign groups (further down) come into scope. iverilog
+  // (unlike yosys) requires every identifier declared before its first use, so the
+  // bare declarations live here; each signal's driving `assign` stays with its group.
+  logic instr_lui_op, instr_jal_op, instr_jalr_op, instr_cj, instr_cjal, instr_cjr, instr_cjalr,
+    instr_clui;
+  logic instr_branch_op, instr_cbeqz, instr_cbnez;
+  logic instr_load_op, instr_clwsp, instr_clw;
+  logic instr_store_op, instr_cswsp, instr_csw;
+  logic instr_math_immediate, instr_math_immediate_op, instr_cli, instr_caddi, instr_caddi16sp,
+    instr_caddi4spn, instr_cslli, instr_csrli, instr_csrai, instr_candi, instr_addi, instr_slti,
+    instr_sltiu, instr_xori, instr_ori, instr_andi, instr_slli, instr_srli, instr_srai;
+  logic [4:0] rd;
+
   // all instructions
   logic instr_auipc, instr_jal, instr_jalr, instr_beq, instr_bne, instr_blt, instr_bltu, instr_bge,
         instr_bgeu, instr_add, instr_sub, instr_mul, instr_mulh, instr_mulhu, instr_mulhsu,
@@ -96,8 +110,6 @@ module decoder (
   end
 
   // Table 24.2 RV32I and Table 16.5-7
-  logic instr_lui_op, instr_jal_op, instr_jalr_op, instr_cj, instr_cjal, instr_cjr, instr_cjalr,
-    instr_clui;
   assign instr_lui_op = opcode == 5'b01101 && uncompressed;
   assign instr_lui = instr_lui_op || instr_clui;
   assign instr_clui = quadrant == 2'b01 && cfunct3 == 3'b011 && clui_immediate != 0 &&
@@ -114,7 +126,6 @@ module decoder (
   assign instr_cjalr = quadrant == 2'b10 && cfunct3 == 3'b100 && instr[12] == 1 && instr[6:2] == 0 &&
     instr[11:7] != 0;
 
-  logic instr_branch_op, instr_cbeqz, instr_cbnez;
   assign instr_branch_op = opcode == 5'b11000 && uncompressed;
   assign instr_beq = (instr_branch_op && funct3 == 3'b000) || instr_cbeqz;
   assign instr_bne = (instr_branch_op && funct3 == 3'b001) || instr_cbnez;
@@ -125,7 +136,6 @@ module decoder (
   assign instr_cbeqz = quadrant == 2'b01 && cfunct3 == 3'b110;
   assign instr_cbnez = quadrant == 2'b01 && cfunct3 == 3'b111;
 
-  logic instr_load_op, instr_clwsp, instr_clw;
   assign instr_load_op = opcode == 5'b00000 && uncompressed;
   assign instr_lb = instr_load_op && funct3 == 3'b000;
   assign instr_lh = instr_load_op && funct3 == 3'b001;
@@ -135,7 +145,6 @@ module decoder (
   assign instr_clwsp = quadrant == 2'b10 && cfunct3 == 3'b010 && instr[11:7] != 5'b0;
   assign instr_clw = quadrant == 2'b00 && cfunct3 == 3'b010;
 
-  logic instr_store_op, instr_cswsp, instr_csw;
   assign instr_store_op = opcode == 5'b01000 && uncompressed;
   assign instr_sb = instr_store_op && funct3 == 3'b000;
   assign instr_sh = instr_store_op && funct3 == 3'b001;
@@ -147,9 +156,6 @@ module decoder (
   assign math_low = funct7 == 7'b0000000;
   logic math_high;
   assign math_high = funct7 == 7'b0100000;
-  logic instr_math_immediate, instr_math_immediate_op, instr_cli, instr_caddi, instr_caddi16sp,
-    instr_caddi4spn, instr_cslli, instr_csrli, instr_csrai, instr_candi, instr_addi, instr_slti,
-    instr_sltiu, instr_xori, instr_ori, instr_andi, instr_slli, instr_srli, instr_srai;
   assign instr_math_immediate_op = opcode == 5'b00100 && uncompressed;
   assign instr_addi = (instr_math_immediate_op && funct3 == 3'b000) || instr_cli || instr_caddi ||
     instr_caddi16sp || instr_caddi4spn;
@@ -215,8 +221,10 @@ module decoder (
 
   logic instr_error;
   assign instr_error = opcode == 5'b11100 && uncompressed && funct3 == 0 && rs1 == 0 && rd == 0;
-  assign instr_ecall = instr_error && !{|instr[31:20]};
-  assign instr_ebreak = instr_error && |instr[31:20];
+  assign instr_ecall = instr_error && instr[31:20] == 12'h0;
+  // funct12 must be exactly 1 (ebreak's SYSTEM encoding); any other nonzero funct12
+  // (e.g. mret = 0x302, wfi = 0x105) is a different SYSTEM instruction, not ebreak.
+  assign instr_ebreak = instr_error && instr[31:20] == 12'h1;
   logic instr_valid;
 
   assign instr_valid = instr_auipc || instr_jal || instr_jalr || instr_beq || instr_bne || instr_blt
@@ -226,7 +234,6 @@ module decoder (
     instr_lui || instr_lb || instr_lbu || instr_lh || instr_lhu || instr_lw || instr_sb || instr_sh
     || instr_sw || instr_ecall || instr_ebreak;
 
-  logic [4:0] rd;
   always_comb begin
     (* parallel_case, full_case *)
     case (1'b1)
@@ -268,7 +275,7 @@ module decoder (
   assign instr_math = instr_add || instr_sub || instr_sll || instr_slt || instr_sltu || instr_xor || instr_srl ||
     instr_sra || instr_or || instr_and || instr_mul || instr_mulh || instr_mulhu || instr_mulhsu || instr_div ||
     instr_divu || instr_rem || instr_remu;
-  assign instr_shift = instr_sll || instr_slt || instr_sltu || instr_xor || instr_srl || instr_sra;
+  assign instr_shift = instr_slli || instr_srli || instr_srai;
 
   logic [31:0] math_arg;
   always_comb
