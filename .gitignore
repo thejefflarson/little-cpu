@@ -3,6 +3,7 @@ riscv.asc
 timing
 pll.v
 formal/riscv-formal
+formal/riscv-formal.tmp
 formal/complete
 formal/cover
 formal/checks
