@@ -32,6 +32,9 @@ module fetcher(
   always_comb if(!clocked) assume(reset);
 
   always_ff @(posedge clk) if(clocked && $past(reset)) assert(out.pc == 32'b0);
-  // TODO: validate
+  // imem_data forwarding: when not in reset, fetched instruction reflects current imem_data
+  always_comb if(!reset) assert(out.instr == imem_data);
+  // PC forwarding: when not in reset, output PC matches the input PC
+  always_comb if(!reset) assert(out.pc == pc);
  `endif
 endmodule

@@ -1,8 +1,7 @@
 module rvfi_testbench (
   input var clk,
-  output logic        mem_valid,
-  output logic        mem_instr,
-  input  logic        mem_ready,
+  output logic [31:0] imem_addr,
+  input  logic [31:0] imem_data,
   output logic [31:0] mem_addr,
   output logic [31:0] mem_wdata,
   output logic [3:0]  mem_wstrb,
@@ -15,12 +14,12 @@ module rvfi_testbench (
   `RVFI_WIRES
   logic trap;
 
-  riscv wrapper (
+  // Instantiate the actual top-level CPU module (was stale "riscv" with Wishbone interface)
+  littlecpu wrapper (
     .clk(clk),
     .reset(reset),
-    .mem_valid(mem_valid),
-    .mem_instr(mem_instr),
-    .mem_ready(mem_ready),
+    .imem_addr(imem_addr),
+    .imem_data(imem_data),
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
@@ -61,12 +60,10 @@ module rvfi_testbench (
     .spec_mem_wdata(spec_mem_wdata)
   );
 
-  // do the instruction check
+  // do the instruction check — all instruction classes including SYSTEM (ECALL/EBREAK/CSR)
   always_comb begin
     if (!reset && rvfi_valid && !rvfi_trap) begin
-      if (rvfi_insn[6:0] != 7'b1110011) begin
-        assert(spec_valid && !spec_trap);
-      end
+      assert(spec_valid && !spec_trap);
     end
   end
 endmodule

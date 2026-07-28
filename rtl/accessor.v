@@ -11,6 +11,8 @@ module accessor(
     output logic [3:0]  mem_wstrb,
     output logic [31:0] mem_wdata,
     input  logic [31:0] mem_rdata,
+    // fault signals
+    output logic mem_misaligned,
     // outputs
     output accessor_output out
 );
@@ -18,6 +20,12 @@ module accessor(
   assign addr16 = in.mem_addr[1];
   logic [1:0] addr24;
   assign addr24 = in.mem_addr[1:0];
+  // Misaligned-access detection per RISC-V spec: word accesses require 4-byte alignment,
+  // halfword accesses require 2-byte alignment; byte accesses are always aligned.
+  assign mem_misaligned =
+    ((in.is_lw || in.is_sw) && in.mem_addr[1:0] != 2'b00) ||
+    ((in.is_lh || in.is_lhu || in.is_sh) && in.mem_addr[0] != 1'b0);
+
   logic [31:0] write_request;
   // make the request
   always_comb begin

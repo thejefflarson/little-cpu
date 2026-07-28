@@ -21,6 +21,8 @@ module memory #(
         if(mem_wstrb[2]) ram[mem_addr >> 2][23:16] <= mem_wdata[23:16];
         if(mem_wstrb[3]) ram[mem_addr >> 2][31:24] <= mem_wdata[31:24];
       end
+    end else begin
+      mem_rdata <= 32'b0; // out-of-range: return 0, no stale data
     end
   end
 endmodule

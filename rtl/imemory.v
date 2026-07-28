@@ -11,5 +11,5 @@ module imemory #(
   initial $readmemh("./rom.mem", rom);
   logic [31:0] rom[0:ROM-1];
   always_comb
-    imem_data = rom[imem_addr];
+    imem_data = (imem_addr < ROM) ? rom[imem_addr] : 32'b0;
 endmodule

@@ -86,11 +86,32 @@ module executor(
             end
 
             in.is_div || in.is_divu || in.is_rem || in.is_remu: begin
+             `ifndef RISCV_FORMAL_ALTOPS
+              if (rs2 == 0) begin
+                // Division by zero per RISC-V spec Vol I §7.2
+                if (in.is_rem || in.is_remu) out.rd_data <= rs1; // remainder = dividend
+                else out.rd_data <= 32'hffffffff; // quotient = -1 (div) or MAX_UINT (divu)
+                // state stays init; no division needed
+              end else if ((in.is_div || in.is_rem) &&
+                           rs1 == 32'h80000000 && rs2 == 32'hffffffff) begin
+                // Signed overflow: INT_MIN / -1 per RISC-V spec Vol I §7.2
+                if (in.is_div) out.rd_data <= 32'h80000000; // quotient = INT_MIN
+                else out.rd_data <= 32'b0; // remainder = 0
+                // state stays init; no division needed
+              end else begin
+                mul_div_counter <= 65;
+                state <= divide;
+                mul_div_store <= 0;
+                mul_div_x <= {32'b0, rs1};
+                mul_div_y <= {1'b0, rs2, 31'b0};
+              end
+             `else
               mul_div_counter <= 65;
               state <= divide;
               mul_div_store <= 0;
               mul_div_x <= {32'b0, rs1};
               mul_div_y <= {1'b0, rs2, 31'b0};
+             `endif
             end
             in.is_ecall || in.is_ebreak || in.is_csrrw || in.is_csrrs || in.is_csrrc: ;
             in.is_valid_instr: ;

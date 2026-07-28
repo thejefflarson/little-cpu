@@ -37,4 +37,4 @@ clean:
 	rm -f sim
 
 riscv-formal:
-	git clone https://github.com/SymbioticEDA/riscv-formal formal/riscv-formal
+	git clone --depth 1 https://github.com/YosysHQ/riscv-formal.git formal/riscv-formal
