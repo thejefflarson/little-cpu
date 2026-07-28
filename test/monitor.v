@@ -3500,7 +3500,7 @@ module monitor_insn_add (
 );
 
   // R-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [6:0] insn_funct7 = rvfi_insn[31:25];
   wire [4:0] insn_rs2    = rvfi_insn[24:20];
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
@@ -3551,7 +3551,7 @@ module monitor_insn_addi (
 );
 
   // I-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [32-1:0] insn_imm = $signed(rvfi_insn[31:20]);
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
   wire [2:0] insn_funct3 = rvfi_insn[14:12];
@@ -3601,7 +3601,7 @@ module monitor_insn_and (
 );
 
   // R-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [6:0] insn_funct7 = rvfi_insn[31:25];
   wire [4:0] insn_rs2    = rvfi_insn[24:20];
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
@@ -3652,7 +3652,7 @@ module monitor_insn_andi (
 );
 
   // I-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [32-1:0] insn_imm = $signed(rvfi_insn[31:20]);
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
   wire [2:0] insn_funct3 = rvfi_insn[14:12];
@@ -3702,7 +3702,7 @@ module monitor_insn_auipc (
 );
 
   // U-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [32-1:0] insn_imm = $signed({rvfi_insn[31:12], 12'b0});
   wire [4:0] insn_rd     = rvfi_insn[11:7];
   wire [6:0] insn_opcode = rvfi_insn[ 6:0];
@@ -3749,7 +3749,7 @@ module monitor_insn_beq (
 );
 
   // SB-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [32-1:0] insn_imm = $signed({rvfi_insn[31], rvfi_insn[7], rvfi_insn[30:25], rvfi_insn[11:8], 1'b0});
   wire [4:0] insn_rs2    = rvfi_insn[24:20];
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
@@ -3801,7 +3801,7 @@ module monitor_insn_bge (
 );
 
   // SB-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [32-1:0] insn_imm = $signed({rvfi_insn[31], rvfi_insn[7], rvfi_insn[30:25], rvfi_insn[11:8], 1'b0});
   wire [4:0] insn_rs2    = rvfi_insn[24:20];
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
@@ -3853,7 +3853,7 @@ module monitor_insn_bgeu (
 );
 
   // SB-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [32-1:0] insn_imm = $signed({rvfi_insn[31], rvfi_insn[7], rvfi_insn[30:25], rvfi_insn[11:8], 1'b0});
   wire [4:0] insn_rs2    = rvfi_insn[24:20];
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
@@ -3905,7 +3905,7 @@ module monitor_insn_blt (
 );
 
   // SB-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [32-1:0] insn_imm = $signed({rvfi_insn[31], rvfi_insn[7], rvfi_insn[30:25], rvfi_insn[11:8], 1'b0});
   wire [4:0] insn_rs2    = rvfi_insn[24:20];
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
@@ -3957,7 +3957,7 @@ module monitor_insn_bltu (
 );
 
   // SB-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [32-1:0] insn_imm = $signed({rvfi_insn[31], rvfi_insn[7], rvfi_insn[30:25], rvfi_insn[11:8], 1'b0});
   wire [4:0] insn_rs2    = rvfi_insn[24:20];
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
@@ -4009,7 +4009,7 @@ module monitor_insn_bne (
 );
 
   // SB-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [32-1:0] insn_imm = $signed({rvfi_insn[31], rvfi_insn[7], rvfi_insn[30:25], rvfi_insn[11:8], 1'b0});
   wire [4:0] insn_rs2    = rvfi_insn[24:20];
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
@@ -5299,7 +5299,7 @@ module monitor_insn_div (
 );
 
   // R-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [6:0] insn_funct7 = rvfi_insn[31:25];
   wire [4:0] insn_rs2    = rvfi_insn[24:20];
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
@@ -5352,7 +5352,7 @@ module monitor_insn_divu (
 );
 
   // R-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [6:0] insn_funct7 = rvfi_insn[31:25];
   wire [4:0] insn_rs2    = rvfi_insn[24:20];
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
@@ -5404,7 +5404,7 @@ module monitor_insn_jal (
 );
 
   // UJ-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [32-1:0] insn_imm = $signed({rvfi_insn[31], rvfi_insn[19:12], rvfi_insn[20], rvfi_insn[30:21], 1'b0});
   wire [4:0] insn_rd     = rvfi_insn[11:7];
   wire [6:0] insn_opcode = rvfi_insn[6:0];
@@ -5453,7 +5453,7 @@ module monitor_insn_jalr (
 );
 
   // I-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [32-1:0] insn_imm = $signed(rvfi_insn[31:20]);
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
   wire [2:0] insn_funct3 = rvfi_insn[14:12];
@@ -5504,7 +5504,7 @@ module monitor_insn_lb (
 );
 
   // I-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [32-1:0] insn_imm = $signed(rvfi_insn[31:20]);
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
   wire [2:0] insn_funct3 = rvfi_insn[14:12];
@@ -5555,7 +5555,7 @@ module monitor_insn_lbu (
 );
 
   // I-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [32-1:0] insn_imm = $signed(rvfi_insn[31:20]);
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
   wire [2:0] insn_funct3 = rvfi_insn[14:12];
@@ -5606,7 +5606,7 @@ module monitor_insn_lh (
 );
 
   // I-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [32-1:0] insn_imm = $signed(rvfi_insn[31:20]);
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
   wire [2:0] insn_funct3 = rvfi_insn[14:12];
@@ -5657,7 +5657,7 @@ module monitor_insn_lhu (
 );
 
   // I-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [32-1:0] insn_imm = $signed(rvfi_insn[31:20]);
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
   wire [2:0] insn_funct3 = rvfi_insn[14:12];
@@ -5708,7 +5708,7 @@ module monitor_insn_lui (
 );
 
   // U-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [32-1:0] insn_imm = $signed({rvfi_insn[31:12], 12'b0});
   wire [4:0] insn_rd     = rvfi_insn[11:7];
   wire [6:0] insn_opcode = rvfi_insn[ 6:0];
@@ -5755,7 +5755,7 @@ module monitor_insn_lw (
 );
 
   // I-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [32-1:0] insn_imm = $signed(rvfi_insn[31:20]);
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
   wire [2:0] insn_funct3 = rvfi_insn[14:12];
@@ -5806,7 +5806,7 @@ module monitor_insn_mul (
 );
 
   // R-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [6:0] insn_funct7 = rvfi_insn[31:25];
   wire [4:0] insn_rs2    = rvfi_insn[24:20];
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
@@ -5857,7 +5857,7 @@ module monitor_insn_mulh (
 );
 
   // R-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [6:0] insn_funct7 = rvfi_insn[31:25];
   wire [4:0] insn_rs2    = rvfi_insn[24:20];
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
@@ -5909,7 +5909,7 @@ module monitor_insn_mulhsu (
 );
 
   // R-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [6:0] insn_funct7 = rvfi_insn[31:25];
   wire [4:0] insn_rs2    = rvfi_insn[24:20];
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
@@ -5961,7 +5961,7 @@ module monitor_insn_mulhu (
 );
 
   // R-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [6:0] insn_funct7 = rvfi_insn[31:25];
   wire [4:0] insn_rs2    = rvfi_insn[24:20];
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
@@ -6012,7 +6012,7 @@ module monitor_insn_or (
 );
 
   // R-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [6:0] insn_funct7 = rvfi_insn[31:25];
   wire [4:0] insn_rs2    = rvfi_insn[24:20];
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
@@ -6063,7 +6063,7 @@ module monitor_insn_ori (
 );
 
   // I-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [32-1:0] insn_imm = $signed(rvfi_insn[31:20]);
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
   wire [2:0] insn_funct3 = rvfi_insn[14:12];
@@ -6113,7 +6113,7 @@ module monitor_insn_rem (
 );
 
   // R-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [6:0] insn_funct7 = rvfi_insn[31:25];
   wire [4:0] insn_rs2    = rvfi_insn[24:20];
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
@@ -6166,7 +6166,7 @@ module monitor_insn_remu (
 );
 
   // R-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [6:0] insn_funct7 = rvfi_insn[31:25];
   wire [4:0] insn_rs2    = rvfi_insn[24:20];
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
@@ -6218,7 +6218,7 @@ module monitor_insn_sb (
 );
 
   // S-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [32-1:0] insn_imm = $signed({rvfi_insn[31:25], rvfi_insn[11:7]});
   wire [4:0] insn_rs2    = rvfi_insn[24:20];
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
@@ -6268,7 +6268,7 @@ module monitor_insn_sh (
 );
 
   // S-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [32-1:0] insn_imm = $signed({rvfi_insn[31:25], rvfi_insn[11:7]});
   wire [4:0] insn_rs2    = rvfi_insn[24:20];
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
@@ -6318,7 +6318,7 @@ module monitor_insn_sll (
 );
 
   // R-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [6:0] insn_funct7 = rvfi_insn[31:25];
   wire [4:0] insn_rs2    = rvfi_insn[24:20];
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
@@ -6370,7 +6370,7 @@ module monitor_insn_slli (
 );
 
   // I-type instruction format (shift variation)
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [6:0] insn_funct6 = rvfi_insn[31:26];
   wire [5:0] insn_shamt  = rvfi_insn[25:20];
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
@@ -6421,7 +6421,7 @@ module monitor_insn_slt (
 );
 
   // R-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [6:0] insn_funct7 = rvfi_insn[31:25];
   wire [4:0] insn_rs2    = rvfi_insn[24:20];
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
@@ -6472,7 +6472,7 @@ module monitor_insn_slti (
 );
 
   // I-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [32-1:0] insn_imm = $signed(rvfi_insn[31:20]);
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
   wire [2:0] insn_funct3 = rvfi_insn[14:12];
@@ -6522,7 +6522,7 @@ module monitor_insn_sltiu (
 );
 
   // I-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [32-1:0] insn_imm = $signed(rvfi_insn[31:20]);
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
   wire [2:0] insn_funct3 = rvfi_insn[14:12];
@@ -6572,7 +6572,7 @@ module monitor_insn_sltu (
 );
 
   // R-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [6:0] insn_funct7 = rvfi_insn[31:25];
   wire [4:0] insn_rs2    = rvfi_insn[24:20];
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
@@ -6623,7 +6623,7 @@ module monitor_insn_sra (
 );
 
   // R-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [6:0] insn_funct7 = rvfi_insn[31:25];
   wire [4:0] insn_rs2    = rvfi_insn[24:20];
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
@@ -6675,7 +6675,7 @@ module monitor_insn_srai (
 );
 
   // I-type instruction format (shift variation)
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [6:0] insn_funct6 = rvfi_insn[31:26];
   wire [5:0] insn_shamt  = rvfi_insn[25:20];
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
@@ -6726,7 +6726,7 @@ module monitor_insn_srl (
 );
 
   // R-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [6:0] insn_funct7 = rvfi_insn[31:25];
   wire [4:0] insn_rs2    = rvfi_insn[24:20];
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
@@ -6778,7 +6778,7 @@ module monitor_insn_srli (
 );
 
   // I-type instruction format (shift variation)
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [6:0] insn_funct6 = rvfi_insn[31:26];
   wire [5:0] insn_shamt  = rvfi_insn[25:20];
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
@@ -6829,7 +6829,7 @@ module monitor_insn_sub (
 );
 
   // R-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [6:0] insn_funct7 = rvfi_insn[31:25];
   wire [4:0] insn_rs2    = rvfi_insn[24:20];
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
@@ -6880,7 +6880,7 @@ module monitor_insn_sw (
 );
 
   // S-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [32-1:0] insn_imm = $signed({rvfi_insn[31:25], rvfi_insn[11:7]});
   wire [4:0] insn_rs2    = rvfi_insn[24:20];
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
@@ -6930,7 +6930,7 @@ module monitor_insn_xor (
 );
 
   // R-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [6:0] insn_funct7 = rvfi_insn[31:25];
   wire [4:0] insn_rs2    = rvfi_insn[24:20];
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
@@ -6981,7 +6981,7 @@ module monitor_insn_xori (
 );
 
   // I-type instruction format
-  wire [32-1:0] insn_padding = rvfi_insn >> 32;
+  wire [32-1:0] insn_padding = rvfi_insn >> 16 >> 16;
   wire [32-1:0] insn_imm = $signed(rvfi_insn[31:20]);
   wire [4:0] insn_rs1    = rvfi_insn[19:15];
   wire [2:0] insn_funct3 = rvfi_insn[14:12];

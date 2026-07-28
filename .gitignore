@@ -3,14 +3,16 @@ riscv.asc
 timing
 pll.v
 formal/riscv-formal
+formal/riscv-formal.tmp
 formal/complete
 formal/cover
 formal/checks
 formal/dmemcheck
 formal/imemcheck
 formal/components_*
+formal/components
 test/rtl.cc
-*.vvpemacscl
+*.vvp
 *.vcd
 disasm.s
 disasm.o
@@ -23,4 +25,3 @@ rtl/rom.mem
 sim
 sim.dSYM/
 test/a.out.dSYM/
-testbench.vvp
