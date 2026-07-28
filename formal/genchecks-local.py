@@ -1,5 +1,16 @@
 #!/usr/bin/env python3
 #
+# This is a fork of upstream riscv-formal's checks/genchecks.py, forked at
+# the SHA this repo pins riscv-formal to (formal/pin.mk: RISCV_FORMAL_SHA =
+# c992aa61fdfe0846c5ed90324c596202a1c69b76). It differs from upstream by
+# ~700 lines, and the difference is structural, not drift: upstream computes
+# `basedir = f"{os.getcwd()}/../.."`, which assumes it runs from
+# riscv-formal/cores/<name>/; this fork resolves `basedir` relative to the
+# script itself (see below) so the harness can live in formal/ instead of
+# adopting riscv-formal's cores/ layout. Moving to upstream's cores/ layout
+# is a much larger change with no payoff for this repo — see ADR-0006 and
+# JEF-604. Keep this fork; don't replace it with a vendored upstream copy.
+#
 # Copyright (C) 2017  Clifford Wolf <clifford@symbioticeda.com>
 #
 # Permission to use, copy, modify, and/or distribute this software for any

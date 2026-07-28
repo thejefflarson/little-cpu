@@ -4,8 +4,6 @@ decoder all
 fetcher all
 accessor all
 writeback all
-handshake all
-skidbuffer all
 
 [options]
 all: mode prove

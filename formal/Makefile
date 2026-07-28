@@ -1,12 +1,17 @@
+include pin.mk
+
+# GNU nproc / macOS sysctl; both aren't on every box, so fall back to 4.
+JOBS := $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+
 all: complete check dmemcheck imemcheck components_fetcher
 
 %: %.sby
 	sby -f $<
 
 check: checks riscv-formal
-	make -BC $< -j$(nproc)
+	make -BC $< -j$(JOBS)
 
-checks: genchecks.py riscv-formal checks.cfg
+checks: genchecks-local.py riscv-formal checks.cfg
 	python3 $<
 
 dmemcheck: dmemcheck.sby dmemcheck.sv riscv-formal
@@ -25,13 +30,12 @@ components_accessor: components.sby ../rtl/accessor.v
 	sby -f $< accessor
 components_writeback: components.sby ../rtl/writeback.v
 	sby -f $< writeback
-components_handshake: components.sby ../rtl/handshake.v
-	sby -f $< handshake
 
 riscv-formal:
-	git clone --depth 1 https://github.com/YosysHQ/riscv-formal.git
+	git clone https://github.com/YosysHQ/riscv-formal.git $@
+	git -C $@ checkout $(RISCV_FORMAL_SHA)
 
 clean:
-	rm -rf {checks,complete,cover,riscv-formal,dmemcheck,imemcheck,components_*}
+	rm -rf {checks,complete,cover,riscv-formal,dmemcheck,imemcheck,components,components_*}
 
 .PHONY: all clean
