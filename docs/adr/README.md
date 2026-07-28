@@ -16,11 +16,15 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0009](0009-stall-protocol-semantics.md) | Stall protocol — upstream freezes, downstream drains | Accepted |
 | [0010](0010-muldiv-verification-under-altops.md) | A randomized differential bench is the primary mul/div guarantee | Accepted |
 | [0011](0011-misalignment-detection-stays-in-accessor-until-m3.md) | Misalignment detection stays in the accessor until M3 | Accepted |
+| [0012](0012-divider-is-unsigned-signs-are-a-wrapper.md) | The divider is unsigned; sign handling is a wrapper around it | Accepted |
+| [0013](0013-the-riscv-formal-pin-is-an-enforced-control.md) | The riscv-formal pin is an enforced control, not a comment | Accepted |
 
 0001–0007 came from the design brief
 ([`docs/ideas/finish-the-rewrite.md`](../ideas/finish-the-rewrite.md)). 0008–0011 came out of
 sprint planning, when the panel ran the toolchain and found the brief's assumptions needed
-resolving before work could start. 0010 supplements 0006; 0011 scopes 0005.
+resolving before work could start. 0012-0013 came out of integrating the first build sprint, when
+review of JEF-604/JEF-605 turned up decisions neither ticket had recorded. 0010 supplements 0006;
+0011 scopes 0005; 0012 supplements 0010; 0013 implements 0006's pinning clause.
 
 ## Deferred decisions
 
