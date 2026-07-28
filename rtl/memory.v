@@ -20,8 +20,6 @@ module memory #(
         if(mem_wstrb[1]) ram[mem_addr >> 2][15:8] <= mem_wdata[15:8];
         if(mem_wstrb[2]) ram[mem_addr >> 2][23:16] <= mem_wdata[23:16];
         if(mem_wstrb[3]) ram[mem_addr >> 2][31:24] <= mem_wdata[31:24];
-      end else begin
-        mem_rdata <= mem_wdata;
       end
     end else begin
       mem_rdata <= mem_wdata;
