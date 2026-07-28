@@ -129,7 +129,7 @@ treat it as the real finish line, not M1.
 ## Pointers
 
 - Design brief: [`docs/ideas/finish-the-rewrite.md`](docs/ideas/finish-the-rewrite.md)
-- Decisions: [`docs/adr/`](docs/adr/) — seven accepted ADRs, plus a deferred list
+- Decisions: [`docs/adr/`](docs/adr/) — fourteen accepted ADRs, plus a deferred list
 - Reference text from the old core: `git show 1709433^:rtl/riscv.v` (RVFI retire block),
   `git show e67875c^:rtl/alu.v` (arithmetic)
 - Tracker: Linear, project **Little CPU** (team JEF)
