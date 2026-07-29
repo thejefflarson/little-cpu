@@ -7,8 +7,19 @@ module executor(
 
   // inputs
   input  decoder_output in,
+  // ADR-0009-style stall broadcast from the accessor (JEF-607): high for the
+  // one cycle a load's response is still in flight there. Upstream of the
+  // stalling stage freezes — the executor is upstream of the accessor, so it
+  // must freeze (emit a bubble) rather than advance, or a fresh instruction
+  // would collide with the completing load over the accessor's single output
+  // register and the single-port memory bus.
+  input  logic accessor_stall,
   // outputs
-  output executor_output out
+  output executor_output out,
+  // ADR-0009: broadcast to littlecpu.v (and from there back to the decoder)
+  // whenever a multi-cycle divide is in flight, so decode freezes upstream
+  // and bubbles downstream until it drains.
+  output logic stalled
 );
   logic [31:0] rs1, rs2;
   assign rs1 = in.rs1;
@@ -27,9 +38,16 @@ module executor(
   logic [6:0]  mul_div_counter;
   logic [63:0] mul_div_x, mul_div_y;
   logic [63:0] mul_div_store;
-  logic stalled;
   always_comb
     stalled = state != init;
+
+  // ADR-0009: once decode is stalled for a divide, it bubbles (rather than
+  // literally holding `in` unchanged) so the executor doesn't misread a
+  // stale in-flight instruction the moment it returns to `init` — see
+  // rtl/decoder.v. That means `in` cannot be relied on at completion time,
+  // so the op-select and operand signs the last iteration needs are latched
+  // here at issue, once, instead of read live off `in` 32 iterations later.
+  logic op_is_div, op_is_divu, op_is_rem, op_is_remu, op_sign_x, op_sign_y;
 
   // multiply: continuous assignments, so the product tracks the operands every cycle
   // instead of being latched once at time 0. sign_x covers is_mulh (signed rs1) and
@@ -50,10 +68,27 @@ module executor(
       mul_div_store <= 0;
       mul_div_x <= 0;
       mul_div_y <= 0;
+      op_is_div <= 0;
+      op_is_divu <= 0;
+      op_is_rem <= 0;
+      op_is_remu <= 0;
+      op_sign_x <= 0;
+      op_sign_y <= 0;
+    end else if (accessor_stall) begin
+      // Freeze: emit a bubble and hold every other register (state,
+      // mul_div_*, op_*) unchanged. Never overlaps with a real divide in
+      // progress — decode already freezes everything upstream of the
+      // executor while dividing, so a load can't reach the accessor (and
+      // assert accessor_stall) until the divide has long since drained.
+      out <= 0;
     end else begin
       (* parallel_case, full_case *)
       case (state)
         init: begin
+          // ADR-0009: a bubble (in.valid == 0) propagates straight through as
+          // a bubble here too, except when it's the one real cycle a divide
+          // is issued (out.valid held low below until the divide completes).
+          out.valid <= in.valid;
           out.rd <= in.rd;
           out.rd_data <= 0;
           out.mem_addr <= in.mem_addr;
@@ -71,12 +106,15 @@ module executor(
             in.is_add: out.rd_data <= rs1 + rs2;
             in.is_lui: out.rd_data <= rs1;
             in.is_sub: out.rd_data <= rs1 - rs2;
-            in.is_sll: out.rd_data <= rs1 << rs2;
+            // RV32I shift amount is rs2[4:0] only (RISC-V spec Vol I §2.4.2);
+            // the upper 27 bits are ignored, not folded into the shift as a
+            // wider count.
+            in.is_sll: out.rd_data <= rs1 << rs2[4:0];
             in.is_slt: out.rd_data <= {31'b0, $signed(rs1) < $signed(rs2)};
             in.is_sltu: out.rd_data <= {31'b0, rs1 < rs2};
             in.is_xor: out.rd_data <= rs1 ^ rs2;
-            in.is_srl: out.rd_data <= rs1 >> rs2;
-            in.is_sra: out.rd_data <= $signed(rs1) >>> rs2;
+            in.is_srl: out.rd_data <= rs1 >> rs2[4:0];
+            in.is_sra: out.rd_data <= $signed(rs1) >>> rs2[4:0];
             in.is_or: out.rd_data <= rs1 | rs2;
             in.is_and: out.rd_data <= rs1 & rs2;
             in.is_mul || in.is_mulh || in.is_mulhu || in.is_mulhsu: begin
@@ -98,6 +136,16 @@ module executor(
             end
 
             in.is_div || in.is_divu || in.is_rem || in.is_remu: begin
+              // Latched regardless of which sub-path fires below: harmless
+              // for the div-by-zero/overflow short-circuits (state stays
+              // init, so completion never reads them back), and required for
+              // the real divide (see the comment on their declaration).
+              op_is_div <= in.is_div;
+              op_is_divu <= in.is_divu;
+              op_is_rem <= in.is_rem;
+              op_is_remu <= in.is_remu;
+              op_sign_x <= in.rs1[31];
+              op_sign_y <= in.rs2[31];
              `ifndef RISCV_FORMAL_ALTOPS
               if (rs2 == 0) begin
                 // Division by zero per RISC-V spec Vol I §7.2
@@ -116,6 +164,10 @@ module executor(
                 mul_div_store <= 0;
                 mul_div_x <= {32'b0, div_x};
                 mul_div_y <= {1'b0, div_y, 31'b0};
+                // The result isn't ready this cycle — ADR-0009's replay fix:
+                // downstream drains a bubble, not a repeat of whatever the
+                // executor last held, for the entire multi-cycle divide.
+                out.valid <= 1'b0;
               end
              `else
               mul_div_counter <= 32;
@@ -123,6 +175,7 @@ module executor(
               mul_div_store <= 0;
               mul_div_x <= {32'b0, rs1};
               mul_div_y <= {1'b0, rs2, 31'b0};
+              out.valid <= 1'b0;
              `endif
             end
             in.is_ecall || in.is_ebreak || in.is_csrrw || in.is_csrrs || in.is_csrrc: ;
@@ -142,23 +195,28 @@ module executor(
             mul_div_y <= mul_div_y >> 1;
             mul_div_counter <= mul_div_counter - 1;
           end else begin
+            // Uses the op-select and sign bits latched at issue, not `in`
+            // (which decode has long since bubbled) — see the comment on
+            // their declaration above.
             (* parallel_case, full_case *)
             case (1'b1)
-              in.is_div: out.rd_data <= in.rs1[31] != in.rs2[31] ? -mul_div_store[31:0] : mul_div_store[31:0];
-              in.is_divu: out.rd_data <= mul_div_store[31:0];
-              in.is_rem: out.rd_data <= in.rs1[31] ? -mul_div_x[31:0] : mul_div_x[31:0];
-              in.is_remu: out.rd_data <= mul_div_x[31:0];
+              op_is_div: out.rd_data <= op_sign_x != op_sign_y ? -mul_div_store[31:0] : mul_div_store[31:0];
+              op_is_divu: out.rd_data <= mul_div_store[31:0];
+              op_is_rem: out.rd_data <= op_sign_x ? -mul_div_x[31:0] : mul_div_x[31:0];
+              op_is_remu: out.rd_data <= mul_div_x[31:0];
             endcase
+            out.valid <= 1'b1;
             state <= init;
           end
          `else
           (* parallel_case, full_case *)
           case (1'b1)
-            in.is_div: out.rd_data <= (in.rs1 - in.rs2) ^ 32'h7f8529ec;
-            in.is_divu: out.rd_data <= (in.rs1 - in.rs2) ^ 32'h10e8fd70;
-            in.is_rem: out.rd_data <= (in.rs1 - in.rs2) ^ 32'h8da68fa5;
-            in.is_remu: out.rd_data <= (in.rs1 - in.rs2) ^ 32'h3138d0e1;
+            op_is_div: out.rd_data <= (in.rs1 - in.rs2) ^ 32'h7f8529ec;
+            op_is_divu: out.rd_data <= (in.rs1 - in.rs2) ^ 32'h10e8fd70;
+            op_is_rem: out.rd_data <= (in.rs1 - in.rs2) ^ 32'h8da68fa5;
+            op_is_remu: out.rd_data <= (in.rs1 - in.rs2) ^ 32'h3138d0e1;
           endcase
+          out.valid <= 1'b1;
           state <= init;
          `endif
         end // case: divide
@@ -187,6 +245,19 @@ module executor(
   // once-at-the-start pulse everywhere else in this design, so assume it
   // stays low for the remainder of the trace.
   always_comb if (clocked) assume(!reset);
+
+  // This component proof stands alone (no accessor instantiated), so
+  // accessor_stall is otherwise a free input every cycle — the solver could
+  // hold it asserted forever and defeat every arithmetic assertion below via
+  // the accessor_stall freeze branch (out <= 0 every cycle, never reaching
+  // the case (state) that actually computes anything). In the real pipeline
+  // accessor_stall is a one-cycle pulse strictly caused by a load reaching
+  // the accessor, structurally unrelated to mul/div correctness (JEF-607) —
+  // scoped out here the same way ADR-0010 already restricts this proof's
+  // divide operands, for the same reason: keep the proof about the
+  // arithmetic, not an interaction test/asm/hazard.S and the decoder's own
+  // formal task already cover.
+  always_comb assume(!accessor_stall);
 
   // ---- Executor arithmetic BMC (ADR-0006 component proof #2 / ADR-0010) ----
   // The *primary* guarantee for real mul/div arithmetic is the randomized
@@ -283,6 +354,20 @@ module executor(
       assume(in.is_rem == $past(in.is_rem));
       assume(in.is_remu == $past(in.is_remu));
     end
+
+  // Ties the op_is_*/op_sign_* latches (JEF-607 — see their declaration
+  // above) back to `in` while dividing, mirroring what the environmental
+  // assumption above already establishes about `in` staying constant. Without
+  // this as its own stated (one-step-inductive) invariant, k-induction has no
+  // intermediate fact linking a latch taken once at issue to `in.is_divu`
+  // read many cycles later at the completion assertions below, and induction
+  // (not just the base case) fails to close.
+  always_comb if (state == divide) assert(op_is_div == in.is_div);
+  always_comb if (state == divide) assert(op_is_divu == in.is_divu);
+  always_comb if (state == divide) assert(op_is_rem == in.is_rem);
+  always_comb if (state == divide) assert(op_is_remu == in.is_remu);
+  always_comb if (state == divide) assert(op_sign_x == in.rs1[31]);
+  always_comb if (state == divide) assert(op_sign_y == in.rs2[31]);
 
   // k-induction otherwise has no reason to rule out an (unreachable) starting
   // state with a wild mul_div_counter value — bound it to the range the RTL

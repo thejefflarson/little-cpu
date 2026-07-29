@@ -13,6 +13,26 @@ module accessor(
     input  logic [31:0] mem_rdata,
     // fault signals
     output logic mem_misaligned,
+    // ADR-0009-style stall broadcast (JEF-607): the memory (test/testbench.v,
+    // rtl/memory.v) registers mem_rdata one cycle after the address is
+    // presented — a real, unavoidable round trip, not a choice — so a load
+    // cannot be answered in the single cycle every other instruction takes
+    // through this stage. High for exactly the cycle a load's *request*
+    // fires; littlecpu.v folds this into the same global stall that already
+    // freezes decode for a divide, and rtl/executor.v freezes (emits a
+    // bubble) for that one cycle so nothing new arrives here while the
+    // response is still in flight — otherwise the completing load and a
+    // fresh instruction would collide over this stage's single output
+    // register and the single-port memory bus.
+    output logic stalled,
+    // ADR-0004 hazard scoreboard (JEF-607): a load's result is a live
+    // producer from the moment its request is issued here until write-through
+    // makes it visible, which is one cycle later than decoder_out/executor_out
+    // alone can see (that's what `stalled` above is fixing). Decode also
+    // checks this — a third stage, but only for this specific one-cycle gap,
+    // not a general widening of the scoreboard.
+    output logic       pending_valid,
+    output logic [4:0] pending_rd,
     // outputs
     output accessor_output out
 );
@@ -20,26 +40,51 @@ module accessor(
   assign addr16 = in.mem_addr[1];
   logic [1:0] addr24;
   assign addr24 = in.mem_addr[1:0];
+  logic is_load;
+  assign is_load = in.is_lw || in.is_lh || in.is_lhu || in.is_lb || in.is_lbu;
+  assign stalled = in.valid && is_load;
+
+  // pending_valid/pending_rd are declared as ports above (the hazard
+  // scoreboard needs them too); the rest of the pending-load state below is
+  // internal-only. All of it is latched at the request cycle below and
+  // consumed one cycle later once mem_rdata actually reflects this load —
+  // see `stalled` above.
+  logic       pending_is_lb, pending_is_lbu, pending_is_lh, pending_is_lhu, pending_is_lw;
+  logic       pending_addr16;
+  logic [1:0] pending_addr24;
   // Misaligned-access detection per RISC-V spec: word accesses require 4-byte alignment,
   // halfword accesses require 2-byte alignment; byte accesses are always aligned.
-  assign mem_misaligned =
-    ((in.is_lw || in.is_sw) && in.mem_addr[1:0] != 2'b00) ||
-    ((in.is_lh || in.is_lhu || in.is_sh) && in.mem_addr[0] != 1'b0);
+  // Gated by in.valid (ADR-0011/JEF-607): a bubble must never raise a spurious
+  // trap. Detection itself stays here — moving it to decode is M3 (ADR-0011).
+  assign mem_misaligned = in.valid &&
+    (((in.is_lw || in.is_sw) && in.mem_addr[1:0] != 2'b00) ||
+     ((in.is_lh || in.is_lhu || in.is_sh) && in.mem_addr[0] != 1'b0));
 
   logic [31:0] write_request;
-  // make the request
+  // mem_wdata must be combinational, in lockstep with mem_addr/mem_wstrb
+  // above: a registered mem_wdata (the original bug here) lags the address
+  // and strobe by one cycle, so the memory model latches the *previous*
+  // cycle's data at the *current* cycle's address — exactly the "address
+  // recovers before data" skew traced while landing JEF-606 (see
+  // test/EXPECTED_FAIL's history and the JEF-607 dispatch notes).
+  assign mem_wdata = write_request;
+  // make the request. Defaults to no request every cycle — reset, a bubble,
+  // and a real non-memory instruction (e.g. add) all fall out of the same
+  // single default below rather than each re-stating "0, 0, 0" — and that's
+  // also the direct fix for the divide-replay defect, where the accessor
+  // used to keep re-issuing whatever request was last in `in` for every
+  // cycle the executor sat busy in `divide`, because nothing here defaulted
+  // back to zero in between.
   always_comb begin
-    if(reset) begin
-      mem_addr = 0;
-      mem_wstrb = 0;
-      write_request = 0;
-    end else begin
+    mem_addr = 0;
+    mem_wstrb = 0;
+    write_request = 0;
+    if (!reset && in.valid) begin
       write_request = in.mem_data;
       // request is synchronous
-      (* parallel_case, full_case *)
+      (* parallel_case *)
       case (1'b1)
         in.is_lw || in.is_lh || in.is_lhu || in.is_lb || in.is_lbu: begin
-          mem_wstrb = 4'b0000;
           mem_addr = {in.mem_addr[31:2], 2'b00};
         end
 
@@ -65,24 +110,33 @@ module accessor(
           endcase // case (1'b1)
           mem_addr = {in.mem_addr[31:2], 2'b00};
         end // case: in.is_sw || in.is_sh || in.is_sb
+
+        // default: not a load or a store this cycle (e.g. an add) — the
+        // zeroed defaults above stand.
       endcase // case (1'b1)
-    end // else: !if(reset)
+    end // if (!reset && in.valid)
   end // always_comb
 
   always_ff @(posedge clk) begin
     // response is registered
     if (reset) begin
       out <= 0;
-      mem_wdata <= 0;
-    end else begin
-      mem_wdata <= write_request;
-      out.rd_data <= in.rd_data;
-      out.rd <= in.rd;
+      pending_valid <= 1'b0;
+      pending_rd <= 0;
+      pending_is_lb <= 0; pending_is_lbu <= 0; pending_is_lh <= 0; pending_is_lhu <= 0; pending_is_lw <= 0;
+      pending_addr16 <= 0;
+      pending_addr24 <= 0;
+    end else if (pending_valid) begin
+      // The request fired last cycle (`stalled` was high then); mem_rdata
+      // now reflects it. rtl/decoder.v froze upstream and rtl/executor.v
+      // bubbled for that one cycle, so `in` here is guaranteed to be a
+      // bubble right now — nothing else is competing for `out` this cycle.
+      out.valid <= 1'b1;
+      out.rd <= pending_rd;
       (* parallel_case, full_case *)
       case (1'b1)
-        // unpack the alignment from above
-        in.is_lb: begin
-          case (addr24)
+        pending_is_lb: begin
+          case (pending_addr24)
             2'b00: out.rd_data <= {{24{mem_rdata[7]}}, mem_rdata[7:0]};
             2'b01: out.rd_data <= {{24{mem_rdata[15]}}, mem_rdata[15:8]};
             2'b10: out.rd_data <= {{24{mem_rdata[23]}}, mem_rdata[23:16]};
@@ -90,8 +144,8 @@ module accessor(
           endcase
         end
 
-        in.is_lbu: begin
-          case (addr24)
+        pending_is_lbu: begin
+          case (pending_addr24)
             2'b00: out.rd_data <= {24'b0, mem_rdata[7:0]};
             2'b01: out.rd_data <= {24'b0, mem_rdata[15:8]};
             2'b10: out.rd_data <= {24'b0, mem_rdata[23:16]};
@@ -99,23 +153,46 @@ module accessor(
           endcase
         end
 
-        in.is_lh: begin
-          case (addr16)
+        pending_is_lh: begin
+          case (pending_addr16)
             1'b0: out.rd_data <= {{16{mem_rdata[15]}}, mem_rdata[15:0]};
             1'b1: out.rd_data <= {{16{mem_rdata[31]}}, mem_rdata[31:16]};
           endcase
         end
 
-        in.is_lhu: begin
-          case (addr16)
+        pending_is_lhu: begin
+          case (pending_addr16)
             1'b0: out.rd_data <= {16'b0, mem_rdata[15:0]};
             1'b1: out.rd_data <= {16'b0, mem_rdata[31:16]};
           endcase
         end
 
-        in.is_lw: out.rd_data <= mem_rdata;
+        pending_is_lw: out.rd_data <= mem_rdata;
       endcase
-    end // else: !if(reset)
+      pending_valid <= 1'b0;
+    end else if (!in.valid) begin
+      out <= 0;
+    end else if (is_load) begin
+      // Request just issued combinationally above; the response isn't back
+      // until next cycle (see `stalled`). Emit a bubble now and remember
+      // what's needed to decode mem_rdata once it arrives.
+      out <= 0;
+      pending_valid <= 1'b1;
+      pending_rd <= in.rd;
+      pending_is_lb <= in.is_lb;
+      pending_is_lbu <= in.is_lbu;
+      pending_is_lh <= in.is_lh;
+      pending_is_lhu <= in.is_lhu;
+      pending_is_lw <= in.is_lw;
+      pending_addr16 <= addr16;
+      pending_addr24 <= addr24;
+    end else begin
+      // Not a load: stores and every other op settle in the one cycle every
+      // other pipeline stage takes.
+      out.valid <= 1'b1;
+      out.rd_data <= in.rd_data;
+      out.rd <= in.rd;
+    end
   end
 
  `ifdef FORMAL

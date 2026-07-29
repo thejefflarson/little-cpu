@@ -17,7 +17,10 @@ module writeback(
       waddr = 0;
       wdata = 32'b0;
     end else begin
-      wen = (in.rd != 0); // only assert wen when writing to a non-zero register
+      // Retire is `valid` reaching writeback (CLAUDE.md invariant 3): a
+      // bubble must never commit a register write, so wen is gated on both
+      // valid and a non-zero destination.
+      wen = in.valid && (in.rd != 0);
       waddr = in.rd;
       wdata = in.rd_data;
     end

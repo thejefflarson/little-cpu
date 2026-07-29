@@ -162,4 +162,36 @@ module testbench(
       $display("trap!");
     end
   end
+
+  // JEF-607 / ADR-0009 criterion 5: for every store, mem_wstrb is high for
+  // exactly one cycle. Direct regression for the divide-replay defect, where
+  // the accessor kept re-issuing the same store every cycle the executor sat
+  // busy in `divide` because nothing upstream defaulted back to zero in
+  // between. Two DIFFERENT consecutive real stores legitimately produce two
+  // adjacent high cycles, so this checks for the same request repeating
+  // (identical address, data, and strobe on back-to-back high cycles), not
+  // merely back-to-back nonzero cycles.
+  //
+  // $fatal is Icarus-only below: yosys's read_verilog (the write_cxxrtl leg
+  // this file also feeds, per the Makefile) doesn't implement it at all, so
+  // this stays inside `ifdef ICARUS` the same way the clock/reset generation
+  // above does. The $display fires unconditionally, so the violation is
+  // still visible under cxxrtl if it were ever encountered there.
+  logic [31:0] prev_wstrb_mem_addr, prev_wstrb_mem_wdata;
+  logic [3:0]  prev_mem_wstrb;
+  initial prev_mem_wstrb = 4'b0000;
+  always @(posedge clk) begin
+    if (mem_wstrb != 4'b0000 && prev_mem_wstrb != 4'b0000 &&
+        mem_addr == prev_wstrb_mem_addr && mem_wdata == prev_wstrb_mem_wdata &&
+        mem_wstrb == prev_mem_wstrb) begin
+      $display("ASSERTION FAILED: mem_wstrb held high for >1 cycle on the same store (addr=0x%08x)",
+                mem_addr);
+     `ifdef ICARUS
+      $fatal(1);
+     `endif
+    end
+    prev_wstrb_mem_addr <= mem_addr;
+    prev_wstrb_mem_wdata <= mem_wdata;
+    prev_mem_wstrb <= mem_wstrb;
+  end
 endmodule

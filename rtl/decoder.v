@@ -8,6 +8,30 @@ module decoder (
   input  fetcher_output in,
   input  logic [31:0] reg_rs1,
   input  logic [31:0] reg_rs2,
+  // ADR-0004 hazard scoreboard: the other two producer stages (write-through
+  // in the regfile already covers writeback, CLAUDE.md invariant 6).
+  input  executor_output executor_out,
+  // ADR-0009: the executor's multi-cycle-divide busy signal. The divider
+  // latches everything it needs internally at issue (rtl/executor.v), so
+  // decode is free to bubble its own output for the whole divide — and must:
+  // holding it unchanged instead would have the executor misread the same
+  // stale instruction as freshly issued the moment it returns to `init`
+  // (worked through in detail on rtl/executor.v).
+  input  logic divider_stall,
+  // ADR-0009: the accessor's one-cycle load-response stall. Unlike the
+  // divider, nothing downstream has captured *this* cycle's decoder_out yet
+  // when this fires — the executor freezes for that one cycle too (see
+  // rtl/executor.v), so bubbling here would silently drop the very
+  // instruction sitting in decoder_out. Decode must hold it unchanged
+  // instead, for exactly the one cycle this is asserted.
+  input  logic accessor_stall,
+  // ADR-0004 hazard scoreboard, third producer: a load in the accessor's
+  // one-cycle turnaround (see accessor_stall and rtl/accessor.v) is a live
+  // producer for that one extra cycle neither decoder_out nor executor_out
+  // can see it in. Narrow, not a general widening of the scoreboard to a
+  // third pipeline stage.
+  input  logic       accessor_pending_valid,
+  input  logic [4:0] accessor_pending_rd,
   // outputs
   output logic [31:0] pc,
   // rs1 and rs2 are synchronous outputs
@@ -284,14 +308,75 @@ module decoder (
 
   logic [31:0] pc_inc;
   assign pc_inc = uncompressed ? 4 : 2;
+
+  // ADR-0004 stall-only hazard scoreboard. Stall only when THIS instruction
+  // actually consumes rs1/rs2 as a register operand — not, say, a shift's
+  // shamt or a U-type/J-type immediate's overlapping bit position — and that
+  // register has a live (non-x0) producer still in flight at decoder_out (the
+  // module's own `out`, i.e. the instruction decode issued last cycle),
+  // executor_out, or (JEF-607) a load still in the accessor's one-cycle
+  // memory turnaround. Write-through in the regfile covers the writeback
+  // stage itself; the accessor check exists only because a load specifically
+  // needs one more cycle there than every other instruction (see
+  // accessor_stall/rtl/accessor.v) — not a general widening to a third stage.
+  logic uses_rs1, uses_rs2;
+  assign uses_rs1 = !(instr_lui || instr_jal || instr_auipc);
+  assign uses_rs2 = (instr_math && !instr_math_immediate) || instr_sb || instr_sh || instr_sw ||
+    instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu;
+
+  // Shared by hazard_rs1/hazard_rs2 below: is register `r` the destination
+  // of a live (not-yet-retired) producer at any of the three checked points?
+  function automatic logic live_producer(input logic [4:0] r);
+    live_producer = (out.valid && out.rd == r) || (executor_out.valid && executor_out.rd == r) ||
+      (accessor_pending_valid && accessor_pending_rd == r);
+  endfunction
+
+  logic hazard_rs1, hazard_rs2, hazard, stall;
+  assign hazard_rs1 = uses_rs1 && rs1 != 0 && live_producer(rs1);
+  assign hazard_rs2 = uses_rs2 && rs2 != 0 && live_producer(rs2);
+  assign hazard = hazard_rs1 || hazard_rs2;
+  // ADR-0009: a single global stall, combining the local RAW hazard with
+  // whatever's busy downstream (the divider, or the accessor's one-cycle
+  // load turnaround). Any reason freezes the PC; see below for why the two
+  // downstream reasons freeze decoder_out differently.
+  assign stall = hazard || divider_stall || accessor_stall;
+
   // publish the decoded results
   always_ff @(posedge clk) begin
     if (reset) begin
-      // zero out the pc
+      // zero out the pc and bubble the output
       pc <= 0;
+      out <= '0;
+    end else if (divider_stall || accessor_stall) begin
+      // ADR-0009: PC holds like any other freeze, but decoder_out must hold
+      // too, unchanged — not bubble. Decode gets exactly one free cycle to
+      // issue the instruction *after* the one that made the executor or
+      // accessor busy before either of these stalls exists (they both fire
+      // one cycle behind their cause); that next instruction is sitting in
+      // decoder_out, genuinely not yet consumed by anything downstream, and
+      // bubbling it here would silently drop it. It's safe to hold rather
+      // than bubble specifically because nothing downstream can reprocess it
+      // while held: the executor's own `case (state)` is mutually exclusive
+      // (it only ever reads `in` from its `init` branch, never while
+      // `state == divide`) and, for the accessor case, the executor is
+      // itself frozen the same cycle (see rtl/executor.v's accessor_stall).
+      // Takes priority over a same-cycle hazard for the same reason — that
+      // hazard is about the *next* instruction, which isn't decode's problem
+      // yet since decoder_out hasn't advanced.
+      pc <= pc;
+    end else if (hazard) begin
+      // ADR-0009: upstream of the stalling stage freezes — the PC (and so
+      // the fetch window) holds, so the stalled instruction re-presents next
+      // cycle. Bubbles rather than holds: unlike divider_stall/accessor_stall
+      // above, nothing stops the executor from reading `in` every cycle here,
+      // so holding decoder_out unchanged would have it reprocess the same
+      // instruction repeatedly instead of retrying the *hazarded* one.
+      pc <= pc;
+      out <= '0;
     end else begin
       // branches handled below
       pc <= fetcher_pc + pc_inc;
+      out.valid <= 1'b1;
       out.mem_addr <= $signed(immediate) + $signed(reg_rs1);
       // forwards
       out.rs1 <= instr_lui ? immediate : reg_rs1;
@@ -336,9 +421,15 @@ module decoder (
       case(1'b1)
         default: ;
         instr_auipc: begin
+          // AUIPC has no rs1/rs2 fields at all (U-type: imm[31:12] | rd |
+          // opcode) — the bit positions decode.v's default rs1/rs2 selection
+          // reads are part of the immediate here, not a register index. The
+          // result is pc + immediate, computed the same way jal/jalr compute
+          // their return address: through is_add with the operands supplied
+          // directly rather than through reg_rs1/reg_rs2.
           out.rd <= rd;
-          out.rs1 <= reg_rs1;
-          out.rs2 <= reg_rs2;
+          out.rs1 <= fetcher_pc;
+          out.rs2 <= immediate;
           out.is_add <= 1;
         end
 
@@ -390,14 +481,63 @@ module decoder (
   // assume we've reset at clk 0
   initial assume(reset);
   always_comb if(!clocked) assume(reset);
+  // Reset is a once-at-the-start pulse everywhere in this design (matches
+  // rtl/executor.v's identical assumption); without this, the solver can
+  // reassert it on an arbitrary later cycle and the pc-increment assertions
+  // below — which reason about "pc advanced by pc_inc since last cycle" —
+  // would have to separately account for every point reset could jump pc
+  // back to 0.
+  always_comb if (clocked) assume(!reset);
 
-  // pc increment logic
+  // This component proof stands alone (no real fetcher instantiated), so
+  // `in` is otherwise a free input. In the real pipeline the decoder owns
+  // pc and the fetcher only echoes it straight back combinationally
+  // (rtl/fetcher.v's `out.pc = pc;`, wired pc->pc in littlecpu.v) — without
+  // pinning that down here, the solver can present a `fetcher_pc` that
+  // bears no relation to what this decoder itself last drove, and the
+  // pc-increment assertions below are unprovable against a fetcher that
+  // isn't behaving like this design's actual one.
+  always_comb assume(in.pc == pc);
+
+  // pc increment logic. Skipped for a cycle whose *previous* cycle was
+  // stalled (the PC held instead of advancing by pc_inc that edge — checked
+  // separately below) or reset (pc is forced to 0 on reset, not advanced by
+  // pc_inc from wherever it was). Every "previous cycle" signal here
+  // (branch_jump, past_pc, prev_stall, prev_reset, prev_uncompressed) is
+  // deliberately its own directly-registered copy of a real (reset-gated)
+  // signal rather than routed through $past() on a free input (in.pc/instr
+  // are unconstrained beyond the in.pc == pc assumption above) — $past()
+  // chained across another register adds an extra cycle of history the
+  // solver can fill with a pre-reset garbage value that this component
+  // proof, standing alone, has no way to rule out.
   logic branch_jump;
-  always_ff @(posedge clk) branch_jump <= instr_jal || instr_jalr || instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu;
+  always_ff @(posedge clk) if (reset) branch_jump <= 1'b0;
+    else branch_jump <= instr_jal || instr_jalr || instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu;
   logic [31:0] past_pc;
-  always_ff @(posedge clk) past_pc <= $past(fetcher_pc);
-  always_ff @(posedge clk) if(clocked && !branch_jump && $past(uncompressed)) assert(past_pc + 4 == pc);
-  always_ff @(posedge clk) if(clocked && !branch_jump && $past(!uncompressed)) assert(past_pc + 2 == pc);
+  logic prev_reset, prev_stall, prev_uncompressed;
+  always_ff @(posedge clk) begin
+    past_pc <= pc;
+    prev_reset <= reset;
+    prev_stall <= stall;
+    prev_uncompressed <= uncompressed;
+  end
+  always_ff @(posedge clk) if(clocked && !branch_jump && !prev_stall && !prev_reset && prev_uncompressed) assert(past_pc + 4 == pc);
+  always_ff @(posedge clk) if(clocked && !branch_jump && !prev_stall && !prev_reset && !prev_uncompressed) assert(past_pc + 2 == pc);
+
+  // JEF-607 / ADR-0009 criterion 4: a stalled cycle never advances pc.
+  always_ff @(posedge clk) if (clocked && prev_stall && !prev_reset) assert(pc == past_pc);
+
+  // JEF-607 criterion 4: valid == 0 implies out.rd == 0 (a bubble is fully
+  // zeroed, never a partial one that could sneak a spurious rd through).
+  // Gated on `clocked`: before the first clock edge applies `reset`, `out`
+  // is a free, uninitialized register as far as the solver is concerned, so
+  // the property only holds once the design has actually been reset.
+  always_comb if (clocked && !out.valid) assert(out.rd == 0);
+
+  // JEF-607 criterion 4: rs1 == 0 / rs2 == 0 never cause a stall — x0 has no
+  // producer to wait on (write-through already special-cases it to 0).
+  always_comb if (rs1 == 0) assert(!hazard_rs1);
+  always_comb if (rs2 == 0) assert(!hazard_rs2);
 
   logic one_of;
   // Use $onehot() so pairwise overlaps (even count of flags) are detected rather than

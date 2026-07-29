@@ -1,12 +1,18 @@
 `default_nettype none
 `ifndef STRUCTS_V
 `define STRUCTS_V
+// ADR-0004 / ADR-0009: every inter-stage struct carries a `valid` bit. A
+// bubble is `valid = 0` with the rest of the struct zeroed (reset does this
+// unconditionally; the stall-only interlock does it whenever a stage
+// withholds a real instruction). Retire is `valid` reaching writeback.
 typedef struct packed {
+  logic        valid;
   logic [31:0] pc;
   logic [31:0] instr;
 } fetcher_output;
 
 typedef struct packed {
+  logic        valid;
   logic [4:0]  rd;
   logic [31:0] rs1;
   logic [31:0] rs2;
@@ -47,6 +53,7 @@ typedef struct packed {
 } decoder_output;
 
 typedef struct packed {
+  logic        valid;
   logic [4:0]  rd;
   logic [31:0] rd_data;
   logic [31:0] mem_addr;
@@ -62,11 +69,13 @@ typedef struct packed {
 } executor_output;
 
 typedef struct packed {
+  logic        valid;
   logic [4:0] rd;
   logic [31:0] rd_data;
 } accessor_output;
 
 typedef struct packed {
+  logic        valid;
   logic        wen;
   logic [31:0] waddr;
   logic [31:0] wdata;

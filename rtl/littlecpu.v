@@ -47,11 +47,23 @@ module littlecpu(
   // Declared here (ahead of the decoder instantiation below) because the trap
   // assignment below references it; iverilog requires declare-before-use.
   decoder_output decoder_out;
+  // Declared here, ahead of the decoder/executor/accessor instantiations,
+  // because decoder's scoreboard reads executor_out and accessor's pending
+  // load, executor's stalled output feeds decoder's divider_stall, and
+  // accessor's stalled output feeds both decoder's accessor_stall and
+  // executor's accessor_stall (ADR-0004/ADR-0009); iverilog requires
+  // declare-before-use.
+  executor_output executor_out;
+  logic divider_stalled, accessor_stalled;
+  logic       accessor_pending_valid;
+  logic [4:0] accessor_pending_rd;
   // trap is asserted when the decoded instruction is unrecognized (illegal-instruction)
   // or when the accessor detects a misaligned memory access.  Gated by !reset so that
-  // the pipeline flush state does not produce spurious traps.
+  // the pipeline flush state does not produce spurious traps, and by decoder_out.valid
+  // so a hazard/divide bubble (which zeroes is_valid_instr along with everything else)
+  // never looks like an illegal instruction (ADR-0009).
   logic mem_misaligned_trap;
-  assign trap = !reset && (!decoder_out.is_valid_instr || mem_misaligned_trap);
+  assign trap = !reset && ((decoder_out.valid && !decoder_out.is_valid_instr) || mem_misaligned_trap);
   logic  [31:0] pc;
   fetcher_output fetcher_out;
   fetcher fetcher(
@@ -88,6 +100,11 @@ module littlecpu(
     .in(fetcher_out),
     .reg_rs1(reg_rs1),
     .reg_rs2(reg_rs2),
+    .executor_out(executor_out),
+    .divider_stall(divider_stalled),
+    .accessor_stall(accessor_stalled),
+    .accessor_pending_valid(accessor_pending_valid),
+    .accessor_pending_rd(accessor_pending_rd),
     // outputs
     .pc(pc),
     .rs1(rs1),
@@ -95,14 +112,15 @@ module littlecpu(
     .out(decoder_out)
   );
 
-  executor_output executor_out;
   executor executor(
     .clk(clk),
     .reset(reset),
     // inputs
     .in(decoder_out),
+    .accessor_stall(accessor_stalled),
     // outputs
-    .out(executor_out)
+    .out(executor_out),
+    .stalled(divider_stalled)
   );
 
   accessor_output accessor_out;
@@ -118,6 +136,9 @@ module littlecpu(
     .mem_rdata(mem_rdata),
     // fault signals
     .mem_misaligned(mem_misaligned_trap),
+    .stalled(accessor_stalled),
+    .pending_valid(accessor_pending_valid),
+    .pending_rd(accessor_pending_rd),
     // forwards
     .out(accessor_out)
   );
