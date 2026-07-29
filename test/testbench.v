@@ -76,11 +76,17 @@ module testbench(
     end
   end // always_ff @ (posedge clk)
 
+  // Selected out of the always_comb for the same reason as decoder.v's
+  // register-index fields: a constant part-select inside an always_* block
+  // defeats iverilog's sensitivity analysis and draws a `sorry:` note.
+  logic [10:0] rom_index;
+  assign rom_index = imem_addr[12:2];
+
   always_comb //@(posedge clk)
     if(reset) begin
       imem_data = 32'b0;
     end else begin
-      imem_data = rom[imem_addr[12:2]];
+      imem_data = rom[rom_index];
     end
 
   littlecpu uut (

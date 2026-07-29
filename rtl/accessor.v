@@ -36,15 +36,52 @@ module accessor(
     // outputs
     output accessor_output out
 );
+  // The incoming payload's fields, selected out once here. A struct field
+  // read is a constant part-select, and iverilog cannot build a precise
+  // sensitivity entry for one taken inside an always_* block -- it reports
+  // `sorry: constant selects in always_* processes are not fully supported`
+  // and conservatively makes the process sensitive to the whole struct.
+  // That is safe (over-sensitivity re-evaluates redundantly; only
+  // under-sensitivity can go stale) but CLAUDE.md says warnings are errors,
+  // and a continuous assign has an exact sensitivity. rtl/executor.v keeps
+  // the `in.` form deliberately -- see CLAUDE.md's documented exception.
+  logic in_is_lb;
+  logic in_is_lbu;
+  logic in_is_lh;
+  logic in_is_lhu;
+  logic in_is_lw;
+  logic in_is_sb;
+  logic in_is_sh;
+  logic in_is_sw;
+  logic [31:0] in_mem_addr;
+  logic [31:0] in_mem_data;
+  logic [4:0] in_rd;
+  logic [31:0] in_rd_data;
+  logic in_valid;
+
+  assign in_is_lb = in.is_lb;
+  assign in_is_lbu = in.is_lbu;
+  assign in_is_lh = in.is_lh;
+  assign in_is_lhu = in.is_lhu;
+  assign in_is_lw = in.is_lw;
+  assign in_is_sb = in.is_sb;
+  assign in_is_sh = in.is_sh;
+  assign in_is_sw = in.is_sw;
+  assign in_mem_addr = in.mem_addr;
+  assign in_mem_data = in.mem_data;
+  assign in_rd = in.rd;
+  assign in_rd_data = in.rd_data;
+  assign in_valid = in.valid;
+
   logic addr16;
-  assign addr16 = in.mem_addr[1];
+  assign addr16 = in_mem_addr[1];
   logic [1:0] addr24;
-  assign addr24 = in.mem_addr[1:0];
+  assign addr24 = in_mem_addr[1:0];
   logic is_load;
-  assign is_load = in.is_lw || in.is_lh || in.is_lhu || in.is_lb || in.is_lbu;
-  assign stalled = in.valid && is_load;
+  assign is_load = in_is_lw || in_is_lh || in_is_lhu || in_is_lb || in_is_lbu;
+  assign stalled = in_valid && is_load;
   logic is_store;
-  assign is_store = in.is_sw || in.is_sh || in.is_sb;
+  assign is_store = in_is_sw || in_is_sh || in_is_sb;
 
   // pending_valid/pending_rd are declared as ports above (the hazard
   // scoreboard needs them too); the rest of the pending-load state below is
@@ -65,13 +102,26 @@ module accessor(
  `endif
   // Misaligned-access detection per RISC-V spec: word accesses require 4-byte alignment,
   // halfword accesses require 2-byte alignment; byte accesses are always aligned.
-  // Gated by in.valid (ADR-0011): a bubble must never raise a spurious
+  // Gated by in_valid (ADR-0011): a bubble must never raise a spurious
   // trap. Detection itself stays here — moving it to decode is M3 (ADR-0011).
-  assign mem_misaligned = in.valid &&
-    (((in.is_lw || in.is_sw) && in.mem_addr[1:0] != 2'b00) ||
-     ((in.is_lh || in.is_lhu || in.is_sh) && in.mem_addr[0] != 1'b0));
+  assign mem_misaligned = in_valid &&
+    (((in_is_lw || in_is_sw) && in_mem_addr[1:0] != 2'b00) ||
+     ((in_is_lh || in_is_lhu || in_is_sh) && in_mem_addr[0] != 1'b0));
 
   logic [31:0] write_request;
+
+  // Hoisted out of the always_comb below for the same reason as decoder.v's
+  // register-index fields: iverilog cannot build a precise sensitivity entry
+  // for a constant part-select taken inside an always_* block, so it warns
+  // and falls back to whole-signal sensitivity. Conservative and safe, but
+  // noise -- and CLAUDE.md says warnings are errors. A continuous assign has
+  // an exact sensitivity, so selecting out here silences it honestly.
+  logic [31:0] word_aligned_addr;
+  logic [15:0] store_halfword;
+  logic [7:0]  store_byte;
+  assign word_aligned_addr = {in_mem_addr[31:2], 2'b00};
+  assign store_halfword    = in_mem_data[15:0];
+  assign store_byte        = in_mem_data[7:0];
   // mem_wdata must be combinational, in lockstep with mem_addr/mem_wstrb
   // above: a registered mem_wdata (the original bug here) lags the address
   // and strobe by one cycle, so the memory model latches the *previous*
@@ -90,42 +140,42 @@ module accessor(
     mem_addr = 0;
     mem_wstrb = 0;
     write_request = 0;
-    if (!reset && in.valid) begin
-      write_request = in.mem_data;
+    if (!reset && in_valid) begin
+      write_request = in_mem_data;
       // request is synchronous
       (* parallel_case *)
       case (1'b1)
-        in.is_lw || in.is_lh || in.is_lhu || in.is_lb || in.is_lbu: begin
-          mem_addr = {in.mem_addr[31:2], 2'b00};
+        in_is_lw || in_is_lh || in_is_lhu || in_is_lb || in_is_lbu: begin
+          mem_addr = word_aligned_addr;
         end
 
-        in.is_sw || in.is_sh || in.is_sb: begin
+        in_is_sw || in_is_sh || in_is_sb: begin
           (* parallel_case, full_case *)
           case (1'b1)
-            in.is_sw: begin
-              mem_addr = in.mem_addr;
+            in_is_sw: begin
+              mem_addr = in_mem_addr;
               mem_wstrb = 4'b1111;
-              write_request = in.mem_data;
+              write_request = in_mem_data;
             end
 
-            in.is_sh: begin
+            in_is_sh: begin
               // Offset to the right position
-              mem_wstrb = in.mem_addr[1] ? 4'b1100 : 4'b0011;
-              write_request = {2{in.mem_data[15:0]}};
+              mem_wstrb = addr16 ? 4'b1100 : 4'b0011;
+              write_request = {2{store_halfword}};
             end
 
-            in.is_sb: begin
-              mem_wstrb = 4'b0001 << in.mem_addr[1:0];
-              write_request = {4{in.mem_data[7:0]}};
+            in_is_sb: begin
+              mem_wstrb = 4'b0001 << addr24;
+              write_request = {4{store_byte}};
             end
           endcase // case (1'b1)
-          mem_addr = {in.mem_addr[31:2], 2'b00};
-        end // case: in.is_sw || in.is_sh || in.is_sb
+          mem_addr = word_aligned_addr;
+        end // case: in_is_sw || in_is_sh || in_is_sb
 
         // default: not a load or a store this cycle (e.g. an add) — the
         // zeroed defaults above stand.
       endcase // case (1'b1)
-    end // if (!reset && in.valid)
+    end // if (!reset && in_valid)
   end // always_comb
 
   always_ff @(posedge clk) begin
@@ -198,7 +248,7 @@ module accessor(
         pending_is_lw: out.rd_data <= mem_rdata;
       endcase
       pending_valid <= 1'b0;
-    end else if (!in.valid) begin
+    end else if (!in_valid) begin
       out <= 0;
     end else if (is_load) begin
       // Request just issued combinationally above; the response isn't back
@@ -206,12 +256,12 @@ module accessor(
       // what's needed to decode mem_rdata once it arrives.
       out <= 0;
       pending_valid <= 1'b1;
-      pending_rd <= in.rd;
-      pending_is_lb <= in.is_lb;
-      pending_is_lbu <= in.is_lbu;
-      pending_is_lh <= in.is_lh;
-      pending_is_lhu <= in.is_lhu;
-      pending_is_lw <= in.is_lw;
+      pending_rd <= in_rd;
+      pending_is_lb <= in_is_lb;
+      pending_is_lbu <= in_is_lbu;
+      pending_is_lh <= in_is_lh;
+      pending_is_lhu <= in_is_lhu;
+      pending_is_lw <= in_is_lw;
       pending_addr16 <= addr16;
       pending_addr24 <= addr24;
      `ifdef RISCV_FORMAL
@@ -226,8 +276,8 @@ module accessor(
       // Not a load: stores and every other op settle in the one cycle every
       // other pipeline stage takes.
       out.valid <= 1'b1;
-      out.rd_data <= in.rd_data;
-      out.rd <= in.rd;
+      out.rd_data <= in_rd_data;
+      out.rd <= in_rd;
      `ifdef RISCV_FORMAL
       out.rvfi <= in.rvfi;
       // `mem_addr`/`mem_wstrb`/`write_request` are this cycle's real bus
