@@ -1,0 +1,35 @@
+name: Dependabot Auto-merge
+
+# Re-armed 2026-07-29 (supersedes ADR-0016's deletion; see ADR-0018).
+#
+# This workflow is only safe because `main` now has required status checks
+# (elaborate, test, components, monitor-freshness) with strict: true. That is
+# what `gh pr merge --auto` waits for. Without them `--auto` merges instantly
+# and this workflow is a rubber stamp — which is exactly why ADR-0016 deleted
+# it while criterion 8 was still outstanding.
+#
+# IF YOU EVER REMOVE THE REQUIRED STATUS CHECKS, DELETE THIS FILE TOO.
+# Verify with:
+#   gh api repos/thejefflarson/little-cpu/branches/main/protection \
+#     -q '.required_status_checks.contexts'
+on:
+  pull_request
+
+permissions:
+  contents: write        # required by `gh pr merge --auto` to enable auto-merge
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    if: github.actor == 'dependabot[bot]'
+    steps:
+      - name: Enable auto-merge
+        # --squash, not --merge: main requires linear history, so a merge
+        # commit is rejected outright. The pre-ADR-0016 version of this file
+        # used --merge and would have failed on every run once linear history
+        # was enforced.
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
