@@ -1,0 +1,14 @@
+# Keeps the SHA-pinned `uses:` lines in .github/workflows/ current. This is
+# the piece dependabot-automerge.yml was missing (JEF-608) — without a
+# dependabot.yml, dependabot never opens a PR, so the auto-merge workflow
+# never fires.
+#
+# github-actions is the only ecosystem in this repo today: there is no
+# package.json/Cargo.toml/etc. to track, just the pinned actions in
+# .github/workflows/.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

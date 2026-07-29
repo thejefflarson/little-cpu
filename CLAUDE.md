@@ -30,8 +30,10 @@ What does not work right now:
   `test/asm/*.S` and check the result against `test/EXPECTED_FAIL`, the sprint-1 baseline. Right
   now that file lists all 46 tests — burn it down as the regfile bug above and others get fixed,
   not in one shot.
-- **The iverilog leg does not elaborate at all** — ~60 declaration-after-use bind errors in
-  `rtl/decoder.v` and `rtl/littlecpu.v`. Yosys tolerates these; iverilog does not.
+- **The iverilog leg now elaborates** (fixed in `eb18320`): the ~60 declaration-after-use bind
+  errors in `rtl/decoder.v` and `rtl/littlecpu.v` are gone. `make test-units` and the full
+  `testbench.vvp` pipeline build cleanly under iverilog (informational `sorry: constant selects
+  in always_* processes` notes aside — not elaboration failures).
 - **`test/monitor.v` does not elaborate under yosys** — `$time` inside `$display` at line 90 hits
   `ERROR: Don't know how to detect sign and width for AST_AUTOWIRE node`. The build needs a
   sanitized derived copy; the tracked file stays pristine.

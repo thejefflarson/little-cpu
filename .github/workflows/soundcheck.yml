@@ -11,7 +11,10 @@ jobs:
   review:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      # autofix (which needs contents:write to push rewrites) is off — the
+      # `autofix` input below is never set, so it defaults to "false" per
+      # thejefflarson/soundcheck-action's action.yml. read is sufficient.
+      contents: read
       pull-requests: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
