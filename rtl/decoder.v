@@ -111,7 +111,7 @@ module decoder (
   always_comb begin
     (* parallel_case *)
     case (1'b1)
-      instr_load_op || instr_jalr: immediate = i_immediate;
+      instr_load_op || instr_jalr_op: immediate = i_immediate;
       instr_store_op: immediate = s_immediate;
       instr_lui_op || instr_auipc: immediate = u_immediate;
       instr_jal_op: immediate = j_immediate;
