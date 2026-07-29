@@ -19,7 +19,7 @@ typedef struct packed {
 // so a bubble zeroes it for free and a stall holds it for free. Everything
 // mem-related is captured separately in rtl/accessor.v, where it's actually
 // known (see accessor_output below). `ifdef`'d out of synthesis so it costs
-// no LUTs (the constraint note on JEF-628): none of this exists unless
+// no LUTs (ADR-0006): none of this exists unless
 // RISCV_FORMAL is defined.
 `ifdef RISCV_FORMAL
 typedef struct packed {
@@ -103,7 +103,7 @@ typedef struct packed {
   // Everything mem-related is captured here, not forwarded from
   // executor_output: this is the stage that actually issues the bus
   // request and (one cycle later, for loads) sees the response, so it is
-  // the only stage that knows the real rmask/wmask/wdata/rdata (JEF-628).
+  // the only stage that knows the real rmask/wmask/wdata/rdata (ADR-0006).
   logic [31:0] rvfi_mem_addr;
   logic [3:0]  rvfi_mem_rmask;
   logic [3:0]  rvfi_mem_wmask;

@@ -2,7 +2,7 @@
 `default_nettype none
 `include "structs.v"
 
-// Decode-vector bench for JEF-605 criterion 6: confirms the SLTI/SLTIU/XORI
+// Decode-vector bench (see `eb18320`): confirms the SLTI/SLTIU/XORI
 // immediate-source fix (decoder.v's `instr_shift`) and the funct12-exact EBREAK
 // fix, directly against the decoder — no full pipeline needed for either check.
 module decoder_tb;

@@ -1,6 +1,6 @@
 # ADR-0016: No unreviewed auto-merge for the actions dependabot updates
 
-**Status:** Superseded by [ADR-0018](0018-dependabot-automerge-gated-on-required-checks.md) · 2026-07-28 · *Constrains the JEF-608 CI gate*
+**Status:** Superseded by [ADR-0018](0018-dependabot-automerge-gated-on-required-checks.md) · 2026-07-28 · *Constrains the CI gate*
 
 > **Superseded 2026-07-29.** Precondition 1 below (required status checks on `main`) is now met, so
 > the workflow was restored — see ADR-0018. The analysis here remains the record of what an
@@ -12,13 +12,13 @@
 was **inert**: it fires on `pull_request` with `if: github.actor == 'dependabot[bot]'`, but no
 `.github/dependabot.yml` existed, so dependabot never opened a PR and the workflow never ran.
 
-JEF-608 adds `.github/dependabot.yml`. That single file **arms** the auto-merge workflow, and the
+`c66527d` adds `.github/dependabot.yml`. That single file **arms** the auto-merge workflow, and the
 combination is worse than either half:
 
 - The workflow's only gate is *who opened the PR*. There is no update-type filter, no path filter,
   and no check on what the diff actually contains.
 - It holds `contents: write`.
-- `main` has **no required status checks** (JEF-608's acceptance criterion 8 is a repo-settings
+- `main` has **no required status checks** (wiring them was a repo-settings
   change, deferred until the workflow has run green at least once). `gh pr merge --auto` with
   nothing required to wait for merges immediately.
 - `github-actions` is the *only* declared ecosystem, because it is the only one this repo has. So
@@ -39,7 +39,7 @@ preserved. What is removed is merging them without a human reading the diff.
 
 Re-arming auto-merge is permitted later, and requires **both** of:
 
-1. Branch protection on `main` with required status checks configured (JEF-608 criterion 8), so
+1. Branch protection on `main` with required status checks configured, so
    that `--auto` has something to wait for; **and**
 2. An update-type gate — a SHA-pinned `dependabot/fetch-metadata` step restricting the merge to
    `version-update:semver-patch`.

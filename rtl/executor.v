@@ -7,7 +7,7 @@ module executor(
 
   // inputs
   input  decoder_output in,
-  // ADR-0009-style stall broadcast from the accessor (JEF-607): high for the
+  // ADR-0009-style stall broadcast from the accessor (ADR-0015): high for the
   // one cycle a load's response is still in flight there. Upstream of the
   // stalling stage freezes — the executor is upstream of the accessor, so it
   // must freeze (emit a bubble) rather than advance, or a fresh instruction
@@ -259,7 +259,7 @@ module executor(
   // the accessor_stall freeze branch (out <= 0 every cycle, never reaching
   // the case (state) that actually computes anything). In the real pipeline
   // accessor_stall is a one-cycle pulse strictly caused by a load reaching
-  // the accessor, structurally unrelated to mul/div correctness (JEF-607) —
+  // the accessor, structurally unrelated to mul/div correctness (ADR-0015) —
   // scoped out here the same way ADR-0010 already restricts this proof's
   // divide operands, for the same reason: keep the proof about the
   // arithmetic, not an interaction test/asm/hazard.S and the decoder's own
@@ -325,8 +325,9 @@ module executor(
   // restricts operands to 4 bits (0-15) so the invariant's intermediate
   // arithmetic stays comfortably inside 64 bits without wraparound (ADR-0010:
   // "restrict it... record the restriction as a comment in the sby task" —
-  // recorded here instead, since formal/components.sby is owned by the
-  // parallel JEF-604 ticket and must not be edited from this one).
+  // recorded here rather than in formal/components.sby because the restriction
+  // is a property of this proof's invariant, so it belongs next to the
+  // invariant it constrains).
   //
   // The invariant, proved by ordinary one-step induction instead of unrolling:
   // at every point while state == divide,
@@ -362,7 +363,7 @@ module executor(
       assume(in.is_remu == $past(in.is_remu));
     end
 
-  // Ties the op_is_*/op_sign_* latches (JEF-607 — see their declaration
+  // Ties the op_is_*/op_sign_* latches (see their declaration
   // above) back to `in` while dividing, mirroring what the environmental
   // assumption above already establishes about `in` staying constant. Without
   // this as its own stated (one-step-inductive) invariant, k-induction has no

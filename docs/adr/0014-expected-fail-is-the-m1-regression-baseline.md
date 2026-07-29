@@ -4,7 +4,7 @@
 
 ## Context
 
-JEF-606 landed the ADR-0007 cxxrtl runner, `test/asm/riscv_test.h`, ADR-0008's two-region memory
+`9cd0c67` landed the ADR-0007 cxxrtl runner, `test/asm/riscv_test.h`, ADR-0008's two-region memory
 map, and a working `make test`. The harness is correct to spec. The core is not: `rtl/regfile.v` is
 a registered-read register file with no write-through bypass, which is a direct violation of
 CLAUDE.md invariant 6 and of ADR-0004. Consequently **all 46 tests time out**, `simple.S` included.

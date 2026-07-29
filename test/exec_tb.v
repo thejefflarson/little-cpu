@@ -162,7 +162,7 @@ module exec_tb;
     #1;
     reset = 0;
 
-    // Required directed vectors (JEF-605): exactly the cases the swapped sign
+    // Required directed vectors (ADR-0010): exactly the cases the swapped sign
     // enables get wrong.
     run_op("mulh",   32'hffffffff, 32'hffffffff, 32'h00000000);
     run_op("mulhsu", 32'hffffffff, 32'h00000001, 32'hffffffff);

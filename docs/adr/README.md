@@ -28,11 +28,11 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 ([`docs/ideas/finish-the-rewrite.md`](../ideas/finish-the-rewrite.md)). 0008–0011 came out of
 sprint planning, when the panel ran the toolchain and found the brief's assumptions needed
 resolving before work could start. 0012–0014 came out of integrating the first build sprint, when
-review of JEF-604/JEF-605 turned up decisions neither ticket had recorded and JEF-606 landed a test
+review of the build-repair and datapath-fix changes turned up decisions neither had recorded, and the test
 suite that fails in its entirety. 0010 supplements 0006; 0011 scopes 0005; 0012 supplements 0010;
 0013 implements 0006's pinning clause; 0014 supplements 0007 and 0008. 0015-0017 came out of
 integrating the second build sprint: 0015 extends 0009 with a stall source 0009 did not know
-existed, 0016 constrains the JEF-608 CI gate, and 0017 records what the newly-passing decoder
+existed, 0016 constrains the CI gate, and 0017 records what the newly-passing decoder
 component proof does and does not establish.
 
 ## Deferred decisions

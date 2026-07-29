@@ -3,7 +3,7 @@ description: >-
   Restore the pinned OSS CAD Suite release (yosys, iverilog, sby, ...) from
   cache, downloading and checksum-verifying it on a cache miss, and add it
   to PATH. Used by every ci.yml job that needs the open toolchain; the pin
-  itself stays in ci.yml's env: block (JEF-608 acceptance #5), passed in as
+  itself stays in ci.yml's env: block, passed in as
   inputs, so it stays visible in the workflow and this action has no pin of
   its own to drift.
 inputs:

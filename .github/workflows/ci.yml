@@ -11,7 +11,7 @@ on:
 permissions:
   contents: read
 
-# oss-cad-suite-linux-x64-20260629.tgz is 719 MB (measured, JEF-608), so
+# oss-cad-suite-linux-x64-20260629.tgz is 719 MB (measured), so
 # every job that needs yosys/iverilog/sby restores it from actions/cache
 # instead of re-downloading. The tag and the filename below must name the
 # same release (https://github.com/YosysHQ/oss-cad-suite-build/releases);
@@ -27,7 +27,7 @@ env:
   OSS_CAD_SUITE_SHA256: "dfb5df3c28599081d2baca13884c069c025b1990c86e90f4a4d84aadcd255cc5"
 
 jobs:
-  # yosys write_cxxrtl (JEF-608 acceptance #3) plus the iverilog leg
+  # yosys write_cxxrtl plus the iverilog leg
   # (test/testbench.v + rtl + test/monitor.v under iverilog -- the "second
   # elaboration frontend" in CLAUDE.md's verification table, unblocked by
   # eb18320). Neither leg runs a single test vector; both just prove the
@@ -55,10 +55,11 @@ jobs:
         # Verified locally: the bare Makefile recipe elaborates a wire that
         # is read but never driven with *zero* diagnostic output and exit
         # 0 -- `check` is what actually reports "is used but has no
-        # driver". That can't be added to the tracked Makefile recipe
-        # (JEF-608 is .github/-only; rtl/, test/, and the Makefile belong
-        # to JEF-607), so the stricter pipeline lives here instead, against
-        # the same sources.
+        # driver". The stricter pipeline lives here rather than in the
+        # tracked Makefile recipe so that `make test/rtl.cc` stays the
+        # plain build developers run locally, and the promotion-to-error
+        # policy applies only at the gate -- but it reads the same sources,
+        # so the two cannot diverge on what they elaborate.
         #
         # The promotion below is a curated list, not `yosys -e '.*'`: this
         # design legitimately emits "Warning: Deep recursion in AST
@@ -114,7 +115,7 @@ jobs:
   # The ADR-0007/ADR-0008 cxxrtl regression gate: builds `sim`, runs
   # test-units (the iverilog RTL-level benches), then every test/asm/*.S
   # under `sim` and checks the pass/fail table against test/EXPECTED_FAIL
-  # (ADR-0014's M1 baseline). Since JEF-607 (a4662a2) that baseline is empty
+  # (ADR-0014's M1 baseline). Since `a4662a2` that baseline is empty
   # and the suite is 47/47 green, so this is now a plain all-pass gate --
   # ADR-0014's set-equality check still runs in both directions, so a test
   # that starts passing unexpectedly is caught alongside one that regresses.
@@ -163,7 +164,7 @@ jobs:
   # a 4-bit operand restriction (ADR-0010). The decoder proof used to FAIL on
   # the `past_pc + 4 == pc` assertion, which was a broken property rather
   # than a decode hole -- `fetcher_pc` was a free input, so nothing tied the
-  # decoder's own pc output back to what it was fed. JEF-607 fixed the
+  # decoder's own pc output back to what it was fed. `a4662a2` fixed the
   # harness (see rtl/decoder.v's `assume(in.pc == pc)`, which models
   # littlecpu.v's actual fetcher wiring) and it now passes; gating on it here
   # is what keeps it from silently regressing.

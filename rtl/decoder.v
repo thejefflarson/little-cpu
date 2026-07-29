@@ -314,7 +314,7 @@ module decoder (
   // shamt or a U-type/J-type immediate's overlapping bit position — and that
   // register has a live (non-x0) producer still in flight at decoder_out (the
   // module's own `out`, i.e. the instruction decode issued last cycle),
-  // executor_out, or (JEF-607) a load still in the accessor's one-cycle
+  // executor_out, or (ADR-0015) a load still in the accessor's one-cycle
   // memory turnaround. Write-through in the regfile covers the writeback
   // stage itself; the accessor check exists only because a load specifically
   // needs one more cycle there than every other instruction (see
@@ -337,7 +337,7 @@ module decoder (
   assign hazard = hazard_rs1 || hazard_rs2;
 
  `ifdef RISCV_FORMAL
-  // ADR-0006 / JEF-628: rs1_valid/rs2_valid decide whether rvfi_rs{1,2}_addr
+  // ADR-0006: rs1_valid/rs2_valid decide whether rvfi_rs{1,2}_addr
   // and _rdata report the real register or are masked to 0, per RVFI
   // convention (an instruction with no rsN field must report addr/rdata as
   // 0, not whatever bits of the encoding happen to alias a register index).
@@ -358,7 +358,7 @@ module decoder (
   // bits there regardless — for `addi x2, x0, 1` those bits are 1, so the
   // broader formula reports rs2_addr=x1 with rs2_addr's *current* value,
   // which the shadow model (tracking x1's last real write) can legitimately
-  // disagree with. Caught empirically: JEF-628's `make test` run failed
+  // disagree with. Caught empirically: the `make test` run failed
   // error 132 ("mismatch with shadow rs2") on a correct core. `uses_rs2` is
   // exactly "does this instruction have a real rs2 operand", so it doesn't
   // have this hole.
@@ -588,17 +588,17 @@ module decoder (
   always_ff @(posedge clk) if(clocked && !branch_jump && !prev_stall && !prev_reset && prev_uncompressed) assert(past_pc + 4 == pc);
   always_ff @(posedge clk) if(clocked && !branch_jump && !prev_stall && !prev_reset && !prev_uncompressed) assert(past_pc + 2 == pc);
 
-  // JEF-607 / ADR-0009 criterion 4: a stalled cycle never advances pc.
+  // ADR-0009: a stalled cycle never advances pc.
   always_ff @(posedge clk) if (clocked && prev_stall && !prev_reset) assert(pc == past_pc);
 
-  // JEF-607 criterion 4: valid == 0 implies out.rd == 0 (a bubble is fully
+  // ADR-0004: valid == 0 implies out.rd == 0 (a bubble is fully
   // zeroed, never a partial one that could sneak a spurious rd through).
   // Gated on `clocked`: before the first clock edge applies `reset`, `out`
   // is a free, uninitialized register as far as the solver is concerned, so
   // the property only holds once the design has actually been reset.
   always_comb if (clocked && !out.valid) assert(out.rd == 0);
 
-  // JEF-607 criterion 4: rs1 == 0 / rs2 == 0 never cause a stall — x0 has no
+  // ADR-0004: rs1 == 0 / rs2 == 0 never cause a stall — x0 has no
   // producer to wait on (write-through already special-cases it to 0).
   always_comb if (rs1 == 0) assert(!hazard_rs1);
   always_comb if (rs2 == 0) assert(!hazard_rs2);

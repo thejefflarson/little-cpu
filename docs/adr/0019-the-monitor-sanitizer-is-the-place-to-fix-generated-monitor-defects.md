@@ -4,7 +4,7 @@
 
 ## Context
 
-JEF-628 drove the RVFI ports and put `test/monitor.v` into both sim legs for the first time. The
+`b2dafcc` drove the RVFI ports and put `test/monitor.v` into both sim legs for the first time. The
 moment the monitor became live, `div.S` and `rem.S` started failing — and the proposed response was
 to add them to `test/EXPECTED_FAIL` with the analysis inline.
 
@@ -36,7 +36,7 @@ Verified independently at integration, not taken on report:
 **A defect in the generated monitor is fixed in the build-time sanitizer, never in
 `test/EXPECTED_FAIL`.**
 
-`test/monitor.sim.v` — the gitignored derivative JEF-628 already introduced to strip the
+`test/monitor.sim.v` — the gitignored derivative `b2dafcc` already introduced to strip the
 `$time`-in-`$display` that yosys cannot elaborate — gains a second `sed` rule that rewrites
 
 ```

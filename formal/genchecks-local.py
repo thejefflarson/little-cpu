@@ -16,7 +16,7 @@
 # csr_spec/buslen/nbus/abspath options and its isa-string parser. That skew is
 # the "version-skew time bomb" ADR-0006 names. Do not read the size of the
 # diff as evidence the fork is intentional: re-vendoring from the pinned SHA
-# and re-applying only the basedir change is open work (JEF-604 follow-up),
+# and re-applying only the basedir change is open work (tracked as a follow-up),
 # not a settled decision.
 #
 # Copyright (C) 2017  Clifford Wolf <clifford@symbioticeda.com>

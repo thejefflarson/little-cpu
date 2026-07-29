@@ -6,14 +6,14 @@
 # wholesale from a run (that would launder a regression into the baseline);
 # edit it by hand, and justify any line added back in the PR that adds it.
 #
-# JEF-607 (ADR-0004/ADR-0009: combinational-read regfile + write-through
+# ADR-0004/ADR-0009 (`a4662a2`): combinational-read regfile + write-through
 # bypass, valid bits, the stall-only hazard interlock, and the divider's
 # stall wired up for real) took this to empty: all 47 tests in the suite
 # (including test/asm/hazard.S, added by that same ticket) genuinely pass.
 # It stays here, empty, so the set-equality check below keeps working as the
 # plain all-pass gate ADR-0014 describes for this state.
 #
-# JEF-628 (RVFI driven, test/monitor.v live per-retire in both sim legs)
+# `b2dafcc` (RVFI driven, test/monitor.v live per-retire in both sim legs)
 # briefly put div.S/rem.S back here, then took them out again: the failure
 # was a defect in the generated monitor's own DIV/REM spec model, not in
 # this core, and ADR-0019 fixes it in the build-time sanitizer instead. The

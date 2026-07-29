@@ -65,7 +65,7 @@ module writeback(
     rvfi_rs1_rdata = in.rvfi.rs1_rdata;
     rvfi_rs2_rdata = in.rvfi.rs2_rdata;
     // rd_addr/rd_wdata are not carried in the rvfi shadow -- `rd`/`rd_data`
-    // are already exactly the values needed (JEF-628: no need to duplicate
+    // are already exactly the values needed (ADR-0006: no need to duplicate
     // them). rd_wdata is masked to 0 alongside x0, matching the regfile's
     // own write-through (CLAUDE.md invariant 6): a write "to" x0 must never
     // report a nonzero rd_wdata even though rd_data itself is whatever the

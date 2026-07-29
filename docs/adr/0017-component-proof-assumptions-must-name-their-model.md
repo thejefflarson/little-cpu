@@ -1,6 +1,6 @@
 # ADR-0017: A component-proof `assume` must name the structural fact it models
 
-**Status:** Accepted · 2026-07-28 · *Supplements ADR-0006; ratified on integrating JEF-607*
+**Status:** Accepted · 2026-07-28 · *Supplements ADR-0006; ratified on integrating `a4662a2`*
 
 ## Context
 
@@ -28,7 +28,7 @@ the decoder's failure was "a decode-hole detector, not a broken property" was ab
 `one_of` assertion nearby; it does not apply here, and this ADR records that distinction so the
 next reader does not re-derive it.
 
-JEF-607 fixed it correctly, by modelling the missing structure:
+`a4662a2` fixed it correctly, by modelling the missing structure:
 
 ```verilog
 always_comb assume(in.pc == pc);   // littlecpu.v wires fetcher.pc <= decoder.pc,
