@@ -19,10 +19,13 @@ module exec_tb;
   decoder_output in;
   executor_output out;
 
+  // No accessor in this standalone bench, so no reason for it to ever
+  // freeze — tie the input low.
   executor dut (
     .clk(clk),
     .reset(reset),
     .in(in),
+    .accessor_stall(1'b0),
     .out(out)
   );
 

@@ -1,66 +1,14 @@
-# The sprint-1 M1 baseline (JEF-606). `make test` exits 0 only when the set
-# of tests that do NOT pass matches this file exactly, so this is a working
-# regression gate today, against the current core — turn a line green by
-# deleting it once the fix that makes it pass lands.
+# The M1 regression baseline (ADR-0014). `make test` exits 0 only when the
+# set of tests that do NOT pass matches this file exactly, so this is a
+# working regression gate against the current core. Lines come out one at a
+# time, in the same commit as the fix that makes that test pass — the
+# deletion is the evidence the fix worked. This file is never regenerated
+# wholesale from a run (that would launder a regression into the baseline);
+# edit it by hand, and justify any line added back in the PR that adds it.
 #
-# All 46 tests are listed here right now. That is not a harness bug: every
-# one of them (including simple.S) times out because of a single root
-# cause, found while landing this file — see the JEF-606 PR description for
-# the full trace. In short, rtl/regfile.v's read port is registered
-# (1-cycle latency) but rtl/decoder.v consumes `reg_rs1`/`reg_rs2` the same
-# cycle it *asserts* a new `rs1`/`rs2` request, one cycle before that
-# request's answer comes back — so every instruction's operand is actually
-# the regfile's answer to the *previous* instruction's rs1/rs2, not its own.
-# x0 reads are unaffected (regfile hardwires those to 0 regardless of
-# timing), which is why address-only sequences behave, but no
-# non-x0-sourced register value — including TESTNUM at the final tohost
-# write — currently forwards correctly. That is an rtl/ defect and out of
-# this ticket's scope (JEF-606 touches no file under rtl/); it needs its own
-# fix, after which this file should shrink fast rather than being deleted
-# in one shot.
-add.S
-addi.S
-and.S
-andi.S
-auipc.S
-beq.S
-bge.S
-bgeu.S
-blt.S
-bltu.S
-bne.S
-div.S
-divu.S
-jal.S
-jalr.S
-lb.S
-lbu.S
-lh.S
-lhu.S
-lui.S
-lw.S
-mul.S
-mulh.S
-mulhsu.S
-mulhu.S
-or.S
-ori.S
-rem.S
-remu.S
-sb.S
-sh.S
-simple.S
-sll.S
-slli.S
-slt.S
-slti.S
-sltiu.S
-sltu.S
-sra.S
-srai.S
-srl.S
-srli.S
-sub.S
-sw.S
-xor.S
-xori.S
+# JEF-607 (ADR-0004/ADR-0009: combinational-read regfile + write-through
+# bypass, valid bits, the stall-only hazard interlock, and the divider's
+# stall wired up for real) took this to empty: all 47 tests in the suite
+# (including test/asm/hazard.S, added by that same ticket) genuinely pass.
+# It stays here, empty, so the set-equality check below keeps working as the
+# plain all-pass gate ADR-0014 describes for this state.

@@ -15,6 +15,14 @@ module decoder_tb;
   logic [31:0] pc;
   logic [4:0] rs1, rs2;
   decoder_output out;
+  // No in-flight producer at the executor stage and no divide in progress:
+  // this bench exercises decode vectors in isolation, not the hazard
+  // scoreboard (see test/regfile_tb.v and test/asm/hazard.S for that).
+  executor_output executor_out = '0;
+  logic divider_stall = 1'b0;
+  logic accessor_stall = 1'b0;
+  logic accessor_pending_valid = 1'b0;
+  logic [4:0] accessor_pending_rd = 5'b0;
 
   decoder dut (
     .clk(clk),
@@ -22,6 +30,11 @@ module decoder_tb;
     .in(in),
     .reg_rs1(reg_rs1),
     .reg_rs2(reg_rs2),
+    .executor_out(executor_out),
+    .divider_stall(divider_stall),
+    .accessor_stall(accessor_stall),
+    .accessor_pending_valid(accessor_pending_valid),
+    .accessor_pending_rd(accessor_pending_rd),
     .pc(pc),
     .rs1(rs1),
     .rs2(rs2),
