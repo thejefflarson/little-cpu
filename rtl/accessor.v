@@ -36,43 +36,6 @@ module accessor(
     // outputs
     output accessor_output out
 );
-  logic addr16;
-  assign addr16 = in_mem_addr[1];
-  logic [1:0] addr24;
-  assign addr24 = in_mem_addr[1:0];
-  logic is_load;
-  assign is_load = in_is_lw || in_is_lh || in_is_lhu || in_is_lb || in_is_lbu;
-  assign stalled = in_valid && is_load;
-  logic is_store;
-  assign is_store = in_is_sw || in_is_sh || in_is_sb;
-
-  // pending_valid/pending_rd are declared as ports above (the hazard
-  // scoreboard needs them too); the rest of the pending-load state below is
-  // internal-only. All of it is latched at the request cycle below and
-  // consumed one cycle later once mem_rdata actually reflects this load —
-  // see `stalled` above.
-  logic       pending_is_lb, pending_is_lbu, pending_is_lh, pending_is_lhu, pending_is_lw;
-  logic       pending_addr16;
-  logic [1:0] pending_addr24;
- `ifdef RISCV_FORMAL
-  // ADR-0006: a load's RVFI shadow payload (and the word-aligned
-  // request address, needed for rvfi_mem_addr) has to survive the same
-  // one-cycle request/response gap pending_rd does, for the same reason —
-  // `in` is a guaranteed bubble on the response cycle (see pending_valid
-  // below), so nothing of this instruction's is left to read off `in` then.
-  rvfi_shadow  pending_rvfi;
-  logic [31:0] pending_rvfi_mem_addr;
- `endif
-  // Misaligned-access detection per RISC-V spec: word accesses require 4-byte alignment,
-  // halfword accesses require 2-byte alignment; byte accesses are always aligned.
-  // Gated by in_valid (ADR-0011): a bubble must never raise a spurious
-  // trap. Detection itself stays here — moving it to decode is M3 (ADR-0011).
-  assign mem_misaligned = in_valid &&
-    (((in_is_lw || in_is_sw) && in_mem_addr[1:0] != 2'b00) ||
-     ((in_is_lh || in_is_lhu || in_is_sh) && in_mem_addr[0] != 1'b0));
-
-  logic [31:0] write_request;
-
   // The incoming payload's fields, selected out once here. A struct field
   // read is a constant part-select, and iverilog cannot build a precise
   // sensitivity entry for one taken inside an always_* block -- it reports
@@ -109,6 +72,43 @@ module accessor(
   assign in_rd = in.rd;
   assign in_rd_data = in.rd_data;
   assign in_valid = in.valid;
+
+  logic addr16;
+  assign addr16 = in_mem_addr[1];
+  logic [1:0] addr24;
+  assign addr24 = in_mem_addr[1:0];
+  logic is_load;
+  assign is_load = in_is_lw || in_is_lh || in_is_lhu || in_is_lb || in_is_lbu;
+  assign stalled = in_valid && is_load;
+  logic is_store;
+  assign is_store = in_is_sw || in_is_sh || in_is_sb;
+
+  // pending_valid/pending_rd are declared as ports above (the hazard
+  // scoreboard needs them too); the rest of the pending-load state below is
+  // internal-only. All of it is latched at the request cycle below and
+  // consumed one cycle later once mem_rdata actually reflects this load —
+  // see `stalled` above.
+  logic       pending_is_lb, pending_is_lbu, pending_is_lh, pending_is_lhu, pending_is_lw;
+  logic       pending_addr16;
+  logic [1:0] pending_addr24;
+ `ifdef RISCV_FORMAL
+  // ADR-0006: a load's RVFI shadow payload (and the word-aligned
+  // request address, needed for rvfi_mem_addr) has to survive the same
+  // one-cycle request/response gap pending_rd does, for the same reason —
+  // `in` is a guaranteed bubble on the response cycle (see pending_valid
+  // below), so nothing of this instruction's is left to read off `in` then.
+  rvfi_shadow  pending_rvfi;
+  logic [31:0] pending_rvfi_mem_addr;
+ `endif
+  // Misaligned-access detection per RISC-V spec: word accesses require 4-byte alignment,
+  // halfword accesses require 2-byte alignment; byte accesses are always aligned.
+  // Gated by in_valid (ADR-0011): a bubble must never raise a spurious
+  // trap. Detection itself stays here — moving it to decode is M3 (ADR-0011).
+  assign mem_misaligned = in_valid &&
+    (((in_is_lw || in_is_sw) && in_mem_addr[1:0] != 2'b00) ||
+     ((in_is_lh || in_is_lhu || in_is_sh) && in_mem_addr[0] != 1'b0));
+
+  logic [31:0] write_request;
 
   // Hoisted out of the always_comb below for the same reason as decoder.v's
   // register-index fields: iverilog cannot build a precise sensitivity entry
