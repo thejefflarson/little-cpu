@@ -23,6 +23,11 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0016](0016-no-unreviewed-dependabot-automerge.md) | No unreviewed auto-merge for the actions dependabot updates | **Superseded by 0018** |
 | [0017](0017-component-proof-assumptions-must-name-their-model.md) | A component-proof `assume` must name the structural fact it models | Accepted |
 | [0018](0018-dependabot-automerge-gated-on-required-checks.md) | Dependabot auto-merge is re-armed, gated on required status checks | Accepted |
+| [0019](0019-the-monitor-sanitizer-is-the-place-to-fix-generated-monitor-defects.md) | The monitor sanitizer is where generated-monitor defects get fixed | Accepted |
+| [0020](0020-the-rvfi-non-perturbation-guarantee-is-argued-not-proven.md) | The RVFI non-perturbation guarantee is argued, not proven | Accepted |
+| [0021](0021-the-formal-ladder-runs-the-compressed-checks.md) | The formal ladder runs the compressed checks, and it found a real bug | Accepted |
+| [0022](0022-the-formal-nightly-reports-against-an-explicit-baseline.md) | The formal nightly reports against an explicit baseline, not `\|\| true` | Accepted |
+| [0023](0023-the-first-ladder-run-does-not-reach-m2.md) | The first ladder run does not reach M2 — three named holes | Accepted |
 
 0001–0007 came from the design brief
 ([`docs/ideas/finish-the-rewrite.md`](../ideas/finish-the-rewrite.md)). 0008–0011 came out of
@@ -33,7 +38,14 @@ suite that fails in its entirety. 0010 supplements 0006; 0011 scopes 0005; 0012 
 0013 implements 0006's pinning clause; 0014 supplements 0007 and 0008. 0015-0017 came out of
 integrating the second build sprint: 0015 extends 0009 with a stall source 0009 did not know
 existed, 0016 constrains the CI gate, and 0017 records what the newly-passing decoder
-component proof does and does not establish.
+component proof does and does not establish. 0018-0020 came out of integrating the third build
+sprint: 0018 supersedes 0016 now that required checks exist, 0019 makes the monitor sanitizer the
+place a generated-oracle defect gets repaired, and 0020 records that ADR-0006's non-perturbation
+guarantee is argued rather than proven. 0021-0023 came out of integrating the riscv-formal ladder
+port — the first time any formal check ran against the pipelined core. 0021 keeps the compressed
+checks in the ladder and records the C.JR/C.JALR decode defect they found; 0022 replaces the
+nightly's blanket failure-swallowing with an ADR-0014-style baseline; 0023 states what the run
+does and does not establish, and why M2 is not reached.
 
 ## Deferred decisions
 
