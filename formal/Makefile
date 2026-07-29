@@ -16,8 +16,12 @@ all: complete check dmemcheck imemcheck components_fetcher
 %: %.sby
 	sby -f $<
 
+# `-k`: without it, GNU make stops scheduling new jobs at the first failing
+# check, so a ladder with known failures (formal/EXPECTED_FAIL) never runs
+# past its first parallel wave and the rest report as "no status" rather
+# than PASS or FAIL (ADR-0022). `-k` is what makes "all 78 checks ran" true.
 check: checks $(RISCV_FORMAL_DIR)
-	$(MAKE) -BC $< -j$(JOBS)
+	$(MAKE) -BC $< -j$(JOBS) -k
 
 checks: genchecks-local.py checks.cfg | $(RISCV_FORMAL_DIR)
 	python3 $<

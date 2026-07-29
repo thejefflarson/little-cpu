@@ -1,0 +1,78 @@
+# The formal-nightly regression baseline (ADR-0022), same contract as
+# test/EXPECTED_FAIL (ADR-0014) applied to the riscv-formal ladder: the
+# nightly's compare step (formal/check-baseline.sh) exits 0 only when the
+# set of `formal/checks/*` whose status is not PASS matches this file
+# EXACTLY — in both directions. A check that starts failing is caught; a
+# check that starts *passing* is also caught, because this is a set
+# equality, not a ceiling. Edit by hand; never regenerate from a run (that
+# launders a regression into the baseline). Removing a line is a claim the
+# same commit backs up; adding one back is a regression and needs the same
+# justification test/EXPECTED_FAIL's convention requires.
+#
+# Every check on this ladder is `mode bmc` at `smtbmc yices` (formal/
+# checks.cfg) -- a PASS means "no counterexample found within the check's
+# configured depth," a bounded result, not an unbounded proof. Read every
+# line below with that in mind.
+#
+# Seeded at integration from a from-scratch `make -C formal check` (78
+# checks, `-k`, ADR-0022) against main at `03c8d3e`: 55 pass, 15 insn_* fail,
+# reg_ch0 does not converge inside its new 1800s timeout (this file's own
+# check-baseline.sh script counted the status files -- see the PR for the
+# pasted count and tally).
+#
+# Then reconciled against `f942cb0`, which fixed the C.JR/C.JALR immediate
+# and the ALTOPS divide operands. Six entries were removed: insn_c_jr,
+# insn_c_jalr, insn_div, insn_divu, insn_rem, insn_remu -- each verified
+# FAIL -> PASS directly before removal, with insn_jalr and insn_lb run as
+# regression guards. The ladder is 61/70 insn_* passing as of that commit.
+# The six were removed by arithmetic on verified facts rather than by a
+# second full 78-check sweep; if that arithmetic is wrong, the first
+# nightly trips on set equality, which is exactly what this file is for.
+
+# CSRs are M3 (CLAUDE.md); mcycle/minstret aren't implemented yet.
+csrw_mcycle_ch0
+csrw_minstret_ch0
+
+# `rvfi_trap` is hardwired 0 until misalignment traps land (M3, ADR-0011).
+# Every byte-granularity access (lb/lbu/sb) passes -- this is exactly the
+# set of accesses whose address can be misaligned, which is what makes this
+# attribution checkable rather than asserted (ADR-0022, ADR-0023).
+insn_lh_ch0
+insn_lhu_ch0
+insn_lw_ch0
+insn_sh_ch0
+insn_sw_ch0
+insn_c_lw_ch0
+insn_c_lwsp_ch0
+insn_c_sw_ch0
+insn_c_swsp_ch0
+
+# The C.JR/C.JALR decode defect (ADR-0021): rtl/decoder.v:114 routes
+# instr_jalr through i_immediate = instr[31:20], which for a 16-bit
+# instruction is whatever sits next in memory. A fix is in flight in a
+# parallel change; when it lands these two go green and this baseline must
+# shrink in the same commit, which is the set-equality check working as
+# designed, not a surprise.
+
+# The ALTOPS divide operand-latching defect (ADR-0023): rtl/executor.v's
+# `ifdef RISCV_FORMAL_ALTOPS` divide branch reads `in.rs1`/`in.rs2` a cycle
+# after issue instead of the already-latched mul_div_x/mul_div_y. Scoped to
+# RISCV_FORMAL_ALTOPS, so the synthesized divider is unaffected -- ADR-0010
+# already says the real arithmetic has no formal coverage in any form. A fix
+# is in flight in a parallel change; same expectation as the C.JR pair above.
+
+# reg_ch0 is the check that ties RVFI's self-report back to the actual
+# register file (ADR-0023) -- without it, the 55+ passing insn_* checks
+# establish only that the core's story about itself is spec-consistent, not
+# that the story is true. It is a single depth-21 BMC query that has not
+# returned in a practical budget (>20 minutes, independently reproduced
+# twice) and previously had no bound at all, so an unsolvable query would
+# sit in the solver until the nightly's `timeout-minutes: 300` killed the
+# whole job -- taking `complete` and `equiv.sh` with it. formal/checks.cfg
+# now bounds it to 1800s; sby reports that as status TIMEOUT, a third state
+# that is neither PASS nor a counterexample-bearing FAIL. This baseline
+# treats "genuinely inconclusive" the same as "known failing": both are
+# non-PASS, and both belong here until `reg_ch0` gets a conclusive verdict
+# (a different depth split, a different engine, or a different bound -- a
+# decision to write down, per ADR-0023, not a switch to flip).
+reg_ch0
