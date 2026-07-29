@@ -42,6 +42,32 @@ module decoder (
 );
   logic [31:0] instr;
   assign instr = in.instr;
+
+  // Register-index fields, named and hoisted out of the always_comb blocks
+  // below. Two reasons. First, `rd_field` reads better than `instr[11:7]` at
+  // every use site, which is the point of this core. Second, iverilog cannot
+  // build a precise sensitivity entry for a constant part-select taken inside
+  // an always_* block -- it reports `sorry: constant selects in always_*
+  // processes are not fully supported` and conservatively makes the process
+  // sensitive to all 32 bits. That is safe (over-sensitivity re-evaluates
+  // more than necessary; it can never produce a stale value) but it is noise,
+  // and CLAUDE.md says warnings are errors. Selecting out here, where a
+  // continuous assign has an exact sensitivity, silences it honestly.
+  //
+  // Base encodings (RISC-V unprivileged spec, Ch. 2.2).
+  logic [4:0] rd_field, rs1_field, rs2_field;
+  assign rd_field  = instr[11:7];
+  assign rs1_field = instr[19:15];
+  assign rs2_field = instr[24:20];
+
+  // Compressed encodings (Ch. 16). The 3-bit "prime" fields index x8-x15;
+  // instr[11:7] doubles as rd/rs1 in CI/CR formats, so `rd_field` is reused
+  // there rather than aliased under a second name.
+  logic [2:0] c_rd_rs1_prime, c_rs2_prime;
+  logic [4:0] c_rs2_field;
+  assign c_rd_rs1_prime = instr[9:7];
+  assign c_rs2_prime    = instr[4:2];
+  assign c_rs2_field    = instr[6:2];
   logic [31:0] fetcher_pc;
   assign fetcher_pc = in.pc;
   // instruction decoder (figure 2.3)
@@ -264,10 +290,10 @@ module decoder (
       instr_beq || instr_bne || instr_blt || instr_bge || instr_bltu || instr_bgeu ||
         instr_sb || instr_sh || instr_sw || instr_cj || instr_cjr: rd = 0;
       instr_cjal || instr_cjalr: rd = 1;
-      instr_clw || instr_caddi4spn: rd = {2'b01, instr[4:2]};
+      instr_clw || instr_caddi4spn: rd = {2'b01, c_rs2_prime};
       instr_csrai || instr_csrli || instr_candi || instr_cand ||
-        instr_cor || instr_cxor || instr_csub: rd = {2'b01, instr[9:7]};
-      default: rd = instr[11:7];
+        instr_cor || instr_cxor || instr_csub: rd = {2'b01, c_rd_rs1_prime};
+      default: rd = rd_field;
     endcase
   end // always_comb
 
@@ -277,21 +303,21 @@ module decoder (
       instr_clwsp || instr_cswsp || instr_caddi4spn: rs1 = 2;
       instr_clw || instr_csw || instr_cbeqz || instr_cbnez ||
         instr_csrai || instr_csrli || instr_candi || instr_cand ||
-        instr_cor || instr_cxor || instr_csub: rs1 = {2'b01, instr[9:7]};
-      instr_cjr || instr_cjalr || instr_cslli: rs1 = instr[11:7];
+        instr_cor || instr_cxor || instr_csub: rs1 = {2'b01, c_rd_rs1_prime};
+      instr_cjr || instr_cjalr || instr_cslli: rs1 = rd_field;
       instr_cli || instr_cmv: rs1 = 0;
-      instr_caddi || instr_caddi16sp || instr_cadd: rs1 = instr[11:7];
-      default: rs1 = instr[19:15];
+      instr_caddi || instr_caddi16sp || instr_cadd: rs1 = rd_field;
+      default: rs1 = rs1_field;
     endcase // case (1'b1)
   end
 
   always_comb begin
     (* parallel_case, full_case *)
     case(1'b1)
-      instr_cswsp || instr_cslli || instr_csrai || instr_csrli || instr_cmv || instr_cadd: rs2 = instr[6:2];
-      instr_csw || instr_cand || instr_cor || instr_cxor || instr_csub: rs2 = {2'b01, instr[4:2]};
+      instr_cswsp || instr_cslli || instr_csrai || instr_csrli || instr_cmv || instr_cadd: rs2 = c_rs2_field;
+      instr_csw || instr_cand || instr_cor || instr_cxor || instr_csub: rs2 = {2'b01, c_rs2_prime};
       instr_cbeqz || instr_cbnez: rs2 = 0;
-      default: rs2 = instr[24:20];
+      default: rs2 = rs2_field;
     endcase
   end
   // ALU handling

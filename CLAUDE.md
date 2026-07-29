@@ -179,19 +179,34 @@ the oracle (ADR-0019).
 ## Engineering rules in force
 
 - **Compiler and elaboration warnings are errors.** Fix them; don't silence them.
+  **One documented exception**, and only this one: iverilog emits `sorry: constant selects in
+  always_* processes are not fully supported` for every struct-field read inside an `always_*`
+  block — 20 of them, all from `rtl/executor.v`'s `in.is_*` flags. It cannot build a precise
+  sensitivity entry for a constant part-select, so it falls back to whole-struct sensitivity.
+  **That fallback is provably safe**: over-sensitivity re-evaluates redundantly and can never
+  yield a stale value; only *under*-sensitivity is a correctness bug. Everywhere the select was
+  cheap to hoist into a named continuous assign it has been (`rtl/decoder.v`'s register-index
+  fields, `rtl/accessor.v`'s payload fields, `test/testbench.v`'s ROM index) — that silenced 17
+  of 37 and reads better besides. `rtl/executor.v` keeps the `in.` form because its body is one
+  `case (1'b1)` over 39 flags, and hoisting all of them would add ~80 lines of plumbing to the
+  module whose legibility matters most. Copying the struct to a local does not help (still a
+  constant select); `always @(in)` would, but trades away `always_comb`'s latch checking for
+  exactly the sensitivity iverilog already infers. Do not add new ones outside `executor.v`.
 - **Every non-trivial change adds or updates tests and runs the full suite** before being declared
   done. Elaboration succeeding is not a substitute for tests passing.
 - **Never commit build artifacts.** `test/rtl.cc`, `sim`, `*.vvp`, `*.vcd`, `rvfi_macros.vh`, and
   `formal/` output dirs are all generated. (`test/monitor.v` is the one deliberate exception.)
 - **riscv-formal is SHA-pinned.** Bumping the pin requires regenerating `test/monitor.v` and
   rerunning the ladder.
-- **Never cite a ticket ID in code, comments, commit messages, ADRs, or docs.** A bare ticket
-  number is meaningless to anyone reading this repo without access to the tracker, and it rots
-  the moment the tracker does. Cite the thing that lives here instead: the **ADR** that decided
-  it, the **commit SHA** that landed it, or — best — just say what the reason *is*. "Held for one
-  cycle because the memory registers `mem_rdata` (ADR-0015)" beats a ticket number and always
-  will. (Naming the tracker itself, once, under Pointers is fine — that tells a reader where
-  work is queued. It is the scattered IDs that rot.)
+- **Shared repo knowledge must not depend on the tracker.** No ticket IDs in code, comments, ADRs,
+  docs, or commit messages — a bare ticket number is meaningless to anyone reading this repo
+  without access to the tracker, and it rots the moment the tracker does. Cite the thing that
+  lives here instead: the **ADR** that decided it, the **commit SHA** that landed it, or — best —
+  just say what the reason *is*. "Held for one cycle because the memory registers `mem_rdata`
+  (ADR-0015)" beats a ticket number and always will.
+  **PR titles and descriptions are the exception** — those live on GitHub, not in the checked-out
+  repo, so a ticket ID there costs nothing and buys automatic issue closing. Naming the tracker
+  itself once under Pointers is likewise fine. It is the *scattered* IDs that rot.
 - Prefer verified/first-party GitHub Actions. Simplest approach unless asked otherwise.
 
 ## Milestone ladder
