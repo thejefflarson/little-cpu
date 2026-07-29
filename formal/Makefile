@@ -27,6 +27,14 @@ imemcheck: imemcheck.sby imemcheck.sv | $(RISCV_FORMAL_DIR)
 complete: complete.sby complete.sv | $(RISCV_FORMAL_DIR)
 cover: cover.sby cover.sv | $(RISCV_FORMAL_DIR)
 
+# ADR-0020: proves RVFI instrumentation doesn't change core behaviour. Not a
+# .sby task (equiv_make/equiv_simple/equiv_induct are driven directly from a
+# yosys script, not sby), so it isn't covered by the generic `%: %.sby` rule
+# above.
+.PHONY: equiv
+equiv: equiv.sh
+	./$<
+
 # pipeline stages
 components_fetcher: components.sby ../rtl/fetcher.v
 	sby -f $< fetcher

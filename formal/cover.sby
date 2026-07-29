@@ -12,15 +12,25 @@ verilog_defines -D RISCV_FORMAL_XLEN=32
 verilog_defines -D RISCV_FORMAL_ILEN=32
 verilog_defines -D RISCV_FORMAL_ALIGNED_MEM
 read_verilog rvfi_macros.vh
+read_verilog -sv structs.v
+read_verilog -sv fetcher.v
+read_verilog -sv regfile.v
 read_verilog -sv decoder.v
-read_verilog -sv riscv.v
-read_verilog -sv alu.v
+read_verilog -sv executor.v
+read_verilog -sv accessor.v
+read_verilog -sv writeback.v
+read_verilog -sv littlecpu.v
 read_verilog -sv cover.sv
 prep -nordff -top testbench
 
 [files]
-../decoder.v
-../riscv.v
-../alu.v
+../rtl/structs.v
+../rtl/fetcher.v
+../rtl/regfile.v
+../rtl/decoder.v
+../rtl/executor.v
+../rtl/accessor.v
+../rtl/writeback.v
+../rtl/littlecpu.v
 riscv-formal/checks/rvfi_macros.vh
 cover.sv

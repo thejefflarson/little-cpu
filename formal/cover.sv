@@ -1,12 +1,11 @@
 module testbench (
   input var clk,
-  output logic        mem_valid,
-  output logic        mem_instr,
-  input  logic        mem_ready,
+  output logic [31:0] imem_addr,
+  input  logic [31:0] imem_data,
   output logic [31:0] mem_addr,
   output logic [31:0] mem_wdata,
   output logic [3:0]  mem_wstrb,
-  input  logic [31:0] mem_rdata,
+  input  logic [31:0] mem_rdata
 );
   logic reset = 1;
   always_ff @(posedge clk)
@@ -15,12 +14,11 @@ module testbench (
   `RVFI_WIRES
   logic trap;
 
-  riscv wrapper (
+  littlecpu uut (
     .clk(clk),
     .reset(reset),
-    .mem_valid(mem_valid),
-    .mem_instr(mem_instr),
-    .mem_ready(mem_ready),
+    .imem_addr(imem_addr),
+    .imem_data(imem_data),
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),

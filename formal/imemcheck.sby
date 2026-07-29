@@ -9,15 +9,25 @@ smtbmc --presat --unroll boolector
 
 [script]
 read_verilog -sv imemcheck.sv
+read_verilog -sv structs.v
+read_verilog -sv fetcher.v
+read_verilog -sv regfile.v
 read_verilog -sv decoder.v
-read_verilog -sv riscv.v
-read_verilog -sv alu.v
+read_verilog -sv executor.v
+read_verilog -sv accessor.v
+read_verilog -sv writeback.v
+read_verilog -sv littlecpu.v
 prep -nordff -top testbench
 
 [files]
+../rtl/structs.v
+../rtl/fetcher.v
+../rtl/regfile.v
 ../rtl/decoder.v
-../rtl/riscv.v
-../rtl/alu.v
+../rtl/executor.v
+../rtl/accessor.v
+../rtl/writeback.v
+../rtl/littlecpu.v
 imemcheck.sv
 riscv-formal/checks/rvfi_macros.vh
 riscv-formal/checks/rvfi_channel.sv
