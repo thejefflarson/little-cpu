@@ -49,6 +49,16 @@ module executor(
   // here at issue, once, instead of read live off `in` 32 iterations later.
   logic op_is_div, op_is_divu, op_is_rem, op_is_remu, op_sign_x, op_sign_y;
 
+ `ifdef RISCV_FORMAL_ALTOPS
+  // The operands as latched by the ALTOPS issue arm below, named so the
+  // completion arm reads them as operands rather than as slices of the
+  // divider's working registers. Raw rs1/rs2 -- ALTOPS does no magnitude
+  // conversion, so no sign wrapper applies here (contrast ADR-0012).
+  logic [31:0] div_alt_rs1, div_alt_rs2;
+  assign div_alt_rs1 = mul_div_x[31:0];
+  assign div_alt_rs2 = mul_div_y[62:31];
+ `endif
+
   // multiply: continuous assignments, so the product tracks the operands every cycle
   // instead of being latched once at time 0. sign_x covers is_mulh (signed rs1) and
   // is_mulhsu (rs1 is signed, rs2 is unsigned); sign_y covers only is_mulh. Extension
@@ -216,12 +226,22 @@ module executor(
             state <= init;
           end
          `else
+          // Read the operands LATCHED AT ISSUE, not `in`. ALTOPS collapses the
+          // divide to a single cycle, so by the time this arm runs `in` already
+          // holds the next decoded instruction and `in.rs1`/`in.rs2` are that
+          // instruction's operands -- the placeholder would be computed from
+          // the wrong values. Same reasoning as the op_is_*/op_sign_* latches
+          // above: this is not the cycle `in` is trustworthy.
+          //
+          // The ALTOPS issue arm latches raw rs1/rs2 (unlike the real divider's
+          // arm, which latches magnitudes per ADR-0012), so these are exactly
+          // the values riscv-formal's placeholder model expects.
           (* parallel_case, full_case *)
           case (1'b1)
-            op_is_div: out.rd_data <= (in.rs1 - in.rs2) ^ 32'h7f8529ec;
-            op_is_divu: out.rd_data <= (in.rs1 - in.rs2) ^ 32'h10e8fd70;
-            op_is_rem: out.rd_data <= (in.rs1 - in.rs2) ^ 32'h8da68fa5;
-            op_is_remu: out.rd_data <= (in.rs1 - in.rs2) ^ 32'h3138d0e1;
+            op_is_div: out.rd_data <= (div_alt_rs1 - div_alt_rs2) ^ 32'h7f8529ec;
+            op_is_divu: out.rd_data <= (div_alt_rs1 - div_alt_rs2) ^ 32'h10e8fd70;
+            op_is_rem: out.rd_data <= (div_alt_rs1 - div_alt_rs2) ^ 32'h8da68fa5;
+            op_is_remu: out.rd_data <= (div_alt_rs1 - div_alt_rs2) ^ 32'h3138d0e1;
           endcase
           out.valid <= 1'b1;
           state <= init;
