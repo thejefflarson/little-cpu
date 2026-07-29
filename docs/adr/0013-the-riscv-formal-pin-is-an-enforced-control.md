@@ -5,7 +5,7 @@
 ## Context
 
 ADR-0006 called the unpinned `git clone` of riscv-formal "a version-skew time bomb" and required a
-SHA pin. JEF-604 added one. Reviewing that PR showed the pin **did not work**, in a way worth
+SHA pin. `bcbf88b` added one. Reviewing that PR showed the pin **did not work**, in a way worth
 recording so it is not reintroduced.
 
 The clone target was a *directory*, and the checkout was a separate recipe line. Make does not
@@ -43,7 +43,7 @@ stops anyone from looking.
 - `RISCV_FORMAL_SHA` is `override` (not settable from the command line) and must be 40 hex digits,
   so it cannot be redirected from a script or pointed at a moving branch or tag.
 
-**Regenerating `test/monitor.v` when the pin moves is required, not optional.** JEF-604's
+**Regenerating `test/monitor.v` when the pin moves is required, not optional.** `bcbf88b`'s
 regeneration produced a 45-line delta, all of it upstream changing `rvfi_insn >> 32` to
 `rvfi_insn >> 16 >> 16` — a real portability fix, since a 32-bit-wide shift by 32 is not
 well-defined across frontends. Independently reproduced byte-for-byte from a fresh clone at the pin,
@@ -73,5 +73,5 @@ lines of make and turns three silent conditions into one loud one with the fix i
   but does not remove it; re-vendoring from the pin and re-applying only `basedir` is open work.
 - The pin is the *only* thing gating `genchecks-local.py`'s isa-line-to-makefile-recipe path. That
   path should also be hardened on its own merits — it should not be the pin's job alone. Open work.
-- CI (JEF-608) should run `make monitor-check` and a from-scratch clone, which is what actually
+- CI (`c66527d`) should run `make monitor-check` and a from-scratch clone, which is what actually
   proves the guard keeps working. Until CI exists, nothing runs this automatically.

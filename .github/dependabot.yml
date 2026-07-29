@@ -1,4 +1,4 @@
-# Keeps the SHA-pinned `uses:` lines in .github/workflows/ current (JEF-608).
+# Keeps the SHA-pinned `uses:` lines in .github/workflows/ current.
 #
 # github-actions is the only ecosystem in this repo today: there is no
 # package.json/Cargo.toml/etc. to track, just the pinned actions in

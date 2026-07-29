@@ -18,7 +18,7 @@ core is correct."
 
 The README is the project's voice and is deliberately left as-is. **Ground truth lives here.**
 
-**M1 is reached** (JEF-607, `a4662a2`). `rtl/regfile.v` is combinational-read with write-through
+**M1 is reached** (`a4662a2`). `rtl/regfile.v` is combinational-read with write-through
 bypass, every inter-stage struct carries a `valid` bit, and decode runs a stall-only hazard
 scoreboard (ADR-0004 / ADR-0009 / ADR-0015). `make test` is **47/47** and `test/EXPECTED_FAIL` is
 empty, so it is a plain all-pass gate — ADR-0014's set-equality check still runs in both directions,
@@ -26,7 +26,7 @@ so an unexpected *pass* is caught too. The same change fixed three datapath defe
 AUIPC computed `reg_rs1 + reg_rs2` instead of `pc + immediate`, `mem_wdata` was registered a cycle
 behind `mem_addr`/`mem_wstrb`, and SLL/SRL/SRA did not mask the shift amount to `rs2[4:0]`.
 
-**JEF-628 lands RVFI and makes the monitor live in both sim legs.** `rtl/structs.v` carries an
+**`b2dafcc` lands RVFI and makes the monitor live in both sim legs.** `rtl/structs.v` carries an
 `ifdef RISCV_FORMAL` shadow payload (insn, pc, rs1/rs2 addr+rdata) captured in decode and forwarded
 stage to stage riding the existing valid-bit protocol; `rtl/accessor.v` adds the mem
 addr/rmask/wmask/rdata/wdata capture (the one stage that actually knows those values, including the
@@ -136,7 +136,7 @@ no multilib or newlib is needed. Formal needs a pinned YosysHQ OSS CAD Suite.
 That arithmetic is covered only by the `.S` suite and the executor component proof. Do not assume a
 green formal ladder means the ALU is correct.
 
-`test/monitor.v` rides along in both sim legs (JEF-628), so every run is self-checking per-retire —
+`test/monitor.v` rides along in both sim legs (`b2dafcc`), so every run is self-checking per-retire —
 a test that corrupts state transiently but converges to the right final registers fails loudly, not
 just end-state assertions passing. Both legs read the sanitized `test/monitor.sim.v`, which is
 therefore load-bearing for correctness and not merely for elaboration: a change to it is a change to
@@ -151,6 +151,12 @@ the oracle (ADR-0019).
   `formal/` output dirs are all generated. (`test/monitor.v` is the one deliberate exception.)
 - **riscv-formal is SHA-pinned.** Bumping the pin requires regenerating `test/monitor.v` and
   rerunning the ladder.
+- **The repository is self-contained. Never cite an issue tracker in code, comments, commit
+  messages, ADRs, or docs.** A ticket ID is meaningless to anyone reading this repo without
+  access to that tracker, and it rots the moment the tracker does. Cite the thing that lives
+  here instead: the **ADR** that decided it, the **commit SHA** that landed it, or — best — just
+  say what the reason *is*. "Held for one cycle because the memory registers `mem_rdata`
+  (ADR-0015)" beats "per JEF-615" and always will.
 - Prefer verified/first-party GitHub Actions. Simplest approach unless asked otherwise.
 
 ## Milestone ladder
@@ -164,7 +170,7 @@ the oracle (ADR-0019).
 | M4 | Full ladder + CI | nightly formal green; tag a release (PR gate landed, `c66527d`) |
 
 M1 is reached. **M2 is the milestone that erases the verified→unverified regression** — treat it
-as the real finish line, not M1. JEF-628 cleared M2's blocker (RVFI is driven, the monitor is live
+as the real finish line, not M1. `b2dafcc` cleared M2's blocker (RVFI is driven, the monitor is live
 in both sim legs — see Current State above), but M2 itself is not reached: the riscv-formal ladder
 port (`wrapper.v` / `checks.cfg` / `imemcheck` / `dmemcheck` / `cover` / `equiv.sh`, ADR-0006) is
 separate, outstanding work.
@@ -175,7 +181,6 @@ separate, outstanding work.
 - Decisions: [`docs/adr/`](docs/adr/) — twenty accepted ADRs, plus a deferred list
 - Reference text from the old core: `git show 1709433^:rtl/riscv.v` (RVFI retire block),
   `git show e67875c^:rtl/alu.v` (arithmetic)
-- Tracker: Linear, project **Little CPU** (team JEF)
 
 **Deferred behind future ADRs** — forwarding network, radix-4 divider, negedge-BRAM regfile, FPGA
 timing closure, interrupts, Spike co-sim. Each trades away simplicity the current design depends

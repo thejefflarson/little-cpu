@@ -1,6 +1,6 @@
 # ADR-0015: The accessor's load-response turnaround is the third stall source
 
-**Status:** Accepted · 2026-07-28 · *Extends ADR-0009; ratified on integrating JEF-607*
+**Status:** Accepted · 2026-07-28 · *Extends ADR-0009; ratified on integrating `a4662a2`*
 
 ## Context
 
@@ -10,7 +10,7 @@ scoreboard's RAW hazard and the multi-cycle divider — because those were the o
 sources anyone had found. It says so explicitly: "there is no backpressure source in this core
 other than the divider and the decode scoreboard."
 
-That is wrong, and JEF-607 found out the hard way while implementing ADR-0004.
+That is wrong, and `a4662a2` found out the hard way while implementing ADR-0004.
 
 **Both memory models — `rtl/memory.v` and the model inside `test/testbench.v` — register
 `mem_rdata` one cycle after the address is presented.** That is not a modelling choice that could

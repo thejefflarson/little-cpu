@@ -45,7 +45,7 @@ module testbench(
   logic [3:0]  rvfi_mem_wmask;
   logic [31:0] rvfi_mem_rdata;
   logic [31:0] rvfi_mem_wdata;
-  // JEF-628: the monitor's own per-retire error code (0 = no error this
+  // ADR-0006: the monitor's own per-retire error code (0 = no error this
   // cycle). test/cxxrtl.cc reads this by hierarchical debug-item name
   // ("monitor errcode") to turn a mismatch into a distinct process exit
   // code; under iverilog the monitor's own $display diagnostics (which
@@ -170,7 +170,7 @@ module testbench(
     end
   end
 
-  // JEF-607 / ADR-0009 criterion 5: for every store, mem_wstrb is high for
+  // ADR-0009: for every store, mem_wstrb is high for
   // exactly one cycle. Direct regression for the divide-replay defect, where
   // the accessor kept re-issuing the same store every cycle the executor sat
   // busy in `divide` because nothing upstream defaulted back to zero in

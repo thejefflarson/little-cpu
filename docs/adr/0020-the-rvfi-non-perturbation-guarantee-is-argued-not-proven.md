@@ -7,7 +7,7 @@
 ADR-0006 kept `formal/equiv.sh` deliberately, and named its job precisely: it proves that **RVFI
 instrumentation does not change core behaviour** — gold is the plain build, gate is the
 `RISCV_FORMAL` build with the `rvfi_*` ports deleted. The ADR called it out as earning its keep
-"with large `ifdef` shadow payloads landing in the structs", which is exactly what JEF-628 landed:
+"with large `ifdef` shadow payloads landing in the structs", which is exactly what `b2dafcc` landed:
 a 138-bit `rvfi_shadow` threaded through three inter-stage structs, plus five more mem-capture
 fields in `accessor_output`, plus a latch pair in the accessor's load-response path.
 
@@ -51,5 +51,5 @@ in CI would notice.
 - Until then, "RVFI costs no LUTs and changes no behaviour" is a claim resting on `ifdef` discipline
   and reviewer inspection. Reviewers of any future RVFI change carry that burden explicitly: verify
   by reading that no `ifdef`'d value reaches a non-`ifdef`'d signal.
-- CLAUDE.md's M2 line should not be read as closed until the ladder port lands. JEF-628 cleared the
+- CLAUDE.md's M2 line should not be read as closed until the ladder port lands. `b2dafcc` cleared the
   blocker; it did not reach the milestone.

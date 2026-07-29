@@ -1,7 +1,7 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
 
-// Standalone bench for rtl/memory.v (JEF-605 criterion 5). memory.v is not
+// Standalone bench for rtl/memory.v (see `eb18320`). memory.v is not
 // exercised by any other test path: the cxxrtl top (`testbench`) has its own
 // inline memory, and the synthesis path (littlesoc) is currently broken (see
 // ADR-0010's technical notes), so this is the only place its read/write

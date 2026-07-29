@@ -4,7 +4,7 @@
 
 ## Context
 
-JEF-605 was scoped to seven itemized datapath/decode defects. Building the ADR-0010 differential
+`eb18320` was scoped to seven itemized datapath/decode defects. Building the ADR-0010 differential
 bench surfaced an eighth, in the same three lines of `rtl/executor.v` the ticket already had open:
 
 `executor.v`'s restoring divider is **unsigned**. It loads `mul_div_x <= {32'b0, rs1}` and
@@ -18,7 +18,7 @@ The engineer raised this as a `DECISION NEEDED`: fix out-of-list, or ship a benc
 
 ## Decision
 
-**Fix it in JEF-605**, and record the structure it implies.
+**Fix it in the same change**, and record the structure it implies.
 
 **The restoring divider operates on magnitudes only.** `div_x`/`div_y` are the absolute values of
 `rs1`/`rs2` for `div`/`rem`, and pass through unchanged for `divu`/`remu`. Signs are applied on the
@@ -26,8 +26,8 @@ way in (negate) and restored on the way out (negate the quotient when the operan
 remainder takes the dividend's sign). The two RISC-V special cases — divide-by-zero and
 `INT_MIN / -1` — are handled combinationally in `init` and never enter the loop.
 
-Fixing it here was correct rather than deferring: it is in `rtl/executor.v`, which JEF-605 already
-owned exclusively (JEF-604 held `Makefile`/`formal/`, so there was no collision risk), and ADR-0010
+Fixing it here was correct rather than deferring: it is in `rtl/executor.v`, which that change already
+owned exclusively (the parallel build-repair work held `Makefile`/`formal/`, so there was no collision risk), and ADR-0010
 makes the differential bench a mandatory deliverable of this ticket. A ticket that requires a bench
 and forbids the fix the bench demands is not a shippable ticket.
 
@@ -50,7 +50,7 @@ straightforwardly; the alternative buys nothing on a project whose stated goal i
 - The component BMC proves the divider by loop invariant over `div_x`/`div_y`, not over
   `in.rs1`/`in.rs2`, so it covers the magnitude conversion rather than assuming it away. It is
   restricted to 4-bit operands per ADR-0010's bounded-effort clause; the restriction is documented
-  inline in `rtl/executor.v` rather than in the sby task, because JEF-604 owned
+  inline in `rtl/executor.v` rather than in the sby task, because the parallel build-repair work owned
   `formal/components.sby` in the same sprint. **Move that comment to the sby task** when convenient —
   ADR-0010 asked for it there.
 - Verified non-vacuous by mutation: reintroducing the `mul_sign_x` bug makes

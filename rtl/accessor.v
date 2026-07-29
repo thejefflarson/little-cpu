@@ -13,7 +13,7 @@ module accessor(
     input  logic [31:0] mem_rdata,
     // fault signals
     output logic mem_misaligned,
-    // ADR-0009-style stall broadcast (JEF-607): the memory (test/testbench.v,
+    // ADR-0009-style stall broadcast (ADR-0009): the memory (test/testbench.v,
     // rtl/memory.v) registers mem_rdata one cycle after the address is
     // presented — a real, unavoidable round trip, not a choice — so a load
     // cannot be answered in the single cycle every other instruction takes
@@ -25,7 +25,7 @@ module accessor(
     // fresh instruction would collide over this stage's single output
     // register and the single-port memory bus.
     output logic stalled,
-    // ADR-0004 hazard scoreboard (JEF-607): a load's result is a live
+    // ADR-0004 hazard scoreboard (ADR-0004): a load's result is a live
     // producer from the moment its request is issued here until write-through
     // makes it visible, which is one cycle later than decoder_out/executor_out
     // alone can see (that's what `stalled` above is fixing). Decode also
@@ -55,7 +55,7 @@ module accessor(
   logic       pending_addr16;
   logic [1:0] pending_addr24;
  `ifdef RISCV_FORMAL
-  // ADR-0006 / JEF-628: a load's RVFI shadow payload (and the word-aligned
+  // ADR-0006: a load's RVFI shadow payload (and the word-aligned
   // request address, needed for rvfi_mem_addr) has to survive the same
   // one-cycle request/response gap pending_rd does, for the same reason —
   // `in` is a guaranteed bubble on the response cycle (see pending_valid
@@ -65,7 +65,7 @@ module accessor(
  `endif
   // Misaligned-access detection per RISC-V spec: word accesses require 4-byte alignment,
   // halfword accesses require 2-byte alignment; byte accesses are always aligned.
-  // Gated by in.valid (ADR-0011/JEF-607): a bubble must never raise a spurious
+  // Gated by in.valid (ADR-0011): a bubble must never raise a spurious
   // trap. Detection itself stays here — moving it to decode is M3 (ADR-0011).
   assign mem_misaligned = in.valid &&
     (((in.is_lw || in.is_sw) && in.mem_addr[1:0] != 2'b00) ||
@@ -76,8 +76,8 @@ module accessor(
   // above: a registered mem_wdata (the original bug here) lags the address
   // and strobe by one cycle, so the memory model latches the *previous*
   // cycle's data at the *current* cycle's address — exactly the "address
-  // recovers before data" skew traced while landing JEF-606 (see
-  // test/EXPECTED_FAIL's history and the JEF-607 dispatch notes).
+  // recovers before data" skew traced while landing the cxxrtl runner in `9cd0c67` (see
+  // test/EXPECTED_FAIL's history and ADR-0004).
   assign mem_wdata = write_request;
   // make the request. Defaults to no request every cycle — reset, a bubble,
   // and a real non-memory instruction (e.g. add) all fall out of the same
@@ -152,7 +152,7 @@ module accessor(
       // Full read mask regardless of load width (byte/half/word): the
       // monitor only flags a *missing* bit against what the spec expects,
       // never an extra one, so an over-approximation is safe -- ported
-      // as-is from the serialized core's green run (JEF-628 dispatch
+      // as-is from the serialized core's green run (ADR-0006 —
       // notes), not re-derived.
       out.rvfi <= pending_rvfi;
       out.rvfi_mem_addr <= pending_rvfi_mem_addr;

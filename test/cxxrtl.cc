@@ -7,7 +7,7 @@
 // Exit codes: 0 = pass, 1 = fail (test number printed), 2 = cycle-limit
 // timeout, 3 = usage/setup error (bad args, missing file, image too big for
 // the simulated memories), 4 = RVFI monitor error (a per-retire mismatch,
-// JEF-628 — distinct from 1 because tohost never got a say: the failure is
+// ADR-0006 — distinct from 1 because tohost never got a say: the failure is
 // in the pipeline's own bookkeeping, not the test program's assertions).
 #include <cxxrtl/cxxrtl_vcd.h>
 #include "rtl.cc"
@@ -158,7 +158,7 @@ int main(int argc, char **argv) {
   uint32_t *ram_data = memory_item.curr;
   const uint32_t tohost_index = 0;
 
-  // ADR-0006/JEF-628: test/testbench.v instantiates the RVFI monitor
+  // ADR-0006: test/testbench.v instantiates the RVFI monitor
   // (test/monitor.v, riding along under -D RISCV_FORMAL) alongside the DUT,
   // so this leg is self-checking per-retire, not merely end-state-checking
   // via tohost above. "monitor errcode" is the top-level error code the

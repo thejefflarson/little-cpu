@@ -1,7 +1,7 @@
 #!/bin/bash
 # Assembles every test/asm/*.S file, runs it under the cxxrtl runner (`sim`),
 # and checks the resulting pass/fail table against test/EXPECTED_FAIL — the
-# sprint-1 baseline (ADR-0007, ADR-0008, JEF-606). Invoked by `make test`.
+# sprint-1 baseline (ADR-0007, ADR-0008). Invoked by `make test`.
 #
 # Usage: run_tests.sh <sim-binary> <asm-dir> <expected-fail-file>
 set -u

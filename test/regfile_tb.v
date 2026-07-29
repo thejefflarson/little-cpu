@@ -1,7 +1,7 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
 
-// JEF-607 criterion 1: rtl/regfile.v is combinational-read with write-through
+// ADR-0004: rtl/regfile.v is combinational-read with write-through
 // bypass. A write in cycle N must be visible on reg_rs1/reg_rs2 in cycle N
 // for the same address (not one cycle later, which was the original defect —
 // see CLAUDE.md and ADR-0004), and rs == 0 must always read 0, even while
@@ -67,7 +67,7 @@ module regfile_tb;
     check_hex("write-through same-cycle read (rs1)", reg_rs1, 32'hcafef00d);
 
     // Same check on the rs2 port, since the operand skew observed while
-    // landing JEF-606 was NOT uniform across ports — rs1 and rs2 recovered
+    // landing the cxxrtl runner (`9cd0c67`) was NOT uniform across ports — rs1 and rs2 recovered
     // at different depths, so both ports need their own direct check.
     rs2 = 5'd5;
     #1;

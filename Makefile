@@ -8,7 +8,7 @@ include formal/pin.mk
 
 # Macro names that turn RVFI on (ADR-0006), shared by both sim legs below so
 # they can't drift apart on which -D flags mean "RVFI is live" -- the whole
-# point of JEF-628 is that both legs check the same thing. One list of names;
+# point is that both legs check the same thing. One list of names;
 # each consumer applies its own flag syntax (iverilog: -DNAME, yosys
 # `read_verilog`: -D NAME) via $(addprefix ...) since no single literal string
 # satisfies both.
@@ -37,7 +37,7 @@ sim: test/cxxrtl.cc test/rtl.cc
 	  -isystem $$(yosys-config --datdir)/include/backends/cxxrtl/runtime $< -o $@
 
 # test/monitor.sim.v is a build-time-only, gitignored derivative of the
-# tracked test/monitor.v (JEF-628, ADR-0019). test/monitor.v itself stays
+# tracked test/monitor.v (ADR-0019). test/monitor.v itself stays
 # pristine and tracked (CLAUDE.md invariant 7); regenerate this file, never
 # hand-edit it, and never commit it. BOTH sim legs read this file, so they
 # cannot drift into checking different specs -- and it is therefore
@@ -107,7 +107,7 @@ else
 	@echo "  sudo apt-get install gcc-riscv64-unknown-elf"
 endif
 
-# Three small benches that landed in JEF-605 with no runner (rtl/executor.v,
+# Three small benches that landed in `eb18320` with no runner (rtl/executor.v,
 # rtl/memory.v, rtl/decoder.v respectively). Compiled and run straight
 # through iverilog/vvp; each bench $fatal(1)s on a mismatch and $finish
 # (exit 0) on success, so vvp's own exit code is the pass/fail signal — no
@@ -155,7 +155,7 @@ rtl/rom.mem:
 	touch $@
 	@echo '*** WARNING: created an EMPTY $@ placeholder. Anything synthesised'
 	@echo '*** from it has an uninitialised ROM and will trap on instruction 0.'
-	@echo '*** Real ROM contents are M1 work (JEF-6xx: test-binary-to-hex).'
+	@echo '*** Real ROM contents are M1 work (test-binary-to-hex).'
 
 riscv.json: rtl/structs.v rtl/accessor.v rtl/decoder.v rtl/executor.v rtl/fetcher.v rtl/regfile.v rtl/writeback.v rtl/littlecpu.v rtl/littlesoc.v rtl/imemory.v rtl/memory.v | rtl/rom.mem
 	yosys -p 'read_verilog -sv $^; synth_ice40 -dsp -top littlesoc -json $@'
