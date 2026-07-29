@@ -14,6 +14,46 @@ module rvfi_testbench (
   `RVFI_WIRES
   logic trap;
 
+  // ADR-0006: "finish [complete.sv] by driving imem/dmem inputs rand-stable".
+  // Without this, imem_data/mem_rdata are free every cycle (see wrapper.v),
+  // which is fine for the single-retire insn_* checks but not for this
+  // whole-ISA walk: a load that doesn't see back what an earlier store in
+  // the same trace wrote would fail rvfi_isa_rv32imc's spec check for
+  // reasons that have nothing to do with the core.
+  //
+  // imem is left fully free per cycle, deliberately not made rand-stable:
+  // rtl/fetcher.v drives imem_addr = pc and out.instr = imem_data
+  // combinationally with no cross-cycle latency (CLAUDE.md invariant 1), so
+  // nothing here depends on two different cycles' fetches of the same
+  // address agreeing.
+  //
+  // dmem gets a single-address write-through shadow -- the most recent
+  // store only, not a full memory array -- which is enough to let the
+  // common store-then-immediately-reload pattern through. A read of an
+  // address some *earlier*, since-overwritten store touched stays free;
+  // see dmemcheck.sv for the fuller version of this same argument (why
+  // $past(mem_addr), and why the address-0/idle-default coincidence is
+  // harmless: rtl/accessor.v only reads mem_rdata the cycle after a real
+  // load request).
+  logic [31:0] dmem_shadow;
+  logic [31:0] dmem_shadow_addr;
+  logic        dmem_shadow_valid = 0;
+  always_ff @(posedge clk) begin
+    if (!reset && mem_wstrb) begin
+      dmem_shadow_addr <= mem_addr;
+      if (mem_wstrb[0]) dmem_shadow[ 7: 0] <= mem_wdata[ 7: 0];
+      if (mem_wstrb[1]) dmem_shadow[15: 8] <= mem_wdata[15: 8];
+      if (mem_wstrb[2]) dmem_shadow[23:16] <= mem_wdata[23:16];
+      if (mem_wstrb[3]) dmem_shadow[31:24] <= mem_wdata[31:24];
+      dmem_shadow_valid <= 1'b1;
+    end
+  end
+  always_ff @(posedge clk) begin
+    if (!reset && dmem_shadow_valid && !$past(mem_wstrb) &&
+        $past(mem_addr) == dmem_shadow_addr)
+      assume(mem_rdata == dmem_shadow);
+  end
+
   // Instantiate the actual top-level CPU module (was stale "riscv" with Wishbone interface)
   littlecpu wrapper (
     .clk(clk),

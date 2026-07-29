@@ -8,14 +8,7 @@
 `include "rvfi_imem_check.sv"
 
 module testbench (
-  input clk,
-  input mem_ready,
-  output mem_valid,
-  output mem_instr,
-  output [31:0] mem_addr,
-  output [31:0] mem_wdata,
-  output [3:0] mem_wstrb,
-  input [31:0] mem_rdata
+  input clk
 );
   logic reset = 1;
   logic trap;
@@ -37,26 +30,40 @@ module testbench (
     `RVFI_CONN
   );
 
+  logic [31:0] uut_imem_addr;
+  logic [31:0] uut_imem_data;
+  logic [31:0] mem_addr;
+  logic [31:0] mem_wdata;
+  logic [3:0]  mem_wstrb;
+  logic [31:0] mem_rdata;
+
+  // No mem_valid/mem_ready to gate on: rtl/fetcher.v:15/25 drives
+  // imem_addr = pc and out.instr = imem_data combinationally, unconditionally,
+  // every non-reset cycle (CLAUDE.md invariant 1 -- fetch never stalls or
+  // waits). checker_inst's imem_addr/imem_data are `rand_const_reg`s: fixed
+  // for the whole trace, not resampled per cycle, so this comparison needs
+  // no cycle-history bookkeeping either -- whenever the DUT's fetch this
+  // cycle targets the checker's fixed address, its data must agree,
+  // full stop.
   always_comb begin
-    if (!reset && mem_valid && mem_ready) begin
-      if (mem_addr == imem_addr)
-        assume(mem_rdata[15:0] == imem_data);
-      if (mem_addr + 2 == imem_addr)
-        assume(mem_rdata[31:16] == imem_data);
+    if (!reset) begin
+      if (uut_imem_addr == imem_addr)
+        assume(uut_imem_data[15:0] == imem_data);
+      if (uut_imem_addr + 2 == imem_addr)
+        assume(uut_imem_data[31:16] == imem_data);
     end
   end
 
-  riscv uut (
+  littlecpu uut (
     .clk(clk),
     .reset(reset),
-    .trap(trap),
-    .mem_valid(mem_valid),
-    .mem_instr(mem_instr),
-    .mem_ready(mem_ready),
+    .imem_addr(uut_imem_addr),
+    .imem_data(uut_imem_data),
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
     .mem_rdata(mem_rdata),
+    .trap(trap),
     `RVFI_CONN
   );
 endmodule
