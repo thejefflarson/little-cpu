@@ -13,34 +13,51 @@ results — but it is still unverified.** A serialized FSM core (`rtl/riscv.v` +
 passed riscv-formal sans CSRs; it was torn down in two waves (2021: `9758a39`→`1709433`; 2023:
 `49b317a`→`4fbd650`→`13fec44`) into today's staged design, and the rewrite stalled partway. The
 project went from *formally verified* to *unverified*, and getting back is the whole plan. **M1 is
-green; M2 has not started.** Do not read "47/47" as "the core is correct."
+green; M2's blocker (RVFI) is cleared but M2 itself is not reached.** Do not read "47/47" as "the
+core is correct."
 
 The README is the project's voice and is deliberately left as-is. **Ground truth lives here.**
 
 **M1 is reached** (JEF-607, `a4662a2`). `rtl/regfile.v` is combinational-read with write-through
 bypass, every inter-stage struct carries a `valid` bit, and decode runs a stall-only hazard
 scoreboard (ADR-0004 / ADR-0009 / ADR-0015). `make test` is **47/47** and `test/EXPECTED_FAIL` is
-empty, so it is now a plain all-pass gate — ADR-0014's set-equality check still runs in both
-directions, so an unexpected *pass* is caught too. The same change fixed three datapath defects
-found on the way: AUIPC computed `reg_rs1 + reg_rs2` instead of `pc + immediate`, `mem_wdata` was
-registered a cycle behind `mem_addr`/`mem_wstrb`, and SLL/SRL/SRA did not mask the shift amount to
-`rs2[4:0]`.
+empty, so it is a plain all-pass gate — ADR-0014's set-equality check still runs in both directions,
+so an unexpected *pass* is caught too. The same change fixed three datapath defects found on the way:
+AUIPC computed `reg_rs1 + reg_rs2` instead of `pc + immediate`, `mem_wdata` was registered a cycle
+behind `mem_addr`/`mem_wstrb`, and SLL/SRL/SRA did not mask the shift amount to `rs2[4:0]`.
+
+**JEF-628 lands RVFI and makes the monitor live in both sim legs.** `rtl/structs.v` carries an
+`ifdef RISCV_FORMAL` shadow payload (insn, pc, rs1/rs2 addr+rdata) captured in decode and forwarded
+stage to stage riding the existing valid-bit protocol; `rtl/accessor.v` adds the mem
+addr/rmask/wmask/rdata/wdata capture (the one stage that actually knows those values, including the
+one-cycle load-response latch); `rtl/writeback.v` drives `rvfi_valid`/`rvfi_order`/etc. from the
+retiring `accessor_output`, exactly where invariant 3 below says retire happens. `trap`/`halt`/
+`intr`/`mode`/`ixl`/the CSR fields are hardwired constants in `rtl/littlecpu.v` (no traps or CSRs
+exist yet — M3). `test/monitor.v` stays pristine and tracked; a gitignored, build-time-derived
+`test/monitor.sim.v` (Makefile) carries the two build-time fixes it needs — stripping the
+`$time`-in-`$display` yosys can't elaborate, and ADR-0019's DIV/REM signedness repair — and **both**
+legs read it, so they cannot drift into checking different specs. `make test` is now per-retire
+self-checking in both legs, not merely end-state-checking via `tohost`.
+
+**The generated monitor's DIV/REM spec model is defective, and the sanitizer fixes it**
+(ADR-0019). `monitor_insn_div`/`monitor_insn_rem` compute signed division as a conditional whose
+other branches are unsigned; per IEEE 1800 sign-context rules that propagates down and evaluates the
+division **unsigned**, silently, for negative operands only. Confirmed by driving the two modules
+directly with known-correct RVFI values (`-7 / 2` → `0x7ffffffc`, not `0xfffffffd`) and by the
+`A_SIGNED 0` parameter yosys puts on the `$div`/`$mod` cell — not a simulator quirk, and not this
+core: with the sanitizer rule in place `div.S`/`rem.S` pass. `test/monitor.sim.v` rewrites the two
+sites to make the arithmetic self-determined. **`test/EXPECTED_FAIL` is not the place to park a
+monitor defect** — read ADR-0019 before adding a line back for one.
 
 What does not work right now:
 
-- **RVFI ports are declared and never driven** (`grep -rn "rvfi_" rtl/` finds no drivers), so no
-  riscv-formal check can pass. This is the M2 critical path.
-- **`test/monitor.v` is not in the cxxrtl leg at all.** The `test/rtl.cc` recipe does not read it;
-  only `testbench.vvp` (iverilog) does — and with RVFI undriven it cannot check anything there
-  either. So **`make test` is not per-retire self-checking today**: the 47/47 result rests entirely
-  on the `tohost` protocol and each `.S` test's own assertions. That is real coverage, but it is
-  weaker than a monitor-checked run, and it is the second reason M2 rather than M1 is the finish
-  line.
-- **`test/monitor.v` does not elaborate under yosys** — `$time` inside `$display` at line 90 hits
-  `ERROR: Don't know how to detect sign and width for AST_AUTOWIRE node`. Getting it into the
-  cxxrtl leg needs a sanitized derived copy; the tracked file stays pristine.
 - **`formal/checks.cfg` and `formal/wrapper.v` still reference the deleted core** — `checks.cfg`'s
   `[script-sources]` reads `rtl/riscv.v` and `rtl/alu.v`, and `wrapper.v` instantiates `riscv`.
+- **`formal/equiv.sh` does not run**, so ADR-0006's guarantee that RVFI instrumentation does not
+  perturb core behaviour is **argued, not proven** (ADR-0020). The argument is that every
+  `ifdef RISCV_FORMAL` block is write-only with respect to the core. Any future RVFI change must be
+  read against that: an `ifdef`'d value reaching a non-`ifdef`'d signal breaks it, and CI would not
+  notice.
 - **Three of the five component-proof tasks are vacuous.** `components_fetcher`,
   `components_accessor`, and `components_writeback` contain no assertions at all, only reset
   assumptions, so they "pass" meaninglessly. CI deliberately does not run them; ADR-0006 slates
@@ -119,10 +136,11 @@ no multilib or newlib is needed. Formal needs a pinned YosysHQ OSS CAD Suite.
 That arithmetic is covered only by the `.S` suite and the executor component proof. Do not assume a
 green formal ladder means the ALU is correct.
 
-`test/monitor.v` is *meant* to ride along in both sim legs so every run is self-checking
-per-retire. **It does not yet** — the cxxrtl recipe never reads it, and RVFI is undriven, so the
-monitor is inert in both legs. Wiring it up is part of M2, and until then a green `make test` means
-"every test's own assertions passed", not "every retire matched the ISA".
+`test/monitor.v` rides along in both sim legs (JEF-628), so every run is self-checking per-retire —
+a test that corrupts state transiently but converges to the right final registers fails loudly, not
+just end-state assertions passing. Both legs read the sanitized `test/monitor.sim.v`, which is
+therefore load-bearing for correctness and not merely for elaboration: a change to it is a change to
+the oracle (ADR-0019).
 
 ## Engineering rules in force
 
@@ -146,13 +164,15 @@ monitor is inert in both legs. Wiring it up is part of M2, and until then a gree
 | M4 | Full ladder + CI | nightly formal green; tag a release (PR gate landed, `c66527d`) |
 
 M1 is reached. **M2 is the milestone that erases the verified→unverified regression** — treat it
-as the real finish line, not M1. Until RVFI is driven and the monitor is live, nothing in this repo
-independently checks that a retire matches the ISA.
+as the real finish line, not M1. JEF-628 cleared M2's blocker (RVFI is driven, the monitor is live
+in both sim legs — see Current State above), but M2 itself is not reached: the riscv-formal ladder
+port (`wrapper.v` / `checks.cfg` / `imemcheck` / `dmemcheck` / `cover` / `equiv.sh`, ADR-0006) is
+separate, outstanding work.
 
 ## Pointers
 
 - Design brief: [`docs/ideas/finish-the-rewrite.md`](docs/ideas/finish-the-rewrite.md)
-- Decisions: [`docs/adr/`](docs/adr/) — seventeen accepted ADRs, plus a deferred list
+- Decisions: [`docs/adr/`](docs/adr/) — twenty accepted ADRs, plus a deferred list
 - Reference text from the old core: `git show 1709433^:rtl/riscv.v` (RVFI retire block),
   `git show e67875c^:rtl/alu.v` (arithmetic)
 - Tracker: Linear, project **Little CPU** (team JEF)

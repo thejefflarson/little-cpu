@@ -43,6 +43,8 @@ module accessor(
   logic is_load;
   assign is_load = in.is_lw || in.is_lh || in.is_lhu || in.is_lb || in.is_lbu;
   assign stalled = in.valid && is_load;
+  logic is_store;
+  assign is_store = in.is_sw || in.is_sh || in.is_sb;
 
   // pending_valid/pending_rd are declared as ports above (the hazard
   // scoreboard needs them too); the rest of the pending-load state below is
@@ -52,6 +54,15 @@ module accessor(
   logic       pending_is_lb, pending_is_lbu, pending_is_lh, pending_is_lhu, pending_is_lw;
   logic       pending_addr16;
   logic [1:0] pending_addr24;
+ `ifdef RISCV_FORMAL
+  // ADR-0006 / JEF-628: a load's RVFI shadow payload (and the word-aligned
+  // request address, needed for rvfi_mem_addr) has to survive the same
+  // one-cycle request/response gap pending_rd does, for the same reason —
+  // `in` is a guaranteed bubble on the response cycle (see pending_valid
+  // below), so nothing of this instruction's is left to read off `in` then.
+  rvfi_shadow  pending_rvfi;
+  logic [31:0] pending_rvfi_mem_addr;
+ `endif
   // Misaligned-access detection per RISC-V spec: word accesses require 4-byte alignment,
   // halfword accesses require 2-byte alignment; byte accesses are always aligned.
   // Gated by in.valid (ADR-0011/JEF-607): a bubble must never raise a spurious
@@ -126,6 +137,10 @@ module accessor(
       pending_is_lb <= 0; pending_is_lbu <= 0; pending_is_lh <= 0; pending_is_lhu <= 0; pending_is_lw <= 0;
       pending_addr16 <= 0;
       pending_addr24 <= 0;
+     `ifdef RISCV_FORMAL
+      pending_rvfi <= '0;
+      pending_rvfi_mem_addr <= 0;
+     `endif
     end else if (pending_valid) begin
       // The request fired last cycle (`stalled` was high then); mem_rdata
       // now reflects it. rtl/decoder.v froze upstream and rtl/executor.v
@@ -133,6 +148,19 @@ module accessor(
       // bubble right now — nothing else is competing for `out` this cycle.
       out.valid <= 1'b1;
       out.rd <= pending_rd;
+     `ifdef RISCV_FORMAL
+      // Full read mask regardless of load width (byte/half/word): the
+      // monitor only flags a *missing* bit against what the spec expects,
+      // never an extra one, so an over-approximation is safe -- ported
+      // as-is from the serialized core's green run (JEF-628 dispatch
+      // notes), not re-derived.
+      out.rvfi <= pending_rvfi;
+      out.rvfi_mem_addr <= pending_rvfi_mem_addr;
+      out.rvfi_mem_rmask <= 4'b1111;
+      out.rvfi_mem_wmask <= 4'b0;
+      out.rvfi_mem_rdata <= mem_rdata;
+      out.rvfi_mem_wdata <= 32'b0;
+     `endif
       (* parallel_case, full_case *)
       case (1'b1)
         pending_is_lb: begin
@@ -186,12 +214,36 @@ module accessor(
       pending_is_lw <= in.is_lw;
       pending_addr16 <= addr16;
       pending_addr24 <= addr24;
+     `ifdef RISCV_FORMAL
+      // `mem_addr` here is this cycle's combinational request address (the
+      // always_comb block above), already word-aligned -- the same value
+      // driving the real bus this cycle. Captured now because `in` (and so
+      // this address) is gone by the response cycle above.
+      pending_rvfi <= in.rvfi;
+      pending_rvfi_mem_addr <= mem_addr;
+     `endif
     end else begin
       // Not a load: stores and every other op settle in the one cycle every
       // other pipeline stage takes.
       out.valid <= 1'b1;
       out.rd_data <= in.rd_data;
       out.rd <= in.rd;
+     `ifdef RISCV_FORMAL
+      out.rvfi <= in.rvfi;
+      // `mem_addr`/`mem_wstrb`/`write_request` are this cycle's real bus
+      // values from the always_comb block above -- exact, not an
+      // approximation, so store bytes outside the byte-accurate wmask never
+      // get compared against something this instruction didn't actually
+      // write. Zeroed for every non-store op (including reads never reach
+      // this branch -- loads take the is_load branch above), so a plain ALU
+      // op never inherits a stale memory access from whatever last used
+      // this register.
+      out.rvfi_mem_addr <= is_store ? mem_addr : 32'b0;
+      out.rvfi_mem_wmask <= is_store ? mem_wstrb : 4'b0;
+      out.rvfi_mem_wdata <= is_store ? write_request : 32'b0;
+      out.rvfi_mem_rmask <= 4'b0;
+      out.rvfi_mem_rdata <= 32'b0;
+     `endif
     end
   end
 

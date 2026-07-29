@@ -335,6 +335,37 @@ module decoder (
   assign hazard_rs1 = uses_rs1 && rs1 != 0 && live_producer(rs1);
   assign hazard_rs2 = uses_rs2 && rs2 != 0 && live_producer(rs2);
   assign hazard = hazard_rs1 || hazard_rs2;
+
+ `ifdef RISCV_FORMAL
+  // ADR-0006 / JEF-628: rs1_valid/rs2_valid decide whether rvfi_rs{1,2}_addr
+  // and _rdata report the real register or are masked to 0, per RVFI
+  // convention (an instruction with no rsN field must report addr/rdata as
+  // 0, not whatever bits of the encoding happen to alias a register index).
+  // rvfi_rs1_valid is the serialized core's green-run formula, ported as-is
+  // (`git show 1709433^:rtl/riscv.v`): LUI/JAL/AUIPC have no rs1 field.
+  //
+  // rvfi_rs2_valid is `uses_rs2` above, not the serialized core's broader
+  // formula (which additionally excludes only JALR/loads, leaving it true
+  // for e.g. ADDI) — that broader version looked safe the same way the
+  // over-reported case above is (the monitor's channel-0 check only
+  // compares rs2_addr against spec when spec_rs2_addr != 0, so a garbage
+  // address for an instruction with no real rs2 field looked harmless) but
+  // is not: the monitor's *reordered*-channel shadow-register check
+  // (errors 131/132) compares whatever rs2_addr/rs2_rdata is reported
+  // against its own last-write model for that address unconditionally,
+  // with no such exemption. ADDI's I-type encoding has no rs2 field, but
+  // decode's default rs2 selection (`rs2 = instr[24:20]`) reads immediate
+  // bits there regardless — for `addi x2, x0, 1` those bits are 1, so the
+  // broader formula reports rs2_addr=x1 with rs2_addr's *current* value,
+  // which the shadow model (tracking x1's last real write) can legitimately
+  // disagree with. Caught empirically: JEF-628's `make test` run failed
+  // error 132 ("mismatch with shadow rs2") on a correct core. `uses_rs2` is
+  // exactly "does this instruction have a real rs2 operand", so it doesn't
+  // have this hole.
+  logic rvfi_rs1_valid, rvfi_rs2_valid;
+  assign rvfi_rs1_valid = !instr_lui && !instr_jal && !instr_auipc;
+  assign rvfi_rs2_valid = uses_rs2;
+ `endif
   // ADR-0009: a single global stall, combining the local RAW hazard with
   // whatever's busy downstream (the divider, or the accessor's one-cycle
   // load turnaround). Any reason freezes the PC; see below for why the two
@@ -382,6 +413,23 @@ module decoder (
       out.rs1 <= instr_lui ? immediate : reg_rs1;
       out.rs2 <= instr_math ? math_arg : reg_rs2;
       out.rd <= rd;
+     `ifdef RISCV_FORMAL
+      // ADR-0006 shadow capture: everything RVFI needs that only decode
+      // knows. rvfi.pc_wdata defaults to the same fall-through target `pc`
+      // gets above and is overridden below in lockstep with every place
+      // that overrides `pc` itself (jal/jalr, branches) — decode owns the
+      // PC (CLAUDE.md invariant 1), so this is the one place either value
+      // is ever computed; duplicating the expression here (rather than
+      // reading `pc` back) is required because a non-blocking assignment
+      // to `pc` above isn't visible until next cycle.
+      out.rvfi.pc_wdata <= fetcher_pc + pc_inc;
+      out.rvfi.insn <= uncompressed ? instr : {16'b0, instr[15:0]};
+      out.rvfi.pc_rdata <= fetcher_pc;
+      out.rvfi.rs1_addr <= rvfi_rs1_valid ? rs1 : 5'b0;
+      out.rvfi.rs2_addr <= rvfi_rs2_valid ? rs2 : 5'b0;
+      out.rvfi.rs1_rdata <= rvfi_rs1_valid ? reg_rs1 : 32'b0;
+      out.rvfi.rs2_rdata <= rvfi_rs2_valid ? reg_rs2 : 32'b0;
+     `endif
       // outputs
       out.is_add <= instr_add;
       out.is_sub <= instr_sub;
@@ -437,6 +485,11 @@ module decoder (
           pc <= instr_jalr ?
             ($signed(immediate) + $signed(reg_rs1)) & 32'hfffffffe :
             $signed(fetcher_pc) + $signed(immediate);
+         `ifdef RISCV_FORMAL
+          out.rvfi.pc_wdata <= instr_jalr ?
+            ($signed(immediate) + $signed(reg_rs1)) & 32'hfffffffe :
+            $signed(fetcher_pc) + $signed(immediate);
+         `endif
           out.rs1 <= fetcher_pc;
           out.rs2 <= pc_inc;
           out.rd <= rd;
@@ -453,6 +506,17 @@ module decoder (
             instr_bge: pc <= $signed(reg_rs1) >= $signed(reg_rs2) ? fetcher_pc + immediate : fetcher_pc + pc_inc;
             instr_bgeu: pc <= reg_rs1 >= reg_rs2 ? fetcher_pc + immediate : fetcher_pc + pc_inc;
           endcase // case (1'b1)
+         `ifdef RISCV_FORMAL
+          (* parallel_case, full_case *)
+          case(1'b1)
+            instr_beq: out.rvfi.pc_wdata <= reg_rs1 == reg_rs2 ? fetcher_pc + immediate : fetcher_pc + pc_inc;
+            instr_bne: out.rvfi.pc_wdata <= reg_rs1 != reg_rs2 ? fetcher_pc + immediate : fetcher_pc + pc_inc;
+            instr_blt: out.rvfi.pc_wdata <= $signed(reg_rs1) < $signed(reg_rs2) ? fetcher_pc + immediate : fetcher_pc + pc_inc;
+            instr_bltu: out.rvfi.pc_wdata <= reg_rs1 < reg_rs2 ? fetcher_pc + immediate : fetcher_pc + pc_inc;
+            instr_bge: out.rvfi.pc_wdata <= $signed(reg_rs1) >= $signed(reg_rs2) ? fetcher_pc + immediate : fetcher_pc + pc_inc;
+            instr_bgeu: out.rvfi.pc_wdata <= reg_rs1 >= reg_rs2 ? fetcher_pc + immediate : fetcher_pc + pc_inc;
+          endcase // case (1'b1)
+         `endif
           out.rs1 <= 0;
           out.rs2 <= 0;
           out.rd <= 0;

@@ -11,8 +11,33 @@ typedef struct packed {
   logic [31:0] instr;
 } fetcher_output;
 
+// ADR-0006: RVFI via per-stage shadow payloads rather than a separate retire
+// tracker. This carries the fields decode alone knows (the instruction word,
+// the pc this instruction was fetched at and the pc it hands off to the next
+// one, and the register-file read side of rs1/rs2) down through the pipeline
+// unchanged, riding the same struct/valid-bit protocol as everything else --
+// so a bubble zeroes it for free and a stall holds it for free. Everything
+// mem-related is captured separately in rtl/accessor.v, where it's actually
+// known (see accessor_output below). `ifdef`'d out of synthesis so it costs
+// no LUTs (the constraint note on JEF-628): none of this exists unless
+// RISCV_FORMAL is defined.
+`ifdef RISCV_FORMAL
+typedef struct packed {
+  logic [31:0] insn;
+  logic [31:0] pc_rdata;
+  logic [31:0] pc_wdata;
+  logic [4:0]  rs1_addr;
+  logic [4:0]  rs2_addr;
+  logic [31:0] rs1_rdata;
+  logic [31:0] rs2_rdata;
+} rvfi_shadow;
+`endif
+
 typedef struct packed {
   logic        valid;
+ `ifdef RISCV_FORMAL
+  rvfi_shadow  rvfi;
+ `endif
   logic [4:0]  rd;
   logic [31:0] rs1;
   logic [31:0] rs2;
@@ -54,6 +79,9 @@ typedef struct packed {
 
 typedef struct packed {
   logic        valid;
+ `ifdef RISCV_FORMAL
+  rvfi_shadow  rvfi;
+ `endif
   logic [4:0]  rd;
   logic [31:0] rd_data;
   logic [31:0] mem_addr;
@@ -70,6 +98,18 @@ typedef struct packed {
 
 typedef struct packed {
   logic        valid;
+ `ifdef RISCV_FORMAL
+  rvfi_shadow  rvfi;
+  // Everything mem-related is captured here, not forwarded from
+  // executor_output: this is the stage that actually issues the bus
+  // request and (one cycle later, for loads) sees the response, so it is
+  // the only stage that knows the real rmask/wmask/wdata/rdata (JEF-628).
+  logic [31:0] rvfi_mem_addr;
+  logic [3:0]  rvfi_mem_rmask;
+  logic [3:0]  rvfi_mem_wmask;
+  logic [31:0] rvfi_mem_rdata;
+  logic [31:0] rvfi_mem_wdata;
+ `endif
   logic [4:0] rd;
   logic [31:0] rd_data;
 } accessor_output;

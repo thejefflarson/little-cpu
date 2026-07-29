@@ -152,5 +152,46 @@ module littlecpu(
     .wen(wen),
     .waddr(waddr),
     .wdata(wdata)
+   `ifdef RISCV_FORMAL
+    ,
+    .rvfi_valid(rvfi_valid),
+    .rvfi_order(rvfi_order),
+    .rvfi_insn(rvfi_insn),
+    .rvfi_rs1_addr(rvfi_rs1_addr),
+    .rvfi_rs2_addr(rvfi_rs2_addr),
+    .rvfi_rs1_rdata(rvfi_rs1_rdata),
+    .rvfi_rs2_rdata(rvfi_rs2_rdata),
+    .rvfi_rd_addr(rvfi_rd_addr),
+    .rvfi_rd_wdata(rvfi_rd_wdata),
+    .rvfi_pc_rdata(rvfi_pc_rdata),
+    .rvfi_pc_wdata(rvfi_pc_wdata),
+    .rvfi_mem_addr(rvfi_mem_addr),
+    .rvfi_mem_rmask(rvfi_mem_rmask),
+    .rvfi_mem_wmask(rvfi_mem_wmask),
+    .rvfi_mem_rdata(rvfi_mem_rdata),
+    .rvfi_mem_wdata(rvfi_mem_wdata)
+   `endif
   );
+
+ `ifdef RISCV_FORMAL
+  // No traps or CSRs exist yet (M3 — CLAUDE.md), so there is nothing
+  // per-instruction to drive these with; hardwired per the serialized
+  // core's convention (`git show 1709433^:rtl/riscv.v`) for a "sans CSRs"
+  // formal run. M-mode only, XLEN=32, no interrupts (CLAUDE.md: mie/mip are
+  // read-only zero) — mode/ixl/intr are likewise constants, not per-retire
+  // data.
+  assign rvfi_trap = 1'b0;
+  assign rvfi_halt = 1'b0;
+  assign rvfi_intr = 1'b0;
+  assign rvfi_mode = 2'd3;
+  assign rvfi_ixl = 2'd1;
+  assign rvfi_csr_mcycle_rmask = 64'b0;
+  assign rvfi_csr_mcycle_wmask = 64'b0;
+  assign rvfi_csr_mcycle_rdata = 64'b0;
+  assign rvfi_csr_mcycle_wdata = 64'b0;
+  assign rvfi_csr_minstret_rmask = 64'b0;
+  assign rvfi_csr_minstret_wmask = 64'b0;
+  assign rvfi_csr_minstret_rdata = 64'b0;
+  assign rvfi_csr_minstret_wdata = 64'b0;
+ `endif
 endmodule

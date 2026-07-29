@@ -12,3 +12,10 @@
 # (including test/asm/hazard.S, added by that same ticket) genuinely pass.
 # It stays here, empty, so the set-equality check below keeps working as the
 # plain all-pass gate ADR-0014 describes for this state.
+#
+# JEF-628 (RVFI driven, test/monitor.v live per-retire in both sim legs)
+# briefly put div.S/rem.S back here, then took them out again: the failure
+# was a defect in the generated monitor's own DIV/REM spec model, not in
+# this core, and ADR-0019 fixes it in the build-time sanitizer instead. The
+# file stays empty. See ADR-0019 before ever adding a line back for a
+# monitor-side problem.

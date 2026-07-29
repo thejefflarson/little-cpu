@@ -89,6 +89,13 @@ module executor(
           // a bubble here too, except when it's the one real cycle a divide
           // is issued (out.valid held low below until the divide completes).
           out.valid <= in.valid;
+         `ifdef RISCV_FORMAL
+          // Latched here, once, at issue -- same reasoning as op_is_div/
+          // op_sign_x below: this is the only cycle `in` is trustworthy for
+          // a divide, and out.rd/out.rd_data follow the same rule (set here,
+          // held unchanged for the whole divide, read back at completion).
+          out.rvfi <= in.rvfi;
+         `endif
           out.rd <= in.rd;
           out.rd_data <= 0;
           out.mem_addr <= in.mem_addr;

@@ -6,8 +6,9 @@
 //
 // Exit codes: 0 = pass, 1 = fail (test number printed), 2 = cycle-limit
 // timeout, 3 = usage/setup error (bad args, missing file, image too big for
-// the simulated memories) — not one of the three states above, so it is
-// kept out of that range.
+// the simulated memories), 4 = RVFI monitor error (a per-retire mismatch,
+// JEF-628 — distinct from 1 because tohost never got a say: the failure is
+// in the pipeline's own bookkeeping, not the test program's assertions).
 #include <cxxrtl/cxxrtl_vcd.h>
 #include "rtl.cc"
 
@@ -18,6 +19,7 @@
 #include <fstream>
 #include <map>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 
 namespace {
@@ -156,6 +158,26 @@ int main(int argc, char **argv) {
   uint32_t *ram_data = memory_item.curr;
   const uint32_t tohost_index = 0;
 
+  // ADR-0006/JEF-628: test/testbench.v instantiates the RVFI monitor
+  // (test/monitor.v, riding along under -D RISCV_FORMAL) alongside the DUT,
+  // so this leg is self-checking per-retire, not merely end-state-checking
+  // via tohost above. "monitor errcode" is the top-level error code the
+  // generated monitor module registers for exactly the one cycle a
+  // per-retire check fails (0 otherwise) -- its own $display diagnostics
+  // (rvfi_* vs spec_* dump) already reach stdout via cxxrtl's native
+  // $display support, so this only needs to turn a nonzero code into a
+  // distinct, non-ignorable exit status.
+  const cxxrtl::debug_item *monitor_errcode = nullptr;
+  try {
+    monitor_errcode = &all_debug_items.at("monitor errcode").at(0);
+  } catch (const std::out_of_range &) {
+    std::fprintf(stderr,
+                  "error: RVFI monitor ('monitor errcode') not found in the "
+                  "simulated design -- was test/rtl.cc built without "
+                  "-D RISCV_FORMAL?\n");
+    return 3;
+  }
+
   std::unique_ptr<cxxrtl::vcd_writer> vcd;
   std::ofstream vcd_out;
   if (!args.vcd_path.empty()) {
@@ -184,6 +206,12 @@ int main(int argc, char **argv) {
     top.p_clk.set<bool>(true);
     top.step();
     sample(cycle * 2 + 1);
+
+    uint32_t errcode = monitor_errcode->curr[0] & 0xffff;
+    if (errcode != 0) {
+      std::fprintf(stderr, "RVFI monitor error %u at cycle %ld\n", errcode, cycle);
+      return 4;
+    }
 
     uint32_t tohost = ram_data[tohost_index];
     if (tohost != 0) {
