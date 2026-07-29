@@ -19,7 +19,9 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0012](0012-divider-is-unsigned-signs-are-a-wrapper.md) | The divider is unsigned; sign handling is a wrapper around it | Accepted |
 | [0013](0013-the-riscv-formal-pin-is-an-enforced-control.md) | The riscv-formal pin is an enforced control, not a comment | Accepted |
 | [0014](0014-expected-fail-is-the-m1-regression-baseline.md) | `test/EXPECTED_FAIL` is the M1 regression baseline | Accepted |
+| [0015](0015-accessor-load-response-stall.md) | The accessor's load-response turnaround is the third stall source | Accepted |
 | [0016](0016-no-unreviewed-dependabot-automerge.md) | No unreviewed auto-merge for the actions dependabot updates | Accepted |
+| [0017](0017-component-proof-assumptions-must-name-their-model.md) | A component-proof `assume` must name the structural fact it models | Accepted |
 
 0001–0007 came from the design brief
 ([`docs/ideas/finish-the-rewrite.md`](../ideas/finish-the-rewrite.md)). 0008–0011 came out of
@@ -27,9 +29,10 @@ sprint planning, when the panel ran the toolchain and found the brief's assumpti
 resolving before work could start. 0012–0014 came out of integrating the first build sprint, when
 review of JEF-604/JEF-605 turned up decisions neither ticket had recorded and JEF-606 landed a test
 suite that fails in its entirety. 0010 supplements 0006; 0011 scopes 0005; 0012 supplements 0010;
-0013 implements 0006's pinning clause; 0014 supplements 0007 and 0008. 0016 came out of
-integrating the second build sprint, when the CI gate (JEF-608) turned out to arm a
-previously dormant auto-merge workflow; it constrains that gate.
+0013 implements 0006's pinning clause; 0014 supplements 0007 and 0008. 0015-0017 came out of
+integrating the second build sprint: 0015 extends 0009 with a stall source 0009 did not know
+existed, 0016 constrains the JEF-608 CI gate, and 0017 records what the newly-passing decoder
+component proof does and does not establish.
 
 ## Deferred decisions
 

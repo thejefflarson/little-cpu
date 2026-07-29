@@ -8,41 +8,51 @@ deliberately sacrificed for a design that reads well. Do not "improve" it by add
 
 ## Current state — read this before believing anything else
 
-**This is a half-finished rewrite, not a working core.** A serialized FSM core
-(`rtl/riscv.v` + `rtl/alu.v`) once passed riscv-formal sans CSRs; it was torn down in two waves
-(2021: `9758a39`→`1709433`; 2023: `49b317a`→`4fbd650`→`13fec44`) into today's staged design, and
-the rewrite stalled partway. The project went from *formally verified* to *unverified*, and getting
-back is the whole plan.
+**This is a half-finished rewrite. As of `a4662a2` it is a rewrite that computes correct
+results — but it is still unverified.** A serialized FSM core (`rtl/riscv.v` + `rtl/alu.v`) once
+passed riscv-formal sans CSRs; it was torn down in two waves (2021: `9758a39`→`1709433`; 2023:
+`49b317a`→`4fbd650`→`13fec44`) into today's staged design, and the rewrite stalled partway. The
+project went from *formally verified* to *unverified*, and getting back is the whole plan. **M1 is
+green; M2 has not started.** Do not read "47/47" as "the core is correct."
 
 The README is the project's voice and is deliberately left as-is. **Ground truth lives here.**
 
+**M1 is reached** (JEF-607, `a4662a2`). `rtl/regfile.v` is combinational-read with write-through
+bypass, every inter-stage struct carries a `valid` bit, and decode runs a stall-only hazard
+scoreboard (ADR-0004 / ADR-0009 / ADR-0015). `make test` is **47/47** and `test/EXPECTED_FAIL` is
+empty, so it is now a plain all-pass gate — ADR-0014's set-equality check still runs in both
+directions, so an unexpected *pass* is caught too. The same change fixed three datapath defects
+found on the way: AUIPC computed `reg_rs1 + reg_rs2` instead of `pc + immediate`, `mem_wdata` was
+registered a cycle behind `mem_addr`/`mem_wstrb`, and SLL/SRL/SRA did not mask the shift amount to
+`rs2[4:0]`.
+
 What does not work right now:
 
-- **The core computes wrong results.** `rtl/regfile.v` reads registers synchronously with no
-  compensating structure, so operands are one instruction stale — always. Confirmed still true
-  while landing JEF-606: `rtl/decoder.v` consumes `reg_rs1`/`reg_rs2` the same cycle it asserts a
-  *new* `rs1`/`rs2` request, one cycle before that request's answer is back, so every non-`x0`
-  operand — including the pass/fail write to `tohost` — is actually the regfile's answer to the
-  *previous* instruction's read. This is why all 46 `.S` tests currently time out, `simple.S`
-  included; see `test/EXPECTED_FAIL` and the JEF-606 PR for the trace.
-- **`make test` now exists** (JEF-606): `test/asm/riscv_test.h`, a two-region `sections.lds`
-  (ADR-0008), and a cxxrtl runner (`test/cxxrtl.cc`, ADR-0007) assemble and run every
-  `test/asm/*.S` and check the result against `test/EXPECTED_FAIL`, the sprint-1 baseline. Right
-  now that file lists all 46 tests — burn it down as the regfile bug above and others get fixed,
-  not in one shot.
-- **The iverilog leg now elaborates** (fixed in `eb18320`): the ~60 declaration-after-use bind
-  errors in `rtl/decoder.v` and `rtl/littlecpu.v` are gone. `make test-units` and the full
-  `testbench.vvp` pipeline build cleanly under iverilog (informational `sorry: constant selects
-  in always_* processes` notes aside — not elaboration failures).
+- **RVFI ports are declared and never driven** (`grep -rn "rvfi_" rtl/` finds no drivers), so no
+  riscv-formal check can pass. This is the M2 critical path.
+- **`test/monitor.v` is not in the cxxrtl leg at all.** The `test/rtl.cc` recipe does not read it;
+  only `testbench.vvp` (iverilog) does — and with RVFI undriven it cannot check anything there
+  either. So **`make test` is not per-retire self-checking today**: the 47/47 result rests entirely
+  on the `tohost` protocol and each `.S` test's own assertions. That is real coverage, but it is
+  weaker than a monitor-checked run, and it is the second reason M2 rather than M1 is the finish
+  line.
 - **`test/monitor.v` does not elaborate under yosys** — `$time` inside `$display` at line 90 hits
-  `ERROR: Don't know how to detect sign and width for AST_AUTOWIRE node`. The build needs a
-  sanitized derived copy; the tracked file stays pristine.
-- **RVFI ports are declared and never driven**, so no riscv-formal check can pass.
-- **`formal/checks.cfg` and `formal/wrapper.v` still reference the deleted core.**
-- `make riscv.json` references `rtl/handshake.v` / `rtl/skidbuffer.v`, deleted in `49b317a`.
+  `ERROR: Don't know how to detect sign and width for AST_AUTOWIRE node`. Getting it into the
+  cxxrtl leg needs a sanitized derived copy; the tracked file stays pristine.
+- **`formal/checks.cfg` and `formal/wrapper.v` still reference the deleted core** — `checks.cfg`'s
+  `[script-sources]` reads `rtl/riscv.v` and `rtl/alu.v`, and `wrapper.v` instantiates `riscv`.
+- **Three of the five component-proof tasks are vacuous.** `components_fetcher`,
+  `components_accessor`, and `components_writeback` contain no assertions at all, only reset
+  assumptions, so they "pass" meaninglessly. CI deliberately does not run them; ADR-0006 slates
+  them for deletion. A green run of one of those is not a result.
+- **`make waves` is `waves.vcd: sim`** — a cxxrtl target, not the iverilog+VCD flow the Commands
+  section below describes. Unverified either way.
 
-What does work: `yosys ... write_cxxrtl` elaborates the current RTL cleanly with zero warnings, and
-the cxxrtl binary builds and runs. That is the foundation everything else is built on.
+What does work: `yosys ... write_cxxrtl` elaborates the current RTL cleanly with zero warnings, the
+cxxrtl binary builds and runs, the full `.S` suite passes under it, `make test-units` passes, and
+the decoder and executor component proofs pass by k-induction (see ADR-0017 for what the decoder
+proof does and does not establish). CI (`.github/workflows/ci.yml`) runs elaborate / test /
+components / monitor-freshness on every PR.
 
 ## Invariants — do not break these
 
@@ -60,6 +70,14 @@ These are the design. Violating one is a bug even if tests pass.
 5. **CSR instructions and `mret` serialize** — held in decode until execute/access/writeback drain.
 6. **The regfile is combinational-read with write-through bypass.**
 7. **`test/monitor.v` is generated but tracked.** Regenerate it; never hand-edit it.
+8. **Stalls are a single global broadcast with three sources** — the decode scoreboard, the
+   divider, and the accessor's one-cycle load-response turnaround (ADR-0015). Two non-local rules
+   hold it together, and a later change can break either silently: (a) while `divider_stall` or
+   `accessor_stall` is asserted, decode **holds** `decoder_out` unchanged rather than bubbling it,
+   and nothing downstream may consume it that cycle; a RAW hazard does the opposite (bubble). (b)
+   Every in-flight non-`x0` `rd` is visible to the scoreboard on every cycle between issue and the
+   regfile write-through, with no gap: `decoder_out` → `executor_out` → `accessor_pending` (loads
+   only) → write-through.
 
 ## ISA target
 
@@ -101,8 +119,10 @@ no multilib or newlib is needed. Formal needs a pinned YosysHQ OSS CAD Suite.
 That arithmetic is covered only by the `.S` suite and the executor component proof. Do not assume a
 green formal ladder means the ALU is correct.
 
-`test/monitor.v` rides along in both sim legs, so every run is self-checking per-retire — a test
-that corrupts state transiently but converges to the right final registers still fails loudly.
+`test/monitor.v` is *meant* to ride along in both sim legs so every run is self-checking
+per-retire. **It does not yet** — the cxxrtl recipe never reads it, and RVFI is undriven, so the
+monitor is inert in both legs. Wiring it up is part of M2, and until then a green `make test` means
+"every test's own assertions passed", not "every retire matched the ISA".
 
 ## Engineering rules in force
 
@@ -120,18 +140,19 @@ that corrupts state transiently but converges to the right final registers still
 | | Milestone | Green means |
 |---|---|---|
 | M0 | Foundation | this file, riscv-formal SHA-pinned, dead references gone |
-| M1 | Finish the pipeline | all RV32IM `.S` tests pass under cxxrtl |
+| M1 | Finish the pipeline | all RV32IM `.S` tests pass under cxxrtl — **reached, `a4662a2`** |
 | M2 | **Parity checkpoint** | the pipelined core re-proves everything the serialized core proved |
 | M3 | Past the old core | CSRs + machine-mode traps |
-| M4 | Full ladder + CI | nightly formal green; tag a release |
+| M4 | Full ladder + CI | nightly formal green; tag a release (PR gate landed, `c66527d`) |
 
-M1 is the critical path. **M2 is the milestone that erases the verified→unverified regression** —
-treat it as the real finish line, not M1.
+M1 is reached. **M2 is the milestone that erases the verified→unverified regression** — treat it
+as the real finish line, not M1. Until RVFI is driven and the monitor is live, nothing in this repo
+independently checks that a retire matches the ISA.
 
 ## Pointers
 
 - Design brief: [`docs/ideas/finish-the-rewrite.md`](docs/ideas/finish-the-rewrite.md)
-- Decisions: [`docs/adr/`](docs/adr/) — fourteen accepted ADRs, plus a deferred list
+- Decisions: [`docs/adr/`](docs/adr/) — seventeen accepted ADRs, plus a deferred list
 - Reference text from the old core: `git show 1709433^:rtl/riscv.v` (RVFI retire block),
   `git show e67875c^:rtl/alu.v` (arithmetic)
 - Tracker: Linear, project **Little CPU** (team JEF)
