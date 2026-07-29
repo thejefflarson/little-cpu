@@ -114,9 +114,10 @@ jobs:
   # The ADR-0007/ADR-0008 cxxrtl regression gate: builds `sim`, runs
   # test-units (the iverilog RTL-level benches), then every test/asm/*.S
   # under `sim` and checks the pass/fail table against test/EXPECTED_FAIL
-  # (ADR-0014's M1 baseline). Exits 0 today -- 46/46 TIMEOUT matches the
-  # baseline exactly, an honest gate on a still-broken core -- and goes red
-  # the moment that match slips.
+  # (ADR-0014's M1 baseline). Since JEF-607 (a4662a2) that baseline is empty
+  # and the suite is 47/47 green, so this is now a plain all-pass gate --
+  # ADR-0014's set-equality check still runs in both directions, so a test
+  # that starts passing unexpectedly is caught alongside one that regresses.
   test:
     name: test
     runs-on: ubuntu-latest
@@ -158,12 +159,19 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   # ADR-0006 scopes component proofs to exactly two: decoder and executor.
-  # decoder FAILs by design (a pre-existing compressed-PC-increment
-  # assertion, `past_pc + 2 == pc`, unrelated to this ticket and tracked
-  # separately) so it cannot be a required gate. executor passes by
-  # k-induction under a 4-bit operand restriction (ADR-0010) and is the
-  # only one run here. components_executor is an existing formal/Makefile
-  # target; this job does not add one.
+  # Both are run here; both pass by k-induction. The executor proof is under
+  # a 4-bit operand restriction (ADR-0010). The decoder proof used to FAIL on
+  # the `past_pc + 4 == pc` assertion, which was a broken property rather
+  # than a decode hole -- `fetcher_pc` was a free input, so nothing tied the
+  # decoder's own pc output back to what it was fed. JEF-607 fixed the
+  # harness (see rtl/decoder.v's `assume(in.pc == pc)`, which models
+  # littlecpu.v's actual fetcher wiring) and it now passes; gating on it here
+  # is what keeps it from silently regressing.
+  #
+  # The other three tasks in formal/components.sby (fetcher, accessor,
+  # writeback) are deliberately NOT run: they contain no assertions at all,
+  # only reset assumptions, so they "pass" vacuously. ADR-0006 slates them
+  # for deletion; a green vacuous proof in CI would be worse than no proof.
   components:
     name: components
     runs-on: ubuntu-latest
@@ -183,6 +191,9 @@ jobs:
 
       - name: Executor arithmetic BMC
         run: make -C formal components_executor
+
+      - name: Decoder component proof
+        run: make -C formal components_decoder
 
       - name: Report job wall time
         if: always()

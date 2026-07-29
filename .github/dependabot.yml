@@ -1,11 +1,16 @@
-# Keeps the SHA-pinned `uses:` lines in .github/workflows/ current. This is
-# the piece dependabot-automerge.yml was missing (JEF-608) — without a
-# dependabot.yml, dependabot never opens a PR, so the auto-merge workflow
-# never fires.
+# Keeps the SHA-pinned `uses:` lines in .github/workflows/ current (JEF-608).
 #
 # github-actions is the only ecosystem in this repo today: there is no
 # package.json/Cargo.toml/etc. to track, just the pinned actions in
 # .github/workflows/.
+#
+# There is deliberately NO auto-merge workflow paired with this. The PRs
+# dependabot opens here rewrite the SHA pins of the actions that execute in
+# CI, which is the single highest-trust thing in the repo -- merging those
+# unreviewed would hand the CI runner to whoever controls the upstream tag.
+# See ADR-0016. Re-arming auto-merge is gated on branch protection actually
+# having required status checks configured, so that `--auto` has something to
+# wait for; until then these get a human's eyes.
 version: 2
 updates:
   - package-ecosystem: "github-actions"

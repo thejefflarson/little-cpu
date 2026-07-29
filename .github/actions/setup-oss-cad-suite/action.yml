@@ -24,7 +24,12 @@ runs:
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: oss-cad-suite
-        key: oss-cad-suite-linux-x64-${{ inputs.tag }}
+        # Keyed on the SHA-256, not the tag: the verification step below is
+        # skipped on a cache hit, so a tag-keyed entry would let a poisoned
+        # cache be restored without ever meeting the checksum. Content-
+        # addressing the key means a restored entry is one that was verified
+        # against this exact digest when it was written.
+        key: oss-cad-suite-linux-x64-${{ inputs.sha256 }}
 
     - name: Download OSS CAD Suite (cache miss)
       if: steps.cache.outputs.cache-hit != 'true'
