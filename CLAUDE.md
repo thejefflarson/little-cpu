@@ -51,13 +51,35 @@ monitor defect** — read ADR-0019 before adding a line back for one.
 
 What does not work right now:
 
-- **`formal/checks.cfg` and `formal/wrapper.v` still reference the deleted core** — `checks.cfg`'s
-  `[script-sources]` reads `rtl/riscv.v` and `rtl/alu.v`, and `wrapper.v` instantiates `riscv`.
-- **`formal/equiv.sh` does not run**, so ADR-0006's guarantee that RVFI instrumentation does not
-  perturb core behaviour is **argued, not proven** (ADR-0020). The argument is that every
+- **Every C.JR and C.JALR jump target is corrupted** (ADR-0021). `rtl/decoder.v:145` folds
+  `instr_cjr`/`instr_cjalr` into `instr_jalr`, and `rtl/decoder.v:114` routes `instr_jalr` through
+  `i_immediate = instr[31:20]`. For a 16-bit instruction those bits are whatever sits next in
+  memory — `rtl/fetcher.v` passes `imem_data` through unmasked — so the decoder adds a neighbouring
+  instruction word to `rs1` as a displacement. Not behind any `ifdef`; this is in the synthesized
+  core. Found by `insn_c_jr`/`insn_c_jalr` on the ladder's first run; invisible to the `.S` suite,
+  which assembles without C, and therefore to the monitor as well. The one-token fix
+  (`instr_jalr` → `instr_jalr_op` at line 114) is verified green against formal but wants
+  ADR-0003's fetch window landing alongside it so the sim legs can test it too.
+- **The ALTOPS divide branch reads stale operands.** `rtl/executor.v:221-224` reads `in.rs1`/
+  `in.rs2` in the `divide` state, one cycle after issue, when decode has already bubbled
+  `decoder_out` (ADR-0009). Scoped to `` `ifdef RISCV_FORMAL_ALTOPS ``, so the synthesized divider
+  is fine and `components_executor` still passes — but it means `insn_div`/`divu`/`rem`/`remu` fail,
+  and the divider's operand routing has **no** formal coverage in any form (ADR-0010 already says
+  the arithmetic has none). The non-ALTOPS branch six lines above gets this right and explains why.
+- **`formal/equiv.sh` runs but does not converge** — `equiv_induct` fails on `executor.mul_div_y`
+  bits, exactly the outcome ADR-0020 predicted. So ADR-0006's guarantee that RVFI instrumentation
+  does not perturb core behaviour is still **argued, not proven**. The argument is that every
   `ifdef RISCV_FORMAL` block is write-only with respect to the core. Any future RVFI change must be
   read against that: an `ifdef`'d value reaching a non-`ifdef`'d signal breaks it, and CI would not
   notice.
+- **`reg` is inconclusive** (ADR-0023) — a single depth-21 BMC query that does not return in a
+  practical budget. It is the check that ties RVFI's self-report to the actual register file, so
+  without it the other 55 passing checks establish that the core's story about itself is
+  spec-consistent, not that the story is true.
+- **The formal nightly cannot go red** (ADR-0022). `.github/workflows/formal-nightly.yml:48` is
+  `make -C formal check || true`, and `formal/Makefile`'s `check` has no `-k`, so the sub-make also
+  stops scheduling at the first failure. Today's nightly runs a partial ladder and reports it as
+  success. It needs `-k` and a `formal/EXPECTED_FAIL` baseline before its green means anything.
 - **Three of the five component-proof tasks are vacuous.** `components_fetcher`,
   `components_accessor`, and `components_writeback` contain no assertions at all, only reset
   assumptions, so they "pass" meaninglessly. CI deliberately does not run them; ADR-0006 slates
@@ -71,6 +93,17 @@ ADR-0017 for what the decoder proof does and does not establish). `make waves` n
 iverilog leg (`testbench.vvp`) instead of the cxxrtl runner, matching the verification table below,
 and produces a real `waves.vcd`. CI (`.github/workflows/ci.yml`) runs elaborate / test / components
 / monitor-freshness on every PR.
+
+**`86e2721` ports the riscv-formal ladder to `littlecpu`** — the first time any riscv-formal
+check has run against the pipelined core since the 2021 teardown. `formal/wrapper.v` speaks the
+real bus (no handshake: `imem_data`/`mem_rdata` are free every cycle, per invariant 1 and
+ADR-0015). Of 78 generated checks: **55 of 70 `insn_*` pass**; `pc_fwd`, `pc_bwd`, `liveness`,
+`unique`, `causal`, `imemcheck` and `dmemcheck` pass; `cover` reaches all five goals, including
+≥2 loads and ≥2 stores and ≥2 uncompressed and ≥2 compressed retires in one trace — which is what
+rules out a vacuous harness. **Read ADR-0023 before quoting any of these numbers.** Every one of
+the 15 failures is accounted for (9 = the M3 trap gap, 2 = the C.JR defect below, 4 = the ALTOPS
+divide defect below), `reg` is inconclusive, and everything ran under `RISCV_FORMAL_ALTOPS`, so
+a green `insn_mul` says nothing whatever about multiplication (ADR-0010). **M2 is not reached.**
 
 ## Invariants — do not break these
 
@@ -118,7 +151,7 @@ make waves          # iverilog + VCD (testbench.vvp's baked-in program) -> waves
 make monitor-check  # regenerate test/monitor.v at the pin and diff
 
 make -C formal components_decoder   # component proofs
-make -C formal check                # the riscv-formal ladder (needs the M2 port)
+make -C formal check                # the riscv-formal ladder (78 checks; see ADR-0023)
 ```
 
 Toolchain: macOS `brew install riscv64-elf-gcc`; Linux `apt install gcc-riscv64-unknown-elf`.
@@ -169,18 +202,20 @@ the oracle (ADR-0019).
 | M1 | Finish the pipeline | all RV32IM `.S` tests pass under cxxrtl — **reached, `a4662a2`** |
 | M2 | **Parity checkpoint** | the pipelined core re-proves everything the serialized core proved |
 | M3 | Past the old core | CSRs + machine-mode traps |
-| M4 | Full ladder + CI | nightly formal green; tag a release (PR gate landed, `c66527d`) |
+| M4 | Full ladder + CI | nightly formal green; tag a release (PR gate `c66527d`; nightly `86e2721`, report-only until ADR-0022) |
 
 M1 is reached. **M2 is the milestone that erases the verified→unverified regression** — treat it
 as the real finish line, not M1. `b2dafcc` cleared M2's blocker (RVFI is driven, the monitor is live
-in both sim legs — see Current State above), but M2 itself is not reached: the riscv-formal ladder
-port (`wrapper.v` / `checks.cfg` / `imemcheck` / `dmemcheck` / `cover` / `equiv.sh`, ADR-0006) is
-separate, outstanding work.
+in both sim legs) and `86e2721` landed the ladder port itself (`wrapper.v` / `checks.cfg` /
+`imemcheck` / `dmemcheck` / `cover` / `equiv.sh`, ADR-0006) — but **M2 is not reached.** M2's own
+wording is "re-proves everything the serialized core proved", and 15 red checks plus an inconclusive
+`reg` plus a non-converging `equiv.sh` is not that. ADR-0023 lists what closing it takes; the
+`formal/EXPECTED_FAIL` baseline of ADR-0022 reaching empty is the signal.
 
 ## Pointers
 
 - Design brief: [`docs/ideas/finish-the-rewrite.md`](docs/ideas/finish-the-rewrite.md)
-- Decisions: [`docs/adr/`](docs/adr/) — twenty accepted ADRs, plus a deferred list
+- Decisions: [`docs/adr/`](docs/adr/) — twenty-three accepted ADRs, plus a deferred list
 - Reference text from the old core: `git show 1709433^:rtl/riscv.v` (RVFI retire block),
   `git show e67875c^:rtl/alu.v` (arithmetic)
 - Work is tracked in Linear, project **Little CPU** (team JEF). Named here so you know where the
