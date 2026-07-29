@@ -151,12 +151,13 @@ the oracle (ADR-0019).
   `formal/` output dirs are all generated. (`test/monitor.v` is the one deliberate exception.)
 - **riscv-formal is SHA-pinned.** Bumping the pin requires regenerating `test/monitor.v` and
   rerunning the ladder.
-- **The repository is self-contained. Never cite an issue tracker in code, comments, commit
-  messages, ADRs, or docs.** A ticket ID is meaningless to anyone reading this repo without
-  access to that tracker, and it rots the moment the tracker does. Cite the thing that lives
-  here instead: the **ADR** that decided it, the **commit SHA** that landed it, or — best — just
-  say what the reason *is*. "Held for one cycle because the memory registers `mem_rdata`
-  (ADR-0015)" beats "per JEF-615" and always will.
+- **Never cite a ticket ID in code, comments, commit messages, ADRs, or docs.** A bare ticket
+  number is meaningless to anyone reading this repo without access to the tracker, and it rots
+  the moment the tracker does. Cite the thing that lives here instead: the **ADR** that decided
+  it, the **commit SHA** that landed it, or — best — just say what the reason *is*. "Held for one
+  cycle because the memory registers `mem_rdata` (ADR-0015)" beats a ticket number and always
+  will. (Naming the tracker itself, once, under Pointers is fine — that tells a reader where
+  work is queued. It is the scattered IDs that rot.)
 - Prefer verified/first-party GitHub Actions. Simplest approach unless asked otherwise.
 
 ## Milestone ladder
@@ -181,6 +182,8 @@ separate, outstanding work.
 - Decisions: [`docs/adr/`](docs/adr/) — twenty accepted ADRs, plus a deferred list
 - Reference text from the old core: `git show 1709433^:rtl/riscv.v` (RVFI retire block),
   `git show e67875c^:rtl/alu.v` (arithmetic)
+- Work is tracked in Linear, project **Little CPU** (team JEF). Named here so you know where the
+  queue is — but nothing in this repo should depend on it, and no ticket ID belongs in the code.
 
 **Deferred behind future ADRs** — forwarding network, radix-4 divider, negedge-BRAM regfile, FPGA
 timing closure, interrupts, Spike co-sim. Each trades away simplicity the current design depends
