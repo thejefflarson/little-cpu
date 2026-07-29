@@ -58,13 +58,36 @@ Precondition 2 is rejected on three grounds:
   against the threat it was aimed at.
 - **It adds trusted surface to answer a supply-chain finding.** `dependabot/fetch-metadata` is
   another third-party action running with the workflow's token.
+- **It optimises against the wrong risk.** See "Staying current is the security posture" below.
 
-The residual risk is accepted and named: **a compromised patch release of a pinned action, whose
-diff passes all four CI jobs, merges to `main` without a human reading it.** The mitigations are
-that CI must pass, that `github-actions` is the only ecosystem (a handful of pins, all first-party
-except `soundcheck-action`), that every `uses:` is 40-char SHA-pinned so a retag cannot silently
-change what runs, and that `main` is protected against force-push so history is auditable after the
-fact.
+### Staying current is the security posture
+
+The obvious worry — *a compromised release merges without a human reading it* — is real but is the
+**smaller** of the two risks on the table, and optimising against it makes the larger one worse.
+
+Pinning old is not safe by default. A repo that merges dependency updates slowly accumulates
+unpatched bugs and CVEs in the exact code that runs its CI, and that exposure is **certain and
+cumulative**, where a malicious release is speculative. The `actions/checkout` 6→7 bump is the
+concrete case: v7.0.0 blocks checking out fork PRs under `pull_request_target`/`workflow_run`, and
+v7.0.1 escapes values passed to `--unset` — three hardening fixes that a conservative merge policy
+would have deferred indefinitely. **Newer software with bugfixes beats older software.**
+
+Dependabot's own timing does the work the semver filter was reaching for. GitHub applies a
+**default 3-day cooldown to version updates**, so a release is not even proposed until it has been
+public — and exposed to the rest of the ecosystem — for three days. That is the window in which
+malicious or broken releases are typically yanked, and it costs nothing. `.github/dependabot.yml`
+sets `cooldown: default-days: 3` explicitly rather than relying on the implicit default, so the
+intent survives a change in GitHub's defaults. (Note `github-actions` supports `default-days` but
+not the per-semver-bump variants, so a single value is all this ecosystem can express.)
+
+Cooldown deliberately does **not** apply to security updates — those should land fast, and that
+asymmetry is correct.
+
+Stacked with the rest, the posture is: a release must survive three days of public exposure, then
+pass four CI jobs proving the design elaborates, 47/47 tests pass, the executor BMC holds, and the
+generated monitor is fresh. Every `uses:` is 40-char SHA-pinned, so a retag cannot silently change
+what runs; `main` is force-push protected, so history stays auditable. That is a stronger position
+than merging late by hand.
 
 ## Consequences
 
@@ -75,8 +98,12 @@ fact.
   what that state looks like.
 - `enforce_admins: true` means the maintainer also cannot merge past a red gate — deliberate, since
   a gate the owner routes around is not a gate.
-- If the residual risk above ever stops being acceptable, the cheapest response is to re-delete this
-  file (ADR-0016's posture), not to add the semver filter.
+- **The CI gate is now load-bearing in a way it was not before.** Every dependency update reaching
+  `main` is vouched for by those four jobs and nothing else. Weakening them — dropping a required
+  check, or letting one go red-and-ignored — silently weakens dependency review too.
+- If this posture ever needs reversing, the cheapest response is to re-delete the workflow
+  (ADR-0016's position), not to add a semver filter that would block the hardening releases this
+  ADR exists to let through.
 
 ## Alternatives considered
 
