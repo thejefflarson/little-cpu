@@ -8,6 +8,15 @@ name: Formal Nightly
 # depth-50 whole-ISA `complete` walk, and equiv.sh (ADR-0020). None of this
 # gates merges: there is no required-status-check entry for this workflow,
 # unlike ci.yml's elaborate/test/components/monitor-freshness.
+#
+# ADR-0022: the ladder step reports against the explicit baseline in
+# formal/EXPECTED_FAIL (set equality in both directions, formal/
+# check-baseline.sh, same contract as test/EXPECTED_FAIL / ADR-0014) rather
+# than a blanket `|| true`. That comparison step's exit status is the job's
+# real signal; `complete` and `equiv.sh` are documented expected-to-fail
+# (ADR-0020, ADR-0023) and are `continue-on-error` so they report honestly
+# without drowning that signal in a job that is red every single night for
+# reasons nobody has to read the summary to already know.
 on:
   schedule:
     - cron: "0 9 * * *"
@@ -40,39 +49,44 @@ jobs:
           sha256: ${{ env.OSS_CAD_SUITE_SHA256 }}
 
       # genchecks-local.py's insn_*/reg/pc_fwd/pc_bwd/liveness/unique/
-      # causal/csrw sweep (formal/checks.cfg). csrw_mcycle/csrw_minstret are
-      # expected to fail here -- CSRs aren't implemented until M3
-      # (CLAUDE.md) -- so this step is allowed to report failures without
-      # failing the job; the summary below is what actually needs reading.
+      # causal/csrw sweep (formal/checks.cfg), now with `-k` (formal/
+      # Makefile) so the whole 78-check ladder actually runs instead of
+      # stopping at the first failure (ADR-0022). `continue-on-error`, not
+      # `|| true`: the step's real per-check outcome (and this run's own
+      # nonzero `make` exit, since formal/EXPECTED_FAIL is non-empty until
+      # M2/M3 land) stays visible in the job UI instead of being laundered
+      # into an unconditional success; the "Compare" step below is the
+      # step whose exit status is the job's actual signal.
       - name: riscv-formal ladder (make -C formal check)
-        run: make -C formal check || true
+        continue-on-error: true
+        run: make -C formal check
 
-      - name: imemcheck / dmemcheck / cover
+      # The real signal: set-equality against formal/EXPECTED_FAIL, in both
+      # directions, so an unexpected *pass* (e.g. the C.JR fix landing) trips
+      # this as loudly as a new failure (ADR-0022, ADR-0014's contract).
+      # Not `continue-on-error` -- this exit status is the job's.
+      - name: Compare ladder results against formal/EXPECTED_FAIL
         run: |
-          make -C formal imemcheck
-          make -C formal dmemcheck
-          make -C formal cover
-
-      # depth-50 whole-ISA BMC walk (ADR-0006's "finish complete.sv" item).
-      # Not part of the PR-gate acceptance criteria; run here because it is
-      # exactly the nightly-scale check this workflow exists for.
-      - name: complete (whole-ISA BMC)
-        run: make -C formal complete
-
-      # ADR-0020: equiv_induct across a pipelined core with a 32-cycle
-      # sequential divider is a hard problem and may not converge -- that is
-      # a finding to record (this step going red), not something to retry
-      # or weaken. Bounded so a non-convergent run doesn't consume the whole
-      # job budget.
-      - name: equiv.sh (ADR-0020)
-        working-directory: formal
-        run: timeout 3600 ./equiv.sh
+          {
+            echo "### formal ladder vs formal/EXPECTED_FAIL"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          # `-e`/`pipefail` are both on by default for GH Actions bash steps,
+          # so a failing pipeline would otherwise abort the script here and
+          # skip the closing code-fence line below; toggle them off just for
+          # this one command and capture its real exit status via pipefail.
+          set +e
+          formal/check-baseline.sh formal/checks formal/EXPECTED_FAIL | tee -a "$GITHUB_STEP_SUMMARY"
+          status=$?
+          set -e
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
 
       - name: Summarize checks
         if: always()
         run: |
           {
-            echo "### formal ladder"
+            echo "### formal ladder (raw)"
             echo '```'
             for d in formal/checks/*/; do
               name=$(basename "$d")
@@ -80,6 +94,47 @@ jobs:
               echo "$name: $status"
             done
             echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: imemcheck / dmemcheck / cover
+        if: always()
+        run: |
+          make -C formal imemcheck
+          make -C formal dmemcheck
+          make -C formal cover
+
+      # depth-50 whole-ISA BMC walk (ADR-0006's "finish complete.sv" item).
+      # Not part of the PR-gate acceptance criteria; run here because it is
+      # exactly the nightly-scale check this workflow exists for. Not on the
+      # formal/EXPECTED_FAIL ladder (that baseline is the genchecks-local.py
+      # sweep only) -- `continue-on-error` per ADR-0022's "clearly-separated
+      # reporting section" so it reports its real status without dragging the
+      # whole job to permanent red every night for a reason already on file.
+      - name: complete (whole-ISA BMC)
+        if: always()
+        continue-on-error: true
+        id: complete
+        run: make -C formal complete
+
+      # ADR-0020: equiv_induct across a pipelined core with a 32-cycle
+      # sequential divider is a hard problem and may not converge -- that is
+      # a finding to record (this step going red), not something to retry
+      # or weaken. Bounded so a non-convergent run doesn't consume the whole
+      # job budget. Same `continue-on-error` reasoning as `complete` above.
+      - name: equiv.sh (ADR-0020)
+        if: always()
+        continue-on-error: true
+        id: equivsh
+        working-directory: formal
+        run: timeout 3600 ./equiv.sh
+
+      - name: Summarize complete / equiv.sh
+        if: always()
+        run: |
+          {
+            echo "### complete / equiv.sh (ADR-0020, ADR-0023 -- expected-to-fail, non-gating)"
+            echo "complete: ${{ steps.complete.outcome }}"
+            echo "equiv.sh: ${{ steps.equivsh.outcome }}"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Report job wall time

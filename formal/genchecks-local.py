@@ -363,7 +363,7 @@ for grp in groups:
 
 # ------------------------------ Consistency Checkers ------------------------------
 
-def check_cons(grp, check, chanidx=None, start=None, trig=None, depth=None, csr_mode=False):
+def check_cons(grp, check, chanidx=None, start=None, trig=None, depth=None, timeout=None, csr_mode=False):
     pf = "" if grp is None else grp+"_"
     if csr_mode:
         csr_name = check
@@ -402,6 +402,14 @@ def check_cons(grp, check, chanidx=None, start=None, trig=None, depth=None, csr_
     if depth is not None:
         depth = depth_cfg[depth]
 
+    # An optional fourth [depth] column, wired only to callers that pass
+    # `timeout=`. Bounds a check's wall time (seconds) so a non-converging
+    # BMC query is *reported* (status TIMEOUT) instead of eating the whole
+    # job budget — see checks.cfg's [depth] comment for why `reg` is the one
+    # caller today (ADR-0022, ADR-0023).
+    if timeout is not None:
+        timeout = depth_cfg[timeout]
+
     hargs["start"] = start
     hargs["depth"] = depth
     hargs["depth_plus"] = depth + 1
@@ -423,6 +431,12 @@ def check_cons(grp, check, chanidx=None, start=None, trig=None, depth=None, csr_
                 : append @append@
                 : depth @depth_plus@
                 : skip @skip@
+        """, **hargs)
+
+        if timeout is not None:
+            print("timeout %d" % timeout, file=sby_file)
+
+        print_hfmt(sby_file, """
                 :
                 : [engines]
                 : @engine@
@@ -543,7 +557,7 @@ def check_cons(grp, check, chanidx=None, start=None, trig=None, depth=None, csr_
 
 for grp in groups:
     for i in range(nret):
-        check_cons(grp, "reg", chanidx=i, start=0, depth=1)
+        check_cons(grp, "reg", chanidx=i, start=0, depth=1, timeout=2)
         check_cons(grp, "pc_fwd", chanidx=i, start=0, depth=1)
         check_cons(grp, "pc_bwd", chanidx=i, start=0, depth=1)
         check_cons(grp, "liveness", chanidx=i, start=0, trig=1, depth=2)
