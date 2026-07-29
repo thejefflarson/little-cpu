@@ -4,16 +4,31 @@
 # package.json/Cargo.toml/etc. to track, just the pinned actions in
 # .github/workflows/.
 #
-# There is deliberately NO auto-merge workflow paired with this. The PRs
-# dependabot opens here rewrite the SHA pins of the actions that execute in
-# CI, which is the single highest-trust thing in the repo -- merging those
-# unreviewed would hand the CI runner to whoever controls the upstream tag.
-# See ADR-0016. Re-arming auto-merge is gated on branch protection actually
-# having required status checks configured, so that `--auto` has something to
-# wait for; until then these get a human's eyes.
+# These PRs auto-merge once CI is green -- see .github/workflows/
+# dependabot-automerge.yml and ADR-0018. That is safe because `main` carries
+# required status checks (elaborate, test, components, monitor-freshness), so
+# `gh pr merge --auto` has a real gate to wait for. ADR-0016 records why the
+# same setup was unsafe before those checks existed.
+#
+# The posture is deliberately "stay current" rather than "merge late by hand":
+# unpatched bugs in the code that runs our CI are a certain, cumulative cost,
+# where a malicious release is speculative. The cooldown below is what buys
+# back the difference.
 version: 2
 updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    # A release must be public for 3 days before dependabot will propose it --
+    # the window in which malicious or broken releases usually get yanked.
+    # GitHub applies this as a default for version updates even when it is not
+    # configured; stating it explicitly means the intent survives a change in
+    # that default. Security updates deliberately bypass cooldown, which is the
+    # right asymmetry -- those should land fast.
+    #
+    # github-actions supports `default-days` only; the per-semver-bump variants
+    # (semver-major-days etc.) are not available for this ecosystem, so a single
+    # value is all that can be expressed here.
+    cooldown:
+      default-days: 3
