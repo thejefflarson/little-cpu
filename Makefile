@@ -20,12 +20,19 @@ rvfi_macros.vh: $(RISCV_FORMAL_DIR)/checks/rvfi_macros.py
 testbench.vvp: rtl/structs.v rtl/accessor.v rtl/decoder.v rtl/executor.v rtl/fetcher.v rtl/regfile.v rtl/writeback.v rtl/littlecpu.v rvfi_macros.vh test/testbench.v test/monitor.sim.v
 	iverilog -I./rtl/ -DICARUS $(addprefix -D,$(RISCV_FORMAL_MACROS)) -g2012 -o $@ $^
 
-# `./sim` now requires --rom/--ram/--cycles (ADR-0007/ADR-0008's runner, not
-# the old no-args VCD demo) — `make waves` is unmaintained here; use
-# `./sim --rom ... --ram ... --cycles N --vcd waves.vcd` directly, or the
-# iverilog leg (test/testbench.v) for waveform debugging.
-waves.vcd: sim
-	./sim
+# ADR-0007: iverilog is the waveform leg, not cxxrtl (`./sim` now requires
+# --rom/--ram/--cycles and was never a VCD demo — see the `sim:` rule
+# above). testbench.vvp already `$dumpfile`s/`$dumpvars`s under `ifdef
+# ICARUS` (test/testbench.v) and already carries test/monitor.sim.v, so this
+# waveform is also a self-checking per-retire run, not just a raw trace. It
+# runs the fixed increment-loop program baked into test/testbench.v's
+# `initial rom[...]` block for 200 cycles -- there's no --rom flag on this
+# leg, unlike ./sim's.
+.PHONY: waves
+waves: waves.vcd
+waves.vcd: testbench.vvp
+	vvp $<
+	mv testbench.vcd $@
 
 # -O2 -DNDEBUG: the sim binary is the primary runner (ADR-0007) and needs to
 # run 46 tests well under a minute; -g -O0 (the old flags) is 5-10x slower
@@ -107,14 +114,17 @@ else
 	@echo "  sudo apt-get install gcc-riscv64-unknown-elf"
 endif
 
-# Three small benches that landed in `eb18320` with no runner (rtl/executor.v,
-# rtl/memory.v, rtl/decoder.v respectively). Compiled and run straight
-# through iverilog/vvp; each bench $fatal(1)s on a mismatch and $finish
-# (exit 0) on success, so vvp's own exit code is the pass/fail signal — no
-# output-parsing needed. A separate target from `test` (that one is the
-# ADR-0007 cxxrtl regression gate over test/asm/*.S; these are RTL-level unit
-# benches with their own, unrelated pass/fail mechanism) but `test` depends
-# on it so one `make test` still catches everything.
+# Four small benches that landed in `eb18320` and `a4662a2` with no runner
+# (rtl/executor.v, rtl/memory.v, rtl/decoder.v, rtl/regfile.v respectively —
+# regfile_tb.v covers the write-through bypass and x0 semantics, the single
+# most load-bearing change in the project, and was verified by hand via
+# iverilog+vvp before this rule existed to run it in CI). Compiled and run
+# straight through iverilog/vvp; each bench $fatal(1)s on a mismatch and
+# $finish (exit 0) on success, so vvp's own exit code is the pass/fail
+# signal — no output-parsing needed. A separate target from `test` (that one
+# is the ADR-0007 cxxrtl regression gate over test/asm/*.S; these are
+# RTL-level unit benches with their own, unrelated pass/fail mechanism) but
+# `test` depends on it so one `make test` still catches everything.
 .PHONY: test-units
 test-units:
 	@tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/test-units.XXXXXX"); \
@@ -128,7 +138,10 @@ test-units:
 	vvp $$tmp/mem_tb.vvp; \
 	echo "== decoder_tb =="; \
 	iverilog -I./rtl/ -g2012 -o $$tmp/decoder_tb.vvp rtl/structs.v rtl/decoder.v test/decoder_tb.v; \
-	vvp $$tmp/decoder_tb.vvp
+	vvp $$tmp/decoder_tb.vvp; \
+	echo "== regfile_tb =="; \
+	iverilog -I./rtl/ -g2012 -o $$tmp/regfile_tb.vvp rtl/regfile.v test/regfile_tb.v; \
+	vvp $$tmp/regfile_tb.vvp
 
 # Assembles every test/asm/*.S (rv32im_zicsr, -nostdlib, ADR-0008's memory
 # map), runs each under `sim`, and checks the pass/fail table against

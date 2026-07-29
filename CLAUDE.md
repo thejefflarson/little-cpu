@@ -62,14 +62,15 @@ What does not work right now:
   `components_accessor`, and `components_writeback` contain no assertions at all, only reset
   assumptions, so they "pass" meaninglessly. CI deliberately does not run them; ADR-0006 slates
   them for deletion. A green run of one of those is not a result.
-- **`make waves` is `waves.vcd: sim`** — a cxxrtl target, not the iverilog+VCD flow the Commands
-  section below describes. Unverified either way.
 
 What does work: `yosys ... write_cxxrtl` elaborates the current RTL cleanly with zero warnings, the
-cxxrtl binary builds and runs, the full `.S` suite passes under it, `make test-units` passes, and
-the decoder and executor component proofs pass by k-induction (see ADR-0017 for what the decoder
-proof does and does not establish). CI (`.github/workflows/ci.yml`) runs elaborate / test /
-components / monitor-freshness on every PR.
+cxxrtl binary builds and runs, the full `.S` suite passes under it, `make test-units` passes (four
+benches: `exec_tb`, `mem_tb`, `decoder_tb`, and `regfile_tb` — the last covers the write-through
+bypass and x0 semantics), and the decoder and executor component proofs pass by k-induction (see
+ADR-0017 for what the decoder proof does and does not establish). `make waves` now runs the
+iverilog leg (`testbench.vvp`) instead of the cxxrtl runner, matching the verification table below,
+and produces a real `waves.vcd`. CI (`.github/workflows/ci.yml`) runs elaborate / test / components
+/ monitor-freshness on every PR.
 
 ## Invariants — do not break these
 
@@ -113,7 +114,7 @@ preference. See ADR-0002 and ADR-0003.
 ```sh
 make setup          # install the RISC-V toolchain (brew on macOS)
 make test           # assemble test/asm/*.S, run under cxxrtl, pass/fail table
-make waves          # iverilog + VCD for one program (currently broken — see above)
+make waves          # iverilog + VCD (testbench.vvp's baked-in program) -> waves.vcd
 make monitor-check  # regenerate test/monitor.v at the pin and diff
 
 make -C formal components_decoder   # component proofs
