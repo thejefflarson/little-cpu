@@ -18,8 +18,16 @@
 # checks, `-k`, ADR-0022) against main at `03c8d3e`: 55 pass, 15 insn_* fail,
 # reg_ch0 does not converge inside its new 1800s timeout (this file's own
 # check-baseline.sh script counted the status files -- see the PR for the
-# pasted count and tally). Two named upcoming changes are in flight and
-# expected to shrink this file the moment they land -- see below.
+# pasted count and tally).
+#
+# Then reconciled against `f942cb0`, which fixed the C.JR/C.JALR immediate
+# and the ALTOPS divide operands. Six entries were removed: insn_c_jr,
+# insn_c_jalr, insn_div, insn_divu, insn_rem, insn_remu -- each verified
+# FAIL -> PASS directly before removal, with insn_jalr and insn_lb run as
+# regression guards. The ladder is 61/70 insn_* passing as of that commit.
+# The six were removed by arithmetic on verified facts rather than by a
+# second full 78-check sweep; if that arithmetic is wrong, the first
+# nightly trips on set equality, which is exactly what this file is for.
 
 # CSRs are M3 (CLAUDE.md); mcycle/minstret aren't implemented yet.
 csrw_mcycle_ch0
@@ -45,8 +53,6 @@ insn_c_swsp_ch0
 # parallel change; when it lands these two go green and this baseline must
 # shrink in the same commit, which is the set-equality check working as
 # designed, not a surprise.
-insn_c_jr_ch0
-insn_c_jalr_ch0
 
 # The ALTOPS divide operand-latching defect (ADR-0023): rtl/executor.v's
 # `ifdef RISCV_FORMAL_ALTOPS` divide branch reads `in.rs1`/`in.rs2` a cycle
@@ -54,10 +60,6 @@ insn_c_jalr_ch0
 # RISCV_FORMAL_ALTOPS, so the synthesized divider is unaffected -- ADR-0010
 # already says the real arithmetic has no formal coverage in any form. A fix
 # is in flight in a parallel change; same expectation as the C.JR pair above.
-insn_div_ch0
-insn_divu_ch0
-insn_rem_ch0
-insn_remu_ch0
 
 # reg_ch0 is the check that ties RVFI's self-report back to the actual
 # register file (ADR-0023) -- without it, the 55+ passing insn_* checks
