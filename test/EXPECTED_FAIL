@@ -12,3 +12,31 @@
 # (including test/asm/hazard.S, added by that same ticket) genuinely pass.
 # It stays here, empty, so the set-equality check below keeps working as the
 # plain all-pass gate ADR-0014 describes for this state.
+#
+# JEF-628 (RVFI driven, test/monitor.v compiled into the cxxrtl leg for
+# real, per-retire checking) reintroduces two: div.S and rem.S now fail
+# under the monitor, but NOT because of anything wrong in this core's
+# division/remainder arithmetic (test/exec_tb.v's >=10,000-vector
+# differential bench and the executor's arithmetic BMC both still pass;
+# div.S/rem.S's own tohost-based assertions still pass on their own merits
+# too). It is a genuine, pre-existing defect in test/monitor.v itself
+# (tracked, generated, never hand-edited per CLAUDE.md invariant 7):
+# monitor_insn_div/monitor_insn_rem compute their spec_rd_wdata as
+#   rvfi_rs2_rdata == 32'b0 ? {32{1'b1}} :
+#   <overflow special case, also an unsized unsigned literal> :
+#   $signed(rvfi_rs1_rdata) / $signed(rvfi_rs2_rdata);
+# Per IEEE 1800 ternary sign-context rules, mixing an unsigned literal
+# branch ({32{1'b1}}) with a $signed(...)/$signed(...) branch makes the
+# *whole* ternary evaluate unsigned, silently downgrading the division
+# itself to unsigned — confirmed by isolated reproduction under both
+# iverilog and yosys/write_cxxrtl (both compile it to an unsigned div/mod
+# cell), so this is not a quirk of either simulator, and DIVU/REMU (whose
+# spec has no $signed() at all) are unaffected. It only shows up for
+# negative operands, which is exactly what div.S/rem.S exercise. Not
+# fixable from this repo's side without hand-editing test/monitor.v, which
+# CLAUDE.md forbids; regenerating from a different riscv-formal pin might
+# or might not carry a fix and is out of this ticket's scope (ADR-0013 pin
+# bumps are their own deliberate action). Flagged for the architect as
+# DECISION NEEDED in the JEF-628 PR.
+div.S
+rem.S

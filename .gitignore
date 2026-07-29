@@ -12,6 +12,7 @@ formal/imemcheck
 formal/components_*
 formal/components
 test/rtl.cc
+test/monitor.sim.v
 *.vvp
 *.vcd
 disasm.s

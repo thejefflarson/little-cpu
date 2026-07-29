@@ -45,6 +45,12 @@ module testbench(
   logic [3:0]  rvfi_mem_wmask;
   logic [31:0] rvfi_mem_rdata;
   logic [31:0] rvfi_mem_wdata;
+  // JEF-628: the monitor's own per-retire error code (0 = no error this
+  // cycle). test/cxxrtl.cc reads this by hierarchical debug-item name
+  // ("monitor errcode") to turn a mismatch into a distinct process exit
+  // code; under iverilog the monitor's own $display diagnostics (which
+  // this triggers) are the loud failure.
+  logic [15:0] rvfi_monitor_errcode;
  `endif //  `ifdef RISCV_FORMAL
  `ifdef ICARUS
   logic clk = 0;
@@ -131,7 +137,8 @@ module testbench(
     .rvfi_mem_rmask(rvfi_mem_rmask),
     .rvfi_mem_wmask(rvfi_mem_wmask),
     .rvfi_mem_rdata(rvfi_mem_rdata),
-    .rvfi_mem_wdata(rvfi_mem_wdata)
+    .rvfi_mem_wdata(rvfi_mem_wdata),
+    .errcode(rvfi_monitor_errcode)
   );
  `endif
   initial begin
