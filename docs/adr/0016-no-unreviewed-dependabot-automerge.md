@@ -1,6 +1,10 @@
 # ADR-0016: No unreviewed auto-merge for the actions dependabot updates
 
-**Status:** Accepted · 2026-07-28 · *Constrains the JEF-608 CI gate*
+**Status:** Superseded by [ADR-0018](0018-dependabot-automerge-gated-on-required-checks.md) · 2026-07-28 · *Constrains the JEF-608 CI gate*
+
+> **Superseded 2026-07-29.** Precondition 1 below (required status checks on `main`) is now met, so
+> the workflow was restored — see ADR-0018. The analysis here remains the record of what an
+> ungated auto-merge looks like, and ADR-0018 points back to it.
 
 ## Context
 
