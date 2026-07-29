@@ -13,17 +13,16 @@ results — but it is still unverified.** A serialized FSM core (`rtl/riscv.v` +
 passed riscv-formal sans CSRs; it was torn down in two waves (2021: `9758a39`→`1709433`; 2023:
 `49b317a`→`4fbd650`→`13fec44`) into today's staged design, and the rewrite stalled partway. The
 project went from *formally verified* to *unverified*, and getting back is the whole plan. **M1 is
-green; M2's blocker (RVFI) is cleared but M2 itself is not reached.** Do not read "45/47" as "the
+green; M2's blocker (RVFI) is cleared but M2 itself is not reached.** Do not read "47/47" as "the
 core is correct."
 
 The README is the project's voice and is deliberately left as-is. **Ground truth lives here.**
 
 **M1 is reached** (JEF-607, `a4662a2`). `rtl/regfile.v` is combinational-read with write-through
 bypass, every inter-stage struct carries a `valid` bit, and decode runs a stall-only hazard
-scoreboard (ADR-0004 / ADR-0009 / ADR-0015). At `a4662a2`, `make test` was **47/47** with
-`test/EXPECTED_FAIL` empty — see JEF-628 below for why it is 45/47 now, still a working regression
-gate against `test/EXPECTED_FAIL` (ADR-0014's set-equality check still runs in both directions, so
-an unexpected *pass* is caught too). The same change fixed three datapath defects found on the way:
+scoreboard (ADR-0004 / ADR-0009 / ADR-0015). `make test` is **47/47** and `test/EXPECTED_FAIL` is
+empty, so it is a plain all-pass gate — ADR-0014's set-equality check still runs in both directions,
+so an unexpected *pass* is caught too. The same change fixed three datapath defects found on the way:
 AUIPC computed `reg_rs1 + reg_rs2` instead of `pc + immediate`, `mem_wdata` was registered a cycle
 behind `mem_addr`/`mem_wstrb`, and SLL/SRL/SRA did not mask the shift amount to `rs2[4:0]`.
 
@@ -35,25 +34,30 @@ one-cycle load-response latch); `rtl/writeback.v` drives `rvfi_valid`/`rvfi_orde
 retiring `accessor_output`, exactly where invariant 3 below says retire happens. `trap`/`halt`/
 `intr`/`mode`/`ixl`/the CSR fields are hardwired constants in `rtl/littlecpu.v` (no traps or CSRs
 exist yet — M3). `test/monitor.v` stays pristine and tracked; a gitignored, build-time-derived
-`test/monitor.sim.v` (Makefile) strips the `$time`-in-`$display` yosys can't elaborate, and now
-rides along in `test/rtl.cc` (the cxxrtl leg) as well as `testbench.vvp`, so `make test` is
-per-retire self-checking in both legs, not merely end-state-checking via `tohost`.
+`test/monitor.sim.v` (Makefile) carries the two build-time fixes it needs — stripping the
+`$time`-in-`$display` yosys can't elaborate, and ADR-0019's DIV/REM signedness repair — and **both**
+legs read it, so they cannot drift into checking different specs. `make test` is now per-retire
+self-checking in both legs, not merely end-state-checking via `tohost`.
 
-**`test/monitor.v`'s own DIV/REM checks are unreliable** (see `test/EXPECTED_FAIL` — `div.S`/
-`rem.S`): its generated ISA-spec model computes signed division/remainder as a ternary mixing an
-unsigned literal branch with a `$signed(...)/$signed(...)` branch, which per IEEE 1800 ternary
-sign-context rules silently downgrades the division to unsigned — reproduced in isolation under
-both iverilog and yosys/`write_cxxrtl`, so it is not a quirk of either simulator. This core's real
-division is independently verified correct (`test/exec_tb.v`'s 10,000-vector differential bench,
-the executor's arithmetic BMC, and `div.S`/`rem.S`'s own `tohost` assertions all still pass); the
-defect is in the untouchable generated monitor, not this core. DIVU/REMU are unaffected (no
-`$signed()` in their spec). Not fixable without hand-editing `test/monitor.v`, which invariant 7
-forbids.
+**The generated monitor's DIV/REM spec model is defective, and the sanitizer fixes it**
+(ADR-0019). `monitor_insn_div`/`monitor_insn_rem` compute signed division as a conditional whose
+other branches are unsigned; per IEEE 1800 sign-context rules that propagates down and evaluates the
+division **unsigned**, silently, for negative operands only. Confirmed by driving the two modules
+directly with known-correct RVFI values (`-7 / 2` → `0x7ffffffc`, not `0xfffffffd`) and by the
+`A_SIGNED 0` parameter yosys puts on the `$div`/`$mod` cell — not a simulator quirk, and not this
+core: with the sanitizer rule in place `div.S`/`rem.S` pass. `test/monitor.sim.v` rewrites the two
+sites to make the arithmetic self-determined. **`test/EXPECTED_FAIL` is not the place to park a
+monitor defect** — read ADR-0019 before adding a line back for one.
 
 What does not work right now:
 
 - **`formal/checks.cfg` and `formal/wrapper.v` still reference the deleted core** — `checks.cfg`'s
   `[script-sources]` reads `rtl/riscv.v` and `rtl/alu.v`, and `wrapper.v` instantiates `riscv`.
+- **`formal/equiv.sh` does not run**, so ADR-0006's guarantee that RVFI instrumentation does not
+  perturb core behaviour is **argued, not proven** (ADR-0020). The argument is that every
+  `ifdef RISCV_FORMAL` block is write-only with respect to the core. Any future RVFI change must be
+  read against that: an `ifdef`'d value reaching a non-`ifdef`'d signal breaks it, and CI would not
+  notice.
 - **Three of the five component-proof tasks are vacuous.** `components_fetcher`,
   `components_accessor`, and `components_writeback` contain no assertions at all, only reset
   assumptions, so they "pass" meaninglessly. CI deliberately does not run them; ADR-0006 slates
@@ -134,8 +138,9 @@ green formal ladder means the ALU is correct.
 
 `test/monitor.v` rides along in both sim legs (JEF-628), so every run is self-checking per-retire —
 a test that corrupts state transiently but converges to the right final registers fails loudly, not
-just end-state assertions passing. Its own DIV/REM checks are the one documented exception (see
-Current State above and `test/EXPECTED_FAIL`) — a defect in the generated monitor, not this core.
+just end-state assertions passing. Both legs read the sanitized `test/monitor.sim.v`, which is
+therefore load-bearing for correctness and not merely for elaboration: a change to it is a change to
+the oracle (ADR-0019).
 
 ## Engineering rules in force
 
@@ -167,7 +172,7 @@ separate, outstanding work.
 ## Pointers
 
 - Design brief: [`docs/ideas/finish-the-rewrite.md`](docs/ideas/finish-the-rewrite.md)
-- Decisions: [`docs/adr/`](docs/adr/) — seventeen accepted ADRs, plus a deferred list
+- Decisions: [`docs/adr/`](docs/adr/) — twenty accepted ADRs, plus a deferred list
 - Reference text from the old core: `git show 1709433^:rtl/riscv.v` (RVFI retire block),
   `git show e67875c^:rtl/alu.v` (arithmetic)
 - Tracker: Linear, project **Little CPU** (team JEF)

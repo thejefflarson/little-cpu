@@ -17,7 +17,7 @@ RISCV_FORMAL_MACROS := RISCV_FORMAL RISCV_FORMAL_COMPRESSED RISCV_FORMAL_ALIGNED
 rvfi_macros.vh: $(RISCV_FORMAL_DIR)/checks/rvfi_macros.py
 	python3 $^ > $@
 
-testbench.vvp: rtl/structs.v rtl/accessor.v rtl/decoder.v rtl/executor.v rtl/fetcher.v rtl/regfile.v rtl/writeback.v rtl/littlecpu.v rvfi_macros.vh test/testbench.v test/monitor.v
+testbench.vvp: rtl/structs.v rtl/accessor.v rtl/decoder.v rtl/executor.v rtl/fetcher.v rtl/regfile.v rtl/writeback.v rtl/littlecpu.v rvfi_macros.vh test/testbench.v test/monitor.sim.v
 	iverilog -I./rtl/ -DICARUS $(addprefix -D,$(RISCV_FORMAL_MACROS)) -g2012 -o $@ $^
 
 # `./sim` now requires --rom/--ram/--cycles (ADR-0007/ADR-0008's runner, not
@@ -37,14 +37,31 @@ sim: test/cxxrtl.cc test/rtl.cc
 	  -isystem $$(yosys-config --datdir)/include/backends/cxxrtl/runtime $< -o $@
 
 # test/monitor.sim.v is a build-time-only, gitignored derivative of the
-# tracked test/monitor.v (JEF-628): yosys's AST_AUTOWIRE elaboration bug
-# trips on `$time` used as a bare $display argument (four call sites --
-# iverilog handles it fine, yosys does not), so the cxxrtl leg below reads
-# this stripped copy instead. test/monitor.v itself stays pristine and
-# tracked (CLAUDE.md invariant 7); regenerate this file, never hand-edit it,
-# and never commit it.
+# tracked test/monitor.v (JEF-628, ADR-0019). test/monitor.v itself stays
+# pristine and tracked (CLAUDE.md invariant 7); regenerate this file, never
+# hand-edit it, and never commit it. BOTH sim legs read this file, so they
+# cannot drift into checking different specs -- and it is therefore
+# load-bearing for correctness, not just elaboration: changing a rule below
+# changes the oracle. Two rules, each anchored tightly enough that it cannot
+# match anywhere it wasn't meant to. `diff test/monitor.v test/monitor.sim.v`
+# is six lines; if it stops being readable at a glance, fix the generator
+# upstream instead.
+#
+#   1. yosys's AST_AUTOWIRE elaboration bug trips on `$time` used as a bare
+#      $display argument (four call sites -- iverilog handles it fine, yosys
+#      does not). Strips the timestamp from the error banner; the iverilog
+#      leg loses a diagnostic nicety, not a check.
+#   2. ADR-0019: monitor_insn_div/monitor_insn_rem compute signed division as
+#      a conditional whose other branches are unsigned, so IEEE 1800
+#      sign-context propagation silently evaluates the division UNSIGNED --
+#      wrong answers for negative operands only, which is exactly what
+#      div.S/rem.S exercise. Wrapping the arithmetic in $signed() makes it
+#      self-determined, so the enclosing conditional can no longer downgrade
+#      it. Two lines change (DIV `/` and REM `%`).
 test/monitor.sim.v: test/monitor.v
-	sed -E 's/ at time %0t --------", ([A-Za-z0-9_]+), \$$time\)/ --------", \1)/' $< > $@
+	sed -E -e 's/ at time %0t --------", ([A-Za-z0-9_]+), \$$time\)/ --------", \1)/' \
+	       -e 's/\$$signed\((rvfi_rs1_rdata)\) ([\/%]) \$$signed\((rvfi_rs2_rdata)\);/$$signed($$signed(\1) \2 $$signed(\3));/' \
+	       $< > $@
 
 # $(RISCV_FORMAL_MACROS) turns on the rvfi_* ports and their driving logic
 # throughout rtl/ and test/testbench.v's `monitor` instance (ADR-0006);
