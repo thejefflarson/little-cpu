@@ -25,3 +25,5 @@ rtl/rom.mem
 sim
 sim.dSYM/
 test/a.out.dSYM/
+# Swarm agent worktrees (.claude/tracker.json stays tracked).
+.claude/worktrees/
