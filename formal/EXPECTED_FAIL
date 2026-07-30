@@ -9,10 +9,12 @@
 # same commit backs up; adding one back is a regression and needs the same
 # justification test/EXPECTED_FAIL's convention requires.
 #
-# Every check on this ladder is `mode bmc` at `smtbmc yices` (formal/
-# checks.cfg) -- a PASS means "no counterexample found within the check's
-# configured depth," a bounded result, not an unbounded proof. Read every
-# line below with that in mind.
+# Every check on this ladder is `mode bmc` (formal/checks.cfg's `engine`
+# option, default `btor btormc` as of the switch documented below) -- a PASS
+# means "no counterexample found within the check's configured depth," a
+# bounded result, not an unbounded proof, regardless of which engine found
+# it. Switching engines changes how fast a check converges, not what a PASS
+# means. Read every line below with that in mind.
 #
 # Seeded at integration from a from-scratch `make -C formal check` (78
 # checks, `-k`, ADR-0022) against main at `03c8d3e`: 55 pass, 15 insn_* fail,
@@ -28,6 +30,18 @@
 # The six were removed by arithmetic on verified facts rather than by a
 # second full 78-check sweep; if that arithmetic is wrong, the first
 # nightly trips on set equality, which is exactly what this file is for.
+#
+# Then reconciled again after switching the ladder's default engine from
+# `smtbmc yices` to `btor btormc` (ADR-0024, formal/checks.cfg's `engine`
+# option, genchecks-local.py). One entry was removed: reg_ch0 -- the same
+# check, at the same depth, that did not converge under smtbmc yices in >20
+# minutes now PASSes under btormc in ~8-12s. Verified by a full from-scratch
+# 78-check sweep under each engine, not by argument: 67/78 pass under btormc
+# (11 fail, matching this file exactly once reg_ch0 is removed), and the
+# btormc sweep's non-PASS set is identical to smtbmc yices's except for
+# reg_ch0 -- no other check's verdict moved. See ADR-0024 for the full
+# side-by-side tally and wall time of both engines, including a caveat on
+# how machine-dependent that wall-time gap turned out to be.
 
 # CSRs are M3 (CLAUDE.md); mcycle/minstret aren't implemented yet.
 csrw_mcycle_ch0
@@ -61,18 +75,11 @@ insn_c_swsp_ch0
 # already says the real arithmetic has no formal coverage in any form. A fix
 # is in flight in a parallel change; same expectation as the C.JR pair above.
 
-# reg_ch0 is the check that ties RVFI's self-report back to the actual
-# register file (ADR-0023) -- without it, the 55+ passing insn_* checks
-# establish only that the core's story about itself is spec-consistent, not
-# that the story is true. It is a single depth-21 BMC query that has not
-# returned in a practical budget (>20 minutes, independently reproduced
-# twice) and previously had no bound at all, so an unsolvable query would
-# sit in the solver until the nightly's `timeout-minutes: 300` killed the
-# whole job -- taking `complete` and `equiv.sh` with it. formal/checks.cfg
-# now bounds it to 1800s; sby reports that as status TIMEOUT, a third state
-# that is neither PASS nor a counterexample-bearing FAIL. This baseline
-# treats "genuinely inconclusive" the same as "known failing": both are
-# non-PASS, and both belong here until `reg_ch0` gets a conclusive verdict
-# (a different depth split, a different engine, or a different bound -- a
-# decision to write down, per ADR-0023, not a switch to flip).
-reg_ch0
+# reg_ch0 was here (ADR-0023: the check that ties RVFI's self-report back to
+# the actual register file) as a single depth-21 BMC query that did not
+# converge under smtbmc yices in a practical budget (>20 minutes,
+# independently reproduced twice). It PASSes under btor btormc in ~8-12s at
+# the same depth -- verified by a full from-scratch 78-check sweep under each
+# engine, not by argument (see this file's header). Removed, not because the
+# property changed, but because the tool that had failed to answer it was
+# replaced by one that could.
