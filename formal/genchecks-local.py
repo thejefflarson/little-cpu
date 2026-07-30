@@ -2,12 +2,24 @@
 #
 # This is a vendored fork of upstream riscv-formal's checks/genchecks.py.
 #
-# One difference is deliberate and structural: upstream computes
-# `basedir = f"{os.getcwd()}/../.."`, which assumes it runs from
-# riscv-formal/cores/<name>/; this fork resolves `basedir` relative to the
-# script itself (see below) so the harness can live in formal/ instead of
-# adopting riscv-formal's cores/ layout. Adopting cores/ is a much larger
-# change with no payoff for this repo — see ADR-0006.
+# Two differences are deliberate and structural:
+#
+# - Upstream computes `basedir = f"{os.getcwd()}/../.."`, which assumes it
+#   runs from riscv-formal/cores/<name>/; this fork resolves `basedir`
+#   relative to the script itself (see below) so the harness can live in
+#   formal/ instead of adopting riscv-formal's cores/ layout. Adopting
+#   cores/ is a much larger change with no payoff for this repo — see
+#   ADR-0006.
+# - Upstream's `solver` option only ever names an SMT solver behind
+#   `smtbmc` (the "bmc3"/"btormc" spellings below are upstream's, not this
+#   fork's, but they're the only way upstream lets a checks.cfg pick a
+#   different engine, and nothing lets a single check override it). This
+#   fork adds an `engine` option (verbatim sby [engines] line, defaults
+#   every check to it) and a `[engine]` section (regex-matched per-check
+#   override) — see where `engine_opt` and `get_engine()` are defined below.
+#   `reg_ch0` is why: a single depth-21 BMC query that did not converge
+#   under `smtbmc yices` in >20 minutes, independently reproduced twice, and
+#   passes under `btor btormc` in ~8 seconds.
 #
 # The rest of the difference is NOT deliberate, and this comment previously
 # claimed otherwise. This copy was vendored from a much older upstream (note
@@ -54,6 +66,11 @@ dumpsmt2 = False
 sbycmd = "sby"
 config = dict()
 mode = "bmc"
+# Local fork addition (not upstream -- see the fork-provenance comment atop
+# this file): the default engine for every generated check, and the escape
+# hatch for a per-check override. See the `[options] engine` / `elif line[0]
+# == "engine"` handling and `get_engine()` below for what this does and why.
+engine_opt = None
 
 if len(sys.argv) > 1:
     assert len(sys.argv) == 2
@@ -109,6 +126,16 @@ if "options" in config:
         elif line[0] == "solver":
             assert len(line) == 2
             solver = line[1]
+
+        elif line[0] == "engine":
+            # Local fork addition: takes the rest of the line verbatim as an
+            # sby [engines] line (e.g. "btor btormc", "smtbmc yices"), unlike
+            # `solver` above which only ever names an SMT solver for smtbmc
+            # (or the two upstream special-cased spellings "bmc3"/"btormc"
+            # below). Overrides the solver-derived default for every check;
+            # `[engine]` (see get_engine()) overrides this per check.
+            assert len(line) >= 2
+            engine_opt = " ".join(line[1:])
 
         elif line[0] == "dumpsmt2":
             assert len(line) == 1
@@ -176,6 +203,29 @@ else:
     hargs["engine"] = "smtbmc %s%s" % ("--dumpsmt2 " if dumpsmt2 else "", solver)
     hargs["ilang_file"] = corename + "-hier.il"
 
+# `engine` in [options] (checks.cfg) overrides the solver-derived default
+# above -- this is the "engine is configurable, defaulting to btor btormc"
+# knob (a measured fix: `reg_ch0` did not converge under `smtbmc yices` in
+# >20 min, twice, and passes under `btor btormc` in ~8s -- same check, same
+# depth). `default_engine` feeds `get_engine()`, which every generated
+# check's .sby consults so a specific check can still be pinned back to
+# `smtbmc yices` (or anything else) via the `[engine]` section below without
+# touching this file again.
+default_engine = engine_opt if engine_opt is not None else hargs["engine"]
+
+def get_engine(check):
+    engine = default_engine
+    if "engine" in config:
+        for line in config["engine"].split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            pat, _, eng = line.partition(" ")
+            eng = eng.strip()
+            if eng and re.fullmatch(pat, check):
+                engine = eng
+    return engine
+
 def test_disabled(check):
     if "filter-checks" in config:
         for line in config["filter-checks"].split("\n"):
@@ -221,6 +271,7 @@ def check_insn(grp, insn, chanidx, csr_mode=False):
     hargs["depth"] = depth_cfg[0]
     hargs["depth_plus"] = depth_cfg[0] + 1
     hargs["skip"] = depth_cfg[0]
+    hargs["engine"] = get_engine(check)
 
     with open("%s/%s.sby" % (cfgname, check), "w") as sby_file:
         print_hfmt(sby_file, """
@@ -422,6 +473,8 @@ def check_cons(grp, check, chanidx=None, start=None, trig=None, depth=None, time
 
     if test_disabled(check): return
     consistency_checks.add(check)
+
+    hargs["engine"] = get_engine(check)
 
     with open("%s/%s.sby" % (cfgname, check), "w") as sby_file:
         print_hfmt(sby_file, """

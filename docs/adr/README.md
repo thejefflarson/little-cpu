@@ -28,6 +28,7 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0021](0021-the-formal-ladder-runs-the-compressed-checks.md) | The formal ladder runs the compressed checks, and it found a real bug | Accepted |
 | [0022](0022-the-formal-nightly-reports-against-an-explicit-baseline.md) | The formal nightly reports against an explicit baseline, not `\|\| true` | Accepted |
 | [0023](0023-the-first-ladder-run-does-not-reach-m2.md) | The first ladder run does not reach M2 — three named holes | Accepted |
+| [0024](0024-the-ladders-default-bmc-engine-is-btormc.md) | The ladder's default BMC engine is `btor btormc`, not `smtbmc yices` | Accepted |
 
 0001–0007 came from the design brief
 ([`docs/ideas/finish-the-rewrite.md`](../ideas/finish-the-rewrite.md)). 0008–0011 came out of
@@ -45,7 +46,8 @@ guarantee is argued rather than proven. 0021-0023 came out of integrating the ri
 port — the first time any formal check ran against the pipelined core. 0021 keeps the compressed
 checks in the ladder and records the C.JR/C.JALR decode defect they found; 0022 replaces the
 nightly's blanket failure-swallowing with an ADR-0014-style baseline; 0023 states what the run
-does and does not establish, and why M2 is not reached.
+does and does not establish, and why M2 is not reached. 0024 closes one of 0023's three named
+holes by switching the ladder's default BMC engine.
 
 ## Deferred decisions
 

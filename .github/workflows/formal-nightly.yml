@@ -17,6 +17,13 @@ name: Formal Nightly
 # (ADR-0020, ADR-0023) and are `continue-on-error` so they report honestly
 # without drowning that signal in a job that is red every single night for
 # reasons nobody has to read the summary to already know.
+#
+# ADR-0024: the ladder step's own wall time is no longer dominated by
+# `reg_ch0` sitting in a solver for up to its 1800s bound. `formal/
+# checks.cfg`'s `engine` option (a formal/genchecks-local.py local-fork
+# addition) is what picks the BMC engine now, not this workflow -- switching
+# it, or overriding it for one check via checks.cfg's `[engine]` section,
+# needs no change here. See ADR-0024 for the measured before/after.
 on:
   schedule:
     - cron: "0 9 * * *"
