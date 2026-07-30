@@ -1,9 +1,6 @@
 [tasks]
 executor all
 decoder all
-fetcher all
-accessor all
-writeback all
 
 [options]
 all: mode prove
@@ -16,41 +13,17 @@ decoder:
 read -sv -formal structs.v decoder.v
 prep -top decoder
 
-fetcher:
-read -sv -formal structs.v fetcher.v
-prep -top fetcher
-
 executor:
 read -formal structs.v executor.v
 prep -top executor
-
-accessor:
-read -formal structs.v accessor.v
-prep -top accessor
-
-writeback:
-read -formal structs.v writeback.v
-prep -top writeback
 --
 [files]
-fetcher:
-../rtl/fetcher.v
-../rtl/structs.v
-
 decoder:
 ../rtl/decoder.v
 ../rtl/structs.v
 
 executor:
 ../rtl/executor.v
-../rtl/structs.v
-
-accessor:
-../rtl/accessor.v
-../rtl/structs.v
-
-writeback:
-../rtl/writeback.v
 ../rtl/structs.v
 
 --

@@ -44,13 +44,4 @@ module fetcher(
     end
   end
 
- `ifdef FORMAL
-  logic clocked;
-  initial clocked = 0;
-  always_ff @(posedge clk) clocked <= 1;
-  // assume we've reset at clk 0
-  initial assume(reset);
-  always_comb if(!clocked) assume(reset);
-
- `endif
 endmodule

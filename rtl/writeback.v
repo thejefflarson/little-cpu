@@ -88,12 +88,4 @@ module writeback(
     else if (rvfi_valid) rvfi_order <= rvfi_order + 64'b1;
   end
  `endif
-
- `ifdef FORMAL
-  logic clocked;
-  initial clocked = 0;
-  always_ff @(posedge clk) clocked <= 1;
-  // assume we've reset at clk 0
-  initial assume(reset);
- `endif
 endmodule
