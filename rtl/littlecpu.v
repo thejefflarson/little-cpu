@@ -6,6 +6,12 @@ module littlecpu(
   input  logic reset,
   output logic [31:0] imem_addr,
   input  logic [31:0] imem_data,
+  // ADR-0003: the second word of the dual-word combinational fetch window,
+  // read at imem_addr + 4 so a 32-bit instruction straddling a 4-byte
+  // boundary (pc % 4 == 2) can be fetched in the same cycle -- no aligner
+  // FSM, no stall.
+  output logic [31:0] imem_addr2,
+  input  logic [31:0] imem_data2,
   output logic [31:0] mem_addr,
   output logic [31:0] mem_wdata,
   output logic [3:0]  mem_wstrb,
@@ -72,9 +78,11 @@ module littlecpu(
     // inputs
     .pc(pc),
     .imem_data(imem_data),
+    .imem_data2(imem_data2),
     // outputs
     .out(fetcher_out),
-    .imem_addr(imem_addr)
+    .imem_addr(imem_addr),
+    .imem_addr2(imem_addr2)
   );
 
   logic [31:0] reg_rs1, reg_rs2, wdata;

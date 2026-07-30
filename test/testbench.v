@@ -6,20 +6,27 @@ module testbench(
 	input reset
 `endif
 );
-  // Sized to test/asm/sections.lds (ADR-0008): rom holds >=8K of .text,
+  // Sized to test/asm/sections.lds (ADR-0008): rom holds >=16K of .text,
   // memory (RAM) holds >=4K of .data/.rodata/.bss based at RAM_BASE, which
   // matches the ram region's ORIGIN there. RAM_BASE is non-zero so a wild
   // store through an uninitialized/zero pointer lands outside the mapped
   // region instead of silently aliasing real test data. The cxxrtl runner
   // (test/cxxrtl.cc) subtracts RAM_BASE back out of the `--ram` image's
-  // word addresses before poking `memory` via debug_items.
+  // word addresses before poking `memory` via debug_items. rom grew from
+  // 8K/2048 words to 16K/4096 when test/asm/rvc.S landed (ADR-0003/
+  // ADR-0021) -- see sections.lds for why.
   localparam logic [31:0] RAM_BASE  = 32'h0001_0000;
-  localparam int          ROM_WORDS = 2048;
+  localparam int          ROM_WORDS = 4096;
   localparam int          RAM_WORDS = 1024;
   logic [31:0] memory[0:RAM_WORDS-1];
   logic [31:0] rom[0:ROM_WORDS-1];
   logic [31:0] imem_addr;
   logic [31:0] imem_data = 32'b0;
+  // ADR-0003: the second word of the dual-word combinational fetch window
+  // (rtl/fetcher.v drives imem_addr2 = imem_addr + 4), read from the same
+  // `rom` array at a second, independent index.
+  logic [31:0] imem_addr2;
+  logic [31:0] imem_data2 = 32'b0;
   logic [31:0] mem_addr;
   logic [31:0] mem_wdata;
   logic [3:0]  mem_wstrb;
@@ -79,8 +86,9 @@ module testbench(
   // Selected out of the always_comb for the same reason as decoder.v's
   // register-index fields: a constant part-select inside an always_* block
   // defeats iverilog's sensitivity analysis and draws a `sorry:` note.
-  logic [10:0] rom_index;
-  assign rom_index = imem_addr[12:2];
+  logic [11:0] rom_index, rom_index2;
+  assign rom_index  = imem_addr[13:2];
+  assign rom_index2 = imem_addr2[13:2];
 
   always_comb //@(posedge clk)
     if(reset) begin
@@ -89,11 +97,22 @@ module testbench(
       imem_data = rom[rom_index];
     end
 
+  // ADR-0003: second, independent combinational read of the same `rom`
+  // array for the dual-word fetch window's other word.
+  always_comb
+    if(reset) begin
+      imem_data2 = 32'b0;
+    end else begin
+      imem_data2 = rom[rom_index2];
+    end
+
   littlecpu uut (
     .clk(clk),
     .reset(reset),
     .imem_addr(imem_addr),
     .imem_data(imem_data),
+    .imem_addr2(imem_addr2),
+    .imem_data2(imem_data2),
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),

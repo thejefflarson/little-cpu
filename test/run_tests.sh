@@ -41,7 +41,7 @@ for src in "$ASM_DIR"/*.S; do
   asm_log="$tmp/$base.asm.log"
 
   status="PASS"
-  if ! "$CC" -march=rv32im_zicsr -mabi=ilp32 -nostdlib -I "$ASM_DIR" \
+  if ! "$CC" -march=rv32imc_zicsr -mabi=ilp32 -nostdlib -I "$ASM_DIR" \
        -T "$ASM_DIR/sections.lds" "$src" -o "$elf" > "$asm_log" 2>&1; then
     status="ASSEMBLE-ERROR"
   elif [ -s "$asm_log" ]; then
