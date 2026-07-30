@@ -11,7 +11,7 @@ ifeq ($(shell printf '%s' '$(JOBS)' | grep -cE '^[1-9][0-9]{0,3}$$'),0)
 override JOBS := 4
 endif
 
-all: complete check dmemcheck imemcheck components_fetcher
+all: complete check dmemcheck imemcheck components_decoder components_executor
 
 %: %.sby
 	sby -f $<
@@ -39,17 +39,14 @@ cover: cover.sby cover.sv | $(RISCV_FORMAL_DIR)
 equiv: equiv.sh
 	./$<
 
-# pipeline stages
-components_fetcher: components.sby ../rtl/fetcher.v
-	sby -f $< fetcher
+# pipeline stages. fetcher/accessor/writeback are deliberately not here: their
+# formal/components.sby tasks were deleted for carrying zero assertions
+# (ADR-0006, ADR-0017) -- a "passing" proof with nothing asserted is not a
+# result.
 components_decoder: components.sby ../rtl/decoder.v
 	sby -f $< decoder
 components_executor: components.sby ../rtl/executor.v
 	sby -f $< executor
-components_accessor: components.sby ../rtl/accessor.v
-	sby -f $< accessor
-components_writeback: components.sby ../rtl/writeback.v
-	sby -f $< writeback
 
 # The riscv-formal clone rule and its pin guard live in pin.mk, included above,
 # so this and the root Makefile cannot drift apart on it.
