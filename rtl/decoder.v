@@ -40,8 +40,15 @@ module decoder (
   // forwards
   output decoder_output out
 );
+  // ADR-0003/ADR-0021: instr[31:16] is only ever meaningful for a genuinely
+  // 32-bit instruction (quadrant == 2'b11). Masking it here is the defence
+  // behind the immediate mux's own fix (instr_jalr_op, not instr_jalr, at
+  // the immediate-select case below): even if some future decode path
+  // forgets to gate on `uncompressed`, there is no neighbouring-instruction
+  // garbage left in the upper half to read. quadrant is derived from
+  // instr[1:0] below, which this mask never touches.
   logic [31:0] instr;
-  assign instr = in.instr;
+  assign instr = (in.instr[1:0] == 2'b11) ? in.instr : {16'b0, in.instr[15:0]};
 
   // Register-index fields, named and hoisted out of the always_comb blocks
   // below. Two reasons. First, `rd_field` reads better than `instr[11:7]` at
@@ -449,7 +456,10 @@ module decoder (
       // reading `pc` back) is required because a non-blocking assignment
       // to `pc` above isn't visible until next cycle.
       out.rvfi.pc_wdata <= fetcher_pc + pc_inc;
-      out.rvfi.insn <= uncompressed ? instr : {16'b0, instr[15:0]};
+      // `instr` is already zero-extended for a compressed instruction (the
+      // mask above), so this is RVFI's required zero-extended 16-bit report
+      // for free -- no separate ternary needed.
+      out.rvfi.insn <= instr;
       out.rvfi.pc_rdata <= fetcher_pc;
       out.rvfi.rs1_addr <= rvfi_rs1_valid ? rs1 : 5'b0;
       out.rvfi.rs2_addr <= rvfi_rs2_valid ? rs2 : 5'b0;

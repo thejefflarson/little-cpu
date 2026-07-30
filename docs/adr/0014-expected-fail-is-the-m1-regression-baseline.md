@@ -91,6 +91,16 @@ throughout the suite for the first time is new coverage, and failures it exposes
 not regressions. That is the one sanctioned exception to the one-line-at-a-time rule, and it should
 be its own commit, doing nothing else.
 
+**Met.** ADR-0003's fetch window landed alongside the change that flips this flag. There was no
+churn to record: `test/run_tests.sh` now assembles `-march=rv32imc_zicsr`, and the RISC-V assembler
+freely chose compressed encodings throughout the existing 47-file suite (not just the two new files
+that specifically target the window, `test/asm/straddle.S` and `test/asm/rvc.S`) — every one of
+them still passes, `test/EXPECTED_FAIL` stays empty, and the per-retire monitor confirms real
+compressed retires (`rvfi_insn` a zero-extended 16-bit value, `rvfi_pc_wdata` stepping by 2) rather
+than just "the assembler happened not to compress anything." The suite proves RV32IMC now, not
+RV32IM — the gap this ADR recorded is closed, and `misa`'s C bit (CLAUDE.md) is no longer a claim
+the suite leaves untested.
+
 ## Consequences
 
 - `make test` is a working regression gate from day one, against a core that passes nothing. M1

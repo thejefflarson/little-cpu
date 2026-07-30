@@ -50,11 +50,25 @@ module littlesoc (
   // do not silently alias back into the ROM via bit truncation.
   assign imem_data = (|imem_addr[31:16]) ? 32'b0 : imem_data_raw;
 
+  // ADR-0003: the second, adjacent word of the dual-word fetch window --
+  // same ROM, a second combinational read port at imem_addr2 (rtl/fetcher.v
+  // drives imem_addr2 = imem_addr + 4).
+  logic [31:0] imem_addr2;
+  logic [31:0] imem_data2_raw;
+  logic [31:0] imem_data2;
+  imemory imemory2(
+    .imem_addr(imem_addr2[15:2]),
+    .imem_data(imem_data2_raw)
+  );
+  assign imem_data2 = (|imem_addr2[31:16]) ? 32'b0 : imem_data2_raw;
+
   littlecpu riscv (
     .clk(clk),
     .reset(reset),
     .imem_addr(imem_addr),
     .imem_data(imem_data),
+    .imem_addr2(imem_addr2),
+    .imem_data2(imem_data2),
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),

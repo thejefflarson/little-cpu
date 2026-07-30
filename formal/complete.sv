@@ -2,6 +2,11 @@ module rvfi_testbench (
   input var clk,
   output logic [31:0] imem_addr,
   input  logic [31:0] imem_data,
+  // ADR-0003: the dual-word fetch window's second word. Left fully free
+  // per cycle, same rationale as imem_data below (no cross-cycle latency to
+  // model, CLAUDE.md invariant 1).
+  output logic [31:0] imem_addr2,
+  input  logic [31:0] imem_data2,
   output logic [31:0] mem_addr,
   output logic [31:0] mem_wdata,
   output logic [3:0]  mem_wstrb,
@@ -60,6 +65,8 @@ module rvfi_testbench (
     .reset(reset),
     .imem_addr(imem_addr),
     .imem_data(imem_data),
+    .imem_addr2(imem_addr2),
+    .imem_data2(imem_data2),
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),

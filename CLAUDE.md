@@ -49,17 +49,25 @@ core: with the sanitizer rule in place `div.S`/`rem.S` pass. `test/monitor.sim.v
 sites to make the arithmetic self-determined. **`test/EXPECTED_FAIL` is not the place to park a
 monitor defect** — read ADR-0019 before adding a line back for one.
 
+**ADR-0003's dual-word combinational fetch window lands, closing the gap ADR-0021 found.**
+`rtl/fetcher.v` now reads two adjacent words every cycle (`imem_addr`/`imem_addr2 = imem_addr + 4`)
+and windows the 32 bits starting at `pc` out of them — stateless, so a 32-bit instruction straddling
+`pc % 4 == 2` costs nothing (no aligner FSM, no stall, no flush; invariant 1 below stays intact).
+`rtl/decoder.v` also now masks `instr[31:16]` to zero whenever `quadrant != 2'b11`, the defence
+behind the immediate-mux fix ADR-0021 already landed. `test/run_tests.sh` assembles
+`-march=rv32imc_zicsr` (ADR-0014's sunset condition, now met): the assembler freely compresses
+eligible instructions throughout the whole 49-file suite — the C.JR/C.JALR fix and this window are
+no longer verified only by the formal ladder — and two new files target the window directly:
+`test/asm/straddle.S` (a straight-line and a branch-redirected straddle at `pc % 4 == 2`) and
+`test/asm/rvc.S` (riscv-tests' own RVC corner-case suite). All 49 pass, `test/EXPECTED_FAIL` stays
+empty, and the per-retire monitor confirms real compressed retires in both sim legs (`rvfi_insn` a
+zero-extended 16-bit value, `rvfi_pc_wdata` stepping by 2) rather than merely that the assembler
+happened not to compress anything. `formal/imemcheck.sv` — the check that models fetch at 16-bit
+granularity, per ADR-0003's own consequences section — is re-pointed at the split
+`imem_addr`/`imem_addr2` interface and still passes. `misa`'s C bit is no longer an untested claim.
+
 What does not work right now:
 
-- **Every C.JR and C.JALR jump target is corrupted** (ADR-0021). `rtl/decoder.v:145` folds
-  `instr_cjr`/`instr_cjalr` into `instr_jalr`, and `rtl/decoder.v:114` routes `instr_jalr` through
-  `i_immediate = instr[31:20]`. For a 16-bit instruction those bits are whatever sits next in
-  memory — `rtl/fetcher.v` passes `imem_data` through unmasked — so the decoder adds a neighbouring
-  instruction word to `rs1` as a displacement. Not behind any `ifdef`; this is in the synthesized
-  core. Found by `insn_c_jr`/`insn_c_jalr` on the ladder's first run; invisible to the `.S` suite,
-  which assembles without C, and therefore to the monitor as well. The one-token fix
-  (`instr_jalr` → `instr_jalr_op` at line 114) is verified green against formal but wants
-  ADR-0003's fetch window landing alongside it so the sim legs can test it too.
 - **The ALTOPS divide branch reads stale operands.** `rtl/executor.v:221-224` reads `in.rs1`/
   `in.rs2` in the `divide` state, one cycle after issue, when decode has already bubbled
   `decoder_out` (ADR-0009). Scoped to `` `ifdef RISCV_FORMAL_ALTOPS ``, so the synthesized divider

@@ -14,9 +14,15 @@ module rvfi_wrapper (
   `RVFI_WIRES
 
   (* keep *) `rvformal_rand_reg [31:0] imem_data;
+  // ADR-0003: the dual-word fetch window's second word, free every cycle
+  // exactly like imem_data above -- littlecpu never stalls or waits on
+  // either (CLAUDE.md invariant 1), so it needs no more constraint here
+  // than the single-word port already had.
+  (* keep *) `rvformal_rand_reg [31:0] imem_data2;
   (* keep *) `rvformal_rand_reg [31:0] mem_rdata;
 
   (* keep *) logic [31:0] imem_addr;
+  (* keep *) logic [31:0] imem_addr2;
   (* keep *) logic [31:0] mem_addr;
   (* keep *) logic [31:0] mem_wdata;
   (* keep *) logic [3:0]  mem_wstrb;
@@ -27,6 +33,8 @@ module rvfi_wrapper (
     .reset(reset),
     .imem_addr(imem_addr),
     .imem_data(imem_data),
+    .imem_addr2(imem_addr2),
+    .imem_data2(imem_data2),
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
