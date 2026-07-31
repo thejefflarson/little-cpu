@@ -40,13 +40,25 @@ module pcloop (
     input logic divider_stall,
     input logic accessor_stall,
     input logic accessor_pending_valid,
-    input logic [4:0] accessor_pending_rd
+    input logic [4:0] accessor_pending_rd,
+    // ADR-0026's drain slot and the CSR file's read side. rtl/csrs.v is not
+    // instantiated here -- this task is about the PC loop -- so both stay
+    // free inputs, which is the stronger environment: the solver may claim
+    // any CSR address is implemented and hand back any read value.
+    input logic accessor_out_valid,
+    input logic [31:0] csr_rdata,
+    input logic csr_implemented
 );
   logic [31:0] pc;
   logic [31:0] imem_addr, imem_addr2;
   fetcher_output fetcher_out;
   decoder_output decoder_out;
   logic [4:0] rs1, rs2;
+  // Driven by the decoder, read by nothing here: rtl/csrs.v is the consumer
+  // in the real pipeline (rtl/littlecpu.v).
+  logic [11:0] csr_addr;
+  logic        csr_ren, csr_wen, instret;
+  logic [31:0] csr_wdata;
 
   fetcher fetcher (
     .clk(clk),
@@ -70,9 +82,17 @@ module pcloop (
     .accessor_stall(accessor_stall),
     .accessor_pending_valid(accessor_pending_valid),
     .accessor_pending_rd(accessor_pending_rd),
+    .accessor_out_valid(accessor_out_valid),
+    .csr_rdata(csr_rdata),
+    .csr_implemented(csr_implemented),
     .pc(pc),
     .rs1(rs1),
     .rs2(rs2),
+    .csr_addr(csr_addr),
+    .csr_ren(csr_ren),
+    .csr_wen(csr_wen),
+    .csr_wdata(csr_wdata),
+    .instret(instret),
     .out(decoder_out)
   );
 
@@ -159,7 +179,19 @@ module pcloop (
       ((decoder_out.valid && decoder_out.rd == rs2) ||
        (executor_out.valid && executor_out.rd == rs2) ||
        (accessor_pending_valid && accessor_pending_rd == rs2));
-  assign f_may_stall = divider_stall || accessor_stall || f_live_rs1 || f_live_rs2;
+  // ADR-0026's fourth stall reason, transcribed the same way: a Zicsr access
+  // (SYSTEM opcode with a non-zero funct3[1:0], the six csrr* encodings) is
+  // held in decode until the pipe drains. Over-approximated like the rest --
+  // the real term also requires the pipe to be busy, and this deliberately
+  // does not look at that -- so it only ever excuses more cycles, never
+  // fewer. ecall/ebreak stay covered by the increment assertion below,
+  // because funct3 is 0 for both and they never serialize.
+  logic f_csr_access;
+  assign f_csr_access = f_uncompressed && f_instr[6:2] == 5'b11100 &&
+                        f_instr[13:12] != 2'b00;
+
+  assign f_may_stall = divider_stall || accessor_stall || f_live_rs1 || f_live_rs2 ||
+      f_csr_access;
 
   // Registered history, sampled at the same posedge that updates pc. That
   // same-edge sample is the phase relationship rtl/decoder.v:442 dictates:

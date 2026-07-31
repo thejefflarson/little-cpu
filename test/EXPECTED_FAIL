@@ -20,35 +20,26 @@
 # file stays empty. See ADR-0019 before ever adding a line back for a
 # monitor-side problem.
 #
-# The three lines below are the M3 debt, added deliberately and ahead of the
-# RTL that pays it off — this is the direction the burn-down contract was
-# designed for. Each names behaviour ADR-0005 / ADR-0027 / ADR-0028 /
-# ADR-0030 specify and no `rtl/` file implements yet: there is no CSR file,
-# no mtvec, no trap commit. They are NOT monitor-side problems (ADR-0019's
-# case) and NOT regressions; they are tests written before their feature, so
-# that each M3 RTL change has a checkable simulation acceptance criterion
-# instead of an argument. Remove them one at a time, in the commit that makes
-# each pass.
+# The line below is the M3 debt, added deliberately and ahead of the RTL that
+# pays it off — this is the direction the burn-down contract was designed for.
+# It names behaviour ADR-0028 / ADR-0030 specify and no `rtl/` file implements
+# yet: there is no trap commit. It is NOT a monitor-side problem (ADR-0019's
+# case) and NOT a regression; it is a test written before its feature, so that
+# the M3 RTL change that pays it off has a checkable simulation acceptance
+# criterion instead of an argument.
 #
-#   csr.S       — Zicsr access semantics and the CSR set of ADR-0005:
-#                 round-trip, CSRRW's old value, the CSRRS/CSRRC rs1==x0 and
-#                 immediate forms, the read-only identification CSRs,
-#                 mie/mip/mtval reading zero, and the mstatus.MPP / mepc[0]
-#                 WARL fields. Fails today at test 2 (mscratch does not exist).
-#   minstret.S  — ADR-0027's two counter rules: `csrr minstret` is exact
-#                 because CSR instructions serialize, and a trapping
-#                 instruction does not increment it. The ladder cannot check
-#                 either (rvfi_csrw_check checks that a write lands, not
-#                 increment semantics; the csrc_* checks are unreachable at
-#                 the pinned SHA), so simulation is the only mechanised check
-#                 short of the component proof.
+# `csr.S` and `minstret.S` were here alongside it and came out together with
+# the CSR file (`rtl/csrs.v`), which is exactly how this burn-down is meant to
+# go: one line, in the commit that makes that test pass.
+#
 #   trap.S      — every implemented trap cause (ADR-0005 / ADR-0030) taken
 #                 deliberately, plus ADR-0028's convention that a trapping
-#                 instruction writes no register and no memory. Reports
+#                 instruction writes no register and no memory, plus
+#                 ADR-0027's rule that a trapping instruction does not
+#                 increment `minstret` (which moved here from minstret.S,
+#                 because it needs a trap to be takeable at all). Reports
 #                 MONITOR-ERROR rather than FAIL today: with no trap logic the
 #                 core completes the misaligned load, and the per-retire
 #                 monitor catches the disagreement before `tohost` is ever
 #                 written.
-csr.S
-minstret.S
 trap.S

@@ -4,25 +4,29 @@
 # minstret.S
 #-----------------------------------------------------------------------------
 #
-# The two counter rules that nothing else can check.
+# The counter rules that nothing else can check.
 #
-# 1. `minstret` is exact as read. CSR instructions serialize (ADR-0005), and
-#    ADR-0027 records that exactness — not hazard safety — is the whole reason
-#    that stall exists. Without it, `csrr minstret` reads a count inflated by
-#    whatever happens to be in flight behind it, and the difference between two
-#    reads separated by three nops is a function of pipeline occupancy rather
-#    than of architectural state. Here it must be exactly 4.
+# `minstret` is exact as read. CSR instructions serialize (ADR-0005), and
+# ADR-0027 records that exactness — not hazard safety — is the whole reason
+# that stall exists. Without it, `csrr minstret` reads a count inflated by
+# whatever happens to be in flight behind it, and the difference between two
+# reads separated by three nops is a function of pipeline occupancy rather
+# than of architectural state. Here it must be exactly 4.
 #
-# 2. A trapping instruction does not increment `minstret` (ADR-0027): it issued,
-#    and it retires in RVFI with rvfi_trap = 1, but it did not retire
-#    architecturally. The riscv-formal ladder cannot see this — rvfi_csrw_check
-#    checks that a CSR write lands, not that a counter's increment semantics are
-#    right, and the csrc_* checks that would are unreachable at the pinned SHA.
-#    So this test is the simulation-side check of that rule.
+# ADR-0027's *other* rule — a trapping instruction issues but does not
+# increment `minstret`, because it did not retire architecturally — is checked
+# in test/asm/trap.S, next to the trap that provokes it. It cannot be checked
+# here: no trap can be taken until trap entry lands, which is deliberately the
+# next M3 step and not this one (ADR-0011).
 #
-# The expected count across the trap is derived from the handler's own size
-# rather than hardcoded, so editing the handler in riscv_test.h cannot silently
-# invalidate this file.
+# The riscv-formal ladder cannot see either rule — rvfi_csrw_check checks that
+# a CSR *write* lands, not that a counter's increment semantics are right, and
+# the csrc_* checks are not on this ladder (formal/checks.cfg's [csrs] note).
+# So simulation is the only mechanised check of them today.
+#
+# No trap is expected anywhere in this file, so it installs the *fatal*
+# handler: once trap entry exists, an unexpected fault reports the live test
+# number instead of restarting the program from mtvec = 0 (ADR-0029).
 #
 
 #include "riscv_test.h"
@@ -35,7 +39,9 @@ RVTEST_CODE_BEGIN
 
   #-------------------------------------------------------------
   # Exactness: csrr, nop, nop, nop — four instructions retire between the two
-  # reads, counting the first csrr and not the second.
+  # reads, counting the first csrr and not the second. Exactly 4, not "about
+  # 4": that is the deliverable the serialization stall buys, and an off-by-N
+  # here is the drain predicate being wrong (ADR-0026).
   #-------------------------------------------------------------
 
   TEST_CASE( 2, a2, 4, \
@@ -47,66 +53,50 @@ RVTEST_CODE_BEGIN
     sub  a2, a1, a0; )
 
   #-------------------------------------------------------------
-  # A trapping instruction contributes nothing. Between the two reads: the
-  # first csrr, the whole handler, and the misaligned load — which must not
-  # count. `.option norvc` because the handler resumes at mepc+4.
-  #-------------------------------------------------------------
-
-test_3:
-  la    a3, tdat
-  addi  a3, a3, 1
-
-  csrr  a0, minstret
-  .option push
-  .option norvc
-  lw    a4, 0(a3)
-  .option pop
-  csrr  a1, minstret
-  sub   a2, a1, a0
-
-  # Expected = the first csrr, plus one entry's worth of handler. The handler
-  # body is straight-line and `.option norvc`, so its instruction count is its
-  # byte span / 4. Computed at run time rather than assembled as a constant:
-  # `li` cannot take a label difference, and hardcoding the number would let an
-  # edit to riscv_test.h silently invalidate this assertion.
-  la    a5, trap_handler
-  la    a6, trap_handler_end
-  sub   a5, a6, a5
-  srli  a5, a5, 2
-  addi  x29, a5, 1
-  li    TESTNUM, 3
-  bne   a2, x29, fail
-
-  # The trap really was taken — otherwise test 3 would be asserting about a
-  # sequence that never entered the handler at all.
-  TEST_CASE( 4, a4, 1, la a3, trap_count; lw a4, 0(a3); )
-
-  #-------------------------------------------------------------
   # mcycle advances on its own. It counts cycles, not instructions, so the only
   # portable claim is monotonicity across a few instructions.
   #-------------------------------------------------------------
 
-  TEST_CASE( 5, a2, 1, \
+  TEST_CASE( 3, a2, 1, \
     csrr a0, mcycle; \
     nop; \
     csrr a1, mcycle; \
     sltu a2, a0, a1; )
 
   # The high halves are separate CSRs and read as zero this early in the run.
-  TEST_CASE( 6, a2, 0, \
+  TEST_CASE( 4, a2, 0, \
     csrr a0, mcycleh; \
     csrr a1, minstreth; \
     or   a2, a0, a1; )
 
   # An explicit write takes precedence over that cycle's increment (ADR-0005).
-  TEST_CASE( 7, a1, 0x100, \
+  # For minstret that is exact, because nothing issues between the write and
+  # the read back — the read serializes behind the write.
+  TEST_CASE( 5, a1, 0x100, \
     li   a0, 0x100; \
     csrw minstret, a0; \
     csrr a1, minstret; )
 
+  #-------------------------------------------------------------
+  # The same rule for mcycle, but asserted as a BOUND rather than an exact
+  # value, deliberately. mcycle counts cycles, so the number read back is the
+  # serialization drain plus the pipeline depth — real numbers, but ones a
+  # timing change may legitimately move. An exact assertion here would be a
+  # change-detector for pipeline timing wearing a correctness test's clothes.
+  # What is actually being claimed is that the write landed at all: without
+  # it, mcycle is in the thousands by this point in the run.
+  #-------------------------------------------------------------
+
+test_6:
+  csrw  mcycle, x0
+  csrr  a1, mcycle
+  li    x29, 16
+  li    TESTNUM, 6
+  bgeu  a1, x29, fail
+
   TEST_PASSFAIL
 
-  RVTEST_TRAP_HANDLER
+  RVTEST_TRAP_HANDLER_FATAL
 
 RVTEST_CODE_END
 
@@ -114,11 +104,5 @@ RVTEST_CODE_END
 RVTEST_DATA_BEGIN
 
   TEST_DATA
-  RVTEST_TRAP_DATA
-
-  .align 2
-tdat:
-  .word 0x0ff0
-  .word 0x0ff0
 
 RVTEST_DATA_END

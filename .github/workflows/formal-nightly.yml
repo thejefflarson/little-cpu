@@ -57,7 +57,7 @@ jobs:
 
       # genchecks-local.py's insn_*/reg/pc_fwd/pc_bwd/liveness/unique/
       # causal/csrw sweep (formal/checks.cfg), now with `-k` (formal/
-      # Makefile) so the whole 78-check ladder actually runs instead of
+      # Makefile) so the whole 79-check ladder actually runs instead of
       # stopping at the first failure (ADR-0022). `continue-on-error`, not
       # `|| true`: the step's real per-check outcome (and this run's own
       # nonzero `make` exit, since formal/EXPECTED_FAIL is non-empty until

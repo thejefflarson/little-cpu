@@ -32,11 +32,40 @@ module decoder (
   // third pipeline stage.
   input  logic       accessor_pending_valid,
   input  logic [4:0] accessor_pending_rd,
+  // ADR-0026: the fourth stall reason (CSR serialization, CLAUDE.md
+  // invariant 5) needs a genuine drain predicate, and
+  // `accessor_pending_valid` above covers LOADS ONLY. A store sitting in the
+  // accessor appears in none of the other three producer slots, so "the pipe
+  // is drained" and "no load is pending" are different questions and this
+  // input is the difference. Missing it produces a `minstret` that is wrong
+  // only when a store happens to be in flight.
+  input  logic       accessor_out_valid,
   // outputs
   output logic [31:0] pc,
   // rs1 and rs2 are synchronous outputs
   output logic [4:0] rs1,
   output logic [4:0] rs2,
+  // ADR-0005: the CSR file (rtl/csrs.v) is a sibling module, read and
+  // written here in decode. `csr_rdata`/`csr_implemented` answer `csr_addr`
+  // combinationally, in time for the publish block below to register the
+  // read value; `csr_wen`/`csr_wdata` commit on the same edge the accessing
+  // instruction issues, so the whole access is one cycle wide and nothing
+  // downstream carries CSR state.
+  output logic [11:0] csr_addr,
+  output logic        csr_ren,
+  output logic        csr_wen,
+  output logic [31:0] csr_wdata,
+  input  logic [31:0] csr_rdata,
+  input  logic        csr_implemented,
+  // ADR-0027: minstret counts non-trapping issues, and issue happens here.
+  output logic        instret,
+ `ifdef RISCV_FORMAL
+  // ADR-0006: the CSR file's shadow payload for the access being presented
+  // this cycle, latched below into the issuing instruction's shadow.
+  input  rvfi_csr64   csr_rvfi_mcycle,
+  input  rvfi_csr64   csr_rvfi_minstret,
+  input  rvfi_csr32   csr_rvfi_mscratch,
+ `endif
   // forwards
   output decoder_output out
 );
@@ -267,6 +296,12 @@ module decoder (
   assign instr_rem = instr_m && funct3 == 3'b110;
   assign instr_remu = instr_m && funct3 == 3'b111;
 
+  // Zicsr (ADR-0005). The immediate forms stay separately named -- they used
+  // to be folded straight into the register forms, which lost the
+  // zimm-vs-rs1 distinction entirely. That distinction is load-bearing
+  // twice: `uses_rs1` below must not interlock on a zimm (it is not a
+  // register index), and `csr_arg` must read the encoding rather than the
+  // register file.
   logic instr_csr, instr_csrrwi, instr_csrrsi, instr_csrrci;
   assign instr_csr = opcode == 5'b11100 && uncompressed;
   assign instr_csrrw = instr_csr && funct3 == 3'b001 || instr_csrrwi;
@@ -275,6 +310,32 @@ module decoder (
   assign instr_csrrwi = instr_csr && funct3 == 3'b101;
   assign instr_csrrsi = instr_csr && funct3 == 3'b110;
   assign instr_csrrci = instr_csr && funct3 == 3'b111;
+  logic instr_csr_access, is_csr_imm;
+  assign instr_csr_access = instr_csrrw || instr_csrrs || instr_csrrc;
+  assign is_csr_imm = instr_csrrwi || instr_csrrsi || instr_csrrci;
+
+  assign csr_addr = instr[31:20];
+  // The operand: a zero-extended 5-bit zimm out of the rs1 field for the
+  // immediate forms, the register itself otherwise.
+  logic [31:0] csr_arg;
+  assign csr_arg = is_csr_imm ? {27'b0, rs1_field} : reg_rs1;
+
+  // Zicsr's two suppression rules (ADR-0005). Both are tests on the
+  // *encoding*, not on a value: CSRRS/CSRRC suppress the write when rs1 is
+  // x0 -- which is what makes `csrr` (a CSRRS with rs1 == x0) legal against
+  // a read-only CSR rather than an illegal-instruction trap -- and the
+  // immediate forms suppress it when zimm is 0. Those are the same five bits
+  // either way, so one test covers both forms. CSRRW/CSRRWI suppress the
+  // read when rd is x0; that falls out of `rd` below being 0, which already
+  // gates rtl/writeback.v's `wen`, so it only has to be said here for the
+  // RVFI rmask report.
+  logic csr_src_zero, csr_write_op, csr_read_op;
+  assign csr_src_zero = rs1_field == 5'b0;
+  assign csr_write_op = instr_csr_access && !((instr_csrrs || instr_csrrc) && csr_src_zero);
+  assign csr_read_op  = instr_csr_access && !(instr_csrrw && rd_field == 5'b0);
+  assign csr_wdata = instr_csrrw ? csr_arg :
+                     instr_csrrs ? (csr_rdata | csr_arg) :
+                                   (csr_rdata & ~csr_arg);
 
   logic instr_error;
   assign instr_error = opcode == 5'b11100 && uncompressed && funct3 == 0 && rs1 == 0 && rd == 0;
@@ -289,7 +350,7 @@ module decoder (
     instr_and || instr_mul || instr_mulh || instr_mulhu || instr_mulhsu || instr_div || instr_divu
     || instr_rem || instr_remu || instr_sll || instr_slt || instr_sltu || instr_srl || instr_sra ||
     instr_lui || instr_lb || instr_lbu || instr_lh || instr_lhu || instr_lw || instr_sb || instr_sh
-    || instr_sw || instr_ecall || instr_ebreak;
+    || instr_sw || instr_ecall || instr_ebreak || (instr_csr_access && csr_implemented);
 
   always_comb begin
     (* parallel_case, full_case *)
@@ -352,8 +413,11 @@ module decoder (
   // stage itself; the accessor check exists only because a load specifically
   // needs one more cycle there than every other instruction (see
   // accessor_stall/rtl/accessor.v) — not a general widening to a third stage.
+  // `is_csr_imm` is excluded because instr[19:15] is a 5-bit zimm for those
+  // three encodings, not a register index -- interlocking on it would stall
+  // on a register the instruction never reads (ADR-0005).
   logic uses_rs1, uses_rs2;
-  assign uses_rs1 = !(instr_lui || instr_jal || instr_auipc);
+  assign uses_rs1 = !(instr_lui || instr_jal || instr_auipc || is_csr_imm);
   assign uses_rs2 = (instr_math && !instr_math_immediate) || instr_sb || instr_sh || instr_sw ||
     instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu;
 
@@ -364,10 +428,34 @@ module decoder (
       (accessor_pending_valid && accessor_pending_rd == r);
   endfunction
 
+  // CLAUDE.md invariant 5 / ADR-0005: a CSR instruction is held in decode
+  // until execute, access and writeback have drained. ADR-0026: this is a
+  // fourth stall *reason* on an existing mechanism, not a fourth mechanism.
+  // It is bubble-shaped -- the CSR instruction has NOT issued, and the
+  // executor reads `in` every cycle, so holding decoder_out would have it
+  // reprocess whatever is sitting there -- which is exactly the scoreboard's
+  // shape, so it folds into `hazard` rather than growing the stall protocol.
+  //
+  // All four in-flight slots are needed. `out`/`executor_out` are the two the
+  // scoreboard already watches; `accessor_pending_valid` is ADR-0015's
+  // load-response turnaround; `accessor_out_valid` is the one that is easy to
+  // miss, because a store in the accessor shows up in none of the other
+  // three (ADR-0026).
+  //
+  // What this buys is `minstret` exactness, NOT hazard safety (ADR-0027
+  // amends ADR-0005 on exactly this point): the CSR read result reaches rd
+  // through the ordinary `is_add` pass-through, where the scoreboard above
+  // already covers RAW. Delete this stall and no hazard appears -- what
+  // appears is a `csrr minstret` inflated by whatever is in flight behind it.
+  logic pipe_drained, csr_serialize;
+  assign pipe_drained = !out.valid && !executor_out.valid && !accessor_out_valid &&
+    !accessor_pending_valid;
+  assign csr_serialize = instr_csr_access && !pipe_drained;
+
   logic hazard_rs1, hazard_rs2, hazard, stall;
   assign hazard_rs1 = uses_rs1 && rs1 != 0 && live_producer(rs1);
   assign hazard_rs2 = uses_rs2 && rs2 != 0 && live_producer(rs2);
-  assign hazard = hazard_rs1 || hazard_rs2;
+  assign hazard = hazard_rs1 || hazard_rs2 || csr_serialize;
 
  `ifdef RISCV_FORMAL
   // ADR-0006: rs1_valid/rs2_valid decide whether rvfi_rs{1,2}_addr
@@ -395,8 +483,16 @@ module decoder (
   // error 132 ("mismatch with shadow rs2") on a correct core. `uses_rs2` is
   // exactly "does this instruction have a real rs2 operand", so it doesn't
   // have this hole.
+  //
+  // `is_csr_imm` is excluded for the same reason `uses_rs1` excludes it: the
+  // three immediate CSR encodings have a zimm where rs1 would be, so
+  // reporting instr[19:15] as an rs1 address (with that register's current
+  // contents as rdata) would hand the monitor's shadow-register check a
+  // register read this instruction never performed -- the rs1 twin of the
+  // ADDI rs2 hole described above. riscv-formal's own rvfi_csrw_check reads
+  // the zimm straight out of rvfi_insn for these, so it needs nothing here.
   logic rvfi_rs1_valid, rvfi_rs2_valid;
-  assign rvfi_rs1_valid = !instr_lui && !instr_jal && !instr_auipc;
+  assign rvfi_rs1_valid = !instr_lui && !instr_jal && !instr_auipc && !is_csr_imm;
   assign rvfi_rs2_valid = uses_rs2;
  `endif
   // ADR-0009: a single global stall, combining the local RAW hazard with
@@ -404,6 +500,31 @@ module decoder (
   // load turnaround). Any reason freezes the PC; see below for why the two
   // downstream reasons freeze decoder_out differently.
   assign stall = hazard || divider_stall || accessor_stall;
+
+  // The one cycle an instruction actually issues: the publish block's `else`
+  // arm below runs on exactly these edges, so everything that commits
+  // architectural state OUTSIDE the pipeline registers -- the CSR write and
+  // the minstret increment -- is gated on it. Getting this wrong is silent:
+  // a CSR write that fired on a stalled cycle would apply once per stall
+  // cycle instead of once per instruction.
+  // Deliberately the publish block's own guard restated, term for term, and
+  // NOT `... && in.valid`: the publish arm does not test `in.valid` either,
+  // because rtl/fetcher.v drives it to exactly `!reset` (CLAUDE.md invariant
+  // 1 -- fetch is combinational and never presents a wrong-path
+  // instruction), so there is no third case. Adding the term would make this
+  // stricter than the arm it is supposed to shadow, and the two disagreeing
+  // is precisely the bug this signal exists to avoid.
+  logic issuing;
+  assign issuing = !reset && !stall;
+  assign csr_ren = issuing && instr_valid && csr_read_op;
+  assign csr_wen = issuing && instr_valid && csr_write_op;
+  // ADR-0027: increment at issue, for NON-TRAPPING issues only. No trap is
+  // taken yet -- trap entry is the next M3 step (ADR-0011) -- so today the
+  // only issue that does not retire architecturally is an unrecognised
+  // instruction, which `instr_valid` already names. That is not an
+  // approximation of the rule standing in for it: it is exactly the set that
+  // starts trapping when trap entry lands, so this line does not move then.
+  assign instret = issuing && instr_valid;
 
   // publish the decoded results
   always_ff @(posedge clk) begin
@@ -465,6 +586,14 @@ module decoder (
       out.rvfi.rs2_addr <= rvfi_rs2_valid ? rs2 : 5'b0;
       out.rvfi.rs1_rdata <= rvfi_rs1_valid ? reg_rs1 : 32'b0;
       out.rvfi.rs2_rdata <= rvfi_rs2_valid ? reg_rs2 : 32'b0;
+      // rtl/csrs.v builds these combinationally off the access being
+      // presented this cycle (its `ren`/`wen` are this module's, gated on
+      // `issuing`), so on this edge they describe exactly the instruction
+      // being published -- and a non-CSR instruction gets all-zero masks for
+      // free, because `csr_ren`/`csr_wen` are low for it.
+      out.rvfi.csr_mcycle   <= csr_rvfi_mcycle;
+      out.rvfi.csr_minstret <= csr_rvfi_minstret;
+      out.rvfi.csr_mscratch <= csr_rvfi_mscratch;
      `endif
       // outputs
       out.is_add <= instr_add;
@@ -496,9 +625,8 @@ module decoder (
       out.is_sw <= instr_sw;
       out.is_ecall <= instr_ecall;
       out.is_ebreak <= instr_ebreak;
-      out.is_csrrw <= instr_csrrw;
-      out.is_csrrs <= instr_csrrs;
-      out.is_csrrc <= instr_csrrc;
+      out.csr_addr <= csr_addr;
+      out.is_csr_imm <= is_csr_imm;
       out.is_valid_instr <= instr_valid;
       // calculate branch
       (* parallel_case *)
@@ -514,6 +642,21 @@ module decoder (
           out.rd <= rd;
           out.rs1 <= fetcher_pc;
           out.rs2 <= immediate;
+          out.is_add <= 1;
+        end
+
+        instr_csr_access: begin
+          // ADR-0005: the CSR read result rides the pass-through the decoder
+          // already uses for lui/jal/auipc -- the value goes out as rs1 with
+          // rs2 zeroed and the executor adds them. The *write* has already
+          // been committed this same edge, by rtl/csrs.v off `csr_wen`; the
+          // whole access is one cycle wide.
+          //
+          // `rd` is the ordinary rd field, so CSRRW's read-suppression when
+          // rd == x0 needs nothing extra: rd == 0 already gates
+          // rtl/writeback.v's `wen`.
+          out.rs1 <= csr_rdata;
+          out.rs2 <= 32'b0;
           out.is_add <= 1;
         end
 
@@ -568,7 +711,6 @@ module decoder (
         out.is_lui <= 0; out.is_lb <= 0; out.is_lbu <= 0; out.is_lhu <= 0; out.is_lh <= 0; out.is_lw <= 0;
         out.is_sb <= 0; out.is_sh <= 0; out.is_sw <= 0;
         out.is_ecall <= 0; out.is_ebreak <= 0;
-        out.is_csrrw <= 0; out.is_csrrs <= 0; out.is_csrrc <= 0;
         out.rd <= 0; // prevent writeback to arbitrary register
       end
     end
@@ -647,7 +789,13 @@ module decoder (
     instr_mul, instr_mulh, instr_mulhu, instr_mulhsu, instr_div, instr_divu, instr_rem,
     instr_remu, instr_sll, instr_slt, instr_sltu, instr_srl, instr_sra, instr_lui, instr_lb,
     instr_lbu, instr_lh, instr_lhu, instr_lw, instr_sb, instr_sh, instr_sw, instr_ecall,
-    instr_ebreak});
+    // The three Zicsr forms join the list rather than being exempted from
+    // it: `instr_valid` now admits a CSR access (when csr_implemented, a
+    // free input in this standalone task), so leaving them out would make
+    // the assertion below fail on every legal `csrr`. Listed separately, not
+    // folded into one term, so a decode change that made two of them true at
+    // once would still be caught -- they are distinguished only by funct3.
+    instr_ebreak, instr_csrrw, instr_csrrs, instr_csrrc});
 
   // we should only get one type of instruction
   always_comb if (instr_valid) assert(one_of);

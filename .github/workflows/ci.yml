@@ -75,7 +75,7 @@ jobs:
         run: |
           set -euo pipefail
           yosys -p '
-            read_verilog -sv rtl/structs.v rtl/accessor.v rtl/decoder.v rtl/executor.v rtl/fetcher.v rtl/regfile.v rtl/writeback.v rtl/littlecpu.v test/testbench.v
+            read_verilog -sv rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v rtl/fetcher.v rtl/regfile.v rtl/writeback.v rtl/littlecpu.v test/testbench.v
             hierarchy -top testbench
             proc
             opt_clean
