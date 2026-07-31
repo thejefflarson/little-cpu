@@ -88,9 +88,10 @@ sanitizer. (3) `test/monitor_tb.v` joins `make test-units`, driving the sanitize
 with hand-built trapping and non-trapping RVFI vectors — including a deliberately wrong one, so a
 gate that disabled all spec checking could not pass.
 
-`test/EXPECTED_FAIL` is **no longer empty**: `csr.S`, `minstret.S` and `trap.S` are seeded there
+`test/EXPECTED_FAIL` is **no longer empty**: `csr.S`, `minstret.S` and `trap.S` were seeded there
 ahead of the RTL that pays them off, which is the direction ADR-0014's burn-down contract was
-designed for. `make test` is **49 pass / 3 expected-fail** and still exits 0 only on set equality.
+designed for. Two of the three are paid off (below); `trap.S` remains, so `make test` is
+**51 pass / 1 expected-fail** and still exits 0 only on set equality.
 `test/run_tests.sh` also grew a `MONITOR-ERROR` label for runner exit 4, which used to fall into
 `RUNNER-ERROR` and read as "the sim would not start" when it actually means the per-retire oracle
 disagreed with the core mid-run. **Nothing here checks M3 semantics against an oracle**:
@@ -99,6 +100,33 @@ riscv-formal ships no spec model for `csrr*`/`ecall`/`ebreak`/`mret` at the pinn
 trap and CSR tests assert on values their own handler recorded. Error 133 ("expected intr after
 trap") stays unreachable in this single-channel config — `shadow_pc_valid <= !rvfi_trap` gates 130
 and 133 off for the retire after a trap — so `rvfi_intr` hardwired to 0 does not break anything.
+
+**M3 opens: `rtl/csrs.v` lands the CSR file and the Zicsr access path.** ADR-0005's set, exactly —
+RW `mstatus` (MIE/MPIE, MPP WARL→`2'b11`), `mtvec` (direct mode, 4-byte-aligned base, resets to 0
+per ADR-0029), `mepc` (bit 0 only, because C makes 2-byte targets legal), `mcause`, `mscratch`,
+`mcycle`/`mcycleh`, `minstret`/`minstreth`; RO `mtval`/`mie`/`mip` = 0, `misa` = `0x4000_1104`,
+`mvendorid`/`marchid`/`mimpid`/`mhartid` = 0. It is a **sibling of the decoder, not a pipeline
+stage**: every access is read and committed in decode on the edge the accessing instruction issues,
+so no CSR state exists downstream and the read result rides the `is_add` pass-through `lui`/`jal`
+already use. `rtl/decoder.v` separates `csrrwi`/`csrrsi`/`csrrci` from the register forms (they were
+folded together, losing the zimm-vs-rs1 distinction), excludes the immediate forms from `uses_rs1`
+and from `rvfi_rs1_valid`, and folds serialization into `hazard` per ADR-0026 — with
+`accessor_out.valid` newly routed in, because a store in flight is invisible to the other three
+slots. `minstret` increments at issue, gated on `instr_valid`, which is ADR-0027's non-trapping rule
+written now rather than retrofitted. **Nothing reads `mtvec`/`mepc`/`mcause` yet** — trap entry is
+deliberately the next step (ADR-0011) — and an unimplemented CSR stays an *unrecognised
+instruction* via the existing `instr_valid` path rather than raising a trap, which is exactly what
+it did before this file existed.
+
+`csr.S` and `minstret.S` came out of `test/EXPECTED_FAIL`; `test/csr_tb.v` joins `make test-units`.
+On the ladder, **`csrw_mcycle_ch0` and `csrw_minstret_ch0` went FAIL → PASS** and came out of
+`formal/EXPECTED_FAIL` in the same commit, and `formal/checks.cfg`'s `[csrs]` gained **`mscratch`
+only** — 78 checks became 79, `csrw_mscratch_ch0` passes. `mtvec`/`mepc`/`mcause`/`mstatus` are
+deliberately **not** on that list and must not be added: `rvfi_csrw_check.sv` has no WARL model, so
+a correctly masked WARL CSR fails there **on a correct core** (the reasoning is written out next to
+the `[csrs]` list). Those four are checked field-by-field in `test/csr_tb.v` instead. Note also that
+`genchecks` defines `RISCV_FORMAL_CSRWH` for `mcycle`/`minstret` by itself, so the `h` halves are
+exercised whether or not `checks.cfg` asks for it.
 
 What does not work right now:
 
@@ -137,9 +165,10 @@ What does not work right now:
   them for deletion. A green run of one of those is not a result.
 
 What does work: `yosys ... write_cxxrtl` elaborates the current RTL cleanly with zero warnings, the
-cxxrtl binary builds and runs, the `.S` suite passes under it except the three M3 tests seeded in
-`test/EXPECTED_FAIL`, `make test-units` passes (five benches: `exec_tb`, `mem_tb`, `decoder_tb`,
-`regfile_tb` — which covers the write-through bypass and x0 semantics — and `monitor_tb`, which
+cxxrtl binary builds and runs, the `.S` suite passes under it except the one M3 test still seeded in
+`test/EXPECTED_FAIL`, `make test-units` passes (six benches: `exec_tb`, `mem_tb`, `decoder_tb`,
+`regfile_tb` — which covers the write-through bypass and x0 semantics — `csr_tb`, which covers
+`rtl/csrs.v`'s read mux, its `implemented` address set and its WARL masks, and `monitor_tb`, which
 checks the oracle itself rather than the core), and the decoder and executor component proofs pass
 by k-induction (see ADR-0017 for what the decoder proof does and does not establish). `make waves`
 now runs the iverilog leg (`testbench.vvp`) instead of the cxxrtl runner, matching the verification
@@ -185,14 +214,21 @@ These are the design. Violating one is a bug even if tests pass.
 5. **CSR instructions and `mret` serialize** — held in decode until execute/access/writeback drain.
 6. **The regfile is combinational-read with write-through bypass.**
 7. **`test/monitor.v` is generated but tracked.** Regenerate it; never hand-edit it.
-8. **Stalls are a single global broadcast with three sources** — the decode scoreboard, the
-   divider, and the accessor's one-cycle load-response turnaround (ADR-0015). Two non-local rules
-   hold it together, and a later change can break either silently: (a) while `divider_stall` or
-   `accessor_stall` is asserted, decode **holds** `decoder_out` unchanged rather than bubbling it,
-   and nothing downstream may consume it that cycle; a RAW hazard does the opposite (bubble). (b)
-   Every in-flight non-`x0` `rd` is visible to the scoreboard on every cycle between issue and the
+8. **Stalls are a single global broadcast: four reasons over two mechanisms** (ADR-0026, amending
+   ADR-0009). The reasons are the decode scoreboard, the divider, the accessor's one-cycle
+   load-response turnaround (ADR-0015), and CSR serialization (invariant 5). The **mechanisms** are
+   what actually matters, and three non-local rules hold them together, each breakable silently:
+   (a) while `divider_stall` or `accessor_stall` is asserted, decode **holds** `decoder_out`
+   unchanged rather than bubbling it, and nothing downstream may consume it that cycle; a RAW
+   hazard **bubbles** instead, and so does CSR serialization — the CSR instruction has not issued
+   yet, so it folds into the existing `hazard` term rather than becoming new machinery. (b) Every
+   in-flight non-`x0` `rd` is visible to the scoreboard on every cycle between issue and the
    regfile write-through, with no gap: `decoder_out` → `executor_out` → `accessor_pending` (loads
-   only) → write-through.
+   only) → write-through. (c) The serialization drain predicate reads **four** slots, not the
+   scoreboard's three: `accessor_pending_valid` covers loads only, so `accessor_out.valid` is
+   routed into the decoder separately (`rtl/littlecpu.v`) — without it a *store* in flight is
+   invisible and a CSR instruction issues early, giving a `minstret` that is wrong only when a
+   store happens to be in flight.
 
 ## ISA target
 
@@ -215,7 +251,7 @@ make waves          # iverilog + VCD (testbench.vvp's baked-in program) -> waves
 make monitor-check  # regenerate test/monitor.v at the pin and diff
 
 make -C formal components_decoder   # component proofs
-make -C formal check                # the riscv-formal ladder (78 checks; see ADR-0023)
+make -C formal check                # the riscv-formal ladder (79 checks; see ADR-0023)
 
 make sail-setup     # once: fetch the pinned sail-riscv release into tools/sail/
 make cosim-run      # Sail co-simulation on ONE program (PROG=add.S). Opt-in; see ADR-0032
@@ -291,7 +327,7 @@ the oracle (ADR-0019).
 | M0 | Foundation | this file, riscv-formal SHA-pinned, dead references gone |
 | M1 | Finish the pipeline | all RV32IM `.S` tests pass under cxxrtl — **reached, `a4662a2`** |
 | M2 | **Parity checkpoint** | the pipelined core re-proves everything the serialized core proved |
-| M3 | Past the old core | CSRs + machine-mode traps |
+| M3 | Past the old core | CSRs + machine-mode traps — CSRs done (`rtl/csrs.v`); traps are next |
 | M4 | Full ladder + CI | nightly formal green; tag a release (PR gate `c66527d`; nightly `86e2721`, report-only until ADR-0022) |
 
 M1 is reached. **M2 is the milestone that erases the verified→unverified regression** — treat it
@@ -300,7 +336,10 @@ in both sim legs) and `86e2721` landed the ladder port itself (`wrapper.v` / `ch
 `imemcheck` / `dmemcheck` / `cover` / `equiv.sh`, ADR-0006) — but **M2 is not reached.** M2's own
 wording is "re-proves everything the serialized core proved", and 15 red checks plus an inconclusive
 `reg` plus a non-converging `equiv.sh` is not that. ADR-0023 lists what closing it takes; the
-`formal/EXPECTED_FAIL` baseline of ADR-0022 reaching empty is the signal.
+`formal/EXPECTED_FAIL` baseline of ADR-0022 reaching empty is the signal — read together with the
+generated check count, per ADR-0033. `rtl/csrs.v` took that baseline from 11 entries to 9 (both
+`csrw_*`) on a 79-check ladder; the remaining 9 are all the trap gap, so the next M3 step closes
+them or the attribution behind them was wrong.
 
 ## Pointers
 

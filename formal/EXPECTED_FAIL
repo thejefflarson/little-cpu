@@ -42,9 +42,19 @@
 # side-by-side tally and wall time of both engines, including a caveat on
 # how machine-dependent that wall-time gap turned out to be.
 
-# CSRs are M3 (CLAUDE.md); mcycle/minstret aren't implemented yet.
-csrw_mcycle_ch0
-csrw_minstret_ch0
+# csrw_mcycle_ch0 and csrw_minstret_ch0 were here ("CSRs are M3"). They came
+# out with rtl/csrs.v, verified FAIL -> PASS before removal, and the ladder
+# grew a third one the same commit: formal/checks.cfg's [csrs] gained
+# `mscratch`, so genchecks now emits 79 checks rather than 78 and
+# csrw_mscratch_ch0 PASSes too. Read that count change together with
+# ADR-0033: a check that is not generated is missing from the results AND
+# from this file at once, so set equality alone would not have noticed the
+# new one either way -- the generated count is what does.
+#
+# Only `mscratch` was added to [csrs], and the reason it is the only one is
+# recorded next to that list: rvfi_csrw_check.sv has no WARL model, so a
+# correctly WARL-masked mtvec/mepc/mstatus/mcause on that list would FAIL on
+# a CORRECT core. Those are checked in test/csr_tb.v instead.
 
 # `rvfi_trap` is hardwired 0 until misalignment traps land (M3, ADR-0011).
 # Every byte-granularity access (lb/lbu/sb) passes -- this is exactly the

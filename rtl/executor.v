@@ -195,7 +195,12 @@ module executor(
               out.valid <= 1'b0;
              `endif
             end
-            in.is_ecall || in.is_ebreak || in.is_csrrw || in.is_csrrs || in.is_csrrc: ;
+            // A Zicsr access does not appear here at all: rtl/csrs.v reads
+            // and commits it in decode (ADR-0005) and the read result
+            // arrives as `is_add` with rs2 zeroed, so by the time it reaches
+            // this stage it IS an add. That is why decoder_output no longer
+            // carries is_csrrw/is_csrrs/is_csrrc -- see rtl/structs.v.
+            in.is_ecall || in.is_ebreak: ;
             in.is_valid_instr: ;
           endcase // case (1'b1)
         end // case: init
@@ -327,7 +332,7 @@ module executor(
     in.is_mul, in.is_mulh, in.is_mulhu, in.is_mulhsu,
     in.is_div, in.is_divu, in.is_rem, in.is_remu,
     in.is_lb, in.is_lbu, in.is_lh, in.is_lhu, in.is_lw, in.is_sb, in.is_sh, in.is_sw,
-    in.is_ecall, in.is_ebreak, in.is_csrrw, in.is_csrrs, in.is_csrrc}));
+    in.is_ecall, in.is_ebreak}));
 
   // Multiply: a single combinational stage, so full 32-bit-operand correctness
   // is provable directly (no restriction needed). Independently re-derives

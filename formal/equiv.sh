@@ -14,10 +14,10 @@
 # work around by weakening the proof.
 set -e
 yosys -p '
-  read_verilog -sv ../rtl/structs.v ../rtl/fetcher.v ../rtl/regfile.v ../rtl/decoder.v ../rtl/executor.v ../rtl/accessor.v ../rtl/writeback.v ../rtl/littlecpu.v
+  read_verilog -sv ../rtl/structs.v ../rtl/fetcher.v ../rtl/regfile.v ../rtl/csrs.v ../rtl/decoder.v ../rtl/executor.v ../rtl/accessor.v ../rtl/writeback.v ../rtl/littlecpu.v
   prep -flatten -top littlecpu
   design -stash gold
-  read_verilog -D RISCV_FORMAL -sv ../rtl/structs.v ../rtl/fetcher.v ../rtl/regfile.v ../rtl/decoder.v ../rtl/executor.v ../rtl/accessor.v ../rtl/writeback.v ../rtl/littlecpu.v
+  read_verilog -D RISCV_FORMAL -sv ../rtl/structs.v ../rtl/fetcher.v ../rtl/regfile.v ../rtl/csrs.v ../rtl/decoder.v ../rtl/executor.v ../rtl/accessor.v ../rtl/writeback.v ../rtl/littlecpu.v
   prep -flatten -top littlecpu
   delete -port littlecpu/rvfi_*
   design -stash gate

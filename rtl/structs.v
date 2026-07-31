@@ -22,6 +22,27 @@ typedef struct packed {
 // no LUTs (ADR-0006): none of this exists unless
 // RISCV_FORMAL is defined.
 `ifdef RISCV_FORMAL
+// One RVFI CSR report: what the retiring instruction read and wrote of one
+// CSR. Two widths because riscv-formal's own port widths differ -- the
+// counters are 64-bit (mcycle/mcycleh are one RVFI CSR, not two), everything
+// else is XLEN. rtl/csrs.v builds these; the decoder latches them at issue.
+// Field ORDER is not arbitrary: rtl/writeback.v names the fields, but a
+// packed struct is still a bit vector, so keep rmask/wmask/rdata/wdata
+// together and change them in one place.
+typedef struct packed {
+  logic [63:0] rmask;
+  logic [63:0] wmask;
+  logic [63:0] rdata;
+  logic [63:0] wdata;
+} rvfi_csr64;
+
+typedef struct packed {
+  logic [31:0] rmask;
+  logic [31:0] wmask;
+  logic [31:0] rdata;
+  logic [31:0] wdata;
+} rvfi_csr32;
+
 typedef struct packed {
   logic [31:0] insn;
   logic [31:0] pc_rdata;
@@ -30,6 +51,14 @@ typedef struct packed {
   logic [4:0]  rs2_addr;
   logic [31:0] rs1_rdata;
   logic [31:0] rs2_rdata;
+  // Exactly the CSRs formal/checks.cfg's `[csrs]` list names, captured in
+  // decode -- the one stage that knows them, since ADR-0005 reads and
+  // commits every CSR access there -- and forwarded on the same valid-bit
+  // protocol as everything else above (ADR-0006: no new plumbing concept, a
+  // bubble zeroes them for free and a stall holds them for free).
+  rvfi_csr64   csr_mcycle;
+  rvfi_csr64   csr_minstret;
+  rvfi_csr32   csr_mscratch;
 } rvfi_shadow;
 `endif
 
@@ -72,9 +101,23 @@ typedef struct packed {
   logic        is_sw;
   logic        is_ecall;
   logic        is_ebreak;
-  logic        is_csrrw;
-  logic        is_csrrs;
-  logic        is_csrrc;
+  // ADR-0005's decode-side record of a Zicsr access: which CSR, and whether
+  // the operand was a zimm rather than rs1. No stage after decode reads
+  // either -- a CSR access is read, computed and committed entirely in
+  // decode (rtl/csrs.v is the decoder's sibling, not a pipeline stage), and
+  // the *result* reaches rd through `is_add` like lui/jal/auipc already do.
+  // They are carried anyway, per ADR-0005, because they are the only place
+  // downstream a reader (or a waveform) can tell a CSR access apart from the
+  // add it is disguised as.
+  //
+  // What is deliberately NOT here: `is_csrrw`/`is_csrrs`/`is_csrrc`, which
+  // this struct used to carry with rtl/executor.v:198 an empty statement for
+  // them. They cannot coexist with the `is_add` pass-through: the executor's
+  // op select is one `(* parallel_case *) case (1'b1)`, and setting both
+  // `is_add` and a CSR flag would make two arms match at once -- a lie to
+  // synthesis, not merely redundant.
+  logic [11:0] csr_addr;
+  logic        is_csr_imm;
 } decoder_output;
 
 typedef struct packed {
