@@ -48,27 +48,19 @@ sim: test/cxxrtl.cc test/rtl.cc
 # pristine and tracked (CLAUDE.md invariant 7); regenerate this file, never
 # hand-edit it, and never commit it. BOTH sim legs read this file, so they
 # cannot drift into checking different specs -- and it is therefore
-# load-bearing for correctness, not just elaboration: changing a rule below
-# changes the oracle. Two rules, each anchored tightly enough that it cannot
-# match anywhere it wasn't meant to. `diff test/monitor.v test/monitor.sim.v`
-# is six lines; if it stops being readable at a glance, fix the generator
-# upstream instead.
+# load-bearing for correctness, not just elaboration: changing a rule in the
+# sanitizer changes the oracle.
 #
-#   1. yosys's AST_AUTOWIRE elaboration bug trips on `$time` used as a bare
-#      $display argument (four call sites -- iverilog handles it fine, yosys
-#      does not). Strips the timestamp from the error banner; the iverilog
-#      leg loses a diagnostic nicety, not a check.
-#   2. ADR-0019: monitor_insn_div/monitor_insn_rem compute signed division as
-#      a conditional whose other branches are unsigned, so IEEE 1800
-#      sign-context propagation silently evaluates the division UNSIGNED --
-#      wrong answers for negative operands only, which is exactly what
-#      div.S/rem.S exercise. Wrapping the arithmetic in $signed() makes it
-#      self-determined, so the enclosing conditional can no longer downgrade
-#      it. Two lines change (DIV `/` and REM `%`).
-test/monitor.sim.v: test/monitor.v
-	sed -E -e 's/ at time %0t --------", ([A-Za-z0-9_]+), \$$time\)/ --------", \1)/' \
-	       -e 's/\$$signed\((rvfi_rs1_rdata)\) ([\/%]) \$$signed\((rvfi_rs2_rdata)\);/$$signed($$signed(\1) \2 $$signed(\3));/' \
-	       $< > $@
+# The three rules, and why each exists, live in test/sanitize_monitor.py.
+# They were an inline `sed` chain here until the third one (the !spec_trap
+# gate) arrived: that rule is a structural insert across a 45-line span, not
+# a line substitution, and the script additionally asserts a site count per
+# rule so a pin bump that changes the generator's output fails loudly instead
+# of silently shipping an unapplied sanitizer. `diff test/monitor.v
+# test/monitor.sim.v` is eight lines; if it stops being readable at a glance,
+# fix the generator upstream instead.
+test/monitor.sim.v: test/monitor.v test/sanitize_monitor.py
+	python3 test/sanitize_monitor.py $< > $@
 
 # $(RISCV_FORMAL_MACROS) turns on the rvfi_* ports and their driving logic
 # throughout rtl/ and test/testbench.v's `monitor` instance (ADR-0006);
@@ -114,19 +106,24 @@ else
 	@echo "  sudo apt-get install gcc-riscv64-unknown-elf"
 endif
 
-# Four small benches that landed in `eb18320` and `a4662a2` with no runner
+# Five small benches. Four landed in `eb18320` and `a4662a2` with no runner
 # (rtl/executor.v, rtl/memory.v, rtl/decoder.v, rtl/regfile.v respectively —
 # regfile_tb.v covers the write-through bypass and x0 semantics, the single
 # most load-bearing change in the project, and was verified by hand via
-# iverilog+vvp before this rule existed to run it in CI). Compiled and run
-# straight through iverilog/vvp; each bench $fatal(1)s on a mismatch and
-# $finish (exit 0) on success, so vvp's own exit code is the pass/fail
-# signal — no output-parsing needed. A separate target from `test` (that one
-# is the ADR-0007 cxxrtl regression gate over test/asm/*.S; these are
-# RTL-level unit benches with their own, unrelated pass/fail mechanism) but
-# `test` depends on it so one `make test` still catches everything.
+# iverilog+vvp before this rule existed to run it in CI). The fifth,
+# monitor_tb, is not an RTL bench at all: it drives the sanitized monitor
+# (test/monitor.sim.v) directly with hand-built RVFI retires, because that
+# file is the oracle both sim legs check against and nothing else exercises
+# it on inputs whose correct verdict is known independently of the core
+# (ADR-0019). Compiled and run straight through iverilog/vvp; each bench
+# $fatal(1)s on a mismatch and $finish (exit 0) on success, so vvp's own exit
+# code is the pass/fail signal — no output-parsing needed. A separate target
+# from `test` (that one is the ADR-0007 cxxrtl regression gate over
+# test/asm/*.S; these are unit benches with their own, unrelated pass/fail
+# mechanism) but `test` depends on it so one `make test` still catches
+# everything.
 .PHONY: test-units
-test-units:
+test-units: test/monitor.sim.v
 	@tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/test-units.XXXXXX"); \
 	trap 'rm -rf "$$tmp"' EXIT; \
 	set -e; \
@@ -141,7 +138,10 @@ test-units:
 	vvp $$tmp/decoder_tb.vvp; \
 	echo "== regfile_tb =="; \
 	iverilog -I./rtl/ -g2012 -o $$tmp/regfile_tb.vvp rtl/regfile.v test/regfile_tb.v; \
-	vvp $$tmp/regfile_tb.vvp
+	vvp $$tmp/regfile_tb.vvp; \
+	echo "== monitor_tb =="; \
+	iverilog -g2012 -o $$tmp/monitor_tb.vvp test/monitor.sim.v test/monitor_tb.v; \
+	vvp $$tmp/monitor_tb.vvp
 
 # Assembles every test/asm/*.S (rv32im_zicsr, -nostdlib, ADR-0008's memory
 # map), runs each under `sim`, and checks the pass/fail table against
