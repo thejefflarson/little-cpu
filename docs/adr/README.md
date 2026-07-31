@@ -39,6 +39,7 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0032](0032-sail-co-simulation-is-worth-building-and-stays-opt-in.md) | Sail co-simulation is worth building, and stays opt-in | Accepted |
 | [0033](0033-what-the-green-ladder-does-not-cover.md) | What a green ladder does not cover — three assurance gaps, named | Accepted |
 | [0034](0034-what-the-csr-ladder-checks-cannot-see.md) | What the CSR ladder checks cannot see, and the decisions the CSR file forced | Accepted |
+| [0035](0035-the-baseline-pins-the-failure-mode.md) | `test/EXPECTED_FAIL` pins the failure mode, not just the file name | Accepted |
 
 0001–0007 came from the design brief
 ([`docs/ideas/finish-the-rewrite.md`](../ideas/finish-the-rewrite.md)). 0008–0011 came out of
@@ -66,7 +67,9 @@ three together: it audits the machinery M2 is *measured* by rather than the core
 records what a green ladder and a matching baseline do not, on their own, establish. 0034 came out of
 integrating the CSR file: it records the two decode-side decisions ADR-0005's field list left open,
 corrects ADR-0027 on the counter `h` halves, measures what the `csrw_*` checks cannot see, and fixes
-a `CLAUDE.md` engineering rule that named the wrong file.
+a `CLAUDE.md` engineering rule that named the wrong file. 0035 amends 0014 and applies 0033's lens
+to the *simulation* gate: `test/run_tests.sh` had three ways to report success without having tested
+anything, so the failure set now records name **and** status and every build step is checked.
 
 ## Deferred decisions
 

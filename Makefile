@@ -472,11 +472,17 @@ lint-setup:
 # test/asm/*.S; these are unit benches with their own, unrelated pass/fail
 # mechanism) but `test` depends on it so one `make test` still catches
 # everything.
+#
+# `set -e` comes FIRST, before mktemp and before the trap (ADR-0035). The
+# other order installed the cleanup trap on an unchecked $$tmp: a failed
+# mktemp left it empty, every -o path collapsed to the filesystem root, and
+# the trap then removed nothing.
 .PHONY: test-units
 test-units: test/monitor.sim.v
-	@tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/test-units.XXXXXX"); \
+	@set -e; \
+	tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/test-units.XXXXXX"); \
+	test -n "$$tmp" -a -d "$$tmp"; \
 	trap 'rm -rf "$$tmp"' EXIT; \
-	set -e; \
 	echo "== exec_tb =="; \
 	iverilog -I./rtl/ -g2012 -o $$tmp/exec_tb.vvp rtl/structs.v rtl/executor.v test/exec_tb.v; \
 	vvp $$tmp/exec_tb.vvp; \

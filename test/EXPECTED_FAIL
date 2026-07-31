@@ -6,6 +6,23 @@
 # wholesale from a run (that would launder a regression into the baseline);
 # edit it by hand, and justify any line added back in the PR that adds it.
 #
+# FORMAT — two fields, not one (ADR-0035):
+#
+#     <test>.S  <STATUS>
+#
+# The status is the exact label test/run_tests.sh prints in its table:
+# ASSEMBLE-ERROR, ASSEMBLE-WARNING, OBJCOPY-ERROR <region>,
+# OBJCOPY-EMPTY <region>, FAIL <n>, TIMEOUT, MONITOR-ERROR <n>, or
+# RUNNER-ERROR <n>. Whitespace between the fields is free; a line with only a
+# name is rejected rather than half-matched.
+#
+# The status is here because matching on the name alone made the gate blind to
+# *why* a test failed. A baselined entry stayed matched if its assembly broke
+# (ASSEMBLE-ERROR), if the sim binary would not start (RUNNER-ERROR) or if it
+# hung (TIMEOUT) — a broken harness and a broken test both laundered into a
+# green gate. Changing the status is the same kind of claim as removing the
+# line: it needs the same justification in the PR that does it.
+#
 # ADR-0004/ADR-0009 (`a4662a2`): combinational-read regfile + write-through
 # bypass, valid bits, the stall-only hazard interlock, and the divider's
 # stall wired up for real) took this to empty: all 47 tests in the suite
@@ -41,5 +58,9 @@
 #                 MONITOR-ERROR rather than FAIL today: with no trap logic the
 #                 core completes the misaligned load, and the per-retire
 #                 monitor catches the disagreement before `tohost` is ever
-#                 written.
-trap.S
+#                 written. Error 101 is "mismatch in trap" — the check
+#                 ADR-0033 gap 2 keeps live under `spec_trap`. Pinning that
+#                 number here is the point of the status field: if trap.S
+#                 starts failing some other way, it is a new failure, not this
+#                 one.
+trap.S      MONITOR-ERROR 101
