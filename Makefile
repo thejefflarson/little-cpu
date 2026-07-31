@@ -51,33 +51,51 @@ sim: test/cxxrtl.cc test/rtl.cc
 # still work on a machine with no Sail installed, and a time-boxed experiment
 # must not quietly become a merge gate. Run it by hand:
 #
-#     make sail-setup     # once: fetch the pinned sail-riscv release
+#     make sail-setup     # once: fetch, verify and unpack the pinned release
 #     make cosim          # build the architectural-state tracer
 #     make cosim-run      # run it on one program (PROG=add.S by default)
 # ---------------------------------------------------------------------------
 
-# The sail-riscv release this spike was run against. Pinned for the same
-# reason formal/pin.mk pins riscv-formal: an oracle that moves under you is
-# not an oracle.
+# The sail-riscv release this spike was run against, pinned the way
+# formal/pin.mk pins riscv-formal and for the same reason (ADR-0013): an oracle
+# that moves under you is not an oracle -- and this one is EXECUTED, by the
+# `--version` probe at the end of the fetch below and by every `make cosim-run`
+# after it, via test/cosim.py.
 #
-# It is NOT the same KIND of pin, and the difference is worth being exact
-# about. formal/pin.mk pins a 40-hex commit SHA with `override`,
-# verifies HEAD after checkout, and fails closed; ci.yml SHA256-verifies the
-# oss-cad-suite tarball. This is a plain variable naming a GitHub release
-# asset, fetched over `curl | tar xz` with no checksum and no signature --
-# and release assets are mutable, so the tag pins a NAME, not BYTES. The
-# unpacked binary IS executed: immediately below (`--version`) and on every
-# `cosim-run`. What keeps that acceptable for now is scope, not the fetch:
-# nothing on `make test`'s path or in any CI workflow reaches this target, so
-# it runs only when a maintainer types `make sail-setup` by hand. Wiring
-# co-sim into `make test` or CI (ADR-0032's integration item) means fixing
-# this first -- pin.mk is the shape to copy: a checksum over the tarball,
-# verified before anything out of it is executed.
+# A GitHub release asset is MUTABLE, so a version on its own pins a FILENAME,
+# not BYTES. The SHA-256 beside each asset name below is what pins the bytes,
+# and it is checked before anything is extracted, let alone run. Bumping the
+# version therefore means re-pinning all three digests; that friction is the
+# point, exactly as it is for RISCV_FORMAL_SHA.
 #
-# Overridable for a bisect; note that bumping it does NOT re-fetch, because
-# the rule below keys on the binary existing. `rm -rf tools/sail` first.
-SAIL_RISCV_VERSION ?= 0.13.1
-SAIL_RISCV_DIR     := tools/sail
+# An attempt to set the version from outside is REJECTED rather than ignored:
+# `override` alone would make `make SAIL_RISCV_VERSION=...` silently do
+# nothing, which reads as a working knob. This is a supply-chain control, not
+# a knob.
+#
+# ADR-0033 gap 4 recorded the unverified fetch as accepted-because-opt-in, with
+# "give it pin.mk's treatment" as the precondition for ever putting co-sim on
+# `make test` or CI. That precondition is met here. It is the only one: the
+# rest of ADR-0032's integration list (the `tohost` doubleword, a
+# COSIM_EXPECTED_FAIL baseline, a nightly job) is untouched, and co-simulation
+# stays off every default path.
+ifneq ($(filter command line environment,$(origin SAIL_RISCV_VERSION)),)
+$(error SAIL_RISCV_VERSION cannot be set from the command line or the \
+  environment: it pins bytes this repo executes. Change it in the Makefile, \
+  together with the SHA-256 digests below it)
+endif
+override SAIL_RISCV_VERSION := 0.13.1
+
+# Three-part, so a branch name, `latest`, or one of upstream's rolling
+# date-and-SHA tags (`2026-07-27-9901550`) cannot be written here by accident.
+# Upstream also ships two-part tags (`0.13`, `0.12`): bumping to one means
+# widening this regex deliberately, in the same commit as the new digests,
+# rather than discovering at fetch time that the guard was never the control.
+# The digests are.
+ifeq ($(shell printf '%s' '$(SAIL_RISCV_VERSION)' | grep -cE '^[0-9]+\.[0-9]+\.[0-9]+$$'),0)
+$(error SAIL_RISCV_VERSION must be a three-part release version like 0.13.1, \
+  not a branch, a moving tag or a range: '$(SAIL_RISCV_VERSION)')
+endif
 
 # Prebuilt, first-party release binaries from github.com/riscv/sail-riscv.
 # Building the model from source needs opam + OCaml + the Sail compiler
@@ -85,24 +103,127 @@ SAIL_RISCV_DIR     := tools/sail
 # unrelated WordPress deploy tool). The upstream release ships a macOS arm64
 # and two Linux tarballs, which covers every machine this repo is developed
 # and CI'd on, so the source build is not worth its cost here.
+#
+# Digests are `shasum -a 256` over all three 0.13.1 assets, downloaded fresh
+# and cross-checked against the per-asset digest the GitHub releases API
+# reports. All three are pinned deliberately: a host whose asset has no digest
+# here must fail closed rather than fetch something unverifiable, so the
+# recipe below refuses to run rather than skipping the check for one platform.
+SAIL_SHA256_sail-riscv-Mac-arm64     := 53d0c6fd84edd898728e7ba01c1575e66e5f17efd098847c5273690abbbd0737
+SAIL_SHA256_sail-riscv-Linux-x86_64  := ee052f64494a2f5f071afd9c2cb4aa5eaae4ba84753e4f77e442b4f83f2e9469
+SAIL_SHA256_sail-riscv-Linux-aarch64 := 3cd33a323d6749aec4667e54f71d2bf8e8e6e220a4e4bafd9083440f9a7e55f0
+
+SAIL_ASSET_Darwin_arm64   := sail-riscv-Mac-arm64
+SAIL_ASSET_Linux_x86_64   := sail-riscv-Linux-x86_64
+SAIL_ASSET_Linux_aarch64  := sail-riscv-Linux-aarch64
+
+SAIL_RISCV_DIR := tools/sail
+SAIL_SIM_BIN   := $(SAIL_RISCV_DIR)/bin/sail_riscv_sim
+SAIL_ASSET     := $(SAIL_ASSET_$(shell uname -s)_$(shell uname -m))
+SAIL_SHA256    := $(SAIL_SHA256_$(SAIL_ASSET))
+
+# tools/sail/.sail-pin, written only after the digest check passes. Line 1 is
+# the pin the tree was fetched under; line 2 is the SHA-256 of the unpacked
+# sail_riscv_sim, which is what test/cosim.py checks the binary against before
+# executing it. Line 1 is what makes a version bump re-fetch instead of
+# silently reusing whatever landed first -- the old rule keyed on the binary
+# merely existing, so the first binary to arrive was executed forever.
+SAIL_STAMP := $(SAIL_RISCV_DIR)/.sail-pin
+SAIL_PIN   := $(SAIL_RISCV_VERSION) $(SAIL_ASSET) $(SAIL_SHA256)
+
+# Fail closed, the way formal/pin.mk's HEAD check does: a tree on disk at
+# anything other than the pin stops the target that would execute it, rather
+# than being silently reused. `sail-setup` is exempt because it is the way out
+# of this state (pin.mk exempts `clean` for the same reason) -- it re-fetches
+# on a pin mismatch.
+#
+# Scoped to the goals that actually run the binary. A stale tools/sail must not
+# break `make test`: co-simulation is opt-in (ADR-0032) and a guard on it that
+# could fail the suite would have made it a gate by the back door.
+ifneq ($(filter cosim-run,$(MAKECMDGOALS)),)
+ifneq ($(wildcard $(SAIL_SIM_BIN)),)
+SAIL_PIN_ON_DISK := $(shell sed -n 1p $(SAIL_STAMP) 2>/dev/null)
+ifneq ($(SAIL_PIN_ON_DISK),$(SAIL_PIN))
+$(error $(SAIL_RISCV_DIR) was fetched under '$(SAIL_PIN_ON_DISK)', not the pin \
+  '$(SAIL_PIN)'. Re-fetch it with: make sail-setup)
+endif
+endif
+endif
+
+# Download to a file, verify the digest, audit the member paths, and only then
+# extract -- the previous recipe piped curl straight into tar, so bytes from
+# the network were unpacked before anything could reject them. `--version` runs
+# last, after verification, which is the order the comment above claims.
 .PHONY: sail-setup
-sail-setup: $(SAIL_RISCV_DIR)/bin/sail_riscv_sim
-$(SAIL_RISCV_DIR)/bin/sail_riscv_sim:
-	@case "$$(uname -s)/$$(uname -m)" in \
-	  Darwin/arm64)  asset=sail-riscv-Mac-arm64 ;; \
-	  Linux/x86_64)  asset=sail-riscv-Linux-x86_64 ;; \
-	  Linux/aarch64) asset=sail-riscv-Linux-aarch64 ;; \
-	  *) echo "no prebuilt sail-riscv for $$(uname -s)/$$(uname -m);" >&2; \
-	     echo "build it from https://github.com/riscv/sail-riscv and set" >&2; \
-	     echo "SAIL_RISCV_SIM to the resulting sail_riscv_sim." >&2; exit 1 ;; \
-	esac; \
-	url=https://github.com/riscv/sail-riscv/releases/download/$(SAIL_RISCV_VERSION)/$$asset.tar.gz; \
+sail-setup:
+	@set -e; \
+	if [ -z '$(SAIL_ASSET)' ]; then \
+	  echo "no prebuilt sail-riscv for $$(uname -s)/$$(uname -m);" >&2; \
+	  echo "build it from https://github.com/riscv/sail-riscv and set" >&2; \
+	  echo "SAIL_RISCV_SIM to the resulting sail_riscv_sim." >&2; \
+	  exit 1; \
+	fi; \
+	if [ -z '$(SAIL_SHA256)' ]; then \
+	  echo "no SHA-256 pinned for $(SAIL_ASSET) at $(SAIL_RISCV_VERSION);" >&2; \
+	  echo "add one beside the others in the Makefile. Fetching an asset this" >&2; \
+	  echo "repo cannot verify is not an option this target offers." >&2; \
+	  exit 1; \
+	fi; \
+	if command -v shasum >/dev/null 2>&1; then sha='shasum -a 256'; \
+	elif command -v sha256sum >/dev/null 2>&1; then sha='sha256sum'; \
+	else \
+	  echo "neither shasum nor sha256sum is on PATH; refusing to unpack a" >&2; \
+	  echo "tarball this machine cannot check." >&2; \
+	  exit 1; \
+	fi; \
+	if [ -x $(SAIL_SIM_BIN) ] && \
+	   [ "$$(sed -n 1p $(SAIL_STAMP) 2>/dev/null)" = '$(SAIL_PIN)' ]; then \
+	  want=$$(sed -n 2p $(SAIL_STAMP)); \
+	  got=$$($$sha $(SAIL_SIM_BIN) | cut -d ' ' -f 1); \
+	  if [ "$$want" != "$$got" ]; then \
+	    echo "$(SAIL_SIM_BIN) is not the binary its stamp was written for:" >&2; \
+	    echo "  recorded : $$want" >&2; \
+	    echo "  on disk  : $$got" >&2; \
+	    echo "the tree changed after it was verified. Start over with:" >&2; \
+	    echo "  rm -rf $(SAIL_RISCV_DIR) && make sail-setup" >&2; \
+	    exit 1; \
+	  fi; \
+	  echo "sail-riscv $(SAIL_RISCV_VERSION) already verified in $(SAIL_RISCV_DIR)"; \
+	  exit 0; \
+	fi; \
+	url=https://github.com/riscv/sail-riscv/releases/download/$(SAIL_RISCV_VERSION)/$(SAIL_ASSET).tar.gz; \
+	tmp=$(SAIL_RISCV_DIR).tmp; tgz=$$tmp/$(SAIL_ASSET).tar.gz; \
+	rm -rf $$tmp; mkdir -p $$tmp; \
 	echo "fetching $$url"; \
-	rm -rf $(SAIL_RISCV_DIR).tmp && mkdir -p $(SAIL_RISCV_DIR).tmp && \
-	curl -fsSL "$$url" | tar xz -C $(SAIL_RISCV_DIR).tmp --strip-components=1 && \
-	test -x $(SAIL_RISCV_DIR).tmp/bin/sail_riscv_sim && \
-	rm -rf $(SAIL_RISCV_DIR) && mv $(SAIL_RISCV_DIR).tmp $(SAIL_RISCV_DIR)
-	@$@ --version
+	curl -fsSL -o $$tgz "$$url"; \
+	got=$$($$sha $$tgz | cut -d ' ' -f 1); \
+	if [ "$$got" != '$(SAIL_SHA256)' ]; then \
+	  echo "sail-riscv tarball SHA-256 MISMATCH -- refusing to extract:" >&2; \
+	  echo "  asset    : $(SAIL_ASSET).tar.gz at $(SAIL_RISCV_VERSION)" >&2; \
+	  echo "  expected : $(SAIL_SHA256)" >&2; \
+	  echo "  actual   : $$got" >&2; \
+	  rm -rf $$tmp; \
+	  exit 1; \
+	fi; \
+	echo "sha256 ok: $$got"; \
+	tar tzf $$tgz | awk -v top='$(SAIL_ASSET)/' ' \
+	  index($$0, top) != 1 { print "member outside " top ": " $$0 > "/dev/stderr"; bad = 1 } \
+	  /(^|\/)\.\.(\/|$$)/  { print "traversal in member: " $$0 > "/dev/stderr"; bad = 1 } \
+	  END { exit bad ? 1 : 0 }' \
+	  || { echo "refusing to extract $(SAIL_ASSET).tar.gz" >&2; rm -rf $$tmp; exit 1; }; \
+	tar tvzf $$tgz | awk ' \
+	  substr($$1, 1, 1) !~ /^[-d]$$/ { print "not a file or directory: " $$0 > "/dev/stderr"; bad = 1 } \
+	  END { exit bad ? 1 : 0 }' \
+	  || { echo "refusing to extract $(SAIL_ASSET).tar.gz" >&2; rm -rf $$tmp; exit 1; }; \
+	tar xzf $$tgz -C $$tmp --strip-components=1 \
+	  --no-same-owner --no-same-permissions; \
+	rm -f $$tgz; \
+	test -x $$tmp/bin/sail_riscv_sim; \
+	printf '%s\n' '$(SAIL_PIN)' > $$tmp/.sail-pin; \
+	$$sha $$tmp/bin/sail_riscv_sim | cut -d ' ' -f 1 >> $$tmp/.sail-pin; \
+	rm -rf $(SAIL_RISCV_DIR); \
+	mv $$tmp $(SAIL_RISCV_DIR)
+	@$(SAIL_SIM_BIN) --version
 
 # The co-simulation runner: a SECOND cxxrtl binary, not a change to `sim`.
 # It reads the real `uut regfile regs` array through debug_items and reads no
@@ -271,7 +392,10 @@ clean:
 	@# NOT tools/sail either: it is a multi-megabyte network fetch that nothing
 	@# on `make test`'s path needs, so blowing it away on every `clean` costs a
 	@# download to get back something `clean` was never asked to rebuild.
-	@# `rm -rf tools/sail` by hand, or bump SAIL_RISCV_VERSION, to re-fetch.
+	@# Bumping SAIL_RISCV_VERSION and re-running `make sail-setup` re-fetches
+	@# on its own now -- the pin is recorded in tools/sail/.sail-pin and
+	@# compared, so this comment is no longer the only thing making that true.
+	@# `rm -rf tools/sail` still works as the blunt instrument.
 
 # The riscv-formal clone rule and its pin guard live in formal/pin.mk, included
 # above, so the root and formal/ Makefiles cannot drift apart on it.
