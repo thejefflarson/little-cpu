@@ -274,17 +274,42 @@ module executor(
   always_comb if (clocked) assume(!reset);
 
   // This component proof stands alone (no accessor instantiated), so
-  // accessor_stall is otherwise a free input every cycle — the solver could
-  // hold it asserted forever and defeat every arithmetic assertion below via
-  // the accessor_stall freeze branch (out <= 0 every cycle, never reaching
-  // the case (state) that actually computes anything). In the real pipeline
-  // accessor_stall is a one-cycle pulse strictly caused by a load reaching
-  // the accessor, structurally unrelated to mul/div correctness (ADR-0015) —
-  // scoped out here the same way ADR-0010 already restricts this proof's
-  // divide operands, for the same reason: keep the proof about the
-  // arithmetic, not an interaction test/asm/hazard.S and the decoder's own
-  // formal task already cover.
-  always_comb assume(!accessor_stall);
+  // accessor_stall is a free input. It used to be assumed away entirely
+  // (`assume(!accessor_stall)`), which scoped the freeze branch at the top
+  // of the state machine out of this proof altogether. It is now left
+  // completely free — not even ADR-0015's at-most-one-consecutive-cycle
+  // bound is assumed, which makes this stronger than the real environment:
+  // a held stall just keeps the freeze obligations below in force. The
+  // price is a `!$past(accessor_stall)` guard on each multiply assertion
+  // further down: a frozen edge computes nothing (out is bubbled), so an
+  // ungated assertion there would be asserting arithmetic about the bubble.
+  // The divide-state invariants need no such guard (a freeze holds every
+  // register they mention), and the divide completion assertions' guard
+  // ($past(state) == divide && state == init) already implies the
+  // transition edge was not frozen — a frozen edge cannot change state.
+
+  // ADR-0015 freeze coverage: the cycle after accessor_stall is asserted,
+  // the executor emitted a bubble and held everything else — state, the
+  // divider datapath, and the op/sign latches — unchanged. This is the
+  // `else if (accessor_stall)` branch of the state machine, asserted rather
+  // than assumed out of existence. Guarded on !$past(reset) because reset
+  // wins over the freeze in the RTL (and the pre-reset initial values of
+  // the mul_div registers are free).
+  always_ff @(posedge clk)
+    if (clocked && !reset && !$past(reset) && $past(accessor_stall)) begin
+      assert(out == '0);
+      assert(state == $past(state));
+      assert(mul_div_counter == $past(mul_div_counter));
+      assert(mul_div_store == $past(mul_div_store));
+      assert(mul_div_x == $past(mul_div_x));
+      assert(mul_div_y == $past(mul_div_y));
+      assert(op_is_div == $past(op_is_div));
+      assert(op_is_divu == $past(op_is_divu));
+      assert(op_is_rem == $past(op_is_rem));
+      assert(op_is_remu == $past(op_is_remu));
+      assert(op_sign_x == $past(op_sign_x));
+      assert(op_sign_y == $past(op_sign_y));
+    end
 
   // ---- Executor arithmetic BMC (ADR-0006 component proof #2 / ADR-0010) ----
   // The *primary* guarantee for real mul/div arithmetic is the randomized
@@ -323,16 +348,16 @@ module executor(
   assign mul_ref_su_hi = mul_ref_su[63:32];
 
   always_ff @(posedge clk)
-    if (clocked && !reset && !$past(reset) && $past(state) == init && $past(in.is_mul))
+    if (clocked && !reset && !$past(reset) && !$past(accessor_stall) && $past(state) == init && $past(in.is_mul))
       assert(out.rd_data == $past(mul_ref_lo));
   always_ff @(posedge clk)
-    if (clocked && !reset && !$past(reset) && $past(state) == init && $past(in.is_mulh))
+    if (clocked && !reset && !$past(reset) && !$past(accessor_stall) && $past(state) == init && $past(in.is_mulh))
       assert(out.rd_data == $past(mul_ref_ss_hi));
   always_ff @(posedge clk)
-    if (clocked && !reset && !$past(reset) && $past(state) == init && $past(in.is_mulhu))
+    if (clocked && !reset && !$past(reset) && !$past(accessor_stall) && $past(state) == init && $past(in.is_mulhu))
       assert(out.rd_data == $past(mul_ref_uu_hi));
   always_ff @(posedge clk)
-    if (clocked && !reset && !$past(reset) && $past(state) == init && $past(in.is_mulhsu))
+    if (clocked && !reset && !$past(reset) && !$past(accessor_stall) && $past(state) == init && $past(in.is_mulhsu))
       assert(out.rd_data == $past(mul_ref_su_hi));
 
   // Divide: an end-to-end assertion unrolling the restoring divider's full

@@ -1,6 +1,7 @@
 [tasks]
 executor all
 decoder all
+pcloop all
 
 [options]
 all: mode prove
@@ -16,6 +17,21 @@ prep -top decoder
 executor:
 read -formal structs.v executor.v
 prep -top executor
+
+pcloop:
+# The RTL is deliberately read WITHOUT -formal: -formal defines FORMAL, and
+# rtl/decoder.v's own `ifdef FORMAL` block contains `assume(in.pc == pc)` --
+# the standalone-task model of the fetcher (ADR-0017) that this composed task
+# exists to discharge. Compiled into the instance, that assume makes the echo
+# assertion circular (it is assumed inside the very design it is asserted of)
+# and turns a broken fetcher into an unreachable state instead of a
+# counterexample: mutating fetcher.v's `out.pc = pc` to `out.pc = 0` still
+# "passed" until this split, because the only traces satisfying the imported
+# assume were perpetual-stall ones. Each component's FORMAL block belongs to
+# its own task; only the harness carries proof content here.
+read -sv structs.v fetcher.v decoder.v
+read -sv -formal structs.v pcloop.sv
+prep -top pcloop
 --
 [files]
 decoder:
@@ -25,5 +41,11 @@ decoder:
 executor:
 ../rtl/executor.v
 ../rtl/structs.v
+
+pcloop:
+../rtl/fetcher.v
+../rtl/decoder.v
+../rtl/structs.v
+pcloop.sv
 
 --
