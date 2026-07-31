@@ -26,6 +26,16 @@ check: checks $(RISCV_FORMAL_DIR)
 checks: genchecks-local.py checks.cfg | $(RISCV_FORMAL_DIR)
 	python3 $<
 
+# genchecks-local.py is vendored from the pin and may differ from it only by
+# this repo's header and `basedir` (ADR-0031). That rule used to be enforced by
+# a `cp` + `diff -u` recipe in the script's own header, run by hand or not at
+# all -- the same gap `make monitor-check` already closes for test/monitor.v,
+# the repo's other vendored generated artifact. Drift here is what produced the
+# five-year-stale fork ADR-0031 exists to end.
+.PHONY: genchecks-check
+genchecks-check: $(RISCV_FORMAL_DIR)/checks/genchecks.py genchecks-local.py | $(RISCV_FORMAL_DIR)
+	python3 check-genchecks.py $^
+
 dmemcheck: dmemcheck.sby dmemcheck.sv | $(RISCV_FORMAL_DIR)
 imemcheck: imemcheck.sby imemcheck.sv | $(RISCV_FORMAL_DIR)
 complete: complete.sby complete.sv | $(RISCV_FORMAL_DIR)

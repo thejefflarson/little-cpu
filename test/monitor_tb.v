@@ -24,6 +24,13 @@
 //     Without this the bench could pass by checking nothing, and a gate that
 //     accidentally disabled all spec checking would look identical to a
 //     correct one;
+//   * a retire that FAILS TO TRAP when the spec model says it must is still
+//     REJECTED (vector 7, error 101). Vector 4 does not cover this: its wrong
+//     retire is non-trapping, so it passes just as happily with the trap
+//     comparison switched off. Error 101 is the one check upstream's
+//     checks/rvfi_insn_check.sv keeps live under spec_trap, which makes it the
+//     one the sanitizer's gate could swallow without changing a site count --
+//     see test/sanitize_monitor.py's rule 3;
 //   * an M3 instruction with no spec model (`ecall`, vector 6) is accepted
 //     silently, because spec_valid never asserts for it. That is not the gate
 //     working, it is the monitor having nothing to say -- the reason the trap
@@ -233,6 +240,36 @@ module monitor_tb;
                  MTVEC + 12, MTVEC,
                  32'd0, 4'b0000, 4'b0000, 32'd0, 32'd0);
     expect_errcode(16'd0, "ecall retire (no spec model exists -- unchecked)");
+
+    // 7. Positive control for the trap comparison ITSELF (error 101) -- the one
+    //    check riscv-formal's checks/rvfi_insn_check.sv deliberately keeps live
+    //    under spec_trap, and that test/sanitize_monitor.py's third rule must
+    //    therefore leave OUTSIDE the `!spec_trap` gate it inserts.
+    //
+    //    Vector 4's wrong retire is non-trapping, so it stays green even if the
+    //    trap comparison is disabled: nothing above would notice a sanitizer
+    //    that swallowed error 101 into its own gate. That is the silent failure
+    //    the span-contents assertions in test/sanitize_monitor.py exist to
+    //    prevent, and this vector is the simulation-side half of the same
+    //    check. It is the misaligned `lw` of vector 2 again, except the core
+    //    claims it completed normally -- rvfi_trap = 0, x5 written, pc_wdata =
+    //    pc+4, read mask strobed -- while the spec model reports spec_trap = 1.
+    //    A core that failed to trap on a misaligned load looks exactly like
+    //    this. Only 101 may fire: every other comparison sits inside the gate
+    //    and spec_trap holds, so they are switched off.
+    //
+    //    Deliberately last. It is the only vector reporting trap = 0 on a
+    //    trapping instruction, so it leaves the shadow PC valid and pointing at
+    //    an address no handler would resume from; anything appended after it
+    //    would report error 130 for reasons that have nothing to do with what
+    //    it is testing.
+    $display("monitor_tb: the monitor error banner below is EXPECTED (positive control)");
+    drive_retire(32'h0010_a283, 1'b0,
+                 5'd1, 5'd0, RAM, 32'd0,
+                 5'd5, 32'hdead_beef,
+                 MTVEC + 16, MTVEC + 20,
+                 RAM + 1, 4'b1111, 4'b0000, 32'hdead_beef, 32'd0);
+    expect_errcode(16'd101, "failure to trap on a misaligned lw is still caught");
 
     if (failures != 0) begin
       $display("monitor_tb: %0d vector(s) failed", failures);

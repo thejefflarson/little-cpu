@@ -14,6 +14,13 @@ across a 45-line span rather than a single-line substitution, and because a
 from one that did its job. Every rule below declares how many sites it must hit
 and this script exits non-zero if the count is wrong.
 
+A site count proves a rule FIRED. It says nothing about WHAT it matched, and for
+rule 3 -- which selects a ~45-line span by position, from a first anchor to a
+last one -- that gap is the whole risk: a generator change that moves another
+check between the anchors keeps the count at 1 while quietly disabling that
+check. So rule 3 also asserts on the contents of its span, and this script
+re-checks the finished output. See rule 3's comment for the three layers.
+
 The diff `test/monitor.v` -> `test/monitor.sim.v` must stay small enough to read
 in full (`diff` it; it is currently eight lines). If it stops being readable at a
 glance, that is the signal to fix the generator upstream instead of adding a
@@ -80,6 +87,23 @@ UNSIGNED_SIGNED_DIVREM = (
 # `if (chN_spec_valid)` except the trap-flag comparison (error 101), which is
 # exactly the partition upstream's checker uses. Two lines are inserted and
 # nothing is reindented, so the diff stays readable.
+#
+# The span is selected by POSITION -- first anchor to last anchor -- so the site
+# count alone only proves the rule fired, not what it swallowed. That is not
+# enough. `assert(spec_trap == trap)` (error 101) is the one comparison
+# upstream's checker deliberately keeps live under `spec_trap`; if a pin bump
+# emitted it anywhere between the two anchors, the count would still read 1, the
+# diff would still be eight lines, and "did the core trap when the spec says it
+# should" would become vacuous on every trapping retire -- in BOTH sim legs,
+# silently, exactly as M3 starts producing trapping retires. So the rule also
+# asserts on the CONTENTS of what it is about to wrap, in three layers:
+#
+#   1. two literal markers that must not appear inside the span;
+#   2. the exact list of handle_error codes enclosed, which catches a relocated
+#      check however its comparison is spelled -- 101 is not on the list;
+#   3. after all rules run, that the trap comparison still exists in the output
+#      (see _check_trap_comparison_survives), which catches the generator
+#      dropping it rather than moving it.
 # ---------------------------------------------------------------------------
 TRAP_GATE_SPAN = re.compile(
     r'(?P<indent>[ ]*)if \((?P<ch>ch\d+)_rvfi_rs1_addr != (?P=ch)_spec_rs1_addr\b.*?'
@@ -87,13 +111,71 @@ TRAP_GATE_SPAN = re.compile(
     re.DOTALL,
 )
 
+# Layer 1. Both spellings of the trap comparison the generator emits today. A
+# match means the generator relocated it inside the span and gating it would
+# disable it.
+TRAP_GATE_FORBIDDEN = (
+    '"mismatch in trap"',
+    '_rvfi_trap != ',
+)
+
+# Layer 2. DERIVED, not chosen: this is the exact multiset of handle_error codes
+# the generator emits between the two anchors, read off test/monitor.v at the
+# SHA in formal/pin.mk. Compared sorted, so a harmless reordering inside the
+# span does not trip it but an added, removed or duplicated check does.
+#
+# After a pin bump, RE-DERIVE this from the new test/monitor.v -- read what the
+# generator now emits inside `if (chN_spec_valid)` and confirm each code belongs
+# under `!spec_trap` per riscv-formal's checks/rvfi_insn_check.sv. Do NOT edit it
+# to make a failure go away: a code appearing here that upstream keeps outside
+# the gate is precisely the silent-oracle failure this list exists to catch.
+TRAP_GATE_ENCLOSED_CODES = sorted(
+    [102, 103, 104, 105, 106, 108, 110, 120, 111, 121, 112, 122, 113, 123, 107]
+)
+
+# Layer 3. The generated monitor is `generate.py -c 1` (one retire channel, see
+# the root Makefile's MONITOR_GEN), so exactly one channel emits the check.
+TRAP_COMPARISON = re.compile(r'ch\d+_handle_error\(101, "mismatch in trap"\)')
+TRAP_COMPARISON_SITES = 1
+
+
+class SanitizerError(Exception):
+    """A rule matched, but not the text it was written to match."""
+
 
 def _wrap_in_trap_gate(match):
     indent = match.group('indent')
     channel = match.group('ch')
+    span = match.group(0)
+
+    for marker in TRAP_GATE_FORBIDDEN:
+        if marker in span:
+            raise SanitizerError(
+                f'  rule "gate spec-value checks on !spec_trap": the span it is about\n'
+                f'  to wrap contains {marker!r}, i.e. the generator now emits the\n'
+                f'  trap-flag comparison BETWEEN the rs1_addr and mem_addr anchors.\n'
+                f'  Gating it would silently disable the one check riscv-formal\n'
+                f'  (checks/rvfi_insn_check.sv) deliberately keeps live under\n'
+                f'  spec_trap. Re-anchor the span so the trap comparison stays\n'
+                f'  outside the gate; do not widen the anchors to swallow it.'
+            )
+
+    codes = sorted(int(c) for c in re.findall(
+        rf'{channel}_handle_error\((\d+),', span))
+    if codes != TRAP_GATE_ENCLOSED_CODES:
+        raise SanitizerError(
+            f'  rule "gate spec-value checks on !spec_trap": the span encloses\n'
+            f'  handle_error codes {codes}, expected\n'
+            f'  {TRAP_GATE_ENCLOSED_CODES}. The generator has moved a check into or\n'
+            f'  out of the gated region. Re-read each code against riscv-formal\'s\n'
+            f'  checks/rvfi_insn_check.sv to decide whether it belongs under\n'
+            f'  !spec_trap, then re-derive TRAP_GATE_ENCLOSED_CODES from the new\n'
+            f'  test/monitor.v -- do not edit the list to silence this.'
+        )
+
     return (
         f'{indent}if (!{channel}_spec_trap) begin\n'
-        f'{match.group(0)}'
+        f'{span}'
         f'{indent}end\n'
     )
 
@@ -108,6 +190,24 @@ RULES = [
 ]
 
 
+def _check_trap_comparison_survives(text):
+    """Layer 3: the trap comparison must still be in the sanitized output.
+
+    Layers 1 and 2 catch the generator MOVING error 101 inside the gate. Neither
+    notices it disappearing altogether -- the enclosed-code list would still
+    match and the site count would still be 1, while the sanitized oracle no
+    longer checks whether the core traps at all.
+    """
+    found = len(TRAP_COMPARISON.findall(text))
+    if found != TRAP_COMPARISON_SITES:
+        raise SanitizerError(
+            f'  post-check "the trap comparison survives": found {found} site(s) of\n'
+            f'  handle_error(101, "mismatch in trap") in the sanitized output,\n'
+            f'  expected {TRAP_COMPARISON_SITES}. Without it neither sim leg checks\n'
+            f'  whether the core traps when the spec model says it must.'
+        )
+
+
 def main(argv):
     if len(argv) != 2:
         sys.stderr.write(f'usage: {argv[0]} <monitor.v>\n')
@@ -117,10 +217,15 @@ def main(argv):
         text = handle.read()
 
     failures = []
-    for name, pattern, replacement, expected in RULES:
-        text, count = pattern.subn(replacement, text)
-        if count != expected:
-            failures.append(f'  rule "{name}": matched {count} site(s), expected {expected}')
+    try:
+        for name, pattern, replacement, expected in RULES:
+            text, count = pattern.subn(replacement, text)
+            if count != expected:
+                failures.append(f'  rule "{name}": matched {count} site(s), expected {expected}')
+        if not failures:
+            _check_trap_comparison_survives(text)
+    except SanitizerError as error:
+        failures.append(str(error))
 
     if failures:
         sys.stderr.write(
