@@ -115,7 +115,12 @@ the clone, so any residual diff is drift by construction and is printed. It runs
 `test/EXPECTED_FAIL` is **no longer empty**: `csr.S`, `minstret.S` and `trap.S` were seeded there
 ahead of the RTL that pays them off, which is the direction ADR-0014's burn-down contract was
 designed for. Two of the three are paid off (below); `trap.S` remains, so `make test` is
-**51 pass / 1 expected-fail** and still exits 0 only on set equality.
+**51 pass / 1 expected-fail** and still exits 0 only on set equality. That equality is now over
+**name-and-status pairs** (ADR-0035) — the baselined entry is `trap.S      MONITOR-ERROR 101`, so a
+baselined test that starts failing some *other* way (a broken assembly, a `TIMEOUT`, an unstartable
+runner) is a red gate rather than a match. The same change made every build step's exit status
+checked and `mktemp` fatal: an unchecked `objcopy` that emitted an **empty** RAM image used to make
+`tohost` read zero and every data-independent test still report `PASS`.
 `test/run_tests.sh` also grew a `MONITOR-ERROR` label for runner exit 4, which used to fall into
 `RUNNER-ERROR` and read as "the sim would not start" when it actually means the per-retire oracle
 disagreed with the core mid-run. **Nothing here checks M3 semantics against an oracle**:
