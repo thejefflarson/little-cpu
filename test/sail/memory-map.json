@@ -1,0 +1,92 @@
+// Sail RISC-V configuration override for this repo's test memory map
+// (ADR-0008). Passed to `sail_riscv_sim --rv32 --config-override`, so it
+// only has to restate what differs from the model's default RV32 config;
+// everything else (extensions, mtvec, PMP, ...) is inherited.
+//
+// The default RV32 config puts MainMemory at 0x8000_0000. test/asm/sections.lds
+// links `.text` at 0x0000_0000 and `.data`/`.bss` at 0x0001_0000, so nothing
+// this suite builds is executable or loadable under that map. The override
+// replaces the region list with one MainMemory region covering both.
+//
+// `memory.regions` is REPLACED, not merged, so the CLINT region has to be
+// restated here too -- the model refuses a config whose `platform.clint`
+// (0x0200_0000) falls outside every declared region. The default map's third
+// region, an unwritable IOMemory window at 0x0000_1000, is deliberately NOT
+// restated: it overlaps `.text` and the model rejects overlapping regions.
+// Nothing needs it, because the PC is taken from the ELF entry point rather
+// than from a reset vector in that window.
+//
+// The model detects HTIF from the ELF's `tohost` symbol and reports
+// "HTIF located at 0x10000", but does not terminate on this suite's write:
+// test/asm/riscv_test.h's `tohost` is a 32-bit `.word` and the write is an
+// `sw`, which is not the 64-bit doubleword HTIF acts on. That is fine here --
+// test/cosim.py bounds the reference run with `--inst-limit` and truncates
+// both traces at their last architectural change instead (see the "why not
+// HTIF" note there).
+{
+  "memory": {
+    "regions": [
+      {
+        // test/asm/sections.lds: rom at 0x0 (16K) + ram at 0x10000 (4K),
+        // rounded up to a flat 1MB so the linker script can grow without
+        // this file having to.
+        "base": { "len": 64, "value": "0x0000_0000" },
+        "size": { "len": 64, "value": "0x0010_0000" },
+        "attributes": {
+          "mem_type": "MainMemory",
+          "cacheable": true,
+          "coherent": true,
+          "executable": true,
+          "readable": true,
+          "writable": true,
+          "read_idempotent": true,
+          "write_idempotent": true,
+          "misaligned_exceptions": {
+            "load_store": { "None": null },
+            "vector": { "None": null },
+            "amo": "AccessFault"
+          },
+          "atomic_support": "AMOCASQ",
+          "misaligned_atomicity_granule_size_exp": 4,
+          "vector_misaligned_atomicity_granule_size_exp": 4,
+          "reservability": "RsrvEventual",
+          "supports_cbo_zero": true,
+          "supports_pte_read": true,
+          "supports_pte_write": true
+        },
+        "include_in_device_tree": true
+      },
+      {
+        // Restated verbatim from the default RV32 config: `platform.clint`
+        // and `platform.simple_interrupt_generator` both live in here and
+        // config validation fails without it. This core has no CLINT and
+        // never touches the window.
+        "base": { "len": 64, "value": "0x0200_0000" },
+        "size": { "len": 64, "value": "0x1000_0000" },
+        "attributes": {
+          "mem_type": "IOMemory",
+          "cacheable": false,
+          "coherent": true,
+          "executable": false,
+          "readable": true,
+          "writable": true,
+          "read_idempotent": false,
+          "write_idempotent": false,
+          "misaligned_exceptions": {
+            "load_store": { "None": null },
+            "vector": { "None": null },
+            "amo": "AccessFault"
+          },
+          "atomic_support": "AMONone",
+          "misaligned_atomicity_granule_size_exp": 0,
+          "vector_misaligned_atomicity_granule_size_exp": 0,
+          "reservability": "RsrvNone",
+          "supports_cbo_zero": false,
+          "supports_pte_read": false,
+          "supports_pte_write": false
+        },
+        "include_in_device_tree": false
+      }
+    ]
+  }
+}
