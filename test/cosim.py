@@ -53,6 +53,7 @@ belongs in the integration ticket, not in a spike.
 """
 
 import argparse
+import hashlib
 import os
 import re
 import shutil
@@ -63,6 +64,12 @@ import tempfile
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ASM_DIR = os.path.join(REPO, "test", "asm")
 MEMORY_MAP = os.path.join(REPO, "test", "sail", "memory-map.json")
+SAIL_DIR = os.path.join(REPO, "tools", "sail")
+SAIL_BIN = os.path.join(SAIL_DIR, "bin", "sail_riscv_sim")
+# Written by `make sail-setup` after it verifies the release tarball's SHA-256:
+# line 1 is the pin (version, asset, tarball digest), line 2 is the digest of
+# the unpacked sail_riscv_sim. See the Makefile's sail-setup target.
+SAIL_STAMP = os.path.join(SAIL_DIR, ".sail-pin")
 
 # `[123] [M]: 0x00000006 (0x00208733) add x14, x1, x2      test_2+4`
 INSN_RE = re.compile(
@@ -94,23 +101,90 @@ def find_cross_compiler():
     )
 
 
-def find_sail(explicit):
-    """Locate sail_riscv_sim: --sail, $SAIL_RISCV_SIM, tools/sail, then PATH.
+def sha256(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
-    Opt-in by construction (the ticket's constraint, and ADR-0032's): nothing
-    in `make test` reaches this function, and when the binary is absent the
-    message names the target that installs it rather than a build failure.
+
+def read_pin():
+    """(pin_line, binary_sha256) from tools/sail/.sail-pin, or (None, None)."""
+    try:
+        with open(SAIL_STAMP) as fh:
+            lines = [ln.strip() for ln in fh.read().splitlines() if ln.strip()]
+    except OSError:
+        return None, None
+    if len(lines) < 2:
+        return None, None
+    return lines[0], lines[1].split()[0]
+
+
+def find_sail(explicit):
+    """Locate sail_riscv_sim and check it against the pin before running it.
+
+    Returns (path, provenance). Two sources, in order:
+
+    1. `--sail` / `$SAIL_RISCV_SIM` -- a build a human named on purpose. This
+       is the documented escape hatch for a host with no prebuilt release
+       asset (the Makefile's sail-setup names it), so it is honoured even when
+       it does not match the pin -- but never silently: an unmatched binary is
+       announced on stderr with its digest.
+    2. `tools/sail/bin/sail_riscv_sim` -- must match the SHA-256 that
+       `make sail-setup` recorded in tools/sail/.sail-pin after verifying the
+       release tarball. A mismatch is fatal, not a warning: nobody named this
+       path, so an unexpected binary here is a substituted one, and tools/sail
+       is gitignored so it never shows up in `git status` or in review.
+
+    There is deliberately no bare PATH fallback. It executed whatever
+    `sail_riscv_sim` happened to be first on PATH, with no version or digest
+    check and nobody having asked for that particular build; naming it in
+    SAIL_RISCV_SIM is one environment variable away and is then a choice.
+
+    What this does NOT establish: the stamp is checked against the binary, not
+    against the Makefile. A whole tools/sail tree substituted along with its
+    stamp passes here. `make cosim-run` catches that -- the Makefile compares
+    line 1 of the stamp to its own `override` pin before running anything --
+    so the two checks are complementary and a direct ./test/cosim.py
+    invocation only gets this one.
+
+    Opt-in by construction (ADR-0032): nothing in `make test` reaches this
+    function, and when the binary is absent the message names the target that
+    installs it rather than a build failure.
     """
-    for candidate in (
-        explicit,
-        os.environ.get("SAIL_RISCV_SIM"),
-        os.path.join(REPO, "tools", "sail", "bin", "sail_riscv_sim"),
-    ):
-        if candidate and os.path.isfile(candidate) and os.access(candidate, os.X_OK):
-            return candidate
-    found = shutil.which("sail_riscv_sim")
-    if found:
-        return found
+    pin, want = read_pin()
+
+    named = explicit or os.environ.get("SAIL_RISCV_SIM")
+    if named:
+        if not (os.path.isfile(named) and os.access(named, os.X_OK)):
+            raise Fatal(f"{named} is not an executable file")
+        got = sha256(named)
+        if want is not None and got == want:
+            return named, f"pinned: {pin}"
+        print(f"warning: {named} was named explicitly and does not match the "
+              f"pin recorded in {SAIL_STAMP}; running it unverified "
+              f"(sha256 {got})", file=sys.stderr)
+        return named, f"unverified, named explicitly (sha256 {got})"
+
+    if os.path.isfile(SAIL_BIN) and os.access(SAIL_BIN, os.X_OK):
+        if want is None:
+            raise Fatal(
+                f"{SAIL_BIN} exists but {SAIL_STAMP} does not record the "
+                "digest it was verified against, so it was not installed by "
+                "the current 'make sail-setup'. Re-run it: "
+                f"rm -rf {SAIL_DIR} && make sail-setup"
+            )
+        got = sha256(SAIL_BIN)
+        if got != want:
+            raise Fatal(
+                f"{SAIL_BIN} does not match the digest recorded when it was "
+                f"verified.\n  recorded : {want}\n  on disk  : {got}\n"
+                "Refusing to execute it. Start over with: "
+                f"rm -rf {SAIL_DIR} && make sail-setup"
+            )
+        return SAIL_BIN, f"pinned: {pin}"
+
     raise Fatal(
         "sail_riscv_sim not found. Run 'make sail-setup' to install the pinned "
         "release into tools/sail/, or set SAIL_RISCV_SIM to an existing build."
@@ -290,7 +364,7 @@ def main():
 
     try:
         cc = find_cross_compiler()
-        sail = find_sail(args.sail)
+        sail, sail_provenance = find_sail(args.sail)
         if not os.path.isfile(args.cosim_binary):
             raise Fatal(f"{args.cosim_binary} not built. Run 'make cosim'.")
         src = args.program
@@ -313,6 +387,7 @@ def main():
     if not args.quiet:
         print(f"program            : {name}")
         print(f"sail               : {sail}")
+        print(f"sail provenance    : {sail_provenance}")
         print(f"sail changes       : {len(sail_records)}  "
               f"(spin-loop reached: {converged}, last pc=0x{last_pc:08x})")
         print(f"core changes       : {len(dut_records)}   (tohost: {verdict})")

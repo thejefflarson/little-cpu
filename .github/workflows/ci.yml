@@ -213,7 +213,9 @@ jobs:
   # (CLAUDE.md invariant 7: generated but tracked, never hand-edited).
   # ADR-0013 asks CI to run this from a from-scratch clone, which is what a
   # fresh runner gives for free -- no oss-cad-suite needed here, just
-  # python3 and git, both preinstalled.
+  # python3 and git, both preinstalled. The job then reuses that same clone to
+  # check the repo's other vendored-from-the-pin file, formal/genchecks-local.py
+  # (ADR-0031); see the second step.
   monitor-freshness:
     name: monitor-freshness
     runs-on: ubuntu-latest
@@ -226,6 +228,17 @@ jobs:
 
       - name: make monitor-check
         run: make monitor-check
+
+      # The same control for the repo's OTHER vendored generated artifact.
+      # formal/genchecks-local.py is a copy of the pinned riscv-formal's
+      # checks/genchecks.py and may differ from it only by this repo's header
+      # and `basedir` (ADR-0031) -- a rule that until now lived only in a
+      # hand-run recipe in the script's own header, which nothing enforced.
+      # Runs here rather than in its own job because the step above has already
+      # paid for the from-scratch clone at the pin that this needs too, and
+      # like monitor-check it wants nothing but python3 and git.
+      - name: make -C formal genchecks-check
+        run: make -C formal genchecks-check
 
       - name: Report job wall time
         if: always()

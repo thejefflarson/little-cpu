@@ -88,6 +88,30 @@ sanitizer. (3) `test/monitor_tb.v` joins `make test-units`, driving the sanitize
 with hand-built trapping and non-trapping RVFI vectors — including a deliberately wrong one, so a
 gate that disabled all spec checking could not pass.
 
+**A site count proves a sanitizer rule fired, not what it swallowed.** Rule 3 selects its ~45-line
+span by *position* — first anchor (`rs1_addr`) to last (`mem_addr`) — so a pin bump that moved the
+trap comparison (`handle_error(101, "mismatch in trap")`) between those anchors would keep the count
+at 1, keep the diff at eight lines, and silently gate off the one assertion riscv-formal's
+`checks/rvfi_insn_check.sv` deliberately keeps live under `spec_trap`. A core that failed to trap on
+a misaligned load would then retire clean in **both** sim legs. So rule 3 now also asserts on
+*contents*: two forbidden literals in the span, the exact multiset of `handle_error` codes it
+encloses (derived from the current output — re-derive it after a pin bump, never edit it to silence
+a failure), and a post-check that error 101 survives into the sanitized output at all. All three
+were confirmed by mutation; the pre-change sanitizer accepted every one of them at exit 0.
+`test/monitor_tb.v` carries the simulation-side half (vector 7: a retire claiming `rvfi_trap = 0`
+where the spec model says it must trap — the existing wrong-retire control is non-trapping and
+passes happily without error 101). `trap.S` sits in `test/EXPECTED_FAIL` as `MONITOR-ERROR 101`
+today, which is that check doing its job against the missing M3 trap logic.
+
+**`make -C formal genchecks-check` is the drift control for the repo's other vendored generated
+file.** ADR-0031 permits `formal/genchecks-local.py` to differ from the pin's
+`checks/genchecks.py` by this repo's header and `basedir` and nothing else — but that rule lived
+only in a hand-run `cp` + `diff -u` recipe in the script's own header, which nothing enforced, and
+unenforced drift there is exactly what produced the five-year-stale fork ADR-0031 exists to end.
+`formal/check-genchecks.py` undoes those two documented edits and then requires byte equality with
+the clone, so any residual diff is drift by construction and is printed. It runs in CI in the
+`monitor-freshness` job, which has already paid for the from-scratch clone at the pin.
+
 `test/EXPECTED_FAIL` is **no longer empty**: `csr.S`, `minstret.S` and `trap.S` were seeded there
 ahead of the RTL that pays them off, which is the direction ADR-0014's burn-down contract was
 designed for. Two of the three are paid off (below); `trap.S` remains, so `make test` is
