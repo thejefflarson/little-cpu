@@ -1,4 +1,4 @@
-# ADR-0031: Sail co-simulation is worth building, and stays opt-in
+# ADR-0032: Sail co-simulation is worth building, and stays opt-in
 
 **Status:** Accepted · 2026-07-30 · *Replaces the "Spike or Sail co-simulation" deferred item in
 [`docs/adr/README.md`](README.md)*
@@ -48,8 +48,14 @@ Three files and three Makefile targets, none of them on any existing path:
 0.13.1) rather than building the model. There is no `brew install sail-riscv`; homebrew's `sail`
 formula is an unrelated WordPress deploy tool, and a source build needs opam + OCaml + the Sail
 compiler. Upstream ships macOS-arm64 and two Linux tarballs, which covers every machine this repo is
-developed or CI'd on. The pin is a plain variable, not an enforced control like `formal/pin.mk` —
-nothing executes out of the tarball at build time and nothing on `make test`'s path depends on it.
+developed or CI'd on. The pin is a plain variable, not an enforced control like `formal/pin.mk`.
+**The reason that is tolerable is scope, not safety**: the tarball's binary *is* executed — the
+`sail-setup` recipe runs `--version` on it the moment it unpacks, and every `cosim-run` after that —
+but nothing on `make test`'s path or in any CI workflow reaches the target, so it runs only when a
+maintainer types `make sail-setup`. The fetch has no checksum and no signature, and a GitHub release
+asset is mutable, so `SAIL_RISCV_VERSION` pins a name rather than bytes. That is an accepted gap
+with a named precondition: **integrating co-sim into `make test` or CI means giving this fetch
+`formal/pin.mk`'s treatment first** — a checksum verified before anything out of the tarball runs.
 
 **Comparing states rather than write events** is a deliberate reduction. A write of a value a
 register already holds is architecturally invisible; Sail traces it and a state snapshot does not.

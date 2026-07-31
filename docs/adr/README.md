@@ -35,7 +35,8 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0028](0028-the-rvfi-convention-for-a-trapping-retire.md) | The RVFI convention for a trapping retire | Accepted |
 | [0029](0029-mtvec-resets-to-zero-and-a-pre-handler-trap-is-loud.md) | `mtvec` resets to zero, and a pre-handler trap is made loud | Accepted |
 | [0030](0030-trap-cause-priority-and-why-the-causes-are-disjoint.md) | Trap cause priority, and why the causes are disjoint | Accepted |
-| [0031](0031-sail-co-simulation-is-worth-building-and-stays-opt-in.md) | Sail co-simulation is worth building, and stays opt-in | Accepted |
+| [0031](0031-the-vendored-genchecks-copy-tracks-the-pin.md) | The vendored `genchecks` copy tracks the pin, and only `basedir` differs | Accepted |
+| [0032](0032-sail-co-simulation-is-worth-building-and-stays-opt-in.md) | Sail co-simulation is worth building, and stays opt-in | Accepted |
 
 0001–0007 came from the design brief
 ([`docs/ideas/finish-the-rewrite.md`](../ideas/finish-the-rewrite.md)). 0008–0011 came out of
@@ -54,9 +55,11 @@ port — the first time any formal check ran against the pipelined core. 0021 ke
 checks in the ladder and records the C.JR/C.JALR decode defect they found; 0022 replaces the
 nightly's blanket failure-swallowing with an ADR-0014-style baseline; 0023 states what the run
 does and does not establish, and why M2 is not reached. 0024 closes one of 0023's three named
-holes by switching the ladder's default BMC engine. 0031 came out of a time-boxed spike against the
-Sail RISC-V model and resolves the "Spike or Sail co-simulation" item that used to sit in the
-deferred list below.
+holes by switching the ladder's default BMC engine. 0031 re-vendors the `genchecks` copy from the
+pin — retiring the local mechanism 0024 built to reach that engine, while leaving 0024's
+measurement intact — and records why none of the ten `fault`/`bus_*` checks it unlocks apply here.
+0032 came out of a time-boxed spike against the Sail RISC-V model and resolves the "Spike or Sail
+co-simulation" item that used to sit in the deferred list below.
 
 ## Deferred decisions
 
@@ -72,7 +75,7 @@ trades away simplicity the current design depends on.
 - **FPGA timing closure / nextpnr flow** — including ADR-0003's second ROM read becoming interleaved
   16-bit banks. Post-M4.
 - **Interrupts** (`mie`/`mip` real rather than read-only zero) — no interrupt sources exist.
-- ~~**Spike or Sail co-simulation**~~ — **resolved by [ADR-0031](0031-sail-co-simulation-is-worth-building-and-stays-opt-in.md).**
+- ~~**Spike or Sail co-simulation**~~ — **resolved by [ADR-0032](0032-sail-co-simulation-is-worth-building-and-stays-opt-in.md).**
   The old test ("revisit only if formal and simulation ever disagree") could only fire on a bug both
   legs can see; a spike measured what neither can. The harness exists and is deliberately opt-in —
   `make cosim-run`, never `make test`, never CI. Integrating it across the whole suite is

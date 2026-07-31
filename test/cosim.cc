@@ -3,7 +3,7 @@
 // as it changes, so test/cosim.py can diff it against the Sail RISC-V model.
 //
 // This is a spike, not a fourth verification leg. `make test` does not build
-// or run it; `make cosim` does. See docs/adr/0031.
+// or run it; `make cosim` does. See docs/adr/0032.
 //
 // WHY A SEPARATE BINARY, AND WHY IT READS `regs` RATHER THAN RVFI.
 //

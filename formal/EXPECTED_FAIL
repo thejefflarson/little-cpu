@@ -9,11 +9,11 @@
 # same commit backs up; adding one back is a regression and needs the same
 # justification test/EXPECTED_FAIL's convention requires.
 #
-# Every check on this ladder is `mode bmc` (formal/checks.cfg's `engine`
-# option, default `btor btormc` as of the switch documented below) -- a PASS
-# means "no counterexample found within the check's configured depth," a
-# bounded result, not an unbounded proof, regardless of which engine found
-# it. Switching engines changes how fast a check converges, not what a PASS
+# Every check on this ladder is `mode bmc` (formal/checks.cfg's `solver
+# btormc`, which genchecks turns into `btor btormc`) -- a PASS means "no
+# counterexample found within the check's configured depth," a bounded
+# result, not an unbounded proof, regardless of which engine found it.
+# Switching engines changes how fast a check converges, not what a PASS
 # means. Read every line below with that in mind.
 #
 # Seeded at integration from a from-scratch `make -C formal check` (78
@@ -32,8 +32,7 @@
 # nightly trips on set equality, which is exactly what this file is for.
 #
 # Then reconciled again after switching the ladder's default engine from
-# `smtbmc yices` to `btor btormc` (ADR-0024, formal/checks.cfg's `engine`
-# option, genchecks-local.py). One entry was removed: reg_ch0 -- the same
+# `smtbmc yices` to `btor btormc` (ADR-0024). One entry was removed: reg_ch0 -- the same
 # check, at the same depth, that did not converge under smtbmc yices in >20
 # minutes now PASSes under btormc in ~8-12s. Verified by a full from-scratch
 # 78-check sweep under each engine, not by argument: 67/78 pass under btormc
@@ -83,3 +82,11 @@ insn_c_swsp_ch0
 # engine, not by argument (see this file's header). Removed, not because the
 # property changed, but because the tool that had failed to answer it was
 # replaced by one that could.
+#
+# Then re-confirmed after formal/genchecks-local.py was re-vendored from the
+# pin. That change reached the ladder in exactly two ways -- every generated
+# .sby now says `read -sv` where it said `read_verilog -sv` (upstream's
+# frontend-agnostic spelling; identical without Verific), and reg_ch0 lost the
+# per-check `timeout 1800` line, which upstream genchecks has no way to emit
+# and which btormc made moot. Same 78 checks, same names, same verdicts: 67
+# pass, the 11 below.

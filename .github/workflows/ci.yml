@@ -115,10 +115,13 @@ jobs:
   # The ADR-0007/ADR-0008 cxxrtl regression gate: builds `sim`, runs
   # test-units (the iverilog RTL-level benches), then every test/asm/*.S
   # under `sim` and checks the pass/fail table against test/EXPECTED_FAIL
-  # (ADR-0014's M1 baseline). Since `a4662a2` that baseline is empty
-  # and the suite is 47/47 green, so this is now a plain all-pass gate --
-  # ADR-0014's set-equality check still runs in both directions, so a test
-  # that starts passing unexpectedly is caught alongside one that regresses.
+  # (ADR-0014's baseline). `a4662a2` took that baseline to empty; it now
+  # carries three M3 tests (csr.S, minstret.S, trap.S) written ahead of the
+  # RTL that pays them off, so the gate is 49 pass / 3 expected-fail rather
+  # than a plain all-pass. ADR-0014's set-equality check runs in both
+  # directions, so one of those three starting to pass -- which is exactly
+  # what each M3 RTL change is supposed to cause -- fails the gate until its
+  # line comes out of the baseline in the same commit.
   test:
     name: test
     runs-on: ubuntu-latest

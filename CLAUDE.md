@@ -20,9 +20,10 @@ The README is the project's voice and is deliberately left as-is. **Ground truth
 
 **M1 is reached** (`a4662a2`). `rtl/regfile.v` is combinational-read with write-through
 bypass, every inter-stage struct carries a `valid` bit, and decode runs a stall-only hazard
-scoreboard (ADR-0004 / ADR-0009 / ADR-0015). `make test` is **47/47** and `test/EXPECTED_FAIL` is
-empty, so it is a plain all-pass gate — ADR-0014's set-equality check still runs in both directions,
-so an unexpected *pass* is caught too. The same change fixed three datapath defects found on the way:
+scoreboard (ADR-0004 / ADR-0009 / ADR-0015). `make test` was **47/47** at that commit with
+`test/EXPECTED_FAIL` empty (it is seeded with M3 debt now — see below); ADR-0014's set-equality
+check runs in both directions, so an unexpected *pass* is caught too. The same change fixed three
+datapath defects found on the way:
 AUIPC computed `reg_rs1 + reg_rs2` instead of `pc + immediate`, `mem_wdata` was registered a cycle
 behind `mem_addr`/`mem_wstrb`, and SLL/SRL/SRA did not mask the shift amount to `rs2[4:0]`.
 
@@ -34,9 +35,10 @@ one-cycle load-response latch); `rtl/writeback.v` drives `rvfi_valid`/`rvfi_orde
 retiring `accessor_output`, exactly where invariant 3 below says retire happens. `trap`/`halt`/
 `intr`/`mode`/`ixl`/the CSR fields are hardwired constants in `rtl/littlecpu.v` (no traps or CSRs
 exist yet — M3). `test/monitor.v` stays pristine and tracked; a gitignored, build-time-derived
-`test/monitor.sim.v` (Makefile) carries the two build-time fixes it needs — stripping the
-`$time`-in-`$display` yosys can't elaborate, and ADR-0019's DIV/REM signedness repair — and **both**
-legs read it, so they cannot drift into checking different specs. `make test` is now per-retire
+`test/monitor.sim.v` (`test/sanitize_monitor.py`) carries the build-time repairs it needs —
+originally two, stripping the `$time`-in-`$display` yosys can't elaborate and ADR-0019's DIV/REM
+signedness fix, now three with the `!spec_trap` gate below — and **both** legs read it, so they
+cannot drift into checking different specs. `make test` is now per-retire
 self-checking in both legs, not merely end-state-checking via `tohost`.
 
 **The generated monitor's DIV/REM spec model is defective, and the sanitizer fixes it**
@@ -66,6 +68,38 @@ happened not to compress anything. `formal/imemcheck.sv` — the check that mode
 granularity, per ADR-0003's own consequences section — is re-pointed at the split
 `imem_addr`/`imem_addr2` interface and still passes. `misa`'s C bit is no longer an untested claim.
 
+**The harness can trap and recover, and the monitor no longer lies about trapping retires.**
+Three things landed together, all of them test-side — no `rtl/` file changed. (1)
+`test/asm/riscv_test.h` gains **opt-in** trap macros: a `.align 2` handler that records
+`mcause`/`mepc`/a trap counter into RAM and resumes at `mepc+4`, a fatal variant that fails the
+test from inside the handler, and an installer for `mtvec`. `RVTEST_CODE_BEGIN` is byte-identical
+(verified with `gcc -E`), so the 49 existing tests do not start executing CSR instructions before
+the CSR RTL exists. The handler **cannot read the faulting instruction** — Harvard buses,
+ADR-0008 — so it cannot tell a 2-byte fault from a 4-byte one, and every trapping instruction in a
+resuming test must be wrapped in `.option norvc`. (2) The sanitizer moved from an inline `sed`
+chain to `test/sanitize_monitor.py` and gained a **third rule**: gate the monitor's spec-value
+checks on `!ch0_spec_trap`, mirroring riscv-formal's own `checks/rvfi_insn_check.sv`, which the
+monitor generator never emits. Without it a misaligned `lw` — where the spec model reports the
+loaded value and `pc+4` while a correct core writes nothing and redirects to `mtvec` (ADR-0028) —
+reports errors 104/105/106/111-113 in both sim legs **on correct hardware**. Same situation as
+ADR-0019's DIV/REM defect and the same remedy; the script now also asserts a site count per rule,
+so a pin bump that changes the generator fails loudly instead of silently shipping an unapplied
+sanitizer. (3) `test/monitor_tb.v` joins `make test-units`, driving the sanitized monitor directly
+with hand-built trapping and non-trapping RVFI vectors — including a deliberately wrong one, so a
+gate that disabled all spec checking could not pass.
+
+`test/EXPECTED_FAIL` is **no longer empty**: `csr.S`, `minstret.S` and `trap.S` are seeded there
+ahead of the RTL that pays them off, which is the direction ADR-0014's burn-down contract was
+designed for. `make test` is **49 pass / 3 expected-fail** and still exits 0 only on set equality.
+`test/run_tests.sh` also grew a `MONITOR-ERROR` label for runner exit 4, which used to fall into
+`RUNNER-ERROR` and read as "the sim would not start" when it actually means the per-retire oracle
+disagreed with the core mid-run. **Nothing here checks M3 semantics against an oracle**:
+riscv-formal ships no spec model for `csrr*`/`ecall`/`ebreak`/`mret` at the pinned SHA, so
+`spec_valid` is 0 for every one of them and the monitor's whole semantic block is skipped. The
+trap and CSR tests assert on values their own handler recorded. Error 133 ("expected intr after
+trap") stays unreachable in this single-channel config — `shadow_pc_valid <= !rvfi_trap` gates 130
+and 133 off for the retire after a trap — so `rvfi_intr` hardwired to 0 does not break anything.
+
 What does not work right now:
 
 - **The ALTOPS divide branch reads stale operands.** `rtl/executor.v:221-224` reads `in.rs1`/
@@ -94,16 +128,18 @@ What does not work right now:
   them for deletion. A green run of one of those is not a result.
 
 What does work: `yosys ... write_cxxrtl` elaborates the current RTL cleanly with zero warnings, the
-cxxrtl binary builds and runs, the full `.S` suite passes under it, `make test-units` passes (four
-benches: `exec_tb`, `mem_tb`, `decoder_tb`, and `regfile_tb` — the last covers the write-through
-bypass and x0 semantics), and the decoder and executor component proofs pass by k-induction (see
-ADR-0017 for what the decoder proof does and does not establish). `make waves` now runs the
-iverilog leg (`testbench.vvp`) instead of the cxxrtl runner, matching the verification table below,
+cxxrtl binary builds and runs, the `.S` suite passes under it except the three M3 tests seeded in
+`test/EXPECTED_FAIL`, `make test-units` passes (five benches: `exec_tb`, `mem_tb`, `decoder_tb`,
+`regfile_tb` — which covers the write-through bypass and x0 semantics — and `monitor_tb`, which
+checks the oracle itself rather than the core), and the decoder and executor component proofs pass
+by k-induction (see ADR-0017 for what the decoder proof does and does not establish). `make waves`
+now runs the iverilog leg (`testbench.vvp`) instead of the cxxrtl runner, matching the verification
+table below,
 and produces a real `waves.vcd`. CI (`.github/workflows/ci.yml`) runs elaborate / test / components
 / monitor-freshness on every PR.
 
 **A Sail co-simulation spike measured what the existing oracles structurally cannot see**
-(ADR-0031). Both the RVFI monitor and every `insn_*` ladder check read the core's *self-report*;
+(ADR-0032). Both the RVFI monitor and every `insn_*` ladder check read the core's *self-report*;
 `reg_ch0` is the one check that ties that report back to `rtl/regfile.v`, and it is a single
 `mode bmc` query at depth 21. An injected extra architectural write outside the retiring
 instruction's `rd` (`regs[31] <= wdata` alongside `regs[waddr]`) was **missed by all 49 `.S` tests
@@ -173,7 +209,7 @@ make -C formal components_decoder   # component proofs
 make -C formal check                # the riscv-formal ladder (78 checks; see ADR-0023)
 
 make sail-setup     # once: fetch the pinned sail-riscv release into tools/sail/
-make cosim-run      # Sail co-simulation on ONE program (PROG=add.S). Opt-in; see ADR-0031
+make cosim-run      # Sail co-simulation on ONE program (PROG=add.S). Opt-in; see ADR-0032
 ```
 
 Toolchain: macOS `brew install riscv64-elf-gcc`; Linux `apt install gcc-riscv64-unknown-elf`.
@@ -192,12 +228,12 @@ no multilib or newlib is needed. Formal needs a pinned YosysHQ OSS CAD Suite.
 That arithmetic is covered only by the `.S` suite and the executor component proof. Do not assume a
 green formal ladder means the ALU is correct.
 
-**There is a fourth thing you can run, and it is deliberately not a leg** (ADR-0031). `make
+**There is a fourth thing you can run, and it is deliberately not a leg** (ADR-0032). `make
 cosim-run` diffs the core's *real* `regs` array — read through cxxrtl `debug_items` by
 `test/cosim.cc`, which touches no `rvfi_*` signal at all — against the Sail RISC-V model. All 49
 programs agree (24s for the suite, against 7.3s for `make test`). It is **not** on `make test`'s
 path and **not** a CI gate, on purpose: `make test` must keep working on a machine with no Sail
-installed. Do not wire it in without reading ADR-0031's consequences first — the `tohost`/HTIF
+installed. Do not wire it in without reading ADR-0032's consequences first — the `tohost`/HTIF
 overlap it works around is real and the fix belongs in shared test infrastructure.
 
 `test/monitor.v` rides along in both sim legs (`b2dafcc`), so every run is self-checking per-retire —
@@ -260,7 +296,7 @@ wording is "re-proves everything the serialized core proved", and 15 red checks 
 ## Pointers
 
 - Design brief: [`docs/ideas/finish-the-rewrite.md`](docs/ideas/finish-the-rewrite.md)
-- Decisions: [`docs/adr/`](docs/adr/) — thirty-one accepted ADRs, plus a deferred list
+- Decisions: [`docs/adr/`](docs/adr/) — thirty-two accepted ADRs, plus a deferred list
 - Reference text from the old core: `git show 1709433^:rtl/riscv.v` (RVFI retire block),
   `git show e67875c^:rtl/alu.v` (arithmetic)
 - Work is tracked in Linear, project **Little CPU** (team JEF). Named here so you know where the
@@ -268,5 +304,5 @@ wording is "re-proves everything the serialized core proved", and 15 red checks 
 
 **Deferred behind future ADRs** — forwarding network, radix-4 divider, negedge-BRAM regfile, FPGA
 timing closure, interrupts. Each trades away simplicity the current design depends on; none are
-safe to build while the core is unverified. (Sail co-sim came off this list in ADR-0031: the
+safe to build while the core is unverified. (Sail co-sim came off this list in ADR-0032: the
 harness exists, opt-in; wiring it into `make test` or CI has not been decided.)

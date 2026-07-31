@@ -2,7 +2,7 @@
 """Lockstep co-simulation of this core against the Sail RISC-V model.
 
 A spike, not a fourth verification leg: `make test` neither builds nor runs
-this, and CI does not gate on it. See docs/adr/0031 for what it is for and
+this, and CI does not gate on it. See docs/adr/0032 for what it is for and
 what it costs.
 
 WHAT IS ACTUALLY COMPARED
@@ -97,7 +97,7 @@ def find_cross_compiler():
 def find_sail(explicit):
     """Locate sail_riscv_sim: --sail, $SAIL_RISCV_SIM, tools/sail, then PATH.
 
-    Opt-in by construction (the ticket's constraint, and ADR-0031's): nothing
+    Opt-in by construction (the ticket's constraint, and ADR-0032's): nothing
     in `make test` reaches this function, and when the binary is absent the
     message names the target that installs it rather than a build failure.
     """

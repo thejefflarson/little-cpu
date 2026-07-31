@@ -60,10 +60,18 @@ for src in "$ASM_DIR"/*.S; do
 
     "$SIM" --rom "$rom_hex" --ram "$ram_hex" --cycles "$CYCLES" \
       > "$tmp/$base.run.log" 2>&1
+    # The runner's exit ladder (test/cxxrtl.cc): 0 pass, 1 tohost fail, 2 cycle
+    # limit, 3 usage/setup, 4 RVFI monitor error. 4 gets its own label because
+    # it means something entirely different from the others — the per-retire
+    # oracle disagreed with the core mid-run (ADR-0019), which is a wrong-result
+    # report, not a broken harness. Lumping it into RUNNER-ERROR made it
+    # indistinguishable from "the sim could not be started at all".
     case $? in
       0) status="PASS" ;;
       1) status="FAIL $(awk '/^FAIL/{print $2}' "$tmp/$base.run.log")" ;;
       2) status="TIMEOUT" ;;
+      4) status="MONITOR-ERROR $(sed -n 's/.*RVFI monitor error \([0-9]*\).*/\1/p' \
+             "$tmp/$base.run.log" | head -1)" ;;
       *) status="RUNNER-ERROR" ;;
     esac
   fi
