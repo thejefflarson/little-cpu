@@ -34,7 +34,7 @@ jobs:
   # design elaborates.
   elaborate:
     name: elaborate
-    runs-on: ubuntu-latest
+    runs-on: little-cpu-runners
     timeout-minutes: 8
     steps:
       - name: Record job start
@@ -75,7 +75,7 @@ jobs:
         run: |
           set -euo pipefail
           yosys -p '
-            read_verilog -sv rtl/structs.v rtl/accessor.v rtl/decoder.v rtl/executor.v rtl/fetcher.v rtl/regfile.v rtl/writeback.v rtl/littlecpu.v test/testbench.v
+            read_verilog -sv rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v rtl/fetcher.v rtl/regfile.v rtl/writeback.v rtl/littlecpu.v test/testbench.v
             hierarchy -top testbench
             proc
             opt_clean
@@ -124,6 +124,13 @@ jobs:
   # line comes out of the baseline in the same commit.
   test:
     name: test
+    # Stays GitHub-hosted: this job does `sudo apt-get install
+    # gcc-riscv64-unknown-elf clang`, and the in-cluster runners are deliberately
+    # runAsNonRoot with allowPrivilegeEscalation:false and capabilities drop ALL
+    # (cluster repo: charts/actions/runners/values.yaml). Root package installs and
+    # a hardened non-root runner are fundamentally at odds; weakening the runner to
+    # suit one job is the wrong trade. Moving this would mean baking the RISC-V
+    # toolchain into the runner image instead.
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -178,7 +185,7 @@ jobs:
   # for deletion; a green vacuous proof in CI would be worse than no proof.
   components:
     name: components
-    runs-on: ubuntu-latest
+    runs-on: little-cpu-runners
     timeout-minutes: 5
     steps:
       - name: Record job start
@@ -208,15 +215,67 @@ jobs:
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
 
+  # The structural lint gate: svlint over rtl/ with the tracked .svlint.toml.
+  #
+  # svlint parses with sv-parser -- a THIRD SystemVerilog frontend, neither
+  # yosys's nor iverilog's. It has already earned that: it cannot resolve
+  # rtl/structs.v without an explicit `-i rtl`, a parse-configuration fact
+  # neither of the other two surfaces. `make lint` runs it twice, with and
+  # without the RVFI macros, because roughly a fifth of rtl/ sits behind
+  # `ifdef RISCV_FORMAL` and svlint's preprocessor drops it otherwise.
+  #
+  # Read .svlint.toml before changing anything here: every disabled rule
+  # carries its reason and its measured finding count, and the enabled set is
+  # deliberately small so a finding means something.
+  #
+  # Needs neither oss-cad-suite nor the RISC-V cross compiler -- just the
+  # pinned svlint archive, which `make lint-setup` fetches, SHA-256-verifies
+  # and unpacks (the Makefile owns that pin, so the workflow and the local
+  # path cannot drift on which svlint they run). That makes this by far the
+  # cheapest job here and the first to report.
+  lint:
+    name: lint
+    # Stays GitHub-hosted until the runner image ships `unzip` — svlint is
+    # distributed as a .zip and the image installs unzip only in its build stage,
+    # not the final runtime stage, so this fails with `unzip: not found`. Tracked
+    # against the runner repo; flip to little-cpu-runners once that lands.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Record job start
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install svlint at the pin
+        run: make lint-setup
+
+      - name: make lint
+        # Exit code is the gate. GITHUB_ACTIONS is set on every runner, so
+        # `make lint` passes --github-actions and any finding also lands as an
+        # ::error annotation on the PR diff.
+        run: make lint
+
+      - name: Report job wall time
+        if: always()
+        run: |
+          elapsed=$(( $(date +%s) - JOB_START ))
+          {
+            echo "### lint"
+            echo "wall time: ${elapsed}s"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   # Regenerates test/monitor.v from a from-scratch riscv-formal clone at
   # the pin (formal/pin.mk) and diffs it against the tracked copy
   # (CLAUDE.md invariant 7: generated but tracked, never hand-edited).
   # ADR-0013 asks CI to run this from a from-scratch clone, which is what a
   # fresh runner gives for free -- no oss-cad-suite needed here, just
-  # python3 and git, both preinstalled.
+  # python3 and git, both preinstalled. The job then reuses that same clone to
+  # check the repo's other vendored-from-the-pin file, formal/genchecks-local.py
+  # (ADR-0031); see the second step.
   monitor-freshness:
     name: monitor-freshness
-    runs-on: ubuntu-latest
+    runs-on: little-cpu-runners
     timeout-minutes: 5
     steps:
       - name: Record job start
@@ -226,6 +285,17 @@ jobs:
 
       - name: make monitor-check
         run: make monitor-check
+
+      # The same control for the repo's OTHER vendored generated artifact.
+      # formal/genchecks-local.py is a copy of the pinned riscv-formal's
+      # checks/genchecks.py and may differ from it only by this repo's header
+      # and `basedir` (ADR-0031) -- a rule that until now lived only in a
+      # hand-run recipe in the script's own header, which nothing enforced.
+      # Runs here rather than in its own job because the step above has already
+      # paid for the from-scratch clone at the pin that this needs too, and
+      # like monitor-check it wants nothing but python3 and git.
+      - name: make -C formal genchecks-check
+        run: make -C formal genchecks-check
 
       - name: Report job wall time
         if: always()

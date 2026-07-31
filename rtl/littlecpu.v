@@ -47,7 +47,11 @@ module littlecpu(
   output logic [63:0] rvfi_csr_minstret_rmask,
   output logic [63:0] rvfi_csr_minstret_wmask,
   output logic [63:0] rvfi_csr_minstret_rdata,
-  output logic [63:0] rvfi_csr_minstret_wdata
+  output logic [63:0] rvfi_csr_minstret_wdata,
+  output logic [31:0] rvfi_csr_mscratch_rmask,
+  output logic [31:0] rvfi_csr_mscratch_wmask,
+  output logic [31:0] rvfi_csr_mscratch_rdata,
+  output logic [31:0] rvfi_csr_mscratch_wdata
   `endif //  `ifdef RISCV_FORMAL
   );
   // Declared here (ahead of the decoder instantiation below) because the trap
@@ -63,6 +67,11 @@ module littlecpu(
   logic divider_stalled, accessor_stalled;
   logic       accessor_pending_valid;
   logic [4:0] accessor_pending_rd;
+  // ADR-0026: the CSR serialization drain predicate needs to see a *store*
+  // in the accessor, which accessor_pending_valid (loads only) cannot show
+  // it. accessor_out is declared further down, next to its instantiation, so
+  // this carries its valid bit up to the decoder's port list.
+  logic accessor_out_valid;
   // trap is asserted when the decoded instruction is unrecognized (illegal-instruction)
   // or when the accessor detects a misaligned memory access.  Gated by !reset so that
   // the pipeline flush state does not produce spurious traps, and by decoder_out.valid
@@ -101,6 +110,19 @@ module littlecpu(
     .wdata(wdata)
   );
 
+  // ADR-0005: the CSR file is a sibling of the decoder, read and written in
+  // decode. Everything between them is combinational within the cycle the
+  // accessing instruction issues.
+  logic [11:0] csr_addr;
+  logic        csr_ren, csr_wen;
+  logic [31:0] csr_wdata, csr_rdata;
+  logic        csr_implemented;
+  logic        csr_instret;
+ `ifdef RISCV_FORMAL
+  rvfi_csr64 csr_rvfi_mcycle, csr_rvfi_minstret;
+  rvfi_csr32 csr_rvfi_mscratch;
+ `endif
+
   decoder decoder(
     .clk(clk),
     .reset(reset),
@@ -113,11 +135,44 @@ module littlecpu(
     .accessor_stall(accessor_stalled),
     .accessor_pending_valid(accessor_pending_valid),
     .accessor_pending_rd(accessor_pending_rd),
+    .accessor_out_valid(accessor_out_valid),
+    .csr_rdata(csr_rdata),
+    .csr_implemented(csr_implemented),
+   `ifdef RISCV_FORMAL
+    .csr_rvfi_mcycle(csr_rvfi_mcycle),
+    .csr_rvfi_minstret(csr_rvfi_minstret),
+    .csr_rvfi_mscratch(csr_rvfi_mscratch),
+   `endif
     // outputs
     .pc(pc),
     .rs1(rs1),
     .rs2(rs2),
+    .csr_addr(csr_addr),
+    .csr_ren(csr_ren),
+    .csr_wen(csr_wen),
+    .csr_wdata(csr_wdata),
+    .instret(csr_instret),
     .out(decoder_out)
+  );
+
+  csrs csrs(
+    .clk(clk),
+    .reset(reset),
+    // inputs
+    .addr(csr_addr),
+    .ren(csr_ren),
+    .wen(csr_wen),
+    .wdata(csr_wdata),
+    .instret(csr_instret),
+    // outputs
+    .rdata(csr_rdata),
+    .implemented(csr_implemented)
+   `ifdef RISCV_FORMAL
+    ,
+    .rvfi_mcycle(csr_rvfi_mcycle),
+    .rvfi_minstret(csr_rvfi_minstret),
+    .rvfi_mscratch(csr_rvfi_mscratch)
+   `endif
   );
 
   executor executor(
@@ -132,6 +187,7 @@ module littlecpu(
   );
 
   accessor_output accessor_out;
+  assign accessor_out_valid = accessor_out.valid;
   accessor accessor(
     .clk(clk),
     .reset(reset),
@@ -177,29 +233,33 @@ module littlecpu(
     .rvfi_mem_rmask(rvfi_mem_rmask),
     .rvfi_mem_wmask(rvfi_mem_wmask),
     .rvfi_mem_rdata(rvfi_mem_rdata),
-    .rvfi_mem_wdata(rvfi_mem_wdata)
+    .rvfi_mem_wdata(rvfi_mem_wdata),
+    .rvfi_csr_mcycle_rmask(rvfi_csr_mcycle_rmask),
+    .rvfi_csr_mcycle_wmask(rvfi_csr_mcycle_wmask),
+    .rvfi_csr_mcycle_rdata(rvfi_csr_mcycle_rdata),
+    .rvfi_csr_mcycle_wdata(rvfi_csr_mcycle_wdata),
+    .rvfi_csr_minstret_rmask(rvfi_csr_minstret_rmask),
+    .rvfi_csr_minstret_wmask(rvfi_csr_minstret_wmask),
+    .rvfi_csr_minstret_rdata(rvfi_csr_minstret_rdata),
+    .rvfi_csr_minstret_wdata(rvfi_csr_minstret_wdata),
+    .rvfi_csr_mscratch_rmask(rvfi_csr_mscratch_rmask),
+    .rvfi_csr_mscratch_wmask(rvfi_csr_mscratch_wmask),
+    .rvfi_csr_mscratch_rdata(rvfi_csr_mscratch_rdata),
+    .rvfi_csr_mscratch_wdata(rvfi_csr_mscratch_wdata)
    `endif
   );
 
  `ifdef RISCV_FORMAL
-  // No traps or CSRs exist yet (M3 — CLAUDE.md), so there is nothing
-  // per-instruction to drive these with; hardwired per the serialized
-  // core's convention (`git show 1709433^:rtl/riscv.v`) for a "sans CSRs"
-  // formal run. M-mode only, XLEN=32, no interrupts (CLAUDE.md: mie/mip are
-  // read-only zero) — mode/ixl/intr are likewise constants, not per-retire
-  // data.
+  // The CSR fields are per-retire data now (rtl/csrs.v, threaded through the
+  // shadow to rtl/writeback.v). These five are not, and stay constants:
+  // rvfi_trap has nothing upstream computing it until trap entry lands (the
+  // next M3 step, ADR-0011), and M-mode only / XLEN=32 / no interrupts
+  // (CLAUDE.md: mie and mip are read-only zero) makes mode/ixl/intr
+  // properties of the design rather than of an instruction.
   assign rvfi_trap = 1'b0;
   assign rvfi_halt = 1'b0;
   assign rvfi_intr = 1'b0;
   assign rvfi_mode = 2'd3;
   assign rvfi_ixl = 2'd1;
-  assign rvfi_csr_mcycle_rmask = 64'b0;
-  assign rvfi_csr_mcycle_wmask = 64'b0;
-  assign rvfi_csr_mcycle_rdata = 64'b0;
-  assign rvfi_csr_mcycle_wdata = 64'b0;
-  assign rvfi_csr_minstret_rmask = 64'b0;
-  assign rvfi_csr_minstret_wmask = 64'b0;
-  assign rvfi_csr_minstret_rdata = 64'b0;
-  assign rvfi_csr_minstret_wdata = 64'b0;
  `endif
 endmodule

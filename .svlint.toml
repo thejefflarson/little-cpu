@@ -1,0 +1,357 @@
+# svlint configuration -- the structural lint gate (`make lint`).
+#
+# WHY THIS EXISTS. svlint is a THIRD independent SystemVerilog frontend
+# (sv-parser), alongside yosys and iverilog. By the same reasoning CLAUDE.md's
+# verification table applies to the three simulation legs, a third parser earns
+# its place by seeing what the other two structurally cannot. It has already
+# demonstrated that: svlint cannot resolve rtl/structs.v without an explicit
+# include path (`-i rtl`), a parse-configuration fact neither yosys nor
+# iverilog surfaces.
+#
+# WHAT IT IS FOR. Almost every rule enabled below reports ZERO findings on
+# today's rtl/. That is the point, not an argument against it. Each one catches
+# a defect class that elaborates cleanly in BOTH existing frontends and that
+# neither the .S suite nor the bounded formal ladder reliably reaches:
+#
+#   - a blocking assignment in `always_ff`, or a non-blocking one in
+#     `always_comb`, is a simulation/synthesis mismatch that passes both sim
+#     legs. Measured: injecting `regs[waddr] = wdata` into rtl/regfile.v's
+#     `always_ff` is caught here and by nothing else in the repo.
+#   - a bare `always` whose sensitivity list is inferred, `===` in synthesised
+#     logic, an untyped `enum`, a missing `default_nettype none`.
+#   - this repo has already shipped a defect of that flavour: the multiplier
+#     that was a DECLARATION INITIALISER, evaluated once before time 0 and
+#     never again. It elaborated cleanly in both frontends.
+#
+# WHAT IT IS **NOT** FOR, measured rather than assumed. Latch inference from a
+# `case` in `always_comb` with no default is ALREADY a hard error in yosys:
+# injecting one into rtl/fetcher.v gives `ERROR: Latch inferred for signal
+# ... from always_comb process` and exit 1 from both `write_cxxrtl` (the
+# Makefile's test/rtl.cc recipe) and the CI elaborate job's `proc; opt_clean;
+# check`. iverilog does not report it, but yosys aborting is enough. Do not
+# reach for the `case` family below to cover that class -- read the comment on
+# those three rules for what they actually check, which is not what their
+# names suggest.
+#
+# HOUSE RULE FOR THIS FILE. Every DISABLED rule below carries a one-line reason.
+# A rule switched off without one is the failure mode this file exists to
+# avoid -- the next reader cannot tell "measured, does not apply here" from
+# "someone got tired of the noise". Rules are grouped by why they are off.
+#
+# SCOPE. rtl/ only. test/ benches use delays, `$display` and `initial` blocks
+# that these rules were never meant for. Run with:
+#
+#     make lint
+#
+# and see the Makefile's `lint` target for the two passes (with and without
+# `RISCV_FORMAL`) and why both are needed.
+
+[option]
+# rtl/littlesoc.v is dead scaffolding: it synthesises to 2 LUT4s, carries a
+# `mem_valid`/`mem_ready` handshake the current core does not use, and has a
+# `// TODO SPI mem`. It is also the ONLY file in rtl/ with a genuine finding
+# (four `inout` ports with no `tri` datakind). Deleting it is probably right,
+# but that is its own decision and must not ride in on a lint change; excluding
+# it here keeps `inout_with_tri` LIVE for any inout port added to real RTL,
+# which is the version of that rule worth having.
+exclude_paths = ["rtl/littlesoc\\.v"]
+
+# ---------------------------------------------------------------------------
+# Text rules -- all off.
+#
+# header_copyright, style_directives, style_semicolon, style_textwidth encode a
+# house style this repo has not adopted, and CLAUDE.md is explicit that this
+# project optimises for readability over conformance. Whitespace findings would
+# bury the structural rules that are the entire reason svlint is here.
+# ---------------------------------------------------------------------------
+[textrules]
+header_copyright = false   # no per-file copyright header convention in this repo
+style_directives = false   # style: indentation of `ifdef`/`endif`
+style_semicolon = false    # style: whitespace before `;`
+style_textwidth = false    # style: line length; not a structural property
+
+[syntaxrules]
+
+# ---------------------------------------------------------------------------
+# ENABLED -- assignment kind must match process kind.
+#
+# The simulation/synthesis-mismatch family. All zero findings today; all cheap
+# to violate in a future edit and invisible to both existing frontends.
+# ---------------------------------------------------------------------------
+blocking_assignment_in_always_ff = true
+blocking_assignment_in_always_at_edge = true
+blocking_assignment_in_always_latch = true
+non_blocking_assignment_in_always_comb = true
+non_blocking_assignment_in_always_no_edge = true
+eventlist_comma_always_ff = true
+
+# ---------------------------------------------------------------------------
+# ENABLED -- process kind must be stated, not inferred.
+#
+# A bare `always` whose sensitivity list the tool infers is how a combinational
+# block silently becomes a latch. CLAUDE.md invariant 1 (fetch is
+# combinational, no flush logic) depends on the comb/ff split being exactly
+# what it reads as.
+# ---------------------------------------------------------------------------
+general_always_no_edge = true
+general_always_level_sensitive = true
+procedural_continuous_assignment = true
+
+# ---------------------------------------------------------------------------
+# ENABLED -- declaration hygiene that yosys and iverilog both accept silently.
+#
+# default_nettype_none is already satisfied by all twelve files in rtl/; it is
+# enabled so a thirteenth cannot arrive without it and start inferring 1-bit
+# wires from typos.
+# ---------------------------------------------------------------------------
+default_nettype_none = true
+enum_with_type = true                 # untyped enum defaults to `int`; no enums today
+function_with_automatic = true
+function_same_as_system_function = true
+genvar_declaration_in_loop = true
+loop_variable_declaration = true
+generate_case_with_label = true
+generate_for_with_label = true
+generate_if_with_label = true
+parameter_default_value = true
+parameter_in_generate = true
+inout_with_tri = true                 # live: littlesoc.v, its only source, is excluded above
+
+# ---------------------------------------------------------------------------
+# ENABLED -- expression and statement traps.
+# ---------------------------------------------------------------------------
+operator_case_equality = true         # `===` has no synthesised equivalent
+explicit_brackets_for_confusing_precedence = true
+multiline_if_begin = true             # the dangling-else trap
+multiline_for_begin = true
+action_block_with_side_effect = true  # assertion action blocks must not drive state
+
+# ---------------------------------------------------------------------------
+# DISABLED -- safety rules measured against rtl/ and found not to apply.
+# Each line says why. Do not re-enable one without re-reading its reason.
+# ---------------------------------------------------------------------------
+
+# The `case` family: 19 findings, all on ONE safe idiom, and NONE of the three
+# rules can tell that idiom apart from the unsafe one. rtl/accessor.v assigns
+# every driven signal a default BEFORE its `case`:
+#
+#     always_comb begin
+#       mem_addr = 0;  mem_wstrb = 0;  write_request = 0;
+#       if (!reset && in_valid) begin
+#         case (1'b1)
+#
+# so no latch is inferred. MEASURED, against svlint 0.9.5, on a two-module file
+# differing only in whether `y = 0;` precedes the `case`: all three rules fire
+# IDENTICALLY on both. Only an explicit `default:` ARM satisfies them; a
+# preceding default ASSIGNMENT does not, whatever implicit_case_default's name
+# and stated rationale ("signals are never metastable") suggest. So these are
+# not latch detectors that this code happens to trip -- they are "write a
+# `default:` arm" rules, and the choice they offer is binary.
+#
+# explicit_case_default additionally fires inside `always_ff` (where there is
+# no latch to infer) and on four `case (pending_addr24)` / `case
+# (pending_addr16)` statements in rtl/accessor.v that enumerate every value of
+# their 2-bit and 1-bit selector -- provably exhaustive, flagged anyway.
+#
+# case_default looked like the one worth revisiting: it is always_comb-scoped
+# (it correctly skips the always_ff block) and has exactly ONE finding on rtl/
+# -- rtl/accessor.v:147, whose commented-out default ("not a load or a store
+# this cycle -- the zeroed defaults above stand") sits precisely where a
+# `default: ;` arm would go. Turning that comment into an arm is a ONE-LINE
+# rtl/ change that would let the rule come on at zero ongoing cost.
+#
+# That follow-up is DECLINED, not deferred (ADR-0036), and the reason is the
+# measurement at the top of this file: yosys ERRORS on a defaultless
+# `always_comb` case -- `Latch inferred for signal ...`, exit 1 -- so both the
+# elaborate job and the test/rtl.cc recipe already gate that class. The only
+# thing case_default catches that yosys does not is a `case` that is ALREADY
+# SAFE, because it has its defaults assigned first. That is a style
+# requirement, not a defect class, and it is not worth an rtl/ edit to the
+# stage whose legibility CLAUDE.md singles out. Reopening it needs a defect
+# class yosys does not already error on.
+case_default = false               # style, not safety: yosys already errors on the latch -- see above
+explicit_case_default = false      # 10 findings; 4 provably exhaustive, and it fires inside always_ff too
+implicit_case_default = false      # 8 findings; measured NOT to honour a preceding default assignment
+
+# 9 findings across accessor/csrs/decoder/memory/regfile. Requires an `else` on
+# every `if`. This RTL deliberately relies on a register holding its value when
+# the `if` does not fire (`if (wen) ...` in rtl/csrs.v and rtl/regfile.v); the
+# explicit `else x <= x;` it wants is noise on a sequential block and would be
+# an rtl/ change besides.
+explicit_if_else = false
+
+# 2-state typing (`bit`/`int` instead of `logic`). 18 + 2 + 2 findings, all on
+# CSR-address and memory-size constants. This design wants 4-state semantics:
+# X-propagation in simulation is how an undriven signal is caught, and
+# ADR-0017's component proofs read X as "unconstrained". Switching the type
+# would be an rtl/ change with a real semantic effect, not a lint fix.
+localparam_type_twostate = false   # 18 findings: rtl/csrs.v CSR-address constants
+parameter_type_twostate = false    # 2 findings: rtl/imemory.v, rtl/memory.v size parameters
+localparam_explicit_type = false   # 2 findings: rtl/executor.v; same 4-state reasoning
+
+# 5 findings, all rtl/structs.v. That file is an INCLUDE of shared typedefs
+# (``include "structs.v"``), not a `package` -- which is what lets both sim legs
+# and the formal harness pull it in with a plain `-I rtl`. Making it a package
+# is a structural change to how every module is compiled.
+package_item_not_in_package = false
+
+# 3 findings: rtl/imemory.v, rtl/memory.v, rtl/regfile.v. Memory and register
+# arrays are exactly what unpacked dimensions are for.
+unpacked_array = false
+
+# ---------------------------------------------------------------------------
+# DISABLED -- the inverse of a rule enabled above. Enabling both is a
+# contradiction that makes the gate unsatisfiable.
+# ---------------------------------------------------------------------------
+default_nettype_wire_at_end = false # contradicts default_nettype_none, enabled above
+genvar_declaration_out_loop = false # contradicts genvar_declaration_in_loop, enabled above
+
+# ---------------------------------------------------------------------------
+# DISABLED -- structural rules that encode a coding style, not a defect class.
+# Measured, so the cost of each is on the record rather than assumed.
+# ---------------------------------------------------------------------------
+input_with_var = false      # 52 findings: requires `input var` on every port; ANSI default is fine
+output_with_var = false     # 37 findings: as above
+sequential_block_in_always_comb = false  # 10 findings: forbids `begin`/`end`; this RTL is built on it
+sequential_block_in_always_ff = false    # 6 findings: as above
+sequential_block_in_always_latch = false # no always_latch in rtl/, and the rule is the same style call
+loop_statement_in_always_comb = false    # forbids `for` in comb logic; rtl/regfile.v's reset loop is correct
+loop_statement_in_always_ff = false      # as above
+loop_statement_in_always_latch = false   # as above
+parameter_explicit_type = false          # style: `parameter integer` vs `parameter`; no defect class
+parameter_in_package = false             # this repo has no packages (see package_item_not_in_package)
+interface_port_with_modport = false      # no interfaces in rtl/; rule is vacuous here
+module_ansi_forbidden = false            # rtl/ is uniformly ANSI-header; this rule forbids that
+module_nonansi_forbidden = false         # redundant: rtl/ has no non-ANSI headers to forbid
+operator_incdec = false                  # style: forbids `++`/`--`; not used in rtl/ anyway
+operator_self_assignment = false         # style: forbids `x += y`; not used in rtl/ anyway
+keyword_required_generate = false        # style: explicit `generate`/`endgenerate` wrappers
+eventlist_or = false                     # style: `or` vs `,` in event lists; no defect class
+tab_character = false                    # style: whitespace
+
+# ---------------------------------------------------------------------------
+# DISABLED -- house-style families, off wholesale.
+#
+# These forbid language keywords, impose identifier casing, or enforce name
+# prefixes/regexes. They encode a house style this repo has not adopted, and
+# CLAUDE.md is explicit that readability is the design goal. Enabling any of
+# them would produce hundreds of findings and bury the rules above, which is
+# the specific outcome this gate is meant to avoid. Listed by family rather
+# than one line each -- the reason is identical for every member.
+# ---------------------------------------------------------------------------
+
+# keyword_forbidden_*: bans `always`, `always_comb`, `always_ff`, `logic`,
+# `generate`, `priority`, `unique`, `wire`/`reg`. This design is written in
+# exactly those keywords, on purpose.
+keyword_forbidden_always = false
+keyword_forbidden_always_comb = false
+keyword_forbidden_always_ff = false
+keyword_forbidden_always_latch = false
+keyword_forbidden_generate = false
+keyword_forbidden_logic = false
+keyword_forbidden_priority = false
+keyword_forbidden_unique = false
+keyword_forbidden_unique0 = false
+keyword_forbidden_wire_reg = false
+
+# *camelcase_* / *_identifier_matches_filename: identifier-casing and
+# file-naming conventions. rtl/ is snake_case and one module per file already,
+# but by convention, not by a gate anyone agreed to.
+lowercamelcase_interface = false
+lowercamelcase_module = false
+lowercamelcase_package = false
+uppercamelcase_interface = false
+uppercamelcase_module = false
+uppercamelcase_package = false
+interface_identifier_matches_filename = false
+module_identifier_matches_filename = false
+package_identifier_matches_filename = false
+program_identifier_matches_filename = false
+
+# prefix_*: mandatory `i_`/`o_`/`b_`/`u_` name prefixes. Not this repo's style.
+prefix_inout = false
+prefix_input = false
+prefix_instance = false
+prefix_interface = false
+prefix_module = false
+prefix_output = false
+prefix_package = false
+
+# style_*: whitespace, indentation and operator spacing. See textrules above.
+style_commaleading = false
+style_indent = false
+style_keyword_0or1space = false
+style_keyword_0space = false
+style_keyword_1or2space = false
+style_keyword_1space = false
+style_keyword_1spaceornewline = false
+style_keyword_construct = false
+style_keyword_datatype = false
+style_keyword_end = false
+style_keyword_maybelabel = false
+style_keyword_new = false
+style_keyword_newline = false
+style_operator_arithmetic = false
+style_operator_arithmetic_leading_space = false
+style_operator_boolean = false
+style_operator_boolean_leading_space = false
+style_operator_integer = false
+style_operator_integer_leading_space = false
+style_operator_unary = false
+style_trailingwhitespace = false
+
+# re_required_* / re_forbidden_*: regex naming policy for every declaration
+# kind. The most opinionated family svlint has; adopting it is a separate
+# decision with its own ADR, not a side effect of adding a structural gate.
+re_forbidden_assert = false
+re_forbidden_assert_property = false
+re_forbidden_checker = false
+re_forbidden_class = false
+re_forbidden_function = false
+re_forbidden_generateblock = false
+re_forbidden_genvar = false
+re_forbidden_instance = false
+re_forbidden_interface = false
+re_forbidden_localparam = false
+re_forbidden_modport = false
+re_forbidden_module_ansi = false
+re_forbidden_module_nonansi = false
+re_forbidden_package = false
+re_forbidden_parameter = false
+re_forbidden_port_inout = false
+re_forbidden_port_input = false
+re_forbidden_port_interface = false
+re_forbidden_port_output = false
+re_forbidden_port_ref = false
+re_forbidden_program = false
+re_forbidden_property = false
+re_forbidden_sequence = false
+re_forbidden_task = false
+re_forbidden_var_class = false
+re_forbidden_var_classmethod = false
+re_required_assert = false
+re_required_assert_property = false
+re_required_checker = false
+re_required_class = false
+re_required_function = false
+re_required_generateblock = false
+re_required_genvar = false
+re_required_instance = false
+re_required_interface = false
+re_required_localparam = false
+re_required_modport = false
+re_required_module_ansi = false
+re_required_module_nonansi = false
+re_required_package = false
+re_required_parameter = false
+re_required_port_inout = false
+re_required_port_input = false
+re_required_port_interface = false
+re_required_port_output = false
+re_required_port_ref = false
+re_required_program = false
+re_required_property = false
+re_required_sequence = false
+re_required_task = false
+re_required_var_class = false
+re_required_var_classmethod = false

@@ -40,7 +40,7 @@ env:
 jobs:
   ladder:
     name: riscv-formal ladder
-    runs-on: ubuntu-latest
+    runs-on: little-cpu-runners
     timeout-minutes: 300
     steps:
       - name: Record job start
@@ -57,7 +57,7 @@ jobs:
 
       # genchecks-local.py's insn_*/reg/pc_fwd/pc_bwd/liveness/unique/
       # causal/csrw sweep (formal/checks.cfg), now with `-k` (formal/
-      # Makefile) so the whole 78-check ladder actually runs instead of
+      # Makefile) so the whole 79-check ladder actually runs instead of
       # stopping at the first failure (ADR-0022). `continue-on-error`, not
       # `|| true`: the step's real per-check outcome (and this run's own
       # nonzero `make` exit, since formal/EXPECTED_FAIL is non-empty until
@@ -68,11 +68,23 @@ jobs:
         continue-on-error: true
         run: make -C formal check
 
-      # The real signal: set-equality against formal/EXPECTED_FAIL, in both
-      # directions, so an unexpected *pass* (e.g. the C.JR fix landing) trips
-      # this as loudly as a new failure (ADR-0022, ADR-0014's contract).
-      # Not `continue-on-error` -- this exit status is the job's.
-      - name: Compare ladder results against formal/EXPECTED_FAIL
+      # The real signal, and it is now TWO set-equalities, both in both
+      # directions (ADR-0022, ADR-0014's contract):
+      #
+      #   formal/EXPECTED_FAIL   which checks are red. An unexpected *pass*
+      #                          (e.g. the C.JR fix landing) trips this as
+      #                          loudly as a new failure.
+      #   formal/EXPECTED_CHECKS which checks EXIST. Without it a lost
+      #                          formal/checks.cfg [depth] line silently
+      #                          shrinks the ladder and the remaining checks
+      #                          still match the baseline exactly -- a green
+      #                          nightly over less coverage than it claims
+      #                          (ADR-0033, gap 1).
+      #
+      # check-baseline.sh defaults its third argument to the EXPECTED_CHECKS
+      # beside it, so the invocation below is unchanged. Not
+      # `continue-on-error` -- this exit status is the job's.
+      - name: Compare ladder results against formal/EXPECTED_{FAIL,CHECKS}
         run: |
           {
             echo "### formal ladder vs formal/EXPECTED_FAIL"

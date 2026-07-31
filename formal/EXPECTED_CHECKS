@@ -1,0 +1,141 @@
+# The riscv-formal ladder's EXPECTED SHAPE: every check formal/checks.cfg's
+# [depth] table causes genchecks to generate, one per line.
+#
+# WHY THIS FILE EXISTS (ADR-0033, gap 1). formal/EXPECTED_FAIL answers "did
+# any check's verdict move?" It cannot answer "did a check stop existing?",
+# and those are different questions with the same green. genchecks' two call
+# sites both end with `if depth_cfg is None: return`, so deleting or
+# mistyping one [depth] line removes a check silently -- no .sby, no
+# directory, no status file, no warning, exit 0. A never-generated check is
+# then absent from the results AND absent from EXPECTED_FAIL at once, so
+# that file's set-equality reports a clean match on a smaller ladder. The
+# worst single line to lose is `reg`: ADR-0023 calls reg_ch0 the check that
+# ties RVFI's self-report back to the actual register file.
+#
+# TWO mechanisms read this file, and they catch different things:
+#
+#   formal/genchecks-audit.py  set-equalities the GENERATED set against it
+#                              at generation time, so a lost depth line
+#                              fails in a second rather than after a
+#                              three-minute ladder.
+#   formal/check-baseline.sh   set-equalities the *.sby files on disk
+#                              against it after the run, and treats a name
+#                              here with no status file as non-PASS. That is
+#                              what makes "sby never scheduled it" and "its
+#                              directory vanished" both count as failures
+#                              rather than as a quiet, matching baseline.
+#
+# Set equality in BOTH directions, per ADR-0014's contract: an unexpected
+# ADDITION fails this as loudly as a disappearance. That is the case worth
+# having after a pin bump (ADR-0013) -- upstream growing a check nobody here
+# has ruled on should stop the ladder, not join it unexamined.
+#
+# Edit by hand, never regenerate from a run; regenerating launders exactly
+# the regression this file exists to catch. Adding a line is a claim that
+# the same commit adds a [depth] entry and (if it is red) a formal/
+# EXPECTED_FAIL entry with a reason. Removing one is a claim that the
+# corresponding check should no longer exist, which needs a `#omit` line in
+# checks.cfg saying why.
+#
+# Nothing here is a verdict. Every check on this ladder is `mode bmc`, so a
+# PASS means "no counterexample found within the check's configured depth",
+# not that the property holds; and everything runs under
+# RISCV_FORMAL_ALTOPS, so insn_mul/insn_div/insn_rem passing says nothing
+# whatever about the real multiplier or divider (ADR-0010). This file
+# asserts only that the checks EXIST.
+#
+# Seeded from a from-scratch `python3 formal/genchecks-audit.py` against
+# main at 0d23294 plus this change: 82 generated, 15 declined. The 79-check
+# ladder recorded in ADR-0031 and ADR-0034 grew by three -- causal_mem_ch0,
+# hang and ill_ch0 -- see checks.cfg's declined-checks block for why each.
+
+# --- consistency checks (genchecks' check_cons) -------------------------
+causal_ch0
+causal_mem_ch0
+hang
+ill_ch0
+liveness_ch0
+pc_bwd_ch0
+pc_fwd_ch0
+reg_ch0
+unique_ch0
+
+# --- CSR write checks (check_insn, csr_mode) ----------------------------
+# One per name in checks.cfg's [csrs], which is NOT "the CSRs this core
+# implements" -- see the reasoning next to that list.
+csrw_mcycle_ch0
+csrw_minstret_ch0
+csrw_mscratch_ch0
+
+# --- per-instruction checks (check_insn over riscv-formal's isa_rv32imc
+# --- table at the pin) --------------------------------------------------
+insn_add_ch0
+insn_addi_ch0
+insn_and_ch0
+insn_andi_ch0
+insn_auipc_ch0
+insn_beq_ch0
+insn_bge_ch0
+insn_bgeu_ch0
+insn_blt_ch0
+insn_bltu_ch0
+insn_bne_ch0
+insn_c_add_ch0
+insn_c_addi_ch0
+insn_c_addi16sp_ch0
+insn_c_addi4spn_ch0
+insn_c_and_ch0
+insn_c_andi_ch0
+insn_c_beqz_ch0
+insn_c_bnez_ch0
+insn_c_j_ch0
+insn_c_jal_ch0
+insn_c_jalr_ch0
+insn_c_jr_ch0
+insn_c_li_ch0
+insn_c_lui_ch0
+insn_c_lw_ch0
+insn_c_lwsp_ch0
+insn_c_mv_ch0
+insn_c_or_ch0
+insn_c_slli_ch0
+insn_c_srai_ch0
+insn_c_srli_ch0
+insn_c_sub_ch0
+insn_c_sw_ch0
+insn_c_swsp_ch0
+insn_c_xor_ch0
+insn_div_ch0
+insn_divu_ch0
+insn_jal_ch0
+insn_jalr_ch0
+insn_lb_ch0
+insn_lbu_ch0
+insn_lh_ch0
+insn_lhu_ch0
+insn_lui_ch0
+insn_lw_ch0
+insn_mul_ch0
+insn_mulh_ch0
+insn_mulhsu_ch0
+insn_mulhu_ch0
+insn_or_ch0
+insn_ori_ch0
+insn_rem_ch0
+insn_remu_ch0
+insn_sb_ch0
+insn_sh_ch0
+insn_sll_ch0
+insn_slli_ch0
+insn_slt_ch0
+insn_slti_ch0
+insn_sltiu_ch0
+insn_sltu_ch0
+insn_sra_ch0
+insn_srai_ch0
+insn_srl_ch0
+insn_srli_ch0
+insn_sub_ch0
+insn_sw_ch0
+insn_xor_ch0
+insn_xori_ch0

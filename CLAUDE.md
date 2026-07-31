@@ -88,9 +88,39 @@ sanitizer. (3) `test/monitor_tb.v` joins `make test-units`, driving the sanitize
 with hand-built trapping and non-trapping RVFI vectors — including a deliberately wrong one, so a
 gate that disabled all spec checking could not pass.
 
-`test/EXPECTED_FAIL` is **no longer empty**: `csr.S`, `minstret.S` and `trap.S` are seeded there
+**A site count proves a sanitizer rule fired, not what it swallowed.** Rule 3 selects its ~45-line
+span by *position* — first anchor (`rs1_addr`) to last (`mem_addr`) — so a pin bump that moved the
+trap comparison (`handle_error(101, "mismatch in trap")`) between those anchors would keep the count
+at 1, keep the diff at eight lines, and silently gate off the one assertion riscv-formal's
+`checks/rvfi_insn_check.sv` deliberately keeps live under `spec_trap`. A core that failed to trap on
+a misaligned load would then retire clean in **both** sim legs. So rule 3 now also asserts on
+*contents*: two forbidden literals in the span, the exact multiset of `handle_error` codes it
+encloses (derived from the current output — re-derive it after a pin bump, never edit it to silence
+a failure), and a post-check that error 101 survives into the sanitized output at all. All three
+were confirmed by mutation; the pre-change sanitizer accepted every one of them at exit 0.
+`test/monitor_tb.v` carries the simulation-side half (vector 7: a retire claiming `rvfi_trap = 0`
+where the spec model says it must trap — the existing wrong-retire control is non-trapping and
+passes happily without error 101). `trap.S` sits in `test/EXPECTED_FAIL` as `MONITOR-ERROR 101`
+today, which is that check doing its job against the missing M3 trap logic.
+
+**`make -C formal genchecks-check` is the drift control for the repo's other vendored generated
+file.** ADR-0031 permits `formal/genchecks-local.py` to differ from the pin's
+`checks/genchecks.py` by this repo's header and `basedir` and nothing else — but that rule lived
+only in a hand-run `cp` + `diff -u` recipe in the script's own header, which nothing enforced, and
+unenforced drift there is exactly what produced the five-year-stale fork ADR-0031 exists to end.
+`formal/check-genchecks.py` undoes those two documented edits and then requires byte equality with
+the clone, so any residual diff is drift by construction and is printed. It runs in CI in the
+`monitor-freshness` job, which has already paid for the from-scratch clone at the pin.
+
+`test/EXPECTED_FAIL` is **no longer empty**: `csr.S`, `minstret.S` and `trap.S` were seeded there
 ahead of the RTL that pays them off, which is the direction ADR-0014's burn-down contract was
-designed for. `make test` is **49 pass / 3 expected-fail** and still exits 0 only on set equality.
+designed for. Two of the three are paid off (below); `trap.S` remains, so `make test` is
+**51 pass / 1 expected-fail** and still exits 0 only on set equality. That equality is now over
+**name-and-status pairs** (ADR-0035) — the baselined entry is `trap.S      MONITOR-ERROR 101`, so a
+baselined test that starts failing some *other* way (a broken assembly, a `TIMEOUT`, an unstartable
+runner) is a red gate rather than a match. The same change made every build step's exit status
+checked and `mktemp` fatal: an unchecked `objcopy` that emitted an **empty** RAM image used to make
+`tohost` read zero and every data-independent test still report `PASS`.
 `test/run_tests.sh` also grew a `MONITOR-ERROR` label for runner exit 4, which used to fall into
 `RUNNER-ERROR` and read as "the sim would not start" when it actually means the per-retire oracle
 disagreed with the core mid-run. **Nothing here checks M3 semantics against an oracle**:
@@ -99,6 +129,33 @@ riscv-formal ships no spec model for `csrr*`/`ecall`/`ebreak`/`mret` at the pinn
 trap and CSR tests assert on values their own handler recorded. Error 133 ("expected intr after
 trap") stays unreachable in this single-channel config — `shadow_pc_valid <= !rvfi_trap` gates 130
 and 133 off for the retire after a trap — so `rvfi_intr` hardwired to 0 does not break anything.
+
+**M3 opens: `rtl/csrs.v` lands the CSR file and the Zicsr access path.** ADR-0005's set, exactly —
+RW `mstatus` (MIE/MPIE, MPP WARL→`2'b11`), `mtvec` (direct mode, 4-byte-aligned base, resets to 0
+per ADR-0029), `mepc` (bit 0 only, because C makes 2-byte targets legal), `mcause`, `mscratch`,
+`mcycle`/`mcycleh`, `minstret`/`minstreth`; RO `mtval`/`mie`/`mip` = 0, `misa` = `0x4000_1104`,
+`mvendorid`/`marchid`/`mimpid`/`mhartid` = 0. It is a **sibling of the decoder, not a pipeline
+stage**: every access is read and committed in decode on the edge the accessing instruction issues,
+so no CSR state exists downstream and the read result rides the `is_add` pass-through `lui`/`jal`
+already use. `rtl/decoder.v` separates `csrrwi`/`csrrsi`/`csrrci` from the register forms (they were
+folded together, losing the zimm-vs-rs1 distinction), excludes the immediate forms from `uses_rs1`
+and from `rvfi_rs1_valid`, and folds serialization into `hazard` per ADR-0026 — with
+`accessor_out.valid` newly routed in, because a store in flight is invisible to the other three
+slots. `minstret` increments at issue, gated on `instr_valid`, which is ADR-0027's non-trapping rule
+written now rather than retrofitted. **Nothing reads `mtvec`/`mepc`/`mcause` yet** — trap entry is
+deliberately the next step (ADR-0011) — and an unimplemented CSR stays an *unrecognised
+instruction* via the existing `instr_valid` path rather than raising a trap, which is exactly what
+it did before this file existed.
+
+`csr.S` and `minstret.S` came out of `test/EXPECTED_FAIL`; `test/csr_tb.v` joins `make test-units`.
+On the ladder, **`csrw_mcycle_ch0` and `csrw_minstret_ch0` went FAIL → PASS** and came out of
+`formal/EXPECTED_FAIL` in the same commit, and `formal/checks.cfg`'s `[csrs]` gained **`mscratch`
+only** — 78 checks became 79, `csrw_mscratch_ch0` passes. `mtvec`/`mepc`/`mcause`/`mstatus` are
+deliberately **not** on that list and must not be added: `rvfi_csrw_check.sv` has no WARL model, so
+a correctly masked WARL CSR fails there **on a correct core** (the reasoning is written out next to
+the `[csrs]` list). Those four are checked field-by-field in `test/csr_tb.v` instead. Note also that
+`genchecks` defines `RISCV_FORMAL_CSRWH` for `mcycle`/`minstret` by itself, so the `h` halves are
+exercised whether or not `checks.cfg` asks for it.
 
 What does not work right now:
 
@@ -118,15 +175,6 @@ What does not work right now:
   practical budget. It is the check that ties RVFI's self-report to the actual register file, so
   without it the other 55 passing checks establish that the core's story about itself is
   spec-consistent, not that the story is true.
-- **A green ladder is narrower than it reads** (ADR-0033). `formal/checks.cfg`'s `[depth]` table is
-  the list of checks that *exist*, not a tuning table: `genchecks` drops any check with no depth
-  line, silently, and `formal/check-baseline.sh` globs directories `sby` creates only for checks
-  that ran — so a never-generated check is missing from the results and from `formal/EXPECTED_FAIL`
-  at once, and set equality reports a clean match. Fourteen upstream checks are dropped today;
-  `checks.cfg` reasons about ten of them, and one of the other four (`ill`) is applicable, would
-  fail today, and is off the ladder. **So `formal/EXPECTED_FAIL` reaching empty — M2's declared
-  signal — is necessary but not sufficient until the check count is asserted.** Read it with the
-  generated count beside it.
 - **The formal nightly cannot go red** (ADR-0022). `.github/workflows/formal-nightly.yml:48` is
   `make -C formal check || true`, and `formal/Makefile`'s `check` has no `-k`, so the sub-make also
   stops scheduling at the first failure. Today's nightly runs a partial ladder and reports it as
@@ -136,10 +184,39 @@ What does not work right now:
   assumptions, so they "pass" meaninglessly. CI deliberately does not run them; ADR-0006 slates
   them for deletion. A green run of one of those is not a result.
 
+**The ladder now asserts its own shape, so a green ladder can no longer shrink quietly**
+(ADR-0033's gap 1). `formal/checks.cfg`'s `[depth]` table is the list of checks that *exist*, not a
+tuning table — `genchecks` returns early on any check with no depth line, silently — and
+`formal/check-baseline.sh` used to glob the run directories `sby` creates only for checks it
+actually started, so a never-generated check was missing from the results and from
+`formal/EXPECTED_FAIL` at once and set equality called that a clean match. Two files close it, both
+set equalities in **both** directions per ADR-0014: `formal/EXPECTED_CHECKS` names every check that
+must be generated, and `checks.cfg`'s `#omit` lines name every check `genchecks` considered and
+skipped, with a reason each. `formal/genchecks-audit.py` derives both sets by tracing `genchecks`'
+own `get_depth_cfg` calls — it does not re-implement the naming, and it cross-checks its trace
+against `genchecks`' own `consistency_checks`/`instruction_checks` sets and against the `.sby` files
+on disk, so a wrong inventory fails rather than being reported. `check-baseline.sh` now enumerates
+`checks/*.sby` rather than directories, so a generated-but-never-scheduled check resolves to
+NO-STATUS and counts non-PASS, and `make -C formal check` ends in that comparison rather than in
+`sby`'s exit code, which `expect pass,fail` makes meaningless. Deleting any one `[depth]` line —
+including a **passing** check's — now fails at generation in a second and again at the post-run
+gate.
+
+Three checks joined the ladder in the same change, taking it from 79 to **82**: `ill_ch0` (red — see
+`formal/EXPECTED_FAIL`), `causal_mem_ch0` and `hang` (both pass). `ill_ch0` is deliberately landed
+**red**: ADR-0033's rule is that a known-red check on the ladder is the system working and a
+known-red check off the ladder is the system lying. Fifteen upstream checks remain declined, each
+with a `#omit` line; the count is derived from the generator, not asserted in prose. **One of the
+fifteen is a trap for a future reader**: adding a bare `csrc` depth line generates three checks
+reading `rvfi_csrc_check.sv`, which does not exist at the pin — the six real models
+(`rvfi_csrc_{any,const,hpm,inc,upcnt,zero}_check.sv`) are reached only through a per-CSR *test list*
+in `[csrs]`.
+
 What does work: `yosys ... write_cxxrtl` elaborates the current RTL cleanly with zero warnings, the
-cxxrtl binary builds and runs, the `.S` suite passes under it except the three M3 tests seeded in
-`test/EXPECTED_FAIL`, `make test-units` passes (five benches: `exec_tb`, `mem_tb`, `decoder_tb`,
-`regfile_tb` — which covers the write-through bypass and x0 semantics — and `monitor_tb`, which
+cxxrtl binary builds and runs, the `.S` suite passes under it except the one M3 test still seeded in
+`test/EXPECTED_FAIL`, `make test-units` passes (six benches: `exec_tb`, `mem_tb`, `decoder_tb`,
+`regfile_tb` — which covers the write-through bypass and x0 semantics — `csr_tb`, which covers
+`rtl/csrs.v`'s read mux, its `implemented` address set and its WARL masks, and `monitor_tb`, which
 checks the oracle itself rather than the core), and the decoder and executor component proofs pass
 by k-induction (see ADR-0017 for what the decoder proof does and does not establish). `make waves`
 now runs the iverilog leg (`testbench.vvp`) instead of the cxxrtl runner, matching the verification
@@ -185,14 +262,21 @@ These are the design. Violating one is a bug even if tests pass.
 5. **CSR instructions and `mret` serialize** — held in decode until execute/access/writeback drain.
 6. **The regfile is combinational-read with write-through bypass.**
 7. **`test/monitor.v` is generated but tracked.** Regenerate it; never hand-edit it.
-8. **Stalls are a single global broadcast with three sources** — the decode scoreboard, the
-   divider, and the accessor's one-cycle load-response turnaround (ADR-0015). Two non-local rules
-   hold it together, and a later change can break either silently: (a) while `divider_stall` or
-   `accessor_stall` is asserted, decode **holds** `decoder_out` unchanged rather than bubbling it,
-   and nothing downstream may consume it that cycle; a RAW hazard does the opposite (bubble). (b)
-   Every in-flight non-`x0` `rd` is visible to the scoreboard on every cycle between issue and the
+8. **Stalls are a single global broadcast: four reasons over two mechanisms** (ADR-0026, amending
+   ADR-0009). The reasons are the decode scoreboard, the divider, the accessor's one-cycle
+   load-response turnaround (ADR-0015), and CSR serialization (invariant 5). The **mechanisms** are
+   what actually matters, and three non-local rules hold them together, each breakable silently:
+   (a) while `divider_stall` or `accessor_stall` is asserted, decode **holds** `decoder_out`
+   unchanged rather than bubbling it, and nothing downstream may consume it that cycle; a RAW
+   hazard **bubbles** instead, and so does CSR serialization — the CSR instruction has not issued
+   yet, so it folds into the existing `hazard` term rather than becoming new machinery. (b) Every
+   in-flight non-`x0` `rd` is visible to the scoreboard on every cycle between issue and the
    regfile write-through, with no gap: `decoder_out` → `executor_out` → `accessor_pending` (loads
-   only) → write-through.
+   only) → write-through. (c) The serialization drain predicate reads **four** slots, not the
+   scoreboard's three: `accessor_pending_valid` covers loads only, so `accessor_out.valid` is
+   routed into the decoder separately (`rtl/littlecpu.v`) — without it a *store* in flight is
+   invisible and a CSR instruction issues early, giving a `minstret` that is wrong only when a
+   store happens to be in flight.
 
 ## ISA target
 
@@ -215,7 +299,8 @@ make waves          # iverilog + VCD (testbench.vvp's baked-in program) -> waves
 make monitor-check  # regenerate test/monitor.v at the pin and diff
 
 make -C formal components_decoder   # component proofs
-make -C formal check                # the riscv-formal ladder (78 checks; see ADR-0023)
+make -C formal check                # the riscv-formal ladder (82 checks; see ADR-0023)
+make -C formal check-baseline       # re-grade a finished ladder: EXPECTED_CHECKS + EXPECTED_FAIL
 
 make sail-setup     # once: fetch the pinned sail-riscv release into tools/sail/
 make cosim-run      # Sail co-simulation on ONE program (PROG=add.S). Opt-in; see ADR-0032
@@ -255,18 +340,26 @@ the oracle (ADR-0019).
 
 - **Compiler and elaboration warnings are errors.** Fix them; don't silence them.
   **One documented exception**, and only this one: iverilog emits `sorry: constant selects in
-  always_* processes are not fully supported` for every struct-field read inside an `always_*`
-  block — 20 of them, all from `rtl/executor.v`'s `in.is_*` flags. It cannot build a precise
-  sensitivity entry for a constant part-select, so it falls back to whole-struct sensitivity.
+  always_* processes are not fully supported` for every struct-field read inside an
+  **`always_comb`** block — 20 of them, all from `rtl/writeback.v`, against
+  `in[311:0]` (`accessor_output`). It cannot build a precise sensitivity entry for a constant
+  part-select, so it falls back to whole-struct sensitivity.
   **That fallback is provably safe**: over-sensitivity re-evaluates redundantly and can never
   yield a stale value; only *under*-sensitivity is a correctness bug. Everywhere the select was
   cheap to hoist into a named continuous assign it has been (`rtl/decoder.v`'s register-index
-  fields, `rtl/accessor.v`'s payload fields, `test/testbench.v`'s ROM index) — that silenced 17
-  of 37 and reads better besides. `rtl/executor.v` keeps the `in.` form because its body is one
-  `case (1'b1)` over 39 flags, and hoisting all of them would add ~80 lines of plumbing to the
-  module whose legibility matters most. Copying the struct to a local does not help (still a
-  constant select); `always @(in)` would, but trades away `always_comb`'s latch checking for
-  exactly the sensitivity iverilog already infers. Do not add new ones outside `executor.v`.
+  fields, `rtl/accessor.v`'s payload fields, `test/testbench.v`'s ROM index, and
+  `rtl/writeback.v`'s twelve CSR payload reads) — and it reads better besides.
+  `rtl/writeback.v` keeps the `in.` form in its two `always_comb` blocks because hoisting all
+  30 reads would add more plumbing than it removes. Copying the struct to a local does not help
+  (still a constant select); `always @(in)` would, but trades away `always_comb`'s latch
+  checking for exactly the sensitivity iverilog already infers.
+  **The diagnostic is specific to `always_comb`**, where the sensitivity list is *inferred*.
+  `rtl/executor.v` emits **zero** of these despite its `case (1'b1)` over 39 `in.is_*` flags,
+  because that body sits in `always_ff @(posedge clk)`, whose sensitivity is written out.
+  Compile any module alone to attribute them (`iverilog -g2012 -s <mod> rtl/structs.v
+  rtl/<mod>.v`). **Do not add new ones outside `rtl/writeback.v`**, and prefer a continuous
+  assign for any new struct-field read in an `always_comb` — that is what holds the count at 20
+  (ADR-0034; this bullet named `rtl/executor.v` until then, which was measurably wrong).
 - **Every non-trivial change adds or updates tests and runs the full suite** before being declared
   done. Elaboration succeeding is not a substitute for tests passing.
 - **Never commit build artifacts.** `test/rtl.cc`, `sim`, `*.vvp`, `*.vcd`, `rvfi_macros.vh`, and
@@ -291,7 +384,7 @@ the oracle (ADR-0019).
 | M0 | Foundation | this file, riscv-formal SHA-pinned, dead references gone |
 | M1 | Finish the pipeline | all RV32IM `.S` tests pass under cxxrtl — **reached, `a4662a2`** |
 | M2 | **Parity checkpoint** | the pipelined core re-proves everything the serialized core proved |
-| M3 | Past the old core | CSRs + machine-mode traps |
+| M3 | Past the old core | CSRs + machine-mode traps — CSRs done (`rtl/csrs.v`); traps are next |
 | M4 | Full ladder + CI | nightly formal green; tag a release (PR gate `c66527d`; nightly `86e2721`, report-only until ADR-0022) |
 
 M1 is reached. **M2 is the milestone that erases the verified→unverified regression** — treat it
@@ -300,7 +393,12 @@ in both sim legs) and `86e2721` landed the ladder port itself (`wrapper.v` / `ch
 `imemcheck` / `dmemcheck` / `cover` / `equiv.sh`, ADR-0006) — but **M2 is not reached.** M2's own
 wording is "re-proves everything the serialized core proved", and 15 red checks plus an inconclusive
 `reg` plus a non-converging `equiv.sh` is not that. ADR-0023 lists what closing it takes; the
-`formal/EXPECTED_FAIL` baseline of ADR-0022 reaching empty is the signal.
+`formal/EXPECTED_FAIL` baseline of ADR-0022 reaching empty is the signal — read together with the
+generated check count, per ADR-0033, which is now `formal/EXPECTED_CHECKS` and is asserted rather
+than recited. `rtl/csrs.v` took that baseline from 11 entries to 9 (both `csrw_*`) on a 79-check
+ladder; landing `ill_ch0` red made it 10 on an 82-check ladder. **All ten are the trap gap** — nine
+misalignment, one illegal-instruction — so the next M3 step closes every one of them or the
+attribution behind them was wrong.
 
 ## Pointers
 

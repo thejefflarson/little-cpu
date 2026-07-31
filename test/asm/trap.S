@@ -128,6 +128,47 @@ test_4:
   # Six traps taken, six handler entries.
   TEST_CASE( 13, a4, 6, la a3, trap_count; lw a4, 0(a3); )
 
+  #-------------------------------------------------------------
+  # ADR-0027's second counter rule: a trapping instruction issues, and retires
+  # in RVFI with rvfi_trap = 1, but it did NOT retire architecturally — so it
+  # must not increment `minstret`. This lives here rather than in
+  # test/asm/minstret.S because it needs a trap to be takeable at all; that
+  # file carries the exactness rule, which does not.
+  #
+  # Between the two reads: the first csrr, the whole handler, and the
+  # misaligned load — which must not count. `.option norvc` because the
+  # handler resumes at mepc+4.
+  #-------------------------------------------------------------
+
+test_14:
+  la    a3, tdat
+  addi  a3, a3, 1
+
+  csrr  a0, minstret
+  .option push
+  .option norvc
+  lw    a4, 0(a3)
+  .option pop
+  csrr  a1, minstret
+  sub   a2, a1, a0
+
+  # Expected = the first csrr, plus one entry's worth of handler. The handler
+  # body is straight-line and `.option norvc`, so its instruction count is its
+  # byte span / 4. Computed at run time rather than assembled as a constant:
+  # `li` cannot take a label difference, and hardcoding the number would let an
+  # edit to riscv_test.h silently invalidate this assertion.
+  la    a5, trap_handler
+  la    a6, trap_handler_end
+  sub   a5, a6, a5
+  srli  a5, a5, 2
+  addi  x29, a5, 1
+  li    TESTNUM, 14
+  bne   a2, x29, fail
+
+  # The trap really was taken — otherwise test 14 would be asserting about a
+  # sequence that never entered the handler at all.
+  TEST_CASE( 15, a4, 7, la a3, trap_count; lw a4, 0(a3); )
+
   TEST_PASSFAIL
 
   RVTEST_TRAP_HANDLER
