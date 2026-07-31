@@ -38,6 +38,7 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0031](0031-the-vendored-genchecks-copy-tracks-the-pin.md) | The vendored `genchecks` copy tracks the pin, and only `basedir` differs | Accepted |
 | [0032](0032-sail-co-simulation-is-worth-building-and-stays-opt-in.md) | Sail co-simulation is worth building, and stays opt-in | Accepted |
 | [0033](0033-what-the-green-ladder-does-not-cover.md) | What a green ladder does not cover — three assurance gaps, named | Accepted |
+| [0034](0034-what-the-csr-ladder-checks-cannot-see.md) | What the CSR ladder checks cannot see, and the decisions the CSR file forced | Accepted |
 
 0001–0007 came from the design brief
 ([`docs/ideas/finish-the-rewrite.md`](../ideas/finish-the-rewrite.md)). 0008–0011 came out of
@@ -62,7 +63,10 @@ measurement intact — and records why none of the ten `fault`/`bus_*` checks it
 0032 came out of a time-boxed spike against the Sail RISC-V model and resolves the "Spike or Sail
 co-simulation" item that used to sit in the deferred list below. 0033 came out of integrating those
 three together: it audits the machinery M2 is *measured* by rather than the core it measures, and
-records what a green ladder and a matching baseline do not, on their own, establish.
+records what a green ladder and a matching baseline do not, on their own, establish. 0034 came out of
+integrating the CSR file: it records the two decode-side decisions ADR-0005's field list left open,
+corrects ADR-0027 on the counter `h` halves, measures what the `csrw_*` checks cannot see, and fixes
+a `CLAUDE.md` engineering rule that named the wrong file.
 
 ## Deferred decisions
 
