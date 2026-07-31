@@ -424,15 +424,23 @@ jobs:
       # what the pod actually has; re-tune against those numbers, not by
       # guessing. `JOBS=` on the command line overrides the Makefile's `:=`
       # default and still passes its own numeric sanity guard.
-      - name: Generate and run the ladder (make -C formal check)
-        continue-on-error: true
+      - name: PROBE - runner capacity only, no ladder
         run: |
           set -uo pipefail
-          echo "nproc:            $(nproc)"
-          echo "cgroup cpu.max:   $(cat /sys/fs/cgroup/cpu.max 2>/dev/null || echo unavailable)"
-          echo "cgroup memory.max:$(cat /sys/fs/cgroup/memory.max 2>/dev/null || echo unavailable)"
-          free -h 2>/dev/null || true
-          make -C formal check JOBS=4
+          echo "nproc:             $(nproc)"
+          echo "cpuinfo processors:$(grep -c ^processor /proc/cpuinfo)"
+          echo "cgroup cpu.max:    $(cat /sys/fs/cgroup/cpu.max 2>/dev/null || echo n/a)"
+          echo "cgroup memory.max: $(cat /sys/fs/cgroup/memory.max 2>/dev/null || echo n/a)"
+          echo "cgroup memory.high:$(cat /sys/fs/cgroup/memory.high 2>/dev/null || echo n/a)"
+          echo "cgroup memory.current:$(cat /sys/fs/cgroup/memory.current 2>/dev/null || echo n/a)"
+          free -h || true
+          df -h . || true
+          echo "--- generation only (no checks run) ---"
+          make -C formal checks JOBS=1
+          ls formal/checks/*.sby | wc -l
+          echo "--- three checks, serial ---"
+          /usr/bin/time -v make -C formal/checks -f Makefile insn_add_ch0 2>&1 | tail -30 || true
+          free -h || true
 
       # THE GATE. Not continue-on-error: this exit status is the job's.
       # A ladder that failed to generate at all resolves to exit 2 here
