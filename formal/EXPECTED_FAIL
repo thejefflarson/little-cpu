@@ -104,7 +104,6 @@ insn_c_swsp_ch0
 # misaligned access traps, this one goes green when an ILLEGAL INSTRUCTION
 # traps (ADR-0030's cause 2). Two of ADR-0030's five causes are therefore
 # on the ladder rather than one.
-ill_ch0
 
 # The C.JR/C.JALR decode defect (ADR-0021): rtl/decoder.v:114 routes
 # instr_jalr through i_immediate = instr[31:20], which for a 16-bit
