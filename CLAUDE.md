@@ -118,6 +118,15 @@ What does not work right now:
   practical budget. It is the check that ties RVFI's self-report to the actual register file, so
   without it the other 55 passing checks establish that the core's story about itself is
   spec-consistent, not that the story is true.
+- **A green ladder is narrower than it reads** (ADR-0033). `formal/checks.cfg`'s `[depth]` table is
+  the list of checks that *exist*, not a tuning table: `genchecks` drops any check with no depth
+  line, silently, and `formal/check-baseline.sh` globs directories `sby` creates only for checks
+  that ran — so a never-generated check is missing from the results and from `formal/EXPECTED_FAIL`
+  at once, and set equality reports a clean match. Fourteen upstream checks are dropped today;
+  `checks.cfg` reasons about ten of them, and one of the other four (`ill`) is applicable, would
+  fail today, and is off the ladder. **So `formal/EXPECTED_FAIL` reaching empty — M2's declared
+  signal — is necessary but not sufficient until the check count is asserted.** Read it with the
+  generated count beside it.
 - **The formal nightly cannot go red** (ADR-0022). `.github/workflows/formal-nightly.yml:48` is
   `make -C formal check || true`, and `formal/Makefile`'s `check` has no `-k`, so the sub-make also
   stops scheduling at the first failure. Today's nightly runs a partial ladder and reports it as
@@ -296,7 +305,7 @@ wording is "re-proves everything the serialized core proved", and 15 red checks 
 ## Pointers
 
 - Design brief: [`docs/ideas/finish-the-rewrite.md`](docs/ideas/finish-the-rewrite.md)
-- Decisions: [`docs/adr/`](docs/adr/) — thirty-two accepted ADRs, plus a deferred list
+- Decisions: [`docs/adr/`](docs/adr/) — thirty-three accepted ADRs, plus a deferred list
 - Reference text from the old core: `git show 1709433^:rtl/riscv.v` (RVFI retire block),
   `git show e67875c^:rtl/alu.v` (arithmetic)
 - Work is tracked in Linear, project **Little CPU** (team JEF). Named here so you know where the

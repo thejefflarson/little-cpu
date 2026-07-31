@@ -55,7 +55,9 @@ remains the backstop. **This is the one place this ADR accepts a real reduction 
 it is recorded as such rather than argued away: if some future check hangs, the nightly loses the
 whole job rather than one check's status, exactly as it did before ADR-0022. Restoring a per-check
 bound means either forking `genchecks` again or teaching `formal/Makefile`'s `check` target to wrap
-each `sby` invocation — the latter is the cheaper answer and the one to reach for.
+each `sby` invocation — the latter is the cheaper answer and the one to reach for. **ADR-0033
+decides it that way**, and records the three things that make the wrapper less trivial than it
+looks.
 
 **3. The ten newly-generatable `fault`/`bus_*` checks are evaluated and deliberately not adopted.**
 None appears in `checks.cfg`'s `[depth]`, so `genchecks` skips all ten. **0 of 10 are applicable as

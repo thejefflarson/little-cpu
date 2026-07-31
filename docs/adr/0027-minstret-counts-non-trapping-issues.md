@@ -19,11 +19,18 @@ must not increment `minstret` — a trapped instruction did not retire.
 **The rule becomes: increment at issue, for non-trapping issues only.**
 
 This is a one-line change to the implementation and a silent correctness bug if missed. It is also
-invisible to the riscv-formal ladder: `rvfi_csrw_check.sv` checks that a CSR *write* lands, not that
-a counter's *increment* semantics are right, and the `csrc_*` checks that would catch it are
-unreachable at the current pin (upstream split `rvfi_csrc_check.sv` into six files after the pinned
-SHA). The only mechanised check of this rule anywhere will be the component proof in ADR-0031's
-ticket.
+invisible to the riscv-formal ladder as that ladder stands: `rvfi_csrw_check.sv` checks that a CSR
+*write* lands, not that a counter's *increment* semantics are right.
+
+**Correction, from ADR-0031.** The sentence that stood here said the `csrc_*` checks that would
+catch it were "unreachable at the current pin", because upstream had split `rvfi_csrc_check.sv`
+into six files after the pinned SHA. That was wrong in the way that matters: all six models are
+present at the pin, and what blocked them was this repo's five-year-stale vendored `genchecks`
+copy. Re-vendoring made them generatable. `csrc_inc_minstret` is the direct formal statement of the
+rule above and is the check to reach for once `minstret` exists — it needs a `[csrs]` test spelling,
+a derived depth (ADR-0025) and a `formal/EXPECTED_FAIL` entry (ADR-0022), and nothing more. Until
+then this rule is checked only by `test/asm/minstret.S`, which asserts on values the test's own
+handler recorded rather than against any oracle.
 
 ## Amendment 2 — what serialization actually buys
 

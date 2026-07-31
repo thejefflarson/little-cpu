@@ -56,6 +56,7 @@ maintainer types `make sail-setup`. The fetch has no checksum and no signature, 
 asset is mutable, so `SAIL_RISCV_VERSION` pins a name rather than bytes. That is an accepted gap
 with a named precondition: **integrating co-sim into `make test` or CI means giving this fetch
 `formal/pin.mk`'s treatment first** — a checksum verified before anything out of the tarball runs.
+ADR-0033 records that gap, and two smaller ones on the same target, in full.
 
 **Comparing states rather than write events** is a deliberate reduction. A write of a value a
 register already holds is architecturally invisible; Sail traces it and a state snapshot does not.
