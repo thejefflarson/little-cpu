@@ -32,6 +32,10 @@ cosim
 cosim.dSYM/
 tools/sail
 tools/sail.tmp
+# The pinned svlint release archive `make lint-setup` unpacks (the structural
+# lint gate, .svlint.toml). A downloaded binary; never commit it.
+tools/svlint
+tools/svlint.tmp
 test/a.out.dSYM/
 # Swarm agent worktrees (.claude/tracker.json stays tracked).
 .claude/worktrees/

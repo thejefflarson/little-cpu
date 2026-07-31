@@ -208,6 +208,52 @@ jobs:
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
 
+  # The structural lint gate: svlint over rtl/ with the tracked .svlint.toml.
+  #
+  # svlint parses with sv-parser -- a THIRD SystemVerilog frontend, neither
+  # yosys's nor iverilog's. It has already earned that: it cannot resolve
+  # rtl/structs.v without an explicit `-i rtl`, a parse-configuration fact
+  # neither of the other two surfaces. `make lint` runs it twice, with and
+  # without the RVFI macros, because roughly a fifth of rtl/ sits behind
+  # `ifdef RISCV_FORMAL` and svlint's preprocessor drops it otherwise.
+  #
+  # Read .svlint.toml before changing anything here: every disabled rule
+  # carries its reason and its measured finding count, and the enabled set is
+  # deliberately small so a finding means something.
+  #
+  # Needs neither oss-cad-suite nor the RISC-V cross compiler -- just the
+  # pinned svlint archive, which `make lint-setup` fetches, SHA-256-verifies
+  # and unpacks (the Makefile owns that pin, so the workflow and the local
+  # path cannot drift on which svlint they run). That makes this by far the
+  # cheapest job here and the first to report.
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Record job start
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install svlint at the pin
+        run: make lint-setup
+
+      - name: make lint
+        # Exit code is the gate. GITHUB_ACTIONS is set on every runner, so
+        # `make lint` passes --github-actions and any finding also lands as an
+        # ::error annotation on the PR diff.
+        run: make lint
+
+      - name: Report job wall time
+        if: always()
+        run: |
+          elapsed=$(( $(date +%s) - JOB_START ))
+          {
+            echo "### lint"
+            echo "wall time: ${elapsed}s"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   # Regenerates test/monitor.v from a from-scratch riscv-formal clone at
   # the pin (formal/pin.mk) and diffs it against the tracked copy
   # (CLAUDE.md invariant 7: generated but tracked, never hand-edited).

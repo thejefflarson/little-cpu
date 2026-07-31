@@ -296,11 +296,160 @@ monitor-check: $(RISCV_FORMAL_DIR)/monitor/generate.py | $(RISCV_FORMAL_DIR)
 .PHONY: setup
 setup:
 ifeq ($(shell uname -s),Darwin)
-	brew install riscv64-elf-gcc
+	brew install riscv64-elf-gcc svlint
 else
 	@echo "On Linux, install the RISC-V cross compiler with:"
 	@echo "  sudo apt-get install gcc-riscv64-unknown-elf"
+	@echo
+	@echo "svlint (the structural lint gate, \`make lint\`) is not packaged by"
+	@echo "apt. Get the pinned release archive with:"
+	@echo "  make lint-setup"
+	@echo "which fetches, SHA-256-verifies and unpacks it into $(SVLINT_DIR)/."
+	@echo "\`cargo install svlint --version $(SVLINT_VERSION)\` also works, but"
+	@echo "builds from an unpinned crates.io tarball -- prefer lint-setup."
 endif
+
+# ---------------------------------------------------------------------------
+# Structural lint (.svlint.toml) -- the THIRD SystemVerilog frontend.
+#
+# svlint parses with sv-parser, which is neither yosys's nor iverilog's
+# frontend. Read .svlint.toml's header for why this gate exists and why nearly
+# every rule it enables reports zero findings today; read the rule comments
+# there before changing any of them.
+#
+# rtl/ only. test/ benches use delays, `$display` and `initial` blocks these
+# rules were never meant for.
+# ---------------------------------------------------------------------------
+
+# Pinned the way formal/pin.mk pins riscv-formal and the sail spike above pins
+# sail-riscv, and for the same reason (ADR-0013): this fetches a 45 MB
+# EXECUTABLE off the network. A GitHub release asset is MUTABLE, so a version
+# on its own pins a FILENAME, not BYTES -- the SHA-256 beside each asset name
+# is what pins the bytes, and it is checked before anything is extracted, let
+# alone run. Bumping the version means re-pinning every digest; that friction
+# is the point.
+#
+# `override` + an origin check so this cannot be redirected from a script or a
+# CI job. A supply-chain control, not a knob.
+ifneq ($(filter command line environment,$(origin SVLINT_VERSION)),)
+$(error SVLINT_VERSION cannot be set from the command line or the environment: \
+  it pins bytes this repo executes. Change it in the Makefile, together with \
+  the SHA-256 digests below it)
+endif
+override SVLINT_VERSION := 0.9.5
+
+# Three-part, so a branch name or a moving tag cannot be written here by
+# accident.
+ifeq ($(shell printf '%s' '$(SVLINT_VERSION)' | grep -cE '^[0-9]+\.[0-9]+\.[0-9]+$$'),0)
+$(error SVLINT_VERSION must be a three-part release version like 0.9.5, not a \
+  branch, a moving tag or a range: '$(SVLINT_VERSION)')
+endif
+
+# `shasum -a 256` over each 0.9.5 asset, downloaded fresh and cross-checked
+# against the per-asset digest the GitHub releases API reports. Upstream ships
+# no Linux aarch64 build, so that host has no line here and `lint-setup` fails
+# closed on it rather than fetching something it cannot verify (use `brew` or
+# `cargo install` there).
+#
+# The version is spelled out in each variable NAME, not interpolated. That is
+# deliberate: bumping SVLINT_VERSION without re-pinning makes the lookup below
+# resolve to empty, and `lint-setup` refuses to fetch. A digest that silently
+# carried over to a new version would be a control that reads as protection
+# while providing none (ADR-0013).
+SVLINT_SHA256_svlint-v0.9.5-x86_64-lnx  := 0bbb3850b8ef604d7ccf25c2b0d2a751154ac2e18b2a12753ae1648f237a8ceb
+SVLINT_SHA256_svlint-v0.9.5-x86_64-mac  := 53838f356862b6492777347999ccf44c1b44bc78f51cb032759b9e17bd213519
+SVLINT_SHA256_svlint-v0.9.5-aarch64-mac := d032be600f0ee04130e0663daa05da3cc562d3d34bbc4305d6b70cb99310c6df
+
+SVLINT_ASSET_Linux_x86_64  := svlint-v$(SVLINT_VERSION)-x86_64-lnx
+SVLINT_ASSET_Darwin_x86_64 := svlint-v$(SVLINT_VERSION)-x86_64-mac
+SVLINT_ASSET_Darwin_arm64  := svlint-v$(SVLINT_VERSION)-aarch64-mac
+
+SVLINT_DIR   := tools/svlint
+SVLINT_ASSET := $(SVLINT_ASSET_$(shell uname -s)_$(shell uname -m))
+SVLINT_SHA256 := $(SVLINT_SHA256_$(SVLINT_ASSET))
+
+# Prefer whatever is on PATH (brew, cargo, the distro) and fall back to the
+# tree `lint-setup` unpacks, so a developer who already has svlint installed
+# never pays for the download and CI needs no extra PATH plumbing.
+SVLINT ?= $(shell command -v svlint 2>/dev/null || echo ./$(SVLINT_DIR)/bin/svlint)
+
+# TWO passes, and both are load-bearing. Roughly a fifth of rtl/ sits behind
+# `ifdef RISCV_FORMAL` (rvfi_* capture in structs/decoder/accessor/writeback);
+# svlint's preprocessor drops those blocks unless the macros are defined, so a
+# single undefined pass would leave the RVFI instrumentation unlinted --
+# exactly the code ADR-0020 says must stay write-only with respect to the core
+# and that nothing else structurally checks. Same macro list as both sim legs
+# ($(RISCV_FORMAL_MACROS), defined at the top of this file) so the three
+# cannot drift on what "RVFI is live" means.
+#
+# `-i rtl` is required, not decorative: svlint resolves `include "structs.v"`
+# relative to the include path only, and without it every module that includes
+# it fails to parse. Neither yosys nor iverilog surfaces that.
+#
+# `--github-actions` when GITHUB_ACTIONS is set turns findings into
+# ::error file=...,line=... annotations on the PR diff; plain `-1`
+# (one finding per line) otherwise.
+SVLINT_FLAGS := -c .svlint.toml -i rtl $(if $(GITHUB_ACTIONS),--github-actions,-1)
+
+.PHONY: lint
+lint:
+	@command -v $(SVLINT) >/dev/null 2>&1 || test -x $(SVLINT) || { \
+	  echo "svlint not found. Install it with 'make setup' (macOS) or" >&2; \
+	  echo "'make lint-setup' (pinned release archive)." >&2; exit 1; }
+	@echo "== svlint: rtl/, RVFI off =="
+	$(SVLINT) $(SVLINT_FLAGS) rtl/*.v
+	@echo "== svlint: rtl/, RVFI on =="
+	$(SVLINT) $(SVLINT_FLAGS) $(addprefix -D ,$(RISCV_FORMAL_MACROS)) rtl/*.v
+	@echo "svlint: clean in both passes"
+
+# Download to a file, verify the digest, audit the member paths, and only then
+# extract -- the same order `sail-setup` above uses, and for the same reason:
+# bytes from the network must not be unpacked before anything can reject them.
+# tools/svlint is gitignored; never commit the binary.
+.PHONY: lint-setup
+lint-setup:
+	@set -e; \
+	if [ -z '$(SVLINT_ASSET)' ] || [ -z '$(SVLINT_SHA256)' ]; then \
+	  echo "no svlint $(SVLINT_VERSION) release pinned for" >&2; \
+	  echo "$$(uname -s)/$$(uname -m). Install it with 'brew install svlint'" >&2; \
+	  echo "or 'cargo install svlint --version $(SVLINT_VERSION)'. Fetching an" >&2; \
+	  echo "asset this repo cannot verify is not an option this target offers." >&2; \
+	  exit 1; \
+	fi; \
+	if command -v shasum >/dev/null 2>&1; then sha='shasum -a 256'; \
+	elif command -v sha256sum >/dev/null 2>&1; then sha='sha256sum'; \
+	else \
+	  echo "neither shasum nor sha256sum is on PATH; refusing to unpack an" >&2; \
+	  echo "archive this machine cannot check." >&2; \
+	  exit 1; \
+	fi; \
+	tmp=$(SVLINT_DIR).tmp; zip=$$tmp/$(SVLINT_ASSET).zip; \
+	url=https://github.com/dalance/svlint/releases/download/v$(SVLINT_VERSION)/$(SVLINT_ASSET).zip; \
+	rm -rf $$tmp; mkdir -p $$tmp; \
+	echo "fetching $$url"; \
+	curl -fsSL -o $$zip "$$url"; \
+	got=$$($$sha $$zip | cut -d ' ' -f 1); \
+	if [ "$$got" != '$(SVLINT_SHA256)' ]; then \
+	  echo "svlint archive SHA-256 MISMATCH -- refusing to extract:" >&2; \
+	  echo "  asset    : $(SVLINT_ASSET).zip" >&2; \
+	  echo "  expected : $(SVLINT_SHA256)" >&2; \
+	  echo "  actual   : $$got" >&2; \
+	  rm -rf $$tmp; \
+	  exit 1; \
+	fi; \
+	echo "sha256 ok: $$got"; \
+	unzip -Z1 $$zip | awk ' \
+	  /(^|\/)\.\.(\/|$$)/ { print "traversal in member: " $$0 > "/dev/stderr"; bad = 1 } \
+	  /^\// { print "absolute member: " $$0 > "/dev/stderr"; bad = 1 } \
+	  END { exit bad ? 1 : 0 }' \
+	  || { echo "refusing to extract $(SVLINT_ASSET).zip" >&2; rm -rf $$tmp; exit 1; }; \
+	unzip -q $$zip -d $$tmp; \
+	rm -f $$zip; \
+	chmod +x $$tmp/bin/svlint; \
+	test -x $$tmp/bin/svlint; \
+	rm -rf $(SVLINT_DIR); \
+	mv $$tmp $(SVLINT_DIR)
+	@./$(SVLINT_DIR)/bin/svlint --version
 
 # Six small benches. Four landed in `eb18320` and `a4662a2` with no runner
 # (rtl/executor.v, rtl/memory.v, rtl/decoder.v, rtl/regfile.v respectively —
@@ -404,6 +553,9 @@ clean:
 	@# on its own now -- the pin is recorded in tools/sail/.sail-pin and
 	@# compared, so this comment is no longer the only thing making that true.
 	@# `rm -rf tools/sail` still works as the blunt instrument.
+	@# NOT tools/svlint either, and for the same reason: a network fetch that
+	@# `clean` was never asked to rebuild. `make lint-setup` re-fetches
+	@# unconditionally, so `rm -rf tools/svlint` is the blunt instrument there.
 
 # The riscv-formal clone rule and its pin guard live in formal/pin.mk, included
 # above, so the root and formal/ Makefiles cannot drift apart on it.
