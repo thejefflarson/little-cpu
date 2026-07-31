@@ -1,6 +1,14 @@
 # ADR-0024: The ladder's default BMC engine is `btor btormc`, not `smtbmc yices`
 
-**Status:** Accepted · 2026-07-29 · *Closes one of ADR-0023's three named holes*
+**Status:** Accepted · 2026-07-29 · *Closes one of ADR-0023's three named holes · Mechanism amended
+by ADR-0031*
+
+> **ADR-0031 amends this ADR's Decision, not its measurement.** `btor btormc` is still the ladder's
+> engine, for exactly the reason measured below. But `formal/genchecks-local.py` has since been
+> re-vendored from the pin, where upstream's existing `solver` line already selects that engine —
+> so the local `engine` option, the `[engine]` per-check override section, and `reg_ch0`'s 1800s
+> `timeout` described under **Decision** no longer exist. `formal/checks.cfg` now says
+> `solver btormc`. Read the numbers here; read ADR-0031 for the mechanism.
 
 ## Context
 
