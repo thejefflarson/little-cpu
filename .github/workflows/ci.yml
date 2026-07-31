@@ -410,9 +410,29 @@ jobs:
       # finished ladder costs a second (formal/Makefile's check-baseline
       # target exists to be re-runnable); running it here does not re-run a
       # single check.
+      #
+      # JOBS IS CAPPED, AND THAT IS NOT TUNING. formal/Makefile defaults it
+      # to `nproc`, which is right on a workstation and wrong in a container:
+      # nproc reads the CPU affinity mask, which a CFS quota (a Kubernetes
+      # `limits.cpu`) does not narrow, so inside the in-cluster runner it
+      # reports the NODE's core count and `make -j` that wide oversubscribes
+      # the pod. The first run of this job did exactly that and the runner
+      # died 12 minutes in with "The self-hosted runner lost communication
+      # with the server ... starves it for CPU/Memory" -- which is a job
+      # failure, not a ladder verdict, and is the one way this gate can go
+      # red while saying nothing about the core. The diagnostics below print
+      # what the pod actually has; re-tune against those numbers, not by
+      # guessing. `JOBS=` on the command line overrides the Makefile's `:=`
+      # default and still passes its own numeric sanity guard.
       - name: Generate and run the ladder (make -C formal check)
         continue-on-error: true
-        run: make -C formal check
+        run: |
+          set -uo pipefail
+          echo "nproc:            $(nproc)"
+          echo "cgroup cpu.max:   $(cat /sys/fs/cgroup/cpu.max 2>/dev/null || echo unavailable)"
+          echo "cgroup memory.max:$(cat /sys/fs/cgroup/memory.max 2>/dev/null || echo unavailable)"
+          free -h 2>/dev/null || true
+          make -C formal check JOBS=4
 
       # THE GATE. Not continue-on-error: this exit status is the job's.
       # A ladder that failed to generate at all resolves to exit 2 here
