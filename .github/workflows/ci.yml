@@ -34,7 +34,7 @@ jobs:
   # design elaborates.
   elaborate:
     name: elaborate
-    runs-on: ubuntu-latest
+    runs-on: little-cpu-runners
     timeout-minutes: 8
     steps:
       - name: Record job start
@@ -124,6 +124,13 @@ jobs:
   # line comes out of the baseline in the same commit.
   test:
     name: test
+    # Stays GitHub-hosted: this job does `sudo apt-get install
+    # gcc-riscv64-unknown-elf clang`, and the in-cluster runners are deliberately
+    # runAsNonRoot with allowPrivilegeEscalation:false and capabilities drop ALL
+    # (cluster repo: charts/actions/runners/values.yaml). Root package installs and
+    # a hardened non-root runner are fundamentally at odds; weakening the runner to
+    # suit one job is the wrong trade. Moving this would mean baking the RISC-V
+    # toolchain into the runner image instead.
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -178,7 +185,7 @@ jobs:
   # for deletion; a green vacuous proof in CI would be worse than no proof.
   components:
     name: components
-    runs-on: ubuntu-latest
+    runs-on: little-cpu-runners
     timeout-minutes: 5
     steps:
       - name: Record job start
@@ -228,6 +235,10 @@ jobs:
   # cheapest job here and the first to report.
   lint:
     name: lint
+    # Stays GitHub-hosted until the runner image ships `unzip` — svlint is
+    # distributed as a .zip and the image installs unzip only in its build stage,
+    # not the final runtime stage, so this fails with `unzip: not found`. Tracked
+    # against the runner repo; flip to little-cpu-runners once that lands.
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -264,7 +275,7 @@ jobs:
   # (ADR-0031); see the second step.
   monitor-freshness:
     name: monitor-freshness
-    runs-on: ubuntu-latest
+    runs-on: little-cpu-runners
     timeout-minutes: 5
     steps:
       - name: Record job start
