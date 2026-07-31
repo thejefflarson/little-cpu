@@ -221,3 +221,26 @@ empirically, not the largest one that still finishes.
 - M2 is unaffected by this ADR either way — it was never blocked on depth justification, only on the
   three holes ADR-0023 named (two now closed: ADR-0021's fix and ADR-0024's engine switch; ALTOPS
   itself and `equiv.sh` remain open).
+
+## Addendum, 2026-07-31: serialization is a fourth stall reason
+
+ADR-0026 adds CSR/`mret` serialization as a fourth stall reason (bubble-flavoured, folded into the
+existing `hazard` term). The derivation above enumerates three: scoreboard 2, accessor 1, divider 1
+under ALTOPS. Serialization holds a CSR instruction in decode until execute/access/writeback drain
+— **up to 3 further cycles**.
+
+That moves the single-hop floor from 8 to roughly 11, and the two-hop figure from 12 to roughly 15.
+
+Consequences for the configured depths:
+
+- **`csrw 30` clears the new floor comfortably.** No change needed.
+- **`insn 15` currently sits above the two-hop figure with margin; after serialization lands it sits
+  on it.** That is not yet a soundness failure — a CSR instruction is not a hazard producer in the
+  ordinary sense, so the worst-case chain that reaches 15 does not obviously involve one — but the
+  margin is gone, and the empirical sweep should be repeated once the CSR RTL exists rather than
+  assumed to still hold.
+
+Traps themselves add **no** cycles: they commit in decode and the payload rides the same three
+registered stages, so the trap-group `insn_*` checks are unaffected on that count.
+
+The ALTOPS caveat above is untouched and still governs everything here.
