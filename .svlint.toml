@@ -153,16 +153,23 @@ action_block_with_side_effect = true  # assertion action blocks must not drive s
 # (pending_addr16)` statements in rtl/accessor.v that enumerate every value of
 # their 2-bit and 1-bit selector -- provably exhaustive, flagged anyway.
 #
-# case_default is the one worth revisiting: it is always_comb-scoped (it
-# correctly skips the always_ff block) and has exactly ONE finding on rtl/ --
-# rtl/accessor.v:147, whose commented-out default ("not a load or a store this
-# cycle -- the zeroed defaults above stand") sits precisely where a
+# case_default looked like the one worth revisiting: it is always_comb-scoped
+# (it correctly skips the always_ff block) and has exactly ONE finding on rtl/
+# -- rtl/accessor.v:147, whose commented-out default ("not a load or a store
+# this cycle -- the zeroed defaults above stand") sits precisely where a
 # `default: ;` arm would go. Turning that comment into an arm is a ONE-LINE
-# rtl/ change that would let this rule come on at zero ongoing cost, and it is
-# the rule that would catch a future `case` in `always_comb` with no defaults.
-# That change is deliberately not made here (this file adds a gate; it does not
-# edit what the gate finds) and is filed as a follow-up.
-case_default = false               # 1 finding: rtl/accessor.v:147 wants a `default: ;` arm -- see above
+# rtl/ change that would let the rule come on at zero ongoing cost.
+#
+# That follow-up is DECLINED, not deferred (ADR-0036), and the reason is the
+# measurement at the top of this file: yosys ERRORS on a defaultless
+# `always_comb` case -- `Latch inferred for signal ...`, exit 1 -- so both the
+# elaborate job and the test/rtl.cc recipe already gate that class. The only
+# thing case_default catches that yosys does not is a `case` that is ALREADY
+# SAFE, because it has its defaults assigned first. That is a style
+# requirement, not a defect class, and it is not worth an rtl/ edit to the
+# stage whose legibility CLAUDE.md singles out. Reopening it needs a defect
+# class yosys does not already error on.
+case_default = false               # style, not safety: yosys already errors on the latch -- see above
 explicit_case_default = false      # 10 findings; 4 provably exhaustive, and it fires inside always_ff too
 implicit_case_default = false      # 8 findings; measured NOT to honour a preceding default assignment
 
