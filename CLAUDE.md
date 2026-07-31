@@ -175,15 +175,6 @@ What does not work right now:
   practical budget. It is the check that ties RVFI's self-report to the actual register file, so
   without it the other 55 passing checks establish that the core's story about itself is
   spec-consistent, not that the story is true.
-- **A green ladder is narrower than it reads** (ADR-0033). `formal/checks.cfg`'s `[depth]` table is
-  the list of checks that *exist*, not a tuning table: `genchecks` drops any check with no depth
-  line, silently, and `formal/check-baseline.sh` globs directories `sby` creates only for checks
-  that ran — so a never-generated check is missing from the results and from `formal/EXPECTED_FAIL`
-  at once, and set equality reports a clean match. Fourteen upstream checks are dropped today;
-  `checks.cfg` reasons about ten of them, and one of the other four (`ill`) is applicable, would
-  fail today, and is off the ladder. **So `formal/EXPECTED_FAIL` reaching empty — M2's declared
-  signal — is necessary but not sufficient until the check count is asserted.** Read it with the
-  generated count beside it.
 - **The formal nightly cannot go red** (ADR-0022). `.github/workflows/formal-nightly.yml:48` is
   `make -C formal check || true`, and `formal/Makefile`'s `check` has no `-k`, so the sub-make also
   stops scheduling at the first failure. Today's nightly runs a partial ladder and reports it as
@@ -192,6 +183,34 @@ What does not work right now:
   `components_accessor`, and `components_writeback` contain no assertions at all, only reset
   assumptions, so they "pass" meaninglessly. CI deliberately does not run them; ADR-0006 slates
   them for deletion. A green run of one of those is not a result.
+
+**The ladder now asserts its own shape, so a green ladder can no longer shrink quietly**
+(ADR-0033's gap 1). `formal/checks.cfg`'s `[depth]` table is the list of checks that *exist*, not a
+tuning table — `genchecks` returns early on any check with no depth line, silently — and
+`formal/check-baseline.sh` used to glob the run directories `sby` creates only for checks it
+actually started, so a never-generated check was missing from the results and from
+`formal/EXPECTED_FAIL` at once and set equality called that a clean match. Two files close it, both
+set equalities in **both** directions per ADR-0014: `formal/EXPECTED_CHECKS` names every check that
+must be generated, and `checks.cfg`'s `#omit` lines name every check `genchecks` considered and
+skipped, with a reason each. `formal/genchecks-audit.py` derives both sets by tracing `genchecks`'
+own `get_depth_cfg` calls — it does not re-implement the naming, and it cross-checks its trace
+against `genchecks`' own `consistency_checks`/`instruction_checks` sets and against the `.sby` files
+on disk, so a wrong inventory fails rather than being reported. `check-baseline.sh` now enumerates
+`checks/*.sby` rather than directories, so a generated-but-never-scheduled check resolves to
+NO-STATUS and counts non-PASS, and `make -C formal check` ends in that comparison rather than in
+`sby`'s exit code, which `expect pass,fail` makes meaningless. Deleting any one `[depth]` line —
+including a **passing** check's — now fails at generation in a second and again at the post-run
+gate.
+
+Three checks joined the ladder in the same change, taking it from 79 to **82**: `ill_ch0` (red — see
+`formal/EXPECTED_FAIL`), `causal_mem_ch0` and `hang` (both pass). `ill_ch0` is deliberately landed
+**red**: ADR-0033's rule is that a known-red check on the ladder is the system working and a
+known-red check off the ladder is the system lying. Fifteen upstream checks remain declined, each
+with a `#omit` line; the count is derived from the generator, not asserted in prose. **One of the
+fifteen is a trap for a future reader**: adding a bare `csrc` depth line generates three checks
+reading `rvfi_csrc_check.sv`, which does not exist at the pin — the six real models
+(`rvfi_csrc_{any,const,hpm,inc,upcnt,zero}_check.sv`) are reached only through a per-CSR *test list*
+in `[csrs]`.
 
 What does work: `yosys ... write_cxxrtl` elaborates the current RTL cleanly with zero warnings, the
 cxxrtl binary builds and runs, the `.S` suite passes under it except the one M3 test still seeded in
@@ -280,7 +299,8 @@ make waves          # iverilog + VCD (testbench.vvp's baked-in program) -> waves
 make monitor-check  # regenerate test/monitor.v at the pin and diff
 
 make -C formal components_decoder   # component proofs
-make -C formal check                # the riscv-formal ladder (79 checks; see ADR-0023)
+make -C formal check                # the riscv-formal ladder (82 checks; see ADR-0023)
+make -C formal check-baseline       # re-grade a finished ladder: EXPECTED_CHECKS + EXPECTED_FAIL
 
 make sail-setup     # once: fetch the pinned sail-riscv release into tools/sail/
 make cosim-run      # Sail co-simulation on ONE program (PROG=add.S). Opt-in; see ADR-0032
@@ -374,9 +394,11 @@ in both sim legs) and `86e2721` landed the ladder port itself (`wrapper.v` / `ch
 wording is "re-proves everything the serialized core proved", and 15 red checks plus an inconclusive
 `reg` plus a non-converging `equiv.sh` is not that. ADR-0023 lists what closing it takes; the
 `formal/EXPECTED_FAIL` baseline of ADR-0022 reaching empty is the signal — read together with the
-generated check count, per ADR-0033. `rtl/csrs.v` took that baseline from 11 entries to 9 (both
-`csrw_*`) on a 79-check ladder; the remaining 9 are all the trap gap, so the next M3 step closes
-them or the attribution behind them was wrong.
+generated check count, per ADR-0033, which is now `formal/EXPECTED_CHECKS` and is asserted rather
+than recited. `rtl/csrs.v` took that baseline from 11 entries to 9 (both `csrw_*`) on a 79-check
+ladder; landing `ill_ch0` red made it 10 on an 82-check ladder. **All ten are the trap gap** — nine
+misalignment, one illegal-instruction — so the next M3 step closes every one of them or the
+attribution behind them was wrong.
 
 ## Pointers
 
