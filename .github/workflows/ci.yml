@@ -34,7 +34,7 @@ jobs:
   # design elaborates.
   elaborate:
     name: elaborate
-    runs-on: ubuntu-latest
+    runs-on: little-cpu-runners
     timeout-minutes: 8
     steps:
       - name: Record job start
@@ -124,7 +124,7 @@ jobs:
   # line comes out of the baseline in the same commit.
   test:
     name: test
-    runs-on: ubuntu-latest
+    runs-on: little-cpu-runners
     timeout-minutes: 10
     steps:
       - name: Record job start
@@ -178,7 +178,7 @@ jobs:
   # for deletion; a green vacuous proof in CI would be worse than no proof.
   components:
     name: components
-    runs-on: ubuntu-latest
+    runs-on: little-cpu-runners
     timeout-minutes: 5
     steps:
       - name: Record job start
@@ -228,7 +228,7 @@ jobs:
   # cheapest job here and the first to report.
   lint:
     name: lint
-    runs-on: ubuntu-latest
+    runs-on: little-cpu-runners
     timeout-minutes: 5
     steps:
       - name: Record job start
@@ -264,7 +264,7 @@ jobs:
   # (ADR-0031); see the second step.
   monitor-freshness:
     name: monitor-freshness
-    runs-on: ubuntu-latest
+    runs-on: little-cpu-runners
     timeout-minutes: 5
     steps:
       - name: Record job start
