@@ -315,18 +315,26 @@ the oracle (ADR-0019).
 
 - **Compiler and elaboration warnings are errors.** Fix them; don't silence them.
   **One documented exception**, and only this one: iverilog emits `sorry: constant selects in
-  always_* processes are not fully supported` for every struct-field read inside an `always_*`
-  block — 20 of them, all from `rtl/executor.v`'s `in.is_*` flags. It cannot build a precise
-  sensitivity entry for a constant part-select, so it falls back to whole-struct sensitivity.
+  always_* processes are not fully supported` for every struct-field read inside an
+  **`always_comb`** block — 20 of them, all from `rtl/writeback.v`, against
+  `in[311:0]` (`accessor_output`). It cannot build a precise sensitivity entry for a constant
+  part-select, so it falls back to whole-struct sensitivity.
   **That fallback is provably safe**: over-sensitivity re-evaluates redundantly and can never
   yield a stale value; only *under*-sensitivity is a correctness bug. Everywhere the select was
   cheap to hoist into a named continuous assign it has been (`rtl/decoder.v`'s register-index
-  fields, `rtl/accessor.v`'s payload fields, `test/testbench.v`'s ROM index) — that silenced 17
-  of 37 and reads better besides. `rtl/executor.v` keeps the `in.` form because its body is one
-  `case (1'b1)` over 39 flags, and hoisting all of them would add ~80 lines of plumbing to the
-  module whose legibility matters most. Copying the struct to a local does not help (still a
-  constant select); `always @(in)` would, but trades away `always_comb`'s latch checking for
-  exactly the sensitivity iverilog already infers. Do not add new ones outside `executor.v`.
+  fields, `rtl/accessor.v`'s payload fields, `test/testbench.v`'s ROM index, and
+  `rtl/writeback.v`'s twelve CSR payload reads) — and it reads better besides.
+  `rtl/writeback.v` keeps the `in.` form in its two `always_comb` blocks because hoisting all
+  30 reads would add more plumbing than it removes. Copying the struct to a local does not help
+  (still a constant select); `always @(in)` would, but trades away `always_comb`'s latch
+  checking for exactly the sensitivity iverilog already infers.
+  **The diagnostic is specific to `always_comb`**, where the sensitivity list is *inferred*.
+  `rtl/executor.v` emits **zero** of these despite its `case (1'b1)` over 39 `in.is_*` flags,
+  because that body sits in `always_ff @(posedge clk)`, whose sensitivity is written out.
+  Compile any module alone to attribute them (`iverilog -g2012 -s <mod> rtl/structs.v
+  rtl/<mod>.v`). **Do not add new ones outside `rtl/writeback.v`**, and prefer a continuous
+  assign for any new struct-field read in an `always_comb` — that is what holds the count at 20
+  (ADR-0034; this bullet named `rtl/executor.v` until then, which was measurably wrong).
 - **Every non-trivial change adds or updates tests and runs the full suite** before being declared
   done. Elaboration succeeding is not a substitute for tests passing.
 - **Never commit build artifacts.** `test/rtl.cc`, `sim`, `*.vvp`, `*.vcd`, `rvfi_macros.vh`, and
