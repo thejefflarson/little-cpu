@@ -348,7 +348,29 @@ jobs:
   # `lint`). Until then this is advisory.
   formal:
     name: formal
-    runs-on: little-cpu-runners
+    # Stays GitHub-hosted, and unlike `test` and `lint` above the reason is
+    # memory rather than packaging. Measured, because two runs of this job
+    # died on little-cpu-runners with "The self-hosted runner lost
+    # communication with the server ... starves it for CPU/Memory" before
+    # they could even upload a log:
+    #
+    #   in-cluster pod   cpu.max 300000 100000 (a 3-CPU quota), memory.max
+    #                    1610612736 (1.5 GiB), of which memory.current was
+    #                    already 876480000 (836 MiB) at job start
+    #   one ladder check peak RSS 918781952 (876 MiB) for insn_add_ch0
+    #
+    # So a single check does not fit in what the pod has left, at any
+    # parallelism -- `-j1` would not have saved it. Note also that `nproc`
+    # reports 12 in that pod, because it reads the CPU affinity mask and a
+    # CFS quota does not narrow it; that is why formal/Makefile's `nproc`
+    # default is wrong in a container and JOBS is pinned below. None of the
+    # other little-cpu-runners jobs surfaced any of this because none of them
+    # runs a wide parallel make of memory-hungry solvers.
+    #
+    # Moving this back in-cluster needs the runner pod's memory limit raised
+    # (cluster repo: charts/actions/runners/values.yaml) to at least
+    # JOBS x 1 GiB plus the ~1 GiB the runner and toolchain already hold.
+    runs-on: ubuntu-latest
     # ADR-0025 measures the sweep at 4m05s wall with -j6 at the depths
     # checks.cfg configures; add the clone, the cache restore and the
     # generation pass and this lands in single-digit minutes. The ceiling is
@@ -411,19 +433,17 @@ jobs:
       # target exists to be re-runnable); running it here does not re-run a
       # single check.
       #
-      # JOBS IS CAPPED, AND THAT IS NOT TUNING. formal/Makefile defaults it
-      # to `nproc`, which is right on a workstation and wrong in a container:
-      # nproc reads the CPU affinity mask, which a CFS quota (a Kubernetes
-      # `limits.cpu`) does not narrow, so inside the in-cluster runner it
-      # reports the NODE's core count and `make -j` that wide oversubscribes
-      # the pod. The first run of this job did exactly that and the runner
-      # died 12 minutes in with "The self-hosted runner lost communication
-      # with the server ... starves it for CPU/Memory" -- which is a job
-      # failure, not a ladder verdict, and is the one way this gate can go
-      # red while saying nothing about the core. The diagnostics below print
-      # what the pod actually has; re-tune against those numbers, not by
-      # guessing. `JOBS=` on the command line overrides the Makefile's `:=`
-      # default and still passes its own numeric sanity guard.
+      # JOBS IS PINNED, AND IT IS A MEMORY BUDGET, NOT A SPEED KNOB. One
+      # check peaks around 876 MiB resident (measured, insn_add_ch0), so the
+      # ladder's peak footprint is roughly JOBS GiB and 4 is what fits a
+      # 16 GiB GitHub-hosted runner with room to spare. formal/Makefile
+      # defaults JOBS to `nproc`, which is right on a workstation and wrong
+      # anywhere the core count is not the binding constraint -- see the
+      # runs-on comment above for how that killed two runs outright. `JOBS=`
+      # on the command line overrides the Makefile's `:=` default and still
+      # passes its own numeric sanity guard, so a local `make -C formal
+      # check` is unaffected. The diagnostics print what the host actually
+      # has: re-tune against those numbers, not by guessing.
       - name: Generate and run the ladder (make -C formal check)
         continue-on-error: true
         run: |
