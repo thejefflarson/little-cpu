@@ -1,13 +1,33 @@
 name: Formal Nightly
 
-# ADR-0006 estimates ~75 insn_* checks at depth 15-30 as nightly-scale
-# (1-3h wall with -j), not something the PR gate (ci.yml) can afford to run
-# on every push. This workflow is that nightly ladder: the full
-# genchecks-local.py sweep (insn_*/reg/pc_fwd/pc_bwd/liveness/unique/
-# causal/csrw), the hand-authored imemcheck/dmemcheck/cover tasks, the
-# depth-50 whole-ISA `complete` walk, and equiv.sh (ADR-0020). None of this
-# gates merges: there is no required-status-check entry for this workflow,
-# unlike ci.yml's elaborate/test/components/monitor-freshness.
+# The nightly ladder: the full genchecks-local.py sweep (insn_*/reg/pc_fwd/
+# pc_bwd/liveness/unique/causal/csrw), the hand-authored imemcheck/dmemcheck/
+# cover tasks, the depth-50 whole-ISA `complete` walk, and equiv.sh
+# (ADR-0020). None of this gates merges: there is no required-status-check
+# entry for this workflow, unlike ci.yml's elaborate/test/components/
+# monitor-freshness/lint.
+#
+# This is no longer the only place the genchecks sweep runs, and the reason
+# it used to be has expired. This header used to open by citing ADR-0006's
+# estimate of ~75 checks at depth 15-30 as "1-3h wall with -j, not something
+# the PR gate (ci.yml) can afford to run on every push". That estimate
+# predates ADR-0024's engine switch: ADR-0025 measures the sweep at 4m05s
+# wall with -j6 at the depths checks.cfg actually configures. A cost claim
+# nothing re-measures is how a workflow keeps a boundary it no longer needs,
+# so it is recorded here as superseded rather than quietly deleted.
+#
+# ci.yml's `formal` job therefore runs the same `make -C formal check` on
+# every pull request and gates on the same formal/check-baseline.sh
+# comparison -- because an edit to formal/EXPECTED_FAIL that this workflow
+# contradicts the next morning is a baseline edit that merged unverified.
+# Keep the two ladder invocations identical: both call the same Makefile
+# target against the same two baseline files, on purpose, so the nightly
+# cannot start grading a different ladder than the gate. What stays here is
+# what the gate genuinely cannot afford -- `complete` and equiv.sh below --
+# plus the budget for anything whose runtime is unbounded. ADR-0025's
+# addendum is the live one to watch: CSR serialization pushed the two-hop
+# figure to ~15, so `insn 15` now sits on its floor with no margin, and a
+# depth bump re-opens the PR gate's budget question along with it.
 #
 # ADR-0022: the ladder step reports against the explicit baseline in
 # formal/EXPECTED_FAIL (set equality in both directions, formal/

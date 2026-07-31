@@ -305,3 +305,148 @@ jobs:
             echo "### monitor-freshness"
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # The riscv-formal ladder, on the PR gate.
+  #
+  # Until this job existed the ladder ran only in formal-nightly.yml, so an
+  # edit to formal/EXPECTED_FAIL -- the burn-down file ADR-0022 designed for
+  # exactly that edit -- merged green and was contradicted hours later, by
+  # which time the change was on main and the nightly failure read as
+  # somebody else's problem. The check that a baseline edit is honest now
+  # runs on the change that makes it.
+  #
+  # WHAT IS GATED HERE IS formal/check-baseline.sh's EXIT STATUS, NOT sby's.
+  # Every generated .sby carries `expect pass,fail`, so `sby` exits 0 whether
+  # a check passed or failed -- its exit code has never carried a verdict.
+  # The verdict exists only as the two set equalities check-baseline.sh
+  # performs, both in both directions per ADR-0014: formal/EXPECTED_CHECKS
+  # (which checks genchecks generated) and formal/EXPECTED_FAIL (which of
+  # them are red). Deleting a baseline line without fixing the check fails
+  # here; fixing a check without deleting its line fails here too.
+  #
+  # WHAT A GREEN RUN HERE DOES NOT MEAN. Every check on this ladder is
+  # `mode bmc`: PASS means no counterexample was found within that check's
+  # configured depth, not that the property holds. The whole ladder runs
+  # under RISCV_FORMAL_ALTOPS, so a passing insn_mul/insn_div says nothing
+  # whatever about the real multiplier or divider (ADR-0010). Green here
+  # means "the ladder still matches its baseline" and nothing more. It is not
+  # a proof of correctness, and it is not M2 -- M2's signal is
+  # formal/EXPECTED_FAIL reaching empty, read together with
+  # formal/EXPECTED_CHECKS (ADR-0023, ADR-0033).
+  #
+  # The nightly keeps running the full sweep. It is still the place for what
+  # this gate cannot afford -- `complete`'s depth-50 whole-ISA walk and
+  # equiv.sh (ADR-0020) -- it is just no longer the only place the ladder
+  # runs at all. `complete`, `equiv.sh`, `cover` and the Sail co-sim
+  # (ADR-0032, whose fetch has not had formal/pin.mk's treatment) stay out of
+  # this job deliberately.
+  #
+  # Adding this job to ci.yml does not by itself gate anything: main's
+  # branch-protection required set is elaborate/test/components/
+  # monitor-freshness/lint, and adding `formal` to it is a repository-settings
+  # change for a human to make deliberately (ADR-0036, which says the same of
+  # `lint`). Until then this is advisory.
+  formal:
+    name: formal
+    runs-on: little-cpu-runners
+    # ADR-0025 measures the sweep at 4m05s wall with -j6 at the depths
+    # checks.cfg configures; add the clone, the cache restore and the
+    # generation pass and this lands in single-digit minutes. The ceiling is
+    # loose because there is no per-check wall bound -- ADR-0031 retired
+    # checks.cfg's `timeout=` and ADR-0033 records the replacement as not
+    # implemented -- so one non-converging check starves everything scheduled
+    # after it and `-k` does not help, because the job dies rather than the
+    # check. Raising any depth in checks.cfg re-opens this number.
+    timeout-minutes: 20
+    steps:
+      - name: Record job start
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up OSS CAD Suite
+        uses: ./.github/actions/setup-oss-cad-suite
+        with:
+          tag: ${{ env.OSS_CAD_SUITE_TAG }}
+          file: ${{ env.OSS_CAD_SUITE_FILE }}
+          sha256: ${{ env.OSS_CAD_SUITE_SHA256 }}
+
+      # Not a formality. check-baseline.sh compares check NAMES, not
+      # statuses: any status that is not PASS lands a check in the actual-
+      # fail set, so ERROR and FAIL are indistinguishable to it. sby's btor
+      # engine solves with btormc and then replays the witness with btorsim,
+      # and btorsim is reached ONLY on a check that found a counterexample --
+      # so on a box without it every red check reports ERROR instead of FAIL,
+      # the name set still matches formal/EXPECTED_FAIL exactly, and this job
+      # goes green on a broken toolchain. (Confirmed: btorsim is absent from
+      # a stock macOS brew install of yosys+sby, where exactly that happens.)
+      # Assert it up front rather than inferring it from a green run.
+      - name: Confirm the BMC toolchain is complete
+        run: |
+          set -euo pipefail
+          missing=0
+          for tool in yosys sby btormc btorsim; do
+            if path=$(command -v "$tool"); then
+              echo "$tool: $path"
+            else
+              echo "::error::$tool is not on PATH in the pinned OSS CAD Suite"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::formal/check-baseline.sh cannot tell ERROR from FAIL," \
+                 "so an incomplete toolchain would make this gate green on a" \
+                 "ladder that never really ran. Refusing to report a verdict."
+            exit 1
+          fi
+
+      # Generates the ladder (formal/genchecks-audit.py, which asserts its
+      # SHAPE against EXPECTED_CHECKS in about a second before anything runs)
+      # and then runs all 82 checks with `-k`. `continue-on-error` because
+      # this step's exit status is not the signal and never was -- `make
+      # check` ends in check-baseline itself, and the step below re-runs that
+      # comparison as the gate so the verdict is unambiguously the
+      # comparison's and its output lands in the step summary. Re-grading a
+      # finished ladder costs a second (formal/Makefile's check-baseline
+      # target exists to be re-runnable); running it here does not re-run a
+      # single check.
+      - name: Generate and run the ladder (make -C formal check)
+        continue-on-error: true
+        run: make -C formal check
+
+      # THE GATE. Not continue-on-error: this exit status is the job's.
+      # A ladder that failed to generate at all resolves to exit 2 here
+      # ("no *.sby files"), so the step above being swallowed cannot produce
+      # a silent pass.
+      - name: Gate on formal/EXPECTED_FAIL + formal/EXPECTED_CHECKS
+        run: |
+          {
+            echo "### formal ladder vs formal/EXPECTED_{FAIL,CHECKS}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          # `-e`/`pipefail` are both on by default for GH Actions bash steps,
+          # so a failing pipeline would abort the script here and skip the
+          # closing code-fence and the caveat below; toggle them off for this
+          # one command and capture its real status via pipefail.
+          set +e
+          formal/check-baseline.sh formal/checks formal/EXPECTED_FAIL | tee -a "$GITHUB_STEP_SUMMARY"
+          status=$?
+          set -e
+          {
+            echo '```'
+            echo "A match here means the ladder still agrees with its baseline."
+            echo "It is not a correctness result: every check is \`mode bmc\` (no"
+            echo "counterexample within a bounded depth, not a proof), and the"
+            echo "ladder runs under \`RISCV_FORMAL_ALTOPS\`, so the mul/div checks"
+            echo "do not exercise the real multiplier or divider (ADR-0010)."
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      - name: Report job wall time
+        if: always()
+        run: |
+          elapsed=$(( $(date +%s) - JOB_START ))
+          {
+            echo "### formal"
+            echo "wall time: ${elapsed}s"
+          } >> "$GITHUB_STEP_SUMMARY"
