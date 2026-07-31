@@ -60,7 +60,11 @@ Concretely, the follow-up work is:
   - `reg` — inconclusive, ADR-0023.
 - Replace `|| true` with the baseline comparison as the step's exit status.
 - Give `reg` a bounded `timeout` in `checks.cfg` so an unsolvable check is *reported* as
-  inconclusive rather than eating the job budget.
+  inconclusive rather than eating the job budget. **Retired by ADR-0031.** The `timeout=` parameter
+  this relied on existed only in this repo's forked `genchecks` copy; re-vendoring from the pin
+  removed it, and ADR-0024's engine switch removed the condition it guarded (`reg_ch0` now returns
+  in seconds). The nightly's job-level `timeout-minutes` is the remaining backstop — a real, and
+  deliberately recorded, reduction in protection.
 - The `complete` and `equiv.sh` steps are **not** `|| true` today and will therefore fail the job
   every night for reasons ADR-0023 documents as expected. Decide per step whether it belongs in the
   baseline or should be allowed to report; do not paper over either with `|| true`.
