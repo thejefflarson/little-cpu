@@ -138,6 +138,17 @@ table below,
 and produces a real `waves.vcd`. CI (`.github/workflows/ci.yml`) runs elaborate / test / components
 / monitor-freshness on every PR.
 
+**A Sail co-simulation spike measured what the existing oracles structurally cannot see**
+(ADR-0032). Both the RVFI monitor and every `insn_*` ladder check read the core's *self-report*;
+`reg_ch0` is the one check that ties that report back to `rtl/regfile.v`, and it is a single
+`mode bmc` query at depth 21. An injected extra architectural write outside the retiring
+instruction's `rd` (`regs[31] <= wdata` alongside `regs[waddr]`) was **missed by all 49 `.S` tests
+with the per-retire monitor live**, caught by `reg_ch0` — and then, gated to fire only after cycle
+40, **missed by the entire 78-check ladder** (67 pass / 11 fail, matching `formal/EXPECTED_FAIL`
+exactly) while the co-sim reported it in 0.6s with instruction number, PC and both values. The
+class is *architectural state no retiring instruction names, corrupted past the BMC bound*. The
+mutation was reverted; `rtl/` is untouched by that change.
+
 **`86e2721` ports the riscv-formal ladder to `littlecpu`** — the first time any riscv-formal
 check has run against the pipelined core since the 2021 teardown. `formal/wrapper.v` speaks the
 real bus (no handshake: `imem_data`/`mem_rdata` are free every cycle, per invariant 1 and
@@ -196,6 +207,9 @@ make monitor-check  # regenerate test/monitor.v at the pin and diff
 
 make -C formal components_decoder   # component proofs
 make -C formal check                # the riscv-formal ladder (78 checks; see ADR-0023)
+
+make sail-setup     # once: fetch the pinned sail-riscv release into tools/sail/
+make cosim-run      # Sail co-simulation on ONE program (PROG=add.S). Opt-in; see ADR-0032
 ```
 
 Toolchain: macOS `brew install riscv64-elf-gcc`; Linux `apt install gcc-riscv64-unknown-elf`.
@@ -213,6 +227,14 @@ no multilib or newlib is needed. Formal needs a pinned YosysHQ OSS CAD Suite.
 **riscv-formal runs with `RISCV_FORMAL_ALTOPS`, so it never checks the real multiplier or divider.**
 That arithmetic is covered only by the `.S` suite and the executor component proof. Do not assume a
 green formal ladder means the ALU is correct.
+
+**There is a fourth thing you can run, and it is deliberately not a leg** (ADR-0032). `make
+cosim-run` diffs the core's *real* `regs` array — read through cxxrtl `debug_items` by
+`test/cosim.cc`, which touches no `rvfi_*` signal at all — against the Sail RISC-V model. All 49
+programs agree (24s for the suite, against 7.3s for `make test`). It is **not** on `make test`'s
+path and **not** a CI gate, on purpose: `make test` must keep working on a machine with no Sail
+installed. Do not wire it in without reading ADR-0032's consequences first — the `tohost`/HTIF
+overlap it works around is real and the fix belongs in shared test infrastructure.
 
 `test/monitor.v` rides along in both sim legs (`b2dafcc`), so every run is self-checking per-retire —
 a test that corrupts state transiently but converges to the right final registers fails loudly, not
@@ -274,12 +296,13 @@ wording is "re-proves everything the serialized core proved", and 15 red checks 
 ## Pointers
 
 - Design brief: [`docs/ideas/finish-the-rewrite.md`](docs/ideas/finish-the-rewrite.md)
-- Decisions: [`docs/adr/`](docs/adr/) — twenty-three accepted ADRs, plus a deferred list
+- Decisions: [`docs/adr/`](docs/adr/) — thirty-two accepted ADRs, plus a deferred list
 - Reference text from the old core: `git show 1709433^:rtl/riscv.v` (RVFI retire block),
   `git show e67875c^:rtl/alu.v` (arithmetic)
 - Work is tracked in Linear, project **Little CPU** (team JEF). Named here so you know where the
   queue is — but nothing in this repo should depend on it, and no ticket ID belongs in the code.
 
 **Deferred behind future ADRs** — forwarding network, radix-4 divider, negedge-BRAM regfile, FPGA
-timing closure, interrupts, Spike co-sim. Each trades away simplicity the current design depends
-on; none are safe to build while the core is unverified.
+timing closure, interrupts. Each trades away simplicity the current design depends on; none are
+safe to build while the core is unverified. (Sail co-sim came off this list in ADR-0032: the
+harness exists, opt-in; wiring it into `make test` or CI has not been decided.)

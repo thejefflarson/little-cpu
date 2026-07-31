@@ -25,6 +25,13 @@ obj_dir/
 rtl/rom.mem
 sim
 sim.dSYM/
+# The Sail co-simulation spike (docs/adr/0032): a second cxxrtl binary and
+# the prebuilt sail-riscv release `make sail-setup` unpacks. Both are build
+# artifacts; neither is on `make test`'s path.
+cosim
+cosim.dSYM/
+tools/sail
+tools/sail.tmp
 test/a.out.dSYM/
 # Swarm agent worktrees (.claude/tracker.json stays tracked).
 .claude/worktrees/

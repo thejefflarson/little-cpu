@@ -43,6 +43,81 @@ sim: test/cxxrtl.cc test/rtl.cc
 	clang++ -O2 -DNDEBUG -std=c++17 -Wall -Wextra -Werror \
 	  -isystem $$(yosys-config --datdir)/include/backends/cxxrtl/runtime $< -o $@
 
+# ---------------------------------------------------------------------------
+# Sail co-simulation (docs/adr/0032) -- a SPIKE, deliberately opt-in.
+#
+# Nothing below is reachable from `make test`, `make test-units` or CI. The
+# whole point of keeping it off the default path is that `make test` must
+# still work on a machine with no Sail installed, and a time-boxed experiment
+# must not quietly become a merge gate. Run it by hand:
+#
+#     make sail-setup     # once: fetch the pinned sail-riscv release
+#     make cosim          # build the architectural-state tracer
+#     make cosim-run      # run it on one program (PROG=add.S by default)
+# ---------------------------------------------------------------------------
+
+# The sail-riscv release this spike was run against. Pinned for the same
+# reason formal/pin.mk pins riscv-formal: an oracle that moves under you is
+# not an oracle.
+#
+# It is NOT the same KIND of pin, and the difference is worth being exact
+# about. formal/pin.mk pins a 40-hex commit SHA with `override`,
+# verifies HEAD after checkout, and fails closed; ci.yml SHA256-verifies the
+# oss-cad-suite tarball. This is a plain variable naming a GitHub release
+# asset, fetched over `curl | tar xz` with no checksum and no signature --
+# and release assets are mutable, so the tag pins a NAME, not BYTES. The
+# unpacked binary IS executed: immediately below (`--version`) and on every
+# `cosim-run`. What keeps that acceptable for now is scope, not the fetch:
+# nothing on `make test`'s path or in any CI workflow reaches this target, so
+# it runs only when a maintainer types `make sail-setup` by hand. Wiring
+# co-sim into `make test` or CI (ADR-0032's integration item) means fixing
+# this first -- pin.mk is the shape to copy: a checksum over the tarball,
+# verified before anything out of it is executed.
+#
+# Overridable for a bisect; note that bumping it does NOT re-fetch, because
+# the rule below keys on the binary existing. `rm -rf tools/sail` first.
+SAIL_RISCV_VERSION ?= 0.13.1
+SAIL_RISCV_DIR     := tools/sail
+
+# Prebuilt, first-party release binaries from github.com/riscv/sail-riscv.
+# Building the model from source needs opam + OCaml + the Sail compiler
+# (there is no `brew install sail-riscv`; homebrew's `sail` formula is an
+# unrelated WordPress deploy tool). The upstream release ships a macOS arm64
+# and two Linux tarballs, which covers every machine this repo is developed
+# and CI'd on, so the source build is not worth its cost here.
+.PHONY: sail-setup
+sail-setup: $(SAIL_RISCV_DIR)/bin/sail_riscv_sim
+$(SAIL_RISCV_DIR)/bin/sail_riscv_sim:
+	@case "$$(uname -s)/$$(uname -m)" in \
+	  Darwin/arm64)  asset=sail-riscv-Mac-arm64 ;; \
+	  Linux/x86_64)  asset=sail-riscv-Linux-x86_64 ;; \
+	  Linux/aarch64) asset=sail-riscv-Linux-aarch64 ;; \
+	  *) echo "no prebuilt sail-riscv for $$(uname -s)/$$(uname -m);" >&2; \
+	     echo "build it from https://github.com/riscv/sail-riscv and set" >&2; \
+	     echo "SAIL_RISCV_SIM to the resulting sail_riscv_sim." >&2; exit 1 ;; \
+	esac; \
+	url=https://github.com/riscv/sail-riscv/releases/download/$(SAIL_RISCV_VERSION)/$$asset.tar.gz; \
+	echo "fetching $$url"; \
+	rm -rf $(SAIL_RISCV_DIR).tmp && mkdir -p $(SAIL_RISCV_DIR).tmp && \
+	curl -fsSL "$$url" | tar xz -C $(SAIL_RISCV_DIR).tmp --strip-components=1 && \
+	test -x $(SAIL_RISCV_DIR).tmp/bin/sail_riscv_sim && \
+	rm -rf $(SAIL_RISCV_DIR) && mv $(SAIL_RISCV_DIR).tmp $(SAIL_RISCV_DIR)
+	@$@ --version
+
+# The co-simulation runner: a SECOND cxxrtl binary, not a change to `sim`.
+# It reads the real `uut regfile regs` array through debug_items and reads no
+# rvfi_* signal at all; see the header comment in test/cosim.cc for why that
+# distinction is the entire value of this leg. Shares test/rtl.cc with `sim`,
+# so it costs one extra compile and no extra elaboration.
+cosim: test/cosim.cc test/rtl.cc
+	clang++ -O2 -DNDEBUG -std=c++17 -Wall -Wextra -Werror \
+	  -isystem $$(yosys-config --datdir)/include/backends/cxxrtl/runtime $< -o $@
+
+PROG ?= add.S
+.PHONY: cosim-run
+cosim-run: cosim
+	./test/cosim.py $(PROG)
+
 # test/monitor.sim.v is a build-time-only, gitignored derivative of the
 # tracked test/monitor.v (ADR-0019). test/monitor.v itself stays
 # pristine and tracked (CLAUDE.md invariant 7); regenerate this file, never
@@ -186,12 +261,17 @@ clean:
 	rm -f pll.v
 	rm -f waves.vcd
 	rm -rf sim sim.dSYM
+	rm -rf cosim cosim.dSYM
 	rm -f testbench.vvp testbench.vcd
 	rm -f test/rtl.cc
 	rm -f test/monitor.sim.v
 	rm -f rvfi_macros.vh
 	@# NOT rtl/rom.mem: gitignored, untracked, and nothing regenerates real
 	@# contents for it, so `clean` deleting it is unrecoverable data loss.
+	@# NOT tools/sail either: it is a multi-megabyte network fetch that nothing
+	@# on `make test`'s path needs, so blowing it away on every `clean` costs a
+	@# download to get back something `clean` was never asked to rebuild.
+	@# `rm -rf tools/sail` by hand, or bump SAIL_RISCV_VERSION, to re-fetch.
 
 # The riscv-formal clone rule and its pin guard live in formal/pin.mk, included
 # above, so the root and formal/ Makefiles cannot drift apart on it.
