@@ -483,7 +483,12 @@ These are the design. Violating one is a bug even if tests pass.
 
 ## ISA target
 
-RV32IMC_Zicsr, M-mode only. `misa = 0x4000_1104`.
+RV32IMC_Zicsr_Zifencei, M-mode only. `misa = 0x4000_1104` — neither Zicsr nor Zifencei has a
+`misa` bit, so the ISA string is the only place either is claimed. Zifencei is claimed because the
+core already implements it correctly and for free: one hart, no icache, so a conformant `fence.i`
+is a NOP, which is what `rtl/decoder.v` already does. Before ADR-0002 was amended the string did
+NOT claim it while the decoder accepted it anyway — silently permissive, and the one combination
+that was wrong.
 
 **Conformance is not negotiable against minimality.** Every CSR the privileged spec lists
 unconditionally for RV32 machine mode is implemented; a core that traps on a mandatory register is
