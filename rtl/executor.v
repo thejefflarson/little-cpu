@@ -310,7 +310,7 @@ module executor(
   // SCOPE      the whole task -- LARGER than what it was written for. The
   //            paragraph above is about the divide-family assertions, but this
   //            is an unguarded `always_comb assume`, so it equally excuses the
-  //            four multiply assertions and the ADR-0015 freeze block from
+  //            whole multiply section and the ADR-0015 freeze block from
   //            ever seeing a mid-trace reset. That is harmless here (a
   //            re-asserted reset is not a real environment) and is written
   //            down because ADR-0049 clause 3 requires the reader to be told
@@ -324,11 +324,15 @@ module executor(
   // completely free — not even ADR-0015's at-most-one-consecutive-cycle
   // bound is assumed, which makes this stronger than the real environment:
   // a held stall just keeps the freeze obligations below in force. The
-  // price is a `!$past(accessor_stall)` guard on each multiply assertion
-  // further down: a frozen edge computes nothing (out is bubbled), so an
-  // ungated assertion there would be asserting arithmetic about the bubble.
-  // The divide-state invariants need no such guard (a freeze holds every
-  // register they mention), and the divide completion assertions' guard
+  // price is a `!$past(accessor_stall)` guard on each of the four multiply
+  // SLICE assertions further down: a frozen edge computes nothing (out is
+  // bubbled), so an ungated assertion there would be asserting arithmetic
+  // about the bubble. The multiply section's other assertions -- the 33-bit
+  // operands and the three product lemmas -- are purely combinational over
+  // `in` and mention `out` nowhere, so a freeze cannot reach them and they
+  // need no guard. The divide-state invariants need none either (a freeze
+  // holds every register they mention), and the divide completion assertions'
+  // guard
   // ($past(state) == divide && state == init) already implies the
   // transition edge was not frozen — a frozen edge cannot change state.
 
