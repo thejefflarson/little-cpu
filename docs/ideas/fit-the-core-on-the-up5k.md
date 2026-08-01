@@ -1,8 +1,88 @@
 # Fit the core on the up5k without spending readability
 
-**Status:** Design brief. Measured at `ed2bab5`; RTL read at `6309b3e`. The numbers below are
-**pre-trap-entry** — step 0 of the plan is to re-measure, and every estimate here is falsifiable
-within one commit.
+**Status:** Design brief. Originally measured at `ed2bab5` (pre-trap-entry). **The estimates below
+were subsequently checked by building and measuring each variant — see "Measured" immediately below,
+which supersedes them where they disagree.** ADR-0038 carries the same table.
+
+## Measured — this supersedes the estimates in the body
+
+All `nextpnr-ice40 --up5k --package sg48`, `littlecpu`, memories external, post-trap-entry:
+
+| Configuration | LC | % | EBR |
+|---|---|---|---|
+| Baseline | **6971** | **132%** | 0/30 |
+| + merged shifter | 6835 | 129% | 0/30 |
+| **+ negedge-EBR regfile** | **4017** | **76%** | **4/30** |
+| + both | 3998 | 75% | 4/30 |
+
+The negedge variant was built and run, not projected: **52/52 `.S` tests pass under cxxrtl with the
+per-retire monitor live**, `reg_ch0` passes, and yosys infers `4 × SB_RAM40_4K` from a plain
+two-array negedge-read model — no `SB_RAM40_4KNR`, no attribute. **EBR inference is a non-risk;
+delete it from the spike's scope.**
+
+Four corrections to the body:
+
+1. **The regfile is sufficient alone** (132% → 76%), not "close to sufficient". Every other lever is
+   optional.
+2. **The shifter merge is not an area lever** — 136 LCs standalone, **19** on top of the regfile,
+   against the body's 300–450. It survives on readability or not at all.
+3. **The named risk below is the wrong one.** See "The real formal risk".
+4. `make fit` **can never place** (231 `SB_IO` vs 39), so "declare fit" cannot mean what step 6 says.
+   ADR-0038 decision 1a resolves this.
+
+## The real formal risk — soundness, not runtime
+
+The body says a negedge read forces `clk2fflogic` and risks a slow or inconclusive `reg_ch0`.
+Neither happens, and what does happen is worse.
+
+The generated checks run `prep -flatten -nordff` then `write_btor`, and **`write_btor` accepts a
+negedge `$dff` with no warning.** In the emitted btor2, `clk` is declared an input and never used,
+and `rd_a` and `regs_a` advance on the same step:
+
+```
+10 state 7 rd_a
+28 state 27 regs_a
+29 read 7 28 4      ; regs_a[rs1]
+30 next 7 10 29     ; rd_a' = regs_a[rs1]
+```
+
+The half-cycle relationship is silently discarded. The ladder would model a circuit that is not the
+RTL, **go green, and take the same wall time** (22.6 s vs 23.5 s baseline). That is
+`docs/THREAT_MODEL.md` category 1 — false assurance — and strictly worse than the inconclusive
+result the body worried about. **A spike that compared wall times alone would have produced a
+confident, wrong green.**
+
+Making it sound is also more expensive than "doubling": with `multiclock on` + `clk2fflogic`,
+`reg_ch0` at its generated depth 21 finishes in 3.8 s — implausibly fast, consistent with vacuity,
+because riscv-formal's depths are in **clock cycles** and `clk2fflogic` makes a cycle at least two
+steps. At doubled depth it takes 84 s, **~3.6× baseline**. So the real cost is a re-derivation of
+every depth in `checks.cfg` (ADR-0025 territory) plus ~4× ladder runtime.
+
+## `reg_ch0` does not cover invariant 6 today
+
+Deleting the rs2 write-through bypass — a direct violation of the invariant this work re-words —
+**passes `reg_ch0`**. The `.S` suite catches it instantly (52 × `MONITOR-ERROR`).
+
+So the formal ladder is not the oracle for the write-through bypass; the simulation legs are. That
+independently strengthens the decision to gate on co-simulation rather than on M2, and it is an
+unrecorded assurance gap of exactly the kind ADR-0033 exists to name. It belongs in the regfile ADR
+whichever path the spike picks.
+
+## Three things the body missed
+
+- **`test/regfile_tb.v:102` reads `dut.regs[0]`**, so it is not the purely contract-level bench the
+  Makefile comment claims. Three of its checks fail against a negedge model *solely* because they
+  sample `#1` after a posedge. Extending it is a **rewrite of its timing discipline**, not an
+  addition.
+- **`test/cosim.cc:183` hard-codes `"uut regfile regs"` and `:191` asserts `depth == 32`.** A
+  two-array regfile has neither. It fails closed, which is right — but it *definitely* breaks, and
+  duplication adds an obligation: **`regs_a ≡ regs_b` needs its own assertion**, since the co-sim
+  reads only one.
+- **A new non-local rule.** The change is not only "decode observes the cycle-N architectural
+  value" — it is that **`reg_rs1`/`reg_rs2` become valid only in the second half of the cycle.**
+  Nothing samples them earlier today (every consumer is posedge-registered), but that is now a rule
+  a future change can break silently with no tool to catch it. It is the same shape as invariant 8's
+  stall rules and belongs in **CLAUDE.md's invariant list**, not only in the ADR.
 
 ## The problem
 

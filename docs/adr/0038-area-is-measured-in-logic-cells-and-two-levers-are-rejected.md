@@ -93,10 +93,51 @@ below 15% after the regfile work, and only after M2 — the divider is the one d
 with no formal oracle in any form (ADR-0010), so it is the worst possible place to make an
 unforced change.
 
+## Decision 1a — the metric cannot reach "it places", and the ratchet is on utilisation
+
+Added after this ADR's first draft, from measurement. The draft said `make fit` would be
+"report-only until the design places and a ratchet after." **That trigger can never fire.**
+
+`littlecpu` with memories external presents **231 `SB_IO` against sg48's 39**. Even the 76%
+configuration below fails placement — on `imem_data2[24]$sb_io`, not on logic cells. A top with
+realistic IO means a real pinout, which means the SoC memory system, which this work puts out of
+scope.
+
+**So the ratchet is on the logic-cell utilisation nextpnr prints *before* it attempts placement, and
+`make fit` deliberately tolerates the IO placement error.** `icetime` and any "the design places"
+claim wait for the SoC memory work. Fmax stays declared at 12 MHz and unmeasured, per decision 2.
+
+A `make fit` that required successful placement would never run at all — which is worse than no
+metric, because it would look like one.
+
+## Measured, after the estimates
+
+All figures `nextpnr-ice40 --up5k --package sg48`, `littlecpu`, memories external:
+
+| Configuration | LC | % | EBR |
+|---|---|---|---|
+| Baseline, post-trap-entry | **6971** | **132%** | 0/30 |
+| + merged shifter | 6835 | 129% | 0/30 |
+| **+ negedge-EBR regfile** | **4017** | **76%** | **4/30** |
+| + both | 3998 | 75% | 4/30 |
+
+Two things this settles, both against earlier estimates in this repo:
+
+- **The regfile is sufficient on its own.** Not "necessary but not sufficient" (the ticket that
+  preceded this ADR), and not "close to sufficient" (the design brief). 132% → 76%, one lever.
+- **The shifter merge is not an area lever.** 136 logic cells standalone and **19** on top of the
+  EBR regfile — 0.4% of the part in the configuration that would ship, against a 300–450 estimate.
+  The same "ABC already shares some" argument decision 3 uses to reject adder sharing applies here
+  too, just less strongly. It must justify itself on readability alone or not at all.
+
 ## Consequences
 
-- A `make fit` target becomes the tracked measurement, report-only until the design places and a
-  ratchet after.
+- A `make fit` target becomes the tracked measurement — an **LC-utilisation** ratchet per decision
+  1a, not a placement gate.
+- The Makefile's existing `riscv.json` / `riscv.asc` / `timing` targets **measure nothing and must
+  go**: they synthesize `littlesoc`, whose only outputs are the flash pins, so yosys deletes the
+  entire core and P&R reports **4 LCs, 0%**. The repo cannot carry two fit numbers that differ by
+  6967 cells.
 - `CLAUDE.md`'s up5k claim stays false until the fit work lands, and should be read as an intent
   rather than a statement of fact until then.
 - The two rejections are recorded here specifically so a future reader proposing them finds the
