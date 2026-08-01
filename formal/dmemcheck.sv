@@ -85,7 +85,7 @@ module testbench (
   //            disagree over most of the address space. ADR-0044 rules the
   //            placeholder out as a starting point and does not replace it, so
   //            when the real memory system is built there is no check anywhere
-  //            that will hold it to what this proof assumed (ADR-0048 F4).
+  //            that will hold it to what this proof assumed (ADR-0049 F4).
   // SCOPE      the one rvfi_dmem_check assertion this task contains -- what it
   //            was written for, and nothing more. Like imemcheck.sv's four,
   //            this constrains a DUT INPUT (mem_rdata), so it narrows the

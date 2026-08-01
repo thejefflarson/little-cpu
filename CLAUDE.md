@@ -240,7 +240,7 @@ What does not work right now:
   always 0. **ADR-0022's central guarantee had never held.** `1961234` fixed both copies of the step
   (nightly and the new PR-gate `formal` job) and demonstrated both failure directions on real runs.
 - **`components_executor` is green and does not check the multiplier's sign logic, its high half,
-  or the signed divider at all** (ADR-0048). The divide invariant's two *unguarded*
+  or the signed divider at all** (ADR-0049). The divide invariant's two *unguarded*
   `always_comb assume(in.rs1 <= 32'h0000000f)` statements are proof-global, so with operands in
   0..15 every high half and every sign bit is zero. Measured by mutation, each PASSING the task:
   zeroing `multiply[63:32]`, `mul_sign_x = 1'b0`, `mul_sign_y = 1'b0`, MULHSU-treats-rs2-as-signed,

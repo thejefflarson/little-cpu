@@ -40,7 +40,7 @@ module rvfi_wrapper (
   //            it. The backing is structural: rtl/imemory.v is a $readmemh ROM
   //            with no write port, and ADR-0044 keeps the instruction side
   //            read-only. Believed, not proved -- which is the honest answer
-  //            and, per ADR-0048, an acceptable one.
+  //            and, per ADR-0049, an acceptable one.
   // SCOPE      ALL 82 GENERATED CHECKS. This is an unguarded `assume` in the
   //            harness every check instantiates, so it is in force over every
   //            insn_*, reg, pc_fwd/pc_bwd, causal*, unique and cover check --

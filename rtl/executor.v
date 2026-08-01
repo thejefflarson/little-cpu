@@ -266,7 +266,7 @@ module executor(
   // DISCHARGED NOWHERE. Structural: every harness that instantiates this core
   //            (test/testbench.v, formal/*.sv, the generated ladder's
   //            RISCV_FORMAL_RESET_CYCLES) drives reset high initially. No
-  //            check asserts it, and "nowhere" is the honest answer (ADR-0048).
+  //            check asserts it, and "nowhere" is the honest answer (ADR-0049).
   // SCOPE      the whole task. Unguarded, so in force over every assertion in
   //            this block -- which is what it was written for: without it no
   //            assertion here is meaningful, since `state` and the mul_div
@@ -294,7 +294,7 @@ module executor(
   //            four multiply assertions and the ADR-0015 freeze block from
   //            ever seeing a mid-trace reset. That is harmless here (a
   //            re-asserted reset is not a real environment) and is written
-  //            down because ADR-0048 clause 3 requires the reader to be told
+  //            down because ADR-0049 clause 3 requires the reader to be told
   //            the scope rather than left to infer it from proximity.
   always_comb if (clocked) assume(!reset);
 
@@ -353,7 +353,7 @@ module executor(
   //            under `instr_valid`, in components_decoder, which runs in CI
   //            (.github/workflows/ci.yml's `components` job). This is the ONE
   //            assume in this repo with a real, running discharge; every other
-  //            one is believed on structural grounds (ADR-0048's census).
+  //            one is believed on structural grounds (ADR-0049's census).
   // SCOPE      the whole task, and deliberately so. It was written for the
   //            arithmetic assertions but is equally correct over the ADR-0015
   //            freeze block and every divide invariant, because the decoder
@@ -371,7 +371,7 @@ module executor(
     in.is_ecall, in.is_ebreak}));
 
   // THESE FOUR ASSERTIONS DO NOT SEE 32-BIT OPERANDS TODAY, DESPITE THE
-  // PARAGRAPH BELOW (ADR-0048 finding F1). The divide invariant further down
+  // PARAGRAPH BELOW (ADR-0049 finding F1). The divide invariant further down
   // caps operands with two UNGUARDED `always_comb assume(in.rs1 <= 32'h0f)`
   // statements, and an unguarded assume is proof-global: it constrains every
   // assertion in this module, including these. With operands in 0..15 every
@@ -394,7 +394,7 @@ module executor(
   // those lines are owned by in-flight work on the executor's real arithmetic,
   // and narrowing them changes what this proof proves.
   //
-  // THE SAME CAP ALSO BLANKS THE SIGNED DIVIDE PATH (ADR-0048 finding F5), and
+  // THE SAME CAP ALSO BLANKS THE SIGNED DIVIDE PATH (ADR-0049 finding F5), and
   // that one is not fixed by narrowing the cap to "the divide assertions" --
   // it needs new assertions. With operands in 0..15, `op_sign_x` and
   // `op_sign_y` are constant zero, so the two `assert(op_sign_* == in.rs*[31])`

@@ -1,4 +1,4 @@
-# ADR-0048: Every formal `assume` names its scope as well as its discharge
+# ADR-0049: Every formal `assume` names its scope as well as its discharge
 
 **Status:** Accepted · 2026-08-01 · *Supplements ADR-0017; scopes ADR-0010, ADR-0025*
 

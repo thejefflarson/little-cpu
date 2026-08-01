@@ -1003,7 +1003,7 @@ module decoder (
   always_ff @(posedge clk) clocked <= 1;
   // FACT       reset is asserted before the first clock edge.
   // DISCHARGED NOWHERE. Structural: every harness that instantiates this core
-  //            drives reset high initially. No check asserts it (ADR-0048).
+  //            drives reset high initially. No check asserts it (ADR-0049).
   // SCOPE      the whole task. Unguarded, and that is what it was written for:
   //            before the first edge `out` and the pc history registers have
   //            no defined value, so nothing below is meaningful without it.
@@ -1025,7 +1025,7 @@ module decoder (
   //            over the ADR-0028 / ADR-0030 trap-arm assertions added to this
   //            block two milestones later. Harmless (those already carry their
   //            own `!prev_reset` guards) but written down rather than left to
-  //            be inferred from proximity (ADR-0048 clause 3).
+  //            be inferred from proximity (ADR-0049 clause 3).
   always_comb if (clocked) assume(!reset);
 
   // This component proof stands alone (no real fetcher instantiated), so
@@ -1048,7 +1048,7 @@ module decoder (
   //            discharge as of `bb6e228` (ADR-0046): `make -C formal
   //            components_pcloop` is a target, it is in CI's `components` job,
   //            and it passes by k-induction in 2.7s. It was red and unrun
-  //            while this audit was in flight -- see ADR-0048 F2 for what that
+  //            while this audit was in flight -- see ADR-0049 F2 for what that
   //            looked like and why it went unnoticed, which is worth reading
   //            before adding another assume whose discharge is a task nothing
   //            invokes.
