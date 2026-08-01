@@ -51,6 +51,7 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0045](0045-two-m2-terms-close-by-amendment-and-one-was-already-met.md) | Two M2 terms close by amendment, one was already met, and the measurements that force it | Accepted |
 | [0044](0044-what-the-memory-system-has-to-be.md) | What the memory system has to be, and why today's placeholders cannot be it | Accepted |
 | [0047](0047-non-perturbation-is-proved-structurally-and-equiv-sh-is-retired.md) | The RVFI non-perturbation guarantee is proved structurally, and `equiv.sh` is retired | Accepted |
+| [0048](0048-what-an-independent-read-of-the-no-oracle-rtl-found.md) | What an independent read of the no-oracle RTL found: `c.ebreak`'s cause, a counter carry, and two missing CSRs | Accepted |
 
 0001–0007 came from the design brief
 ([`docs/ideas/finish-the-rewrite.md`](../ideas/finish-the-rewrite.md)). 0008–0011 came out of
