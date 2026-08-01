@@ -44,16 +44,17 @@ sim: test/cxxrtl.cc test/rtl.cc
 	  -isystem $$(yosys-config --datdir)/include/backends/cxxrtl/runtime $< -o $@
 
 # ---------------------------------------------------------------------------
-# Sail co-simulation (docs/adr/0032) -- a SPIKE, deliberately opt-in.
+# Sail co-simulation (docs/adr/0032, docs/adr/0039) -- deliberately opt-in.
 #
-# Nothing below is reachable from `make test`, `make test-units` or CI. The
-# whole point of keeping it off the default path is that `make test` must
-# still work on a machine with no Sail installed, and a time-boxed experiment
-# must not quietly become a merge gate. Run it by hand:
+# Nothing below is reachable from `make test`, `make test-units` or CI's
+# required set. The whole point of keeping it off the default path is that
+# `make test` must still work on a machine with no Sail installed, and an
+# experiment must not quietly become a merge gate. Run it by hand:
 #
 #     make sail-setup     # once: fetch, verify and unpack the pinned release
 #     make cosim          # build the architectural-state tracer
 #     make cosim-run      # run it on one program (PROG=add.S by default)
+#     make cosim-suite    # run the whole suite, graded against the baseline
 # ---------------------------------------------------------------------------
 
 # The sail-riscv release this spike was run against, pinned the way
@@ -75,10 +76,10 @@ sim: test/cxxrtl.cc test/rtl.cc
 #
 # ADR-0033 gap 4 recorded the unverified fetch as accepted-because-opt-in, with
 # "give it pin.mk's treatment" as the precondition for ever putting co-sim on
-# `make test` or CI. That precondition is met here. It is the only one: the
-# rest of ADR-0032's integration list (the `tohost` doubleword, a
-# COSIM_EXPECTED_FAIL baseline, a nightly job) is untouched, and co-simulation
-# stays off every default path.
+# `make test` or CI. That precondition is met here. ADR-0039 then landed the
+# `tohost` doubleword and the `test/COSIM_EXPECTED_FAIL` baseline behind
+# `make cosim-suite`, and co-simulation still stays off every default path:
+# `make test`, `make test-units` and CI's required set do not reach any of it.
 ifneq ($(filter command line environment,$(origin SAIL_RISCV_VERSION)),)
 $(error SAIL_RISCV_VERSION cannot be set from the command line or the \
   environment: it pins bytes this repo executes. Change it in the Makefile, \
@@ -140,7 +141,7 @@ SAIL_PIN   := $(SAIL_RISCV_VERSION) $(SAIL_ASSET) $(SAIL_SHA256)
 # Scoped to the goals that actually run the binary. A stale tools/sail must not
 # break `make test`: co-simulation is opt-in (ADR-0032) and a guard on it that
 # could fail the suite would have made it a gate by the back door.
-ifneq ($(filter cosim-run,$(MAKECMDGOALS)),)
+ifneq ($(filter cosim-run cosim-suite,$(MAKECMDGOALS)),)
 ifneq ($(wildcard $(SAIL_SIM_BIN)),)
 SAIL_PIN_ON_DISK := $(shell sed -n 1p $(SAIL_STAMP) 2>/dev/null)
 ifneq ($(SAIL_PIN_ON_DISK),$(SAIL_PIN))
@@ -238,6 +239,19 @@ PROG ?= add.S
 .PHONY: cosim-run
 cosim-run: cosim
 	./test/cosim.py $(PROG)
+
+# The whole suite under co-simulation, graded by set equality in BOTH
+# directions against test/COSIM_EXPECTED_FAIL -- the same contract `make test`
+# applies to test/EXPECTED_FAIL (ADR-0014, ADR-0035). See docs/adr/0039.
+#
+# Deliberately NOT a prerequisite of `test`, `test-units` or anything CI
+# requires (ADR-0032). It needs a Sail install that `make test` must keep
+# working without, and the moment it became required it would stop being the
+# opt-in experiment it was accepted as. The regfile-to-block-RAM change gates
+# on it by pasting its output into the PR, not by branch protection.
+.PHONY: cosim-suite
+cosim-suite: cosim
+	./test/run_cosim.sh ./cosim test/asm test/COSIM_EXPECTED_FAIL
 
 # test/monitor.sim.v is a build-time-only, gitignored derivative of the
 # tracked test/monitor.v (ADR-0019). test/monitor.v itself stays
@@ -511,38 +525,84 @@ test-units: test/monitor.sim.v
 test: sim test-units
 	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL
 
-pll.v: timing
-	icepll -m -f $@ -i 12 -o $(shell cat $^)
-
-# rtl/imemory.v unconditionally $readmemh's this at elaboration time; it's
-# gitignored and nothing generates it yet (real ROM contents are M1 work, once
-# there's a test-binary-to-hex pipeline). An empty file is enough for
-# synth_ice40 to elaborate — $readmemh on an empty file just leaves the ROM
-# unmodified. Order-only prerequisite so it's not fed to read_verilog.
+# ---------------------------------------------------------------------------
+# `make fit` -- the repo's one and only area measurement (ADR-0038).
 #
-# This deliberately turns a hard yosys error into a successful build, so it has
-# to say out loud that the resulting bitstream has an empty ROM and traps on its
-# first instruction. Never silently.
-rtl/rom.mem:
-	touch $@
-	@echo '*** WARNING: created an EMPTY $@ placeholder. Anything synthesised'
-	@echo '*** from it has an uninitialised ROM and will trap on instruction 0.'
-	@echo '*** Real ROM contents are M1 work (test-binary-to-hex).'
+# Area is measured in *nextpnr logic cells*, never in yosys cell counts, and
+# nothing on this path prints a yosys number. A logic cell holds one LUT4 AND
+# one flip-flop, but a DFF whose D input is not the output of its co-located
+# LUT consumes a whole cell on its own -- over a thousand of this design's
+# cells are exactly that, and an `SB_LUT4` count is structurally blind to it.
+# Two planning estimates were wrong in opposite directions because they counted
+# LUT4s: one said 102% where the truth was 126%, the other undercounted a
+# saving by more than half. Hence the synthesis log below goes to a file.
+#
+# The top is `littlecpu` with its memories external, not `littlesoc`: the SoC's
+# memories are placeholders whose real implementation will be SPRAM and will
+# not consume logic cells. This replaces the `riscv.json`/`riscv.asc`/`timing`
+# targets that stood here, which synthesised `littlesoc` -- whose only outputs
+# are the flash pins, so yosys deleted the entire core and place-and-route
+# reported *4 LCs, 0%*. They measured an empty design and looked like a metric.
+#
+# WHY THIS TARGET TOLERATES A FAILED PLACEMENT, ON PURPOSE:
+# `littlecpu` with memories external presents 231 `SB_IO` against sg48's 39,
+# so nextpnr ALWAYS errors out -- after printing the utilisation table. Even a
+# configuration using 76% of the part fails, and it fails on an `imem_data2`
+# pad, not on logic cells. A top with realistic IO means a real pinout, which
+# means the SoC memory system, which is out of scope here. So a `make fit` that
+# required successful placement would never run at all, which is worse than
+# having no metric because it would look like one (ADR-0038 decision 1a). The
+# measurement is the utilisation nextpnr prints *before* it attempts placement.
+#
+# `icetime` IS DELIBERATELY OUT OF SCOPE, for the same reason: it needs an
+# `.asc`, which needs a completed placement, which needs that real pinout. Fmax
+# stays *declared* at 12 MHz and unmeasured (ADR-0038 decision 2); raising it
+# means breaking invariant 1 or invariant 6 and needs its own ADR. That is also
+# why the `pll.v`/`icepll` rule that fed off `timing` is gone.
+#
+# The contract is therefore inverted from a normal build, and the check below
+# is the whole point of the target:
+#
+#   nextpnr ran, printed a table, then failed to place -> EXPECTED, exit 0
+#   nextpnr absent, crashed, or printed no table       -> exit NONZERO
+#
+# A missing binary or a truncated JSON must not yield a green run with no
+# number in it. nextpnr's exit status cannot tell those apart -- it is nonzero
+# either way -- so the presence of the utilisation table is what decides.
+#
+# The whole table is printed, not just the logic-cell line: `SB_GB` is already
+# at 8/8, so a global-buffer overflow is a placement failure that no logic-cell
+# ratchet would ever predict.
+# ---------------------------------------------------------------------------
+FIT_SRCS := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v \
+            rtl/fetcher.v rtl/regfile.v rtl/writeback.v rtl/littlecpu.v
 
-riscv.json: rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v rtl/fetcher.v rtl/regfile.v rtl/writeback.v rtl/littlecpu.v rtl/littlesoc.v rtl/imemory.v rtl/memory.v | rtl/rom.mem
-	yosys -p 'read_verilog -sv $^; synth_ice40 -dsp -top littlesoc -json $@'
+fit.json: $(FIT_SRCS)
+	@echo 'yosys: synthesising littlecpu for ice40 (log: fit.synth.log)'
+	@yosys -p 'read_verilog -sv $^; synth_ice40 -dsp -top littlecpu -json $@' \
+	  > fit.synth.log 2>&1 || { tail -40 fit.synth.log; exit 1; }
 
-riscv.asc: riscv.json riscv.pcf
-	nextpnr-ice40 --up5k --json riscv.json --pcf riscv.pcf --asc riscv.asc --pcf-allow-unconstrained --opt-timing
-
-timing: riscv.asc
-	icetime -d up5k $^ | egrep -oi '\(\d+' | egrep -o '\d+' > $@
+.PHONY: fit
+fit: fit.json
+	@nextpnr-ice40 --up5k --package sg48 --json $< --pcf-allow-unconstrained \
+	  > fit.log 2>&1 || true
+	@grep -q 'ICESTORM_LC:' fit.log || { \
+	  echo '*** make fit: nextpnr printed no utilisation table, so NO measurement'; \
+	  echo '*** was taken. That is a failure, not a 0% fit. Tail of fit.log:'; \
+	  tail -20 fit.log; \
+	  exit 1; \
+	}
+	@sed -n '/^Info: Device utilisation:/,/^$$/s/^Info: //p' fit.log
+	@awk '/ICESTORM_LC:/ { split($$3, u, "/"); printf "\nLOGIC CELLS: %s of %s (%s)  --  up5k / sg48 / littlecpu, memories external\n", u[1], $$4, $$5 }' fit.log
+	@if grep -q '^ERROR: Unable to place' fit.log; then \
+	  echo 'Placement failed, which is the expected state (ADR-0038 decision 1a);'; \
+	  echo 'the utilisation above is the measurement. Full log: fit.log'; \
+	else \
+	  echo 'Placement did not report the usual error -- read fit.log before quoting this.'; \
+	fi
 
 clean:
-	rm -f riscv.json
-	rm -f riscv.asc
-	rm -f timing
-	rm -f pll.v
+	rm -f fit.json fit.log fit.synth.log
 	rm -f waves.vcd
 	rm -rf sim sim.dSYM
 	rm -rf cosim cosim.dSYM

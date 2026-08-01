@@ -16,13 +16,16 @@
 // Nothing needs it, because the PC is taken from the ELF entry point rather
 // than from a reset vector in that window.
 //
-// The model detects HTIF from the ELF's `tohost` symbol and reports
-// "HTIF located at 0x10000", but does not terminate on this suite's write:
-// test/asm/riscv_test.h's `tohost` is a 32-bit `.word` and the write is an
-// `sw`, which is not the 64-bit doubleword HTIF acts on. That is fine here --
-// test/cosim.py bounds the reference run with `--inst-limit` and truncates
-// both traces at their last architectural change instead (see the "why not
-// HTIF" note there).
+// The model detects HTIF from the ELF's `tohost` symbol, reports "HTIF
+// located at 0x10000", and TERMINATES on this suite's verdict write --
+// `SUCCESS`, or `FAILURE: <testnum>`. That is new (ADR-0039): `tohost` used
+// to be a 32-bit `.word`, so the doubleword IO window HTIF claims at the
+// symbol swallowed the first word of `.data` and no write ever completed the
+// doubleword. test/asm/riscv_test.h now emits an 8-byte-aligned `.dword` and
+// writes both halves, so this window covers only `tohost` itself and the
+// reference model stops on the same store the cxxrtl runners stop on.
+// `--inst-limit` is back to being a runaway bound rather than the
+// convergence criterion.
 {
   "memory": {
     // MISALIGNED ACCESSES MUST TRAP, and this is the key that decides it --
