@@ -218,6 +218,38 @@ reading `rvfi_csrc_check.sv`, which does not exist at the pin — the six real m
 (`rvfi_csrc_{any,const,hpm,inc,upcnt,zero}_check.sv`) are reached only through a per-CSR *test list*
 in `[csrs]`.
 
+**`make -C formal check` could not re-run the ladder, and had been re-grading the previous run**
+(ADR-0040). `formal/Makefile`'s `checks` was a plain file target naming a **directory**, and a
+directory's mtime bumps whenever an entry is created inside it — `sby` creates `checks/<name>/` for
+every check it runs, so after one ladder run `checks/` was newer than `checks.cfg`,
+`genchecks-local.py` and `EXPECTED_CHECKS` at once and make called it up to date forever. Editing
+`checks.cfg` between two runs did not regenerate. Compounding it, `genchecks-local.py:72` is
+`sbycmd = "sby"` with no `-f` and the makefile it emits hardcodes that string, so every
+re-invocation aborted inside sby and left the prior `status` file in place; `make -BC checks` forces
+the **rule**, not sby. Measured at `317b86c`: run 1 took 310.4s and wrote 82 status files, run 2 took
+22.0s, printed "Directory already exists" for all 82, wrote **none**, and still reported "82 checks:
+82 pass, 0 fail" — a verdict it had not computed, about RTL that may have changed underneath it.
+`checks` is now `.PHONY` and deletes the run directories before regenerating (~1s), and `-B` is off
+the sub-make. **`make -C formal check` is now always a fresh run**; `make -C formal check-baseline`
+is still how you re-grade a finished one without re-running it.
+
+**The ladder will not silently mis-model a negedge regfile — it refuses to run at all** (ADR-0040).
+This matters because ADR-0038 now *recommends* a negedge-BRAM regfile on area grounds. A raw
+`yosys ... prep -flatten -nordff; write_btor` does discard clock polarity silently (`clk` becomes an
+unused input; the read register and the storage array advance on the same step) — but the ladder
+never takes that path. sby runs its own `prep` model step after the `.sby`'s `[script]`, and
+`formalff -clk2ff` there fails closed: *"CLK clock ... also used with opposite polarity, run
+clk2fflogic instead"*, `DONE (ERROR, rc=16)`, which `check-baseline.sh` counts as red. **The silent
+loss is scoped to bespoke yosys scripts that end in `write_btor`/`write_smt2` without going through
+sby** — `formal/equiv.sh` is one, and any standalone regfile proof written that way would be another.
+`clk2fflogic` is **rejected** as the remedy: at genchecks' own depths it makes `reg_ch0` PASS on a
+regfile with the rs2 write-through bypass deleted, which the stock ladder catches in 13.9s, because
+`clk2fflogic` makes a clock cycle two BMC steps while genchecks ties `skip`/`depth`/
+`RISCV_FORMAL_CHECK_CYCLE` to one `[depth]` column — and no `checks.cfg` expression can decouple
+them. **Deleting the rs2 write-through bypass is this repo's liveness probe for `reg_ch0`**: one
+line, a direct invariant-6 violation, counterexample on bad state property 1 at k=20. Reach for it
+before believing any `reg_ch0` result taken under a changed configuration.
+
 **M3's keystone: every trap is now detected AND committed in decode, and the formal baseline is
 empty.** `rtl/decoder.v` computes misalignment from the same `$signed(immediate) +
 $signed(reg_rs1)` it already had, decides illegal-instruction (including ADR-0005's two illegal-CSR
@@ -387,7 +419,8 @@ make fit            # the ONE area number: nextpnr logic cells on up5k/sg48 (ADR
                     # the utilisation table printed before placement is the measurement.
 
 make -C formal components_decoder   # component proofs
-make -C formal check                # the riscv-formal ladder (82 checks; see ADR-0023)
+make -C formal check                # the riscv-formal ladder (82 checks; see ADR-0023). ALWAYS a
+                                    # fresh run -- it deletes checks/ first (ADR-0040)
 make -C formal check-baseline       # re-grade a finished ladder: EXPECTED_CHECKS + EXPECTED_FAIL
 
 make sail-setup     # once: fetch the pinned sail-riscv release into tools/sail/
@@ -554,7 +587,7 @@ not against an oracle. An empty baseline is loudest exactly where the ladder is 
   the core does **not** currently place on the up5k (6659/5280 logic cells, 126%). Read ADR-0038
   before quoting any area number: yosys cell counts are blind to unpaired flip-flops and have
   produced two wrong estimates already.
-- Decisions: [`docs/adr/`](docs/adr/) — thirty-nine accepted ADRs, plus a deferred list
+- Decisions: [`docs/adr/`](docs/adr/) — forty accepted ADRs, plus a deferred list
 - Reference text from the old core: `git show 1709433^:rtl/riscv.v` (RVFI retire block),
   `git show e67875c^:rtl/alu.v` (arithmetic)
 - Work is tracked in Linear, project **Little CPU** (team JEF). Named here so you know where the

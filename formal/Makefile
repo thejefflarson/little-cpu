@@ -30,7 +30,7 @@ all: complete check dmemcheck imemcheck components_decoder components_executor
 # sub-make really failed to run shows up as a missing status file, which
 # check-baseline counts as non-PASS.
 check: checks $(RISCV_FORMAL_DIR)
-	-$(MAKE) -BC $< -j$(JOBS) -k
+	-$(MAKE) -C $< -j$(JOBS) -k
 	$(MAKE) check-baseline
 
 # Set equality against BOTH baselines, in both directions: EXPECTED_CHECKS
@@ -50,7 +50,48 @@ check-baseline: check-baseline.sh EXPECTED_FAIL EXPECTED_CHECKS
 # equalities in both directions. It fails in about a second, which is the
 # point -- check-baseline catches the same shrunken ladder, but only after
 # the full run (ADR-0033).
+#
+# `checks` is PHONY and starts by deleting the directory, and both halves of
+# that are load-bearing (ADR-0040). It used to be a plain file target whose
+# recipe was just `python3 $<`, and in that form `make check` could not
+# re-run the ladder at all -- it silently re-graded the PREVIOUS run's
+# verdict:
+#
+#   1. `checks` is a DIRECTORY, and a directory's mtime bumps whenever an
+#      entry is created inside it. `sby` creates checks/<name>/ for every
+#      check it runs, so after one ladder run checks/ is newer than
+#      checks.cfg, genchecks-local.py and EXPECTED_CHECKS all at once, and
+#      make reports it up to date forever. Editing checks.cfg between two
+#      runs therefore did NOT regenerate the ladder.
+#   2. genchecks-local.py:72 is `sbycmd = "sby"` with no `-f`, and the
+#      makefile it emits hardcodes that string. sby refuses to overwrite an
+#      existing workdir, so every re-invocation aborted with "Directory
+#      '<name>' already exists" and left the prior `status` file untouched.
+#      `make -BC checks` -- which this target used to pass -- forces the
+#      RULE, not sby, so it made the aborts louder without making anything
+#      re-run.
+#
+# Measured on this repo at 317b86c, both runs from the same tree: run 1 took
+# 310s and wrote 82 status files; run 2 took 22s, printed "Directory already
+# exists" for all 82, and check-baseline still reported "82 checks: 82 pass".
+# Every status file's mtime was byte-identical between the two. A ladder that
+# reports a verdict it did not compute is docs/THREAT_MODEL.md's category 1,
+# and it is a verdict about RTL that may since have changed underneath it.
+#
+# genchecks-local.py must not be patched to add `-f` (ADR-0031 constrains that
+# vendored copy to differ from the pin by `basedir` only, and
+# `make genchecks-check` enforces it), so the fix is here: throw the run
+# directories away, regenerate, and let every status file be built by a real
+# sby invocation. Regeneration costs about a second. `-B` is correspondingly
+# gone from `check` above -- with no status file on disk every rule fires on
+# its own, and keeping a flag that forces rules rather than reruns is what
+# made this look handled for as long as it did.
+#
+# Re-grading a finished ladder without re-running it is still available, and
+# is what `make check-baseline` is for.
+.PHONY: checks
 checks: genchecks-audit.py genchecks-local.py checks.cfg EXPECTED_CHECKS | $(RISCV_FORMAL_DIR)
+	rm -rf $@
 	python3 $<
 
 # genchecks-local.py is vendored from the pin and may differ from it only by
