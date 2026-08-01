@@ -1,6 +1,6 @@
 # ADR-0046: The ladder's depths are re-derived for the five-reason pipeline, and the derivation is measured rather than traced
 
-**Status:** Accepted · 2026-08-02 · *Supersedes [ADR-0025](0025-formal-ladder-depths-are-derived-not-inherited.md)'s
+**Status:** Accepted · 2026-08-01 · *Supersedes [ADR-0025](0025-formal-ladder-depths-are-derived-not-inherited.md)'s
 numbers and its addendum; supplements ADR-0004, ADR-0009, ADR-0015, ADR-0026, ADR-0033, ADR-0042.
 Closes the term-1 reopening [ADR-0045](0045-two-m2-terms-close-by-amendment-and-one-was-already-met.md) recorded.*
 
@@ -374,6 +374,11 @@ write-through bypass deletion for `reg_ch0`.
   `executor_out.valid` for 32 cycles: F becomes ~37 and G ~36, and every number here must be
   re-derived. ADR-0045 decided against dropping ALTOPS; if that is revisited, this table is part of
   the cost.
+- **`components_pcloop` joins CI's `components` job**, with a `formal/Makefile` target and a per-task
+  `smtbmc boolector` engine line. It is an M2-scope obligation (ADR-0017) that nothing ran, and the
+  first thing running it did was find it red. The general rule this is an instance of already has
+  five names in this repo — ADR-0019, ADR-0033, ADR-0035, ADR-0037, ADR-0040 — and it is the same
+  rule: a gate that can pass without checking anything eventually does.
 - **M2 term 1 is met again, and for a stated reason.** ADR-0045 reopened it because the depths were
   unverified against the pipeline that ships. They are verified now — with one cycle of margin in two
   places and a probe that shows the checks can still fail.
