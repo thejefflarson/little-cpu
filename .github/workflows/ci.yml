@@ -460,13 +460,22 @@ jobs:
   # formal/EXPECTED_FAIL reaching empty, read together with
   # formal/EXPECTED_CHECKS (ADR-0023, ADR-0033).
   #
-  # The nightly keeps running the full sweep. It is still the place for what
-  # this gate cannot afford -- `complete`'s depth-50 whole-ISA walk -- it is
-  # just no longer the only place the ladder runs at all. `complete`, `cover`
-  # and the Sail co-sim (ADR-0032, whose fetch has not had formal/pin.mk's
-  # treatment) stay out of this job deliberately. equiv.sh used to be on that
-  # list; ADR-0047 deleted it, and its replacement is the `nonperturbation`
-  # job above, which is cheap enough to be a PR gate.
+  # THERE IS NO NIGHTLY. ADR-0050 deleted `formal-nightly.yml` and folded its
+  # unique content -- `imemcheck`, `dmemcheck`, `cover` -- into the steps at
+  # the end of this job. Both of that workflow's reasons for existing had
+  # expired: `equiv.sh`'s hour-long timeout was most of its runtime until
+  # ADR-0047 deleted it, and the ladder stopped being nightly-only at
+  # `1961234`. What was left was three minutes of unique checks wrapped
+  # around a five-minute duplicate of this job, on an in-cluster runner that
+  # OOMed and killed the last run before it could grade anything.
+  #
+  # `complete` is the one piece not yet folded in: it is red today, and this
+  # job is required, so it lands with its exclusion set rather than blocking
+  # every merge in the meantime (see the step comment below).
+  #
+  # The Sail co-sim stays out of this job deliberately -- ADR-0032 forbids
+  # putting it on the required set, and its fetch has not had formal/pin.mk's
+  # treatment.
   #
   # THIS JOB IS REQUIRED. main's branch-protection required set is
   # elaborate/test/components/monitor-freshness/lint/formal, read live with
@@ -626,6 +635,50 @@ jobs:
             echo "do not exercise the real multiplier or divider (ADR-0010)."
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
+
+      # THE FOUR HAND-AUTHORED TASKS, FOLDED IN FROM THE DELETED NIGHTLY
+      # (ADR-0050). These are not on the generated ladder -- formal/
+      # EXPECTED_FAIL is the genchecks-local.py sweep only -- so their verdict
+      # is their exit status and nothing else. `make` stops at the first
+      # failure, which is what we want: each one is a distinct property and a
+      # red in any of them is a red job.
+      #
+      # They ran once a day in formal-nightly.yml until ADR-0050 deleted it.
+      # `imemcheck` is the check CLAUDE.md names as the guard on ADR-0003's
+      # dual-word fetch window, and nothing gated it; now every PR does.
+      #
+      # Measured on this tree, not inherited: imemcheck PASS, dmemcheck PASS,
+      # cover PASS -- roughly three minutes against the ladder's five, on a
+      # job whose timeout is 20.
+      #
+      # NO `continue-on-error`, and that is the point. In the nightly these
+      # sat in a step that could not fail the job; here their exit status is
+      # the job's, and the job is required.
+      - name: imemcheck / dmemcheck / cover
+        run: |
+          make -C formal imemcheck
+          make -C formal dmemcheck
+          make -C formal cover
+
+      # `complete` IS DELIBERATELY NOT HERE YET, and the reason is not
+      # squeamishness. It is red on this tree -- measured, `DONE (FAIL,
+      # rc=2)`, `failed assertion ... at complete.sv:113.7-113.39 step 5`,
+      # which is `assert(spec_valid && !spec_trap)` -- and `formal` is a
+      # required check. Adding it now would block every merge in the repo for
+      # a defect already recorded as M2 term 5 (ADR-0037), which is breaking
+      # the build to make a point rather than gaining any safety.
+      #
+      # It lands here, ungated, in the SAME change that declares its
+      # exclusion set (MISC-MEM + SYSTEM; measured to PASS at depth 50 in
+      # 45s with those excluded). That is the whole fix: the nightly's
+      # `continue-on-error: true` on this task was never wrong because the
+      # task was red -- it was wrong because suppression made a check that
+      # had never produced a verdict indistinguishable from a working
+      # control, which is precisely what ADR-0047 retired equiv.sh for.
+      # Landing it red-and-suppressed here would import that defect into the
+      # gate; landing it red-and-gating would import an outage. Neither is
+      # the deal. It waits for the exclusion set, and until then its red is
+      # on file rather than in CI.
 
       - name: Report job wall time
         if: always()
