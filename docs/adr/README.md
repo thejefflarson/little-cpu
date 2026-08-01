@@ -46,6 +46,7 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0039](0039-co-simulation-runs-the-whole-suite-against-a-baseline.md) | Co-simulation runs the whole suite against a baseline, and `tohost` becomes a doubleword | Accepted |
 | [0040](0040-the-ladder-refuses-a-negedge-regfile-and-make-check-was-re-grading.md) | The ladder refuses a negedge regfile rather than mis-modelling one, and `make check` had been re-grading the previous run | Accepted |
 | [0041](0041-integration-decisions-from-the-fit-cosim-and-negedge-wave.md) | Integration decisions from the fit / co-simulation / negedge wave | Accepted |
+| [0042](0042-the-regfile-read-is-synchronous-and-costs-a-cycle.md) | The regfile read is synchronous and costs a cycle, and the ladder is told that instruction memory is memory | Accepted |
 | [0043](0043-the-reference-model-is-configured-as-this-core.md) | The reference model is configured as *this* core, and what is left over is exempted by name | Accepted |
 | [0044](0044-what-the-memory-system-has-to-be.md) | What the memory system has to be, and why today's placeholders cannot be it | Accepted |
 
@@ -115,16 +116,18 @@ trades away simplicity the current design depends on.
   *increases* area, which is the wrong direction on a part that does not currently place. The
   "55–70% utilisation" figure this entry used to cite was a yosys cell count and was wrong; the
   measured figure is 126%.
-- **negedge-BRAM regfile** — no longer merely an escape hatch "if timing closure blocks". Measured:
-  the flip-flop array plus its read mux is worth **~2100–2400 logic cells**, enough on its own to
-  take the core from not placing to roughly 84–89%, and its combinational read path measures 86%
-  routing. Recommended by [`docs/ideas/fit-the-core-on-the-up5k.md`](../ideas/fit-the-core-on-the-up5k.md),
-  gated on suite-wide Sail co-simulation rather than on M2, and still needs its own ADR — deliberately
-  not written in advance of the spike data (ADR-0038). The verification-side half of that data is
-  [ADR-0040](0040-the-ladder-refuses-a-negedge-regfile-and-make-check-was-re-grading.md): the ladder
-  will **not** silently mis-model a negedge read — sby's `formalff -clk2ff` fails closed on mixed
-  polarity — so the cost is a standalone equivalence proof plus a named posedge substitution in
-  `formal/wrapper.v`, not a `clk2fflogic` ladder, which measures vacuous at genchecks' own depths.
+- ~~**negedge-BRAM regfile**~~ — **resolved by [ADR-0042](0042-the-regfile-read-is-synchronous-and-costs-a-cycle.md),
+  and decided AGAINST.** The regfile did move to block RAM — 6971/132% to 4236/80%, which is the
+  whole area problem in one lever — but with a **posedge** read plus a one-cycle operand-fetch stall,
+  not a negedge strobe. All three reconciliations of invariant 6 with a synchronous EBR were built
+  and measured, and area does not choose between them (86 cells across the three, 1.6% of the part).
+  The negedge variant is 99 cells cheaper and costs **no** cycles; it was rejected because sby's
+  `prep` fails closed on mixed clock polarity, so the generated ladder cannot run against it at all —
+  every check, not one — and shipping it would mean a posedge substitution in `formal/wrapper.v` plus
+  an equivalence proof whose k-induction does not close. Serialising the two read ports onto one
+  array was built too: 44/52, three red checks, and it needs a second bypass level. See
+  [ADR-0040](0040-the-ladder-refuses-a-negedge-regfile-and-make-check-was-re-grading.md) for the
+  verification-side data the decision was made with.
 - **FPGA timing closure / nextpnr flow** — including ADR-0003's second ROM read becoming interleaved
   16-bit banks. Post-M4.
 - **Interrupts** (`mie`/`mip` real rather than read-only zero) — no interrupt sources exist.

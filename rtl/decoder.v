@@ -646,11 +646,66 @@ module decoder (
   assign rvfi_rs1_valid = !instr_lui && !instr_jal && !instr_auipc && !is_csr_imm;
   assign rvfi_rs2_valid = uses_rs2;
  `endif
-  // ADR-0009: a single global stall, combining the local RAW hazard with
-  // whatever's busy downstream (the divider, or the accessor's one-cycle
-  // load turnaround). Any reason freezes the PC; see below for why the two
-  // downstream reasons freeze decoder_out differently.
-  assign stall = hazard || divider_stall || accessor_stall;
+  // ADR-0042: THE OPERAND-FETCH CYCLE. rtl/regfile.v's read is registered, so
+  // the operands for the address pair presented in cycle N are on
+  // reg_rs1/reg_rs2 in cycle N+1. Decode needs them in the cycle it issues --
+  // it computes branch targets, jalr targets and load/store addresses from them
+  // (and, per CLAUDE.md invariant 2, commits misalignment traps from them) --
+  // so an instruction spends one cycle presenting its address pair and issues
+  // on the next.
+  //
+  // The predicate is the direct statement of the rule: the registered read is
+  // valid for exactly the address pair that was presented last cycle, and only
+  // the ports this instruction actually reads have to be valid. It is NOT a
+  // cycle counter, and both refinements are paid for in measurement -- ADR-0042
+  // records these, over the 52-program suite:
+  //
+  //   every instruction waits one cycle    (not built)
+  //   address pair unchanged               +27.8% cycles
+  //   ...and only the ports it reads       +18.0% cycles   <- this
+  //
+  // `uses_rs1`/`uses_rs2` are the scoreboard's own predicates, reused verbatim,
+  // so this reads the same shape as `hazard_rs1` a few lines up -- on purpose.
+  // lui, jal, auipc and the zimm CSR forms have no register operand, and every
+  // one of them OVERRIDES out.rs1/out.rs2 in the publish block below rather
+  // than passing reg_rs1/reg_rs2 through, so skipping their fetch cycle cannot
+  // leak a stale operand. Narrowing `uses_rs1` to exclude a memory operation
+  // would break this exactly the way the publish block already warns it breaks
+  // misalignment detection: the two now share a reason.
+  //
+  // `rvfi_rs1_valid` is byte-identical to `uses_rs1` and `rvfi_rs2_valid` IS
+  // `uses_rs2`, so RVFI reports zero for exactly the operands whose fetch is
+  // skipped. That is also what keeps this clear of ADR-0020: no `ifdef
+  // RISCV_FORMAL` value reaches this predicate.
+  //
+  // THERE IS NO FLUSH HERE AND NONE IS NEEDED (invariant 1). The stalled
+  // instruction is not speculative and is never killed: the publish block below
+  // simply holds `pc`, so rtl/fetcher.v re-presents the same instruction next
+  // cycle and the bubble carries no work. That is the whole reason this lands
+  // as a stall rather than as a fetch-ahead pipeline register.
+  //
+  // `read_taken` covers reset, where `prev_rs1`/`prev_rs2` hold no read at all.
+  logic [4:0] prev_rs1, prev_rs2;
+  logic       read_taken, operand_stall;
+  always_ff @(posedge clk) begin
+    if (reset) begin
+      prev_rs1   <= 5'd0;
+      prev_rs2   <= 5'd0;
+      read_taken <= 1'b0;
+    end else begin
+      prev_rs1   <= rs1;
+      prev_rs2   <= rs2;
+      read_taken <= 1'b1;
+    end
+  end
+  assign operand_stall = !read_taken || (uses_rs1 && prev_rs1 != rs1) ||
+                                        (uses_rs2 && prev_rs2 != rs2);
+
+  // ADR-0009: a single global stall, combining the local RAW hazard and the
+  // operand-fetch cycle with whatever's busy downstream (the divider, or the
+  // accessor's one-cycle load turnaround). Any reason freezes the PC; see below
+  // for why the two downstream reasons freeze decoder_out differently.
+  assign stall = hazard || operand_stall || divider_stall || accessor_stall;
 
   // The one cycle an instruction actually issues: the publish block's `else`
   // arm below runs on exactly these edges, so everything that commits
@@ -714,10 +769,13 @@ module decoder (
       // hazard is about the *next* instruction, which isn't decode's problem
       // yet since decoder_out hasn't advanced.
       pc <= pc;
-    end else if (hazard) begin
+    end else if (hazard || operand_stall) begin
       // ADR-0009: upstream of the stalling stage freezes — the PC (and so
       // the fetch window) holds, so the stalled instruction re-presents next
-      // cycle. Bubbles rather than holds: unlike divider_stall/accessor_stall
+      // cycle. ADR-0042's operand-fetch cycle shares this arm exactly: holding
+      // the PC is what keeps rs1/rs2 pointed at the same pair for the second
+      // cycle, so the bubble and the read are the same act.
+      // Bubbles rather than holds: unlike divider_stall/accessor_stall
       // above, nothing stops the executor from reading `in` every cycle here,
       // so holding decoder_out unchanged would have it reprocess the same
       // instruction repeatedly instead of retrying the *hazarded* one.

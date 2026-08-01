@@ -18,8 +18,8 @@ core is correct."
 
 The README is the project's voice and is deliberately left as-is. **Ground truth lives here.**
 
-**M1 is reached** (`a4662a2`). `rtl/regfile.v` is combinational-read with write-through
-bypass, every inter-stage struct carries a `valid` bit, and decode runs a stall-only hazard
+**M1 is reached** (`a4662a2`). `rtl/regfile.v` was combinational-read with write-through
+bypass (it is synchronous-read as of ADR-0042 — see below), every inter-stage struct carries a `valid` bit, and decode runs a stall-only hazard
 scoreboard (ADR-0004 / ADR-0009 / ADR-0015). `make test` was **47/47** at that commit with
 `test/EXPECTED_FAIL` empty (it is seeded with M3 debt now — see below); ADR-0014's set-equality
 check runs in both directions, so an unexpected *pass* is caught too. The same change fixed three
@@ -170,6 +170,32 @@ a correctly masked WARL CSR fails there **on a correct core** (the reasoning is 
 the `[csrs]` list). Those four are checked field-by-field in `test/csr_tb.v` instead. Note also that
 `genchecks` defines `RISCV_FORMAL_CSRWH` for `mcycle`/`minstret` by itself, so the `h` halves are
 exercised whether or not `checks.cfg` asks for it.
+
+**The regfile read is synchronous now, the core's logic fits the up5k, and the ladder gained an
+assumption** (ADR-0042). `rtl/regfile.v` is two block-RAM arrays (an ice40 EBR has one read port, so
+a second read port is a second copy — `yosys` infers `4 x SB_RAM40_4K` with no attribute), posedge
+write, **posedge registered read**, with two forwarding points left in fabric: write-first into the
+read register, and the existing write-through bypass. `rtl/decoder.v` gains `operand_stall` — present
+the address pair, bubble, issue — which is a fifth stall *reason* on ADR-0009's existing bubble
+mechanism and adds **no flush** (the PC simply holds, so invariant 1 holds by construction).
+**`make fit` goes 6971/132% to 4236/80%**, a reduction of 2735 logic cells, and becomes a ratchet.
+The price is **+18.0% cycles across the 52-program suite**, measured — CLAUDE.md's fourth line being
+cashed. The stall is gated on `uses_rs1`/`uses_rs2`, the scoreboard's own predicates: ungated it
+costs +27.8%, so the gate recovers 35% of the penalty for one extra term.
+
+**Two things about that change are non-obvious and are why it has an ADR.** First, `formal/wrapper.v`
+now assumes **instruction memory is a function of its address** (same address as last cycle ⇒ same
+data). Without it `hang` and `liveness_ch0` produce real counterexamples at k=30, because decode
+decides whether the fetched operand belongs to the instruction it is issuing by comparing
+`rs1`/`rs2`, which are combinational out of `imem_data` — so a free `imem_data` lets the environment
+starve forward progress forever. That port did not exist before this change, and `wrapper.v`'s
+`RISCV_FAIRNESS` comment (which said no such port existed) is corrected in place. `imemcheck.sv`
+already relied on the same fact in a stronger form. Second, **the negedge alternative was rejected
+despite being cheaper and free in cycles**: sby's `prep` fails closed on mixed clock polarity, so the
+generated ladder cannot run against it *at all* — not one red check, all 82 — and `clk2fflogic` stays
+rejected (ADR-0040). Serialising the two read ports onto one array was also built and rejected: 44/52,
+and it needs a second bypass level, which is the first step toward the forwarding network invariant 4
+forbids.
 
 What does not work right now:
 
@@ -411,11 +437,19 @@ These are the design. Violating one is a bug even if tests pass.
 4. **Hazards are handled by stall-only interlock in decode.** No forwarding network. Adding one is
    a CPI-only optimization and requires a new ADR.
 5. **CSR instructions and `mret` serialize** — held in decode until execute/access/writeback drain.
-6. **The regfile is combinational-read with write-through bypass.**
+6. **The regfile read is synchronous and takes one cycle** (ADR-0042). Decode observes, in the
+   cycle it issues, the architectural value of rs1/rs2 **including a writeback committed in that
+   same cycle** — two forwarding points in fabric (write-first into the read register, then the
+   write-through bypass) are what make that true. The second sentence is the load-bearing one and is
+   unchanged: it is what ADR-0004's stall-only scoreboard depends on, and why decode needs no
+   forwarding path for the writeback slot. The flip-flop array that used to make the read
+   combinational was one implementation of that contract, not the contract.
 7. **`test/monitor.v` is generated but tracked.** Regenerate it; never hand-edit it.
-8. **Stalls are a single global broadcast: four reasons over two mechanisms** (ADR-0026, amending
-   ADR-0009). The reasons are the decode scoreboard, the divider, the accessor's one-cycle
-   load-response turnaround (ADR-0015), and CSR serialization (invariant 5). The **mechanisms** are
+8. **Stalls are a single global broadcast: five reasons over two mechanisms** (ADR-0026 amending
+   ADR-0009; ADR-0042 adding the fifth). The reasons are the decode scoreboard, the divider, the
+   accessor's one-cycle load-response turnaround (ADR-0015), CSR serialization (invariant 5), and
+   the operand-fetch cycle (invariant 9) — which bubbles, exactly like a RAW hazard, and adds no
+   third mechanism. The **mechanisms** are
    what actually matters, and three non-local rules hold them together, each breakable silently:
    (a) while `divider_stall` or `accessor_stall` is asserted, decode **holds** `decoder_out`
    unchanged rather than bubbling it, and nothing downstream may consume it that cycle; a RAW
@@ -428,6 +462,13 @@ These are the design. Violating one is a bug even if tests pass.
    routed into the decoder separately (`rtl/littlecpu.v`) — without it a *store* in flight is
    invisible and a CSR instruction issues early, giving a `minstret` that is wrong only when a
    store happens to be in flight.
+9. **The regfile's answer belongs to the address pair presented in the PREVIOUS cycle** (ADR-0042).
+   Decode holds `pc` across the pair and bubbles — that is `operand_stall`, and it is why invariant 6
+   costs a cycle. Nothing may consume `reg_rs1`/`reg_rs2` in a cycle whose address pair differs from
+   the one presented last cycle. Same shape as invariant 8's rules: true today only because
+   `operand_stall` enforces it, breakable silently by a later change, and not visible from reading
+   `rtl/regfile.v` alone. `test/regfile_tb.v` pins it directly — it fetches x5, points `rs1` at x6 in
+   the use cycle, and asserts that **x5's** value is what comes back.
 
 ## ISA target
 
@@ -451,6 +492,7 @@ make monitor-check  # regenerate test/monitor.v at the pin and diff
 make fit            # the ONE area number: nextpnr logic cells on up5k/sg48 (ADR-0038).
                     # Placement always fails (231 SB_IO vs 39) and that is expected --
                     # the utilisation table printed before placement is the measurement.
+                    # A RATCHET as of ADR-0042: over FIT_MAX_LC (4400) exits nonzero.
 
 make -C formal components_decoder   # component proofs
 make -C formal check                # the riscv-formal ladder (82 checks; see ADR-0023). ALWAYS a
@@ -492,7 +534,7 @@ That arithmetic is covered only by the `.S` suite and the executor component pro
 green formal ladder means the ALU is correct.
 
 **There is a fourth thing you can run, and it is deliberately not a leg** (ADR-0032, ADR-0039).
-`make cosim-suite` diffs the core's *real* `regs` array — read through cxxrtl `debug_items` by
+`make cosim-suite` diffs the core's *real* `regs_a` array — read through cxxrtl `debug_items` by
 `test/cosim.cc`, which touches no `rvfi_*` signal at all — against the Sail RISC-V model, over the
 whole suite, graded against `test/COSIM_EXPECTED_FAIL`: **52 of 52 agree, 7.3s** (ADR-0043; it was
 50 of 52 at ADR-0039), against 7.3s for
@@ -619,11 +661,15 @@ not against an oracle. An empty baseline is loudest exactly where the ladder is 
 
 - Design brief: [`docs/ideas/finish-the-rewrite.md`](docs/ideas/finish-the-rewrite.md)
 - Area/fit brief: [`docs/ideas/fit-the-core-on-the-up5k.md`](docs/ideas/fit-the-core-on-the-up5k.md) —
-  the core does **not** currently place on the up5k: **6971/5280 logic cells, 132%**, which is what
-  `make fit` prints today (ADR-0038's 6659/126% was measured before trap entry; +312 cells is what
-  trap entry cost). Read ADR-0038 before quoting any area number: yosys cell counts are blind to
+  **the core's logic now fits: 4236/5280 logic cells, 80%**, down from 6971/132%, which the
+  synchronous-read regfile achieves on its own (ADR-0042). `make fit` is a ratchet against
+  `FIT_MAX_LC`. **The design still does not place**, and that is expected and unrelated to logic:
+  the fit top presents **231 `SB_IO` against sg48's 39**, so nextpnr always fails on a pad. A
+  placing design needs a real pinout, which means the SoC memory system, which ADR-0038 decision 1a
+  puts out of scope. Read ADR-0038 before quoting any area number: yosys cell counts are blind to
   unpaired flip-flops and have produced two wrong estimates already. **The brief's two `reg_ch0`
-  claims are false and are struck in place** — see ADR-0040.
+  claims are false and are struck in place** (ADR-0040), and its recommendation of a *negedge* read
+  is superseded (ADR-0042).
 - **`make fit` has a churn floor of roughly ±50 cells, and a ratchet has to sit above it.**
   Measured by sweeping `rtl/executor.v`'s `mul_div_counter` across four widths that are all
   functionally identical — the counter's range is 0..32 and yosys already constant-folds every bit
@@ -640,14 +686,16 @@ not against an oracle. An empty baseline is loudest exactly where the ladder is 
   rejected the shifter merge at 19 cells *saved* on legibility grounds, and accepting a hygiene
   change at 37 cells *spent* would cut against that ruling. Read this before proposing the
   narrowing again — it is measured and declined, not overlooked.
-- Decisions: [`docs/adr/`](docs/adr/) — forty-one accepted ADRs, plus a deferred list
+- Decisions: [`docs/adr/`](docs/adr/) — forty-four accepted ADRs, plus a deferred list
 - Reference text from the old core: `git show 1709433^:rtl/riscv.v` (RVFI retire block),
   `git show e67875c^:rtl/alu.v` (arithmetic)
 - Work is tracked in Linear, project **Little CPU** (team JEF). Named here so you know where the
   queue is — but nothing in this repo should depend on it, and no ticket ID belongs in the code.
 
-**Deferred behind future ADRs** — forwarding network, radix-4 divider, negedge-BRAM regfile, FPGA
-timing closure, interrupts. Each trades away simplicity the current design depends on; none are
+**Deferred behind future ADRs** — forwarding network, radix-4 divider, FPGA
+timing closure, interrupts. (The negedge-BRAM regfile came off this list in ADR-0042, **decided
+against**: it is 99 cells cheaper and costs no cycles, but the generated ladder cannot model a
+mixed-polarity design at all, so `reg_ch0` would never again run against `rtl/regfile.v`.) Each trades away simplicity the current design depends on; none are
 safe to build while the core is unverified. (Sail co-sim came off this list in ADR-0032: the
 harness exists and ADR-0039 runs it over the whole suite behind `make cosim-suite`, still opt-in;
 wiring it into `make test` or CI's required set is decided *against* and needs a new ADR to change.)

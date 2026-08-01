@@ -177,22 +177,44 @@ int main(int argc, char **argv) {
   // The real register file inside rtl/regfile.v. `hierarchy -top testbench`
   // flattens the instance path to a space-separated debug-item name, the same
   // convention test/cxxrtl.cc uses for "monitor errcode".
+  //
+  // `regs_a`, not `regs`: ADR-0042 split the array in two because an ice40 EBR
+  // has one read port, so rtl/regfile.v now holds two identical copies, one per
+  // read port. This probe reads ONE of them, which is the whole point of the
+  // cross-check below.
+  //
+  // WHY THIS BEING RIGHT MATTERS MORE THAN IT LOOKS. This is the only oracle in
+  // the repo that reads the core's architectural state directly rather than its
+  // RVFI self-report (ADR-0032), so a probe that silently pointed at the wrong
+  // item -- or at a stale copy, or at nothing -- would turn the whole
+  // co-simulation leg into a comparison of nothing against nothing, which is
+  // docs/THREAT_MODEL.md's category 1. The name lookup and the shape check
+  // below fail closed; that they read the array the core actually commits to
+  // is established by mutation, recorded in ADR-0042.
   const cxxrtl::debug_item *regs_item = nullptr;
+  const cxxrtl::debug_item *regs_b_item = nullptr;
   const cxxrtl::debug_item *pc_item = nullptr;
   try {
-    regs_item = &all_debug_items.at("uut regfile regs").at(0);
+    regs_item = &all_debug_items.at("uut regfile regs_a").at(0);
+    regs_b_item = &all_debug_items.at("uut regfile regs_b").at(0);
     pc_item = &all_debug_items.at("uut decoder pc").at(0);
   } catch (const std::out_of_range &) {
     std::fprintf(stderr,
-                 "error: 'uut regfile regs' / 'uut decoder pc' not found in "
-                 "the simulated design -- did the RTL hierarchy change?\n");
+                 "error: 'uut regfile regs_a' / 'uut regfile regs_b' / "
+                 "'uut decoder pc' not found in the simulated design -- did the "
+                 "RTL hierarchy change?\n");
     return 3;
   }
   if (regs_item->type != cxxrtl::debug_item::MEMORY || regs_item->depth != 32) {
-    std::fprintf(stderr, "error: 'uut regfile regs' is not a 32-word memory\n");
+    std::fprintf(stderr, "error: 'uut regfile regs_a' is not a 32-word memory\n");
+    return 3;
+  }
+  if (regs_b_item->type != cxxrtl::debug_item::MEMORY || regs_b_item->depth != 32) {
+    std::fprintf(stderr, "error: 'uut regfile regs_b' is not a 32-word memory\n");
     return 3;
   }
   const uint32_t *regs = regs_item->curr;
+  const uint32_t *regs_b = regs_b_item->curr;
 
   uint32_t shadow[32];
   std::memset(shadow, 0, sizeof(shadow));
@@ -215,6 +237,21 @@ int main(int argc, char **argv) {
     top.step();
     top.p_clk.set<bool>(true);
     top.step();
+
+    // ADR-0042: the two arrays are one architectural register file, written
+    // from one address and one data word. Nothing else in this program would
+    // notice them diverging -- every comparison below reads regs_a alone -- so
+    // a rs2-side write defect would produce a co-simulation that agrees
+    // perfectly while the core computes wrong answers on its rs2 port.
+    // test/regfile_tb.v asserts this over a handful of directed vectors; this
+    // asserts it on every cycle of all 52 programs.
+    if (std::memcmp(regs, regs_b, sizeof(shadow)) != 0) {
+      std::fprintf(stderr,
+                   "error: rtl/regfile.v's two arrays diverged at cycle %ld -- "
+                   "regs_a and regs_b are one register file (ADR-0042)\n",
+                   cycle);
+      return 3;
+    }
 
     if (std::memcmp(shadow, regs, sizeof(shadow)) != 0) {
       std::printf("CS %ld %ld", change_index, cycle);

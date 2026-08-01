@@ -48,6 +48,148 @@ Four corrections to the body:
 4. `make fit` **can never place** (231 `SB_IO` vs 39), so "declare fit" cannot mean what step 6 says.
    ADR-0038 decision 1a resolves this.
 
+## Measured — three ways to reconcile invariant 6 with a synchronous BRAM read
+
+> **Decided: option B.** [ADR-0042](../adr/0042-the-regfile-read-is-synchronous-and-costs-a-cycle.md)
+> is the decision and supersedes this section's "contingent on" wording. The `imem_data` modelling
+> change was accepted, `hang` and `liveness_ch0` went green with it, and the shipping numbers are
+> **4236 logic cells / 80%** at **+18.0%** suite cycles — better than the +27.8% below, because the
+> stall was gated on `uses_rs1`/`uses_rs2` after this was written.
+
+
+The root constraint is that an **ice40 EBR read is synchronous** while **invariant 6 requires a
+combinational read**. This brief only ever costed one way of reconciling those (a negedge strobe).
+All three were built and measured against the same tree, so the choice is now a comparison rather
+than an assumption. **No regfile RTL is landed by this record**; the variants were scratch
+instruments, and none is in the tree.
+
+- **A — negedge read.** Posedge write, negedge array read, bypass in fabric, two arrays.
+- **B — synchronous read, pay a cycle.** Posedge write-first read, and decode holds the address for
+  a cycle and bubbles: a fifth stall *reason* on the existing bubble mechanism, no flush.
+- **C — serialise the two read ports.** One array, posedge, rs1 then rs2, two bubble cycles.
+
+All figures `nextpnr-ice40 --up5k --package sg48`, `littlecpu`, memories external; `.S` suite under
+cxxrtl with the per-retire monitor live; ladder is `make -C formal check` at 82 checks.
+
+| | baseline | **A** negedge | **B** sync + 1 stall | **C** serialised |
+|---|---|---|---|---|
+| Logic cells | 6971 (132%) | **4137 (78%)** | 4223 (79%) | 4175 (79%) |
+| EBR | 0/30 | 4/30 | 4/30 | 2/30 |
+| DSP | 4/8 | 4/8 | 4/8 | 4/8 |
+| `.S` suite | 52/52 | 52/52 | 52/52 | **44/52** |
+| Suite cycles (52 programs) | 22512 | **22512 (+0.0%)** | 28760 (**+27.8%**) | n/a (broken) |
+| Formal ladder | 82 pass | **cannot run** | 80 pass, **2 red** | 3 red |
+
+A's 4137 does not reproduce ADR-0038's 4017 for the same lever on the same baseline (6971 does
+reproduce exactly). 120 cells, 2.3% of the part — the earlier figure came from a scratch variant
+that is not in the tree and cannot be diffed, so the two are not comparable at that resolution and
+neither should be quoted to four digits. **The conclusion is unaffected**: the regfile is sufficient
+on its own, and the three ways of doing it are within 86 cells of each other.
+
+Four things this settles.
+
+**1. The area difference between the three is noise.** 4137 / 4223 / 4175 logic cells — a spread of
+86 cells, 1.6% of the part. **Every option clears 132% → ~79%, and area does not choose between
+them.** In particular C's one-array saving is 2 EBRs out of 30, in a resource that is 87% idle,
+bought for +48 logic cells over A and a materially harder control problem.
+
+**2. The ladder refuses A outright, and the refusal is total.** Reproduced exactly as ADR-0040
+finding 1 describes, on the same cell:
+
+```
+prep: ERROR: CLK clock on $flatten\wrapper.\dut.\regfile.$procdff$2308 ($dff) from module
+             rvfi_testbench also used with opposite polarity, run clk2fflogic instead.
+DONE (ERROR, rc=16)      # reg_ch0, 1.5s
+```
+
+That is not one red check — it is every check on the ladder, because the model step fails before
+any of them. Running the ladder against A at all requires substituting a posedge model at the
+`formal/wrapper.v` seam ADR-0040 decision 2 specifies, plus an equivalence proof to carry the
+ladder's results back to the shipping RTL. That proof was attempted here: a two-model miter under
+`multiclock on` with the read-timing assumption stated per ADR-0017. Its **base case passes at depth
+20; k-induction does not close**, because the inductive invariant is equality of the two storage
+arrays and yosys's Verilog frontend rejects the hierarchical references needed to state it
+(`ERROR: Identifier '\gold.regs' is implicitly declared`). So A's ladder story is a bounded proof
+carrying a bounded ladder — one more indirection on the one check (`reg_ch0`) that ties RVFI back to
+the real register file.
+
+**3. B and C are modelled normally, and the ladder immediately caught something.** B's `reg_ch0`
+PASSes in 10s, and the non-vacuity probe works exactly as ADR-0040 specifies it — deleting the rs2
+write-through bypass gives `bad state property 1 reachable at bound k = 20 SATISFIABLE` in 6.5s. So
+the ladder is a live oracle for B in a way it can never be for A. And on the full run it went red:
+
+```
+82 checks: 80 pass, 2 fail
+> hang
+> liveness_ch0        # both: bad state property 0 reachable at bound k = 30 SATISFIABLE
+```
+
+Both are counterexamples, not timeouts. **The cause is structural and is the most useful thing this
+comparison found.** A synchronous read means decode must decide, in cycle N+1, whether the operand
+fetched at the posedge belongs to the instruction it is now issuing — and the only signal available
+for that is the read address, which is combinational out of `imem_data`. `formal/wrapper.v` leaves
+`imem_data` free every cycle (invariant 1: nothing in the core waits on its value), so the
+environment may change the instruction word under a held PC forever and the core never issues. The
+`ifdef RISCV_FAIRNESS` block in `formal/wrapper.v` is deliberately empty on the stated grounds that
+"littlecpu has no port an adversarial environment could hold to defeat forward progress."
+**Any synchronous-read regfile makes `imem_data` exactly such a port**, and that comment stops being
+true.
+
+The remedy is not a fairness fudge: it is that the harness should model instruction memory as a
+*function of the address* rather than as a free value, which is what memory is. That is a real
+change to `formal/wrapper.v`, and it should be costed before B is chosen — but it makes the harness
+more faithful rather than less, and it is reviewable in a way A's substitution-plus-equivalence-proof
+is not.
+
+**4. C's control cost is real, not imagined.** Two independent attempts; the second is functionally
+wrong in a way the per-retire monitor catches (8 programs, `MONITOR-ERROR 131`/`132`), and `reg_ch0`,
+`hang` and `liveness_ch0` are all red. The reason is visible in the RTL: with one array, rs1's word
+is read a cycle before it is used, so it has to be *parked* — and any write landing while it is
+parked must be forwarded onto the parked copy. That is a **second bypass level**, which is the first
+step toward the forwarding network invariant 4 forbids, and it is bought for two idle EBRs.
+
+### What each one costs a reader
+
+- **A** reads best in the regfile and worst everywhere else. `rtl/regfile.v` grows one `always_ff`
+  and stays legible; `rtl/decoder.v` is untouched; CPI is unchanged. The cost is entirely non-local:
+  a new rule that `reg_rs1`/`reg_rs2` are valid only in the second half of the cycle, which **no
+  tool in this repo checks** — plus a formal harness that must be told to prove a different circuit
+  than the one that ships.
+- **B** reads best overall, and the sentence it adds is the plain one: *a register read takes a
+  cycle.* It lands entirely inside ADR-0004's stall-only interlock and ADR-0009's stall protocol —
+  one extra term in `stall`, one extra term in the existing bubble arm, **no flush** (invariant 1
+  holds by construction, because the PC simply holds). It costs 27.8% of the suite's cycles on a
+  core whose charter says CPI is deliberately sacrificed for readability, and it re-times decode's
+  external contract, so `test/decoder_tb.v` needs rewriting (5 mismatches, all timing).
+- **C** reads worst. It is the only one that adds a state machine, a parked operand and a second
+  bypass level, for the smallest benefit.
+
+### Recommendation
+
+**C is out.** It costs the most complexity for a saving in the one resource the design has to spare.
+
+**Prefer B, contingent on the harness change in finding 3.** It is the only option under which the
+formal ladder is an oracle for the regfile that actually ships, and its non-vacuity is demonstrated
+rather than argued. Its new obligation — the instruction word is stable while the PC is held — is
+one the ladder *checks*, which is why it went red; A's new obligation is one nothing checks, which
+is why A looks free. On a core that is not yet verified, an enforceable rule that costs cycles is a
+better trade than an unenforceable one that costs nothing, and the project's own charter already
+says CPI is what it is willing to spend.
+
+**A stays viable and is the fallback** if the `imem_data` modelling change turns out to be
+unacceptable: it is the only option with zero CPI cost, and it is the cheapest in cells by 86.
+
+### Also measured
+
+`formal/equiv.sh` is **not** exposed to ADR-0040's polarity loss, and that is worth recording
+because the ADR's standing warning names it. The isolated reproduction still holds — `prep -flatten
+-nordff` then `write_btor` on a negedge regfile emits `2 input 1 clk` and never uses node 2 again,
+with **zero warnings**. But `equiv.sh` has no backend: its `prep -flatten -top littlecpu` retains
+both negedge `$dff` cells (`CLK_POLARITY 1'0`) alongside 32 posedge ones, and `equiv_make` /
+`equiv_simple` / `equiv_induct` reason on those cells directly. Under A it neither warns nor
+mis-models; it also did not return within 10 minutes, which is the non-convergence ADR-0020 already
+records. Under B and C the RTL is all-posedge and nothing about `equiv.sh` changes at all.
+
 ## The real formal risk — soundness, not runtime
 
 > **Superseded by [ADR-0040](../adr/0040-the-ladder-refuses-a-negedge-regfile-and-make-check-was-re-grading.md).**
@@ -224,6 +366,11 @@ the fill bit.
   randomized shift vectors in `test/exec_tb.v` (which currently has none).
 
 ### Lever 2 — the regfile moves to EBR
+
+> **The "negedge read" in this section is one of three options, and it is no longer the recommended
+> one.** All three were built and measured; see "Measured — three ways to reconcile invariant 6 with
+> a synchronous BRAM read" above, which supersedes this subsection on the choice of read discipline.
+> The area case below stands for all three.
 
 Posedge write, negedge read, bypass stays in fabric.
 
