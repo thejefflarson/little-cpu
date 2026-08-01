@@ -92,18 +92,25 @@ is legal; Sail implementing it is Sail's choice. (`mcounteren` (0x306) is likewi
 without S- or U-mode, and the unprivileged `cycle`/`instret` aliases belong to Zicntr, which
 ADR-0002 does not claim.)
 
-**This is not fixed here and must not be fixed casually.** ADR-0005 states its CSR set as *exact*,
-and widening it is an ISA-scope decision that belongs to an amendment of ADR-0002/ADR-0005 with its
-own reasoning about what "RV32IMC_Zicsr, machine mode only" commits to — not to the audit that
-noticed. It is owed to a follow-up, and naming it here is what stops it depending on anyone's
-memory (the shape ADR-0041 decision 2 used for the co-simulation nightly).
+**This was first landed red rather than fixed, and that was wrong.** The reasoning was that
+ADR-0005 states its CSR set as *exact*, making a widening an ISA-scope decision owed to an
+amendment rather than to the audit that noticed. The reasoning was careful; the premise it rested
+on was false. **A core that traps on a spec-mandatory register is non-conformant, and minimality
+was never a licence for that** — the two barely trade off, because the spec lets almost every
+mandatory register read zero. `mstatush` reads zero (its only fields are SBE and MBE, and zero
+means the little-endian behaviour this core already has) and `mconfigptr` reads zero (the spec's
+own encoding for "no configuration data structure exists"). The fix is two entries in the read mux
+and no new state.
 
-`test/asm/csrset.S` lands it **red in both baselines** — `csrset.S FAIL 2` in `test/EXPECTED_FAIL`
-and `csrset.S DISAGREE AT 2` in `test/COSIM_EXPECTED_FAIL`. That is ADR-0033's rule applied to the
-`.S` suite: a known-red test in the suite is the system working, and a known-red property with no
-test at all is the system lying. Because the status pins the first failing case (ADR-0035), fixing
-`mstatush` without `mconfigptr` turns the entry into `FAIL 3` and goes red rather than matching —
-the burn-down catching a partial fix rather than absorbing it.
+**Both are implemented, and ADR-0005's "exact" is struck in the same change.** `test/asm/csrset.S`
+passes on its own terms and both `.S` baselines are empty again at 55/55.
+
+**The generalisable part is not about CSRs.** A scope statement that can make a conformance gap
+look like a design choice will eventually be believed by someone with no reason to doubt it — and
+here it was believed by the reader best placed to catch it, *while they were reading the
+specification against the RTL for exactly this class of defect*. "Exact" was one word doing damage
+no assertion could have caught. When an ADR states a set, it must say whether the set is a floor or
+a ceiling, because the difference decides whether a gap is a bug or a decision.
 
 ## Everything else read as correct
 

@@ -51,4 +51,3 @@
 # field goes red, which is ADR-0035's mechanism working rather than a
 # regression. When both land, this line and the co-simulation one come out
 # together.
-csrset.S    FAIL 2

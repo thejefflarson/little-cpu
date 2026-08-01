@@ -11,15 +11,22 @@
 // serialize) is enforced in rtl/decoder.v, not here -- this module has no
 // idea a stall exists and does not need one.
 //
-// The CSR set is ADR-0005's, exactly:
+// The CSR set is ADR-0005's. It is a FLOOR, not a closed list: every register
+// the privileged spec lists unconditionally for RV32 machine mode is here,
+// because trapping on a mandatory register is non-conformant however minimal
+// the set is. ADR-0005 headed this list "exact" until ADR-0048, and that word
+// is why two mandatory registers stayed missing through a spec read looking
+// for exactly that -- it made a conformance gap read as a scope decision.
 //
 //   read/write   mstatus (MIE/MPIE; MPP is WARL -> 2'b11), mtvec (direct
 //                mode, base 4-byte aligned), mepc (bit 0 always clear --
 //                only bit 0, because C makes 2-byte targets legal), mcause,
 //                mscratch, mcycle/mcycleh, minstret/minstreth
+//   read/write,  mstatush -- writable by encoding, no implemented fields, so
+//   no fields    a write is a legal WARL no-op and must not trap
 //   read-only    mtval = 0, mie = 0, mip = 0 (no interrupt sources),
 //                misa = 0x4000_1104 (RV32IMC), mvendorid/marchid/mimpid/
-//                mhartid = 0
+//                mhartid = 0, mconfigptr = 0
 //
 // Trap entry and `mret` are the second write port, and the only architectural
 // CSR update no CSR *instruction* performs. They arrive from the decoder on
@@ -89,6 +96,16 @@ module csrs(
   // register-index fields.
   localparam logic [11:0] MSTATUS   = 12'h300;
   localparam logic [11:0] MISA      = 12'h301;
+  // RV32-mandatory, and read-only zero here. Both are listed unconditionally in
+  // the privileged spec's machine-mode CSR table, so a core that traps on them
+  // is non-conformant however small its implemented set is -- which is why
+  // ADR-0005's "exact" set widens to include them rather than declining them.
+  // Zero is a legal value for each, not a stub: mstatush's only fields are SBE
+  // and MBE, and 0 means little-endian data accesses in M-mode, which is what
+  // this core does; mconfigptr = 0 is the spec's own encoding for "no
+  // configuration data structure exists".
+  localparam logic [11:0] MSTATUSH  = 12'h310;
+  localparam logic [11:0] MCONFIGPTR = 12'hF15;
   localparam logic [11:0] MIE       = 12'h304;
   localparam logic [11:0] MTVEC     = 12'h305;
   localparam logic [11:0] MSCRATCH  = 12'h340;
@@ -148,6 +165,7 @@ module csrs(
     (* parallel_case *)
     case (addr)
       MSTATUS:   rdata = mstatus_value;
+      MSTATUSH:  rdata = 32'b0;
       MISA:      rdata = MISA_VALUE;
       MIE:       rdata = 32'b0;
       MTVEC:     rdata = mtvec;
@@ -160,7 +178,7 @@ module csrs(
       MCYCLEH:   rdata = mcycle_hi;
       MINSTRET:  rdata = minstret_lo;
       MINSTRETH: rdata = minstret_hi;
-      MVENDORID, MARCHID, MIMPID, MHARTID: rdata = 32'b0;
+      MVENDORID, MARCHID, MIMPID, MHARTID, MCONFIGPTR: rdata = 32'b0;
       default: begin
         rdata = 32'b0;
         implemented = 1'b0;

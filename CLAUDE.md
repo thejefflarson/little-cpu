@@ -485,6 +485,14 @@ These are the design. Violating one is a bug even if tests pass.
 
 RV32IMC_Zicsr, M-mode only. `misa = 0x4000_1104`.
 
+**Conformance is not negotiable against minimality.** Every CSR the privileged spec lists
+unconditionally for RV32 machine mode is implemented; a core that traps on a mandatory register is
+non-conformant however small its set is, and the spec lets almost all of them read zero, so the
+cost of getting this right is close to nothing. ADR-0005 headed its list "CSR set (exact)" until
+ADR-0048, and that word turned a conformance gap into an apparent design choice — `mstatush` and
+`mconfigptr` were missing, and the question it produced was whether the exact set could widen
+rather than why the core was non-conformant. The list is a **floor**, not a closed set.
+
 Traps: illegal instruction = 2, breakpoint = 3, load address misaligned = 4, store address
 misaligned = 6, environment call from M-mode = 11. **Instruction-address-misaligned (0) is
 unreachable** — C makes 2-byte targets legal — and is not implemented. No interrupts: `mie` and
@@ -681,12 +689,20 @@ compressed trapping encoding** — correct for the resuming handler (ADR-0008), 
 exactly one instruction wide. **A counter write at the carry boundary moved the other half**:
 `csrw mcycle` with `mcycle == 0xffff_ffff` advanced `mcycleh`, because the increment was suppressed
 per half rather than per counter; `rvfi_csrw_check` reads only the self-report and never observes
-the register, so no ladder check can see it in any configuration. Both fixed, each with the test
-that caught it written first. **Two required CSRs are missing** — `mstatush` and `mconfigptr`, which
-Sail reads and this core traps on, measured — and that one is landed **red** in both `.S` baselines
-as `csrset.S`, because widening ADR-0005's *exact* CSR set is an ISA-scope decision and not an
-audit's to make. Everything else read as correct, `test/csr_tb.v` included: it disagreed with the
+the register, so no ladder check can see it in any configuration. **Two required CSRs were missing** —
+`mstatush` and `mconfigptr`, which Sail reads and this core trapped on, measured. All three are
+fixed, each with the test that caught it written first, and the suite is **55/55 with both `.S`
+baselines empty**. Everything else read as correct, `test/csr_tb.v` included: it disagreed with the
 specification nowhere.
+
+**The third finding was briefly landed red instead of fixed, and that was the wrong call.** The
+audit declined to widen ADR-0005's CSR set on the grounds that the ADR called it *exact*, making it
+an ISA-scope decision rather than an audit's. The reasoning was sound and the premise was not: a
+core that traps on a spec-mandatory register is non-conformant, minimality was never a licence for
+that, and `mstatush`/`mconfigptr` both read zero legally — the fix is two lines and no new state.
+**ADR-0005's "exact" is struck**; the set is a floor. The lesson is not about CSRs: a scope
+statement that can make a conformance gap look like a design choice will eventually be believed by
+someone with no reason to doubt it.
 
 **Two caveats qualify what any green ladder here means, and neither is closable by burning
 down a list.** Every check is `mode bmc` — PASS means "no counterexample within this check's

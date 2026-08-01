@@ -179,6 +179,27 @@ module csr_tb;
     check_read("minstreth", 12'hB82, 32'h0);
     check_read("mcycleh", 12'hB80, 32'h0);
 
+    // The two RV32-mandatory registers this core trapped on until ADR-0048.
+    // They are here rather than among the "does not have" addresses below
+    // because the spec lists both unconditionally for RV32 machine mode, so
+    // `implemented` low on either is a conformance failure and not a scope
+    // choice -- ADR-0005's set is a floor, not a closed list.
+    check_read("mstatush reads 0", 12'h310, 32'h0);
+    check_read("mconfigptr reads 0", 12'hF15, 32'h0);
+
+    // mstatush is writable by encoding (addr[11:10] == 2'b00) and has no
+    // implemented fields, so a write is a legal WARL no-op. It must NOT trap
+    // and it must NOT retain -- getting either wrong is a conformance bug in
+    // opposite directions.
+    poke(12'h310, 32'hFFFF_FFFF);
+    check_read("mstatush still reads 0 after a write", 12'h310, 32'h0);
+
+    // mconfigptr is read-only by encoding (addr[11:10] == 2'b11), so the
+    // decoder's existing illegal-CSR rule rejects a write to it before this
+    // file is ever asked. What is checked here is that the read side stayed
+    // put, which is the half rtl/csrs.v owns.
+    check_read("mconfigptr reads 0 after an attempted write", 12'hF15, 32'h0);
+
     // Addresses this core does not have. `implemented` low is what makes
     // rtl/decoder.v call the instruction unrecognised (ADR-0005).
     peek(12'h7C0); // a custom/unimplemented machine CSR
