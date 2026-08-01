@@ -72,22 +72,38 @@ stops testing the moment the spacing changes. **A test that can silently stop te
 no test** — this repo's own `ref_selftest` doctrine. Driving the CSR port directly in
 `test/csr_tb.v` is the one place it is deterministic, and that is where the check lives.
 
-## Finding 3 — the implemented CSR set is smaller than RV32 requires. Left open
+## Finding 3 — two required CSRs are missing. Landed red, left open
 
-`mstatush` (0x310) is listed unconditionally in the privileged spec's RV32 machine-mode CSR table;
-the `mhpmcounter3..31` / `mhpmcounterNh` / `mhpmevent3..31` blocks and `mconfigptr` (0xF15) are
-likewise required-but-may-read-zero. None is in `rtl/csrs.v`'s `implemented` set, so an access to
-any of them raises illegal instruction where the spec says it should read zero. (`mcounteren`
-(0x306) is genuinely not required without S- or U-mode, and the unprivileged `cycle`/`instret`
-aliases belong to Zicntr, which ADR-0002 does not claim. Neither is a finding.)
+**`mstatush` (0x310, §3.1.6.4, "For RV32 only, mstatush is a 32-bit read/write register") and
+`mconfigptr` (0xF15, §3.1.4) are listed unconditionally in the privileged spec's machine-mode
+register tables and are absent from `rtl/csrs.v`'s `implemented` set**, so an access to either
+raises illegal instruction where the spec says it should read zero.
+
+**The divergence is measured, not argued**, and that is what promotes it from "one reading of a
+specification sentence" to a finding. sail-riscv 0.13.1 reads both and continues; this core traps on
+both.
+
+The same measurement retired two suspicions the read had raised, and they are recorded so nobody
+re-opens them. **`mhpmcounter3` (0xB03), `mhpmcounter3h` (0xB83) and `mhpmevent3` (0x323)**: the
+reference model raises illegal instruction on all three, exactly as this core does — there is
+nothing to close. **`mcountinhibit` (0x320)**: the spec makes it explicitly optional ("if not
+implemented, the implementation behaves as though the register were set to zero"), so declining it
+is legal; Sail implementing it is Sail's choice. (`mcounteren` (0x306) is likewise not required
+without S- or U-mode, and the unprivileged `cycle`/`instret` aliases belong to Zicntr, which
+ADR-0002 does not claim.)
 
 **This is not fixed here and must not be fixed casually.** ADR-0005 states its CSR set as *exact*,
 and widening it is an ISA-scope decision that belongs to an amendment of ADR-0002/ADR-0005 with its
-own reasoning about what "RV32IMC_Zicsr, machine mode only" commits to — not to an audit ticket. The
-audit's job was to make the divergence known and attributable, and it is now both.
+own reasoning about what "RV32IMC_Zicsr, machine mode only" commits to — not to the audit that
+noticed. It is owed to a follow-up, and naming it here is what stops it depending on anyone's
+memory (the shape ADR-0041 decision 2 used for the co-simulation nightly).
 
-Nothing is parked in `test/EXPECTED_FAIL` for it, deliberately: a red baseline entry would assert
-that the spec reading above is the accepted one, which is precisely the decision being deferred.
+`test/asm/csrset.S` lands it **red in both baselines** — `csrset.S FAIL 2` in `test/EXPECTED_FAIL`
+and `csrset.S DISAGREE AT 2` in `test/COSIM_EXPECTED_FAIL`. That is ADR-0033's rule applied to the
+`.S` suite: a known-red test in the suite is the system working, and a known-red property with no
+test at all is the system lying. Because the status pins the first failing case (ADR-0035), fixing
+`mstatush` without `mconfigptr` turns the entry into `FAIL 3` and goes red rather than matching —
+the burn-down catching a partial fix rather than absorbing it.
 
 ## Everything else read as correct
 
@@ -121,8 +137,11 @@ never checked" stops being true.
 
 ## Consequences
 
-- `test/asm/cebreak.S` and `test/asm/zicsr.S` join the suite; it is 54 programs. Both are graded by
-  `make test` and by `make cosim-suite`, and both baselines stay empty.
+- `test/asm/cebreak.S`, `test/asm/zicsr.S` and `test/asm/csrset.S` join the suite; it is 55
+  programs, graded 54 pass / 1 expected-fail by `make test` and 54 agree / 1 expected-divergence by
+  `make cosim-suite`. **Both baselines stop being empty**, for the one entry above and for no other
+  reason. The formal ladder is untouched at 82 checks / 82 pass with `formal/EXPECTED_FAIL` still
+  empty, re-run against the `c.ebreak` fix rather than argued about.
 - **The suite's `.option norvc` discipline has a blind spot, and it is now named.** Wrapping every
   trapping instruction keeps the resuming handler correct (ADR-0008) and simultaneously guarantees
   the assembler never emits a *compressed* trapping encoding. `c.ebreak` is the only such encoding

@@ -668,6 +668,26 @@ and 3, which this list has not yet been rewritten for. Read each term's own text
    held**, and stayed accidentally true only because the ladder kept matching its baseline
    (ADR-0037). General rule: never put the graded command in a pipeline in a `run:` block.
 
+**That quiet corner was read directly against the spec, and it was hiding a real defect**
+(ADR-0048). `rtl/csrs.v`, `rtl/decoder.v`'s trap arm and `rtl/writeback.v` were read against the
+privileged specification **with `test/csr_tb.v` and the trap `.S` files closed**, the expectation
+written down first and the benches opened only afterwards — because a bench written from the same
+reading as the RTL cannot detect a misreading, and the number of assertions is irrelevant to that.
+Three findings. **`c.ebreak` (16'h9002) decoded to nothing**, so it raised illegal instruction
+(cause 2) instead of breakpoint (cause 3): it is the `rd == 0`, `rs2 == 0` corner of quadrant 2's
+`funct4 == 4'b1001` row that `instr_cjalr` and `instr_cadd` each exclude by a different field. It
+survived because **the suite's `.option norvc` discipline guarantees the assembler never emits a
+compressed trapping encoding** — correct for the resuming handler (ADR-0008), and a blind spot
+exactly one instruction wide. **A counter write at the carry boundary moved the other half**:
+`csrw mcycle` with `mcycle == 0xffff_ffff` advanced `mcycleh`, because the increment was suppressed
+per half rather than per counter; `rvfi_csrw_check` reads only the self-report and never observes
+the register, so no ladder check can see it in any configuration. Both fixed, each with the test
+that caught it written first. **Two required CSRs are missing** — `mstatush` and `mconfigptr`, which
+Sail reads and this core traps on, measured — and that one is landed **red** in both `.S` baselines
+as `csrset.S`, because widening ADR-0005's *exact* CSR set is an ISA-scope decision and not an
+audit's to make. Everything else read as correct, `test/csr_tb.v` included: it disagreed with the
+specification nowhere.
+
 **Two caveats qualify what any green ladder here means, and neither is closable by burning
 down a list.** Every check is `mode bmc` — PASS means "no counterexample within this check's
 configured depth", not that the property holds, and there is no `mode prove` anywhere on the
