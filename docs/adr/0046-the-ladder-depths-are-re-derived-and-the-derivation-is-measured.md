@@ -318,9 +318,12 @@ not cover is worth stating precisely, because "49 of 82" understates the structu
   check whose cost is known to explode with depth (ADR-0022, ADR-0024), and depth 21 is where it
   converges in seconds.
 - The 32 outstanding checks are all `insn_*`, which are homogeneous: one generated `.sby` per
-  instruction over the same wrapper, the same window and the same single-retire property. 37 of the
-  70 did return at doubled depth, spanning every family (arithmetic, shifts, branches, jumps, loads,
-  stores, compressed, mul/div under ALTOPS).
+  instruction over the same wrapper, the same window and the same single-retire property. **38 of
+  the 70 returned** at doubled depth, spanning the arithmetic, branch, jump and compressed families
+  and `insn_div_ch0`/`insn_divu_ch0` under ALTOPS. The uncompressed shifts, the loads and stores and
+  the four `insn_mul*` are in the outstanding set — worth naming rather than glossing, because the
+  shift checks are precisely the ones the liveness probe below fires on, and the probe was run at
+  the *shipping* depth, not this one.
 
 The sweep was bounded on wall time, not abandoned on a result. Re-running it to completion is a
 matter of budget, and the recipe is in this ADR.
