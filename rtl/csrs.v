@@ -11,15 +11,22 @@
 // serialize) is enforced in rtl/decoder.v, not here -- this module has no
 // idea a stall exists and does not need one.
 //
-// The CSR set is ADR-0005's, exactly:
+// The CSR set is ADR-0005's. It is a FLOOR, not a closed list: every register
+// the privileged spec lists unconditionally for RV32 machine mode is here,
+// because trapping on a mandatory register is non-conformant however minimal
+// the set is. ADR-0005 headed this list "exact" until ADR-0048, and that word
+// is why two mandatory registers stayed missing through a spec read looking
+// for exactly that -- it made a conformance gap read as a scope decision.
 //
 //   read/write   mstatus (MIE/MPIE; MPP is WARL -> 2'b11), mtvec (direct
 //                mode, base 4-byte aligned), mepc (bit 0 always clear --
 //                only bit 0, because C makes 2-byte targets legal), mcause,
 //                mscratch, mcycle/mcycleh, minstret/minstreth
+//   read/write,  mstatush -- writable by encoding, no implemented fields, so
+//   no fields    a write is a legal WARL no-op and must not trap
 //   read-only    mtval = 0, mie = 0, mip = 0 (no interrupt sources),
 //                misa = 0x4000_1104 (RV32IMC), mvendorid/marchid/mimpid/
-//                mhartid = 0
+//                mhartid = 0, mconfigptr = 0
 //
 // Trap entry and `mret` are the second write port, and the only architectural
 // CSR update no CSR *instruction* performs. They arrive from the decoder on
@@ -89,6 +96,16 @@ module csrs(
   // register-index fields.
   localparam logic [11:0] MSTATUS   = 12'h300;
   localparam logic [11:0] MISA      = 12'h301;
+  // RV32-mandatory, and read-only zero here. Both are listed unconditionally in
+  // the privileged spec's machine-mode CSR table, so a core that traps on them
+  // is non-conformant however small its implemented set is -- which is why
+  // ADR-0005's "exact" set widens to include them rather than declining them.
+  // Zero is a legal value for each, not a stub: mstatush's only fields are SBE
+  // and MBE, and 0 means little-endian data accesses in M-mode, which is what
+  // this core does; mconfigptr = 0 is the spec's own encoding for "no
+  // configuration data structure exists".
+  localparam logic [11:0] MSTATUSH  = 12'h310;
+  localparam logic [11:0] MCONFIGPTR = 12'hF15;
   localparam logic [11:0] MIE       = 12'h304;
   localparam logic [11:0] MTVEC     = 12'h305;
   localparam logic [11:0] MSCRATCH  = 12'h340;
@@ -148,6 +165,7 @@ module csrs(
     (* parallel_case *)
     case (addr)
       MSTATUS:   rdata = mstatus_value;
+      MSTATUSH:  rdata = 32'b0;
       MISA:      rdata = MISA_VALUE;
       MIE:       rdata = 32'b0;
       MTVEC:     rdata = mtvec;
@@ -160,7 +178,7 @@ module csrs(
       MCYCLEH:   rdata = mcycle_hi;
       MINSTRET:  rdata = minstret_lo;
       MINSTRETH: rdata = minstret_hi;
-      MVENDORID, MARCHID, MIMPID, MHARTID: rdata = 32'b0;
+      MVENDORID, MARCHID, MIMPID, MHARTID, MCONFIGPTR: rdata = 32'b0;
       default: begin
         rdata = 32'b0;
         implemented = 1'b0;
@@ -215,26 +233,47 @@ module csrs(
   assign trap_epc_warl = {trap_epc[31:1], 1'b0};
 
   // ---- the counters -----------------------------------------------------
-  // Both advance first and are then overwritten by an explicit write to the
-  // addressed half, which is ADR-0005's "an explicit write to a counter takes
-  // precedence over that cycle's increment" written out rather than relied on
-  // as a last-assignment-wins side effect.
-  logic [63:0] mcycle_plus, minstret_plus;
-  assign mcycle_plus   = mcycle + 64'd1;
-  assign minstret_plus = instret ? minstret + 64'd1 : minstret;
-
-  logic [31:0] mcycle_plus_lo, mcycle_plus_hi, minstret_plus_lo, minstret_plus_hi;
-  assign mcycle_plus_lo   = mcycle_plus[31:0];
-  assign mcycle_plus_hi   = mcycle_plus[63:32];
-  assign minstret_plus_lo = minstret_plus[31:0];
-  assign minstret_plus_hi = minstret_plus[63:32];
-
   logic wr_mcycle, wr_mcycleh, wr_minstret, wr_minstreth, wr_mscratch;
   assign wr_mcycle    = wen && addr == MCYCLE;
   assign wr_mcycleh   = wen && addr == MCYCLEH;
   assign wr_minstret  = wen && addr == MINSTRET;
   assign wr_minstreth = wen && addr == MINSTRETH;
   assign wr_mscratch  = wen && addr == MSCRATCH;
+
+  // ADR-0005's "an explicit write to a counter takes precedence over that
+  // cycle's increment" -- and the privileged spec's own "any CSR write takes
+  // precedence over the automatic increment" (20211203 §3.1.11) -- are
+  // statements about the 64-BIT COUNTER, not about the half whose address the
+  // instruction happens to name. mcycle and mcycleh are two views of one
+  // register, so a write to either half suppresses that cycle's increment of
+  // the whole thing. Hence a `_tick` term per counter rather than the two
+  // per-half overrides below doing the job on their own.
+  //
+  // Suppressing per half instead is wrong only at the carry boundary, and
+  // wrong there in a way that nothing else in this repo can see. With
+  // mcycle == 32'hffff_ffff the increment's carry lands in the HIGH half while
+  // the explicit write replaces the low one, so `csrw mcycle` advances mcycleh
+  // by one -- contradicting the invariant the RVFI report at the bottom of this
+  // file is built to satisfy, and doing it once every 2**32 cycles and only if
+  // a write falls on that exact cycle. checks/rvfi_csrw_check.sv reads the
+  // SELF-REPORTED masks and never observes the register; every ladder check is
+  // `mode bmc` from reset; and a `.S` program can land a write on that cycle
+  // only by calibrating instruction spacing first, which is a test that stops
+  // testing the moment the spacing changes. test/csr_tb.v drives this port
+  // directly and is the one place it is deterministic (ADR-0048).
+  logic mcycle_tick, minstret_tick;
+  assign mcycle_tick   = !wr_mcycle   && !wr_mcycleh;
+  assign minstret_tick = !wr_minstret && !wr_minstreth && instret;
+
+  logic [63:0] mcycle_plus, minstret_plus;
+  assign mcycle_plus   = mcycle_tick   ? mcycle   + 64'd1 : mcycle;
+  assign minstret_plus = minstret_tick ? minstret + 64'd1 : minstret;
+
+  logic [31:0] mcycle_plus_lo, mcycle_plus_hi, minstret_plus_lo, minstret_plus_hi;
+  assign mcycle_plus_lo   = mcycle_plus[31:0];
+  assign mcycle_plus_hi   = mcycle_plus[63:32];
+  assign minstret_plus_lo = minstret_plus[31:0];
+  assign minstret_plus_hi = minstret_plus[63:32];
 
   logic [31:0] mcycle_next_lo, mcycle_next_hi, minstret_next_lo, minstret_next_hi;
   assign mcycle_next_lo   = wr_mcycle    ? warl : mcycle_plus_lo;

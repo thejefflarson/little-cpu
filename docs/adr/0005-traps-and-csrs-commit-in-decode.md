@@ -30,15 +30,36 @@ read and written in the decode stage. CSR instructions and `mret` serialize.**
 - **`minstret` increments at issue**, which is equivalent to counting retires because post-decode
   nothing faults.
 
-### CSR set (exact)
+### CSR set
+
+**The set is minimal, not closed, and the difference is the whole point.** Every register the
+privileged specification lists *unconditionally* for RV32 machine mode is implemented, because a
+core that traps on a mandatory register is non-conformant no matter how small its set is. Anything
+the spec makes optional, or gates behind an extension this core does not have, is out. Minimality
+is a design value here; non-conformance never was one, and the two are barely in tension — the spec
+lets almost every mandatory register read zero.
+
+**This paragraph was originally headed "CSR set (exact)"**, and the word did real damage. It read
+as a closed list rather than a floor, so when an independent read against the specification found
+`mstatush` and `mconfigptr` missing (ADR-0048), the question it raised was *"may we widen the exact
+set?"* rather than *"why is this core non-conformant?"* The first question has an interesting answer
+and the second has an obvious one. **A statement of scope must not be able to make a conformance
+gap look like a design choice.**
 
 **Read/write:** `mstatus` (MIE, MPIE, MPP only; MPP is WARL → `2'b11`), `mtvec` (direct mode only;
 base WARL, 4-byte aligned), `mepc` (WARL, bit [0] = 0 — only bit 0, because C makes 2-byte targets
 legal), `mcause` (WLRL over the implemented codes), `mscratch`, `mcycle`/`mcycleh`,
 `minstret`/`minstreth`.
 
+**Read/write, no implemented fields:** `mstatush` (§3.1.6.4, RV32 only). Its defined fields are SBE
+and MBE; both read zero, meaning little-endian data accesses in M-mode, which is what this core
+does. A write is a legal WARL no-op rather than a trap — bits [11:10] of its address make it
+writable, and the spec does not permit faulting on it.
+
 **Read-only:** `mtval` = 0 (spec-legal), `mie` = 0, `mip` = 0 (no interrupt sources),
-`misa` = `0x4000_1104` (RV32IMC), `mvendorid`/`marchid`/`mimpid`/`mhartid` = 0.
+`misa` = `0x4000_1104` (RV32IMC), `mvendorid`/`marchid`/`mimpid`/`mhartid` = 0,
+`mconfigptr` = 0 (§3.1.4 — zero is the spec's own encoding for "no configuration data structure
+exists").
 
 **Trap causes:** illegal instruction = 2, breakpoint = 3, load address misaligned = 4, store
 address misaligned = 6, environment call from M-mode = 11. Instruction-address-misaligned (0) is

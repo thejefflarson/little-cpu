@@ -523,7 +523,7 @@ test-units: test/monitor.sim.v
 # gate today, against the current (still-broken, see CLAUDE.md) core.
 .PHONY: test
 test: sim test-units
-	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL
+	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 # ---------------------------------------------------------------------------
 # `make fit` -- the repo's one and only area measurement (ADR-0038).
