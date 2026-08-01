@@ -1,105 +1,48 @@
-# The formal-nightly regression baseline (ADR-0022), same contract as
-# test/EXPECTED_FAIL (ADR-0014) applied to the riscv-formal ladder: the
-# nightly's compare step (formal/check-baseline.sh) exits 0 only when the
-# set of `formal/checks/*` whose status is not PASS matches this file
-# EXACTLY — in both directions. A check that starts failing is caught; a
-# check that starts *passing* is also caught, because this is a set
-# equality, not a ceiling. Edit by hand; never regenerate from a run (that
-# launders a regression into the baseline). Removing a line is a claim the
-# same commit backs up; adding one back is a regression and needs the same
-# justification test/EXPECTED_FAIL's convention requires.
+# The riscv-formal ladder's regression baseline (ADR-0022), the same contract
+# test/EXPECTED_FAIL applies to the `.S` suite (ADR-0014): formal/check-baseline.sh
+# exits 0 only when the set of `formal/checks/*` whose status is not PASS matches
+# this file EXACTLY — in both directions. A check that starts failing is caught;
+# a check that starts *passing* is also caught, because this is a set equality,
+# not a ceiling.
 #
-# THIS FILE ANSWERS ONLY HALF THE QUESTION, and did not used to say so.
-# It reports whether any check's verdict moved. It cannot report whether a
-# check stopped existing — a check with no formal/checks.cfg [depth] line is
-# never generated, so it is absent from the results AND absent from here at
-# once, and set equality on this file alone calls that a clean match on a
-# smaller ladder (ADR-0033, gap 1). Its sibling formal/EXPECTED_CHECKS
-# asserts which checks exist; check-baseline.sh now enforces both, and a
-# name in EXPECTED_CHECKS with no status file counts as non-PASS here.
-# **Read this file's emptiness as the M2 signal only together with that
-# count.**
+# Edit by hand; never regenerate from a run — that launders a regression into the
+# baseline. Removing a line is a claim the same commit backs up. Adding one back
+# is a regression and needs a stated justification in the PR that adds it.
 #
-# Every check on this ladder is `mode bmc` (formal/checks.cfg's `solver
-# btormc`, which genchecks turns into `btor btormc`) -- a PASS means "no
-# counterexample found within the check's configured depth," a bounded
-# result, not an unbounded proof, regardless of which engine found it.
-# Switching engines changes how fast a check converges, not what a PASS
-# means. Read every line below with that in mind.
+# THIS FILE ANSWERS ONLY HALF THE QUESTION. It reports whether a check's verdict
+# moved. It cannot report whether a check stopped existing — a check with no
+# formal/checks.cfg [depth] line is never generated, so it is absent from the
+# results AND absent from here at once, and set equality on this file alone would
+# call that a clean match on a smaller ladder (ADR-0033 gap 1). Its sibling
+# formal/EXPECTED_CHECKS asserts which checks exist; check-baseline.sh enforces
+# both, and a name in EXPECTED_CHECKS with no status file counts as non-PASS here.
 #
-# Seeded at integration from a from-scratch `make -C formal check` (78
-# checks, `-k`, ADR-0022) against main at `03c8d3e`: 55 pass, 15 insn_* fail,
-# reg_ch0 does not converge inside its new 1800s timeout (this file's own
-# check-baseline.sh script counted the status files -- see the PR for the
-# pasted count and tally).
+# WHAT AN EMPTY FILE DOES AND DOES NOT MEAN. Emptiness is a NECESSARY, not
+# sufficient, M2 signal — ADR-0037 rewrote that criterion after an empty baseline
+# turned out to be reachable without the milestone. Read it beside:
 #
-# Then reconciled against `f942cb0`, which fixed the C.JR/C.JALR immediate
-# and the ALTOPS divide operands. Six entries were removed: insn_c_jr,
-# insn_c_jalr, insn_div, insn_divu, insn_rem, insn_remu -- each verified
-# FAIL -> PASS directly before removal, with insn_jalr and insn_lb run as
-# regression guards. The ladder is 61/70 insn_* passing as of that commit.
-# The six were removed by arithmetic on verified facts rather than by a
-# second full 78-check sweep; if that arithmetic is wrong, the first
-# nightly trips on set equality, which is exactly what this file is for.
+#   - formal/EXPECTED_CHECKS, which is what asserts the ladder did not merely shrink
+#   - ADR-0023 and ADR-0033, which state what a green ladder does not cover
 #
-# Then reconciled again after switching the ladder's default engine from
-# `smtbmc yices` to `btor btormc` (ADR-0024). One entry was removed: reg_ch0 -- the same
-# check, at the same depth, that did not converge under smtbmc yices in >20
-# minutes now PASSes under btormc in ~8-12s. Verified by a full from-scratch
-# 78-check sweep under each engine, not by argument: 67/78 pass under btormc
-# (11 fail, matching this file exactly once reg_ch0 is removed), and the
-# btormc sweep's non-PASS set is identical to smtbmc yices's except for
-# reg_ch0 -- no other check's verdict moved. See ADR-0024 for the full
-# side-by-side tally and wall time of both engines, including a caveat on
-# how machine-dependent that wall-time gap turned out to be.
-
-# csrw_mcycle_ch0 and csrw_minstret_ch0 were here ("CSRs are M3"). They came
-# out with rtl/csrs.v, verified FAIL -> PASS before removal, and the ladder
-# grew a third one the same commit: formal/checks.cfg's [csrs] gained
-# `mscratch`, so genchecks now emits 79 checks rather than 78 and
-# csrw_mscratch_ch0 PASSes too. Read that count change together with
-# ADR-0033: a check that is not generated is missing from the results AND
-# from this file at once, so set equality alone would not have noticed the
-# new one either way -- the generated count is what does.
+# Every check here is `mode bmc` (checks.cfg's `solver btormc`, which genchecks
+# turns into `btor btormc`). A PASS means "no counterexample found within the
+# check's configured depth" — a bounded result, not an unbounded proof, whichever
+# engine found it. Switching engines changes how fast a check converges, not what
+# a PASS means.
 #
-# Only `mscratch` was added to [csrs], and the reason it is the only one is
-# recorded next to that list: rvfi_csrw_check.sv has no WARL model, so a
-# correctly WARL-masked mtvec/mepc/mstatus/mcause on that list would FAIL on
-# a CORRECT core. Those are checked in test/csr_tb.v instead.
-
-# THE BASELINE IS EMPTY, and reaching that is what this change was for. All
-# ten entries that stood here came out together, because all ten were the same
-# missing feature: trap entry did not exist, so `rvfi_trap` was hardwired 0 in
-# rtl/littlecpu.v.
+# Everything runs under RISCV_FORMAL_ALTOPS, so a green insn_mul/insn_div/insn_rem
+# says nothing whatever about the real multiplier or divider (ADR-0010).
 #
-# Nine of them were misaligned accesses -- insn_lh, insn_lhu, insn_lw, insn_sh,
-# insn_sw and the four compressed word forms insn_c_lw, insn_c_lwsp, insn_c_sw,
-# insn_c_swsp. Each `insn_*` check ends in `assert(spec_trap == trap)` outside
-# the `!spec_trap` gate, and under RISCV_FORMAL_ALIGNED_MEM each of those
-# models sets `spec_trap` on a misaligned effective address. Every
-# byte-granularity access (insn_lb, insn_lbu, insn_sb) already passed, which is
-# exactly the set whose address CANNOT be misaligned -- that is what made the
-# attribution checkable rather than asserted, and it held: the same change that
-# turned the nine green left the three alone.
+# formal/equiv.sh still does not converge (ADR-0020), so ADR-0006's guarantee that
+# RVFI instrumentation does not perturb the core remains argued rather than proven.
 #
-# The tenth, ill_ch0, went green for a DIFFERENT reason, which is why ADR-0033
-# put it on the ladder rather than leaving it off. checks/rvfi_ill_check.sv
-# assumes a retire whose `insn` is all zeros and asserts `trap`, `rd_addr == 0`,
-# `rd_wdata == 0` and `mem_wmask == 0`. That is the formal statement of the
-# ILLEGAL-INSTRUCTION trap (ADR-0030's cause 2) plus ADR-0028's convention for
-# what a trapping retire may have done -- not of misalignment. Two of
-# ADR-0030's five causes are therefore on the ladder; the other three
-# (breakpoint, environment call, and the load/store causes' handler-visible
-# `mcause`) are checked in test/asm/trap.S, because riscv-formal ships no spec
-# model for ecall/ebreak/mret at the pin.
+# ONLY `mscratch` IS IN checks.cfg's [csrs], and the reason is recorded next to
+# that list: rvfi_csrw_check.sv has no WARL model, so a correctly WARL-masked
+# mtvec/mepc/mcause/mstatus on that list would FAIL on a CORRECT core. Those are
+# checked in test/csr_tb.v instead. riscv-formal also ships no spec model at all
+# for ecall/ebreak/mret/csrr* at the pin, so those instructions' semantics are
+# checked only by test/asm/trap.S and test/asm/csr.S — assertions this repo wrote,
+# not an oracle.
 #
-# READ THIS EMPTINESS WITH ADR-0023 AND ADR-0033 BESIDE IT. Every check on this
-# ladder is `mode bmc`, so a PASS is "no counterexample within the configured
-# depth", not a proof; everything runs under RISCV_FORMAL_ALTOPS, so a green
-# insn_mul/insn_div says nothing about the real multiplier or divider
-# (ADR-0010); and this file's emptiness is a NECESSARY, not sufficient, M2
-# signal -- read it together with formal/EXPECTED_CHECKS, which is what asserts
-# the ladder did not merely shrink. `formal/equiv.sh` still does not converge
-# (ADR-0020), so ADR-0006's non-perturbation guarantee remains argued rather
-# than proven, and that argument now covers one more `ifdef RISCV_FORMAL`
-# field: rvfi_shadow.trap, written in decode and read only by rtl/writeback.v.
+# The history of what was baselined here and when lives in git and in the ADRs
+# above; it is not repeated in this file, which describes the contract in force.
