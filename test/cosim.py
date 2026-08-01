@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Lockstep co-simulation of this core against the Sail RISC-V model.
 
-A spike, not a fourth verification leg: `make test` neither builds nor runs
-this, and CI does not gate on it. See docs/adr/0032 for what it is for and
-what it costs.
+One program per invocation; test/run_cosim.sh runs the suite and grades it
+against test/COSIM_EXPECTED_FAIL. Opt-in, and it stays that way: `make test`
+neither builds nor runs any of this and CI does not gate on it. See
+docs/adr/0032 for what it is for and what it costs, and docs/adr/0039 for
+what suite-wide integration changed.
 
 WHAT IS ACTUALLY COMPARED
 -------------------------
@@ -24,32 +26,32 @@ counts as an event without special-casing.  Writes to x0 are dropped on the
 Sail side for the same reason -- rtl/regfile.v guards them and the ISA makes
 them unobservable.
 
-HTIF HAS TO BE DISABLED, AND THAT IS A REAL FINDING
----------------------------------------------------
-Sail auto-detects HTIF from the ELF's `tohost` symbol and then claims the
-whole DOUBLEWORD at that address as an IO window.  ADR-0008 puts `tohost` at
-the base of the RAM region and test/asm/riscv_test.h emits it as a 32-bit
-`.word`, so `.data` -- every load/store test's TEST_DATA -- starts four bytes
-later, INSIDE that window.  Left alone, Sail answers every `lw` from 0x10004
-with zero (`--trace-mem` shows `htif[0x000010004] -> 0x0` ahead of the read)
-and eight of this suite's programs "diverge" for a reason that is entirely
-the harness's fault.
+HTIF IS SPOKEN, NOT WORKED AROUND
+--------------------------------
+Sail auto-detects HTIF from the ELF's `tohost` symbol and claims the whole
+DOUBLEWORD at that address as an IO window.  `tohost` used to be a 32-bit
+`.word` at the base of RAM, so `.data` -- every load/store test's TEST_DATA,
+which ADR-0008 places immediately after -- began four bytes INSIDE that
+window: Sail answered every `lw` from 0x10004 with zero and eight programs
+"diverged" for a reason that was entirely this repo's fault.  The spike
+(ADR-0032) worked around it by stripping the symbol from a throwaway ELF copy
+and then bounding the reference run with `--inst-limit`, checking it had
+reached the pass/fail spin loop by looking for a self-loop at one PC.
 
-It also does not help on the other side: HTIF acts on a 64-bit doubleword
-write, and RVTEST_PASS stores with `sw`, so the run does not terminate on the
-verdict either (`--trace-htif` logs the write and keeps going).
+Both workarounds are gone.  test/asm/riscv_test.h now emits `tohost` as an
+8-byte-aligned `.dword` (ADR-0039), which is what the HTIF protocol always
+specified, so the IO window covers only `tohost` itself and Sail reads test
+data out of real memory.  The verdict macros write the doubleword's upper
+word first and the verdict last, so the reference model TERMINATES on the
+same store the cxxrtl runners stop on, and `--inst-limit` goes back to being
+what it should always have been: a runaway bound, not a convergence
+criterion.  A run that hits it without an HTIF verdict is INCONCLUSIVE and
+says so, rather than being compared and reported as a finding.
 
-So the ELF handed to Sail gets its `tohost` symbol stripped -- a harness-side
-`objcopy` on a throwaway copy, changing nothing about what either existing
-sim leg builds or how ADR-0008's protocol works.  The reference run is then
-bounded with `--inst-limit` and confirmed to have reached the pass/fail spin
-loop by checking that its last instructions are a self-loop at one PC.
-
-The alternative -- padding `tohost` to a full doubleword in riscv_test.h so
-it stops overlapping test data, which is what upstream riscv-tests does -- is
-the better long-term fix and would buy a clean HTIF exit as well.  It is a
-change to shared test infrastructure that both existing legs read, so it
-belongs in the integration ticket, not in a spike.
+Both sides' verdicts are compared as well as their register traces, so a run
+where the reference model passes the program and the core fails it (or the
+reverse) is a divergence even in the impossible case that the register
+sequences matched.
 """
 
 import argparse
@@ -193,7 +195,11 @@ def find_sail(explicit):
 
 def assemble(cc, src, outdir):
     """Assemble one test/asm/*.S exactly as test/run_tests.sh does, and emit
-    the ELF (for Sail) plus the two objcopy images (for the cxxrtl runner)."""
+    the ELF (for Sail) plus the two objcopy images (for the cxxrtl runner).
+
+    The reference model gets the SAME ELF, unmodified -- no stripped symbol,
+    no throwaway copy (ADR-0039). If the two legs ever stop building from
+    identical bytes, this is the function that would have to say so."""
     base = os.path.splitext(os.path.basename(src))[0]
     elf = os.path.join(outdir, base + ".elf")
     rom = os.path.join(outdir, base + ".rom.hex")
@@ -214,18 +220,34 @@ def assemble(cc, src, outdir):
             [objcopy, "-O", "verilog", "--verilog-data-width=4", *args, elf, out],
             check=True, capture_output=True,
         )
-    # A throwaway copy with `tohost` removed from the symbol table, so Sail
-    # does not auto-detect HTIF and shadow the test data that ADR-0008's
-    # memory map places immediately after it. See the module docstring.
-    sail_elf = os.path.join(outdir, base + ".sail.elf")
-    subprocess.run([objcopy, "--strip-symbol=tohost", elf, sail_elf],
-                   check=True, capture_output=True)
-    return sail_elf, rom, ram
+    return elf, rom, ram
+
+
+def sail_verdict(output):
+    """The reference model's HTIF verdict, in the vocabulary test/cosim.cc
+    prints for the core, or None if the run did not reach one.
+
+    Sail terminates on the doubleword `tohost` write (ADR-0039) and announces
+    it: `SUCCESS` for the riscv-tests pass encoding, `FAILURE: <n>` for
+    `(testnum << 1) | 1`, where n is the test number. There is deliberately no
+    fallback to the process exit status -- it is 0 both for SUCCESS and for
+    hitting `--inst-limit`, so reading it would turn "the reference model never
+    reached the program's verdict" into "the program passed".
+    """
+    for line in output.splitlines():
+        line = line.strip()
+        if line == "SUCCESS":
+            return "PASS"
+        m = re.match(r"^FAILURE:\s+(\d+)", line)
+        if m:
+            return f"FAIL {m.group(1)}"
+    return None
 
 
 def run_sail(sail, elf, inst_limit, outdir):
     """Run the reference model and return its list of distinct register-file
-    states, each tagged with the instruction that produced it."""
+    states, each tagged with the instruction that produced it, plus the HTIF
+    verdict it terminated on (None if it never reached one)."""
     trace = os.path.join(outdir, "sail.trace")
     proc = subprocess.run(
         [sail, "--rv32", "--config-override", MEMORY_MAP,
@@ -238,7 +260,7 @@ def run_sail(sail, elf, inst_limit, outdir):
 
     regs = [0] * 32
     records = []       # (change_index, sail_idx, pc, disasm, {reg: val})
-    tail_pcs = []
+    saw_insn = False
     current = None     # (idx, pc, disasm)
     pending = {}
 
@@ -260,9 +282,7 @@ def run_sail(sail, elf, inst_limit, outdir):
                 flush()
                 current = (int(m.group("idx")), int(m.group("pc"), 16),
                            m.group("disasm"))
-                tail_pcs.append(current[1])
-                if len(tail_pcs) > 8:
-                    tail_pcs.pop(0)
+                saw_insn = True
                 continue
             m = GPR_RE.match(line)
             if m and current is not None:
@@ -271,14 +291,9 @@ def run_sail(sail, elf, inst_limit, outdir):
                     pending[reg] = int(m.group("val"), 16)
     flush()
 
-    if not tail_pcs:
+    if not saw_insn:
         raise Fatal(f"sail traced no instructions:\n{proc.stdout}{proc.stderr}")
-    # riscv_test.h's RVTEST_PASS/RVTEST_FAIL both end in `1: j 1b`, so a run
-    # that reached a verdict is parked on one PC. If it is not, --inst-limit
-    # cut the reference short and any length mismatch below would be an
-    # artefact of this harness rather than a finding.
-    converged = len(set(tail_pcs)) == 1 and len(tail_pcs) == 8
-    return records, converged, tail_pcs[-1]
+    return records, sail_verdict(proc.stdout + proc.stderr)
 
 
 def run_dut(binary, rom, ram, cycles):
@@ -315,9 +330,14 @@ def fmt(writes):
 
 
 def compare(sail_records, dut_records):
-    """Return (ok, list_of_report_lines). Reports the FIRST divergence with
+    """Return (status, list_of_report_lines). Reports the FIRST divergence with
     instruction number, PC and both values, per the spike's acceptance
-    criteria."""
+    criteria.
+
+    `status` is "AGREE" or one of the DISAGREE labels test/run_cosim.sh
+    baselines against test/COSIM_EXPECTED_FAIL. The labels distinguish HOW the
+    two disagreed, so a baselined program that starts diverging somewhere else
+    is a red gate rather than a match (ADR-0035)."""
     out = []
     for i in range(min(len(sail_records), len(dut_records))):
         _, sidx, spc, sdis, swrites = sail_records[i]
@@ -328,7 +348,7 @@ def compare(sail_records, dut_records):
             out.append(f"  sail : {fmt(swrites)}")
             out.append(f"  core : {fmt(dwrites)}   (cycle {cycle}, "
                        f"decode pc=0x{dpc:08x})")
-            return False, out
+            return f"DISAGREE AT {i}", out
     if len(sail_records) != len(dut_records):
         n = min(len(sail_records), len(dut_records))
         out.append(
@@ -345,8 +365,34 @@ def compare(sail_records, dut_records):
         else:
             out.append(f"  first unmatched ({label}): cycle {extra[1]} "
                        f"-> {fmt(extra[2])} (decode pc=0x{extra[3]:08x})")
-        return False, out
-    return True, out
+        return "DISAGREE LENGTH", out
+    return "AGREE", out
+
+
+def core_verdict(raw):
+    """test/cosim.cc's terminator line reduced to sail_verdict()'s vocabulary.
+
+    `PASS <cycle>` -> "PASS", `FAIL <n> <cycle>` -> "FAIL <n>", `TIMEOUT` ->
+    None. The cycle number is dropped on purpose: it is the one part of the
+    verdict the reference model has no opinion about."""
+    fields = raw.split()
+    if not fields or fields[0] == "TIMEOUT":
+        return None
+    if fields[0] == "FAIL" and len(fields) >= 2:
+        return f"FAIL {fields[1]}"
+    return fields[0]
+
+
+# The one line test/run_cosim.sh reads. Everything else this script prints is
+# for a human; this is the machine-readable verdict, and it is emitted for
+# every outcome that got as far as running both sides. Its absence means the
+# run did not get that far, which the suite runner reports as its own label
+# rather than as a verdict about the core.
+STATUS_PREFIX = "COSIM-STATUS"
+
+
+def emit(status):
+    print(f"{STATUS_PREFIX} {status}")
 
 
 def main():
@@ -360,6 +406,9 @@ def main():
     ap.add_argument("--inst-limit", type=int, default=20000,
                     help="sail instruction budget")
     ap.add_argument("--quiet", action="store_true")
+    ap.add_argument("--check-setup", action="store_true",
+                    help="probe the toolchain, the pinned sail binary and the "
+                         "cosim runner, then exit; runs no program")
     args = ap.parse_args()
 
     try:
@@ -367,6 +416,15 @@ def main():
         sail, sail_provenance = find_sail(args.sail)
         if not os.path.isfile(args.cosim_binary):
             raise Fatal(f"{args.cosim_binary} not built. Run 'make cosim'.")
+        # test/run_cosim.sh calls this once before the suite, so a missing
+        # toolchain or an unverified sail binary says so once, up front,
+        # instead of as 52 identical per-program errors.
+        if args.check_setup:
+            print(f"cross compiler     : {cc}")
+            print(f"sail               : {sail}")
+            print(f"sail provenance    : {sail_provenance}")
+            print(f"cosim runner       : {args.cosim_binary}")
+            return 0
         src = args.program
         if not os.path.isabs(src):
             src = os.path.join(ASM_DIR, os.path.basename(src))
@@ -375,41 +433,59 @@ def main():
 
         with tempfile.TemporaryDirectory(prefix="littlecpu-cosim.") as outdir:
             elf, rom, ram = assemble(cc, src, outdir)
-            sail_records, converged, last_pc = run_sail(
+            sail_records, sail_end = run_sail(
                 sail, elf, args.inst_limit, outdir)
-            dut_records, verdict = run_dut(
+            dut_records, dut_end_raw = run_dut(
                 args.cosim_binary, rom, ram, args.cycles)
     except Fatal as e:
         print(f"error: {e}", file=sys.stderr)
         return 3
 
     name = os.path.basename(src)
+    dut_end = core_verdict(dut_end_raw)
     if not args.quiet:
         print(f"program            : {name}")
         print(f"sail               : {sail}")
         print(f"sail provenance    : {sail_provenance}")
         print(f"sail changes       : {len(sail_records)}  "
-              f"(spin-loop reached: {converged}, last pc=0x{last_pc:08x})")
-        print(f"core changes       : {len(dut_records)}   (tohost: {verdict})")
+              f"(htif verdict: {sail_end})")
+        print(f"core changes       : {len(dut_records)}   "
+              f"(tohost: {dut_end_raw})")
 
-    if not converged:
+    # Neither budget is a finding. A run that ran out of one was never
+    # compared against a complete reference, so reporting it as agreement or
+    # as a divergence would both be lies about what was measured.
+    if sail_end is None:
         print(f"INCONCLUSIVE {name}: sail hit --inst-limit "
-              f"{args.inst_limit} without reaching the pass/fail spin loop; "
-              f"raise it.", file=sys.stderr)
-        return 3
-    if verdict.startswith("TIMEOUT"):
+              f"{args.inst_limit} without an HTIF verdict; raise it.",
+              file=sys.stderr)
+        emit("INCONCLUSIVE SAIL-LIMIT")
+        return 2
+    if dut_end is None:
         print(f"INCONCLUSIVE {name}: the core hit its {args.cycles}-cycle "
               f"budget without a tohost verdict.", file=sys.stderr)
-        return 3
+        emit("INCONCLUSIVE CORE-TIMEOUT")
+        return 2
 
-    ok, report = compare(sail_records, dut_records)
-    if ok:
+    status, report = compare(sail_records, dut_records)
+    if status == "AGREE" and sail_end != dut_end:
+        # Unreachable by construction if the register comparison is doing its
+        # job -- the verdict is a store of a value the program computed into a
+        # register first -- which is exactly why it is worth asserting: if it
+        # ever fires, the register comparison stopped comparing.
+        status = "DISAGREE VERDICT"
+        report = [f"DIVERGENCE in verdict: sail ran the program to {sail_end}, "
+                  f"the core to {dut_end}, with identical register traces"]
+
+    if status == "AGREE":
         print(f"AGREE {name}: {len(sail_records)} architectural register-file "
-              f"changes, identical in order and value.")
+              f"changes, identical in order and value; both ran to {sail_end}.")
+        emit(status)
         return 0
     print(f"DISAGREE {name}")
     for line in report:
         print(line)
+    emit(status)
     return 1
 
 

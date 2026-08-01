@@ -4,9 +4,11 @@
 // modes and no PMP, so none of that setup belongs here. RVTEST_CODE_BEGIN just
 // establishes `_start` and zeroes the test-number register;
 // RVTEST_PASS/RVTEST_FAIL write the riscv-tests `tohost` encoding (ADR-0008) to
-// a fixed word in RAM and spin. The cxxrtl runner (test/cxxrtl.cc) and the
-// iverilog bench watch that address for the magic write instead of relying on
-// ecall/mtvec.
+// a fixed doubleword at the base of RAM and spin. The cxxrtl runner
+// (test/cxxrtl.cc) and the iverilog bench watch that address for the magic
+// write instead of relying on ecall/mtvec; the Sail model (ADR-0032) speaks
+// the same HTIF protocol and terminates on it. See RVTEST_DATA_BEGIN for why
+// the doubleword width is not cosmetic.
 //
 // The trap-handler macros at the bottom are strictly opt-in and
 // RVTEST_CODE_BEGIN is deliberately untouched by them: the suite's other tests
@@ -70,9 +72,24 @@ _start:                                                                      \
 #define RVTEST_CODE_END                                                      \
 1:      j       1b
 
+// Both verdict macros write the doubleword's UPPER word first and the verdict
+// itself last, and the order is deliberate (ADR-0039). This core has no 64-bit
+// store, so the doubleword `tohost` is written as two `sw`s; Sail's HTIF fires
+// on each half-write once the other half has been seen, so writing the upper
+// (always-zero) word first makes the verdict store the single event that
+// terminates the reference model -- the same store test/cxxrtl.cc and
+// test/cosim.cc already stop on when RAM_BASE's low word goes non-zero. Both
+// sides then end on the same instruction. Writing them the other way round
+// works too, but leaves the reference model running one store longer than the
+// core, for no gain.
+//
+// Neither store writes a register, so the sequence of architectural
+// register-file states -- which is what ADR-0032's co-simulation compares --
+// is unchanged by this pair.
 #define RVTEST_PASS                                                          \
         li      TESTNUM, 1;                                                 \
         la      t0, tohost;                                                 \
+        sw      x0, 4(t0);                                                  \
         sw      TESTNUM, 0(t0);                                             \
 1:      j       1b
 
@@ -80,15 +97,39 @@ _start:                                                                      \
         sll     TESTNUM, TESTNUM, 1;                                        \
         or      TESTNUM, TESTNUM, 1;                                        \
         la      t0, tohost;                                                 \
+        sw      x0, 4(t0);                                                  \
         sw      TESTNUM, 0(t0);                                             \
 1:      j       1b
 
+// `tohost` is a full DOUBLEWORD, 8-byte aligned, and both of those are
+// load-bearing rather than cosmetic (ADR-0039, amending ADR-0008).
+//
+// The riscv-tests HTIF protocol this encoding is borrowed from defines
+// `tohost` as a 64-bit location, and every consumer that speaks HTIF -- the
+// Sail RISC-V model among them -- claims the whole doubleword at the symbol
+// as an IO window the moment it sees the symbol in the ELF. It was a 32-bit
+// `.word` here, so `.data` (every load/store test's TEST_DATA, ADR-0008 puts
+// it immediately after) began four bytes INSIDE that window: the reference
+// model answered every `lw` from RAM_BASE+4 with zero. Eight programs
+// "diverged" for a reason that was entirely this file's fault.
+//
+// Padding it is what makes the co-simulation leg (ADR-0032) able to hand Sail
+// the same ELF the other two legs run, unmodified, and to terminate on the
+// verdict rather than on an instruction budget.
+//
+// Nothing else moves. `tohost` is still the first thing in the RAM region and
+// still the low word at RAM_BASE, so test/cxxrtl.cc's `ram_data[0]`,
+// test/cosim.cc's, and test/testbench.v's RAM decode are all unchanged; the
+// `.data` that follows simply starts four bytes later. RVTEST_PASS/FAIL still
+// write it with a 32-bit `sw` -- this core has no 64-bit store -- and the
+// upper word stays zero, which is what makes the low word alone a faithful
+// read of the riscv-tests encoding on a little-endian machine.
 #define RVTEST_DATA_BEGIN                                                    \
         .pushsection .tohost,"aw",@progbits;                                \
-        .align  2;                                                          \
+        .align  3;                                                          \
         .global tohost;                                                     \
 tohost:                                                                      \
-        .word   0;                                                          \
+        .dword  0;                                                          \
         .popsection;                                                        \
         .data;                                                              \
         .align  2;

@@ -44,16 +44,17 @@ sim: test/cxxrtl.cc test/rtl.cc
 	  -isystem $$(yosys-config --datdir)/include/backends/cxxrtl/runtime $< -o $@
 
 # ---------------------------------------------------------------------------
-# Sail co-simulation (docs/adr/0032) -- a SPIKE, deliberately opt-in.
+# Sail co-simulation (docs/adr/0032, docs/adr/0039) -- deliberately opt-in.
 #
-# Nothing below is reachable from `make test`, `make test-units` or CI. The
-# whole point of keeping it off the default path is that `make test` must
-# still work on a machine with no Sail installed, and a time-boxed experiment
-# must not quietly become a merge gate. Run it by hand:
+# Nothing below is reachable from `make test`, `make test-units` or CI's
+# required set. The whole point of keeping it off the default path is that
+# `make test` must still work on a machine with no Sail installed, and an
+# experiment must not quietly become a merge gate. Run it by hand:
 #
 #     make sail-setup     # once: fetch, verify and unpack the pinned release
 #     make cosim          # build the architectural-state tracer
 #     make cosim-run      # run it on one program (PROG=add.S by default)
+#     make cosim-suite    # run the whole suite, graded against the baseline
 # ---------------------------------------------------------------------------
 
 # The sail-riscv release this spike was run against, pinned the way
@@ -75,10 +76,10 @@ sim: test/cxxrtl.cc test/rtl.cc
 #
 # ADR-0033 gap 4 recorded the unverified fetch as accepted-because-opt-in, with
 # "give it pin.mk's treatment" as the precondition for ever putting co-sim on
-# `make test` or CI. That precondition is met here. It is the only one: the
-# rest of ADR-0032's integration list (the `tohost` doubleword, a
-# COSIM_EXPECTED_FAIL baseline, a nightly job) is untouched, and co-simulation
-# stays off every default path.
+# `make test` or CI. That precondition is met here. ADR-0039 then landed the
+# `tohost` doubleword and the `test/COSIM_EXPECTED_FAIL` baseline behind
+# `make cosim-suite`, and co-simulation still stays off every default path:
+# `make test`, `make test-units` and CI's required set do not reach any of it.
 ifneq ($(filter command line environment,$(origin SAIL_RISCV_VERSION)),)
 $(error SAIL_RISCV_VERSION cannot be set from the command line or the \
   environment: it pins bytes this repo executes. Change it in the Makefile, \
@@ -140,7 +141,7 @@ SAIL_PIN   := $(SAIL_RISCV_VERSION) $(SAIL_ASSET) $(SAIL_SHA256)
 # Scoped to the goals that actually run the binary. A stale tools/sail must not
 # break `make test`: co-simulation is opt-in (ADR-0032) and a guard on it that
 # could fail the suite would have made it a gate by the back door.
-ifneq ($(filter cosim-run,$(MAKECMDGOALS)),)
+ifneq ($(filter cosim-run cosim-suite,$(MAKECMDGOALS)),)
 ifneq ($(wildcard $(SAIL_SIM_BIN)),)
 SAIL_PIN_ON_DISK := $(shell sed -n 1p $(SAIL_STAMP) 2>/dev/null)
 ifneq ($(SAIL_PIN_ON_DISK),$(SAIL_PIN))
@@ -238,6 +239,19 @@ PROG ?= add.S
 .PHONY: cosim-run
 cosim-run: cosim
 	./test/cosim.py $(PROG)
+
+# The whole suite under co-simulation, graded by set equality in BOTH
+# directions against test/COSIM_EXPECTED_FAIL -- the same contract `make test`
+# applies to test/EXPECTED_FAIL (ADR-0014, ADR-0035). See docs/adr/0039.
+#
+# Deliberately NOT a prerequisite of `test`, `test-units` or anything CI
+# requires (ADR-0032). It needs a Sail install that `make test` must keep
+# working without, and the moment it became required it would stop being the
+# opt-in experiment it was accepted as. The regfile-to-block-RAM change gates
+# on it by pasting its output into the PR, not by branch protection.
+.PHONY: cosim-suite
+cosim-suite: cosim
+	./test/run_cosim.sh ./cosim test/asm test/COSIM_EXPECTED_FAIL
 
 # test/monitor.sim.v is a build-time-only, gitignored derivative of the
 # tracked test/monitor.v (ADR-0019). test/monitor.v itself stays
