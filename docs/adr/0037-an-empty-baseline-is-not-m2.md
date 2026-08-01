@@ -72,7 +72,16 @@ one alone means nothing:
    check that the `-D RISCV_FORMAL` build with its `rvfi_*` ports deleted sweeps to a netlist
    identical to the plain build. Both failure directions demonstrated on real mutations;
 5. `formal/complete` passes, or every check it declines has a recorded reason;
-6. the nightly can go red (see §4) and is green.
+6. ~~the nightly can go red (see §4) and is green~~ — **rewritten by ADR-0050, which deleted the
+   nightly.** Now: *every check the repo owns is on a gate that can fail, and that gate is green* —
+   the ladder, `imemcheck`, `dmemcheck` and `cover` as steps of the required `formal` job whose exit
+   status is the job's, with no `continue-on-error` anywhere in it, `complete` joining them when its
+   exclusion set lands (term 5), and no graded command in a pipeline in a `run:` block. The intent
+   is unchanged and was always the same one — the ladder's verdict must be observed by something
+   automated that is capable of failing — but a required PR check that blocks a merge is a strictly
+   better instrument than a scheduled job ADR-0022 itself described as not gating merges. **That is
+   the third move of an M2 criterion; ADR-0050 asks ADR-0045's question about it explicitly rather
+   than restating the term and moving on.**
 
 **Necessary-but-not-sufficient conditions must be written as such.** The old wording called item 1
 "the signal", which is the language of sufficiency for something that was only ever necessary.
