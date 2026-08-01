@@ -182,10 +182,20 @@ jobs:
   # littlecpu.v's actual fetcher wiring) and it now passes; gating on it here
   # is what keeps it from silently regressing.
   #
-  # The other three tasks in formal/components.sby (fetcher, accessor,
-  # writeback) are deliberately NOT run: they contain no assertions at all,
-  # only reset assumptions, so they "pass" vacuously. ADR-0006 slates them
-  # for deletion; a green vacuous proof in CI would be worse than no proof.
+  # The fetcher, accessor and writeback tasks used to sit alongside these
+  # carrying no assertions at all -- a vacuous green, worse than no proof.
+  # They were deleted rather than left unrun, so formal/components.sby now
+  # holds exactly three tasks and this job runs all three.
+  #
+  # components_pcloop is the third, and it is here because ADR-0017 put the
+  # fetcher-decoder pc loop in M2's scope and then nothing ran it. It is the
+  # task that DISCHARGES the standalone decoder proof's `assume(in.pc == pc)`,
+  # which is where that proof's content went -- so leaving it off this list
+  # left an M2-scope obligation guarded by prose. It had in fact been FAILING
+  # since `e4f5250` (ADR-0046): its stall over-approximation predated ADR-0042's
+  # operand-fetch cycle, so its sequential-advance assertion covered a cycle on
+  # which the decoder legitimately holds the pc. Adding the step is what found
+  # that; keeping it is what stops the next one.
   components:
     name: components
     runs-on: little-cpu-runners
@@ -208,6 +218,9 @@ jobs:
 
       - name: Decoder component proof
         run: make -C formal components_decoder
+
+      - name: Fetcher/decoder PC-loop proof
+        run: make -C formal components_pcloop
 
       - name: Report job wall time
         if: always()

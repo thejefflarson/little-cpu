@@ -211,8 +211,44 @@ module pcloop (
   logic f_system;
   assign f_system = f_uncompressed && f_instr[6:2] == 5'b11100;
 
+  // ADR-0042's FIFTH stall reason, the operand-fetch cycle: the regfile read
+  // is synchronous, so decode presents the rs1/rs2 address pair for one cycle,
+  // holds the pc, bubbles, and issues on the next (CLAUDE.md invariant 9).
+  // Without this term the sequential-advance assertion below covers a cycle on
+  // which the decoder legitimately held the pc, and it FAILS at basecase step
+  // 3 -- which is exactly what it did from `e4f5250` until this file caught up,
+  // uncaught because nothing ran this task.
+  //
+  // A verbatim transcription of rtl/decoder.v's prev_rs1/prev_rs2/read_taken
+  // register, then over-approximated at the comparison the same way every other
+  // term here is: the real `operand_stall` also requires that the instruction
+  // consumes the port (uses_rs1/uses_rs2), and restating that would mean
+  // duplicating most of decode. Dropping the gate only ever excuses more
+  // cycles, never fewer.
+  //
+  // It does NOT hollow out the assertion, and the reason is structural rather
+  // than lucky: `operand_stall` holds the pc, so the same word is re-presented
+  // and rs1/rs2 are unchanged on the cycle the instruction actually issues.
+  // Every cycle on which the pc really advances is therefore a cycle this term
+  // calls quiet. The mutation ADR-0017 requires still fires -- break
+  // rtl/fetcher.v's `out.pc = pc` and this task fails.
+  logic [4:0] f_prev_rs1, f_prev_rs2;
+  logic       f_read_taken, f_operand_fetch;
+  always_ff @(posedge clk) begin
+    if (reset) begin
+      f_prev_rs1   <= 5'd0;
+      f_prev_rs2   <= 5'd0;
+      f_read_taken <= 1'b0;
+    end else begin
+      f_prev_rs1   <= rs1;
+      f_prev_rs2   <= rs2;
+      f_read_taken <= 1'b1;
+    end
+  end
+  assign f_operand_fetch = !f_read_taken || f_prev_rs1 != rs1 || f_prev_rs2 != rs2;
+
   assign f_may_stall = divider_stall || accessor_stall || f_live_rs1 || f_live_rs2 ||
-      f_system;
+      f_system || f_operand_fetch;
 
   // Trap entry and `mret` also write a non-sequential pc (ADR-0028: a trap is
   // a branch), so the sequential-advance assertion must not cover those
