@@ -195,6 +195,45 @@ module testbench(
     end
   end
 
+  // ADR-0029: `mtvec` resets to 0 and test/asm/sections.lds links `.text`
+  // there, so a trap taken before a test installs its handler redirects to
+  // `_start` and the program silently RESTARTS. That failure mode looks like a
+  // livelock or a timeout, produces no error, and puts the actual cause -- a
+  // fault several instructions earlier -- nowhere near the symptom.
+  //
+  // This is a HARNESS assertion, not an RTL one: a real program is entitled to
+  // put a handler at 0, and it would need revisiting if sections.lds ever
+  // moved `.text`. It also needs no hierarchical reference into the CSR file.
+  // `trap` is ADR-0028's one-cycle "trap entry committed" pulse, and decode
+  // registers `pc <= mtvec` on that same edge, so the fetch address one cycle
+  // later IS mtvec (rtl/fetcher.v drives imem_addr straight off pc).
+  //
+  // `(* keep *)` because test/cxxrtl.cc reads `trap_to_zero` by debug-item
+  // name to turn this into a distinct process exit code; without it yosys is
+  // free to optimise away a register nothing in the design reads.
+  //
+  // Plain `always @(posedge clk)`, not `always_ff`, for the same reason every
+  // other diagnostic block in this file is: iverilog warns that a system task
+  // cannot be synthesised inside an `always_ff` process, and CLAUDE.md says
+  // warnings are errors. Nothing in this bench is synthesised.
+  logic trap_taken_d;
+  (* keep *) logic trap_to_zero;
+  initial begin
+    trap_taken_d = 1'b0;
+    trap_to_zero = 1'b0;
+  end
+  always @(posedge clk) begin
+    trap_taken_d <= !reset && trap;
+    if (trap_taken_d && imem_addr == 32'b0) begin
+      trap_to_zero <= 1'b1;
+      $display("TRAP TO ZERO: a trap was taken while mtvec == 0 (ADR-0029).");
+      $display("No handler was installed, so the program has restarted at _start.");
+     `ifdef ICARUS
+      $fatal(1);
+     `endif
+    end
+  end
+
   // ADR-0009: for every store, mem_wstrb is high for
   // exactly one cycle. Direct regression for the divide-replay defect, where
   // the accessor kept re-issuing the same store every cycle the executor sat

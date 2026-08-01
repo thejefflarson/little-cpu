@@ -51,6 +51,13 @@ typedef struct packed {
   logic [4:0]  rs2_addr;
   logic [31:0] rs1_rdata;
   logic [31:0] rs2_rdata;
+  // ADR-0028: `rvfi_trap` for this instruction. Decode is the one stage that
+  // knows it -- every trap is detected and committed there (CLAUDE.md
+  // invariant 2) -- so it rides down with the rest of the shadow rather than
+  // being recomputed at retire. A trapping instruction still retires
+  // (`valid` reaching writeback, invariant 3); it just retires having
+  // architecturally done nothing except redirect the PC.
+  logic        trap;
   // Exactly the CSRs formal/checks.cfg's `[csrs]` list names, captured in
   // decode -- the one stage that knows them, since ADR-0005 reads and
   // commits every CSR access there -- and forwarded on the same valid-bit
@@ -101,23 +108,21 @@ typedef struct packed {
   logic        is_sw;
   logic        is_ecall;
   logic        is_ebreak;
-  // ADR-0005's decode-side record of a Zicsr access: which CSR, and whether
-  // the operand was a zimm rather than rs1. No stage after decode reads
-  // either -- a CSR access is read, computed and committed entirely in
-  // decode (rtl/csrs.v is the decoder's sibling, not a pipeline stage), and
-  // the *result* reaches rd through `is_add` like lui/jal/auipc already do.
-  // They are carried anyway, per ADR-0005, because they are the only place
-  // downstream a reader (or a waveform) can tell a CSR access apart from the
-  // add it is disguised as.
+  // What is deliberately NOT here, and must not come back:
   //
-  // What is deliberately NOT here: `is_csrrw`/`is_csrrs`/`is_csrrc`, which
-  // this struct used to carry with rtl/executor.v:198 an empty statement for
-  // them. They cannot coexist with the `is_add` pass-through: the executor's
-  // op select is one `(* parallel_case *) case (1'b1)`, and setting both
-  // `is_add` and a CSR flag would make two arms match at once -- a lie to
-  // synthesis, not merely redundant.
-  logic [11:0] csr_addr;
-  logic        is_csr_imm;
+  //   `is_csrrw`/`is_csrrs`/`is_csrrc`, which this struct used to carry with
+  //   rtl/executor.v an empty statement for them. They cannot coexist with
+  //   ADR-0005's `is_add` pass-through: the executor's op select is one
+  //   `(* parallel_case *) case (1'b1)`, and setting both `is_add` and a CSR
+  //   flag would make two arms match at once -- a lie to synthesis, not
+  //   merely redundant.
+  //
+  //   `csr_addr`/`is_csr_imm`, which ADR-0034 kept as scaffolding with an
+  //   explicit sunset condition: strike them in the trap-entry change if
+  //   neither has acquired a downstream consumer by then. Neither did --
+  //   trap detection, CSR read/write and trap commit all happen in decode --
+  //   so they are gone. Thirteen bits of struct that nothing reads is the
+  //   incidental machinery this project's stated goal warns against.
 } decoder_output;
 
 typedef struct packed {

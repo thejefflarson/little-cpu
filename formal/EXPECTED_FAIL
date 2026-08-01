@@ -67,72 +67,39 @@
 # correctly WARL-masked mtvec/mepc/mstatus/mcause on that list would FAIL on
 # a CORRECT core. Those are checked in test/csr_tb.v instead.
 
-# `rvfi_trap` is hardwired 0 until misalignment traps land (M3, ADR-0011).
-# Every byte-granularity access (lb/lbu/sb) passes -- this is exactly the
-# set of accesses whose address can be misaligned, which is what makes this
-# attribution checkable rather than asserted (ADR-0022, ADR-0023).
-insn_lh_ch0
-insn_lhu_ch0
-insn_lw_ch0
-insn_sh_ch0
-insn_sw_ch0
-insn_c_lw_ch0
-insn_c_lwsp_ch0
-insn_c_sw_ch0
-insn_c_swsp_ch0
-
-# ill_ch0 is the tenth, and it is here because ADR-0033 decided a known-red
-# check belongs ON the ladder rather than off it: "a known-red check on the
-# ladder is the system working; a known-red check off the ladder is the
-# system lying." It had no [depth] line, so it was never generated, never
-# ran, and never appeared here — the exact shape of hole this file plus
-# formal/EXPECTED_CHECKS now close.
+# THE BASELINE IS EMPTY, and reaching that is what this change was for. All
+# ten entries that stood here came out together, because all ten were the same
+# missing feature: trap entry did not exist, so `rvfi_trap` was hardwired 0 in
+# rtl/littlecpu.v.
 #
-# checks/rvfi_ill_check.sv reads only ordinary RVFI ports this core already
-# drives. It assumes a retire whose `insn` is all zeros — the canonical
-# illegal instruction — and asserts `trap`, plus `rd_addr == 0`,
-# `rd_wdata == 0`, `mem_wmask == 0`. What makes it red is the same single
-# fact as the nine above: `rvfi_trap` is hardwired 0 in rtl/littlecpu.v
-# because trap entry does not exist yet (M3, ADR-0011; rtl/csrs.v landed the
-# CSR file but nothing reads mtvec/mepc/mcause). Verified rather than
-# argued — btormc reports `bad state property 0 reachable at bound k = 15
-# SATISFIABLE`, a real counterexample at the configured depth, not a build
-# or elaboration error.
+# Nine of them were misaligned accesses -- insn_lh, insn_lhu, insn_lw, insn_sh,
+# insn_sw and the four compressed word forms insn_c_lw, insn_c_lwsp, insn_c_sw,
+# insn_c_swsp. Each `insn_*` check ends in `assert(spec_trap == trap)` outside
+# the `!spec_trap` gate, and under RISCV_FORMAL_ALIGNED_MEM each of those
+# models sets `spec_trap` on a misaligned effective address. Every
+# byte-granularity access (insn_lb, insn_lbu, insn_sb) already passed, which is
+# exactly the set whose address CANNOT be misaligned -- that is what made the
+# attribution checkable rather than asserted, and it held: the same change that
+# turned the nine green left the three alone.
 #
-# This is the entry that burns down with the trap work, and it burns down
-# for a different reason than its neighbours: the nine above go green when a
-# misaligned access traps, this one goes green when an ILLEGAL INSTRUCTION
-# traps (ADR-0030's cause 2). Two of ADR-0030's five causes are therefore
-# on the ladder rather than one.
-ill_ch0
-
-# The C.JR/C.JALR decode defect (ADR-0021): rtl/decoder.v:114 routes
-# instr_jalr through i_immediate = instr[31:20], which for a 16-bit
-# instruction is whatever sits next in memory. A fix is in flight in a
-# parallel change; when it lands these two go green and this baseline must
-# shrink in the same commit, which is the set-equality check working as
-# designed, not a surprise.
-
-# The ALTOPS divide operand-latching defect (ADR-0023): rtl/executor.v's
-# `ifdef RISCV_FORMAL_ALTOPS` divide branch reads `in.rs1`/`in.rs2` a cycle
-# after issue instead of the already-latched mul_div_x/mul_div_y. Scoped to
-# RISCV_FORMAL_ALTOPS, so the synthesized divider is unaffected -- ADR-0010
-# already says the real arithmetic has no formal coverage in any form. A fix
-# is in flight in a parallel change; same expectation as the C.JR pair above.
-
-# reg_ch0 was here (ADR-0023: the check that ties RVFI's self-report back to
-# the actual register file) as a single depth-21 BMC query that did not
-# converge under smtbmc yices in a practical budget (>20 minutes,
-# independently reproduced twice). It PASSes under btor btormc in ~8-12s at
-# the same depth -- verified by a full from-scratch 78-check sweep under each
-# engine, not by argument (see this file's header). Removed, not because the
-# property changed, but because the tool that had failed to answer it was
-# replaced by one that could.
+# The tenth, ill_ch0, went green for a DIFFERENT reason, which is why ADR-0033
+# put it on the ladder rather than leaving it off. checks/rvfi_ill_check.sv
+# assumes a retire whose `insn` is all zeros and asserts `trap`, `rd_addr == 0`,
+# `rd_wdata == 0` and `mem_wmask == 0`. That is the formal statement of the
+# ILLEGAL-INSTRUCTION trap (ADR-0030's cause 2) plus ADR-0028's convention for
+# what a trapping retire may have done -- not of misalignment. Two of
+# ADR-0030's five causes are therefore on the ladder; the other three
+# (breakpoint, environment call, and the load/store causes' handler-visible
+# `mcause`) are checked in test/asm/trap.S, because riscv-formal ships no spec
+# model for ecall/ebreak/mret at the pin.
 #
-# Then re-confirmed after formal/genchecks-local.py was re-vendored from the
-# pin. That change reached the ladder in exactly two ways -- every generated
-# .sby now says `read -sv` where it said `read_verilog -sv` (upstream's
-# frontend-agnostic spelling; identical without Verific), and reg_ch0 lost the
-# per-check `timeout 1800` line, which upstream genchecks has no way to emit
-# and which btormc made moot. Same 78 checks, same names, same verdicts: 67
-# pass, the 11 below.
+# READ THIS EMPTINESS WITH ADR-0023 AND ADR-0033 BESIDE IT. Every check on this
+# ladder is `mode bmc`, so a PASS is "no counterexample within the configured
+# depth", not a proof; everything runs under RISCV_FORMAL_ALTOPS, so a green
+# insn_mul/insn_div says nothing about the real multiplier or divider
+# (ADR-0010); and this file's emptiness is a NECESSARY, not sufficient, M2
+# signal -- read it together with formal/EXPECTED_CHECKS, which is what asserts
+# the ladder did not merely shrink. `formal/equiv.sh` still does not converge
+# (ADR-0020), so ADR-0006's non-perturbation guarantee remains argued rather
+# than proven, and that argument now covers one more `ifdef RISCV_FORMAL`
+# field: rvfi_shadow.trap, written in decode and read only by rtl/writeback.v.

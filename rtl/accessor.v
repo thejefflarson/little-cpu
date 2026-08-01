@@ -11,8 +11,13 @@ module accessor(
     output logic [3:0]  mem_wstrb,
     output logic [31:0] mem_wdata,
     input  logic [31:0] mem_rdata,
-    // fault signals
-    output logic mem_misaligned,
+    // No fault signal, and this stage has none to give: every trap is detected
+    // and committed in decode (CLAUDE.md invariant 2). Misalignment used to be
+    // detected HERE, which was post-decode and contradicted that invariant;
+    // ADR-0011 scoped the move to M3 and it has happened, in rtl/decoder.v,
+    // where the effective address is already computed. A trapping load or
+    // store never reaches this stage with any `is_l*`/`is_s*` flag set, so it
+    // issues no bus request at all.
     // ADR-0009-style stall broadcast (ADR-0009): the memory (test/testbench.v,
     // rtl/memory.v) registers mem_rdata one cycle after the address is
     // presented — a real, unavoidable round trip, not a choice — so a load
@@ -100,14 +105,6 @@ module accessor(
   rvfi_shadow  pending_rvfi;
   logic [31:0] pending_rvfi_mem_addr;
  `endif
-  // Misaligned-access detection per RISC-V spec: word accesses require 4-byte alignment,
-  // halfword accesses require 2-byte alignment; byte accesses are always aligned.
-  // Gated by in_valid (ADR-0011): a bubble must never raise a spurious
-  // trap. Detection itself stays here — moving it to decode is M3 (ADR-0011).
-  assign mem_misaligned = in_valid &&
-    (((in_is_lw || in_is_sw) && in_mem_addr[1:0] != 2'b00) ||
-     ((in_is_lh || in_is_lhu || in_is_sh) && in_mem_addr[0] != 1'b0));
-
   logic [31:0] write_request;
 
   // Hoisted out of the always_comb below for the same reason as decoder.v's

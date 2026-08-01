@@ -47,7 +47,15 @@ module pcloop (
     // any CSR address is implemented and hand back any read value.
     input logic accessor_out_valid,
     input logic [31:0] csr_rdata,
-    input logic csr_implemented
+    input logic csr_implemented,
+    // ADR-0028's trap-entry pair, free for the same reason: rtl/csrs.v is not
+    // instantiated here, so the solver may present any mtvec and any mepc.
+    // That is the stronger environment for this task -- the PC-increment
+    // assertions below exclude trap and mret cycles as jumps (see
+    // f_jump_branch), so an arbitrary redirect target cannot make them pass;
+    // it can only make them harder to satisfy on the cycles they do cover.
+    input logic [31:0] mtvec,
+    input logic [31:0] mepc
 );
   logic [31:0] pc;
   logic [31:0] imem_addr, imem_addr2;
@@ -59,6 +67,10 @@ module pcloop (
   logic [11:0] csr_addr;
   logic        csr_ren, csr_wen, instret;
   logic [31:0] csr_wdata;
+  // Likewise driven by the decoder and read by nothing here: rtl/csrs.v is the
+  // consumer in the real pipeline, and this task is about the PC loop.
+  logic        trap_entry, mret_entry;
+  logic [31:0] trap_cause, trap_epc;
 
   fetcher fetcher (
     .clk(clk),
@@ -85,6 +97,8 @@ module pcloop (
     .accessor_out_valid(accessor_out_valid),
     .csr_rdata(csr_rdata),
     .csr_implemented(csr_implemented),
+    .mtvec(mtvec),
+    .mepc(mepc),
     .pc(pc),
     .rs1(rs1),
     .rs2(rs2),
@@ -93,6 +107,10 @@ module pcloop (
     .csr_wen(csr_wen),
     .csr_wdata(csr_wdata),
     .instret(instret),
+    .trap_entry(trap_entry),
+    .trap_cause(trap_cause),
+    .trap_epc(trap_epc),
+    .mret_entry(mret_entry),
     .out(decoder_out)
   );
 
@@ -180,18 +198,37 @@ module pcloop (
        (executor_out.valid && executor_out.rd == rs2) ||
        (accessor_pending_valid && accessor_pending_rd == rs2));
   // ADR-0026's fourth stall reason, transcribed the same way: a Zicsr access
-  // (SYSTEM opcode with a non-zero funct3[1:0], the six csrr* encodings) is
-  // held in decode until the pipe drains. Over-approximated like the rest --
-  // the real term also requires the pipe to be busy, and this deliberately
-  // does not look at that -- so it only ever excuses more cycles, never
-  // fewer. ecall/ebreak stay covered by the increment assertion below,
-  // because funct3 is 0 for both and they never serialize.
-  logic f_csr_access;
-  assign f_csr_access = f_uncompressed && f_instr[6:2] == 5'b11100 &&
-                        f_instr[13:12] != 2'b00;
+  // is held in decode until the pipe drains, and `mret` joins it there
+  // (CLAUDE.md invariant 5). Over-approximated like the rest -- the real term
+  // also requires the pipe to be busy, and this deliberately does not look at
+  // that -- so it only ever excuses more cycles, never fewer.
+  //
+  // Widened to the WHOLE SYSTEM opcode rather than the six csrr* funct3s,
+  // because `mret` has funct3 == 0 and the narrower test missed it: a
+  // serializing `mret` held the pc on a cycle this signal called quiet and the
+  // increment assertion below failed. `ecall`/`ebreak` come along for the ride
+  // and are covered by f_redirect anyway, since they now trap.
+  logic f_system;
+  assign f_system = f_uncompressed && f_instr[6:2] == 5'b11100;
 
   assign f_may_stall = divider_stall || accessor_stall || f_live_rs1 || f_live_rs2 ||
-      f_csr_access;
+      f_system;
+
+  // Trap entry and `mret` also write a non-sequential pc (ADR-0028: a trap is
+  // a branch), so the sequential-advance assertion must not cover those
+  // cycles either. Unlike everything above, these are NOT re-derived from
+  // `f_instr`: "would the decoder consider this word illegal" is decode, and
+  // restating it here would be the duplication this file refuses. They are
+  // read off the decoder's own OUTPUT PORTS instead -- pcloop-scope nets, not
+  // the phantom hierarchical references the note above warns about.
+  //
+  // Excusing a cycle on the DUT's own say-so would be a hole if nothing else
+  // covered it, so nothing else is left uncovered: the two assertions at the
+  // bottom of this block pin where the pc actually went on exactly these
+  // cycles. A decoder that claimed a spurious trap to escape the increment
+  // assertion would then have to land on mtvec to satisfy those.
+  logic f_redirect;
+  assign f_redirect = trap_entry || mret_entry;
 
   // Registered history, sampled at the same posedge that updates pc. That
   // same-edge sample is the phase relationship rtl/decoder.v:442 dictates:
@@ -205,15 +242,20 @@ module pcloop (
   // ports are always driven), and the one garbage sample possible -- the
   // pre-reset initial state at cycle 0 -- lands under prev_reset = 1, which
   // every assertion below excludes.
-  logic [31:0] past_pc;
+  logic [31:0] past_pc, prev_mtvec, prev_mepc;
   logic prev_reset, prev_may_stall, prev_hard_stall, prev_jump_branch, prev_uncompressed;
+  logic prev_trap_entry, prev_mret_entry;
   always_ff @(posedge clk) begin
     past_pc           <= pc;
     prev_reset        <= reset;
     prev_may_stall    <= f_may_stall;
     prev_hard_stall   <= divider_stall || accessor_stall;
-    prev_jump_branch  <= f_jump_branch;
+    prev_jump_branch  <= f_jump_branch || f_redirect;
     prev_uncompressed <= f_uncompressed;
+    prev_trap_entry   <= trap_entry;
+    prev_mret_entry   <= mret_entry;
+    prev_mtvec        <= mtvec;
+    prev_mepc         <= mepc;
   end
 
   // The echo, asserted rather than assumed. This one line is what turns the
@@ -244,6 +286,16 @@ module pcloop (
   // task's assertion, as above.
   always_ff @(posedge clk)
     if (clocked && prev_hard_stall && !prev_reset) assert(pc == past_pc);
+
+  // The redirect cycles the increment assertion above steps around, covered
+  // here instead of merely excused. A trap goes to mtvec and an mret goes to
+  // mepc -- through the real closed loop, so the decoder's `pc` output and the
+  // address the fetcher will present next cycle are the same thing (the echo
+  // assertion above is what ties them together).
+  always_ff @(posedge clk)
+    if (clocked && !prev_reset && prev_trap_entry) assert(pc == prev_mtvec);
+  always_ff @(posedge clk)
+    if (clocked && !prev_reset && prev_mret_entry) assert(pc == prev_mepc);
  `endif
 endmodule
 

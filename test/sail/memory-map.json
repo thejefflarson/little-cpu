@@ -25,6 +25,35 @@
 // HTIF" note there).
 {
   "memory": {
+    // MISALIGNED ACCESSES MUST TRAP, and this is the key that decides it --
+    // NOT the per-region `misaligned_exceptions` attribute below, which is
+    // restated in both regions and has NO EFFECT here. The model's own default
+    // config documents the difference: this global key is "checked before
+    // address translation" while the region attribute is "checked after", and
+    // with no MMU the region attribute is never consulted. Measured, not
+    // inferred: changing the region attribute in both regions leaves a
+    // misaligned `lw` completing; setting this one redirects to mtvec.
+    //
+    // Our config did not set this key at all, so it inherited Sail's default
+    // of `{"None": null}` -- the reference model COMPLETED misaligned accesses.
+    // That agreed with the core until ADR-0030's causes 4 and 6 landed, and
+    // would have produced a false divergence on every misaligned access from
+    // that moment on (ADR-0033 flagged it as part of the trap work rather than
+    // as a co-simulation detail). `AlignmentException` is the value matching
+    // ADR-0005's causes: load address misaligned = 4, store address
+    // misaligned = 6. `AccessFault` would be causes 5 and 7 and is a different
+    // implementation choice this core did not make.
+    //
+    // A config override is where you can talk the oracle into agreeing with
+    // you: Sail is authoritative about RISC-V semantics but not about which
+    // implementation-defined choice this core makes -- we tell it. Every knob
+    // here should trace to a decision that predates the divergence it
+    // resolves. This one traces to ADR-0005, written before any of this ran.
+    "misaligned": {
+      "exceptions": {
+        "load_store": { "Some": "AlignmentException" }
+      }
+    },
     "regions": [
       {
         // test/asm/sections.lds: rom at 0x0 (16K) + ram at 0x10000 (4K),

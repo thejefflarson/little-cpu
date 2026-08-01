@@ -72,13 +72,23 @@ module littlecpu(
   // it. accessor_out is declared further down, next to its instantiation, so
   // this carries its valid bit up to the decoder's port list.
   logic accessor_out_valid;
-  // trap is asserted when the decoded instruction is unrecognized (illegal-instruction)
-  // or when the accessor detects a misaligned memory access.  Gated by !reset so that
-  // the pipeline flush state does not produce spurious traps, and by decoder_out.valid
-  // so a hazard/divide bubble (which zeroes is_valid_instr along with everything else)
-  // never looks like an illegal instruction (ADR-0009).
-  logic mem_misaligned_trap;
-  assign trap = !reset && ((decoder_out.valid && !decoder_out.is_valid_instr) || mem_misaligned_trap);
+  // ADR-0028: `trap` is redefined, not deleted -- it is now a one-cycle "trap
+  // entry committed this cycle" pulse, driven straight from the decode stage
+  // that commits it (CLAUDE.md invariant 2). It used to be a combinational OR
+  // of "the decoded instruction was unrecognised" with the accessor's
+  // POST-DECODE misalignment signal, and nothing consumed it. Both halves of
+  // that are gone: the accessor no longer detects misalignment (ADR-0011's
+  // debt, discharged in rtl/decoder.v), and an unrecognised instruction is now
+  // a real illegal-instruction trap rather than a silently suppressed one.
+  //
+  // It is kept rather than removed because deleting it would change the port
+  // list in formal/wrapper.v, formal/dmemcheck.sv, formal/imemcheck.sv,
+  // formal/cover.sv, formal/complete.sv and test/testbench.v for no functional
+  // gain -- and because ADR-0029's harness check (a trap taken with mtvec == 0
+  // is a silent restart at `_start`, since test/asm/sections.lds links .text
+  // at 0) needs exactly this signal.
+  logic decoder_trap_entry;
+  assign trap = decoder_trap_entry;
   logic  [31:0] pc;
   fetcher_output fetcher_out;
   fetcher fetcher(
@@ -118,6 +128,12 @@ module littlecpu(
   logic [31:0] csr_wdata, csr_rdata;
   logic        csr_implemented;
   logic        csr_instret;
+  // ADR-0005 / ADR-0028: the trap-entry side of the same decode/CSR pair. The
+  // decoder detects and commits; the CSR file records mepc/mcause/mstatus and
+  // hands back the two registers the decoder redirects the PC through.
+  logic        csr_trap_entry, csr_mret_entry;
+  logic [31:0] csr_trap_cause, csr_trap_epc;
+  logic [31:0] csr_mtvec, csr_mepc;
  `ifdef RISCV_FORMAL
   rvfi_csr64 csr_rvfi_mcycle, csr_rvfi_minstret;
   rvfi_csr32 csr_rvfi_mscratch;
@@ -138,6 +154,8 @@ module littlecpu(
     .accessor_out_valid(accessor_out_valid),
     .csr_rdata(csr_rdata),
     .csr_implemented(csr_implemented),
+    .mtvec(csr_mtvec),
+    .mepc(csr_mepc),
    `ifdef RISCV_FORMAL
     .csr_rvfi_mcycle(csr_rvfi_mcycle),
     .csr_rvfi_minstret(csr_rvfi_minstret),
@@ -152,6 +170,10 @@ module littlecpu(
     .csr_wen(csr_wen),
     .csr_wdata(csr_wdata),
     .instret(csr_instret),
+    .trap_entry(decoder_trap_entry),
+    .trap_cause(csr_trap_cause),
+    .trap_epc(csr_trap_epc),
+    .mret_entry(csr_mret_entry),
     .out(decoder_out)
   );
 
@@ -164,9 +186,15 @@ module littlecpu(
     .wen(csr_wen),
     .wdata(csr_wdata),
     .instret(csr_instret),
+    .trap_entry(decoder_trap_entry),
+    .trap_cause(csr_trap_cause),
+    .trap_epc(csr_trap_epc),
+    .mret_entry(csr_mret_entry),
     // outputs
     .rdata(csr_rdata),
-    .implemented(csr_implemented)
+    .implemented(csr_implemented),
+    .mtvec_value(csr_mtvec),
+    .mepc_value(csr_mepc)
    `ifdef RISCV_FORMAL
     ,
     .rvfi_mcycle(csr_rvfi_mcycle),
@@ -198,8 +226,6 @@ module littlecpu(
     .mem_wstrb(mem_wstrb),
     .mem_wdata(mem_wdata),
     .mem_rdata(mem_rdata),
-    // fault signals
-    .mem_misaligned(mem_misaligned_trap),
     .stalled(accessor_stalled),
     .pending_valid(accessor_pending_valid),
     .pending_rd(accessor_pending_rd),
@@ -219,6 +245,7 @@ module littlecpu(
    `ifdef RISCV_FORMAL
     ,
     .rvfi_valid(rvfi_valid),
+    .rvfi_trap(rvfi_trap),
     .rvfi_order(rvfi_order),
     .rvfi_insn(rvfi_insn),
     .rvfi_rs1_addr(rvfi_rs1_addr),
@@ -250,13 +277,13 @@ module littlecpu(
   );
 
  `ifdef RISCV_FORMAL
-  // The CSR fields are per-retire data now (rtl/csrs.v, threaded through the
-  // shadow to rtl/writeback.v). These five are not, and stay constants:
-  // rvfi_trap has nothing upstream computing it until trap entry lands (the
-  // next M3 step, ADR-0011), and M-mode only / XLEN=32 / no interrupts
-  // (CLAUDE.md: mie and mip are read-only zero) makes mode/ixl/intr
-  // properties of the design rather than of an instruction.
-  assign rvfi_trap = 1'b0;
+  // The CSR fields are per-retire data (rtl/csrs.v, threaded through the shadow
+  // to rtl/writeback.v), and so is `rvfi_trap` now -- rtl/decoder.v computes it
+  // where every trap is committed (CLAUDE.md invariant 2) and rtl/writeback.v
+  // drives it at retire. These four are not per-retire data and stay constants:
+  // M-mode only / XLEN=32 / no interrupts (mie and mip are read-only zero) and
+  // no halt makes mode/ixl/intr/halt properties of the design rather than of an
+  // instruction.
   assign rvfi_halt = 1'b0;
   assign rvfi_intr = 1'b0;
   assign rvfi_mode = 2'd3;

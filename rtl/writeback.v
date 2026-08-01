@@ -12,13 +12,13 @@ module writeback(
   output logic [31:0] wdata
   // ADR-0006 / CLAUDE.md invariant 3: "retire is `valid` reaching
   // writeback, which gates wen and drives rvfi_valid" — this is that spot.
-  // `rvfi_trap` stays hardwired 0 in littlecpu.v: nothing upstream computes
-  // it yet (trap entry is the next M3 step, ADR-0011). The CSR fields no
-  // longer are — rtl/csrs.v builds them and they ride the shadow down here
-  // like every other per-retire value.
+  // `rvfi_trap` is no longer hardwired either: rtl/decoder.v computes it where
+  // every trap is detected and committed (invariant 2) and it rides the shadow
+  // down here like the CSR fields and everything else per-retire.
  `ifdef RISCV_FORMAL
   ,
   output logic        rvfi_valid,
+  output logic        rvfi_trap,
   output logic [63:0] rvfi_order,
   output logic [31:0] rvfi_insn,
   output logic [ 4:0] rvfi_rs1_addr,
@@ -71,6 +71,40 @@ module writeback(
   // registered accessor_output, stable for exactly the one cycle it
   // retires, so there is nothing to re-register here except the running
   // order counter below.
+  // ADR-0028's convention for a TRAPPING retire, restated here because this is
+  // the drive site and a reader has no other way to learn that the oracle is
+  // silent about it. riscv-formal's checks/rvfi_insn_check.sv puts rd_addr,
+  // rd_wdata, pc_wdata and every mem_* assertion inside `if (!spec_trap)` and
+  // keeps only `assert(spec_trap == trap)` outside, so the ladder cannot tell
+  // a core that traps correctly from one that traps AND corrupts rd, writes
+  // memory, and redirects somewhere arbitrary. What this core commits to:
+  //
+  //   rvfi_valid  1   -- a trapping instruction DOES retire
+  //   rvfi_trap   1
+  //   rvfi_rd_addr / rvfi_rd_wdata            0
+  //   rvfi_mem_rmask / rvfi_mem_wmask         0
+  //   rvfi_pc_wdata                           mtvec
+  //
+  // None of it is enforced here: it is enforced upstream, in rtl/decoder.v,
+  // by suppressing `out.rd` and every execution flag on a trapping issue, so
+  // the values below are zero because nothing produced anything -- not because
+  // this block masks them. Three ladder checks catch it INDIRECTLY if that
+  // breaks (`dmemcheck` for a store that still strobes the bus, `reg` for an
+  // rd that still lands, `pc_fwd`/`pc_bwd` for a redirect that is misreported
+  // or not taken); none of them names traps in its title, and the connection
+  // is not discoverable from CI output. The one thing nothing on the ladder
+  // can see -- that the target is `mtvec` -- is asserted in rtl/decoder.v's
+  // component proof.
+  // A continuous assign rather than a line in the always_comb below, and that
+  // is the documented pattern rather than a style choice (ADR-0034): every
+  // struct-field read inside an `always_comb` is a constant part-select
+  // iverilog cannot build a precise sensitivity entry for, so it emits
+  // `sorry: constant selects in always_* processes are not fully supported`
+  // and falls back to whole-struct sensitivity. Safe, but a diagnostic, and
+  // CLAUDE.md caps the count at exactly 20. Adding this one line in there made
+  // it 21.
+  assign rvfi_trap = in.rvfi.trap;
+
   always_comb begin
     rvfi_valid = !reset && in.valid;
     rvfi_insn = in.rvfi.insn;

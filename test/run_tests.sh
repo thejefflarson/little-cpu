@@ -146,11 +146,14 @@ for src in "$ASM_DIR"/*.S; do
     sim_status=$?
     set -e
     # The runner's exit ladder (test/cxxrtl.cc): 0 pass, 1 tohost fail, 2 cycle
-    # limit, 3 usage/setup, 4 RVFI monitor error. 4 gets its own label because
-    # it means something entirely different from the others — the per-retire
-    # oracle disagreed with the core mid-run (ADR-0019), which is a wrong-result
-    # report, not a broken harness. Lumping it into RUNNER-ERROR made it
-    # indistinguishable from "the sim could not be started at all".
+    # limit, 3 usage/setup, 4 RVFI monitor error, 5 trap-to-zero. 4 and 5 get
+    # their own labels because each means something entirely different from
+    # "the test failed": 4 is the per-retire oracle disagreeing with the core
+    # mid-run (ADR-0019), a wrong-result report rather than a broken harness,
+    # and 5 is a trap taken before a handler was installed (ADR-0029), which
+    # would otherwise surface as a TIMEOUT naming neither the fault nor its
+    # cause. Lumping either into RUNNER-ERROR made it indistinguishable from
+    # "the sim could not be started at all".
     case $sim_status in
       0) status="PASS" ;;
       1) num=$(awk '/^FAIL/{print $2; exit}' "$tmp/$base.run.log")
@@ -158,6 +161,7 @@ for src in "$ASM_DIR"/*.S; do
       2) status="TIMEOUT" ;;
       4) code=$(awk '/RVFI monitor error/{print $4; exit}' "$tmp/$base.run.log")
          status="MONITOR-ERROR${code:+ $code}" ;;
+      5) status="TRAP-TO-ZERO" ;;
       *) status="RUNNER-ERROR $sim_status" ;;
     esac
   fi

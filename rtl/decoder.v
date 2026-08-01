@@ -59,6 +59,21 @@ module decoder (
   input  logic        csr_implemented,
   // ADR-0027: minstret counts non-trapping issues, and issue happens here.
   output logic        instret,
+  // ---- trap entry (CLAUDE.md invariant 2 / ADR-0005 / ADR-0030) ----------
+  // Every trap this core takes is detected AND committed here, in decode, on
+  // the edge the trapping instruction issues. `trap_entry` is high for exactly
+  // that cycle; rtl/csrs.v commits mepc/mcause/mstatus off it and rtl/
+  // littlecpu.v exports it as the top-level `trap` pulse (ADR-0028).
+  // `mtvec`/`mepc` come back the other way because decode owns the PC
+  // (invariant 1) -- a trap is a branch, and it is taken by the same
+  // mechanism every other branch here uses. There is no flush and there is
+  // nothing to flush: nothing downstream of this stage can fault.
+  output logic        trap_entry,
+  output logic [31:0] trap_cause,
+  output logic [31:0] trap_epc,
+  output logic        mret_entry,
+  input  logic [31:0] mtvec,
+  input  logic [31:0] mepc,
  `ifdef RISCV_FORMAL
   // ADR-0006: the CSR file's shadow payload for the access being presented
   // this cycle, latched below into the issuing instruction's shadow.
@@ -337,12 +352,37 @@ module decoder (
                      instr_csrrs ? (csr_rdata | csr_arg) :
                                    (csr_rdata & ~csr_arg);
 
-  logic instr_error;
+  // The SYSTEM instructions with funct3 == 0, distinguished from each other by
+  // funct12 alone -- which is why each one has to be spelled out exactly.
+  // Before trap entry existed, `mret` and `wfi` fell through to
+  // "unrecognised", which was harmless because unrecognised meant "execution
+  // flags suppressed, no trap". It stops being harmless the moment
+  // unrecognised means illegal-instruction.
+  logic instr_error, instr_mret, instr_wfi;
   assign instr_error = opcode == 5'b11100 && uncompressed && funct3 == 0 && rs1 == 0 && rd == 0;
   assign instr_ecall = instr_error && instr[31:20] == 12'h0;
-  // funct12 must be exactly 1 (ebreak's SYSTEM encoding); any other nonzero funct12
-  // (e.g. mret = 0x302, wfi = 0x105) is a different SYSTEM instruction, not ebreak.
   assign instr_ebreak = instr_error && instr[31:20] == 12'h1;
+  // ADR-0005: `mret` restores MIE <- MPIE, sets MPIE, and jumps to mepc.
+  // Committed in the publish block below, alongside trap entry, and serialized
+  // on the same drain predicate CSR instructions use (CLAUDE.md invariant 5).
+  assign instr_mret = instr_error && instr[31:20] == 12'h302;
+  // `wfi` executes as a NOP, which is spec-legal. With `mie`/`mip` read-only
+  // zero there is no interrupt that could ever resume it, so "wait" and
+  // "continue" are the same instruction on this core.
+  assign instr_wfi = instr_error && instr[31:20] == 12'h105;
+
+  // MISC-MEM: `fence` and `fence.i` are NOPs (ADR-0005). One hart, no caches,
+  // and a Harvard ROM no store can reach (ADR-0008), so there is nothing for
+  // either to order or to invalidate. Same story as `wfi` above: merely
+  // unrecognised until trap entry landed, at which point a legal `fence` would
+  // have faulted. Only funct3 is tested -- `fence`'s fm/pred/succ fields and
+  // `fence.i`'s reserved immediate are legal-value fields with nothing to act
+  // on here.
+  logic instr_miscmem, instr_fence, instr_fencei;
+  assign instr_miscmem = opcode == 5'b00011 && uncompressed;
+  assign instr_fence  = instr_miscmem && funct3 == 3'b000;
+  assign instr_fencei = instr_miscmem && funct3 == 3'b001;
+
   logic instr_valid;
 
   assign instr_valid = instr_auipc || instr_jal || instr_jalr || instr_beq || instr_bne || instr_blt
@@ -350,7 +390,89 @@ module decoder (
     instr_and || instr_mul || instr_mulh || instr_mulhu || instr_mulhsu || instr_div || instr_divu
     || instr_rem || instr_remu || instr_sll || instr_slt || instr_sltu || instr_srl || instr_sra ||
     instr_lui || instr_lb || instr_lbu || instr_lh || instr_lhu || instr_lw || instr_sb || instr_sh
-    || instr_sw || instr_ecall || instr_ebreak || (instr_csr_access && csr_implemented);
+    || instr_sw || instr_ecall || instr_ebreak || instr_mret || instr_wfi || instr_fence ||
+    instr_fencei || (instr_csr_access && csr_implemented);
+
+  // ---- trap detection (CLAUDE.md invariant 2, ADR-0005, ADR-0030) ---------
+  //
+  // The effective address, computed once and used twice: here, to decide
+  // whether the access is misaligned, and in the publish block below as
+  // `out.mem_addr`. Misalignment was detected in rtl/accessor.v until this
+  // change -- post-decode, contradicting invariant 2. ADR-0011 scoped the move
+  // to M3 and this is it. That the address is already available here for free
+  // is the whole reason invariant 2 is affordable.
+  logic [31:0] mem_addr_calc;
+  assign mem_addr_calc = $signed(immediate) + $signed(reg_rs1);
+
+  // Word accesses need 4-byte alignment, halfword accesses 2-byte; byte
+  // accesses are always aligned. That is why `lb`/`lbu`/`sb` appear nowhere
+  // here -- and why every one of the nine misalignment checks that used to sit
+  // in formal/EXPECTED_FAIL was a word or halfword access while every
+  // byte-granularity one already passed.
+  logic load_misaligned, store_misaligned;
+  assign load_misaligned  = (instr_lw && mem_addr_calc[1:0] != 2'b00) ||
+                            ((instr_lh || instr_lhu) && mem_addr_calc[0] != 1'b0);
+  assign store_misaligned = (instr_sw && mem_addr_calc[1:0] != 2'b00) ||
+                            (instr_sh && mem_addr_calc[0] != 1'b0);
+
+  // ADR-0005's two illegal-CSR rules. Both are tests on the ENCODING plus the
+  // CSR file's own address decode, never on a value:
+  //
+  //   * an access to a CSR rtl/csrs.v does not implement, which reaches this
+  //     through `instr_valid` above exactly as it did before traps existed;
+  //   * a WRITE to a read-only CSR, which the privileged spec encodes in the
+  //     address itself (addr[11:10] == 2'b11). `csr_write_op` already has
+  //     Zicsr's suppression rules applied, so `csrr misa` -- a CSRRS with
+  //     rs1 == x0, write suppressed -- stays legal while `csrw misa` does not.
+  //     That rule was architecturally unobservable until this change, which is
+  //     recorded next to formal/checks.cfg's `[csrs]` list.
+  logic csr_readonly_write, instr_illegal;
+  assign csr_readonly_write = instr_csr_access && csr_write_op && csr_addr[11:10] == 2'b11;
+  assign instr_illegal = !instr_valid || csr_readonly_write;
+
+  // Cause codes (ADR-0005). Instruction-address-misaligned (0) is unreachable
+  // -- C makes 2-byte targets legal (ADR-0002) -- and is deliberately absent.
+  localparam logic [31:0] CAUSE_ILLEGAL_INSTRUCTION = 32'd2;
+  localparam logic [31:0] CAUSE_BREAKPOINT          = 32'd3;
+  localparam logic [31:0] CAUSE_LOAD_MISALIGNED     = 32'd4;
+  localparam logic [31:0] CAUSE_STORE_MISALIGNED    = 32'd6;
+  localparam logic [31:0] CAUSE_ECALL_M             = 32'd11;
+
+  logic trap_pending;
+  assign trap_pending = instr_illegal || instr_ebreak || instr_ecall ||
+                        load_misaligned || store_misaligned;
+
+  // ADR-0030's priority order: illegal (2) -> breakpoint (3) -> environment
+  // call (11) -> load misaligned (4) -> store misaligned (6). An instruction
+  // that is not legal cannot meaningfully be said to have a misaligned
+  // operand: the address computation is only defined for an instruction the
+  // decoder recognises.
+  //
+  // Deliberately NOT `(* parallel_case *)`, and that is the point of ADR-0030.
+  // The five cases cannot co-occur today -- an illegal instruction has every
+  // execution flag suppressed and so has no memory operand; `ecall` and
+  // `ebreak` differ in funct12 and are SYSTEM rather than LOAD/STORE; a load
+  // and a store are different opcodes -- which makes this priority encoder
+  // vacuous. Claiming one-hot to synthesis would turn that disjointness from
+  // something the `ifdef FORMAL` block below ASSERTS into something the RTL
+  // silently assumes, so a later cause that broke it would be a lie to
+  // synthesis rather than a failed proof.
+  always_comb begin
+    case (1'b1)
+      instr_illegal:    trap_cause = CAUSE_ILLEGAL_INSTRUCTION;
+      instr_ebreak:     trap_cause = CAUSE_BREAKPOINT;
+      instr_ecall:      trap_cause = CAUSE_ECALL_M;
+      load_misaligned:  trap_cause = CAUSE_LOAD_MISALIGNED;
+      store_misaligned: trap_cause = CAUSE_STORE_MISALIGNED;
+      default:          trap_cause = 32'b0;
+    endcase
+  end
+
+  // mepc is the address of the FAULTING instruction, not of the next one --
+  // that is what lets a handler fix up and resume, and it is asserted directly
+  // in test/asm/trap.S rather than inferred from the fact that the test
+  // resumed.
+  assign trap_epc = fetcher_pc;
 
   always_comb begin
     (* parallel_case, full_case *)
@@ -421,12 +543,35 @@ module decoder (
   assign uses_rs2 = (instr_math && !instr_math_immediate) || instr_sb || instr_sh || instr_sw ||
     instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu;
 
-  // Shared by hazard_rs1/hazard_rs2 below: is register `r` the destination
-  // of a live (not-yet-retired) producer at any of the three checked points?
-  function automatic logic live_producer(input logic [4:0] r);
-    live_producer = (out.valid && out.rd == r) || (executor_out.valid && executor_out.rd == r) ||
-      (accessor_pending_valid && accessor_pending_rd == r);
-  endfunction
+  // Is this operand's register the destination of a live (not-yet-retired)
+  // producer at any of the three checked points? Spelled out twice rather than
+  // shared through a `function automatic live_producer(r)` called from the two
+  // continuous assigns below, and THAT IS A CORRECTNESS REQUIREMENT, not a
+  // style preference:
+  //
+  //   iverilog builds a continuous assign's sensitivity list from the function
+  //   CALL's arguments. A function whose body additionally reads module-level
+  //   signals -- `out`, `executor_out`, `accessor_pending_*` -- therefore never
+  //   re-evaluates when any of those change, only when `r` does. That is
+  //   UNDER-sensitivity, which is the one direction CLAUDE.md's documented
+  //   `sorry:` exception says is a real bug rather than harmless noise, and it
+  //   is silent: iverilog issues no diagnostic for it at all.
+  //
+  // Measured, not theorised. With the function form, the iverilog leg froze at
+  // the FIRST RAW hazard of every program -- `hazard_rs1` latched high and
+  // never fell -- so `make waves`' own baked-in program executed two
+  // instructions and then span, and no `.S` program could reach `tohost`. The
+  // cxxrtl and formal legs were unaffected (yosys evaluates the function
+  // correctly), which is exactly why it went unnoticed: the leg CLAUDE.md's
+  // verification table calls the microscope was reporting nothing, and nothing
+  // it reported was wrong.
+  logic live_rs1, live_rs2;
+  assign live_rs1 = (out.valid && out.rd == rs1) ||
+    (executor_out.valid && executor_out.rd == rs1) ||
+    (accessor_pending_valid && accessor_pending_rd == rs1);
+  assign live_rs2 = (out.valid && out.rd == rs2) ||
+    (executor_out.valid && executor_out.rd == rs2) ||
+    (accessor_pending_valid && accessor_pending_rd == rs2);
 
   // CLAUDE.md invariant 5 / ADR-0005: a CSR instruction is held in decode
   // until execute, access and writeback have drained. ADR-0026: this is a
@@ -447,14 +592,20 @@ module decoder (
   // through the ordinary `is_add` pass-through, where the scoreboard above
   // already covers RAW. Delete this stall and no hazard appears -- what
   // appears is a `csrr minstret` inflated by whatever is in flight behind it.
+  //
+  // `mret` joins the CSR instructions on this stall for the reason CLAUDE.md
+  // invariant 5 names them together: it reads mepc and writes mstatus in
+  // decode, the same one-cycle-wide architectural update a CSR instruction
+  // makes, and holding it until the pipe drains keeps that update from being
+  // interleaved with instructions that issued before it.
   logic pipe_drained, csr_serialize;
   assign pipe_drained = !out.valid && !executor_out.valid && !accessor_out_valid &&
     !accessor_pending_valid;
-  assign csr_serialize = instr_csr_access && !pipe_drained;
+  assign csr_serialize = (instr_csr_access || instr_mret) && !pipe_drained;
 
   logic hazard_rs1, hazard_rs2, hazard, stall;
-  assign hazard_rs1 = uses_rs1 && rs1 != 0 && live_producer(rs1);
-  assign hazard_rs2 = uses_rs2 && rs2 != 0 && live_producer(rs2);
+  assign hazard_rs1 = uses_rs1 && rs1 != 0 && live_rs1;
+  assign hazard_rs2 = uses_rs2 && rs2 != 0 && live_rs2;
   assign hazard = hazard_rs1 || hazard_rs2 || csr_serialize;
 
  `ifdef RISCV_FORMAL
@@ -516,15 +667,29 @@ module decoder (
   // is precisely the bug this signal exists to avoid.
   logic issuing;
   assign issuing = !reset && !stall;
-  assign csr_ren = issuing && instr_valid && csr_read_op;
-  assign csr_wen = issuing && instr_valid && csr_write_op;
-  // ADR-0027: increment at issue, for NON-TRAPPING issues only. No trap is
-  // taken yet -- trap entry is the next M3 step (ADR-0011) -- so today the
-  // only issue that does not retire architecturally is an unrecognised
-  // instruction, which `instr_valid` already names. That is not an
-  // approximation of the rule standing in for it: it is exactly the set that
-  // starts trapping when trap entry lands, so this line does not move then.
-  assign instret = issuing && instr_valid;
+
+  // The one cycle an instruction actually takes architectural effect: it
+  // issued AND it did not trap. Everything that commits state outside the
+  // pipeline registers hangs off this.
+  logic committing;
+  assign committing = issuing && !trap_pending;
+  assign csr_ren = committing && csr_read_op;
+  assign csr_wen = committing && csr_write_op;
+  // ADR-0027: increment at issue, for NON-TRAPPING issues only. A trapping
+  // instruction issues, and retires in RVFI with `rvfi_trap = 1`, but it did
+  // not retire architecturally, so it must not be counted. `!trap_pending`
+  // implies `instr_valid` (an unrecognised instruction is now cause 2), so
+  // this is strictly the rule ADR-0027 states, not an approximation of it.
+  assign instret = committing;
+
+  // ADR-0028: the trap-entry pulse. rtl/csrs.v commits mepc/mcause/mstatus off
+  // it and rtl/littlecpu.v exports it as the top-level `trap` port. High for
+  // exactly one cycle per trap because `issuing` is, and no trap can be
+  // committed twice: the publish block's `else` arm below runs on exactly the
+  // same condition, so the redirect and the CSR update are the same edge.
+  assign trap_entry = issuing && trap_pending;
+  // `mret` is not a trap, so it commits on the ordinary non-trapping path.
+  assign mret_entry = committing && instr_mret;
 
   // publish the decoded results
   always_ff @(posedge clk) begin
@@ -559,10 +724,27 @@ module decoder (
       pc <= pc;
       out <= '0;
     end else begin
+      // THIS ARM IS THE ONE CYCLE AN INSTRUCTION ISSUES, and every trap is
+      // committed in it, at the bottom -- deliberately, because that single
+      // placement gives four things for free that would otherwise each need
+      // their own guard, and each of which a later edit can break silently:
+      //
+      //   * no trap on a stalled cycle -- this arm does not run then;
+      //   * no trap from a bubble -- a bubble is the arm above, not this one;
+      //   * no double commit -- an instruction reaches this arm exactly once;
+      //   * `reg_rs1` is hazard-clear, so the misalignment test below is
+      //     computed from the ARCHITECTURAL value of rs1 rather than a stale
+      //     one. That holds because `uses_rs1` is true for every load and
+      //     every store (it excludes only lui/jal/auipc and the zimm CSR
+      //     forms), so the ADR-0004 scoreboard has already stalled this
+      //     instruction on any live producer of rs1 before it can get here.
+      //     Narrow `uses_rs1` to exclude a memory op and misalignment
+      //     detection silently starts reading the wrong register.
+      //
       // branches handled below
       pc <= fetcher_pc + pc_inc;
       out.valid <= 1'b1;
-      out.mem_addr <= $signed(immediate) + $signed(reg_rs1);
+      out.mem_addr <= mem_addr_calc;
       // forwards
       out.rs1 <= instr_lui ? immediate : reg_rs1;
       out.rs2 <= instr_math ? math_arg : reg_rs2;
@@ -582,6 +764,9 @@ module decoder (
       // for free -- no separate ternary needed.
       out.rvfi.insn <= instr;
       out.rvfi.pc_rdata <= fetcher_pc;
+      // ADR-0028. Decode is the only stage that knows this, because decode is
+      // the only stage that can fault (CLAUDE.md invariant 2).
+      out.rvfi.trap <= trap_pending;
       out.rvfi.rs1_addr <= rvfi_rs1_valid ? rs1 : 5'b0;
       out.rvfi.rs2_addr <= rvfi_rs2_valid ? rs2 : 5'b0;
       out.rvfi.rs1_rdata <= rvfi_rs1_valid ? reg_rs1 : 32'b0;
@@ -625,8 +810,6 @@ module decoder (
       out.is_sw <= instr_sw;
       out.is_ecall <= instr_ecall;
       out.is_ebreak <= instr_ebreak;
-      out.csr_addr <= csr_addr;
-      out.is_csr_imm <= is_csr_imm;
       out.is_valid_instr <= instr_valid;
       // calculate branch
       (* parallel_case *)
@@ -701,9 +884,49 @@ module decoder (
           out.rd <= 0;
         end
       endcase
-      // Suppress all execution flags for unrecognized instructions (covers illegal opcodes,
-      // reserved encodings, and unimplemented CSR — prevents silent pipeline corruption)
-      if (!instr_valid) begin
+
+      // ---- mret: a branch, taken exactly like every other branch here -----
+      // The mstatus half (MIE <- MPIE, MPIE <- 1) is committed by rtl/csrs.v
+      // off `mret_entry` on this same edge. Nothing else about `mret` reaches
+      // the pipeline: rd is x0 in its encoding, so `out.rd` is already 0 and
+      // no execution flag is set for it.
+      if (instr_mret) begin
+        pc <= mepc;
+       `ifdef RISCV_FORMAL
+        out.rvfi.pc_wdata <= mepc;
+       `endif
+      end
+
+      // ---- trap entry (ADR-0028 / ADR-0030) -------------------------------
+      // A TRAP IS A BRANCH. `pc <= mtvec` here is the same override the jump
+      // and branch arms above use, on the same edge, through the same
+      // register -- which is why no flush exists and none is needed
+      // (CLAUDE.md invariant 1): the trapping instruction is the newest one in
+      // the machine, and everything behind it is already correct.
+      //
+      // Last in the block on purpose. Non-blocking assignments take the last
+      // write, so this beats the `pc` and `out.*` values the arms above set,
+      // and the suppression below beats every flag they set -- no arm has to
+      // know about traps and no ordering rule has to be remembered.
+      //
+      // The instruction still RETIRES (`out.valid` is 1, set at the top of
+      // this arm): ADR-0028's convention is that a trapping instruction
+      // retires having architecturally done nothing except redirect. Clearing
+      // every execution flag is what makes `rvfi_mem_rmask`/`wmask` zero --
+      // rtl/accessor.v builds them from the real bus, and with no flag set it
+      // issues no request at all, so a trapping store never reaches memory.
+      // That is the property `dmemcheck` catches (its environment shadow comes
+      // from the real `mem_wstrb`/`mem_wdata` while `rvfi_dmem_check`'s comes
+      // from `rvfi_mem_*`, so a suppressed-but-executed store desynchronises
+      // them), and `rvfi_insn_check` explicitly does not.
+      //
+      // Forcing `out.rd` to 0 does the same job for the register file: it
+      // gates rtl/writeback.v's `wen` and makes `rvfi_rd_addr`/`rd_wdata` zero.
+      if (trap_pending) begin
+        pc <= mtvec;
+       `ifdef RISCV_FORMAL
+        out.rvfi.pc_wdata <= mtvec;
+       `endif
         out.is_add <= 0; out.is_sub <= 0; out.is_xor <= 0; out.is_or <= 0; out.is_and <= 0;
         out.is_mul <= 0; out.is_mulh <= 0; out.is_mulhu <= 0; out.is_mulhsu <= 0;
         out.is_div <= 0; out.is_divu <= 0; out.is_rem <= 0; out.is_remu <= 0;
@@ -752,9 +975,16 @@ module decoder (
   // chained across another register adds an extra cycle of history the
   // solver can fill with a pre-reset garbage value that this component
   // proof, standing alone, has no way to rule out.
+  //
+  // `trap_pending` and `instr_mret` join the jumps and branches here because
+  // they are jumps: both override `pc` in the publish block above, so a cycle
+  // whose predecessor took one did not advance sequentially. That is the same
+  // exclusion the six branches get, for the same reason, and forgetting it is
+  // how "a trap is a branch" stops being true in the proof while staying true
+  // in the RTL.
   logic branch_jump;
   always_ff @(posedge clk) if (reset) branch_jump <= 1'b0;
-    else branch_jump <= instr_jal || instr_jalr || instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu;
+    else branch_jump <= instr_jal || instr_jalr || instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu || trap_pending || instr_mret;
   logic [31:0] past_pc;
   logic prev_reset, prev_stall, prev_uncompressed;
   always_ff @(posedge clk) begin
@@ -795,9 +1025,79 @@ module decoder (
     // the assertion below fail on every legal `csrr`. Listed separately, not
     // folded into one term, so a decode change that made two of them true at
     // once would still be caught -- they are distinguished only by funct3.
-    instr_ebreak, instr_csrrw, instr_csrrs, instr_csrrc});
+    instr_ebreak, instr_csrrw, instr_csrrs, instr_csrrc,
+    // The four M3 additions. `mret` and `wfi` are SYSTEM/funct3==0 forms told
+    // apart from ecall/ebreak (and from each other) by funct12 alone; `fence`
+    // and `fence.i` are MISC-MEM and differ only in funct3. All four are now
+    // in `instr_valid`, so omitting them here would fail this assertion on
+    // every legal one of them -- which is exactly what makes the omission
+    // catchable rather than silent.
+    instr_mret, instr_wfi, instr_fence, instr_fencei});
 
   // we should only get one type of instruction
   always_comb if (instr_valid) assert(one_of);
+
+  // ---- ADR-0030: the trap causes, and why the priority encoder is vacuous --
+  //
+  // The disjointness argument written out as an assertion, which is what keeps
+  // the ADR honest as the core grows: an illegal instruction has no memory
+  // operand (`instr_valid` is what admits a load or a store in the first
+  // place, and `csr_readonly_write` is a SYSTEM encoding), `ecall`/`ebreak`
+  // differ in funct12 and are neither LOAD nor STORE, and a load and a store
+  // are different opcodes in both the 32-bit and the compressed forms. Add a
+  // sixth cause that overlaps an existing one and this fails rather than the
+  // behaviour quietly becoming whatever the encoder happened to produce.
+  always_comb assert($onehot0({instr_illegal, instr_ebreak, instr_ecall,
+                               load_misaligned, store_misaligned}));
+
+  // ...and the committed cause is the one ADR-0030's order names. Written per
+  // cause rather than as a restatement of the case statement, so a reordering
+  // of the arms is caught rather than mirrored.
+  always_comb if (instr_illegal)    assert(trap_cause == CAUSE_ILLEGAL_INSTRUCTION);
+  always_comb if (instr_ebreak)     assert(trap_cause == CAUSE_BREAKPOINT);
+  always_comb if (instr_ecall)      assert(trap_cause == CAUSE_ECALL_M);
+  always_comb if (load_misaligned)  assert(trap_cause == CAUSE_LOAD_MISALIGNED);
+  always_comb if (store_misaligned) assert(trap_cause == CAUSE_STORE_MISALIGNED);
+  always_comb if (!trap_pending)    assert(trap_cause == 32'b0);
+
+  // ---- ADR-0028: what a trapping retire is allowed to have done ------------
+  // `mtvec`/`mepc` are free inputs in this standalone task (rtl/csrs.v is not
+  // instantiated), so these are registered copies rather than reads of the
+  // live input -- the same technique the pc-increment history above uses, and
+  // for the same reason.
+  logic        prev_trap_entry, prev_mret_entry;
+  logic [31:0] prev_mtvec, prev_mepc;
+  always_ff @(posedge clk) begin
+    prev_trap_entry <= trap_entry;
+    prev_mret_entry <= mret_entry;
+    prev_mtvec      <= mtvec;
+    prev_mepc       <= mepc;
+  end
+
+  // The redirect actually happened, and it went to mtvec -- which is the one
+  // thing ADR-0028 records that NO check on the riscv-formal ladder can see:
+  // `rvfi_insn_check` drops every value assertion under `spec_trap`, and
+  // pc_fwd/pc_bwd are satisfied by any target so long as it is honestly
+  // reported. This is the check that says it must be `mtvec`.
+  always_comb if (clocked && !prev_reset && prev_trap_entry) assert(pc == prev_mtvec);
+  always_comb if (clocked && !prev_reset && prev_mret_entry) assert(pc == prev_mepc);
+
+  // A trapping instruction writes no register and issues no memory access. The
+  // executor and accessor read these flags off `out`, so clearing them here is
+  // the whole mechanism -- there is no downstream kill signal and CLAUDE.md
+  // invariant 1 forbids adding one.
+  always_comb if (clocked && !prev_reset && prev_trap_entry) begin
+    assert(out.rd == 5'b0);
+    assert(!out.is_lb && !out.is_lbu && !out.is_lh && !out.is_lhu && !out.is_lw);
+    assert(!out.is_sb && !out.is_sh && !out.is_sw);
+  end
+
+  // ADR-0027: a trapping issue does not increment minstret, and does not
+  // commit a CSR write either. Both fall out of `committing`, asserted here so
+  // that a future edit that re-gated one of them on `instr_valid` (the
+  // pre-M3 spelling, which is weaker) fails.
+  always_comb if (trap_pending) assert(!instret && !csr_wen && !csr_ren);
+  // A trap and an mret are different instructions; nothing may commit both.
+  always_comb assert(!(trap_entry && mret_entry));
  `endif
 endmodule
