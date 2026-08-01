@@ -11,9 +11,41 @@ ifeq ($(shell printf '%s' '$(JOBS)' | grep -cE '^[1-9][0-9]{0,3}$$'),0)
 override JOBS := 4
 endif
 
-all: complete check dmemcheck imemcheck components_decoder components_executor
+all: complete check dmemcheck imemcheck components_decoder components_executor components_pcloop
 
-%: %.sby
+# THE RULE FOR EVERY sby TARGET IN THIS FILE, INCLUDING ONES ADDED LATER:
+# it re-runs unconditionally, and it throws its workdir away first.
+#
+# Every one of them names a DIRECTORY that sby creates, and make's up-to-date
+# decision on a directory is worthless: a directory's mtime bumps whenever an
+# entry is created inside it, so a workdir is newer than every prerequisite in
+# the list the moment the previous run wrote its first file into it. That is
+# ADR-0040's finding about `checks`, and the identical shape sat unfixed on its
+# siblings for as long again -- with `imemcheck` and `dmemcheck` reachable
+# through this rule and listing NO rtl/ file at all, so `make imemcheck` after
+# a fetcher change printed "`imemcheck' is up to date" and exited 0. Both CI
+# workflows are fresh checkouts and never saw it; the path a developer uses to
+# convince themselves before pushing is the path that lied.
+#
+# `rm -rf $@` is belt to `sby -f`'s braces. `-f` already force-overwrites, so
+# unlike `checks` -- whose generated makefile hardcodes an `sby` with no `-f`
+# (ADR-0040) -- this recipe does not depend on the delete to re-run. It is here
+# so that "the workdir is gone" is a property of THIS file rather than of a
+# flag someone may later move, and so a run interrupted mid-write cannot leave
+# half a workdir that the next run reads as its own output.
+#
+# FORCE, not `.PHONY`. A .PHONY target is EXCLUDED from implicit rule search,
+# so `.PHONY: imemcheck` deletes the only rule that builds it and `make
+# imemcheck` answers "Nothing to be done for `imemcheck'" and exits 0 --
+# measured on GNU Make 3.81 and 4.x alike. That is the same failure this rule
+# exists to remove, restated as a fix, so it must not be reached for here.
+# Explicit targets (components_* below) are not pattern-matched and CAN use
+# .PHONY; the split is deliberate and is why two mechanisms appear in one file.
+FORCE:
+.PHONY: FORCE
+
+%: %.sby FORCE
+	rm -rf $@
 	sby -f $<
 
 # `-k`: without it, GNU make stops scheduling new jobs at the first failing
@@ -104,10 +136,32 @@ checks: genchecks-audit.py genchecks-local.py checks.cfg EXPECTED_CHECKS | $(RIS
 genchecks-check: $(RISCV_FORMAL_DIR)/checks/genchecks.py genchecks-local.py | $(RISCV_FORMAL_DIR)
 	python3 check-genchecks.py $^
 
-dmemcheck: dmemcheck.sby dmemcheck.sv | $(RISCV_FORMAL_DIR)
-imemcheck: imemcheck.sby imemcheck.sv | $(RISCV_FORMAL_DIR)
-complete: complete.sby complete.sv | $(RISCV_FORMAL_DIR)
-cover: cover.sby cover.sv | $(RISCV_FORMAL_DIR)
+# The whole core, in the order every whole-core .sby reads it. These four
+# targets each ran against an `.sby` and an `.sv` and NOTHING ELSE before this
+# list existed, which is how `make imemcheck` -- the check CLAUDE.md names for
+# ADR-0003's dual-word fetch window, and so the one most likely to be re-run by
+# hand after touching rtl/fetcher.v -- could report a verdict about RTL it had
+# never read.
+#
+# Read these lists as DOCUMENTATION of what each task compiles, not as a gate.
+# The gate is the FORCE rule above: the target re-runs whatever this says. What
+# they still buy is a loud `No rule to make target` if an rtl/ file is renamed
+# out from under a check, instead of a confusing failure inside sby.
+RTL_SOURCES := ../rtl/structs.v ../rtl/fetcher.v ../rtl/regfile.v \
+               ../rtl/csrs.v ../rtl/decoder.v ../rtl/executor.v \
+               ../rtl/accessor.v ../rtl/writeback.v ../rtl/littlecpu.v
+
+dmemcheck: dmemcheck.sby dmemcheck.sv $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
+imemcheck: imemcheck.sby imemcheck.sv $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
+cover:     cover.sby     cover.sv     $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
+
+# `complete` is the depth-50 walk and by far the most expensive thing here, so
+# unconditional re-running is the least welcome on it. It gets it anyway: a
+# target asked for BY NAME must run, and the alternative -- a prerequisite list
+# deciding -- is what this whole change removes, because the thing that list is
+# compared against is a directory whose mtime is meaningless. Nothing pulls
+# `complete` in implicitly except `all`.
+complete:  complete.sby  complete.sv  $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
 
 # ADR-0006 / ADR-0020 / ADR-0047: proves RVFI instrumentation doesn't change
 # core behaviour. Not a .sby task -- it is a structural comparison of two yosys
@@ -136,10 +190,32 @@ nonperturbation: check-nonperturbation.py
 # formal/components.sby tasks were deleted for carrying zero assertions
 # (ADR-0006, ADR-0017) -- a "passing" proof with nothing asserted is not a
 # result.
-components_decoder: components.sby ../rtl/decoder.v
+#
+# These three carry their own recipes rather than reaching the `%: %.sby` rule
+# (they pass a task name), so they are the half of the file that CAN say
+# .PHONY -- implicit rule search is not involved. Same two properties as that
+# rule: always run, delete the workdir first. Before this they named the
+# directory sby creates and listed one rtl/ file each, so a warm tree made
+# `make components_decoder` after a structs.v edit answer "up to date".
+.PHONY: components_decoder components_executor components_pcloop
+components_decoder: components.sby ../rtl/decoder.v ../rtl/structs.v
+	rm -rf $@
 	sby -f $< decoder
-components_executor: components.sby ../rtl/executor.v
+components_executor: components.sby ../rtl/executor.v ../rtl/structs.v
+	rm -rf $@
 	sby -f $< executor
+# The composed fetcher+decoder task. It exists to DISCHARGE the standalone
+# decoder task's `assume(in.pc == pc)` (ADR-0017), which is the one place that
+# proof's content went, and ADR-0017 puts the pc loop in M2's scope. It had no
+# target here and no CI step, and it had been FAILING since `e4f5250` -- its
+# f_may_stall over-approximation predates ADR-0042's fifth stall reason, so the
+# sequential-advance assertion covered a cycle on which the decoder legitimately
+# holds the pc. Nothing noticed for the obvious reason (ADR-0046). It runs on CI
+# now; a proof nobody runs is a prose-only guard.
+components_pcloop: components.sby ../rtl/fetcher.v ../rtl/decoder.v \
+                   ../rtl/structs.v pcloop.sv
+	rm -rf $@
+	sby -f $< pcloop
 
 # The riscv-formal clone rule and its pin guard live in pin.mk, included above,
 # so this and the root Makefile cannot drift apart on it.
