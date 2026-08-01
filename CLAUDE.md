@@ -299,7 +299,7 @@ the failure this section exists to prevent, so they stay as markers rather than 
   oracles**, tabled in ADR-0051 — and the two things worth carrying out of that table are that
   lemma 3 is the only thing that catches a masked high half, and that a broken *completion*
   assertion reports `UNKNOWN rc=4`, not `FAIL`, because the guard is basecase-unreachable at depth
-  20 against a 33-cycle divider (ADR-0049 F3). The task went 6.5s → 50.7s.
+  20 against a 33-cycle divider (ADR-0049 F3). The task went 6.5s → 50.3s.
 - ~~**Three of the five component-proof tasks are vacuous**~~ — **they were deleted; there are
   three tasks now and all three assert something.** `formal/components.sby` carries `decoder`,
   `executor` and `pcloop`; `fetcher`, `accessor` and `writeback` are gone, and `formal/Makefile`

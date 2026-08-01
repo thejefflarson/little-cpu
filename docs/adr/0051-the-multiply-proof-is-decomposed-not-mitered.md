@@ -184,7 +184,7 @@ costs 44 s of solver time.
 
 ## Consequences
 
-- `components_executor` goes from **6.5 s to 50.7 s** wall (`sby` elapsed process time 37 s), by
+- `components_executor` goes from **6.5 s to 50.3 s** wall (`sby` elapsed process time 37 s), by
   k-induction, on the same engine. It stays on CI's `components` job.
 - **ADR-0049 F1 and F5 are closed.** The census row for `executor.v`'s operand cap changes from
   scope "the whole task" to scope "the divide family", and it becomes the **second** guarded assume
