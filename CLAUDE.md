@@ -235,6 +235,24 @@ What does not work right now:
   `components_accessor`, and `components_writeback` contain no assertions at all, only reset
   assumptions, so they "pass" meaninglessly. CI deliberately does not run them; ADR-0006 slates
   them for deletion. A green run of one of those is not a result.
+- **`components_executor` is green and does not check the multiplier's sign logic, its high half,
+  or the signed divider at all** (ADR-0048). The divide invariant's two *unguarded*
+  `always_comb assume(in.rs1 <= 32'h0000000f)` statements are proof-global, so with operands in
+  0..15 every high half and every sign bit is zero. Measured by mutation, each PASSING the task:
+  zeroing `multiply[63:32]`, `mul_sign_x = 1'b0`, `mul_sign_y = 1'b0`, MULHSU-treats-rs2-as-signed,
+  and deleting the signed sign-restore from *both* the `op_is_div` and `op_is_rem` captures. A
+  low-half off-by-one and a sign-from-bit-0 are still caught in 0.5s, so the assertions are
+  narrowed rather than dead and the task reads green either way. `test/exec_tb.v` is what actually
+  covers this (ADR-0010 already calls it the primary guarantee); the component proof adds nothing
+  to it on these points.
+- **`formal/pcloop.sv` is RED, and no `make` target or CI job runs it** (ADR-0048). Measured at
+  `18d17a2`: `sby -f components.sby pcloop` → `DONE (FAIL, rc=2)` in 0.67s at `pcloop.sv:273`. The
+  cause is exact — `f_may_stall` is documented as an over-approximation of `rtl/decoder.v`'s
+  `stall` and lists four of its five terms, because ADR-0042 added `operand_stall` and this was
+  never widened; the counterexample is the first post-reset cycle, where `operand_stall` legitimately
+  holds the pc. `operand_stall` reaches no port, so it cannot be widened from pcloop's own nets.
+  This is the check that discharges `rtl/decoder.v`'s `assume(in.pc == pc)`, so that assumption is
+  currently discharged by a check nobody runs.
 
 **The ladder now asserts its own shape, so a green ladder can no longer shrink quietly**
 (ADR-0033's gap 1). `formal/checks.cfg`'s `[depth]` table is the list of checks that *exist*, not a
