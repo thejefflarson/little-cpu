@@ -141,10 +141,33 @@ module testbench(
    `endif
   );
  `ifdef RISCV_FORMAL
+  // THE ONE WIRE EVERY RETIRE OBSERVER IN THIS BENCH READS. The monitor below,
+  // the spec probe that feeds the observation counters, and the counters
+  // themselves all take `rvfi_valid` through here rather than each reaching for
+  // the DUT's port separately. That is not decoration: a counter that could
+  // stay high while the monitor went blind would be telemetry about itself
+  // rather than about the oracle, and the whole point of the counters is that
+  // "the monitor observed nothing" cannot happen quietly. Wiring them together
+  // makes the two go blind together, structurally, instead of by promise.
+  //
+  // It is also what makes this repo's liveness probe for the counters a single
+  // line. To watch the gate go red on a blind oracle:
+  //
+  //     assign rvfi_valid_observed = 1'b0;   // instead of = rvfi_valid
+  //
+  // then `make test`. Every program still reaches `tohost` and still PASSes on
+  // its own assertions; the gate reports 52 x MONITOR-SILENT and exits 1. The
+  // same edit on the tree before the counters existed reports 52/52 and exits
+  // 0, which is the defect this closes. Same idea as deleting the rs2
+  // write-through bypass to check that reg_ch0 can still fail: reach for it
+  // before believing a green `make test` means the oracle looked.
+  logic rvfi_valid_observed;
+  assign rvfi_valid_observed = rvfi_valid;
+
   monitor monitor (
     .clock(clk),
     .reset(reset),
-    .rvfi_valid(rvfi_valid),
+    .rvfi_valid(rvfi_valid_observed),
     .rvfi_order(rvfi_order),
     .rvfi_insn(rvfi_insn),
     .rvfi_trap(rvfi_trap),
@@ -199,9 +222,12 @@ module testbench(
   // read a dangling constant while the build stayed clean. This instead
   // instantiates the same module the monitor instantiates, from the same wires
   // its own instance is wired from, so `probe_spec_valid` is `ch0_spec_valid`
-  // by construction: one combinational function, one set of inputs. KEEP THE
-  // TWO PORT MAPS IDENTICAL — rewiring one and not the other is the one way
-  // this could start counting retires the monitor never checked.
+  // by construction: one combinational function, one set of inputs. The one
+  // input that decides whether a retire is observed at all is shared through
+  // `rvfi_valid_observed` above, so the two cannot go blind independently.
+  // KEEP THE REMAINING FIVE PORT CONNECTIONS IDENTICAL TO THE MONITOR'S —
+  // rewiring one and not the other is the only way left for this to start
+  // counting retires the monitor never checked.
   //
   // A LOW SPEC-CHECKED COUNT IS EXPECTED, AND IS NOT A DEFECT. riscv-formal
   // ships no spec model at all for `ecall`, `ebreak`, `mret` or the `csrr*`
@@ -225,7 +251,7 @@ module testbench(
   logic [31:0] probe_spec_mem_wdata;
 
   monitor_isa_spec spec_probe (
-    .rvfi_valid(rvfi_valid),
+    .rvfi_valid(rvfi_valid_observed),
     .rvfi_insn(rvfi_insn),
     .rvfi_pc_rdata(rvfi_pc_rdata),
     .rvfi_rs1_rdata(rvfi_rs1_rdata),
@@ -266,7 +292,7 @@ module testbench(
     rvfi_spec_retires = 32'b0;
   end
   always @(posedge clk) begin
-    if (!reset && rvfi_valid) begin
+    if (!reset && rvfi_valid_observed) begin
       rvfi_retires <= rvfi_retires + 32'd1;
       if (probe_spec_valid) begin
         rvfi_spec_retires <= rvfi_spec_retires + 32'd1;
