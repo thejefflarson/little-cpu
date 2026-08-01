@@ -52,6 +52,17 @@ core: with the sanitizer rule in place `div.S`/`rem.S` pass. `test/monitor.sim.v
 sites to make the arithmetic self-determined. **`test/EXPECTED_FAIL` is not the place to park a
 monitor defect** — read ADR-0019 before adding a line back for one.
 
+**That defect is a repo-wide hazard, not a monitor bug, and it has now caught work here twice** —
+the generated monitor's DIV and REM spec models above, and then `test/exec_tb.v`'s new SRA
+reference, whose natural one-line form
+(`cond ? ... : $signed(a) >>> sh`) reported six mismatches against RTL that was correct. **Any
+signed arithmetic written into a *reference model* in this repo must be a self-determined statement
+of its own, never an arm of a conditional expression.** `exec_tb`'s shift references are written
+that way with the reasoning in place, and a `ref_selftest` block pins all three against
+hand-computed literals *before* a single RTL vector runs, so a reference that degraded would say
+`ORACLE BROKEN` and stop rather than blaming the core. An oracle that is wrong is worse than no
+oracle: it fails correct hardware and teaches the reader to distrust the bench.
+
 **ADR-0003's dual-word combinational fetch window lands, closing the gap ADR-0021 found.**
 `rtl/fetcher.v` now reads two adjacent words every cycle (`imem_addr`/`imem_addr2 = imem_addr + 4`)
 and windows the 32 bits starting at `pc` out of them — stateless, so a 32-bit instruction straddling
@@ -307,7 +318,11 @@ signal and is the single entry on the `elaborate` gate's allowlist; everything e
 `Warning:` is promoted to an error there (`.github/workflows/ci.yml`, which cross-references this
 note). It is not zero, and this line said zero until ADR-0037. The
 cxxrtl binary builds and runs, the whole `.S` suite passes under it with `test/EXPECTED_FAIL`
-empty, `make test-units` passes (six benches: `exec_tb`, `mem_tb`, `decoder_tb`,
+empty, `make test-units` passes (six benches: `exec_tb` — 10,000 randomized differential vectors
+per op across `mul`/`mulh`/`mulhu`/`mulhsu`/`div`/`divu`/`rem`/`remu` **and**
+`sll`/`srl`/`sra`, plus 384 directed shift vectors per shift op sweeping every amount 0-31 with a
+clean and a dirty rs2 so the `rs2[4:0]` mask is checked rather than coincided with — `mem_tb`,
+`decoder_tb`,
 `regfile_tb` — which covers the write-through bypass and x0 semantics — `csr_tb`, which covers
 `rtl/csrs.v`'s read mux, its `implemented` address set, its WARL masks and its trap-entry/`mret`
 port, and `monitor_tb`, which checks the oracle itself rather than the core), and the decoder and
@@ -589,6 +604,22 @@ not against an oracle. An empty baseline is loudest exactly where the ladder is 
   trap entry cost). Read ADR-0038 before quoting any area number: yosys cell counts are blind to
   unpaired flip-flops and have produced two wrong estimates already. **The brief's two `reg_ch0`
   claims are false and are struck in place** — see ADR-0040.
+- **`make fit` has a churn floor of roughly ±50 cells, and a ratchet has to sit above it.**
+  Measured by sweeping `rtl/executor.v`'s `mul_div_counter` across four widths that are all
+  functionally identical — the counter's range is 0..32 and yosys already constant-folds every bit
+  above 5, so the **flip-flop count is byte-identical in all four** (1757). The logic cells are not:
+  `[6:0]` (what is checked in) → **6971**, `[5:0]` → 7008, `[7:0]` → 7027, `[8:0]` → 7024 —
+  non-monotonic, spanning 56 cells, entirely LUT4 churn from ABC re-mapping and nextpnr packing
+  (LUT4-only 5159 → 5198, LUT4+DFF 587 → 587, DFF-only 1170 → 1170, CARRY 41 → 39 for the first
+  two). Each figure is reproducible run to run; it is the *edit* the number is unstable under, not
+  the tool. Two consequences: **a `make fit` delta smaller than ~50 cells is not evidence of
+  anything**, and ADR-0038 decision 1a's utilisation ratchet needs a margin wider than this floor
+  or it will go red on changes that synthesize to the same hardware.
+  This is also why `mul_div_counter` is still `[6:0]` for a value that never exceeds 32. Narrowing
+  it is a legibility change that removes no register and **costs 37 cells measured**; ADR-0038
+  rejected the shifter merge at 19 cells *saved* on legibility grounds, and accepting a hygiene
+  change at 37 cells *spent* would cut against that ruling. Read this before proposing the
+  narrowing again — it is measured and declined, not overlooked.
 - Decisions: [`docs/adr/`](docs/adr/) — forty-one accepted ADRs, plus a deferred list
 - Reference text from the old core: `git show 1709433^:rtl/riscv.v` (RVFI retire block),
   `git show e67875c^:rtl/alu.v` (arithmetic)
