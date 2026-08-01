@@ -237,6 +237,46 @@ ADR-0042 decision 2 exactly, and proving the disabling edit really did weaken th
 
 So the assumption's cost is confined to where ADR-0042 said it was: liveness, and only liveness.
 
+## `components_pcloop` was failing, and nothing ran it
+
+ADR-0017 put the fetcher↔decoder pc loop in **M2's scope** and `formal/pcloop.sv` discharges the
+standalone decoder task's `assume(in.pc == pc)` — the one place that proof's content went. There was
+no `formal/Makefile` target for it and no CI step. Running it here, as part of deciding whether it
+belonged on CI, found it **red on `main`**:
+
+```
+failed assertion pcloop._witness_.check_assert_pcloop_sv_273_83 at pcloop.sv:273.7-273.66 step 3
+DONE (FAIL, rc=2)
+```
+
+Line 273 is the sequential-advance assertion, and the cause is this ADR's subject in a second place:
+`f_may_stall` over-approximates the decoder's stall reasons and **predates ADR-0042's fifth one**, so
+it called a cycle quiet on which the decoder was legitimately holding the pc for the operand fetch.
+Attributed by mutation rather than by reading: forcing `assign operand_stall = 1'b0` in
+`rtl/decoder.v` makes the task pass by k-induction.
+
+It has been red since `e4f5250` — the same commit, uncaught for the same reason CI now exists to
+prevent. **An M2-scope proof nothing runs is a prose-only guard**, and this is what that costs.
+
+The fix transcribes `rtl/decoder.v`'s `prev_rs1`/`prev_rs2`/`read_taken` register into the harness and
+over-approximates the comparison the way every other term there does. It does **not** hollow out the
+assertion, and that is checked rather than asserted: the mutation `formal/pcloop.sv`'s own header
+names — breaking `rtl/fetcher.v`'s `out.pc = pc` — still fails the task, now on the **echo**
+assertion at line 299, which is the property this task exists to add.
+
+| | verdict |
+|---|---|
+| as shipped, after the fix | `successful proof by k-induction`, `DONE (PASS, rc=0)` |
+| `rtl/fetcher.v`'s `out.pc = pc` → `0` | `failed assertion ... pcloop_sv_299_81 ... step 3`, `DONE (FAIL, rc=2)` |
+
+**One engine finding came with it, and it is ADR-0024's finding on a different query.**
+`components.sby`'s `[engines] all: smtbmc` is yosys-smtbmc's default solver, yices. That is fine for
+the two standalone tasks and *not* fine for this one: yices sat in the basecase at step 6 for over
+**fourteen minutes** without returning, where `smtbmc boolector` cleared basecase and induction in
+about **five seconds**. Same task, same depth, same RTL. `pcloop` gets a per-task engine line saying
+so. The `btor` engine the generated ladder uses is not available here — btormc does `bmc` and `cover`
+only, and this task is `mode prove`.
+
 ## The empirical sweep
 
 ### Baseline, at the configured depths
