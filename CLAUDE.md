@@ -284,16 +284,22 @@ the failure this section exists to prevent, so they stay as markers rather than 
   is `bash -e {0}` — errexit but **not** pipefail — so the step's exit status was `tee`'s and was
   always 0. **ADR-0022's central guarantee had never held.** `1961234` fixed both copies of the step
   (nightly and the new PR-gate `formal` job) and demonstrated both failure directions on real runs.
-- **`components_executor` is green and does not check the multiplier's sign logic, its high half,
-  or the signed divider at all** (ADR-0049). The divide invariant's two *unguarded*
-  `always_comb assume(in.rs1 <= 32'h0000000f)` statements are proof-global, so with operands in
-  0..15 every high half and every sign bit is zero. Measured by mutation, each PASSING the task:
-  zeroing `multiply[63:32]`, `mul_sign_x = 1'b0`, `mul_sign_y = 1'b0`, MULHSU-treats-rs2-as-signed,
-  and deleting the signed sign-restore from *both* the `op_is_div` and `op_is_rem` captures. A
-  low-half off-by-one and a sign-from-bit-0 are still caught in 0.5s, so the assertions are
-  narrowed rather than dead and the task reads green either way. `test/exec_tb.v` is what actually
-  covers this (ADR-0010 already calls it the primary guarantee); the component proof adds nothing
-  to it on these points.
+- ~~**`components_executor` is green and does not check the multiplier's sign logic, its high half,
+  or the signed divider at all**~~ — **fixed** (ADR-0051 closing ADR-0049 F1/F5). The divide
+  invariant's two *unguarded* `always_comb assume(in.rs1 <= 32'h0000000f)` statements were
+  proof-global, so with operands in 0..15 every high half and every sign bit was zero and five
+  named defects PASSED the task. The cap is guarded to the divide family now and bounds `div_x`/
+  `div_y` — the ADR-0012 magnitudes — so DIV/REM operands range over -15..15 with the **sign free**.
+  The full-width multiply miter is gone and is not coming back: **a standalone miter of the
+  multiplier against its reference, with no divider, no pipeline state, no cap and `mode bmc depth
+  1`, returns no verdict in two minutes** — the obstacle is two structurally distinct `bvmul` terms,
+  and neither bit width nor engine moves it. What replaces it is a decomposition (the 33-bit
+  operands, the retired slice of one shared product term, three constant-multiplication lemmas over
+  that term) plus signed DIV/REM completion assertions. **Eleven mutations are caught by both
+  oracles**, tabled in ADR-0051 — and the two things worth carrying out of that table are that
+  lemma 3 is the only thing that catches a masked high half, and that a broken *completion*
+  assertion reports `UNKNOWN rc=4`, not `FAIL`, because the guard is basecase-unreachable at depth
+  20 against a 33-cycle divider (ADR-0049 F3). The task went 6.5s → 50.7s.
 - ~~**Three of the five component-proof tasks are vacuous**~~ — **they were deleted; there are
   three tasks now and all three assert something.** `formal/components.sby` carries `decoder`,
   `executor` and `pcloop`; `fetcher`, `accessor` and `writeback` are gone, and `formal/Makefile`
@@ -763,8 +769,15 @@ and 3, which this list has not yet been rewritten for. Read each term's own text
    three fixed slots must re-measure F and G before it lands.** Two of the last three such changes
    did not.
 2. **The mul/div checks run without `RISCV_FORMAL_ALTOPS`**, or ADR-0010's gap is closed by a named
-   oracle that does. Today `insn_mul`/`insn_div`/`insn_rem` passing says nothing whatever about the
-   real multiplier or divider.
+   oracle that does. `insn_mul`/`insn_div`/`insn_rem` passing still says nothing whatever about the
+   real multiplier or divider. **ADR-0045 closed this on the "or" clause by naming
+   `components_executor` + `test/exec_tb.v`, and ADR-0049 then measured that the proof half of that
+   pair did not cover what the closure claimed.** ADR-0051 makes the claim true and ships the
+   evidence: eleven mutations, both oracles, both tables. **The rule that came out of it is the part
+   worth keeping — a term does not close on an assertion that an oracle exists, only on a
+   demonstration of what it catches.** ADR-0045 warned that a third move on this term should prompt
+   asking whether the criterion describes anything real; it does, and the two prior closures were
+   unmeasured.
 3. **`reg_ch0` returns a verdict** rather than exhausting its budget (ADR-0023). It is the one
    check tying RVFI's self-report back to `rtl/regfile.v`; ADR-0032 measured exactly that hole by
    injecting an architectural write the entire ladder missed.
@@ -849,8 +862,8 @@ not against an oracle. An empty baseline is loudest exactly where the ladder is 
   rejected the shifter merge at 19 cells *saved* on legibility grounds, and accepting a hygiene
   change at 37 cells *spent* would cut against that ruling. Read this before proposing the
   narrowing again — it is measured and declined, not overlooked.
-- Decisions: [`docs/adr/`](docs/adr/) — **forty-seven ADRs, forty-six of them accepted**, plus a
-  deferred list. Re-derived by counting: `ls docs/adr/*.md | wc -l` is 48, one of which is
+- Decisions: [`docs/adr/`](docs/adr/) — **forty-eight ADRs, forty-seven of them accepted**, plus a
+  deferred list. Re-derived by counting: `ls docs/adr/*.md | wc -l` is 49, one of which is
   `README.md`, and the status column in that README carries exactly one non-accepted entry
   (ADR-0016, superseded by ADR-0018). This line said "forty-five accepted" and was two behind.
 - Reference text from the old core: `git show 1709433^:rtl/riscv.v` (RVFI retire block),
