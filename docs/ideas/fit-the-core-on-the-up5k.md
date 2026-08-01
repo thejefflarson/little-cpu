@@ -4,6 +4,16 @@
 were subsequently checked by building and measuring each variant — see "Measured" immediately below,
 which supersedes them where they disagree.** ADR-0038 carries the same table.
 
+> **Two of this brief's formal claims were measured again and are FALSE.** Both concerned
+> `reg_ch0`, both are corrected in place below, and both had the same cause: the stale-run-directory
+> defect in `formal/Makefile` that ADR-0040 found and fixed. Before that fix, re-running a check in
+> an existing `checks/<name>/` aborted inside sby and left the *previous* run's `status` file for
+> `check-baseline.sh` to re-grade — so a mutated or re-synthesised design could be reported PASS
+> having never been evaluated. Any other formal result in this brief taken from a repeated run in
+> one tree is suspect for the same reason and should be re-measured before it is relied on.
+> **[ADR-0040](../adr/0040-the-ladder-refuses-a-negedge-regfile-and-make-check-was-re-grading.md)
+> supersedes this brief on everything to do with the ladder and a negedge regfile.**
+
 ## Measured — this supersedes the estimates in the body
 
 All `nextpnr-ice40 --up5k --package sg48`, `littlecpu`, memories external, post-trap-entry:
@@ -16,9 +26,17 @@ All `nextpnr-ice40 --up5k --package sg48`, `littlecpu`, memories external, post-
 | + both | 3998 | 75% | 4/30 |
 
 The negedge variant was built and run, not projected: **52/52 `.S` tests pass under cxxrtl with the
-per-retire monitor live**, `reg_ch0` passes, and yosys infers `4 × SB_RAM40_4K` from a plain
+per-retire monitor live**, ~~`reg_ch0` passes~~, and yosys infers `4 × SB_RAM40_4K` from a plain
 two-array negedge-read model — no `SB_RAM40_4KNR`, no attribute. **EBR inference is a non-risk;
 delete it from the spike's scope.**
+
+**`reg_ch0` cannot pass on a negedge regfile, and did not** (ADR-0040 finding 1). sby runs its own
+`prep` model step after the `.sby`'s `[script]`, and `formalff -clk2ff` there fails closed on mixed
+clock polarity in the full `rvfi_testbench`: *"CLK clock ... also used with opposite polarity, run
+clk2fflogic instead"*, `DONE (ERROR, rc=16)`, in about a second. `check-baseline.sh` counts that as
+red. The PASS recorded here was the previous run's status file being re-graded, not a verdict about
+the negedge design. The area and `.S`-suite numbers in this table were measured by other means and
+stand.
 
 Four corrections to the body:
 
@@ -31,6 +49,17 @@ Four corrections to the body:
    ADR-0038 decision 1a resolves this.
 
 ## The real formal risk — soundness, not runtime
+
+> **Superseded by [ADR-0040](../adr/0040-the-ladder-refuses-a-negedge-regfile-and-make-check-was-re-grading.md).**
+> The polarity loss described below is real *in isolation*, and the warning it draws for bespoke
+> yosys scripts — `formal/equiv.sh` is one — is correct and worth keeping. But the conclusion is
+> not: **the generated ladder never takes that path**, because sby inserts a `prep` model step that
+> a hand-written script does not, and that step fails closed. The ladder refuses to run rather than
+> going green. Two further numbers here are also wrong: `multiclock on` cannot be set from
+> `checks.cfg` at all (genchecks' `[options]` parser ends in `assert 0`, so it is an
+> `AssertionError`), and the measured cost of a correctly-configured `clk2fflogic` run is **13–14×**
+> per check, not the ~3.6× below. Read the section for the isolated-`write_btor` finding; take
+> nothing from it about the ladder.
 
 The body says a negedge read forces `clk2fflogic` and risks a slow or inconclusive `reg_ch0`.
 Neither happens, and what does happen is worse.
@@ -58,15 +87,32 @@ because riscv-formal's depths are in **clock cycles** and `clk2fflogic` makes a 
 steps. At doubled depth it takes 84 s, **~3.6× baseline**. So the real cost is a re-derivation of
 every depth in `checks.cfg` (ADR-0025 territory) plus ~4× ladder runtime.
 
-## `reg_ch0` does not cover invariant 6 today
+## ~~`reg_ch0` does not cover invariant 6 today~~ — FALSE. It covers it, in both directions.
 
-Deleting the rs2 write-through bypass — a direct violation of the invariant this work re-words —
-**passes `reg_ch0`**. The `.S` suite catches it instantly (52 × `MONITOR-ERROR`).
+**This section's claim was measured again and does not reproduce** (ADR-0040). Against
+`rtl/regfile.v` in stock ladder configuration, deleting the rs2 write-through bypass produces a
+counterexample on **bad state property 1** — which is `rvfi_reg_check.sv`'s rs2 assertion
+specifically, not a generic failure — at k=20, in about 14 seconds. Deleting the rs1 bypass, both
+bypasses, and `regs[waddr] <= wdata + 1` all fail too, on property 0. The only mutation that passes
+is removing the `waddr != 0` write-suppression guard, and that is benign by construction: the read
+mux returns 0 for `rs1`/`rs2 == 0` unconditionally, so the written value is unreachable and there is
+no architectural difference for any check to find.
 
-So the formal ladder is not the oracle for the write-through bypass; the simulation legs are. That
-independently strengthens the decision to gate on co-simulation rather than on M2, and it is an
-unrecorded assurance gap of exactly the kind ADR-0033 exists to name. It belongs in the regfile ADR
-whichever path the spike picks.
+**Why this brief said otherwise**, confirmed by reproduction at integration rather than inferred: the
+stale-run-directory defect described at the top of this file. Running `reg_ch0` clean gives PASS in
+22s; deleting the rs2 bypass and re-running *without* removing `checks/reg_ch0/` aborts inside sby in
+0s with `ERROR: Directory 'reg_ch0' already exists` and leaves a byte-and-mtime-identical
+`PASS 0 21` behind, which `check-baseline.sh` then re-grades as a pass. Removing the directory first
+and re-running the identical mutation gives `bad state property 1 reachable at bound k = 20
+SATISFIABLE`. The mutation was never evaluated; the previous run's verdict was reported in its place.
+
+**So the formal ladder IS an oracle for the write-through bypass.** Deleting the rs2 bypass is now
+this repo's liveness probe for `reg_ch0` — one line, a direct invariant-6 violation, ~14 seconds —
+and is the thing to reach for before believing any `reg_ch0` result taken under a changed
+configuration. The decision to gate the regfile change on co-simulation rather than on M2 still
+stands, but it no longer rests on this argument: it rests on ADR-0032's mutation experiment, where
+an injected architectural write outside the retiring instruction's `rd` was missed by the whole
+ladder and caught by the co-sim.
 
 ## Three things the body missed
 
@@ -214,9 +260,17 @@ suite-wide Sail co-simulation, which ADR-0032 already scoped as future work.
 
 The regfile change is gated on:
 
-1. Sail co-sim wired across the full `.S` suite and green at the pre-change SHA
-2. `reg_ch0` PASS immediately before and after
-3. Full ladder + `formal/EXPECTED_CHECKS` set equality unchanged
+1. Sail co-sim wired across the full `.S` suite and green at the pre-change SHA — **available now**
+   as `make cosim-suite`, graded against `test/COSIM_EXPECTED_FAIL` (ADR-0039)
+2. ~~`reg_ch0` PASS immediately before and after~~ — **not achievable as written, and ADR-0040
+   decision 2 replaces it.** A negedge regfile makes sby's `prep` step fail closed, so there is no
+   "after" reading to take. The gate becomes instead: the ladder wrapper instantiates the posedge
+   regfile explicitly and by name at a seam visible from `formal/wrapper.v`, `reg_ch0` PASSes against
+   *that*, and a standalone equivalence proof — not written as a bespoke yosys script ending in
+   `write_btor`, per ADR-0040 finding 1 — discharges the difference while stating its read-timing
+   assumption explicitly (ADR-0017)
+3. Full ladder + `formal/EXPECTED_CHECKS` set equality unchanged, from a **fresh** run — `make -C
+   formal check` re-runs from scratch as of ADR-0040 and no longer needs to be argued about
 4. `make test`, `test-units`, lint green in both sim legs
 
 That converts "wait for verification" from a vibe into a checklist item.
@@ -253,7 +307,11 @@ invariant 1 or 6, and must bring an ADR.
 
 ## Risks
 
-- **Formal runtime is the load-bearing unknown, not correctness.** A negedge read register forces
+- ~~**Formal runtime is the load-bearing unknown, not correctness.**~~ **Settled, and the other way
+  round** (ADR-0040): correctness of the *model* was the unknown, and runtime is not the issue
+  because the ladder declines to run at all rather than running slowly. The fallback this bullet
+  names — a standalone equivalence proof with the ladder's wrapper on a posedge model — is the
+  option that was chosen. A negedge read register forces
   `clk2fflogic`, roughly doubling modeled state per cycle. `reg_ch0` — the exact check tying RVFI to
   the real regfile — was inconclusive for months under yices and passes in ~8–12 s under btormc
   (ADR-0024). It is the check most likely to regress to inconclusive. **Settled by a half-day spike

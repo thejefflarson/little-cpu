@@ -45,6 +45,7 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0038](0038-area-is-measured-in-logic-cells-and-two-levers-are-rejected.md) | Area is measured in logic cells, Fmax is declared at 12 MHz, and two area levers are rejected | Accepted |
 | [0039](0039-co-simulation-runs-the-whole-suite-against-a-baseline.md) | Co-simulation runs the whole suite against a baseline, and `tohost` becomes a doubleword | Accepted |
 | [0040](0040-the-ladder-refuses-a-negedge-regfile-and-make-check-was-re-grading.md) | The ladder refuses a negedge regfile rather than mis-modelling one, and `make check` had been re-grading the previous run | Accepted |
+| [0041](0041-integration-decisions-from-the-fit-cosim-and-negedge-wave.md) | Integration decisions from the fit / co-simulation / negedge wave | Accepted |
 
 0001–0007 came from the design brief
 ([`docs/ideas/finish-the-rewrite.md`](../ideas/finish-the-rewrite.md)). 0008–0011 came out of
@@ -89,7 +90,10 @@ amendment to 0008, and the one change here that touches what both existing sim l
 riscv-formal ladder can model the negedge regfile 0038 recommends, finds that it refuses to rather
 than mis-modelling it, rejects `clk2fflogic` as the remedy on measured vacuity, and — applying 0033's
 lens once more — fixes a `make -C formal check` that could not re-run the ladder and had been
-re-grading the previous run's verdict.
+re-grading the previous run's verdict. 0041 came out of integrating those three together: it
+measures what 0039's `tohost` change actually did to the architectural register trace (382 values,
+zero events), and records the co-simulation nightly 0039 deliberately omitted as owed work with its
+preconditions, so it stops depending on anyone's memory.
 
 ## Deferred decisions
 

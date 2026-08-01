@@ -85,7 +85,13 @@ _start:                                                                      \
 //
 // Neither store writes a register, so the sequence of architectural
 // register-file states -- which is what ADR-0032's co-simulation compares --
-// is unchanged by this pair.
+// is unchanged by this pair. Read that narrowly: measured across the whole
+// suite, the register-change EVENT COUNT is identical (7076 before, 7076
+// after, no program differing), which is the claim. What does move is 382
+// register VALUES that are addresses, because .text grows by these two stores
+// and .data by tohost's padding -- .data addresses by +4, .text addresses by
+// +8, and nothing by anything else (ADR-0041). Both sides of the
+// co-simulation read the same ELF, so none of it is visible there.
 #define RVTEST_PASS                                                          \
         li      TESTNUM, 1;                                                 \
         la      t0, tohost;                                                 \

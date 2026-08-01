@@ -240,6 +240,34 @@ land in `regs[0]`, but the read mux returns 0 for `rs1`/`rs2 == 0` unconditional
 value is unreachable by construction and there is no architectural difference for any check to find.
 It is recorded here so the next reader does not spend the same hour on it.
 
+### The contradiction is explained: it was the stale run directory
+
+The spike could say the earlier measurement did not reproduce, but not *why*. It does now — tested
+at integration, on the pre-fix `formal/Makefile`, against `rtl/regfile.v` at `f98f92f`:
+
+| step | action | wall | `checks/reg_ch0/status` |
+|---|---|---|---|
+| 1 | `rm -rf checks`, regenerate, run `reg_ch0` on the **unmutated** regfile | 22s | `PASS 0 21` |
+| 2 | delete the rs2 write-through bypass | — | — |
+| 3 | re-run **without** removing the workdir (what `make -BC checks` did) | **0s** | `PASS 0 21`, *byte- and mtime-identical to step 1* |
+| 4 | `rm -rf checks`, regenerate, re-run the **same** mutation | 9s | `ERROR 16 0`, `bad state property 1 reachable at bound k = 20 SATISFIABLE` |
+
+Step 3 printed `ERROR: Directory 'reg_ch0' already exists` and nothing else. The mutated regfile was
+never evaluated, and `check-baseline.sh` graded the unmutated run's verdict in its place. That is
+exactly the reading the earlier investigation reported, obtained the same way, and it is the second
+independent demonstration of this defect's severity: finding 4 shows the ladder reporting a verdict
+it did not compute, and this shows that verdict actively laundering a known-broken regfile as green.
+
+Note the asymmetry in cost. The bad path is the *fast* one — 0s against 9s — so a re-run that looks
+suspiciously quick is the symptom, and "the ladder got faster" is the shape of the lie. Wall time
+alone cannot distinguish it from a genuinely easy proof, which is why the probe below is stated in
+terms of a specific bad state property rather than a duration.
+
+The corollary is that **any formal result in this repo taken from a repeated run in one tree, before
+this ADR, is suspect.** `docs/ideas/fit-the-core-on-the-up5k.md` carried two such claims — that
+`reg_ch0` does not cover invariant 6, and that `reg_ch0` passes on a negedge regfile (which finding 1
+shows is impossible) — and both are corrected there.
+
 **Read "counterexample" above as sby status `ERROR`, not `FAIL`.** `btorsim` is absent from this
 environment, so once btormc reports `bad state property N reachable at bound k = M SATISFIABLE` the
 `engine_0.trace` step dies with `COMMAND NOT FOUND` and sby exits `DONE (ERROR, rc=16)` — the check
