@@ -183,11 +183,36 @@ RVTEST_CODE_BEGIN
   TEST_CASE( 19, a4, 4, la a3, trap_count; lw a4, 0(a3); )
 
   #-------------------------------------------------------------
+  # rd == rs1. Every CSR instruction is an atomic read-modify-write, so the
+  # value handed to rd is the one from BEFORE the write even when the two name
+  # the same register -- `csrrw a0, mscratch, a0` is a swap. On this core the
+  # read result rides the `is_add` pass-through to writeback while the write
+  # commits in decode off `reg_rs1` (ADR-0005), so the two really do come from
+  # different places and the ordering is a property rather than a tautology.
+  #-------------------------------------------------------------
+
+  TEST_CASE( 20, a0, 0x0abc, \
+    li a0, 0x0abc; \
+    csrw mscratch, a0; \
+    li a0, 0x0def; \
+    csrrw a0, mscratch, a0; )
+
+  TEST_CASE( 21, a1, 0x0def, csrr a1, mscratch; )
+
+  # The same for CSRRS, where the new value is a function of the old one.
+  TEST_CASE( 22, a0, 0x0def, \
+    li a0, 0x0f00; \
+    csrrs a0, mscratch, a0; )
+
+  TEST_CASE( 23, a1, 0x0fef, csrr a1, mscratch; )
+
+  #-------------------------------------------------------------
   # Four traps taken, four handler entries, and the last cause recorded is
   # still 2 -- so nothing above trapped for a reason this file did not name.
   #-------------------------------------------------------------
 
-  TEST_CASE( 20, a4, 2, la a3, trap_cause; lw a4, 0(a3); )
+  TEST_CASE( 24, a4, 2, la a3, trap_cause; lw a4, 0(a3); )
+  TEST_CASE( 25, a4, 4, la a3, trap_count; lw a4, 0(a3); )
 
   TEST_PASSFAIL
 
