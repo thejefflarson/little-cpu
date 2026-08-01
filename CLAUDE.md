@@ -166,6 +166,22 @@ independently. **A low spec-checked count is the pin's coverage boundary, not a 
 model exists for `ecall`/`ebreak`/`mret`/`csrr*`, so `csr.S` is 108/82, `minstret.S` 42/31 and
 `trap.S` 303/259; that is written at `test/OBSERVED_FLOOR` so nobody has to rediscover it.
 
+**Both sim gates now assert what the suite CONTAINS, before either runs a program.** `make test`
+verified that every program it *found* passed; it had no idea how many it should find, and with
+`test/EXPECTED_FAIL` and `test/COSIM_EXPECTED_FAIL` both empty there was no red entry whose
+disappearance would say the suite had shrunk — a bad rebase or a glob that stopped matching would
+print `12/12 passed`, match the baseline exactly and exit 0. **No new file was added**:
+`test/OBSERVED_FLOOR` already names every program, so it *is* the manifest, and
+`test/check_suite_shape.sh` enforces its name set in both directions from both runners. Measured on
+a throwaway branch: deleting `add.S` and `lw.S` made the **pre-change** `run_cosim.sh` report
+`50/50 agreed` and **exit 0**, and the pre-change `run_tests.sh` catch it only after printing
+`50/50 passed`; both now stop naming the two programs with nothing run. Adding an unlisted `.S` is
+red in both, and the pre-change co-sim leg reported `53/53 agreed`, exit 0. `make test-units` gets
+the same treatment: the six bench invocations were spelled out with nothing tying them to
+`test/*_tb.v`, so a seventh landed unrun and the gate reported six green — `UNIT_BENCHES` is now
+compared against the tree in both directions **and drives the recipe**, so a declared bench with no
+`UNIT_BENCH_SRC_*` is red too rather than building with no design under test.
+
 **M3 opens: `rtl/csrs.v` lands the CSR file and the Zicsr access path.** ADR-0005's set, exactly —
 RW `mstatus` (MIE/MPIE, MPP WARL→`2'b11`), `mtvec` (direct mode, 4-byte-aligned base, resets to 0
 per ADR-0029), `mepc` (bit 0 only, because C makes 2-byte targets legal), `mcause`, `mscratch`,
@@ -570,7 +586,10 @@ preference. See ADR-0002 and ADR-0003.
 make setup          # install the RISC-V toolchain (brew on macOS)
 make test           # assemble test/asm/*.S, run under cxxrtl, pass/fail table with
                     # per-program retire / spec-checked-retire counts, graded against
-                    # test/EXPECTED_FAIL (set equality) and test/OBSERVED_FLOOR (>=)
+                    # test/EXPECTED_FAIL (set equality) and test/OBSERVED_FLOOR (>=).
+                    # OBSERVED_FLOOR's NAME set is also the suite manifest, checked
+                    # both ways before a single program is assembled -- so a suite
+                    # that SHRANK is red, not a smaller table that still "passes"
 make waves          # iverilog + VCD (testbench.vvp's baked-in program) -> waves.vcd.
                     # GRADES NOTHING: the per-retire monitor is live but only
                     # $displays, so this exits 0 on a mismatch. Read the output.
