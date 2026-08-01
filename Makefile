@@ -249,9 +249,14 @@ cosim-run: cosim
 # working without, and the moment it became required it would stop being the
 # opt-in experiment it was accepted as. The regfile-to-block-RAM change gates
 # on it by pasting its output into the PR, not by branch protection.
+#
+# The fourth argument is the suite manifest -- test/OBSERVED_FLOOR, the same
+# file `make test` grades retire counts against. Both legs read the same one on
+# purpose: two lists of what the suite is could come to disagree, and then the
+# interesting failure would be about the lists rather than about the core.
 .PHONY: cosim-suite
 cosim-suite: cosim
-	./test/run_cosim.sh ./cosim test/asm test/COSIM_EXPECTED_FAIL
+	./test/run_cosim.sh ./cosim test/asm test/COSIM_EXPECTED_FAIL test/OBSERVED_FLOOR
 
 # test/monitor.sim.v is a build-time-only, gitignored derivative of the
 # tracked test/monitor.v (ADR-0019). test/monitor.v itself stays
@@ -491,30 +496,74 @@ lint-setup:
 # other order installed the cleanup trap on an unchecked $$tmp: a failed
 # mktemp left it empty, every -o path collapsed to the filesystem root, and
 # the trap then removed nothing.
+#
+# THE BENCH LIST IS ASSERTED AGAINST THE TREE, not merely written out. Six
+# iverilog+vvp invocations used to be spelled out in the recipe with nothing
+# tying that list to test/*_tb.v, so a seventh bench could land, be committed,
+# pass review and never run — and the gate would report six benches green
+# exactly as before. That is the same hole test/OBSERVED_FLOOR closes for the
+# .S suite and formal/EXPECTED_CHECKS closes for the ladder: a verdict cannot
+# report on something that never ran. UNIT_BENCHES is the declaration,
+# `check-unit-benches` compares it against `ls test/*_tb.v` in BOTH directions,
+# and the recipe below is DRIVEN by it — so the list cannot be satisfied by
+# adding a name without also giving the bench its sources.
+UNIT_BENCHES := exec_tb mem_tb decoder_tb regfile_tb csr_tb monitor_tb
+
+# Per-bench RTL. monitor_tb is not an RTL bench at all: its source is the
+# sanitized monitor, which is why it names a file under test/ rather than rtl/.
+UNIT_BENCH_SRC_exec_tb    := rtl/structs.v rtl/executor.v
+UNIT_BENCH_SRC_mem_tb     := rtl/memory.v
+UNIT_BENCH_SRC_decoder_tb := rtl/structs.v rtl/decoder.v
+UNIT_BENCH_SRC_regfile_tb := rtl/regfile.v
+UNIT_BENCH_SRC_csr_tb     := rtl/structs.v rtl/csrs.v
+UNIT_BENCH_SRC_monitor_tb := test/monitor.sim.v
+
+# `present` is derived from the tree inside the recipe rather than from a
+# $(wildcard) at parse time: make caches directory contents, and a check whose
+# idea of what is on disk can be stale is a check that can be wrong in the one
+# direction that matters.
+.PHONY: check-unit-benches
+check-unit-benches:
+	@set -e; \
+	tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/bench-inventory.XXXXXX"); \
+	test -n "$$tmp" -a -d "$$tmp"; \
+	trap 'rm -rf "$$tmp"' EXIT; \
+	printf '%s\n' $(UNIT_BENCHES) | sort > "$$tmp/declared"; \
+	ls test/*_tb.v 2>/dev/null | sed -e 's|^test/||' -e 's|\.v$$||' | sort > "$$tmp/present"; \
+	if [ ! -s "$$tmp/present" ]; then \
+	  echo "error: no test/*_tb.v benches found; $(words $(UNIT_BENCHES)) are declared." >&2; \
+	  exit 1; \
+	fi; \
+	if ! cmp -s "$$tmp/declared" "$$tmp/present"; then \
+	  echo "error: the benches make runs are not the benches in test/:" >&2; \
+	  comm -13 "$$tmp/declared" "$$tmp/present" \
+	    | sed -e 's|^|  in test/ but not in UNIT_BENCHES: |' >&2; \
+	  comm -23 "$$tmp/declared" "$$tmp/present" \
+	    | sed -e 's|^|  in UNIT_BENCHES but not in test/: |' >&2; \
+	  echo "A bench in test/ that make does not run is a test nothing executes;" >&2; \
+	  echo "a declared bench with no file is a run that cannot happen. Fix the" >&2; \
+	  echo "UNIT_BENCHES list in the Makefile, in the same commit either way." >&2; \
+	  exit 1; \
+	fi
+	@set -e; $(foreach b,$(UNIT_BENCHES), \
+	  test -n '$(UNIT_BENCH_SRC_$(b))' || { \
+	    echo "error: $(b) is in UNIT_BENCHES with no UNIT_BENCH_SRC_$(b)." >&2; \
+	    echo "Declare what it compiles against; an empty list would build the" >&2; \
+	    echo "bench with no design under test and pass vacuously." >&2; \
+	    exit 1; }; ) true
+	@echo "$(words $(UNIT_BENCHES)) unit benches, matching test/*_tb.v exactly."
+
 .PHONY: test-units
-test-units: test/monitor.sim.v
+test-units: check-unit-benches test/monitor.sim.v
 	@set -e; \
 	tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/test-units.XXXXXX"); \
 	test -n "$$tmp" -a -d "$$tmp"; \
 	trap 'rm -rf "$$tmp"' EXIT; \
-	echo "== exec_tb =="; \
-	iverilog -I./rtl/ -g2012 -o $$tmp/exec_tb.vvp rtl/structs.v rtl/executor.v test/exec_tb.v; \
-	vvp $$tmp/exec_tb.vvp; \
-	echo "== mem_tb =="; \
-	iverilog -I./rtl/ -g2012 -o $$tmp/mem_tb.vvp rtl/memory.v test/mem_tb.v; \
-	vvp $$tmp/mem_tb.vvp; \
-	echo "== decoder_tb =="; \
-	iverilog -I./rtl/ -g2012 -o $$tmp/decoder_tb.vvp rtl/structs.v rtl/decoder.v test/decoder_tb.v; \
-	vvp $$tmp/decoder_tb.vvp; \
-	echo "== regfile_tb =="; \
-	iverilog -I./rtl/ -g2012 -o $$tmp/regfile_tb.vvp rtl/regfile.v test/regfile_tb.v; \
-	vvp $$tmp/regfile_tb.vvp; \
-	echo "== csr_tb =="; \
-	iverilog -I./rtl/ -g2012 -o $$tmp/csr_tb.vvp rtl/structs.v rtl/csrs.v test/csr_tb.v; \
-	vvp $$tmp/csr_tb.vvp; \
-	echo "== monitor_tb =="; \
-	iverilog -g2012 -o $$tmp/monitor_tb.vvp test/monitor.sim.v test/monitor_tb.v; \
-	vvp $$tmp/monitor_tb.vvp
+	$(foreach b,$(UNIT_BENCHES), \
+	  echo "== $(b) =="; \
+	  iverilog -I./rtl/ -g2012 -o $$tmp/$(b).vvp $(UNIT_BENCH_SRC_$(b)) test/$(b).v; \
+	  vvp $$tmp/$(b).vvp; ) \
+	true
 
 # Assembles every test/asm/*.S (rv32im_zicsr, -nostdlib, ADR-0008's memory
 # map), runs each under `sim`, and checks the pass/fail table against

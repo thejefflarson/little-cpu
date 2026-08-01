@@ -20,6 +20,14 @@
 #   * `set -e` is on and mktemp is fatal. Without it a failed mktemp leaves
 #     $tmp empty, every artifact path collapses to the filesystem root, and a
 #     later run can pick up the previous run's stale image;
+#   * THE SUITE'S SHAPE IS ASSERTED BEFORE ANYTHING RUNS. This gate verified
+#     that every program it FOUND passed; it had no idea how many it should
+#     find, and with both baselines empty there was no red entry whose
+#     disappearance would say the suite had shrunk. test/OBSERVED_FLOOR is the
+#     manifest — it already names every program — and test/check_suite_shape.sh
+#     compares its name set against test/asm in BOTH directions up front. The
+#     orphan check that used to do half of that at the END of the run is gone;
+#     doing it after 52 assemblies and 52 simulations was strictly worse;
 #   * OBSERVATION IS COUNTED, NOT INFERRED. The RVFI monitor is this gate's
 #     per-retire oracle and nothing measured whether it ever fired. A monitor
 #     that never saw a retire — an under-sensitivity defect of the ADR-0037
@@ -48,6 +56,7 @@ ASM_DIR=$2
 EXPECTED_FAIL=$3
 OBSERVED_FLOOR=$4
 CYCLES=5000
+HERE=$(cd "$(dirname "$0")" && pwd)
 
 # Read before running anything: a mistyped or missing baseline path used to
 # yield an empty expected set, and with an all-passing suite the gate then
@@ -66,6 +75,16 @@ if [ ! -f "$OBSERVED_FLOOR" ] || [ ! -r "$OBSERVED_FLOOR" ]; then
   echo "error: floor file '$OBSERVED_FLOOR' does not exist or is not readable." >&2
   echo "It records how much each program was observed to retire; without it" >&2
   echo "there is nothing to compare this run's observation against." >&2
+  exit 1
+fi
+
+# THE SUITE'S SHAPE, before a single program is assembled. OBSERVED_FLOOR names
+# every program the suite must contain, and this compares that name set against
+# $ASM_DIR in both directions. It is a separate script because test/run_cosim.sh
+# runs the identical check against the identical file: two legs that disagreed
+# about what the suite is would be worse than neither checking.
+if ! "$HERE/check_suite_shape.sh" "$ASM_DIR" "$OBSERVED_FLOOR"; then
+  echo "error: the .S suite does not match its manifest; nothing was run." >&2
   exit 1
 fi
 
@@ -234,10 +253,13 @@ for src in "$ASM_DIR"/*.S; do
   if [ "$status" = "PASS" ]; then
     floor=$(printf '%s\n' "$floors" | awk -v n="$name" '$1 == n { print $2, $3; found = 1 } END { exit !found }') || floor=""
     if [ -z "$floor" ]; then
-      # Not a warning. A program with no floor is a program whose observation
-      # nothing defends, and adding one to test/asm without recording what it
-      # was measured to observe is exactly how this file would rot into
-      # decoration. The fix is one line in $OBSERVED_FLOOR.
+      # UNREACHABLE as long as check_suite_shape.sh runs above: it has already
+      # required every program in $ASM_DIR to have a manifest line, and failed
+      # the whole run naming this one if it did not. Kept because the lookup has
+      # to handle the not-found case regardless, and a silent empty `$floor`
+      # would make the two comparisons below compare against nothing. If this
+      # ever fires, the two checks have gone out of step with each other, which
+      # is worth a named status rather than an arithmetic error.
       status="NO-FLOOR"
     else
       set -- $floor
@@ -276,21 +298,12 @@ printf '%s\n' "${table[@]}"
 echo
 echo "$passed/${#table[@]} passed"
 
-# The OTHER direction of the floor file's name set (ADR-0014's contract, the
-# same one EXPECTED_FAIL and formal/EXPECTED_CHECKS are under). A floor line for
-# a program that no longer exists is dead weight that reads as coverage, and it
-# is the direction nothing else here would notice: the per-program lookup above
-# only ever asks whether a program HAS a floor.
-suite_names=$(printf '%s\n' "${table[@]}" | awk '{print $1}' | sort)
-floor_names=$(printf '%s\n' "$floors" | awk 'NF {print $1}' | sort)
-orphan_floors=$(comm -23 <(printf '%s\n' "$floor_names") <(printf '%s\n' "$suite_names"))
-if [ -n "$orphan_floors" ]; then
-  echo >&2
-  echo "error: $OBSERVED_FLOOR names programs that are not in $ASM_DIR:" >&2
-  printf '  %s\n' "$orphan_floors" >&2
-  echo "Remove the line in the same commit that removes the program." >&2
-  exit 1
-fi
+# Both directions of the floor file's name set (ADR-0014's contract, the same
+# one EXPECTED_FAIL and formal/EXPECTED_CHECKS are under) were checked HERE,
+# after the whole suite had run. They now run before it, in
+# check_suite_shape.sh, called at the top of this script — a manifest mismatch
+# means the run was never going to be gradeable, so spending 52 assemblies and
+# 52 simulations to discover it was the wrong order. Nothing is checked twice.
 
 # Both sides are name-and-status pairs, whitespace-normalised so the baseline
 # can stay readable. `NF` must gate the rebuild rather than follow it: awk
