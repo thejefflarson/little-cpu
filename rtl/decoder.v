@@ -358,10 +358,20 @@ module decoder (
   // "unrecognised", which was harmless because unrecognised meant "execution
   // flags suppressed, no trap". It stops being harmless the moment
   // unrecognised means illegal-instruction.
-  logic instr_error, instr_mret, instr_wfi;
+  logic instr_error, instr_mret, instr_wfi, instr_cebreak;
   assign instr_error = opcode == 5'b11100 && uncompressed && funct3 == 0 && rs1 == 0 && rd == 0;
   assign instr_ecall = instr_error && instr[31:20] == 12'h0;
-  assign instr_ebreak = instr_error && instr[31:20] == 12'h1;
+  // C.EBREAK (16'h9002) expands to EBREAK, so it raises a BREAKPOINT (cause 3)
+  // and not an illegal instruction. It is the rd == 0, rs2 == 0 corner of
+  // quadrant 2's funct4 == 4'b1001 row, which its two neighbours each exclude
+  // by a different field -- `instr_cjalr` needs instr[11:7] != 0 and
+  // `instr_cadd` needs instr[6:2] != 0 -- so without this line the encoding
+  // decodes to NOTHING, `instr_valid` is low, and the trap comes out cause 2:
+  // a wrong-but-plausible answer that still traps, still records an mepc and
+  // still resumes. test/asm/cebreak.S is what catches it, at both alignments.
+  assign instr_cebreak = quadrant == 2'b10 && cfunct4 == 4'b1001 &&
+    instr[11:7] == 5'b0 && instr[6:2] == 5'b0;
+  assign instr_ebreak = (instr_error && instr[31:20] == 12'h1) || instr_cebreak;
   // ADR-0005: `mret` restores MIE <- MPIE, sets MPIE, and jumps to mepc.
   // Committed in the publish block below, alongside trap entry, and serialized
   // on the same drain predicate CSR instructions use (CLAUDE.md invariant 5).

@@ -98,9 +98,12 @@ bgeu.S              298    298
 blt.S               255    255
 bltu.S              280    280
 bne.S               255    255
+cebreak.S            161    138
 csr.S               108     82
+csrset.S              72     62
 div.S                60     60
 divu.S               61     61
+fencenop.S            40     35
 hazard.S             49     49
 jal.S                19     19
 jalr.S               73     73
@@ -139,3 +142,4 @@ sw.S                454    454
 trap.S              303    259
 xor.S               451    451
 xori.S              171    171
+zicsr.S              225    185
