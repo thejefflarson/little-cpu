@@ -1,0 +1,116 @@
+# How much the per-retire RVFI monitor was OBSERVED to do on each program.
+#
+# WHY THIS FILE EXISTS. `make test` is the merge gate and test/monitor.sim.v is
+# its per-retire oracle, but nothing in the gate measured whether the oracle
+# ever fired. test/cxxrtl.cc sampled the monitor's errcode and counted nothing,
+# so a monitor whose `rvfi_valid` never asserted — an under-sensitivity defect
+# of exactly the kind ADR-0037 found in the iverilog leg, an `ifdef` that
+# dropped the shadow payload, a `write_cxxrtl` that optimised the instance
+# away — left every program here reporting PASS off `tohost` alone. ADR-0032
+# had already measured that end-state checking on its own is blind to real
+# architectural corruption, and test/EXPECTED_FAIL is empty, so there was no
+# red entry whose disappearance would have said otherwise either. This file
+# turns observation into a graded quantity instead of an inference.
+#
+# FORMAT — three fields:
+#
+#     <test>.S  <retires>  <spec-checked retires>
+#
+# `retires` is the number of cycles the monitor examined (`rvfi_valid` high).
+# `spec-checked` is the subset of those whose VALUES it compared against its
+# spec model (`spec_valid` high as well). Both are counted in test/testbench.v,
+# printed by test/cxxrtl.cc as `RETIRES <n> SPEC-CHECKED <m>`, and graded by
+# test/run_tests.sh, which also prints them as the table's third column.
+#
+# GRADED WITH `>=`, NOT SET EQUALITY — that is the difference between this file
+# and test/EXPECTED_FAIL or formal/EXPECTED_CHECKS, and it is deliberate. The
+# numbers move for legitimate reasons: the assembler is free to compress
+# differently, a test gains an instruction, a macro in test/asm/riscv_test.h
+# grows one. An exact ratchet over 52 numbers is one nobody would keep, and a
+# ratchet nobody keeps gets raised until it means nothing. What must not happen
+# is a program going QUIET, and `>=` catches exactly that.
+#
+# The NAME set, on the other hand, IS a set equality in both directions, the
+# same contract ADR-0014 puts on the two files above. A program in test/asm
+# with no line here reports NO-FLOOR and fails; a line here naming a program
+# that no longer exists is an error at the end of the run. Adding a program to
+# test/asm means adding its measured line here, in the same commit.
+#
+# ZERO IS NEVER A FLOOR. Zero of either count is MONITOR-SILENT — the runner's
+# own exit 6 — before this file is ever consulted, so a line of `0 0` cannot
+# be used to excuse a blind oracle. There is no way to write "this program is
+# allowed not to be checked" here, on purpose.
+#
+# A LOW SPEC-CHECKED NUMBER IS EXPECTED AND IS NOT A DEFECT. riscv-formal ships
+# NO SPEC MODEL AT ALL for `ecall`, `ebreak`, `mret` or the `csrr*` family at
+# the pinned SHA (formal/pin.mk), so `spec_valid` is 0 for every one of those
+# retires by design and the monitor's whole semantic block is skipped for them.
+# The behaviour M3 added is checked by test/asm/trap.S, test/csr_tb.v and
+# test/decoder_tb.v instead, against assertions this repo wrote rather than
+# against an oracle. csr.S, minstret.S and trap.S therefore show the widest gap
+# between the two columns, and that gap is the pin's coverage boundary, not a
+# bug in this core. Whoever first sees a low number here should not have to
+# rediscover that — CLAUDE.md says the same thing next to the EXPECTED_FAIL
+# contract.
+#
+# HOW TO RE-MEASURE. Run `make test` and copy the table's third column. Record
+# the commit SHA it was measured at in the PR that changes a number, the way
+# every other measurement in this repo is recorded. Numbers only ever go DOWN
+# by accident; if one legitimately drops (a different binutils compressing more
+# aggressively, a test deliberately shortened), lower it in the same commit as
+# the change that caused it and say which.
+#
+# Measured at 18d17a2 (the branch point) with riscv64-elf-gcc, the pinned
+# riscv-formal monitor, and CYCLES=5000 in test/run_tests.sh.
+add.S               429    429
+addi.S              206    206
+and.S               449    449
+andi.S              162    162
+auipc.S              26     26
+beq.S               255    255
+bge.S               273    273
+bgeu.S              298    298
+blt.S               255    255
+bltu.S              280    280
+bne.S               255    255
+csr.S               108     82
+div.S                60     60
+divu.S               61     61
+hazard.S             49     49
+jal.S                19     19
+jalr.S               73     73
+lb.S                209    209
+lbu.S               209    209
+lh.S                221    221
+lhu.S               228    228
+lui.S                29     29
+lw.S                231    231
+minstret.S           42     31
+mul.S               423    423
+mulh.S              423    423
+mulhsu.S            423    423
+mulhu.S             423    423
+or.S                452    452
+ori.S               169    169
+rem.S                60     60
+remu.S               60     60
+rvc.S               184    184
+sb.S                394    394
+sh.S                447    447
+simple.S              5      5
+sll.S               457    457
+slli.S              205    205
+slt.S               423    423
+slti.S              201    201
+sltiu.S             201    201
+sltu.S              423    423
+sra.S               476    476
+srai.S              220    220
+srl.S               470    470
+srli.S              214    214
+straddle.S           18     18
+sub.S               421    421
+sw.S                454    454
+trap.S              303    259
+xor.S               451    451
+xori.S              171    171

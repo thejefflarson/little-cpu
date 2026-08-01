@@ -165,6 +165,114 @@ module testbench(
     .rvfi_mem_wdata(rvfi_mem_wdata),
     .errcode(rvfi_monitor_errcode)
   );
+
+  // ---------------------------------------------------------------------------
+  // DID THE ORACLE EVER LOOK?
+  //
+  // The monitor above is a per-retire oracle only on the cycles it actually
+  // examines. It examines a cycle when `rvfi_valid` is high, and it compares
+  // that retire's VALUES only when its spec model recognises the instruction
+  // (`ch0_spec_valid`). Neither was measured. `test/cxxrtl.cc` sampled the
+  // monitor's `errcode` and counted nothing, so a monitor that never saw a
+  // single retire — an under-sensitivity defect of exactly the kind ADR-0037
+  // found in the iverilog leg, an `ifdef` that dropped the shadow payload, a
+  // `write_cxxrtl` that optimised the instance away — left every program in
+  // test/asm reporting PASS off `tohost` alone. `test/EXPECTED_FAIL` is empty,
+  // so there was no red entry whose disappearance would have said otherwise
+  // either, and ADR-0032 already measured that end-state checking on its own
+  // misses real architectural corruption.
+  //
+  // So observation is a GRADED QUANTITY here, not an inference. These two
+  // counters are read by debug-item name in test/cxxrtl.cc, printed on every
+  // run, and graded by test/run_tests.sh: zero of either is MONITOR-SILENT, a
+  // failing status, and a count below test/OBSERVED_FLOOR is BELOW-FLOOR.
+  //
+  // WHY A SECOND `monitor_isa_spec` INSTEAD OF LOOKING INSIDE THE MONITOR.
+  // `ch0_spec_valid` is internal to the monitor, and test/monitor.v is
+  // generated-but-tracked (CLAUDE.md invariant 7) — it may not be hand-edited
+  // to export it, and giving test/sanitize_monitor.py a fourth rule for
+  // telemetry would perturb the most carefully built content assertions in the
+  // repo for no correctness gain. A hierarchical reference is not an option
+  // either, and fails in the worst possible way: yosys does not resolve one, it
+  // IMPLICITLY DECLARES the name and carries on ("Warning: Identifier
+  // `\monitor.ch0_spec_valid' is implicitly declared"), so the counter would
+  // read a dangling constant while the build stayed clean. This instead
+  // instantiates the same module the monitor instantiates, from the same wires
+  // its own instance is wired from, so `probe_spec_valid` is `ch0_spec_valid`
+  // by construction: one combinational function, one set of inputs. KEEP THE
+  // TWO PORT MAPS IDENTICAL — rewiring one and not the other is the one way
+  // this could start counting retires the monitor never checked.
+  //
+  // A LOW SPEC-CHECKED COUNT IS EXPECTED, AND IS NOT A DEFECT. riscv-formal
+  // ships no spec model at all for `ecall`, `ebreak`, `mret` or the `csrr*`
+  // family at the pinned SHA (formal/pin.mk), so `spec_valid` is 0 for every
+  // one of those retires BY DESIGN and the monitor's whole semantic block is
+  // skipped for them — the behaviour M3 added is checked by test/asm/trap.S,
+  // test/csr_tb.v and test/decoder_tb.v instead, against assertions this repo
+  // wrote. csr.S, minstret.S and trap.S therefore show the widest gap between
+  // the two counts, and that gap is the pin's coverage boundary, not a bug.
+  // Only ZERO is a failure.
+  logic       probe_spec_valid;
+  logic       probe_spec_trap;
+  logic [4:0] probe_spec_rs1_addr;
+  logic [4:0] probe_spec_rs2_addr;
+  logic [4:0] probe_spec_rd_addr;
+  logic [31:0] probe_spec_rd_wdata;
+  logic [31:0] probe_spec_pc_wdata;
+  logic [31:0] probe_spec_mem_addr;
+  logic [3:0]  probe_spec_mem_rmask;
+  logic [3:0]  probe_spec_mem_wmask;
+  logic [31:0] probe_spec_mem_wdata;
+
+  monitor_isa_spec spec_probe (
+    .rvfi_valid(rvfi_valid),
+    .rvfi_insn(rvfi_insn),
+    .rvfi_pc_rdata(rvfi_pc_rdata),
+    .rvfi_rs1_rdata(rvfi_rs1_rdata),
+    .rvfi_rs2_rdata(rvfi_rs2_rdata),
+    .rvfi_mem_rdata(rvfi_mem_rdata),
+    .spec_valid(probe_spec_valid),
+    .spec_trap(probe_spec_trap),
+    .spec_rs1_addr(probe_spec_rs1_addr),
+    .spec_rs2_addr(probe_spec_rs2_addr),
+    .spec_rd_addr(probe_spec_rd_addr),
+    .spec_rd_wdata(probe_spec_rd_wdata),
+    .spec_pc_wdata(probe_spec_pc_wdata),
+    .spec_mem_addr(probe_spec_mem_addr),
+    .spec_mem_rmask(probe_spec_mem_rmask),
+    .spec_mem_wmask(probe_spec_mem_wmask),
+    .spec_mem_wdata(probe_spec_mem_wdata)
+  );
+
+  // `(* keep *)` for the same reason `trap_to_zero` below carries one: these
+  // are read by debug-item name from test/cxxrtl.cc and nothing inside the
+  // design reads them, so without it yosys is free to optimise both away and
+  // the runner would report a setup error it cannot distinguish from a real
+  // one. 32 bits is far more than the 5000-cycle budget in test/run_tests.sh
+  // can ever need, so no wrap is possible.
+  //
+  // The gating mirrors the monitor's own outer condition exactly
+  // (`if (!reset && ch0_rvfi_valid) ... if (ch0_spec_valid)`), so these count
+  // the retires it looked at and the subset whose values it compared — not an
+  // approximation of them.
+  //
+  // Plain `always @(posedge clk)`, not `always_ff`, because the `initial`
+  // below assigns the same variables; that is the pattern every other
+  // bookkeeping block in this file uses and nothing here is synthesised.
+  (* keep *) logic [31:0] rvfi_retires;
+  (* keep *) logic [31:0] rvfi_spec_retires;
+  initial begin
+    rvfi_retires = 32'b0;
+    rvfi_spec_retires = 32'b0;
+  end
+  always @(posedge clk) begin
+    if (!reset && rvfi_valid) begin
+      rvfi_retires <= rvfi_retires + 32'd1;
+      if (probe_spec_valid) begin
+        rvfi_spec_retires <= rvfi_spec_retires + 32'd1;
+      end
+    end
+  end
  `endif
   initial begin
     rom[0] = 32'h 3fc00093; //       li      x1,1020
