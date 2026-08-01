@@ -205,7 +205,11 @@ On the ladder, **`csrw_mcycle_ch0` and `csrw_minstret_ch0` went FAIL → PASS** 
 only** — 78 checks became 79, `csrw_mscratch_ch0` passes. `mtvec`/`mepc`/`mcause`/`mstatus` are
 deliberately **not** on that list and must not be added: `rvfi_csrw_check.sv` has no WARL model, so
 a correctly masked WARL CSR fails there **on a correct core** (the reasoning is written out next to
-the `[csrs]` list). Those four are checked field-by-field in `test/csr_tb.v` instead. Note also that
+the `[csrs]` list). **That WARL bar binds `csrw` only** — the `csrc` models all take a
+`RISCV_FORMAL_CSRC_MASK`, so a WARL CSR *can* be stated to one. What keeps those four (and the
+read-only CSRs) off the list is different and is not a `checks.cfg` question: `rtl/csrs.v` exports
+RVFI shadow payloads for exactly three CSRs, and a name here generates its `csrw_*` check whether
+asked for or not. Those four are checked field-by-field in `test/csr_tb.v` instead. Note also that
 `genchecks` defines `RISCV_FORMAL_CSRWH` for `mcycle`/`minstret` by itself, so the `h` halves are
 exercised whether or not `checks.cfg` asks for it.
 
@@ -346,12 +350,26 @@ gate.
 Three checks joined the ladder in the same change, taking it from 79 to **82**: `ill_ch0` (red — see
 `formal/EXPECTED_FAIL`), `causal_mem_ch0` and `hang` (both pass). `ill_ch0` is deliberately landed
 **red**: ADR-0033's rule is that a known-red check on the ladder is the system working and a
-known-red check off the ladder is the system lying. Fifteen upstream checks remain declined, each
-with a `#omit` line; the count is derived from the generator, not asserted in prose. **One of the
-fifteen is a trap for a future reader**: adding a bare `csrc` depth line generates three checks
-reading `rvfi_csrc_check.sv`, which does not exist at the pin — the six real models
-(`rvfi_csrc_{any,const,hpm,inc,upcnt,zero}_check.sv`) are reached only through a per-CSR *test list*
-in `[csrs]`.
+known-red check off the ladder is the system lying. Fourteen upstream checks remain declined, each
+with a `#omit` line; the count is derived from the generator, not asserted in prose.
+
+**The ladder is 85 now, and the three that joined are the first `csrc_*` counter checks.**
+`formal/checks.cfg`'s `[csrs]` carries per-CSR **test lists** — `mcycle upcnt`, `minstret upcnt`,
+`mscratch any` — which is the only way upstream's six models
+(`rvfi_csrc_{any,const,hpm,inc,upcnt,zero}_check.sv`) are reachable at all. The **bare** `csrc`
+spelling emits a `.sby` reading `rvfi_csrc_check.sv`, and this file said that file "does not exist
+at the pin"; the fact was right and the phrasing implied a pin bump would fix it. **It has never
+existed upstream** — the pin is upstream `main`'s HEAD, the add/delete log for the path is empty,
+and the string appears in no branch or tag. `genchecks`' bare-`csrc` branch is dead code.
+**`csrc_inc` is declined because it is red on a CORRECT core here**: the model clears `csr_written`
+every non-check cycle, so its post-write fallback lives one cycle, and CSR serialization means two
+CSR retires are never adjacent — measured red at `1 15`, PASS with writes to `0xB02` assumed away,
+and swept red at 13-16 with no depth escaping it. `upcnt` states the surviving half and is stricter
+there. **What that does not close**: `upcnt` says `minstret` strictly increases, not that it
+advances by exactly the non-trapping issues, so **ADR-0027's rule is narrowed, not closed** —
+`test/asm/minstret.S` and `test/csr_tb.v` still carry it. `csrc_any_mscratch_ch0` is the first
+check on this ladder that asserts a CSR write *sticks*: deleting `MSCRATCH: mscratch <= warl;`
+makes it red and leaves `csrw_mscratch_ch0` PASSing.
 
 **`make -C formal check` could not re-run the ladder, and had been re-grading the previous run**
 (ADR-0040). `formal/Makefile`'s `checks` was a plain file target naming a **directory**, and a
@@ -642,7 +660,7 @@ make -C formal components_pcloop    # accessor / writeback tasks were deleted, n
                                     # pcloop is the composed fetcher+decoder proof that discharges
                                     # ADR-0017's assume(in.pc == pc); it needs `smtbmc boolector`
                                     # (see formal/components.sby) and is on CI as of ADR-0046
-make -C formal check                # the riscv-formal ladder (82 checks; see ADR-0023). ALWAYS a
+make -C formal check                # the riscv-formal ladder (85 checks; see ADR-0023). ALWAYS a
                                     # fresh run -- it deletes checks/ first (ADR-0040)
 make -C formal check-baseline       # re-grade a finished ladder: EXPECTED_CHECKS + EXPECTED_FAIL
 make -C formal nonperturbation      # ADR-0047: the RVFI instrumentation is UNREAD by the core.
