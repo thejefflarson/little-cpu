@@ -46,15 +46,19 @@
 # and see the Makefile's `lint` target for the two passes (with and without
 # `RISCV_FORMAL`) and why both are needed.
 
-[option]
-# rtl/littlesoc.v is dead scaffolding: it synthesises to 2 LUT4s, carries a
-# `mem_valid`/`mem_ready` handshake the current core does not use, and has a
-# `// TODO SPI mem`. It is also the ONLY file in rtl/ with a genuine finding
-# (four `inout` ports with no `tri` datakind). Deleting it is probably right,
-# but that is its own decision and must not ride in on a lint change; excluding
-# it here keeps `inout_with_tri` LIVE for any inout port added to real RTL,
-# which is the version of that rule worth having.
-exclude_paths = ["rtl/littlesoc\\.v"]
+# NO exclude_paths, deliberately. There used to be one, for rtl/littlesoc.v:
+# that file was the only source of a genuine finding in rtl/ (four `inout`
+# flash pins with no `tri` datakind), and it was excluded so that
+# `inout_with_tri` could stay LIVE for any inout port added to real RTL rather
+# than being switched off wholesale. The flash pins were scaffolding for an SPI
+# controller nobody wrote, and they are gone, so the exclusion has nothing left
+# to exclude and the gate now covers every file in rtl/ without exception.
+# Measured after that trim: zero findings in both passes with no exclusion.
+#
+# Putting a file back on an exclude list is the same move as switching a rule
+# off, and the house rule at the top of this file applies to it: a path
+# excluded without a written reason is indistinguishable from someone getting
+# tired of the noise.
 
 # ---------------------------------------------------------------------------
 # Text rules -- all off.
@@ -115,7 +119,8 @@ generate_for_with_label = true
 generate_if_with_label = true
 parameter_default_value = true
 parameter_in_generate = true
-inout_with_tri = true                 # live: littlesoc.v, its only source, is excluded above
+inout_with_tri = true                 # live over ALL of rtl/: its only source, littlesoc.v's
+                                      # flash pins, is deleted rather than excluded (see above)
 
 # ---------------------------------------------------------------------------
 # ENABLED -- expression and statement traps.
