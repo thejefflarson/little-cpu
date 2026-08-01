@@ -5,7 +5,7 @@
 # test/run_tests.sh applies to test/EXPECTED_FAIL (ADR-0014, ADR-0035).
 # Invoked by `make cosim-suite`. See docs/adr/0039.
 #
-# Usage: run_cosim.sh <cosim-binary> <asm-dir> <expected-fail-file>
+# Usage: run_cosim.sh <cosim-binary> <asm-dir> <expected-fail-file> <manifest>
 #
 # This is NOT on `make test`'s path and NOT in CI's required set, deliberately
 # (ADR-0032): it needs a Sail install that `make test` must keep working
@@ -19,8 +19,14 @@
 #   * the baseline is read and format-checked BEFORE the suite runs, so a
 #     mistyped path fails in a second rather than after a full run having
 #     compared nothing;
-#   * the program list is checked for emptiness. A glob that matches nothing
-#     would otherwise print "0/0 passed" and match an empty baseline exactly;
+#   * the program list is checked against a MANIFEST, not merely for emptiness.
+#     The emptiness guard caught a suite of size zero; it did nothing about a
+#     suite that shrank from 52 programs to 12, which prints "12/12 agreed",
+#     matches an empty baseline exactly and exits 0. The manifest is
+#     test/OBSERVED_FLOOR — the same file test/run_tests.sh grades against, read
+#     by the same test/check_suite_shape.sh, in both directions, before the
+#     setup probe. Two legs that disagreed about what the suite is would be
+#     worse than neither of them checking;
 #   * the per-program status comes from cosim.py's own COSIM-STATUS line, not
 #     from its exit code alone, and a run that produced no such line is
 #     labelled COSIM-ERROR rather than being scored as a verdict about the
@@ -34,14 +40,15 @@
 # own call site.
 set -euo pipefail
 
-if [ "$#" -ne 3 ]; then
-  echo "usage: run_cosim.sh <cosim-binary> <asm-dir> <expected-fail-file>" >&2
+if [ "$#" -ne 4 ]; then
+  echo "usage: run_cosim.sh <cosim-binary> <asm-dir> <expected-fail-file> <manifest>" >&2
   exit 1
 fi
 
 COSIM_BIN=$1
 ASM_DIR=$2
 EXPECTED_FAIL=$3
+MANIFEST=$4
 HERE=$(cd "$(dirname "$0")" && pwd)
 COSIM_PY="$HERE/cosim.py"
 
@@ -73,6 +80,16 @@ if [ -n "$malformed" ]; then
   exit 1
 fi
 
+# THE SUITE'S SHAPE, and deliberately BEFORE the setup probe below. It costs
+# milliseconds, needs no Sail, and a suite that does not match its manifest was
+# never going to produce a gradeable run — so there is no reason to make it wait
+# behind a toolchain check. Both directions; see check_suite_shape.sh.
+if ! "$HERE/check_suite_shape.sh" "$ASM_DIR" "$MANIFEST"; then
+  echo "error: the .S suite does not match its manifest; nothing was run." >&2
+  exit 1
+fi
+echo
+
 # One setup probe for the whole suite: the cross compiler, the pinned and
 # digest-checked sail binary, and the cxxrtl co-sim runner. Without Sail this
 # is where the run stops, with the message naming `make sail-setup` — which is
@@ -83,14 +100,12 @@ if ! "$COSIM_PY" --check-setup --cosim-binary "$COSIM_BIN"; then
 fi
 echo
 
+# The emptiness guard that used to be here is subsumed by the manifest check
+# above, which rejects an empty glob against a non-empty manifest and names
+# every program that went missing rather than only reporting that they all did.
 shopt -s nullglob
 programs=("$ASM_DIR"/*.S)
 shopt -u nullglob
-if [ "${#programs[@]}" -eq 0 ]; then
-  echo "error: no .S programs found in '$ASM_DIR'." >&2
-  echo "An empty suite would match an empty baseline and report success." >&2
-  exit 1
-fi
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-cosim.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
