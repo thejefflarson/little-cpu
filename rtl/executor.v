@@ -394,6 +394,19 @@ module executor(
   // those lines are owned by in-flight work on the executor's real arithmetic,
   // and narrowing them changes what this proof proves.
   //
+  // THE SAME CAP ALSO BLANKS THE SIGNED DIVIDE PATH (ADR-0048 finding F5), and
+  // that one is not fixed by narrowing the cap to "the divide assertions" --
+  // it needs new assertions. With operands in 0..15, `op_sign_x` and
+  // `op_sign_y` are constant zero, so the two `assert(op_sign_* == in.rs*[31])`
+  // tie-backs below read `assert(0 == 0)`, and the only completion assertions
+  // in this proof are the UNSIGNED pair (`divu_ref` / `remu_ref`). There is no
+  // assertion anywhere that the signed DIV/REM sign restore happens at all.
+  // Measured the same way: deleting `op_sign_x != op_sign_y ? -...` from the
+  // `op_is_div` capture PASSES, and deleting `op_sign_x ? -...` from the
+  // `op_is_rem` capture PASSES. ADR-0012's sign wrapper -- the whole reason
+  // this divider can be unsigned -- has no formal coverage in this task.
+  // test/exec_tb.v covers it; nothing here does.
+  //
   // Multiply: a single combinational stage, so full 32-bit-operand correctness
   // is provable directly (no restriction needed). Independently re-derives
   // MUL/MULH/MULHU/MULHSU against plain SystemVerilog signed/unsigned

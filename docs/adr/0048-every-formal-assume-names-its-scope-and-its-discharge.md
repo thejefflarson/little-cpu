@@ -193,6 +193,16 @@ so it does not discharge this either.) ADR-0044 rules the placeholder out as a s
 does not replace it, so when the real memory system is built there is no check anywhere that will
 hold it to what these two proofs assumed of it.
 
+**F5 — the same operand cap blanks the signed divide path, and that one needs new assertions
+rather than a narrower assume.** With operands in 0..15, `op_sign_x` and `op_sign_y` are constant
+zero, so `assert(op_sign_x == in.rs1[31])` and its twin read `assert(0 == 0)`, and the only
+completion assertions in the task are the *unsigned* pair (`divu_ref` / `remu_ref`). Nothing
+asserts that the signed sign-restore happens at all. Measured: deleting
+`op_sign_x != op_sign_y ? -mul_div_store[31:0] :` from the `op_is_div` capture **PASSES**, and
+deleting `op_sign_x ? -mul_div_x[31:0] :` from the `op_is_rem` capture **PASSES**. ADR-0012's sign
+wrapper — the reason this divider is allowed to be unsigned at all — has no formal coverage here.
+`test/exec_tb.v` covers it; the component proof does not, and did not appear not to.
+
 ## Vacuity: every compound `assert` guard, demonstrated
 
 Method: replace the assertion body with `assert(1'b0)` under its existing guard and rerun the task.
