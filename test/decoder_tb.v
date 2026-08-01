@@ -5,6 +5,34 @@
 // Decode-vector bench (see `eb18320`): confirms the SLTI/SLTIU/XORI
 // immediate-source fix (decoder.v's `instr_shift`) and the funct12-exact EBREAK
 // fix, directly against the decoder — no full pipeline needed for either check.
+//
+// TIMING DISCIPLINE, REWRITTEN FOR ADR-0042. rtl/regfile.v's read is
+// registered, so decode presents rs1/rs2 for one cycle and issues on the next:
+// `operand_stall` is high for exactly the cycles in which the address pair
+// differs from the pair presented last cycle, and decode bubbles then. This
+// bench drives `in.instr` directly rather than through rtl/fetcher.v, so that
+// fetch cycle has to be spent explicitly — `operand_fetch_cycle()` below is it.
+//
+// Two rules follow, and both are why this bench was re-timed rather than
+// extended:
+//
+//   * A COMBINATIONAL decode flag (instr_*, trap_cause, csr_arg, uses_rs1,
+//     math_arg...) is readable the instant `in.instr` settles, exactly as
+//     before. Those vectors are untouched.
+//   * Anything about ISSUING, PUBLISHING or COMMITTING (dut.issuing, out.*,
+//     csr_wen, instret, trap_entry, pc) must be checked after the fetch cycle.
+//     Five checks here failed on that alone when the registered read landed,
+//     with nothing wrong in the RTL.
+//
+// The serialization vectors changed shape for a second, subtler reason. They
+// used to rely on the PREVIOUS decode vector still sitting in `decoder_out` to
+// make `pipe_drained` false. The operand-fetch bubble now clears that slot one
+// cycle ahead of every instruction, so `decoder_out` is always empty by the
+// time a CSR instruction is eligible to issue. Serialization is still real --
+// `pipe_drained` also reads the executor, accessor and pending-load slots,
+// which a decode bubble does not clear -- so these vectors now drive
+// `executor_out.valid` to stand for the in-flight instruction, which is what
+// they were always trying to say.
 module decoder_tb;
   logic clk = 0;
   always #5 clk = ~clk;
@@ -95,6 +123,39 @@ module decoder_tb;
     end
   endtask
 
+  // ADR-0042: spend the operand-fetch cycle. On entry `in.instr` has just
+  // changed, so rtl/decoder.v's `operand_stall` is high and this edge bubbles
+  // decoder_out while rtl/regfile.v captures the read. On exit the instruction
+  // is eligible to issue and issue-time state is meaningful.
+  task automatic operand_fetch_cycle();
+    begin
+      @(posedge clk);
+      #1;
+    end
+  endtask
+
+  // Present an instruction and spend its operand-fetch cycle, deterministically.
+  //
+  // The nop first is load-bearing, not decoration. `operand_stall` compares the
+  // address pair against the pair captured at the LAST CLOCK EDGE, and most
+  // vectors in this bench are combinational-only -- they change `in.instr` and
+  // check a decode flag without taking an edge at all. So the pair captured at
+  // the previous edge is whatever some earlier vector happened to leave, and if
+  // it coincides with this instruction's, the fetch cycle correctly does not
+  // happen and an issue-time check lands a cycle early. Parking on x0 first
+  // makes the fetch cycle unconditional. `addi x0, x0, 0` reads rs1 = rs2 = x0
+  // and writes nothing.
+  task automatic present_and_fetch(input logic [31:0] instr);
+    begin
+      in.instr = 32'h00000013;
+      @(posedge clk);
+      #1;
+      in.instr = instr;
+      #1;
+      operand_fetch_cycle();
+    end
+  endtask
+
   initial begin
     reset = 1;
     in = '0;
@@ -113,6 +174,21 @@ module decoder_tb;
     in.pc = 32'h0;
     #1; // math_arg is purely combinational off `in.instr`; no clock edge needed
     check_hex("xori math_arg", dut.math_arg, 32'hffffffff);
+    // ADR-0042, asserted directly rather than assumed: a newly presented
+    // instruction spends one cycle fetching its operands, and exactly one.
+    check_bit("a newly presented instruction stalls for its operands",
+              dut.operand_stall, 1'b1);
+    // The two halves of ADR-0042's stall, checked separately, because dropping
+    // either one is silent: without the `stall` term the instruction issues
+    // with an operand the regfile has not fetched yet, and without the bubble
+    // arm it publishes into decoder_out during its own fetch cycle. Both
+    // mutations leave every other vector in this bench passing.
+    check_bit("...so it does not issue in that cycle", dut.issuing, 1'b0);
+    operand_fetch_cycle();
+    check_bit("...and the fetch cycle bubbled decoder_out", out.valid, 1'b0);
+    check_bit("...and is eligible to issue on the very next cycle",
+              dut.operand_stall, 1'b0);
+    check_bit("...which it does", dut.issuing, 1'b1);
     @(posedge clk);
     #1;
     check_hex("xori out.rs2 (registered math_arg)", out.rs2, 32'hffffffff);
@@ -147,7 +223,7 @@ module decoder_tb;
 
     // csrrw a1, mscratch, a0  ->  0x340515f3
     in.instr = 32'h340515f3;
-    reg_rs1 = 32'hdeadbeef;
+    reg_rs1 = 32'hdeadbeef;   // re-presented below through present_and_fetch
     csr_rdata = 32'h0000cafe;
     #1;
     check_hex("csrrw csr_addr", {20'b0, dut.csr_addr}, 32'h340);
@@ -159,19 +235,26 @@ module decoder_tb;
     check_bit("csrrw uses rs1", dut.uses_rs1, 1'b1);
     check_bit("an implemented CSR is a valid instruction", dut.instr_valid, 1'b1);
 
-    // CLAUDE.md invariant 5 / ADR-0026: it does NOT issue yet. The previous
-    // vector is still sitting in decoder_out, so the pipe is not drained and
-    // this bubbles instead -- which is bubble-shaped, not hold-shaped: `out`
-    // goes to zero rather than staying put.
+    // CLAUDE.md invariant 5 / ADR-0026: it does NOT issue while anything is in
+    // flight. `executor_out.valid` stands for that in-flight instruction --
+    // rd == x0 so it raises no RAW hazard of its own and serialization is the
+    // only thing being tested. (Before ADR-0042 this vector leaned on the
+    // previous decode vector still sitting in decoder_out; the operand-fetch
+    // bubble now clears that slot a cycle early, so it had to say what it
+    // meant.)
+    executor_out.valid = 1'b1;
+    executor_out.rd = 5'd0;
+    present_and_fetch(32'h340515f3);
     check_bit("a CSR instruction serializes while the pipe is busy",
               dut.csr_serialize, 1'b1);
     check_bit("...and that is a stall", dut.stall, 1'b1);
     check_bit("...so nothing issues", dut.issuing, 1'b0);
     check_bit("...and no CSR write commits", dut.csr_wen, 1'b0);
-    @(posedge clk);
+    check_bit("...and it bubbles decoder_out rather than holding it",
+              out.valid, 1'b0);
+    executor_out.valid = 1'b0;
     #1;
-    check_bit("the serializing cycle bubbles decoder_out", out.valid, 1'b0);
-    check_bit("...which drains the pipe", dut.pipe_drained, 1'b1);
+    check_bit("the drained pipe releases it", dut.pipe_drained, 1'b1);
     check_bit("...so it issues now", dut.issuing, 1'b1);
     check_bit("...committing the write", dut.csr_wen, 1'b1);
     @(posedge clk);
@@ -334,9 +417,7 @@ module decoder_tb;
     // drained pipe to issue at all -- and the checks below would otherwise be
     // satisfied by the stall rather than by the trap, which is exactly the
     // vacuous pass worth avoiding here.
-    in.instr = 32'hf1151073;
-    @(posedge clk);
-    #1;
+    present_and_fetch(32'hf1151073);
     check_bit("...it issues once the pipe drains", dut.issuing, 1'b1);
     check_bit("a trapping issue does not count in minstret", instret, 1'b0);
     check_bit("...and commits no CSR write", csr_wen, 1'b0);
@@ -347,10 +428,9 @@ module decoder_tb;
     // nothing -- pc goes to mtvec, rd is x0, and no memory flag survives, so
     // rtl/accessor.v issues no bus request and rvfi_mem_* come out zero.
     // Checked after the edge, on the published decoder_output.
-    in.instr = 32'h00452583;   // the misaligned lw again
     reg_rs1 = 32'h0001_0001;
     in.pc = 32'h0000_0080;
-    #1;
+    present_and_fetch(32'h00452583);   // the misaligned lw again
     check_hex("trap_epc is the FAULTING pc, not the next one", trap_epc, 32'h0000_0080);
     @(posedge clk);
     #1;
@@ -361,17 +441,19 @@ module decoder_tb;
     reg_rs1 = 32'b0;
 
     // mret is a branch to mepc, taken by the same mechanism. It serializes
-    // (CLAUDE.md invariant 5), so it needs a drained pipe to issue: the
-    // previous vector is still in decoder_out, which bubbles this cycle and
-    // drains it.
-    in.instr = 32'h30200073;
-    #1;
+    // (CLAUDE.md invariant 5), so it needs a drained pipe to issue --
+    // `executor_out.valid` again standing for the in-flight instruction, for
+    // the same reason as the csrrw vector above.
+    executor_out.valid = 1'b1;
+    executor_out.rd = 5'd0;
+    present_and_fetch(32'h30200073);
     check_bit("mret serializes while the pipe is busy", dut.csr_serialize, 1'b1);
     check_bit("...so it does not commit yet", mret_entry, 1'b0);
-    @(posedge clk);
+    check_bit("...and it bubbles decoder_out rather than holding it",
+              out.valid, 1'b0);
+    executor_out.valid = 1'b0;
     #1;
-    check_bit("...the serializing cycle bubbles decoder_out", out.valid, 1'b0);
-    check_bit("...which drains the pipe", dut.pipe_drained, 1'b1);
+    check_bit("the drained pipe releases it", dut.pipe_drained, 1'b1);
     check_bit("...so it commits now", mret_entry, 1'b1);
     check_bit("...and is not a trap", trap_entry, 1'b0);
     @(posedge clk);

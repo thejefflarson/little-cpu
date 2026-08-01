@@ -50,6 +50,13 @@ Four corrections to the body:
 
 ## Measured — three ways to reconcile invariant 6 with a synchronous BRAM read
 
+> **Decided: option B.** [ADR-0042](../adr/0042-the-regfile-read-is-synchronous-and-costs-a-cycle.md)
+> is the decision and supersedes this section's "contingent on" wording. The `imem_data` modelling
+> change was accepted, `hang` and `liveness_ch0` went green with it, and the shipping numbers are
+> **4236 logic cells / 80%** at **+18.0%** suite cycles — better than the +27.8% below, because the
+> stall was gated on `uses_rs1`/`uses_rs2` after this was written.
+
+
 The root constraint is that an **ice40 EBR read is synchronous** while **invariant 6 requires a
 combinational read**. This brief only ever costed one way of reconciling those (a negedge strobe).
 All three were built and measured against the same tree, so the choice is now a comparison rather

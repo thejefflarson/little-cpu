@@ -582,6 +582,29 @@ fit.json: $(FIT_SRCS)
 	@yosys -p 'read_verilog -sv $^; synth_ice40 -dsp -top littlecpu -json $@' \
 	  > fit.synth.log 2>&1 || { tail -40 fit.synth.log; exit 1; }
 
+# THE RATCHET (ADR-0042). `make fit` was report-only while the core did not
+# fit at all; it does now, and a number nothing defends drifts back.
+#
+# WHY THE BUDGET IS NOT THE MEASUREMENT. `littlecpu` measures 4236 logic cells
+# as this lands. The budget is deliberately looser than that, because the
+# measurement is not stable to the cell: edits that synthesise to identical
+# hardware -- renaming a wire, reordering two independent assignments, hoisting
+# a struct field into a named signal -- move it by tens of cells, since ABC's
+# result depends on the order it sees the netlist in. A ratchet pinned to 4236
+# would go red on changes that alter nothing, and the only way to clear it
+# would be to raise the number, which is how a ratchet becomes a rubber stamp.
+#
+# 4400 is 164 cells of headroom, about 3.9% of the measurement and more than
+# three times the observed noise band. A change that trips it has grown the
+# core by more than any resynthesis artifact can account for, and the right
+# response is to find out why -- not to edit this line. Lowering it after a
+# real reduction is always welcome; raising it needs a reason in the commit
+# message.
+#
+# It is NOT set at the part's 5280. Fitting is the floor, not the goal: 80%
+# with the SoC memory system still to come is the number worth defending.
+FIT_MAX_LC := 4400
+
 .PHONY: fit
 fit: fit.json
 	@nextpnr-ice40 --up5k --package sg48 --json $< --pcf-allow-unconstrained \
@@ -594,12 +617,29 @@ fit: fit.json
 	}
 	@sed -n '/^Info: Device utilisation:/,/^$$/s/^Info: //p' fit.log
 	@awk '/ICESTORM_LC:/ { split($$3, u, "/"); printf "\nLOGIC CELLS: %s of %s (%s)  --  up5k / sg48 / littlecpu, memories external\n", u[1], $$4, $$5 }' fit.log
-	@if grep -q '^ERROR: Unable to place' fit.log; then \
-	  echo 'Placement failed, which is the expected state (ADR-0038 decision 1a);'; \
+	@# Both spellings, because nextpnr uses different wording depending on which
+	@# phase gives up: 'Unable to place cell ... no BELs remaining' when a BEL
+	@# class is exhausted, 'Unable to find a placement location for cell' when
+	@# it cannot site a constrained IO. The 132% configuration produced the
+	@# first; the 80% one produces the second, on an `mem_rdata` pad. Matching
+	@# only the first made a normal run print the "read fit.log before quoting
+	@# this" warning (ADR-0042).
+	@if grep -qE '^ERROR: Unable to (place cell|find a placement location for cell)' fit.log; then \
+	  echo 'Placement failed on IO, which is the expected state (ADR-0038 decision 1a);'; \
 	  echo 'the utilisation above is the measurement. Full log: fit.log'; \
 	else \
-	  echo 'Placement did not report the usual error -- read fit.log before quoting this.'; \
+	  echo 'Placement did not report an IO error -- read fit.log before quoting this.'; \
 	fi
+	@awk -v budget=$(FIT_MAX_LC) '/ICESTORM_LC:/ { \
+	    split($$3, u, "/"); \
+	    if (u[1] + 0 > budget + 0) { \
+	      printf "\n*** make fit: %s logic cells is over the %s-cell budget.\n", u[1], budget; \
+	      printf "*** This is a ratchet (ADR-0042), not a suggestion. Find what grew;\n"; \
+	      printf "*** raising FIT_MAX_LC in the Makefile needs a reason in the commit.\n"; \
+	      exit 1; \
+	    } \
+	    printf "\nRATCHET: %s of %s cells budgeted -- OK\n", u[1], budget; \
+	  }' fit.log
 
 clean:
 	rm -f fit.json fit.log fit.synth.log
