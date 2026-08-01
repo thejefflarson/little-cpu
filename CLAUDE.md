@@ -205,12 +205,21 @@ What does not work right now:
   is fine and `components_executor` still passes — but it means `insn_div`/`divu`/`rem`/`remu` fail,
   and the divider's operand routing has **no** formal coverage in any form (ADR-0010 already says
   the arithmetic has none). The non-ALTOPS branch six lines above gets this right and explains why.
-- **`formal/equiv.sh` runs but does not converge** — `equiv_induct` fails on `executor.mul_div_y`
-  bits, exactly the outcome ADR-0020 predicted. So ADR-0006's guarantee that RVFI instrumentation
-  does not perturb core behaviour is still **argued, not proven**. The argument is that every
-  `ifdef RISCV_FORMAL` block is write-only with respect to the core. Any future RVFI change must be
-  read against that: an `ifdef`'d value reaching a non-`ifdef`'d signal breaks it, and CI would not
-  notice.
+- ~~**`formal/equiv.sh` runs but does not converge**~~ — **the file is deleted and the guarantee is
+  proved another way** (ADR-0047). Measured: `equiv_make` leaves **459 of 495** `$equiv` cells
+  unproven — `mem_addr`, `accessor.pending_*`, `executor.mul_div_*`, `regfile.wdata`, essentially the
+  whole datapath — because it matches **by name** and the gate build optimises to a differently-named
+  netlist; `equiv_induct` then diverges at **~660k clauses per step** (1.20M → 1.86M → 2.53M → 3.19M)
+  and never returns. So ADR-0020's own remedy (blackbox the divider, or bound the miter) cannot work:
+  the failure is matching, not the divider. It sat in the nightly behind `continue-on-error` +
+  `timeout 3600`, which made a check that had **never produced a verdict** read as coverage.
+  `make -C formal nonperturbation` replaces it and runs on the PR gate in ~9s: build with
+  `-D RISCV_FORMAL`, `delete -port littlecpu/rvfi_*`, sweep, and require the result to be
+  **structurally identical** to the plain build — cell histogram plus a name-independent connectivity
+  fingerprint. **It is strictly weaker than sequential equivalence and must not be quoted as if it
+  were**: it proves the instrumentation is *unread*, not that two designs behave alike. Both failure
+  directions are demonstrated on real mutations (a shadow value ORed into decode's `stall`, +193
+  cells; one gating the accessor's `out.valid`, **+11** cells).
 - **`reg` is inconclusive** (ADR-0023) — a single depth-21 BMC query that does not return in a
   practical budget. It is the check that ties RVFI's self-report to the actual register file, so
   without it the other 55 passing checks establish that the core's story about itself is
@@ -278,7 +287,9 @@ never takes that path. sby runs its own `prep` model step after the `.sby`'s `[s
 `formalff -clk2ff` there fails closed: *"CLK clock ... also used with opposite polarity, run
 clk2fflogic instead"*, `DONE (ERROR, rc=16)`, which `check-baseline.sh` counts as red. **The silent
 loss is scoped to bespoke yosys scripts that end in `write_btor`/`write_smt2` without going through
-sby** — `formal/equiv.sh` is one, and any standalone regfile proof written that way would be another.
+sby** — any standalone regfile proof written that way would be one. (`formal/equiv.sh` was the
+example this line used to give; it is deleted as of ADR-0047, and it was never exposed anyway — it
+had no backend, a correction `cdb53cb` already made.)
 `clk2fflogic` is **rejected** as the remedy: at genchecks' own depths it makes `reg_ch0` PASS on a
 regfile with the rs2 write-through bypass deleted, which the stock ladder catches in 13.9s, because
 `clk2fflogic` makes a clock cycle two BMC steps while genchecks ties `skip`/`depth`/
@@ -498,6 +509,9 @@ make -C formal components_decoder   # component proofs
 make -C formal check                # the riscv-formal ladder (82 checks; see ADR-0023). ALWAYS a
                                     # fresh run -- it deletes checks/ first (ADR-0040)
 make -C formal check-baseline       # re-grade a finished ladder: EXPECTED_CHECKS + EXPECTED_FAIL
+make -C formal nonperturbation      # ADR-0047: the RVFI instrumentation is UNREAD by the core.
+                                    # yosys + python3 only, ~9s, on the PR gate. NOT sequential
+                                    # equivalence -- it replaced equiv.sh, which never converged
 
 make sail-setup     # once: fetch the pinned sail-riscv release into tools/sail/
 make cosim-run      # Sail co-simulation on ONE program (PROG=add.S). Opt-in; see ADR-0032
@@ -613,7 +627,8 @@ as the real finish line, not M1. `b2dafcc` cleared M2's blocker (RVFI is driven,
 in both sim legs) and `86e2721` landed the ladder port itself (`wrapper.v` / `checks.cfg` /
 `imemcheck` / `dmemcheck` / `cover` / `equiv.sh`, ADR-0006) — but **M2 is not reached.** M2's own
 wording is "re-proves everything the serialized core proved", and 15 red checks plus an inconclusive
-`reg` plus a non-converging `equiv.sh` is not that. ADR-0023 lists what closing it takes. An empty
+`reg` plus a non-converging `equiv.sh` is not that (ADR-0047 has since deleted `equiv.sh`; see
+term 4). ADR-0023 lists what closing it takes. An empty
 `formal/EXPECTED_FAIL`, read together with `formal/EXPECTED_CHECKS` per ADR-0033, is a **necessary
 condition and not a sufficient one** — this file called it "the signal" until ADR-0037, which is
 the language of sufficiency for something that was only ever necessary, and a change nobody
@@ -626,7 +641,8 @@ illegal-instruction — and all ten closed together, which is the attribution be
 
 **The baseline is empty and M2 is still not reached** (ADR-0037). **M2 requires all six of the
 following.** Closing it means deleting terms from this list — a burn-down with the same shape as
-`formal/EXPECTED_FAIL` itself. Term 1 is the only one met:
+`formal/EXPECTED_FAIL` itself. **Term 4 is met as of ADR-0047**; ADR-0045 additionally closes terms 2
+and 3, which this list has not yet been rewritten for. Read each term's own text, not this sentence:
 
 1. **`formal/EXPECTED_FAIL` empty and `formal/EXPECTED_CHECKS` matching — MET at `6309b3e`**: 82
    generated, 82 pass, both set equalities in both directions.
@@ -636,9 +652,12 @@ following.** Closing it means deleting terms from this list — a burn-down with
 3. **`reg_ch0` returns a verdict** rather than exhausting its budget (ADR-0023). It is the one
    check tying RVFI's self-report back to `rtl/regfile.v`; ADR-0032 measured exactly that hole by
    injecting an architectural write the entire ladder missed.
-4. **`formal/equiv.sh` converges** (ADR-0020), or ADR-0006's guarantee that RVFI instrumentation
-   does not perturb the core is proven another way. The argument now has one more `ifdef
-   RISCV_FORMAL` field to cover (`rvfi_shadow.trap`).
+4. ~~**`formal/equiv.sh` converges**~~ — **MET at ADR-0047**, on ADR-0037's second clause: the
+   guarantee is proven another way and `equiv.sh` is deleted rather than fixed. The mechanism is
+   `make -C formal nonperturbation`, a structural check that the `-D RISCV_FORMAL` build with its
+   `rvfi_*` ports deleted sweeps to a netlist identical to the plain build. **Amending a criterion is
+   not meeting it** (ADR-0045's own closing line): this term closed by taking an "or" clause
+   ADR-0037 wrote for the case, and it is the third of the six to close that way.
 5. **`formal/complete` passes**, or every check it declines has a recorded reason. It fails today
    on `ecall`/`ebreak`/`mret`/CSR retires, on no gate.
 6. **The nightly can go red, and is green.** It can go red as of `1961234` — but not for the reason
@@ -686,7 +705,7 @@ not against an oracle. An empty baseline is loudest exactly where the ladder is 
   rejected the shifter merge at 19 cells *saved* on legibility grounds, and accepting a hygiene
   change at 37 cells *spent* would cut against that ruling. Read this before proposing the
   narrowing again — it is measured and declined, not overlooked.
-- Decisions: [`docs/adr/`](docs/adr/) — forty-four accepted ADRs, plus a deferred list
+- Decisions: [`docs/adr/`](docs/adr/) — forty-five accepted ADRs, plus a deferred list
 - Reference text from the old core: `git show 1709433^:rtl/riscv.v` (RVFI retire block),
   `git show e67875c^:rtl/alu.v` (arithmetic)
 - Work is tracked in Linear, project **Little CPU** (team JEF). Named here so you know where the
