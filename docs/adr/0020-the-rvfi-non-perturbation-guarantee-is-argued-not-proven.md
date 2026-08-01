@@ -1,6 +1,9 @@
 # ADR-0020: The RVFI non-perturbation guarantee is argued, not proven
 
-**Status:** Accepted · 2026-07-28 · *Supplements ADR-0006*
+**Status:** Accepted · 2026-07-28 · *Supplements ADR-0006 · **Consequences rewritten by
+[ADR-0047](0047-non-perturbation-is-proved-structurally-and-equiv-sh-is-retired.md)**, which retired
+`formal/equiv.sh` and proved the guarantee structurally instead. The Context and Decision below
+stand as written; the Consequences section is the part that has moved.*
 
 ## Context
 
@@ -43,13 +46,29 @@ in CI would notice.
 
 ## Consequences
 
-- **This is the standing follow-up.** Porting `equiv.sh` to `littlecpu` is required work in the
-  ADR-0006 harness ticket, not optional cleanup, and its result is the thing that closes this ADR.
-  If the ported script also fails to converge, that is itself a finding to record — the answer is
-  then likely a bounded `equiv` (SAT-based miter to a fixed depth) or blackboxing the divider, and
-  either of those is a decision to write down rather than a switch to flip.
-- Until then, "RVFI costs no LUTs and changes no behaviour" is a claim resting on `ifdef` discipline
-  and reviewer inspection. Reviewers of any future RVFI change carry that burden explicitly: verify
-  by reading that no `ifdef`'d value reaches a non-`ifdef`'d signal.
-- CLAUDE.md's M2 line should not be read as closed until the ladder port lands. `b2dafcc` cleared the
-  blocker; it did not reach the milestone.
+*Rewritten by ADR-0047. What this section said — that `equiv.sh` was the standing follow-up, that a
+bounded miter or blackboxing the divider was the likely answer, and that reviewers carried the burden
+in the meantime — was written before anyone measured `equiv.sh`. All three are wrong, and the
+measurement is in ADR-0047. The original text is in this file's git history; it is replaced rather
+than annotated because leaving a live instruction to reviewers that a machine now performs is how a
+manual step outlives its need.*
+
+- **The burden is on a gate, not on reviewers.** `make -C formal nonperturbation`
+  (`formal/check-nonperturbation.py`, ADR-0047) decides the property this ADR names: it builds the
+  `-D RISCV_FORMAL` design with the `rvfi_*` ports deleted, sweeps everything that only fed them, and
+  requires the result to be structurally identical to the plain build — same cell histogram, same
+  name-independent connectivity fingerprint. It runs on every pull request in about nine seconds, and
+  both of its failure directions were demonstrated on real mutations before it landed, including one
+  worth only 11 cells.
+- **It is strictly weaker than sequential equivalence, and that is the correct trade.** It proves the
+  instrumentation is *unread*; it does not prove two arbitrary designs behave alike. For this
+  obligation that is the whole property, and it is decidable where the miter was not.
+- **`formal/equiv.sh` is deleted** — with `formal/Makefile`'s `equiv` target and the nightly step, in
+  the same change. The route this section used to propose (bounded miter, blackboxed divider) is
+  measured and dead: the failure is `equiv_make`'s name-based matching, which pairs almost nothing
+  across the two builds, so no budget and no blackbox reaches it.
+- **Keep writing to the textual rule anyway** — no `ifdef`'d value reaching a non-`ifdef`'d signal.
+  The gate enforces the *property* (the netlist is unchanged), which a pure alias could satisfy while
+  breaking the rule. The rule is the habit that keeps the property true.
+- **Do not weaken the check to make it pass.** That instruction was in this ADR before the instrument
+  changed and it survives the change of instrument. A red is a measurement.
