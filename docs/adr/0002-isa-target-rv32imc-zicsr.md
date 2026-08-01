@@ -1,4 +1,4 @@
-# ADR-0002: ISA target is RV32IMC_Zicsr, machine mode only
+# ADR-0002: ISA target is RV32IMC_Zicsr_Zifencei, machine mode only
 
 **Status:** Accepted · 2026-07-27
 
@@ -15,9 +15,21 @@ doubles the riscv-formal `insn_*` check count. An initial recommendation was to 
 
 ## Decision
 
-**Target RV32IMC_Zicsr, machine mode only.** The C extension stays.
+**Target RV32IMC_Zicsr_Zifencei, machine mode only.** The C extension stays.
 
-- `misa = 0x4000_1104` (MXL=1, C+I+M).
+- `misa = 0x4000_1104` (MXL=1, C+I+M). Neither Zicsr nor Zifencei has a `misa` bit — they are
+  named extensions, so the ISA string is the only place either is claimed.
+- **Zifencei is claimed rather than declined, because the core already implements it correctly
+  and for free.** `rtl/decoder.v` decodes `fence.i` and retires it as a NOP, which is exactly a
+  conformant Zifencei on this design: one hart, no instruction cache, so instruction fetch is
+  always coherent with stores and there is nothing to invalidate. **The state before this
+  amendment was the one combination that was wrong** — the string did not claim Zifencei while
+  the decoder accepted `fence.i` anyway, so the core was silently permissive: an instruction from
+  an unclaimed extension retired instead of raising illegal-instruction. Claiming it costs
+  nothing and makes the RTL and the string agree; declining it would have meant *removing*
+  working, correct logic to raise a trap nobody wants. Added to `-march` in `test/run_tests.sh`
+  and `test/cosim.py`, without which the assembler refuses to emit `fence.i` at all — which is
+  why `fence.i` had no test before `test/asm/fencenop.S`.
 - Traps implemented: illegal instruction (2), breakpoint (3), load address misaligned (4), store
   address misaligned (6), environment call from M-mode (11).
 - **Instruction-address-misaligned (mcause 0) is unreachable and not implemented** — with C, only
