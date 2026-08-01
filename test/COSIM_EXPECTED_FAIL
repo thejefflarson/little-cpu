@@ -1,0 +1,63 @@
+# The co-simulation baseline (ADR-0039), in ADR-0035's format and under
+# ADR-0014's contract. `make cosim-suite` exits 0 only when the set of programs
+# that do NOT agree with the Sail RISC-V model matches this file exactly, in
+# both directions — so an unexpected *agreement* is caught too.
+#
+# FORMAT — two fields, not one:
+#
+#     <test>.S  <STATUS>
+#
+# The status is the exact label test/run_cosim.sh prints in its table:
+#
+#   DISAGREE AT <n>      the two register traces differ at architectural
+#                        change n (the FIRST one that differs)
+#   DISAGREE LENGTH      the traces agree as far as the shorter one goes, but
+#                        one side made more architectural changes than the other
+#   DISAGREE VERDICT     identical register traces, different pass/fail verdicts
+#   INCONCLUSIVE SAIL-LIMIT | INCONCLUSIVE CORE-TIMEOUT
+#                        one side ran out of budget; nothing was compared
+#   COSIM-ERROR <...>    the harness failed. Nothing should ever be baselined
+#                        under this — it describes a broken setup, not a known
+#                        property — but the format admits it, and a line under
+#                        it is a review flag.
+#
+# Whitespace between the fields is free; a line with only a name is rejected
+# rather than half-matched.
+#
+# Pinning the divergence POINT is the whole reason the second field is here. A
+# baselined program that starts diverging somewhere else is diverging for a new
+# reason, and that is a red gate, not a match. Changing a status is the same
+# kind of claim as removing the line and needs the same justification in the PR
+# that does it. This file is never regenerated wholesale from a run.
+#
+# Both entries below are read-only-CSR value divergences, not core defects, and
+# neither is reachable by fixing this core:
+#
+#   csr.S       DISAGREE AT 17 -- `csrr a0, misa`. Sail reports 0x4034112f
+#               against this core's 0x40001104 (ADR-0002's RV32IMC_Zicsr).
+#               misa is not a knob in the Sail configuration; it is derived
+#               from the extension set, and bringing the two into agreement
+#               means disabling A, B, D, F, S, U and V in
+#               test/sail/memory-map.json — measured, and each disable pulls in
+#               a further cascade of dependent-extension and paging keys the
+#               model's own validator demands (Ssccptr, Svade, Svadu, Svvptc,
+#               then the Zve*/Zvfh* family, then physaddr_bits and two
+#               mstatus.*_legal_states). That is a large, version-fragile
+#               config edit to make one CSR read match, on a model whose
+#               config schema ADR-0032 already flags as something a version
+#               bump moves. Not worth it; recorded here instead.
+#
+#   minstret.S  DISAGREE AT 7 -- `csrr a0, mcycle`. mcycle counts CYCLES, and
+#               the reference model has no pipeline, so it counts something
+#               else by construction (6 against this core's 30 at the same
+#               point). The rate of mcycle is implementation-defined; the test
+#               itself asserts only monotonicity and a bound, which is why it
+#               passes on both sides. There is nothing here for either side to
+#               fix, and no configuration that would make a cycle-accurate
+#               reference model out of an ISA model.
+#
+# Everything else in the suite AGREES, including trap.S (ADR-0030's causes,
+# with test/sail/memory-map.json's global misaligned-exception key set to match
+# ADR-0005) and rvc.S/straddle.S (ADR-0003's compressed fetch window).
+csr.S           DISAGREE AT 17
+minstret.S      DISAGREE AT 7

@@ -43,6 +43,7 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0036](0036-three-gate-hardening-decisions-ratified-at-integration.md) | Three gate-hardening decisions ratified at integration, and a correction to ADR-0031 | Accepted |
 | [0037](0037-an-empty-baseline-is-not-m2.md) | An empty formal baseline is not M2, and the milestone criterion said it was | Accepted |
 | [0038](0038-area-is-measured-in-logic-cells-and-two-levers-are-rejected.md) | Area is measured in logic cells, Fmax is declared at 12 MHz, and two area levers are rejected | Accepted |
+| [0039](0039-co-simulation-runs-the-whole-suite-against-a-baseline.md) | Co-simulation runs the whole suite against a baseline, and `tohost` becomes a doubleword | Accepted |
 
 0001–0007 came from the design brief
 ([`docs/ideas/finish-the-rewrite.md`](../ideas/finish-the-rewrite.md)). 0008–0011 came out of
@@ -78,7 +79,11 @@ recorded integrating those three gate changes together: it ratifies putting `han
 that never retires), corrects 0031 on how the `csrc_*` family is actually reached, and closes the
 `case_default` question by measuring that yosys already errors on the latch. It also records a
 gap it did not close: `formal/EXPECTED_FAIL` still matches on names only, so a red check that flips
-from `FAIL` to `ERROR` keeps the ladder green — 0035's lesson, unapplied to the formal side.
+from `FAIL` to `ERROR` keeps the ladder green — 0035's lesson, unapplied to the formal side. 0039
+finishes the first half of 0032's integration list: the whole `.S` suite now runs under
+co-simulation behind `make cosim-suite`, graded by 0014's set equality in 0035's name-and-status
+format, and `tohost` becomes the doubleword the HTIF protocol it borrows always specified — an
+amendment to 0008, and the one change here that touches what both existing sim legs read.
 
 ## Deferred decisions
 
@@ -104,5 +109,6 @@ trades away simplicity the current design depends on.
 - ~~**Spike or Sail co-simulation**~~ — **resolved by [ADR-0032](0032-sail-co-simulation-is-worth-building-and-stays-opt-in.md).**
   The old test ("revisit only if formal and simulation ever disagree") could only fire on a bug both
   legs can see; a spike measured what neither can. The harness exists and is deliberately opt-in —
-  `make cosim-run`, never `make test`, never CI. Integrating it across the whole suite is
-  still future work, scoped in that ADR's consequences.
+  `make cosim-run` / `make cosim-suite`, never `make test`, never CI's required set.
+  [ADR-0039](0039-co-simulation-runs-the-whole-suite-against-a-baseline.md) integrated it across the
+  whole suite against a baseline; a nightly job and memory comparison remain future work.

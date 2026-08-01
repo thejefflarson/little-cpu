@@ -297,6 +297,29 @@ exactly) while the co-sim reported it in 0.6s with instruction number, PC and bo
 class is *architectural state no retiring instruction names, corrupted past the BMC bound*. The
 mutation was reverted; `rtl/` is untouched by that change.
 
+**Co-simulation now runs the whole suite against a baseline** (ADR-0039). `make cosim-suite` is
+`test/run_cosim.sh` in the shape of `test/run_tests.sh`, graded by ADR-0014's set equality in both
+directions against `test/COSIM_EXPECTED_FAIL` in ADR-0035's name-and-status format: **52 programs,
+50 agree, 10s wall.** The two baselined entries are read-only-CSR *value* divergences no change to
+this core could close — `csr.S` on `misa` (Sail derives it from its extension set; matching it needs
+seven extensions disabled and a cascade of dependent keys, measured and recorded rather than chased)
+and `minstret.S` on `mcycle` (an ISA model has no pipeline, so it cannot count cycles). `trap.S`
+agrees 214/214. **The mutation was re-run against the integrated leg rather than inherited**: the
+same post-cycle-40 `regs[31] <= wdata` is missed by `make test` at 52/52 and caught by
+`make cosim-suite` in 49 of 52 programs (the three that still agree are the three too short to reach
+cycle 40), and `csr.S`'s baselined status moves from `DISAGREE AT 17` to `DISAGREE AT 11` — the
+second baseline field doing its job.
+
+The same change made `tohost` an 8-byte-aligned `.dword` in `test/asm/riscv_test.h`, which is what
+the HTIF protocol its encoding is borrowed from always specified (ADR-0039 amends ADR-0008). It was
+a 32-bit `.word` at the base of RAM, so `.data` began four bytes inside the doubleword IO window any
+HTIF consumer claims at the symbol; Sail answered every `lw` from `RAM_BASE+4` with zero. **This is
+shared test infrastructure both existing sim legs read** — every program's `.data` moves four bytes
+and every program executes one extra store — and `make test` (52/52) and `make test-units` were
+re-run green in the same change. The verdict macros write the upper word first and the verdict last,
+so the reference model terminates on the same store the cxxrtl runners stop on; the `objcopy
+--strip-symbol=tohost` workaround and the spin-loop convergence heuristic are both gone.
+
 **`86e2721` ports the riscv-formal ladder to `littlecpu`** — the first time any riscv-formal
 check has run against the pipelined core since the 2021 teardown. `formal/wrapper.v` speaks the
 real bus (no handshake: `imem_data`/`mem_rdata` are free every cycle, per invariant 1 and
@@ -366,6 +389,7 @@ make -C formal check-baseline       # re-grade a finished ladder: EXPECTED_CHECK
 
 make sail-setup     # once: fetch the pinned sail-riscv release into tools/sail/
 make cosim-run      # Sail co-simulation on ONE program (PROG=add.S). Opt-in; see ADR-0032
+make cosim-suite    # the whole .S suite under co-sim, graded against COSIM_EXPECTED_FAIL
 ```
 
 Toolchain: macOS `brew install riscv64-elf-gcc`; Linux `apt install gcc-riscv64-unknown-elf`.
@@ -397,13 +421,16 @@ you can point at something it would have failed on.
 That arithmetic is covered only by the `.S` suite and the executor component proof. Do not assume a
 green formal ladder means the ALU is correct.
 
-**There is a fourth thing you can run, and it is deliberately not a leg** (ADR-0032). `make
-cosim-run` diffs the core's *real* `regs` array — read through cxxrtl `debug_items` by
-`test/cosim.cc`, which touches no `rvfi_*` signal at all — against the Sail RISC-V model. All 49
-programs agree (24s for the suite, against 7.3s for `make test`). It is **not** on `make test`'s
-path and **not** a CI gate, on purpose: `make test` must keep working on a machine with no Sail
-installed. Do not wire it in without reading ADR-0032's consequences first — the `tohost`/HTIF
-overlap it works around is real and the fix belongs in shared test infrastructure.
+**There is a fourth thing you can run, and it is deliberately not a leg** (ADR-0032, ADR-0039).
+`make cosim-suite` diffs the core's *real* `regs` array — read through cxxrtl `debug_items` by
+`test/cosim.cc`, which touches no `rvfi_*` signal at all — against the Sail RISC-V model, over the
+whole suite, graded against `test/COSIM_EXPECTED_FAIL`: **50 of 52 agree, 10s**, against 7.3s for
+`make test`. `make cosim-run PROG=x.S` does one program. It is **not** on `make test`'s path and
+**not** in CI's required set, on purpose: `make test` must keep working on a machine with no Sail
+installed (demonstrated by moving `tools/sail` aside), and **adding it to branch protection is what
+ADR-0032 forbids**. The way a change gates on it is by carrying its pre/post output in the pull
+request. `test/cosim.cc` reading no `rvfi_*` signal is the property that makes this leg worth
+having; do not "align" it against `rvfi_valid`.
 
 `test/monitor.v` rides along in both sim legs (`b2dafcc`), so every run is self-checking per-retire —
 a test that corrupts state transiently but converges to the right final registers fails loudly, not
@@ -524,7 +551,7 @@ not against an oracle. An empty baseline is loudest exactly where the ladder is 
   the core does **not** currently place on the up5k (6659/5280 logic cells, 126%). Read ADR-0038
   before quoting any area number: yosys cell counts are blind to unpaired flip-flops and have
   produced two wrong estimates already.
-- Decisions: [`docs/adr/`](docs/adr/) — thirty-seven accepted ADRs, plus a deferred list
+- Decisions: [`docs/adr/`](docs/adr/) — thirty-nine accepted ADRs, plus a deferred list
 - Reference text from the old core: `git show 1709433^:rtl/riscv.v` (RVFI retire block),
   `git show e67875c^:rtl/alu.v` (arithmetic)
 - Work is tracked in Linear, project **Little CPU** (team JEF). Named here so you know where the
@@ -533,4 +560,5 @@ not against an oracle. An empty baseline is loudest exactly where the ladder is 
 **Deferred behind future ADRs** — forwarding network, radix-4 divider, negedge-BRAM regfile, FPGA
 timing closure, interrupts. Each trades away simplicity the current design depends on; none are
 safe to build while the core is unverified. (Sail co-sim came off this list in ADR-0032: the
-harness exists, opt-in; wiring it into `make test` or CI has not been decided.)
+harness exists and ADR-0039 runs it over the whole suite behind `make cosim-suite`, still opt-in;
+wiring it into `make test` or CI's required set is decided *against* and needs a new ADR to change.)
