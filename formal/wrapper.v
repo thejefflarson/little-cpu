@@ -34,6 +34,21 @@ module rvfi_wrapper (
 
   // INSTRUCTION MEMORY IS A FUNCTION OF ITS ADDRESS (ADR-0042, ADR-0017).
   //
+  // FACT       instruction memory is a function of its address, across two
+  //            consecutive cycles.
+  // DISCHARGED NOWHERE. There is no check anywhere in this repo that asserts
+  //            it. The backing is structural: rtl/imemory.v is a $readmemh ROM
+  //            with no write port, and ADR-0044 keeps the instruction side
+  //            read-only. Believed, not proved -- which is the honest answer
+  //            and, per ADR-0048, an acceptable one.
+  // SCOPE      ALL 82 GENERATED CHECKS. This is an unguarded `assume` in the
+  //            harness every check instantiates, so it is in force over every
+  //            insn_*, reg, pc_fwd/pc_bwd, causal*, unique and cover check --
+  //            not only the two it was written for (`hang` and `liveness_ch0`,
+  //            measured red without it below). That set is much larger than the
+  //            one it was written for, and the paragraph headed WHAT IT COSTS
+  //            is what those other 80 checks are paying.
+  //
   // The structural fact being modelled: a ROM asked twice for the same address,
   // with no write port anywhere in this design that could reach it, answers the
   // same both times. That is a property of memory, not a convenience -- and
