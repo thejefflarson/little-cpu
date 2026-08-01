@@ -511,7 +511,12 @@ make fit            # the ONE area number: nextpnr logic cells on up5k/sg48 (ADR
                     # the utilisation table printed before placement is the measurement.
                     # A RATCHET as of ADR-0042: over FIT_MAX_LC (4400) exits nonzero.
 
-make -C formal components_decoder   # component proofs
+make -C formal components_decoder   # component proofs. THREE tasks, all with real assertions:
+make -C formal components_executor  # decoder, executor, pcloop -- the assertion-free fetcher /
+make -C formal components_pcloop    # accessor / writeback tasks were deleted, not left unrun.
+                                    # pcloop is the composed fetcher+decoder proof that discharges
+                                    # ADR-0017's assume(in.pc == pc); it needs `smtbmc boolector`
+                                    # (see formal/components.sby) and is on CI as of ADR-0046
 make -C formal check                # the riscv-formal ladder (82 checks; see ADR-0023). ALWAYS a
                                     # fresh run -- it deletes checks/ first (ADR-0040)
 make -C formal check-baseline       # re-grade a finished ladder: EXPECTED_CHECKS + EXPECTED_FAIL
@@ -646,7 +651,15 @@ following.** Closing it means deleting terms from this list — a burn-down with
 `formal/EXPECTED_FAIL` itself. Term 1 is the only one met:
 
 1. **`formal/EXPECTED_FAIL` empty and `formal/EXPECTED_CHECKS` matching — MET at `6309b3e`**: 82
-   generated, 82 pass, both set equalities in both directions.
+   generated, 82 pass, both set equalities in both directions. **ADR-0045 reopened this and ADR-0046
+   closed it again**, which is the more useful thing to know about it: the depths those 82 checks run
+   at were derived against a pipeline two changes old, and a depth below its floor goes green having
+   stopped asking. They are re-derived now, and the derivation is *measured* — `hang` gives the
+   worst-case first retire (F = 6), `liveness` the worst-case retire gap (G = 4), both in seconds,
+   both re-runnable. No depth moved. `insn 15` and `reg 15 20` clear their floors by **one cycle**,
+   so **any change that adds a stall reason, lengthens a stage, or widens the scoreboard past its
+   three fixed slots must re-measure F and G before it lands.** Two of the last three such changes
+   did not.
 2. **The mul/div checks run without `RISCV_FORMAL_ALTOPS`**, or ADR-0010's gap is closed by a named
    oracle that does. Today `insn_mul`/`insn_div`/`insn_rem` passing says nothing whatever about the
    real multiplier or divider.
@@ -703,7 +716,7 @@ not against an oracle. An empty baseline is loudest exactly where the ladder is 
   rejected the shifter merge at 19 cells *saved* on legibility grounds, and accepting a hygiene
   change at 37 cells *spent* would cut against that ruling. Read this before proposing the
   narrowing again — it is measured and declined, not overlooked.
-- Decisions: [`docs/adr/`](docs/adr/) — forty-four accepted ADRs, plus a deferred list
+- Decisions: [`docs/adr/`](docs/adr/) — forty-five accepted ADRs, plus a deferred list
 - Reference text from the old core: `git show 1709433^:rtl/riscv.v` (RVFI retire block),
   `git show e67875c^:rtl/alu.v` (arithmetic)
 - Work is tracked in Linear, project **Little CPU** (team JEF). Named here so you know where the
