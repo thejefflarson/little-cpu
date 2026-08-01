@@ -460,19 +460,25 @@ jobs:
       # a silent pass.
       - name: Gate on formal/EXPECTED_FAIL + formal/EXPECTED_CHECKS
         run: |
+          # NO PIPE ON THE GRADED COMMAND, DELIBERATELY. The obvious spelling
+          # of this step is `check-baseline.sh ... | tee -a "$GITHUB_STEP_
+          # SUMMARY"` and it silently cannot fail: without an explicit
+          # `shell:` key a `run:` step is `bash -e {0}`, which sets errexit
+          # but NOT pipefail -- only an explicit `shell: bash` gets
+          # `-eo pipefail` -- so `$?` after that pipeline is tee's status,
+          # which is always 0. Demonstrated: with the pipe in place, a
+          # deliberately wrong formal/EXPECTED_FAIL printed "Failure list
+          # does NOT match" and the job still reported success. Redirect to a
+          # file, capture the status off the unpiped command, then publish.
+          set +e
+          formal/check-baseline.sh formal/checks formal/EXPECTED_FAIL > "$RUNNER_TEMP/baseline-report.txt" 2>&1
+          status=$?
+          set -e
+          cat "$RUNNER_TEMP/baseline-report.txt"
           {
             echo "### formal ladder vs formal/EXPECTED_{FAIL,CHECKS}"
             echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          # `-e`/`pipefail` are both on by default for GH Actions bash steps,
-          # so a failing pipeline would abort the script here and skip the
-          # closing code-fence and the caveat below; toggle them off for this
-          # one command and capture its real status via pipefail.
-          set +e
-          formal/check-baseline.sh formal/checks formal/EXPECTED_FAIL | tee -a "$GITHUB_STEP_SUMMARY"
-          status=$?
-          set -e
-          {
+            cat "$RUNNER_TEMP/baseline-report.txt"
             echo '```'
             echo "A match here means the ladder still agrees with its baseline."
             echo "It is not a correctness result: every check is \`mode bmc\` (no"

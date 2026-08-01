@@ -104,21 +104,39 @@ jobs:
       # check-baseline.sh defaults its third argument to the EXPECTED_CHECKS
       # beside it, so the invocation below is unchanged. Not
       # `continue-on-error` -- this exit status is the job's.
+      #
+      # NO PIPE ON THE GRADED COMMAND, DELIBERATELY, and this step did have
+      # one until now, which meant it could not fail. The comment it replaces
+      # asserted that "`-e`/`pipefail` are both on by default for GH Actions
+      # bash steps". Half right, and the wrong half: without an explicit
+      # `shell:` key a `run:` step is `bash -e {0}` -- errexit only. Only an
+      # explicit `shell: bash` gets `-eo pipefail`. So `$?` after
+      # `check-baseline.sh | tee ...` was tee's status, which is always 0,
+      # and this step reported success no matter what the comparison found.
+      # Demonstrated on a scratch branch against ci.yml's copy of the same
+      # step: a deliberately wrong formal/EXPECTED_FAIL printed "Failure list
+      # does NOT match" and the job still went green.
+      #
+      # That is worth stating plainly, because it means the guarantee
+      # ADR-0022 records -- "that comparison step's exit status is the job's
+      # real signal" -- has never actually held. Replacing `|| true` with
+      # this step moved the defect rather than fixing it: the nightly still
+      # could not go red. Redirect to a file, capture the status off the
+      # unpiped command, then publish.
       - name: Compare ladder results against formal/EXPECTED_{FAIL,CHECKS}
         run: |
+          set +e
+          formal/check-baseline.sh formal/checks formal/EXPECTED_FAIL \
+            > "$RUNNER_TEMP/baseline-report.txt" 2>&1
+          status=$?
+          set -e
+          cat "$RUNNER_TEMP/baseline-report.txt"
           {
             echo "### formal ladder vs formal/EXPECTED_FAIL"
             echo '```'
+            cat "$RUNNER_TEMP/baseline-report.txt"
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          # `-e`/`pipefail` are both on by default for GH Actions bash steps,
-          # so a failing pipeline would otherwise abort the script here and
-          # skip the closing code-fence line below; toggle them off just for
-          # this one command and capture its real exit status via pipefail.
-          set +e
-          formal/check-baseline.sh formal/checks formal/EXPECTED_FAIL | tee -a "$GITHUB_STEP_SUMMARY"
-          status=$?
-          set -e
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
       - name: Summarize checks
