@@ -45,9 +45,15 @@
 # asserts only that the checks EXIST.
 #
 # Seeded from a from-scratch `python3 formal/genchecks-audit.py` against
-# main at 0d23294 plus this change: 82 generated, 15 declined. The 79-check
-# ladder recorded in ADR-0031 and ADR-0034 grew by three -- causal_mem_ch0,
-# hang and ill_ch0 -- see checks.cfg's declined-checks block for why each.
+# main at 0d23294: 82 generated, 15 declined. The 79-check ladder recorded in
+# ADR-0031 and ADR-0034 grew by three there -- causal_mem_ch0, hang and
+# ill_ch0 -- see checks.cfg's declined-checks block for why each.
+#
+# Now 85 generated, 14 declined. The three csrc_* counter checks below joined;
+# the three bare-name `csrc_<csr>_ch0` omissions went away (all three CSRs
+# carry a [csrs] test list now, so genchecks never reaches the bare branch
+# that would have read the never-written rvfi_csrc_check.sv), and two
+# csrc_inc_* omissions replaced them.
 
 # --- consistency checks (genchecks' check_cons) -------------------------
 causal_ch0
@@ -66,6 +72,14 @@ unique_ch0
 csrw_mcycle_ch0
 csrw_minstret_ch0
 csrw_mscratch_ch0
+
+# --- CSR counter checks (check_cons, csr_mode + a [csrs] test list) ------
+# One per test SPELLING, not per CSR. `csrc_inc_mcycle_ch0` and
+# `csrc_inc_minstret_ch0` are deliberately absent and declined by name in
+# checks.cfg: rvfi_csrc_inc_check.sv is red on a correct core here.
+csrc_any_mscratch_ch0
+csrc_upcnt_mcycle_ch0
+csrc_upcnt_minstret_ch0
 
 # --- per-instruction checks (check_insn over riscv-formal's isa_rv32imc
 # --- table at the pin) --------------------------------------------------
