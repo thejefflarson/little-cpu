@@ -52,6 +52,17 @@ core: with the sanitizer rule in place `div.S`/`rem.S` pass. `test/monitor.sim.v
 sites to make the arithmetic self-determined. **`test/EXPECTED_FAIL` is not the place to park a
 monitor defect** — read ADR-0019 before adding a line back for one.
 
+**That defect is a repo-wide hazard, not a monitor bug, and it has now caught work here twice** —
+the generated monitor's DIV and REM spec models above, and then `test/exec_tb.v`'s new SRA
+reference, whose natural one-line form
+(`cond ? ... : $signed(a) >>> sh`) reported six mismatches against RTL that was correct. **Any
+signed arithmetic written into a *reference model* in this repo must be a self-determined statement
+of its own, never an arm of a conditional expression.** `exec_tb`'s shift references are written
+that way with the reasoning in place, and a `ref_selftest` block pins all three against
+hand-computed literals *before* a single RTL vector runs, so a reference that degraded would say
+`ORACLE BROKEN` and stop rather than blaming the core. An oracle that is wrong is worse than no
+oracle: it fails correct hardware and teaches the reader to distrust the bench.
+
 **ADR-0003's dual-word combinational fetch window lands, closing the gap ADR-0021 found.**
 `rtl/fetcher.v` now reads two adjacent words every cycle (`imem_addr`/`imem_addr2 = imem_addr + 4`)
 and windows the 32 bits starting at `pc` out of them — stateless, so a 32-bit instruction straddling
@@ -303,7 +314,8 @@ downstream consumer, and neither did. They are gone. ADR-0029's harness half lan
 that makes it reachable: `test/testbench.v` raises a `(* keep *) trap_to_zero` flag when a trap
 redirects to address 0, `test/cxxrtl.cc` turns that into exit code 5 and `test/run_tests.sh` labels
 it `TRAP-TO-ZERO`, so a test that faults before installing `mtvec` gets a named failure instead of
-a timeout. And `test/sail/memory-map.json` sets `memory.misaligned.exceptions.load_store` to
+a timeout. And the Sail config (`test/sail/rv32imc_zicsr.json` since ADR-0043;
+`test/sail/memory-map.json` at the time) sets `memory.misaligned.exceptions.load_store` to
 `{"Some": "AlignmentException"}` — the **global** key, which is what actually governs; the
 per-region `misaligned_exceptions` attribute is checked after address translation and with no MMU
 is never consulted. Without it the reference model completes misaligned accesses and reports a
@@ -333,7 +345,11 @@ signal and is the single entry on the `elaborate` gate's allowlist; everything e
 `Warning:` is promoted to an error there (`.github/workflows/ci.yml`, which cross-references this
 note). It is not zero, and this line said zero until ADR-0037. The
 cxxrtl binary builds and runs, the whole `.S` suite passes under it with `test/EXPECTED_FAIL`
-empty, `make test-units` passes (six benches: `exec_tb`, `mem_tb`, `decoder_tb`,
+empty, `make test-units` passes (six benches: `exec_tb` — 10,000 randomized differential vectors
+per op across `mul`/`mulh`/`mulhu`/`mulhsu`/`div`/`divu`/`rem`/`remu` **and**
+`sll`/`srl`/`sra`, plus 384 directed shift vectors per shift op sweeping every amount 0-31 with a
+clean and a dirty rs2 so the `rs2[4:0]` mask is checked rather than coincided with — `mem_tb`,
+`decoder_tb`,
 `regfile_tb` — which covers the write-through bypass and x0 semantics — `csr_tb`, which covers
 `rtl/csrs.v`'s read mux, its `implemented` address set, its WARL masks and its trap-entry/`mret`
 port, and `monitor_tb`, which checks the oracle itself rather than the core), and the decoder and
@@ -367,6 +383,24 @@ same post-cycle-40 `regs[31] <= wdata` is missed by `make test` at 52/52 and cau
 `make cosim-suite` in 49 of 52 programs (the three that still agree are the three too short to reach
 cycle 40), and `csr.S`'s baselined status moves from `DISAGREE AT 17` to `DISAGREE AT 11` — the
 second baseline field doing its job.
+
+**`test/COSIM_EXPECTED_FAIL` is now EMPTY and the suite is 52/52** (ADR-0043), and no `rtl/` file
+changed to get there. Both entries above were artefacts of how the reference model was configured
+or compared, not of this core. The `misa` one was the more important: the model was a
+`--config-override` on Sail's **default RV32 machine**, and an override inherits everything it does
+not mention — so the thing this repo cross-checks against had A, B, D, F, S, U and V, none of them
+implemented here and none of them chosen. `misa` was simply the one register a test read.
+`test/sail/rv32imc_zicsr.json` replaces it with a **complete `--config`** describing ADR-0002's
+RV32IMC_Zicsr: `--config` is rejected outright if a key is missing, so a Sail version bump that
+adds a knob now fails loudly here instead of picking a default nobody read. `mcycle` is handled by
+`test/cosim.py`'s `NONCOMPARABLE_CSRS`, which exempts **one register's value at one change** and
+prints every exemption it takes. **Fixing `misa` unmasked two divergences it had been hiding**, and
+those are the ones worth remembering: `mip.MTIP` and `mie`'s writable bits are read-only zero here
+(ADR-0002) and neither is configurable in sail-riscv 0.13.1, so `csr.S`'s assertions about them made
+the *reference model* run the program to `fail` — a different branch, not a different value, which
+no value exemption can or should paper over. Those assertions moved to `test/csr_tb.v`, which
+already made every one of them. **Before adding a line to that baseline, read its header**: the
+three questions in it are the decision procedure, and a baseline entry is the last of them.
 
 The same change made `tohost` an 8-byte-aligned `.dword` in `test/asm/riscv_test.h`, which is what
 the HTIF protocol its encoding is borrowed from always specified (ADR-0039 amends ADR-0008). It was
@@ -502,7 +536,8 @@ green formal ladder means the ALU is correct.
 **There is a fourth thing you can run, and it is deliberately not a leg** (ADR-0032, ADR-0039).
 `make cosim-suite` diffs the core's *real* `regs_a` array — read through cxxrtl `debug_items` by
 `test/cosim.cc`, which touches no `rvfi_*` signal at all — against the Sail RISC-V model, over the
-whole suite, graded against `test/COSIM_EXPECTED_FAIL`: **50 of 52 agree, 10s**, against 7.3s for
+whole suite, graded against `test/COSIM_EXPECTED_FAIL`: **52 of 52 agree, 7.3s** (ADR-0043; it was
+50 of 52 at ADR-0039), against 7.3s for
 `make test`. `make cosim-run PROG=x.S` does one program. It is **not** on `make test`'s path and
 **not** in CI's required set, on purpose: `make test` must keep working on a machine with no Sail
 installed (demonstrated by moving `tools/sail` aside), and **adding it to branch protection is what
@@ -635,7 +670,23 @@ not against an oracle. An empty baseline is loudest exactly where the ladder is 
   unpaired flip-flops and have produced two wrong estimates already. **The brief's two `reg_ch0`
   claims are false and are struck in place** (ADR-0040), and its recommendation of a *negedge* read
   is superseded (ADR-0042).
-- Decisions: [`docs/adr/`](docs/adr/) — forty-two accepted ADRs, plus a deferred list
+- **`make fit` has a churn floor of roughly ±50 cells, and a ratchet has to sit above it.**
+  Measured by sweeping `rtl/executor.v`'s `mul_div_counter` across four widths that are all
+  functionally identical — the counter's range is 0..32 and yosys already constant-folds every bit
+  above 5, so the **flip-flop count is byte-identical in all four** (1757). The logic cells are not:
+  `[6:0]` (what is checked in) → **6971**, `[5:0]` → 7008, `[7:0]` → 7027, `[8:0]` → 7024 —
+  non-monotonic, spanning 56 cells, entirely LUT4 churn from ABC re-mapping and nextpnr packing
+  (LUT4-only 5159 → 5198, LUT4+DFF 587 → 587, DFF-only 1170 → 1170, CARRY 41 → 39 for the first
+  two). Each figure is reproducible run to run; it is the *edit* the number is unstable under, not
+  the tool. Two consequences: **a `make fit` delta smaller than ~50 cells is not evidence of
+  anything**, and ADR-0038 decision 1a's utilisation ratchet needs a margin wider than this floor
+  or it will go red on changes that synthesize to the same hardware.
+  This is also why `mul_div_counter` is still `[6:0]` for a value that never exceeds 32. Narrowing
+  it is a legibility change that removes no register and **costs 37 cells measured**; ADR-0038
+  rejected the shifter merge at 19 cells *saved* on legibility grounds, and accepting a hygiene
+  change at 37 cells *spent* would cut against that ruling. Read this before proposing the
+  narrowing again — it is measured and declined, not overlooked.
+- Decisions: [`docs/adr/`](docs/adr/) — forty-four accepted ADRs, plus a deferred list
 - Reference text from the old core: `git show 1709433^:rtl/riscv.v` (RVFI retire block),
   `git show e67875c^:rtl/alu.v` (arithmetic)
 - Work is tracked in Linear, project **Little CPU** (team JEF). Named here so you know where the

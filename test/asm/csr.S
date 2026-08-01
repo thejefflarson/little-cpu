@@ -71,19 +71,37 @@ RVTEST_CODE_BEGIN
   TEST_CASE( 13, a0, 0, csrr a0, mimpid; )
   TEST_CASE( 14, a0, 0, csrr a0, mhartid; )
 
-  # No interrupt sources and no mtval: all three read as zero, forever.
-  TEST_CASE( 15, a2, 0, \
-    csrr a0, mie; \
-    csrr a1, mip; \
-    or   a2, a0, a1; \
-    csrr a0, mtval; \
-    or   a2, a2, a0; )
+  # mtval is hardwired zero (ADR-0002), so it reads zero out of reset and
+  # after any trap. That much is true of the reference model too.
+  TEST_CASE( 15, a0, 0, csrr a0, mtval; )
 
-  # ...and a write to them does not stick.
-  TEST_CASE( 16, a1, 0, \
-    li a0, -1; \
-    csrw mie, a0; \
-    csrr a1, mie; )
+  # THREE ASSERTIONS USED TO LIVE HERE AND CANNOT — not in this file. They are
+  # that `mie` reads zero, that `mip` reads zero, and that a write to either
+  # (or to `mtval`) does not stick. All three are true of this core and all
+  # three are implementation choices rather than ISA rules: with no interrupt
+  # sources, mie and mip are read-only zero and mtval may be hardwired
+  # (ADR-0002), while a machine with a timer reports mip.MTIP set, mie's
+  # MSIE/MTIE/MEIE writable and mtval writable — and is equally spec-legal.
+  #
+  # The Sail RISC-V model IS that other machine and cannot be configured out of
+  # it. Measured against sail-riscv 0.13.1: `platform.clint.supported: false`
+  # unmaps the CLINT's MMIO window but leaves mtime advancing, so mip.MTIP
+  # comes up on the first tick; and the config schema names no knob for mie's
+  # writable bits or for a read-only mtval (ADR-0043).
+  #
+  # So an assertion here would not merely read a different value under
+  # co-simulation — it would take a DIFFERENT BRANCH: the reference model runs
+  # the program to `fail` where the core runs it to `pass`. No value exemption
+  # can paper over that, and none should, because two runs of one program
+  # taking different paths is exactly what that leg exists to report.
+  #
+  # The properties are not dropped. test/csr_tb.v asserts every one of them
+  # directly against rtl/csrs.v — "mie reads 0", "mip reads 0", "mie ignores a
+  # write", "mip ignores a write", "mtval ignores a write" — where there is no
+  # reference model to disagree, which is where a claim about an
+  # implementation-defined value belongs. It covers the other half in the same
+  # checks: `implemented` is asserted high for all three addresses, so a `csrr`
+  # of any of them retires here rather than trapping. `make test-units` runs it.
 
   #-------------------------------------------------------------
   # mtvec reads back the handler this test installed.

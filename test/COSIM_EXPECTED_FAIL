@@ -3,6 +3,11 @@
 # that do NOT agree with the Sail RISC-V model matches this file exactly, in
 # both directions — so an unexpected *agreement* is caught too.
 #
+# THIS FILE IS EMPTY, AND EMPTY IS NOT THE SAME AS ABSENT. Both directions
+# still run: every program in test/asm must AGREE, and any one that does not is
+# red. Deleting the file does not turn the gate green — test/run_cosim.sh
+# refuses to start without a readable baseline, on purpose.
+#
 # FORMAT — two fields, not one:
 #
 #     <test>.S  <STATUS>
@@ -30,34 +35,34 @@
 # kind of claim as removing the line and needs the same justification in the PR
 # that does it. This file is never regenerated wholesale from a run.
 #
-# Both entries below are read-only-CSR value divergences, not core defects, and
-# neither is reachable by fixing this core:
+# HOW THE TWO ENTRIES THAT USED TO BE HERE WERE CLOSED (ADR-0043). Neither was
+# closed by changing the core, and neither was closed the same way, which is
+# the part worth reading before the next divergence arrives:
 #
-#   csr.S       DISAGREE AT 17 -- `csrr a0, misa`. Sail reports 0x4034112f
-#               against this core's 0x40001104 (ADR-0002's RV32IMC_Zicsr).
-#               misa is not a knob in the Sail configuration; it is derived
-#               from the extension set, and bringing the two into agreement
-#               means disabling A, B, D, F, S, U and V in
-#               test/sail/memory-map.json — measured, and each disable pulls in
-#               a further cascade of dependent-extension and paging keys the
-#               model's own validator demands (Ssccptr, Svade, Svadu, Svvptc,
-#               then the Zve*/Zvfh* family, then physaddr_bits and two
-#               mstatus.*_legal_states). That is a large, version-fragile
-#               config edit to make one CSR read match, on a model whose
-#               config schema ADR-0032 already flags as something a version
-#               bump moves. Not worth it; recorded here instead.
+#   csr.S       was `DISAGREE AT 17` on `csrr a0, misa` — Sail 0x4034112f
+#               against this core's 0x40001104. The reference model was a
+#               `--config-override` on the model's DEFAULT RV32 machine, and an
+#               override inherits everything it does not mention: A, B, D, F,
+#               S, U and V, none of them implemented here and none of them
+#               chosen. It is now a complete `--config` describing
+#               RV32IMC_Zicsr — test/sail/rv32imc_zicsr.json — and misa agrees.
+#               Two further divergences that this one was masking, mip.MTIP and
+#               mie's writable bits, are recorded next to the assertions that
+#               used to make them, in test/asm/csr.S.
 #
-#   minstret.S  DISAGREE AT 7 -- `csrr a0, mcycle`. mcycle counts CYCLES, and
-#               the reference model has no pipeline, so it counts something
-#               else by construction (6 against this core's 30 at the same
-#               point). The rate of mcycle is implementation-defined; the test
-#               itself asserts only monotonicity and a bound, which is why it
-#               passes on both sides. There is nothing here for either side to
-#               fix, and no configuration that would make a cycle-accurate
-#               reference model out of an ISA model.
+#   minstret.S  was `DISAGREE AT 7` on `csrr a0, mcycle`. Neither value was
+#               wrong: mcycle counts cycles and an ISA model has no pipeline.
+#               Its VALUE, and only its value, is now exempt at the one
+#               register the read writes — test/cosim.py's NONCOMPARABLE_CSRS,
+#               printed on every run that uses it. The position of the change
+#               in the sequence, the register it names, and everything computed
+#               from it afterwards are compared exactly as before.
 #
-# Everything else in the suite AGREES, including trap.S (ADR-0030's causes,
-# with test/sail/memory-map.json's global misaligned-exception key set to match
-# ADR-0005) and rvc.S/straddle.S (ADR-0003's compressed fetch window).
-csr.S           DISAGREE AT 17
-minstret.S      DISAGREE AT 7
+# SO A DIVERGENCE IS NOT AUTOMATICALLY A LINE HERE. Ask, in this order: can the
+# reference model be CONFIGURED to be this machine (that closed misa)? Is only
+# the VALUE incomparable, with both sides still taking the same branches (that
+# closed mcycle)? Does the program ASSERT something implementation-defined that
+# the model is entitled to answer differently — in which case the two runs take
+# different paths, no value exemption can help, and the assertion belongs in a
+# bench with no reference model in it? Only when none of the three fit is it a
+# baseline entry, and then it needs a paragraph here, not a line.

@@ -47,6 +47,8 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0040](0040-the-ladder-refuses-a-negedge-regfile-and-make-check-was-re-grading.md) | The ladder refuses a negedge regfile rather than mis-modelling one, and `make check` had been re-grading the previous run | Accepted |
 | [0041](0041-integration-decisions-from-the-fit-cosim-and-negedge-wave.md) | Integration decisions from the fit / co-simulation / negedge wave | Accepted |
 | [0042](0042-the-regfile-read-is-synchronous-and-costs-a-cycle.md) | The regfile read is synchronous and costs a cycle, and the ladder is told that instruction memory is memory | Accepted |
+| [0043](0043-the-reference-model-is-configured-as-this-core.md) | The reference model is configured as *this* core, and what is left over is exempted by name | Accepted |
+| [0044](0044-what-the-memory-system-has-to-be.md) | What the memory system has to be, and why today's placeholders cannot be it | Accepted |
 
 0001–0007 came from the design brief
 ([`docs/ideas/finish-the-rewrite.md`](../ideas/finish-the-rewrite.md)). 0008–0011 came out of
@@ -94,7 +96,13 @@ lens once more — fixes a `make -C formal check` that could not re-run the ladd
 re-grading the previous run's verdict. 0041 came out of integrating those three together: it
 measures what 0039's `tohost` change actually did to the architectural register trace (382 values,
 zero events), and records the co-simulation nightly 0039 deliberately omitted as owed work with its
-preconditions, so it stops depending on anyone's memory.
+preconditions, so it stops depending on anyone's memory. 0043 takes 0039's two baselined
+divergences to zero without touching the core: the reference model was a `--config-override` on
+Sail's *default* RV32 machine, so it had atomics, bit-manipulation, float, supervisor mode, user
+mode and vectors that nobody chose, and `csrr misa` was the one register a test happened to read.
+It is now a complete `--config` describing 0002's RV32IMC_Zicsr, and the leftover — an
+implementation-defined value with no knob — is exempted by name, one register at a time, or moved
+to a bench with no reference model in it when the program *branches* on it.
 
 ## Deferred decisions
 

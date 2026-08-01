@@ -52,6 +52,29 @@ Both sides' verdicts are compared as well as their register traces, so a run
 where the reference model passes the program and the core fails it (or the
 reverse) is a divergence even in the impossible case that the register
 sequences matched.
+
+THE REFERENCE MODEL IS CONFIGURED AS THIS CORE, NOT AS A DEFAULT MACHINE
+-----------------------------------------------------------------------
+test/sail/rv32imc_zicsr.json is a COMPLETE `--config`, not a
+`--config-override` on the model's default RV32 machine.  An override inherits
+everything it does not mention, and that is how a reference model with
+atomics, bit-manipulation, float, supervisor mode, user mode and vectors
+became the thing this core was cross-checked against.  `--config` is rejected
+outright if a key is missing, so nothing is inherited silently.  See
+docs/adr/0043 and the header of the config itself.
+
+WHAT REMAINS NOT COMPARABLE, AND WHY THAT IS A SHORT EXPLICIT LIST
+------------------------------------------------------------------
+Three machine CSRs hold values that are implementation-defined AND that
+sail-riscv 0.13.1 has no knob for, so no configuration makes the two sides
+agree.  Reading one of them into a GPR parks such a value in an architectural
+register at a comparison point.  NONCOMPARABLE_CSRS below names them, one
+reason each, and the comparison skips THE VALUE of exactly the one register
+such a read writes -- never the register's identity, never the position of the
+change in the sequence, and never anything computed from it afterwards.  A
+core that failed to write the register, wrote a different one, or wrote extra
+ones still diverges.  Both the count and every skipped change are printed, so
+this can never quietly become "compared nothing".
 """
 
 import argparse
@@ -65,7 +88,7 @@ import tempfile
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ASM_DIR = os.path.join(REPO, "test", "asm")
-MEMORY_MAP = os.path.join(REPO, "test", "sail", "memory-map.json")
+SAIL_CONFIG = os.path.join(REPO, "test", "sail", "rv32imc_zicsr.json")
 SAIL_DIR = os.path.join(REPO, "tools", "sail")
 SAIL_BIN = os.path.join(SAIL_DIR, "bin", "sail_riscv_sim")
 # Written by `make sail-setup` after it verifies the release tarball's SHA-256:
@@ -87,6 +110,58 @@ DUT_RE = re.compile(
     r"^CS\s+(?P<idx>\d+)\s+(?P<cycle>\d+)\s+(?P<writes>(?:x\d+=[0-9a-f]{8}\s+)+)"
     r"@pc=(?P<pc>[0-9a-f]{8})\s*$"
 )
+
+# CSRs whose VALUE this core and the reference model are both entitled to
+# answer differently, and which sail-riscv 0.13.1 gives no way to configure.
+# The whole of the rest of the disagreement between the two machines lives in
+# test/sail/rv32imc_zicsr.json; this is what is left over after that file is as
+# faithful as the schema allows.
+#
+# Each entry costs exactly one register's VALUE at the change the read
+# produces. Which register, and where in the sequence, are still compared.
+#
+# ADDING AN ENTRY IS TWO CLAIMS, not one, and the second is the one that gets
+# forgotten: (1) no configuration can close the gap -- check
+# `--print-config-schema` first; (2) every program that reads the CSR still
+# takes the SAME BRANCHES on both machines. An exemption relaxes a value, and
+# a value nothing branches on is all it can relax. `mie` and `mip` are the
+# worked example and are deliberately NOT here: this core reads them as zero
+# and the model reads mip.MTIP set, so a program asserting they are zero runs
+# to `fail` on one side and `pass` on the other. That is a different program,
+# not a different value, and it belongs in a bench with no reference model in
+# it -- test/csr_tb.v, where it is (docs/adr/0043).
+NONCOMPARABLE_CSRS = {
+    0xB00: "mcycle counts CYCLES; an ISA model has no pipeline. No setting "
+           "makes these agree, and one that did would mean this core retires "
+           "one instruction per cycle. test/asm/minstret.S asserts only "
+           "monotonicity and a bound, which both machines satisfy",
+    0xB80: "mcycleh -- the upper half of the same counter. It reads zero on "
+           "both sides for every program in this suite today; it is here so "
+           "that stops being load-bearing",
+}
+
+SYSTEM_OPCODE = 0x73
+# funct3 for csrrw/csrrs/csrrc and their immediate forms. funct3 == 0 is
+# ecall/ebreak/mret/wfi, which read no CSR into a register.
+CSR_FUNCT3 = {0b001, 0b010, 0b011, 0b101, 0b110, 0b111}
+
+
+def noncomparable_csr_rd(insn):
+    """rd, if `insn` reads one of NONCOMPARABLE_CSRS into a real register.
+
+    Returns None otherwise -- including for the `csrw`/`csrrw x0, ...` forms,
+    which write the CSR and leave no architectural register holding its value,
+    and for every compressed encoding (the low two bits are never 0b11, and no
+    compressed encoding is a CSR access).
+    """
+    if (insn & 0x7F) != SYSTEM_OPCODE:
+        return None
+    if ((insn >> 12) & 0x7) not in CSR_FUNCT3:
+        return None
+    if ((insn >> 20) & 0xFFF) not in NONCOMPARABLE_CSRS:
+        return None
+    rd = (insn >> 7) & 0x1F
+    return rd if rd != 0 else None
 
 
 class Fatal(Exception):
@@ -250,7 +325,7 @@ def run_sail(sail, elf, inst_limit, outdir):
     verdict it terminated on (None if it never reached one)."""
     trace = os.path.join(outdir, "sail.trace")
     proc = subprocess.run(
-        [sail, "--rv32", "--config-override", MEMORY_MAP,
+        [sail, "--config", SAIL_CONFIG,
          "--inst-limit", str(inst_limit), "--trace-instr", "--trace-gpr",
          "--trace-output", trace, elf],
         capture_output=True, text=True,
@@ -259,9 +334,9 @@ def run_sail(sail, elf, inst_limit, outdir):
         raise Fatal(f"sail produced no trace:\n{proc.stdout}{proc.stderr}")
 
     regs = [0] * 32
-    records = []       # (change_index, sail_idx, pc, disasm, {reg: val})
+    records = []       # (change_index, sail_idx, pc, disasm, {reg: val}, nc_rd)
     saw_insn = False
-    current = None     # (idx, pc, disasm)
+    current = None     # (idx, pc, disasm, nc_rd)
     pending = {}
 
     def flush():
@@ -271,8 +346,16 @@ def run_sail(sail, elf, inst_limit, outdir):
         changed = {r: v for r, v in pending.items() if regs[r] != v}
         for r, v in changed.items():
             regs[r] = v
-        if changed:
-            records.append((len(records), current[0], current[1], current[2], changed))
+        # A non-comparable CSR read is recorded whether or not it changed a
+        # register on THIS side. It has to be: the two sides read different
+        # values, so one of them can land on the value the register already
+        # holds -- invisible to a distinct-state reduction -- while the other
+        # does not. Emitting the event unconditionally is what lets compare()
+        # stay aligned across that asymmetry instead of reporting it as a
+        # length divergence.
+        if changed or current[3] is not None:
+            records.append((len(records), current[0], current[1], current[2],
+                            changed, current[3]))
         current, pending = None, {}
 
     with open(trace) as fh:
@@ -281,7 +364,8 @@ def run_sail(sail, elf, inst_limit, outdir):
             if m:
                 flush()
                 current = (int(m.group("idx")), int(m.group("pc"), 16),
-                           m.group("disasm"))
+                           m.group("disasm"),
+                           noncomparable_csr_rd(int(m.group("insn"), 16)))
                 saw_insn = True
                 continue
             m = GPR_RE.match(line)
@@ -330,43 +414,78 @@ def fmt(writes):
 
 
 def compare(sail_records, dut_records):
-    """Return (status, list_of_report_lines). Reports the FIRST divergence with
-    instruction number, PC and both values, per the spike's acceptance
+    """Return (status, report_lines, skipped). Reports the FIRST divergence
+    with instruction number, PC and both values, per the spike's acceptance
     criteria.
 
     `status` is "AGREE" or one of the DISAGREE labels test/run_cosim.sh
     baselines against test/COSIM_EXPECTED_FAIL. The labels distinguish HOW the
     two disagreed, so a baselined program that starts diverging somewhere else
-    is a red gate rather than a match (ADR-0035)."""
+    is a red gate rather than a match (ADR-0035).
+
+    `skipped` lists every change whose VALUE was not comparable -- a read of a
+    NONCOMPARABLE_CSRS entry into a register. The caller prints it. Two cursors
+    rather than one index because such a read may produce a change on one side
+    and not the other: it lands on a different value on each, and one of those
+    values can be the one the register already held.
+
+    What is NOT relaxed: the skipped change still has to be a change to
+    EXACTLY that register on the core side to be consumed, everything before
+    and after it is compared normally, and a value computed from the register
+    afterwards is compared like anything else. A core that wrote the wrong
+    register, wrote extra registers, or drifted by a change still diverges."""
     out = []
-    for i in range(min(len(sail_records), len(dut_records))):
-        _, sidx, spc, sdis, swrites = sail_records[i]
-        _, cycle, dwrites, dpc = dut_records[i]
+    skipped = []
+    i = j = 0
+    while i < len(sail_records) and j < len(dut_records):
+        _, sidx, spc, sdis, swrites, nc_rd = sail_records[i]
+        _, cycle, dwrites, dpc = dut_records[j]
+        if nc_rd is not None:
+            note = (f"  #{i}: sail instruction #{sidx} pc=0x{spc:08x} {sdis}"
+                    f"  -- x{nc_rd}'s value is not comparable")
+            if set(dwrites) == {nc_rd}:
+                note += (f" (sail 0x{swrites.get(nc_rd, 0):08x}, "
+                         f"core 0x{dwrites[nc_rd]:08x})")
+                j += 1
+            else:
+                note += " (no matching change on the core side)"
+            skipped.append(note)
+            i += 1
+            continue
         if swrites != dwrites:
             out.append(f"DIVERGENCE at architectural change #{i}")
             out.append(f"  sail instruction #{sidx}  pc=0x{spc:08x}  {sdis}")
             out.append(f"  sail : {fmt(swrites)}")
             out.append(f"  core : {fmt(dwrites)}   (cycle {cycle}, "
                        f"decode pc=0x{dpc:08x})")
-            return f"DISAGREE AT {i}", out
-    if len(sail_records) != len(dut_records):
-        n = min(len(sail_records), len(dut_records))
+            return f"DISAGREE AT {i}", out, skipped
+        i += 1
+        j += 1
+
+    # A trailing run of non-comparable reads on the sail side that the core
+    # never turned into a change is not a length divergence.
+    while i < len(sail_records) and sail_records[i][5] is not None:
+        skipped.append(f"  #{i}: sail instruction #{sail_records[i][1]} "
+                       f"{sail_records[i][3]}  -- trailing, not comparable")
+        i += 1
+
+    if i != len(sail_records) or j != len(dut_records):
         out.append(
-            f"DIVERGENCE in length: sail made {len(sail_records)} "
-            f"architectural register-file changes, the core made "
-            f"{len(dut_records)}"
+            f"DIVERGENCE in length: sail made {len(sail_records) - i} "
+            f"comparable architectural register-file changes more than the "
+            f"core, or the core made {len(dut_records) - j} more than sail "
+            f"(sail {len(sail_records)} records, core {len(dut_records)})"
         )
-        longer, label = ((sail_records, "sail") if len(sail_records) > n
-                         else (dut_records, "core"))
-        extra = longer[n]
-        if label == "sail":
-            out.append(f"  first unmatched ({label}): instruction #{extra[1]} "
+        if i < len(sail_records):
+            extra = sail_records[i]
+            out.append(f"  first unmatched (sail): instruction #{extra[1]} "
                        f"pc=0x{extra[2]:08x} {extra[3]} -> {fmt(extra[4])}")
         else:
-            out.append(f"  first unmatched ({label}): cycle {extra[1]} "
+            extra = dut_records[j]
+            out.append(f"  first unmatched (core): cycle {extra[1]} "
                        f"-> {fmt(extra[2])} (decode pc=0x{extra[3]:08x})")
-        return "DISAGREE LENGTH", out
-    return "AGREE", out
+        return "DISAGREE LENGTH", out, skipped
+    return "AGREE", out, skipped
 
 
 def core_verdict(raw):
@@ -467,7 +586,7 @@ def main():
         emit("INCONCLUSIVE CORE-TIMEOUT")
         return 2
 
-    status, report = compare(sail_records, dut_records)
+    status, report, skipped = compare(sail_records, dut_records)
     if status == "AGREE" and sail_end != dut_end:
         # Unreachable by construction if the register comparison is doing its
         # job -- the verdict is a store of a value the program computed into a
@@ -477,9 +596,21 @@ def main():
         report = [f"DIVERGENCE in verdict: sail ran the program to {sail_end}, "
                   f"the core to {dut_end}, with identical register traces"]
 
+    # Printed for every outcome, and unconditionally -- not behind --quiet.
+    # Skipping a value is the one thing here that makes the comparison weaker,
+    # so it is the one thing that must never be invisible in a log. The empty
+    # case prints nothing.
+    if skipped:
+        print(f"NOT COMPARED BY VALUE ({len(skipped)}, "
+              f"see NONCOMPARABLE_CSRS in test/cosim.py):")
+        for line in skipped:
+            print(line)
+
     if status == "AGREE":
-        print(f"AGREE {name}: {len(sail_records)} architectural register-file "
-              f"changes, identical in order and value; both ran to {sail_end}.")
+        print(f"AGREE {name}: {len(sail_records) - len(skipped)} architectural "
+              f"register-file changes, identical in order and value "
+              f"({len(skipped)} not comparable by value); "
+              f"both ran to {sail_end}.")
         emit(status)
         return 0
     print(f"DISAGREE {name}")

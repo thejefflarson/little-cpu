@@ -126,7 +126,7 @@ mis-scoped, not thorough:
 These have both been reported by tooling and are both wrong. They are written down so the next
 review does not spend effort rediscovering them:
 
-**1. The simulated machine's memory is not the host's memory.** `test/sail/memory-map.json`
+**1. The simulated machine's memory is not the host's memory.** `test/sail/rv32imc_zicsr.json`
 declares a readable, writable, *executable* region, and `sections.lds` maps `.text` at address 0.
 Those describe the address space of an emulated RISC-V machine inside a reference model. They are
 not a W^X violation, not a missing ASLR, and not a host memory-protection weakness. There is no

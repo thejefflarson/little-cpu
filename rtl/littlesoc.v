@@ -1,32 +1,23 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
+// The SoC wrapper: the core plus the two memories it talks to, and nothing
+// else. What used to sit above the instances was scaffolding for an SPI flash
+// controller nobody ever wrote -- a chip select and a free-running `flash_clk`
+// divider driving four `inout` flash pins, plus `mem_valid`/`mem_ready` wires
+// no module read -- and it is gone. The real memory system (SPRAM data RAM,
+// ROM banking, byte strobes) and the pinout that goes with it are the work
+// that will give this module ports again; until then it deliberately has none
+// beyond clk/reset.
+//
+// This is NOT the synthesis top for area. ADR-0038 measures `littlecpu` with
+// its memories external, because the two memories below are placeholders whose
+// real implementation will be SPRAM/EBR and will not consume logic cells.
 module littlesoc (
   input  clk,
-  input  reset,
-  output flash_cs,
-  output flash_clk,
-  inout  flash_io0,
-  inout  flash_io1,
-  inout  flash_io2,
-  inout  flash_io3
+  input  reset
 );
-  logic int_flash_clk;
-  assign flash_clk = int_flash_clk;
-  // TODO SPI mem
-  always_ff @(posedge clk) begin
-   if (reset) begin
-     flash_cs <= 0;
-     int_flash_clk <= 0;
-   end else begin
-     flash_cs <= 1;
-     int_flash_clk <= !int_flash_clk;
-   end
-  end
-
   // Internal mem
-  logic        mem_valid;
   logic        trap;
-  logic        mem_ready;
   logic [31:0] mem_addr;
   logic [31:0] mem_wdata;
   logic [3:0]  mem_wstrb;

@@ -1,0 +1,487 @@
+// The Sail RISC-V model, configured as THIS core: RV32IMC_Zicsr, machine mode
+// only (ADR-0002). Passed as `sail_riscv_sim --config`, NOT `--rv32
+// --config-override`, and that distinction is the point of the file.
+//
+// WHY A WHOLE CONFIG AND NOT AN OVERRIDE
+// --------------------------------------
+// An override inherits everything it does not mention. The previous file was a
+// small override on the model's default RV32 machine, so the reference model
+// this repo cross-checks against had atomics, bit-manipulation, single and
+// double float, supervisor mode, user mode and vectors -- none of which this
+// core implements, and none of which anybody chose. It surfaced as one wrong
+// CSR read (`csrr misa` reported 0x4034112f against this core's 0x40001104),
+// but `misa` was the symptom: a model that believes S-mode exists has
+// different trap delegation, different address translation and different CSR
+// legality, and M3's trap work is exactly what starts to touch those.
+//
+// `--config` takes a COMPLETE configuration. The model's schema check rejects
+// a file with a missing key -- verified, it names every one -- so nothing is
+// inherited silently and a version bump that adds a knob fails loudly here
+// instead of quietly picking a default. That is the property worth the length.
+//
+// Regenerate the skeleton with `sail_riscv_sim --rv32 --print-default-config`
+// and re-apply the decisions below; `--print-config-schema` documents the
+// value space. `--validate-config` checks one without running a program.
+//
+// A CONFIG OVERRIDE IS WHERE YOU CAN TALK THE ORACLE INTO AGREEING WITH YOU.
+// Sail is authoritative about RISC-V semantics but NOT about which
+// implementation-defined choice this core makes -- we tell it that. So every
+// knob below traces to a decision that predates the divergence it resolves:
+// ADR-0002 (the ISA target), ADR-0005 (traps and CSRs), ADR-0008 (the memory
+// map). Nothing here was chosen because it made a test pass.
+//
+// WHAT THIS FILE CANNOT SAY. Three implementation-defined values remain
+// different because sail-riscv 0.13.1 has no knob for them, and they are
+// handled in test/cosim.py's NONCOMPARABLE_CSRS instead of by pretending:
+// `mcycle`/`mcycleh` (an ISA model has no pipeline), `mie` (the model
+// hardwires MSIE/MTIE/MEIE writable; ADR-0002 makes them read-only zero) and
+// `mip` (the model's mtime keeps ticking with the CLINT unmapped and raises
+// MTIP; this core has no timer). See docs/adr/0043.
+{
+  "base": {
+    "xlen": 32,
+    // RV32I, not RV32E: x16-x31 exist.
+    "E": false,
+
+    // rtl/csrs.v returns misa as a constant 0x4000_1104. A `csrw misa` on this
+    // core is a write to a read-only-value CSR, not a way to turn C off.
+    "writable_misa": false,
+
+    // menvcfg.FIOM only exists with U-mode, which ADR-0002 excludes.
+    "writable_fiom": false,
+
+    // No Zihpm: mhpmcounter3..31 and mhpmevent3..31 do not exist here.
+    "writable_hpm_counters": { "len": 32, "value": "0x0000_0000" },
+
+    // scounteren/mcounteren gate counter access from LOWER privilege levels.
+    // There are none (M-mode only), so no bit of either is writable.
+    "scounteren_writable_bits": { "len": 32, "value": "0x0000_0000" },
+    "mcounteren_writable_bits": { "len": 32, "value": "0x0000_0000" },
+
+    // Direct mode only, 4-byte-aligned base: rtl/csrs.v's WARL mask on mtvec
+    // is `{wdata[31:2], 2'b00}`, which forces MODE=0 and clears the low two
+    // bits of BASE. `base_alignment` is the exponent, so 2 == 4 bytes.
+    "mtvec": {
+      "direct":   { "supported": true,  "base_alignment": 2 },
+      "vectored": { "supported": false, "base_alignment": 2 }
+    },
+
+    // S is disabled, so stvec does not exist and these keys are never
+    // consulted. The schema requires them; left at the model's defaults
+    // rather than invented, so that a future S-mode target starts from
+    // upstream's values rather than from something this file made up.
+    "stvec": {
+      "direct":   { "supported": true },
+      "vectored": { "supported": true, "base_alignment": 2 }
+    },
+
+    // Nothing to delegate to: no S-mode, no U-mode (ADR-0002). Both mask to
+    // zero, which makes medeleg/mideleg read-only zero in the model.
+    "medeleg": { "delegatable_bits": { "len": 64,    "value": "0x0000_0000_0000_0000" } },
+    "mideleg": { "delegatable_bits": { "len": "xlen", "value": "0x0000_0000" } },
+
+    // rtl/csrs.v hardwires mtval to 0, which is spec-legal for every cause
+    // this core raises (ADR-0002). Every trap therefore writes mtval = 0.
+    "xtval_nonzero": {
+      "illegal_instruction": false,
+      "software_breakpoint": false,
+      "hardware_breakpoint": false,
+      "load_address_misaligned": false,
+      "load_access_fault": false,
+      "load_page_fault": false,
+      "samo_address_misaligned": false,
+      "samo_access_fault": false,
+      "samo_page_fault": false,
+      "fetch_address_misaligned": false,
+      "fetch_access_fault": false,
+      "fetch_page_fault": false,
+      "software_check": false,
+      "reserved_exceptions": false
+    },
+
+    // Reserved-encoding behaviour. Every one of these but `xtvec_mode` belongs
+    // to an extension disabled below and is unreachable; they are required
+    // keys, so they keep upstream's non-fatal choice -- a model that halts on
+    // an encoding this core merely treats as illegal would report a broken
+    // harness as a divergence. `xtvec_mode` IS reachable: with vectored mode
+    // unsupported, a `csrw mtvec` carrying MODE=1 is ignored by the model,
+    // and rtl/csrs.v's WARL mask forces MODE=0 -- same architectural result
+    // from a mtvec whose MODE was already 0, which is the only state this
+    // core can be in.
+    "reserved_behavior": {
+      "amocas_odd_register": "AMOCAS_Illegal",
+      "fcsr_rm": "Fcsr_RM_Illegal",
+      "pmpcfg_write_only": "PMP_ClearPermissions",
+      "xenvcfg_cbie": "Xenvcfg_ClearPermissions",
+      "xtvec_mode": "Xtvec_Ignore",
+      "rv32zdinx_odd_register": "Zdinx_Illegal"
+    },
+
+    // No F/D and no V, so mstatus.FS and mstatus.VS are read-only zero.
+    // rtl/csrs.v builds mstatus out of MIE/MPIE and a hardwired MPP; every
+    // other field reads zero, which is what ExtContext_Off means here. The
+    // model's own validator demands these two once F, D, V and S are off.
+    "mstatus": {
+      "fs_legal_states": "ExtContext_Off",
+      "vs_legal_states": "ExtContext_Off"
+    },
+
+    "privileged_isa_version": "Privileged_ISA_1_13"
+  },
+
+  "memory": {
+    // 32-bit physical addresses. The model's default is 34, which it only
+    // permits with Sv32 enabled.
+    "physaddr_bits": 32,
+
+    // No PMP (ADR-0002). `count: 0` makes every pmpcfg/pmpaddr read-only zero;
+    // the remaining keys describe a granularity that no entry can use.
+    "pmp": {
+      "grain": 0,
+      "count": 0,
+      "usable_count": 0,
+      "tor_supported": true,
+      "na4_supported": true,
+      "napot_supported": true
+    },
+
+    // MISALIGNED ACCESSES MUST TRAP, and this is the key that decides it --
+    // NOT the per-region `misaligned_exceptions` attribute below, which is
+    // restated in the region and has NO EFFECT here. The model's own default
+    // config documents the difference: this global key is "checked before
+    // address translation" while the region attribute is "checked after", and
+    // with no MMU the region attribute is never consulted. Measured, not
+    // inferred: changing the region attribute leaves a misaligned `lw`
+    // completing; setting this one redirects to mtvec.
+    //
+    // `AlignmentException` is the value matching ADR-0005's causes: load
+    // address misaligned = 4, store address misaligned = 6. `AccessFault`
+    // would be causes 5 and 7 and is a different implementation choice this
+    // core did not make. The `vector`, `amo` and `lrsc` entries belong to V
+    // and A, both disabled.
+    "misaligned": {
+      "exceptions": {
+        "load_store": { "Some": "AlignmentException" },
+        "vector": { "None": null },
+        "amo": { "None": null },
+        "lrsc": "AccessFault"
+      },
+      "order_decreasing": false,
+      "default_allowed_within_exp": 0,
+      "byte_by_byte": false
+    },
+
+    // Only consulted when a device tree is generated or loaded, which this
+    // harness never does (no --device-tree-blob, no --print-device-tree).
+    "dtb_address": { "len": 64, "value": "0x1000" },
+
+    // test/asm/sections.lds: rom at 0x0 (16K) + ram at 0x10000 (4K), rounded
+    // up to a flat 1MB so the linker script can grow without this file having
+    // to (ADR-0008). The model's default RV32 map puts MainMemory at
+    // 0x8000_0000, where nothing this suite builds is executable or loadable.
+    //
+    // The default map's other two regions are deliberately absent. Its
+    // unwritable IOMemory window at 0x0000_1000 overlaps `.text` and the model
+    // rejects overlapping regions; nothing needs it, because the PC comes from
+    // the ELF entry point rather than from a reset vector there. Its CLINT
+    // window at 0x0200_0000 went with `platform.clint.supported: false` below.
+    //
+    // The model detects HTIF from the ELF's `tohost` symbol, reports "HTIF
+    // located at 0x10000", and TERMINATES on this suite's verdict write --
+    // `SUCCESS`, or `FAILURE: <testnum>` (ADR-0039). `--inst-limit` is
+    // therefore a runaway bound, not a convergence criterion.
+    "regions": [
+      {
+        "base": { "len": 64, "value": "0x0000_0000" },
+        "size": { "len": 64, "value": "0x0010_0000" },
+        "attributes": {
+          "mem_type": "MainMemory",
+          "cacheable": true,
+          "coherent": true,
+          "executable": true,
+          "readable": true,
+          "writable": true,
+          "read_idempotent": true,
+          "write_idempotent": true,
+          "misaligned_exceptions": {
+            "load_store": { "None": null },
+            "vector": { "None": null },
+            "amo": "AccessFault"
+          },
+          "atomic_support": "AMOCASQ",
+          "misaligned_atomicity_granule_size_exp": 4,
+          "vector_misaligned_atomicity_granule_size_exp": 4,
+          "reservability": "RsrvEventual",
+          "supports_cbo_zero": true,
+          "supports_pte_read": true,
+          "supports_pte_write": true
+        },
+        "include_in_device_tree": true
+      }
+    ]
+  },
+
+  "platform": {
+    // rtl/csrs.v returns all four as read-only zero.
+    "vendorid": 0,
+    "archid": 0,
+    "impid": 0,
+    "hartid": 0,
+
+    // Zicbom/Zicbop/Zicboz are disabled; no instruction consults this.
+    "cache_block_size_exp": 6,
+
+    // A is disabled, so there are no reservations to size.
+    "reservation": {
+      "reservation_set_size_exp": 3,
+      "require_exact_reservation_addr": false,
+      "invalidate_on_same_hart_store": false
+    },
+
+    // No CLINT and no interrupt generator: this core has neither, and
+    // ADR-0002 has no interrupt sources at all. Turning the CLINT off is what
+    // lets the 0x0200_0000 IOMemory region go away.
+    //
+    // MEASURED CAVEAT, and the reason mip is in cosim.py's NONCOMPARABLE_CSRS:
+    // `supported: false` unmaps the CLINT's MMIO window but does NOT stop the
+    // model's mtime from advancing. mtimecmp resets to zero, so mtime passes
+    // it on the first tick and the model sets mip.MTIP -- `CSR mip (0x344) <-
+    // 0x00000080` on the second instruction of every program, under
+    // --trace-reg. There is no knob for it: `platform.clint` has exactly
+    // `base`, `size` and `supported`, and nothing in the schema names mtimecmp
+    // or MTIP.
+    "clint": { "supported": false, "base": 33554432, "size": 786432 },
+    "simple_interrupt_generator": { "supported": false, "base": 201326592 },
+
+    // Device-tree decoration only.
+    "clock_frequency": 1000000000,
+
+    // This drives mtime AND mcycle. It is left at the model's default rather
+    // than stretched to keep mtime at zero: test/asm/minstret.S asserts that
+    // mcycle advances between two reads, and a tick period longer than the
+    // run would make that assertion fail on the reference side -- turning a
+    // real property into a false divergence. mcycle's RATE is not comparable
+    // between a pipeline and an ISA model at any setting, which is the actual
+    // problem and is handled where it belongs (docs/adr/0043).
+    "instructions_per_tick": 2,
+
+    // rtl/decoder.v decodes `wfi` and executes it as a NOP, which is
+    // spec-legal with mie/mip read-only zero: there is no interrupt to wait
+    // for. `wfi` from U-mode cannot arise -- there is no U-mode.
+    "wfi_is_nop": true,
+    "wfi_available_to_user_mode": false,
+    "max_time_to_wait": 10
+  },
+
+  // EXTENSIONS -- the audit ADR-0002 defines. Enabled: I (the base), M, C and
+  // Zicsr, plus the two that are enabled for a stated reason rather than
+  // because the target names them:
+  //
+  //   Zca    is the C extension for this target. misa.C is set from Zca alone
+  //          once F and D are off (Zcf and Zcd would otherwise be required
+  //          too), which is what brings misa to 0x4000_1104.
+  //   Zicntr is enabled because it is what makes mcycle/minstret EXIST in the
+  //          model -- measured: with it off, `csrr a0, minstret` raises an
+  //          illegal-instruction trap and test/asm/trap.S and
+  //          test/asm/minstret.S both fail on the reference side. This core
+  //          implements the machine counters (rtl/csrs.v: mcycle, mcycleh,
+  //          minstret, minstreth) and riscv-formal's `[csrs] mcycle minstret`
+  //          requires them. RESIDUAL, recorded rather than fixed: Zicntr also
+  //          gives the model the unprivileged shadows `cycle`/`time`/`instret`
+  //          (0xC00-0xC02), which this core does not implement and would trap
+  //          on. No program in test/asm reads them; there is no knob to
+  //          separate the machine counters from the shadows.
+  //   Zifencei is enabled because rtl/decoder.v decodes `fence.i` and retires
+  //          it as a NOP (ADR-0005: one hart, Harvard, nothing to invalidate).
+  //          With it off the model would raise an illegal instruction where
+  //          this core does not.
+  //
+  // EVERYTHING ELSE IS FALSE. Not "left alone" -- false. Most are unreachable
+  // by this suite today, and that is exactly why they have to be written down:
+  // an extension the model believes in is an encoding it will execute where
+  // this core raises cause 2, and the suite growing one instruction is all it
+  // takes to find out.
+  "extensions": {
+    // --- the target -------------------------------------------------------
+    "M": { "supported": true },
+    "Zicsr": { "supported": true },
+    "Zca": { "supported": true },
+    "Zicntr": { "supported": true },
+    "Zifencei": { "supported": true },
+
+    // --- the misa bits that were wrong ------------------------------------
+    // A, B, D, F, S, U and V. Each was `true` in the model's default RV32
+    // machine and none of them is implemented here.
+    "A": { "supported": false },
+    "B": { "supported": false },
+    "D": { "supported": false },
+    "F": { "supported": false, "fflags_dirty_policy": "Fflags_Dirty_Precise" },
+    "S": { "supported": false },
+    "U": { "supported": false },
+    "V": {
+      "support_level": "Disabled",
+      "vlen_exp": 8,
+      "elen_exp": 6,
+      "reserved_behavior": {
+        "illegal_vtype": "IllegalVtype_SetVill",
+        "vstart_out_of_bounds": "Vstart_Illegal"
+      },
+      "vl_use_ceil": false,
+      "max_index_eew_exp": 6,
+      "vstart": { "zero_required": { "arith": true, "scalar_move": true } }
+    },
+
+    // --- Zi*: unprivileged extras -----------------------------------------
+    // Every one of these adds instructions or CSRs rtl/decoder.v treats as
+    // illegal. Zimop/Zcmop reserve encodings as no-ops, Zicond adds
+    // czero.eqz/nez, Zicbo* add cache-management ops, Zicfilp/Zicfiss add
+    // landing pads and a shadow stack, Zihintntl/Zihintpause are hints this
+    // core does not decode, Zihpm adds mhpmcounter3..31. The Zic*/Ziccamo*
+    // entries are profile compatibility declarations about the memory system;
+    // they claim guarantees this core does not make.
+    "Zibi": { "supported": false },
+    "Zic64b": { "supported": false },
+    "Zicbom": { "supported": false },
+    "Zicbop": { "supported": false },
+    "Zicboz": { "supported": false },
+    "Ziccamoa": { "supported": false },
+    "Ziccamoc": { "supported": false },
+    "Ziccif": { "supported": false },
+    "Zicclsm": { "supported": false },
+    "Ziccrse": { "supported": false },
+    "Zicfilp": { "supported": false },
+    "Zicfiss": { "supported": false },
+    "Zicond": { "supported": false },
+    "Zihintntl": { "supported": false },
+    "Zihintpause": { "supported": false },
+    "Zihpm": { "supported": false },
+    "Zimop": { "supported": false },
+
+    // --- M subsets and A subsets ------------------------------------------
+    // Zmmul is the multiply-only subset of M; M itself is on, so this stays
+    // off (it is off in the model's default too). The Za* family is A.
+    "Zmmul": { "supported": false },
+    "Zaamo": { "supported": false },
+    "Zabha": { "supported": false },
+    "Zacas": { "supported": false },
+    "Zalrsc": { "supported": false },
+    "Zama16b": { "supported": false },
+    "Zawrs": {
+      "supported": false,
+      "nto": { "is_nop": false },
+      "sto": { "is_nop": false }
+    },
+
+    // --- floating point, in every packaging -------------------------------
+    // F and D above, their extras here, and the *inx variants that put floats
+    // in the integer registers. None of it exists on this core.
+    "Zfa": { "supported": false },
+    "Zfbfmin": { "supported": false },
+    "Zfh": { "supported": false },
+    "Zfhmin": { "supported": false },
+    "Zfinx": { "supported": false },
+    "Zdinx": { "supported": false },
+    "Zhinx": { "supported": false },
+    "Zhinxmin": { "supported": false },
+
+    // --- compressed, beyond Zca -------------------------------------------
+    // Zcf and Zcd are the compressed float loads/stores; they need F and D.
+    // Zcb adds compressed byte/halfword ops and is NOT part of C. Zcmop
+    // reserves compressed may-be-ops. rtl/decoder.v decodes none of them.
+    "Zcf": { "supported": false },
+    "Zcd": { "supported": false },
+    "Zcb": { "supported": false },
+    "Zcmop": { "supported": false },
+
+    // --- bit manipulation and crypto --------------------------------------
+    // B above is the umbrella; these are its members and the scalar crypto
+    // family built on them.
+    "Zba": { "supported": false },
+    "Zbb": { "supported": false },
+    "Zbs": { "supported": false },
+    "Zbc": { "supported": false },
+    "Zbkb": { "supported": false },
+    "Zbkc": { "supported": false },
+    "Zbkx": { "supported": false },
+    "Zknd": { "supported": false },
+    "Zkne": { "supported": false },
+    "Zknh": { "supported": false },
+    "Zkr": {
+      "supported": false,
+      "sseed_reset_value": false,
+      "useed_reset_value": false,
+      "sseed_read_only_zero": false,
+      "useed_read_only_zero": false
+    },
+    "Zksed": { "supported": false },
+    "Zksh": { "supported": false },
+    "Zkt": { "supported": false },
+
+    // --- vector extras ----------------------------------------------------
+    // V is Disabled above; these are the extensions layered on it.
+    "Zvabd": { "supported": false },
+    "Zvfbfmin": { "supported": false },
+    "Zvfbfwma": { "supported": false },
+    "Zvfh": { "supported": false },
+    "Zvfhmin": { "supported": false },
+    "Zvbb": { "supported": false },
+    "Zvbc": { "supported": false },
+    "Zvkb": { "supported": false },
+    "Zvkg": { "supported": false },
+    "Zvkned": { "supported": false },
+    "Zvknha": { "supported": false },
+    "Zvknhb": { "supported": false },
+    "Zvksed": { "supported": false },
+    "Zvksh": { "supported": false },
+    "Zvkt": { "supported": false },
+
+    // --- supervisor, machine and paging -----------------------------------
+    // S and U are off above, so none of this is reachable; it is written down
+    // because M3's trap work is where a model that quietly believes in S-mode
+    // would start producing wrong answers about delegation and about which
+    // CSRs are legal. Sv32/Sv39/Sv48/Sv57 and Svbare are address translation;
+    // Ssccptr/Svade/Svadu/Svvptc/Svnapot/Svpbmt/Svinval/Svrsw60t59b are page
+    // table behaviours; Ss*/Sm* are supervisor and machine counter, pointer
+    // masking, state enable and QoS extensions.
+    "Ssccptr": { "supported": false },
+    "Sscofpmf": { "supported": false },
+    "Sscounterenw": { "supported": false },
+    "Sstc": { "supported": false },
+    "Sstvala": { "supported": false },
+    "Svade": { "supported": false },
+    "Svadu": { "supported": false },
+    "Svinval": { "supported": false },
+    "Svrsw60t59b": { "supported": false },
+    "Svnapot": { "supported": false },
+    "Ssnpm": {
+      "supported": false,
+      "supported_pmlen_7": true,
+      "supported_pmlen_16": true
+    },
+    "Smnpm": {
+      "supported": false,
+      "supported_pmlen_7": true,
+      "supported_pmlen_16": true
+    },
+    "Smmpm": {
+      "supported": false,
+      "supported_pmlen_7": true,
+      "supported_pmlen_16": true
+    },
+    "Smcntrpmf": { "supported": false },
+    "Svbare": { "supported": false, "sfence_vma_illegal_if_svbare_only": true },
+    "Sv32": { "supported": false },
+    "Sv39": { "supported": false },
+    "Sv48": { "supported": false },
+    "Sv57": { "supported": false },
+    "Stateen": {
+      "Smstateen": { "supported": false },
+      "Ssstateen": { "supported": false },
+      "C_readonly_zero": true,
+      "SE0_readonly_zero": false
+    },
+    "Ssqosid": { "supported": false, "rcid_length": 12, "mcid_length": 12 },
+    "Svpbmt": { "supported": false },
+    "Svvptc": { "supported": false }
+  }
+}
