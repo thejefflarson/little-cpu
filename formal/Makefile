@@ -11,7 +11,7 @@ ifeq ($(shell printf '%s' '$(JOBS)' | grep -cE '^[1-9][0-9]{0,3}$$'),0)
 override JOBS := 4
 endif
 
-all: complete check dmemcheck imemcheck components_decoder components_executor
+all: complete check dmemcheck imemcheck components_decoder components_executor components_pcloop
 
 %: %.sby
 	sby -f $<
@@ -125,6 +125,16 @@ components_decoder: components.sby ../rtl/decoder.v
 	sby -f $< decoder
 components_executor: components.sby ../rtl/executor.v
 	sby -f $< executor
+# The composed fetcher+decoder task. It exists to DISCHARGE the standalone
+# decoder task's `assume(in.pc == pc)` (ADR-0017), which is the one place that
+# proof's content went, and ADR-0017 puts the pc loop in M2's scope. It had no
+# target here and no CI step, and it had been FAILING since `e4f5250` -- its
+# f_may_stall over-approximation predates ADR-0042's fifth stall reason, so the
+# sequential-advance assertion covered a cycle on which the decoder legitimately
+# holds the pc. Nothing noticed for the obvious reason (ADR-0046). It runs on CI
+# now; a proof nobody runs is a prose-only guard.
+components_pcloop: components.sby ../rtl/fetcher.v ../rtl/decoder.v pcloop.sv
+	sby -f $< pcloop
 
 # The riscv-formal clone rule and its pin guard live in pin.mk, included above,
 # so this and the root Makefile cannot drift apart on it.
