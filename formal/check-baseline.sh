@@ -7,7 +7,26 @@
 #   1. SHAPE.  The checks genchecks generated (formal/checks/*.sby) are
 #      exactly the ones formal/EXPECTED_CHECKS names.
 #   2. VERDICT. The checks whose status is not PASS are exactly the ones
-#      formal/EXPECTED_FAIL names.
+#      formal/EXPECTED_FAIL names, WITH THE STATUS EACH ONE CARRIES.
+#
+# (2) matched on the name alone until ADR-0036 was executed, and that made
+# ERROR, TIMEOUT, UNKNOWN and NO-STATUS indistinguishable from FAIL to this
+# gate. ADR-0036 measured the consequence rather than argued it: a ladder run
+# on a machine WITHOUT `btorsim` reported "82 checks: 72 pass, 10 fail /
+# Failure list matches EXPECTED_FAIL exactly" and exited 0, while all ten of
+# those checks had status `ERROR 16 2`. `btormc` had found the
+# counterexamples; `sby` then failed to render the traces, because the step
+# that does so shells out to `btorsim`. "A real counterexample at the
+# configured depth" and "the trace renderer is missing" were the same result.
+# The failure mode that matters is the inverse: if `btorsim` vanished from the
+# nightly's pinned OSS CAD Suite, every red check would flip FAIL -> ERROR,
+# the set equality would still match, and the ladder would stay green having
+# stopped distinguishing a proof failure from a tooling failure. Same shape as
+# ADR-0033's gaps -- a check that can stop checking without anything going red
+# -- one level down, in the status field rather than the check list. This is
+# the identical amendment ADR-0035 made to test/EXPECTED_FAIL, applied to the
+# formal side, and the reasoning is written out in formal/EXPECTED_FAIL's own
+# header.
 #
 # (1) is not decoration. Without it this script could not tell a ladder that
 # shrank from one that passed. formal/checks.cfg's [depth] table is the list
@@ -55,12 +74,114 @@ for f in "$EXPECTED_FAIL" "$EXPECTED_CHECKS"; do
 done
 
 # `#` comments and blank lines out, as both baseline files already allow.
+# Interior whitespace is squeezed too, so EXPECTED_FAIL's two fields can be
+# column-aligned for a human without changing what is compared. `NF` must gate
+# the rebuild rather than follow it: awk forces NF to 1 when $1 is assigned, so
+# `{$1=$1} NF` would resurrect every blank and comment-only line as an empty
+# entry. (Same idiom, same reason, as test/run_tests.sh.)
 strip() {
-  sed -e 's/#.*//' -e 's/[[:space:]]*$//' -e '/^[[:space:]]*$/d' "$1" | sort
+  sed -e 's/#.*//' "$1" | awk 'NF { $1 = $1; print }' | sort
 }
 
 expected_checks=$(strip "$EXPECTED_CHECKS")
 expected_fail=$(strip "$EXPECTED_FAIL")
+
+# THE STATUS VOCABULARY, ENUMERATED IN BOTH DIRECTIONS.
+#
+# `sby` writes its verdict as the first word of <workdir>/status, and the rest
+# of that line is engine bookkeeping (`PASS 0 31`, `ERROR 16 2`) that no
+# baseline should ever pin. Only the first word is compared.
+#
+# known_status: everything sby can write, plus this script's own NO-STATUS for
+# "there is no status file". A status outside this set means sby's output
+# changed under us -- a pin bump, a different engine -- and is reported rather
+# than bucketed into "not PASS", because bucketing is the whole defect this
+# gate just stopped having.
+known_status() {
+  case $1 in
+    PASS | FAIL | ERROR | UNKNOWN | TIMEOUT | NO-STATUS) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# baselineable_status: the strictly smaller set a line in EXPECTED_FAIL may
+# carry. Three are rejected, each for its own reason:
+#
+#   PASS       is unreachable here by construction -- a PASS check never
+#              enters the failure set -- so a line carrying it could never
+#              match anything, which is a comparison whose failure branch is
+#              the only branch.
+#   ERROR      is sby failing to run or to render, not the core failing a
+#              property. ADR-0036: "with ERROR never a legitimate baselined
+#              value". Baselining one would re-create the btorsim hole with
+#              this gate's blessing on it.
+#   NO-STATUS  is "the check was generated and never scheduled, or is still
+#              running". Same argument: a broken harness, not a known-red
+#              property.
+#
+# TIMEOUT and UNKNOWN ARE accepted. They are budget exhaustion rather than
+# tooling breakage -- a real, recorded verdict about a check that did not
+# converge (ADR-0023's `reg` was exactly this before ADR-0024 changed the
+# engine) -- and a change that turned one into the other is a change this gate
+# should report, which is only possible if both are spellable.
+baselineable_status() {
+  case $1 in
+    FAIL | TIMEOUT | UNKNOWN) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Validate the baseline's FORMAT before anything expensive, and before any
+# comparison -- a rejected line must read as "this file is wrong", never as a
+# regression in the ladder. Exit 2 is this script's existing code for "the
+# inputs are broken", as distinct from exit 1, "the ladder disagrees with
+# them".
+#
+# A one-field line is the pre-ADR-0036 format. Accepting it silently would
+# make every legacy entry unmatchable in a way that reads exactly like a
+# regression, so it is named instead. An empty file has no lines and is
+# therefore fine -- which is the state the ladder is in today.
+baseline_errors=""
+while IFS= read -r line; do
+  [ -n "$line" ] || continue
+  # shellcheck disable=SC2086 # deliberate word split: the line is normalised.
+  set -- $line
+  case $# in
+    1)
+      baseline_errors+="  $line
+      -> no status field. The format is '<check>  <STATUS>'.
+"
+      ;;
+    2)
+      if ! known_status "$2"; then
+        baseline_errors+="  $line
+      -> '$2' is not a status sby can produce. Accepted: PASS FAIL ERROR
+         UNKNOWN TIMEOUT NO-STATUS.
+"
+      elif ! baselineable_status "$2"; then
+        baseline_errors+="  $line
+      -> '$2' must never be baselined. PASS cannot appear in a failure set at
+         all; ERROR and NO-STATUS are a broken harness rather than a known-red
+         property, and parking one here is what ADR-0036 exists to forbid.
+         Baselineable: FAIL TIMEOUT UNKNOWN.
+"
+      fi
+      ;;
+    *)
+      baseline_errors+="  $line
+      -> $# fields. The format is exactly two: '<check>  <STATUS>'. sby's
+         trailing engine numbers ('PASS 0 31') are not part of the status.
+"
+      ;;
+  esac
+done <<< "$expected_fail"
+
+if [ -n "$baseline_errors" ]; then
+  echo "error: $EXPECTED_FAIL is malformed (ADR-0036 format):" >&2
+  printf '%s' "$baseline_errors" >&2
+  echo "Read that file's header before editing it; the format is the gate." >&2
+  exit 2
+fi
 
 # The generated set: one line per checks/<name>.sby. `find` rather than a
 # glob, so a missing or empty directory yields nothing instead of the
@@ -97,29 +218,56 @@ all_checks=$(printf '%s\n%s\n' "$generated" "$expected_checks" | sort -u)
 
 total=0
 declare -a actual_fail=()
+declare -a unknown_statuses=()
 for name in $all_checks; do
   total=$((total + 1))
-  status=$(awk '{print $1; exit}' "$CHECKS_DIR/$name/status" 2>/dev/null)
+  # First word of the first NON-BLANK line. sby's status line is
+  # `<VERDICT> <engine> <depth>`; only the verdict is compared, because the
+  # numbers after it are bookkeeping that moves with the engine and would
+  # make the baseline pin something it is not asserting.
+  status=$(awk 'NF { print $1; exit }' "$CHECKS_DIR/$name/status" 2>/dev/null)
   if [ -z "$status" ]; then
     status="NO-STATUS"
   fi
+  if ! known_status "$status"; then
+    unknown_statuses+=("$name $status")
+  fi
   if [ "$status" != "PASS" ]; then
-    actual_fail+=("$name")
+    actual_fail+=("$name $status")
   fi
 done
 
 passed=$((total - ${#actual_fail[@]}))
 echo "$total checks: $passed pass, ${#actual_fail[@]} fail"
 
-actual_sorted=$(printf '%s\n' "${actual_fail[@]:-}" | sed '/^$/d' | sort)
+# A status sby has never written here before is reported on its own, not left
+# to be read out of a diff. It means the tool's output changed, which is a
+# different problem from the ladder disagreeing with its baseline, and the two
+# want different fixes. It still counts as non-PASS above, so it cannot pass
+# quietly either way.
+if [ ${#unknown_statuses[@]} -gt 0 ]; then
+  echo
+  echo "Unrecognised status(es) on disk -- not one of PASS FAIL ERROR UNKNOWN"
+  echo "TIMEOUT. sby's output has changed; do not baseline these, fix the"
+  echo "vocabulary in $0 after reading what the pin now emits:"
+  printf '  %s\n' "${unknown_statuses[@]}"
+  failed=1
+fi
+
+actual_sorted=$(printf '%s\n' "${actual_fail[@]:-}" | awk 'NF { $1 = $1; print }' | sort)
 
 if [ "$actual_sorted" = "$expected_fail" ]; then
-  echo "Failure list matches $EXPECTED_FAIL exactly."
+  echo "Failure list matches $EXPECTED_FAIL exactly (name and status)."
 else
   echo
   echo "Failure list does NOT match $EXPECTED_FAIL:"
   diff <(echo "$expected_fail") <(echo "$actual_sorted") \
     --label expected --label actual
+  echo
+  echo "A name on one side only is a check whose verdict moved. A name on BOTH"
+  echo "sides with different statuses is the ADR-0036 case: the check is still"
+  echo "red, but for a different reason than the one baselined -- ERROR and"
+  echo "NO-STATUS mean the harness broke, not that the property failed."
   failed=1
 fi
 
