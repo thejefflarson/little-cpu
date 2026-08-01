@@ -584,10 +584,12 @@ not against an oracle. An empty baseline is loudest exactly where the ladder is 
 
 - Design brief: [`docs/ideas/finish-the-rewrite.md`](docs/ideas/finish-the-rewrite.md)
 - Area/fit brief: [`docs/ideas/fit-the-core-on-the-up5k.md`](docs/ideas/fit-the-core-on-the-up5k.md) —
-  the core does **not** currently place on the up5k (6659/5280 logic cells, 126%). Read ADR-0038
-  before quoting any area number: yosys cell counts are blind to unpaired flip-flops and have
-  produced two wrong estimates already.
-- Decisions: [`docs/adr/`](docs/adr/) — forty accepted ADRs, plus a deferred list
+  the core does **not** currently place on the up5k: **6971/5280 logic cells, 132%**, which is what
+  `make fit` prints today (ADR-0038's 6659/126% was measured before trap entry; +312 cells is what
+  trap entry cost). Read ADR-0038 before quoting any area number: yosys cell counts are blind to
+  unpaired flip-flops and have produced two wrong estimates already. **The brief's two `reg_ch0`
+  claims are false and are struck in place** — see ADR-0040.
+- Decisions: [`docs/adr/`](docs/adr/) — forty-one accepted ADRs, plus a deferred list
 - Reference text from the old core: `git show 1709433^:rtl/riscv.v` (RVFI retire block),
   `git show e67875c^:rtl/alu.v` (arithmetic)
 - Work is tracked in Linear, project **Little CPU** (team JEF). Named here so you know where the
