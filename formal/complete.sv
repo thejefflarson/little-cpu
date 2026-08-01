@@ -156,8 +156,20 @@ module rvfi_testbench (
   // model, none: there is no insns/insn_fence.v, no insn_ecall.v, no
   // insn_csrrw.v, and isa_rv32imc.txt names none of them. spec_valid is
   // therefore 0 on every such retire and the assertion fails on correct
-  // hardware -- measured, `DONE (FAIL, rc=2)` at step 5 with imem_data
-  // 0x0000800F, which is FENCE.
+  // hardware. Measured, by running this same harness with `insn_excluded`
+  // forced to 0: `DONE (FAIL, rc=2)` in 15s, counterexample at step 5, with
+  //
+  //   rvfi_insn = 0x0000000f  (FENCE)  rvfi_trap = 0
+  //   spec_valid = 0                   spec_trap = 0
+  //
+  // -- a correct, non-trapping retire of an instruction the model has never
+  // heard of. That is the whole reason this file needs an exclusion set, and
+  // it is reproducible: copy complete.sv and complete.sby under another name,
+  // set `insn_excluded` to 1'b0 in the copy, and run `sby -f` on it. (Editing
+  // this file in place does not work, and deliberately so --
+  // check-complete-exclusions.py rejects an insn_excluded that is not the
+  // disjunction of the declared wires, and `complete` will not run until it
+  // passes.)
   //
   // EXCLUDING AN OPCODE FROM AN ASSERTION IS WEAKENING A CHECK. It is
   // legitimate here only under ADR-0010's rule one level up -- restrict the
