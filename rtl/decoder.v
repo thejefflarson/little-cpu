@@ -450,7 +450,7 @@ module decoder (
 
   logic trap_pending;
   assign trap_pending = instr_illegal || instr_ebreak || instr_ecall ||
-                        store_misaligned;
+                        load_misaligned || store_misaligned;
 
   // ADR-0030's priority order: illegal (2) -> breakpoint (3) -> environment
   // call (11) -> load misaligned (4) -> store misaligned (6). An instruction
