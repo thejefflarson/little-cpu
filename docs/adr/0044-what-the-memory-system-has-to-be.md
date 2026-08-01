@@ -80,7 +80,11 @@ Specifically:
   they are chosen.** Choosing among them is the post-M4 ADR's job, taken with measurements this
   repo does not yet have.
 
-## Techniques that are known to work, for the design to start from
+## Techniques that are known to work — and the one that is ruled out
+
+**Whatever this design chooses must be modellable by the formal ladder.** That is the constraint
+that eliminates the otherwise-obvious answer below, and it is not negotiable on a core whose whole
+plan is to get back to verified.
 
 **For the combinational-read problem — clock the memory address from the combinational *next* PC at
 posedge**, rather than from the registered PC. The decoder then sees the instruction available for
@@ -88,11 +92,24 @@ the whole of the following cycle, and **invariant 1 survives exactly**: no extra
 speculation, no flush. It also *shortens* the critical path, because the memory access leaves the
 combinational chain that currently runs `pc → imem_addr → memory → window mux → decode → next pc`.
 
-The negedge read is the other candidate, and it is newly available: it was blocked while the
-regfile needed the falling edge, because the regfile's read address depends on the ROM's read data
-and both cannot take the negedge in one cycle. The regfile change (PR #62) moves the regfile to a
-posedge synchronous read, **freeing that slot**. Note that ADR-0040 records what the negedge costs
-in formal coverage — the ladder cannot model it — and that cost applies here too.
+**A negedge read is NOT a candidate, and this is the place that says so.** It is the obvious second
+answer, it is newly unblocked now that the regfile no longer needs the falling edge, and it must
+still be rejected — for the same reason the regfile rejected it (ADR-0042, and the measurement in
+ADR-0040).
+
+**The formal ladder cannot model a negedge read at all.** sby's own `prep` step runs
+`formalff -setundef -clk2ff`, which fails closed with `ERROR: CLK clock ... also used with opposite
+polarity`, rc=16, before any check runs. That is not a tuning problem: `clk2fflogic` is the flag
+that makes it run, and ADR-0040 measured that the flag *produces false greens* — under it `reg_ch0`
+passes on designs the stock ladder kills. `checks.cfg` structurally cannot express a correct
+version, because genchecks derives `skip`, `depth` and `RISCV_FORMAL_CHECK_CYCLE` from one column
+while `clk2fflogic` makes a cycle two BMC steps.
+
+Choosing a negedge for the regfile would have meant `reg_ch0` never running against
+`rtl/regfile.v` again. Choosing one for instruction fetch is worse: **every `insn_*` check on the
+ladder reads through `imem_data`**, so it would take the entire per-instruction half of the ladder
+out of contact with the shipping design. An unverifiable memory on an unverified core is not a
+trade this project can make.
 
 **For the dual-word problem — interleaved 16-bit banks**, as the deferred list already names. Even
 halfwords in one bank, odd in the other; any 32-bit window at any 2-byte alignment then reads one
@@ -119,3 +136,10 @@ system self-contained; the first costs a bootloader and a flash controller.
   Whatever this work chooses is therefore the final word on whether that invariant survives contact
   with the hardware — which is why it deserves its own decision rather than being settled as a side
   effect of an area sprint.
+- **The design space is narrower than it looks, and deliberately so.** Ruling out the negedge on
+  verifiability leaves the next-PC-clocked address as the only known technique that keeps invariant
+  1 intact *and* stays modellable. If that turns out not to work, the honest options are to change
+  invariant 1 — with its own ADR, per ADR-0038's precedent for invariant 6 — or to change the
+  target part. Reaching for the negedge because the remaining options are uncomfortable would be
+  buying hardware that works with a core nobody can check, which is the trade this repo has spent
+  the whole rewrite refusing.
