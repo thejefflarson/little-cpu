@@ -31,12 +31,25 @@
 // map). Nothing here was chosen because it made a test pass.
 //
 // WHAT THIS FILE CANNOT SAY. Three implementation-defined values remain
-// different because sail-riscv 0.13.1 has no knob for them, and they are
-// handled in test/cosim.py's NONCOMPARABLE_CSRS instead of by pretending:
-// `mcycle`/`mcycleh` (an ISA model has no pipeline), `mie` (the model
-// hardwires MSIE/MTIE/MEIE writable; ADR-0002 makes them read-only zero) and
-// `mip` (the model's mtime keeps ticking with the CLINT unmapped and raises
-// MTIP; this core has no timer). See docs/adr/0043.
+// different because sail-riscv 0.13.1 has no knob for them, and they are NOT
+// all handled the same way -- the difference matters:
+//
+//   * `mcycle`/`mcycleh` (an ISA model has no pipeline) are exempted by name
+//     in test/cosim.py's NONCOMPARABLE_CSRS, keyed on the CSR encoding and
+//     scoped to one register at one comparison point.
+//
+//   * `mie` (the model hardwires MSIE/MTIE/MEIE writable; ADR-0002 makes them
+//     read-only zero) and `mip` (the model's mtime keeps ticking with the
+//     CLINT unmapped and raises MTIP; this core has no timer) are NOT in
+//     NONCOMPARABLE_CSRS and cannot be -- a value exemption cannot help here,
+//     because a program asserting they read zero takes a DIFFERENT BRANCH on
+//     the two machines rather than reading a different value. Those assertions
+//     live in test/csr_tb.v instead, against rtl/csrs.v, where there is no
+//     reference model to disagree. test/cosim.py's own comment above
+//     NONCOMPARABLE_CSRS says this correctly; this header used to claim all
+//     three were exempted there, and that was wrong.
+//
+// See docs/adr/0043.
 {
   "base": {
     "xlen": 32,
