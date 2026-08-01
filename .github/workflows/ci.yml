@@ -124,14 +124,7 @@ jobs:
   # line comes out of the baseline in the same commit.
   test:
     name: test
-    # Stays GitHub-hosted: this job does `sudo apt-get install
-    # gcc-riscv64-unknown-elf clang`, and the in-cluster runners are deliberately
-    # runAsNonRoot with allowPrivilegeEscalation:false and capabilities drop ALL
-    # (cluster repo: charts/actions/runners/values.yaml). Root package installs and
-    # a hardened non-root runner are fundamentally at odds; weakening the runner to
-    # suit one job is the wrong trade. Moving this would mean baking the RISC-V
-    # toolchain into the runner image instead.
-    runs-on: ubuntu-latest
+    runs-on: little-cpu-runners
     timeout-minutes: 10
     steps:
       - name: Record job start
@@ -139,16 +132,26 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install RISC-V cross compiler
-        # `make setup` only installs this on macOS (brew); on Linux it just
-        # prints the apt command (Makefile's setup target). Run that
-        # command directly instead of adding a CI-only Makefile target.
-        # clang is pulled explicitly too rather than assumed present on the
-        # runner image -- `sim`'s recipe hardcodes clang++.
+      # The cross compiler and clang++ are baked into the runner image
+      # (thejefflarson/runner#35) instead of apt-installed here: these runners are
+      # runAsNonRoot with allowPrivilegeEscalation:false, so `sudo apt-get install`
+      # fails with "the 'no new privileges' flag is set".
+      #
+      # This is an ASSERTION, not an install. If the image is ever rebuilt without
+      # the toolchain, fail here with a message that names the cause rather than
+      # letting run_tests.sh die on a missing compiler or `sim` on a missing clang++.
+      - name: Verify the toolchain is present in the runner image
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y gcc-riscv64-unknown-elf clang
+          missing=""
+          for tool in riscv64-unknown-elf-gcc clang++; do
+            command -v "$tool" >/dev/null 2>&1 || missing="$missing $tool"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::runner image is missing:$missing — expected them baked in (thejefflarson/runner#35)"
+            exit 1
+          fi
+          echo "toolchain present: $(riscv64-unknown-elf-gcc --version | head -1); $(clang++ --version | head -1)"
 
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
@@ -235,11 +238,7 @@ jobs:
   # cheapest job here and the first to report.
   lint:
     name: lint
-    # Stays GitHub-hosted until the runner image ships `unzip` — svlint is
-    # distributed as a .zip and the image installs unzip only in its build stage,
-    # not the final runtime stage, so this fails with `unzip: not found`. Tracked
-    # against the runner repo; flip to little-cpu-runners once that lands.
-    runs-on: ubuntu-latest
+    runs-on: little-cpu-runners
     timeout-minutes: 5
     steps:
       - name: Record job start
