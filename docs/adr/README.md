@@ -52,6 +52,7 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0046](0046-the-ladder-depths-are-re-derived-and-the-derivation-is-measured.md) | The ladder's depths are re-derived for the five-reason pipeline, and the derivation is measured | Accepted · supersedes 0025 |
 | [0044](0044-what-the-memory-system-has-to-be.md) | What the memory system has to be, and why today's placeholders cannot be it | Accepted |
 | [0047](0047-non-perturbation-is-proved-structurally-and-equiv-sh-is-retired.md) | The RVFI non-perturbation guarantee is proved structurally, and `equiv.sh` is retired | Accepted |
+| [0049](0049-every-formal-assume-names-its-scope-and-its-discharge.md) | Every formal `assume` names its scope as well as its discharge | Accepted · supplements 0017 |
 
 0001–0007 came from the design brief
 ([`docs/ideas/finish-the-rewrite.md`](../ideas/finish-the-rewrite.md)). 0008–0011 came out of
