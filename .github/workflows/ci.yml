@@ -526,16 +526,22 @@ jobs:
           file: ${{ env.OSS_CAD_SUITE_FILE }}
           sha256: ${{ env.OSS_CAD_SUITE_SHA256 }}
 
-      # Not a formality. check-baseline.sh compares check NAMES, not
-      # statuses: any status that is not PASS lands a check in the actual-
-      # fail set, so ERROR and FAIL are indistinguishable to it. sby's btor
-      # engine solves with btormc and then replays the witness with btorsim,
-      # and btorsim is reached ONLY on a check that found a counterexample --
-      # so on a box without it every red check reports ERROR instead of FAIL,
-      # the name set still matches formal/EXPECTED_FAIL exactly, and this job
-      # goes green on a broken toolchain. (Confirmed: btorsim is absent from
-      # a stock macOS brew install of yosys+sby, where exactly that happens.)
-      # Assert it up front rather than inferring it from a green run.
+      # Not a formality, and it is NOT made redundant by ADR-0036's status
+      # field. sby's btor engine solves with btormc and then replays the
+      # witness with btorsim, and btorsim is reached ONLY on a check that
+      # found a counterexample -- so on a box without it every red check
+      # reports ERROR instead of FAIL. (Confirmed: btorsim is absent from a
+      # stock macOS brew install of yosys+sby.)
+      #
+      # check-baseline.sh now compares NAME AND STATUS, so that flip turns
+      # this job RED rather than green: `ERROR` cannot be baselined at all,
+      # and a baselined `FAIL` no longer matches an `ERROR` on disk. What it
+      # cannot do is notice the missing tool on an ALL-GREEN ladder, which is
+      # the state this repo is in -- no counterexample means btorsim is never
+      # invoked, so its absence is invisible right up until the first check
+      # goes red, at which point the diagnostic is "status changed" rather
+      # than "install btorsim". Assert it up front so the failure names its
+      # own cause.
       - name: Confirm the BMC toolchain is complete
         run: |
           set -euo pipefail
