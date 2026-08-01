@@ -82,7 +82,7 @@ fi
 not_dot_s=$(printf '%s\n' "$listed" | awk '$1 !~ /\.S$/ { print }')
 if [ -n "$not_dot_s" ]; then
   echo "error: $MANIFEST has entries whose first field is not a '<test>.S' name:" >&2
-  printf '  %s\n' "$not_dot_s" >&2
+  printf '%s\n' "$not_dot_s" | sed -e 's|^|  |' >&2
   exit 1
 fi
 
@@ -92,7 +92,7 @@ fi
 duplicates=$(printf '%s\n' "$listed" | sort | uniq -d)
 if [ -n "$duplicates" ]; then
   echo "error: $MANIFEST names the same program more than once:" >&2
-  printf '  %s\n' "$duplicates" >&2
+  printf '%s\n' "$duplicates" | sed -e 's|^|  |' >&2
   exit 1
 fi
 
@@ -115,7 +115,7 @@ rc=0
 
 if [ -n "$missing" ]; then
   echo "error: $MANIFEST names programs that are not in $ASM_DIR:" >&2
-  printf '  %s\n' "$missing" >&2
+  printf '%s\n' "$missing" | sed -e 's|^|  |' >&2
   echo "The suite has SHRUNK, or a program was renamed. Nothing was run." >&2
   echo "Remove the manifest line in the same commit that removes the program." >&2
   rc=1
@@ -123,7 +123,7 @@ fi
 
 if [ -n "$unlisted" ]; then
   echo "error: $ASM_DIR has programs that $MANIFEST does not name:" >&2
-  printf '  %s\n' "$unlisted" >&2
+  printf '%s\n' "$unlisted" | sed -e 's|^|  |' >&2
   echo "A program that lands without a manifest entry runs unmeasured. Add its" >&2
   echo "line — name, retire floor, spec-checked floor — in the same commit." >&2
   rc=1
