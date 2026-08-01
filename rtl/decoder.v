@@ -1011,6 +1011,12 @@ module decoder (
   logic clocked;
   initial clocked = 0;
   always_ff @(posedge clk) clocked <= 1;
+  // FACT       reset is asserted before the first clock edge.
+  // DISCHARGED NOWHERE. Structural: every harness that instantiates this core
+  //            drives reset high initially. No check asserts it (ADR-0049).
+  // SCOPE      the whole task. Unguarded, and that is what it was written for:
+  //            before the first edge `out` and the pc history registers have
+  //            no defined value, so nothing below is meaningful without it.
   // assume we've reset at clk 0
   initial assume(reset);
   always_comb if(!clocked) assume(reset);
@@ -1020,6 +1026,16 @@ module decoder (
   // below — which reason about "pc advanced by pc_inc since last cycle" —
   // would have to separately account for every point reset could jump pc
   // back to 0.
+  //
+  // FACT       reset never returns after the first cycle.
+  // DISCHARGED NOWHERE. True of every harness in the tree; asserted by none.
+  // SCOPE      the whole task -- LARGER than what it was written for. The
+  //            paragraph above is about the pc-increment assertions; this is
+  //            an unguarded `always_comb assume`, so it is equally in force
+  //            over the ADR-0028 / ADR-0030 trap-arm assertions added to this
+  //            block two milestones later. Harmless (those already carry their
+  //            own `!prev_reset` guards) but written down rather than left to
+  //            be inferred from proximity (ADR-0049 clause 3).
   always_comb if (clocked) assume(!reset);
 
   // This component proof stands alone (no real fetcher instantiated), so
@@ -1030,6 +1046,30 @@ module decoder (
   // bears no relation to what this decoder itself last drove, and the
   // pc-increment assertions below are unprovable against a fetcher that
   // isn't behaving like this design's actual one.
+  //
+  // FACT       the fetcher echoes the decoder's own pc combinationally --
+  //            rtl/fetcher.v's `out.pc = pc;`, wired pc -> pc in
+  //            rtl/littlecpu.v.
+  // DISCHARGED formal/pcloop.sv, which instantiates the real fetcher and
+  //            ASSERTS the echo (`assert(fetcher_out.pc == pc)`) instead of
+  //            assuming it. ADR-0017 relocated this obligation to M2's
+  //            full-core wrapper; pcloop.sv now discharges it directly and at
+  //            component level, which is better. This is a REAL, RUNNING
+  //            discharge as of `bb6e228` (ADR-0046): `make -C formal
+  //            components_pcloop` is a target, it is in CI's `components` job,
+  //            and it passes by k-induction in 2.7s. It was red and unrun
+  //            while this audit was in flight -- see ADR-0049 F2 for what that
+  //            looked like and why it went unnoticed, which is worth reading
+  //            before adding another assume whose discharge is a task nothing
+  //            invokes.
+  // SCOPE      the whole task -- LARGER than what it was written for.
+  //            ADR-0017 analysed its effect on the pc-increment pair; it is
+  //            also in force over the bubble, hazard, `one_of`, trap-cause and
+  //            trap-arm assertions below, all of which were written after it.
+  //            None of those reason about `in.pc`, so the widening is inert
+  //            today; it is recorded so that an assertion added later that
+  //            DOES read `in.pc` is not silently handed a fetcher it never
+  //            asked for.
   always_comb assume(in.pc == pc);
 
   // pc increment logic. Skipped for a cycle whose *previous* cycle was

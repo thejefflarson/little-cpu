@@ -9,6 +9,58 @@
 # baseline. Removing a line is a claim the same commit backs up. Adding one back
 # is a regression and needs a stated justification in the PR that adds it.
 #
+# FORMAT — two fields, not one (ADR-0036, executing the decision it recorded;
+# ADR-0035 made the identical amendment to test/EXPECTED_FAIL first):
+#
+#     <check>  <STATUS>
+#
+# The status is the FIRST WORD of formal/checks/<check>/status — sby's verdict,
+# without the engine and depth numbers it prints after it (`PASS 0 31`,
+# `ERROR 16 2`). Whitespace between the fields is free, so entries can be column-
+# aligned. A line with only a name is REJECTED with an error naming the format,
+# not half-matched: silently accepting the old spelling would make every legacy
+# entry unmatchable in a way that reads exactly like a regression.
+#
+# THE VOCABULARY IS ENUMERATED, IN BOTH DIRECTIONS, and the two lists differ:
+#
+#   sby can write        PASS  FAIL  ERROR  UNKNOWN  TIMEOUT
+#                        (plus check-baseline.sh's own NO-STATUS, for a check
+#                        with no status file at all — never generated, never
+#                        scheduled, or still running)
+#   MAY BE BASELINED     FAIL  TIMEOUT  UNKNOWN
+#
+# Anything else on a line here is rejected loudly rather than matched:
+#
+#   PASS       cannot appear in a failure set at all, so a line carrying it
+#              could never match anything — a comparison with no reachable
+#              success branch, which is this repo's recurring defect and not a
+#              thing to add on purpose.
+#   ERROR      is sby failing to RUN or to render a trace, not the core failing
+#              a property. ADR-0036's words: "with ERROR never a legitimate
+#              baselined value."
+#   NO-STATUS  is a broken or incomplete harness for the same reason.
+#
+# TIMEOUT and UNKNOWN are legitimate: they are budget exhaustion, a recorded
+# verdict about a check that did not converge, and a change from one to the
+# other is a change worth reporting — which is only possible if both spellings
+# exist.
+#
+# WHY THE STATUS IS HERE AT ALL. Matching on the name alone made this gate blind
+# to *why* a check was red, and ADR-0036 measured the consequence rather than
+# arguing it: a ladder run on a machine without `btorsim` printed "82 checks:
+# 72 pass, 10 fail / Failure list matches EXPECTED_FAIL exactly" and exited 0,
+# with all ten of those checks at `ERROR 16 2`. `btormc` had found the
+# counterexamples correctly; `sby` could not render the traces, because that step
+# shells out to `btorsim`. A real counterexample and a missing trace renderer
+# were the same result to this file. The inverse is the case that matters: if
+# `btorsim` left the nightly's pinned OSS CAD Suite, every red check would flip
+# FAIL → ERROR, the set equality would still match, and the ladder would stay
+# green having stopped distinguishing a proof failure from a tooling failure.
+#
+# CHANGING A LINE'S STATUS IS THE SAME KIND OF CLAIM AS REMOVING THE LINE, and
+# needs the same justification in the PR that does it. That is the whole point of
+# the second field.
+#
 # THIS FILE ANSWERS ONLY HALF THE QUESTION. It reports whether a check's verdict
 # moved. It cannot report whether a check stopped existing — a check with no
 # formal/checks.cfg [depth] line is never generated, so it is absent from the
@@ -33,8 +85,11 @@
 # Everything runs under RISCV_FORMAL_ALTOPS, so a green insn_mul/insn_div/insn_rem
 # says nothing whatever about the real multiplier or divider (ADR-0010).
 #
-# formal/equiv.sh still does not converge (ADR-0020), so ADR-0006's guarantee that
-# RVFI instrumentation does not perturb the core remains argued rather than proven.
+# ADR-0006's guarantee that RVFI instrumentation does not perturb the core is
+# established by `make -C formal nonperturbation`, not by anything on this ladder.
+# (This paragraph named formal/equiv.sh and said it "still does not converge"; that
+# script is deleted as of ADR-0047, which replaced it. The replacement is strictly
+# weaker than sequential equivalence — it proves the instrumentation is UNREAD.)
 #
 # ONLY `mscratch` IS IN checks.cfg's [csrs], and the reason is recorded next to
 # that list: rvfi_csrw_check.sv has no WARL model, so a correctly WARL-masked

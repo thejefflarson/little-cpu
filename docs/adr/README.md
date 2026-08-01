@@ -6,7 +6,7 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | # | Decision | Status |
 |---|---|---|
 | [0001](0001-finish-the-staged-rewrite.md) | Finish the staged rewrite rather than resurrect the serialized core | Accepted |
-| [0002](0002-isa-target-rv32imc-zicsr.md) | ISA target is RV32IMC_Zicsr, machine mode only | Accepted |
+| [0002](0002-isa-target-rv32imc-zicsr.md) | ISA target is RV32IMC_Zicsr_Zifencei, machine mode only | Accepted · Zifencei claimed by 0048 |
 | [0003](0003-dual-word-combinational-fetch-window.md) | Dual-word combinational fetch window for compressed instructions | Accepted |
 | [0004](0004-stall-only-hazard-interlock.md) | Stall-only hazard interlock with a combinational-read regfile | Accepted |
 | [0005](0005-traps-and-csrs-commit-in-decode.md) | Traps and CSR accesses are detected and committed in decode | Accepted |
@@ -53,6 +53,7 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0044](0044-what-the-memory-system-has-to-be.md) | What the memory system has to be, and why today's placeholders cannot be it | Accepted |
 | [0047](0047-non-perturbation-is-proved-structurally-and-equiv-sh-is-retired.md) | The RVFI non-perturbation guarantee is proved structurally, and `equiv.sh` is retired | Accepted |
 | [0048](0048-what-an-independent-read-of-the-no-oracle-rtl-found.md) | What an independent read of the no-oracle RTL found: `c.ebreak`'s cause, a counter carry, and two missing CSRs | Accepted |
+| [0049](0049-every-formal-assume-names-its-scope-and-its-discharge.md) | Every formal `assume` names its scope as well as its discharge | Accepted · supplements 0017 |
 | [0050](0050-the-nightly-is-deleted-and-its-checks-move-to-the-gate.md) | The formal nightly is deleted and its checks move to the PR gate | Accepted · supersedes 0022, rewrites 0037 term 6 |
 
 0001–0007 came from the design brief
