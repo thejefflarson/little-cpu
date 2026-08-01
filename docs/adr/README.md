@@ -29,7 +29,7 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0022](0022-the-formal-nightly-reports-against-an-explicit-baseline.md) | The formal nightly reports against an explicit baseline, not `\|\| true` | Accepted · corrected by 0037 |
 | [0023](0023-the-first-ladder-run-does-not-reach-m2.md) | The first ladder run does not reach M2 — three named holes | Accepted |
 | [0024](0024-the-ladders-default-bmc-engine-is-btormc.md) | The ladder's default BMC engine is `btor btormc`, not `smtbmc yices` | Accepted |
-| [0025](0025-formal-ladder-depths-are-derived-not-inherited.md) | The ladder's depths are derived from the pipeline, not inherited | Accepted |
+| [0025](0025-formal-ladder-depths-are-derived-not-inherited.md) | The ladder's depths are derived from the pipeline, not inherited | Accepted · numbers superseded by 0046 |
 | [0026](0026-stalls-are-four-reasons-over-two-mechanisms.md) | Stalls are four reasons over two mechanisms | Accepted |
 | [0027](0027-minstret-counts-non-trapping-issues.md) | `minstret` counts non-trapping issues; serialization buys exactness | Accepted |
 | [0028](0028-the-rvfi-convention-for-a-trapping-retire.md) | The RVFI convention for a trapping retire | Accepted · corrected by 0037 |
@@ -49,6 +49,7 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0042](0042-the-regfile-read-is-synchronous-and-costs-a-cycle.md) | The regfile read is synchronous and costs a cycle, and the ladder is told that instruction memory is memory | Accepted |
 | [0043](0043-the-reference-model-is-configured-as-this-core.md) | The reference model is configured as *this* core, and what is left over is exempted by name | Accepted |
 | [0045](0045-two-m2-terms-close-by-amendment-and-one-was-already-met.md) | Two M2 terms close by amendment, one was already met, and the measurements that force it | Accepted |
+| [0046](0046-the-ladder-depths-are-re-derived-and-the-derivation-is-measured.md) | The ladder's depths are re-derived for the five-reason pipeline, and the derivation is measured | Accepted · supersedes 0025 |
 | [0044](0044-what-the-memory-system-has-to-be.md) | What the memory system has to be, and why today's placeholders cannot be it | Accepted |
 | [0047](0047-non-perturbation-is-proved-structurally-and-equiv-sh-is-retired.md) | The RVFI non-perturbation guarantee is proved structurally, and `equiv.sh` is retired | Accepted |
 
@@ -105,6 +106,15 @@ mode and vectors that nobody chose, and `csrr misa` was the one register a test 
 It is now a complete `--config` describing 0002's RV32IMC_Zicsr, and the leftover — an
 implementation-defined value with no knob — is exempted by name, one register at a time, or moved
 to a bench with no reference model in it when the program *branches* on it.
+0046 is 0025 asked again of a pipeline it no longer described. 0025's own addendum said the sweep
+should be repeated once the CSR RTL existed and it never was, and `e4f5250` then added a fifth stall
+reason without touching the depth table — so the one M2 term marked met rested on a derivation two
+changes stale. It re-derives the numbers and changes how: the whole argument now rests on two
+quantities the ladder measures about itself in seconds (`hang` for the worst-case first retire,
+`liveness` for the worst-case retire gap) rather than on hand-tracing, which is the part that went
+stale. No depth moves. It also gives the 70 `insn_*` checks the liveness probe they had never had,
+and that probe exhibits the failure mode the whole file is about: swept below its floor, a check
+passes on a core that is broken.
 
 ## Deferred decisions
 
