@@ -215,26 +215,47 @@ module csrs(
   assign trap_epc_warl = {trap_epc[31:1], 1'b0};
 
   // ---- the counters -----------------------------------------------------
-  // Both advance first and are then overwritten by an explicit write to the
-  // addressed half, which is ADR-0005's "an explicit write to a counter takes
-  // precedence over that cycle's increment" written out rather than relied on
-  // as a last-assignment-wins side effect.
-  logic [63:0] mcycle_plus, minstret_plus;
-  assign mcycle_plus   = mcycle + 64'd1;
-  assign minstret_plus = instret ? minstret + 64'd1 : minstret;
-
-  logic [31:0] mcycle_plus_lo, mcycle_plus_hi, minstret_plus_lo, minstret_plus_hi;
-  assign mcycle_plus_lo   = mcycle_plus[31:0];
-  assign mcycle_plus_hi   = mcycle_plus[63:32];
-  assign minstret_plus_lo = minstret_plus[31:0];
-  assign minstret_plus_hi = minstret_plus[63:32];
-
   logic wr_mcycle, wr_mcycleh, wr_minstret, wr_minstreth, wr_mscratch;
   assign wr_mcycle    = wen && addr == MCYCLE;
   assign wr_mcycleh   = wen && addr == MCYCLEH;
   assign wr_minstret  = wen && addr == MINSTRET;
   assign wr_minstreth = wen && addr == MINSTRETH;
   assign wr_mscratch  = wen && addr == MSCRATCH;
+
+  // ADR-0005's "an explicit write to a counter takes precedence over that
+  // cycle's increment" -- and the privileged spec's own "any CSR write takes
+  // precedence over the automatic increment" (20211203 §3.1.11) -- are
+  // statements about the 64-BIT COUNTER, not about the half whose address the
+  // instruction happens to name. mcycle and mcycleh are two views of one
+  // register, so a write to either half suppresses that cycle's increment of
+  // the whole thing. Hence a `_tick` term per counter rather than the two
+  // per-half overrides below doing the job on their own.
+  //
+  // Suppressing per half instead is wrong only at the carry boundary, and
+  // wrong there in a way that nothing else in this repo can see. With
+  // mcycle == 32'hffff_ffff the increment's carry lands in the HIGH half while
+  // the explicit write replaces the low one, so `csrw mcycle` advances mcycleh
+  // by one -- contradicting the invariant the RVFI report at the bottom of this
+  // file is built to satisfy, and doing it once every 2**32 cycles and only if
+  // a write falls on that exact cycle. checks/rvfi_csrw_check.sv reads the
+  // SELF-REPORTED masks and never observes the register; every ladder check is
+  // `mode bmc` from reset; and a `.S` program can land a write on that cycle
+  // only by calibrating instruction spacing first, which is a test that stops
+  // testing the moment the spacing changes. test/csr_tb.v drives this port
+  // directly and is the one place it is deterministic (ADR-0048).
+  logic mcycle_tick, minstret_tick;
+  assign mcycle_tick   = !wr_mcycle   && !wr_mcycleh;
+  assign minstret_tick = !wr_minstret && !wr_minstreth && instret;
+
+  logic [63:0] mcycle_plus, minstret_plus;
+  assign mcycle_plus   = mcycle_tick   ? mcycle   + 64'd1 : mcycle;
+  assign minstret_plus = minstret_tick ? minstret + 64'd1 : minstret;
+
+  logic [31:0] mcycle_plus_lo, mcycle_plus_hi, minstret_plus_lo, minstret_plus_hi;
+  assign mcycle_plus_lo   = mcycle_plus[31:0];
+  assign mcycle_plus_hi   = mcycle_plus[63:32];
+  assign minstret_plus_lo = minstret_plus[31:0];
+  assign minstret_plus_hi = minstret_plus[63:32];
 
   logic [31:0] mcycle_next_lo, mcycle_next_hi, minstret_next_lo, minstret_next_hi;
   assign mcycle_next_lo   = wr_mcycle    ? warl : mcycle_plus_lo;

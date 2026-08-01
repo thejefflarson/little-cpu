@@ -286,6 +286,50 @@ module csr_tb;
     check_read("an explicit mcycle write beats the increment", 12'hB00, 32'h0000_0000);
     check_read("...and does not disturb mcycleh", 12'hB80, before_hi);
 
+    // ...INCLUDING AT THE CARRY BOUNDARY, which is the only place that last
+    // claim can be false and the only place nothing else in this repo can
+    // reach.
+    //
+    // "Any CSR write takes precedence over the automatic increment" (priv spec
+    // 20211203 §3.1.11, and ADR-0005's own wording) is about the 64-bit
+    // counter, not about the half the address happens to name: mcycle and
+    // mcycleh are two views of one register. With mcycle == 32'hffff_ffff, the
+    // increment's carry lands in the high half, and a write to the LOW half
+    // has to suppress it -- otherwise `csrw mcycle` silently advances mcycleh
+    // by one, exactly once every 2**32 cycles, and only if a write happens to
+    // fall on that cycle.
+    //
+    // Three oracles are structurally blind to it, which is why it is checked
+    // here and pinned by name. riscv-formal's rvfi_csrw_check.sv reads only
+    // the SELF-REPORTED rmask/wmask/rdata/wdata and never observes the
+    // register, so csrw_mcycle_ch0 cannot see it in any configuration; every
+    // ladder check is `mode bmc` from reset and could not reach 2**32 cycles
+    // if it could; and a `.S` program can only land a write on that one cycle
+    // by calibrating the instruction spacing first, which is a test that stops
+    // testing the moment the spacing changes. Driving the port directly is the
+    // one place this is deterministic.
+    poke(12'hB80, 32'h0000_0000);
+    poke(12'hB00, 32'hffff_fffe);
+    @(posedge clk);
+    #1;
+    check_read("mcycle free-runs up to the carry boundary", 12'hB00, 32'hffff_ffff);
+    poke(12'hB00, 32'h0000_0000);
+    check_read("a write at the boundary still beats the increment", 12'hB00, 32'h0000_0000);
+    check_read("...and its discarded carry does not reach mcycleh", 12'hB80, 32'h0000_0000);
+
+    // The same rule for minstret, where `instret` rather than the clock is
+    // what drives the counter into the boundary.
+    poke(12'hB82, 32'h0000_0000);
+    poke(12'hB02, 32'hffff_fffe);
+    instret = 1'b1;
+    @(posedge clk);
+    #1;
+    check_read("minstret counts up to the carry boundary", 12'hB02, 32'hffff_ffff);
+    poke(12'hB02, 32'h0000_0000);
+    instret = 1'b0;
+    check_read("a write at the boundary still beats the increment", 12'hB02, 32'h0000_0000);
+    check_read("...and its discarded carry does not reach minstreth", 12'hB82, 32'h0000_0000);
+
     // ---- trap entry and mret (ADR-0005 / ADR-0028) -----------------------
     // The privileged-spec sequence, driven directly. Nothing on the
     // riscv-formal ladder can see any of it: rvfi_insn_check drops every value
