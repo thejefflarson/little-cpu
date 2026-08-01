@@ -795,7 +795,8 @@ term 6 is open.** Read each term's own text, not this sentence:
    ADR-0047 named when it retired `equiv.sh`. **`formal/COMPLETE_EXCLUSIONS`** now declares the two
    opcode classes riscv-formal ships no spec model for at the pin (MISC-MEM and SYSTEM — `fence`,
    `fence.i`, `ecall`, `ebreak`, `mret`, `wfi`, `csrr*`), each with its encoding and its reason, and
-   `make -C formal complete` **PASSES at depth 50 in 16s**. The exclusion predicate keys on the
+   `make -C formal complete` **PASSES at depth 50 in 12-16s** (measured across four runs;
+   `complete_cover` is another 14-17s). The exclusion predicate keys on the
    encoding decoded from `rvfi_insn` and on nothing the core decodes, so a core that mis-decodes an
    instruction cannot excuse itself from its own check; `formal/check-complete-exclusions.py` holds
    the set to its baseline by ADR-0014 set equality in both directions **and** re-derives "no spec

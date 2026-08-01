@@ -28,7 +28,7 @@ name: Formal Nightly
 # cannot start grading a different ladder than the gate. What stays here is
 # the budget for anything whose runtime is unbounded. `complete` was the one
 # named example of "what the gate genuinely cannot afford", and it was never
-# measured in a passing configuration: it takes ~16s and is on the gate.
+# measured in a passing configuration: it takes 12-16s and is on the gate.
 # ADR-0025's addendum is the live one to watch: CSR serialization pushed the two-hop
 # figure to ~15, so `insn 15` now sits on its floor with no margin, and a
 # depth bump re-opens the PR gate's budget question along with it.
@@ -182,7 +182,7 @@ jobs:
       #
       # It passes now (formal/COMPLETE_EXCLUSIONS declares the two opcode
       # classes riscv-formal ships no spec model for at the pin), it costs
-      # ~16s, and it runs on every PR with its exit status as the job's. There
+      # 12-16s, and it runs on every PR with its exit status as the job's. There
       # is nothing left for a nightly copy to add, and a suppressed second copy
       # of a gate is worse than none: it is where a future red would go to be
       # ignored.

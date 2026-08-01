@@ -636,10 +636,10 @@ jobs:
       # change, which is the resting place ADR-0047 named: a check that has
       # never produced a verdict, suppressed, reads as coverage. It is the same
       # reasoning that retired equiv.sh, and `complete` is the second instance.
-      # It is here rather than on the nightly because it costs ~16s -- the
+      # It is here rather than on the nightly because it costs 12-16s -- the
       # "this gate cannot afford complete's depth-50 walk" line above was
       # written when it FAILED in seconds and nobody had measured a passing
-      # run.
+      # run. complete_cover below is another 14-17s.
       #
       # WHAT A GREEN `complete` DOES AND DOES NOT MEAN.
       #
