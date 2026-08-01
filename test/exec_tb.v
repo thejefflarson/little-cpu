@@ -98,10 +98,16 @@ module exec_tb;
   // These are the corner vectors this bench is REQUIRED to run. The first three
   // are ADR-0010's, verbatim: MULH(-1,-1) = 0, MULHSU(-1,1) = -1,
   // MULHU(-1,-1) = 0xFFFFFFFE -- exactly the cases a swapped sign enable gets
-  // wrong, and exactly the cases every randomized vector can pass around.
-  // The remaining six are the RISC-V divide-by-zero and INT_MIN / -1 results,
-  // which are architecturally specified values rather than arithmetic ones and
-  // so are reachable by no random operand pair at all.
+  // wrong. The remaining six are the RISC-V divide-by-zero and INT_MIN / -1
+  // results, which are architecturally specified values rather than computed
+  // ones.
+  //
+  // None of the nine is meaningfully reachable by the randomized sweep: each
+  // names both operands exactly, so ten thousand `$random` pairs hit one with
+  // probability around 10^4 / 2^64 (the divide-by-zero four fix rs2 = 0 and rs1
+  // too, so they are no better off). That is why they are written out by hand,
+  // and why deleting one is a real loss of coverage rather than a rounding
+  // error on a big number.
   //
   // The manifest is deliberately NOT the thing that issues them. `run_op`
   // witnesses each (op, rs1, rs2) it actually drove into the DUT against this
