@@ -241,7 +241,8 @@ the failure this section exists to prevent, so they stay as markers rather than 
   iverilog *simulation* CI actually runs is the six `make test-units` benches, which do `$fatal(1)`
   and are gated. (3) **`make -C formal all` is dead** — no workflow names it. That one is
   redundancy rather than a hole: every target it lists (`complete`, `check`, `dmemcheck`,
-  `imemcheck`, the three `components_*`) is invoked separately by `ci.yml` or `formal-nightly.yml`.
+  `imemcheck`, the three `components_*`) is invoked separately by `ci.yml` (ADR-0050 deleted the
+  nightly and folded its checks into the `formal` job).
   A target that names seven gates and is reached by nothing still reads like coverage, which is why
   it is written down here rather than left to be rediscovered.
 - ~~**The ALTOPS divide branch reads stale operands**~~ — **fixed, and this bullet outlived it by
@@ -718,7 +719,7 @@ the oracle (ADR-0019).
 | M1 | Finish the pipeline | all RV32IM `.S` tests pass under cxxrtl — **reached, `a4662a2`** |
 | M2 | **Parity checkpoint** | **all six** conditions below hold. An empty `formal/EXPECTED_FAIL` is *one* of them and on its own means nothing — it was reached at `6309b3e` and M2 was not (ADR-0037) |
 | M3 | Past the old core | CSRs + machine-mode traps — **both landed** (`rtl/csrs.v`; trap commit in `rtl/decoder.v`) |
-| M4 | Full ladder + CI | nightly formal green; tag a release (PR gate `c66527d`; nightly `86e2721`, report-only until ADR-0022) |
+| M4 | Full ladder + CI | the `formal` job green with every check the repo owns on it; tag a release. **There is no nightly** — ADR-0050 deleted it and folded `imemcheck`/`dmemcheck`/`cover` into the required PR gate |
 
 M1 is reached. **M2 is the milestone that erases the verified→unverified regression** — treat it
 as the real finish line, not M1. `b2dafcc` cleared M2's blocker (RVFI is driven, the monitor is live
@@ -766,10 +767,20 @@ and 3, which this list has not yet been rewritten for. Read each term's own text
    ADR-0037 wrote for the case, and it is the third of the six to close that way.
 5. **`formal/complete` passes**, or every check it declines has a recorded reason. It fails today
    on `ecall`/`ebreak`/`mret`/CSR retires, on no gate.
-6. **The nightly can go red, and is green.** It can go red as of `1961234` — but not for the reason
-   this file used to give. The `|| true` and the missing `-k` were fixed earlier; what remained is
-   that the graded comparison was piped into `tee`, and a `run:` block without an explicit `shell:`
-   key is `bash -e {0}` — errexit but **not** pipefail — so its exit status was `tee`'s, always 0.
+6. **Every check the repo owns is on a gate that can fail, and that gate is green** (ADR-0050,
+   rewriting this term after deleting the nightly). The ladder, `imemcheck`, `dmemcheck` and
+   `cover` are steps of the **required** `formal` job whose exit status is the job's, with no
+   `continue-on-error` anywhere in it; `complete` joins them when term 5's exclusion set lands. No
+   graded command sits in a pipeline in a `run:` block.
+   **The intent never changed** — the ladder's verdict must be observed by something automated that
+   can fail — and a required PR check is a strictly stronger instrument than a job ADR-0022 itself
+   described as not gating merges. **This is the third move of an M2 criterion**, and ADR-0045 said
+   a third should prompt asking whether the criterion is real; ADR-0050 asks it explicitly rather
+   than restating the term and moving on. A fourth should be treated as evidence it is not.
+   The history is still worth keeping: the `|| true` and the missing `-k` were fixed earlier, and
+   what survived both was the graded comparison piped into `tee` — a `run:` block without an
+   explicit `shell:` key is `bash -e {0}`, errexit but **not** pipefail, so its exit status was
+   `tee`'s, always 0.
    **ADR-0022's "that comparison step's exit status is the job's real signal" had therefore never
    held**, and stayed accidentally true only because the ladder kept matching its baseline
    (ADR-0037). General rule: never put the graded command in a pipeline in a `run:` block.
