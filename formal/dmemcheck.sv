@@ -67,6 +67,24 @@ module testbench (
     end
   end
 
+  // FACT       the data bus returns, one cycle after the request, whatever was
+  //            last written to that address -- an ordinary memory, modelled at
+  //            one address because that is all rvfi_dmem_check pins.
+  // DISCHARGED NOWHERE, and this one has no structural backing either, which
+  //            is what separates it from the imem assumes in wrapper.v and
+  //            imemcheck.sv. Those model rtl/imemory.v, a ROM that really does
+  //            behave this way. The only writable memory in this tree is
+  //            rtl/memory.v, which is on NO test path at all and carries a
+  //            known read-override bug (ADR-0010's closing bullet). So the
+  //            memory this proof assumes is not a memory this repo has
+  //            checked, and when ADR-0044's memory system is built there is no
+  //            check anywhere that will hold it to this. Recorded rather than
+  //            papered over (ADR-0048 F4).
+  // SCOPE      the one rvfi_dmem_check assertion this task contains -- what it
+  //            was written for, and nothing more. Like imemcheck.sv's four,
+  //            this constrains a DUT INPUT (mem_rdata), so it narrows the
+  //            environment and can never excuse the core.
+  //
   // Read side is genuinely one cycle behind the request, unlike the
   // wave-0 handshake harness this replaces: ADR-0015's load turnaround
   // registers mem_rdata the cycle *after* the address is presented, and
