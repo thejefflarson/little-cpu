@@ -137,7 +137,7 @@ for src in "$ASM_DIR"/*.S; do
   # counts be graded against its predecessor's.
   retires=""
   spec_retires=""
-  if ! "$CC" -march=rv32imc_zicsr -mabi=ilp32 -nostdlib -I "$ASM_DIR" \
+  if ! "$CC" -march=rv32imc_zicsr_zifencei -mabi=ilp32 -nostdlib -I "$ASM_DIR" \
        -T "$ASM_DIR/sections.lds" "$src" -o "$elf" > "$build_log" 2>&1; then
     status="ASSEMBLE-ERROR"
   elif [ -s "$build_log" ]; then
