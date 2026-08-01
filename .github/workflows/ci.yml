@@ -627,6 +627,65 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
+      # THE WHOLE-ISA WALK, AND IT IS A GATE. No continue-on-error: `make -C
+      # formal complete` ends in sby's own exit status (complete.sby carries no
+      # `expect` line, unlike every generated ladder check), so this step's
+      # status is the job's.
+      #
+      # It ran behind `continue-on-error` in formal-nightly.yml until this
+      # change, which is the resting place ADR-0047 named: a check that has
+      # never produced a verdict, suppressed, reads as coverage. It is the same
+      # reasoning that retired equiv.sh, and `complete` is the second instance.
+      # It is here rather than on the nightly because it costs ~16s -- the
+      # "this gate cannot afford complete's depth-50 walk" line above was
+      # written when it FAILED in seconds and nobody had measured a passing
+      # run.
+      #
+      # WHAT A GREEN `complete` DOES AND DOES NOT MEAN.
+      #
+      #   DOES: on every trace of at most 50 cycles from reset, every
+      #   non-trapping retire this core reports carries an encoding
+      #   riscv-formal's whole-ISA model recognises and agrees is
+      #   non-trapping. That is the one check in the tree that walks the ISA as
+      #   a whole -- each of the 70 insn_* ladder checks constrains rvfi_insn
+      #   to its own encoding, so an encoding none of them names is invisible
+      #   to all of them, and this is what sees it.
+      #
+      #   DOES NOT: it is `mode bmc` at depth 50. PASS means no counterexample
+      #   within 50 cycles, not that the property holds -- same caveat as the
+      #   ladder above, and there is no `mode prove` anywhere in formal/. It is
+      #   also silent on two whole opcode classes by declaration: MISC-MEM and
+      #   SYSTEM are excluded, because riscv-formal ships no spec model for
+      #   `fence`/`fence.i`/`ecall`/`ebreak`/`mret`/`wfi`/`csrr*` at
+      #   formal/pin.mk's SHA. formal/COMPLETE_EXCLUSIONS is that set, and
+      #   `make -C formal complete` will not run until it matches complete.sv
+      #   in both directions. So: NOT whole-ISA coverage, and it must not be
+      #   quoted as such -- it is whole-ISA coverage minus a declared,
+      #   baselined, mechanically re-derived hole.
+      #
+      #   AND: it says nothing about spec VALUES. `spec_rd_wdata` and friends
+      #   are what the insn_* checks compare; this asks only that the
+      #   instruction is modelled and non-trapping.
+      #
+      # THIRD ENGINE. complete.sby runs `abc bmc3` -- neither the ladder's
+      # `btor btormc` (ADR-0024) nor components.sby's `smtbmc boolector`. It
+      # therefore does not depend on btorsim, so the toolchain assertion above
+      # is not what covers it.
+      - name: complete (whole-ISA BMC walk, depth 50)
+        run: make -C formal complete
+
+      # THE ANTI-VACUITY CONTROL, and it is a gate for the same reason the
+      # check is. `complete`'s assertion is guarded by `rvfi_valid` and
+      # `!rvfi_trap`, both core-supplied, and by `!insn_excluded`. A core that
+      # never retired, or claimed a trap on everything, or an exclusion set
+      # that had grown to swallow the ISA, would all pass it having been asked
+      # nothing. This runs the same complete.sv under `mode cover` (sby strips
+      # the assertions and keeps the assumes) and requires a real non-trapping,
+      # non-excluded retire of each of the twelve opcode classes the exclusion
+      # set does not name. Green above without green here is not a result.
+      - name: complete_cover (anti-vacuity: every non-excluded class retires)
+        run: make -C formal complete_cover
+
       - name: Report job wall time
         if: always()
         run: |

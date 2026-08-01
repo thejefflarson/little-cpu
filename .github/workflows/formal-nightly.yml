@@ -1,13 +1,14 @@
 name: Formal Nightly
 
 # The nightly ladder: the full genchecks-local.py sweep (insn_*/reg/pc_fwd/
-# pc_bwd/liveness/unique/causal/csrw), the hand-authored imemcheck/dmemcheck/
-# cover tasks and the depth-50 whole-ISA `complete` walk. (equiv.sh used to
-# run here too; ADR-0047 deleted it and its step together -- the replacement,
-# `make -C formal nonperturbation`, takes nine seconds and lives on the PR
-# gate.) None of this gates merges: there is no required-status-check
-# entry for this workflow, unlike ci.yml's elaborate/test/components/
-# monitor-freshness/lint.
+# pc_bwd/liveness/unique/causal/csrw) and the hand-authored imemcheck/
+# dmemcheck/cover tasks. (Two things used to run here too and no longer do,
+# for one reason between them: equiv.sh, deleted by ADR-0047, and `complete`,
+# which is now a hard gate in ci.yml's `formal` job. Both had sat behind
+# `continue-on-error` without ever producing a verdict, which is the shape
+# ADR-0047 is about.) None of this gates merges: there is no
+# required-status-check entry for this workflow, unlike ci.yml's
+# elaborate/test/components/monitor-freshness/lint/formal.
 #
 # This is no longer the only place the genchecks sweep runs, and the reason
 # it used to be has expired. This header used to open by citing ADR-0006's
@@ -25,9 +26,10 @@ name: Formal Nightly
 # Keep the two ladder invocations identical: both call the same Makefile
 # target against the same two baseline files, on purpose, so the nightly
 # cannot start grading a different ladder than the gate. What stays here is
-# what the gate genuinely cannot afford -- `complete` below -- plus the
-# budget for anything whose runtime is unbounded. ADR-0025's
-# addendum is the live one to watch: CSR serialization pushed the two-hop
+# the budget for anything whose runtime is unbounded. `complete` was the one
+# named example of "what the gate genuinely cannot afford", and it was never
+# measured in a passing configuration: it takes ~16s and is on the gate.
+# ADR-0025's addendum is the live one to watch: CSR serialization pushed the two-hop
 # figure to ~15, so `insn 15` now sits on its floor with no margin, and a
 # depth bump re-opens the PR gate's budget question along with it.
 #
@@ -35,14 +37,13 @@ name: Formal Nightly
 # formal/EXPECTED_FAIL (set equality in both directions, formal/
 # check-baseline.sh, same contract as test/EXPECTED_FAIL / ADR-0014) rather
 # than a blanket `|| true`. That comparison step's exit status is the job's
-# real signal; `complete` is a documented expected-to-fail (ADR-0023) and is
-# `continue-on-error` so it reports honestly without drowning that signal in
-# a job that is red every single night for a reason nobody has to read the
-# summary to already know. There used to be a second such step, equiv.sh,
-# and ADR-0047 is the reason there is not: a check parked behind
-# `continue-on-error` that has never once produced a verdict is
-# indistinguishable from a working control, and this is precisely the place
-# that indistinguishability hides.
+# real signal, and it is now the only graded step in this workflow. There
+# used to be two others parked behind `continue-on-error` -- equiv.sh and
+# `complete` -- and there are none: a check parked there that has never once
+# produced a verdict is indistinguishable from a working control (ADR-0047),
+# and this is precisely the place that indistinguishability hides. If a check
+# belongs in this workflow it is graded here; if it cannot be graded it does
+# not belong.
 #
 # ADR-0024: the ladder step's own wall time is no longer dominated by
 # `reg_ch0` sitting in a solver for up to its 1800s bound. `formal/
@@ -166,26 +167,25 @@ jobs:
           make -C formal dmemcheck
           make -C formal cover
 
-      # depth-50 whole-ISA BMC walk (ADR-0006's "finish complete.sv" item).
-      # Not part of the PR-gate acceptance criteria; run here because it is
-      # exactly the nightly-scale check this workflow exists for. Not on the
-      # formal/EXPECTED_FAIL ladder (that baseline is the genchecks-local.py
-      # sweep only) -- `continue-on-error` per ADR-0022's "clearly-separated
-      # reporting section" so it reports its real status without dragging the
-      # whole job to permanent red every night for a reason already on file.
-      - name: complete (whole-ISA BMC)
-        if: always()
-        continue-on-error: true
-        id: complete
-        run: make -C formal complete
-
-      - name: Summarize complete
-        if: always()
-        run: |
-          {
-            echo "### complete (ADR-0023 -- expected-to-fail, non-gating)"
-            echo "complete: ${{ steps.complete.outcome }}"
-          } >> "$GITHUB_STEP_SUMMARY"
+      # `complete` USED TO RUN HERE, behind `continue-on-error: true`, and it
+      # has moved to ci.yml's `formal` job as a hard gate. Both halves of that
+      # matter and neither is a relocation for tidiness.
+      #
+      # It was red -- it had never once produced a passing verdict, on any run,
+      # since the harness was written -- and suppressed, which is the exact
+      # resting place ADR-0047 named when it deleted equiv.sh: "it's on the
+      # nightly" reads as coverage for a check that has never said anything.
+      # The comment that stood here called it "expected-to-fail, non-gating"
+      # and cited ADR-0022's reporting section, which is a real allowance for a
+      # check with a real baseline; `complete` had no baseline, so what it
+      # actually had was permission to be broken indefinitely.
+      #
+      # It passes now (formal/COMPLETE_EXCLUSIONS declares the two opcode
+      # classes riscv-formal ships no spec model for at the pin), it costs
+      # ~16s, and it runs on every PR with its exit status as the job's. There
+      # is nothing left for a nightly copy to add, and a suppressed second copy
+      # of a gate is worse than none: it is where a future red would go to be
+      # ignored.
 
       - name: Report job wall time
         if: always()

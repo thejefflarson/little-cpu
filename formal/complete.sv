@@ -250,23 +250,30 @@ module rvfi_testbench (
   // had something to say. Together they are the demonstration that the
   // exclusion set did not swallow the ISA.
   //
-  // The guard is written out per goal rather than factored into a wire so that
-  // a reader can see, at each line, that it is the same conjunction the
-  // assertion uses. `insn_excluded` is redundant on the nine uncompressed
-  // goals (an opcode is one value) and is kept for exactly that reason: if a
-  // future entry did shadow one of these classes, the goal would go
-  // unreachable and cover would fail rather than the assertion going quiet.
-  `define COMPLETE_LIVE (!reset && rvfi_valid && !rvfi_trap && !insn_excluded)
-  cover property (`COMPLETE_LIVE && insn_uncompressed && insn_opcode == 7'b0000011); // LOAD
-  cover property (`COMPLETE_LIVE && insn_uncompressed && insn_opcode == 7'b0010011); // OP-IMM
-  cover property (`COMPLETE_LIVE && insn_uncompressed && insn_opcode == 7'b0010111); // AUIPC
-  cover property (`COMPLETE_LIVE && insn_uncompressed && insn_opcode == 7'b0100011); // STORE
-  cover property (`COMPLETE_LIVE && insn_uncompressed && insn_opcode == 7'b0110011); // OP
-  cover property (`COMPLETE_LIVE && insn_uncompressed && insn_opcode == 7'b0110111); // LUI
-  cover property (`COMPLETE_LIVE && insn_uncompressed && insn_opcode == 7'b1100011); // BRANCH
-  cover property (`COMPLETE_LIVE && insn_uncompressed && insn_opcode == 7'b1100111); // JALR
-  cover property (`COMPLETE_LIVE && insn_uncompressed && insn_opcode == 7'b1101111); // JAL
-  cover property (`COMPLETE_LIVE && rvfi_insn[1:0] == 2'b00);                        // RVC quadrant 0
-  cover property (`COMPLETE_LIVE && rvfi_insn[1:0] == 2'b01);                        // RVC quadrant 1
-  cover property (`COMPLETE_LIVE && rvfi_insn[1:0] == 2'b10);                        // RVC quadrant 2
+  // `complete_live` is character-for-character the assertion's guard, and it
+  // is a wire rather than a `define` for two reasons: a macro defined in one
+  // file leaks into every file read after it in the same yosys invocation, and
+  // -- measured -- a macro-expanded cover statement is reported by sby against
+  // the source range of the MACRO, so all twelve goals resolve to overlapping
+  // spans and cannot be told apart in the PASS summary. One wire, twelve
+  // one-line goals, twelve distinct locations.
+  //
+  // `insn_excluded` is redundant on the nine uncompressed goals (an opcode has
+  // one value, and it is not one of the two excluded ones) and is kept for
+  // exactly that reason: if a future entry did shadow one of these classes,
+  // the goal would go unreachable and this task would fail, rather than the
+  // assertion going quiet with nothing to say about it.
+  wire complete_live = !reset && rvfi_valid && !rvfi_trap && !insn_excluded;
+  cover property (complete_live && insn_uncompressed && insn_opcode == 7'b0000011); // LOAD
+  cover property (complete_live && insn_uncompressed && insn_opcode == 7'b0010011); // OP-IMM
+  cover property (complete_live && insn_uncompressed && insn_opcode == 7'b0010111); // AUIPC
+  cover property (complete_live && insn_uncompressed && insn_opcode == 7'b0100011); // STORE
+  cover property (complete_live && insn_uncompressed && insn_opcode == 7'b0110011); // OP
+  cover property (complete_live && insn_uncompressed && insn_opcode == 7'b0110111); // LUI
+  cover property (complete_live && insn_uncompressed && insn_opcode == 7'b1100011); // BRANCH
+  cover property (complete_live && insn_uncompressed && insn_opcode == 7'b1100111); // JALR
+  cover property (complete_live && insn_uncompressed && insn_opcode == 7'b1101111); // JAL
+  cover property (complete_live && rvfi_insn[1:0] == 2'b00);                        // RVC quadrant 0
+  cover property (complete_live && rvfi_insn[1:0] == 2'b01);                        // RVC quadrant 1
+  cover property (complete_live && rvfi_insn[1:0] == 2'b10);                        // RVC quadrant 2
 endmodule
