@@ -41,13 +41,14 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0034](0034-what-the-csr-ladder-checks-cannot-see.md) | What the CSR ladder checks cannot see, and the decisions the CSR file forced | Accepted · corrected by 0037 |
 | [0035](0035-the-baseline-pins-the-failure-mode.md) | `test/EXPECTED_FAIL` pins the failure mode, not just the file name | Accepted |
 | [0036](0036-three-gate-hardening-decisions-ratified-at-integration.md) | Three gate-hardening decisions ratified at integration, and a correction to ADR-0031 | Accepted |
-| [0037](0037-an-empty-baseline-is-not-m2.md) | An empty formal baseline is not M2, and the milestone criterion said it was | Accepted |
+| [0037](0037-an-empty-baseline-is-not-m2.md) | An empty formal baseline is not M2, and the milestone criterion said it was | Accepted · amended by 0045 |
 | [0038](0038-area-is-measured-in-logic-cells-and-two-levers-are-rejected.md) | Area is measured in logic cells, Fmax is declared at 12 MHz, and two area levers are rejected | Accepted |
 | [0039](0039-co-simulation-runs-the-whole-suite-against-a-baseline.md) | Co-simulation runs the whole suite against a baseline, and `tohost` becomes a doubleword | Accepted |
 | [0040](0040-the-ladder-refuses-a-negedge-regfile-and-make-check-was-re-grading.md) | The ladder refuses a negedge regfile rather than mis-modelling one, and `make check` had been re-grading the previous run | Accepted |
 | [0041](0041-integration-decisions-from-the-fit-cosim-and-negedge-wave.md) | Integration decisions from the fit / co-simulation / negedge wave | Accepted |
 | [0042](0042-the-regfile-read-is-synchronous-and-costs-a-cycle.md) | The regfile read is synchronous and costs a cycle, and the ladder is told that instruction memory is memory | Accepted |
 | [0043](0043-the-reference-model-is-configured-as-this-core.md) | The reference model is configured as *this* core, and what is left over is exempted by name | Accepted |
+| [0045](0045-two-m2-terms-close-by-amendment-and-one-was-already-met.md) | Two M2 terms close by amendment, one was already met, and the measurements that force it | Accepted |
 | [0044](0044-what-the-memory-system-has-to-be.md) | What the memory system has to be, and why today's placeholders cannot be it | Accepted |
 
 0001–0007 came from the design brief
