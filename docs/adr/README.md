@@ -45,8 +45,8 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0038](0038-area-is-measured-in-logic-cells-and-two-levers-are-rejected.md) | Area is measured in logic cells, Fmax is declared at 12 MHz, and two area levers are rejected | Accepted |
 | [0039](0039-co-simulation-runs-the-whole-suite-against-a-baseline.md) | Co-simulation runs the whole suite against a baseline, and `tohost` becomes a doubleword | Accepted |
 | [0040](0040-the-ladder-refuses-a-negedge-regfile-and-make-check-was-re-grading.md) | The ladder refuses a negedge regfile rather than mis-modelling one, and `make check` had been re-grading the previous run | Accepted |
-| [0044](0044-what-the-memory-system-has-to-be.md) | What the memory system has to be, and why today's placeholders cannot be it | Accepted |
 | [0041](0041-integration-decisions-from-the-fit-cosim-and-negedge-wave.md) | Integration decisions from the fit / co-simulation / negedge wave | Accepted |
+| [0044](0044-what-the-memory-system-has-to-be.md) | What the memory system has to be, and why today's placeholders cannot be it | Accepted |
 
 0001–0007 came from the design brief
 ([`docs/ideas/finish-the-rewrite.md`](../ideas/finish-the-rewrite.md)). 0008–0011 came out of
