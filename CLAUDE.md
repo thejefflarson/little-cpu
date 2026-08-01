@@ -520,6 +520,10 @@ not against an oracle. An empty baseline is loudest exactly where the ladder is 
 ## Pointers
 
 - Design brief: [`docs/ideas/finish-the-rewrite.md`](docs/ideas/finish-the-rewrite.md)
+- Area/fit brief: [`docs/ideas/fit-the-core-on-the-up5k.md`](docs/ideas/fit-the-core-on-the-up5k.md) —
+  the core does **not** currently place on the up5k (6659/5280 logic cells, 126%). Read ADR-0038
+  before quoting any area number: yosys cell counts are blind to unpaired flip-flops and have
+  produced two wrong estimates already.
 - Decisions: [`docs/adr/`](docs/adr/) — thirty-seven accepted ADRs, plus a deferred list
 - Reference text from the old core: `git show 1709433^:rtl/riscv.v` (RVFI retire block),
   `git show e67875c^:rtl/alu.v` (arithmetic)

@@ -42,6 +42,7 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0035](0035-the-baseline-pins-the-failure-mode.md) | `test/EXPECTED_FAIL` pins the failure mode, not just the file name | Accepted |
 | [0036](0036-three-gate-hardening-decisions-ratified-at-integration.md) | Three gate-hardening decisions ratified at integration, and a correction to ADR-0031 | Accepted |
 | [0037](0037-an-empty-baseline-is-not-m2.md) | An empty formal baseline is not M2, and the milestone criterion said it was | Accepted |
+| [0038](0038-area-is-measured-in-logic-cells-and-two-levers-are-rejected.md) | Area is measured in logic cells, Fmax is declared at 12 MHz, and two area levers are rejected | Accepted |
 
 0001–0007 came from the design brief
 ([`docs/ideas/finish-the-rewrite.md`](../ideas/finish-the-rewrite.md)). 0008–0011 came out of
@@ -86,10 +87,17 @@ trades away simplicity the current design depends on.
 
 - **Forwarding network** — CPI-only optimisation on top of ADR-0004's stall-only interlock. Safe to
   add post-verification; unsafe to add while the core is unverified.
-- **Radix-4 divider / early termination** — CPI-only. Roughly doubles comparator and mux logic on a
-  part already at 55–70% utilisation, and the payoff is largely absorbed by ADR-0007 (cxxrtl) and by
-  the 65→32 iteration-count fix.
-- **negedge-BRAM regfile** — escape hatch if ADR-0004's flip-flop regfile blocks timing closure.
+- ~~**Radix-4 divider / early termination**~~ — **rejected outright by
+  [ADR-0038](0038-area-is-measured-in-logic-cells-and-two-levers-are-rejected.md).** CPI-only and it
+  *increases* area, which is the wrong direction on a part that does not currently place. The
+  "55–70% utilisation" figure this entry used to cite was a yosys cell count and was wrong; the
+  measured figure is 126%.
+- **negedge-BRAM regfile** — no longer merely an escape hatch "if timing closure blocks". Measured:
+  the flip-flop array plus its read mux is worth **~2100–2400 logic cells**, enough on its own to
+  take the core from not placing to roughly 84–89%, and its combinational read path measures 86%
+  routing. Recommended by [`docs/ideas/fit-the-core-on-the-up5k.md`](../ideas/fit-the-core-on-the-up5k.md),
+  gated on suite-wide Sail co-simulation rather than on M2, and still needs its own ADR — deliberately
+  not written in advance of the spike data (ADR-0038).
 - **FPGA timing closure / nextpnr flow** — including ADR-0003's second ROM read becoming interleaved
   16-bit banks. Post-M4.
 - **Interrupts** (`mie`/`mip` real rather than read-only zero) — no interrupt sources exist.
