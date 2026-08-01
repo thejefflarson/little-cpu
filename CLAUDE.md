@@ -442,7 +442,8 @@ does and does not establish, and ADR-0046 for what `pcloop` discharges). `make w
 now runs the iverilog leg (`testbench.vvp`) instead of the cxxrtl runner, matching the verification
 table below, and produces a real `waves.vcd` — **but it grades nothing**; see the first bullet under
 "what does not work" above. CI (`.github/workflows/ci.yml`) runs **seven** jobs on every PR:
-elaborate, test, components, lint, nonperturbation, monitor-freshness and formal. **Six of the seven
+elaborate, test, components, lint, nonperturbation, monitor-freshness and formal — the last of
+which also carries `complete` and `complete_cover` as hard gates (M2 term 5). **Six of the seven
 are required** — `elaborate`, `test`, `components`, `monitor-freshness`, `lint`, `formal`, read live
 from `gh api repos/thejefflarson/little-cpu/branches/main/protection -q
 '.required_status_checks.contexts'` rather than from any comment in the workflow — and
@@ -617,6 +618,16 @@ make -C formal components_pcloop    # accessor / writeback tasks were deleted, n
 make -C formal check                # the riscv-formal ladder (82 checks; see ADR-0023). ALWAYS a
                                     # fresh run -- it deletes checks/ first (ADR-0040)
 make -C formal check-baseline       # re-grade a finished ladder: EXPECTED_CHECKS + EXPECTED_FAIL
+make -C formal complete             # the depth-50 whole-ISA BMC walk: every non-trapping retire is
+                                    # an instruction riscv-formal's spec model recognises. 16s, on
+                                    # the PR gate, ungated. Excludes MISC-MEM and SYSTEM by
+                                    # declaration (formal/COMPLETE_EXCLUSIONS) -- so NOT whole-ISA
+                                    # coverage, and `abc bmc3` is a third engine in this repo
+make -C formal complete_cover       # its anti-vacuity control: the twelve opcode classes the
+                                    # exclusion set does NOT name must each retire in a real trace
+make -C formal complete-exclusions  # set equality both ways between complete.sv's declared
+                                    # exclusions and their baseline, plus "no spec model at the
+                                    # pin" re-derived from the clone. A prerequisite of both above
 make -C formal nonperturbation      # ADR-0047: the RVFI instrumentation is UNREAD by the core.
                                     # yosys + python3 only, ~9s, on the PR gate. NOT sequential
                                     # equivalence -- it replaced equiv.sh, which never converged
@@ -749,8 +760,9 @@ illegal-instruction — and all ten closed together, which is the attribution be
 
 **The baseline is empty and M2 is still not reached** (ADR-0037). **M2 requires all six of the
 following.** Closing it means deleting terms from this list — a burn-down with the same shape as
-`formal/EXPECTED_FAIL` itself. **Term 4 is met as of ADR-0047**; ADR-0045 additionally closes terms 2
-and 3, which this list has not yet been rewritten for. Read each term's own text, not this sentence:
+`formal/EXPECTED_FAIL` itself. **Term 4 is met as of ADR-0047 and term 5 with `formal/COMPLETE_EXCLUSIONS`**;
+ADR-0045 additionally closes terms 2 and 3, which this list has not yet been rewritten for. **Only
+term 6 is open.** Read each term's own text, not this sentence:
 
 1. **`formal/EXPECTED_FAIL` empty and `formal/EXPECTED_CHECKS` matching — MET at `6309b3e`**: 82
    generated, 82 pass, both set equalities in both directions. **ADR-0045 reopened this and ADR-0046
@@ -774,8 +786,27 @@ and 3, which this list has not yet been rewritten for. Read each term's own text
    `rvfi_*` ports deleted sweeps to a netlist identical to the plain build. **Amending a criterion is
    not meeting it** (ADR-0045's own closing line): this term closed by taking an "or" clause
    ADR-0037 wrote for the case, and it is the third of the six to close that way.
-5. **`formal/complete` passes**, or every check it declines has a recorded reason. It fails today
-   on `ecall`/`ebreak`/`mret`/CSR retires, on no gate.
+5. ~~**`formal/complete` passes**, or every check it declines has a recorded reason~~ — **MET**,
+   on the second clause, and mechanised rather than written in prose. `complete` is the only thing
+   in the tree that walks the ISA as a whole: each of the 70 `insn_*` ladder checks constrains
+   `rvfi_insn` to its own encoding, so an encoding none of them names is invisible to all of them.
+   It had never once passed — `DONE (FAIL, rc=2)` in seconds, at `assert(spec_valid && !spec_trap)`,
+   on FENCE — and it ran behind `continue-on-error` on the nightly, which is the resting place
+   ADR-0047 named when it retired `equiv.sh`. **`formal/COMPLETE_EXCLUSIONS`** now declares the two
+   opcode classes riscv-formal ships no spec model for at the pin (MISC-MEM and SYSTEM — `fence`,
+   `fence.i`, `ecall`, `ebreak`, `mret`, `wfi`, `csrr*`), each with its encoding and its reason, and
+   `make -C formal complete` **PASSES at depth 50 in 16s**. The exclusion predicate keys on the
+   encoding decoded from `rvfi_insn` and on nothing the core decodes, so a core that mis-decodes an
+   instruction cannot excuse itself from its own check; `formal/check-complete-exclusions.py` holds
+   the set to its baseline by ADR-0014 set equality in both directions **and** re-derives "no spec
+   model" from the pinned clone, so a stale exclusion fails rather than silently covering less.
+   **The set did not have to widen beyond those two classes to get a pass.** Both the check and its
+   anti-vacuity control run on the PR gate with no `continue-on-error`. Fifth of the six to close;
+   term 6 is the last one standing.
+   **Read what it does not mean**: `mode bmc` at depth 50, nothing about spec *values*, and blind
+   by declaration to the two excluded classes — `formal/complete_cover.sby` is what makes "the
+   assertion was live, class by class" measured rather than assumed (twelve cover goals, all
+   reached).
 6. **The nightly can go red, and is green.** It can go red as of `1961234` — but not for the reason
    this file used to give. The `|| true` and the missing `-k` were fixed earlier; what remained is
    that the graded comparison was piped into `tee`, and a `run:` block without an explicit `shell:`
@@ -818,7 +849,12 @@ configured depth", not that the property holds, and there is no `mode prove` any
 ladder. And riscv-formal ships **no spec model at all** for `ecall`/`ebreak`/`mret`/`csrr*` at the
 pin, so the behaviour M3 actually added is checked by `test/asm/trap.S`, `test/csr_tb.v`,
 `test/decoder_tb.v` and `rtl/decoder.v`'s own component proof — against assertions this repo wrote,
-not against an oracle. An empty baseline is loudest exactly where the ladder is quietest.
+not against an oracle. An empty baseline is loudest exactly where the ladder is quietest. **That
+second caveat is mechanised now** rather than left to prose: `formal/COMPLETE_EXCLUSIONS` is the
+list of encodings with no oracle, `formal/check-complete-exclusions.py` re-derives it from the
+pinned clone on every run of `complete`, and a pin bump that *added* one of those spec models fails
+the gate until the exclusion comes out. The caveat is unchanged; what changed is that it can no
+longer quietly widen.
 
 ## Pointers
 
