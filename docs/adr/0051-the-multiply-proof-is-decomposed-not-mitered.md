@@ -126,8 +126,9 @@ same `UNKNOWN rc=4`.
 | C1 | `op_is_divu` completion + 1 (**control**) | **UNKNOWN rc=4** | `divu_ref` completion | 23.7 s |
 | C2 | MUL low half + 1 (**control**) | **FAIL rc=2** | (b) MUL slice | 1.5 s |
 
-Every one of M1–M4 passed before this change (ADR-0049's table); M5 and M6 are the high-half class
-that passed as well. **Nothing in the required set is uncaught.**
+**Nothing in the required set is uncaught.** Six of these are mutations ADR-0049 measured as
+**PASSING** the pre-change task — M1, M2, M3 (the sign enables), M5 (the high half), and M8/M9 (F5's
+sign restores). M4 was caught before and still is. M6, M7 and the two controls are new here.
 
 ### `test/exec_tb.v` — `iverilog` + `vvp`, ADR-0010's primary oracle
 

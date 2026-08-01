@@ -287,7 +287,7 @@ the failure this section exists to prevent, so they stay as markers rather than 
 - ~~**`components_executor` is green and does not check the multiplier's sign logic, its high half,
   or the signed divider at all**~~ — **fixed** (ADR-0051 closing ADR-0049 F1/F5). The divide
   invariant's two *unguarded* `always_comb assume(in.rs1 <= 32'h0000000f)` statements were
-  proof-global, so with operands in 0..15 every high half and every sign bit was zero and five
+  proof-global, so with operands in 0..15 every high half and every sign bit was zero and six
   named defects PASSED the task. The cap is guarded to the divide family now and bounds `div_x`/
   `div_y` — the ADR-0012 magnitudes — so DIV/REM operands range over -15..15 with the **sign free**.
   The full-width multiply miter is gone and is not coming back: **a standalone miter of the
