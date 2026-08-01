@@ -180,13 +180,18 @@ Per ADR-0025 this is recorded as a fact about the depth **and** the guard, and n
 here — raising the basecase past 33 is a depth change requiring its own empirical evidence, and the
 ladder-depths work is in flight.
 
-**F4 — four of the six memory-model assumes are discharged nowhere and have no structural backing
-either.** `imemcheck.sv` and `wrapper.v` model a ROM, and `rtl/imemory.v` really is one, so
-"nowhere" there is fine. `dmemcheck.sv:86` and `complete.sv:59` model a *writable* memory whose
-only implementation in the tree, `rtl/memory.v`, is in no test path and carries a known
-read-override bug (ADR-0010). The gap is not that the assumes are unsound — they constrain DUT
-inputs — but that ADR-0044's memory system, when it is built, has no check anywhere that will hold
-it to what these two proofs assumed of it.
+**F4 — the two writable-memory assumes are true of a memory this repo does not have.**
+`imemcheck.sv` and `wrapper.v` model a ROM, and `rtl/imemory.v` really is one at every address, so
+"nowhere" there costs nothing. `dmemcheck.sv:86` and `complete.sv:59` model a *writable* memory.
+The only one in the tree is `rtl/memory.v`, and it answers any address at or past `4*RAM` with
+`mem_rdata <= mem_wdata` rather than with stored data. `dmem_addr` and `mem_addr` are free 32-bit
+values in both harnesses, so the assumed model and the real module disagree over the overwhelming
+majority of the address space. (ADR-0010's "`rtl/memory.v` has the same shape of problem: it is in
+**no** current test path" is stale as of `test/mem_tb.v`, which is on `make test-units` — but that
+bench only asserts an out-of-range read does not *alias* `ram[0]`; it never says what one returns,
+so it does not discharge this either.) ADR-0044 rules the placeholder out as a starting point and
+does not replace it, so when the real memory system is built there is no check anywhere that will
+hold it to what these two proofs assumed of it.
 
 ## Vacuity: every compound `assert` guard, demonstrated
 
@@ -210,9 +215,38 @@ finding F3's shape. No assume was touched to produce any of these.
 | `$past(state)==divide && state==init && $past(in.is_divu)` | **basecase pass** — F3 |
 | the same for `is_remu` | **basecase pass** — F3 |
 
-`components_decoder` and `formal/complete.sv`/`formal/cover.sv` results are in the pull request that
-landed this ADR; `cover.sv`'s five `cover property` statements are themselves the reachability
-demonstration for the full-core harness and all five are reported reached (ADR-0006, `86e2721`).
+`components_decoder` (`sby -f components.sby decoder`), all seventeen guards. Ten of them are
+`always_comb` with no `clocked` term, so those were run twice: once with `assert(1'b0)` and again
+with `assert(!(clocked && !reset))`, which forces the witness to be a real post-reset cycle rather
+than the pre-reset step 0. Both rounds FAIL for every one:
+
+| guard | verdict |
+|---|---|
+| `clocked && !branch_jump && !prev_stall && !prev_reset && prev_uncompressed` | FAIL @ step 4 |
+| the same with `!prev_uncompressed` | FAIL @ step 4 |
+| `clocked && prev_stall && !prev_reset` | FAIL @ step 3 |
+| `clocked && !out.valid` | FAIL @ step 1 |
+| `rs1 == 0` / `rs2 == 0` | FAIL @ step 1 (post-reset witness) |
+| `instr_valid` | FAIL @ step 1 (post-reset witness) |
+| `instr_illegal` / `instr_ebreak` / `instr_ecall` / `load_misaligned` / `store_misaligned` | FAIL @ step 1 each (post-reset witness) |
+| `!trap_pending` / `trap_pending` | FAIL @ step 1 each (post-reset witness) |
+| `clocked && !prev_reset && prev_trap_entry` (→ `mtvec`, and → `out.rd == 0`) | FAIL @ step 3 |
+| `clocked && !prev_reset && prev_mret_entry` | FAIL @ step 3 |
+
+`components_pcloop` (task red on main, so the sequential-advance assertion is neutralised to
+`assert(1'b1)` first and the guard under test carries the probe): the echo guard FAILs at step 1,
+`prev_hard_stall` at step 3, both redirect guards at step 4. The sequential-advance guard itself is
+demonstrated reachable **in both width branches** — `assert(!prev_uncompressed)` and
+`assert(prev_uncompressed)` under it both FAIL at step 3 — so neither the 4-byte nor the 2-byte arm
+is vacuous.
+
+`formal/cover.sv` is the full-core harness's own reachability demonstration and needs no mutation.
+Re-measured for this audit rather than quoted: `make -C formal cover` → `DONE (PASS, rc=0)` in 12s,
+all five goals reached, including the compound one (`mem_read >= 2 && mem_write >= 2 &&
+long_insns >= 2 && comp_insns >= 2`) at step 11.
+
+`formal/complete.sv`'s single guard (`!reset && rvfi_valid && !rvfi_trap`) needs no mutation either:
+the check is red today (M2 term 5), and a counterexample is a reachability witness by construction.
 
 ## Rationale
 

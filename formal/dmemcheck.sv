@@ -70,16 +70,22 @@ module testbench (
   // FACT       the data bus returns, one cycle after the request, whatever was
   //            last written to that address -- an ordinary memory, modelled at
   //            one address because that is all rvfi_dmem_check pins.
-  // DISCHARGED NOWHERE, and this one has no structural backing either, which
-  //            is what separates it from the imem assumes in wrapper.v and
-  //            imemcheck.sv. Those model rtl/imemory.v, a ROM that really does
-  //            behave this way. The only writable memory in this tree is
-  //            rtl/memory.v, which is on NO test path at all and carries a
-  //            known read-override bug (ADR-0010's closing bullet). So the
-  //            memory this proof assumes is not a memory this repo has
-  //            checked, and when ADR-0044's memory system is built there is no
-  //            check anywhere that will hold it to this. Recorded rather than
-  //            papered over (ADR-0048 F4).
+  // DISCHARGED PARTIALLY, and only for part of the address space, which is
+  //            what separates it from the imem assumes in wrapper.v and
+  //            imemcheck.sv (those model rtl/imemory.v, a ROM that really does
+  //            behave this way at every address). test/mem_tb.v checks
+  //            rtl/memory.v's read-after-write behaviour directly and is on
+  //            `make test-units` -- ADR-0010's "in no current test path" is
+  //            stale, and mem_tb.v's own header repeats it. But rtl/memory.v
+  //            answers an address at or past 4*RAM with `mem_rdata <=
+  //            mem_wdata`, not with stored data, and mem_tb.v only asserts
+  //            that such a read does not ALIAS ram[0] -- it never says what it
+  //            returns. `dmem_addr` here is a free 32-bit value, so the model
+  //            this proof assumes and the only writable memory this repo has
+  //            disagree over most of the address space. ADR-0044 rules the
+  //            placeholder out as a starting point and does not replace it, so
+  //            when the real memory system is built there is no check anywhere
+  //            that will hold it to what this proof assumed (ADR-0048 F4).
   // SCOPE      the one rvfi_dmem_check assertion this task contains -- what it
   //            was written for, and nothing more. Like imemcheck.sv's four,
   //            this constrains a DUT INPUT (mem_rdata), so it narrows the
