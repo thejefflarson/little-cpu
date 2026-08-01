@@ -683,7 +683,7 @@ jobs:
       # the assertions and keeps the assumes) and requires a real non-trapping,
       # non-excluded retire of each of the twelve opcode classes the exclusion
       # set does not name. Green above without green here is not a result.
-      - name: complete_cover (anti-vacuity: every non-excluded class retires)
+      - name: complete_cover (anti-vacuity — every non-excluded class retires)
         run: make -C formal complete_cover
 
       - name: Report job wall time
