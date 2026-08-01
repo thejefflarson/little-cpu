@@ -277,7 +277,8 @@ downstream consumer, and neither did. They are gone. ADR-0029's harness half lan
 that makes it reachable: `test/testbench.v` raises a `(* keep *) trap_to_zero` flag when a trap
 redirects to address 0, `test/cxxrtl.cc` turns that into exit code 5 and `test/run_tests.sh` labels
 it `TRAP-TO-ZERO`, so a test that faults before installing `mtvec` gets a named failure instead of
-a timeout. And `test/sail/memory-map.json` sets `memory.misaligned.exceptions.load_store` to
+a timeout. And the Sail config (`test/sail/rv32imc_zicsr.json` since ADR-0043;
+`test/sail/memory-map.json` at the time) sets `memory.misaligned.exceptions.load_store` to
 `{"Some": "AlignmentException"}` — the **global** key, which is what actually governs; the
 per-region `misaligned_exceptions` attribute is checked after address translation and with no MMU
 is never consulted. Without it the reference model completes misaligned accesses and reports a
@@ -341,6 +342,24 @@ same post-cycle-40 `regs[31] <= wdata` is missed by `make test` at 52/52 and cau
 `make cosim-suite` in 49 of 52 programs (the three that still agree are the three too short to reach
 cycle 40), and `csr.S`'s baselined status moves from `DISAGREE AT 17` to `DISAGREE AT 11` — the
 second baseline field doing its job.
+
+**`test/COSIM_EXPECTED_FAIL` is now EMPTY and the suite is 52/52** (ADR-0043), and no `rtl/` file
+changed to get there. Both entries above were artefacts of how the reference model was configured
+or compared, not of this core. The `misa` one was the more important: the model was a
+`--config-override` on Sail's **default RV32 machine**, and an override inherits everything it does
+not mention — so the thing this repo cross-checks against had A, B, D, F, S, U and V, none of them
+implemented here and none of them chosen. `misa` was simply the one register a test read.
+`test/sail/rv32imc_zicsr.json` replaces it with a **complete `--config`** describing ADR-0002's
+RV32IMC_Zicsr: `--config` is rejected outright if a key is missing, so a Sail version bump that
+adds a knob now fails loudly here instead of picking a default nobody read. `mcycle` is handled by
+`test/cosim.py`'s `NONCOMPARABLE_CSRS`, which exempts **one register's value at one change** and
+prints every exemption it takes. **Fixing `misa` unmasked two divergences it had been hiding**, and
+those are the ones worth remembering: `mip.MTIP` and `mie`'s writable bits are read-only zero here
+(ADR-0002) and neither is configurable in sail-riscv 0.13.1, so `csr.S`'s assertions about them made
+the *reference model* run the program to `fail` — a different branch, not a different value, which
+no value exemption can or should paper over. Those assertions moved to `test/csr_tb.v`, which
+already made every one of them. **Before adding a line to that baseline, read its header**: the
+three questions in it are the decision procedure, and a baseline entry is the last of them.
 
 The same change made `tohost` an 8-byte-aligned `.dword` in `test/asm/riscv_test.h`, which is what
 the HTIF protocol its encoding is borrowed from always specified (ADR-0039 amends ADR-0008). It was
@@ -460,7 +479,8 @@ green formal ladder means the ALU is correct.
 **There is a fourth thing you can run, and it is deliberately not a leg** (ADR-0032, ADR-0039).
 `make cosim-suite` diffs the core's *real* `regs` array — read through cxxrtl `debug_items` by
 `test/cosim.cc`, which touches no `rvfi_*` signal at all — against the Sail RISC-V model, over the
-whole suite, graded against `test/COSIM_EXPECTED_FAIL`: **50 of 52 agree, 10s**, against 7.3s for
+whole suite, graded against `test/COSIM_EXPECTED_FAIL`: **52 of 52 agree, 7.3s** (ADR-0043; it was
+50 of 52 at ADR-0039), against 7.3s for
 `make test`. `make cosim-run PROG=x.S` does one program. It is **not** on `make test`'s path and
 **not** in CI's required set, on purpose: `make test` must keep working on a machine with no Sail
 installed (demonstrated by moving `tools/sail` aside), and **adding it to branch protection is what
