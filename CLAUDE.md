@@ -199,22 +199,30 @@ forbids.
 
 What does not work right now:
 
-- **The ALTOPS divide branch reads stale operands.** `rtl/executor.v:221-224` reads `in.rs1`/
-  `in.rs2` in the `divide` state, one cycle after issue, when decode has already bubbled
-  `decoder_out` (ADR-0009). Scoped to `` `ifdef RISCV_FORMAL_ALTOPS ``, so the synthesized divider
-  is fine and `components_executor` still passes — but it means `insn_div`/`divu`/`rem`/`remu` fail,
-  and the divider's operand routing has **no** formal coverage in any form (ADR-0010 already says
-  the arithmetic has none). The non-ALTOPS branch six lines above gets this right and explains why.
+- ~~**The ALTOPS divide branch reads stale operands**~~ — **fixed, and this bullet outlived it by
+  several commits.** The ALTOPS issue arm latches its operands (`rtl/executor.v:52-60`,
+  `div_alt_rs1`/`div_alt_rs2` off `mul_div_x`/`mul_div_y`) exactly as the non-ALTOPS branch does, so
+  the completion arm no longer reads an `in` that decode has bubbled. `insn_div_ch0`,
+  `insn_divu_ch0`, `insn_rem_ch0` and `insn_remu_ch0` all PASS and none of them is in
+  `formal/EXPECTED_FAIL`, which is empty. What is still true, and is the part worth keeping: under
+  `` `RISCV_FORMAL_ALTOPS `` those four checks say nothing about the real divider's arithmetic
+  (ADR-0010), and ADR-0045 decided that gap closes by naming `components_executor` +
+  `test/exec_tb.v` as the oracle rather than by dropping ALTOPS.
 - **`formal/equiv.sh` runs but does not converge** — `equiv_induct` fails on `executor.mul_div_y`
   bits, exactly the outcome ADR-0020 predicted. So ADR-0006's guarantee that RVFI instrumentation
   does not perturb core behaviour is still **argued, not proven**. The argument is that every
   `ifdef RISCV_FORMAL` block is write-only with respect to the core. Any future RVFI change must be
   read against that: an `ifdef`'d value reaching a non-`ifdef`'d signal breaks it, and CI would not
   notice.
-- **`reg` is inconclusive** (ADR-0023) — a single depth-21 BMC query that does not return in a
-  practical budget. It is the check that ties RVFI's self-report to the actual register file, so
-  without it the other 55 passing checks establish that the core's story about itself is
-  spec-consistent, not that the story is true.
+- ~~**`reg` is inconclusive**~~ — **false since ADR-0024, and this bullet is where ADR-0037 caught
+  itself repeating it.** ADR-0023 wrote it under `smtbmc yices`; the ladder moved to `btor btormc`
+  and `reg_ch0` returns in seconds. ADR-0042 §3 re-measured it against the synchronous regfile at
+  `PASS 0 31`, and ADR-0046 re-ran its probe against the five-reason pipeline: deleting the rs2
+  write-through bypass gives `bad state property 1 reachable at bound k = 20 SATISFIABLE` at the
+  shipping `reg 15 20`. It returns a verdict, and the verdict means something. What ADR-0023's
+  sentence was reaching for is still true and lives in ADR-0032 instead: `reg_ch0` is the *only*
+  check tying RVFI's self-report back to `rtl/regfile.v`, and an architectural write past its bound
+  is invisible to the whole ladder.
 - ~~**The formal nightly cannot go red**~~ — **fixed, and it was never the `|| true`** (ADR-0037).
   This bullet described `formal-nightly.yml` as `make -C formal check || true` with no `-k`; both
   were fixed earlier, and the bullet outlived them. The real defect survived both fixes: the graded
@@ -222,10 +230,19 @@ What does not work right now:
   is `bash -e {0}` — errexit but **not** pipefail — so the step's exit status was `tee`'s and was
   always 0. **ADR-0022's central guarantee had never held.** `1961234` fixed both copies of the step
   (nightly and the new PR-gate `formal` job) and demonstrated both failure directions on real runs.
-- **Three of the five component-proof tasks are vacuous.** `components_fetcher`,
-  `components_accessor`, and `components_writeback` contain no assertions at all, only reset
-  assumptions, so they "pass" meaninglessly. CI deliberately does not run them; ADR-0006 slates
-  them for deletion. A green run of one of those is not a result.
+- ~~**Three of the five component-proof tasks are vacuous**~~ — **they were deleted; there are
+  three tasks now and all three assert something.** `formal/components.sby` carries `decoder`,
+  `executor` and `pcloop`; `fetcher`, `accessor` and `writeback` are gone, and `formal/Makefile`
+  says so where the targets used to be. ADR-0006's slate is discharged. The rule the bullet was
+  protecting stands and is worth keeping: a green run of a task with no assertions is not a result.
+- **`components_pcloop` was failing on `main`, and nothing ran it** (ADR-0046). It has failed since
+  `e4f5250` — `failed assertion ... at pcloop.sv:273 step 3`, the sequential-advance assertion —
+  because its `f_may_stall` over-approximation predates ADR-0042's fifth stall reason and therefore
+  covered a cycle on which the decoder legitimately holds the pc. Attributed by mutation: forcing
+  `operand_stall = 1'b0` makes the task pass by k-induction. Fixed by transcribing
+  `rtl/decoder.v`'s `prev_rs1`/`prev_rs2`/`read_taken` register into the harness, and the task is on
+  CI now — ADR-0017 puts the fetcher↔decoder pc loop in M2's scope, and **an M2-scope proof nothing
+  runs is a prose-only guard**.
 
 **The ladder now asserts its own shape, so a green ladder can no longer shrink quietly**
 (ADR-0033's gap 1). `formal/checks.cfg`'s `[depth]` table is the list of checks that *exist*, not a
