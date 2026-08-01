@@ -201,23 +201,27 @@ What does not work right now — **one live entry, then six resolved ones kept i
 six are struck through, and every one of those outlived its own fix here by several commits. That is
 the failure this section exists to prevent, so they stay as markers rather than being deleted.
 
-- **Three of this repo's verdicts are computed and then read by nobody.** Found by reading
-  `Makefile`, `formal/Makefile`, both workflows and `test/run_tests.sh` end to end; the full
-  four-column inventory lives in the pull request that added this bullet and is destined for the
-  coverage-map ADR. (1) **`make fit` is a ratchet nothing pulls.** The ratchet itself works —
-  `make fit FIT_MAX_LC=4200` against today's 4236-cell tree exits **2** with "4236 logic cells is
-  over the 4200-cell budget" — but `grep -rn fit .github/workflows/` returns two prose matches
-  about runner memory and **no invocation of `make fit`**, so nothing but a human has ever pulled
-  it. (2) **`make waves` grades nothing.** It runs the full pipeline under iverilog with the
-  per-retire monitor live, but `test/monitor.v`'s error path only sets `errcode` and `$display`s —
-  no `$fatal`, no `$finish` — and on the iverilog leg nothing turns `errcode` into an exit status
-  (`test/testbench.v:55-60` says so in its own comment; `test/cxxrtl.cc` is what reads it, and that
-  is the other leg). `make waves` exits 0 on a monitor mismatch, and it is in no workflow. Note the
-  consequence: **`testbench.vvp` is elaborated on every PR and executed by no gate anywhere.** The
+- **Three things this repo treats as gates are reached by no automation, and one of them computes a
+  verdict nothing reads.** Found by reading `Makefile`, `formal/Makefile`, both workflows and
+  `test/run_tests.sh` end to end; the four-column inventory that came out of it lives in the pull
+  request that added this bullet and is destined for the coverage-map ADR. (1) **`make fit` is a
+  ratchet nothing pulls.** The ratchet works — `make fit FIT_MAX_LC=4200` against today's 4236-cell
+  tree exits **2** with "4236 logic cells is over the 4200-cell budget" — but
+  `grep -rn fit .github/workflows/` returns two prose matches about runner memory and **no
+  invocation of `make fit`**, so nothing but a human has ever pulled it. Run it by hand on anything
+  that touches `rtl/`. (2) **`make waves` grades nothing.** It runs the full pipeline under iverilog
+  with the per-retire monitor live, but `ch0_handle_error` only `$display`s and sets `errcode` —
+  there is not one `$fatal`, `$finish` or `$stop` in `test/monitor.v` or `test/monitor.sim.v` — and
+  on the iverilog leg nothing turns `errcode` into an exit status (`test/testbench.v:55-60` says so
+  in its own comment; `test/cxxrtl.cc` is what reads it, and that is the other leg). So `make waves`
+  exits 0 on a monitor mismatch, and it is in no workflow either. The consequence is the part worth
+  keeping: **`testbench.vvp` is elaborated on every PR and executed by no gate anywhere.** The
   iverilog *simulation* CI actually runs is the six `make test-units` benches, which do `$fatal(1)`
   and are gated. (3) **`make -C formal all` is dead** — no workflow names it. That one is
   redundancy rather than a hole: every target it lists (`complete`, `check`, `dmemcheck`,
   `imemcheck`, the three `components_*`) is invoked separately by `ci.yml` or `formal-nightly.yml`.
+  A target that names seven gates and is reached by nothing still reads like coverage, which is why
+  it is written down here rather than left to be rediscovered.
 - ~~**The ALTOPS divide branch reads stale operands**~~ — **fixed, and this bullet outlived it by
   several commits.** The ALTOPS issue arm latches its operands (`rtl/executor.v:52-60`,
   `div_alt_rs1`/`div_alt_rs2` off `mul_div_x`/`mul_div_y`) exactly as the non-ALTOPS branch does, so
