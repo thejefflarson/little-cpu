@@ -54,6 +54,7 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0047](0047-non-perturbation-is-proved-structurally-and-equiv-sh-is-retired.md) | The RVFI non-perturbation guarantee is proved structurally, and `equiv.sh` is retired | Accepted |
 | [0048](0048-what-an-independent-read-of-the-no-oracle-rtl-found.md) | What an independent read of the no-oracle RTL found: `c.ebreak`'s cause, a counter carry, and two missing CSRs | Accepted |
 | [0049](0049-every-formal-assume-names-its-scope-and-its-discharge.md) | Every formal `assume` names its scope as well as its discharge | Accepted · supplements 0017 |
+| [0050](0050-the-nightly-is-deleted-and-its-checks-move-to-the-gate.md) | The formal nightly is deleted and its checks move to the PR gate | Accepted · supersedes 0022, rewrites 0037 term 6 |
 
 0001–0007 came from the design brief
 ([`docs/ideas/finish-the-rewrite.md`](../ideas/finish-the-rewrite.md)). 0008–0011 came out of

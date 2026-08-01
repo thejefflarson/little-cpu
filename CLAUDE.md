@@ -166,6 +166,22 @@ independently. **A low spec-checked count is the pin's coverage boundary, not a 
 model exists for `ecall`/`ebreak`/`mret`/`csrr*`, so `csr.S` is 108/82, `minstret.S` 42/31 and
 `trap.S` 303/259; that is written at `test/OBSERVED_FLOOR` so nobody has to rediscover it.
 
+**Both sim gates now assert what the suite CONTAINS, before either runs a program.** `make test`
+verified that every program it *found* passed; it had no idea how many it should find, and with
+`test/EXPECTED_FAIL` and `test/COSIM_EXPECTED_FAIL` both empty there was no red entry whose
+disappearance would say the suite had shrunk — a bad rebase or a glob that stopped matching would
+print `12/12 passed`, match the baseline exactly and exit 0. **No new file was added**:
+`test/OBSERVED_FLOOR` already names every program, so it *is* the manifest, and
+`test/check_suite_shape.sh` enforces its name set in both directions from both runners. Measured on
+a throwaway branch: deleting `add.S` and `lw.S` made the **pre-change** `run_cosim.sh` report
+`50/50 agreed` and **exit 0**, and the pre-change `run_tests.sh` catch it only after printing
+`50/50 passed`; both now stop naming the two programs with nothing run. Adding an unlisted `.S` is
+red in both, and the pre-change co-sim leg reported `53/53 agreed`, exit 0. `make test-units` gets
+the same treatment: the six bench invocations were spelled out with nothing tying them to
+`test/*_tb.v`, so a seventh landed unrun and the gate reported six green — `UNIT_BENCHES` is now
+compared against the tree in both directions **and drives the recipe**, so a declared bench with no
+`UNIT_BENCH_SRC_*` is red too rather than building with no design under test.
+
 **M3 opens: `rtl/csrs.v` lands the CSR file and the Zicsr access path.** ADR-0005's set, exactly —
 RW `mstatus` (MIE/MPIE, MPP WARL→`2'b11`), `mtvec` (direct mode, 4-byte-aligned base, resets to 0
 per ADR-0029), `mepc` (bit 0 only, because C makes 2-byte targets legal), `mcause`, `mscratch`,
@@ -245,7 +261,8 @@ the failure this section exists to prevent, so they stay as markers rather than 
   iverilog *simulation* CI actually runs is the six `make test-units` benches, which do `$fatal(1)`
   and are gated. (3) **`make -C formal all` is dead** — no workflow names it. That one is
   redundancy rather than a hole: every target it lists (`complete`, `check`, `dmemcheck`,
-  `imemcheck`, the three `components_*`) is invoked separately by `ci.yml` or `formal-nightly.yml`.
+  `imemcheck`, the three `components_*`) is invoked separately by `ci.yml` (ADR-0050 deleted the
+  nightly and folded its checks into the `formal` job).
   A target that names seven gates and is reached by nothing still reads like coverage, which is why
   it is written down here rather than left to be rediscovered.
 - ~~**The ALTOPS divide branch reads stale operands**~~ — **fixed, and this bullet outlived it by
@@ -449,7 +466,15 @@ cxxrtl binary builds and runs, the whole `.S` suite passes under it with `test/E
 empty, `make test-units` passes (six benches: `exec_tb` — 10,000 randomized differential vectors
 per op across `mul`/`mulh`/`mulhu`/`mulhsu`/`div`/`divu`/`rem`/`remu` **and**
 `sll`/`srl`/`sra`, plus 384 directed shift vectors per shift op sweeping every amount 0-31 with a
-clean and a dirty rs2 so the `rs2[4:0]` mask is checked rather than coincided with — `mem_tb`,
+clean and a dirty rs2 so the `rs2[4:0]` mask is checked rather than coincided with, and — because
+ADR-0045 names it M2's mul/div oracle and ADR-0033's rule is that a named gate must be unable to
+stop checking quietly — it now asserts **its own shape** first: every mul and div reference is
+pinned against hand-computed literals like the shift ones already were (a degraded one says
+`ORACLE BROKEN` and stops), the per-op vector count is pinned against ADR-0010's `>= 10,000`
+written as its own literal rather than a second copy of the loop bound, and each required directed
+corner vector is witnessed against a manifest kept apart from its call sites — so a deleted
+directed vector, a shrunken loop and a reference degraded into a conditional arm are each red,
+where the first two used to print `PASSED` and exit 0 — `mem_tb`,
 `decoder_tb`,
 `regfile_tb` — which covers the write-through bypass and x0 semantics — `csr_tb`, which covers
 `rtl/csrs.v`'s read mux, its `implemented` address set, its WARL masks and its trap-entry/`mret`
@@ -611,7 +636,10 @@ preference. See ADR-0002 and ADR-0003.
 make setup          # install the RISC-V toolchain (brew on macOS)
 make test           # assemble test/asm/*.S, run under cxxrtl, pass/fail table with
                     # per-program retire / spec-checked-retire counts, graded against
-                    # test/EXPECTED_FAIL (set equality) and test/OBSERVED_FLOOR (>=)
+                    # test/EXPECTED_FAIL (set equality) and test/OBSERVED_FLOOR (>=).
+                    # OBSERVED_FLOOR's NAME set is also the suite manifest, checked
+                    # both ways before a single program is assembled -- so a suite
+                    # that SHRANK is red, not a smaller table that still "passes"
 make waves          # iverilog + VCD (testbench.vvp's baked-in program) -> waves.vcd.
                     # GRADES NOTHING: the per-retire monitor is live but only
                     # $displays, so this exits 0 on a mismatch. Read the output.
@@ -746,7 +774,7 @@ the oracle (ADR-0019).
 | M1 | Finish the pipeline | all RV32IM `.S` tests pass under cxxrtl — **reached, `a4662a2`** |
 | M2 | **Parity checkpoint** | **all six** conditions below hold. An empty `formal/EXPECTED_FAIL` is *one* of them and on its own means nothing — it was reached at `6309b3e` and M2 was not (ADR-0037) |
 | M3 | Past the old core | CSRs + machine-mode traps — **both landed** (`rtl/csrs.v`; trap commit in `rtl/decoder.v`) |
-| M4 | Full ladder + CI | nightly formal green; tag a release (PR gate `c66527d`; nightly `86e2721`, report-only until ADR-0022) |
+| M4 | Full ladder + CI | the `formal` job green with every check the repo owns on it; tag a release. **There is no nightly** — ADR-0050 deleted it and folded `imemcheck`/`dmemcheck`/`cover` into the required PR gate |
 
 M1 is reached. **M2 is the milestone that erases the verified→unverified regression** — treat it
 as the real finish line, not M1. `b2dafcc` cleared M2's blocker (RVFI is driven, the monitor is live
@@ -794,10 +822,20 @@ and 3, which this list has not yet been rewritten for. Read each term's own text
    ADR-0037 wrote for the case, and it is the third of the six to close that way.
 5. **`formal/complete` passes**, or every check it declines has a recorded reason. It fails today
    on `ecall`/`ebreak`/`mret`/CSR retires, on no gate.
-6. **The nightly can go red, and is green.** It can go red as of `1961234` — but not for the reason
-   this file used to give. The `|| true` and the missing `-k` were fixed earlier; what remained is
-   that the graded comparison was piped into `tee`, and a `run:` block without an explicit `shell:`
-   key is `bash -e {0}` — errexit but **not** pipefail — so its exit status was `tee`'s, always 0.
+6. **Every check the repo owns is on a gate that can fail, and that gate is green** (ADR-0050,
+   rewriting this term after deleting the nightly). The ladder, `imemcheck`, `dmemcheck` and
+   `cover` are steps of the **required** `formal` job whose exit status is the job's, with no
+   `continue-on-error` anywhere in it; `complete` joins them when term 5's exclusion set lands. No
+   graded command sits in a pipeline in a `run:` block.
+   **The intent never changed** — the ladder's verdict must be observed by something automated that
+   can fail — and a required PR check is a strictly stronger instrument than a job ADR-0022 itself
+   described as not gating merges. **This is the third move of an M2 criterion**, and ADR-0045 said
+   a third should prompt asking whether the criterion is real; ADR-0050 asks it explicitly rather
+   than restating the term and moving on. A fourth should be treated as evidence it is not.
+   The history is still worth keeping: the `|| true` and the missing `-k` were fixed earlier, and
+   what survived both was the graded comparison piped into `tee` — a `run:` block without an
+   explicit `shell:` key is `bash -e {0}`, errexit but **not** pipefail, so its exit status was
+   `tee`'s, always 0.
    **ADR-0022's "that comparison step's exit status is the job's real signal" had therefore never
    held**, and stayed accidentally true only because the ladder kept matching its baseline
    (ADR-0037). General rule: never put the graded command in a pipeline in a `run:` block.

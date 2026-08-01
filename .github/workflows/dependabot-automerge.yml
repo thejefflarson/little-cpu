@@ -3,10 +3,17 @@ name: Dependabot Auto-merge
 # Re-armed 2026-07-29 (supersedes ADR-0016's deletion; see ADR-0018).
 #
 # This workflow is only safe because `main` now has required status checks
-# (elaborate, test, components, monitor-freshness) with strict: true. That is
+# with strict: true. That is
 # what `gh pr merge --auto` waits for. Without them `--auto` merges instantly
 # and this workflow is a rubber stamp — which is exactly why ADR-0016 deleted
 # it while criterion 8 was still outstanding.
+#
+# The set is deliberately NOT enumerated here. It was, and it said four while
+# the API returned six -- this file is not the register of what is required,
+# branch protection is, and a hand-copied list of it drifts silently while
+# looking authoritative (ADR-0050). What this workflow actually depends on is
+# that SOME required set exists with strict: true, which is what the command
+# below reads.
 #
 # IF YOU EVER REMOVE THE REQUIRED STATUS CHECKS, DELETE THIS FILE TOO.
 # Verify with:
