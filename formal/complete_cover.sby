@@ -1,0 +1,92 @@
+# The anti-vacuity control for `complete`, and it reads the SAME complete.sv.
+#
+# `complete` asserts that every non-excluded retire is one riscv-formal's spec
+# model recognises and calls non-trapping. That assertion is guarded four ways
+# (`!reset && rvfi_valid && !rvfi_trap && !insn_excluded`), and two of those
+# terms are supplied by the core under test. A core that never retired, or that
+# claimed rvfi_trap on everything, would pass it having been asked nothing --
+# and so would a `complete` whose exclusion set had quietly grown to swallow
+# the ISA, which is this sprint's named failure mode.
+#
+# So this task takes the same harness and asks the opposite question. sby's
+# `mode cover` strips the assertions and keeps the assumes, so what runs here
+# is: find a trace in which the core performs a non-trapping, non-excluded
+# retire of THIS opcode class. Twelve goals -- the nine RV32I opcode classes
+# the exclusion set does not name, plus all three RVC quadrants. Reaching all
+# twelve is the demonstration that `complete`'s green is over a live assertion,
+# class by class, rather than over a guard that never opened.
+#
+# It is a separate .sby rather than a task inside complete.sby because
+# formal/Makefile's generic `%: %.sby` rule deletes the workdir named by the
+# target, and a multi-task sby writes `complete_<task>/` instead -- the rule
+# would silently stop cleaning. Same reason `cover` is its own file.
+#
+# ENGINE: smtbmc boolector, matching cover.sby, NOT complete.sby's `abc bmc3`.
+# Cover mode wants a solver it can re-query for successive goals; abc's bmc3 is
+# the pure-AIG bounded engine complete.sby uses for its single assertion.
+#
+# DEPTH 100 is cover.sby's, and it is a HEADROOM number rather than a measured
+# floor -- state it that way so nobody later quotes it as one (ADR-0025). sby's
+# cover mode emits as many traces as it needs rather than one trace hitting
+# every goal, so what each goal actually costs is the pipeline fill: measured,
+# eleven of the twelve are reached at step 5 and LOAD at step 6, and the whole
+# task returns in 17s. The bound is left well clear of that because the cheap
+# failure mode here is a goal that becomes reachable only slightly later after
+# some future pipeline change, which would read as "unreachable" -- i.e. as an
+# exclusion set that had swallowed a class -- and send the next reader hunting
+# the wrong thing. Lowering it saves nothing worth having.
+
+[options]
+mode cover
+depth 100
+
+[engines]
+smtbmc boolector
+
+[script]
+verilog_defines -D RISCV_FORMAL
+verilog_defines -D RISCV_FORMAL_NRET=1
+verilog_defines -D RISCV_FORMAL_XLEN=32
+verilog_defines -D RISCV_FORMAL_ILEN=32
+verilog_defines -D RISCV_FORMAL_COMPRESSED
+verilog_defines -D RISCV_FORMAL_ALIGNED_MEM
+read_verilog -sv rvfi_macros.vh
+read_verilog -sv structs.v
+read_verilog -sv fetcher.v
+read_verilog -sv regfile.v
+read_verilog -sv csrs.v
+read_verilog -sv decoder.v
+read_verilog -sv executor.v
+read_verilog -sv accessor.v
+read_verilog -sv writeback.v
+read_verilog -sv littlecpu.v
+
+--pycode-begin--
+with open("riscv-formal/insns/isa_rv32imc.txt") as f:
+  for line in f:
+    output("read_verilog -sv insn_%s.v" % line.strip())
+--pycode-end--
+
+read_verilog -sv isa_rv32imc.v
+read_verilog -sv complete.sv
+prep -nordff -top rvfi_testbench
+
+[files]
+complete.sv
+../rtl/structs.v
+../rtl/fetcher.v
+../rtl/regfile.v
+../rtl/csrs.v
+../rtl/decoder.v
+../rtl/executor.v
+../rtl/accessor.v
+../rtl/writeback.v
+../rtl/littlecpu.v
+riscv-formal/checks/rvfi_macros.vh
+riscv-formal/insns/isa_rv32imc.v
+
+--pycode-begin--
+with open("riscv-formal/insns/isa_rv32imc.txt") as f:
+  for line in f:
+    output("riscv-formal/insns/insn_%s.v" % line.strip())
+--pycode-end--

@@ -1,0 +1,46 @@
+# The opcode classes formal/complete.sv's assertion declines to cover, and the
+# reason each is declined. This is the mechanised form of M2 term 5's second
+# clause -- "every check it declines has a recorded reason" -- and it is a
+# BASELINE in exactly the sense formal/EXPECTED_FAIL and test/EXPECTED_FAIL
+# are: formal/check-complete-exclusions.py exits 0 only when this set and the
+# set declared in complete.sv match EXACTLY, in both directions (ADR-0014).
+# An entry added to the RTL side without a line here fails; a line here with no
+# entry in complete.sv fails too.
+#
+# WHY THIS FILE IS NOT JUST A COMMENT. `complete` is a required CI gate, so the
+# cheapest way to make a future red go green is to widen this set. Making the
+# widening a tracked, reviewable diff -- rather than an edit to a predicate
+# nobody diffs -- is the whole control. Excluding an opcode from an assertion
+# IS weakening a check (ADR-0010, applied one level up). Read the three
+# questions below before adding a line.
+#
+#   1. Does riscv-formal really ship no spec model for the encoding at
+#      formal/pin.mk's SHA? The script checks this for you and will refuse a
+#      mnemonic that HAS a model -- so if it accepts your line, the answer is
+#      yes, and if it rejects it, the exclusion is not the fix.
+#   2. Is the failure the SPEC's absence, or this core's behaviour? A retire
+#      the model recognises and calls trapping (spec_valid && spec_trap) is a
+#      core defect wearing a spec-gap costume. `complete`'s counterexample
+#      prints imem_data; decode it before believing anything.
+#   3. Is something else checking the excluded behaviour? Say what, on the
+#      entry, at the complete.sv site. "Nothing" is an acceptable answer and a
+#      loud one -- ADR-0049 clause 2's "nowhere" -- but it must be written.
+#
+# FORMAT -- three fields, whitespace-separated, the third running to end of
+# line:
+#
+#     <CLASS>  <opcode>  <mnemonic> [<mnemonic> ...]
+#
+# <CLASS> is the RISC-V opcode-map name, <opcode> the seven-bit inst[6:0] the
+# predicate in complete.sv matches on, and the rest the mnemonics that encoding
+# covers in this core's ISA (ADR-0002). Mnemonics are compared against
+# riscv-formal's insns/ directory and its isa_rv32imc.txt, so they must be
+# spelled as riscv-formal would (`fence.i`, not `fencei`; the script maps `.`
+# to `_` for the filename).
+#
+# The per-entry REASON lives at the complete.sv site, next to the predicate it
+# governs, not here -- one place for the prose, and it is the place a reader of
+# the check will actually be standing.
+
+MISC-MEM  0001111  fence fence.i
+SYSTEM    1110011  ecall ebreak mret wfi csrrw csrrs csrrc csrrwi csrrsi csrrci
