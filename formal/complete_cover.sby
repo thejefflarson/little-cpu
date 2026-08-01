@@ -25,11 +25,16 @@
 # Cover mode wants a solver it can re-query for successive goals; abc's bmc3 is
 # the pure-AIG bounded engine complete.sby uses for its single assertion.
 #
-# DEPTH 100 is cover.sby's, and it is the same shape of budget: the pipeline
-# needs a handful of cycles to fill and this core issues no faster than one
-# instruction every three cycles (ADR-0042's operand-fetch stall), so twelve
-# distinct classes do not fit a short trace. sby finds them across as many
-# traces as it needs; the number below bounds each one.
+# DEPTH 100 is cover.sby's, and it is a HEADROOM number rather than a measured
+# floor -- state it that way so nobody later quotes it as one (ADR-0025). sby's
+# cover mode emits as many traces as it needs rather than one trace hitting
+# every goal, so what each goal actually costs is the pipeline fill: measured,
+# eleven of the twelve are reached at step 5 and LOAD at step 6, and the whole
+# task returns in 17s. The bound is left well clear of that because the cheap
+# failure mode here is a goal that becomes reachable only slightly later after
+# some future pipeline change, which would read as "unreachable" -- i.e. as an
+# exclusion set that had swallowed a class -- and send the next reader hunting
+# the wrong thing. Lowering it saves nothing worth having.
 
 [options]
 mode cover
