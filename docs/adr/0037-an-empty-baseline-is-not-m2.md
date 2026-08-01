@@ -1,6 +1,9 @@
 # ADR-0037: An empty formal baseline is not M2, and the milestone criterion said it was
 
-**Status:** Accepted · 2026-08-01 · *Recorded at integration. Amends the M2 row of `CLAUDE.md`'s
+**Status:** Accepted · 2026-08-01 · *Amended by
+[ADR-0045](0045-two-m2-terms-close-by-amendment-and-one-was-already-met.md) (terms 2 and 3) and by
+[ADR-0047](0047-non-perturbation-is-proved-structurally-and-equiv-sh-is-retired.md) (term 4).
+Recorded at integration. Amends the M2 row of `CLAUDE.md`'s
 milestone ladder; corrects ADR-0028's `dmemcheck` claim; corrects ADR-0022's account of its own
 enforcement; corrects ADR-0034's reproduction command. Ratifies a branch-protection
 recommendation that a human must apply.*
@@ -42,7 +45,8 @@ self-refereed.
    write was missed by the entire ladder when gated to fire past the BMC bound.
 4. **`formal/equiv.sh` does not converge** (ADR-0020), so ADR-0006's guarantee that RVFI
    instrumentation does not perturb the core is still argued, not proven — and `6309b3e` added one
-   more `ifdef RISCV_FORMAL` field for that argument to cover (`rvfi_shadow.trap`).
+   more `ifdef RISCV_FORMAL` field for that argument to cover (`rvfi_shadow.trap`). *(Closed by
+   ADR-0047: the guarantee is now proved structurally and `equiv.sh` is deleted.)*
 5. **`formal/complete` still fails**, on no gate.
 6. **riscv-formal ships no spec model for `ecall`/`ebreak`/`mret`/`csrr*` at the pin.** So the
    behaviour `6309b3e` actually added — the whole of M3's trap semantics — is checked against
@@ -59,7 +63,14 @@ one alone means nothing:
 2. the mul/div checks run without `RISCV_FORMAL_ALTOPS`, or ADR-0010's gap is closed by a named
    oracle that does;
 3. `reg_ch0` returns a verdict rather than exhausting its budget;
-4. `formal/equiv.sh` converges, or ADR-0006's non-perturbation guarantee is proven another way;
+4. `formal/equiv.sh` converges, or ADR-0006's non-perturbation guarantee is proven another way —
+   **discharged by [ADR-0047](0047-non-perturbation-is-proved-structurally-and-equiv-sh-is-retired.md)
+   on the second clause.** `equiv.sh` is deleted, not fixed: measured, `equiv_make` leaves 459 of 495
+   `$equiv` cells unproven because it matches by name and the two builds optimise to differently-named
+   netlists, and `equiv_induct` then diverges at ~660k clauses per step. The mechanism that discharges
+   this term is `make -C formal nonperturbation` (`formal/check-nonperturbation.py`), a structural
+   check that the `-D RISCV_FORMAL` build with its `rvfi_*` ports deleted sweeps to a netlist
+   identical to the plain build. Both failure directions demonstrated on real mutations;
 5. `formal/complete` passes, or every check it declines has a recorded reason;
 6. the nightly can go red (see §4) and is green.
 

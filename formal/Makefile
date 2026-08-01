@@ -109,13 +109,28 @@ imemcheck: imemcheck.sby imemcheck.sv | $(RISCV_FORMAL_DIR)
 complete: complete.sby complete.sv | $(RISCV_FORMAL_DIR)
 cover: cover.sby cover.sv | $(RISCV_FORMAL_DIR)
 
-# ADR-0020: proves RVFI instrumentation doesn't change core behaviour. Not a
-# .sby task (equiv_make/equiv_simple/equiv_induct are driven directly from a
-# yosys script, not sby), so it isn't covered by the generic `%: %.sby` rule
-# above.
-.PHONY: equiv
-equiv: equiv.sh
-	./$<
+# ADR-0006 / ADR-0020 / ADR-0047: proves RVFI instrumentation doesn't change
+# core behaviour. Not a .sby task -- it is a structural comparison of two yosys
+# builds, not a solver query -- so it isn't covered by the generic `%: %.sby`
+# rule above. Needs nothing but yosys and python3, and runs in about nine
+# seconds, which is why it is a PR gate rather than a nightly.
+#
+# This REPLACES formal/equiv.sh, deleted in ADR-0047 along with its nightly
+# step. That script asked equiv_make/equiv_simple/equiv_induct to prove
+# sequential equivalence of the two builds and never converged at any budget:
+# equiv_make's name-based matching left 459 of 495 $equiv cells unproven
+# (essentially the whole datapath), because the two builds optimise to
+# differently-named netlists. It sat in the nightly behind `continue-on-error`
+# and `timeout 3600`, so "it's on the nightly" read as coverage for a check
+# that had never once produced a verdict. A suppressed red is worse than no
+# check.
+#
+# What replaced it is STRICTLY WEAKER than sequential equivalence and the
+# script says so at length: it proves the instrumentation is UNREAD, not that
+# two designs behave alike. That is the property ADR-0006 actually asked for.
+.PHONY: nonperturbation
+nonperturbation: check-nonperturbation.py
+	python3 $<
 
 # pipeline stages. fetcher/accessor/writeback are deliberately not here: their
 # formal/components.sby tasks were deleted for carrying zero assertions

@@ -277,6 +277,90 @@ jobs:
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
 
+  # ADR-0047: the mechanical form of ADR-0006's non-perturbation obligation --
+  # the `ifdef RISCV_FORMAL` shadow payload in rtl/structs.v must not change
+  # what the core does. That obligation rested on reviewer inspection from
+  # `b2dafcc` onward (ADR-0020's consequences: "verify by reading that no
+  # `ifdef`'d value reaches a non-`ifdef`'d signal"), and the script that was
+  # supposed to mechanise it, formal/equiv.sh, never converged and never will:
+  # equiv_make's name-based matching left 459 of 495 $equiv cells unproven
+  # because the two builds optimise to differently-named netlists. It is
+  # deleted, along with its nightly step, in the same change as this job.
+  #
+  # WHAT IS GATED HERE is that the `-D RISCV_FORMAL` build, with its rvfi_*
+  # ports deleted and every gate that only fed them swept away, is
+  # structurally identical to the plain build -- same cell histogram, same
+  # name-independent connectivity fingerprint. It is STRICTLY WEAKER than
+  # sequential equivalence and must not be quoted as if it were: it proves the
+  # instrumentation is unread, not that two designs behave alike. It is also
+  # STRONGER than the bounded miter it replaces for this one purpose, because
+  # it fails the moment an `ifdef`'d value reaches a real signal rather than
+  # only when that value changes an output within some depth.
+  #
+  # BOTH DIRECTIONS WERE DEMONSTRATED on real runs before this job landed, on
+  # the two shapes ADR-0020 names: an `ifdef`'d shadow value ORed into
+  # rtl/decoder.v's global `stall` term (+193 cells) and one gating
+  # rtl/accessor.v's `out.valid` (+11 cells). The 11-cell case is the one
+  # worth remembering -- a gate that only catches large perturbations is not
+  # much of a gate.
+  #
+  # Cheap enough to be a PR gate at all: yosys and python3, no sby, no solver,
+  # no riscv-formal clone, ~9s wall. It is deliberately NOT in the `formal`
+  # job, which is GitHub-hosted for memory reasons and takes minutes.
+  #
+  # Not in main's branch-protection required set. Adding it there is a
+  # repository-settings change for a human to make deliberately, the same as
+  # `lint` and `formal` (ADR-0036).
+  nonperturbation:
+    name: nonperturbation
+    runs-on: little-cpu-runners
+    timeout-minutes: 8
+    steps:
+      - name: Record job start
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up OSS CAD Suite
+        uses: ./.github/actions/setup-oss-cad-suite
+        with:
+          tag: ${{ env.OSS_CAD_SUITE_TAG }}
+          file: ${{ env.OSS_CAD_SUITE_FILE }}
+          sha256: ${{ env.OSS_CAD_SUITE_SHA256 }}
+
+      - name: make -C formal nonperturbation
+        # NO PIPE ON THE GRADED COMMAND, DELIBERATELY -- same reasoning as the
+        # `formal` job's gate step below. A `run:` block without an explicit
+        # `shell:` key is `bash -e {0}`: errexit but NOT pipefail, so piping
+        # this into `tee` would make the step's status tee's and always 0.
+        # This repo has shipped that exact bug once already (ADR-0037).
+        # Redirect to a file, take the status off the unpiped command, then
+        # publish.
+        run: |
+          set +e
+          make -C formal nonperturbation > "$RUNNER_TEMP/nonperturbation.txt" 2>&1
+          status=$?
+          set -e
+          cat "$RUNNER_TEMP/nonperturbation.txt"
+          {
+            echo "### RVFI non-perturbation (ADR-0047)"
+            echo '```'
+            cat "$RUNNER_TEMP/nonperturbation.txt"
+            echo '```'
+            echo "A pass here means the RVFI instrumentation is UNREAD by the core."
+            echo "It is not sequential equivalence and does not claim to be."
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      - name: Report job wall time
+        if: always()
+        run: |
+          elapsed=$(( $(date +%s) - JOB_START ))
+          {
+            echo "### nonperturbation"
+            echo "wall time: ${elapsed}s"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   # Regenerates test/monitor.v from a from-scratch riscv-formal clone at
   # the pin (formal/pin.mk) and diffs it against the tracked copy
   # (CLAUDE.md invariant 7: generated but tracked, never hand-edited).
@@ -347,11 +431,12 @@ jobs:
   # formal/EXPECTED_CHECKS (ADR-0023, ADR-0033).
   #
   # The nightly keeps running the full sweep. It is still the place for what
-  # this gate cannot afford -- `complete`'s depth-50 whole-ISA walk and
-  # equiv.sh (ADR-0020) -- it is just no longer the only place the ladder
-  # runs at all. `complete`, `equiv.sh`, `cover` and the Sail co-sim
-  # (ADR-0032, whose fetch has not had formal/pin.mk's treatment) stay out of
-  # this job deliberately.
+  # this gate cannot afford -- `complete`'s depth-50 whole-ISA walk -- it is
+  # just no longer the only place the ladder runs at all. `complete`, `cover`
+  # and the Sail co-sim (ADR-0032, whose fetch has not had formal/pin.mk's
+  # treatment) stay out of this job deliberately. equiv.sh used to be on that
+  # list; ADR-0047 deleted it, and its replacement is the `nonperturbation`
+  # job above, which is cheap enough to be a PR gate.
   #
   # Adding this job to ci.yml does not by itself gate anything: main's
   # branch-protection required set is elaborate/test/components/
