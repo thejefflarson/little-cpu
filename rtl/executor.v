@@ -262,6 +262,15 @@ module executor(
   logic clocked;
   initial clocked = 0;
   always_ff @(posedge clk) clocked <= 1;
+  // FACT       reset is asserted before the first clock edge.
+  // DISCHARGED NOWHERE. Structural: every harness that instantiates this core
+  //            (test/testbench.v, formal/*.sv, the generated ladder's
+  //            RISCV_FORMAL_RESET_CYCLES) drives reset high initially. No
+  //            check asserts it, and "nowhere" is the honest answer (ADR-0048).
+  // SCOPE      the whole task. Unguarded, so in force over every assertion in
+  //            this block -- which is what it was written for: without it no
+  //            assertion here is meaningful, since `state` and the mul_div
+  //            registers have no defined value before the first edge.
   // assume we've reset at clk 0
   initial assume(reset);
   always_comb if(!clocked) assume(reset);
@@ -276,6 +285,17 @@ module executor(
   // divider) and "complete" a division in a handful of steps. Reset is a
   // once-at-the-start pulse everywhere else in this design, so assume it
   // stays low for the remainder of the trace.
+  //
+  // FACT       reset never returns after the first cycle.
+  // DISCHARGED NOWHERE. True of every harness in the tree; asserted by none.
+  // SCOPE      the whole task -- LARGER than what it was written for. The
+  //            paragraph above is about the divide-family assertions, but this
+  //            is an unguarded `always_comb assume`, so it equally excuses the
+  //            four multiply assertions and the ADR-0015 freeze block from
+  //            ever seeing a mid-trace reset. That is harmless here (a
+  //            re-asserted reset is not a real environment) and is written
+  //            down because ADR-0048 clause 3 requires the reader to be told
+  //            the scope rather than left to infer it from proximity.
   always_comb if (clocked) assume(!reset);
 
   // This component proof stands alone (no accessor instantiated), so
@@ -327,6 +347,22 @@ module executor(
   // by the decoder in the real pipeline; this component proof stands alone, so
   // that has to be an explicit environmental assumption or the solver can pick
   // nonsensical combinations no real instruction produces.
+  //
+  // FACT       the decoder emits at most one op-select flag per instruction.
+  // DISCHARGED rtl/decoder.v's `one_of` assertion -- `assert($onehot(...))`
+  //            under `instr_valid`, in components_decoder, which runs in CI
+  //            (.github/workflows/ci.yml's `components` job). This is the ONE
+  //            assume in this repo with a real, running discharge; every other
+  //            one is believed on structural grounds (ADR-0048's census).
+  // SCOPE      the whole task, and deliberately so. It was written for the
+  //            arithmetic assertions but is equally correct over the ADR-0015
+  //            freeze block and every divide invariant, because the decoder
+  //            really does emit at most one flag on every cycle of all of
+  //            them. Checked against rtl/structs.v while auditing: all 29
+  //            `is_*` fields of `decoder_output` are listed, and
+  //            `is_valid_instr` is correctly not among them. Adding a flag to
+  //            the struct without adding it here silently widens the
+  //            environment for every assertion below.
   always_comb assume($onehot0({in.is_add, in.is_sub, in.is_xor, in.is_or, in.is_and,
     in.is_sll, in.is_slt, in.is_sltu, in.is_srl, in.is_sra, in.is_lui,
     in.is_mul, in.is_mulh, in.is_mulhu, in.is_mulhsu,
@@ -334,6 +370,30 @@ module executor(
     in.is_lb, in.is_lbu, in.is_lh, in.is_lhu, in.is_lw, in.is_sb, in.is_sh, in.is_sw,
     in.is_ecall, in.is_ebreak}));
 
+  // THESE FOUR ASSERTIONS DO NOT SEE 32-BIT OPERANDS TODAY, DESPITE THE
+  // PARAGRAPH BELOW (ADR-0048 finding F1). The divide invariant further down
+  // caps operands with two UNGUARDED `always_comb assume(in.rs1 <= 32'h0f)`
+  // statements, and an unguarded assume is proof-global: it constrains every
+  // assertion in this module, including these. With operands in 0..15 every
+  // product's high half is zero and every operand's bit 31 is zero, so
+  // MULH/MULHU/MULHSU here assert `out.rd_data == 0` and nothing more.
+  //
+  // Measured by mutation (scratch copy, `sby -f components.sby executor`):
+  // forcing `multiply[63:32]` to zero PASSES; `mul_sign_x = 1'b0` PASSES;
+  // `mul_sign_y = 1'b0` PASSES; making MULHSU treat rs2 as signed PASSES.
+  // Three of the four multiplier defects ADR-0010 names by hand survive the
+  // proof written to catch them. A low-half off-by-one and taking the sign
+  // from bit 0 are still caught in 0.5s, which is what makes it insidious:
+  // these assertions are narrowed, not dead, and the task reads green either
+  // way. test/exec_tb.v -- ADR-0010's PRIMARY guarantee -- is what actually
+  // covers this today, over 10,000 randomized vectors per op with the
+  // directed MULH(-1,-1)/MULHSU(-1,1)/MULHU(-1,-1) cases.
+  //
+  // The fix is to guard the cap down to the divide assertions, which is
+  // exactly what the paragraph below says these do not need. Not done here:
+  // those lines are owned by in-flight work on the executor's real arithmetic,
+  // and narrowing them changes what this proof proves.
+  //
   // Multiply: a single combinational stage, so full 32-bit-operand correctness
   // is provable directly (no restriction needed). Independently re-derives
   // MUL/MULH/MULHU/MULHSU against plain SystemVerilog signed/unsigned
