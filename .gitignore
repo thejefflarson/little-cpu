@@ -1,7 +1,9 @@
-riscv.json
-riscv.asc
-timing
-pll.v
+# `make fit` (ADR-0038): the netlist it places, nextpnr's log -- which IS the
+# measurement, so keep it around to read -- and the yosys log, kept out of the
+# terminal so no yosys cell count is ever mistaken for an area number.
+fit.json
+fit.log
+fit.synth.log
 formal/riscv-formal
 formal/riscv-formal.tmp
 formal/complete
