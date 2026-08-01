@@ -179,6 +179,27 @@ module csr_tb;
     check_read("minstreth", 12'hB82, 32'h0);
     check_read("mcycleh", 12'hB80, 32'h0);
 
+    // The two RV32-mandatory registers this core trapped on until ADR-0048.
+    // They are here rather than among the "does not have" addresses below
+    // because the spec lists both unconditionally for RV32 machine mode, so
+    // `implemented` low on either is a conformance failure and not a scope
+    // choice -- ADR-0005's set is a floor, not a closed list.
+    check_read("mstatush reads 0", 12'h310, 32'h0);
+    check_read("mconfigptr reads 0", 12'hF15, 32'h0);
+
+    // mstatush is writable by encoding (addr[11:10] == 2'b00) and has no
+    // implemented fields, so a write is a legal WARL no-op. It must NOT trap
+    // and it must NOT retain -- getting either wrong is a conformance bug in
+    // opposite directions.
+    poke(12'h310, 32'hFFFF_FFFF);
+    check_read("mstatush still reads 0 after a write", 12'h310, 32'h0);
+
+    // mconfigptr is read-only by encoding (addr[11:10] == 2'b11), so the
+    // decoder's existing illegal-CSR rule rejects a write to it before this
+    // file is ever asked. What is checked here is that the read side stayed
+    // put, which is the half rtl/csrs.v owns.
+    check_read("mconfigptr reads 0 after an attempted write", 12'hF15, 32'h0);
+
     // Addresses this core does not have. `implemented` low is what makes
     // rtl/decoder.v call the instruction unrecognised (ADR-0005).
     peek(12'h7C0); // a custom/unimplemented machine CSR
@@ -285,6 +306,50 @@ module csr_tb;
     poke(12'hB00, 32'h0000_0000);
     check_read("an explicit mcycle write beats the increment", 12'hB00, 32'h0000_0000);
     check_read("...and does not disturb mcycleh", 12'hB80, before_hi);
+
+    // ...INCLUDING AT THE CARRY BOUNDARY, which is the only place that last
+    // claim can be false and the only place nothing else in this repo can
+    // reach.
+    //
+    // "Any CSR write takes precedence over the automatic increment" (priv spec
+    // 20211203 §3.1.11, and ADR-0005's own wording) is about the 64-bit
+    // counter, not about the half the address happens to name: mcycle and
+    // mcycleh are two views of one register. With mcycle == 32'hffff_ffff, the
+    // increment's carry lands in the high half, and a write to the LOW half
+    // has to suppress it -- otherwise `csrw mcycle` silently advances mcycleh
+    // by one, exactly once every 2**32 cycles, and only if a write happens to
+    // fall on that cycle.
+    //
+    // Three oracles are structurally blind to it, which is why it is checked
+    // here and pinned by name. riscv-formal's rvfi_csrw_check.sv reads only
+    // the SELF-REPORTED rmask/wmask/rdata/wdata and never observes the
+    // register, so csrw_mcycle_ch0 cannot see it in any configuration; every
+    // ladder check is `mode bmc` from reset and could not reach 2**32 cycles
+    // if it could; and a `.S` program can only land a write on that one cycle
+    // by calibrating the instruction spacing first, which is a test that stops
+    // testing the moment the spacing changes. Driving the port directly is the
+    // one place this is deterministic.
+    poke(12'hB80, 32'h0000_0000);
+    poke(12'hB00, 32'hffff_fffe);
+    @(posedge clk);
+    #1;
+    check_read("mcycle free-runs up to the carry boundary", 12'hB00, 32'hffff_ffff);
+    poke(12'hB00, 32'h0000_0000);
+    check_read("a write at the boundary still beats the increment", 12'hB00, 32'h0000_0000);
+    check_read("...and its discarded carry does not reach mcycleh", 12'hB80, 32'h0000_0000);
+
+    // The same rule for minstret, where `instret` rather than the clock is
+    // what drives the counter into the boundary.
+    poke(12'hB82, 32'h0000_0000);
+    poke(12'hB02, 32'hffff_fffe);
+    instret = 1'b1;
+    @(posedge clk);
+    #1;
+    check_read("minstret counts up to the carry boundary", 12'hB02, 32'hffff_ffff);
+    poke(12'hB02, 32'h0000_0000);
+    instret = 1'b0;
+    check_read("a write at the boundary still beats the increment", 12'hB02, 32'h0000_0000);
+    check_read("...and its discarded carry does not reach minstreth", 12'hB82, 32'h0000_0000);
 
     // ---- trap entry and mret (ADR-0005 / ADR-0028) -----------------------
     // The privileged-spec sequence, driven directly. Nothing on the
