@@ -382,6 +382,9 @@ make setup          # install the RISC-V toolchain (brew on macOS)
 make test           # assemble test/asm/*.S, run under cxxrtl, pass/fail table
 make waves          # iverilog + VCD (testbench.vvp's baked-in program) -> waves.vcd
 make monitor-check  # regenerate test/monitor.v at the pin and diff
+make fit            # the ONE area number: nextpnr logic cells on up5k/sg48 (ADR-0038).
+                    # Placement always fails (231 SB_IO vs 39) and that is expected --
+                    # the utilisation table printed before placement is the measurement.
 
 make -C formal components_decoder   # component proofs
 make -C formal check                # the riscv-formal ladder (82 checks; see ADR-0023)
