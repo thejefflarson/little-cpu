@@ -110,6 +110,15 @@ iverilog -g2012 -s executor  rtl/structs.v rtl/executor.v    ->  0
 iverilog -g2012 -s writeback rtl/structs.v rtl/writeback.v   -> 20
 ```
 
+**Both commands above are wrong as printed — corrected by ADR-0037.** They fail preprocessing
+(`Include file structs.v not found`; they need `-I./rtl/`), and once that is fixed they report 0
+for *every* module, because the `always_comb` reads in question are inside `ifdef RISCV_FORMAL`.
+The macro set is required too. The width `in[311:0]` below is the macro-less figure and matches no
+real build: in `make testbench.vvp`, which is what produces the 20, it was `in[951:0]` when this
+ADR was written and is `in[952:0]` now. The attribution itself is confirmed by `$bits`, which on
+merged main gives `decoder_output` 943, `executor_output` 921, `accessor_output` **953** — and
+`accessor_output` is `rtl/writeback.v`'s port type, the only one of the three that matches.
+
 The reason is principled rather than a toolchain accident: the diagnostic is about an **inferred**
 sensitivity list, so it is specific to `always_comb`. `rtl/executor.v`'s `case (1'b1)` over 39
 flags sits inside `always_ff @(posedge clk)`, whose sensitivity is written out and needs no

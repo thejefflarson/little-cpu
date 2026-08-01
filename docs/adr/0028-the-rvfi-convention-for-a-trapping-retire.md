@@ -1,6 +1,11 @@
 # ADR-0028: The RVFI convention for a trapping retire
 
 **Status:** Accepted · 2026-07-31 · *Supplements ADR-0006*
+· **Corrected by [ADR-0037](0037-an-empty-baseline-is-not-m2.md): the `dmemcheck` bullet below is
+STRUCK. The two shadows it relies on are not independent — `rtl/accessor.v` builds `rvfi_mem_wmask`/
+`rvfi_mem_wdata` from the same bus signals `dmemcheck` samples — so they cannot desynchronise the way
+described. Two mutations, including this bullet's literal scenario, left `dmemcheck` PASS. Two of the
+three indirect guards remain, and one of those (`reg`) is inconclusive.**
 
 ## Context
 
@@ -41,7 +46,8 @@ The instruction retires. It just retires having architecturally done nothing exc
 This is the load-bearing part of the ADR, because none of it is obvious and CI would not notice if
 a future change broke the reasoning:
 
-- **`dmemcheck` catches a trapping store that still reaches the bus.** `formal/dmemcheck.sv:61-68`
+- ~~**`dmemcheck` catches a trapping store that still reaches the bus.**~~ **STRUCK — see ADR-0037.**
+  The claim as written was: `formal/dmemcheck.sv:61-68`
   builds its environment shadow from the **real** `mem_wstrb`/`mem_wdata`, while `rvfi_dmem_check`
   builds its shadow purely from `rvfi_mem_*`. A store that is architecturally suppressed but still
   strobes the bus desynchronises the two, and a later load fails at the RVFI level.
@@ -60,8 +66,8 @@ a future change broke the reasoning:
 - The convention above is a repo commitment, not a spec requirement discovered by tooling. It must
   be restated in `rtl/writeback.v` at the drive site, because a reader of that code has no other way
   to learn that the ladder is silent here.
-- Any future change to trap reporting must be checked against the three indirect guards above by
-  hand — they are not named in any check's title and the connection is not discoverable from CI
+- Any future change to trap reporting must be checked against the **two** surviving indirect guards
+  above by hand (the `dmemcheck` one is struck — ADR-0037 — and `reg` is inconclusive, ADR-0023) — they are not named in any check's title and the connection is not discoverable from CI
   output.
 - The top-level `trap` port on `rtl/littlecpu.v` is **redefined, not deleted**: it becomes a
   one-cycle "trap entry committed this cycle" pulse. Deleting it would change the port list in

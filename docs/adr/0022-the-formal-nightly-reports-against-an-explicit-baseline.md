@@ -1,6 +1,11 @@
 # ADR-0022: The formal nightly reports against an explicit baseline, not `|| true`
 
 **Status:** Accepted · 2026-07-29 · *Supplements ADR-0006, ADR-0013, ADR-0014 · Follow-up required*
+· **Corrected by [ADR-0037](0037-an-empty-baseline-is-not-m2.md): the guarantee below — that the
+comparison step's exit status is the job's real signal — did NOT hold as written. The step piped
+the graded command into `tee`, and a `run:` block without an explicit `shell:` key is `bash -e {0}`,
+errexit but not pipefail, so `$?` was `tee`'s status and was always 0. Fixed in both workflows;
+the conclusion below stayed accidentally true only because the ladder kept matching its baseline.**
 
 ## Context
 
