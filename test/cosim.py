@@ -281,7 +281,7 @@ def assemble(cc, src, outdir):
     ram = os.path.join(outdir, base + ".ram.hex")
     objcopy = cc[: -len("gcc")] + "objcopy"
     log = subprocess.run(
-        [cc, "-march=rv32imc_zicsr", "-mabi=ilp32", "-nostdlib", "-I", ASM_DIR,
+        [cc, "-march=rv32imc_zicsr_zifencei", "-mabi=ilp32", "-nostdlib", "-I", ASM_DIR,
          "-T", os.path.join(ASM_DIR, "sections.lds"), src, "-o", elf],
         capture_output=True, text=True,
     )
