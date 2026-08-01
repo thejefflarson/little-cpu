@@ -116,7 +116,7 @@ construction: the task has exactly one assertion, inside riscv-formal's unmodifi
 |---|---|---|---|
 | `complete.sv:59` | store-then-reload forwarding for the most recent store only | **nowhere**, same as `dmemcheck.sv:86` and with the same missing structural backing | `complete`'s single `assert(spec_valid && !spec_trap)` |
 
-### `formal/pcloop.sv` — the composed fetcher+decoder proof *(out of scope for edit; a depths PR is mid-merge)*
+### `formal/pcloop.sv` — the composed fetcher+decoder proof *(not edited here; `bb6e228` owns this file)*
 
 | site | fact modelled | discharged | scope |
 |---|---|---|---|
@@ -131,7 +131,7 @@ construction: the task has exactly one assertion, inside riscv-formal's unmodifi
 | `decoder.v:1005` | reset holds before the first clock edge | **nowhere** (structural, as above) | the whole task |
 | `decoder.v:1006` | the same, restated for the pre-`clocked` window | **nowhere** | the whole task |
 | `decoder.v:1013` | reset is a once-at-the-start pulse | **nowhere** | the whole task — written for the two pc-increment assertions, also in force over the ADR-0028/ADR-0030 trap-arm assertions added later |
-| `decoder.v:1023` | `in.pc == pc`: the fetcher echoes the decoder's own pc combinationally (`rtl/fetcher.v`'s `out.pc = pc`, wired pc→pc in `rtl/littlecpu.v`) | **`formal/pcloop.sv:261`** asserts exactly this — but see finding F2: that task is red and no `make` target runs it, so today the fact is discharged by a check nobody runs | the whole task. ADR-0017 analysed its effect on the pc-increment pair; it is also in force over the bubble, hazard, `one_of`, trap-cause and trap-arm assertions |
+| `decoder.v:1023` | `in.pc == pc`: the fetcher echoes the decoder's own pc combinationally (`rtl/fetcher.v`'s `out.pc = pc`, wired pc→pc in `rtl/littlecpu.v`) | **`formal/pcloop.sv`** asserts exactly this, and as of `bb6e228` it is a real, running discharge — `make -C formal components_pcloop`, in CI, PASS in 2.7s. It was red and unrun for the whole period this audit ran; see F2 | the whole task. ADR-0017 analysed its effect on the pc-increment pair; it is also in force over the bubble, hazard, `one_of`, trap-cause and trap-arm assertions |
 
 ### `rtl/executor.v` — `components_executor`
 
@@ -153,20 +153,41 @@ divide-invariant assumes are owned by in-flight work, and fixing this correctly 
 cap to the divide assertions, which changes what `components_executor` proves and belongs with that
 work. The site carries a scope statement in the meantime — clause 3's second route.
 
-**F2 — `formal/pcloop.sv` is RED on `main`, and nothing runs it.** Measured at `18d17a2`:
-`sby -f components.sby pcloop` → `DONE (FAIL, rc=2)` in 0.67s, `failed assertion … at
-pcloop.sv:273 step 3`. The cause is exact and is in this ADR's own class: `f_may_stall` is
-documented as an over-approximation of `rtl/decoder.v`'s `stall`, and it lists four of the five
-terms — ADR-0042 added `operand_stall` and `f_may_stall` was never widened. The counterexample is
-the first post-reset cycle, where `operand_stall = 1`, `stall = 1` and the pc legitimately holds
-while `prev_may_stall` reads 0 the next cycle. `operand_stall` is decoder-*internal* and reaches no
-port, so `f_may_stall` **cannot** be widened from pcloop's own nets: closing this needs `stall`
-exposed as a decoder output, or the equivalent re-derived, which is decode duplication `pcloop.sv`
-explicitly refuses. Compounding it, `formal/Makefile` has `components_decoder` and
-`components_executor` targets and no `components_pcloop`, and `.github/workflows/ci.yml`'s
-`components` job runs the two that exist — so the only way to reach this task is to type the `sby`
-line by hand. A red proof nobody runs is the same defect as a green proof that checks nothing
-(ADR-0033, ADR-0037), and it is the check that discharges `decoder.v:1023`.
+**F2 — `formal/pcloop.sv` was red and unrun. FOUND INDEPENDENTLY HERE; FIXED CONCURRENTLY BY
+`bb6e228` (ADR-0046).** This audit measured it at `18d17a2` as `sby -f components.sby pcloop` →
+`DONE (FAIL, rc=2)` in 0.67s at `pcloop.sv:273 step 3`, and attributed it from the counterexample
+VCD: the failing cycle's predecessor is the first post-reset cycle, where `operand_stall = 1`,
+`stall = 1` and the pc legitimately holds, while `prev_may_stall` reads 0 because `f_may_stall`
+lists **four** of `rtl/decoder.v`'s **five** stall terms. ADR-0042 added `operand_stall`; the
+over-approximation was never widened, so it had stopped being one. Same class as F1 one level up: a
+guard whose excused set is smaller than the RTL's.
+
+The ladder-depths work landed the fix while this was in flight, reaching the same attribution
+independently, and it went further than this finding did in two ways worth recording:
+
+- **The fix needed no new port, and this ADR's first draft said it did.** That claim was wrong.
+  `rs1`/`rs2` are decoder *output ports*, so `pcloop.sv` transcribes `rtl/decoder.v`'s
+  `prev_rs1`/`prev_rs2`/`read_taken` register into the harness and over-approximates at the
+  comparison, exactly as every other `f_may_stall` term does. Recorded because "this cannot be done
+  from the module's own nets" is the kind of claim that closes off a fix, and it was written without
+  being checked.
+- **The task is wired up now**: `formal/Makefile` has a `components_pcloop` target and
+  `.github/workflows/ci.yml`'s `components` job runs it. Re-measured on the merged tree for this
+  ADR: `DONE (PASS, rc=0)` by k-induction in 2.7s.
+
+What survives, and is why this stays in the census rather than being deleted: **the defect was
+invisible for as long as it was because nothing ran the task.** `rtl/decoder.v:1023`'s
+`assume(in.pc == pc)` was, for that whole period, discharged by a check nobody invoked — and a
+discharge like that reads identically in the source to a real one. That is the durable lesson, and
+it is why clause 2 asks *where* rather than merely *whether*.
+
+One methodological correction, because it was nearly published as a finding: a sandbox diagnostic
+asking whether widening `f_may_stall` closes the red was run twice and returned no verdict, and the
+draft inferred from that that widening "makes the query dramatically harder." **That inference was
+wrong and the measurement was an artefact.** `formal/components.sby` now pins `pcloop: smtbmc
+boolector` precisely because the default solver sits on this task for over fourteen minutes without
+returning, which is what both attempts hit. Solver choice, not problem hardness — a non-answer is
+not evidence about the problem.
 
 **F3 — the two divide-completion assertions are unreachable in the base case.** `components.sby`
 sets no `depth`, so `mode prove`'s basecase runs to 20 steps. The real divider needs 33 cycles from
@@ -243,12 +264,14 @@ than the pre-reset step 0. Both rounds FAIL for every one:
 | `clocked && !prev_reset && prev_trap_entry` (→ `mtvec`, and → `out.rd == 0`) | FAIL @ step 3 |
 | `clocked && !prev_reset && prev_mret_entry` | FAIL @ step 3 |
 
-`components_pcloop` (task red on main, so the sequential-advance assertion is neutralised to
-`assert(1'b1)` first and the guard under test carries the probe): the echo guard FAILs at step 1,
-`prev_hard_stall` at step 3, both redirect guards at step 4. The sequential-advance guard itself is
-demonstrated reachable **in both width branches** — `assert(!prev_uncompressed)` and
-`assert(prev_uncompressed)` under it both FAIL at step 3 — so neither the 4-byte nor the 2-byte arm
-is vacuous.
+`components_pcloop`, re-measured on the merged tree where the task is green (the first pass was
+taken while it was red, which needed the sequential-advance assertion neutralised first; that
+scaffolding is gone and the numbers below are the clean ones): echo guard FAIL @ step 1,
+`prev_hard_stall` @ step 3, both redirect guards @ step 4. The sequential-advance guard is reachable
+**in both width branches** — `assert(!prev_uncompressed)` and `assert(prev_uncompressed)` under it
+both FAIL @ step 4 — so neither the 4-byte nor the 2-byte arm is vacuous. The witnesses moved out by
+one step relative to the red-tree run, which is the operand-fetch cycle `f_may_stall` now accounts
+for.
 
 `formal/cover.sv` is the full-core harness's own reachability demonstration and needs no mutation.
 Re-measured for this audit rather than quoted: `make -C formal cover` → `DONE (PASS, rc=0)` in 12s,
@@ -282,9 +305,10 @@ those would have produced twenty-four plausible sentences and no information.
   narrow the cap to the divide assertions; the four multiply assertions need no cap (a single
   combinational stage, full 32-bit correctness is provable directly, as the comment above them
   already says).
-- **F2 is handed to whoever owns `formal/pcloop.sv`.** Two separable halves: the red itself
-  (`f_may_stall` needs `operand_stall`, which needs a port), and the fact that no `make` target and
-  no CI job reaches the task.
+- **F2 is closed, by `bb6e228` rather than by this ADR** — both halves: `f_may_stall` carries the
+  operand-fetch term, and `components_pcloop` is a `make` target and a CI job. It is kept in the
+  census because the *shape* is the point: an assume whose discharge is a task nothing invokes looks
+  exactly like an assume whose discharge is real.
 - **F3 is a standing caveat on `components_executor`**, in the same family as ADR-0010's ALTOPS
   caveat: the divide result is proved inductively and never simulated. It is not a reason to raise
   the depth without evidence (ADR-0025).

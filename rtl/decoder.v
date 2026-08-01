@@ -1044,13 +1044,14 @@ module decoder (
   //            ASSERTS the echo (`assert(fetcher_out.pc == pc)`) instead of
   //            assuming it. ADR-0017 relocated this obligation to M2's
   //            full-core wrapper; pcloop.sv now discharges it directly and at
-  //            component level, which is better. BUT: measured at 18d17a2,
-  //            that task is RED (`sby -f components.sby pcloop` -> DONE
-  //            (FAIL, rc=2) in 0.67s, at pcloop.sv:273) and there is no
-  //            `components_pcloop` make target and no CI job that runs it --
-  //            so today this fact is discharged by a check nobody runs
-  //            (ADR-0048 finding F2). That is a statement about pcloop.sv's
-  //            stall model, not about this assume, which remains sound.
+  //            component level, which is better. This is a REAL, RUNNING
+  //            discharge as of `bb6e228` (ADR-0046): `make -C formal
+  //            components_pcloop` is a target, it is in CI's `components` job,
+  //            and it passes by k-induction in 2.7s. It was red and unrun
+  //            while this audit was in flight -- see ADR-0048 F2 for what that
+  //            looked like and why it went unnoticed, which is worth reading
+  //            before adding another assume whose discharge is a task nothing
+  //            invokes.
   // SCOPE      the whole task -- LARGER than what it was written for.
   //            ADR-0017 analysed its effect on the pc-increment pair; it is
   //            also in force over the bubble, hazard, `one_of`, trap-cause and
