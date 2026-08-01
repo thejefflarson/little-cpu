@@ -219,8 +219,31 @@ rejected (ADR-0040). Serialising the two read ports onto one array was also buil
 and it needs a second bypass level, which is the first step toward the forwarding network invariant 4
 forbids.
 
-What does not work right now:
+What does not work right now — **one live entry, then six resolved ones kept in place.** Five of the
+six are struck through, and every one of those outlived its own fix here by several commits. That is
+the failure this section exists to prevent, so they stay as markers rather than being deleted.
 
+- **Three things this repo treats as gates are reached by no automation, and one of them computes a
+  verdict nothing reads.** Found by reading `Makefile`, `formal/Makefile`, both workflows and
+  `test/run_tests.sh` end to end; the four-column inventory that came out of it lives in the pull
+  request that added this bullet and is destined for the coverage-map ADR. (1) **`make fit` is a
+  ratchet nothing pulls.** The ratchet works — `make fit FIT_MAX_LC=4200` against today's 4236-cell
+  tree exits **2** with "4236 logic cells is over the 4200-cell budget" — but
+  `grep -rn fit .github/workflows/` returns two prose matches about runner memory and **no
+  invocation of `make fit`**, so nothing but a human has ever pulled it. Run it by hand on anything
+  that touches `rtl/`. (2) **`make waves` grades nothing.** It runs the full pipeline under iverilog
+  with the per-retire monitor live, but `ch0_handle_error` only `$display`s and sets `errcode` —
+  there is not one `$fatal`, `$finish` or `$stop` in `test/monitor.v` or `test/monitor.sim.v` — and
+  on the iverilog leg nothing turns `errcode` into an exit status (`test/testbench.v:55-60` says so
+  in its own comment; `test/cxxrtl.cc` is what reads it, and that is the other leg). So `make waves`
+  exits 0 on a monitor mismatch, and it is in no workflow either. The consequence is the part worth
+  keeping: **`testbench.vvp` is elaborated on every PR and executed by no gate anywhere.** The
+  iverilog *simulation* CI actually runs is the six `make test-units` benches, which do `$fatal(1)`
+  and are gated. (3) **`make -C formal all` is dead** — no workflow names it. That one is
+  redundancy rather than a hole: every target it lists (`complete`, `check`, `dmemcheck`,
+  `imemcheck`, the three `components_*`) is invoked separately by `ci.yml` or `formal-nightly.yml`.
+  A target that names seven gates and is reached by nothing still reads like coverage, which is why
+  it is written down here rather than left to be rediscovered.
 - ~~**The ALTOPS divide branch reads stale operands**~~ — **fixed, and this bullet outlived it by
   several commits.** The ALTOPS issue arm latches its operands (`rtl/executor.v:52-60`,
   `div_alt_rs1`/`div_alt_rs2` off `mul_div_x`/`mul_div_y`) exactly as the non-ALTOPS branch does, so
@@ -402,13 +425,20 @@ clean and a dirty rs2 so the `rs2[4:0]` mask is checked rather than coincided wi
 `decoder_tb`,
 `regfile_tb` — which covers the write-through bypass and x0 semantics — `csr_tb`, which covers
 `rtl/csrs.v`'s read mux, its `implemented` address set, its WARL masks and its trap-entry/`mret`
-port, and `monitor_tb`, which checks the oracle itself rather than the core), and the decoder and
-executor component proofs pass
-by k-induction (see ADR-0017 for what the decoder proof does and does not establish). `make waves`
+port, and `monitor_tb`, which checks the oracle itself rather than the core), and **all three**
+component proofs — decoder, executor and `pcloop` — pass by k-induction (`mode prove`; re-run and
+read off each `sby` summary, not inferred from a green job. See ADR-0017 for what the decoder proof
+does and does not establish, and ADR-0046 for what `pcloop` discharges). `make waves`
 now runs the iverilog leg (`testbench.vvp`) instead of the cxxrtl runner, matching the verification
-table below,
-and produces a real `waves.vcd`. CI (`.github/workflows/ci.yml`) runs elaborate / test / components
-/ monitor-freshness on every PR.
+table below, and produces a real `waves.vcd` — **but it grades nothing**; see the first bullet under
+"what does not work" above. CI (`.github/workflows/ci.yml`) runs **seven** jobs on every PR:
+elaborate, test, components, lint, nonperturbation, monitor-freshness and formal. **Six of the seven
+are required** — `elaborate`, `test`, `components`, `monitor-freshness`, `lint`, `formal`, read live
+from `gh api repos/thejefflarson/little-cpu/branches/main/protection -q
+'.required_status_checks.contexts'` rather than from any comment in the workflow — and
+`nonperturbation` is the one that runs without gating. This line named four jobs and stopped there
+until the gate inventory; `lint` and `formal` had both been promoted to required in the meantime,
+and `ci.yml`'s own comments still said otherwise.
 
 **A Sail co-simulation spike measured what the existing oracles structurally cannot see**
 (ADR-0032). Both the RVFI monitor and every `insn_*` ladder check read the core's *self-report*;
@@ -469,8 +499,10 @@ ADR-0015). Of 78 generated checks: **55 of 70 `insn_*` pass**; `pc_fwd`, `pc_bwd
 `unique`, `causal`, `imemcheck` and `dmemcheck` pass; `cover` reaches all five goals, including
 ≥2 loads and ≥2 stores and ≥2 uncompressed and ≥2 compressed retires in one trace — which is what
 rules out a vacuous harness. **Read ADR-0023 before quoting any of these numbers.** Every one of
-the 15 failures is accounted for (9 = the M3 trap gap, 2 = the C.JR defect below, 4 = the ALTOPS
-divide defect below), `reg` is inconclusive, and everything ran under `RISCV_FORMAL_ALTOPS`, so
+the 15 failures is accounted for (9 = the M3 trap gap, 2 = the C.JR/C.JALR defect, 4 = the ALTOPS
+divide defect — all three since fixed, and the last two no longer have bullets of their own above),
+`reg` was inconclusive *under the `smtbmc yices` engine that run used* (ADR-0024 replaced it; see
+the struck bullet above), and everything ran under `RISCV_FORMAL_ALTOPS`, so
 a green `insn_mul` says nothing whatever about multiplication (ADR-0010). **M2 is not reached.**
 
 ## Invariants — do not break these
@@ -539,12 +571,19 @@ make setup          # install the RISC-V toolchain (brew on macOS)
 make test           # assemble test/asm/*.S, run under cxxrtl, pass/fail table with
                     # per-program retire / spec-checked-retire counts, graded against
                     # test/EXPECTED_FAIL (set equality) and test/OBSERVED_FLOOR (>=)
-make waves          # iverilog + VCD (testbench.vvp's baked-in program) -> waves.vcd
+make waves          # iverilog + VCD (testbench.vvp's baked-in program) -> waves.vcd.
+                    # GRADES NOTHING: the per-retire monitor is live but only
+                    # $displays, so this exits 0 on a mismatch. Read the output.
 make monitor-check  # regenerate test/monitor.v at the pin and diff
 make fit            # the ONE area number: nextpnr logic cells on up5k/sg48 (ADR-0038).
                     # Placement always fails (231 SB_IO vs 39) and that is expected --
                     # the utilisation table printed before placement is the measurement.
                     # A RATCHET as of ADR-0042: over FIT_MAX_LC (4400) exits nonzero.
+                    # RATCHET DECLARED, NEVER PULLED: no workflow runs this, so the
+                    # only thing that has ever enforced it is a human typing it. The
+                    # mechanism itself is live -- `make fit FIT_MAX_LC=4200` on the
+                    # 4236-cell tree exits 2 -- so this is an unrun gate, not a
+                    # broken one. Run it by hand on anything that touches rtl/.
 
 make -C formal components_decoder   # component proofs. THREE tasks, all with real assertions:
 make -C formal components_executor  # decoder, executor, pcloop -- the assertion-free fetcher /
@@ -759,7 +798,10 @@ not against an oracle. An empty baseline is loudest exactly where the ladder is 
   rejected the shifter merge at 19 cells *saved* on legibility grounds, and accepting a hygiene
   change at 37 cells *spent* would cut against that ruling. Read this before proposing the
   narrowing again — it is measured and declined, not overlooked.
-- Decisions: [`docs/adr/`](docs/adr/) — forty-five accepted ADRs, plus a deferred list
+- Decisions: [`docs/adr/`](docs/adr/) — **forty-seven ADRs, forty-six of them accepted**, plus a
+  deferred list. Re-derived by counting: `ls docs/adr/*.md | wc -l` is 48, one of which is
+  `README.md`, and the status column in that README carries exactly one non-accepted entry
+  (ADR-0016, superseded by ADR-0018). This line said "forty-five accepted" and was two behind.
 - Reference text from the old core: `git show 1709433^:rtl/riscv.v` (RVFI retire block),
   `git show e67875c^:rtl/alu.v` (arithmetic)
 - Work is tracked in Linear, project **Little CPU** (team JEF). Named here so you know where the

@@ -95,12 +95,22 @@ jobs:
         # here, and exercises the same from-scratch-clone pin guard
         # ADR-0013 asks CI to run.
         #
-        # iverilog emits ~30 "sorry: constant selects in always_* processes"
-        # notes on this design (constant bit-selects inside always_* blocks
-        # -- a real iverilog limitation, not a bug in this RTL) and still
-        # exits 0. Do not grep for them: they are notes, not warnings, and
-        # CLAUDE.md's technical notes call this out by name as a known,
-        # separately-tracked class this gate must not block on.
+        # iverilog emits exactly 20 "sorry: constant selects in always_*
+        # processes" notes on this design (counted with `make -B
+        # testbench.vvp | grep -c`, all 20 identical and all against
+        # `in[952:0]`, which is rtl/writeback.v's accessor_output -- a real
+        # iverilog limitation, not a bug in this RTL) and still exits 0. Do
+        # not grep for them: they are notes, not warnings, and CLAUDE.md's
+        # engineering rules call this out by name, with the same count, as a
+        # known separately-tracked class this gate must not block on. This
+        # comment said "~30" until the gate inventory counted them.
+        #
+        # THIS STEP BUILDS testbench.vvp AND NEVER RUNS IT, and nothing else
+        # in this workflow runs it either. The full-pipeline iverilog leg --
+        # CLAUDE.md's "microscope" -- is elaborated on every PR and executed
+        # by no gate; `make waves` is the only thing that runs it and is in
+        # no workflow. The iverilog SIMULATION that CI does run is the six
+        # unit benches under `make test-units`, in the `test` job.
         run: make rvfi_macros.vh testbench.vvp
 
       - name: Report job wall time
@@ -115,13 +125,18 @@ jobs:
   # The ADR-0007/ADR-0008 cxxrtl regression gate: builds `sim`, runs
   # test-units (the iverilog RTL-level benches), then every test/asm/*.S
   # under `sim` and checks the pass/fail table against test/EXPECTED_FAIL
-  # (ADR-0014's baseline). `a4662a2` took that baseline to empty; it now
-  # carries three M3 tests (csr.S, minstret.S, trap.S) written ahead of the
-  # RTL that pays them off, so the gate is 49 pass / 3 expected-fail rather
-  # than a plain all-pass. ADR-0014's set-equality check runs in both
-  # directions, so one of those three starting to pass -- which is exactly
-  # what each M3 RTL change is supposed to cause -- fails the gate until its
-  # line comes out of the baseline in the same commit.
+  # (ADR-0014's baseline). That baseline is EMPTY again -- the three M3 tests
+  # written ahead of their RTL (csr.S, minstret.S, trap.S) have all been paid
+  # off -- so the gate is a plain 52 pass / 0 expected-fail today. This
+  # comment described the 49/3 state until the gate inventory re-ran it.
+  # ADR-0014's set-equality check runs in both directions regardless, so a
+  # baselined test starting to pass fails the gate just as loudly as a passing
+  # test starting to fail, until its line moves in the same commit.
+  #
+  # `make test` depends on `test-units`, so this one step is also the only
+  # place any iverilog simulation runs on this workflow (six benches:
+  # exec_tb, mem_tb, decoder_tb, regfile_tb, csr_tb, monitor_tb). Each
+  # $fatal(1)s on a mismatch, so vvp's exit code is the verdict.
   test:
     name: test
     runs-on: little-cpu-runners
@@ -172,8 +187,14 @@ jobs:
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # ADR-0006 scopes component proofs to exactly two: decoder and executor.
-  # Both are run here; both pass by k-induction. The executor proof is under
+  # formal/components.sby carries exactly THREE tasks -- decoder, executor and
+  # pcloop -- and this job runs all three; all three pass by k-induction
+  # (`mode prove`, verified by running each target and reading its sby summary,
+  # not by inference from a green job). ADR-0006 scoped the set to decoder and
+  # executor; ADR-0046 added pcloop. This comment named only the first two
+  # until the gate inventory read the .sby file.
+  #
+  # The executor proof is under
   # a 4-bit operand restriction (ADR-0010). The decoder proof used to FAIL on
   # the `past_pc + 4 == pc` assertion, which was a broken property rather
   # than a decode hole -- `fetcher_pc` was a free input, so nothing tied the
@@ -308,9 +329,18 @@ jobs:
   # no riscv-formal clone, ~9s wall. It is deliberately NOT in the `formal`
   # job, which is GitHub-hosted for memory reasons and takes minutes.
   #
-  # Not in main's branch-protection required set. Adding it there is a
-  # repository-settings change for a human to make deliberately, the same as
-  # `lint` and `formal` (ADR-0036).
+  # NOT in main's branch-protection required set, and as of the gate inventory
+  # it is the ONLY job in this workflow that is not. Read live rather than
+  # remembered:
+  #
+  #   gh api repos/thejefflarson/little-cpu/branches/main/protection \
+  #     -q '.required_status_checks.contexts'
+  #   ["elaborate","test","components","monitor-freshness","lint","formal"]
+  #
+  # `lint` and `formal` have since been promoted; this comment cited both as
+  # fellow non-required jobs, which stopped being true without anything here
+  # noticing. Promoting `nonperturbation` too is a repository-settings change
+  # for a human to make deliberately (ADR-0036) -- never attempted from a PR.
   nonperturbation:
     name: nonperturbation
     runs-on: little-cpu-runners
@@ -438,11 +468,17 @@ jobs:
   # list; ADR-0047 deleted it, and its replacement is the `nonperturbation`
   # job above, which is cheap enough to be a PR gate.
   #
-  # Adding this job to ci.yml does not by itself gate anything: main's
-  # branch-protection required set is elaborate/test/components/
-  # monitor-freshness/lint, and adding `formal` to it is a repository-settings
-  # change for a human to make deliberately (ADR-0036, which says the same of
-  # `lint`). Until then this is advisory.
+  # THIS JOB IS REQUIRED. main's branch-protection required set is
+  # elaborate/test/components/monitor-freshness/lint/formal, read live with
+  #
+  #   gh api repos/thejefflarson/little-cpu/branches/main/protection \
+  #     -q '.required_status_checks.contexts'
+  #
+  # `lint` and `formal` were both promoted after they landed. This comment
+  # still said `formal` was advisory and that the required set ended at
+  # `lint`, which is the drift the gate inventory went looking for: adding a
+  # job to this file does not make it required, and neither does removing one
+  # make it not, so the only trustworthy source is the API above.
   formal:
     name: formal
     # Stays GitHub-hosted, and unlike `test` and `lint` above the reason is
