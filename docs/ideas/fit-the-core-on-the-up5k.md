@@ -22,13 +22,31 @@ All `nextpnr-ice40 --up5k --package sg48`, `littlecpu`, memories external, post-
 |---|---|---|---|
 | Baseline | **6971** | **132%** | 0/30 |
 | + merged shifter | 6835 | 129% | 0/30 |
-| **+ negedge-EBR regfile** | **4017** | **76%** | **4/30** |
-| + both | 3998 | 75% | 4/30 |
+| **+ negedge-EBR regfile** | ~~**4017**~~ ~4100 | ~78% | **4/30** |
+| + both | ~~3998~~ ~4100 | ~78% | 4/30 |
 
 The negedge variant was built and run, not projected: **52/52 `.S` tests pass under cxxrtl with the
-per-retire monitor live**, ~~`reg_ch0` passes~~, and yosys infers `4 × SB_RAM40_4K` from a plain
-two-array negedge-read model — no `SB_RAM40_4KNR`, no attribute. **EBR inference is a non-risk;
-delete it from the spike's scope.**
+per-retire monitor live**, ~~`reg_ch0` passes~~, and yosys infers **`4 × SB_RAM40_4KNR`** from a
+plain two-array negedge-read model — no attribute needed. **EBR inference is a non-risk; delete it
+from the spike's scope.**
+
+> **Two corrections to the four lines above, ratified at integration (ADR-0042's wave).**
+>
+> **1. The primitive is `SB_RAM40_4KNR`, not `SB_RAM40_4K`.** This paragraph asserted the opposite,
+> by name. Re-measured directly — `synth_ice40` on a two-array negedge-read model reports
+> `4 × SB_RAM40_4KNR`, the negative-edge-read-clock variant, which is exactly what a negedge read
+> should infer. The *conclusion* the sentence was written to support is unchanged and if anything
+> stronger: inference works, needs no attribute, and is not a risk. But the cell name was wrong, and
+> it is the kind of wrong that sends the next reader looking for a bug that is not there.
+>
+> **2. Do not quote either figure to four digits.** ADR-0042's wave re-measured the same lever on the
+> same baseline and got **4137**, against the **4017** here — 120 cells, 2.3% of the part. The
+> baseline (6971) reproduces exactly, so this is not a different tree; the earlier figure came from a
+> scratch variant that is not in the repo and cannot be diffed, so the two are not comparable at that
+> resolution. **Neither number is trustworthy in its last two digits.** The conclusion is unaffected:
+> the regfile alone closes the area problem, and all three ways of doing it land within 86 cells of
+> each other. See also this repo's own ±~50-cell churn floor — a `make fit` delta smaller than that
+> is not evidence of anything.
 
 **`reg_ch0` cannot pass on a negedge regfile, and did not** (ADR-0040 finding 1). sby runs its own
 `prep` model step after the `.sby`'s `[script]`, and `formalff -clk2ff` there fails closed on mixed

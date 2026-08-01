@@ -70,10 +70,20 @@ remedy named in the message. It is not a silent green.** The reported green was 
 regfile in isolation; the extrapolation to the full testbench does not hold, and the difference is
 one yosys pass that sby inserts and a bespoke script does not.
 
-That last clause is the part worth carrying forward. **The hazard is real wherever this repo drives
-yosys itself rather than through sby.** `formal/equiv.sh` does exactly that, and any standalone
-regfile equivalence proof written as a yosys script would too. In those places a negedge `$dff` will
-be modelled as a posedge one, silently, and nothing will say so.
+That last clause is the part worth carrying forward. **The hazard is real wherever this repo lowers a
+design to a word-level model without sby's `prep` step** — that is, a bespoke yosys script ending in
+`write_btor` or `write_smt2`, which drops the clock and assumes every `$dff` is posedge. A standalone
+regfile equivalence proof written that way would be exposed, and so would any future BMC script.
+
+> **Correction, ratified at integration (ADR-0042's wave).** This paragraph originally named
+> `formal/equiv.sh` as an instance, and **that was wrong**. `equiv.sh` has **no backend**: it ends in
+> `equiv_make` / `equiv_simple` / `equiv_induct` / `equiv_status -assert`, which reason over the
+> `$dff` cells in yosys's own representation with their clock and polarity intact, and never emit a
+> word-level model at all. It is therefore not exposed to the polarity loss described here, now or
+> after a negedge cell is introduced. **There is no script in this repo today that the warning
+> applies to** — it is a rule for scripts not yet written, which is still worth stating, but it must
+> not be read as a defect in `equiv.sh`. (`equiv.sh` has a real limitation, and it is a different
+> one: it does not converge. See ADR-0020.)
 
 ## Finding 2: `clk2fflogic` is what produces the false green
 
@@ -285,11 +295,13 @@ line rather than trusting the status word when using the probe.
   spread on this hardware is a factor of 1.7 — this box runs several worktrees at once — so no
   ladder-level timing comparison in this repo should be read as meaningful below about 2×. Prefer
   serial single-check comparisons, as the tables above do, and say which kind a number is.
-- **A standing warning for bespoke yosys scripts.** `formal/equiv.sh` — and anything else that drives
-  yosys directly and ends in `write_btor` or `write_smt2` rather than going through sby's `prep`
-  model step — does not get `formalff -clk2ff`'s polarity guard. Today the RTL is entirely posedge so
-  nothing is lost; the moment that stops being true, those scripts model a different circuit and say
-  nothing about it.
+- **A standing warning for bespoke yosys scripts.** Anything that drives yosys directly and ends in
+  `write_btor` or `write_smt2`, rather than going through sby's `prep` model step, does not get
+  `formalff -clk2ff`'s polarity guard: the moment the RTL stops being entirely posedge, such a script
+  models a different circuit and says nothing about it. **This entry used to name `formal/equiv.sh`
+  and that was wrong** — corrected in Finding 1 above. `equiv.sh` emits no word-level model; its
+  `equiv_*` passes reason on the cells directly, polarity included. **No script in this repo is
+  currently exposed.**
 - **ADR-0025's depth derivation is unaffected**, because `clk2fflogic` is not adopted. Had it been,
   every number in that derivation would have needed doubling *and* decoupling from
   `RISCV_FORMAL_CHECK_CYCLE`, and the second half is not expressible in `checks.cfg`.
