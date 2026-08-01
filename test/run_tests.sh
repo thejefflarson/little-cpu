@@ -3,10 +3,10 @@
 # and checks the resulting pass/fail table against test/EXPECTED_FAIL — the
 # sprint-1 baseline (ADR-0007, ADR-0008, ADR-0014). Invoked by `make test`.
 #
-# Usage: run_tests.sh <sim-binary> <asm-dir> <expected-fail-file>
+# Usage: run_tests.sh <sim-binary> <asm-dir> <expected-fail-file> <floor-file>
 #
 # This script is the merge gate, so the failure mode that matters is a FALSE
-# GREEN — reporting success without having tested anything. Three properties
+# GREEN — reporting success without having tested anything. Four properties
 # below exist only for that (ADR-0035):
 #
 #   * every build step's exit status is checked, and the simulator runs only
@@ -19,20 +19,34 @@
 #     assembly, a crashing runner, a timeout — is a red gate, not a match;
 #   * `set -e` is on and mktemp is fatal. Without it a failed mktemp leaves
 #     $tmp empty, every artifact path collapses to the filesystem root, and a
-#     later run can pick up the previous run's stale image.
+#     later run can pick up the previous run's stale image;
+#   * OBSERVATION IS COUNTED, NOT INFERRED. The RVFI monitor is this gate's
+#     per-retire oracle and nothing measured whether it ever fired. A monitor
+#     that never saw a retire — an under-sensitivity defect of the ADR-0037
+#     kind, an `ifdef` that dropped the shadow payload, a `write_cxxrtl` that
+#     optimised the instance away — left every program reporting PASS off
+#     `tohost` alone, and with test/EXPECTED_FAIL empty there was no red entry
+#     whose disappearance would say so. ADR-0032 measured that end-state
+#     checking on its own is blind to real architectural corruption. So the
+#     runner now prints how many retires the monitor examined and how many of
+#     those its spec model checked, and this script grades both: zero of either
+#     is MONITOR-SILENT (the runner's own exit 6), and a drop below
+#     test/OBSERVED_FLOOR is BELOW-FLOOR. Both are failing statuses in the same
+#     name-and-status set as everything else.
 #
 # Any nonzero exit that is *expected* is handled at its own call site (`if !`,
 # `|| status=$?`) so that error-exit stays on everywhere else.
 set -euo pipefail
 
-if [ "$#" -ne 3 ]; then
-  echo "usage: run_tests.sh <sim-binary> <asm-dir> <expected-fail-file>" >&2
+if [ "$#" -ne 4 ]; then
+  echo "usage: run_tests.sh <sim-binary> <asm-dir> <expected-fail-file> <floor-file>" >&2
   exit 1
 fi
 
 SIM=$1
 ASM_DIR=$2
 EXPECTED_FAIL=$3
+OBSERVED_FLOOR=$4
 CYCLES=5000
 
 # Read before running anything: a mistyped or missing baseline path used to
@@ -42,6 +56,28 @@ CYCLES=5000
 if [ ! -f "$EXPECTED_FAIL" ] || [ ! -r "$EXPECTED_FAIL" ]; then
   echo "error: baseline '$EXPECTED_FAIL' does not exist or is not readable." >&2
   echo "The gate compares the failure set against it; without it there is no gate." >&2
+  exit 1
+fi
+
+# Same treatment, and for the same reason: a missing floor file would make
+# every per-program floor lookup miss, and a lookup that always misses is a
+# check that never runs.
+if [ ! -f "$OBSERVED_FLOOR" ] || [ ! -r "$OBSERVED_FLOOR" ]; then
+  echo "error: floor file '$OBSERVED_FLOOR' does not exist or is not readable." >&2
+  echo "It records how much each program was observed to retire; without it" >&2
+  echo "there is nothing to compare this run's observation against." >&2
+  exit 1
+fi
+
+# Read once, comments stripped, whitespace normalised — the same treatment the
+# baseline gets below. Three fields, not two: name, retire floor, spec-checked
+# floor. A malformed line is named rather than silently skipped, because a line
+# this loop cannot parse is a floor that is not enforced.
+floors=$(sed -e 's/#.*//' "$OBSERVED_FLOOR" | awk 'NF { $1=$1; print }')
+malformed_floor=$(printf '%s\n' "$floors" | awk 'NF && (NF != 3 || $2 !~ /^[0-9]+$/ || $3 !~ /^[0-9]+$/) { print }')
+if [ -n "$malformed_floor" ]; then
+  echo "error: $OBSERVED_FLOOR has lines that are not '<test>.S <retires> <spec-checked>':" >&2
+  printf '  %s\n' "$malformed_floor" >&2
   exit 1
 fi
 
@@ -96,6 +132,11 @@ for src in "$ASM_DIR"/*.S; do
   ram_hex="$tmp/$base.ram.hex"
 
   status="PASS"
+  # Cleared per iteration, not merely assigned when the runner produces them: a
+  # carried-over value from the previous program would let a run that printed no
+  # counts be graded against its predecessor's.
+  retires=""
+  spec_retires=""
   if ! "$CC" -march=rv32imc_zicsr -mabi=ilp32 -nostdlib -I "$ASM_DIR" \
        -T "$ASM_DIR/sections.lds" "$src" -o "$elf" > "$build_log" 2>&1; then
     status="ASSEMBLE-ERROR"
@@ -162,8 +203,54 @@ for src in "$ASM_DIR"/*.S; do
       4) code=$(awk '/RVFI monitor error/{print $4; exit}' "$tmp/$base.run.log")
          status="MONITOR-ERROR${code:+ $code}" ;;
       5) status="TRAP-TO-ZERO" ;;
+      6) status="MONITOR-SILENT" ;;
       *) status="RUNNER-ERROR $sim_status" ;;
     esac
+
+    # The runner prints exactly one `RETIRES <n> SPEC-CHECKED <m>` line on every
+    # path that reached the simulation loop, whatever its verdict, so these are
+    # available for the table even when the program failed.
+    set -- $(awk '/^RETIRES /{print $2, $4; exit}' "$tmp/$base.run.log")
+    retires=${1:-}
+    spec_retires=${2:-}
+  fi
+
+  # A PASS with no counts line is not a pass. It means the binary this gate ran
+  # is not the runner this script grades — a stale `sim` from before the
+  # counters existed, or one whose output was truncated — and every one of the
+  # observation checks below would then silently not run. Naming it is the
+  # difference between a gate and a formality.
+  if [ "$status" = "PASS" ] && { [ -z "$retires" ] || [ -z "$spec_retires" ]; }; then
+    status="NO-COUNTS"
+  fi
+
+  # THE FLOOR, graded with `>=` and not set equality. The counts move for
+  # legitimate reasons — the assembler is free to compress differently, a test
+  # gains an instruction — and an exact ratchet on 52 numbers is one nobody
+  # would keep. What must not happen is a program going quiet: retiring nothing,
+  # or having its retires stop being spec-checked. `>=` catches that and
+  # tolerates the rest. Only PASS programs are graded; anything already failing
+  # has a more specific status, and overwriting it would lose the real reason.
+  if [ "$status" = "PASS" ]; then
+    floor=$(printf '%s\n' "$floors" | awk -v n="$name" '$1 == n { print $2, $3; found = 1 } END { exit !found }') || floor=""
+    if [ -z "$floor" ]; then
+      # Not a warning. A program with no floor is a program whose observation
+      # nothing defends, and adding one to test/asm without recording what it
+      # was measured to observe is exactly how this file would rot into
+      # decoration. The fix is one line in $OBSERVED_FLOOR.
+      status="NO-FLOOR"
+    else
+      set -- $floor
+      floor_retires=$1
+      floor_spec=$2
+      if [ "$retires" -lt "$floor_retires" ]; then
+        status="BELOW-FLOOR retires"
+        echo "$name: $retires retires, floor is $floor_retires ($OBSERVED_FLOOR)" >&2
+      elif [ "$spec_retires" -lt "$floor_spec" ]; then
+        status="BELOW-FLOOR spec-checked"
+        echo "$name: $spec_retires spec-checked retires, floor is $floor_spec ($OBSERVED_FLOOR)" >&2
+      fi
+    fi
   fi
 
   if [ "$status" = "PASS" ]; then
@@ -175,12 +262,35 @@ for src in "$ASM_DIR"/*.S; do
       cat "$build_log" >&2
     fi
   fi
-  table+=("$(printf '%-16s %s' "$name" "$status")")
+  # The observation counts are a THIRD column, deliberately outside the
+  # name-and-status pair the baseline matches on (ADR-0035): they are a measured
+  # quantity that moves, not a verdict, and putting them in the failure set
+  # would make every baseline entry unmatchable the first time an instruction
+  # count changed. The verdict they imply — MONITOR-SILENT, BELOW-FLOOR,
+  # NO-COUNTS, NO-FLOOR — is in the status, where the gate can pin it.
+  table+=("$(printf '%-16s %-22s %s' "$name" "$status" \
+    "retires=${retires:--} spec-checked=${spec_retires:--}")")
 done
 
 printf '%s\n' "${table[@]}"
 echo
 echo "$passed/${#table[@]} passed"
+
+# The OTHER direction of the floor file's name set (ADR-0014's contract, the
+# same one EXPECTED_FAIL and formal/EXPECTED_CHECKS are under). A floor line for
+# a program that no longer exists is dead weight that reads as coverage, and it
+# is the direction nothing else here would notice: the per-program lookup above
+# only ever asks whether a program HAS a floor.
+suite_names=$(printf '%s\n' "${table[@]}" | awk '{print $1}' | sort)
+floor_names=$(printf '%s\n' "$floors" | awk 'NF {print $1}' | sort)
+orphan_floors=$(comm -23 <(printf '%s\n' "$floor_names") <(printf '%s\n' "$suite_names"))
+if [ -n "$orphan_floors" ]; then
+  echo >&2
+  echo "error: $OBSERVED_FLOOR names programs that are not in $ASM_DIR:" >&2
+  printf '  %s\n' "$orphan_floors" >&2
+  echo "Remove the line in the same commit that removes the program." >&2
+  exit 1
+fi
 
 # Both sides are name-and-status pairs, whitespace-normalised so the baseline
 # can stay readable. `NF` must gate the rebuild rather than follow it: awk

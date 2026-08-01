@@ -144,6 +144,28 @@ trap and CSR tests assert on values their own handler recorded. Error 133 ("expe
 trap") stays unreachable in this single-channel config — `shadow_pc_valid <= !rvfi_trap` gates 130
 and 133 off for the retire after a trap — so `rvfi_intr` hardwired to 0 does not break anything.
 
+**`make test` now measures that its oracle fired, instead of inferring it.** The monitor is the
+gate's per-retire oracle and **nothing counted whether it ever looked**: `test/cxxrtl.cc` sampled
+the errcode and counted nothing, so a monitor whose `rvfi_valid` never asserted — ADR-0037's
+under-sensitivity class, an `ifdef` that dropped the shadow payload, a `write_cxxrtl` that optimised
+the instance away — left all 52 programs PASSing off `tohost` alone, with an empty
+`test/EXPECTED_FAIL` and so no red entry whose disappearance would say otherwise. `test/testbench.v`
+counts retires (`rvfi_valid`) and spec-checked retires (`spec_valid`, from a **second
+`monitor_isa_spec`** instantiated in the bench — `test/monitor.v` is generated-but-tracked and a
+yosys hierarchical reference silently *implicitly declares* the name rather than resolving it, both
+measured); the runner prints `RETIRES <n> SPEC-CHECKED <m>` and adds **exit 6** for zero of either;
+`test/run_tests.sh` labels that `MONITOR-SILENT`, carries both counts as a third table column, and
+grades them against **`test/OBSERVED_FLOOR`** — names by set equality both ways, numbers by `>=`,
+because instruction counts legitimately move and a 52-number ratchet is one nobody would keep.
+**The probe is one line and both directions are measured**: `assign rvfi_valid_observed = 1'b0;` in
+`test/testbench.v` gives 52 × `MONITOR-SILENT` (`retires=0 spec-checked=0`) and exit 1 here, and the
+same blinding on the pre-change tree gave **52/52 and exit 0** — every program still reaches
+`tohost` and still passes its own assertions, which is the whole defect. `rvfi_valid_observed` is
+the single wire the monitor, the probe and the counters all read, so they cannot go blind
+independently. **A low spec-checked count is the pin's coverage boundary, not a bug** — no spec
+model exists for `ecall`/`ebreak`/`mret`/`csrr*`, so `csr.S` is 108/82, `minstret.S` 42/31 and
+`trap.S` 303/259; that is written at `test/OBSERVED_FLOOR` so nobody has to rediscover it.
+
 **M3 opens: `rtl/csrs.v` lands the CSR file and the Zicsr access path.** ADR-0005's set, exactly —
 RW `mstatus` (MIE/MPIE, MPP WARL→`2'b11`), `mtvec` (direct mode, 4-byte-aligned base, resets to 0
 per ADR-0029), `mepc` (bit 0 only, because C makes 2-byte targets legal), `mcause`, `mscratch`,
@@ -546,7 +568,9 @@ preference. See ADR-0002 and ADR-0003.
 
 ```sh
 make setup          # install the RISC-V toolchain (brew on macOS)
-make test           # assemble test/asm/*.S, run under cxxrtl, pass/fail table
+make test           # assemble test/asm/*.S, run under cxxrtl, pass/fail table with
+                    # per-program retire / spec-checked-retire counts, graded against
+                    # test/EXPECTED_FAIL (set equality) and test/OBSERVED_FLOOR (>=)
 make waves          # iverilog + VCD (testbench.vvp's baked-in program) -> waves.vcd.
                     # GRADES NOTHING: the per-retire monitor is live but only
                     # $displays, so this exits 0 on a mismatch. Read the output.
