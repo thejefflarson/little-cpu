@@ -7,6 +7,7 @@ fit.synth.log
 formal/riscv-formal
 formal/riscv-formal.tmp
 formal/complete
+formal/complete_cover
 formal/cover
 formal/checks
 formal/dmemcheck

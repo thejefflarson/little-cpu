@@ -11,7 +11,8 @@ ifeq ($(shell printf '%s' '$(JOBS)' | grep -cE '^[1-9][0-9]{0,3}$$'),0)
 override JOBS := 4
 endif
 
-all: complete check dmemcheck imemcheck components_decoder components_executor components_pcloop
+all: complete complete_cover complete-exclusions check dmemcheck imemcheck \
+     components_decoder components_executor components_pcloop
 
 # THE RULE FOR EVERY sby TARGET IN THIS FILE, INCLUDING ONES ADDED LATER:
 # it re-runs unconditionally, and it throws its workdir away first.
@@ -161,7 +162,28 @@ cover:     cover.sby     cover.sv     $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
 # deciding -- is what this whole change removes, because the thing that list is
 # compared against is a directory whose mtime is meaningless. Nothing pulls
 # `complete` in implicitly except `all`.
-complete:  complete.sby  complete.sv  $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
+#
+# `complete-exclusions` is a real prerequisite rather than a companion gate:
+# the exclusion set is what makes this check passable at all, and a run whose
+# exclusions have drifted from their baseline is a verdict about a check nobody
+# declared. It costs milliseconds and it fails before sby starts.
+complete:  complete.sby  complete.sv  complete-exclusions $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
+
+# The anti-vacuity control for the line above, over the same complete.sv: the
+# twelve opcode classes the exclusion set does NOT name must each be reachable
+# as a real non-trapping retire. See complete_cover.sby's header for why it is
+# a separate file and not a task.
+complete_cover: complete_cover.sby complete.sv complete-exclusions $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
+
+# Set equality in both directions between complete.sv's declared exclusion set
+# and formal/COMPLETE_EXCLUSIONS, plus a re-derivation from the pinned clone
+# that each excluded mnemonic really has no spec model. ADR-0014's contract,
+# applied to a restriction rather than to a result: excluding an opcode from an
+# assertion is weakening a check (ADR-0010 one level up), and a restriction
+# nothing compares against is not recorded.
+.PHONY: complete-exclusions
+complete-exclusions: check-complete-exclusions.py complete.sv COMPLETE_EXCLUSIONS | $(RISCV_FORMAL_DIR)
+	python3 $< complete.sv COMPLETE_EXCLUSIONS $(RISCV_FORMAL_DIR)
 
 # ADR-0006 / ADR-0020 / ADR-0047: proves RVFI instrumentation doesn't change
 # core behaviour. Not a .sby task -- it is a structural comparison of two yosys
@@ -224,7 +246,7 @@ components_pcloop: components.sby ../rtl/fetcher.v ../rtl/decoder.v \
 # /bin/sh (make's default shell) passes through literally, silently deleting
 # nothing.
 clean:
-	rm -rf checks complete cover dmemcheck imemcheck components components_*
+	rm -rf checks complete complete_cover cover dmemcheck imemcheck components components_*
 	rm -rf $(RISCV_FORMAL_DIR) $(RISCV_FORMAL_DIR).tmp
 
 .PHONY: all clean
