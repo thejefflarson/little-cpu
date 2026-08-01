@@ -32,6 +32,11 @@ module csr_tb;
   logic [31:0] rdata;
   logic        implemented;
   logic        instret;
+  // ADR-0028's second write port. rtl/decoder.v drives these for exactly the
+  // cycle it commits a trap (or an mret); this bench drives them directly.
+  logic        trap_entry, mret_entry;
+  logic [31:0] trap_cause, trap_epc;
+  logic [31:0] mtvec_value, mepc_value;
  `ifdef RISCV_FORMAL
   rvfi_csr64 rvfi_mcycle, rvfi_minstret;
   rvfi_csr32 rvfi_mscratch;
@@ -46,7 +51,13 @@ module csr_tb;
     .wdata(wdata),
     .rdata(rdata),
     .implemented(implemented),
-    .instret(instret)
+    .instret(instret),
+    .trap_entry(trap_entry),
+    .trap_cause(trap_cause),
+    .trap_epc(trap_epc),
+    .mret_entry(mret_entry),
+    .mtvec_value(mtvec_value),
+    .mepc_value(mepc_value)
    `ifdef RISCV_FORMAL
     ,
     .rvfi_mcycle(rvfi_mcycle),
@@ -107,6 +118,27 @@ module csr_tb;
     end
   endtask
 
+  // Commit one trap entry on the next edge, the way rtl/decoder.v does.
+  task automatic take_trap(input logic [31:0] cause, input logic [31:0] epc);
+    begin
+      trap_cause = cause;
+      trap_epc = epc;
+      trap_entry = 1'b1;
+      @(posedge clk);
+      #1;
+      trap_entry = 1'b0;
+    end
+  endtask
+
+  task automatic take_mret;
+    begin
+      mret_entry = 1'b1;
+      @(posedge clk);
+      #1;
+      mret_entry = 1'b0;
+    end
+  endtask
+
   logic [31:0] before_lo, before_hi;
 
   initial begin
@@ -115,6 +147,10 @@ module csr_tb;
     wen = 1'b0;
     wdata = 32'b0;
     instret = 1'b0;
+    trap_entry = 1'b0;
+    mret_entry = 1'b0;
+    trap_cause = 32'b0;
+    trap_epc = 32'b0;
     reset = 1'b1;
     repeat (2) @(posedge clk);
     #1;
@@ -189,8 +225,13 @@ module csr_tb;
     poke(12'h300, 32'h0000_0008);
     check_read("mstatus MIE alone", 12'h300, 32'h0000_1808);
 
-    // Read-only CSRs ignore writes rather than trapping here (the trap for
-    // an illegal access lands with trap entry -- ADR-0005, ADR-0011).
+    // Read-only CSRs ignore writes rather than trapping HERE. This module
+    // never decides an access is illegal: the read-only test is on the
+    // address (addr[11:10] == 2'b11) and it lives in rtl/decoder.v alongside
+    // every other trap cause (ADR-0005, ADR-0030). So these writes reaching
+    // this module at all is a case the real core no longer produces -- kept
+    // because the WARL fallback that swallows them is what makes the RVFI
+    // report tell the truth about what landed.
     poke(12'h301, 32'hffff_ffff);
     check_read("misa ignores a write", 12'h301, 32'h4000_1104);
     poke(12'h304, 32'hffff_ffff);
@@ -245,11 +286,52 @@ module csr_tb;
     check_read("an explicit mcycle write beats the increment", 12'hB00, 32'h0000_0000);
     check_read("...and does not disturb mcycleh", 12'hB80, before_hi);
 
+    // ---- trap entry and mret (ADR-0005 / ADR-0028) -----------------------
+    // The privileged-spec sequence, driven directly. Nothing on the
+    // riscv-formal ladder can see any of it: rvfi_insn_check drops every value
+    // assertion under `spec_trap`, and mtvec/mepc/mcause/mstatus are
+    // deliberately off formal/checks.cfg's [csrs] list because
+    // rvfi_csrw_check.sv has no WARL model. This bench and test/asm/trap.S are
+    // the whole coverage.
+    poke(12'h305, 32'h0000_0100);   // mtvec = 0x100
+    poke(12'h300, 32'h0000_0008);   // mstatus.MIE = 1, MPIE = 0
+    check_hex("mtvec_value echoes mtvec for the decoder", mtvec_value, 32'h0000_0100);
+
+    take_trap(32'd4, 32'h0000_0080);
+    check_read("a trap records the cause", 12'h342, 32'd4);
+    check_read("...and the faulting pc in mepc", 12'h341, 32'h0000_0080);
+    check_read("...pushes MIE into MPIE and clears MIE", 12'h300, 32'h0000_1880);
+    check_hex("mepc_value echoes mepc for the decoder", mepc_value, 32'h0000_0080);
+
+    // mret pops it back: MIE <- MPIE, MPIE <- 1. mepc is NOT touched by mret;
+    // the handler's own `csrw mepc` is what moves it (test/asm/riscv_test.h).
+    take_mret();
+    check_read("mret restores MIE from MPIE and sets MPIE", 12'h300, 32'h0000_1888);
+    check_read("...and leaves mepc alone", 12'h341, 32'h0000_0080);
+    check_read("...and leaves mcause alone", 12'h342, 32'd4);
+
+    // A trap taken with MIE already clear leaves MPIE clear too -- the value
+    // pushed is MIE, not a constant.
+    poke(12'h300, 32'h0000_0000);
+    take_trap(32'd2, 32'h0000_0200);
+    check_read("a trap with MIE clear pushes a clear MPIE", 12'h300, 32'h0000_1800);
+    check_read("...and records the new cause", 12'h342, 32'd2);
+
+    // mepc's WARL mask applies to trap entry too, and it masks bit 0 ONLY:
+    // a compressed instruction faulting at pc % 4 == 2 must record an mepc
+    // with bit 1 SET, or the handler resumes two bytes early (ADR-0005).
+    // test/asm/trap.S faults a real `c.lw` at that alignment for the same
+    // reason; this is the same rule stated against the register itself.
+    take_trap(32'd4, 32'h0000_0146);
+    check_read("mepc preserves bit 1 on a 2-aligned faulting pc", 12'h341, 32'h0000_0146);
+    take_trap(32'd4, 32'h0000_0147);
+    check_read("...and still masks bit 0", 12'h341, 32'h0000_0146);
+
     if (errors != 0) begin
       $display("FAILED: %0d mismatches", errors);
       $fatal(1);
     end else begin
-      $display("PASSED: CSR file (read mux, implemented set, WARL, suppression, counters)");
+      $display("PASSED: CSR file (read mux, implemented set, WARL, suppression, counters, trap entry)");
       $finish;
     end
   end

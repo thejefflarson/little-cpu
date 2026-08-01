@@ -35,6 +35,14 @@ module decoder_tb;
   logic [11:0] csr_addr;
   logic csr_ren, csr_wen, instret;
   logic [31:0] csr_wdata;
+  // ADR-0028's trap-entry pair. rtl/csrs.v is a sibling of the decoder, not
+  // part of it, so these are stubbed the same way the read port above is:
+  // mtvec/mepc are driven to recognisable constants and the trap-commit
+  // outputs are observed.
+  logic [31:0] mtvec = 32'h0000_0100;
+  logic [31:0] mepc  = 32'h0000_0244;
+  logic trap_entry, mret_entry;
+  logic [31:0] trap_cause, trap_epc;
 
   decoder dut (
     .clk(clk),
@@ -50,6 +58,8 @@ module decoder_tb;
     .accessor_out_valid(accessor_out_valid),
     .csr_rdata(csr_rdata),
     .csr_implemented(csr_implemented),
+    .mtvec(mtvec),
+    .mepc(mepc),
     .pc(pc),
     .rs1(rs1),
     .rs2(rs2),
@@ -58,6 +68,10 @@ module decoder_tb;
     .csr_wen(csr_wen),
     .csr_wdata(csr_wdata),
     .instret(instret),
+    .trap_entry(trap_entry),
+    .trap_cause(trap_cause),
+    .trap_epc(trap_epc),
+    .mret_entry(mret_entry),
     .out(out)
   );
 
@@ -103,23 +117,27 @@ module decoder_tb;
     #1;
     check_hex("xori out.rs2 (registered math_arg)", out.rs2, 32'hffffffff);
 
-    // ebreak: 0x00100073 (funct12 == 1) must set is_ebreak.
+    // ebreak is funct12 == 1 EXACTLY; mret (0x302) and wfi (0x105) are
+    // different SYSTEM instructions sharing funct3 == 0 with it, and folding
+    // them into ebreak was the original defect here.
+    //
+    // Read off the decode flag rather than off `out.is_ebreak`, because since
+    // trap entry landed `ebreak` traps (cause 3) and ADR-0028 suppresses every
+    // execution flag on a trapping issue -- so the registered flag is now 0
+    // for all three and the vector would pass vacuously.
     in.instr = 32'h00100073;
-    @(posedge clk);
     #1;
-    check_bit("ebreak sets is_ebreak", out.is_ebreak, 1'b1);
-
-    // mret: 0x30200073 (funct12 == 0x302) must NOT set is_ebreak.
+    check_bit("ebreak sets instr_ebreak", dut.instr_ebreak, 1'b1);
     in.instr = 32'h30200073;
-    @(posedge clk);
     #1;
-    check_bit("mret does not set is_ebreak", out.is_ebreak, 1'b0);
-
-    // wfi: 0x10500073 (funct12 == 0x105) must NOT set is_ebreak.
+    check_bit("mret does not set instr_ebreak", dut.instr_ebreak, 1'b0);
+    check_bit("...it sets instr_mret", dut.instr_mret, 1'b1);
     in.instr = 32'h10500073;
+    #1;
+    check_bit("wfi does not set instr_ebreak", dut.instr_ebreak, 1'b0);
+    check_bit("...it sets instr_wfi", dut.instr_wfi, 1'b1);
     @(posedge clk);
     #1;
-    check_bit("wfi does not set is_ebreak", out.is_ebreak, 1'b0);
 
     // ---- Zicsr (ADR-0005) ------------------------------------------------
     // The three immediate forms used to be folded straight into the register
@@ -197,17 +215,174 @@ module decoder_tb;
     check_bit("csrrw with rd == x0 suppresses the read", dut.csr_read_op, 1'b0);
     check_bit("...and still writes", dut.csr_write_op, 1'b1);
 
-    // An unimplemented CSR stays an unrecognised instruction (ADR-0005): the
-    // trap for it lands with trap entry, not here.
+    // An unimplemented CSR is not a recognised instruction, and that is now
+    // how it becomes an illegal-instruction TRAP (ADR-0005) rather than a
+    // silently suppressed no-op.
     csr_implemented = 1'b0;
     #1;
     check_bit("an unimplemented CSR is not a valid instruction", dut.instr_valid, 1'b0);
+    check_bit("...so it is illegal", dut.instr_illegal, 1'b1);
+    check_hex("...with cause 2", trap_cause, 32'd2);
+    csr_implemented = 1'b1;
+
+    // ---- M3 traps (CLAUDE.md invariant 2 / ADR-0005 / ADR-0030) ----------
+    // Every cause, taken directly against the decoder. The `.S` suite takes
+    // the same five through a real handler; this is where the CAUSE ENCODER
+    // itself is pinned, including the cases the suite cannot reach because
+    // they never co-occur with anything observable.
+
+    // The four M3 additions to instr_valid. Until trap entry landed these were
+    // merely unrecognised, which was harmless only while unrecognised meant
+    // "no trap" -- a legal `fence` would fault the moment that changed
+    // (ADR-0034 recorded this as the change that must fix it).
+    in.instr = 32'h0ff0000f;   // fence iorw, iorw
+    #1;
+    check_bit("fence is a valid instruction", dut.instr_valid, 1'b1);
+    check_bit("...and does not trap", dut.trap_pending, 1'b0);
+    in.instr = 32'h0000100f;   // fence.i
+    #1;
+    check_bit("fence.i is a valid instruction", dut.instr_valid, 1'b1);
+    check_bit("...and does not trap", dut.trap_pending, 1'b0);
+    in.instr = 32'h10500073;   // wfi
+    #1;
+    check_bit("wfi is a valid instruction", dut.instr_valid, 1'b1);
+    check_bit("...and does not trap", dut.trap_pending, 1'b0);
+    in.instr = 32'h30200073;   // mret
+    #1;
+    check_bit("mret is a valid instruction", dut.instr_valid, 1'b1);
+    check_bit("...and does not trap", dut.trap_pending, 1'b0);
+    check_bit("...and is not an ecall", dut.instr_ecall, 1'b0);
+
+    // Cause 2, the canonical illegal instruction: the all-zero word.
+    in.instr = 32'h00000000;
+    #1;
+    check_bit("the all-zero word is illegal", dut.instr_illegal, 1'b1);
+    check_hex("...cause 2", trap_cause, 32'd2);
+    check_bit("...and traps", dut.trap_pending, 1'b1);
+
+    // Cause 3 and cause 11: ebreak and ecall.
+    in.instr = 32'h00100073;
+    #1;
+    check_hex("ebreak is cause 3", trap_cause, 32'd3);
+    in.instr = 32'h00000073;
+    #1;
+    check_hex("ecall is cause 11", trap_cause, 32'd11);
+
+    // Cause 4: a misaligned load. `lw a1, 4(a0)` (0x00452583) with a0 holding
+    // an odd address -- the effective address is what is tested, not the
+    // register and not the immediate.
+    in.instr = 32'h00452583;
+    reg_rs1 = 32'h0001_0001;
+    #1;
+    check_hex("misaligned lw is cause 4", trap_cause, 32'd4);
+    check_bit("...and traps", dut.trap_pending, 1'b1);
+    reg_rs1 = 32'h0001_0000;
+    #1;
+    check_bit("an aligned lw does not trap", dut.trap_pending, 1'b0);
+    // 2-byte alignment is not enough for a word access.
+    reg_rs1 = 32'h0001_0002;
+    #1;
+    check_bit("a 2-aligned lw still traps", dut.trap_pending, 1'b1);
+
+    // Cause 6: a misaligned store. `sh a1, 0(a0)` (0x00b51023) needs only
+    // 2-byte alignment, so an odd address traps and an even one does not.
+    in.instr = 32'h00b51023;
+    reg_rs1 = 32'h0001_0001;
+    #1;
+    check_hex("misaligned sh is cause 6", trap_cause, 32'd6);
+    reg_rs1 = 32'h0001_0002;
+    #1;
+    check_bit("a 2-aligned sh does not trap", dut.trap_pending, 1'b0);
+
+    // Byte accesses are aligned by construction and can never raise either
+    // cause -- which is what made the riscv-formal attribution checkable:
+    // insn_lb/insn_lbu/insn_sb passed while the nine word/halfword checks
+    // failed. `sb a1, 0(a0)` (0x00b50023) at the most awkward address there is.
+    in.instr = 32'h00b50023;
+    reg_rs1 = 32'h0001_0003;
+    #1;
+    check_bit("a byte store never traps", dut.trap_pending, 1'b0);
+    // `lb a1, 0(a0)` (0x00050583)
+    in.instr = 32'h00050583;
+    #1;
+    check_bit("a byte load never traps", dut.trap_pending, 1'b0);
+    reg_rs1 = 32'b0;
+
+    // Cause 2 again, the other illegal-CSR rule: a WRITE to a CSR that is
+    // read-only by address. mvendorid is 0xF11, so addr[11:10] == 2'b11.
+    // `csrw mvendorid, a0` == csrrw x0, mvendorid, a0 (0xf1151073).
+    in.instr = 32'hf1151073;
+    #1;
+    check_bit("an implemented read-only CSR is still a valid encoding",
+              dut.instr_valid, 1'b1);
+    check_bit("...but writing it is illegal", dut.csr_readonly_write, 1'b1);
+    check_hex("...cause 2", trap_cause, 32'd2);
+    // ...while READING the same CSR is legal, because CSRRS with rs1 == x0
+    // suppresses the write. `csrr a0, mvendorid` (0xf1102573).
+    in.instr = 32'hf1102573;
+    #1;
+    check_bit("reading a read-only CSR is not a write", dut.csr_readonly_write, 1'b0);
+    check_bit("...and does not trap", dut.trap_pending, 1'b0);
+
+    // ADR-0027: a trapping issue commits nothing outside the pipeline
+    // registers -- no minstret increment and no CSR access. Checked on the
+    // illegal CSR write above, which is both a trap AND a CSR instruction, so
+    // a gate that only looked at `instr_valid` (the pre-M3 spelling) would
+    // still let its write through.
+    //
+    // A CSR instruction serializes whether or not it is legal, so this needs a
+    // drained pipe to issue at all -- and the checks below would otherwise be
+    // satisfied by the stall rather than by the trap, which is exactly the
+    // vacuous pass worth avoiding here.
+    in.instr = 32'hf1151073;
+    @(posedge clk);
+    #1;
+    check_bit("...it issues once the pipe drains", dut.issuing, 1'b1);
+    check_bit("a trapping issue does not count in minstret", instret, 1'b0);
+    check_bit("...and commits no CSR write", csr_wen, 1'b0);
+    check_bit("...and no CSR read", csr_ren, 1'b0);
+    check_bit("...but it does commit a trap", trap_entry, 1'b1);
+
+    // ADR-0028: the trapping instruction retires having architecturally done
+    // nothing -- pc goes to mtvec, rd is x0, and no memory flag survives, so
+    // rtl/accessor.v issues no bus request and rvfi_mem_* come out zero.
+    // Checked after the edge, on the published decoder_output.
+    in.instr = 32'h00452583;   // the misaligned lw again
+    reg_rs1 = 32'h0001_0001;
+    in.pc = 32'h0000_0080;
+    #1;
+    check_hex("trap_epc is the FAULTING pc, not the next one", trap_epc, 32'h0000_0080);
+    @(posedge clk);
+    #1;
+    check_hex("a trap redirects pc to mtvec", pc, 32'h0000_0100);
+    check_bit("...the trapping instruction still retires", out.valid, 1'b1);
+    check_hex("...writing no register", {27'b0, out.rd}, 32'b0);
+    check_bit("...and issuing no load", out.is_lw, 1'b0);
+    reg_rs1 = 32'b0;
+
+    // mret is a branch to mepc, taken by the same mechanism. It serializes
+    // (CLAUDE.md invariant 5), so it needs a drained pipe to issue: the
+    // previous vector is still in decoder_out, which bubbles this cycle and
+    // drains it.
+    in.instr = 32'h30200073;
+    #1;
+    check_bit("mret serializes while the pipe is busy", dut.csr_serialize, 1'b1);
+    check_bit("...so it does not commit yet", mret_entry, 1'b0);
+    @(posedge clk);
+    #1;
+    check_bit("...the serializing cycle bubbles decoder_out", out.valid, 1'b0);
+    check_bit("...which drains the pipe", dut.pipe_drained, 1'b1);
+    check_bit("...so it commits now", mret_entry, 1'b1);
+    check_bit("...and is not a trap", trap_entry, 1'b0);
+    @(posedge clk);
+    #1;
+    check_hex("mret redirects pc to mepc", pc, 32'h0000_0244);
 
     if (errors != 0) begin
       $display("FAILED: %0d mismatches", errors);
       $fatal(1);
     end else begin
-      $display("PASSED: decode vectors (xori immediate, ebreak/mret/wfi, Zicsr)");
+      $display("PASSED: decode vectors (xori immediate, ebreak/mret/wfi, Zicsr, M3 traps)");
       $finish;
     end
   end

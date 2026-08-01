@@ -12,9 +12,9 @@
 #
 # The status is the exact label test/run_tests.sh prints in its table:
 # ASSEMBLE-ERROR, ASSEMBLE-WARNING, OBJCOPY-ERROR <region>,
-# OBJCOPY-EMPTY <region>, FAIL <n>, TIMEOUT, MONITOR-ERROR <n>, or
-# RUNNER-ERROR <n>. Whitespace between the fields is free; a line with only a
-# name is rejected rather than half-matched.
+# OBJCOPY-EMPTY <region>, FAIL <n>, TIMEOUT, MONITOR-ERROR <n>, TRAP-TO-ZERO,
+# or RUNNER-ERROR <n>. Whitespace between the fields is free; a line with only
+# a name is rejected rather than half-matched.
 #
 # The status is here because matching on the name alone made the gate blind to
 # *why* a test failed. A baselined entry stayed matched if its assembly broke
@@ -37,30 +37,33 @@
 # file stays empty. See ADR-0019 before ever adding a line back for a
 # monitor-side problem.
 #
-# The line below is the M3 debt, added deliberately and ahead of the RTL that
-# pays it off — this is the direction the burn-down contract was designed for.
-# It names behaviour ADR-0028 / ADR-0030 specify and no `rtl/` file implements
-# yet: there is no trap commit. It is NOT a monitor-side problem (ADR-0019's
-# case) and NOT a regression; it is a test written before its feature, so that
-# the M3 RTL change that pays it off has a checkable simulation acceptance
-# criterion instead of an argument.
+# THE FILE IS EMPTY AGAIN, and the entry that came out is the one it was
+# seeded with ahead of its RTL.
 #
-# `csr.S` and `minstret.S` were here alongside it and came out together with
-# the CSR file (`rtl/csrs.v`), which is exactly how this burn-down is meant to
-# go: one line, in the commit that makes that test pass.
+#   trap.S      MONITOR-ERROR 101 -- every implemented trap cause (ADR-0005 /
+#               ADR-0030) taken deliberately, plus ADR-0028's convention that a
+#               trapping instruction writes no register and no memory, plus
+#               ADR-0027's rule that a trapping instruction does not increment
+#               `minstret`. It reported MONITOR-ERROR 101 ("mismatch in trap")
+#               rather than FAIL because with no trap logic the core COMPLETED
+#               the misaligned load and the per-retire monitor caught the
+#               disagreement before `tohost` was ever written. Pinning that
+#               exact number is what the status field is for: had trap.S
+#               started failing some other way in the meantime, the gate would
+#               have gone red instead of matching.
 #
-#   trap.S      — every implemented trap cause (ADR-0005 / ADR-0030) taken
-#                 deliberately, plus ADR-0028's convention that a trapping
-#                 instruction writes no register and no memory, plus
-#                 ADR-0027's rule that a trapping instruction does not
-#                 increment `minstret` (which moved here from minstret.S,
-#                 because it needs a trap to be takeable at all). Reports
-#                 MONITOR-ERROR rather than FAIL today: with no trap logic the
-#                 core completes the misaligned load, and the per-retire
-#                 monitor catches the disagreement before `tohost` is ever
-#                 written. Error 101 is "mismatch in trap" — the check
-#                 ADR-0033 gap 2 keeps live under `spec_trap`. Pinning that
-#                 number here is the point of the status field: if trap.S
-#                 starts failing some other way, it is a new failure, not this
-#                 one.
-trap.S      MONITOR-ERROR 101
+# It came out with the RTL that pays it off -- misalignment, illegal
+# instruction, ebreak, ecall and the two illegal-CSR rules all detected and
+# committed in decode (CLAUDE.md invariant 2), which is ADR-0011's deferred
+# debt discharged. The same change grew trap.S by two cases (a write to a
+# read-only CSR, and a COMPRESSED faulting instruction so `mepc` is exercised
+# 2-aligned) and grew this script's status vocabulary by TRAP-TO-ZERO, which
+# is ADR-0029's harness check: `mtvec` resets to 0 and sections.lds links
+# `.text` there, so a trap taken before a handler is installed used to look
+# like a timeout rather than like a fault.
+#
+# `csr.S` and `minstret.S` were here alongside it and came out with
+# `rtl/csrs.v`. Three lines, three commits, one per feature -- which is exactly
+# how ADR-0014's burn-down contract was meant to go. The file staying empty is
+# now a plain all-pass gate again; ADR-0014's set equality still runs in both
+# directions, so an unexpected *pass* is caught too.

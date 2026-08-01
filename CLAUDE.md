@@ -33,8 +33,9 @@ stage to stage riding the existing valid-bit protocol; `rtl/accessor.v` adds the
 addr/rmask/wmask/rdata/wdata capture (the one stage that actually knows those values, including the
 one-cycle load-response latch); `rtl/writeback.v` drives `rvfi_valid`/`rvfi_order`/etc. from the
 retiring `accessor_output`, exactly where invariant 3 below says retire happens. `trap`/`halt`/
-`intr`/`mode`/`ixl`/the CSR fields are hardwired constants in `rtl/littlecpu.v` (no traps or CSRs
-exist yet — M3). `test/monitor.v` stays pristine and tracked; a gitignored, build-time-derived
+`intr`/`mode`/`ixl`/the CSR fields were hardwired constants in `rtl/littlecpu.v` at that commit,
+because no traps and no CSRs existed yet; only `halt`/`intr`/`mode`/`ixl` still are (the CSR fields
+came alive with `rtl/csrs.v`, `rvfi_trap` with trap entry — both below). `test/monitor.v` stays pristine and tracked; a gitignored, build-time-derived
 `test/monitor.sim.v` (`test/sanitize_monitor.py`) carries the build-time repairs it needs —
 originally two, stripping the `$time`-in-`$display` yosys can't elaborate and ADR-0019's DIV/REM
 signedness fix, now three with the `!spec_trap` gate below — and **both** legs read it, so they
@@ -112,10 +113,11 @@ unenforced drift there is exactly what produced the five-year-stale fork ADR-003
 the clone, so any residual diff is drift by construction and is printed. It runs in CI in the
 `monitor-freshness` job, which has already paid for the from-scratch clone at the pin.
 
-`test/EXPECTED_FAIL` is **no longer empty**: `csr.S`, `minstret.S` and `trap.S` were seeded there
+`test/EXPECTED_FAIL` was seeded with three M3 tests — `csr.S`, `minstret.S` and `trap.S` — written
 ahead of the RTL that pays them off, which is the direction ADR-0014's burn-down contract was
-designed for. Two of the three are paid off (below); `trap.S` remains, so `make test` is
-**51 pass / 1 expected-fail** and still exits 0 only on set equality. That equality is now over
+designed for. All three are paid off now (the third by the trap change below), so it is **empty
+again** and `make test` is **52 pass / 0 expected-fail**, exiting 0 only on set equality. That
+equality is over
 **name-and-status pairs** (ADR-0035) — the baselined entry is `trap.S      MONITOR-ERROR 101`, so a
 baselined test that starts failing some *other* way (a broken assembly, a `TIMEOUT`, an unstartable
 runner) is a red gate rather than a match. The same change made every build step's exit status
@@ -123,7 +125,8 @@ checked and `mktemp` fatal: an unchecked `objcopy` that emitted an **empty** RAM
 `tohost` read zero and every data-independent test still report `PASS`.
 `test/run_tests.sh` also grew a `MONITOR-ERROR` label for runner exit 4, which used to fall into
 `RUNNER-ERROR` and read as "the sim would not start" when it actually means the per-retire oracle
-disagreed with the core mid-run. **Nothing here checks M3 semantics against an oracle**:
+disagreed with the core mid-run, and a `TRAP-TO-ZERO` label for exit 5 (ADR-0029, below).
+**Nothing here checks M3 semantics against an oracle**:
 riscv-formal ships no spec model for `csrr*`/`ecall`/`ebreak`/`mret` at the pinned SHA, so
 `spec_valid` is 0 for every one of them and the monitor's whole semantic block is skipped. The
 trap and CSR tests assert on values their own handler recorded. Error 133 ("expected intr after
@@ -212,12 +215,64 @@ reading `rvfi_csrc_check.sv`, which does not exist at the pin — the six real m
 (`rvfi_csrc_{any,const,hpm,inc,upcnt,zero}_check.sv`) are reached only through a per-CSR *test list*
 in `[csrs]`.
 
+**M3's keystone: every trap is now detected AND committed in decode, and the formal baseline is
+empty.** `rtl/decoder.v` computes misalignment from the same `$signed(immediate) +
+$signed(reg_rs1)` it already had, decides illegal-instruction (including ADR-0005's two illegal-CSR
+rules), and commits `ecall`/`ebreak`/illegal/load-misaligned/store-misaligned in the *same*
+non-stalled `else` arm that issues an instruction — which is what buys, for free, no trap on a
+stalled cycle, no trap from a bubble, no double commit, and a `reg_rs1` the scoreboard has already
+made hazard-clear. **A trap is a branch**: `pc <= mtvec` is the same override `jal` and the
+branches use, so there is still no flush anywhere (invariant 1). `rtl/csrs.v` gains a second write
+port (`trap_entry`/`trap_cause`/`trap_epc`/`mret_entry`) and hands `mtvec`/`mepc` back to decode;
+`mret` gets its own decode, restores MIE from MPIE, and serializes on the existing drain
+predicate; `wfi`, `fence` and `fence.i` become the NOPs ADR-0005 always said they were, which was
+optional right up until "unrecognised" started meaning "illegal instruction". `rtl/accessor.v`'s
+`mem_misaligned` and `rtl/littlecpu.v`'s `mem_misaligned_trap` are **gone** — ADR-0011's deferred
+debt, discharged — and the top-level `trap` port is redefined per ADR-0028 as a one-cycle "trap
+entry committed" pulse that something finally consumes. `rvfi_trap` is driven from the retiring
+instruction's shadow instead of being hardwired 0. **`formal/EXPECTED_FAIL` reaches EMPTY: 82
+checks, 82 pass** — the nine misalignment entries and `ill_ch0` all closed at once, exactly as the
+attribution predicted, and `insn_lb`/`insn_lbu`/`insn_sb` (the byte accesses, which cannot be
+misaligned) never moved. `test/EXPECTED_FAIL` reaches empty too, at 52/52. **This does not by
+itself mean M2** — see the milestone table.
+
+ADR-0034's sunset condition **fired**: `decoder_output`'s `csr_addr`/`is_csr_imm` were kept as
+scaffolding on the explicit condition that they be struck in the trap change if neither acquired a
+downstream consumer, and neither did. They are gone. ADR-0029's harness half landed with the RTL
+that makes it reachable: `test/testbench.v` raises a `(* keep *) trap_to_zero` flag when a trap
+redirects to address 0, `test/cxxrtl.cc` turns that into exit code 5 and `test/run_tests.sh` labels
+it `TRAP-TO-ZERO`, so a test that faults before installing `mtvec` gets a named failure instead of
+a timeout. And `test/sail/memory-map.json` sets `memory.misaligned.exceptions.load_store` to
+`{"Some": "AlignmentException"}` — the **global** key, which is what actually governs; the
+per-region `misaligned_exceptions` attribute is checked after address translation and with no MMU
+is never consulted. Without it the reference model completes misaligned accesses and reports a
+false divergence on every one; verified both ways (`trap.S` agrees 214/214 with the key, diverges
+at architectural change #6 without it).
+
+**The iverilog leg was dead, and this change is what noticed.** `rtl/decoder.v`'s hazard
+scoreboard called a `function automatic live_producer(r)` from two continuous assigns. iverilog
+builds such an assign's sensitivity list from the *call's arguments*, so a function body that also
+reads module-level signals (`out`, `executor_out`, `accessor_pending_*`) never re-evaluated when
+those changed — **under**-sensitivity, the one direction CLAUDE.md's `sorry:` exception says is a
+real bug, and iverilog emits no diagnostic for it. Measured: `hazard_rs1` latched high at the first
+RAW hazard of every program and never fell, so `make waves`' own baked-in loop executed two
+instructions and then span (0 memory writes in 200 cycles, on `main`, before this change), and no
+`.S` program could reach `tohost`. yosys evaluates the function correctly, so cxxrtl and the whole
+formal ladder were unaffected — which is precisely why it went unnoticed: the leg the verification
+table calls the microscope was reporting nothing, and nothing it reported was wrong. The two
+assigns are now written out. All 52 `.S` programs run to `PASS` under `vvp` with the per-retire
+monitor live, the first time that has ever been true. **There is still no tracked runner for it**:
+`test/testbench.v` has a baked-in program and no image loader, so the 52/52 above was measured with
+a scratch harness. `make waves` is the tracked iverilog exercise and it now executes real
+instructions rather than deadlocking.
+
 What does work: `yosys ... write_cxxrtl` elaborates the current RTL cleanly with zero warnings, the
-cxxrtl binary builds and runs, the `.S` suite passes under it except the one M3 test still seeded in
-`test/EXPECTED_FAIL`, `make test-units` passes (six benches: `exec_tb`, `mem_tb`, `decoder_tb`,
+cxxrtl binary builds and runs, the whole `.S` suite passes under it with `test/EXPECTED_FAIL`
+empty, `make test-units` passes (six benches: `exec_tb`, `mem_tb`, `decoder_tb`,
 `regfile_tb` — which covers the write-through bypass and x0 semantics — `csr_tb`, which covers
-`rtl/csrs.v`'s read mux, its `implemented` address set and its WARL masks, and `monitor_tb`, which
-checks the oracle itself rather than the core), and the decoder and executor component proofs pass
+`rtl/csrs.v`'s read mux, its `implemented` address set, its WARL masks and its trap-entry/`mret`
+port, and `monitor_tb`, which checks the oracle itself rather than the core), and the decoder and
+executor component proofs pass
 by k-induction (see ADR-0017 for what the decoder proof does and does not establish). `make waves`
 now runs the iverilog leg (`testbench.vvp`) instead of the cxxrtl runner, matching the verification
 table below,
@@ -384,7 +439,7 @@ the oracle (ADR-0019).
 | M0 | Foundation | this file, riscv-formal SHA-pinned, dead references gone |
 | M1 | Finish the pipeline | all RV32IM `.S` tests pass under cxxrtl — **reached, `a4662a2`** |
 | M2 | **Parity checkpoint** | the pipelined core re-proves everything the serialized core proved |
-| M3 | Past the old core | CSRs + machine-mode traps — CSRs done (`rtl/csrs.v`); traps are next |
+| M3 | Past the old core | CSRs + machine-mode traps — **both landed** (`rtl/csrs.v`; trap commit in `rtl/decoder.v`) |
 | M4 | Full ladder + CI | nightly formal green; tag a release (PR gate `c66527d`; nightly `86e2721`, report-only until ADR-0022) |
 
 M1 is reached. **M2 is the milestone that erases the verified→unverified regression** — treat it
@@ -396,14 +451,34 @@ wording is "re-proves everything the serialized core proved", and 15 red checks 
 `formal/EXPECTED_FAIL` baseline of ADR-0022 reaching empty is the signal — read together with the
 generated check count, per ADR-0033, which is now `formal/EXPECTED_CHECKS` and is asserted rather
 than recited. `rtl/csrs.v` took that baseline from 11 entries to 9 (both `csrw_*`) on a 79-check
-ladder; landing `ill_ch0` red made it 10 on an 82-check ladder. **All ten are the trap gap** — nine
-misalignment, one illegal-instruction — so the next M3 step closes every one of them or the
-attribution behind them was wrong.
+ladder; landing `ill_ch0` red made it 10 on an 82-check ladder; **the trap change took it to zero
+on that same 82-check ladder.** All ten were the trap gap — nine misalignment, one
+illegal-instruction — and all ten closed together, which is the attribution behind them holding.
+
+**That signal has now fired, and M2 is still not reached.** Read what the signal is and is not,
+because the temptation to read it as the milestone is exactly what ADR-0023 and ADR-0033 were
+written against:
+
+- every check on the ladder is `mode bmc`, so 82 PASS means "no counterexample within each check's
+  configured depth", not that any property holds;
+- the whole ladder runs under `RISCV_FORMAL_ALTOPS` (ADR-0010), so `insn_mul`/`insn_div`/`insn_rem`
+  passing says nothing whatever about the real multiplier or divider;
+- `formal/equiv.sh` still does not converge (ADR-0020), so ADR-0006's guarantee that RVFI
+  instrumentation does not perturb core behaviour remains **argued, not proven** — and the argument
+  now has one more `ifdef RISCV_FORMAL` field to cover (`rvfi_shadow.trap`);
+- `formal/complete` still fails, for `ecall`/`ebreak`/`mret`/CSR retires that riscv-formal has no
+  spec model for at the pin. It is on no gate and ADR-0022/ADR-0023/ADR-0034 already record it;
+- the nightly still cannot go red (ADR-0022's `|| true`);
+- and riscv-formal ships **no spec model at all** for `ecall`/`ebreak`/`mret`/`csrr*`, so the
+  behaviour this milestone step actually added is checked by `test/asm/trap.S`, `test/csr_tb.v`,
+  `test/decoder_tb.v` and `rtl/decoder.v`'s own component proof — against assertions this repo
+  wrote, not against an oracle. An empty baseline is a **necessary** condition for M2, and the
+  remaining work is the list above, not another red check.
 
 ## Pointers
 
 - Design brief: [`docs/ideas/finish-the-rewrite.md`](docs/ideas/finish-the-rewrite.md)
-- Decisions: [`docs/adr/`](docs/adr/) — thirty-three accepted ADRs, plus a deferred list
+- Decisions: [`docs/adr/`](docs/adr/) — thirty-six accepted ADRs, plus a deferred list
 - Reference text from the old core: `git show 1709433^:rtl/riscv.v` (RVFI retire block),
   `git show e67875c^:rtl/alu.v` (arithmetic)
 - Work is tracked in Linear, project **Little CPU** (team JEF). Named here so you know where the

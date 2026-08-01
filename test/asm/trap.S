@@ -125,8 +125,72 @@ test_4:
 
   TEST_CASE( 12, a4, 2, la a3, trap_cause; lw a4, 0(a3); )
 
-  # Six traps taken, six handler entries.
-  TEST_CASE( 13, a4, 6, la a3, trap_count; lw a4, 0(a3); )
+  #-------------------------------------------------------------
+  # ...and the other illegal-CSR rule: a WRITE to a CSR that is read-only by
+  # address (mvendorid is 0xF11, so addr[11:10] == 2'b11). The read side of the
+  # same CSR is legal and csr.S asserts that it is, so this is specifically the
+  # write that must fault. Until trap entry existed the rule was
+  # architecturally unobservable -- which is why formal/checks.cfg records that
+  # csrw_mscratch_ch0 cannot see the sibling suppression rule either.
+  #-------------------------------------------------------------
+
+  la    a3, trap_cause
+  sw    x0, 0(a3)
+
+  .option push
+  .option norvc
+  csrw  mvendorid, t0
+  .option pop
+
+  TEST_CASE( 13, a4, 2, la a3, trap_cause; lw a4, 0(a3); )
+
+  #-------------------------------------------------------------
+  # A COMPRESSED faulting instruction, so `mepc` is exercised at pc % 4 == 2 --
+  # the one case the WARL mask on mepc must not break. That mask clears bit 0
+  # only, because C makes 2-byte targets legal (ADR-0005); a mask that cleared
+  # bit 1 as well would resume two bytes early here and nowhere else in this
+  # file, since every other trapping instruction above is `.option norvc` and
+  # therefore 4-byte aligned.
+  #
+  # Two pieces of layout are load-bearing, both consequences of the handler
+  # resuming at mepc+4 unconditionally (it cannot read the faulting instruction
+  # to learn its length: Harvard buses, ADR-0008, and riscv_test.h constraint
+  # 1). The `.align 2` plus a 2-byte `c.nop` puts the faulting instruction at
+  # pc % 4 == 2; the `c.nop` behind it is 2 bytes of padding so mepc+4 lands on
+  # an instruction boundary rather than inside one. Test 16 asserts the
+  # alignment actually came out that way, so this cannot quietly degrade into a
+  # 4-aligned case that proves nothing.
+  #-------------------------------------------------------------
+
+  la    a0, tdat
+  addi  a0, a0, 1
+  li    a1, 0x5a5
+
+  .option push
+  .option rvc
+  .align 2
+  c.nop
+mis_clw:
+  c.lw  a1, 0(a0)
+  c.nop
+  .option pop
+
+  TEST_CASE( 14, a4, 4, la a3, trap_cause; lw a4, 0(a3); )
+
+test_15:
+  la    a3, trap_epc
+  lw    a4, 0(a3)
+  la    x29, mis_clw
+  li    TESTNUM, 15
+  bne   a4, x29, fail
+
+  TEST_CASE( 16, a4, 2, la a3, mis_clw; andi a4, a3, 3; )
+
+  # A trapping compressed load writes no register either (ADR-0028).
+  TEST_CASE( 17, a1, 0x5a5, nop; )
+
+  # Eight traps taken, eight handler entries.
+  TEST_CASE( 18, a4, 8, la a3, trap_count; lw a4, 0(a3); )
 
   #-------------------------------------------------------------
   # ADR-0027's second counter rule: a trapping instruction issues, and retires
@@ -140,7 +204,7 @@ test_4:
   # handler resumes at mepc+4.
   #-------------------------------------------------------------
 
-test_14:
+test_19:
   la    a3, tdat
   addi  a3, a3, 1
 
@@ -162,12 +226,12 @@ test_14:
   sub   a5, a6, a5
   srli  a5, a5, 2
   addi  x29, a5, 1
-  li    TESTNUM, 14
+  li    TESTNUM, 19
   bne   a2, x29, fail
 
-  # The trap really was taken — otherwise test 14 would be asserting about a
+  # The trap really was taken — otherwise test 19 would be asserting about a
   # sequence that never entered the handler at all.
-  TEST_CASE( 15, a4, 7, la a3, trap_count; lw a4, 0(a3); )
+  TEST_CASE( 20, a4, 9, la a3, trap_count; lw a4, 0(a3); )
 
   TEST_PASSFAIL
 

@@ -8,7 +8,10 @@
 // timeout, 3 = usage/setup error (bad args, missing file, image too big for
 // the simulated memories), 4 = RVFI monitor error (a per-retire mismatch,
 // ADR-0006 — distinct from 1 because tohost never got a say: the failure is
-// in the pipeline's own bookkeeping, not the test program's assertions).
+// in the pipeline's own bookkeeping, not the test program's assertions),
+// 5 = trap taken with mtvec == 0 (ADR-0029 — the program has silently
+// restarted at `_start`; distinct from 2 because the timeout that would
+// otherwise result says nothing about the fault that caused it).
 #include <cxxrtl/cxxrtl_vcd.h>
 #include "rtl.cc"
 
@@ -178,6 +181,25 @@ int main(int argc, char **argv) {
     return 3;
   }
 
+  // ADR-0029: `mtvec` resets to 0 and sections.lds links `.text` there, so a
+  // trap taken before a handler is installed restarts the program at `_start`
+  // — a livelock that reads as a timeout with no hint of the fault behind it.
+  // test/testbench.v raises this the cycle after any trap that redirects to
+  // address 0; see the comment there for why that needs no hierarchical
+  // reference into the CSR file. Looked up the same way as the monitor's
+  // errcode above, and missing is a setup error rather than something to
+  // skip: a silently absent check is exactly what this exists to prevent.
+  const cxxrtl::debug_item *trap_to_zero = nullptr;
+  try {
+    trap_to_zero = &all_debug_items.at("trap_to_zero").at(0);
+  } catch (const std::out_of_range &) {
+    std::fprintf(stderr,
+                  "error: ADR-0029's trap-to-zero check ('trap_to_zero') not "
+                  "found in the simulated design -- did test/testbench.v lose "
+                  "the (* keep *) on it?\n");
+    return 3;
+  }
+
   std::unique_ptr<cxxrtl::vcd_writer> vcd;
   std::ofstream vcd_out;
   if (!args.vcd_path.empty()) {
@@ -211,6 +233,15 @@ int main(int argc, char **argv) {
     if (errcode != 0) {
       std::fprintf(stderr, "RVFI monitor error %u at cycle %ld\n", errcode, cycle);
       return 4;
+    }
+
+    if ((trap_to_zero->curr[0] & 1) != 0) {
+      std::fprintf(stderr,
+                    "trap taken with mtvec == 0 at cycle %ld -- the handler was "
+                    "never installed and the program has restarted at _start "
+                    "(ADR-0029)\n",
+                    cycle);
+      return 5;
     }
 
     uint32_t tohost = ram_data[tohost_index];

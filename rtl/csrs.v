@@ -21,17 +21,18 @@
 //                misa = 0x4000_1104 (RV32IMC), mvendorid/marchid/mimpid/
 //                mhartid = 0
 //
-// Nothing reads mtvec, mepc or mcause yet. That is deliberate: trap entry is
-// the next M3 step and is deliberately partitioned out of this one
-// (ADR-0011). The registers exist and behave now so that step is wiring, not
-// wiring plus a CSR file.
+// Trap entry and `mret` are the second write port, and the only architectural
+// CSR update no CSR *instruction* performs. They arrive from the decoder on
+// the edge the trapping instruction (or the `mret`) issues, because that is
+// where every trap is detected and committed (CLAUDE.md invariant 2,
+// ADR-0005). `mtvec_value`/`mepc_value` go back out to the decoder, which owns
+// the PC (invariant 1) and therefore has to be the thing that redirects it.
 //
-// A write to a CSR this module does not implement, and an illegal access to
-// one it does, do NOT raise a trap here. `implemented` is fed back into the
-// decoder's existing `instr_valid` term, so an unimplemented CSR reads as an
-// unrecognised instruction -- which is what an unimplemented CSR did before
-// this file existed. Turning that into a real illegal-instruction trap
-// belongs with trap entry.
+// A trap does NOT raise a trap here: this module never decides that an access
+// is illegal. `implemented` feeds the decoder's `instr_valid` term and the
+// read-only test is on the ADDRESS (addr[11:10] == 2'b11), so both illegal-CSR
+// rules are decided in rtl/decoder.v alongside every other trap cause -- one
+// priority encoder, one commit point, one ADR (ADR-0030) covering all five.
 module csrs(
   input  logic clk,
   input  logic reset,
@@ -55,7 +56,23 @@ module csrs(
 
   // ADR-0027: minstret counts non-trapping *issues*. High for exactly the
   // cycles the decoder issues one.
-  input  logic        instret
+  input  logic        instret,
+
+  // ---- trap entry and mret (ADR-0005 / ADR-0028) -------------------------
+  // `trap_entry` is high for exactly the cycle the decoder commits a trap;
+  // `mret_entry` for exactly the cycle it commits an `mret`. They cannot
+  // coincide with each other (a trapping instruction does not also execute)
+  // nor with `wen` (the decoder gates `csr_wen` on a NON-trapping commit, and
+  // `mret` is not a CSR access), so the three write paths below need no
+  // priority between them -- but the code says so explicitly rather than
+  // relying on last-assignment-wins.
+  input  logic        trap_entry,
+  input  logic [31:0] trap_cause,
+  input  logic [31:0] trap_epc,
+  input  logic        mret_entry,
+  // Read back by rtl/decoder.v, combinationally, to redirect the PC.
+  output logic [31:0] mtvec_value,
+  output logic [31:0] mepc_value
  `ifdef RISCV_FORMAL
   ,
   // ADR-0006 shadow payloads, for exactly the CSRs formal/checks.cfg's
@@ -114,6 +131,16 @@ module csrs(
   logic [31:0] mstatus_value;
   // MPP = 2'b11 at [12:11]; MPIE at [7]; MIE at [3]; everything else 0.
   assign mstatus_value = {19'b0, 2'b11, 3'b0, mstatus_mpie, 3'b0, mstatus_mie, 3'b0};
+
+  // The two registers the decoder redirects the PC through. Straight
+  // continuous assigns of the register outputs, i.e. the values as of the
+  // START of the issuing cycle. That is the right phase and not an accident:
+  // decode issues at most one instruction per cycle, so a trapping
+  // instruction and a `csrw mtvec` are never the same edge, and the trap must
+  // vector through the mtvec that was architecturally in place when it
+  // issued.
+  assign mtvec_value = mtvec;
+  assign mepc_value  = mepc;
 
   // ---- read mux ---------------------------------------------------------
   always_comb begin
@@ -175,6 +202,17 @@ module csrs(
   logic warl_mie, warl_mpie;
   assign warl_mie  = warl[3];
   assign warl_mpie = warl[7];
+
+  // Trap entry writes mepc through the SAME WARL mask an explicit `csrw mepc`
+  // goes through. `trap_epc` is an instruction address, so bit 0 is already
+  // clear and the mask changes nothing today -- it is here so that the mask is
+  // stated in one place rather than two, and so a reader can see that bit 1 is
+  // deliberately preserved: C makes 2-byte targets legal (ADR-0005), and a
+  // mask that cleared bit 1 too would resume two bytes early after any fault
+  // at `pc % 4 == 2`. test/asm/trap.S faults a compressed instruction at
+  // exactly that alignment for this reason.
+  logic [31:0] trap_epc_warl;
+  assign trap_epc_warl = {trap_epc[31:1], 1'b0};
 
   // ---- the counters -----------------------------------------------------
   // Both advance first and are then overwritten by an explicit write to the
@@ -239,6 +277,28 @@ module csrs(
           // no-op here by construction rather than by omission.
           default: ;
         endcase
+      end
+      // ---- trap entry / mret (ADR-0005) ----------------------------------
+      // The privileged-spec sequence, written out: a trap saves the faulting
+      // PC and the cause, pushes MIE into MPIE and disables interrupts; `mret`
+      // pops it back and leaves MPIE set. There are no interrupts on this core
+      // (mie/mip are read-only zero), so MIE/MPIE are architectural state a
+      // program can observe through mstatus rather than something that gates
+      // anything -- which is exactly why they have to be right: nothing else
+      // would notice if they were not.
+      //
+      // `else if` rather than two independent `if`s: mutually exclusive by
+      // construction (see the port comments), and stating the exclusion here
+      // means a future cause that broke it fails loudly at the priority
+      // encoder in rtl/decoder.v rather than silently double-writing mstatus.
+      if (trap_entry) begin
+        mepc         <= trap_epc_warl;
+        mcause       <= trap_cause;
+        mstatus_mpie <= mstatus_mie;
+        mstatus_mie  <= 1'b0;
+      end else if (mret_entry) begin
+        mstatus_mie  <= mstatus_mpie;
+        mstatus_mpie <= 1'b1;
       end
     end
   end
