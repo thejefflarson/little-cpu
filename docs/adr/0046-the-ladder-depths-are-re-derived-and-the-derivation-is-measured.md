@@ -300,14 +300,35 @@ tracked ladder was never edited.
 | | |
 |---|---|
 | generated | **82** |
-| returned within the bound | **see the pull request for the final count** |
-| non-PASS among those that returned | **none** |
-| `reg_ch0` at depth 40 | did **not** return — the same outcome ADR-0025 recorded |
+| returned within the bound | **49** |
+| non-PASS among those that returned | **0** |
+| outstanding | **33** — `reg_ch0` plus 32 `insn_*` |
 
 **No check's verdict differs between the two configurations among the checks that returned.** That is
-the signal this sweep exists to look for, and it did not fire. It is also, honestly, a *partial*
-answer: the sweep was bounded rather than completed, and this ADR says so rather than implying
-otherwise.
+the signal this sweep exists to look for, and it did not fire.
+
+It is a *partial* answer and this ADR says so rather than implying otherwise. What it does and does
+not cover is worth stating precisely, because "49 of 82" understates the structural coverage:
+
+- **Every consistency check except `reg_ch0` returned** — `causal_ch0`, `causal_mem_ch0`, `hang`,
+  `ill_ch0`, `liveness_ch0`, `pc_bwd_ch0`, `pc_fwd_ch0`, `unique_ch0` — as did **all three
+  `csrw_*`**. Those are the checks whose depths have distinct *shapes*, and every one of them cleared
+  a doubled window.
+- **`reg_ch0` at depth 40 did not return**, reproducing ADR-0025's finding exactly. It is the one
+  check whose cost is known to explode with depth (ADR-0022, ADR-0024), and depth 21 is where it
+  converges in seconds.
+- The 32 outstanding checks are all `insn_*`, which are homogeneous: one generated `.sby` per
+  instruction over the same wrapper, the same window and the same single-retire property. 37 of the
+  70 did return at doubled depth, spanning every family (arithmetic, shifts, branches, jumps, loads,
+  stores, compressed, mul/div under ALTOPS).
+
+The sweep was bounded on wall time, not abandoned on a result. Re-running it to completion is a
+matter of budget, and the recipe is in this ADR.
+
+**The raised config was not committed, deliberately.** It is a scratch copy of `checks.cfg` with one
+`[depth]` table replaced, and the depths are listed above, so it is reproducible in a line. Tracking
+it would put a second depth table in the tree that nothing gates and that would silently drift from
+the real one — which is the failure mode this whole ADR is about.
 
 **Wall times here are not comparable to an idle machine.** These runs were taken on a contended box —
 ADR-0040 already records a 1.7× run-to-run spread on this hardware, and it is worse under load. No
