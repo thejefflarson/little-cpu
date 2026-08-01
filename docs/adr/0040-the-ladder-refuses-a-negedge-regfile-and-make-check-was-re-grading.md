@@ -1,7 +1,7 @@
 # ADR-0040: The ladder refuses a negedge regfile rather than mis-modelling one, and `make check` had been re-grading the previous run
 
-**Status:** Accepted · 2026-07-31 · *Supplements ADR-0022, ADR-0024, ADR-0025, ADR-0031, ADR-0033;
-records data for a future regfile ADR without pre-deciding it*
+**Status:** Accepted · 2026-07-31 · *Supplements ADR-0004, ADR-0017, ADR-0022, ADR-0025, ADR-0031,
+ADR-0033, ADR-0036, ADR-0038; records data for a future regfile ADR without pre-deciding it*
 
 ## Context
 
@@ -10,9 +10,9 @@ blocks timing closure on the up5k (it is on `docs/adr/README.md`'s deferred list
 The brief assumed such a regfile would force `clk2fflogic` on the riscv-formal ladder and risk a slow
 or inconclusive `reg_ch0`.
 
-A follow-up investigation reported something worse. Driving yosys directly —
-`prep -flatten -nordff` then `write_btor`, which is what the generated `.sby` files' `[script]`
-section ends with — a negedge `$dff` is accepted **with no warning**, and in the emitted btor2 `clk`
+A follow-up investigation reported something worse. Driving yosys directly — `prep -flatten -nordff`
+(how every generated `.sby`'s `[script]` section ends) followed straight by `write_btor` —
+a negedge `$dff` is accepted **with no warning**, and in the emitted btor2 `clk`
 is declared an input and never used while the read register and the storage array advance on the
 same step. The half-cycle relationship is silently discarded. If that survived into the ladder, the
 ladder would go green in the same wall time against a circuit that is not the RTL:
@@ -22,9 +22,10 @@ the brief worried about.
 This ADR is the measured answer. It changes no RTL, and it does **not** decide whether to build a
 negedge regfile — that decision is still deferred, and this is the data it should be made with.
 
-Everything below was measured on one 10-core machine at `f98f92f`, `-j10`, `btor btormc`
-(ADR-0024), under `RISCV_FORMAL_ALTOPS` (ADR-0010). The negedge and posedge-read regfiles are
-scratch experiments — the spike's instrument, not its deliverable — and are not in the tree.
+Everything below was measured on one 10-core machine at `317b86c` — whose `rtl/` is byte-identical
+to `f98f92f`'s — with `btor btormc` (ADR-0024) under `RISCV_FORMAL_ALTOPS` (ADR-0010). Full-ladder
+runs used `-j10`; single-check runs were serial. The negedge and posedge-read regfiles are scratch
+experiments — the spike's instrument, not its deliverable — and are not in the tree.
 
 ## Finding 1: the polarity loss is real, and the ladder never takes that path
 
@@ -41,8 +42,11 @@ Node 2 appears nowhere else in the file as an operand — its only other occurre
 register and `next` for the storage array sit on the same step. Confirmed.
 
 **But sby does not hand the `[script]` section's output straight to `write_btor`.** It runs its own
-`prep` model step first (`sby_core.py`'s `make_model`), and with `multiclock` off — the default, and
-not settable from `checks.cfg`, see Finding 3 — that step is:
+`prep` model step first (`sby_core.py`'s `make_model`), and with `multiclock` off — the default,
+and not settable from `checks.cfg` at all: genchecks' `[options]` parser ends in
+`else: print(line); assert 0`, so `multiclock on` there is an `AssertionError`, and nothing but
+`mode`/`expect`/`append`/`depth`/`skip` is ever emitted into a generated `.sby`'s `[options]` —
+that step is:
 
 ```
 async2sync
@@ -115,10 +119,19 @@ ADR-0031 forbids and `make -C formal genchecks-check` enforces — or post-proce
 script would be a new, unenforced, load-bearing piece of the oracle, and a `.sby` it silently missed
 would be a check that passes without checking. That is the same class of defect as Finding 4.
 
-The cost, on top of that: with the horizon corrected, the deleted-bypass probe takes **186s** where
-the stock ladder settles the same question in 13.9s — 13× for the same verdict on the same check.
-The full ladder under `clk2fflogic` with every depth rescaled had completed **1 of 82** checks after
-10 minutes at `-j10`, against **310s for all 82** on the stock ladder.
+The cost, on top of that. Two clean serial single-check comparisons, same machine, same check, only
+the model and the horizon differing:
+
+| check, regfile | stock ladder | `clk2fflogic` + corrected horizon | ratio |
+|---|---|---|---|
+| `reg_ch0`, rs2 bypass deleted | 13.9s → counterexample | 186.0s → counterexample | 13× |
+| `reg_ch0`, posedge-read model | 3.3s → counterexample | 47.0s → counterexample | 14× |
+
+Extrapolating 13–14× onto the stock ladder's 310s puts a correctly-configured `clk2fflogic` ladder
+somewhere around an hour. The full-ladder run attempted here is consistent with that but is **not** a
+clean measurement and should not be quoted as one: it had completed 4 of 82 checks after roughly 20
+minutes at `-j10`, on a machine whose load average was above 30 from concurrent work, and it was
+stopped rather than finished. The serial per-check ratios above are the defensible numbers.
 
 ## Finding 4: `make -C formal check` could not re-run the ladder
 
@@ -146,6 +159,17 @@ Run 2 printed `ERROR: Directory '<name>' already exists` for all 82 and every st
 was byte-identical to run 1's. **It reported a verdict it had not computed** — about RTL that, in
 the general case, has changed underneath it since. `docs/THREAT_MODEL.md` category 1, and the
 highest-value class of finding that document names.
+
+With the fix, two consecutive `make -C formal check` invocations from the same tree:
+
+| | wall | status files written | `already exists` lines | reported |
+|---|---|---|---|---|
+| run A | 322s | 82 | 0 | 82 checks: 82 pass, 0 fail |
+| run B | 428s | 82 | 0 | 82 checks: 82 pass, 0 fail |
+
+**Status files sharing an mtime between A and B: 0.** Every check re-executed; both runs match
+`EXPECTED_CHECKS` and `EXPECTED_FAIL` in both directions and exit 0. (The 322s/428s spread is this
+machine, not the change — see Consequences.)
 
 ## Decision
 
@@ -191,7 +215,7 @@ above is uninterpretable — a fast green and a vacuous green look identical. Th
 prompted this ticket reported that deleting the rs2 write-through bypass **passes** `reg_ch0` on the
 shipping design, which would have meant `reg_ch0` does not cover invariant 6.
 
-**That does not reproduce.** Measured against `rtl/regfile.v` at `f98f92f`, stock ladder
+**That does not reproduce.** Measured against `rtl/regfile.v` at `317b86c`, stock ladder
 configuration:
 
 | mutation to `rtl/regfile.v` | `reg_ch0` | wall |
@@ -216,15 +240,23 @@ land in `regs[0]`, but the read mux returns 0 for `rs1`/`rs2 == 0` unconditional
 value is unreachable by construction and there is no architectural difference for any check to find.
 It is recorded here so the next reader does not spend the same hour on it.
 
+**Read "counterexample" above as sby status `ERROR`, not `FAIL`.** `btorsim` is absent from this
+environment, so once btormc reports `bad state property N reachable at bound k = M SATISFIABLE` the
+`engine_0.trace` step dies with `COMMAND NOT FOUND` and sby exits `DONE (ERROR, rc=16)` — the check
+genuinely failed and only the witness is missing. Same mechanical caveat ADR-0025 records for its
+raised sweep. `check-baseline.sh` counts `ERROR` as non-PASS, so nothing is laundered; but ADR-0036's
+open gap is that `formal/EXPECTED_FAIL` matches on names only, so grep for the `reachable at bound`
+line rather than trusting the status word when using the probe.
+
 ## Consequences
 
 - **`make -C formal check` now always re-runs.** A partial ladder can no longer be resumed; every
   invocation is a fresh run. That is the right trade for a gate, and `check-baseline` covers the
   re-grade case. Wall cost of the regeneration is about a second on a ~5-minute run.
 - **Two full-ladder wall times on the same machine and the same tree: 310.4s and 532.1s.** Run-to-run
-  spread on this hardware is a factor of 1.7, so no ladder-level timing comparison in this repo
-  should be read as meaningful below about 2×. The single-check numbers above were taken serially
-  and are much tighter.
+  spread on this hardware is a factor of 1.7 — this box runs several worktrees at once — so no
+  ladder-level timing comparison in this repo should be read as meaningful below about 2×. Prefer
+  serial single-check comparisons, as the tables above do, and say which kind a number is.
 - **A standing warning for bespoke yosys scripts.** `formal/equiv.sh` — and anything else that drives
   yosys directly and ends in `write_btor` or `write_smt2` rather than going through sby's `prep`
   model step — does not get `formalff -clk2ff`'s polarity guard. Today the RTL is entirely posedge so

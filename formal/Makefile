@@ -52,9 +52,10 @@ check-baseline: check-baseline.sh EXPECTED_FAIL EXPECTED_CHECKS
 # the full run (ADR-0033).
 #
 # `checks` is PHONY and starts by deleting the directory, and both halves of
-# that are load-bearing. It used to be a plain file target whose recipe was
-# just `python3 $<`, and in that form `make check` could not re-run the
-# ladder at all -- it silently re-graded the PREVIOUS run's verdict:
+# that are load-bearing (ADR-0040). It used to be a plain file target whose
+# recipe was just `python3 $<`, and in that form `make check` could not
+# re-run the ladder at all -- it silently re-graded the PREVIOUS run's
+# verdict:
 #
 #   1. `checks` is a DIRECTORY, and a directory's mtime bumps whenever an
 #      entry is created inside it. `sby` creates checks/<name>/ for every

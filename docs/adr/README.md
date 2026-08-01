@@ -43,6 +43,7 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0036](0036-three-gate-hardening-decisions-ratified-at-integration.md) | Three gate-hardening decisions ratified at integration, and a correction to ADR-0031 | Accepted |
 | [0037](0037-an-empty-baseline-is-not-m2.md) | An empty formal baseline is not M2, and the milestone criterion said it was | Accepted |
 | [0038](0038-area-is-measured-in-logic-cells-and-two-levers-are-rejected.md) | Area is measured in logic cells, Fmax is declared at 12 MHz, and two area levers are rejected | Accepted |
+| [0040](0040-the-ladder-refuses-a-negedge-regfile-and-make-check-was-re-grading.md) | The ladder refuses a negedge regfile rather than mis-modelling one, and `make check` had been re-grading the previous run | Accepted |
 
 0001–0007 came from the design brief
 ([`docs/ideas/finish-the-rewrite.md`](../ideas/finish-the-rewrite.md)). 0008–0011 came out of
@@ -78,7 +79,12 @@ recorded integrating those three gate changes together: it ratifies putting `han
 that never retires), corrects 0031 on how the `csrc_*` family is actually reached, and closes the
 `case_default` question by measuring that yosys already errors on the latch. It also records a
 gap it did not close: `formal/EXPECTED_FAIL` still matches on names only, so a red check that flips
-from `FAIL` to `ERROR` keeps the ladder green — 0035's lesson, unapplied to the formal side.
+from `FAIL` to `ERROR` keeps the ladder green — 0035's lesson, unapplied to the formal side. 0040 is
+0038's question asked of the verification harness rather than of the area: it measures whether the
+riscv-formal ladder can model the negedge regfile 0038 recommends, finds that it refuses to rather
+than mis-modelling it, rejects `clk2fflogic` as the remedy on measured vacuity, and — applying 0033's
+lens once more — fixes a `make -C formal check` that could not re-run the ladder and had been
+re-grading the previous run's verdict.
 
 ## Deferred decisions
 
@@ -97,7 +103,11 @@ trades away simplicity the current design depends on.
   take the core from not placing to roughly 84–89%, and its combinational read path measures 86%
   routing. Recommended by [`docs/ideas/fit-the-core-on-the-up5k.md`](../ideas/fit-the-core-on-the-up5k.md),
   gated on suite-wide Sail co-simulation rather than on M2, and still needs its own ADR — deliberately
-  not written in advance of the spike data (ADR-0038).
+  not written in advance of the spike data (ADR-0038). The verification-side half of that data is
+  [ADR-0040](0040-the-ladder-refuses-a-negedge-regfile-and-make-check-was-re-grading.md): the ladder
+  will **not** silently mis-model a negedge read — sby's `formalff -clk2ff` fails closed on mixed
+  polarity — so the cost is a standalone equivalence proof plus a named posedge substitution in
+  `formal/wrapper.v`, not a `clk2fflogic` ladder, which measures vacuous at genchecks' own depths.
 - **FPGA timing closure / nextpnr flow** — including ADR-0003's second ROM read becoming interleaved
   16-bit banks. Post-M4.
 - **Interrupts** (`mie`/`mip` real rather than read-only zero) — no interrupt sources exist.
