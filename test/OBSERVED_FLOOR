@@ -1,4 +1,27 @@
-# How much the per-retire RVFI monitor was OBSERVED to do on each program.
+# The `.S` suite's MANIFEST, and how much the per-retire RVFI monitor was
+# OBSERVED to do on each program.
+#
+# TWO JOBS, ONE LIST, DELIBERATELY. This file is the list of programs the suite
+# must contain, and it is the list of what each of them was measured to retire.
+# It carries both because it cannot carry the second without carrying the first,
+# and a second file naming the same programs would be a second surface to keep
+# in sync — at which point the interesting failure becomes "the two lists
+# disagree" rather than "the suite shrank". Both sim legs read this one file:
+# test/run_tests.sh and test/run_cosim.sh each call test/check_suite_shape.sh
+# against it BEFORE they run a single program, so they cannot come to disagree
+# about what the suite is either.
+#
+# THE MANIFEST HALF ANSWERS A QUESTION NEITHER BASELINE CAN. test/EXPECTED_FAIL
+# and test/COSIM_EXPECTED_FAIL record which programs are known to fail; they are
+# both empty, so nothing in them would disappear if the suite itself did. A bad
+# rebase, a directory rename, a .gitignore change or a glob that stopped
+# matching would leave `make test` reporting `12/12 passed`, matching an empty
+# baseline exactly, and exiting 0. ADR-0033 named that shape on the formal side
+# — a verdict baseline "cannot report whether a check stopped existing", which
+# is why formal/EXPECTED_CHECKS exists. The name set below is the same
+# assertion for simulation. It is checked in BOTH directions: a program in
+# test/asm with no line here is red, so a `.S` that lands without being wired in
+# fails immediately rather than joining the suite unmeasured.
 #
 # WHY THIS FILE EXISTS. `make test` is the merge gate and test/monitor.sim.v is
 # its per-retire oracle, but nothing in the gate measured whether the oracle
@@ -31,10 +54,12 @@
 # is a program going QUIET, and `>=` catches exactly that.
 #
 # The NAME set, on the other hand, IS a set equality in both directions, the
-# same contract ADR-0014 puts on the two files above. A program in test/asm
-# with no line here reports NO-FLOOR and fails; a line here naming a program
-# that no longer exists is an error at the end of the run. Adding a program to
-# test/asm means adding its measured line here, in the same commit.
+# same contract ADR-0014 puts on the two files above — that is the manifest
+# half, described at the top. It is checked by test/check_suite_shape.sh BEFORE
+# either leg assembles anything, so a mismatch in either direction names the
+# programs involved and stops, rather than being discovered after a full run
+# that was never going to be gradeable. Adding a program to test/asm means
+# adding its measured line here, in the same commit.
 #
 # ZERO IS NEVER A FLOOR. Zero of either count is MONITOR-SILENT — the runner's
 # own exit 6 — before this file is ever consulted, so a line of `0 0` cannot
