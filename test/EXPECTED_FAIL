@@ -1,69 +1,37 @@
-# The M1 regression baseline (ADR-0014). `make test` exits 0 only when the
-# set of tests that do NOT pass matches this file exactly, so this is a
-# working regression gate against the current core. Lines come out one at a
-# time, in the same commit as the fix that makes that test pass — the
-# deletion is the evidence the fix worked. This file is never regenerated
-# wholesale from a run (that would launder a regression into the baseline);
-# edit it by hand, and justify any line added back in the PR that adds it.
+# The `.S` suite's regression baseline (ADR-0014). `make test` exits 0 only when
+# the set of tests that do NOT pass matches this file exactly — in both
+# directions, so an unexpected *pass* is caught too, not just an unexpected
+# failure.
+#
+# Lines come out one at a time, in the same commit as the fix that makes that
+# test pass: the deletion is the evidence the fix worked. Never regenerate this
+# file wholesale from a run — that launders a regression into the baseline. Edit
+# it by hand, and justify any line added back in the PR that adds it.
 #
 # FORMAT — two fields, not one (ADR-0035):
 #
 #     <test>.S  <STATUS>
 #
 # The status is the exact label test/run_tests.sh prints in its table:
-# ASSEMBLE-ERROR, ASSEMBLE-WARNING, OBJCOPY-ERROR <region>,
-# OBJCOPY-EMPTY <region>, FAIL <n>, TIMEOUT, MONITOR-ERROR <n>, TRAP-TO-ZERO,
-# or RUNNER-ERROR <n>. Whitespace between the fields is free; a line with only
-# a name is rejected rather than half-matched.
+# ASSEMBLE-ERROR, ASSEMBLE-WARNING, OBJCOPY-ERROR <region>, OBJCOPY-EMPTY <region>,
+# FAIL <n>, TIMEOUT, MONITOR-ERROR <n>, TRAP-TO-ZERO, or RUNNER-ERROR <n>.
+# Whitespace between the fields is free; a line with only a name is rejected
+# rather than half-matched.
 #
 # The status is here because matching on the name alone made the gate blind to
 # *why* a test failed. A baselined entry stayed matched if its assembly broke
-# (ASSEMBLE-ERROR), if the sim binary would not start (RUNNER-ERROR) or if it
-# hung (TIMEOUT) — a broken harness and a broken test both laundered into a
-# green gate. Changing the status is the same kind of claim as removing the
-# line: it needs the same justification in the PR that does it.
+# (ASSEMBLE-ERROR), if the sim binary would not start (RUNNER-ERROR), or if it
+# hung (TIMEOUT) — a broken harness and a broken test both laundered into a green
+# gate. Changing a line's status is the same kind of claim as removing it, and
+# needs the same justification in the PR that does it.
 #
-# ADR-0004/ADR-0009 (`a4662a2`): combinational-read regfile + write-through
-# bypass, valid bits, the stall-only hazard interlock, and the divider's
-# stall wired up for real) took this to empty: all 47 tests in the suite
-# (including test/asm/hazard.S, added by that same ticket) genuinely pass.
-# It stays here, empty, so the set-equality check below keeps working as the
-# plain all-pass gate ADR-0014 describes for this state.
+# OBJCOPY-ERROR and OBJCOPY-EMPTY describe a broken build rather than a known-red
+# property. Nothing should ever be baselined under either; a line carrying one is
+# a review flag.
 #
-# `b2dafcc` (RVFI driven, test/monitor.v live per-retire in both sim legs)
-# briefly put div.S/rem.S back here, then took them out again: the failure
-# was a defect in the generated monitor's own DIV/REM spec model, not in
-# this core, and ADR-0019 fixes it in the build-time sanitizer instead. The
-# file stays empty. See ADR-0019 before ever adding a line back for a
-# monitor-side problem.
+# THIS IS NOT THE PLACE TO PARK A DEFECT IN THE ORACLE. When the generated
+# monitor itself is wrong, the repair belongs in test/sanitize_monitor.py —
+# read ADR-0019 before adding a line back for a monitor-side problem.
 #
-# THE FILE IS EMPTY AGAIN, and the entry that came out is the one it was
-# seeded with ahead of its RTL.
-#
-#   trap.S      MONITOR-ERROR 101 -- every implemented trap cause (ADR-0005 /
-#               ADR-0030) taken deliberately, plus ADR-0028's convention that a
-#               trapping instruction writes no register and no memory, plus
-#               ADR-0027's rule that a trapping instruction does not increment
-#               `minstret`. It reported MONITOR-ERROR 101 ("mismatch in trap")
-#               rather than FAIL because with no trap logic the core COMPLETED
-#               the misaligned load and the per-retire monitor caught the
-#               disagreement before `tohost` was ever written. Pinning that
-#               exact number is what the status field is for: had trap.S
-#               started failing some other way in the meantime, the gate would
-#               have gone red instead of matching.
-#
-# It came out with the RTL that pays it off -- misalignment, illegal
-# instruction, ebreak, ecall and the two illegal-CSR rules all detected and
-# committed in decode (CLAUDE.md invariant 2), which is ADR-0011's deferred
-# debt discharged. The same change grew trap.S by two cases (a write to a
-# read-only CSR, and a COMPRESSED faulting instruction so `mepc` is exercised
-# 2-aligned) and grew this script's status vocabulary by TRAP-TO-ZERO, which
-# is ADR-0029's harness check: `mtvec` resets to 0 and sections.lds links
-# `.text` there, so a trap taken before a handler is installed used to look
-# like a timeout rather than like a fault.
-#
-# `csr.S` and `minstret.S` were here alongside it and came out with
-# `rtl/csrs.v`. Three lines, three commits, one per feature -- which is exactly
-# how ADR-0014's burn-down contract was meant to go. The file staying empty is
-# now a plain all-pass gate again; ADR-0014's set equality still runs in both
-# directions, so an unexpected *pass* is caught too.
+# The history of what was baselined here and when lives in git and in the ADRs
+# above; it is not repeated in this file, which describes the contract in force.
