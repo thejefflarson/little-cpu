@@ -45,6 +45,21 @@ module testbench (
   logic [3:0]  mem_wstrb;
   logic [31:0] mem_rdata;
 
+  // FACT       the fetch bus answers from memory: whenever either of the two
+  //            fetch ports covers the halfword `checker_inst` has pinned, the
+  //            data the core sees there is that halfword.
+  // DISCHARGED NOWHERE. rvfi_imem_check asserts that the CORE is consistent
+  //            with the pinned halfword; nothing asserts that the environment
+  //            is. The backing is structural and is the same one
+  //            formal/wrapper.v:83 rests on -- rtl/imemory.v is a $readmemh
+  //            ROM (ADR-0044) -- and is likewise believed, not proved.
+  // SCOPE      the one rvfi_imem_check assertion this task contains, which is
+  //            also everything it was written for. All four assumes constrain
+  //            DUT INPUTS (uut_imem_data/uut_imem_data2), so they narrow the
+  //            environment and can never excuse the core; the checker's own
+  //            imem_addr/imem_data are rand_const, so there is no cycle
+  //            history for the scope to leak across either.
+  //
   // No mem_valid/mem_ready to gate on: rtl/fetcher.v drives imem_addr/
   // imem_addr2 = {pc[31:2],2'b00}/+4 and out.instr = the windowed pair
   // combinationally, unconditionally, every non-reset cycle (CLAUDE.md

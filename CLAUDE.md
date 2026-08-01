@@ -288,6 +288,16 @@ the failure this section exists to prevent, so they stay as markers rather than 
   is `bash -e {0}` — errexit but **not** pipefail — so the step's exit status was `tee`'s and was
   always 0. **ADR-0022's central guarantee had never held.** `1961234` fixed both copies of the step
   (nightly and the new PR-gate `formal` job) and demonstrated both failure directions on real runs.
+- **`components_executor` is green and does not check the multiplier's sign logic, its high half,
+  or the signed divider at all** (ADR-0049). The divide invariant's two *unguarded*
+  `always_comb assume(in.rs1 <= 32'h0000000f)` statements are proof-global, so with operands in
+  0..15 every high half and every sign bit is zero. Measured by mutation, each PASSING the task:
+  zeroing `multiply[63:32]`, `mul_sign_x = 1'b0`, `mul_sign_y = 1'b0`, MULHSU-treats-rs2-as-signed,
+  and deleting the signed sign-restore from *both* the `op_is_div` and `op_is_rem` captures. A
+  low-half off-by-one and a sign-from-bit-0 are still caught in 0.5s, so the assertions are
+  narrowed rather than dead and the task reads green either way. `test/exec_tb.v` is what actually
+  covers this (ADR-0010 already calls it the primary guarantee); the component proof adds nothing
+  to it on these points.
 - ~~**Three of the five component-proof tasks are vacuous**~~ — **they were deleted; there are
   three tasks now and all three assert something.** `formal/components.sby` carries `decoder`,
   `executor` and `pcloop`; `fetcher`, `accessor` and `writeback` are gone, and `formal/Makefile`
