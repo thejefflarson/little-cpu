@@ -11,7 +11,22 @@
 // in the pipeline's own bookkeeping, not the test program's assertions),
 // 5 = trap taken with mtvec == 0 (ADR-0029 — the program has silently
 // restarted at `_start`; distinct from 2 because the timeout that would
-// otherwise result says nothing about the fault that caused it).
+// otherwise result says nothing about the fault that caused it),
+// 6 = the per-retire monitor observed nothing: zero retires, or zero retires
+// whose values its spec model checked. See the counter block in
+// test/testbench.v for why that is a failure and not a curiosity — a monitor
+// that never fires leaves every program passing off `tohost` alone, which
+// ADR-0032 measured to be blind to real architectural corruption.
+//
+// Every run that actually simulates prints one machine-readable line before
+// it exits:
+//
+//     RETIRES <n> SPEC-CHECKED <m>
+//
+// test/run_tests.sh parses it into the pass/fail table and grades it against
+// test/OBSERVED_FLOOR. Making observation a printed, graded quantity rather
+// than something inferred from a green run is the whole point of the two
+// counters; a number nobody reads is the defect this closes, not a fix for it.
 #include <cxxrtl/cxxrtl_vcd.h>
 #include "rtl.cc"
 
@@ -200,6 +215,56 @@ int main(int argc, char **argv) {
     return 3;
   }
 
+  // The observation counters (test/testbench.v). `rvfi_retires` counts the
+  // cycles the monitor examined; `rvfi_spec_retires` counts the subset whose
+  // values it actually compared against its spec model. Looked up the same way
+  // and for the same reason as the two items above: a silently absent counter
+  // would report the exact false green this exists to prevent, so missing is a
+  // setup error rather than something to skip.
+  const cxxrtl::debug_item *retires = nullptr;
+  const cxxrtl::debug_item *spec_retires = nullptr;
+  try {
+    retires = &all_debug_items.at("rvfi_retires").at(0);
+    spec_retires = &all_debug_items.at("rvfi_spec_retires").at(0);
+  } catch (const std::out_of_range &) {
+    std::fprintf(stderr,
+                  "error: the monitor observation counters ('rvfi_retires', "
+                  "'rvfi_spec_retires') were not found in the simulated design "
+                  "-- did test/testbench.v lose the (* keep *) on them?\n");
+    return 3;
+  }
+
+  // Printed on every path that reaches the simulation loop. Setup failures
+  // above return before this point on purpose: nothing ran, so there is no
+  // observation to report, and a "RETIRES 0" line for a run that never started
+  // would be a claim rather than a measurement.
+  auto report_counts = [&]() {
+    std::printf("RETIRES %u SPEC-CHECKED %u\n", retires->curr[0],
+                 spec_retires->curr[0]);
+  };
+
+  // Silence outranks the run's own verdict. A run whose oracle never fired has
+  // no verdict worth reporting: `tohost` saying PASS is exactly what a blind
+  // monitor looks like, and a FAIL from such a run cannot be attributed either.
+  // Exit 4 is the one exception and does NOT come through here — an errcode is
+  // direct evidence that the monitor fired, which is stronger and more specific
+  // than any count.
+  auto finish = [&](int code) {
+    report_counts();
+    uint32_t r = retires->curr[0];
+    uint32_t s = spec_retires->curr[0];
+    if (r == 0 || s == 0) {
+      std::fprintf(stderr,
+                    "the RVFI monitor observed nothing this run: %u retires, %u "
+                    "of them spec-checked. The per-retire oracle was blind, so "
+                    "this run's verdict (exit %d) means nothing -- see the "
+                    "counter block in test/testbench.v.\n",
+                    r, s, code);
+      return 6;
+    }
+    return code;
+  };
+
   std::unique_ptr<cxxrtl::vcd_writer> vcd;
   std::ofstream vcd_out;
   if (!args.vcd_path.empty()) {
@@ -232,6 +297,7 @@ int main(int argc, char **argv) {
     uint32_t errcode = monitor_errcode->curr[0] & 0xffff;
     if (errcode != 0) {
       std::fprintf(stderr, "RVFI monitor error %u at cycle %ld\n", errcode, cycle);
+      report_counts();
       return 4;
     }
 
@@ -241,21 +307,21 @@ int main(int argc, char **argv) {
                     "never installed and the program has restarted at _start "
                     "(ADR-0029)\n",
                     cycle);
-      return 5;
+      return finish(5);
     }
 
     uint32_t tohost = ram_data[tohost_index];
     if (tohost != 0) {
       if (tohost == 1) {
         std::printf("PASS\n");
-        return 0;
+        return finish(0);
       }
       uint32_t testnum = tohost >> 1;
       std::printf("FAIL %u\n", testnum);
-      return 1;
+      return finish(1);
     }
   }
 
   std::printf("TIMEOUT\n");
-  return 2;
+  return finish(2);
 }
