@@ -144,6 +144,28 @@ trap and CSR tests assert on values their own handler recorded. Error 133 ("expe
 trap") stays unreachable in this single-channel config — `shadow_pc_valid <= !rvfi_trap` gates 130
 and 133 off for the retire after a trap — so `rvfi_intr` hardwired to 0 does not break anything.
 
+**`make test` now measures that its oracle fired, instead of inferring it.** The monitor is the
+gate's per-retire oracle and **nothing counted whether it ever looked**: `test/cxxrtl.cc` sampled
+the errcode and counted nothing, so a monitor whose `rvfi_valid` never asserted — ADR-0037's
+under-sensitivity class, an `ifdef` that dropped the shadow payload, a `write_cxxrtl` that optimised
+the instance away — left all 52 programs PASSing off `tohost` alone, with an empty
+`test/EXPECTED_FAIL` and so no red entry whose disappearance would say otherwise. `test/testbench.v`
+counts retires (`rvfi_valid`) and spec-checked retires (`spec_valid`, from a **second
+`monitor_isa_spec`** instantiated in the bench — `test/monitor.v` is generated-but-tracked and a
+yosys hierarchical reference silently *implicitly declares* the name rather than resolving it, both
+measured); the runner prints `RETIRES <n> SPEC-CHECKED <m>` and adds **exit 6** for zero of either;
+`test/run_tests.sh` labels that `MONITOR-SILENT`, carries both counts as a third table column, and
+grades them against **`test/OBSERVED_FLOOR`** — names by set equality both ways, numbers by `>=`,
+because instruction counts legitimately move and a 52-number ratchet is one nobody would keep.
+**The probe is one line and both directions are measured**: `assign rvfi_valid_observed = 1'b0;` in
+`test/testbench.v` gives 52 × `MONITOR-SILENT` (`retires=0 spec-checked=0`) and exit 1 here, and the
+same blinding on the pre-change tree gave **52/52 and exit 0** — every program still reaches
+`tohost` and still passes its own assertions, which is the whole defect. `rvfi_valid_observed` is
+the single wire the monitor, the probe and the counters all read, so they cannot go blind
+independently. **A low spec-checked count is the pin's coverage boundary, not a bug** — no spec
+model exists for `ecall`/`ebreak`/`mret`/`csrr*`, so `csr.S` is 108/82, `minstret.S` 42/31 and
+`trap.S` 303/259; that is written at `test/OBSERVED_FLOOR` so nobody has to rediscover it.
+
 **M3 opens: `rtl/csrs.v` lands the CSR file and the Zicsr access path.** ADR-0005's set, exactly —
 RW `mstatus` (MIE/MPIE, MPP WARL→`2'b11`), `mtvec` (direct mode, 4-byte-aligned base, resets to 0
 per ADR-0029), `mepc` (bit 0 only, because C makes 2-byte targets legal), `mcause`, `mscratch`,
@@ -199,12 +221,15 @@ forbids.
 
 What does not work right now:
 
-- **The ALTOPS divide branch reads stale operands.** `rtl/executor.v:221-224` reads `in.rs1`/
-  `in.rs2` in the `divide` state, one cycle after issue, when decode has already bubbled
-  `decoder_out` (ADR-0009). Scoped to `` `ifdef RISCV_FORMAL_ALTOPS ``, so the synthesized divider
-  is fine and `components_executor` still passes — but it means `insn_div`/`divu`/`rem`/`remu` fail,
-  and the divider's operand routing has **no** formal coverage in any form (ADR-0010 already says
-  the arithmetic has none). The non-ALTOPS branch six lines above gets this right and explains why.
+- ~~**The ALTOPS divide branch reads stale operands**~~ — **fixed, and this bullet outlived it by
+  several commits.** The ALTOPS issue arm latches its operands (`rtl/executor.v:52-60`,
+  `div_alt_rs1`/`div_alt_rs2` off `mul_div_x`/`mul_div_y`) exactly as the non-ALTOPS branch does, so
+  the completion arm no longer reads an `in` that decode has bubbled. `insn_div_ch0`,
+  `insn_divu_ch0`, `insn_rem_ch0` and `insn_remu_ch0` all PASS and none of them is in
+  `formal/EXPECTED_FAIL`, which is empty. What is still true, and is the part worth keeping: under
+  `` `RISCV_FORMAL_ALTOPS `` those four checks say nothing about the real divider's arithmetic
+  (ADR-0010), and ADR-0045 decided that gap closes by naming `components_executor` +
+  `test/exec_tb.v` as the oracle rather than by dropping ALTOPS.
 - ~~**`formal/equiv.sh` runs but does not converge**~~ — **the file is deleted and the guarantee is
   proved another way** (ADR-0047). Measured: `equiv_make` leaves **459 of 495** `$equiv` cells
   unproven — `mem_addr`, `accessor.pending_*`, `executor.mul_div_*`, `regfile.wdata`, essentially the
@@ -220,10 +245,15 @@ What does not work right now:
   were**: it proves the instrumentation is *unread*, not that two designs behave alike. Both failure
   directions are demonstrated on real mutations (a shadow value ORed into decode's `stall`, +193
   cells; one gating the accessor's `out.valid`, **+11** cells).
-- **`reg` is inconclusive** (ADR-0023) — a single depth-21 BMC query that does not return in a
-  practical budget. It is the check that ties RVFI's self-report to the actual register file, so
-  without it the other 55 passing checks establish that the core's story about itself is
-  spec-consistent, not that the story is true.
+- ~~**`reg` is inconclusive**~~ — **false since ADR-0024, and this bullet is where ADR-0037 caught
+  itself repeating it.** ADR-0023 wrote it under `smtbmc yices`; the ladder moved to `btor btormc`
+  and `reg_ch0` returns in seconds. ADR-0042 §3 re-measured it against the synchronous regfile at
+  `PASS 0 31`, and ADR-0046 re-ran its probe against the five-reason pipeline: deleting the rs2
+  write-through bypass gives `bad state property 1 reachable at bound k = 20 SATISFIABLE` at the
+  shipping `reg 15 20`. It returns a verdict, and the verdict means something. What ADR-0023's
+  sentence was reaching for is still true and lives in ADR-0032 instead: `reg_ch0` is the *only*
+  check tying RVFI's self-report back to `rtl/regfile.v`, and an architectural write past its bound
+  is invisible to the whole ladder.
 - ~~**The formal nightly cannot go red**~~ — **fixed, and it was never the `|| true`** (ADR-0037).
   This bullet described `formal-nightly.yml` as `make -C formal check || true` with no `-k`; both
   were fixed earlier, and the bullet outlived them. The real defect survived both fixes: the graded
@@ -231,10 +261,19 @@ What does not work right now:
   is `bash -e {0}` — errexit but **not** pipefail — so the step's exit status was `tee`'s and was
   always 0. **ADR-0022's central guarantee had never held.** `1961234` fixed both copies of the step
   (nightly and the new PR-gate `formal` job) and demonstrated both failure directions on real runs.
-- **Three of the five component-proof tasks are vacuous.** `components_fetcher`,
-  `components_accessor`, and `components_writeback` contain no assertions at all, only reset
-  assumptions, so they "pass" meaninglessly. CI deliberately does not run them; ADR-0006 slates
-  them for deletion. A green run of one of those is not a result.
+- ~~**Three of the five component-proof tasks are vacuous**~~ — **they were deleted; there are
+  three tasks now and all three assert something.** `formal/components.sby` carries `decoder`,
+  `executor` and `pcloop`; `fetcher`, `accessor` and `writeback` are gone, and `formal/Makefile`
+  says so where the targets used to be. ADR-0006's slate is discharged. The rule the bullet was
+  protecting stands and is worth keeping: a green run of a task with no assertions is not a result.
+- **`components_pcloop` was failing on `main`, and nothing ran it** (ADR-0046). It has failed since
+  `e4f5250` — `failed assertion ... at pcloop.sv:273 step 3`, the sequential-advance assertion —
+  because its `f_may_stall` over-approximation predates ADR-0042's fifth stall reason and therefore
+  covered a cycle on which the decoder legitimately holds the pc. Attributed by mutation: forcing
+  `operand_stall = 1'b0` makes the task pass by k-induction. Fixed by transcribing
+  `rtl/decoder.v`'s `prev_rs1`/`prev_rs2`/`read_taken` register into the harness, and the task is on
+  CI now — ADR-0017 puts the fetcher↔decoder pc loop in M2's scope, and **an M2-scope proof nothing
+  runs is a prose-only guard**.
 
 **The ladder now asserts its own shape, so a green ladder can no longer shrink quietly**
 (ADR-0033's gap 1). `formal/checks.cfg`'s `[depth]` table is the list of checks that *exist*, not a
@@ -510,7 +549,9 @@ preference. See ADR-0002 and ADR-0003.
 
 ```sh
 make setup          # install the RISC-V toolchain (brew on macOS)
-make test           # assemble test/asm/*.S, run under cxxrtl, pass/fail table
+make test           # assemble test/asm/*.S, run under cxxrtl, pass/fail table with
+                    # per-program retire / spec-checked-retire counts, graded against
+                    # test/EXPECTED_FAIL (set equality) and test/OBSERVED_FLOOR (>=)
 make waves          # iverilog + VCD (testbench.vvp's baked-in program) -> waves.vcd
 make monitor-check  # regenerate test/monitor.v at the pin and diff
 make fit            # the ONE area number: nextpnr logic cells on up5k/sg48 (ADR-0038).
@@ -518,7 +559,12 @@ make fit            # the ONE area number: nextpnr logic cells on up5k/sg48 (ADR
                     # the utilisation table printed before placement is the measurement.
                     # A RATCHET as of ADR-0042: over FIT_MAX_LC (4400) exits nonzero.
 
-make -C formal components_decoder   # component proofs
+make -C formal components_decoder   # component proofs. THREE tasks, all with real assertions:
+make -C formal components_executor  # decoder, executor, pcloop -- the assertion-free fetcher /
+make -C formal components_pcloop    # accessor / writeback tasks were deleted, not left unrun.
+                                    # pcloop is the composed fetcher+decoder proof that discharges
+                                    # ADR-0017's assume(in.pc == pc); it needs `smtbmc boolector`
+                                    # (see formal/components.sby) and is on CI as of ADR-0046
 make -C formal check                # the riscv-formal ladder (82 checks; see ADR-0023). ALWAYS a
                                     # fresh run -- it deletes checks/ first (ADR-0040)
 make -C formal check-baseline       # re-grade a finished ladder: EXPECTED_CHECKS + EXPECTED_FAIL
@@ -658,7 +704,15 @@ following.** Closing it means deleting terms from this list — a burn-down with
 and 3, which this list has not yet been rewritten for. Read each term's own text, not this sentence:
 
 1. **`formal/EXPECTED_FAIL` empty and `formal/EXPECTED_CHECKS` matching — MET at `6309b3e`**: 82
-   generated, 82 pass, both set equalities in both directions.
+   generated, 82 pass, both set equalities in both directions. **ADR-0045 reopened this and ADR-0046
+   closed it again**, which is the more useful thing to know about it: the depths those 82 checks run
+   at were derived against a pipeline two changes old, and a depth below its floor goes green having
+   stopped asking. They are re-derived now, and the derivation is *measured* — `hang` gives the
+   worst-case first retire (F = 6), `liveness` the worst-case retire gap (G = 4), both in seconds,
+   both re-runnable. No depth moved. `insn 15` and `reg 15 20` clear their floors by **one cycle**,
+   so **any change that adds a stall reason, lengthens a stage, or widens the scoreboard past its
+   three fixed slots must re-measure F and G before it lands.** Two of the last three such changes
+   did not.
 2. **The mul/div checks run without `RISCV_FORMAL_ALTOPS`**, or ADR-0010's gap is closed by a named
    oracle that does. Today `insn_mul`/`insn_div`/`insn_rem` passing says nothing whatever about the
    real multiplier or divider.
