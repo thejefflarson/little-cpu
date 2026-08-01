@@ -88,11 +88,17 @@ module writeback(
   // None of it is enforced here: it is enforced upstream, in rtl/decoder.v,
   // by suppressing `out.rd` and every execution flag on a trapping issue, so
   // the values below are zero because nothing produced anything -- not because
-  // this block masks them. Three ladder checks catch it INDIRECTLY if that
-  // breaks (`dmemcheck` for a store that still strobes the bus, `reg` for an
-  // rd that still lands, `pc_fwd`/`pc_bwd` for a redirect that is misreported
-  // or not taken); none of them names traps in its title, and the connection
-  // is not discoverable from CI output. The one thing nothing on the ladder
+  // this block masks them. TWO ladder checks catch it INDIRECTLY if that
+  // breaks -- `reg` for an rd that still lands, and `pc_fwd`/`pc_bwd` for a
+  // redirect that is misreported or not taken. Neither names traps in its
+  // title, the connection is not discoverable from CI output, and `reg` is
+  // itself inconclusive (ADR-0023), so this is thinner cover than it looks.
+  // ADR-0028 named a third, `dmemcheck`, for a store that still strobes the
+  // bus; ADR-0037 STRUCK it. The shadow it compares is not independent of the
+  // bus -- rtl/accessor.v builds rvfi_mem_wmask/wdata from the same
+  // mem_wstrb/write_request dmemcheck samples -- so a suppressed-but-executed
+  // store is reported faithfully by both and nothing desynchronises.
+  // Confirmed by mutation: dmemcheck stayed PASS. The one thing nothing on the ladder
   // can see -- that the target is `mtvec` -- is asserted in rtl/decoder.v's
   // component proof.
   // A continuous assign rather than a line in the always_comb below, and that

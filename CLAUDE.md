@@ -178,10 +178,13 @@ What does not work right now:
   practical budget. It is the check that ties RVFI's self-report to the actual register file, so
   without it the other 55 passing checks establish that the core's story about itself is
   spec-consistent, not that the story is true.
-- **The formal nightly cannot go red** (ADR-0022). `.github/workflows/formal-nightly.yml:48` is
-  `make -C formal check || true`, and `formal/Makefile`'s `check` has no `-k`, so the sub-make also
-  stops scheduling at the first failure. Today's nightly runs a partial ladder and reports it as
-  success. It needs `-k` and a `formal/EXPECTED_FAIL` baseline before its green means anything.
+- ~~**The formal nightly cannot go red**~~ — **fixed, and it was never the `|| true`** (ADR-0037).
+  This bullet described `formal-nightly.yml` as `make -C formal check || true` with no `-k`; both
+  were fixed earlier, and the bullet outlived them. The real defect survived both fixes: the graded
+  `check-baseline.sh` call was piped into `tee`, and a `run:` block without an explicit `shell:` key
+  is `bash -e {0}` — errexit but **not** pipefail — so the step's exit status was `tee`'s and was
+  always 0. **ADR-0022's central guarantee had never held.** `1961234` fixed both copies of the step
+  (nightly and the new PR-gate `formal` job) and demonstrated both failure directions on real runs.
 - **Three of the five component-proof tasks are vacuous.** `components_fetcher`,
   `components_accessor`, and `components_writeback` contain no assertions at all, only reset
   assumptions, so they "pass" meaninglessly. CI deliberately does not run them; ADR-0006 slates
@@ -266,7 +269,11 @@ monitor live, the first time that has ever been true. **There is still no tracke
 a scratch harness. `make waves` is the tracked iverilog exercise and it now executes real
 instructions rather than deadlocking.
 
-What does work: `yosys ... write_cxxrtl` elaborates the current RTL cleanly with zero warnings, the
+What does work: `yosys ... write_cxxrtl` elaborates the current RTL cleanly — **one** warning,
+`Deep recursion in AST simplifier`, which is a recursion-depth notice rather than a correctness
+signal and is the single entry on the `elaborate` gate's allowlist; everything else yosys prefixes
+`Warning:` is promoted to an error there (`.github/workflows/ci.yml`, which cross-references this
+note). It is not zero, and this line said zero until ADR-0037. The
 cxxrtl binary builds and runs, the whole `.S` suite passes under it with `test/EXPECTED_FAIL`
 empty, `make test-units` passes (six benches: `exec_tb`, `mem_tb`, `decoder_tb`,
 `regfile_tb` — which covers the write-through bypass and x0 semantics — `csr_tb`, which covers
@@ -373,6 +380,19 @@ no multilib or newlib is needed. Formal needs a pinned YosysHQ OSS CAD Suite.
 | **iverilog** | microscope | waveforms, `$display`, second elaboration frontend |
 | **riscv-formal** | oracle | exhaustive per-instruction semantics, pipeline corners |
 
+**The iverilog leg was inert for the whole of M1 — `a4662a2` to `6309b3e` — and this table did not
+know** (ADR-0037). `rtl/decoder.v`'s hazard scoreboard called a `function automatic
+live_producer(r)` from two continuous assigns, and iverilog derives such an assign's sensitivity
+list from the **call's arguments**, so a body that also read `out`/`executor_out`/
+`accessor_pending_*` never re-evaluated when those changed. Under-sensitivity — the one direction
+the `sorry:` exception below says is a real bug — and iverilog emits no diagnostic for it at all.
+Measured on `main` before the fix: `hazard_rs1` latched high at the first RAW hazard and never
+fell, the PC advanced `0x0`→`0x4` and froze, and `make waves` did **0 memory writes in 200 cycles**
+(201 reads, all to address 0). After the fix the same program does 22 writes. yosys evaluates the
+function correctly, so cxxrtl and the whole ladder were unaffected — which is exactly why nothing
+caught it. **A leg that cannot fail is not a leg**: treat a green iverilog run as evidence only if
+you can point at something it would have failed on.
+
 **riscv-formal runs with `RISCV_FORMAL_ALTOPS`, so it never checks the real multiplier or divider.**
 That arithmetic is covered only by the `.S` suite and the executor component proof. Do not assume a
 green formal ladder means the ALU is correct.
@@ -397,7 +417,8 @@ the oracle (ADR-0019).
   **One documented exception**, and only this one: iverilog emits `sorry: constant selects in
   always_* processes are not fully supported` for every struct-field read inside an
   **`always_comb`** block — 20 of them, all from `rtl/writeback.v`, against
-  `in[311:0]` (`accessor_output`). It cannot build a precise sensitivity entry for a constant
+  `in[952:0]` (`accessor_output`, with the `RISCV_FORMAL*` macros on — 953 bits; it was 952 before
+  `6309b3e` added `rvfi_shadow.trap`, and the count held at 20 across that change). It cannot build a precise sensitivity entry for a constant
   part-select, so it falls back to whole-struct sensitivity.
   **That fallback is provably safe**: over-sensitivity re-evaluates redundantly and can never
   yield a stale value; only *under*-sensitivity is a correctness bug. Everywhere the select was
@@ -411,8 +432,13 @@ the oracle (ADR-0019).
   **The diagnostic is specific to `always_comb`**, where the sensitivity list is *inferred*.
   `rtl/executor.v` emits **zero** of these despite its `case (1'b1)` over 39 `in.is_*` flags,
   because that body sits in `always_ff @(posedge clk)`, whose sensitivity is written out.
-  Compile any module alone to attribute them (`iverilog -g2012 -s <mod> rtl/structs.v
-  rtl/<mod>.v`). **Do not add new ones outside `rtl/writeback.v`**, and prefer a continuous
+  Attribute them by struct width rather than by the diagnostic, which carries **no filename at
+  all** (it prints `:0:`): `$bits` gives `decoder_output` 943, `executor_output` 921,
+  `accessor_output` **953**, and only the last matches `in[952:0]`. ADR-0034 printed
+  `iverilog -g2012 -s <mod> rtl/structs.v rtl/<mod>.v` for this; **that command does not run** —
+  it needs `-I./rtl/`, and even then reports 0 for every module, because the reads in question are
+  inside `ifdef RISCV_FORMAL` and it passes no macros (ADR-0037). Use `make testbench.vvp`.
+  **Do not add new ones outside `rtl/writeback.v`**, and prefer a continuous
   assign for any new struct-field read in an `always_comb` — that is what holds the count at 20
   (ADR-0034; this bullet named `rtl/executor.v` until then, which was measurably wrong).
 - **Every non-trivial change adds or updates tests and runs the full suite** before being declared
@@ -438,7 +464,7 @@ the oracle (ADR-0019).
 |---|---|---|
 | M0 | Foundation | this file, riscv-formal SHA-pinned, dead references gone |
 | M1 | Finish the pipeline | all RV32IM `.S` tests pass under cxxrtl — **reached, `a4662a2`** |
-| M2 | **Parity checkpoint** | the pipelined core re-proves everything the serialized core proved |
+| M2 | **Parity checkpoint** | **all six** conditions below hold. An empty `formal/EXPECTED_FAIL` is *one* of them and on its own means nothing — it was reached at `6309b3e` and M2 was not (ADR-0037) |
 | M3 | Past the old core | CSRs + machine-mode traps — **both landed** (`rtl/csrs.v`; trap commit in `rtl/decoder.v`) |
 | M4 | Full ladder + CI | nightly formal green; tag a release (PR gate `c66527d`; nightly `86e2721`, report-only until ADR-0022) |
 
@@ -447,38 +473,54 @@ as the real finish line, not M1. `b2dafcc` cleared M2's blocker (RVFI is driven,
 in both sim legs) and `86e2721` landed the ladder port itself (`wrapper.v` / `checks.cfg` /
 `imemcheck` / `dmemcheck` / `cover` / `equiv.sh`, ADR-0006) — but **M2 is not reached.** M2's own
 wording is "re-proves everything the serialized core proved", and 15 red checks plus an inconclusive
-`reg` plus a non-converging `equiv.sh` is not that. ADR-0023 lists what closing it takes; the
-`formal/EXPECTED_FAIL` baseline of ADR-0022 reaching empty is the signal — read together with the
-generated check count, per ADR-0033, which is now `formal/EXPECTED_CHECKS` and is asserted rather
-than recited. `rtl/csrs.v` took that baseline from 11 entries to 9 (both `csrw_*`) on a 79-check
+`reg` plus a non-converging `equiv.sh` is not that. ADR-0023 lists what closing it takes. An empty
+`formal/EXPECTED_FAIL`, read together with `formal/EXPECTED_CHECKS` per ADR-0033, is a **necessary
+condition and not a sufficient one** — this file called it "the signal" until ADR-0037, which is
+the language of sufficiency for something that was only ever necessary, and a change nobody
+believes completes the milestone duly satisfied it.
+
+`rtl/csrs.v` took that baseline from 11 entries to 9 (both `csrw_*`) on a 79-check
 ladder; landing `ill_ch0` red made it 10 on an 82-check ladder; **the trap change took it to zero
 on that same 82-check ladder.** All ten were the trap gap — nine misalignment, one
 illegal-instruction — and all ten closed together, which is the attribution behind them holding.
 
-**That signal has now fired, and M2 is still not reached.** Read what the signal is and is not,
-because the temptation to read it as the milestone is exactly what ADR-0023 and ADR-0033 were
-written against:
+**The baseline is empty and M2 is still not reached** (ADR-0037). **M2 requires all six of the
+following.** Closing it means deleting terms from this list — a burn-down with the same shape as
+`formal/EXPECTED_FAIL` itself. Term 1 is the only one met:
 
-- every check on the ladder is `mode bmc`, so 82 PASS means "no counterexample within each check's
-  configured depth", not that any property holds;
-- the whole ladder runs under `RISCV_FORMAL_ALTOPS` (ADR-0010), so `insn_mul`/`insn_div`/`insn_rem`
-  passing says nothing whatever about the real multiplier or divider;
-- `formal/equiv.sh` still does not converge (ADR-0020), so ADR-0006's guarantee that RVFI
-  instrumentation does not perturb core behaviour remains **argued, not proven** — and the argument
-  now has one more `ifdef RISCV_FORMAL` field to cover (`rvfi_shadow.trap`);
-- `formal/complete` still fails, for `ecall`/`ebreak`/`mret`/CSR retires that riscv-formal has no
-  spec model for at the pin. It is on no gate and ADR-0022/ADR-0023/ADR-0034 already record it;
-- the nightly still cannot go red (ADR-0022's `|| true`);
-- and riscv-formal ships **no spec model at all** for `ecall`/`ebreak`/`mret`/`csrr*`, so the
-  behaviour this milestone step actually added is checked by `test/asm/trap.S`, `test/csr_tb.v`,
-  `test/decoder_tb.v` and `rtl/decoder.v`'s own component proof — against assertions this repo
-  wrote, not against an oracle. An empty baseline is a **necessary** condition for M2, and the
-  remaining work is the list above, not another red check.
+1. **`formal/EXPECTED_FAIL` empty and `formal/EXPECTED_CHECKS` matching — MET at `6309b3e`**: 82
+   generated, 82 pass, both set equalities in both directions.
+2. **The mul/div checks run without `RISCV_FORMAL_ALTOPS`**, or ADR-0010's gap is closed by a named
+   oracle that does. Today `insn_mul`/`insn_div`/`insn_rem` passing says nothing whatever about the
+   real multiplier or divider.
+3. **`reg_ch0` returns a verdict** rather than exhausting its budget (ADR-0023). It is the one
+   check tying RVFI's self-report back to `rtl/regfile.v`; ADR-0032 measured exactly that hole by
+   injecting an architectural write the entire ladder missed.
+4. **`formal/equiv.sh` converges** (ADR-0020), or ADR-0006's guarantee that RVFI instrumentation
+   does not perturb the core is proven another way. The argument now has one more `ifdef
+   RISCV_FORMAL` field to cover (`rvfi_shadow.trap`).
+5. **`formal/complete` passes**, or every check it declines has a recorded reason. It fails today
+   on `ecall`/`ebreak`/`mret`/CSR retires, on no gate.
+6. **The nightly can go red, and is green.** It can go red as of `1961234` — but not for the reason
+   this file used to give. The `|| true` and the missing `-k` were fixed earlier; what remained is
+   that the graded comparison was piped into `tee`, and a `run:` block without an explicit `shell:`
+   key is `bash -e {0}` — errexit but **not** pipefail — so its exit status was `tee`'s, always 0.
+   **ADR-0022's "that comparison step's exit status is the job's real signal" had therefore never
+   held**, and stayed accidentally true only because the ladder kept matching its baseline
+   (ADR-0037). General rule: never put the graded command in a pipeline in a `run:` block.
+
+**Two caveats qualify what any green ladder here means, and neither is closable by burning
+down a list.** Every check is `mode bmc` — PASS means "no counterexample within this check's
+configured depth", not that the property holds, and there is no `mode prove` anywhere on the
+ladder. And riscv-formal ships **no spec model at all** for `ecall`/`ebreak`/`mret`/`csrr*` at the
+pin, so the behaviour M3 actually added is checked by `test/asm/trap.S`, `test/csr_tb.v`,
+`test/decoder_tb.v` and `rtl/decoder.v`'s own component proof — against assertions this repo wrote,
+not against an oracle. An empty baseline is loudest exactly where the ladder is quietest.
 
 ## Pointers
 
 - Design brief: [`docs/ideas/finish-the-rewrite.md`](docs/ideas/finish-the-rewrite.md)
-- Decisions: [`docs/adr/`](docs/adr/) — thirty-six accepted ADRs, plus a deferred list
+- Decisions: [`docs/adr/`](docs/adr/) — thirty-seven accepted ADRs, plus a deferred list
 - Reference text from the old core: `git show 1709433^:rtl/riscv.v` (RVFI retire block),
   `git show e67875c^:rtl/alu.v` (arithmetic)
 - Work is tracked in Linear, project **Little CPU** (team JEF). Named here so you know where the
