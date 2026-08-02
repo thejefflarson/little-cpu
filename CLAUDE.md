@@ -990,6 +990,11 @@ longer quietly widen.
   rejected the shifter merge at 19 cells *saved* on legibility grounds, and accepting a hygiene
   change at 37 cells *spent* would cut against that ruling. Read this before proposing the
   narrowing again — it is measured and declined, not overlooked.
+- **What each oracle surface actually catches is measured, not argued**:
+  [ADR-0054](docs/adr/0054-the-measured-catch-matrix-and-the-probe-catalog.md) — a 29-mutant catch
+  matrix over all five surfaces, and the **probe catalog** (one line, one command, one expected red)
+  for checking an oracle is still alive. Four defect classes are caught by nothing; three `rtl/`
+  files are reachable by no oracle at all. Read it before claiming a surface covers anything.
 - Decisions: [`docs/adr/`](docs/adr/) — **fifty-two ADRs, fifty-one of them accepted**, plus a
   deferred list. Re-derived by counting: `ls docs/adr/*.md | wc -l` is 53, one of which is
   `README.md`, and the status column in that README carries exactly one non-accepted entry

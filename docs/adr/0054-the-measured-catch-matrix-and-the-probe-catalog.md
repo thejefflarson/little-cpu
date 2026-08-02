@@ -18,9 +18,6 @@ ADR-0049 measured that the named oracle was blind to three of the four defects i
 **A term does not close on an assertion that an oracle exists, only on a demonstration of what it
 catches** — ADR-0051's rule. This ADR applies that rule to all five surfaces at once.
 
-*(matrix and findings below; this ADR is written from measurement and is filled in as the campaign
-completes)*
-
 ## Method
 
 **29 mutants, one per defect class, each run against all five surfaces.** Every cell is a real
