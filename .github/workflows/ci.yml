@@ -309,12 +309,19 @@ jobs:
   # rule is that a green run is evidence only if you can point at what would
   # have gone red. Two probes on this tree, both run:
   #
-  #   make fit FIT_MAX_LC=4100  -> exit 2, "4187 logic cells is over the
+  #   make fit FIT_MAX_LC=4100  -> exit 2, "... logic cells is over the
   #                                4100-cell budget"          (the ratchet)
   #   nextpnr absent / no table -> exit 1, "NO measurement was taken. That is
   #                                a failure, not a 0% fit."  (the Makefile's
   #                                own guard, which is why this job cannot go
   #                                green having measured nothing)
+  #
+  # THIS JOB IS THE MEASUREMENT, NOT A COPY OF A LOCAL ONE, and putting it here
+  # is what established that. The same commit synthesises to 4208 cells under
+  # the pinned OSS CAD Suite above (Yosys 0.66+179) and 4187 under a local
+  # Homebrew Yosys 0.67+post -- 21 cells on the synthesiser build alone, with
+  # no RTL difference whatever. Every area number this repo had recorded until
+  # ADR-0052 was a local one. Quote this job's.
   #
   # NOT REQUIRED, DELIBERATELY, and this is the one thing not to change here
   # without a human deciding it. Area is a design constraint, not a
@@ -325,8 +332,9 @@ jobs:
   # action, taken deliberately or not at all.
   #
   # The measurement is unstable to about +/-50 cells across edits that
-  # synthesise to identical hardware (CLAUDE.md's churn floor), which is why
-  # FIT_MAX_LC sits 213 cells above the current 4187 rather than at it. A red
+  # synthesise to identical hardware (CLAUDE.md's churn floor), plus the 21
+  # above across toolchains, which is why FIT_MAX_LC sits 192 cells over the
+  # current 4208 rather than at it. A red
   # here means the core grew by more than resynthesis noise can account for.
   # Raising the budget to clear it is how a ratchet becomes a rubber stamp.
   fit:

@@ -74,10 +74,11 @@ Four corrections to the body:
 > **4236 logic cells / 80%** at **+18.0%** suite cycles — better than the +27.8% below, because the
 > stall was gated on `uses_rs1`/`uses_rs2` after this was written.
 >
-> **The cell count is a measurement of ADR-0042's tree, not of `main`.** It is **4187 / 79%** as of
-> ADR-0052, which also put `make fit` on CI as a non-required job. Take the current number from
-> `make fit`, never from a document — the two differ by 49 cells here, which is inside the ±50
-> churn floor CLAUDE.md records, and nobody set out to save them.
+> **The cell count is a measurement of ADR-0042's tree, taken locally, and not of `main`.** It is
+> **4208 / 79%** as of ADR-0052, measured by the `fit` CI job at the pinned OSS CAD Suite — which is
+> also where it emerged that the number depends on the yosys build: the same commit gives **4187**
+> under a local Homebrew yosys. Take the current number from the `fit` job, not from a document and
+> not from a local run, and say which toolchain produced it.
 
 
 The root constraint is that an **ice40 EBR read is synchronous** while **invariant 6 requires a

@@ -58,6 +58,11 @@ list matches formal/EXPECTED_FAIL exactly (name and status)`* and *`Generated ch
 formal/EXPECTED_CHECKS exactly (85 checks)`* — both set equalities, both directions, on the gate's
 own run rather than reproduced from a workstation.
 
+**Re-run against the changed job**, which is what makes the split steps a record rather than a
+promise: same verdicts, each check its own step — ladder 217s, gate 0s, `imemcheck` 21s, `dmemcheck`
+16s, `cover` 5s, `complete` 25s, `complete_cover` 17s, **job 5m15s**. The 4m22s / 5m15s spread
+between two runs of the same ladder is solver and runner variance, not a change in the work.
+
 **The pipe rule holds.** `grep -rnE '\|' .github/workflows/` over both remaining workflows returns
 exactly one pipe on a graded command: `elaborate`'s `yosys ... 2>&1 | tee /tmp/yosys-elaborate.log`,
 and that `run:` block opens with an explicit `set -euo pipefail`, which is the documented remedy
@@ -87,11 +92,31 @@ conversation, not an automatic block. Branch protection is a repository setting 
 touch (ADR-0036), so promoting it is a human action taken deliberately or not at all. `fit` and
 `nonperturbation` are now the two non-required jobs of eight.
 
-**4. The area number is re-measured: 4187 logic cells / 79%**, not the 4236 / 80% this repo has quoted
-since ADR-0042. **The 49-cell gap is inside the ±50 churn floor** CLAUDE.md records, so it is a
-re-measurement and not a saving — nobody set out to remove those cells, and reporting it as a
-reduction would be exactly the mistake that floor exists to prevent. Corrected in `CLAUDE.md`, the
-`Makefile`'s own comment and the fit brief, each with the ADR the number was taken at.
+**4. The area number is re-measured — and running it on CI is what found that the number is
+toolchain-dependent, which nobody here had measured.** Same commit, same RTL; no `rtl/` file is
+touched by this ADR.
+
+| toolchain | logic cells |
+|---|---|
+| CI's pinned OSS CAD Suite, Yosys 0.66+179 (`e74db6dea`) — **the `fit` job** | **4208 / 5280, 79%** |
+| local Homebrew Yosys 0.67+post (`b8e7da6f4`) | 4187 |
+| quoted in this repo since ADR-0042 (also local) | 4236 |
+
+**Quote 4208, and say which toolchain took it.** The pinned suite is the reference for the same
+reason `formal/pin.mk` and `OSS_CAD_SUITE_SHA256` exist, and the `fit` job is where the number is
+now taken. Every area figure this repo had on file was a local one, so the apparent 4236 → 4208
+"reduction" is partly two toolchains being compared rather than cells being saved.
+
+This is a **second axis of instability** on top of the one already recorded. CLAUDE.md's ±50 churn
+floor was measured across *edits that synthesise to identical hardware*; this is 21 cells across
+*yosys builds* at identical RTL. `FIT_MAX_LC` at 4400 sits 192 cells over the pinned measurement,
+which clears both comfortably — but a ratchet set from a laptop would have been set against the
+wrong number, and that is the practical consequence. Corrected in `CLAUDE.md`, the `Makefile`'s own
+comment, `ci.yml` and the fit brief — with the provenance, not just the digits.
+
+**This was found the only way it could be**: by running the thing rather than reasoning about it.
+The ticket that produced this ADR noted a suspected 4236 → 4187 drift and asked for a re-measurement;
+re-measuring locally would have confirmed the drift and recorded a third local number.
 
 ## A green job is evidence only if you can name what it would fail on
 
@@ -100,7 +125,8 @@ CLAUDE.md's rule, applied to the two things this ADR adds.
 **The `fit` job.** Two probes, both run on this tree, neither inferred:
 
 - `make fit FIT_MAX_LC=4100` → **exit 2**, `*** make fit: 4187 logic cells is over the 4100-cell
-  budget.` The ratchet arithmetic fires.
+  budget.` The ratchet arithmetic fires. (Run locally, hence the local cell count; the arithmetic is
+  the same one the job runs.)
 - nextpnr printing no utilisation table → **exit 1**, `*** make fit: nextpnr printed no utilisation
   table, so NO measurement was taken. That is a failure, not a 0% fit.` This is the guard that keeps
   a green `fit` from meaning "the tool did not run": placement *always* fails here on an IO pad

@@ -250,12 +250,17 @@ the failure this section exists to prevent, so they stay as markers rather than 
   request that added this bullet and is destined for the coverage-map ADR. (1) ~~**`make fit` is a
   ratchet nothing pulls**~~ — **fixed: it is a job now** (ADR-0052). `ci.yml`'s `fit` job runs it on
   every PR, **non-required on purpose** — area is a design constraint, not a correctness one, and
-  branch protection is human-only (ADR-0036). The re-measurement that came with it is the part to
-  carry: **4187 logic cells / 79%**, not the 4236 this file had quoted since ADR-0042. The 49-cell
-  gap is *inside* the ±50 churn floor recorded under Pointers, so it is a re-measurement and **not**
-  evidence of a real reduction — which is exactly what that floor is for. Probes, both run:
-  `make fit FIT_MAX_LC=4100` exits **2** ("4187 logic cells is over the 4100-cell budget"), and a
-  nextpnr that prints no utilisation table exits **1** rather than reporting a 0% fit.
+  branch protection is human-only (ADR-0036). Probes, both run: `make fit FIT_MAX_LC=4100` exits
+  **2** ("logic cells is over the 4100-cell budget"), and a nextpnr that prints no utilisation table
+  exits **1** rather than reporting a 0% fit.
+  **Putting it on CI found that the number is toolchain-dependent, which nobody had measured.**
+  Same commit, same RTL: **4208 cells / 79% under CI's pinned OSS CAD Suite** (Yosys 0.66+179,
+  `e74db6dea`) and **4187 under a local Homebrew Yosys 0.67+post** — 21 cells apart on nothing but
+  the synthesiser build. The churn floor under Pointers was characterised as instability across
+  *edits*; this is a second axis. **Quote the pinned number, 4208** — the `fit` job is where it is
+  measured, and the pin is the reference for the same reason `formal/pin.mk` exists. The 4236 this
+  file carried from ADR-0042 was a local measurement too, so the apparent 28-cell "reduction" is
+  two toolchains being compared, not cells being saved.
   (2) **`make waves` grades nothing.** It runs the full pipeline under iverilog
   with the per-retire monitor live, but `ch0_handle_error` only `$display`s and sets `errcode` —
   there is not one `$fatal`, `$finish` or `$stop` in `test/monitor.v` or `test/monitor.sim.v` — and
@@ -662,12 +667,15 @@ make fit            # the ONE area number: nextpnr logic cells on up5k/sg48 (ADR
                     # Placement always fails (231 SB_IO vs 39) and that is expected --
                     # the utilisation table printed before placement is the measurement.
                     # A RATCHET as of ADR-0042: over FIT_MAX_LC (4400) exits nonzero.
-                    # 4187 cells / 79% as of ADR-0052 (re-measured; this said 4236,
-                    # which is inside the +/-50 churn floor, so the delta is noise
-                    # and not a saving). ON CI as of ADR-0052, in the `fit` job,
-                    # NON-REQUIRED on purpose -- area is a design constraint, not a
-                    # correctness one, and adding it to branch protection is a human
-                    # action. Probe: `make fit FIT_MAX_LC=4100` exits 2.
+                    # ON CI as of ADR-0052, in the `fit` job, NON-REQUIRED on purpose
+                    # -- area is a design constraint, not a correctness one, and
+                    # adding it to branch protection is a human action.
+                    # 4208 cells / 79% AT THE PINNED OSS CAD SUITE, which is the
+                    # number to quote. THE MEASUREMENT IS TOOLCHAIN-DEPENDENT: the
+                    # same commit gives 4187 under a local Homebrew yosys, 21 cells
+                    # apart on the synthesiser build alone (ADR-0052). A local run
+                    # is a sanity check; the `fit` job is the measurement.
+                    # Probe: `make fit FIT_MAX_LC=4100` exits 2.
 
 make -C formal components_decoder   # component proofs. THREE tasks, all with real assertions:
 make -C formal components_executor  # decoder, executor, pcloop -- the assertion-free fetcher /
@@ -952,11 +960,13 @@ longer quietly widen.
 
 - Design brief: [`docs/ideas/finish-the-rewrite.md`](docs/ideas/finish-the-rewrite.md)
 - Area/fit brief: [`docs/ideas/fit-the-core-on-the-up5k.md`](docs/ideas/fit-the-core-on-the-up5k.md) —
-  **the core's logic now fits: 4187/5280 logic cells, 79%**, down from 6971/132%, which the
-  synchronous-read regfile achieves on its own (ADR-0042). **Re-measured at ADR-0052**; this line
-  said 4236 from ADR-0042 until then, and the 49-cell gap is inside the ±50 churn floor below —
-  a re-measurement, not a saving, and the reason to state the number with the commit it was taken
-  at. `make fit` is a ratchet against `FIT_MAX_LC`, and as of ADR-0052 it is a **non-required CI
+  **the core's logic now fits: 4208/5280 logic cells, 79%** at the pinned OSS CAD Suite, down from
+  6971/132%, which the synchronous-read regfile achieves on its own (ADR-0042). **Re-measured at
+  ADR-0052**, which is also where the number acquired a provenance: this line said 4236 from
+  ADR-0042, and that was a *local* measurement, as is the 4187 the same tree gives under a Homebrew
+  yosys today. **Quote the `fit` job's number and say which toolchain it came from** — 21 cells sit
+  between two yosys builds on identical RTL, on top of the ±50 edit churn below.
+  `make fit` is a ratchet against `FIT_MAX_LC`, and as of ADR-0052 it is a **non-required CI
   job** rather than a ratchet only a human pulls. **The design still does not place**, and that is expected and unrelated to logic:
   the fit top presents **231 `SB_IO` against sg48's 39**, so nextpnr always fails on a pad. A
   placing design needs a real pinout, which means the SoC memory system, which ADR-0038 decision 1a
