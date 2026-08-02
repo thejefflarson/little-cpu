@@ -50,7 +50,10 @@ module testbench(
   logic [31:0] mem_addr;
   logic [31:0] mem_wdata;
   logic [3:0]  mem_wstrb;
+  logic        mem_ren;
   logic [31:0] mem_rdata;
+  // ADR-0059/ADR-0060: the steal, and the sixth stall reason it drives.
+  logic        fetch_stall;
   // Both memories answer zero outside their own range, so the two buses join
   // with an OR. Same wiring as rtl/littlesoc.v, which is the point: the range
   // decode and the steal live in rtl/imemory.v, so the two legs cannot end up
@@ -109,11 +112,9 @@ module testbench(
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
-    // Tied off and unconnected exactly as rtl/littlesoc.v ties them: the core
-    // has no read enable to drive and no stall input to take the steal.
-    .mem_ren(1'b0),
+    .mem_ren(mem_ren),
     .mem_rdata(imem_mem_rdata),
-    .fetch_stall()
+    .fetch_stall(fetch_stall)
   );
 
   littlecpu uut (
@@ -127,7 +128,9 @@ module testbench(
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
+    .mem_ren(mem_ren),
     .mem_rdata(mem_rdata),
+    .fetch_stall(fetch_stall),
     .trap(trap)
    `ifdef RISCV_FORMAL
     , .rvfi_valid(rvfi_valid),

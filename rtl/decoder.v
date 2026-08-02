@@ -25,6 +25,13 @@ module decoder (
   // instruction sitting in decoder_out. Decode must hold it unchanged
   // instead, for exactly the one cycle this is asserted.
   input  logic accessor_stall,
+  // ADR-0059: the instruction memory took its read port for a data access this
+  // cycle, so the fetch window presented now holds the data word instead of the
+  // instruction at `pc`. Bubble-shaped like a RAW hazard -- nothing issued, so
+  // the PC holds and the same instruction is presented again next cycle. A
+  // divider or accessor freeze on the same cycle outranks it; see the publish
+  // block below for why the order is that way round.
+  input  logic fetch_stall,
   // ADR-0004 hazard scoreboard, third producer: a load in the accessor's
   // one-cycle turnaround (see accessor_stall and rtl/accessor.v) is a live
   // producer for that one extra cycle neither decoder_out nor executor_out
@@ -393,13 +400,14 @@ module decoder (
   // "continue" are the same instruction on this core.
   assign instr_wfi = instr_error && instr[31:20] == 12'h105;
 
-  // MISC-MEM: `fence` and `fence.i` are NOPs (ADR-0005). One hart, no caches,
-  // and a Harvard ROM no store can reach (ADR-0008), so there is nothing for
-  // either to order or to invalidate. Same story as `wfi` above: merely
-  // unrecognised until trap entry landed, at which point a legal `fence` would
-  // have faulted. Only funct3 is tested -- `fence`'s fm/pred/succ fields and
-  // `fence.i`'s reserved immediate are legal-value fields with nothing to act
-  // on here.
+  // MISC-MEM. `fence` is a NOP: one hart, one bus, and one access in flight at
+  // a time, so there is nothing to order. `fence.i` is a NOP in its cache half
+  // for the same reason -- no icache -- but it also has to wait, which is the
+  // serialization term below rather than anything here. Same story as `wfi`
+  // above: merely unrecognised until trap entry landed, at which point a legal
+  // `fence` would have faulted. Only funct3 is tested -- `fence`'s fm/pred/succ
+  // fields and `fence.i`'s reserved immediate are legal-value fields with
+  // nothing to act on here.
   logic instr_miscmem, instr_fence, instr_fencei;
   assign instr_miscmem = opcode == 5'b00011 && uncompressed;
   assign instr_fence  = instr_miscmem && funct3 == 3'b000;
@@ -620,15 +628,25 @@ module decoder (
   // decode, the same one-cycle-wide architectural update a CSR instruction
   // makes, and holding it until the pipe drains keeps that update from being
   // interleaved with instructions that issued before it.
-  logic pipe_drained, csr_serialize;
+  //
+  // `fence.i` joins them because text is writable (ADR-0059) and the fetch
+  // address is published a cycle early (ADR-0054). Waiting for all four slots
+  // is what makes the ordering it promises true: an older store is still in
+  // `accessor_out` for the cycle after its write edge, so a drained pipe means
+  // that edge has passed, and the address published on `fence.i`'s own issue
+  // edge is therefore latched against the written array. Without the wait,
+  // `fence.i` at cycle D+1 after a store at D issues while the fetch of its
+  // successor happened at edge D+1 -- before the write at edge D+2 -- and the
+  // successor executes stale text (ADR-0061).
+  logic pipe_drained, serialize;
   assign pipe_drained = !out.valid && !executor_out.valid && !accessor_out_valid &&
     !accessor_pending_valid;
-  assign csr_serialize = (instr_csr_access || instr_mret) && !pipe_drained;
+  assign serialize = (instr_csr_access || instr_mret || instr_fencei) && !pipe_drained;
 
   logic hazard_rs1, hazard_rs2, hazard, stall;
   assign hazard_rs1 = uses_rs1 && rs1 != 0 && live_rs1;
   assign hazard_rs2 = uses_rs2 && rs2 != 0 && live_rs2;
-  assign hazard = hazard_rs1 || hazard_rs2 || csr_serialize;
+  assign hazard = hazard_rs1 || hazard_rs2 || serialize;
 
  `ifdef RISCV_FORMAL
   // ADR-0006: rs1_valid/rs2_valid decide whether rvfi_rs{1,2}_addr
@@ -724,10 +742,11 @@ module decoder (
                                         (uses_rs2 && prev_rs2 != rs2);
 
   // ADR-0009: a single global stall, combining the local RAW hazard and the
-  // operand-fetch cycle with whatever's busy downstream (the divider, or the
-  // accessor's one-cycle load turnaround). Any reason freezes the PC; see below
-  // for why the two downstream reasons freeze decoder_out differently.
-  assign stall = hazard || operand_stall || divider_stall || accessor_stall;
+  // operand-fetch cycle with whatever's busy downstream (the divider, the
+  // accessor's one-cycle load turnaround, or the instruction memory's stolen
+  // fetch window). Any reason freezes the PC; see below for why the two
+  // downstream reasons freeze decoder_out differently.
+  assign stall = hazard || operand_stall || divider_stall || accessor_stall || fetch_stall;
 
   // ---- the next PC (ADR-0054) ---------------------------------------------
   //
@@ -857,8 +876,17 @@ module decoder (
       // Takes priority over a same-cycle hazard for the same reason — that
       // hazard is about the *next* instruction, which isn't decode's problem
       // yet since decoder_out hasn't advanced.
+      //
+      // It takes priority over a same-cycle `fetch_stall` too, and that is a
+      // ruling rather than a consequence of the arm order (ADR-0060). A steal
+      // says the window presented this cycle is not an instruction, so there is
+      // nothing to publish; a freeze says the instruction already sitting in
+      // decoder_out has not been consumed yet. Bubbling on the coincidence
+      // would drop that instruction, so holding wins. The `ifdef FORMAL` block
+      // at the bottom asserts it: the arm order is the only thing enforcing it,
+      // and reordering these two arms would otherwise be silent.
       out <= out;
-    end else if (hazard || operand_stall) begin
+    end else if (hazard || operand_stall || fetch_stall) begin
       // ADR-0009: upstream of the stalling stage freezes — the PC (and so
       // the fetch window) holds, so the stalled instruction re-presents next
       // cycle. ADR-0042's operand-fetch cycle shares this arm exactly: holding
@@ -1154,6 +1182,22 @@ module decoder (
 
   // ADR-0009: a stalled cycle never advances pc.
   always_ff @(posedge clk) if (clocked && prev_stall && !prev_reset) assert(pc == past_pc);
+
+  // ADR-0060: a steal and a divider/accessor freeze on the same cycle hold
+  // decoder_out; a steal on its own bubbles it. Both directions are asserted,
+  // because the publish block's arm order is all that decides which happens and
+  // each failure is silent -- bubbling on the coincidence drops an instruction
+  // nothing downstream has consumed, and holding on a plain steal republishes
+  // one the executor reads every cycle.
+  decoder_output past_out;
+  logic prev_hold_and_steal, prev_steal_only;
+  always_ff @(posedge clk) begin
+    past_out            <= out;
+    prev_hold_and_steal <= fetch_stall && (divider_stall || accessor_stall);
+    prev_steal_only     <= fetch_stall && !divider_stall && !accessor_stall;
+  end
+  always_comb if (clocked && !prev_reset && prev_hold_and_steal) assert(out == past_out);
+  always_comb if (clocked && !prev_reset && prev_steal_only)     assert(out == '0);
 
   // ADR-0054: the contract the instruction memory rests on -- what this module
   // publishes as `next_pc` in cycle N is what `pc` holds in cycle N+1. One

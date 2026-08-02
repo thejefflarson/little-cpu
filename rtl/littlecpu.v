@@ -24,10 +24,22 @@ module littlecpu(
   // directly -- which is exactly what formal/wrapper.v does, so the riscv-formal
   // ladder sees this change as one extra, unread output port.
   output logic [31:0] imem_addr_next,
+  // ADR-0059: the fetch and data buses share one address space and the
+  // instruction memory owns the arbitration between them. `mem_ren` is what
+  // tells a real load from the idle bus, which presents address 0 -- inside the
+  // text range, so without it every idle cycle would steal a fetch.
+  // `fetch_stall` comes back high for the cycle whose fetch window a data
+  // access took, and is the sixth stall reason (CLAUDE.md invariant 8).
+  //
+  // A memory that cannot steal -- the formal environments answer `imem_data`
+  // freely, and any Harvard consumer -- ties `fetch_stall` low and leaves
+  // `mem_ren` unread.
   output logic [31:0] mem_addr,
   output logic [31:0] mem_wdata,
   output logic [3:0]  mem_wstrb,
+  output logic        mem_ren,
   input  logic [31:0] mem_rdata,
+  input  logic        fetch_stall,
   output logic trap
   `ifdef RISCV_FORMAL
   ,
@@ -167,6 +179,7 @@ module littlecpu(
     .executor_out(executor_out),
     .divider_stall(divider_stalled),
     .accessor_stall(accessor_stalled),
+    .fetch_stall(fetch_stall),
     .accessor_pending_valid(accessor_pending_valid),
     .accessor_pending_rd(accessor_pending_rd),
     .accessor_out_valid(accessor_out_valid),
@@ -244,6 +257,7 @@ module littlecpu(
     .mem_addr(mem_addr),
     .mem_wstrb(mem_wstrb),
     .mem_wdata(mem_wdata),
+    .mem_ren(mem_ren),
     .mem_rdata(mem_rdata),
     .stalled(accessor_stalled),
     .pending_valid(accessor_pending_valid),
