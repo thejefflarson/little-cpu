@@ -225,7 +225,9 @@ intent is a decision, not a consequence, and closing a 6% gap means shortening t
 puts in one cycle, which is ADR-0038 decision 2's own test for "you are proposing to break invariant
 1 or invariant 6."
 
-`make soc-timing` therefore ratchets against **`SOC_MIN_MHZ = 10.5`**, a regression floor set *below*
+`make soc-timing` therefore ratchets against **`SOC_MIN_MHZ = 10.0`** (this line said 10.5 and the
+Makefile never did; corrected in [ADR-0056](0056-what-writable-text-costs-in-ladder-depth-and-in-nanoseconds.md),
+which measured a build at 9.98 MHz and watched the gate exit 2), a regression floor set *below*
 the measurement rather than at the intent. A gate pinned at 12 would be red on arrival, which is a
 gate nobody keeps; one pinned at 11.30 would be red on any resynthesis. Both directions are probed:
 `make soc-timing SOC_MIN_MHZ=99` exits nonzero naming the loop, and a nextpnr that produces no
