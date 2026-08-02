@@ -140,6 +140,26 @@ elaborated by CI's `elaborate` job (`.github/workflows/ci.yml` names the same ni
 `Makefile:286` does). The matrix marks these cells `n/a — untestable` rather than `missed` for
 exactly that reason.
 
+**Fifth, and the one that nearly put an invented finding at the top of this table: a `missed` cell
+is ambiguous, and nothing in the campaign's design resolved it.** `missed` means either
+
+- **(a)** no oracle watches this behaviour — a coverage gap, a finding; or
+- **(b)** the mutation changes nothing architecturally observable — an **equivalent mutant**,
+  evidence of nothing at all.
+
+The driver cannot tell these apart: it applies a diff, runs a command, reads an exit status. **A
+campaign that cannot distinguish them will manufacture blind spots**, which is worse than missing
+real ones, because it sends the next reader hunting for oracles that are not needed and erodes trust
+in the rows that *are* real.
+
+`H1` was such a mutant and it was written up as the most alarming row in the table before being
+caught. **The rule this ADR adopts: no `missed` cell is a finding until the mutant's architectural
+effect is named** — a register value, a memory word, a trap, a retire count, a PC — together with
+where in principle it could be seen. If no such effect can be named, the row is reclassified
+`equivalent` and contributes nothing. **Any mutant caught by at least one surface is observable by
+construction**, so the analysis is only needed for the caught-by-nothing rows; that is the whole of
+the "observability" section below.
+
 The distinction also tells you *whose* run you are looking at, which matters on a shared machine.
 `formal/checks/Makefile` — what `make -C formal check` drives — invokes `sby <name>.sby`, with no
 `-f` and no path, alongside GNU make's `--jobserver-helper`. Anything invoking `sby -f <path>` is
@@ -209,8 +229,11 @@ Commands, one per column:
 | proofs | `make -C formal components_decoder`, `_executor`, `_pcloop`, run serially |
 | ladder | `make -C formal checks` then `sby -f checks/<name>.sby` per generated check |
 
-`n/a — untestable` is not a synonym for `missed`: it marks a cell where the surface **cannot** reach
-the mutated file, so no amount of additional test material would change it.
+**Three verdicts are not `missed`, and the distinction is load-bearing.** `n/a — untestable` marks a
+cell where the surface **cannot** reach the mutated file, so no amount of additional test material
+would change it. `equivalent` marks a mutant with **no architectural effect at all** — every oracle
+is correct to miss it and the row is evidence of nothing (finding 3). Only `missed` on a mutant with
+a named architectural effect is a coverage gap.
 
 | mutant | class | what it breaks | `.S` suite | benches | co-sim | proofs | ladder |
 |---|---|---|---|---|---|---|---|
@@ -241,7 +264,7 @@ the mutated file, so no amount of additional test material would change it.
 | `G2` | decode-trap-fetch | a write to a read-only CSR is no longer illegal (ADR-0005 rule 2) | **caught** | **caught** | **caught** | missed | *not measured* |
 | `G3` | decode-trap-fetch | fetch window's second word comes from the wrong address (+8) | **caught** | missed | **caught** | missed | *not measured* |
 | `G4` | decode-trap-fetch | trap_epc records pc+4 instead of the faulting pc | **caught** | **caught** | **caught** | missed | *not measured* |
-| `H1` | retire-counters | x0 write no longer suppressed at writeback | missed | missed | missed | missed | missed |
+| `H1` | retire-counters | x0 write no longer suppressed at writeback | *equivalent* | *equivalent* | *equivalent* | *equivalent* | *equivalent* |
 | `H2` | retire-counters | minstret counts trapping issues too (ADR-0027 broken) | **caught** | **caught** | **caught** | **caught** | *not measured* |
 
 ## What the matrix says
@@ -259,34 +282,69 @@ single-cycle ALU ops, and `CTRL-2`'s `SRA` is simply not in its assertion set. I
 measured, because "the component proofs pass" is a sentence that reads like broad coverage and is
 not.
 
-**3. Four mutants are caught by NOTHING — all five surfaces, measured, not inferred.** `B2`, `F3`,
-`G1` and `H1` pass the 56 `.S` programs with the per-retire monitor live, the six unit benches,
-co-simulation against Sail, all three component proofs, **and all 85 ladder checks**. The ladder
-cell for each required the full 85 to run before `MISSED` could be recorded — `ran=85/85`, empty red
-set, at loads 6.0-8.1 (711.8 s, 736.3 s, 703.1 s, 715.4 s at `LADDER_P=2`; not comparable to the
-repo's 174-315 s `-j nproc` figures).
+**3. Observability: which caught-by-nothing rows are findings, and which is an equivalent mutant.**
+Applying the bar above to every row that no surface caught:
 
-**These are the most valuable rows in the table, and each is a class this repo's own documentation
-predicted by construction.** That the predictions were right is the point: they were written from
-reasoning about the oracles, and until now nobody had run the experiment.
+| mutant | architectural effect | verdict |
+|---|---|---|
+| `B2` | writes `0xdeadbeef` into RAM word `0x10F00`. `test/testbench.v:77-82` commits any in-range write with a set strobe, and `RAM_BASE + 0xF00` is in range (`RAM_BASE = 0x0001_0000`, `RAM_WORDS = 1024`). A real memory word differs, observable by any load from it | **GAP** |
+| `F3` | a CSR instruction issues one cycle early when a store is in the accessor, so `minstret` — which increments at issue — is read at a different count. The effect is the *value written to `rd`* by a `csrr minstret`, ordinary architectural register state | **GAP** (see the caveat below) |
+| `G1` | a misaligned `lh` completes instead of trapping: no `mcause = 4`, no redirect to `mtvec`, and `rd` takes a loaded value. A trap that should fire and does not | **GAP** |
+| `H1` | **none.** See below | **EQUIVALENT** |
 
-*(A fifth and sixth, `E1` and `E2`, are caught by nothing either — but for the different reason in
-finding 4, which is why they read `n/a — untestable` rather than `missed`.)*
+**`H1` is an equivalent mutant, not a blind spot, and this ADR nearly shipped it as its headline.**
+The mutation makes `rtl/writeback.v`'s `wen` high for instructions whose `rd` is `x0`. `wen` has
+exactly one consumer — `rtl/regfile.v`, via `rtl/littlecpu.v:242` — and two independent suppressions
+sit downstream of it, **neither touched by the mutation**:
 
-- **`B2` — a bus write nothing reads back and the RVFI report does not mention.** The brief named
-  this exactly: *a wrong store never loaded back is invisible to co-sim and to every `.S` test*.
-  Confirmed. `test/cosim.cc` compares the register trace; the monitor compares what RVFI *reports*,
-  and this mutant's extra write is absent from that report by construction.
-- **`F3` — the CSR drain predicate loses `accessor_out_valid`.** CLAUDE.md invariant 8(c) says
-  removing it gives "a `minstret` that is wrong only when a store happens to be in flight." The
-  suite, the benches and co-sim all pass. The invariant's own note is the only thing that knew.
-- **`G1` — halfword load misalignment stops being detected.** A trap that should fire and does not,
-  invisible to every simulation surface: no `.S` program performs a misaligned `lh`, so nothing
-  notices the trap is gone.
-- **`H1` — the `x0` write is no longer suppressed at writeback.** `rtl/regfile.v` suppresses `x0`
-  independently (`if (wen && waddr != 5'd0)`), so this is a redundancy the simulation surfaces
-  cannot distinguish — a defence-in-depth line whose removal is only visible to a checker that
-  reasons about `wen` itself.
+```systemverilog
+if (wen && waddr != 5'd0) begin        // rtl/regfile.v:48 — the array write is
+  regs_a[waddr] <= wdata;              // still suppressed here, so regs_a[0]
+  regs_b[waddr] <= wdata;              // is never written at all
+end
+...
+reg_rs1 = (rs1 == 5'd0) ? 32'b0 : …    // rtl/regfile.v:66-67 — and x0 reads as
+reg_rs2 = (rs2 == 5'd0) ? 32'b0 : …    // zero unconditionally regardless
+```
+
+The only other effect is on `read_a`/`read_b`, whose contaminated value is masked by the same read
+path. **No architectural difference exists, so every oracle is *correct* to miss it** and "x0 write
+suppression is unchecked" would have been a false claim. The line is redundant with the regfile's
+own guard — a defence-in-depth fact worth knowing, and not a coverage gap. `make cosim-suite`
+agreeing 56/56 while comparing the real `regs_a` array is the empirical half of the same statement.
+
+**The `F3` caveat, stated rather than glossed:** its architectural effect is named and its
+observation point is named, but **no witness was constructed** — no program in the suite issues a
+`csrr minstret` with a store in flight, and this campaign did not write one. So `F3` is a gap
+under the bar above, but one degree weaker than `B2` and `G1`, whose effects follow from the
+memory model and the trap spec directly. Recorded as such rather than promoted.
+
+**4a. `insn_lh_ch0` passes a defect the `.S` suite catches in seconds.** Chasing `G1`'s ladder cell
+produced the campaign's sharpest single result. `formal/riscv-formal/checks/rvfi_insn_check.sv:198`
+does assert `spec_trap == trap`, and with `RISCV_FORMAL_ALIGNED_MEM` defined
+(`formal/checks.cfg:545`) `insn_lh`'s spec model does compute
+`spec_trap = ((addr & (2-1)) != 0) || !misa_ok` — so the check *should* catch `G1`. It does not. A
+liveness probe on the same check, in the style this ADR's catalog uses throughout:
+
+| | |
+|---|---|
+| change | `rtl/accessor.v`: `1'b0: out.rd_data <= {{16{mem_rdata[15]}}, mem_rdata[15:0]};` → `{16'b0, …}` — `lh` stops sign-extending |
+| command | `sby -f checks/insn_lh_ch0.sby` |
+| expected | red |
+| **measured** | **`PASS 0 10`** |
+| materiality control | the same tree under `./test/run_tests.sh` → `sh.S MONITOR-ERROR 105`, failure list does not match `test/EXPECTED_FAIL` |
+
+The mutation is unambiguously material — the `.S` suite catches it — and `insn_lh_ch0` is green
+against it, against `G1`, and on the unmutated core. **A check that is green in all three states is
+not distinguishing them.** All 70 `insn_*` checks run at one depth (`insn 15`, the whole `[depth]`
+entry), and the most likely explanation is that no `lh` retire is reachable within 15 steps on this
+pipeline — **but that is an inference, not a measurement**: proving it needs a `cover` statement
+inside riscv-formal's checker, which ADR-0031 puts out of bounds for this ticket. What is measured
+is the three PASSes and the materiality control.
+
+This is not a reason to raise `insn`'s depth (ADR-0025 — depths are derived, not tuned to make a
+result appear). It is a reason to audit per-check reachability across the `insn_*` family, which is
+its own ticket and is scoped in the Consequences below.
 
 **4. Three `rtl/` files are outside the simulator's dependency graph.** `rtl/littlesoc.v`,
 `rtl/memory.v` and `rtl/imemory.v` are not among `Makefile:286`'s nine sources, so `E1`/`E2`/`E3`
@@ -348,7 +406,7 @@ inventing a probe against a check that does not exist would be the same error as
 | a bus write nothing reads back, absent from the RVFI report | `B2` | memory comparison in co-simulation — ADR-0041's owed work — or an unbounded `dmemcheck` |
 | invariant 8(c): the CSR drain predicate's fourth slot | `F3` | a `minstret` assertion with a store in flight; no surface constructs that state |
 | a trap that should fire and does not, for an operation no program performs | `G1` | a directed `.S` program doing a misaligned `lh`, or a ladder check for it |
-| the `x0` write suppression at writeback, given `rtl/regfile.v` suppresses it too | `H1` | a checker reasoning about `wen` rather than about architectural state |
+| an `lh` retire reachable inside the `insn_*` depth | the `insn_lh_ch0` probe in finding 4a | per-check reachability evidence across the `insn_*` family; **not** a raised depth (ADR-0025) |
 | `rtl/littlesoc.v` | `E1` | any build that elaborates it — CI's `elaborate` job names nine files and this is not one |
 | `rtl/memory.v` beyond `mem_tb`'s two assertions | `E2` | ADR-0044's memory system, which replaces it |
 
