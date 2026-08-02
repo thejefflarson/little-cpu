@@ -59,6 +59,7 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0052](0052-m2-term-6-is-verified-and-the-fit-ratchet-gets-a-job.md) | M2 term 6 is verified against the gate's own run, and the fit ratchet gets a job | Accepted · closes 0037 term 6 as rewritten by 0050 |
 | [0053](0053-every-graded-comparison-carries-a-probe-of-its-red-direction.md) | Every graded comparison carries an executable probe of its own red direction | Accepted · extends 0035, 0033 |
 | [0054](0054-the-memory-system-and-the-first-real-timing-number.md) | The memory system, and the first real timing number | Accepted · the design 0044 called for; answers 0038 decision 2 |
+| [0055](0055-the-iverilog-leg-is-graded-in-ci-without-the-multi-program-runner.md) | The iverilog leg is graded in CI, without the multi-program runner | Accepted · closes part of the `make waves` bullet in CLAUDE.md's "what does not work" |
 
 0001–0007 came from the design brief
 ([`docs/ideas/finish-the-rewrite.md`](../ideas/finish-the-rewrite.md)). 0008–0011 came out of
