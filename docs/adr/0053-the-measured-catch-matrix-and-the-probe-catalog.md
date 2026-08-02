@@ -91,6 +91,16 @@ question *did this verdict depend on a wall clock?*:
 the matrix: verdicts are what a coverage map is made of, and times taken under contention are
 decoration that invites false comparison.
 
+**A worked example of why, because a wrong number nearly entered this ADR.** A ladder wall time of
+~46 minutes was reported during the campaign and was very nearly written down. It disagrees with
+every other measurement of the same command: CLAUDE.md records 310 s, CI has measured 174 s and
+217 s, and two independent runs this same day measured 287-315 s. The 46-minute figure was taken at
+load 48-65 and is a measurement of the contention, not of the ladder. **The rule this ADR adopts:
+any wall time recorded here is taken on a quiet machine and states the load average it was taken
+at**, and a timing that disagrees with the repo's existing figures by an order of magnitude is
+treated as a measurement of the environment until proven otherwise. A number with no load beside it
+is not a measurement of the thing it names.
+
 **Third, and the one worth carrying forward as a tooling fact: killing an `sby` does not kill its
 solver.** `sby` shells out to `btormc` (`bash -c 'cd <check>; btormc … model/design_btor.btor'`),
 and the solver is not in the killed process's tree in any way the kill reaches — so an interrupted
@@ -113,15 +123,25 @@ in a workdir reused from an earlier mutant, was a different mutant's core. `E1` 
 **caught by the `.S` suite and by co-simulation with all 56 programs red**, which is not a plausible
 signature for a change to a module the simulator never compiles.
 
-The ticket's own instruction covers this: *if a mutant appears to be caught by nothing including the
-controls, suspect your setup*. **The inverse deserves the same suspicion, and is easier to miss,
-because a wall of red reads as a working oracle.** The three cells were dropped rather than
-reinterpreted, the driver now deletes `test/rtl.cc`, `sim` and `cosim` before every simulator-based
-surface so the build always comes from the sources actually present, and the cells were re-measured.
+The brief's own instruction covers half of this: *if a mutant appears to be caught by nothing
+including the controls, suspect your setup*. **The inverse deserves identical suspicion and is
+easier to wave through, because a wall of red reads as a working oracle** — a green row invites the
+question "should something have caught this?", and a red row invites no question at all. That
+asymmetry is this repo's recurring failure mode stated in one line, and it is the more useful half
+of the rule. The six cells were dropped rather than reinterpreted, the driver now deletes
+`test/rtl.cc`, `sim` and `cosim` before every simulator-based surface so the build always comes from
+the sources actually present, and the cells were re-measured from a clean workdir.
 
-The underlying fact is not a harness quirk, it is **the coverage result for those three files**, and
-it is stronger than "no test exercises them": they are outside the simulator's dependency graph, so
-no `.S` program and no co-simulation run *can* exercise them, however many are added.
+**The underlying fact is not a harness quirk. It is the coverage result for those three files, and
+it is a stronger statement than "untested".** `rtl/littlesoc.v`, `rtl/memory.v` and `rtl/imemory.v`
+are **untestable by the `.S` suite and by co-simulation** — not merely unexercised by the programs
+that happen to exist. They are outside the simulator's dependency graph, so no `.S` program and no
+co-simulation run *can* reach them, however many are added. A reader who sees three `missed` cells
+and reaches for "write more tests" has misread the row: **more programs cannot close it.** Only
+putting those files on a build that an oracle observes can, and `rtl/littlesoc.v` is not even
+elaborated by CI's `elaborate` job (`.github/workflows/ci.yml` names the same nine files
+`Makefile:286` does). The matrix marks these cells `n/a — untestable` rather than `missed` for
+exactly that reason.
 
 The distinction also tells you *whose* run you are looking at, which matters on a shared machine.
 `formal/checks/Makefile` — what `make -C formal check` drives — invokes `sby <name>.sby`, with no
