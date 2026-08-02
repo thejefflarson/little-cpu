@@ -18,8 +18,8 @@
 # counterexamples; `sby` then failed to render the traces, because the step
 # that does so shells out to `btorsim`. "A real counterexample at the
 # configured depth" and "the trace renderer is missing" were the same result.
-# The failure mode that matters is the inverse: if `btorsim` vanished from the
-# nightly's pinned OSS CAD Suite, every red check would flip FAIL -> ERROR,
+# The failure mode that matters is the inverse: if `btorsim` vanished from CI's
+# pinned OSS CAD Suite, every red check would flip FAIL -> ERROR,
 # the set equality would still match, and the ladder would stay green having
 # stopped distinguishing a proof failure from a tooling failure. Same shape as
 # ADR-0033's gaps -- a check that can stop checking without anything going red

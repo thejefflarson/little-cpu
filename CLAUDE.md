@@ -246,12 +246,16 @@ the failure this section exists to prevent, so they stay as markers rather than 
 - **Three things this repo treats as gates are reached by no automation, and one of them computes a
   verdict nothing reads.** Found by reading `Makefile`, `formal/Makefile`, both workflows and
   `test/run_tests.sh` end to end; the four-column inventory that came out of it lives in the pull
-  request that added this bullet and is destined for the coverage-map ADR. (1) **`make fit` is a
-  ratchet nothing pulls.** The ratchet works — `make fit FIT_MAX_LC=4200` against today's 4236-cell
-  tree exits **2** with "4236 logic cells is over the 4200-cell budget" — but
-  `grep -rn fit .github/workflows/` returns two prose matches about runner memory and **no
-  invocation of `make fit`**, so nothing but a human has ever pulled it. Run it by hand on anything
-  that touches `rtl/`. (2) **`make waves` grades nothing.** It runs the full pipeline under iverilog
+  request that added this bullet and is destined for the coverage-map ADR. (1) ~~**`make fit` is a
+  ratchet nothing pulls**~~ — **fixed: it is a job now** (ADR-0052). `ci.yml`'s `fit` job runs it on
+  every PR, **non-required on purpose** — area is a design constraint, not a correctness one, and
+  branch protection is human-only (ADR-0036). The re-measurement that came with it is the part to
+  carry: **4187 logic cells / 79%**, not the 4236 this file had quoted since ADR-0042. The 49-cell
+  gap is *inside* the ±50 churn floor recorded under Pointers, so it is a re-measurement and **not**
+  evidence of a real reduction — which is exactly what that floor is for. Probes, both run:
+  `make fit FIT_MAX_LC=4100` exits **2** ("4187 logic cells is over the 4100-cell budget"), and a
+  nextpnr that prints no utilisation table exits **1** rather than reporting a 0% fit.
+  (2) **`make waves` grades nothing.** It runs the full pipeline under iverilog
   with the per-retire monitor live, but `ch0_handle_error` only `$display`s and sets `errcode` —
   there is not one `$fatal`, `$finish` or `$stop` in `test/monitor.v` or `test/monitor.sim.v` — and
   on the iverilog leg nothing turns `errcode` into an exit status (`test/testbench.v:55-60` says so
@@ -490,13 +494,15 @@ read off each `sby` summary, not inferred from a green job. See ADR-0017 for wha
 does and does not establish, and ADR-0046 for what `pcloop` discharges). `make waves`
 now runs the iverilog leg (`testbench.vvp`) instead of the cxxrtl runner, matching the verification
 table below, and produces a real `waves.vcd` — **but it grades nothing**; see the first bullet under
-"what does not work" above. CI (`.github/workflows/ci.yml`) runs **seven** jobs on every PR:
-elaborate, test, components, lint, nonperturbation, monitor-freshness and formal — the last of
-which also carries `complete` and `complete_cover` as hard gates (M2 term 5). **Six of the seven
+"what does not work" above. CI (`.github/workflows/ci.yml`) runs **eight** jobs on every PR:
+elaborate, test, components, lint, fit, nonperturbation, monitor-freshness and formal — the last of
+which also carries `complete` and `complete_cover` as hard gates (M2 term 5). **Six of the eight
 are required** — `elaborate`, `test`, `components`, `monitor-freshness`, `lint`, `formal`, read live
 from `gh api repos/thejefflarson/little-cpu/branches/main/protection -q
 '.required_status_checks.contexts'` rather than from any comment in the workflow — and
-`nonperturbation` is the one that runs without gating. This line named four jobs and stopped there
+`nonperturbation` and `fit` are the two that run without gating, both deliberately (ADR-0047,
+ADR-0052). **There is no `continue-on-error` anywhere in the file**, in any job: the `formal` job
+carried the last one until ADR-0052 struck it. This line named four jobs and stopped there
 until the gate inventory; `lint` and `formal` had both been promoted to required in the meantime,
 and `ci.yml`'s own comments still said otherwise.
 
@@ -655,11 +661,12 @@ make fit            # the ONE area number: nextpnr logic cells on up5k/sg48 (ADR
                     # Placement always fails (231 SB_IO vs 39) and that is expected --
                     # the utilisation table printed before placement is the measurement.
                     # A RATCHET as of ADR-0042: over FIT_MAX_LC (4400) exits nonzero.
-                    # RATCHET DECLARED, NEVER PULLED: no workflow runs this, so the
-                    # only thing that has ever enforced it is a human typing it. The
-                    # mechanism itself is live -- `make fit FIT_MAX_LC=4200` on the
-                    # 4236-cell tree exits 2 -- so this is an unrun gate, not a
-                    # broken one. Run it by hand on anything that touches rtl/.
+                    # 4187 cells / 79% as of ADR-0052 (re-measured; this said 4236,
+                    # which is inside the +/-50 churn floor, so the delta is noise
+                    # and not a saving). ON CI as of ADR-0052, in the `fit` job,
+                    # NON-REQUIRED on purpose -- area is a design constraint, not a
+                    # correctness one, and adding it to branch protection is a human
+                    # action. Probe: `make fit FIT_MAX_LC=4100` exits 2.
 
 make -C formal components_decoder   # component proofs. THREE tasks, all with real assertions:
 make -C formal components_executor  # decoder, executor, pcloop -- the assertion-free fetcher /
@@ -867,11 +874,25 @@ term 6 is open.** Read each term's own text, not this sentence:
    by declaration to the two excluded classes — `formal/complete_cover.sby` is what makes "the
    assertion was live, class by class" measured rather than assumed (twelve cover goals, all
    reached).
-6. **Every check the repo owns is on a gate that can fail, and that gate is green** (ADR-0050,
-   rewriting this term after deleting the nightly). The ladder, `imemcheck`, `dmemcheck` and
-   `cover` are steps of the **required** `formal` job whose exit status is the job's, with no
-   `continue-on-error` anywhere in it; `complete` joins them when term 5's exclusion set lands. No
-   graded command sits in a pipeline in a `run:` block.
+6. ~~**Every check the repo owns is on a gate that can fail, and that gate is green**~~ — **MET at
+   ADR-0052, and it took one code change to get there because the term was not met when it was
+   written.** ADR-0050 wrote "with no `continue-on-error` anywhere in it" and the `formal` job
+   **had one**, on the step that runs the ladder — surviving on the reasoning that the step's status
+   "is not the signal". It is: `formal/Makefile`'s `check` puts a leading `-` on the sby sub-make and
+   then ends in `check-baseline`, so that command's exit status already *was* the comparison's. What
+   the suppression bought was that generation aborting, or the audit script dying, reached the
+   summary as a green step. It is gone; the gate step below it runs on `!cancelled()` so the report
+   still lands. **`grep -c continue-on-error .github/workflows/*.yml` is now 0 in every file.**
+   The evidence, all on the **gate's own run** rather than a local one:
+   the required `formal` job green on merged main (`d2e736e`, run `30724575535`), **per step** —
+   ladder 85/85 with *both* set equalities matching in both directions, `imemcheck` PASS,
+   `dmemcheck` PASS, `cover` PASS, `complete` PASS, `complete_cover` PASS — **4m22s against a
+   20-minute timeout**. The three memory checks were one step until ADR-0052 split them, because
+   `make` stops at the first failure and a shared step cannot record three outcomes.
+   **What it does NOT cover, stated rather than assumed**: ADR-0050's concrete clause is the formal
+   checks, and `make cosim-suite` (deliberately off every gate, ADR-0032) and `make waves` (grades
+   nothing, and `testbench.vvp` is elaborated by CI and executed by nothing) are both outside it.
+   Neither is a regression this term introduced; both are recorded under "what does not work".
    **The intent never changed** — the ladder's verdict must be observed by something automated that
    can fail — and a required PR check is a strictly stronger instrument than a job ADR-0022 itself
    described as not gating merges. **This is the third move of an M2 criterion**, and ADR-0045 said
@@ -930,9 +951,12 @@ longer quietly widen.
 
 - Design brief: [`docs/ideas/finish-the-rewrite.md`](docs/ideas/finish-the-rewrite.md)
 - Area/fit brief: [`docs/ideas/fit-the-core-on-the-up5k.md`](docs/ideas/fit-the-core-on-the-up5k.md) —
-  **the core's logic now fits: 4236/5280 logic cells, 80%**, down from 6971/132%, which the
-  synchronous-read regfile achieves on its own (ADR-0042). `make fit` is a ratchet against
-  `FIT_MAX_LC`. **The design still does not place**, and that is expected and unrelated to logic:
+  **the core's logic now fits: 4187/5280 logic cells, 79%**, down from 6971/132%, which the
+  synchronous-read regfile achieves on its own (ADR-0042). **Re-measured at ADR-0052**; this line
+  said 4236 from ADR-0042 until then, and the 49-cell gap is inside the ±50 churn floor below —
+  a re-measurement, not a saving, and the reason to state the number with the commit it was taken
+  at. `make fit` is a ratchet against `FIT_MAX_LC`, and as of ADR-0052 it is a **non-required CI
+  job** rather than a ratchet only a human pulls. **The design still does not place**, and that is expected and unrelated to logic:
   the fit top presents **231 `SB_IO` against sg48's 39**, so nextpnr always fails on a pad. A
   placing design needs a real pinout, which means the SoC memory system, which ADR-0038 decision 1a
   puts out of scope. Read ADR-0038 before quoting any area number: yosys cell counts are blind to
@@ -955,10 +979,12 @@ longer quietly widen.
   rejected the shifter merge at 19 cells *saved* on legibility grounds, and accepting a hygiene
   change at 37 cells *spent* would cut against that ruling. Read this before proposing the
   narrowing again — it is measured and declined, not overlooked.
-- Decisions: [`docs/adr/`](docs/adr/) — **forty-eight ADRs, forty-seven of them accepted**, plus a
-  deferred list. Re-derived by counting: `ls docs/adr/*.md | wc -l` is 49, one of which is
+- Decisions: [`docs/adr/`](docs/adr/) — **fifty-two ADRs, fifty-one of them accepted**, plus a
+  deferred list. Re-derived by counting: `ls docs/adr/*.md | wc -l` is 53, one of which is
   `README.md`, and the status column in that README carries exactly one non-accepted entry
-  (ADR-0016, superseded by ADR-0018). This line said "forty-five accepted" and was two behind.
+  (ADR-0016, superseded by ADR-0018). This line has now been behind twice — it said "forty-five
+  accepted" and then "forty-seven" — so **re-derive it with the two commands rather than
+  incrementing it**, which is what missed ADR-0049 through ADR-0051 in one go.
 - Reference text from the old core: `git show 1709433^:rtl/riscv.v` (RVFI retire block),
   `git show e67875c^:rtl/alu.v` (arithmetic)
 - Work is tracked in Linear, project **Little CPU** (team JEF). Named here so you know where the

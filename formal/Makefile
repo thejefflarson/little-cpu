@@ -70,8 +70,9 @@ check: checks $(RISCV_FORMAL_DIR)
 # (which checks exist) and EXPECTED_FAIL (which of them are red). Split out
 # as its own target so a ladder that has already run can be re-graded in a
 # second without re-running it, and so a local `make check` is gated by the
-# same script the nightly grades with rather than by sby's suppressed exit
-# code (ADR-0022, ADR-0033).
+# same script CI grades with rather than by sby's suppressed exit code
+# (ADR-0022, ADR-0033). That script is reached from `.github/workflows/ci.yml`'s
+# `formal` job, which is required; there is no nightly (ADR-0050).
 .PHONY: check-baseline
 check-baseline: check-baseline.sh EXPECTED_FAIL EXPECTED_CHECKS
 	./check-baseline.sh checks EXPECTED_FAIL EXPECTED_CHECKS

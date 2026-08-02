@@ -73,6 +73,11 @@ Four corrections to the body:
 > change was accepted, `hang` and `liveness_ch0` went green with it, and the shipping numbers are
 > **4236 logic cells / 80%** at **+18.0%** suite cycles — better than the +27.8% below, because the
 > stall was gated on `uses_rs1`/`uses_rs2` after this was written.
+>
+> **The cell count is a measurement of ADR-0042's tree, not of `main`.** It is **4187 / 79%** as of
+> ADR-0052, which also put `make fit` on CI as a non-required job. Take the current number from
+> `make fit`, never from a document — the two differ by 49 cells here, which is inside the ±50
+> churn floor CLAUDE.md records, and nobody set out to save them.
 
 
 The root constraint is that an **ice40 EBR read is synchronous** while **invariant 6 requires a

@@ -634,17 +634,21 @@ fit.json: $(FIT_SRCS)
 # THE RATCHET (ADR-0042). `make fit` was report-only while the core did not
 # fit at all; it does now, and a number nothing defends drifts back.
 #
-# WHY THE BUDGET IS NOT THE MEASUREMENT. `littlecpu` measures 4236 logic cells
-# as this lands. The budget is deliberately looser than that, because the
-# measurement is not stable to the cell: edits that synthesise to identical
-# hardware -- renaming a wire, reordering two independent assignments, hoisting
-# a struct field into a named signal -- move it by tens of cells, since ABC's
-# result depends on the order it sees the netlist in. A ratchet pinned to 4236
-# would go red on changes that alter nothing, and the only way to clear it
-# would be to raise the number, which is how a ratchet becomes a rubber stamp.
+# WHY THE BUDGET IS NOT THE MEASUREMENT. `littlecpu` measures 4187 logic cells
+# at ADR-0052 (it was 4236 at ADR-0042, and the 49-cell gap is inside the
+# churn floor described below -- a re-measurement, not a saving; quote the
+# number with the commit it was taken at). The budget is looser than that,
+# because the measurement is not stable to the cell: edits that synthesise to
+# identical hardware -- renaming a wire, reordering two independent
+# assignments, hoisting a struct field into a named signal -- move it by tens
+# of cells, since ABC's result depends on the order it sees the netlist in. A
+# ratchet pinned to the measurement of the day would go red on changes that
+# alter nothing, and the only way to clear it would be to raise the number,
+# which is how a ratchet becomes a rubber stamp. The 4236 -> 4187 drift is
+# itself an instance: nobody set out to save those cells.
 #
-# 4400 is 164 cells of headroom, about 3.9% of the measurement and more than
-# three times the observed noise band. A change that trips it has grown the
+# 4400 is 213 cells of headroom, about 5.1% of the measurement and more than
+# four times the observed noise band. A change that trips it has grown the
 # core by more than any resynthesis artifact can account for, and the right
 # response is to find out why -- not to edit this line. Lowering it after a
 # real reduction is always welcome; raising it needs a reason in the commit
