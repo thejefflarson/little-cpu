@@ -100,9 +100,12 @@ Each future text access costs 2 cycles: one steal bubble, and one `operand_stall
 because the garbage window perturbs `prev_rs1`/`prev_rs2`. That is per trap handled or per
 word loaded. Invisible in aggregate.
 
-For reference, measured cycles per instruction on the current design:
+For reference, the measured issue rate on the current design. Every instruction passes
+through all four registered stages — decode, execute, access, writeback — so the *latency*
+of any one instruction is about 4 cycles. The stages overlap, so what sets runtime is how
+often decode can start a new instruction, and that is what this table measures.
 
-| instruction | cycles |
+| instruction | cycles between issues |
 |---|---|
 | `lui`, `auipc`, `jal` | 1 |
 | ALU, branches, `jalr`, stores | 2 |
@@ -110,6 +113,11 @@ For reference, measured cycles per instruction on the current design:
 | loads | 3 |
 | `div`, `rem` family | ~34 |
 | `csr*`, `mret` | 2 + drain |
+
+The limiter is decode, not the stage count. `operand_stall` makes it present the register
+addresses one cycle and issue the next, so it emits at most one instruction every two
+cycles. `lui`/`auipc`/`jal` use no registers, skip the present cycle, and issue back to
+back — which is why whole-program CPI comes in under 2.
 
 Whole-program CPI runs 1.78 (`beq.S`) to 4.57 (`div.S`), baseline around 1.8. Almost all
 of that baseline is `operand_stall` — the synchronous regfile from ADR-0042. This proposal
