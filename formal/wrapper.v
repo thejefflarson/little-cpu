@@ -27,6 +27,14 @@ module rvfi_wrapper (
 
   (* keep *) logic [31:0] imem_addr;
   (* keep *) logic [31:0] imem_addr2;
+  // ADR-0054: the fetch address one cycle early, for a synchronous memory.
+  // UNREAD BY THIS ENVIRONMENT, deliberately: `imem_data` is a free
+  // `rvformal_rand_reg` answered against `imem_addr` in the same cycle, so the
+  // whole ladder still sees the combinational fetch bus invariant 1 describes.
+  // What the shipping SoC does with this port (rtl/littlesoc.v) is therefore
+  // outside the ladder's contact, which is stated in ADR-0054 rather than left
+  // to be discovered.
+  (* keep *) logic [31:0] imem_addr_next;
   (* keep *) logic [31:0] mem_addr;
   (* keep *) logic [31:0] mem_wdata;
   (* keep *) logic [3:0]  mem_wstrb;
@@ -107,6 +115,7 @@ module rvfi_wrapper (
     .imem_data(imem_data),
     .imem_addr2(imem_addr2),
     .imem_data2(imem_data2),
+    .imem_addr_next(imem_addr_next),
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),

@@ -10,6 +10,20 @@ module fetcher(
   input  logic [31:0] imem_data,
   output logic [31:0] imem_addr2,
   input  logic [31:0] imem_data2,
+  // ADR-0054: the same two fetch addresses, one cycle early. `next_pc` is the
+  // decoder's combinational next-PC (rtl/decoder.v), so `imem_addr_next` is by
+  // construction the value `imem_addr` takes on the next edge. A synchronous
+  // memory that latches it therefore answers `imem_addr` for the whole of the
+  // cycle in which `imem_addr` names that word -- which is what lets fetch stay
+  // combinational from decode's point of view (CLAUDE.md invariant 1) on a part
+  // whose every memory primitive is synchronous (ADR-0044).
+  //
+  // Only the first word address is published. The second is `+ 4`, which the
+  // memory system already has to compute for its own bank indexing, and adding
+  // a 32-bit incrementer to this module's port list to hand over a value the
+  // consumer derives anyway is area spent on nothing.
+  input  logic [31:0] next_pc,
+  output logic [31:0] imem_addr_next,
   // outputs
   output fetcher_output out
 );
@@ -22,6 +36,7 @@ module fetcher(
   // FSM, no buffer, no stall (CLAUDE.md invariant 1).
   assign imem_addr  = {pc[31:2], 2'b00};
   assign imem_addr2 = imem_addr + 4;
+  assign imem_addr_next = {next_pc[31:2], 2'b00};
 
   // Named continuous assigns, not part-selects inside the always_comb below
   // (CLAUDE.md's documented `sorry:` exception is rtl/executor.v only).

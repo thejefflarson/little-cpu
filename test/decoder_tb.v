@@ -41,6 +41,11 @@ module decoder_tb;
   fetcher_output in;
   logic [31:0] reg_rs1, reg_rs2;
   logic [31:0] pc;
+  // ADR-0054: the combinational next PC, which the instruction memory latches
+  // a cycle early. Checked directly below -- the registered `pc` this bench
+  // already reads is the same value one edge later, so a bench that only
+  // watched `pc` would pass on a `next_pc` that had stopped matching it.
+  logic [31:0] next_pc;
   logic [4:0] rs1, rs2;
   decoder_output out;
   // No in-flight producer at the executor stage and no divide in progress:
@@ -89,6 +94,7 @@ module decoder_tb;
     .mtvec(mtvec),
     .mepc(mepc),
     .pc(pc),
+    .next_pc(next_pc),
     .rs1(rs1),
     .rs2(rs2),
     .csr_addr(csr_addr),
@@ -122,6 +128,29 @@ module decoder_tb;
       end
     end
   endtask
+
+  // ADR-0054: `next_pc` is the value `pc` takes on the next edge, and the
+  // instruction memory latches its address off it a cycle early
+  // (rtl/littlesoc.v). This runs on EVERY edge this bench takes rather than in
+  // one directed vector, because the thing it guards against -- a later edit
+  // that gives `pc` a driver `next_pc` does not account for -- would show up on
+  // some instructions and not others. Every redirect the vectors below exercise
+  // (branches, jal/jalr, mret, trap entry) is therefore covered by it.
+  //
+  // Both signals are read in the active region at the edge, so `pc` is still
+  // its pre-edge value and `next_pc` is the combinational value that produced
+  // it -- which is exactly the pair this compares one cycle apart. The bench
+  // moves stimulus at `#1` after each edge, so nothing is racing here.
+  logic [31:0] prev_next_pc;
+  logic        prev_next_pc_valid = 1'b0;
+  always @(posedge clk) begin
+    if (prev_next_pc_valid && pc !== prev_next_pc) begin
+      $display("MISMATCH next_pc predicted %08x but pc became %08x", prev_next_pc, pc);
+      errors++;
+    end
+    prev_next_pc <= next_pc;
+    prev_next_pc_valid <= 1'b1;
+  end
 
   // ADR-0042: spend the operand-fetch cycle. On entry `in.instr` has just
   // changed, so rtl/decoder.v's `operand_stall` is high and this edge bubbles

@@ -12,6 +12,18 @@ module littlecpu(
   // FSM, no stall.
   output logic [31:0] imem_addr2,
   input  logic [31:0] imem_data2,
+  // ADR-0054: the value `imem_addr` will take on the next edge, published
+  // combinationally this cycle so a SYNCHRONOUS instruction memory can latch
+  // it and have `imem_data`/`imem_data2` ready for the whole of the cycle that
+  // needs them. Every memory primitive on the target part is synchronous
+  // (ADR-0044); this port is what keeps invariant 1 intact against that fact
+  // without a fetch buffer, a stall or a flush.
+  //
+  // A memory that is genuinely combinational (test benches, the formal
+  // environment) may leave it unread and drive `imem_data` off `imem_addr`
+  // directly -- which is exactly what formal/wrapper.v does, so the riscv-formal
+  // ladder sees this change as one extra, unread output port.
+  output logic [31:0] imem_addr_next,
   output logic [31:0] mem_addr,
   output logic [31:0] mem_wdata,
   output logic [3:0]  mem_wstrb,
@@ -90,18 +102,24 @@ module littlecpu(
   logic decoder_trap_entry;
   assign trap = decoder_trap_entry;
   logic  [31:0] pc;
+  // ADR-0054: decode owns the PC, so decode is where the NEXT one is known.
+  // Declared here, ahead of both instantiations, because the fetcher reads it
+  // and the decoder drives it; iverilog requires declare-before-use.
+  logic  [31:0] next_pc;
   fetcher_output fetcher_out;
   fetcher fetcher(
     .clk(clk),
     .reset(reset),
     // inputs
     .pc(pc),
+    .next_pc(next_pc),
     .imem_data(imem_data),
     .imem_data2(imem_data2),
     // outputs
     .out(fetcher_out),
     .imem_addr(imem_addr),
-    .imem_addr2(imem_addr2)
+    .imem_addr2(imem_addr2),
+    .imem_addr_next(imem_addr_next)
   );
 
   logic [31:0] reg_rs1, reg_rs2, wdata;
@@ -163,6 +181,7 @@ module littlecpu(
    `endif
     // outputs
     .pc(pc),
+    .next_pc(next_pc),
     .rs1(rs1),
     .rs2(rs2),
     .csr_addr(csr_addr),

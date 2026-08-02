@@ -35,6 +35,11 @@ module testbench (
   // above -- unconstrained, no assumes.
   logic [31:0] imem_addr2;
   logic [31:0] imem_data2;
+  // ADR-0054: the fetch address one cycle early, for a synchronous memory.
+  // Unread here for the same reason as the pair above: this task is about the
+  // data bus. Connected rather than left dangling so every instantiation of the
+  // core names every port.
+  logic [31:0] imem_addr_next;
   logic [31:0] mem_addr;
   logic [31:0] mem_wdata;
   logic [3:0]  mem_wstrb;
@@ -117,6 +122,7 @@ module testbench (
     .imem_data(imem_data),
     .imem_addr2(imem_addr2),
     .imem_data2(imem_data2),
+    .imem_addr_next(imem_addr_next),
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),

@@ -42,6 +42,18 @@ module decoder (
   input  logic       accessor_out_valid,
   // outputs
   output logic [31:0] pc,
+  // ADR-0054: the value `pc` will hold NEXT cycle, published combinationally
+  // this cycle. A synchronous instruction memory latches its address off this
+  // on the same edge `pc` takes it, so its data is available for the whole of
+  // the cycle in which `pc` names that address -- which is how fetch stays
+  // combinational from decode's point of view (CLAUDE.md invariant 1) on a
+  // part with no combinational-read memory primitive (ADR-0044).
+  //
+  // Nothing speculative rides on it: it is the same value, computed by the
+  // same expression, that the register below takes. `formal/pcloop.sv` and the
+  // `ifdef FORMAL` block at the bottom of this file both assert that
+  // relationship rather than leaving it to be read off the code.
+  output logic [31:0] next_pc,
   // rs1 and rs2 are synchronous outputs
   output logic [4:0] rs1,
   output logic [4:0] rs2,
@@ -717,6 +729,70 @@ module decoder (
   // for why the two downstream reasons freeze decoder_out differently.
   assign stall = hazard || operand_stall || divider_stall || accessor_stall;
 
+  // ---- the next PC (ADR-0054) ---------------------------------------------
+  //
+  // Every redirect in this module used to be a `pc <= ...` inside the publish
+  // block below -- one per arm, with Verilog's last-non-blocking-write-wins
+  // giving the priority order. The order is unchanged and is written out here
+  // as a priority chain; what changed is that the value is now NAMED before the
+  // edge instead of existing only after it, because the instruction memory
+  // needs it a cycle early (see the `next_pc` port comment above).
+  //
+  // Two consequences worth stating, because both remove a class of edit that
+  // used to be silent:
+  //
+  //   * the three stall arms below each said `pc <= pc` separately; `stall` is
+  //     exactly their disjunction, so there is now one statement of "a stalled
+  //     cycle does not advance the PC" (ADR-0009) rather than three;
+  //   * `out.rvfi.pc_wdata` is assigned from this signal, once. It used to be
+  //     re-derived at every redirect site, by hand, in lockstep with the `pc`
+  //     assignment beside it -- and decode owns the PC (CLAUDE.md invariant 1),
+  //     so those two disagreeing would have been a core that reported one
+  //     target to RVFI and took another.
+  //
+  // The branch comparisons are broken out into `branch_taken` rather than left
+  // as ternaries so that each one is a self-determined relational expression
+  // with both operands explicitly `$signed`. CLAUDE.md's rule about signed
+  // arithmetic inside a conditional arm is about reference models, but the
+  // shape is the same one that has caught this repo twice.
+  logic branch_taken;
+  always_comb begin
+    (* parallel_case *)
+    case (1'b1)
+      instr_beq:  branch_taken = reg_rs1 == reg_rs2;
+      instr_bne:  branch_taken = reg_rs1 != reg_rs2;
+      instr_blt:  branch_taken = $signed(reg_rs1) <  $signed(reg_rs2);
+      instr_bge:  branch_taken = $signed(reg_rs1) >= $signed(reg_rs2);
+      instr_bltu: branch_taken = reg_rs1 <  reg_rs2;
+      instr_bgeu: branch_taken = reg_rs1 >= reg_rs2;
+      default:    branch_taken = 1'b0;
+    endcase
+  end
+
+  // Deliberately NOT `(* parallel_case *)`: this IS a priority encoder, and
+  // its order is the order the publish block's overlapping `pc <=` writes used
+  // to impose. Claiming one-hot here would be a lie to synthesis -- `stall` and
+  // `trap_pending` can and do co-occur.
+  always_comb begin
+    case (1'b1)
+      // Reset forces the PC to 0 rather than advancing it.
+      reset:                     next_pc = 32'b0;
+      // ADR-0009: any stall reason freezes the PC, so the stalled instruction
+      // re-presents next cycle. There is no flush and nothing to flush.
+      stall:                     next_pc = pc;
+      // ADR-0028/ADR-0030: a trap is a branch, and it outranks every other
+      // redirect -- it was the last `pc <=` in the publish block for exactly
+      // this reason.
+      trap_pending:              next_pc = mtvec;
+      instr_mret:                next_pc = mepc;
+      instr_jalr:                next_pc = ($signed(immediate) + $signed(reg_rs1)) & 32'hfffffffe;
+      instr_jal:                 next_pc = $signed(fetcher_pc) + $signed(immediate);
+      branch_taken:              next_pc = fetcher_pc + immediate;
+      // Sequential: +4 for a 32-bit instruction, +2 for a compressed one.
+      default:                   next_pc = fetcher_pc + pc_inc;
+    endcase
+  end
+
   // The one cycle an instruction actually issues: the publish block's `else`
   // arm below runs on exactly these edges, so everything that commits
   // architectural state OUTSIDE the pipeline registers -- the CSR write and
@@ -756,11 +832,14 @@ module decoder (
   // `mret` is not a trap, so it commits on the ordinary non-trapping path.
   assign mret_entry = committing && instr_mret;
 
+  // The PC register, and the whole of it: every redirect this core takes is
+  // already resolved into `next_pc` above (ADR-0054).
+  always_ff @(posedge clk) pc <= next_pc;
+
   // publish the decoded results
   always_ff @(posedge clk) begin
     if (reset) begin
-      // zero out the pc and bubble the output
-      pc <= 0;
+      // bubble the output
       out <= '0;
     end else if (divider_stall || accessor_stall) begin
       // ADR-0009: PC holds like any other freeze, but decoder_out must hold
@@ -778,7 +857,7 @@ module decoder (
       // Takes priority over a same-cycle hazard for the same reason — that
       // hazard is about the *next* instruction, which isn't decode's problem
       // yet since decoder_out hasn't advanced.
-      pc <= pc;
+      out <= out;
     end else if (hazard || operand_stall) begin
       // ADR-0009: upstream of the stalling stage freezes — the PC (and so
       // the fetch window) holds, so the stalled instruction re-presents next
@@ -789,7 +868,6 @@ module decoder (
       // above, nothing stops the executor from reading `in` every cycle here,
       // so holding decoder_out unchanged would have it reprocess the same
       // instruction repeatedly instead of retrying the *hazarded* one.
-      pc <= pc;
       out <= '0;
     end else begin
       // THIS ARM IS THE ONE CYCLE AN INSTRUCTION ISSUES, and every trap is
@@ -809,8 +887,8 @@ module decoder (
       //     Narrow `uses_rs1` to exclude a memory op and misalignment
       //     detection silently starts reading the wrong register.
       //
-      // branches handled below
-      pc <= fetcher_pc + pc_inc;
+      // Every redirect this arm used to make is resolved in `next_pc` above
+      // (ADR-0054); nothing below writes the PC any more.
       out.valid <= 1'b1;
       out.mem_addr <= mem_addr_calc;
       // forwards
@@ -819,14 +897,14 @@ module decoder (
       out.rd <= rd;
      `ifdef RISCV_FORMAL
       // ADR-0006 shadow capture: everything RVFI needs that only decode
-      // knows. rvfi.pc_wdata defaults to the same fall-through target `pc`
-      // gets above and is overridden below in lockstep with every place
-      // that overrides `pc` itself (jal/jalr, branches) — decode owns the
-      // PC (CLAUDE.md invariant 1), so this is the one place either value
-      // is ever computed; duplicating the expression here (rather than
-      // reading `pc` back) is required because a non-blocking assignment
-      // to `pc` above isn't visible until next cycle.
-      out.rvfi.pc_wdata <= fetcher_pc + pc_inc;
+      // knows. `rvfi.pc_wdata` IS the next PC, and since ADR-0054 that value
+      // has a name before the edge -- so this is one assignment rather than a
+      // second copy of the redirect chain kept in lockstep with it by hand.
+      // (Reading `pc` back here would not work: the non-blocking assignment
+      // above is not visible until next cycle. `next_pc` is combinational and
+      // is.) This arm runs only when `stall` is low, so `next_pc` here is the
+      // real target of the instruction being published, never a held PC.
+      out.rvfi.pc_wdata <= next_pc;
       // `instr` is already zero-extended for a compressed instruction (the
       // mask above), so this is RVFI's required zero-extended 16-bit report
       // for free -- no separate ternary needed.
@@ -912,14 +990,8 @@ module decoder (
         end
 
         instr_jal || instr_jalr: begin
-          pc <= instr_jalr ?
-            ($signed(immediate) + $signed(reg_rs1)) & 32'hfffffffe :
-            $signed(fetcher_pc) + $signed(immediate);
-         `ifdef RISCV_FORMAL
-          out.rvfi.pc_wdata <= instr_jalr ?
-            ($signed(immediate) + $signed(reg_rs1)) & 32'hfffffffe :
-            $signed(fetcher_pc) + $signed(immediate);
-         `endif
+          // The jump TARGET is `next_pc` above; what is left here is the
+          // return address, which is a datapath value like any other.
           out.rs1 <= fetcher_pc;
           out.rs2 <= pc_inc;
           out.rd <= rd;
@@ -927,55 +999,35 @@ module decoder (
         end
 
         instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu: begin
-          (* parallel_case, full_case *)
-          case(1'b1)
-            instr_beq: pc <= reg_rs1 == reg_rs2 ? fetcher_pc + immediate : fetcher_pc + pc_inc;
-            instr_bne: pc <= reg_rs1 != reg_rs2 ? fetcher_pc + immediate : fetcher_pc + pc_inc;
-            instr_blt: pc <= $signed(reg_rs1) < $signed(reg_rs2) ? fetcher_pc + immediate : fetcher_pc + pc_inc;
-            instr_bltu: pc <= reg_rs1 < reg_rs2 ? fetcher_pc + immediate : fetcher_pc + pc_inc;
-            instr_bge: pc <= $signed(reg_rs1) >= $signed(reg_rs2) ? fetcher_pc + immediate : fetcher_pc + pc_inc;
-            instr_bgeu: pc <= reg_rs1 >= reg_rs2 ? fetcher_pc + immediate : fetcher_pc + pc_inc;
-          endcase // case (1'b1)
-         `ifdef RISCV_FORMAL
-          (* parallel_case, full_case *)
-          case(1'b1)
-            instr_beq: out.rvfi.pc_wdata <= reg_rs1 == reg_rs2 ? fetcher_pc + immediate : fetcher_pc + pc_inc;
-            instr_bne: out.rvfi.pc_wdata <= reg_rs1 != reg_rs2 ? fetcher_pc + immediate : fetcher_pc + pc_inc;
-            instr_blt: out.rvfi.pc_wdata <= $signed(reg_rs1) < $signed(reg_rs2) ? fetcher_pc + immediate : fetcher_pc + pc_inc;
-            instr_bltu: out.rvfi.pc_wdata <= reg_rs1 < reg_rs2 ? fetcher_pc + immediate : fetcher_pc + pc_inc;
-            instr_bge: out.rvfi.pc_wdata <= $signed(reg_rs1) >= $signed(reg_rs2) ? fetcher_pc + immediate : fetcher_pc + pc_inc;
-            instr_bgeu: out.rvfi.pc_wdata <= reg_rs1 >= reg_rs2 ? fetcher_pc + immediate : fetcher_pc + pc_inc;
-          endcase // case (1'b1)
-         `endif
+          // The comparison and the target both live in `branch_taken` /
+          // `next_pc` above. A branch writes no register and carries no
+          // operand past decode, so all that is left is zeroing the payload.
           out.rs1 <= 0;
           out.rs2 <= 0;
           out.rd <= 0;
         end
       endcase
 
-      // ---- mret: a branch, taken exactly like every other branch here -----
-      // The mstatus half (MIE <- MPIE, MPIE <- 1) is committed by rtl/csrs.v
-      // off `mret_entry` on this same edge. Nothing else about `mret` reaches
-      // the pipeline: rd is x0 in its encoding, so `out.rd` is already 0 and
-      // no execution flag is set for it.
-      if (instr_mret) begin
-        pc <= mepc;
-       `ifdef RISCV_FORMAL
-        out.rvfi.pc_wdata <= mepc;
-       `endif
-      end
+      // ---- mret ------------------------------------------------------------
+      // `mret` is a branch, taken exactly like every other branch here -- in
+      // `next_pc` above. The mstatus half (MIE <- MPIE, MPIE <- 1) is committed
+      // by rtl/csrs.v off `mret_entry` on this same edge. Nothing else about it
+      // reaches the pipeline: rd is x0 in its encoding, so `out.rd` is already
+      // 0 and no execution flag is set for it -- which is why it has no arm in
+      // the case above and nothing to do here.
 
       // ---- trap entry (ADR-0028 / ADR-0030) -------------------------------
-      // A TRAP IS A BRANCH. `pc <= mtvec` here is the same override the jump
-      // and branch arms above use, on the same edge, through the same
-      // register -- which is why no flush exists and none is needed
-      // (CLAUDE.md invariant 1): the trapping instruction is the newest one in
-      // the machine, and everything behind it is already correct.
+      // A TRAP IS A BRANCH. `next_pc = mtvec` above is the same redirect the
+      // jump and branch arms take, on the same edge, through the same register
+      // -- which is why no flush exists and none is needed (CLAUDE.md
+      // invariant 1): the trapping instruction is the newest one in the
+      // machine, and everything behind it is already correct.
       //
       // Last in the block on purpose. Non-blocking assignments take the last
-      // write, so this beats the `pc` and `out.*` values the arms above set,
-      // and the suppression below beats every flag they set -- no arm has to
-      // know about traps and no ordering rule has to be remembered.
+      // write, so the suppression below beats every flag the arms above set --
+      // no arm has to know about traps and no ordering rule has to be
+      // remembered. The PC half of that priority now lives in `next_pc`'s
+      // chain, where `trap_pending` sits above every other redirect.
       //
       // The instruction still RETIRES (`out.valid` is 1, set at the top of
       // this arm): ADR-0028's convention is that a trapping instruction
@@ -991,10 +1043,6 @@ module decoder (
       // Forcing `out.rd` to 0 does the same job for the register file: it
       // gates rtl/writeback.v's `wen` and makes `rvfi_rd_addr`/`rd_wdata` zero.
       if (trap_pending) begin
-        pc <= mtvec;
-       `ifdef RISCV_FORMAL
-        out.rvfi.pc_wdata <= mtvec;
-       `endif
         out.is_add <= 0; out.is_sub <= 0; out.is_xor <= 0; out.is_or <= 0; out.is_and <= 0;
         out.is_mul <= 0; out.is_mulh <= 0; out.is_mulhu <= 0; out.is_mulhsu <= 0;
         out.is_div <= 0; out.is_divu <= 0; out.is_rem <= 0; out.is_remu <= 0;
@@ -1106,6 +1154,17 @@ module decoder (
 
   // ADR-0009: a stalled cycle never advances pc.
   always_ff @(posedge clk) if (clocked && prev_stall && !prev_reset) assert(pc == past_pc);
+
+  // ADR-0054: the contract the instruction memory rests on -- what this module
+  // publishes as `next_pc` in cycle N is what `pc` holds in cycle N+1. One
+  // flip-flop away from a tautology today, and that is exactly the point: it is
+  // what fails if a later edit gives `pc` a second driver, which is the shape
+  // the redirect chain had before it was lifted out of the publish block. A
+  // second driver would put the memory one cycle out of step with decode with
+  // no other symptom than wrong instructions.
+  logic [31:0] past_next_pc;
+  always_ff @(posedge clk) past_next_pc <= next_pc;
+  always_comb if (clocked) assert(pc == past_next_pc);
 
   // ADR-0004: valid == 0 implies out.rd == 0 (a bubble is fully
   // zeroed, never a partial one that could sneak a spurious rd through).

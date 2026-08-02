@@ -40,6 +40,13 @@ module testbench (
   // check that only looked at imem_addr could not.
   logic [31:0] uut_imem_addr2;
   logic [31:0] uut_imem_data2;
+  // ADR-0054: the fetch address one cycle early, for a synchronous memory.
+  // Deliberately unread: the four assumes above pin `imem_data`/`imem_data2`
+  // against `uut_imem_addr`/`uut_imem_addr2` IN THE SAME CYCLE, which is the
+  // combinational fetch bus this check was written for and is what it keeps
+  // checking. A memory that answers this port a cycle early is outside its
+  // contact -- see ADR-0054, which says so rather than leaving it implied.
+  logic [31:0] uut_imem_addr_next;
   logic [31:0] mem_addr;
   logic [31:0] mem_wdata;
   logic [3:0]  mem_wstrb;
@@ -89,6 +96,7 @@ module testbench (
     .imem_data(uut_imem_data),
     .imem_addr2(uut_imem_addr2),
     .imem_data2(uut_imem_data2),
+    .imem_addr_next(uut_imem_addr_next),
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),

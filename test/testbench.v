@@ -27,6 +27,11 @@ module testbench(
   // `rom` array at a second, independent index.
   logic [31:0] imem_addr2;
   logic [31:0] imem_data2 = 32'b0;
+  // ADR-0054: the word address the fetch window will read on the NEXT edge.
+  // rtl/imemory.v is synchronous (every memory primitive on the target part
+  // is, ADR-0044), so it latches this and answers `imem_addr` for the whole of
+  // the cycle that names it.
+  logic [31:0] imem_addr_next;
   logic [31:0] mem_addr;
   logic [31:0] mem_wdata;
   logic [3:0]  mem_wstrb;
@@ -113,6 +118,7 @@ module testbench(
     .imem_data(imem_data),
     .imem_addr2(imem_addr2),
     .imem_data2(imem_data2),
+    .imem_addr_next(imem_addr_next),
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),

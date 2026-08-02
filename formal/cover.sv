@@ -15,6 +15,11 @@ module testbench (
 
   `RVFI_WIRES
   logic trap;
+  // ADR-0054: the fetch address one cycle early, for a synchronous memory.
+  // Unread here -- this environment answers `imem_data` freely against
+  // `imem_addr` in the same cycle -- but connected rather than left dangling,
+  // so every instantiation of the core names every port.
+  logic [31:0] imem_addr_next;
 
   littlecpu uut (
     .clk(clk),
@@ -23,6 +28,7 @@ module testbench (
     .imem_data(imem_data),
     .imem_addr2(imem_addr2),
     .imem_data2(imem_data2),
+    .imem_addr_next(imem_addr_next),
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
