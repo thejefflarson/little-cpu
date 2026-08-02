@@ -587,8 +587,9 @@ These are the design. Violating one is a bug even if tests pass.
 2. **All traps are detected and committed in decode.** Nothing faults after decode. This is what
    makes CSR commit precise without a reorder buffer. **The memory system is what will test this**:
    an access fault is raised by memory refusing a transaction, i.e. after decode, so a bus that can
-   refuse forces a ruling on this invariant — which is why eleven ladder checks are declined today
-   and why ADR-0044 records the three options without picking one.
+   refuse forces a ruling on this invariant — which is why five of the fourteen checks
+   `formal/checks.cfg` declines are declined against it, and why ADR-0044 records the three options
+   without picking one.
 3. **Every inter-stage struct carries a `valid` bit.** A bubble is `valid = 0`; retire is `valid`
    reaching writeback, which gates `wen` and drives `rvfi_valid`.
 4. **Hazards are handled by stall-only interlock in decode.** No forwarding network. Adding one is

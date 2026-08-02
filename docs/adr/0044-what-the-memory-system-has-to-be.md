@@ -157,7 +157,7 @@ directly. A memory system that can say *no* is a different bus, and eleven of th
 `85 generated, 14 declined for want of a [depth] line`, and set-equalities that 14 against
 `checks.cfg`'s `#omit` lines in both directions. Of those fourteen:
 
-**Eleven are conditional on a memory system that does not exist. Named, so the burn-down is
+**Eleven are conditional on hardware that does not exist yet. Named, so the burn-down is
 mechanical:**
 
 | check | what it needs that today's bus cannot give |
@@ -174,7 +174,30 @@ mechanical:**
 | `bus_dmem_io_order_ch0` | `RISCV_FORMAL_BUS` + `rvformal_addr_io` + more than one outstanding access |
 | `causal_io_ch0` | `rvformal_addr_io` |
 
-**Two of those eleven carry a standing second argument that no memory design touches**:
+**They do not all turn on the same decision, and that is worth more than the grouping.** The
+one-line story — "eleven checks are declined because the bus cannot refuse a transaction" — is the
+right story for **five** of them and is wrong about the other six. Sorted by what actually unblocks
+each:
+
+- **A faulting bus (5)** — `fault_ch0`, `bus_imem_fault_ch0`, `bus_dmem_fault_ch0`,
+  `bus_dmem_io_read_fault_ch0`, `bus_dmem_io_write_fault_ch0`. **These five, and only these five,
+  are the ones that put invariant 2 in question.** Everything in the rest of this section about
+  post-decode traps is about them.
+- **A distinguished IO region in the map (4)** — `bus_dmem_io_read_ch0`, `bus_dmem_io_write_ch0`,
+  `bus_dmem_io_order_ch0`, `causal_io_ch0`. A memory-*map* question with no invariant-2 content at
+  all: ADR-0008's map has a `tohost` doubleword, not a region the RTL treats differently. A design
+  could add a faulting bus and leave all four exactly where they are, or add an IO region and leave
+  the five above exactly where they are. (The two `io_*_fault` checks need both this and a faulting
+  bus, which is why they are counted in the first group.)
+- **`RISCV_FORMAL_BUS` plumbing and nothing else (2)** — `bus_imem_ch0`, `bus_dmem_ch0`.
+
+And one of them is not blocked on the memory system at all: **`bus_dmem_io_order_ch0` is blocked on
+the core.** There is nothing to order because the accessor has one access outstanding at a time
+(ADR-0015), and no memory design changes that — a second outstanding access is a pipeline change,
+with everything invariant 8's stall protocol would have to say about it. It sits in the eleven
+because it is declined against today's system, not because this work reopens it.
+
+**Two of the eleven carry a standing second argument that no memory design touches**:
 `bus_imem_ch0` and `bus_dmem_ch0` would re-derive a property `formal/imemcheck.sv` and
 `formal/dmemcheck.sv` already hold against the real split `imem_addr`/`imem_addr2` interface, and
 adopting them means driving nine more RVFI outputs — which ADR-0047's non-perturbation check has an
@@ -245,6 +268,8 @@ Guessing here would produce a decision of the quality of the one ADR-0038 refuse
 
 **What the eventual memory ADR owes this one**: a ruling on each of the eleven checks *by name*,
 with each `#omit` line either deleted (the check joins the ladder), re-tagged `[DESIGN]` (it is
-declined permanently, on the merits), or left `[BLOCKED]` with what it is still blocked on. That is
-the same burn-down shape as `formal/EXPECTED_FAIL`, and it is why the eleven are tabulated above
-instead of described.
+declined permanently, on the merits), or left `[BLOCKED]` with what it is still blocked on — which
+is the honest outcome for at least `bus_dmem_io_order_ch0`, whose blocker is the core's single
+outstanding access and not the memory at all. That is the same burn-down shape as
+`formal/EXPECTED_FAIL`, and it is why the eleven are tabulated above and sorted by blocker instead
+of described as a group.
