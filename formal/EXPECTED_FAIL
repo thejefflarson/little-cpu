@@ -53,7 +53,7 @@
 # counterexamples correctly; `sby` could not render the traces, because that step
 # shells out to `btorsim`. A real counterexample and a missing trace renderer
 # were the same result to this file. The inverse is the case that matters: if
-# `btorsim` left the nightly's pinned OSS CAD Suite, every red check would flip
+# `btorsim` left CI's pinned OSS CAD Suite, every red check would flip
 # FAIL → ERROR, the set equality would still match, and the ladder would stay
 # green having stopped distinguishing a proof failure from a tooling failure.
 #

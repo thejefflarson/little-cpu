@@ -158,5 +158,6 @@ Ranked by how much it is worth:
    temp-file races.
 
 Findings in category 1 should be reported even when no attacker is involved. "A routine edit
-silently deletes a check and the nightly stays green" is the highest-value thing a review of this
-repo can find.
+silently deletes a check and the gate stays green" is the highest-value thing a review of this
+repo can find. (It said *the nightly* until ADR-0050 deleted that workflow and folded its checks
+into the required `formal` job; the class of finding is unchanged and the gate is now stricter.)

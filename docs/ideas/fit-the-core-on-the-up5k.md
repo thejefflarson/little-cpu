@@ -73,6 +73,12 @@ Four corrections to the body:
 > change was accepted, `hang` and `liveness_ch0` went green with it, and the shipping numbers are
 > **4236 logic cells / 80%** at **+18.0%** suite cycles — better than the +27.8% below, because the
 > stall was gated on `uses_rs1`/`uses_rs2` after this was written.
+>
+> **The cell count is a measurement of ADR-0042's tree, taken locally, and not of `main`.** It is
+> **4208 / 79%** as of ADR-0052, measured by the `fit` CI job at the pinned OSS CAD Suite — which is
+> also where it emerged that the number depends on the yosys build: the same commit gives **4187**
+> under a local Homebrew yosys. Take the current number from the `fit` job, not from a document and
+> not from a local run, and say which toolchain produced it.
 
 
 The root constraint is that an **ice40 EBR read is synchronous** while **invariant 6 requires a

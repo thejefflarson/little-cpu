@@ -298,6 +298,101 @@ jobs:
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
 
+  # `make fit` -- the repo's one area measurement (ADR-0038), and until this
+  # job existed it was a RATCHET NOTHING PULLED. CLAUDE.md declared it one,
+  # the Makefile implements it (`FIT_MAX_LC`, exit nonzero when the logic-cell
+  # count goes over), and `grep -rn fit .github/workflows/` returned two prose
+  # matches about runner memory and no invocation. The only thing that had
+  # ever enforced it was a human typing it.
+  #
+  # WHAT IT WOULD FAIL ON, demonstrated rather than asserted -- CLAUDE.md's
+  # rule is that a green run is evidence only if you can point at what would
+  # have gone red. Two probes on this tree, both run:
+  #
+  #   make fit FIT_MAX_LC=4100  -> exit 2, "... logic cells is over the
+  #                                4100-cell budget"          (the ratchet)
+  #   nextpnr absent / no table -> exit 1, "NO measurement was taken. That is
+  #                                a failure, not a 0% fit."  (the Makefile's
+  #                                own guard, which is why this job cannot go
+  #                                green having measured nothing)
+  #
+  # THIS JOB IS THE MEASUREMENT, NOT A COPY OF A LOCAL ONE, and putting it here
+  # is what established that. The same commit synthesises to 4208 cells under
+  # the pinned OSS CAD Suite above (Yosys 0.66+179) and 4187 under a local
+  # Homebrew Yosys 0.67+post -- 21 cells on the synthesiser build alone, with
+  # no RTL difference whatever. Every area number this repo had recorded until
+  # ADR-0052 was a local one. Quote this job's.
+  #
+  # NOT REQUIRED, DELIBERATELY, and this is the one thing not to change here
+  # without a human deciding it. Area is a design constraint, not a
+  # correctness one: a change that grows the core past its budget should be
+  # loud and visible on the PR, and should be a conversation rather than an
+  # automatic block. Branch protection is a repository setting no pull request
+  # may touch (ADR-0036) -- adding this job to the required set is a human
+  # action, taken deliberately or not at all.
+  #
+  # The measurement is unstable to about +/-50 cells across edits that
+  # synthesise to identical hardware (CLAUDE.md's churn floor), plus the 21
+  # above across toolchains, which is why FIT_MAX_LC sits 192 cells over the
+  # current 4208 rather than at it. A red
+  # here means the core grew by more than resynthesis noise can account for.
+  # Raising the budget to clear it is how a ratchet becomes a rubber stamp.
+  fit:
+    name: fit
+    runs-on: little-cpu-runners
+    timeout-minutes: 8
+    steps:
+      - name: Record job start
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up OSS CAD Suite
+        uses: ./.github/actions/setup-oss-cad-suite
+        with:
+          tag: ${{ env.OSS_CAD_SUITE_TAG }}
+          file: ${{ env.OSS_CAD_SUITE_FILE }}
+          sha256: ${{ env.OSS_CAD_SUITE_SHA256 }}
+
+      - name: make fit
+        # NO PIPE ON THE GRADED COMMAND, same reasoning as the `formal` and
+        # `nonperturbation` jobs: a `run:` block without an explicit `shell:`
+        # key is `bash -e {0}`, errexit but NOT pipefail, so piping this into
+        # `tee` would take the step's status from `tee` and it would always be
+        # 0 (ADR-0037). Redirect, take the status off the unpiped command,
+        # then publish.
+        #
+        # `make fit` EXPECTS PLACEMENT TO FAIL: the fit top presents 231
+        # SB_IO against sg48's 39, so nextpnr always errors out on a pad --
+        # after printing the utilisation table, which is the measurement
+        # (ADR-0038 decision 1a). The Makefile checks for the table, so
+        # "nextpnr died before measuring anything" is a red here and "nextpnr
+        # measured, then failed to place" is a green.
+        run: |
+          set +e
+          make fit > "$RUNNER_TEMP/fit.txt" 2>&1
+          status=$?
+          set -e
+          cat "$RUNNER_TEMP/fit.txt"
+          {
+            echo "### area (ADR-0038)"
+            echo '```'
+            cat "$RUNNER_TEMP/fit.txt"
+            echo '```'
+            echo "Logic cells on up5k/sg48, memories external. This job is a ratchet"
+            echo "against \`FIT_MAX_LC\`, and it is NOT in main's required set."
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      - name: Report job wall time
+        if: always()
+        run: |
+          elapsed=$(( $(date +%s) - JOB_START ))
+          {
+            echo "### fit"
+            echo "wall time: ${elapsed}s"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   # ADR-0047: the mechanical form of ADR-0006's non-perturbation obligation --
   # the `ifdef RISCV_FORMAL` shadow payload in rtl/structs.v must not change
   # what the core does. That obligation rested on reviewer inspection from
@@ -329,9 +424,9 @@ jobs:
   # no riscv-formal clone, ~9s wall. It is deliberately NOT in the `formal`
   # job, which is GitHub-hosted for memory reasons and takes minutes.
   #
-  # NOT in main's branch-protection required set, and as of the gate inventory
-  # it is the ONLY job in this workflow that is not. Read live rather than
-  # remembered:
+  # NOT in main's branch-protection required set. It was the only such job in
+  # this workflow until `fit` above joined it, also deliberately non-required.
+  # Read live rather than remembered:
   #
   #   gh api repos/thejefflarson/little-cpu/branches/main/protection \
   #     -q '.required_status_checks.contexts'
@@ -469,9 +564,10 @@ jobs:
   # around a five-minute duplicate of this job, on an in-cluster runner that
   # OOMed and killed the last run before it could grade anything.
   #
-  # `complete` is the one piece not yet folded in: it is red today, and this
-  # job is required, so it lands with its exclusion set rather than blocking
-  # every merge in the meantime (see the step comment below).
+  # `complete` and `complete_cover` were the pieces ADR-0050 held back -- red
+  # at the time, on a required job -- and they landed with their exclusion set
+  # (M2 term 5). Every check the repo owns is now a step of this job, and every
+  # one of them is graded by its own exit status.
   #
   # The Sail co-sim stays out of this job deliberately -- ADR-0032 forbids
   # putting it on the required set, and its fetch has not had formal/pin.mk's
@@ -572,14 +668,20 @@ jobs:
 
       # Generates the ladder (formal/genchecks-audit.py, which asserts its
       # SHAPE against EXPECTED_CHECKS in about a second before anything runs)
-      # and then runs all 82 checks with `-k`. `continue-on-error` because
-      # this step's exit status is not the signal and never was -- `make
-      # check` ends in check-baseline itself, and the step below re-runs that
-      # comparison as the gate so the verdict is unambiguously the
-      # comparison's and its output lands in the step summary. Re-grading a
-      # finished ladder costs a second (formal/Makefile's check-baseline
-      # target exists to be re-runnable); running it here does not re-run a
-      # single check.
+      # and then runs all 85 checks with `-k`.
+      #
+      # NO `continue-on-error`, ANYWHERE IN THIS JOB. It carried one until the
+      # M2 term-6 verification, on the reasoning that this step's status "is
+      # not the signal" -- the step below re-grades and gates. That reasoning
+      # was not wrong, it was unnecessary: `formal/Makefile`'s `check` puts a
+      # leading `-` on the sby sub-make and then ENDS in `check-baseline`, so
+      # this command's exit status already IS the comparison's, identical to
+      # the gate step's. What the suppression actually bought was that an
+      # infrastructure failure here -- generation aborting, the audit script
+      # dying, the disk filling -- reached the summary as a green step. The two
+      # steps now fail together and the gate step below runs anyway
+      # (`!cancelled()`), so the report still lands. ADR-0050's term-6 wording
+      # is "no `continue-on-error` anywhere in it"; this is that, literally.
       #
       # JOBS IS PINNED, AND IT IS A MEMORY BUDGET, NOT A SPEED KNOB. One
       # check peaks around 876 MiB resident (measured, insn_add_ch0), so the
@@ -593,7 +695,6 @@ jobs:
       # check` is unaffected. The diagnostics print what the host actually
       # has: re-tune against those numbers, not by guessing.
       - name: Generate and run the ladder (make -C formal check)
-        continue-on-error: true
         run: |
           set -uo pipefail
           echo "nproc:            $(nproc)"
@@ -602,11 +703,20 @@ jobs:
           free -h 2>/dev/null || true
           make -C formal check JOBS=4
 
-      # THE GATE. Not continue-on-error: this exit status is the job's.
-      # A ladder that failed to generate at all resolves to exit 2 here
-      # ("no *.sby files"), so the step above being swallowed cannot produce
-      # a silent pass.
+      # THE GATE. This exit status is the job's, and so is the step above's --
+      # the two are the same comparison, run twice, and they agree by
+      # construction. Re-grading a finished ladder costs a second
+      # (formal/Makefile's check-baseline target exists to be re-runnable) and
+      # re-runs no check, so the cost of saying it twice is a second and the
+      # benefit is that the verdict is published rather than inferred.
+      #
+      # `!cancelled()` rather than the default: if the ladder step goes red,
+      # THIS step is what says why, so it has to run anyway. It is not
+      # `always()` -- a cancelled job should stop, not narrate. A ladder that
+      # failed to generate at all resolves to exit 2 here ("no *.sby files"),
+      # so a red step above can never be followed by a green one here.
       - name: Gate on formal/EXPECTED_FAIL + formal/EXPECTED_CHECKS
+        if: ${{ !cancelled() }}
         run: |
           # NO PIPE ON THE GRADED COMMAND, DELIBERATELY. The obvious spelling
           # of this step is `check-baseline.sh ... | tee -a "$GITHUB_STEP_
@@ -639,26 +749,37 @@ jobs:
       # THE FOUR HAND-AUTHORED TASKS, FOLDED IN FROM THE DELETED NIGHTLY
       # (ADR-0050). These are not on the generated ladder -- formal/
       # EXPECTED_FAIL is the genchecks-local.py sweep only -- so their verdict
-      # is their exit status and nothing else. `make` stops at the first
-      # failure, which is what we want: each one is a distinct property and a
-      # red in any of them is a red job.
+      # is their exit status and nothing else.
+      #
+      # ONE STEP EACH, and that is not cosmetic. They shared a single step
+      # until the M2 term-6 verification, which asks for each check's outcome
+      # individually rather than inferred from a green job -- and a
+      # three-`make` step cannot give that: `make` stops at the first failure,
+      # so a red `imemcheck` leaves `dmemcheck` and `cover` UNRUN while the
+      # step's log reads as one failure. Split, the job's own step list is the
+      # per-check record, GitHub's UI shows which one went red, and the two
+      # after it still run and still report. Cost: nothing -- the same three
+      # commands.
       #
       # They ran once a day in formal-nightly.yml until ADR-0050 deleted it.
       # `imemcheck` is the check CLAUDE.md names as the guard on ADR-0003's
       # dual-word fetch window, and nothing gated it; now every PR does.
       #
-      # Measured on this tree, not inherited: imemcheck PASS, dmemcheck PASS,
-      # cover PASS -- roughly three minutes against the ladder's five, on a
-      # job whose timeout is 20.
+      # Measured on the gate's own run of merged main, not inherited: imemcheck
+      # PASS, dmemcheck PASS, cover PASS, 31s for the three, on a job whose
+      # timeout is 20 minutes and which finishes in 4m22s.
       #
       # NO `continue-on-error`, and that is the point. In the nightly these
       # sat in a step that could not fail the job; here their exit status is
       # the job's, and the job is required.
-      - name: imemcheck / dmemcheck / cover
-        run: |
-          make -C formal imemcheck
-          make -C formal dmemcheck
-          make -C formal cover
+      - name: imemcheck (ADR-0003's dual-word fetch window)
+        run: make -C formal imemcheck
+
+      - name: dmemcheck
+        run: make -C formal dmemcheck
+
+      - name: cover (five goals, incl. >=2 compressed retires)
+        run: make -C formal cover
 
       # THE WHOLE-ISA WALK, AND IT IS A GATE. No continue-on-error: `make -C
       # formal complete` ends in sby's own exit status (complete.sby carries no
