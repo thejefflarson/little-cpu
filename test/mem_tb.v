@@ -1,11 +1,11 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
 
-// Standalone bench for rtl/memory.v (see `eb18320`). memory.v is not
-// exercised by any other test path: the cxxrtl top (`testbench`) has its own
-// inline memory, and the synthesis path (littlesoc) is currently broken (see
-// ADR-0010's technical notes), so this is the only place its read/write
-// behaviour gets checked.
+// Standalone bench for rtl/memory.v (see `eb18320`). Since ADR-0054 the module
+// is also the data RAM `test/testbench.v` instantiates, so the whole `.S` suite
+// and the Sail co-simulation run against it too -- this bench is no longer the
+// only thing that touches it. What it still does, and they cannot, is drive the
+// corners: an out-of-range access, and the no-change read behaviour below.
 module mem_tb;
   localparam int RAM_WORDS = 16;
 
@@ -17,7 +17,11 @@ module mem_tb;
   logic [3:0]  mem_wstrb;
   logic [31:0] mem_rdata;
 
-  memory #(.RAM(RAM_WORDS)) dut (
+  // BASE = 0 so the vectors below can address the array directly. The shipping
+  // instances use ADR-0008's non-zero RAM base (rtl/littlesoc.v,
+  // test/testbench.v), and the out-of-range vectors here cover the decode
+  // either way -- an unmapped address must read zero, not alias a mapped word.
+  memory #(.BASE(32'h0), .RAM_WORDS(RAM_WORDS)) dut (
     .clk(clk),
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
@@ -100,6 +104,22 @@ module mem_tb;
 
     do_read(32'hfffffffc, got); // far out of range
     check_ne("out-of-range read does not alias ram[0] (far)", got, 32'ha5a5a5a5);
+
+    // ADR-0054: the read port HOLDS on a write cycle. This is not a taste
+    // question and it is not free to change: yosys infers `SB_SPRAM256KA` only
+    // from a no-change read port (`ice40/spram.txt` declares `rdwr no_change`),
+    // and the read-first spelling silently maps the same array to 128
+    // `SB_RAM40_4K` -- four times the part's entire block RAM, reported as a
+    // normal synthesis run. Nothing in the pipeline observes the difference
+    // (rtl/accessor.v reads mem_rdata only on a load's response cycle, when
+    // decode is bubbled), so nothing but this vector would notice it being
+    // "fixed" back.
+    do_read(32'h00000004, got);
+    check("read-port setup for the hold check", got, 32'hcafef00d);
+    do_write(32'h00000008, 32'h0f0f0f0f);
+    check("read port holds across a write cycle", mem_rdata, 32'hcafef00d);
+    do_read(32'h00000008, got);
+    check("...and the write still landed", got, 32'h0f0f0f0f);
 
     if (errors != 0) begin
       $display("FAILED: %0d mismatches", errors);
