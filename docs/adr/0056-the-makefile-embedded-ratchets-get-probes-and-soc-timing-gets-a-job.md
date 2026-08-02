@@ -1,4 +1,4 @@
-# ADR-0055: The Makefile-embedded ratchets get probes, and `soc-timing` gets a job
+# ADR-0056: The Makefile-embedded ratchets get probes, and `soc-timing` gets a job
 
 **Status:** Accepted · 2026-08-02 · *Extends [ADR-0053](0053-every-graded-comparison-carries-a-probe-of-its-red-direction.md)
 to the four graded comparisons that live in the Makefile itself. Follows [ADR-0052](0052-m2-term-6-is-verified-and-the-fit-ratchet-gets-a-job.md)'s
