@@ -882,6 +882,18 @@ the oracle (ADR-0019).
   **Do not add new ones outside `rtl/writeback.v`**, and prefer a continuous
   assign for any new struct-field read in an `always_comb` — that is what holds the count at 20
   (ADR-0034; this bullet named `rtl/executor.v` until then, which was measurably wrong).
+- **Every comment must earn its place, and the default is delete.** A comment earns it only by
+  telling the reader something the code does not already say, in one or two plain sentences,
+  understandable without leaving the file. Otherwise it goes — not shortened, gone. Delete
+  restatement of the next line, history (git has it), "this is deliberate" with no *why*, section
+  banners, and emphasis furniture: ALL-CAPS, "which is the whole point", rhetorical setup that
+  announces a lesson before stating it, arguing with a hypothetical reader. **A shorter essay is
+  still an essay.** An ADR citation is an optional trailing pointer, never the explanation.
+  **One exception: tripwires.** A warning that stops someone silently reintroducing a defect earns
+  its place by preventing a bug — keep it, in two sentences. The test is whether deleting it would
+  let the defect back in; if the bug is fixed and guarded, the story about it is history and goes.
+  This applies to code, tests, config and workflows. It does **not** apply to this file, which is
+  deliberately a running log, or to `docs/adr/`.
 - **Every non-trivial change adds or updates tests and runs the full suite** before being declared
   done. Elaboration succeeding is not a substitute for tests passing.
 - **Never commit build artifacts.** `test/rtl.cc`, `sim`, `*.vvp`, `*.vcd`, `rvfi_macros.vh`, and
