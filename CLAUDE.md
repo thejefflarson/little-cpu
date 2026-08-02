@@ -182,6 +182,50 @@ the same treatment: the six bench invocations were spelled out with nothing tyin
 compared against the tree in both directions **and drives the recipe**, so a declared bench with no
 `UNIT_BENCH_SRC_*` is red too rather than building with no design under test.
 
+**The SoC places, and this project has a real Fmax for the first time** (ADR-0054). `rtl/imemory.v`
+and `rtl/memory.v` were placeholders ADR-0044 recorded as unbuildable in four ways, reachable from no
+simulation at all. They are real now: the ROM is two **word-interleaved** banks in block RAM (banking
+replaces the ROM duplication `littlesoc.v` used for ADR-0003's second fetch port — ADR-0044 names the
+technique at halfword granularity, which is wrong for a fetch interface that asks for two adjacent
+*words* and windows them itself), and the data RAM is shaped so yosys infers `SB_SPRAM256KA`. **The
+load-bearing line in `rtl/memory.v` is that its read port is NO-CHANGE on a write cycle**: the
+read-first spelling maps the same array to 148 `SB_RAM40_4K` — five times the part's block RAM —
+silently, failing later in nextpnr with a message about BELs. Measured both ways.
+`make soc-timing` reports, at Homebrew yosys 0.67+post with the machine at load ~3:
+**4041/5280 LC (76%), 20/30 EBR, 2/4 SPRAM, 4/39 IO, 8/8 GB**, and
+**88.51 ns = 11.30 MHz — 34.20 ns logic (38.7%) + 54.29 ns routing (61.3%), 41 logic levels**, on
+`imem.in_range → decode → next PC → imem.in_range2`. That is the loop invariant 1 puts in one cycle,
+measured rather than argued. **The design does NOT meet ADR-0038's declared 12 MHz**, and the 12 MHz
+intent is deliberately left where it stands. **Two findings came out of the first run and are fixed**:
+the path started at the `btn_n` *pad* (the button is synchronised now) and ended in a 32-bit
+incrementer feeding the ROM's range check (both range tests compare a word index against a constant
+now). 9.60 → 11.30 MHz for those two. **The SoC would still not RUN a program in `test/asm`**: SPRAM
+cannot be initialised, so `.data` is not there at power-on and a copy stub or ADR-0044's flash boot
+path is unbuilt.
+
+**Fetch is still combinational and there is still no flush; the address is published a cycle early**
+(ADR-0054, adopting ADR-0044's recommendation). `rtl/decoder.v`'s scattered `pc <= ...` writes are
+one combinational priority chain, `next_pc`, in the same order last-write-wins gave them; the memory
+latches `imem_addr_next = {next_pc[31:2], 2'b00}` on the same edge `pc` takes it. **No extra cycle,
+no stall reason, no speculation** — a stalled cycle sets `next_pc = pc` and the memory re-presents the
+same words. Two side effects worth knowing. `out.rvfi.pc_wdata` is assigned from `next_pc` once
+instead of being a second hand-maintained copy of every redirect. And **`make fit` went 4187 → 3875**
+(312 cells, six times the ±50 churn floor, both measured under the same local yosys): six independent
+`cond ? pc+imm : pc+inc` writes to `pc` became one `branch_taken` and one priority mux. `FIT_MAX_LC`
+is 4100 now. **Nothing on the riscv-formal ladder is in contact with the new port** — `wrapper.v`
+answers `imem_data` combinationally against `imem_addr`, unchanged — so the lockstep is asserted in
+`formal/pcloop.sv` (on the composed loop), in the decoder's own `FORMAL` block, and in
+`test/decoder_tb.v`, each probed by mutation.
+
+**The memories are on the simulator's dependency graph now, and that is most of what makes the above
+real** (ADR-0054). `test/testbench.v` instantiates `rtl/imemory.v` and `rtl/memory.v` rather than its
+own inline arrays, so all 56 `.S` programs and the whole Sail co-simulation run through the
+synchronous banked ROM and the SPRAM-shaped RAM — a broken fetch lockstep would have had every
+program executing the wrong instructions, and nothing in the tree would have noticed. The runners
+de-interleave the `--rom` image across the two banks. `test/imem_tb.v` joins `make test-units`
+(**seven** benches) and walks every word index at both parities against a **flat** reference, kept
+deliberately independent of the bank split.
+
 **Every graded comparison in the grading layer now has a probe of its own red direction, and two of
 them had never been executed** (ADR-0053). Five of this repo's recorded defects were in that layer
 and every one was in a *script*; the class is the comparison whose failure path was never run, and
@@ -496,7 +540,8 @@ signal and is the single entry on the `elaborate` gate's allowlist; everything e
 `Warning:` is promoted to an error there (`.github/workflows/ci.yml`, which cross-references this
 note). It is not zero, and this line said zero until ADR-0037. The
 cxxrtl binary builds and runs, the whole `.S` suite passes under it with `test/EXPECTED_FAIL`
-empty, `make test-units` passes (six benches: `exec_tb` — 10,000 randomized differential vectors
+empty, `make test-units` passes (**seven** benches since ADR-0054 added `imem_tb`: `exec_tb` —
+10,000 randomized differential vectors
 per op across `mul`/`mulh`/`mulhu`/`mulhsu`/`div`/`divu`/`rem`/`remu`/`sll`/`srl`/`sra` **and**
 `add`/`sub` — the latter pair closing the bench's own blind spot on the simplest ALU op — plus 384
 directed shift vectors per shift op sweeping every amount 0-31 with a
@@ -512,7 +557,9 @@ where the first two used to print `PASSED` and exit 0 — `mem_tb`,
 `decoder_tb`,
 `regfile_tb` — which covers the write-through bypass and x0 semantics — `csr_tb`, which covers
 `rtl/csrs.v`'s read mux, its `implemented` address set, its WARL masks and its trap-entry/`mret`
-port, and `monitor_tb`, which checks the oracle itself rather than the core), and **all three**
+port, `imem_tb`, which walks rtl/imemory.v's bank select at every word index and both parities
+against a flat reference plus its range decode (ADR-0054), and `monitor_tb`, which checks the oracle
+itself rather than the core), and **all three**
 component proofs — decoder, executor and `pcloop` — pass by k-induction (`mode prove`; re-run and
 read off each `sby` summary, not inferred from a green job. See ADR-0017 for what the decoder proof
 does and does not establish, and ADR-0046 for what `pcloop` discharges). `make waves`
@@ -602,6 +649,14 @@ These are the design. Violating one is a bug even if tests pass.
 1. **Fetch is combinational and the decoder owns the PC.** There are never wrong-path instructions.
    **No flush logic may be introduced, ever.** If a change appears to need one, something upstream
    has gone wrong — stop and reconsider rather than adding a kill signal.
+   **On real hardware this is bought by publishing the fetch address a cycle early** (ADR-0054):
+   there is no combinational-read memory on the target part, so `rtl/decoder.v` names the next PC
+   combinationally (`next_pc`) and the memory latches `imem_addr_next` on the same edge `pc` takes
+   it. Decode still sees the instruction at `pc` in the cycle it decides the next one; nothing
+   speculative rides on it, and a stalled cycle sets `next_pc = pc` so the same words are
+   re-presented. **`pc` must have exactly one driver** — `formal/pcloop.sv`, `rtl/decoder.v`'s own
+   `FORMAL` block and `test/decoder_tb.v` each assert that, because a second one puts the memory a
+   cycle out of step with decode and the ladder cannot see it.
 2. **All traps are detected and committed in decode.** Nothing faults after decode. This is what
    makes CSR commit precise without a reorder buffer. **The memory system is what will test this**:
    an access fault is raised by memory refusing a transaction, i.e. after decode, so a bus that can
@@ -698,12 +753,29 @@ make fit            # the ONE area number: nextpnr logic cells on up5k/sg48 (ADR
                     # ON CI as of ADR-0052, in the `fit` job, NON-REQUIRED on purpose
                     # -- area is a design constraint, not a correctness one, and
                     # adding it to branch protection is a human action.
-                    # 4208 cells / 79% AT THE PINNED OSS CAD SUITE, which is the
-                    # number to quote. THE MEASUREMENT IS TOOLCHAIN-DEPENDENT: the
-                    # same commit gives 4187 under a local Homebrew yosys, 21 cells
-                    # apart on the synthesiser build alone (ADR-0052). A local run
-                    # is a sanity check; the `fit` job is the measurement.
-                    # Probe: `make fit FIT_MAX_LC=4100` exits 2.
+                    # 3875 cells / 73% under a local Homebrew yosys as of
+                    # ADR-0054, down from 4187 on the same toolchain -- the
+                    # `next_pc` refactor, 312 cells, six times the churn floor.
+                    # THE MEASUREMENT IS TOOLCHAIN-DEPENDENT: the pre-ADR-0054
+                    # tree measured 4208 under CI's pinned OSS CAD Suite against
+                    # 4187 locally, 21 cells apart on the synthesiser build alone
+                    # (ADR-0052), so expect roughly 3896 on the `fit` job. A local
+                    # run is a sanity check; the job is the measurement.
+                    # Probe: `make fit FIT_MAX_LC=3800` exits 2.
+make soc-timing     # THE SoC PLACE-AND-TIME FLOW (ADR-0054), and NOT `make fit`:
+                    # different top, different design, numbers that must not be
+                    # merged. littlesoc -- core + BRAM ROM + SPRAM RAM + 4 pins --
+                    # PLACES, and icetime reports the critical path with its
+                    # LOGIC/ROUTING SPLIT, which is the finding. 4041/5280 LC,
+                    # 20/30 EBR, 2/4 SPRAM, 8/8 GB; 88.51 ns = 11.30 MHz,
+                    # 38.7% logic / 61.3% routing, over
+                    # imem.in_range -> decode -> next PC -> imem.in_range2.
+                    # DOES NOT MEET ADR-0038's DECLARED 12 MHz, and that intent
+                    # is unchanged. Ratchets on SOC_MIN_MHZ (10.5), a regression
+                    # floor set below the measurement rather than at the intent.
+                    # Needs the RISC-V toolchain (it builds a real ROM image),
+                    # so it is hand-run and not on CI. `SOC_PROG=lw.S` picks the
+                    # program. Probe: `make soc-timing SOC_MIN_MHZ=99` exits 1.
 
 make -C formal components_decoder   # component proofs. THREE tasks, all with real assertions:
 make -C formal components_executor  # decoder, executor, pcloop -- the assertion-free fetcher /
@@ -988,20 +1060,35 @@ longer quietly widen.
 
 - Design brief: [`docs/ideas/finish-the-rewrite.md`](docs/ideas/finish-the-rewrite.md)
 - Area/fit brief: [`docs/ideas/fit-the-core-on-the-up5k.md`](docs/ideas/fit-the-core-on-the-up5k.md) —
-  **the core's logic now fits: 4208/5280 logic cells, 79%** at the pinned OSS CAD Suite, down from
-  6971/132%, which the synchronous-read regfile achieves on its own (ADR-0042). **Re-measured at
-  ADR-0052**, which is also where the number acquired a provenance: this line said 4236 from
-  ADR-0042, and that was a *local* measurement, as is the 4187 the same tree gives under a Homebrew
-  yosys today. **Quote the `fit` job's number and say which toolchain it came from** — 21 cells sit
-  between two yosys builds on identical RTL, on top of the ±50 edit churn below.
-  `make fit` is a ratchet against `FIT_MAX_LC`, and as of ADR-0052 it is a **non-required CI
-  job** rather than a ratchet only a human pulls. **The design still does not place**, and that is expected and unrelated to logic:
-  the fit top presents **231 `SB_IO` against sg48's 39**, so nextpnr always fails on a pad. A
-  placing design needs a real pinout, which means the SoC memory system, which ADR-0038 decision 1a
-  puts out of scope. Read ADR-0038 before quoting any area number: yosys cell counts are blind to
-  unpaired flip-flops and have produced two wrong estimates already. **The brief's two `reg_ch0`
-  claims are false and are struck in place** (ADR-0040), and its recommendation of a *negedge* read
-  is superseded (ADR-0042).
+  **the core's logic fits: 3875/5280 logic cells, 73%** under a local Homebrew yosys as of ADR-0054,
+  down from 6971/132%. The synchronous-read regfile did most of it (ADR-0042); ADR-0054's `next_pc`
+  refactor took a further **312 cells, 4187 → 3875, both measured under the same toolchain**.
+  **Quote a number with the toolchain it came from** — the pre-ADR-0054 tree measured 4208 on CI's
+  pinned OSS CAD Suite against 4187 locally, 21 cells apart on the synthesiser build alone
+  (ADR-0052), on top of the ±50 edit churn below.
+  `make fit` is a ratchet against `FIT_MAX_LC` (4100 now) and a **non-required CI job**.
+  **`make fit`'s top still does not place**, which is expected and unrelated to logic: it presents
+  **231 `SB_IO` against sg48's 39**, so nextpnr always fails on a pad. **The SoC does place**, on
+  four pins, because both its memories are internal — `make soc-timing`, ADR-0054. Read ADR-0038
+  before quoting any area number: yosys cell counts are blind to unpaired flip-flops and have
+  produced two wrong estimates already, and the core's number and the SoC's are two different
+  designs. **The brief's two `reg_ch0` claims are false and are struck in place** (ADR-0040), and its
+  recommendation of a *negedge* read is superseded (ADR-0042).
+- **Timing**: `make soc-timing`, ADR-0054. **88.51 ns = 11.30 MHz, 38.7% logic / 61.3% routing**, on
+  `imem.in_range → decode → next PC → imem.in_range2`. The comparable earlier figure is
+  `rtl/regfile.v` placed alone at 86% routing (ADR-0038): the whole SoC is still routing-dominated,
+  just less extremely than an isolated 32:1 mux. **ADR-0038's declared 12 MHz is an intent and this
+  measurement does not move it**; the design misses it by 6%.
+- **`make soc-timing` has a churn axis of about 3.6%, three times `make fit`'s, and it is measured.**
+  Two logically identical spellings of `rtl/memory.v`'s write/read arms — a module **not on the
+  critical path** — give **88.51 ns / 41 logic levels** and **91.67 ns / 53**, on 11 logic cells'
+  difference in the netlist; 11 cells anywhere is enough for nextpnr to redistribute placement. Each
+  figure is reproducible run to run (nextpnr is seeded); it is the *edit* the number is unstable
+  under. So **a `make soc-timing` delta of a couple of percent is not evidence of anything**, and
+  `SOC_MIN_MHZ` (10.0) sits ~11.5% under the measurement for the same reason `FIT_MAX_LC` sits above
+  the ±50-cell floor. `rtl/memory.v` therefore ships the FLAT spelling of its arms and says so at
+  the site — the tidier nested one costs 11 cells and 3.6% of the only timing number this project
+  has, which is the trade ADR-0038 already made twice in the other direction.
 - **`make fit` has a churn floor of roughly ±50 cells, and a ratchet has to sit above it.**
   Measured by sweeping `rtl/executor.v`'s `mul_div_counter` across four widths that are all
   functionally identical — the counter's range is 0..32 and yosys already constant-folds every bit
@@ -1018,8 +1105,8 @@ longer quietly widen.
   rejected the shifter merge at 19 cells *saved* on legibility grounds, and accepting a hygiene
   change at 37 cells *spent* would cut against that ruling. Read this before proposing the
   narrowing again — it is measured and declined, not overlooked.
-- Decisions: [`docs/adr/`](docs/adr/) — **fifty-three ADRs, fifty-two of them accepted**, plus a
-  deferred list. Re-derived by counting: `ls docs/adr/*.md | wc -l` is 54, one of which is
+- Decisions: [`docs/adr/`](docs/adr/) — **fifty-four ADRs, fifty-three of them accepted**, plus a
+  deferred list. Re-derived by counting: `ls docs/adr/*.md | wc -l` is 55, one of which is
   `README.md`, and the status column in that README carries exactly one non-accepted entry
   (ADR-0016, superseded by ADR-0018). This line has now been behind twice — it said "forty-five
   accepted" and then "forty-seven" — so **re-derive it with the two commands rather than
@@ -1029,8 +1116,11 @@ longer quietly widen.
 - Work is tracked in Linear, project **Little CPU** (team JEF). Named here so you know where the
   queue is — but nothing in this repo should depend on it, and no ticket ID belongs in the code.
 
-**Deferred behind future ADRs** — forwarding network, radix-4 divider, FPGA
-timing closure, interrupts. (The negedge-BRAM regfile came off this list in ADR-0042, **decided
+**Deferred behind future ADRs** — forwarding network, radix-4 divider, interrupts, and the
+**bootloader** (SPRAM cannot be initialised, so the SoC ADR-0054 builds cannot get a program's
+`.data` into RAM at power-on; that needs a `.text` copy stub or ADR-0044's SPI-flash path). FPGA
+timing closure came off this list at ADR-0054, which took the measurement — and the design misses
+ADR-0038's declared 12 MHz by 6%, with that declaration deliberately left standing. (The negedge-BRAM regfile came off this list in ADR-0042, **decided
 against**: it is 99 cells cheaper and costs no cycles, but the generated ladder cannot model a
 mixed-polarity design at all, so `reg_ch0` would never again run against `rtl/regfile.v`.) Each trades away simplicity the current design depends on; none are
 safe to build while the core is unverified. (Sail co-sim came off this list in ADR-0032: the

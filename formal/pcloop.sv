@@ -59,6 +59,11 @@ module pcloop (
 );
   logic [31:0] pc;
   logic [31:0] imem_addr, imem_addr2;
+  // ADR-0054: decode publishes the next PC combinationally and fetch turns it
+  // into the address a synchronous instruction memory must latch. Both halves
+  // of that are in this task's scope, so the relationship between them is
+  // asserted below rather than assumed anywhere.
+  logic [31:0] next_pc, imem_addr_next;
   fetcher_output fetcher_out;
   decoder_output decoder_out;
   logic [4:0] rs1, rs2;
@@ -76,10 +81,12 @@ module pcloop (
     .clk(clk),
     .reset(reset),
     .pc(pc),
+    .next_pc(next_pc),
     .imem_addr(imem_addr),
     .imem_data(imem_data),
     .imem_addr2(imem_addr2),
     .imem_data2(imem_data2),
+    .imem_addr_next(imem_addr_next),
     .out(fetcher_out)
   );
 
@@ -100,6 +107,7 @@ module pcloop (
     .mtvec(mtvec),
     .mepc(mepc),
     .pc(pc),
+    .next_pc(next_pc),
     .rs1(rs1),
     .rs2(rs2),
     .csr_addr(csr_addr),
@@ -297,6 +305,26 @@ module pcloop (
   // The echo, asserted rather than assumed. This one line is what turns the
   // standalone task's `assume(in.pc == pc)` into a proof obligation.
   always_comb if (clocked && !reset) assert(fetcher_out.pc == pc);
+
+  // ---- ADR-0054: the instruction memory's whole contract -------------------
+  // `imem_addr_next` is published combinationally in cycle N; `imem_addr` holds
+  // that same value in cycle N+1. A synchronous ROM that latches the former on
+  // the edge between them therefore answers the latter for the whole of the
+  // cycle that reads it, which is what keeps fetch combinational from decode's
+  // point of view (CLAUDE.md invariant 1) on a part with no combinational-read
+  // memory (ADR-0044).
+  //
+  // It is asserted HERE, on the composed fetcher+decoder loop, because that is
+  // where both halves are real: the decoder's own task would be asserting its
+  // own next_pc against its own pc with the fetcher's word-alignment mask
+  // absent. And it is asserted rather than reasoned about because breaking it
+  // has exactly one symptom -- the SoC fetches the wrong instruction -- with no
+  // elaboration error, no lint finding, and nothing on the riscv-formal ladder
+  // in contact with it (formal/wrapper.v answers imem_data combinationally and
+  // never reads this port).
+  logic [31:0] past_imem_addr_next;
+  always_ff @(posedge clk) past_imem_addr_next <= imem_addr_next;
+  always_comb if (clocked) assert(imem_addr == past_imem_addr_next);
 
   // Sequential advance: on a cycle whose predecessor was quiet -- not reset,
   // no possible stall, not a jump or branch -- pc moved by exactly the width
