@@ -3,8 +3,21 @@
 A hobby RISC-V core in SystemVerilog on the open toolchain (Yosys / iverilog / SymbiYosys —
 no vendor EDA). Target **RV32IMC_Zicsr**, machine mode only; eventual home is an ice40 up5k.
 
-**This project optimizes for readability, not throughput.** That is the stated point of it. CPI is
-deliberately sacrificed for a design that reads well. Do not "improve" it by adding machinery.
+**This project optimizes for readability. That is not a trade against speed, and the two are not
+opposed by default.** The clearest version of a thing is often the fastest and the smallest:
+ADR-0054 replaced twelve scattered `pc <=` writes with one priority chain and got a more readable
+decoder, **312 fewer logic cells** and no time cost, all from the same edit. Reach for that shape
+first.
+
+Where they genuinely conflict, readability wins — but **measure the conflict, do not assume it**,
+and do not leave a measured win on the floor because it sounds like an optimisation. What is
+actually forbidden is named and narrow: **no flush logic, ever** (invariant 1) and **no forwarding
+network without a new ADR** (invariant 4). Everything else is open to a change that reads at least
+as well and is measured against `make fit` and `make soc-timing`.
+
+This line used to say CPI was deliberately sacrificed and that the design must not be "improved" by
+adding machinery. That framing made every speed question look like a violation, which is how the
+operand-fetch cycle went a long time without anyone asking whether it had to cost what it costs.
 
 ## Current state — read this before believing anything else
 
