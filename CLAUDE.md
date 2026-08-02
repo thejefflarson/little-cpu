@@ -497,8 +497,9 @@ signal and is the single entry on the `elaborate` gate's allowlist; everything e
 note). It is not zero, and this line said zero until ADR-0037. The
 cxxrtl binary builds and runs, the whole `.S` suite passes under it with `test/EXPECTED_FAIL`
 empty, `make test-units` passes (six benches: `exec_tb` — 10,000 randomized differential vectors
-per op across `mul`/`mulh`/`mulhu`/`mulhsu`/`div`/`divu`/`rem`/`remu` **and**
-`sll`/`srl`/`sra`, plus 384 directed shift vectors per shift op sweeping every amount 0-31 with a
+per op across `mul`/`mulh`/`mulhu`/`mulhsu`/`div`/`divu`/`rem`/`remu`/`sll`/`srl`/`sra` **and**
+`add`/`sub` — the latter pair closing the bench's own blind spot on the simplest ALU op — plus 384
+directed shift vectors per shift op sweeping every amount 0-31 with a
 clean and a dirty rs2 so the `rs2[4:0]` mask is checked rather than coincided with, and — because
 ADR-0045 names it M2's mul/div oracle and ADR-0033's rule is that a named gate must be unable to
 stop checking quietly — it now asserts **its own shape** first: every mul and div reference is

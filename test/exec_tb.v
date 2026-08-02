@@ -16,6 +16,20 @@
 // from you; read the comment above the shift reference model below before
 // touching it.
 //
+// ADD and SUB are covered the same way, added for a narrower reason: this is
+// the bench that exists specifically to grind the executor's arithmetic, and
+// it drove zero vectors through the simplest, most-used ALU operation in the
+// ISA. ADR-0010's *primary-guarantee* language is scoped to the ops
+// RISCV_FORMAL_ALTOPS hides from the riscv-formal ladder, which ADD/SUB are
+// not -- `insn_add_ch0`/`insn_sub_ch0` exercise real arithmetic on every PR.
+// But that ladder is `mode bmc`, not `mode prove` (see CLAUDE.md's milestone
+// caveats), and the randomized loop here is the fast, targeted leg for
+// exactly this datapath -- the same reasoning that put shifts here despite
+// `insn_sll_ch0`/`insn_srl_ch0`/`insn_sra_ch0` existing too. An ADD off-by-one
+// was measured reaching `tohost` via the `.S` suite and co-simulation while
+// every unit bench stayed silent; this closes that gap the cheap way, on the
+// same footing as everything else here.
+//
 // ---- THIS BENCH ASSERTS ITS OWN SHAPE BEFORE IT ASSERTS ANYTHING ABOUT THE
 //      CORE, AND THAT IS DELIBERATE ------------------------------------------
 //
@@ -88,7 +102,9 @@ module exec_tb;
   localparam int OP_SLL    = 8;
   localparam int OP_SRL    = 9;
   localparam int OP_SRA    = 10;
-  localparam int NUM_OPS   = 11;
+  localparam int OP_ADD    = 11;
+  localparam int OP_SUB    = 12;
+  localparam int NUM_OPS   = 13;
 
   string op_names  [0:NUM_OPS-1];
   int    vec_count [0:NUM_OPS-1];
@@ -159,6 +175,8 @@ module exec_tb;
       op_names[OP_SLL]    = "sll";
       op_names[OP_SRL]    = "srl";
       op_names[OP_SRA]    = "sra";
+      op_names[OP_ADD]    = "add";
+      op_names[OP_SUB]    = "sub";
       for (k = 0; k < NUM_OPS; k++) vec_count[k] = 0;
       dir_pending = DIRECTED_N;
 
@@ -256,6 +274,21 @@ module exec_tb;
     begin
       ref_remu = (b == 0) ? a : (a % b);
     end
+  endfunction
+
+  // ---- reference model: add / sub --------------------------------------
+  //
+  // Neither of these touches `$signed` or a conditional expression at all --
+  // two's-complement add/sub is signedness-independent bit for bit -- so the
+  // sign-context hazard above the shift references does not apply here.
+  // Direct one-line assignments, same as ref_divu/ref_remu above for the same
+  // reason: nothing here is a `?:` arm evaluating a signed operand.
+  function automatic logic [31:0] ref_add(input logic [31:0] a, input logic [31:0] b);
+    ref_add = a + b;
+  endfunction
+
+  function automatic logic [31:0] ref_sub(input logic [31:0] a, input logic [31:0] b);
+    ref_sub = a - b;
   endfunction
 
   // ---- reference model: shifts ----------------------------------------
@@ -434,6 +467,8 @@ module exec_tb;
         OP_SLL:    in.is_sll    = 1'b1;
         OP_SRL:    in.is_srl    = 1'b1;
         OP_SRA:    in.is_sra    = 1'b1;
+        OP_ADD:    in.is_add    = 1'b1;
+        OP_SUB:    in.is_sub    = 1'b1;
       endcase
 
       // Everything this bench claims about its own coverage is measured here,
@@ -556,6 +591,13 @@ module exec_tb;
     // ...including the reference's own rs2[4:0] masking, on both sides of 32.
     ref_selftest("sra(80000000,36)", ref_sra(32'h80000000, 32'd36), 32'hf8000000);
     ref_selftest("sll(00000001,32)", ref_sll(32'h00000001, 32'd32), 32'h00000001);
+    // ---- add / sub references ------------------------------------------
+    // Two's complement wraps: -1 + 1 = 0; INT_MAX + 1 overflows into the sign
+    // bit; 0 - 1 wraps to all-ones; INT_MIN - 1 wraps to INT_MAX.
+    ref_selftest("add(ffffffff,00000001)", ref_add(32'hffffffff, 32'h00000001), 32'h00000000);
+    ref_selftest("add(7fffffff,00000001)", ref_add(32'h7fffffff, 32'h00000001), 32'h80000000);
+    ref_selftest("sub(00000000,00000001)", ref_sub(32'h00000000, 32'h00000001), 32'hffffffff);
+    ref_selftest("sub(80000000,00000001)", ref_sub(32'h80000000, 32'h00000001), 32'h7fffffff);
     if (errors != 0) begin
       $display("FAILED: the reference model is broken; no core result below means anything");
       $fatal(1);
@@ -618,6 +660,8 @@ module exec_tb;
       run_op("sll",    a, b, ref_sll(a, b));
       run_op("srl",    a, b, ref_srl(a, b));
       run_op("sra",    a, b, ref_sra(a, b));
+      run_op("add",    a, b, ref_add(a, b));
+      run_op("sub",    a, b, ref_sub(a, b));
     end
 
     // The bench grades its own shape LAST and reports it FIRST: everything
