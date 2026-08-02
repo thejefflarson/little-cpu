@@ -227,7 +227,7 @@ Commands, one per column:
 | benches | `make test-units` |
 | co-sim | `make cosim-suite` |
 | proofs | `make -C formal components_decoder`, `_executor`, `_pcloop`, run serially |
-| ladder | `make -C formal checks` then `sby -f checks/<name>.sby` per generated check |
+| ladder | `make -C formal checks` then `sby -f checks/<name>.sby` per generated check — **with a non-symlinked riscv-formal clone; see finding 4a** |
 
 **Three verdicts are not `missed`, and the distinction is load-bearing.** `n/a — untestable` marks a
 cell where the surface **cannot** reach the mutated file, so no amount of additional test material
@@ -245,7 +245,7 @@ a named architectural effect is a coverage gap.
 | `A3` | altops-muldiv | signed DIV sign-restore deleted (ADR-0012's wrapper) | **caught** | **caught** | **caught** | **caught** | *not measured* |
 | `A4` | altops-muldiv | divide-by-zero quotient returns 0 instead of all-ones | **caught** | **caught** | **caught** | missed | *not measured* |
 | `B1` | past-bmc-bound | extra architectural write to x31 after cycle 40 (ADR-0032's probe) | missed | missed | **caught** | missed | *not measured* |
-| `B2` | past-bmc-bound | spurious bus write to 0x10F00 after cycle 40, absent from the RVFI report | missed | missed | missed | missed | missed |
+| `B2` | past-bmc-bound | spurious bus write to 0x10F00 after cycle 40, absent from the RVFI report | missed | missed | missed | missed | *not measured* |
 | `C1` | no-spec-model | ECALL raises cause 9 (S-mode ecall) instead of 11 | **caught** | **caught** | **caught** | missed | *not measured* |
 | `C2` | no-spec-model | mret does not restore MIE from MPIE | missed | **caught** | missed | missed | *not measured* |
 | `C3` | no-spec-model | mepc WARL mask drops the bit-0 clear | **caught** | **caught** | **caught** | missed | *not measured* |
@@ -258,9 +258,9 @@ a named architectural effect is a coverage gap.
 | `E3` | unpathed-module | memory.v drops the top byte of every word store | missed | **caught** | missed | missed | *not measured* |
 | `F1` | stall-protocol | operand_stall drops its rs2 term (invariant 9 half-broken) | **caught** | missed | **caught** | missed | *not measured* |
 | `F2` | stall-protocol | scoreboard loses the accessor's pending-load slot (invariant 8b) | **caught** | missed | **caught** | missed | *not measured* |
-| `F3` | stall-protocol | CSR drain predicate loses accessor_out_valid (invariant 8c) | missed | missed | missed | missed | missed |
+| `F3` | stall-protocol | CSR drain predicate loses accessor_out_valid (invariant 8c) | missed | missed | missed | missed | *not measured* |
 | `F4` | stall-protocol | rs2 write-through bypass deleted (ADR-0040's reg_ch0 liveness probe) | **caught** | **caught** | **caught** | missed | *not measured* |
-| `G1` | decode-trap-fetch | halfword load misalignment no longer detected | missed | missed | missed | missed | missed |
+| `G1` | decode-trap-fetch | halfword load misalignment no longer detected | missed | missed | missed | missed | *not measured* |
 | `G2` | decode-trap-fetch | a write to a read-only CSR is no longer illegal (ADR-0005 rule 2) | **caught** | **caught** | **caught** | missed | *not measured* |
 | `G3` | decode-trap-fetch | fetch window's second word comes from the wrong address (+8) | **caught** | missed | **caught** | missed | *not measured* |
 | `G4` | decode-trap-fetch | trap_epc records pc+4 instead of the faulting pc | **caught** | **caught** | **caught** | missed | *not measured* |
@@ -287,7 +287,7 @@ Applying the bar above to every row that no surface caught:
 
 | mutant | architectural effect | verdict |
 |---|---|---|
-| `B2` | writes `0xdeadbeef` into RAM word `0x10F00`. `test/testbench.v:77-82` commits any in-range write with a set strobe, and `RAM_BASE + 0xF00` is in range (`RAM_BASE = 0x0001_0000`, `RAM_WORDS = 1024`). A real memory word differs, observable by any load from it | **GAP** |
+| `B2` | writes `0xdeadbeef` into RAM word `0x10F00`. `test/testbench.v:77-82` commits any in-range write with a set strobe, and `RAM_BASE + 0xF00` is in range (`RAM_BASE = 0x0001_0000`, `RAM_WORDS = 1024`). A real memory word differs, observable by any load from it | **GAP** in the four simulation/proof columns; ladder cell re-running |
 | `F3` | a CSR instruction issues one cycle early when a store is in the accessor, so `minstret` — which increments at issue — is read at a different count. The effect is the *value written to `rd`* by a `csrr minstret`, ordinary architectural register state | **GAP** (see the caveat below) |
 | `G1` | a misaligned `lh` completes instead of trapping: no `mcause = 4`, no redirect to `mtvec`, and `rd` takes a loaded value. A trap that should fire and does not | **GAP** |
 | `H1` | **none.** See below | **EQUIVALENT** |
@@ -319,32 +319,53 @@ observation point is named, but **no witness was constructed** — no program in
 under the bar above, but one degree weaker than `B2` and `G1`, whose effects follow from the
 memory model and the trap spec directly. Recorded as such rather than promoted.
 
-**4a. `insn_lh_ch0` passes a defect the `.S` suite catches in seconds.** Chasing `G1`'s ladder cell
-produced the campaign's sharpest single result. `formal/riscv-formal/checks/rvfi_insn_check.sv:198`
-does assert `spec_trap == trap`, and with `RISCV_FORMAL_ALIGNED_MEM` defined
-(`formal/checks.cfg:545`) `insn_lh`'s spec model does compute
-`spec_trap = ((addr & (2-1)) != 0) || !misa_ok` — so the check *should* catch `G1`. It does not. A
-liveness probe on the same check, in the style this ADR's catalog uses throughout:
+**4a. RETRACTED: `insn_lh_ch0` is live, and the campaign's ladder harness was reading the wrong
+tree.** A draft of this ADR claimed `insn_lh_ch0` was vacuous, on the strength of three PASSes: the
+unmutated core, `lh` with sign extension removed, and `G1`. **The claim was false and the
+measurement was an artifact of the scratch harness.**
 
-| | |
-|---|---|
-| change | `rtl/accessor.v`: `1'b0: out.rd_data <= {{16{mem_rdata[15]}}, mem_rdata[15:0]};` → `{16'b0, …}` — `lh` stops sign-extending |
-| command | `sby -f checks/insn_lh_ch0.sby` |
-| expected | red |
-| **measured** | **`PASS 0 10`** |
-| materiality control | the same tree under `./test/run_tests.sh` → `sh.S MONITOR-ERROR 105`, failure list does not match `test/EXPECTED_FAIL` |
+The scratch workdirs got their riscv-formal clone as a **symlink** to the one in the real checkout,
+to avoid re-cloning 17 MB per workdir. `formal/genchecks-local.py:67` sets
+`basedir = os.path.abspath(…, "riscv-formal")` — `abspath`, which does **not** resolve symlinks — and
+`checks.cfg`'s `[script-sources]` are written as `@basedir@/../../rtl/*.v`. The kernel resolves that
+`..` against the **symlink's target**, so every generated `.sby` read:
 
-The mutation is unambiguously material — the `.S` suite catches it — and `insn_lh_ch0` is green
-against it, against `G1`, and on the unmutated core. **A check that is green in all three states is
-not distinguishing them.** All 70 `insn_*` checks run at one depth (`insn 15`, the whole `[depth]`
-entry), and the most likely explanation is that no `lh` retire is reachable within 15 steps on this
-pipeline — **but that is an inference, not a measurement**: proving it needs a `cover` statement
-inside riscv-formal's checker, which ADR-0031 puts out of bounds for this ticket. What is measured
-is the three PASSes and the materiality control.
+```
+/private/…/scratchpad/lwork/formal/riscv-formal/../../rtl/accessor.v
+  → /Users/jeff/dev/riscv-core/rtl/accessor.v          # the real checkout, pristine
+```
 
-This is not a reason to raise `insn`'s depth (ADR-0025 — depths are derived, not tuned to make a
-result appear). It is a reason to audit per-check reachability across the `insn_*` family, which is
-its own ticket and is scoped in the Consequences below.
+**Every ladder cell in the campaign therefore verified the unmutated core**, which is exactly why
+every one of them said `MISSED`. Replacing the symlink with a real copy makes the same probe produce
+the opposite result, and it reproduces independently:
+
+| | symlinked clone (wrong) | real clone (correct) |
+|---|---|---|
+| unmutated | `PASS 0 10` | `PASS 0 10` |
+| `lh` sign extension removed | `PASS 0 10` | **`ERROR 16 11`** |
+
+and the log says what happened: `bad state property 9 reachable at bound k = 15 SATISFIABLE`,
+then `engine_0.trace: bash: btorsim: command not found`, `DONE (ERROR, rc=16)`. **`btormc` found the
+counterexample; `sby` then failed rendering the witness because this machine has no `btorsim`.**
+`insn_lh_ch0` is live and catches the mutation. The retracted claim — that one of the 85 ladder
+checks is a decoration — would have bent the M2 verdict directly, and it is recorded here rather
+than deleted because the *reason* it survived three re-runs is the finding.
+
+**`ERROR` is red, and on this machine a real counterexample lands as `ERROR`.** The driver's grading
+is `if not st.startswith("PASS")` → non-PASS, so `ERROR 16 11` counts red; that is the same contract
+`formal/EXPECTED_FAIL`'s status field enforces, and it is why the artifact showed up as a *false
+green* rather than a false red. Any ladder verdict taken on a box without `btorsim` must make this
+distinction.
+
+**The method finding — the fifth, and the worst.** A mutation harness has two halves: *apply the
+mutant* and *run the oracle*. The campaign asserted the first half hard (anchor unique, diff
+non-empty, tree byte-identical after revert) and **never asserted the second half at all** — that the
+oracle it invoked actually read the mutated file. The stale-binary artifact earlier in this ADR was
+the same defect in the simulator's dependency graph; this is it again one layer down, in a path
+resolved by the kernel rather than by `make`. **The general rule: a mutation campaign must include a
+positive control per surface — a mutant that surface is known to catch — run before the surface's
+results are believed.** The simulation columns had one by construction (the three controls). The
+ladder column did not, and that is the whole of why this went unnoticed.
 
 **4. Three `rtl/` files are outside the simulator's dependency graph.** `rtl/littlesoc.v`,
 `rtl/memory.v` and `rtl/imemory.v` are not among `Makefile:286`'s nine sources, so `E1`/`E2`/`E3`
