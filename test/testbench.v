@@ -6,27 +6,42 @@ module testbench(
 	input reset
 `endif
 );
+  // THE MEMORIES ARE THE REAL ONES (ADR-0054). This bench used to carry its
+  // own inline ROM and RAM -- a combinational `rom` array and an `always_ff`
+  // over `memory` -- and rtl/imemory.v / rtl/memory.v were reachable from no
+  // simulation at all. They are the modules instantiated below now, so the
+  // whole `.S` suite and the Sail co-simulation run against the memory system
+  // rtl/littlesoc.v synthesises, not against a second description of it.
+  //
+  // That is not bookkeeping: rtl/imemory.v is SYNCHRONOUS, addressed off the
+  // fetch address decode publishes one cycle early, and if that lockstep were
+  // wrong every program here would execute the wrong instructions. Before this
+  // change nothing in the tree would have noticed.
+  //
   // Sized to test/asm/sections.lds (ADR-0008): rom holds >=16K of .text,
-  // memory (RAM) holds >=4K of .data/.rodata/.bss based at RAM_BASE, which
-  // matches the ram region's ORIGIN there. RAM_BASE is non-zero so a wild
-  // store through an uninitialized/zero pointer lands outside the mapped
-  // region instead of silently aliasing real test data. The cxxrtl runner
-  // (test/cxxrtl.cc) subtracts RAM_BASE back out of the `--ram` image's
-  // word addresses before poking `memory` via debug_items. rom grew from
-  // 8K/2048 words to 16K/4096 when test/asm/rvc.S landed (ADR-0003/
-  // ADR-0021) -- see sections.lds for why.
+  // ram holds >=4K of .data/.rodata/.bss based at RAM_BASE, which matches the
+  // ram region's ORIGIN there. RAM_BASE is non-zero so a wild store through an
+  // uninitialized/zero pointer lands outside the mapped region instead of
+  // silently aliasing real test data. The cxxrtl runner (test/cxxrtl.cc)
+  // subtracts RAM_BASE back out of the `--ram` image's word addresses before
+  // poking `dmem`'s array via debug_items, and de-interleaves the `--rom` image
+  // across `imem`'s two banks. rom grew from 8K/2048 words to 16K/4096 when
+  // test/asm/rvc.S landed (ADR-0003/ADR-0021) -- see sections.lds for why.
+  //
+  // ROM_WORDS HERE IS LARGER THAN THE SHIPPING SoC's, deliberately: simulation
+  // has no block RAM to run out of, and rtl/littlesoc.v's 2048 words are what
+  // the part's 30 EBRs allow (ADR-0054). rvc.S is the one program in the suite
+  // that needs more.
   localparam logic [31:0] RAM_BASE  = 32'h0001_0000;
   localparam int          ROM_WORDS = 4096;
   localparam int          RAM_WORDS = 1024;
-  logic [31:0] memory[0:RAM_WORDS-1];
-  logic [31:0] rom[0:ROM_WORDS-1];
   logic [31:0] imem_addr;
-  logic [31:0] imem_data = 32'b0;
+  logic [31:0] imem_data;
   // ADR-0003: the second word of the dual-word combinational fetch window
   // (rtl/fetcher.v drives imem_addr2 = imem_addr + 4), read from the same
   // `rom` array at a second, independent index.
   logic [31:0] imem_addr2;
-  logic [31:0] imem_data2 = 32'b0;
+  logic [31:0] imem_data2;
   // ADR-0054: the word address the fetch window will read on the NEXT edge.
   // rtl/imemory.v is synchronous (every memory primitive on the target part
   // is, ADR-0044), so it latches this and answers `imem_addr` for the whole of
@@ -78,38 +93,23 @@ module testbench(
     $finish;
   end
  `endif
-  always_ff @(posedge clk) begin
-    if (mem_addr >= RAM_BASE && mem_addr < RAM_BASE + RAM_WORDS * 4) begin
-      mem_rdata <= memory[(mem_addr - RAM_BASE) >> 2];
-      if(mem_wstrb[0]) memory[(mem_addr - RAM_BASE) >> 2][7:0] <= mem_wdata[7:0];
-      if(mem_wstrb[1]) memory[(mem_addr - RAM_BASE) >> 2][15:8] <= mem_wdata[15:8];
-      if(mem_wstrb[2]) memory[(mem_addr - RAM_BASE) >> 2][23:16] <= mem_wdata[23:16];
-      if(mem_wstrb[3]) memory[(mem_addr - RAM_BASE) >> 2][31:24] <= mem_wdata[31:24];
-    end
-  end // always_ff @ (posedge clk)
+  memory #(.BASE(RAM_BASE), .RAM_WORDS(RAM_WORDS)) dmem (
+    .clk(clk),
+    .mem_addr(mem_addr),
+    .mem_wdata(mem_wdata),
+    .mem_wstrb(mem_wstrb),
+    .mem_rdata(mem_rdata)
+  );
 
-  // Selected out of the always_comb for the same reason as decoder.v's
-  // register-index fields: a constant part-select inside an always_* block
-  // defeats iverilog's sensitivity analysis and draws a `sorry:` note.
-  logic [11:0] rom_index, rom_index2;
-  assign rom_index  = imem_addr[13:2];
-  assign rom_index2 = imem_addr2[13:2];
-
-  always_comb //@(posedge clk)
-    if(reset) begin
-      imem_data = 32'b0;
-    end else begin
-      imem_data = rom[rom_index];
-    end
-
-  // ADR-0003: second, independent combinational read of the same `rom`
-  // array for the dual-word fetch window's other word.
-  always_comb
-    if(reset) begin
-      imem_data2 = 32'b0;
-    end else begin
-      imem_data2 = rom[rom_index2];
-    end
+  // No init files: every consumer of this bench fills the banks itself. The
+  // cxxrtl runners poke them through `debug_items` (test/cxxrtl.cc's
+  // `load_rom_banks`), and `make waves` writes the program in below.
+  imemory #(.ROM_WORDS(ROM_WORDS)) imem (
+    .clk(clk),
+    .imem_addr_next(imem_addr_next),
+    .imem_data(imem_data),
+    .imem_data2(imem_data2)
+  );
 
   littlecpu uut (
     .clk(clk),
@@ -306,14 +306,28 @@ module testbench(
     end
   end
  `endif
+`ifdef ICARUS
+  // `make waves`' program: the six-instruction increment loop this file used to
+  // carry in an `initial rom[...]` block, written straight into rtl/imemory.v's
+  // two banks (ADR-0054 -- word 2i is even, word 2i+1 is odd). It exercises
+  // fetch, a load, a store and a backward jump, which is what the waveform is
+  // for; the store address is outside ADR-0008's RAM region, so the loads read
+  // zero, and that was already true before this change.
+  //
+  // A HIERARCHICAL REFERENCE, hence `ifdef ICARUS` -- the same guard the clock
+  // and reset generation above carries. yosys does not RESOLVE one of these: it
+  // implicitly declares the dotted name and carries on with an undriven wire,
+  // which CLAUDE.md records as a real hazard. The cxxrtl legs never take this
+  // path; they load their ROM through `debug_items`.
   initial begin
-    rom[0] = 32'h 3fc00093; //       li      x1,1020
-    rom[1] = 32'h 0000a023; //       sw      x0,0(x1)
-    rom[2] = 32'h 0000a103; // loop: lw      x2,0(x1)
-    rom[3] = 32'h 00110113; //       addi    x2,x2,1
-    rom[4] = 32'h 0020a023; //       sw      x2,0(x1)
-    rom[5] = 32'h ff5ff06f; //       j       <loop>
+    imem.rom_even[0] = 32'h3fc00093; //       li      x1, 1020
+    imem.rom_odd [0] = 32'h0000a023; //       sw      x0, 0(x1)
+    imem.rom_even[1] = 32'h0000a103; // loop: lw      x2, 0(x1)
+    imem.rom_odd [1] = 32'h00110113; //       addi    x2, x2, 1
+    imem.rom_even[2] = 32'h0020a023; //       sw      x2, 0(x1)
+    imem.rom_odd [2] = 32'hff5ff06f; //       j       loop
   end
+`endif
 
   logic [31:0] past_addr;
   initial past_addr = 32'b0;

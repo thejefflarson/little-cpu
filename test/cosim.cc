@@ -109,6 +109,40 @@ bool load_image(cxxrtl::debug_items &items, const std::string &name,
   return true;
 }
 
+// The instruction ROM is two INTERLEAVED BANKS since ADR-0054: word W lives in
+// `imem rom_even` at index W/2 when W is even, and in `imem rom_odd` at the
+// same index when it is odd. Banking is what removed the duplicated ROM the SoC
+// needed for the dual-word fetch window, so the de-interleaving has to happen
+// somewhere -- here, at load time, rather than in RTL that would cost hardware.
+//
+// The split is derived from the word address alone, so it cannot disagree with
+// rtl/imemory.v's read side without test/imem_tb.v -- which checks that side
+// against a flat reference at every alignment -- saying so.
+bool load_rom_banks(cxxrtl::debug_items &items, const HexImage &image) {
+  static const char *kBankName[2] = {"imem rom_even", "imem rom_odd"};
+  const cxxrtl::debug_item *bank[2];
+  for (int b = 0; b < 2; ++b) {
+    bank[b] = &items.at(kBankName[b]).at(0);
+    if (bank[b]->type != cxxrtl::debug_item::MEMORY) {
+      std::fprintf(stderr, "error: debug item %s is not a memory\n", kBankName[b]);
+      return false;
+    }
+  }
+  for (const auto &[addr, word] : image) {
+    const int b = addr & 1;
+    const uint32_t index = addr >> 1;
+    if (index >= bank[b]->depth) {
+      std::fprintf(stderr,
+                   "error: rom image address 0x%08x is outside the simulated "
+                   "ROM (%zu words per bank, 2 banks)\n",
+                   addr * 4, bank[b]->depth);
+      return false;
+    }
+    bank[b]->curr[index] = word;
+  }
+  return true;
+}
+
 struct Args {
   std::string rom_path;
   std::string ram_path;
@@ -166,12 +200,12 @@ int main(int argc, char **argv) {
   cxxrtl::debug_items all_debug_items;
   top.debug_info(&all_debug_items, nullptr, "");
 
-  if (!load_image(all_debug_items, "rom", rom_image, 0))
+  if (!load_rom_banks(all_debug_items, rom_image))
     return 3;
-  if (!load_image(all_debug_items, "memory", ram_image, kRamBase / 4))
+  if (!load_image(all_debug_items, "dmem ram", ram_image, kRamBase / 4))
     return 3;
 
-  const cxxrtl::debug_item &memory_item = all_debug_items.at("memory").at(0);
+  const cxxrtl::debug_item &memory_item = all_debug_items.at("dmem ram").at(0);
   uint32_t *ram_data = memory_item.curr;
 
   // The real register file inside rtl/regfile.v. `hierarchy -top testbench`
