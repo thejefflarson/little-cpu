@@ -25,9 +25,9 @@ testbench.vvp: rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executo
 # above). testbench.vvp already `$dumpfile`s/`$dumpvars`s under `ifdef
 # ICARUS` (test/testbench.v) and already carries test/monitor.sim.v, so this
 # waveform is also a self-checking per-retire run, not just a raw trace. It
-# runs the fixed increment-loop program baked into test/testbench.v's
-# `initial rom[...]` block for 200 cycles -- there's no --rom flag on this
-# leg, unlike ./sim's.
+# runs the fixed increment-loop program test/testbench.v writes into the ROM's
+# two banks from an `ifdef ICARUS` block (ADR-0054) for 200 cycles -- there's no
+# --rom flag on this leg, unlike ./sim's.
 .PHONY: waves
 waves: waves.vcd
 waves.vcd: testbench.vvp
@@ -470,7 +470,7 @@ lint-setup:
 	mv $$tmp $(SVLINT_DIR)
 	@./$(SVLINT_DIR)/bin/svlint --version
 
-# Six small benches. Four landed in `eb18320` and `a4662a2` with no runner
+# Seven small benches. Four landed in `eb18320` and `a4662a2` with no runner
 # (rtl/executor.v, rtl/memory.v, rtl/decoder.v, rtl/regfile.v respectively —
 # regfile_tb.v covers the write-through bypass and x0 semantics, the single
 # most load-bearing change in the project, and was verified by hand via
@@ -479,7 +479,11 @@ lint-setup:
 # accepts (that output decides whether a Zicsr encoding is a recognised
 # instruction at all), and its WARL masks — which the riscv-formal ladder
 # structurally cannot check, since rvfi_csrw_check.sv has no WARL model; see
-# formal/checks.cfg's [csrs] note. The sixth,
+# formal/checks.cfg's [csrs] note. imem_tb is the sixth (ADR-0054): it walks
+# rtl/imemory.v's bank select at every word index and both parities against a
+# FLAT reference array, plus the range decode at the last word and past it --
+# corners the .S suite cannot reach, since real programs only produce the
+# alignments they happen to produce. The seventh,
 # monitor_tb, is not an RTL bench at all: it drives the sanitized monitor
 # (test/monitor.sim.v) directly with hand-built RVFI retires, because that
 # file is the oracle both sim legs check against and nothing else exercises

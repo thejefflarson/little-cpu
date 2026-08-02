@@ -58,6 +58,7 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0051](0051-the-multiply-proof-is-decomposed-not-mitered.md) | The multiply proof is decomposed, not mitered; the signed divide path gets its first assertions | Accepted · closes 0049 F1/F5 |
 | [0052](0052-m2-term-6-is-verified-and-the-fit-ratchet-gets-a-job.md) | M2 term 6 is verified against the gate's own run, and the fit ratchet gets a job | Accepted · closes 0037 term 6 as rewritten by 0050 |
 | [0053](0053-every-graded-comparison-carries-a-probe-of-its-red-direction.md) | Every graded comparison carries an executable probe of its own red direction | Accepted · extends 0035, 0033 |
+| [0054](0054-the-memory-system-and-the-first-real-timing-number.md) | The memory system, and the first real timing number | Accepted · the design 0044 called for; answers 0038 decision 2 |
 
 0001–0007 came from the design brief
 ([`docs/ideas/finish-the-rewrite.md`](../ideas/finish-the-rewrite.md)). 0008–0011 came out of
@@ -146,8 +147,14 @@ trades away simplicity the current design depends on.
   array was built too: 44/52, three red checks, and it needs a second bypass level. See
   [ADR-0040](0040-the-ladder-refuses-a-negedge-regfile-and-make-check-was-re-grading.md) for the
   verification-side data the decision was made with.
-- **FPGA timing closure / nextpnr flow** — including ADR-0003's second ROM read becoming interleaved
-  16-bit banks. Post-M4.
+- ~~**FPGA timing closure / nextpnr flow**~~ — **built by
+  [ADR-0054](0054-the-memory-system-and-the-first-real-timing-number.md)**, ahead of its post-M4
+  slot and with every M2 term re-run rather than assumed. The SoC places on up5k/sg48 and
+  `make soc-timing` reports `icetime`'s critical path with its logic/routing split. ADR-0003's
+  second ROM read did become interleaved banks — at **word** granularity, not the halfword split
+  ADR-0044 named, because this core's fetch interface asks for two adjacent words and windows them
+  itself. What is still deferred is a bootloader: SPRAM cannot be initialised, so a real product
+  needs a `.data` copy stub or ADR-0044's SPI-flash path.
 - **Interrupts** (`mie`/`mip` real rather than read-only zero) — no interrupt sources exist.
 - ~~**Spike or Sail co-simulation**~~ — **resolved by [ADR-0032](0032-sail-co-simulation-is-worth-building-and-stays-opt-in.md).**
   The old test ("revisit only if formal and simulation ever disagree") could only fire on a bug both

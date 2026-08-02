@@ -3,6 +3,15 @@
 **Status:** Accepted · 2026-08-01 · *Records constraints, not a design. Supplements ADR-0003 and
 ADR-0008; the design it enables is post-M4 and needs its own ADR.*
 
+> **That design is [ADR-0054](0054-the-memory-system-and-the-first-real-timing-number.md)**, taken
+> ahead of the post-M4 slot below. It adopts the next-PC-clocked address and the negedge rejection
+> verbatim, banks at **word** granularity rather than the halfword split named here (this core's
+> fetch interface asks for two adjacent words and windows them itself), and puts the ROM in BRAM
+> with the SPI-flash boot path still unbuilt. **Everything in the ladder section below still
+> stands**: no faulting bus and no IO region were added, so all eleven checks stay `[BLOCKED]` and
+> invariant 2 stays unpressured. The four constraints and the 43 KB arithmetic above are the
+> starting point ADR-0054 was written from; they are kept as written.
+
 ## Context
 
 `CLAUDE.md`'s opening says the eventual home is an ice40 up5k. Two things have since been measured

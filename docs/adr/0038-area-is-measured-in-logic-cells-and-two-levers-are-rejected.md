@@ -69,6 +69,16 @@ up5k. 86% routing, because a distributed 32:1 mux is a routing problem.
 **Declare 12 MHz** (the iCEBreaker oscillator) and record `icetime` output in `make fit` once the
 design places. At 12 MHz a half-period is 41 ns — enormous relative to any path measured so far.
 
+> **Measured at [ADR-0054](0054-the-memory-system-and-the-first-real-timing-number.md), and the
+> design does NOT close 12 MHz**: the SoC places at **88.51 ns = 11.30 MHz** (`icetime`; 11.70 by
+> nextpnr's own analysis), **34.20 ns logic (38.7%) + 54.29 ns routing (61.3%)**, on the
+> `imem.in_range → decode → next PC → imem.in_range2` loop. Two things this paragraph got wrong.
+> The half-period is not the budget — the whole 83.33 ns period is, and the design is 6% over it.
+> And the report lands in **`make soc-timing`**, not in `make fit`: the two targets measure
+> different designs and their numbers must not be merged. **The 12 MHz declaration stands
+> unchanged** — reconciling it with a measurement is a decision, not a consequence, and this
+> paragraph's own test still applies to anyone proposing to close the gap.
+
 **Anyone proposing to raise Fmax is proposing to break invariant 1 or invariant 6, and must bring an
 ADR that says which.** This is recorded so that a future performance complaint is answered with the
 design's own reasoning rather than a reflexive optimization.
@@ -106,6 +116,14 @@ scope.
 **So the ratchet is on the logic-cell utilisation nextpnr prints *before* it attempts placement, and
 `make fit` deliberately tolerates the IO placement error.** `icetime` and any "the design places"
 claim wait for the SoC memory work. Fmax stays declared at 12 MHz and unmeasured, per decision 2.
+
+> **The SoC memory work landed (ADR-0054) and this decision is unchanged.** `rtl/littlesoc.v` places
+> with **4 `SB_IO`** — both memories are internal, so there is no external bus — and
+> `make soc-timing` is where it is measured. `make fit`'s top stays `littlecpu` with memories
+> external, still tolerating its IO error, because it measures the thing the core's own work
+> changes. **Two numbers, two targets, and they are not comparable**: 3875 LC for the core against
+> 4041 for the SoC, the difference being the ROM's depth mux, the RAM's range decode and two LED
+> taps.
 
 A `make fit` that required successful placement would never run at all — which is worse than no
 metric, because it would look like one.
