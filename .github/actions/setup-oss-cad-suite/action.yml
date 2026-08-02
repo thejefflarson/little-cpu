@@ -1,11 +1,10 @@
 name: Set up OSS CAD Suite
 description: >-
-  Restore the pinned OSS CAD Suite release (yosys, iverilog, sby, ...) from
-  cache, downloading and checksum-verifying it on a cache miss, and add it
-  to PATH. Used by every ci.yml job that needs the open toolchain; the pin
-  itself stays in ci.yml's env: block, passed in as
-  inputs, so it stays visible in the workflow and this action has no pin of
-  its own to drift.
+  Put the pinned OSS CAD Suite (yosys, iverilog, sby, nextpnr-ice40, icetime,
+  the solvers) on PATH. Uses the copy in the runner image when its recorded
+  SHA-256 matches the pin, otherwise restores from cache, otherwise downloads
+  and checksum-verifies. The pin stays in ci.yml's env: block and is passed in,
+  so this action has no pin of its own to drift.
 inputs:
   tag:
     description: OSS CAD Suite release tag (e.g. 2026-06-29)
@@ -19,8 +18,34 @@ inputs:
 runs:
   using: composite
   steps:
+    # The runner image installs the suite at latest and records the SHA-256 it
+    # got. Seven jobs each restored 607 MB from the cache service every run,
+    # measured at a 129s mean and up to 222s once they contend for bandwidth.
+    #
+    # The marker must equal the pin. The image tracks latest and this repo pins,
+    # so they agree only while the pin is current -- a mismatch costs a slow run,
+    # never a wrong toolchain, and is the signal to bump the pin.
+    - name: Use the runner image's OSS CAD Suite if it matches the pin
+      id: image
+      shell: bash
+      run: |
+        set -euo pipefail
+        marker=/opt/oss-cad-suite/.pinned-sha256
+        if [ -r "$marker" ] && [ "$(cat "$marker")" = "${{ inputs.sha256 }}" ]; then
+          echo "found=true" >> "$GITHUB_OUTPUT"
+          echo "using the runner image's copy: pin matches"
+        else
+          echo "found=false" >> "$GITHUB_OUTPUT"
+          if [ -r "$marker" ]; then
+            echo "image has $(cat "$marker"), pin wants ${{ inputs.sha256 }} -- downloading the pinned build"
+          else
+            echo "no copy in the runner image -- downloading the pinned build"
+          fi
+        fi
+
     - name: Restore OSS CAD Suite from cache
       id: cache
+      if: steps.image.outputs.found != 'true'
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: oss-cad-suite
@@ -32,7 +57,7 @@ runs:
         key: oss-cad-suite-linux-x64-${{ inputs.sha256 }}
 
     - name: Download OSS CAD Suite (cache miss)
-      if: steps.cache.outputs.cache-hit != 'true'
+      if: steps.image.outputs.found != 'true' && steps.cache.outputs.cache-hit != 'true'
       shell: bash
       run: |
         set -euo pipefail
@@ -45,12 +70,16 @@ runs:
         tar -xzf oss-cad-suite.tgz
         rm oss-cad-suite.tgz
 
-    - name: Report cache status
-      shell: bash
-      run: echo "oss-cad-suite cache-hit=${{ steps.cache.outputs.cache-hit }}"
-
     - name: Add OSS CAD Suite to PATH
       shell: bash
       run: |
-        echo "$GITHUB_WORKSPACE/oss-cad-suite/bin" >> "$GITHUB_PATH"
-        echo "$GITHUB_WORKSPACE/oss-cad-suite/py3bin" >> "$GITHUB_PATH"
+        set -euo pipefail
+        if [ "${{ steps.image.outputs.found }}" = "true" ]; then
+          root=/opt/oss-cad-suite
+        else
+          root="$GITHUB_WORKSPACE/oss-cad-suite"
+        fi
+        echo "$root/bin" >> "$GITHUB_PATH"
+        echo "$root/py3bin" >> "$GITHUB_PATH"
+        # Fail here rather than in whichever job first reaches for yosys.
+        test -x "$root/bin/yosys"
