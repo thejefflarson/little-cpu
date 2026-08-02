@@ -59,13 +59,18 @@ module memory #(
   // An out-of-range access is dropped and reads as zero. It must not ALIAS a
   // mapped word, which is what indexing on truncated address bits alone would
   // do; test/mem_tb.v checks exactly that, at the boundary and far away.
+  // The outer split IS the no-change property: a write cycle writes and leaves
+  // `mem_rdata` alone, a non-write cycle reads. An out-of-range write is
+  // dropped inside the write arm rather than falling into the read arm.
   always_ff @(posedge clk) begin
-    if (in_range && |mem_wstrb) begin
-      if (mem_wstrb[0]) ram[index][7:0]   <= mem_wdata[7:0];
-      if (mem_wstrb[1]) ram[index][15:8]  <= mem_wdata[15:8];
-      if (mem_wstrb[2]) ram[index][23:16] <= mem_wdata[23:16];
-      if (mem_wstrb[3]) ram[index][31:24] <= mem_wdata[31:24];
-    end else if (!(|mem_wstrb)) begin
+    if (|mem_wstrb) begin
+      if (in_range) begin
+        if (mem_wstrb[0]) ram[index][7:0]   <= mem_wdata[7:0];
+        if (mem_wstrb[1]) ram[index][15:8]  <= mem_wdata[15:8];
+        if (mem_wstrb[2]) ram[index][23:16] <= mem_wdata[23:16];
+        if (mem_wstrb[3]) ram[index][31:24] <= mem_wdata[31:24];
+      end
+    end else begin
       mem_rdata <= in_range ? ram[index] : 32'b0;
     end
   end

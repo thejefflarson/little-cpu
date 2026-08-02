@@ -85,11 +85,13 @@ module imemory #(
   // Word W lives in bank W[0] at index W >> 1; word W+1 lives in the other
   // bank, at the SAME index if W is even and at one past it if W is odd.
   // That "+ W[0]" is the entire cost of banking.
+  logic [29:0]          next_word;
   logic [BANK_BITS:0]   word_index;
   logic [BANK_BITS-1:0] even_index, odd_index;
-  assign word_index = imem_addr_next[BANK_BITS+2:2];
+  assign next_word  = imem_addr_next[31:2];
+  assign word_index = next_word[BANK_BITS:0];
   assign odd_index  = word_index[BANK_BITS:1];
-  assign even_index = word_index[BANK_BITS:1] + {{(BANK_BITS-1){1'b0}}, word_index[0]};
+  assign even_index = odd_index + {{(BANK_BITS-1){1'b0}}, word_index[0]};
 
   // Out of range reads as zero, which decodes to an illegal instruction, so a
   // wild PC faults instead of silently aliasing back into the ROM through bit
@@ -108,9 +110,6 @@ module imemory #(
   // It also removes a corner: `word + 1` wraps at the top of the address space,
   // so the old form called the second word of a fetch at 0xfffffffc "in range"
   // and answered it from word 0. This form faults both words there.
-  logic [29:0] next_word;
-  assign next_word = imem_addr_next[31:2];
-
   logic [31:0] even_data, odd_data;
   logic        odd_first, in_range, in_range2;
   always_ff @(posedge clk) begin

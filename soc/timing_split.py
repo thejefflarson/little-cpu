@@ -16,6 +16,12 @@ the split, and it is derived from the report rather than estimated.
 Also prints the path's start point, its end point and its logic depth, because
 "the critical path is named, not just timed" is the difference between a number
 you can act on and one you can only quote.
+
+`--min-mhz` grades the result. The check lives HERE rather than in the Makefile
+because this is the thing that already parses the report: a second parser --
+which is what the first version of `make soc-timing` had, as a `python3 -c` -- is
+a second thing that can silently stop matching, and it would be the one holding
+the ratchet.
 """
 
 import argparse
@@ -39,6 +45,13 @@ LEVELS = re.compile(r"^Total number of logic levels: (\d+)")
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("report", help="output of `icetime -t -r <report> <asc>`")
+    parser.add_argument(
+        "--min-mhz",
+        type=float,
+        help="fail if the critical path is slower than this (the regression "
+        "ratchet; see SOC_MIN_MHZ in the Makefile for why it sits below the "
+        "measurement rather than at ADR-0038's declared 12 MHz)",
+    )
     args = parser.parse_args()
 
     logic = 0.0
@@ -50,7 +63,6 @@ def main():
     # one a person can find in rtl/.
     start_point = None
     end_point = None
-    seen_a_hop = False
     reported_total = None
     levels = None
 
@@ -64,10 +76,9 @@ def main():
                 logic += delay
             else:
                 routing += delay
-            seen_a_hop = True
             continue
         net = NET.match(line)
-        if net and seen_a_hop and start_point is None:
+        if net and start_point is None:
             start_point = net.group(1)
             continue
         end = ENDPOINT.match(line)
@@ -83,7 +94,7 @@ def main():
             levels = int(lvl.group(1))
 
     walked = logic + routing
-    if reported_total is None or start_point is None:
+    if reported_total is None:
         sys.exit(
             f"{args.report} does not look like an `icetime -r` report: no critical "
             f"path was found in it. That is a failed measurement, not a fast design."
@@ -111,6 +122,17 @@ def main():
     for kind in sorted(per_cell, key=lambda k: -per_cell[k]):
         tag = "logic  " if kind in LOGIC_CELLS else "routing"
         print(f"    {kind:18s} {tag}  x{counts[kind]:<4d} {per_cell[kind]:7.2f} ns")
+
+    if args.min_mhz is not None:
+        mhz = 1000 / reported_total
+        if mhz < args.min_mhz:
+            sys.exit(
+                f"\n*** {mhz:.2f} MHz is under the {args.min_mhz:.2f} MHz floor.\n"
+                f"*** This is a ratchet (ADR-0054), not a suggestion. Find what\n"
+                f"*** lengthened the fetch -> decode -> next-PC loop; raising\n"
+                f"*** SOC_MIN_MHZ in the Makefile needs a reason in the commit."
+            )
+        print(f"\nRATCHET: {mhz:.2f} MHz against a {args.min_mhz:.2f} MHz floor -- OK")
 
 
 if __name__ == "__main__":

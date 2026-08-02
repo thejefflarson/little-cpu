@@ -796,6 +796,11 @@ SOC_SRCS      := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v \
 # The ROM image, de-interleaved into rtl/imemory.v's two banks. soc/rom_banks.py
 # refuses to truncate a program that does not fit -- a ROM ceiling breached is a
 # finding about the part, not something to silently cut in half.
+#
+# PHONY on purpose, so `soc.json` resynthesises every run. The image depends on
+# SOC_PROG, which make cannot see a change to, and a stale ROM would make the
+# measurement describe a program nobody asked for. This target is hand-run and
+# the whole flow is ~33 s; correctness is worth more than incrementality here.
 .PHONY: soc-rom
 soc-rom:
 	@set -e; \
@@ -891,7 +896,6 @@ soc-timing: soc.asc
 	@echo '== icetime: the critical path, and the LOGIC/ROUTING SPLIT =='
 	@icetime -d up5k -P sg48 -p soc/littlesoc.pcf -t -r soc.timing.rpt soc.asc \
 	  > soc.icetime.log 2>&1 || { cat soc.icetime.log; exit 1; }
-	@python3 soc/timing_split.py soc.timing.rpt
 	@echo
 	@echo 'Every hop, with its cell and its delay: soc.timing.rpt'
 	@echo 'nextpnr placement and its own timing analysis: soc.pnr.log'
@@ -901,18 +905,10 @@ soc-timing: soc.asc
 	@echo 'toolchain-dependent the same way `make fit` is. ADR-0038 declares Fmax'
 	@echo 'at 12 MHz as an INTENT; this measurement does not move it in either'
 	@echo 'direction, and the design does not currently meet it.'
-	@python3 -c "import re, sys; \
-	  m = re.search(r'([0-9.]+) ns \((\S+) MHz\)', open('soc.timing.rpt').read()[-4000:]); \
-	  sys.exit('*** make soc-timing: no timing estimate in soc.timing.rpt') if not m \
-	  else None; \
-	  mhz = float(m.group(2)); floor = float('$(SOC_MIN_MHZ)'); \
-	  print('\nRATCHET: %.2f MHz against a %.2f MHz floor -- OK' % (mhz, floor)) \
-	  if mhz >= floor else \
-	  sys.exit('\n*** make soc-timing: %.2f MHz is under the %.2f MHz floor.\n'\
-	           '*** This is a ratchet (ADR-0054), not a suggestion. Find what\n'\
-	           '*** lengthened the fetch -> decode -> next-PC loop; raising\n'\
-	           '*** SOC_MIN_MHZ in the Makefile needs a reason in the commit.' \
-	           % (mhz, floor))"
+	@# The ratchet is applied by the thing that already parses the report. It
+	@# was a `python3 -c` here, i.e. a SECOND parser of the same file -- and the
+	@# second one was the one holding the gate.
+	@python3 soc/timing_split.py soc.timing.rpt --min-mhz $(SOC_MIN_MHZ)
 
 clean:
 	rm -f fit.json fit.log fit.synth.log
