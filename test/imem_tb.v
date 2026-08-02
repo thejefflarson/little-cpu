@@ -102,18 +102,15 @@ module imem_tb;
     check("far out of range: imem_data", imem_data, 32'b0);
     check("far out of range: imem_data2", imem_data2, 32'b0);
 
-    // THE ONE PLACE THE WINDOW WRAPS, pinned rather than papered over. At the
-    // very top of the address space the second word of the pair is at address
-    // 0, which really is ROM word 0 -- so `imem_data` faults (out of range) and
-    // `imem_data2` is a live read. The placeholder this module replaced did the
-    // same thing, and the pair is unreachable anyway: `imem_data2` is only ever
-    // windowed in when `pc[1]` is set, and a 32-bit instruction at
-    // 0xfffffffe cannot be reached without executing through 0xfffffffc first,
-    // which faults. Written down because "the range check has a hole" is what
-    // this looks like from the outside.
+    // The top of the address space, where a `word + 1` range test would wrap to
+    // 0 and answer the second word of the pair out of real ROM. rtl/imemory.v
+    // tests `word < ROM_WORDS - 1` instead -- an incrementer there would sit in
+    // series with the one that produced the address, which `make soc-timing`
+    // measured on the critical path -- so both words fault here.
     fetch(32'hffff_fffc);
     check("top of the address space: imem_data faults", imem_data, 32'b0);
-    check("top of the address space: imem_data2 wraps to word 0", imem_data2, ref_rom[0]);
+    check("top of the address space: imem_data2 does not wrap to word 0",
+          imem_data2, 32'b0);
 
     // Back in range on the very next cycle, with no state carried over: the
     // window is stateless (ADR-0003) and the range flags are per-cycle.

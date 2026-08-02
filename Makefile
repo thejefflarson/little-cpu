@@ -716,8 +716,191 @@ fit: fit.json
 	    printf "\nRATCHET: %s of %s cells budgeted -- OK\n", u[1], budget; \
 	  }' fit.log
 
+# ---------------------------------------------------------------------------
+# `make soc-timing` -- the SoC place-and-route and the FIRST REAL TIMING NUMBER
+# this project has ever had (ADR-0054).
+#
+# DELIBERATELY NOT `make fit`, AND IT MEASURES A DIFFERENT THING. `fit` is the
+# core's area ratchet: `littlecpu` with its memories external, tolerating a
+# failed placement because 231 `SB_IO` against sg48's 39 can never place
+# (ADR-0038 decision 1a). This target is the whole SoC -- core plus a block-RAM
+# ROM plus an SPRAM data RAM plus four pins -- and it MUST place, because
+# `icetime` reads an `.asc` and there is no `.asc` without a completed
+# placement. The two numbers are separate on purpose and must not be merged: the
+# SoC's logic-cell count includes the ROM's depth mux, the RAM's range decode
+# and the LED taps, none of which are the core.
+#
+# The contract is therefore the ordinary one, inverted back from `fit`'s:
+#
+#   nextpnr places, icetime reports a path   -> exit 0, the numbers are printed
+#   anything fails                           -> exit NONZERO
+#
+# WHAT THE NUMBER DOES NOT DESCRIBE, since a timing figure travels further than
+# its caveats: it is `icetime`'s static estimate for one placement of one build
+# of one program's ROM contents, at the default (worst-case) corner, on a part
+# whose routing dominates. ADR-0038 declares Fmax at 12 MHz as an INTENT and
+# ADR-0054 does not move it in either direction -- reconciling a measurement
+# with an intent is a decision, not a consequence.
+#
+# The ROM image is a real program, assembled with the same toolchain and the
+# same link script `make test` uses, so this needs the RISC-V cross compiler.
+# That is why it is a hand-run target and not a CI job. Override the program
+# with `make soc-timing SOC_PROG=lw.S`.
+# ---------------------------------------------------------------------------
+SOC_PROG      ?= add.S
+SOC_ROM_WORDS := 2048
+# The hard-block census the design is DECLARED to produce. Both are properties
+# of the RTL, not of placement, so they are exact rather than budgeted the way
+# FIT_MAX_LC is: 2 SPRAM for the 64 KB data RAM, and 16 EBR for the 8 KB banked
+# ROM plus 4 for rtl/regfile.v.
+SOC_EXPECT_SPRAM := 2
+SOC_EXPECT_EBR   := 20
+
+# $(call soc_expect_cells,<cell type>,<expected count>,<what it means>)
+# Reads the count out of yosys's own statistics block -- the LAST one, which is
+# the whole-design total -- and fails if it is not exactly the declared number.
+define soc_expect_cells
+set -e; \
+got=$$(grep -E '^ +[0-9]+ +$(1)$$' soc.synth.log | tail -1 | awk '{print $$1}'); \
+got=$${got:-0}; \
+if [ "$$got" != "$(2)" ]; then \
+  echo "*** make soc-timing: $$got $(1) cells, expected $(2)."; \
+  echo "*** $(3)."; \
+  echo "*** Read soc.synth.log. If the change was deliberate, update"; \
+  echo "*** SOC_EXPECT_SPRAM / SOC_EXPECT_EBR in the Makefile in the same commit."; \
+  exit 1; \
+fi; \
+echo "$(1): $$got, as declared"
+endef
+SOC_SRCS      := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v \
+                 rtl/executor.v rtl/fetcher.v rtl/imemory.v rtl/memory.v \
+                 rtl/regfile.v rtl/writeback.v rtl/littlecpu.v rtl/littlesoc.v
+
+# The ROM image, de-interleaved into rtl/imemory.v's two banks. soc/rom_banks.py
+# refuses to truncate a program that does not fit -- a ROM ceiling breached is a
+# finding about the part, not something to silently cut in half.
+.PHONY: soc-rom
+soc-rom:
+	@set -e; \
+	for candidate in riscv64-elf-gcc riscv64-unknown-elf-gcc; do \
+	  if command -v $$candidate >/dev/null 2>&1; then CC=$$candidate; break; fi; \
+	done; \
+	if [ -z "$$CC" ]; then \
+	  echo "error: no RISC-V cross compiler found; see \`make setup\`." >&2; exit 1; \
+	fi; \
+	OBJCOPY=$${CC%gcc}objcopy; \
+	command -v $$OBJCOPY >/dev/null 2>&1 || { \
+	  echo "error: $$OBJCOPY not found (half-installed toolchain)." >&2; exit 1; }; \
+	tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/soc-rom.XXXXXX"); \
+	test -n "$$tmp" -a -d "$$tmp"; \
+	trap 'rm -rf "$$tmp"' EXIT; \
+	$$CC -march=rv32imc_zicsr_zifencei -mabi=ilp32 -nostdlib -I test/asm \
+	  -T test/asm/sections.lds -o "$$tmp/prog.elf" test/asm/$(SOC_PROG); \
+	$$OBJCOPY -O verilog --verilog-data-width=4 -j .text "$$tmp/prog.elf" "$$tmp/rom.hex"; \
+	python3 soc/rom_banks.py "$$tmp/rom.hex" soc/rom_even.hex soc/rom_odd.hex \
+	  --rom-words $(SOC_ROM_WORDS)
+
+soc.json: $(SOC_SRCS) soc-rom
+	@echo 'yosys: synthesising littlesoc for ice40 (log: soc.synth.log)'
+	@yosys -p 'read_verilog -sv $(SOC_SRCS); synth_ice40 -dsp -spram -top littlesoc -json $@' \
+	  > soc.synth.log 2>&1 || { tail -40 soc.synth.log; exit 1; }
+	@# THE INFERENCE IS CHECKED AGAINST A COUNT, NOT ASSUMED AND NOT GREPPED FOR
+	@# BY NAME. rtl/memory.v maps to SPRAM only because its read port is
+	@# no-change on a write; the read-first spelling maps the same array to 148
+	@# `SB_RAM40_4K` -- five times the part's entire block RAM -- and yosys
+	@# reports that as a normal run, failing later in nextpnr with a message
+	@# about BELs. rtl/imemory.v maps to block RAM only while it stays a plain
+	@# synchronous array; an inferred-as-logic ROM would blow the LUT budget.
+	@#
+	@# The counts are exact because they are properties of the design, not of
+	@# placement: 2 SPRAM for a 64 KB data RAM, 16 EBR for an 8 KB banked ROM
+	@# plus 4 for rtl/regfile.v. `grep -q SB_SPRAM256KA` was the first version of
+	@# this check and it PASSED on the mutated build -- yosys logs the cell's
+	@# library definition whether or not it instantiates one. Measured.
+	@$(call soc_expect_cells,SB_SPRAM256KA,$(SOC_EXPECT_SPRAM),rtl/memory.v has stopped \
+	  matching the SPRAM shape -- read its header comment about the no-change read port)
+	@$(call soc_expect_cells,SB_RAM40_4K,$(SOC_EXPECT_EBR),rtl/imemory.v or rtl/regfile.v \
+	  has stopped inferring block RAM, or the ROM size changed)
+
+# nextpnr's exit status is NOT the signal here, and tolerating it is a decision
+# rather than a convenience. It defaults to a 12 MHz target on ice40 and EXITS
+# NONZERO when the design misses it -- which this one does (ADR-0054: 11.70 MHz
+# by nextpnr's own analysis, 11.30 MHz by icetime). The placement itself
+# succeeded and the `.asc` is written before that check runs, so throwing it away
+# would mean no `icetime` report at all, i.e. no measurement, because the design
+# is 6% slow. The graded conditions are below: the `.asc` exists, nextpnr printed
+# a utilisation table, and the frequency clears SOC_MIN_MHZ.
+#
+# `.DELETE_ON_ERROR` at the top of this file is why the `||` matters: without
+# tolerating the status, make deletes the `.asc` nextpnr just wrote.
+soc.asc: soc.json soc/littlesoc.pcf
+	@echo 'nextpnr: placing and routing littlesoc on up5k/sg48 (log: soc.pnr.log)'
+	@nextpnr-ice40 --up5k --package sg48 --json $< --pcf soc/littlesoc.pcf \
+	  --asc $@ > soc.pnr.log 2>&1 || true
+	@test -s $@ || { \
+	  echo '*** make soc-timing: nextpnr produced no bitstream, so NOTHING was'; \
+	  echo '*** measured. That is a failed placement, not a slow design.'; \
+	  tail -30 soc.pnr.log; \
+	  rm -f $@; \
+	  exit 1; \
+	}
+	@grep -q 'ICESTORM_LC:' soc.pnr.log || { \
+	  echo '*** make soc-timing: nextpnr printed no utilisation table.'; \
+	  tail -30 soc.pnr.log; \
+	  rm -f $@; \
+	  exit 1; \
+	}
+
+# A REGRESSION RATCHET, SET BELOW THE MEASUREMENT -- NOT ADR-0038's 12 MHz.
+# The design measures 11.30 MHz by icetime and does not close 12 (ADR-0054).
+# Pinning this at 12 would be a gate that is red on arrival, which is a gate
+# nobody keeps; pinning it at 11.30 would be red on any resynthesis, because
+# this number moves with placement and toolchain build exactly as `make fit`'s
+# does. 10.5 MHz is roughly 7% of headroom: a change that trips it has slowed
+# the fetch->decode->next-PC loop by more than placement noise accounts for.
+#
+# RAISING THIS AFTER A REAL IMPROVEMENT IS ALWAYS WELCOME. Lowering it needs a
+# reason in the commit message, and closing the gap to 12 MHz is a DESIGN
+# decision (it means shortening the loop invariant 1 puts in one cycle), not
+# something to buy by editing this line.
+SOC_MIN_MHZ := 10.5
+
+.PHONY: soc-timing
+soc-timing: soc.asc
+	@sed -n '/^Info: Device utilisation:/,/^$$/s/^Info: //p' soc.pnr.log
+	@grep -E "Max frequency for clock .*'clk" soc.pnr.log | tail -1 \
+	  | sed -e 's/^Info: /nextpnr /' -e 's/^ERROR: /nextpnr /'
+	@echo
+	@echo '== icetime: the critical path, and the LOGIC/ROUTING SPLIT =='
+	@icetime -d up5k -P sg48 -p soc/littlesoc.pcf -t -r soc.timing.rpt soc.asc \
+	  > soc.icetime.log 2>&1 || { cat soc.icetime.log; exit 1; }
+	@python3 soc/timing_split.py soc.timing.rpt
+	@echo
+	@echo 'Every hop, with its cell and its delay: soc.timing.rpt'
+	@echo 'nextpnr placement and its own timing analysis: soc.pnr.log'
+	@echo
+	@echo 'READ ADR-0054 BEFORE QUOTING ANY OF THIS. It is a static estimate for'
+	@echo 'one placement of one build at the worst-case corner, and it is'
+	@echo 'toolchain-dependent the same way `make fit` is. ADR-0038 declares Fmax'
+	@echo 'at 12 MHz as an INTENT; this measurement does not move it in either'
+	@echo 'direction, and the design does not currently meet it.'
+	@python3 -c "import re, sys; \
+	  m = re.search(r'([0-9.]+) ns \((\S+) MHz\)', open('soc.timing.rpt').read()[-4000:]); \
+	  sys.exit('*** make soc-timing: no timing estimate in soc.timing.rpt') if not m \
+	  else None; \
+	  mhz = float(m.group(2)); floor = float('$(SOC_MIN_MHZ)'); \
+	  print('\nRATCHET: %.2f MHz against a %.2f MHz floor -- OK' % (mhz, floor)) \
+	  if mhz >= floor else \
+	  sys.exit('\n*** make soc-timing: %.2f MHz is under the %.2f MHz floor.\n'\
+	           '*** This is a ratchet (ADR-0054), not a suggestion. Find what\n'\
+	           '*** lengthened the fetch -> decode -> next-PC loop; raising\n'\
+	           '*** SOC_MIN_MHZ in the Makefile needs a reason in the commit.' \
+	           % (mhz, floor))"
+
 clean:
 	rm -f fit.json fit.log fit.synth.log
+	rm -f soc.json soc.asc soc.synth.log soc.pnr.log soc.timing.rpt
+	rm -f soc/rom_even.hex soc/rom_odd.hex
 	rm -f waves.vcd
 	rm -rf sim sim.dSYM
 	rm -rf cosim cosim.dSYM

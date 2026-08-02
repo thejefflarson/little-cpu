@@ -69,7 +69,6 @@ module imemory #(
 );
   localparam int BANK_WORDS = ROM_WORDS / 2;
   localparam int BANK_BITS  = $clog2(BANK_WORDS);
-  localparam logic [31:0] ROM_BYTES = 32'(ROM_WORDS) * 32'd4;
 
   logic [31:0] rom_even[0:BANK_WORDS-1];
   logic [31:0] rom_odd [0:BANK_WORDS-1];
@@ -97,8 +96,20 @@ module imemory #(
   // truncation. Both words are tested: the last word of ROM is in range while
   // the word after it is not. Registered alongside the data they mask, because
   // the address they are computed from is a cycle ahead of it.
-  logic [31:0] addr2_next;
-  assign addr2_next = imem_addr_next + 32'd4;
+  //
+  // BOTH TESTS ARE ON THE WORD INDEX, and the second is `< ROM_WORDS - 1`
+  // rather than `word + 1 < ROM_WORDS`. That is a timing decision, measured:
+  // the address arriving here is the freshly computed next PC, so an
+  // incrementer in front of the comparator puts a second 32-bit carry chain in
+  // series with the one that produced it -- and `make soc-timing`'s first run
+  // found exactly that chain at the END of the critical path. Comparing against
+  // a constant one lower is the same predicate with no adder.
+  //
+  // It also removes a corner: `word + 1` wraps at the top of the address space,
+  // so the old form called the second word of a fetch at 0xfffffffc "in range"
+  // and answered it from word 0. This form faults both words there.
+  logic [29:0] next_word;
+  assign next_word = imem_addr_next[31:2];
 
   logic [31:0] even_data, odd_data;
   logic        odd_first, in_range, in_range2;
@@ -106,8 +117,8 @@ module imemory #(
     even_data <= rom_even[even_index];
     odd_data  <= rom_odd[odd_index];
     odd_first <= word_index[0];
-    in_range  <= imem_addr_next < ROM_BYTES;
-    in_range2 <= addr2_next     < ROM_BYTES;
+    in_range  <= next_word < 30'(ROM_WORDS);
+    in_range2 <= next_word < 30'(ROM_WORDS) - 30'd1;
   end
 
   logic [31:0] window_lo, window_hi;

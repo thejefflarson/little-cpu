@@ -4,6 +4,20 @@
 fit.json
 fit.log
 fit.synth.log
+# `make soc-timing` (ADR-0054): the SoC netlist, the placed bitstream ASCII, the
+# three logs and the `icetime` report. soc.pnr.log and soc.timing.rpt ARE the
+# measurement, so they are kept on disk to read -- and never committed, because
+# a checked-in timing report is a number that stops tracking the RTL.
+soc.json
+soc.asc
+soc.synth.log
+soc.pnr.log
+soc.timing.rpt
+soc.icetime.log
+# The de-interleaved ROM banks `make soc-rom` writes from a test program. Build
+# artifacts of whichever SOC_PROG was last built, not source.
+soc/rom_even.hex
+soc/rom_odd.hex
 formal/riscv-formal
 formal/riscv-formal.tmp
 formal/complete
