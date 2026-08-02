@@ -11,20 +11,13 @@ on:
 permissions:
   contents: read
 
-# oss-cad-suite-linux-x64-20260629.tgz is 719 MB (measured), so
-# every job that needs yosys/iverilog/sby restores it from actions/cache
-# instead of re-downloading. The tag and the filename below must name the
-# same release (https://github.com/YosysHQ/oss-cad-suite-build/releases);
-# bump them together.
-env:
-  OSS_CAD_SUITE_TAG: "2026-06-29"
-  OSS_CAD_SUITE_FILE: "oss-cad-suite-linux-x64-20260629.tgz"
-  # Upstream does not publish a checksum asset for this release, so this is
-  # this repo's own pin: computed locally from the tarball fetched at the
-  # URL below, the same "don't trust the dependency, pin what you got"
-  # posture as formal/pin.mk (ADR-0013). Verified below before the archive
-  # is ever extracted.
-  OSS_CAD_SUITE_SHA256: "dfb5df3c28599081d2baca13884c069c025b1990c86e90f4a4d84aadcd255cc5"
+# The OSS CAD Suite comes from the runner image, at whatever version the image
+# was last built with. ./.github/actions/setup-oss-cad-suite falls back to
+# downloading the latest release on a runner that has no copy.
+#
+# formal/pin.mk is a different question and stays pinned: test/monitor.v is
+# generated from riscv-formal and tracked, so bumping that means regenerating
+# the monitor.
 
 jobs:
   # yosys write_cxxrtl plus the iverilog leg
@@ -44,10 +37,6 @@ jobs:
 
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
-        with:
-          tag: ${{ env.OSS_CAD_SUITE_TAG }}
-          file: ${{ env.OSS_CAD_SUITE_FILE }}
-          sha256: ${{ env.OSS_CAD_SUITE_SHA256 }}
 
       - name: yosys write_cxxrtl, warnings promoted
         # The elaboration itself is `make elaborate-strict` -- the Makefile's
@@ -178,10 +167,6 @@ jobs:
 
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
-        with:
-          tag: ${{ env.OSS_CAD_SUITE_TAG }}
-          file: ${{ env.OSS_CAD_SUITE_FILE }}
-          sha256: ${{ env.OSS_CAD_SUITE_SHA256 }}
 
       - name: make test
         run: make test
@@ -237,10 +222,6 @@ jobs:
 
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
-        with:
-          tag: ${{ env.OSS_CAD_SUITE_TAG }}
-          file: ${{ env.OSS_CAD_SUITE_FILE }}
-          sha256: ${{ env.OSS_CAD_SUITE_SHA256 }}
 
       - name: Executor arithmetic BMC
         run: make -C formal components_executor
@@ -357,10 +338,6 @@ jobs:
 
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
-        with:
-          tag: ${{ env.OSS_CAD_SUITE_TAG }}
-          file: ${{ env.OSS_CAD_SUITE_FILE }}
-          sha256: ${{ env.OSS_CAD_SUITE_SHA256 }}
 
       - name: make fit
         # NO PIPE ON THE GRADED COMMAND, same reasoning as the `formal` and
@@ -456,10 +433,6 @@ jobs:
 
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
-        with:
-          tag: ${{ env.OSS_CAD_SUITE_TAG }}
-          file: ${{ env.OSS_CAD_SUITE_FILE }}
-          sha256: ${{ env.OSS_CAD_SUITE_SHA256 }}
 
       - name: make -C formal nonperturbation
         # NO PIPE ON THE GRADED COMMAND, DELIBERATELY -- same reasoning as the
@@ -634,10 +607,6 @@ jobs:
 
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
-        with:
-          tag: ${{ env.OSS_CAD_SUITE_TAG }}
-          file: ${{ env.OSS_CAD_SUITE_FILE }}
-          sha256: ${{ env.OSS_CAD_SUITE_SHA256 }}
 
       # Not a formality, and it is NOT made redundant by ADR-0036's status
       # field. sby's btor engine solves with btormc and then replays the
