@@ -225,7 +225,7 @@ the mutated file, so no amount of additional test material would change it.
 | `A3` | altops-muldiv | signed DIV sign-restore deleted (ADR-0012's wrapper) | **caught** | **caught** | **caught** | **caught** | *not measured* |
 | `A4` | altops-muldiv | divide-by-zero quotient returns 0 instead of all-ones | **caught** | **caught** | **caught** | missed | *not measured* |
 | `B1` | past-bmc-bound | extra architectural write to x31 after cycle 40 (ADR-0032's probe) | missed | missed | **caught** | missed | *not measured* |
-| `B2` | past-bmc-bound | spurious bus write to 0x10F00 after cycle 40, absent from the RVFI report | missed | missed | missed | missed | *not measured* |
+| `B2` | past-bmc-bound | spurious bus write to 0x10F00 after cycle 40, absent from the RVFI report | missed | missed | missed | missed | missed |
 | `C1` | no-spec-model | ECALL raises cause 9 (S-mode ecall) instead of 11 | **caught** | **caught** | **caught** | missed | *not measured* |
 | `C2` | no-spec-model | mret does not restore MIE from MPIE | missed | **caught** | missed | missed | *not measured* |
 | `C3` | no-spec-model | mepc WARL mask drops the bit-0 clear | **caught** | **caught** | **caught** | missed | *not measured* |
@@ -238,13 +238,13 @@ the mutated file, so no amount of additional test material would change it.
 | `E3` | unpathed-module | memory.v drops the top byte of every word store | missed | **caught** | missed | missed | *not measured* |
 | `F1` | stall-protocol | operand_stall drops its rs2 term (invariant 9 half-broken) | **caught** | missed | **caught** | missed | *not measured* |
 | `F2` | stall-protocol | scoreboard loses the accessor's pending-load slot (invariant 8b) | **caught** | missed | **caught** | missed | *not measured* |
-| `F3` | stall-protocol | CSR drain predicate loses accessor_out_valid (invariant 8c) | missed | missed | missed | missed | *not measured* |
+| `F3` | stall-protocol | CSR drain predicate loses accessor_out_valid (invariant 8c) | missed | missed | missed | missed | missed |
 | `F4` | stall-protocol | rs2 write-through bypass deleted (ADR-0040's reg_ch0 liveness probe) | **caught** | **caught** | **caught** | missed | *not measured* |
-| `G1` | decode-trap-fetch | halfword load misalignment no longer detected | missed | missed | missed | missed | *not measured* |
+| `G1` | decode-trap-fetch | halfword load misalignment no longer detected | missed | missed | missed | missed | missed |
 | `G2` | decode-trap-fetch | a write to a read-only CSR is no longer illegal (ADR-0005 rule 2) | **caught** | **caught** | **caught** | missed | *not measured* |
 | `G3` | decode-trap-fetch | fetch window's second word comes from the wrong address (+8) | **caught** | missed | **caught** | missed | *not measured* |
 | `G4` | decode-trap-fetch | trap_epc records pc+4 instead of the faulting pc | **caught** | **caught** | **caught** | missed | *not measured* |
-| `H1` | retire-counters | x0 write no longer suppressed at writeback | missed | missed | missed | missed | *not measured* |
+| `H1` | retire-counters | x0 write no longer suppressed at writeback | missed | missed | missed | missed | missed |
 | `H2` | retire-counters | minstret counts trapping issues too (ADR-0027 broken) | **caught** | **caught** | **caught** | **caught** | *not measured* |
 
 ## What the matrix says
@@ -262,9 +262,19 @@ single-cycle ALU ops, and `CTRL-2`'s `SRA` is simply not in its assertion set. I
 measured, because "the component proofs pass" is a sentence that reads like broad coverage and is
 not.
 
-**3. Four mutants are caught by no simulation surface at all** — `B2`, `F3`, `G1`, `H1` — and they
-are the four most valuable rows in the table. Each is a defect class this repo's own documentation
-predicted:
+**3. Four mutants are caught by NOTHING — all five surfaces, measured, not inferred.** `B2`, `F3`,
+`G1` and `H1` pass the 56 `.S` programs with the per-retire monitor live, the six unit benches,
+co-simulation against Sail, all three component proofs, **and all 85 ladder checks**. The ladder
+cell for each required the full 85 to run before `MISSED` could be recorded — `ran=85/85`, empty red
+set, at loads 6.0-8.1 (711.8 s, 736.3 s, 703.1 s, 715.4 s at `LADDER_P=2`; not comparable to the
+repo's 174-315 s `-j nproc` figures).
+
+**These are the most valuable rows in the table, and each is a class this repo's own documentation
+predicted by construction.** That the predictions were right is the point: they were written from
+reasoning about the oracles, and until now nobody had run the experiment.
+
+*(A fifth and sixth, `E1` and `E2`, are caught by nothing either — but for the different reason in
+finding 4, which is why they read `n/a — untestable` rather than `missed`.)*
 
 - **`B2` — a bus write nothing reads back and the RVFI report does not mention.** The brief named
   this exactly: *a wrong store never loaded back is invisible to co-sim and to every `.S` test*.
