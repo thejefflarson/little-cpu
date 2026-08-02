@@ -17,6 +17,14 @@ Also prints the path's start point, its end point and its logic depth, because
 "the critical path is named, not just timed" is the difference between a number
 you can act on and one you can only quote.
 
+THE DEPTH IS PRINTED AS TWO NUMBERS, because icetime's single one is not a cost.
+A `carryin -> carryout` hop stays inside the carry chain and needs no
+interconnect at all; every other LogicCell40 hop is entered through a LocalMux
+and an InMux. On the SoC's own critical path that is 0.34 ns against 3.31 --
+roughly tenfold -- so a design that trades a carry hop for a LUT level gets
+shorter by icetime's count and slower in nanoseconds. Read the two apart before
+deciding a path is deep (ADR-0058).
+
 `--min-mhz` grades the result. The check lives HERE rather than in the Makefile
 because this is the thing that already parses the report: a second parser --
 which is what the first version of `make soc-timing` had, as a `python3 -c` -- is
@@ -32,8 +40,15 @@ import sys
 # A LUT or flip-flop evaluating. Everything else icetime lists is interconnect.
 LOGIC_CELLS = {"LogicCell40"}
 
-# `<indent><instance> (<CellType>) [something]: <t> ns`
-HOP = re.compile(r"^\s+(\S+) \((\w+)\)[^:]*: ([0-9.]+) ns")
+# A hop that stays inside the carry chain: `carryin -> carryout`. The chain's
+# entry hop (`in2 -> carryout`) is driven by an ordinary LUT input and counts
+# with the LUT levels, which is what makes this the interconnect-free set.
+CARRY_HOP = "carryin -> carryout"
+# The interconnect that belongs to the carry chain rather than to a LUT level.
+CARRY_ROUTING = {"ICE_CARRY_IN_MUX"}
+
+# `<indent><instance> (<CellType>)<description>: <t> ns`
+HOP = re.compile(r"^\s+(\S+) \((\w+)\)([^:]*): ([0-9.]+) ns")
 # The named nets between hops: `<cumulative> ns <net> (<name>)`
 NET = re.compile(r"^\s+[0-9.]+ ns \S+ \((.+)\)\s*$")
 # The last line of the path listing: `              lcout -> <endpoint>`
@@ -56,6 +71,9 @@ def main():
 
     logic = 0.0
     routing = 0.0
+    carry_ns = 0.0
+    carry_hops = 0
+    lut_hops = 0
     per_cell = collections.defaultdict(float)
     counts = collections.Counter()
     # The first named net on the path is the readable name for where it starts:
@@ -69,13 +87,20 @@ def main():
     for line in open(args.report):
         hop = HOP.match(line)
         if hop:
-            kind, delay = hop.group(2), float(hop.group(3))
+            kind, what, delay = hop.group(2), hop.group(3).strip(), float(hop.group(4))
             counts[kind] += 1
             per_cell[kind] += delay
             if kind in LOGIC_CELLS:
                 logic += delay
+                if what == CARRY_HOP:
+                    carry_hops += 1
+                    carry_ns += delay
+                else:
+                    lut_hops += 1
             else:
                 routing += delay
+                if kind in CARRY_ROUTING:
+                    carry_ns += delay
             continue
         net = NET.match(line)
         if net and start_point is None:
@@ -114,7 +139,10 @@ def main():
     print(f"critical path : {reported_total:.2f} ns  ({1000 / reported_total:.2f} MHz)")
     print(f"  logic       : {logic:6.2f} ns  {100 * logic / walked:4.1f}%")
     print(f"  routing     : {routing:6.2f} ns  {100 * routing / walked:4.1f}%")
-    print(f"  logic levels: {levels}")
+    print(f"  logic levels: {levels} by icetime; {lut_hops} LUT/setup + {carry_hops} carry by hop")
+    per_lut = (walked - carry_ns) / lut_hops if lut_hops else 0.0
+    per_carry = carry_ns / carry_hops if carry_hops else 0.0
+    print(f"  per level   : {per_lut:.2f} ns per LUT level, {per_carry:.2f} ns per carry hop")
     print(f"  start       : {start_point}")
     print(f"  end         : {end_point}")
     print()
