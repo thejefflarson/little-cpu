@@ -847,9 +847,17 @@ soc.json: $(SOC_SRCS) soc-rom
 #
 # `.DELETE_ON_ERROR` at the top of this file is why the `||` matters: without
 # tolerating the status, make deletes the `.asc` nextpnr just wrote.
+#
+# `SOC_SEED=<n>` places the same netlist differently. One placement of one build
+# is a sample, not a measurement: ADR-0057 measured the spread across four
+# placements at 1-2% for this design and ADR-0058 saw 87.43 to 88.51 ns on
+# unmodified `main`, which is wider than several changes worth arguing about.
+# Compare distributions, not single runs.
+SOC_SEED ?=
+
 soc.asc: soc.json soc/littlesoc.pcf
 	@echo 'nextpnr: placing and routing littlesoc on up5k/sg48 (log: soc.pnr.log)'
-	@nextpnr-ice40 --up5k --package sg48 --json $< --pcf soc/littlesoc.pcf \
+	@nextpnr-ice40 --up5k --package sg48 --json $< --pcf soc/littlesoc.pcf $(if $(SOC_SEED),--seed '$(SOC_SEED)') \
 	  --asc $@ > soc.pnr.log 2>&1 || true
 	@test -s $@ || { \
 	  echo '*** make soc-timing: nextpnr produced no bitstream, so NOTHING was'; \

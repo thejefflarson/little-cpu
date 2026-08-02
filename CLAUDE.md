@@ -254,7 +254,8 @@ now carries `make fit`'s table-presence check and ratchet, and `soc/cell_census.
 Makefile so there is one copy of the logic. `check-unit-benches` needed no extraction: its three
 branches are probed by invoking the real target against the real `test/*_tb.v` tree with
 `UNIT_BENCHES`/`UNIT_BENCH_SRC_*` overridden on the command line, which is what its own comment
-already commits to being possible. `test/probe_gates.sh` is **122** probes now, up from 108.
+already commits to being possible. `test/probe_gates.sh` is **125** probes now, up from 108
+(ADR-0058 added three for `soc/timing_split.py`'s LUT-versus-carry depth split).
 **`make soc-timing` joins CI in the `soc-timing` job**, mirroring `fit`: non-required, for the same
 reason (ADR-0036) — it publishes the census and the logic/routing split to the step summary whether
 it passes or fails. It is the first job needing both the RISC-V cross compiler and the OSS CAD
@@ -768,7 +769,7 @@ make test           # assemble test/asm/*.S, run under cxxrtl, pass/fail table w
                     # both ways before a single program is assembled -- so a suite
                     # that SHRANK is red, not a smaller table that still "passes".
                     # Also runs `make probe-gates` (ADR-0053).
-make probe-gates    # forces all 122 graded comparisons in the grading scripts to
+make probe-gates    # forces all 125 graded comparisons in the grading scripts to
                     # FAIL and requires each to fail for its own reason. Hermetic
                     # (stubs, no toolchain); a prerequisite of `test` on purpose,
                     # so it is in CI's required job. All fork, no work: ~68-90s of
@@ -806,6 +807,8 @@ make soc-timing     # THE SoC PLACE-AND-TIME FLOW (ADR-0054), and NOT `make fit`
                     # 20/30 EBR, 2/4 SPRAM, 8/8 GB; 88.51 ns = 11.30 MHz,
                     # 38.7% logic / 61.3% routing, over
                     # imem.in_range -> decode -> next PC -> imem.in_range2.
+                    # THE 41 LEVELS ARE 25 LUT + 17 CARRY, at 3.31 ns and
+                    # 0.34 ns each; read them apart (ADR-0058).
                     # DOES NOT MEET ADR-0038's DECLARED 12 MHz, and that intent
                     # is unchanged. Ratchets on SOC_MIN_MHZ (10.0 -- this line
                     # said 10.5 and the Makefile never did; ADR-0057), a
@@ -817,7 +820,9 @@ make soc-timing     # THE SoC PLACE-AND-TIME FLOW (ADR-0054), and NOT `make fit`
                     # constraints, not correctness ones, ADR-0036). The
                     # census (soc/cell_census.py) and the ratchet
                     # (soc/timing_split.py) are both probed hermetically in
-                    # test/probe_gates.sh. `SOC_PROG=lw.S` picks the program.
+                    # test/probe_gates.sh. `SOC_PROG=lw.S` picks the program,
+                    # `SOC_SEED=3` places it differently -- one placement is a
+                    # sample, and main's own spread is 1.2% (ADR-0058).
                     # Probe: `make soc-timing SOC_MIN_MHZ=99` exits 1.
 
 make -C formal components_decoder   # component proofs. THREE tasks, all with real assertions:
@@ -1137,6 +1142,27 @@ longer quietly widen.
   `rtl/regfile.v` placed alone at 86% routing (ADR-0038): the whole SoC is still routing-dominated,
   just less extremely than an isolated 32:1 mux. **ADR-0038's declared 12 MHz is an intent and this
   measurement does not move it**; the design misses it by 6%.
+- **Those 41 logic levels are 25 LUT levels and 17 carry hops, and quoting the single number is how
+  this repo talked itself into a sprint** (ADR-0058). A LUT level costs **3.31 ns** — its own delay
+  plus the `LocalMux` + `InMux` into it — and a `carryin -> carryout` hop costs **0.34 ns** and no
+  interconnect at all. Per-level interconnect is paid about 23 times, not 41, and a change that
+  trades a carry hop for a LUT level gets shallower by icetime's count and slower in nanoseconds.
+  `make soc-timing` prints both counts and both per-hop costs now.
+- **The fetch loop is not uniquely critical: a second path sits within 1.7% of it** (ADR-0058).
+  Decode → `stall` → `instret` → `minstret`'s 64-bit counter measures 87.04 ns against the loop's
+  88.51, and the baseline already reaches 87.43 at one of its four placements. **So any change that
+  shortens only the fetch loop is capped at about 11.5 MHz and cannot clear the churn bands.** Two
+  restructurings were built and measured against this: computing the ROM's range flag in parallel
+  with the `next_pc` mux (measured at its ceiling, with the comparator deleted outright — 1.8%
+  *slower*, four placements, no overlap) and flattening the `next_pc` priority chain into a one-hot
+  mux (inside the noise at best, 6% worse at worst, because a wide flat mux routes worse than a
+  chain on a path that is 61% interconnect). Sharing the JALR target with the effective-address
+  adder costs 5–7%, and muxing the addends instead of the sums costs 4–6% — a LUT in front of an
+  adder puts a whole carry chain after it. **The lever is the decode head** (`imem.in_range → instr
+  → {rs1/rs2, immediate, hazard}`), which every one of these paths shares.
+- **`SOC_SEED=<n>` places the same netlist differently**, because one placement is a sample. The
+  spread on unmodified `main` is 87.43–88.51 ns across four placements (1.2%), and ADR-0057 measured
+  1–2% generally. Compare distributions.
 - **`make soc-timing` has a churn axis of about 3.6%, three times `make fit`'s, and it is measured.**
   Two logically identical spellings of `rtl/memory.v`'s write/read arms — a module **not on the
   critical path** — give **88.51 ns / 41 logic levels** and **91.67 ns / 53**, on 11 logic cells'

@@ -73,7 +73,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # reason test/exec_tb.v pins its vector count: a probe that is deleted, or that
 # stops being reached by an early `return`, would otherwise reduce the coverage
 # of this file while it kept printing a green summary.
-PROBES_EXPECTED=122
+PROBES_EXPECTED=125
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -1015,6 +1015,43 @@ d=$(ts_fixture)
 sed -i.bak 's/^Total path delay: 1.50 ns/Total path delay: 5.00 ns/' "$d/report.rpt"
 probe "a hop sum that does not reconcile blames the script, not the design" 1 \
   "summed hops come to" "$TS $d/report.rpt --min-mhz 10.0"
+
+# A carry hop needs no interconnect and a LUT level does, so one costs about a
+# tenth of the other and the two must not be added up (ADR-0058).
+ts_carry_fixture() {
+  local d; d=$(new_case)
+  cat > "$d/report.rpt" <<'RPT'
+ lut1 (LogicCell40) in0 -> lcout: 1.00 ns
+   1.00 ns netA (start_point)
+ cin1 (ICE_CARRY_IN_MUX) carryinitin -> carryinitout: 0.50 ns
+ c1 (LogicCell40) carryin -> carryout: 0.25 ns
+   1.75 ns netB (mid_point)
+              lcout -> end_point
+Total path delay: 1.75 ns
+Total number of logic levels: 2
+RPT
+  printf '%s' "$d"
+}
+
+d=$(ts_carry_fixture)
+probe "a carry hop is counted apart from a LUT level" 0 \
+  "1 LUT/setup + 1 carry" "$TS $d/report.rpt"
+
+d=$(ts_carry_fixture)
+probe "the carry chain's own interconnect is charged to the carry hop" 0 \
+  "1.00 ns per LUT level, 0.75 ns per carry hop" "$TS $d/report.rpt"
+
+d=$(new_case)
+cat > "$d/report.rpt" <<'RPT'
+ cin1 (ICE_CARRY_IN_MUX) carryinitin -> carryinitout: 0.50 ns
+ c1 (LogicCell40) carryin -> carryout: 0.25 ns
+   0.75 ns netA (start_point)
+              lcout -> end_point
+Total path delay: 0.75 ns
+Total number of logic levels: 1
+RPT
+probe "a path with no LUT level at all reports zero rather than dividing by it" 0 \
+  "0.00 ns per LUT level" "$TS $d/report.rpt"
 
 # ===========================================================================
 # 10. soc/cell_census.py -- make soc-timing's SPRAM/EBR census.
