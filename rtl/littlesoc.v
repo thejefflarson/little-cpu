@@ -13,9 +13,13 @@
 //
 // ---- the memory map --------------------------------------------------------
 //
-// ADR-0008's, unchanged, and Harvard: the instruction bus indexes ROM from 0
-// and the data bus indexes RAM from RAM_BASE, and they are not two windows on
-// one address space. Everything out of range on either bus reads as zero.
+// ADR-0008's addresses, unchanged: text from 0, RAM from RAM_BASE. The data
+// bus now reaches both -- a store into the text range writes it and a load
+// from it is answered by `imemory` -- so the two memories are one address
+// space, and `mem_rdata` is the OR of their two answers. Fetch still reaches
+// text only. Everything out of range on either bus reads as zero and no
+// access is ever refused, which is what keeps every trap in decode
+// (CLAUDE.md invariant 2).
 //
 // ---- what this cannot do yet, stated rather than discovered -----------------
 //
@@ -71,6 +75,7 @@ module littlesoc (
   // ---- the core ------------------------------------------------------------
   logic        trap;
   logic [31:0] mem_addr, mem_wdata, mem_rdata;
+  logic [31:0] imem_mem_rdata, dmem_mem_rdata;
   logic [3:0]  mem_wstrb;
   logic [31:0] imem_addr, imem_addr2, imem_addr_next;
   logic [31:0] imem_data, imem_data2;
@@ -111,7 +116,16 @@ module littlesoc (
     .clk(clk),
     .imem_addr_next(imem_addr_next),
     .imem_data(imem_data),
-    .imem_data2(imem_data2)
+    .imem_data2(imem_data2),
+    .mem_addr(mem_addr),
+    .mem_wdata(mem_wdata),
+    .mem_wstrb(mem_wstrb),
+    // The core has no read enable yet, so no load reaches the text region and
+    // no idle cycle steals a fetch. Stores do reach it.
+    .mem_ren(1'b0),
+    .mem_rdata(imem_mem_rdata),
+    // Nothing consumes the steal yet: the core has no stall input for it.
+    .fetch_stall()
   );
 
   // ---- data RAM ------------------------------------------------------------
@@ -121,8 +135,15 @@ module littlesoc (
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
-    .mem_rdata(mem_rdata)
+    .mem_rdata(dmem_mem_rdata)
   );
+
+  // Both memories answer zero outside their own range, so the two buses join
+  // with an OR rather than a select -- one less level on the data path. The
+  // ranges do not overlap, and a store leaves the RAM's registered read data
+  // unchanged (rtl/memory.v) while the ROM answers zero, so the OR can never
+  // mix two live values.
+  assign mem_rdata = imem_mem_rdata | dmem_mem_rdata;
 
   // ---- the two observable bits --------------------------------------------
   // A tap on the store bus and a sticky trap flag. Between them they keep every

@@ -51,6 +51,12 @@ module testbench(
   logic [31:0] mem_wdata;
   logic [3:0]  mem_wstrb;
   logic [31:0] mem_rdata;
+  // Both memories answer zero outside their own range, so the two buses join
+  // with an OR. Same wiring as rtl/littlesoc.v, which is the point: the range
+  // decode and the steal live in rtl/imemory.v, so the two legs cannot end up
+  // on different maps.
+  logic [31:0] imem_mem_rdata, dmem_mem_rdata;
+  assign mem_rdata = imem_mem_rdata | dmem_mem_rdata;
   logic        trap;
  `ifdef RISCV_FORMAL
   logic        rvfi_valid;
@@ -89,7 +95,7 @@ module testbench(
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
-    .mem_rdata(mem_rdata)
+    .mem_rdata(dmem_mem_rdata)
   );
 
   // No init files: every consumer of this bench fills the banks itself. The
@@ -99,7 +105,15 @@ module testbench(
     .clk(clk),
     .imem_addr_next(imem_addr_next),
     .imem_data(imem_data),
-    .imem_data2(imem_data2)
+    .imem_data2(imem_data2),
+    .mem_addr(mem_addr),
+    .mem_wdata(mem_wdata),
+    .mem_wstrb(mem_wstrb),
+    // Tied off and unconnected exactly as rtl/littlesoc.v ties them: the core
+    // has no read enable to drive and no stall input to take the steal.
+    .mem_ren(1'b0),
+    .mem_rdata(imem_mem_rdata),
+    .fetch_stall()
   );
 
   littlecpu uut (
@@ -354,8 +368,11 @@ module testbench(
   // carry in an `initial rom[...]` block, written straight into rtl/imemory.v's
   // two banks (ADR-0054 -- word 2i is even, word 2i+1 is odd). It exercises
   // fetch, a load, a store and a backward jump, which is what the waveform is
-  // for; the store address is outside ADR-0008's RAM region, so the loads read
-  // zero, and that was already true before this change.
+  // for.
+  //
+  // It counts in RAM. An address in the text range would take the banks' write
+  // port and steal the fetch behind it, and nothing here drives the core's
+  // stall for that yet.
   //
   // A HIERARCHICAL REFERENCE, hence `ifdef ICARUS` -- the same guard the clock
   // and reset generation above carries. yosys does not RESOLVE one of these: it
@@ -363,7 +380,7 @@ module testbench(
   // which CLAUDE.md records as a real hazard. The cxxrtl legs never take this
   // path; they load their ROM through `debug_items`.
   initial begin
-    imem.rom_even[0] = 32'h3fc00093; //       li      x1, 1020
+    imem.rom_even[0] = 32'h000100b7; //       lui     x1, 0x10
     imem.rom_odd [0] = 32'h0000a023; //       sw      x0, 0(x1)
     imem.rom_even[1] = 32'h0000a103; // loop: lw      x2, 0(x1)
     imem.rom_odd [1] = 32'h00110113; //       addi    x2, x2, 1
