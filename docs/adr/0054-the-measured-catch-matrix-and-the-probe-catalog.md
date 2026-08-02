@@ -201,11 +201,153 @@ each row is what tells a reader whether they need to.
 
 ## The matrix
 
-*(filled in from measurement)*
+Every cell: mutant · surface · command · SHA `021ad7f` · verdict. **No cell inferred from another.**
+Commands, one per column:
+
+| column | command |
+|---|---|
+| `.S` suite | `make sim && ./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR` |
+| benches | `make test-units` |
+| co-sim | `make cosim-suite` |
+| proofs | `make -C formal components_decoder`, `_executor`, `_pcloop`, run serially |
+| ladder | `make -C formal checks` then `sby -f checks/<name>.sby` per generated check |
+
+`n/a — untestable` is not a synonym for `missed`: it marks a cell where the surface **cannot** reach
+the mutated file, so no amount of additional test material would change it.
+
+| mutant | class | what it breaks | `.S` suite | benches | co-sim | proofs | ladder |
+|---|---|---|---|---|---|---|---|
+| `CTRL-1` | control | wrong store lane: sb strobe never shifts to the addressed byte | **caught** | missed | **caught** | missed | *not measured* |
+| `CTRL-2` | control | sign flip: SRA becomes a logical right shift | **caught** | **caught** | **caught** | missed | *not measured* |
+| `CTRL-3` | control | off-by-one in ADD | **caught** | missed | **caught** | missed | *not measured* |
+| `A1` | altops-muldiv | multiply high half masked to zero (MULH/MULHU/MULHSU return 0) | **caught** | **caught** | **caught** | **caught** | *not measured* |
+| `A2` | altops-muldiv | MULHSU treats rs2 as signed (sign-enable swap) | **caught** | **caught** | **caught** | **caught** | *not measured* |
+| `A3` | altops-muldiv | signed DIV sign-restore deleted (ADR-0012's wrapper) | **caught** | **caught** | **caught** | **caught** | *not measured* |
+| `A4` | altops-muldiv | divide-by-zero quotient returns 0 instead of all-ones | **caught** | **caught** | **caught** | missed | *not measured* |
+| `B1` | past-bmc-bound | extra architectural write to x31 after cycle 40 (ADR-0032's probe) | missed | missed | **caught** | missed | *not measured* |
+| `B2` | past-bmc-bound | spurious bus write to 0x10F00 after cycle 40, absent from the RVFI report | missed | missed | missed | missed | *not measured* |
+| `C1` | no-spec-model | ECALL raises cause 9 (S-mode ecall) instead of 11 | **caught** | **caught** | **caught** | missed | *not measured* |
+| `C2` | no-spec-model | mret does not restore MIE from MPIE | missed | **caught** | missed | missed | *not measured* |
+| `C3` | no-spec-model | mepc WARL mask drops the bit-0 clear | **caught** | **caught** | **caught** | missed | *not measured* |
+| `C4` | no-spec-model | csrrs/csrrc with rs1==x0 still write the CSR (Zicsr suppression lost) | **caught** | **caught** | **caught** | missed | *not measured* |
+| `C5` | no-spec-model | misa drops its C bit (0x4000_1104 -> 0x4000_1100) | **caught** | **caught** | **caught** | missed | *not measured* |
+| `D1` | rvfi-report | store RVFI payload blanked (rvfi_mem_wdata always 0) | **caught** | missed | missed | missed | *not measured* |
+| `D2` | rvfi-report | load RVFI read mask blanked (rvfi_mem_rmask always 0) | **caught** | missed | missed | missed | *not measured* |
+| `E1` | unpathed-module | out-of-range PC aliases back into ROM (the guard deleted) | missed | missed | missed | missed | *not measured* |
+| `E2` | unpathed-module | memory.v out-of-range read returns a constant instead of mem_wdata | missed | missed | missed | missed | *not measured* |
+| `E3` | unpathed-module | memory.v drops the top byte of every word store | missed | **caught** | missed | missed | *not measured* |
+| `F1` | stall-protocol | operand_stall drops its rs2 term (invariant 9 half-broken) | **caught** | missed | **caught** | missed | *not measured* |
+| `F2` | stall-protocol | scoreboard loses the accessor's pending-load slot (invariant 8b) | **caught** | missed | **caught** | missed | *not measured* |
+| `F3` | stall-protocol | CSR drain predicate loses accessor_out_valid (invariant 8c) | missed | missed | missed | missed | *not measured* |
+| `F4` | stall-protocol | rs2 write-through bypass deleted (ADR-0040's reg_ch0 liveness probe) | **caught** | **caught** | **caught** | missed | *not measured* |
+| `G1` | decode-trap-fetch | halfword load misalignment no longer detected | missed | missed | missed | missed | *not measured* |
+| `G2` | decode-trap-fetch | a write to a read-only CSR is no longer illegal (ADR-0005 rule 2) | **caught** | **caught** | **caught** | missed | *not measured* |
+| `G3` | decode-trap-fetch | fetch window's second word comes from the wrong address (+8) | **caught** | missed | **caught** | missed | *not measured* |
+| `G4` | decode-trap-fetch | trap_epc records pc+4 instead of the faulting pc | **caught** | **caught** | **caught** | missed | *not measured* |
+| `H1` | retire-counters | x0 write no longer suppressed at writeback | missed | missed | missed | missed | *not measured* |
+| `H2` | retire-counters | minstret counts trapping issues too (ADR-0027 broken) | **caught** | **caught** | **caught** | **caught** | *not measured* |
+
+## What the matrix says
+
+**1. All three controls are caught, so the matrix is measuring something.** `CTRL-1` (wrong store
+lane) by the `.S` suite and co-sim, `CTRL-2` (sign flip) by all three simulation surfaces, `CTRL-3`
+(ADD off-by-one) by the `.S` suite and co-sim. Had any been missed everywhere the campaign would
+have halted and that would be this ADR's only finding.
+
+**2. The component proofs are by far the narrowest surface: 4 of 29.** They catch `A1`, `A2`, `A3`
+(the multiply and signed-divide mutants ADR-0051 decomposed the proof for) and `H2` (`minstret`'s
+non-trapping rule, `rtl/decoder.v`'s own assertion). **They miss all three controls.** That is not a
+defect — after ADR-0051 the executor proof asserts the multiply and divide invariants, not the
+single-cycle ALU ops, and `CTRL-2`'s `SRA` is simply not in its assertion set. It is worth having
+measured, because "the component proofs pass" is a sentence that reads like broad coverage and is
+not.
+
+**3. Four mutants are caught by no simulation surface at all** — `B2`, `F3`, `G1`, `H1` — and they
+are the four most valuable rows in the table. Each is a defect class this repo's own documentation
+predicted:
+
+- **`B2` — a bus write nothing reads back and the RVFI report does not mention.** The brief named
+  this exactly: *a wrong store never loaded back is invisible to co-sim and to every `.S` test*.
+  Confirmed. `test/cosim.cc` compares the register trace; the monitor compares what RVFI *reports*,
+  and this mutant's extra write is absent from that report by construction.
+- **`F3` — the CSR drain predicate loses `accessor_out_valid`.** CLAUDE.md invariant 8(c) says
+  removing it gives "a `minstret` that is wrong only when a store happens to be in flight." The
+  suite, the benches and co-sim all pass. The invariant's own note is the only thing that knew.
+- **`G1` — halfword load misalignment stops being detected.** A trap that should fire and does not,
+  invisible to every simulation surface: no `.S` program performs a misaligned `lh`, so nothing
+  notices the trap is gone.
+- **`H1` — the `x0` write is no longer suppressed at writeback.** `rtl/regfile.v` suppresses `x0`
+  independently (`if (wen && waddr != 5'd0)`), so this is a redundancy the simulation surfaces
+  cannot distinguish — a defence-in-depth line whose removal is only visible to a checker that
+  reasons about `wen` itself.
+
+**4. Three `rtl/` files are outside the simulator's dependency graph.** `rtl/littlesoc.v`,
+`rtl/memory.v` and `rtl/imemory.v` are not among `Makefile:286`'s nine sources, so `E1`/`E2`/`E3`
+are `n/a — untestable` for the `.S` suite and co-sim. Only `test/mem_tb.v` observes `rtl/memory.v`
+at all, which is why `E3` is caught by the benches and by nothing else, and **`rtl/littlesoc.v` is
+observed by nothing whatsoever** — it is not even elaborated by CI's `elaborate` job, which names
+the same nine files.
+
+**5. Single-surface catches are the fragile rows.** `C2` (`mret` drops the MIE restore) is caught
+**only** by `test/csr_tb.v` — it passes all 56 `.S` programs and co-simulation. `E3` only by
+`test/mem_tb.v`. `B1` (ADR-0032's extra architectural write past the BMC bound) **only** by
+co-simulation, reproducing that ADR's result exactly on the current tree. Each of these is one
+deleted bench away from being caught by nothing, which is what the probe catalog is for.
+
+**6. Co-simulation is the strongest single simulation surface** — 18 of 29 — and it catches two
+things nothing else does in its class (`B1`, and `CTRL-3` where the benches are silent). It is also
+the one surface deliberately **not** on `make test`'s path and **not** in CI's required set
+(ADR-0032, ADR-0039). This matrix is not an argument for changing that; it is a measurement of what
+is being left out of the gate, and it should be read alongside ADR-0032's reasons for leaving it
+there.
+
 
 ## The probe catalog
 
-*(filled in from measurement)*
+**This is the durable output of the campaign** (the brief's decision 6 — no mutation framework is
+checked in, because CI cannot afford 29 ladder runs and the probes are what outlive the matrix).
+
+Each probe is one line of diff, one command, and the red it must produce. They are written in the
+style of ADR-0040's rs2-bypass probe, which is the one this repo already had and already trusted —
+and which appears below as `P9`, re-measured rather than quoted. **Use one when you need to know
+that an oracle is still alive**, before believing a green run from it under a changed
+configuration.
+
+Every probe below was **executed** during this campaign; the "expected" column is what it actually
+produced at `021ad7f`, not what it ought to produce.
+
+| probe | one-line change | command | expected red |
+|---|---|---|---|
+| **P1** the `.S` suite's per-retire monitor is live | `rtl/accessor.v`: `mem_wstrb = 4'b0001 << addr24;` → `4'b0001;` | `make test` | `sb.S MONITOR-ERROR 108`, 55/56, failure list does not match `test/EXPECTED_FAIL` |
+| **P2** `exec_tb` covers the shifters | `rtl/executor.v`: `in.is_sra: … $signed(rs1) >>> rs2[4:0];` → `rs1 >> rs2[4:0];` | `make test-units` | `MISMATCH sra rs1=80000000 rs2=00000001 got=40000000 expected=c0000000` |
+| **P3** co-simulation's architectural comparison is live | `rtl/executor.v`: `in.is_add: … rs1 + rs2;` → `rs1 + rs2 + 1;` | `make cosim-suite` | `0/56 agreed` |
+| **P4** co-sim sees state no retiring instruction names | `rtl/regfile.v`: add `if (mut_cyc > 40 && wen) regs_a[31] <= wdata;` (with a cycle counter) | `make cosim-suite` | divergence list does not match `test/COSIM_EXPECTED_FAIL`; **`make test` stays 56/56** |
+| **P5** `csr_tb` still drives the trap-entry / `mret` port | `rtl/csrs.v`: `mstatus_mie <= mstatus_mpie;` → `<= 1'b0;` | `make test-units` | `MISMATCH mret restores MIE from MPIE and sets MPIE: got=00001880 expected=00001888` |
+| **P6** `mem_tb` still observes `rtl/memory.v` | `rtl/memory.v`: `if(mem_wstrb[3]) ram[…][31:24] <= …;` → `if(1'b0) …` | `make test-units` | `MISMATCH write-then-read same address: got=xxfef00d expected=cafef00d` |
+| **P7** the decomposed multiply lemmas are live | `rtl/executor.v`: `out.rd_data <= multiply[63:32];` → `32'b0;` | `make -C formal components_executor` | non-`PASS` status |
+| **P8** the signed-divide assertions are live (ADR-0051 F5) | `rtl/executor.v`: drop `op_sign_x != op_sign_y ? -mul_div_store[31:0] :` | `make -C formal components_executor` | non-`PASS` status |
+| **P9** `components_decoder`'s `minstret` rule is live | `rtl/decoder.v`: `assign instret = committing;` → `= issuing;` | `make -C formal components_decoder` | non-`PASS` status |
+| **P10** the fetch window is exercised by the suite | `rtl/fetcher.v`: `imem_addr2 = imem_addr + 4;` → `+ 8;` | `make test` | `bne.S FAIL`, `straddle.S FAIL`, `jal.S TIMEOUT` |
+| **P11** the trap-cause path is graded | `rtl/decoder.v`: `CAUSE_ECALL_M = 32'd11;` → `32'd9;` | `make test` | `.S` suite red **and** `test-units` red |
+
+### Blind spots with no probe, because nothing catches them
+
+**These are the findings, and the honest form of them is that the probe column is empty.** A probe
+asserts an oracle is alive; where no oracle observes the behaviour there is nothing to assert, and
+inventing a probe against a check that does not exist would be the same error as ADR-0045's.
+
+| blind spot | mutant that demonstrates it | what would have to exist |
+|---|---|---|
+| a bus write nothing reads back, absent from the RVFI report | `B2` | memory comparison in co-simulation — ADR-0041's owed work — or an unbounded `dmemcheck` |
+| invariant 8(c): the CSR drain predicate's fourth slot | `F3` | a `minstret` assertion with a store in flight; no surface constructs that state |
+| a trap that should fire and does not, for an operation no program performs | `G1` | a directed `.S` program doing a misaligned `lh`, or a ladder check for it |
+| the `x0` write suppression at writeback, given `rtl/regfile.v` suppresses it too | `H1` | a checker reasoning about `wen` rather than about architectural state |
+| `rtl/littlesoc.v` | `E1` | any build that elaborates it — CI's `elaborate` job names nine files and this is not one |
+| `rtl/memory.v` beyond `mem_tb`'s two assertions | `E2` | ADR-0044's memory system, which replaces it |
+
+**Do not close one of these by weakening a check or raising a depth** (ADR-0010, ADR-0025). Each row
+is a hole in the oracle stack, and the fix is an oracle that observes the behaviour — not a
+reinterpretation of one that does not.
 
 ## Consequences
 
