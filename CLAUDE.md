@@ -243,8 +243,9 @@ What does not work right now — **one live entry, then six resolved ones kept i
 six are struck through, and every one of those outlived its own fix here by several commits. That is
 the failure this section exists to prevent, so they stay as markers rather than being deleted.
 
-- **Three things this repo treats as gates are reached by no automation, and one of them computes a
-  verdict nothing reads.** Found by reading `Makefile`, `formal/Makefile`, both workflows and
+- **Three things this repo treated as gates were reached by no automation, and one of them computes
+  a verdict nothing reads. One of the three is now fixed; the other two stand.** Found by reading
+  `Makefile`, `formal/Makefile`, both workflows and
   `test/run_tests.sh` end to end; the four-column inventory that came out of it lives in the pull
   request that added this bullet and is destined for the coverage-map ADR. (1) ~~**`make fit` is a
   ratchet nothing pulls**~~ — **fixed: it is a job now** (ADR-0052). `ci.yml`'s `fit` job runs it on
