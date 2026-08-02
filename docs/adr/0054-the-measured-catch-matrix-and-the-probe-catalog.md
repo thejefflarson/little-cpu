@@ -1,4 +1,4 @@
-# ADR-0053: The measured catch matrix, and the probe catalog that outlives it
+# ADR-0054: The measured catch matrix, and the probe catalog that outlives it
 
 **Status:** Accepted · 2026-08-01 · *Deliverable of `docs/ideas/audit-the-oracle-stack.md`.
 Measures ADR-0010, ADR-0032, ADR-0033, ADR-0049 and ADR-0051 rather than restating them.*
@@ -158,6 +158,31 @@ than flattering the core, so three mutants are included that *must* be caught: a
 (the `sb` byte strobe stops shifting to the addressed byte), a sign flip (`SRA` becomes a logical
 shift), and an off-by-one in `ADD`. Had any been missed by every surface the campaign would have
 halted and that would be the top finding.
+
+## The SHA every cell carries, and what landed after it
+
+**Every cell in this matrix was measured at `021ad7f`.** Two grading defects were found and fixed by
+concurrent work *after* that commit, and both touch machinery this campaign runs through. Per-cell
+SHA discipline exists for exactly this case, so the exposure is stated rather than inherited:
+
+1. **`formal/check-baseline.sh` read an unreadable baseline as an empty one** — `set -u` with no
+   `-e` and no `pipefail`, and `-f` tested without `-r`, so a failing `sed` yielded the empty string,
+   which matches an all-passing ladder. **No cell here is exposed**, and not by luck: this ADR's
+   ladder column is computed by reading `formal/checks/<name>/status` directly and comparing against
+   `formal/EXPECTED_FAIL` parsed in the driver. It never invokes `check-baseline.sh`. The one run
+   that did — an unmutated baseline ladder — was interrupted and is not a cell.
+2. **`test/cxxrtl.cc`'s exit 5 (`TRAP-TO-ZERO`) was reachable only outside its own scenario**: a
+   fault in the first instructions of `_start` retires nothing, and the silence gate turned exit 5
+   into exit 6, labelling it `MONITOR-SILENT`. **One cell's log carries the label — `G3`, the fetch
+   window mutant, where 92 programs reported `TRAP-TO-ZERO`.** The fix changes which label a
+   failing program gets; it does not change whether the program fails, and `test/run_tests.sh`
+   grades on set equality against `test/EXPECTED_FAIL`, which a non-`PASS` status breaks under
+   either spelling. **`G3`'s verdict is `caught` before and after.** No verdict in this matrix
+   moves; a re-run at the fixed commit would relabel, not re-grade.
+
+The general rule this illustrates: **a matrix cell is a measurement of a commit, not of a repo.**
+Re-deriving one against a later tree is cheap — apply the mutant, run the surface — and the SHA on
+each row is what tells a reader whether they need to.
 
 ## Decision
 
