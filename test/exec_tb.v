@@ -2,67 +2,43 @@
 `default_nettype none
 `include "structs.v"
 
-// Standalone randomized differential bench for the executor's multiply/divide
-// datapath (ADR-0010): this is the *primary* guarantee for real mul/div
-// arithmetic, because riscv-formal runs under RISCV_FORMAL_ALTOPS and never
-// checks it. Drives `executor` directly (no decoder/pipeline involved) and
-// compares against SystemVerilog `*`, `/`, `%` with RISC-V divide-by-zero and
-// INT_MIN / -1 semantics. Exits non-zero (via $fatal) on any mismatch.
+// Standalone randomized differential bench for the executor's arithmetic. It
+// drives `executor` directly, with no decoder or pipeline involved, and compares
+// against SystemVerilog `*`, `/`, `%` and the three shift operators with RISC-V
+// divide-by-zero and INT_MIN / -1 semantics.
 //
-// It also covers the three shift arms -- SLL / SRL / SRA -- on the same
-// randomized differential footing. Those had no coverage here at all until
-// this bench grew it, despite SRA being the one arm in the executor whose
-// correctness depends on a signedness that IEEE 1800 will silently take away
-// from you; read the comment above the shift reference model below before
-// touching it.
+// For mul and div it is the *primary* guarantee (ADR-0010), because riscv-formal
+// runs under RISCV_FORMAL_ALTOPS and never checks that arithmetic at all. The
+// shifts and ADD/SUB do have ladder checks, but those are `mode bmc`, and an ADD
+// off-by-one was measured reaching `tohost` through the `.S` suite and the Sail
+// co-simulation while every unit bench stayed silent.
 //
-// ADD and SUB are covered the same way, added for a narrower reason: this is
-// the bench that exists specifically to grind the executor's arithmetic, and
-// it drove zero vectors through the simplest, most-used ALU operation in the
-// ISA. ADR-0010's *primary-guarantee* language is scoped to the ops
-// RISCV_FORMAL_ALTOPS hides from the riscv-formal ladder, which ADD/SUB are
-// not -- `insn_add_ch0`/`insn_sub_ch0` exercise real arithmetic on every PR.
-// But that ladder is `mode bmc`, not `mode prove` (see CLAUDE.md's milestone
-// caveats), and the randomized loop here is the fast, targeted leg for
-// exactly this datapath -- the same reasoning that put shifts here despite
-// `insn_sll_ch0`/`insn_srl_ch0`/`insn_sra_ch0` existing too. An ADD off-by-one
-// was measured reaching `tohost` via the `.S` suite and co-simulation while
-// every unit bench stayed silent; this closes that gap the cheap way, on the
-// same footing as everything else here.
+// ADR-0045 names this bench as M2's mul/div oracle, so it asserts its own shape
+// before it asserts anything about the core. Three mechanisms do that, each
+// because the bench could once stop checking and still print PASSED:
 //
-// ---- THIS BENCH ASSERTS ITS OWN SHAPE BEFORE IT ASSERTS ANYTHING ABOUT THE
-//      CORE, AND THAT IS DELIBERATE ------------------------------------------
-//
-// ADR-0045 closes M2's mul/div term by NAMING this bench as the oracle. This
-// repo's rule for a named gate (ADR-0033, ADR-0035) is that it must be unable
-// to stop checking without going red -- a check that quietly stopped running is
-// worse than no check, because it still reads as coverage. Three mechanisms
-// enforce that here, all of them running before or alongside the RTL vectors:
-//
-//   * `ref_selftest` pins every reference function -- mul, div AND shift --
-//     against literals computed BY HAND, never copied from a run of this bench.
-//     A literal derived from the thing it checks proves nothing. A degraded
-//     reference says ORACLE BROKEN and stops, instead of blaming the core.
+//   * `ref_selftest` pins every reference -- mul, div and shift -- against
+//     literals computed by hand. A literal captured from a run of this bench is
+//     derived from the function it is supposed to check, so it proves nothing;
+//     a degraded reference says ORACLE BROKEN and stops rather than blaming the
+//     core.
 //   * `check_vector_counts` pins the per-operation vector count against
-//     ADR-0010's contract written as its own literal, so a loop bound that
-//     drifted -- to 100 during a debugging session, or to zero -- fails here.
-//     Before this existed, RANDOM_VECTORS = 0 printed PASSED and exited 0.
-//   * `check_directed_manifest` pins that each REQUIRED directed corner vector
-//     actually ran, from a manifest that lives apart from the call sites. So
-//     deleting a call site fails; it does not merely shrink the run.
+//     ADR-0010's contract, written as its own literal, so a loop bound that
+//     drifted to zero fails here. It used to print PASSED and exit 0.
+//   * `check_directed_manifest` pins that each required directed corner vector
+//     actually ran, from a manifest kept apart from the call sites, so deleting
+//     a call site is red rather than a shorter run.
 module exec_tb;
   localparam int RANDOM_VECTORS = 10000;
   localparam logic [1:0] DIVIDE_STATE = 2'b10; // must match executor.v's `divide` state
 
-  // ADR-0010's contract is ">= 10,000 randomized operand pairs per operation".
-  // These two are that CONTRACT, written as literals of their own -- they are
-  // not a second copy of the loop bounds, and the whole point of them is that
-  // they do not move when a loop bound does. `MIN_DIRECTED_SHIFT_PER_OP` is
-  // 6 patterns x 32 shift amounts x {clean rs2, dirty rs2}.
+  // ADR-0010's contract (">= 10,000 randomized operand pairs per operation")
+  // written as literals of its own, deliberately not a second copy of the loop
+  // bounds: they must not move when a loop bound does.
+  // `MIN_DIRECTED_SHIFT_PER_OP` is 6 patterns x 32 amounts x {clean, dirty rs2}.
   //
-  // If a count check below goes red, the fix is to restore the loop, never to
-  // edit the number down to match it. Same rule as `formal/EXPECTED_FAIL` and
-  // `test/EXPECTED_FAIL`: re-derive it, never silence it.
+  // If a count check below goes red, restore the loop; never edit the number
+  // down to match it.
   localparam int MIN_RANDOM_PER_OP        = 10000;
   localparam int MIN_DIRECTED_SHIFT_PER_OP = 384;
 
@@ -73,8 +49,7 @@ module exec_tb;
   decoder_output in;
   executor_output out;
 
-  // No accessor in this standalone bench, so no reason for it to ever
-  // freeze — tie the input low.
+  // No accessor in this standalone bench, so nothing can ever freeze it.
   executor dut (
     .clk(clk),
     .reset(reset),
@@ -85,12 +60,9 @@ module exec_tb;
 
   int errors = 0;
 
-  // ---- the operation table -------------------------------------------------
-  //
-  // One table, one source of truth for the eleven op names. `run_op` resolves
-  // its `op_name` argument through it, which is also what makes a typo'd name
-  // fatal rather than silently comparing against whatever the executor left on
-  // rd_data.
+  // One source of truth for the op names: `run_op` resolves its `op_name`
+  // argument through this table, which is what makes a typo fatal rather than a
+  // silent comparison against whatever the executor left on rd_data.
   localparam int OP_MUL    = 0;
   localparam int OP_MULH   = 1;
   localparam int OP_MULHU  = 2;
@@ -109,31 +81,19 @@ module exec_tb;
   string op_names  [0:NUM_OPS-1];
   int    vec_count [0:NUM_OPS-1];
 
-  // ---- the directed-vector manifest ---------------------------------------
+  // The corner vectors this bench is required to run: ADR-0010's three
+  // sign-enable cases, then the six architecturally specified divide-by-zero and
+  // INT_MIN / -1 results. None is meaningfully reachable by the randomized
+  // sweep, since each names both operands exactly -- ten thousand `$random`
+  // pairs hit one with probability around 10^4 / 2^64 -- so deleting one is a
+  // real loss of coverage rather than a rounding error on a big number.
   //
-  // These are the corner vectors this bench is REQUIRED to run. The first three
-  // are ADR-0010's, verbatim: MULH(-1,-1) = 0, MULHSU(-1,1) = -1,
-  // MULHU(-1,-1) = 0xFFFFFFFE -- exactly the cases a swapped sign enable gets
-  // wrong. The remaining six are the RISC-V divide-by-zero and INT_MIN / -1
-  // results, which are architecturally specified values rather than computed
-  // ones.
-  //
-  // None of the nine is meaningfully reachable by the randomized sweep: each
-  // names both operands exactly, so ten thousand `$random` pairs hit one with
-  // probability around 10^4 / 2^64 (the divide-by-zero four fix rs2 = 0 and rs1
-  // too, so they are no better off). That is why they are written out by hand,
-  // and why deleting one is a real loss of coverage rather than a rounding
-  // error on a big number.
-  //
-  // The manifest is deliberately NOT the thing that issues them. `run_op`
-  // witnesses each (op, rs1, rs2) it actually drove into the DUT against this
-  // list, and `check_directed_manifest` fails on any entry never witnessed. So
-  // deleting a directed call site below is a red bench, not a shorter run --
-  // which is the whole difference between a gate and a claim.
-  //
-  // It also carries each vector's expected value and checks the CALL SITE
-  // against it, so a directed vector weakened in place (kept, but with its
-  // expectation edited to whatever the core happens to produce) is caught too.
+  // The manifest deliberately does not issue them. `run_op` witnesses each
+  // (op, rs1, rs2) it actually drove into the DUT against this list and
+  // `check_directed_manifest` fails on any entry never witnessed, so a deleted
+  // call site is red. Each entry also carries its expected value and is checked
+  // against the call site, which catches a directed vector kept but weakened in
+  // place.
   localparam int DIRECTED_N = 9;
   int          dir_op  [0:DIRECTED_N-1];
   logic [31:0] dir_rs1 [0:DIRECTED_N-1];
@@ -142,10 +102,9 @@ module exec_tb;
   logic        dir_ran [0:DIRECTED_N-1];
   string       dir_why [0:DIRECTED_N-1];
   // Witnessing is a linear scan per vector driven, and there are ~111,000 of
-  // them. This counts down to zero on the ninth directed call site -- all of
-  // which run before the sweeps -- after which `run_op` skips the scan. Purely
-  // a cost thing; `check_directed_manifest` still reads `dir_ran` itself, so a
-  // deleted call site leaves this above zero and is caught either way.
+  // them; this counts down to zero on the ninth directed call site, after which
+  // `run_op` skips the scan. Purely a cost thing -- `check_directed_manifest`
+  // reads `dir_ran` itself, so a deleted call site is caught either way.
   int          dir_pending;
 
   task automatic add_directed(input int slot, input int op, input logic [31:0] rs1_v,
@@ -203,17 +162,14 @@ module exec_tb;
     end
   endfunction
 
-  // ---- reference model: SystemVerilog *, /, % with RISC-V semantics ----
-  //
-  // The signed-reference rule stated at length above the shift references below
-  // governs these too, and `ref_div` / `ref_rem` are where it bites hardest:
-  // their RISC-V special cases are written as an if / else-if / else over
-  // separate STATEMENTS rather than as one `?:` chain, because a `?:` chain
-  // whose other arms are unsigned literals evaluates `$signed(a) / $signed(b)`
-  // unsigned. That is not hypothetical -- it is exactly ADR-0019's defect in
-  // the generated riscv-formal monitor, at exactly these two functions, where
-  // -7 / 2 scored 0x7ffffffc. `ref_selftest` pins both against hand-computed
-  // literals before any of them is trusted to judge the core.
+  // The reference model. The signed-arithmetic rule written out further down,
+  // above the shift references, governs these too, and `ref_div`/`ref_rem` are
+  // where it bites:
+  // their RISC-V special cases are an if / else-if / else over separate
+  // statements rather than one `?:` chain, because a chain whose other arms are
+  // unsigned literals evaluates `$signed(a) / $signed(b)` unsigned. That is
+  // ADR-0019's defect, at exactly these two functions, where -7 / 2 scored
+  // 0x7ffffffc.
   function automatic logic [31:0] ref_mul(input logic [31:0] a, input logic [31:0] b);
     logic [63:0] p;
     begin
@@ -276,13 +232,9 @@ module exec_tb;
     end
   endfunction
 
-  // ---- reference model: add / sub --------------------------------------
-  //
-  // Neither of these touches `$signed` or a conditional expression at all --
-  // two's-complement add/sub is signedness-independent bit for bit -- so the
-  // sign-context hazard above the shift references does not apply here.
-  // Direct one-line assignments, same as ref_divu/ref_remu above for the same
-  // reason: nothing here is a `?:` arm evaluating a signed operand.
+  // Two's-complement add and sub are signedness-independent bit for bit, so
+  // neither of these needs `$signed` and the sign-context hazard below does not
+  // apply to them.
   function automatic logic [31:0] ref_add(input logic [31:0] a, input logic [31:0] b);
     ref_add = a + b;
   endfunction
@@ -291,40 +243,22 @@ module exec_tb;
     ref_sub = a - b;
   endfunction
 
-  // ---- reference model: shifts ----------------------------------------
+  // Each shift below is computed in a statement of its own, into a local whose
+  // signedness is declared, and is never an arm of a `?:`. Keep them that way.
   //
-  // READ THIS BEFORE EDITING THE THREE FUNCTIONS BELOW.
+  // IEEE 1800 makes a conditional expression unsigned if any of its operands is
+  // unsigned, and pushes that unsignedness down into the context-determined
+  // operands, so a `$signed(a) >>> sh` in one arm of such a conditional
+  // evaluates as a LOGICAL shift -- with no warning, and only for negative
+  // operands, so every non-negative vector still agrees. The assignment target
+  // cannot rescue it: an expression's type does not depend on its left-hand
+  // side. This repo has been bitten twice, at ADR-0019's two monitor spec models
+  // and then here, where the natural one-line `ref_sra` written as a `?:` arm
+  // reported six mismatches against correct hardware.
   //
-  // Every shift here is computed in a STATEMENT OF ITS OWN, into a local whose
-  // signedness is declared, and is never an arm of a `?:` or any other
-  // conditional expression. That is not a style preference, it is the whole
-  // reason these functions are shaped the way they are.
-  //
-  // IEEE 1800 sign-context propagation makes a conditional expression unsigned
-  // if any of its operands is unsigned, and then pushes that unsignedness DOWN
-  // into the context-determined operands. A `$signed(a) >>> sh` sitting in one
-  // arm of such a conditional therefore evaluates as a LOGICAL shift -- with no
-  // warning, and only for negative operands, so every non-negative vector still
-  // agrees. The assignment target cannot rescue it: an expression's type does
-  // not depend on its left-hand side.
-  //
-  // This is not hypothetical, and it is not new here. ADR-0019 is the same
-  // defect at two sites in the generated riscv-formal monitor -- its DIV and
-  // REM spec models, where `-7 / 2` scored as `0x7ffffffc` and failed `div.S`
-  // and `rem.S` against a correct core, until the sanitizer made the
-  // arithmetic self-determined. It then happened AGAIN, here, while these very
-  // vectors were being written: the natural one-line `ref_sra` written as a
-  // `?:` arm reported six mismatches, and the thing that was wrong was the
-  // oracle. A bench whose oracle is broken is worse than no bench -- it blames
-  // the hardware and teaches the reader to distrust the bench. Keep each of
-  // these a standalone statement, and see `ref_selftest` below, which pins
-  // them against hand-computed literals that cannot degrade along with the
-  // expression.
-  //
-  // The `b[4:0]` masks are this reference's own model of the RV32I rule that
-  // the shift amount is rs2[4:0] and the upper 27 bits are ignored (spec Vol I
-  // 2.4.2, and rtl/executor.v's comment on the same). The vectors drive rs2
-  // values far above 31 so the RTL has to agree rather than merely coincide.
+  // The `b[4:0]` masks are this reference's own model of the RV32I rule that the
+  // shift amount is rs2[4:0] (spec Vol I 2.4.2). The vectors drive rs2 values
+  // far above 31 so the RTL has to agree rather than coincide.
   function automatic logic [31:0] ref_sll(input logic [31:0] a, input logic [31:0] b);
     logic [31:0] v;
     begin
@@ -358,18 +292,15 @@ module exec_tb;
     end
   endtask
 
-  // Checks the ORACLE, not the core -- no RTL is involved in any call to this.
-  // An SRA reference that had silently degraded to a logical shift (see the
-  // comment above the shift functions) agrees with a correct one on every
-  // non-negative operand, so it would pass thousands of randomized vectors and
-  // then report mismatches against correct hardware. The same is true of the
-  // signed divide and the signed multiply high halves.
+  // Checks the oracle, not the core -- no RTL is involved in any call to this. A
+  // reference that degraded to a logical shift (or an unsigned divide) agrees
+  // with a correct one on every non-negative operand, so it would pass thousands
+  // of randomized vectors and then report mismatches against correct hardware.
   //
-  // EVERY expected value passed to this task is computed BY HAND and written as
-  // a literal. That is the load-bearing property and it is easy to destroy: a
-  // literal captured from a run of this bench is derived from the very function
-  // it is supposed to check, which is the same defect one level down. If you add
-  // a case here, do the arithmetic on paper.
+  // Every expected value passed here is computed by hand and written as a
+  // literal. A literal captured from a run of this bench is derived from the
+  // function it is supposed to check, which is the same defect one level down;
+  // if you add a case, do the arithmetic on paper.
   task automatic ref_selftest(input string what, input logic [31:0] got,
                                input logic [31:0] want);
     begin
@@ -380,12 +311,9 @@ module exec_tb;
     end
   endtask
 
-  // Checks that the bench RAN what it says it runs. Before this existed a loop
-  // bound that had drifted to zero -- RANDOM_VECTORS = 0, an inner `for` edited
-  // during a debugging session and never put back -- printed PASSED and exited
-  // 0, and ADR-0045 names this bench as M2's mul/div oracle. The comparison is
-  // against MIN_RANDOM_PER_OP / MIN_DIRECTED_SHIFT_PER_OP, which are ADR-0010's
-  // contract written as literals rather than second copies of the loop bounds.
+  // Checks that the bench ran what it says it runs. A loop bound edited to zero
+  // during a debugging session and never put back used to print PASSED and exit
+  // 0.
   task automatic check_vector_counts;
     int k, want;
     begin
@@ -402,11 +330,9 @@ module exec_tb;
     end
   endtask
 
-  // Checks that every REQUIRED directed corner vector reached the DUT. The
-  // manifest lives apart from the call sites precisely so that deleting a call
-  // site is red rather than merely shorter; a randomized vector cannot cover
-  // for a deleted one, because these are the cases random operands do not
-  // reach (a specified divide-by-zero result) or reach only by accident.
+  // Checks that every required directed corner vector reached the DUT. A
+  // randomized vector cannot cover for a deleted one: these are the cases random
+  // operands do not reach, or reach only by accident.
   task automatic check_directed_manifest;
     int d;
     begin
@@ -431,14 +357,11 @@ module exec_tb;
     end
   endtask
 
-  // Multiply-family ops settle one cycle after issue (the executor never leaves
-  // `init` for them). Divide-family ops may enter the multi-cycle restoring
-  // divider (see criterion 4 below); the special-case (div-by-zero, INT_MIN/-1)
-  // paths finish within `init` like the multiply-family ops do. Either way, the
-  // executor is done exactly when it has returned to `init` after the issue
-  // edge, so poll for that instead of hardcoding a cycle count — that keeps this
-  // bench correct regardless of exactly how long the divider takes, and leaves
-  // criterion 4's specific cycle count to the dedicated timing monitor below.
+  // The executor is done exactly when it has returned to `init` after the issue
+  // edge -- immediately for the multiply family and the divide short-circuits,
+  // 33 cycles later for a real division. Polling for that rather than hardcoding
+  // a count keeps this task correct however long the divider takes; the cycle
+  // count itself is the timing monitor's job, at the bottom of this file.
   task automatic run_op(input string op_name, input logic [31:0] rs1_v, input logic [31:0] rs2_v,
                          input logic [31:0] expected);
     int guard;
@@ -471,9 +394,8 @@ module exec_tb;
         OP_SUB:    in.is_sub    = 1'b1;
       endcase
 
-      // Everything this bench claims about its own coverage is measured here,
-      // on the vectors it actually drove into the DUT -- never inferred from a
-      // loop bound or a localparam.
+      // Coverage is measured here, on the vectors actually driven into the DUT,
+      // rather than inferred from a loop bound.
       vec_count[id]++;
       if (dir_pending > 0) begin
         for (d = 0; d < DIRECTED_N; d++) begin
@@ -526,9 +448,10 @@ module exec_tb;
     #1;
     reset = 0;
 
-    // The oracle is checked before it is trusted to judge anything.
+    // The oracle is checked before it is trusted to judge anything. Every
+    // literal below is hand-computed, and the arithmetic behind it is written
+    // out so a reader can verify it without running anything.
     //
-    // ---- multiply references ------------------------------------------------
     // MUL: low 32 bits, signedness-independent. (-1)*(-1) = 1; 2^31 * 2 = 2^32,
     // whose low half is zero; 65535^2 = 0xfffe0001.
     ref_selftest("mul(ffffffff,ffffffff)",  ref_mul(32'hffffffff, 32'hffffffff), 32'h00000001);
@@ -559,11 +482,10 @@ module exec_tb;
     ref_selftest("mulhsu(ffffffff,00000001)", ref_mulhsu(32'hffffffff, 32'h00000001), 32'hffffffff);
     ref_selftest("mulhsu(00000002,80000000)", ref_mulhsu(32'h00000002, 32'h80000000), 32'h00000001);
     ref_selftest("mulhsu(ffffffff,80000000)", ref_mulhsu(32'hffffffff, 32'h80000000), 32'hffffffff);
-    // ---- divide references --------------------------------------------------
-    // These are ADR-0019's own case. -7 / 2 truncates toward zero to -3
-    // (0xfffffffd); a reference that had degraded to an unsigned divide scores
-    // 0x7ffffffc -- which is what `divu(fffffff9,00000002)` legitimately is, and
-    // it is written out just below so the two are visibly different numbers.
+    // ADR-0019's own case. -7 / 2 truncates toward zero to -3 (0xfffffffd); a
+    // reference degraded to an unsigned divide scores 0x7ffffffc, which is what
+    // `divu(fffffff9,00000002)` legitimately is -- written out just below so the
+    // two are visibly different numbers.
     ref_selftest("div(fffffff9,00000002)",  ref_div(32'hfffffff9, 32'h00000002), 32'hfffffffd);
     ref_selftest("div(00000007,fffffffe)",  ref_div(32'h00000007, 32'hfffffffe), 32'hfffffffd);
     ref_selftest("div(fffffff9,fffffffe)",  ref_div(32'hfffffff9, 32'hfffffffe), 32'h00000003);
@@ -579,7 +501,6 @@ module exec_tb;
     ref_selftest("rem(80000000,ffffffff)",  ref_rem(32'h80000000, 32'hffffffff), 32'h00000000);
     ref_selftest("remu(fffffff9,00000002)", ref_remu(32'hfffffff9, 32'h00000002), 32'h00000001);
     ref_selftest("remu(00000064,00000000)", ref_remu(32'h00000064, 32'h00000000), 32'h00000064);
-    // ---- shift references ---------------------------------------------------
     ref_selftest("sra(80000000,4)",  ref_sra(32'h80000000, 32'd4),  32'hf8000000);
     ref_selftest("sra(80000000,31)", ref_sra(32'h80000000, 32'd31), 32'hffffffff);
     ref_selftest("sra(deadbeef,8)",  ref_sra(32'hdeadbeef, 32'd8),  32'hffdeadbe);
@@ -591,7 +512,6 @@ module exec_tb;
     // ...including the reference's own rs2[4:0] masking, on both sides of 32.
     ref_selftest("sra(80000000,36)", ref_sra(32'h80000000, 32'd36), 32'hf8000000);
     ref_selftest("sll(00000001,32)", ref_sll(32'h00000001, 32'd32), 32'h00000001);
-    // ---- add / sub references ------------------------------------------
     // Two's complement wraps: -1 + 1 = 0; INT_MAX + 1 overflows into the sign
     // bit; 0 - 1 wraps to all-ones; INT_MIN - 1 wraps to INT_MAX.
     ref_selftest("add(ffffffff,00000001)", ref_add(32'hffffffff, 32'h00000001), 32'h00000000);
@@ -603,8 +523,8 @@ module exec_tb;
       $fatal(1);
     end
 
-    // Required directed vectors (ADR-0010): exactly the cases the swapped sign
-    // enables get wrong.
+    // ADR-0010's required directed vectors: the cases a swapped sign enable gets
+    // wrong.
     run_op("mulh",   32'hffffffff, 32'hffffffff, 32'h00000000);
     run_op("mulhsu", 32'hffffffff, 32'h00000001, 32'hffffffff);
     run_op("mulhu",  32'hffffffff, 32'hffffffff, 32'hfffffffe);
@@ -617,13 +537,11 @@ module exec_tb;
     run_op("div",  32'h80000000, 32'hffffffff, 32'h80000000);
     run_op("rem",  32'h80000000, 32'hffffffff, 32'h00000000);
 
-    // Directed shift sweep: every shift amount 0..31 against each pattern,
-    // driven TWICE -- once with a clean rs2 and once with all 27 upper bits
-    // set. $random alone reaches every amount with overwhelming probability but
-    // does not guarantee it, and the two forms together are what turns "the
-    // masking happens to work on random inputs" into "the same amount with and
-    // without garbage above bit 4 gives the same answer", which is the actual
-    // rs2[4:0] rule (rtl/executor.v).
+    // Every shift amount 0..31 against each pattern, driven twice: once with a
+    // clean rs2 and once with all 27 upper bits set. `$random` reaches every
+    // amount with overwhelming probability but does not guarantee it, and the
+    // pair is what states the rs2[4:0] rule -- the same amount with and without
+    // garbage above bit 4 must give the same answer.
     pattern[0] = 32'h80000000;
     pattern[1] = 32'hffffffff;
     pattern[2] = 32'h7fffffff;
@@ -643,9 +561,8 @@ module exec_tb;
       end
     end
 
-    // Randomized differential coverage: >=10,000 vectors per operation.
-    // $random's rs2 is a full 32-bit word, so the great majority of shift
-    // vectors here also carry a shift amount above 31.
+    // `$random`'s rs2 is a full 32-bit word, so most shift vectors here also
+    // carry a shift amount above 31.
     for (i = 0; i < RANDOM_VECTORS; i++) begin
       a = $random;
       b = $random;
@@ -664,9 +581,8 @@ module exec_tb;
       run_op("sub",    a, b, ref_sub(a, b));
     end
 
-    // The bench grades its own shape LAST and reports it FIRST: everything
-    // above is a claim about the core, and these two are the claim that the
-    // above happened at all.
+    // Everything above is a claim about the core; these two are the claim that
+    // it happened at all.
     check_vector_counts();
     check_directed_manifest();
 
@@ -684,9 +600,9 @@ module exec_tb;
     end
   end
 
-  // Criterion 4: the divider produces its result exactly 33 cycles after issue
-  // (32 restoring-division iterations plus one capture cycle), not 66. Checked
-  // against every real division performed during the run above, not just once.
+  // The divider produces its result exactly 33 cycles after issue -- 32
+  // restoring-division iterations plus one capture cycle -- checked against
+  // every real division performed in the run above.
   int cycle_count;
   logic prev_divide;
 
