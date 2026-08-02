@@ -1,56 +1,85 @@
 name: Set up OSS CAD Suite
 description: >-
-  Restore the pinned OSS CAD Suite release (yosys, iverilog, sby, ...) from
-  cache, downloading and checksum-verifying it on a cache miss, and add it
-  to PATH. Used by every ci.yml job that needs the open toolchain; the pin
-  itself stays in ci.yml's env: block, passed in as
-  inputs, so it stays visible in the workflow and this action has no pin of
-  its own to drift.
-inputs:
-  tag:
-    description: OSS CAD Suite release tag (e.g. 2026-06-29)
-    required: true
-  file:
-    description: Release asset filename (e.g. oss-cad-suite-linux-x64-20260629.tgz)
-    required: true
-  sha256:
-    description: Expected SHA-256 of the release asset
-    required: true
+  Put the OSS CAD Suite (yosys, iverilog, sby, nextpnr-ice40, icetime, the
+  solvers) on PATH. Uses the copy in the runner image when there is one,
+  otherwise downloads the latest release and verifies it against the digest
+  GitHub publishes for the asset.
 runs:
   using: composite
   steps:
+    # Seven jobs each restored 607 MB from the cache service every run, measured
+    # at a 129s mean and up to 222s once they contend for bandwidth. The runner
+    # image carries the suite, so on those runners this is a local path.
+    - name: Use the runner image's OSS CAD Suite if it has one
+      id: image
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [ -x /opt/oss-cad-suite/bin/yosys ]; then
+          echo "found=true" >> "$GITHUB_OUTPUT"
+          echo "using the runner image's copy: $(/opt/oss-cad-suite/bin/yosys -V)"
+        else
+          echo "found=false" >> "$GITHUB_OUTPUT"
+          echo "no copy in the runner image -- downloading the latest release"
+        fi
+
+    # Latest, not a pin. A toolchain bump that changes the hardware shows up in
+    # `make fit` and `make soc-timing`, both of which ratchet: ADR-0052 measured
+    # 21 cells between two yosys builds on identical RTL. formal/pin.mk is a
+    # different question and stays pinned -- test/monitor.v is generated from it
+    # and tracked, so bumping that one means regenerating the monitor.
+    - name: Resolve the latest OSS CAD Suite release
+      id: release
+      if: steps.image.outputs.found != 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        release=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
+          https://api.github.com/repos/YosysHQ/oss-cad-suite-build/releases/latest)
+        tag=$(jq -r .tag_name <<<"$release")
+        # The asset name carries the date without dashes: 2026-06-29 -> ...-20260629.tgz
+        asset="oss-cad-suite-linux-x64-${tag//-/}.tgz"
+        digest=$(jq -r --arg a "$asset" '.assets[] | select(.name == $a) | .digest' <<<"$release" | cut -d: -f2)
+        test -n "$digest"
+        echo "tag=$tag" >> "$GITHUB_OUTPUT"
+        echo "asset=$asset" >> "$GITHUB_OUTPUT"
+        echo "digest=$digest" >> "$GITHUB_OUTPUT"
+        echo "latest is $tag"
+
     - name: Restore OSS CAD Suite from cache
       id: cache
+      if: steps.image.outputs.found != 'true'
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: oss-cad-suite
-        # Keyed on the SHA-256, not the tag: the verification step below is
-        # skipped on a cache hit, so a tag-keyed entry would let a poisoned
-        # cache be restored without ever meeting the checksum. Content-
-        # addressing the key means a restored entry is one that was verified
-        # against this exact digest when it was written.
-        key: oss-cad-suite-linux-x64-${{ inputs.sha256 }}
+        # Keyed on the digest, not the tag: the verification below is skipped on
+        # a cache hit, so a tag-keyed entry would let a poisoned cache be
+        # restored without ever meeting a checksum.
+        key: oss-cad-suite-linux-x64-${{ steps.release.outputs.digest }}
 
     - name: Download OSS CAD Suite (cache miss)
-      if: steps.cache.outputs.cache-hit != 'true'
+      if: steps.image.outputs.found != 'true' && steps.cache.outputs.cache-hit != 'true'
       shell: bash
       run: |
         set -euo pipefail
         curl -fsSL -o oss-cad-suite.tgz \
-          "https://github.com/YosysHQ/oss-cad-suite-build/releases/download/${{ inputs.tag }}/${{ inputs.file }}"
-        # Upstream does not publish a checksum asset for this release, so
-        # this is this repo's own pin -- same "don't trust the dependency,
-        # pin what you got" posture as formal/pin.mk (ADR-0013).
-        echo "${{ inputs.sha256 }}  oss-cad-suite.tgz" | sha256sum -c -
+          "https://github.com/YosysHQ/oss-cad-suite-build/releases/download/${{ steps.release.outputs.tag }}/${{ steps.release.outputs.asset }}"
+        echo "${{ steps.release.outputs.digest }}  oss-cad-suite.tgz" | sha256sum -c -
         tar -xzf oss-cad-suite.tgz
         rm oss-cad-suite.tgz
-
-    - name: Report cache status
-      shell: bash
-      run: echo "oss-cad-suite cache-hit=${{ steps.cache.outputs.cache-hit }}"
 
     - name: Add OSS CAD Suite to PATH
       shell: bash
       run: |
-        echo "$GITHUB_WORKSPACE/oss-cad-suite/bin" >> "$GITHUB_PATH"
-        echo "$GITHUB_WORKSPACE/oss-cad-suite/py3bin" >> "$GITHUB_PATH"
+        set -euo pipefail
+        if [ "${{ steps.image.outputs.found }}" = "true" ]; then
+          root=/opt/oss-cad-suite
+        else
+          root="$GITHUB_WORKSPACE/oss-cad-suite"
+        fi
+        echo "$root/bin" >> "$GITHUB_PATH"
+        echo "$root/py3bin" >> "$GITHUB_PATH"
+        # Fail here rather than in whichever job first reaches for yosys.
+        test -x "$root/bin/yosys"
