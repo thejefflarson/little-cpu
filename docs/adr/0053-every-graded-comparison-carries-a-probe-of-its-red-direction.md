@@ -126,8 +126,11 @@ is worse than no guard:
 
 - **`test/cxxrtl.cc` exit 4** (a live RVFI monitor mismatch) needs the elaborated design.
   Demonstrated by hand instead: `test/testbench.v`'s monitor hookup mutated to
-  `.rvfi_rd_wdata(rvfi_rd_wdata ^ 32'd1)`, rebuilt, `add.S` reported `RVFI monitor error` and
-  exited 4. Reverted.
+  `.rvfi_rd_wdata(rvfi_rd_wdata ^ 32'd1)`, rebuilt, `add.S` reported
+  `RVFI monitor error 105 at cycle 5` — "mismatch in rd_wdata" — and exited 4. Reverted.
+  **Do not run two `make sim` builds concurrently while doing this**: the first attempt was
+  contradicted by a second, unmutated build racing it to the same output, and read as the mutation
+  not firing.
 - **`formal/genchecks-audit.py`'s two self-validation cross-checks** — the traced names against
   `genchecks`' own `consistency_checks`/`instruction_checks` sets, and the traced names against
   `checks/*.sby` on disk. Both would need `formal/genchecks-local.py` to behave differently from
