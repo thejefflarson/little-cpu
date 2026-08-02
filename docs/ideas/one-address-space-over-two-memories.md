@@ -183,6 +183,13 @@ What does change:
 
 ## Risks
 
+**This section is measured now, and two of its estimates were wrong** — see
+[ADR-0057](../adr/0056-what-writable-text-costs-in-ladder-depth-and-in-nanoseconds.md). The steal mux
+costs 8.5% of the critical path, not 2-3%; `SOC_MIN_MHZ` is 10.0 rather than the 10.5 quoted below
+and still holds; and the load-free fallback offered here is the *slower* half of the change, because
+the write port is where both the area and the delay go. F and G were re-measured too: F is unchanged
+at 6, G goes 4 to 6, and three `[depth]` lines have to move.
+
 **Timing is the real one.** The steal mux sits on the bank address input, at the tail of
 the 88.51 ns fetch → decode → `next_pc` loop, where each logic level costs about 2-2.5 ns
 of local interconnect. Estimate one added level, 2-3%. `SOC_MIN_MHZ = 10.5` should hold,
