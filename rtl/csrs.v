@@ -3,57 +3,40 @@
 `include "structs.v"
 // The machine-mode CSR file (ADR-0005).
 //
-// This is a *sibling of the decoder*, not a pipeline stage. Every access is
-// read and committed in decode, on the same edge the accessing instruction
-// issues, so no CSR state exists anywhere downstream: there is nothing to
-// forward, nothing to replay, and no "what does mcycle read with three
-// instructions in flight" corner. CLAUDE.md invariant 5 (CSR instructions
-// serialize) is enforced in rtl/decoder.v, not here -- this module has no
-// idea a stall exists and does not need one.
+// This is a sibling of the decoder, not a pipeline stage. Every access is read
+// and committed in decode on the same edge the accessing instruction issues, so
+// no CSR state exists downstream: nothing to forward, nothing to replay, and no
+// "what does mcycle read with three instructions in flight" corner. CLAUDE.md
+// invariant 5 (CSR instructions serialize) is enforced in rtl/decoder.v; this
+// module has no idea a stall exists.
 //
-// The CSR set is ADR-0005's. It is a FLOOR, not a closed list: every register
-// the privileged spec lists unconditionally for RV32 machine mode is here,
-// because trapping on a mandatory register is non-conformant however minimal
-// the set is. ADR-0005 headed this list "exact" until ADR-0048, and that word
-// is why two mandatory registers stayed missing through a spec read looking
-// for exactly that -- it made a conformance gap read as a scope decision.
-//
-//   read/write   mstatus (MIE/MPIE; MPP is WARL -> 2'b11), mtvec (direct
-//                mode, base 4-byte aligned), mepc (bit 0 always clear --
-//                only bit 0, because C makes 2-byte targets legal), mcause,
-//                mscratch, mcycle/mcycleh, minstret/minstreth
-//   read/write,  mstatush -- writable by encoding, no implemented fields, so
-//   no fields    a write is a legal WARL no-op and must not trap
-//   read-only    mtval = 0, mie = 0, mip = 0 (no interrupt sources),
-//                misa = 0x4000_1104 (RV32IMC), mvendorid/marchid/mimpid/
-//                mhartid = 0, mconfigptr = 0
+// The set below is a floor, not a closed list: every register the privileged
+// spec lists unconditionally for RV32 machine mode is here, because trapping on
+// a mandatory register is non-conformant however minimal the set is.
 //
 // Trap entry and `mret` are the second write port, and the only architectural
-// CSR update no CSR *instruction* performs. They arrive from the decoder on
-// the edge the trapping instruction (or the `mret`) issues, because that is
-// where every trap is detected and committed (CLAUDE.md invariant 2,
-// ADR-0005). `mtvec_value`/`mepc_value` go back out to the decoder, which owns
-// the PC (invariant 1) and therefore has to be the thing that redirects it.
+// CSR update no CSR instruction performs. They arrive from the decoder on the
+// edge the trapping instruction issues, because that is where every trap is
+// detected and committed (invariant 2). `mtvec_value`/`mepc_value` go back out
+// to the decoder, which owns the PC and therefore has to redirect it.
 //
-// A trap does NOT raise a trap here: this module never decides that an access
-// is illegal. `implemented` feeds the decoder's `instr_valid` term and the
-// read-only test is on the ADDRESS (addr[11:10] == 2'b11), so both illegal-CSR
-// rules are decided in rtl/decoder.v alongside every other trap cause -- one
-// priority encoder, one commit point, one ADR (ADR-0030) covering all five.
+// This module never decides that an access is illegal. `implemented` feeds the
+// decoder's `instr_valid` term and the read-only test is on the address
+// (addr[11:10] == 2'b11), so both illegal-CSR rules are decided in
+// rtl/decoder.v alongside every other trap cause (ADR-0030).
 module csrs(
   input  logic clk,
   input  logic reset,
 
-  // ---- the decode-stage access port -------------------------------------
-  // `addr` is instr[31:20], presented combinationally every cycle; `rdata`
-  // and `implemented` answer it the same cycle, because the decoder needs
-  // the read value in time to register it into decoder_out at this edge.
+  // The decode-stage access port. `addr` is instr[31:20], presented
+  // combinationally every cycle; `rdata` and `implemented` answer it the same
+  // cycle, because the decoder needs the read value in time to register it into
+  // decoder_out at this edge.
   //
-  // `ren`/`wen` describe the instruction the decoder is *issuing* this edge.
+  // `ren`/`wen` describe the instruction the decoder is issuing this edge.
   // Zicsr's suppression rules (CSRRS/CSRRC with a zero source suppress the
-  // write; CSRRW with rd == x0 suppresses the read) are resolved in the
-  // decoder, where the operand fields live, and arrive here already applied
-  // -- so `wen` means "commit this", full stop.
+  // write; CSRRW with rd == x0 suppresses the read) are resolved in the decoder,
+  // where the operand fields live, so `wen` here means "commit this".
   input  logic [11:0] addr,
   input  logic        ren,
   input  logic        wen,
@@ -61,18 +44,17 @@ module csrs(
   output logic [31:0] rdata,
   output logic        implemented,
 
-  // ADR-0027: minstret counts non-trapping *issues*. High for exactly the
-  // cycles the decoder issues one.
+  // minstret counts non-trapping issues, so this is high for exactly the cycles
+  // the decoder issues one (ADR-0027).
   input  logic        instret,
 
-  // ---- trap entry and mret (ADR-0005 / ADR-0028) -------------------------
   // `trap_entry` is high for exactly the cycle the decoder commits a trap;
   // `mret_entry` for exactly the cycle it commits an `mret`. They cannot
-  // coincide with each other (a trapping instruction does not also execute)
-  // nor with `wen` (the decoder gates `csr_wen` on a NON-trapping commit, and
-  // `mret` is not a CSR access), so the three write paths below need no
-  // priority between them -- but the code says so explicitly rather than
-  // relying on last-assignment-wins.
+  // coincide with each other (a trapping instruction does not also execute) nor
+  // with `wen` (the decoder gates `csr_wen` on a non-trapping commit, and `mret`
+  // is not a CSR access), so the three write paths below need no priority
+  // between them -- the code states the exclusion rather than relying on
+  // last-assignment-wins (ADR-0028).
   input  logic        trap_entry,
   input  logic [31:0] trap_cause,
   input  logic [31:0] trap_epc,
@@ -82,28 +64,21 @@ module csrs(
   output logic [31:0] mepc_value
  `ifdef RISCV_FORMAL
   ,
-  // ADR-0006 shadow payloads, for exactly the CSRs formal/checks.cfg's
-  // `[csrs]` list names. Combinational off this cycle's access; the decoder
-  // latches them into the issuing instruction's shadow so they ride to
-  // writeback on the ordinary valid-bit protocol.
+  // Shadow payloads for exactly the CSRs formal/checks.cfg's `[csrs]` list
+  // names. Combinational off this cycle's access; the decoder latches them into
+  // the issuing instruction's shadow so they ride to writeback on the ordinary
+  // valid-bit protocol.
   output rvfi_csr64 rvfi_mcycle,
   output rvfi_csr64 rvfi_minstret,
   output rvfi_csr32 rvfi_mscratch
  `endif
 );
-  // CSR addresses (RISC-V privileged spec, Ch. 2). Named rather than spelled
-  // as hex at each use site for the same reason the decoder names its
-  // register-index fields.
   localparam logic [11:0] MSTATUS   = 12'h300;
   localparam logic [11:0] MISA      = 12'h301;
-  // RV32-mandatory, and read-only zero here. Both are listed unconditionally in
-  // the privileged spec's machine-mode CSR table, so a core that traps on them
-  // is non-conformant however small its implemented set is -- which is why
-  // ADR-0005's "exact" set widens to include them rather than declining them.
-  // Zero is a legal value for each, not a stub: mstatush's only fields are SBE
-  // and MBE, and 0 means little-endian data accesses in M-mode, which is what
-  // this core does; mconfigptr = 0 is the spec's own encoding for "no
-  // configuration data structure exists".
+  // Both read-only zero, and zero is a legal value for each rather than a stub:
+  // mstatush's only fields are SBE and MBE, where 0 means the little-endian
+  // M-mode data accesses this core does, and mconfigptr = 0 is the spec's own
+  // encoding for "no configuration data structure exists".
   localparam logic [11:0] MSTATUSH  = 12'h310;
   localparam logic [11:0] MCONFIGPTR = 12'hF15;
   localparam logic [11:0] MIE       = 12'h304;
@@ -122,23 +97,19 @@ module csrs(
   localparam logic [11:0] MIMPID    = 12'hF13;
   localparam logic [11:0] MHARTID   = 12'hF14;
 
-  // RV32 I M C, MXL = 1. CLAUDE.md's ISA target; the C bit stopped being an
-  // untested claim when ADR-0003's fetch window landed.
+  // RV32 I M C, MXL = 1 -- CLAUDE.md's ISA target.
   localparam logic [31:0] MISA_VALUE = 32'h4000_1104;
 
-  // ---- state ------------------------------------------------------------
   logic [63:0] mcycle, minstret;
   logic [31:0] mscratch, mtvec, mepc, mcause;
-  // mstatus is three fields, not a register: MPP is hardwired to M-mode
-  // (WARL, and this core has no other mode), and every other bit is 0.
+  // mstatus is three fields rather than a register: MPP is hardwired to M-mode
+  // (WARL, and this core has no other mode) and every other bit is 0.
   logic        mstatus_mie, mstatus_mpie;
 
   // Halves of the two counters, selected out here rather than inside the
-  // always_* blocks below. A constant part-select taken inside an always_*
-  // block defeats iverilog's sensitivity analysis and draws a `sorry:` note;
-  // CLAUDE.md says warnings are errors and names rtl/executor.v as the one
-  // documented exception, so this file uses named continuous assigns
-  // throughout.
+  // always_* blocks below. A constant part-select taken inside an always_* block
+  // defeats iverilog's sensitivity analysis and draws a `sorry:` note, so this
+  // file uses named continuous assigns throughout (ADR-0034).
   logic [31:0] mcycle_lo, mcycle_hi, minstret_lo, minstret_hi;
   assign mcycle_lo   = mcycle[31:0];
   assign mcycle_hi   = mcycle[63:32];
@@ -149,17 +120,14 @@ module csrs(
   // MPP = 2'b11 at [12:11]; MPIE at [7]; MIE at [3]; everything else 0.
   assign mstatus_value = {19'b0, 2'b11, 3'b0, mstatus_mpie, 3'b0, mstatus_mie, 3'b0};
 
-  // The two registers the decoder redirects the PC through. Straight
-  // continuous assigns of the register outputs, i.e. the values as of the
-  // START of the issuing cycle. That is the right phase and not an accident:
-  // decode issues at most one instruction per cycle, so a trapping
-  // instruction and a `csrw mtvec` are never the same edge, and the trap must
-  // vector through the mtvec that was architecturally in place when it
-  // issued.
+  // The two registers the decoder redirects the PC through, as of the start of
+  // the issuing cycle. That phase is the right one: decode issues at most one
+  // instruction per cycle, so a trapping instruction and a `csrw mtvec` are
+  // never the same edge, and the trap must vector through the mtvec that was
+  // architecturally in place when it issued.
   assign mtvec_value = mtvec;
   assign mepc_value  = mepc;
 
-  // ---- read mux ---------------------------------------------------------
   always_comb begin
     implemented = 1'b1;
     (* parallel_case *)
@@ -186,19 +154,17 @@ module csrs(
     endcase
   end
 
-  // ---- WARL ------------------------------------------------------------
-  // `warl` is the value the addressed CSR holds *after* this write, with the
-  // legal-value mask already applied. Defined for every address, including
-  // the read-only ones (where "after this write" is the unchanged value, so
-  // it falls back to `rdata`) -- that uniformity is what lets the RVFI report
-  // below tell the truth about what landed rather than echoing back an
-  // operand the mask threw away.
+  // `warl` is the value the addressed CSR holds after this write, with the
+  // legal-value mask already applied. It is defined for every address, including
+  // the read-only ones (where it falls back to `rdata`), and that uniformity is
+  // what lets the RVFI report below tell the truth about what landed rather than
+  // echo back an operand the mask threw away.
   logic [31:0] wdata_mtvec, wdata_mepc, wdata_mstatus;
   // Direct mode only: mtvec[1:0] is the mode field, and a 4-byte-aligned
   // base leaves it zero either way.
   assign wdata_mtvec   = {wdata[31:2], 2'b00};
-  // Only bit 0 is forced -- C makes 2-byte branch targets legal, so bit 1
-  // is a legal value here and must survive (ADR-0005).
+  // Only bit 0 is forced: C makes 2-byte branch targets legal, so bit 1 is a
+  // legal value here and must survive.
   assign wdata_mepc    = {wdata[31:1], 1'b0};
   assign wdata_mstatus = {19'b0, 2'b11, 3'b0, wdata[7], 3'b0, wdata[3], 3'b0};
 
@@ -221,18 +187,15 @@ module csrs(
   assign warl_mie  = warl[3];
   assign warl_mpie = warl[7];
 
-  // Trap entry writes mepc through the SAME WARL mask an explicit `csrw mepc`
+  // Trap entry writes mepc through the same WARL mask an explicit `csrw mepc`
   // goes through. `trap_epc` is an instruction address, so bit 0 is already
-  // clear and the mask changes nothing today -- it is here so that the mask is
-  // stated in one place rather than two, and so a reader can see that bit 1 is
-  // deliberately preserved: C makes 2-byte targets legal (ADR-0005), and a
-  // mask that cleared bit 1 too would resume two bytes early after any fault
-  // at `pc % 4 == 2`. test/asm/trap.S faults a compressed instruction at
-  // exactly that alignment for this reason.
+  // clear and the mask changes nothing today; what it states is that bit 1 is
+  // preserved, because a mask that cleared it too would resume two bytes early
+  // after a fault at `pc % 4 == 2`. test/asm/trap.S faults a compressed
+  // instruction at exactly that alignment.
   logic [31:0] trap_epc_warl;
   assign trap_epc_warl = {trap_epc[31:1], 1'b0};
 
-  // ---- the counters -----------------------------------------------------
   logic wr_mcycle, wr_mcycleh, wr_minstret, wr_minstreth, wr_mscratch;
   assign wr_mcycle    = wen && addr == MCYCLE;
   assign wr_mcycleh   = wen && addr == MCYCLEH;
@@ -240,27 +203,17 @@ module csrs(
   assign wr_minstreth = wen && addr == MINSTRETH;
   assign wr_mscratch  = wen && addr == MSCRATCH;
 
-  // ADR-0005's "an explicit write to a counter takes precedence over that
-  // cycle's increment" -- and the privileged spec's own "any CSR write takes
-  // precedence over the automatic increment" (20211203 §3.1.11) -- are
-  // statements about the 64-BIT COUNTER, not about the half whose address the
-  // instruction happens to name. mcycle and mcycleh are two views of one
-  // register, so a write to either half suppresses that cycle's increment of
-  // the whole thing. Hence a `_tick` term per counter rather than the two
-  // per-half overrides below doing the job on their own.
+  // "Any CSR write takes precedence over the automatic increment" (priv spec
+  // 20211203 §3.1.11) is a statement about the 64-bit COUNTER, not about the
+  // half whose address the instruction names: mcycle and mcycleh are two views
+  // of one register, so a write to either half suppresses that cycle's increment
+  // of the whole thing. Hence a `_tick` term per counter rather than the two
+  // per-half overrides below doing the job alone.
   //
-  // Suppressing per half instead is wrong only at the carry boundary, and
-  // wrong there in a way that nothing else in this repo can see. With
-  // mcycle == 32'hffff_ffff the increment's carry lands in the HIGH half while
-  // the explicit write replaces the low one, so `csrw mcycle` advances mcycleh
-  // by one -- contradicting the invariant the RVFI report at the bottom of this
-  // file is built to satisfy, and doing it once every 2**32 cycles and only if
-  // a write falls on that exact cycle. checks/rvfi_csrw_check.sv reads the
-  // SELF-REPORTED masks and never observes the register; every ladder check is
-  // `mode bmc` from reset; and a `.S` program can land a write on that cycle
-  // only by calibrating instruction spacing first, which is a test that stops
-  // testing the moment the spacing changes. test/csr_tb.v drives this port
-  // directly and is the one place it is deterministic (ADR-0048).
+  // Suppressing per half instead differs only at the carry boundary, where the
+  // increment's carry lands in the high half while the write replaces the low
+  // one -- so `csrw mcycle` advances mcycleh. test/csr_tb.v is the only thing
+  // that can see it (ADR-0048).
   logic mcycle_tick, minstret_tick;
   assign mcycle_tick   = !wr_mcycle   && !wr_mcycleh;
   assign minstret_tick = !wr_minstret && !wr_minstreth && instret;
@@ -286,11 +239,10 @@ module csrs(
       mcycle       <= 64'b0;
       minstret     <= 64'b0;
       mscratch     <= 32'b0;
-      // ADR-0029: mtvec resets to 0. The spec leaves it implementation-
-      // defined and 0 is the readable choice; test/asm/sections.lds puts
-      // .text there, so both sim legs are expected to make a trap taken
-      // before a handler is installed loud rather than let it look like a
-      // silent program restart.
+      // The spec leaves mtvec's reset value implementation-defined. 0 puts it
+      // at test/asm/sections.lds's .text, so both sim legs catch a trap taken
+      // before a handler is installed rather than let it look like a silent
+      // program restart (ADR-0029).
       mtvec        <= 32'b0;
       mepc         <= 32'b0;
       mcause       <= 32'b0;
@@ -310,26 +262,22 @@ module csrs(
           MSCRATCH: mscratch <= warl;
           MEPC:     mepc     <= warl;
           MCAUSE:   mcause   <= warl;
-          // The counters are driven unconditionally above (an explicit write
-          // is folded into *_next so it beats the increment); every other
-          // address is read-only or unimplemented, and a write to one is a
-          // no-op here by construction rather than by omission.
+          // The counters are driven unconditionally above, with an explicit
+          // write folded into *_next so it beats the increment. Every other
+          // address is read-only or unimplemented.
           default: ;
         endcase
       end
-      // ---- trap entry / mret (ADR-0005) ----------------------------------
-      // The privileged-spec sequence, written out: a trap saves the faulting
-      // PC and the cause, pushes MIE into MPIE and disables interrupts; `mret`
-      // pops it back and leaves MPIE set. There are no interrupts on this core
-      // (mie/mip are read-only zero), so MIE/MPIE are architectural state a
-      // program can observe through mstatus rather than something that gates
-      // anything -- which is exactly why they have to be right: nothing else
-      // would notice if they were not.
+      // The privileged-spec sequence: a trap saves the faulting PC and the
+      // cause, pushes MIE into MPIE and disables interrupts; `mret` pops it back
+      // and leaves MPIE set. This core has no interrupts (mie/mip are read-only
+      // zero), so MIE/MPIE gate nothing and are only observable through mstatus
+      // -- nothing but test/csr_tb.v would notice them being wrong.
       //
-      // `else if` rather than two independent `if`s: mutually exclusive by
-      // construction (see the port comments), and stating the exclusion here
-      // means a future cause that broke it fails loudly at the priority
-      // encoder in rtl/decoder.v rather than silently double-writing mstatus.
+      // `else if` rather than two independent `if`s: the two are mutually
+      // exclusive by construction (see the port comments), and stating that here
+      // means a future cause that broke it fails at rtl/decoder.v's priority
+      // encoder rather than silently double-writing mstatus.
       if (trap_entry) begin
         mepc         <= trap_epc_warl;
         mcause       <= trap_cause;
@@ -343,17 +291,15 @@ module csrs(
   end
 
  `ifdef RISCV_FORMAL
-  // ---- RVFI CSR reporting ------------------------------------------------
   // Write-only with respect to the core: nothing below drives a signal any
-  // non-`ifdef` logic reads, which is the structural argument ADR-0020's
-  // non-perturbation guarantee rests on. Do not break it.
+  // non-`ifdef` logic reads. That is the structural argument the
+  // non-perturbation guarantee rests on (ADR-0047), so do not break it.
   //
-  // The two counters are ONE 64-bit RVFI CSR each, with mcycleh/minstreth
-  // addressing the upper half of the same report -- which is why the masks
-  // are built per half. riscv-formal's rvfi_csrw_check asserts that a write
-  // through the low address leaves the high half unchanged (and vice versa),
-  // computed from these reported values, so a mask that claimed both halves
-  // would fail on a correct core.
+  // The two counters are one 64-bit RVFI CSR each, with mcycleh/minstreth
+  // addressing the upper half of the same report, which is why the masks are
+  // built per half. rvfi_csrw_check asserts that a write through the low address
+  // leaves the high half unchanged, computed from these reported values, so a
+  // mask claiming both halves fails on a correct core.
   logic rd_mcycle, rd_mcycleh, rd_minstret, rd_minstreth, rd_mscratch;
   assign rd_mcycle    = ren && addr == MCYCLE;
   assign rd_mcycleh   = ren && addr == MCYCLEH;
@@ -361,11 +307,11 @@ module csrs(
   assign rd_minstreth = ren && addr == MINSTRETH;
   assign rd_mscratch  = ren && addr == MSCRATCH;
 
-  // What the *instruction* wrote, which is not what the register will hold:
-  // the free-running increment is not this instruction's doing, and RVFI's
-  // wdata is the instruction's write. Reporting the incremented value with a
-  // zero wmask would be harmless (rvfi_csrw_check masks it away) but would
-  // read as though the CSR instruction had bumped the counter.
+  // What the instruction wrote, which is not what the register will hold: the
+  // free-running increment is not this instruction's doing, and RVFI's wdata is
+  // the instruction's write. Reporting the incremented value with a zero wmask
+  // would be harmless (rvfi_csrw_check masks it away) but would read as though
+  // the CSR instruction had bumped the counter.
   logic [31:0] mcycle_next_lo_reported, mcycle_next_hi_reported;
   logic [31:0] minstret_next_lo_reported, minstret_next_hi_reported;
   assign mcycle_next_lo_reported   = wr_mcycle    ? warl : mcycle_lo;
