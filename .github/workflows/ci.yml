@@ -4,6 +4,11 @@ on:
   pull_request:
   push:
     branches: [main]
+  # Lets .github/workflows/riscv-formal-pin-bump.yml force a run on a PR it
+  # opened with the default GITHUB_TOKEN: GitHub does not fire pull_request
+  # for events caused by that token (recursion prevention), but does attach
+  # workflow_dispatch check runs to the PR by commit SHA.
+  workflow_dispatch:
 
 # Least privilege: nothing in this workflow pushes, comments, or writes
 # back anywhere. Set once at workflow level so no job needs a wider

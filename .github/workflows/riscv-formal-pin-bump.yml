@@ -1,0 +1,34 @@
+name: riscv-formal pin bump
+
+# Notices when upstream YosysHQ/riscv-formal's `main` has moved past
+# formal/pin.mk's SHA and opens a PR bumping it, with test/monitor.v
+# regenerated against the new pin (ADR-0013). The existing gates --
+# monitor-freshness, formal/check-genchecks.py,
+# formal/check-complete-exclusions.py, the ladder itself -- grade the bump;
+# this workflow only notices and proposes. No auto-merge: ADR-0018's
+# dependabot-automerge.yml is scoped to `dependabot[bot]` and does not apply
+# here, and this workflow does not enable auto-merge on the PRs it opens.
+on:
+  schedule:
+    - cron: "17 6 * * 1" # weekly, Monday
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write # gh workflow run, needed only under the default GITHUB_TOKEN -- see the script
+
+jobs:
+  check-and-bump:
+    name: check-and-bump
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: formal/bump-riscv-formal-pin.sh
+        run: formal/bump-riscv-formal-pin.sh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
