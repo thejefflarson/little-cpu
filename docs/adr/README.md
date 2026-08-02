@@ -63,6 +63,7 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0056](0056-the-makefile-embedded-ratchets-get-probes-and-soc-timing-gets-a-job.md) | The Makefile-embedded ratchets get probes, and `soc-timing` gets a job | Accepted · extends 0053, follows 0052 |
 | [0057](0057-what-writable-text-costs-in-ladder-depth-and-in-nanoseconds.md) | What writable text costs, in ladder depth and in nanoseconds | Accepted · re-runs 0046's derivation and 0054's timing; corrects 0054's `SOC_MIN_MHZ` |
 | [0058](0058-the-fetch-loop-is-not-two-levels-too-deep.md) | The fetch loop is not two levels too deep | Accepted · a measured null; corrects how 0054's logic-level count reads |
+| [0059](0059-text-is-writable-and-the-arbiter-lives-in-the-memory.md) | Text is writable, and the arbiter lives in the memory | Accepted · builds 0057's step 2; answers its condition 3 |
 
 0001–0007 came from the design brief
 ([`docs/ideas/finish-the-rewrite.md`](../ideas/finish-the-rewrite.md)). 0008–0011 came out of

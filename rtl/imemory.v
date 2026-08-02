@@ -1,7 +1,9 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// The instruction ROM: two interleaved banks of 32-bit words, read
+// The instruction memory: two interleaved banks of 32-bit words, read
 // synchronously off the fetch address published one cycle early (ADR-0054).
+// The data bus reaches it too, through the banks' own write port and by
+// borrowing their read port for a cycle.
 //
 // It is a ROM in BLOCK RAM, and both halves of that are decisions
 // (ADR-0054 §"ROM in BRAM"). `SB_SPRAM256KA` is the only large memory on this
@@ -65,7 +67,25 @@ module imemory #(
   // the NEXT edge. This module latches it, so its outputs answer that cycle.
   input  logic [31:0] imem_addr_next,
   output logic [31:0] imem_data,
-  output logic [31:0] imem_data2
+  output logic [31:0] imem_data2,
+  // The data bus, so text is readable and writable from a store or a load.
+  // The range decode and the arbitration between the two buses live here
+  // rather than in each consumer: rtl/littlesoc.v and test/testbench.v run
+  // different `ROM_WORDS`, so a range test written outside this module would
+  // put the two legs on different maps.
+  input  logic [31:0] mem_addr,
+  input  logic [31:0] mem_wdata,
+  input  logic [3:0]  mem_wstrb,
+  // High on the cycle a load's request is on the bus. The idle bus presents
+  // address 0, which is inside the text range, so without it every idle cycle
+  // would steal a fetch.
+  input  logic        mem_ren,
+  // Zero unless the previous cycle was a text-range load, so a consumer can
+  // OR this with the data RAM's answer.
+  output logic [31:0] mem_rdata,
+  // High for the cycle whose fetch window was taken by a data access. The
+  // fetch that lost the read port has to be repeated.
+  output logic        fetch_stall
 );
   localparam int BANK_WORDS = ROM_WORDS / 2;
   localparam int BANK_BITS  = $clog2(BANK_WORDS);
@@ -93,6 +113,35 @@ module imemory #(
   assign odd_index  = word_index[BANK_BITS:1];
   assign even_index = odd_index + {{(BANK_BITS-1){1'b0}}, word_index[0]};
 
+  // The data side. One word, so it needs one bank -- the one its word parity
+  // names -- at the index that parity strips off.
+  //
+  // The range test is the same shape as the fetch one below: a word index
+  // against a constant, with no adder in front of it. `mem_addr` is
+  // word-aligned for every load and store (rtl/accessor.v), so the low two
+  // bits carry nothing the byte strobes do not.
+  logic [29:0]          data_word;
+  logic [BANK_BITS-1:0] data_index;
+  logic                 data_odd, text_range;
+  assign data_word  = mem_addr[31:2];
+  assign data_index = data_word[BANK_BITS:1];
+  assign data_odd   = data_word[0];
+  assign text_range = data_word < 30'(ROM_WORDS);
+
+  // The steal. A text access takes the banks' single read port for the edge,
+  // so the fetch presented that cycle is answered with the data word instead
+  // and has to be repeated -- `fetch_stall` below says so. A store steals too:
+  // it holds the write port, and a fetch read of the word being written is a
+  // collision the part does not define.
+  logic text_access, text_write_even, text_write_odd;
+  assign text_access     = (mem_ren || |mem_wstrb) && text_range;
+  assign text_write_even = |mem_wstrb && text_range && !data_odd;
+  assign text_write_odd  = |mem_wstrb && text_range &&  data_odd;
+
+  logic [BANK_BITS-1:0] even_raddr, odd_raddr;
+  assign even_raddr = text_access ? data_index : even_index;
+  assign odd_raddr  = text_access ? data_index : odd_index;
+
   // Out of range reads as zero, which decodes to an illegal instruction, so a
   // wild PC faults instead of silently aliasing back into the ROM through bit
   // truncation. Both words are tested: the last word of ROM is in range while
@@ -110,14 +159,37 @@ module imemory #(
   // It also removes a corner: `word + 1` wraps at the top of the address space,
   // so the old form called the second word of a fetch at 0xfffffffc "in range"
   // and answered it from word 0. This form faults both words there.
+  //
+  // The read below is unconditional and the write is a second, separately
+  // addressed port: that is the shape yosys maps to an EBR's own read and write
+  // ports. Both buses are answered from these registers, so a data read arrives
+  // a cycle after its address the same way a fetch does.
   logic [31:0] even_data, odd_data;
   logic        odd_first, in_range, in_range2;
+  logic        data_hit, data_hit_odd;
   always_ff @(posedge clk) begin
-    even_data <= rom_even[even_index];
-    odd_data  <= rom_odd[odd_index];
+    even_data <= rom_even[even_raddr];
+    odd_data  <= rom_odd[odd_raddr];
     odd_first <= word_index[0];
     in_range  <= next_word < 30'(ROM_WORDS);
     in_range2 <= next_word < 30'(ROM_WORDS) - 30'd1;
+
+    fetch_stall  <= text_access;
+    data_hit     <= mem_ren && text_range;
+    data_hit_odd <= data_odd;
+
+    if (text_write_even) begin
+      if (mem_wstrb[0]) rom_even[data_index][7:0]   <= mem_wdata[7:0];
+      if (mem_wstrb[1]) rom_even[data_index][15:8]  <= mem_wdata[15:8];
+      if (mem_wstrb[2]) rom_even[data_index][23:16] <= mem_wdata[23:16];
+      if (mem_wstrb[3]) rom_even[data_index][31:24] <= mem_wdata[31:24];
+    end
+    if (text_write_odd) begin
+      if (mem_wstrb[0]) rom_odd[data_index][7:0]   <= mem_wdata[7:0];
+      if (mem_wstrb[1]) rom_odd[data_index][15:8]  <= mem_wdata[15:8];
+      if (mem_wstrb[2]) rom_odd[data_index][23:16] <= mem_wdata[23:16];
+      if (mem_wstrb[3]) rom_odd[data_index][31:24] <= mem_wdata[31:24];
+    end
   end
 
   logic [31:0] window_lo, window_hi;
@@ -125,4 +197,8 @@ module imemory #(
   assign window_hi = odd_first ? even_data : odd_data;
   assign imem_data  = in_range  ? window_lo : 32'b0;
   assign imem_data2 = in_range2 ? window_hi : 32'b0;
+
+  // Zero out of range, and zero on the cycle after a store, so a consumer can
+  // OR this with the data RAM's `mem_rdata` instead of decoding the map twice.
+  assign mem_rdata = data_hit ? (data_hit_odd ? odd_data : even_data) : 32'b0;
 endmodule
