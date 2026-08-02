@@ -104,6 +104,25 @@ repo must check for the process, not for its output:
 pgrep -fl 'btormc|sby'        # what is actually running
 ```
 
+**Fourth — and this one produced three false cells before it was caught: three `rtl/` files are not
+prerequisites of the simulator, so mutating one leaves `make` reporting the binary up to date.**
+`Makefile:286` builds `test/rtl.cc` from nine RTL files, and `rtl/littlesoc.v`, `rtl/memory.v` and
+`rtl/imemory.v` are not among them. Mutating `rtl/littlesoc.v` therefore produces
+`make: 'sim' is up to date.` and the run measures **whatever binary was already on disk** — which,
+in a workdir reused from an earlier mutant, was a different mutant's core. `E1` and `E2` came back
+**caught by the `.S` suite and by co-simulation with all 56 programs red**, which is not a plausible
+signature for a change to a module the simulator never compiles.
+
+The ticket's own instruction covers this: *if a mutant appears to be caught by nothing including the
+controls, suspect your setup*. **The inverse deserves the same suspicion, and is easier to miss,
+because a wall of red reads as a working oracle.** The three cells were dropped rather than
+reinterpreted, the driver now deletes `test/rtl.cc`, `sim` and `cosim` before every simulator-based
+surface so the build always comes from the sources actually present, and the cells were re-measured.
+
+The underlying fact is not a harness quirk, it is **the coverage result for those three files**, and
+it is stronger than "no test exercises them": they are outside the simulator's dependency graph, so
+no `.S` program and no co-simulation run *can* exercise them, however many are added.
+
 The distinction also tells you *whose* run you are looking at, which matters on a shared machine.
 `formal/checks/Makefile` — what `make -C formal check` drives — invokes `sby <name>.sby`, with no
 `-f` and no path, alongside GNU make's `--jobserver-helper`. Anything invoking `sby -f <path>` is
