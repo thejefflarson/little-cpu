@@ -28,6 +28,11 @@ module littlecpu(
   output logic [31:0] mem_wdata,
   output logic [3:0]  mem_wstrb,
   input  logic [31:0] mem_rdata,
+  // SPIKE: the two ports the text-region arbiter needs. `mem_ren` tells an
+  // idle bus from a real load; `fetch_stall` says last cycle's data access
+  // took the ROM's read port, so this cycle's fetch window is garbage.
+  output logic mem_ren,
+  input  logic fetch_stall,
   output logic trap
   `ifdef RISCV_FORMAL
   ,
@@ -170,6 +175,7 @@ module littlecpu(
     .accessor_pending_valid(accessor_pending_valid),
     .accessor_pending_rd(accessor_pending_rd),
     .accessor_out_valid(accessor_out_valid),
+    .fetch_stall(fetch_stall),
     .csr_rdata(csr_rdata),
     .csr_implemented(csr_implemented),
     .mtvec(csr_mtvec),
@@ -245,6 +251,7 @@ module littlecpu(
     .mem_wstrb(mem_wstrb),
     .mem_wdata(mem_wdata),
     .mem_rdata(mem_rdata),
+    .mem_ren(mem_ren),
     .stalled(accessor_stalled),
     .pending_valid(accessor_pending_valid),
     .pending_rd(accessor_pending_rd),
