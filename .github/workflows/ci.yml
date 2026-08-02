@@ -50,16 +50,22 @@ jobs:
           sha256: ${{ env.OSS_CAD_SUITE_SHA256 }}
 
       - name: yosys write_cxxrtl, warnings promoted
-        # Same file list and script as the Makefile's test/rtl.cc recipe,
-        # with `proc; opt_clean; check` inserted ahead of write_cxxrtl.
-        # Verified locally: the bare Makefile recipe elaborates a wire that
-        # is read but never driven with *zero* diagnostic output and exit
-        # 0 -- `check` is what actually reports "is used but has no
-        # driver". The stricter pipeline lives here rather than in the
-        # tracked Makefile recipe so that `make test/rtl.cc` stays the
-        # plain build developers run locally, and the promotion-to-error
-        # policy applies only at the gate -- but it reads the same sources,
-        # so the two cannot diverge on what they elaborate.
+        # The elaboration itself is `make elaborate-strict` -- the Makefile's
+        # test/rtl.cc sources plus `proc; opt_clean; check` ahead of
+        # write_cxxrtl, which is what actually reports "is used but has no
+        # driver" (the bare recipe elaborates an undriven wire with zero
+        # diagnostic output and exit 0).
+        #
+        # THIS STEP USED TO SPELL THE FILE LIST OUT ITSELF, under a comment
+        # claiming it "reads the same sources, so the two cannot diverge on
+        # what they elaborate". It diverged: ADR-0054 put rtl/imemory.v and
+        # rtl/memory.v on the simulator's graph, this copy was not updated,
+        # and the gate spent a run elaborating a testbench whose memory
+        # instances resolved to nothing -- reporting all 32 bits of
+        # `imem_data2` as undriven. The list now lives once, in the Makefile
+        # variable both sim legs already build from, so a fourth copy cannot
+        # go stale here. What stays in the workflow is the promotion POLICY
+        # below, which is a gate decision and belongs at the gate.
         #
         # The promotion below is a curated list, not `yosys -e '.*'`: this
         # design legitimately emits "Warning: Deep recursion in AST
@@ -74,14 +80,16 @@ jobs:
         # and width mismatches.
         run: |
           set -euo pipefail
-          yosys -p '
-            read_verilog -sv rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v rtl/fetcher.v rtl/regfile.v rtl/writeback.v rtl/littlecpu.v test/testbench.v
-            hierarchy -top testbench
-            proc
-            opt_clean
-            check
-            write_cxxrtl /tmp/elaborate-strict.cc
-          ' 2>&1 | tee /tmp/yosys-elaborate.log
+          # Redirect, never a pipeline: a `run:` block is `bash -e`, and
+          # `-o pipefail` is set above, but the repo has shipped a graded
+          # command whose status was `tee`'s exactly once already (ADR-0037)
+          # and the cheapest defence is not to build the pipeline.
+          if ! make elaborate-strict > /tmp/yosys-elaborate.log 2>&1; then
+            echo "::error::elaboration failed before warnings were even graded"
+            cat /tmp/yosys-elaborate.log
+            exit 1
+          fi
+          cat /tmp/yosys-elaborate.log
           if grep -E '^Warning:' /tmp/yosys-elaborate.log | grep -vE 'Deep recursion in AST simplifier' > /tmp/promoted.log; then
             echo "::error::promoted yosys warning(s) -- CLAUDE.md: elaboration warnings are errors"
             cat /tmp/promoted.log
