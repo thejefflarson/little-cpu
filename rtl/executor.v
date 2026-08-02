@@ -259,6 +259,25 @@ module executor(
 
   // state machine
  `ifdef FORMAL
+  // ==== Executor component proof (ADR-0006 #2, ADR-0010, ADR-0049, ADR-0051) ====
+  //
+  // RESIDUAL, stated once and up front: **the multiplication operator itself is
+  // checked differentially, not exhaustively.** There is no miter here between
+  // two 32x32 products. ADR-0051 measured that such a miter returns no verdict
+  // in two minutes even standing completely alone -- no divider, no pipeline
+  // state, no operand cap, `mode bmc depth 1` -- because the obstacle is two
+  // structurally distinct `bvmul` terms, and neither bit width nor engine moves
+  // that. What this proof establishes instead is everything AROUND the product:
+  // the 33-bit operands the multiplier is handed, the slice of that product each
+  // variant retires, and three lemmas over the product term itself that are
+  // multiplications by a CONSTANT, which a solver sees as shifts and adds. The
+  // hole that leaves -- a `*` wrong for some operand pair no lemma names -- is
+  // covered by test/exec_tb.v's >=10,000 randomized differential vectors per op,
+  // which ADR-0010 makes the PRIMARY guarantee for this arithmetic and which
+  // this proof does not replace.
+  //
+  // The same decomposition move is what ADR-0012 already made for the divider:
+  // do not restate the operation, prove the wrapper around one shared term.
   logic clocked;
   initial clocked = 0;
   always_ff @(posedge clk) clocked <= 1;
@@ -291,7 +310,7 @@ module executor(
   // SCOPE      the whole task -- LARGER than what it was written for. The
   //            paragraph above is about the divide-family assertions, but this
   //            is an unguarded `always_comb assume`, so it equally excuses the
-  //            four multiply assertions and the ADR-0015 freeze block from
+  //            whole multiply section and the ADR-0015 freeze block from
   //            ever seeing a mid-trace reset. That is harmless here (a
   //            re-asserted reset is not a real environment) and is written
   //            down because ADR-0049 clause 3 requires the reader to be told
@@ -305,11 +324,15 @@ module executor(
   // completely free — not even ADR-0015's at-most-one-consecutive-cycle
   // bound is assumed, which makes this stronger than the real environment:
   // a held stall just keeps the freeze obligations below in force. The
-  // price is a `!$past(accessor_stall)` guard on each multiply assertion
-  // further down: a frozen edge computes nothing (out is bubbled), so an
-  // ungated assertion there would be asserting arithmetic about the bubble.
-  // The divide-state invariants need no such guard (a freeze holds every
-  // register they mention), and the divide completion assertions' guard
+  // price is a `!$past(accessor_stall)` guard on each of the four multiply
+  // SLICE assertions further down: a frozen edge computes nothing (out is
+  // bubbled), so an ungated assertion there would be asserting arithmetic
+  // about the bubble. The multiply section's other assertions -- the 33-bit
+  // operands and the three product lemmas -- are purely combinational over
+  // `in` and mention `out` nowhere, so a freeze cannot reach them and they
+  // need no guard. The divide-state invariants need none either (a freeze
+  // holds every register they mention), and the divide completion assertions'
+  // guard
   // ($past(state) == divide && state == init) already implies the
   // transition edge was not frozen — a frozen edge cannot change state.
 
@@ -370,73 +393,94 @@ module executor(
     in.is_lb, in.is_lbu, in.is_lh, in.is_lhu, in.is_lw, in.is_sb, in.is_sh, in.is_sw,
     in.is_ecall, in.is_ebreak}));
 
-  // THESE FOUR ASSERTIONS DO NOT SEE 32-BIT OPERANDS TODAY, DESPITE THE
-  // PARAGRAPH BELOW (ADR-0049 finding F1). The divide invariant further down
-  // caps operands with two UNGUARDED `always_comb assume(in.rs1 <= 32'h0f)`
-  // statements, and an unguarded assume is proof-global: it constrains every
-  // assertion in this module, including these. With operands in 0..15 every
-  // product's high half is zero and every operand's bit 31 is zero, so
-  // MULH/MULHU/MULHSU here assert `out.rd_data == 0` and nothing more.
+  // ---- Multiply: full 32-bit operands, no cap, decomposed ----------------
   //
-  // Measured by mutation (scratch copy, `sby -f components.sby executor`):
-  // forcing `multiply[63:32]` to zero PASSES; `mul_sign_x = 1'b0` PASSES;
-  // `mul_sign_y = 1'b0` PASSES; making MULHSU treat rs2 as signed PASSES.
-  // Three of the four multiplier defects ADR-0010 names by hand survive the
-  // proof written to catch them. A low-half off-by-one and taking the sign
-  // from bit 0 are still caught in 0.5s, which is what makes it insidious:
-  // these assertions are narrowed, not dead, and the task reads green either
-  // way. test/exec_tb.v -- ADR-0010's PRIMARY guarantee -- is what actually
-  // covers this today, over 10,000 randomized vectors per op with the
-  // directed MULH(-1,-1)/MULHSU(-1,1)/MULHU(-1,-1) cases.
+  // Until ADR-0051 these assertions ran against operands in 0..15, because the
+  // divide invariant's operand cap below was an UNGUARDED `always_comb assume`
+  // and an unguarded assume is proof-global (ADR-0049 finding F1). Every high
+  // half and every sign bit was constant zero, so MULH/MULHU/MULHSU asserted
+  // `out.rd_data == 0` and nothing more, and three of the four multiplier
+  // defects ADR-0010 names by hand PASSED the proof written to catch them. The
+  // cap is guarded to the divide family now, so everything below sees free
+  // 32-bit operands.
   //
-  // The fix is to guard the cap down to the divide assertions, which is
-  // exactly what the paragraph below says these do not need. Not done here:
-  // those lines are owned by in-flight work on the executor's real arithmetic,
-  // and narrowing them changes what this proof proves.
+  // The old shape here -- an independent `mul_ref_*` product mitered against
+  // `multiply` -- is gone, and its removal is deliberate rather than a
+  // simplification. At full width it is two structurally distinct `bvmul`
+  // terms, which is the miter the note at the top of this block records as
+  // returning no verdict in two minutes even in isolation. Decomposition takes
+  // its place: three obligations, each of which returns in seconds.
   //
-  // THE SAME CAP ALSO BLANKS THE SIGNED DIVIDE PATH (ADR-0049 finding F5), and
-  // that one is not fixed by narrowing the cap to "the divide assertions" --
-  // it needs new assertions. With operands in 0..15, `op_sign_x` and
-  // `op_sign_y` are constant zero, so the two `assert(op_sign_* == in.rs*[31])`
-  // tie-backs below read `assert(0 == 0)`, and the only completion assertions
-  // in this proof are the UNSIGNED pair (`divu_ref` / `remu_ref`). There is no
-  // assertion anywhere that the signed DIV/REM sign restore happens at all.
-  // Measured the same way: deleting `op_sign_x != op_sign_y ? -...` from the
-  // `op_is_div` capture PASSES, and deleting `op_sign_x ? -...` from the
-  // `op_is_rem` capture PASSES. ADR-0012's sign wrapper -- the whole reason
-  // this divider can be unsigned -- has no formal coverage in this task.
-  // test/exec_tb.v covers it; nothing here does.
+  //   (a) the 33-bit operands handed to `multiply` are the correct extensions
+  //       of rs1/rs2 for the variant being issued;
+  //   (b) the correct SLICE of that same `multiply` term reaches out.rd_data;
+  //   (c) three constant-multiplication lemmas over `multiply` itself.
   //
-  // Multiply: a single combinational stage, so full 32-bit-operand correctness
-  // is provable directly (no restriction needed). Independently re-derives
-  // MUL/MULH/MULHU/MULHSU against plain SystemVerilog signed/unsigned
-  // multiplication — this catches exactly the swapped-sign-enable / wrong-
-  // sign-bit class of bug this ticket fixes, not just re-states the RTL.
-  logic [63:0] mul_ref_uu;
-  logic signed [63:0] mul_ref_ss, mul_ref_su;
-  assign mul_ref_uu = in.rs1 * in.rs2;                            // mul, mulhu
-  assign mul_ref_ss = $signed(in.rs1) * $signed(in.rs2);          // mulh
-  assign mul_ref_su = $signed(in.rs1) * $signed({1'b0, in.rs2});  // mulhsu
-  // Sliced into plain 32-bit halves so $past() below applies to a simple
+  // (a) and (b) read the same product term the RTL does, so neither can see a
+  // product that is simply wrong -- which is exactly why (c) is not optional.
+  // It is the only part of this section that constrains the term's own value.
+
+  // ---- (a) the 33-bit operands ------------------------------------------
+  // MUL and MULHU take both operands unsigned; MULH takes both signed; MULHSU
+  // takes rs1 SIGNED and rs2 UNSIGNED. That asymmetry is the instruction's
+  // whole point, and having it backwards is one of the defects ADR-0010 names.
+  // The extensions are derived by WIDTH-EXTENDING ASSIGNMENT from a
+  // self-determined right-hand side, not by restating the RTL's
+  // `in.rs1[31] & (...)`, so a sign taken from the wrong bit disagrees here.
+  logic [32:0] rs1_sext33, rs2_sext33, rs1_zext33, rs2_zext33;
+  assign rs1_sext33 = $signed(in.rs1);
+  assign rs2_sext33 = $signed(in.rs2);
+  assign rs1_zext33 = {1'b0, in.rs1};
+  assign rs2_zext33 = {1'b0, in.rs2};
+  logic [32:0] mul_op_x_ref, mul_op_y_ref;
+  // The `?:` selects between two ALREADY-COMPUTED 33-bit nets; no arithmetic
+  // sits in an arm of it. That is CLAUDE.md's twice-burned rule (ADR-0019's
+  // monitor DIV/REM models, then test/exec_tb.v's SRA reference): signed
+  // arithmetic in a reference model is a self-determined statement of its own.
+  assign mul_op_x_ref = (in.is_mulh || in.is_mulhsu) ? rs1_sext33 : rs1_zext33;
+  assign mul_op_y_ref = in.is_mulh ? rs2_sext33 : rs2_zext33;
+  always_comb assert({mul_sign_x, in.rs1} == mul_op_x_ref);
+  always_comb assert({mul_sign_y, in.rs2} == mul_op_y_ref);
+
+  // ---- (b) the retired slice of that same product ------------------------
+  // Sliced into plain 32-bit signals so $past() below applies to a simple
   // signal rather than a part-select of a $past() result.
-  logic [31:0] mul_ref_lo, mul_ref_uu_hi, mul_ref_ss_hi, mul_ref_su_hi;
-  assign mul_ref_lo = mul_ref_uu[31:0];
-  assign mul_ref_uu_hi = mul_ref_uu[63:32];
-  assign mul_ref_ss_hi = mul_ref_ss[63:32];
-  assign mul_ref_su_hi = mul_ref_su[63:32];
+  logic [31:0] mul_lo, mul_hi;
+  assign mul_lo = multiply[31:0];
+  assign mul_hi = multiply[63:32];
 
   always_ff @(posedge clk)
     if (clocked && !reset && !$past(reset) && !$past(accessor_stall) && $past(state) == init && $past(in.is_mul))
-      assert(out.rd_data == $past(mul_ref_lo));
+      assert(out.rd_data == $past(mul_lo));
   always_ff @(posedge clk)
     if (clocked && !reset && !$past(reset) && !$past(accessor_stall) && $past(state) == init && $past(in.is_mulh))
-      assert(out.rd_data == $past(mul_ref_ss_hi));
+      assert(out.rd_data == $past(mul_hi));
   always_ff @(posedge clk)
     if (clocked && !reset && !$past(reset) && !$past(accessor_stall) && $past(state) == init && $past(in.is_mulhu))
-      assert(out.rd_data == $past(mul_ref_uu_hi));
+      assert(out.rd_data == $past(mul_hi));
   always_ff @(posedge clk)
     if (clocked && !reset && !$past(reset) && !$past(accessor_stall) && $past(state) == init && $past(in.is_mulhsu))
-      assert(out.rd_data == $past(mul_ref_su_hi));
+      assert(out.rd_data == $past(mul_hi));
+
+  // ---- (c) constant-multiplication lemmas over `multiply` ----------------
+  // Each of these multiplies by a CONSTANT -- zero, zero and one -- so the
+  // solver sees shifts and adds rather than a second `bvmul` term, and each
+  // returns in seconds where the miter returns nothing at all. They catch what
+  // (a) and (b) structurally cannot: a masked high half, a product forced to a
+  // constant, a product that has stopped tracking its operands.
+  //
+  // The third is the load-bearing one. It pins all 64 bits of the product for
+  // an entire family of operand pairs -- the high half to the sign extension of
+  // rs1 and the low half to rs1 itself -- which is why deleting the high half
+  // fails HERE while (a) and (b) both stay green.
+  //
+  // An `in.rs2 == 32'hffffffff` lemma (multiply by -1, i.e. negate) is the
+  // obvious fourth and is measured NOT to work: no verdict in two minutes
+  // (ADR-0051). Do not add it back without re-measuring.
+  always_comb if (in.rs1 == 32'b0) assert(multiply == 64'b0);
+  always_comb if (in.rs2 == 32'b0) assert(multiply == 64'b0);
+  always_comb if (in.rs2 == 32'h1 && !mul_sign_y)
+    assert(multiply == {{32{mul_sign_x}}, in.rs1});
 
   // Divide: an end-to-end assertion unrolling the restoring divider's full
   // 33-cycle latency (out.rd_data correct N cycles after issue) is not provable
@@ -445,7 +489,7 @@ module executor(
   // without restating the whole trajectory as an invariant anyway. So this
   // proves a loop invariant instead (below), which needs only one induction
   // step regardless of how many iterations the divider takes, and separately
-  // restricts operands to 4 bits (0-15) so the invariant's intermediate
+  // restricts operand MAGNITUDE to 15 (sign free) so the invariant's intermediate
   // arithmetic stays comfortably inside 64 bits without wraparound (ADR-0010:
   // "restrict it... record the restriction as a comment in the sby task" —
   // recorded here rather than in formal/components.sby because the restriction
@@ -462,14 +506,70 @@ module executor(
   // this collapses to the ordinary division identity dividend == remainder +
   // quotient * divisor with 0 <= remainder < divisor, tying the invariant to
   // real division and — combined with the assertions below — to out.rd_data.
-  always_comb assume(in.rs1 <= 32'h0000000f);
-  always_comb assume(in.rs2 <= 32'h0000000f);
-  // The pipeline (once ADR-0004's stall-only interlock lands) holds `in` steady
-  // for the full duration of a multi-cycle divide; assume that environment here
-  // so the opcode selection at capture time can't be corrupted by a free-
-  // running formal input mid-divide (the real bug this would otherwise hide:
-  // executor.v reads in.is_div/is_divu/is_rem/is_remu fresh at capture time,
-  // not latched at issue).
+  // FACT       ADR-0010's recorded RESTRICTION -- a bound on the proof, not a
+  //            claim about the design. The values the divider actually LOADS
+  //            (`div_x`/`div_y`, i.e. the ADR-0012 magnitudes) are at most 15.
+  //            Bounding those is what keeps the loop invariant's intermediate
+  //            arithmetic (`mul_div_store * (div_y << mul_div_counter)`) inside
+  //            64 bits without wraparound.
+  // DISCHARGED NOWHERE, and nothing should discharge it: a restriction is not a
+  //            fact to be checked elsewhere. What covers the divider at full
+  //            width is test/exec_tb.v -- ADR-0010's PRIMARY guarantee --
+  //            with >=10,000 randomized vectors per divide-family op.
+  // SCOPE      the divide family ONLY: `is_div`/`is_divu`/`is_rem`/`is_remu`,
+  //            plus `state == divide`. Every multiply assertion above runs
+  //            against free 32-bit operands. This assume was UNGUARDED until
+  //            ADR-0051 and was therefore proof-global (ADR-0049 F1 and F5):
+  //            the multiply assertions asserted about operands in 0..15, where
+  //            every high half and every sign bit is zero, and the two
+  //            `op_sign_*` tie-backs below read `assert(0 == 0)`.
+  //
+  // Two things about the shape of this cap are non-obvious and both are
+  // measured rather than reasoned:
+  //
+  // 1. The `|| state == divide` term is REQUIRED and is not redundant with the
+  //    op flags. k-induction may start in `divide` with every `is_div*` low, and
+  //    without that term the cap lapses in exactly those states -- the
+  //    `mul_div_store <= div_x` invariant then fails induction. Guarding on the
+  //    op flags alone does not work; do not rediscover this.
+  // 2. It caps `div_x`/`div_y`, NOT `in.rs1`/`in.rs2`, and that is what makes it
+  //    a MAGNITUDE cap. The `in.rs1 <= 32'h0f` form it replaces held bit 31 at
+  //    constant zero, so `op_sign_x`/`op_sign_y` were constant zero too and
+  //    ADR-0012's magnitude wrapper -- the entire reason this divider is allowed
+  //    to be unsigned -- had no coverage of any kind here: deleting either sign
+  //    restore PASSED (ADR-0049 F5). Capping the loaded magnitude instead leaves
+  //    the SIGN free for DIV/REM: `div_x <= 15` admits `in.rs1` anywhere in
+  //    -15..15, so `in.rs1[31]` is a free bit and the completion assertions at
+  //    the bottom of this block mean something. For DIVU/REMU, where `div_x` IS
+  //    `in.rs1`, it is the same 0..15 restriction as before, which is correct:
+  //    those operands have no sign to free.
+  //
+  //    Capping `$signed(in.rs1)` to -15..15 directly was built first and does
+  //    NOT work. It leaves `div_y` free up to ~2^32 for DIVU/REMU (where no
+  //    magnitude conversion happens, so a "small" negative operand is a huge
+  //    unsigned divisor), `mul_div_store * div_scaled_divisor` then wraps mod
+  //    2^64, and induction fails on the `mul_div_store <= div_x` bound below --
+  //    the very invariant that exists to rule wraparound solutions out.
+  //    Measured (ADR-0051): induction FAIL at 4s, basecase still crawling at
+  //    step 17 after 1m45s. Do not "simplify" this cap back onto in.rs1/in.rs2.
+  logic div_family;
+  assign div_family = in.is_div || in.is_divu || in.is_rem || in.is_remu ||
+                      state == divide;
+  always_comb if (div_family) assume(div_x <= 32'h0000000f);
+  always_comb if (div_family) assume(div_y <= 32'h0000000f);
+
+  // FACT       ADR-0009's stall protocol: the pipeline holds `in` steady for
+  //            the full duration of a multi-cycle divide, so the opcode
+  //            selection at capture time cannot be corrupted by a free-running
+  //            formal input mid-divide. (The real bug this would otherwise
+  //            hide: ADR-0012 records that the executor reads
+  //            is_div/is_divu/is_rem/is_remu fresh at capture time.)
+  // DISCHARGED NOWHERE. `rtl/decoder.v`'s own task asserts the pc holds on a
+  //            stalled cycle, not that `decoder_out` holds (ADR-0049's census).
+  // SCOPE      guarded on `state == divide || $past(state) == divide`, so
+  //            genuinely scoped to the divide assertions and to nothing else.
+  //            The one guarded assume in `rtl/` before ADR-0051; the cap above
+  //            is now the second.
   always_ff @(posedge clk)
     // Covers both the first divide-state cycle (state == divide; otherwise
     // that cycle's `in` is a free input that can disagree with what was just
@@ -538,15 +638,53 @@ module executor(
     if (state == divide)
       assert(mul_div_store <= {32'b0, div_x});
 
-  logic [31:0] divu_ref, remu_ref;
+  // ---- completion: the four divide-family results ------------------------
+  //
+  // The signed pair (`div_ref`/`rem_ref`) is new in ADR-0051 and is the only
+  // thing in this proof that exercises ADR-0012's magnitude wrapper: the
+  // divider loop is unsigned, `div_x`/`div_y` are absolute values, and the sign
+  // is restored at capture. Under the old value cap those two capture arms
+  // could be deleted outright and the task still passed (ADR-0049 F5).
+  //
+  // Every signed operation below is a SELF-DETERMINED STATEMENT OF ITS OWN and
+  // is never an arm of a conditional -- CLAUDE.md's twice-burned rule. `div_q`
+  // and `div_r` are computed first; only the already-computed 32-bit results
+  // are then selected by the divide-by-zero mux, so no sign context can be
+  // taken away from the division itself the way ADR-0019's monitor models had
+  // it taken away from theirs.
+  logic signed [31:0] div_srs1, div_srs2;
+  assign div_srs1 = $signed(in.rs1);
+  assign div_srs2 = $signed(in.rs2);
+  logic signed [31:0] div_q, div_r;
+  assign div_q = div_srs1 / div_srs2;
+  assign div_r = div_srs1 % div_srs2;
+
+  logic [31:0] divu_ref, remu_ref, div_ref, rem_ref;
   assign divu_ref = (in.rs2 == 0) ? 32'hffffffff : (in.rs1 / in.rs2);
   assign remu_ref = (in.rs2 == 0) ? in.rs1 : (in.rs1 % in.rs2);
+  assign div_ref  = (in.rs2 == 0) ? 32'hffffffff : div_q;
+  assign rem_ref  = (in.rs2 == 0) ? in.rs1 : div_r;
 
+  // ADR-0049 F3 applies to all four of these and is not a defect in them: the
+  // guard `$past(state) == divide && state == init` is UNREACHABLE in the
+  // basecase, because `components.sby` sets no depth (so `mode prove`'s
+  // basecase runs 20 steps) and the real divider needs 33 cycles from issue.
+  // The practical consequence, and the reason it is written here rather than
+  // left to be rediscovered: a mutation that breaks one of these reports
+  // `UNKNOWN (rc=4)` -- basecase pass, induction FAIL -- not `FAIL`. That is
+  // this assertion class's normal detection signal. Raising the basecase past
+  // 33 is a depth change needing its own evidence (ADR-0025).
   always_ff @(posedge clk)
     if (clocked && !reset && $past(state) == divide && state == init && $past(in.is_divu))
       assert(out.rd_data == divu_ref);
   always_ff @(posedge clk)
     if (clocked && !reset && $past(state) == divide && state == init && $past(in.is_remu))
       assert(out.rd_data == remu_ref);
+  always_ff @(posedge clk)
+    if (clocked && !reset && $past(state) == divide && state == init && $past(in.is_div))
+      assert(out.rd_data == div_ref);
+  always_ff @(posedge clk)
+    if (clocked && !reset && $past(state) == divide && state == init && $past(in.is_rem))
+      assert(out.rd_data == rem_ref);
  `endif
 endmodule
