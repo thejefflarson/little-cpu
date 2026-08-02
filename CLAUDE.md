@@ -1079,6 +1079,16 @@ longer quietly widen.
   `rtl/regfile.v` placed alone at 86% routing (ADR-0038): the whole SoC is still routing-dominated,
   just less extremely than an isolated 32:1 mux. **ADR-0038's declared 12 MHz is an intent and this
   measurement does not move it**; the design misses it by 6%.
+- **`make soc-timing` has a churn axis of about 3.6%, three times `make fit`'s, and it is measured.**
+  Two logically identical spellings of `rtl/memory.v`'s write/read arms — a module **not on the
+  critical path** — give **88.51 ns / 41 logic levels** and **91.67 ns / 53**, on 11 logic cells'
+  difference in the netlist; 11 cells anywhere is enough for nextpnr to redistribute placement. Each
+  figure is reproducible run to run (nextpnr is seeded); it is the *edit* the number is unstable
+  under. So **a `make soc-timing` delta of a couple of percent is not evidence of anything**, and
+  `SOC_MIN_MHZ` (10.0) sits ~11.5% under the measurement for the same reason `FIT_MAX_LC` sits above
+  the ±50-cell floor. `rtl/memory.v` therefore ships the FLAT spelling of its arms and says so at
+  the site — the tidier nested one costs 11 cells and 3.6% of the only timing number this project
+  has, which is the trade ADR-0038 already made twice in the other direction.
 - **`make fit` has a churn floor of roughly ±50 cells, and a ratchet has to sit above it.**
   Measured by sweeping `rtl/executor.v`'s `mul_div_counter` across four widths that are all
   functionally identical — the counter's range is 0..32 and yosys already constant-folds every bit

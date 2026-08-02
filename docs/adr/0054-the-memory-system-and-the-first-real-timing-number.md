@@ -183,11 +183,35 @@ detour through the CSR file.
 
 **9.60 → 11.30 MHz for those two.** The whole value of taking a measurement is in that line.
 
+### The churn axis is measured, and it is bigger than `make fit`'s
+
+**Two logically identical spellings of `rtl/memory.v`'s write/read arms give 88.51 ns and 91.67 ns —
+41 and 53 logic levels — on 11 logic cells' difference in the netlist.** `rtl/memory.v` is the data
+RAM; **it is not on the critical path at all**. 11 cells anywhere is enough for nextpnr to
+redistribute placement, and the fetch loop's routing moves with it. Both figures are reproducible run
+to run (nextpnr is seeded); it is the **edit** the number is unstable under, exactly as ADR-0038
+found for logic cells — but at **3.6%** against that axis's ~1.2%.
+
+Two consequences, and they are the same two ADR-0038 drew:
+
+- **A `make soc-timing` delta smaller than a few percent is not evidence of anything.** The 9.60 →
+  11.30 MHz improvement earlier in this ADR is safely outside that band; a 2% one would not be.
+- **`SOC_MIN_MHZ` needs headroom wider than the band**, or it goes red on changes that synthesise to
+  the same hardware. It is 10.0 MHz — 11.5% under the measurement, roughly four times the band and
+  the same ratio `FIT_MAX_LC` keeps.
+
+The discovery has a cost recorded with it. The nested spelling of `rtl/memory.v`'s arms says the
+no-change property more directly and was written first; it ships in the **flat** form, and the file
+says why at the site. ADR-0038 rejected the shifter merge at 19 cells *saved* on legibility grounds
+and `CLAUDE.md` declines a hygiene change costing 37 — spending 11 cells and 3.6% of the only timing
+number this project has, on a design already 6% short of its declared 12 MHz, cuts the same way.
+
 ### What the number does not describe
 
 - It is `icetime`'s **static topological estimate** for **one placement** of **one build**, at the
   default worst-case corner. It is toolchain-dependent exactly as `make fit` is (ADR-0052 measured
-  21 cells between two yosys builds on identical RTL); quote it with the toolchain.
+  21 cells between two yosys builds on identical RTL) and edit-dependent as measured just above;
+  quote it with the toolchain.
 - It says nothing about whether the design *works* on hardware. The RAM cannot be initialised
   (decision 1), so it would not run any program in `test/asm` as linked.
 - `SB_GB` is at **8/8**. A change that needs a ninth global buffer is a placement failure no

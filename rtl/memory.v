@@ -59,18 +59,25 @@ module memory #(
   // An out-of-range access is dropped and reads as zero. It must not ALIAS a
   // mapped word, which is what indexing on truncated address bits alone would
   // do; test/mem_tb.v checks exactly that, at the boundary and far away.
-  // The outer split IS the no-change property: a write cycle writes and leaves
-  // `mem_rdata` alone, a non-write cycle reads. An out-of-range write is
-  // dropped inside the write arm rather than falling into the read arm.
+  //
+  // THE FLAT SPELLING IS DELIBERATE, AND IT IS A MEASURED DECISION. The nested
+  // form -- `if (|wstrb) begin if (in_range) ... end else ...` -- says the
+  // no-change property more directly and was written that way first. It costs
+  // **11 logic cells and 3.6% of the SoC's critical path** (88.51 -> 91.67 ns,
+  // 41 -> 53 logic levels), measured by building both, twice each. This module
+  // is not on that path at all: 11 cells of difference anywhere in the netlist
+  // is enough to redistribute placement. ADR-0038 rejected the shifter merge at
+  // 19 cells SAVED on legibility grounds and CLAUDE.md declines a hygiene
+  // change costing 37; spending 11 cells and 3.6% of the only timing number
+  // this project has, on a design already 6% short of its declared 12 MHz,
+  // cuts the same way. Read ADR-0054 before rewriting it back.
   always_ff @(posedge clk) begin
-    if (|mem_wstrb) begin
-      if (in_range) begin
-        if (mem_wstrb[0]) ram[index][7:0]   <= mem_wdata[7:0];
-        if (mem_wstrb[1]) ram[index][15:8]  <= mem_wdata[15:8];
-        if (mem_wstrb[2]) ram[index][23:16] <= mem_wdata[23:16];
-        if (mem_wstrb[3]) ram[index][31:24] <= mem_wdata[31:24];
-      end
-    end else begin
+    if (in_range && |mem_wstrb) begin
+      if (mem_wstrb[0]) ram[index][7:0]   <= mem_wdata[7:0];
+      if (mem_wstrb[1]) ram[index][15:8]  <= mem_wdata[15:8];
+      if (mem_wstrb[2]) ram[index][23:16] <= mem_wdata[23:16];
+      if (mem_wstrb[3]) ram[index][31:24] <= mem_wdata[31:24];
+    end else if (!(|mem_wstrb)) begin
       mem_rdata <= in_range ? ram[index] : 32'b0;
     end
   end

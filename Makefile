@@ -876,16 +876,27 @@ soc.asc: soc.json soc/littlesoc.pcf
 # A REGRESSION RATCHET, SET BELOW THE MEASUREMENT -- NOT ADR-0038's 12 MHz.
 # The design measures 11.30 MHz by icetime and does not close 12 (ADR-0054).
 # Pinning this at 12 would be a gate that is red on arrival, which is a gate
-# nobody keeps; pinning it at 11.30 would be red on any resynthesis, because
-# this number moves with placement and toolchain build exactly as `make fit`'s
-# does. 10.5 MHz is roughly 7% of headroom: a change that trips it has slowed
-# the fetch->decode->next-PC loop by more than placement noise accounts for.
+# nobody keeps; pinning it at 11.30 would be red on the next edit, and that is
+# not a guess.
+#
+# THE CHURN AXIS IS MEASURED, AND IT IS BIGGER THAN `make fit`'s. Two logically
+# identical spellings of rtl/memory.v's write/read arms -- a module that is not
+# on the critical path at all -- give 88.51 ns and 91.67 ns, 41 and 53 logic
+# levels, on 11 logic cells' difference in the netlist. **3.6%**, from an edit
+# that changes no hardware, because placement redistributes. Each figure is
+# reproducible run to run (nextpnr is seeded); it is the EDIT the number is
+# unstable under, exactly as ADR-0038 found for logic cells at ~1.2%.
+#
+# So the headroom is set at roughly four times that band, the same ratio
+# FIT_MAX_LC keeps: 10.0 MHz is 11.5% under the measurement. A change that trips
+# it has slowed the fetch->decode->next-PC loop by more than placement churn can
+# account for.
 #
 # RAISING THIS AFTER A REAL IMPROVEMENT IS ALWAYS WELCOME. Lowering it needs a
 # reason in the commit message, and closing the gap to 12 MHz is a DESIGN
 # decision (it means shortening the loop invariant 1 puts in one cycle), not
 # something to buy by editing this line.
-SOC_MIN_MHZ := 10.5
+SOC_MIN_MHZ := 10.0
 
 .PHONY: soc-timing
 soc-timing: soc.asc
