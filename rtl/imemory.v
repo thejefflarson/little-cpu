@@ -65,7 +65,19 @@ module imemory #(
   // the NEXT edge. This module latches it, so its outputs answer that cycle.
   input  logic [31:0] imem_addr_next,
   output logic [31:0] imem_data,
-  output logic [31:0] imem_data2
+  output logic [31:0] imem_data2,
+  // ---- SPIKE: the data side of a writable text region ----------------------
+  // `steal` points both bank read addresses at the data word instead of the
+  // fetch window. It is a FREE INPUT in this spike on purpose: the thing being
+  // measured is the mux's cost on the fetch -> decode -> next-PC loop, which
+  // runs through the mux's DATA input. Driving the select from the real
+  // arbiter equation adds a second cone that would be measured at the same
+  // time and could not then be separated from the one level this is about.
+  input  logic        steal,
+  input  logic [31:0] mem_addr,
+  input  logic [3:0]  mem_wstrb,
+  input  logic [31:0] mem_wdata,
+  output logic [31:0] text_rdata
 );
   localparam int BANK_WORDS = ROM_WORDS / 2;
   localparam int BANK_BITS  = $clog2(BANK_WORDS);
@@ -88,10 +100,34 @@ module imemory #(
   logic [29:0]          next_word;
   logic [BANK_BITS:0]   word_index;
   logic [BANK_BITS-1:0] even_index, odd_index;
+  logic [BANK_BITS-1:0] fetch_even_index, fetch_odd_index;
   assign next_word  = imem_addr_next[31:2];
   assign word_index = next_word[BANK_BITS:0];
-  assign odd_index  = word_index[BANK_BITS:1];
-  assign even_index = odd_index + {{(BANK_BITS-1){1'b0}}, word_index[0]};
+  assign fetch_odd_index  = word_index[BANK_BITS:1];
+  assign fetch_even_index = fetch_odd_index + {{(BANK_BITS-1){1'b0}}, word_index[0]};
+
+  // SPIKE. The data word's bank and index: consecutive words alternate banks,
+  // so bit 2 of a byte address picks the bank and the bits above it index
+  // within it. Both banks are addressed at that index under a steal; which one
+  // answers is decided by the parity bit below.
+  logic [BANK_BITS-1:0] data_index;
+  logic                 data_bank;
+  assign data_index = mem_addr[BANK_BITS+2:3];
+  assign data_bank  = mem_addr[2];
+
+  // THE MUX THIS SPIKE EXISTS TO MEASURE. It sits between the freshly computed
+  // next PC and the bank address inputs, which is the tail of the critical
+  // path ADR-0054 measured at 88.51 ns.
+  assign even_index = steal ? data_index : fetch_even_index;
+  assign odd_index  = steal ? data_index : fetch_odd_index;
+
+  // SPIKE: the write port. An ice40 EBR has one read port and one write port,
+  // and the ROM banks were only using the read side, so this costs no storage.
+  // Byte granularity is required rather than convenient: writing a whole word
+  // for an `sb` to text is silent corruption.
+  logic [3:0] even_wstrb, odd_wstrb;
+  assign even_wstrb = (!data_bank) ? mem_wstrb : 4'b0;
+  assign odd_wstrb  = ( data_bank) ? mem_wstrb : 4'b0;
 
   // Out of range reads as zero, which decodes to an illegal instruction, so a
   // wild PC faults instead of silently aliasing back into the ROM through bit
@@ -112,12 +148,22 @@ module imemory #(
   // and answered it from word 0. This form faults both words there.
   logic [31:0] even_data, odd_data;
   logic        odd_first, in_range, in_range2;
+  logic        past_data_bank;
   always_ff @(posedge clk) begin
+    if (even_wstrb[0]) rom_even[even_index][7:0]   <= mem_wdata[7:0];
+    if (even_wstrb[1]) rom_even[even_index][15:8]  <= mem_wdata[15:8];
+    if (even_wstrb[2]) rom_even[even_index][23:16] <= mem_wdata[23:16];
+    if (even_wstrb[3]) rom_even[even_index][31:24] <= mem_wdata[31:24];
+    if (odd_wstrb[0])  rom_odd[odd_index][7:0]     <= mem_wdata[7:0];
+    if (odd_wstrb[1])  rom_odd[odd_index][15:8]    <= mem_wdata[15:8];
+    if (odd_wstrb[2])  rom_odd[odd_index][23:16]   <= mem_wdata[23:16];
+    if (odd_wstrb[3])  rom_odd[odd_index][31:24]   <= mem_wdata[31:24];
     even_data <= rom_even[even_index];
     odd_data  <= rom_odd[odd_index];
     odd_first <= word_index[0];
     in_range  <= next_word < 30'(ROM_WORDS);
     in_range2 <= next_word < 30'(ROM_WORDS) - 30'd1;
+    past_data_bank <= data_bank;
   end
 
   logic [31:0] window_lo, window_hi;
@@ -125,4 +171,6 @@ module imemory #(
   assign window_hi = odd_first ? even_data : odd_data;
   assign imem_data  = in_range  ? window_lo : 32'b0;
   assign imem_data2 = in_range2 ? window_hi : 32'b0;
+  // SPIKE: the stolen read, one cycle later, exactly like a fetch.
+  assign text_rdata = past_data_bank ? odd_data : even_data;
 endmodule

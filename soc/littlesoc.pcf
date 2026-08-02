@@ -22,3 +22,4 @@ set_io clk    35
 set_io btn_n  10
 set_io ledr_n 11
 set_io ledg_n 37
+set_io steal_pin 4
