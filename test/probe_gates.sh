@@ -257,6 +257,28 @@ STUB
 # `leg-rt` / `leg-rc` are scratch copies of the two suite runners, because each
 # resolves its helper scripts relative to its own path.
 mkdir -p "$tmp/bin-none" "$tmp/leg-rt" "$tmp/leg-rc" "$tmp/leg-rc-nopy"
+
+# `bin-none` is "this machine has no cross compiler", and for the one probe that
+# claims that it has to be the WHOLE path: with /usr/bin behind it, run_tests.sh
+# finds a real riscv64-unknown-elf-gcc on any host that has one installed there,
+# which is every CI runner -- and that is exactly how that probe went green here
+# and red on CI. So it carries symlinks to the utilities the scripts need before
+# their compiler probe, resolved from this shell's own PATH rather than assumed
+# to live in /usr/bin. Every OTHER probe keeps /usr/bin on the end (the stub
+# directory is in front, so the stubs still win) because test/cosim.py runs
+# under `#!/usr/bin/env python3` and a python3 that is a version-manager shim
+# needs an interpreter of its own.
+# No python3 and no env here on purpose: nothing runs before a compiler probe
+# needs them, and a python3 that is a version-manager shim would shadow the real
+# interpreter for every OTHER probe's PATH, which has this directory on it too.
+for util in sed awk sort uniq comm basename dirname wc tr cat rm mktemp diff \
+             grep find head; do
+  path=$(command -v "$util") || {
+    echo "error: $util is not on PATH; the probes cannot build a minimal one." >&2
+    exit 1
+  }
+  ln -s "$path" "$tmp/bin-none/$util"
+done
 make_toolchain_stubs "$tmp/bin"
 make_toolchain_stubs "$tmp/bin-noobjcopy"
 rm "$tmp/bin-noobjcopy/riscv64-elf-objcopy"
@@ -340,23 +362,23 @@ rt_fixture() {
 # `sections.lds` is not a program and must not be counted as one; the manifest
 # check and this loop both key on `*.S`, which is why the fixture can carry it.
 RT="$tmp/leg-rt/run_tests.sh"
-rt() { printf "PATH='%s/bin:/usr/bin:/bin' %s %s/sim %s/asm %s/BASELINE %s/FLOOR" \
-  "$tmp" "$RT" "$tmp" "$1" "$1" "$1"; }
+rt() { printf "PATH='%s/bin:%s/bin-none:/usr/bin:/bin' %s %s/sim %s/asm %s/BASELINE %s/FLOOR" \
+  "$tmp" "$tmp" "$RT" "$tmp" "$1" "$1" "$1"; }
 
 d=$(rt_fixture)
 probe "control: a passing suite against an empty baseline is green" 0 \
   "Failure list matches" "$(rt "$d")"
 
 probe "wrong argument count is a usage error" 1 "usage:" \
-  "PATH='$tmp/bin:/usr/bin:/bin' $RT $tmp/sim $d/asm"
+  "PATH='$tmp/bin:$tmp/bin-none:/usr/bin:/bin' $RT $tmp/sim $d/asm"
 
 probe "a mistyped baseline path cannot compare nothing and pass" 1 \
   "without it there is no gate" \
-  "PATH='$tmp/bin:/usr/bin:/bin' $RT $tmp/sim $d/asm $d/NOPE $d/FLOOR"
+  "PATH='$tmp/bin:$tmp/bin-none:/usr/bin:/bin' $RT $tmp/sim $d/asm $d/NOPE $d/FLOOR"
 
 probe "a mistyped floor path cannot make every floor lookup miss" 1 \
   "there is nothing to compare this run's observation against" \
-  "PATH='$tmp/bin:/usr/bin:/bin' $RT $tmp/sim $d/asm $d/BASELINE $d/NOPE"
+  "PATH='$tmp/bin:$tmp/bin-none:/usr/bin:/bin' $RT $tmp/sim $d/asm $d/BASELINE $d/NOPE"
 
 d=$(rt_fixture); : > "$d/asm/unlisted.S"
 probe "the suite's shape is asserted before a single program is assembled" 1 \
@@ -377,12 +399,12 @@ probe "a pre-ADR-0035 one-field baseline line is rejected, not half-matched" 1 \
 d=$(rt_fixture)
 probe "a half-installed toolchain says so once, up front" 1 \
   "no RISC-V cross compiler found" \
-  "PATH='$tmp/bin-none:/usr/bin:/bin' $RT $tmp/sim $d/asm $d/BASELINE $d/FLOOR"
+  "PATH='$tmp/bin-none' $RT $tmp/sim $d/asm $d/BASELINE $d/FLOOR"
 
 d=$(rt_fixture)
 probe "objcopy is probed, not assumed to exist because gcc did" 1 \
   "but not its matching" \
-  "PATH='$tmp/bin-noobjcopy:/usr/bin:/bin' $RT $tmp/sim $d/asm $d/BASELINE $d/FLOOR"
+  "PATH='$tmp/bin-noobjcopy:$tmp/bin-none' $RT $tmp/sim $d/asm $d/BASELINE $d/FLOOR"
 
 d=$(rt_fixture)
 probe "a failing assembler is ASSEMBLE-ERROR" 1 "ASSEMBLE-ERROR" \
@@ -419,7 +441,7 @@ probe "an unexpected runner status is RUNNER-ERROR, carrying it" 1 \
 # verdict about the CPU.
 probe "an unstartable runner is RUNNER-ERROR 127, never FAIL" 1 \
   "RUNNER-ERROR 127" \
-  "PATH='$tmp/bin:/usr/bin:/bin' $RT $tmp/no-such-sim $d/asm $d/BASELINE $d/FLOOR"
+  "PATH='$tmp/bin:$tmp/bin-none:/usr/bin:/bin' $RT $tmp/no-such-sim $d/asm $d/BASELINE $d/FLOOR"
 
 probe "a PASS with no counts line is not a pass" 1 "NO-COUNTS" \
   "STUB_SIM_NOCOUNTS=1 $(rt "$d")"
@@ -538,8 +560,8 @@ DUT
 }
 
 cps() {
-  printf "PATH='%s/bin:/usr/bin:/bin' STUB_SAIL_TRACE=%s/sail.trace STUB_SAIL_STDOUT=%s/sail.out STUB_DUT_OUT=%s/dut.out %s/test/cosim.py --quiet --sail %s/sail --cosim-binary %s/dut add.S" \
-    "$tmp" "$1" "$1" "$1" "$REPO" "$tmp" "$tmp"
+  printf "PATH='%s/bin:%s/bin-none:/usr/bin:/bin' STUB_SAIL_TRACE=%s/sail.trace STUB_SAIL_STDOUT=%s/sail.out STUB_DUT_OUT=%s/dut.out %s/test/cosim.py --quiet --sail %s/sail --cosim-binary %s/dut add.S" \
+    "$tmp" "$tmp" "$1" "$1" "$1" "$REPO" "$tmp" "$tmp"
 }
 
 d=$(cp_fixture)
