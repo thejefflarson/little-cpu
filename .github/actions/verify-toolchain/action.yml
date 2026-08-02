@@ -1,0 +1,29 @@
+name: Verify toolchain
+description: >-
+  Assert that specific command-line tools are on PATH, baked into the runner
+  image, rather than installing them (thejefflarson/runner#35). One copy so
+  the tool list and the failure message cannot drift between the jobs that
+  need it -- the ci.yml `elaborate` job diverged from its own file-list
+  comment this way once already.
+inputs:
+  tools:
+    description: space-separated list of tools to check for on PATH
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Verify the toolchain is present in the runner image
+      shell: bash
+      run: |
+        set -euo pipefail
+        missing=""
+        for tool in ${{ inputs.tools }}; do
+          command -v "$tool" >/dev/null 2>&1 || missing="$missing $tool"
+        done
+        if [ -n "$missing" ]; then
+          echo "::error::runner image is missing:$missing — expected them baked in (thejefflarson/runner#35)"
+          exit 1
+        fi
+        for tool in ${{ inputs.tools }}; do
+          echo "$tool: $("$tool" --version | head -1)"
+        done

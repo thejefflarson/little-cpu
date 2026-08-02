@@ -155,26 +155,15 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # The cross compiler and clang++ are baked into the runner image
-      # (thejefflarson/runner#35) instead of apt-installed here: these runners are
-      # runAsNonRoot with allowPrivilegeEscalation:false, so `sudo apt-get install`
-      # fails with "the 'no new privileges' flag is set".
-      #
-      # This is an ASSERTION, not an install. If the image is ever rebuilt without
-      # the toolchain, fail here with a message that names the cause rather than
-      # letting run_tests.sh die on a missing compiler or `sim` on a missing clang++.
+      # The cross compiler and clang++ are baked into the runner image instead
+      # of apt-installed here: these runners are runAsNonRoot with
+      # allowPrivilegeEscalation:false, so `sudo apt-get install` fails with
+      # "the 'no new privileges' flag is set". This is an ASSERTION, not an
+      # install -- see the composite action for why it is one copy.
       - name: Verify the toolchain is present in the runner image
-        run: |
-          set -euo pipefail
-          missing=""
-          for tool in riscv64-unknown-elf-gcc clang++; do
-            command -v "$tool" >/dev/null 2>&1 || missing="$missing $tool"
-          done
-          if [ -n "$missing" ]; then
-            echo "::error::runner image is missing:$missing — expected them baked in (thejefflarson/runner#35)"
-            exit 1
-          fi
-          echo "toolchain present: $(riscv64-unknown-elf-gcc --version | head -1); $(clang++ --version | head -1)"
+        uses: ./.github/actions/verify-toolchain
+        with:
+          tools: riscv64-unknown-elf-gcc clang++
 
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
@@ -398,6 +387,84 @@ jobs:
           elapsed=$(( $(date +%s) - JOB_START ))
           {
             echo "### fit"
+            echo "wall time: ${elapsed}s"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # `make soc-timing` -- the SoC place-and-route flow and the only timing
+  # figure this project has (ADR-0054). Mirrors the `fit` job immediately
+  # above: same non-piped graded-command pattern, same NON-REQUIRED status.
+  # Area and timing are design constraints, not correctness ones (ADR-0036),
+  # and adding either to branch protection is a human action taken
+  # deliberately or not at all.
+  #
+  # UNLIKE `fit`, this needs the RISC-V cross compiler as well as the OSS CAD
+  # Suite: `make soc-timing` builds a real ROM image from test/asm/*.S before
+  # synthesising. No other job needs both, so the toolchain assertion is the
+  # shared composite action rather than a second copy of the `test` job's
+  # step -- a workflow re-stating something the Makefile or another job
+  # already owns is the exact shape that broke `elaborate` once (see the
+  # `elaborate` job's own file-list comment).
+  #
+  # `make soc-timing` itself EXPECTS placement to succeed, unlike `fit`: the
+  # SoC's two memories are internal, so it presents 4 SB_IO against sg48's 39
+  # and places cleanly. What is graded is soc/fit_report.py's sibling scripts
+  # -- soc/cell_census.py's SPRAM/EBR census and soc/timing_split.py's
+  # SOC_MIN_MHZ ratchet -- both probed hermetically in test/probe_gates.sh.
+  soc-timing:
+    name: soc-timing
+    runs-on: little-cpu-runners
+    timeout-minutes: 10
+    steps:
+      - name: Record job start
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Verify the toolchain is present in the runner image
+        uses: ./.github/actions/verify-toolchain
+        with:
+          tools: riscv64-unknown-elf-gcc
+
+      - name: Set up OSS CAD Suite
+        uses: ./.github/actions/setup-oss-cad-suite
+        with:
+          tag: ${{ env.OSS_CAD_SUITE_TAG }}
+          file: ${{ env.OSS_CAD_SUITE_FILE }}
+          sha256: ${{ env.OSS_CAD_SUITE_SHA256 }}
+
+      - name: make soc-timing
+        # NO PIPE ON THE GRADED COMMAND, same reasoning as `fit` and
+        # `nonperturbation`: a `run:` block without an explicit `shell:` key
+        # is `bash -e {0}`, errexit but NOT pipefail, so piping this into
+        # `tee` would take the step's status from `tee` and it would always
+        # be 0 (ADR-0037). Redirect, take the status off the unpiped
+        # command, then publish -- the census and the logic/routing split
+        # land in the step summary whether this passes or fails, because the
+        # summary write happens before the exit.
+        run: |
+          set +e
+          make soc-timing > "$RUNNER_TEMP/soc-timing.txt" 2>&1
+          status=$?
+          set -e
+          cat "$RUNNER_TEMP/soc-timing.txt"
+          {
+            echo "### timing (ADR-0054)"
+            echo '```'
+            cat "$RUNNER_TEMP/soc-timing.txt"
+            echo '```'
+            echo "Critical path over the whole SoC (core + ROM + RAM), with the"
+            echo "logic/routing split. This job ratchets against \`SOC_MIN_MHZ\`,"
+            echo "a floor set below the measurement rather than at ADR-0038's"
+            echo "declared 12 MHz, and it is NOT in main's required set."
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      - name: Report job wall time
+        if: always()
+        run: |
+          elapsed=$(( $(date +%s) - JOB_START ))
+          {
+            echo "### soc-timing"
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
 

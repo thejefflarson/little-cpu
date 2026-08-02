@@ -60,6 +60,7 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0053](0053-every-graded-comparison-carries-a-probe-of-its-red-direction.md) | Every graded comparison carries an executable probe of its own red direction | Accepted · extends 0035, 0033 |
 | [0054](0054-the-memory-system-and-the-first-real-timing-number.md) | The memory system, and the first real timing number | Accepted · the design 0044 called for; answers 0038 decision 2 |
 | [0055](0055-the-iverilog-leg-is-graded-in-ci-without-the-multi-program-runner.md) | The iverilog leg is graded in CI, without the multi-program runner | Accepted · closes part of the `make waves` bullet in CLAUDE.md's "what does not work" |
+| [0056](0056-the-makefile-embedded-ratchets-get-probes-and-soc-timing-gets-a-job.md) | The Makefile-embedded ratchets get probes, and `soc-timing` gets a job | Accepted · extends 0053, follows 0052 |
 
 0001–0007 came from the design brief
 ([`docs/ideas/finish-the-rewrite.md`](../ideas/finish-the-rewrite.md)). 0008–0011 came out of

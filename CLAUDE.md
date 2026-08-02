@@ -243,6 +243,24 @@ retires happen in writeback, so a fault in the first instructions of `_start` ra
 with `RETIRES 0` and the silence gate turned it into `MONITOR-SILENT`, which is exactly the
 misattribution ADR-0029 added `TRAP-TO-ZERO` to prevent.
 
+**ADR-0053 reached every script; four graded ratchets living in the Makefile itself were still
+untouched, and one of them had never been run on CI at all.** `make fit`'s `FIT_MAX_LC` ratchet,
+`make soc-timing`'s `SOC_MIN_MHZ` ratchet, the SPRAM/EBR census `soc.json`'s recipe runs, and
+`check-unit-benches`' list equality are each a graded comparison in the same sense ADR-0053's
+audit covers, and none had its red direction exercised. Two of the four were `awk`/`grep` embedded
+in a recipe rather than a script, so probing them meant extracting them first: `soc/fit_report.py`
+now carries `make fit`'s table-presence check and ratchet, and `soc/cell_census.py` replaces the
+`soc_expect_cells` `define` — both callable against a fixture log, both wired back into the
+Makefile so there is one copy of the logic. `check-unit-benches` needed no extraction: its three
+branches are probed by invoking the real target against the real `test/*_tb.v` tree with
+`UNIT_BENCHES`/`UNIT_BENCH_SRC_*` overridden on the command line, which is what its own comment
+already commits to being possible. `test/probe_gates.sh` is **122** probes now, up from 108.
+**`make soc-timing` joins CI in the `soc-timing` job**, mirroring `fit`: non-required, for the same
+reason (ADR-0036) — it publishes the census and the logic/routing split to the step summary whether
+it passes or fails. It is the first job needing both the RISC-V cross compiler and the OSS CAD
+Suite, so the toolchain assertion moved into `.github/actions/verify-toolchain` rather than being
+copied from the `test` job — the duplication shape that broke `elaborate` once already.
+
 **M3 opens: `rtl/csrs.v` lands the CSR file and the Zicsr access path.** ADR-0005's set, exactly —
 RW `mstatus` (MIE/MPIE, MPP WARL→`2'b11`), `mtvec` (direct mode, 4-byte-aligned base, resets to 0
 per ADR-0029), `mepc` (bit 0 only, because C makes 2-byte targets legal), `mcause`, `mscratch`,
@@ -576,16 +594,18 @@ now runs the iverilog leg (`testbench.vvp`) instead of the cxxrtl runner, matchi
 table below, and produces a real `waves.vcd` — and, as of ADR-0055, grades the run it produces one
 too: `ci.yml`'s `elaborate` job runs and checks this same `testbench.vvp` directly, on one fixed
 baked-in program, not the `.S` suite (see the second bullet under "what does not work" above for
-what stays open). CI (`.github/workflows/ci.yml`) runs **eight** jobs on every PR:
-elaborate, test, components, lint, fit, nonperturbation, monitor-freshness and formal — the last of
-which also carries `complete` and `complete_cover` as hard gates (M2 term 5). **Six of the eight
-are required** — `elaborate`, `test`, `components`, `monitor-freshness`, `lint`, `formal`, read live
-from `gh api repos/thejefflarson/little-cpu/branches/main/protection -q
+what stays open). CI (`.github/workflows/ci.yml`) runs **nine** jobs on every PR:
+elaborate, test, components, lint, fit, soc-timing, nonperturbation, monitor-freshness and formal —
+the last of which also carries `complete` and `complete_cover` as hard gates (M2 term 5). **Six of
+the nine are required** — `elaborate`, `test`, `components`, `monitor-freshness`, `lint`, `formal`,
+read live from `gh api repos/thejefflarson/little-cpu/branches/main/protection -q
 '.required_status_checks.contexts'` rather than from any comment in the workflow — and
-`nonperturbation` and `fit` are the two that run without gating, both deliberately (ADR-0047,
-ADR-0052). **There is no `continue-on-error` anywhere in the file**, in any job: the `formal` job
-carried the last one until ADR-0052 struck it. This line named four jobs and stopped there
-until the gate inventory; `lint` and `formal` had both been promoted to required in the meantime,
+`nonperturbation`, `fit` and `soc-timing` are the three that run without gating, each deliberately
+(ADR-0047, ADR-0052; `soc-timing` for the same reason as `fit` — area and timing are design
+constraints, not correctness ones, ADR-0036). **There is no `continue-on-error` anywhere in the
+file**, in any job: the `formal` job carried the last one until ADR-0052 struck it. This line named
+four jobs and stopped there until the gate inventory; `lint` and `formal` had both been promoted to
+required in the meantime,
 and `ci.yml`'s own comments still said otherwise.
 
 **A Sail co-simulation spike measured what the existing oracles structurally cannot see**
@@ -748,7 +768,7 @@ make test           # assemble test/asm/*.S, run under cxxrtl, pass/fail table w
                     # both ways before a single program is assembled -- so a suite
                     # that SHRANK is red, not a smaller table that still "passes".
                     # Also runs `make probe-gates` (ADR-0053).
-make probe-gates    # forces all 108 graded comparisons in the grading scripts to
+make probe-gates    # forces all 122 graded comparisons in the grading scripts to
                     # FAIL and requires each to fail for its own reason. Hermetic
                     # (stubs, no toolchain); a prerequisite of `test` on purpose,
                     # so it is in CI's required job. All fork, no work: ~68-90s of
@@ -789,9 +809,14 @@ make soc-timing     # THE SoC PLACE-AND-TIME FLOW (ADR-0054), and NOT `make fit`
                     # DOES NOT MEET ADR-0038's DECLARED 12 MHz, and that intent
                     # is unchanged. Ratchets on SOC_MIN_MHZ (10.5), a regression
                     # floor set below the measurement rather than at the intent.
-                    # Needs the RISC-V toolchain (it builds a real ROM image),
-                    # so it is hand-run and not on CI. `SOC_PROG=lw.S` picks the
-                    # program. Probe: `make soc-timing SOC_MIN_MHZ=99` exits 1.
+                    # Needs the RISC-V toolchain (it builds a real ROM image).
+                    # ON CI as of the `soc-timing` job (non-required, same
+                    # reasoning as `fit`: area and timing are design
+                    # constraints, not correctness ones, ADR-0036). The
+                    # census (soc/cell_census.py) and the ratchet
+                    # (soc/timing_split.py) are both probed hermetically in
+                    # test/probe_gates.sh. `SOC_PROG=lw.S` picks the program.
+                    # Probe: `make soc-timing SOC_MIN_MHZ=99` exits 1.
 
 make -C formal components_decoder   # component proofs. THREE tasks, all with real assertions:
 make -C formal components_executor  # decoder, executor, pcloop -- the assertion-free fetcher /
