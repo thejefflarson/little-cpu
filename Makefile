@@ -737,41 +737,15 @@ fit.json: $(FIT_SRCS)
 # proportion 4400 kept over 4208 and still well clear of both noise axes.
 FIT_MAX_LC := 4100
 
+# The table-presence check and the ratchet both live in soc/fit_report.py, not
+# here, so test/probe_gates.sh can drive them against a fixture log instead of
+# a second copy of this parsing (ADR-0053; the pattern soc/timing_split.py
+# already uses for `make soc-timing`'s ratchet).
 .PHONY: fit
 fit: fit.json
 	@nextpnr-ice40 --up5k --package sg48 --json $< --pcf-allow-unconstrained \
 	  > fit.log 2>&1 || true
-	@grep -q 'ICESTORM_LC:' fit.log || { \
-	  echo '*** make fit: nextpnr printed no utilisation table, so NO measurement'; \
-	  echo '*** was taken. That is a failure, not a 0% fit. Tail of fit.log:'; \
-	  tail -20 fit.log; \
-	  exit 1; \
-	}
-	@sed -n '/^Info: Device utilisation:/,/^$$/s/^Info: //p' fit.log
-	@awk '/ICESTORM_LC:/ { split($$3, u, "/"); printf "\nLOGIC CELLS: %s of %s (%s)  --  up5k / sg48 / littlecpu, memories external\n", u[1], $$4, $$5 }' fit.log
-	@# Both spellings, because nextpnr uses different wording depending on which
-	@# phase gives up: 'Unable to place cell ... no BELs remaining' when a BEL
-	@# class is exhausted, 'Unable to find a placement location for cell' when
-	@# it cannot site a constrained IO. The 132% configuration produced the
-	@# first; the 80% one produces the second, on an `mem_rdata` pad. Matching
-	@# only the first made a normal run print the "read fit.log before quoting
-	@# this" warning (ADR-0042).
-	@if grep -qE '^ERROR: Unable to (place cell|find a placement location for cell)' fit.log; then \
-	  echo 'Placement failed on IO, which is the expected state (ADR-0038 decision 1a);'; \
-	  echo 'the utilisation above is the measurement. Full log: fit.log'; \
-	else \
-	  echo 'Placement did not report an IO error -- read fit.log before quoting this.'; \
-	fi
-	@awk -v budget=$(FIT_MAX_LC) '/ICESTORM_LC:/ { \
-	    split($$3, u, "/"); \
-	    if (u[1] + 0 > budget + 0) { \
-	      printf "\n*** make fit: %s logic cells is over the %s-cell budget.\n", u[1], budget; \
-	      printf "*** This is a ratchet (ADR-0042), not a suggestion. Find what grew;\n"; \
-	      printf "*** raising FIT_MAX_LC in the Makefile needs a reason in the commit.\n"; \
-	      exit 1; \
-	    } \
-	    printf "\nRATCHET: %s of %s cells budgeted -- OK\n", u[1], budget; \
-	  }' fit.log
+	@python3 soc/fit_report.py fit.log --max-lc $(FIT_MAX_LC)
 
 # ---------------------------------------------------------------------------
 # `make soc-timing` -- the SoC place-and-route and the FIRST REAL TIMING NUMBER
@@ -813,22 +787,6 @@ SOC_ROM_WORDS := 2048
 SOC_EXPECT_SPRAM := 2
 SOC_EXPECT_EBR   := 20
 
-# $(call soc_expect_cells,<cell type>,<expected count>,<what it means>)
-# Reads the count out of yosys's own statistics block -- the LAST one, which is
-# the whole-design total -- and fails if it is not exactly the declared number.
-define soc_expect_cells
-set -e; \
-got=$$(grep -E '^ +[0-9]+ +$(1)$$' soc.synth.log | tail -1 | awk '{print $$1}'); \
-got=$${got:-0}; \
-if [ "$$got" != "$(2)" ]; then \
-  echo "*** make soc-timing: $$got $(1) cells, expected $(2)."; \
-  echo "*** $(3)."; \
-  echo "*** Read soc.synth.log. If the change was deliberate, update"; \
-  echo "*** SOC_EXPECT_SPRAM / SOC_EXPECT_EBR in the Makefile in the same commit."; \
-  exit 1; \
-fi; \
-echo "$(1): $$got, as declared"
-endef
 SOC_SRCS      := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v \
                  rtl/executor.v rtl/fetcher.v rtl/imemory.v rtl/memory.v \
                  rtl/regfile.v rtl/writeback.v rtl/littlecpu.v rtl/littlesoc.v
@@ -866,23 +824,17 @@ soc.json: $(SOC_SRCS) soc-rom
 	@echo 'yosys: synthesising littlesoc for ice40 (log: soc.synth.log)'
 	@yosys -p 'read_verilog -sv $(SOC_SRCS); synth_ice40 -dsp -spram -top littlesoc -json $@' \
 	  > soc.synth.log 2>&1 || { tail -40 soc.synth.log; exit 1; }
-	@# THE INFERENCE IS CHECKED AGAINST A COUNT, NOT ASSUMED AND NOT GREPPED FOR
-	@# BY NAME. rtl/memory.v maps to SPRAM only because its read port is
-	@# no-change on a write; the read-first spelling maps the same array to 148
-	@# `SB_RAM40_4K` -- five times the part's entire block RAM -- and yosys
-	@# reports that as a normal run, failing later in nextpnr with a message
-	@# about BELs. rtl/imemory.v maps to block RAM only while it stays a plain
-	@# synchronous array; an inferred-as-logic ROM would blow the LUT budget.
-	@#
-	@# The counts are exact because they are properties of the design, not of
-	@# placement: 2 SPRAM for a 64 KB data RAM, 16 EBR for an 8 KB banked ROM
-	@# plus 4 for rtl/regfile.v. `grep -q SB_SPRAM256KA` was the first version of
-	@# this check and it PASSED on the mutated build -- yosys logs the cell's
-	@# library definition whether or not it instantiates one. Measured.
-	@$(call soc_expect_cells,SB_SPRAM256KA,$(SOC_EXPECT_SPRAM),rtl/memory.v has stopped \
-	  matching the SPRAM shape -- read its header comment about the no-change read port)
-	@$(call soc_expect_cells,SB_RAM40_4K,$(SOC_EXPECT_EBR),rtl/imemory.v or rtl/regfile.v \
-	  has stopped inferring block RAM, or the ROM size changed)
+	@# rtl/memory.v maps to SPRAM only because its read port is no-change on a
+	@# write; the read-first spelling maps the same array to 148 `SB_RAM40_4K`
+	@# -- five times the part's entire block RAM -- and yosys reports that as a
+	@# normal run, failing later in nextpnr with a message about BELs.
+	@# rtl/imemory.v maps to block RAM only while it stays a plain synchronous
+	@# array. The census below is what catches either regression; soc/cell_census.py
+	@# carries the reasoning for matching by exact count rather than by name.
+	@python3 soc/cell_census.py soc.synth.log SB_SPRAM256KA $(SOC_EXPECT_SPRAM) \
+	  "rtl/memory.v has stopped matching the SPRAM shape -- read its header comment about the no-change read port"
+	@python3 soc/cell_census.py soc.synth.log SB_RAM40_4K $(SOC_EXPECT_EBR) \
+	  "rtl/imemory.v or rtl/regfile.v has stopped inferring block RAM, or the ROM size changed"
 
 # nextpnr's exit status is NOT the signal here, and tolerating it is a decision
 # rather than a convenience. It defaults to a 12 MHz target on ice40 and EXITS

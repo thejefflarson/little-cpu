@@ -73,7 +73,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # reason test/exec_tb.v pins its vector count: a probe that is deleted, or that
 # stops being reached by an early `return`, would otherwise reduce the coverage
 # of this file while it kept printing a green summary.
-PROBES_EXPECTED=108
+PROBES_EXPECTED=122
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -974,6 +974,140 @@ begin_group "formal/genchecks-audit.py"
 # produces a ladder somewhere else.
 probe "running the generator from the wrong directory is refused, not done" 1 \
   "error: run from" "cd '$tmp' && python3 '$REPO/formal/genchecks-audit.py'"
+
+# ===========================================================================
+# 9. soc/timing_split.py -- make soc-timing's SOC_MIN_MHZ ratchet.
+# ===========================================================================
+begin_group "soc/timing_split.py"
+
+TS="python3 $REPO/soc/timing_split.py"
+
+# One LogicCell40 hop, one routing hop, and the two summary lines the script
+# derives everything else from. 1.50 ns total is 666.67 MHz, clear of every
+# floor these probes use.
+ts_fixture() {
+  local d; d=$(new_case)
+  cat > "$d/report.rpt" <<'RPT'
+ lut1 (LogicCell40) LC: 1.00 ns
+   1.00 ns netA (start_point)
+ mux1 (LocalMux) MX: 0.50 ns
+   1.50 ns netB (mid_point)
+              lcout -> end_point
+Total path delay: 1.50 ns
+Total number of logic levels: 1
+RPT
+  printf '%s' "$d"
+}
+
+d=$(ts_fixture)
+probe "control: a report clearing the floor is green" 0 "RATCHET:" \
+  "$TS $d/report.rpt --min-mhz 10.0"
+
+d=$(ts_fixture)
+probe "a report missing the floor is a ratchet, not a suggestion" 1 \
+  "is under the" "$TS $d/report.rpt --min-mhz 9999"
+
+d=$(ts_fixture); sed -i.bak '/^Total path delay:/d' "$d/report.rpt"
+probe "no critical path in the report is a failed measurement, not a fast design" 1 \
+  "does not look like an" "$TS $d/report.rpt --min-mhz 10.0"
+
+d=$(ts_fixture)
+sed -i.bak 's/^Total path delay: 1.50 ns/Total path delay: 5.00 ns/' "$d/report.rpt"
+probe "a hop sum that does not reconcile blames the script, not the design" 1 \
+  "summed hops come to" "$TS $d/report.rpt --min-mhz 10.0"
+
+# ===========================================================================
+# 10. soc/cell_census.py -- make soc-timing's SPRAM/EBR census.
+# ===========================================================================
+begin_group "soc/cell_census.py"
+
+CC="python3 $REPO/soc/cell_census.py"
+
+cc_fixture() {
+  local d; d=$(new_case)
+  cat > "$d/soc.synth.log" <<'LOG'
+     4   SB_MAC16
+     2   SB_SPRAM256KA
+    20   SB_RAM40_4K
+LOG
+  printf '%s' "$d"
+}
+
+d=$(cc_fixture)
+probe "control: a count matching the declaration is green" 0 "as declared" \
+  "$CC $d/soc.synth.log SB_SPRAM256KA 2 reason"
+
+d=$(cc_fixture)
+probe "the wrong count is named against the log's real one" 1 \
+  "20 SB_RAM40_4K cells, expected 16" "$CC $d/soc.synth.log SB_RAM40_4K 16 reason"
+
+d=$(cc_fixture)
+probe "a cell type the log never mentions reads as zero, not a crash" 1 \
+  "0 SB_RGBA_DRV cells, expected 1" "$CC $d/soc.synth.log SB_RGBA_DRV 1 reason"
+
+# ===========================================================================
+# 11. check-unit-benches -- the UNIT_BENCHES / test/*_tb.v list equality.
+# ===========================================================================
+begin_group "check-unit-benches"
+
+# Driven against the REAL Makefile and the REAL test/*_tb.v tree, with the
+# declaration overridden on the command line: UNIT_BENCHES lives in the
+# tracked Makefile, and duplicating its comparison here would be the
+# second-parser risk this file exists to avoid elsewhere.
+MB="make -C $REPO check-unit-benches"
+
+probe "control: the declared list matches the tree exactly" 0 \
+  "unit benches, matching test/*_tb.v exactly" "$MB"
+
+probe "a bench in test/ that make does not run is named" 2 \
+  "in test/ but not in UNIT_BENCHES: monitor_tb" \
+  "$MB UNIT_BENCHES='exec_tb mem_tb imem_tb decoder_tb regfile_tb csr_tb'"
+
+probe "a declared bench with no file is named the other way" 2 \
+  "in UNIT_BENCHES but not in test/: nope_tb" \
+  "$MB UNIT_BENCHES='exec_tb mem_tb imem_tb decoder_tb regfile_tb csr_tb monitor_tb nope_tb'"
+
+probe "a declared bench with no UNIT_BENCH_SRC_* would build with no design under test" 2 \
+  "monitor_tb is in UNIT_BENCHES with no UNIT_BENCH_SRC_monitor_tb" \
+  "$MB UNIT_BENCH_SRC_monitor_tb="
+
+# ===========================================================================
+# 12. soc/fit_report.py -- make fit's FIT_MAX_LC ratchet.
+# ===========================================================================
+begin_group "soc/fit_report.py"
+
+FR="python3 $REPO/soc/fit_report.py"
+
+fr_fixture() {
+  local d; d=$(new_case)
+  cat > "$d/fit.log" <<'LOG'
+Warning: No PCF file specified; IO pins will be placed automatically
+
+Info: Packing constants..
+Info: Device utilisation:
+Info: 	         ICESTORM_LC:    3875/   5280    73%
+Info: 	        ICESTORM_RAM:       4/     30    13%
+Info: 	               SB_IO:     263/     39   674%
+Info: 	               SB_GB:       8/      8   100%
+
+Info: Placed 0 cells based on constraints.
+ERROR: Unable to find a placement location for cell 'imem_addr[20]$sb_io'
+1 warning, 1 error
+LOG
+  printf '%s' "$d"
+}
+
+d=$(fr_fixture)
+probe "control: a measurement within budget is green" 0 "RATCHET:" \
+  "$FR $d/fit.log --max-lc 4100"
+
+d=$(fr_fixture)
+probe "over budget names the count and the budget" 1 \
+  "is over the 3800-cell budget" "$FR $d/fit.log --max-lc 3800"
+
+d=$(fr_fixture); sed -i.bak '/ICESTORM_LC:/d' "$d/fit.log"
+probe "no utilisation table is a failure, not a 0% fit" 1 \
+  "printed no utilisation table" "$FR $d/fit.log --max-lc 4100"
 
 # ===========================================================================
 echo
