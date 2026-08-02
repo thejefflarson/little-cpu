@@ -223,8 +223,10 @@ from `rtl/`, and `mcause` on the RVFI CSR set (which is blocked on its own, unre
 Three, and they are visible now in a way they will not be once a design is half-built:
 
 1. **No faulting bus at all.** An address-decoded system where every access in range is answered
-   and nothing out of range is reachable. Invariant 2 survives untouched; the eleven checks stay
-   declined permanently, and their `#omit` lines become `[DESIGN]`.
+   and nothing out of range is reachable. Invariant 2 survives untouched, and every `*_fault` check
+   plus `fault_ch0` is declined permanently — those five `#omit` lines become `[DESIGN]`. The
+   remaining five `bus_*` and `causal_io_ch0` are decided separately: by whether the map ends up
+   with a distinguished IO region, and by the `imemcheck`/`dmemcheck` argument above.
 2. **Faults resolved in decode by construction.** The memory map is a static address-range decode
    that decode itself can evaluate from the address it already computes — the same
    `$signed(immediate) + $signed(reg_rs1)` the misalignment check reads. There is no *dynamic*
