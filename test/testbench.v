@@ -114,10 +114,6 @@ module testbench(
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
     .mem_rdata(mem_rdata),
-    // SPIKE: this bench keeps the Harvard split, so no data access can reach
-    // text and the arbiter never steals a fetch.
-    .mem_ren(),
-    .fetch_stall(1'b0),
     .trap(trap)
    `ifdef RISCV_FORMAL
     , .rvfi_valid(rvfi_valid),

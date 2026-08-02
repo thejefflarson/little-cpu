@@ -807,8 +807,10 @@ make soc-timing     # THE SoC PLACE-AND-TIME FLOW (ADR-0054), and NOT `make fit`
                     # 38.7% logic / 61.3% routing, over
                     # imem.in_range -> decode -> next PC -> imem.in_range2.
                     # DOES NOT MEET ADR-0038's DECLARED 12 MHz, and that intent
-                    # is unchanged. Ratchets on SOC_MIN_MHZ (10.5), a regression
-                    # floor set below the measurement rather than at the intent.
+                    # is unchanged. Ratchets on SOC_MIN_MHZ (10.0 -- this line
+                    # said 10.5 and the Makefile never did; ADR-0057), a
+                    # regression floor set below the measurement, not at the
+                    # intent.
                     # Needs the RISC-V toolchain (it builds a real ROM image).
                     # ON CI as of the `soc-timing` job (non-required, same
                     # reasoning as `fit`: area and timing are design
@@ -1161,8 +1163,8 @@ longer quietly widen.
   rejected the shifter merge at 19 cells *saved* on legibility grounds, and accepting a hygiene
   change at 37 cells *spent* would cut against that ruling. Read this before proposing the
   narrowing again — it is measured and declined, not overlooked.
-- Decisions: [`docs/adr/`](docs/adr/) — **fifty-five ADRs, fifty-four of them accepted**, plus a
-  deferred list. Re-derived by counting: `ls docs/adr/*.md | wc -l` is 56, one of which is
+- Decisions: [`docs/adr/`](docs/adr/) — **fifty-six ADRs, fifty-five of them accepted**, plus a
+  deferred list. Re-derived by counting: `ls docs/adr/*.md | wc -l` is 57, one of which is
   `README.md`, and the status column in that README carries exactly one non-accepted entry
   (ADR-0016, superseded by ADR-0018). This line has now been behind twice — it said "forty-five
   accepted" and then "forty-seven" — so **re-derive it with the two commands rather than

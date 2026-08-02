@@ -33,10 +33,6 @@ module littlesoc (
   input  logic clk,
   // Active-low user button. Held down, it resets the core.
   input  logic btn_n,
-  // SPIKE: the steal-mux select, brought out to a pad so it is genuinely free
-  // and yosys cannot fold it away. See rtl/imemory.v's `steal` port for why the
-  // select is isolated from the arbiter's own logic cone.
-  input  logic steal_pin,
   // Active-low LEDs. They exist because a design with no observable output is
   // a design yosys is entitled to delete -- which is exactly what happened to
   // the previous version of this module, and it reported 4 logic cells and 0%
@@ -78,17 +74,6 @@ module littlesoc (
   logic [3:0]  mem_wstrb;
   logic [31:0] imem_addr, imem_addr2, imem_addr_next;
   logic [31:0] imem_data, imem_data2;
-  // SPIKE: the arbiter. `fetch_stall` is the registered form of the same
-  // predicate the steal mux selects on -- a data access that landed in the
-  // text region took the ROM's read port last cycle.
-  logic        mem_ren, fetch_stall, text_access, dmem_rdata_sel;
-  logic [31:0] dmem_rdata, text_rdata;
-  assign text_access = (mem_ren || |mem_wstrb) && mem_addr < 32'h0000_2000;
-  always_ff @(posedge clk) begin
-    fetch_stall    <= !reset && text_access;
-    dmem_rdata_sel <= !reset && text_access;
-  end
-  assign mem_rdata = dmem_rdata_sel ? text_rdata : dmem_rdata;
 
   littlecpu riscv (
     .clk(clk),
@@ -102,8 +87,6 @@ module littlesoc (
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
     .mem_rdata(mem_rdata),
-    .mem_ren(mem_ren),
-    .fetch_stall(fetch_stall),
     .trap(trap)
   );
 
@@ -128,12 +111,7 @@ module littlesoc (
     .clk(clk),
     .imem_addr_next(imem_addr_next),
     .imem_data(imem_data),
-    .imem_data2(imem_data2),
-    .steal(steal_pin),
-    .mem_addr(mem_addr),
-    .mem_wstrb(text_access ? mem_wstrb : 4'b0),
-    .mem_wdata(mem_wdata),
-    .text_rdata(text_rdata)
+    .imem_data2(imem_data2)
   );
 
   // ---- data RAM ------------------------------------------------------------
@@ -143,7 +121,7 @@ module littlesoc (
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
-    .mem_rdata(dmem_rdata)
+    .mem_rdata(mem_rdata)
   );
 
   // ---- the two observable bits --------------------------------------------

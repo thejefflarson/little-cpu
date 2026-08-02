@@ -38,22 +38,7 @@ module rvfi_wrapper (
   (* keep *) logic [31:0] mem_addr;
   (* keep *) logic [31:0] mem_wdata;
   (* keep *) logic [3:0]  mem_wstrb;
-  (* keep *) logic        mem_ren;
   (* keep *) logic        trap;
-
-  // SPIKE: the text-region arbiter, modelled exactly as the brief specifies it.
-  //
-  // `fetch_stall` is NOT a free input and must never become one: an
-  // unconstrained stall lets the environment freeze the core forever, which
-  // starves `hang` and `liveness_ch0` outright (ADR-0042 measured that shape
-  // for `imem_data`). It is a function of the core's own bus, registered.
-  //
-  // 8 KB of text at 0, per the brief's map. A store's word address is what
-  // matters, so the compare is on the address the core presents.
-  logic text_access;
-  assign text_access = (mem_ren || |mem_wstrb) && mem_addr < 32'h0000_2000;
-  logic fetch_stall = 0;
-  always @(posedge clock) fetch_stall <= !reset && text_access;
 
   // INSTRUCTION MEMORY IS A FUNCTION OF ITS ADDRESS (ADR-0042, ADR-0017).
   //
@@ -104,33 +89,6 @@ module rvfi_wrapper (
   // unbounded array; consecutive-cycle stability is implied by it, is all the
   // operand-fetch cycle actually needs, and leaves the environment free to
   // answer differently for an address revisited later.
-  // SPIKE, AND THIS IS THE POINT OF THE EXERCISE. Writable text breaks the
-  // assumption above in two distinct ways, and measuring F and G under the
-  // strong assumption while shipping the weak one measures the wrong machine.
-  //
-  //   1. A text access of EITHER kind takes the bank read port for that edge,
-  //      so the fetch window presented in the following cycle is not the ROM's
-  //      answer for `imem_addr` at all. That is one cycle of free data.
-  //   2. A text STORE additionally changes what the ROM answers from the cycle
-  //      after that onward -- the array is written on the same edge, and the
-  //      address is published a cycle early (ADR-0054), so the first fetch that
-  //      can see the new value is two cycles after the store.
-  //
-  // So the compare is dropped on the cycle after any text access and, for a
-  // store, on the cycle after that as well. Deliberately the weaker of the two
-  // readings: an assumption can only make checks easier, so erring wide is the
-  // safe direction for a depth floor.
-  logic text_store;
-  assign text_store = (|mem_wstrb) && mem_addr < 32'h0000_2000;
-  logic past_text_access = 0, past_text_store = 0, past2_text_store = 0;
-  always @(posedge clock) begin
-    past_text_access <= !reset && text_access;
-    past_text_store  <= !reset && text_store;
-    past2_text_store <= past_text_store;
-  end
-  logic imem_unstable;
-  assign imem_unstable = past_text_access || past2_text_store;
-
   logic [31:0] past_imem_addr, past_imem_data;
   logic [31:0] past_imem_addr2, past_imem_data2;
   logic        past_imem_valid = 0;
@@ -144,7 +102,7 @@ module rvfi_wrapper (
   end
 
   always @* begin
-    if (past_imem_valid && !reset && !imem_unstable) begin
+    if (past_imem_valid && !reset) begin
       if (imem_addr  == past_imem_addr)  assume (imem_data  == past_imem_data);
       if (imem_addr2 == past_imem_addr2) assume (imem_data2 == past_imem_data2);
     end
@@ -162,8 +120,6 @@ module rvfi_wrapper (
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
     .mem_rdata(mem_rdata),
-    .mem_ren(mem_ren),
-    .fetch_stall(fetch_stall),
     .trap(trap),
     `RVFI_CONN
   );

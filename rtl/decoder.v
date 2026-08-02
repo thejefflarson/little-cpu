@@ -40,11 +40,6 @@ module decoder (
   // input is the difference. Missing it produces a `minstret` that is wrong
   // only when a store happens to be in flight.
   input  logic       accessor_out_valid,
-  // SPIKE: the sixth stall reason. A data access that landed in the text
-  // region took the ROM's read port last cycle, so this cycle's fetch window
-  // holds nothing. Bubble-shaped, exactly like a RAW hazard: nothing issued,
-  // the PC holds, and the same instruction is re-presented next cycle.
-  input  logic       fetch_stall,
   // outputs
   output logic [31:0] pc,
   // ADR-0054: the value `pc` will hold NEXT cycle, published combinationally
@@ -732,7 +727,7 @@ module decoder (
   // operand-fetch cycle with whatever's busy downstream (the divider, or the
   // accessor's one-cycle load turnaround). Any reason freezes the PC; see below
   // for why the two downstream reasons freeze decoder_out differently.
-  assign stall = hazard || operand_stall || fetch_stall || divider_stall || accessor_stall;
+  assign stall = hazard || operand_stall || divider_stall || accessor_stall;
 
   // ---- the next PC (ADR-0054) ---------------------------------------------
   //
@@ -863,7 +858,7 @@ module decoder (
       // hazard is about the *next* instruction, which isn't decode's problem
       // yet since decoder_out hasn't advanced.
       out <= out;
-    end else if (hazard || operand_stall || fetch_stall) begin
+    end else if (hazard || operand_stall) begin
       // ADR-0009: upstream of the stalling stage freezes — the PC (and so
       // the fetch window) holds, so the stalled instruction re-presents next
       // cycle. ADR-0042's operand-fetch cycle shares this arm exactly: holding

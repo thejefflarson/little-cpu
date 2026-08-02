@@ -11,9 +11,6 @@ module accessor(
     output logic [3:0]  mem_wstrb,
     output logic [31:0] mem_wdata,
     input  logic [31:0] mem_rdata,
-    // SPIKE: the read enable an arbiter needs to tell an idle bus (mem_addr
-    // presents 0, which is inside the text region) from a real load.
-    output logic        mem_ren,
     // No fault signal, and this stage has none to give: every trap is detected
     // and committed in decode (CLAUDE.md invariant 2). Misalignment used to be
     // detected HERE, which was post-decode and contradicted that invariant;
@@ -88,7 +85,6 @@ module accessor(
   logic is_load;
   assign is_load = in_is_lw || in_is_lh || in_is_lhu || in_is_lb || in_is_lbu;
   assign stalled = in_valid && is_load;
-  assign mem_ren = !reset && in_valid && is_load;
   logic is_store;
   assign is_store = in_is_sw || in_is_sh || in_is_sb;
 
