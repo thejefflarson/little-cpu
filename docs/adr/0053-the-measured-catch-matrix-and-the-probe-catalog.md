@@ -66,10 +66,30 @@ on the ladder (`[depth]` 30), still executing. Had that reading stood, every "mi
 cell graded against it would have been suspect. The driver never reads a status until the `sby`
 process it launched has exited, and a `MISSED` ladder verdict additionally requires all 85 checks to
 have run; the mistake was in a hand-typed progress check, which is exactly where this class of error
-lives. Second, **the campaign ran ten workers in parallel on a ten-core machine also loaded by other
-work**, so wall-clock times are inflated by contention and are not comparable to an idle-machine
-figure. **Timings are therefore omitted from the matrix.** Verdicts are what a coverage map is made
-of; times under contention are decoration that invites false comparison.
+lives.
+
+Second, **the campaign was briefly run ten workers wide on a ten-core machine also carrying other
+work**, at a sustained load average near 60. That is not merely rude, it is a measurement hazard:
+**a check starved of CPU and a check that genuinely does not converge look identical from the
+outside**, so a contention artifact could enter the matrix as a finding — the exact failure this
+campaign exists to detect in other people's work. The campaign was throttled to at most two
+concurrent measurements, and every cell recorded before the throttle was audited against the
+question *did this verdict depend on a wall clock?*:
+
+- **`make test` and `make test-units` — no.** `test/run_tests.sh` grades each program against
+  `CYCLES=5000`, a budget in **simulated** cycles, which no amount of contention can move; the unit
+  benches run to `$finish`. One recorded cell (`G3`) does carry a `TIMEOUT`, `jal.S TIMEOUT
+  retires=4996` — a program that genuinely never reaches `tohost` because the mutant broke the
+  fetch window, and a deterministic result on any machine.
+- **The driver's own 1800 s subprocess guard — no.** Exceeding it raises rather than returning, so a
+  starved run **crashes the driver and records nothing**. Every row in the results file is a command
+  that ran to completion and returned an exit status.
+- Verdicts that could in principle depend on a wall clock — `sby`'s, on the ladder and the component
+  proofs — had **no cells recorded at the time of the audit**, so none is at risk.
+
+**No cell required an `UNMEASURED-UNDER-LOAD` mark.** Wall-clock times are nevertheless omitted from
+the matrix: verdicts are what a coverage map is made of, and times taken under contention are
+decoration that invites false comparison.
 
 **Controls are the integrity check.** A matrix in which nothing is caught indicts the harness rather
 than flattering the core, so three mutants are included that *must* be caught: a wrong store lane
