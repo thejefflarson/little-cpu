@@ -143,3 +143,133 @@ system self-contained; the first costs a bootloader and a flash controller.
   target part. Reaching for the negedge because the remaining options are uncomfortable would be
   buying hardware that works with a core nobody can check, which is the trade this repo has spent
   the whole rewrite refusing.
+
+## Consequences for the formal ladder — eleven declined checks reopen, and invariant 2 comes under pressure
+
+Everything above is about hardware. This section is about the ladder, and it is the part that will
+be hardest to reconstruct later, because the thing it depends on is an *absence*: **this core's bus
+cannot refuse a transaction.** `imem_data`/`imem_data2`/`mem_rdata` are free every cycle, with no
+fault line and no handshake — invariant 1, ADR-0015, and `formal/wrapper.v`, which speaks that bus
+directly. A memory system that can say *no* is a different bus, and eleven of the checks
+`formal/checks.cfg` declines are declined against the bus we have.
+
+**The count is derived, not remembered.** `formal/genchecks-audit.py` reports, on this tree,
+`85 generated, 14 declined for want of a [depth] line`, and set-equalities that 14 against
+`checks.cfg`'s `#omit` lines in both directions. Of those fourteen:
+
+**Eleven are conditional on hardware that does not exist yet. Named, so the burn-down is
+mechanical:**
+
+| check | what it needs that today's bus cannot give |
+|---|---|
+| `fault_ch0` | `rvfi_mem_fault{,_rmask,_wmask}` — a transaction the memory refused |
+| `bus_imem_ch0` | `RISCV_FORMAL_BUS` |
+| `bus_imem_fault_ch0` | `RISCV_FORMAL_BUS` + a faulting bus |
+| `bus_dmem_ch0` | `RISCV_FORMAL_BUS` |
+| `bus_dmem_fault_ch0` | `RISCV_FORMAL_BUS` + a faulting bus |
+| `bus_dmem_io_read_ch0` | `RISCV_FORMAL_BUS` + a distinguished MMIO region (`rvformal_addr_io`) |
+| `bus_dmem_io_read_fault_ch0` | the same, plus a faulting bus |
+| `bus_dmem_io_write_ch0` | `RISCV_FORMAL_BUS` + `rvformal_addr_io` |
+| `bus_dmem_io_write_fault_ch0` | the same, plus a faulting bus |
+| `bus_dmem_io_order_ch0` | `RISCV_FORMAL_BUS` + `rvformal_addr_io` + more than one outstanding access |
+| `causal_io_ch0` | `rvformal_addr_io` |
+
+**They do not all turn on the same decision, and that is worth more than the grouping.** The
+one-line story — "eleven checks are declined because the bus cannot refuse a transaction" — is the
+right story for **five** of them and is wrong about the other six. Sorted by what actually unblocks
+each:
+
+- **A faulting bus (5)** — `fault_ch0`, `bus_imem_fault_ch0`, `bus_dmem_fault_ch0`,
+  `bus_dmem_io_read_fault_ch0`, `bus_dmem_io_write_fault_ch0`. **These five, and only these five,
+  are the ones that put invariant 2 in question.** Everything in the rest of this section about
+  post-decode traps is about them.
+- **A distinguished IO region in the map (4)** — `bus_dmem_io_read_ch0`, `bus_dmem_io_write_ch0`,
+  `bus_dmem_io_order_ch0`, `causal_io_ch0`. A memory-*map* question with no invariant-2 content at
+  all: ADR-0008's map has a `tohost` doubleword, not a region the RTL treats differently. A design
+  could add a faulting bus and leave all four exactly where they are, or add an IO region and leave
+  the five above exactly where they are. (The two `io_*_fault` checks need both this and a faulting
+  bus, which is why they are counted in the first group.)
+- **`RISCV_FORMAL_BUS` plumbing and nothing else (2)** — `bus_imem_ch0`, `bus_dmem_ch0`.
+
+And one of them is not blocked on the memory system at all: **`bus_dmem_io_order_ch0` is blocked on
+the core.** There is nothing to order because the accessor has one access outstanding at a time
+(ADR-0015), and no memory design changes that — a second outstanding access is a pipeline change,
+with everything invariant 8's stall protocol would have to say about it. It sits in the eleven
+because it is declined against today's system, not because this work reopens it.
+
+**Two of the eleven carry a standing second argument that no memory design touches**:
+`bus_imem_ch0` and `bus_dmem_ch0` would re-derive a property `formal/imemcheck.sv` and
+`formal/dmemcheck.sv` already hold against the real split `imem_addr`/`imem_addr2` interface, and
+adopting them means driving nine more RVFI outputs — which ADR-0047's non-perturbation check has an
+interest in. Expect those two to be re-tagged as declined-on-the-merits rather than adopted. They
+are listed here anyway, because a ruling made once and written down beats a check that quietly
+never gets reconsidered.
+
+**Three are not conditional at all, and no memory design reopens them**: `csrc_inc_mcycle_ch0` and
+`csrc_inc_minstret_ch0` (red on a *correct* core — a defect in `rvfi_csrc_inc_check.sv`'s shadow
+model, measured and swept in `checks.cfg`'s `[csrs]` block), and `cover` (relocated to
+`formal/cover.sby` with this repo's own five goals). That eleven/three split is why `checks.cfg`'s
+`#omit` lines now carry a `[BLOCKED]`/`[DESIGN]` tag: both classes read identically as prose, and a
+future reader cannot otherwise tell a burn-down item from a settled decision.
+
+### `fault_ch0` is where the ladder and invariant 2 meet
+
+`checks.cfg`'s omit line for it said the check *"models a post-decode trap invariant 2 forbids"* —
+true, and stated as though the matter were settled. It is not settled; it is *unreached*. The two
+propositions only coexist because nothing on this core can raise an access fault:
+
+- **Invariant 2** says every trap is detected **and committed** in decode, and that this is what
+  makes CSR commit precise with no reorder buffer.
+- **An access fault is raised by the memory**, which answers after decode has already committed.
+
+So the memory system does not merely unblock eleven checks. **It forces a ruling on one of the nine
+invariants** — the ones `CLAUDE.md` opens by saying are a bug to violate even if the tests pass.
+
+Read from `checks/rvfi_fault_check.sv` at the pin (`c992aa61`) rather than from memory, because the
+check's shape narrows the question usefully. It splits into three cases by fault mask, and they are
+not equally hard:
+
+- `wfault` → asserts `mcause == 7` (store access fault) — **after decode**
+- `rfault` → asserts `mcause == 5` (load access fault) — **after decode**
+- `ifault` (neither mask set, `insn == 0`) → asserts `mcause == 1`, instruction access fault —
+  which arrives **with the fetched instruction**, in the cycle decode is looking at it, and is
+  therefore the one case that could be committed in decode with invariant 2 untouched.
+
+One more thing that makes the burn-down concrete: the whole `mcause` half of that check sits under
+`` `ifdef RISCV_FORMAL_CSR_MCAUSE ``, and `genchecks` emits that define only for CSRs named in
+`[csrs]` — where `mcause` is deliberately absent for the WARL reason written out there. **Reopening
+`fault_ch0` is therefore three things, not one**: a bus that can refuse, `rvfi_mem_fault*` driven
+from `rtl/`, and `mcause` on the RVFI CSR set (which is blocked on its own, unrelated grounds).
+
+### The options — recorded, not chosen
+
+Three, and they are visible now in a way they will not be once a design is half-built:
+
+1. **No faulting bus at all.** An address-decoded system where every access in range is answered
+   and nothing out of range is reachable. Invariant 2 survives untouched, and every `*_fault` check
+   plus `fault_ch0` is declined permanently — those five `#omit` lines become `[DESIGN]`. The
+   remaining five `bus_*` and `causal_io_ch0` are decided separately: by whether the map ends up
+   with a distinguished IO region, and by the `imemcheck`/`dmemcheck` argument above.
+2. **Faults resolved in decode by construction.** The memory map is a static address-range decode
+   that decode itself can evaluate from the address it already computes — the same
+   `$signed(immediate) + $signed(reg_rs1)` the misalignment check reads. There is no *dynamic*
+   refusal, so a fault is a decode-time property of the address and invariant 2 holds as written.
+   `fault_ch0` becomes reachable at least for `ifault`; `rfault`/`wfault` follow only if the range
+   decode is exact.
+3. **Invariant 2 changes**, with its own ADR, its own precision argument, and a rewrite of the
+   ladder's post-decode trap story.
+
+**This ADR picks none of them**, deliberately and for the same reason it declines to pre-decide the
+memory design at all: the choice belongs to the eventual ADR, taken with measurements this repo
+does not have. ADR-0038 set that precedent by refusing to decide the regfile before the spike data
+existed, and ADR-0042 then decided it *with* the data — including a cycle cost nobody would have
+guessed at (+18.0%) and a verifiability argument that reversed the area-only recommendation.
+Guessing here would produce a decision of the quality of the one ADR-0038 refused to make.
+
+**What the eventual memory ADR owes this one**: a ruling on each of the eleven checks *by name*,
+with each `#omit` line either deleted (the check joins the ladder), re-tagged `[DESIGN]` (it is
+declined permanently, on the merits), or left `[BLOCKED]` with what it is still blocked on — which
+is the honest outcome for at least `bus_dmem_io_order_ch0`, whose blocker is the core's single
+outstanding access and not the memory at all. That is the same burn-down shape as
+`formal/EXPECTED_FAIL`, and it is why the eleven are tabulated above and sorted by blocker instead
+of described as a group.
