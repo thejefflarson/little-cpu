@@ -15,15 +15,6 @@ permissions:
 
 # The tag and the filename must name the same oss-cad-suite release
 # (https://github.com/YosysHQ/oss-cad-suite-build/releases); bump them together.
-env:
-  OSS_CAD_SUITE_TAG: "2026-06-29"
-  OSS_CAD_SUITE_FILE: "oss-cad-suite-linux-x64-20260629.tgz"
-  # Upstream publishes no checksum asset for this release, so this digest is
-  # this repo's own pin, computed locally from the tarball it fetched -- the
-  # same posture as formal/pin.mk. The composite action verifies it before
-  # extracting anything.
-  OSS_CAD_SUITE_SHA256: "dfb5df3c28599081d2baca13884c069c025b1990c86e90f4a4d84aadcd255cc5"
-
 jobs:
   # Both elaboration frontends: yosys write_cxxrtl, then iverilog over
   # test/testbench.v + rtl/ + test/monitor.v.
@@ -39,10 +30,6 @@ jobs:
 
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
-        with:
-          tag: ${{ env.OSS_CAD_SUITE_TAG }}
-          file: ${{ env.OSS_CAD_SUITE_FILE }}
-          sha256: ${{ env.OSS_CAD_SUITE_SHA256 }}
 
       - name: yosys write_cxxrtl, warnings promoted
         # `make elaborate-strict` runs `proc; opt_clean; check` ahead of
@@ -137,10 +124,6 @@ jobs:
 
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
-        with:
-          tag: ${{ env.OSS_CAD_SUITE_TAG }}
-          file: ${{ env.OSS_CAD_SUITE_FILE }}
-          sha256: ${{ env.OSS_CAD_SUITE_SHA256 }}
 
       - name: make test
         run: make test
@@ -175,10 +158,6 @@ jobs:
 
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
-        with:
-          tag: ${{ env.OSS_CAD_SUITE_TAG }}
-          file: ${{ env.OSS_CAD_SUITE_FILE }}
-          sha256: ${{ env.OSS_CAD_SUITE_SHA256 }}
 
       - name: Executor arithmetic BMC
         run: make -C formal components_executor
@@ -257,10 +236,6 @@ jobs:
 
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
-        with:
-          tag: ${{ env.OSS_CAD_SUITE_TAG }}
-          file: ${{ env.OSS_CAD_SUITE_FILE }}
-          sha256: ${{ env.OSS_CAD_SUITE_SHA256 }}
 
       - name: make fit
         # Never pipe a graded command in a `run:` block. Without an explicit
@@ -328,10 +303,6 @@ jobs:
 
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
-        with:
-          tag: ${{ env.OSS_CAD_SUITE_TAG }}
-          file: ${{ env.OSS_CAD_SUITE_FILE }}
-          sha256: ${{ env.OSS_CAD_SUITE_SHA256 }}
 
       - name: make soc-timing
         # Redirected rather than piped -- see the `fit` job's step for why. The
@@ -393,10 +364,6 @@ jobs:
 
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
-        with:
-          tag: ${{ env.OSS_CAD_SUITE_TAG }}
-          file: ${{ env.OSS_CAD_SUITE_FILE }}
-          sha256: ${{ env.OSS_CAD_SUITE_SHA256 }}
 
       - name: make -C formal nonperturbation
         # Redirected rather than piped -- see the `fit` job's step for why.
@@ -500,10 +467,6 @@ jobs:
 
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
-        with:
-          tag: ${{ env.OSS_CAD_SUITE_TAG }}
-          file: ${{ env.OSS_CAD_SUITE_FILE }}
-          sha256: ${{ env.OSS_CAD_SUITE_SHA256 }}
 
       # sby's btor engine replays a counterexample with btorsim, so btorsim is
       # reached only by a check that found one -- on a box without it, every red
