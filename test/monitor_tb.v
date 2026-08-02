@@ -1,44 +1,10 @@
-// Unit bench for the generated RVFI monitor itself -- not for the core.
+// Unit bench for the generated RVFI monitor itself -- not for the core. The
+// monitor is an oracle both sim legs read, so a defect in it is a defect in
+// every `make test` result (ADR-0019). Each vector below is a hand-built RVFI
+// retire whose correct verdict is known by construction.
 //
-// The monitor is an oracle both sim legs read (ADR-0019), so a defect in it is
-// a defect in every `make test` result. This bench drives the `monitor` module
-// directly with hand-built RVFI retires whose correct verdict is known by
-// construction, which is the technique that pinned the DIV/REM signedness
-// defect ADR-0019 records. It is compiled against test/monitor.sim.v -- the
-// sanitized derivative, i.e. the file that actually does the checking.
-//
-// What it pins:
-//
-//   * a correct non-trapping retire is accepted (vectors 1, 3);
-//   * a correct TRAPPING retire is accepted (vectors 2, 5) -- this is the
-//     !spec_trap gate the generator omits and test/sanitize_monitor.py adds.
-//     On a misaligned `lw` the spec model still reports spec_rd_addr = the
-//     destination register, spec_rd_wdata = the loaded value, spec_pc_wdata =
-//     pc+4 and spec_mem_rmask = the byte mask, while a correct core writes no
-//     register, strobes no memory and redirects to mtvec (ADR-0028). Without
-//     the gate these vectors report errors 104/105/106/111-113 (load) and
-//     108 (store) against hardware that is behaving correctly. Run this bench
-//     against an unsanitized monitor -- or with the gate line mutated to
-//     `if (1'b1)` -- and it $fatal(1)s;
-//   * a genuinely wrong non-trapping retire is still REJECTED (vector 4).
-//     Without this the bench could pass by checking nothing, and a gate that
-//     accidentally disabled all spec checking would look identical to a
-//     correct one;
-//   * a retire that FAILS TO TRAP when the spec model says it must is still
-//     REJECTED (vector 7, error 101). Vector 4 does not cover this: its wrong
-//     retire is non-trapping, so it passes just as happily with the trap
-//     comparison switched off. Error 101 is the one check upstream's
-//     checks/rvfi_insn_check.sv keeps live under spec_trap, which makes it the
-//     one the sanitizer's gate could swallow without changing a site count --
-//     see test/sanitize_monitor.py's rule 3;
-//   * an M3 instruction with no spec model (`ecall`, vector 6) is accepted
-//     silently, because spec_valid never asserts for it. That is not the gate
-//     working, it is the monitor having nothing to say -- the reason the trap
-//     and CSR `.S` tests carry their own in-band assertions rather than
-//     leaning on the per-retire oracle. See test/asm/riscv_test.h.
-//
-// Pass/fail is vvp's exit code, like the other benches in `make test-units`:
-// $fatal(1) on a mismatch, $finish on success.
+// It compiles against test/monitor.sim.v, the sanitized derivative that
+// actually does the checking, so it also covers what the sanitizer inserts.
 `timescale 1ns / 1ps
 
 module monitor_tb;
@@ -103,7 +69,7 @@ module monitor_tb;
 
   // `errcode` is a one-cycle pulse two clocks behind the retire that caused it
   // (the per-channel code is registered, then the top-level mux registers it
-  // again), so latch it rather than sampling on a guessed cycle.
+  // again), so latch it rather than sample on a guessed cycle.
   reg [15:0] latched = 0;
   reg        clear_latched = 0;
 
@@ -180,6 +146,7 @@ module monitor_tb;
 
     // 1. add x3, x1, x2 with x1=5, x2=7 -- correct, non-trapping. Establishes
     //    the shadow PC at 4 and shadow x3 = 12 for the vectors that follow.
+    //    A correct non-trapping retire must be accepted.
     drive_retire(32'h0020_81b3, 1'b0,
                  5'd1, 5'd2, 32'd5, 32'd7,
                  5'd3, 32'd12,
@@ -190,9 +157,10 @@ module monitor_tb;
     // 2. lw x5, 1(x1) with x1 = RAM base -- address 0x00010001, misaligned, so
     //    spec_trap holds. A correct core reports the ADR-0028 convention:
     //    rd_addr/rd_wdata/mem masks all zero, pc_wdata = mtvec. The spec model
-    //    meanwhile reports rd = x5, rd_wdata = the loaded word and
-    //    pc_wdata = pc+4, so every one of those comparisons disagrees. Only
-    //    the !spec_trap gate keeps this clean.
+    //    reports rd = x5, rd_wdata = the loaded word and pc_wdata = pc+4, so
+    //    every one of those comparisons disagrees and only the `!spec_trap` gate
+    //    test/sanitize_monitor.py inserts keeps this clean. Against an
+    //    unsanitized monitor it reports errors 104/105/106/111-113.
     drive_retire(32'h0010_a283, 1'b1,
                  5'd1, 5'd0, RAM, 32'd0,
                  5'd0, 32'd0,
@@ -210,8 +178,8 @@ module monitor_tb;
     expect_errcode(16'd0, "correct addi retire after the trap");
 
     // 4. Positive control: the same add as vector 1, but reporting 13 instead
-    //    of 12. The monitor must still reject this -- a gate that switched off
-    //    spec checking altogether would pass every vector above.
+    //    of 12. Without a vector the monitor must reject, a gate that switched
+    //    off spec checking altogether would pass everything above.
     $display("monitor_tb: the monitor error banner below is EXPECTED (positive control)");
     drive_retire(32'h0020_81b3, 1'b0,
                  5'd1, 5'd2, 32'd5, 32'd7,
@@ -232,8 +200,8 @@ module monitor_tb;
 
     // 6. ecall. riscv-formal ships no spec model for it at the pinned SHA, so
     //    spec_valid is 0 and the whole semantic block is skipped -- the monitor
-    //    is not checking this instruction at all. Recorded here so that nobody
-    //    reads a green run as evidence that M3's new instructions are covered.
+    //    is not checking this instruction at all, which is why the trap and CSR
+    //    `.S` tests carry their own in-band assertions.
     drive_retire(32'h0000_0073, 1'b1,
                  5'd0, 5'd0, 32'd0, 32'd0,
                  5'd0, 32'd0,
@@ -241,28 +209,22 @@ module monitor_tb;
                  32'd0, 4'b0000, 4'b0000, 32'd0, 32'd0);
     expect_errcode(16'd0, "ecall retire (no spec model exists -- unchecked)");
 
-    // 7. Positive control for the trap comparison ITSELF (error 101) -- the one
-    //    check riscv-formal's checks/rvfi_insn_check.sv deliberately keeps live
-    //    under spec_trap, and that test/sanitize_monitor.py's third rule must
-    //    therefore leave OUTSIDE the `!spec_trap` gate it inserts.
+    // 7. Positive control for the trap comparison itself (error 101), which is
+    //    the one check checks/rvfi_insn_check.sv keeps live under spec_trap and
+    //    that test/sanitize_monitor.py's third rule must therefore leave outside
+    //    the gate it inserts. Vector 4 does not cover it: its wrong retire is
+    //    non-trapping, so it stays green with the trap comparison disabled, and
+    //    a sanitizer that swallowed 101 into its own gate would go unnoticed.
     //
-    //    Vector 4's wrong retire is non-trapping, so it stays green even if the
-    //    trap comparison is disabled: nothing above would notice a sanitizer
-    //    that swallowed error 101 into its own gate. That is the silent failure
-    //    the span-contents assertions in test/sanitize_monitor.py exist to
-    //    prevent, and this vector is the simulation-side half of the same
-    //    check. It is the misaligned `lw` of vector 2 again, except the core
-    //    claims it completed normally -- rvfi_trap = 0, x5 written, pc_wdata =
-    //    pc+4, read mask strobed -- while the spec model reports spec_trap = 1.
-    //    A core that failed to trap on a misaligned load looks exactly like
-    //    this. Only 101 may fire: every other comparison sits inside the gate
-    //    and spec_trap holds, so they are switched off.
+    //    It is vector 2's misaligned `lw` again, except the core claims it
+    //    completed normally -- rvfi_trap = 0, x5 written, pc_wdata = pc+4, read
+    //    mask strobed -- while the spec model says spec_trap. Only 101 may fire;
+    //    every other comparison sits inside the gate.
     //
-    //    Deliberately last. It is the only vector reporting trap = 0 on a
-    //    trapping instruction, so it leaves the shadow PC valid and pointing at
-    //    an address no handler would resume from; anything appended after it
-    //    would report error 130 for reasons that have nothing to do with what
-    //    it is testing.
+    //    Keep this last. It is the only vector reporting trap = 0 on a trapping
+    //    instruction, so it leaves the shadow PC pointing at an address no
+    //    handler would resume from and anything appended after it reports error
+    //    130 for unrelated reasons.
     $display("monitor_tb: the monitor error banner below is EXPECTED (positive control)");
     drive_retire(32'h0010_a283, 1'b0,
                  5'd1, 5'd0, RAM, 32'd0,
