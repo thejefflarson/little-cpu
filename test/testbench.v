@@ -83,15 +83,6 @@ module testbench(
   logic clk = 0;
   logic reset = 1;
   always #5 clk = ~clk;
-
-  initial begin
-    $dumpfile("testbench.vcd");
-    $dumpvars(0, testbench);
-    repeat (1) @(posedge clk);
-    reset <= 0;
-    repeat (200) @(posedge clk);
-    $finish;
-  end
  `endif
   memory #(.BASE(RAM_BASE), .RAM_WORDS(RAM_WORDS)) dmem (
     .clk(clk),
@@ -194,6 +185,18 @@ module testbench(
     .rvfi_mem_wdata(rvfi_mem_wdata),
     .errcode(rvfi_monitor_errcode)
   );
+
+ `ifdef ICARUS
+  // Matches test/cxxrtl.cc's exit 4. errcode is a one-cycle pulse
+  // (test/monitor.sim.v resets it every cycle), so this checks every
+  // cycle rather than once at the end of the run.
+  always @(posedge clk) begin
+    if (rvfi_monitor_errcode != 16'b0) begin
+      $display("RVFI MONITOR ERROR %0d -- see the diagnostic above", rvfi_monitor_errcode);
+      $fatal(1);
+    end
+  end
+ `endif
 
   // ---------------------------------------------------------------------------
   // DID THE ORACLE EVER LOOK?
@@ -305,6 +308,46 @@ module testbench(
       end
     end
   end
+
+ `ifdef ICARUS
+  // A counter independent of the retire count below: a stalled pipeline
+  // can keep retiring instructions with no stores at all, which a
+  // retire-only floor would miss.
+  (* keep *) logic [31:0] mem_write_count;
+  initial mem_write_count = 32'b0;
+  always @(posedge clk) begin
+    if (!reset && mem_wstrb != 4'b0000) begin
+      mem_write_count <= mem_write_count + 32'd1;
+    end
+  end
+
+  // Measured on this program at 238a066: 20 writes, 79 retires. These
+  // floors sit a margin under both so a few extra stall cycles still
+  // pass; reverting `live_rs1`/`live_rs2` to ADR-0037's
+  // `live_producer(r)` function form gives 0 writes, 1 retire here.
+  localparam int unsigned WRITE_FLOOR  = 15;
+  localparam int unsigned RETIRE_FLOOR = 60;
+
+  // Owns dumpfile setup, reset and the whole run: the floor check below
+  // needs `rvfi_retires`/`mem_write_count`, declared earlier in this
+  // `ifdef RISCV_FORMAL` region, and iverilog will not bind a forward
+  // reference to a `logic` declared later in the same module.
+  initial begin
+    $dumpfile("testbench.vcd");
+    $dumpvars(0, testbench);
+    repeat (1) @(posedge clk);
+    reset <= 0;
+    repeat (200) @(posedge clk);
+    #1;
+    if (mem_write_count < WRITE_FLOOR || rvfi_retires < RETIRE_FLOOR) begin
+      $display("FLOOR VIOLATION: writes=%0d (need >= %0d) retires=%0d (need >= %0d) spec-checked=%0d",
+                mem_write_count, WRITE_FLOOR, rvfi_retires, RETIRE_FLOOR, rvfi_spec_retires);
+      $fatal(1);
+    end
+    $display("RETIRES %0d SPEC-CHECKED %0d WRITES %0d", rvfi_retires, rvfi_spec_retires, mem_write_count);
+    $finish;
+  end
+ `endif
  `endif
 `ifdef ICARUS
   // `make waves`' program: the six-instruction increment loop this file used to

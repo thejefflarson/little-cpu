@@ -112,14 +112,14 @@ jobs:
         # engineering rules call this out by name, with the same count, as a
         # known separately-tracked class this gate must not block on. This
         # comment said "~30" until the gate inventory counted them.
-        #
-        # THIS STEP BUILDS testbench.vvp AND NEVER RUNS IT, and nothing else
-        # in this workflow runs it either. The full-pipeline iverilog leg --
-        # CLAUDE.md's "microscope" -- is elaborated on every PR and executed
-        # by no gate; `make waves` is the only thing that runs it and is in
-        # no workflow. The iverilog SIMULATION that CI does run is the six
-        # unit benches under `make test-units`, in the `test` job.
         run: make rvfi_macros.vh testbench.vvp
+
+      - name: iverilog full-pipeline simulation (one fixed program, graded)
+        # Runs testbench.vvp's baked-in 200-cycle program; test/testbench.v
+        # fatals on a nonzero monitor errcode or on a write/retire floor
+        # (ADR-0055). Not the `.S` suite -- there is still no image loader
+        # for this file, so a graded multi-program runner stays deferred.
+        run: vvp testbench.vvp
 
       - name: Report job wall time
         if: always()

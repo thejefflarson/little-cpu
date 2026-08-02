@@ -305,7 +305,7 @@ six are struck through, and every one of those outlived its own fix here by seve
 the failure this section exists to prevent, so they stay as markers rather than being deleted.
 
 - **Three things this repo treated as gates were reached by no automation, and one of them computes
-  a verdict nothing reads. One of the three is now fixed; the other two stand.** Found by reading
+  a verdict nothing reads. Two of the three are now fixed; the other one stands.** Found by reading
   `Makefile`, `formal/Makefile`, both workflows and
   `test/run_tests.sh` end to end; the four-column inventory that came out of it lives in the pull
   request that added this bullet and is destined for the coverage-map ADR. (1) ~~**`make fit` is a
@@ -322,15 +322,24 @@ the failure this section exists to prevent, so they stay as markers rather than 
   measured, and the pin is the reference for the same reason `formal/pin.mk` exists. The 4236 this
   file carried from ADR-0042 was a local measurement too, so the apparent 28-cell "reduction" is
   two toolchains being compared, not cells being saved.
-  (2) **`make waves` grades nothing.** It runs the full pipeline under iverilog
-  with the per-retire monitor live, but `ch0_handle_error` only `$display`s and sets `errcode` —
-  there is not one `$fatal`, `$finish` or `$stop` in `test/monitor.v` or `test/monitor.sim.v` — and
-  on the iverilog leg nothing turns `errcode` into an exit status (`test/testbench.v:55-60` says so
-  in its own comment; `test/cxxrtl.cc` is what reads it, and that is the other leg). So `make waves`
-  exits 0 on a monitor mismatch, and it is in no workflow either. The consequence is the part worth
-  keeping: **`testbench.vvp` is elaborated on every PR and executed by no gate anywhere.** The
-  iverilog *simulation* CI actually runs is the six `make test-units` benches, which do `$fatal(1)`
-  and are gated. (3) **`make -C formal all` is dead** — no workflow names it. That one is
+  (2) ~~**`make waves` grades nothing.**~~ — **fixed, on the artifact rather than the target**
+  (ADR-0055). `ch0_handle_error` still only `$display`s — there is still no `$fatal`, `$finish` or
+  `$stop` anywhere in `test/monitor.v` or `test/monitor.sim.v` — but `test/testbench.v` now checks
+  `rvfi_monitor_errcode` itself, every cycle (it is a one-cycle pulse, so a once-at-the-end read
+  would miss it), and adds an end-of-run floor on memory writes and RVFI retires: fewer than 15
+  writes or 60 retires over the baked-in 200-cycle program is `$fatal(1)`, matching
+  `test/cxxrtl.cc`'s exit 4. **`ci.yml`'s `elaborate` job now runs `vvp testbench.vvp` and grades
+  its exit status** — the same step that used to build it and stop. `make waves`'s recipe
+  (`vvp $< && mv testbench.vcd $@`) inherits the same three failure paths as a side effect of
+  sharing the binary, not because it was made to grade anything on purpose.
+  **This is one fixed program, not the deferred multi-program `.S` runner** — `test/testbench.v`
+  still has no image loader, so the coverage gap the design brief defers stays open; only the
+  baked-in loop is graded. All three red directions were demonstrated on real runs and are tabled in
+  ADR-0055: reverting the hazard scoreboard's two continuous assigns to ADR-0037's
+  `function automatic live_producer(r)` form gives 0 writes / 1 retire against the 15/60 floor; a
+  `+1` offset on the accessor's `rvfi_mem_wdata` shadow (real memory unaffected) trips the errcode
+  check; and a broken ADD trips the pre-existing `trap_to_zero` `$fatal`.
+  (3) **`make -C formal all` is dead** — no workflow names it. That one is
   redundancy rather than a hole: every target it lists (`complete`, `check`, `dmemcheck`,
   `imemcheck`, the three `components_*`) is invoked separately by `ci.yml` (ADR-0050 deleted the
   nightly and folded its checks into the `formal` job).
@@ -564,8 +573,10 @@ component proofs — decoder, executor and `pcloop` — pass by k-induction (`mo
 read off each `sby` summary, not inferred from a green job. See ADR-0017 for what the decoder proof
 does and does not establish, and ADR-0046 for what `pcloop` discharges). `make waves`
 now runs the iverilog leg (`testbench.vvp`) instead of the cxxrtl runner, matching the verification
-table below, and produces a real `waves.vcd` — **but it grades nothing**; see the first bullet under
-"what does not work" above. CI (`.github/workflows/ci.yml`) runs **eight** jobs on every PR:
+table below, and produces a real `waves.vcd` — and, as of ADR-0055, grades the run it produces one
+too: `ci.yml`'s `elaborate` job runs and checks this same `testbench.vvp` directly, on one fixed
+baked-in program, not the `.S` suite (see the second bullet under "what does not work" above for
+what stays open). CI (`.github/workflows/ci.yml`) runs **eight** jobs on every PR:
 elaborate, test, components, lint, fit, nonperturbation, monitor-freshness and formal — the last of
 which also carries `complete` and `complete_cover` as hard gates (M2 term 5). **Six of the eight
 are required** — `elaborate`, `test`, `components`, `monitor-freshness`, `lint`, `formal`, read live
@@ -743,8 +754,13 @@ make probe-gates    # forces all 108 graded comparisons in the grading scripts t
                     # so it is in CI's required job. All fork, no work: ~68-90s of
                     # wall for ~4s of user time, and that ratio is the host's
 make waves          # iverilog + VCD (testbench.vvp's baked-in program) -> waves.vcd.
-                    # GRADES NOTHING: the per-retire monitor is live but only
-                    # $displays, so this exits 0 on a mismatch. Read the output.
+                    # testbench.vvp now checks the monitor's errcode every cycle and a
+                    # 15-write/60-retire floor itself (ADR-0055), so `vvp` -- and this
+                    # recipe, which aborts before the `mv` on vvp's nonzero exit -- fails
+                    # on those too. ONE FIXED PROGRAM, NOT THE `.S` SUITE: there is still
+                    # no image loader for test/testbench.v, so this is not the deferred
+                    # multi-program runner. `.github/workflows/ci.yml`'s `elaborate` job
+                    # runs and grades this same testbench.vvp directly, on every PR.
 make monitor-check  # regenerate test/monitor.v at the pin and diff
 make fit            # the ONE area number: nextpnr logic cells on up5k/sg48 (ADR-0038).
                     # Placement always fails (231 SB_IO vs 39) and that is expected --
@@ -1011,9 +1027,12 @@ term 6 is open.** Read each term's own text, not this sentence:
    20-minute timeout**. The three memory checks were one step until ADR-0052 split them, because
    `make` stops at the first failure and a shared step cannot record three outcomes.
    **What it does NOT cover, stated rather than assumed**: ADR-0050's concrete clause is the formal
-   checks, and `make cosim-suite` (deliberately off every gate, ADR-0032) and `make waves` (grades
-   nothing, and `testbench.vvp` is elaborated by CI and executed by nothing) are both outside it.
-   Neither is a regression this term introduced; both are recorded under "what does not work".
+   checks, and `make cosim-suite` (deliberately off every gate, ADR-0032) is outside it — term 6 is
+   about the formal ladder, not about every gate in the repo. That is not a regression this term
+   introduced and is recorded under "what does not work". `make waves` (`testbench.vvp` and its
+   baked-in program, elaborated by CI's `elaborate` job) was recorded there too at the time, but is
+   now graded, as its own step unrelated to this term — it was never one of term 6's checks either
+   way (ADR-0055).
    **The intent never changed** — the ladder's verdict must be observed by something automated that
    can fail — and a required PR check is a strictly stronger instrument than a job ADR-0022 itself
    described as not gating merges. **This is the third move of an M2 criterion**, and ADR-0045 said
@@ -1117,8 +1136,8 @@ longer quietly widen.
   rejected the shifter merge at 19 cells *saved* on legibility grounds, and accepting a hygiene
   change at 37 cells *spent* would cut against that ruling. Read this before proposing the
   narrowing again — it is measured and declined, not overlooked.
-- Decisions: [`docs/adr/`](docs/adr/) — **fifty-four ADRs, fifty-three of them accepted**, plus a
-  deferred list. Re-derived by counting: `ls docs/adr/*.md | wc -l` is 55, one of which is
+- Decisions: [`docs/adr/`](docs/adr/) — **fifty-five ADRs, fifty-four of them accepted**, plus a
+  deferred list. Re-derived by counting: `ls docs/adr/*.md | wc -l` is 56, one of which is
   `README.md`, and the status column in that README carries exactly one non-accepted entry
   (ADR-0016, superseded by ADR-0018). This line has now been behind twice — it said "forty-five
   accepted" and then "forty-seven" — so **re-derive it with the two commands rather than
