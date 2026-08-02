@@ -51,9 +51,25 @@ run actually wrote: ADR-0040's staleness defect is fixed, but the brief asked fo
 re-checked per cell and it is cheap to keep checking.
 
 **`make test` runs `make test-units`** (`Makefile`: `test: sim test-units`), so the two columns are
-**not independent**: a mutant caught only by a unit bench is red in both. Where that happens the
-matrix says so, because "the `.S` suite caught it" and "a bench inside the same target caught it"
-are different facts about coverage.
+**not independent**: a mutant caught only by a unit bench is red in both, and a naive reading of the
+`make test` column would credit the `.S` suite with every catch the benches make. **This is the
+difference between a coverage map and a table of correlated greens**, so every `make test` cell is
+attributed from that run's own log rather than from its exit status: the `.S` suite caught it iff
+`test/run_tests.sh` itself reported a set-equality failure against `test/EXPECTED_FAIL` or
+`test/OBSERVED_FLOOR`; otherwise `make` aborted in `test-units` and the bench is the catcher.
+
+**Two measurement hazards were hit during the campaign and are recorded because both are cheap to
+repeat.** First, **a status-file count read while `sby` is still running is not a result.** An
+interim read of the baseline ladder showed 84 status files against 85 generated checks and was
+briefly written down as though one check had not run — it was `csrw_mscratch_ch0`, the deepest check
+on the ladder (`[depth]` 30), still executing. Had that reading stood, every "missed by the ladder"
+cell graded against it would have been suspect. The driver never reads a status until the `sby`
+process it launched has exited, and a `MISSED` ladder verdict additionally requires all 85 checks to
+have run; the mistake was in a hand-typed progress check, which is exactly where this class of error
+lives. Second, **the campaign ran ten workers in parallel on a ten-core machine also loaded by other
+work**, so wall-clock times are inflated by contention and are not comparable to an idle-machine
+figure. **Timings are therefore omitted from the matrix.** Verdicts are what a coverage map is made
+of; times under contention are decoration that invites false comparison.
 
 **Controls are the integrity check.** A matrix in which nothing is caught indicts the harness rather
 than flattering the core, so three mutants are included that *must* be caught: a wrong store lane
