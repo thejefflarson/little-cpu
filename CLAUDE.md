@@ -182,6 +182,23 @@ the same treatment: the six bench invocations were spelled out with nothing tyin
 compared against the tree in both directions **and drives the recipe**, so a declared bench with no
 `UNIT_BENCH_SRC_*` is red too rather than building with no design under test.
 
+**Every graded comparison in the grading layer now has a probe of its own red direction, and two of
+them had never been executed** (ADR-0053). Five of this repo's recorded defects were in that layer
+and every one was in a *script*; the class is the comparison whose failure path was never run, and
+reading the script is what missed all five. `test/probe_gates.sh` forces **108** of them to fail and
+requires each to fail *for the reason it was written for* — exit status **and** a fragment of the
+diagnostic, with a control per group that must exit 0, so a grader degenerated into `exit 1` cannot
+pass. It is hermetic (no toolchain, no Sail, no yosys, no sby — the failing `objcopy`, the
+unstartable runner and the diverging reference model are stubs) and hangs off `make test`, which
+puts it in CI's required `test` job with no workflow change. Two findings came out of it, both
+fixed with the red demonstrated: **`formal/check-baseline.sh` read an *unreadable* baseline as an
+empty one** — `chmod 000 formal/EXPECTED_FAIL` printed "Failure list matches ... exactly" and exited
+0, swallowing an unexpected pass as well (ADR-0035 item 4's fix, never carried to the formal side);
+and **`test/cxxrtl.cc`'s exit 5 was unreachable in its own scenario** — traps commit in decode while
+retires happen in writeback, so a fault in the first instructions of `_start` raised `trap_to_zero`
+with `RETIRES 0` and the silence gate turned it into `MONITOR-SILENT`, which is exactly the
+misattribution ADR-0029 added `TRAP-TO-ZERO` to prevent.
+
 **M3 opens: `rtl/csrs.v` lands the CSR file and the Zicsr access path.** ADR-0005's set, exactly —
 RW `mstatus` (MIE/MPIE, MPP WARL→`2'b11`), `mtvec` (direct mode, 4-byte-aligned base, resets to 0
 per ADR-0029), `mepc` (bit 0 only, because C makes 2-byte targets legal), `mcause`, `mscratch`,
@@ -658,7 +675,13 @@ make test           # assemble test/asm/*.S, run under cxxrtl, pass/fail table w
                     # test/EXPECTED_FAIL (set equality) and test/OBSERVED_FLOOR (>=).
                     # OBSERVED_FLOOR's NAME set is also the suite manifest, checked
                     # both ways before a single program is assembled -- so a suite
-                    # that SHRANK is red, not a smaller table that still "passes"
+                    # that SHRANK is red, not a smaller table that still "passes".
+                    # Also runs `make probe-gates` (ADR-0053).
+make probe-gates    # forces all 108 graded comparisons in the grading scripts to
+                    # FAIL and requires each to fail for its own reason. Hermetic
+                    # (stubs, no toolchain); a prerequisite of `test` on purpose,
+                    # so it is in CI's required job. All fork, no work: ~68-90s of
+                    # wall for ~4s of user time, and that ratio is the host's
 make waves          # iverilog + VCD (testbench.vvp's baked-in program) -> waves.vcd.
                     # GRADES NOTHING: the per-retire monitor is live but only
                     # $displays, so this exits 0 on a mismatch. Read the output.
@@ -990,8 +1013,8 @@ longer quietly widen.
   rejected the shifter merge at 19 cells *saved* on legibility grounds, and accepting a hygiene
   change at 37 cells *spent* would cut against that ruling. Read this before proposing the
   narrowing again — it is measured and declined, not overlooked.
-- Decisions: [`docs/adr/`](docs/adr/) — **fifty-two ADRs, fifty-one of them accepted**, plus a
-  deferred list. Re-derived by counting: `ls docs/adr/*.md | wc -l` is 53, one of which is
+- Decisions: [`docs/adr/`](docs/adr/) — **fifty-three ADRs, fifty-two of them accepted**, plus a
+  deferred list. Re-derived by counting: `ls docs/adr/*.md | wc -l` is 54, one of which is
   `README.md`, and the status column in that README carries exactly one non-accepted entry
   (ADR-0016, superseded by ADR-0018). This line has now been behind twice — it said "forty-five
   accepted" and then "forty-seven" — so **re-derive it with the two commands rather than

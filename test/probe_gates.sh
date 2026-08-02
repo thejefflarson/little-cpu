@@ -47,10 +47,11 @@
 #
 # IT IS ALL FORK, NO WORK, so its wall time is a property of the host and not
 # of this file. Measured on the machine it was written on: ~1500 exec()s for
-# about 4s of user time and 90s of wall, because that laptop takes ~27ms to
+# about 4s of user time and 68-90s of wall, because that laptop takes ~27ms to
 # exec /bin/echo and ~62ms to exec a freshly written script. Do not "optimise"
 # it by deleting probes -- measure `time (for i in $(seq 1 100); do /bin/echo x
-# >/dev/null; done)` first and see whether the host is the reason.
+# >/dev/null; done)` first and see whether the host is the reason. The
+# per-group seconds printed below are there so that stays visible.
 #
 # WHAT IS NOT HERE, and it is a short list. Four failure paths need something
 # this file deliberately does not have, and each was demonstrated by hand
@@ -72,7 +73,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # reason test/exec_tb.v pins its vector count: a probe that is deleted, or that
 # stops being reached by an early `return`, would otherwise reduce the coverage
 # of this file while it kept printing a green summary.
-PROBES_EXPECTED=106
+PROBES_EXPECTED=108
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -649,6 +650,21 @@ probe "wrong argument count is exit 2 -- the inputs are broken, not the ladder" 
 
 probe "a missing baseline file is exit 2, not an empty expected set" 2 \
   "no such file" "$CB $d/checks $d/NOPE $d/EXPECTED_CHECKS"
+
+# The false green this ticket found. `set -u` with no `-e` and no `pipefail`
+# means an unreadable baseline yields an EMPTY expected set, and an empty
+# expected set matches an all-passing ladder exactly. Before the `-r` check
+# this printed "Failure list matches ... exactly" and exited 0, having also
+# silently dropped the entry the baseline named.
+d=$(cb_fixture); printf 'beta FAIL\n' > "$d/EXPECTED_FAIL"; chmod 000 "$d/EXPECTED_FAIL"
+probe "an UNREADABLE baseline is refused, not read as an empty one" 2 \
+  "exists but is not readable" "$(cbs "$d")"
+chmod 644 "$d/EXPECTED_FAIL"
+
+d=$(cb_fixture); chmod 000 "$d/EXPECTED_CHECKS"
+probe "and the same for the check-set baseline" 2 \
+  "exists but is not readable" "$(cbs "$d")"
+chmod 644 "$d/EXPECTED_CHECKS"
 
 d=$(cb_fixture); rm "$d/checks/alpha.sby" "$d/checks/beta.sby"
 probe "a ladder that was never generated is exit 2, not zero checks passing" 2 \
