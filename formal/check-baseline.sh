@@ -66,9 +66,23 @@ CHECKS_DIR=$1
 EXPECTED_FAIL=$2
 EXPECTED_CHECKS=${3:-$(dirname "$0")/EXPECTED_CHECKS}
 
+# READABLE, not merely present. This script sets `set -u` and neither `-e` nor
+# `pipefail`, so a `sed` that cannot open its input writes to stderr and yields
+# an EMPTY string, and an empty expected set against an all-passing ladder
+# prints "Failure list matches ... exactly" and exits 0 -- having compared
+# nothing, and having silently dropped whatever the baseline named. Measured
+# with `chmod 000 formal/EXPECTED_FAIL`; see the probe in test/probe_gates.sh.
+# ADR-0035 item 4 made exactly this fix on test/run_tests.sh's baseline and it
+# was never carried across to the formal side.
 for f in "$EXPECTED_FAIL" "$EXPECTED_CHECKS"; do
   if [ ! -f "$f" ]; then
     echo "error: no such file: $f" >&2
+    exit 2
+  fi
+  if [ ! -r "$f" ]; then
+    echo "error: $f exists but is not readable." >&2
+    echo "An unreadable baseline reads as an EMPTY one here, which matches an" >&2
+    echo "all-passing ladder exactly and exits 0. Refusing to grade." >&2
     exit 2
   fi
 done

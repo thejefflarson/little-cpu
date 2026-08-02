@@ -565,13 +565,32 @@ test-units: check-unit-benches test/monitor.sim.v
 	  vvp $$tmp/$(b).vvp; ) \
 	true
 
+# THE GRADING LAYER'S OWN RED DIRECTION. Every graded comparison in the two
+# suite runners, the manifest check, the co-simulation comparison, the monitor
+# sanitizer and the two formal gates is forced to FAIL here, and required to
+# fail for the reason it was written for. Five of this repo's recorded defects
+# lived in that layer and every one was in a script (ADR-0037 §4, ADR-0040,
+# ADR-0033 gap 1, and the sanitizer's rule 3); the class is the comparison
+# whose failure path was never executed.
+#
+# It is a prerequisite of `test` rather than a target of its own on purpose.
+# A gate reached by no automation reads like coverage and is not — CLAUDE.md
+# records `make waves` and `make -C formal all` as exactly that — and hanging
+# it off `test` puts it in CI's required job with no workflow change and no
+# branch-protection change (ADR-0036 makes the latter a human action anyway).
+# It needs no RISC-V toolchain, no Sail, no yosys and no sby, so it cannot
+# narrow where `make test` runs.
+.PHONY: probe-gates
+probe-gates:
+	@./test/probe_gates.sh
+
 # Assembles every test/asm/*.S (rv32im_zicsr, -nostdlib, ADR-0008's memory
 # map), runs each under `sim`, and checks the pass/fail table against
 # test/EXPECTED_FAIL — the sprint-1 baseline. Exits 0 only when the actual
 # failure list matches that file exactly, so this is a working regression
 # gate today, against the current (still-broken, see CLAUDE.md) core.
 .PHONY: test
-test: sim test-units
+test: sim test-units probe-gates
 	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 # ---------------------------------------------------------------------------

@@ -57,6 +57,7 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0050](0050-the-nightly-is-deleted-and-its-checks-move-to-the-gate.md) | The formal nightly is deleted and its checks move to the PR gate | Accepted · supersedes 0022, rewrites 0037 term 6 |
 | [0051](0051-the-multiply-proof-is-decomposed-not-mitered.md) | The multiply proof is decomposed, not mitered; the signed divide path gets its first assertions | Accepted · closes 0049 F1/F5 |
 | [0052](0052-m2-term-6-is-verified-and-the-fit-ratchet-gets-a-job.md) | M2 term 6 is verified against the gate's own run, and the fit ratchet gets a job | Accepted · closes 0037 term 6 as rewritten by 0050 |
+| [0053](0053-every-graded-comparison-carries-a-probe-of-its-red-direction.md) | Every graded comparison carries an executable probe of its own red direction | Accepted · extends 0035, 0033 |
 
 0001–0007 came from the design brief
 ([`docs/ideas/finish-the-rewrite.md`](../ideas/finish-the-rewrite.md)). 0008–0011 came out of

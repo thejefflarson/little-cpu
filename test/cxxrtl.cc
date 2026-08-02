@@ -246,9 +246,24 @@ int main(int argc, char **argv) {
   // Silence outranks the run's own verdict. A run whose oracle never fired has
   // no verdict worth reporting: `tohost` saying PASS is exactly what a blind
   // monitor looks like, and a FAIL from such a run cannot be attributed either.
-  // Exit 4 is the one exception and does NOT come through here — an errcode is
-  // direct evidence that the monitor fired, which is stronger and more specific
-  // than any count.
+  //
+  // Exits 4 and 5 are the two exceptions and do NOT come through here. Neither
+  // is a verdict the PROGRAM reached: an errcode is direct evidence that the
+  // monitor fired, and trap-to-zero is a direct observation of the machine that
+  // owes nothing to the monitor. Routing either through the silence gate would
+  // replace a specific diagnosis with "the oracle was blind".
+  //
+  // For exit 5 that is not hypothetical, it is the ADR-0029 case itself. Traps
+  // are detected and committed in DECODE (invariant 2) while a retire happens
+  // in writeback, so a fault in the first few instructions of `_start` raises
+  // trap_to_zero several cycles before anything has retired. Measured: `ecall`
+  // as the second instruction gives `RETIRES 0` and used to return 6, which
+  // test/run_tests.sh labels MONITOR-SILENT — pointing at the monitor for a
+  // program that faulted before installing `mtvec`, which is precisely the
+  // misattribution ADR-0029 added the TRAP-TO-ZERO label to prevent. The same
+  // `ecall` after six retiring instructions returned 5. A named failure path
+  // that is unreachable in its own scenario is the defect this repo keeps
+  // finding in its grading layer, one level down.
   auto finish = [&](int code) {
     report_counts();
     uint32_t r = retires->curr[0];
@@ -307,7 +322,8 @@ int main(int argc, char **argv) {
                     "never installed and the program has restarted at _start "
                     "(ADR-0029)\n",
                     cycle);
-      return finish(5);
+      report_counts();
+      return 5;
     }
 
     uint32_t tohost = ram_data[tohost_index];
