@@ -76,7 +76,7 @@ module imemory #(
   // runner pokes them through `debug_items` -- can leave the pair empty rather
   // than pointing at a file that has to exist. `$readmemh("")` is an error, not
   // a no-op, in both frontends.
-  generate if (INIT_EVEN != "") begin : g_rom_init
+  generate if (INIT_EVEN != "") begin : l_rom_init
     initial $readmemh(INIT_EVEN, rom_even);
     initial $readmemh(INIT_ODD,  rom_odd);
   end endgenerate

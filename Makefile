@@ -678,7 +678,20 @@ fit.json: $(FIT_SRCS)
 #
 # It is NOT set at the part's 5280. Fitting is the floor, not the goal: 80%
 # with the SoC memory system still to come is the number worth defending.
-FIT_MAX_LC := 4400
+#
+# LOWERED FROM 4400 AT ADR-0054, after a reduction that is real rather than
+# resynthesis drift. Lifting the PC redirects out of rtl/decoder.v's publish
+# block replaced six independent `cond ? pc+imm : pc+inc` writes to `pc` with
+# one `branch_taken` and one priority mux, and it measures **4187 -> 3875 logic
+# cells on this branch, both under the SAME local Homebrew yosys**: 312 cells,
+# six times the +/-50 churn floor, and measured as a delta rather than quoted
+# across toolchains (which is the trap ADR-0052 records). Expect roughly 3896
+# under CI's pinned OSS CAD Suite, on that +21-cell axis; the `fit` job is where
+# the number that counts is taken.
+#
+# 4100 keeps ~204 cells of headroom over the local measurement, the same
+# proportion 4400 kept over 4208 and still well clear of both noise axes.
+FIT_MAX_LC := 4100
 
 .PHONY: fit
 fit: fit.json
