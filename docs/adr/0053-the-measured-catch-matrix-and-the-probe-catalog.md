@@ -91,6 +91,29 @@ question *did this verdict depend on a wall clock?*:
 the matrix: verdicts are what a coverage map is made of, and times taken under contention are
 decoration that invites false comparison.
 
+**Third, and the one worth carrying forward as a tooling fact: killing an `sby` does not kill its
+solver.** `sby` shells out to `btormc` (`bash -c 'cd <check>; btormc … model/design_btor.btor'`),
+and the solver is not in the killed process's tree in any way the kill reaches — so an interrupted
+ladder run leaves a `btormc` per in-flight check grinding at 100% of a core, invisible in the sby
+logs because it has already stopped writing to them. **This is the shape that makes it dangerous:
+a `btormc` inside a k-induction step produces no output for minutes at a time, so "the workdir has
+had no writes" and "the process is dead" look identical.** An interrupted-ladder cleanup in this
+repo must check for the process, not for its output:
+
+```sh
+pgrep -fl 'btormc|sby'        # what is actually running
+```
+
+The distinction also tells you *whose* run you are looking at, which matters on a shared machine.
+`formal/checks/Makefile` — what `make -C formal check` drives — invokes `sby <name>.sby`, with no
+`-f` and no path, alongside GNU make's `--jobserver-helper`. Anything invoking `sby -f <path>` is
+somebody's hand-rolled sweep. **This ADR's own first cleanup got the reasoning wrong** — it
+concluded "no orphans survived" from an absence of file writes, which is not evidence about a
+process at all. Re-checked with `pgrep`, the conclusion happened to hold; the argument for it did
+not. It is the same error as inferring a matrix cell instead of measuring one, committed by the
+campaign whose entire purpose is to stop doing that, which is why it is written down here rather
+than quietly corrected.
+
 **Controls are the integrity check.** A matrix in which nothing is caught indicts the harness rather
 than flattering the core, so three mutants are included that *must* be caught: a wrong store lane
 (the `sb` byte strobe stops shifting to the addressed byte), a sign flip (`SRA` becomes a logical
