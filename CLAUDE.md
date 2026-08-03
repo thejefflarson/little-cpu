@@ -208,8 +208,10 @@ silently, failing later in nextpnr with a message about BELs. Measured both ways
 **4041/5280 LC (76%), 20/30 EBR, 2/4 SPRAM, 4/39 IO, 8/8 GB**, and
 **88.51 ns = 11.30 MHz — 34.20 ns logic (38.7%) + 54.29 ns routing (61.3%), 41 logic levels**, on
 `imem.in_range → decode → next PC → imem.in_range2`. That is the loop invariant 1 puts in one cycle,
-measured rather than argued. **The design does NOT meet ADR-0038's declared 12 MHz**, and the 12 MHz
-intent is deliberately left where it stands. **Two findings came out of the first run and are fixed**:
+measured rather than argued. **The design did NOT meet ADR-0038's 12 MHz at that commit**, and the
+12 MHz declaration was deliberately left where it stood. It is met now, and 12 MHz is a
+**requirement** rather than an intent — see the bypass change below and ADR-0066.
+**Two findings came out of the first run and are fixed**:
 the path started at the `btn_n` *pad* (the button is synchronised now) and ended in a 32-bit
 incrementer feeding the ROM's range check (both range tests compare a word index against a constant
 now). 9.60 → 11.30 MHz for those two. **The SoC would still not RUN a program in `test/asm`**: SPRAM
@@ -283,12 +285,20 @@ comparators behind it sat **after** the instruction rather than beside it, and e
 the whole chain before the next PC could be chosen. It compares against a **registered copy** of the
 address pair now. Measured on this tree, four placements each: **95.74 – 99.47 ns (10.05 – 10.44
 MHz) → 74.34 – 78.80 ns (12.69 – 13.45 MHz)**, 29 LUT levels → 23, distributions not overlapping and
-the move six times the 3.6% edit band. `SOC_MIN_MHZ` goes **10.0 → 10.9**, keeping the 11.5% margin
-it was derived with and taking it below ADR-0062's lower 12.32 MHz sample rather than this tree's
-better one. `make fit` is 3899 → **3880**, inside the ±50 churn floor and meaning nothing; the SoC
+the move six times the 3.6% edit band. `SOC_MIN_MHZ` went **10.0 → 10.9** there and is **12.0** now
+(ADR-0066). `make fit` is 3899 → **3880**, inside the ±50 churn floor and meaning nothing; the SoC
 top's LC is 4314 → 4383. **12 is the board crystal, not a round number** — the part's oscillator
-divides 48 to 48/24/12/6, so the step below 12 is 6, and ADR-0038's intent is met rather than missed
-by 6%.
+divides 48 to 48/24/12/6, so the step below 12 is 6, and missing it costs half the clock rather than
+a percentage.
+
+**So 12 MHz is a REQUIREMENT, and `SOC_MIN_MHZ` stopped being a regression floor** (ADR-0066). A
+regression floor sits under the current measurement and slides every time the design moves; a
+requirement sits at the number the hardware asks for and does not move at all. 12.0 leaves **5.75%**
+against the worst local placement (12.69 MHz), which is tighter than any other ratchet here and
+against a 3.6% edit-churn band — accepted deliberately, because a design at 11.9 MHz has stopped
+meeting its requirement and the honest report of that is a red gate. **When it trips, the fix is the
+design, not the floor.** `soc-timing` is a **required** check on `main` as of the same decision, and
+CI measured 12.72 MHz on its own hardware.
 
 **What that change costs is a coupling, and it is the part to remember.** The bypass used to be
 correct for *any* address pair; it is now correct **because** `operand_stall` guarantees that on an
@@ -336,9 +346,11 @@ branches are probed by invoking the real target against the real `test/*_tb.v` t
 `UNIT_BENCHES`/`UNIT_BENCH_SRC_*` overridden on the command line, which is what its own comment
 already commits to being possible. `test/probe_gates.sh` is **125** probes now, up from 108
 (ADR-0058 added three for `soc/timing_split.py`'s LUT-versus-carry depth split).
-**`make soc-timing` joins CI in the `soc-timing` job**, mirroring `fit`: non-required, for the same
-reason (ADR-0036) — it publishes the census and the logic/routing split to the step summary whether
-it passes or fails. It is the first job needing both the RISC-V cross compiler and the OSS CAD
+**`make soc-timing` joins CI in the `soc-timing` job**, mirroring `fit`: non-required at the time,
+for the same reason (ADR-0036) — it publishes the census and the logic/routing split to the step
+summary whether it passes or fails. **It is required now** (ADR-0066): the floor it grades is the
+board clock, so a red there means the design does not run on the part. It is the first job needing
+both the RISC-V cross compiler and the OSS CAD
 Suite, so the toolchain assertion moved into `.github/actions/verify-toolchain` rather than being
 copied from the `test` job — the duplication shape that broke `elaborate` once already.
 
@@ -679,13 +691,15 @@ too: `ci.yml`'s `elaborate` job runs and checks this same `testbench.vvp` direct
 baked-in program, not the `.S` suite (see the second bullet under "what does not work" above for
 what stays open). CI (`.github/workflows/ci.yml`) runs **nine** jobs on every PR:
 elaborate, test, components, lint, fit, soc-timing, nonperturbation, monitor-freshness and formal —
-the last of which also carries `complete` and `complete_cover` as hard gates (M2 term 5). **Six of
-the nine are required** — `elaborate`, `test`, `components`, `monitor-freshness`, `lint`, `formal`,
-read live from `gh api repos/thejefflarson/little-cpu/branches/main/protection -q
+the last of which also carries `complete` and `complete_cover` as hard gates (M2 term 5). **Seven of
+the nine are required** — `elaborate`, `test`, `components`, `monitor-freshness`, `lint`, `formal`
+and, since ADR-0066, `soc-timing`, read live from
+`gh api repos/thejefflarson/little-cpu/branches/main/protection -q
 '.required_status_checks.contexts'` rather than from any comment in the workflow — and
-`nonperturbation`, `fit` and `soc-timing` are the three that run without gating, each deliberately
-(ADR-0047, ADR-0052; `soc-timing` for the same reason as `fit` — area and timing are design
-constraints, not correctness ones, ADR-0036). **There is no `continue-on-error` anywhere in the
+`nonperturbation` and `fit` are the two that run without gating, each deliberately
+(ADR-0047, ADR-0052). **`soc-timing` was one of them until 12 MHz became a requirement**: area is
+still a design constraint, but a clock the board cannot supply is not one. **There is no
+`continue-on-error` anywhere in the
 file**, in any job: the `formal` job carried the last one until ADR-0052 struck it. This line named
 four jobs and stopped there until the gate inventory; `lint` and `formal` had both been promoted to
 required in the meantime,
@@ -919,30 +933,32 @@ make soc-timing     # THE SoC PLACE-AND-TIME FLOW (ADR-0054), and NOT `make fit`
                     # 2/4 SPRAM; 74.34 - 78.80 ns = 12.69 - 13.45 MHz over four
                     # placements as of ADR-0064, which addressed the regfile's
                     # write-through bypass from a registered copy of rs1/rs2.
-                    # THAT MEETS ADR-0038's DECLARED 12 MHz at every placement,
-                    # and 12 is the board crystal rather than a round number
-                    # (ADR-0062). It was 88.51 ns = 11.30 MHz, 38.7% logic /
+                    # THAT MEETS 12 MHz at every placement, and 12 is the board
+                    # crystal rather than a round number -- the step below it
+                    # is 6 (ADR-0062). It was 88.51 ns = 11.30 MHz, 38.7% logic /
                     # 61.3% routing, over
                     # imem.in_range -> decode -> next PC -> imem.in_range2
                     # at ADR-0054, whose 41 levels were 25 LUT + 17 CARRY at
                     # 3.31 ns and 0.34 ns each; read those apart (ADR-0058).
-                    # Ratchets on SOC_MIN_MHZ (10.9, 11.5% under the worst
-                    # placement -- ADR-0064; it was 10.0, and this line said
-                    # 10.5 while the Makefile never did, ADR-0057), a
-                    # regression floor set below the measurement, not at the
-                    # intent.
+                    # Grades SOC_MIN_MHZ, which is 12.0 as of ADR-0066: the
+                    # board clock itself, NOT a margin under the measurement.
+                    # It was 10.9 (ADR-0064) and 10.0 before that, both
+                    # regression floors that slid as the design moved. This one
+                    # does not slide, and the margin against the worst local
+                    # placement is 5.75% -- tighter than any other ratchet
+                    # here, accepted on purpose. WHEN IT TRIPS, FIX THE DESIGN.
                     # soc/timing_sweep.sh runs four placements and prints the
                     # spread. One placement is a sample; compare distributions.
                     # Needs the RISC-V toolchain (it builds a real ROM image).
-                    # ON CI as of the `soc-timing` job (non-required, same
-                    # reasoning as `fit`: area and timing are design
-                    # constraints, not correctness ones, ADR-0036). The
+                    # ON CI in the `soc-timing` job, REQUIRED as of ADR-0066
+                    # (it was non-required, mirroring `fit`). The
                     # census (soc/cell_census.py) and the ratchet
                     # (soc/timing_split.py) are both probed hermetically in
                     # test/probe_gates.sh. `SOC_PROG=lw.S` picks the program,
                     # `SOC_SEED=3` places it differently -- one placement is a
                     # sample, and main's own spread is 1.2% (ADR-0058).
-                    # Probe: `make soc-timing SOC_MIN_MHZ=99` exits 1.
+                    # Probe: `make soc-timing SOC_MIN_MHZ=99` exits 2 (the
+                    # script exits 1 and make reports its own status).
 
 make -C formal components_decoder   # component proofs. THREE tasks, all with real assertions:
 make -C formal components_executor  # decoder, executor, pcloop -- the assertion-free fetcher /
@@ -1273,9 +1289,11 @@ longer quietly widen.
 - **Timing**: `make soc-timing`, and `soc/timing_sweep.sh` for the four-placement spread that is
   the only honest form of the number. **74.34 · 75.81 · 76.88 · 78.80 ns = 12.69 – 13.45 MHz**
   (ADR-0064, local Homebrew yosys 0.67+post), against 95.74 – 99.47 ns on the same tree before it.
-  **ADR-0038's declared 12 MHz is met at every placement**, and ADR-0062 is where 12 stops being a
+  **12 MHz is met at every placement, and it is a REQUIREMENT rather than an intent** (ADR-0066):
+  `SOC_MIN_MHZ` is 12.0, `soc-timing` is a required check, and CI's own hardware measures 12.72 MHz.
+  ADR-0062 is where 12 stops being a
   round number: the board crystal is 12 MHz and the part oscillator divides 48 to 48/24/12/6, so the
-  step below 12 is 6. The one change that did it addressed `rtl/regfile.v`'s write-through bypass
+  step below 12 is 6. **A red `soc-timing` is a design problem, not a floor to lower.** The one change that did it addressed `rtl/regfile.v`'s write-through bypass
   from a registered copy of the address pair — read invariant 6 before touching `operand_stall`.
   The earlier figure was 88.51 ns = 11.30 MHz, 38.7% logic / 61.3% routing, on
   `imem.in_range → decode → next PC → imem.in_range2` (ADR-0054); the comparable one before that is
@@ -1311,9 +1329,12 @@ longer quietly widen.
   critical path** — give **88.51 ns / 41 logic levels** and **91.67 ns / 53**, on 11 logic cells'
   difference in the netlist; 11 cells anywhere is enough for nextpnr to redistribute placement. Each
   figure is reproducible run to run (nextpnr is seeded); it is the *edit* the number is unstable
-  under. So **a `make soc-timing` delta of a couple of percent is not evidence of anything**, and
-  `SOC_MIN_MHZ` (10.0) sits ~11.5% under the measurement for the same reason `FIT_MAX_LC` sits above
-  the ±50-cell floor. `rtl/memory.v` therefore ships the FLAT spelling of its arms and says so at
+  under. So **a `make soc-timing` delta of a couple of percent is not evidence of anything** — but
+  `SOC_MIN_MHZ` no longer buys margin against that band. It is 12.0, the board clock, and the worst
+  local placement is 12.69, so there is **5.75%** between them against a 3.6% churn band and a 1–2%
+  placement band (ADR-0066). That is accepted: a regression floor may sit below the measurement so
+  noise does not cry wolf, and a requirement floor may not — an edit that lands at 11.9 MHz has
+  stopped meeting the requirement, whatever moved it. `rtl/memory.v` therefore ships the FLAT spelling of its arms and says so at
   the site — the tidier nested one costs 11 cells and 3.6% of the only timing number this project
   has, which is the trade ADR-0038 already made twice in the other direction.
 - **`make fit` has a churn floor of roughly ±50 cells, and a ratchet has to sit above it.**
@@ -1347,8 +1368,9 @@ longer quietly widen.
 **Deferred behind future ADRs** — forwarding network, radix-4 divider, interrupts, and the
 **bootloader** (SPRAM cannot be initialised, so the SoC ADR-0054 builds cannot get a program's
 `.data` into RAM at power-on; that needs a `.text` copy stub or ADR-0044's SPI-flash path). FPGA
-timing closure came off this list at ADR-0054, which took the measurement — and the design misses
-ADR-0038's declared 12 MHz by 6%, with that declaration deliberately left standing. (The negedge-BRAM regfile came off this list in ADR-0042, **decided
+timing closure came off this list at ADR-0054, which took the measurement — and the design **meets
+12 MHz at every placement** (ADR-0064), which is a **requirement** rather than a declaration as of
+ADR-0066. (The negedge-BRAM regfile came off this list in ADR-0042, **decided
 against**: it is 99 cells cheaper and costs no cycles, but the generated ladder cannot model a
 mixed-polarity design at all, so `reg_ch0` would never again run against `rtl/regfile.v`.) Each trades away simplicity the current design depends on; none are
 safe to build while the core is unverified. (Sail co-sim came off this list in ADR-0032: the

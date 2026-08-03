@@ -79,6 +79,14 @@ design places. At 12 MHz a half-period is 41 ns — enormous relative to any pat
 > unchanged** — reconciling it with a measurement is a decision, not a consequence, and this
 > paragraph's own test still applies to anyone proposing to close the gap.
 
+> **The word "declare" is struck and 12 MHz is a REQUIREMENT as of
+> [ADR-0066](0066-twelve-megahertz-is-a-requirement.md).** It was written as an intent because the
+> design missed it; it does not miss it any more (ADR-0062, ADR-0064). 12 is the board crystal and
+> the part's oscillator divides 48 by 1, 2, 4 or 8, so the step below 12 is 6 — missing it costs
+> half the clock rather than a percentage. `SOC_MIN_MHZ` is **12.0** and no longer slides with the
+> design: it is what the hardware asks for, not a margin under the last measurement. Lowering it is
+> a decision to stop targeting the board clock and needs its own ADR.
+
 **Anyone proposing to raise Fmax is proposing to break invariant 1 or invariant 6, and must bring an
 ADR that says which.** This is recorded so that a future performance complaint is answered with the
 design's own reasoning rather than a reflexive optimization.
