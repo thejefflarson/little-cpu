@@ -528,10 +528,12 @@ the failure this section exists to prevent, so they stay as markers rather than 
   assertion reports `UNKNOWN rc=4`, not `FAIL`, because the guard is basecase-unreachable at depth
   20 against a 33-cycle divider (ADR-0049 F3). The task went 6.5s → 50.3s.
 - ~~**Three of the five component-proof tasks are vacuous**~~ — **they were deleted; there are
-  three tasks now and all three assert something.** `formal/components.sby` carries `decoder`,
-  `executor` and `pcloop`; `fetcher`, `accessor` and `writeback` are gone, and `formal/Makefile`
-  says so where the targets used to be. ADR-0006's slate is discharged. The rule the bullet was
-  protecting stands and is worth keeping: a green run of a task with no assertions is not a result.
+  four tasks now and all four assert something.** `formal/components.sby` carries `decoder`,
+  `executor`, `pcloop` and `traps`; `fetcher`, `accessor` and `writeback` are gone, and
+  `formal/Makefile` says so where the targets used to be. ADR-0006's slate is discharged. The rule
+  the bullet was protecting stands and is worth keeping: a green run of a task with no assertions is
+  not a result. `traps` landed with its `$assert` cell count read off the prepared netlist (25),
+  because "PASS" says nothing about how many questions were asked.
 - **`components_pcloop` was failing on `main`, and nothing ran it** (ADR-0046). It has failed since
   `e4f5250` — `failed assertion ... at pcloop.sv:273 step 3`, the sequential-advance assertion —
   because its `f_may_stall` over-approximation predates ADR-0042's fifth stall reason and therefore
@@ -696,10 +698,12 @@ port, `imem_tb`, which walks rtl/imemory.v's bank select at every word index and
 against a flat reference plus its range decode (ADR-0054), `accessor_tb`, which exists for the one
 signal nothing else can see stuck low — `mem_ren`, the read enable the memory's arbiter keys on
 (ADR-0060) — and `monitor_tb`, which checks the oracle
-itself rather than the core), and **all three**
-component proofs — decoder, executor and `pcloop` — pass by k-induction (`mode prove`; re-run and
+itself rather than the core), and **all four**
+component proofs — decoder, executor, `pcloop` and `traps` — pass by k-induction (`mode prove`;
+re-run and
 read off each `sby` summary, not inferred from a green job. See ADR-0017 for what the decoder proof
-does and does not establish, and ADR-0046 for what `pcloop` discharges). `make waves`
+does and does not establish, ADR-0046 for what `pcloop` discharges, and ADR-0071 for what `traps`
+does — including the two mutations it does NOT catch and why both are the RTL being right). `make waves`
 now runs the iverilog leg (`testbench.vvp`) instead of the cxxrtl runner, matching the verification
 table below, and produces a real `waves.vcd` — and, as of ADR-0055, grades the run it produces one
 too: `ci.yml`'s `elaborate` job runs and checks this same `testbench.vvp` directly, on one fixed
@@ -1004,12 +1008,21 @@ make soc-timing     # THE SoC PLACE-AND-TIME FLOW (ADR-0054), and NOT `make fit`
                     # Probe: `make soc-timing SOC_MIN_MHZ=99` exits 2 (the
                     # script exits 1 and make reports its own status).
 
-make -C formal components_decoder   # component proofs. THREE tasks, all with real assertions:
-make -C formal components_executor  # decoder, executor, pcloop -- the assertion-free fetcher /
-make -C formal components_pcloop    # accessor / writeback tasks were deleted, not left unrun.
+make -C formal components_decoder   # component proofs. FOUR tasks, all with real assertions:
+make -C formal components_executor  # decoder, executor, pcloop, traps -- the assertion-free
+make -C formal components_pcloop    # fetcher / accessor / writeback tasks were deleted, not left
+make -C formal components_traps     # unrun.
                                     # pcloop is the composed fetcher+decoder proof that discharges
                                     # ADR-0017's assume(in.pc == pc); it needs `smtbmc boolector`
-                                    # (see formal/components.sby) and is on CI as of ADR-0046
+                                    # (see formal/components.sby) and is on CI as of ADR-0046.
+                                    # traps composes fetcher+decoder+csrs so that mtvec, mepc,
+                                    # mcause and mstatus are REAL REGISTERS under a proof -- the
+                                    # ladder drops every value comparison once an instruction
+                                    # traps and its pc checks accept any target, so nothing else
+                                    # says a trap lands on mtvec (ADR-0071). PASS 0 2, 25 assert
+                                    # cells, 2-3s, default yices. mcause/mstatus are read through
+                                    # the architectural read port with the instruction word free,
+                                    # not through a reference model
 make -C formal check                # the riscv-formal ladder (85 checks; see ADR-0023). ALWAYS a
                                     # fresh run -- it deletes checks/ first (ADR-0040)
 make -C formal check-baseline       # re-grade a finished ladder: EXPECTED_CHECKS + EXPECTED_FAIL
@@ -1397,8 +1410,8 @@ longer quietly widen.
   rejected the shifter merge at 19 cells *saved* on legibility grounds, and accepting a hygiene
   change at 37 cells *spent* would cut against that ruling. Read this before proposing the
   narrowing again — it is measured and declined, not overlooked.
-- Decisions: [`docs/adr/`](docs/adr/) — **seventy ADRs, sixty-nine of them accepted**, plus a
-  deferred list. Re-derived by counting: `ls docs/adr/*.md | wc -l` is 71, one of which is
+- Decisions: [`docs/adr/`](docs/adr/) — **seventy-one ADRs, seventy of them accepted**, plus a
+  deferred list. Re-derived by counting: `ls docs/adr/*.md | wc -l` is 72, one of which is
   `README.md`, and the status column in that README carries exactly one non-accepted entry
   (ADR-0016, superseded by ADR-0018). This line has now been behind four times — "forty-five
   accepted", then "forty-seven", then "fifty-five" while seven more had landed, then "sixty-three"

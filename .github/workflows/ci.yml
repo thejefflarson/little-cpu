@@ -163,6 +163,9 @@ jobs:
       - name: Fetcher/decoder PC-loop proof
         run: make -C formal components_pcloop
 
+      - name: Trap commit proof
+        run: make -C formal components_traps
+
       - name: Report job wall time
         if: always()
         run: |
