@@ -39,6 +39,10 @@ module pcloop (
     input executor_output executor_out,
     input logic divider_stall,
     input logic accessor_stall,
+    // ADR-0059's steal. Free here, like the other two stall inputs: this task
+    // instantiates no memory, so the solver may assert it on any cycle, which
+    // is the stronger environment for the assertions below.
+    input logic fetch_stall,
     input logic accessor_pending_valid,
     input logic [4:0] accessor_pending_rd,
     // ADR-0026's drain slot and the CSR file's read side. rtl/csrs.v is not
@@ -99,6 +103,7 @@ module pcloop (
     .executor_out(executor_out),
     .divider_stall(divider_stall),
     .accessor_stall(accessor_stall),
+    .fetch_stall(fetch_stall),
     .accessor_pending_valid(accessor_pending_valid),
     .accessor_pending_rd(accessor_pending_rd),
     .accessor_out_valid(accessor_out_valid),
@@ -255,8 +260,21 @@ module pcloop (
   end
   assign f_operand_fetch = !f_read_taken || f_prev_rs1 != rs1 || f_prev_rs2 != rs2;
 
-  assign f_may_stall = divider_stall || accessor_stall || f_live_rs1 || f_live_rs2 ||
-      f_system || f_operand_fetch;
+  // ADR-0059's steal is the sixth stall reason, and it is a direct input here,
+  // so it needs no transcription -- only inclusion. Leaving it out is the trap
+  // ADR-0046 walked into: a new stall reason plus a stale `f_may_stall` makes
+  // the sequential-advance assertion cover a cycle on which the decoder
+  // legitimately holds the pc, and the task goes red on correct RTL.
+  //
+  // `fence.i` joins the serialization drain too (ADR-0061), and `f_system`
+  // does not reach it -- that term is the SYSTEM opcode and this is MISC-MEM.
+  // Widened to the whole opcode for the same reason `f_system` is: `fence`
+  // comes along, is never held, and being excused costs nothing.
+  logic f_fencei;
+  assign f_fencei = f_uncompressed && f_instr[6:2] == 5'b00011;
+
+  assign f_may_stall = divider_stall || accessor_stall || fetch_stall ||
+      f_live_rs1 || f_live_rs2 || f_system || f_fencei || f_operand_fetch;
 
   // Trap entry and `mret` also write a non-sequential pc (ADR-0028: a trap is
   // a branch), so the sequential-advance assertion must not cover those
@@ -288,12 +306,13 @@ module pcloop (
   // every assertion below excludes.
   logic [31:0] past_pc, prev_mtvec, prev_mepc;
   logic prev_reset, prev_may_stall, prev_hard_stall, prev_jump_branch, prev_uncompressed;
-  logic prev_trap_entry, prev_mret_entry;
+  logic prev_trap_entry, prev_mret_entry, prev_fetch_stall;
   always_ff @(posedge clk) begin
     past_pc           <= pc;
     prev_reset        <= reset;
     prev_may_stall    <= f_may_stall;
     prev_hard_stall   <= divider_stall || accessor_stall;
+    prev_fetch_stall  <= fetch_stall;
     prev_jump_branch  <= f_jump_branch || f_redirect;
     prev_uncompressed <= f_uncompressed;
     prev_trap_entry   <= trap_entry;
@@ -350,6 +369,14 @@ module pcloop (
   // task's assertion, as above.
   always_ff @(posedge clk)
     if (clocked && prev_hard_stall && !prev_reset) assert(pc == past_pc);
+
+  // The steal holds the pc too, which is what makes it a bubble rather than
+  // something needing a kill signal (ADR-0059, CLAUDE.md invariant 1): the same
+  // instruction is presented again next cycle, so nothing was issued and there
+  // is nothing to undo. Stated separately from the freeze above because the two
+  // reach the pc through different arms of the publish block.
+  always_ff @(posedge clk)
+    if (clocked && prev_fetch_stall && !prev_reset) assert(pc == past_pc);
 
   // The redirect cycles the increment assertion above steps around, covered
   // here instead of merely excused. A trap goes to mtvec and an mret goes to

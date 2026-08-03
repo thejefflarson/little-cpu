@@ -54,6 +54,10 @@ module decoder_tb;
   executor_output executor_out = '0;
   logic divider_stall = 1'b0;
   logic accessor_stall = 1'b0;
+  // ADR-0059's steal, driven per vector below: it is the sixth stall reason,
+  // and the only one whose interaction with the other five is a ruling rather
+  // than a consequence.
+  logic fetch_stall = 1'b0;
   logic accessor_pending_valid = 1'b0;
   logic [4:0] accessor_pending_rd = 5'b0;
   // ADR-0026's drain slot: nothing is in flight in this bench, so the pipe
@@ -86,6 +90,7 @@ module decoder_tb;
     .executor_out(executor_out),
     .divider_stall(divider_stall),
     .accessor_stall(accessor_stall),
+    .fetch_stall(fetch_stall),
     .accessor_pending_valid(accessor_pending_valid),
     .accessor_pending_rd(accessor_pending_rd),
     .accessor_out_valid(accessor_out_valid),
@@ -275,7 +280,7 @@ module decoder_tb;
     executor_out.rd = 5'd0;
     present_and_fetch(32'h340515f3);
     check_bit("a CSR instruction serializes while the pipe is busy",
-              dut.csr_serialize, 1'b1);
+              dut.serialize, 1'b1);
     check_bit("...and that is a stall", dut.stall, 1'b1);
     check_bit("...so nothing issues", dut.issuing, 1'b0);
     check_bit("...and no CSR write commits", dut.csr_wen, 1'b0);
@@ -476,7 +481,7 @@ module decoder_tb;
     executor_out.valid = 1'b1;
     executor_out.rd = 5'd0;
     present_and_fetch(32'h30200073);
-    check_bit("mret serializes while the pipe is busy", dut.csr_serialize, 1'b1);
+    check_bit("mret serializes while the pipe is busy", dut.serialize, 1'b1);
     check_bit("...so it does not commit yet", mret_entry, 1'b0);
     check_bit("...and it bubbles decoder_out rather than holding it",
               out.valid, 1'b0);
@@ -488,6 +493,80 @@ module decoder_tb;
     @(posedge clk);
     #1;
     check_hex("mret redirects pc to mepc", pc, 32'h0000_0244);
+
+    // ---- the steal, the sixth stall reason (ADR-0059 / ADR-0060) ----------
+    // `addi x1, x0, 1`, issued once so decoder_out holds something a bubble
+    // would visibly destroy.
+    present_and_fetch(32'h00100093);
+    @(posedge clk);
+    #1;
+    check_bit("the instruction issued", out.valid, 1'b1);
+    check_hex("...into decoder_out", {27'b0, out.rd}, 32'd1);
+
+    fetch_stall = 1'b1;
+    #1;
+    check_bit("a stolen fetch window is a stall", dut.stall, 1'b1);
+    check_bit("...so nothing issues", dut.issuing, 1'b0);
+    check_hex("...and the pc holds, so the instruction is presented again",
+              next_pc, pc);
+    check_bit("...and no trap is committed out of the stolen window", trap_entry, 1'b0);
+
+    // The coincidence, both ways round. A freeze holds decoder_out because the
+    // instruction in it has not been consumed; a steal bubbles because there is
+    // nothing to publish. On a cycle with both, holding wins -- bubbling would
+    // drop the held instruction. Nothing but the publish block's arm order
+    // decides this, which is why it is a vector rather than an argument.
+    accessor_stall = 1'b1;
+    #1;
+    @(posedge clk);
+    #1;
+    check_bit("a steal coinciding with an accessor freeze holds decoder_out",
+              out.valid, 1'b1);
+    check_hex("...unchanged", {27'b0, out.rd}, 32'd1);
+    accessor_stall = 1'b0;
+    divider_stall = 1'b1;
+    #1;
+    @(posedge clk);
+    #1;
+    check_bit("...and so does one coinciding with a divide", out.valid, 1'b1);
+    divider_stall = 1'b0;
+    #1;
+    @(posedge clk);
+    #1;
+    check_bit("a steal on its own bubbles decoder_out instead", out.valid, 1'b0);
+    fetch_stall = 1'b0;
+    #1;
+    @(posedge clk);
+    #1;
+    check_bit("...and the same instruction issues once the window is back",
+              out.valid, 1'b1);
+    check_hex("...as itself", {27'b0, out.rd}, 32'd1);
+
+    // ---- fence.i serializes (ADR-0061) -----------------------------------
+    // Text is writable, so a store ahead of a `fence.i` can change the very
+    // words being fetched behind it. Draining the pipe is what puts the older
+    // store's write edge before the fetch address published on `fence.i`'s own
+    // issue edge. `executor_out.valid` stands for that in-flight store, exactly
+    // as it does for the Zicsr vectors above.
+    executor_out.valid = 1'b1;
+    executor_out.rd = 5'd0;
+    present_and_fetch(32'h0000100f);
+    check_bit("fence.i serializes while the pipe is busy", dut.serialize, 1'b1);
+    check_bit("...and that is a stall", dut.stall, 1'b1);
+    check_bit("...so nothing issues", dut.issuing, 1'b0);
+    check_bit("...and it bubbles decoder_out rather than holding it",
+              out.valid, 1'b0);
+    executor_out.valid = 1'b0;
+    #1;
+    check_bit("the drained pipe releases it", dut.pipe_drained, 1'b1);
+    check_bit("...so it issues now", dut.issuing, 1'b1);
+
+    // A plain `fence` has nothing to wait for: one bus, one access in flight.
+    executor_out.valid = 1'b1;
+    in.instr = 32'h0ff0000f;
+    #1;
+    check_bit("a plain fence does not serialize", dut.serialize, 1'b0);
+    executor_out.valid = 1'b0;
 
     if (errors != 0) begin
       $display("FAILED: %0d mismatches", errors);

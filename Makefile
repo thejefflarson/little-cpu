@@ -551,17 +551,18 @@ lint-setup:
 # `check-unit-benches` compares it against `ls test/*_tb.v` in BOTH directions,
 # and the recipe below is DRIVEN by it — so the list cannot be satisfied by
 # adding a name without also giving the bench its sources.
-UNIT_BENCHES := exec_tb mem_tb imem_tb decoder_tb regfile_tb csr_tb monitor_tb
+UNIT_BENCHES := exec_tb mem_tb imem_tb decoder_tb regfile_tb csr_tb accessor_tb monitor_tb
 
 # Per-bench RTL. monitor_tb is not an RTL bench at all: its source is the
 # sanitized monitor, which is why it names a file under test/ rather than rtl/.
-UNIT_BENCH_SRC_exec_tb    := rtl/structs.v rtl/executor.v
-UNIT_BENCH_SRC_mem_tb     := rtl/memory.v
-UNIT_BENCH_SRC_imem_tb    := rtl/imemory.v
-UNIT_BENCH_SRC_decoder_tb := rtl/structs.v rtl/decoder.v
-UNIT_BENCH_SRC_regfile_tb := rtl/regfile.v
-UNIT_BENCH_SRC_csr_tb     := rtl/structs.v rtl/csrs.v
-UNIT_BENCH_SRC_monitor_tb := test/monitor.sim.v
+UNIT_BENCH_SRC_exec_tb     := rtl/structs.v rtl/executor.v
+UNIT_BENCH_SRC_mem_tb      := rtl/memory.v
+UNIT_BENCH_SRC_imem_tb     := rtl/imemory.v
+UNIT_BENCH_SRC_decoder_tb  := rtl/structs.v rtl/decoder.v
+UNIT_BENCH_SRC_regfile_tb  := rtl/regfile.v
+UNIT_BENCH_SRC_csr_tb      := rtl/structs.v rtl/csrs.v
+UNIT_BENCH_SRC_accessor_tb := rtl/structs.v rtl/accessor.v
+UNIT_BENCH_SRC_monitor_tb  := test/monitor.sim.v
 
 # `present` is derived from the tree inside the recipe rather than from a
 # $(wildcard) at parse time: make caches directory contents, and a check whose

@@ -30,6 +30,12 @@ module accessor(
     // fresh instruction would collide over this stage's single output
     // register and the single-port memory bus.
     output logic stalled,
+    // High for the cycle a load's request is on the bus. rtl/imemory.v needs
+    // it to tell a real read from the idle bus, which presents address 0 --
+    // inside the text range, so an unqualified address would steal a fetch
+    // every idle cycle and the core would never run (ADR-0059). Same predicate
+    // as `stalled` above plus the reset term the request block below applies.
+    output logic mem_ren,
     // ADR-0004 hazard scoreboard (ADR-0004): a load's result is a live
     // producer from the moment its request is issued here until write-through
     // makes it visible, which is one cycle later than decoder_out/executor_out
@@ -85,6 +91,7 @@ module accessor(
   logic is_load;
   assign is_load = in_is_lw || in_is_lh || in_is_lhu || in_is_lb || in_is_lbu;
   assign stalled = in_valid && is_load;
+  assign mem_ren = !reset && in_valid && is_load;
   logic is_store;
   assign is_store = in_is_sw || in_is_sh || in_is_sb;
 

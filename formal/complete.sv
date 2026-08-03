@@ -64,6 +64,12 @@ module rvfi_testbench (
   // Unread here, since this environment answers imem_data in the same cycle,
   // but connected rather than left dangling.
   logic [31:0] imem_addr_next;
+  // ADR-0059's steal, tied low: this task walks the ISA against the spec model
+  // and answers `imem_data` in the same cycle from a memory it does not model,
+  // so a steal would only cost retires inside the depth-50 window.
+  // formal/wrapper.v is where the arbiter is transcribed and driven.
+  logic        mem_ren;
+  logic        fetch_stall = 1'b0;
 
   littlecpu wrapper (
     .clk(clk),
@@ -76,7 +82,9 @@ module rvfi_testbench (
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
+    .mem_ren(mem_ren),
     .mem_rdata(mem_rdata),
+    .fetch_stall(fetch_stall),
     .trap(trap),
     `RVFI_CONN
   );

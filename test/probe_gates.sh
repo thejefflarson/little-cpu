@@ -1098,11 +1098,11 @@ probe "control: the declared list matches the tree exactly" 0 \
 
 probe "a bench in test/ that make does not run is named" 2 \
   "in test/ but not in UNIT_BENCHES: monitor_tb" \
-  "$MB UNIT_BENCHES='exec_tb mem_tb imem_tb decoder_tb regfile_tb csr_tb'"
+  "$MB UNIT_BENCHES='exec_tb mem_tb imem_tb decoder_tb regfile_tb csr_tb accessor_tb'"
 
 probe "a declared bench with no file is named the other way" 2 \
   "in UNIT_BENCHES but not in test/: nope_tb" \
-  "$MB UNIT_BENCHES='exec_tb mem_tb imem_tb decoder_tb regfile_tb csr_tb monitor_tb nope_tb'"
+  "$MB UNIT_BENCHES='exec_tb mem_tb imem_tb decoder_tb regfile_tb csr_tb accessor_tb monitor_tb nope_tb'"
 
 probe "a declared bench with no UNIT_BENCH_SRC_* would build with no design under test" 2 \
   "monitor_tb is in UNIT_BENCHES with no UNIT_BENCH_SRC_monitor_tb" \

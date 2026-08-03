@@ -43,7 +43,14 @@ module testbench (
   logic [31:0] mem_addr;
   logic [31:0] mem_wdata;
   logic [3:0]  mem_wstrb;
+  logic        mem_ren;
   logic [31:0] mem_rdata;
+
+  // ADR-0059's steal, tied low: this task is about the data bus, and its fetch
+  // side is free every cycle from a memory it does not model, so a steal would
+  // add stall cycles and no coverage. formal/wrapper.v is where the arbiter is
+  // transcribed and driven.
+  logic        fetch_stall = 1'b0;
 
   // rvfi_dmem_check (riscv-formal, unmodified) already builds its own
   // load-after-store shadow purely from rvfi_mem_*, so it needs no
@@ -126,7 +133,9 @@ module testbench (
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
+    .mem_ren(mem_ren),
     .mem_rdata(mem_rdata),
+    .fetch_stall(fetch_stall),
     .trap(trap),
     `RVFI_CONN
   );

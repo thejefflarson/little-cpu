@@ -38,18 +38,47 @@ module rvfi_wrapper (
   (* keep *) logic [31:0] mem_addr;
   (* keep *) logic [31:0] mem_wdata;
   (* keep *) logic [3:0]  mem_wstrb;
+  (* keep *) logic        mem_ren;
   (* keep *) logic        trap;
+
+  // rtl/imemory.v's arbiter, transcribed: a data access inside the text range
+  // takes the banks' read port for that edge, and the memory reports it as
+  // `fetch_stall` on the cycle whose fetch window it cost (ADR-0059).
+  //
+  // Driven from the core's own bus rather than left free. A free stall input
+  // lets the environment hold the core forever, which is what `hang` and
+  // `liveness_ch0` measure -- the same failure ADR-0042 found when `imem_data`
+  // was left unconstrained.
+  //
+  // The 8 KB bound is rtl/littlesoc.v's `ROM_WORDS = 2048`. Nothing here
+  // depends on the exact size: it decides how often a steal is reachable, not
+  // whether it is.
+  localparam logic [31:0] TEXT_BYTES = 32'h0000_2000;
+  logic text_range, text_access, text_write;
+  assign text_range  = mem_addr < TEXT_BYTES;
+  assign text_access = (mem_ren || |mem_wstrb) && text_range;
+  assign text_write  = |mem_wstrb && text_range;
+
+  (* keep *) logic fetch_stall = 0;
+  logic [1:0] text_write_age = 0;
+  always @(posedge clock) begin
+    fetch_stall    <= !reset && text_access;
+    text_write_age <= {text_write_age[0], !reset && text_write};
+  end
 
   // INSTRUCTION MEMORY IS A FUNCTION OF ITS ADDRESS (ADR-0042, ADR-0017).
   //
   // FACT       instruction memory is a function of its address, across two
-  //            consecutive cycles.
+  //            consecutive cycles, except on the cycle whose fetch window a
+  //            data access took and, after a text store, on the cycle after
+  //            that.
   // DISCHARGED NOWHERE. There is no check anywhere in this repo that asserts
-  //            it. The backing is structural: rtl/imemory.v is a $readmemh ROM
-  //            with no write port, and ADR-0044 keeps the instruction side
-  //            read-only. Believed, not proved -- which is the honest answer
-  //            and, per ADR-0049, an acceptable one.
-  // SCOPE      ALL 82 GENERATED CHECKS. This is an unguarded `assume` in the
+  //            it. The backing is structural: rtl/imemory.v answers both fetch
+  //            ports from one array, and the two exceptions are that array's
+  //            read port being borrowed and its contents changing (ADR-0059).
+  //            Believed, not proved -- which is the honest answer and, per
+  //            ADR-0049, an acceptable one.
+  // SCOPE      ALL 85 GENERATED CHECKS. This is an unguarded `assume` in the
   //            harness every check instantiates, so it is in force over every
   //            insn_*, reg, pc_fwd/pc_bwd, causal*, unique and cover check --
   //            not only the two it was written for (`hang` and `liveness_ch0`,
@@ -89,6 +118,16 @@ module rvfi_wrapper (
   // unbounded array; consecutive-cycle stability is implied by it, is all the
   // operand-fetch cycle actually needs, and leaves the environment free to
   // answer differently for an address revisited later.
+  //
+  // The two exceptions are what writable text costs here (ADR-0057 measured
+  // them at two cycles of ladder depth, which is most of the move from G = 4 to
+  // G = 6). A text access of either kind takes the read port, so the window
+  // presented the next cycle is the data word rather than the ROM's answer; a
+  // text store additionally changes what the ROM answers from the cycle after
+  // that onward, because the array is written on the same edge and the fetch
+  // address is published a cycle early (ADR-0054). Both are dropped compares
+  // rather than modelled values, which is the wide side: an assumption can only
+  // make checks easier, so a depth floor derived under it is the safe one.
   logic [31:0] past_imem_addr, past_imem_data;
   logic [31:0] past_imem_addr2, past_imem_data2;
   logic        past_imem_valid = 0;
@@ -102,7 +141,7 @@ module rvfi_wrapper (
   end
 
   always @* begin
-    if (past_imem_valid && !reset) begin
+    if (past_imem_valid && !reset && !fetch_stall && !text_write_age[1]) begin
       if (imem_addr  == past_imem_addr)  assume (imem_data  == past_imem_data);
       if (imem_addr2 == past_imem_addr2) assume (imem_data2 == past_imem_data2);
     end
@@ -119,7 +158,9 @@ module rvfi_wrapper (
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
+    .mem_ren(mem_ren),
     .mem_rdata(mem_rdata),
+    .fetch_stall(fetch_stall),
     .trap(trap),
     `RVFI_CONN
   );
@@ -140,6 +181,10 @@ module rvfi_wrapper (
   //     exactly the one cycle after a load's request (ADR-0015 invariant
   //     I3 -- the following cycle `in.valid` is guaranteed 0, so `stalled`
   //     falls unconditionally).
+  //   - the instruction memory's steal: `fetch_stall` is a port, but this
+  //     harness computes it from the core's own bus (above) rather than
+  //     letting the environment choose it, so it lasts one cycle per data
+  //     access and cannot be held.
   // There is nothing for this block to assume: littlecpu has no port an
   // adversarial environment could hold to defeat forward progress, so
   // RISCV_FAIRNESS's usual job (bound the stall) has no signal to act on

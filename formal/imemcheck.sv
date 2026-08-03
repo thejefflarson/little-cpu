@@ -50,7 +50,20 @@ module testbench (
   logic [31:0] mem_addr;
   logic [31:0] mem_wdata;
   logic [3:0]  mem_wstrb;
+  logic        mem_ren;
   logic [31:0] mem_rdata;
+
+  // FACT       no data access ever takes the fetch window (ADR-0059's steal).
+  // DISCHARGED formal/wrapper.v, which transcribes rtl/imemory.v's arbiter and
+  //            drives `fetch_stall` from it, so all 85 ladder checks run
+  //            against a stealing memory.
+  // SCOPE      this whole task. It is the same fiction the four assumes below
+  //            already rest on -- a fetch bus that answers combinationally,
+  //            from a memory this task does not model -- and a steal against an
+  //            unmodelled memory would add stall cycles without adding
+  //            coverage. The write path this task needs to observe a text store
+  //            is a separate obligation and is not built yet.
+  logic        fetch_stall = 1'b0;
 
   // FACT       the fetch bus answers from memory: whenever either of the two
   //            fetch ports covers the halfword `checker_inst` has pinned, the
@@ -100,7 +113,9 @@ module testbench (
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
+    .mem_ren(mem_ren),
     .mem_rdata(mem_rdata),
+    .fetch_stall(fetch_stall),
     .trap(trap),
     `RVFI_CONN
   );

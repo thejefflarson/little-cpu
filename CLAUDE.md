@@ -239,6 +239,28 @@ de-interleave the `--rom` image across the two banks. `test/imem_tb.v` joins `ma
 (**seven** benches) and walks every word index at both parities against a **flat** reference, kept
 deliberately independent of the bank split.
 
+**Text is writable, the steal reaches decode, and `fence.i` stopped being free** (ADR-0059,
+ADR-0060, ADR-0061). `rtl/imemory.v` owns the range decode, the write port and the arbitration;
+`rtl/accessor.v` exports `mem_ren` (`!reset && in_valid && is_load`) and `rtl/decoder.v` takes
+`fetch_stall` as the **sixth stall reason** on the existing bubble mechanism — `pc` holds, `out <=
+'0`, no flush, nothing issued. `mem_ren` is not cosmetic: the idle bus presents address 0, which is
+inside the text range, so without it every idle cycle would steal a fetch and the core would never
+run. **`fence.i` now serializes** on invariant 5's drain predicate, because the fetch address is
+published a cycle early (ADR-0054) — a store at cycle D writes the array at edge D+2 while the
+instruction after a `fence.i` at D+1 was fetched at edge D+1, so it would execute stale text after
+`fence.i` retired. All four in-flight slots have to be empty for that argument to hold, and
+`accessor_out.valid` is the slot that carries a store (ADR-0026). **Three ladder depths moved with
+it** — `insn 19`, `ill 19`, `reg 15 22` — off a re-measured **F = 6, G = 4 → 6**, and the ladder's
+wall time roughly doubled. Two things about the change are worth knowing before touching it. The
+**coincidence of `fetch_stall` with a divider or accessor freeze is a ruling, not statement order**:
+holding wins, and it is asserted in two places because reordering two `else if` arms is otherwise
+silent. And **the suite does not exercise any of this end to end**: no program in `test/asm` does a
+text-region data access (`.data` is at `0x10000`, the bench's text ends at `0x4000`), so retire
+counts are identical program by program and the steal never fires there. `formal/wrapper.v` models
+the arbiter and is where the ladder meets it; `imemcheck`/`dmemcheck`/`cover`/`complete` tie
+`fetch_stall` low and say so. `selfmod.S` and `textload.S` are the programs that would close this,
+and they are not written yet.
+
 **Every graded comparison in the grading layer now has a probe of its own red direction, and two of
 them had never been executed** (ADR-0053). Five of this repo's recorded defects were in that layer
 and every one was in a *script*; the class is the comparison whose failure path was never run, and
@@ -581,7 +603,7 @@ signal and is the single entry on the `elaborate` gate's allowlist; everything e
 `Warning:` is promoted to an error there (`.github/workflows/ci.yml`, which cross-references this
 note). It is not zero, and this line said zero until ADR-0037. The
 cxxrtl binary builds and runs, the whole `.S` suite passes under it with `test/EXPECTED_FAIL`
-empty, `make test-units` passes (**seven** benches since ADR-0054 added `imem_tb`: `exec_tb` —
+empty, `make test-units` passes (**eight** benches since ADR-0060 added `accessor_tb`: `exec_tb` —
 10,000 randomized differential vectors
 per op across `mul`/`mulh`/`mulhu`/`mulhsu`/`div`/`divu`/`rem`/`remu`/`sll`/`srl`/`sra` **and**
 `add`/`sub` — the latter pair closing the bench's own blind spot on the simplest ALU op — plus 384
@@ -599,7 +621,9 @@ where the first two used to print `PASSED` and exit 0 — `mem_tb`,
 `regfile_tb` — which covers the write-through bypass and x0 semantics — `csr_tb`, which covers
 `rtl/csrs.v`'s read mux, its `implemented` address set, its WARL masks and its trap-entry/`mret`
 port, `imem_tb`, which walks rtl/imemory.v's bank select at every word index and both parities
-against a flat reference plus its range decode (ADR-0054), and `monitor_tb`, which checks the oracle
+against a flat reference plus its range decode (ADR-0054), `accessor_tb`, which exists for the one
+signal nothing else can see stuck low — `mem_ren`, the read enable the memory's arbiter keys on
+(ADR-0060) — and `monitor_tb`, which checks the oracle
 itself rather than the core), and **all three**
 component proofs — decoder, executor and `pcloop` — pass by k-induction (`mode prove`; re-run and
 read off each `sby` summary, not inferred from a green job. See ADR-0017 for what the decoder proof
@@ -712,7 +736,12 @@ These are the design. Violating one is a bug even if tests pass.
    reaching writeback, which gates `wen` and drives `rvfi_valid`.
 4. **Hazards are handled by stall-only interlock in decode.** No forwarding network. Adding one is
    a CPI-only optimization and requires a new ADR.
-5. **CSR instructions and `mret` serialize** — held in decode until execute/access/writeback drain.
+5. **CSR instructions, `mret` and `fence.i` serialize** — held in decode until execute/access/
+   writeback drain. The first two serialize so a one-cycle-wide architectural update cannot
+   interleave with instructions that issued before it. `fence.i` serializes for a different reason
+   (ADR-0061): text is writable and the fetch address is published a cycle early, so ordering a
+   store against the fetches behind it needs the older store's write edge to have passed before
+   `fence.i` issues. Same mechanism, two reasons; do not collapse them.
 6. **The regfile read is synchronous and takes one cycle** (ADR-0042). Decode observes, in the
    cycle it issues, the architectural value of rs1/rs2 **including a writeback committed in that
    same cycle** — two forwarding points in fabric (write-first into the read register, then the
@@ -721,16 +750,22 @@ These are the design. Violating one is a bug even if tests pass.
    forwarding path for the writeback slot. The flip-flop array that used to make the read
    combinational was one implementation of that contract, not the contract.
 7. **`test/monitor.v` is generated but tracked.** Regenerate it; never hand-edit it.
-8. **Stalls are a single global broadcast: five reasons over two mechanisms** (ADR-0026 amending
-   ADR-0009; ADR-0042 adding the fifth). The reasons are the decode scoreboard, the divider, the
-   accessor's one-cycle load-response turnaround (ADR-0015), CSR serialization (invariant 5), and
-   the operand-fetch cycle (invariant 9) — which bubbles, exactly like a RAW hazard, and adds no
+8. **Stalls are a single global broadcast: six reasons over two mechanisms** (ADR-0026 amending
+   ADR-0009; ADR-0042 adding the fifth, ADR-0060 the sixth). The reasons are the decode scoreboard,
+   the divider, the accessor's one-cycle load-response turnaround (ADR-0015), serialization
+   (invariant 5), the operand-fetch cycle (invariant 9), and the instruction memory's stolen fetch
+   window (`fetch_stall`, ADR-0059) — the last two bubble, exactly like a RAW hazard, and add no
    third mechanism. The **mechanisms** are
    what actually matters, and three non-local rules hold them together, each breakable silently:
    (a) while `divider_stall` or `accessor_stall` is asserted, decode **holds** `decoder_out`
    unchanged rather than bubbling it, and nothing downstream may consume it that cycle; a RAW
-   hazard **bubbles** instead, and so does CSR serialization — the CSR instruction has not issued
-   yet, so it folds into the existing `hazard` term rather than becoming new machinery. (b) Every
+   hazard **bubbles** instead, and so do serialization and `fetch_stall` — neither instruction has
+   issued, so they fold into the existing `hazard`/bubble arm rather than becoming new machinery.
+   **A `fetch_stall` coinciding with either freeze HOLDS**: the freeze is about an instruction
+   already in `decoder_out` that nothing has consumed, and bubbling would drop it. That is a ruling
+   (ADR-0060), enforced only by the publish block's arm order, so it is asserted in
+   `rtl/decoder.v`'s `FORMAL` block and driven as a vector in `test/decoder_tb.v` — reordering two
+   `else if` arms is otherwise silent. (b) Every
    in-flight non-`x0` `rd` is visible to the scoreboard on every cycle between issue and the
    regfile write-through, with no gap: `decoder_out` → `executor_out` → `accessor_pending` (loads
    only) → write-through. (c) The serialization drain predicate reads **four** slots, not the
@@ -749,11 +784,15 @@ These are the design. Violating one is a bug even if tests pass.
 ## ISA target
 
 RV32IMC_Zicsr_Zifencei, M-mode only. `misa = 0x4000_1104` — neither Zicsr nor Zifencei has a
-`misa` bit, so the ISA string is the only place either is claimed. Zifencei is claimed because the
-core already implements it correctly and for free: one hart, no icache, so a conformant `fence.i`
-is a NOP, which is what `rtl/decoder.v` already does. Before ADR-0002 was amended the string did
-NOT claim it while the decoder accepted it anyway — silently permissive, and the one combination
-that was wrong.
+`misa` bit, so the ISA string is the only place either is claimed. **Zifencei costs a pipeline
+drain** (ADR-0061): `fence.i` serializes on invariant 5's predicate, because text is writable
+(ADR-0059) and the fetch address is published a cycle early (ADR-0054), so a store at cycle D writes
+the array at edge D+2 while the instruction after a `fence.i` at D+1 was fetched at edge D+1. This
+section said it was correct **and free** — one hart, no icache, so a conformant `fence.i` is a NOP —
+and that was a property of ADR-0008's split buses rather than of the core. The cache half is still
+free; the ordering half never was, it was merely unreachable. Before ADR-0002 was amended the string
+did NOT claim Zifencei while the decoder accepted it anyway — silently permissive, and the one
+combination that was wrong.
 
 **Conformance is not negotiable against minimality.** Every CSR the privileged spec lists
 unconditionally for RV32 machine mode is implemented; a core that traps on a mandatory register is
@@ -1010,11 +1049,13 @@ term 6 is open.** Read each term's own text, not this sentence:
    closed it again**, which is the more useful thing to know about it: the depths those 82 checks run
    at were derived against a pipeline two changes old, and a depth below its floor goes green having
    stopped asking. They are re-derived now, and the derivation is *measured* — `hang` gives the
-   worst-case first retire (F = 6), `liveness` the worst-case retire gap (G = 4), both in seconds,
-   both re-runnable. No depth moved. `insn 15` and `reg 15 20` clear their floors by **one cycle**,
-   so **any change that adds a stall reason, lengthens a stage, or widens the scoreboard past its
-   three fixed slots must re-measure F and G before it lands.** Two of the last three such changes
-   did not.
+   worst-case first retire (F = 6), `liveness` the worst-case retire gap (G = 6 since ADR-0060; it
+   was 4), both in seconds, both re-runnable. **Three depths moved with the sixth stall reason** —
+   `insn 15 → 19`, `ill 15 → 19`, `reg 15 20 → 15 22` (ADR-0057 predicted them, ADR-0060 re-measured
+   them against the shipping RTL) — and `insn 19` and `reg 15 22` still clear their floors by
+   **one cycle**, so **any change that adds a stall reason, lengthens a stage, or widens the
+   scoreboard past its three fixed slots must re-measure F and G before it lands.** Two of the last
+   four such changes did not; the ladder's wall time roughly doubled paying for this one.
 2. **The mul/div checks run without `RISCV_FORMAL_ALTOPS`**, or ADR-0010's gap is closed by a named
    oracle that does. `insn_mul`/`insn_div`/`insn_rem` passing still says nothing whatever about the
    real multiplier or divider. **ADR-0045 closed this on the "or" clause by naming

@@ -20,6 +20,12 @@ module testbench (
   // `imem_addr` in the same cycle -- but connected rather than left dangling,
   // so every instantiation of the core names every port.
   logic [31:0] imem_addr_next;
+  // ADR-0059's steal, tied low: this environment answers `imem_data` freely
+  // against `imem_addr` in the same cycle and models no memory, so a steal
+  // would only push the five goals further out. formal/wrapper.v is where the
+  // arbiter is transcribed and driven.
+  logic        mem_ren;
+  logic        fetch_stall = 1'b0;
 
   littlecpu uut (
     .clk(clk),
@@ -32,7 +38,9 @@ module testbench (
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
+    .mem_ren(mem_ren),
     .mem_rdata(mem_rdata),
+    .fetch_stall(fetch_stall),
     .trap(trap),
     `RVFI_CONN
   );
