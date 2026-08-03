@@ -5,14 +5,15 @@
 #
 # Usage: run_cosim.sh <cosim-binary> <asm-dir> <expected-fail-file> <manifest>
 #
-# Deliberately NOT on `make test`'s path and not in CI's required set: it needs
-# a Sail install that `make test` must keep working without (ADR-0032). It is
-# the only oracle here that reads the real register array rather than the core's
-# RVFI self-report, so a change to rtl/regfile.v gates on it by carrying its
-# output in the pull request.
+# Deliberately NOT on `make test`'s path and not in the set CI requires: it needs
+# a Sail install, and the merge gate has to keep working on machines without one.
+# It is also the only oracle here that reads the core's real register array
+# instead of the core's own report of what it retired, so a change to
+# rtl/regfile.v is checked against it by carrying this output in the pull
+# request rather than by a gate.
 #
-# The guards below are run_tests.sh's, against the same false green, and are
-# probed from test/probe_gates.sh.
+# The guards below are run_tests.sh's, against the same false green: a run that
+# reports success having compared nothing.
 set -euo pipefail
 
 if [ "$#" -ne 4 ]; then
@@ -38,9 +39,8 @@ if [ ! -x "$COSIM_PY" ]; then
   exit 1
 fi
 
-# `NF` must gate the rebuild rather than follow it: awk forces NF to 1 when $1
-# is assigned, so `{$1=$1} NF` would resurrect blank and comment-only lines as
-# empty entries. Same idiom, same reason, as test/run_tests.sh.
+# `NF` has to come before the rebuild, not after. Assigning to $1 sets NF to 1,
+# so `{$1=$1} NF` would bring every blank and comment line back as an entry.
 expected_sorted=$(sed -e 's/#.*//' "$EXPECTED_FAIL" | awk 'NF { $1=$1; print }' | sort)
 
 malformed=$(printf '%s\n' "$expected_sorted" | awk 'NF == 1 {print}')

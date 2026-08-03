@@ -113,10 +113,10 @@ exit ${STUB_CC_EXIT:-0}
 STUB
   cat > "$bin/riscv64-elf-objcopy" <<'STUB'
 #!/bin/sh
-# The last argument is the output image (run_tests.sh and cosim.py both call it
-# that way). STUB_OBJCOPY_FAIL is a full disk or a binutils without
-# --verilog-data-width; STUB_OBJCOPY_EMPTY is the quiet one ADR-0035 names --
-# exit 0 with no bytes, which parses fine and makes `tohost` read zero.
+# The last argument is the output image; run_tests.sh and cosim.py both call it
+# that way. STUB_OBJCOPY_FAIL stands in for a full disk or a binutils too old for
+# --verilog-data-width. STUB_OBJCOPY_EMPTY is the quiet one: exit 0 having
+# written nothing, which still parses and makes `tohost` read zero.
 for out; do :; done
 if [ -n "${STUB_OBJCOPY_FAIL:-}" ]; then
   echo "stub objcopy: refusing" >&2

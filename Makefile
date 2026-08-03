@@ -7,11 +7,11 @@ RISCV_FORMAL_MACROS := RISCV_FORMAL RISCV_FORMAL_COMPRESSED RISCV_FORMAL_ALIGNED
 rvfi_macros.vh: $(RISCV_FORMAL_DIR)/checks/rvfi_macros.py
 	python3 $^ > $@
 
-# The RTL both sim legs elaborate, named once. Do not spell this list out
-# anywhere else: ci.yml's `elaborate` job carried a fourth copy, it went stale
-# the moment rtl/imemory.v and rtl/memory.v landed, and the gate spent a run
-# elaborating a testbench whose memory instances resolved to nothing. That job
-# calls `make elaborate-strict` below, so there is one copy to update.
+# Both sim legs build from this list. Do not copy it anywhere else — a second
+# copy goes stale and the gate then checks a different design than it says it
+# does. The CI job had one; it missed rtl/imemory.v and rtl/memory.v when they
+# landed, and spent a run elaborating a testbench whose memories were not there.
+# That job calls `make elaborate-strict` now, so there is one list to update.
 SIM_RTL_SRCS := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v \
                 rtl/fetcher.v rtl/imemory.v rtl/memory.v rtl/regfile.v rtl/writeback.v \
                 rtl/littlecpu.v
@@ -29,9 +29,10 @@ sim: test/cxxrtl.cc test/rtl.cc
 	clang++ -O2 -DNDEBUG -std=c++17 -Wall -Wextra -Werror \
 	  -isystem $$(yosys-config --datdir)/include/backends/cxxrtl/runtime $< -o $@
 
-# Sail co-simulation is deliberately opt-in: nothing from here to `cosim-suite`
-# is reachable from `make test`, `make test-units` or CI's required set, so that
-# `make test` keeps working on a machine with no Sail installed (ADR-0032).
+# Sail co-simulation is opt-in. Nothing from here down to `cosim-suite` is
+# reachable from `make test` or `make test-units`. Keep it that way: the runner
+# stops with an error when Sail is not installed, so making any of this a
+# prerequisite would break the merge gate on every machine without it.
 ifneq ($(filter command line environment,$(origin SAIL_RISCV_VERSION)),)
 $(error SAIL_RISCV_VERSION cannot be set from the command line or the \
   environment: it pins bytes this repo executes. Change it in the Makefile, \
@@ -44,9 +45,9 @@ $(error SAIL_RISCV_VERSION must be a three-part release version like 0.13.1, \
   not a branch, a moving tag or a range: '$(SAIL_RISCV_VERSION)')
 endif
 
-# Prebuilt binaries because building from source needs opam, OCaml and the Sail
-# compiler: there is no `brew install sail-riscv`, and homebrew's `sail` formula
-# is an unrelated WordPress deploy tool.
+# Prebuilt binaries. Building from source needs opam, OCaml and the Sail
+# compiler. There is no `brew install sail-riscv`; homebrew's `sail` is an
+# unrelated WordPress tool.
 SAIL_SHA256_sail-riscv-Mac-arm64     := 53d0c6fd84edd898728e7ba01c1575e66e5f17efd098847c5273690abbbd0737
 SAIL_SHA256_sail-riscv-Linux-x86_64  := ee052f64494a2f5f071afd9c2cb4aa5eaae4ba84753e4f77e442b4f83f2e9469
 SAIL_SHA256_sail-riscv-Linux-aarch64 := 3cd33a323d6749aec4667e54f71d2bf8e8e6e220a4e4bafd9083440f9a7e55f0
@@ -63,8 +64,8 @@ SAIL_SHA256    := $(SAIL_SHA256_$(SAIL_ASSET))
 SAIL_STAMP := $(SAIL_RISCV_DIR)/.sail-pin
 SAIL_PIN   := $(SAIL_RISCV_VERSION) $(SAIL_ASSET) $(SAIL_SHA256)
 
-# Scoped to the goals that actually run the binary: a stale tools/sail that
-# could fail `make test` would make co-simulation a gate by the back door.
+# Only for the goals that run the binary. If this check could stop `make test`,
+# an out-of-date tools/sail would break the merge gate for everyone.
 ifneq ($(filter cosim-run cosim-suite,$(MAKECMDGOALS)),)
 ifneq ($(wildcard $(SAIL_SIM_BIN)),)
 SAIL_PIN_ON_DISK := $(shell sed -n 1p $(SAIL_STAMP) 2>/dev/null)
@@ -159,21 +160,22 @@ cosim-run: cosim
 cosim-suite: cosim
 	./test/run_cosim.sh ./cosim test/asm test/COSIM_EXPECTED_FAIL test/OBSERVED_FLOOR
 
-# Both sim legs read this derived file, so changing a sanitizer rule changes the
-# oracle rather than fixing an elaboration problem (ADR-0019).
+# Both sim legs check every retired instruction against this file. A rule in
+# test/sanitize_monitor.py therefore decides what counts as a correct result.
+# Changing one changes what the tests mean. It is not an elaboration fix.
 test/monitor.sim.v: test/monitor.v test/sanitize_monitor.py
 	python3 test/sanitize_monitor.py $< > $@
 
 test/rtl.cc: $(SIM_RTL_SRCS) rvfi_macros.vh test/testbench.v test/monitor.sim.v
 	yosys -p 'read_verilog -sv $(addprefix -D ,$(RISCV_FORMAL_MACROS)) $^; hierarchy -top testbench; write_cxxrtl $@'
 
-# `check` is what reports an undriven wire; the test/rtl.cc recipe above
-# elaborates one with no diagnostic and exit 0.
+# `check` is what reports a wire nothing drives. The test/rtl.cc recipe above
+# builds one of those quietly and exits 0.
 ELABORATE_STRICT_OUT ?= /tmp/elaborate-strict.cc
 
-# Keep the yosys script on one physical line. A backslash-continuation inside
-# the single quotes is not removed by the shell, so yosys reads the backslash
-# as a command and dies with "No such command: \".
+# Keep the yosys script on one line. A line split with a backslash inside single
+# quotes stays literal, so yosys reads the backslash as a command and dies with
+# "No such command: \". It works with the make on macOS and fails on the runner.
 .PHONY: elaborate-strict
 elaborate-strict: $(SIM_RTL_SRCS) test/testbench.v
 	yosys -p 'read_verilog -sv $(SIM_RTL_SRCS) test/testbench.v; hierarchy -top testbench; proc; opt_clean; check; write_cxxrtl $(ELABORATE_STRICT_OUT)'
@@ -182,9 +184,11 @@ elaborate-strict: $(SIM_RTL_SRCS) test/testbench.v
 # own CWD.
 MONITOR_GEN = cd $(RISCV_FORMAL_DIR)/monitor && python3 generate.py -i rv32imc -c 1 -a -p monitor
 
-# The clone is order-only on purpose. A directory's mtime bumps on any write
-# inside it, so a normal prerequisite would have routine builds overwriting this
-# tracked file (invariant 7) at unpredictable moments.
+# The clone is an order-only prerequisite, after the `|`. A directory's
+# timestamp changes whenever anything is written inside it, so as a normal
+# prerequisite it would go out of date on unrelated work. This file is checked
+# in, so that means builds rewriting it and the diff showing up in someone
+# else's commit.
 test/monitor.v: $(RISCV_FORMAL_DIR)/monitor/generate.py formal/pin.mk | $(RISCV_FORMAL_DIR)
 	$(MONITOR_GEN) > $(CURDIR)/$@
 
@@ -223,9 +227,9 @@ $(error SVLINT_VERSION must be a three-part release version like 0.9.5, not a \
   branch, a moving tag or a range: '$(SVLINT_VERSION)')
 endif
 
-# Do not interpolate $(SVLINT_VERSION) into these names. Spelling it out is what
-# makes bumping the version without re-pinning resolve the lookup to empty, so
-# `lint-setup` refuses to fetch instead of carrying a stale digest forward.
+# Do not put $(SVLINT_VERSION) in these names. Spelling the version out is what
+# makes the lookup below come back empty when someone bumps the version and
+# forgets the digests, so `lint-setup` refuses to download anything.
 SVLINT_SHA256_svlint-v0.9.5-x86_64-lnx  := 0bbb3850b8ef604d7ccf25c2b0d2a751154ac2e18b2a12753ae1648f237a8ceb
 SVLINT_SHA256_svlint-v0.9.5-x86_64-mac  := 53838f356862b6492777347999ccf44c1b44bc78f51cb032759b9e17bd213519
 SVLINT_SHA256_svlint-v0.9.5-aarch64-mac := d032be600f0ee04130e0663daa05da3cc562d3d34bbc4305d6b70cb99310c6df
@@ -240,10 +244,10 @@ SVLINT_SHA256 := $(SVLINT_SHA256_$(SVLINT_ASSET))
 
 SVLINT ?= $(shell command -v svlint 2>/dev/null || echo ./$(SVLINT_DIR)/bin/svlint)
 
-# `-i rtl` is required, not decorative: svlint resolves `include "structs.v"`
-# through the include path only. Both passes below are load-bearing too — a
-# fifth of rtl/ sits behind `ifdef RISCV_FORMAL`, and svlint's preprocessor
-# drops those blocks unless the macros are defined.
+# `-i rtl` is required. svlint looks up `include "structs.v"` on the include path
+# and nowhere else, so without it nothing parses. The two passes below both
+# matter as well: about a fifth of rtl/ is inside `ifdef RISCV_FORMAL`, and
+# svlint skips those lines unless the macros are defined.
 SVLINT_FLAGS := -c .svlint.toml -i rtl $(if $(GITHUB_ACTIONS),--github-actions,-1)
 
 .PHONY: lint
@@ -313,13 +317,13 @@ UNIT_BENCH_SRC_csr_tb      := rtl/structs.v rtl/csrs.v
 UNIT_BENCH_SRC_accessor_tb := rtl/structs.v rtl/accessor.v
 UNIT_BENCH_SRC_monitor_tb  := test/monitor.sim.v
 
-# `present` is derived inside the recipe, not from a $(wildcard) at parse time:
-# make caches directory contents, and a check whose idea of what is on disk can
-# be stale is a check that can be wrong in the direction that matters.
+# `present` is read from disk inside the recipe, not with $(wildcard). Make reads
+# a directory once and remembers it, and a check working from a stale listing can
+# miss a bench that is really there.
 #
 # `set -e` comes first here and in `test-units`, before mktemp and before the
-# trap. The other order installed the trap on an unchecked $$tmp: a failed
-# mktemp left it empty and every path collapsed to the filesystem root.
+# trap. The other way round, a failed mktemp left $$tmp empty, the trap was set
+# on nothing, and every path below turned into a path at the root of the disk.
 .PHONY: check-unit-benches
 check-unit-benches:
 	@set -e; \
@@ -363,9 +367,10 @@ test-units: check-unit-benches test/monitor.sim.v
 	  vvp $$tmp/$(b).vvp; ) \
 	true
 
-# A prerequisite of `test` rather than a target of its own, so it runs inside
-# CI's required job with no workflow change. It needs no toolchain, no Sail, no
-# yosys and no sby, so it cannot narrow where `make test` runs (ADR-0053).
+# Hangs off `test` rather than standing alone, so it runs in the job CI already
+# requires and nobody has to add a step for it. It needs no cross compiler, no
+# Sail, no yosys and no sby, so it does not stop `make test` running anywhere it
+# ran before.
 .PHONY: probe-gates
 probe-gates:
 	@./test/probe_gates.sh
@@ -374,15 +379,16 @@ probe-gates:
 test: sim test-units probe-gates
 	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
-# Area is counted in nextpnr logic cells, never yosys cell counts: a DFF whose D
-# input is not its co-located LUT's output takes a whole cell on its own, and
-# over a thousand of this design's cells are exactly that. Two planning
-# estimates were wrong in opposite directions from counting `SB_LUT4`.
+# Count logic cells from nextpnr, never cell counts from yosys. A flip-flop that
+# cannot share a cell with the LUT feeding it takes a whole cell by itself, and
+# over a thousand of this design's cells are like that. Counting `SB_LUT4`
+# instead gave two planning estimates that were wrong in opposite directions.
 #
-# Do not try to make the placement succeed. This top presents 231 `SB_IO`
-# against sg48's 39, so nextpnr always errors on a pad — after printing the
-# utilisation table, which is the measurement. Placing it needs a real pinout,
-# which means the SoC memory system (ADR-0038).
+# Placement always fails here, and that is fine. This top has its memories
+# outside the chip, so it needs far more pins than the sg48 package has and
+# nextpnr gives up on one. It prints the utilisation table before it gets that
+# far, and that table is the number we want. Making it place would mean picking
+# real pins, which means building the SoC memory first.
 FIT_SRCS := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v \
             rtl/fetcher.v rtl/regfile.v rtl/writeback.v rtl/littlecpu.v
 
@@ -391,10 +397,10 @@ fit.json: $(FIT_SRCS)
 	@yosys -p 'read_verilog -sv $^; synth_ice40 -dsp -top littlecpu -json $@' \
 	  > fit.synth.log 2>&1 || { tail -40 fit.synth.log; exit 1; }
 
-# Deliberately not the measurement (3899 cells locally): edits that synthesise
-# to identical hardware move it by tens of cells, and the pinned CI toolchain
-# reads ~21 higher than a local one, so 4100 keeps headroom over both. Raising
-# this to clear a red is how a ratchet becomes a rubber stamp.
+# Set above the measurement, which is 3899 cells here. The number moves by tens
+# of cells on edits that build the same hardware, and CI's yosys reads about 21
+# higher than a local one, so the budget has to leave room for both. If this goes
+# red, find out what grew. Raising it to make it pass defeats the point.
 FIT_MAX_LC := 4100
 
 .PHONY: fit
@@ -403,11 +409,10 @@ fit: fit.json
 	  > fit.log 2>&1 || true
 	@python3 soc/fit_report.py fit.log --max-lc $(FIT_MAX_LC)
 
-# A different design from `make fit`'s, whose numbers must not be merged with
-# these: this is the core plus a block-RAM ROM, an SPRAM data RAM and four pins,
-# so its logic-cell count includes the ROM's depth mux, the RAM's range decode
-# and the LED taps. Unlike `fit` it must place, because `icetime` reads an
-# `.asc` (ADR-0054).
+# This builds `littlesoc`, not the `littlecpu` that `make fit` measures. It
+# includes the ROM and the data RAM, so its cell count is bigger and the two
+# numbers are not comparable. This one also has to place, because icetime reads
+# the `.asc` file that only a finished placement writes.
 SOC_PROG      ?= add.S
 SOC_ROM_WORDS := 2048
 # Exact rather than budgeted the way FIT_MAX_LC is, because both are properties
@@ -466,8 +471,8 @@ soc.json: $(SOC_SRCS) soc-rom
 # at all because the design is 6% slow. `.DELETE_ON_ERROR` is why the `||` is
 # needed rather than merely tidy — without it make deletes that `.asc`.
 #
-# `SOC_SEED=<n>` places the same netlist differently. One placement is a sample:
-# unmodified `main` spans 87.43-88.51 ns over four of them (ADR-0058).
+# `SOC_SEED=<n>` places the same design differently. One placement is a sample,
+# not a measurement — compare a few seeds before believing a change helped.
 SOC_SEED ?=
 
 soc.asc: soc.json soc/littlesoc.pcf
@@ -488,11 +493,11 @@ soc.asc: soc.json soc/littlesoc.pcf
 	  exit 1; \
 	}
 
-# A regression floor below the measurement, not ADR-0038's declared 12 MHz: the
-# design measures 11.30 MHz, and the churn axis here is ~3.6% — two logically
-# identical spellings of a module NOT on the critical path give 88.51 ns and
-# 91.67 ns, because placement redistributes. Closing the gap to 12 MHz is a
-# design decision, not something to buy by editing this line.
+# A floor to catch regressions, deliberately set below what the design measures.
+# It is not the 12 MHz target. The measured number moves by a few percent on
+# edits that change no hardware, because the placer lays everything out again,
+# so a floor at the current measurement would go red for no reason. Getting to
+# 12 MHz means shortening the fetch-to-next-PC path. Do not buy it here.
 SOC_MIN_MHZ := 10.0
 
 .PHONY: soc-timing

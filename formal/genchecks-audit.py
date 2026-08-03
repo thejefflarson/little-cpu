@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
 #
-# Generates the riscv-formal ladder and asserts its shape. Run from formal/,
-# exactly like `python3 genchecks-local.py`, which it replaces.
+# Generates the riscv-formal ladder and checks which checks came out of it. Run
+# from formal/, the same way `python3 genchecks-local.py` was.
 #
-# `checks.cfg`'s `[depth]` section reads as a tuning table but is the list of
-# checks that EXIST: both of genchecks' call sites end with
+# The `[depth]` section of checks.cfg looks like a tuning table. It is really the
+# list of checks that exist. Both call sites in genchecks end with
 #
 #     if depth_cfg is None: return
 #
-# so a check with no `[depth]` line is not generated at all -- no `.sby`, no
-# warning, exit 0 -- and is then absent from the results and from EXPECTED_FAIL
-# at once, which that file's set equality calls a clean match (ADR-0033).
+# so a check with no depth line is never generated: no `.sby`, no warning, exit
+# 0. It then disappears from the results and from EXPECTED_FAIL together, and
+# comparing failures alone sees nothing wrong.
 #
-# The trace is not a second copy of genchecks' naming logic: `genchecks-local.py`
-# must stay byte-comparable with the pin (ADR-0031), so it cannot be
-# instrumented. `sys.settrace` records each `get_depth_cfg` call's `patterns`
-# and whether it returned None, and the last pattern is the check name.
+# The trace below is not a second copy of the naming logic. genchecks-local.py
+# has to stay a byte-for-byte copy of the upstream file except for two lines, so
+# it cannot be edited to report anything. Instead `sys.settrace` watches each
+# `get_depth_cfg` call and records its `patterns` argument and whether it
+# returned None. The last pattern is the check name.
 #
-# That assumption is checked, not trusted: the traced names must equal genchecks'
-# own bookkeeping AND the .sby files on disk, so a pin that changes how a name is
-# built fails here instead of reporting a wrong inventory.
+# main() then checks that guess rather than trusting it, against genchecks' own
+# lists and against the `.sby` files on disk.
 
 import os
 import re
@@ -38,8 +38,8 @@ OMIT_RE = re.compile(r"^#omit\s+(\S+)\s+(\S.*)$")
 
 
 def read_name_list(path):
-    """One name per line; `#` comments and blank lines ignored, as
-    formal/EXPECTED_FAIL and test/EXPECTED_FAIL already do."""
+    """One name per line. `#` comments and blank lines are ignored, the same way
+    formal/EXPECTED_FAIL and test/EXPECTED_FAIL allow them."""
     names = []
     with open(path) as f:
         for line in f:
@@ -60,7 +60,7 @@ def read_omit_decls(path):
 
 
 def report_set_diff(label, expected, actual, expected_label, actual_label):
-    """Both directions, ADR-0014's contract. Returns True on mismatch."""
+    """Compare both ways round. Returns True on mismatch."""
     missing = sorted(expected - actual)
     extra = sorted(actual - expected)
     if not missing and not extra:

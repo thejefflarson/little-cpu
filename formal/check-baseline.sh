@@ -1,20 +1,22 @@
 #!/bin/bash
-# The riscv-formal ladder's gate: the generated check set must equal
-# formal/EXPECTED_CHECKS, and the not-PASS set must equal formal/EXPECTED_FAIL,
-# both by set equality in both directions.
+# Checks the ladder two ways: the checks that were generated must match
+# formal/EXPECTED_CHECKS, and the ones that did not pass must match
+# formal/EXPECTED_FAIL. Both comparisons run in both directions, so a check that
+# starts passing fails this too, until someone moves its line.
 #
-# The check set is asserted because checks.cfg's [depth] table is the list of
-# checks that EXIST — genchecks silently skips a check with no depth line — so
-# a lost line drops a check from the results and from EXPECTED_FAIL at once, and
-# the verdict comparison alone calls that a clean match.
+# The first comparison is there because the [depth] table in checks.cfg is what
+# decides which checks exist. Delete a line and that check is never generated, so
+# it vanishes from the results and from EXPECTED_FAIL at the same time, and
+# comparing failures alone sees nothing wrong.
 #
-# The status is compared, not just the name, because ERROR is a broken harness
-# where FAIL is a failed property. On a machine without `btorsim` every red
-# check flips FAIL -> ERROR and a name-only equality still matches (ADR-0036).
+# The status is compared as well as the name. FAIL means the check ran and the
+# property did not hold. ERROR means sby did not get that far. Those need
+# different fixes, so the gate should not treat them as the same red.
 #
-# Nothing here is a verdict about the core: every check is `mode bmc` under
-# RISCV_FORMAL_ALTOPS, so a passing insn_mul says nothing about the real
-# multiplier (ADR-0010).
+# None of this says the core is correct. Every check searches to a fixed depth,
+# so passing means no counterexample was found that shallow. The ladder also
+# defines RISCV_FORMAL_ALTOPS, which replaces multiply and divide with simpler
+# stand-ins, so insn_mul passing says nothing about the real multiplier.
 #
 # Usage: check-baseline.sh <checks-dir> <expected-fail-file> [expected-checks-file]
 set -u
@@ -44,9 +46,8 @@ for f in "$EXPECTED_FAIL" "$EXPECTED_CHECKS"; do
   fi
 done
 
-# `NF` must gate the rebuild rather than follow it: awk forces NF to 1 when $1
-# is assigned, so `{$1=$1} NF` would resurrect every blank and comment-only line
-# as an entry. Same idiom, same reason, as test/run_tests.sh.
+# `NF` has to come before the rebuild, not after. Assigning to $1 sets NF to 1,
+# so `{$1=$1} NF` would bring every blank and comment line back as an entry.
 strip() {
   sed -e 's/#.*//' "$1" | awk 'NF { $1 = $1; print }' | sort
 }
@@ -65,9 +66,10 @@ known_status() {
 }
 
 # The strictly smaller set EXPECTED_FAIL may carry. ERROR and NO-STATUS mean the
-# harness broke rather than the property failing, so baselining one would
-# re-create the btorsim hole with this gate's blessing on it. TIMEOUT and
-# UNKNOWN are budget exhaustion, which is a real verdict, so they are accepted.
+# harness broke rather than a property failing, and a baseline line saying "this
+# check is expected to not run" would make a missing solver look like a known
+# result forever. TIMEOUT and UNKNOWN are a real verdict about a check that did
+# not converge in its budget, so those are accepted.
 baselineable_status() {
   case $1 in
     FAIL | TIMEOUT | UNKNOWN) return 0 ;;

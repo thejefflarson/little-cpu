@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Derive test/monitor.sim.v from the tracked, generated test/monitor.v.
 
-test/monitor.v is riscv-formal's `monitor/generate.py` output at the pinned SHA
-(formal/pin.mk). It is tracked but never hand-edited (CLAUDE.md invariant 7);
-defects in it are repaired here, at build time, in a gitignored derivative that
-BOTH sim legs read -- so the two legs cannot drift into checking different specs
-(ADR-0019).
+test/monitor.v is riscv-formal's `monitor/generate.py` output at the SHA pinned
+in formal/pin.mk. Do not edit it by hand. `make monitor-check` regenerates it
+into a temp file and diffs, so a hand edit shows up there as a failure, and the
+`test/monitor.v` rule overwrites it. Fix it here instead: this script rewrites it
+at build time into a gitignored copy that both sim legs read, so the two legs
+cannot end up checking different rules.
 
 This used to be a two-rule `sed` chain in the root Makefile. It moved into a
 script when the third rule arrived, because that one is a structural insert
@@ -45,49 +46,52 @@ TIME_IN_DISPLAY = (
 # branch of a conditional whose other branches are unsigned, and per IEEE 1800
 # sign-context rules that makes the division evaluate UNSIGNED -- silently, and
 # for negative operands only. `$signed()` makes it self-determined so the
-# enclosing conditional cannot downgrade it (ADR-0019).
+# enclosing conditional cannot downgrade it.
 UNSIGNED_SIGNED_DIVREM = (
     re.compile(r'\$signed\((rvfi_rs1_rdata)\) ([/%]) \$signed\((rvfi_rs2_rdata)\);'),
     r'$signed($signed(\1) \2 $signed(\3));',
     2,
 )
 
-# Rule 3. On a trapping instruction the spec model still reports what the
-# instruction WOULD have done, while a correct core writes no register, strobes
-# no memory and redirects to `mtvec`. riscv-formal's own checker gates those
-# comparisons on `!spec_trap`; the monitor generator never emits that gate, so
-# the ungated monitor reports errors 104/105/106 and 110-113 on correct hardware
-# in both sim legs (ADR-0019).
+# Rule 3. When an instruction traps, the spec model still reports what it would
+# have done had it not. A correct core writes no register, touches no memory and
+# jumps to `mtvec`, so those comparisons all disagree. riscv-formal's own checker
+# skips them when the spec model says trap; the monitor generator does not, so
+# without this it reports errors 104, 105, 106 and 110-113 on hardware that is
+# working.
 #
-# The span is selected by POSITION, first anchor to last, so the site count
-# proves the rule fired and not what it swallowed. Error 101 is the one
-# comparison upstream deliberately keeps live under `spec_trap`; a pin bump
-# emitting it between the anchors would keep the count at 1 and make "did the
-# core trap when the spec says it must" vacuous in both legs. Hence three
-# content layers: forbidden literals in the span, the exact multiset of enclosed
-# handle_error codes, and a post-check that 101 survives into the output.
+# The span below is found by position, from the first anchor to the last. That
+# means counting the matches tells us the rule fired but not what it wrapped.
+# Error 101 is the one comparison that must keep running when an instruction
+# traps -- it is the check that the core trapped at all. If a new version of the
+# generator moved it between the two anchors, the count would still be 1 and that
+# check would quietly stop working in both sim legs. So there are three more
+# checks below: literals that must not appear inside the span, the exact list of
+# error codes it is allowed to contain, and one afterwards that 101 is still in
+# the output.
 TRAP_GATE_SPAN = re.compile(
     r'(?P<indent>[ ]*)if \((?P<ch>ch\d+)_rvfi_rs1_addr != (?P=ch)_spec_rs1_addr\b.*?'
     r'(?P=ch)_handle_error\(\d+, "mismatch in mem_addr"\);\n[ ]*end\n',
     re.DOTALL,
 )
 
-# Layer 1. Both spellings of the trap comparison the generator emits today.
+# Both ways the generator currently writes the trap comparison. Either one
+# inside the span means it has moved and must not be wrapped.
 TRAP_GATE_FORBIDDEN = (
     '"mismatch in trap"',
     '_rvfi_trap != ',
 )
 
-# Layer 2. DERIVED from test/monitor.v at the pin, not chosen. After a pin bump,
-# re-derive it and confirm each code belongs under `!spec_trap` per
-# checks/rvfi_insn_check.sv. Do not edit it to make a failure go away: a code
-# appearing here that upstream keeps outside the gate is the silent-oracle
-# failure this list exists to catch.
+# Read off test/monitor.v at the current pin, not chosen. After a pin bump, read
+# it off again and check each code against riscv-formal's own checker to see that
+# it really does belong inside the gate. Do not edit this list to make a failure
+# go away — a code turning up here that upstream keeps outside the gate is
+# exactly what this list is here to catch.
 TRAP_GATE_ENCLOSED_CODES = sorted(
     [102, 103, 104, 105, 106, 108, 110, 120, 111, 121, 112, 122, 113, 123, 107]
 )
 
-# Layer 3. The monitor is generated `-c 1`, so exactly one channel emits it.
+# The monitor is generated with one retire channel, so there is exactly one.
 TRAP_COMPARISON = re.compile(r'ch\d+_handle_error\(101, "mismatch in trap"\)')
 TRAP_COMPARISON_SITES = 1
 
@@ -144,12 +148,11 @@ RULES = [
 
 
 def _check_trap_comparison_survives(text):
-    """Layer 3: the trap comparison must still be in the sanitized output.
+    """Error 101 must still be in the output.
 
-    Layers 1 and 2 catch the generator MOVING error 101 inside the gate. Neither
-    notices it disappearing altogether -- the enclosed-code list would still
-    match and the site count would still be 1, while the sanitized oracle no
-    longer checks whether the core traps at all.
+    The other two checks catch the generator moving it inside the gate. Neither
+    notices it going away entirely: the code list would still match and the count
+    would still be 1, while nothing checked whether the core trapped at all.
     """
     found = len(TRAP_COMPARISON.findall(text))
     if found != TRAP_COMPARISON_SITES:

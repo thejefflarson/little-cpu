@@ -4,12 +4,13 @@
 #
 # Usage: run_tests.sh <sim-binary> <asm-dir> <expected-fail-file> <floor-file>
 #
-# This is the merge gate, so the failure mode that matters is a FALSE GREEN —
-# reporting success without having tested anything. That is what every guard
-# below is for, and each one is probed from test/probe_gates.sh.
+# This is the merge gate. The failure that matters is passing without having
+# tested anything, and that is what every check below is for. test/probe_gates.sh
+# breaks each one and makes sure it fails, because a check whose failing branch
+# has never run may not work at all.
 #
-# `set -e` is on; a nonzero exit that is expected is handled at its own call
-# site so error-exit stays on everywhere else.
+# `set -e` is on. Where a command is expected to exit nonzero it is handled right
+# there, so error-exit stays on everywhere else.
 set -euo pipefail
 
 if [ "$#" -ne 4 ]; then
@@ -24,9 +25,9 @@ OBSERVED_FLOOR=$4
 CYCLES=5000
 HERE=$(cd "$(dirname "$0")" && pwd)
 
-# A missing or unreadable baseline yields an EMPTY expected set, which against
-# an all-passing suite prints "Failure list matches ... exactly" having compared
-# nothing.
+# A baseline that is missing or cannot be read gives an empty expected set. If
+# every test passes, that matches, and the run prints "Failure list matches"
+# having compared nothing.
 if [ ! -f "$EXPECTED_FAIL" ] || [ ! -r "$EXPECTED_FAIL" ]; then
   echo "error: baseline '$EXPECTED_FAIL' does not exist or is not readable." >&2
   echo "The gate compares the failure set against it; without it there is no gate." >&2
@@ -40,17 +41,17 @@ if [ ! -f "$OBSERVED_FLOOR" ] || [ ! -r "$OBSERVED_FLOOR" ]; then
   exit 1
 fi
 
-# Before anything is assembled, because a suite that shrank otherwise matches an
-# empty baseline exactly. A separate script because test/run_cosim.sh runs the
-# identical check against the identical file, and two legs that disagreed about
-# what the suite is would be worse than neither of them checking.
+# Runs before anything is assembled. Without it, a suite that lost half its
+# programs still passes every program it found and matches an empty baseline.
+# It is a separate script so test/run_cosim.sh can run the same check on the
+# same file, rather than the two legs each deciding what the suite is.
 if ! "$HERE/check_suite_shape.sh" "$ASM_DIR" "$OBSERVED_FLOOR"; then
   echo "error: the .S suite does not match its manifest; nothing was run." >&2
   exit 1
 fi
 
-# A malformed line is named rather than skipped: a line this cannot parse is a
-# floor that is not enforced.
+# A line this cannot parse is a floor nothing enforces, so say so rather than
+# skipping it.
 floors=$(sed -e 's/#.*//' "$OBSERVED_FLOOR" | awk 'NF { $1=$1; print }')
 malformed_floor=$(printf '%s\n' "$floors" | awk 'NF && (NF != 3 || $2 !~ /^[0-9]+$/ || $3 !~ /^[0-9]+$/) { print }')
 if [ -n "$malformed_floor" ]; then
@@ -83,8 +84,9 @@ tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-test.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
   exit 1
 }
-# mktemp is fatal here: an mktemp that exits 0 with empty output would collapse
-# every artifact path to /<base>.hex and defeat the trap below.
+# Stop if mktemp gave us nothing. An empty $tmp turns every path below into
+# /<name>.hex, at the root of the disk, and leaves the trap with nothing to
+# clean up.
 if [ -z "$tmp" ] || [ ! -d "$tmp" ]; then
   echo "error: mktemp -d produced no usable directory under ${TMPDIR:-/tmp}." >&2
   exit 1
@@ -104,8 +106,8 @@ for src in "$ASM_DIR"/*.S; do
   ram_hex="$tmp/$base.ram.hex"
 
   status="PASS"
-  # Cleared per iteration: a carried-over value would let a run that printed no
-  # counts be graded against its predecessor's.
+  # Cleared every time round. Left over from the previous program, these would
+  # be checked against this program's floor.
   retires=""
   spec_retires=""
   if ! "$CC" -march=rv32imc_zicsr_zifencei -mabi=ilp32 -nostdlib -I "$ASM_DIR" \
@@ -115,9 +117,9 @@ for src in "$ASM_DIR"/*.S; do
     status="ASSEMBLE-WARNING"
   fi
 
-  # The empty case is the dangerous one and gets its own label: an empty RAM
-  # image parses fine, `tohost` reads zero, and every test with no data
-  # dependency still reaches RVTEST_PASS (ADR-0035).
+  # The empty case gets its own label because it is the quiet one. An empty RAM
+  # image still parses, so the simulator starts, `tohost` reads zero, and every
+  # test that does not depend on data in RAM says PASS.
   if [ "$status" = "PASS" ]; then
     for region in rom ram; do
       if [ "$region" = rom ]; then
@@ -141,18 +143,18 @@ for src in "$ASM_DIR"/*.S; do
   fi
 
   if [ "$status" = "PASS" ]; then
-    # Lifted rather than guarded with `|| sim_status=$?` because bash 3.2
-    # (macOS /bin/bash) rewrites a 127 to 1 under errexit, which would report an
-    # unstartable runner as a FAIL — a verdict about the CPU.
+    # Turned off rather than using `|| sim_status=$?`. With errexit on, bash 3.2
+    # (macOS /bin/bash) turns a 127 from a missing binary into a 1, and a 1 here
+    # means the test failed. A runner that will not start would look like a bug
+    # in the CPU.
     set +e
     "$SIM" --rom "$rom_hex" --ram "$ram_hex" --cycles "$CYCLES" \
       > "$tmp/$base.run.log" 2>&1
     sim_status=$?
     set -e
-    # The exit ladder is test/cxxrtl.cc's. 4, 5 and 6 each get their own label
-    # because lumping any into RUNNER-ERROR reads as "the sim would not start"
-    # when it means the oracle disagreed, a trap preceded its handler, or the
-    # oracle never looked.
+    # These exit codes come from test/cxxrtl.cc. 4, 5 and 6 get their own labels
+    # because RUNNER-ERROR reads as "the simulator would not start", and none of
+    # them mean that.
     case $sim_status in
       0) status="PASS" ;;
       1) num=$(awk '/^FAIL/{print $2; exit}' "$tmp/$base.run.log")
@@ -170,21 +172,21 @@ for src in "$ASM_DIR"/*.S; do
     spec_retires=${2:-}
   fi
 
-  # A PASS with no counts line means the binary this gate ran is not the runner
-  # it grades, and every observation check below would then silently not run.
+  # A PASS with no counts means the binary that ran is not the runner this
+  # script expects, and the two checks below would quietly do nothing.
   if [ "$status" = "PASS" ] && { [ -z "$retires" ] || [ -z "$spec_retires" ]; }; then
     status="NO-COUNTS"
   fi
 
-  # `>=` and not set equality: the counts move for legitimate reasons, and the
-  # thing that must not happen is a program going quiet. Only PASS programs are
-  # graded — anything already failing has a more specific status.
+  # `>=`, not an exact match. The counts move for ordinary reasons; what we are
+  # looking for is a program that stopped reporting anything. Only PASS programs
+  # are checked, since a failing one already has a more useful status.
   if [ "$status" = "PASS" ]; then
     floor=$(printf '%s\n' "$floors" | awk -v n="$name" '$1 == n { print $2, $3; found = 1 } END { exit !found }') || floor=""
     if [ -z "$floor" ]; then
-      # Unreachable while check_suite_shape.sh runs above, and kept anyway: a
-      # silent empty `$floor` would make the comparisons below compare against
-      # nothing. If it fires, the two checks have gone out of step.
+      # check_suite_shape.sh above already requires every program to have a
+      # line, so this should never happen. It is here because an empty $floor
+      # would make the two comparisons below compare against nothing.
       status="NO-FLOOR"
     else
       set -- $floor
@@ -209,9 +211,9 @@ for src in "$ASM_DIR"/*.S; do
       cat "$build_log" >&2
     fi
   fi
-  # The counts stay outside the name-and-status pair the baseline matches on:
-  # putting a quantity that legitimately moves into the failure set would make
-  # every baseline entry unmatchable the first time it moved.
+  # The counts stay out of the name and status the baseline matches on. They
+  # move for ordinary reasons, and putting them in would break every baseline
+  # entry the first time one did.
   table+=("$(printf '%-16s %-22s %s' "$name" "$status" \
     "retires=${retires:--} spec-checked=${spec_retires:--}")")
 done
@@ -220,9 +222,8 @@ printf '%s\n' "${table[@]}"
 echo
 echo "$passed/${#table[@]} passed"
 
-# `NF` must gate the rebuild rather than follow it: awk forces NF to 1 when $1
-# is assigned, so `{$1=$1} NF` would resurrect every blank and comment-only line
-# as an empty entry.
+# `NF` has to come before the rebuild, not after. Assigning to $1 sets NF to 1,
+# so `{$1=$1} NF` would bring every blank and comment line back as an entry.
 actual_sorted=$(printf '%s\n' "${failures[@]:-}" | awk 'NF { $1=$1; print }' | sort)
 expected_sorted=$(sed -e 's/#.*//' "$EXPECTED_FAIL" | awk 'NF { $1=$1; print }' | sort)
 
