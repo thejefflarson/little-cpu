@@ -67,6 +67,7 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0060](0060-the-steal-reaches-decode-as-the-sixth-stall-reason.md) | The steal reaches decode, as the sixth stall reason | Accepted · builds 0057's step 3 and lands its condition 1; amends 0026, 0009 |
 | [0061](0061-fence-i-has-to-serialize.md) | `fence.i` has to serialize | Accepted · amends 0002; lands with 0060 |
 | [0062](0062-twelve-megahertz-is-reachable-and-the-bypass-select-is-the-cost.md) | Twelve megahertz is reachable, and the write-through bypass select is the cost | Accepted · corrects 0058's decode-head attribution and its second-path cap |
+| [0063](0063-the-suite-runs-programs-that-use-writable-text.md) | The suite runs programs that use writable text | Accepted · builds 0057's step 5 less its `.data` half; discharges 0061 |
 
 0001–0007 came from the design brief
 ([`docs/ideas/finish-the-rewrite.md`](../ideas/finish-the-rewrite.md)). 0008–0011 came out of
