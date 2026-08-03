@@ -2,43 +2,25 @@
 `default_nettype none
 `include "structs.v"
 
-// Standalone randomized differential bench for the executor's arithmetic. It
-// drives `executor` directly, with no decoder or pipeline involved, and compares
-// against SystemVerilog `*`, `/`, `%` and the three shift operators with RISC-V
-// divide-by-zero and INT_MIN / -1 semantics.
+// Randomized differential bench for the executor's arithmetic, driving
+// `executor` directly with no decoder or pipeline.
 //
-// For mul and div it is the *primary* guarantee (ADR-0010), because riscv-formal
-// runs under RISCV_FORMAL_ALTOPS and never checks that arithmetic at all. The
-// shifts and ADD/SUB do have ladder checks, but those are `mode bmc`, and an ADD
+// For mul and div it is the primary guarantee, because riscv-formal runs under
+// RISCV_FORMAL_ALTOPS and never checks that arithmetic at all. The shifts and
+// ADD/SUB do have generated checks, but those are `mode bmc`, and an ADD
 // off-by-one was measured reaching `tohost` through the `.S` suite and the Sail
 // co-simulation while every unit bench stayed silent.
 //
-// ADR-0045 names this bench as M2's mul/div oracle, so it asserts its own shape
-// before it asserts anything about the core. Three mechanisms do that, each
-// because the bench could once stop checking and still print PASSED:
-//
-//   * `ref_selftest` pins every reference -- mul, div and shift -- against
-//     literals computed by hand. A literal captured from a run of this bench is
-//     derived from the function it is supposed to check, so it proves nothing;
-//     a degraded reference says ORACLE BROKEN and stops rather than blaming the
-//     core.
-//   * `check_vector_counts` pins the per-operation vector count against
-//     ADR-0010's contract, written as its own literal, so a loop bound that
-//     drifted to zero fails here. It used to print PASSED and exit 0.
-//   * `check_directed_manifest` pins that each required directed corner vector
-//     actually ran, from a manifest kept apart from the call sites, so deleting
-//     a call site is red rather than a shorter run.
+// So it asserts its own shape before it asserts anything about the core: the
+// three check_* tasks below each exist because this bench could once stop
+// checking and still print PASSED.
 module exec_tb;
   localparam int RANDOM_VECTORS = 10000;
   localparam logic [1:0] DIVIDE_STATE = 2'b10; // must match executor.v's `divide` state
 
-  // ADR-0010's contract (">= 10,000 randomized operand pairs per operation")
-  // written as literals of its own, deliberately not a second copy of the loop
-  // bounds: they must not move when a loop bound does.
-  // `MIN_DIRECTED_SHIFT_PER_OP` is 6 patterns x 32 amounts x {clean, dirty rs2}.
-  //
-  // If a count check below goes red, restore the loop; never edit the number
-  // down to match it.
+  // The required coverage, deliberately not a second copy of the loop bounds:
+  // these must not move when a loop bound does. If a count check below goes red,
+  // restore the loop; never edit the number down to match it.
   localparam int MIN_RANDOM_PER_OP        = 10000;
   localparam int MIN_DIRECTED_SHIFT_PER_OP = 384;
 
@@ -60,9 +42,8 @@ module exec_tb;
 
   int errors = 0;
 
-  // One source of truth for the op names: `run_op` resolves its `op_name`
-  // argument through this table, which is what makes a typo fatal rather than a
-  // silent comparison against whatever the executor left on rd_data.
+  // `run_op` resolves its `op_name` argument through this table, which is what
+  // makes a typo fatal rather than silent.
   localparam int OP_MUL    = 0;
   localparam int OP_MULH   = 1;
   localparam int OP_MULHU  = 2;
@@ -81,19 +62,16 @@ module exec_tb;
   string op_names  [0:NUM_OPS-1];
   int    vec_count [0:NUM_OPS-1];
 
-  // The corner vectors this bench is required to run: ADR-0010's three
-  // sign-enable cases, then the six architecturally specified divide-by-zero and
-  // INT_MIN / -1 results. None is meaningfully reachable by the randomized
-  // sweep, since each names both operands exactly -- ten thousand `$random`
-  // pairs hit one with probability around 10^4 / 2^64 -- so deleting one is a
-  // real loss of coverage rather than a rounding error on a big number.
+  // The corner vectors this bench is required to run. None is meaningfully
+  // reachable by the randomized sweep, since each names both operands exactly --
+  // ten thousand `$random` pairs hit one with probability around 10^4 / 2^64 --
+  // so deleting one is a real loss of coverage rather than a rounding error on a
+  // big number.
   //
   // The manifest deliberately does not issue them. `run_op` witnesses each
-  // (op, rs1, rs2) it actually drove into the DUT against this list and
-  // `check_directed_manifest` fails on any entry never witnessed, so a deleted
-  // call site is red. Each entry also carries its expected value and is checked
-  // against the call site, which catches a directed vector kept but weakened in
-  // place.
+  // (op, rs1, rs2) it drove into the DUT against this list, so a deleted call
+  // site is red, and each entry's expected value is checked against the call
+  // site, which catches one kept but weakened in place.
   localparam int DIRECTED_N = 9;
   int          dir_op  [0:DIRECTED_N-1];
   logic [31:0] dir_rs1 [0:DIRECTED_N-1];
@@ -102,9 +80,8 @@ module exec_tb;
   logic        dir_ran [0:DIRECTED_N-1];
   string       dir_why [0:DIRECTED_N-1];
   // Witnessing is a linear scan per vector driven, and there are ~111,000 of
-  // them; this counts down to zero on the ninth directed call site, after which
-  // `run_op` skips the scan. Purely a cost thing -- `check_directed_manifest`
-  // reads `dir_ran` itself, so a deleted call site is caught either way.
+  // them; this counts down so `run_op` can skip the scan once the last directed
+  // call site has run. Purely a cost thing.
   int          dir_pending;
 
   task automatic add_directed(input int slot, input int op, input logic [31:0] rs1_v,
@@ -139,11 +116,10 @@ module exec_tb;
       for (k = 0; k < NUM_OPS; k++) vec_count[k] = 0;
       dir_pending = DIRECTED_N;
 
-      // ADR-0010's three required sign-enable vectors.
       add_directed(0, OP_MULH,   32'hffffffff, 32'hffffffff, 32'h00000000, "ADR-0010 MULH(-1,-1)=0");
       add_directed(1, OP_MULHSU, 32'hffffffff, 32'h00000001, 32'hffffffff, "ADR-0010 MULHSU(-1,1)=-1");
       add_directed(2, OP_MULHU,  32'hffffffff, 32'hffffffff, 32'hfffffffe, "ADR-0010 MULHU(-1,-1)=0xFFFFFFFE");
-      // Divide-by-zero and INT_MIN / -1: specified values, not computed ones.
+      // Specified values, not computed ones.
       add_directed(3, OP_DIV,    32'h00000064, 32'h00000000, 32'hffffffff, "div by zero");
       add_directed(4, OP_DIVU,   32'h00000064, 32'h00000000, 32'hffffffff, "divu by zero");
       add_directed(5, OP_REM,    32'h00000064, 32'h00000000, 32'h00000064, "rem by zero");
@@ -162,14 +138,12 @@ module exec_tb;
     end
   endfunction
 
-  // The reference model. The signed-arithmetic rule written out further down,
-  // above the shift references, governs these too, and `ref_div`/`ref_rem` are
-  // where it bites:
-  // their RISC-V special cases are an if / else-if / else over separate
-  // statements rather than one `?:` chain, because a chain whose other arms are
-  // unsigned literals evaluates `$signed(a) / $signed(b)` unsigned. That is
-  // ADR-0019's defect, at exactly these two functions, where -7 / 2 scored
-  // 0x7ffffffc.
+  // The sign-context rule further down, above the shift references, governs
+  // these too, and `ref_div`/`ref_rem` are where it bites: their cases are an
+  // if / else-if / else over separate statements rather than one `?:` chain,
+  // because a chain whose other arms are unsigned literals evaluates
+  // `$signed(a) / $signed(b)` unsigned. That has happened at exactly these two
+  // functions, where -7 / 2 scored 0x7ffffffc.
   function automatic logic [31:0] ref_mul(input logic [31:0] a, input logic [31:0] b);
     logic [63:0] p;
     begin
@@ -232,9 +206,8 @@ module exec_tb;
     end
   endfunction
 
-  // Two's-complement add and sub are signedness-independent bit for bit, so
-  // neither of these needs `$signed` and the sign-context hazard below does not
-  // apply to them.
+  // Two's-complement add and sub are signedness-independent bit for bit, so the
+  // sign-context hazard below does not apply to these two.
   function automatic logic [31:0] ref_add(input logic [31:0] a, input logic [31:0] b);
     ref_add = a + b;
   endfunction
@@ -244,21 +217,17 @@ module exec_tb;
   endfunction
 
   // Each shift below is computed in a statement of its own, into a local whose
-  // signedness is declared, and is never an arm of a `?:`. Keep them that way.
+  // signedness is declared, and is never an arm of a `?:`. Keep them that way. A
+  // conditional expression is unsigned if any operand is unsigned, and that
+  // pushes down into the context-determined operands, so a `$signed(a) >>> sh`
+  // in one arm evaluates as a logical shift -- with no warning, and only for
+  // negative operands, so every non-negative vector still agrees. The assignment
+  // target cannot rescue it. This repo has been bitten twice, the second time
+  // here, where the natural one-line `ref_sra` written as a `?:` arm reported
+  // six mismatches against correct hardware.
   //
-  // IEEE 1800 makes a conditional expression unsigned if any of its operands is
-  // unsigned, and pushes that unsignedness down into the context-determined
-  // operands, so a `$signed(a) >>> sh` in one arm of such a conditional
-  // evaluates as a LOGICAL shift -- with no warning, and only for negative
-  // operands, so every non-negative vector still agrees. The assignment target
-  // cannot rescue it: an expression's type does not depend on its left-hand
-  // side. This repo has been bitten twice, at ADR-0019's two monitor spec models
-  // and then here, where the natural one-line `ref_sra` written as a `?:` arm
-  // reported six mismatches against correct hardware.
-  //
-  // The `b[4:0]` masks are this reference's own model of the RV32I rule that the
-  // shift amount is rs2[4:0] (spec Vol I 2.4.2). The vectors drive rs2 values
-  // far above 31 so the RTL has to agree rather than coincide.
+  // The `b[4:0]` masks are this reference's own model of the rs2[4:0] rule. The
+  // vectors drive rs2 far above 31 so the RTL has to agree rather than coincide.
   function automatic logic [31:0] ref_sll(input logic [31:0] a, input logic [31:0] b);
     logic [31:0] v;
     begin
@@ -293,14 +262,13 @@ module exec_tb;
   endtask
 
   // Checks the oracle, not the core -- no RTL is involved in any call to this. A
-  // reference that degraded to a logical shift (or an unsigned divide) agrees
+  // reference that degraded to a logical shift, or an unsigned divide, agrees
   // with a correct one on every non-negative operand, so it would pass thousands
   // of randomized vectors and then report mismatches against correct hardware.
   //
-  // Every expected value passed here is computed by hand and written as a
-  // literal. A literal captured from a run of this bench is derived from the
-  // function it is supposed to check, which is the same defect one level down;
-  // if you add a case, do the arithmetic on paper.
+  // Every expected value here is computed by hand. A literal captured from a run
+  // of this bench is derived from the function it is supposed to check, which is
+  // the same defect one level down; do the arithmetic on paper.
   task automatic ref_selftest(input string what, input logic [31:0] got,
                                input logic [31:0] want);
     begin
@@ -312,8 +280,7 @@ module exec_tb;
   endtask
 
   // Checks that the bench ran what it says it runs. A loop bound edited to zero
-  // during a debugging session and never put back used to print PASSED and exit
-  // 0.
+  // during a debugging session and never put back used to print PASSED.
   task automatic check_vector_counts;
     int k, want;
     begin
@@ -330,9 +297,8 @@ module exec_tb;
     end
   endtask
 
-  // Checks that every required directed corner vector reached the DUT. A
-  // randomized vector cannot cover for a deleted one: these are the cases random
-  // operands do not reach, or reach only by accident.
+  // A randomized vector cannot cover for a deleted directed one: these are the
+  // cases random operands do not reach, or reach only by accident.
   task automatic check_directed_manifest;
     int d;
     begin
@@ -357,11 +323,11 @@ module exec_tb;
     end
   endtask
 
-  // The executor is done exactly when it has returned to `init` after the issue
-  // edge -- immediately for the multiply family and the divide short-circuits,
-  // 33 cycles later for a real division. Polling for that rather than hardcoding
-  // a count keeps this task correct however long the divider takes; the cycle
-  // count itself is the timing monitor's job, at the bottom of this file.
+  // The executor is done when it has returned to `init` after the issue edge --
+  // immediately for the multiply family and the divide short-circuits, 33 cycles
+  // later for a real division. Polling rather than hardcoding a count keeps this
+  // correct however long the divider takes; the count is checked at the bottom
+  // of this file.
   task automatic run_op(input string op_name, input logic [31:0] rs1_v, input logic [31:0] rs2_v,
                          input logic [31:0] expected);
     int guard;
@@ -394,8 +360,6 @@ module exec_tb;
         OP_SUB:    in.is_sub    = 1'b1;
       endcase
 
-      // Coverage is measured here, on the vectors actually driven into the DUT,
-      // rather than inferred from a loop bound.
       vec_count[id]++;
       if (dir_pending > 0) begin
         for (d = 0; d < DIRECTED_N; d++) begin
@@ -431,10 +395,9 @@ module exec_tb;
   logic [31:0] a, b;
   int i;
 
-  // Shift patterns chosen so that a lost sign bit, a dropped mask or an
-  // off-by-one fill is visible: INT_MIN, all-ones, INT_MAX, a negative
-  // non-trivial value, a positive alternating one, and 1 (which walks a single
-  // bit off each end).
+  // Chosen so a lost sign bit, a dropped mask or an off-by-one fill is visible:
+  // INT_MIN, all-ones, INT_MAX, a negative non-trivial value, a positive
+  // alternating one, and 1, which walks a single bit off each end.
   localparam int SHIFT_PATTERNS = 6;
   logic [31:0] pattern [0:SHIFT_PATTERNS-1];
   int p, sh;
@@ -448,20 +411,17 @@ module exec_tb;
     #1;
     reset = 0;
 
-    // The oracle is checked before it is trusted to judge anything. Every
-    // literal below is hand-computed, and the arithmetic behind it is written
-    // out so a reader can verify it without running anything.
+    // The arithmetic behind each literal is written out so a reader can verify
+    // it without running anything.
     //
     // MUL: low 32 bits, signedness-independent. (-1)*(-1) = 1; 2^31 * 2 = 2^32,
     // whose low half is zero; 65535^2 = 0xfffe0001.
     ref_selftest("mul(ffffffff,ffffffff)",  ref_mul(32'hffffffff, 32'hffffffff), 32'h00000001);
     ref_selftest("mul(80000000,00000002)",  ref_mul(32'h80000000, 32'h00000002), 32'h00000000);
     ref_selftest("mul(0000ffff,0000ffff)",  ref_mul(32'h0000ffff, 32'h0000ffff), 32'hfffe0001);
-    // MULH: signed x signed, high 32. (-1)*(-1) = +1 -> high half 0.
-    // (-2^31)*(-2^31) = 2^62 = 0x4000_0000_0000_0000 -> high half 0x40000000.
-    // (-2^31)*2 = -2^32 = 0xffff_ffff_0000_0000 -> high half 0xffffffff.
-    // 2*(-2^31) = -2^32 as well: this one is the pair for the MULHSU/MULHU
-    // cases just below, which take the same operands and differ.
+    // MULH: signed x signed, high 32. (-1)*(-1) = +1 -> 0.
+    // (-2^31)*(-2^31) = 2^62 -> 0x40000000. (-2^31)*2 = 2*(-2^31) = -2^32 ->
+    // 0xffffffff, and that last pair recurs in the MULHU/MULHSU cases below.
     ref_selftest("mulh(ffffffff,ffffffff)", ref_mulh(32'hffffffff, 32'hffffffff), 32'h00000000);
     ref_selftest("mulh(80000000,80000000)", ref_mulh(32'h80000000, 32'h80000000), 32'h40000000);
     ref_selftest("mulh(80000000,00000002)", ref_mulh(32'h80000000, 32'h00000002), 32'hffffffff);
@@ -471,19 +431,17 @@ module exec_tb;
     ref_selftest("mulhu(ffffffff,ffffffff)", ref_mulhu(32'hffffffff, 32'hffffffff), 32'hfffffffe);
     ref_selftest("mulhu(00000002,80000000)", ref_mulhu(32'h00000002, 32'h80000000), 32'h00000001);
     ref_selftest("mulhu(ffffffff,80000000)", ref_mulhu(32'hffffffff, 32'h80000000), 32'h7fffffff);
-    // MULHSU: rs1 SIGNED, rs2 UNSIGNED, high 32. Each of these three differs
+    // MULHSU: rs1 signed, rs2 unsigned, high 32. Each of these three differs
     // from at least one of the two above on the same operands, which is what
     // makes them a check of the signedness rather than of the multiply:
-    //   (-1)*1        = -1                     -> 0xffff_ffff_ffff_ffff, high 0xffffffff
-    //   2 * 2^31      = 2^32                   -> 0x0000_0001_0000_0000, high 0x00000001
-    //                                             (mulh of the same pair is 0xffffffff)
-    //   (-1) * 2^31   = -2^31                  -> 0xffff_ffff_8000_0000, high 0xffffffff
-    //                                             (mulhu of the same pair is 0x7fffffff)
+    //   (-1)*1      = -1    -> 0xffffffff
+    //   2 * 2^31    = 2^32  -> 0x00000001 (mulh of the same pair is 0xffffffff)
+    //   (-1) * 2^31 = -2^31 -> 0xffffffff (mulhu of the same pair is 0x7fffffff)
     ref_selftest("mulhsu(ffffffff,00000001)", ref_mulhsu(32'hffffffff, 32'h00000001), 32'hffffffff);
     ref_selftest("mulhsu(00000002,80000000)", ref_mulhsu(32'h00000002, 32'h80000000), 32'h00000001);
     ref_selftest("mulhsu(ffffffff,80000000)", ref_mulhsu(32'hffffffff, 32'h80000000), 32'hffffffff);
-    // ADR-0019's own case. -7 / 2 truncates toward zero to -3 (0xfffffffd); a
-    // reference degraded to an unsigned divide scores 0x7ffffffc, which is what
+    // -7 / 2 truncates toward zero to -3 (0xfffffffd). A reference degraded to
+    // an unsigned divide scores 0x7ffffffc, which is what
     // `divu(fffffff9,00000002)` legitimately is -- written out just below so the
     // two are visibly different numbers.
     ref_selftest("div(fffffff9,00000002)",  ref_div(32'hfffffff9, 32'h00000002), 32'hfffffffd);
@@ -493,7 +451,7 @@ module exec_tb;
     ref_selftest("div(80000000,ffffffff)",  ref_div(32'h80000000, 32'hffffffff), 32'h80000000);
     ref_selftest("divu(fffffff9,00000002)", ref_divu(32'hfffffff9, 32'h00000002), 32'h7ffffffc);
     ref_selftest("divu(00000064,00000000)", ref_divu(32'h00000064, 32'h00000000), 32'hffffffff);
-    // REM takes the sign of the DIVIDEND: -7 % 2 = -1, 7 % -2 = +1. An unsigned
+    // REM takes the sign of the dividend: -7 % 2 = -1, 7 % -2 = +1. An unsigned
     // degradation scores 0x00000001 for the first, which is the second's answer.
     ref_selftest("rem(fffffff9,00000002)",  ref_rem(32'hfffffff9, 32'h00000002), 32'hffffffff);
     ref_selftest("rem(00000007,fffffffe)",  ref_rem(32'h00000007, 32'hfffffffe), 32'h00000001);
@@ -523,13 +481,11 @@ module exec_tb;
       $fatal(1);
     end
 
-    // ADR-0010's required directed vectors: the cases a swapped sign enable gets
-    // wrong.
+    // The required directed vectors: the cases a swapped sign enable gets wrong.
     run_op("mulh",   32'hffffffff, 32'hffffffff, 32'h00000000);
     run_op("mulhsu", 32'hffffffff, 32'h00000001, 32'hffffffff);
     run_op("mulhu",  32'hffffffff, 32'hffffffff, 32'hfffffffe);
 
-    // Directed divide-by-zero / INT_MIN-over-negative-one vectors.
     run_op("div",  32'h00000064, 32'h00000000, 32'hffffffff);
     run_op("divu", 32'h00000064, 32'h00000000, 32'hffffffff);
     run_op("rem",  32'h00000064, 32'h00000000, 32'h00000064);
@@ -540,8 +496,7 @@ module exec_tb;
     // Every shift amount 0..31 against each pattern, driven twice: once with a
     // clean rs2 and once with all 27 upper bits set. `$random` reaches every
     // amount with overwhelming probability but does not guarantee it, and the
-    // pair is what states the rs2[4:0] rule -- the same amount with and without
-    // garbage above bit 4 must give the same answer.
+    // pair is what states the rs2[4:0] rule.
     pattern[0] = 32'h80000000;
     pattern[1] = 32'hffffffff;
     pattern[2] = 32'h7fffffff;
@@ -600,8 +555,7 @@ module exec_tb;
     end
   end
 
-  // The divider produces its result exactly 33 cycles after issue -- 32
-  // restoring-division iterations plus one capture cycle -- checked against
+  // 32 restoring-division iterations plus one capture cycle, checked against
   // every real division performed in the run above.
   int cycle_count;
   logic prev_divide;

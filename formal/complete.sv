@@ -2,8 +2,8 @@ module rvfi_testbench (
   input var clk,
   output logic [31:0] imem_addr,
   input  logic [31:0] imem_data,
-  // The dual-word fetch window's second word (ADR-0003), left fully free per
-  // cycle for the same reason imem_data is.
+  // The fetch window's second word, left free every cycle for the same reason
+  // imem_data is.
   output logic [31:0] imem_addr2,
   input  logic [31:0] imem_data2,
   output logic [31:0] mem_addr,
@@ -19,28 +19,17 @@ module rvfi_testbench (
   logic trap;
 
   // A one-address write-through shadow of the data bus: the most recent store
-  // only, not a memory array. Without it mem_rdata is free every cycle (see
-  // wrapper.v), and a load that did not see back what an earlier store in the
-  // same trace wrote would fail rvfi_isa_rv32imc's spec check for reasons that
-  // have nothing to do with the core. A read of an address some earlier,
-  // since-overwritten store touched is still left free. dmemcheck.sv carries
-  // the fuller version of this argument.
+  // only, not a memory array. Without it mem_rdata is free every cycle, and a
+  // load that did not see back what an earlier store in the same trace wrote
+  // would fail the spec check for reasons that have nothing to do with the core.
+  // A read of an address some earlier, since-overwritten store touched is still
+  // left free. dmemcheck.sv carries the fuller version of this argument, and
+  // imem needs none of it because rtl/fetcher.v answers combinationally.
   //
-  // imem is deliberately NOT made stable this way: rtl/fetcher.v drives
-  // imem_addr = pc and out.instr = imem_data combinationally, with no
-  // cross-cycle latency, so nothing here depends on two cycles' fetches of the
-  // same address agreeing.
-  //
-  // Nothing discharges this assumption, and there is no structural argument
-  // behind it either (ADR-0049 F4). The only writable memory in the tree is
-  // rtl/memory.v, which answers any address at or past 4*RAM with
-  // `mem_rdata <= mem_wdata` rather than with stored data, while mem_addr here
-  // is a free 32-bit value -- so the modelled memory and the real module
-  // disagree over most of the address space, and test/mem_tb.v never says what
-  // an out-of-range read returns. Do not invent a discharge for it. What limits
-  // the damage is that it constrains a DUT input rather than the core, so it
-  // can only shrink the trace set, never make the core's job easier on a trace
-  // that survives.
+  // Nothing discharges this assumption and there is no structural argument
+  // behind it either, so do not invent a discharge. What limits the damage is
+  // that it constrains a DUT input rather than the core, so it can only shrink
+  // the trace set, never make the core's job easier on a trace that survives.
   logic [31:0] dmem_shadow;
   logic [31:0] dmem_shadow_addr;
   logic        dmem_shadow_valid = 0;
@@ -60,9 +49,8 @@ module rvfi_testbench (
       assume(mem_rdata == dmem_shadow);
   end
 
-  // The fetch address one cycle early. Unread here, since this environment
-  // answers imem_data in the same cycle, but connected rather than left
-  // dangling.
+  // Unread here, since this environment answers imem_data in the same cycle,
+  // but connected rather than left dangling.
   logic [31:0] imem_addr_next;
   logic        mem_ren;
   logic        fetch_stall;
@@ -127,28 +115,20 @@ module rvfi_testbench (
     .spec_mem_wdata(spec_mem_wdata)
   );
 
-  // The declared exclusion set.
-  //
   // riscv-formal ships no spec model at all for two opcode classes at the pin,
   // so spec_valid is 0 on every such retire and the assertion below fails on
-  // correct hardware. Measured with `insn_excluded` forced to 0: FAIL at step
-  // 5, on a non-trapping FENCE retire the model has never heard of. To
-  // reproduce, copy this file and complete.sby under another name and edit the
-  // copy -- check-complete-exclusions.py rejects an insn_excluded that is not
-  // the disjunction of the declared wires, so editing in place will not run.
+  // correct hardware. Measured with `insn_excluded` forced to 0: FAIL at step 5,
+  // on a non-trapping FENCE retire the model has never heard of.
   //
-  // Excluding an opcode from an assertion is weakening a check, admissible only
-  // if recorded (ADR-0010, one level up). Each entry names its encoding and its
-  // reason, formal/COMPLETE_EXCLUSIONS carries the same set as a baseline, and
-  // check-complete-exclusions.py compares the two in both directions before
-  // this check may run. It also re-derives "no spec model at the pin" from the
-  // clone, so an entry that stops being true at a future pin fails rather than
-  // quietly over-excluding.
+  // Excluding an opcode weakens a check, which is admissible only if recorded.
+  // formal/COMPLETE_EXCLUSIONS carries the same set as a baseline and
+  // check-complete-exclusions.py compares the two both ways before this check
+  // may run, re-deriving "no spec model at the pin" from the clone so an entry
+  // that stops being true fails rather than quietly over-excluding.
   //
-  // Each predicate keys on the encoding out of rvfi_insn and on nothing the
-  // core decodes, so a core that wrongly decodes an ADD as a FENCE cannot
-  // excuse itself from its own check -- it still retires an OP encoding and is
-  // still asserted on. check-complete-exclusions.py enforces that shape
+  // Each predicate keys on the encoding out of rvfi_insn and on nothing the core
+  // decodes, so a core that wrongly decodes an ADD as a FENCE cannot excuse
+  // itself from its own check. check-complete-exclusions.py enforces that shape
   // textually, because a one-line edit to use a decoder flag instead would not
   // look like it had broken anything.
   //
@@ -159,38 +139,34 @@ module rvfi_testbench (
   wire [6:0]  insn_opcode       = rvfi_insn[6:0];
 
   // EXCLUDE MISC-MEM 0001111 fence fence.i
-  //   No spec model at the pin. rtl/decoder.v makes both the NOPs ADR-0005
-  //   specifies, and they retire non-trapping, so unlike ecall/ebreak they are
-  //   not already excused by the !rvfi_trap guard below. This is the class the
-  //   measured failure above came from.
+  //   No spec model at the pin. rtl/decoder.v makes both NOPs and they retire
+  //   non-trapping, so unlike ecall/ebreak they are not already excused by the
+  //   !rvfi_trap guard below. This is the class the failure above came from.
   wire exclude_misc_mem = insn_uncompressed && insn_opcode == 7'b0001111;
 
   // EXCLUDE SYSTEM 1110011 ecall ebreak mret wfi csrrw csrrs csrrc csrrwi csrrsi csrrci
-  //   No spec model at the pin for any of the ten -- the whole of M3's
-  //   behaviour. `mret`, `wfi` and the six csrr* forms retire non-trapping and
-  //   would otherwise fail here; `ecall`/`ebreak` are already excused by the
-  //   !rvfi_trap guard and are named anyway, because this entry states which
-  //   encodings have no oracle rather than which reach the assertion today.
-  //   What checks them instead: test/asm/trap.S, test/asm/csr.S,
-  //   test/csr_tb.v, test/decoder_tb.v and rtl/decoder.v's component proof --
-  //   this repo's own assertions, not an oracle.
+  //   No spec model at the pin for any of the ten. `ecall`/`ebreak` are already
+  //   excused by the !rvfi_trap guard and are named anyway, because this entry
+  //   states which encodings have no oracle rather than which reach the
+  //   assertion today. What checks them instead is this repo's own assertions:
+  //   test/asm/trap.S, test/asm/csr.S, test/csr_tb.v, test/decoder_tb.v and the
+  //   decoder and traps proofs.
   wire exclude_system = insn_uncompressed && insn_opcode == 7'b1110011;
 
   wire insn_excluded = exclude_misc_mem || exclude_system;
 
   // There is no compressed entry, and that is a result. The one compressed
-  // encoding this core implements that isa_rv32imc.txt does not name is
-  // C.EBREAK (16'h9002, ADR-0048), and it raises breakpoint -- so it reaches
-  // the assertion only if the core reports it as a non-trapping retire, at
-  // which point spec_valid is 0 and this check fires. Excluding it would throw
-  // that away.
+  // encoding this core implements that isa_rv32imc.txt does not name is C.EBREAK
+  // (16'h9002), and it raises breakpoint -- so it reaches the assertion only if
+  // the core reports it as a non-trapping retire, at which point spec_valid is 0
+  // and this check fires. Excluding it would throw that away.
 
   // The !rvfi_trap term is core-supplied, unlike the exclusion predicate, and
-  // has to be: a trapping retire has no spec-value obligation (ADR-0028), and
-  // an illegal encoding retires with rvfi_trap and has no spec model by
-  // definition, so `assert(spec_valid)` cannot be hoisted out of the guard. The
-  // cost is that a core claiming rvfi_trap on everything would pass this
-  // vacuously, which is what the cover goals below exist to rule out.
+  // has to be: a trapping retire has no spec-value obligation, and an illegal
+  // encoding retires with rvfi_trap and has no spec model by definition, so
+  // `assert(spec_valid)` cannot be hoisted out of the guard. The cost is that a
+  // core claiming rvfi_trap on everything would pass this vacuously, which is
+  // what the cover goals below rule out.
   always_comb begin
     if (!reset && rvfi_valid && !rvfi_trap && !insn_excluded) begin
       assert(spec_valid && !spec_trap);
@@ -200,19 +176,17 @@ module rvfi_testbench (
   // Anti-vacuity: every non-excluded opcode class really does retire. sby's
   // `mode bmc` strips cover cells and `mode cover` strips assertions, so these
   // are inert in complete.sby's run and are the whole of complete_cover.sby's.
-  // Each goal is a non-trapping, non-excluded retire of one class -- a cycle on
-  // which the assertion above was live and had something to say.
   //
-  // `complete_live` repeats the assertion's guard as a wire rather than a
-  // macro: a macro leaks into every file read after it in the same yosys
-  // invocation, and sby reports a macro-expanded cover statement against the
-  // macro's source range, so all twelve goals would resolve to overlapping
-  // spans and could not be told apart in the summary.
+  // `complete_live` repeats the assertion's guard as a wire rather than a macro.
+  // A macro leaks into every file read after it in the same yosys invocation,
+  // and sby reports a macro-expanded cover statement against the macro's source
+  // range, so all twelve goals would resolve to overlapping spans and could not
+  // be told apart in the summary.
   //
   // `insn_excluded` is redundant on the nine uncompressed goals and kept for
-  // that reason: a future exclusion that shadowed one of these classes makes
-  // the goal unreachable and fails this task, instead of leaving the assertion
-  // quiet with nothing to say.
+  // that reason: a future exclusion that shadowed one of these classes makes the
+  // goal unreachable and fails this task, instead of leaving the assertion quiet
+  // with nothing to say.
   wire complete_live = !reset && rvfi_valid && !rvfi_trap && !insn_excluded;
   cover property (complete_live && insn_uncompressed && insn_opcode == 7'b0000011); // LOAD
   cover property (complete_live && insn_uncompressed && insn_opcode == 7'b0010011); // OP-IMM

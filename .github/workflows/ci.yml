@@ -8,11 +8,7 @@ on:
 permissions:
   contents: read
 
-# The tag and the filename must name the same oss-cad-suite release
-# (https://github.com/YosysHQ/oss-cad-suite-build/releases); bump them together.
 jobs:
-  # Both elaboration frontends: yosys write_cxxrtl, then iverilog over
-  # test/testbench.v + rtl/ + test/monitor.v.
   elaborate:
     name: elaborate
     runs-on: little-cpu-runners
@@ -27,28 +23,21 @@ jobs:
         uses: ./.github/actions/setup-oss-cad-suite
 
       - name: yosys write_cxxrtl, warnings promoted
-        # `make elaborate-strict` runs `proc; opt_clean; check` ahead of
+        # `make elaborate-strict` runs `proc; opt_clean; check` before
         # write_cxxrtl, which is what reports "is used but has no driver"; the
         # bare recipe elaborates an undriven wire silently and exits 0.
         #
-        # Do not spell the source list out here. This step used to, under a
-        # comment claiming it could not diverge from the Makefile's, and it
-        # diverged -- the gate spent a run elaborating a testbench whose memory
-        # instances resolved to nothing. The list lives once, in the Makefile
-        # variable both sim legs build from.
+        # Do not spell the source list out here. This step once did, it diverged
+        # from the Makefile's, and the gate spent a run elaborating a testbench
+        # whose memory instances resolved to nothing.
         #
-        # The grep is an allowlist rather than `yosys -e '.*'` because this
-        # design legitimately emits "Warning: Deep recursion in AST simplifier",
-        # a recursion-depth notice with no correctness content. Everything else
-        # yosys prefixes "Warning:" fails the build. Implicit declarations and
-        # conflicting drivers already abort with a hard ERROR before
-        # write_cxxrtl, so what this actually promotes is undriven wires and
-        # width mismatches.
+        # An allowlist rather than `yosys -e '.*'`: this design legitimately
+        # emits "Deep recursion in AST simplifier", which carries no correctness
+        # content. Implicit declarations and conflicting drivers already abort
+        # hard before write_cxxrtl, so what is promoted here is undriven wires
+        # and width mismatches.
         run: |
           set -euo pipefail
-          # Redirect rather than pipe: this repo has shipped a graded command
-          # whose status was `tee`'s once already (ADR-0037), and pipefail being
-          # set here is one edit away from not being.
           if ! make elaborate-strict > /tmp/yosys-elaborate.log 2>&1; then
             echo "::error::elaboration failed before warnings were even graded"
             cat /tmp/yosys-elaborate.log
@@ -63,8 +52,8 @@ jobs:
           echo "yosys write_cxxrtl: zero promoted warnings"
 
       - name: iverilog full-pipeline elaboration (second frontend)
-        # rvfi_macros.vh clones the pinned riscv-formal (formal/pin.mk), so this
-        # step also exercises the from-scratch-clone pin guard.
+        # rvfi_macros.vh clones the pinned riscv-formal, so this step also
+        # exercises the from-scratch-clone pin guard.
         #
         # iverilog emits 20 "sorry: constant selects in always_* processes"
         # notes here, all against rtl/writeback.v's accessor_output, and still
@@ -72,9 +61,8 @@ jobs:
         run: make rvfi_macros.vh testbench.vvp
 
       - name: iverilog full-pipeline simulation (one fixed program, graded)
-        # testbench.vvp's baked-in 200-cycle program. test/testbench.v fatals on
-        # a nonzero monitor errcode or a write/retire floor (ADR-0055). Not the
-        # `.S` suite -- this file has no image loader.
+        # test/testbench.v fatals on a nonzero monitor errcode or a write/retire
+        # floor. Not the `.S` suite -- it has no image loader.
         run: vvp testbench.vvp
 
       - name: Report job wall time
@@ -86,17 +74,6 @@ jobs:
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # The cxxrtl regression gate. `make test` pulls in three things besides the
-  # `.S` suite: `test-units` (the seven iverilog benches, each of which
-  # $fatal(1)s on a mismatch), `probe-gates` (ADR-0053, which forces every
-  # graded comparison in the grading scripts to fail for its own reason), and
-  # the suite-shape check that grades test/OBSERVED_FLOOR's name set both ways
-  # before a program is assembled.
-  #
-  # The pass/fail table is graded against test/EXPECTED_FAIL by set equality in
-  # both directions, so a baselined test that starts passing fails this gate as
-  # loudly as a passing test that starts failing, until its line moves in the
-  # same commit (ADR-0014).
   test:
     name: test
     runs-on: little-cpu-runners
@@ -110,7 +87,7 @@ jobs:
       # An assertion, not an install: these runners are runAsNonRoot with
       # allowPrivilegeEscalation:false, so `sudo apt-get install` fails with
       # "the 'no new privileges' flag is set" and the cross compiler has to be
-      # baked into the runner image.
+      # baked into the runner image instead.
       - name: Verify the toolchain is present in the runner image
         uses: ./.github/actions/verify-toolchain
         with:
@@ -131,15 +108,10 @@ jobs:
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # formal/components.sby carries three tasks -- decoder, executor, pcloop --
-  # and this job runs all three, so a task added there needs a step here or it
-  # runs nowhere. They pass by k-induction (`mode prove`), and unlike the
-  # ladder they are not bounded checks.
-  #
-  # The executor proof caps the divide family's operand magnitudes with the sign
-  # left free (ADR-0051). The standalone decoder proof assumes its pc input is
-  # what it last produced, and components_pcloop is what discharges that
-  # assumption -- so the decoder task's result is worth only what pcloop's is.
+  # Every task in formal/components.sby needs a step here or it runs nowhere.
+  # The standalone decoder proof assumes its pc input is what it last produced,
+  # and components_pcloop is what discharges that, so the decoder task's result
+  # is worth only what pcloop's is.
   components:
     name: components
     runs-on: little-cpu-runners
@@ -174,15 +146,6 @@ jobs:
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # svlint over rtl/ with the tracked .svlint.toml. It parses with sv-parser, a
-  # third SystemVerilog frontend after yosys's and iverilog's. `make lint` runs
-  # it twice, with and without the RVFI macros, because roughly a fifth of rtl/
-  # sits behind `ifdef RISCV_FORMAL` and svlint's preprocessor drops it
-  # otherwise.
-  #
-  # Needs no oss-cad-suite and no cross compiler -- `make lint-setup` fetches
-  # and verifies the pinned svlint archive, and the Makefile owns that pin so
-  # the workflow cannot run a different svlint than a local build does.
   lint:
     name: lint
     runs-on: little-cpu-runners
@@ -211,16 +174,10 @@ jobs:
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # `make fit` -- the repo's area ratchet against FIT_MAX_LC (ADR-0038). Quote
-  # this job's number and name the toolchain with it: the same commit
-  # synthesises ~21 cells apart under the pinned OSS CAD Suite and a local
-  # Homebrew yosys. The ratchet's own failure directions are probed
-  # hermetically in test/probe_gates.sh.
-  #
-  # Not in main's required set, deliberately: area is a design constraint, not
-  # a correctness one, so growing past the budget should be visible and
-  # discussed rather than blocking. Branch protection is a repository setting no
-  # pull request may touch (ADR-0036).
+  # Quote this job's number and name the toolchain with it: the same commit
+  # synthesises about 21 cells apart under the pinned OSS CAD Suite and a local
+  # Homebrew yosys. Not in main's required set, deliberately -- area is a design
+  # constraint, not a correctness one.
   fit:
     name: fit
     runs-on: little-cpu-runners
@@ -238,16 +195,13 @@ jobs:
         # Never pipe a graded command in a `run:` block. Without an explicit
         # `shell:` key the step is `bash -e {0}` -- errexit but not pipefail --
         # so `cmd | tee` takes its status from `tee` and always succeeds. This
-        # repo shipped exactly that once (ADR-0037). Redirect, take the status
-        # off the unpiped command, then publish. The same pattern below in
-        # `soc-timing`, `nonperturbation` and the `formal` gate is this rule.
+        # repo shipped exactly that once. The same shape in `soc-timing`,
+        # `nonperturbation` and the `formal` gate is this rule.
         #
         # `make fit` expects placement to FAIL: the fit top presents 231 SB_IO
-        # against sg48's 39, so nextpnr always errors on a pad -- after printing
-        # the utilisation table, which is the measurement (ADR-0038 decision
-        # 1a). The Makefile checks for that table, so "nextpnr died before
-        # measuring anything" is red and "measured, then failed to place" is
-        # green.
+        # against sg48's 39, so nextpnr always errors on a pad, after printing
+        # the utilisation table that is the measurement. The Makefile checks for
+        # that table, so "died before measuring anything" is red.
         run: |
           set +e
           make fit > "$RUNNER_TEMP/fit.txt" 2>&1
@@ -273,18 +227,11 @@ jobs:
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # `make soc-timing` -- the SoC place-and-route and the only timing figure this
-  # project has (ADR-0054). It is in main's required set, unlike `fit`: the
-  # floor it grades is the clock the board runs at, so missing it means the
-  # design does not run on the target part.
-  #
-  # Unlike `fit` it needs the cross compiler as well as the OSS CAD Suite,
-  # because it assembles a real ROM image before synthesising, and it expects
-  # placement to SUCCEED: the SoC's memories are internal, so it presents 4
-  # SB_IO against sg48's 39. There is no `.asc` for icetime to read without a
-  # completed placement. What is graded is soc/cell_census.py's SPRAM/EBR census
-  # and soc/timing_split.py's SOC_MIN_MHZ ratchet, both probed hermetically in
-  # test/probe_gates.sh.
+  # In main's required set, unlike `fit`: the floor it grades is the clock the
+  # board runs at, so missing it means the design does not run on the target
+  # part. It needs the cross compiler because it assembles a real ROM image
+  # before synthesising, and unlike `fit` it expects placement to SUCCEED --
+  # icetime has no `.asc` to read otherwise.
   soc-timing:
     name: soc-timing
     runs-on: little-cpu-runners
@@ -304,9 +251,9 @@ jobs:
         uses: ./.github/actions/setup-oss-cad-suite
 
       - name: make soc-timing
-        # Redirected rather than piped -- see the `fit` job's step for why. The
-        # summary is written before the exit, so the census and the
-        # logic/routing split land whether this passes or fails.
+        # Redirected rather than piped -- see the `fit` job for why. The summary
+        # is written before the exit, so the census and the logic/routing split
+        # land whether this passes or fails.
         run: |
           set +e
           make soc-timing > "$RUNNER_TEMP/soc-timing.txt" 2>&1
@@ -334,17 +281,11 @@ jobs:
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # ADR-0047: the `-D RISCV_FORMAL` build, with its rvfi_* ports deleted and
-  # every gate that only fed them swept away, must be structurally identical to
-  # the plain build -- same cell histogram, same name-independent connectivity
-  # fingerprint. That is the mechanical form of the obligation that the RVFI
-  # shadow payload not change what the core does.
-  #
-  # It is strictly weaker than sequential equivalence and must not be quoted as
-  # if it were: it proves the instrumentation is unread, not that two designs
-  # behave alike. Both failure directions were demonstrated on real mutations,
-  # the smaller being an `ifdef`'d value gating rtl/accessor.v's `out.valid` at
-  # +11 cells.
+  # The `-D RISCV_FORMAL` build, with its rvfi_* ports deleted and every gate
+  # that only fed them swept away, must be structurally identical to the plain
+  # build. Strictly weaker than sequential equivalence and must not be quoted as
+  # if it were: it shows the instrumentation is unread, not that two designs
+  # behave alike.
   #
   # Not in main's required set. Which jobs are is a repository setting, so read
   # it live rather than from any comment here:
@@ -365,7 +306,7 @@ jobs:
         uses: ./.github/actions/setup-oss-cad-suite
 
       - name: make -C formal nonperturbation
-        # Redirected rather than piped -- see the `fit` job's step for why.
+        # Redirected rather than piped -- see the `fit` job for why.
         run: |
           set +e
           make -C formal nonperturbation > "$RUNNER_TEMP/nonperturbation.txt" 2>&1
@@ -391,10 +332,8 @@ jobs:
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # Regenerates test/monitor.v from a from-scratch riscv-formal clone at the pin
-  # and diffs it against the tracked copy, which is generated but tracked and
-  # must never be hand-edited. A fresh runner gives the from-scratch clone for
-  # free, and this needs only python3 and git.
+  # Both steps need a from-scratch riscv-formal clone at the pin, which a fresh
+  # runner gives for free, and nothing but python3 and git.
   monitor-freshness:
     name: monitor-freshness
     runs-on: little-cpu-runners
@@ -410,8 +349,7 @@ jobs:
 
       # The same control for the repo's other vendored generated file:
       # formal/genchecks-local.py may differ from the pin's checks/genchecks.py
-      # only by this repo's header and `basedir` (ADR-0031). It shares this job
-      # because the step above has already paid for the clone.
+      # only by this repo's header and `basedir`.
       - name: make -C formal genchecks-check
         run: make -C formal genchecks-check
 
@@ -424,39 +362,25 @@ jobs:
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # The riscv-formal ladder, plus every hand-authored formal task the repo owns.
+  # What is gated here is formal/check-baseline.sh's exit status, not sby's:
+  # every generated .sby carries `expect pass,fail`, so sby exits 0 whether a
+  # check passed or failed and its exit code never carried a verdict. The
+  # verdict is the two set equalities check-baseline.sh performs.
   #
-  # What is gated is formal/check-baseline.sh's exit status, not sby's: every
-  # generated .sby carries `expect pass,fail`, so sby exits 0 whether a check
-  # passed or failed and its exit code has never carried a verdict. The verdict
-  # is the two set equalities check-baseline.sh performs, each in both
-  # directions (ADR-0014) -- formal/EXPECTED_CHECKS for which checks genchecks
-  # generated, formal/EXPECTED_FAIL for which of them are red. Deleting a
-  # baseline line without fixing the check fails here, and so does fixing a
-  # check without deleting its line.
-  #
-  # A green run means the ladder still matches its baseline and nothing more.
-  # Every check is `mode bmc` -- no counterexample within a configured depth,
-  # not a proof -- and the whole ladder runs under RISCV_FORMAL_ALTOPS, so a
+  # A green run means the checks still match their baseline and nothing more.
+  # Every one is `mode bmc`, and they all run under RISCV_FORMAL_ALTOPS, so a
   # passing insn_mul or insn_div says nothing about the real multiplier or
-  # divider (ADR-0010).
-  #
-  # The Sail co-sim stays off this job deliberately: ADR-0032 forbids putting it
-  # on the required set, and its fetch has not had formal/pin.mk's treatment.
+  # divider.
   formal:
     name: formal
-    # GitHub-hosted for memory, not packaging. One ladder check peaks around
-    # 876 MiB resident (insn_add_ch0, measured), and the in-cluster pod has a
-    # 1.5 GiB limit with ~836 MiB already held at job start -- so a single check
-    # does not fit there at any parallelism, and two runs died with the runner
-    # losing contact before they could upload a log. Moving back in-cluster
-    # needs that pod's memory limit raised to at least JOBS x 1 GiB plus the
-    # ~1 GiB the runner and toolchain hold.
+    # GitHub-hosted for memory, not packaging. One check peaks around 876 MiB
+    # resident (insn_add_ch0, measured) and the in-cluster pod has a 1.5 GiB
+    # limit with ~836 MiB already held at job start, so a single check does not
+    # fit there at any parallelism.
     runs-on: ubuntu-latest
     # Loose because there is no per-check wall bound: one non-converging check
     # starves everything scheduled after it, and `-k` does not help because the
-    # job dies rather than the check. Raising a depth in checks.cfg re-opens
-    # this number.
+    # job dies rather than the check.
     timeout-minutes: 20
     steps:
       - name: Record job start
@@ -468,12 +392,10 @@ jobs:
         uses: ./.github/actions/setup-oss-cad-suite
 
       # sby's btor engine replays a counterexample with btorsim, so btorsim is
-      # reached only by a check that found one -- on a box without it, every red
-      # check reports ERROR instead of FAIL. On an all-green ladder, which is
-      # the state this repo is in, its absence is therefore invisible until the
-      # first check goes red, and the diagnostic then reads "status changed"
-      # rather than "install btorsim". Asserting up front is what makes the
-      # failure name its own cause.
+      # reached only by a check that found one -- without it, every red check
+      # reports ERROR instead of FAIL. With everything green its absence is
+      # therefore invisible until the first check goes red, and the diagnostic
+      # then reads "status changed" rather than "install btorsim".
       - name: Confirm the BMC toolchain is complete
         run: |
           set -euo pipefail
@@ -493,16 +415,12 @@ jobs:
             exit 1
           fi
 
-      # Generation runs formal/genchecks-audit.py, which asserts the ladder's
-      # shape against EXPECTED_CHECKS in about a second before any check runs.
-      #
       # JOBS is a memory budget, not a speed knob: one check peaks around
-      # 876 MiB resident, so the ladder's footprint is roughly JOBS GiB and 4
-      # fits a 16 GiB hosted runner. formal/Makefile defaults it to `nproc`,
-      # which is right on a workstation and wrong in a container, where the
-      # affinity mask is not narrowed by a CPU quota. The diagnostics below
-      # print what the host actually has; re-tune against those, not by
-      # guessing.
+      # 876 MiB resident, so the footprint is roughly JOBS GiB and 4 fits a
+      # 16 GiB hosted runner. formal/Makefile defaults it to `nproc`, which is
+      # right on a workstation and wrong in a container, where a CPU quota does
+      # not narrow the affinity mask. The diagnostics below print what the host
+      # actually has; re-tune against those rather than guessing.
       - name: Generate and run the ladder (make -C formal check)
         run: |
           set -uo pipefail
@@ -512,23 +430,19 @@ jobs:
           free -h 2>/dev/null || true
           make -C formal check JOBS=4
 
-      # The step above already ends in this same comparison (formal/Makefile's
-      # `check` puts a leading `-` on the sby sub-make and then runs
-      # check-baseline), so the two agree by construction. Re-grading a finished
-      # ladder re-runs no check and costs a second, and it publishes the verdict
-      # instead of leaving it inferred.
-      #
-      # `!cancelled()` rather than the default, because if the ladder step goes
-      # red this step is what says why. A ladder that failed to generate at all
-      # exits 2 here ("no *.sby files"), so a red step above cannot be followed
-      # by a green one here.
+      # The step above already ends in this same comparison, so the two agree by
+      # construction; re-grading re-runs no check and publishes the verdict
+      # instead of leaving it inferred. `!cancelled()` because if the step above
+      # goes red this one is what says why -- and a run that failed to generate
+      # at all exits 2 here ("no *.sby files"), so a red step above cannot be
+      # followed by a green one here.
       - name: Gate on formal/EXPECTED_FAIL + formal/EXPECTED_CHECKS
         if: ${{ !cancelled() }}
         run: |
-          # Redirected rather than piped -- see the `fit` job's step for why.
-          # Demonstrated here specifically: with `| tee` in place, a
-          # deliberately wrong formal/EXPECTED_FAIL printed "Failure list does
-          # NOT match" and the job still reported success.
+          # Redirected rather than piped -- see the `fit` job for why.
+          # Demonstrated here: with `| tee` in place, a deliberately wrong
+          # formal/EXPECTED_FAIL printed "Failure list does NOT match" and the
+          # job still reported success.
           set +e
           formal/check-baseline.sh formal/checks formal/EXPECTED_FAIL > "$RUNNER_TEMP/baseline-report.txt" 2>&1
           status=$?
@@ -547,14 +461,10 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
-      # The hand-authored tasks. These are not on the generated ladder --
-      # formal/EXPECTED_FAIL covers the genchecks sweep only -- so each one's
-      # verdict is its own exit status and nothing else.
-      #
-      # One step each rather than one step running three `make`s, because make
-      # stops at the first failure: a red imemcheck would leave dmemcheck and
-      # cover unrun while the log read as a single failure. Split, the step list
-      # is the per-check record.
+      # The hand-authored tasks. formal/EXPECTED_FAIL covers the genchecks sweep
+      # only, so each one's verdict is its own exit status. One step each rather
+      # than one step running three `make`s, because make stops at the first
+      # failure and the log would read as a single one.
       - name: imemcheck (ADR-0003's dual-word fetch window)
         run: make -C formal imemcheck
 
@@ -564,36 +474,27 @@ jobs:
       - name: cover (five goals, incl. >=2 compressed retires)
         run: make -C formal cover
 
-      # complete.sby carries no `expect` line, unlike every generated ladder
-      # check, so this step's status is sby's own.
+      # complete.sby carries no `expect` line, unlike every generated check, so
+      # this step's status is sby's own.
       #
-      # What a green `complete` means: on every trace of at most 50 cycles from
-      # reset, every non-trapping retire the core reports carries an encoding
-      # riscv-formal's whole-ISA model recognises and agrees is non-trapping.
-      # Each of the 70 insn_* ladder checks constrains rvfi_insn to its own
-      # encoding, so an encoding none of them names is invisible to all of them,
-      # and this is what sees it.
+      # A green run means every non-trapping retire the core reports, on any
+      # trace of at most 50 cycles, carries an encoding riscv-formal's whole-ISA
+      # model recognises. Each of the 70 insn_* checks constrains rvfi_insn to
+      # its own encoding, so an encoding none of them names is invisible to all
+      # of them, and this is what sees it. It says nothing about spec values and
+      # is silent on the classes in formal/COMPLETE_EXCLUSIONS.
       #
-      # What it does not mean: it is `mode bmc` at depth 50, it says nothing
-      # about spec values, and it is silent on the opcode classes declared in
-      # formal/COMPLETE_EXCLUSIONS -- which `make -C formal complete` refuses to
-      # run until they match complete.sv in both directions. Whole-ISA coverage
-      # minus a declared, baselined hole is not whole-ISA coverage.
-      #
-      # complete.sby runs `abc bmc3`, a third engine after the ladder's
-      # `btor btormc` and components.sby's `smtbmc boolector`, so the btorsim
-      # assertion above does not cover it.
+      # complete.sby runs `abc bmc3`, a third engine after `btor btormc` and
+      # components.sby's `smtbmc boolector`, so the btorsim check above does not
+      # cover it.
       - name: complete (whole-ISA BMC walk, depth 50)
         run: make -C formal complete
 
-      # The anti-vacuity control for the step above, and a gate for the same
-      # reason it is. `complete`'s assertion is guarded by `rvfi_valid`,
-      # `!rvfi_trap` and `!insn_excluded`, so a core that never retired, or
-      # claimed a trap on everything, or an exclusion set that had grown to
-      # swallow the ISA would each pass it having been asked nothing. This runs
-      # the same complete.sv under `mode cover` and requires a real
-      # non-trapping, non-excluded retire of every opcode class the exclusion
-      # set does not name. Green above without green here is not a result.
+      # `complete`'s assertion is guarded by `rvfi_valid`, `!rvfi_trap` and
+      # `!insn_excluded`, so a core that never retired, or claimed a trap on
+      # everything, or an exclusion set grown to swallow the ISA would each pass
+      # it having been asked nothing. Green above without green here is not a
+      # result.
       - name: complete_cover (anti-vacuity — every non-excluded class retires)
         run: make -C formal complete_cover
 
