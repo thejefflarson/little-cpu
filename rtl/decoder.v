@@ -8,37 +8,37 @@ module decoder (
   input  logic [31:0] reg_rs1,
   input  logic [31:0] reg_rs2,
   input  executor_output executor_out,
-  // Decode bubbles its own output for the whole divide rather than holding it:
-  // the divider latches its operands at issue, and a held decoder_out would be
-  // misread as freshly issued the moment the executor returns to `init`.
+  // While a divide runs, decode zeroes `out` instead of holding it. The divider
+  // has already taken its operands, and a held `out` would be read as a new
+  // instruction when the executor goes back to `init`.
   input  logic divider_stall,
-  // Held, not bubbled, for exactly the cycle this is asserted. Nothing
-  // downstream has consumed this cycle's decoder_out when it fires, so bubbling
-  // would silently drop that instruction.
+  // This one holds `out` instead of zeroing it. Nothing downstream has taken
+  // this cycle's `out` yet, so zeroing it would lose that instruction.
   input  logic accessor_stall,
-  // The instruction memory took its read port for a data access, so the window
-  // presented this cycle is a data word rather than the instruction at `pc`
-  // (ADR-0059). A divider or accessor freeze on the same cycle outranks it.
+  // The instruction memory gave its read port to a load or store, so the window
+  // arriving this cycle holds a data word, not the instruction at `pc`. If a
+  // divide or a load stall lands on the same cycle, that one wins.
   input  logic fetch_stall,
-  // A load in the accessor's turnaround is a live producer for one cycle that
-  // neither decoder_out nor executor_out can see it in. That gap only.
+  // A load spends an extra cycle waiting for memory. During it the load has left
+  // `executor_out` and has not yet written the register file, so neither of the
+  // other two terms below sees it. These cover that one cycle.
   input  logic       accessor_pending_valid,
   input  logic [4:0] accessor_pending_rd,
-  // The drain predicate's fourth slot: a *store* in the accessor appears in none
-  // of the other three, and without it a CSR instruction issues early and
-  // `minstret` is wrong exactly when a store is in flight (ADR-0026).
+  // A store writes no register, so the hazard check ignores it. Serialization
+  // still has to wait for one. That is what this is for -- without it a CSR
+  // access can issue while a store is still in the accessor.
   input  logic       accessor_out_valid,
   output logic [31:0] pc,
-  // The value `pc` will hold next cycle, published combinationally this one so a
-  // synchronous instruction memory can latch it on the same edge `pc` takes it.
-  // That is how fetch stays combinational from decode's point of view on a part
-  // with no combinational-read memory (invariant 1, ADR-0054).
+  // The value `pc` takes next cycle, ready during this one. A memory that needs
+  // a cycle to answer latches this on the same edge `pc` moves, so its data is
+  // there when decode wants it. Without it decode would always be one
+  // instruction behind the address it is deciding from.
   output logic [31:0] next_pc,
   output logic [4:0] rs1,
   output logic [4:0] rs2,
-  // rtl/csrs.v is a sibling module, not a stage: it answers combinationally in
-  // time for the publish block, and commits on the edge the accessing
-  // instruction issues, so nothing downstream carries CSR state (ADR-0005).
+  // rtl/csrs.v is a sibling module, not a stage. It answers in the same cycle,
+  // and commits on the edge the instruction issues. No CSR value is ever held
+  // downstream, so there is nothing to forward and nothing to replay.
   output logic [11:0] csr_addr,
   output logic        csr_ren,
   output logic        csr_wen,
@@ -46,8 +46,8 @@ module decoder (
   input  logic [31:0] csr_rdata,
   input  logic        csr_implemented,
   output logic        instret,
-  // A trap is a branch: it redirects through the same `next_pc` chain every
-  // other branch uses, which is why nothing downstream needs a kill signal.
+  // A trap takes the same `next_pc` chain a branch does. Nothing downstream has
+  // to be told about it, so there is no kill signal anywhere.
   output logic        trap_entry,
   output logic [31:0] trap_cause,
   output logic [31:0] trap_epc,
@@ -61,16 +61,16 @@ module decoder (
  `endif
   output decoder_output out
 );
-  // Zero-extending a compressed instruction leaves no neighbouring-instruction
-  // garbage in the upper half for a decode path that forgets to gate on
-  // `uncompressed` to read (ADR-0021).
+  // The fetch window is always 32 bits. For a 16-bit instruction the upper half
+  // is the next instruction in memory. Zeroing it means a decode line that reads
+  // instr[31:16] without checking the width first sees zero, not its neighbour.
   logic [31:0] instr;
   assign instr = (in.instr[1:0] == 2'b11) ? in.instr : {16'b0, in.instr[15:0]};
 
-  // Base encodings (RISC-V unprivileged spec, Ch. 2.2). Hoisted out of the
-  // always_comb blocks below because iverilog cannot build a precise sensitivity
-  // entry for a constant part-select taken inside one; prefer a continuous
-  // assign for any field read added later (ADR-0034).
+  // Base encodings (RISC-V unprivileged spec, Ch. 2.2). Pulled out here rather
+  // than read inside the always_comb blocks below: iverilog cannot work out a
+  // precise sensitivity list for a bit-select taken inside one, and warns. Use a
+  // continuous assign for any field read added later.
   logic [4:0] rd_field, rs1_field, rs2_field;
   assign rd_field  = instr[11:7];
   assign rs1_field = instr[19:15];
@@ -273,9 +273,9 @@ module decoder (
   assign instr_rem = instr_m && funct3 == 3'b110;
   assign instr_remu = instr_m && funct3 == 3'b111;
 
-  // The Zicsr immediate forms stay named apart from the register forms: their
-  // rs1 field is a zimm, so `uses_rs1` must not interlock on it and `csr_arg`
-  // must read the encoding rather than the register file.
+  // Keep the immediate forms named apart from the register forms. Their rs1
+  // field holds a 5-bit constant, not a register number, so `uses_rs1` must not
+  // wait on it and `csr_arg` must read the encoding instead of the register.
   logic instr_csr, instr_csrrwi, instr_csrrsi, instr_csrrci;
   assign instr_csr = opcode == 5'b11100 && uncompressed;
   assign instr_csrrw = instr_csr && funct3 == 3'b001 || instr_csrrwi;
@@ -292,10 +292,10 @@ module decoder (
   logic [31:0] csr_arg;
   assign csr_arg = is_csr_imm ? {27'b0, rs1_field} : reg_rs1;
 
-  // Zicsr's suppression rules. Suppressing the write when the source is zero is
-  // what makes `csrr` legal against a read-only CSR rather than an
-  // illegal-instruction trap. The read-suppression rule already falls out of
-  // `rd` gating rtl/writeback.v's `wen`, and is named here only for RVFI.
+  // Skipping the write when the source is zero is what makes `csrr` legal on a
+  // read-only CSR instead of an illegal instruction. Skipping the read when rd
+  // is x0 already happens, because rd == 0 gates rtl/writeback.v's `wen`; it is
+  // named here only so RVFI reports the right read mask.
   logic csr_src_zero, csr_write_op, csr_read_op;
   assign csr_src_zero = rs1_field == 5'b0;
   assign csr_write_op = instr_csr_access && !((instr_csrrs || instr_csrrc) && csr_src_zero);
@@ -304,16 +304,14 @@ module decoder (
                      instr_csrrs ? (csr_rdata | csr_arg) :
                                    (csr_rdata & ~csr_arg);
 
-  // SYSTEM with funct3 == 0. An encoding missing from this group decodes to
-  // nothing, which now means an illegal-instruction trap rather than a silent
-  // NOP.
+  // SYSTEM with funct3 == 0. Leave one of these out and it decodes to nothing,
+  // which traps as an illegal instruction rather than being ignored.
   logic instr_error, instr_mret, instr_wfi, instr_cebreak;
   assign instr_error = opcode == 5'b11100 && uncompressed && funct3 == 0 && rs1 == 0 && rd == 0;
   assign instr_ecall = instr_error && instr[31:20] == 12'h0;
-  // C.EBREAK needs its own line because it is the rd == 0, rs2 == 0 corner of
-  // quadrant 2's funct4 == 4'b1001 row that `instr_cjalr` and `instr_cadd` each
-  // exclude by a different field. Without it the encoding decodes to nothing and
-  // traps as illegal rather than as a breakpoint.
+  // C.EBREAK needs its own line. It sits in the same row as `instr_cjalr` and
+  // `instr_cadd`, and each of those excludes it by a different field. Without
+  // this it decodes to nothing and traps as illegal instead of as a breakpoint.
   assign instr_cebreak = quadrant == 2'b10 && cfunct4 == 4'b1001 &&
     instr[11:7] == 5'b0 && instr[6:2] == 5'b0;
   assign instr_ebreak = (instr_error && instr[31:20] == 12'h1) || instr_cebreak;
@@ -341,8 +339,9 @@ module decoder (
     instr_fencei || (instr_csr_access && csr_implemented);
 
   // The effective address, used here to decide misalignment and again in the
-  // publish block as `out.mem_addr`. That it is available in decode for free is
-  // what makes invariant 2 affordable.
+  // publish block as `out.mem_addr`. Having it this early is what lets a
+  // misaligned access be turned into a trap before the instruction issues,
+  // rather than by the memory stage refusing it after the fact.
   logic [31:0] mem_addr_calc;
   assign mem_addr_calc = $signed(immediate) + $signed(reg_rs1);
 
@@ -370,11 +369,11 @@ module decoder (
   assign trap_pending = instr_illegal || instr_ebreak || instr_ecall ||
                         load_misaligned || store_misaligned;
 
-  // No `(* parallel_case *)`. The five causes cannot co-occur today, so this
-  // encoder is vacuous -- but claiming one-hot would turn that disjointness from
-  // something the `ifdef FORMAL` block asserts into something the RTL assumes,
-  // and a later cause that broke it would be a lie to synthesis rather than a
-  // failed proof (ADR-0030).
+  // No `(* parallel_case *)` here. No two of these five can be true at once
+  // today, so the priority never matters. But marking the case one-hot tells
+  // synthesis it may assume that. Add a sixth cause that overlaps an existing
+  // one and you get whatever the optimiser chose, instead of a failed
+  // assertion. The `ifdef FORMAL` block below checks it can't happen.
   always_comb begin
     case (1'b1)
       instr_illegal:    trap_cause = CAUSE_ILLEGAL_INSTRUCTION;
@@ -441,22 +440,22 @@ module decoder (
   logic [31:0] pc_inc;
   assign pc_inc = uncompressed ? 4 : 2;
 
-  // "Does this instruction really read rsN?" -- not a shift's shamt, not a
-  // U-type immediate's overlapping bit positions, not a zimm. Both the
-  // scoreboard and the operand-fetch stall key off these, so widening either
-  // predicate stalls on registers nothing reads and narrowing it reads stale
-  // ones (ADR-0004).
+  // Does this instruction really read rsN? Not a shift amount, not immediate
+  // bits that happen to sit where a register number would, not a Zicsr
+  // constant. Both `hazard_rs1`/`hazard_rs2` and `operand_stall` use these.
+  // Widen one and the core waits on registers nothing reads. Narrow one and an
+  // instruction issues before its operand has arrived.
   logic uses_rs1, uses_rs2;
   assign uses_rs1 = !(instr_lui || instr_jal || instr_auipc || is_csr_imm);
   assign uses_rs2 = (instr_math && !instr_math_immediate) || instr_sb || instr_sh || instr_sw ||
     instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu;
 
-  // Do not factor these two into a shared `function automatic live_producer(r)`.
-  // iverilog builds a continuous assign's sensitivity list from the call's
-  // arguments, so a body that also reads `out`/`executor_out`/`accessor_pending_*`
-  // never re-evaluates when those change -- silent under-sensitivity, with no
-  // diagnostic, which froze the iverilog leg at the first RAW hazard of every
-  // program while cxxrtl and the ladder stayed green (ADR-0037).
+  // Do not fold these two into a shared function. iverilog builds a continuous
+  // assign's sensitivity list from the arguments at the call site. A function
+  // body that also read `out`, `executor_out` or `accessor_pending_*` would stop
+  // re-evaluating when any of those changed. `hazard_rs1` then sticks high at the
+  // first conflict and the core stops. iverilog gives no warning for this, and
+  // yosys gets the same function right, so every other check stays green.
   logic live_rs1, live_rs2;
   assign live_rs1 = (out.valid && out.rd == rs1) ||
     (executor_out.valid && executor_out.rd == rs1) ||
@@ -465,11 +464,18 @@ module decoder (
     (executor_out.valid && executor_out.rd == rs2) ||
     (accessor_pending_valid && accessor_pending_rd == rs2);
 
-  // Serialization holds these in decode until all four in-flight slots are empty
-  // (invariant 5). Two distinct reasons, so do not narrow it to suit one: a CSR
-  // instruction and `mret` are here for `minstret` exactness and not for hazard
-  // safety (ADR-0027), while `fence.i` needs the older store's write edge to have
-  // passed before the fetch a cycle ahead of it latches stale text (ADR-0061).
+  // These three wait until the pipeline is empty, for two different reasons.
+  // Narrowing the test to suit one of them breaks the other.
+  //
+  // A CSR access and `mret` are not waiting for an operand. `minstret` counts up
+  // when an instruction issues, not when it finishes, so it already includes
+  // instructions still moving down the pipeline. Waiting until they are done
+  // makes the count match what has actually finished.
+  //
+  // `fence.i` waits because text is writable and the fetch address goes out a
+  // cycle early. A store needs two edges to reach the memory array. By then the
+  // instruction after the `fence.i` has already been fetched, and it read the
+  // old text. An empty pipeline means the store has landed.
   logic pipe_drained, serialize;
   assign pipe_drained = !out.valid && !executor_out.valid && !accessor_out_valid &&
     !accessor_pending_valid;
@@ -481,20 +487,22 @@ module decoder (
   assign hazard = hazard_rs1 || hazard_rs2 || serialize;
 
  `ifdef RISCV_FORMAL
-  // These must stay exactly `uses_rs1`/`uses_rs2` and not a looser formula. The
-  // monitor's reordered-channel shadow-register check compares any reported
-  // address against its own last-write model unconditionally, so over-reporting
-  // one the instruction never read fails error 132 on a correct core.
+  // Report a register only if the instruction really reads one. The monitor
+  // keeps its own record of every register's last write and checks any address
+  // reported here against it. Name a register the instruction never read and the
+  // two disagree, on a core that is working correctly.
   logic rvfi_rs1_valid, rvfi_rs2_valid;
   assign rvfi_rs1_valid = !instr_lui && !instr_jal && !instr_auipc && !is_csr_imm;
   assign rvfi_rs2_valid = uses_rs2;
  `endif
-  // Register reads take one cycle, so an instruction presents its address pair,
-  // bubbles, and issues on the next cycle (invariant 9). The predicate states
-  // that rule directly rather than counting cycles: valid for exactly the pair
-  // presented last cycle, and only for the ports this instruction reads. The
-  // instructions that skip a fetch cycle all override out.rs1/out.rs2 in the
-  // publish block, so skipping cannot leak a stale operand.
+  // Register reads take one cycle. Decode presents rs1/rs2, waits a cycle, then
+  // issues. So reg_rs1/reg_rs2 hold the answer to whatever addresses went out
+  // last cycle, not this one.
+  //
+  // The test below says exactly that, and only for the ports this instruction
+  // reads. lui, jal and auipc read neither, so they never wait. Each writes its
+  // own operands into `out` further down instead of passing reg_rs1/reg_rs2
+  // through, so skipping the read cannot leak a stale value.
   logic [4:0] prev_rs1, prev_rs2;
   logic       read_taken, operand_stall;
   always_ff @(posedge clk) begin
@@ -511,14 +519,14 @@ module decoder (
   assign operand_stall = !read_taken || (uses_rs1 && prev_rs1 != rs1) ||
                                         (uses_rs2 && prev_rs2 != rs2);
 
-  // All six stall reasons, one broadcast. They freeze the PC alike; the publish
-  // block below is where they differ (ADR-0009).
+  // Every reason to stall, in one signal. They all hold the PC; the block that
+  // writes `out` below is where they differ.
   assign stall = hazard || operand_stall || divider_stall || accessor_stall || fetch_stall;
 
-  // Kept out of the `next_pc` chain below so each comparison is a
-  // self-determined expression with both operands explicitly `$signed`. Signed
-  // arithmetic buried in an arm of a conditional has silently gone unsigned in
-  // this repo twice.
+  // Kept out of the `next_pc` chain below so each comparison stands on its own
+  // with both sides marked `$signed`. A signed comparison written as one arm of
+  // a conditional takes its signedness from the other arms, and has quietly
+  // turned unsigned in this repo twice.
   logic branch_taken;
   always_comb begin
     (* parallel_case *)
@@ -533,9 +541,9 @@ module decoder (
     endcase
   end
 
-  // Every redirect this core takes, as one priority chain (ADR-0054). No
-  // `(* parallel_case *)`: `stall` and `trap_pending` do co-occur, so claiming
-  // one-hot would be a lie to synthesis.
+  // Every way the PC can change, in one priority chain. No `(* parallel_case *)`
+  // here: `stall` and `trap_pending` really can both be true, so the order
+  // matters and synthesis must not assume otherwise.
   always_comb begin
     case (1'b1)
       reset:                     next_pc = 32'b0;
@@ -550,10 +558,10 @@ module decoder (
     endcase
   end
 
-  // Must stay term-for-term identical to the publish block's `else` guard, and
-  // in particular must not gain `&& in.valid`: that arm does not test it either.
-  // The two disagreeing would apply a CSR write once per stall cycle rather than
-  // once per instruction, silently.
+  // Keep this exactly the same as the final `else` guard below, term for term.
+  // In particular do not add `&& in.valid`: that arm does not test it either. If
+  // the two ever disagree a CSR write fires once per stalled cycle instead of
+  // once per instruction, and nothing says so.
   logic issuing;
   assign issuing = !reset && !stall;
 
@@ -561,8 +569,8 @@ module decoder (
   assign committing = issuing && !trap_pending;
   assign csr_ren = committing && csr_read_op;
   assign csr_wen = committing && csr_write_op;
-  // A trapping instruction issues and retires in RVFI, but it did not retire
-  // architecturally, so it must not be counted (ADR-0027).
+  // A trapping instruction still issues, and RVFI still reports it, but it
+  // changed nothing. It must not be counted.
   assign instret = committing;
 
   assign trap_entry = issuing && trap_pending;
@@ -574,22 +582,24 @@ module decoder (
     if (reset) begin
       out <= '0;
     end else if (divider_stall || accessor_stall) begin
-      // Both fire a cycle behind their cause, so decoder_out holds an instruction
-      // nothing downstream has consumed and bubbling would drop it. This arm
-      // outranking a same-cycle `fetch_stall` is a ruling rather than a
-      // consequence of statement order (ADR-0060), and the `ifdef FORMAL` block
-      // asserts both directions because reordering these two arms is silent.
+      // Both of these fire a cycle after the thing that caused them, so `out`
+      // holds an instruction nothing downstream has taken yet. Zeroing it would
+      // lose that instruction. This arm has to come before the next one: if a
+      // `fetch_stall` lands on the same cycle, holding still wins. Swapping the
+      // two arms changes that and nothing would say so, which is why the
+      // `ifdef FORMAL` block below checks both cases.
       out <= out;
     end else if (hazard || operand_stall || fetch_stall) begin
-      // These bubble rather than hold: nothing stops the executor reading `in`
-      // every cycle here, so a held decoder_out would be reprocessed instead of
-      // the stalled instruction being retried.
+      // These zero `out` instead of holding it. The executor reads `in` every
+      // cycle, so a held `out` would be executed again and again while the
+      // stalled instruction waits.
       out <= '0;
     end else begin
-      // Trap commit lives at the bottom of this arm, which is what buys -- with
-      // no guard of its own -- no trap on a stalled cycle, none from a bubble,
-      // and no double commit. It also means the scoreboard has already cleared
-      // rs1, so the misalignment test reads its architectural value.
+      // This arm runs on exactly the cycles an instruction issues. Committing
+      // traps at the bottom of it is what makes the rest free: no trap on a
+      // stalled cycle, none from an empty cycle, and never twice for the same
+      // instruction. `hazard_rs1` has also already cleared by now, so the
+      // misalignment test reads the real value of rs1.
       out.valid <= 1'b1;
       out.mem_addr <= mem_addr_calc;
       out.rs1 <= instr_lui ? immediate : reg_rs1;
@@ -647,9 +657,9 @@ module decoder (
       case(1'b1)
         default: ;
         instr_auipc: begin
-          // AUIPC has no rs1/rs2 fields -- the bits the default selection reads
-          // are part of the U-type immediate -- so its operands are supplied
-          // directly here and added through the is_add pass-through.
+          // AUIPC has no rs1 or rs2 field. The bits the default selection reads
+          // are part of its immediate, so both operands are written here
+          // directly and added as if it were an add.
           out.rd <= rd;
           out.rs1 <= fetcher_pc;
           out.rs2 <= immediate;
@@ -681,12 +691,12 @@ module decoder (
         end
       endcase
 
-      // Last in the block so non-blocking last-write-wins beats every flag the
-      // arms above set, and no arm has to know traps exist. The instruction
-      // still retires with `out.valid` high, having architecturally done nothing
-      // but redirect (ADR-0028) -- clearing these flags is the whole mechanism,
-      // since rtl/accessor.v issues no bus request without one and `out.rd` of 0
-      // gates rtl/writeback.v's `wen`.
+      // Last in the block, so these writes win over every flag set above and no
+      // arm has to know traps exist. `out.valid` stays high: the instruction
+      // still reaches the end of the pipeline, having done nothing but change
+      // the PC. Clearing the flags is the whole of that. rtl/accessor.v starts
+      // no memory access with none of them set, and rd of 0 stops
+      // rtl/writeback.v writing a register.
       if (trap_pending) begin
         out.is_add <= 0; out.is_sub <= 0; out.is_xor <= 0; out.is_or <= 0; out.is_and <= 0;
         out.is_mul <= 0; out.is_mulh <= 0; out.is_mulhu <= 0; out.is_mulhsu <= 0;
@@ -704,31 +714,31 @@ module decoder (
   logic clocked;
   initial clocked = 0;
   always_ff @(posedge clk) clocked <= 1;
-  // Assumes reset before the first edge. Discharged nowhere -- it is structural,
-  // true of every harness in the tree -- and in force over the whole task,
-  // because before that edge `out` and the history registers below have no
-  // defined value.
+  // Assume reset is high before the first edge. Nothing proves this; every
+  // harness in the tree happens to do it. Before that edge `out` and the history
+  // registers below hold no defined value, so nothing here means anything
+  // without it.
   initial assume(reset);
   always_comb if(!clocked) assume(reset);
-  // Assumes reset never returns. Discharged nowhere, same reason. Written for
-  // the pc-increment assertions below, which would otherwise have to account for
-  // every point reset could jump pc back to 0; being unguarded it also covers
-  // the trap-arm assertions, harmlessly, since those carry `!prev_reset`.
+  // Assume reset never comes back. Nothing proves this either. The pc-increment
+  // assertions below would otherwise have to allow for reset forcing pc to 0 at
+  // any point. It is unguarded, so it also covers the trap assertions further
+  // down; those already test `!prev_reset`, so it costs nothing there.
   always_comb if (clocked) assume(!reset);
 
-  // Assumes the fetcher echoes this module's own pc, which it does
-  // combinationally in rtl/fetcher.v. Discharged by formal/pcloop.sv, which
-  // instantiates the real fetcher and asserts the echo instead; that task is on
-  // CI. In force over the whole task, wider than the pc-increment pair it was
-  // written for -- inert only because nothing else below reads `in.pc`.
+  // Assume the fetcher hands back the pc this module gave it. rtl/fetcher.v does
+  // that with a wire. formal/pcloop.sv builds the real fetcher and asserts it
+  // instead of assuming it, so this is checked somewhere; that task runs on CI.
+  // This assume covers the whole file, not just the assertions it was written
+  // for, and nothing else below reads `in.pc`.
   always_comb assume(in.pc == pc);
 
-  // Every "previous cycle" signal below is its own registered copy rather than a
-  // $past() on a free input: $past() chained across another register adds a cycle
-  // of history the solver can fill with a pre-reset value this standalone proof
-  // cannot rule out. `trap_pending` and `instr_mret` belong in `branch_jump`
-  // because both override `pc` -- forgetting either is how "a trap is a branch"
-  // stops being true in the proof while staying true in the RTL.
+  // Each of these keeps its own copy of last cycle's value instead of using
+  // $past(). `in.pc` and `instr` are free inputs here, and $past() through
+  // another register would let the solver fill in a value from before reset that
+  // this proof cannot rule out. `trap_pending` and `instr_mret` belong in
+  // `branch_jump` because both change the pc. Leave either out and the proof
+  // stops believing a trap is a branch while the RTL still treats it as one.
   logic branch_jump;
   always_ff @(posedge clk) if (reset) branch_jump <= 1'b0;
     else branch_jump <= instr_jal || instr_jalr || instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu || trap_pending || instr_mret;
@@ -745,10 +755,10 @@ module decoder (
 
   always_ff @(posedge clk) if (clocked && prev_stall && !prev_reset) assert(pc == past_pc);
 
-  // Both directions of ADR-0060's ruling, because the publish block's arm order
-  // is all that decides which happens and each failure is silent: bubbling on
-  // the coincidence drops an unconsumed instruction, holding on a plain steal
-  // republishes one the executor reads every cycle.
+  // Both halves of the arm order above. Nothing else enforces it and both ways
+  // of getting it wrong are silent: zeroing `out` when a stall and a freeze
+  // coincide loses an instruction, and holding it on a plain stall hands the
+  // executor the same instruction twice.
   decoder_output past_out;
   logic prev_hold_and_steal, prev_steal_only;
   always_ff @(posedge clk) begin
@@ -759,16 +769,16 @@ module decoder (
   always_comb if (clocked && !prev_reset && prev_hold_and_steal) assert(out == past_out);
   always_comb if (clocked && !prev_reset && prev_steal_only)     assert(out == '0);
 
-  // A tautology one flip-flop wide, which is the point: it is what fails if a
-  // later edit gives `pc` a second driver, and that would put the instruction
-  // memory a cycle out of step with decode with no symptom but wrong
-  // instructions (ADR-0054).
+  // Obviously true one flip-flop apart, and that is the point. It fails the
+  // moment something else also writes `pc`. A second writer puts the
+  // instruction memory a cycle out of step with decode, and the only symptom is
+  // that every instruction executed is the wrong one.
   logic [31:0] past_next_pc;
   always_ff @(posedge clk) past_next_pc <= next_pc;
   always_comb if (clocked) assert(pc == past_next_pc);
 
-  // A bubble is fully zeroed, never a partial one that could sneak an rd
-  // through.
+  // An empty `out` is zeroed all the way through, so it can never carry an rd
+  // that writes a register.
   always_comb if (clocked && !out.valid) assert(out.rd == 0);
 
   always_comb if (rs1 == 0) assert(!hazard_rs1);
@@ -782,22 +792,21 @@ module decoder (
     instr_mul, instr_mulh, instr_mulhu, instr_mulhsu, instr_div, instr_divu, instr_rem,
     instr_remu, instr_sll, instr_slt, instr_sltu, instr_srl, instr_sra, instr_lui, instr_lb,
     instr_lbu, instr_lh, instr_lhu, instr_lw, instr_sb, instr_sh, instr_sw, instr_ecall,
-    // Every encoding `instr_valid` admits has to appear here, and the forms that
-    // differ only in funct3 or funct12 stay listed one per term, so a decode
-    // change that made two of them true at once is still caught.
+    // Everything `instr_valid` accepts has to appear here too. Keep the forms
+    // that differ only in funct3 or funct12 on separate terms, so a decode
+    // change that makes two of them true at once still trips this.
     instr_ebreak, instr_csrrw, instr_csrrs, instr_csrrc,
     instr_mret, instr_wfi, instr_fence, instr_fencei});
 
   always_comb if (instr_valid) assert(one_of);
 
-  // What makes the trap-cause encoder above safe to leave un-parallel_case'd.
-  // Add a sixth cause that overlaps an existing one and this fails, rather than
-  // the behaviour quietly becoming whatever the encoder produced.
+  // This is what makes the trap-cause case above safe without a one-hot marking.
+  // Add a sixth cause that overlaps an existing one and this fails here.
   always_comb assert($onehot0({instr_illegal, instr_ebreak, instr_ecall,
                                load_misaligned, store_misaligned}));
 
-  // Written per cause rather than as a restatement of the case statement, so a
-  // reordering of the arms is caught rather than mirrored.
+  // One line per cause, not a copy of the case statement, so reordering its arms
+  // trips these instead of changing them to match.
   always_comb if (instr_illegal)    assert(trap_cause == CAUSE_ILLEGAL_INSTRUCTION);
   always_comb if (instr_ebreak)     assert(trap_cause == CAUSE_BREAKPOINT);
   always_comb if (instr_ecall)      assert(trap_cause == CAUSE_ECALL_M);
@@ -816,9 +825,9 @@ module decoder (
     prev_mepc       <= mepc;
   end
 
-  // That the redirect went to mtvec is something no ladder check can see:
-  // `rvfi_insn_check` drops every value assertion under `spec_trap`, and
-  // pc_fwd/pc_bwd accept any target that is honestly reported.
+  // No riscv-formal check can see that the trap went to mtvec. Its instruction
+  // check drops every value comparison once an instruction traps, and its pc
+  // checks accept any target so long as the core reports the one it took.
   always_comb if (clocked && !prev_reset && prev_trap_entry) assert(pc == prev_mtvec);
   always_comb if (clocked && !prev_reset && prev_mret_entry) assert(pc == prev_mepc);
 
@@ -828,8 +837,8 @@ module decoder (
     assert(!out.is_sb && !out.is_sh && !out.is_sw);
   end
 
-  // Asserted so that an edit re-gating either on `instr_valid` -- the weaker
-  // pre-M3 spelling -- fails (ADR-0027).
+  // Gating these on `instr_valid` instead would look right and be weaker: an
+  // instruction can decode fine and still trap. This catches that.
   always_comb if (trap_pending) assert(!instret && !csr_wen && !csr_ren);
   always_comb assert(!(trap_entry && mret_entry));
  `endif

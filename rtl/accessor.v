@@ -9,30 +9,33 @@ module accessor(
     output logic [3:0]  mem_wstrb,
     output logic [31:0] mem_wdata,
     input  logic [31:0] mem_rdata,
-    // This stage has no fault signal to give: every trap is detected and
-    // committed in decode (invariant 2), and a trapping load or store arrives
-    // with every `is_l*`/`is_s*` flag clear.
+    // There is no fault output here on purpose. A misaligned load or store is
+    // caught in decode, which clears its `is_l*`/`is_s*` flags, so an access
+    // that gets this far cannot fail. Add one and an instruction could fail
+    // after decode had already let the ones behind it through, and there is no
+    // way to take those back.
     //
-    // The memory registers `mem_rdata` a cycle after the address is presented, a
-    // real round trip, so a load cannot be answered in the one cycle every other
-    // instruction takes through this stage (ADR-0015). `stalled` is high for
-    // exactly the request cycle; decode freezes and rtl/executor.v bubbles for
-    // it, so the completing load and a fresh instruction cannot collide over
-    // this stage's single output register.
+    // The memory registers `mem_rdata` a cycle after it is given an address, so
+    // a load takes two cycles here where everything else takes one. `stalled` is
+    // high for the first of them. Decode holds and the executor sends nothing,
+    // so the load finishing next cycle and a new instruction cannot both want
+    // `out` at once.
     output logic stalled,
-    // rtl/imemory.v needs this to tell a real read from the idle bus, which
-    // presents address 0 -- inside the text range, so an unqualified address
-    // would steal a fetch every idle cycle and the core would never run.
+    // The instruction memory shares one read port between fetch and data, and
+    // uses this to tell a real load from an idle bus. An idle bus shows address
+    // 0, which is a text address, so a memory looking only at the address would
+    // give up a fetch every idle cycle and the core would never get anywhere.
     output logic mem_ren,
-    // A load's result is a live producer from its request until write-through,
-    // one cycle later than decoder_out/executor_out alone can see (ADR-0004).
+    // A load has left `executor_out` and has not yet written the register file
+    // while it waits for memory. Decode watches these so it can wait on the load
+    // during that cycle, which none of its other checks cover.
     output logic       pending_valid,
     output logic [4:0] pending_rd,
     output accessor_output out
 );
-  // Selected out here because iverilog cannot build a precise sensitivity entry
-  // for a constant part-select taken inside an always_* block; prefer a
-  // continuous assign for any field read added later (ADR-0034).
+  // Pulled out here rather than read inside the always_* blocks below: iverilog
+  // cannot work out a precise sensitivity list for a field read taken inside
+  // one, and warns. Use a continuous assign for any field read added later.
   logic in_is_lb;
   logic in_is_lbu;
   logic in_is_lh;
@@ -76,9 +79,8 @@ module accessor(
   logic       pending_addr16;
   logic [1:0] pending_addr24;
  `ifdef RISCV_FORMAL
-  // These survive the request/response gap for the same reason `pending_rd`
-  // does: `in` is a guaranteed bubble on the response cycle, so nothing of this
-  // instruction is left to read off it then.
+  // Saved for the same reason `pending_rd` is. On the cycle the data comes back,
+  // `in` is empty, so nothing about this instruction can still be read from it.
   rvfi_shadow  pending_rvfi;
   logic [31:0] pending_rvfi_mem_addr;
  `endif
@@ -90,12 +92,12 @@ module accessor(
   assign word_aligned_addr = {in_mem_addr[31:2], 2'b00};
   assign store_halfword    = in_mem_data[15:0];
   assign store_byte        = in_mem_data[7:0];
-  // Must stay combinational, in lockstep with mem_addr/mem_wstrb: a registered
-  // `mem_wdata` lags them by a cycle, so the memory latches the previous cycle's
-  // data at the current cycle's address.
+  // Keep this off a register. It has to change on the same cycle mem_addr and
+  // mem_wstrb do. Registered, it arrives a cycle late, and the memory writes the
+  // last cycle's data to this cycle's address.
   assign mem_wdata = write_request;
-  // The zeroed defaults below are what stop the accessor re-issuing whatever
-  // request was last in `in` for every cycle the executor sits busy in `divide`.
+  // The zeros below are what stop this block sending the same request again on
+  // every cycle the executor spends dividing.
   always_comb begin
     mem_addr = 0;
     mem_wstrb = 0;
@@ -147,13 +149,13 @@ module accessor(
       pending_rvfi_mem_addr <= 0;
      `endif
     end else if (pending_valid) begin
-      // The request fired last cycle and mem_rdata now reflects it. `in` is
-      // guaranteed to be a bubble, so nothing competes for `out`.
+      // The read went out last cycle and mem_rdata now holds its answer. `in` is
+      // empty this cycle, so nothing else wants `out`.
       out.valid <= 1'b1;
       out.rd <= pending_rd;
      `ifdef RISCV_FORMAL
-      // A full rmask regardless of load width is a safe over-approximation: the
-      // monitor flags a missing bit against the spec, never an extra one.
+      // Always a full mask, whatever the load width. The monitor complains about
+      // a bit that should be set and is not, never the other way round.
       out.rvfi <= pending_rvfi;
       out.rvfi_mem_addr <= pending_rvfi_mem_addr;
       out.rvfi_mem_rmask <= 4'b1111;
@@ -201,7 +203,7 @@ module accessor(
     end else if (!in_valid) begin
       out <= 0;
     end else if (is_load) begin
-      // Bubble now, and remember what is needed to decode mem_rdata next cycle.
+      // Send nothing on, and keep what is needed to unpack mem_rdata next cycle.
       out <= 0;
       pending_valid <= 1'b1;
       pending_rd <= in_rd;

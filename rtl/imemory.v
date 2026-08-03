@@ -1,17 +1,23 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// A ROM in block RAM, banked by *word* parity so ADR-0003's two-word fetch
-// window comes out of one copy. ADR-0044 names the technique at halfword
-// granularity, which suits a memory that windows the 32 bits itself; this core
-// windows them in rtl/fetcher.v, so halfword banks would need two reads a bank.
+// A ROM in block RAM. Fetch asks for two neighbouring words every cycle, so an
+// instruction sitting across a word boundary costs nothing extra. Two banks
+// split by word parity serve both from one copy of the ROM: neighbouring words
+// are always in different banks, so each bank supplies one of them.
 //
-// Block RAM rather than `SB_SPRAM256KA` because SPRAM has no INIT capability, so
-// a ROM there would need an SPI-flash boot path. BRAM's 15 KB ceiling is
-// therefore the ceiling on program size (ADR-0054).
+// Splitting by halfword would suit a memory that picks the 32 bits out itself.
+// rtl/fetcher.v does that part, and asks for whole words, so halfword banks
+// would mean two reads from each bank instead of one.
 //
-// The read is synchronous, so the address register is loaded with the *next*
-// fetch address, in lockstep with the PC. That is what keeps invariant 1 true on
-// a part with no combinational-read memory; `formal/pcloop.sv` asserts it.
+// Block RAM rather than `SB_SPRAM256KA` because SPRAM cannot be filled from the
+// bitstream. A ROM there could only be written by code already running. So the
+// block RAM on the part is the limit on how big a program can be.
+//
+// The read takes a cycle. So the address register is loaded with the address
+// fetch wants *next*, on the same edge the PC moves to it. Decode still sees the
+// instruction at `pc` in the cycle it works out where to go next. If those two
+// ever slip apart, every instruction the core runs is the wrong one, and nothing
+// else would show it -- `formal/pcloop.sv` checks it.
 module imemory #(
   // Must be even, and each bank a whole number of `SB_RAM40_4K` depths (256
   // words), or the mapping picks up leftover logic.
@@ -70,8 +76,8 @@ module imemory #(
   assign data_odd   = data_word[0];
   assign text_range = data_word < 30'(ROM_WORDS);
 
-  // A store steals as well as a load: it holds the write port, and a fetch read
-  // of the word being written is a collision the part does not define.
+  // A store takes the port too, not just a load. Reading a word while it is
+  // being written gives an answer the part does not define.
   logic text_access, text_write_even, text_write_odd;
   assign text_access     = (mem_ren || |mem_wstrb) && text_range;
   assign text_write_even = |mem_wstrb && text_range && !data_odd;
@@ -81,18 +87,19 @@ module imemory #(
   assign even_raddr = text_access ? data_index : even_index;
   assign odd_raddr  = text_access ? data_index : odd_index;
 
-  // Out of range reads as zero, which decodes to an illegal instruction, so a
-  // wild PC faults instead of aliasing back into the ROM through truncation.
+  // Out of range reads as zero. Zero is an illegal instruction, so a PC that
+  // runs off the end traps instead of wrapping round and reading real code.
   //
-  // Keep `in_range2` as `< ROM_WORDS - 1` rather than `word + 1 < ROM_WORDS`.
-  // The address arriving here is the freshly computed next PC, so an incrementer
-  // in front of the comparator puts a second carry chain in series with the one
-  // that produced it -- `make soc-timing`'s first run found exactly that at the
-  // end of the critical path. It also faults both words at the top of the
-  // address space, where `word + 1` wraps and answers from word 0.
+  // Keep `in_range2` as `< ROM_WORDS - 1`. Written the obvious way, `word + 1 <
+  // ROM_WORDS`, the adder sits in front of the comparator -- and the address
+  // arriving here is the next PC, which was itself just computed by an adder.
+  // That puts two carry chains in a row on the longest path in the design.
+  // `make soc-timing`'s first run found exactly that. The form here also handles
+  // the top of the address space, where `word + 1` wraps round to 0 and would
+  // read word 0 back.
   //
-  // The unconditional read plus a separately addressed write is the shape yosys
-  // maps to an EBR's own two ports.
+  // Read every cycle, with the write on its own address: that is the shape yosys
+  // turns into a block RAM's two ports.
   logic [31:0] even_data, odd_data;
   logic        odd_first, in_range, in_range2;
   logic        data_hit, data_hit_odd;

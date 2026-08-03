@@ -8,13 +8,16 @@ module littlecpu(
   input  logic [31:0] imem_data,
   output logic [31:0] imem_addr2,
   input  logic [31:0] imem_data2,
-  // The value `imem_addr` takes on the next edge, so a synchronous memory can
-  // latch it early (ADR-0054). A combinational one -- test benches,
-  // formal/wrapper.v -- leaves it unread and drives `imem_data` off `imem_addr`.
+  // The value `imem_addr` takes on the next edge. A synchronous memory latches
+  // this on the same edge the PC moves, so its data is ready for the whole of
+  // the cycle that needs it; a combinational memory -- test benches,
+  // formal/wrapper.v -- leaves it unread and answers `imem_addr` directly.
   output logic [31:0] imem_addr_next,
-  // The fetch and data buses share one address space and the instruction memory
-  // arbitrates between them (ADR-0059). A memory that cannot steal ties
-  // `fetch_stall` low and leaves `mem_ren` unread.
+  // The fetch and data buses share one address space, and the instruction
+  // memory arbitrates: a load or store to the text range takes the read port
+  // for that cycle and the fetch that lost it comes back as `fetch_stall`.
+  // A memory that keeps its two buses separate ties `fetch_stall` low and
+  // leaves `mem_ren` unread.
   output logic [31:0] mem_addr,
   output logic [31:0] mem_wdata,
   output logic [3:0]  mem_wstrb,
@@ -59,20 +62,22 @@ module littlecpu(
   output logic [31:0] rvfi_csr_mscratch_wdata
   `endif //  `ifdef RISCV_FORMAL
   );
-  // Declared here rather than beside their producers: the pipeline's feedback
-  // paths mean each is read by a module instantiated above the one that drives
-  // it, and iverilog requires declare-before-use.
+  // Declared up here rather than next to the module that drives each one. Later
+  // stages feed signals back to earlier ones, so each of these is read by a
+  // module written above its driver, and iverilog wants the name first.
   decoder_output decoder_out;
   executor_output executor_out;
   logic divider_stalled, accessor_stalled;
   logic       accessor_pending_valid;
   logic [4:0] accessor_pending_rd;
-  // The serialization drain predicate has to see a *store* in the accessor,
-  // which `accessor_pending_valid` (loads only) cannot show it (ADR-0026).
+  // `accessor_pending_valid` only goes high for loads. The decoder needs this as
+  // well, so it can tell a store is still in the accessor before it lets a CSR
+  // access issue.
   logic accessor_out_valid;
-  // A one-cycle pulse, not a level. Its consumer is ADR-0029's harness check: a
-  // trap taken with mtvec == 0 is a silent restart at `_start`, because
-  // test/asm/sections.lds links .text at 0.
+  // High for one cycle per trap, not a level. The test benches watch it to catch
+  // a trap taken before the handler address is installed: mtvec resets to 0 and
+  // test/asm/sections.lds links .text at 0, so such a trap restarts the program
+  // silently and would otherwise look like a timeout.
   logic decoder_trap_entry;
   assign trap = decoder_trap_entry;
   logic  [31:0] pc;
@@ -249,8 +254,9 @@ module littlecpu(
   );
 
  `ifdef RISCV_FORMAL
-  // Constants rather than per-retire data: M-mode only, XLEN=32, no interrupts
-  // and no halt are properties of the design, not of an instruction.
+  // These four never change. There is one privilege mode, registers are 32 bits
+  // wide, there are no interrupts and the core cannot be halted, so none of them
+  // depends on which instruction just finished.
   assign rvfi_halt = 1'b0;
   assign rvfi_intr = 1'b0;
   assign rvfi_mode = 2'd3;

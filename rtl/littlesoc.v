@@ -1,30 +1,32 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// The design that places, measured by `make soc-timing`. `make fit` measures
-// `littlecpu` with its memories external; the two numbers are separate on
-// purpose and must not be merged (ADR-0038).
+// The whole chip: core, both memories, four pins. `make soc-timing` measures
+// this. `make fit` measures the core on its own with the memories outside it, so
+// its cell count is a different design's and the two do not compare.
 //
-// Nothing on either bus is ever refused -- out of range reads as zero -- which
-// is what keeps every trap in decode (invariant 2).
+// Neither memory can turn an access down. Anything out of range reads as zero.
+// So no memory error can turn up after decode has already let an instruction
+// through, and there is no path for one to come back on if it did.
 //
 // The ROM is initialised from the bitstream and the SPRAM cannot be, so a
 // program's `.data` is not there at power-on and every `.S` program in test/asm
-// has one. Running a real program needs a copy stub in `.text` or ADR-0044's
-// SPI-flash boot path.
+// has one. Running a real program needs a stub in `.text` that copies the data
+// image out of ROM, or a boot path that reads it from external SPI flash.
 module littlesoc (
   input  logic clk,
   input  logic btn_n,
-  // A design with no observable output is one yosys deletes: the previous
-  // version of this module reported 4 logic cells and 0% utilisation while doing
-  // exactly that. These two are passive taps that reach every stage of the core,
-  // and neither adds an MMIO region.
+  // Give yosys a design whose output nothing can see and it deletes the lot. An
+  // earlier version of this module did exactly that and reported 4 logic cells.
+  // These two only watch signals the core already drives, so they add no
+  // registers to the memory map and change nothing about how it runs.
   output logic ledr_n,
   output logic ledg_n
 );
-  // The FPGA comes out of configuration with no reset pulse of its own.
-  // Registering `reset` is a timing decision as well as a metastability one:
-  // `make soc-timing`'s first run measured the design's longest path starting at
-  // the `btn_n` pad.
+  // The FPGA comes out of configuration with no reset of its own, so this makes
+  // one. Keep `reset` registered. The button is asynchronous and needs the two
+  // flops anyway, but the register also keeps the pin out of the logic behind
+  // it: `make soc-timing`'s first run found the longest path in the whole design
+  // starting at `btn_n`.
   logic [3:0] por_count = 4'b0;
   logic       por_done  = 1'b0;
   logic [1:0] btn_sync  = 2'b0;
@@ -63,11 +65,11 @@ module littlesoc (
     .trap(trap)
   );
 
-  // `imem_addr`/`imem_addr2` are deliberately unread: the ROM is synchronous, so
-  // it is addressed off `imem_addr_next` a cycle early. Both ports stay on the
-  // core because that is the bus the riscv-formal ladder speaks.
+  // `imem_addr` and `imem_addr2` are left unconnected on purpose. The ROM needs
+  // its address a cycle early, so it takes `imem_addr_next` instead. The core
+  // keeps both ports because the formal checks read them.
   //
-  // 2048 words = 8 KB = 16 EBRs of the part's 30, with rtl/regfile.v taking 4.
+  // 2048 words = 8 KB = 16 block RAMs of the part's 30. rtl/regfile.v takes 4.
   imemory #(
     .ROM_WORDS(2048),
     .INIT_EVEN("soc/rom_even.hex"),
@@ -94,10 +96,9 @@ module littlesoc (
     .mem_rdata(dmem_mem_rdata)
   );
 
-  // An OR rather than a select, one less level on the data path. The ranges do
-  // not overlap, and a store leaves the RAM's registered read data unchanged
-  // (rtl/memory.v) while the ROM answers zero, so this cannot mix two live
-  // values.
+  // An OR instead of a mux, which is one less level of logic here. The two
+  // ranges do not overlap. On a store the RAM holds its last read value and the
+  // ROM gives zero, so this can never mix two real values together.
   assign mem_rdata = imem_mem_rdata | dmem_mem_rdata;
 
   logic store_bit, trap_seen;
