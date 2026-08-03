@@ -9,7 +9,7 @@
 # from a script or CI job: this is a supply-chain control, not a knob. The
 # repo executes Python straight out of this clone (checks/rvfi_macros.py,
 # monitor/generate.py) and commits its stdout as tracked, compiled source.
-override RISCV_FORMAL_SHA := c992aa61fdfe0846c5ed90324c596202a1c69b76
+override RISCV_FORMAL_SHA := 2bd7410cdb515d851a9d9f810ccfebd25b162709
 override RISCV_FORMAL_URL := https://github.com/YosysHQ/riscv-formal.git
 
 ifeq ($(shell printf '%s' '$(RISCV_FORMAL_SHA)' | grep -cE '^[0-9a-f]{40}$$'),0)
