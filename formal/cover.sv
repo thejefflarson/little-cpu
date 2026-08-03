@@ -15,17 +15,23 @@ module testbench (
 
   `RVFI_WIRES
   logic trap;
-  // ADR-0054: the fetch address one cycle early, for a synchronous memory.
-  // Unread here -- this environment answers `imem_data` freely against
-  // `imem_addr` in the same cycle -- but connected rather than left dangling,
-  // so every instantiation of the core names every port.
+  // The fetch address one cycle early. Unread here -- this environment answers
+  // `imem_data` freely against `imem_addr` in the same cycle -- but connected
+  // rather than left dangling, so every instantiation of the core names every
+  // port.
   logic [31:0] imem_addr_next;
-  // ADR-0059's steal, tied low: this environment answers `imem_data` freely
-  // against `imem_addr` in the same cycle and models no memory, so a steal
-  // would only push the five goals further out. formal/wrapper.v is where the
-  // arbiter is transcribed and driven.
   logic        mem_ren;
-  logic        fetch_stall = 1'b0;
+  logic        fetch_stall;
+
+  imem_arbiter arbiter (
+    .clock(clk),
+    .reset(reset),
+    .mem_addr(mem_addr),
+    .mem_wstrb(mem_wstrb),
+    .mem_ren(mem_ren),
+    .fetch_stall(fetch_stall),
+    .text_write()
+  );
 
   littlecpu uut (
     .clk(clk),

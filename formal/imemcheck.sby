@@ -8,6 +8,7 @@ depth 15
 smtbmc --presat --unroll boolector
 
 [script]
+read_verilog -sv arbiter.v
 read_verilog -sv imemcheck.sv
 read_verilog -sv structs.v
 read_verilog -sv fetcher.v
@@ -31,7 +32,7 @@ prep -nordff -top testbench
 ../rtl/writeback.v
 ../rtl/littlecpu.v
 imemcheck.sv
+arbiter.v
 riscv-formal/checks/rvfi_macros.vh
 riscv-formal/checks/rvfi_channel.sv
 riscv-formal/checks/rvfi_testbench.sv
-riscv-formal/checks/rvfi_imem_check.sv

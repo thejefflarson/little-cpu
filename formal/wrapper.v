@@ -1,12 +1,6 @@
-// ADR-0006: ported from the wave-0 (rtl/riscv.v-era) harness, which spoke a
-// picorv32-style mem_valid/mem_instr/mem_ready handshake. `littlecpu` (the
-// module that replaced `riscv` -- deleted in `1709433`) has no handshake:
-// fetch is combinational and unconditional (CLAUDE.md invariant 1), and the
-// data bus is a plain address/strobe/data bus with a fixed one-cycle load
-// turnaround (ADR-0015), not a request/ready protocol. imem_data and
-// mem_rdata are simply free every cycle, the same as riscv-formal's other
-// non-handshake cores (cores/nerv, cores/serv model the equivalent with an
-// explicit ready/ack bit; littlecpu has none to model).
+// There is no bus handshake to model. Fetch is combinational and unconditional,
+// and the data bus is a plain address/strobe/data bus with a fixed one-cycle
+// load turnaround, so `imem_data` and `mem_rdata` are simply free every cycle.
 module rvfi_wrapper (
   input var clock, reset,
   `RVFI_OUTPUTS
@@ -14,26 +8,18 @@ module rvfi_wrapper (
   `RVFI_WIRES
 
   (* keep *) `rvformal_rand_reg [31:0] imem_data;
-  // ADR-0003: the dual-word fetch window's second word, resampled every cycle
-  // exactly like imem_data above -- littlecpu never stalls or waits on either
-  // (CLAUDE.md invariant 1), so it carries no handshake. Both are constrained
-  // by exactly one thing, the same-address stability assumption further down;
-  // that block is where to read about why it exists (ADR-0042). This comment
-  // used to say the two ports needed "no more constraint than the single-word
-  // port already had", which was true only while the regfile read was
-  // combinational.
+  // The fetch window's second word, resampled every cycle exactly like
+  // `imem_data`. Both are constrained by one thing only, the same-address
+  // stability assumption further down.
   (* keep *) `rvformal_rand_reg [31:0] imem_data2;
   (* keep *) `rvformal_rand_reg [31:0] mem_rdata;
 
   (* keep *) logic [31:0] imem_addr;
   (* keep *) logic [31:0] imem_addr2;
-  // ADR-0054: the fetch address one cycle early, for a synchronous memory.
-  // UNREAD BY THIS ENVIRONMENT, deliberately: `imem_data` is a free
-  // `rvformal_rand_reg` answered against `imem_addr` in the same cycle, so the
-  // whole ladder still sees the combinational fetch bus invariant 1 describes.
-  // What the shipping SoC does with this port (rtl/littlesoc.v) is therefore
-  // outside the ladder's contact, which is stated in ADR-0054 rather than left
-  // to be discovered.
+  // The fetch address one cycle early, for a synchronous memory. Unread here:
+  // this environment answers `imem_data` against `imem_addr` in the same cycle,
+  // so the whole ladder sees a combinational fetch bus and never the port the
+  // shipping SoC uses.
   (* keep *) logic [31:0] imem_addr_next;
   (* keep *) logic [31:0] mem_addr;
   (* keep *) logic [31:0] mem_wdata;
@@ -41,93 +27,55 @@ module rvfi_wrapper (
   (* keep *) logic        mem_ren;
   (* keep *) logic        trap;
 
-  // rtl/imemory.v's arbiter, transcribed: a data access inside the text range
-  // takes the banks' read port for that edge, and the memory reports it as
-  // `fetch_stall` on the cycle whose fetch window it cost (ADR-0059).
-  //
-  // Driven from the core's own bus rather than left free. A free stall input
-  // lets the environment hold the core forever, which is what `hang` and
-  // `liveness_ch0` measure -- the same failure ADR-0042 found when `imem_data`
-  // was left unconstrained.
-  //
-  // The 8 KB bound is rtl/littlesoc.v's `ROM_WORDS = 2048`. Nothing here
-  // depends on the exact size: it decides how often a steal is reachable, not
-  // whether it is.
-  localparam logic [31:0] TEXT_BYTES = 32'h0000_2000;
-  logic text_range, text_access, text_write;
-  assign text_range  = mem_addr < TEXT_BYTES;
-  assign text_access = (mem_ren || |mem_wstrb) && text_range;
-  assign text_write  = |mem_wstrb && text_range;
+  (* keep *) logic fetch_stall;
+  logic text_write;
 
-  (* keep *) logic fetch_stall = 0;
+  imem_arbiter arbiter (
+    .clock(clock),
+    .reset(reset),
+    .mem_addr(mem_addr),
+    .mem_wstrb(mem_wstrb),
+    .mem_ren(mem_ren),
+    .fetch_stall(fetch_stall),
+    .text_write(text_write)
+  );
+
+  // Two cycles after a text store the banks answer with the new contents, so the
+  // same-address compare below has to be dropped there as well as on the stolen
+  // cycle. The array is written on the store's own edge and the fetch address is
+  // published a cycle early, which is what puts it two cycles out.
   logic [1:0] text_write_age = 0;
-  always @(posedge clock) begin
-    fetch_stall    <= !reset && text_access;
-    text_write_age <= {text_write_age[0], !reset && text_write};
-  end
+  always @(posedge clock)
+    text_write_age <= {text_write_age[0], text_write};
 
-  // INSTRUCTION MEMORY IS A FUNCTION OF ITS ADDRESS (ADR-0042, ADR-0017).
+  // Assumed: asked for the same address two cycles running, instruction memory
+  // answers the same both times.
   //
-  // FACT       instruction memory is a function of its address, across two
-  //            consecutive cycles, except on the cycle whose fetch window a
-  //            data access took and, after a text store, on the cycle after
-  //            that.
-  // DISCHARGED NOWHERE. There is no check anywhere in this repo that asserts
-  //            it. The backing is structural: rtl/imemory.v answers both fetch
-  //            ports from one array, and the two exceptions are that array's
-  //            read port being borrowed and its contents changing (ADR-0059).
-  //            Believed, not proved -- which is the honest answer and, per
-  //            ADR-0049, an acceptable one.
-  // SCOPE      ALL 85 GENERATED CHECKS. This is an unguarded `assume` in the
-  //            harness every check instantiates, so it is in force over every
-  //            insn_*, reg, pc_fwd/pc_bwd, causal*, unique and cover check --
-  //            not only the two it was written for (`hang` and `liveness_ch0`,
-  //            measured red without it below). That set is much larger than the
-  //            one it was written for, and the paragraph headed WHAT IT COSTS
-  //            is what those other 80 checks are paying.
+  // Nothing in this repo discharges it. The backing is structural -- both fetch
+  // ports read one array in rtl/imemory.v -- and it is believed rather than
+  // proved. It sits in the harness every generated check instantiates, so it is
+  // in force over all 85 of them, not only the two it was written for.
   //
-  // The structural fact being modelled: a ROM asked twice for the same address,
-  // with no write port anywhere in this design that could reach it, answers the
-  // same both times. That is a property of memory, not a convenience -- and
-  // formal/imemcheck.sv already relies on it, in the stronger `rand_const_reg`
-  // form (a fixed address whose data is fixed for the whole trace).
+  // Why the core needs it: decode presents a register address pair in one cycle
+  // and consumes the answer in the next, and it decides the two belong to the
+  // same instruction by comparing rs1/rs2, which come straight out of
+  // `imem_data`. Left free, the environment can hand the held pc a different
+  // instruction word every cycle forever and decode never issues. Measured
+  // without it: `hang` and `liveness_ch0` are the only two red, both real
+  // counterexamples at k = 30.
   //
-  // WHY IT IS NEEDED NOW, AND WAS NOT BEFORE. Until ADR-0042 the core read its
-  // registers combinationally, so nothing it did depended on imem_data holding
-  // still: the comment on RISCV_FAIRNESS below said littlecpu "has no port an
-  // adversarial environment could hold to defeat forward progress," and that
-  // was true. A registered regfile read changes it. Decode now presents an
-  // address in one cycle and consumes the operand in the next, and it decides
-  // the two belong to the same instruction by comparing rs1/rs2 -- which are
-  // combinational out of imem_data. Left fully free, the environment may hand
-  // the held PC a different instruction word every cycle forever, decode never
-  // issues, and `hang` and `liveness_ch0` produce counterexamples at k = 30.
-  // Measured: without the assumption below, exactly those two checks go red on
-  // an otherwise 82-pass ladder, both as real counterexamples rather than
-  // timeouts.
+  // What it costs: a defect that shows up only when one address answers two
+  // different ways in consecutive cycles is invisible to the whole ladder. No
+  // memory does that, but the narrowing is real.
   //
-  // WHAT IT COSTS. This is an assumption, so it can only make checks easier,
-  // and that is the honest price: a defect that manifests only when the same
-  // address yields different data in consecutive cycles is now invisible here.
-  // No such defect is possible against real memory, which is the point -- but
-  // it is a real narrowing of the environment and belongs in the ADR, not only
-  // in a comment.
+  // Stability across two cycles rather than a full memory model, because that is
+  // all the operand-fetch cycle needs and it leaves an address revisited later
+  // free to answer differently.
   //
-  // The form is the WEAKEST one sufficient for the property: stability across
-  // consecutive cycles, not a full functional model. A full model needs an
-  // unbounded array; consecutive-cycle stability is implied by it, is all the
-  // operand-fetch cycle actually needs, and leaves the environment free to
-  // answer differently for an address revisited later.
-  //
-  // The two exceptions are what writable text costs here (ADR-0057 measured
-  // them at two cycles of ladder depth, which is most of the move from G = 4 to
-  // G = 6). A text access of either kind takes the read port, so the window
-  // presented the next cycle is the data word rather than the ROM's answer; a
-  // text store additionally changes what the ROM answers from the cycle after
-  // that onward, because the array is written on the same edge and the fetch
-  // address is published a cycle early (ADR-0054). Both are dropped compares
-  // rather than modelled values, which is the wide side: an assumption can only
-  // make checks easier, so a depth floor derived under it is the safe one.
+  // The stolen cycle and the two-cycles-after-a-store cycle drop the compare
+  // rather than model what memory answers there. That is the wide side, and an
+  // assumption can only make checks easier, so a depth floor derived under it is
+  // the safe one.
   logic [31:0] past_imem_addr, past_imem_data;
   logic [31:0] past_imem_addr2, past_imem_data2;
   logic        past_imem_valid = 0;
@@ -166,30 +114,15 @@ module rvfi_wrapper (
   );
 
  `ifdef RISCV_FAIRNESS
-  // picorv32/nerv/serv each need this block to bound an *external* signal
-  // (mem_ready, or a bus ack) that the formal environment controls and could
-  // otherwise withhold forever, starving the liveness check of a next
-  // retire. littlecpu exposes no such signal: imem_data/mem_rdata above are
-  // free every cycle, but nothing in the core *waits* on their value --
-  // fetch is combinational, and the two internal stall sources this design
-  // has are driven entirely by the core's own counters, not by anything an
-  // adversarial environment supplies:
-  //   - rtl/executor.v's divider: `mul_div_counter` (rtl/executor.v:169,
-  //     `mul_div_counter <= 32`) counts strictly down from 32 every cycle
-  //     once loaded, with no way for imem_data/mem_rdata's value to hold it.
-  //   - rtl/accessor.v's load-response turnaround: `stalled` is high for
-  //     exactly the one cycle after a load's request (ADR-0015 invariant
-  //     I3 -- the following cycle `in.valid` is guaranteed 0, so `stalled`
-  //     falls unconditionally).
-  //   - the instruction memory's steal: `fetch_stall` is a port, but this
-  //     harness computes it from the core's own bus (above) rather than
-  //     letting the environment choose it, so it lasts one cycle per data
-  //     access and cannot be held.
-  // There is nothing for this block to assume: littlecpu has no port an
-  // adversarial environment could hold to defeat forward progress, so
-  // RISCV_FAIRNESS's usual job (bound the stall) has no signal to act on
-  // here. Left as an explicit empty block, per ADR-0017, rather than a
-  // silently omitted `ifdef` -- a future reader should see this was a
-  // decision, not an oversight, if the liveness check ever surprises them.
+  // Other cores use this block to bound a bus ack the environment could
+  // withhold forever, starving the liveness check of a next retire. There is
+  // nothing here to bound. `imem_data` and `mem_rdata` are free every cycle but
+  // the core never waits on their value, and every stall it does have is driven
+  // by its own state: the divider counts down from 32 on its own, the load
+  // turnaround is one cycle by construction, and `fetch_stall` comes from the
+  // arbiter above, which reads the core's own bus rather than being chosen.
+  //
+  // Left as an explicit empty block so that a liveness surprise later reads as a
+  // decision rather than an omission.
  `endif
 endmodule

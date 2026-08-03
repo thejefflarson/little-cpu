@@ -12,6 +12,7 @@ verilog_defines -D RISCV_FORMAL_XLEN=32
 verilog_defines -D RISCV_FORMAL_ILEN=32
 verilog_defines -D RISCV_FORMAL_ALIGNED_MEM
 read_verilog rvfi_macros.vh
+read_verilog -sv arbiter.v
 read_verilog -sv structs.v
 read_verilog -sv fetcher.v
 read_verilog -sv regfile.v
@@ -25,6 +26,7 @@ read_verilog -sv cover.sv
 prep -nordff -top testbench
 
 [files]
+arbiter.v
 ../rtl/structs.v
 ../rtl/fetcher.v
 ../rtl/regfile.v
