@@ -1,63 +1,30 @@
 `timescale 1 ns / 1 ps
-//`define RISCV_FORMAL
 module testbench(
 `ifndef ICARUS
 	input clk,
 	input reset
 `endif
 );
-  // THE MEMORIES ARE THE REAL ONES (ADR-0054). This bench used to carry its
-  // own inline ROM and RAM -- a combinational `rom` array and an `always_ff`
-  // over `memory` -- and rtl/imemory.v / rtl/memory.v were reachable from no
-  // simulation at all. They are the modules instantiated below now, so the
-  // whole `.S` suite and the Sail co-simulation run against the memory system
-  // rtl/littlesoc.v synthesises, not against a second description of it.
-  //
-  // That is not bookkeeping: rtl/imemory.v is SYNCHRONOUS, addressed off the
-  // fetch address decode publishes one cycle early, and if that lockstep were
-  // wrong every program here would execute the wrong instructions. Before this
-  // change nothing in the tree would have noticed.
-  //
-  // Sized to test/asm/sections.lds (ADR-0008): rom holds >=16K of .text,
-  // ram holds >=4K of .data/.rodata/.bss based at RAM_BASE, which matches the
-  // ram region's ORIGIN there. RAM_BASE is non-zero so a wild store through an
-  // uninitialized/zero pointer lands outside the mapped region instead of
-  // silently aliasing real test data. The cxxrtl runner (test/cxxrtl.cc)
-  // subtracts RAM_BASE back out of the `--ram` image's word addresses before
-  // poking `dmem`'s array via debug_items, and de-interleaves the `--rom` image
-  // across `imem`'s two banks. rom grew from 8K/2048 words to 16K/4096 when
-  // test/asm/rvc.S landed (ADR-0003/ADR-0021) -- see sections.lds for why.
-  //
-  // ROM_WORDS HERE IS LARGER THAN THE SHIPPING SoC's, deliberately: simulation
-  // has no block RAM to run out of, and rtl/littlesoc.v's 2048 words are what
-  // the part's 30 EBRs allow (ADR-0054). rvc.S is the one program in the suite
-  // that needs more.
+  // Sized to test/asm/sections.lds. RAM_BASE is non-zero so a wild store
+  // through a zero pointer lands outside the mapped region rather than on real
+  // test data, and ROM_WORDS exceeds the shipping SoC's 2048 because simulation
+  // has no block RAM to run out of and rvc.S needs more than 30 EBRs allow.
   localparam logic [31:0] RAM_BASE  = 32'h0001_0000;
   localparam int          ROM_WORDS = 4096;
   localparam int          RAM_WORDS = 1024;
   logic [31:0] imem_addr;
   logic [31:0] imem_data;
-  // ADR-0003: the second word of the dual-word combinational fetch window
-  // (rtl/fetcher.v drives imem_addr2 = imem_addr + 4), read from the same
-  // `rom` array at a second, independent index.
   logic [31:0] imem_addr2;
   logic [31:0] imem_data2;
-  // ADR-0054: the word address the fetch window will read on the NEXT edge.
-  // rtl/imemory.v is synchronous (every memory primitive on the target part
-  // is, ADR-0044), so it latches this and answers `imem_addr` for the whole of
-  // the cycle that names it.
   logic [31:0] imem_addr_next;
   logic [31:0] mem_addr;
   logic [31:0] mem_wdata;
   logic [3:0]  mem_wstrb;
   logic        mem_ren;
   logic [31:0] mem_rdata;
-  // ADR-0059/ADR-0060: the steal, and the sixth stall reason it drives.
   logic        fetch_stall;
-  // Both memories answer zero outside their own range, so the two buses join
-  // with an OR. Same wiring as rtl/littlesoc.v, which is the point: the range
-  // decode and the steal live in rtl/imemory.v, so the two legs cannot end up
-  // on different maps.
+  // Both memories answer zero outside their own range, so the buses join with
+  // an OR. Same wiring as rtl/littlesoc.v, so the legs cannot drift apart.
   logic [31:0] imem_mem_rdata, dmem_mem_rdata;
   assign mem_rdata = imem_mem_rdata | dmem_mem_rdata;
   logic        trap;
@@ -81,11 +48,7 @@ module testbench(
   logic [3:0]  rvfi_mem_wmask;
   logic [31:0] rvfi_mem_rdata;
   logic [31:0] rvfi_mem_wdata;
-  // ADR-0006: the monitor's own per-retire error code (0 = no error this
-  // cycle). test/cxxrtl.cc reads this by hierarchical debug-item name
-  // ("monitor errcode") to turn a mismatch into a distinct process exit
-  // code; under iverilog the monitor's own $display diagnostics (which
-  // this triggers) are the loud failure.
+  // test/cxxrtl.cc reads this by debug-item name ("monitor errcode").
   logic [15:0] rvfi_monitor_errcode;
  `endif //  `ifdef RISCV_FORMAL
  `ifdef ICARUS
@@ -101,9 +64,8 @@ module testbench(
     .mem_rdata(dmem_mem_rdata)
   );
 
-  // No init files: every consumer of this bench fills the banks itself. The
-  // cxxrtl runners poke them through `debug_items` (test/cxxrtl.cc's
-  // `load_rom_banks`), and `make waves` writes the program in below.
+  // No init files: the cxxrtl runners fill the banks through `debug_items`
+  // (test/cxxrtl.cc's `load_rom_banks`); `make waves` writes its program below.
   imemory #(.ROM_WORDS(ROM_WORDS)) imem (
     .clk(clk),
     .imem_addr_next(imem_addr_next),
@@ -155,26 +117,14 @@ module testbench(
    `endif
   );
  `ifdef RISCV_FORMAL
-  // THE ONE WIRE EVERY RETIRE OBSERVER IN THIS BENCH READS. The monitor below,
-  // the spec probe that feeds the observation counters, and the counters
-  // themselves all take `rvfi_valid` through here rather than each reaching for
-  // the DUT's port separately. That is not decoration: a counter that could
-  // stay high while the monitor went blind would be telemetry about itself
-  // rather than about the oracle, and the whole point of the counters is that
-  // "the monitor observed nothing" cannot happen quietly. Wiring them together
-  // makes the two go blind together, structurally, instead of by promise.
+  // The monitor, the spec probe and the counters all read rvfi_valid through
+  // this one wire. Keep it that way. A counter that could stay high while the
+  // monitor stopped looking would only be counting itself.
   //
-  // It is also what makes this repo's liveness probe for the counters a single
-  // line. To watch the gate go red on a blind oracle:
-  //
-  //     assign rvfi_valid_observed = 1'b0;   // instead of = rvfi_valid
-  //
-  // then `make test`. Every program still reaches `tohost` and still PASSes on
-  // its own assertions; the gate reports 52 x MONITOR-SILENT and exits 1. The
-  // same edit on the tree before the counters existed reports 52/52 and exits
-  // 0, which is the defect this closes. Same idea as deleting the rs2
-  // write-through bypass to check that reg_ch0 can still fail: reach for it
-  // before believing a green `make test` means the oracle looked.
+  // It is also how to test the counters: set this to 1'b0 and every program
+  // should report MONITOR-SILENT. Do the same on a tree without the counters
+  // and the whole suite still passes, because each program reaches tohost on
+  // its own assertions with nothing checking a single instruction.
   logic rvfi_valid_observed;
   assign rvfi_valid_observed = rvfi_valid;
 
@@ -204,9 +154,9 @@ module testbench(
   );
 
  `ifdef ICARUS
-  // Matches test/cxxrtl.cc's exit 4. errcode is a one-cycle pulse
-  // (test/monitor.sim.v resets it every cycle), so this checks every
-  // cycle rather than once at the end of the run.
+  // The error code is high for one cycle only; test/monitor.sim.v clears it
+  // every cycle. Check it every cycle -- reading it once at the end misses it.
+  // Same failure as test/cxxrtl.cc's exit 4.
   always @(posedge clk) begin
     if (rvfi_monitor_errcode != 16'b0) begin
       $display("RVFI MONITOR ERROR %0d -- see the diagnostic above", rvfi_monitor_errcode);
@@ -215,55 +165,17 @@ module testbench(
   end
  `endif
 
-  // ---------------------------------------------------------------------------
-  // DID THE ORACLE EVER LOOK?
+  // A second monitor_isa_spec, rather than reading ch0_spec_valid inside the
+  // monitor. Two reasons. test/monitor.v is generated and gets regenerated, so
+  // an edit exporting that signal would be lost. And yosys will not reach into
+  // the instance: it makes a new undriven wire with that name, so the counter
+  // would read a constant and the build would look fine.
   //
-  // The monitor above is a per-retire oracle only on the cycles it actually
-  // examines. It examines a cycle when `rvfi_valid` is high, and it compares
-  // that retire's VALUES only when its spec model recognises the instruction
-  // (`ch0_spec_valid`). Neither was measured. `test/cxxrtl.cc` sampled the
-  // monitor's `errcode` and counted nothing, so a monitor that never saw a
-  // single retire — an under-sensitivity defect of exactly the kind ADR-0037
-  // found in the iverilog leg, an `ifdef` that dropped the shadow payload, a
-  // `write_cxxrtl` that optimised the instance away — left every program in
-  // test/asm reporting PASS off `tohost` alone. `test/EXPECTED_FAIL` is empty,
-  // so there was no red entry whose disappearance would have said otherwise
-  // either, and ADR-0032 already measured that end-state checking on its own
-  // misses real architectural corruption.
+  // Keep these connections the same as the monitor's above. Rewire one and not
+  // the other and this counts instructions the monitor never checked.
   //
-  // So observation is a GRADED QUANTITY here, not an inference. These two
-  // counters are read by debug-item name in test/cxxrtl.cc, printed on every
-  // run, and graded by test/run_tests.sh: zero of either is MONITOR-SILENT, a
-  // failing status, and a count below test/OBSERVED_FLOOR is BELOW-FLOOR.
-  //
-  // WHY A SECOND `monitor_isa_spec` INSTEAD OF LOOKING INSIDE THE MONITOR.
-  // `ch0_spec_valid` is internal to the monitor, and test/monitor.v is
-  // generated-but-tracked (CLAUDE.md invariant 7) — it may not be hand-edited
-  // to export it, and giving test/sanitize_monitor.py a fourth rule for
-  // telemetry would perturb the most carefully built content assertions in the
-  // repo for no correctness gain. A hierarchical reference is not an option
-  // either, and fails in the worst possible way: yosys does not resolve one, it
-  // IMPLICITLY DECLARES the name and carries on ("Warning: Identifier
-  // `\monitor.ch0_spec_valid' is implicitly declared"), so the counter would
-  // read a dangling constant while the build stayed clean. This instead
-  // instantiates the same module the monitor instantiates, from the same wires
-  // its own instance is wired from, so `probe_spec_valid` is `ch0_spec_valid`
-  // by construction: one combinational function, one set of inputs. The one
-  // input that decides whether a retire is observed at all is shared through
-  // `rvfi_valid_observed` above, so the two cannot go blind independently.
-  // KEEP THE REMAINING FIVE PORT CONNECTIONS IDENTICAL TO THE MONITOR'S —
-  // rewiring one and not the other is the only way left for this to start
-  // counting retires the monitor never checked.
-  //
-  // A LOW SPEC-CHECKED COUNT IS EXPECTED, AND IS NOT A DEFECT. riscv-formal
-  // ships no spec model at all for `ecall`, `ebreak`, `mret` or the `csrr*`
-  // family at the pinned SHA (formal/pin.mk), so `spec_valid` is 0 for every
-  // one of those retires BY DESIGN and the monitor's whole semantic block is
-  // skipped for them — the behaviour M3 added is checked by test/asm/trap.S,
-  // test/csr_tb.v and test/decoder_tb.v instead, against assertions this repo
-  // wrote. csr.S, minstret.S and trap.S therefore show the widest gap between
-  // the two counts, and that gap is the pin's coverage boundary, not a bug.
-  // Only ZERO is a failure.
+  // A low spec-checked count is normal. riscv-formal has no model for ecall,
+  // ebreak, mret or csrr*, so those retire unchecked. Only zero is wrong.
   logic       probe_spec_valid;
   logic       probe_spec_trap;
   logic [4:0] probe_spec_rs1_addr;
@@ -296,21 +208,8 @@ module testbench(
     .spec_mem_wdata(probe_spec_mem_wdata)
   );
 
-  // `(* keep *)` for the same reason `trap_to_zero` below carries one: these
-  // are read by debug-item name from test/cxxrtl.cc and nothing inside the
-  // design reads them, so without it yosys is free to optimise both away and
-  // the runner would report a setup error it cannot distinguish from a real
-  // one. 32 bits is far more than the 5000-cycle budget in test/run_tests.sh
-  // can ever need, so no wrap is possible.
-  //
-  // The gating mirrors the monitor's own outer condition exactly
-  // (`if (!reset && ch0_rvfi_valid) ... if (ch0_spec_valid)`), so these count
-  // the retires it looked at and the subset whose values it compared — not an
-  // approximation of them.
-  //
-  // Plain `always @(posedge clk)`, not `always_ff`, because the `initial`
-  // below assigns the same variables; that is the pattern every other
-  // bookkeeping block in this file uses and nothing here is synthesised.
+  // Nothing in the design reads these, so without (* keep *) yosys removes
+  // them. The gating matches the monitor's own, so they count what it looked at.
   (* keep *) logic [31:0] rvfi_retires;
   (* keep *) logic [31:0] rvfi_spec_retires;
   initial begin
@@ -327,9 +226,8 @@ module testbench(
   end
 
  `ifdef ICARUS
-  // A counter independent of the retire count below: a stalled pipeline
-  // can keep retiring instructions with no stores at all, which a
-  // retire-only floor would miss.
+  // Independent of the retire count: a pipeline can keep retiring with no
+  // stores at all, which a retire-only floor would miss.
   (* keep *) logic [31:0] mem_write_count;
   initial mem_write_count = 32'b0;
   always @(posedge clk) begin
@@ -338,17 +236,17 @@ module testbench(
     end
   end
 
-  // Measured on this program at 238a066: 20 writes, 79 retires. These
-  // floors sit a margin under both so a few extra stall cycles still
-  // pass; reverting `live_rs1`/`live_rs2` to ADR-0037's
-  // `live_producer(r)` function form gives 0 writes, 1 retire here.
+  // The program below does 20 writes and 79 retires. These sit under both, so a
+  // few extra stall cycles still pass but a pipeline that has stopped making
+  // progress fails. Write rtl/decoder.v's live_rs1 and live_rs2 as a function
+  // call instead of continuous assigns and this drops to 0 writes and 1 retire:
+  // iverilog builds the sensitivity list from the call arguments, so the assign
+  // never runs again when the signals inside the function change.
   localparam int unsigned WRITE_FLOOR  = 15;
   localparam int unsigned RETIRE_FLOOR = 60;
 
-  // Owns dumpfile setup, reset and the whole run: the floor check below
-  // needs `rvfi_retires`/`mem_write_count`, declared earlier in this
-  // `ifdef RISCV_FORMAL` region, and iverilog will not bind a forward
-  // reference to a `logic` declared later in the same module.
+  // Drives reset and ends the run. It lives here because the check above needs
+  // the counters, and iverilog will not look forward for them.
   initial begin
     $dumpfile("testbench.vcd");
     $dumpvars(0, testbench);
@@ -367,21 +265,12 @@ module testbench(
  `endif
  `endif
 `ifdef ICARUS
-  // `make waves`' program: the six-instruction increment loop this file used to
-  // carry in an `initial rom[...]` block, written straight into rtl/imemory.v's
-  // two banks (ADR-0054 -- word 2i is even, word 2i+1 is odd). It exercises
-  // fetch, a load, a store and a backward jump, which is what the waveform is
-  // for.
+  // `make waves`' program, written into rtl/imemory.v's two banks (word 2i is
+  // even, 2i+1 odd). It counts in RAM because an address in the text range
+  // would take the banks' write port and steal the fetch behind it.
   //
-  // It counts in RAM. An address in the text range would take the banks' write
-  // port and steal the fetch behind it, and nothing here drives the core's
-  // stall for that yet.
-  //
-  // A HIERARCHICAL REFERENCE, hence `ifdef ICARUS` -- the same guard the clock
-  // and reset generation above carries. yosys does not RESOLVE one of these: it
-  // implicitly declares the dotted name and carries on with an undriven wire,
-  // which CLAUDE.md records as a real hazard. The cxxrtl legs never take this
-  // path; they load their ROM through `debug_items`.
+  // `ifdef ICARUS` because it is a hierarchical reference, which yosys does not
+  // resolve (see the spec probe above).
   initial begin
     imem.rom_even[0] = 32'h000100b7; //       lui     x1, 0x10
     imem.rom_odd [0] = 32'h0000a023; //       sw      x0, 0(x1)
@@ -412,27 +301,12 @@ module testbench(
     end
   end
 
-  // ADR-0029: `mtvec` resets to 0 and test/asm/sections.lds links `.text`
-  // there, so a trap taken before a test installs its handler redirects to
-  // `_start` and the program silently RESTARTS. That failure mode looks like a
-  // livelock or a timeout, produces no error, and puts the actual cause -- a
-  // fault several instructions earlier -- nowhere near the symptom.
+  // mtvec resets to 0 and sections.lds puts .text there. So a trap before a
+  // test installs its handler jumps to _start and the program starts over. It
+  // looks like a hang, and the real fault was several instructions back.
   //
-  // This is a HARNESS assertion, not an RTL one: a real program is entitled to
-  // put a handler at 0, and it would need revisiting if sections.lds ever
-  // moved `.text`. It also needs no hierarchical reference into the CSR file.
-  // `trap` is ADR-0028's one-cycle "trap entry committed" pulse, and decode
-  // registers `pc <= mtvec` on that same edge, so the fetch address one cycle
-  // later IS mtvec (rtl/fetcher.v drives imem_addr straight off pc).
-  //
-  // `(* keep *)` because test/cxxrtl.cc reads `trap_to_zero` by debug-item
-  // name to turn this into a distinct process exit code; without it yosys is
-  // free to optimise away a register nothing in the design reads.
-  //
-  // Plain `always @(posedge clk)`, not `always_ff`, for the same reason every
-  // other diagnostic block in this file is: iverilog warns that a system task
-  // cannot be synthesised inside an `always_ff` process, and CLAUDE.md says
-  // warnings are errors. Nothing in this bench is synthesised.
+  // This belongs in the harness, not the RTL: a real program is allowed to put
+  // a handler at address 0.
   logic trap_taken_d;
   (* keep *) logic trap_to_zero;
   initial begin
@@ -451,20 +325,9 @@ module testbench(
     end
   end
 
-  // ADR-0009: for every store, mem_wstrb is high for
-  // exactly one cycle. Direct regression for the divide-replay defect, where
-  // the accessor kept re-issuing the same store every cycle the executor sat
-  // busy in `divide` because nothing upstream defaulted back to zero in
-  // between. Two DIFFERENT consecutive real stores legitimately produce two
-  // adjacent high cycles, so this checks for the same request repeating
-  // (identical address, data, and strobe on back-to-back high cycles), not
-  // merely back-to-back nonzero cycles.
-  //
-  // $fatal is Icarus-only below: yosys's read_verilog (the write_cxxrtl leg
-  // this file also feeds, per the Makefile) doesn't implement it at all, so
-  // this stays inside `ifdef ICARUS` the same way the clock/reset generation
-  // above does. The $display fires unconditionally, so the violation is
-  // still visible under cxxrtl if it were ever encountered there.
+  // Two different stores back to back are fine, so this looks for the same
+  // request repeating, not for two busy cycles in a row. $fatal is Icarus-only
+  // because yosys does not implement it.
   logic [31:0] prev_wstrb_mem_addr, prev_wstrb_mem_wdata;
   logic [3:0]  prev_mem_wstrb;
   initial prev_mem_wstrb = 4'b0000;
