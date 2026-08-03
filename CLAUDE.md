@@ -13,7 +13,7 @@ and `docs/adr/`, and the README is deliberately left as-is; ground truth is here
 Three habits carry the goals:
 
 - **Measure a conflict; never assume one.** `make fit` and `make soc-timing` are the instruments.
-  Do not leave a measured win on the floor because it sounds like an optimisation, and do not take
+  Do not discard a measured win because it sounds like an optimisation, and do not take
   a tidier spelling that costs measured speed or area without recording the trade. Two standing
   precedents: `rtl/memory.v` ships the flat spelling of its write/read arms (the nested one costs
   3.6% of Fmax), and `rtl/executor.v`'s `mul_div_counter` stays `[6:0]` (narrowing it costs 37
@@ -24,7 +24,7 @@ Three habits carry the goals:
   property still holds. A marking is spent against an assertion, never against belief:
   `(* parallel_case *)` is legal only where a `$onehot`/`$onehot0` check covers the exact flags in
   that arm list (ADR-0068).
-- **A gate that cannot fail is not a gate.** Every graded comparison must have a demonstrated red
+- **A grader that cannot fail is not a grader.** Every graded comparison must have a demonstrated red
   direction that fails for the reason it was written; `make probe-gates` forces all of them and
   runs as a prerequisite of `make test`. Five of this repo's recorded defects were comparisons
   whose failure path had never once run.
@@ -44,7 +44,7 @@ are kept in parentheses so those references still resolve.
 - **No wrong-path state** (1). No state may exist that a later cycle must un-commit — no flush
   logic, no kill signal. The decoder owns the PC and is its only driver; the fetch address is
   published a cycle early (`next_pc` → `imem_addr_next`), and a stalled cycle re-presents the same
-  words. This keeps the formal depth floors small and derivable, retire unfiltered, and `pcloop`'s
+  words. This keeps the required BMC depths small and derivable, retire unfiltered, and `pcloop`'s
   induction free of speculative state. Enforced by `formal/pcloop.sv`, `rtl/decoder.v`'s `FORMAL`
   block and `test/decoder_tb.v`.
 - **All traps are detected and committed in decode** (2). Nothing faults after decode; a trap is a
@@ -116,7 +116,7 @@ What a green result does and does not mean:
   that the property holds. Depths are derived from two measured numbers — F (worst-case first
   retire, from `hang`) and G (worst-case retire gap, from `liveness`). **Any change that adds a
   stall reason, lengthens a stage, or widens the scoreboard must re-measure F and G before it
-  lands** (ADR-0046); some depths clear their floors by one cycle.
+  lands** (ADR-0046); some depths exceed their measured minimum by only one cycle.
 - **riscv-formal ships no spec model for SYSTEM or MISC-MEM at the pinned SHA**, so trap and CSR
   behaviour
   is checked against assertions this repo wrote (`test/asm/trap.S`, `test/csr_tb.v`, the decoder
@@ -127,15 +127,14 @@ What a green result does and does not mean:
   generated but tracked: regenerate it (`make monitor-check`), never hand-edit it.
 - **iverilog derives a continuous assign's sensitivity from the call's arguments.** A function
   called from a continuous assign whose body reads module state silently under-evaluates — no
-  diagnostic — and once left this leg dead for a whole milestone while every gate stayed green.
+  diagnostic — and once left this leg dead for a whole milestone while every grader stayed green.
   Write such logic out. Treat a green iverilog run as evidence only if it could have failed.
-- **Sail co-simulation is deliberately not a leg and stays off every required gate** (ADR-0032).
+- **Sail co-simulation is deliberately not a leg and stays off CI's required checks** (ADR-0032).
   `test/cosim.cc` reads the core's real `regs_a` and no `rvfi_*` signal — the property that lets it
-  catch architectural writes the self-reporting oracles structurally miss (measured: a gated
-  `regs[31] <=` write invisible to every riscv-formal check and the whole `.S` suite, reported by
-  co-sim in 0.6s). A
-  change gates on it by carrying pre/post `make cosim-suite` output in the PR. Do not "align" it
-  against `rvfi_valid`.
+  catch architectural writes the self-reporting oracles structurally miss (measured: an extra
+  `regs[31] <=` write enabled only past the BMC bound, invisible to every riscv-formal check and
+  the whole `.S` suite, reported by co-sim in 0.6s). A change that needs its verdict carries
+  pre/post `make cosim-suite` output in the PR. Do not "align" it against `rvfi_valid`.
 
 ## Reference models
 
@@ -153,9 +152,9 @@ Two instruments, two designs — never merge their numbers. `make fit` is the co
 never places: 231 `SB_IO` against sg48's 39, expected); `make soc-timing` is the SoC, which places
 and times.
 
-- **`make fit` has a churn floor of about ±50 cells**: functionally identical edits move the count
-  that much from ABC/nextpnr re-mapping alone. A delta inside the floor is not evidence of
-  anything, and a ratchet (`FIT_MAX_LC`) must sit above it. **The number is also
+- **`make fit` has a churn band of about ±50 cells**: functionally identical edits move the count
+  that much from ABC/nextpnr re-mapping alone. A delta inside the band is not evidence of
+  anything, and a ratchet (`FIT_MAX_LC`) must sit outside it. **The number is also
   toolchain-dependent** — CI's pinned OSS CAD Suite and a local Homebrew yosys differ by ~21 cells
   on identical RTL — so quote the `fit` job's number; a local run is a sanity check.
 - **`make soc-timing` has a ~3.6% edit-churn band and a 1–2% placement spread.** One placement is a
@@ -179,7 +178,7 @@ Baselines and grading:
   runs, so a suite that shrank is red rather than a smaller table that still "passes". Before
   adding a co-sim baseline entry, read that file's header — it is the decision procedure.
 - **Never put a graded command in a pipeline in a CI `run:` block**: the default shell is errexit
-  without pipefail, so the step's status becomes `tee`'s. This held a formal gate accidentally
+  without pipefail, so the step's status becomes `tee`'s. This held the formal CI job accidentally
   green for its entire life.
 
 ## Commands
@@ -220,11 +219,11 @@ Suite. CI runs on every PR (`.github/workflows/ci.yml`); read the required set l
 
 ## Engineering rules
 
-- **Compiler and elaboration warnings are errors.** Two allowlisted exceptions, both documented at
-  their gates: iverilog's `sorry: constant selects in always_* processes` for `rtl/writeback.v`'s
-  `always_comb` struct reads (over-sensitivity — provably safe; only *under*-sensitivity is a bug;
-  do not add new ones outside that file, prefer a continuous assign), and yosys's
-  `Deep recursion in AST simplifier` notice on the `elaborate` gate.
+- **Compiler and elaboration warnings are errors.** Two allowlisted exceptions, both documented
+  where they are allowlisted: iverilog's `sorry: constant selects in always_* processes` for
+  `rtl/writeback.v`'s `always_comb` struct reads (over-sensitivity — provably safe; only
+  *under*-sensitivity is a bug; do not add new ones outside that file, prefer a continuous
+  assign), and yosys's `Deep recursion in AST simplifier` notice on the `elaborate` CI job.
 - **Comments earn their place or go.** A comment must say something the code does not, in one or
   two plain sentences readable without leaving the file. Delete restatement, history (git has it),
   section banners and emphasis furniture. **No ADR numbers and no invariant numbers in comments** —
