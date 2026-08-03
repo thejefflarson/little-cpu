@@ -375,8 +375,15 @@ test-units: check-unit-benches test/monitor.sim.v
 probe-gates:
 	@./test/probe_gates.sh
 
+# Hangs off `test` for the same reason `probe-gates` does: it is bash and a stub
+# `gh`, so it runs anywhere, and the pin-bump path is otherwise exercised once a
+# week by a workflow nobody watches.
+.PHONY: pin-bump-test
+pin-bump-test:
+	@./formal/test-propose-pin-bump.sh
+
 .PHONY: test
-test: sim test-units probe-gates
+test: sim test-units probe-gates pin-bump-test
 	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 # Count logic cells from nextpnr, never cell counts from yosys. A flip-flop that

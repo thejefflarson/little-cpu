@@ -8,6 +8,10 @@ name: riscv-formal pin bump
 # this workflow only notices and proposes. No auto-merge: ADR-0018's
 # dependabot-automerge.yml is scoped to `dependabot[bot]` and does not apply
 # here, and this workflow does not enable auto-merge on the PRs it opens.
+#
+# Without a PIN_BUMP_TOKEN secret it pushes the branch and opens an issue rather
+# than a pull request, because a PR the default GITHUB_TOKEN opens gets no CI
+# and so can never merge. formal/propose-pin-bump.sh has the measurement.
 on:
   schedule:
     - cron: "17 6 * * 1" # weekly, Monday
@@ -16,7 +20,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  actions: write # gh workflow run, needed only under the default GITHUB_TOKEN -- see the script
+  issues: write
 
 jobs:
   check-and-bump:
@@ -32,3 +36,4 @@ jobs:
         run: formal/bump-riscv-formal-pin.sh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PIN_BUMP_TOKEN: ${{ secrets.PIN_BUMP_TOKEN }}

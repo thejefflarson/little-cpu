@@ -1,9 +1,12 @@
 #!/bin/bash
-# Opens a PR bumping formal/pin.mk's riscv-formal SHA when upstream's `main`
-# has moved past it, regenerating test/monitor.v so monitor-freshness is a
-# real verdict on the bump rather than a guaranteed failure. Does nothing --
-# no branch, no commit, no PR -- if the pin is already current, or if a PR
-# already proposes the SHA upstream is at.
+# Proposes bumping formal/pin.mk's riscv-formal SHA when upstream's `main` has
+# moved past it, regenerating test/monitor.v so monitor-freshness is a real
+# verdict on the bump rather than a guaranteed failure. Does nothing -- no
+# branch, no commit, no proposal -- if the pin is already current, or if a pull
+# request or issue already proposes the SHA upstream is at.
+#
+# formal/propose-pin-bump.sh does the proposing and decides between a pull
+# request and an issue; read its header before changing how CI reaches this.
 #
 # The existing gates (monitor-freshness, formal/check-genchecks.py,
 # formal/check-complete-exclusions.py, the ladder itself) decide whether the
@@ -41,10 +44,20 @@ if [ "$PIN_SHA" = "$UPSTREAM_SHA" ]; then
 fi
 
 BRANCH="riscv-formal-pin/bump-${UPSTREAM_SHA:0:12}"
+TITLE="Bump riscv-formal pin to ${UPSTREAM_SHA:0:12}"
 
 OPEN_COUNT=$(gh pr list --state open --head "$BRANCH" --json number --jq 'length')
 if [ "$OPEN_COUNT" -gt 0 ]; then
   echo "a PR already proposes $UPSTREAM_SHA (branch $BRANCH); nothing to do"
+  exit 0
+fi
+
+# Titles are compared exactly rather than handed to `--search`, whose matching
+# is fuzzy: a near miss there would open a fresh issue every week.
+ISSUE_COUNT=$(gh issue list --state open --limit 200 --json title \
+  --jq "[.[] | select(.title == \"$TITLE\")] | length")
+if [ "$ISSUE_COUNT" -gt 0 ]; then
+  echo "an issue already proposes $UPSTREAM_SHA; nothing to do"
   exit 0
 fi
 
@@ -86,7 +99,7 @@ fi
 git config user.name "github-actions[bot]"
 git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 git add formal/pin.mk test/monitor.v
-git commit --quiet -m "Bump riscv-formal pin to ${UPSTREAM_SHA:0:12}
+git commit --quiet -m "$TITLE
 
 $DIFFSTAT"
 
@@ -129,15 +142,4 @@ BODY_FILE="$CLONE_DIR/pr-body.md"
   fi
 } > "$BODY_FILE"
 
-PR_URL=$(gh pr create --title "Bump riscv-formal pin to ${UPSTREAM_SHA:0:12}" \
-  --body-file "$BODY_FILE" --head "$BRANCH" --base main)
-echo "opened $PR_URL"
-
-# A PR opened with the Actions default GITHUB_TOKEN does not trigger
-# pull_request-triggered workflows -- GitHub suppresses events caused by that
-# token to prevent recursive runs -- so without this, ci.yml's required checks
-# would never run on this PR. workflow_dispatch is exempt, and GitHub attaches
-# check runs to a PR by commit SHA regardless of which event asked for them.
-if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
-  gh workflow run ci.yml --ref "$BRANCH"
-fi
+formal/propose-pin-bump.sh "$BRANCH" "$TITLE" "$BODY_FILE"
