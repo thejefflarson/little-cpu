@@ -254,8 +254,9 @@ it** — `insn 19`, `ill 19`, `reg 15 22` — off a re-measured **F = 6, G = 4 �
 wall time roughly doubled. Two things about the change are worth knowing before touching it. The
 **coincidence of `fetch_stall` with a divider or accessor freeze is a ruling, not statement order**:
 holding wins, and it is asserted in two places because reordering two `else if` arms is otherwise
-silent. `formal/wrapper.v` models the arbiter and is where the ladder meets it;
-`imemcheck`/`dmemcheck`/`cover`/`complete` tie `fetch_stall` low and say so.
+silent. `formal/arbiter.v` is the steal equation written once, and all five harnesses instantiate it — so
+`fetch_stall` is a free input nowhere and a constant nowhere. A free stall input starves `hang` and
+`liveness`, which was measured, not argued.
 
 **Three programs exercise all of that end to end now, and the suite is 59** (ADR-0064).
 `test/asm/selfmod.S` stores into `.text`, fences and runs the stored word; `test/asm/textload.S`
