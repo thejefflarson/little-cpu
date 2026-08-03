@@ -30,16 +30,14 @@ Three habits carry the goals:
 
 ## Design commitments
 
-Few, and each is here because breaking it is silent — tests can stay green while the design rots.
-**A commitment is a means to the four goals, not an end, and none is held harder than the
-others.** Finding a path that improves one goal without losing the other three is grounds to amend
-or remove the commitment, not a violation to be talked out of. The bar is all four goals at once,
-demonstrated before the commitment gives way: the goal the change improves, measured; the other
-three shown to still hold, measured where they are measurable (`make fit`, `make soc-timing`, the
-ladder, the `.S` suite); and an ADR recording the amendment. A commitment that stands does so
-because nobody has brought that evidence yet, not because this file forbids trying. Older ADRs
-cite these as `invariant N`; the numbers are kept in parentheses so those references still
-resolve.
+**These can and should change when a change moves the four goals forward together.** The goals are
+what the project is for; a commitment is only a means to them, and none is held harder than the
+others. How to change one: measure the improvement, show the other three goals still hold —
+measured where they are measurable (`make fit`, `make soc-timing`, the ladder, the `.S` suite) —
+and record the amendment as an ADR. The evidence is required because breaking a commitment is
+silent — tests can stay green while the design rots — which is exactly why these are written down
+and measured rather than left to judgement. Older ADRs cite these as `invariant N`; the numbers
+are kept in parentheses so those references still resolve.
 
 - **No wrong-path state** (1). No state may exist that a later cycle must un-commit — no flush
   logic, no kill signal. The decoder owns the PC and is its only driver; the fetch address is
