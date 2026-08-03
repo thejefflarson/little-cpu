@@ -72,6 +72,7 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0065](0065-the-ladder-speaks-the-writable-text-bus.md) | The ladder speaks the writable-text bus, and `imemcheck` stops at the first store | Accepted · builds 0057's step 4; pays off 0060 decision 3 |
 | [0066](0066-twelve-megahertz-is-a-requirement.md) | Twelve megahertz is a requirement | Accepted · amends 0038 decision 2; answers the question 0064 left open |
 | [0067](0067-the-bus-never-refuses-and-the-eleven-are-ruled.md) | The bus never refuses a transaction, and the eleven declined checks are ruled | Accepted · pays off 0044's closing obligation; settles invariant 2 |
+| [0068](0068-a-one-hot-marking-is-spent-against-an-assertion.md) | A one-hot marking is spent against an assertion, not against inspection | Accepted · supplements 0030, which declines one of the two statements it was asked to mark |
 
 0001–0007 came from the design brief
 ([`docs/ideas/finish-the-rewrite.md`](../ideas/finish-the-rewrite.md)). 0008–0011 came out of
