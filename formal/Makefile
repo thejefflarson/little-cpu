@@ -153,9 +153,9 @@ RTL_SOURCES := ../rtl/structs.v ../rtl/fetcher.v ../rtl/regfile.v \
                ../rtl/csrs.v ../rtl/decoder.v ../rtl/executor.v \
                ../rtl/accessor.v ../rtl/writeback.v ../rtl/littlecpu.v
 
-dmemcheck: dmemcheck.sby dmemcheck.sv $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
-imemcheck: imemcheck.sby imemcheck.sv $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
-cover:     cover.sby     cover.sv     $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
+dmemcheck: dmemcheck.sby dmemcheck.sv arbiter.v $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
+imemcheck: imemcheck.sby imemcheck.sv arbiter.v $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
+cover:     cover.sby     cover.sv     arbiter.v $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
 
 # `complete` is the depth-50 walk and by far the most expensive thing here, so
 # unconditional re-running is the least welcome on it. It gets it anyway: a
@@ -168,13 +168,13 @@ cover:     cover.sby     cover.sv     $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
 # the exclusion set is what makes this check passable at all, and a run whose
 # exclusions have drifted from their baseline is a verdict about a check nobody
 # declared. It costs milliseconds and it fails before sby starts.
-complete:  complete.sby  complete.sv  complete-exclusions $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
+complete:  complete.sby  complete.sv  arbiter.v complete-exclusions $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
 
 # The anti-vacuity control for the line above, over the same complete.sv: the
 # twelve opcode classes the exclusion set does NOT name must each be reachable
 # as a real non-trapping retire. See complete_cover.sby's header for why it is
 # a separate file and not a task.
-complete_cover: complete_cover.sby complete.sv complete-exclusions $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
+complete_cover: complete_cover.sby complete.sv arbiter.v complete-exclusions $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
 
 # Set equality in both directions between complete.sv's declared exclusion set
 # and formal/COMPLETE_EXCLUSIONS, plus a re-derivation from the pinned clone

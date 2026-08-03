@@ -60,16 +60,22 @@ module rvfi_testbench (
       assume(mem_rdata == dmem_shadow);
   end
 
-  // The fetch address one cycle early, for a synchronous memory (ADR-0054).
-  // Unread here, since this environment answers imem_data in the same cycle,
-  // but connected rather than left dangling.
+  // The fetch address one cycle early. Unread here, since this environment
+  // answers imem_data in the same cycle, but connected rather than left
+  // dangling.
   logic [31:0] imem_addr_next;
-  // ADR-0059's steal, tied low: this task walks the ISA against the spec model
-  // and answers `imem_data` in the same cycle from a memory it does not model,
-  // so a steal would only cost retires inside the depth-50 window.
-  // formal/wrapper.v is where the arbiter is transcribed and driven.
   logic        mem_ren;
-  logic        fetch_stall = 1'b0;
+  logic        fetch_stall;
+
+  imem_arbiter arbiter (
+    .clock(clk),
+    .reset(reset),
+    .mem_addr(mem_addr),
+    .mem_wstrb(mem_wstrb),
+    .mem_ren(mem_ren),
+    .fetch_stall(fetch_stall),
+    .text_write()
+  );
 
   littlecpu wrapper (
     .clk(clk),

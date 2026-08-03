@@ -38,10 +38,17 @@ module testbench (
   logic [3:0]  mem_wstrb;
   logic        mem_ren;
   logic [31:0] mem_rdata;
+  logic        fetch_stall;
 
-  // Tied low rather than left free: this task is about the data bus, so a steal
-  // would add stall cycles and no coverage. formal/wrapper.v models the arbiter.
-  logic        fetch_stall = 1'b0;
+  imem_arbiter arbiter (
+    .clock(clk),
+    .reset(reset),
+    .mem_addr(mem_addr),
+    .mem_wstrb(mem_wstrb),
+    .mem_ren(mem_ren),
+    .fetch_stall(fetch_stall),
+    .text_write()
+  );
 
   // rvfi_dmem_check does its own tracking and does not need this. What this is
   // for: mem_rdata is otherwise a free input every cycle, and no design could
