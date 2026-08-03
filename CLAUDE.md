@@ -79,7 +79,11 @@ are kept in parentheses so those references still resolve.
   would drop an issued instruction — and that ruling is only arm order in the publish block, so it
   is asserted in `rtl/decoder.v`'s `FORMAL` block and vectored in `test/decoder_tb.v`. Every
   in-flight non-`x0` `rd` must be visible to the scoreboard on every cycle between issue and the
-  regfile write-through, with no gap.
+  regfile write-through, with no gap. Six reasons raise `stall`, and it is exactly their OR: the
+  divider, the accessor's load turnaround, the decode scoreboard, serialization, the operand-fetch
+  cycle, the stolen fetch window. `test/decoder_tb.v` checks that identity and `make cycles`
+  charges every stalled cycle to the first reason that is true, so a seventh has to be added in
+  both places as well as here.
 
 Retired numbers, never reused: 7 (the generated-but-tracked monitor) lives under Verification; 9 is
 folded into 6.
@@ -120,8 +124,11 @@ What a green result does and does not mean:
 - **riscv-formal ships no spec model for SYSTEM or MISC-MEM at the pinned SHA**, so trap and CSR
   behaviour
   is checked against assertions this repo wrote (`test/asm/trap.S`, `test/csr_tb.v`, the decoder
-  proof), not an oracle. `formal/COMPLETE_EXCLUSIONS` mechanises that boundary: a pin bump that
-  adds a spec model goes red until the exclusion comes out.
+  and `traps` proofs), not an oracle. `formal/COMPLETE_EXCLUSIONS` mechanises that boundary: a pin
+  bump that adds a spec model goes red until the exclusion comes out. The generated instruction
+  check also drops every value comparison once an instruction traps, keeping only the trap flag,
+  and its two pc checks accept whatever target the core reports — so `components_traps` is the only
+  thing that says a trap lands on `mtvec` and saves the right state.
 - **Both sim legs read the sanitized `test/monitor.sim.v` as their per-retire oracle**, so
   `test/sanitize_monitor.py` is a change to the oracle, not to plumbing. `test/monitor.v` is
   generated but tracked: regenerate it (`make monitor-check`), never hand-edit it.
@@ -190,6 +197,9 @@ make test           # the .S suite under cxxrtl + unit benches + probe-gates,
 make test-units     # the unit benches alone; the bench list is checked against
                     # test/*_tb.v in both directions
 make probe-gates    # force every graded comparison red for its own reason; hermetic
+make cycles         # the .S suite again, every cycle charged to an issuing cycle or
+                    # one of the six stall reasons; nonzero on a stalled cycle none
+                    # of them explains. Not on CI -- there is no CPI ratchet
 make waves          # iverilog leg -> waves.vcd; one baked-in program, graded,
                     # not the .S suite (test/testbench.v has no image loader)
 make monitor-check  # regenerate test/monitor.v at the pin and diff
@@ -202,6 +212,7 @@ make -C formal check-baseline       # re-grade a finished run without re-running
 make -C formal components_decoder   # component proofs by k-induction (mode prove):
 make -C formal components_executor  #   read the sby summaries, not the job colour
 make -C formal components_pcloop
+make -C formal components_traps     #   traps is the only proof over real mtvec/mepc/mcause/mstatus
 make -C formal complete             # depth-50 whole-ISA walk minus COMPLETE_EXCLUSIONS
 make -C formal complete_cover       # its anti-vacuity control
 make -C formal nonperturbation      # RVFI instrumentation is unread by the core;
