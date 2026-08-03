@@ -1,58 +1,22 @@
 #!/bin/bash
-# The riscv-formal ladder's gate. Asserts TWO things, and both are set
-# equalities in both directions (ADR-0014's contract, applied to the formal
-# ladder per ADR-0022 -- an unexpected *pass*, or an unexpected *check*,
-# fails this as loudly as a regression):
+# Checks the ladder two ways: the checks that were generated must match
+# formal/EXPECTED_CHECKS, and the ones that did not pass must match
+# formal/EXPECTED_FAIL. Both comparisons run in both directions, so a check that
+# starts passing fails this too, until someone moves its line.
 #
-#   1. SHAPE.  The checks genchecks generated (formal/checks/*.sby) are
-#      exactly the ones formal/EXPECTED_CHECKS names.
-#   2. VERDICT. The checks whose status is not PASS are exactly the ones
-#      formal/EXPECTED_FAIL names, WITH THE STATUS EACH ONE CARRIES.
+# The first comparison is there because the [depth] table in checks.cfg is what
+# decides which checks exist. Delete a line and that check is never generated, so
+# it vanishes from the results and from EXPECTED_FAIL at the same time, and
+# comparing failures alone sees nothing wrong.
 #
-# (2) matched on the name alone until ADR-0036 was executed, and that made
-# ERROR, TIMEOUT, UNKNOWN and NO-STATUS indistinguishable from FAIL to this
-# gate. ADR-0036 measured the consequence rather than argued it: a ladder run
-# on a machine WITHOUT `btorsim` reported "82 checks: 72 pass, 10 fail /
-# Failure list matches EXPECTED_FAIL exactly" and exited 0, while all ten of
-# those checks had status `ERROR 16 2`. `btormc` had found the
-# counterexamples; `sby` then failed to render the traces, because the step
-# that does so shells out to `btorsim`. "A real counterexample at the
-# configured depth" and "the trace renderer is missing" were the same result.
-# The failure mode that matters is the inverse: if `btorsim` vanished from CI's
-# pinned OSS CAD Suite, every red check would flip FAIL -> ERROR,
-# the set equality would still match, and the ladder would stay green having
-# stopped distinguishing a proof failure from a tooling failure. Same shape as
-# ADR-0033's gaps -- a check that can stop checking without anything going red
-# -- one level down, in the status field rather than the check list. This is
-# the identical amendment ADR-0035 made to test/EXPECTED_FAIL, applied to the
-# formal side, and the reasoning is written out in formal/EXPECTED_FAIL's own
-# header.
+# The status is compared as well as the name. FAIL means the check ran and the
+# property did not hold. ERROR means sby did not get that far. Those need
+# different fixes, so the gate should not treat them as the same red.
 #
-# (1) is not decoration. Without it this script could not tell a ladder that
-# shrank from one that passed. formal/checks.cfg's [depth] table is the list
-# of checks that EXIST -- genchecks skips any check with no depth line,
-# silently -- so deleting one line removes a check from the results AND from
-# EXPECTED_FAIL at the same time, and (2) alone reports a clean match on
-# less coverage than it claims. That is ADR-0033's gap 1, and (1) closes it.
-#
-# This script deliberately enumerates the generated `*.sby` FILES, not the
-# run directories. `sby` creates a directory only for a check it actually
-# STARTS, so globbing directories made a generated-but-never-scheduled check
-# invisible: it fell out of the actual set, it was never in the baseline,
-# and set equality called that a match. Reading the .sby files instead means
-# such a check resolves to NO-STATUS and counts as non-PASS, which is what
-# this script's header has promised since it was written -- "make stopped
-# scheduling it, or it's still running" is a failure, not a quiet pass.
-#
-# A check named in EXPECTED_CHECKS with no .sby on disk is likewise
-# NO-STATUS, so a lost [depth] line trips BOTH assertions rather than
-# neither.
-#
-# Nothing here is a verdict about the core. Every check on this ladder is
-# `mode bmc`: PASS means no counterexample was found within that check's
-# configured depth, not that the property holds. And the whole ladder runs
-# under RISCV_FORMAL_ALTOPS, so a passing insn_mul/insn_div says nothing
-# whatever about the real multiplier or divider (ADR-0010).
+# None of this says the core is correct. Every check searches to a fixed depth,
+# so passing means no counterexample was found that shallow. The ladder also
+# defines RISCV_FORMAL_ALTOPS, which replaces multiply and divide with simpler
+# stand-ins, so insn_mul passing says nothing about the real multiplier.
 #
 # Usage: check-baseline.sh <checks-dir> <expected-fail-file> [expected-checks-file]
 set -u
@@ -67,13 +31,8 @@ EXPECTED_FAIL=$2
 EXPECTED_CHECKS=${3:-$(dirname "$0")/EXPECTED_CHECKS}
 
 # READABLE, not merely present. This script sets `set -u` and neither `-e` nor
-# `pipefail`, so a `sed` that cannot open its input writes to stderr and yields
-# an EMPTY string, and an empty expected set against an all-passing ladder
-# prints "Failure list matches ... exactly" and exits 0 -- having compared
-# nothing, and having silently dropped whatever the baseline named. Measured
-# with `chmod 000 formal/EXPECTED_FAIL`; see the probe in test/probe_gates.sh.
-# ADR-0035 item 4 made exactly this fix on test/run_tests.sh's baseline and it
-# was never carried across to the formal side.
+# `pipefail`, so a `sed` that cannot open its input yields an EMPTY string — and
+# an empty expected set matches an all-passing ladder exactly.
 for f in "$EXPECTED_FAIL" "$EXPECTED_CHECKS"; do
   if [ ! -f "$f" ]; then
     echo "error: no such file: $f" >&2
@@ -87,12 +46,8 @@ for f in "$EXPECTED_FAIL" "$EXPECTED_CHECKS"; do
   fi
 done
 
-# `#` comments and blank lines out, as both baseline files already allow.
-# Interior whitespace is squeezed too, so EXPECTED_FAIL's two fields can be
-# column-aligned for a human without changing what is compared. `NF` must gate
-# the rebuild rather than follow it: awk forces NF to 1 when $1 is assigned, so
-# `{$1=$1} NF` would resurrect every blank and comment-only line as an empty
-# entry. (Same idiom, same reason, as test/run_tests.sh.)
+# `NF` has to come before the rebuild, not after. Assigning to $1 sets NF to 1,
+# so `{$1=$1} NF` would bring every blank and comment line back as an entry.
 strip() {
   sed -e 's/#.*//' "$1" | awk 'NF { $1 = $1; print }' | sort
 }
@@ -100,17 +55,9 @@ strip() {
 expected_checks=$(strip "$EXPECTED_CHECKS")
 expected_fail=$(strip "$EXPECTED_FAIL")
 
-# THE STATUS VOCABULARY, ENUMERATED IN BOTH DIRECTIONS.
-#
-# `sby` writes its verdict as the first word of <workdir>/status, and the rest
-# of that line is engine bookkeeping (`PASS 0 31`, `ERROR 16 2`) that no
-# baseline should ever pin. Only the first word is compared.
-#
-# known_status: everything sby can write, plus this script's own NO-STATUS for
-# "there is no status file". A status outside this set means sby's output
-# changed under us -- a pin bump, a different engine -- and is reported rather
-# than bucketed into "not PASS", because bucketing is the whole defect this
-# gate just stopped having.
+# Everything sby can write, plus this script's own NO-STATUS. A status outside
+# the set means sby's output changed under us, and is reported rather than
+# bucketed into "not PASS".
 known_status() {
   case $1 in
     PASS | FAIL | ERROR | UNKNOWN | TIMEOUT | NO-STATUS) return 0 ;;
@@ -118,26 +65,11 @@ known_status() {
   esac
 }
 
-# baselineable_status: the strictly smaller set a line in EXPECTED_FAIL may
-# carry. Three are rejected, each for its own reason:
-#
-#   PASS       is unreachable here by construction -- a PASS check never
-#              enters the failure set -- so a line carrying it could never
-#              match anything, which is a comparison whose failure branch is
-#              the only branch.
-#   ERROR      is sby failing to run or to render, not the core failing a
-#              property. ADR-0036: "with ERROR never a legitimate baselined
-#              value". Baselining one would re-create the btorsim hole with
-#              this gate's blessing on it.
-#   NO-STATUS  is "the check was generated and never scheduled, or is still
-#              running". Same argument: a broken harness, not a known-red
-#              property.
-#
-# TIMEOUT and UNKNOWN ARE accepted. They are budget exhaustion rather than
-# tooling breakage -- a real, recorded verdict about a check that did not
-# converge (ADR-0023's `reg` was exactly this before ADR-0024 changed the
-# engine) -- and a change that turned one into the other is a change this gate
-# should report, which is only possible if both are spellable.
+# The strictly smaller set EXPECTED_FAIL may carry. ERROR and NO-STATUS mean the
+# harness broke rather than a property failing, and a baseline line saying "this
+# check is expected to not run" would make a missing solver look like a known
+# result forever. TIMEOUT and UNKNOWN are a real verdict about a check that did
+# not converge in its budget, so those are accepted.
 baselineable_status() {
   case $1 in
     FAIL | TIMEOUT | UNKNOWN) return 0 ;;
@@ -145,16 +77,8 @@ baselineable_status() {
   esac
 }
 
-# Validate the baseline's FORMAT before anything expensive, and before any
-# comparison -- a rejected line must read as "this file is wrong", never as a
-# regression in the ladder. Exit 2 is this script's existing code for "the
-# inputs are broken", as distinct from exit 1, "the ladder disagrees with
-# them".
-#
-# A one-field line is the pre-ADR-0036 format. Accepting it silently would
-# make every legacy entry unmatchable in a way that reads exactly like a
-# regression, so it is named instead. An empty file has no lines and is
-# therefore fine -- which is the state the ladder is in today.
+# Exit 2 is "the inputs are broken" against exit 1's "the ladder disagrees with
+# them", so a rejected line cannot read as a regression in the ladder.
 baseline_errors=""
 while IFS= read -r line; do
   [ -n "$line" ] || continue
@@ -197,11 +121,10 @@ if [ -n "$baseline_errors" ]; then
   exit 2
 fi
 
-# The generated set: one line per checks/<name>.sby. `find` rather than a
-# glob, so a missing or empty directory yields nothing instead of the
-# literal unexpanded pattern -- which would otherwise become a one-element
-# set named `*.sby` and produce a confusing diff instead of the explicit
-# error below.
+# The `.sby` FILES, not the run directories: sby creates a directory only for a
+# check it actually starts, so globbing directories made a generated-but-never-
+# scheduled check fall out of the results and out of the baseline at once. `find`
+# rather than a glob so an empty directory yields nothing, not `*.sby`.
 generated=$(find "$CHECKS_DIR" -maxdepth 1 -name '*.sby' \
   -exec basename {} .sby \; 2>/dev/null | sort)
 
@@ -225,9 +148,8 @@ if [ "$generated" != "$expected_checks" ]; then
   failed=1
 fi
 
-# Status is read over the UNION of what was generated and what was expected,
-# so a name missing from either side still gets a verdict rather than
-# dropping out of the tally entirely.
+# The UNION, so a name missing from either side still gets a verdict rather than
+# dropping out of the tally.
 all_checks=$(printf '%s\n%s\n' "$generated" "$expected_checks" | sort -u)
 
 total=0
@@ -235,10 +157,8 @@ declare -a actual_fail=()
 declare -a unknown_statuses=()
 for name in $all_checks; do
   total=$((total + 1))
-  # First word of the first NON-BLANK line. sby's status line is
-  # `<VERDICT> <engine> <depth>`; only the verdict is compared, because the
-  # numbers after it are bookkeeping that moves with the engine and would
-  # make the baseline pin something it is not asserting.
+  # First word only: sby writes `<VERDICT> <engine> <depth>`, and the numbers
+  # move with the engine.
   status=$(awk 'NF { print $1; exit }' "$CHECKS_DIR/$name/status" 2>/dev/null)
   if [ -z "$status" ]; then
     status="NO-STATUS"
@@ -254,11 +174,6 @@ done
 passed=$((total - ${#actual_fail[@]}))
 echo "$total checks: $passed pass, ${#actual_fail[@]} fail"
 
-# A status sby has never written here before is reported on its own, not left
-# to be read out of a diff. It means the tool's output changed, which is a
-# different problem from the ladder disagreeing with its baseline, and the two
-# want different fixes. It still counts as non-PASS above, so it cannot pass
-# quietly either way.
 if [ ${#unknown_statuses[@]} -gt 0 ]; then
   echo
   echo "Unrecognised status(es) on disk -- not one of PASS FAIL ERROR UNKNOWN"
