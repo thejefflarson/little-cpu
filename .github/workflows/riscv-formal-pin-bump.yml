@@ -1,22 +1,26 @@
 name: riscv-formal pin bump
 
 # Notices when upstream YosysHQ/riscv-formal's `main` has moved past
-# formal/pin.mk's SHA and opens a PR bumping it, with test/monitor.v
-# regenerated against the new pin (ADR-0013). The existing gates --
+# formal/pin.mk's SHA, pushes a branch bumping it with test/monitor.v
+# regenerated against the new pin (ADR-0013), and opens an issue asking a human
+# to open the pull request from that branch. The existing gates --
 # monitor-freshness, formal/check-genchecks.py,
 # formal/check-complete-exclusions.py, the ladder itself -- grade the bump;
-# this workflow only notices and proposes. No auto-merge: ADR-0018's
-# dependabot-automerge.yml is scoped to `dependabot[bot]` and does not apply
-# here, and this workflow does not enable auto-merge on the PRs it opens.
+# this workflow only notices and proposes.
+#
+# It opens an issue rather than a pull request because a PR opened by this
+# workflow would get no CI and could never merge; formal/propose-pin-bump.sh has
+# the mechanism. No auto-merge either: ADR-0018's dependabot-automerge.yml is
+# scoped to `dependabot[bot]` and does not apply here.
 on:
   schedule:
     - cron: "17 6 * * 1" # weekly, Monday
   workflow_dispatch:
 
 permissions:
-  contents: write
-  pull-requests: write
-  actions: write # gh workflow run, needed only under the default GITHUB_TOKEN -- see the script
+  contents: write # git push, for the branch carrying the bump
+  issues: write # gh issue list, then gh issue create
+  pull-requests: read # gh pr list, to notice a bump a human has already opened
 
 jobs:
   check-and-bump:
