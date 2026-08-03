@@ -31,23 +31,30 @@ Three habits carry the goals:
 ## Design commitments
 
 Few, and each is here because breaking it is silent — tests can stay green while the design rots.
-Changing one is a new-ADR change, not a tuning one. Older ADRs cite these as `invariant N`; the
-numbers are kept in parentheses so those references still resolve.
+**A commitment is a means to the four goals, not an end, and none is held harder than the
+others.** Finding a path that improves one goal without losing the other three is grounds to amend
+or remove the commitment, not a violation to be talked out of. The bar is all four goals at once,
+demonstrated before the commitment gives way: the goal the change improves, measured; the other
+three shown to still hold, measured where they are measurable (`make fit`, `make soc-timing`, the
+ladder, the `.S` suite); and an ADR recording the amendment. A commitment that stands does so
+because nobody has brought that evidence yet, not because this file forbids trying. Older ADRs
+cite these as `invariant N`; the numbers are kept in parentheses so those references still
+resolve.
 
 - **No wrong-path state** (1). No state may exist that a later cycle must un-commit — no flush
-  logic, no kill signal, ever. The decoder owns the PC and is its only driver; the fetch address is
+  logic, no kill signal. The decoder owns the PC and is its only driver; the fetch address is
   published a cycle early (`next_pc` → `imem_addr_next`), and a stalled cycle re-presents the same
   words. This keeps the formal depth floors small and derivable, retire unfiltered, and `pcloop`'s
   induction free of speculative state. Enforced by `formal/pcloop.sv`, `rtl/decoder.v`'s `FORMAL`
   block and `test/decoder_tb.v`.
 - **All traps are detected and committed in decode** (2). Nothing faults after decode; a trap is a
   branch to `mtvec` on the same override the jumps use. This is what makes CSR commit precise with
-  no reorder buffer. It stands on a permanent commitment: the bus never refuses a transaction
-  (ADR-0067).
+  no reorder buffer. It stands on ADR-0067's ruling that the bus never refuses a transaction.
 - **Every inter-stage struct carries a `valid` bit** (3). A bubble is `valid = 0`; retire is
   `valid` reaching writeback, which gates `wen` and drives `rvfi_valid`.
-- **Hazards are stall-only** (4). No forwarding network; adding one is a CPI-only optimisation and
-  requires a new ADR (a second bypass level was built and rejected at 44/52, ADR-0042).
+- **Hazards are stall-only** (4). No forwarding network. The nearest step toward one — a second
+  bypass level, needed to serialise the read ports — was built and rejected at 44/52 (ADR-0042);
+  that measurement is the evidence to beat.
 - **CSR instructions, `mret` and `fence.i` serialize** (5) — held in decode until the pipeline
   drains. Two distinct reasons share the mechanism: the first two so a one-cycle architectural
   update cannot interleave with older instructions; `fence.i` because text is writable and the
@@ -62,8 +69,8 @@ numbers are kept in parentheses so those references still resolve.
   address pair and is correct only because `operand_stall` guarantees the held pair is the
   presented pair on every issuing cycle (ADR-0064) — narrowing `operand_stall` breaks it with
   nothing to say so except two `test/regfile_tb.v` vectors and `reg_ch0`. Touching `operand_stall`
-  is a new-ADR change. The standing liveness probe: delete the rs2 write-through bypass and
-  `reg_ch0` must go SAT — run it before believing any `reg_ch0` result under a changed
+  is an amendment, not a tuning change. The standing liveness probe: delete the rs2 write-through
+  bypass and `reg_ch0` must go SAT — run it before believing any `reg_ch0` result under a changed
   configuration.
 - **Stalls are one global broadcast over two mechanisms** (8): a divider or accessor stall
   **holds** `decoder_out` unchanged (an issued instruction nothing has consumed); every other
