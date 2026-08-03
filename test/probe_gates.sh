@@ -1,78 +1,32 @@
 #!/bin/bash
 # Forces every graded comparison in this repo's grading scripts to FAIL, and
-# asserts that each one goes red for the reason it was written for.
+# asserts that each one goes red for the reason it was written for. The defect
+# class is the comparison whose failure path was never executed, and this repo
+# has shipped five of them.
 #
 # Usage: probe_gates.sh          # run every probe; exit 0 only if all pass
 #
-# WHY THIS EXISTS. Five of this repo's recorded defects live in the layer that
-# decides what "green" means, and every one of them was in a script:
+# A probe pins the exit STATUS and a fragment of the DIAGNOSTIC. Status alone is
+# nearly worthless: a script that exited 1 on a mistyped fixture path would
+# satisfy every exit-status probe here while demonstrating nothing. Every group
+# also carries a control, because a grader degenerated into `exit 1` would
+# otherwise pass the lot.
 #
-#   * the graded comparison piped into `tee`, so a `run:` block's errexit
-#     (which is not pipefail) took `tee`'s status and the gate could not go red
-#     -- ADR-0022's central guarantee had never held (ADR-0037 §4);
-#   * `make -C formal check` re-grading the PREVIOUS run, because its `checks`
-#     target named a directory whose mtime sby bumps (ADR-0040);
-#   * `formal/check-baseline.sh` globbing run directories, so a check that was
-#     never scheduled fell out of the results and out of the baseline at once
-#     and set equality called that a match (ADR-0033 gap 1);
-#   * `test/sanitize_monitor.py`'s rule 3, whose site count proved a rule fired
-#     but not what it swallowed -- mutation showed the pre-change script
-#     accepting every attack at exit 0;
-#   * `check-baseline.sh` computing a verdict and discarding it.
+# Hermetic: no RISC-V toolchain, no `sim`, no Sail, no yosys, no sby, so this can
+# run inside `make test` on any machine. It is all fork and no work, so the wall
+# time is the host's property rather than this file's.
 #
-# The class is THE COMPARISON WHOSE FAILURE PATH WAS NEVER EXECUTED. Each of
-# those five was green, in CI, for months, while checking less than it claimed
-# -- and in every case the reasoning at the site was sound. Reading the script
-# is what missed them. So this file does not read: it breaks the thing each
-# comparison guards and requires the red.
-#
-# WHAT A PROBE ASSERTS, and why the second half is not optional. A probe pins
-# the exit STATUS and a distinguishing fragment of the DIAGNOSTIC. Status alone
-# is nearly worthless here: a script that exited 1 because a fixture path was
-# mistyped would satisfy every exit-status probe in this file while
-# demonstrating nothing. The text is what ties the red to the comparison it is
-# supposed to be about.
-#
-# EVERY GROUP CARRIES A CONTROL -- the same fixtures, unmutated, required to
-# exit 0. Without one, a grader that had degenerated into `exit 1` would pass
-# every probe here. That is this file's own anti-vacuity check and it is the
-# same argument formal/complete_cover.sby makes for `complete`.
-#
-# HERMETIC ON PURPOSE. No RISC-V toolchain, no `sim`, no Sail, no yosys, no
-# sby: the failing objcopy, the crashing runner, the diverging reference model
-# and the compiler that is not installed are all stubs on a scratch PATH. That
-# is what lets this run inside `make test` on any machine, rather than being a
-# document nobody executes -- which is the failure mode CLAUDE.md records for
-# `make waves` and `make -C formal all`.
-#
-# IT IS ALL FORK, NO WORK, so its wall time is a property of the host and not
-# of this file. Measured on the machine it was written on: ~1500 exec()s for
-# about 4s of user time and 68-90s of wall, because that laptop takes ~27ms to
-# exec /bin/echo and ~62ms to exec a freshly written script. Do not "optimise"
-# it by deleting probes -- measure `time (for i in $(seq 1 100); do /bin/echo x
-# >/dev/null; done)` first and see whether the host is the reason. The
-# per-group seconds printed below are there so that stays visible.
-#
-# WHAT IS NOT HERE, and it is a short list. Four failure paths need something
-# this file deliberately does not have, and each was demonstrated by hand
-# instead, with the command recorded at its own site:
-#
-#   * test/cxxrtl.cc's exit 4 (a live RVFI monitor mismatch) and exit 5
-#     (trap-to-zero), which need the elaborated design;
-#   * formal/genchecks-audit.py's three set equalities, which need the pinned
-#     riscv-formal clone and a real generation run (only its working-directory
-#     guard is probed below);
-#   * test/cosim.cc's regs_a/regs_b divergence check, which needs the design.
-#
+# Four failure paths need the elaborated design or the pinned clone and are
+# demonstrated by hand instead: test/cxxrtl.cc's exits 4 and 5, test/cosim.cc's
+# divergence check, and genchecks-audit.py's three set equalities.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/.." && pwd)
 
-# The number of probes this file must run. Pinned as a literal for the same
-# reason test/exec_tb.v pins its vector count: a probe that is deleted, or that
-# stops being reached by an early `return`, would otherwise reduce the coverage
-# of this file while it kept printing a green summary.
+# Pinned as a literal: a probe that is deleted, or that stops being reached by
+# an early `return`, would otherwise cut this file's coverage while it kept
+# printing a green summary.
 PROBES_EXPECTED=125
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
@@ -89,10 +43,9 @@ probes=0
 failed=0
 group=""
 
-# Every fixture gets its own directory. `mktemp -d` rather than a counter
-# because these are built inside `$(...)`, which is a subshell: a counter would
-# never advance in the parent and every fixture would land on top of the last
-# one -- silently, and with the probes still reporting on something.
+# `mktemp -d` rather than a counter because fixtures are built inside `$(...)`,
+# a subshell: a counter would never advance in the parent, so every fixture
+# would land on top of the last one and the probes would still report something.
 new_case() {
   mktemp -d "$tmp/case.XXXXXX"
 }
@@ -119,11 +72,10 @@ probe() {
   rc=$?
   set -e
   local why=""
-  # A here-string, not a pipe. `grep -q` exits at the first match and closes
-  # the pipe, and against a large output (the sanitized monitor is 11k lines)
-  # the writer then dies of SIGPIPE -- which under `set -o pipefail` becomes
-  # the pipeline's status, so a MATCHING probe reported no match. Found by
-  # this file failing its own control.
+  # A here-string, not a pipe. `grep -q` exits at the first match and closes the
+  # pipe, so against a large output the writer dies of SIGPIPE -- which under
+  # pipefail becomes the pipeline's status, making a MATCHING probe report no
+  # match.
   if [ "$rc" -ne "$want_exit" ]; then
     why="exited $rc, expected $want_exit"
   elif ! grep -qF -- "$want_text" <<< "$out"; then
@@ -138,17 +90,10 @@ probe() {
   fi
 }
 
-# ---------------------------------------------------------------------------
-# Stubs. Each stands in for one thing this file refuses to depend on, and each
-# is steered by environment variables so a probe reads as one line.
-#
-# They are written ONCE, up front, and shared by every fixture below -- as are
-# the scratch copies of the scripts under test. Per-fixture copies cost seconds:
-# macOS re-scans an executable the first time it is exec'd after being written,
-# so a probe that created its own stub tree measured 1.5-3.3s of wall against
-# 0.06s of user time. Fixtures create data files only; nothing a fixture writes
-# is ever executed.
-# ---------------------------------------------------------------------------
+# Written once and shared by every fixture, as are the scratch copies of the
+# scripts under test: macOS re-scans an executable the first time it is exec'd
+# after being written, so a probe that created its own stub tree measured
+# 1.5-3.3s of wall against 0.06s of user time.
 
 make_toolchain_stubs() {  # $1 = bin dir
   local bin=$1
@@ -252,25 +197,18 @@ STUB
   chmod +x "$1"
 }
 
-# The shared tree. `bin` is a complete stub toolchain; `bin-noobjcopy` is the
-# half-installed one; `bin-none` is a machine with no cross compiler at all.
 # `leg-rt` / `leg-rc` are scratch copies of the two suite runners, because each
 # resolves its helper scripts relative to its own path.
 mkdir -p "$tmp/bin-none" "$tmp/leg-rt" "$tmp/leg-rc" "$tmp/leg-rc-nopy"
 
-# `bin-none` is "this machine has no cross compiler", and for the one probe that
-# claims that it has to be the WHOLE path: with /usr/bin behind it, run_tests.sh
-# finds a real riscv64-unknown-elf-gcc on any host that has one installed there,
-# which is every CI runner -- and that is exactly how that probe went green here
-# and red on CI. So it carries symlinks to the utilities the scripts need before
-# their compiler probe, resolved from this shell's own PATH rather than assumed
-# to live in /usr/bin. Every OTHER probe keeps /usr/bin on the end (the stub
-# directory is in front, so the stubs still win) because test/cosim.py runs
-# under `#!/usr/bin/env python3` and a python3 that is a version-manager shim
-# needs an interpreter of its own.
-# No python3 and no env here on purpose: nothing runs before a compiler probe
-# needs them, and a python3 that is a version-manager shim would shadow the real
-# interpreter for every OTHER probe's PATH, which has this directory on it too.
+# For the one probe that claims "no cross compiler", `bin-none` has to be the
+# WHOLE path: with /usr/bin behind it, run_tests.sh finds a real
+# riscv64-unknown-elf-gcc on any host that has one there, which is every CI
+# runner -- that is how that probe went green here and red on CI.
+#
+# No python3 and no env here on purpose: a python3 that is a version-manager shim
+# would shadow the real interpreter for every OTHER probe, whose PATH has this
+# directory on it too.
 for util in sed awk sort uniq comm basename dirname wc tr cat rm mktemp diff \
              grep find head; do
   path=$(command -v "$util") || {
@@ -292,9 +230,6 @@ cp "$HERE/run_cosim.sh" "$HERE/check_suite_shape.sh" "$tmp/leg-rc-nopy/"
 make_cosim_py_stub "$tmp/leg-rc-nopy/cosim.py"
 chmod -x "$tmp/leg-rc-nopy/cosim.py"
 
-# ===========================================================================
-# 1. test/check_suite_shape.sh -- the manifest check both sim legs run first.
-# ===========================================================================
 begin_group "test/check_suite_shape.sh"
 
 SHAPE="$HERE/check_suite_shape.sh"
@@ -344,9 +279,6 @@ d=$(shape_fixture); : > "$d/asm/unlisted.S"
 probe "the other direction: a .S that landed without a manifest line" 1 \
   "runs unmeasured" "$SHAPE '$d/asm' '$d/MANIFEST'"
 
-# ===========================================================================
-# 2. test/run_tests.sh -- the merge gate.
-# ===========================================================================
 begin_group "test/run_tests.sh"
 
 rt_fixture() {
@@ -359,8 +291,6 @@ rt_fixture() {
   printf '%s' "$d"
 }
 
-# `sections.lds` is not a program and must not be counted as one; the manifest
-# check and this loop both key on `*.S`, which is why the fixture can carry it.
 RT="$tmp/leg-rt/run_tests.sh"
 rt() { printf "PATH='%s/bin:%s/bin-none:/usr/bin:/bin' %s %s/sim %s/asm %s/BASELINE %s/FLOOR" \
   "$tmp" "$tmp" "$RT" "$tmp" "$1" "$1" "$1"; }
@@ -436,9 +366,6 @@ probe "runner exit 6 is MONITOR-SILENT: the oracle never looked" 1 \
 probe "an unexpected runner status is RUNNER-ERROR, carrying it" 1 \
   "RUNNER-ERROR 3" "STUB_SIM_EXIT=3 $(rt "$d")"
 
-# ADR-0035's measured reason for `set +e` around the runner: bash 3.2 rewrites
-# a 127 to 1 under errexit, which would report an unstartable runner as a
-# verdict about the CPU.
 probe "an unstartable runner is RUNNER-ERROR 127, never FAIL" 1 \
   "RUNNER-ERROR 127" \
   "PATH='$tmp/bin:$tmp/bin-none:/usr/bin:/bin' $RT $tmp/no-such-sim $d/asm $d/BASELINE $d/FLOOR"
@@ -452,8 +379,6 @@ probe "a program that went quiet is BELOW-FLOOR on retires" 1 \
 probe "retires that stopped being spec-checked is its own status" 1 \
   "BELOW-FLOOR spec-checked" "STUB_SIM_SPEC=1 $(rt "$d")"
 
-# ADR-0014's contract runs in BOTH directions, and ADR-0035 made the element a
-# name-and-status pair. Three probes, because the three are different claims.
 d=$(rt_fixture); printf 'add.S FAIL 7\n' > "$d/BASELINE"
 probe "control: a baselined failure that fails exactly that way is green" 0 \
   "Failure list matches" "STUB_SIM_EXIT=1 $(rt "$d")"
@@ -464,9 +389,6 @@ probe "a baselined test that starts failing a DIFFERENT way is red" 1 \
 probe "an unexpected PASS is red too -- the baseline is not a ceiling" 1 \
   "does NOT match" "$(rt "$d")"
 
-# ===========================================================================
-# 3. test/run_cosim.sh -- the co-simulation suite runner.
-# ===========================================================================
 begin_group "test/run_cosim.sh"
 
 rc_fixture() {
@@ -533,15 +455,11 @@ probe "a baselined program that diverges SOMEWHERE ELSE is red" 1 \
 probe "an unexpected agreement is red -- both directions, as everywhere" 1 \
   "does NOT match" "$(rcs "$d")"
 
-# ===========================================================================
-# 4. test/cosim.py -- the comparison itself, driven end to end through stubs.
-# ===========================================================================
 begin_group "test/cosim.py"
 
-# Sail's trace format (test/cosim.py's INSN_RE / GPR_RE) and test/cosim.cc's
-# CS record stream, both replayed from fixtures. Everything between them --
-# the distinct-state reduction, the two cursors, the divergence labels, the
-# HTIF verdict cross-check -- is the real script.
+# Only the two ends are fixtures; everything between them -- the distinct-state
+# reduction, the two cursors, the divergence labels, the HTIF verdict
+# cross-check -- is the real cosim.py.
 cp_fixture() {
   local d; d=$(new_case)
   cat > "$d/sail.trace" <<'TRACE'
@@ -622,9 +540,8 @@ d=$(cp_fixture)
 probe "a failing assembler is fatal, not a divergence" 3 "failed" \
   "STUB_CC_EXIT=1 $(cps "$d")"
 
-# The NONCOMPARABLE_CSRS relaxation. It is the one thing in this script that
-# makes the comparison weaker, so both halves are probed: that it is taken and
-# printed, and that it still requires a change to EXACTLY that register.
+# NONCOMPARABLE_CSRS is the one thing in cosim.py that makes the comparison
+# weaker, so both halves are probed.
 d=$(cp_fixture)
 cat > "$d/sail.trace" <<'TRACE'
 [1] [M]: 0x00000000 (0xb00025f3) csrr x11, mcycle
@@ -643,9 +560,6 @@ printf 'CS 0 10 x12=00000099 @pc=00000004\nCS END PASS 10\n' > "$d/dut.out"
 probe "the exemption does not extend to a write of the WRONG register" 1 \
   "COSIM-STATUS DISAGREE" "$(cps "$d")"
 
-# ===========================================================================
-# 5. formal/check-baseline.sh -- the ladder's gate.
-# ===========================================================================
 begin_group "formal/check-baseline.sh"
 
 CB="$REPO/formal/check-baseline.sh"
@@ -673,11 +587,6 @@ probe "wrong argument count is exit 2 -- the inputs are broken, not the ladder" 
 probe "a missing baseline file is exit 2, not an empty expected set" 2 \
   "no such file" "$CB $d/checks $d/NOPE $d/EXPECTED_CHECKS"
 
-# The false green this ticket found. `set -u` with no `-e` and no `pipefail`
-# means an unreadable baseline yields an EMPTY expected set, and an empty
-# expected set matches an all-passing ladder exactly. Before the `-r` check
-# this printed "Failure list matches ... exactly" and exited 0, having also
-# silently dropped the entry the baseline named.
 d=$(cb_fixture); printf 'beta FAIL\n' > "$d/EXPECTED_FAIL"; chmod 000 "$d/EXPECTED_FAIL"
 probe "an UNREADABLE baseline is refused, not read as an empty one" 2 \
   "exists but is not readable" "$(cbs "$d")"
@@ -724,9 +633,6 @@ printf 'beta FAIL\n' > "$d/EXPECTED_FAIL"
 probe "control: a baselined red check at the baselined status is green" 0 \
   "Failure list matches" "$(cbs "$d")"
 
-# ADR-0036's measured hole, and the newest comparison in this script: on a
-# machine without btorsim every red check flipped FAIL -> ERROR and the
-# name-only set equality still matched.
 printf 'ERROR 16 2\n' > "$d/checks/beta/status"
 probe "still red, but for a DIFFERENT reason: FAIL baselined, ERROR on disk" 1 \
   "beta ERROR" "$(cbs "$d")"
@@ -753,17 +659,13 @@ d=$(cb_fixture); printf 'WOBBLE 1 2\n' > "$d/checks/beta/status"
 probe "a status sby has never written here is reported on its own" 1 \
   "Unrecognised status" "$(cbs "$d")"
 
-# ===========================================================================
-# 6. formal/check-complete-exclusions.py -- the exclusion set's gate.
-# ===========================================================================
 begin_group "formal/check-complete-exclusions.py"
 
 CE="$REPO/formal/check-complete-exclusions.py"
 
-# The riscv-formal stand-in carries only what clause 5 reads: an insns/
-# directory and its isa list. Naming `add` and `lw` there is what makes the
-# control probe meaningful -- the file is non-empty and simply does not name
-# any excluded mnemonic.
+# The riscv-formal stand-in carries only what clause 5 reads. Naming `add` and
+# `lw` is what makes the control meaningful: the file is non-empty and names no
+# excluded mnemonic.
 ce_fixture() {
   local d; d=$(new_case)
   mkdir -p "$d/rf/insns"
@@ -829,8 +731,6 @@ sed -i.bak 's|^MISC-MEM  0001111  fence fence.i$|MISC-MEM  00011 fence fence.i|'
 probe "a baseline opcode that is not seven binary digits is named" 1 \
   "seven binary digits" "$(ces "$d")"
 
-# Clause 5, the one a baseline alone cannot give you: a stale exclusion covers
-# less and less of the ISA while staying green.
 d=$(ce_fixture); : > "$d/rf/insns/insn_fence.v"
 probe "a pin that ADDS a spec model makes the exclusion stale, and red" 1 \
   "EXISTS at the pin" "$(ces "$d")"
@@ -843,8 +743,8 @@ d=$(ce_fixture); rm "$d/rf/insns/isa_rv32imc.txt"
 probe "an unreadable clone makes 'no spec model' unmeasurable, and fatal" 1 \
   "cannot read" "$(ces "$d")"
 
-# Clause 2 -- a recorded restriction with nothing recorded. The reason lives on
-# the comment lines under the header, so deleting them is the mutation.
+# The reason lives on the comment lines under the header, so deleting them is
+# the mutation.
 d=$(ce_fixture)
 python3 - "$d/complete.sv" <<'PY'
 import sys
@@ -866,21 +766,12 @@ PY
 probe "an exclusion with no reason written under it is rejected" 1 \
   "has no reason written under it" "$(ces "$d")"
 
-# ===========================================================================
-# 7. test/sanitize_monitor.py -- the oracle both sim legs read.
-#
-# These assertions were mutation-confirmed once, when rule 3's three content
-# layers landed. They are RE-RUN here, not re-derived: re-deriving
-# TRAP_GATE_ENCLOSED_CODES from whatever the generator currently emits is
-# exactly how a change gets laundered into the expectation, which that list's
-# own comment forbids. Nothing below edits the script's constants; each probe
-# mutates a COPY of the tracked test/monitor.v and requires the sanitizer to
-# refuse it.
-# ===========================================================================
+# Nothing below edits the sanitizer's constants: each probe mutates a COPY of
+# the tracked test/monitor.v and requires the sanitizer to refuse it. Re-deriving
+# TRAP_GATE_ENCLOSED_CODES from whatever the generator currently emits is how a
+# change gets laundered into the expectation, which that list's comment forbids.
 begin_group "test/sanitize_monitor.py"
 
-# Not executable in the tree (the Makefile invokes it through python3), so this
-# does too -- a probe that failed on the mode bit would look like a rule fault.
 SM="python3 $REPO/test/sanitize_monitor.py"
 
 sm_fixture() {
@@ -921,7 +812,6 @@ PY
 probe "rule 2 likewise -- ADR-0019's DIV/REM repair cannot silently stop applying" 1 \
   "matched 1 site(s), expected 2" "$SM $d/monitor.v"
 
-# Layer 1: the generator relocates the trap comparison between the anchors.
 d=$(sm_fixture)
 sm_mutate "$d/monitor.v" <<'PY'
 import sys
@@ -936,7 +826,6 @@ PY
 probe "layer 1: the trap comparison moved INTO the span is refused, not gated" 1 \
   "the generator now emits the" "$SM $d/monitor.v"
 
-# Layer 2: any other check moving into or out of the span.
 d=$(sm_fixture)
 sm_mutate "$d/monitor.v" <<'PY'
 import sys
@@ -948,8 +837,7 @@ PY
 probe "layer 2: the enclosed handle_error multiset is pinned, not merely counted" 1 \
   "the span encloses" "$SM $d/monitor.v"
 
-# Layer 3: the generator dropping the trap comparison altogether -- which
-# layers 1 and 2 both accept, because neither looks outside the span.
+# Layers 1 and 2 both accept this one, because neither looks outside the span.
 d=$(sm_fixture)
 sm_mutate "$d/monitor.v" <<'PY'
 import sys
@@ -960,31 +848,16 @@ PY
 probe "layer 3: error 101 vanishing from the OUTPUT is caught after every rule" 1 \
   "the trap comparison survives" "$SM $d/monitor.v"
 
-# ===========================================================================
-# 8. formal/genchecks-audit.py -- only the guard that needs no clone.
-# ===========================================================================
 begin_group "formal/genchecks-audit.py"
 
-# The three set equalities this script makes need the pinned riscv-formal clone
-# and a real generation run, so they are demonstrated by hand rather than here;
-# the commands and their output are recorded in the pull request that added this
-# file. What IS hermetic is the working-directory guard, and it is not
-# decoration: genchecks takes `corename` from the last path component and writes
-# `checks/` relative to the cwd, so running it from anywhere else silently
-# produces a ladder somewhere else.
 probe "running the generator from the wrong directory is refused, not done" 1 \
   "error: run from" "cd '$tmp' && python3 '$REPO/formal/genchecks-audit.py'"
 
-# ===========================================================================
-# 9. soc/timing_split.py -- make soc-timing's SOC_MIN_MHZ ratchet.
-# ===========================================================================
 begin_group "soc/timing_split.py"
 
 TS="python3 $REPO/soc/timing_split.py"
 
-# One LogicCell40 hop, one routing hop, and the two summary lines the script
-# derives everything else from. 1.50 ns total is 666.67 MHz, clear of every
-# floor these probes use.
+# 1.50 ns is 666.67 MHz, clear of every floor these probes use.
 ts_fixture() {
   local d; d=$(new_case)
   cat > "$d/report.rpt" <<'RPT'
@@ -1016,8 +889,6 @@ sed -i.bak 's/^Total path delay: 1.50 ns/Total path delay: 5.00 ns/' "$d/report.
 probe "a hop sum that does not reconcile blames the script, not the design" 1 \
   "summed hops come to" "$TS $d/report.rpt --min-mhz 10.0"
 
-# A carry hop needs no interconnect and a LUT level does, so one costs about a
-# tenth of the other and the two must not be added up (ADR-0058).
 ts_carry_fixture() {
   local d; d=$(new_case)
   cat > "$d/report.rpt" <<'RPT'
@@ -1053,9 +924,6 @@ RPT
 probe "a path with no LUT level at all reports zero rather than dividing by it" 0 \
   "0.00 ns per LUT level" "$TS $d/report.rpt"
 
-# ===========================================================================
-# 10. soc/cell_census.py -- make soc-timing's SPRAM/EBR census.
-# ===========================================================================
 begin_group "soc/cell_census.py"
 
 CC="python3 $REPO/soc/cell_census.py"
@@ -1082,15 +950,11 @@ d=$(cc_fixture)
 probe "a cell type the log never mentions reads as zero, not a crash" 1 \
   "0 SB_RGBA_DRV cells, expected 1" "$CC $d/soc.synth.log SB_RGBA_DRV 1 reason"
 
-# ===========================================================================
-# 11. check-unit-benches -- the UNIT_BENCHES / test/*_tb.v list equality.
-# ===========================================================================
 begin_group "check-unit-benches"
 
-# Driven against the REAL Makefile and the REAL test/*_tb.v tree, with the
-# declaration overridden on the command line: UNIT_BENCHES lives in the
-# tracked Makefile, and duplicating its comparison here would be the
-# second-parser risk this file exists to avoid elsewhere.
+# Driven against the real Makefile and the real test/*_tb.v tree with the
+# declaration overridden on the command line: duplicating the comparison here
+# would be the second-parser risk this file exists to avoid elsewhere.
 MB="make -C $REPO check-unit-benches"
 
 probe "control: the declared list matches the tree exactly" 0 \
@@ -1108,9 +972,6 @@ probe "a declared bench with no UNIT_BENCH_SRC_* would build with no design unde
   "monitor_tb is in UNIT_BENCHES with no UNIT_BENCH_SRC_monitor_tb" \
   "$MB UNIT_BENCH_SRC_monitor_tb="
 
-# ===========================================================================
-# 12. soc/fit_report.py -- make fit's FIT_MAX_LC ratchet.
-# ===========================================================================
 begin_group "soc/fit_report.py"
 
 FR="python3 $REPO/soc/fit_report.py"
@@ -1146,7 +1007,6 @@ d=$(fr_fixture); sed -i.bak '/ICESTORM_LC:/d' "$d/fit.log"
 probe "no utilisation table is a failure, not a 0% fit" 1 \
   "printed no utilisation table" "$FR $d/fit.log --max-lc 4100"
 
-# ===========================================================================
 echo
 if [ "$probes" -ne "$PROBES_EXPECTED" ]; then
   echo "error: ran $probes probes, expected $PROBES_EXPECTED." >&2

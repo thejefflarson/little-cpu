@@ -1,52 +1,25 @@
 #!/usr/bin/env python3
 #
-# Generates the riscv-formal ladder and asserts its SHAPE -- which checks
-# exist -- before anything runs them.
+# Generates the riscv-formal ladder and asserts its shape. Run from formal/,
+# exactly like `python3 genchecks-local.py`, which it replaces.
 #
-# Why this exists (ADR-0033, gap 1). `formal/checks.cfg`'s `[depth]` section
-# reads as a tuning table. It is not: it is the list of checks that exist.
-# Both of genchecks' call sites end with
+# `checks.cfg`'s `[depth]` section reads as a tuning table but is the list of
+# checks that EXIST: both of genchecks' call sites end with
 #
 #     if depth_cfg is None: return
 #
-# so a check with no matching `[depth]` line is not generated at all -- no
-# `.sby`, no directory, no status file, no warning, exit 0. Deleting or
-# mistyping one line therefore removes a check from the ladder silently, and
-# nothing downstream notices: a never-generated check is absent from the
-# results AND absent from `formal/EXPECTED_FAIL` at once, so that file's
-# set-equality reports a clean match with less coverage than it claims.
+# so a check with no `[depth]` line is not generated at all -- no `.sby`, no
+# warning, exit 0 -- and is then absent from the results and from EXPECTED_FAIL
+# at once, which that file's set equality calls a clean match (ADR-0033).
 #
-# This script closes that by deriving, from the generator's own behaviour,
-# the two sets a reader cares about:
+# The trace is not a second copy of genchecks' naming logic: `genchecks-local.py`
+# must stay byte-comparable with the pin (ADR-0031), so it cannot be
+# instrumented. `sys.settrace` records each `get_depth_cfg` call's `patterns`
+# and whether it returned None, and the last pattern is the check name.
 #
-#   generated  every check genchecks emitted a .sby for
-#   dropped    every check genchecks CONSIDERED and skipped for want of a
-#              [depth] line
-#
-# and asserting both against files the repo commits to -- `EXPECTED_CHECKS`
-# and `checks.cfg`'s `#omit` declarations -- with set equality in BOTH
-# directions, per ADR-0014's contract: an unexpected *addition* trips this as
-# loudly as a disappearance. That matters after a pin bump (ADR-0013), which
-# is exactly when upstream may grow a check nobody here has ruled on.
-#
-# HOW the derivation works, and why it is not a second copy of genchecks'
-# logic. `genchecks-local.py` must stay byte-comparable with the pin except
-# for `basedir` (ADR-0031), so it cannot be instrumented. Instead this script
-# runs it under `sys.settrace` and records every `get_depth_cfg` call: its
-# `patterns` argument and whether it returned None. The LAST pattern in that
-# argument is, at every call site, the fully-qualified check name --
-# `insn_add_ch0`, `csrw_mcycle_ch0`, `causal_ch0`, `hang` -- which is what
-# makes a name recoverable without re-deriving it here.
-#
-# That assumption is not trusted, it is CHECKED: the names this script
-# recovers as generated must equal genchecks' own `consistency_checks |
-# instruction_checks` sets, and those must equal the `.sby` files actually on
-# disk. If a future pin changes how a check name is built, or adds a
-# `filter-checks` drop this script cannot see, the three disagree and this
-# fails rather than quietly reporting a wrong inventory.
-#
-# Run from formal/, exactly like `python3 genchecks-local.py`, which it
-# replaces as the `checks` target's recipe.
+# That assumption is checked, not trusted: the traced names must equal genchecks'
+# own bookkeeping AND the .sby files on disk, so a pin that changes how a name is
+# built fails here instead of reporting a wrong inventory.
 
 import os
 import re
@@ -59,9 +32,8 @@ CFG = os.path.join(HERE, "checks.cfg")
 EXPECTED_CHECKS = os.path.join(HERE, "EXPECTED_CHECKS")
 CHECKS_DIR = os.path.join(HERE, "checks")
 
-# `#omit <check-name> <one-line reason>` in checks.cfg. genchecks' own cfg
-# parser drops every line starting with `#` before it sees a section, so
-# these are invisible to it and cannot perturb generation.
+# genchecks' own parser drops every `#` line before it sees a section, so these
+# cannot perturb generation.
 OMIT_RE = re.compile(r"^#omit\s+(\S+)\s+(\S.*)$")
 
 
@@ -101,8 +73,6 @@ def report_set_diff(label, expected, actual, expected_label, actual_label):
     return True
 
 
-# ---------------------------------------------------------------- the trace
-
 records = []
 
 
@@ -119,10 +89,9 @@ def call_tracer(frame, event, arg):
 
 
 def main():
-    # genchecks reads `checks.cfg` and writes `checks/` relative to the
-    # working directory, and takes `corename` from its last path component.
-    # Running it from anywhere else silently produces a ladder somewhere
-    # else, so refuse rather than do that.
+    # genchecks reads `checks.cfg` and writes `checks/` relative to the cwd and
+    # takes `corename` from its last component, so running it elsewhere silently
+    # produces a ladder elsewhere.
     if os.path.realpath(os.getcwd()) != os.path.realpath(HERE):
         print(f"error: run from {HERE}, not {os.getcwd()}", file=sys.stderr)
         return 1
@@ -161,9 +130,8 @@ def main():
 
     failed = False
 
-    # 1. The derivation validates itself against genchecks' own bookkeeping.
-    #    If these disagree, every count below is wrong and none of the
-    #    set-equalities beneath mean anything.
+    # If the trace disagrees with genchecks' own bookkeeping, none of the set
+    # equalities below mean anything.
     genchecks_own = set(genchecks["consistency_checks"]) | set(
         genchecks["instruction_checks"]
     )
@@ -175,7 +143,6 @@ def main():
         "trace",
     )
 
-    # 2. ...and against what is actually on disk, which is what sby runs.
     on_disk = {
         e[: -len(".sby")] for e in os.listdir(CHECKS_DIR) if e.endswith(".sby")
     }
@@ -187,7 +154,6 @@ def main():
         "disk",
     )
 
-    # 3. The ladder is the size the repo says it is (ADR-0033's assertion).
     expected = set(read_name_list(EXPECTED_CHECKS))
     failed |= report_set_diff(
         "generated ladder vs formal/EXPECTED_CHECKS",
@@ -197,9 +163,8 @@ def main():
         "generated",
     )
 
-    # 4. Every check upstream offered and this ladder declined is declined on
-    #    purpose, in writing, next to [depth]. This is what makes the
-    #    omission count derived rather than prose.
+    # Every check upstream offered and this ladder declined is declined in
+    # writing, next to [depth].
     omitted = read_omit_decls(CFG)
     failed |= report_set_diff(
         "dropped checks vs checks.cfg #omit declarations",
