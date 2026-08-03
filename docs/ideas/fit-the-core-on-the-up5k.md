@@ -470,11 +470,18 @@ Invariant 1 (combinational fetch) and invariant 6 put `pc → imem_addr → imem
 decode → regfile read → branch compare → next pc` in one cycle **by design**. A low Fmax is a
 consequence of a stated value, not a defect.
 
-The regfile read alone measured 14.82 ns on faster silicon; the full loop plausibly lands at
-50–70 ns on up5k, ~15–20 MHz. Declare **12 MHz** (the iCEBreaker oscillator) and record `icetime`
-in `make fit` once the design places. At 12 MHz a half-period is 41 ns, which is enormous relative
-to the negedge discipline's budget. Anyone proposing to raise Fmax later is proposing to break
-invariant 1 or 6, and must bring an ADR.
+~~The regfile read alone measured 14.82 ns on faster silicon; the full loop plausibly lands at
+50–70 ns on up5k, ~15–20 MHz.~~ **Both halves of that guess are struck.** The loop measured
+88.5 ns — worse than the guess — and then reached **76.9 ns, 12.7–13.5 MHz** across four
+placements. 12 MHz is a requirement now, `soc-timing` is a required check, and `make soc-timing`
+is where it is measured, not `make fit`.
+
+**The last sentence is the one that was most wrong.** Raising Fmax did not mean breaking invariant 1
+or 6. It meant noticing that the write-through bypass compared against a live combinational `rs1`
+when the regfile's own contract already said the answer belongs to the previous cycle's address
+pair — six LUT levels for four lines, no invariant touched. The lesson worth keeping: a low Fmax
+was assumed to be the price of a stated value, and most of it turned out to be an accident nobody
+had looked for.
 
 ## Risks
 
