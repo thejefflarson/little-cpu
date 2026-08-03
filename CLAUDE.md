@@ -1410,8 +1410,8 @@ longer quietly widen.
   rejected the shifter merge at 19 cells *saved* on legibility grounds, and accepting a hygiene
   change at 37 cells *spent* would cut against that ruling. Read this before proposing the
   narrowing again — it is measured and declined, not overlooked.
-- Decisions: [`docs/adr/`](docs/adr/) — **seventy ADRs, sixty-nine of them accepted**, plus a
-  deferred list. Re-derived by counting: `ls docs/adr/*.md | wc -l` is 71, one of which is
+- Decisions: [`docs/adr/`](docs/adr/) — **seventy-one ADRs, seventy of them accepted**, plus a
+  deferred list. Re-derived by counting: `ls docs/adr/*.md | wc -l` is 72, one of which is
   `README.md`, and the status column in that README carries exactly one non-accepted entry
   (ADR-0016, superseded by ADR-0018). This line has now been behind four times — "forty-five
   accepted", then "forty-seven", then "fifty-five" while seven more had landed, then "sixty-three"
