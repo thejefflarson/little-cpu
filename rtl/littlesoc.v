@@ -77,6 +77,7 @@ module littlesoc (
   logic [31:0] mem_addr, mem_wdata, mem_rdata;
   logic [31:0] imem_mem_rdata, dmem_mem_rdata;
   logic [3:0]  mem_wstrb;
+  logic        mem_ren, fetch_stall;
   logic [31:0] imem_addr, imem_addr2, imem_addr_next;
   logic [31:0] imem_data, imem_data2;
 
@@ -91,7 +92,9 @@ module littlesoc (
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
+    .mem_ren(mem_ren),
     .mem_rdata(mem_rdata),
+    .fetch_stall(fetch_stall),
     .trap(trap)
   );
 
@@ -120,12 +123,9 @@ module littlesoc (
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
-    // The core has no read enable yet, so no load reaches the text region and
-    // no idle cycle steals a fetch. Stores do reach it.
-    .mem_ren(1'b0),
+    .mem_ren(mem_ren),
     .mem_rdata(imem_mem_rdata),
-    // Nothing consumes the steal yet: the core has no stall input for it.
-    .fetch_stall()
+    .fetch_stall(fetch_stall)
   );
 
   // ---- data RAM ------------------------------------------------------------
