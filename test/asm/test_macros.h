@@ -1,12 +1,12 @@
 // See LICENSE for license details.
+//
+// Vendored from riscv-tests, including its RV64 and floating-point macros,
+// which no program in test/asm invokes. MASK_XLEN keys off __riscv_xlen, so it
+// narrows to 32 bits here on its own (ADR-0008).
 
 #ifndef __TEST_MACROS_SCALAR_H
 #define __TEST_MACROS_SCALAR_H
 
-
-#-----------------------------------------------------------------------
-# Helper macros
-#-----------------------------------------------------------------------
 
 #define MASK_XLEN(x) ((x) & ((1 << (__riscv_xlen - 1) << 1) - 1))
 
@@ -16,9 +16,6 @@ test_ ## testnum: \
     li  x29, MASK_XLEN(correctval); \
     li  TESTNUM, testnum; \
     bne testreg, x29, fail;
-
-# We use a macro hack to simpify code generation for various numbers
-# of bubble cycles.
 
 #define TEST_INSERT_NOPS_0
 #define TEST_INSERT_NOPS_1  nop; TEST_INSERT_NOPS_0
@@ -32,14 +29,6 @@ test_ ## testnum: \
 #define TEST_INSERT_NOPS_9  nop; TEST_INSERT_NOPS_8
 #define TEST_INSERT_NOPS_10 nop; TEST_INSERT_NOPS_9
 
-
-#-----------------------------------------------------------------------
-# RV64UI MACROS
-#-----------------------------------------------------------------------
-
-#-----------------------------------------------------------------------
-# Tests for instructions with immediate operand
-#-----------------------------------------------------------------------
 
 #define SEXT_IMM(x) ((x) | (-(((x) >> 11) & 1) << 11))
 
@@ -89,10 +78,6 @@ test_ ## testnum: \
       inst x0, x1, SEXT_IMM(imm); \
     )
 
-#-----------------------------------------------------------------------
-# Tests for an instruction with register operands
-#-----------------------------------------------------------------------
-
 #define TEST_R_OP( testnum, inst, result, val1 ) \
     TEST_CASE( testnum, x14, result, \
       li  x1, val1; \
@@ -116,10 +101,6 @@ test_ ## testnum: \
       li  x5, 2; \
       bne x4, x5, 1b \
     )
-
-#-----------------------------------------------------------------------
-# Tests for an instruction with register-register operands
-#-----------------------------------------------------------------------
 
 #define TEST_RR_OP( testnum, inst, result, val1, val2 ) \
     TEST_CASE( testnum, x14, result, \
@@ -210,10 +191,6 @@ test_ ## testnum: \
       li x2, MASK_XLEN(val2); \
       inst x0, x1, x2; \
     )
-
-#-----------------------------------------------------------------------
-# Test memory instructions
-#-----------------------------------------------------------------------
 
 #define TEST_LD_OP( testnum, inst, result, offset, base ) \
     TEST_CASE( testnum, x14, result, \
@@ -337,10 +314,6 @@ test_ ## testnum: \
     li  x5, 2; \
     bne x4, x5, 1b \
 
-#-----------------------------------------------------------------------
-# Test jump instructions
-#-----------------------------------------------------------------------
-
 #define TEST_JR_SRC1_BYPASS( testnum, nop_cycles, inst ) \
 test_ ## testnum: \
     li  TESTNUM, testnum; \
@@ -365,14 +338,6 @@ test_ ## testnum: \
     li  x5, 2; \
     bne x4, x5, 1b \
 
-
-#-----------------------------------------------------------------------
-# RV64UF MACROS
-#-----------------------------------------------------------------------
-
-#-----------------------------------------------------------------------
-# Tests floating-point instructions
-#-----------------------------------------------------------------------
 
 #define qNaNf 0f:7fc00000
 #define sNaNf 0f:7f800001
@@ -423,7 +388,6 @@ test_ ## testnum: \
   .result; \
   .popsection
 
-// TODO: assign a separate mem location for the comparison address?
 #define TEST_FP_OP_D32_INTERNAL( testnum, flags, result, val1, val2, val3, code... ) \
 test_ ## testnum: \
   li  TESTNUM, testnum; \
@@ -467,7 +431,6 @@ test_ ## testnum: \
 #define TEST_FP_OP1_D32( testnum, inst, flags, result, val1 ) \
   TEST_FP_OP_D32_INTERNAL( testnum, flags, double result, val1, 0.0, 0.0, \
                     inst f3, f0; fsd f3, 0(a0); lw t2, 4(a0); lw a0, 0(a0))
-// ^: store computation result in address from a0, load high-word into t2
 
 #define TEST_FP_OP1_D( testnum, inst, flags, result, val1 ) \
   TEST_FP_OP_D_INTERNAL( testnum, flags, double result, val1, 0.0, 0.0, \
@@ -480,7 +443,6 @@ test_ ## testnum: \
 #define TEST_FP_OP1_D32_DWORD_RESULT( testnum, inst, flags, result, val1 ) \
   TEST_FP_OP_D32_INTERNAL( testnum, flags, dword result, val1, 0.0, 0.0, \
                     inst f3, f0; fsd f3, 0(a0); lw t2, 4(a0); lw a0, 0(a0))
-// ^: store computation result in address from a0, load high-word into t2
 
 #define TEST_FP_OP1_D_DWORD_RESULT( testnum, inst, flags, result, val1 ) \
   TEST_FP_OP_D_INTERNAL( testnum, flags, dword result, val1, 0.0, 0.0, \
@@ -493,7 +455,6 @@ test_ ## testnum: \
 #define TEST_FP_OP2_D32( testnum, inst, flags, result, val1, val2 ) \
   TEST_FP_OP_D32_INTERNAL( testnum, flags, double result, val1, val2, 0.0, \
                     inst f3, f0, f1; fsd f3, 0(a0); lw t2, 4(a0); lw a0, 0(a0))
-// ^: store computation result in address from a0, load high-word into t2
 
 #define TEST_FP_OP2_D( testnum, inst, flags, result, val1, val2 ) \
   TEST_FP_OP_D_INTERNAL( testnum, flags, double result, val1, val2, 0.0, \
@@ -506,7 +467,6 @@ test_ ## testnum: \
 #define TEST_FP_OP3_D32( testnum, inst, flags, result, val1, val2, val3 ) \
   TEST_FP_OP_D32_INTERNAL( testnum, flags, double result, val1, val2, val3, \
                     inst f3, f0, f1, f2; fsd f3, 0(a0); lw t2, 4(a0); lw a0, 0(a0))
-// ^: store computation result in address from a0, load high-word into t2
 
 #define TEST_FP_OP3_D( testnum, inst, flags, result, val1, val2, val3 ) \
   TEST_FP_OP_D_INTERNAL( testnum, flags, double result, val1, val2, val3, \
@@ -609,8 +569,7 @@ test_ ## testnum: \
   .double result; \
   .popsection
 
-// We need some special handling here to allow 64-bit comparison in 32-bit arch
-// TODO: find a better name and clean up when intended for general usage?
+// A 64-bit comparison on a 32-bit arch, done as two 32-bit halves.
 #define TEST_CASE_D32( testnum, testreg1, testreg2, correctval, code... ) \
 test_ ## testnum: \
     code; \
@@ -626,12 +585,9 @@ test_ ## testnum: \
     .dword correctval; \
     .popsection
 
-// ^ x14 is used in some other macros, to avoid issues we use x15 for upper word
+// x15 rather than x14 for the upper word, because other macros use x14.
 
-#-----------------------------------------------------------------------
-# Pass and fail code (assumes test num is in TESTNUM)
-#-----------------------------------------------------------------------
-
+// Assumes the test number is in TESTNUM.
 #define TEST_PASSFAIL \
         bne x0, TESTNUM, pass; \
 fail: \
@@ -639,10 +595,6 @@ fail: \
 pass: \
         RVTEST_PASS \
 
-
-#-----------------------------------------------------------------------
-# Test data section
-#-----------------------------------------------------------------------
 
 #define TEST_DATA
 
