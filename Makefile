@@ -494,11 +494,13 @@ soc.asc: soc.json soc/littlesoc.pcf
 	}
 
 # A floor to catch regressions, deliberately set below what the design measures.
-# It is not the 12 MHz target. The measured number moves by a few percent on
-# edits that change no hardware, because the placer lays everything out again,
-# so a floor at the current measurement would go red for no reason. Getting to
-# 12 MHz means shortening the fetch-to-next-PC path. Do not buy it here.
-SOC_MIN_MHZ := 10.0
+# The measured number moves by a few percent on edits that change no hardware,
+# because the placer lays everything out again, so a floor at the current
+# measurement would go red for no reason. The margin is 11.5%, which is what the
+# 10.0 floor was derived with, taken below the worst of four placements. The
+# design now clears 12 MHz at every placement, so a red here means a real
+# regression rather than the old shortfall.
+SOC_MIN_MHZ := 10.9
 
 .PHONY: soc-timing
 soc-timing: soc.asc
@@ -517,7 +519,8 @@ soc-timing: soc.asc
 	@echo 'one placement of one build at the worst-case corner, and it is'
 	@echo 'toolchain-dependent the same way `make fit` is. ADR-0038 declares Fmax'
 	@echo 'at 12 MHz as an INTENT; this measurement does not move it in either'
-	@echo 'direction, and the design does not currently meet it.'
+	@echo 'direction. The design clears it at four placements as of ADR-0063.'
+	@echo 'One placement is a sample: soc/timing_sweep.sh prints the spread.'
 	@# The ratchet is applied by the thing that already parses the report. It
 	@# was a `python3 -c` here, i.e. a SECOND parser of the same file -- and the
 	@# second one was the one holding the gate.
