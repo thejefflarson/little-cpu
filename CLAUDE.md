@@ -20,9 +20,10 @@ Three habits carry the goals:
   cells) — both measured and declined, not overlooked.
 - **Prove the property, then spend it.** Find a place the design pays for a property it already
   proves — a priority chain over proven-disjoint flags, a comparator that cannot differ — simplify
-  it, and let the ladder, the component proofs and the `.S` suite say whether the property still
-  holds. A marking is spent against an assertion, never against belief: `(* parallel_case *)` is
-  legal only where a `$onehot`/`$onehot0` check covers the exact flags in that arm list (ADR-0068).
+  it, and let the riscv-formal checks, the component proofs and the `.S` suite say whether the
+  property still holds. A marking is spent against an assertion, never against belief:
+  `(* parallel_case *)` is legal only where a `$onehot`/`$onehot0` check covers the exact flags in
+  that arm list (ADR-0068).
 - **A gate that cannot fail is not a gate.** Every graded comparison must have a demonstrated red
   direction that fails for the reason it was written; `make probe-gates` forces all of them and
   runs as a prerequisite of `make test`. Five of this repo's recorded defects were comparisons
@@ -33,7 +34,8 @@ Three habits carry the goals:
 **These can and should change when a change moves the four goals forward together.** The goals are
 what the project is for; a commitment is only a means to them, and none is held harder than the
 others. How to change one: measure the improvement, show the other three goals still hold —
-measured where they are measurable (`make fit`, `make soc-timing`, the ladder, the `.S` suite) —
+measured where they are measurable (`make fit`, `make soc-timing`, the riscv-formal checks, the
+`.S` suite) —
 and record the amendment as an ADR. The evidence is required because breaking a commitment is
 silent — tests can stay green while the design rots — which is exactly why these are written down
 and measured rather than left to judgement. Older ADRs cite these as `invariant N`; the numbers
@@ -53,12 +55,13 @@ are kept in parentheses so those references still resolve.
 - **Hazards are stall-only** (4). No forwarding network. The nearest step toward one — a second
   bypass level, needed to serialise the read ports — was built and rejected at 44/52 (ADR-0042);
   that measurement is the evidence to beat.
-- **CSR instructions, `mret` and `fence.i` serialize** (5) — held in decode until the pipeline
-  drains. Two distinct reasons share the mechanism: the first two so a one-cycle architectural
-  update cannot interleave with older instructions; `fence.i` because text is writable and the
-  fetch address publishes early, so an older store's write edge must pass first (ADR-0061). Do not
-  collapse them. The drain predicate reads **four** slots — `accessor_out.valid` is routed in
-  separately because a store in flight is invisible to the scoreboard's three (ADR-0026).
+- **CSR instructions, `mret` and `fence.i` serialize** (5) — held in decode until execute, access
+  and writeback are empty. Two distinct reasons share the mechanism: the first two so a one-cycle
+  architectural update cannot interleave with older instructions; `fence.i` because text is
+  writable and the fetch address publishes early, so an older store's write edge must pass first
+  (ADR-0061). Do not collapse them. The emptiness check reads **four** slots —
+  `accessor_out.valid` is routed in separately because a store in flight is invisible to the
+  scoreboard's three (ADR-0026).
 - **The regfile read is synchronous, and the answer belongs to the address pair presented the
   previous cycle** (6, 9). Decode presents the pair, bubbles one cycle (`operand_stall`), then
   issues — and in the issue cycle observes the architectural value of rs1/rs2 *including a
@@ -104,15 +107,18 @@ floor, not a closed list; "exact" once made a conformance gap look like a design
 
 What a green result does and does not mean:
 
-- **The ladder runs under `RISCV_FORMAL_ALTOPS` and never checks the real multiplier or divider.**
+- **The riscv-formal checks run under `RISCV_FORMAL_ALTOPS` and never check the real multiplier or
+  divider.**
   The named oracles for that arithmetic are `test/exec_tb.v` and `components_executor`, both
   mutation-checked (ADR-0051).
-- **Every ladder check is `mode bmc`**: PASS means no counterexample within that check's depth, not
+- **Every generated riscv-formal check is `mode bmc`**: PASS means no counterexample within that
+  check's depth, not
   that the property holds. Depths are derived from two measured numbers — F (worst-case first
   retire, from `hang`) and G (worst-case retire gap, from `liveness`). **Any change that adds a
   stall reason, lengthens a stage, or widens the scoreboard must re-measure F and G before it
   lands** (ADR-0046); some depths clear their floors by one cycle.
-- **riscv-formal ships no spec model for SYSTEM or MISC-MEM at the pin**, so trap and CSR behaviour
+- **riscv-formal ships no spec model for SYSTEM or MISC-MEM at the pinned SHA**, so trap and CSR
+  behaviour
   is checked against assertions this repo wrote (`test/asm/trap.S`, `test/csr_tb.v`, the decoder
   proof), not an oracle. `formal/COMPLETE_EXCLUSIONS` mechanises that boundary: a pin bump that
   adds a spec model goes red until the exclusion comes out.
@@ -126,7 +132,8 @@ What a green result does and does not mean:
 - **Sail co-simulation is deliberately not a leg and stays off every required gate** (ADR-0032).
   `test/cosim.cc` reads the core's real `regs_a` and no `rvfi_*` signal — the property that lets it
   catch architectural writes the self-reporting oracles structurally miss (measured: a gated
-  `regs[31] <=` write invisible to the entire ladder and suite, reported by co-sim in 0.6s). A
+  `regs[31] <=` write invisible to every riscv-formal check and the whole `.S` suite, reported by
+  co-sim in 0.6s). A
   change gates on it by carrying pre/post `make cosim-suite` output in the PR. Do not "align" it
   against `rvfi_valid`.
 
@@ -191,7 +198,7 @@ make fit            # the core's area number; ratchet on FIT_MAX_LC
 make soc-timing     # the SoC place-and-time flow; requirement on SOC_MIN_MHZ.
                     # SOC_SEED picks a placement; soc/timing_sweep.sh runs four
 
-make -C formal check                # the riscv-formal ladder; always a fresh run
+make -C formal check                # the generated riscv-formal checks; always a fresh run
 make -C formal check-baseline       # re-grade a finished run without re-running
 make -C formal components_decoder   # component proofs by k-induction (mode prove):
 make -C formal components_executor  #   read the sby summaries, not the job colour
@@ -228,7 +235,8 @@ Suite. CI runs on every PR (`.github/workflows/ci.yml`); read the required set l
   done. Elaboration succeeding is not a substitute.
 - **Never commit build artifacts** (`test/rtl.cc`, `sim`, `*.vvp`, `*.vcd`, `rvfi_macros.vh`,
   `formal/` output dirs). `test/monitor.v` is the one deliberate exception.
-- **riscv-formal is SHA-pinned.** A pin bump regenerates `test/monitor.v`, re-runs the ladder, and
+- **riscv-formal is SHA-pinned.** A pin bump regenerates `test/monitor.v`, re-runs the generated
+  checks, and
   re-derives the sanitizer's site counts and `COMPLETE_EXCLUSIONS` rather than editing them to
   silence a failure.
 - **No ticket IDs in code, comments, ADRs, docs, or commit messages.** Cite the ADR, the commit
@@ -241,8 +249,9 @@ Suite. CI runs on every PR (`.github/workflows/ci.yml`); read the required set l
 M1 (the pipeline runs the RV32IM suite) and M3 (CSRs and machine-mode traps) are reached. M2 —
 parity with the serialized core this rewrite tore down, which was formally verified before the
 teardown — is the real finish line; its burn-down lives in ADR-0037 and successors. **Do not read
-empty baselines or a green ladder as "the core is correct"** — an empty `formal/EXPECTED_FAIL` is
-necessary, not sufficient, and the ladder is quietest exactly where M3's behaviour lives. The SoC
+empty baselines or an all-green `make -C formal check` as "the core is correct"** — an empty
+`formal/EXPECTED_FAIL` is necessary, not sufficient, and riscv-formal has no spec model for
+exactly the behaviour M3 added. The SoC
 places and meets 12 MHz but cannot yet run a program that reads its own `.data`: SPRAM cannot be
 initialised, and the bootloader (copy stub or SPI-flash boot) is deferred behind a future ADR,
 alongside the forwarding network, the radix-4 divider, and interrupts.
