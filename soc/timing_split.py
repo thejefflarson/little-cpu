@@ -63,9 +63,9 @@ def main():
     parser.add_argument(
         "--min-mhz",
         type=float,
-        help="fail if the critical path is slower than this (the regression "
-        "ratchet; see SOC_MIN_MHZ in the Makefile for why it sits below the "
-        "measurement rather than at ADR-0038's declared 12 MHz)",
+        help="fail if the critical path is slower than this (SOC_MIN_MHZ in "
+        "the Makefile, which sits at the board clock rather than below the "
+        "last measurement)",
     )
     args = parser.parse_args()
 
@@ -156,9 +156,10 @@ def main():
         if mhz < args.min_mhz:
             sys.exit(
                 f"\n*** {mhz:.2f} MHz is under the {args.min_mhz:.2f} MHz floor.\n"
-                f"*** This is a ratchet (ADR-0054), not a suggestion. Find what\n"
-                f"*** lengthened the fetch -> decode -> next-PC loop; raising\n"
-                f"*** SOC_MIN_MHZ in the Makefile needs a reason in the commit."
+                f"*** That floor is the clock the board runs at, so the design\n"
+                f"*** no longer meets its requirement. Find what lengthened the\n"
+                f"*** path and shorten it. Lowering SOC_MIN_MHZ is a decision to\n"
+                f"*** stop targeting the board clock and needs its own ADR."
             )
         print(f"\nRATCHET: {mhz:.2f} MHz against a {args.min_mhz:.2f} MHz floor -- OK")
 

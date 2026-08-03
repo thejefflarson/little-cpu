@@ -42,7 +42,7 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0035](0035-the-baseline-pins-the-failure-mode.md) | `test/EXPECTED_FAIL` pins the failure mode, not just the file name | Accepted |
 | [0036](0036-three-gate-hardening-decisions-ratified-at-integration.md) | Three gate-hardening decisions ratified at integration, and a correction to ADR-0031 | Accepted |
 | [0037](0037-an-empty-baseline-is-not-m2.md) | An empty formal baseline is not M2, and the milestone criterion said it was | Accepted · amended by 0045, 0047 |
-| [0038](0038-area-is-measured-in-logic-cells-and-two-levers-are-rejected.md) | Area is measured in logic cells, Fmax is declared at 12 MHz, and two area levers are rejected | Accepted |
+| [0038](0038-area-is-measured-in-logic-cells-and-two-levers-are-rejected.md) | Area is measured in logic cells, Fmax is declared at 12 MHz, and two area levers are rejected | Accepted · decision 2 amended by 0066, which makes 12 MHz a requirement |
 | [0039](0039-co-simulation-runs-the-whole-suite-against-a-baseline.md) | Co-simulation runs the whole suite against a baseline, and `tohost` becomes a doubleword | Accepted |
 | [0040](0040-the-ladder-refuses-a-negedge-regfile-and-make-check-was-re-grading.md) | The ladder refuses a negedge regfile rather than mis-modelling one, and `make check` had been re-grading the previous run | Accepted |
 | [0041](0041-integration-decisions-from-the-fit-cosim-and-negedge-wave.md) | Integration decisions from the fit / co-simulation / negedge wave | Accepted |
@@ -70,6 +70,7 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0063](0063-the-suite-runs-programs-that-use-writable-text.md) | The suite runs programs that use writable text | Accepted · builds 0057's step 5 less its `.data` half; discharges 0061 |
 | [0064](0064-the-write-through-bypass-is-addressed-from-the-held-pair.md) | The write-through bypass is addressed from the held pair, and invariant 6 now leans on invariant 9 | Accepted · implements 0062; moves `SOC_MIN_MHZ` |
 | [0065](0065-the-ladder-speaks-the-writable-text-bus.md) | The ladder speaks the writable-text bus, and `imemcheck` stops at the first store | Accepted · builds 0057's step 4; pays off 0060 decision 3 |
+| [0066](0066-twelve-megahertz-is-a-requirement.md) | Twelve megahertz is a requirement | Accepted · amends 0038 decision 2; answers the question 0064 left open |
 
 0001–0007 came from the design brief
 ([`docs/ideas/finish-the-rewrite.md`](../ideas/finish-the-rewrite.md)). 0008–0011 came out of

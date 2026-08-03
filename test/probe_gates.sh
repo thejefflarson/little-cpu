@@ -877,7 +877,7 @@ probe "control: a report clearing the floor is green" 0 "RATCHET:" \
   "$TS $d/report.rpt --min-mhz 10.0"
 
 d=$(ts_fixture)
-probe "a report missing the floor is a ratchet, not a suggestion" 1 \
+probe "a report under the floor fails, because the floor is the board clock" 1 \
   "is under the" "$TS $d/report.rpt --min-mhz 9999"
 
 d=$(ts_fixture); sed -i.bak '/^Total path delay:/d' "$d/report.rpt"

@@ -465,11 +465,12 @@ soc.json: $(SOC_SRCS) soc-rom
 	@python3 soc/cell_census.py soc.synth.log SB_RAM40_4K $(SOC_EXPECT_EBR) \
 	  "rtl/imemory.v or rtl/regfile.v has stopped inferring block RAM, or the ROM size changed"
 
-# nextpnr's exit status is deliberately not the signal: it defaults to a 12 MHz
-# target and exits nonzero when the design misses it, which this one does, having
-# already written the `.asc`. Honouring the status would mean no icetime report
-# at all because the design is 6% slow. `.DELETE_ON_ERROR` is why the `||` is
-# needed rather than merely tidy — without it make deletes that `.asc`.
+# nextpnr's exit status is deliberately not the signal: it grades its own 12 MHz
+# default with its own estimator, and what this repo grades is icetime's report
+# of the `.asc` nextpnr has already written. When it does fail it writes that
+# file first, so honouring the status would leave nothing to measure.
+# `.DELETE_ON_ERROR` is why the `||` is needed rather than merely tidy — without
+# it make deletes that `.asc`.
 #
 # `SOC_SEED=<n>` places the same design differently. One placement is a sample,
 # not a measurement — compare a few seeds before believing a change helped.
@@ -493,14 +494,13 @@ soc.asc: soc.json soc/littlesoc.pcf
 	  exit 1; \
 	}
 
-# A floor to catch regressions, deliberately set below what the design measures.
-# The measured number moves by a few percent on edits that change no hardware,
-# because the placer lays everything out again, so a floor at the current
-# measurement would go red for no reason. The margin is 11.5%, which is what the
-# 10.0 floor was derived with, taken below the worst of four placements. The
-# design now clears 12 MHz at every placement, so a red here means a real
-# regression rather than the old shortfall.
-SOC_MIN_MHZ := 10.9
+# 12 MHz is the board crystal, and the part's own oscillator divides 48 by 1, 2,
+# 4 or 8 -- so the step below 12 is 6, and missing it costs half the clock.
+# This sits at what the hardware asks for rather than under the last
+# measurement, so unlike a regression floor it does not slide as the design
+# moves. When it trips, fix the design: lowering the number gives up the board
+# clock.
+SOC_MIN_MHZ := 12.0
 
 .PHONY: soc-timing
 soc-timing: soc.asc
@@ -517,10 +517,10 @@ soc-timing: soc.asc
 	@echo
 	@echo 'READ ADR-0054 BEFORE QUOTING ANY OF THIS. It is a static estimate for'
 	@echo 'one placement of one build at the worst-case corner, and it is'
-	@echo 'toolchain-dependent the same way `make fit` is. ADR-0038 declares Fmax'
-	@echo 'at 12 MHz as an INTENT; this measurement does not move it in either'
-	@echo 'direction. The design clears it at four placements as of ADR-0063.'
-	@echo 'One placement is a sample: soc/timing_sweep.sh prints the spread.'
+	@echo 'toolchain-dependent the same way `make fit` is. 12 MHz is a'
+	@echo 'REQUIREMENT as of ADR-0066: it is the board clock, and the step below'
+	@echo 'it is 6 MHz. One placement is a sample: soc/timing_sweep.sh prints the'
+	@echo 'spread, and a requirement has to hold at all of them.'
 	@# The ratchet is applied by the thing that already parses the report. It
 	@# was a `python3 -c` here, i.e. a SECOND parser of the same file -- and the
 	@# second one was the one holding the gate.

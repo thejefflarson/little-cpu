@@ -277,7 +277,9 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   # `make soc-timing` -- the SoC place-and-route and the only timing figure this
-  # project has (ADR-0054). Non-required for the same reason as `fit`.
+  # project has (ADR-0054). It is in main's required set, unlike `fit`: the
+  # floor it grades is the clock the board runs at, so missing it means the
+  # design does not run on the target part.
   #
   # Unlike `fit` it needs the cross compiler as well as the OSS CAD Suite,
   # because it assembles a real ROM image before synthesising, and it expects
@@ -320,9 +322,9 @@ jobs:
             cat "$RUNNER_TEMP/soc-timing.txt"
             echo '```'
             echo "Critical path over the whole SoC (core + ROM + RAM), with the"
-            echo "logic/routing split. This job ratchets against \`SOC_MIN_MHZ\`,"
-            echo "a floor set below the measurement rather than at ADR-0038's"
-            echo "declared 12 MHz, and it is NOT in main's required set."
+            echo "logic/routing split. This job grades \`SOC_MIN_MHZ\`, which is"
+            echo "the 12 MHz board clock rather than a margin under the last"
+            echo "measurement (ADR-0066), and it is in main's required set."
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
