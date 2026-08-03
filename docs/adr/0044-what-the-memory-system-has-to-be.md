@@ -7,10 +7,14 @@ ADR-0008; the design it enables is post-M4 and needs its own ADR.*
 > ahead of the post-M4 slot below. It adopts the next-PC-clocked address and the negedge rejection
 > verbatim, banks at **word** granularity rather than the halfword split named here (this core's
 > fetch interface asks for two adjacent words and windows them itself), and puts the ROM in BRAM
-> with the SPI-flash boot path still unbuilt. **Everything in the ladder section below still
-> stands**: no faulting bus and no IO region were added, so all eleven checks stay `[BLOCKED]` and
-> invariant 2 stays unpressured. The four constraints and the 43 KB arithmetic above are the
-> starting point ADR-0054 was written from; they are kept as written.
+> with the SPI-flash boot path still unbuilt. The four constraints and the 43 KB arithmetic above are
+> the starting point ADR-0054 was written from; they are kept as written.
+>
+> **The ladder section below is discharged by
+> [ADR-0067](0067-the-bus-never-refuses-and-the-eleven-are-ruled.md)**, which takes option 1 as a
+> permanent commitment and rules on all eleven checks by name — seven `[DESIGN]`, four `[BLOCKED]`.
+> Invariant 2 is settled there rather than unpressured. Read the table and the blocker sort below as
+> the analysis that ruling was made from; read `formal/checks.cfg` for the rulings themselves.
 
 ## Context
 
