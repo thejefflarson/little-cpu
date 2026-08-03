@@ -27,6 +27,15 @@
 // test/OBSERVED_FLOOR. Making observation a printed, graded quantity rather
 // than something inferred from a green run is the whole point of the two
 // counters; a number nobody reads is the defect this closes, not a fix for it.
+//
+// `--stalls` adds a second line, splitting the run's cycles between the
+// decoder's stall reasons and the cycles that issue an instruction:
+//
+//     STALLS cycles=<n> issue=<n> hazard=<n> ... unattributed=<n>
+//
+// It is off by default because it costs a debug_eval() per cycle; test/
+// stall_report.py turns those lines into a table. See the counter block below
+// for what each name means and why the order it tries them in is the decoder's.
 #include <cxxrtl/cxxrtl_vcd.h>
 #include "rtl.cc"
 
@@ -39,6 +48,8 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace {
 
@@ -135,11 +146,42 @@ bool load_rom_banks(cxxrtl::debug_items &items, const HexImage &image) {
   return true;
 }
 
+// The decoder's stall reasons, each read as the named signal rtl/decoder.v
+// drives rather than rebuilt here. Several of them are true on the same cycle
+// often enough that the count needs an order, and the order below is the
+// decoder's own: it holds `decoder_out` for the divider and the accessor before
+// it bubbles for anything else, and `stall` ORs the remaining four left to
+// right. Rebuilding the equation in C++ would let this drift from the RTL with
+// nothing to say so, which is worse than not counting at all.
+//
+// `hazard_rs1` and `hazard_rs2` share a bucket: they are one reason, the decode
+// scoreboard finding a producer still in flight, and they sit next to each
+// other in the order so merging them cannot move a cycle past anything else.
+struct StallReason {
+  const char *item;
+  int bucket;
+};
+
+constexpr const char *kStallLabels[] = {"divider", "accessor", "hazard",
+                                        "serialize", "operand", "fetch"};
+constexpr int kStallBuckets = sizeof(kStallLabels) / sizeof(kStallLabels[0]);
+
+constexpr StallReason kStallReasons[] = {
+    {"uut decoder divider_stall", 0},
+    {"uut decoder accessor_stall", 1},
+    {"uut decoder hazard_rs1", 2},
+    {"uut decoder hazard_rs2", 2},
+    {"uut decoder serialize", 3},
+    {"uut decoder operand_stall", 4},
+    {"uut decoder fetch_stall", 5},
+};
+
 struct Args {
   std::string rom_path;
   std::string ram_path;
   std::string vcd_path;
   long cycles = 0;
+  bool stalls = false;
 };
 
 bool parse_args(int argc, char **argv, Args &args) {
@@ -168,6 +210,8 @@ bool parse_args(int argc, char **argv, Args &args) {
       const char *v = next("--vcd");
       if (!v) return false;
       args.vcd_path = v;
+    } else if (arg == "--stalls") {
+      args.stalls = true;
     } else {
       std::fprintf(stderr, "error: unrecognized argument '%s'\n", arg.c_str());
       return false;
@@ -175,7 +219,8 @@ bool parse_args(int argc, char **argv, Args &args) {
   }
   if (args.rom_path.empty() || args.ram_path.empty() || args.cycles <= 0) {
     std::fprintf(stderr,
-                  "usage: sim --rom <hex> --ram <hex> --cycles N [--vcd out.vcd]\n");
+                  "usage: sim --rom <hex> --ram <hex> --cycles N [--vcd out.vcd] "
+                  "[--stalls]\n");
     return false;
   }
   return true;
@@ -268,6 +313,38 @@ int main(int argc, char **argv) {
     return 3;
   }
 
+  // `--stalls` only. Each of these is a signal rtl/decoder.v drives, looked up
+  // the same way as the items above and a setup error when missing: a stall
+  // reason that quietly stopped being counted would report the cycles it costs
+  // as issue cycles, which is the one wrong answer this measurement can give.
+  //
+  // `uut decoder stall` is the decoder's own OR of the reasons below. Reading it
+  // rather than OR-ing the seven probes is what makes `unattributed` mean
+  // something: it counts the cycles the decoder called a stall and none of the
+  // named reasons explains, i.e. a stall reason nobody has written down.
+  std::vector<std::pair<const cxxrtl::debug_item *, int>> stall_probes;
+  const cxxrtl::debug_item *stall_any = nullptr;
+  if (args.stalls) {
+    try {
+      stall_any = &all_debug_items.at("uut decoder stall").at(0);
+      for (const StallReason &reason : kStallReasons)
+        stall_probes.emplace_back(&all_debug_items.at(reason.item).at(0),
+                                  reason.bucket);
+    } catch (const std::out_of_range &) {
+      std::fprintf(stderr,
+                    "error: --stalls needs the decoder's stall signals as debug "
+                    "items, and at least one of them is not in the simulated "
+                    "design. They are plain named wires in rtl/decoder.v; a "
+                    "rename there means renaming them in kStallReasons here.\n");
+      return 3;
+    }
+  }
+
+  uint64_t counted_cycles = 0;
+  uint64_t issue_cycles = 0;
+  uint64_t unattributed_cycles = 0;
+  uint64_t stall_cycles[kStallBuckets] = {};
+
   // Printed on every path that reaches the simulation loop. Setup failures
   // above return before this point on purpose: nothing ran, so there is no
   // observation to report, and a "RETIRES 0" line for a run that never started
@@ -275,6 +352,15 @@ int main(int argc, char **argv) {
   auto report_counts = [&]() {
     std::printf("RETIRES %u SPEC-CHECKED %u\n", retires->curr[0],
                  spec_retires->curr[0]);
+    if (!args.stalls)
+      return;
+    std::printf("STALLS cycles=%llu issue=%llu",
+                 (unsigned long long)counted_cycles,
+                 (unsigned long long)issue_cycles);
+    for (int b = 0; b < kStallBuckets; ++b)
+      std::printf(" %s=%llu", kStallLabels[b],
+                   (unsigned long long)stall_cycles[b]);
+    std::printf(" unattributed=%llu\n", (unsigned long long)unattributed_cycles);
   };
 
   // Silence outranks the run's own verdict. A run whose oracle never fired has
@@ -338,6 +424,29 @@ int main(int argc, char **argv) {
       top.p_reset.set(false);
     top.p_clk.set<bool>(false);
     top.step();
+    // Sampled here, between the two edges, because these are combinational: with
+    // the clock low they hold the values that decide what the rising edge below
+    // does. Read after the rising edge instead and every count belongs to the
+    // next cycle. debug_eval() is what fills them in -- yosys leaves them
+    // outlined, so their storage is stale until it is called.
+    if (args.stalls) {
+      top.debug_eval();
+      counted_cycles++;
+      if ((stall_any->curr[0] & 1) == 0) {
+        issue_cycles++;
+      } else {
+        bool charged = false;
+        for (const auto &[item, bucket] : stall_probes) {
+          if ((item->curr[0] & 1) != 0) {
+            stall_cycles[bucket]++;
+            charged = true;
+            break;
+          }
+        }
+        if (!charged)
+          unattributed_cycles++;
+      }
+    }
     sample(cycle * 2 + 0);
     top.p_clk.set<bool>(true);
     top.step();

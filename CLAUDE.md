@@ -316,6 +316,20 @@ probe was re-run — delete the rs2 write-through bypass, `bad state property 1 
 k = 22 SATISFIABLE` — because a change to the regfile's forwarding is exactly the class that could
 make that check go green by stopping to ask.
 
+**Half the suite's cycles issue nothing, and the decode scoreboard is 57% of them** (ADR-0070).
+`make cycles` charges every simulated cycle of the same 59 programs to an issuing cycle or to one of
+the decoder's six stall reasons, read as the named signals `rtl/decoder.v` drives; **no `rtl/` file
+changed**, because those signals survive `write_cxxrtl` as debug items. Measured at `0314890`:
+**28632 cycles, 13853 retires, CPI 2.07**; issue 49.0%, decode scoreboard **29.3%**, operand fetch
+**16.4%**, divider 2.8%, serialization 1.5%, load turnaround 1.1%, stolen fetch window 0.03%,
+**unattributed 0**. ADR-0042's accepted +18.0% is *located* rather than inferred, and the three
+reasons that get argued about most — `fence.i`/CSR serialization, the load turnaround, the stolen
+window — are 5.4% between them. **A column is cycles CHARGED, not cycles the signal was high**:
+coincident reasons go to the first one the decoder itself would try, so `fetch_stall` is high on 26
+cycles across the three writable-text programs and is charged 8. Read ADR-0070 before quoting any of
+this; `test/decoder_tb.v` carries the identity that keeps the six-reason list from falling behind
+`stall`.
+
 **Every graded comparison in the grading layer now has a probe of its own red direction, and two of
 them had never been executed** (ADR-0053). Five of this repo's recorded defects were in that layer
 and every one was in a *script*; the class is the comparison whose failure path was never run, and
@@ -344,8 +358,9 @@ now carries `make fit`'s table-presence check and ratchet, and `soc/cell_census.
 Makefile so there is one copy of the logic. `check-unit-benches` needed no extraction: its three
 branches are probed by invoking the real target against the real `test/*_tb.v` tree with
 `UNIT_BENCHES`/`UNIT_BENCH_SRC_*` overridden on the command line, which is what its own comment
-already commits to being possible. `test/probe_gates.sh` is **125** probes now, up from 108
-(ADR-0058 added three for `soc/timing_split.py`'s LUT-versus-carry depth split).
+already commits to being possible. `test/probe_gates.sh` is **137** probes now, up from 108
+(ADR-0058 added three for `soc/timing_split.py`'s LUT-versus-carry depth split; ADR-0070 twelve for
+`test/stall_report.py` and for `run_tests.sh` driving it).
 **`make soc-timing` joins CI in the `soc-timing` job**, mirroring `fit`: non-required at the time,
 for the same reason (ADR-0036) — it publishes the census and the logic/routing split to the step
 summary whether it passes or fails. **It is required now** (ADR-0066): the floor it grades is the
@@ -912,7 +927,19 @@ make test           # assemble test/asm/*.S, run under cxxrtl, pass/fail table w
                     # both ways before a single program is assembled -- so a suite
                     # that SHRANK is red, not a smaller table that still "passes".
                     # Also runs `make probe-gates` (ADR-0053).
-make probe-gates    # forces all 125 graded comparisons in the grading scripts to
+make cycles         # THE CPI COUNTERPART OF `make fit` (ADR-0070). The same 59
+                    # programs, per-program and whole-suite, with every cycle
+                    # charged to an issuing cycle or one of the six stall
+                    # reasons. 0314890: 28632 cycles, 13853 retires, CPI 2.07,
+                    # 51.0% of cycles issuing nothing -- 29.3% decode
+                    # scoreboard, 16.4% operand fetch, 2.8% divider, 1.5%
+                    # serialization, 1.1% load turnaround, 0.03% stolen fetch.
+                    # A COLUMN IS CYCLES CHARGED, NOT CYCLES THE SIGNAL WAS
+                    # HIGH. NOT on `make test` and not on CI: no CPI ratchet
+                    # exists and this adds none. It does grade its own
+                    # arithmetic -- a stalled cycle none of the six explains
+                    # exits nonzero. THE CPI DESCRIBES THE SUITE, NOT THE CORE.
+make probe-gates    # forces all 137 graded comparisons in the grading scripts to
                     # FAIL and requires each to fail for its own reason. Hermetic
                     # (stubs, no toolchain); a prerequisite of `test` on purpose,
                     # so it is in CI's required job. All fork, no work: ~68-90s of
@@ -1370,13 +1397,13 @@ longer quietly widen.
   rejected the shifter merge at 19 cells *saved* on legibility grounds, and accepting a hygiene
   change at 37 cells *spent* would cut against that ruling. Read this before proposing the
   narrowing again — it is measured and declined, not overlooked.
-- Decisions: [`docs/adr/`](docs/adr/) — **sixty-three ADRs, sixty-two of them accepted**, plus a
-  deferred list. Re-derived by counting: `ls docs/adr/*.md | wc -l` is 64, one of which is
+- Decisions: [`docs/adr/`](docs/adr/) — **seventy ADRs, sixty-nine of them accepted**, plus a
+  deferred list. Re-derived by counting: `ls docs/adr/*.md | wc -l` is 71, one of which is
   `README.md`, and the status column in that README carries exactly one non-accepted entry
-  (ADR-0016, superseded by ADR-0018). This line has now been behind three times — "forty-five
-  accepted", then "forty-seven", then "fifty-five" while seven more had landed — so **re-derive it
-  with the two commands rather than incrementing it**. The first lapse missed ADR-0049 through
-  ADR-0051 in one go, and the third missed ADR-0056 through ADR-0062.
+  (ADR-0016, superseded by ADR-0018). This line has now been behind four times — "forty-five
+  accepted", then "forty-seven", then "fifty-five" while seven more had landed, then "sixty-three"
+  while five had — so **re-derive it with the two commands rather than incrementing it**. The first
+  lapse missed ADR-0049 through ADR-0051 in one go, and the third missed ADR-0056 through ADR-0062.
 - Reference text from the old core: `git show 1709433^:rtl/riscv.v` (RVFI retire block),
   `git show e67875c^:rtl/alu.v` (arithmetic)
 - Work is tracked in Linear, project **Little CPU** (team JEF). Named here so you know where the

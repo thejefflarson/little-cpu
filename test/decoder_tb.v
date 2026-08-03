@@ -110,6 +110,27 @@ module decoder_tb;
     prev_next_pc_valid <= 1'b1;
   end
 
+  // `stall` is exactly these seven terms ORed together. `make cycles` charges
+  // every stalled cycle to the first of them that is true, so a term added to
+  // `stall` and not there would leave the cycles it costs unexplained. This says
+  // so in a gate that runs on every change, rather than the next time somebody
+  // asks for the table.
+  //
+  // On both clock edges, not just the rising one. Every vector here presents its
+  // instruction just after a rising edge, so the falling edge is where it is
+  // settled and being decoded. Sampling only the rising edge misses that, and
+  // the probe for this check -- a seventh term ORed into `stall` -- goes green.
+  always @(clk) begin
+    if (dut.stall !== (dut.divider_stall || dut.accessor_stall || dut.hazard_rs1 ||
+                       dut.hazard_rs2 || dut.serialize || dut.operand_stall ||
+                       dut.fetch_stall)) begin
+      $display("MISMATCH stall is not the OR of the six named reasons: stall=%b divider=%b accessor=%b rs1=%b rs2=%b serialize=%b operand=%b fetch=%b",
+               dut.stall, dut.divider_stall, dut.accessor_stall, dut.hazard_rs1,
+               dut.hazard_rs2, dut.serialize, dut.operand_stall, dut.fetch_stall);
+      errors++;
+    end
+  end
+
   task automatic operand_fetch_cycle();
     begin
       @(posedge clk);

@@ -386,6 +386,17 @@ pin-bump-test:
 test: sim test-units probe-gates pin-bump-test
 	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
+# The same suite `make test` runs, with the runner charging every cycle to the
+# decoder's stall reasons, and test/stall_report.py turning that into a table.
+# Its own target rather than part of `make test`: the counting costs a
+# debug_eval() per cycle on every program, and a CPI figure is a measurement to
+# compare against the last one, not something to fail a merge on. What it does
+# grade is its own arithmetic -- a cycle the decoder stalled for a reason this
+# does not name is a reason nobody has written down, and it exits nonzero.
+.PHONY: cycles
+cycles: sim
+	@STALL_REPORT=1 ./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
+
 # Count logic cells from nextpnr, never cell counts from yosys. A flip-flop that
 # cannot share a cell with the LUT feeding it takes a whole cell by itself, and
 # over a thousand of this design's cells are like that. Counting `SB_LUT4`

@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=125
+PROBES_EXPECTED=137
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -141,6 +141,16 @@ make_sim_stub() {  # $1 = path
 # elaborated design.
 [ -z "${STUB_SIM_NOCOUNTS:-}" ] && \
   echo "RETIRES ${STUB_SIM_RETIRES:-10} SPEC-CHECKED ${STUB_SIM_SPEC:-10}"
+# The `--stalls` line. STUB_SIM_UNATTR stands in for a stall reason the report
+# does not name; STUB_SIM_SKEW breaks the sum without touching any column, which
+# is what a renamed field would do.
+stalls=
+for a in "$@"; do [ "$a" = "--stalls" ] && stalls=1; done
+if [ -n "$stalls" ] && [ -z "${STUB_SIM_NOSTALLS:-}" ]; then
+  unattr=${STUB_SIM_UNATTR:-0}
+  echo "STALLS cycles=$((20 + unattr + ${STUB_SIM_SKEW:-0})) issue=10 divider=0" \
+       "accessor=0 hazard=10 serialize=0 operand=0 fetch=0 unattributed=$unattr"
+fi
 case ${STUB_SIM_EXIT:-0} in
   0) echo "PASS" ;;
   1) echo "FAIL 7" ;;
@@ -223,7 +233,7 @@ rm "$tmp/bin-noobjcopy/riscv64-elf-objcopy"
 make_sim_stub "$tmp/sim"
 make_sail_stub "$tmp/sail"
 make_cosim_bin_stub "$tmp/dut"
-cp "$HERE/run_tests.sh" "$HERE/check_suite_shape.sh" "$tmp/leg-rt/"
+cp "$HERE/run_tests.sh" "$HERE/check_suite_shape.sh" "$HERE/stall_report.py" "$tmp/leg-rt/"
 cp "$HERE/run_cosim.sh" "$HERE/check_suite_shape.sh" "$tmp/leg-rc/"
 make_cosim_py_stub "$tmp/leg-rc/cosim.py"
 cp "$HERE/run_cosim.sh" "$HERE/check_suite_shape.sh" "$tmp/leg-rc-nopy/"
@@ -388,6 +398,22 @@ probe "a baselined test that starts failing a DIFFERENT way is red" 1 \
 
 probe "an unexpected PASS is red too -- the baseline is not a ceiling" 1 \
   "does NOT match" "$(rt "$d")"
+
+# STALL_REPORT=1 is `make cycles`. It leaves the pass/fail grading alone and adds
+# one of its own, so both statuses have to be able to reach the caller.
+d=$(rt_fixture)
+probe "control: STALL_REPORT prints the accounting and keeps the suite green" 0 \
+  "cycle accounting" "STALL_REPORT=1 $(rt "$d")"
+
+probe "a stall reason the accounting cannot name is red even with every test passing" 1 \
+  "stalled for a reason this report does not name" \
+  "STALL_REPORT=1 STUB_SIM_UNATTR=3 $(rt "$d")"
+
+probe "columns that no longer add up to the cycle count are red" 1 \
+  "columns sum to" "STALL_REPORT=1 STUB_SIM_SKEW=5 $(rt "$d")"
+
+probe "a runner that reports no cycles at all cannot produce a clean table" 1 \
+  "no program reported its cycles" "STALL_REPORT=1 STUB_SIM_NOSTALLS=1 $(rt "$d")"
 
 begin_group "test/run_cosim.sh"
 
@@ -971,6 +997,54 @@ probe "a declared bench with no file is named the other way" 2 \
 probe "a declared bench with no UNIT_BENCH_SRC_* would build with no design under test" 2 \
   "monitor_tb is in UNIT_BENCHES with no UNIT_BENCH_SRC_monitor_tb" \
   "$MB UNIT_BENCH_SRC_monitor_tb="
+
+begin_group "test/stall_report.py"
+
+SR="python3 $REPO/test/stall_report.py"
+
+# add.S issues 10 of its 40 cycles and spends 20 waiting on the scoreboard and
+# 10 fetching operands; lw.S is the other way round, so the two programs
+# disagree about which reason dominates and the total has to decide.
+sr_fixture() {
+  local d; d=$(new_case)
+  cat > "$d/counts" <<'COUNTS'
+add.S cycles=40 issue=10 divider=0 accessor=0 hazard=20 serialize=0 operand=10 fetch=0 unattributed=0 retires=10
+lw.S cycles=40 issue=10 divider=0 accessor=5 hazard=0 serialize=0 operand=25 fetch=0 unattributed=0 retires=10
+COUNTS
+  printf '%s' "$d"
+}
+
+d=$(sr_fixture)
+probe "control: an accounting that adds up prints the table" 0 \
+  "cycle accounting" "$SR $d/counts"
+
+probe "the dominant reason is the suite's, not the first program's" 0 \
+  "The largest single reason is operand" "$SR $d/counts"
+
+d=$(sr_fixture); sed -i.bak 's/^add.S cycles=40/add.S cycles=41/' "$d/counts"
+probe "columns that do not add up blame the report, not the core" 1 \
+  "columns sum to 40, cycles is 41" "$SR $d/counts"
+
+d=$(sr_fixture); sed -i.bak 's/^add.S \(.*\)unattributed=0/add.S \1unattributed=2/' "$d/counts"
+sed -i.bak2 's/^add.S cycles=40/add.S cycles=42/' "$d/counts"
+probe "a stall nothing in the list explains is a reason nobody wrote down" 1 \
+  "2 cycles stalled for a reason this report does not name" "$SR $d/counts"
+
+d=$(sr_fixture); sed -i.bak 's/ operand=10//' "$d/counts"
+probe "a field the runner stopped printing is named, not counted as zero" 1 \
+  "is missing operand" "$SR $d/counts"
+
+d=$(sr_fixture); sed -i.bak 's/cycles=40/cycles=lots/' "$d/counts"
+probe "a count that is not a number stops rather than summing to nonsense" 1 \
+  "cycles is 'lots', not a number" "$SR $d/counts"
+
+d=$(sr_fixture); sed -i.bak 's/ issue=10/ issue/' "$d/counts"
+probe "a field with no value is a malformed line" 1 "'issue' is not key=value" \
+  "$SR $d/counts"
+
+d=$(new_case); : > "$d/counts"
+probe "no programs at all would report a clean 0 of 0" 1 \
+  "no program reported its cycles" "$SR $d/counts"
 
 begin_group "soc/fit_report.py"
 

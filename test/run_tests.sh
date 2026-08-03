@@ -4,6 +4,12 @@
 #
 # Usage: run_tests.sh <sim-binary> <asm-dir> <expected-fail-file> <floor-file>
 #
+# STALL_REPORT=1 additionally runs the simulator with `--stalls` and prints
+# test/stall_report.py's cycle-accounting table. That is `make cycles`, not
+# `make test`: the counting costs a debug_eval() per cycle, and a CPI figure is
+# a measurement rather than a merge gate. Nothing about the pass/fail table or
+# the comparison against the baseline changes either way.
+#
 # This is the merge gate. The failure that matters is passing without having
 # tested anything, and that is what every check below is for. test/probe_gates.sh
 # breaks each one and makes sure it fails, because a check whose failing branch
@@ -24,6 +30,7 @@ EXPECTED_FAIL=$3
 OBSERVED_FLOOR=$4
 CYCLES=5000
 HERE=$(cd "$(dirname "$0")" && pwd)
+STALL_REPORT=${STALL_REPORT:-0}
 
 # A baseline that is missing or cannot be read gives an empty expected set. If
 # every test passes, that matches, and the run prints "Failure list matches"
@@ -96,6 +103,14 @@ trap 'rm -rf "$tmp"' EXIT
 declare -a failures=()
 declare -a table=()
 passed=0
+stall_counts="$tmp/stall_counts"
+: > "$stall_counts"
+# A bare word with no spaces, so it is expanded unquoted below. An empty array
+# under `set -u` is an unbound variable on the bash macOS ships.
+sim_stall_flag=""
+if [ "$STALL_REPORT" = "1" ]; then
+  sim_stall_flag="--stalls"
+fi
 
 for src in "$ASM_DIR"/*.S; do
   name=$(basename "$src")
@@ -148,7 +163,7 @@ for src in "$ASM_DIR"/*.S; do
     # means the test failed. A runner that will not start would look like a bug
     # in the CPU.
     set +e
-    "$SIM" --rom "$rom_hex" --ram "$ram_hex" --cycles "$CYCLES" \
+    "$SIM" --rom "$rom_hex" --ram "$ram_hex" --cycles "$CYCLES" $sim_stall_flag \
       > "$tmp/$base.run.log" 2>&1
     sim_status=$?
     set -e
@@ -170,6 +185,16 @@ for src in "$ASM_DIR"/*.S; do
     set -- $(awk '/^RETIRES /{print $2, $4; exit}' "$tmp/$base.run.log")
     retires=${1:-}
     spec_retires=${2:-}
+
+    # Collected for every program that ran, whatever its verdict: a program that
+    # times out is exactly the one whose cycles are worth looking at. The retire
+    # count comes from the line above rather than being counted twice.
+    if [ "$STALL_REPORT" = "1" ]; then
+      stall_line=$(awk '/^STALLS /{$1=""; print; exit}' "$tmp/$base.run.log")
+      if [ -n "$stall_line" ]; then
+        echo "$name $stall_line retires=${retires:-0}" >> "$stall_counts"
+      fi
+    fi
   fi
 
   # A PASS with no counts means the binary that ran is not the runner this
@@ -222,6 +247,18 @@ printf '%s\n' "${table[@]}"
 echo
 echo "$passed/${#table[@]} passed"
 
+# Before the baseline comparison, so the verdict stays the last thing printed.
+# The accounting is graded on its own terms -- every cycle charged to a named
+# reason -- and that is a different question from whether the programs passed,
+# so its status is kept apart and applied at the end.
+stall_report_status=0
+if [ "$STALL_REPORT" = "1" ]; then
+  set +e
+  python3 "$HERE/stall_report.py" "$stall_counts"
+  stall_report_status=$?
+  set -e
+fi
+
 # `NF` has to come before the rebuild, not after. Assigning to $1 sets NF to 1,
 # so `{$1=$1} NF` would bring every blank and comment line back as an entry.
 actual_sorted=$(printf '%s\n' "${failures[@]:-}" | awk 'NF { $1=$1; print }' | sort)
@@ -237,7 +274,7 @@ fi
 
 if [ "$actual_sorted" = "$expected_sorted" ]; then
   echo "Failure list matches $EXPECTED_FAIL exactly (name and status)."
-  exit 0
+  exit $stall_report_status
 fi
 
 echo
