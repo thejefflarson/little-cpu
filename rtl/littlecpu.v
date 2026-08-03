@@ -6,34 +6,15 @@ module littlecpu(
   input  logic reset,
   output logic [31:0] imem_addr,
   input  logic [31:0] imem_data,
-  // ADR-0003: the second word of the dual-word combinational fetch window,
-  // read at imem_addr + 4 so a 32-bit instruction straddling a 4-byte
-  // boundary (pc % 4 == 2) can be fetched in the same cycle -- no aligner
-  // FSM, no stall.
   output logic [31:0] imem_addr2,
   input  logic [31:0] imem_data2,
-  // ADR-0054: the value `imem_addr` will take on the next edge, published
-  // combinationally this cycle so a SYNCHRONOUS instruction memory can latch
-  // it and have `imem_data`/`imem_data2` ready for the whole of the cycle that
-  // needs them. Every memory primitive on the target part is synchronous
-  // (ADR-0044); this port is what keeps invariant 1 intact against that fact
-  // without a fetch buffer, a stall or a flush.
-  //
-  // A memory that is genuinely combinational (test benches, the formal
-  // environment) may leave it unread and drive `imem_data` off `imem_addr`
-  // directly -- which is exactly what formal/wrapper.v does, so the riscv-formal
-  // ladder sees this change as one extra, unread output port.
+  // The value `imem_addr` takes on the next edge, so a synchronous memory can
+  // latch it early (ADR-0054). A combinational one -- test benches,
+  // formal/wrapper.v -- leaves it unread and drives `imem_data` off `imem_addr`.
   output logic [31:0] imem_addr_next,
-  // ADR-0059: the fetch and data buses share one address space and the
-  // instruction memory owns the arbitration between them. `mem_ren` is what
-  // tells a real load from the idle bus, which presents address 0 -- inside the
-  // text range, so without it every idle cycle would steal a fetch.
-  // `fetch_stall` comes back high for the cycle whose fetch window a data
-  // access took, and is the sixth stall reason (CLAUDE.md invariant 8).
-  //
-  // A memory that cannot steal -- the formal environments answer `imem_data`
-  // freely, and any Harvard consumer -- ties `fetch_stall` low and leaves
-  // `mem_ren` unread.
+  // The fetch and data buses share one address space and the instruction memory
+  // arbitrates between them (ADR-0059). A memory that cannot steal ties
+  // `fetch_stall` low and leaves `mem_ren` unread.
   output logic [31:0] mem_addr,
   output logic [31:0] mem_wdata,
   output logic [3:0]  mem_wstrb,
@@ -78,56 +59,32 @@ module littlecpu(
   output logic [31:0] rvfi_csr_mscratch_wdata
   `endif //  `ifdef RISCV_FORMAL
   );
-  // Declared here (ahead of the decoder instantiation below) because the trap
-  // assignment below references it; iverilog requires declare-before-use.
+  // Declared here rather than beside their producers: the pipeline's feedback
+  // paths mean each is read by a module instantiated above the one that drives
+  // it, and iverilog requires declare-before-use.
   decoder_output decoder_out;
-  // Declared here, ahead of the decoder/executor/accessor instantiations,
-  // because decoder's scoreboard reads executor_out and accessor's pending
-  // load, executor's stalled output feeds decoder's divider_stall, and
-  // accessor's stalled output feeds both decoder's accessor_stall and
-  // executor's accessor_stall (ADR-0004/ADR-0009); iverilog requires
-  // declare-before-use.
   executor_output executor_out;
   logic divider_stalled, accessor_stalled;
   logic       accessor_pending_valid;
   logic [4:0] accessor_pending_rd;
-  // ADR-0026: the CSR serialization drain predicate needs to see a *store*
-  // in the accessor, which accessor_pending_valid (loads only) cannot show
-  // it. accessor_out is declared further down, next to its instantiation, so
-  // this carries its valid bit up to the decoder's port list.
+  // The serialization drain predicate has to see a *store* in the accessor,
+  // which `accessor_pending_valid` (loads only) cannot show it (ADR-0026).
   logic accessor_out_valid;
-  // ADR-0028: `trap` is redefined, not deleted -- it is now a one-cycle "trap
-  // entry committed this cycle" pulse, driven straight from the decode stage
-  // that commits it (CLAUDE.md invariant 2). It used to be a combinational OR
-  // of "the decoded instruction was unrecognised" with the accessor's
-  // POST-DECODE misalignment signal, and nothing consumed it. Both halves of
-  // that are gone: the accessor no longer detects misalignment (ADR-0011's
-  // debt, discharged in rtl/decoder.v), and an unrecognised instruction is now
-  // a real illegal-instruction trap rather than a silently suppressed one.
-  //
-  // It is kept rather than removed because deleting it would change the port
-  // list in formal/wrapper.v, formal/dmemcheck.sv, formal/imemcheck.sv,
-  // formal/cover.sv, formal/complete.sv and test/testbench.v for no functional
-  // gain -- and because ADR-0029's harness check (a trap taken with mtvec == 0
-  // is a silent restart at `_start`, since test/asm/sections.lds links .text
-  // at 0) needs exactly this signal.
+  // A one-cycle pulse, not a level. Its consumer is ADR-0029's harness check: a
+  // trap taken with mtvec == 0 is a silent restart at `_start`, because
+  // test/asm/sections.lds links .text at 0.
   logic decoder_trap_entry;
   assign trap = decoder_trap_entry;
   logic  [31:0] pc;
-  // ADR-0054: decode owns the PC, so decode is where the NEXT one is known.
-  // Declared here, ahead of both instantiations, because the fetcher reads it
-  // and the decoder drives it; iverilog requires declare-before-use.
   logic  [31:0] next_pc;
   fetcher_output fetcher_out;
   fetcher fetcher(
     .clk(clk),
     .reset(reset),
-    // inputs
     .pc(pc),
     .next_pc(next_pc),
     .imem_data(imem_data),
     .imem_data2(imem_data2),
-    // outputs
     .out(fetcher_out),
     .imem_addr(imem_addr),
     .imem_addr2(imem_addr2),
@@ -140,7 +97,6 @@ module littlecpu(
   logic        wen;
   regfile regfile(
     .clk(clk),
-    // from the decoder
     .rs1(rs1),
     .rs2(rs2),
     .reg_rs1(reg_rs1),
@@ -150,17 +106,11 @@ module littlecpu(
     .wdata(wdata)
   );
 
-  // ADR-0005: the CSR file is a sibling of the decoder, read and written in
-  // decode. Everything between them is combinational within the cycle the
-  // accessing instruction issues.
   logic [11:0] csr_addr;
   logic        csr_ren, csr_wen;
   logic [31:0] csr_wdata, csr_rdata;
   logic        csr_implemented;
   logic        csr_instret;
-  // ADR-0005 / ADR-0028: the trap-entry side of the same decode/CSR pair. The
-  // decoder detects and commits; the CSR file records mepc/mcause/mstatus and
-  // hands back the two registers the decoder redirects the PC through.
   logic        csr_trap_entry, csr_mret_entry;
   logic [31:0] csr_trap_cause, csr_trap_epc;
   logic [31:0] csr_mtvec, csr_mepc;
@@ -172,7 +122,6 @@ module littlecpu(
   decoder decoder(
     .clk(clk),
     .reset(reset),
-    // inputs
     .in(fetcher_out),
     .reg_rs1(reg_rs1),
     .reg_rs2(reg_rs2),
@@ -192,7 +141,6 @@ module littlecpu(
     .csr_rvfi_minstret(csr_rvfi_minstret),
     .csr_rvfi_mscratch(csr_rvfi_mscratch),
    `endif
-    // outputs
     .pc(pc),
     .next_pc(next_pc),
     .rs1(rs1),
@@ -212,7 +160,6 @@ module littlecpu(
   csrs csrs(
     .clk(clk),
     .reset(reset),
-    // inputs
     .addr(csr_addr),
     .ren(csr_ren),
     .wen(csr_wen),
@@ -222,7 +169,6 @@ module littlecpu(
     .trap_cause(csr_trap_cause),
     .trap_epc(csr_trap_epc),
     .mret_entry(csr_mret_entry),
-    // outputs
     .rdata(csr_rdata),
     .implemented(csr_implemented),
     .mtvec_value(csr_mtvec),
@@ -238,10 +184,8 @@ module littlecpu(
   executor executor(
     .clk(clk),
     .reset(reset),
-    // inputs
     .in(decoder_out),
     .accessor_stall(accessor_stalled),
-    // outputs
     .out(executor_out),
     .stalled(divider_stalled)
   );
@@ -251,9 +195,7 @@ module littlecpu(
   accessor accessor(
     .clk(clk),
     .reset(reset),
-    // inputs
     .in(executor_out),
-    // memory access
     .mem_addr(mem_addr),
     .mem_wstrb(mem_wstrb),
     .mem_wdata(mem_wdata),
@@ -262,16 +204,13 @@ module littlecpu(
     .stalled(accessor_stalled),
     .pending_valid(accessor_pending_valid),
     .pending_rd(accessor_pending_rd),
-    // forwards
     .out(accessor_out)
   );
 
   writeback writeback(
     .clk(clk),
     .reset(reset),
-    // inputs
     .in(accessor_out),
-    // outputs
     .wen(wen),
     .waddr(waddr),
     .wdata(wdata)
@@ -310,13 +249,8 @@ module littlecpu(
   );
 
  `ifdef RISCV_FORMAL
-  // The CSR fields are per-retire data (rtl/csrs.v, threaded through the shadow
-  // to rtl/writeback.v), and so is `rvfi_trap` now -- rtl/decoder.v computes it
-  // where every trap is committed (CLAUDE.md invariant 2) and rtl/writeback.v
-  // drives it at retire. These four are not per-retire data and stay constants:
-  // M-mode only / XLEN=32 / no interrupts (mie and mip are read-only zero) and
-  // no halt makes mode/ixl/intr/halt properties of the design rather than of an
-  // instruction.
+  // Constants rather than per-retire data: M-mode only, XLEN=32, no interrupts
+  // and no halt are properties of the design, not of an instruction.
   assign rvfi_halt = 1'b0;
   assign rvfi_intr = 1'b0;
   assign rvfi_mode = 2'd3;
