@@ -254,12 +254,26 @@ it** — `insn 19`, `ill 19`, `reg 15 22` — off a re-measured **F = 6, G = 4 �
 wall time roughly doubled. Two things about the change are worth knowing before touching it. The
 **coincidence of `fetch_stall` with a divider or accessor freeze is a ruling, not statement order**:
 holding wins, and it is asserted in two places because reordering two `else if` arms is otherwise
-silent. And **the suite does not exercise any of this end to end**: no program in `test/asm` does a
-text-region data access (`.data` is at `0x10000`, the bench's text ends at `0x4000`), so retire
-counts are identical program by program and the steal never fires there. `formal/wrapper.v` models
-the arbiter and is where the ladder meets it; `imemcheck`/`dmemcheck`/`cover`/`complete` tie
-`fetch_stall` low and say so. `selfmod.S` and `textload.S` are the programs that would close this,
-and they are not written yet.
+silent. `formal/wrapper.v` models the arbiter and is where the ladder meets it;
+`imemcheck`/`dmemcheck`/`cover`/`complete` tie `fetch_stall` low and say so.
+
+**Three programs exercise all of that end to end now, and the suite is 59** (ADR-0063).
+`test/asm/selfmod.S` stores into `.text`, fences and runs the stored word; `test/asm/textload.S`
+carries a handler that reads the faulting instruction out of `.text`, works out two bytes or four
+and resumes past it — so none of its four trapping instructions is wrapped in `.option norvc` and
+two of them are `c.ebreak`, which is the discipline that hid ADR-0048's defect no longer being the
+only way to write a resuming trap test; `test/asm/contend.S` puts loads and stores in `.text` at
+both word-address parities with byte and halfword strobes. **Twenty-six stolen fetch windows across
+the three (6 / 4 / 16), against zero anywhere in the tree before**, counted with a throwaway
+`fetch_stall` counter. `make test` is 59/59 and `make cosim-suite` is 59/59, both baselines empty,
+and `test/sail/rv32imc_zicsr.json` needed no change — its one `MainMemory` region is already
+executable, readable and writable across the megabyte. **The one thing to know before editing
+`selfmod.S`**: test 2's store has to be `sw t1, %lo(patch_adjacent)(x0)`, because `fence.i` waits
+for its own rs1 field to have been presented and so can only issue one cycle behind a store that
+also presented `rs1 = x0`. Written the way anyone would write it (`la t0, site; sw t1, 0(t0)`) the
+program **passes with the serialization term deleted** — measured, both ways. `.data`'s load address
+and the crt0 copy loop are deliberately not in that change; the SoC still cannot run a program that
+reads its own `.data`.
 
 **Every graded comparison in the grading layer now has a probe of its own red direction, and two of
 them had never been executed** (ADR-0053). Five of this repo's recorded defects were in that layer
@@ -1255,12 +1269,12 @@ longer quietly widen.
   rejected the shifter merge at 19 cells *saved* on legibility grounds, and accepting a hygiene
   change at 37 cells *spent* would cut against that ruling. Read this before proposing the
   narrowing again — it is measured and declined, not overlooked.
-- Decisions: [`docs/adr/`](docs/adr/) — **fifty-six ADRs, fifty-five of them accepted**, plus a
-  deferred list. Re-derived by counting: `ls docs/adr/*.md | wc -l` is 57, one of which is
+- Decisions: [`docs/adr/`](docs/adr/) — **sixty-three ADRs, sixty-two of them accepted**, plus a
+  deferred list. Re-derived by counting: `ls docs/adr/*.md | wc -l` is 64, one of which is
   `README.md`, and the status column in that README carries exactly one non-accepted entry
-  (ADR-0016, superseded by ADR-0018). This line has now been behind twice — it said "forty-five
-  accepted" and then "forty-seven" — so **re-derive it with the two commands rather than
-  incrementing it**, which is what missed ADR-0049 through ADR-0051 in one go.
+  (ADR-0016, superseded by ADR-0018). This line has now been behind three times — it said
+  "forty-five accepted", then "forty-seven", then "fifty-six" — so **re-derive it with the two
+  commands rather than incrementing it**, which is what missed ADR-0049 through ADR-0051 in one go.
 - Reference text from the old core: `git show 1709433^:rtl/riscv.v` (RVFI retire block),
   `git show e67875c^:rtl/alu.v` (arithmetic)
 - Work is tracked in Linear, project **Little CPU** (team JEF). Named here so you know where the
