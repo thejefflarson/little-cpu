@@ -988,7 +988,19 @@ the oracle (ADR-0019).
   restatement of the next line, history (git has it), "this is deliberate" with no *why*, section
   banners, and emphasis furniture: ALL-CAPS, "which is the whole point", rhetorical setup that
   announces a lesson before stating it, arguing with a hypothetical reader. **A shorter essay is
-  still an essay.** An ADR citation is an optional trailing pointer, never the explanation.
+  still an essay.**
+  **No ADR numbers and no invariant numbers in comments.** They read as the explanation while
+  carrying none — a reader who has not memorised the list learns nothing, and one who has still has
+  to go and look. Say the mechanism instead. The decision record is in `docs/adr/` and `git blame`
+  finds it.
+  **Short sentences, one idea each, no invented terms.** If a word is not a signal, module, target
+  or file name in the code, do not coin it. "waits until", not "drains". Read it aloud: if it sounds
+  like a specification, rewrite it; if it sounds like one engineer telling another what to watch
+  out for, it is right.
+  **If you cannot state the mechanism in your own words, delete the comment rather than paraphrase
+  the ADR.** A wrong explanatory comment is worse than the citation it replaced, because it reads as
+  authoritative and nobody re-checks it. Removing a citation from `formal/pcloop.sv` is what found
+  its claim to be the only check on the fetch lockstep to be false.
   **One exception: tripwires.** A warning that stops someone silently reintroducing a defect earns
   its place by preventing a bug — keep it, in two sentences. The test is whether deleting it would
   let the defect back in; if the bug is fixed and guarded, the story about it is history and goes.
