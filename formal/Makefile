@@ -12,7 +12,7 @@ override JOBS := 4
 endif
 
 all: complete complete_cover complete-exclusions check dmemcheck imemcheck \
-     components_decoder components_executor components_pcloop
+     components_decoder components_executor components_pcloop components_traps
 
 # THE RULE FOR EVERY sby TARGET IN THIS FILE, INCLUDING ONES ADDED LATER:
 # it re-runs unconditionally, and it throws its workdir away first.
@@ -220,7 +220,7 @@ nonperturbation: check-nonperturbation.py
 # rule: always run, delete the workdir first. Before this they named the
 # directory sby creates and listed one rtl/ file each, so a warm tree made
 # `make components_decoder` after a structs.v edit answer "up to date".
-.PHONY: components_decoder components_executor components_pcloop
+.PHONY: components_decoder components_executor components_pcloop components_traps
 components_decoder: components.sby ../rtl/decoder.v ../rtl/structs.v
 	rm -rf $@
 	sby -f $< decoder
@@ -239,6 +239,15 @@ components_pcloop: components.sby ../rtl/fetcher.v ../rtl/decoder.v \
                    ../rtl/structs.v pcloop.sv
 	rm -rf $@
 	sby -f $< pcloop
+# The composed decoder+csrs task. It is the only place mtvec, mepc, mcause and
+# mstatus are real registers under a proof: the generated ladder drops every
+# value comparison once an instruction traps, keeping only the trap flag, and
+# its pc checks accept whatever target the core reports. So nothing else says a
+# trap lands on mtvec or that the saved state is right.
+components_traps: components.sby ../rtl/fetcher.v ../rtl/decoder.v ../rtl/csrs.v \
+                  ../rtl/structs.v traps.sv
+	rm -rf $@
+	sby -f $< traps
 
 # The riscv-formal clone rule and its pin guard live in pin.mk, included above,
 # so this and the root Makefile cannot drift apart on it.
