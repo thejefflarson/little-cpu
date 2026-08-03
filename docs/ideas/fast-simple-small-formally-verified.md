@@ -128,8 +128,20 @@ and every `[depth]` line is a function of them (ADR-0046, ADR-0057). Bet 2's pre
 no reorder buffer. Retire needs no filter. And `pcloop`'s k-induction never has to invent an
 invariant over speculative state.
 
-**What it costs:** the fetch loop is the critical path — 28 LUT levels at ~3.3 ns each — and
-the design sits at 10.2–10.4 MHz against a 12 MHz crystal whose next divider step is 6.
+**What it costs:** the fetch loop is the critical path, and everything on it is paid once per
+cycle.
+
+~~the design sits at 10.2–10.4 MHz against a 12 MHz crystal whose next divider step is 6.~~
+**Struck.** The design reaches **12.7–13.5 MHz** across four placements, and 12 MHz is a
+requirement now rather than an intent. It got there by finding one comparator on the wrong side of
+the instruction — the write-through bypass selected on a live combinational `rs1` when the contract
+already said the answer belongs to the previous cycle's pair. Six LUT levels for four lines.
+
+**That changes the bar for reopening the bet, and it is the more useful correction.** This section
+was written when the bet looked like it was costing the board clock. It was not. A flush can no
+longer justify itself by reaching 12, because 12 is met without wrong-path state — the next thing
+worth wanting is 24, which needs roughly 11 of the remaining 23 levels. Whether that is reachable
+at all is measured separately, and it may not be.
 
 ## Reopening bet 1
 
