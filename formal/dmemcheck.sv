@@ -43,12 +43,12 @@ module testbench (
   // would add stall cycles and no coverage. formal/wrapper.v models the arbiter.
   logic        fetch_stall = 1'b0;
 
-  // Constrains the environment rather than duplicating the checker, which
-  // builds its own load-after-store shadow from rvfi_mem_* alone: mem_rdata is
-  // otherwise free every cycle and no design could satisfy that assertion. It
-  // reads the raw bus because rvfi_dmem_check cannot see cycles that retire no
-  // memory op. Gating on `mem_wstrb` alone is exact, since rtl/accessor.v
-  // defaults the strobe to 0 on every cycle that is not a real store.
+  // rvfi_dmem_check does its own tracking and does not need this. What this is
+  // for: mem_rdata is otherwise a free input every cycle, and no design could
+  // satisfy the check against a memory that answers anything it likes. It reads
+  // the bus directly because rvfi_dmem_check only sees cycles that retire a
+  // load or a store. Watching mem_wstrb alone is enough, because rtl/accessor.v
+  // sets it to 0 on every cycle that is not a store.
   logic [31:0] dmem_data;
   always_ff @(posedge clk) begin
     if (!reset && mem_addr == dmem_addr) begin
@@ -59,17 +59,21 @@ module testbench (
     end
   end
 
-  // Assumed: the bus returns, one cycle after the request, whatever was last
-  // written to that address. Discharged only inside the mapped region, by
-  // test/mem_tb.v -- outside it the real memory drops the write and reads zero
-  // while this model retains, and `dmem_addr` is free, so the assume is
-  // stronger than rtl/memory.v over most of the address space (ADR-0049 F4).
-  // Its scope is the one rvfi_dmem_check assertion here, and it constrains a
-  // DUT input, so it narrows the environment and can never excuse the core.
+  // Assumed: the bus returns whatever was last written to that address, one
+  // cycle after the request.
   //
-  // Against LAST cycle's mem_addr because ADR-0015's load turnaround registers
-  // mem_rdata the cycle after the address is presented, and rtl/accessor.v
-  // reverts mem_addr to 0 on that response cycle.
+  // test/mem_tb.v checks that rtl/memory.v really does this, but only inside
+  // the mapped region. Outside it the real memory drops the write and reads
+  // zero, where this keeps the value. dmem_addr is a free 32-bit input, so over
+  // most of the address space this assumes a memory the core does not have.
+  //
+  // It reaches only the one rvfi_dmem_check assertion below. It constrains an
+  // input to the core rather than an output, so it can narrow what the solver
+  // may try but it cannot excuse a bug.
+  //
+  // Compared against last cycle's mem_addr. A load's data arrives the cycle
+  // after its address, and rtl/accessor.v has already put mem_addr back to 0 by
+  // then.
   always_ff @(posedge clk) begin
     if (!reset && $past(mem_addr) == dmem_addr && !$past(mem_wstrb))
       assume(dmem_data == mem_rdata);

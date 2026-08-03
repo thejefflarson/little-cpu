@@ -1,4 +1,4 @@
-// Local, minimal riscv_test.h (ADR-0008). Every consumer -- both cxxrtl
+// Local, minimal riscv_test.h. Every consumer -- both cxxrtl
 // runners, the iverilog bench and the Sail model -- terminates on the `tohost`
 // write below, so nothing here depends on ecall or mtvec.
 //
@@ -12,7 +12,7 @@
 //      assembler compresses freely at -march=rv32imc_zicsr. Tests that
 //      terminate from inside the handler are unconstrained.
 //   2. Install the handler before faulting. `mtvec` resets to 0, which is
-//      `_start`, so a trap before installation restarts the program (ADR-0029).
+//      `_start`, so a trap before installation restarts the program.
 //   3. Assert in band. riscv-formal has no spec model for csrr*/ecall/ebreak/
 //      mret at the pin, so the per-retire monitor says nothing about the
 //      instructions these tests exist to exercise.
@@ -41,7 +41,7 @@ _start:                                                                      \
 // The upper word first and the verdict last, because there is no 64-bit store
 // and Sail's HTIF fires on whichever half-write completes the pair: this way
 // the verdict store is what stops the reference model, on the same instruction
-// the cxxrtl runners stop on (ADR-0039).
+// the cxxrtl runners stop on.
 #define RVTEST_PASS                                                          \
         li      TESTNUM, 1;                                                 \
         la      t0, tohost;                                                 \

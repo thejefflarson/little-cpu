@@ -1,5 +1,4 @@
 `timescale 1 ns / 1 ps
-//`define RISCV_FORMAL
 module testbench(
 `ifndef ICARUS
 	input clk,
@@ -118,14 +117,14 @@ module testbench(
    `endif
   );
  `ifdef RISCV_FORMAL
-  // The monitor, the spec probe and the retire counters all read `rvfi_valid`
-  // through this one wire. Keep it that way: a counter that could stay high
-  // while the monitor went blind would be telemetry about itself, and this
-  // makes the two go blind together by construction.
+  // The monitor, the spec probe and the counters all read rvfi_valid through
+  // this one wire. Keep it that way. A counter that could stay high while the
+  // monitor stopped looking would only be counting itself.
   //
-  // It is also the liveness probe. Replace the assign with `1'b0` and `make
-  // test` reports every program MONITOR-SILENT; before the counters existed the
-  // same edit passed the whole suite.
+  // It is also how to test the counters: set this to 1'b0 and every program
+  // should report MONITOR-SILENT. Do the same on a tree without the counters
+  // and the whole suite still passes, because each program reaches tohost on
+  // its own assertions with nothing checking a single instruction.
   logic rvfi_valid_observed;
   assign rvfi_valid_observed = rvfi_valid;
 
@@ -155,9 +154,9 @@ module testbench(
   );
 
  `ifdef ICARUS
-  // errcode is a one-cycle pulse (test/monitor.sim.v clears it every cycle), so
-  // it must be checked every cycle -- a read at the end of the run sees
-  // nothing. Matches test/cxxrtl.cc's exit 4.
+  // The error code is high for one cycle only; test/monitor.sim.v clears it
+  // every cycle. Check it every cycle -- reading it once at the end misses it.
+  // Same failure as test/cxxrtl.cc's exit 4.
   always @(posedge clk) begin
     if (rvfi_monitor_errcode != 16'b0) begin
       $display("RVFI MONITOR ERROR %0d -- see the diagnostic above", rvfi_monitor_errcode);
@@ -166,16 +165,17 @@ module testbench(
   end
  `endif
 
-  // A second `monitor_isa_spec` rather than a read of `ch0_spec_valid` inside
-  // the monitor, because test/monitor.v may not be hand-edited to export it
-  // (CLAUDE.md invariant 7) and yosys does not resolve a hierarchical
-  // reference -- it implicitly declares the name, so the counter would read a
-  // dangling constant while the build stayed clean. Keep these port
-  // connections identical to the monitor's above: rewiring one and not the
-  // other is what would make this count retires the monitor never checked.
+  // A second monitor_isa_spec, rather than reading ch0_spec_valid inside the
+  // monitor. Two reasons. test/monitor.v is generated and gets regenerated, so
+  // an edit exporting that signal would be lost. And yosys will not reach into
+  // the instance: it makes a new undriven wire with that name, so the counter
+  // would read a constant and the build would look fine.
   //
-  // A low spec-checked count is expected, since riscv-formal ships no spec
-  // model for `ecall`, `ebreak`, `mret` or `csrr*` at the pin. Only zero fails.
+  // Keep these connections the same as the monitor's above. Rewire one and not
+  // the other and this counts instructions the monitor never checked.
+  //
+  // A low spec-checked count is normal. riscv-formal has no model for ecall,
+  // ebreak, mret or csrr*, so those retire unchecked. Only zero is wrong.
   logic       probe_spec_valid;
   logic       probe_spec_trap;
   logic [4:0] probe_spec_rs1_addr;
@@ -208,9 +208,8 @@ module testbench(
     .spec_mem_wdata(probe_spec_mem_wdata)
   );
 
-  // `(* keep *)` because nothing in the design reads these and yosys would
-  // otherwise optimise them away. The gating mirrors the monitor's own outer
-  // condition, so they count what it looked at rather than an approximation.
+  // Nothing in the design reads these, so without (* keep *) yosys removes
+  // them. The gating matches the monitor's own, so they count what it looked at.
   (* keep *) logic [31:0] rvfi_retires;
   (* keep *) logic [31:0] rvfi_spec_retires;
   initial begin
@@ -237,15 +236,17 @@ module testbench(
     end
   end
 
-  // The baked-in program does 20 writes and 79 retires, so these sit a margin
-  // under both. They are what makes a deadlocked pipeline loud: reverting
-  // `live_rs1`/`live_rs2` to ADR-0037's `live_producer(r)` function form gives
-  // 0 writes and 1 retire.
+  // The program below does 20 writes and 79 retires. These sit under both, so a
+  // few extra stall cycles still pass but a pipeline that has stopped making
+  // progress fails. Write rtl/decoder.v's live_rs1 and live_rs2 as a function
+  // call instead of continuous assigns and this drops to 0 writes and 1 retire:
+  // iverilog builds the sensitivity list from the call arguments, so the assign
+  // never runs again when the signals inside the function change.
   localparam int unsigned WRITE_FLOOR  = 15;
   localparam int unsigned RETIRE_FLOOR = 60;
 
-  // Owns reset and the whole run, because the floor check needs the counters
-  // above and iverilog will not bind a forward reference.
+  // Drives reset and ends the run. It lives here because the check above needs
+  // the counters, and iverilog will not look forward for them.
   initial begin
     $dumpfile("testbench.vcd");
     $dumpvars(0, testbench);
@@ -300,11 +301,12 @@ module testbench(
     end
   end
 
-  // `mtvec` resets to 0 and sections.lds links `.text` there, so a trap taken
-  // before a test installs its handler restarts the program silently -- it
-  // looks like a livelock, with the real cause several instructions earlier
-  // (ADR-0029). A harness assertion, not an RTL one: a real program may
-  // legitimately put a handler at 0.
+  // mtvec resets to 0 and sections.lds puts .text there. So a trap before a
+  // test installs its handler jumps to _start and the program starts over. It
+  // looks like a hang, and the real fault was several instructions back.
+  //
+  // This belongs in the harness, not the RTL: a real program is allowed to put
+  // a handler at address 0.
   logic trap_taken_d;
   (* keep *) logic trap_to_zero;
   initial begin
@@ -323,10 +325,9 @@ module testbench(
     end
   end
 
-  // Two different consecutive stores legitimately produce two adjacent high
-  // cycles, so this looks for the same request repeating rather than for
-  // back-to-back nonzero ones. `$fatal` is Icarus-only because yosys's
-  // read_verilog does not implement it.
+  // Two different stores back to back are fine, so this looks for the same
+  // request repeating, not for two busy cycles in a row. $fatal is Icarus-only
+  // because yosys does not implement it.
   logic [31:0] prev_wstrb_mem_addr, prev_wstrb_mem_wdata;
   logic [3:0]  prev_mem_wstrb;
   initial prev_mem_wstrb = 4'b0000;

@@ -1,14 +1,15 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
 
-// rtl/imemory.v, the interleaved-bank instruction ROM (ADR-0054). The `.S`
-// suite exercises whatever alignments its programs happen to produce and cannot
-// reach the data port at all -- no program stores into the text region, and both
-// consumers tie `mem_ren` low -- so the bank select, the range decode, the write
-// port and the steal are checked here or nowhere.
+// rtl/imemory.v, the instruction ROM split across two banks.
 //
-// The reference must stay a flat array filled independently of the bank images:
-// derived from them it would agree with any split, and the split is on test.
+// The .S suite only hits whatever alignments its programs happen to produce,
+// and it never touches the data port: no program stores into the text region,
+// and both runners hold mem_ren low. So the bank select, the range decode, the
+// write port and the steal are checked here or nowhere.
+//
+// Keep the reference a flat array filled on its own. Build it from the bank
+// images and it will agree with any split, which is the thing being tested.
 module imem_tb;
   localparam int ROM_WORDS = 16;
 
@@ -49,8 +50,8 @@ module imem_tb;
     end
   endtask
 
-  // Presenting an address and taking the edge that latches it is the contract
-  // (ADR-0054): the outputs are valid for the whole of the cycle after.
+  // The memory latches the address on the edge. Its outputs are then valid for
+  // the whole of the next cycle, which is where they are read.
   task automatic step(input logic [31:0] fetch_addr,
                       input logic [31:0] data_addr,
                       input logic        ren,
@@ -83,9 +84,9 @@ module imem_tb;
     check(what, {31'b0, fetch_stall}, {31'b0, expected});
   endtask
 
-  // One task, so the DUT and the reference take the same arguments by
-  // construction. Out of range the reference does nothing, which is what makes
-  // `check_all` a test that a dropped write really was dropped.
+  // One task, so the memory and the reference always get the same arguments.
+  // Out of range the reference does nothing, which is how check_all tells that
+  // a dropped write really was dropped.
   task automatic write_word(input logic [31:0] addr, input logic [3:0] strb,
                             input logic [31:0] data);
     int word;

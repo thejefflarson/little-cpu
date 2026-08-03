@@ -2,7 +2,7 @@
 //
 // Vendored from riscv-tests, including its RV64 and floating-point macros,
 // which no program in test/asm invokes. MASK_XLEN keys off __riscv_xlen, so it
-// narrows to 32 bits here on its own (ADR-0008).
+// narrows to 32 bits here on its own.
 
 #ifndef __TEST_MACROS_SCALAR_H
 #define __TEST_MACROS_SCALAR_H

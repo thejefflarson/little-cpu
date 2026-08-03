@@ -91,11 +91,14 @@ module decoder_tb;
     end
   endtask
 
-  // `pc` must have exactly one driver and it must be `next_pc` (CLAUDE.md
-  // invariant 1): the memory latches its address off `next_pc` a cycle early,
-  // so a second driver puts fetch out of step with decode, and no ladder check
-  // is in contact with that port. Every edge, not one directed vector, because
-  // such an edit shows up on some instructions and not others.
+  // pc must have exactly one driver, and it must be next_pc. The memory latches
+  // its address off next_pc one cycle before the fetch that reads it. Give pc a
+  // second driver and the memory runs a cycle out of step with decode, so the
+  // core executes whatever is at the wrong addresses. Nothing on the
+  // riscv-formal ladder reads that port.
+  //
+  // Checked on every edge rather than in one vector, because a change like that
+  // shows up on some instructions and not on others.
   logic [31:0] prev_next_pc;
   logic        prev_next_pc_valid = 1'b0;
   always @(posedge clk) begin
@@ -114,11 +117,11 @@ module decoder_tb;
     end
   endtask
 
-  // The `addi x0, x0, 0` is load-bearing: `operand_stall` compares the address
-  // pair against the pair captured at the last clock edge, and most vectors
-  // here take no edge at all, so without parking on x0 first the pair left by
-  // an earlier vector can coincide with this instruction's, no fetch cycle
-  // happens, and every issue-time check below lands a cycle early.
+  // The addi x0, x0, 0 matters. operand_stall compares rs1 and rs2 against
+  // whatever they were at the last clock edge, and most vectors here take no
+  // edge at all. Without parking on x0 first, an earlier vector can leave the
+  // same pair behind, no fetch cycle happens, and every check below lands a
+  // cycle early.
   task automatic present_and_fetch(input logic [31:0] instr);
     begin
       in.instr = 32'h00000013;
@@ -133,8 +136,8 @@ module decoder_tb;
   initial begin
     reset = 1;
     in = '0;
-    // rtl/fetcher.v drives this to exactly !reset (CLAUDE.md invariant 1),
-    // so the real decoder never sees a non-reset cycle with it low.
+    // rtl/fetcher.v drives this to exactly !reset, so the real decoder never
+    // sees a non-reset cycle with it low.
     in.valid = 1'b1;
     reg_rs1 = 0;
     reg_rs2 = 0;
@@ -150,11 +153,10 @@ module decoder_tb;
     check_hex("xori math_arg", dut.math_arg, 32'hffffffff);
     check_bit("a newly presented instruction stalls for its operands",
               dut.operand_stall, 1'b1);
-    // The two halves of the operand stall, checked separately because dropping
-    // either is silent: without the `stall` term the instruction issues with an
-    // operand the regfile has not fetched, and without the bubble arm it
-    // publishes into decoder_out during its own fetch cycle. Both mutations
-    // leave every other vector here passing.
+    // Two separate things to get wrong, both silent. Drop the stall and the
+    // instruction issues with a register the file has not read yet. Drop the
+    // bubble and it publishes during its own fetch cycle. Either way every
+    // other vector here still passes.
     check_bit("...so it does not issue in that cycle", dut.issuing, 1'b0);
     operand_fetch_cycle();
     check_bit("...and the fetch cycle bubbled decoder_out", out.valid, 1'b0);
@@ -253,8 +255,8 @@ module decoder_tb;
     check_hex("...with cause 2", trap_cause, 32'd2);
     csr_implemented = 1'b1;
 
-    // Unrecognised means illegal instruction now, so a legal encoding dropped
-    // from `instr_valid` faults.
+    // Anything the decoder does not recognise traps, so a legal encoding left
+    // out of instr_valid faults.
     in.instr = 32'h0ff0000f;   // fence iorw, iorw
     #1;
     check_bit("fence is a valid instruction", dut.instr_valid, 1'b1);
@@ -328,9 +330,9 @@ module decoder_tb;
     check_bit("reading a read-only CSR is not a write", dut.csr_readonly_write, 1'b0);
     check_bit("...and does not trap", dut.trap_pending, 1'b0);
 
-    // Re-run on a drained pipe, because a CSR instruction serializes whether or
-    // not it is legal and the checks below would otherwise be satisfied by the
-    // stall rather than by the trap.
+    // Run again with nothing in the pipeline. A CSR instruction waits either
+    // way, legal or not, so otherwise the checks below pass because it stalled
+    // rather than because it trapped.
     present_and_fetch(32'hf1151073);
     check_bit("...it issues once the pipe drains", dut.issuing, 1'b1);
     check_bit("a trapping issue does not count in minstret", instret, 1'b0);
@@ -381,10 +383,9 @@ module decoder_tb;
               next_pc, pc);
     check_bit("...and no trap is committed out of the stolen window", trap_entry, 1'b0);
 
-    // A freeze holds decoder_out and a steal bubbles it, so on a cycle with
-    // both, holding has to win or the held instruction is dropped. Nothing but
-    // the publish block's arm order decides that, and reordering two `else if`
-    // arms is otherwise silent.
+    // A freeze holds decoder_out; a steal clears it. On a cycle with both,
+    // holding has to win or the held instruction is lost. Only the order of the
+    // arms in the publish block decides that, and swapping them is silent.
     accessor_stall = 1'b1;
     #1;
     @(posedge clk);
@@ -411,9 +412,9 @@ module decoder_tb;
               out.valid, 1'b1);
     check_hex("...as itself", {27'b0, out.rd}, 32'd1);
 
-    // Text is writable, so a store ahead of a `fence.i` can change the words
-    // being fetched behind it. Draining is what puts the older store's write
-    // edge before the fetch address published on `fence.i`'s issue edge.
+    // Text is writable, so a store just before a fence.i can change the words
+    // being fetched right behind it. Waiting is what puts that store's write
+    // ahead of the next fetch address.
     executor_out.valid = 1'b1;
     executor_out.rd = 5'd0;
     present_and_fetch(32'h0000100f);

@@ -1,16 +1,16 @@
-// The fetcher and the decoder wired together as rtl/littlecpu.v wires them, so
-// that the pc echo rtl/decoder.v's standalone task has to assume becomes an
-// assertion here. Under that assumption its pc-increment assertions read
-// `pc <= pc + pc_inc`, which is what they are trying to prove (ADR-0017).
+// The fetcher and the decoder, wired together the way rtl/littlecpu.v wires
+// them. On its own the decoder cannot prove its pc arithmetic. It has to assume
+// the fetcher hands back the pc it was given, and under that assumption its own
+// assertions say pc == pc + pc_inc. Here that echo is asserted instead.
 //
-// formal/components.sby must keep reading the RTL WITHOUT -formal for this
-// task. Compiled with it the decoder brings its own `assume(in.pc == pc)`
-// along, assumes the echo asserted here, and turns a broken fetcher into an
+// Keep reading the RTL without -formal for this task; formal/components.sby
+// does. With -formal the decoder brings its own assume along, and it assumes
+// the very thing this task asserts. A broken fetcher would come out as an
 // unreachable state instead of a counterexample.
 //
-// Everything this task does not instantiate stays a free input, which is the
-// stronger environment and costs nothing: reg_rs1, mtvec and mepc reach pc
-// arithmetic only on cycles the increment assertion already excludes.
+// Everything not instantiated here is a free input. That is safe. reg_rs1,
+// mtvec and mepc only reach the pc on jump, branch, trap and mret cycles, and
+// the increment assertion skips all of those.
 `default_nettype none
 
 module pcloop (
@@ -38,7 +38,6 @@ module pcloop (
   fetcher_output fetcher_out;
   decoder_output decoder_out;
   logic [4:0] rs1, rs2;
-  // rtl/csrs.v's half of the decoder's output, unread here but for f_redirect.
   logic [11:0] csr_addr;
   logic        csr_ren, csr_wen, instret;
   logic [31:0] csr_wdata;
@@ -96,31 +95,34 @@ module pcloop (
   initial clocked = 0;
   always_ff @(posedge clk) clocked <= 1;
 
-  // Assumed: reset is asserted before the first edge and never returns -- true
-  // of every harness in the tree, asserted by none of them, and unguarded, so
-  // it is in force over every assertion here rather than only the pc-history
-  // pair it was written for (ADR-0049).
+  // Assumed: reset is high before the first clock edge and low forever after.
+  // Every harness in this tree drives it that way. Nothing proves it, so this
+  // is a convention, not a fact.
+  //
+  // It is unguarded, so it holds over every assertion below, not just the two
+  // that compare pc across a cycle. Those two are why it is here. Reset sets
+  // next_pc to 0, so a solver free to raise reset again could zero pc between
+  // the two cycles and satisfy them for the wrong reason.
   initial assume(reset);
   always_comb if (!clocked) assume(reset);
   always_comb if (clocked) assume(!reset);
 
-  // Never reach into the decoder instance for a guard signal: yosys does not
-  // resolve `decoder.uncompressed`, it implicitly declares an undriven wire of
-  // that name and lets the solver drive it freely. An earlier revision of this
-  // file got a "counterexample" that way, in which pc stepped 0 -> 4 correctly
-  // while the sampled history claimed the instruction was compressed.
+  // Build the guard signals below from this module's own ports. Do not write
+  // `decoder.uncompressed` or anything like it. yosys does not reach into the
+  // instance: it makes a new wire with that name, nothing drives it, and the
+  // solver picks the value. An earlier version of this file did that and got a
+  // counterexample where pc stepped 0 -> 4 correctly while the recorded history
+  // said the instruction was compressed.
   //
-  // Re-deriving is also stronger, and decoder.v's upper-half masking cannot
-  // make it disagree: every uncompressed match below requires quadrant ==
-  // 2'b11, where the mask is the identity, and every compressed match reads
-  // only instr[15:0].
+  // The decoder zeroes instr[31:16] when the low two bits are not 2'b11. That
+  // cannot put these terms out of step with it. Every 32-bit match below needs
+  // those bits to be 2'b11, and every compressed match reads only instr[15:0].
   logic [31:0] f_instr;
   assign f_instr = fetcher_out.instr;
   logic f_uncompressed;
   assign f_uncompressed = f_instr[1:0] == 2'b11;
-  // A branch opcode with funct3 2'b01x matches none of the six instr_b* flags,
-  // takes no arm in the publish block and falls through to the sequential pc,
-  // so it is deliberately not excluded here.
+  // A branch opcode with funct3 010 or 011 is none of the six branches. The
+  // decoder gives it no arm and the pc advances normally, so do not exclude it.
   logic f_jump_branch;
   assign f_jump_branch =
       // jal / jalr (rtl/decoder.v instr_jal_op / instr_jalr_op)
@@ -137,11 +139,10 @@ module pcloop (
       (f_instr[1:0] == 2'b10 && f_instr[15:13] == 3'b100 && f_instr[6:2] == 5'b0 &&
          f_instr[11:7] != 5'b0);
 
-  // Every term here over-approximates rtl/decoder.v's `stall`, which also
-  // requires the instruction to consume the operand; restating that would
-  // duplicate most of decode. Excusing a superset of the stall cycles is sound
-  // for the increment assertion, and the RAW-hazard hold it gives up is
-  // asserted in rtl/decoder.v's own FORMAL block.
+  // These terms are wider than the decoder's real stall conditions. The decoder
+  // also checks that the instruction uses the register, and copying that would
+  // mean copying most of decode. Wider is safe: it only skips more cycles. The
+  // cycles it skips are covered by rtl/decoder.v's own proof.
   logic f_live_rs1, f_live_rs2, f_may_stall;
   assign f_live_rs1 = rs1 != 0 &&
       ((decoder_out.valid && decoder_out.rd == rs1) ||
@@ -151,15 +152,14 @@ module pcloop (
       ((decoder_out.valid && decoder_out.rd == rs2) ||
        (executor_out.valid && executor_out.rd == rs2) ||
        (accessor_pending_valid && accessor_pending_rd == rs2));
-  // The whole SYSTEM opcode rather than the six csrr* funct3s, because `mret`
-  // serializes too and has funct3 == 0.
+  // The whole SYSTEM opcode, not just the six csrr* funct3 values. mret waits
+  // for the pipeline too, and its funct3 is 0.
   logic f_system;
   assign f_system = f_uncompressed && f_instr[6:2] == 5'b11100;
 
-  // This term does not hollow out the increment assertion, for a structural
-  // reason: `operand_stall` holds the pc, so the same word is re-presented and
-  // rs1/rs2 are unchanged on the cycle the instruction actually issues. Every
-  // cycle the pc really advances on is therefore a cycle it calls quiet.
+  // Widening this one does not make the increment assertion useless. A stalled
+  // decoder holds the pc, so the same instruction word comes back next cycle
+  // and rs1/rs2 do not change. On the cycle the pc really moves, this is low.
   logic [4:0] f_prev_rs1, f_prev_rs2;
   logic       f_read_taken, f_operand_fetch;
   always_ff @(posedge clk) begin
@@ -175,28 +175,31 @@ module pcloop (
   end
   assign f_operand_fetch = !f_read_taken || f_prev_rs1 != rs1 || f_prev_rs2 != rs2;
 
-  // `f_may_stall` must name every stall reason the decoder has -- six now. A
-  // missing one makes the sequential-advance assertion cover a cycle the
-  // decoder legitimately holds the pc on and the task goes red on correct RTL,
-  // which is how ADR-0042's operand-fetch cycle left it failing. `f_system`
-  // cannot cover `fence.i`: that is the SYSTEM opcode and this is MISC-MEM.
+  // List every reason decode can stall. Miss one and the assertion below covers
+  // a cycle where the pc is allowed to hold, then fails there instead of
+  // finding a real bug. This has happened before: the register file read became
+  // synchronous, that added a stall, and this list did not know about it.
+  //
+  // f_system does not cover fence.i. That term matches SYSTEM; fence.i is
+  // MISC-MEM.
   logic f_fencei;
   assign f_fencei = f_uncompressed && f_instr[6:2] == 5'b00011;
 
   assign f_may_stall = divider_stall || accessor_stall || fetch_stall ||
       f_live_rs1 || f_live_rs2 || f_system || f_fencei || f_operand_fetch;
 
-  // The one guard not re-derived from `f_instr`, because "would the decoder
-  // consider this word illegal" is decode. Taking it off the DUT's own output
-  // ports excuses cycles on the DUT's say-so, which is why the two assertions
-  // at the bottom pin where the pc went on exactly those cycles: a decoder
-  // claiming a spurious trap would then have to land on mtvec.
+  // Read off the decoder's outputs rather than decoded here. Working out
+  // whether a word is illegal is most of decode, and copying it would defeat
+  // the point of this file.
+  //
+  // That lets the decoder excuse its own cycles, so the last two assertions
+  // below check where the pc actually went on them. Claim a trap you did not
+  // take and you still have to land on mtvec.
   logic f_redirect;
   assign f_redirect = trap_entry || mret_entry;
 
-  // Sampled at the same posedge that updates pc, which is the right phase
-  // because `pc <= fetcher_pc + pc_inc` computes both addends combinationally
-  // from the pre-edge state.
+  // Sampled on the same edge that updates pc. That is the right edge: pc is
+  // computed from values that had settled before it.
   logic [31:0] past_pc, prev_mtvec, prev_mepc;
   logic prev_reset, prev_may_stall, prev_hard_stall, prev_jump_branch, prev_uncompressed;
   logic prev_trap_entry, prev_mret_entry, prev_fetch_stall;
@@ -216,33 +219,32 @@ module pcloop (
 
   always_comb if (clocked && !reset) assert(fetcher_out.pc == pc);
 
-  // The fetch lockstep (ADR-0054). Nothing else holds the core to it: breaking
-  // it has one symptom, the SoC fetching the wrong instruction, with no
-  // elaboration error, no lint finding, and no ladder check in contact with the
-  // port -- formal/wrapper.v answers imem_data combinationally and never reads
-  // it.
+  // The memory latches its address a cycle early, so imem_addr_next this cycle
+  // must be imem_addr next cycle. rtl/decoder.v checks the same thing one level
+  // up, on pc and next_pc. This one is on the fetcher's output ports, so it
+  // also covers the two word-alignment masks: change one and forget the other
+  // and only this fails. Nothing on the riscv-formal ladder reads either port.
   logic [31:0] past_imem_addr_next;
   always_ff @(posedge clk) past_imem_addr_next <= imem_addr_next;
   always_comb if (clocked) assert(imem_addr == past_imem_addr_next);
 
-  // The advance provably routed through the real fetcher: rtl/decoder.v adds
-  // `fetcher_pc`, not its own pc, and only the echo assertion above ties that
-  // back to past_pc.
+  // The increment goes through the real fetcher. rtl/decoder.v adds fetcher_pc,
+  // not its own pc, and only the echo assertion above ties fetcher_pc back to
+  // past_pc.
   always_ff @(posedge clk)
     if (clocked && !prev_reset && !prev_may_stall && !prev_jump_branch)
       assert(pc == past_pc + (prev_uncompressed ? 32'd4 : 32'd2));
 
-  // `pc_inc == (uncompressed ? 4 : 2)` is deliberately NOT asserted here: it
-  // restates rtl/decoder.v, and the standalone decoder task already pins both
-  // constants.
+  // pc_inc == (uncompressed ? 4 : 2) is not asserted here. It would just
+  // restate rtl/decoder.v, whose own proof already pins both constants.
 
   always_ff @(posedge clk)
     if (clocked && prev_hard_stall && !prev_reset) assert(pc == past_pc);
 
-  // Holding the pc is what makes the steal a bubble rather than something
-  // needing a kill signal (CLAUDE.md invariant 1): the same instruction is
-  // presented again, so there is nothing to undo. Separate from the freeze
-  // above because the two reach the pc through different publish arms.
+  // Holding the pc is what makes a stolen fetch cycle harmless. The same
+  // instruction comes back next cycle, so nothing issued and nothing needs
+  // undoing. Separate from the freeze above: the two take different arms of the
+  // publish block.
   always_ff @(posedge clk)
     if (clocked && prev_fetch_stall && !prev_reset) assert(pc == past_pc);
 

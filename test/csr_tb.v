@@ -2,12 +2,17 @@
 `default_nettype none
 `include "structs.v"
 
-// rtl/csrs.v's access port, driven directly. `implemented` feeds
-// rtl/decoder.v's `instr_valid`, so an address wrongly accepted or rejected
-// reads as an execution bug rather than a CSR one in a `.S` test; and the WARL
-// masks are unreachable from the ladder, because rvfi_csrw_check.sv has no WARL
-// model and mtvec/mepc/mstatus are off formal/checks.cfg's [csrs] list for that
-// reason.
+// rtl/csrs.v's access port, driven directly.
+//
+// Two things here are checked nowhere else. `implemented` feeds
+// rtl/decoder.v's `instr_valid`, so an address wrongly accepted becomes an
+// instruction the core executes and one wrongly rejected becomes an illegal
+// instruction -- in a `.S` test either reads as an execution bug rather than a
+// CSR one. And the WARL masks cannot be checked on the riscv-formal ladder at
+// all: rvfi_csrw_check.sv compares the write against the value the core says it
+// wrote, with no model of a register that legally keeps only some bits, so a
+// correctly masked CSR fails it. That is why mtvec, mepc and mstatus are kept
+// off the `[csrs]` list in formal/checks.cfg.
 module csr_tb;
   logic clk = 0;
   always #5 clk = ~clk;
@@ -73,7 +78,6 @@ module csr_tb;
     end
   endtask
 
-  // Read `a` combinationally, without issuing anything.
   task automatic peek(input logic [11:0] a);
     begin
       addr = a;
@@ -83,7 +87,6 @@ module csr_tb;
     end
   endtask
 
-  // Commit one write on the next edge, the way rtl/decoder.v does.
   task automatic poke(input logic [11:0] a, input logic [31:0] d);
     begin
       addr = a;
@@ -105,7 +108,6 @@ module csr_tb;
     end
   endtask
 
-  // Commit one trap entry on the next edge, the way rtl/decoder.v does.
   task automatic take_trap(input logic [31:0] cause, input logic [31:0] epc);
     begin
       trap_cause = cause;
@@ -181,7 +183,7 @@ module csr_tb;
     check_hex("...and reads 0", rdata, 32'h0);
     peek(12'h306); // mcounteren: a real CSR name this core does not have
     check_bit("mcounteren is not implemented", implemented, 1'b0);
-    peek(12'hC00); // the unprivileged cycle alias: M-mode only (ADR-0005)
+    peek(12'hC00); // the unprivileged cycle alias; this core has no user mode
     check_bit("the unprivileged cycle alias is not implemented", implemented, 1'b0);
     peek(12'h000);
     check_bit("address 0 is not implemented", implemented, 1'b0);
@@ -264,13 +266,14 @@ module csr_tb;
     check_read("an explicit mcycle write beats the increment", 12'hB00, 32'h0000_0000);
     check_read("...and does not disturb mcycleh", 12'hB80, before_hi);
 
-    // Do not drop these as duplicates of the two vectors above. "Any CSR write
-    // takes precedence over the automatic increment" (priv spec 20211203
-    // §3.1.11) is about the 64-bit counter rather than the half the address
-    // names, so the carry boundary is the only place it can be false -- and
-    // nothing else in the tree reaches that cycle, since rvfi_csrw_check.sv
-    // never observes the register and every ladder check is `mode bmc` from
-    // reset.
+    // Do not drop these as duplicates of the two vectors above. A CSR write
+    // takes precedence over that cycle's automatic increment for the whole
+    // 64-bit counter, not just for the half the address names, so the carry
+    // boundary is the one place the rule can be broken: with the low half at
+    // 0xffff_ffff a write to it must also suppress the carry into the high
+    // half. Nothing else reaches that cycle -- the ladder's CSR checks read
+    // only what the core reports writing and never look at the register, and a
+    // `.S` program lands a write there only by calibrating instruction spacing.
     poke(12'hB80, 32'h0000_0000);
     poke(12'hB00, 32'hffff_fffe);
     @(posedge clk);
@@ -280,7 +283,6 @@ module csr_tb;
     check_read("a write at the boundary still beats the increment", 12'hB00, 32'h0000_0000);
     check_read("...and its discarded carry does not reach mcycleh", 12'hB80, 32'h0000_0000);
 
-    // The same for minstret, driven into the boundary by `instret`.
     poke(12'hB82, 32'h0000_0000);
     poke(12'hB02, 32'hffff_fffe);
     instret = 1'b1;
@@ -292,9 +294,10 @@ module csr_tb;
     check_read("a write at the boundary still beats the increment", 12'hB02, 32'h0000_0000);
     check_read("...and its discarded carry does not reach minstreth", 12'hB82, 32'h0000_0000);
 
-    // Nothing on the ladder sees any of this: rvfi_insn_check drops every value
-    // assertion under `spec_trap`, and these CSRs are off the [csrs] list per
-    // the header. This bench and test/asm/trap.S are all there is.
+    // Nothing on the riscv-formal ladder sees any of this. Its per-instruction
+    // checks drop every value assertion for a retire that traps, and the CSRs a
+    // trap writes are the WARL ones the header explains cannot go on the
+    // `[csrs]` list, so this bench and test/asm/trap.S are all there is.
     poke(12'h305, 32'h0000_0100);   // mtvec = 0x100
     poke(12'h300, 32'h0000_0008);   // mstatus.MIE = 1, MPIE = 0
     check_hex("mtvec_value echoes mtvec for the decoder", mtvec_value, 32'h0000_0100);
@@ -311,7 +314,6 @@ module csr_tb;
     check_read("...and leaves mepc alone", 12'h341, 32'h0000_0080);
     check_read("...and leaves mcause alone", 12'h342, 32'd4);
 
-    // The value pushed is MIE, not a constant.
     poke(12'h300, 32'h0000_0000);
     take_trap(32'd2, 32'h0000_0200);
     check_read("a trap with MIE clear pushes a clear MPIE", 12'h300, 32'h0000_1800);
