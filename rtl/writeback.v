@@ -52,8 +52,8 @@ module writeback(
       waddr = 0;
       wdata = 32'b0;
     end else begin
-      // Retire is `valid` reaching writeback (CLAUDE.md invariant 3): a bubble
-      // must never commit a register write.
+      // Retire is `valid` reaching writeback: a bubble must never commit a
+      // register write.
       wen = in.valid && (in.rd != 0);
       waddr = in.rd;
       wdata = in.rd_data;
@@ -79,8 +79,8 @@ module writeback(
   // struct-field read inside an `always_comb` is a constant part-select
   // iverilog cannot build a precise sensitivity entry for, so it emits
   // `sorry: constant selects in always_* processes are not fully supported`.
-  // The fallback is safe but is a diagnostic, and CLAUDE.md caps the count at
-  // 20 (ADR-0034). This one line inside there made it 21.
+  // The fallback is safe, but it is still a diagnostic. Keeping this read out
+  // of the always_comb is what stops one more being emitted.
   assign rvfi_trap = in.rvfi.trap;
 
   always_comb begin

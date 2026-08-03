@@ -68,8 +68,7 @@ jobs:
         #
         # iverilog emits 20 "sorry: constant selects in always_* processes"
         # notes here, all against rtl/writeback.v's accessor_output, and still
-        # exits 0. They are notes rather than warnings and CLAUDE.md tracks the
-        # count separately; do not grep for them.
+        # exits 0. They are notes rather than warnings; do not grep for them.
         run: make rvfi_macros.vh testbench.vvp
 
       - name: iverilog full-pipeline simulation (one fixed program, graded)
@@ -393,8 +392,8 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   # Regenerates test/monitor.v from a from-scratch riscv-formal clone at the pin
-  # and diffs it against the tracked copy (CLAUDE.md invariant 7: generated but
-  # tracked, never hand-edited). A fresh runner gives the from-scratch clone for
+  # and diffs it against the tracked copy, which is generated but tracked and
+  # must never be hand-edited. A fresh runner gives the from-scratch clone for
   # free, and this needs only python3 and git.
   monitor-freshness:
     name: monitor-freshness

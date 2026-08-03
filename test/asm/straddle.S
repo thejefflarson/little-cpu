@@ -4,8 +4,8 @@
 #
 # ADR-0003 regression: a 32-bit instruction can straddle a 4-byte boundary
 # when pc % 4 == 2 (immediately after a compressed instruction). Fetch reads
-# the window combinationally every cycle (CLAUDE.md invariant 1 -- no
-# aligner FSM, no stall, no flush), so this costs nothing structurally; the
+# the window combinationally every cycle (no aligner FSM, no stall, no
+# flush), so this costs nothing structurally; the
 # point of this test is to prove it costs nothing *in practice* too, in both
 # sim legs, for both a straight-line straddle and a branch redirect landing
 # on one.

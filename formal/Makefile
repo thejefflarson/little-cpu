@@ -140,8 +140,8 @@ genchecks-check: $(RISCV_FORMAL_DIR)/checks/genchecks.py genchecks-local.py | $(
 
 # The whole core, in the order every whole-core .sby reads it. These four
 # targets each ran against an `.sby` and an `.sv` and NOTHING ELSE before this
-# list existed, which is how `make imemcheck` -- the check CLAUDE.md names for
-# ADR-0003's dual-word fetch window, and so the one most likely to be re-run by
+# list existed, which is how `make imemcheck` -- the check that covers the
+# dual-word fetch window, and so the one most likely to be re-run by
 # hand after touching rtl/fetcher.v -- could report a verdict about RTL it had
 # never read.
 #

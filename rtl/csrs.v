@@ -6,9 +6,9 @@
 // This is a sibling of the decoder, not a pipeline stage. Every access is read
 // and committed in decode on the same edge the accessing instruction issues, so
 // no CSR state exists downstream: nothing to forward, nothing to replay, and no
-// "what does mcycle read with three instructions in flight" corner. CLAUDE.md
-// invariant 5 (CSR instructions serialize) is enforced in rtl/decoder.v; this
-// module has no idea a stall exists.
+// "what does mcycle read with three instructions in flight" corner. CSR
+// instructions serialize, and rtl/decoder.v is what holds them; this module has
+// no idea a stall exists.
 //
 // The set below is a floor, not a closed list: every register the privileged
 // spec lists unconditionally for RV32 machine mode is here, because trapping on
@@ -17,7 +17,7 @@
 // Trap entry and `mret` are the second write port, and the only architectural
 // CSR update no CSR instruction performs. They arrive from the decoder on the
 // edge the trapping instruction issues, because that is where every trap is
-// detected and committed (invariant 2). `mtvec_value`/`mepc_value` go back out
+// detected and committed. `mtvec_value`/`mepc_value` go back out
 // to the decoder, which owns the PC and therefore has to redirect it.
 //
 // This module never decides that an access is illegal. `implemented` feeds the
@@ -97,7 +97,7 @@ module csrs(
   localparam logic [11:0] MIMPID    = 12'hF13;
   localparam logic [11:0] MHARTID   = 12'hF14;
 
-  // RV32 I M C, MXL = 1 -- CLAUDE.md's ISA target.
+  // RV32 I M C, MXL = 1.
   localparam logic [31:0] MISA_VALUE = 32'h4000_1104;
 
   logic [63:0] mcycle, minstret;

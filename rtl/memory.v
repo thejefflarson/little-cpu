@@ -66,9 +66,9 @@ module memory #(
   // **11 logic cells and 3.6% of the SoC's critical path** (88.51 -> 91.67 ns,
   // 41 -> 53 logic levels), measured by building both, twice each. This module
   // is not on that path at all: 11 cells of difference anywhere in the netlist
-  // is enough to redistribute placement. ADR-0038 rejected the shifter merge at
-  // 19 cells SAVED on legibility grounds and CLAUDE.md declines a hygiene
-  // change costing 37; spending 11 cells and 3.6% of the only timing number
+  // is enough to redistribute placement. The same trade was declined twice
+  // before: a shifter merge worth 19 cells SAVED, and a counter narrowing
+  // costing 37. Spending 11 cells and 3.6% of the only timing number
   // this project has, on a design already 6% short of its declared 12 MHz,
   // cuts the same way. Read ADR-0054 before rewriting it back.
   always_ff @(posedge clk) begin

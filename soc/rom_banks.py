@@ -16,7 +16,7 @@ built from one image and cannot come to disagree about the program.
 
 Both banks are written at full depth, zero-padded. A short file is not a
 correctness problem for yosys (it initialises what it is given) but it IS one
-for iverilog, which warns at run time -- and CLAUDE.md makes warnings errors.
+for iverilog, which warns at run time, and a warning fails the build here.
 """
 
 import argparse
