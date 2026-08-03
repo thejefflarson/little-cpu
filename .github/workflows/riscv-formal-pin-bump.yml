@@ -29,6 +29,6 @@ jobs:
           fetch-depth: 0
 
       - name: formal/bump-riscv-formal-pin.sh
-        run: formal/bump-riscv-formal-pin.sh
+        run: formal/token-probe.sh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
