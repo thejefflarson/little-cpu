@@ -21,20 +21,23 @@ module regfile(
   logic [31:0] regs_b[31:0];
   logic [31:0] read_a;
   logic [31:0] read_b;
+  logic [4:0]  held_rs1;
+  logic [4:0]  held_rs2;
 
   // The read is registered, so the operand for the address presented in cycle N
   // appears in cycle N+1 -- a cycle after decode needs it. Decode therefore
   // presents the address, bubbles, and issues on the next cycle
-  // (`operand_stall` in rtl/decoder.v, CLAUDE.md invariant 9).
+  // (`operand_stall` in rtl/decoder.v).
   //
   // Without the write-first term a write committed at the very posedge that
   // captures the read would be missed, leaving the operand exactly one writeback
-  // stale -- the ADR-0004 defect, one cycle earlier where the scoreboard cannot
-  // see it. An ice40 EBR has no write-first mode, so yosys builds this
-  // comparator and mux in fabric.
+  // stale, a cycle before the decode scoreboard can see it. An ice40 EBR has no
+  // write-first mode, so yosys builds this comparator and mux in fabric.
   always_ff @(posedge clk) begin
-    read_a <= (wen && waddr == rs1) ? wdata : regs_a[rs1];
-    read_b <= (wen && waddr == rs2) ? wdata : regs_b[rs2];
+    read_a   <= (wen && waddr == rs1) ? wdata : regs_a[rs1];
+    read_b   <= (wen && waddr == rs2) ? wdata : regs_b[rs2];
+    held_rs1 <= rs1;
+    held_rs2 <= rs2;
     if (wen && waddr != 5'd0) begin
       regs_a[waddr] <= wdata;
       regs_b[waddr] <= wdata;
@@ -42,16 +45,23 @@ module regfile(
   end
 
   // Write-through bypass: a write presented in the cycle the operand is used
-  // forwards wdata directly instead of the value captured a cycle ago. Together
-  // with the write-first term above it makes the operand the cycle-N
-  // architectural value including a cycle-N writeback, which is the whole
-  // observable content of CLAUDE.md invariant 6 and the reason ADR-0004's
-  // stall-only scoreboard needs no forwarding path for the writeback slot.
-  // Deleting either point violates invariant 6; deleting the rs2 half of this
-  // one is the ladder's liveness probe for reg_ch0 (ADR-0040).
+  // forwards wdata directly instead of the value captured a cycle ago. With the
+  // write-first term above it makes the operand the current architectural value
+  // including a writeback committed this cycle, which is why decode's stall-only
+  // scoreboard needs no forwarding path for the writeback slot. Deleting the rs2
+  // half is the formal ladder's liveness probe for `reg_ch0`.
+  //
+  // The select and the x0 test read the held pair, not `rs1`/`rs2`. `rs1` is
+  // instruction bits, so selecting on it puts these comparators after the
+  // fetched word, and every branch waits for them before the next PC can be
+  // chosen -- about 19% of the clock period. The held pair is the same value
+  // only because `operand_stall` holds the addresses across both cycles. Narrow
+  // it and this mux starts answering with the previous instruction's operand,
+  // with nothing to say so.
+  //
   // x0 always reads 0, regardless of wen/waddr.
   always_comb begin
-    reg_rs1 = (rs1 == 5'd0) ? 32'b0 : (wen && waddr == rs1) ? wdata : read_a;
-    reg_rs2 = (rs2 == 5'd0) ? 32'b0 : (wen && waddr == rs2) ? wdata : read_b;
+    reg_rs1 = (held_rs1 == 5'd0) ? 32'b0 : (wen && waddr == held_rs1) ? wdata : read_a;
+    reg_rs2 = (held_rs2 == 5'd0) ? 32'b0 : (wen && waddr == held_rs2) ? wdata : read_b;
   end
 endmodule

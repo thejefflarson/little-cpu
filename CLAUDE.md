@@ -257,7 +257,7 @@ holding wins, and it is asserted in two places because reordering two `else if` 
 silent. `formal/wrapper.v` models the arbiter and is where the ladder meets it;
 `imemcheck`/`dmemcheck`/`cover`/`complete` tie `fetch_stall` low and say so.
 
-**Three programs exercise all of that end to end now, and the suite is 59** (ADR-0063).
+**Three programs exercise all of that end to end now, and the suite is 59** (ADR-0064).
 `test/asm/selfmod.S` stores into `.text`, fences and runs the stored word; `test/asm/textload.S`
 carries a handler that reads the faulting instruction out of `.text`, works out two bytes or four
 and resumes past it — so none of its four trapping instructions is wrapped in `.option norvc` and
@@ -274,6 +274,36 @@ also presented `rs1 = x0`. Written the way anyone would write it (`la t0, site; 
 program **passes with the serialization term deleted** — measured, both ways. `.data`'s load address
 and the crt0 copy loop are deliberately not in that change; the SoC still cannot run a program that
 reads its own `.data`.
+
+**The design reaches 12 MHz, and the whole change is six lines in `rtl/regfile.v`** (ADR-0064,
+implementing ADR-0062). The write-through bypass compared `waddr` against `rs1`/`rs2` — instruction
+bits out of the word the fetch just returned — so the bypass mux and the four branch magnitude
+comparators behind it sat **after** the instruction rather than beside it, and every branch paid for
+the whole chain before the next PC could be chosen. It compares against a **registered copy** of the
+address pair now. Measured on this tree, four placements each: **95.74 – 99.47 ns (10.05 – 10.44
+MHz) → 74.34 – 78.80 ns (12.69 – 13.45 MHz)**, 29 LUT levels → 23, distributions not overlapping and
+the move six times the 3.6% edit band. `SOC_MIN_MHZ` goes **10.0 → 10.9**, keeping the 11.5% margin
+it was derived with and taking it below ADR-0062's lower 12.32 MHz sample rather than this tree's
+better one. `make fit` is 3899 → **3880**, inside the ±50 churn floor and meaning nothing; the SoC
+top's LC is 4314 → 4383. **12 is the board crystal, not a round number** — the part's oscillator
+divides 48 to 48/24/12/6, so the step below 12 is 6, and ADR-0038's intent is met rather than missed
+by 6%.
+
+**What that change costs is a coupling, and it is the part to remember.** The bypass used to be
+correct for *any* address pair; it is now correct **because** `operand_stall` guarantees that on an
+issuing cycle the held pair is the presented pair. Invariant 6 therefore depends on invariant 9, and
+narrowing `operand_stall` would leave the bypass answering with the previous instruction's operand
+with nothing to say so. Two `test/regfile_tb.v` vectors drive the presented address away from the
+held one with a write in flight to the held one — the only situation the two spellings disagree
+about — and both go red if either select is reverted; every other vector in that bench holds the
+pair and cannot tell them apart. **`make test-units` caught exactly one existing assertion**, `x0
+reads 0 in the fetch cycle (rs1)`, and rewriting it was part of the change rather than a workaround:
+the x0 test keys off the held address like every other read, so the cycle that first presents x0
+still answers the address held from the vector above it. Nothing in the core reads an operand in a
+fetch cycle, so that bench is the only consumer in the tree that can see it. `reg_ch0`'s liveness
+probe was re-run — delete the rs2 write-through bypass, `bad state property 1 reachable at bound
+k = 22 SATISFIABLE` — because a change to the regfile's forwarding is exactly the class that could
+make that check go green by stopping to ask.
 
 **Every graded comparison in the grading layer now has a probe of its own red direction, and two of
 them had never been executed** (ADR-0053). Five of this repo's recorded defects were in that layer
@@ -763,6 +793,14 @@ These are the design. Violating one is a bug even if tests pass.
    unchanged: it is what ADR-0004's stall-only scoreboard depends on, and why decode needs no
    forwarding path for the writeback slot. The flip-flop array that used to make the read
    combinational was one implementation of that contract, not the contract.
+   **This invariant now DEPENDS on invariant 9, and that dependency is new** (ADR-0064). The
+   write-through bypass compares `waddr` against a **registered copy** of the address pair, not
+   against the `rs1`/`rs2` decode is presenting — instruction bits out of the word the fetch just
+   returned, which put the bypass mux and the branch comparators behind it *after* the instruction
+   and cost this design 19% of its clock period. It selects the same value only because
+   `operand_stall` guarantees that on an issuing cycle the held pair **is** the presented pair. The
+   bypass used to be correct for any address pair; it is now correct conditionally, and the
+   condition lives in another file. See invariant 9 for what breaks it.
 7. **`test/monitor.v` is generated but tracked.** Regenerate it; never hand-edit it.
 8. **Stalls are a single global broadcast: six reasons over two mechanisms** (ADR-0026 amending
    ADR-0009; ADR-0042 adding the fifth, ADR-0060 the sixth). The reasons are the decode scoreboard,
@@ -794,6 +832,13 @@ These are the design. Violating one is a bug even if tests pass.
    `operand_stall` enforces it, breakable silently by a later change, and not visible from reading
    `rtl/regfile.v` alone. `test/regfile_tb.v` pins it directly — it fetches x5, points `rs1` at x6 in
    the use cycle, and asserts that **x5's** value is what comes back.
+   **Narrowing `operand_stall` now breaks invariant 6 as well, silently** (ADR-0064). Skip the
+   bubble for some instruction class and the write-through bypass — which selects on the held pair —
+   starts answering with the previous instruction's operand. Nothing in the tree would say so except
+   the two `test/regfile_tb.v` vectors that drive the presented address away from the held one with
+   a write in flight to the held one; every other vector in that bench holds the pair and cannot
+   tell the two spellings apart. **A change that touches `operand_stall` must re-read invariant 6**,
+   and it is a new-ADR change, not a tuning one.
 
 ## ISA target
 
@@ -869,17 +914,24 @@ make soc-timing     # THE SoC PLACE-AND-TIME FLOW (ADR-0054), and NOT `make fit`
                     # different top, different design, numbers that must not be
                     # merged. littlesoc -- core + BRAM ROM + SPRAM RAM + 4 pins --
                     # PLACES, and icetime reports the critical path with its
-                    # LOGIC/ROUTING SPLIT, which is the finding. 4041/5280 LC,
-                    # 20/30 EBR, 2/4 SPRAM, 8/8 GB; 88.51 ns = 11.30 MHz,
-                    # 38.7% logic / 61.3% routing, over
-                    # imem.in_range -> decode -> next PC -> imem.in_range2.
-                    # THE 41 LEVELS ARE 25 LUT + 17 CARRY, at 3.31 ns and
-                    # 0.34 ns each; read them apart (ADR-0058).
-                    # DOES NOT MEET ADR-0038's DECLARED 12 MHz, and that intent
-                    # is unchanged. Ratchets on SOC_MIN_MHZ (10.0 -- this line
-                    # said 10.5 and the Makefile never did; ADR-0057), a
+                    # LOGIC/ROUTING SPLIT, which is the finding. 4383/5280 LC,
+                    # 2/4 SPRAM; 74.34 - 78.80 ns = 12.69 - 13.45 MHz over four
+                    # placements as of ADR-0064, which addressed the regfile's
+                    # write-through bypass from a registered copy of rs1/rs2.
+                    # THAT MEETS ADR-0038's DECLARED 12 MHz at every placement,
+                    # and 12 is the board crystal rather than a round number
+                    # (ADR-0062). It was 88.51 ns = 11.30 MHz, 38.7% logic /
+                    # 61.3% routing, over
+                    # imem.in_range -> decode -> next PC -> imem.in_range2
+                    # at ADR-0054, whose 41 levels were 25 LUT + 17 CARRY at
+                    # 3.31 ns and 0.34 ns each; read those apart (ADR-0058).
+                    # Ratchets on SOC_MIN_MHZ (10.9, 11.5% under the worst
+                    # placement -- ADR-0064; it was 10.0, and this line said
+                    # 10.5 while the Makefile never did, ADR-0057), a
                     # regression floor set below the measurement, not at the
                     # intent.
+                    # soc/timing_sweep.sh runs four placements and prints the
+                    # spread. One placement is a sample; compare distributions.
                     # Needs the RISC-V toolchain (it builds a real ROM image).
                     # ON CI as of the `soc-timing` job (non-required, same
                     # reasoning as `fit`: area and timing are design
@@ -1217,11 +1269,17 @@ longer quietly widen.
   produced two wrong estimates already, and the core's number and the SoC's are two different
   designs. **The brief's two `reg_ch0` claims are false and are struck in place** (ADR-0040), and its
   recommendation of a *negedge* read is superseded (ADR-0042).
-- **Timing**: `make soc-timing`, ADR-0054. **88.51 ns = 11.30 MHz, 38.7% logic / 61.3% routing**, on
-  `imem.in_range → decode → next PC → imem.in_range2`. The comparable earlier figure is
-  `rtl/regfile.v` placed alone at 86% routing (ADR-0038): the whole SoC is still routing-dominated,
-  just less extremely than an isolated 32:1 mux. **ADR-0038's declared 12 MHz is an intent and this
-  measurement does not move it**; the design misses it by 6%.
+- **Timing**: `make soc-timing`, and `soc/timing_sweep.sh` for the four-placement spread that is
+  the only honest form of the number. **74.34 · 75.81 · 76.88 · 78.80 ns = 12.69 – 13.45 MHz**
+  (ADR-0064, local Homebrew yosys 0.67+post), against 95.74 – 99.47 ns on the same tree before it.
+  **ADR-0038's declared 12 MHz is met at every placement**, and ADR-0062 is where 12 stops being a
+  round number: the board crystal is 12 MHz and the part oscillator divides 48 to 48/24/12/6, so the
+  step below 12 is 6. The one change that did it addressed `rtl/regfile.v`'s write-through bypass
+  from a registered copy of the address pair — read invariant 6 before touching `operand_stall`.
+  The earlier figure was 88.51 ns = 11.30 MHz, 38.7% logic / 61.3% routing, on
+  `imem.in_range → decode → next PC → imem.in_range2` (ADR-0054); the comparable one before that is
+  `rtl/regfile.v` placed alone at 86% routing (ADR-0038), so the whole SoC is still
+  routing-dominated, just less extremely than an isolated 32:1 mux.
 - **Those 41 logic levels are 25 LUT levels and 17 carry hops, and quoting the single number is how
   this repo talked itself into a sprint** (ADR-0058). A LUT level costs **3.31 ns** — its own delay
   plus the `LocalMux` + `InMux` into it — and a `carryin -> carryout` hop costs **0.34 ns** and no
@@ -1230,8 +1288,12 @@ longer quietly widen.
   `make soc-timing` prints both counts and both per-hop costs now.
 - **The fetch loop is not uniquely critical: a second path sits within 1.7% of it** (ADR-0058).
   Decode → `stall` → `instret` → `minstret`'s 64-bit counter measures 87.04 ns against the loop's
-  88.51, and the baseline already reaches 87.43 at one of its four placements. **So any change that
-  shortens only the fetch loop is capped at about 11.5 MHz and cannot clear the churn bands.** Two
+  88.51, and the baseline already reaches 87.43 at one of its four placements. **That cap was
+  written as "about 11.5 MHz" and it was a property of the tree it was measured on, not a bound**:
+  ADR-0062 re-measured the second path at 81.91 ns worst, and ADR-0064's change cleared 12.69 MHz at
+  four placements because the same bypass select sits on both paths — `trap_pending` tests
+  load/store misalignment, which is computed from `reg_rs1`. A cap derived by deleting a term from
+  one path stops being a cap when the term is on the other one too. Two
   restructurings were built and measured against this: computing the ROM's range flag in parallel
   with the `next_pc` mux (measured at its ceiling, with the comparator deleted outright — 1.8%
   *slower*, four placements, no overlap) and flattening the `next_pc` priority chain into a one-hot
@@ -1272,9 +1334,10 @@ longer quietly widen.
 - Decisions: [`docs/adr/`](docs/adr/) — **sixty-three ADRs, sixty-two of them accepted**, plus a
   deferred list. Re-derived by counting: `ls docs/adr/*.md | wc -l` is 64, one of which is
   `README.md`, and the status column in that README carries exactly one non-accepted entry
-  (ADR-0016, superseded by ADR-0018). This line has now been behind three times — it said
-  "forty-five accepted", then "forty-seven", then "fifty-six" — so **re-derive it with the two
-  commands rather than incrementing it**, which is what missed ADR-0049 through ADR-0051 in one go.
+  (ADR-0016, superseded by ADR-0018). This line has now been behind three times — "forty-five
+  accepted", then "forty-seven", then "fifty-five" while seven more had landed — so **re-derive it
+  with the two commands rather than incrementing it**. The first lapse missed ADR-0049 through
+  ADR-0051 in one go, and the third missed ADR-0056 through ADR-0062.
 - Reference text from the old core: `git show 1709433^:rtl/riscv.v` (RVFI retire block),
   `git show e67875c^:rtl/alu.v` (arithmetic)
 - Work is tracked in Linear, project **Little CPU** (team JEF). Named here so you know where the

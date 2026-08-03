@@ -15,6 +15,10 @@
 // architectural value including a cycle-N writeback. rtl/decoder.v's
 // `operand_stall` supplies the fetch cycle and holds the PC so the addresses
 // cannot move; every vector below samples where a real consumer does.
+//
+// The read mux keys off a registered copy of the address pair, so it answers
+// the fetch cycle's addresses in both cycles. Holding the pair is what makes
+// those the same addresses.
 module regfile_tb;
   logic clk = 0;
   always #5 clk = ~clk;
@@ -155,11 +159,27 @@ module regfile_tb;
               reg_rs1, 32'h44444444);
     check_ne("...and specifically is NOT x6's value", reg_rs1, 32'h55555555);
 
-    // x0 reads 0 on both ports in both cycles, even with waddr == 0 and wen == 1
-    // aimed straight at it. The read mux forces this unconditionally; the write
-    // suppression is a separate claim, checked next.
+    // The bypass select is on the held address too. Point the port at another
+    // register in the use cycle and write to the one that was fetched: the
+    // written word still comes back. Select on the presented address and the
+    // match is missed, so the array answers instead. Every other vector here
+    // holds the pair and cannot tell the two spellings apart.
+    drive(5'd0, 5'd5, 1'b0, 5'd0, 32'h0);          // fetch x5 on rs2
+    drive(5'd0, 5'd6, 1'b1, 5'd5, 32'haaaaaaaa);   // use, rs2 now x6, writing x5
+    check_hex("bypass keyed to the held address (rs2)", reg_rs2, 32'haaaaaaaa);
+
+    drive(5'd5, 5'd0, 1'b0, 5'd0, 32'h0);          // fetch x5 on rs1
+    drive(5'd6, 5'd0, 1'b1, 5'd5, 32'h99999999);   // use, rs1 now x6, writing x5
+    check_hex("bypass keyed to the held address (rs1)", reg_rs1, 32'h99999999);
+
+    // x0 reads 0 on both ports, even with waddr == 0 and wen == 1 aimed straight
+    // at it. That is forced off the held address like every other read, so the
+    // cycle that first presents x0 still answers the address held from the
+    // vector above -- x6 -- and the zero arrives a cycle later. Nothing in the
+    // core reads an operand in a fetch cycle, so this bench is the only place
+    // that shows.
     drive(5'd0, 5'd0, 1'b1, 5'd0, 32'hdeadbeef);
-    check_hex("x0 reads 0 in the fetch cycle (rs1)", reg_rs1, 32'h00000000);
+    check_hex("presenting x0 still answers the held address (rs1)", reg_rs1, 32'h55555555);
     drive(5'd0, 5'd0, 1'b1, 5'd0, 32'hdeadbeef);
     check_hex("x0 reads 0 in the use cycle (rs1)", reg_rs1, 32'h00000000);
     check_hex("x0 reads 0 in the use cycle (rs2)", reg_rs2, 32'h00000000);
