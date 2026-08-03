@@ -800,6 +800,45 @@ module decoder (
 
   always_comb if (instr_valid) assert(one_of);
 
+  // Five case statements above are marked one-hot for synthesis, and the check
+  // just above does not reach them -- their arms are opcode groups and
+  // compressed flags, which it does not name. Each assertion below is one of
+  // those arm lists. Without it an encoding change that made two arms match at
+  // once would leave synthesis free to pick either, and nothing would say so.
+  // Each list is transcribed, not shared with the statement it describes, so
+  // adding an arm to one means adding it here too.
+  // immediate
+  always_comb assert($onehot0({instr_load_op || instr_jalr_op, instr_store_op,
+    instr_lui_op || instr_auipc, instr_jal_op, instr_branch_op, instr_math_immediate_op,
+    instr_clwsp, instr_cswsp, instr_csw, instr_clw, instr_cj || instr_cjal,
+    instr_cbeqz || instr_cbnez, instr_cli, instr_clui, instr_caddi, instr_caddi16sp,
+    instr_caddi4spn, instr_candi}));
+  // rd
+  always_comb assert($onehot0({
+    instr_beq || instr_bne || instr_blt || instr_bge || instr_bltu || instr_bgeu ||
+      instr_sb || instr_sh || instr_sw || instr_cj || instr_cjr,
+    instr_cjal || instr_cjalr,
+    instr_clw || instr_caddi4spn,
+    instr_csrai || instr_csrli || instr_candi || instr_cand ||
+      instr_cor || instr_cxor || instr_csub}));
+  // rs1
+  always_comb assert($onehot0({
+    instr_clwsp || instr_cswsp || instr_caddi4spn,
+    instr_clw || instr_csw || instr_cbeqz || instr_cbnez ||
+      instr_csrai || instr_csrli || instr_candi || instr_cand ||
+      instr_cor || instr_cxor || instr_csub,
+    instr_cjr || instr_cjalr || instr_cslli,
+    instr_cli || instr_cmv,
+    instr_caddi || instr_caddi16sp || instr_cadd}));
+  // rs2
+  always_comb assert($onehot0({
+    instr_cswsp || instr_cslli || instr_csrai || instr_csrli || instr_cmv || instr_cadd,
+    instr_csw || instr_cand || instr_cor || instr_cxor || instr_csub,
+    instr_cbeqz || instr_cbnez}));
+  // the operand overrides in the publish block
+  always_comb assert($onehot0({instr_auipc, instr_csr_access, instr_jal || instr_jalr,
+    instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu}));
+
   // This is what makes the trap-cause case above safe without a one-hot marking.
   // Add a sixth cause that overlaps an existing one and this fails here.
   always_comb assert($onehot0({instr_illegal, instr_ebreak, instr_ecall,

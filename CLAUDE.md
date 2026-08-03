@@ -770,6 +770,23 @@ divide defect — all three since fixed, and the last two no longer have bullets
 the struck bullet above), and everything ran under `RISCV_FORMAL_ALTOPS`, so
 a green `insn_mul` says nothing whatever about multiplication (ADR-0010). **M2 is not reached.**
 
+**Four of `rtl/decoder.v`'s six `(* parallel_case *)` markings were spent against nobody's proof,
+and the two statements that lack the marking must keep lacking it** (ADR-0068). The immediate,
+`rd`, `rs1` and `rs2` muxes select on opcode-group and **compressed** flags — `instr_load_op`,
+`instr_clw`, `instr_cswsp` — and the `$onehot` assertion in that file covers the 45 *architectural*
+flags (`instr_lw`, `instr_add`) and names none of them. A compressed flag widened to overlap a
+sibling leaves every architectural flag one-hot, so the existing check stays green while two arms of
+a marked mux match at once and synthesis picks either; **measured** — widening `instr_clw` to
+quadrant 2 passed `components_decoder` before this change. Five `$onehot0` assertions, one per arm
+list, close it, and the same mutation now fails on exactly the two of them it should. The two
+**unmarked** statements were the ticket's actual ask and both are declined: `next_pc` selects on
+`stall` and `trap_pending`, which are both true whenever a trapping instruction is held, and
+`trap_cause` is ADR-0030's recorded priority order, whose first stated failure mode is someone
+flattening it. There are **eight** such statements in the file, not six — two are written
+`case(1'b1)` with no space and a space-sensitive grep is what missed them. The change is
+`ifdef FORMAL`-only and that is proven, not argued: the two `fit.json` netlists differ in one line,
+the module's recorded end line.
+
 ## Invariants — do not break these
 
 These are the design. Violating one is a bug even if tests pass.
