@@ -15,8 +15,8 @@ module fetcher(
   // construction the value `imem_addr` takes on the next edge. A synchronous
   // memory that latches it therefore answers `imem_addr` for the whole of the
   // cycle in which `imem_addr` names that word -- which is what lets fetch stay
-  // combinational from decode's point of view (CLAUDE.md invariant 1) on a part
-  // whose every memory primitive is synchronous (ADR-0044).
+  // combinational from decode's point of view on a part whose every memory
+  // primitive is synchronous (ADR-0044).
   //
   // Only the first word address is published. The second is `+ 4`, which the
   // memory system already has to compute for its own bank indexing, and adding
@@ -33,13 +33,15 @@ module fetcher(
   // follows a compressed instruction), so fetch always reads the
   // word-aligned pair straddling pc and windows the 32 bits starting at pc
   // out of the two -- stateless, so a straddle costs nothing: no aligner
-  // FSM, no buffer, no stall (CLAUDE.md invariant 1).
+  // FSM, no buffer, no stall.
   assign imem_addr  = {pc[31:2], 2'b00};
   assign imem_addr2 = imem_addr + 4;
   assign imem_addr_next = {next_pc[31:2], 2'b00};
 
-  // Named continuous assigns, not part-selects inside the always_comb below
-  // (CLAUDE.md's documented `sorry:` exception is rtl/executor.v only).
+  // Named continuous assigns, not part-selects inside the always_comb below:
+  // iverilog cannot build a precise sensitivity entry for a constant select
+  // there and emits `sorry:`. rtl/writeback.v is the one file that carries
+  // those; do not add more anywhere else.
   logic [63:0] fetch_pair;
   assign fetch_pair = {imem_data2, imem_data} >> (pc[1] ? 16 : 0);
   logic [31:0] windowed_instr;
@@ -51,8 +53,8 @@ module fetcher(
       out.pc = 32'b0;
       out.instr = 32'b0;
     end else begin
-      // Fetch never presents a wrong-path instruction (CLAUDE.md invariant 1),
-      // so it is valid on every non-reset cycle.
+      // Fetch never presents a wrong-path instruction, so it is valid on
+      // every non-reset cycle.
       out.valid = 1'b1;
       out.instr = windowed_instr;
       out.pc = pc;

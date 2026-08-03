@@ -52,10 +52,10 @@ typedef struct packed {
   logic [31:0] rs1_rdata;
   logic [31:0] rs2_rdata;
   // ADR-0028: `rvfi_trap` for this instruction. Decode is the one stage that
-  // knows it -- every trap is detected and committed there (CLAUDE.md
-  // invariant 2) -- so it rides down with the rest of the shadow rather than
-  // being recomputed at retire. A trapping instruction still retires
-  // (`valid` reaching writeback, invariant 3); it just retires having
+  // knows it -- every trap is detected and committed there -- so it rides down
+  // with the rest of the shadow rather than being recomputed at retire. A
+  // trapping instruction still retires (`valid` reaching writeback); it just
+  // retires having
   // architecturally done nothing except redirect the PC.
   logic        trap;
   // Exactly the CSRs formal/checks.cfg's `[csrs]` list names, captured in

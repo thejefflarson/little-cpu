@@ -1,7 +1,7 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
 
-// rtl/regfile.v's contract (CLAUDE.md invariants 6 and 9, ADR-0042). The read
+// rtl/regfile.v's contract. The read
 // is registered, so an operand takes two cycles to obtain and the two are not
 // interchangeable:
 //
@@ -148,8 +148,8 @@ module regfile_tb;
     check_hex("the bypassed write reached the array (rs1)", reg_rs1, 32'h55555555);
     check_mirrors("arrays agree after the forwarded writes");
 
-    // Invariant 9: the read register is keyed to the address presented in the
-    // FETCH cycle, not to whatever rs1 holds during the use cycle. This is not a
+    // The read register is keyed to the address presented in the FETCH cycle,
+    // not to whatever rs1 holds during the use cycle. This is not a
     // behaviour to rely on -- it is why rtl/decoder.v must hold the PC across
     // the pair, and it is what breaks loudly if the read is made combinational
     // again without removing `operand_stall`.

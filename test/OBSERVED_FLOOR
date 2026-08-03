@@ -75,8 +75,7 @@
 # against an oracle. csr.S, minstret.S and trap.S therefore show the widest gap
 # between the two columns, and that gap is the pin's coverage boundary, not a
 # bug in this core. Whoever first sees a low number here should not have to
-# rediscover that — CLAUDE.md says the same thing next to the EXPECTED_FAIL
-# contract.
+# rediscover that.
 #
 # HOW TO RE-MEASURE. Run `make test` and copy the table's third column. Record
 # the commit SHA it was measured at in the PR that changes a number, the way

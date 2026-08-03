@@ -1,9 +1,9 @@
 # svlint configuration -- the structural lint gate (`make lint`).
 #
 # WHY THIS EXISTS. svlint is a THIRD independent SystemVerilog frontend
-# (sv-parser), alongside yosys and iverilog. By the same reasoning CLAUDE.md's
-# verification table applies to the three simulation legs, a third parser earns
-# its place by seeing what the other two structurally cannot. It has already
+# (sv-parser), alongside yosys and iverilog. By the same reasoning that gives
+# each simulation leg its place, a third parser earns its own by seeing what the
+# other two structurally cannot. It has already
 # demonstrated that: svlint cannot resolve rtl/structs.v without an explicit
 # include path (`-i rtl`), a parse-configuration fact neither yosys nor
 # iverilog surfaces.
@@ -64,9 +64,8 @@
 # Text rules -- all off.
 #
 # header_copyright, style_directives, style_semicolon, style_textwidth encode a
-# house style this repo has not adopted, and CLAUDE.md is explicit that this
-# project optimises for readability over conformance. Whitespace findings would
-# bury the structural rules that are the entire reason svlint is here.
+# house style this repo has not adopted. Whitespace findings would bury the
+# structural rules that are the entire reason svlint is here.
 # ---------------------------------------------------------------------------
 [textrules]
 header_copyright = false   # no per-file copyright header convention in this repo
@@ -93,9 +92,9 @@ eventlist_comma_always_ff = true
 # ENABLED -- process kind must be stated, not inferred.
 #
 # A bare `always` whose sensitivity list the tool infers is how a combinational
-# block silently becomes a latch. CLAUDE.md invariant 1 (fetch is
-# combinational, no flush logic) depends on the comb/ff split being exactly
-# what it reads as.
+# block silently becomes a latch. Fetch is combinational and no later cycle
+# un-commits state; both depend on the comb/ff split being exactly what it
+# reads as.
 # ---------------------------------------------------------------------------
 general_always_no_edge = true
 general_always_level_sensitive = true
@@ -171,9 +170,8 @@ action_block_with_side_effect = true  # assertion action blocks must not drive s
 # elaborate job and the test/rtl.cc recipe already gate that class. The only
 # thing case_default catches that yosys does not is a `case` that is ALREADY
 # SAFE, because it has its defaults assigned first. That is a style
-# requirement, not a defect class, and it is not worth an rtl/ edit to the
-# stage whose legibility CLAUDE.md singles out. Reopening it needs a defect
-# class yosys does not already error on.
+# requirement, not a defect class, and it is not worth an rtl/ edit for style
+# alone. Reopening it needs a defect class yosys does not already error on.
 case_default = false               # style, not safety: yosys already errors on the latch -- see above
 explicit_case_default = false      # 10 findings; 4 provably exhaustive, and it fires inside always_ff too
 implicit_case_default = false      # 8 findings; measured NOT to honour a preceding default assignment
@@ -238,9 +236,9 @@ tab_character = false                    # style: whitespace
 # DISABLED -- house-style families, off wholesale.
 #
 # These forbid language keywords, impose identifier casing, or enforce name
-# prefixes/regexes. They encode a house style this repo has not adopted, and
-# CLAUDE.md is explicit that readability is the design goal. Enabling any of
-# them would produce hundreds of findings and bury the rules above, which is
+# prefixes/regexes. They encode a house style this repo has not adopted.
+# Enabling any of them would produce hundreds of findings and bury the rules
+# above, which is
 # the specific outcome this gate is meant to avoid. Listed by family rather
 # than one line each -- the reason is identical for every member.
 # ---------------------------------------------------------------------------

@@ -173,7 +173,7 @@ def run_yosys(out_dir):
         raise SystemExit("yosys failed (exit %d) -- see output above" % proc.returncode)
     # yosys -q still prints warnings; surface them rather than swallowing them.
     # NOT promoted to errors here, deliberately: CI's `elaborate` job already
-    # owns that policy for this RTL, with a curated allowlist (CLAUDE.md's "Deep
+    # owns that policy for this RTL, with a curated allowlist (the "Deep
     # recursion in AST simplifier" note), and a second promotion on a different
     # yosys pipeline would go red for reasons that have nothing to do with the
     # property this gate decides. Zero appear today; if that changes, read them.
