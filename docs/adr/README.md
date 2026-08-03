@@ -74,6 +74,7 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0067](0067-the-bus-never-refuses-and-the-eleven-are-ruled.md) | The bus never refuses a transaction, and the eleven declined checks are ruled | Accepted · pays off 0044's closing obligation; settles invariant 2 |
 | [0068](0068-a-one-hot-marking-is-spent-against-an-assertion.md) | A one-hot marking is spent against an assertion, not against inspection | Accepted · supplements 0030, which declines one of the two statements it was asked to mark |
 | [0069](0069-a-dispatched-run-does-not-reach-the-merge-gate.md) | A dispatched run does not reach the merge gate | Accepted · amends 0013; the pin bump proposes by issue, and a PAT is rejected on public-repo grounds |
+| [0070](0070-the-suites-cycles-are-charged-to-a-named-stall-reason.md) | The suite's cycles are charged to a named stall reason | Accepted · gives 0042's accepted +18.0% an invoice; measures 0026 and 0060's six reasons |
 
 0001–0007 came from the design brief
 ([`docs/ideas/finish-the-rewrite.md`](../ideas/finish-the-rewrite.md)). 0008–0011 came out of
