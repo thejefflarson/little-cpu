@@ -225,6 +225,11 @@ make cosim-run      # co-sim one program (PROG=add.S)
 make cosim-suite    # the whole suite, graded against COSIM_EXPECTED_FAIL
 ```
 
+`make sail-setup` and `make lint-setup` unpack into `~/.cache/little-cpu`
+(`XDG_CACHE_HOME` moves it), **outside the checkout**. A git worktree is given tracked files only
+and a downloaded tool is gitignored, so an install inside the checkout is invisible from every
+worktree — which is why it does not live there. `make test` enforces it.
+
 Toolchain: macOS `brew install riscv64-elf-gcc`; Linux `apt install gcc-riscv64-unknown-elf`.
 Tests are freestanding assembly, so no multilib or newlib. Formal needs the pinned YosysHQ OSS CAD
 Suite. CI runs on every PR (`.github/workflows/ci.yml`); read the required set live from

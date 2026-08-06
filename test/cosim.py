@@ -89,7 +89,16 @@ import tempfile
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ASM_DIR = os.path.join(REPO, "test", "asm")
 SAIL_CONFIG = os.path.join(REPO, "test", "sail", "rv32imc_zicsr.json")
-SAIL_DIR = os.path.join(REPO, "tools", "sail")
+# `make sail-setup` unpacks the release here, outside any checkout. The install
+# used to live in the gitignored tools/, and a git worktree gets tracked files
+# only, so co-simulation was unavailable from every worktree while the main
+# checkout ran it fine. The Makefile computes this same path from TOOL_CACHE;
+# test/tool_cache_test.sh is what says the two still agree.
+TOOL_CACHE = os.path.join(
+    os.environ.get("XDG_CACHE_HOME")
+    or os.path.join(os.path.expanduser("~"), ".cache"),
+    "little-cpu")
+SAIL_DIR = os.path.join(TOOL_CACHE, "sail")
 SAIL_BIN = os.path.join(SAIL_DIR, "bin", "sail_riscv_sim")
 # Written by `make sail-setup` after it verifies the release tarball's SHA-256:
 # line 1 is the pin (version, asset, tarball digest), line 2 is the digest of
@@ -187,7 +196,7 @@ def sha256(path):
 
 
 def read_pin():
-    """(pin_line, binary_sha256) from tools/sail/.sail-pin, or (None, None)."""
+    """(pin_line, binary_sha256) from the install's .sail-pin, or (None, None)."""
     try:
         with open(SAIL_STAMP) as fh:
             lines = [ln.strip() for ln in fh.read().splitlines() if ln.strip()]
@@ -208,11 +217,11 @@ def find_sail(explicit):
        asset (the Makefile's sail-setup names it), so it is honoured even when
        it does not match the pin -- but never silently: an unmatched binary is
        announced on stderr with its digest.
-    2. `tools/sail/bin/sail_riscv_sim` -- must match the SHA-256 that
-       `make sail-setup` recorded in tools/sail/.sail-pin after verifying the
-       release tarball. A mismatch is fatal, not a warning: nobody named this
-       path, so an unexpected binary here is a substituted one, and tools/sail
-       is gitignored so it never shows up in `git status` or in review.
+    2. SAIL_BIN in the shared tool cache -- must match the SHA-256 that
+       `make sail-setup` recorded in SAIL_STAMP after verifying the release
+       tarball. A mismatch is fatal, not a warning: nobody named this path, so
+       an unexpected binary here is a substituted one, and it sits outside
+       every checkout so it never shows up in `git status` or in review.
 
     There is deliberately no bare PATH fallback. It executed whatever
     `sail_riscv_sim` happened to be first on PATH, with no version or digest
@@ -220,8 +229,8 @@ def find_sail(explicit):
     SAIL_RISCV_SIM is one environment variable away and is then a choice.
 
     What this does NOT establish: the stamp is checked against the binary, not
-    against the Makefile. A whole tools/sail tree substituted along with its
-    stamp passes here. `make cosim-run` catches that -- the Makefile compares
+    against the Makefile. A whole install tree substituted along with its stamp
+    passes here. `make cosim-run` catches that -- the Makefile compares
     line 1 of the stamp to its own `override` pin before running anything --
     so the two checks are complementary and a direct ./test/cosim.py
     invocation only gets this one.
@@ -264,7 +273,7 @@ def find_sail(explicit):
 
     raise Fatal(
         "sail_riscv_sim not found. Run 'make sail-setup' to install the pinned "
-        "release into tools/sail/, or set SAIL_RISCV_SIM to an existing build."
+        f"release into {SAIL_DIR}/, or set SAIL_RISCV_SIM to an existing build."
     )
 
 

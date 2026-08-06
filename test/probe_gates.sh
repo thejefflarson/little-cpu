@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=137
+PROBES_EXPECTED=142
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -1045,6 +1045,35 @@ probe "a field with no value is a malformed line" 1 "'issue' is not key=value" \
 d=$(new_case); : > "$d/counts"
 probe "no programs at all would report a clean 0 of 0" 1 \
   "no program reported its cycles" "$SR $d/counts"
+
+begin_group "test/tool_cache_test.sh"
+
+# XDG_CACHE_HOME is what both the Makefile and test/cosim.py resolve the tool
+# cache from, so setting it here decides the python side of the comparison
+# without installing anything. Nothing below is created on disk: the check
+# compares path strings and never stats them.
+TCT="$HERE/tool_cache_test.sh"
+tc_cache="$tmp/cache/little-cpu"
+
+probe "control: two agreeing paths outside the checkout are green" 0 \
+  "outside the checkout and agreed on" \
+  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint"
+
+probe "the Makefile and test/cosim.py drifting apart is red" 1 \
+  "do not agree on where the Sail" \
+  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/elsewhere $tc_cache/svlint"
+
+probe "a Sail install back inside the checkout is red" 1 \
+  "test/cosim.py installs tools inside the checkout" \
+  "XDG_CACHE_HOME=$REPO/cache $TCT $REPO/cache/little-cpu/sail $tc_cache/svlint"
+
+probe "an svlint install inside the checkout is red on its own" 1 \
+  "$REPO/tools/svlint" \
+  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $REPO/tools/svlint"
+
+probe "a relative install directory is red before it is compared" 1 \
+  "names a relative tool install directory" \
+  "XDG_CACHE_HOME=$tmp/cache $TCT tools/sail tools/svlint"
 
 begin_group "soc/fit_report.py"
 
