@@ -14,10 +14,11 @@ Three habits carry the goals:
 
 - **Measure a conflict; never assume one.** `make fit` and `make soc-timing` are the instruments.
   Do not discard a measured win because it sounds like an optimisation, and do not take
-  a tidier spelling that costs measured speed or area without recording the trade. Two standing
+  a tidier spelling that costs measured speed or area without recording the trade. Three standing
   precedents: `rtl/memory.v` ships the flat spelling of its write/read arms (the nested one costs
-  3.6% of Fmax), and `rtl/executor.v`'s `mul_div_counter` stays `[6:0]` (narrowing it costs 37
-  cells) — both measured and declined, not overlooked.
+  3.6% of Fmax), `rtl/executor.v`'s `mul_div_counter` stays `[6:0]` (narrowing it costs 37 cells),
+  and `rtl/decoder.v`'s operand-fetch cycle stays (removing it buys 13% of CPI and misses the
+  12 MHz requirement) — all measured and declined, not overlooked.
 - **Prove the property, then spend it.** Find a place the design pays for a property it already
   proves — a priority chain over proven-disjoint flags, a comparator that cannot differ — simplify
   it, and let the riscv-formal checks, the component proofs and the `.S` suite say whether the
