@@ -156,9 +156,10 @@ already names that as the shared lever on every near-critical path, and it is un
   at bound k = 22 SATISFIABLE` — because a change to how the register file is addressed is exactly
   the class that can make that check go green by stopping to ask. The decline is about the clock and
   about nothing else.
-- **`make cosim-suite` was not run on either variant**, because Sail is not installed on the machine
-  that took these measurements. It is the leg positioned to see a stale operand rather than a wrong
-  one, so a future attempt at this should carry its output.
+- **`make cosim-suite` was not run on either variant.** `tools/sail` is gitignored, so the worktree
+  these measurements were taken in had no Sail binary, though the checkout it branched from does.
+  It is the leg positioned to see a stale operand rather than a wrong one, so a future attempt at
+  this should carry its output, run from a tree that has had `make sail-setup`.
 - **F and G were not re-derived**, and the ladder's `[depth]` lines did not move. The reason it was
   safe to run at the shipping depths: a wrong guess raises `operand_stall` for exactly one cycle and
   then the current pair is presented, so the longest run of consecutive operand-fetch cycles is one,
