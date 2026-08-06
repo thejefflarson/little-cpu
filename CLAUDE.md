@@ -17,8 +17,9 @@ Three habits carry the goals:
   a tidier spelling that costs measured speed or area without recording the trade. Three standing
   precedents: `rtl/memory.v` ships the flat spelling of its write/read arms (the nested one costs
   3.6% of Fmax), `rtl/executor.v`'s `mul_div_counter` stays `[6:0]` (narrowing it costs 37 cells),
-  and `rtl/decoder.v`'s operand-fetch cycle stays (removing it buys 13% of CPI and misses the
-  12 MHz requirement) — all measured and declined, not overlooked.
+  and `rtl/decoder.v`'s operand-fetch cycle stays (removing it buys 13% of CPI and misses 12 MHz;
+  a cheaper spelling holds 12 MHz on 0.83% margin against today's 4.5%, and was declined on that)
+  — all measured and declined, not overlooked.
 - **Prove the property, then spend it.** Find a place the design pays for a property it already
   proves — a priority chain over proven-disjoint flags, a comparator that cannot differ — simplify
   it, and let the riscv-formal checks, the component proofs and the `.S` suite say whether the
