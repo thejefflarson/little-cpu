@@ -76,6 +76,7 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0069](0069-a-dispatched-run-does-not-reach-the-merge-gate.md) | A dispatched run does not reach the merge gate | Accepted · amends 0013; the pin bump proposes by issue, and a PAT is rejected on public-repo grounds |
 | [0070](0070-the-suites-cycles-are-charged-to-a-named-stall-reason.md) | The suite's cycles are charged to a named stall reason | Accepted · gives 0042's accepted +18.0% an invoice; measures 0026 and 0060's six reasons |
 | [0071](0071-the-trap-commit-path-is-proved-and-its-priority-encoder-is-still-vacuous.md) | The trap commit path is proved by k-induction, and its priority encoder is still vacuous | Accepted · supplements 0011, 0028 and 0030; adds a fourth `components.sby` task |
+| [0074](0074-the-operand-fetch-cycle-is-removable-and-costs-more-than-it-saves.md) | The operand-fetch cycle is removable, and it costs more clock than it saves | Accepted · declines a change to 0042; measured with 0070, graded by 0066; sharpens 0064's coupling |
 
 0001–0007 came from the design brief
 ([`docs/ideas/finish-the-rewrite.md`](../ideas/finish-the-rewrite.md)). 0008–0011 came out of
