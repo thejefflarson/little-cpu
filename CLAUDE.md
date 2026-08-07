@@ -175,8 +175,11 @@ and times.
 - **Read logic levels apart**: a LUT level costs ~3.3 ns (delay plus interconnect), a carry hop
   ~0.34 ns and no interconnect. A change that trades a carry hop for a LUT level gets shallower by
   icetime's count and slower in nanoseconds. The SoC is routing-dominated; wide flat muxes route
-  worse than chains. The shared lever on every near-critical path is the decode head
-  (`imem.in_range → instr → {rs1/rs2, immediate, hazard}`).
+  worse than chains. **There is no single lever.** The decode head
+  (`imem.in_range → instr → {rs1/rs2, immediate, hazard}`) was named as one and measures 3.3% deleted
+  whole — inside the churn band — while every other input to `next_pc` measures nothing on its own
+  and all of them together are worth 21% (ADR-0076). Bring a ceiling for the whole cone or expect a
+  null.
 
 Baselines and grading:
 
