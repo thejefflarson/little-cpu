@@ -3,10 +3,9 @@
 # spread.
 #
 # One placement is a sample, not a measurement. Unmodified `main` spans about
-# 1.2% across four seeds (ADR-0058) and an edit that changes no hardware moves
-# the number by up to 3.6% (ADR-0054), so a comparison between two designs needs
-# distributions on both sides. Three ADRs have needed exactly this and each ran
-# it by hand.
+# 1.2% across four seeds and an edit that changes no hardware moves the number
+# by up to 3.6%, so a comparison between two designs needs distributions on
+# both sides.
 #
 #   soc/timing_sweep.sh                     # the default placement plus seeds 1-3
 #   SOC_SEEDS='default 1 2 3 4 5' soc/timing_sweep.sh
@@ -21,7 +20,7 @@
 # `make soc-timing | grep 'critical path'`, whose status is grep's -- so a
 # placement under SOC_MIN_MHZ printed its row and the sweep exited 0. Same shape
 # as the graded comparison piped into `tee` that hid a red formal gate for
-# months (ADR-0037).
+# months.
 #
 # It also calls the whole target per seed rather than re-running nextpnr with a
 # new seed against one `soc.json`. That would skip four resyntheses and cost a

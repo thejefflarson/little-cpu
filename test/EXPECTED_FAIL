@@ -1,14 +1,13 @@
-# The `.S` suite's regression baseline (ADR-0014). `make test` exits 0 only when
-# the set of tests that do NOT pass matches this file exactly — in both
-# directions, so an unexpected *pass* is caught too, not just an unexpected
-# failure.
+# The `.S` suite's regression baseline. `make test` exits 0 only when the set
+# of tests that do NOT pass matches this file exactly — in both directions, so
+# an unexpected *pass* is caught too, not just an unexpected failure.
 #
 # Lines come out one at a time, in the same commit as the fix that makes that
 # test pass: the deletion is the evidence the fix worked. Never regenerate this
 # file wholesale from a run — that launders a regression into the baseline. Edit
 # it by hand, and justify any line added back in the PR that adds it.
 #
-# FORMAT — two fields, not one (ADR-0035):
+# FORMAT — two fields, not one:
 #
 #     <test>.S  <STATUS>
 #
@@ -30,24 +29,9 @@
 # a review flag.
 #
 # THIS IS NOT THE PLACE TO PARK A DEFECT IN THE ORACLE. When the generated
-# monitor itself is wrong, the repair belongs in test/sanitize_monitor.py —
-# read ADR-0019 before adding a line back for a monitor-side problem.
+# monitor itself is wrong, the repair belongs in test/sanitize_monitor.py, which
+# is re-applied every time the monitor is regenerated at the pin. Baselining the
+# one program that tripped it leaves the oracle wrong for every other program.
 #
-# The history of what was baselined here and when lives in git and in the ADRs
-# above; it is not repeated in this file, which describes the contract in force.
-
-# ADR-0048 finding 3, landed red on purpose. Two CSRs the RV32 privileged
-# specification lists unconditionally -- mstatush (0x310, priv 20211203
-# §3.1.6.4) and mconfigptr (0xF15, §3.1.4) -- are absent from rtl/csrs.v's
-# `implemented` set, so an access to either raises illegal instruction where the
-# spec says it should read zero. The Sail reference model reads both and
-# continues; this core traps on both, so the divergence is measured rather than
-# argued, and test/COSIM_EXPECTED_FAIL carries the other half of it.
-#
-# NOT fixed in the change that found it: ADR-0005 states its CSR set as *exact*,
-# so widening it is an ISA-scope decision belonging to an amendment of
-# ADR-0002/ADR-0005, not to the audit that noticed. The status pins the first
-# failing case; when mstatush alone lands, this becomes `FAIL 3` and the second
-# field goes red, which is ADR-0035's mechanism working rather than a
-# regression. When both land, this line and the co-simulation one come out
-# together.
+# The history of what was baselined here and when lives in git; it is not
+# repeated in this file, which describes the contract in force.

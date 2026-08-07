@@ -1,4 +1,4 @@
-// The cxxrtl test runner (ADR-0007, ADR-0008): loads a `.text` and a
+// The cxxrtl test runner: loads a `.text` and a
 // `.data`/`.rodata`/`.bss` image straight into test/testbench.v's `rom` and
 // `memory` arrays via debug_items, runs the design for a bounded number of
 // cycles, and watches `tohost` (test/asm/riscv_test.h) for the riscv-tests
@@ -7,16 +7,16 @@
 // Exit codes: 0 = pass, 1 = fail (test number printed), 2 = cycle-limit
 // timeout, 3 = usage/setup error (bad args, missing file, image too big for
 // the simulated memories), 4 = RVFI monitor error (a per-retire mismatch,
-// ADR-0006 — distinct from 1 because tohost never got a say: the failure is
+// distinct from 1 because tohost never got a say: the failure is
 // in the pipeline's own bookkeeping, not the test program's assertions),
-// 5 = trap taken with mtvec == 0 (ADR-0029 — the program has silently
+// 5 = trap taken with mtvec == 0 (the program has silently
 // restarted at `_start`; distinct from 2 because the timeout that would
 // otherwise result says nothing about the fault that caused it),
 // 6 = the per-retire monitor observed nothing: zero retires, or zero retires
 // whose values its spec model checked. See the counter block in
 // test/testbench.v for why that is a failure and not a curiosity — a monitor
 // that never fires leaves every program passing off `tohost` alone, which
-// ADR-0032 measured to be blind to real architectural corruption.
+// co-simulation measured to be blind to real architectural corruption.
 //
 // Every run that actually simulates prints one machine-readable line before
 // it exits:
@@ -112,7 +112,7 @@ bool load_image(cxxrtl::debug_items &items, const std::string &name,
   return true;
 }
 
-// The instruction ROM is two INTERLEAVED BANKS since ADR-0054: word W lives in
+// The instruction ROM is two INTERLEAVED BANKS: word W lives in
 // `imem rom_even` at index W/2 when W is even, and in `imem rom_odd` at the
 // same index when it is odd. Banking is what removed the duplicated ROM the SoC
 // needed for the dual-word fetch window, so the de-interleaving has to happen
@@ -255,7 +255,7 @@ int main(int argc, char **argv) {
   uint32_t *ram_data = memory_item.curr;
   const uint32_t tohost_index = 0;
 
-  // ADR-0006: test/testbench.v instantiates the RVFI monitor
+  // test/testbench.v instantiates the RVFI monitor
   // (test/monitor.v, riding along under -D RISCV_FORMAL) alongside the DUT,
   // so this leg is self-checking per-retire, not merely end-state-checking
   // via tohost above. "monitor errcode" is the top-level error code the
@@ -275,7 +275,7 @@ int main(int argc, char **argv) {
     return 3;
   }
 
-  // ADR-0029: `mtvec` resets to 0 and sections.lds links `.text` there, so a
+  // `mtvec` resets to 0 and sections.lds links `.text` there, so a
   // trap taken before a handler is installed restarts the program at `_start`
   // — a livelock that reads as a timeout with no hint of the fault behind it.
   // test/testbench.v raises this the cycle after any trap that redirects to
@@ -373,14 +373,14 @@ int main(int argc, char **argv) {
   // owes nothing to the monitor. Routing either through the silence gate would
   // replace a specific diagnosis with "the oracle was blind".
   //
-  // For exit 5 that is not hypothetical, it is the ADR-0029 case itself. Traps
-  // are detected and committed in DECODE (invariant 2) while a retire happens
+  // For exit 5 that is not hypothetical, it is the trap-to-zero case itself.
+  // Traps are detected and committed in DECODE while a retire happens
   // in writeback, so a fault in the first few instructions of `_start` raises
   // trap_to_zero several cycles before anything has retired. Measured: `ecall`
   // as the second instruction gives `RETIRES 0` and used to return 6, which
   // test/run_tests.sh labels MONITOR-SILENT — pointing at the monitor for a
   // program that faulted before installing `mtvec`, which is precisely the
-  // misattribution ADR-0029 added the TRAP-TO-ZERO label to prevent. The same
+  // misattribution the TRAP-TO-ZERO label exists to prevent. The same
   // `ecall` after six retiring instructions returned 5. A named failure path
   // that is unreachable in its own scenario is the defect this repo keeps
   // finding in its grading layer, one level down.

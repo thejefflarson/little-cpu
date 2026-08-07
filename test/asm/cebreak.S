@@ -24,13 +24,13 @@
 # drives the 32-bit form.
 #
 # Both alignments are exercised. `c.ebreak` at pc % 4 == 2 is where mepc's WARL
-# mask has to preserve bit 1 (ADR-0005) — the same property test/asm/trap.S
+# mask has to preserve bit 1 — the same property test/asm/trap.S
 # checks with a `c.lw`, restated here against a trap cause that comes from the
 # instruction itself rather than from its operand address.
 #
 # Layout: each faulting `c.ebreak` is followed by exactly one `c.nop`, because
 # the recording handler resumes at mepc+4 unconditionally and cannot read the
-# faulting instruction to learn it was 2 bytes (Harvard buses, ADR-0008). The
+# faulting instruction to learn it was 2 bytes (Harvard buses). The
 # `.align 2` before each block is what makes the alignment claim true rather
 # than incidental, and tests 4 and 8 assert it, so this file cannot quietly
 # degrade into two copies of the same case.
@@ -42,7 +42,7 @@
 RVTEST_RV64U
 RVTEST_CODE_BEGIN
 
-  # mtvec resets to 0, which is _start (ADR-0029) — install before faulting.
+  # mtvec resets to 0, which is _start — install before faulting.
   RVTEST_INSTALL_TRAP_HANDLER
 
   #-------------------------------------------------------------
@@ -100,7 +100,7 @@ test_9:
   bne   a4, x29, fail
 
   #-------------------------------------------------------------
-  # A trapping `c.ebreak` writes no register (ADR-0028), the same commitment
+  # A trapping `c.ebreak` writes no register, the same commitment
   # every other trapping instruction here makes. c.ebreak's encoding has rd
   # == x0 anyway, so this is really a check that decode's trap suppression did
   # not route something into the rd field on the way past.
@@ -115,7 +115,7 @@ test_9:
   TEST_CASE( 11, a4, 3, la a3, trap_count; lw a4, 0(a3); )
 
   #-------------------------------------------------------------
-  # ADR-0027: a trapping instruction does not increment `minstret`, and that
+  # A trapping instruction does not increment `minstret`, and that
   # has to hold for the compressed breakpoint too. Same shape as trap.S's
   # test 19: the difference across the pair is the first `csrr` plus one
   # handler entry, and the `c.ebreak` itself contributes nothing.

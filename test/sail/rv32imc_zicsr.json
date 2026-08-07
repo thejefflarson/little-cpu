@@ -1,5 +1,5 @@
 // The Sail RISC-V model, configured as THIS core: RV32IMC_Zicsr, machine mode
-// only (ADR-0002). Passed as `sail_riscv_sim --config`, NOT `--rv32
+// only. Passed as `sail_riscv_sim --config`, NOT `--rv32
 // --config-override`, and that distinction is the point of the file.
 //
 // WHY A WHOLE CONFIG AND NOT AN OVERRIDE
@@ -26,9 +26,9 @@
 // A CONFIG OVERRIDE IS WHERE YOU CAN TALK THE ORACLE INTO AGREEING WITH YOU.
 // Sail is authoritative about RISC-V semantics but NOT about which
 // implementation-defined choice this core makes -- we tell it that. So every
-// knob below traces to a decision that predates the divergence it resolves:
-// ADR-0002 (the ISA target), ADR-0005 (traps and CSRs), ADR-0008 (the memory
-// map). Nothing here was chosen because it made a test pass.
+// knob below traces to the ISA target, the trap and CSR set, or the memory
+// map -- decisions that predate the divergence each one resolves. Nothing here
+// was chosen because it made a test pass.
 //
 // WHAT THIS FILE CANNOT SAY. Three implementation-defined values remain
 // different because sail-riscv 0.13.1 has no knob for them, and they are NOT
@@ -38,7 +38,7 @@
 //     in test/cosim.py's NONCOMPARABLE_CSRS, keyed on the CSR encoding and
 //     scoped to one register at one comparison point.
 //
-//   * `mie` (the model hardwires MSIE/MTIE/MEIE writable; ADR-0002 makes them
+//   * `mie` (the model hardwires MSIE/MTIE/MEIE writable; this core makes them
 //     read-only zero) and `mip` (the model's mtime keeps ticking with the
 //     CLINT unmapped and raises MTIP; this core has no timer) are NOT in
 //     NONCOMPARABLE_CSRS and cannot be -- a value exemption cannot help here,
@@ -60,7 +60,7 @@
     // core is a write to a read-only-value CSR, not a way to turn C off.
     "writable_misa": false,
 
-    // menvcfg.FIOM only exists with U-mode, which ADR-0002 excludes.
+    // menvcfg.FIOM only exists with U-mode, which this core does not have.
     "writable_fiom": false,
 
     // No Zihpm: mhpmcounter3..31 and mhpmevent3..31 do not exist here.
@@ -88,13 +88,13 @@
       "vectored": { "supported": true, "base_alignment": 2 }
     },
 
-    // Nothing to delegate to: no S-mode, no U-mode (ADR-0002). Both mask to
+    // Nothing to delegate to: no S-mode, no U-mode. Both mask to
     // zero, which makes medeleg/mideleg read-only zero in the model.
     "medeleg": { "delegatable_bits": { "len": 64,    "value": "0x0000_0000_0000_0000" } },
     "mideleg": { "delegatable_bits": { "len": "xlen", "value": "0x0000_0000" } },
 
     // rtl/csrs.v hardwires mtval to 0, which is spec-legal for every cause
-    // this core raises (ADR-0002). Every trap therefore writes mtval = 0.
+    // this core raises. Every trap therefore writes mtval = 0.
     "xtval_nonzero": {
       "illegal_instruction": false,
       "software_breakpoint": false,
@@ -147,7 +147,7 @@
     // permits with Sv32 enabled.
     "physaddr_bits": 32,
 
-    // No PMP (ADR-0002). `count: 0` makes every pmpcfg/pmpaddr read-only zero;
+    // No PMP. `count: 0` makes every pmpcfg/pmpaddr read-only zero;
     // the remaining keys describe a granularity that no entry can use.
     "pmp": {
       "grain": 0,
@@ -167,7 +167,7 @@
     // inferred: changing the region attribute leaves a misaligned `lw`
     // completing; setting this one redirects to mtvec.
     //
-    // `AlignmentException` is the value matching ADR-0005's causes: load
+    // `AlignmentException` is the value matching this core's causes: load
     // address misaligned = 4, store address misaligned = 6. `AccessFault`
     // would be causes 5 and 7 and is a different implementation choice this
     // core did not make. The `vector`, `amo` and `lrsc` entries belong to V
@@ -190,7 +190,7 @@
 
     // test/asm/sections.lds: rom at 0x0 (16K) + ram at 0x10000 (4K), rounded
     // up to a flat 1MB so the linker script can grow without this file having
-    // to (ADR-0008). The model's default RV32 map puts MainMemory at
+    // to. The model's default RV32 map puts MainMemory at
     // 0x8000_0000, where nothing this suite builds is executable or loadable.
     //
     // The default map's other two regions are deliberately absent. Its
@@ -201,7 +201,7 @@
     //
     // The model detects HTIF from the ELF's `tohost` symbol, reports "HTIF
     // located at 0x10000", and TERMINATES on this suite's verdict write --
-    // `SUCCESS`, or `FAILURE: <testnum>` (ADR-0039). `--inst-limit` is
+    // `SUCCESS`, or `FAILURE: <testnum>`. `--inst-limit` is
     // therefore a runaway bound, not a convergence criterion.
     "regions": [
       {
@@ -251,8 +251,8 @@
       "invalidate_on_same_hart_store": false
     },
 
-    // No CLINT and no interrupt generator: this core has neither, and
-    // ADR-0002 has no interrupt sources at all. Turning the CLINT off is what
+    // No CLINT and no interrupt generator: this core has neither, and no
+    // interrupt sources at all. Turning the CLINT off is what
     // lets the 0x0200_0000 IOMemory region go away.
     //
     // MEASURED CAVEAT, and the reason mip is in cosim.py's NONCOMPARABLE_CSRS:
@@ -286,8 +286,8 @@
     "max_time_to_wait": 10
   },
 
-  // EXTENSIONS -- the audit ADR-0002 defines. Enabled: I (the base), M, C and
-  // Zicsr, plus the two that are enabled for a stated reason rather than
+  // EXTENSIONS -- audited against the ISA target. Enabled: I (the base), M, C
+  // and Zicsr, plus the two that are enabled for a stated reason rather than
   // because the target names them:
   //
   //   Zca    is the C extension for this target. misa.C is set from Zca alone
@@ -305,7 +305,7 @@
   //          on. No program in test/asm reads them; there is no knob to
   //          separate the machine counters from the shadows.
   //   Zifencei is enabled because rtl/decoder.v decodes `fence.i` and retires
-  //          it as a NOP (ADR-0005: one hart, Harvard, nothing to invalidate).
+  //          it as a NOP (one hart, Harvard, nothing to invalidate).
   //          With it off the model would raise an illegal instruction where
   //          this core does not.
   //

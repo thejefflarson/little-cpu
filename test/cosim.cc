@@ -57,8 +57,7 @@
 
 namespace {
 
-// Kept in sync with test/cxxrtl.cc, test/testbench.v and test/asm/sections.lds
-// (ADR-0008).
+// Kept in sync with test/cxxrtl.cc, test/testbench.v and test/asm/sections.lds.
 constexpr uint32_t kRamBase = 0x00010000;
 
 using HexImage = std::map<uint32_t, uint32_t>;
@@ -109,7 +108,7 @@ bool load_image(cxxrtl::debug_items &items, const std::string &name,
   return true;
 }
 
-// The instruction ROM is two INTERLEAVED BANKS since ADR-0054: word W lives in
+// The instruction ROM is two INTERLEAVED BANKS: word W lives in
 // `imem rom_even` at index W/2 when W is even, and in `imem rom_odd` at the
 // same index when it is odd. Banking is what removed the duplicated ROM the SoC
 // needed for the dual-word fetch window, so the de-interleaving has to happen
@@ -212,19 +211,18 @@ int main(int argc, char **argv) {
   // flattens the instance path to a space-separated debug-item name, the same
   // convention test/cxxrtl.cc uses for "monitor errcode".
   //
-  // `regs_a`, not `regs`: ADR-0042 split the array in two because an ice40 EBR
-  // has one read port, so rtl/regfile.v now holds two identical copies, one per
-  // read port. This probe reads ONE of them, which is the whole point of the
-  // cross-check below.
+  // `regs_a`, not `regs`: an ice40 EBR has one read port, so rtl/regfile.v
+  // holds two identical copies of the array, one per read port. This probe
+  // reads ONE of them, which is the whole point of the cross-check below.
   //
   // WHY THIS BEING RIGHT MATTERS MORE THAN IT LOOKS. This is the only oracle in
   // the repo that reads the core's architectural state directly rather than its
-  // RVFI self-report (ADR-0032), so a probe that silently pointed at the wrong
+  // RVFI self-report, so a probe that silently pointed at the wrong
   // item -- or at a stale copy, or at nothing -- would turn the whole
   // co-simulation leg into a comparison of nothing against nothing, which is
   // docs/THREAT_MODEL.md's category 1. The name lookup and the shape check
   // below fail closed; that they read the array the core actually commits to
-  // is established by mutation, recorded in ADR-0042.
+  // is established by mutation.
   const cxxrtl::debug_item *regs_item = nullptr;
   const cxxrtl::debug_item *regs_b_item = nullptr;
   const cxxrtl::debug_item *pc_item = nullptr;
@@ -272,13 +270,13 @@ int main(int argc, char **argv) {
     top.p_clk.set<bool>(true);
     top.step();
 
-    // ADR-0042: the two arrays are one architectural register file, written
+    // The two arrays are one architectural register file, written
     // from one address and one data word. Nothing else in this program would
     // notice them diverging -- every comparison below reads regs_a alone -- so
     // a rs2-side write defect would produce a co-simulation that agrees
     // perfectly while the core computes wrong answers on its rs2 port.
     // test/regfile_tb.v asserts this over a handful of directed vectors; this
-    // asserts it on every cycle of all 52 programs.
+    // asserts it on every cycle of every program in the suite.
     if (std::memcmp(regs, regs_b, sizeof(shadow)) != 0) {
       std::fprintf(stderr,
                    "error: rtl/regfile.v's two arrays diverged at cycle %ld -- "
