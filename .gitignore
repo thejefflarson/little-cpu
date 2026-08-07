@@ -42,17 +42,15 @@ obj_dir/
 rtl/rom.mem
 sim
 sim.dSYM/
-# The Sail co-simulation spike (docs/adr/0032): a second cxxrtl binary and
-# the prebuilt sail-riscv release `make sail-setup` unpacks. Both are build
-# artifacts; neither is on `make test`'s path.
+# The Sail co-simulation runner: a second cxxrtl binary, and not on `make
+# test`'s path.
 cosim
 cosim.dSYM/
-tools/sail
-tools/sail.tmp
-# The pinned svlint release archive `make lint-setup` unpacks (the structural
-# lint gate, .svlint.toml). A downloaded binary; never commit it.
-tools/svlint
-tools/svlint.tmp
+# `make sail-setup` and `make lint-setup` unpack into a cache outside the
+# checkout, so a git worktree sees the same install the main checkout does.
+# tools/ stays ignored so an install an older checkout left behind here can
+# never be committed.
+tools/
 test/a.out.dSYM/
 # Swarm agent worktrees (.claude/tracker.json stays tracked).
 .claude/worktrees/

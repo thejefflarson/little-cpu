@@ -29,6 +29,14 @@ sim: test/cxxrtl.cc test/rtl.cc
 	clang++ -O2 -DNDEBUG -std=c++17 -Wall -Wextra -Werror \
 	  -isystem $$(yosys-config --datdir)/include/backends/cxxrtl/runtime $< -o $@
 
+# Downloaded tools are unpacked here, outside the checkout. An install inside
+# it would be gitignored, and a git worktree gets tracked files only, so it
+# would be invisible from every worktree -- which is how `make cosim-suite`
+# came to report Sail as not installed on a machine that had it.
+# XDG_CACHE_HOME moves this; test/cosim.py resolves the same path from the same
+# rule, and test/tool_cache_test.sh is what says the two still agree.
+TOOL_CACHE := $(if $(XDG_CACHE_HOME),$(XDG_CACHE_HOME),$(HOME)/.cache)/little-cpu
+
 # Sail co-simulation is opt-in. Nothing from here down to `cosim-suite` is
 # reachable from `make test` or `make test-units`. Keep it that way: the runner
 # stops with an error when Sail is not installed, so making any of this a
@@ -56,7 +64,7 @@ SAIL_ASSET_Darwin_arm64   := sail-riscv-Mac-arm64
 SAIL_ASSET_Linux_x86_64   := sail-riscv-Linux-x86_64
 SAIL_ASSET_Linux_aarch64  := sail-riscv-Linux-aarch64
 
-SAIL_RISCV_DIR := tools/sail
+SAIL_RISCV_DIR := $(TOOL_CACHE)/sail
 SAIL_SIM_BIN   := $(SAIL_RISCV_DIR)/bin/sail_riscv_sim
 SAIL_ASSET     := $(SAIL_ASSET_$(shell uname -s)_$(shell uname -m))
 SAIL_SHA256    := $(SAIL_SHA256_$(SAIL_ASSET))
@@ -98,10 +106,10 @@ sail-setup:
 	  echo "tarball this machine cannot check." >&2; \
 	  exit 1; \
 	fi; \
-	if [ -x $(SAIL_SIM_BIN) ] && \
-	   [ "$$(sed -n 1p $(SAIL_STAMP) 2>/dev/null)" = '$(SAIL_PIN)' ]; then \
-	  want=$$(sed -n 2p $(SAIL_STAMP)); \
-	  got=$$($$sha $(SAIL_SIM_BIN) | cut -d ' ' -f 1); \
+	if [ -x '$(SAIL_SIM_BIN)' ] && \
+	   [ "$$(sed -n 1p '$(SAIL_STAMP)' 2>/dev/null)" = '$(SAIL_PIN)' ]; then \
+	  want=$$(sed -n 2p '$(SAIL_STAMP)'); \
+	  got=$$($$sha '$(SAIL_SIM_BIN)' | cut -d ' ' -f 1); \
 	  if [ "$$want" != "$$got" ]; then \
 	    echo "$(SAIL_SIM_BIN) is not the binary its stamp was written for:" >&2; \
 	    echo "  recorded : $$want" >&2; \
@@ -114,8 +122,8 @@ sail-setup:
 	  exit 0; \
 	fi; \
 	url=https://github.com/riscv/sail-riscv/releases/download/$(SAIL_RISCV_VERSION)/$(SAIL_ASSET).tar.gz; \
-	tmp=$(SAIL_RISCV_DIR).tmp; tgz=$$tmp/$(SAIL_ASSET).tar.gz; \
-	rm -rf $$tmp; mkdir -p $$tmp; \
+	mkdir -p '$(TOOL_CACHE)'; \
+	tmp=$$(mktemp -d '$(SAIL_RISCV_DIR)'.XXXXXX); tgz=$$tmp/$(SAIL_ASSET).tar.gz; \
 	echo "fetching $$url"; \
 	curl -fsSL -o $$tgz "$$url"; \
 	got=$$($$sha $$tgz | cut -d ' ' -f 1); \
@@ -143,9 +151,9 @@ sail-setup:
 	test -x $$tmp/bin/sail_riscv_sim; \
 	printf '%s\n' '$(SAIL_PIN)' > $$tmp/.sail-pin; \
 	$$sha $$tmp/bin/sail_riscv_sim | cut -d ' ' -f 1 >> $$tmp/.sail-pin; \
-	rm -rf $(SAIL_RISCV_DIR); \
-	mv $$tmp $(SAIL_RISCV_DIR)
-	@$(SAIL_SIM_BIN) --version
+	rm -rf '$(SAIL_RISCV_DIR)'; \
+	mv $$tmp '$(SAIL_RISCV_DIR)'
+	@'$(SAIL_SIM_BIN)' --version
 
 cosim: test/cosim.cc test/rtl.cc
 	clang++ -O2 -DNDEBUG -std=c++17 -Wall -Wextra -Werror \
@@ -238,11 +246,11 @@ SVLINT_ASSET_Linux_x86_64  := svlint-v$(SVLINT_VERSION)-x86_64-lnx
 SVLINT_ASSET_Darwin_x86_64 := svlint-v$(SVLINT_VERSION)-x86_64-mac
 SVLINT_ASSET_Darwin_arm64  := svlint-v$(SVLINT_VERSION)-aarch64-mac
 
-SVLINT_DIR   := tools/svlint
+SVLINT_DIR   := $(TOOL_CACHE)/svlint
 SVLINT_ASSET := $(SVLINT_ASSET_$(shell uname -s)_$(shell uname -m))
 SVLINT_SHA256 := $(SVLINT_SHA256_$(SVLINT_ASSET))
 
-SVLINT ?= $(shell command -v svlint 2>/dev/null || echo ./$(SVLINT_DIR)/bin/svlint)
+SVLINT ?= $(shell command -v svlint 2>/dev/null || echo $(SVLINT_DIR)/bin/svlint)
 
 # `-i rtl` is required. svlint looks up `include "structs.v"` on the include path
 # and nowhere else, so without it nothing parses. The two passes below both
@@ -278,9 +286,9 @@ lint-setup:
 	  echo "archive this machine cannot check." >&2; \
 	  exit 1; \
 	fi; \
-	tmp=$(SVLINT_DIR).tmp; zip=$$tmp/$(SVLINT_ASSET).zip; \
 	url=https://github.com/dalance/svlint/releases/download/v$(SVLINT_VERSION)/$(SVLINT_ASSET).zip; \
-	rm -rf $$tmp; mkdir -p $$tmp; \
+	mkdir -p '$(TOOL_CACHE)'; \
+	tmp=$$(mktemp -d '$(SVLINT_DIR)'.XXXXXX); zip=$$tmp/$(SVLINT_ASSET).zip; \
 	echo "fetching $$url"; \
 	curl -fsSL -o $$zip "$$url"; \
 	got=$$($$sha $$zip | cut -d ' ' -f 1); \
@@ -302,9 +310,9 @@ lint-setup:
 	rm -f $$zip; \
 	chmod +x $$tmp/bin/svlint; \
 	test -x $$tmp/bin/svlint; \
-	rm -rf $(SVLINT_DIR); \
-	mv $$tmp $(SVLINT_DIR)
-	@./$(SVLINT_DIR)/bin/svlint --version
+	rm -rf '$(SVLINT_DIR)'; \
+	mv $$tmp '$(SVLINT_DIR)'
+	@'$(SVLINT_DIR)'/bin/svlint --version
 
 UNIT_BENCHES := exec_tb mem_tb imem_tb decoder_tb regfile_tb csr_tb accessor_tb monitor_tb
 
@@ -382,8 +390,15 @@ probe-gates:
 pin-bump-test:
 	@./formal/test-propose-pin-bump.sh
 
+# Reads the two directories this file resolves and checks them against
+# test/cosim.py's. Hangs off `test` like the other bash checks: python3 and a
+# shell, no cross compiler, no Sail, no yosys.
+.PHONY: tool-cache-test
+tool-cache-test:
+	@./test/tool_cache_test.sh '$(SAIL_RISCV_DIR)' '$(SVLINT_DIR)'
+
 .PHONY: test
-test: sim test-units probe-gates pin-bump-test
+test: sim test-units probe-gates pin-bump-test tool-cache-test
 	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 # The same suite `make test` runs, with the runner charging every cycle to the
