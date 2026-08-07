@@ -1,4 +1,4 @@
-# Direct regression coverage for ADR-0004's stall-only hazard
+# Direct regression coverage for the stall-only hazard
 # scoreboard. Every case below has zero cycles of separation between the
 # producer and the consumer, so a core with no interlock (or an incomplete
 # one) reads stale operands and gets the wrong answer.

@@ -2,7 +2,7 @@
 `default_nettype none
 `include "structs.v"
 
-// The read enable rtl/imemory.v arbitrates on (ADR-0059/ADR-0060).
+// The read enable rtl/imemory.v arbitrates on.
 //
 // The idle bus presents address 0, which is inside the text range, so the
 // memory cannot tell a real load from an idle cycle by address alone. This

@@ -39,8 +39,7 @@
 # consequence rather than an implementation choice. Where it is a choice --
 # what mtval/mie/mip actually read -- only the absence of a trap is asserted,
 # because the Sail reference model is a machine with interrupt sources and
-# would legally disagree about the values (ADR-0043, and the long note in
-# csr.S).
+# would legally disagree about the values (see the long note in csr.S).
 #
 # Every trapping instruction is `.option norvc`: the handler resumes at mepc+4
 # unconditionally (riscv_test.h constraint 1). CSR instructions have no
@@ -58,7 +57,7 @@
 RVTEST_RV64U
 RVTEST_CODE_BEGIN
 
-  # mtvec resets to 0, which is _start (ADR-0029) — install before faulting.
+  # mtvec resets to 0, which is _start — install before faulting.
   RVTEST_INSTALL_TRAP_HANDLER
 
   #-------------------------------------------------------------
@@ -172,7 +171,7 @@ RVTEST_CODE_BEGIN
   # legal no-op, not a fault. This is the case that is opposite in law to
   # test 2 and identical in appearance. Only the absence of a trap is
   # asserted: what these three read is an implementation choice this core and
-  # the Sail reference model legally differ on (ADR-0043).
+  # the Sail reference model legally differ on.
   #-------------------------------------------------------------
 
   li    a5, 0xffffffff
@@ -187,7 +186,7 @@ RVTEST_CODE_BEGIN
   # value handed to rd is the one from BEFORE the write even when the two name
   # the same register -- `csrrw a0, mscratch, a0` is a swap. On this core the
   # read result rides the `is_add` pass-through to writeback while the write
-  # commits in decode off `reg_rs1` (ADR-0005), so the two really do come from
+  # commits in decode off `reg_rs1`, so the two really do come from
   # different places and the ordering is a property rather than a tautology.
   #-------------------------------------------------------------
 

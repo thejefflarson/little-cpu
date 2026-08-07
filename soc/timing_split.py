@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Summarise an `icetime -r` report: the critical path's LOGIC/ROUTING split.
 
-THE SPLIT IS THE FINDING, not the frequency (ADR-0054). The only real timing
+THE SPLIT IS THE FINDING, not the frequency. The only real timing
 number this project had before the SoC placed was `rtl/regfile.v` on its own --
 2.04 ns logic + 12.78 ns routing, 86% routing -- and what made it useful was the
 breakdown, because it said the cost was a distributed mux's wires rather than
@@ -23,7 +23,7 @@ interconnect at all; every other LogicCell40 hop is entered through a LocalMux
 and an InMux. On the SoC's own critical path that is 0.34 ns against 3.31 --
 roughly tenfold -- so a design that trades a carry hop for a LUT level gets
 shorter by icetime's count and slower in nanoseconds. Read the two apart before
-deciding a path is deep (ADR-0058).
+deciding a path is deep.
 
 `--min-mhz` grades the result. The check lives HERE rather than in the Makefile
 because this is the thing that already parses the report: a second parser --

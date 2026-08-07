@@ -6,18 +6,16 @@
 #
 # The counter rules that nothing else can check.
 #
-# `minstret` is exact as read. CSR instructions serialize (ADR-0005), and
-# ADR-0027 records that exactness — not hazard safety — is the whole reason
-# that stall exists. Without it, `csrr minstret` reads a count inflated by
-# whatever happens to be in flight behind it, and the difference between two
-# reads separated by three nops is a function of pipeline occupancy rather
-# than of architectural state. Here it must be exactly 4.
+# `minstret` is exact as read. CSR instructions serialize, and exactness — not
+# hazard safety — is the whole reason that stall exists. Without it, `csrr
+# minstret` reads a count inflated by whatever happens to be in flight behind
+# it, and the difference between two reads separated by three nops is a
+# function of pipeline occupancy rather than of architectural state. Here it
+# must be exactly 4.
 #
-# ADR-0027's *other* rule — a trapping instruction issues but does not
+# The *other* counter rule — a trapping instruction issues but does not
 # increment `minstret`, because it did not retire architecturally — is checked
-# in test/asm/trap.S, next to the trap that provokes it. It cannot be checked
-# here: no trap can be taken until trap entry lands, which is deliberately the
-# next M3 step and not this one (ADR-0011).
+# in test/asm/trap.S, next to the trap that provokes it. No trap is taken here.
 #
 # The riscv-formal ladder cannot see either rule — rvfi_csrw_check checks that
 # a CSR *write* lands, not that a counter's increment semantics are right, and
@@ -25,8 +23,8 @@
 # So simulation is the only mechanised check of them today.
 #
 # No trap is expected anywhere in this file, so it installs the *fatal*
-# handler: once trap entry exists, an unexpected fault reports the live test
-# number instead of restarting the program from mtvec = 0 (ADR-0029).
+# handler: an unexpected fault reports the live test number instead of
+# restarting the program from mtvec = 0.
 #
 
 #include "riscv_test.h"
@@ -41,7 +39,8 @@ RVTEST_CODE_BEGIN
   # Exactness: csrr, nop, nop, nop — four instructions retire between the two
   # reads, counting the first csrr and not the second. Exactly 4, not "about
   # 4": that is the deliverable the serialization stall buys, and an off-by-N
-  # here is the drain predicate being wrong (ADR-0026).
+  # here means the check that holds a CSR instruction until execute, access and
+  # writeback are empty is looking at the wrong thing.
   #-------------------------------------------------------------
 
   TEST_CASE( 2, a2, 4, \
@@ -69,7 +68,7 @@ RVTEST_CODE_BEGIN
     csrr a1, minstreth; \
     or   a2, a0, a1; )
 
-  # An explicit write takes precedence over that cycle's increment (ADR-0005).
+  # An explicit write takes precedence over that cycle's increment.
   # For minstret that is exact, because nothing issues between the write and
   # the read back — the read serializes behind the write.
   TEST_CASE( 5, a1, 0x100, \
