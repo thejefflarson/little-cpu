@@ -62,7 +62,7 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0055](0055-the-iverilog-leg-is-graded-in-ci-without-the-multi-program-runner.md) | The iverilog leg is graded in CI, without the multi-program runner | Accepted · closes part of the `make waves` bullet in CLAUDE.md's "what does not work" |
 | [0056](0056-the-makefile-embedded-ratchets-get-probes-and-soc-timing-gets-a-job.md) | The Makefile-embedded ratchets get probes, and `soc-timing` gets a job | Accepted · extends 0053, follows 0052 |
 | [0057](0057-what-writable-text-costs-in-ladder-depth-and-in-nanoseconds.md) | What writable text costs, in ladder depth and in nanoseconds | Accepted · re-runs 0046's derivation and 0054's timing; corrects 0054's `SOC_MIN_MHZ` |
-| [0058](0058-the-fetch-loop-is-not-two-levels-too-deep.md) | The fetch loop is not two levels too deep | Accepted · a measured null; corrects how 0054's logic-level count reads |
+| [0058](0058-the-fetch-loop-is-not-two-levels-too-deep.md) | The fetch loop is not two levels too deep | Accepted · a measured null; corrects how 0054's logic-level count reads; its decode-head recommendation is withdrawn by 0076 |
 | [0059](0059-text-is-writable-and-the-arbiter-lives-in-the-memory.md) | Text is writable, and the arbiter lives in the memory | Accepted · builds 0057's step 2; answers its condition 3 |
 | [0060](0060-the-steal-reaches-decode-as-the-sixth-stall-reason.md) | The steal reaches decode, as the sixth stall reason | Accepted · builds 0057's step 3 and lands its condition 1; amends 0026, 0009 |
 | [0061](0061-fence-i-has-to-serialize.md) | `fence.i` has to serialize | Accepted · amends 0002; lands with 0060 |
@@ -78,6 +78,7 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0071](0071-the-trap-commit-path-is-proved-and-its-priority-encoder-is-still-vacuous.md) | The trap commit path is proved by k-induction, and its priority encoder is still vacuous | Accepted · supplements 0011, 0028 and 0030; adds a fourth `components.sby` task |
 | [0074](0074-the-operand-fetch-cycle-is-removable-and-costs-more-than-it-saves.md) | The operand-fetch cycle is removable, and it costs more clock than it saves | Accepted · declines a change to 0042; measured with 0070, graded by 0066; sharpens 0064's coupling |
 | [0075](0075-downloaded-tools-live-outside-the-checkout.md) | Downloaded tools live outside the checkout, so a worktree can run co-simulation | Accepted · moves the install location named by 0032, 0033 and 0043 |
+| [0076](0076-the-decode-head-is-a-plateau-not-a-lever.md) | The decode head is a plateau, not a lever | Accepted · withdraws 0058's recommendation; blocks 0074's reopening condition; graded by 0066 |
 
 0001–0007 came from the design brief
 ([`docs/ideas/finish-the-rewrite.md`](../ideas/finish-the-rewrite.md)). 0008–0011 came out of
