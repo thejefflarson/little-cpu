@@ -65,3 +65,69 @@
 # different paths, no value exemption can help, and the assertion belongs in a
 # bench with no reference model in it? Only when none of the three fit is it a
 # baseline entry, and then it needs a paragraph here, not a line.
+#
+# THE TWO TIMER-INTERRUPT PROGRAMS: THE SPEC PERMITS BOTH MACHINES, AND THAT IS
+# THE FINDING. mtimer.S and mtimermask.S arm this platform's machine timer
+# through its memory map and wait for the interrupt. Sail has a timer too. It is
+# a different one, and everything that differs is a quantity the privileged spec
+# explicitly leaves to the platform:
+#
+#   * THE ADDRESS. mtime and mtimecmp are memory-mapped, and the spec does not
+#     say where. This platform puts four words at 0x0002_0000 (rtl/timer.v,
+#     wired identically in rtl/littlesoc.v and test/testbench.v); Sail puts a
+#     CLINT at its own base with its own layout. A store that arms this timer
+#     lands nowhere on the model, so the model never takes an interrupt and
+#     spins in the wait loop until its instruction budget runs out. That is the
+#     INCONCLUSIVE SAIL-LIMIT below: NOTHING WAS COMPARED, which is a weaker
+#     entry than a divergence and is recorded as such.
+#   * THE TICK PERIOD. The spec requires only that mtime advance at a CONSTANT
+#     frequency and that the platform publish the period; it names a
+#     fixed-frequency system as the case where driving mtime from the cycle
+#     counter is right, which is this board. So mtime here ticks once per clock
+#     cycle. The model's ticks once per two instructions
+#     (`instructions_per_tick: 2` in test/sail/rv32imc_zicsr.json). Both are
+#     constant. Both are conformant. They are not the same clock.
+#   * WHEN MTIP FOLLOWS THE COMPARISON. "If the result of the comparison between
+#     mtime and mtimecmp changes, it is guaranteed to be reflected in MTIP
+#     eventually, but not necessarily immediately." The spec then warns software
+#     that a spurious timer interrupt can follow an increment-and-return for
+#     exactly this reason. Two implementations may reflect it at different
+#     granularities and both be right.
+#
+# WHY A VALUE EXEMPTION IS THE WRONG TOOL HERE, having been considered first.
+# test/cosim.py's NONCOMPARABLE_CSRS is the right mechanism for a register whose
+# VALUE is incomparable while both sides still take the same branches — that is
+# what closed mcycle, and mip is already on that list. It cannot close this one,
+# and the reason is structural rather than a matter of effort: with different
+# tick periods the interrupt lands between a DIFFERENT PAIR OF INSTRUCTIONS on
+# the two machines. What differs is the POSITION of the architectural change in
+# the sequence, and the position is precisely what that mechanism keeps
+# comparing. An exemption wide enough to cover it would be an exemption that
+# compared nothing.
+#
+# SO THIS IS QUESTION 3, ANSWERED HONESTLY. The programs assert against
+# implementation-defined platform quantities; the model is entitled to answer
+# differently; the two runs take different paths. No configuration reaches it
+# either: `platform.clint` has exactly `base`, `size` and `supported`, and
+# nothing in the schema names mtimecmp, MTIP or the CLINT's internal layout.
+# Reconciling the two would mean adopting the model's address map AND its tick
+# period, i.e. choosing this platform's timer to make a reference model happy.
+# That is a product decision, not a test fix, and it is not being made here.
+#
+# WHAT COVERS THEM MEANWHILE, since "co-sim is blind here" is only admissible
+# with an answer: the interrupt's architectural effect is asserted by
+# formal/traps.sv under k-induction (entry writes mcause, mepc and mstatus, and
+# the interrupted instruction commits nothing), by test/decoder_tb.v at the
+# decode boundary, by test/csr_tb.v on the three enable terms, and by
+# test/timer_tb.v on the timer itself — including the level property and the
+# torn write, each with a demonstrated red direction. What co-sim uniquely
+# catches — an architectural register write no self-reporting oracle sees — is
+# still checked on the other 59 programs, which is where the property it was
+# built for lives.
+#
+# THE FAILURE DIRECTION IS STILL LIVE. These are name-and-status pairs under set
+# equality, so if a future change makes either program AGREE, or makes it
+# diverge some other way, this gate goes red and these paragraphs get re-read.
+
+mtimer.S      INCONCLUSIVE SAIL-LIMIT
+mtimermask.S  INCONCLUSIVE SAIL-LIMIT

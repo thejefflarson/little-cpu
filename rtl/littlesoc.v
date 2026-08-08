@@ -42,9 +42,9 @@ module littlesoc (
 
   logic        trap;
   logic [31:0] mem_addr, mem_wdata, mem_rdata;
-  logic [31:0] imem_mem_rdata, dmem_mem_rdata;
+  logic [31:0] imem_mem_rdata, dmem_mem_rdata, timer_mem_rdata;
   logic [3:0]  mem_wstrb;
-  logic        mem_ren, fetch_stall;
+  logic        mem_ren, fetch_stall, irq_timer;
   logic [31:0] imem_addr, imem_addr2, imem_addr_next;
   logic [31:0] imem_data, imem_data2;
 
@@ -62,6 +62,7 @@ module littlesoc (
     .mem_ren(mem_ren),
     .mem_rdata(mem_rdata),
     .fetch_stall(fetch_stall),
+    .irq_timer(irq_timer),
     .trap(trap)
   );
 
@@ -96,10 +97,23 @@ module littlesoc (
     .mem_rdata(dmem_mem_rdata)
   );
 
-  // An OR instead of a mux, which is one less level of logic here. The two
+  // The machine timer, just above the data RAM. This is the only interrupt
+  // source on this platform, so `mip.MSIP` and `mip.MEIP` stay read-only zero
+  // in rtl/csrs.v.
+  timer #(.BASE(32'h0002_0000)) mtimer (
+    .clk(clk),
+    .reset(reset),
+    .mem_addr(mem_addr),
+    .mem_wdata(mem_wdata),
+    .mem_wstrb(mem_wstrb),
+    .mem_rdata(timer_mem_rdata),
+    .mtip(irq_timer)
+  );
+
+  // An OR instead of a mux, which is one less level of logic here. The three
   // ranges do not overlap. On a store the RAM holds its last read value and the
-  // ROM gives zero, so this can never mix two real values together.
-  assign mem_rdata = imem_mem_rdata | dmem_mem_rdata;
+  // other two give zero, so this can never mix two real values together.
+  assign mem_rdata = imem_mem_rdata | dmem_mem_rdata | timer_mem_rdata;
 
   logic store_bit, trap_seen;
   always_ff @(posedge clk) begin

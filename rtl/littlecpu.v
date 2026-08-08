@@ -24,6 +24,10 @@ module littlecpu(
   output logic        mem_ren,
   input  logic [31:0] mem_rdata,
   input  logic        fetch_stall,
+  // The platform's machine-timer line. Registered at its source (rtl/timer.v
+  // does it), because inside the core it is one gate away from the fetch loop.
+  // A platform with no timer ties it low and the core never takes an interrupt.
+  input  logic        irq_timer,
   output logic trap
   `ifdef RISCV_FORMAL
   ,
@@ -119,6 +123,7 @@ module littlecpu(
   logic        csr_trap_entry, csr_mret_entry;
   logic [31:0] csr_trap_cause, csr_trap_epc;
   logic [31:0] csr_mtvec, csr_mepc;
+  logic        csr_interrupt_pending;
  `ifdef RISCV_FORMAL
   rvfi_csr64 csr_rvfi_mcycle, csr_rvfi_minstret;
   rvfi_csr32 csr_rvfi_mscratch;
@@ -141,6 +146,7 @@ module littlecpu(
     .csr_implemented(csr_implemented),
     .mtvec(csr_mtvec),
     .mepc(csr_mepc),
+    .interrupt_pending(csr_interrupt_pending),
    `ifdef RISCV_FORMAL
     .csr_rvfi_mcycle(csr_rvfi_mcycle),
     .csr_rvfi_minstret(csr_rvfi_minstret),
@@ -174,10 +180,12 @@ module littlecpu(
     .trap_cause(csr_trap_cause),
     .trap_epc(csr_trap_epc),
     .mret_entry(csr_mret_entry),
+    .irq_timer(irq_timer),
     .rdata(csr_rdata),
     .implemented(csr_implemented),
     .mtvec_value(csr_mtvec),
-    .mepc_value(csr_mepc)
+    .mepc_value(csr_mepc),
+    .interrupt_pending(csr_interrupt_pending)
    `ifdef RISCV_FORMAL
     ,
     .rvfi_mcycle(csr_rvfi_mcycle),
@@ -223,6 +231,7 @@ module littlecpu(
     ,
     .rvfi_valid(rvfi_valid),
     .rvfi_trap(rvfi_trap),
+    .rvfi_intr(rvfi_intr),
     .rvfi_order(rvfi_order),
     .rvfi_insn(rvfi_insn),
     .rvfi_rs1_addr(rvfi_rs1_addr),
@@ -254,11 +263,11 @@ module littlecpu(
   );
 
  `ifdef RISCV_FORMAL
-  // These four never change. There is one privilege mode, registers are 32 bits
-  // wide, there are no interrupts and the core cannot be halted, so none of them
-  // depends on which instruction just finished.
+  // These three never change. There is one privilege mode, registers are 32
+  // bits wide and the core cannot be halted, so none of them depends on which
+  // instruction just finished. `rvfi_intr` does, and comes out of writeback
+  // with the rest of the retire.
   assign rvfi_halt = 1'b0;
-  assign rvfi_intr = 1'b0;
   assign rvfi_mode = 2'd3;
   assign rvfi_ixl = 2'd1;
  `endif

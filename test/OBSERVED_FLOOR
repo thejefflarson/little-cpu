@@ -150,6 +150,8 @@ lhu.S               228    228
 lui.S                29     29
 lw.S                231    231
 minstret.S           42     31
+mtimer.S           1104   1075
+mtimermask.S        297    264
 mul.S               423    423
 mulh.S              423    423
 mulhsu.S            423    423

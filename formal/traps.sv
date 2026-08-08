@@ -30,7 +30,12 @@ module traps (
     input logic fetch_stall,
     input logic accessor_pending_valid,
     input logic [4:0] accessor_pending_rd,
-    input logic accessor_out_valid
+    input logic accessor_out_valid,
+    // The platform's timer line, free every cycle. rtl/csrs.v decides what to
+    // do with it, so `interrupt_pending` below is a real signal of this design
+    // rather than something the solver picks -- which is what lets the mie and
+    // mstatus.MIE gates be asserted rather than assumed.
+    input logic irq_timer
 );
   logic [31:0] pc, next_pc;
   logic [31:0] imem_addr, imem_addr2, imem_addr_next;
@@ -44,6 +49,7 @@ module traps (
   logic        trap_entry, mret_entry;
   logic [31:0] trap_cause, trap_epc;
   logic [31:0] mtvec_value, mepc_value;
+  logic        interrupt_pending;
 
   fetcher fetcher (
     .clk(clk),
@@ -75,6 +81,7 @@ module traps (
     .csr_implemented(csr_implemented),
     .mtvec(mtvec_value),
     .mepc(mepc_value),
+    .interrupt_pending(interrupt_pending),
     .pc(pc),
     .next_pc(next_pc),
     .rs1(rs1),
@@ -105,14 +112,18 @@ module traps (
     .trap_cause(trap_cause),
     .trap_epc(trap_epc),
     .mret_entry(mret_entry),
+    .irq_timer(irq_timer),
     .mtvec_value(mtvec_value),
-    .mepc_value(mepc_value)
+    .mepc_value(mepc_value),
+    .interrupt_pending(interrupt_pending)
   );
 
  `ifdef FORMAL
   localparam logic [11:0] MSTATUS   = 12'h300;
+  localparam logic [11:0] MIE       = 12'h304;
   localparam logic [11:0] MEPC      = 12'h341;
   localparam logic [11:0] MCAUSE    = 12'h342;
+  localparam logic [11:0] MIP       = 12'h344;
   localparam logic [11:0] MCYCLE    = 12'hB00;
   localparam logic [11:0] MINSTRET  = 12'hB02;
   localparam logic [11:0] MCYCLEH   = 12'hB80;
@@ -123,6 +134,8 @@ module traps (
   localparam logic [31:0] CAUSE_LOAD_MIS   = 32'd4;
   localparam logic [31:0] CAUSE_STORE_MIS  = 32'd6;
   localparam logic [31:0] CAUSE_ECALL_M    = 32'd11;
+  // Bit 31 says interrupt; 7 is the machine timer.
+  localparam logic [31:0] CAUSE_TIMER_IRQ  = 32'h8000_0007;
 
   logic clocked;
   initial clocked = 0;
@@ -248,12 +261,14 @@ module traps (
   assign mstatus_addressed = csr_addr == MSTATUS;
   assign mstatus_static = !csr_wen && !trap_entry && !mret_entry;
 
-  // The two counters advance without any instruction asking, so a held address
-  // reading one of them says nothing about side effects. mcycle counts every
-  // cycle; minstret counts only the cycles an instruction retires, so it is
-  // excluded only on those.
+  // These change without any instruction asking, so a held address reading one
+  // of them says nothing about side effects. mcycle counts every cycle;
+  // minstret counts only the cycles an instruction retires, so it is excluded
+  // only on those; mip is a live view of the platform's interrupt lines, which
+  // are free inputs here and are asserted about separately below.
   logic counter_ticking;
   assign counter_ticking = csr_addr == MCYCLE || csr_addr == MCYCLEH ||
+      csr_addr == MIP ||
       (instret && (csr_addr == MINSTRET || csr_addr == MINSTRETH));
 
   // Trap entry writes mepc, mcause and mstatus. mret writes mstatus. Every
@@ -268,6 +283,7 @@ module traps (
   logic prev_reset, prev_trap_entry, prev_mret_entry, prev_csr_wen;
   logic prev_expected_trap, prev_counter_ticking, prev_written_by_trap;
   logic prev_mstatus_addressed, prev_mstatus_static;
+  logic prev_interrupt_pending, prev_interrupt_entry;
   logic [31:0] prev2_rdata;
   logic prev2_reset, prev2_mstatus_addressed, prev2_mstatus_static;
   always_ff @(posedge clk) begin
@@ -286,6 +302,8 @@ module traps (
     prev_written_by_trap   <= csr_written_by_trap;
     prev_mstatus_addressed <= mstatus_addressed;
     prev_mstatus_static    <= mstatus_static;
+    prev_interrupt_pending <= interrupt_pending;
+    prev_interrupt_entry   <= trap_entry && interrupt_pending;
 
     prev2_rdata             <= prev_rdata;
     prev2_reset             <= prev_reset;
@@ -339,7 +357,11 @@ module traps (
   // because a compressed instruction can sit at a two-byte address.
   always_comb if (settled && prev_trap_entry) assert(mepc_value == {past_pc[31:1], 1'b0});
 
-  always_comb if (settled && prev_trap_entry && prev_expected_trap && csr_addr == MCAUSE)
+  // `!prev_interrupt_pending` because an interrupted instruction did not
+  // execute, so whatever it would have faulted on is not what happened. Its own
+  // cause is asserted below.
+  always_comb if (settled && prev_trap_entry && !prev_interrupt_pending &&
+                  prev_expected_trap && csr_addr == MCAUSE)
     assert(csr_rdata == prev_cause);
 
   // MIE moves into MPIE and interrupts go off. Both halves need the value
@@ -389,9 +411,54 @@ module traps (
   always_comb if (clocked) assert(!(trap_entry && (csr_wen || csr_ren)));
 
   // The encodings the ISA fixes: these fault, those do not, whatever else the
-  // decoder decides about them.
+  // decoder decides about them. The second one carries `!interrupt_pending`
+  // because an interrupt on the cycle a harmless instruction would have issued
+  // is a redirect the instruction had no part in.
   always_comb if (clocked && issuing && expected_trap) assert(trap_entry);
-  always_comb if (clocked && issuing && must_not_trap) assert(!trap_entry);
+  always_comb if (clocked && issuing && must_not_trap && !interrupt_pending)
+    assert(!trap_entry);
+
+  // ---- the machine timer interrupt ----------------------------------------
+  //
+  // riscv-formal ships no model of any of this at the pin -- its two pc checks
+  // read `rvfi_intr` only to stop expecting pc continuity, and no check names
+  // mie, mip, mstatus or an interrupt cause. So these assertions are the oracle,
+  // not a second opinion.
+
+  // Nothing arms without a source, an enable and the global enable, and each is
+  // read the way software reads it rather than out of the CSR file's internals.
+  always_comb if (clocked && !irq_timer) assert(!interrupt_pending);
+  always_comb if (clocked && csr_addr == MIE && !csr_rdata[7]) assert(!interrupt_pending);
+  always_comb if (clocked && mstatus_addressed && !csr_rdata[3]) assert(!interrupt_pending);
+
+  // mip.MTIP is the platform line and nothing else; MSIP and MEIP read zero
+  // because this platform has neither source.
+  always_comb if (clocked && csr_addr == MIP)
+    assert(csr_rdata == {24'b0, irq_timer, 7'b0});
+
+  // The instruction the interrupt displaced committed nothing. It did not
+  // retire, it wrote no CSR, it did not `mret`, and it never reached the
+  // executor -- so there is no state a later cycle has to take back, which is
+  // the whole reason an asynchronous event can be committed in decode.
+  always_comb if (clocked && interrupt_pending)
+    assert(!instret && !csr_wen && !csr_ren && !mret_entry);
+  always_comb if (settled && prev_interrupt_entry) assert(!decoder_out.valid);
+
+  // Its address is in mepc, so `mret` re-executes it. The general form is
+  // asserted further up against `past_pc`; this says the interrupt is not an
+  // exception to it.
+  always_comb if (settled && prev_interrupt_entry)
+    assert(mepc_value == {past_pc[31:1], 1'b0});
+
+  always_comb if (settled && prev_interrupt_entry && csr_addr == MCAUSE)
+    assert(csr_rdata == CAUSE_TIMER_IRQ);
+
+  // What bounds the response. Entry clears MIE on the same edge it redirects,
+  // so the cycle after cannot take a second interrupt and nothing re-arms until
+  // an `mret` or an explicit write to mstatus. Together with the decoder's own
+  // proof that an armed interrupt is taken on the first cycle that is not
+  // stalled, that is the bound: one entry per arming, on the next issuing cycle.
+  always_comb if (settled && prev_trap_entry) assert(!interrupt_pending);
 
   // WARL. mtvec is direct mode only, so its low two bits are a mode field that
   // must stay zero; mepc's bit 0 must stay zero because instructions are at

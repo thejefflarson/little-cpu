@@ -54,6 +54,14 @@ module decoder (
   output logic        mret_entry,
   input  logic [31:0] mtvec,
   input  logic [31:0] mepc,
+  // An enabled interrupt source is asserting. rtl/csrs.v has already ANDed in
+  // mie and mstatus.MIE, and every term of it is a flip-flop, so this arrives
+  // as a registered level. It joins the trap arm of the `next_pc` chain below,
+  // which is BELOW the stall arm -- so an interrupt waits out a divide, a load
+  // turnaround and a serialization the same way everything else does, and is
+  // taken only on a cycle that would otherwise have issued an instruction. The
+  // instruction it displaces has not issued, so there is nothing to un-commit.
+  input  logic        interrupt_pending,
  `ifdef RISCV_FORMAL
   input  rvfi_csr64   csr_rvfi_mcycle,
   input  rvfi_csr64   csr_rvfi_minstret,
@@ -364,18 +372,29 @@ module decoder (
   localparam logic [31:0] CAUSE_LOAD_MISALIGNED     = 32'd4;
   localparam logic [31:0] CAUSE_STORE_MISALIGNED    = 32'd6;
   localparam logic [31:0] CAUSE_ECALL_M             = 32'd11;
+  // Bit 31 says interrupt; 7 is the machine timer.
+  localparam logic [31:0] CAUSE_MACHINE_TIMER       = 32'h8000_0007;
 
   logic trap_pending;
   assign trap_pending = instr_illegal || instr_ebreak || instr_ecall ||
                         load_misaligned || store_misaligned;
 
-  // No `(* parallel_case *)` here. No two of these five can be true at once
-  // today, so the priority never matters. But marking the case one-hot tells
-  // synthesis it may assume that. Add a sixth cause that overlaps an existing
-  // one and you get whatever the optimiser chose, instead of a failed
-  // assertion. The `ifdef FORMAL` block below checks it can't happen.
+  // The instruction's own fault and an interrupt really can be true together,
+  // and the interrupt wins: the instruction does not execute, so its fault does
+  // not happen. It faults instead when it re-executes after the handler's
+  // `mret`, which is why nothing is lost by taking the interrupt first.
+  logic trap_taken;
+  assign trap_taken = trap_pending || interrupt_pending;
+
+  // No `(* parallel_case *)` here. No two of the five synchronous causes can be
+  // true at once today, so their order never matters -- but marking the case
+  // one-hot tells synthesis it may assume that, and the interrupt arm on top
+  // genuinely overlaps them. Add a cause that overlaps an existing one and you
+  // get whatever the optimiser chose, instead of a failed assertion. The
+  // `ifdef FORMAL` block below checks the five can't overlap each other.
   always_comb begin
     case (1'b1)
+      interrupt_pending: trap_cause = CAUSE_MACHINE_TIMER;
       instr_illegal:    trap_cause = CAUSE_ILLEGAL_INSTRUCTION;
       instr_ebreak:     trap_cause = CAUSE_BREAKPOINT;
       instr_ecall:      trap_cause = CAUSE_ECALL_M;
@@ -386,7 +405,8 @@ module decoder (
   end
 
   // The faulting instruction's address, not the next one's -- that is what lets
-  // a handler fix up and resume.
+  // a handler fix up and resume. For an interrupt it is the address of the
+  // instruction that did not issue, so `mret` re-executes it.
   assign trap_epc = fetcher_pc;
 
   always_comb begin
@@ -542,13 +562,15 @@ module decoder (
   end
 
   // Every way the PC can change, in one priority chain. No `(* parallel_case *)`
-  // here: `stall` and `trap_pending` really can both be true, so the order
-  // matters and synthesis must not assume otherwise.
+  // here: `stall` and `trap_taken` really can both be true, so the order
+  // matters and synthesis must not assume otherwise. `stall` above the trap arm
+  // is also what makes an interrupt wait for the pipeline instead of cutting
+  // into it.
   always_comb begin
     case (1'b1)
       reset:                     next_pc = 32'b0;
       stall:                     next_pc = pc;
-      trap_pending:              next_pc = mtvec;
+      trap_taken:                next_pc = mtvec;
       instr_mret:                next_pc = mepc;
       instr_jalr:                next_pc = ($signed(immediate) + $signed(reg_rs1)) & 32'hfffffffe;
       instr_jal:                 next_pc = $signed(fetcher_pc) + $signed(immediate);
@@ -558,23 +580,40 @@ module decoder (
     endcase
   end
 
-  // Keep this exactly the same as the final `else` guard below, term for term.
-  // In particular do not add `&& in.valid`: that arm does not test it either. If
-  // the two ever disagree a CSR write fires once per stalled cycle instead of
-  // once per instruction, and nothing says so.
+  // `issuing` is a cycle the fetch window is consumed: no reset, no stall. It
+  // is the guard on the last two arms of the publish block below taken
+  // together, term for term -- an interrupt consumes the cycle and reaches the
+  // bubble arm, everything else reaches the final one. In particular do not add
+  // `&& in.valid`: those arms do not test it either. If they ever disagree a
+  // CSR write fires once per stalled cycle instead of once per instruction, and
+  // nothing says so.
   logic issuing;
   assign issuing = !reset && !stall;
 
   logic committing;
-  assign committing = issuing && !trap_pending;
+  assign committing = issuing && !trap_taken;
   assign csr_ren = committing && csr_read_op;
   assign csr_wen = committing && csr_write_op;
   // A trapping instruction still issues, and RVFI still reports it, but it
-  // changed nothing. It must not be counted.
+  // changed nothing. It must not be counted. An interrupted one did not even
+  // issue.
   assign instret = committing;
 
-  assign trap_entry = issuing && trap_pending;
+  assign trap_entry = issuing && trap_taken;
   assign mret_entry = committing && instr_mret;
+
+ `ifdef RISCV_FORMAL
+  // RVFI's flag for "this retire is the first instruction of a handler the
+  // previous retire did not hand off to". An exception reports its own redirect
+  // in `pc_wdata`, so only an interrupt breaks the chain and only an interrupt
+  // sets this. Both sim legs' monitor stops checking pc continuity across a
+  // retire that carries it; without it, every interrupt is a monitor error.
+  logic intr_report;
+  always_ff @(posedge clk) begin
+    if (reset) intr_report <= 1'b0;
+    else if (issuing) intr_report <= interrupt_pending;
+  end
+ `endif
 
   always_ff @(posedge clk) pc <= next_pc;
 
@@ -589,10 +628,12 @@ module decoder (
       // two arms changes that and nothing would say so, which is why the
       // `ifdef FORMAL` block below checks both cases.
       out <= out;
-    end else if (hazard || operand_stall || fetch_stall) begin
+    end else if (hazard || operand_stall || fetch_stall || interrupt_pending) begin
       // These zero `out` instead of holding it. The executor reads `in` every
       // cycle, so a held `out` would be executed again and again while the
-      // stalled instruction waits.
+      // stalled instruction waits. The interrupt is here rather than in the arm
+      // below because the instruction it displaces did not issue: it publishes
+      // nothing, retires nothing and re-executes after `mret`.
       out <= '0;
     end else begin
       // This arm runs on exactly the cycles an instruction issues. Committing
@@ -613,6 +654,7 @@ module decoder (
       out.rvfi.insn <= instr;
       out.rvfi.pc_rdata <= fetcher_pc;
       out.rvfi.trap <= trap_pending;
+      out.rvfi.intr <= intr_report;
       out.rvfi.rs1_addr <= rvfi_rs1_valid ? rs1 : 5'b0;
       out.rvfi.rs2_addr <= rvfi_rs2_valid ? rs2 : 5'b0;
       out.rvfi.rs1_rdata <= rvfi_rs1_valid ? reg_rs1 : 32'b0;
@@ -736,12 +778,14 @@ module decoder (
   // Each of these keeps its own copy of last cycle's value instead of using
   // $past(). `in.pc` and `instr` are free inputs here, and $past() through
   // another register would let the solver fill in a value from before reset that
-  // this proof cannot rule out. `trap_pending` and `instr_mret` belong in
-  // `branch_jump` because both change the pc. Leave either out and the proof
-  // stops believing a trap is a branch while the RTL still treats it as one.
+  // this proof cannot rule out. `trap_taken` and `instr_mret` belong in
+  // `branch_jump` because both change the pc, and `trap_taken` rather than
+  // `trap_pending` so an interrupt counts too. Leave any of them out and the
+  // proof stops believing a redirect is a branch while the RTL still treats it
+  // as one.
   logic branch_jump;
   always_ff @(posedge clk) if (reset) branch_jump <= 1'b0;
-    else branch_jump <= instr_jal || instr_jalr || instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu || trap_pending || instr_mret;
+    else branch_jump <= instr_jal || instr_jalr || instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu || trap_taken || instr_mret;
   logic [31:0] past_pc;
   logic prev_reset, prev_stall, prev_uncompressed;
   always_ff @(posedge clk) begin
@@ -845,13 +889,17 @@ module decoder (
                                load_misaligned, store_misaligned}));
 
   // One line per cause, not a copy of the case statement, so reordering its arms
-  // trips these instead of changing them to match.
-  always_comb if (instr_illegal)    assert(trap_cause == CAUSE_ILLEGAL_INSTRUCTION);
-  always_comb if (instr_ebreak)     assert(trap_cause == CAUSE_BREAKPOINT);
-  always_comb if (instr_ecall)      assert(trap_cause == CAUSE_ECALL_M);
-  always_comb if (load_misaligned)  assert(trap_cause == CAUSE_LOAD_MISALIGNED);
-  always_comb if (store_misaligned) assert(trap_cause == CAUSE_STORE_MISALIGNED);
-  always_comb if (!trap_pending)    assert(trap_cause == 32'b0);
+  // trips these instead of changing them to match. The five synchronous causes
+  // are each stated under `!interrupt_pending`, which is the priority the arm
+  // above them buys: the interrupted instruction did not execute, so its own
+  // fault is not what happened.
+  always_comb if (interrupt_pending) assert(trap_cause == CAUSE_MACHINE_TIMER);
+  always_comb if (!interrupt_pending && instr_illegal)    assert(trap_cause == CAUSE_ILLEGAL_INSTRUCTION);
+  always_comb if (!interrupt_pending && instr_ebreak)     assert(trap_cause == CAUSE_BREAKPOINT);
+  always_comb if (!interrupt_pending && instr_ecall)      assert(trap_cause == CAUSE_ECALL_M);
+  always_comb if (!interrupt_pending && load_misaligned)  assert(trap_cause == CAUSE_LOAD_MISALIGNED);
+  always_comb if (!interrupt_pending && store_misaligned) assert(trap_cause == CAUSE_STORE_MISALIGNED);
+  always_comb if (!trap_taken)       assert(trap_cause == 32'b0);
 
   // `mtvec`/`mepc` are free inputs here, so these are registered copies rather
   // than reads of the live input.
@@ -878,7 +926,20 @@ module decoder (
 
   // Gating these on `instr_valid` instead would look right and be weaker: an
   // instruction can decode fine and still trap. This catches that.
-  always_comb if (trap_pending) assert(!instret && !csr_wen && !csr_ren);
+  always_comb if (trap_taken) assert(!instret && !csr_wen && !csr_ren);
   always_comb assert(!(trap_entry && mret_entry));
+
+  // An interrupt is only ever taken on a cycle that would otherwise have issued
+  // an instruction. Below the stall arm, so a divide, a load turnaround, a
+  // hazard, a serialization drain and the operand-fetch cycle each hold it off.
+  always_comb if (interrupt_pending && !stall && !reset) assert(trap_entry);
+  always_comb if (stall || reset) assert(!trap_entry);
+
+  // ...and it publishes nothing. The instruction it displaced has not issued,
+  // so nothing downstream ever hears about it and there is nothing to take
+  // back. `out` is registered, hence the one-cycle delay.
+  logic prev_interrupt_entry;
+  always_ff @(posedge clk) prev_interrupt_entry <= !reset && !stall && interrupt_pending;
+  always_comb if (clocked && !prev_reset && prev_interrupt_entry) assert(!out.valid);
  `endif
 endmodule

@@ -43,9 +43,20 @@ module csrs(
   input  logic [31:0] trap_cause,
   input  logic [31:0] trap_epc,
   input  logic        mret_entry,
+  // The platform's machine-timer line, high while its mtime has reached
+  // mtimecmp. It must arrive REGISTERED -- rtl/timer.v registers the comparison
+  // -- because `interrupt_pending` below is one AND away from the decoder's
+  // next_pc chain, and an unregistered comparator would put a 64-bit carry
+  // chain on the fetch loop.
+  input  logic        irq_timer,
   // Read back by rtl/decoder.v, combinationally, to redirect the PC.
   output logic [31:0] mtvec_value,
-  output logic [31:0] mepc_value
+  output logic [31:0] mepc_value,
+  // The whole interrupt decision: a source is asserting, software enabled that
+  // source, and software has interrupts on. Every term is a flip-flop, so this
+  // costs the decoder one gate. Trap entry clears MIE on the same edge it
+  // redirects, which is what stops the next cycle taking the interrupt again.
+  output logic        interrupt_pending
  `ifdef RISCV_FORMAL
   ,
   // Shadow payloads for exactly the CSRs formal/checks.cfg's `[csrs]` list
@@ -88,6 +99,11 @@ module csrs(
   // mstatus is three fields rather than a register: MPP is hardwired to M-mode
   // (WARL, and this core has no other mode) and every other bit is 0.
   logic        mstatus_mie, mstatus_mpie;
+  // mie is one field for the same reason. MSIE and MEIE stay read-only zero:
+  // there is no software-interrupt register and no external controller on this
+  // platform, and WARL lets an absent source read zero. Adding either is adding
+  // its hardware first.
+  logic        mie_mtie;
 
   // Selected out here rather than inside the always_* blocks below: a constant
   // part-select taken inside one defeats iverilog's sensitivity analysis and
@@ -101,6 +117,15 @@ module csrs(
   logic [31:0] mstatus_value;
   // MPP = 2'b11 at [12:11]; MPIE at [7]; MIE at [3]; everything else 0.
   assign mstatus_value = {19'b0, 2'b11, 3'b0, mstatus_mpie, 3'b0, mstatus_mie, 3'b0};
+
+  // MTIE and MTIP both sit at bit 7. mip is read-only here: MTIP is the
+  // platform's line and the only way software lowers it is by moving mtimecmp,
+  // which is a store to rtl/timer.v rather than a CSR write.
+  logic [31:0] mie_value, mip_value;
+  assign mie_value = {24'b0, mie_mtie, 7'b0};
+  assign mip_value = {24'b0, irq_timer, 7'b0};
+
+  assign interrupt_pending = irq_timer && mie_mtie && mstatus_mie;
 
   // As of the start of the issuing cycle, which is the right phase: decode
   // issues at most one instruction per cycle, so a trapping instruction and a
@@ -116,13 +141,13 @@ module csrs(
       MSTATUS:   rdata = mstatus_value;
       MSTATUSH:  rdata = 32'b0;
       MISA:      rdata = MISA_VALUE;
-      MIE:       rdata = 32'b0;
+      MIE:       rdata = mie_value;
       MTVEC:     rdata = mtvec;
       MSCRATCH:  rdata = mscratch;
       MEPC:      rdata = mepc;
       MCAUSE:    rdata = mcause;
       MTVAL:     rdata = 32'b0;
-      MIP:       rdata = 32'b0;
+      MIP:       rdata = mip_value;
       MCYCLE:    rdata = mcycle_lo;
       MCYCLEH:   rdata = mcycle_hi;
       MINSTRET:  rdata = minstret_lo;
@@ -139,19 +164,23 @@ module csrs(
   // legal-value mask applied. It is defined for every address, including the
   // read-only ones, and that is what lets the RVFI report below say what landed
   // rather than echo back an operand the mask threw away.
-  logic [31:0] wdata_mtvec, wdata_mepc, wdata_mstatus;
+  logic [31:0] wdata_mtvec, wdata_mepc, wdata_mstatus, wdata_mie;
   // Direct mode only: mtvec[1:0] is the mode field.
   assign wdata_mtvec   = {wdata[31:2], 2'b00};
   // Only bit 0 is forced. C makes 2-byte branch targets legal, so bit 1 is a
   // legal value here and must survive.
   assign wdata_mepc    = {wdata[31:1], 1'b0};
   assign wdata_mstatus = {19'b0, 2'b11, 3'b0, wdata[7], 3'b0, wdata[3], 3'b0};
+  // MTIE only. The other bits name sources this platform does not have, and a
+  // WARL field with no source behind it reads zero however it was written.
+  assign wdata_mie     = {24'b0, wdata[7], 7'b0};
 
   logic [31:0] warl;
   always_comb begin
     (* parallel_case *)
     case (addr)
       MSTATUS:   warl = wdata_mstatus;
+      MIE:       warl = wdata_mie;
       MTVEC:     warl = wdata_mtvec;
       MSCRATCH:  warl = wdata;
       MEPC:      warl = wdata_mepc;
@@ -162,9 +191,10 @@ module csrs(
       default:   warl = rdata;
     endcase
   end
-  logic warl_mie, warl_mpie;
+  logic warl_mie, warl_mpie, warl_mtie;
   assign warl_mie  = warl[3];
   assign warl_mpie = warl[7];
+  assign warl_mtie = warl[7];
 
   // Trap entry writes mepc through the same mask an explicit `csrw mepc` goes
   // through. `trap_epc` is an instruction address, so bit 0 is already clear and
@@ -222,6 +252,7 @@ module csrs(
       mcause       <= 32'b0;
       mstatus_mie  <= 1'b0;
       mstatus_mpie <= 1'b0;
+      mie_mtie     <= 1'b0;
     end else begin
       mcycle   <= {mcycle_next_hi, mcycle_next_lo};
       minstret <= {minstret_next_hi, minstret_next_lo};
@@ -232,6 +263,7 @@ module csrs(
             mstatus_mie  <= warl_mie;
             mstatus_mpie <= warl_mpie;
           end
+          MIE:      mie_mtie <= warl_mtie;
           MTVEC:    mtvec    <= warl;
           MSCRATCH: mscratch <= warl;
           MEPC:     mepc     <= warl;
@@ -243,12 +275,13 @@ module csrs(
       end
       // The privileged-spec sequence: a trap saves the faulting PC and the
       // cause, pushes MIE into MPIE and disables interrupts; `mret` pops it back
-      // and leaves MPIE set. This core has no interrupts, so MIE/MPIE gate
-      // nothing and only test/csr_tb.v would notice them being wrong. `else if`
-      // rather than two independent `if`s because the two are mutually exclusive
-      // by construction (see the port comments), so a future cause that broke
-      // that fails at rtl/decoder.v's priority encoder rather than silently
-      // double-writing mstatus.
+      // and leaves MPIE set. Clearing MIE here is what bounds interrupt entry:
+      // `interrupt_pending` goes low on this same edge, so the cycle after a
+      // trap cannot take another one, and nothing re-arms until an `mret` or an
+      // explicit write. `else if` rather than two independent `if`s because the
+      // two are mutually exclusive by construction (see the port comments), so a
+      // future cause that broke that fails at rtl/decoder.v's priority encoder
+      // rather than silently double-writing mstatus.
       if (trap_entry) begin
         mepc         <= trap_epc_warl;
         mcause       <= trap_cause;

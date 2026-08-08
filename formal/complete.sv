@@ -79,6 +79,10 @@ module rvfi_testbench (
     .mem_ren(mem_ren),
     .mem_rdata(mem_rdata),
     .fetch_stall(fetch_stall),
+    // Tied off; formal/check-interrupt-tie-off.py enforces it. formal/wrapper.v
+    // carries the reason the riscv-formal side of the tree runs with no
+    // interrupt in the trace.
+    .irq_timer(1'b0),
     .trap(trap),
     `RVFI_CONN
   );

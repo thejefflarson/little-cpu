@@ -23,10 +23,12 @@ module testbench(
   logic        mem_ren;
   logic [31:0] mem_rdata;
   logic        fetch_stall;
-  // Both memories answer zero outside their own range, so the buses join with
-  // an OR. Same wiring as rtl/littlesoc.v, so the legs cannot drift apart.
-  logic [31:0] imem_mem_rdata, dmem_mem_rdata;
-  assign mem_rdata = imem_mem_rdata | dmem_mem_rdata;
+  logic        irq_timer;
+  // All three memories answer zero outside their own range, so the buses join
+  // with an OR. Same wiring, same timer base as rtl/littlesoc.v, so the legs
+  // cannot drift apart and a `.S` program that arms the timer runs on both.
+  logic [31:0] imem_mem_rdata, dmem_mem_rdata, timer_mem_rdata;
+  assign mem_rdata = imem_mem_rdata | dmem_mem_rdata | timer_mem_rdata;
   logic        trap;
  `ifdef RISCV_FORMAL
   logic        rvfi_valid;
@@ -79,6 +81,16 @@ module testbench(
     .fetch_stall(fetch_stall)
   );
 
+  timer #(.BASE(32'h0002_0000)) mtimer (
+    .clk(clk),
+    .reset(reset),
+    .mem_addr(mem_addr),
+    .mem_wdata(mem_wdata),
+    .mem_wstrb(mem_wstrb),
+    .mem_rdata(timer_mem_rdata),
+    .mtip(irq_timer)
+  );
+
   littlecpu uut (
     .clk(clk),
     .reset(reset),
@@ -93,6 +105,7 @@ module testbench(
     .mem_ren(mem_ren),
     .mem_rdata(mem_rdata),
     .fetch_stall(fetch_stall),
+    .irq_timer(irq_timer),
     .trap(trap)
    `ifdef RISCV_FORMAL
     , .rvfi_valid(rvfi_valid),

@@ -1,0 +1,64 @@
+# The core's interrupt input is TIED OFF in every riscv-formal harness in this
+# directory, and this file is the declaration of that boundary.
+#
+# It is a BASELINE in exactly the sense formal/COMPLETE_EXCLUSIONS is:
+# formal/check-interrupt-tie-off.py exits 0 only when the sets below match what
+# is on disk EXACTLY, in both directions, and it re-derives the upstream half
+# from the pinned clone rather than believing it. A harness added without a
+# line here fails; a line here with no harness fails too.
+#
+# WHY THE TIE-OFF. riscv-formal at formal/pin.mk's SHA has no model of an
+# interrupt. It carries the RVFI signal `rvfi_intr` and four of its checks read
+# it, but only to SUPPRESS an expectation -- the two pc checks stop requiring
+# continuity across a retire that carries it, and the other two merely wire it
+# out for a diagnostic. No check upstream names mie, mip, mstatus or an
+# interrupt cause, so no check upstream can say whether an interrupt was taken
+# correctly, taken at all, or invented. Leaving the input free would not weaken
+# the generated checks so much as point them at a machine their spec does not
+# describe: an interrupt makes a retire disappear, and `hang`, `liveness`,
+# `unique` and the per-instruction checks are all written about a stream of
+# retires.
+#
+# The tie-off is also what preserves the DEPTHS. Every `[depth]` line in
+# formal/checks.cfg is derived from F (worst-case first retire) and G
+# (worst-case retire gap), both measured with no interrupt in the trace. An
+# interrupt costs a cycle that would otherwise have issued, so a free input
+# moves G and every depth built on it.
+#
+# WHAT PROVES THE INTERRUPT INSTEAD. formal/traps.sv, under k-induction, with
+# the timer line free: entry writes mcause, mepc and mstatus, the interrupted
+# instruction commits nothing, nothing arms without all three enable terms, and
+# entry disarms so there is no second one. That is the oracle. The `.S` side is
+# test/asm/mtimer.S and test/asm/mtimermask.S.
+#
+# WHEN THIS GOES RED. A pin bump that makes another check read `rvfi_intr`, or
+# that adds a check naming any interrupt CSR, fails here -- because at that
+# point riscv-formal HAS something to say and the tie-off has to be argued
+# again rather than inherited. Do not edit the lines below to make that go
+# away; re-read the new check and rule on it in a pull request.
+#
+# FORMAT -- two record types, whitespace-separated:
+#
+#     HARNESS   <path>         a file in formal/ that instantiates littlecpu.
+#                              It must connect `.irq_timer(1'b0)`.
+#     UPSTREAM  <path>         a file under the pinned clone's checks/ that
+#                              mentions `rvfi_intr`, relative to the clone.
+
+HARNESS  wrapper.v
+HARNESS  complete.sv
+HARNESS  cover.sv
+HARNESS  dmemcheck.sv
+HARNESS  imemcheck.sv
+
+# Measured at the pin, not chosen. rvfi_channel.sv and rvfi_macros.vh declare
+# the signal; rvfi_insn_check.sv, rvfi_ill_check.sv and rvfi_fault_check.sv
+# wire it to a `(* keep *)` wire that nothing in them then reads;
+# rvfi_pc_fwd_check.sv and rvfi_pc_bwd_check.sv are the only two that act on
+# it, and what they do is stop expecting pc continuity.
+UPSTREAM checks/rvfi_channel.sv
+UPSTREAM checks/rvfi_macros.vh
+UPSTREAM checks/rvfi_insn_check.sv
+UPSTREAM checks/rvfi_ill_check.sv
+UPSTREAM checks/rvfi_fault_check.sv
+UPSTREAM checks/rvfi_pc_fwd_check.sv
+UPSTREAM checks/rvfi_pc_bwd_check.sv

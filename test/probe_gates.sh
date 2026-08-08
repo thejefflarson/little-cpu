@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=145
+PROBES_EXPECTED=155
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -1126,6 +1126,77 @@ probe "over budget names the count and the budget" 1 \
 d=$(fr_fixture); sed -i.bak '/ICESTORM_LC:/d' "$d/fit.log"
 probe "no utilisation table is a failure, not a 0% fit" 1 \
   "printed no utilisation table" "$FR $d/fit.log --max-lc 4100"
+
+begin_group "formal/check-interrupt-tie-off.py"
+
+IT="python3 $REPO/formal/check-interrupt-tie-off.py"
+
+# The riscv-formal stand-in carries only what the upstream half reads: two
+# files that mention rvfi_intr and one that does not, so the control is
+# non-empty in both directions.
+it_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/formal" "$d/rf/checks"
+  for f in wrapper.v complete.sv cover.sv dmemcheck.sv imemcheck.sv; do
+    cp "$REPO/formal/$f" "$d/formal/$f"
+  done
+  printf 'wire intr = rvfi_intr[0];\n' > "$d/rf/checks/rvfi_pc_fwd_check.sv"
+  printf 'wire intr = rvfi_intr[0];\n' > "$d/rf/checks/rvfi_insn_check.sv"
+  printf 'assert (rvfi_valid);\n'      > "$d/rf/checks/rvfi_reg_check.sv"
+  {
+    printf 'HARNESS wrapper.v\nHARNESS complete.sv\nHARNESS cover.sv\n'
+    printf 'HARNESS dmemcheck.sv\nHARNESS imemcheck.sv\n'
+    printf 'UPSTREAM checks/rvfi_pc_fwd_check.sv\n'
+    printf 'UPSTREAM checks/rvfi_insn_check.sv\n'
+  } > "$d/BASELINE"
+  printf '%s' "$d"
+}
+
+its() { printf "%s %s/formal %s/BASELINE %s/rf" "$IT" "$1" "$1" "$1"; }
+
+d=$(it_fixture)
+probe "control: the shipping harnesses tie off, both directions" 0 \
+  "INTERRUPT TIE-OFF: PASS" "$(its "$d")"
+
+probe "wrong argument count is exit 2" 2 "check-interrupt-tie-off.py" \
+  "$IT $d/formal"
+
+# The failure that matters most: a harness the baseline claims is tied off and
+# is not. Its checks would be running against a machine with interrupts, at
+# depths derived without them.
+d=$(it_fixture); sed -i.bak "/\.irq_timer(1'b0),/d" "$d/formal/complete.sv"
+probe "a declared harness that does not tie the input off is red" 1 \
+  "does not connect .irq_timer" "$(its "$d")"
+
+d=$(it_fixture); sed -i.bak '/^HARNESS cover.sv$/d' "$d/BASELINE"
+probe "a harness with no line in the baseline is red" 1 \
+  "does not name it" "$(its "$d")"
+
+d=$(it_fixture); rm "$d/formal/cover.sv"
+probe "a line with no harness behind it is red too" 1 \
+  "which does not instantiate littlecpu" "$(its "$d")"
+
+# The re-derivation from the pin, in both directions. This is what a baseline
+# alone cannot do: a stale tie-off covers less and less while staying green.
+d=$(it_fixture); printf 'if (!rvfi_intr[0]) assert(0);\n' > "$d/rf/checks/rvfi_unique_check.sv"
+probe "a pin that makes another check read rvfi_intr is red" 1 \
+  "may now have something to say" "$(its "$d")"
+
+d=$(it_fixture); printf 'nothing to see here\n' > "$d/rf/checks/rvfi_insn_check.sv"
+probe "a baselined upstream file that stopped mentioning it is red" 1 \
+  "was not re-derived" "$(its "$d")"
+
+d=$(it_fixture); printf 'assert (csr_mstatus_wdata == 0);\n' >> "$d/rf/checks/rvfi_reg_check.sv"
+probe "a pin that models an interrupt CSR makes the tie-off an argument again" 1 \
+  "now has a model of interrupt state" "$(its "$d")"
+
+d=$(it_fixture); printf 'HARNESS\n' >> "$d/BASELINE"
+probe "a malformed baseline line is named rather than skipped" 1 \
+  "expected \`HARNESS <path>\`" "$(its "$d")"
+
+d=$(it_fixture); rm -rf "$d/rf/checks"
+probe "an unreadable clone makes the re-derivation impossible, and fatal" 1 \
+  "is not a directory" "$(its "$d")"
 
 echo
 if [ "$probes" -ne "$PROBES_EXPECTED" ]; then

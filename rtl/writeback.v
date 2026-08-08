@@ -14,6 +14,7 @@ module writeback(
   ,
   output logic        rvfi_valid,
   output logic        rvfi_trap,
+  output logic        rvfi_intr,
   output logic [63:0] rvfi_order,
   output logic [31:0] rvfi_insn,
   output logic [ 4:0] rvfi_rs1_addr,
@@ -82,6 +83,8 @@ module writeback(
   // The fallback is safe, but it is still a diagnostic. Keeping this read out
   // of the always_comb is what stops one more being emitted.
   assign rvfi_trap = in.rvfi.trap;
+  // Same continuous-assign reason as rvfi_trap above.
+  assign rvfi_intr = in.rvfi.intr;
 
   always_comb begin
     rvfi_valid = !reset && in.valid;
