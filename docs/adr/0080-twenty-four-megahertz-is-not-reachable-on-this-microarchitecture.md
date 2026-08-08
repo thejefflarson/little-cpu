@@ -109,13 +109,34 @@ Three caveats belong with that 17.72 ns number and none of them is small:
 **The rest of the field, from published sources and not reproduced here.** Quoted as claims, not as
 measurements: PicoRV32 / PicoSoC at about 12 MHz on up5k, which is multi-cycle and spends roughly
 twice this core's 2.07 cycles per instruction at the same clock; SERV at 16 MHz, which is
-bit-serial at about 32 cycles per instruction; VexRiscv's 63–92 MHz figures, which are **hx8k-class
-fabric and not up5k** and so are not a comparison at all.
+bit-serial at about 32 cycles per instruction; VexRiscv's 63–92 MHz figures, which fail the
+comparison twice over. **Every VexRiscv iCE40 number in that table is RV32I** — no M extension and
+no compressed — and they are **hx8k-class fabric and not up5k**; their RV32IM rows are Artix-7, a
+different fabric class again. The rows are 1130 LC at 92 MHz for "small, no datapath bypass, no
+interrupt", 1292 at 85 with interrupts, and 1596 at 63 for the productive configuration. That
+92 MHz configuration has **no datapath bypass**, which is the same stall-only choice this core
+makes, so the field's nearest architectural relative is 1130 LC of RV32I against `make fit`'s 3880
+for M, C, the mandated M-mode CSR set and precise traps.
+
+**Measuring this core on hx8k instead was tried and does not work.** The core alone synthesizes for
+hx8k at **6889 / 7680 LC (89%)** — hx8k has no `SB_MAC16`, so the multiplier expands into LUTs —
+and then fails to place on pins rather than on logic: **265 `SB_IO` against ct256's 206**, the
+largest hx8k package, with `ERROR: Unable to find a placement location for cell
+'imem_addr[24]$sb_io'`. That is the same reason `make fit`'s top never places on up5k. The SoC
+cannot be retargeted at all, because it instantiates `SB_SPRAM256KA`, which is up5k-only, and
+hx8k's entire block RAM is 32 × 4 kbit = 16 KB — less than the 64 KB of data RAM those SPRAMs
+hold, with the ROM and register file already claiming 24 of the 32. Even a synthetic hx8k SoC would
+measure nothing useful: 89% utilisation against VexRiscv-small's ~20% means routing congestion sets
+the path, which is a fact about a nearly-full device and not about the logic. **The fair comparison
+runs the other way** — VexRiscv placed on the up5k, our part and our toolchain. That was not
+attempted because VexRiscv is SpinalHDL and generating its Verilog needs a Scala toolchain, so it
+is an open route rather than a dead end.
 
 **This survey found no published result running a five-stage single-issue RV32IMC with a same-cycle
 redirect at 24 MHz on an up5k.** Every core that gets near that clock on this part does
 categorically less per cycle — no compressed decode, or a serial datapath, or a multi-cycle
-sequencer. That is not proof none exists. It is the state of the search, and it agrees with the
+sequencer — and the fastest-looking counter-example fails the description on its ISA before its
+fabric. That is not proof none exists. It is the state of the search, and it agrees with the
 three ceilings above.
 
 ## One more measured null: FemtoRV's synthesis flags do not help us
