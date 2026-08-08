@@ -77,6 +77,41 @@ Both red directions were run, not argued:
 The `.bss` mutation fails at check 4 and not at check 2, which is the point: check 2 is the one
 that cannot fail here, and the table says so.
 
+## A C entry's floor is a silence bound, not an observation
+
+`test/OBSERVED_FLOOR` was designed for assembly and does not transfer. An `.S` program assembles to
+a fixed instruction sequence, so its retire count holds across toolchains by construction — which
+is exactly why a `>=` floor over the measured number is a meaningful check there. A C program's
+count is whatever that gcc chose to inline and schedule. `test/asm/datainit.c` retired **400**
+under a local `riscv64-elf-gcc` and **395** on the CI runner, from identical source, and the first
+version of this change recorded 400 as its floor and went red on the gate.
+
+Lowering it to 395 would have made CI pass and left the defect. The floor exists to catch a program
+going **quiet**, and a number tracking a compiler's output conflates that with "a different gcc
+emitted five fewer instructions" — two failures the gate cannot tell apart. This repo already knows
+its toolchains disagree: `make fit` reads about 21 cells apart on identical RTL, and `CLAUDE.md`
+says to quote the CI number for that reason.
+
+So a `.c` line's two numbers are **16**, picked from the check rather than the measurement. Every
+recorded instance of the defect this file exists for produced zero retires — `rvfi_valid` never
+asserting, an `ifdef` dropping the shadow payload, `write_cxxrtl` optimising the monitor instance
+away — or one, the iverilog under-sensitivity defect measured at "0 writes and 1 retire". Zero is
+already `test/cxxrtl.cc`'s exit 6, so the bound only has to clear one; 16 is an order of magnitude
+above the defect, two below any C program's real count, and nothing a compiler chooses can move it.
+`spec-checked` has the same problem and takes the same bound — it tracked retires exactly here
+(395 of 395 on CI), so whatever moves one moves the other.
+
+Two options were rejected. **Pinning the toolchain for C** is heavier than this ticket and would
+buy reproducibility the check does not need. **Dropping `.c` from the floor entirely** relies on
+exit 6 alone, and exit 6 covers only *zero* — the one recorded defect that produced a nonzero count
+produced 1, which no `MONITOR-SILENT` path catches.
+
+The rule is enforced rather than left to the header: `test/run_tests.sh` rejects a `.c` floor above
+64 before it runs a program, with a message naming the reason. The header is a decision procedure
+someone follows under pressure, and its "copy the table's third column" instruction is what
+produced the red gate in the first place. The name set is untouched by any of this — a `.c` program
+that vanishes from the suite is red in both directions exactly as an `.S` one is.
+
 ## The number that decides whether SPI-flash boot becomes urgent
 
 Measured at `25cbce0` with `riscv64-elf-gcc`, `-Os`, on `test/asm/datainit.c`:

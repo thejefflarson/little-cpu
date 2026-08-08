@@ -197,6 +197,13 @@ Baselines and grading:
   `test/OBSERVED_FLOOR`'s name set doubles as the suite manifest, checked both ways before anything
   runs, so a suite that shrank is red rather than a smaller table that still "passes". Before
   adding a co-sim baseline entry, read that file's header — it is the decision procedure.
+- **A `.c` entry's floor numbers are a silence bound, not an observation.** An assembly program's
+  retire count is fixed by its instruction sequence; a C program's is whatever that gcc inlined,
+  and the two toolchains here differ by about 1% on identical source — enough to trip a `>=` floor
+  copied from the table, for a reason the floor cannot tell apart from the monitor going blind. So
+  a `.c` line is 16, chosen because the recorded blindness defects produced 0 retires (already
+  exit 6) or 1. `test/run_tests.sh` rejects a `.c` floor above 64 rather than trusting the header
+  (ADR-0081).
 - **Never put a graded command in a pipeline in a CI `run:` block**: the default shell is errexit
   without pipefail, so the step's status becomes `tee`'s. This held the formal CI job accidentally
   green for its entire life.

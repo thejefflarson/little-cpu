@@ -77,6 +77,25 @@ if [ -n "$malformed_floor" ]; then
   exit 1
 fi
 
+# A C program's floor is a silence bound, not an observation: its instruction
+# count is whatever that gcc chose to inline, and the two toolchains this repo
+# builds with disagree by about 1% on identical source. Recorded as a floor,
+# that disagreement is red for a reason the floor cannot distinguish from the
+# one it exists for. This rejects a number copied out of the table rather than
+# leaving it to the header of $OBSERVED_FLOOR, which is what "copy the third
+# column" already talked someone past once.
+C_FLOOR_MAX=64
+overspecified=$(printf '%s\n' "$floors" \
+  | awk -v max="$C_FLOOR_MAX" '$1 ~ /\.c$/ && ($2 > max || $3 > max) { print }')
+if [ -n "$overspecified" ]; then
+  echo "error: $OBSERVED_FLOOR gives a C program a floor above $C_FLOOR_MAX:" >&2
+  printf '  %s\n' "$overspecified" >&2
+  echo "That is a measurement of one compiler's output, not a bound on the" >&2
+  echo "monitor going quiet, and it goes red when the other toolchain builds" >&2
+  echo "the same source. Read the section on C programs in that file." >&2
+  exit 1
+fi
+
 CC=""
 for candidate in riscv64-elf-gcc riscv64-unknown-elf-gcc; do
   if command -v "$candidate" >/dev/null 2>&1; then

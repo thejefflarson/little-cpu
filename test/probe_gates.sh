@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=144
+PROBES_EXPECTED=145
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -342,6 +342,12 @@ probe "a floor line this loop cannot parse is a floor that is not enforced" 1 \
 d=$(rt_fixture); printf 'add.S ten 10\n' > "$d/FLOOR"
 probe "a non-numeric floor is named rather than compared arithmetically" 1 \
   "are not '<program> <retires> <spec-checked>'" "$(rt "$d")"
+
+# The manifest check runs first, so the fixture needs the .c to exist as well.
+d=$(rt_fixture); : > "$d/asm/boot.c"
+printf 'add.S 10 10\nboot.c 400 400\n' > "$d/FLOOR"
+probe "a C floor copied out of the measured table is rejected, not honoured" 1 \
+  "gives a C program a floor above" "$(rt "$d")"
 
 d=$(rt_fixture); printf 'add.S\n' > "$d/BASELINE"
 probe "a pre-ADR-0035 one-field baseline line is rejected, not half-matched" 1 \
