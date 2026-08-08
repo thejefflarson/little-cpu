@@ -8,10 +8,10 @@
 // insns/isa_rv32imc.txt, so every other instruction in the ISA has an `insn_*`
 // ladder check. The pin models none of `c_nop`, `c_ebreak`, `fence`, `ecall`,
 // `ebreak` -- and that five-instruction blind spot is where the c.ebreak trap
-// cause defect lived (ADR-0048). `ecall` and `ebreak` are covered by trap.S,
+// cause defect lived. `ecall` and `ebreak` are covered by trap.S,
 // `c.ebreak` by cebreak.S; these four had nothing.
 //
-// ADR-0005 makes all four NOPs: one hart, no caches, no interrupt sources, so
+// All four are NOPs here: one hart, no caches, no interrupt sources, so
 // there is nothing for a fence to order, nothing for fence.i to invalidate,
 // and nothing for wfi to wait on. What is checked is that they retire without
 // trapping and without disturbing architectural state -- the two ways a NOP

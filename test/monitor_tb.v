@@ -1,6 +1,6 @@
 // Unit bench for the generated RVFI monitor itself -- not for the core. The
 // monitor is an oracle both sim legs read, so a defect in it is a defect in
-// every `make test` result (ADR-0019). Each vector below is a hand-built RVFI
+// every `make test` result. Each vector below is a hand-built RVFI
 // retire whose correct verdict is known by construction.
 //
 // It compiles against test/monitor.sim.v, the sanitized derivative that
@@ -9,7 +9,7 @@
 
 module monitor_tb;
   localparam [31:0] MTVEC = 32'h0000_0100;  // where the trapping vectors redirect
-  localparam [31:0] RAM   = 32'h0001_0000;  // ADR-0008's RAM base
+  localparam [31:0] RAM   = 32'h0001_0000;  // RAM base in the test memory map
 
   reg clock = 0;
   reg reset = 1;
@@ -155,7 +155,7 @@ module monitor_tb;
     expect_errcode(16'd0, "correct add retire");
 
     // 2. lw x5, 1(x1) with x1 = RAM base -- address 0x00010001, misaligned, so
-    //    spec_trap holds. A correct core reports the ADR-0028 convention:
+    //    spec_trap holds. A correct core reports a trapping retire this way:
     //    rd_addr/rd_wdata/mem masks all zero, pc_wdata = mtvec. The spec model
     //    reports rd = x5, rd_wdata = the loaded word and pc_wdata = pc+4, so
     //    every one of those comparisons disagrees and only the `!spec_trap` gate

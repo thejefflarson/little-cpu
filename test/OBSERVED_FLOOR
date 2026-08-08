@@ -16,9 +16,9 @@
 # both empty, so nothing in them would disappear if the suite itself did. A bad
 # rebase, a directory rename, a .gitignore change or a glob that stopped
 # matching would leave `make test` reporting `12/12 passed`, matching an empty
-# baseline exactly, and exiting 0. ADR-0033 named that shape on the formal side
-# — a verdict baseline "cannot report whether a check stopped existing", which
-# is why formal/EXPECTED_CHECKS exists. The name set below is the same
+# baseline exactly, and exiting 0. The formal side has the same shape: a verdict
+# baseline cannot report whether a check stopped existing, which is why
+# formal/EXPECTED_CHECKS exists. The name set below is the same
 # assertion for simulation. It is checked in BOTH directions: a program in
 # test/asm with no line here is red, so a `.S` that lands without being wired in
 # fails immediately rather than joining the suite unmeasured.
@@ -27,11 +27,11 @@
 # its per-retire oracle, but nothing in the gate measured whether the oracle
 # ever fired. test/cxxrtl.cc sampled the monitor's errcode and counted nothing,
 # so a monitor whose `rvfi_valid` never asserted — an under-sensitivity defect
-# of exactly the kind ADR-0037 found in the iverilog leg, an `ifdef` that
+# of exactly the kind already found in the iverilog leg, an `ifdef` that
 # dropped the shadow payload, a `write_cxxrtl` that optimised the instance
-# away — left every program here reporting PASS off `tohost` alone. ADR-0032
-# had already measured that end-state checking on its own is blind to real
-# architectural corruption, and test/EXPECTED_FAIL is empty, so there was no
+# away — left every program here reporting PASS off `tohost` alone. Checking
+# the end state alone was already measured to be blind to real architectural
+# corruption, and test/EXPECTED_FAIL is empty, so there was no
 # red entry whose disappearance would have said otherwise either. This file
 # turns observation into a graded quantity instead of an inference.
 #
@@ -49,12 +49,12 @@
 # and test/EXPECTED_FAIL or formal/EXPECTED_CHECKS, and it is deliberate. The
 # numbers move for legitimate reasons: the assembler is free to compress
 # differently, a test gains an instruction, a macro in test/asm/riscv_test.h
-# grows one. An exact ratchet over 52 numbers is one nobody would keep, and a
-# ratchet nobody keeps gets raised until it means nothing. What must not happen
-# is a program going QUIET, and `>=` catches exactly that.
+# grows one. An exact ratchet over every number in this file is one nobody
+# would keep, and a ratchet nobody keeps gets raised until it means nothing.
+# What must not happen is a program going QUIET, and `>=` catches exactly that.
 #
 # The NAME set, on the other hand, IS a set equality in both directions, the
-# same contract ADR-0014 puts on the two files above — that is the manifest
+# same contract the two files above carry — that is the manifest
 # half, described at the top. It is checked by test/check_suite_shape.sh BEFORE
 # either leg assembles anything, so a mismatch in either direction names the
 # programs involved and stops, rather than being discovered after a full run

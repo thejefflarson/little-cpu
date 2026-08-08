@@ -16,7 +16,7 @@ module mem_tb;
   logic [31:0] mem_rdata;
 
   // BASE = 0 so the vectors below can address the array directly; the shipping
-  // instances use ADR-0008's non-zero RAM base. The property the out-of-range
+  // instances use a non-zero RAM base. The property the out-of-range
   // vectors check holds either way: an unmapped address must not alias a mapped
   // word.
   memory #(.BASE(32'h0), .RAM_WORDS(RAM_WORDS)) dut (
@@ -103,7 +103,7 @@ module mem_tb;
     // array to 128 `SB_RAM40_4K` -- four times the part's block RAM -- with no
     // diagnostic. Nothing in the pipeline observes the difference (rtl/accessor.v
     // reads mem_rdata only on a load's response cycle), so nothing but this
-    // vector would notice it being "fixed" back (ADR-0054).
+    // vector would notice it being "fixed" back.
     do_read(32'h00000004, got);
     check("read-port setup for the hold check", got, 32'hcafef00d);
     do_write(32'h00000008, 32'h0f0f0f0f);

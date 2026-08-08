@@ -2,9 +2,9 @@
 """Split a flat ROM image into rtl/imemory.v's two interleaved banks.
 
 rtl/imemory.v stores word W in `rom_even` at index W/2 when W is even and in
-`rom_odd` at the same index when it is odd (ADR-0054). That is what removes the
-duplicated ROM the SoC used to need for ADR-0003's dual-word fetch window, and
-it means the bitstream's ROM image is two `$readmemh` files rather than one.
+`rom_odd` at the same index when it is odd. That is what removes the duplicated
+ROM the SoC used to need to serve the dual-word fetch window, and it means the
+bitstream's ROM image is two `$readmemh` files rather than one.
 
 Two files rather than one plus a de-interleaving loop in RTL, because yosys does
 not turn an `initial` block that copies between arrays into memory init: such a
@@ -64,7 +64,7 @@ def main():
 
     # A program that does not fit is a FINDING, not something to truncate. The
     # ROM ceiling is the part's block RAM and it is the whole reason this SoC
-    # can be initialised from its bitstream at all (ADR-0054).
+    # can be initialised from its bitstream at all.
     top = max(image)
     if top >= args.rom_words:
         sys.exit(

@@ -31,15 +31,15 @@ HTIF IS SPOKEN, NOT WORKED AROUND
 Sail auto-detects HTIF from the ELF's `tohost` symbol and claims the whole
 DOUBLEWORD at that address as an IO window.  `tohost` used to be a 32-bit
 `.word` at the base of RAM, so `.data` -- every load/store test's TEST_DATA,
-which ADR-0008 places immediately after -- began four bytes INSIDE that
+which sections.lds places immediately after -- began four bytes INSIDE that
 window: Sail answered every `lw` from 0x10004 with zero and eight programs
 "diverged" for a reason that was entirely this repo's fault.  The spike
-(ADR-0032) worked around it by stripping the symbol from a throwaway ELF copy
+worked around it by stripping the symbol from a throwaway ELF copy
 and then bounding the reference run with `--inst-limit`, checking it had
 reached the pass/fail spin loop by looking for a self-loop at one PC.
 
 Both workarounds are gone.  test/asm/riscv_test.h now emits `tohost` as an
-8-byte-aligned `.dword` (ADR-0039), which is what the HTIF protocol always
+8-byte-aligned `.dword`, which is what the HTIF protocol always
 specified, so the IO window covers only `tohost` itself and Sail reads test
 data out of real memory.  The verdict macros write the doubleword's upper
 word first and the verdict last, so the reference model TERMINATES on the
@@ -235,7 +235,7 @@ def find_sail(explicit):
     so the two checks are complementary and a direct ./test/cosim.py
     invocation only gets this one.
 
-    Opt-in by construction (ADR-0032): nothing in `make test` reaches this
+    Opt-in by construction: nothing in `make test` reaches this
     function, and when the binary is absent the message names the target that
     installs it rather than a build failure.
     """
@@ -282,7 +282,7 @@ def assemble(cc, src, outdir):
     the ELF (for Sail) plus the two objcopy images (for the cxxrtl runner).
 
     The reference model gets the SAME ELF, unmodified -- no stripped symbol,
-    no throwaway copy (ADR-0039). If the two legs ever stop building from
+    no throwaway copy. If the two legs ever stop building from
     identical bytes, this is the function that would have to say so."""
     base = os.path.splitext(os.path.basename(src))[0]
     elf = os.path.join(outdir, base + ".elf")
@@ -311,7 +311,7 @@ def sail_verdict(output):
     """The reference model's HTIF verdict, in the vocabulary test/cosim.cc
     prints for the core, or None if the run did not reach one.
 
-    Sail terminates on the doubleword `tohost` write (ADR-0039) and announces
+    Sail terminates on the doubleword `tohost` write and announces
     it: `SUCCESS` for the riscv-tests pass encoding, `FAILURE: <n>` for
     `(testnum << 1) | 1`, where n is the test number. There is deliberately no
     fallback to the process exit status -- it is 0 both for SUCCESS and for
@@ -430,7 +430,7 @@ def compare(sail_records, dut_records):
     `status` is "AGREE" or one of the DISAGREE labels test/run_cosim.sh
     baselines against test/COSIM_EXPECTED_FAIL. The labels distinguish HOW the
     two disagreed, so a baselined program that starts diverging somewhere else
-    is a red gate rather than a match (ADR-0035).
+    is a red gate rather than a match.
 
     `skipped` lists every change whose VALUE was not comparable -- a read of a
     NONCOMPARABLE_CSRS entry into a register. The caller prints it. Two cursors
