@@ -302,7 +302,7 @@ a program that reads its own `.data`. SPRAM still cannot be initialised, so `.da
 ROM at a load address `test/asm/boot.lds` puts there and `test/crt0.S` copies into RAM before
 `main`. That runtime costs 82 bytes and `test/asm/datainit.c`'s whole ROM image is 284 of 8192, so
 SPI-flash boot stays deferred, alongside the forwarding network, the radix-4 divider, and
-interrupts (ADR-0080).
+interrupts (ADR-0081).
 
 The suite is `test/asm/*.S` **and** `test/asm/*.c`, and `test/OBSERVED_FLOOR` names both. The two
 shapes differ only in how `.data` reaches RAM: an assembly program's is poked in by the harness,

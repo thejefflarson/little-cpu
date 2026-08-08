@@ -178,7 +178,7 @@ trades away simplicity the current design depends on.
   second ROM read did become interleaved banks — at **word** granularity, not the halfword split
   ADR-0044 named, because this core's fetch interface asks for two adjacent words and windows them
   itself. The bootloader is half-built: the `.data` copy stub landed with
-  [ADR-0080](0080-the-data-image-lives-in-rom-and-crt0-copies-it.md), so the SoC runs a C program
+  [ADR-0081](0081-the-data-image-lives-in-rom-and-crt0-copies-it.md), so the SoC runs a C program
   that reads its own globals. ADR-0044's SPI-flash path stays deferred, now against the measured
   ROM budget rather than a guess.
 - **Interrupts** (`mie`/`mip` real rather than read-only zero) — no interrupt sources exist.
