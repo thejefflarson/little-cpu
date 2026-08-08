@@ -263,15 +263,30 @@ Suite. CI runs on every PR (`.github/workflows/ci.yml`); read the required set l
 
 ## State
 
-M1 (the pipeline runs the RV32IM suite) and M3 (CSRs and machine-mode traps) are reached. M2 —
-parity with the serialized core this rewrite tore down, which was formally verified before the
-teardown — is the real finish line; its burn-down lives in ADR-0037 and successors. **Do not read
-empty baselines or an all-green `make -C formal check` as "the core is correct"** — an empty
-`formal/EXPECTED_FAIL` is necessary, not sufficient, and riscv-formal has no spec model for
-exactly the behaviour M3 added. The SoC
-places and meets 12 MHz but cannot yet run a program that reads its own `.data`: SPRAM cannot be
-initialised, and the bootloader (copy stub or SPI-flash boot) is deferred behind a future ADR,
-alongside the forwarding network, the radix-4 divider, and interrupts.
+M1 (the pipeline runs the RV32IM suite), M3 (CSRs and machine-mode traps) and M2 — parity with the
+serialized core this rewrite tore down, which was formally verified before the teardown — are all
+reached. M2's six-term conjunction was built by ADR-0037 and its successors and every term was
+re-measured against merged main in one sitting before the milestone was declared (ADR-0079); that
+audit, not any single green run, is the record.
+
+**Declaring M2 is a claim about those six terms, not a claim that the core is correct.** Three
+residuals outlive it. The multiplier is checked *differentially, not exhaustively* — operands, the
+retired slice and three points of the product function, with `test/exec_tb.v`'s randomized vectors
+covering the rest. The divider is proved under a *recorded magnitude restriction* and its completion
+assertions are basecase-unreachable at the configured depth, so that result is inductive only.
+`complete` passes over a *recorded exclusion set*, not over the ISA. The two caveats under
+Verification — bounded BMC, and no spec model for what M3 added — survive M2 by design and are not
+burn-down items. `csrc_upcnt` is the narrow case worth knowing by name: it says `minstret` strictly
+increases, **not** that it advances by exactly the non-trapping issues, so ADR-0027's rule is
+narrowed rather than closed and `test/asm/minstret.S`, `test/csr_tb.v` and `components_traps` carry
+that half.
+
+**So do not read empty baselines or an all-green `make -C formal check` as "the core is correct"** —
+an empty `formal/EXPECTED_FAIL` is necessary, not sufficient.
+
+The SoC places and meets 12 MHz but cannot yet run a program that reads its own `.data`: SPRAM
+cannot be initialised, and the bootloader (copy stub or SPI-flash boot) is deferred behind a future
+ADR, alongside the forwarding network, the radix-4 divider, and interrupts.
 
 ## Pointers
 
