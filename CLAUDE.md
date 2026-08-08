@@ -176,10 +176,13 @@ and times.
   ~0.34 ns and no interconnect. A change that trades a carry hop for a LUT level gets shallower by
   icetime's count and slower in nanoseconds. The SoC is routing-dominated; wide flat muxes route
   worse than chains. **There is no single lever.** The decode head
-  (`imem.in_range → instr → {rs1/rs2, immediate, hazard}`) was named as one and measures 3.3% deleted
-  whole — inside the churn band — while every other input to `next_pc` measures nothing on its own
-  and all of them together are worth 21% (ADR-0076). Bring a ceiling for the whole cone or expect a
-  null.
+  (`imem.in_range → instr → {rs1/rs2, immediate, hazard}`) was named as one and measures 3.3%
+  deleted whole, inside the churn band. The period is in the fetch loop instead: no single input to
+  `next_pc` is worth more than 5%, all of them deleted together are worth 21%, and collecting that
+  means the pc stops depending on this cycle's decode — which is the no-wrong-path-state commitment
+  (ADR-0076). **Measure the whole set.** A ceiling over one term bounds only that term, and a median
+  inside the churn band is a null in both directions — neither a candidate declined nor one
+  admitted.
 
 Baselines and grading:
 
