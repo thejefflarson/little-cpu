@@ -295,9 +295,12 @@ that half.
 **So do not read empty baselines or an all-green `make -C formal check` as "the core is correct"** —
 an empty `formal/EXPECTED_FAIL` is necessary, not sufficient.
 
-The SoC places and meets 12 MHz but cannot yet run a program that reads its own `.data`: SPRAM
-cannot be initialised, and the bootloader (copy stub or SPI-flash boot) is deferred behind a future
-ADR, alongside the forwarding network, the radix-4 divider, and interrupts.
+The SoC is 8 KB of ROM in block RAM plus 64 KB of data RAM, which yosys maps to two of the part's
+four `SB_SPRAM256KA` at 256 kbit each. **128 KB is the up5k's whole SPRAM, not the SoC's.**
+`SOC_EXPECT_SPRAM` and `SOC_EXPECT_EBR` hold both counts exactly. It places and meets 12 MHz but
+cannot yet run a program that reads its own `.data`: SPRAM cannot be initialised, and the
+bootloader (copy stub or SPI-flash boot) is deferred behind a future ADR, alongside the forwarding
+network, the radix-4 divider, and interrupts.
 
 ## Pointers
 
