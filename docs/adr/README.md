@@ -78,6 +78,7 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0071](0071-the-trap-commit-path-is-proved-and-its-priority-encoder-is-still-vacuous.md) | The trap commit path is proved by k-induction, and its priority encoder is still vacuous | Accepted · supplements 0011, 0028 and 0030; adds a fourth `components.sby` task |
 | [0074](0074-the-operand-fetch-cycle-is-removable-and-costs-more-than-it-saves.md) | The operand-fetch cycle is removable, and it costs more clock than it saves | Accepted · declines a change to 0042; measured with 0070, graded by 0066; sharpens 0064's coupling |
 | [0075](0075-downloaded-tools-live-outside-the-checkout.md) | Downloaded tools live outside the checkout, so a worktree can run co-simulation | Accepted · moves the install location named by 0032, 0033 and 0043 |
+| [0078](0078-a-one-deep-kill-is-cheap-and-buys-a-clock-the-board-cannot-use.md) | A one-deep kill is cheap, and it buys a clock the board cannot use | Accepted · prices the no-wrong-path-state commitment; re-attributes 0076's 21%, graded by 0066 |
 
 0001–0007 came from the design brief
 ([`docs/ideas/finish-the-rewrite.md`](../ideas/finish-the-rewrite.md)). 0008–0011 came out of
