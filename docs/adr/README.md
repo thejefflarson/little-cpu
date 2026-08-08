@@ -41,7 +41,7 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0034](0034-what-the-csr-ladder-checks-cannot-see.md) | What the CSR ladder checks cannot see, and the decisions the CSR file forced | Accepted · corrected by 0037 |
 | [0035](0035-the-baseline-pins-the-failure-mode.md) | `test/EXPECTED_FAIL` pins the failure mode, not just the file name | Accepted |
 | [0036](0036-three-gate-hardening-decisions-ratified-at-integration.md) | Three gate-hardening decisions ratified at integration, and a correction to ADR-0031 | Accepted |
-| [0037](0037-an-empty-baseline-is-not-m2.md) | An empty formal baseline is not M2, and the milestone criterion said it was | Accepted · amended by 0045, 0047 |
+| [0037](0037-an-empty-baseline-is-not-m2.md) | An empty formal baseline is not M2, and the milestone criterion said it was | Accepted · amended by 0045, 0047; its six terms ruled on by 0079 |
 | [0038](0038-area-is-measured-in-logic-cells-and-two-levers-are-rejected.md) | Area is measured in logic cells, Fmax is declared at 12 MHz, and two area levers are rejected | Accepted · decision 2 amended by 0066, which makes 12 MHz a requirement |
 | [0039](0039-co-simulation-runs-the-whole-suite-against-a-baseline.md) | Co-simulation runs the whole suite against a baseline, and `tohost` becomes a doubleword | Accepted |
 | [0040](0040-the-ladder-refuses-a-negedge-regfile-and-make-check-was-re-grading.md) | The ladder refuses a negedge regfile rather than mis-modelling one, and `make check` had been re-grading the previous run | Accepted |
@@ -80,6 +80,7 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0075](0075-downloaded-tools-live-outside-the-checkout.md) | Downloaded tools live outside the checkout, so a worktree can run co-simulation | Accepted · moves the install location named by 0032, 0033 and 0043 |
 | [0076](0076-the-decode-head-is-a-plateau-not-a-lever.md) | The decode head is a plateau, not a lever | Accepted · withdraws 0058's recommendation; blocks 0074's reopening condition; graded by 0066 |
 | [0078](0078-a-one-deep-kill-is-cheap-and-buys-a-clock-the-board-cannot-use.md) | A one-deep kill is cheap, and it buys a clock the board cannot use | Accepted · prices the no-wrong-path-state commitment; re-attributes 0076's 21%, graded by 0066 |
+| [0079](0079-all-six-m2-terms-are-re-measured-and-m2-is-declared.md) | All six M2 terms are re-measured against merged main, and M2 is declared | Accepted · rules on 0037's conjunction as amended by 0045, 0046, 0047, 0050, 0051 and 0052; narrows 0027 |
 
 0001–0007 came from the design brief
 ([`docs/ideas/finish-the-rewrite.md`](../ideas/finish-the-rewrite.md)). 0008–0011 came out of
