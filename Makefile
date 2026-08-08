@@ -446,7 +446,12 @@ fit: fit.json
 # includes the ROM and the data RAM, so its cell count is bigger and the two
 # numbers are not comparable. This one also has to place, because icetime reads
 # the `.asc` file that only a finished placement writes.
-SOC_PROG      ?= add.S
+# A `.c` program is linked against test/asm/boot.lds and test/crt0.S, so its
+# ROM image carries `.data`'s initialiser after `.text` and the startup copies
+# it into SPRAM -- which no bitstream can initialise. That is the only image
+# shape this board can boot a program with globals from, so it is the default:
+# an image shape nothing builds is one nobody notices breaking.
+SOC_PROG      ?= datainit.c
 SOC_ROM_WORDS := 2048
 # Exact rather than budgeted the way FIT_MAX_LC is, because both are properties
 # of the RTL rather than of placement: 2 SPRAM for the 64 KB data RAM, and 16
@@ -476,9 +481,17 @@ soc-rom:
 	tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/soc-rom.XXXXXX"); \
 	test -n "$$tmp" -a -d "$$tmp"; \
 	trap 'rm -rf "$$tmp"' EXIT; \
-	$$CC -march=rv32imc_zicsr_zifencei -mabi=ilp32 -nostdlib -I test/asm \
-	  -T test/asm/sections.lds -o "$$tmp/prog.elf" test/asm/$(SOC_PROG); \
-	$$OBJCOPY -O verilog --verilog-data-width=4 -j .text "$$tmp/prog.elf" "$$tmp/rom.hex"; \
+	case '$(SOC_PROG)' in \
+	  *.c) $$CC -march=rv32imc_zicsr_zifencei -mabi=ilp32 -nostdlib \
+	         -Os -std=c11 -ffreestanding -fno-tree-loop-distribute-patterns \
+	         -Wall -Wextra -Werror -I test/asm -T test/asm/boot.lds \
+	         -o "$$tmp/prog.elf" test/crt0.S test/asm/$(SOC_PROG); \
+	       sections='-j .text -j .data' ;; \
+	  *)   $$CC -march=rv32imc_zicsr_zifencei -mabi=ilp32 -nostdlib -I test/asm \
+	         -T test/asm/sections.lds -o "$$tmp/prog.elf" test/asm/$(SOC_PROG); \
+	       sections='-j .text' ;; \
+	esac; \
+	$$OBJCOPY -O verilog --verilog-data-width=4 $$sections "$$tmp/prog.elf" "$$tmp/rom.hex"; \
 	python3 soc/rom_banks.py "$$tmp/rom.hex" soc/rom_even.hex soc/rom_odd.hex \
 	  --rom-words $(SOC_ROM_WORDS)
 

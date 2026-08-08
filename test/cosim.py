@@ -278,8 +278,14 @@ def find_sail(explicit):
 
 
 def assemble(cc, src, outdir):
-    """Assemble one test/asm/*.S exactly as test/run_tests.sh does, and emit
-    the ELF (for Sail) plus the two objcopy images (for the cxxrtl runner).
+    """Build one program from test/asm exactly as test/run_tests.sh does, and
+    emit the ELF (for Sail) plus the two objcopy images (for the cxxrtl runner).
+
+    A `.c` program is linked against test/asm/boot.lds and test/crt0.S, which
+    puts `.data`'s load address in ROM and copies it into RAM before main; a
+    `.S` program is freestanding and has its `.data` poked straight into the
+    simulated RAM. Sail is a real ELF loader, so it honours the load addresses
+    and needs no help with either shape.
 
     The reference model gets the SAME ELF, unmodified -- no stripped symbol,
     no throwaway copy. If the two legs ever stop building from
@@ -289,17 +295,25 @@ def assemble(cc, src, outdir):
     rom = os.path.join(outdir, base + ".rom.hex")
     ram = os.path.join(outdir, base + ".ram.hex")
     objcopy = cc[: -len("gcc")] + "objcopy"
-    log = subprocess.run(
-        [cc, "-march=rv32imc_zicsr_zifencei", "-mabi=ilp32", "-nostdlib", "-I", ASM_DIR,
-         "-T", os.path.join(ASM_DIR, "sections.lds"), src, "-o", elf],
-        capture_output=True, text=True,
-    )
+    if src.endswith(".c"):
+        build = [cc, "-march=rv32imc_zicsr_zifencei", "-mabi=ilp32", "-nostdlib",
+                 "-Os", "-std=c11", "-ffreestanding",
+                 "-fno-tree-loop-distribute-patterns",
+                 "-Wall", "-Wextra", "-Werror", "-I", ASM_DIR,
+                 "-T", os.path.join(ASM_DIR, "boot.lds"),
+                 os.path.join(REPO, "test", "crt0.S"), src, "-o", elf]
+        rom_args = ["--only-section=.text", "--only-section=.data"]
+        ram_args = ["--only-section=.tohost"]
+    else:
+        build = [cc, "-march=rv32imc_zicsr_zifencei", "-mabi=ilp32", "-nostdlib",
+                 "-I", ASM_DIR,
+                 "-T", os.path.join(ASM_DIR, "sections.lds"), src, "-o", elf]
+        rom_args = ["--only-section=.text"]
+        ram_args = ["--remove-section=.text"]
+    log = subprocess.run(build, capture_output=True, text=True)
     if log.returncode != 0:
         raise Fatal(f"assembling {src} failed:\n{log.stdout}{log.stderr}")
-    for args, out in (
-        (["--only-section=.text"], rom),
-        (["--remove-section=.text"], ram),
-    ):
+    for args, out in ((rom_args, rom), (ram_args, ram)):
         subprocess.run(
             [objcopy, "-O", "verilog", "--verilog-data-width=4", *args, elf, out],
             check=True, capture_output=True,
@@ -526,7 +540,7 @@ def emit(status):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("program", nargs="?", default="add.S",
-                    help="a test/asm/*.S file name (default: add.S)")
+                    help="a test/asm/*.S or *.c file name (default: add.S)")
     ap.add_argument("--cosim-binary", default=os.path.join(REPO, "cosim"))
     ap.add_argument("--sail", default=None, help="path to sail_riscv_sim")
     ap.add_argument("--cycles", type=int, default=5000,

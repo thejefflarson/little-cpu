@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=142
+PROBES_EXPECTED=144
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -244,11 +244,14 @@ begin_group "test/check_suite_shape.sh"
 
 SHAPE="$HERE/check_suite_shape.sh"
 
+# Both program shapes, because the glob and the manifest's name check each have
+# to see .c as well as .S. A fixture with only .S would let either one go back
+# to being .S-only and stay green.
 shape_fixture() {
   local d; d=$(new_case)
   mkdir -p "$d/asm"
-  : > "$d/asm/add.S"; : > "$d/asm/lw.S"
-  printf '# a comment\nadd.S 10 10\nlw.S 5 5\n' > "$d/MANIFEST"
+  : > "$d/asm/add.S"; : > "$d/asm/lw.S"; : > "$d/asm/boot.c"
+  printf '# a comment\nadd.S 10 10\nlw.S 5 5\nboot.c 7 7\n' > "$d/MANIFEST"
   printf '%s' "$d"
 }
 
@@ -270,23 +273,31 @@ probe "an empty manifest matches an empty suite and is rejected" 1 \
   "names no programs" "$SHAPE '$d/asm' '$d/MANIFEST'"
 
 d=$(shape_fixture); printf 'add.S 10 10\nnot-a-program 5 5\n' > "$d/MANIFEST"
-probe "a manifest entry that is not a .S name is a typo, not a phantom" 1 \
-  "is not a '<test>.S' name" "$SHAPE '$d/asm' '$d/MANIFEST'"
+probe "a manifest entry that names no program is a typo, not a phantom" 1 \
+  "is not a '<test>.S' or" "$SHAPE '$d/asm' '$d/MANIFEST'"
 
 d=$(shape_fixture); printf 'add.S 10 10\nadd.S 10 10\nlw.S 5 5\n' > "$d/MANIFEST"
 probe "a duplicated manifest line would make comm non-symmetric" 1 \
   "names the same program more than once" "$SHAPE '$d/asm' '$d/MANIFEST'"
 
-d=$(shape_fixture); rm "$d/asm/add.S" "$d/asm/lw.S"
+d=$(shape_fixture); rm "$d/asm/add.S" "$d/asm/lw.S" "$d/asm/boot.c"
 probe "an empty asm directory is red rather than a suite of size zero" 1 \
-  "no .S programs found" "$SHAPE '$d/asm' '$d/MANIFEST'"
+  "no programs found" "$SHAPE '$d/asm' '$d/MANIFEST'"
 
 d=$(shape_fixture); rm "$d/asm/lw.S"
 probe "a SHRUNK suite: the manifest names a program the tree does not have" 1 \
   "The suite has SHRUNK" "$SHAPE '$d/asm' '$d/MANIFEST'"
 
+d=$(shape_fixture); rm "$d/asm/boot.c"
+probe "a SHRUNK suite is caught when the missing program is the C one" 1 \
+  "The suite has SHRUNK" "$SHAPE '$d/asm' '$d/MANIFEST'"
+
 d=$(shape_fixture); : > "$d/asm/unlisted.S"
 probe "the other direction: a .S that landed without a manifest line" 1 \
+  "runs unmeasured" "$SHAPE '$d/asm' '$d/MANIFEST'"
+
+d=$(shape_fixture); : > "$d/asm/unlisted.c"
+probe "the other direction for a .c: the glob has to see it too" 1 \
   "runs unmeasured" "$SHAPE '$d/asm' '$d/MANIFEST'"
 
 begin_group "test/run_tests.sh"
@@ -326,11 +337,11 @@ probe "the suite's shape is asserted before a single program is assembled" 1 \
 
 d=$(rt_fixture); printf 'add.S 10\n' > "$d/FLOOR"
 probe "a floor line this loop cannot parse is a floor that is not enforced" 1 \
-  "are not '<test>.S <retires> <spec-checked>'" "$(rt "$d")"
+  "are not '<program> <retires> <spec-checked>'" "$(rt "$d")"
 
 d=$(rt_fixture); printf 'add.S ten 10\n' > "$d/FLOOR"
 probe "a non-numeric floor is named rather than compared arithmetically" 1 \
-  "are not '<test>.S <retires> <spec-checked>'" "$(rt "$d")"
+  "are not '<program> <retires> <spec-checked>'" "$(rt "$d")"
 
 d=$(rt_fixture); printf 'add.S\n' > "$d/BASELINE"
 probe "a pre-ADR-0035 one-field baseline line is rejected, not half-matched" 1 \

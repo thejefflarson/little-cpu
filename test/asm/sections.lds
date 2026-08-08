@@ -19,6 +19,12 @@
  * comment there); the cxxrtl runner subtracts `ram`'s ORIGIN back out when
  * it pokes RAM contents via debug_items, and the iverilog leg's live bus
  * decode does the same at runtime.
+ *
+ * This is the script for the assembly programs, and their `.data` reaches RAM
+ * only because a harness put it there. The C programs use test/asm/boot.lds,
+ * which links the same map with `.data`'s load address in `rom` so the startup
+ * can copy it -- the only shape the SoC can boot, since its SPRAM cannot be
+ * initialised from a bitstream.
  */
 MEMORY {
     rom(rx)  : ORIGIN = 0x00000000, LENGTH = 16K

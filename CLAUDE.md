@@ -205,16 +205,16 @@ Baselines and grading:
 
 ```sh
 make setup          # install the RISC-V toolchain (brew on macOS)
-make test           # the .S suite under cxxrtl + unit benches + probe-gates,
-                    # graded against EXPECTED_FAIL / OBSERVED_FLOOR
+make test           # the test/asm suite (.S and .c) under cxxrtl + unit benches +
+                    # probe-gates, graded against EXPECTED_FAIL / OBSERVED_FLOOR
 make test-units     # the unit benches alone; the bench list is checked against
                     # test/*_tb.v in both directions
 make probe-gates    # force every graded comparison red for its own reason; hermetic
-make cycles         # the .S suite again, every cycle charged to an issuing cycle or
+make cycles         # the suite again, every cycle charged to an issuing cycle or
                     # one of the six stall reasons; nonzero on a stalled cycle none
                     # of them explains. Not on CI -- there is no CPI ratchet
 make waves          # iverilog leg -> waves.vcd; one baked-in program, graded,
-                    # not the .S suite (test/testbench.v has no image loader)
+                    # not the test/asm suite (test/testbench.v has no image loader)
 make monitor-check  # regenerate test/monitor.v at the pin and diff
 make fit            # the core's area number; ratchet on FIT_MAX_LC
 make soc-timing     # the SoC place-and-time flow; requirement on SOC_MIN_MHZ.
@@ -297,10 +297,18 @@ an empty `formal/EXPECTED_FAIL` is necessary, not sufficient.
 
 The SoC is 8 KB of ROM in block RAM plus 64 KB of data RAM, which yosys maps to two of the part's
 four `SB_SPRAM256KA` at 256 kbit each. **128 KB is the up5k's whole SPRAM, not the SoC's.**
-`SOC_EXPECT_SPRAM` and `SOC_EXPECT_EBR` hold both counts exactly. It places and meets 12 MHz but
-cannot yet run a program that reads its own `.data`: SPRAM cannot be initialised, and the
-bootloader (copy stub or SPI-flash boot) is deferred behind a future ADR, alongside the forwarding
-network, the radix-4 divider, and interrupts.
+`SOC_EXPECT_SPRAM` and `SOC_EXPECT_EBR` hold both counts exactly. It places, meets 12 MHz, and runs
+a program that reads its own `.data`. SPRAM still cannot be initialised, so `.data` rides in the
+ROM at a load address `test/asm/boot.lds` puts there and `test/crt0.S` copies into RAM before
+`main`. That runtime costs 82 bytes and `test/asm/datainit.c`'s whole ROM image is 284 of 8192, so
+SPI-flash boot stays deferred, alongside the forwarding network, the radix-4 divider, and
+interrupts (ADR-0080).
+
+The suite is `test/asm/*.S` **and** `test/asm/*.c`, and `test/OBSERVED_FLOOR` names both. The two
+shapes differ only in how `.data` reaches RAM: an assembly program's is poked in by the harness,
+which is the thing the hardware cannot do, and a C program's is copied by the startup, which is the
+thing it can. A change to one program shape's build is a change in three places —
+`test/run_tests.sh`, `test/cosim.py`'s `assemble()` and the Makefile's `soc-rom`.
 
 ## Pointers
 

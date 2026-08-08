@@ -1,5 +1,5 @@
-# The `.S` suite's MANIFEST, and how much the per-retire RVFI monitor was
-# OBSERVED to do on each program.
+# The suite's MANIFEST -- test/asm/*.S and test/asm/*.c -- and how much the
+# per-retire RVFI monitor was OBSERVED to do on each program.
 #
 # TWO JOBS, ONE LIST, DELIBERATELY. This file is the list of programs the suite
 # must contain, and it is the list of what each of them was measured to retire.
@@ -37,7 +37,10 @@
 #
 # FORMAT — three fields:
 #
-#     <test>.S  <retires>  <spec-checked retires>
+#     <program>  <retires>  <spec-checked retires>
+#
+# where `<program>` is a test/asm file name, `.S` or `.c`. The two differ only
+# in how test/run_tests.sh builds them; nothing here distinguishes them.
 #
 # `retires` is the number of cycles the monitor examined (`rvfi_valid` high).
 # `spec-checked` is the subset of those whose VALUES it compared against its
@@ -49,7 +52,8 @@
 # and test/EXPECTED_FAIL or formal/EXPECTED_CHECKS, and it is deliberate. The
 # numbers move for legitimate reasons: the assembler is free to compress
 # differently, a test gains an instruction, a macro in test/asm/riscv_test.h
-# grows one. An exact ratchet over every number in this file is one nobody
+# grows one, a different gcc lays a C program out differently. An exact ratchet
+# over every number in this file is one nobody
 # would keep, and a ratchet nobody keeps gets raised until it means nothing.
 # What must not happen is a program going QUIET, and `>=` catches exactly that.
 #
@@ -85,7 +89,8 @@
 # the change that caused it and say which.
 #
 # Measured at 18d17a2 (the branch point) with riscv64-elf-gcc, the pinned
-# riscv-formal monitor, and CYCLES=5000 in test/run_tests.sh.
+# riscv-formal monitor, and CYCLES=5000 in test/run_tests.sh. datainit.c, the
+# first C program here, was measured at 25cbce0 the same way.
 add.S               429    429
 addi.S              206    206
 and.S               449    449
@@ -101,6 +106,7 @@ cebreak.S            161    138
 contend.S           113    113
 csr.S               108     82
 csrset.S              72     62
+datainit.c          400    400
 div.S                60     60
 divu.S               61     61
 fencenop.S            40     35
