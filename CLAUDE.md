@@ -172,11 +172,11 @@ and times.
 - **12 MHz is a requirement, not a regression floor** (ADR-0066). `SOC_MIN_MHZ` is 12.0 — the board
   clock, whose next divider step down is 6 — and it does not slide. When it trips, fix the design,
   not the floor. The margin over the worst placement is deliberately tighter than the churn band.
-- **The clock above 12 is 24, and there is nothing in between.** The part's oscillator divides
-  48 MHz by 1, 2, 4 or 8 — 48 / 24 / 12 / 6. A design that places at 13 MHz runs at 12; so does one
-  that places at 18. So the target for Fmax work is 24 MHz — 41.67 ns, about half of today's period
-  — and 12 is already met. A few-percent idea can be read against 41.67 ns and declined in a minute,
-  instead of after four placements (ADR-0078).
+- **The divider step above today's 12 is 24.** `SB_HFOSC` divides 48 MHz by 1, 2, 4 or 8 —
+  48 / 24 / 12 / 6. An `SB_PLL40` fed by the 12 MHz crystal can synthesize an intermediate clock
+  if a change ever earns one. The target for Fmax work is 24 MHz — 41.67 ns, about half of today's
+  period — and 12 is already met. A few-percent idea can be read against 41.67 ns and declined in a
+  minute, instead of after four placements (ADR-0078).
 - **Read logic levels apart**: a LUT level costs ~3.3 ns (delay plus interconnect), a carry hop
   ~0.34 ns and no interconnect. A change that trades a carry hop for a LUT level gets shallower by
   icetime's count and slower in nanoseconds. The SoC is routing-dominated; wide flat muxes route
