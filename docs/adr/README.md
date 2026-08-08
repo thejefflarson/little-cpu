@@ -82,7 +82,7 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0078](0078-a-one-deep-kill-is-cheap-and-buys-a-clock-the-board-cannot-use.md) | A one-deep kill is cheap, and it buys a clock the board cannot use | Accepted · prices the no-wrong-path-state commitment; re-attributes 0076's 21%, graded by 0066 |
 | [0079](0079-all-six-m2-terms-are-re-measured-and-m2-is-declared.md) | All six M2 terms are re-measured against merged main, and M2 is declared | Accepted · rules on 0037's conjunction as amended by 0045, 0046, 0047, 0050, 0051 and 0052; narrows 0027 |
 | [0080](0080-twenty-four-megahertz-is-not-reachable-on-the-up5k.md) | Twenty-four megahertz is not reachable on the up5k, and the part is the constraint | Accepted · collects 0074, 0076 and 0078 into one verdict; measures the same RTL at 31 MHz on hx8k; narrows 0078's "nothing in between" |
-| [0080](0080-the-data-image-lives-in-rom-and-crt0-copies-it.md) | The `.data` image lives in ROM and a `crt0` copies it, and the 8 KB budget is measured | Accepted · closes the copy-stub half 0054 deferred; keeps 0044's SPI-flash boot deferred; widens 0035's suite contract |
+| [0081](0081-the-data-image-lives-in-rom-and-crt0-copies-it.md) | The `.data` image lives in ROM and a `crt0` copies it, and the 8 KB budget is measured | Accepted · closes the copy-stub half 0054 deferred; keeps 0044's SPI-flash boot deferred; widens 0035's suite contract |
 
 0001–0007 came from the design brief
 ([`docs/ideas/finish-the-rewrite.md`](../ideas/finish-the-rewrite.md)). 0008–0011 came out of

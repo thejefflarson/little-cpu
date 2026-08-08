@@ -1,4 +1,4 @@
-# ADR-0080: The `.data` image lives in ROM and a `crt0` copies it, and the 8 KB budget is measured
+# ADR-0081: The `.data` image lives in ROM and a `crt0` copies it, and the 8 KB budget is measured
 
 **Status:** Accepted · 2026-08-08 · *Closes the bootloader half that
 [ADR-0054](0054-the-memory-system-and-the-first-real-timing-number.md) deferred and
