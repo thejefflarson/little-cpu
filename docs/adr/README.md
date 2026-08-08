@@ -81,6 +81,7 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0076](0076-the-decode-head-is-a-plateau-not-a-lever.md) | The decode head is a plateau, not a lever | Accepted · withdraws 0058's recommendation; blocks 0074's reopening condition; graded by 0066 |
 | [0078](0078-a-one-deep-kill-is-cheap-and-buys-a-clock-the-board-cannot-use.md) | A one-deep kill is cheap, and it buys a clock the board cannot use | Accepted · prices the no-wrong-path-state commitment; re-attributes 0076's 21%, graded by 0066 |
 | [0079](0079-all-six-m2-terms-are-re-measured-and-m2-is-declared.md) | All six M2 terms are re-measured against merged main, and M2 is declared | Accepted · rules on 0037's conjunction as amended by 0045, 0046, 0047, 0050, 0051 and 0052; narrows 0027 |
+| [0080](0080-twenty-four-megahertz-is-not-reachable-on-this-microarchitecture.md) | Twenty-four megahertz is not reachable on this microarchitecture | Accepted · collects 0074, 0076 and 0078 into one verdict; surveys the field; narrows 0078's "nothing in between" |
 
 0001–0007 came from the design brief
 ([`docs/ideas/finish-the-rewrite.md`](../ideas/finish-the-rewrite.md)). 0008–0011 came out of
