@@ -4,14 +4,10 @@
 # csrset.S
 #-----------------------------------------------------------------------------
 #
-# ***THIS TEST IS BASELINED RED.*** It is in test/EXPECTED_FAIL as
-# `csrset.S FAIL 2` and in test/COSIM_EXPECTED_FAIL, on purpose, and it is the
-# executable form of ADR-0048's finding 3.
-#
 # Two CSRs the RV32 privileged specification lists unconditionally in the
-# machine-mode register tables are absent from rtl/csrs.v's `implemented` set,
-# so an access to either raises illegal instruction where the spec says it
-# should read zero:
+# machine-mode register tables. Both were once missing from rtl/csrs.v's
+# `implemented` set, so an access to either raised illegal instruction where
+# the spec says it should read zero. This file is what says they stay:
 #
 #   mstatush   (0x310)  priv 20211203 §3.1.6.4, "For RV32 only, mstatush is a
 #                       32-bit read/write register". SBE and MBE are its only
@@ -26,17 +22,11 @@
 #                       address is read-only (addr[11:10] == 2'b11), so a
 #                       write to it correctly faults already.
 #
-# THE DIVERGENCE IS MEASURED, NOT ARGUED. The Sail reference model reads both
-# and continues; this core traps on both. That is what makes this a finding
-# rather than one reading of a specification sentence.
-#
-# It is deliberately NOT fixed in the change that found it. ADR-0005 states its
-# CSR set as *exact*, so widening it is an ISA-scope decision that belongs to an
-# amendment of ADR-0002/ADR-0005 with its own reasoning about what
-# "RV32IMC_Zicsr, machine mode only" commits to. Landing the divergence red is
-# ADR-0033's rule applied to the `.S` suite: a known-red test in the suite is
-# the system working, and a known-red property with no test at all is the
-# system lying.
+# THE CSR SET IS A FLOOR, NOT A CLOSED LIST, and that is why this file exists.
+# Trapping on a register the spec mandates is non-conformance, not minimality:
+# the spec lets almost every mandatory register read zero, so the two barely
+# trade off. A scope statement calling the set "exact" is what once made this
+# gap read as a design choice; do not remove either arm to shrink rtl/csrs.v.
 #
 # TWO THINGS THAT ARE *NOT* FINDINGS, checked the same way and recorded here so
 # nobody re-opens them:
@@ -49,11 +39,6 @@
 #     to zero"), so trapping is a legal way to not implement it. Sail happens
 #     to implement it; that is Sail's choice, not a requirement.
 #
-# BURN-DOWN. When mstatush lands, this file starts failing at test 3 instead of
-# test 2, and the baseline's second field goes red (ADR-0035) -- which is the
-# mechanism working, not a regression. When both land, both baseline lines come
-# out in the same commit and this header loses its first paragraph.
-#
 
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -61,7 +46,7 @@
 RVTEST_RV64U
 RVTEST_CODE_BEGIN
 
-  # mtvec resets to 0, which is _start (ADR-0029) — install before faulting.
+  # mtvec resets to 0, which is _start — install before faulting.
   # The RECORDING handler, not the fatal one: the failure this file reports has
   # to be an assertion about a trap count, so the trap must be survivable.
   RVTEST_INSTALL_TRAP_HANDLER

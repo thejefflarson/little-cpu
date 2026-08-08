@@ -3,14 +3,13 @@
 
 Replaces the Makefile's `soc_expect_cells` define so `test/probe_gates.sh`
 can drive `make soc-timing`'s SPRAM/EBR census against a fixture log without a
-real yosys run (ADR-0053) -- the same reason `soc/timing_split.py` carries
+real yosys run -- the same reason `soc/timing_split.py` carries
 `make soc-timing`'s frequency ratchet instead of a second parser in the
 recipe.
 
 Matched by cell NAME, not by presence: yosys logs a cell's library definition
 in the same "Number of cells" table whether or not it actually instantiates
-one, so `grep -q SB_SPRAM256KA` passed on a build that inferred zero of them
-(ADR-0054).
+one, so `grep -q SB_SPRAM256KA` passed on a build that inferred zero of them.
 """
 
 import argparse

@@ -1,5 +1,5 @@
 /*
- * Two regions, per ADR-0008. This core is Harvard: imem_addr indexes ROM,
+ * Two regions. This core is Harvard: imem_addr indexes ROM,
  * mem_addr indexes RAM, and the two buses are physically disjoint — they
  * are not two windows onto one address space. A single `*(*)` catch-all
  * (the old version of this file) put .text and .data in the same output
@@ -12,7 +12,7 @@
  * purely to keep the linker happy. `rom` and `ram` are sized generously
  * above the largest measured `.text`/`.data` in this suite so headroom, not
  * link-map tightness, is the constraint. `rom` grew from 8K to 16K when
- * test/asm/rvc.S (riscv-tests' rv32uc/rvc.S, ADR-0003/ADR-0021) landed --
+ * test/asm/rvc.S (riscv-tests' rv32uc/rvc.S) landed --
  * its page-boundary-straddle case alone pads past 8K (`.align 12` then
  * `.skip 4094`) before the rest of the suite's ~1.5K text even starts.
  * test/testbench.v's simulation ROM/RAM arrays are sized to match (see the

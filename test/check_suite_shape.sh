@@ -1,7 +1,6 @@
 #!/bin/bash
 # Asserts that the .S suite CONTAINS what it is supposed to contain, before
-# either sim leg runs a single program. ADR-0033's argument, applied to the
-# simulation side.
+# either sim leg runs a single program.
 #
 # Usage: check_suite_shape.sh <asm-dir> <manifest>
 #
@@ -30,7 +29,7 @@
 #   * test/run_cosim.sh did not read the manifest at all. Its own comment says
 #     its program-count guard exists so an empty glob cannot match an empty
 #     baseline — which is a guard against a suite of size ZERO, not against a
-#     suite that shrank from 52 to 12;
+#     suite that lost most of its programs;
 #   * neither leg rejected a manifest line that named a program twice, which
 #     would make the set comparison below quietly non-symmetric.
 #

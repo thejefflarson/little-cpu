@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Read nextpnr's fit.log, print the utilisation table, and apply the
-FIT_MAX_LC ratchet (ADR-0042).
+FIT_MAX_LC ratchet.
 
 Replaces the Makefile's inline grep/sed/awk chain so `test/probe_gates.sh`
 can drive both checks against a fixture log without running nextpnr --
@@ -9,9 +9,9 @@ instead of a second parser in the recipe.
 
 `make fit` EXPECTS placement to fail: `littlecpu` with its memories external
 presents 231 SB_IO against sg48's 39, so nextpnr always errors out on a pad,
-after printing the utilisation table -- which is the measurement (ADR-0038
-decision 1a). nextpnr's exit status carries no signal either way; the
-presence of the table is what says a measurement was taken at all.
+after printing the utilisation table -- which is the measurement. nextpnr's
+exit status carries no signal either way; the presence of the table is what
+says a measurement was taken at all.
 """
 
 import argparse
@@ -25,7 +25,7 @@ LC_LINE = re.compile(r"ICESTORM_LC:\s+(\d+)/\s*(\d+)\s+(\S+)")
 # phase gives up: "Unable to place cell ... no BELs remaining" when a BEL
 # class is exhausted, "Unable to find a placement location for cell" when it
 # cannot site a constrained IO. Matching only the first made a normal 80%-full
-# run print the "read fit.log before quoting this" warning (ADR-0042).
+# run print the "read fit.log before quoting this" warning.
 PLACEMENT_ERROR = re.compile(r"^ERROR: Unable to (place cell|find a placement location for cell)")
 
 

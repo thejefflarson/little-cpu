@@ -4,7 +4,7 @@
 # trap.S
 #-----------------------------------------------------------------------------
 #
-# Every trap cause this core implements (ADR-0005 / ADR-0030), taken
+# Every trap cause this core implements, taken
 # deliberately, recorded by the opt-in handler in riscv_test.h, and asserted
 # on from the test body.
 #
@@ -16,7 +16,7 @@
 #
 # Every trapping instruction is wrapped in `.option norvc` because the handler
 # resumes at mepc+4 unconditionally — it cannot read the faulting instruction
-# to find out how long it was (Harvard buses, ADR-0008).
+# to find out how long it was (Harvard buses).
 #
 # The handler clobbers t0/t1, so nothing here holds a live value in either
 # across a fault.
@@ -28,7 +28,7 @@
 RVTEST_RV64U
 RVTEST_CODE_BEGIN
 
-  # mtvec resets to 0, which is _start (ADR-0029) — install before faulting.
+  # mtvec resets to 0, which is _start — install before faulting.
   RVTEST_INSTALL_TRAP_HANDLER
 
   #-------------------------------------------------------------
@@ -58,7 +58,7 @@ test_4:
   li    TESTNUM, 4
   bne   a4, x29, fail
 
-  # A trapping load writes no register (ADR-0028): a1 still holds its sentinel.
+  # A trapping load writes no register: a1 still holds its sentinel.
   TEST_CASE( 5, a1, 0x5a5, nop; )
 
   #-------------------------------------------------------------
@@ -104,7 +104,7 @@ test_4:
   #-------------------------------------------------------------
   # Illegal instruction: cause 2. Two flavours — an encoding that decodes to
   # nothing (the all-zero word is illegal by definition), and a read of an
-  # unimplemented CSR (ADR-0005).
+  # unimplemented CSR.
   #-------------------------------------------------------------
 
   .option push
@@ -147,15 +147,15 @@ test_4:
   #-------------------------------------------------------------
   # A COMPRESSED faulting instruction, so `mepc` is exercised at pc % 4 == 2 --
   # the one case the WARL mask on mepc must not break. That mask clears bit 0
-  # only, because C makes 2-byte targets legal (ADR-0005); a mask that cleared
+  # only, because C makes 2-byte targets legal; a mask that cleared
   # bit 1 as well would resume two bytes early here and nowhere else in this
   # file, since every other trapping instruction above is `.option norvc` and
   # therefore 4-byte aligned.
   #
   # Two pieces of layout are load-bearing, both consequences of the handler
   # resuming at mepc+4 unconditionally (it cannot read the faulting instruction
-  # to learn its length: Harvard buses, ADR-0008, and riscv_test.h constraint
-  # 1). The `.align 2` plus a 2-byte `c.nop` puts the faulting instruction at
+  # to learn its length: Harvard buses, and riscv_test.h constraint 1). The
+  # `.align 2` plus a 2-byte `c.nop` puts the faulting instruction at
   # pc % 4 == 2; the `c.nop` behind it is 2 bytes of padding so mepc+4 lands on
   # an instruction boundary rather than inside one. Test 16 asserts the
   # alignment actually came out that way, so this cannot quietly degrade into a
@@ -186,15 +186,15 @@ test_15:
 
   TEST_CASE( 16, a4, 2, la a3, mis_clw; andi a4, a3, 3; )
 
-  # A trapping compressed load writes no register either (ADR-0028).
+  # A trapping compressed load writes no register either.
   TEST_CASE( 17, a1, 0x5a5, nop; )
 
   # Eight traps taken, eight handler entries.
   TEST_CASE( 18, a4, 8, la a3, trap_count; lw a4, 0(a3); )
 
   #-------------------------------------------------------------
-  # ADR-0027's second counter rule: a trapping instruction issues, and retires
-  # in RVFI with rvfi_trap = 1, but it did NOT retire architecturally — so it
+  # A trapping instruction issues, and retires in RVFI with
+  # rvfi_trap = 1, but it did NOT retire architecturally — so it
   # must not increment `minstret`. This lives here rather than in
   # test/asm/minstret.S because it needs a trap to be takeable at all; that
   # file carries the exactness rule, which does not.

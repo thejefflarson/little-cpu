@@ -63,7 +63,7 @@ module regfile_tb;
   // Nothing downstream would notice the two arrays drifting apart: test/cosim.cc
   // reads `regs_a` alone, and `reg_rs2` is the only consumer of `regs_b`. So
   // assert the duplication directly rather than trusting the write block by
-  // inspection (ADR-0042).
+  // inspection.
   task automatic check_mirrors(input string what);
     begin
       for (int i = 0; i < 32; i++) begin
@@ -126,8 +126,8 @@ module regfile_tb;
     // Write-first: the write lands in the FETCH cycle, on the same posedge that
     // captures the read. Without the write-first term in rtl/regfile.v the
     // captured word is the pre-write contents and the operand is exactly one
-    // writeback stale -- the ADR-0004 defect, a cycle earlier than the
-    // scoreboard can see.
+    // writeback stale -- a cycle earlier than the scoreboard can see, so the
+    // stall-only interlock never fires on it.
     drive(5'd5, 5'd5, 1'b1, 5'd5, 32'h44444444);   // fetch, writing x5
     drive(5'd5, 5'd5, 1'b0, 5'd0, 32'h0);          // use, no write
     check_hex("write-first capture in the fetch cycle (rs1)", reg_rs1, 32'h44444444);

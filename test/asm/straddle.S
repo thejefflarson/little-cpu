@@ -2,7 +2,7 @@
 # straddle.S
 #-----------------------------------------------------------------------------
 #
-# ADR-0003 regression: a 32-bit instruction can straddle a 4-byte boundary
+# A 32-bit instruction can straddle a 4-byte boundary
 # when pc % 4 == 2 (immediately after a compressed instruction). Fetch reads
 # the window combinationally every cycle (no aligner FSM, no stall, no
 # flush), so this costs nothing structurally; the

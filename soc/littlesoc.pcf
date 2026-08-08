@@ -1,14 +1,14 @@
 # Pin constraints for rtl/littlesoc.v on an ice40 up5k in an sg48 package.
 #
-# FOUR PINS, and that is the honest answer rather than a shortcut (ADR-0054).
+# FOUR PINS, and that is the honest answer rather than a shortcut.
 # Both memories are internal -- ROM in block RAM, RAM in SPRAM -- so the design
 # has no external bus at all. That is precisely why it places when `make fit`'s
 # top does not: `littlecpu` with its memories external presents 231 `SB_IO`
-# against sg48's 39 and always fails on a pad (ADR-0038 decision 1a).
+# against sg48's 39 and always fails on a pad.
 #
 # The pin numbers are the iCEBreaker 1.0e assignments for its 12 MHz oscillator,
 # its user button and its two on-board LEDs, which is the up5k/sg48 board this
-# project has been written against since ADR-0038 quoted its oscillator. Nothing
+# project has been written against from the first area measurement on. Nothing
 # here is load-bearing for the timing measurement -- `icetime` reports the
 # critical path through the fabric, and four IO pads cannot move it -- but a
 # made-up pinout would place differently from a real one, and a number taken

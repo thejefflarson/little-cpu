@@ -5,10 +5,9 @@
 # .github/workflows/.
 #
 # These PRs auto-merge once CI is green -- see .github/workflows/
-# dependabot-automerge.yml and ADR-0018. That is safe because `main` carries
-# required status checks (elaborate, test, components, monitor-freshness), so
-# `gh pr merge --auto` has a real gate to wait for. ADR-0016 records why the
-# same setup was unsafe before those checks existed.
+# dependabot-automerge.yml. That is safe only because `main` carries required
+# status checks, which is what gives `gh pr merge --auto` a real gate to wait
+# for. The set is not listed here; read it from the API, as that file says.
 #
 # The posture is deliberately "stay current" rather than "merge late by hand":
 # unpatched bugs in the code that runs our CI are a certain, cumulative cost,

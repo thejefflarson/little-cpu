@@ -1,7 +1,6 @@
-# The co-simulation baseline (ADR-0039), in ADR-0035's format and under
-# ADR-0014's contract. `make cosim-suite` exits 0 only when the set of programs
-# that do NOT agree with the Sail RISC-V model matches this file exactly, in
-# both directions — so an unexpected *agreement* is caught too.
+# The co-simulation baseline. `make cosim-suite` exits 0 only when the set of
+# programs that do NOT agree with the Sail RISC-V model matches this file
+# exactly, in both directions — so an unexpected *agreement* is caught too.
 #
 # THIS FILE IS EMPTY, AND EMPTY IS NOT THE SAME AS ABSENT. Both directions
 # still run: every program in test/asm must AGREE, and any one that does not is
@@ -35,9 +34,9 @@
 # kind of claim as removing the line and needs the same justification in the PR
 # that does it. This file is never regenerated wholesale from a run.
 #
-# HOW THE TWO ENTRIES THAT USED TO BE HERE WERE CLOSED (ADR-0043). Neither was
-# closed by changing the core, and neither was closed the same way, which is
-# the part worth reading before the next divergence arrives:
+# HOW THE TWO ENTRIES THAT USED TO BE HERE WERE CLOSED. Neither was closed by
+# changing the core, and neither was closed the same way, which is the part
+# worth reading before the next divergence arrives:
 #
 #   csr.S       was `DISAGREE AT 17` on `csrr a0, misa` — Sail 0x4034112f
 #               against this core's 0x40001104. The reference model was a
@@ -66,11 +65,3 @@
 # different paths, no value exemption can help, and the assertion belongs in a
 # bench with no reference model in it? Only when none of the three fit is it a
 # baseline entry, and then it needs a paragraph here, not a line.
-
-# ADR-0048 finding 3. The other half of test/EXPECTED_FAIL's `csrset.S FAIL 2`:
-# this core raises illegal instruction on mstatush (0x310) where the reference
-# model reads it and continues, so the handler runs here and does not there and
-# the register traces part company at architectural change 2. Read this file's
-# three questions above before concluding anything from it -- this entry passes
-# them because the divergence is in THIS CORE and is deliberately left open,
-# not because the comparison or the model configuration is at fault.
