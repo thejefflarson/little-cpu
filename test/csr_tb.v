@@ -29,6 +29,9 @@ module csr_tb;
   logic        trap_entry, mret_entry;
   logic [31:0] trap_cause, trap_epc;
   logic [31:0] mtvec_value, mepc_value;
+  // The platform's timer line, and the one bit rtl/decoder.v reads back.
+  logic        irq_timer;
+  logic        interrupt_pending;
  `ifdef RISCV_FORMAL
   rvfi_csr64 rvfi_mcycle, rvfi_minstret;
   rvfi_csr32 rvfi_mscratch;
@@ -48,8 +51,10 @@ module csr_tb;
     .trap_cause(trap_cause),
     .trap_epc(trap_epc),
     .mret_entry(mret_entry),
+    .irq_timer(irq_timer),
     .mtvec_value(mtvec_value),
-    .mepc_value(mepc_value)
+    .mepc_value(mepc_value),
+    .interrupt_pending(interrupt_pending)
    `ifdef RISCV_FORMAL
     ,
     .rvfi_mcycle(rvfi_mcycle),
@@ -140,6 +145,7 @@ module csr_tb;
     mret_entry = 1'b0;
     trap_cause = 32'b0;
     trap_epc = 32'b0;
+    irq_timer = 1'b0;
     reset = 1'b1;
     repeat (2) @(posedge clk);
     #1;
@@ -152,8 +158,8 @@ module csr_tb;
     check_read("mstatus resets to MPP=M", 12'h300, 32'h0000_1800);
 
     check_read("misa", 12'h301, 32'h4000_1104);
-    check_read("mie reads 0", 12'h304, 32'h0);
-    check_read("mip reads 0", 12'h344, 32'h0);
+    check_read("mie resets to 0", 12'h304, 32'h0);
+    check_read("mip reads 0 with no source asserting", 12'h344, 32'h0);
     check_read("mtval reads 0", 12'h343, 32'h0);
     check_read("mvendorid", 12'hF11, 32'h0);
     check_read("marchid", 12'hF12, 32'h0);
@@ -221,10 +227,8 @@ module csr_tb;
     // truth about what landed.
     poke(12'h301, 32'hffff_ffff);
     check_read("misa ignores a write", 12'h301, 32'h4000_1104);
-    poke(12'h304, 32'hffff_ffff);
-    check_read("mie ignores a write", 12'h304, 32'h0);
     poke(12'h344, 32'hffff_ffff);
-    check_read("mip ignores a write", 12'h344, 32'h0);
+    check_read("mip ignores a write -- MTIP is the platform's line", 12'h344, 32'h0);
     poke(12'h343, 32'hffff_ffff);
     check_read("mtval ignores a write", 12'h343, 32'h0);
     poke(12'hF14, 32'hffff_ffff);
@@ -326,6 +330,66 @@ module csr_tb;
     check_read("mepc preserves bit 1 on a 2-aligned faulting pc", 12'h341, 32'h0000_0146);
     take_trap(32'd4, 32'h0000_0147);
     check_read("...and still masks bit 0", 12'h341, 32'h0000_0146);
+
+    //-----------------------------------------------------------------------
+    // mie, mip and the interrupt decision. No riscv-formal check at the pin
+    // names any of these, so this bench and test/asm/mtimer*.S are the whole
+    // oracle for them.
+    //-----------------------------------------------------------------------
+
+    // MTIE is the only writable bit. MSIE and MEIE name sources this platform
+    // does not have, and a WARL field with no source behind it reads zero
+    // however it was written -- so writing all ones is the vector that
+    // separates "one writable bit" from "a writable register".
+    poke(12'h304, 32'hffff_ffff);
+    check_read("mie keeps only MTIE", 12'h304, 32'h0000_0080);
+    poke(12'h304, 32'h0000_0000);
+    check_read("...and MTIE clears again", 12'h304, 32'h0);
+
+    // mip is read-only and reports the line. Software lowers MTIP by moving
+    // mtimecmp, which is a store to rtl/timer.v and not a CSR write at all.
+    irq_timer = 1'b1;
+    #1;
+    check_read("mip.MTIP follows the platform line", 12'h344, 32'h0000_0080);
+    poke(12'h344, 32'h0000_0000);
+    check_read("...and a write cannot clear it", 12'h344, 32'h0000_0080);
+
+    // The three-term gate, one term at a time. Each of these has been a real
+    // bug in somebody's core: an interrupt that fires with MIE clear, one that
+    // ignores its enable bit, and one that fires with no source at all.
+    poke(12'h300, 32'h0000_0000);   // mstatus.MIE = 0
+    poke(12'h304, 32'h0000_0080);   // mie.MTIE = 1
+    #1;
+    check_bit("MTIE and a source are not enough with mstatus.MIE clear",
+              interrupt_pending, 1'b0);
+    poke(12'h300, 32'h0000_0008);   // mstatus.MIE = 1
+    poke(12'h304, 32'h0000_0000);   // mie.MTIE = 0
+    #1;
+    check_bit("...nor MIE and a source with MTIE clear", interrupt_pending, 1'b0);
+    poke(12'h304, 32'h0000_0080);
+    irq_timer = 1'b0;
+    #1;
+    check_bit("...nor both enables with no source", interrupt_pending, 1'b0);
+    irq_timer = 1'b1;
+    #1;
+    check_bit("all three together arm it", interrupt_pending, 1'b1);
+
+    // This is what bounds interrupt entry: taking one clears MIE on the same
+    // edge, so the pending bit is already down on the next cycle and nothing
+    // re-arms until `mret`. Delete the `mstatus_mie <= 1'b0` in rtl/csrs.v's
+    // trap block and the core takes an interrupt every cycle forever, with
+    // this vector the only thing that says so.
+    take_trap(32'h8000_0007, 32'h0000_0400);
+    check_bit("entry disarms it, so there is no second entry", interrupt_pending, 1'b0);
+    check_read("...recording the interrupt cause", 12'h342, 32'h8000_0007);
+    check_read("...and mepc, which points AT the un-executed instruction",
+               12'h341, 32'h0000_0400);
+    check_read("...having pushed MIE into MPIE", 12'h300, 32'h0000_1880);
+
+    take_mret();
+    #1;
+    check_bit("mret pops MIE back, so a still-asserting line re-arms",
+              interrupt_pending, 1'b1);
 
     if (errors != 0) begin
       $display("FAILED: %0d mismatches", errors);

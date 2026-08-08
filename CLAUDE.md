@@ -96,8 +96,28 @@ RV32IMC_Zicsr_Zifencei, M-mode only, `misa = 0x4000_1104` (neither Z-extension h
 the ISA string is the only place they are claimed). Traps implemented: illegal instruction = 2,
 breakpoint = 3, load misaligned = 4, store misaligned = 6, ecall from M = 11.
 Instruction-address-misaligned is unreachable (C makes 2-byte targets legal) and not implemented.
-No interrupts: `mie`/`mip` read-only zero. C stays because code density is a product constraint on
-the up5k (ADR-0002/0003). `fence.i` costs a pipeline drain — see the serialization commitment.
+C stays because code density is a product constraint on the up5k (ADR-0002/0003). `fence.i` costs a
+pipeline drain — see the serialization commitment.
+
+**One interrupt: the machine timer, cause `0x8000_0007`.** `mie.MTIE` is the only writable bit of
+`mie`; `mip.MTIP` is `rtl/timer.v`'s line and read-only; `mip.MSIP`/`mip.MEIP` stay read-only zero,
+which is conformant WARL on a platform with neither source. `mtime`/`mtimecmp` are four words at
+`0x0002_0000`, in `rtl/littlesoc.v` and `test/testbench.v` alike. **It is taken on a cycle that
+would otherwise have issued**, because `stall` outranks the trap arm of `next_pc` — so it waits out
+a divide, a load turnaround and a serialization with no logic of its own, the displaced instruction
+has not issued, and nothing is un-committed. It is therefore **not** a stall reason and adds no
+seventh bucket to `make cycles`. Measured worst-case response: 33 cycles, 2.75 µs at 12 MHz, set by
+the divider. `mtimecmp` resets to zero, so `mtip` is asserted out of reset and both enables resetting
+to zero is what makes that harmless (ADR-0082).
+
+Three things about it are the platform's to state, and firmware cannot derive any of them:
+**`mtime` ticks once per clock cycle**, so 83.33 ns at 12 MHz — the spec asks only for a constant
+frequency and a published period, and blesses the cycle counter for a fixed-frequency system.
+**MTIP is a level**, posted until `mtimecmp` exceeds `mtime`; taking the trap does not lower it, so
+a handler that returns without moving `mtimecmp` is re-entered before the instruction at `mepc`
+runs. **An RV32 `mtimecmp` update is the spec's three stores in the spec's order** — low all-ones,
+high, low; high-first is unsafe and `test/timer_tb.v` and `test/asm/mtimer.S` each fire a spurious
+interrupt that way on purpose before doing it correctly.
 
 **Conformance is not negotiable against minimality.** Every CSR the privileged spec mandates for
 RV32 M-mode is implemented — most legally read zero, so the cost is near nothing. The CSR set is a
@@ -131,6 +151,14 @@ What a green result does and does not mean:
   check also drops every value comparison once an instruction traps, keeping only the trap flag,
   and its two pc checks accept whatever target the core reports — so `components_traps` is the only
   thing that says a trap lands on `mtvec` and saves the right state.
+- **It ships no model of an INTERRUPT either**, so the core's timer input is tied off in all five
+  harnesses under `formal/` and the generated checks run with no interrupt in the trace.
+  `formal/INTERRUPT_TIE_OFF` mechanises that the same way, in both directions and re-derived from
+  the clone. F and G were re-measured under the tie-off and both flip points reproduce exactly, so
+  the depths are unaffected. `components_traps` is the oracle for entry — `test/asm/mtimer.S` and
+  `test/asm/mtimermask.S` for the whole path. `rvfi_intr` is now driven and is **not** optional:
+  both sim legs' monitor checks pc continuity across retires and stops only for a retire carrying
+  it, so an undriven `rvfi_intr` makes every interrupt a monitor error.
 - **Both sim legs read the sanitized `test/monitor.sim.v` as their per-retire oracle**, so
   `test/sanitize_monitor.py` is a change to the oracle, not to plumbing. `test/monitor.v` is
   generated but tracked: regenerate it (`make monitor-check`), never hand-edit it.
@@ -227,7 +255,8 @@ make fit            # the core's area number; ratchet on FIT_MAX_LC
 make soc-timing     # the SoC place-and-time flow; requirement on SOC_MIN_MHZ.
                     # SOC_SEED picks a placement; soc/timing_sweep.sh runs four
 
-make -C formal check                # the generated riscv-formal checks; always a fresh run
+make -C formal check                # the generated riscv-formal checks; always a fresh run.
+                                    # interrupt-tie-off is a prerequisite
 make -C formal check-baseline       # re-grade a finished run without re-running
 make -C formal components_decoder   # component proofs by k-induction (mode prove):
 make -C formal components_executor  #   read the sby summaries, not the job colour
@@ -308,8 +337,9 @@ four `SB_SPRAM256KA` at 256 kbit each. **128 KB is the up5k's whole SPRAM, not t
 a program that reads its own `.data`. SPRAM still cannot be initialised, so `.data` rides in the
 ROM at a load address `test/asm/boot.lds` puts there and `test/crt0.S` copies into RAM before
 `main`. That runtime costs 82 bytes and `test/asm/datainit.c`'s whole ROM image is 284 of 8192, so
-SPI-flash boot stays deferred, alongside the forwarding network, the radix-4 divider, and
-interrupts (ADR-0081).
+SPI-flash boot stays deferred, alongside the forwarding network and the radix-4 divider.
+Interrupts are no longer on that list — the machine timer is built (ADR-0082) — but a
+controller, more sources and a vectored `mtvec` are.
 
 The suite is `test/asm/*.S` **and** `test/asm/*.c`, and `test/OBSERVED_FLOOR` names both. The two
 shapes differ only in how `.data` reaches RAM: an assembly program's is poked in by the harness,

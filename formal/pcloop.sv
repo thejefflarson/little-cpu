@@ -30,7 +30,11 @@ module pcloop (
     input logic [31:0] csr_rdata,
     input logic csr_implemented,
     input logic [31:0] mtvec,
-    input logic [31:0] mepc
+    input logic [31:0] mepc,
+    // Free, like everything else not instantiated here. An interrupt redirects
+    // the pc, so the increment assertion has to skip that cycle -- and it does,
+    // because the decoder's own `branch_jump` names it.
+    input logic interrupt_pending
 );
   logic [31:0] pc;
   logic [31:0] imem_addr, imem_addr2;
@@ -74,6 +78,7 @@ module pcloop (
     .csr_implemented(csr_implemented),
     .mtvec(mtvec),
     .mepc(mepc),
+    .interrupt_pending(interrupt_pending),
     .pc(pc),
     .next_pc(next_pc),
     .rs1(rs1),

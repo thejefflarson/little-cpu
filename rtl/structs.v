@@ -58,6 +58,12 @@ typedef struct packed {
   // retires having
   // architecturally done nothing except redirect the PC.
   logic        trap;
+  // `rvfi_intr`: this instruction is the first of a handler that no earlier
+  // retire handed off to. Only an interrupt sets it -- an exception rides out
+  // on the faulting instruction's own retire, which reports mtvec in pc_wdata
+  // and leaves the chain unbroken. Both sim legs' monitor and riscv-formal's
+  // two pc checks read it to stop expecting continuity across that gap.
+  logic        intr;
   // Exactly the CSRs formal/checks.cfg's `[csrs]` list names, captured in
   // decode -- the one stage that knows them, since ADR-0005 reads and
   // commits every CSR access there -- and forwarded on the same valid-bit

@@ -10,7 +10,8 @@ ifeq ($(shell printf '%s' '$(JOBS)' | grep -cE '^[1-9][0-9]{0,3}$$'),0)
 override JOBS := 4
 endif
 
-all: complete complete_cover complete-exclusions check dmemcheck imemcheck \
+all: complete complete_cover complete-exclusions interrupt-tie-off check \
+     dmemcheck imemcheck \
      components_decoder components_executor components_pcloop components_traps
 
 # Every sby target here names a directory sby creates, and a directory's mtime
@@ -35,7 +36,7 @@ FORCE:
 # carries `expect pass,fail`, so sby exits 0 whether a check passed or failed,
 # and anything that really failed to run reaches check-baseline as a missing
 # status file.
-check: checks $(RISCV_FORMAL_DIR)
+check: checks interrupt-tie-off $(RISCV_FORMAL_DIR)
 	-$(MAKE) -C $< -j$(JOBS) -k
 	$(MAKE) check-baseline
 
@@ -94,6 +95,14 @@ complete_cover: complete_cover.sby complete.sv arbiter.v complete-exclusions $(R
 .PHONY: complete-exclusions
 complete-exclusions: check-complete-exclusions.py complete.sv COMPLETE_EXCLUSIONS | $(RISCV_FORMAL_DIR)
 	python3 $< complete.sv COMPLETE_EXCLUSIONS $(RISCV_FORMAL_DIR)
+
+# A prerequisite of `check` rather than a companion target, the same way
+# complete-exclusions is of `complete`: the tie-off is what makes the generated
+# checks mean what their depths say, and checking it costs milliseconds and
+# fails before sby starts.
+.PHONY: interrupt-tie-off
+interrupt-tie-off: check-interrupt-tie-off.py INTERRUPT_TIE_OFF | $(RISCV_FORMAL_DIR)
+	python3 $< . INTERRUPT_TIE_OFF $(RISCV_FORMAL_DIR)
 
 # A structural comparison of two yosys builds rather than a solver query, so it
 # is not covered by the `%: %.sby` rule above. It shows the RVFI instrumentation

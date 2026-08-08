@@ -109,6 +109,15 @@ module rvfi_wrapper (
     .mem_ren(mem_ren),
     .mem_rdata(mem_rdata),
     .fetch_stall(fetch_stall),
+    // Tied off, and formal/check-interrupt-tie-off.py is what says so. Every
+    // depth in formal/checks.cfg is derived from F and G measured with no
+    // interrupt in the trace, and riscv-formal ships no model at the pin of
+    // what an interrupt does to mcause, mepc or mstatus -- only the two pc
+    // checks read `rvfi_intr`, and only to stop expecting continuity. Left
+    // free, the generated checks would not be checking a weaker property, they
+    // would be checking a different machine against a spec that does not
+    // describe it. formal/traps.sv is where the interrupt is proved.
+    .irq_timer(1'b0),
     .trap(trap),
     `RVFI_CONN
   );

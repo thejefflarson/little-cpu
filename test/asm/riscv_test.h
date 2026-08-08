@@ -127,4 +127,153 @@ trap_handler:                                                                \
         la      t0, trap_handler;                                           \
         csrw    mtvec, t0;
 
+// The machine timer (rtl/timer.v), at the same base in test/testbench.v and in
+// rtl/littlesoc.v. Four words: mtime, mtimeh, mtimecmp, mtimecmph.
+#define MTIMER_BASE      0x00020000
+#define MTIMECMP_OFFSET  8
+#define MTIMECMPH_OFFSET 12
+
+// Constraint 1 does NOT apply to the handler below and its opposite does: an
+// interrupt is taken BETWEEN instructions, so `mepc` holds an instruction that
+// has not run and the handler must resume AT it, not past it. Advancing mepc
+// here would skip a real instruction, which is the mistake this macro exists to
+// stop each test making on its own.
+//
+// It clobbers t0 and t1, and it disarms the timer before returning: `mtip` is a
+// level, so a handler that returns without moving `mtimecmp` is re-entered
+// immediately and forever.
+#define RVTEST_TIMER_HANDLER                                                 \
+        .align  2;                                                          \
+timer_handler:                                                               \
+        .option push;                                                       \
+        .option norvc;                                                      \
+        la      t0, irq_count;                                              \
+        lw      t1, 0(t0);                                                  \
+        addi    t1, t1, 1;                                                  \
+        sw      t1, 0(t0);                                                  \
+        csrr    t1, mcause;                                                 \
+        la      t0, irq_cause;                                              \
+        sw      t1, 0(t0);                                                  \
+        csrr    t1, mepc;                                                   \
+        la      t0, irq_epc;                                                \
+        sw      t1, 0(t0);                                                  \
+        csrr    t1, mstatus;                                                \
+        la      t0, irq_mstatus;                                            \
+        sw      t1, 0(t0);                                                  \
+        li      t0, MTIMER_BASE;                                            \
+        li      t1, -1;                                                     \
+        sw      t1, MTIMECMP_OFFSET(t0);                                    \
+        sw      t1, MTIMECMPH_OFFSET(t0);                                   \
+        mret;                                                               \
+timer_handler_end:                                                           \
+        .option pop;
+
+// The same, minus the disarm, until `irq_count` reaches `irq_limit`. MTIP is a
+// LEVEL: the spec says the interrupt remains posted until mtimecmp becomes
+// greater than mtime, and taking the trap does not clear it. So a handler that
+// returns without moving mtimecmp is re-entered on the first cycle after `mret`
+// that would otherwise have issued -- before the instruction at mepc runs. The
+// limit is what stops that being a livelock in a test.
+//
+// Clobbers t0 and t1.
+#define RVTEST_STICKY_TIMER_HANDLER                                          \
+        .align  2;                                                          \
+sticky_timer_handler:                                                        \
+        .option push;                                                       \
+        .option norvc;                                                      \
+        la      t0, irq_count;                                              \
+        lw      t1, 0(t0);                                                  \
+        addi    t1, t1, 1;                                                  \
+        sw      t1, 0(t0);                                                  \
+        la      t0, irq_limit;                                              \
+        lw      t0, 0(t0);                                                  \
+        blt     t1, t0, 1f;                                                 \
+        li      t0, MTIMER_BASE;                                            \
+        li      t1, -1;                                                     \
+        sw      t1, MTIMECMP_OFFSET(t0);                                    \
+        sw      t1, MTIMECMPH_OFFSET(t0);                                   \
+1:      mret;                                                               \
+        .option pop;
+
+// Invoke after RVTEST_DATA_BEGIN, like RVTEST_TRAP_DATA, so it lands in RAM.
+#define RVTEST_TIMER_DATA                                                    \
+        .align  2;                                                          \
+        .global irq_count;                                                  \
+irq_count:                                                                   \
+        .word   0;                                                          \
+        .global irq_cause;                                                  \
+irq_cause:                                                                   \
+        .word   0;                                                          \
+        .global irq_epc;                                                    \
+irq_epc:                                                                     \
+        .word   0;                                                          \
+        .global irq_mstatus;                                                \
+irq_mstatus:                                                                 \
+        .word   0;                                                          \
+        .global irq_limit;                                                  \
+irq_limit:                                                                   \
+        .word   0;
+
+#define RVTEST_INSTALL_TIMER_HANDLER                                         \
+        la      t0, timer_handler;                                          \
+        csrw    mtvec, t0;
+
+#define RVTEST_INSTALL_STICKY_TIMER_HANDLER                                  \
+        la      t0, sticky_timer_handler;                                   \
+        csrw    mtvec, t0;
+
+// Arm the timer to assert `delay` ticks from now, in the order the privileged
+// spec's own sample code uses for RV32:
+//
+//     low half = all ones     -- no smaller than the OLD value
+//     high half = new high    -- no smaller than the NEW value
+//     low half = new low      -- the new value
+//
+// A 32-bit store touches one half, so the pair is briefly a mix of old and new.
+// This order makes every intermediate at least as large as the smaller of the
+// two, which is what stops a spurious interrupt being manufactured in the
+// middle of the update. Writing the high half first does NOT: with the old low
+// half small, the pair passes through {new high, old low}, and mtime may
+// already be past it. test/asm/mtimer.S fires an interrupt that way on purpose.
+//
+// mtime's high half is zero for the whole of a program here unless the program
+// writes it, so the arithmetic can be 32-bit. Clobbers t0, t1 and t2.
+#define RVTEST_ARM_TIMER(delay)                                              \
+        li      t0, MTIMER_BASE;                                            \
+        lw      t1, 0(t0);                                                  \
+        addi    t1, t1, delay;                                              \
+        li      t2, -1;                                                     \
+        sw      t2, MTIMECMP_OFFSET(t0);                                    \
+        sw      x0, MTIMECMPH_OFFSET(t0);                                   \
+        sw      t1, MTIMECMP_OFFSET(t0);
+
+// mtimecmp resets to zero, so mtip is asserted out of reset -- harmless while
+// both enables are clear, and the first thing any boot path has to undo.
+// The low half first, per the sequence below; the third store would write the
+// low half a second time with the same value, so it is left out.
+// Clobbers t0 and t1.
+#define RVTEST_DISARM_TIMER                                                  \
+        li      t0, MTIMER_BASE;                                            \
+        li      t1, -1;                                                     \
+        sw      t1, MTIMECMP_OFFSET(t0);                                    \
+        sw      t1, MTIMECMPH_OFFSET(t0);
+
+// MTIE is bit 7 of mie; MIE is bit 3 of mstatus. Separately, because a test
+// that masks one of them has to leave the other on.
+#define RVTEST_ENABLE_MTIE                                                   \
+        li      t0, 0x80;                                                   \
+        csrs    mie, t0;
+
+#define RVTEST_DISABLE_MTIE                                                  \
+        li      t0, 0x80;                                                   \
+        csrc    mie, t0;
+
+#define RVTEST_ENABLE_MIE                                                    \
+        li      t0, 0x8;                                                    \
+        csrs    mstatus, t0;
+
+#define RVTEST_DISABLE_MIE                                                   \
+        li      t0, 0x8;                                                    \
+        csrc    mstatus, t0;
+
 #endif

@@ -35,6 +35,9 @@ module decoder_tb;
   logic [31:0] csr_wdata;
   logic [31:0] mtvec = 32'h0000_0100;
   logic [31:0] mepc  = 32'h0000_0244;
+  // rtl/csrs.v has already ANDed the source, mie and mstatus.MIE together, so
+  // driving this directly is driving the whole interrupt decision.
+  logic interrupt_pending = 1'b0;
   logic trap_entry, mret_entry;
   logic [31:0] trap_cause, trap_epc;
 
@@ -55,6 +58,7 @@ module decoder_tb;
     .csr_implemented(csr_implemented),
     .mtvec(mtvec),
     .mepc(mepc),
+    .interrupt_pending(interrupt_pending),
     .pc(pc),
     .next_pc(next_pc),
     .rs1(rs1),
@@ -115,6 +119,11 @@ module decoder_tb;
   // `stall` and not there would leave the cycles it costs unexplained. This says
   // so in a gate that runs on every change, rather than the next time somebody
   // asks for the table.
+  //
+  // `interrupt_pending` is deliberately NOT one of them, and this is what says
+  // so: an interrupt entry happens ON an issuing cycle and costs no stalled
+  // cycle to explain. Put it in `stall` and the pc would hold instead of
+  // vectoring to mtvec, and this check goes red.
   //
   // On both clock edges, not just the rising one. Every vector here presents its
   // instruction just after a rising edge, so the falling edge is where it is
@@ -455,6 +464,113 @@ module decoder_tb;
     #1;
     check_bit("a plain fence does not serialize", dut.serialize, 1'b0);
     executor_out.valid = 1'b0;
+
+    //-----------------------------------------------------------------------
+    // The machine timer interrupt. It is asynchronous and this core commits
+    // every trap in decode, which only works because the interrupt is taken on
+    // a cycle that would otherwise have ISSUED: the instruction it displaces
+    // has not issued, so there is nothing downstream to take back.
+    //-----------------------------------------------------------------------
+
+    in.pc = 32'h0000_0300;
+    present_and_fetch(32'h00100093);   // addi x1, x0, 1 -- a harmless victim
+    check_bit("without an interrupt the instruction just issues", trap_entry, 1'b0);
+
+    interrupt_pending = 1'b1;
+    #1;
+    check_bit("an armed interrupt is taken on an issuing cycle", trap_entry, 1'b1);
+    check_hex("...with cause interrupt/7", trap_cause, 32'h8000_0007);
+    check_hex("...and mepc pointing AT the instruction, not past it",
+              trap_epc, 32'h0000_0300);
+    check_hex("...vectoring to mtvec", next_pc, 32'h0000_0100);
+    check_bit("...counting nothing in minstret", instret, 1'b0);
+    check_bit("...committing no CSR write", csr_wen, 1'b0);
+    check_bit("...and no CSR read", csr_ren, 1'b0);
+    check_bit("...and it is not an mret", mret_entry, 1'b0);
+    check_bit("...and it is not itself a stall", dut.stall, 1'b0);
+    @(posedge clk);
+    #1;
+    check_hex("...so the next fetch is the handler", pc, 32'h0000_0100);
+    check_bit("...and decoder_out is a bubble: the victim never issued",
+              out.valid, 1'b0);
+    interrupt_pending = 1'b0;
+
+    // The other direction. Without this the vectors above pass on a decoder
+    // that traps unconditionally.
+    in.pc = 32'h0000_0400;
+    present_and_fetch(32'h00100093);
+    check_bit("a disarmed interrupt takes nothing", trap_entry, 1'b0);
+    check_hex("...and leaves trap_cause at zero", trap_cause, 32'b0);
+    @(posedge clk);
+    #1;
+    check_bit("...and the instruction issues normally", out.valid, 1'b1);
+
+    // `stall` outranks the trap arm of the next_pc chain, so every reason the
+    // core already has to wait holds the interrupt off too -- no new logic, and
+    // no way for an interrupt to cut into a divide or a serialization.
+    in.pc = 32'h0000_0500;
+    present_and_fetch(32'h00100093);
+    interrupt_pending = 1'b1;
+    divider_stall = 1'b1;
+    #1;
+    check_bit("a divide holds the interrupt off", trap_entry, 1'b0);
+    check_hex("...and the pc with it", next_pc, pc);
+    divider_stall = 1'b0;
+    accessor_stall = 1'b1;
+    #1;
+    check_bit("so does a load turnaround", trap_entry, 1'b0);
+    accessor_stall = 1'b0;
+    fetch_stall = 1'b1;
+    #1;
+    check_bit("so does a stolen fetch window", trap_entry, 1'b0);
+    fetch_stall = 1'b0;
+    #1;
+    check_bit("and the interrupt is taken the moment they clear", trap_entry, 1'b1);
+    @(posedge clk);
+    #1;
+    interrupt_pending = 1'b0;
+
+    // Serialization is the one that matters most: an `mret` interrupted
+    // half-way would pop mstatus and then push it again. It cannot happen,
+    // because `mret` is still waiting for the pipeline to empty and waiting is
+    // a stall.
+    in.pc = 32'h0000_0540;
+    executor_out.valid = 1'b1;
+    executor_out.rd = 5'd0;
+    present_and_fetch(32'h30200073);   // mret
+    interrupt_pending = 1'b1;
+    #1;
+    check_bit("a serializing mret holds the interrupt off", trap_entry, 1'b0);
+    check_bit("...and does not commit either", mret_entry, 1'b0);
+    executor_out.valid = 1'b0;
+    #1;
+    check_bit("once the pipe is empty the interrupt is taken", trap_entry, 1'b1);
+    check_bit("...and the mret it displaced still does not commit", mret_entry, 1'b0);
+    check_hex("...so mepc is the mret's own address, and it runs again",
+              trap_epc, 32'h0000_0540);
+    @(posedge clk);
+    #1;
+    interrupt_pending = 1'b0;
+
+    // An instruction that would fault AND an armed interrupt. The interrupt
+    // wins because the instruction does not execute; it faults instead when it
+    // re-executes after the handler returns.
+    in.pc = 32'h0000_0600;
+    reg_rs1 = 32'h0001_0001;
+    present_and_fetch(32'h00452583);   // the misaligned lw
+    check_hex("on its own it is a load-misaligned fault", trap_cause, 32'd4);
+    interrupt_pending = 1'b1;
+    #1;
+    check_hex("an interrupt outranks the instruction's own fault",
+              trap_cause, 32'h8000_0007);
+    check_bit("...and it is still one trap entry, not two", trap_entry, 1'b1);
+    check_hex("...at the same mepc either way", trap_epc, 32'h0000_0600);
+    @(posedge clk);
+    #1;
+    check_bit("...publishing nothing, where the fault would have retired",
+              out.valid, 1'b0);
+    interrupt_pending = 1'b0;
+    reg_rs1 = 32'b0;
 
     if (errors != 0) begin
       $display("FAILED: %0d mismatches", errors);

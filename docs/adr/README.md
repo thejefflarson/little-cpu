@@ -83,6 +83,7 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0079](0079-all-six-m2-terms-are-re-measured-and-m2-is-declared.md) | All six M2 terms are re-measured against merged main, and M2 is declared | Accepted · rules on 0037's conjunction as amended by 0045, 0046, 0047, 0050, 0051 and 0052; narrows 0027 |
 | [0080](0080-twenty-four-megahertz-is-not-reachable-on-the-up5k.md) | Twenty-four megahertz is not reachable on the up5k, and the part is the constraint | Accepted · collects 0074, 0076 and 0078 into one verdict; measures the same RTL at 31 MHz on hx8k; narrows 0078's "nothing in between" |
 | [0081](0081-the-data-image-lives-in-rom-and-crt0-copies-it.md) | The `.data` image lives in ROM and a `crt0` copies it, and the 8 KB budget is measured | Accepted · closes the copy-stub half 0054 deferred; keeps 0044's SPI-flash boot deferred; widens 0035's suite contract |
+| [0082](0082-the-machine-timer-interrupt-is-taken-at-a-decode-boundary.md) | The machine timer interrupt is taken at a decode boundary | Accepted · amends `CLAUDE.md`'s "no interrupts"; restricts the generated checks per 0010 and mechanises it per 0014; defers co-simulation per 0032 |
 
 0001–0007 came from the design brief
 ([`docs/ideas/finish-the-rewrite.md`](../ideas/finish-the-rewrite.md)). 0008–0011 came out of
@@ -181,7 +182,12 @@ trades away simplicity the current design depends on.
   [ADR-0081](0081-the-data-image-lives-in-rom-and-crt0-copies-it.md), so the SoC runs a C program
   that reads its own globals. ADR-0044's SPI-flash path stays deferred, now against the measured
   ROM budget rather than a guess.
-- **Interrupts** (`mie`/`mip` real rather than read-only zero) — no interrupt sources exist.
+- ~~**Interrupts**~~ — **the machine timer is built by
+  [ADR-0082](0082-the-machine-timer-interrupt-is-taken-at-a-decode-boundary.md).** The old entry's
+  reason ("no interrupt sources exist") was circular: `rtl/timer.v` is the source, and it is four
+  words on the data bus. `mie.MTIE` and `mip.MTIP` are real; `mip.MSIP`/`mip.MEIP` stay read-only
+  zero because this platform has neither source. What is still deferred is a controller, more
+  sources and a vectored `mtvec` — the same mechanism with more inputs.
 - ~~**Spike or Sail co-simulation**~~ — **resolved by [ADR-0032](0032-sail-co-simulation-is-worth-building-and-stays-opt-in.md).**
   The old test ("revisit only if formal and simulation ever disagree") could only fire on a bug both
   legs can see; a spike measured what neither can. The harness exists and is deliberately opt-in —
