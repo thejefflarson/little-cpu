@@ -1,5 +1,5 @@
-# The `.S` suite's MANIFEST, and how much the per-retire RVFI monitor was
-# OBSERVED to do on each program.
+# The suite's MANIFEST -- test/asm/*.S and test/asm/*.c -- and how much the
+# per-retire RVFI monitor was OBSERVED to do on each program.
 #
 # TWO JOBS, ONE LIST, DELIBERATELY. This file is the list of programs the suite
 # must contain, and it is the list of what each of them was measured to retire.
@@ -37,7 +37,11 @@
 #
 # FORMAT — three fields:
 #
-#     <test>.S  <retires>  <spec-checked retires>
+#     <program>  <retires>  <spec-checked retires>
+#
+# where `<program>` is a test/asm file name, `.S` or `.c`. The NAME half treats
+# the two identically. The NUMBERS do not, and the section below on C programs
+# is the part to read before writing a `.c` line.
 #
 # `retires` is the number of cycles the monitor examined (`rvfi_valid` high).
 # `spec-checked` is the subset of those whose VALUES it compared against its
@@ -53,13 +57,42 @@
 # would keep, and a ratchet nobody keeps gets raised until it means nothing.
 # What must not happen is a program going QUIET, and `>=` catches exactly that.
 #
+# A C PROGRAM'S TWO NUMBERS ARE A SILENCE BOUND, NOT AN OBSERVATION — and that
+# is the one place this file's format means different things on different lines.
+# An `.S` program assembles to a fixed instruction sequence, so recording what
+# it retired costs nothing and holds across toolchains by construction. A `.c`
+# program's count is whatever that gcc chose to inline and schedule:
+# test/asm/datainit.c retired 400 under a local riscv64-elf-gcc and 395 on the
+# CI runner, from identical source. Recorded as a floor, that difference is red
+# — and red for the wrong reason, because the floor exists to catch a program
+# going QUIET and cannot tell "the monitor stopped observing" from "a different
+# gcc emitted five fewer instructions". This repo already knows its two
+# toolchains disagree; `make fit` reads about 21 cells apart on identical RTL.
+#
+# So pick a `.c` line's numbers from what the CHECK needs, never from the table.
+# Every recorded instance of the defect this file exists for produced ZERO
+# retires — `rvfi_valid` never asserting, an `ifdef` dropping the shadow
+# payload, `write_cxxrtl` optimising the monitor instance away — or ONE, the
+# iverilog under-sensitivity defect, measured at "0 writes and 1 retire". Zero
+# is already the runner's own exit 6, so the bound only has to clear one.
+# **16** is the number these lines use: an order of magnitude above the defect,
+# two below any C program's real count, and nothing a compiler chooses can move
+# it. `spec-checked` has the same problem and takes the same bound — it tracked
+# retires exactly on datainit.c (395 of 395 on CI), so whatever moves one moves
+# the other.
+#
+# test/run_tests.sh REJECTS a `.c` floor above 64 rather than trusting this
+# paragraph, because a paragraph is exactly what the next person will not read
+# and "copy the third column" is the instruction that produced the red gate.
+#
 # The NAME set, on the other hand, IS a set equality in both directions, the
 # same contract the two files above carry — that is the manifest
 # half, described at the top. It is checked by test/check_suite_shape.sh BEFORE
 # either leg assembles anything, so a mismatch in either direction names the
 # programs involved and stops, rather than being discovered after a full run
-# that was never going to be gradeable. Adding a program to test/asm means
-# adding its measured line here, in the same commit.
+# that was never going to be gradeable. That is true of `.c` names exactly as it
+# is of `.S` ones — the numbers are what differ, never the manifest. Adding a
+# program to test/asm means adding its line here, in the same commit.
 #
 # ZERO IS NEVER A FLOOR. Zero of either count is MONITOR-SILENT — the runner's
 # own exit 6 — before this file is ever consulted, so a line of `0 0` cannot
@@ -77,12 +110,14 @@
 # bug in this core. Whoever first sees a low number here should not have to
 # rediscover that.
 #
-# HOW TO RE-MEASURE. Run `make test` and copy the table's third column. Record
-# the commit SHA it was measured at in the PR that changes a number, the way
-# every other measurement in this repo is recorded. Numbers only ever go DOWN
-# by accident; if one legitimately drops (a different binutils compressing more
-# aggressively, a test deliberately shortened), lower it in the same commit as
-# the change that caused it and say which.
+# HOW TO RE-MEASURE, FOR `.S` LINES ONLY. Run `make test` and copy the table's
+# third column. Record the commit SHA it was measured at in the PR that changes
+# a number, the way every other measurement in this repo is recorded. Numbers
+# only ever go DOWN by accident; if one legitimately drops (a different binutils
+# compressing more aggressively, a test deliberately shortened), lower it in the
+# same commit as the change that caused it and say which. A `.c` line has
+# nothing to re-measure: it is 16 because 16 is what the silence check needs,
+# and it stays 16 when the compiler changes its mind.
 #
 # Measured at 18d17a2 (the branch point) with riscv64-elf-gcc, the pinned
 # riscv-formal monitor, and CYCLES=5000 in test/run_tests.sh.
@@ -101,6 +136,7 @@ cebreak.S            161    138
 contend.S           113    113
 csr.S               108     82
 csrset.S              72     62
+datainit.c           16     16   # a silence bound; it retires ~400, and that is not a contract
 div.S                60     60
 divu.S               61     61
 fencenop.S            40     35

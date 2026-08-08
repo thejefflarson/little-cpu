@@ -1,6 +1,10 @@
 #!/bin/bash
-# Asserts that the .S suite CONTAINS what it is supposed to contain, before
-# either sim leg runs a single program.
+# Asserts that the suite CONTAINS what it is supposed to contain, before either
+# sim leg runs a single program.
+#
+# The suite is test/asm/*.S and test/asm/*.c. Both are programs and both are
+# graded; they differ only in how test/run_tests.sh builds them, and nothing
+# here needs to know which is which.
 #
 # Usage: check_suite_shape.sh <asm-dir> <manifest>
 #
@@ -34,7 +38,7 @@
 #     would make the set comparison below quietly non-symmetric.
 #
 # BOTH DIRECTIONS, and the second one is the one worth arguing for. A program
-# present in the tree but absent from the manifest is red, so a .S that lands
+# present in the tree but absent from the manifest is red, so a program that lands
 # without being wired into the floor file fails immediately rather than joining
 # the suite unmeasured. That is why the ladder's version is bidirectional too.
 #
@@ -76,12 +80,14 @@ if [ -z "$listed" ]; then
   exit 1
 fi
 
-# A name that is not a .S is a typo or a stray field, and it would show up below
-# as a phantom "missing from the tree" entry rather than as what it is.
-not_dot_s=$(printf '%s\n' "$listed" | awk '$1 !~ /\.S$/ { print }')
-if [ -n "$not_dot_s" ]; then
-  echo "error: $MANIFEST has entries whose first field is not a '<test>.S' name:" >&2
-  printf '%s\n' "$not_dot_s" | sed -e 's|^|  |' >&2
+# A name that is neither a .S nor a .c is a typo or a stray field, and it would
+# show up below as a phantom "missing from the tree" entry rather than as what
+# it is.
+not_a_program=$(printf '%s\n' "$listed" | awk '$1 !~ /\.[Sc]$/ { print }')
+if [ -n "$not_a_program" ]; then
+  echo "error: $MANIFEST has entries whose first field is not a '<test>.S' or" >&2
+  echo "'<test>.c' name:" >&2
+  printf '%s\n' "$not_a_program" | sed -e 's|^|  |' >&2
   exit 1
 fi
 
@@ -96,10 +102,10 @@ if [ -n "$duplicates" ]; then
 fi
 
 shopt -s nullglob
-programs=("$ASM_DIR"/*.S)
+programs=("$ASM_DIR"/*.S "$ASM_DIR"/*.c)
 shopt -u nullglob
 if [ "${#programs[@]}" -eq 0 ]; then
-  echo "error: no .S programs found in '$ASM_DIR'." >&2
+  echo "error: no programs found in '$ASM_DIR'." >&2
   echo "The manifest $MANIFEST names $(printf '%s\n' "$listed" | wc -l | tr -d ' ')." >&2
   exit 1
 fi

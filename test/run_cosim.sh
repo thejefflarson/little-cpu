@@ -1,5 +1,5 @@
 #!/bin/bash
-# Runs every test/asm/*.S under Sail co-simulation (test/cosim.py) and grades
+# Runs every program in test/asm under Sail co-simulation (test/cosim.py) and grades
 # the table against test/COSIM_EXPECTED_FAIL, under the same contract
 # test/run_tests.sh applies to test/EXPECTED_FAIL. Invoked by `make cosim-suite`.
 #
@@ -55,7 +55,7 @@ fi
 # suite of size zero and does nothing about one that shrank to a dozen programs,
 # which prints "12/12 agreed", matches an empty baseline exactly and exits 0.
 if ! "$HERE/check_suite_shape.sh" "$ASM_DIR" "$MANIFEST"; then
-  echo "error: the .S suite does not match its manifest; nothing was run." >&2
+  echo "error: the suite does not match its manifest; nothing was run." >&2
   exit 1
 fi
 echo
@@ -67,7 +67,7 @@ fi
 echo
 
 shopt -s nullglob
-programs=("$ASM_DIR"/*.S)
+programs=("$ASM_DIR"/*.S "$ASM_DIR"/*.c)
 shopt -u nullglob
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-cosim.XXXXXX") || {
@@ -86,7 +86,7 @@ agreed=0
 
 for src in "${programs[@]}"; do
   name=$(basename "$src")
-  base=${name%.S}
+  base=${name%.*}
   log="$tmp/$base.log"
 
   # Lifted for exactly this call: cosim.py's nonzero exits are verdicts.

@@ -1,6 +1,16 @@
 #!/bin/bash
-# Assembles every test/asm/*.S, runs it under the cxxrtl runner (`sim`), and
+# Builds every program in test/asm, runs it under the cxxrtl runner (`sim`), and
 # grades the pass/fail table against test/EXPECTED_FAIL. Invoked by `make test`.
+#
+# TWO PROGRAM SHAPES, and the difference is which memory holds `.data` at
+# power-on. A `.S` program is freestanding: test/asm/sections.lds links `.data`
+# at its virtual address in RAM and the loop below pokes it straight into the
+# simulated RAM, which is a thing a harness can do and the SoC cannot. A `.c`
+# program is linked by test/asm/boot.lds with `.data`'s LOAD address in ROM and
+# entered through test/crt0.S, which copies it into RAM and zeroes `.bss` before
+# main -- the image the hardware can actually boot from. test/cosim.py's
+# assemble() and the Makefile's soc-rom target build the same two shapes from
+# the same inputs; a change here is a change in all three.
 #
 # Usage: run_tests.sh <sim-binary> <asm-dir> <expected-fail-file> <floor-file>
 #
@@ -53,7 +63,7 @@ fi
 # It is a separate script so test/run_cosim.sh can run the same check on the
 # same file, rather than the two legs each deciding what the suite is.
 if ! "$HERE/check_suite_shape.sh" "$ASM_DIR" "$OBSERVED_FLOOR"; then
-  echo "error: the .S suite does not match its manifest; nothing was run." >&2
+  echo "error: the suite does not match its manifest; nothing was run." >&2
   exit 1
 fi
 
@@ -62,8 +72,27 @@ fi
 floors=$(sed -e 's/#.*//' "$OBSERVED_FLOOR" | awk 'NF { $1=$1; print }')
 malformed_floor=$(printf '%s\n' "$floors" | awk 'NF && (NF != 3 || $2 !~ /^[0-9]+$/ || $3 !~ /^[0-9]+$/) { print }')
 if [ -n "$malformed_floor" ]; then
-  echo "error: $OBSERVED_FLOOR has lines that are not '<test>.S <retires> <spec-checked>':" >&2
+  echo "error: $OBSERVED_FLOOR has lines that are not '<program> <retires> <spec-checked>':" >&2
   printf '  %s\n' "$malformed_floor" >&2
+  exit 1
+fi
+
+# A C program's floor is a silence bound, not an observation: its instruction
+# count is whatever that gcc chose to inline, and the two toolchains this repo
+# builds with disagree by about 1% on identical source. Recorded as a floor,
+# that disagreement is red for a reason the floor cannot distinguish from the
+# one it exists for. This rejects a number copied out of the table rather than
+# leaving it to the header of $OBSERVED_FLOOR, which is what "copy the third
+# column" already talked someone past once.
+C_FLOOR_MAX=64
+overspecified=$(printf '%s\n' "$floors" \
+  | awk -v max="$C_FLOOR_MAX" '$1 ~ /\.c$/ && ($2 > max || $3 > max) { print }')
+if [ -n "$overspecified" ]; then
+  echo "error: $OBSERVED_FLOOR gives a C program a floor above $C_FLOOR_MAX:" >&2
+  printf '  %s\n' "$overspecified" >&2
+  echo "That is a measurement of one compiler's output, not a bound on the" >&2
+  echo "monitor going quiet, and it goes red when the other toolchain builds" >&2
+  echo "the same source. Read the section on C programs in that file." >&2
   exit 1
 fi
 
@@ -112,21 +141,41 @@ if [ "$STALL_REPORT" = "1" ]; then
   sim_stall_flag="--stalls"
 fi
 
-for src in "$ASM_DIR"/*.S; do
+shopt -s nullglob
+programs=("$ASM_DIR"/*.S "$ASM_DIR"/*.c)
+shopt -u nullglob
+
+for src in "${programs[@]}"; do
   name=$(basename "$src")
-  base=${name%.S}
+  base=${name%.*}
   elf="$tmp/$base.elf"
   build_log="$tmp/$base.build.log"
   rom_hex="$tmp/$base.rom.hex"
   ram_hex="$tmp/$base.ram.hex"
+
+  case $name in
+    *.c)
+      build=("$CC" -march=rv32imc_zicsr_zifencei -mabi=ilp32 -nostdlib
+             -Os -std=c11 -ffreestanding -fno-tree-loop-distribute-patterns
+             -Wall -Wextra -Werror -I "$ASM_DIR"
+             -T "$ASM_DIR/boot.lds" "$HERE/crt0.S" "$src" -o "$elf")
+      rom_flags=(--only-section=.text --only-section=.data)
+      ram_flags=(--only-section=.tohost)
+      ;;
+    *)
+      build=("$CC" -march=rv32imc_zicsr_zifencei -mabi=ilp32 -nostdlib
+             -I "$ASM_DIR" -T "$ASM_DIR/sections.lds" "$src" -o "$elf")
+      rom_flags=(--only-section=.text)
+      ram_flags=(--remove-section=.text)
+      ;;
+  esac
 
   status="PASS"
   # Cleared every time round. Left over from the previous program, these would
   # be checked against this program's floor.
   retires=""
   spec_retires=""
-  if ! "$CC" -march=rv32imc_zicsr_zifencei -mabi=ilp32 -nostdlib -I "$ASM_DIR" \
-       -T "$ASM_DIR/sections.lds" "$src" -o "$elf" > "$build_log" 2>&1; then
+  if ! "${build[@]}" > "$build_log" 2>&1; then
     status="ASSEMBLE-ERROR"
   elif [ -s "$build_log" ]; then
     status="ASSEMBLE-WARNING"
@@ -138,14 +187,14 @@ for src in "$ASM_DIR"/*.S; do
   if [ "$status" = "PASS" ]; then
     for region in rom ram; do
       if [ "$region" = rom ]; then
-        section_flag="--only-section=.text"
+        section_flags=("${rom_flags[@]}")
         image=$rom_hex
       else
-        section_flag="--remove-section=.text"
+        section_flags=("${ram_flags[@]}")
         image=$ram_hex
       fi
       rm -f "$image"
-      if ! "$OBJCOPY" -O verilog --verilog-data-width=4 "$section_flag" \
+      if ! "$OBJCOPY" -O verilog --verilog-data-width=4 "${section_flags[@]}" \
            "$elf" "$image" >> "$build_log" 2>&1; then
         status="OBJCOPY-ERROR $region"
         break
