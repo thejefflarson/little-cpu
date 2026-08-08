@@ -5,7 +5,9 @@ proposed against
 [ADR-0054](0054-the-memory-system-and-the-first-real-timing-number.md)'s 11.30 MHz measurement and
 [ADR-0057](0057-what-writable-text-costs-in-ladder-depth-and-in-nanoseconds.md)'s finding that
 writable text costs a further 8.5%. Both were built and measured; both are slower than what is
-checked in. Corrects how ADR-0054's "41 logic levels" should be read.*
+checked in. Corrects how ADR-0054's "41 logic levels" should be read. Its closing recommendation —
+target the decode head next — is withdrawn by
+[ADR-0076](0076-the-decode-head-is-a-plateau-not-a-lever.md), which measured it.*
 
 ## What was proposed, and what it rested on
 

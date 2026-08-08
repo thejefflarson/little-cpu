@@ -5,7 +5,9 @@
 operand-fetch cycle. Uses [ADR-0070](0070-the-suites-cycles-are-charged-to-a-named-stall-reason.md)'s
 per-reason cycle accounting as the before/after instrument. Graded against
 [ADR-0066](0066-twelve-megahertz-is-a-requirement.md)'s 12 MHz requirement, which is what declines
-it.*
+it. Its reopening condition is closed by
+[ADR-0076](0076-the-decode-head-is-a-plateau-not-a-lever.md): the decode head does not hold the
+headroom this ADR defers to.*
 
 ## Context
 
