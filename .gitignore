@@ -30,6 +30,12 @@ compare.vvp
 soc/compare/rom_even.hex
 soc/compare/rom_odd.hex
 soc/compare/rom_flat.hex
+# `soc/depth/`: the spike's netlists, placements, logs and icetime reports, plus
+# the memory it generates from rtl/imemory.v and the runner it patches out of
+# test/cxxrtl.cc. Same rule as the soc.* and compare.* files above -- the reports
+# ARE the measurement and are kept on disk to read, and never committed.
+depth.out/
+depth.*.csv
 formal/riscv-formal
 formal/riscv-formal.tmp
 formal/complete

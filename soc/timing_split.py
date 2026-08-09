@@ -57,18 +57,14 @@ TOTAL = re.compile(r"^Total path delay: ([0-9.]+) ns")
 LEVELS = re.compile(r"^Total number of logic levels: (\d+)")
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("report", help="output of `icetime -t -r <report> <asc>`")
-    parser.add_argument(
-        "--min-mhz",
-        type=float,
-        help="fail if the critical path is slower than this (SOC_MIN_MHZ in "
-        "the Makefile, which sits at the board clock rather than below the "
-        "last measurement)",
-    )
-    args = parser.parse_args()
+def summarise(report):
+    """Walk one `icetime -r` report and return the split, or exit saying why not.
 
+    Split out from the printing so a second reader of the same report -- there is
+    one under soc/depth/ -- reuses this walk instead of writing its own. A second
+    parser of a file this one already parses is the exact shape that once left the
+    ratchet in the copy nobody was maintaining.
+    """
     logic = 0.0
     routing = 0.0
     carry_ns = 0.0
@@ -84,7 +80,7 @@ def main():
     reported_total = None
     levels = None
 
-    for line in open(args.report):
+    for line in open(report):
         hop = HOP.match(line)
         if hop:
             kind, what, delay = hop.group(2), hop.group(3).strip(), float(hop.group(4))
@@ -121,7 +117,7 @@ def main():
     walked = logic + routing
     if reported_total is None:
         sys.exit(
-            f"{args.report} does not look like an `icetime -r` report: no critical "
+            f"{report} does not look like an `icetime -r` report: no critical "
             f"path was found in it. That is a failed measurement, not a fast design."
         )
 
@@ -131,18 +127,56 @@ def main():
     # summary would still look like a summary.
     if abs(walked - reported_total) > 0.05:
         sys.exit(
-            f"{args.report}: summed hops come to {walked:.2f} ns but icetime "
+            f"{report}: summed hops come to {walked:.2f} ns but icetime "
             f"reports {reported_total:.2f} ns. Some hop class is not being "
             f"counted; fix this script rather than trusting the split."
         )
+
+    return {
+        "total": reported_total,
+        "logic": logic,
+        "routing": routing,
+        "walked": walked,
+        "levels": levels,
+        "lut_hops": lut_hops,
+        "carry_hops": carry_hops,
+        "carry_ns": carry_ns,
+        "per_lut": (walked - carry_ns) / lut_hops if lut_hops else 0.0,
+        "per_carry": carry_ns / carry_hops if carry_hops else 0.0,
+        "start": start_point,
+        "end": end_point,
+        "per_cell": per_cell,
+        "counts": counts,
+    }
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("report", help="output of `icetime -t -r <report> <asc>`")
+    parser.add_argument(
+        "--min-mhz",
+        type=float,
+        help="fail if the critical path is slower than this (SOC_MIN_MHZ in "
+        "the Makefile, which sits at the board clock rather than below the "
+        "last measurement)",
+    )
+    args = parser.parse_args()
+
+    split = summarise(args.report)
+    reported_total = split["total"]
+    logic, routing, walked = split["logic"], split["routing"], split["walked"]
+    levels, lut_hops, carry_hops = split["levels"], split["lut_hops"], split["carry_hops"]
+    per_cell, counts = split["per_cell"], split["counts"]
+    start_point, end_point = split["start"], split["end"]
 
     print(f"critical path : {reported_total:.2f} ns  ({1000 / reported_total:.2f} MHz)")
     print(f"  logic       : {logic:6.2f} ns  {100 * logic / walked:4.1f}%")
     print(f"  routing     : {routing:6.2f} ns  {100 * routing / walked:4.1f}%")
     print(f"  logic levels: {levels} by icetime; {lut_hops} LUT/setup + {carry_hops} carry by hop")
-    per_lut = (walked - carry_ns) / lut_hops if lut_hops else 0.0
-    per_carry = carry_ns / carry_hops if carry_hops else 0.0
-    print(f"  per level   : {per_lut:.2f} ns per LUT level, {per_carry:.2f} ns per carry hop")
+    print(
+        f"  per level   : {split['per_lut']:.2f} ns per LUT level, "
+        f"{split['per_carry']:.2f} ns per carry hop"
+    )
     print(f"  start       : {start_point}")
     print(f"  end         : {end_point}")
     print()
