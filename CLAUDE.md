@@ -180,6 +180,13 @@ What a green result does and does not mean:
   called from a continuous assign whose body reads module state silently under-evaluates — no
   diagnostic — and once left this leg dead for a whole milestone while every grader stayed green.
   Write such logic out. Treat a green iverilog run as evidence only if it could have failed.
+- **cxxrtl is two-state, so this leg is the only one that can see an X.** Decode reads register
+  numbers out of the word *after* the instruction it is issuing, so an undefined ROM word reaches
+  the register file's address port and turns the whole pipeline X — green under cxxrtl, green under
+  every formal check because they drive that word as a free two-state input, red only here.
+  `test/testbench.v` zeroes both ROM banks before poking its program for that reason, the way
+  `soc/compare/rom_flat.py` zero-pads its image to full depth. A simulated memory defined only where
+  a program was written is not a model of a block RAM, whose every word comes out of the bitstream.
 - **Sail co-simulation is deliberately not a leg and stays off CI's required checks** (ADR-0032).
   `test/cosim.cc` reads the core's real `regs_a` and no `rvfi_*` signal — the property that lets it
   catch architectural writes the self-reporting oracles structurally miss (measured: an extra

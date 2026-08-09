@@ -197,6 +197,45 @@ same one cycle and no depth in the table moves. The reason they do not move is w
 wrong guess raises `operand_stall` for exactly one cycle and then the current pair is presented, so
 the longest run of consecutive operand-fetch cycles is one, which is what it was before.
 
+## The defect this found in the iverilog harness, which is the interesting one
+
+The first push was green on `make test`, `make cycles`, `make -C formal check`, all four component
+proofs and `make cosim-suite`, and **red on `make waves`** — hundreds of `read 0x00000000:
+0xxxxxxxxx`, two writes against a floor of fifteen.
+
+The cause is one word. `test/testbench.v` pokes a six-word program into a 4096-word ROM and leaves
+the rest of the array undefined. The last instruction is `j loop` at byte `0x14`; the word after it
+is `0x18`, which nothing ever wrote. Decode now reads that word's register fields on every pass
+through the loop, so an X reaches the register file's address port, `held_rs1` goes X, and the
+comparison that should have *failed* is undefined instead. Defining that single word —
+`imem.rom_even[3] = 0` — turns the run green at 79 retires, which is how the mechanism was pinned
+rather than guessed.
+
+**The fix is in the harness and the RTL is not wrong**, which is worth arguing rather than asserting:
+
+- **Arbitrary contents are already proved inert.** `formal/wrapper.v` declares `imem_data` and
+  `imem_data2` as `rvformal_rand_reg` — free every cycle, constrained only by same-address
+  stability — so the solver picks adversarial contents for the successor word on every step of all
+  85 generated checks, and they pass. Whatever that word holds, `operand_stall` compares it against
+  the decoded pair and stalls when they differ. A garbage guess costs a cycle; it cannot cost
+  correctness.
+- **X is not a hardware value.** It is the one value that makes the comparison *undefined* instead
+  of *false*, and a block RAM has no way to produce it: every word of an ice40 EBR comes out of the
+  bitstream. The harness was modelling a memory that does not exist.
+- **This repo already knew.** `soc/compare/rom_flat.py` zero-pads its ROM image to full depth on
+  purpose. `test/testbench.v`, which pokes rather than loads, was the one place that did not.
+
+So the harness zeroes both banks before poking the program. Base RTL and this branch both report
+`RETIRES 79 SPEC-CHECKED 79 WRITES 20` under the fixed harness, so nothing about the fix hides a
+behaviour change — the guess neither helps nor hurts a four-instruction loop whose only redirect
+misses every time.
+
+**What it says about the three legs is the part to keep.** cxxrtl is two-state, `elaborate-strict`
+does not simulate, and the formal harnesses drive the word as a free *two-state* input. Every one of
+them was structurally incapable of seeing this. The iverilog leg is not a slower copy of cxxrtl; it
+is the only four-state simulation in the tree, and a change that routes fetched bytes somewhere new
+has to be run there before it is believed.
+
 ## Consequences
 
 - **Verified, not just timed.** 62/62 on `make test` with `test/EXPECTED_FAIL` matching, 8/8 on
@@ -206,7 +245,8 @@ the longest run of consecutive operand-fetch cycles is one, which is what it was
   successful proof by k-induction. `nonperturbation` and `complete_cover` pass.
   **`make cosim-suite` is 60/62 before and after**, matching `test/COSIM_EXPECTED_FAIL` — the leg
   positioned to see a stale operand rather than a wrong one, which ADR-0074 could not run and asked
-  a future attempt to carry.
+  a future attempt to carry. `make waves` retires 79 and `make compare-smoke` has both cores
+  publishing the same six values.
 - **`make -C formal complete` does not run on this machine** and fails identically on unmodified
   `main`: the local Homebrew yosys rejects abc's `-g AND -fast`. It is covered on CI.
 - **The decoder now publishes both pairs.** `rs1`/`rs2` are what the instruction's encoding names
