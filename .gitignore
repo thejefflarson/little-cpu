@@ -18,6 +18,18 @@ soc.icetime.log
 # artifacts of whichever SOC_PROG was last built, not source.
 soc/rom_even.hex
 soc/rom_odd.hex
+# `make compare-timing`: two netlists, two placements, the logs and the icetime
+# reports. Same rule as the soc.* files above -- the reports ARE the measurement
+# and are kept on disk to read, and never committed, because a checked-in timing
+# report is a number that stops tracking the RTL.
+compare.*.json
+compare.*.asc
+compare.*.log
+compare.*.rpt
+compare.vvp
+soc/compare/rom_even.hex
+soc/compare/rom_odd.hex
+soc/compare/rom_flat.hex
 formal/riscv-formal
 formal/riscv-formal.tmp
 formal/complete

@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=173
+PROBES_EXPECTED=188
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -1298,6 +1298,112 @@ probe "a malformed baseline line is named rather than skipped" 1 \
 d=$(it_fixture); rm -rf "$d/rf/checks"
 probe "an unreadable clone makes the re-derivation impossible, and fatal" 1 \
   "is not a directory" "$(its "$d")"
+
+begin_group "soc/compare/placed_vs_synth.py"
+
+PS="python3 $REPO/soc/compare/placed_vs_synth.py"
+
+# The numbers are the ones this repo actually measured: 2379 placed logic cells
+# against 1711 synthesised, and the 449-against-1711 that the all-NOP ROM
+# produced and that nothing caught.
+ps_fixture() {
+  local d; d=$(new_case)
+  cat > "$d/pnr.log" <<'LOG'
+Info: Device utilisation:
+Info: 	         ICESTORM_LC:    2379/   7680    30%
+Info: 	        ICESTORM_RAM:      30/     32    93%
+LOG
+  cat > "$d/core.log" <<'LOG'
+     1709   SB_LUT4
+       18   SB_RAM40_4K
+     1711   SB_LUT4
+LOG
+  printf '%s' "$d"
+}
+
+d=$(ps_fixture)
+probe "control: a placement holding the whole core is green" 0 "RATCHET:" \
+  "$PS $d/pnr.log $d/core.log vexriscv --min-ratio 0.8"
+
+# THE ONE THAT MATTERS: the defect this gate was written for.
+d=$(ps_fixture); sed -i.bak 's/2379\/   7680    30%/ 449\/   7680     5%/' "$d/pnr.log"
+probe "a core yosys folded away is red, not a fast design" 1 \
+  "under the 0.80x floor" "$PS $d/pnr.log $d/core.log vexriscv --min-ratio 0.8"
+
+d=$(ps_fixture); sed -i.bak '/ICESTORM_LC/d' "$d/pnr.log"
+probe "no utilisation table means nothing was placed, not that nothing was lost" 1 \
+  "no ICESTORM_LC utilisation line" \
+  "$PS $d/pnr.log $d/core.log vexriscv --min-ratio 0.8"
+
+d=$(ps_fixture); sed -i.bak '/SB_LUT4/d' "$d/core.log"
+probe "no standalone count leaves nothing to compare against" 1 \
+  "no SB_LUT4 count" "$PS $d/pnr.log $d/core.log vexriscv --min-ratio 0.8"
+
+# Without this the ratio is a division by zero, which would raise rather than
+# report -- and a traceback is not a diagnostic.
+d=$(ps_fixture); sed -i.bak 's/^     1711   SB_LUT4/        0   SB_LUT4/' "$d/core.log"
+probe "a standalone synthesis of zero cells is named, not divided by" 1 \
+  "no SB_LUT4 count" "$PS $d/pnr.log $d/core.log vexriscv --min-ratio 0.8"
+
+begin_group "soc/compare/geometry_test.sh"
+
+# A COPY OF THE SHIPPING FILES for the same reason test/memmap_test.sh's fixture
+# is one: the control has to be the real harness, so every red probe below is
+# one edit away from what is actually measured.
+GT="$REPO/soc/compare/geometry_test.sh"
+
+gt_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/rtl" "$d/soc/compare"
+  cp "$REPO"/rtl/memory.v "$d/rtl/"
+  cp "$REPO"/soc/compare/bench_littlecpu.v "$REPO"/soc/compare/bench_vexriscv.v \
+     "$REPO"/soc/compare/bench.lds "$REPO"/soc/compare/bench.S "$d/soc/compare/"
+  cp "$REPO"/Makefile "$d/"
+  printf '%s' "$d"
+}
+
+d=$(gt_fixture)
+probe "control: the shipping harness states one geometry" 0 \
+  "stated the same way in all six places" "$GT $d"
+
+probe "a repo root that does not exist is red before anything is parsed" 1 \
+  "is not a directory" "$GT $d/nowhere"
+
+d=$(gt_fixture); sed -i.bak 's/parameter integer ROM_WORDS = 1024/parameter integer ROM_WORDS = 2048/' \
+  "$d/soc/compare/bench_vexriscv.v"
+probe "one core's ROM growing behind the other's is red" 1 \
+  "has ROM_WORDS=2048, the Makefile has COMPARE_ROM_WORDS=1024" "$GT $d"
+
+d=$(gt_fixture); sed -i.bak 's/parameter integer RAM_WORDS = 512/parameter integer RAM_WORDS = 256/' \
+  "$d/soc/compare/bench_littlecpu.v"
+probe "one core's data RAM shrinking behind the other's is red" 1 \
+  "has RAM_WORDS=256, the Makefile has COMPARE_RAM_WORDS=512" "$GT $d"
+
+d=$(gt_fixture); sed -i.bak 's/LENGTH = 4K/LENGTH = 8K/' "$d/soc/compare/bench.lds"
+probe "a linker script linking past the harness ROM is red" 1 \
+  "rom region is 8192 bytes, the harness ROM is 4096" "$GT $d"
+
+d=$(gt_fixture); sed -i.bak 's/LENGTH = 2K/LENGTH = 16K/' "$d/soc/compare/bench.lds"
+probe "a linker script promising RAM the harness does not have is red" 1 \
+  "ram region is 16384 bytes, the harness RAM is 2048" "$GT $d"
+
+d=$(gt_fixture); sed -i.bak 's/li      t0, 0x00010000/li      t0, 0x00020000/' \
+  "$d/soc/compare/bench.S"
+probe "the program addressing RAM somewhere the harness has none is red" 1 \
+  "addresses RAM at 0x00020000" "$GT $d"
+
+d=$(gt_fixture); sed -i.bak 's/ORIGIN = 0x00010000/ORIGIN = 0x00020000/' \
+  "$d/soc/compare/bench.lds"
+probe "the linker script's RAM origin drifting from the RTL's base is red" 1 \
+  "ram ORIGIN is 0x00020000" "$GT $d"
+
+d=$(gt_fixture); rm "$d/soc/compare/bench.lds"
+probe "a file that moved out from under the check is fatal, not skipped" 1 \
+  "is missing" "$GT $d"
+
+d=$(gt_fixture); sed -i.bak 's/^COMPARE_ROM_WORDS/COMPARE_ROMWORDS/' "$d/Makefile"
+probe "a declaration this cannot read stops rather than comparing empty strings" 1 \
+  "teach this script the new" "$GT $d"
 
 echo
 if [ "$probes" -ne "$PROBES_EXPECTED" ]; then
