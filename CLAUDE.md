@@ -15,11 +15,15 @@ Three habits carry the goals:
 - **Measure a conflict; never assume one.** `make fit` and `make soc-timing` are the instruments.
   Do not discard a measured win because it sounds like an optimisation, and do not take
   a tidier spelling that costs measured speed or area without recording the trade. Three standing
-  precedents: `rtl/memory.v` ships the flat spelling of its write/read arms (the nested one costs
-  3.6% of Fmax), `rtl/executor.v`'s `mul_div_counter` stays `[6:0]` (narrowing it costs 37 cells),
-  and `rtl/decoder.v`'s operand-fetch cycle stays (removing it buys 13% of CPI and misses 12 MHz;
-  a cheaper spelling holds 12 MHz on 0.83% margin against today's 4.5%, and was declined on that)
-  — all measured and declined, not overlooked.
+  precedents, two declined and one taken on the same kind of evidence: `rtl/memory.v` ships the flat
+  spelling of its write/read arms (the nested one costs 3.6% of Fmax), `rtl/executor.v`'s
+  `mul_div_counter` stays `[6:0]` (narrowing it costs 37 cells), and `rtl/decoder.v` now asks the
+  register file for the *next* instruction's pair on a cycle that issues — 9.7% of suite cycles,
+  **1.1% of Dhrystone's**, +26 cells and a median period inside the churn band (ADR-0089). **A margin
+  that declines a change is a measurement with a date on it**: the 0.83% that declined this one was
+  re-derived twice against two later trees whose own worst placements were 2.08% and 4.75%, so
+  neither the number nor the verdict travelled. The version that guesses a *compressed* successor
+  too is the one that misses 12 MHz, and it stays declined.
 - **Prove the property, then spend it.** Find a place the design pays for a property it already
   proves — a priority chain over proven-disjoint flags, a comparator that cannot differ — simplify
   it, and let the riscv-formal checks, the component proofs and the `.S` suite say whether the
@@ -54,10 +58,11 @@ are kept in parentheses so those references still resolve.
   no reorder buffer. It stands on ADR-0067's ruling that the bus never refuses a transaction.
 - **Every inter-stage struct carries a `valid` bit** (3). A bubble is `valid = 0`; retire is
   `valid` reaching writeback, which gates `wen` and drives `rvfi_valid`.
-- **Hazards are stall-only** (4). No forwarding network, and 29.3% of suite cycles is what that
-  costs — **16.0% on Dhrystone, and the two are not separable from the operand-fetch cycle in either**
-  (ADR-0084): a cycle that is both is charged to the scoreboard, and the sum of the two columns is
-  flat across the two workloads. Read 29.3% as an upper bound on one workload, never as the prize.
+- **Hazards are stall-only** (4). No forwarding network, and 34.0% of suite cycles is what that
+  costs — **16.5% on Dhrystone, and the two are not separable from the operand-fetch cycle in either**
+  (ADR-0084): a cycle that is both is charged to the scoreboard, which is why removing two thirds of
+  the suite's operand column moved the scoreboard column *up* by 466 cycles (ADR-0089). Read 34.0%
+  as an upper bound on one workload, never as the prize.
   Both spellings were built and measured (ADR-0083): forwarding the executor's result to every
   operand reader buys 12.9% of cycles and misses 12 MHz outright at 9.49, and confining it to the
   executor's operands buys 7.5% and holds 12 MHz on 0.48% of margin against today's 3.35%. Deleting
@@ -72,16 +77,19 @@ are kept in parentheses so those references still resolve.
   `accessor_out.valid` is routed in separately because a store in flight is invisible to the
   scoreboard's three (ADR-0026).
 - **The regfile read is synchronous, and the answer belongs to the address pair presented the
-  previous cycle** (6, 9). Decode presents the pair, bubbles one cycle (`operand_stall`), then
-  issues — and in the issue cycle observes the architectural value of rs1/rs2 *including a
-  writeback committed that same cycle*, via two fabric forwarding points (write-first into the read
-  register, then the write-through bypass). The bypass selects on a **registered copy** of the
-  address pair and is correct only because `operand_stall` guarantees the held pair is the
-  presented pair on every issuing cycle (ADR-0064) — narrowing `operand_stall` breaks it with
-  nothing to say so except two `test/regfile_tb.v` vectors and `reg_ch0`. Touching `operand_stall`
-  is an amendment, not a tuning change. The standing liveness probe: delete the rs2 write-through
-  bypass and `reg_ch0` must go SAT — run it before believing any `reg_ch0` result under a changed
-  configuration.
+  previous cycle** (6, 9). Decode presents a pair, bubbles a cycle (`operand_stall`) whenever what
+  was presented is not what the instruction reads, then issues — and in the issue cycle observes the
+  architectural value of rs1/rs2 *including a writeback committed that same cycle*, via two fabric
+  forwarding points (write-first into the read register, then the write-through bypass). What it
+  presents on an issuing cycle is a **guess at the next instruction's pair**, read flat out of the
+  fetch window's successor word (ADR-0089), so the pair presented and the pair being read are
+  deliberately different signals there. The bypass selects on a **registered copy** of the address
+  pair and is correct because `operand_stall` lets nothing issue until the held pair is the pair the
+  issuing instruction reads (ADR-0064 as amended by ADR-0089) — narrowing `operand_stall` breaks it
+  with nothing to say so except two `test/regfile_tb.v` vectors and `reg_ch0`. Touching
+  `operand_stall` is an amendment, not a tuning change. The standing liveness probe: delete the rs2
+  write-through bypass and `reg_ch0` must go SAT — run it before believing any `reg_ch0` result
+  under a changed configuration.
 - **Stalls are one global broadcast over two mechanisms** (8): a divider or accessor stall
   **holds** `decoder_out` unchanged (an issued instruction nothing has consumed); every other
   reason **bubbles** (nothing issued). A `fetch_stall` coinciding with a freeze HOLDS — bubbling
@@ -173,6 +181,13 @@ What a green result does and does not mean:
   called from a continuous assign whose body reads module state silently under-evaluates — no
   diagnostic — and once left this leg dead for a whole milestone while every grader stayed green.
   Write such logic out. Treat a green iverilog run as evidence only if it could have failed.
+- **cxxrtl is two-state, so this leg is the only one that can see an X.** Decode reads register
+  numbers out of the word *after* the instruction it is issuing, so an undefined ROM word reaches
+  the register file's address port and turns the whole pipeline X — green under cxxrtl, green under
+  every formal check because they drive that word as a free two-state input, red only here.
+  `test/testbench.v` zeroes both ROM banks before poking its program for that reason, the way
+  `soc/compare/rom_flat.py` zero-pads its image to full depth. A simulated memory defined only where
+  a program was written is not a model of a block RAM, whose every word comes out of the bitstream.
 - **Sail co-simulation is deliberately not a leg and stays off CI's required checks** (ADR-0032).
   `test/cosim.cc` reads the core's real `regs_a` and no `rvfi_*` signal — the property that lets it
   catch architectural writes the self-reporting oracles structurally miss (measured: an extra
@@ -213,10 +228,13 @@ and times.
   period — and 12 is already met. A few-percent idea can be read against 41.67 ns and declined in a
   minute, instead of after four placements (ADR-0078).
 - **`make dhrystone` is the only figure comparable to another project's**, and it is quoted in
-  DMIPS/MHz because that is what the field publishes. 0.529 at `-O2`, 3572 bytes of the SoC's 8 KB
+  DMIPS/MHz because that is what the field publishes. 0.535 at `-O2`, 3568 bytes of the SoC's 8 KB
   ROM (ADR-0084). Dhrystone is string-dominated and the optimiser can delete part of the work, so
   **the flags, the compiler and the string library travel with the number** — the program prints all
-  three and will not compile without them. It is not a gate and adds no ratchet.
+  three and will not compile without them. It is not a gate and adds no ratchet. **Quote the
+  absolute figure with it**: 6.42 DMIPS at the board's 12 MHz, because Fmax above the requirement is
+  margin and not speed, so a CPI win converts to throughput and a placement that closes higher does
+  not (ADR-0089).
 - **The only cross-core comparison that means anything is one harness**, and `soc/compare/` is it:
   same part, memories, program, toolchain and seeds, this core against the VexRiscv Verilog in the
   pinned riscv-formal clone. Measured that way the gap is **1.6×, not the 3× two separately-published
@@ -400,7 +418,7 @@ four `SB_SPRAM256KA` at 256 kbit each. **128 KB is the up5k's whole SPRAM, not t
 a program that reads its own `.data`. SPRAM still cannot be initialised, so `.data` rides in the
 ROM at a load address `test/asm/boot.lds` puts there and `test/crt0.S` copies into RAM before
 `main`. That runtime costs 82 bytes and `test/asm/datainit.c`'s whole ROM image is 284 of 8192 — a whole
-Dhrystone is 3572 of it — so SPI-flash boot stays deferred, alongside the radix-4 divider. Two things have come off that list:
+Dhrystone is 3568 of it — so SPI-flash boot stays deferred, alongside the radix-4 divider. Two things have come off that list:
 the machine timer is built (ADR-0082), and the forwarding network is priced and declined rather than
 pending (ADR-0083). An interrupt controller, more sources and a vectored `mtvec` are still on it.
 

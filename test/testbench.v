@@ -285,7 +285,20 @@ module testbench(
   //
   // `ifdef ICARUS` because it is a hierarchical reference, which yosys does not
   // resolve (see the spec probe above).
+  //
+  // The banks are zeroed first and that is not tidiness. Fetch reads two
+  // adjacent words every cycle and decode reads the second one's register
+  // fields, so the word after the LAST instruction of the program is read on
+  // every pass through it. A bitstream defines every word of a block RAM; an
+  // array poked at six addresses does not, and one X there reaches the register
+  // file's address port and turns the whole pipeline X. cxxrtl is two-state and
+  // cannot see it; this leg is the only place it shows. Do not add a program
+  // here without the loop.
   initial begin
+    for (int i = 0; i < ROM_WORDS / 2; i++) begin
+      imem.rom_even[i] = 32'b0;
+      imem.rom_odd [i] = 32'b0;
+    end
     imem.rom_even[0] = 32'h000100b7; //       lui     x1, 0x10
     imem.rom_odd [0] = 32'h0000a023; //       sw      x0, 0(x1)
     imem.rom_even[1] = 32'h0000a103; // loop: lw      x2, 0(x1)

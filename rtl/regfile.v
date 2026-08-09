@@ -54,9 +54,11 @@ module regfile(
   // The select and the x0 test read the held pair, not `rs1`/`rs2`. `rs1` is
   // instruction bits, so selecting on it puts these comparators after the
   // fetched word, and every branch waits for them before the next PC can be
-  // chosen -- about 19% of the clock period. The held pair is the same value
-  // only because `operand_stall` holds the addresses across both cycles. Narrow
-  // it and this mux starts answering with the previous instruction's operand,
+  // chosen -- about 19% of the clock period. The held pair is the pair the
+  // instruction now issuing reads because `operand_stall` in rtl/decoder.v lets
+  // nothing issue until it is; the pair presented in the same cycle is a guess
+  // at the next instruction's and is deliberately something else. Narrow that
+  // stall and this mux starts answering with another instruction's operand,
   // with nothing to say so.
   //
   // x0 always reads 0, regardless of wen/waddr.

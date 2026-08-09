@@ -34,8 +34,17 @@ module decoder (
   // there when decode wants it. Without it decode would always be one
   // instruction behind the address it is deciding from.
   output logic [31:0] next_pc,
+  // The pair this instruction's encoding names. Nothing in the datapath reads
+  // it: the register file is asked for the pair below instead. formal/pcloop.sv
+  // needs both to say which cycles decode may hold the pc on, and a second copy
+  // of the register-number decode over there is what that file exists to avoid.
   output logic [4:0] rs1,
   output logic [4:0] rs2,
+  // The pair actually presented to the register file. On a cycle that issues it
+  // is a guess at the NEXT instruction's pair, so the operands arrive with that
+  // instruction rather than a cycle behind it. See `read_rs1` below.
+  output logic [4:0] read_rs1,
+  output logic [4:0] read_rs2,
   // rtl/csrs.v is a sibling module, not a stage. It answers in the same cycle,
   // and commits on the edge the instruction issues. No CSR value is ever held
   // downstream, so there is nothing to forward and nothing to replay.
@@ -523,14 +532,18 @@ module decoder (
   assign rvfi_rs1_valid = !instr_lui && !instr_jal && !instr_auipc && !is_csr_imm;
   assign rvfi_rs2_valid = uses_rs2;
  `endif
-  // Register reads take one cycle. Decode presents rs1/rs2, waits a cycle, then
-  // issues. So reg_rs1/reg_rs2 hold the answer to whatever addresses went out
-  // last cycle, not this one.
+  // Register reads take one cycle, so reg_rs1/reg_rs2 hold the answer to
+  // whatever addresses went out last cycle, not this one. The test below is
+  // exactly that question -- was the register file asked for what this
+  // instruction reads? -- and only for the ports it reads. lui, jal and auipc
+  // read neither, so they never wait. Each writes its own operands into `out`
+  // further down instead of passing reg_rs1/reg_rs2 through, so skipping the
+  // read cannot leak a stale value.
   //
-  // The test below says exactly that, and only for the ports this instruction
-  // reads. lui, jal and auipc read neither, so they never wait. Each writes its
-  // own operands into `out` further down instead of passing reg_rs1/reg_rs2
-  // through, so skipping the read cannot leak a stale value.
+  // The comparison does not care where the request came from, which is what
+  // lets `read_rs1` below be a guess: right and the instruction issues with no
+  // bubble at all, wrong and it stalls one cycle and asks again, which is the
+  // cycle every instruction used to pay.
   logic [4:0] prev_rs1, prev_rs2;
   logic       read_taken, operand_stall;
   always_ff @(posedge clk) begin
@@ -539,8 +552,8 @@ module decoder (
       prev_rs2   <= 5'd0;
       read_taken <= 1'b0;
     end else begin
-      prev_rs1   <= rs1;
-      prev_rs2   <= rs2;
+      prev_rs1   <= read_rs1;
+      prev_rs2   <= read_rs2;
       read_taken <= 1'b1;
     end
   end
@@ -550,6 +563,25 @@ module decoder (
   // Every reason to stall, in one signal. They all hold the PC; the block that
   // writes `out` below is where they differ.
   assign stall = hazard || operand_stall || divider_stall || accessor_stall || fetch_stall;
+
+  // On a cycle that issues, ask for the NEXT instruction's pair. The guess reads
+  // the uncompressed field positions flat out of the fetch window's successor
+  // word, so a compressed successor comes out as x0/x0 and misses, and so does
+  // everything after a redirect. `operand_stall` above is the check.
+  //
+  // A stalled cycle asks for the current instruction's own pair instead. The pc
+  // holds while stalled, so the same instruction comes back; guess there too and
+  // the two take turns forever. `stall` rather than `operand_stall` alone,
+  // because during a hazard stall the guess is one instruction ahead and would
+  // cost an extra cycle after every hazard cleared.
+  //
+  // This is also what keeps the register file's write-through bypass honest.
+  // That mux selects on its own registered copy of whatever was presented, and
+  // is right because nothing issues until the held pair is the pair the issuing
+  // instruction reads -- not because the held pair is the presented pair, which
+  // it deliberately is not on an issuing cycle.
+  assign read_rs1 = stall ? rs1 : in.next_instr[19:15];
+  assign read_rs2 = stall ? rs2 : in.next_instr[24:20];
 
   // All six branch tests come from one subtraction. Unsigned less-than is the
   // borrow out; signed less-than is the same fact except when the operands'

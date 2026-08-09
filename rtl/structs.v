@@ -9,6 +9,11 @@ typedef struct packed {
   logic        valid;
   logic [31:0] pc;
   logic [31:0] instr;
+  // The 32 bits sitting at pc + 2 or pc + 4, whichever follows `instr`, masked
+  // above the low half when they are a compressed instruction. Decode reads
+  // register numbers out of it a cycle early and checks what it read, so this is
+  // never decoded and is not required to be an instruction at all.
+  logic [31:0] next_instr;
 } fetcher_output;
 
 // ADR-0006: RVFI via per-stage shadow payloads rather than a separate retire

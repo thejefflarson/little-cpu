@@ -41,7 +41,7 @@ module pcloop (
   logic [31:0] next_pc, imem_addr_next;
   fetcher_output fetcher_out;
   decoder_output decoder_out;
-  logic [4:0] rs1, rs2;
+  logic [4:0] rs1, rs2, read_rs1, read_rs2;
   logic [11:0] csr_addr;
   logic        csr_ren, csr_wen, instret;
   logic [31:0] csr_wdata;
@@ -83,6 +83,8 @@ module pcloop (
     .next_pc(next_pc),
     .rs1(rs1),
     .rs2(rs2),
+    .read_rs1(read_rs1),
+    .read_rs2(read_rs2),
     .csr_addr(csr_addr),
     .csr_ren(csr_ren),
     .csr_wen(csr_wen),
@@ -165,6 +167,13 @@ module pcloop (
   // Widening this one does not make the increment assertion useless. A stalled
   // decoder holds the pc, so the same instruction word comes back next cycle
   // and rs1/rs2 do not change. On the cycle the pc really moves, this is low.
+  //
+  // The two sides are deliberately different signals. What the register file was
+  // asked for last cycle is `read_rs1`, which on an issuing cycle is a guess at
+  // the next instruction's pair; what has to match it is the pair the current
+  // instruction decodes to. Register the guess on both sides and this is true on
+  // nearly every issuing cycle, which would excuse the pc from advancing almost
+  // everywhere and leave the assertion below asking nothing.
   logic [4:0] f_prev_rs1, f_prev_rs2;
   logic       f_read_taken, f_operand_fetch;
   always_ff @(posedge clk) begin
@@ -173,8 +182,8 @@ module pcloop (
       f_prev_rs2   <= 5'd0;
       f_read_taken <= 1'b0;
     end else begin
-      f_prev_rs1   <= rs1;
-      f_prev_rs2   <= rs2;
+      f_prev_rs1   <= read_rs1;
+      f_prev_rs2   <= read_rs2;
       f_read_taken <= 1'b1;
     end
   end

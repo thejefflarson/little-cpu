@@ -6,7 +6,10 @@
 //
 // The one timing rule: a combinational decode flag is readable the instant
 // `in.instr` settles, but anything about issuing, publishing or committing has
-// to be checked after the operand-fetch cycle is spent.
+// to be checked after the operand-fetch cycle is spent. Every vector below
+// leaves `in.next_instr` at zero, so decode's guess at the next pair is x0/x0
+// and misses; drive it and the vector after it issues a cycle earlier than the
+// checks expect. The two vectors that do drive it put it back.
 module decoder_tb;
   logic clk = 0;
   always #5 clk = ~clk;
@@ -16,7 +19,7 @@ module decoder_tb;
   logic [31:0] reg_rs1, reg_rs2;
   logic [31:0] pc;
   logic [31:0] next_pc;
-  logic [4:0] rs1, rs2;
+  logic [4:0] rs1, rs2, read_rs1, read_rs2;
   decoder_output out;
   // Driven high by the vectors that need something in flight to serialize
   // against; the hazard scoreboard is test/regfile_tb.v's and hazard.S's.
@@ -63,6 +66,8 @@ module decoder_tb;
     .next_pc(next_pc),
     .rs1(rs1),
     .rs2(rs2),
+    .read_rs1(read_rs1),
+    .read_rs2(read_rs2),
     .csr_addr(csr_addr),
     .csr_ren(csr_ren),
     .csr_wen(csr_wen),
@@ -196,6 +201,44 @@ module decoder_tb;
     @(posedge clk);
     #1;
     check_hex("xori out.rs2 (registered math_arg)", out.rs2, 32'hffffffff);
+
+    // The register file is asked for the NEXT instruction's pair on a cycle
+    // that issues, read flat out of the fetch window's successor word. Right,
+    // and the instruction behind it issues with no operand-fetch cycle at all;
+    // that is the whole of what the guess buys, and nothing else here shows it.
+    in.pc = 32'h0000_0040;
+    present_and_fetch(32'h00100093);   // addi x1, x0, 1
+    in.next_instr = 32'h00110193;      // addi x3, x2, 1 -- reads x2
+    #1;
+    check_hex("an issuing cycle presents the successor's rs1",
+              {27'b0, read_rs1}, 32'd2);
+    check_hex("...while its own decoded rs1 is still x0", {27'b0, rs1}, 32'd0);
+    @(posedge clk);
+    #1;
+    in.instr = 32'h00110193;
+    in.next_instr = 32'b0;
+    #1;
+    check_bit("a right guess costs the successor no operand-fetch cycle",
+              dut.operand_stall, 1'b0);
+    check_bit("...so it issues in the cycle it is presented", dut.issuing, 1'b1);
+
+    // The red direction, which is what every instruction did before the guess:
+    // present a pair the successor does not read and it pays the cycle.
+    in.pc = 32'h0000_0060;
+    present_and_fetch(32'h00100093);
+    in.next_instr = 32'h00000013;      // addi x0, x0, 0 -- guesses x0/x0
+    @(posedge clk);
+    #1;
+    in.instr = 32'h00110193;
+    #1;
+    check_bit("a wrong guess costs the successor its operand-fetch cycle",
+              dut.operand_stall, 1'b1);
+    check_bit("...so it does not issue in that cycle", dut.issuing, 1'b0);
+    @(posedge clk);
+    #1;
+    check_bit("...and the re-presented pair lets it issue on the next one",
+              dut.issuing, 1'b1);
+    in.next_instr = 32'b0;
 
     // Read off the decode flag, not `out.is_ebreak`: a trapping issue
     // suppresses every execution flag, so the registered flag is 0 for all
