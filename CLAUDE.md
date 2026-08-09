@@ -54,9 +54,13 @@ are kept in parentheses so those references still resolve.
   no reorder buffer. It stands on ADR-0067's ruling that the bus never refuses a transaction.
 - **Every inter-stage struct carries a `valid` bit** (3). A bubble is `valid = 0`; retire is
   `valid` reaching writeback, which gates `wen` and drives `rvfi_valid`.
-- **Hazards are stall-only** (4). No forwarding network. The nearest step toward one — a second
-  bypass level, needed to serialise the read ports — was built and rejected at 44/52 (ADR-0042);
-  that measurement is the evidence to beat.
+- **Hazards are stall-only** (4). No forwarding network, and 29.3% of suite cycles is what that
+  costs. Both spellings were built and measured (ADR-0083): forwarding the executor's result to every
+  operand reader buys 12.9% of cycles and misses 12 MHz outright at 9.49, and confining it to the
+  executor's operands buys 7.5% and holds 12 MHz on 0.48% of margin against today's 3.35%. Deleting
+  the scoreboard outright buys **0% of period** at its ceiling, so nothing in this direction pays for
+  the muxes, and only one of the three in-flight slots can be forwarded from at all. That is the
+  evidence to beat.
 - **CSR instructions, `mret` and `fence.i` serialize** (5) — held in decode until execute, access
   and writeback are empty. Two distinct reasons share the mechanism: the first two so a one-cycle
   architectural update cannot interleave with older instructions; `fence.i` because text is
@@ -337,9 +341,9 @@ four `SB_SPRAM256KA` at 256 kbit each. **128 KB is the up5k's whole SPRAM, not t
 a program that reads its own `.data`. SPRAM still cannot be initialised, so `.data` rides in the
 ROM at a load address `test/asm/boot.lds` puts there and `test/crt0.S` copies into RAM before
 `main`. That runtime costs 82 bytes and `test/asm/datainit.c`'s whole ROM image is 284 of 8192, so
-SPI-flash boot stays deferred, alongside the forwarding network and the radix-4 divider.
-Interrupts are no longer on that list — the machine timer is built (ADR-0082) — but a
-controller, more sources and a vectored `mtvec` are.
+SPI-flash boot stays deferred, alongside the radix-4 divider. Two things have come off that list:
+the machine timer is built (ADR-0082), and the forwarding network is priced and declined rather than
+pending (ADR-0083). An interrupt controller, more sources and a vectored `mtvec` are still on it.
 
 The suite is `test/asm/*.S` **and** `test/asm/*.c`, and `test/OBSERVED_FLOOR` names both. The two
 shapes differ only in how `.data` reaches RAM: an assembly program's is poked in by the harness,
