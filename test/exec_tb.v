@@ -323,6 +323,14 @@ module exec_tb;
     end
   endtask
 
+  // When set, run_op zeroes `in` on the cycle after issue and leaves it zeroed.
+  // That is what the pipeline does to a running divide -- the divider stall is
+  // low on the issue cycle, so decode issues normally and then publishes an
+  // operand-fetch bubble that the stall holds -- and it is the one input
+  // sequence a divide really sees. A divider that read `in` after issue instead
+  // of its own latches would divide by zero here and nowhere else.
+  logic bubble_after_issue;
+
   // The executor is done when it has returned to `init` after the issue edge --
   // immediately for the multiply family and the divide short-circuits, 33 cycles
   // later for a real division. Polling rather than hardcoding a count keeps this
@@ -377,6 +385,7 @@ module exec_tb;
 
       @(posedge clk); // issue edge
       #1;
+      if (bubble_after_issue) in = '0;
       guard = 0;
       while (dut.state == DIVIDE_STATE) begin
         @(posedge clk);
@@ -405,6 +414,7 @@ module exec_tb;
 
   initial begin
     reset = 1;
+    bubble_after_issue = 1'b0;
     init_tables();
     clear_in();
     repeat (2) @(posedge clk);
@@ -535,6 +545,26 @@ module exec_tb;
       run_op("add",    a, b, ref_add(a, b));
       run_op("sub",    a, b, ref_sub(a, b));
     end
+
+    // The same divide family again, this time with `in` bubbled the cycle after
+    // issue. Both signs of both operands, so the magnitude conversion and the
+    // sign restoration are exercised from latched state alone; a full-width
+    // divisor, which no capped proof reaches; and the two short-circuits, which
+    // must still answer from the issue cycle.
+    bubble_after_issue = 1'b1;
+    run_op("div",  32'h00000064, 32'h00000007, ref_div(32'h00000064, 32'h00000007));
+    run_op("div",  32'hffffff9c, 32'h00000007, ref_div(32'hffffff9c, 32'h00000007));
+    run_op("div",  32'h00000064, 32'hfffffff9, ref_div(32'h00000064, 32'hfffffff9));
+    run_op("div",  32'hffffff9c, 32'hfffffff9, ref_div(32'hffffff9c, 32'hfffffff9));
+    run_op("rem",  32'hffffff9c, 32'h00000007, ref_rem(32'hffffff9c, 32'h00000007));
+    run_op("rem",  32'h00000064, 32'hfffffff9, ref_rem(32'h00000064, 32'hfffffff9));
+    run_op("divu", 32'hdeadbeef, 32'hfffffffe, ref_divu(32'hdeadbeef, 32'hfffffffe));
+    run_op("remu", 32'hdeadbeef, 32'hfffffffe, ref_remu(32'hdeadbeef, 32'hfffffffe));
+    run_op("divu", 32'hffffffff, 32'h00000001, ref_divu(32'hffffffff, 32'h00000001));
+    run_op("remu", 32'hffffffff, 32'hfffffffe, ref_remu(32'hffffffff, 32'hfffffffe));
+    run_op("div",  32'h80000000, 32'hffffffff, 32'h80000000);
+    run_op("divu", 32'h00000064, 32'h00000000, 32'hffffffff);
+    bubble_after_issue = 1'b0;
 
     // Everything above is a claim about the core; these two are the claim that
     // it happened at all.

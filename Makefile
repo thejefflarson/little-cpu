@@ -495,11 +495,11 @@ fit.json: $(FIT_SRCS)
 	@yosys -p 'read_verilog -sv $^; synth_ice40 -dsp -top littlecpu -json $@' \
 	  > fit.synth.log 2>&1 || { tail -40 fit.synth.log; exit 1; }
 
-# Set above the measurement, which is 3899 cells here. The number moves by tens
+# Set above the measurement, which is 3470 cells here. The number moves by tens
 # of cells on edits that build the same hardware, and CI's yosys reads about 21
 # higher than a local one, so the budget has to leave room for both. If this goes
 # red, find out what grew. Raising it to make it pass defeats the point.
-FIT_MAX_LC := 4100
+FIT_MAX_LC := 3700
 
 .PHONY: fit
 fit: fit.json

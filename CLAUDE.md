@@ -251,6 +251,11 @@ and times.
   ballasting 77% to 95% for no change at all. Where a fact like that is now load-bearing it is an
   elaboration `$fatal`, not a comment: `rtl/{imemory,memory,timer}.v` refuse to build at a
   non-power-of-two depth or an unaligned `BASE`, and `make window-test` forces all three red.
+  **The rule does not only find small things.** The same question asked of `rtl/executor.v` found
+  three that each clear the band alone — a divider carrying 64-bit registers for a 32-bit division,
+  a duplicated negator inside a one-hot mux, and the multiplier's 33rd partial-product row in soft
+  logic — worth −404 on `fit` and −400 placed cells together, with the period a null again and
+  `ICESTORM_DSP` unmoved at 4 (ADR-0090).
 - **Read logic levels apart**: a LUT level costs ~3.3 ns (delay plus interconnect), a carry hop
   ~0.34 ns and no interconnect. A change that trades a carry hop for a LUT level gets shallower by
   icetime's count and slower in nanoseconds. The SoC is routing-dominated; wide flat muxes route
