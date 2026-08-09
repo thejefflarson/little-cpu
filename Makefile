@@ -414,6 +414,42 @@ test: sim test-units probe-gates pin-bump-test tool-cache-test
 cycles: sim
 	@STALL_REPORT=1 ./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
+# Dhrystone 2.1, the one number this core can be quoted against other cores'.
+# Not a prerequisite of anything and not on CI: there is no CPI ratchet here and
+# this adds none. It reports DMIPS/MHz, the ROM image against the SoC's 8 KB,
+# and the same per-reason cycle accounting `make cycles` prints -- which is the
+# first read of that split on compiled code rather than on hand-written
+# assembly.
+#
+# DHRY_CFLAGS IS THE MEASUREMENT'S OTHER HALF. The same string compiles the
+# benchmark and is compiled INTO it, so the flags print beside the number and
+# cannot be separated from it; test/bench/dhry_port.c will not build without
+# them. Changing them changes the number -- Dhrystone is famously sensitive to
+# the optimiser -- so quote both or neither, the same rule `make fit` and
+# `make soc-timing` already carry about their toolchains.
+#
+# -O2 rather than the suite's -Os: it is what the cores in the comparison set
+# publish, and the ROM budget below is what says whether this part can afford
+# it. -fno-tree-loop-distribute-patterns keeps gcc from rewriting the byte loops
+# in dhry_port.c into calls to the very routines they define.
+# 2000 runs, not the smallest number that produces a figure. test/crt0.S zeroes
+# Dhrystone's 10 KB Arr_2_Glob a word at a time before main, and that loop's
+# stall mix is nothing like the benchmark's -- at 500 runs it is a tenth of the
+# accounted cycles and at 2000 it is under three percent. The runner prints the
+# residual so the number is checked rather than assumed.
+DHRY_RUNS   ?= 2000
+DHRY_CYCLES ?= 4000000
+DHRY_CFLAGS := -march=rv32imc_zicsr_zifencei -mabi=ilp32 -O2 -std=c11 \
+               -ffreestanding -fno-tree-loop-distribute-patterns \
+               -Wall -Wextra -Werror
+
+# The 8 KB budget is NOT here. test/bench/bench.lds gives the `rom` region that
+# length, so ld enforces it and reports an overflow in bytes; the runner reads
+# the number back out of that file to print the image against it.
+.PHONY: dhrystone
+dhrystone: sim
+	@./test/bench/run_dhrystone.sh ./sim $(DHRY_RUNS) $(DHRY_CYCLES) '$(DHRY_CFLAGS)'
+
 # Count logic cells from nextpnr, never cell counts from yosys. A flip-flop that
 # cannot share a cell with the LUT feeding it takes a whole cell by itself, and
 # over a thousand of this design's cells are like that. Counting `SB_LUT4`
