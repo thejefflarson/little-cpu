@@ -82,6 +82,16 @@ module executor(
   // iteration needs are latched here at issue instead.
   logic op_is_div, op_is_divu, op_is_rem, op_is_remu, op_sign_x, op_sign_y;
 
+  // Pick the magnitude first, then negate it once. Spelled as four arms that
+  // each carry their own sign restoration this is two independent 32-bit
+  // negators inside a one-hot mux, and the mux does not collapse either.
+  // DIV's result is negative when the operands' signs disagree; REM's takes the
+  // dividend's sign; the unsigned pair never negates.
+  logic [31:0] div_result_mag;
+  logic        div_negate;
+  assign div_result_mag = (op_is_div || op_is_divu) ? div_quot : div_rem;
+  assign div_negate     = (op_is_div && (op_sign_x != op_sign_y)) || (op_is_rem && op_sign_x);
+
  `ifdef RISCV_FORMAL_ALTOPS
   // Named so the completion arm reads these as operands rather than as slices of
   // the divider's working registers. ALTOPS does no magnitude conversion.
@@ -224,13 +234,7 @@ module executor(
             div_rem  <= rem_sub[32] ? rem_shifted[31:0] : rem_sub[31:0];
             mul_div_counter <= mul_div_counter - 1;
           end else begin
-            (* parallel_case, full_case *)
-            case (1'b1)
-              op_is_div: out.rd_data <= op_sign_x != op_sign_y ? -div_quot : div_quot;
-              op_is_divu: out.rd_data <= div_quot;
-              op_is_rem: out.rd_data <= op_sign_x ? -div_rem : div_rem;
-              op_is_remu: out.rd_data <= div_rem;
-            endcase
+            out.rd_data <= div_negate ? -div_result_mag : div_result_mag;
             out.valid <= 1'b1;
             state <= init;
           end
@@ -436,7 +440,8 @@ module executor(
 
   // Exactly one op flag is latched, because the arm that latches them fires only
   // when one of the four is set and the $onehot0 assume above bounds the other
-  // side. This is what the completion arm's marking is spent against.
+  // side. The completion arm's magnitude select and its negate term both read
+  // the flags as disjoint, and this is what says they are.
   always_comb
     if (state == divide) assert($onehot({op_is_div, op_is_divu, op_is_rem, op_is_remu}));
   always_comb if (state == divide) assert(op_sign_x == div_ghost_rs1[31]);
