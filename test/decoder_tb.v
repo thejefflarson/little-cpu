@@ -42,6 +42,7 @@ module decoder_tb;
   // driving this directly is driving the whole interrupt decision.
   logic interrupt_pending = 1'b0;
   logic trap_entry, mret_entry;
+  logic imem_ren;
   logic [31:0] trap_cause, trap_epc;
 
   decoder dut (
@@ -64,6 +65,7 @@ module decoder_tb;
     .interrupt_pending(interrupt_pending),
     .pc(pc),
     .next_pc(next_pc),
+    .imem_ren(imem_ren),
     .rs1(rs1),
     .rs2(rs2),
     .read_rs1(read_rs1),
@@ -100,23 +102,43 @@ module decoder_tb;
     end
   endtask
 
-  // pc must have exactly one driver, and it must be next_pc. The memory latches
-  // its address off next_pc one cycle before the fetch that reads it. Give pc a
-  // second driver and the memory runs a cycle out of step with decode, so the
-  // core executes whatever is at the wrong addresses. Nothing on the
-  // riscv-formal ladder reads that port.
+  // pc must have exactly one driver, and it must be next_pc under imem_ren. The
+  // memory latches its address off next_pc one cycle before the fetch that reads
+  // it, and holds both its window and the pc naming it while imem_ren is low.
+  // Give pc a second driver, or an enable that is not the memory's, and the two
+  // run a cycle out of step, so the core executes whatever is at the wrong
+  // addresses. Nothing on the riscv-formal side reads that port.
   //
   // Checked on every edge rather than in one vector, because a change like that
   // shows up on some instructions and not on others.
-  logic [31:0] prev_next_pc;
+  logic [31:0] prev_next_pc, prev_pc;
+  logic        prev_imem_ren;
   logic        prev_next_pc_valid = 1'b0;
   always @(posedge clk) begin
-    if (prev_next_pc_valid && pc !== prev_next_pc) begin
-      $display("MISMATCH next_pc predicted %08x but pc became %08x", prev_next_pc, pc);
+    if (prev_next_pc_valid && pc !== (prev_imem_ren ? prev_next_pc : prev_pc)) begin
+      $display("MISMATCH pc became %08x; predicted %08x (imem_ren was %b, next_pc %08x, pc %08x)",
+               pc, prev_imem_ren ? prev_next_pc : prev_pc, prev_imem_ren, prev_next_pc, prev_pc);
       errors++;
     end
     prev_next_pc <= next_pc;
+    prev_pc <= pc;
+    prev_imem_ren <= imem_ren;
     prev_next_pc_valid <= 1'b1;
+  end
+
+  // imem_ren is exactly reset, or a cycle nothing is holding the window back,
+  // or a stolen window that has to be fetched again. Low on any other stalled
+  // cycle is what keeps the stall off the address path; high on a stolen one is
+  // what makes the re-fetch happen. Both directions are silent failures --
+  // holding forever executes one instruction repeatedly, never holding puts the
+  // memory back on the old path with no diagnostic -- so this is checked on
+  // every edge like the pc above rather than in a vector.
+  always @(clk) begin
+    if (imem_ren !== (reset || !dut.stall || fetch_stall)) begin
+      $display("MISMATCH imem_ren=%b but reset=%b stall=%b fetch_stall=%b",
+               imem_ren, reset, dut.stall, fetch_stall);
+      errors++;
+    end
   end
 
   // `stall` is exactly these seven terms ORed together. `make cycles` charges
@@ -193,6 +215,10 @@ module decoder_tb;
     // bubble and it publishes during its own fetch cycle. Either way every
     // other vector here still passes.
     check_bit("...so it does not issue in that cycle", dut.issuing, 1'b0);
+    // The window it is stalling on is the one it wants next, so nothing is
+    // fetched over it. This is the arm that used to be `next_pc = pc`.
+    check_bit("...and the fetch window is held rather than refilled",
+              imem_ren, 1'b0);
     operand_fetch_cycle();
     check_bit("...and the fetch cycle bubbled decoder_out", out.valid, 1'b0);
     check_bit("...and is eligible to issue on the very next cycle",
@@ -454,6 +480,10 @@ module decoder_tb;
     check_bit("...so nothing issues", dut.issuing, 1'b0);
     check_hex("...and the pc holds, so the instruction is presented again",
               next_pc, pc);
+    // The one stall reason that must still reach the address: the window
+    // arriving carried the data bus's answer, so it has to be fetched again and
+    // `pc` is the only address that can be right.
+    check_bit("...and the window is refilled rather than held", imem_ren, 1'b1);
     check_bit("...and no trap is committed out of the stolen window", trap_entry, 1'b0);
 
     // A freeze holds decoder_out; a steal clears it. On a cycle with both,
@@ -557,7 +587,10 @@ module decoder_tb;
     divider_stall = 1'b1;
     #1;
     check_bit("a divide holds the interrupt off", trap_entry, 1'b0);
-    check_hex("...and the pc with it", next_pc, pc);
+    // The pc holds with it, through the enable rather than through the chain:
+    // `next_pc` names mtvec on this cycle and nothing reads it, because the
+    // memory is not being asked for a word and the pc is not moving.
+    check_bit("...and the window is held, so the pc cannot move", imem_ren, 1'b0);
     divider_stall = 1'b0;
     accessor_stall = 1'b1;
     #1;

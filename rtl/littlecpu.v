@@ -13,6 +13,12 @@ module littlecpu(
   // the cycle that needs it; a combinational memory -- test benches,
   // formal/wrapper.v -- leaves it unread and answers `imem_addr` directly.
   output logic [31:0] imem_addr_next,
+  // Low on a cycle that will not consume the fetch window. A synchronous memory
+  // holds its output register and re-presents the same two words, which is what
+  // takes the core's stall off the address path. A combinational memory leaves
+  // this unread too: `imem_addr` holds while the core is stalled, so the same
+  // words come back either way.
+  output logic        imem_ren,
   // The fetch and data buses share one address space, and the instruction
   // memory arbitrates: a load or store to the text range takes the read port
   // for that cycle and the fetch that lost it comes back as `fetch_stall`.
@@ -154,6 +160,7 @@ module littlecpu(
    `endif
     .pc(pc),
     .next_pc(next_pc),
+    .imem_ren(imem_ren),
     .read_rs1(read_rs1),
     .read_rs2(read_rs2),
     .csr_addr(csr_addr),

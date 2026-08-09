@@ -454,7 +454,14 @@ int main(int argc, char **argv) {
   top.step();
 
   for (long cycle = 0; cycle < args.cycles; ++cycle) {
-    if (cycle == 0)
+    // Reset has to span a rising edge, not just settle before one. The first
+    // fetch is issued while it is high -- the instruction memory takes a cycle
+    // to answer, and holds its answer until the core asks for another -- so a
+    // reset dropped before any edge leaves the first window unfilled and the
+    // core issues whatever the memory powered up with. Dropping it at cycle 1
+    // is what test/testbench.v's iverilog side and rtl/littlesoc.v's power-on
+    // counter already do; this side was the only one that never clocked it.
+    if (cycle == 1)
       top.p_reset.set(false);
     top.p_clk.set<bool>(false);
     top.step();

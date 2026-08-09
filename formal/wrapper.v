@@ -21,6 +21,10 @@ module rvfi_wrapper (
   // so the whole ladder sees a combinational fetch bus and never the port the
   // shipping SoC uses.
   (* keep *) logic [31:0] imem_addr_next;
+  // The read enable for a memory that holds its output register. Unread for
+  // the same reason as the address above: this environment answers in the same
+  // cycle, and the fetch address holds while the core stalls.
+  (* keep *) logic imem_ren;
   (* keep *) logic [31:0] mem_addr;
   (* keep *) logic [31:0] mem_wdata;
   (* keep *) logic [3:0]  mem_wstrb;
@@ -103,6 +107,7 @@ module rvfi_wrapper (
     .imem_addr2(imem_addr2),
     .imem_data2(imem_data2),
     .imem_addr_next(imem_addr_next),
+    .imem_ren(imem_ren),
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),

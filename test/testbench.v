@@ -19,6 +19,7 @@ module testbench(
   logic [31:0] imem_addr2;
   logic [31:0] imem_data2;
   logic [31:0] imem_addr_next;
+  logic        imem_ren;
   logic [31:0] mem_addr;
   logic [31:0] mem_wdata;
   logic [3:0]  mem_wstrb;
@@ -72,6 +73,7 @@ module testbench(
   imemory #(.ROM_WORDS(ROM_WORDS)) imem (
     .clk(clk),
     .imem_addr_next(imem_addr_next),
+    .imem_ren(imem_ren),
     .imem_data(imem_data),
     .imem_data2(imem_data2),
     .mem_addr(mem_addr),
@@ -100,6 +102,7 @@ module testbench(
     .imem_addr2(imem_addr2),
     .imem_data2(imem_data2),
     .imem_addr_next(imem_addr_next),
+    .imem_ren(imem_ren),
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),

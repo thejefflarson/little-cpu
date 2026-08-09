@@ -39,6 +39,7 @@ module traps (
 );
   logic [31:0] pc, next_pc;
   logic [31:0] imem_addr, imem_addr2, imem_addr_next;
+  logic        imem_ren;
   fetcher_output fetcher_out;
   decoder_output decoder_out;
   logic [4:0] read_rs1, read_rs2;
@@ -84,6 +85,7 @@ module traps (
     .interrupt_pending(interrupt_pending),
     .pc(pc),
     .next_pc(next_pc),
+    .imem_ren(imem_ren),
     .read_rs1(read_rs1),
     .read_rs2(read_rs2),
     .csr_addr(csr_addr),

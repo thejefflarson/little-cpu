@@ -20,6 +20,10 @@ module testbench (
   // rather than left dangling, so every instantiation of the core names every
   // port.
   logic [31:0] imem_addr_next;
+  // The read enable for a memory that holds its output register. Unread for
+  // the same reason as the address above: this environment answers in the same
+  // cycle, and the fetch address holds while the core stalls.
+  logic        imem_ren;
   logic        mem_ren;
   logic        fetch_stall;
 
@@ -41,6 +45,7 @@ module testbench (
     .imem_addr2(imem_addr2),
     .imem_data2(imem_data2),
     .imem_addr_next(imem_addr_next),
+    .imem_ren(imem_ren),
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),

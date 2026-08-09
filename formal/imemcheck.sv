@@ -25,6 +25,10 @@ module testbench (
   // ports against the addresses the core presents in the same cycle, which is
   // the combinational fetch bus this task was written for.
   logic [31:0] uut_imem_addr_next;
+  // The read enable for a memory that holds its output register. Unread for
+  // the same reason as the address above: this environment answers in the same
+  // cycle, and the fetch address holds while the core stalls.
+  logic        uut_imem_ren;
   logic [31:0] mem_addr;
   logic [31:0] mem_wdata;
   logic [3:0]  mem_wstrb;
@@ -121,6 +125,7 @@ module testbench (
     .imem_addr2(uut_imem_addr2),
     .imem_data2(uut_imem_data2),
     .imem_addr_next(uut_imem_addr_next),
+    .imem_ren(uut_imem_ren),
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),

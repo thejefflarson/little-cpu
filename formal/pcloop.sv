@@ -39,6 +39,7 @@ module pcloop (
   logic [31:0] pc;
   logic [31:0] imem_addr, imem_addr2;
   logic [31:0] next_pc, imem_addr_next;
+  logic        imem_ren;
   fetcher_output fetcher_out;
   decoder_output decoder_out;
   logic [4:0] rs1, rs2, read_rs1, read_rs2;
@@ -81,6 +82,7 @@ module pcloop (
     .interrupt_pending(interrupt_pending),
     .pc(pc),
     .next_pc(next_pc),
+    .imem_ren(imem_ren),
     .rs1(rs1),
     .rs2(rs2),
     .read_rs1(read_rs1),
@@ -234,13 +236,26 @@ module pcloop (
   always_comb if (clocked && !reset) assert(fetcher_out.pc == pc);
 
   // The memory latches its address a cycle early, so imem_addr_next this cycle
-  // must be imem_addr next cycle. rtl/decoder.v checks the same thing one level
-  // up, on pc and next_pc. This one is on the fetcher's output ports, so it
-  // also covers the two word-alignment masks: change one and forget the other
-  // and only this fails. Nothing on the riscv-formal ladder reads either port.
-  logic [31:0] past_imem_addr_next;
-  always_ff @(posedge clk) past_imem_addr_next <= imem_addr_next;
-  always_comb if (clocked) assert(imem_addr == past_imem_addr_next);
+  // must be imem_addr next cycle -- on the cycles the memory was asked for a
+  // word. On the others it is holding what it already has, and the address is
+  // whatever the arms of the next-pc chain produced from an instruction that did
+  // not issue, so there is nothing to compare it against. Both halves are
+  // stated: the cycle after a held read, the address the memory would answer has
+  // not moved either.
+  //
+  // rtl/decoder.v checks the same thing one level up, on pc and next_pc. This
+  // one is on the fetcher's output ports, so it also covers the two
+  // word-alignment masks: change one and forget the other and only this fails.
+  // Nothing on the riscv-formal side reads either port.
+  logic [31:0] past_imem_addr, past_imem_addr_next;
+  logic        prev_imem_ren;
+  always_ff @(posedge clk) begin
+    past_imem_addr      <= imem_addr;
+    past_imem_addr_next <= imem_addr_next;
+    prev_imem_ren       <= imem_ren;
+  end
+  always_comb if (clocked &&  prev_imem_ren) assert(imem_addr == past_imem_addr_next);
+  always_comb if (clocked && !prev_imem_ren) assert(imem_addr == past_imem_addr);
 
   // The increment goes through the real fetcher. rtl/decoder.v adds fetcher_pc,
   // not its own pc, and only the echo assertion above ties fetcher_pc back to
