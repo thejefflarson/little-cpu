@@ -408,8 +408,17 @@ tool-cache-test:
 memmap-test:
 	@./test/memmap_test.sh
 
+# The cross-core comparison harness states its geometry in six places and this
+# is what says they agree. Hangs off `test` like the other bash checks -- grep
+# and sed only -- because the harness itself needs yosys, nextpnr and the pinned
+# clone, so nothing else on this machine would notice it rotting.
+.PHONY: compare-geometry-test
+compare-geometry-test:
+	@./soc/compare/geometry_test.sh
+
 .PHONY: test
-test: sim test-units probe-gates pin-bump-test tool-cache-test memmap-test
+test: sim test-units probe-gates pin-bump-test tool-cache-test memmap-test \
+      compare-geometry-test
 	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 # The same suite `make test` runs, with the runner charging every cycle to the
@@ -624,10 +633,174 @@ soc-timing: soc.asc
 	@# second one was the one holding the gate.
 	@python3 soc/timing_split.py soc.timing.rpt --min-mhz $(SOC_MIN_MHZ)
 
+# ---- the cross-core comparison harness -------------------------------------
+#
+# Places THIS core and VexRiscv in one harness -- one geometry, one program, one
+# part, one toolchain, the same seeds -- so the two Fmax figures are one
+# experiment instead of two. Nothing here is a gate on the shipping design and
+# nothing here touches rtl/: `make soc-timing` remains the SoC's measurement and
+# this target's numbers are not comparable to it.
+#
+# `COMPARE_CORE=littlecpu` (default) or `vexriscv`; `COMPARE_SEED=<n>` picks a
+# placement. soc/compare/sweep.sh runs both cores over four seeds each, which is
+# what a distribution needs.
+COMPARE_CORE  ?= littlecpu
+COMPARE_SEED  ?=
+# 4 KB of ROM (8 SB_RAM40_4K) and 2 KB of data RAM (4 more). Shrunk from the
+# shipping 8 KB / 64 KB so both designs fit one hx8k: VexRiscv takes 18 of the
+# part's 32 block RAMs before either memory -- 4 for a register file the same
+# size as this core's, 14 for a 1024-entry branch predictor -- and 30 is what
+# its side of the harness then comes to. soc/compare/bench.lds states the same
+# two sizes in its own syntax and soc/compare/geometry_test.sh compares them.
+COMPARE_ROM_WORDS := 1024
+COMPARE_RAM_WORDS := 512
+# The placed design must be at least this fraction of what the core synthesises
+# to alone. soc/compare/placed_vs_synth.py carries why, and it is the check that
+# stops this flow reporting a number for a core yosys folded away.
+COMPARE_MIN_RATIO := 0.8
+
+ifeq ($(COMPARE_CORE),vexriscv)
+COMPARE_TOP  := bench_vexriscv
+COMPARE_SRCS := soc/compare/bench_vexriscv.v rtl/memory.v
+# Read as plain Verilog, out of the SHA-pinned clone, and never copied into this
+# repo. Its RVFI outputs are left unconnected in the harness, where synthesis
+# prunes them; on the standalone run below they are the top's own ports, and
+# there `delete -port` -- formal/check-nonperturbation.py's technique -- is what
+# stops 556 SB_IO no ice40 package can place.
+COMPARE_READ := read_verilog $(RISCV_FORMAL_DIR)/cores/VexRiscv/VexRiscv.v; \
+                read_verilog -sv $(COMPARE_SRCS)
+COMPARE_CORE_READ := read_verilog $(RISCV_FORMAL_DIR)/cores/VexRiscv/VexRiscv.v; \
+                     hierarchy -top VexRiscv; delete -port VexRiscv/rvfi_*
+COMPARE_CORE_TOP  := VexRiscv
+COMPARE_DEPS      := $(COMPARE_SRCS) | $(RISCV_FORMAL_DIR)
+COMPARE_CORE_DEPS := | $(RISCV_FORMAL_DIR)
+else
+COMPARE_TOP  := bench_littlecpu
+# FIT_SRCS is already this repo's list of "the core and nothing else", which is
+# exactly what the standalone reference synthesis wants. A second copy of it
+# here would be the stale-list defect SIM_RTL_SRCS's comment describes.
+COMPARE_SRCS := $(FIT_SRCS) rtl/imemory.v rtl/memory.v \
+                soc/compare/bench_littlecpu.v
+COMPARE_READ := read_verilog -sv $(COMPARE_SRCS)
+COMPARE_CORE_READ := read_verilog -sv $(FIT_SRCS); \
+                     hierarchy -top littlecpu; delete -port littlecpu/rvfi_*
+COMPARE_CORE_TOP  := littlecpu
+COMPARE_DEPS      := $(COMPARE_SRCS)
+COMPARE_CORE_DEPS := $(FIT_SRCS)
+endif
+
+# PHONY for the same reason `soc-rom` is: the image depends on nothing make can
+# see a change to, and a stale ROM would make the measurement describe a
+# program nobody asked for. Both images come out of one objcopy run, so the two
+# harnesses cannot come to be running different code.
+.PHONY: compare-rom
+compare-rom: compare-geometry-test
+	@set -e; \
+	for candidate in riscv64-elf-gcc riscv64-unknown-elf-gcc; do \
+	  if command -v $$candidate >/dev/null 2>&1; then CC=$$candidate; break; fi; \
+	done; \
+	if [ -z "$$CC" ]; then \
+	  echo "error: no RISC-V cross compiler found; see \`make setup\`." >&2; exit 1; \
+	fi; \
+	OBJCOPY=$${CC%gcc}objcopy; \
+	command -v $$OBJCOPY >/dev/null 2>&1 || { \
+	  echo "error: $$OBJCOPY not found (half-installed toolchain)." >&2; exit 1; }; \
+	tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/compare-rom.XXXXXX"); \
+	test -n "$$tmp" -a -d "$$tmp"; \
+	trap 'rm -rf "$$tmp"' EXIT; \
+	$$CC -march=rv32i -mabi=ilp32 -nostdlib -T soc/compare/bench.lds \
+	  -o "$$tmp/bench.elf" soc/compare/bench.S; \
+	$$OBJCOPY -O verilog --verilog-data-width=4 -j .text "$$tmp/bench.elf" "$$tmp/bench.hex"; \
+	python3 soc/rom_banks.py "$$tmp/bench.hex" \
+	  soc/compare/rom_even.hex soc/compare/rom_odd.hex --rom-words $(COMPARE_ROM_WORDS); \
+	python3 soc/compare/rom_flat.py "$$tmp/bench.hex" \
+	  soc/compare/rom_flat.hex --rom-words $(COMPARE_ROM_WORDS)
+
+# The core on its own, with no harness to fold against. This is the reference
+# soc/compare/placed_vs_synth.py grades the placement against; it never places
+# (both cores present far more SB_IO than any package has) and is not meant to.
+compare.$(COMPARE_CORE).core.log: $(COMPARE_CORE_DEPS)
+	@echo 'yosys: synthesising $(COMPARE_CORE_TOP) alone for hx8k (log: $@)'
+	@yosys -p '$(COMPARE_CORE_READ); synth_ice40 -top $(COMPARE_CORE_TOP); stat' \
+	  > $@ 2>&1 || { tail -40 $@; exit 1; }
+
+# `compare-rom` FIRST. COMPARE_DEPS ends with an order-only `| $(RISCV_FORMAL_DIR)`
+# for VexRiscv, and everything after a `|` is order-only -- so written the other
+# way round the phony stopped forcing a rebuild, `--seed` reached nextpnr on a
+# netlist make never regenerated, and four "placements" of that core reported
+# one number to the millisecond.
+compare.$(COMPARE_CORE).json: compare-rom $(COMPARE_DEPS)
+	@echo 'yosys: synthesising $(COMPARE_TOP) for hx8k (log: compare.$(COMPARE_CORE).synth.log)'
+	@# No `-dsp`: hx8k has no SB_MAC16, so this core's multiplier is soft logic
+	@# here and `make fit`'s DSP-mapped number does not transfer.
+	@# chparam BEFORE hierarchy, so the harness's geometry has one source -- the
+	@# variables above -- rather than a second copy in each .v file's defaults.
+	@yosys -p '$(COMPARE_READ); \
+	  chparam -set ROM_WORDS $(COMPARE_ROM_WORDS) -set RAM_WORDS $(COMPARE_RAM_WORDS) $(COMPARE_TOP); \
+	  hierarchy -top $(COMPARE_TOP); \
+	  synth_ice40 -top $(COMPARE_TOP) -json $@; stat' \
+	  > compare.$(COMPARE_CORE).synth.log 2>&1 \
+	  || { tail -40 compare.$(COMPARE_CORE).synth.log; exit 1; }
+
+# nextpnr's own status is not the signal, for the reason `soc.asc` records: it
+# grades its own default clock with its own estimator, and what is graded here
+# is icetime's report of the .asc it wrote.
+compare.$(COMPARE_CORE).asc: compare.$(COMPARE_CORE).json soc/compare/bench_hx8k.pcf
+	@echo 'nextpnr: placing $(COMPARE_TOP) on hx8k/ct256 (log: compare.$(COMPARE_CORE).pnr.log)'
+	@nextpnr-ice40 --hx8k --package ct256 --json $< --pcf soc/compare/bench_hx8k.pcf \
+	  $(if $(COMPARE_SEED),--seed '$(COMPARE_SEED)') --asc $@ \
+	  > compare.$(COMPARE_CORE).pnr.log 2>&1 || true
+	@test -s $@ || { \
+	  echo '*** make compare-timing: nextpnr produced no bitstream, so NOTHING'; \
+	  echo '*** was measured. That is a failed placement, not a fast design.'; \
+	  tail -30 compare.$(COMPARE_CORE).pnr.log; \
+	  rm -f $@; \
+	  exit 1; \
+	}
+
+# Both harnesses in one simulation, running the one image, required to publish
+# the same values. soc/compare/placed_vs_synth.py says the core is still in the
+# netlist; this says the netlist runs. Not a prerequisite of `compare-timing`:
+# it needs iverilog and the cross compiler, and a timing measurement of a design
+# that does not execute is a defect this catches rather than one it prevents.
+COMPARE_SMOKE_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
+                      soc/compare/bench_vexriscv.v soc/compare/bench_tb.v
+
+compare.vvp: $(COMPARE_SMOKE_SRCS) compare-rom | $(RISCV_FORMAL_DIR)
+	iverilog -I./rtl/ -g2012 -o $@ $(RISCV_FORMAL_DIR)/cores/VexRiscv/VexRiscv.v \
+	  $(COMPARE_SMOKE_SRCS)
+
+.PHONY: compare-smoke
+compare-smoke: compare.vvp
+	@vvp $<
+
+.PHONY: compare-timing
+compare-timing: compare.$(COMPARE_CORE).asc compare.$(COMPARE_CORE).core.log
+	@sed -n '/^Info: Device utilisation:/,/^$$/s/^Info: //p' compare.$(COMPARE_CORE).pnr.log
+	@echo
+	@echo '== is the core still there? =='
+	@python3 soc/compare/placed_vs_synth.py compare.$(COMPARE_CORE).pnr.log \
+	  compare.$(COMPARE_CORE).core.log $(COMPARE_CORE) --min-ratio $(COMPARE_MIN_RATIO)
+	@echo
+	@echo '== icetime: the critical path, and the LOGIC/ROUTING SPLIT =='
+	@icetime -d hx8k -P ct256 -p soc/compare/bench_hx8k.pcf -t \
+	  -r compare.$(COMPARE_CORE).timing.rpt compare.$(COMPARE_CORE).asc \
+	  > compare.$(COMPARE_CORE).icetime.log 2>&1 \
+	  || { cat compare.$(COMPARE_CORE).icetime.log; exit 1; }
+	@echo
+	@echo 'THIS IS NOT `make soc-timing`, AND NOT A LIKE-FOR-LIKE COMPARISON.'
+	@echo 'Different part, smaller memories, no timer, and the two cores'
+	@echo 'implement different ISAs: RV32IMC+Zicsr with traps here, RV32IC with'
+	@echo 'no CSR file and no traps there. Read ADR-0086 before quoting any of'
+	@echo 'it. One placement is a sample: soc/compare/sweep.sh runs four each.'
+	@python3 soc/timing_split.py compare.$(COMPARE_CORE).timing.rpt
+
 clean:
 	rm -f fit.json fit.log fit.synth.log
 	rm -f soc.json soc.asc soc.synth.log soc.pnr.log soc.timing.rpt
 	rm -f soc/rom_even.hex soc/rom_odd.hex
+	rm -f compare.*.json compare.*.asc compare.*.log compare.*.rpt compare.vvp
+	rm -f soc/compare/rom_even.hex soc/compare/rom_odd.hex soc/compare/rom_flat.hex
 	rm -f waves.vcd
 	rm -rf sim sim.dSYM
 	rm -rf cosim cosim.dSYM

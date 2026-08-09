@@ -217,6 +217,16 @@ and times.
   ROM (ADR-0084). Dhrystone is string-dominated and the optimiser can delete part of the work, so
   **the flags, the compiler and the string library travel with the number** — the program prints all
   three and will not compile without them. It is not a gate and adds no ratchet.
+- **The only cross-core comparison that means anything is one harness**, and `soc/compare/` is it:
+  same part, memories, program, toolchain and seeds, this core against the VexRiscv Verilog in the
+  pinned riscv-formal clone. Measured that way the gap is **1.6×, not the 3× two separately-published
+  numbers suggested**, both critical paths are the fetch loop, and their 92 MHz does not reproduce
+  here (ADR-0086). Neither side is a shipped design — theirs is RV32IC with a branch predictor and no
+  privileged architecture, ours has no timer in the harness and 4 KB of ROM — so quote it with what
+  it is. **A harness whose outputs do not depend on the datapath measures nothing**: an all-NOP ROM
+  placed 449 cells of a 1711-cell core and reported a critical path, so
+  `soc/compare/placed_vs_synth.py` grades the placed count against the core's own synthesis and
+  `make compare-smoke` requires both cores to publish the same values.
 - **Read logic levels apart**: a LUT level costs ~3.3 ns (delay plus interconnect), a carry hop
   ~0.34 ns and no interconnect. A change that trades a carry hop for a LUT level gets shallower by
   icetime's count and slower in nanoseconds. The SoC is routing-dominated; wide flat muxes route
@@ -270,6 +280,12 @@ make monitor-check  # regenerate test/monitor.v at the pin and diff
 make fit            # the core's area number; ratchet on FIT_MAX_LC
 make soc-timing     # the SoC place-and-time flow; requirement on SOC_MIN_MHZ.
                     # SOC_SEED picks a placement; soc/timing_sweep.sh runs four
+make compare-timing # this core and VexRiscv in ONE hx8k harness; COMPARE_CORE
+                    # picks the side, soc/compare/sweep.sh runs both over seeds.
+                    # A measurement, not a gate -- but the placed-vs-synthesised
+                    # check inside it is graded
+make compare-smoke  # both harnesses run the one image in iverilog and must
+                    # publish the same values; says the netlist RUNS
 
 make -C formal check                # the generated riscv-formal checks; always a fresh run.
                                     # interrupt-tie-off is a prerequisite

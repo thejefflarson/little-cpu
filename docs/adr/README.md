@@ -87,6 +87,7 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0083](0083-the-forwarding-network-is-priced-and-declined-on-the-margin.md) | The forwarding network is priced, and declined on the margin | Accepted · prices 0004's stall-only interlock; replaces 0042's 44/52 as the evidence `CLAUDE.md` cites; graded against 0066 by 0076's ceiling method; its 29.3% qualified by 0084 |
 | [0084](0084-dhrystone-is-the-comparable-number-and-the-raw-share-does-not-transfer.md) | Dhrystone is the number this core can be quoted by, and the suite's RAW share does not transfer | Accepted · runs on 0081's `.data` image; re-reads 0070's accounting on compiled code and qualifies 0083's 29.3%; enlarges 0074's prize without reopening it |
 | [0085](0085-the-memory-map-has-one-source-and-every-restatement-is-checked.md) | The memory map has one source, and every restatement is checked | Accepted · closes the defect class 0084 and 0081 each found once; makes 0008's map a shared default rather than two copies; leaves 0054's ROM ceiling and 0044's boot path where they are |
+| [0086](0086-both-cores-in-one-harness-and-the-gap-is-the-fetch-loop.md) | Both cores in one harness, and the gap is the fetch loop | Accepted · pays the comparison 0080 said was owed and corrects two of its statements about the artefact; points at the fetch loop 0076 and 0078 already measured, reopening neither |
 
 0001–0007 came from the design brief
 ([`docs/ideas/finish-the-rewrite.md`](../ideas/finish-the-rewrite.md)). 0008–0011 came out of

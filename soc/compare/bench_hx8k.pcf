@@ -1,0 +1,21 @@
+# Pin constraints for both harnesses in this directory, on an ice40 hx8k in a
+# ct256 package -- the Lattice iCE40-HX8K Breakout Board's own assignments for
+# its 12 MHz oscillator and the first two of its eight LEDs.
+#
+# hx8k rather than the up5k this project ships on because that is where both
+# sides of the comparison already have a number: ADR-0080 measured this RTL at
+# 31.08 MHz on an hx8k, and every VexRiscv iCE40 figure their project publishes
+# is hx8k too. It is also the only ice40 with enough logic to hold this core at
+# all -- and it has no SPRAM, so the harness's data RAM is block RAM for both.
+#
+# THREE PADS, and both tops present exactly these three. rtl/littlesoc.v also
+# takes a reset button; there is none here because VexRiscv has no second input
+# to give one to, and an asymmetric pinout is a variable in a comparison whose
+# whole point is that nothing else varies. Three pads cannot move a fabric
+# critical path either way.
+#
+# No `-nowarn` flags: icetime's .pcf parser accepts exactly `set_io <name> <pin>`
+# and asserts out on anything longer. Every port here is constrained.
+set_io clk    J3
+set_io led0_n B5
+set_io led1_n B4
