@@ -13,12 +13,16 @@
 //
 // Those two forwarding points together make the operand the cycle-N
 // architectural value including a cycle-N writeback. rtl/decoder.v's
-// `operand_stall` supplies the fetch cycle and holds the PC so the addresses
-// cannot move; every vector below samples where a real consumer does.
+// `operand_stall` supplies the fetch cycle; every vector below samples where a
+// real consumer does.
 //
-// The read mux keys off a registered copy of the address pair, so it answers
-// the fetch cycle's addresses in both cycles. Holding the pair is what makes
-// those the same addresses.
+// The read mux keys off a registered copy of the address pair, so it answers the
+// fetch cycle's addresses in both cycles -- and the ports really do move under
+// it, because decode spends a use cycle asking for the next instruction's pair
+// instead. What makes that safe is that nothing issues until the held pair is
+// the pair the issuing instruction reads, which is `operand_stall` again. The
+// vectors that point a port somewhere else during the use cycle are the ones
+// that check it.
 module regfile_tb;
   logic clk = 0;
   always #5 clk = ~clk;
@@ -149,10 +153,10 @@ module regfile_tb;
     check_mirrors("arrays agree after the forwarded writes");
 
     // The read register is keyed to the address presented in the FETCH cycle,
-    // not to whatever rs1 holds during the use cycle. This is not a
-    // behaviour to rely on -- it is why rtl/decoder.v must hold the PC across
-    // the pair, and it is what breaks loudly if the read is made combinational
-    // again without removing `operand_stall`.
+    // not to whatever rs1 holds during the use cycle. The core relies on that on
+    // every issuing cycle: decode is asking for the next instruction's pair
+    // while the current one reads its operands. It is also what breaks loudly if
+    // the read is made combinational again without removing `operand_stall`.
     drive(5'd5, 5'd0, 1'b0, 5'd0, 32'h0);          // fetch x5
     drive(5'd6, 5'd0, 1'b0, 5'd0, 32'h0);          // use, but rs1 now points at x6
     check_hex("the read is keyed to the fetched address, not the current one",

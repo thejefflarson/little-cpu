@@ -101,13 +101,13 @@ module littlecpu(
   );
 
   logic [31:0] reg_rs1, reg_rs2, wdata;
-  logic [4:0]  rs1, rs2;
+  logic [4:0]  read_rs1, read_rs2;
   logic [4:0]  waddr;
   logic        wen;
   regfile regfile(
     .clk(clk),
-    .rs1(rs1),
-    .rs2(rs2),
+    .rs1(read_rs1),
+    .rs2(read_rs2),
     .reg_rs1(reg_rs1),
     .reg_rs2(reg_rs2),
     .wen(wen),
@@ -154,8 +154,8 @@ module littlecpu(
    `endif
     .pc(pc),
     .next_pc(next_pc),
-    .rs1(rs1),
-    .rs2(rs2),
+    .read_rs1(read_rs1),
+    .read_rs2(read_rs2),
     .csr_addr(csr_addr),
     .csr_ren(csr_ren),
     .csr_wen(csr_wen),
