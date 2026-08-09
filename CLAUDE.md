@@ -227,6 +227,16 @@ and times.
   placed 449 cells of a 1711-cell core and reported a critical path, so
   `soc/compare/placed_vs_synth.py` grades the placed count against the core's own synthesis and
   `make compare-smoke` requires both cores to publish the same values.
+- **Taking the instruction memory out of that fetch loop is priced and declined** (ADR-0087). A
+  synchronous memory leaves a combinational loop only behind a register, and a register in the fetch
+  loop is a fetch stage — so "the memory out" and "the depth curve" are one experiment. Measured over
+  four seeds on both parts: the tail comes out for 3–4 levels, the **head does not come out at all**
+  (registering it *adds* three to four levels, because a bank output mux is one `SB_LUT4` that ABC
+  folds into the decode reading it, and a register there forbids the sharing), and the best product
+  of clock against cycles anywhere is +0.4%. The two parts disagree in sign — −7.2% on hx8k, +1.2% on
+  up5k — so do not quote one. Redirects are 7.15% of the suite's issues and **16.92% of
+  Dhrystone's**, the opposite ordering from the RAW share, so no depth argument stands on the suite
+  alone.
 - **Read logic levels apart**: a LUT level costs ~3.3 ns (delay plus interconnect), a carry hop
   ~0.34 ns and no interconnect. A change that trades a carry hop for a LUT level gets shallower by
   icetime's count and slower in nanoseconds. The SoC is routing-dominated; wide flat muxes route
