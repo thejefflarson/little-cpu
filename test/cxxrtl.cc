@@ -36,6 +36,12 @@
 // It is off by default because it costs a debug_eval() per cycle; test/
 // stall_report.py turns those lines into a table. See the counter block below
 // for what each name means and why the order it tries them in is the decoder's.
+//
+// `--console <addr>` copies the NUL-terminated string the program left at that
+// RAM address to stdout when the run ends. This machine has no output device,
+// so a program with something to say -- test/bench/dhry_port.c formats a whole
+// benchmark report -- builds it in RAM and this reads it back out. Nothing is
+// graded on it, and without the flag not a byte of RAM is read.
 #include <cxxrtl/cxxrtl_vcd.h>
 #include "rtl.cc"
 
@@ -182,7 +188,27 @@ struct Args {
   std::string vcd_path;
   long cycles = 0;
   bool stalls = false;
+  bool console = false;
+  uint32_t console_addr = 0;
 };
+
+// Walks `ram_data` from `addr` and writes what it finds to stdout, stopping at
+// the first NUL or at the end of the simulated RAM. Bytes are taken out of the
+// little-endian words the array holds, which is the same order the core's `sb`
+// writes them in.
+void print_console(const uint32_t *ram_data, size_t ram_words, uint32_t addr) {
+  if (addr < kRamBase) {
+    std::fprintf(stderr, "error: --console address 0x%08x is below RAM base 0x%08x\n",
+                 addr, kRamBase);
+    return;
+  }
+  for (uint32_t offset = addr - kRamBase; offset / 4 < ram_words; ++offset) {
+    char byte = (char)((ram_data[offset / 4] >> (8 * (offset % 4))) & 0xff);
+    if (byte == '\0')
+      return;
+    std::fputc(byte, stdout);
+  }
+}
 
 bool parse_args(int argc, char **argv, Args &args) {
   for (int i = 1; i < argc; ++i) {
@@ -212,6 +238,11 @@ bool parse_args(int argc, char **argv, Args &args) {
       args.vcd_path = v;
     } else if (arg == "--stalls") {
       args.stalls = true;
+    } else if (arg == "--console") {
+      const char *v = next("--console");
+      if (!v) return false;
+      args.console = true;
+      args.console_addr = (uint32_t)std::strtoul(v, nullptr, 0);
     } else {
       std::fprintf(stderr, "error: unrecognized argument '%s'\n", arg.c_str());
       return false;
@@ -350,6 +381,8 @@ int main(int argc, char **argv) {
   // observation to report, and a "RETIRES 0" line for a run that never started
   // would be a claim rather than a measurement.
   auto report_counts = [&]() {
+    if (args.console)
+      print_console(ram_data, memory_item.depth, args.console_addr);
     std::printf("RETIRES %u SPEC-CHECKED %u\n", retires->curr[0],
                  spec_retires->curr[0]);
     if (!args.stalls)

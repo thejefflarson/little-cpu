@@ -5,13 +5,16 @@ module testbench(
 	input reset
 `endif
 );
-  // Sized to test/asm/sections.lds. RAM_BASE is non-zero so a wild store
-  // through a zero pointer lands outside the mapped region rather than on real
-  // test data, and ROM_WORDS exceeds the shipping SoC's 2048 because simulation
-  // has no block RAM to run out of and rvc.S needs more than 30 EBRs allow.
+  // RAM_BASE is non-zero so a wild store through a zero pointer lands outside
+  // the mapped region rather than on real test data. ROM_WORDS exceeds the
+  // shipping SoC's 2048 because simulation has no block RAM to run out of and
+  // rvc.S needs more than 30 EBRs allow. RAM_WORDS is the SoC's exactly -- 64 KB
+  // ending one word below the timer at 0x0002_0000 -- so a program that fits
+  // the simulated RAM fits the hardware's; test/asm/sections.lds and
+  // test/asm/boot.lds ask for far less than that and are unaffected.
   localparam logic [31:0] RAM_BASE  = 32'h0001_0000;
   localparam int          ROM_WORDS = 4096;
-  localparam int          RAM_WORDS = 1024;
+  localparam int          RAM_WORDS = 16384;
   logic [31:0] imem_addr;
   logic [31:0] imem_data;
   logic [31:0] imem_addr2;

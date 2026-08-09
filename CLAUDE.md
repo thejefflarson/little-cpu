@@ -55,7 +55,10 @@ are kept in parentheses so those references still resolve.
 - **Every inter-stage struct carries a `valid` bit** (3). A bubble is `valid = 0`; retire is
   `valid` reaching writeback, which gates `wen` and drives `rvfi_valid`.
 - **Hazards are stall-only** (4). No forwarding network, and 29.3% of suite cycles is what that
-  costs. Both spellings were built and measured (ADR-0083): forwarding the executor's result to every
+  costs — **16.0% on Dhrystone, and the two are not separable from the operand-fetch cycle in either**
+  (ADR-0084): a cycle that is both is charged to the scoreboard, and the sum of the two columns is
+  flat across the two workloads. Read 29.3% as an upper bound on one workload, never as the prize.
+  Both spellings were built and measured (ADR-0083): forwarding the executor's result to every
   operand reader buys 12.9% of cycles and misses 12 MHz outright at 9.49, and confining it to the
   executor's operands buys 7.5% and holds 12 MHz on 0.48% of margin against today's 3.35%. Deleting
   the scoreboard outright buys **0% of period** at its ceiling, so nothing in this direction pays for
@@ -209,6 +212,11 @@ and times.
   if a change ever earns one. The target for Fmax work is 24 MHz — 41.67 ns, about half of today's
   period — and 12 is already met. A few-percent idea can be read against 41.67 ns and declined in a
   minute, instead of after four placements (ADR-0078).
+- **`make dhrystone` is the only figure comparable to another project's**, and it is quoted in
+  DMIPS/MHz because that is what the field publishes. 0.529 at `-O2`, 3572 bytes of the SoC's 8 KB
+  ROM (ADR-0084). Dhrystone is string-dominated and the optimiser can delete part of the work, so
+  **the flags, the compiler and the string library travel with the number** — the program prints all
+  three and will not compile without them. It is not a gate and adds no ratchet.
 - **Read logic levels apart**: a LUT level costs ~3.3 ns (delay plus interconnect), a carry hop
   ~0.34 ns and no interconnect. A change that trades a carry hop for a LUT level gets shallower by
   icetime's count and slower in nanoseconds. The SoC is routing-dominated; wide flat muxes route
@@ -252,6 +260,10 @@ make probe-gates    # force every graded comparison red for its own reason; herm
 make cycles         # the suite again, every cycle charged to an issuing cycle or
                     # one of the six stall reasons; nonzero on a stalled cycle none
                     # of them explains. Not on CI -- there is no CPI ratchet
+make dhrystone      # Dhrystone 2.1 (test/bench, NOT the graded suite) -> DMIPS/MHz,
+                    # the ROM image against the SoC's 8 KB, and the same accounting
+                    # on compiled code. DHRY_RUNS picks the iteration count.
+                    # Not on CI, and it adds no ratchet either
 make waves          # iverilog leg -> waves.vcd; one baked-in program, graded,
                     # not the test/asm suite (test/testbench.v has no image loader)
 make monitor-check  # regenerate test/monitor.v at the pin and diff
@@ -340,12 +352,14 @@ four `SB_SPRAM256KA` at 256 kbit each. **128 KB is the up5k's whole SPRAM, not t
 `SOC_EXPECT_SPRAM` and `SOC_EXPECT_EBR` hold both counts exactly. It places, meets 12 MHz, and runs
 a program that reads its own `.data`. SPRAM still cannot be initialised, so `.data` rides in the
 ROM at a load address `test/asm/boot.lds` puts there and `test/crt0.S` copies into RAM before
-`main`. That runtime costs 82 bytes and `test/asm/datainit.c`'s whole ROM image is 284 of 8192, so
-SPI-flash boot stays deferred, alongside the radix-4 divider. Two things have come off that list:
+`main`. That runtime costs 82 bytes and `test/asm/datainit.c`'s whole ROM image is 284 of 8192 — a whole
+Dhrystone is 3572 of it — so SPI-flash boot stays deferred, alongside the radix-4 divider. Two things have come off that list:
 the machine timer is built (ADR-0082), and the forwarding network is priced and declined rather than
 pending (ADR-0083). An interrupt controller, more sources and a vectored `mtvec` are still on it.
 
-The suite is `test/asm/*.S` **and** `test/asm/*.c`, and `test/OBSERVED_FLOOR` names both. The two
+The suite is `test/asm/*.S` **and** `test/asm/*.c`, and `test/OBSERVED_FLOOR` names both. Anything
+under `test/bench/` is deliberately outside it: both legs glob `test/asm`, and a benchmark that
+needs two million cycles would time out against the runner's 5000 and be graded as a failure. The two
 shapes differ only in how `.data` reaches RAM: an assembly program's is poked in by the harness,
 which is the thing the hardware cannot do, and a C program's is copied by the startup, which is the
 thing it can. A change to one program shape's build is a change in three places —

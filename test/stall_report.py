@@ -22,8 +22,11 @@ not, the taxonomy has fallen behind rtl/decoder.v -- a stall reason nobody has
 written down. That is a finding, so this script exits nonzero on it rather than
 printing it as a curiosity.
 
-THE CPI IT PRINTS DESCRIBES THIS SUITE, NOT THIS CORE. Said again next to the
-number itself, because that is where it will be read.
+THE CPI IT PRINTS DESCRIBES A WORKLOAD, NOT THIS CORE. Which workload is the
+caller's to say, in `--workload`, and it is printed next to the number because
+that is where it will be read. `make cycles` runs the hand-written assembly
+suite; `make dhrystone` runs compiled code and the two sentences are not
+interchangeable.
 """
 
 import argparse
@@ -34,6 +37,21 @@ import sys
 # writes these names, so a rename has to happen in both places at once -- which
 # the field check below turns into an error rather than a silent zero.
 REASONS = ["divider", "accessor", "hazard", "serialize", "operand", "fetch"]
+
+# What the CPI above it describes. It is an argument the caller has to supply,
+# because the honest one differs: `make cycles` runs the hand-written assembly
+# suite and `make dhrystone` runs compiled code, and printing the sentence below
+# under a table of the second would be a claim about the workload that is simply
+# false. The default is the suite's because that is the caller with a merge gate
+# behind it.
+SUITE_WORKLOAD = (
+    "READ THE CPI AS A PROPERTY OF THIS SUITE. These are small hand-written\n"
+    "assembly programs with dense back-to-back dependencies and almost no\n"
+    "loop structure. Their instruction mix is not real code's, so this\n"
+    "number describes the suite and not what the core would do on a\n"
+    "program anybody wanted to run. It is useful for comparing one commit\n"
+    "against another, and for nothing else."
+)
 HEADINGS = {
     "divider": "DIVIDER",
     "accessor": "ACCESSOR",
@@ -82,6 +100,11 @@ def main():
     parser.add_argument(
         "counts", help="one `<program> key=value ...` line per program"
     )
+    parser.add_argument(
+        "--workload",
+        default=SUITE_WORKLOAD,
+        help="what the CPI describes, printed under the table",
+    )
     args = parser.parse_args()
 
     rows = parse(args.counts)
@@ -111,7 +134,7 @@ def main():
     header += f"{'UNATTR':>8}"
 
     print()
-    print("== cycle accounting: where the suite's cycles go ==")
+    print("== cycle accounting: where the cycles go ==")
     print()
     print(header)
     for name, counts in rows:
@@ -153,14 +176,7 @@ def main():
         f"{100 * total[biggest] / stalled:.1f}% of the stalled ones."
     )
     print()
-    print(
-        "READ THE CPI AS A PROPERTY OF THIS SUITE. These are small hand-written\n"
-        "assembly programs with dense back-to-back dependencies and almost no\n"
-        "loop structure. Their instruction mix is not real code's, so this\n"
-        "number describes the suite and not what the core would do on a\n"
-        "program anybody wanted to run. It is useful for comparing one commit\n"
-        "against another, and for nothing else."
-    )
+    print(args.workload)
     print()
     print(
         "A COLUMN IS CYCLES CHARGED, NOT CYCLES THE SIGNAL WAS HIGH. Several\n"
