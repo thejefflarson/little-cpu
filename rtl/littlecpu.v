@@ -84,6 +84,10 @@ module littlecpu(
   // well, so it can tell a store is still in the accessor before it lets a CSR
   // access issue.
   logic accessor_out_valid;
+  // The same slot's register number: writeback is combinational on it, so this
+  // is what the register file is being written at this cycle and the decode
+  // scoreboard's fourth slot reads it.
+  logic [4:0] accessor_out_rd;
   // High for one cycle per trap, not a level. The test benches watch it to catch
   // a trap taken before the handler address is installed: mtvec resets to 0 and
   // test/asm/sections.lds links .text at 0, so such a trap restarts the program
@@ -148,6 +152,7 @@ module littlecpu(
     .accessor_pending_valid(accessor_pending_valid),
     .accessor_pending_rd(accessor_pending_rd),
     .accessor_out_valid(accessor_out_valid),
+    .accessor_out_rd(accessor_out_rd),
     .csr_rdata(csr_rdata),
     .csr_implemented(csr_implemented),
     .mtvec(csr_mtvec),
@@ -212,6 +217,7 @@ module littlecpu(
 
   accessor_output accessor_out;
   assign accessor_out_valid = accessor_out.valid;
+  assign accessor_out_rd = accessor_out.rd;
   accessor accessor(
     .clk(clk),
     .reset(reset),

@@ -28,6 +28,12 @@ module decoder (
   // still has to wait for one. That is what this is for -- without it a CSR
   // access can issue while a store is still in the accessor.
   input  logic       accessor_out_valid,
+  // The register writeback commits from, this cycle. rtl/writeback.v is
+  // combinational on the accessor's output, so this pair is `wen`/`waddr` at the
+  // register file, and the fourth slot below is what makes the reader wait for
+  // it. The register file forwards nothing at its output: the write is captured
+  // write-first into the read register on the edge that ends the stalled cycle.
+  input  logic [4:0] accessor_out_rd,
   output logic [31:0] pc,
   // The value `pc` takes next cycle, ready during this one. A memory that needs
   // a cycle to answer latches this on the same edge `pc` moves, so its data is
@@ -506,13 +512,20 @@ module decoder (
   // re-evaluating when any of those changed. `hazard_rs1` then sticks high at the
   // first conflict and the core stops. iverilog gives no warning for this, and
   // yosys gets the same function right, so every other check stays green.
+  // Four slots, one per place an instruction that has not reached the register
+  // array can be: issued, executing, waiting on memory, and writing back. The
+  // last one is a whole cycle long because the write is captured on the edge
+  // that ends it, so a reader has to wait it out rather than be handed the
+  // value; that is the cycle the register file used to forward across.
   logic live_rs1, live_rs2;
   assign live_rs1 = (out.valid && out.rd == rs1) ||
     (executor_out.valid && executor_out.rd == rs1) ||
-    (accessor_pending_valid && accessor_pending_rd == rs1);
+    (accessor_pending_valid && accessor_pending_rd == rs1) ||
+    (accessor_out_valid && accessor_out_rd == rs1);
   assign live_rs2 = (out.valid && out.rd == rs2) ||
     (executor_out.valid && executor_out.rd == rs2) ||
-    (accessor_pending_valid && accessor_pending_rd == rs2);
+    (accessor_pending_valid && accessor_pending_rd == rs2) ||
+    (accessor_out_valid && accessor_out_rd == rs2);
 
   // These three wait until the pipeline is empty, for two different reasons.
   // Narrowing the test to suit one of them breaks the other.

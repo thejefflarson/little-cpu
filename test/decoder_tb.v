@@ -30,6 +30,7 @@ module decoder_tb;
   logic accessor_pending_valid = 1'b0;
   logic [4:0] accessor_pending_rd = 5'b0;
   logic accessor_out_valid = 1'b0;
+  logic [4:0] accessor_out_rd = 5'b0;
   // rtl/csrs.v is a sibling of the decoder, not part of it, so it is stubbed.
   logic [31:0] csr_rdata = 32'b0;
   logic csr_implemented = 1'b0;
@@ -58,6 +59,7 @@ module decoder_tb;
     .accessor_pending_valid(accessor_pending_valid),
     .accessor_pending_rd(accessor_pending_rd),
     .accessor_out_valid(accessor_out_valid),
+    .accessor_out_rd(accessor_out_rd),
     .csr_rdata(csr_rdata),
     .csr_implemented(csr_implemented),
     .mtvec(mtvec),
@@ -336,6 +338,34 @@ module decoder_tb;
     check_bit("csrrs x31 uses rs1", dut.uses_rs1, 1'b1);
     check_bit("...and interlocks on it", dut.hazard_rs1, 1'b1);
     executor_out.valid = 1'b0;
+
+    // The fourth scoreboard slot: writeback is combinational on the accessor's
+    // output, so an instruction sitting there is writing the register file
+    // during this very cycle and the register file forwards nothing at its
+    // output. A reader has to wait one cycle, at the end of which the write is
+    // captured write-first into the read register. Without this slot the reader
+    // issues with the pre-write value and nothing anywhere says so.
+    in.instr = 32'h001f0f13;   // addi x30, x30, 1
+    accessor_out_valid = 1'b1;
+    accessor_out_rd = 5'd30;
+    #1;
+    check_bit("a register being written back this cycle interlocks", dut.hazard_rs1, 1'b1);
+    accessor_out_rd = 5'd29;
+    #1;
+    check_bit("...and an unrelated writeback does not", dut.hazard_rs1, 1'b0);
+    accessor_out_rd = 5'd30;
+    accessor_out_valid = 1'b0;
+    #1;
+    check_bit("...nor an invalid slot carrying the same register", dut.hazard_rs1, 1'b0);
+    // x0 is written by nothing, so the slot must not interlock on it either --
+    // the same exclusion the other three slots have.
+    in.instr = 32'h00100013;   // addi x0, x0, 1
+    accessor_out_valid = 1'b1;
+    accessor_out_rd = 5'd0;
+    #1;
+    check_bit("...and x0 never interlocks", dut.hazard_rs1, 1'b0);
+    accessor_out_valid = 1'b0;
+    accessor_out_rd = 5'd0;
 
     in.instr = 32'h30102573;   // csrr a0, misa == csrrs a0, misa, x0
     #1;
