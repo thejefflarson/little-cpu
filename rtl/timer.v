@@ -49,12 +49,21 @@ module timer #(
 );
   logic [63:0] mtime, mtimecmp;
 
-  logic [31:0] offset;
-  assign offset = mem_addr - BASE;
+  // The four words are an aligned 16-byte window, so membership is an equality
+  // on the bits above it and the register select is two bits of the address
+  // itself -- neither needs the subtraction they replace. Both are true only
+  // while BASE is 16-byte aligned: off it the equality names a window the timer
+  // does not occupy and `word` selects the wrong register, where the
+  // subtract-and-compare was merely slow. So it is an elaboration check rather
+  // than a comment.
+  if (|BASE[3:0]) begin : l_base_aligned
+    $fatal(1, "timer: BASE must be 16-byte aligned");
+  end
+
   logic in_range;
-  assign in_range = mem_addr >= BASE && offset < 32'd16;
+  assign in_range = mem_addr[31:4] == BASE[31:4];
   logic [1:0] word;
-  assign word = offset[3:2];
+  assign word = mem_addr[3:2];
 
   logic writing;
   assign writing = in_range && |mem_wstrb;

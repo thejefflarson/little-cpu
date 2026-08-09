@@ -90,6 +90,27 @@ module accessor_tb;
     end
   endtask
 
+  // One load, driven through its response cycle with `data` on the bus, and the
+  // register value it unpacks to.
+  task automatic load_unpacks(input string what, input logic [4:0] widths,
+                              input logic [31:0] addr, input logic [31:0] data,
+                              input logic [31:0] expected);
+    begin
+      present(1'b1, addr);
+      {in.is_lw, in.is_lhu, in.is_lh, in.is_lbu, in.is_lb} = widths;
+      @(posedge clk);
+      #1;
+      present(1'b0, 32'b0);
+      mem_rdata = data;
+      @(posedge clk);
+      #1;
+      check_bit({what, " completes"}, out.valid, 1'b1);
+      check_hex(what, out.rd_data, expected);
+      @(posedge clk);
+      #1;
+    end
+  endtask
+
   initial begin
     reset = 1;
     present(1'b1, 32'h0000_0100);
@@ -149,11 +170,32 @@ module accessor_tb;
     load_raises("lhu raises it", 5'b01000);
     load_raises("lw raises it",  5'b10000);
 
+    // The unpack. One shift down to the addressed byte and one extension serve
+    // every width, so a lane the shift gets wrong and a sign taken from the
+    // wrong bit both look right at offset zero and only at offset zero. Each
+    // width is driven at every offset it can legally take -- a word and a
+    // halfword are aligned because decode traps them otherwise -- against a
+    // word whose four bytes differ and whose signs differ too.
+    load_unpacks("lb  @+0", 5'b00001, 32'h0001_0000, 32'h817293f4, 32'hfffffff4);
+    load_unpacks("lb  @+1", 5'b00001, 32'h0001_0001, 32'h817293f4, 32'hffffff93);
+    load_unpacks("lb  @+2", 5'b00001, 32'h0001_0002, 32'h817293f4, 32'h00000072);
+    load_unpacks("lb  @+3", 5'b00001, 32'h0001_0003, 32'h817293f4, 32'hffffff81);
+    load_unpacks("lbu @+0", 5'b00010, 32'h0001_0000, 32'h817293f4, 32'h000000f4);
+    load_unpacks("lbu @+1", 5'b00010, 32'h0001_0001, 32'h817293f4, 32'h00000093);
+    load_unpacks("lbu @+2", 5'b00010, 32'h0001_0002, 32'h817293f4, 32'h00000072);
+    load_unpacks("lbu @+3", 5'b00010, 32'h0001_0003, 32'h817293f4, 32'h00000081);
+    load_unpacks("lh  @+0", 5'b00100, 32'h0001_0000, 32'h817293f4, 32'hffff93f4);
+    load_unpacks("lh  @+2", 5'b00100, 32'h0001_0002, 32'h817293f4, 32'hffff8172);
+    load_unpacks("lh  @+0", 5'b00100, 32'h0001_0000, 32'h81720074, 32'h00000074);
+    load_unpacks("lhu @+0", 5'b01000, 32'h0001_0000, 32'h817293f4, 32'h000093f4);
+    load_unpacks("lhu @+2", 5'b01000, 32'h0001_0002, 32'h817293f4, 32'h00008172);
+    load_unpacks("lw  @+0", 5'b10000, 32'h0001_0000, 32'h817293f4, 32'h817293f4);
+
     if (errors != 0) begin
       $display("FAILED: %0d mismatches", errors);
       $fatal(1);
     end else begin
-      $display("PASSED: accessor read enable");
+      $display("PASSED: accessor read enable and load unpack");
       $finish;
     end
   end

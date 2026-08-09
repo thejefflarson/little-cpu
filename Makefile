@@ -416,9 +416,18 @@ memmap-test:
 compare-geometry-test:
 	@./soc/compare/geometry_test.sh
 
+# Forces the elaboration checks in rtl/imemory.v, rtl/memory.v and rtl/timer.v
+# to fire, in both frontends. Hangs off `test` because the parameter shapes they
+# guard are the ones the SoC and the benches pass, so nothing else here would
+# notice a check that had stopped checking. It needs iverilog and yosys, which
+# `sim` and `test-units` already require.
+.PHONY: window-test
+window-test:
+	@./test/window_test.sh
+
 .PHONY: test
 test: sim test-units probe-gates pin-bump-test tool-cache-test memmap-test \
-      compare-geometry-test
+      compare-geometry-test window-test
 	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 # The same suite `make test` runs, with the runner charging every cycle to the

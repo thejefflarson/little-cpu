@@ -47,14 +47,27 @@ module memory #(
 );
   localparam int ADDR_BITS = $clog2(RAM_WORDS);
 
+  // `in_range` below is an equality on the bits above the window and `index` is
+  // read straight off the address, neither of which needs the subtraction they
+  // replace. Both agree with "at or after BASE and inside the RAM" only while
+  // the window is a power-of-two number of words sitting on a multiple of its
+  // own size. Off either, the equality names a region the RAM does not fill and
+  // `index` aliases the addresses in the gap onto real words -- silently, where
+  // the subtract-and-compare was merely slow. So both are elaboration checks
+  // rather than comments.
+  if (RAM_WORDS != (1 << ADDR_BITS)) begin : l_ram_words_power_of_two
+    $fatal(1, "memory: RAM_WORDS must be a power of two");
+  end
+  if (|BASE[ADDR_BITS+1:0]) begin : l_base_aligned
+    $fatal(1, "memory: BASE must be aligned to RAM_WORDS words");
+  end
+
   logic [31:0] ram[0:RAM_WORDS-1];
 
-  logic [31:0] offset;
-  assign offset = mem_addr - BASE;
   logic in_range;
-  assign in_range = mem_addr >= BASE && offset < 32'(RAM_WORDS) * 32'd4;
+  assign in_range = mem_addr[31:ADDR_BITS+2] == BASE[31:ADDR_BITS+2];
   logic [ADDR_BITS-1:0] index;
-  assign index = offset[ADDR_BITS+1:2];
+  assign index = mem_addr[ADDR_BITS+1:2];
 
   // An out-of-range access is dropped and reads as zero. It must not ALIAS a
   // mapped word, which is what indexing on truncated address bits alone would

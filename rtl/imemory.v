@@ -19,8 +19,10 @@
 // ever slip apart, every instruction the core runs is the wrong one, and nothing
 // else would show it -- `formal/pcloop.sv` checks it.
 module imemory #(
-  // Must be even, and each bank a whole number of `SB_RAM40_4K` depths (256
-  // words), or the mapping picks up leftover logic.
+  // Must be a power of two -- the range tests below depend on it, and the check
+  // beside them stops the build otherwise. Each bank should also be a whole
+  // number of `SB_RAM40_4K` depths (256 words), or the mapping picks up leftover
+  // logic.
   parameter integer ROM_WORDS = 2048,
   // Two files rather than one plus a de-interleaving loop: yosys does not turn a
   // loop copying between arrays in an `initial` block into memory init, so that
@@ -48,6 +50,18 @@ module imemory #(
 );
   localparam int BANK_WORDS = ROM_WORDS / 2;
   localparam int BANK_BITS  = $clog2(BANK_WORDS);
+  localparam int ROM_BITS   = $clog2(ROM_WORDS);
+
+  // Both range tests below are reductions on the address bits above the ROM,
+  // which is `< ROM_WORDS` only at a power-of-two depth. At any other depth
+  // `$clog2` rounds up, the reduction admits the addresses between the top of
+  // the ROM and the next power of two, and those index off the end of the banks
+  // instead of reading zero -- so a PC that runs off the end aliases real code
+  // rather than trapping. The old comparison was merely slow at those depths;
+  // this one is wrong, so it fails elaboration instead.
+  if (ROM_WORDS != (1 << ROM_BITS)) begin : l_rom_words_power_of_two
+    $fatal(1, "imemory: ROM_WORDS must be a power of two");
+  end
 
   logic [31:0] rom_even[0:BANK_WORDS-1];
   logic [31:0] rom_odd [0:BANK_WORDS-1];
@@ -74,7 +88,9 @@ module imemory #(
   assign data_word  = mem_addr[31:2];
   assign data_index = data_word[BANK_BITS:1];
   assign data_odd   = data_word[0];
-  assign text_range = data_word < 30'(ROM_WORDS);
+  // Same reduction as the fetch-side test below: `< ROM_WORDS` on a power of two
+  // is "the bits above the ROM are all zero".
+  assign text_range = ~|data_word[29:ROM_BITS];
 
   // A store takes the port too, not just a load. Reading a word while it is
   // being written gives an answer the part does not define.
@@ -90,14 +106,23 @@ module imemory #(
   // Out of range reads as zero. Zero is an illegal instruction, so a PC that
   // runs off the end traps instead of wrapping round and reading real code.
   //
-  // Keep `in_range2` as `< ROM_WORDS - 1`. Written the obvious way, `word + 1 <
-  // ROM_WORDS`, the adder sits in front of the comparator -- and the address
-  // arriving here is the next PC, which was itself just computed by an adder.
-  // That puts two carry chains in a row on the longest path in the design.
-  // `make soc-timing`'s first run found exactly that. The form here also handles
-  // the top of the address space, where `word + 1` wraps round to 0 and would
-  // read word 0 back.
+  // Both tests are reductions, not magnitude comparisons: `ROM_WORDS` is a power
+  // of two, so `< ROM_WORDS` is exactly "the bits above the ROM are all zero"
+  // and `< ROM_WORDS - 1` is that and "not the last word". Written as `<`, the
+  // second one compares against a non-power-of-two constant, which yosys can
+  // only build as a carry chain longer than a tile column -- so it becomes carry
+  // segments with general routing between them, and it measured a quarter of the
+  // whole period. The two reductions below are independent and evaluate in
+  // parallel.
   //
+  // Do not restore `word + 1 < ROM_WORDS`: the adder would sit in front of the
+  // test, the address arriving here is the next PC which an adder just produced,
+  // and at the top of the address space `word + 1` wraps to zero and reads word
+  // zero back.
+  logic next_in_rom, next_is_last;
+  assign next_in_rom  = ~|next_word[29:ROM_BITS];
+  assign next_is_last = &next_word[ROM_BITS-1:0];
+
   // Read every cycle, with the write on its own address: that is the shape yosys
   // turns into a block RAM's two ports.
   logic [31:0] even_data, odd_data;
@@ -107,8 +132,8 @@ module imemory #(
     even_data <= rom_even[even_raddr];
     odd_data  <= rom_odd[odd_raddr];
     odd_first <= word_index[0];
-    in_range  <= next_word < 30'(ROM_WORDS);
-    in_range2 <= next_word < 30'(ROM_WORDS) - 30'd1;
+    in_range  <= next_in_rom;
+    in_range2 <= next_in_rom && !next_is_last;
 
     fetch_stall  <= text_access;
     data_hit     <= mem_ren && text_range;

@@ -76,8 +76,27 @@ module accessor(
   assign is_store = in_is_sw || in_is_sh || in_is_sb;
 
   logic       pending_is_lb, pending_is_lbu, pending_is_lh, pending_is_lhu, pending_is_lw;
-  logic       pending_addr16;
   logic [1:0] pending_addr24;
+
+  // One shift down to the addressed byte, then one extension. Written out per
+  // width and per offset the same thing is twelve 32-bit selects over four
+  // distinct lanes. A halfword has `addr[0]` clear because a misaligned access
+  // traps in decode, so this one shift serves both widths, and a word is the
+  // lane at offset zero.
+  //
+  // Two continuous assigns rather than a four-way case: a constant part-select
+  // read inside an `always_*` draws iverilog's `sorry:` note, and the two stages
+  // are the byte shifter a LUT fabric builds from the case anyway.
+  logic [31:0] load_lane1, load_lane, load_value;
+  logic        load_byte, load_half, load_sign;
+  assign load_lane1 = pending_addr24[0] ? {8'b0,  mem_rdata[31:8]}   : mem_rdata;
+  assign load_lane  = pending_addr24[1] ? {16'b0, load_lane1[31:16]} : load_lane1;
+  assign load_byte = pending_is_lb || pending_is_lbu;
+  assign load_half = pending_is_lh || pending_is_lhu;
+  assign load_sign = (pending_is_lb && load_lane[7]) || (pending_is_lh && load_lane[15]);
+  assign load_value[7:0]   = load_lane[7:0];
+  assign load_value[15:8]  = load_byte ? {8{load_sign}} : load_lane[15:8];
+  assign load_value[31:16] = (load_byte || load_half) ? {16{load_sign}} : load_lane[31:16];
  `ifdef RISCV_FORMAL
   // Saved for the same reason `pending_rd` is. On the cycle the data comes back,
   // `in` is empty, so nothing about this instruction can still be read from it.
@@ -142,7 +161,6 @@ module accessor(
       pending_valid <= 1'b0;
       pending_rd <= 0;
       pending_is_lb <= 0; pending_is_lbu <= 0; pending_is_lh <= 0; pending_is_lhu <= 0; pending_is_lw <= 0;
-      pending_addr16 <= 0;
       pending_addr24 <= 0;
      `ifdef RISCV_FORMAL
       pending_rvfi <= '0;
@@ -163,42 +181,7 @@ module accessor(
       out.rvfi_mem_rdata <= mem_rdata;
       out.rvfi_mem_wdata <= 32'b0;
      `endif
-      (* parallel_case, full_case *)
-      case (1'b1)
-        pending_is_lb: begin
-          case (pending_addr24)
-            2'b00: out.rd_data <= {{24{mem_rdata[7]}}, mem_rdata[7:0]};
-            2'b01: out.rd_data <= {{24{mem_rdata[15]}}, mem_rdata[15:8]};
-            2'b10: out.rd_data <= {{24{mem_rdata[23]}}, mem_rdata[23:16]};
-            2'b11: out.rd_data <= {{24{mem_rdata[31]}}, mem_rdata[31:24]};
-          endcase
-        end
-
-        pending_is_lbu: begin
-          case (pending_addr24)
-            2'b00: out.rd_data <= {24'b0, mem_rdata[7:0]};
-            2'b01: out.rd_data <= {24'b0, mem_rdata[15:8]};
-            2'b10: out.rd_data <= {24'b0, mem_rdata[23:16]};
-            2'b11: out.rd_data <= {24'b0, mem_rdata[31:24]};
-          endcase
-        end
-
-        pending_is_lh: begin
-          case (pending_addr16)
-            1'b0: out.rd_data <= {{16{mem_rdata[15]}}, mem_rdata[15:0]};
-            1'b1: out.rd_data <= {{16{mem_rdata[31]}}, mem_rdata[31:16]};
-          endcase
-        end
-
-        pending_is_lhu: begin
-          case (pending_addr16)
-            1'b0: out.rd_data <= {16'b0, mem_rdata[15:0]};
-            1'b1: out.rd_data <= {16'b0, mem_rdata[31:16]};
-          endcase
-        end
-
-        pending_is_lw: out.rd_data <= mem_rdata;
-      endcase
+      out.rd_data <= load_value;
       pending_valid <= 1'b0;
     end else if (!in_valid) begin
       out <= 0;
@@ -212,7 +195,6 @@ module accessor(
       pending_is_lh <= in_is_lh;
       pending_is_lhu <= in_is_lhu;
       pending_is_lw <= in_is_lw;
-      pending_addr16 <= addr16;
       pending_addr24 <= addr24;
      `ifdef RISCV_FORMAL
       // `mem_addr` is this cycle's real bus address, already word-aligned.

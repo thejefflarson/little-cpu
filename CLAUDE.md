@@ -237,6 +237,20 @@ and times.
   up5k — so do not quote one. Redirects are 7.15% of the suite's issues and **16.92% of
   Dhrystone's**, the opposite ordering from the RAW share, so no depth argument stands on the suite
   alone.
+- **yosys and ABC already do everything derivable from the expression** — dead bits, common
+  subexpressions, duplicate adders. An edit that restates the same arithmetic in the same terms is a
+  null, and two are measured: narrowing `mul_div_store` from 64 bits to 32 where only `[31:0]` is
+  read moves `fit` by 11 cells because DCE had already removed them, and flattening the `next_pc`
+  priority chain into a parallel mux buys 53 cells and costs 3–9% of period. **What they cannot use
+  is a fact from outside the expression**: a parameter is a power of two, a window is aligned, a
+  reversal is wiring, an address bit is provably zero because a trap guarantees it. Eleven such edits
+  together are worth −169 placed cells on the SoC and −84 on `fit`; **each one alone is inside the
+  ±50 band**, and over eight seeds a side the period moved +0.3% at the median — a null in both
+  directions (ADR-0088). It is an
+  area lever, not an Fmax one — **occupancy does not set the period on this part**, measured by
+  ballasting 77% to 95% for no change at all. Where a fact like that is now load-bearing it is an
+  elaboration `$fatal`, not a comment: `rtl/{imemory,memory,timer}.v` refuse to build at a
+  non-power-of-two depth or an unaligned `BASE`, and `make window-test` forces all three red.
 - **Read logic levels apart**: a LUT level costs ~3.3 ns (delay plus interconnect), a carry hop
   ~0.34 ns and no interconnect. A change that trades a carry hop for a LUT level gets shallower by
   icetime's count and slower in nanoseconds. The SoC is routing-dominated; wide flat muxes route
@@ -277,6 +291,8 @@ make test           # the test/asm suite (.S and .c) under cxxrtl + unit benches
 make test-units     # the unit benches alone; the bench list is checked against
                     # test/*_tb.v in both directions
 make probe-gates    # force every graded comparison red for its own reason; hermetic
+make window-test    # force the elaboration checks in rtl/{imemory,memory,timer}.v
+                    # red, in both frontends. Runs inside `make test`
 make cycles         # the suite again, every cycle charged to an issuing cycle or
                     # one of the six stall reasons; nonzero on a stalled cycle none
                     # of them explains. Not on CI -- there is no CPI ratchet
