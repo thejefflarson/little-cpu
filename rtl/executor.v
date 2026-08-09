@@ -18,6 +18,33 @@ module executor(
   assign rs1 = in.rs1;
   assign rs2 = in.rs2;
 
+  // One subtraction serves sub, slt and sltu. Unsigned less-than is the borrow
+  // out; signed less-than is the same except when the sign bits disagree, and
+  // then the negative operand is the smaller. Nothing here is a signed
+  // expression, so it cannot lose its signedness to a neighbouring arm.
+  logic [32:0] alu_sub;
+  logic        alu_ltu, alu_lt;
+  assign alu_sub = {1'b0, rs1} - {1'b0, rs2};
+  assign alu_ltu = alu_sub[32];
+  assign alu_lt  = (rs1[31] ^ rs2[31]) ? rs1[31] : alu_sub[32];
+
+  // One right shifter serves all three shifts. A left shift is a right shift
+  // with both ends reversed, and a reversal is wiring rather than logic; an
+  // arithmetic shift is the same shifter with the sign bit filling in behind it.
+  // Written as three operators this is three barrel shifters. The RV32I shift
+  // amount is rs2[4:0]; the upper 27 bits are ignored.
+  logic [31:0] rs1_rev, shift_src, shift_res, shift_rev;
+  logic        shift_fill;
+  logic signed [32:0] shift_wide;
+  for (genvar i = 0; i < 32; i++) begin : l_shift_rev
+    assign rs1_rev[i]   = rs1[31-i];
+    assign shift_rev[i] = shift_res[31-i];
+  end
+  assign shift_src  = in.is_sll ? rs1_rev : rs1;
+  assign shift_fill = in.is_sra ? rs1[31] : 1'b0;
+  assign shift_wide = $signed({shift_fill, shift_src}) >>> rs2[4:0];
+  assign shift_res  = shift_wide[31:0];
+
   // The restoring divider below only divides unsigned, so signed div/rem hand it
   // the magnitudes. The result signs are restored from the original operand
   // signs once the loop finishes.
@@ -31,6 +58,17 @@ module executor(
   logic [6:0]  mul_div_counter;
   logic [63:0] mul_div_x, mul_div_y;
   logic [63:0] mul_div_store;
+
+  // One subtraction, not a comparison and then a subtraction. `x >= y` is
+  // exactly "this subtract did not borrow", so the borrow out replaces a
+  // 64-bit comparator that computed the same fact a second time.
+  logic [64:0] mul_div_sub;
+  logic        mul_div_borrow;
+  logic [63:0] mul_div_diff;
+  assign mul_div_sub    = {1'b0, mul_div_x} - {1'b0, mul_div_y};
+  assign mul_div_borrow = mul_div_sub[64];
+  assign mul_div_diff   = mul_div_sub[63:0];
+
   always_comb
     stalled = state != init;
 
@@ -99,14 +137,14 @@ module executor(
           case (1'b1)
             in.is_add: out.rd_data <= rs1 + rs2;
             in.is_lui: out.rd_data <= rs1;
-            in.is_sub: out.rd_data <= rs1 - rs2;
-            // The RV32I shift amount is rs2[4:0]; the upper 27 bits are ignored.
-            in.is_sll: out.rd_data <= rs1 << rs2[4:0];
-            in.is_slt: out.rd_data <= {31'b0, $signed(rs1) < $signed(rs2)};
-            in.is_sltu: out.rd_data <= {31'b0, rs1 < rs2};
+            in.is_sub: out.rd_data <= alu_sub[31:0];
+            in.is_sll: out.rd_data <= shift_rev;
+            in.is_slt: out.rd_data <= {31'b0, alu_lt};
+            in.is_sltu: out.rd_data <= {31'b0, alu_ltu};
             in.is_xor: out.rd_data <= rs1 ^ rs2;
-            in.is_srl: out.rd_data <= rs1 >> rs2[4:0];
-            in.is_sra: out.rd_data <= $signed(rs1) >>> rs2[4:0];
+            // Both right shifts read the one shifter; `shift_fill` is what
+            // separates them.
+            in.is_srl || in.is_sra: out.rd_data <= shift_res;
             in.is_or: out.rd_data <= rs1 | rs2;
             in.is_and: out.rd_data <= rs1 & rs2;
             in.is_mul || in.is_mulh || in.is_mulhu || in.is_mulhsu: begin
@@ -176,10 +214,10 @@ module executor(
 
         divide: begin
          `ifndef RISCV_FORMAL_ALTOPS
-          if (mul_div_counter > 0) begin
-            if (mul_div_x >= mul_div_y) begin
+          if (|mul_div_counter) begin
+            if (!mul_div_borrow) begin
               mul_div_store <= (mul_div_store << 1) | 1;
-              mul_div_x <= mul_div_x - mul_div_y;
+              mul_div_x <= mul_div_diff;
             end else begin
               mul_div_store <= mul_div_store << 1;
             end
@@ -275,6 +313,33 @@ module executor(
     in.is_div, in.is_divu, in.is_rem, in.is_remu,
     in.is_lb, in.is_lbu, in.is_lh, in.is_lhu, in.is_lw, in.is_sb, in.is_sh, in.is_sw,
     in.is_ecall, in.is_ebreak}));
+
+  // The shared subtractor and the shared shifter, against the operators they
+  // replaced. Each reference is its own self-determined statement over signed
+  // nets rather than an arm of a conditional, so nothing here can lose its
+  // signedness to a neighbour. These are what say the borrow bit really is
+  // unsigned less-than, that the sign-bit correction really is signed
+  // less-than, and that reversing both ends of a right shifter really is a left
+  // shift -- three facts the RTL now depends on and no operator states.
+  logic signed [31:0] alu_ref_x, alu_ref_y;
+  assign alu_ref_x = rs1;
+  assign alu_ref_y = rs2;
+  always_comb assert(alu_sub[31:0] == rs1 - rs2);
+  always_comb assert(alu_ltu == (rs1 < rs2));
+  always_comb assert(alu_lt == (alu_ref_x < alu_ref_y));
+
+  logic [31:0] shift_sll_ref, shift_srl_ref;
+  logic signed [31:0] shift_sra_ref;
+  assign shift_sll_ref = rs1 << rs2[4:0];
+  assign shift_srl_ref = rs1 >> rs2[4:0];
+  assign shift_sra_ref = alu_ref_x >>> rs2[4:0];
+  always_comb if (in.is_sll) assert(shift_rev == shift_sll_ref);
+  always_comb if (in.is_srl) assert(shift_res == shift_srl_ref);
+  always_comb if (in.is_sra) assert(shift_res == shift_sra_ref);
+
+  // The divider's compare-and-subtract is now one subtraction read twice.
+  always_comb assert(mul_div_borrow == (mul_div_x < mul_div_y));
+  always_comb assert(mul_div_diff == mul_div_x - mul_div_y);
 
   // Multiply, against free 32-bit operands: the divide cap below is guarded to
   // the divide family. It was unguarded once, and an unguarded assume is

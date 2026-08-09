@@ -353,11 +353,19 @@ module decoder (
   logic [31:0] mem_addr_calc;
   assign mem_addr_calc = $signed(immediate) + $signed(reg_rs1);
 
+  // Misalignment needs two bits of the sum, and the low two bits of a sum depend
+  // only on the low two bits of the operands -- so they are added here rather
+  // than read off `mem_addr_calc`. Read from there, this test waits on a 32-bit
+  // carry chain it never uses, and that chain lands in the fetch loop because a
+  // misaligned access traps and a trap chooses the next pc.
+  logic [1:0] mem_addr_low;
+  assign mem_addr_low = immediate[1:0] + reg_rs1[1:0];
+
   logic load_misaligned, store_misaligned;
-  assign load_misaligned  = (instr_lw && mem_addr_calc[1:0] != 2'b00) ||
-                            ((instr_lh || instr_lhu) && mem_addr_calc[0] != 1'b0);
-  assign store_misaligned = (instr_sw && mem_addr_calc[1:0] != 2'b00) ||
-                            (instr_sh && mem_addr_calc[0] != 1'b0);
+  assign load_misaligned  = (instr_lw && mem_addr_low != 2'b00) ||
+                            ((instr_lh || instr_lhu) && mem_addr_low[0] != 1'b0);
+  assign store_misaligned = (instr_sw && mem_addr_low != 2'b00) ||
+                            (instr_sh && mem_addr_low[0] != 1'b0);
 
   // `csr_write_op` already has Zicsr's suppression rules applied, so `csrr misa`
   // stays legal while `csrw misa` does not.
@@ -543,20 +551,32 @@ module decoder (
   // writes `out` below is where they differ.
   assign stall = hazard || operand_stall || divider_stall || accessor_stall || fetch_stall;
 
-  // Kept out of the `next_pc` chain below so each comparison stands on its own
-  // with both sides marked `$signed`. A signed comparison written as one arm of
-  // a conditional takes its signedness from the other arms, and has quietly
-  // turned unsigned in this repo twice.
+  // All six branch tests come from one subtraction. Unsigned less-than is the
+  // borrow out; signed less-than is the same fact except when the operands'
+  // sign bits disagree, and then the negative one is smaller; equal is the
+  // difference being zero. Written as six comparisons this is six carry chains
+  // answering one question.
+  //
+  // Nothing here is a signed expression, which is the point: a signed comparison
+  // written as one arm of a conditional takes its signedness from the other arms
+  // and has quietly turned unsigned in this repo twice. Bit tests cannot.
+  logic [32:0] cmp_sub;
+  logic        cmp_eq, cmp_ltu, cmp_lt;
+  assign cmp_sub = {1'b0, reg_rs1} - {1'b0, reg_rs2};
+  assign cmp_eq  = ~|cmp_sub[31:0];
+  assign cmp_ltu = cmp_sub[32];
+  assign cmp_lt  = (reg_rs1[31] ^ reg_rs2[31]) ? reg_rs1[31] : cmp_sub[32];
+
   logic branch_taken;
   always_comb begin
     (* parallel_case *)
     case (1'b1)
-      instr_beq:  branch_taken = reg_rs1 == reg_rs2;
-      instr_bne:  branch_taken = reg_rs1 != reg_rs2;
-      instr_blt:  branch_taken = $signed(reg_rs1) <  $signed(reg_rs2);
-      instr_bge:  branch_taken = $signed(reg_rs1) >= $signed(reg_rs2);
-      instr_bltu: branch_taken = reg_rs1 <  reg_rs2;
-      instr_bgeu: branch_taken = reg_rs1 >= reg_rs2;
+      instr_beq:  branch_taken =  cmp_eq;
+      instr_bne:  branch_taken = !cmp_eq;
+      instr_blt:  branch_taken =  cmp_lt;
+      instr_bge:  branch_taken = !cmp_lt;
+      instr_bltu: branch_taken =  cmp_ltu;
+      instr_bgeu: branch_taken = !cmp_ltu;
       default:    branch_taken = 1'b0;
     endcase
   end
@@ -573,8 +593,9 @@ module decoder (
       trap_taken:                next_pc = mtvec;
       instr_mret:                next_pc = mepc;
       instr_jalr:                next_pc = ($signed(immediate) + $signed(reg_rs1)) & 32'hfffffffe;
-      instr_jal:                 next_pc = $signed(fetcher_pc) + $signed(immediate);
-      branch_taken:              next_pc = fetcher_pc + immediate;
+      // One arm: at 32 bits the signed and unsigned sums have identical bits,
+      // so these were the same adder written twice.
+      instr_jal || branch_taken: next_pc = fetcher_pc + immediate;
       // Sequential: +4 for a 32-bit instruction, +2 for a compressed one.
       default:                   next_pc = fetcher_pc + pc_inc;
     endcase
@@ -941,5 +962,19 @@ module decoder (
   logic prev_interrupt_entry;
   always_ff @(posedge clk) prev_interrupt_entry <= !reset && !stall && interrupt_pending;
   always_comb if (clocked && !prev_reset && prev_interrupt_entry) assert(!out.valid);
+
+  // The six branch tests come from one subtraction, and the misalignment test
+  // adds two bits rather than reading them off the effective address. Both are
+  // arithmetic identities the code no longer states, so they are stated here
+  // against the operators they replaced. Each reference is its own
+  // self-determined statement over signed nets, never an arm of a conditional:
+  // that is what a signed comparison loses its signedness to.
+  logic signed [31:0] cmp_ref_x, cmp_ref_y;
+  assign cmp_ref_x = reg_rs1;
+  assign cmp_ref_y = reg_rs2;
+  always_comb assert(cmp_eq == (reg_rs1 == reg_rs2));
+  always_comb assert(cmp_ltu == (reg_rs1 < reg_rs2));
+  always_comb assert(cmp_lt == (cmp_ref_x < cmp_ref_y));
+  always_comb assert(mem_addr_low == mem_addr_calc[1:0]);
  `endif
 endmodule
