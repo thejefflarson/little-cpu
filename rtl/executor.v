@@ -105,8 +105,20 @@ module executor(
   logic mul_sign_x, mul_sign_y;
   assign mul_sign_x = in.rs1[31] & (in.is_mulh | in.is_mulhsu);
   assign mul_sign_y = in.rs2[31] & in.is_mulh;
-  logic signed [63:0] multiply;
-  assign multiply = $signed({mul_sign_x, in.rs1}) * $signed({mul_sign_y, in.rs2});
+
+  // One unsigned 32x32 product with a correction on its high half. Asking for
+  // the signed product of two 33-bit operands puts a 33rd partial-product row
+  // into soft logic on top of the four SB_MAC16 that do the rest. A negative
+  // two's-complement operand contributes exactly one subtraction of the other
+  // operand weighted at bit 32, so the whole correction is two conditional
+  // subtracts on the high half, with no borrow into it and the low half
+  // untouched. The two enables are the same ones either spelling needs.
+  logic [63:0] mul_unsigned;
+  logic [31:0] mul_lo, mul_hi;
+  assign mul_unsigned = in.rs1 * in.rs2;
+  assign mul_lo = mul_unsigned[31:0];
+  assign mul_hi = mul_unsigned[63:32] - (mul_sign_x ? in.rs2 : 32'b0)
+                                      - (mul_sign_y ? in.rs1 : 32'b0);
 
   always_ff @(posedge clk) begin
     if (reset) begin
@@ -165,9 +177,9 @@ module executor(
             in.is_mul || in.is_mulh || in.is_mulhu || in.is_mulhsu: begin
              `ifndef RISCV_FORMAL_ALTOPS
               if (in.is_mul) begin
-                out.rd_data <= multiply[31:0];
+                out.rd_data <= mul_lo;
               end else begin
-                out.rd_data <= multiply[63:32];
+                out.rd_data <= mul_hi;
               end
              `else
               (* parallel_case, full_case *)
@@ -260,10 +272,12 @@ module executor(
  `ifdef FORMAL
   // There is no miter between two 32x32 products: one returns no verdict in two
   // minutes even standing alone, because the obstacle is two structurally
-  // distinct `bvmul` terms and neither bit width nor engine moves it. What is
-  // proved instead is everything around the product, plus three lemmas that
-  // multiply by a constant. A `*` wrong for some operand pair no lemma names is
-  // covered by test/exec_tb.v's randomized vectors.
+  // distinct `bvmul` terms and neither bit width nor engine moves it. Asserting
+  // the unsigned-plus-correction spelling against a signed 33x33 reference would
+  // be exactly that miter, so it is not attempted. What is proved instead is
+  // everything around the product, plus four lemmas that multiply by a constant.
+  // A `*` wrong for some operand pair no lemma names is covered by
+  // test/exec_tb.v's randomized vectors.
   logic clocked;
   initial clocked = 0;
   always_ff @(posedge clk) clocked <= 1;
@@ -355,16 +369,17 @@ module executor(
     if (div_rem < div_divisor && rem_sub[32]) assert(rem_shifted[32] == 1'b0);
 
   // Multiply, against free 32-bit operands: the divide cap below is guarded to
-  // the divide family. It was unguarded once, and an unguarded assume is
+  // the divide state. It was unguarded once, and an unguarded assume is
   // proof-global, so these assertions ran against operands in 0..15 where every
   // high half and sign bit is zero -- MULH/MULHU/MULHSU asserted
   // `out.rd_data == 0` and three known multiplier defects passed the proof
   // written to catch them.
 
   // MUL and MULHU take both operands unsigned, MULH both signed, MULHSU rs1
-  // signed and rs2 unsigned. The extensions are derived by width-extending
-  // assignment rather than by restating the RTL's own sign expression, so a sign
-  // taken from the wrong bit disagrees here.
+  // signed and rs2 unsigned. `{mul_sign_x, in.rs1}` is the 33-bit operand the
+  // high-half correction implies, and the reference extensions are derived by
+  // width-extending assignment rather than by restating the RTL's own sign
+  // expression, so a sign taken from the wrong bit disagrees here.
   logic [32:0] rs1_sext33, rs2_sext33, rs1_zext33, rs2_zext33;
   assign rs1_sext33 = $signed(in.rs1);
   assign rs2_sext33 = $signed(in.rs2);
@@ -380,12 +395,6 @@ module executor(
   always_comb assert({mul_sign_x, in.rs1} == mul_op_x_ref);
   always_comb assert({mul_sign_y, in.rs2} == mul_op_y_ref);
 
-  // Sliced into plain 32-bit signals so the $past() below applies to a simple
-  // signal rather than to a part-select of a $past() result.
-  logic [31:0] mul_lo, mul_hi;
-  assign mul_lo = multiply[31:0];
-  assign mul_hi = multiply[63:32];
-
   always_ff @(posedge clk)
     if (clocked && !reset && !$past(reset) && !$past(accessor_stall) && $past(state) == init && $past(in.is_mul))
       assert(out.rd_data == $past(mul_lo));
@@ -399,18 +408,24 @@ module executor(
     if (clocked && !reset && !$past(reset) && !$past(accessor_stall) && $past(state) == init && $past(in.is_mulhsu))
       assert(out.rd_data == $past(mul_hi));
 
-  // Each multiplies by a constant -- zero, zero and one -- so the solver sees
-  // shifts and adds rather than a second `bvmul` term. These are the only
-  // assertions here that constrain the product's own value; the two above read
-  // the same term the RTL does. The third pins all 64 bits for a family of
-  // operand pairs, which is why deleting the high half fails here.
+  // Each multiplies by a constant -- zero, zero, one and one -- so the solver
+  // sees shifts and adds rather than a second `bvmul` term. These are the only
+  // assertions here that constrain the product's own value; the four above read
+  // the same terms the RTL does. The last two pin all 64 bits for a family of
+  // operand pairs, which is why deleting the high half fails here, and one of
+  // them exercises each half of the sign correction: at rs2 == 1 only the rs1
+  // term can fire, and at rs1 == 1 only the rs2 term can.
   //
-  // An `in.rs2 == 32'hffffffff` lemma is the obvious fourth and is measured not
+  // An `in.rs2 == 32'hffffffff` lemma is the obvious next one and is measured not
   // to work: no verdict in two minutes. Do not add it back without re-measuring.
-  always_comb if (in.rs1 == 32'b0) assert(multiply == 64'b0);
-  always_comb if (in.rs2 == 32'b0) assert(multiply == 64'b0);
+  logic [63:0] mul_result;
+  assign mul_result = {mul_hi, mul_lo};
+  always_comb if (in.rs1 == 32'b0) assert(mul_result == 64'b0);
+  always_comb if (in.rs2 == 32'b0) assert(mul_result == 64'b0);
   always_comb if (in.rs2 == 32'h1 && !mul_sign_y)
-    assert(multiply == {{32{mul_sign_x}}, in.rs1});
+    assert(mul_result == {{32{mul_sign_x}}, in.rs1});
+  always_comb if (in.rs1 == 32'h1 && !mul_sign_x)
+    assert(mul_result == {{32{mul_sign_y}}, in.rs2});
 
   // Decode does not hold `in` steady for a multi-cycle divide -- it bubbles it.
   // The divider stall is low on the cycle a divide issues, so decode issues
