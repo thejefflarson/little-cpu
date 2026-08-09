@@ -21,10 +21,15 @@ it was measured on.
 That decline was a conservatism about future edits, not a verdict on the trade. Three things have
 moved since, and all three had to be re-measured rather than assumed:
 
-- `4a59607` landed eleven cell reductions. `make fit` is 3874 here against ADR-0074's 3880.
-- **The tree it was compared against has itself lost margin.** Over ten placements of merged `main`,
-  the worst is **81.61 ns — 12.25 MHz, 2.08% over the requirement**. The 4.5% figure in ADR-0074 was
-  eight placements of a different tree.
+- `4a59607` landed eleven cell reductions and
+  [ADR-0090](0090-the-executor-carries-half-the-registers-it-had.md) then took half the executor's
+  registers. `make fit` on `a8d6f46` is **3470** against ADR-0074's 3880.
+- **The tree it was compared against had itself lost margin.** Over ten placements of `4a59607` the
+  worst was **81.61 ns — 12.25 MHz, 2.08% over the requirement**; ADR-0090 bought that back and
+  `a8d6f46`'s worst of ten is 79.57 ns, 12.57 MHz. The 4.5% figure in ADR-0074 was eight placements
+  of a third tree again. **Every number below was re-derived on `a8d6f46` after the executor stack
+  landed** rather than carried across it — a distribution measured on someone else's datapath is not
+  this change's distribution.
 - Nothing in `rtl/` was left behind, so the spelling had to be rebuilt from ADR-0074's own
   description of it. `git log --all -S` finds the ADR and nothing else; there is no branch, no
   stash and no dangling object carrying the build.
@@ -82,7 +87,8 @@ trees can.
 ## What it measures
 
 Homebrew Yosys 0.68+post (`c12172fb`), nextpnr-0.10-108-g68c1acd8, `icetime` from the same install,
-everything against merged `main` at `4a59607`. `soc/timing_sweep.sh` over ten seeds a side.
+everything against merged `main` at `a8d6f46`. `soc/timing_sweep.sh` over ten seeds a side, both
+sides re-run after the executor stack landed.
 
 | | cycles | CPI | operand column | scoreboard column |
 |---|---|---|---|---|
@@ -94,14 +100,22 @@ everything against merged `main` at `4a59607`. `soc/timing_sweep.sh` over ten se
 **−9.7% of cycles on the suite and −1.1% on Dhrystone.** Every stalled cycle is still charged to one
 of the six reasons; the unattributed column is zero on both.
 
-| | ns, ten placements | median | worst |
-|---|---|---|---|
-| `main` at `4a59607` | 75.12 · 75.67 · 76.08 · 77.17 · 77.53 · 78.34 · 78.38 · 78.59 · 79.85 · 81.61 | 77.94 ns | **81.61 ns / 12.25 MHz** |
-| with the guess | 75.71 · 76.06 · 76.75 · 77.08 · 78.89 · 79.05 · 79.08 · 79.22 · 79.47 · 79.58 | 78.97 ns | **79.58 ns / 12.57 MHz** |
+| | ns, ten placements | median | worst | shipped placement |
+|---|---|---|---|---|
+| `main` at `a8d6f46` | 74.42 · 74.71 · 75.44 · 75.62 · 76.63 · 76.68 · 76.68 · 77.25 · 77.30 · 79.57 | 76.66 ns | 79.57 ns / 12.57 MHz | 75.62 ns / 13.22 MHz |
+| with the guess | 76.61 · 77.51 · 77.94 · 78.28 · 78.61 · 78.64 · 78.71 · 79.25 · 79.29 · 79.30 | 78.63 ns | **79.30 ns / 12.61 MHz** | **79.30 ns / 12.61 MHz** |
 
-The median moves +1.3% and the worst placement moves −2.5%. Both sit inside the 3.6% edit-churn band
-ADR-0054 measured, which makes this **a null in both directions**: not a cost paid and not a saving
-banked. `make fit` is 3874 → 3859 cells, inside its own ±50 band and a null on the same reading.
+The median moves **+2.6%** and the worst placement moves −0.3%. Both sit inside the 3.6% edit-churn
+band ADR-0054 measured, so by this repo's own rule each is a null. **Do not read that as zero.** The
+same comparison was run on `4a59607` before the executor stack landed and gave +1.3% at the median;
+two independent trees, two positive medians. The honest reading is a small real period cost that the
+churn band cannot resolve, not an absence of one. What the band does support is the negative claim
+that matters here: it is nowhere near the 12 MHz requirement.
+
+The distribution also gets much tighter — 3.5% wide against the base's 6.9% — which is why the worst
+placement moves the other way from the median. `make fit` is **3470 → 3496**, +26 cells, inside its
+own ±50 band. (Before the rebase it read −15 on a different base, which is the same null with a
+different sign; neither is a saving.)
 
 ## Throughput is the product, and the clock term is a constant
 
@@ -116,7 +130,8 @@ term does not vary:
 | Dhrystone (2000 runs) | 2203492 cy = 183.6 ms | 2178739 cy = 181.6 ms | **×1.011** |
 
 Priced instead at each side's own median placement — the reading to use if the clock were free — the
-suite is ×1.093 and **Dhrystone is ×0.998**, a wash. Neither reading makes Dhrystone move.
+suite is ×1.080 and **Dhrystone is ×0.986**, a 1.4% loss. Neither reading makes Dhrystone move in a
+direction worth having, and the second one makes it move the wrong way.
 
 `make dhrystone`: **0.529 → 0.535 DMIPS/MHz**, and in absolute terms at the board clock
 **6.35 → 6.42 DMIPS**. Same compiler, same flags, same string routines, 3568 bytes of the SoC's 8 KB
@@ -131,10 +146,10 @@ them, and x0/x0 is right only when the successor really does read `x0`. The suit
 assembly where most instructions are 32-bit and the guess is exact.
 
 So the version that would move compiled code is precisely the one ADR-0074 measured at 11.56 MHz:
-the guess that decodes a compressed successor properly. **It is not reopened here.** Today's `main`
-is *slower* at its worst placement than the tree that variant was declined on (81.61 ns against
-79.77), so there is no reason to think the clock has come back, and finding out costs four
-placements and a second copy of the register-number mapping.
+the guess that decodes a compressed successor properly. **It is not reopened here.** ADR-0090 bought
+`main`'s worst placement back to 79.57 ns, against the 79.77 the variant was declined on — a
+difference of 0.25%, which is nothing. Finding out costs four placements and a second copy of the
+register-number mapping, and the tree it would be built on is the same tree that rejected it.
 
 ADR-0084's rule earns its keep here in the direction that hurts: read 9.7% as a property of the
 suite, never as the prize. The prize is 1.1%.
@@ -146,15 +161,21 @@ worst-of-N as a regression control and grading the requirement on the single pla
 ships, because the project flashes one bitstream at one seed and worst-of-N is an order statistic
 that gets worse the more seeds you run.
 
-**It is not made, because this change does not need it.** All ten placements clear 12.0, the worst
-by 4.75%, and the shipped placement — `make soc-timing` with no `SOC_SEED`, which is what CI grades
-and what the bitstream comes from — is **79.05 ns, 12.65 MHz, 5.4% of margin**. That is more margin
-at the worst placement than merged `main` has today (2.08%). Changing the grading policy to admit a
-design that does not need admitting would be spending a rule to buy nothing.
+**It is not made, because this change does not need it.** All ten placements clear 12.0, and the
+worst of them *is* the shipped placement — `make soc-timing` with no `SOC_SEED`, which is what CI
+grades and what the bitstream comes from — at **79.30 ns, 12.61 MHz, 5.1% of margin**. The two
+readings the split was meant to separate agree here to the hundredth of a nanosecond, so there is
+nothing for it to decide. Changing the grading policy to admit a design that does not need admitting
+would be spending a rule to buy nothing.
+
+`FIT_MAX_LC` is left at ADR-0090's 3700 for the same reason: 3496 clears it with 204 cells of
+headroom, four times the churn band. Tightening someone else's ratchet on the way past is not this
+ADR's business.
 
 The observation underneath is still worth writing down, because it will come back: **worst-of-N is
-not a property of the artifact.** Run four seeds and this tree's `main` reports 12.72 MHz; run ten
-and it reports 12.25. Nothing about the design changed between those two sentences. When a future
+not a property of the artifact.** Four seeds of `4a59607` report 12.72 MHz and ten report 12.25;
+nothing about that design changed between the two sentences, and the second number is the one that
+would have blocked a merge. When a future
 change really does sit near the floor, the argument to have is which number the requirement is
 about — and the honest answer is the placement that gets flashed, with worst-of-N kept as the
 control that catches a bad edit. That argument should be made against a design that needs it.
@@ -193,7 +214,11 @@ one line in `[depth]`, regenerated, swept:
 - **G = 6.** `liveness` red at gap 4 and 5, PASS at gap 6 and 7, at trig 10 and again at trig 15.
 
 Both flip points reproduce exactly, so `insn 19` and `reg 15 22` still clear `F + 2G = 18` by the
-same one cycle and no depth in the table moves. The reason they do not move is worth keeping: a
+same one cycle and no depth in the table moves. The sweep was run again after the executor stack
+landed and gave the same four answers, which is the check that ADR-0090's narrower divider registers
+did not move them either — under `RISCV_FORMAL_ALTOPS` the divider retires in a cycle, so they
+could not have, but that is an argument and this is a measurement. The reason they do not move is
+worth keeping: a
 wrong guess raises `operand_stall` for exactly one cycle and then the current pair is presented, so
 the longest run of consecutive operand-fetch cycles is one, which is what it was before.
 
@@ -238,7 +263,11 @@ has to be run there before it is believed.
 
 ## Consequences
 
-- **Verified, not just timed.** 62/62 on `make test` with `test/EXPECTED_FAIL` matching, 8/8 on
+- **Verified, not just timed, and verified again after the rebase.** Every gate below was re-run on
+  `a8d6f46`, not carried across it. The cycle counts are identical on both sides of the executor
+  stack — 32624/2.08 and 2203492/2.32 for the base, 29454/1.88 and 2178739/2.29 with the guess — so
+  ADR-0090 touched no cycles, measured rather than assumed. 62/62 on `make test` with
+  `test/EXPECTED_FAIL` matching, 8/8 on
   `make test-units`, `make probe-gates` green over 188 graded comparisons, **85/85 on
   `make -C formal check`** with both set equalities matching in both directions, and
   `components_decoder`, `components_executor`, `components_pcloop` and `components_traps` each a

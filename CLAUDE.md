@@ -19,10 +19,11 @@ Three habits carry the goals:
   spelling of its write/read arms (the nested one costs 3.6% of Fmax), `rtl/executor.v`'s
   `mul_div_counter` stays `[6:0]` (narrowing it costs 37 cells), and `rtl/decoder.v` now asks the
   register file for the *next* instruction's pair on a cycle that issues — 9.7% of suite cycles,
-  **1.1% of Dhrystone's**, and no measured clock or area (ADR-0089). A margin that declines a change
-  is a measurement with a date on it: the 0.83% that declined this one was re-measured against a
-  tree whose own worst placement had since fallen to 2.08%. The version that guesses a *compressed*
-  successor too is the one that misses 12 MHz, and it stays declined.
+  **1.1% of Dhrystone's**, +26 cells and a median period inside the churn band (ADR-0089). **A margin
+  that declines a change is a measurement with a date on it**: the 0.83% that declined this one was
+  re-derived twice against two later trees whose own worst placements were 2.08% and 4.75%, so
+  neither the number nor the verdict travelled. The version that guesses a *compressed* successor
+  too is the one that misses 12 MHz, and it stays declined.
 - **Prove the property, then spend it.** Find a place the design pays for a property it already
   proves — a priority chain over proven-disjoint flags, a comparator that cannot differ — simplify
   it, and let the riscv-formal checks, the component proofs and the `.S` suite say whether the
