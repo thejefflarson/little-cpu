@@ -84,6 +84,7 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0080](0080-twenty-four-megahertz-is-not-reachable-on-the-up5k.md) | Twenty-four megahertz is not reachable on the up5k, and the part is the constraint | Accepted · collects 0074, 0076 and 0078 into one verdict; measures the same RTL at 31 MHz on hx8k; narrows 0078's "nothing in between" |
 | [0081](0081-the-data-image-lives-in-rom-and-crt0-copies-it.md) | The `.data` image lives in ROM and a `crt0` copies it, and the 8 KB budget is measured | Accepted · closes the copy-stub half 0054 deferred; keeps 0044's SPI-flash boot deferred; widens 0035's suite contract |
 | [0082](0082-the-machine-timer-interrupt-is-taken-at-a-decode-boundary.md) | The machine timer interrupt is taken at a decode boundary | Accepted · amends `CLAUDE.md`'s "no interrupts"; restricts the generated checks per 0010 and mechanises it per 0014; defers co-simulation per 0032 |
+| [0083](0083-the-forwarding-network-is-priced-and-declined-on-the-margin.md) | The forwarding network is priced, and declined on the margin | Accepted · prices 0004's stall-only interlock; replaces 0042's 44/52 as the evidence `CLAUDE.md` cites; graded against 0066 by 0076's ceiling method |
 
 0001–0007 came from the design brief
 ([`docs/ideas/finish-the-rewrite.md`](../ideas/finish-the-rewrite.md)). 0008–0011 came out of
@@ -153,8 +154,13 @@ passes on a core that is broken.
 These are deliberately *not* decided yet. Each requires a new ADR before being built, because each
 trades away simplicity the current design depends on.
 
-- **Forwarding network** — CPI-only optimisation on top of ADR-0004's stall-only interlock. Safe to
-  add post-verification; unsafe to add while the core is unverified.
+- ~~**Forwarding network**~~ — **priced by
+  [ADR-0083](0083-the-forwarding-network-is-priced-and-declined-on-the-margin.md), and decided
+  AGAINST.** The old entry called it a CPI-only optimisation, safe to add once the core was verified.
+  It is verified now, and the cost is not CPI: both spellings were built, both run the suite and pass
+  every proof, and both are declined on the period they cost against a 12 MHz requirement that does
+  not slide. The ceiling is what settles it — deleting the scoreboard outright buys 0% of period, so
+  nothing in this direction pays for the muxes.
 - ~~**Radix-4 divider / early termination**~~ — **rejected outright by
   [ADR-0038](0038-area-is-measured-in-logic-cells-and-two-levers-are-rejected.md).** CPI-only and it
   *increases* area, which is the wrong direction on a part that does not currently place. The
