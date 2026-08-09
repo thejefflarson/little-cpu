@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=155
+PROBES_EXPECTED=173
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -1091,6 +1091,107 @@ probe "an svlint install inside the checkout is red on its own" 1 \
 probe "a relative install directory is red before it is compared" 1 \
   "names a relative tool install directory" \
   "XDG_CACHE_HOME=$tmp/cache $TCT tools/sail tools/svlint"
+
+begin_group "test/memmap_test.sh"
+
+# The fixture is a COPY OF THE SHIPPING FILES, not a stub tree, so the control
+# below is the real repo and every red probe is one edit away from it. A
+# hand-written fixture would drift from the map it is supposed to be checking,
+# which is the defect this whole check exists for.
+MM="$HERE/memmap_test.sh"
+
+mm_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/rtl" "$d/test/asm" "$d/test/bench"
+  cp "$REPO"/rtl/memory.v "$REPO"/rtl/timer.v "$REPO"/rtl/imemory.v \
+     "$REPO"/rtl/littlesoc.v "$d/rtl/"
+  cp "$REPO"/test/testbench.v "$REPO"/test/cxxrtl.cc "$REPO"/test/cosim.cc "$d/test/"
+  cp "$REPO"/test/asm/riscv_test.h "$REPO"/test/asm/sections.lds \
+     "$REPO"/test/asm/boot.lds "$d/test/asm/"
+  cp "$REPO"/test/bench/bench.lds "$d/test/bench/"
+  cp "$REPO"/Makefile "$d/"
+  printf '%s' "$d"
+}
+
+d=$(mm_fixture)
+probe "control: the shipping files describe one machine" 0 \
+  "Memory map agreed on:" "$MM $d"
+
+probe "a repo root that does not exist is red before anything is parsed" 1 \
+  "is not a directory" "$MM $d/nowhere"
+
+# THE ONE THAT MATTERS: the original defect, re-entered. The harness modelled a
+# RAM sixteen times smaller than the SoC's and every program still fit.
+d=$(mm_fixture); sed -i.bak 's/^  memory dmem (/  memory #(.RAM_WORDS(1024)) dmem (/' "$d/test/testbench.v"
+probe "the harness sizing its own RAM again is red" 1 \
+  "overrides \`memory\`'s parameters" "$MM $d"
+
+d=$(mm_fixture); sed -i.bak "s/^  timer mtimer (/  timer #(.BASE(32'h0003_0000)) mtimer (/" "$d/rtl/littlesoc.v"
+probe "the SoC restating the timer base is red too" 1 \
+  "rtl/littlesoc.v overrides \`timer\`'s parameters" "$MM $d"
+
+# Without this the check above passes vacuously on a file that lost its memory.
+d=$(mm_fixture); sed -i.bak 's/^  memory dmem (/  nomemory dmem (/' "$d/test/testbench.v"
+probe "a harness with no data RAM at all does not pass by silence" 1 \
+  "does not instantiate \`memory\` at all" "$MM $d"
+
+d=$(mm_fixture); sed -i.bak 's/LENGTH = 64K/LENGTH = 4K/' "$d/test/asm/sections.lds"
+probe "a linker script back on the old 4 KB ram is red" 1 \
+  "gives \`ram\` 4096 bytes" "$MM $d"
+
+d=$(mm_fixture); sed -i.bak 's/ORIGIN = 0x00010000/ORIGIN = 0x00020000/' "$d/test/asm/boot.lds"
+probe "a linker script that moves ram off the decoded base is red" 1 \
+  "puts \`ram\` at 0x00020000" "$MM $d"
+
+d=$(mm_fixture); sed -i.bak 's/LENGTH = 16K/LENGTH = 8K/' "$d/test/asm/boot.lds"
+probe "a suite script linking against a rom the harness has not got" 1 \
+  "gives \`rom\` 8192 bytes" "$MM $d"
+
+d=$(mm_fixture); sed -i.bak 's/LENGTH = 8K/LENGTH = 32K/' "$d/test/bench/bench.lds"
+probe "the benchmark script must keep linking against the part's rom" 1 \
+  "test/bench/bench.lds gives \`rom\` 32768 bytes" "$MM $d"
+
+d=$(mm_fixture); sed -i.bak 's/kRamBase = 0x00010000/kRamBase = 0x00011000/' "$d/test/cxxrtl.cc"
+probe "the cxxrtl runner's kRamBase drifting is red" 1 \
+  "test/cxxrtl.cc's kRamBase is 0x00011000" "$MM $d"
+
+d=$(mm_fixture); sed -i.bak 's/kRamBase = 0x00010000/kRamBase = 0x00011000/' "$d/test/cosim.cc"
+probe "the co-sim runner's kRamBase drifting is red on its own" 1 \
+  "test/cosim.cc's kRamBase is 0x00011000" "$MM $d"
+
+d=$(mm_fixture); sed -i.bak 's/MTIMER_BASE      0x00020000/MTIMER_BASE      0x00030000/' "$d/test/asm/riscv_test.h"
+probe "the timer address the programs arm is checked against the timer" 1 \
+  "MTIMER_BASE is 0x00030000" "$MM $d"
+
+# A store to an unmapped address is dropped by every memory on this bus, so the
+# programs would wait forever rather than fail.
+d=$(mm_fixture); sed -i.bak "s/BASE = 32'h0002_0000/BASE = 32'h0004_0000/" "$d/rtl/timer.v"
+probe "a gap opening between the data RAM and the timer is red" 1 \
+  "the data RAM ends at 0x00020000 and the timer starts at" "$MM $d"
+
+d=$(mm_fixture); sed -i.bak 's/^SOC_ROM_WORDS := 2048/SOC_ROM_WORDS := 4096/' "$d/Makefile"
+probe "the ROM image built to a different size than the ROM is red" 1 \
+  "builds the SoC ROM image for 4096 words" "$MM $d"
+
+d=$(mm_fixture); sed -i.bak 's/localparam int ROM_WORDS = 4096;/localparam int ROM_WORDS = 1024;/' "$d/test/testbench.v"
+probe "a simulated ROM smaller than the part's is red" 1 \
+  "The harness is allowed to be larger" "$MM $d"
+
+# The parse is load-bearing: a respelled declaration must stop the run rather
+# than compare against an empty string.
+d=$(mm_fixture); sed -i.bak "s/parameter logic \[31:0\] BASE/parameter logic [31:0] RAM_ORIGIN/" "$d/rtl/memory.v"
+probe "a respelled parameter stops rather than comparing nothing" 1 \
+  "no \`BASE\` parameter default found in rtl/memory.v" "$MM $d"
+
+d=$(mm_fixture); rm "$d/test/cosim.cc"
+probe "a file that moved away takes the check with it, loudly" 1 \
+  "test/cosim.cc is missing" "$MM $d"
+
+# Bash arithmetic reads a bare word as a variable name, so an unparsed size
+# would otherwise compare as zero and report drift that is really a parse bug.
+d=$(mm_fixture); sed -i.bak 's/LENGTH = 64K/LENGTH = LOTS/' "$d/test/asm/sections.lds"
+probe "a size the parser cannot read stops rather than comparing as zero" 1 \
+  "is not a size this check can read" "$MM $d"
 
 begin_group "soc/fit_report.py"
 

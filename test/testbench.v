@@ -5,16 +5,15 @@ module testbench(
 	input reset
 `endif
 );
-  // RAM_BASE is non-zero so a wild store through a zero pointer lands outside
-  // the mapped region rather than on real test data. ROM_WORDS exceeds the
-  // shipping SoC's 2048 because simulation has no block RAM to run out of and
-  // rvc.S needs more than 30 EBRs allow. RAM_WORDS is the SoC's exactly -- 64 KB
-  // ending one word below the timer at 0x0002_0000 -- so a program that fits
-  // the simulated RAM fits the hardware's; test/asm/sections.lds and
-  // test/asm/boot.lds ask for far less than that and are unaffected.
-  localparam logic [31:0] RAM_BASE  = 32'h0001_0000;
-  localparam int          ROM_WORDS = 4096;
-  localparam int          RAM_WORDS = 16384;
+  // ROM_WORDS is the ONLY thing this harness sizes differently from
+  // rtl/littlesoc.v, and it is deliberate: simulation has no block RAM to run
+  // out of, and rvc.S pads past what the part's 30 EBRs allow. The data RAM and
+  // the timer take rtl/memory.v's and rtl/timer.v's own parameter defaults --
+  // the same ones rtl/littlesoc.v takes -- so neither file states the map and
+  // neither can drift from the other. This harness once modelled a RAM sixteen
+  // times smaller than the SoC's, and every program fit, so nothing said so.
+  // test/memmap_test.sh is what keeps an override from reappearing here.
+  localparam int ROM_WORDS = 4096;
   logic [31:0] imem_addr;
   logic [31:0] imem_data;
   logic [31:0] imem_addr2;
@@ -28,8 +27,7 @@ module testbench(
   logic        fetch_stall;
   logic        irq_timer;
   // All three memories answer zero outside their own range, so the buses join
-  // with an OR. Same wiring, same timer base as rtl/littlesoc.v, so the legs
-  // cannot drift apart and a `.S` program that arms the timer runs on both.
+  // with an OR, exactly as rtl/littlesoc.v joins them.
   logic [31:0] imem_mem_rdata, dmem_mem_rdata, timer_mem_rdata;
   assign mem_rdata = imem_mem_rdata | dmem_mem_rdata | timer_mem_rdata;
   logic        trap;
@@ -61,7 +59,7 @@ module testbench(
   logic reset = 1;
   always #5 clk = ~clk;
  `endif
-  memory #(.BASE(RAM_BASE), .RAM_WORDS(RAM_WORDS)) dmem (
+  memory dmem (
     .clk(clk),
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
@@ -84,7 +82,7 @@ module testbench(
     .fetch_stall(fetch_stall)
   );
 
-  timer #(.BASE(32'h0002_0000)) mtimer (
+  timer mtimer (
     .clk(clk),
     .reset(reset),
     .mem_addr(mem_addr),

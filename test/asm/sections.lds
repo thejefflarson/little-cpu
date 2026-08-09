@@ -9,16 +9,22 @@
  * GNU ld's MEMORY command still models one flat linker address space (it
  * rejects two regions whose byte ranges overlap, even when the hardware
  * backing them is Harvard), so `ram` is placed well past `rom`'s ceiling
- * purely to keep the linker happy. `rom` and `ram` are sized generously
- * above the largest measured `.text`/`.data` in this suite so headroom, not
- * link-map tightness, is the constraint. `rom` grew from 8K to 16K when
- * test/asm/rvc.S (riscv-tests' rv32uc/rvc.S) landed --
- * its page-boundary-straddle case alone pads past 8K (`.align 12` then
- * `.skip 4094`) before the rest of the suite's ~1.5K text even starts.
- * test/testbench.v's simulation ROM/RAM arrays are sized to match (see the
- * comment there); the cxxrtl runner subtracts `ram`'s ORIGIN back out when
- * it pokes RAM contents via debug_items, and the iverilog leg's live bus
- * decode does the same at runtime.
+ * purely to keep the linker happy.
+ *
+ * BOTH REGIONS ARE THE SIMULATED MACHINE'S, not headroom picked by hand, and
+ * test/memmap_test.sh fails if they stop being: `ram` is rtl/memory.v's 64 KB
+ * at its base, and `rom` is test/testbench.v's 16 KB. That ROM is larger than
+ * the SoC's 8 KB on purpose -- test/asm/rvc.S's page-boundary-straddle case
+ * alone pads past 8K (`.align 12` then `.skip 4094`) before the rest of the
+ * suite's ~1.5K text starts -- so an `.S` program's fit on the part is decided
+ * by soc/rom_banks.py instead, when `make soc-timing` builds its image.
+ *
+ * Do not shrink either region back to "enough for this suite". `ram` said 4 KB
+ * while both machines had 64 KB, and every program fit, so nothing said so.
+ *
+ * The cxxrtl runner subtracts `ram`'s ORIGIN back out when it pokes RAM
+ * contents via debug_items, and the iverilog leg's live bus decode does the
+ * same at runtime.
  *
  * This is the script for the assembly programs, and their `.data` reaches RAM
  * only because a harness put it there. The C programs use test/asm/boot.lds,
@@ -28,7 +34,7 @@
  */
 MEMORY {
     rom(rx)  : ORIGIN = 0x00000000, LENGTH = 16K
-    ram(!rx) : ORIGIN = 0x00010000, LENGTH = 4K
+    ram(!rx) : ORIGIN = 0x00010000, LENGTH = 64K
 }
 
 SECTIONS {

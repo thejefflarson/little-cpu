@@ -88,8 +88,12 @@ module littlesoc (
     .fetch_stall(fetch_stall)
   );
 
-  // 16384 words = 64 KB = two `SB_SPRAM256KA` of the part's four.
-  memory #(.BASE(32'h0001_0000), .RAM_WORDS(16384)) dmem (
+  // Base and size are rtl/memory.v's own defaults -- 64 KB at 0x0001_0000, two
+  // `SB_SPRAM256KA` of the part's four -- and test/testbench.v takes the same
+  // ones rather than restating them, so the simulated machine and this one
+  // cannot describe different memories. `make soc-timing`'s SPRAM census is the
+  // second half of that: the count only comes out at 2 for this size.
+  memory dmem (
     .clk(clk),
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
@@ -97,10 +101,10 @@ module littlesoc (
     .mem_rdata(dmem_mem_rdata)
   );
 
-  // The machine timer, just above the data RAM. This is the only interrupt
-  // source on this platform, so `mip.MSIP` and `mip.MEIP` stay read-only zero
-  // in rtl/csrs.v.
-  timer #(.BASE(32'h0002_0000)) mtimer (
+  // The machine timer, at rtl/timer.v's default base, which is the first word
+  // past the data RAM above. This is the only interrupt source on this
+  // platform, so `mip.MSIP` and `mip.MEIP` stay read-only zero in rtl/csrs.v.
+  timer mtimer (
     .clk(clk),
     .reset(reset),
     .mem_addr(mem_addr),
