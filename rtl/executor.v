@@ -361,10 +361,8 @@ module executor(
   // checks every assertion at the same step and cannot use one to discharge
   // another: above the bound a shifted remainder can carry into bit 32 and the
   // bit stops being a borrow.
-  logic [32:0] div_divisor_wide;
-  assign div_divisor_wide = {1'b0, div_divisor};
   always_comb
-    if (div_rem < div_divisor) assert(rem_sub[32] == (rem_shifted < div_divisor_wide));
+    if (div_rem < div_divisor) assert(rem_sub[32] == (rem_shifted < {1'b0, div_divisor}));
   always_comb
     if (div_rem < div_divisor && rem_sub[32]) assert(rem_shifted[32] == 1'b0);
 
