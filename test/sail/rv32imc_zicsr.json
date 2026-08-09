@@ -188,7 +188,7 @@
     // harness never does (no --device-tree-blob, no --print-device-tree).
     "dtb_address": { "len": 64, "value": "0x1000" },
 
-    // test/asm/sections.lds: rom at 0x0 (16K) + ram at 0x10000 (4K), rounded
+    // test/asm/sections.lds: rom at 0x0 (16K) + ram at 0x10000 (64K), rounded
     // up to a flat 1MB so the linker script can grow without this file having
     // to. The model's default RV32 map puts MainMemory at
     // 0x8000_0000, where nothing this suite builds is executable or loadable.

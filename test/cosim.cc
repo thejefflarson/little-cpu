@@ -57,7 +57,8 @@
 
 namespace {
 
-// Kept in sync with test/cxxrtl.cc, test/testbench.v and test/asm/sections.lds.
+// A copy of rtl/memory.v's `BASE`, as in test/cxxrtl.cc; C++ cannot read the
+// RTL's parameter. test/memmap_test.sh compares both against it.
 constexpr uint32_t kRamBase = 0x00010000;
 
 using HexImage = std::map<uint32_t, uint32_t>;

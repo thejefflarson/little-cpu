@@ -1,0 +1,291 @@
+#!/bin/bash
+# Asserts that every file describing this machine's memory map describes the
+# same one.
+#
+# Usage: memmap_test.sh [repo-root]     # defaults to this script's parent
+#
+# WHY THIS EXISTS. test/testbench.v is what every program in the suite runs
+# against and rtl/littlesoc.v is what places on the part, and for the project's
+# whole life nothing compared them. The harness modelled a 4 KB data RAM against
+# the SoC's 64 KB -- sixteen times smaller -- and no program was large enough to
+# notice, so the suite was grading a machine that did not exist. Two more copies
+# of the same map went stale the same way in the same day.
+#
+# The map itself is no longer stated twice: rtl/memory.v and rtl/timer.v carry
+# the base and the size as their own parameter defaults, and rtl/littlesoc.v and
+# test/testbench.v both instantiate them without overriding anything, so the two
+# integrators have nothing to disagree about. THE FIRST CHECK BELOW IS WHAT KEEPS
+# THAT TRUE -- an override reappearing in either file is the whole defect coming
+# back, and it would otherwise be invisible.
+#
+# The rest cannot share a parameter, because they are C++, linker scripts,
+# assembly and make. For those a comparison is the only instrument left.
+#
+# Hermetic: grep, sed and shell arithmetic. No toolchain, no simulator, no
+# yosys, so this runs inside `make test` anywhere.
+set -euo pipefail
+
+HERE=$(cd "$(dirname "$0")" && pwd)
+REPO=${1:-$(cd "$HERE/.." && pwd)}
+
+if [ ! -d "$REPO" ]; then
+  echo "error: '$REPO' is not a directory, so there is nothing to compare." >&2
+  exit 1
+fi
+
+rc=0
+
+fail() {
+  echo "error: $*" >&2
+  rc=1
+}
+
+# Reads one file, or stops. A check that silently skips a missing file is a
+# check that deletes itself the day the file is renamed.
+need() {
+  local path=$1
+  if [ ! -f "$REPO/$path" ]; then
+    echo "error: $path is missing, so its copy of the memory map cannot be" >&2
+    echo "compared. If it moved, move this check with it." >&2
+    exit 1
+  fi
+}
+
+for f in rtl/memory.v rtl/timer.v rtl/imemory.v rtl/littlesoc.v test/testbench.v \
+         test/cxxrtl.cc test/cosim.cc test/asm/riscv_test.h test/asm/sections.lds \
+         test/asm/boot.lds test/bench/bench.lds Makefile; do
+  need "$f"
+done
+
+# A declaration this cannot read is fatal rather than empty: comparing against
+# an empty string is how a check goes on reporting green over a file it has
+# stopped understanding.
+no_param() {  # $1 = file, $2 = parameter name
+  echo "error: no \`$2\` parameter default found in $1. This check reads the" >&2
+  echo "RTL as the source of the map; if the declaration was respelled, teach" >&2
+  echo "this script the new spelling rather than dropping the comparison." >&2
+  exit 1
+}
+
+# `32'h0001_0000` -> 65536. The underscores are the readable spelling in the
+# RTL and mean nothing to arithmetic.
+hex_param() {  # $1 = file, $2 = parameter name
+  local raw
+  raw=$(sed -nE "s/.*parameter[[:space:]]+logic[[:space:]]*\[31:0\][[:space:]]*$2[[:space:]]*=[[:space:]]*32'h([0-9a-fA-F_]*).*/\1/p" \
+          "$REPO/$1" | head -1 | tr -d _)
+  [ -n "$raw" ] || no_param "$1" "$2"
+  echo $((16#$raw))
+}
+
+int_param() {  # $1 = file, $2 = parameter name
+  local raw
+  raw=$(sed -nE "s/.*parameter[[:space:]]+integer[[:space:]]+$2[[:space:]]*=[[:space:]]*([0-9]+).*/\1/p" \
+          "$REPO/$1" | head -1)
+  [ -n "$raw" ] || no_param "$1" "$2"
+  echo "$raw"
+}
+
+# ---- the source of the map ------------------------------------------------
+
+RAM_BASE=$(hex_param rtl/memory.v BASE)
+RAM_WORDS=$(int_param rtl/memory.v RAM_WORDS)
+TIMER_BASE=$(hex_param rtl/timer.v BASE)
+RAM_BYTES=$((RAM_WORDS * 4))
+RAM_TOP=$((RAM_BASE + RAM_BYTES))
+
+hexfmt() { printf '0x%08x' "$1"; }
+
+# ---- 1. neither integrator restates it ------------------------------------
+#
+# The shared default is only shared while both files stay silent. `imemory` is
+# excluded from the `memory` pattern by the leading boundary: it is a different
+# module with a size of its own.
+
+for f in rtl/littlesoc.v test/testbench.v; do
+  for m in memory timer; do
+    if ! grep -qE "(^|[^[:alnum:]_])$m[[:space:]]*(#\(|[a-z_]+[[:space:]]*\()" "$REPO/$f"; then
+      fail "$f does not instantiate \`$m\` at all. The comparison below would
+pass vacuously, so a deleted memory is red here rather than silent."
+    fi
+    if grep -qE "(^|[^[:alnum:]_])$m[[:space:]]*#\(" "$REPO/$f"; then
+      fail "$f overrides \`$m\`'s parameters. The data RAM's base and size and
+the timer's base are rtl/$m.v's defaults precisely so that rtl/littlesoc.v and
+test/testbench.v cannot describe different machines -- the harness once modelled
+a RAM sixteen times smaller than the SoC's and every program still fit. If this
+override is deliberate, it needs a reason recorded in an ADR first."
+    fi
+  done
+done
+
+# ---- 2. the regions abut ---------------------------------------------------
+
+if [ "$RAM_TOP" -ne "$TIMER_BASE" ]; then
+  fail "the data RAM ends at $(hexfmt $RAM_TOP) and the timer starts at
+$(hexfmt "$TIMER_BASE"). rtl/littlesoc.v and test/testbench.v both join the three
+read buses with an OR rather than a mux, which is only sound while the ranges do
+not overlap; a gap is merely wasted map, but an overlap ORs two live answers
+together and neither simulator would report it."
+fi
+
+# ---- 3. the linker scripts -------------------------------------------------
+#
+# `LENGTH = 64K` -> bytes. ld also accepts M and a bare count.
+
+lds_field() {  # $1 = file, $2 = region, $3 = ORIGIN|LENGTH
+  sed -nE "s/^[[:space:]]*$2[[:space:]]*\([^)]*\)[[:space:]]*:.*$3[[:space:]]*=[[:space:]]*([0-9A-Za-zx_]*).*/\1/p" \
+    "$REPO/$1" | head -1
+}
+
+# A size bash cannot read must stop the run. Left to arithmetic expansion, a
+# non-numeric literal is treated as a VARIABLE NAME and quietly becomes 0, which
+# compares unequal and reports a drift that is really a parse failure. So the
+# digits are checked before any arithmetic sees them.
+as_bytes() {  # $1 = an ld size literal
+  local v=$1 mult=1 digits
+  case "$v" in
+    *K|*k)   digits=${v%[Kk]}; mult=1024 ;;
+    *M|*m)   digits=${v%[Mm]}; mult=$((1024 * 1024)) ;;
+    0x*|0X*) digits=${v#0[xX]}
+             case "$digits" in
+               ""|*[!0-9a-fA-F]*) digits="" ;;
+               *) echo $((16#$digits)); return ;;
+             esac ;;
+    *)       digits=$v ;;
+  esac
+  case "$digits" in
+    ""|*[!0-9]*)
+      echo "error: '$v' is not a size this check can read. Teach it the" >&2
+      echo "spelling rather than letting an unparsed region compare as zero." >&2
+      exit 1 ;;
+  esac
+  echo $((digits * mult))
+}
+
+check_lds_ram() {  # $1 = file
+  local origin length
+  origin=$(lds_field "$1" ram ORIGIN)
+  length=$(lds_field "$1" ram LENGTH)
+  if [ -z "$origin" ] || [ -z "$length" ]; then
+    fail "$1 declares no \`ram\` MEMORY region this check can read."
+    return
+  fi
+  origin=$(as_bytes "$origin"); length=$(as_bytes "$length")
+  if [ "$origin" -ne "$RAM_BASE" ]; then
+    fail "$1 puts \`ram\` at $(hexfmt "$origin"), but rtl/memory.v's BASE is
+$(hexfmt "$RAM_BASE"). Every program's \`.data\` would link to an address the
+hardware does not decode."
+  fi
+  if [ "$length" -ne "$RAM_BYTES" ]; then
+    fail "$1 gives \`ram\` $length bytes against the $RAM_BYTES bytes
+rtl/memory.v actually has. Too small silently wastes most of the machine and is
+how a 4 KB harness went unnoticed against a 64 KB SoC; too large links programs
+that run off the end of it."
+  fi
+}
+
+check_lds_rom() {  # $1 = file, $2 = expected words, $3 = whose
+  local length
+  length=$(lds_field "$1" rom LENGTH)
+  if [ -z "$length" ]; then
+    fail "$1 declares no \`rom\` MEMORY region this check can read."
+    return
+  fi
+  length=$(as_bytes "$length")
+  if [ "$length" -ne $(( $2 * 4 )) ]; then
+    fail "$1 gives \`rom\` $length bytes against $3's $(( $2 * 4 )). A link that
+succeeds here has to be one that machine can hold."
+  fi
+}
+
+SOC_ROM_WORDS_RTL=$(sed -nE "s/.*\.ROM_WORDS\(([0-9]+)\).*/\1/p" "$REPO/rtl/littlesoc.v" | head -1)
+TB_ROM_WORDS=$(sed -nE "s/.*localparam[[:space:]]+int[[:space:]]+ROM_WORDS[[:space:]]*=[[:space:]]*([0-9]+).*/\1/p" \
+                 "$REPO/test/testbench.v" | head -1)
+
+for pair in "rtl/littlesoc.v:$SOC_ROM_WORDS_RTL" "test/testbench.v:$TB_ROM_WORDS"; do
+  if [ -z "${pair#*:}" ]; then
+    echo "error: ${pair%%:*} names no ROM_WORDS. The ROM is the one size the" >&2
+    echo "two machines differ on deliberately, so it is the one that must stay" >&2
+    echo "written down in both." >&2
+    exit 1
+  fi
+done
+
+check_lds_ram test/asm/sections.lds
+check_lds_ram test/asm/boot.lds
+check_lds_ram test/bench/bench.lds
+
+# The suite's two scripts link against the SIMULATED ROM, which is larger than
+# the part's on purpose. bench.lds links against the part's, because the point of
+# building a benchmark is to find out whether it fits.
+check_lds_rom test/asm/sections.lds "$TB_ROM_WORDS" "test/testbench.v"
+check_lds_rom test/asm/boot.lds     "$TB_ROM_WORDS" "test/testbench.v"
+check_lds_rom test/bench/bench.lds  "$SOC_ROM_WORDS_RTL" "rtl/littlesoc.v"
+
+# ---- 4. the runners --------------------------------------------------------
+
+check_ram_base_cc() {  # $1 = file
+  local raw
+  raw=$(sed -nE "s/.*constexpr[[:space:]]+uint32_t[[:space:]]+kRamBase[[:space:]]*=[[:space:]]*0[xX]([0-9a-fA-F]*).*/\1/p" \
+          "$REPO/$1" | head -1)
+  if [ -z "$raw" ]; then
+    fail "$1 declares no \`kRamBase\`, so nothing says where it thinks RAM is."
+    return
+  fi
+  if [ $((16#$raw)) -ne "$RAM_BASE" ]; then
+    fail "$1's kRamBase is $(hexfmt $((16#$raw))) against rtl/memory.v's
+$(hexfmt "$RAM_BASE"). This runner subtracts it from every word of the RAM image
+before poking it in, so the whole image would land at the wrong offset."
+  fi
+}
+
+check_ram_base_cc test/cxxrtl.cc
+check_ram_base_cc test/cosim.cc
+
+# ---- 5. the assembly header ------------------------------------------------
+
+MTIMER_RAW=$(sed -nE "s/^#define[[:space:]]+MTIMER_BASE[[:space:]]+0[xX]([0-9a-fA-F]*).*/\1/p" \
+               "$REPO/test/asm/riscv_test.h" | head -1)
+if [ -z "$MTIMER_RAW" ]; then
+  fail "test/asm/riscv_test.h defines no MTIMER_BASE, so the programs that arm
+the timer have no address to arm it at."
+elif [ $((16#$MTIMER_RAW)) -ne "$TIMER_BASE" ]; then
+  fail "test/asm/riscv_test.h's MTIMER_BASE is $(hexfmt $((16#$MTIMER_RAW)))
+against rtl/timer.v's $(hexfmt "$TIMER_BASE"). A store to the wrong address is
+dropped by every memory on the bus, so mtimer.S would wait for an interrupt that
+is never armed rather than fail."
+fi
+
+# ---- 6. the SoC ROM image --------------------------------------------------
+
+MK_ROM_WORDS=$(sed -nE 's/^SOC_ROM_WORDS[[:space:]]*:=[[:space:]]*([0-9]+).*/\1/p' \
+                 "$REPO/Makefile" | head -1)
+if [ -z "$MK_ROM_WORDS" ]; then
+  fail "the Makefile sets no SOC_ROM_WORDS, so soc/rom_banks.py has no ceiling
+to reject an oversized image against."
+elif [ "$MK_ROM_WORDS" -ne "$SOC_ROM_WORDS_RTL" ]; then
+  fail "the Makefile builds the SoC ROM image for $MK_ROM_WORDS words and
+rtl/littlesoc.v instantiates $SOC_ROM_WORDS_RTL. soc/rom_banks.py grades the
+image against the Makefile's number, so the two disagreeing means it either
+rejects a program that fits or splits one that does not into banks the bitstream
+then truncates."
+fi
+
+# ---- 7. the one deliberate difference --------------------------------------
+
+if [ "$TB_ROM_WORDS" -lt "$SOC_ROM_WORDS_RTL" ]; then
+  fail "test/testbench.v simulates $TB_ROM_WORDS words of ROM against
+rtl/littlesoc.v's $SOC_ROM_WORDS_RTL. The harness is allowed to be larger --
+simulation has no block RAM to run out of, and rvc.S needs it -- but never
+smaller, or a program the part can hold would fail in simulation."
+fi
+
+if [ "$rc" -ne 0 ]; then
+  echo >&2
+  echo "The memory map is described in more than one place and they have" >&2
+  echo "drifted. test/testbench.v is what the suite grades against and" >&2
+  echo "rtl/littlesoc.v is what places on the part; where they disagree, the" >&2
+  echo "suite is testing a machine that does not exist." >&2
+  exit 1
+fi
+
+echo "Memory map agreed on: ram $(hexfmt "$RAM_BASE")+${RAM_BYTES}B, timer $(hexfmt "$TIMER_BASE"), rom ${SOC_ROM_WORDS_RTL} words on the part / ${TB_ROM_WORDS} simulated"

@@ -13,9 +13,12 @@
  * __data_start before main, and zeroes .bss after it.
  *
  * The memory map is sections.lds' -- same Harvard split, same reason `ram` sits
- * past `rom`'s ceiling to keep GNU ld's single flat address space happy. The
- * two files have to agree about it; test/testbench.v's RAM_BASE and
- * test/cxxrtl.cc's kRamBase are the third and fourth copies.
+ * past `rom`'s ceiling to keep GNU ld's single flat address space happy, and
+ * the same two region sizes. Several files state parts of that map in their own
+ * syntax and cannot include one another: test/cxxrtl.cc and test/cosim.cc each
+ * carry `ram`'s ORIGIN as `kRamBase`, and test/asm/riscv_test.h carries the
+ * timer's base. test/memmap_test.sh compares all of them against the RTL and is
+ * what makes this comment a check rather than a request.
  *
  * `.tohost` is the one output section that stays loadable at its own address in
  * `ram`. It is an IO window, not program data: the runners watch the first word
@@ -29,7 +32,7 @@
  */
 MEMORY {
     rom(rx)  : ORIGIN = 0x00000000, LENGTH = 16K
-    ram(!rx) : ORIGIN = 0x00010000, LENGTH = 4K
+    ram(!rx) : ORIGIN = 0x00010000, LENGTH = 64K
 }
 
 SECTIONS {

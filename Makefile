@@ -399,8 +399,17 @@ pin-bump-test:
 tool-cache-test:
 	@./test/tool_cache_test.sh '$(SAIL_RISCV_DIR)' '$(SVLINT_DIR)'
 
+# Compares every file that describes the memory map against the RTL that
+# implements it. Hangs off `test` like the other bash checks -- grep and sed, no
+# cross compiler, no simulator, no yosys -- and it has to run BEFORE the suite is
+# graded, because what it catches is the suite grading a machine that is not the
+# one that places on the part.
+.PHONY: memmap-test
+memmap-test:
+	@./test/memmap_test.sh
+
 .PHONY: test
-test: sim test-units probe-gates pin-bump-test tool-cache-test
+test: sim test-units probe-gates pin-bump-test tool-cache-test memmap-test
 	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 # The same suite `make test` runs, with the runner charging every cycle to the
@@ -490,6 +499,10 @@ fit: fit.json
 # shape this board can boot a program with globals from, so it is the default:
 # an image shape nothing builds is one nobody notices breaking.
 SOC_PROG      ?= datainit.c
+# soc/rom_banks.py rejects an image that overruns the ROM, so this has to be
+# rtl/littlesoc.v's `ROM_WORDS` and not merely near it: too small rejects a
+# program that fits, too large splits one that does not into banks the
+# bitstream then truncates. test/memmap_test.sh compares them.
 SOC_ROM_WORDS := 2048
 # Exact rather than budgeted the way FIT_MAX_LC is, because both are properties
 # of the RTL rather than of placement: 2 SPRAM for the 64 KB data RAM, and 16

@@ -127,8 +127,9 @@ trap_handler:                                                                \
         la      t0, trap_handler;                                           \
         csrw    mtvec, t0;
 
-// The machine timer (rtl/timer.v), at the same base in test/testbench.v and in
-// rtl/littlesoc.v. Four words: mtime, mtimeh, mtimecmp, mtimecmph.
+// The machine timer, four words: mtime, mtimeh, mtimecmp, mtimecmph. Assembly
+// cannot read rtl/timer.v's `BASE`, so this is a copy of it and
+// test/memmap_test.sh compares the two.
 #define MTIMER_BASE      0x00020000
 #define MTIMECMP_OFFSET  8
 #define MTIMECMPH_OFFSET 12

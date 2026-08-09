@@ -61,8 +61,9 @@ namespace {
 
 // test/asm/sections.lds' `ram` region starts here; the cxxrtl runner
 // subtracts it back out of the `--ram` image's word addresses so they land
-// at the right index in test/testbench.v's `memory` array. Keep in sync
-// with sections.lds and test/testbench.v's RAM_BASE.
+// at the right index in test/testbench.v's `memory` array. C++ cannot read the
+// RTL's parameter, so this is a copy of rtl/memory.v's `BASE` and
+// test/memmap_test.sh is what compares the two.
 constexpr uint32_t kRamBase = 0x00010000;
 
 // A parsed `objcopy -O verilog --verilog-data-width=4` image: word address
