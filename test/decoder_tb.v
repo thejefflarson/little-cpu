@@ -9,7 +9,7 @@
 // to be checked after the operand-fetch cycle is spent. Every vector below
 // leaves `in.next_instr` at zero, so decode's guess at the next pair is x0/x0
 // and misses; drive it and the vector after it issues a cycle earlier than the
-// checks expect. The two vectors that do drive it put it back.
+// checks expect. The three vectors that do drive it put it back.
 module decoder_tb;
   logic clk = 0;
   always #5 clk = ~clk;
@@ -239,6 +239,29 @@ module decoder_tb;
     check_bit("...and the re-presented pair lets it issue on the next one",
               dut.issuing, 1'b1);
     in.next_instr = 32'b0;
+
+    // A compressed successor goes through the same register-number mapping, so
+    // it is guessed as accurately as an uncompressed one. The successor word
+    // arrives raw -- its upper half is whatever follows it in memory -- and
+    // rtl/regsel.v masks that off, which is what the 0xffff here tests: sliced
+    // flat, the two fields read x31 and the vector below pays a cycle it should
+    // not.
+    in.pc = 32'h0000_0080;
+    present_and_fetch(32'h00100093);   // addi x1, x0, 1
+    in.next_instr = 32'hffff_918a;     // c.add x3, x2 -- reads x3 and x2
+    #1;
+    check_hex("a compressed successor's rs1 is decoded, not sliced",
+              {27'b0, read_rs1}, 32'd3);
+    check_hex("...and so is its rs2", {27'b0, read_rs2}, 32'd2);
+    @(posedge clk);
+    #1;
+    in.instr = 32'h0000_918a;
+    in.next_instr = 32'b0;
+    #1;
+    check_bit("...so it issues with no operand-fetch cycle of its own",
+              dut.issuing, 1'b1);
+    check_hex("...on the pair it really reads", {27'b0, rs1}, 32'd3);
+    check_hex("...on both halves of it", {27'b0, rs2}, 32'd2);
 
     // Read off the decode flag, not `out.is_ebreak`: a trapping issue
     // suppresses every execution flag, so the registered flag is 0 for all

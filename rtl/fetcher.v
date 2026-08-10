@@ -51,20 +51,12 @@ module fetcher(
   // bytes of it, so the word after that instruction is already here -- a second
   // slice of the same shift, not a second read. Decode asks the register file
   // for this word's register numbers a cycle early and checks what it asked
-  // for, so nothing here has to be right.
+  // for, so nothing here has to be right. It goes out raw: rtl/regsel.v takes
+  // any 32-bit word, and a compressed successor's upper half is masked there,
+  // in the same module that decides which fields are register numbers.
   logic [31:0] next_word;
   assign next_word = (windowed_instr[1:0] == 2'b11) ? fetch_pair[63:32]
                                                     : fetch_pair[47:16];
-
-  // Zeroed above the low half for a compressed successor, the same way decode
-  // masks its own word. A compressed instruction has no rs1/rs2 field where an
-  // uncompressed one does; the bits sitting there belong to the instruction
-  // after it. Left alone they are two plausible register numbers that are wrong
-  // most of the time, and zero -- x0 -- is right often enough to be worth
-  // asking for.
-  logic [31:0] masked_next;
-  assign masked_next = (next_word[1:0] == 2'b11) ? next_word
-                                                 : {16'b0, next_word[15:0]};
 
   always_comb begin
     if (reset) begin
@@ -77,7 +69,7 @@ module fetcher(
       // every non-reset cycle.
       out.valid = 1'b1;
       out.instr = windowed_instr;
-      out.next_instr = masked_next;
+      out.next_instr = next_word;
       out.pc = pc;
     end
   end

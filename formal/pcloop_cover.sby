@@ -46,12 +46,13 @@ smtbmc boolector
 # Read WITHOUT -formal, for the reason components.sby's pcloop task states: with
 # it, rtl/decoder.v's own `assume(in.pc == pc)` compiles into the instance and
 # the harness assumes what it exists to check.
-read -sv structs.v fetcher.v decoder.v
+read -sv structs.v fetcher.v decoder.v regsel.v
 read -sv -formal structs.v pcloop.sv
 prep -top pcloop
 
 [files]
 ../rtl/fetcher.v
 ../rtl/decoder.v
+../rtl/regsel.v
 ../rtl/structs.v
 pcloop.sv

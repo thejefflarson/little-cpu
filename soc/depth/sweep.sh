@@ -41,7 +41,7 @@ python3 soc/depth/variants.py "$mem"
 # follows those names, so a reordered source list is an edit-churn-sized move on
 # its own -- 3.6% here, measured, which is the whole band.
 CORE_SRCS="rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v \
-rtl/fetcher.v $mem rtl/memory.v rtl/regfile.v"
+rtl/fetcher.v $mem rtl/memory.v rtl/regfile.v rtl/regsel.v"
 
 case "$part" in
   up5k)

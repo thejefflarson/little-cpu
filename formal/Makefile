@@ -72,7 +72,7 @@ genchecks-check: $(RISCV_FORMAL_DIR)/checks/genchecks.py genchecks-local.py | $(
 # rule re-runs the target whatever this list says. What it buys is a loud "No
 # rule to make target" if an rtl/ file is renamed out from under a check.
 RTL_SOURCES := ../rtl/structs.v ../rtl/fetcher.v ../rtl/regfile.v \
-               ../rtl/csrs.v ../rtl/decoder.v ../rtl/executor.v \
+               ../rtl/csrs.v ../rtl/decoder.v ../rtl/regsel.v ../rtl/executor.v \
                ../rtl/accessor.v ../rtl/writeback.v ../rtl/littlecpu.v
 
 dmemcheck: dmemcheck.sby dmemcheck.sv arbiter.v $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
@@ -82,7 +82,8 @@ cover:     cover.sby     cover.sv     arbiter.v $(RTL_SOURCES) | $(RISCV_FORMAL_
 # The anti-vacuity control for components_pcloop, over the same pcloop.sv. No
 # riscv-formal clone: it instantiates two rtl/ modules and nothing else, the way
 # the components tasks do, so it runs in the same CI job they do.
-pcloop_cover: pcloop_cover.sby pcloop.sv ../rtl/fetcher.v ../rtl/decoder.v ../rtl/structs.v
+pcloop_cover: pcloop_cover.sby pcloop.sv ../rtl/fetcher.v ../rtl/decoder.v ../rtl/regsel.v \
+              ../rtl/structs.v
 
 # complete-exclusions is a prerequisite rather than a companion target: the
 # exclusion set is what makes this check passable at all, and checking it costs
@@ -125,7 +126,7 @@ nonperturbation: check-nonperturbation.py
 # the `%: %.sby` rule -- which is why they can say .PHONY where that rule
 # cannot. Same two properties as it: always run, delete the workdir first.
 .PHONY: components_decoder components_executor components_pcloop components_traps
-components_decoder: components.sby ../rtl/decoder.v ../rtl/structs.v
+components_decoder: components.sby ../rtl/decoder.v ../rtl/regsel.v ../rtl/structs.v
 	rm -rf $@
 	sby -f $< decoder
 components_executor: components.sby ../rtl/executor.v ../rtl/structs.v
@@ -138,7 +139,7 @@ components_executor: components.sby ../rtl/executor.v ../rtl/structs.v
 # complete-exclusions is of `complete`: it is what says this proof's increment
 # assertion is still reached, and a control that can be run separately from the
 # thing it controls eventually is not run at all.
-components_pcloop: components.sby pcloop_cover ../rtl/fetcher.v ../rtl/decoder.v \
+components_pcloop: components.sby pcloop_cover ../rtl/fetcher.v ../rtl/decoder.v ../rtl/regsel.v \
                    ../rtl/structs.v pcloop.sv
 	rm -rf $@
 	sby -f $< pcloop
@@ -147,7 +148,7 @@ components_pcloop: components.sby pcloop_cover ../rtl/fetcher.v ../rtl/decoder.v
 # traps, keeping only the trap flag, and their pc checks accept whatever target
 # the core reports -- so nothing else says a trap lands on mtvec, or that the
 # state it saved is right.
-components_traps: components.sby ../rtl/fetcher.v ../rtl/decoder.v ../rtl/csrs.v \
+components_traps: components.sby ../rtl/fetcher.v ../rtl/decoder.v ../rtl/regsel.v ../rtl/csrs.v \
                   ../rtl/structs.v traps.sv
 	rm -rf $@
 	sby -f $< traps
