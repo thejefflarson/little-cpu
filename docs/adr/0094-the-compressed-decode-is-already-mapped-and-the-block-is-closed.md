@@ -2,7 +2,11 @@
 
 **Status:** Accepted · 2026-08-09 · *A measured null. No RTL changes. Three ceilings say what the
 block is worth at all; the one group that looked like an answer reads −50 LUTs on one synthesis top
-and −1 on the other, which is the churn band caught in the act.*
+and −1 on the other, which is the churn band caught in the act.* **Amended by
+[ADR-0097](0097-the-decode-stack-pays-only-in-the-fetch-loop-and-that-is-where-it-cannot.md)**, which
+builds the four candidates below that were declined without an instrument. The null holds over six
+edits instead of three; the shared `next_pc` adder is worth −103 SoC LUTs and misses 12 MHz at every
+placement, so the decline stands on a measurement now.
 
 ## Context
 
