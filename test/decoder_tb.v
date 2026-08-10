@@ -30,7 +30,6 @@ module decoder_tb;
   logic accessor_pending_valid = 1'b0;
   logic [4:0] accessor_pending_rd = 5'b0;
   logic accessor_out_valid = 1'b0;
-  logic [4:0] accessor_out_rd = 5'b0;
   // rtl/csrs.v is a sibling of the decoder, not part of it, so it is stubbed.
   logic [31:0] csr_rdata = 32'b0;
   logic csr_implemented = 1'b0;
@@ -43,7 +42,6 @@ module decoder_tb;
   // driving this directly is driving the whole interrupt decision.
   logic interrupt_pending = 1'b0;
   logic trap_entry, mret_entry;
-  logic imem_ren;
   logic [31:0] trap_cause, trap_epc;
 
   decoder dut (
@@ -59,7 +57,6 @@ module decoder_tb;
     .accessor_pending_valid(accessor_pending_valid),
     .accessor_pending_rd(accessor_pending_rd),
     .accessor_out_valid(accessor_out_valid),
-    .accessor_out_rd(accessor_out_rd),
     .csr_rdata(csr_rdata),
     .csr_implemented(csr_implemented),
     .mtvec(mtvec),
@@ -67,7 +64,6 @@ module decoder_tb;
     .interrupt_pending(interrupt_pending),
     .pc(pc),
     .next_pc(next_pc),
-    .imem_ren(imem_ren),
     .rs1(rs1),
     .rs2(rs2),
     .read_rs1(read_rs1),
@@ -104,43 +100,23 @@ module decoder_tb;
     end
   endtask
 
-  // pc must have exactly one driver, and it must be next_pc under imem_ren. The
-  // memory latches its address off next_pc one cycle before the fetch that reads
-  // it, and holds both its window and the pc naming it while imem_ren is low.
-  // Give pc a second driver, or an enable that is not the memory's, and the two
-  // run a cycle out of step, so the core executes whatever is at the wrong
-  // addresses. Nothing on the riscv-formal side reads that port.
+  // pc must have exactly one driver, and it must be next_pc. The memory latches
+  // its address off next_pc one cycle before the fetch that reads it. Give pc a
+  // second driver and the memory runs a cycle out of step with decode, so the
+  // core executes whatever is at the wrong addresses. Nothing on the
+  // riscv-formal ladder reads that port.
   //
   // Checked on every edge rather than in one vector, because a change like that
   // shows up on some instructions and not on others.
-  logic [31:0] prev_next_pc, prev_pc;
-  logic        prev_imem_ren;
+  logic [31:0] prev_next_pc;
   logic        prev_next_pc_valid = 1'b0;
   always @(posedge clk) begin
-    if (prev_next_pc_valid && pc !== (prev_imem_ren ? prev_next_pc : prev_pc)) begin
-      $display("MISMATCH pc became %08x; predicted %08x (imem_ren was %b, next_pc %08x, pc %08x)",
-               pc, prev_imem_ren ? prev_next_pc : prev_pc, prev_imem_ren, prev_next_pc, prev_pc);
+    if (prev_next_pc_valid && pc !== prev_next_pc) begin
+      $display("MISMATCH next_pc predicted %08x but pc became %08x", prev_next_pc, pc);
       errors++;
     end
     prev_next_pc <= next_pc;
-    prev_pc <= pc;
-    prev_imem_ren <= imem_ren;
     prev_next_pc_valid <= 1'b1;
-  end
-
-  // imem_ren is exactly reset, or a cycle nothing is holding the window back,
-  // or a stolen window that has to be fetched again. Low on any other stalled
-  // cycle is what keeps the stall off the address path; high on a stolen one is
-  // what makes the re-fetch happen. Both directions are silent failures --
-  // holding forever executes one instruction repeatedly, never holding puts the
-  // memory back on the old path with no diagnostic -- so this is checked on
-  // every edge like the pc above rather than in a vector.
-  always @(clk) begin
-    if (imem_ren !== (reset || !dut.stall || fetch_stall)) begin
-      $display("MISMATCH imem_ren=%b but reset=%b stall=%b fetch_stall=%b",
-               imem_ren, reset, dut.stall, fetch_stall);
-      errors++;
-    end
   end
 
   // `stall` is exactly these seven terms ORed together. `make cycles` charges
@@ -217,10 +193,6 @@ module decoder_tb;
     // bubble and it publishes during its own fetch cycle. Either way every
     // other vector here still passes.
     check_bit("...so it does not issue in that cycle", dut.issuing, 1'b0);
-    // The window it is stalling on is the one it wants next, so nothing is
-    // fetched over it. This is the arm that used to be `next_pc = pc`.
-    check_bit("...and the fetch window is held rather than refilled",
-              imem_ren, 1'b0);
     operand_fetch_cycle();
     check_bit("...and the fetch cycle bubbled decoder_out", out.valid, 1'b0);
     check_bit("...and is eligible to issue on the very next cycle",
@@ -338,34 +310,6 @@ module decoder_tb;
     check_bit("csrrs x31 uses rs1", dut.uses_rs1, 1'b1);
     check_bit("...and interlocks on it", dut.hazard_rs1, 1'b1);
     executor_out.valid = 1'b0;
-
-    // The fourth scoreboard slot: writeback is combinational on the accessor's
-    // output, so an instruction sitting there is writing the register file
-    // during this very cycle and the register file forwards nothing at its
-    // output. A reader has to wait one cycle, at the end of which the write is
-    // captured write-first into the read register. Without this slot the reader
-    // issues with the pre-write value and nothing anywhere says so.
-    in.instr = 32'h001f0f13;   // addi x30, x30, 1
-    accessor_out_valid = 1'b1;
-    accessor_out_rd = 5'd30;
-    #1;
-    check_bit("a register being written back this cycle interlocks", dut.hazard_rs1, 1'b1);
-    accessor_out_rd = 5'd29;
-    #1;
-    check_bit("...and an unrelated writeback does not", dut.hazard_rs1, 1'b0);
-    accessor_out_rd = 5'd30;
-    accessor_out_valid = 1'b0;
-    #1;
-    check_bit("...nor an invalid slot carrying the same register", dut.hazard_rs1, 1'b0);
-    // x0 is written by nothing, so the slot must not interlock on it either --
-    // the same exclusion the other three slots have.
-    in.instr = 32'h00100013;   // addi x0, x0, 1
-    accessor_out_valid = 1'b1;
-    accessor_out_rd = 5'd0;
-    #1;
-    check_bit("...and x0 never interlocks", dut.hazard_rs1, 1'b0);
-    accessor_out_valid = 1'b0;
-    accessor_out_rd = 5'd0;
 
     in.instr = 32'h30102573;   // csrr a0, misa == csrrs a0, misa, x0
     #1;
@@ -510,10 +454,6 @@ module decoder_tb;
     check_bit("...so nothing issues", dut.issuing, 1'b0);
     check_hex("...and the pc holds, so the instruction is presented again",
               next_pc, pc);
-    // The one stall reason that must still reach the address: the window
-    // arriving carried the data bus's answer, so it has to be fetched again and
-    // `pc` is the only address that can be right.
-    check_bit("...and the window is refilled rather than held", imem_ren, 1'b1);
     check_bit("...and no trap is committed out of the stolen window", trap_entry, 1'b0);
 
     // A freeze holds decoder_out; a steal clears it. On a cycle with both,
@@ -617,10 +557,7 @@ module decoder_tb;
     divider_stall = 1'b1;
     #1;
     check_bit("a divide holds the interrupt off", trap_entry, 1'b0);
-    // The pc holds with it, through the enable rather than through the chain:
-    // `next_pc` names mtvec on this cycle and nothing reads it, because the
-    // memory is not being asked for a word and the pc is not moving.
-    check_bit("...and the window is held, so the pc cannot move", imem_ren, 1'b0);
+    check_hex("...and the pc with it", next_pc, pc);
     divider_stall = 1'b0;
     accessor_stall = 1'b1;
     #1;

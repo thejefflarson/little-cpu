@@ -28,31 +28,12 @@ module decoder (
   // still has to wait for one. That is what this is for -- without it a CSR
   // access can issue while a store is still in the accessor.
   input  logic       accessor_out_valid,
-  // The register writeback commits from, this cycle. rtl/writeback.v is
-  // combinational on the accessor's output, so this pair is `wen`/`waddr` at the
-  // register file, and the fourth slot below is what makes the reader wait for
-  // it. The register file forwards nothing at its output: the write is captured
-  // write-first into the read register on the edge that ends the stalled cycle.
-  input  logic [4:0] accessor_out_rd,
   output logic [31:0] pc,
   // The value `pc` takes next cycle, ready during this one. A memory that needs
   // a cycle to answer latches this on the same edge `pc` moves, so its data is
   // there when decode wants it. Without it decode would always be one
-  // instruction behind the address it is deciding from. It is the address of
-  // the next word wanted, which is not the same as `pc`'s next value: on a
-  // stalled cycle `imem_ren` below is low, `pc` holds, and this carries whatever
-  // the arms further down produced from an instruction that did not issue.
+  // instruction behind the address it is deciding from.
   output logic [31:0] next_pc,
-  // High on every cycle a new fetch window is wanted. A synchronous instruction
-  // memory holds its output register while this is low and re-presents the same
-  // two words, which is what a stalled cycle needs; `pc` takes its own enable
-  // from the same signal, so the two move together and the memory is never a
-  // cycle out of step with decode. Routing the stall here rather than into the
-  // mux in front of `next_pc` is what keeps it off the address path -- it
-  // reaches a memory pin instead. A memory that answers `imem_addr` in the same
-  // cycle leaves this unread: `pc` holds, so it re-presents the same words
-  // without being told to.
-  output logic imem_ren,
   // The pair this instruction's encoding names. Nothing in the datapath reads
   // it: the register file is asked for the pair below instead. formal/pcloop.sv
   // needs both to say which cycles decode may hold the pc on, and a second copy
@@ -512,20 +493,13 @@ module decoder (
   // re-evaluating when any of those changed. `hazard_rs1` then sticks high at the
   // first conflict and the core stops. iverilog gives no warning for this, and
   // yosys gets the same function right, so every other check stays green.
-  // Four slots, one per place an instruction that has not reached the register
-  // array can be: issued, executing, waiting on memory, and writing back. The
-  // last one is a whole cycle long because the write is captured on the edge
-  // that ends it, so a reader has to wait it out rather than be handed the
-  // value; that is the cycle the register file used to forward across.
   logic live_rs1, live_rs2;
   assign live_rs1 = (out.valid && out.rd == rs1) ||
     (executor_out.valid && executor_out.rd == rs1) ||
-    (accessor_pending_valid && accessor_pending_rd == rs1) ||
-    (accessor_out_valid && accessor_out_rd == rs1);
+    (accessor_pending_valid && accessor_pending_rd == rs1);
   assign live_rs2 = (out.valid && out.rd == rs2) ||
     (executor_out.valid && executor_out.rd == rs2) ||
-    (accessor_pending_valid && accessor_pending_rd == rs2) ||
-    (accessor_out_valid && accessor_out_rd == rs2);
+    (accessor_pending_valid && accessor_pending_rd == rs2);
 
   // These three wait until the pipeline is empty, for two different reasons.
   // Narrowing the test to suit one of them breaks the other.
@@ -640,21 +614,14 @@ module decoder (
   end
 
   // Every way the PC can change, in one priority chain. No `(* parallel_case *)`
-  // here: `fetch_stall` and `trap_taken` really can both be true, so the order
-  // matters and synthesis must not assume otherwise.
-  //
-  // Only one of the six stall reasons appears here, and it is the one that
-  // arrives as a flip-flop: a stolen window has to be fetched again, at `pc`,
-  // and this cycle's instruction word is the data the bus took, so no arm below
-  // could name the right address. Every other stall reason holds `pc` and the
-  // memory's output register through `imem_ren` instead, which is why the arms
-  // below run on cycles that will not issue -- what they produce is then
-  // unread. An interrupt still waits for the pipeline: `trap_entry` and `pc`
-  // are both gated on the whole of `stall`.
+  // here: `stall` and `trap_taken` really can both be true, so the order
+  // matters and synthesis must not assume otherwise. `stall` above the trap arm
+  // is also what makes an interrupt wait for the pipeline instead of cutting
+  // into it.
   always_comb begin
     case (1'b1)
       reset:                     next_pc = 32'b0;
-      fetch_stall:               next_pc = pc;
+      stall:                     next_pc = pc;
       trap_taken:                next_pc = mtvec;
       instr_mret:                next_pc = mepc;
       instr_jalr:                next_pc = ($signed(immediate) + $signed(reg_rs1)) & 32'hfffffffe;
@@ -701,15 +668,7 @@ module decoder (
   end
  `endif
 
-  // Reset is in here so the first fetch is issued while reset is still high:
-  // `next_pc` is 0 then, so the window holding word 0 is already in the memory's
-  // output register on the first cycle that can issue.
-  assign imem_ren = reset || !stall || fetch_stall;
-
-  // One enable for both, and it is the same one the memory reads. `pc` names the
-  // instruction in the fetch window, so a cycle that does not refill the window
-  // must not move it.
-  always_ff @(posedge clk) if (imem_ren) pc <= next_pc;
+  always_ff @(posedge clk) pc <= next_pc;
 
   always_ff @(posedge clk) begin
     if (reset) begin
@@ -911,20 +870,9 @@ module decoder (
   // moment something else also writes `pc`. A second writer puts the
   // instruction memory a cycle out of step with decode, and the only symptom is
   // that every instruction executed is the wrong one.
-  //
-  // Both halves, because the enable is what keeps the two in step now: on a
-  // cycle the memory was asked for a word, `pc` took the address it was asked
-  // for; on a cycle it was not, `pc` did not move and the window it is holding
-  // still belongs to it. Assert only the first and a pc that moved under a low
-  // enable would pass by taking `next_pc` with it.
   logic [31:0] past_next_pc;
-  logic        prev_imem_ren;
-  always_ff @(posedge clk) begin
-    past_next_pc  <= next_pc;
-    prev_imem_ren <= imem_ren;
-  end
-  always_comb if (clocked &&  prev_imem_ren) assert(pc == past_next_pc);
-  always_comb if (clocked && !prev_imem_ren) assert(pc == past_pc);
+  always_ff @(posedge clk) past_next_pc <= next_pc;
+  always_comb if (clocked) assert(pc == past_next_pc);
 
   // An empty `out` is zeroed all the way through, so it can never carry an rd
   // that writes a register.

@@ -32,12 +32,6 @@ module imemory #(
 ) (
   input  logic        clk,
   input  logic [31:0] imem_addr_next,
-  // Low on a cycle the core is not ready for a new window. The banks hold
-  // their output registers, so the same two words come back without the address
-  // having to be held -- which is what keeps the core's stall off the address
-  // path. A data access takes the read port regardless, and the fetch it
-  // displaces comes back as `fetch_stall` below.
-  input  logic        imem_ren,
   output logic [31:0] imem_data,
   output logic [31:0] imem_data2,
   // The range decode lives here because rtl/littlesoc.v and test/testbench.v run
@@ -129,30 +123,17 @@ module imemory #(
   assign next_in_rom  = ~|next_word[29:ROM_BITS];
   assign next_is_last = &next_word[ROM_BITS-1:0];
 
-  // A read under an enable, with the write on its own address: that is the shape
-  // yosys turns into a block RAM's two ports, and `SB_RAM40_4K` holds `RDATA`
-  // while `RE` is low. The five registers move together because they describe
-  // one window: which bank came first and whether either word is in range are
-  // answers about the address that was read, not about the address being
-  // presented now.
-  //
-  // A text-range access takes the port whether the fetch wanted it or not, so it
-  // reads even when the core asked for nothing. That overwrites the held window,
-  // and `fetch_stall` is what says so; the cycle after, the core asks again.
-  logic bank_re;
-  assign bank_re = imem_ren || text_access;
-
+  // Read every cycle, with the write on its own address: that is the shape yosys
+  // turns into a block RAM's two ports.
   logic [31:0] even_data, odd_data;
   logic        odd_first, in_range, in_range2;
   logic        data_hit, data_hit_odd;
   always_ff @(posedge clk) begin
-    if (bank_re) begin
-      even_data <= rom_even[even_raddr];
-      odd_data  <= rom_odd[odd_raddr];
-      odd_first <= word_index[0];
-      in_range  <= next_in_rom;
-      in_range2 <= next_in_rom && !next_is_last;
-    end
+    even_data <= rom_even[even_raddr];
+    odd_data  <= rom_odd[odd_raddr];
+    odd_first <= word_index[0];
+    in_range  <= next_in_rom;
+    in_range2 <= next_in_rom && !next_is_last;
 
     fetch_stall  <= text_access;
     data_hit     <= mem_ren && text_range;

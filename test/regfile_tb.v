@@ -8,18 +8,15 @@
 //   FETCH cycle  -- rs1/rs2 are presented. The posedge that ends it captures
 //                   the array contents at those addresses, write-first, so a
 //                   write presented in THIS cycle is captured too.
-//   USE cycle    -- rs1/rs2 are held unchanged. reg_rs1/reg_rs2 are the value
-//                   captured on that edge, and a write presented NOW is not in
-//                   it: nothing forwards at the output.
+//   USE cycle    -- rs1/rs2 are held unchanged. reg_rs1/reg_rs2 are valid, and
+//                   the write-through bypass covers a write presented now.
 //
-// So the write-first term is the only forwarding here, and what it covers is a
-// write one cycle before the use. A write in the use cycle is covered by
-// rtl/decoder.v instead, which holds a reader for as long as the writer is in
-// writeback -- one more stalled cycle, at the end of which this capture
-// happens. `operand_stall` supplies the fetch cycle; every vector below samples
-// where a real consumer does.
+// Those two forwarding points together make the operand the cycle-N
+// architectural value including a cycle-N writeback. rtl/decoder.v's
+// `operand_stall` supplies the fetch cycle; every vector below samples where a
+// real consumer does.
 //
-// The read is keyed to a registered copy of the address pair, so it answers the
+// The read mux keys off a registered copy of the address pair, so it answers the
 // fetch cycle's addresses in both cycles -- and the ports really do move under
 // it, because decode spends a use cycle asking for the next instruction's pair
 // instead. What makes that safe is that nothing issues until the held pair is
@@ -140,24 +137,20 @@ module regfile_tb;
     check_hex("write-first capture in the fetch cycle (rs1)", reg_rs1, 32'h44444444);
     check_hex("write-first capture in the fetch cycle (rs2)", reg_rs2, 32'h44444444);
 
-    // A write in the USE cycle is NOT forwarded. This is the half of the
-    // contract rtl/decoder.v's fourth scoreboard slot exists for: while this
-    // write is in writeback, no reader of x6 is allowed to be in a use cycle at
-    // all. Re-adding an output bypass makes this vector red, which is what says
-    // the slot is load-bearing rather than belt-and-braces.
+    // Write-through bypass: the write lands in the USE cycle. Nothing has
+    // reached the arrays yet, so the bypass mux is the only path that can
+    // produce this value.
     drive(5'd6, 5'd6, 1'b0, 5'd0, 32'h0);          // fetch, no write
     drive(5'd6, 5'd6, 1'b1, 5'd6, 32'h55555555);   // use, writing x6
-    check_hex("a write in the use cycle is not forwarded (rs1)", reg_rs1, 32'h22222222);
-    check_hex("a write in the use cycle is not forwarded (rs2)", reg_rs2, 32'h22222222);
+    check_hex("write-through bypass in the use cycle (rs1)", reg_rs1, 32'h55555555);
+    check_hex("write-through bypass in the use cycle (rs2)", reg_rs2, 32'h55555555);
 
-    // ...and the very next fetch/use pair has it, because the write reached the
-    // array on the edge that ended the cycle above. One stalled cycle is
-    // therefore all the decoder has to spend on it.
+    // And it really did land, one cycle later, through the array rather than
+    // through a forwarding path.
     drive(5'd6, 5'd6, 1'b0, 5'd0, 32'h0);
     drive(5'd6, 5'd6, 1'b0, 5'd0, 32'h0);
-    check_hex("the write reached the array one cycle later (rs1)", reg_rs1, 32'h55555555);
-    check_hex("...and the other port reads it too (rs2)", reg_rs2, 32'h55555555);
-    check_mirrors("arrays agree after the write-first captures");
+    check_hex("the bypassed write reached the array (rs1)", reg_rs1, 32'h55555555);
+    check_mirrors("arrays agree after the forwarded writes");
 
     // The read register is keyed to the address presented in the FETCH cycle,
     // not to whatever rs1 holds during the use cycle. The core relies on that on
@@ -170,23 +163,27 @@ module regfile_tb;
               reg_rs1, 32'h44444444);
     check_ne("...and specifically is NOT x6's value", reg_rs1, 32'h55555555);
 
-    // The x0 test is on the held address too, and it is now the only thing that
-    // reads the held pair. Present x0 in the use cycle having fetched a real
-    // register: the register's value still comes back. Test the presented
-    // address instead and this answers zero. Every other vector here holds the
-    // pair and cannot tell the two spellings apart.
+    // The bypass select is on the held address too. Point the port at another
+    // register in the use cycle and write to the one that was fetched: the
+    // written word still comes back. Select on the presented address and the
+    // match is missed, so the array answers instead. Every other vector here
+    // holds the pair and cannot tell the two spellings apart.
     drive(5'd0, 5'd5, 1'b0, 5'd0, 32'h0);          // fetch x5 on rs2
-    drive(5'd0, 5'd0, 1'b0, 5'd0, 32'h0);          // use, rs2 now x0
-    check_hex("x0 presented in the use cycle does not zero a fetched read (rs2)",
-              reg_rs2, 32'h44444444);
+    drive(5'd0, 5'd6, 1'b1, 5'd5, 32'haaaaaaaa);   // use, rs2 now x6, writing x5
+    check_hex("bypass keyed to the held address (rs2)", reg_rs2, 32'haaaaaaaa);
 
     drive(5'd5, 5'd0, 1'b0, 5'd0, 32'h0);          // fetch x5 on rs1
-    drive(5'd0, 5'd0, 1'b0, 5'd0, 32'h0);          // use, rs1 now x0
-    check_hex("x0 presented in the use cycle does not zero a fetched read (rs1)",
-              reg_rs1, 32'h44444444);
+    drive(5'd6, 5'd0, 1'b1, 5'd5, 32'h99999999);   // use, rs1 now x6, writing x5
+    check_hex("bypass keyed to the held address (rs1)", reg_rs1, 32'h99999999);
 
     // x0 reads 0 on both ports, even with waddr == 0 and wen == 1 aimed straight
-    // at it. The pair above already holds x0, so this is the use cycle for it.
+    // at it. That is forced off the held address like every other read, so the
+    // cycle that first presents x0 still answers the address held from the
+    // vector above -- x6 -- and the zero arrives a cycle later. Nothing in the
+    // core reads an operand in a fetch cycle, so this bench is the only place
+    // that shows.
+    drive(5'd0, 5'd0, 1'b1, 5'd0, 32'hdeadbeef);
+    check_hex("presenting x0 still answers the held address (rs1)", reg_rs1, 32'h55555555);
     drive(5'd0, 5'd0, 1'b1, 5'd0, 32'hdeadbeef);
     check_hex("x0 reads 0 in the use cycle (rs1)", reg_rs1, 32'h00000000);
     check_hex("x0 reads 0 in the use cycle (rs2)", reg_rs2, 32'h00000000);
@@ -197,23 +194,23 @@ module regfile_tb;
     check_ne("x0 write never reaches regs_a", dut.regs_a[0], 32'hdeadbeef);
     check_ne("x0 write never reaches regs_b", dut.regs_b[0], 32'hdeadbeef);
 
-    // A write to another register disturbs neither port.
+    // The bypass fires only on an address match.
     drive(5'd7, 5'd7, 1'b0, 5'd0, 32'h0);          // fetch x7
     drive(5'd7, 5'd7, 1'b1, 5'd5, 32'h66666666);   // use, writing an unrelated x5
-    check_hex("an unrelated write does not leak into the read (rs1)", reg_rs1, 32'h33333333);
-    check_hex("an unrelated write does not leak into the read (rs2)", reg_rs2, 32'h33333333);
+    check_hex("bypass does not leak into an unrelated address (rs1)", reg_rs1, 32'h33333333);
+    check_hex("bypass does not leak into an unrelated address (rs2)", reg_rs2, 32'h33333333);
 
-    // Different addresses, one answered from its array and one write-first from
-    // the fetch cycle, then the same with the roles swapped -- so a write-first
-    // term wired to the wrong array cannot pass both directions.
-    drive(5'd7, 5'd6, 1'b1, 5'd6, 32'h77777777);   // fetch, writing x6
+    // Different addresses, one answered from its array and one from the bypass,
+    // then the same with the roles swapped -- so a bypass wired to the wrong
+    // array cannot pass both directions.
     drive(5'd7, 5'd6, 1'b0, 5'd0, 32'h0);
+    drive(5'd7, 5'd6, 1'b1, 5'd6, 32'h77777777);
     check_hex("independent ports, array side (rs1)", reg_rs1, 32'h33333333);
-    check_hex("independent ports, write-first side (rs2)", reg_rs2, 32'h77777777);
+    check_hex("independent ports, bypass side (rs2)", reg_rs2, 32'h77777777);
 
-    drive(5'd6, 5'd7, 1'b1, 5'd6, 32'h88888888);   // fetch, writing x6
     drive(5'd6, 5'd7, 1'b0, 5'd0, 32'h0);
-    check_hex("independent ports, write-first side (rs1)", reg_rs1, 32'h88888888);
+    drive(5'd6, 5'd7, 1'b1, 5'd6, 32'h88888888);
+    check_hex("independent ports, bypass side (rs1)", reg_rs1, 32'h88888888);
     check_hex("independent ports, array side (rs2)", reg_rs2, 32'h33333333);
 
     drive(5'd5, 5'd6, 1'b0, 5'd0, 32'h0);
@@ -226,7 +223,7 @@ module regfile_tb;
       $display("FAILED: %0d mismatches", errors);
       $fatal(1);
     end else begin
-      $display("PASSED: regfile registered read / write-first / no output forwarding / x0 / regs_a == regs_b");
+      $display("PASSED: regfile registered read / write-first / write-through bypass / x0 / regs_a == regs_b");
       $finish;
     end
   end

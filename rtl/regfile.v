@@ -29,13 +29,10 @@ module regfile(
   // presents the address, bubbles, and issues on the next cycle
   // (`operand_stall` in rtl/decoder.v).
   //
-  // The write-first term is the only forwarding here, and it is what makes one
-  // stalled cycle enough for a register being written this cycle: the writer is
-  // in the decode scoreboard while it is in writeback, so the reader waits, and
-  // the edge it waits over is the one this term captures. Without it the operand
-  // would be exactly one writeback stale with nothing left to catch it. An ice40
-  // EBR has no write-first mode, so yosys builds this comparator and mux in
-  // fabric.
+  // Without the write-first term a write committed at the very posedge that
+  // captures the read would be missed, leaving the operand exactly one writeback
+  // stale, a cycle before the decode scoreboard can see it. An ice40 EBR has no
+  // write-first mode, so yosys builds this comparator and mux in fabric.
   always_ff @(posedge clk) begin
     read_a   <= (wen && waddr == rs1) ? wdata : regs_a[rs1];
     read_b   <= (wen && waddr == rs2) ? wdata : regs_b[rs2];
@@ -47,19 +44,26 @@ module regfile(
     end
   end
 
-  // x0 always reads 0, regardless of wen/waddr, and the array is never written
-  // at address 0 -- so this is the whole of the read path. Everything else
-  // arrives already registered, which is what keeps the writeback stage's data
-  // out of the branch comparator and out of the fetch loop behind it.
+  // Write-through bypass: a write presented in the cycle the operand is used
+  // forwards wdata directly instead of the value captured a cycle ago. With the
+  // write-first term above it makes the operand the current architectural value
+  // including a writeback committed this cycle, which is why decode's stall-only
+  // scoreboard needs no forwarding path for the writeback slot. Deleting the rs2
+  // half is the formal ladder's liveness probe for `reg_ch0`.
   //
-  // The zero test reads the held pair, not `rs1`/`rs2`. `rs1` is instruction
-  // bits, so selecting on it would put this comparator after the fetched word,
-  // where the whole decode head already is. The held pair is the pair the
+  // The select and the x0 test read the held pair, not `rs1`/`rs2`. `rs1` is
+  // instruction bits, so selecting on it puts these comparators after the
+  // fetched word, and every branch waits for them before the next PC can be
+  // chosen -- about 19% of the clock period. The held pair is the pair the
   // instruction now issuing reads because `operand_stall` in rtl/decoder.v lets
   // nothing issue until it is; the pair presented in the same cycle is a guess
-  // at the next instruction's and is deliberately something else.
+  // at the next instruction's and is deliberately something else. Narrow that
+  // stall and this mux starts answering with another instruction's operand,
+  // with nothing to say so.
+  //
+  // x0 always reads 0, regardless of wen/waddr.
   always_comb begin
-    reg_rs1 = (held_rs1 == 5'd0) ? 32'b0 : read_a;
-    reg_rs2 = (held_rs2 == 5'd0) ? 32'b0 : read_b;
+    reg_rs1 = (held_rs1 == 5'd0) ? 32'b0 : (wen && waddr == held_rs1) ? wdata : read_a;
+    reg_rs2 = (held_rs2 == 5'd0) ? 32'b0 : (wen && waddr == held_rs2) ? wdata : read_b;
   end
 endmodule

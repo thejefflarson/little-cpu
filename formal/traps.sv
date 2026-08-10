@@ -31,7 +31,6 @@ module traps (
     input logic accessor_pending_valid,
     input logic [4:0] accessor_pending_rd,
     input logic accessor_out_valid,
-    input logic [4:0] accessor_out_rd,
     // The platform's timer line, free every cycle. rtl/csrs.v decides what to
     // do with it, so `interrupt_pending` below is a real signal of this design
     // rather than something the solver picks -- which is what lets the mie and
@@ -40,7 +39,6 @@ module traps (
 );
   logic [31:0] pc, next_pc;
   logic [31:0] imem_addr, imem_addr2, imem_addr_next;
-  logic        imem_ren;
   fetcher_output fetcher_out;
   decoder_output decoder_out;
   logic [4:0] read_rs1, read_rs2;
@@ -79,7 +77,6 @@ module traps (
     .accessor_pending_valid(accessor_pending_valid),
     .accessor_pending_rd(accessor_pending_rd),
     .accessor_out_valid(accessor_out_valid),
-    .accessor_out_rd(accessor_out_rd),
     .csr_rdata(csr_rdata),
     .csr_implemented(csr_implemented),
     .mtvec(mtvec_value),
@@ -87,7 +84,6 @@ module traps (
     .interrupt_pending(interrupt_pending),
     .pc(pc),
     .next_pc(next_pc),
-    .imem_ren(imem_ren),
     .read_rs1(read_rs1),
     .read_rs2(read_rs2),
     .csr_addr(csr_addr),

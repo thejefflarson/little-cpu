@@ -55,7 +55,6 @@ module bench_littlecpu #(
   always_ff @(posedge clk) irq_count <= irq_count + 16'd1;
   assign irq_timer = irq_count[15];
   logic [31:0] imem_addr, imem_addr2, imem_addr_next;
-  logic        imem_ren;
   logic [31:0] imem_data, imem_data2;
 
   littlecpu riscv (
@@ -66,7 +65,6 @@ module bench_littlecpu #(
     .imem_addr2(imem_addr2),
     .imem_data2(imem_data2),
     .imem_addr_next(imem_addr_next),
-    .imem_ren(imem_ren),
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
@@ -84,7 +82,6 @@ module bench_littlecpu #(
   ) imem (
     .clk(clk),
     .imem_addr_next(imem_addr_next),
-    .imem_ren(imem_ren),
     .imem_data(imem_data),
     .imem_data2(imem_data2),
     .mem_addr(mem_addr),

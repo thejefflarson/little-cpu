@@ -20,12 +20,11 @@ module imem_tb;
   logic [31:0] imem_data, imem_data2;
   logic [31:0] mem_addr, mem_wdata, mem_rdata;
   logic [3:0]  mem_wstrb;
-  logic        mem_ren, fetch_stall, imem_ren;
+  logic        mem_ren, fetch_stall;
 
   imemory #(.ROM_WORDS(ROM_WORDS)) dut (
     .clk(clk),
     .imem_addr_next(imem_addr_next),
-    .imem_ren(imem_ren),
     .imem_data(imem_data),
     .imem_data2(imem_data2),
     .mem_addr(mem_addr),
@@ -59,29 +58,7 @@ module imem_tb;
                       input logic [3:0]  strb,
                       input logic [31:0] wdata);
     begin
-      imem_ren       = 1'b1;
       imem_addr_next = fetch_addr;
-      mem_addr       = data_addr;
-      mem_ren        = ren;
-      mem_wstrb      = strb;
-      mem_wdata      = wdata;
-      @(posedge clk);
-      #1;
-    end
-  endtask
-
-  // A cycle the core wants no new window. The address is driven to something
-  // else on purpose: a memory that answered it instead of holding would pass
-  // every vector that re-presents the same address, which is what the shipping
-  // core did before it had this pin.
-  task automatic hold(input logic [31:0] decoy_addr,
-                      input logic        ren,
-                      input logic [3:0]  strb,
-                      input logic [31:0] data_addr,
-                      input logic [31:0] wdata);
-    begin
-      imem_ren       = 1'b0;
-      imem_addr_next = decoy_addr;
       mem_addr       = data_addr;
       mem_ren        = ren;
       mem_wstrb      = strb;
@@ -177,44 +154,10 @@ module imem_tb;
     check("...and its second word", imem_data2, ref_rom[3]);
 
     // Holding the address re-presents the same words, which is what makes a
-    // stalled cycle free.
+    // stalled cycle free (rtl/decoder.v holds `next_pc = pc`).
     fetch(32'h0000_0008);
     check("a held address re-presents the same word", imem_data, ref_rom[2]);
     check_stall("an idle data bus does not steal a fetch", 1'b0);
-
-    // ...and so does holding the read, which is the port the core uses instead:
-    // the address moves under it and the window does not follow.
-    hold(32'h0000_0000, 1'b0, 4'b0000, 32'b0, 32'b0);
-    check("a held read keeps the window (imem_data)", imem_data, ref_rom[2]);
-    check("...and its second word", imem_data2, ref_rom[3]);
-    hold(32'h0000_0020, 1'b0, 4'b0000, 32'b0, 32'b0);
-    hold(32'h0000_0004, 1'b0, 4'b0000, 32'b0, 32'b0);
-    check("a window held for three cycles is still the same one", imem_data, ref_rom[2]);
-    check("...and its second word", imem_data2, ref_rom[3]);
-    check_stall("holding the read steals nothing", 1'b0);
-    fetch(32'h0000_0004);
-    check("...and the read that follows lands on the address it asked for",
-          imem_data, ref_rom[1]);
-
-    // The range decode belongs to the window, not to the address being
-    // presented, so it has to be held with it. Otherwise a held cycle whose
-    // decoy address is in range turns an out-of-range window into real ROM.
-    fetch(32'h0000_1000);
-    check("a fetch out of range reads zero", imem_data, 32'b0);
-    hold(32'h0000_0008, 1'b0, 4'b0000, 32'b0, 32'b0);
-    check("...and a held cycle does not bring it back in range", imem_data, 32'b0);
-    check("...on either word", imem_data2, 32'b0);
-
-    // A data access takes the read port whether the fetch wanted one or not.
-    // The load still has to be answered, so the window is lost -- and
-    // `fetch_stall` is what says so, on a cycle the core was already holding.
-    fetch(32'h0000_0008);
-    check("back in range", imem_data, ref_rom[2]);
-    hold(32'h0000_0000, 1'b1, 4'b0000, 32'h0000_0018, 32'b0);
-    check("a text read during a held fetch is still answered", mem_rdata, ref_rom[6]);
-    check_stall("...and reports the steal", 1'b1);
-    fetch(32'h0000_0008);
-    check("...so the window is fetched again after it", imem_data, ref_rom[2]);
 
     for (i = 0; i < ROM_WORDS; i++) begin
       dread(32'(i) * 4);
@@ -290,7 +233,7 @@ module imem_tb;
       $display("FAILED: %0d mismatches", errors);
       $fatal(1);
     end else begin
-      $display("PASSED: imemory.v bank select, dual-word window, range decode, read enable, data port");
+      $display("PASSED: imemory.v bank select, dual-word window, range decode, data port");
       $finish;
     end
   end

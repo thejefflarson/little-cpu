@@ -44,7 +44,7 @@ module littlesoc (
   logic [31:0] mem_addr, mem_wdata, mem_rdata;
   logic [31:0] imem_mem_rdata, dmem_mem_rdata, timer_mem_rdata;
   logic [3:0]  mem_wstrb;
-  logic        mem_ren, fetch_stall, irq_timer, imem_ren;
+  logic        mem_ren, fetch_stall, irq_timer;
   logic [31:0] imem_addr, imem_addr2, imem_addr_next;
   logic [31:0] imem_data, imem_data2;
 
@@ -56,7 +56,6 @@ module littlesoc (
     .imem_addr2(imem_addr2),
     .imem_data2(imem_data2),
     .imem_addr_next(imem_addr_next),
-    .imem_ren(imem_ren),
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
@@ -79,7 +78,6 @@ module littlesoc (
   ) imem (
     .clk(clk),
     .imem_addr_next(imem_addr_next),
-    .imem_ren(imem_ren),
     .imem_data(imem_data),
     .imem_data2(imem_data2),
     .mem_addr(mem_addr),
