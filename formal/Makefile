@@ -79,6 +79,11 @@ dmemcheck: dmemcheck.sby dmemcheck.sv arbiter.v $(RTL_SOURCES) | $(RISCV_FORMAL_
 imemcheck: imemcheck.sby imemcheck.sv arbiter.v $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
 cover:     cover.sby     cover.sv     arbiter.v $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
 
+# The anti-vacuity control for components_pcloop, over the same pcloop.sv. No
+# riscv-formal clone: it instantiates two rtl/ modules and nothing else, the way
+# the components tasks do, so it runs in the same CI job they do.
+pcloop_cover: pcloop_cover.sby pcloop.sv ../rtl/fetcher.v ../rtl/decoder.v ../rtl/structs.v
+
 # complete-exclusions is a prerequisite rather than a companion target: the
 # exclusion set is what makes this check passable at all, and checking it costs
 # milliseconds and fails before sby starts.
@@ -128,7 +133,12 @@ components_executor: components.sby ../rtl/executor.v ../rtl/structs.v
 	sby -f $< executor
 # Discharges the standalone decoder task's `assume(in.pc == pc)`, which is
 # where that proof's content went.
-components_pcloop: components.sby ../rtl/fetcher.v ../rtl/decoder.v \
+#
+# pcloop_cover is a prerequisite rather than a companion target, the same way
+# complete-exclusions is of `complete`: it is what says this proof's increment
+# assertion is still reached, and a control that can be run separately from the
+# thing it controls eventually is not run at all.
+components_pcloop: components.sby pcloop_cover ../rtl/fetcher.v ../rtl/decoder.v \
                    ../rtl/structs.v pcloop.sv
 	rm -rf $@
 	sby -f $< pcloop
@@ -146,6 +156,7 @@ components_traps: components.sby ../rtl/fetcher.v ../rtl/decoder.v ../rtl/csrs.v
 # /bin/sh, make's default shell, passes through literally and deletes nothing.
 clean:
 	rm -rf checks complete complete_cover cover dmemcheck imemcheck components components_*
+	rm -rf pcloop_cover
 	rm -rf $(RISCV_FORMAL_DIR) $(RISCV_FORMAL_DIR).tmp
 
 .PHONY: all clean

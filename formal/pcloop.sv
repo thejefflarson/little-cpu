@@ -173,7 +173,10 @@ module pcloop (
   // the next instruction's pair; what has to match it is the pair the current
   // instruction decodes to. Register the guess on both sides and this is true on
   // nearly every issuing cycle, which would excuse the pc from advancing almost
-  // everywhere and leave the assertion below asking nothing.
+  // everywhere and leave the assertion below asking nothing. That warning is not
+  // left to this comment to enforce: the two cover goals further down have to
+  // reach that assertion, and the second of them is unreachable under exactly
+  // that edit.
   logic [4:0] f_prev_rs1, f_prev_rs2;
   logic       f_read_taken, f_operand_fetch;
   always_ff @(posedge clk) begin
@@ -188,6 +191,16 @@ module pcloop (
     end
   end
   assign f_operand_fetch = !f_read_taken || f_prev_rs1 != rs1 || f_prev_rs2 != rs2;
+
+  // The control for the paragraph above, run by formal/pcloop_cover.sby. A
+  // comment cannot stop the excuse from widening; the two cover goals near the
+  // increment assertion can, and this is what the second of them reads. It says
+  // the pair presented to the register file changed from the one presented
+  // before it -- which is what an excuse built from two registered copies of the
+  // guess would be, so that excuse and this signal cannot both be low on the
+  // same cycle.
+  logic f_pair_moved;
+  assign f_pair_moved = read_rs1 != f_prev_rs1 || read_rs2 != f_prev_rs2;
 
   // List every reason decode can stall. Miss one and the assertion below covers
   // a cycle where the pc is allowed to hold, then fails there instead of
@@ -216,7 +229,7 @@ module pcloop (
   // computed from values that had settled before it.
   logic [31:0] past_pc, prev_mtvec, prev_mepc;
   logic prev_reset, prev_may_stall, prev_hard_stall, prev_jump_branch, prev_uncompressed;
-  logic prev_trap_entry, prev_mret_entry, prev_fetch_stall;
+  logic prev_trap_entry, prev_mret_entry, prev_fetch_stall, prev_pair_moved;
   always_ff @(posedge clk) begin
     past_pc           <= pc;
     prev_reset        <= reset;
@@ -229,6 +242,7 @@ module pcloop (
     prev_mret_entry   <= mret_entry;
     prev_mtvec        <= mtvec;
     prev_mepc         <= mepc;
+    prev_pair_moved   <= f_pair_moved;
   end
 
   always_comb if (clocked && !reset) assert(fetcher_out.pc == pc);
@@ -245,12 +259,37 @@ module pcloop (
   // The increment goes through the real fetcher. rtl/decoder.v adds fetcher_pc,
   // not its own pc, and only the echo assertion above ties fetcher_pc back to
   // past_pc.
+  //
+  // The guard is a signal rather than written out twice because the two cover
+  // goals below have to sit on exactly it. A cover under a copy could be
+  // narrowed apart from the assertion and go on reporting that a cycle nobody
+  // checks any more is reachable.
+  logic f_increment_checked;
+  assign f_increment_checked =
+      clocked && !prev_reset && !prev_may_stall && !prev_jump_branch;
+
   always_ff @(posedge clk)
-    if (clocked && !prev_reset && !prev_may_stall && !prev_jump_branch)
+    if (f_increment_checked)
       assert(pc == past_pc + (prev_uncompressed ? 32'd4 : 32'd2));
 
   // pc_inc == (uncompressed ? 4 : 2) is not asserted here. It would just
   // restate rtl/decoder.v, whose own proof already pins both constants.
+
+  // Only cover mode looks at these; formal/pcloop_cover.sby is that run, and
+  // formal/Makefile makes it a prerequisite of the proof so neither can be run
+  // without the other.
+  //
+  // The first fails if any term of f_may_stall becomes universal -- an excuse
+  // that fires everywhere leaves the assertion above guarded by something
+  // always false and passing having asked nothing. The second fails if
+  // f_operand_fetch stops comparing what was presented against the pair the
+  // instruction decodes to, which is the one edit that would make the excuse
+  // near-universal without making it constant.
+  always_ff @(posedge clk)
+    if (f_increment_checked) begin
+      increment_reached: cover (1'b1);
+      increment_reached_on_moved_pair: cover (prev_pair_moved);
+    end
 
   always_ff @(posedge clk)
     if (clocked && prev_hard_stall && !prev_reset) assert(pc == past_pc);
