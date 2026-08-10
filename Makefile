@@ -58,7 +58,7 @@ endif
 # compiler. There is no `brew install sail-riscv`; homebrew's `sail` is an
 # unrelated WordPress tool.
 SAIL_SHA256_sail-riscv-Mac-arm64     := 53d0c6fd84edd898728e7ba01c1575e66e5f17efd098847c5273690abbbd0737
-SAIL_SHA256_sail-riscv-Linux-x86_64  := 0000000000000000000000000000000000000000000000000000000000000000
+SAIL_SHA256_sail-riscv-Linux-x86_64  := ee052f64494a2f5f071afd9c2cb4aa5eaae4ba84753e4f77e442b4f83f2e9469
 SAIL_SHA256_sail-riscv-Linux-aarch64 := 3cd33a323d6749aec4667e54f71d2bf8e8e6e220a4e4bafd9083440f9a7e55f0
 
 SAIL_ASSET_Darwin_arm64   := sail-riscv-Mac-arm64
