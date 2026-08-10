@@ -454,8 +454,6 @@ int main(int argc, char **argv) {
   top.step();
 
   for (long cycle = 0; cycle < args.cycles; ++cycle) {
-    if (cycle == 0)
-      top.p_reset.set(false);
     top.p_clk.set<bool>(false);
     top.step();
     // Sampled here, between the two edges, because these are combinational: with
@@ -485,6 +483,17 @@ int main(int argc, char **argv) {
     top.p_clk.set<bool>(true);
     top.step();
     sample(cycle * 2 + 1);
+
+    // Reset spans exactly one rising edge and is released after it, the shape
+    // test/testbench.v drives and rtl/littlesoc.v's power-on counter
+    // generalizes. Clearing the pin BEFORE the first edge instead runs no
+    // `if (reset)` in the design at all: the core starts from whatever its
+    // registers powered up with, a broken reset value is invisible here and red
+    // in every other leg, and only a stalled cycle re-reading the ROM hides it.
+    // Cycle 0 is that reset cycle and is counted like any other -- it is an edge
+    // the run took -- so `--stalls` charges it like any other stalled cycle.
+    if (cycle == 0)
+      top.p_reset.set(false);
 
     uint32_t errcode = monitor_errcode->curr[0] & 0xffff;
     if (errcode != 0) {
