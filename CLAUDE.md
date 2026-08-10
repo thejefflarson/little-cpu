@@ -274,6 +274,19 @@ and times.
   a duplicated negator inside a one-hot mux, and the multiplier's 33rd partial-product row in soft
   logic — worth −404 on `fit` and −400 placed cells together, with the period a null again and
   `ICESTORM_DSP` unmoved at 4 (ADR-0090).
+- **There are two loops around the fetch address, within 2 ns of each other**, which is why work
+  moved out of one arrives in the other at full price: `ROM RDATA → instr → rs1 → scoreboard → stall
+  → next_pc → ROM address`, and `accessor_out.rd_data → writeback → the regfile's write-through
+  bypass → branch comparator → next_pc → ROM address`. Both attacks on that pair are priced and
+  declined. Routing `stall` to the ROM's read-enable pin instead of into the address mux is a null in
+  both directions — −0.1% of median period, and the critical path ends *at* the enable (ADR-0091);
+  replacing the bypass with a fourth scoreboard slot costs **19.5% of suite cycles and 8.6% of
+  Dhrystone's** for −2.8% of median period, a product 5.1% worse in DMIPS (ADR-0092). The pair is no
+  better than either half. **A ceiling is perishable**: deleting the whole `stall` arm of `next_pc`
+  was worth −3.8% three merges ago and is a null on both bases measured since, so re-take one in the
+  tree you mean to spend it in. So is a CPI cost — the same fourth slot cost 15.8% of suite cycles
+  before the operand-fetch guess landed and 19.5% after, because the guess had been paying for part
+  of those stalls.
 - **Read logic levels apart**: a LUT level costs ~3.3 ns (delay plus interconnect), a carry hop
   ~0.34 ns and no interconnect. A change that trades a carry hop for a LUT level gets shallower by
   icetime's count and slower in nanoseconds. The SoC is routing-dominated; wide flat muxes route
