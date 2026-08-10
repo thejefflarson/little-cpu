@@ -88,7 +88,20 @@ pcloop_cover: pcloop_cover.sby pcloop.sv ../rtl/fetcher.v ../rtl/decoder.v ../rt
 # complete-exclusions is a prerequisite rather than a companion target: the
 # exclusion set is what makes this check passable at all, and checking it costs
 # milliseconds and fails before sby starts.
-complete:  complete.sby  complete.sv  arbiter.v complete-exclusions $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
+#
+# abc-engine is a prerequisite for the second half of that reason only. It grades
+# nothing about the design; it turns one toolchain failure into a sentence.
+complete:  complete.sby  complete.sv  arbiter.v complete-exclusions abc-engine $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
+
+# This is the only target whose engine is `abc bmc3`, and where yosys and sby
+# were installed separately they can disagree about the call sby's AIG build
+# makes. That dies on a command syntax error in a pass nobody here wrote, which
+# reads like a broken branch and has been diagnosed as local more than once. The
+# script says what it is, and can only add a failure: it exits 0 unless this
+# yosys really refuses the call this sby is going to make.
+.PHONY: abc-engine
+abc-engine: check-abc-engine.sh
+	@./$<
 
 # The anti-vacuity control for the line above, over the same complete.sv: every
 # opcode class the exclusion set does not name must be reachable as a real
