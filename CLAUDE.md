@@ -354,7 +354,8 @@ make -C formal check                # the generated riscv-formal checks; always 
 make -C formal check-baseline       # re-grade a finished run without re-running
 make -C formal components_decoder   # component proofs by k-induction (mode prove):
 make -C formal components_executor  #   read the sby summaries, not the job colour
-make -C formal components_pcloop
+make -C formal components_pcloop    #   pcloop runs pcloop_cover first, its anti-vacuity
+                                    #   control, as a prerequisite of the same target
 make -C formal components_traps     #   traps is the only proof over real mtvec/mepc/mcause/mstatus
 make -C formal complete             # depth-50 whole-ISA walk minus COMPLETE_EXCLUSIONS
 make -C formal complete_cover       # its anti-vacuity control

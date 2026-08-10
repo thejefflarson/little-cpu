@@ -46,6 +46,7 @@ formal/dmemcheck
 formal/imemcheck
 formal/components_*
 formal/components
+formal/pcloop_cover
 test/rtl.cc
 test/monitor.sim.v
 *.vvp

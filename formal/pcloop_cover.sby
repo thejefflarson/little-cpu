@@ -1,0 +1,57 @@
+# The anti-vacuity control for components.sby's `pcloop` task, and it reads the
+# SAME pcloop.sv.
+#
+# That task's increment assertion -- the pc steps by 4 or 2 -- is guarded by
+# `!f_may_stall`, and one term of that OR is `f_operand_fetch`, which excuses the
+# pc from advancing on a cycle the register file was asked for a pair the
+# instruction in decode does not read. The excuse is correct. What it cannot
+# defend itself against is a later edit that makes it fire everywhere: decode
+# presents a guess at the next instruction's pair on an issuing cycle, so an
+# f_operand_fetch built from two registered copies of that guess would be true on
+# nearly every issuing cycle, and the proof would stay green having stopped
+# asking.
+#
+# So this task takes the same harness and asks the opposite question. sby's
+# `mode cover` strips the assertions and keeps the assumes, so what runs here is:
+# find a trace that reaches the increment assertion's guard, and one that reaches
+# it on a cycle where the pair presented had moved. The second is unreachable if
+# the excuse ever stops comparing against the decoded pair, because such an
+# excuse IS the moved-pair term.
+#
+# It is a separate .sby rather than a task inside components.sby because that
+# file sets `all: mode prove`, and a cover task would have to override an option
+# every other task there wants. formal/Makefile makes this a prerequisite of
+# `components_pcloop`, which is what stops the control from rotting apart from
+# the proof it controls.
+#
+# ENGINE: smtbmc boolector, the same solver components.sby had to pick for
+# pcloop -- the default yices sat in that task's basecase for over fourteen
+# minutes on this tree.
+#
+# DEPTH 30 is a HEADROOM number rather than a measured floor. Measured, both
+# goals are reached at step 4 and the task returns in about a second. The bound
+# is left well clear of that because the cheap failure mode is a goal that
+# becomes reachable only slightly later after some future pipeline change, which
+# would read as "unreachable" -- i.e. as an excuse that had swallowed every
+# issuing cycle -- and send the next reader hunting the wrong thing.
+
+[options]
+mode cover
+depth 30
+
+[engines]
+smtbmc boolector
+
+[script]
+# Read WITHOUT -formal, for the reason components.sby's pcloop task states: with
+# it, rtl/decoder.v's own `assume(in.pc == pc)` compiles into the instance and
+# the harness assumes what it exists to check.
+read -sv structs.v fetcher.v decoder.v
+read -sv -formal structs.v pcloop.sv
+prep -top pcloop
+
+[files]
+../rtl/fetcher.v
+../rtl/decoder.v
+../rtl/structs.v
+pcloop.sv

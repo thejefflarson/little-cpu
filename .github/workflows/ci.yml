@@ -131,7 +131,13 @@ jobs:
       - name: Decoder component proof
         run: make -C formal components_decoder
 
-      - name: Fetcher/decoder PC-loop proof
+      # This one make also runs formal/pcloop_cover.sby, which is a prerequisite
+      # of the target rather than a step of its own. That task is the proof's
+      # anti-vacuity control: the increment assertion is excused on an
+      # operand-fetch cycle, and an excuse widened until it covers every issuing
+      # cycle would leave the assertion asking nothing. Wiring it as a
+      # prerequisite is what stops the two from being run apart.
+      - name: Fetcher/decoder PC-loop proof (+ its anti-vacuity cover)
         run: make -C formal components_pcloop
 
       - name: Trap commit proof
