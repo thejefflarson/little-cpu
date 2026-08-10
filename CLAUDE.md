@@ -22,8 +22,12 @@ Three habits carry the goals:
   **1.1% of Dhrystone's**, +26 cells and a median period inside the churn band (ADR-0089). **A margin
   that declines a change is a measurement with a date on it**: the 0.83% that declined this one was
   re-derived twice against two later trees whose own worst placements were 2.08% and 4.75%, so
-  neither the number nor the verdict travelled. The version that guesses a *compressed* successor
-  too is the one that misses 12 MHz, and it stays declined.
+  neither the number nor the verdict travelled. The version that decodes a *compressed* successor
+  lost a placement outright at 11.56 MHz and was declined on it; re-measured after ~490 cells came
+  out of the SoC it lost none of ten and bought **16.3% of Dhrystone's cycles**, so it ships
+  (ADR-0093). Occupancy moved in the direction the outcome moved, but the datapath and the toolchain
+  moved too — what is claimed is that the decline did not survive re-measurement, not that
+  congestion was the cause.
 - **Prove the property, then spend it.** Find a place the design pays for a property it already
   proves — a priority chain over proven-disjoint flags, a comparator that cannot differ — simplify
   it, and let the riscv-formal checks, the component proofs and the `.S` suite say whether the
@@ -58,10 +62,10 @@ are kept in parentheses so those references still resolve.
   no reorder buffer. It stands on ADR-0067's ruling that the bus never refuses a transaction.
 - **Every inter-stage struct carries a `valid` bit** (3). A bubble is `valid = 0`; retire is
   `valid` reaching writeback, which gates `wen` and drives `rvfi_valid`.
-- **Hazards are stall-only** (4). No forwarding network, and 34.0% of suite cycles is what that
-  costs — **16.5% on Dhrystone, and the two are not separable from the operand-fetch cycle in either**
-  (ADR-0084): a cycle that is both is charged to the scoreboard, which is why removing two thirds of
-  the suite's operand column moved the scoreboard column *up* by 466 cycles (ADR-0089). Read 34.0%
+- **Hazards are stall-only** (4). No forwarding network, and 35.1% of suite cycles is what that
+  costs — **19.8% on Dhrystone, and the two are not separable from the operand-fetch cycle in either**
+  (ADR-0084): a cycle that is both is charged to the scoreboard, which is why removing most of the
+  operand column moved the scoreboard column *up* (ADR-0089, ADR-0093). Read 35.1%
   as an upper bound on one workload, never as the prize.
   Both spellings were built and measured (ADR-0083): forwarding the executor's result to every
   operand reader buys 12.9% of cycles and misses 12 MHz outright at 9.49, and confining it to the
@@ -81,9 +85,11 @@ are kept in parentheses so those references still resolve.
   was presented is not what the instruction reads, then issues — and in the issue cycle observes the
   architectural value of rs1/rs2 *including a writeback committed that same cycle*, via two fabric
   forwarding points (write-first into the read register, then the write-through bypass). What it
-  presents on an issuing cycle is a **guess at the next instruction's pair**, read flat out of the
-  fetch window's successor word (ADR-0089), so the pair presented and the pair being read are
-  deliberately different signals there. The bypass selects on a **registered copy** of the address
+  presents on an issuing cycle is a **guess at the next instruction's pair**, mapped out of the
+  fetch window's successor word by `rtl/regsel.v` — the same mapping the issuing instruction goes
+  through, instantiated twice, so a compressed successor is decoded rather than masked away
+  (ADR-0089, ADR-0093). The pair presented and the pair being read are deliberately different
+  signals there. The bypass selects on a **registered copy** of the address
   pair and is correct because `operand_stall` lets nothing issue until the held pair is the pair the
   issuing instruction reads (ADR-0064 as amended by ADR-0089) — narrowing `operand_stall` breaks it
   with nothing to say so except two `test/regfile_tb.v` vectors and `reg_ch0`. Touching
@@ -228,11 +234,11 @@ and times.
   period — and 12 is already met. A few-percent idea can be read against 41.67 ns and declined in a
   minute, instead of after four placements (ADR-0078).
 - **`make dhrystone` is the only figure comparable to another project's**, and it is quoted in
-  DMIPS/MHz because that is what the field publishes. 0.535 at `-O2`, 3568 bytes of the SoC's 8 KB
-  ROM (ADR-0084). Dhrystone is string-dominated and the optimiser can delete part of the work, so
+  DMIPS/MHz because that is what the field publishes. 0.640 at `-O2`, 3568 bytes of the SoC's 8 KB
+  ROM (ADR-0084, ADR-0093). Dhrystone is string-dominated and the optimiser can delete part of the work, so
   **the flags, the compiler and the string library travel with the number** — the program prints all
   three and will not compile without them. It is not a gate and adds no ratchet. **Quote the
-  absolute figure with it**: 6.42 DMIPS at the board's 12 MHz, because Fmax above the requirement is
+  absolute figure with it**: 7.68 DMIPS at the board's 12 MHz, because Fmax above the requirement is
   margin and not speed, so a CPI win converts to throughput and a placement that closes higher does
   not (ADR-0089).
 - **The only cross-core comparison that means anything is one harness**, and `soc/compare/` is it:
