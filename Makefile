@@ -425,9 +425,17 @@ compare-geometry-test:
 window-test:
 	@./test/window_test.sh
 
+# Drives formal/check-abc-engine.sh both ways against a stub yosys and a stub
+# sby. Hangs off `test` like the other bash checks -- it is bash and two stubs,
+# so it runs anywhere -- and it has to, because the diagnostic it covers only
+# ever speaks on a machine that cannot run `make -C formal complete` at all.
+.PHONY: abc-engine-test
+abc-engine-test:
+	@./formal/test-abc-engine.sh
+
 .PHONY: test
 test: sim test-units probe-gates pin-bump-test tool-cache-test memmap-test \
-      compare-geometry-test window-test
+      compare-geometry-test window-test abc-engine-test
 	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 # The same suite `make test` runs, with the runner charging every cycle to the
