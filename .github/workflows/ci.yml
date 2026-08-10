@@ -108,6 +108,88 @@ jobs:
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
 
+  # The only oracle here that reads the core's real register array instead of
+  # the core's own report of what it retired. Every other leg evaluates a spec
+  # model on rvfi_*, so a core that mis-reports a value and computes with that
+  # same mis-reported value satisfies all of them and this one alone objects.
+  #
+  # A job of its own, and not a step of `test`: it needs a network fetch none of
+  # the other jobs do, and a red result here has to read as "co-sim", not as a
+  # suite failure. Nothing on `make test`'s path reaches any of it.
+  cosim:
+    name: cosim
+    runs-on: little-cpu-runners
+    timeout-minutes: 15
+    steps:
+      - name: Record job start
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Verify the toolchain is present in the runner image
+        uses: ./.github/actions/verify-toolchain
+        with:
+          tools: riscv64-unknown-elf-gcc clang++
+
+      - name: Set up OSS CAD Suite
+        uses: ./.github/actions/setup-oss-cad-suite
+
+      # Read out of the Makefile rather than written here, so the key names the
+      # bytes the Makefile pins and cannot go on naming an older set.
+      - name: Resolve the Sail pin and the directory the fetch is cached in
+        id: pin
+        run: |
+          set -euo pipefail
+          make sail-pin > "$RUNNER_TEMP/sail-pin.txt"
+          cat "$RUNNER_TEMP/sail-pin.txt"
+          grep -E '^(key|path)=' "$RUNNER_TEMP/sail-pin.txt" >> "$GITHUB_OUTPUT"
+
+      # What is cached is the release tarball, not the unpacked tree, so the
+      # restored bytes still have to meet the Makefile's SHA-256 in the run that
+      # executes what comes out of them. A cache of the tree would put a binary
+      # on PATH that met no checksum here at all.
+      - name: Restore the pinned sail-riscv tarball
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.pin.outputs.path }}
+          key: ${{ steps.pin.outputs.key }}
+
+      - name: make sail-setup
+        run: make sail-setup
+
+      - name: make cosim-suite
+        # Redirected rather than piped -- see the `fit` job for why. What is
+        # graded is test/run_cosim.sh's exit status: the divergence set against
+        # test/COSIM_EXPECTED_FAIL under set equality in both directions, so an
+        # unexpected agreement is as red as an unexpected divergence.
+        run: |
+          set +e
+          make cosim-suite > "$RUNNER_TEMP/cosim.txt" 2>&1
+          status=$?
+          set -e
+          cat "$RUNNER_TEMP/cosim.txt"
+          {
+            echo "### co-simulation vs test/COSIM_EXPECTED_FAIL"
+            echo '```'
+            cat "$RUNNER_TEMP/cosim.txt"
+            echo '```'
+            echo "Each program's real register file against RISC-V International's"
+            echo "executable specification. No rvfi_* signal is read on either"
+            echo "side. It covers the programs it is given and nothing else, and"
+            echo "the two baselined entries are the machine timer, which the"
+            echo "reference model cannot express."
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      - name: Report job wall time
+        if: always()
+        run: |
+          elapsed=$(( $(date +%s) - JOB_START ))
+          {
+            echo "### cosim"
+            echo "wall time: ${elapsed}s"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   # Every task in formal/components.sby needs a step here or it runs nowhere.
   # The standalone decoder proof assumes its pc input is what it last produced,
   # and components_pcloop is what discharges that, so the decoder task's result

@@ -2,7 +2,8 @@
 # Asserts that the downloaded tools land somewhere every checkout can reach,
 # and that the two files which independently compute that location still agree.
 #
-# Usage: tool_cache_test.sh <sail-dir> <svlint-dir>   # the Makefile's values
+# Usage: tool_cache_test.sh <sail-dir> <svlint-dir> <sail-download-dir>
+#        # the Makefile's values
 #
 # WHY THIS EXISTS. `make sail-setup` used to unpack into the gitignored
 # `tools/sail`. A git worktree is given tracked files only, so the install was
@@ -24,13 +25,14 @@
 # inside `make test` anywhere that already ran.
 set -euo pipefail
 
-if [ "$#" -ne 2 ]; then
-  echo "usage: tool_cache_test.sh <sail-dir> <svlint-dir>" >&2
+if [ "$#" -ne 3 ]; then
+  echo "usage: tool_cache_test.sh <sail-dir> <svlint-dir> <sail-download-dir>" >&2
   exit 1
 fi
 
 MAKE_SAIL_DIR=$1
 MAKE_SVLINT_DIR=$2
+MAKE_SAIL_DOWNLOAD_DIR=$3
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/.." && pwd)
 
@@ -95,6 +97,10 @@ outside_checkout() {
 outside_checkout Makefile "$MAKE_SAIL_DIR"
 outside_checkout test/cosim.py "$py_sail_dir"
 outside_checkout Makefile "$MAKE_SVLINT_DIR"
+# The kept release tarball is a downloaded tool too, and CI caches that
+# directory by name. Inside the checkout it would be gitignored, invisible from
+# every worktree, and swept up by whatever cleans the tree between jobs.
+outside_checkout Makefile "$MAKE_SAIL_DOWNLOAD_DIR"
 
 if [ "$rc" -ne 0 ]; then
   exit 1
