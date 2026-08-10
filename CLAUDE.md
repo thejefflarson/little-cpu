@@ -292,7 +292,15 @@ and times.
   edits that each do state such a fact are worth nothing, and the ceilings say why — the immediate
   mux is 101 LUTs deleted whole, the compressed decode 253, and deleting the fetch window's
   upper-half mask *costs* 13 because ABC had already folded it away (ADR-0094). That block is
-  closed; read the ceilings before reopening it.
+  closed; read the ceilings before reopening it. So are `rtl/csrs.v`, `rtl/regfile.v` and the SoC's
+  read-back bus, on six more ceilings: the CSR file is 727 LUTs whole and 340 of that is the two
+  counters RV32 M-mode mandates, its WARL write mux and every legal-value mask together are worth
+  **one**, the register file's write-through bypass is 31 and all its fabric 133, and `mem_rdata`'s
+  three-source OR is at the two-LUT floor its six inputs set — an XOR in its place *costs* 19
+  (ADR-0096). **A conditional increment on this fabric is a clock enable, not a mux**: `en ? x + 1 : x`
+  is 128 `SB_DFFESR` and no logic, and riding the adder's carry-in instead frees three cells, moves
+  those flops to `SB_DFFSR` and misses 12 MHz at six placements out of six. Read the `SB_DFFE*` census
+  before believing a LUT count, and sweep seeds even for a candidate that is a null on area.
 - **There are two loops around the fetch address, within 2 ns of each other**, which is why work
   moved out of one arrives in the other at full price: `ROM RDATA → instr → rs1 → scoreboard → stall
   → next_pc → ROM address`, and `accessor_out.rd_data → writeback → the regfile's write-through
