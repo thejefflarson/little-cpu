@@ -20,6 +20,7 @@ read_verilog -sv fetcher.v
 read_verilog -sv regfile.v
 read_verilog -sv csrs.v
 read_verilog -sv decoder.v
+read_verilog -sv regsel.v
 read_verilog -sv executor.v
 read_verilog -sv accessor.v
 read_verilog -sv writeback.v
@@ -43,6 +44,7 @@ complete.sv
 ../rtl/regfile.v
 ../rtl/csrs.v
 ../rtl/decoder.v
+../rtl/regsel.v
 ../rtl/executor.v
 ../rtl/accessor.v
 ../rtl/writeback.v

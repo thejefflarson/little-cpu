@@ -88,18 +88,15 @@ module decoder (
   // than read inside the always_comb blocks below: iverilog cannot work out a
   // precise sensitivity list for a bit-select taken inside one, and warns. Use a
   // continuous assign for any field read added later.
-  logic [4:0] rd_field, rs1_field, rs2_field;
+  logic [4:0] rd_field, rs1_field;
   assign rd_field  = instr[11:7];
   assign rs1_field = instr[19:15];
-  assign rs2_field = instr[24:20];
 
   // Compressed encodings (Ch. 16). instr[11:7] doubles as rd/rs1 in CI/CR
   // formats, so `rd_field` is reused there rather than aliased.
   logic [2:0] c_rd_rs1_prime, c_rs2_prime;
-  logic [4:0] c_rs2_field;
   assign c_rd_rs1_prime = instr[9:7];
   assign c_rs2_prime    = instr[4:2];
-  assign c_rs2_field    = instr[6:2];
   logic [31:0] fetcher_pc;
   assign fetcher_pc = in.pc;
   // instruction decoder (figure 2.3)
@@ -439,29 +436,15 @@ module decoder (
     endcase
   end // always_comb
 
-  always_comb begin
-    (* parallel_case, full_case *)
-    case (1'b1)
-      instr_clwsp || instr_cswsp || instr_caddi4spn: rs1 = 2;
-      instr_clw || instr_csw || instr_cbeqz || instr_cbnez ||
-        instr_csrai || instr_csrli || instr_candi || instr_cand ||
-        instr_cor || instr_cxor || instr_csub: rs1 = {2'b01, c_rd_rs1_prime};
-      instr_cjr || instr_cjalr || instr_cslli: rs1 = rd_field;
-      instr_cli || instr_cmv: rs1 = 0;
-      instr_caddi || instr_caddi16sp || instr_cadd: rs1 = rd_field;
-      default: rs1 = rs1_field;
-    endcase // case (1'b1)
-  end
+  // The pair this instruction names, and the pair the word after it names. Two
+  // instances of one mapping: the guess below is checked against the decoded
+  // pair, so two copies that disagreed would cost a cycle for a reason no
+  // oracle here reports. Both take a raw fetched word -- rtl/regsel.v masks a
+  // compressed one itself, so `instr` above is not the input here.
+  logic [4:0] next_rs1, next_rs2;
+  regsel current_regs (.word(in.instr), .rs1(rs1), .rs2(rs2));
+  regsel next_regs (.word(in.next_instr), .rs1(next_rs1), .rs2(next_rs2));
 
-  always_comb begin
-    (* parallel_case, full_case *)
-    case(1'b1)
-      instr_cswsp || instr_cslli || instr_csrai || instr_csrli || instr_cmv || instr_cadd: rs2 = c_rs2_field;
-      instr_csw || instr_cand || instr_cor || instr_cxor || instr_csub: rs2 = {2'b01, c_rs2_prime};
-      instr_cbeqz || instr_cbnez: rs2 = 0;
-      default: rs2 = rs2_field;
-    endcase
-  end
   // ALU handling
   logic instr_math, instr_shift;
   assign instr_math = instr_add || instr_sub || instr_sll || instr_slt || instr_sltu || instr_xor || instr_srl ||
@@ -564,10 +547,11 @@ module decoder (
   // writes `out` below is where they differ.
   assign stall = hazard || operand_stall || divider_stall || accessor_stall || fetch_stall;
 
-  // On a cycle that issues, ask for the NEXT instruction's pair. The guess reads
-  // the uncompressed field positions flat out of the fetch window's successor
-  // word, so a compressed successor comes out as x0/x0 and misses, and so does
-  // everything after a redirect. `operand_stall` above is the check.
+  // On a cycle that issues, ask for the NEXT instruction's pair. The guess runs
+  // the fetch window's successor word through the same register-number mapping
+  // this instruction went through, so a compressed successor is guessed as
+  // accurately as an uncompressed one; what still misses is everything after a
+  // redirect. `operand_stall` above is the check.
   //
   // A stalled cycle asks for the current instruction's own pair instead. The pc
   // holds while stalled, so the same instruction comes back; guess there too and
@@ -580,8 +564,8 @@ module decoder (
   // is right because nothing issues until the held pair is the pair the issuing
   // instruction reads -- not because the held pair is the presented pair, which
   // it deliberately is not on an issuing cycle.
-  assign read_rs1 = stall ? rs1 : in.next_instr[19:15];
-  assign read_rs2 = stall ? rs2 : in.next_instr[24:20];
+  assign read_rs1 = stall ? rs1 : next_rs1;
+  assign read_rs2 = stall ? rs2 : next_rs2;
 
   // All six branch tests come from one subtraction. Unsigned less-than is the
   // borrow out; signed less-than is the same fact except when the operands'
@@ -897,13 +881,14 @@ module decoder (
 
   always_comb if (instr_valid) assert(one_of);
 
-  // Five case statements above are marked one-hot for synthesis, and the check
+  // Three case statements above are marked one-hot for synthesis, and the check
   // just above does not reach them -- their arms are opcode groups and
   // compressed flags, which it does not name. Each assertion below is one of
   // those arm lists. Without it an encoding change that made two arms match at
   // once would leave synthesis free to pick either, and nothing would say so.
   // Each list is transcribed, not shared with the statement it describes, so
-  // adding an arm to one means adding it here too.
+  // adding an arm to one means adding it here too. The two marked statements
+  // that pick register numbers moved to rtl/regsel.v and carry their own.
   // immediate
   always_comb assert($onehot0({instr_load_op || instr_jalr_op, instr_store_op,
     instr_lui_op || instr_auipc, instr_jal_op, instr_branch_op, instr_math_immediate_op,
@@ -918,20 +903,6 @@ module decoder (
     instr_clw || instr_caddi4spn,
     instr_csrai || instr_csrli || instr_candi || instr_cand ||
       instr_cor || instr_cxor || instr_csub}));
-  // rs1
-  always_comb assert($onehot0({
-    instr_clwsp || instr_cswsp || instr_caddi4spn,
-    instr_clw || instr_csw || instr_cbeqz || instr_cbnez ||
-      instr_csrai || instr_csrli || instr_candi || instr_cand ||
-      instr_cor || instr_cxor || instr_csub,
-    instr_cjr || instr_cjalr || instr_cslli,
-    instr_cli || instr_cmv,
-    instr_caddi || instr_caddi16sp || instr_cadd}));
-  // rs2
-  always_comb assert($onehot0({
-    instr_cswsp || instr_cslli || instr_csrai || instr_csrli || instr_cmv || instr_cadd,
-    instr_csw || instr_cand || instr_cor || instr_cxor || instr_csub,
-    instr_cbeqz || instr_cbnez}));
   // the operand overrides in the publish block
   always_comb assert($onehot0({instr_auipc, instr_csr_access, instr_jal || instr_jalr,
     instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu}));

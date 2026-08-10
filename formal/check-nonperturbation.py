@@ -97,6 +97,7 @@ RTL = [
     "regfile.v",
     "csrs.v",
     "decoder.v",
+    "regsel.v",
     "executor.v",
     "accessor.v",
     "writeback.v",

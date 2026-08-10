@@ -13,8 +13,8 @@ rvfi_macros.vh: $(RISCV_FORMAL_DIR)/checks/rvfi_macros.py
 # landed, and spent a run elaborating a testbench whose memories were not there.
 # That job calls `make elaborate-strict` now, so there is one list to update.
 SIM_RTL_SRCS := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v \
-                rtl/fetcher.v rtl/imemory.v rtl/memory.v rtl/regfile.v rtl/timer.v \
-                rtl/writeback.v rtl/littlecpu.v
+                rtl/fetcher.v rtl/imemory.v rtl/memory.v rtl/regfile.v rtl/regsel.v \
+                rtl/timer.v rtl/writeback.v rtl/littlecpu.v
 
 testbench.vvp: $(SIM_RTL_SRCS) rvfi_macros.vh test/testbench.v test/monitor.sim.v
 	iverilog -I./rtl/ -DICARUS $(addprefix -D,$(RISCV_FORMAL_MACROS)) -g2012 -o $@ $^
@@ -320,7 +320,7 @@ UNIT_BENCHES := exec_tb mem_tb imem_tb decoder_tb regfile_tb csr_tb accessor_tb 
 UNIT_BENCH_SRC_exec_tb     := rtl/structs.v rtl/executor.v
 UNIT_BENCH_SRC_mem_tb      := rtl/memory.v
 UNIT_BENCH_SRC_imem_tb     := rtl/imemory.v
-UNIT_BENCH_SRC_decoder_tb  := rtl/structs.v rtl/decoder.v
+UNIT_BENCH_SRC_decoder_tb  := rtl/structs.v rtl/decoder.v rtl/regsel.v
 UNIT_BENCH_SRC_regfile_tb  := rtl/regfile.v
 UNIT_BENCH_SRC_csr_tb      := rtl/structs.v rtl/csrs.v
 UNIT_BENCH_SRC_accessor_tb := rtl/structs.v rtl/accessor.v
@@ -488,7 +488,7 @@ dhrystone: sim
 # far, and that table is the number we want. Making it place would mean picking
 # real pins, which means building the SoC memory first.
 FIT_SRCS := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v \
-            rtl/fetcher.v rtl/regfile.v rtl/writeback.v rtl/littlecpu.v
+            rtl/fetcher.v rtl/regfile.v rtl/regsel.v rtl/writeback.v rtl/littlecpu.v
 
 fit.json: $(FIT_SRCS)
 	@echo 'yosys: synthesising littlecpu for ice40 (log: fit.synth.log)'
@@ -530,7 +530,7 @@ SOC_EXPECT_EBR   := 20
 
 SOC_SRCS      := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v \
                  rtl/executor.v rtl/fetcher.v rtl/imemory.v rtl/memory.v \
-                 rtl/regfile.v rtl/timer.v rtl/writeback.v rtl/littlecpu.v \
+                 rtl/regfile.v rtl/regsel.v rtl/timer.v rtl/writeback.v rtl/littlecpu.v \
                  rtl/littlesoc.v
 
 # PHONY so `soc.json` resynthesises every run: the image depends on SOC_PROG,
