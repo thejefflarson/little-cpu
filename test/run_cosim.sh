@@ -5,12 +5,15 @@
 #
 # Usage: run_cosim.sh <cosim-binary> <asm-dir> <expected-fail-file> <manifest>
 #
-# Deliberately NOT on `make test`'s path and not in the set CI requires: it needs
-# a Sail install, and the merge gate has to keep working on machines without one.
-# It is also the only oracle here that reads the core's real register array
-# instead of the core's own report of what it retired, so a change to
-# rtl/regfile.v is checked against it by carrying this output in the pull
-# request rather than by a gate.
+# Deliberately NOT on `make test`'s path: it needs a Sail install and `make test`
+# has to keep working on machines without one. CI requires it all the same, in a
+# job of its own that fetches Sail at a verified digest first -- so it gates
+# without being a prerequisite of anything, and a red result here reads as
+# co-simulation rather than as a suite failure.
+#
+# It is the only oracle here that reads the core's real register array instead of
+# the core's own report of what it retired, which is what a change to
+# rtl/regfile.v is checked against.
 #
 # The guards below are run_tests.sh's, against the same false green: a run that
 # reports success having compared nothing.

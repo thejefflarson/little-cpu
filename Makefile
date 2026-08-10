@@ -37,10 +37,11 @@ sim: test/cxxrtl.cc test/rtl.cc
 # rule, and test/tool_cache_test.sh is what says the two still agree.
 TOOL_CACHE := $(if $(XDG_CACHE_HOME),$(XDG_CACHE_HOME),$(HOME)/.cache)/little-cpu
 
-# Sail co-simulation is opt-in. Nothing from here down to `cosim-suite` is
-# reachable from `make test` or `make test-units`. Keep it that way: the runner
-# stops with an error when Sail is not installed, so making any of this a
-# prerequisite would break the merge gate on every machine without it.
+# Nothing from here down to `cosim-suite` is reachable from `make test` or
+# `make test-units`. Keep it that way now that CI requires co-simulation: it is
+# a job of its own that fetches Sail first, so `make test` still runs on a
+# machine without Sail, and a divergence reads as co-sim rather than as a suite
+# failure.
 ifneq ($(filter command line environment,$(origin SAIL_RISCV_VERSION)),)
 $(error SAIL_RISCV_VERSION cannot be set from the command line or the \
   environment: it pins bytes this repo executes. Change it in the Makefile, \
@@ -71,6 +72,14 @@ SAIL_SHA256    := $(SAIL_SHA256_$(SAIL_ASSET))
 
 SAIL_STAMP := $(SAIL_RISCV_DIR)/.sail-pin
 SAIL_PIN   := $(SAIL_RISCV_VERSION) $(SAIL_ASSET) $(SAIL_SHA256)
+
+# The verified tarball is kept rather than deleted, so a CI cache can hold the
+# fetch without holding anything executable. A cache of the unpacked tree would
+# restore a binary that met no checksum in the run that executes it; a cache of
+# the tarball meets the digest below on every run, hit or miss.
+SAIL_DOWNLOAD_DIR := $(TOOL_CACHE)/download
+SAIL_TARBALL      := $(SAIL_DOWNLOAD_DIR)/$(SAIL_ASSET)-$(SAIL_RISCV_VERSION).tar.gz
+SAIL_CACHE_KEY    := sail-$(SAIL_RISCV_VERSION)-$(SAIL_ASSET)-$(SAIL_SHA256)
 
 # Only for the goals that run the binary. If this check could stop `make test`,
 # an out-of-date tools/sail would break the merge gate for everyone.
@@ -121,39 +130,55 @@ sail-setup:
 	  echo "sail-riscv $(SAIL_RISCV_VERSION) already verified in $(SAIL_RISCV_DIR)"; \
 	  exit 0; \
 	fi; \
-	url=https://github.com/riscv/sail-riscv/releases/download/$(SAIL_RISCV_VERSION)/$(SAIL_ASSET).tar.gz; \
-	mkdir -p '$(TOOL_CACHE)'; \
-	tmp=$$(mktemp -d '$(SAIL_RISCV_DIR)'.XXXXXX); tgz=$$tmp/$(SAIL_ASSET).tar.gz; \
-	echo "fetching $$url"; \
-	curl -fsSL -o $$tgz "$$url"; \
-	got=$$($$sha $$tgz | cut -d ' ' -f 1); \
+	mkdir -p '$(SAIL_DOWNLOAD_DIR)'; \
+	tgz='$(SAIL_TARBALL)'; \
+	if [ -f "$$tgz" ]; then \
+	  echo "using the tarball already in $(SAIL_DOWNLOAD_DIR)"; \
+	else \
+	  url=https://github.com/riscv/sail-riscv/releases/download/$(SAIL_RISCV_VERSION)/$(SAIL_ASSET).tar.gz; \
+	  echo "fetching $$url"; \
+	  curl -fsSL -o "$$tgz".part "$$url"; \
+	  mv "$$tgz".part "$$tgz"; \
+	fi; \
+	got=$$($$sha "$$tgz" | cut -d ' ' -f 1); \
 	if [ "$$got" != '$(SAIL_SHA256)' ]; then \
 	  echo "sail-riscv tarball SHA-256 MISMATCH -- refusing to extract:" >&2; \
 	  echo "  asset    : $(SAIL_ASSET).tar.gz at $(SAIL_RISCV_VERSION)" >&2; \
 	  echo "  expected : $(SAIL_SHA256)" >&2; \
 	  echo "  actual   : $$got" >&2; \
-	  rm -rf $$tmp; \
+	  echo "  tarball  : $$tgz (removed)" >&2; \
+	  rm -f "$$tgz"; \
 	  exit 1; \
 	fi; \
 	echo "sha256 ok: $$got"; \
-	tar tzf $$tgz | awk -v top='$(SAIL_ASSET)/' ' \
+	tmp=$$(mktemp -d '$(SAIL_RISCV_DIR)'.XXXXXX); \
+	tar tzf "$$tgz" | awk -v top='$(SAIL_ASSET)/' ' \
 	  index($$0, top) != 1 { print "member outside " top ": " $$0 > "/dev/stderr"; bad = 1 } \
 	  /(^|\/)\.\.(\/|$$)/  { print "traversal in member: " $$0 > "/dev/stderr"; bad = 1 } \
 	  END { exit bad ? 1 : 0 }' \
 	  || { echo "refusing to extract $(SAIL_ASSET).tar.gz" >&2; rm -rf $$tmp; exit 1; }; \
-	tar tvzf $$tgz | awk ' \
+	tar tvzf "$$tgz" | awk ' \
 	  substr($$1, 1, 1) !~ /^[-d]$$/ { print "not a file or directory: " $$0 > "/dev/stderr"; bad = 1 } \
 	  END { exit bad ? 1 : 0 }' \
 	  || { echo "refusing to extract $(SAIL_ASSET).tar.gz" >&2; rm -rf $$tmp; exit 1; }; \
-	tar xzf $$tgz -C $$tmp --strip-components=1 \
+	tar xzf "$$tgz" -C $$tmp --strip-components=1 \
 	  --no-same-owner --no-same-permissions; \
-	rm -f $$tgz; \
 	test -x $$tmp/bin/sail_riscv_sim; \
 	printf '%s\n' '$(SAIL_PIN)' > $$tmp/.sail-pin; \
 	$$sha $$tmp/bin/sail_riscv_sim | cut -d ' ' -f 1 >> $$tmp/.sail-pin; \
 	rm -rf '$(SAIL_RISCV_DIR)'; \
 	mv $$tmp '$(SAIL_RISCV_DIR)'
 	@'$(SAIL_SIM_BIN)' --version
+
+# Where the fetch is cached and under what key, read out of here rather than
+# spelled out in the workflow, so a cache key cannot go on naming bytes the pin
+# no longer has. `name=value` lines because a workflow step appends them to
+# $GITHUB_OUTPUT; test/probe_gates.sh seeds its fixture from the third.
+.PHONY: sail-pin
+sail-pin:
+	@printf 'key=%s\n' '$(SAIL_CACHE_KEY)'
+	@printf 'path=%s\n' '$(SAIL_DOWNLOAD_DIR)'
+	@printf 'tarball=%s\n' '$(SAIL_TARBALL)'
 
 cosim: test/cosim.cc test/rtl.cc
 	clang++ -O2 -DNDEBUG -std=c++17 -Wall -Wextra -Werror \
@@ -392,12 +417,12 @@ probe-gates:
 pin-bump-test:
 	@./formal/test-propose-pin-bump.sh
 
-# Reads the two directories this file resolves and checks them against
+# Reads the three directories this file resolves and checks them against
 # test/cosim.py's. Hangs off `test` like the other bash checks: python3 and a
 # shell, no cross compiler, no Sail, no yosys.
 .PHONY: tool-cache-test
 tool-cache-test:
-	@./test/tool_cache_test.sh '$(SAIL_RISCV_DIR)' '$(SVLINT_DIR)'
+	@./test/tool_cache_test.sh '$(SAIL_RISCV_DIR)' '$(SVLINT_DIR)' '$(SAIL_DOWNLOAD_DIR)'
 
 # Compares every file that describes the memory map against the RTL that
 # implements it. Hangs off `test` like the other bash checks -- grep and sed, no

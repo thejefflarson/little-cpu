@@ -36,8 +36,8 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0029](0029-mtvec-resets-to-zero-and-a-pre-handler-trap-is-loud.md) | `mtvec` resets to zero, and a pre-handler trap is made loud | Accepted |
 | [0030](0030-trap-cause-priority-and-why-the-causes-are-disjoint.md) | Trap cause priority, and why the causes are disjoint | Accepted |
 | [0031](0031-the-vendored-genchecks-copy-tracks-the-pin.md) | The vendored `genchecks` copy tracks the pin, and only `basedir` differs | Accepted |
-| [0032](0032-sail-co-simulation-is-worth-building-and-stays-opt-in.md) | Sail co-simulation is worth building, and stays opt-in | Accepted |
-| [0033](0033-what-the-green-ladder-does-not-cover.md) | What a green ladder does not cover — three assurance gaps, named | Accepted |
+| [0032](0032-sail-co-simulation-is-worth-building-and-stays-opt-in.md) | Sail co-simulation is worth building, and stays opt-in | Accepted · its "stays opt-in" decision amended by 0095, whose precondition it named |
+| [0033](0033-what-the-green-ladder-does-not-cover.md) | What a green ladder does not cover — three assurance gaps, named | Accepted · decision 4 closed by 0095 |
 | [0034](0034-what-the-csr-ladder-checks-cannot-see.md) | What the CSR ladder checks cannot see, and the decisions the CSR file forced | Accepted · corrected by 0037 |
 | [0035](0035-the-baseline-pins-the-failure-mode.md) | `test/EXPECTED_FAIL` pins the failure mode, not just the file name | Accepted |
 | [0036](0036-three-gate-hardening-decisions-ratified-at-integration.md) | Three gate-hardening decisions ratified at integration, and a correction to ADR-0031 | Accepted |
@@ -96,6 +96,7 @@ and what it costs. Reversing one is fine — write a new ADR that supersedes it.
 | [0092](0092-the-writeback-slot-costs-more-than-the-bypass-it-replaces.md) | The writeback slot costs more than the bypass it replaces, and the two loops do not pay together | Accepted · declines the fourth scoreboard slot at 19.5% of suite cycles for period inside the churn band; measures the pairing claim 0091 shares and finds the pair no better than either half; the evidence for the second forwarding point 0064 and 0089 describe |
 | [0093](0093-the-compressed-successor-is-decoded-and-the-compiled-workload-is-what-moves.md) | The compressed successor is decoded, and the compiled workload is what moves | Accepted · reverses 0074's decline of its first variant on a ten-placement re-measurement: 16.3% of Dhrystone's cycles, 0.640 DMIPS/MHz, and 12.0 MHz cleared at ten placements of ten with the median a null. Collects the win 0089 named and could not take; puts the register-number mapping in one module read twice |
 | [0094](0094-the-compressed-decode-is-already-mapped-and-the-block-is-closed.md) | The compressed decode and the immediate generator are already mapped, and the block is closed | Accepted · 0088's question asked of the last block that had never had it, and answered with a null. Ceilings: the immediate mux is 101 LUTs whole, the compressed decode 253, and deleting the fetch window's upper-half mask *costs* 13. The one group built reads −50 LUTs on `fit` and −1 on the SoC — the ±50 churn band caught at synthesis, where neither count has a placement in it |
+| [0095](0095-co-simulation-is-required-and-its-fetch-is-verified.md) | Co-simulation is a required check, and the precondition for that was met two changes ago | Accepted · amends 0032's opt-in decision and closes 0033's decision 4: the fetch is digest-verified before extraction, so the leg that reads the real register file gates on every PR. The tarball is cached, not the unpacked tree. Both failure paths demonstrated in CI |
 
 0001–0007 came from the design brief
 ([`docs/ideas/finish-the-rewrite.md`](../ideas/finish-the-rewrite.md)). 0008–0011 came out of
@@ -207,7 +208,10 @@ trades away simplicity the current design depends on.
   sources and a vectored `mtvec` — the same mechanism with more inputs.
 - ~~**Spike or Sail co-simulation**~~ — **resolved by [ADR-0032](0032-sail-co-simulation-is-worth-building-and-stays-opt-in.md).**
   The old test ("revisit only if formal and simulation ever disagree") could only fire on a bug both
-  legs can see; a spike measured what neither can. The harness exists and is deliberately opt-in —
-  `make cosim-run` / `make cosim-suite`, never `make test`, never CI's required set.
+  legs can see; a spike measured what neither can.
   [ADR-0039](0039-co-simulation-runs-the-whole-suite-against-a-baseline.md) integrated it across the
-  whole suite against a baseline; a nightly job and memory comparison remain future work.
+  whole suite against a baseline, and
+  [ADR-0095](0095-co-simulation-is-required-and-its-fetch-is-verified.md) makes it a required check
+  on `main` once the digest-verified fetch ADR-0032 asked for existed. Still `make cosim-run` /
+  `make cosim-suite` and never `make test`. The memory comparison remains future work; the nightly
+  job does not, having been overtaken by the gate.

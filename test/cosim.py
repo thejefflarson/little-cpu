@@ -2,10 +2,11 @@
 """Lockstep co-simulation of this core against the Sail RISC-V model.
 
 One program per invocation; test/run_cosim.sh runs the suite and grades it
-against test/COSIM_EXPECTED_FAIL. Opt-in, and it stays that way: `make test`
-neither builds nor runs any of this and CI does not gate on it. See
-docs/adr/0032 for what it is for and what it costs, and docs/adr/0039 for
-what suite-wide integration changed.
+against test/COSIM_EXPECTED_FAIL. `make test` neither builds nor runs any of
+this, and it stays that way: CI gates on it in a job of its own, which fetches
+Sail at a verified digest before running anything. See docs/adr/0032 for what
+it is for and what it costs, and docs/adr/0039 for what suite-wide integration
+changed.
 
 WHAT IS ACTUALLY COMPARED
 -------------------------

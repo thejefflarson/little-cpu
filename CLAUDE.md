@@ -194,12 +194,16 @@ What a green result does and does not mean:
   `test/testbench.v` zeroes both ROM banks before poking its program for that reason, the way
   `soc/compare/rom_flat.py` zero-pads its image to full depth. A simulated memory defined only where
   a program was written is not a model of a block RAM, whose every word comes out of the bitstream.
-- **Sail co-simulation is deliberately not a leg and stays off CI's required checks** (ADR-0032).
-  `test/cosim.cc` reads the core's real `regs_a` and no `rvfi_*` signal — the property that lets it
-  catch architectural writes the self-reporting oracles structurally miss (measured: an extra
-  `regs[31] <=` write enabled only past the BMC bound, invisible to every riscv-formal check and
-  the whole `.S` suite, reported by co-sim in 0.6s). A change that needs its verdict carries
-  pre/post `make cosim-suite` output in the PR. Do not "align" it against `rvfi_valid`.
+- **Sail co-simulation is a required check on `main`, in a job of its own** (ADR-0032 as amended by
+  ADR-0095). `test/cosim.cc` reads the core's real `regs_a` and no `rvfi_*` signal — the property
+  that lets it catch architectural writes the self-reporting oracles structurally miss (measured: an
+  extra `regs[31] <=` write enabled only past the BMC bound, invisible to every riscv-formal check
+  and the whole `.S` suite, reported by co-sim in 0.6s). Do not "align" it against `rvfi_valid`.
+  Nothing on `make test`'s path reaches it, so a machine without Sail still runs the whole suite and
+  a divergence reads as co-sim. What it **cannot** cover is the interrupt path: `test/asm/mtimer.S`
+  and `test/asm/mtimermask.S` are baselined `INCONCLUSIVE SAIL-LIMIT` in
+  `test/COSIM_EXPECTED_FAIL` because the reference model has no machine timer, so a green job says
+  nothing about the one interrupt this core takes.
 
 ## Reference models
 
