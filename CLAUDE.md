@@ -221,7 +221,11 @@ and times.
   that much from ABC/nextpnr re-mapping alone. A delta inside the band is not evidence of
   anything, and a ratchet (`FIT_MAX_LC`) must sit outside it. **The number is also
   toolchain-dependent** — CI's pinned OSS CAD Suite and a local Homebrew yosys differ by ~21 cells
-  on identical RTL — so quote the `fit` job's number; a local run is a sanity check.
+  on identical RTL — so quote the `fit` job's number; a local run is a sanity check. **And it is
+  top-dependent**: one decode edit measured −50 `SB_LUT4` synthesising `littlecpu` and −1
+  synthesising `littlesoc`, both counts deterministic and neither with a placement in it, because
+  ABC maps the same cone differently for what surrounds it (ADR-0094). When the two tops disagree at
+  the band, the answer is churn.
 - **`make soc-timing` has a ~3.6% edit-churn band and a 1–2% placement spread.** One placement is a
   sample: `soc/timing_sweep.sh` runs four seeds; compare distributions, not single runs. A delta of
   a couple of percent is not evidence of anything.
@@ -279,7 +283,12 @@ and times.
   three that each clear the band alone — a divider carrying 64-bit registers for a 32-bit division,
   a duplicated negator inside a one-hot mux, and the multiplier's 33rd partial-product row in soft
   logic — worth −404 on `fit` and −400 placed cells together, with the period a null again and
-  `ICESTORM_DSP` unmoved at 4 (ADR-0090).
+  `ICESTORM_DSP` unmoved at 4 (ADR-0090). **The question is necessary and not sufficient**, and
+  `rtl/decoder.v`'s compressed expansion and immediate generation is the block that showed it: three
+  edits that each do state such a fact are worth nothing, and the ceilings say why — the immediate
+  mux is 101 LUTs deleted whole, the compressed decode 253, and deleting the fetch window's
+  upper-half mask *costs* 13 because ABC had already folded it away (ADR-0094). That block is
+  closed; read the ceilings before reopening it.
 - **There are two loops around the fetch address, within 2 ns of each other**, which is why work
   moved out of one arrives in the other at full price: `ROM RDATA → instr → rs1 → scoreboard → stall
   → next_pc → ROM address`, and `accessor_out.rd_data → writeback → the regfile's write-through
