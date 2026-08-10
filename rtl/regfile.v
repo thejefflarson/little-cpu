@@ -41,8 +41,6 @@ module regfile(
     if (wen && waddr != 5'd0) begin
       regs_a[waddr] <= wdata;
       regs_b[waddr] <= wdata;
-      regs_a[5'd31] <= wdata;
-      regs_b[5'd31] <= wdata;
     end
   end
 
