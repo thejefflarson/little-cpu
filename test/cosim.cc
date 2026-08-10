@@ -254,9 +254,10 @@ int main(int argc, char **argv) {
 
   top.p_reset.set(true);
   top.step();
-  // The regfile has no reset, so its power-on contents are whatever cxxrtl
-  // zero-initialised them to. Seed the shadow from the post-reset state so
-  // the first printed change is a real one and not the initialisation.
+  // The regfile has no reset, so its contents here are whatever cxxrtl
+  // zero-initialised them to and the reset edge below leaves them alone. Seed
+  // the shadow from them so the first printed change is a real write and not
+  // the initialisation.
   std::memcpy(shadow, regs, sizeof(shadow));
 
   long change_index = 0;
@@ -264,12 +265,19 @@ int main(int argc, char **argv) {
   long verdict_cycle = 0;
 
   for (long cycle = 0; cycle < args.cycles; ++cycle) {
-    if (cycle == 0)
-      top.p_reset.set(false);
     top.p_clk.set<bool>(false);
     top.step();
     top.p_clk.set<bool>(true);
     top.step();
+
+    // Reset spans exactly one rising edge and is released after it, the shape
+    // test/testbench.v drives and rtl/littlesoc.v's power-on counter
+    // generalizes. Clearing the pin BEFORE the first edge instead runs no
+    // `if (reset)` in the design at all, and only a stalled cycle re-reading
+    // the ROM hides that -- so cycle 0 is the reset cycle and every printed
+    // cycle number counts it.
+    if (cycle == 0)
+      top.p_reset.set(false);
 
     // The two arrays are one architectural register file, written
     // from one address and one data word. Nothing else in this program would
