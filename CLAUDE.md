@@ -229,7 +229,10 @@ and times.
   top-dependent**: one decode edit measured −50 `SB_LUT4` synthesising `littlecpu` and −1
   synthesising `littlesoc`, both counts deterministic and neither with a placement in it, because
   ABC maps the same cone differently for what surrounds it (ADR-0094). When the two tops disagree at
-  the band, the answer is churn.
+  the band, the answer is churn. **It is spelling-dependent too**, which is the sharper form of the
+  same warning: those three edits rebuilt from their own description read SoC −45 rather than −1, so
+  44 LUTs separate two texts stating one fact (ADR-0097). Quote a group's number with the tree and
+  the text it was measured on, and do not read either top's count as the value of the idea.
 - **`make soc-timing` has a ~3.6% edit-churn band and a 1–2% placement spread.** One placement is a
   sample: `soc/timing_sweep.sh` runs four seeds; compare distributions, not single runs. A delta of
   a couple of percent is not evidence of anything.
@@ -291,8 +294,9 @@ and times.
   `rtl/decoder.v`'s compressed expansion and immediate generation is the block that showed it: three
   edits that each do state such a fact are worth nothing, and the ceilings say why — the immediate
   mux is 101 LUTs deleted whole, the compressed decode 253, and deleting the fetch window's
-  upper-half mask *costs* 13 because ABC had already folded it away (ADR-0094). That block is
-  closed; read the ceilings before reopening it. So are `rtl/csrs.v`, `rtl/regfile.v` and the SoC's
+  upper-half mask *costs* 13 because ABC had already folded it away (ADR-0094). Six such edits
+  stacked are −28 SoC LUTs (ADR-0097), so that block is closed on two measurements; read the
+  ceilings before reopening it. So are `rtl/csrs.v`, `rtl/regfile.v` and the SoC's
   read-back bus, on six more ceilings: the CSR file is 727 LUTs whole and 340 of that is the two
   counters RV32 M-mode mandates, its WARL write mux and every legal-value mask together are worth
   **one**, the register file's write-through bypass is 31 and all its fabric 133, and `mem_rdata`'s
@@ -316,8 +320,13 @@ and times.
   of those stalls.
 - **Read logic levels apart**: a LUT level costs ~3.3 ns (delay plus interconnect), a carry hop
   ~0.34 ns and no interconnect. A change that trades a carry hop for a LUT level gets shallower by
-  icetime's count and slower in nanoseconds. The SoC is routing-dominated; wide flat muxes route
-  worse than chains. **There is no single lever.** The decode head
+  icetime's count and slower in nanoseconds. **Measured, in the fetch loop, at any area price**:
+  muxing the operand of `next_pc`'s two `fetcher_pc` adders instead of their sums deletes one 32-bit
+  adder for −103 SoC LUTs — the largest single decode edit measured here — and takes the critical
+  path from 23 LUT levels and 4 carry hops to 25 levels and none, +9.1% of median period, **under
+  12 MHz at six placements of six** (ADR-0097). Beside ADR-0088's flattened `next_pc` chain, that is
+  two edits in this one chain that buy cells and cost the clock. The SoC is routing-dominated; wide
+  flat muxes route worse than chains. **There is no single lever.** The decode head
   (`imem.in_range → instr → {rs1/rs2, immediate, hazard}`) was named as one and measures 3.3%
   deleted whole, inside the churn band. The period is in the fetch loop instead: no single input to
   `next_pc` is worth more than 5%, all of them deleted together are worth 21%, and collecting that

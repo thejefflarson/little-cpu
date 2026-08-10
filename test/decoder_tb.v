@@ -263,6 +263,94 @@ module decoder_tb;
     check_hex("...on the pair it really reads", {27'b0, rs1}, 32'd3);
     check_hex("...on both halves of it", {27'b0, rs2}, 32'd2);
 
+    // A shift's second operand is its amount, zero-extended, at both widths.
+    // The poison in reg_rs2 is what says the register operand is not what
+    // reaches `out.rs2` for these.
+    reg_rs2 = 32'ha5a5_a5a5;
+    present_and_fetch(32'h00d11093);   // slli x1, x2, 13
+    check_hex("slli hands the executor its amount", dut.math_arg, 32'd13);
+    @(posedge clk);
+    #1;
+    check_hex("...and out.rs2 carries it", out.rs2, 32'd13);
+
+    // srai is the form that says the amount comes from the register-number
+    // field and not from the immediate: its funct7 sits directly above the
+    // amount, so an immediate carrying it would arrive as 0x40d. The executor
+    // reads five bits, so nothing else here would notice.
+    present_and_fetch(32'h40d15093);   // srai x1, x2, 13
+    check_hex("srai's amount arrives with nothing above it", dut.math_arg, 32'd13);
+
+    present_and_fetch(32'h0000_8035);  // c.srli x8, 13
+    check_hex("a compressed right shift's amount is zero-extended too",
+              dut.math_arg, 32'd13);
+    present_and_fetch(32'h0000_00b6);  // c.slli x1, 13
+    check_hex("...and so is a compressed left shift's", dut.math_arg, 32'd13);
+    reg_rs2 = 32'b0;
+
+    // The compressed group that shares one quadrant and funct3 and is told
+    // apart by the two fields above them, each decoded off a different width of
+    // that prefix: c.andi off funct3, c.sub off funct6.
+    in.instr = 32'h0000_987d;   // c.andi x8, -1
+    #1;
+    check_bit("c.andi decodes", dut.instr_candi, 1'b1);
+    check_bit("...as an andi", dut.instr_andi, 1'b1);
+    in.instr = 32'h0000_8c05;   // c.sub x8, x9
+    #1;
+    check_bit("c.sub decodes", dut.instr_csub, 1'b1);
+    check_bit("...as a sub", dut.instr_sub, 1'b1);
+    // instr[12] is the whole of what separates that group from the RV64 row
+    // above it, and a compressed shift from its reserved shamt[5]. Widen either
+    // test to funct3 and both encodings decode, with every vector above still
+    // passing -- so these two are what say the narrower field is read.
+    in.instr = 32'h0000_9c05;   // the same row with instr[12] set: c.subw
+    #1;
+    check_bit("the RV64 row above it is not a sub", dut.instr_csub, 1'b0);
+    check_bit("...it is illegal here", dut.instr_valid, 1'b0);
+    in.instr = 32'h0000_9035;   // c.srli with shamt[5] set -- reserved in RV32
+    #1;
+    check_bit("a compressed shift with shamt[5] set is not a shift",
+              dut.instr_csrli, 1'b0);
+    check_bit("...it is illegal too", dut.instr_valid, 1'b0);
+
+    // c.lui's reserved encoding is the one whose immediate is zero. Both
+    // directions, because a test that is always true is silent.
+    in.instr = 32'h0000_6085;   // c.lui x1, 1
+    #1;
+    check_bit("c.lui with a non-zero immediate decodes", dut.instr_clui, 1'b1);
+    in.instr = 32'h0000_6081;   // the same, immediate zero -- reserved
+    #1;
+    check_bit("...and the reserved zero-immediate form does not",
+              dut.instr_clui, 1'b0);
+    check_bit("...which makes it an illegal instruction", dut.instr_valid, 1'b0);
+
+    // Every SYSTEM form with funct3 zero is told apart by funct12 alone, so the
+    // rs1 and rd fields have to be checked for zero or a neighbouring encoding
+    // decodes as one of them. Both directions.
+    in.instr = 32'h0000_0073;   // ecall
+    #1;
+    check_bit("ecall decodes", dut.instr_ecall, 1'b1);
+    in.instr = 32'h0000_00f3;   // the same funct12, rd = x1
+    #1;
+    check_bit("...but not with a non-zero rd field", dut.instr_ecall, 1'b0);
+    check_bit("...which makes it illegal instead", dut.instr_valid, 1'b0);
+
+    // Both arms of the next-pc chain that add to the fetched pc. The always
+    // block above already checks that pc follows next_pc; these check the value
+    // it takes, which nothing here did.
+    in.pc = 32'h0000_00a0;
+    present_and_fetch(32'h0000_0013);  // addi x0, x0, 0
+    check_hex("an uncompressed instruction steps four", next_pc, 32'h0000_00a4);
+    present_and_fetch(32'h0000_0001);  // c.nop
+    check_hex("a compressed one steps two", next_pc, 32'h0000_00a2);
+    present_and_fetch(32'h008000ef);   // jal x1, 8
+    check_hex("a jal adds its immediate", next_pc, 32'h0000_00a8);
+    present_and_fetch(32'h00000463);   // beq x0, x0, 8
+    check_hex("a taken branch adds its own", next_pc, 32'h0000_00a8);
+    reg_rs1 = 32'd1;
+    #1;
+    check_hex("an untaken one steps four", next_pc, 32'h0000_00a4);
+    reg_rs1 = 32'b0;
+
     // Read off the decode flag, not `out.is_ebreak`: a trapping issue
     // suppresses every execution flag, so the registered flag is 0 for all
     // three of these and the vector would pass vacuously.
