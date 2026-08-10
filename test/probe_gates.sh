@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=188
+PROBES_EXPECTED=192
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -207,9 +207,26 @@ STUB
   chmod +x "$1"
 }
 
+make_curl_stub() {  # $1 = path
+  cat > "$1" <<'STUB'
+#!/bin/sh
+# Stands in for curl in `make sail-setup`. Writes bytes that are NOT the pinned
+# release to wherever -o points and succeeds, so the digest comparison is the
+# only thing standing between a substituted asset and an executed binary.
+out=; prev=
+for a in "$@"; do
+  if [ "$prev" = "-o" ]; then out=$a; fi
+  prev=$a
+done
+[ -n "$out" ] && echo "not the pinned release" > "$out"
+exit 0
+STUB
+  chmod +x "$1"
+}
+
 # `leg-rt` / `leg-rc` are scratch copies of the two suite runners, because each
 # resolves its helper scripts relative to its own path.
-mkdir -p "$tmp/bin-none" "$tmp/leg-rt" "$tmp/leg-rc" "$tmp/leg-rc-nopy"
+mkdir -p "$tmp/bin-none" "$tmp/bin-curl" "$tmp/leg-rt" "$tmp/leg-rc" "$tmp/leg-rc-nopy"
 
 # For the one probe that claims "no cross compiler", `bin-none` has to be the
 # WHOLE path: with /usr/bin behind it, run_tests.sh finds a real
@@ -232,6 +249,7 @@ make_toolchain_stubs "$tmp/bin-noobjcopy"
 rm "$tmp/bin-noobjcopy/riscv64-elf-objcopy"
 make_sim_stub "$tmp/sim"
 make_sail_stub "$tmp/sail"
+make_curl_stub "$tmp/bin-curl/curl"
 make_cosim_bin_stub "$tmp/dut"
 cp "$HERE/run_tests.sh" "$HERE/check_suite_shape.sh" "$HERE/stall_report.py" "$tmp/leg-rt/"
 cp "$HERE/run_cosim.sh" "$HERE/check_suite_shape.sh" "$tmp/leg-rc/"
@@ -1072,25 +1090,83 @@ begin_group "test/tool_cache_test.sh"
 TCT="$HERE/tool_cache_test.sh"
 tc_cache="$tmp/cache/little-cpu"
 
-probe "control: two agreeing paths outside the checkout are green" 0 \
+probe "control: agreeing paths outside the checkout are green" 0 \
   "outside the checkout and agreed on" \
-  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint"
+  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint $tc_cache/download"
 
 probe "the Makefile and test/cosim.py drifting apart is red" 1 \
   "do not agree on where the Sail" \
-  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/elsewhere $tc_cache/svlint"
+  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/elsewhere $tc_cache/svlint $tc_cache/download"
 
 probe "a Sail install back inside the checkout is red" 1 \
   "test/cosim.py installs tools inside the checkout" \
-  "XDG_CACHE_HOME=$REPO/cache $TCT $REPO/cache/little-cpu/sail $tc_cache/svlint"
+  "XDG_CACHE_HOME=$REPO/cache $TCT $REPO/cache/little-cpu/sail $tc_cache/svlint $tc_cache/download"
 
 probe "an svlint install inside the checkout is red on its own" 1 \
   "$REPO/tools/svlint" \
-  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $REPO/tools/svlint"
+  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $REPO/tools/svlint $tc_cache/download"
+
+# The kept release tarball is what a CI cache holds, so a download directory
+# back inside the checkout would be cached under a path no worktree can read.
+probe "the Sail download directory inside the checkout is red on its own" 1 \
+  "$REPO/tools/download" \
+  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint $REPO/tools/download"
 
 probe "a relative install directory is red before it is compared" 1 \
   "names a relative tool install directory" \
-  "XDG_CACHE_HOME=$tmp/cache $TCT tools/sail tools/svlint"
+  "XDG_CACHE_HOME=$tmp/cache $TCT tools/sail tools/svlint tools/download"
+
+begin_group "make sail-setup"
+
+# The whole reason co-simulation is allowed in the merge gate is that this
+# recipe verifies the release tarball before anything comes out of it. A stub
+# curl substitutes the asset, so what is forced red below is exactly the
+# comparison that stands between a substituted download and an executed binary.
+#
+# SAIL_ASSET is fixed rather than left to `uname`, so the fixture is the same on
+# every host and `make test` does not start requiring a machine upstream ships a
+# tarball for. It is not `override` in the Makefile, and the three digests are
+# all pinned there, so naming one of them here cannot widen what may be fetched.
+SS_ASSET=SAIL_ASSET=sail-riscv-Linux-x86_64
+SS="MAKEFLAGS= MFLAGS= MAKELEVEL= PATH='$tmp/bin-curl:$PATH' \
+    make --no-print-directory -C '$REPO' $SS_ASSET sail-setup"
+
+# The tarball's name comes from the Makefile, not from a second copy of the
+# naming rule here -- a copy would agree with itself while the recipe wrote
+# somewhere else, and the probes would then be seeding a file nothing reads.
+ss_tarball() {  # $1 = case dir
+  XDG_CACHE_HOME="$1/cache" make --no-print-directory -C "$REPO" $SS_ASSET \
+    sail-pin | sed -n 's/^tarball=//p'
+}
+
+# Runs the recipe against a substituted download and reports what it left
+# behind: whether the digest comparison spoke at all, whether anything was
+# unpacked, and whether the bytes that failed it are still there for the next
+# run to serve. `refused` is in there so this cannot read clean because make
+# died before reaching the comparison.
+ss_aftermath() {  # $1 = case dir
+  local tgz log=$1/setup.log
+  eval "XDG_CACHE_HOME=$1/cache $SS" > "$log" 2>&1
+  tgz=$(ss_tarball "$1")
+  printf 'refused=%s unpacked=%s tarball=%s\n' \
+    "$(grep -qF 'refusing to extract' "$log" && echo yes || echo no)" \
+    "$([ -e "$1/cache/little-cpu/sail/bin/sail_riscv_sim" ] && echo yes || echo none)" \
+    "$([ -e "$tgz" ] && echo present || echo gone)"
+}
+
+d=$(new_case)
+# Exit 2, not 1: the recipe's own `exit 1` reaches the probe as make's status.
+probe "a download whose bytes are not the pin is refused before extraction" 2 \
+  "SHA-256 MISMATCH -- refusing to extract" "XDG_CACHE_HOME=$d/cache $SS"
+
+d=$(new_case)
+probe "the refused download is neither unpacked nor kept to be served again" 0 \
+  "refused=yes unpacked=none tarball=gone" "ss_aftermath $d"
+
+d=$(new_case); tgz=$(ss_tarball "$d"); mkdir -p "$(dirname "$tgz")"
+echo "not the pinned release either" > "$tgz"
+probe "a tarball already in the cache is reused, and still meets the digest" 2 \
+  "using the tarball already in" "XDG_CACHE_HOME=$d/cache $SS"
 
 begin_group "test/memmap_test.sh"
 
