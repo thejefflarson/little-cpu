@@ -45,8 +45,9 @@ Seven things follow, and none of them is a trade:
 - A store's write edge lands one cycle earlier, which strengthens rather than weakens the pipeline
   emptying that commitment 5 holds `fence.i` for.
 - `make fit` reads **3473** against 3579, −106 cells, outside the ±50 churn band. Re-measured after
-  the rebase onto merged `main`, on one local Homebrew yosys: **3482 against 3575, −93** — the same
-  finding, and the two deltas differ by a quarter of the band.
+  the rebase onto merged `main`: **3482 against 3575, −93** on one local Homebrew yosys, and
+  **3469 against 3543, −74** in the `fit` job, which is the number CLAUDE.md says to quote. Three
+  toolchains, three deltas, all outside the band and all the same sign.
 
 ### The one thing that is not free: a held launch
 
