@@ -15,11 +15,12 @@
  * shifts the load result itself -- and a harness that only ever moved whole
  * words would leave both spellings unexercised.
  *
- * RV32I ONLY. VexRiscv's checked-in configuration has no M extension and no
- * compressed instructions, so anything else could not be one image. That means
- * this core's multiplier, divider and compressed decoder are present in the
- * placed netlist but never issued, which does not move a static timing number
- * and is recorded with the result anyway.
+ * RV32I ONLY. VexRiscv's checked-in configuration has no M extension, so
+ * anything using one could not be one image. That means this core's multiplier
+ * and divider are present in the placed netlist but never issued, which does not
+ * move a static timing number and is recorded with the result anyway. C is on
+ * both sides -- that core has a compressed decoder -- and is left out here only
+ * because this program is hand-written and gains nothing from it.
  */
     .section .text.init
     .globl _start

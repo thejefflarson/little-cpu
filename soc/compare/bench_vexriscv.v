@@ -9,10 +9,16 @@
 // the generated Verilog for that project's FormalSimple configuration, so no
 // Scala toolchain is involved and nothing here can drift from the pin.
 //
-// **That configuration is RV32I.** No M extension, no compressed instructions,
-// no CSR file, no traps and no interrupt. Roughly half of why it is a quarter of
+// **That configuration is RV32IC.** The compressed decoder is there and runs --
+// soc/compare/dhry.lds' image is built for it -- but there is no M extension, no
+// CSR file, no traps and no interrupt. Roughly half of why it is a quarter of
 // this core's size. Any number taken from this file is a measurement of two
 // different ISAs and must be quoted as one.
+//
+// It has NO DATA PATH TO THE ROM: the memory below is a read port for fetch and
+// nothing else, so a load from a ROM address reads back zero. Keep any program
+// run here from putting read-only data in ROM. soc/compare/bench.S has none,
+// which is why this went unnoticed until a benchmark with string literals ran.
 //
 // Its `rvfi_*` outputs are deleted in synthesis rather than tied off here --
 // `delete -port VexRiscv/rvfi_*`, the same technique formal/check-nonperturbation.py
