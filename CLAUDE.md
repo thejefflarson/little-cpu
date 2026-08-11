@@ -77,9 +77,9 @@ are kept in parentheses so those references still resolve.
   and writeback are empty. Two distinct reasons share the mechanism: the first two so a one-cycle
   architectural update cannot interleave with older instructions; `fence.i` because text is
   writable and the fetch address publishes early, so an older store's write edge must pass first
-  (ADR-0061). Do not collapse them. The emptiness check reads **four** slots —
-  `accessor_out.valid` is routed in separately because a store in flight is invisible to the
-  scoreboard's three (ADR-0026).
+  (ADR-0061). Do not collapse them. The emptiness check reads **three** slots —
+  `accessor_out.valid` is routed in separately because a store writes no register and is therefore
+  invisible to the scoreboard's two (ADR-0026 as amended by ADR-0099).
 - **The regfile read is synchronous, and the answer belongs to the address pair presented the
   previous cycle** (6, 9). Decode presents a pair, bubbles a cycle (`operand_stall`) whenever what
   was presented is not what the instruction reads, then issues — and in the issue cycle observes the
@@ -96,17 +96,21 @@ are kept in parentheses so those references still resolve.
   `operand_stall` is an amendment, not a tuning change. The standing liveness probe: delete the rs2
   write-through bypass and `reg_ch0` must go SAT — run it before believing any `reg_ch0` result
   under a changed configuration.
-- **Stalls are one global broadcast over two mechanisms** (8): a divider or accessor stall
-  **holds** `decoder_out` unchanged (an issued instruction nothing has consumed); every other
+- **Stalls are one global broadcast over two mechanisms** (8): a divider stall **holds**
+  `decoder_out` unchanged (an issued instruction the executor has not consumed); every other
   reason **bubbles** (nothing issued). A `fetch_stall` coinciding with a freeze HOLDS — bubbling
   would drop an issued instruction — and that ruling is only arm order in the publish block, so it
   is asserted in `rtl/decoder.v`'s `FORMAL` block and vectored in `test/decoder_tb.v`. Every
   in-flight non-`x0` `rd` must be visible to the scoreboard on every cycle between issue and the
-  regfile write-through, with no gap. Six reasons raise `stall`, and it is exactly their OR: the
-  divider, the accessor's load turnaround, the decode scoreboard, serialization, the operand-fetch
-  cycle, the stolen fetch window. `test/decoder_tb.v` checks that identity and `make cycles`
-  charges every stalled cycle to the first reason that is true, so a seventh has to be added in
-  both places as well as here.
+  regfile write-through, with no gap. **Five** reasons raise `stall`, and it is exactly their OR:
+  the divider, the decode scoreboard, serialization, the operand-fetch cycle, the stolen fetch
+  window. `test/decoder_tb.v` checks that identity and `make cycles` charges every stalled cycle to
+  the first reason that is true, so a sixth has to be added in both places as well as here.
+  **The load turnaround was the sixth and is gone** (ADR-0099): the bus transaction is presented
+  from `decoder_out` during the executor's own cycle, so the answer is there when the instruction
+  reaches the accessor. A held `decoder_out` would re-present it, which is idempotent for RAM and
+  not for a device, so the request block is gated on the cycle the executor takes it —
+  `components_accessor` and a transaction count in `test/accessor_tb.v` are what say so.
 
 Retired numbers, never reused: 7 (the generated-but-tracked monitor) lives under Verification; 9 is
 folded into 6.
@@ -163,7 +167,8 @@ What a green result does and does not mean:
   that the property holds. Depths are derived from two measured numbers — F (worst-case first
   retire, from `hang`) and G (worst-case retire gap, from `liveness`). **Any change that adds a
   stall reason, lengthens a stage, or widens the scoreboard must re-measure F and G before it
-  lands** (ADR-0046); some depths exceed their measured minimum by only one cycle.
+  lands** (ADR-0046). F is 6 and G is 5 — ADR-0099 re-derived both from scratch when the load
+  turnaround left, and the thinnest depth now clears its derived floor by three rather than one.
 - **riscv-formal ships no spec model for SYSTEM or MISC-MEM at the pinned SHA**, so trap and CSR
   behaviour
   is checked against assertions this repo wrote (`test/asm/trap.S`, `test/csr_tb.v`, the decoder

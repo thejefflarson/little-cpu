@@ -8,22 +8,14 @@ module decoder (
   input  logic [31:0] reg_rs1,
   input  logic [31:0] reg_rs2,
   input  executor_output executor_out,
-  // While a divide runs, decode zeroes `out` instead of holding it. The divider
-  // has already taken its operands, and a held `out` would be read as a new
-  // instruction when the executor goes back to `init`.
+  // This holds `out` instead of zeroing it: the executor has not taken this
+  // cycle's `out` yet, so zeroing it would lose that instruction. It is the
+  // only reason that holds.
   input  logic divider_stall,
-  // This one holds `out` instead of zeroing it. Nothing downstream has taken
-  // this cycle's `out` yet, so zeroing it would lose that instruction.
-  input  logic accessor_stall,
   // The instruction memory gave its read port to a load or store, so the window
   // arriving this cycle holds a data word, not the instruction at `pc`. If a
-  // divide or a load stall lands on the same cycle, that one wins.
+  // divide lands on the same cycle, that one wins.
   input  logic fetch_stall,
-  // A load spends an extra cycle waiting for memory. During it the load has left
-  // `executor_out` and has not yet written the register file, so neither of the
-  // other two terms below sees it. These cover that one cycle.
-  input  logic       accessor_pending_valid,
-  input  logic [4:0] accessor_pending_rd,
   // A store writes no register, so the hazard check ignores it. Serialization
   // still has to wait for one. That is what this is for -- without it a CSR
   // access can issue while a store is still in the accessor.
@@ -472,17 +464,15 @@ module decoder (
 
   // Do not fold these two into a shared function. iverilog builds a continuous
   // assign's sensitivity list from the arguments at the call site. A function
-  // body that also read `out`, `executor_out` or `accessor_pending_*` would stop
-  // re-evaluating when any of those changed. `hazard_rs1` then sticks high at the
+  // body that also read `out` or `executor_out` would stop
+  // re-evaluating when either of those changed. `hazard_rs1` then sticks high at the
   // first conflict and the core stops. iverilog gives no warning for this, and
   // yosys gets the same function right, so every other check stays green.
   logic live_rs1, live_rs2;
   assign live_rs1 = (out.valid && out.rd == rs1) ||
-    (executor_out.valid && executor_out.rd == rs1) ||
-    (accessor_pending_valid && accessor_pending_rd == rs1);
+    (executor_out.valid && executor_out.rd == rs1);
   assign live_rs2 = (out.valid && out.rd == rs2) ||
-    (executor_out.valid && executor_out.rd == rs2) ||
-    (accessor_pending_valid && accessor_pending_rd == rs2);
+    (executor_out.valid && executor_out.rd == rs2);
 
   // These three wait until the pipeline is empty, for two different reasons.
   // Narrowing the test to suit one of them breaks the other.
@@ -497,8 +487,7 @@ module decoder (
   // instruction after the `fence.i` has already been fetched, and it read the
   // old text. An empty pipeline means the store has landed.
   logic pipe_drained, serialize;
-  assign pipe_drained = !out.valid && !executor_out.valid && !accessor_out_valid &&
-    !accessor_pending_valid;
+  assign pipe_drained = !out.valid && !executor_out.valid && !accessor_out_valid;
   assign serialize = (instr_csr_access || instr_mret || instr_fencei) && !pipe_drained;
 
   logic hazard_rs1, hazard_rs2, hazard, stall;
@@ -545,7 +534,7 @@ module decoder (
 
   // Every reason to stall, in one signal. They all hold the PC; the block that
   // writes `out` below is where they differ.
-  assign stall = hazard || operand_stall || divider_stall || accessor_stall || fetch_stall;
+  assign stall = hazard || operand_stall || divider_stall || fetch_stall;
 
   // On a cycle that issues, ask for the NEXT instruction's pair. The guess runs
   // the fetch window's successor word through the same register-number mapping
@@ -657,10 +646,10 @@ module decoder (
   always_ff @(posedge clk) begin
     if (reset) begin
       out <= '0;
-    end else if (divider_stall || accessor_stall) begin
-      // Both of these fire a cycle after the thing that caused them, so `out`
-      // holds an instruction nothing downstream has taken yet. Zeroing it would
-      // lose that instruction. This arm has to come before the next one: if a
+    end else if (divider_stall) begin
+      // This fires a cycle after the divide that caused it, so `out` holds an
+      // instruction the executor has not taken yet. Zeroing it would lose that
+      // instruction. This arm has to come before the next one: if a
       // `fetch_stall` lands on the same cycle, holding still wins. Swapping the
       // two arms changes that and nothing would say so, which is why the
       // `ifdef FORMAL` block below checks both cases.
@@ -844,8 +833,8 @@ module decoder (
   logic prev_hold_and_steal, prev_steal_only;
   always_ff @(posedge clk) begin
     past_out            <= out;
-    prev_hold_and_steal <= fetch_stall && (divider_stall || accessor_stall);
-    prev_steal_only     <= fetch_stall && !divider_stall && !accessor_stall;
+    prev_hold_and_steal <= fetch_stall && divider_stall;
+    prev_steal_only     <= fetch_stall && !divider_stall;
   end
   always_comb if (clocked && !prev_reset && prev_hold_and_steal) assert(out == past_out);
   always_comb if (clocked && !prev_reset && prev_steal_only)     assert(out == '0);
@@ -954,8 +943,8 @@ module decoder (
   always_comb assert(!(trap_entry && mret_entry));
 
   // An interrupt is only ever taken on a cycle that would otherwise have issued
-  // an instruction. Below the stall arm, so a divide, a load turnaround, a
-  // hazard, a serialization drain and the operand-fetch cycle each hold it off.
+  // an instruction. Below the stall arm, so a divide, a hazard, a serialization
+  // drain and the operand-fetch cycle each hold it off.
   always_comb if (interrupt_pending && !stall && !reset) assert(trap_entry);
   always_comb if (stall || reset) assert(!trap_entry);
 

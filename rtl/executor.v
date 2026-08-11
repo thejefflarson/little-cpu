@@ -6,10 +6,6 @@ module executor(
   input  logic reset,
 
   input  decoder_output in,
-  // High for the one cycle a load's response is still in flight in the
-  // accessor. Freeze rather than advance, or a fresh instruction collides with
-  // the completing load over the accessor's single output register.
-  input  logic accessor_stall,
   output executor_output out,
   // High while a multi-cycle divide runs. littlecpu.v routes it back to decode.
   output logic stalled
@@ -134,10 +130,6 @@ module executor(
       op_is_remu <= 0;
       op_sign_x <= 0;
       op_sign_y <= 0;
-    end else if (accessor_stall) begin
-      // This never overlaps a divide: decode freezes everything upstream while
-      // dividing, so no load can reach the accessor until the divide finishes.
-      out <= 0;
     end else begin
       (* parallel_case, full_case *)
       case (state)
@@ -149,17 +141,10 @@ module executor(
           out.rvfi <= in.rvfi;
          `endif
           out.rd <= in.rd;
+          // A load leaves here with no result. rtl/accessor.v launched its bus
+          // transaction on this same cycle and merges the answer in next cycle,
+          // where an ALU op's result merely passes through.
           out.rd_data <= 0;
-          out.mem_addr <= in.mem_addr;
-          out.mem_data <= in.rs2;
-          out.is_lb <= in.is_lb;
-          out.is_lbu <= in.is_lbu;
-          out.is_lh <= in.is_lh;
-          out.is_lhu <= in.is_lhu;
-          out.is_lw <= in.is_lw;
-          out.is_sb <= in.is_sb;
-          out.is_sh <= in.is_sh;
-          out.is_sw <= in.is_sw;
           (* parallel_case, full_case *)
           case (1'b1)
             in.is_add: out.rd_data <= rs1 + rs2;
@@ -293,31 +278,6 @@ module executor(
   // out.rd_data zeroed by the reset branch rather than computed.
   always_comb if (clocked) assume(!reset);
 
-  // No accessor here, so accessor_stall is a free input -- not even the
-  // at-most-one-consecutive-cycle bound is assumed. The price is the
-  // `!$past(accessor_stall)` guard on the four multiply slice assertions below:
-  // a frozen edge computes nothing, so an ungated one would be asserting
-  // arithmetic about a bubble.
-
-  // The cycle after accessor_stall, the executor emitted a bubble and held
-  // state, the divider datapath and the op/sign latches. Guarded on
-  // !$past(reset) because reset wins over the freeze in the RTL.
-  always_ff @(posedge clk)
-    if (clocked && !reset && !$past(reset) && $past(accessor_stall)) begin
-      assert(out == '0);
-      assert(state == $past(state));
-      assert(mul_div_counter == $past(mul_div_counter));
-      assert(div_rem == $past(div_rem));
-      assert(div_quot == $past(div_quot));
-      assert(div_divisor == $past(div_divisor));
-      assert(op_is_div == $past(op_is_div));
-      assert(op_is_divu == $past(op_is_divu));
-      assert(op_is_rem == $past(op_is_rem));
-      assert(op_is_remu == $past(op_is_remu));
-      assert(op_sign_x == $past(op_sign_x));
-      assert(op_sign_y == $past(op_sign_y));
-    end
-
   // Assumed: the decoder emits at most one op-select flag per instruction.
   // Without it the solver picks combinations no real instruction produces.
   // Discharged by rtl/decoder.v's own `$onehot` assertion under `instr_valid`.
@@ -394,16 +354,16 @@ module executor(
   always_comb assert({mul_sign_y, in.rs2} == mul_op_y_ref);
 
   always_ff @(posedge clk)
-    if (clocked && !reset && !$past(reset) && !$past(accessor_stall) && $past(state) == init && $past(in.is_mul))
+    if (clocked && !reset && !$past(reset) && $past(state) == init && $past(in.is_mul))
       assert(out.rd_data == $past(mul_lo));
   always_ff @(posedge clk)
-    if (clocked && !reset && !$past(reset) && !$past(accessor_stall) && $past(state) == init && $past(in.is_mulh))
+    if (clocked && !reset && !$past(reset) && $past(state) == init && $past(in.is_mulh))
       assert(out.rd_data == $past(mul_hi));
   always_ff @(posedge clk)
-    if (clocked && !reset && !$past(reset) && !$past(accessor_stall) && $past(state) == init && $past(in.is_mulhu))
+    if (clocked && !reset && !$past(reset) && $past(state) == init && $past(in.is_mulhu))
       assert(out.rd_data == $past(mul_hi));
   always_ff @(posedge clk)
-    if (clocked && !reset && !$past(reset) && !$past(accessor_stall) && $past(state) == init && $past(in.is_mulhsu))
+    if (clocked && !reset && !$past(reset) && $past(state) == init && $past(in.is_mulhsu))
       assert(out.rd_data == $past(mul_hi));
 
   // Each multiplies by a constant -- zero, zero, one and one -- so the solver
@@ -425,22 +385,20 @@ module executor(
   always_comb if (in.rs1 == 32'h1 && !mul_sign_x)
     assert(mul_result == {{32{mul_sign_y}}, in.rs2});
 
-  // Decode does not hold `in` steady for a multi-cycle divide -- it bubbles it.
-  // The divider stall is low on the cycle a divide issues, so decode issues
-  // normally that cycle, the operand-fetch cycle publishes a bubble, and the
-  // stall then holds that bubble. `in` is a zeroed bubble for every cycle of a
-  // divide except the one that loaded it, so a proof that assumed the hold was
-  // checking an input sequence the pipeline never produces, with references
-  // built from operands that are zero by the time they are read.
+  // `in` does not hold the divide while the divide runs. The divider stall is
+  // low on the cycle a divide issues, so decode issues the instruction AFTER it
+  // that same cycle and the stall then holds that one -- a proof that assumed
+  // the operands were still there would be checking an input sequence the
+  // pipeline never produces, against operands belonging to another instruction.
   //
   // The operands are kept in proof-only copies instead, taken on every `init`
   // edge -- which is the edge the divider loads on. Nothing in the RTL reads
   // `in` outside `init`, so `in` is left completely free while dividing: that
-  // covers the bubble the pipeline really presents and every other sequence too,
-  // and is weaker than either assumption it replaces.
+  // covers the held successor the pipeline really presents and every other
+  // sequence too, and is weaker than either assumption it replaces.
   logic [31:0] div_ghost_rs1, div_ghost_rs2;
   always_ff @(posedge clk)
-    if (!reset && !accessor_stall && state == init) begin
+    if (!reset && state == init) begin
       div_ghost_rs1 <= in.rs1;
       div_ghost_rs2 <= in.rs2;
     end

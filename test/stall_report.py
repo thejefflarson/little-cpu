@@ -32,11 +32,11 @@ interchangeable.
 import argparse
 import sys
 
-# The six the decoder has, in the order it tries them: it holds `decoder_out`
-# for the divider and the accessor, and bubbles for the other four. The runner
+# The five the decoder has, in the order it tries them: it holds `decoder_out`
+# for the divider and bubbles for the other four. The runner
 # writes these names, so a rename has to happen in both places at once -- which
 # the field check below turns into an error rather than a silent zero.
-REASONS = ["divider", "accessor", "hazard", "serialize", "operand", "fetch"]
+REASONS = ["divider", "hazard", "serialize", "operand", "fetch"]
 
 # What the CPI above it describes. It is an argument the caller has to supply,
 # because the honest one differs: `make cycles` runs the hand-written assembly
@@ -54,7 +54,6 @@ SUITE_WORKLOAD = (
 )
 HEADINGS = {
     "divider": "DIVIDER",
-    "accessor": "ACCESSOR",
     "hazard": "HAZARD",
     "serialize": "SERIAL",
     "operand": "OPERAND",

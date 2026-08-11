@@ -218,6 +218,9 @@ jobs:
       - name: Decoder component proof
         run: make -C formal components_decoder
 
+      - name: Accessor one-transaction proof
+        run: make -C formal components_accessor
+
       # This one make also runs formal/pcloop_cover.sby, which is a prerequisite
       # of the target rather than a step of its own. That task is the proof's
       # anti-vacuity control: the increment assertion is excused on an

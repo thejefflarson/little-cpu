@@ -26,10 +26,7 @@ module traps (
     input logic [31:0] reg_rs2,
     input executor_output executor_out,
     input logic divider_stall,
-    input logic accessor_stall,
     input logic fetch_stall,
-    input logic accessor_pending_valid,
-    input logic [4:0] accessor_pending_rd,
     input logic accessor_out_valid,
     // The platform's timer line, free every cycle. rtl/csrs.v decides what to
     // do with it, so `interrupt_pending` below is a real signal of this design
@@ -72,10 +69,7 @@ module traps (
     .reg_rs2(reg_rs2),
     .executor_out(executor_out),
     .divider_stall(divider_stall),
-    .accessor_stall(accessor_stall),
     .fetch_stall(fetch_stall),
-    .accessor_pending_valid(accessor_pending_valid),
-    .accessor_pending_rd(accessor_pending_rd),
     .accessor_out_valid(accessor_out_valid),
     .csr_rdata(csr_rdata),
     .csr_implemented(csr_implemented),
@@ -182,7 +176,7 @@ module traps (
   // never a necessary one -- the hazard, serialization and operand-fetch
   // reasons are decided inside the decoder and are not visible here.
   logic hard_stall;
-  assign hard_stall = divider_stall || accessor_stall || fetch_stall;
+  assign hard_stall = divider_stall || fetch_stall;
 
   // Which instructions must trap, and with which cause. Written from the ISA,
   // not transcribed from rtl/decoder.v: each encoding below is one this core

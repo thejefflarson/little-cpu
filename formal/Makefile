@@ -12,7 +12,8 @@ endif
 
 all: complete complete_cover complete-exclusions interrupt-tie-off check \
      dmemcheck imemcheck \
-     components_decoder components_executor components_pcloop components_traps
+     components_decoder components_executor components_accessor \
+     components_pcloop components_traps
 
 # Every sby target here names a directory sby creates, and a directory's mtime
 # bumps whenever an entry is written inside it -- so after one run the workdir
@@ -131,20 +132,27 @@ interrupt-tie-off: check-interrupt-tie-off.py INTERRUPT_TIE_OFF | $(RISCV_FORMAL
 nonperturbation: check-nonperturbation.py
 	python3 $<
 
-# fetcher, accessor and writeback are deliberately absent: their tasks carried
-# zero assertions and were deleted rather than left to pass having asked
-# nothing.
+# fetcher and writeback are deliberately absent: their tasks carried zero
+# assertions and were deleted rather than left to pass having asked nothing.
+# The accessor is back because it acquired one -- the request block's gate is
+# the only thing between a held store and a device written thirty-three times.
 #
-# These four pass a task name, so they need their own recipes and cannot reach
+# These five pass a task name, so they need their own recipes and cannot reach
 # the `%: %.sby` rule -- which is why they can say .PHONY where that rule
 # cannot. Same two properties as it: always run, delete the workdir first.
-.PHONY: components_decoder components_executor components_pcloop components_traps
+.PHONY: components_decoder components_executor components_accessor components_pcloop components_traps
 components_decoder: components.sby ../rtl/decoder.v ../rtl/regsel.v ../rtl/structs.v
 	rm -rf $@
 	sby -f $< decoder
 components_executor: components.sby ../rtl/executor.v ../rtl/structs.v
 	rm -rf $@
 	sby -f $< executor
+# One bus transaction per memory instruction. Decode holds `launch` for every
+# cycle of a divide, and a device written twice for one store is a defect no
+# value anywhere in the machine records.
+components_accessor: components.sby ../rtl/accessor.v ../rtl/structs.v
+	rm -rf $@
+	sby -f $< accessor
 # Discharges the standalone decoder task's `assume(in.pc == pc)`, which is
 # where that proof's content went.
 #
