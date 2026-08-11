@@ -59,8 +59,8 @@ module decoder (
   // mie and mstatus.MIE, and every term of it is a flip-flop, so this arrives
   // as a registered level. It joins the trap arm of the `next_pc` chain below,
   // which is BELOW the stall arm -- so an interrupt waits out a divide and a
-  // serialization the same way everything else does, and is
-  // taken only on a cycle that would otherwise have issued an instruction. The
+  // serialization the same way everything else does, and is taken only on a
+  // cycle that would otherwise have issued an instruction. The
   // instruction it displaces has not issued, so there is nothing to un-commit.
   input  logic        interrupt_pending,
  `ifdef RISCV_FORMAL
@@ -464,8 +464,8 @@ module decoder (
 
   // Do not fold these two into a shared function. iverilog builds a continuous
   // assign's sensitivity list from the arguments at the call site. A function
-  // body that also read `out` or `executor_out` would stop
-  // re-evaluating when either of those changed. `hazard_rs1` then sticks high at the
+  // body that also read `out` or `executor_out` would stop re-evaluating when
+  // either of those changed. `hazard_rs1` then sticks high at the
   // first conflict and the core stops. iverilog gives no warning for this, and
   // yosys gets the same function right, so every other check stays green.
   logic live_rs1, live_rs2;
@@ -649,8 +649,8 @@ module decoder (
     end else if (divider_stall) begin
       // This fires a cycle after the divide that caused it, so `out` holds an
       // instruction the executor has not taken yet. Zeroing it would lose that
-      // instruction. This arm has to come before the next one: if a
-      // `fetch_stall` lands on the same cycle, holding still wins. Swapping the
+      // instruction. This arm has to come before the next one: if a `fetch_stall`
+      // lands on the same cycle, holding still wins. Swapping the
       // two arms changes that and nothing would say so, which is why the
       // `ifdef FORMAL` block below checks both cases.
       out <= out;

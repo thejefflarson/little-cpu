@@ -88,6 +88,12 @@ The Dhrystone accessor column goes from 227 522 to zero; 11 995 of those cycles 
 misses, which is why the win is 215 507 and not 227 522. **The suite is off by a factor of seven on
 this change** — read the two columns as ADR-0084 says to.
 
+It moves the cycle half of the cross-core comparison too, and that number is
+[ADR-0098](0098-dhrystone-on-both-cores-and-their-published-rate-reproduces.md)'s. `make
+compare-dhrystone` on this tree reads **0.784 DMIPS/MHz here against the same 0.557 there** — 290 427
+cycles against 408 758, **1.41× on cycles** where ADR-0098 measured 1.21× including the clock. The
+clock half is not re-swept here, so what is claimed is the cycle factor and not a new product.
+
 ### Period
 
 Six placements a side, `soc/timing_sweep.sh` with `SOC_SEEDS='default 1 2 3 4 5'`:

@@ -277,11 +277,13 @@ and times.
   pinned riscv-formal clone. **Both factors of throughput are measured there and neither is quoted
   from a README.** On clock the gap is **1.6×, not the 3× two separately-published numbers
   suggested**, both critical paths are the fetch loop, and their 92 MHz does not reproduce here
-  (ADR-0086). On cycles it goes the other way: Dhrystone in that harness is **0.679 DMIPS/MHz here
-  against 0.557 there**, so this core needs 18.0% fewer cycles for the same work and the throughput
-  gap is **1.21× — 22.10 DMIPS against 26.84** on each core's worst of five placements. **Their
-  published 0.52 reproduces**, 7.1% low, where the same project's published clock missed by 1.9×
-  (ADR-0098). Neither side is a shipped design — theirs is RV32IC with a branch predictor and no
+  (ADR-0086). On cycles it goes the other way: Dhrystone in that harness was **0.679 DMIPS/MHz here
+  against 0.557 there** when ADR-0098 measured it, so this core needed 18.0% fewer cycles for the
+  same work and the throughput gap was **1.21× — 22.10 DMIPS against 26.84** on each core's worst of
+  five placements. **Launching the bus from the execute slot moves the cycle half to 0.784 against
+  the same 0.557** — 29.0% fewer cycles, 1.41× on cycles alone (ADR-0099) — and the clock half has
+  not been re-swept since, so the 1.21× product is the stale number of the two. **Their published
+  0.52 reproduces**, 7.1% low, where the same project's published clock missed by 1.9× (ADR-0098). Neither side is a shipped design — theirs is RV32IC with a branch predictor and no
   privileged architecture, ours has no timer in the harness and 4 KB of ROM — so quote it with what
   it is. Dhrystone needs 26 of that part's 32 block RAMs before either core's own 4 and 18, so those
   cycles are **simulated at a larger map than the clock was placed at**; that and eight more

@@ -534,8 +534,8 @@ fit.json: $(FIT_SRCS)
 # yosys. CI resolves the OSS CAD Suite rather than pinning it, so the second term
 # is what stops a suite bump going red on a pull request that changed no RTL.
 # Launching the bus from the execute slot has since taken the local number to
-# 3482, so there is more slack here than the derivation left; tightening it is a
-# measurement of its own and not a side effect of this one.
+# 3482, so there is more slack here than the derivation left. Tightening it is a
+# measurement of its own.
 # If this goes red, find out what grew; raising it to pass defeats the point.
 FIT_MAX_LC := 3625
 
