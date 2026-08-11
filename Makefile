@@ -528,11 +528,13 @@ fit.json: $(FIT_SRCS)
 	@yosys -p 'read_verilog -sv $^; synth_ice40 -dsp -top littlecpu -json $@' \
 	  > fit.synth.log 2>&1 || { tail -40 fit.synth.log; exit 1; }
 
-# Set above the measurement, which is 3470 cells here. The number moves by tens
-# of cells on edits that build the same hardware, and CI's yosys reads about 21
-# higher than a local one, so the budget has to leave room for both. If this goes
-# red, find out what grew. Raising it to make it pass defeats the point.
-FIT_MAX_LC := 3700
+# 3625 is the `fit` job's 3543 plus a 50-cell churn band plus 32 for the
+# toolchain: identical RTL moves about 50 cells on ABC re-mapping alone, and this
+# tree read 3543 under CI's suite against 3575 under a local Homebrew yosys. CI
+# resolves the OSS CAD Suite rather than pinning it, so the second term is what
+# stops a suite bump going red on a pull request that changed no RTL.
+# If this goes red, find out what grew; raising it to pass defeats the point.
+FIT_MAX_LC := 3625
 
 .PHONY: fit
 fit: fit.json
