@@ -224,15 +224,23 @@ and times.
 - **`make fit` has a churn band of about ±50 cells**: functionally identical edits move the count
   that much from ABC/nextpnr re-mapping alone. A delta inside the band is not evidence of
   anything, and a ratchet (`FIT_MAX_LC`) must sit outside it. **The number is also
-  toolchain-dependent** — CI's pinned OSS CAD Suite and a local Homebrew yosys differ by ~21 cells
-  on identical RTL — so quote the `fit` job's number; a local run is a sanity check. **And it is
-  top-dependent**: one decode edit measured −50 `SB_LUT4` synthesising `littlecpu` and −1
-  synthesising `littlesoc`, both counts deterministic and neither with a placement in it, because
-  ABC maps the same cone differently for what surrounds it (ADR-0094). When the two tops disagree at
-  the band, the answer is churn. **It is spelling-dependent too**, which is the sharper form of the
+  toolchain-dependent** — the `fit` job reads 3543 on `d3a9556` where a local Homebrew yosys reads
+  3575 on the same tree, 32 cells apart with the local one higher — so quote the `fit` job's number;
+  a local run is a sanity check. **The suite is not pinned** — CI installs the latest release — so
+  `FIT_MAX_LC` and `SOC_MIN_MHZ` are graded against a toolchain that can move under them, and a
+  suite bump belongs on the list of causes when either trips. **And it is top-dependent**: one
+  decode edit measured −50 `SB_LUT4` synthesising `littlecpu` and −1 synthesising `littlesoc`, both
+  counts deterministic and neither with a placement in it, because ABC maps the same cone
+  differently for what surrounds it (ADR-0094). When the two tops disagree at the band, the answer
+  is churn. **It is spelling-dependent too**, which is the sharper form of the
   same warning: those three edits rebuilt from their own description read SoC −45 rather than −1, so
   44 LUTs separate two texts stating one fact (ADR-0097). Quote a group's number with the tree and
   the text it was measured on, and do not read either top's count as the value of the idea.
+- **A generated cell's module prefix is ancestry, not ownership.** After flatten yosys names a new
+  cell after a neighbouring net, so neither `icetime`'s net names along a path nor a per-module cell
+  count off the placed netlist attributes anything: a ROM-slicing experiment moved the `imem.`
+  bucket by −193 while `SB_LUT4` total moved +17, and `executor` "grew" 181 cells on RTL nobody
+  touched. Only totals are comparable across builds.
 - **`make soc-timing` has a ~3.6% edit-churn band and a 1–2% placement spread.** One placement is a
   sample: `soc/timing_sweep.sh` runs four seeds; compare distributions, not single runs. A delta of
   a couple of percent is not evidence of anything.
@@ -329,6 +337,10 @@ and times.
   tree you mean to spend it in. So is a CPI cost — the same fourth slot cost 15.8% of suite cycles
   before the operand-fetch guess landed and 19.5% after, because the guess had been paying for part
   of those stalls.
+- **`soc/depth/path_stages.py` charges a level to the module owning the state that level newly folds
+  in**, and every LUT in the instruction decoder folds in more instruction bits — which are
+  `rom_*_RDATA`. So `decode 11 · imem 5` is not five levels of memory: the `imem` bucket is an upper
+  bound on the memory's contribution, and decode's share is understated by the same amount.
 - **Read logic levels apart**: a LUT level costs ~3.3 ns (delay plus interconnect), a carry hop
   ~0.34 ns and no interconnect. A change that trades a carry hop for a LUT level gets shallower by
   icetime's count and slower in nanoseconds. **Measured, in the fetch loop, at any area price**:
@@ -424,8 +436,9 @@ and a downloaded tool is gitignored, so an install inside the checkout is invisi
 worktree — which is why it does not live there. `make test` enforces it.
 
 Toolchain: macOS `brew install riscv64-elf-gcc`; Linux `apt install gcc-riscv64-unknown-elf`.
-Tests are freestanding assembly, so no multilib or newlib. Formal needs the pinned YosysHQ OSS CAD
-Suite. CI runs on every PR (`.github/workflows/ci.yml`); read the required set live from
+Tests are freestanding assembly, so no multilib or newlib. Formal needs the YosysHQ OSS CAD Suite,
+which CI takes at the latest release rather than a pin; `formal/pin.mk`'s riscv-formal SHA is the
+only pinned tool. CI runs on every PR (`.github/workflows/ci.yml`); read the required set live from
 `gh api repos/thejefflarson/little-cpu/branches/main/protection`, not from comments.
 
 ## Engineering rules
