@@ -42,8 +42,8 @@ Seven things follow, and none of them is a trade:
 - The executor's freeze arm goes, and with it twelve `$past` assertions that existed only to
   describe it.
 - Back-to-back loads stream at one per cycle.
-- A store's write edge lands one cycle earlier, which strengthens rather than weakens the `fence.i`
-  drain that commitment 5 exists for.
+- A store's write edge lands one cycle earlier, which strengthens rather than weakens the pipeline
+  emptying that commitment 5 holds `fence.i` for.
 - `make fit` reads **3473** against 3579, −106 cells, outside the ±50 churn band.
 
 ### The one thing that is not free: a held launch
@@ -138,5 +138,5 @@ inherited, and all 85 generated checks, all five component proofs, `dmemcheck`, 
 The divider still holds `decoder_out`, so the hold mechanism of commitment 8 is intact and only one
 of its two reasons is gone. And the guard's proof is over the accessor alone: it says the bus is
 driven only on a taken cycle. That it is *one* transaction per instruction rests on the executor
-taking each instruction once, which is the pipeline property `pcloop` and the generated ladder carry
+taking each instruction once, which is the pipeline property `pcloop` and the generated checks carry
 and this task does not restate.

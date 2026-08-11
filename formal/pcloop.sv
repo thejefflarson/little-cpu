@@ -24,7 +24,6 @@ module pcloop (
     input logic divider_stall,
     input logic fetch_stall,
     input logic accessor_out_valid,
-    input logic exec_early_write,
     // rtl/pairtable.v's answer, left free: nothing decode does with it can be
     // wrong, because `operand_stall` checks the guess against the pair the
     // issuing instruction really reads. Free is wider than the table, so the
@@ -77,7 +76,6 @@ module pcloop (
     .divider_stall(divider_stall),
     .fetch_stall(fetch_stall),
     .accessor_out_valid(accessor_out_valid),
-    .exec_early_write(exec_early_write),
     .pair_hit(pair_hit),
     .pair_rs1(pair_rs1),
     .pair_rs2(pair_rs2),
@@ -160,10 +158,10 @@ module pcloop (
   logic f_live_rs1, f_live_rs2, f_may_stall;
   assign f_live_rs1 = rs1 != 0 &&
       ((decoder_out.valid && decoder_out.rd == rs1) ||
-       (executor_out.valid && !exec_early_write && executor_out.rd == rs1));
+       (executor_out.valid && executor_out.rd == rs1));
   assign f_live_rs2 = rs2 != 0 &&
       ((decoder_out.valid && decoder_out.rd == rs2) ||
-       (executor_out.valid && !exec_early_write && executor_out.rd == rs2));
+       (executor_out.valid && executor_out.rd == rs2));
   // The whole SYSTEM opcode, not just the six csrr* funct3 values. mret waits
   // for the pipeline too, and its funct3 is 0.
   logic f_system;

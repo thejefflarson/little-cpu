@@ -219,36 +219,6 @@ module regfile_tb;
     check_hex("x6 holds its last written value", reg_rs2, 32'h88888888);
     check_mirrors("arrays agree at the end of the run");
 
-    // The shape rtl/writeback.v's early write produces: an already-committed
-    // result takes the idle port a cycle before its own retire drives the same
-    // address and value again. The port sees one write, then an identical
-    // write. Both cycles must answer with it, and the second must not disturb
-    // what the first left -- a bypass or a write-first term that treated the
-    // repeat as a different write would show up here and nowhere else.
-    drive(5'd9, 5'd9, 1'b0, 5'd0, 32'h0);          // fetch x9
-    drive(5'd9, 5'd9, 1'b1, 5'd9, 32'h5a5a5a5a);   // use, early write of x9
-    check_hex("an early write is on the port for the consumer that reads it (rs1)",
-              reg_rs1, 32'h5a5a5a5a);
-    check_hex("...and on the rs2 port too", reg_rs2, 32'h5a5a5a5a);
-    drive(5'd9, 5'd9, 1'b1, 5'd9, 32'h5a5a5a5a);   // the retire, same value
-    check_hex("the retire repeating it changes nothing (rs1)", reg_rs1, 32'h5a5a5a5a);
-    check_hex("...on either port", reg_rs2, 32'h5a5a5a5a);
-    drive(5'd9, 5'd9, 1'b0, 5'd0, 32'h0);
-    drive(5'd9, 5'd9, 1'b0, 5'd0, 32'h0);
-    check_hex("...and the array holds it afterwards", reg_rs1, 32'h5a5a5a5a);
-    check_mirrors("both arrays took the repeated write");
-
-    // A consumer whose FETCH cycle is the early write's own cycle. The
-    // write-first term is what covers this one; the bypass covers the case
-    // above. Decode reaches both, because whether the consumer is one or two
-    // instructions behind the producer is not something the register file
-    // knows.
-    drive(5'd10, 5'd10, 1'b1, 5'd10, 32'ha5a5a5a5);  // fetch x10 while writing it
-    drive(5'd10, 5'd10, 1'b0, 5'd0, 32'h0);          // use, no write in flight
-    check_hex("a fetch cycle coinciding with the early write captures it (rs1)",
-              reg_rs1, 32'ha5a5a5a5);
-    check_hex("...and on rs2", reg_rs2, 32'ha5a5a5a5);
-    check_mirrors("arrays agree after the write-first vectors");
 
     if (errors != 0) begin
       $display("FAILED: %0d mismatches", errors);

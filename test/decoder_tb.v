@@ -27,7 +27,6 @@ module decoder_tb;
   logic divider_stall = 1'b0;
   logic fetch_stall = 1'b0;
   logic accessor_out_valid = 1'b0;
-  logic exec_early_write = 1'b0;
   // rtl/pairtable.v's answer. Held at a miss for every vector below except the
   // two that drive it, so the guess falls back to the fetch window's successor
   // word and each vector's timing is the one it was written against.
@@ -57,7 +56,6 @@ module decoder_tb;
     .divider_stall(divider_stall),
     .fetch_stall(fetch_stall),
     .accessor_out_valid(accessor_out_valid),
-    .exec_early_write(exec_early_write),
     .pair_hit(pair_hit),
     .pair_rs1(pair_rs1),
     .pair_rs2(pair_rs2),

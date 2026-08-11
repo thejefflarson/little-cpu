@@ -20,11 +20,6 @@ module decoder (
   // still has to wait for one. That is what this is for -- without it a CSR
   // access can issue while a store is still in the accessor.
   input  logic       accessor_out_valid,
-  // The register file's write port carried the executor's result this cycle.
-  // Whatever register that was, an instruction reading it issues now and gets
-  // the value through the write-through bypass, so waiting for it would be a
-  // cycle spent on a value that has already landed.
-  input  logic       exec_early_write,
   // What followed this instruction the last time it issued, from
   // rtl/pairtable.v. `pair_hit` says the entry belongs to this address; the two
   // numbers are then a better guess at the next instruction's pair than the
@@ -484,13 +479,11 @@ module decoder (
   // re-evaluating when either of those changed. `hazard_rs1` then sticks high at the
   // first conflict and the core stops. iverilog gives no warning for this, and
   // yosys gets the same function right, so every other check stays green.
-  logic exec_live;
-  assign exec_live = executor_out.valid && !exec_early_write;
   logic live_rs1, live_rs2;
   assign live_rs1 = (out.valid && out.rd == rs1) ||
-    (exec_live && executor_out.rd == rs1);
+    (executor_out.valid && executor_out.rd == rs1);
   assign live_rs2 = (out.valid && out.rd == rs2) ||
-    (exec_live && executor_out.rd == rs2);
+    (executor_out.valid && executor_out.rd == rs2);
 
   // These three wait until the pipeline is empty, for two different reasons.
   // Narrowing the test to suit one of them breaks the other.

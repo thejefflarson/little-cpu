@@ -6,22 +6,10 @@ module writeback(
   input  logic reset,
   // inputs
   input accessor_output in,
-  // The instruction one stage above `in`. No wrong-path state means an
-  // instruction that reached the executor is already architecturally
-  // committed, so on a cycle `in` is not writing anything, this one's result
-  // may take the idle port and reach the register file a cycle early. The
-  // normal write happens next cycle with the same value from `in`, so there is
-  // no arbitration and nothing to take back.
-  input executor_output early,
   // outputs
   output logic wen,
   output logic [4:0] waddr,
-  output logic [31:0] wdata,
-  // High on a cycle the port carried `early` instead of `in`. Decode drops the
-  // executor slot from its scoreboard for exactly that cycle: a consumer
-  // issuing now reads the value through the register file's write-through
-  // bypass, which is the path that already exists.
-  output logic early_write
+  output logic [31:0] wdata
  `ifdef RISCV_FORMAL
   ,
   output logic        rvfi_valid,
@@ -62,29 +50,18 @@ module writeback(
   // Continuous assigns rather than an always_comb, for the reason this file
   // documents further down: a struct-field read inside an `always_*` is a
   // constant part-select iverilog cannot build a precise sensitivity entry for.
-  logic        in_valid, early_valid, early_from_bus;
-  logic [4:0]  in_rd, early_rd;
-  logic [31:0] in_rd_data, early_rd_data;
-  assign in_valid       = in.valid;
-  assign in_rd          = in.rd;
-  assign in_rd_data     = in.rd_data;
-  assign early_valid    = early.valid;
-  assign early_rd       = early.rd;
-  assign early_rd_data  = early.rd_data;
-  assign early_from_bus = early.rd_from_bus;
+  logic        in_valid;
+  logic [4:0]  in_rd;
+  logic [31:0] in_rd_data;
+  assign in_valid   = in.valid;
+  assign in_rd      = in.rd;
+  assign in_rd_data = in.rd_data;
 
   // Retire is `valid` reaching writeback: a bubble must never commit a
   // register write.
-  logic retire_write;
-  assign retire_write = !reset && in_valid && (in_rd != 5'b0);
-  // A load is excluded because its result is not in `early` yet -- the accessor
-  // takes it off the bus on the cycle `early` reaches it.
-  assign early_write = !reset && !retire_write && early_valid &&
-                       (early_rd != 5'b0) && !early_from_bus;
-
-  assign wen   = retire_write || early_write;
-  assign waddr = retire_write ? in_rd      : early_write ? early_rd      : 5'b0;
-  assign wdata = retire_write ? in_rd_data : early_write ? early_rd_data : 32'b0;
+  assign wen   = !reset && in_valid && (in_rd != 5'b0);
+  assign waddr = wen ? in_rd      : 5'b0;
+  assign wdata = wen ? in_rd_data : 32'b0;
 
  `ifdef RISCV_FORMAL
   // What this core reports on a trapping retire, and what no oracle checks.

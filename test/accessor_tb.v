@@ -11,9 +11,10 @@
 // load's request is on the bus and low for every other cycle, including the
 // response cycle, a store, an ALU op, a bubble and reset.
 //
-// Stuck high is caught elsewhere -- the ladder's environment would steal every
-// cycle and `hang` would go red -- but stuck low is invisible to everything
-// else in the tree until a program does a text-region load, and none does yet.
+// Stuck high is caught elsewhere -- the generated checks' environment would
+// steal every cycle and `hang` would go red -- but stuck low is invisible to
+// everything else in the tree until a program does a text-region load, and none
+// does yet.
 //
 // The transaction count is the other half. Decode holds `launch` unchanged for
 // every cycle of a divide, so a request block that read it without

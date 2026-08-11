@@ -28,7 +28,6 @@ module traps (
     input logic divider_stall,
     input logic fetch_stall,
     input logic accessor_out_valid,
-    input logic exec_early_write,
     // rtl/pairtable.v's answer, left free: nothing decode does with it can be
     // wrong, because `operand_stall` checks the guess against the pair the
     // issuing instruction really reads. Free is wider than the table, so the
@@ -80,7 +79,6 @@ module traps (
     .divider_stall(divider_stall),
     .fetch_stall(fetch_stall),
     .accessor_out_valid(accessor_out_valid),
-    .exec_early_write(exec_early_write),
     .pair_hit(pair_hit),
     .pair_rs1(pair_rs1),
     .pair_rs2(pair_rs2),
