@@ -268,9 +268,11 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   # Quote this job's number and name the toolchain with it: the same commit
-  # synthesises about 21 cells apart under the pinned OSS CAD Suite and a local
-  # Homebrew yosys. Not in main's required set, deliberately -- area is a design
-  # constraint, not a correctness one.
+  # synthesises 32 cells lower here than under a local Homebrew yosys. The setup
+  # action resolves the latest OSS CAD Suite rather than pinning it -- what
+  # formal/pin.mk pins is riscv-formal, not this -- so this count can move with
+  # no RTL changing. Not in main's required set, deliberately -- area is a
+  # design constraint, not a correctness one.
   fit:
     name: fit
     runs-on: little-cpu-runners
@@ -497,7 +499,7 @@ jobs:
             if path=$(command -v "$tool"); then
               echo "$tool: $path"
             else
-              echo "::error::$tool is not on PATH in the pinned OSS CAD Suite"
+              echo "::error::$tool is not on PATH in the OSS CAD Suite"
               missing=1
             fi
           done
