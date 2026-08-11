@@ -528,11 +528,13 @@ fit.json: $(FIT_SRCS)
 	@yosys -p 'read_verilog -sv $^; synth_ice40 -dsp -top littlecpu -json $@' \
 	  > fit.synth.log 2>&1 || { tail -40 fit.synth.log; exit 1; }
 
-# Set above the measurement, which is 3470 cells here. The number moves by tens
-# of cells on edits that build the same hardware, and CI's yosys reads about 21
-# higher than a local one, so the budget has to leave room for both. If this goes
-# red, find out what grew. Raising it to make it pass defeats the point.
-FIT_MAX_LC := 3700
+# 3625 is the `fit` job's 3543 plus a 50-cell churn band plus 32 for the
+# toolchain: identical RTL moves about 50 cells on ABC re-mapping alone, and this
+# tree read 3543 under CI's suite against 3575 under a local Homebrew yosys. CI
+# resolves the OSS CAD Suite rather than pinning it, so the second term is what
+# stops a suite bump going red on a pull request that changed no RTL.
+# If this goes red, find out what grew; raising it to pass defeats the point.
+FIT_MAX_LC := 3625
 
 .PHONY: fit
 fit: fit.json
@@ -816,6 +818,49 @@ compare.vvp: $(COMPARE_SMOKE_SRCS) compare-rom | $(RISCV_FORMAL_DIR)
 compare-smoke: compare.vvp
 	@vvp $<
 
+# The OTHER factor of throughput. `compare-timing` above reports each core's
+# clock; this reports the cycles each takes for the same work, so a DMIPS figure
+# for either side is measured here rather than quoted from a project's README.
+#
+# IT IS A SIMULATION, AND CANNOT BE A PLACEMENT. Dhrystone needs more memory
+# than an hx8k has block RAM for -- soc/compare/dhry_fit.py prints that
+# arithmetic on every run -- so the memories are enlarged for both cores
+# together and the clock to multiply these cycles by comes from the smaller
+# placed geometry. That is the caveat on the result, and it travels with it.
+#
+# COMPARE_DHRY_CFLAGS is not DHRY_CFLAGS and must not be made to match it: this
+# image has to run on both cores, and their common ISA is RV32IC. No M
+# extension, so multiply and divide are libgcc calls; no Zicsr, so the run is
+# timed on the bus instead of by `mcycle`. `make dhrystone`'s number is a
+# different workload on a different machine and the two are not comparable.
+# 400 runs. The measured window is the benchmark's loop and nothing else, so the
+# figure is flat in this: 100 runs and 400 differ by 0.02% on this core and 0.26%
+# on VexRiscv. The count is set by how long two cores in one iverilog simulation
+# take, not by what the number needs.
+COMPARE_DHRY_RUNS   ?= 400
+COMPARE_DHRY_CYCLES ?= 2000000
+COMPARE_DHRY_CFLAGS := -march=rv32ic -mabi=ilp32 -O2 -std=c11 \
+                       -ffreestanding -fno-tree-loop-distribute-patterns \
+                       -Wall -Wextra -Werror
+
+COMPARE_DHRY_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
+                     soc/compare/bench_vexriscv.v soc/compare/dhry_tb.v
+
+compare.dhry.vvp: $(COMPARE_DHRY_SRCS) | $(RISCV_FORMAL_DIR)
+	iverilog -I./rtl/ -g2012 -o $@ $(RISCV_FORMAL_DIR)/cores/VexRiscv/VexRiscv.v \
+	  $(COMPARE_DHRY_SRCS)
+
+# Both cores' standalone censuses, because the fit arithmetic reads how much
+# block RAM each core needs before either memory out of them rather than
+# carrying a copy. Recursive, because those log names are COMPARE_CORE's and
+# this target needs both sides at once.
+.PHONY: compare-dhrystone
+compare-dhrystone: compare.dhry.vvp
+	@$(MAKE) --no-print-directory COMPARE_CORE=littlecpu compare.littlecpu.core.log
+	@$(MAKE) --no-print-directory COMPARE_CORE=vexriscv compare.vexriscv.core.log
+	@./soc/compare/run_dhrystone.sh $(COMPARE_DHRY_RUNS) $(COMPARE_DHRY_CYCLES) \
+	  '$(COMPARE_DHRY_CFLAGS)' compare.dhry.vvp
+
 .PHONY: compare-timing
 compare-timing: compare.$(COMPARE_CORE).asc compare.$(COMPARE_CORE).core.log
 	@sed -n '/^Info: Device utilisation:/,/^$$/s/^Info: //p' compare.$(COMPARE_CORE).pnr.log
@@ -842,7 +887,10 @@ clean:
 	rm -f soc.json soc.asc soc.synth.log soc.pnr.log soc.timing.rpt
 	rm -f soc/rom_even.hex soc/rom_odd.hex
 	rm -f compare.*.json compare.*.asc compare.*.log compare.*.rpt compare.vvp
+	rm -f compare.dhry.vvp
 	rm -f soc/compare/rom_even.hex soc/compare/rom_odd.hex soc/compare/rom_flat.hex
+	rm -f soc/compare/dhry_even.hex soc/compare/dhry_odd.hex soc/compare/dhry_flat.hex
+	rm -f soc/compare/dhry_ram.hex
 	rm -f waves.vcd
 	rm -rf sim sim.dSYM
 	rm -rf cosim cosim.dSYM
