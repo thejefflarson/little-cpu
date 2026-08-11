@@ -24,7 +24,7 @@ runs:
         fi
 
     # Latest, not a pin. A toolchain bump that changes the hardware shows up in
-    # `make fit` and `make soc-timing`, both of which ratchet: 21 cells were
+    # `make fit` and `make soc-timing`, both of which ratchet: 32 cells were
     # measured between two yosys builds on identical RTL. formal/pin.mk is a
     # different question and stays pinned -- test/monitor.v is generated from it
     # and tracked, so bumping that one means regenerating the monitor.
