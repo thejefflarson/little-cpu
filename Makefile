@@ -13,8 +13,8 @@ rvfi_macros.vh: $(RISCV_FORMAL_DIR)/checks/rvfi_macros.py
 # landed, and spent a run elaborating a testbench whose memories were not there.
 # That job calls `make elaborate-strict` now, so there is one list to update.
 SIM_RTL_SRCS := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v \
-                rtl/fetcher.v rtl/imemory.v rtl/memory.v rtl/pairtable.v rtl/regfile.v \
-                rtl/regsel.v rtl/timer.v rtl/writeback.v rtl/littlecpu.v
+                rtl/fetcher.v rtl/imemory.v rtl/memory.v rtl/regfile.v rtl/regsel.v \
+                rtl/timer.v rtl/writeback.v rtl/littlecpu.v
 
 testbench.vvp: $(SIM_RTL_SRCS) rvfi_macros.vh test/testbench.v test/monitor.sim.v
 	iverilog -I./rtl/ -DICARUS $(addprefix -D,$(RISCV_FORMAL_MACROS)) -g2012 -o $@ $^
@@ -340,7 +340,7 @@ lint-setup:
 	@'$(SVLINT_DIR)'/bin/svlint --version
 
 UNIT_BENCHES := exec_tb mem_tb imem_tb decoder_tb regfile_tb csr_tb accessor_tb monitor_tb \
-                timer_tb pairtable_tb
+                timer_tb
 
 UNIT_BENCH_SRC_exec_tb     := rtl/structs.v rtl/executor.v
 UNIT_BENCH_SRC_mem_tb      := rtl/memory.v
@@ -351,7 +351,6 @@ UNIT_BENCH_SRC_csr_tb      := rtl/structs.v rtl/csrs.v
 UNIT_BENCH_SRC_accessor_tb := rtl/structs.v rtl/accessor.v
 UNIT_BENCH_SRC_monitor_tb  := test/monitor.sim.v
 UNIT_BENCH_SRC_timer_tb    := rtl/timer.v
-UNIT_BENCH_SRC_pairtable_tb := rtl/pairtable.v
 
 # `present` is read from disk inside the recipe, not with $(wildcard). Make reads
 # a directory once and remembers it, and a check working from a stale listing can
@@ -522,19 +521,21 @@ dhrystone: sim
 # far, and that table is the number we want. Making it place would mean picking
 # real pins, which means building the SoC memory first.
 FIT_SRCS := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v \
-            rtl/fetcher.v rtl/pairtable.v rtl/regfile.v rtl/regsel.v rtl/writeback.v \
-            rtl/littlecpu.v
+            rtl/fetcher.v rtl/regfile.v rtl/regsel.v rtl/writeback.v rtl/littlecpu.v
 
 fit.json: $(FIT_SRCS)
 	@echo 'yosys: synthesising littlecpu for ice40 (log: fit.synth.log)'
 	@yosys -p 'read_verilog -sv $^; synth_ice40 -dsp -top littlecpu -json $@' \
 	  > fit.synth.log 2>&1 || { tail -40 fit.synth.log; exit 1; }
 
-# 3625 is the `fit` job's 3543 plus a 50-cell churn band plus 32 for the
-# toolchain: identical RTL moves about 50 cells on ABC re-mapping alone, and this
-# tree read 3543 under CI's suite against 3575 under a local Homebrew yosys. CI
-# resolves the OSS CAD Suite rather than pinning it, so the second term is what
-# stops a suite bump going red on a pull request that changed no RTL.
+# 3625 is a measurement of 3543 under CI's suite plus a 50-cell churn band plus
+# 32 for the toolchain: identical RTL moves about 50 cells on ABC re-mapping
+# alone, and that tree read 3543 under CI against 3575 under a local Homebrew
+# yosys. CI resolves the OSS CAD Suite rather than pinning it, so the second term
+# is what stops a suite bump going red on a pull request that changed no RTL.
+# Launching the bus from the execute slot has since taken the local number to
+# 3482, so there is more slack here than the derivation left; tightening it is a
+# measurement of its own and not a side effect of this one.
 # If this goes red, find out what grew; raising it to pass defeats the point.
 FIT_MAX_LC := 3625
 
@@ -561,15 +562,14 @@ SOC_PROG      ?= datainit.c
 SOC_ROM_WORDS := 2048
 # Exact rather than budgeted the way FIT_MAX_LC is, because both are properties
 # of the RTL rather than of placement: 2 SPRAM for the 64 KB data RAM, and 16
-# EBR for the 8 KB banked ROM plus 4 for rtl/regfile.v and 1 for
-# rtl/pairtable.v, whose 256 entries of 16 bits are exactly one.
+# EBR for the 8 KB banked ROM plus 4 for rtl/regfile.v.
 SOC_EXPECT_SPRAM := 2
-SOC_EXPECT_EBR   := 21
+SOC_EXPECT_EBR   := 20
 
 SOC_SRCS      := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v \
                  rtl/executor.v rtl/fetcher.v rtl/imemory.v rtl/memory.v \
-                 rtl/pairtable.v rtl/regfile.v rtl/regsel.v rtl/timer.v \
-                 rtl/writeback.v rtl/littlecpu.v rtl/littlesoc.v
+                 rtl/regfile.v rtl/regsel.v rtl/timer.v rtl/writeback.v rtl/littlecpu.v \
+                 rtl/littlesoc.v
 
 # PHONY so `soc.json` resynthesises every run: the image depends on SOC_PROG,
 # which make cannot see a change to, and a stale ROM would make the measurement

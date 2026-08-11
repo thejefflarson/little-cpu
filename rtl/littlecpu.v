@@ -113,23 +113,6 @@ module littlecpu(
     .wdata(wdata)
   );
 
-  logic        decoder_issuing;
-  logic        pair_hit;
-  logic [4:0]  pair_rs1, pair_rs2;
-  logic [4:0]  rs1, rs2;
-  pairtable pairtable(
-    .clk(clk),
-    .reset(reset),
-    .next_pc(next_pc),
-    .issuing(decoder_issuing),
-    .pc(pc),
-    .rs1(rs1),
-    .rs2(rs2),
-    .hit(pair_hit),
-    .guess_rs1(pair_rs1),
-    .guess_rs2(pair_rs2)
-  );
-
   logic [11:0] csr_addr;
   logic        csr_ren, csr_wen;
   logic [31:0] csr_wdata, csr_rdata;
@@ -154,9 +137,6 @@ module littlecpu(
     .divider_stall(divider_stalled),
     .fetch_stall(fetch_stall),
     .accessor_out_valid(accessor_out_valid),
-    .pair_hit(pair_hit),
-    .pair_rs1(pair_rs1),
-    .pair_rs2(pair_rs2),
     .csr_rdata(csr_rdata),
     .csr_implemented(csr_implemented),
     .mtvec(csr_mtvec),
@@ -169,8 +149,6 @@ module littlecpu(
    `endif
     .pc(pc),
     .next_pc(next_pc),
-    .rs1(rs1),
-    .rs2(rs2),
     .read_rs1(read_rs1),
     .read_rs2(read_rs2),
     .csr_addr(csr_addr),
@@ -178,7 +156,6 @@ module littlecpu(
     .csr_wen(csr_wen),
     .csr_wdata(csr_wdata),
     .instret(csr_instret),
-    .issuing(decoder_issuing),
     .trap_entry(decoder_trap_entry),
     .trap_cause(csr_trap_cause),
     .trap_epc(csr_trap_epc),

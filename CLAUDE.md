@@ -62,10 +62,11 @@ are kept in parentheses so those references still resolve.
   no reorder buffer. It stands on ADR-0067's ruling that the bus never refuses a transaction.
 - **Every inter-stage struct carries a `valid` bit** (3). A bubble is `valid = 0`; retire is
   `valid` reaching writeback, which gates `wen` and drives `rvfi_valid`.
-- **Hazards are stall-only** (4). No forwarding network, and 35.5% of suite cycles is what that
-  costs — **24.4% on Dhrystone, and the two are not separable from the operand-fetch cycle in either**
+- **Hazards are stall-only** (4). No forwarding network, and 35.7% of suite cycles is what that
+  costs — **22.5% on Dhrystone, and the two are not separable from the operand-fetch cycle in either**
   (ADR-0084): a cycle that is both is charged to the scoreboard, which is why removing most of the
-  operand column moved the scoreboard column *up* (ADR-0089, ADR-0093, ADR-0101). Read 35.5%
+  operand column moved the scoreboard column *up* (ADR-0089, ADR-0093), and why deleting the load
+  turnaround gave 11 995 of its cycles straight back as operand misses (ADR-0099). Read 35.7%
   as an upper bound on one workload, never as the prize.
   Both spellings were built and measured (ADR-0083): forwarding the executor's result to every
   operand reader buys 12.9% of cycles and misses 12 MHz outright at 9.49, and confining it to the
@@ -92,10 +93,9 @@ are kept in parentheses so those references still resolve.
   presents on an issuing cycle is a **guess at the next instruction's pair**, mapped out of the
   fetch window's successor word by `rtl/regsel.v` — the same mapping the issuing instruction goes
   through, instantiated twice, so a compressed successor is decoded rather than masked away
-  (ADR-0089, ADR-0093) — **outranked, where it has an entry, by what really followed that address
-  last time**, which is what a fetch window cannot reach after a redirect (`rtl/pairtable.v`,
-  ADR-0101). Neither guess can be wrong in a way that matters: `operand_stall` is the check, so a
-  miss costs the cycle that was being paid and there is nothing to flush or invalidate. The pair presented and the pair being read are deliberately different
+  (ADR-0089, ADR-0093). A guess taken from what really followed that address last time reaches the
+  case a fetch window cannot — a redirect — and is built, measured and deferred rather than declined
+  (ADR-0101). The pair presented and the pair being read are deliberately different
   signals there. The bypass selects on a **registered copy** of the address
   pair and is correct because `operand_stall` lets nothing issue until the held pair is the pair the
   issuing instruction reads (ADR-0064 as amended by ADR-0089) — narrowing `operand_stall` breaks it
@@ -265,14 +265,13 @@ and times.
   period — and 12 is already met. A few-percent idea can be read against 41.67 ns and declined in a
   minute, instead of after four placements (ADR-0078).
 - **`make dhrystone` is the only figure comparable to another project's**, and it is quoted in
-  DMIPS/MHz because that is what the field publishes. 0.790 at `-O2`, 3568 bytes of the SoC's 8 KB
-  ROM (ADR-0084, ADR-0093, ADR-0099, ADR-0101). Dhrystone is string-dominated and the optimiser can
-  delete part of the work, so
-  **the flags, the compiler and the string library travel with the number** — the program prints all
-  three and will not compile without them. It is not a gate and adds no ratchet. **Quote the
-  absolute figure with it**: 7.68 DMIPS at the board's 12 MHz, because Fmax above the requirement is
-  margin and not speed, so a CPI win converts to throughput and a placement that closes higher does
-  not (ADR-0089). At 0.790 that is **9.48 DMIPS**, from 7.68.
+  DMIPS/MHz because that is what the field publishes. 0.727 at `-O2`, 3568 bytes of the SoC's 8 KB
+  ROM (ADR-0084, ADR-0093, ADR-0099). Dhrystone is string-dominated and the optimiser can
+  delete part of the work, so **the flags, the compiler and the string library travel with the
+  number** — the program prints all three and will not compile without them. It is not a gate and
+  adds no ratchet. **Quote the absolute figure with it**: **8.72 DMIPS** at the board's 12 MHz, from
+  7.68, because Fmax above the requirement is margin and not speed, so a CPI win converts to
+  throughput and a placement that closes higher does not (ADR-0089).
 - **The only cross-core comparison that means anything is one harness**, and `soc/compare/` is it:
   same part, memories, program, toolchain and seeds, this core against the VexRiscv Verilog in the
   pinned riscv-formal clone. **Both factors of throughput are measured there and neither is quoted
@@ -507,8 +506,7 @@ an empty `formal/EXPECTED_FAIL` is necessary, not sufficient.
 
 The SoC is 8 KB of ROM in block RAM plus 64 KB of data RAM, which yosys maps to two of the part's
 four `SB_SPRAM256KA` at 256 kbit each. **128 KB is the up5k's whole SPRAM, not the SoC's.**
-`SOC_EXPECT_SPRAM` and `SOC_EXPECT_EBR` hold both counts exactly — 21 EBR now, the extra one being
-`rtl/pairtable.v` (ADR-0101). It places, meets 12 MHz, and runs
+`SOC_EXPECT_SPRAM` and `SOC_EXPECT_EBR` hold both counts exactly. It places, meets 12 MHz, and runs
 a program that reads its own `.data`. SPRAM still cannot be initialised, so `.data` rides in the
 ROM at a load address `test/asm/boot.lds` puts there and `test/crt0.S` copies into RAM before
 `main`. That runtime costs 82 bytes and `test/asm/datainit.c`'s whole ROM image is 284 of 8192 — a whole

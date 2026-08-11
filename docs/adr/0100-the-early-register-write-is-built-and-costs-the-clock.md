@@ -25,8 +25,8 @@ write-through bypass. There is no new path into the operand datapath at all.
 
 ## Decision
 
-**Built, measured, declined.** The RTL is at `0613ae9` on the branch this ADR lands on and the ADR
-is what survives it.
+**Built, measured, declined.** The RTL is on the branch this ADR lands on (PR #164) and is taken
+back out before it merges; the ADR is what survives it.
 
 What was built: `writeback` takes `executor_out` as a second source. On a cycle the retiring
 instruction is not writing (`wen` low), a valid `executor_out` with a non-`x0` `rd` whose result is
@@ -96,10 +96,11 @@ one table:
 | **the early write (this)** | **−9.1% suite, −6.5% Dhrystone** | **+9.4%** | **no** |
 
 Every one of them touches the bypass or the loop it sits in, and every one is declined. **The next
-idea in this direction should be one that does not**, and the measurement to beat is now the
-combination this branch ships instead: ADR-0099 and
-[ADR-0101](0101-the-successor-pair-is-learned-and-the-suite-disagrees.md) together are −18.9% of
-Dhrystone at 12 MHz.
+idea in this direction should be one that does not**, and the measurement to beat is what this
+branch ships instead: ADR-0099 alone is −11.8% of Dhrystone at 12 MHz.
+[ADR-0101](0101-the-successor-pair-is-learned-and-deferred-for-margin.md) is a fourth entry in this
+chain that does *not* touch the bypass, holds the clock, and is deferred for margin rather than
+declined — which is the shape to look for.
 
 One residual worth recording rather than guessing at: the +9.4% was not attributed between the two
 halves of the mechanism — the muxes in front of the write port, and the `!early_write` term the

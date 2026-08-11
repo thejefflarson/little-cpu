@@ -44,7 +44,9 @@ Seven things follow, and none of them is a trade:
 - Back-to-back loads stream at one per cycle.
 - A store's write edge lands one cycle earlier, which strengthens rather than weakens the pipeline
   emptying that commitment 5 holds `fence.i` for.
-- `make fit` reads **3473** against 3579, −106 cells, outside the ±50 churn band.
+- `make fit` reads **3473** against 3579, −106 cells, outside the ±50 churn band. Re-measured after
+  the rebase onto merged `main`, on one local Homebrew yosys: **3482 against 3575, −93** — the same
+  finding, and the two deltas differ by a quarter of the band.
 
 ### The one thing that is not free: a held launch
 
@@ -98,6 +100,12 @@ Six placements a side, `soc/timing_sweep.sh` with `SOC_SEEDS='default 1 2 3 4 5'
 The median moves −1.2%, inside the churn band and therefore a null. **The worst placement is what
 moved**: −5.1%, and the requirement's margin goes from under one percent to nearly six. That is the
 number to quote, because `SOC_MIN_MHZ` is a requirement over every placement and not a median.
+
+Re-swept on the tree that ships — this change rebased onto merged `main`, with the request block's
+disjointness assertion on top — the six seeds read `74.28 74.65 76.23 76.67 77.86 79.46`: median
+76.45 ns, **worst 79.46 ns / 12.58 MHz, 4.8% over the requirement**. The median reproduces to 0.3%
+and the worst placement lands 1.4% the other way, which is the placement spread this file is
+measured against. **Quote 4.8%**, because it is the tree that merges.
 
 ### F and G
 

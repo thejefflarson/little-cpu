@@ -27,11 +27,6 @@ module decoder_tb;
   logic divider_stall = 1'b0;
   logic fetch_stall = 1'b0;
   logic accessor_out_valid = 1'b0;
-  // rtl/pairtable.v's answer. Held at a miss for every vector below except the
-  // two that drive it, so the guess falls back to the fetch window's successor
-  // word and each vector's timing is the one it was written against.
-  logic pair_hit = 1'b0;
-  logic [4:0] pair_rs1 = 5'b0, pair_rs2 = 5'b0;
   // rtl/csrs.v is a sibling of the decoder, not part of it, so it is stubbed.
   logic [31:0] csr_rdata = 32'b0;
   logic csr_implemented = 1'b0;
@@ -56,9 +51,6 @@ module decoder_tb;
     .divider_stall(divider_stall),
     .fetch_stall(fetch_stall),
     .accessor_out_valid(accessor_out_valid),
-    .pair_hit(pair_hit),
-    .pair_rs1(pair_rs1),
-    .pair_rs2(pair_rs2),
     .csr_rdata(csr_rdata),
     .csr_implemented(csr_implemented),
     .mtvec(mtvec),
@@ -241,44 +233,6 @@ module decoder_tb;
     check_bit("...and the re-presented pair lets it issue on the next one",
               dut.issuing, 1'b1);
     in.next_instr = 32'b0;
-
-    // rtl/pairtable.v's answer outranks the fetch window's successor word,
-    // which is the whole point of it: after a redirect the word physically
-    // after the branch is not what runs next, and the table entry is. The
-    // successor word here names x2 and the table names x4, so a guess that
-    // ignored the table would present x2 and cost the cycle.
-    in.pc = 32'h0000_0080;
-    present_and_fetch(32'h00100093);   // addi x1, x0, 1
-    in.next_instr = 32'h00110193;      // addi x3, x2, 1 -- the sequential guess, x2
-    pair_hit = 1'b1;
-    pair_rs1 = 5'd4;
-    pair_rs2 = 5'd0;
-    #1;
-    check_hex("a table hit outranks the successor word", {27'b0, read_rs1}, 32'd4);
-    @(posedge clk);
-    #1;
-    in.instr = 32'h00120213;           // addi x4, x4, 1 -- what really ran next
-    in.next_instr = 32'b0;
-    pair_hit = 1'b0;
-    #1;
-    check_bit("...and the redirect target issues with no operand-fetch cycle",
-              dut.operand_stall, 1'b0);
-    check_bit("...so it issues in the cycle it is presented", dut.issuing, 1'b1);
-
-    // The other direction: a miss leaves the successor word in charge, so the
-    // table can only ever add a hit and never take one away.
-    in.pc = 32'h0000_00a0;
-    present_and_fetch(32'h00100093);
-    in.next_instr = 32'h00110193;      // reads x2
-    pair_hit = 1'b0;
-    pair_rs1 = 5'd4;
-    #1;
-    check_hex("a table miss leaves the successor word presenting",
-              {27'b0, read_rs1}, 32'd2);
-    pair_rs1 = 5'd0;
-    in.next_instr = 32'b0;
-    @(posedge clk);
-    #1;
 
     // A compressed successor goes through the same register-number mapping, so
     // it is guessed as accurately as an uncompressed one. The successor word
