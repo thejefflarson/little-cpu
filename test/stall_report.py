@@ -33,9 +33,9 @@ import argparse
 import sys
 
 # The five the decoder has, in the order it tries them: it holds `decoder_out`
-# for the divider and bubbles for the other four. The runner
-# writes these names, so a rename has to happen in both places at once -- which
-# the field check below turns into an error rather than a silent zero.
+# for the divider and bubbles for the other four. The runner writes these names,
+# so a rename has to happen in both places at once -- which the field check
+# below turns into an error rather than a silent zero.
 REASONS = ["divider", "hazard", "serialize", "operand", "fetch"]
 
 # What the CPI above it describes. It is an argument the caller has to supply,

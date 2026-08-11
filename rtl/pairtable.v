@@ -63,12 +63,15 @@ module pairtable #(
   // register file's address port through the guess below and turn the whole
   // pipeline X. Only the two-state runner would stay green. Zeroed, an unwritten
   // entry reads as tag 0 with the pair x0/x0, which is a guess like any other.
+  // `held_valid` is here for the same reason: before the first edge it has no
+  // value either, and it is the term that keeps `hit` from being an X on the
+  // cycle out of reset.
   initial begin
     for (int i = 0; i < ENTRIES; i++) entries[i] = '0;
   end
 
-  logic [INDEX_BITS-1:0] read_index, write_index;
-  logic [TAG_BITS-1:0]   read_tag, write_tag;
+  logic [INDEX_BITS-1:0] read_index;
+  logic [TAG_BITS-1:0]   read_tag;
   // pc[0] is always zero -- every instruction is two-byte aligned -- so the
   // index starts at bit 1 and the table is one entry per halfword rather than
   // one per four bytes, which would alias every compressed pair together.
@@ -78,6 +81,7 @@ module pairtable #(
   logic [WIDTH-1:0]    read_entry;
   logic [TAG_BITS-1:0] held_tag;
   logic                held_valid;
+  initial held_valid = 1'b0;
 
   // The address of the last instruction to issue, which is the entry the next
   // issue's pair belongs in. `primed` keeps the first issue out of reset from

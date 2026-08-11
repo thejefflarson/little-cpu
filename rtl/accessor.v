@@ -77,8 +77,9 @@ module accessor(
   assign addr16 = launch_mem_addr[1];
   logic [1:0] addr24;
   assign addr24 = launch_mem_addr[1:0];
-  logic is_load;
+  logic is_load, is_store;
   assign is_load = launch_is_lw || launch_is_lh || launch_is_lhu || launch_is_lb || launch_is_lbu;
+  assign is_store = launch_is_sw || launch_is_sh || launch_is_sb;
   assign mem_ren = requesting && is_load;
 
   // What the request needs back on the cycle its answer arrives. `in` carries
@@ -127,11 +128,11 @@ module accessor(
       mem_wdata = launch_mem_data;
       (* parallel_case *)
       case (1'b1)
-        launch_is_lw || launch_is_lh || launch_is_lhu || launch_is_lb || launch_is_lbu: begin
+        is_load: begin
           mem_addr = word_aligned_addr;
         end
 
-        launch_is_sw || launch_is_sh || launch_is_sb: begin
+        is_store: begin
           (* parallel_case, full_case *)
           case (1'b1)
             launch_is_sw: begin
@@ -151,7 +152,7 @@ module accessor(
             end
           endcase // case (1'b1)
           mem_addr = word_aligned_addr;
-        end // case: launch_is_sw || launch_is_sh || launch_is_sb
+        end // case: is_store
 
       endcase // case (1'b1)
     end // if (requesting)
@@ -224,8 +225,18 @@ module accessor(
   initial assume(reset);
   always_comb if (!clocked) assume(reset);
 
-  logic is_store, transacting;
-  assign is_store = launch_is_sw || launch_is_sh || launch_is_sb;
+  // Assumed: decode emits at most one memory flag per instruction, which its
+  // own `$onehot` assertion under `instr_valid` discharges. Without it the
+  // solver picks a word that is a load and a store at once, which no encoding
+  // produces.
+  always_comb assume($onehot0({launch_is_lb, launch_is_lbu, launch_is_lh, launch_is_lhu,
+                               launch_is_lw, launch_is_sb, launch_is_sh, launch_is_sw}));
+
+  // The exact arm list of the request block's outer `(* parallel_case *)`. A
+  // marking is spent against an assertion, never against belief.
+  always_comb assert($onehot0({is_load, is_store}));
+
+  logic transacting;
   assign transacting = mem_ren || |mem_wstrb;
 
   // The issued-once guard, in the two halves that make it one. Decode holds

@@ -219,7 +219,6 @@ module regfile_tb;
     check_hex("x6 holds its last written value", reg_rs2, 32'h88888888);
     check_mirrors("arrays agree at the end of the run");
 
-
     if (errors != 0) begin
       $display("FAILED: %0d mismatches", errors);
       $fatal(1);
