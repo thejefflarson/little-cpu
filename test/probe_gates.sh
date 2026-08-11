@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=192
+PROBES_EXPECTED=211
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -1480,6 +1480,131 @@ probe "a file that moved out from under the check is fatal, not skipped" 1 \
 d=$(gt_fixture); sed -i.bak 's/^COMPARE_ROM_WORDS/COMPARE_ROMWORDS/' "$d/Makefile"
 probe "a declaration this cannot read stops rather than comparing empty strings" 1 \
   "teach this script the new" "$GT $d"
+
+begin_group "soc/compare/dhry_fit.py"
+
+DF="python3 $REPO/soc/compare/dhry_fit.py"
+
+# The measured image, the measured geometries and both cores' measured block RAM
+# counts, so every red probe below is one edit away from the real run.
+df_fixture() {
+  local d; d=$(new_case)
+  printf '     6052   SB_LUT4\n        4   SB_RAM40_4K\n' > "$d/ours.log"
+  printf '     1711   SB_LUT4\n       18   SB_RAM40_4K\n' > "$d/theirs.log"
+  cat > "$d/tb.v" <<'TB'
+  localparam int ROM_WORDS = 2048;
+  localparam int RAM_WORDS = 4096;
+TB
+  printf '%s' "$d"
+}
+
+df_args() {  # $1 = fixture dir
+  printf -- '--rom-bytes 1528 --ram-bytes 10572 --placed-rom 4096 --placed-ram 2048 '
+  printf -- '--sim-rom 8192 --sim-ram 16384 --tb %s/tb.v ' "$1"
+  printf -- '--core littlecpu=%s/ours.log --core vexriscv=%s/theirs.log' "$1" "$1"
+}
+
+d=$(df_fixture)
+probe "control: the measured image reports the shortfall it has" 0 \
+  "DOES NOT FIT THE PLACED GEOMETRY" "$DF $(df_args "$d")"
+
+# The point of the script: a run whose memories no ice40 in this flow can hold
+# has to say so beside its numbers, every time.
+d=$(df_fixture)
+probe "a core that cannot hold the image is named, not left to the reader" 0 \
+  "vexriscv   18 of its own + 26 for the image =  44 blocks: DOES NOT FIT" \
+  "$DF $(df_args "$d")"
+
+# One geometry, two files. A testbench simulating memories the linker script
+# does not describe is two machines reported as one.
+d=$(df_fixture); sed -i.bak 's/RAM_WORDS = 4096/RAM_WORDS = 2048/' "$d/tb.v"
+probe "a testbench simulating a different map than the image is linked for is red" 1 \
+  "the simulated geometry does not agree with itself" "$DF $(df_args "$d")"
+
+d=$(df_fixture); sed -i.bak '/RAM_WORDS/d' "$d/tb.v"
+probe "a parameter this cannot read stops rather than comparing nothing" 1 \
+  "script the new spelling rather than dropping" "$DF $(df_args "$d")"
+
+# ld refuses a .text overflow; nothing refuses a .bss past the end of RAM.
+d=$(df_fixture)
+probe "data past the end of the simulated RAM is red, not silent" 1 \
+  "does not fit the simulated geometry" "$DF $(df_args "$d") --ram-bytes 20000"
+
+d=$(df_fixture); sed -i.bak '/SB_RAM40_4K/d' "$d/theirs.log"
+probe "a census with no block RAM line is a synthesis that did not finish" 1 \
+  "no SB_RAM40_4K line" "$DF $(df_args "$d")"
+
+d=$(df_fixture)
+probe "an empty image is named rather than reported as fitting easily" 1 \
+  "an empty image is not a measurement" "$DF $(df_args "$d") --rom-bytes 0"
+
+begin_group "soc/compare/dhry_dmips.py"
+
+DD="python3 $REPO/soc/compare/dhry_dmips.py"
+
+# The numbers this repo measured, at 400 runs.
+dd_fixture() {
+  local d; d=$(new_case)
+  cat > "$d/run.log" <<'LOG'
+DHRY ran 431000 cycles of a 2000000 cycle limit
+DHRY core=littlecpu marks=2 cycles=335229 verdict=1 writes=31474
+DHRY core=vexriscv marks=2 cycles=408758 verdict=1 writes=31474
+DHRY ramdiff=0 of=4096 words
+LOG
+  printf '%s' "$d"
+}
+
+d=$(dd_fixture)
+probe "control: a good run reports both cores' figures" 0 "0.679" \
+  "$DD $d/run.log --runs 400"
+
+d=$(dd_fixture)
+probe "a clock turns the per-MHz figure into an absolute one" 0 "22.10" \
+  "$DD $d/run.log --runs 400 --mhz littlecpu=32.54 --mhz vexriscv=48.19"
+
+# THE ONE THAT MATTERS: two cores that did not compute the same thing have no
+# comparable cycle count between them.
+d=$(dd_fixture); sed -i.bak 's/ramdiff=0/ramdiff=111/' "$d/run.log"
+probe "two cores whose RAMs differ are red, not a 1.2x result" 1 \
+  "data RAMs differ in 111 of 4096 words" "$DD $d/run.log --runs 400"
+
+d=$(dd_fixture); sed -i.bak 's/of=4096/of=0/' "$d/run.log"
+probe "a RAM comparison over no words is named as unable to fail" 1 \
+  "could not have failed" "$DD $d/run.log --runs 400"
+
+d=$(dd_fixture); sed -i.bak '/ramdiff/d' "$d/run.log"
+probe "a run that never made the cross-core check is red" 1 \
+  "no ramdiff line" "$DD $d/run.log --runs 400"
+
+d=$(dd_fixture); sed -i.bak 's/core=vexriscv marks=2/core=vexriscv marks=1/' "$d/run.log"
+probe "a core that reached the start of the loop and not the end is red" 1 \
+  "published 1 marker(s), not 2" "$DD $d/run.log --runs 400"
+
+d=$(dd_fixture); sed -i.bak 's/core=littlecpu marks=2 cycles=335229 verdict=1/core=littlecpu marks=2 cycles=335229 verdict=3/' \
+  "$d/run.log"
+probe "the benchmark's own FAIL verdict stops the number being quoted" 1 \
+  "did not compute the published results" "$DD $d/run.log --runs 400"
+
+d=$(dd_fixture); sed -i.bak '/core=vexriscv/d' "$d/run.log"
+probe "one side alone is not a cross-core figure" 1 \
+  "no result for vexriscv" "$DD $d/run.log --runs 400"
+
+d=$(dd_fixture); sed -i.bak 's/^DHRY core=/DHRY CORE=/' "$d/run.log"
+probe "a simulation this cannot parse is a run that did not happen" 1 \
+  "no DHRY result lines" "$DD $d/run.log --runs 400"
+
+d=$(dd_fixture)
+probe "zero runs would divide the work by nothing" 1 "nothing was measured" \
+  "$DD $d/run.log --runs 0"
+
+d=$(dd_fixture)
+probe "a clock for a core nobody graded is named rather than ignored" 1 \
+  "which is not one of the cores graded" \
+  "$DD $d/run.log --runs 400 --mhz picorv32=40"
+
+d=$(dd_fixture)
+probe "a placement at zero MHz is not a placement" 1 "is not placed" \
+  "$DD $d/run.log --runs 400 --mhz littlecpu=0"
 
 echo
 if [ "$probes" -ne "$PROBES_EXPECTED" ]; then

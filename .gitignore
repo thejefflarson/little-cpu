@@ -30,6 +30,13 @@ compare.vvp
 soc/compare/rom_even.hex
 soc/compare/rom_odd.hex
 soc/compare/rom_flat.hex
+# `make compare-dhrystone`: the benchmark's image in both cores' ROM shapes, the
+# data RAM both start from, and the simulation that runs them.
+compare.dhry.vvp
+soc/compare/dhry_even.hex
+soc/compare/dhry_odd.hex
+soc/compare/dhry_flat.hex
+soc/compare/dhry_ram.hex
 # `soc/depth/`: the spike's netlists, placements, logs and icetime reports, plus
 # the memory it generates from rtl/imemory.v and the runner it patches out of
 # test/cxxrtl.cc. Same rule as the soc.* and compare.* files above -- the reports
