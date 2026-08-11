@@ -444,6 +444,8 @@ make -C formal nonperturbation      # RVFI instrumentation is unread by the core
 make sail-setup     # once: fetch the pinned sail-riscv release
 make cosim-run      # co-sim one program (PROG=add.S)
 make cosim-suite    # the whole suite, graded against COSIM_EXPECTED_FAIL
+make sail-reservation-probe  # asks the MODEL what a trap and an mret do to an
+                    # LR reservation. No core runs. Not on CI, no ratchet
 ```
 
 `make sail-setup` and `make lint-setup` unpack into `~/.cache/little-cpu`
