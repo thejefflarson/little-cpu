@@ -28,6 +28,7 @@ module traps (
     input logic divider_stall,
     input logic fetch_stall,
     input logic accessor_out_valid,
+    input logic exec_early_write,
     // The platform's timer line, free every cycle. rtl/csrs.v decides what to
     // do with it, so `interrupt_pending` below is a real signal of this design
     // rather than something the solver picks -- which is what lets the mie and
@@ -71,6 +72,7 @@ module traps (
     .divider_stall(divider_stall),
     .fetch_stall(fetch_stall),
     .accessor_out_valid(accessor_out_valid),
+    .exec_early_write(exec_early_write),
     .csr_rdata(csr_rdata),
     .csr_implemented(csr_implemented),
     .mtvec(mtvec_value),

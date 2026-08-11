@@ -102,6 +102,10 @@ module littlecpu(
   logic [4:0]  read_rs1, read_rs2;
   logic [4:0]  waddr;
   logic        wen;
+  // The register file's write port carried the executor's result this cycle
+  // rather than the retiring instruction's. Routed back to decode, which then
+  // does not wait on a value that has already arrived.
+  logic        early_write;
   regfile regfile(
     .clk(clk),
     .rs1(read_rs1),
@@ -137,6 +141,7 @@ module littlecpu(
     .divider_stall(divider_stalled),
     .fetch_stall(fetch_stall),
     .accessor_out_valid(accessor_out_valid),
+    .exec_early_write(early_write),
     .csr_rdata(csr_rdata),
     .csr_implemented(csr_implemented),
     .mtvec(csr_mtvec),
@@ -221,9 +226,11 @@ module littlecpu(
     .clk(clk),
     .reset(reset),
     .in(accessor_out),
+    .early(executor_out),
     .wen(wen),
     .waddr(waddr),
-    .wdata(wdata)
+    .wdata(wdata),
+    .early_write(early_write)
    `ifdef RISCV_FORMAL
     ,
     .rvfi_valid(rvfi_valid),

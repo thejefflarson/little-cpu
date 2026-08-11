@@ -20,6 +20,11 @@ module decoder (
   // still has to wait for one. That is what this is for -- without it a CSR
   // access can issue while a store is still in the accessor.
   input  logic       accessor_out_valid,
+  // The register file's write port carried the executor's result this cycle.
+  // Whatever register that was, an instruction reading it issues now and gets
+  // the value through the write-through bypass, so waiting for it would be a
+  // cycle spent on a value that has already landed.
+  input  logic       exec_early_write,
   output logic [31:0] pc,
   // The value `pc` takes next cycle, ready during this one. A memory that needs
   // a cycle to answer latches this on the same edge `pc` moves, so its data is
@@ -58,8 +63,8 @@ module decoder (
   // An enabled interrupt source is asserting. rtl/csrs.v has already ANDed in
   // mie and mstatus.MIE, and every term of it is a flip-flop, so this arrives
   // as a registered level. It joins the trap arm of the `next_pc` chain below,
-  // which is BELOW the stall arm -- so an interrupt waits out a divide, a load
-  // turnaround and a serialization the same way everything else does, and is
+  // which is BELOW the stall arm -- so an interrupt waits out a divide and a
+  // serialization the same way everything else does, and is
   // taken only on a cycle that would otherwise have issued an instruction. The
   // instruction it displaces has not issued, so there is nothing to un-commit.
   input  logic        interrupt_pending,
@@ -468,11 +473,13 @@ module decoder (
   // re-evaluating when either of those changed. `hazard_rs1` then sticks high at the
   // first conflict and the core stops. iverilog gives no warning for this, and
   // yosys gets the same function right, so every other check stays green.
+  logic exec_live;
+  assign exec_live = executor_out.valid && !exec_early_write;
   logic live_rs1, live_rs2;
   assign live_rs1 = (out.valid && out.rd == rs1) ||
-    (executor_out.valid && executor_out.rd == rs1);
+    (exec_live && executor_out.rd == rs1);
   assign live_rs2 = (out.valid && out.rd == rs2) ||
-    (executor_out.valid && executor_out.rd == rs2);
+    (exec_live && executor_out.rd == rs2);
 
   // These three wait until the pipeline is empty, for two different reasons.
   // Narrowing the test to suit one of them breaks the other.

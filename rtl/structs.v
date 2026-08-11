@@ -147,6 +147,10 @@ typedef struct packed {
  `endif
   logic [4:0]  rd;
   logic [31:0] rd_data;
+  // `rd_data` is not this instruction's result: the accessor takes it off the
+  // bus next cycle. It is the one thing that stops an already-committed result
+  // being written to the register file a cycle early.
+  logic        rd_from_bus;
 } executor_output;
 
 typedef struct packed {

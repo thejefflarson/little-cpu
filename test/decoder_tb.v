@@ -27,6 +27,7 @@ module decoder_tb;
   logic divider_stall = 1'b0;
   logic fetch_stall = 1'b0;
   logic accessor_out_valid = 1'b0;
+  logic exec_early_write = 1'b0;
   // rtl/csrs.v is a sibling of the decoder, not part of it, so it is stubbed.
   logic [31:0] csr_rdata = 32'b0;
   logic csr_implemented = 1'b0;
@@ -51,6 +52,7 @@ module decoder_tb;
     .divider_stall(divider_stall),
     .fetch_stall(fetch_stall),
     .accessor_out_valid(accessor_out_valid),
+    .exec_early_write(exec_early_write),
     .csr_rdata(csr_rdata),
     .csr_implemented(csr_implemented),
     .mtvec(mtvec),

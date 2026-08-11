@@ -145,6 +145,7 @@ module executor(
           // transaction on this same cycle and merges the answer in next cycle,
           // where an ALU op's result merely passes through.
           out.rd_data <= 0;
+          out.rd_from_bus <= in.is_lb || in.is_lbu || in.is_lh || in.is_lhu || in.is_lw;
           (* parallel_case, full_case *)
           case (1'b1)
             in.is_add: out.rd_data <= rs1 + rs2;

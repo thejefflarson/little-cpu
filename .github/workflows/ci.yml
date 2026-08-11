@@ -55,9 +55,11 @@ jobs:
         # rvfi_macros.vh clones the pinned riscv-formal, so this step also
         # exercises the from-scratch-clone pin guard.
         #
-        # iverilog emits 20 "sorry: constant selects in always_* processes"
+        # iverilog emitted 20 "sorry: constant selects in always_* processes"
         # notes here, all against rtl/writeback.v's accessor_output, and still
-        # exits 0. They are notes rather than warnings; do not grep for them.
+        # exited 0. That block is continuous assigns now and the count is zero;
+        # they are notes rather than warnings either way, so do not grep for
+        # them.
         run: make rvfi_macros.vh testbench.vvp
 
       - name: iverilog full-pipeline simulation (one fixed program, graded)
