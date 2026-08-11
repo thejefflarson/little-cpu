@@ -83,7 +83,7 @@ SAIL_CACHE_KEY    := sail-$(SAIL_RISCV_VERSION)-$(SAIL_ASSET)-$(SAIL_SHA256)
 
 # Only for the goals that run the binary. If this check could stop `make test`,
 # an out-of-date tools/sail would break the merge gate for everyone.
-ifneq ($(filter cosim-run cosim-suite,$(MAKECMDGOALS)),)
+ifneq ($(filter cosim-run cosim-suite sail-reservation-probe,$(MAKECMDGOALS)),)
 ifneq ($(wildcard $(SAIL_SIM_BIN)),)
 SAIL_PIN_ON_DISK := $(shell sed -n 1p $(SAIL_STAMP) 2>/dev/null)
 ifneq ($(SAIL_PIN_ON_DISK),$(SAIL_PIN))
@@ -192,6 +192,15 @@ cosim-run: cosim
 .PHONY: cosim-suite
 cosim-suite: cosim
 	./test/run_cosim.sh ./cosim test/asm test/COSIM_EXPECTED_FAIL test/OBSERVED_FLOOR
+
+# Asks the reference model what it does to an LR reservation at a trap and at an
+# mret -- the one part of LR/SC the spec leaves to the implementation, and
+# therefore the one part the model cannot be authoritative about. No core runs,
+# and no `cosim` binary is built: this grades nothing against the core, it
+# interrogates the oracle. Not on CI, and it adds no ratchet.
+.PHONY: sail-reservation-probe
+sail-reservation-probe:
+	./test/sail/reservation_probe.sh $(SAIL_SIM_BIN)
 
 # Both sim legs check every retired instruction against this file. A rule in
 # test/sanitize_monitor.py therefore decides what counts as a correct result.

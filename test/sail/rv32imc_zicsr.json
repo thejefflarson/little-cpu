@@ -170,14 +170,21 @@
     // `AlignmentException` is the value matching this core's causes: load
     // address misaligned = 4, store address misaligned = 6. `AccessFault`
     // would be causes 5 and 7 and is a different implementation choice this
-    // core did not make. The `vector`, `amo` and `lrsc` entries belong to V
-    // and A, both disabled.
+    // core did not make -- it raises neither cause anywhere.
+    //
+    // `amo` and `lrsc` say the same thing for the same reason, now that the
+    // model executes those instructions. Both were upstream defaults chosen for
+    // a machine with A disabled, and `amo`'s default let a misaligned AMO
+    // complete without faulting at all. Neither is reachable from test/asm
+    // today; they are written down because the alternative is discovering the
+    // model's default the first time the suite grows a misaligned AMO. The
+    // `vector` entry still belongs to V, which is disabled.
     "misaligned": {
       "exceptions": {
         "load_store": { "Some": "AlignmentException" },
         "vector": { "None": null },
-        "amo": { "None": null },
-        "lrsc": "AccessFault"
+        "amo": { "Some": "AlignmentException" },
+        "lrsc": "AlignmentException"
       },
       "order_decreasing": false,
       "default_allowed_within_exp": 0,
@@ -244,11 +251,47 @@
     // Zicbom/Zicbop/Zicboz are disabled; no instruction consults this.
     "cache_block_size_exp": 6,
 
-    // A is disabled, so there are no reservations to size.
+    // THE RESERVATION POLICY, which is the one part of LR/SC the spec leaves to
+    // the implementation and therefore the one part a reference model cannot be
+    // authoritative about. An SC's result is an architectural register value, so
+    // a model that drops a reservation where this core keeps it makes every
+    // LR/SC program a co-simulation divergence on a correct core.
+    //
+    // `reservation_set_size_exp` is the size AND alignment of the set, as an
+    // exponent; 2 is the RV32 minimum and is one 4-byte word, which is what this
+    // core reserves -- it compares word addresses.
+    //
+    // `require_exact_reservation_addr` forces an exact address match REGARDLESS
+    // of that size. The two therefore overlap, and measuring both is the only
+    // way to see it -- an sc.w one word up from the reservation, which this core
+    // fails:
+    //
+    //   size_exp  exact    that sc.w
+    //   2         true     fails
+    //   2         false    fails
+    //   3         true     fails
+    //   3         false    SUCCEEDS
+    //
+    // So the pair below is two independent reasons for the same answer, not one
+    // reason and one redundant knob: at a one-word set the exact-match knob is
+    // unobservable, and with exact matching on the set size is. Both are set to
+    // what this core does rather than to whichever one happened to be load-
+    // bearing, because the other is what a later widening would land on.
+    //
+    // `invalidate_on_same_hart_store` is `true` because this core clears the
+    // reservation on a store from this hart whose word address matches -- one
+    // hart is all there is, so a model that ignored same-hart stores would
+    // succeed at an SC this core fails. It is the one knob here that is
+    // load-bearing on its own: at `false` the probe's same-hart-store case
+    // succeeds. Spurious SC failure is architecturally permitted and the reverse
+    // is what needs an argument, so this is the direction that has to agree.
+    //
+    // What the model does at a trap and at an mret is NOT a knob. It is
+    // observed by test/sail/reservation_probe.sh and recorded in docs/adr/0102.
     "reservation": {
-      "reservation_set_size_exp": 3,
-      "require_exact_reservation_addr": false,
-      "invalidate_on_same_hart_store": false
+      "reservation_set_size_exp": 2,
+      "require_exact_reservation_addr": true,
+      "invalidate_on_same_hart_store": true
     },
 
     // No CLINT and no interrupt generator: this core has neither, and no
@@ -324,7 +367,8 @@
 
     // --- the misa bits that were wrong ------------------------------------
     // A, B, D, F, S, U and V. Each was `true` in the model's default RV32
-    // machine and none of them is implemented here.
+    // machine and none of them is implemented here. A is the one that has since
+    // split in two -- the key below is only its misa bit; see the Za* block.
     "A": { "supported": false },
     "B": { "supported": false },
     "D": { "supported": false },
@@ -372,12 +416,42 @@
 
     // --- M subsets and A subsets ------------------------------------------
     // Zmmul is the multiply-only subset of M; M itself is on, so this stays
-    // off (it is off in the model's default too). The Za* family is A.
+    // off (it is off in the model's default too).
     "Zmmul": { "supported": false },
-    "Zaamo": { "supported": false },
+
+    // ZAAMO IS THE NINE AMOs AND ZALRSC IS lr.w/sc.w. Both are on: the model
+    // has to EXECUTE them for the A extension's semantics to be co-simulable at
+    // all, and test/sail/reservation_probe.sh is what asks it questions about
+    // them.
+    //
+    // `A` ABOVE IS NOT AN UMBRELLA OVER THESE TWO. It is the misa.A bit and
+    // nothing else, and that is the whole reason it is still false while these
+    // are true. Measured, all four combinations, with a csrr of misa and with
+    // the probe:
+    //
+    //   A     Zaamo/Zalrsc   misa         lr.w/sc.w
+    //   true  true           0x40001105   execute
+    //   true  false          0x40001105   execute
+    //   false true           0x40001104   execute
+    //   false false          0x40001104   illegal instruction
+    //
+    // rtl/csrs.v returns misa as a constant 0x40001104, so `A: true` would put
+    // 0x40001105 in an architectural register at test/asm/csr.S's two misa
+    // reads and diverge there -- a red co-simulation gate earned by the
+    // reference model, not by the core. `A` FLIPS IN THE SAME CHANGE THAT MAKES
+    // rtl/csrs.v CLAIM THE BIT, and not before. Turning it on early would also
+    // hide that transition: with the model already claiming A, the change that
+    // makes the core claim it would go green either way.
+    //
+    // The rest of the Za* family stays off because it is not this target: Zabha
+    // is byte and halfword AMOs, Zacas is compare-and-swap, Zama16b is a
+    // misaligned atomicity guarantee this core does not make, and Zawrs is a
+    // wait-on-reservation pair that would need a reservation the fetch path
+    // could see.
+    "Zaamo": { "supported": true },
+    "Zalrsc": { "supported": true },
     "Zabha": { "supported": false },
     "Zacas": { "supported": false },
-    "Zalrsc": { "supported": false },
     "Zama16b": { "supported": false },
     "Zawrs": {
       "supported": false,
