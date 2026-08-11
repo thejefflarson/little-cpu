@@ -11,11 +11,14 @@
 // cause defect lived. `ecall` and `ebreak` are covered by trap.S,
 // `c.ebreak` by cebreak.S; these four had nothing.
 //
-// All four are NOPs here: one hart, no caches, no interrupt sources, so
-// there is nothing for a fence to order, nothing for fence.i to invalidate,
-// and nothing for wfi to wait on. What is checked is that they retire without
-// trapping and without disturbing architectural state -- the two ways a NOP
-// can be wrong.
+// Three of them are NOPs here: `c.nop` always, `fence` because one hart and no
+// caches leave it nothing to order, and `wfi` because the spec lets an
+// implementation resume for any reason. `fence.i` is not -- it waits until the
+// pipeline is empty, because text is writable and the fetch address goes out a
+// cycle early, so an older store's write edge has to land first. selfmod.S is
+// what checks that wait; nothing here would notice it gone. What is checked
+// here is that all four retire without trapping and without disturbing
+// architectural state -- the two ways any of them can be wrong.
 
 RVTEST_CODE_BEGIN
 
