@@ -172,11 +172,4 @@ typedef struct packed {
   logic [4:0] rd;
   logic [31:0] rd_data;
 } accessor_output;
-
-typedef struct packed {
-  logic        valid;
-  logic        wen;
-  logic [31:0] waddr;
-  logic [31:0] wdata;
-} writeback_output;
 `endif

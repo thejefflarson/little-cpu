@@ -103,26 +103,25 @@ module accessor(
   rvfi_shadow  pending_rvfi;
   logic [31:0] pending_rvfi_mem_addr;
  `endif
-  logic [31:0] write_request;
-
   logic [31:0] word_aligned_addr;
   logic [15:0] store_halfword;
   logic [7:0]  store_byte;
   assign word_aligned_addr = {in_mem_addr[31:2], 2'b00};
   assign store_halfword    = in_mem_data[15:0];
   assign store_byte        = in_mem_data[7:0];
-  // Keep this off a register. It has to change on the same cycle mem_addr and
-  // mem_wstrb do. Registered, it arrives a cycle late, and the memory writes the
-  // last cycle's data to this cycle's address.
-  assign mem_wdata = write_request;
+  // All three outputs are driven from this one block and none of them is
+  // registered: the write data has to change on the same cycle the address and
+  // the strobes do, or the memory writes the last cycle's data to this cycle's
+  // address.
+  //
   // The zeros below are what stop this block sending the same request again on
   // every cycle the executor spends dividing.
   always_comb begin
     mem_addr = 0;
     mem_wstrb = 0;
-    write_request = 0;
+    mem_wdata = 0;
     if (!reset && in_valid) begin
-      write_request = in_mem_data;
+      mem_wdata = in_mem_data;
       (* parallel_case *)
       case (1'b1)
         in_is_lw || in_is_lh || in_is_lhu || in_is_lb || in_is_lbu: begin
@@ -135,17 +134,17 @@ module accessor(
             in_is_sw: begin
               mem_addr = in_mem_addr;
               mem_wstrb = 4'b1111;
-              write_request = in_mem_data;
+              mem_wdata = in_mem_data;
             end
 
             in_is_sh: begin
               mem_wstrb = addr16 ? 4'b1100 : 4'b0011;
-              write_request = {2{store_halfword}};
+              mem_wdata = {2{store_halfword}};
             end
 
             in_is_sb: begin
               mem_wstrb = 4'b0001 << addr24;
-              write_request = {4{store_byte}};
+              mem_wdata = {4{store_byte}};
             end
           endcase // case (1'b1)
           mem_addr = word_aligned_addr;
@@ -212,7 +211,7 @@ module accessor(
       // memory access from whatever last used this register.
       out.rvfi_mem_addr <= is_store ? mem_addr : 32'b0;
       out.rvfi_mem_wmask <= is_store ? mem_wstrb : 4'b0;
-      out.rvfi_mem_wdata <= is_store ? write_request : 32'b0;
+      out.rvfi_mem_wdata <= is_store ? mem_wdata : 32'b0;
       out.rvfi_mem_rmask <= 4'b0;
       out.rvfi_mem_rdata <= 32'b0;
      `endif
