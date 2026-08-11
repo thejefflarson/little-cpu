@@ -528,11 +528,14 @@ fit.json: $(FIT_SRCS)
 	@yosys -p 'read_verilog -sv $^; synth_ice40 -dsp -top littlecpu -json $@' \
 	  > fit.synth.log 2>&1 || { tail -40 fit.synth.log; exit 1; }
 
-# 3625 is the `fit` job's 3543 plus a 50-cell churn band plus 32 for the
-# toolchain: identical RTL moves about 50 cells on ABC re-mapping alone, and this
-# tree read 3543 under CI's suite against 3575 under a local Homebrew yosys. CI
-# resolves the OSS CAD Suite rather than pinning it, so the second term is what
-# stops a suite bump going red on a pull request that changed no RTL.
+# 3625 is a measurement of 3543 under CI's suite plus a 50-cell churn band plus
+# 32 for the toolchain: identical RTL moves about 50 cells on ABC re-mapping
+# alone, and that tree read 3543 under CI against 3575 under a local Homebrew
+# yosys. CI resolves the OSS CAD Suite rather than pinning it, so the second term
+# is what stops a suite bump going red on a pull request that changed no RTL.
+# Launching the bus from the execute slot has since taken the job's number to
+# 3469, so there is more slack here than the derivation left. Tightening it is a
+# measurement of its own.
 # If this goes red, find out what grew; raising it to pass defeats the point.
 FIT_MAX_LC := 3625
 

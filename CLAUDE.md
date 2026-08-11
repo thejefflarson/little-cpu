@@ -62,24 +62,29 @@ are kept in parentheses so those references still resolve.
   no reorder buffer. It stands on ADR-0067's ruling that the bus never refuses a transaction.
 - **Every inter-stage struct carries a `valid` bit** (3). A bubble is `valid = 0`; retire is
   `valid` reaching writeback, which gates `wen` and drives `rvfi_valid`.
-- **Hazards are stall-only** (4). No forwarding network, and 35.1% of suite cycles is what that
-  costs — **19.8% on Dhrystone, and the two are not separable from the operand-fetch cycle in either**
+- **Hazards are stall-only** (4). No forwarding network, and 35.7% of suite cycles is what that
+  costs — **22.5% on Dhrystone, and the two are not separable from the operand-fetch cycle in either**
   (ADR-0084): a cycle that is both is charged to the scoreboard, which is why removing most of the
-  operand column moved the scoreboard column *up* (ADR-0089, ADR-0093). Read 35.1%
+  operand column moved the scoreboard column *up* (ADR-0089, ADR-0093), and why deleting the load
+  turnaround gave 11 995 of its cycles straight back as operand misses (ADR-0099). Read 35.7%
   as an upper bound on one workload, never as the prize.
   Both spellings were built and measured (ADR-0083): forwarding the executor's result to every
   operand reader buys 12.9% of cycles and misses 12 MHz outright at 9.49, and confining it to the
   executor's operands buys 7.5% and holds 12 MHz on 0.48% of margin against today's 3.35%. Deleting
   the scoreboard outright buys **0% of period** at its ceiling, so nothing in this direction pays for
-  the muxes, and only one of the three in-flight slots can be forwarded from at all. That is the
-  evidence to beat.
+  the muxes, and only one of the two in-flight slots can be forwarded from at all.
+  **Writing a committed executor result into the register file on a cycle the port is idle** needs no
+  operand mux at all — the existing write-through bypass carries it — and is the third measurement in
+  the same chain: −9.1% of suite cycles, −6.5% of Dhrystone's, **+9.4% of median period and under
+  12 MHz at four placements of six** (ADR-0100). That is the evidence to beat, and the pattern in it
+  is that every candidate so far touches the bypass or the loop it sits in.
 - **CSR instructions, `mret` and `fence.i` serialize** (5) — held in decode until execute, access
   and writeback are empty. Two distinct reasons share the mechanism: the first two so a one-cycle
   architectural update cannot interleave with older instructions; `fence.i` because text is
   writable and the fetch address publishes early, so an older store's write edge must pass first
-  (ADR-0061). Do not collapse them. The emptiness check reads **four** slots —
-  `accessor_out.valid` is routed in separately because a store in flight is invisible to the
-  scoreboard's three (ADR-0026).
+  (ADR-0061). Do not collapse them. The emptiness check reads **three** slots —
+  `accessor_out.valid` is routed in separately because a store writes no register and is therefore
+  invisible to the scoreboard's two (ADR-0026 as amended by ADR-0099).
 - **The regfile read is synchronous, and the answer belongs to the address pair presented the
   previous cycle** (6, 9). Decode presents a pair, bubbles a cycle (`operand_stall`) whenever what
   was presented is not what the instruction reads, then issues — and in the issue cycle observes the
@@ -88,7 +93,9 @@ are kept in parentheses so those references still resolve.
   presents on an issuing cycle is a **guess at the next instruction's pair**, mapped out of the
   fetch window's successor word by `rtl/regsel.v` — the same mapping the issuing instruction goes
   through, instantiated twice, so a compressed successor is decoded rather than masked away
-  (ADR-0089, ADR-0093). The pair presented and the pair being read are deliberately different
+  (ADR-0089, ADR-0093). A guess taken from what really followed that address last time reaches the
+  case a fetch window cannot — a redirect — and is built, measured and deferred rather than declined
+  (ADR-0101). The pair presented and the pair being read are deliberately different
   signals there. The bypass selects on a **registered copy** of the address
   pair and is correct because `operand_stall` lets nothing issue until the held pair is the pair the
   issuing instruction reads (ADR-0064 as amended by ADR-0089) — narrowing `operand_stall` breaks it
@@ -96,17 +103,21 @@ are kept in parentheses so those references still resolve.
   `operand_stall` is an amendment, not a tuning change. The standing liveness probe: delete the rs2
   write-through bypass and `reg_ch0` must go SAT — run it before believing any `reg_ch0` result
   under a changed configuration.
-- **Stalls are one global broadcast over two mechanisms** (8): a divider or accessor stall
-  **holds** `decoder_out` unchanged (an issued instruction nothing has consumed); every other
+- **Stalls are one global broadcast over two mechanisms** (8): a divider stall **holds**
+  `decoder_out` unchanged (an issued instruction the executor has not consumed); every other
   reason **bubbles** (nothing issued). A `fetch_stall` coinciding with a freeze HOLDS — bubbling
   would drop an issued instruction — and that ruling is only arm order in the publish block, so it
   is asserted in `rtl/decoder.v`'s `FORMAL` block and vectored in `test/decoder_tb.v`. Every
   in-flight non-`x0` `rd` must be visible to the scoreboard on every cycle between issue and the
-  regfile write-through, with no gap. Six reasons raise `stall`, and it is exactly their OR: the
-  divider, the accessor's load turnaround, the decode scoreboard, serialization, the operand-fetch
-  cycle, the stolen fetch window. `test/decoder_tb.v` checks that identity and `make cycles`
-  charges every stalled cycle to the first reason that is true, so a seventh has to be added in
-  both places as well as here.
+  regfile write-through, with no gap. **Five** reasons raise `stall`, and it is exactly their OR:
+  the divider, the decode scoreboard, serialization, the operand-fetch cycle, the stolen fetch
+  window. `test/decoder_tb.v` checks that identity and `make cycles` charges every stalled cycle to
+  the first reason that is true, so a sixth has to be added in both places as well as here.
+  **The load turnaround was the sixth and is gone** (ADR-0099): the bus transaction is presented
+  from `decoder_out` during the executor's own cycle, so the answer is there when the instruction
+  reaches the accessor. A held `decoder_out` would re-present it, which is idempotent for RAM and
+  not for a device, so the request block is gated on the cycle the executor takes it —
+  `components_accessor` and a transaction count in `test/accessor_tb.v` are what say so.
 
 Retired numbers, never reused: 7 (the generated-but-tracked monitor) lives under Verification; 9 is
 folded into 6.
@@ -163,7 +174,8 @@ What a green result does and does not mean:
   that the property holds. Depths are derived from two measured numbers — F (worst-case first
   retire, from `hang`) and G (worst-case retire gap, from `liveness`). **Any change that adds a
   stall reason, lengthens a stage, or widens the scoreboard must re-measure F and G before it
-  lands** (ADR-0046); some depths exceed their measured minimum by only one cycle.
+  lands** (ADR-0046). F is 6 and G is 5 — ADR-0099 re-derived both from scratch when the load
+  turnaround left, and the thinnest depth now clears its derived floor by three rather than one.
 - **riscv-formal ships no spec model for SYSTEM or MISC-MEM at the pinned SHA**, so trap and CSR
   behaviour
   is checked against assertions this repo wrote (`test/asm/trap.S`, `test/csr_tb.v`, the decoder
@@ -253,23 +265,25 @@ and times.
   period — and 12 is already met. A few-percent idea can be read against 41.67 ns and declined in a
   minute, instead of after four placements (ADR-0078).
 - **`make dhrystone` is the only figure comparable to another project's**, and it is quoted in
-  DMIPS/MHz because that is what the field publishes. 0.640 at `-O2`, 3568 bytes of the SoC's 8 KB
-  ROM (ADR-0084, ADR-0093). Dhrystone is string-dominated and the optimiser can delete part of the work, so
-  **the flags, the compiler and the string library travel with the number** — the program prints all
-  three and will not compile without them. It is not a gate and adds no ratchet. **Quote the
-  absolute figure with it**: 7.68 DMIPS at the board's 12 MHz, because Fmax above the requirement is
-  margin and not speed, so a CPI win converts to throughput and a placement that closes higher does
-  not (ADR-0089).
+  DMIPS/MHz because that is what the field publishes. 0.727 at `-O2`, 3568 bytes of the SoC's 8 KB
+  ROM (ADR-0084, ADR-0093, ADR-0099). Dhrystone is string-dominated and the optimiser can
+  delete part of the work, so **the flags, the compiler and the string library travel with the
+  number** — the program prints all three and will not compile without them. It is not a gate and
+  adds no ratchet. **Quote the absolute figure with it**: **8.72 DMIPS** at the board's 12 MHz, from
+  7.68, because Fmax above the requirement is margin and not speed, so a CPI win converts to
+  throughput and a placement that closes higher does not (ADR-0089).
 - **The only cross-core comparison that means anything is one harness**, and `soc/compare/` is it:
   same part, memories, program, toolchain and seeds, this core against the VexRiscv Verilog in the
   pinned riscv-formal clone. **Both factors of throughput are measured there and neither is quoted
   from a README.** On clock the gap is **1.6×, not the 3× two separately-published numbers
   suggested**, both critical paths are the fetch loop, and their 92 MHz does not reproduce here
-  (ADR-0086). On cycles it goes the other way: Dhrystone in that harness is **0.679 DMIPS/MHz here
-  against 0.557 there**, so this core needs 18.0% fewer cycles for the same work and the throughput
-  gap is **1.21× — 22.10 DMIPS against 26.84** on each core's worst of five placements. **Their
-  published 0.52 reproduces**, 7.1% low, where the same project's published clock missed by 1.9×
-  (ADR-0098). Neither side is a shipped design — theirs is RV32IC with a branch predictor and no
+  (ADR-0086). On cycles it goes the other way: Dhrystone in that harness was **0.679 DMIPS/MHz here
+  against 0.557 there** when ADR-0098 measured it, so this core needed 18.0% fewer cycles for the
+  same work and the throughput gap was **1.21× — 22.10 DMIPS against 26.84** on each core's worst of
+  five placements. **Launching the bus from the execute slot moves the cycle half to 0.784 against
+  the same 0.557** — 29.0% fewer cycles, 1.41× on cycles alone (ADR-0099) — and the clock half has
+  not been re-swept since, so the 1.21× product is the stale number of the two. **Their published
+  0.52 reproduces**, 7.1% low, where the same project's published clock missed by 1.9× (ADR-0098). Neither side is a shipped design — theirs is RV32IC with a branch predictor and no
   privileged architecture, ours has no timer in the harness and 4 KB of ROM — so quote it with what
   it is. Dhrystone needs 26 of that part's 32 block RAMs before either core's own 4 and 18, so those
   cycles are **simulated at a larger map than the clock was placed at**; that and eight more
@@ -331,7 +345,9 @@ and times.
   declined. Routing `stall` to the ROM's read-enable pin instead of into the address mux is a null in
   both directions — −0.1% of median period, and the critical path ends *at* the enable (ADR-0091);
   replacing the bypass with a fourth scoreboard slot costs **19.5% of suite cycles and 8.6% of
-  Dhrystone's** for −2.8% of median period, a product 5.1% worse in DMIPS (ADR-0092). The pair is no
+  Dhrystone's** for −2.8% of median period, a product 5.1% worse in DMIPS (ADR-0092), and writing a
+  committed result into the idle port a cycle early buys 6.5% of Dhrystone's cycles for **+9.4% of
+  median period**, under the requirement at four placements of six (ADR-0100). The pair is no
   better than either half. **A ceiling is perishable**: deleting the whole `stall` arm of `next_pc`
   was worth −3.8% three merges ago and is a null on both bases measured since, so re-take one in the
   tree you mean to spend it in. So is a CPI cost — the same fourth slot cost 15.8% of suite cycles

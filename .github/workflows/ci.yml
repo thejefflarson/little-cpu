@@ -55,9 +55,10 @@ jobs:
         # rvfi_macros.vh clones the pinned riscv-formal, so this step also
         # exercises the from-scratch-clone pin guard.
         #
-        # iverilog emits 20 "sorry: constant selects in always_* processes"
-        # notes here, all against rtl/writeback.v's accessor_output, and still
-        # exits 0. They are notes rather than warnings; do not grep for them.
+        # iverilog emits 16 "sorry: constant selects in always_* processes"
+        # notes here, all against rtl/writeback.v's rvfi shadow reads, and still
+        # exits 0. It was 20 before the write port moved to continuous assigns.
+        # They are notes rather than warnings; do not grep for them.
         run: make rvfi_macros.vh testbench.vvp
 
       - name: iverilog full-pipeline simulation (one fixed program, graded)
@@ -217,6 +218,9 @@ jobs:
 
       - name: Decoder component proof
         run: make -C formal components_decoder
+
+      - name: Accessor one-transaction proof
+        run: make -C formal components_accessor
 
       # This one make also runs formal/pcloop_cover.sby, which is a prerequisite
       # of the target rather than a step of its own. That task is the proof's

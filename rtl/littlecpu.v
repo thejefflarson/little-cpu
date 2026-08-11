@@ -71,12 +71,10 @@ module littlecpu(
   // module written above its driver, and iverilog wants the name first.
   decoder_output decoder_out;
   executor_output executor_out;
-  logic divider_stalled, accessor_stalled;
-  logic       accessor_pending_valid;
-  logic [4:0] accessor_pending_rd;
-  // `accessor_pending_valid` only goes high for loads. The decoder needs this as
-  // well, so it can tell a store is still in the accessor before it lets a CSR
-  // access issue.
+  logic divider_stalled;
+  // A store writes no register, so the decode scoreboard never sees one. The
+  // decoder needs this to tell a store is still in the accessor before it lets
+  // a CSR access issue.
   logic accessor_out_valid;
   // High for one cycle per trap, not a level. The test benches watch it to catch
   // a trap taken before the handler address is installed: mtvec resets to 0 and
@@ -137,10 +135,7 @@ module littlecpu(
     .reg_rs2(reg_rs2),
     .executor_out(executor_out),
     .divider_stall(divider_stalled),
-    .accessor_stall(accessor_stalled),
     .fetch_stall(fetch_stall),
-    .accessor_pending_valid(accessor_pending_valid),
-    .accessor_pending_rd(accessor_pending_rd),
     .accessor_out_valid(accessor_out_valid),
     .csr_rdata(csr_rdata),
     .csr_implemented(csr_implemented),
@@ -198,25 +193,27 @@ module littlecpu(
     .clk(clk),
     .reset(reset),
     .in(decoder_out),
-    .accessor_stall(accessor_stalled),
     .out(executor_out),
     .stalled(divider_stalled)
   );
 
   accessor_output accessor_out;
   assign accessor_out_valid = accessor_out.valid;
+  // The bus transaction goes out from `decoder_out`, a stage ahead of the
+  // struct whose answer it becomes. `divider_stalled` low is exactly the cycle
+  // the executor takes that instruction, and presenting it on any other cycle
+  // would drive the bus twice for one store.
   accessor accessor(
     .clk(clk),
     .reset(reset),
+    .launch(decoder_out),
+    .launch_taken(!divider_stalled),
     .in(executor_out),
     .mem_addr(mem_addr),
     .mem_wstrb(mem_wstrb),
     .mem_wdata(mem_wdata),
     .mem_ren(mem_ren),
     .mem_rdata(mem_rdata),
-    .stalled(accessor_stalled),
-    .pending_valid(accessor_pending_valid),
-    .pending_rd(accessor_pending_rd),
     .out(accessor_out)
   );
 

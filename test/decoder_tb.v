@@ -25,10 +25,7 @@ module decoder_tb;
   // against; the hazard scoreboard is test/regfile_tb.v's and hazard.S's.
   executor_output executor_out = '0;
   logic divider_stall = 1'b0;
-  logic accessor_stall = 1'b0;
   logic fetch_stall = 1'b0;
-  logic accessor_pending_valid = 1'b0;
-  logic [4:0] accessor_pending_rd = 5'b0;
   logic accessor_out_valid = 1'b0;
   // rtl/csrs.v is a sibling of the decoder, not part of it, so it is stubbed.
   logic [31:0] csr_rdata = 32'b0;
@@ -52,10 +49,7 @@ module decoder_tb;
     .reg_rs2(reg_rs2),
     .executor_out(executor_out),
     .divider_stall(divider_stall),
-    .accessor_stall(accessor_stall),
     .fetch_stall(fetch_stall),
-    .accessor_pending_valid(accessor_pending_valid),
-    .accessor_pending_rd(accessor_pending_rd),
     .accessor_out_valid(accessor_out_valid),
     .csr_rdata(csr_rdata),
     .csr_implemented(csr_implemented),
@@ -119,7 +113,7 @@ module decoder_tb;
     prev_next_pc_valid <= 1'b1;
   end
 
-  // `stall` is exactly these seven terms ORed together. `make cycles` charges
+  // `stall` is exactly these six terms ORed together. `make cycles` charges
   // every stalled cycle to the first of them that is true, so a term added to
   // `stall` and not there would leave the cycles it costs unexplained. This says
   // so in a gate that runs on every change, rather than the next time somebody
@@ -135,11 +129,11 @@ module decoder_tb;
   // settled and being decoded. Sampling only the rising edge misses that, and
   // the probe for this check -- a seventh term ORed into `stall` -- goes green.
   always @(clk) begin
-    if (dut.stall !== (dut.divider_stall || dut.accessor_stall || dut.hazard_rs1 ||
+    if (dut.stall !== (dut.divider_stall || dut.hazard_rs1 ||
                        dut.hazard_rs2 || dut.serialize || dut.operand_stall ||
                        dut.fetch_stall)) begin
-      $display("MISMATCH stall is not the OR of the six named reasons: stall=%b divider=%b accessor=%b rs1=%b rs2=%b serialize=%b operand=%b fetch=%b",
-               dut.stall, dut.divider_stall, dut.accessor_stall, dut.hazard_rs1,
+      $display("MISMATCH stall is not the OR of the five named reasons: stall=%b divider=%b rs1=%b rs2=%b serialize=%b operand=%b fetch=%b",
+               dut.stall, dut.divider_stall, dut.hazard_rs1,
                dut.hazard_rs2, dut.serialize, dut.operand_stall, dut.fetch_stall);
       errors++;
     end
@@ -567,22 +561,16 @@ module decoder_tb;
               next_pc, pc);
     check_bit("...and no trap is committed out of the stolen window", trap_entry, 1'b0);
 
-    // A freeze holds decoder_out; a steal clears it. On a cycle with both,
+    // A divide holds decoder_out; a steal clears it. On a cycle with both,
     // holding has to win or the held instruction is lost. Only the order of the
     // arms in the publish block decides that, and swapping them is silent.
-    accessor_stall = 1'b1;
-    #1;
-    @(posedge clk);
-    #1;
-    check_bit("a steal coinciding with an accessor freeze holds decoder_out",
-              out.valid, 1'b1);
-    check_hex("...unchanged", {27'b0, out.rd}, 32'd1);
-    accessor_stall = 1'b0;
     divider_stall = 1'b1;
     #1;
     @(posedge clk);
     #1;
-    check_bit("...and so does one coinciding with a divide", out.valid, 1'b1);
+    check_bit("a steal coinciding with a divide holds decoder_out",
+              out.valid, 1'b1);
+    check_hex("...unchanged", {27'b0, out.rd}, 32'd1);
     divider_stall = 1'b0;
     #1;
     @(posedge clk);
@@ -670,10 +658,6 @@ module decoder_tb;
     check_bit("a divide holds the interrupt off", trap_entry, 1'b0);
     check_hex("...and the pc with it", next_pc, pc);
     divider_stall = 1'b0;
-    accessor_stall = 1'b1;
-    #1;
-    check_bit("so does a load turnaround", trap_entry, 1'b0);
-    accessor_stall = 1'b0;
     fetch_stall = 1'b1;
     #1;
     check_bit("so does a stolen fetch window", trap_entry, 1'b0);
