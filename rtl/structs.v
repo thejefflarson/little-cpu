@@ -136,6 +136,10 @@ typedef struct packed {
   //   incidental machinery this project's stated goal warns against.
 } decoder_output;
 
+// Nothing memory-related survives this far. The bus transaction goes out from
+// `decoder_output` during the executor's own cycle, so the address, the store
+// data and the width are all spent a stage earlier than this struct and only
+// rtl/accessor.v's own registered copy of them outlives the request.
 typedef struct packed {
   logic        valid;
  `ifdef RISCV_FORMAL
@@ -143,16 +147,6 @@ typedef struct packed {
  `endif
   logic [4:0]  rd;
   logic [31:0] rd_data;
-  logic [31:0] mem_addr;
-  logic [31:0] mem_data;
-  logic        is_lb;
-  logic        is_lbu;
-  logic        is_lh;
-  logic        is_lhu;
-  logic        is_lw;
-  logic        is_sb;
-  logic        is_sh;
-  logic        is_sw;
 } executor_output;
 
 typedef struct packed {
@@ -172,11 +166,4 @@ typedef struct packed {
   logic [4:0] rd;
   logic [31:0] rd_data;
 } accessor_output;
-
-typedef struct packed {
-  logic        valid;
-  logic        wen;
-  logic [31:0] waddr;
-  logic [31:0] wdata;
-} writeback_output;
 `endif

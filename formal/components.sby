@@ -1,6 +1,7 @@
 [tasks]
 executor all
 decoder all
+accessor all
 pcloop all
 traps all
 
@@ -36,6 +37,10 @@ executor:
 read -formal structs.v executor.v
 prep -top executor
 
+accessor:
+read -sv -formal structs.v accessor.v
+prep -top accessor
+
 pcloop:
 # The RTL is deliberately read WITHOUT -formal: -formal defines FORMAL, and
 # rtl/decoder.v's own `ifdef FORMAL` block contains `assume(in.pc == pc)` --
@@ -67,6 +72,10 @@ decoder:
 
 executor:
 ../rtl/executor.v
+../rtl/structs.v
+
+accessor:
+../rtl/accessor.v
 ../rtl/structs.v
 
 pcloop:

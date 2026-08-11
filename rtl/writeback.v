@@ -47,19 +47,21 @@ module writeback(
   output logic [31:0] rvfi_csr_mscratch_wdata
  `endif
 );
-  always_comb begin
-    if(reset) begin
-      wen = 0;
-      waddr = 0;
-      wdata = 32'b0;
-    end else begin
-      // Retire is `valid` reaching writeback: a bubble must never commit a
-      // register write.
-      wen = in.valid && (in.rd != 0);
-      waddr = in.rd;
-      wdata = in.rd_data;
-    end
-  end // always_comb
+  // Continuous assigns rather than an always_comb, for the reason this file
+  // documents further down: a struct-field read inside an `always_*` is a
+  // constant part-select iverilog cannot build a precise sensitivity entry for.
+  logic        in_valid;
+  logic [4:0]  in_rd;
+  logic [31:0] in_rd_data;
+  assign in_valid   = in.valid;
+  assign in_rd      = in.rd;
+  assign in_rd_data = in.rd_data;
+
+  // Retire is `valid` reaching writeback: a bubble must never commit a
+  // register write.
+  assign wen   = !reset && in_valid && (in_rd != 5'b0);
+  assign waddr = wen ? in_rd      : 5'b0;
+  assign wdata = wen ? in_rd_data : 32'b0;
 
  `ifdef RISCV_FORMAL
   // What this core reports on a trapping retire, and what no oracle checks.

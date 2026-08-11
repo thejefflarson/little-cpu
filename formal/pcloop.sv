@@ -22,10 +22,7 @@ module pcloop (
     input logic [31:0] reg_rs2,
     input executor_output executor_out,
     input logic divider_stall,
-    input logic accessor_stall,
     input logic fetch_stall,
-    input logic accessor_pending_valid,
-    input logic [4:0] accessor_pending_rd,
     input logic accessor_out_valid,
     input logic [31:0] csr_rdata,
     input logic csr_implemented,
@@ -69,10 +66,7 @@ module pcloop (
     .reg_rs2(reg_rs2),
     .executor_out(executor_out),
     .divider_stall(divider_stall),
-    .accessor_stall(accessor_stall),
     .fetch_stall(fetch_stall),
-    .accessor_pending_valid(accessor_pending_valid),
-    .accessor_pending_rd(accessor_pending_rd),
     .accessor_out_valid(accessor_out_valid),
     .csr_rdata(csr_rdata),
     .csr_implemented(csr_implemented),
@@ -153,12 +147,10 @@ module pcloop (
   logic f_live_rs1, f_live_rs2, f_may_stall;
   assign f_live_rs1 = rs1 != 0 &&
       ((decoder_out.valid && decoder_out.rd == rs1) ||
-       (executor_out.valid && executor_out.rd == rs1) ||
-       (accessor_pending_valid && accessor_pending_rd == rs1));
+       (executor_out.valid && executor_out.rd == rs1));
   assign f_live_rs2 = rs2 != 0 &&
       ((decoder_out.valid && decoder_out.rd == rs2) ||
-       (executor_out.valid && executor_out.rd == rs2) ||
-       (accessor_pending_valid && accessor_pending_rd == rs2));
+       (executor_out.valid && executor_out.rd == rs2));
   // The whole SYSTEM opcode, not just the six csrr* funct3 values. mret waits
   // for the pipeline too, and its funct3 is 0.
   logic f_system;
@@ -212,7 +204,7 @@ module pcloop (
   logic f_fencei;
   assign f_fencei = f_uncompressed && f_instr[6:2] == 5'b00011;
 
-  assign f_may_stall = divider_stall || accessor_stall || fetch_stall ||
+  assign f_may_stall = divider_stall || fetch_stall ||
       f_live_rs1 || f_live_rs2 || f_system || f_fencei || f_operand_fetch;
 
   // Read off the decoder's outputs rather than decoded here. Working out
@@ -234,7 +226,7 @@ module pcloop (
     past_pc           <= pc;
     prev_reset        <= reset;
     prev_may_stall    <= f_may_stall;
-    prev_hard_stall   <= divider_stall || accessor_stall;
+    prev_hard_stall   <= divider_stall;
     prev_fetch_stall  <= fetch_stall;
     prev_jump_branch  <= f_jump_branch || f_redirect;
     prev_uncompressed <= f_uncompressed;

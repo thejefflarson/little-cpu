@@ -156,10 +156,10 @@ bool load_rom_banks(cxxrtl::debug_items &items, const HexImage &image) {
 // The decoder's stall reasons, each read as the named signal rtl/decoder.v
 // drives rather than rebuilt here. Several of them are true on the same cycle
 // often enough that the count needs an order, and the order below is the
-// decoder's own: it holds `decoder_out` for the divider and the accessor before
-// it bubbles for anything else, and `stall` ORs the remaining four left to
-// right. Rebuilding the equation in C++ would let this drift from the RTL with
-// nothing to say so, which is worse than not counting at all.
+// decoder's own: it holds `decoder_out` for the divider before it bubbles for
+// anything else, and `stall` ORs the remaining four left to right. Rebuilding
+// the equation in C++ would let this drift from the RTL with nothing to say so,
+// which is worse than not counting at all.
 //
 // `hazard_rs1` and `hazard_rs2` share a bucket: they are one reason, the decode
 // scoreboard finding a producer still in flight, and they sit next to each
@@ -169,18 +169,17 @@ struct StallReason {
   int bucket;
 };
 
-constexpr const char *kStallLabels[] = {"divider", "accessor", "hazard",
-                                        "serialize", "operand", "fetch"};
+constexpr const char *kStallLabels[] = {"divider", "hazard", "serialize",
+                                        "operand", "fetch"};
 constexpr int kStallBuckets = sizeof(kStallLabels) / sizeof(kStallLabels[0]);
 
 constexpr StallReason kStallReasons[] = {
     {"uut decoder divider_stall", 0},
-    {"uut decoder accessor_stall", 1},
-    {"uut decoder hazard_rs1", 2},
-    {"uut decoder hazard_rs2", 2},
-    {"uut decoder serialize", 3},
-    {"uut decoder operand_stall", 4},
-    {"uut decoder fetch_stall", 5},
+    {"uut decoder hazard_rs1", 1},
+    {"uut decoder hazard_rs2", 1},
+    {"uut decoder serialize", 2},
+    {"uut decoder operand_stall", 3},
+    {"uut decoder fetch_stall", 4},
 };
 
 struct Args {

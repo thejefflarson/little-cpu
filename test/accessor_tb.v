@@ -2,7 +2,8 @@
 `default_nettype none
 `include "structs.v"
 
-// The read enable rtl/imemory.v arbitrates on.
+// The read enable rtl/imemory.v arbitrates on, the byte unpack, and the guard
+// that keeps one memory instruction to one bus transaction.
 //
 // The idle bus presents address 0, which is inside the text range, so the
 // memory cannot tell a real load from an idle cycle by address alone. This
@@ -10,38 +11,53 @@
 // load's request is on the bus and low for every other cycle, including the
 // response cycle, a store, an ALU op, a bubble and reset.
 //
-// Stuck high is caught elsewhere -- the ladder's environment would steal every
-// cycle and `hang` would go red -- but stuck low is invisible to everything
-// else in the tree until a program does a text-region load, and none does yet.
+// Stuck high is caught elsewhere -- the generated checks' environment would
+// steal every cycle and `hang` would go red -- but stuck low is invisible to
+// everything else in the tree until a program does a text-region load, and none
+// does yet.
+//
+// The transaction count is the other half. Decode holds `launch` unchanged for
+// every cycle of a divide, so a request block that read it without
+// `launch_taken` would present the same store on all thirty-three of them. Two
+// writes are one write for RAM and are not one for a device, and no program can
+// see the difference in a value -- only in a count, which is what the divide
+// vector below takes.
 module accessor_tb;
   logic clk = 0;
   always #5 clk = ~clk;
 
   logic reset;
+  decoder_output launch;
+  logic launch_taken;
   executor_output in;
   logic [31:0] mem_addr, mem_wdata;
   logic [3:0]  mem_wstrb;
   logic [31:0] mem_rdata = 32'hcafef00d;
-  logic        mem_ren, stalled, pending_valid;
-  logic [4:0]  pending_rd;
+  logic        mem_ren;
   accessor_output out;
 
   accessor dut (
     .clk(clk),
     .reset(reset),
+    .launch(launch),
+    .launch_taken(launch_taken),
     .in(in),
     .mem_addr(mem_addr),
     .mem_wstrb(mem_wstrb),
     .mem_wdata(mem_wdata),
     .mem_ren(mem_ren),
     .mem_rdata(mem_rdata),
-    .stalled(stalled),
-    .pending_valid(pending_valid),
-    .pending_rd(pending_rd),
     .out(out)
   );
 
   int errors = 0;
+
+  // Every cycle the bus is driven at all, counted on the same edge the memory
+  // would latch it. This is the only thing in the tree that can tell one
+  // transaction from thirty-three of the same one.
+  int transactions = 0;
+  always @(posedge clk)
+    if (!reset && (mem_ren || |mem_wstrb)) transactions++;
 
   task automatic check_bit(input string what, input logic got, input logic expected);
     begin
@@ -61,25 +77,47 @@ module accessor_tb;
     end
   endtask
 
-  // A payload with no execution flag set. Everything else is zeroed, so a
-  // vector cannot inherit a flag from the one before it.
+  task automatic check_int(input string what, input int got, input int expected);
+    begin
+      if (got !== expected) begin
+        $display("MISMATCH %s: got=%0d expected=%0d", what, got, expected);
+        errors++;
+      end
+    end
+  endtask
+
+  // A request payload with no execution flag set. Everything else is zeroed, so
+  // a vector cannot inherit a flag from the one before it.
   task automatic present(input logic valid, input logic [31:0] addr);
+    begin
+      launch = '0;
+      launch.valid = valid;
+      launch.rd = 5'd7;
+      launch.mem_addr = addr;
+      launch.rs2 = 32'h1234_5678;
+      launch_taken = 1'b1;
+    end
+  endtask
+
+  // The struct the executor hands on a cycle later, carrying the same
+  // instruction. Only `valid` and `rd` reach the accessor now; a load's data
+  // comes off the bus and an ALU result rides `rd_data`.
+  task automatic arrive(input logic valid, input logic [31:0] rd_data);
     begin
       in = '0;
       in.valid = valid;
       in.rd = 5'd7;
-      in.mem_addr = addr;
-      in.mem_data = 32'h1234_5678;
+      in.rd_data = rd_data;
     end
   endtask
 
-  // One load of the given width, presented and then drained through its
-  // response cycle. The enable is one predicate over five flags, so each width
-  // gets its own vector rather than `lw` standing in for all of them.
+  // One load of the given width, presented for its request cycle. The enable is
+  // one predicate over five flags, so each width gets its own vector rather
+  // than `lw` standing in for all of them.
   task automatic load_raises(input string what, input logic [4:0] widths);
     begin
       present(1'b1, 32'h0000_0500);
-      {in.is_lw, in.is_lhu, in.is_lh, in.is_lbu, in.is_lb} = widths;
+      {launch.is_lw, launch.is_lhu, launch.is_lh, launch.is_lbu, launch.is_lb} = widths;
       #1;
       check_bit(what, mem_ren, 1'b1);
       @(posedge clk);
@@ -90,22 +128,26 @@ module accessor_tb;
     end
   endtask
 
-  // One load, driven through its response cycle with `data` on the bus, and the
-  // register value it unpacks to.
+  // One load, launched and then completed on the next cycle with `data` on the
+  // bus, and the register value it unpacks to. The load takes exactly the two
+  // cycles an add takes: no turnaround anywhere.
   task automatic load_unpacks(input string what, input logic [4:0] widths,
                               input logic [31:0] addr, input logic [31:0] data,
                               input logic [31:0] expected);
     begin
       present(1'b1, addr);
-      {in.is_lw, in.is_lhu, in.is_lh, in.is_lbu, in.is_lb} = widths;
+      {launch.is_lw, launch.is_lhu, launch.is_lh, launch.is_lbu, launch.is_lb} = widths;
+      arrive(1'b0, 32'b0);
       @(posedge clk);
       #1;
       present(1'b0, 32'b0);
+      arrive(1'b1, 32'hdead_beef);
       mem_rdata = data;
       @(posedge clk);
       #1;
       check_bit({what, " completes"}, out.valid, 1'b1);
       check_hex(what, out.rd_data, expected);
+      arrive(1'b0, 32'b0);
       @(posedge clk);
       #1;
     end
@@ -114,7 +156,8 @@ module accessor_tb;
   initial begin
     reset = 1;
     present(1'b1, 32'h0000_0100);
-    in.is_lw = 1'b1;
+    launch.is_lw = 1'b1;
+    arrive(1'b0, 32'b0);
     repeat (2) @(posedge clk);
     #1;
     // Reset outranks the payload: the request block drives no address, and a
@@ -127,26 +170,27 @@ module accessor_tb;
 
     check_bit("a load's request cycle raises the read enable", mem_ren, 1'b1);
     check_hex("...at the word-aligned load address", mem_addr, 32'h0000_0100);
-    check_bit("...which is also the load-response stall", stalled, 1'b1);
     check_bit("...and is not a write", |mem_wstrb, 1'b0);
 
-    // The response cycle. rtl/decoder.v froze upstream and rtl/executor.v
-    // bubbled, so `in` is a bubble here -- and the enable must fall, or the
-    // idle turnaround would take a fetch window of its own.
+    // The response cycle. The request has moved on, so the enable must fall or
+    // the answer's own cycle would take a fetch window of its own.
     @(posedge clk);
     #1;
     present(1'b0, 32'b0);
+    arrive(1'b1, 32'hdead_beef);
     #1;
     check_bit("the load's own response cycle drops it", mem_ren, 1'b0);
-    check_bit("...with the response really in flight", pending_valid, 1'b1);
     @(posedge clk);
     #1;
-    check_bit("the load completed", out.valid, 1'b1);
+    check_bit("the load completed one cycle after its request", out.valid, 1'b1);
+    check_hex("...with the bus answer, not the executor's rd_data",
+              out.rd_data, 32'hcafef00d);
+    arrive(1'b0, 32'b0);
 
     // Every other bus cycle. A store holds the write port instead, and
     // rtl/imemory.v steals on the strobe for that -- not on this.
     present(1'b1, 32'h0000_0200);
-    in.is_sw = 1'b1;
+    launch.is_sw = 1'b1;
     #1;
     check_bit("a store does not raise the read enable", mem_ren, 1'b0);
     check_hex("...but it does drive the bus", {28'b0, mem_wstrb}, 32'hf);
@@ -160,9 +204,49 @@ module accessor_tb;
     #1;
 
     present(1'b0, 32'h0000_0400);
-    in.is_lb = 1'b1;
+    launch.is_lb = 1'b1;
     #1;
     check_bit("a bubble carrying a load flag does not raise it", mem_ren, 1'b0);
+    @(posedge clk);
+    #1;
+
+    // An ALU result reaches `out` unchanged: only a load takes the bus answer.
+    present(1'b0, 32'b0);
+    arrive(1'b1, 32'h0bad_f00d);
+    @(posedge clk);
+    #1;
+    check_bit("a non-load retires", out.valid, 1'b1);
+    check_hex("...carrying the executor's result", out.rd_data, 32'h0bad_f00d);
+    arrive(1'b0, 32'b0);
+    @(posedge clk);
+    #1;
+
+    // The issued-once guard. Decode holds `launch` for every cycle of a divide
+    // and the executor takes it on exactly one, so a store to a device is
+    // written once. Without `launch_taken` in the request block this counts
+    // eight instead of one, and no value anywhere in the machine differs.
+    transactions = 0;
+    present(1'b1, 32'h0002_0010);   // mtimecmp low
+    launch.is_sw = 1'b1;
+    launch_taken = 1'b0;
+    repeat (7) begin
+      @(posedge clk);
+      #1;
+      check_bit("a held store presents nothing while the divide runs", |mem_wstrb, 1'b0);
+      check_hex("...and drives no address either", mem_addr, 32'b0);
+    end
+    launch_taken = 1'b1;
+    #1;
+    check_hex("the cycle the executor takes it, the store goes out",
+              {28'b0, mem_wstrb}, 32'hf);
+    check_hex("...at the word-aligned device address", mem_addr, 32'h0002_0010);
+    @(posedge clk);
+    #1;
+    present(1'b0, 32'b0);
+    @(posedge clk);
+    #1;
+    check_int("one store to mtimecmp under a divide is one bus transaction",
+              transactions, 1);
 
     load_raises("lb raises it",  5'b00001);
     load_raises("lbu raises it", 5'b00010);
@@ -195,7 +279,7 @@ module accessor_tb;
       $display("FAILED: %0d mismatches", errors);
       $fatal(1);
     end else begin
-      $display("PASSED: accessor read enable and load unpack");
+      $display("PASSED: accessor read enable, load unpack and one-transaction guard");
       $finish;
     end
   end
