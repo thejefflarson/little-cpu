@@ -322,8 +322,9 @@ module decoder (
     instr[11:7] == 5'b0 && instr[6:2] == 5'b0;
   assign instr_ebreak = (instr_error && instr[31:20] == 12'h1) || instr_cebreak;
   assign instr_mret = instr_error && instr[31:20] == 12'h302;
-  // `wfi` is a NOP, which is spec-legal: `mie`/`mip` are read-only zero, so no
-  // interrupt could ever resume it.
+  // `wfi` is a NOP, which the spec permits outright: an implementation may
+  // resume for any reason, even with no enabled interrupt pending. The
+  // permission does not depend on which interrupts this core can post.
   assign instr_wfi = instr_error && instr[31:20] == 12'h105;
 
   // Both MISC-MEM forms are NOPs here -- one hart and no icache -- so only

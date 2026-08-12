@@ -21,7 +21,7 @@ all: smtbmc
 # Deliberately NOT the `btor` engine, which is what the generated ladder uses:
 # btormc does bmc and cover only, and this task is `mode prove`.
 #
-# boolector ships in the pinned OSS CAD Suite, which anything under formal/
+# boolector ships in the OSS CAD Suite, which anything under formal/
 # needs anyway. It is NOT in a bare `brew install
 # yosys` (ADR-0024 says so about the ladder's own engine choice); if that ever
 # has to hold, `smtbmc z3` is the next thing to measure rather than reverting to
