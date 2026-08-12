@@ -197,9 +197,21 @@
     // harness never does (no --device-tree-blob, no --print-device-tree).
     "dtb_address": { "len": 64, "value": "0x1000" },
 
-    // test/asm/sections.lds: rom at 0x0 (16K) + ram at 0x10000 (64K), rounded
-    // up to a flat 1MB so the linker script can grow without this file having
-    // to. The model's default RV32 map puts MainMemory at
+    // TWO regions, split where this core's fetch decode splits: test/asm's `rom`
+    // is 16 KB at 0x0 and rtl/imemory.v answers nothing above it, so a PC past
+    // 16 KB is an instruction access fault here and on the core alike. The
+    // second region carries the rest of the 1 MB the linker script may grow
+    // into -- `ram` at 0x10000, the timer's four words at 0x20000, and the gap
+    // around them -- readable and writable but NOT executable, which is the
+    // whole content of the split. test/asm/ifault.S jumps into it on purpose.
+    //
+    // Everything else about the second region matches the first, because the
+    // core does not distinguish them for loads and stores: an out-of-region
+    // data access is answered rather than refused, so a Sail region that
+    // refused one would diverge from the core on a program that made one. That
+    // is the half of the map this core does not yet enforce.
+    //
+    // The model's default RV32 map puts MainMemory at
     // 0x8000_0000, where nothing this suite builds is executable or loadable.
     //
     // The default map's other two regions are deliberately absent. Its
@@ -215,12 +227,39 @@
     "regions": [
       {
         "base": { "len": 64, "value": "0x0000_0000" },
-        "size": { "len": 64, "value": "0x0010_0000" },
+        "size": { "len": 64, "value": "0x0000_4000" },
         "attributes": {
           "mem_type": "MainMemory",
           "cacheable": true,
           "coherent": true,
           "executable": true,
+          "readable": true,
+          "writable": true,
+          "read_idempotent": true,
+          "write_idempotent": true,
+          "misaligned_exceptions": {
+            "load_store": { "None": null },
+            "vector": { "None": null },
+            "amo": "AccessFault"
+          },
+          "atomic_support": "AMOCASQ",
+          "misaligned_atomicity_granule_size_exp": 4,
+          "vector_misaligned_atomicity_granule_size_exp": 4,
+          "reservability": "RsrvEventual",
+          "supports_cbo_zero": true,
+          "supports_pte_read": true,
+          "supports_pte_write": true
+        },
+        "include_in_device_tree": true
+      },
+      {
+        "base": { "len": 64, "value": "0x0000_4000" },
+        "size": { "len": 64, "value": "0x000f_c000" },
+        "attributes": {
+          "mem_type": "MainMemory",
+          "cacheable": true,
+          "coherent": true,
+          "executable": false,
           "readable": true,
           "writable": true,
           "read_idempotent": true,

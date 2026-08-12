@@ -26,6 +26,10 @@ module decoder_tb;
   executor_output executor_out = '0;
   logic divider_stall = 1'b0;
   logic fetch_stall = 1'b0;
+  // The instruction memory had nothing at `pc`. Driven high only by the
+  // instruction-access-fault vectors below; every other vector presents a word
+  // some memory really answered.
+  logic imem_fault = 1'b0;
   logic accessor_out_valid = 1'b0;
   // rtl/csrs.v is a sibling of the decoder, not part of it, so it is stubbed.
   logic [31:0] csr_rdata = 32'b0;
@@ -50,6 +54,7 @@ module decoder_tb;
     .executor_out(executor_out),
     .divider_stall(divider_stall),
     .fetch_stall(fetch_stall),
+    .imem_fault(imem_fault),
     .accessor_out_valid(accessor_out_valid),
     .csr_rdata(csr_rdata),
     .csr_implemented(csr_implemented),
@@ -459,6 +464,43 @@ module decoder_tb;
     check_hex("...cause 2", trap_cause, 32'd2);
     check_bit("...and traps", dut.trap_pending, 1'b1);
 
+    // The memory had nothing at `pc`. The word it hands over is zero, which on
+    // its own is an illegal instruction and cause 2; the fault is what makes it
+    // cause 1, which is what the privileged spec asks for. Nothing else in the
+    // tree distinguishes the two.
+    imem_fault = 1'b1;
+    #1;
+    check_bit("a fetch the memory could not answer traps", dut.trap_pending, 1'b1);
+    check_hex("...as an instruction access fault, not an illegal instruction",
+              trap_cause, 32'd1);
+    // Arm order is the whole mechanism, and this is what pins it: the zero word
+    // really does decode as illegal, and the cause is 1 anyway. Swap the two
+    // arms and nothing else in the tree says so.
+    check_bit("...even though the zero word it was handed decodes as illegal",
+              dut.instr_illegal, 1'b1);
+
+    // The fault outranks every cause the word could have produced, because the
+    // word is not an instruction. Presented with a real encoding it still wins:
+    // the memory saying it has nothing is not something a fetched word can
+    // argue with.
+    in.instr = 32'h00000073;   // ecall
+    #1;
+    check_hex("the fault outranks anything the unfetched word decodes to",
+              trap_cause, 32'd1);
+    in.instr = 32'h00452583;   // lw a1, 4(a0), misaligned below
+    reg_rs1 = 32'h0001_0001;
+    #1;
+    check_hex("...including a misalignment computed from it", trap_cause, 32'd1);
+    imem_fault = 1'b0;
+    #1;
+    check_hex("with the fault clear the word decides again", trap_cause, 32'd4);
+    reg_rs1 = 32'b0;
+
+    in.instr = 32'h00000000;
+    #1;
+    check_hex("...and a zero word is an illegal instruction once more",
+              trap_cause, 32'd2);
+
     in.instr = 32'h00100073;
     #1;
     check_hex("ebreak is cause 3", trap_cause, 32'd3);
@@ -709,6 +751,40 @@ module decoder_tb;
               out.valid, 1'b0);
     interrupt_pending = 1'b0;
     reg_rs1 = 32'b0;
+
+    // ...and the same ordering for a fetch that never happened. The interrupt
+    // still wins: the instruction did not issue, so the fetch that failed is
+    // re-attempted after the handler returns and faults then.
+    in.pc = 32'h0000_0640;
+    present_and_fetch(32'h00000000);
+    imem_fault = 1'b1;
+    #1;
+    check_hex("on its own an unfetchable pc is an instruction access fault",
+              trap_cause, 32'd1);
+    interrupt_pending = 1'b1;
+    #1;
+    check_hex("an interrupt outranks it too", trap_cause, 32'h8000_0007);
+    interrupt_pending = 1'b0;
+    #1;
+
+    // A fetch fault is committed on the same override the jumps use, and the
+    // instruction reaches the end of the pipeline having done nothing but
+    // redirect. Everything that could act on the word the memory did not supply
+    // has to be clear.
+    check_bit("...and on its own it is one trap entry", trap_entry, 1'b1);
+    check_hex("...vectoring to mtvec", next_pc, 32'h0000_0100);
+    check_hex("...with mepc at the address that could not be fetched",
+              trap_epc, 32'h0000_0640);
+    check_bit("...counting nothing in minstret", instret, 1'b0);
+    check_bit("...and it is not a stall", dut.stall, 1'b0);
+    @(posedge clk);
+    #1;
+    check_bit("...it still retires", out.valid, 1'b1);
+    check_hex("...writing no register", {27'b0, out.rd}, 32'b0);
+    check_bit("...and starting no memory access",
+              out.is_lw || out.is_lh || out.is_lhu || out.is_lb || out.is_lbu ||
+              out.is_sw || out.is_sh || out.is_sb, 1'b0);
+    imem_fault = 1'b0;
 
     if (errors != 0) begin
       $display("FAILED: %0d mismatches", errors);

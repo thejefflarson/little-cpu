@@ -16,6 +16,11 @@ module decoder (
   // arriving this cycle holds a data word, not the instruction at `pc`. If a
   // divide lands on the same cycle, that one wins.
   input  logic fetch_stall,
+  // The instruction memory had nothing at `pc` -- the address is outside the
+  // text window. It arrives with the word it is about, in the cycle decode is
+  // looking at that word, so the fault is committed with everything else here
+  // and nothing downstream has to be told.
+  input  logic imem_fault,
   // A store writes no register, so the hazard check ignores it. Serialization
   // still has to wait for one. That is what this is for -- without it a CSR
   // access can issue while a store is still in the accessor.
@@ -67,6 +72,9 @@ module decoder (
   input  rvfi_csr64   csr_rvfi_mcycle,
   input  rvfi_csr64   csr_rvfi_minstret,
   input  rvfi_csr32   csr_rvfi_mscratch,
+  `ifdef RISCV_FORMAL_CSR_MCAUSE
+  input  rvfi_csr32   csr_rvfi_mcause,
+  `endif
  `endif
   output decoder_output out
 );
@@ -374,6 +382,7 @@ module decoder (
 
   // Instruction-address-misaligned (0) is absent because C makes 2-byte targets
   // legal, so it is unreachable.
+  localparam logic [31:0] CAUSE_INSTRUCTION_FAULT   = 32'd1;
   localparam logic [31:0] CAUSE_ILLEGAL_INSTRUCTION = 32'd2;
   localparam logic [31:0] CAUSE_BREAKPOINT          = 32'd3;
   localparam logic [31:0] CAUSE_LOAD_MISALIGNED     = 32'd4;
@@ -383,7 +392,7 @@ module decoder (
   localparam logic [31:0] CAUSE_MACHINE_TIMER       = 32'h8000_0007;
 
   logic trap_pending;
-  assign trap_pending = instr_illegal || instr_ebreak || instr_ecall ||
+  assign trap_pending = imem_fault || instr_illegal || instr_ebreak || instr_ecall ||
                         load_misaligned || store_misaligned;
 
   // The instruction's own fault and an interrupt really can be true together,
@@ -393,15 +402,23 @@ module decoder (
   logic trap_taken;
   assign trap_taken = trap_pending || interrupt_pending;
 
-  // No `(* parallel_case *)` here. No two of the five synchronous causes can be
+  // No `(* parallel_case *)` here. No two of the six synchronous causes can be
   // true at once today, so their order never matters -- but marking the case
-  // one-hot tells synthesis it may assume that, and the interrupt arm on top
-  // genuinely overlaps them. Add a cause that overlaps an existing one and you
+  // one-hot tells synthesis it may assume that, and the two arms on top
+  // genuinely overlap them. Add a cause that overlaps an existing one and you
   // get whatever the optimiser chose, instead of a failed assertion. The
-  // `ifdef FORMAL` block below checks the five can't overlap each other.
+  // `ifdef FORMAL` block below checks the six can't overlap each other.
+  //
+  // The two arms on top are the deliberate overlaps. An interrupt wins because
+  // the instruction does not execute, so its own fault does not happen. A fetch
+  // that read nothing wins over everything the word could have decoded to,
+  // because the word is not an instruction: out of range the memory answers
+  // zero, which would otherwise trap as an illegal instruction and report the
+  // wrong cause.
   always_comb begin
     case (1'b1)
       interrupt_pending: trap_cause = CAUSE_MACHINE_TIMER;
+      imem_fault:       trap_cause = CAUSE_INSTRUCTION_FAULT;
       instr_illegal:    trap_cause = CAUSE_ILLEGAL_INSTRUCTION;
       instr_ebreak:     trap_cause = CAUSE_BREAKPOINT;
       instr_ecall:      trap_cause = CAUSE_ECALL_M;
@@ -682,6 +699,7 @@ module decoder (
       out.rvfi.pc_rdata <= fetcher_pc;
       out.rvfi.trap <= trap_pending;
       out.rvfi.intr <= intr_report;
+      out.rvfi.mem_fault <= imem_fault;
       out.rvfi.rs1_addr <= rvfi_rs1_valid ? rs1 : 5'b0;
       out.rvfi.rs2_addr <= rvfi_rs2_valid ? rs2 : 5'b0;
       out.rvfi.rs1_rdata <= rvfi_rs1_valid ? reg_rs1 : 32'b0;
@@ -691,6 +709,9 @@ module decoder (
       out.rvfi.csr_mcycle   <= csr_rvfi_mcycle;
       out.rvfi.csr_minstret <= csr_rvfi_minstret;
       out.rvfi.csr_mscratch <= csr_rvfi_mscratch;
+     `ifdef RISCV_FORMAL_CSR_MCAUSE
+      out.rvfi.csr_mcause   <= csr_rvfi_mcause;
+     `endif
      `endif
       out.is_add <= instr_add;
       out.is_sub <= instr_sub;
@@ -898,21 +919,33 @@ module decoder (
     instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu}));
 
   // This is what makes the trap-cause case above safe without a one-hot marking.
-  // Add a sixth cause that overlaps an existing one and this fails here.
-  always_comb assert($onehot0({instr_illegal, instr_ebreak, instr_ecall,
-                               load_misaligned, store_misaligned}));
+  // Add a seventh cause that overlaps an existing one and this fails here. It is
+  // stated under `!imem_fault` because that arm deliberately overlaps every one
+  // of them: a word the memory never supplied decodes to zero, which is illegal,
+  // and reads register fields that could name any address at all.
+  always_comb if (!imem_fault)
+    assert($onehot0({instr_illegal, instr_ebreak, instr_ecall,
+                     load_misaligned, store_misaligned}));
 
   // One line per cause, not a copy of the case statement, so reordering its arms
-  // trips these instead of changing them to match. The five synchronous causes
-  // are each stated under `!interrupt_pending`, which is the priority the arm
-  // above them buys: the interrupted instruction did not execute, so its own
-  // fault is not what happened.
+  // trips these instead of changing them to match. The six synchronous causes
+  // are each stated under the two arms above them, which is the priority those
+  // arms buy: the interrupted instruction did not execute, so its own fault is
+  // not what happened, and a word that was never fetched decoded to nothing.
+  //
+  // `word_decides` is the two arms' priority, named once rather than repeated on
+  // every line below: neither an interrupt nor a fetch that read nothing has
+  // anything to do with the word, so the word only settles the cause when both
+  // are clear.
+  logic word_decides;
+  assign word_decides = !interrupt_pending && !imem_fault;
   always_comb if (interrupt_pending) assert(trap_cause == CAUSE_MACHINE_TIMER);
-  always_comb if (!interrupt_pending && instr_illegal)    assert(trap_cause == CAUSE_ILLEGAL_INSTRUCTION);
-  always_comb if (!interrupt_pending && instr_ebreak)     assert(trap_cause == CAUSE_BREAKPOINT);
-  always_comb if (!interrupt_pending && instr_ecall)      assert(trap_cause == CAUSE_ECALL_M);
-  always_comb if (!interrupt_pending && load_misaligned)  assert(trap_cause == CAUSE_LOAD_MISALIGNED);
-  always_comb if (!interrupt_pending && store_misaligned) assert(trap_cause == CAUSE_STORE_MISALIGNED);
+  always_comb if (!interrupt_pending && imem_fault) assert(trap_cause == CAUSE_INSTRUCTION_FAULT);
+  always_comb if (word_decides && instr_illegal)    assert(trap_cause == CAUSE_ILLEGAL_INSTRUCTION);
+  always_comb if (word_decides && instr_ebreak)     assert(trap_cause == CAUSE_BREAKPOINT);
+  always_comb if (word_decides && instr_ecall)      assert(trap_cause == CAUSE_ECALL_M);
+  always_comb if (word_decides && load_misaligned)  assert(trap_cause == CAUSE_LOAD_MISALIGNED);
+  always_comb if (word_decides && store_misaligned) assert(trap_cause == CAUSE_STORE_MISALIGNED);
   always_comb if (!trap_taken)       assert(trap_cause == 32'b0);
 
   // `mtvec`/`mepc` are free inputs here, so these are registered copies rather

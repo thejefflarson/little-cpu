@@ -25,6 +25,7 @@ module testbench(
   logic        mem_ren;
   logic [31:0] mem_rdata;
   logic        fetch_stall;
+  logic        imem_fault;
   logic        irq_timer;
   // All three memories answer zero outside their own range, so the buses join
   // with an OR, exactly as rtl/littlesoc.v joins them.
@@ -79,7 +80,8 @@ module testbench(
     .mem_wstrb(mem_wstrb),
     .mem_ren(mem_ren),
     .mem_rdata(imem_mem_rdata),
-    .fetch_stall(fetch_stall)
+    .fetch_stall(fetch_stall),
+    .imem_fault(imem_fault)
   );
 
   timer mtimer (
@@ -106,6 +108,7 @@ module testbench(
     .mem_ren(mem_ren),
     .mem_rdata(mem_rdata),
     .fetch_stall(fetch_stall),
+    .imem_fault(imem_fault),
     .irq_timer(irq_timer),
     .trap(trap)
    `ifdef RISCV_FORMAL

@@ -68,6 +68,13 @@ module csrs(
   output rvfi_csr64 rvfi_mcycle,
   output rvfi_csr64 rvfi_minstret,
   output rvfi_csr32 rvfi_mscratch
+  `ifdef RISCV_FORMAL_CSR_MCAUSE
+  // mcause is NOT on that list -- rvfi_csrw_check.sv has no WARL model and
+  // would fail a correct core -- but checks/rvfi_fault_check.sv reads this
+  // report directly, and at the pinned SHA it does not even parse without the
+  // macro. So the shadow exists exactly where that check does.
+  , output rvfi_csr32 rvfi_mcause
+  `endif
  `endif
 );
   localparam logic [11:0] MSTATUS   = 12'h300;
@@ -363,5 +370,22 @@ module csrs(
     rvfi_mscratch.rdata = mscratch;
     rvfi_mscratch.wdata = wr_mscratch ? warl : mscratch;
   end
+
+  `ifdef RISCV_FORMAL_CSR_MCAUSE
+  // Two writers, and trap entry is the one the fault check is about: it lands
+  // on the same edge the trapping instruction issues, so it is that
+  // instruction's write and the whole register is written. The `csrw` path is
+  // reported the way mscratch's is.
+  logic rd_mcause, wr_mcause;
+  assign rd_mcause = ren && addr == MCAUSE;
+  assign wr_mcause = wen && addr == MCAUSE;
+
+  always_comb begin
+    rvfi_mcause.rmask = {32{rd_mcause}};
+    rvfi_mcause.wmask = {32{wr_mcause || trap_entry}};
+    rvfi_mcause.rdata = mcause;
+    rvfi_mcause.wdata = trap_entry ? trap_cause : (wr_mcause ? warl : mcause);
+  end
+  `endif
  `endif
 endmodule

@@ -46,7 +46,11 @@ module imemory #(
   // Zero unless the previous cycle was a text-range load, so a consumer can OR
   // this with the data RAM's answer.
   output logic [31:0] mem_rdata,
-  output logic        fetch_stall
+  output logic        fetch_stall,
+  // The word arriving this cycle is not in the ROM. Decode raises it as an
+  // instruction access fault; without it a PC past the end of text is only a
+  // word of zeroes, which is an illegal instruction and the wrong cause.
+  output logic        imem_fault
 );
   localparam int BANK_WORDS = ROM_WORDS / 2;
   localparam int BANK_BITS  = $clog2(BANK_WORDS);
@@ -103,8 +107,9 @@ module imemory #(
   assign even_raddr = text_access ? data_index : even_index;
   assign odd_raddr  = text_access ? data_index : odd_index;
 
-  // Out of range reads as zero. Zero is an illegal instruction, so a PC that
-  // runs off the end traps instead of wrapping round and reading real code.
+  // Out of range reads as zero, and says so on `imem_fault`, so a PC that runs
+  // off the end traps with the cause the privileged spec names rather than as
+  // an illegal instruction.
   //
   // Both tests are reductions, not magnitude comparisons: `ROM_WORDS` is a power
   // of two, so `< ROM_WORDS` is exactly "the bits above the ROM are all zero"
@@ -158,6 +163,7 @@ module imemory #(
   assign window_hi = odd_first ? even_data : odd_data;
   assign imem_data  = in_range  ? window_lo : 32'b0;
   assign imem_data2 = in_range2 ? window_hi : 32'b0;
+  assign imem_fault = !in_range;
 
   assign mem_rdata = data_hit ? (data_hit_odd ? odd_data : even_data) : 32'b0;
 endmodule

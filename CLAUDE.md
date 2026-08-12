@@ -59,7 +59,14 @@ are kept in parentheses so those references still resolve.
   block and `test/decoder_tb.v`.
 - **All traps are detected and committed in decode** (2). Nothing faults after decode; a trap is a
   branch to `mtvec` on the same override the jumps use. This is what makes CSR commit precise with
-  no reorder buffer. It stands on ADR-0067's ruling that the bus never refuses a transaction.
+  no reorder buffer. **The fetch bus refuses now and that is why the commitment survives, not an
+  exception to it**: the instruction memory reports having nothing at the address it is answering,
+  the report arrives with the word in the cycle decode reads it, and the fault is committed there
+  with every other cause. A refusal that arrived with the *response* would not be, which is the
+  distinction to hold on to. **The data bus does not refuse**, and that is a recorded deviation with
+  a measured price rather than a property of the design: an out-of-region load reads zero and an
+  out-of-region store is dropped, silently, because the decode-time region test that would fault
+  them costs four logic levels in the fetch loop and 10.57–11.00 MHz over four seeds (ADR-0104).
 - **Every inter-stage struct carries a `valid` bit** (3). A bubble is `valid = 0`; retire is
   `valid` reaching writeback, which gates `wen` and drives `rvfi_valid`.
 - **Hazards are stall-only** (4). No forwarding network, and 35.7% of suite cycles is what that
@@ -130,9 +137,20 @@ folded into 6.
 ## ISA target
 
 RV32IMC_Zicsr_Zifencei, M-mode only, `misa = 0x4000_1104` (neither Z-extension has a `misa` bit;
-the ISA string is the only place they are claimed). Traps implemented: illegal instruction = 2,
-breakpoint = 3, load misaligned = 4, store misaligned = 6, ecall from M = 11.
-Instruction-address-misaligned is unreachable (C makes 2-byte targets legal) and not implemented.
+the ISA string is the only place they are claimed). Traps implemented: instruction access fault = 1,
+illegal instruction = 2, breakpoint = 3, load misaligned = 4, store misaligned = 6,
+ecall from M = 11.
+Two of the remaining causes are absent for opposite reasons, and the difference is the point.
+**Instruction-address-misaligned (0) is unreachable** — C makes 2-byte targets legal — so not
+implementing it costs nothing and closes nothing.
+**Load and store access faults (5 and 7) are reachable and still not implemented**, which is a
+measured decline rather than an omission (ADR-0104). `rtl/imemory.v` publishes a fetch outside the
+text window on `imem_fault` and decode raises it as cause 1, which costs nothing because that range
+test was already there. The same question about a load or store address has to read the top of
+`immediate + reg_rs1` and hand the answer to `next_pc`: four more logic levels in the fetch loop,
+**10.57–11.00 MHz over four seeds** against the 12.00 MHz requirement. So an address no memory
+answers is still read as zero and written nowhere — a deviation from the privileged spec's strong
+recommendation that precise access faults be raised, recorded as one rather than as a design choice.
 C stays because code density is a product constraint on the up5k (ADR-0002/0003). `fence.i` costs a
 pipeline drain — see the serialization commitment.
 

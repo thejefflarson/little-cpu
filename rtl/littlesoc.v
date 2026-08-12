@@ -4,9 +4,12 @@
 // this. `make fit` measures the core on its own with the memories outside it, so
 // its cell count is a different design's and the two do not compare.
 //
-// Neither memory can turn an access down. Anything out of range reads as zero.
-// So no memory error can turn up after decode has already let an instruction
-// through, and there is no path for one to come back on if it did.
+// The ROM says when it has nothing at the address it is answering, and decode
+// takes that as an instruction access fault. Neither memory can turn a LOAD or a
+// STORE down: out of range both read zero and drop the write, so a data access
+// the map does not cover is still silently answered. The decode-side region
+// test that would fault one was built and measured: it misses the board clock
+// by four logic levels in the fetch loop.
 //
 // The ROM is initialised from the bitstream and the SPRAM cannot be, so a
 // program's `.data` is not there at power-on and every `.S` program in test/asm
@@ -44,7 +47,7 @@ module littlesoc (
   logic [31:0] mem_addr, mem_wdata, mem_rdata;
   logic [31:0] imem_mem_rdata, dmem_mem_rdata, timer_mem_rdata;
   logic [3:0]  mem_wstrb;
-  logic        mem_ren, fetch_stall, irq_timer;
+  logic        mem_ren, fetch_stall, irq_timer, imem_fault;
   logic [31:0] imem_addr, imem_addr2, imem_addr_next;
   logic [31:0] imem_data, imem_data2;
 
@@ -62,6 +65,7 @@ module littlesoc (
     .mem_ren(mem_ren),
     .mem_rdata(mem_rdata),
     .fetch_stall(fetch_stall),
+    .imem_fault(imem_fault),
     .irq_timer(irq_timer),
     .trap(trap)
   );
@@ -85,7 +89,8 @@ module littlesoc (
     .mem_wstrb(mem_wstrb),
     .mem_ren(mem_ren),
     .mem_rdata(imem_mem_rdata),
-    .fetch_stall(fetch_stall)
+    .fetch_stall(fetch_stall),
+    .imem_fault(imem_fault)
   );
 
   // Base and size are rtl/memory.v's own defaults -- 64 KB at 0x0001_0000, two
