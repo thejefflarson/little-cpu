@@ -7,11 +7,11 @@
 # The counter rules that nothing else can check.
 #
 # `minstret` is exact as read. CSR instructions serialize, and exactness — not
-# hazard safety — is the whole reason that stall exists. Without it, `csrr
-# minstret` reads a count inflated by whatever happens to be in flight behind
-# it, and the difference between two reads separated by three nops is a
-# function of pipeline occupancy rather than of architectural state. Here it
-# must be exactly 4.
+# hazard safety — is the whole reason that stall exists: without it, `csrr
+# minstret` reads a count inflated by whatever is in flight behind it. What is
+# checked here is the counter rule, that the difference between two reads
+# separated by three nops is exactly 4, and the case below says why that is not
+# the same claim as the wait.
 #
 # The *other* counter rule — a trapping instruction issues but does not
 # increment `minstret`, because it did not retire architecturally — is checked
@@ -37,10 +37,17 @@ RVTEST_CODE_BEGIN
 
   #-------------------------------------------------------------
   # Exactness: csrr, nop, nop, nop — four instructions retire between the two
-  # reads, counting the first csrr and not the second. Exactly 4, not "about
-  # 4": that is the deliverable the serialization stall buys, and an off-by-N
-  # here means the check that holds a CSR instruction until execute, access and
-  # writeback are empty is looking at the wrong thing.
+  # reads, counting the first csrr and not the second. Exactly 4, not "about 4".
+  #
+  # This does NOT grade the serialization wait, though it read as though it did.
+  # `minstret` advances when an instruction issues and both reads are issues, so
+  # the difference is the number of issues between them whether or not the CSR
+  # instruction waited for the pipeline to empty — delete the CSR and mret half
+  # of `serialize` in rtl/decoder.v and this stays green, and so does the rest of
+  # the suite. What the wait buys is that the value read is the count that has
+  # architecturally finished rather than the count in flight, and no difference
+  # of two reads can see that. test/decoder_tb.v grades it, and
+  # test/MUTATION_DETECTORS is what keeps that pairing honest.
   #-------------------------------------------------------------
 
   TEST_CASE( 2, a2, 4, \

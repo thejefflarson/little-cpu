@@ -267,6 +267,17 @@ drive
 expect_red "a mutation that edits something other than the design" 1 \
   "edits files outside rtl/" "test/asm/alpha.S"
 
+reset_fixture
+cat > "$FIXTURE/test/mutations/alpha.patch" <<'PATCH'
+--- /dev/null
++++ b/rtl/extra.v
+@@ -0,0 +1 @@
++module extra; endmodule
+PATCH
+drive
+expect_red "a mutation that adds a file the snapshot cannot restore" 1 \
+  "edits files outside rtl/" "/dev/null"
+
 echo
 echo "== the baseline"
 reset_fixture

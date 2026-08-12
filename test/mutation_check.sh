@@ -93,6 +93,8 @@ cleanup() { restore; rm -rf "$tmp"; }
 # INT and TERM are trapped so that the EXIT trap runs at all: bash does not
 # promise to run one when the shell dies from a signal it has no handler for,
 # and an interrupted run is exactly when a mutation would be left in the tree.
+# A shell started with `&` from a script has SIGINT ignored on entry and cannot
+# trap it, so check this path with SIGTERM rather than concluding it is broken.
 trap cleanup EXIT
 trap 'echo; echo "interrupted -- reverting rtl/" >&2; exit 130' INT TERM
 
@@ -185,7 +187,10 @@ fi
 for p in "${patches[@]}"; do
   name=$(basename "$p" .patch)
   [ -s "$p" ] || fail "$p is empty; it would apply cleanly and mutate nothing."
-  touched=$(awk '/^\+\+\+ /{ sub(/^b\//, "", $2); print $2 }' "$p")
+  # Both sides, so a patch that creates or deletes a file is rejected rather
+  # than half-checked: /dev/null on either side does not match the pattern
+  # below, and a file this run created is one the snapshot cannot restore.
+  touched=$(awk '/^(---|\+\+\+) /{ sub(/^[ab]\//, "", $2); print $2 }' "$p")
   [ -n "$touched" ] || fail "$p names no files to patch."
   outside=$(printf '%s\n' "$touched" | grep -v '^rtl/[A-Za-z0-9_]*\.v$' || true)
   if [ -n "$outside" ]; then
@@ -256,22 +261,25 @@ suite_leg() {
   fi
   # The table is parsed rather than the verdict line read, so each program's
   # status travels with its name. A row shape this cannot read would quietly
-  # report an empty detector set, so the row count is checked against the
-  # verdict's own denominator.
-  rows=$(awk '$1 ~ /^[A-Za-z0-9_]+\.[Sc]$/ && /retires=/ { n++ } END { print n + 0 }' "$tmp/suite.log")
-  if [ "$rows" -ne "$total" ]; then
-    echo "read $rows table rows out of $total programs; the table shape moved." >&2
-    tail -20 "$tmp/suite.log" >&2
-    return 1
-  fi
-  awk '
+  # report an empty detector set, so the same pass counts the rows it read and
+  # nothing is published until that count meets the verdict's own denominator.
+  awk -v countfile="$tmp/rows" '
     $1 ~ /^[A-Za-z0-9_]+\.[Sc]$/ && /retires=/ {
+      rows++
       s = $0
       sub(/^[^ \t]+[ \t]+/, "", s)
       sub(/[ \t]*retires=.*$/, "", s)
       gsub(/^[ \t]+|[ \t]+$/, "", s)
       if (s != "PASS") print $1, s
-    }' "$tmp/suite.log"
+    }
+    END { print rows + 0 > countfile }' "$tmp/suite.log" > "$tmp/suite.rows"
+  rows=$(cat "$tmp/rows")
+  if [ "$rows" -ne "$total" ]; then
+    echo "read $rows table rows out of $total programs; the table shape moved." >&2
+    tail -20 "$tmp/suite.log" >&2
+    return 1
+  fi
+  cat "$tmp/suite.rows"
 }
 
 # observe <label> -> $tmp/observed.<label>, one sorted detector token per line
@@ -318,7 +326,7 @@ echo "baseline clean: no bench red, and the suite matches $EXPECTED_FAIL."
 
 to_run=$(cat "$tmp/declared_mutations")
 if [ -n "$ONLY" ]; then
-  grep -qx "$ONLY" "$tmp/declared_mutations" \
+  grep -qxF "$ONLY" "$tmp/declared_mutations" \
     || fail "'$ONLY' is not a mutation in $MANIFEST."
   to_run=$ONLY
 fi
@@ -378,13 +386,19 @@ for m in $to_run; do
 done
 
 restore
-changed=$(for f in "$SNAPSHOT"/*.v; do
-  base=$(basename "$f")
-  cmp -s "$f" "$REPO/rtl/$base" || echo "  rtl/$base"
-done)
-if [ -n "$changed" ]; then
+# Contents and the file list both, so "rtl/ came back" is the whole statement
+# rather than a statement about the files that happened to be there first.
+leftover=$({
+  for f in "$SNAPSHOT"/*.v; do
+    base=$(basename "$f")
+    cmp -s "$f" "$REPO/rtl/$base" || echo "  rtl/$base"
+  done
+  comm -13 <(cd "$SNAPSHOT" && ls ./*.v | sort) \
+           <(cd "$REPO/rtl" && ls ./*.v | sort) | sed 's|^\./|  rtl/|'
+} | sort -u)
+if [ -n "$leftover" ]; then
   echo "error: rtl/ did not come back to what it was:" >&2
-  printf '%s\n' "$changed" >&2
+  printf '%s\n' "$leftover" >&2
   exit 1
 fi
 
