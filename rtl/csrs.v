@@ -9,7 +9,10 @@
 //
 // The set below is a floor, not a closed list. Every register the privileged
 // spec lists unconditionally for RV32 machine mode is here, because trapping on
-// a mandatory register is non-conformant however minimal the set is.
+// a mandatory register is non-conformant however minimal the set is. Read it as
+// the named addresses plus the performance monitor's three ranges -- 87 of the
+// implemented addresses are recognised by a range compare and appear in no
+// list.
 //
 // This module never decides that an access is illegal. `implemented` feeds the
 // decoder's `instr_valid` term and the read-only test is on the address, so both
@@ -127,6 +130,29 @@ module csrs(
 
   assign interrupt_pending = irq_timer && mie_mtie && mstatus_mie;
 
+  // The 87 hardware performance monitor addresses: mhpmcounter3-31
+  // (0xB03-0xB1F), mhpmcounter3h-31h (0xB83-0xB9F) and mhpmevent3-31
+  // (0x323-0x33F). The privileged spec asks for all 29 counters and their
+  // event selectors and expressly permits both to be read-only zero, which is
+  // what these are -- no counter, no event logic, and the read mux's default
+  // arm already answers zero, so only `implemented` learns about them.
+  //
+  // Each of the three is an aligned 32-address window carrying the counter
+  // number in its low five bits, and the numbers start at 3 because 0-2 are the
+  // machine counters and their reserved neighbours. One window per spec range,
+  // priced against the cheaper spelling that folds the two counter windows into
+  // one compare on the bit that separates them: that one is 39 placed cells
+  // smaller and was declined, so do not re-derive it as a saving.
+  localparam logic [6:0] MHPMCOUNTER_WINDOW  = 7'h58; // 0xB00-0xB1F
+  localparam logic [6:0] MHPMCOUNTERH_WINDOW = 7'h5C; // 0xB80-0xB9F
+  localparam logic [6:0] MHPMEVENT_WINDOW    = 7'h19; // 0x320-0x33F
+  logic hpm_number, hpm_counter, hpm_event, hpm_zero;
+  assign hpm_number  = addr[4:0] > 5'd2;
+  assign hpm_counter = addr[11:5] == MHPMCOUNTER_WINDOW ||
+                       addr[11:5] == MHPMCOUNTERH_WINDOW;
+  assign hpm_event   = addr[11:5] == MHPMEVENT_WINDOW;
+  assign hpm_zero    = hpm_number && (hpm_counter || hpm_event);
+
   // As of the start of the issuing cycle, which is the right phase: decode
   // issues at most one instruction per cycle, so a trapping instruction and a
   // `csrw mtvec` are never the same edge, and the trap must vector through the
@@ -155,7 +181,7 @@ module csrs(
       MVENDORID, MARCHID, MIMPID, MHARTID, MCONFIGPTR: rdata = 32'b0;
       default: begin
         rdata = 32'b0;
-        implemented = 1'b0;
+        implemented = hpm_zero;
       end
     endcase
   end

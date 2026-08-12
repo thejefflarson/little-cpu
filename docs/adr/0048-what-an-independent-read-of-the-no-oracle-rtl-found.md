@@ -4,7 +4,11 @@
 [ADR-0005](0005-traps-and-csrs-commit-in-decode.md),
 [ADR-0027](0027-minstret-counts-non-trapping-issues.md),
 [ADR-0030](0030-trap-cause-priority-and-why-the-causes-are-disjoint.md). Records one RTL defect,
-one spec-scope divergence left open, and the audit method that found them.*
+one spec-scope divergence left open, and the audit method that found them. **Finding 3's retired
+suspicion is corrected by
+[ADR-0103](0103-the-performance-monitor-reads-zero-and-the-model-was-the-wrong-instrument.md)** —
+the performance-monitor counters were a real gap and were closed against a reference model rather
+than against the spec.*
 
 ## Context
 
@@ -86,7 +90,22 @@ both.
 The same measurement retired two suspicions the read had raised, and they are recorded so nobody
 re-opens them. **`mhpmcounter3` (0xB03), `mhpmcounter3h` (0xB83) and `mhpmevent3` (0x323)**: the
 reference model raises illegal instruction on all three, exactly as this core does — there is
-nothing to close. **`mcountinhibit` (0x320)**: the spec makes it explicitly optional ("if not
+nothing to close.
+
+> **This paragraph was wrong, and [ADR-0103](0103-the-performance-monitor-reads-zero-and-the-model-was-the-wrong-instrument.md)
+> corrects it.** It is left standing rather than deleted because the way it was wrong is the finding.
+> The privileged spec's machine-mode performance-monitor section says of `mhpmcounter3`–`mhpmcounter31`
+> and `mhpmevent3`–`mhpmevent31`: **"All counters should be implemented, but a legal implementation is
+> to make both the counter and its corresponding event selector be read-only 0."** All 87 addresses
+> raised illegal instruction here, which is neither. The question was closed on **the reference model's
+> behaviour instead of the spec text** — and the model was the wrong instrument twice over. Sail is
+> authoritative about RISC-V semantics but not about which permitted choice a machine makes; and it
+> trapped only because `test/sail/rv32imc_zicsr.json` sets `Zihpm: false`, which is this repo's own
+> statement that this core has no such counters. Agreement with a model we configured to match us is
+> not evidence about the specification. All 87 now read zero, and the same file's `Zihpm: true` with an
+> empty `writable_hpm_counters` is the model saying so too.
+
+**`mcountinhibit` (0x320)**: the spec makes it explicitly optional ("if not
 implemented, the implementation behaves as though the register were set to zero"), so declining it
 is legal; Sail implementing it is Sail's choice. (`mcounteren` (0x306) is likewise not required
 without S- or U-mode, and the unprivileged `cycle`/`instret` aliases belong to Zicntr, which
@@ -156,7 +175,9 @@ never checked" stops being true.
   instruction that can fault inherits it, and closing it means padding with a `c.nop` so `mepc+4`
   lands on a boundary, which is what `cebreak.S` does.
 - Finding 3 is owed to a future ADR, not dropped. Naming it here is what stops it depending on
-  anyone's memory (the shape ADR-0041 decision 2 used for the co-simulation nightly).
+  anyone's memory (the shape ADR-0041 decision 2 used for the co-simulation nightly). Naming the
+  *retired* suspicions in the same paragraph is what let the one that was not really retired be
+  found and fixed two months later.
 - The method generalises and is cheap: read the RTL against the spec with the bench closed, write
   the expectation down, then compare. Two of the three files came back clean; the one defect it
   found was in the third and was invisible to all four existing oracles at once.

@@ -63,7 +63,9 @@
     // menvcfg.FIOM only exists with U-mode, which this core does not have.
     "writable_fiom": false,
 
-    // No Zihpm: mhpmcounter3..31 and mhpmevent3..31 do not exist here.
+    // Not one bit: rtl/csrs.v answers all 87 mhpmcounter/mhpmevent addresses
+    // with a constant zero and swallows the write, which is what the
+    // privileged spec permits and what `Zihpm` plus an empty mask spells here.
     "writable_hpm_counters": { "len": 32, "value": "0x0000_0000" },
 
     // scounteren/mcounteren gate counter access from LOWER privilege levels.
@@ -330,7 +332,7 @@
   },
 
   // EXTENSIONS -- audited against the ISA target. Enabled: I (the base), M, C
-  // and Zicsr, plus the two that are enabled for a stated reason rather than
+  // and Zicsr, plus the ones that are enabled for a stated reason rather than
   // because the target names them:
   //
   //   Zca    is the C extension for this target. misa.C is set from Zca alone
@@ -347,6 +349,20 @@
   //          (0xC00-0xC02), which this core does not implement and would trap
   //          on. No program in test/asm reads them; there is no knob to
   //          separate the machine counters from the shadows.
+  //   Zihpm  is enabled for the same kind of reason and needs the same care.
+  //          The privileged spec puts mhpmcounter3-31 and mhpmevent3-31 in
+  //          M-mode's own performance-monitor facility, asks for all of them
+  //          and permits every one to read zero; rtl/csrs.v takes that offer,
+  //          so those 87 addresses read zero here rather than trapping. The
+  //          model gates them on Zihpm instead, so `supported: false` is a
+  //          machine that traps on all 87 and `true` with
+  //          `writable_hpm_counters` empty is a machine that reads them as
+  //          zero -- measured both ways on test/asm/hpm.S, DISAGREE AT 2 and
+  //          AGREE. RESIDUAL, the same shape as Zicntr's: it also gives the
+  //          model the unprivileged shadows `hpmcounter3-31` (0xC03-0xC1F),
+  //          which this core traps on, and no knob separates them. Enabling it
+  //          is NOT a claim that the ISA string grows -- Zihpm has no misa bit
+  //          and names the unprivileged shadows, not the machine counters.
   //   Zifencei is enabled because rtl/decoder.v decodes `fence.i` and retires
   //          it as a NOP (one hart, Harvard, nothing to invalidate).
   //          With it off the model would raise an illegal instruction where
@@ -363,6 +379,7 @@
     "Zicsr": { "supported": true },
     "Zca": { "supported": true },
     "Zicntr": { "supported": true },
+    "Zihpm": { "supported": true },
     "Zifencei": { "supported": true },
 
     // --- the misa bits that were wrong ------------------------------------
@@ -393,9 +410,10 @@
     // illegal. Zimop/Zcmop reserve encodings as no-ops, Zicond adds
     // czero.eqz/nez, Zicbo* add cache-management ops, Zicfilp/Zicfiss add
     // landing pads and a shadow stack, Zihintntl/Zihintpause are hints this
-    // core does not decode, Zihpm adds mhpmcounter3..31. The Zic*/Ziccamo*
-    // entries are profile compatibility declarations about the memory system;
-    // they claim guarantees this core does not make.
+    // core does not decode. The Zic*/Ziccamo* entries are profile
+    // compatibility declarations about the memory system; they claim
+    // guarantees this core does not make. Zihpm used to be in this list and is
+    // now enabled with the target, for the reason the header gives.
     "Zibi": { "supported": false },
     "Zic64b": { "supported": false },
     "Zicbom": { "supported": false },
@@ -411,7 +429,6 @@
     "Zicond": { "supported": false },
     "Zihintntl": { "supported": false },
     "Zihintpause": { "supported": false },
-    "Zihpm": { "supported": false },
     "Zimop": { "supported": false },
 
     // --- M subsets and A subsets ------------------------------------------

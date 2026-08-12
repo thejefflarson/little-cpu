@@ -153,8 +153,17 @@ high, low; high-first is unsafe and `test/timer_tb.v` and `test/asm/mtimer.S` ea
 interrupt that way on purpose before doing it correctly.
 
 **Conformance is not negotiable against minimality.** Every CSR the privileged spec mandates for
-RV32 M-mode is implemented — most legally read zero, so the cost is near nothing. The CSR set is a
-floor, not a closed list; "exact" once made a conformance gap look like a design choice (ADR-0048).
+RV32 M-mode is implemented, the 87 hardware performance monitor addresses included — most legally
+read zero, so the cost is near nothing, and the whole performance monitor is four address compares
+with no state behind them — 53 SoC LUTs, `fit` and the period both nulls (ADR-0103). **What a
+read-only-zero CSR costs is its address decode, not its write mux**, so ADR-0096's one-LUT figure
+for every WARL mask in the file is not the prior for adding one. The CSR set is a floor, not a
+closed list; "exact" once made a conformance gap look like a design choice (ADR-0048). **A register
+the spec merely recommends is still owed a decision** — the monitor's 29 counters are a "should",
+and that gap survived an audit because the question was closed against a reference model that
+trapped on them rather than against the spec sentence. **Sail stops being an independent oracle
+exactly where this repo configured it**: it trapped because `test/sail/rv32imc_zicsr.json` said this
+core has no such counters, so it was agreeing with us and not with the specification.
 
 ## Verification — three legs, each load-bearing
 
