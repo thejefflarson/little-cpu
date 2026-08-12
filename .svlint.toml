@@ -11,7 +11,7 @@
 # WHAT IT IS FOR. Almost every rule enabled below reports ZERO findings on
 # today's rtl/. That is the point, not an argument against it. Each one catches
 # a defect class that elaborates cleanly in BOTH existing frontends and that
-# neither the .S suite nor the bounded formal ladder reliably reaches:
+# neither the .S suite nor the bounded formal checks reliably reach:
 #
 #   - a blocking assignment in `always_ff`, or a non-blocking one in
 #     `always_comb`, is a simulation/synthesis mismatch that passes both sim

@@ -137,7 +137,7 @@ make_sim_stub() {  # $1 = path
 #!/bin/sh
 # Stands in for ./sim (test/cxxrtl.cc). Reproduces its output contract -- one
 # `RETIRES <n> SPEC-CHECKED <m>` line and one verdict line -- and its exit
-# ladder, so run_tests.sh's grading of that ladder can be probed without the
+# statuses, so run_tests.sh's grading of them can be probed without the
 # elaborated design.
 [ -z "${STUB_SIM_NOCOUNTS:-}" ] && \
   echo "RETIRES ${STUB_SIM_RETIRES:-10} SPEC-CHECKED ${STUB_SIM_SPEC:-10}"
@@ -639,10 +639,10 @@ cb_fixture() {
 cbs() { printf "%s %s/checks %s/EXPECTED_FAIL %s/EXPECTED_CHECKS" "$CB" "$1" "$1" "$1"; }
 
 d=$(cb_fixture)
-probe "control: a full-pass ladder against an empty baseline is green" 0 \
+probe "control: a full-pass check set against an empty baseline is green" 0 \
   "Failure list matches" "$(cbs "$d")"
 
-probe "wrong argument count is exit 2 -- the inputs are broken, not the ladder" 2 \
+probe "wrong argument count is exit 2 -- the inputs are broken, not the checks" 2 \
   "usage:" "$CB $d/checks"
 
 probe "a missing baseline file is exit 2, not an empty expected set" 2 \
@@ -659,8 +659,8 @@ probe "and the same for the check-set baseline" 2 \
 chmod 644 "$d/EXPECTED_CHECKS"
 
 d=$(cb_fixture); rm "$d/checks/alpha.sby" "$d/checks/beta.sby"
-probe "a ladder that was never generated is exit 2, not zero checks passing" 2 \
-  "the ladder was never" "$(cbs "$d")"
+probe "a check set that was never generated is exit 2, not zero checks passing" 2 \
+  "the check set was never" "$(cbs "$d")"
 
 d=$(cb_fixture); printf 'beta\n' > "$d/EXPECTED_FAIL"
 probe "a pre-ADR-0036 one-field baseline line is named, not half-matched" 2 \

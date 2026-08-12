@@ -5,8 +5,8 @@
 // spec model at the pin AND no other test.
 //
 // formal/EXPECTED_CHECKS is set-equal to riscv-formal's own
-// insns/isa_rv32imc.txt, so every other instruction in the ISA has an `insn_*`
-// ladder check. The pin models none of `c_nop`, `c_ebreak`, `fence`, `ecall`,
+// insns/isa_rv32imc.txt, so every other instruction in the ISA has a generated
+// `insn_*` check. The pin models none of `c_nop`, `c_ebreak`, `fence`, `ecall`,
 // `ebreak` -- and that five-instruction blind spot is where the c.ebreak trap
 // cause defect lived. `ecall` and `ebreak` are covered by trap.S,
 // `c.ebreak` by cebreak.S; these four had nothing.

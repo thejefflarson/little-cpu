@@ -49,7 +49,7 @@ module regfile(
   // write-first term above it makes the operand the current architectural value
   // including a writeback committed this cycle, which is why decode's stall-only
   // scoreboard needs no forwarding path for the writeback slot. Deleting the rs2
-  // half is the formal ladder's liveness probe for `reg_ch0`.
+  // half is the formal check set's liveness probe for `reg_ch0`.
   //
   // The select and the x0 test read the held pair, not `rs1`/`rs2`. `rs1` is
   // instruction bits, so selecting on it puts these comparators after the

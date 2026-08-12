@@ -10,7 +10,7 @@
 # how CI reaches the bump; opening the PR here does not work.
 #
 # The existing gates (monitor-freshness, formal/check-genchecks.py,
-# formal/check-complete-exclusions.py, the ladder itself) decide whether the
+# formal/check-complete-exclusions.py, the checks themselves) decide whether the
 # bump is safe; this script only notices and proposes.
 #
 # Usage: formal/bump-riscv-formal-pin.sh
@@ -126,7 +126,7 @@ BODY_FILE="$CLONE_DIR/issue-body.md"
   echo "\`test/monitor.v\` is regenerated against the new pin in this commit."
   echo "The existing gates decide whether the bump is safe: monitor-freshness,"
   echo "\`formal/check-genchecks.py\`, \`formal/check-complete-exclusions.py\`,"
-  echo "and the riscv-formal ladder itself."
+  echo "and the generated riscv-formal checks themselves."
   echo
   echo "### Diff under checks/, insns/, monitor/"
   echo
