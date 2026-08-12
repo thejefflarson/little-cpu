@@ -1,6 +1,7 @@
 # 0098 — Dhrystone runs on both cores in one harness, and their published rate reproduces
 
-Status: Accepted
+Status: Accepted · *Amended 2026-08-12: both factors re-measured on one tree. The cycle factor below
+is superseded and the 1.21× product with it; the clock factor is re-measured and holds.*
 
 ## Context
 
@@ -36,6 +37,8 @@ afterwards:
 | **this core** | 335,229 | 838.1 | **0.679** | 32.54 MHz | **22.10** |
 | **VexRiscv** | 408,758 | 1021.9 | **0.557** | 48.19 MHz | **26.84** |
 
+*This core's row is superseded; VexRiscv's reproduces exactly. See the amendment.*
+
 ```
 -march=rv32ic -mabi=ilp32 -O2 -std=c11 -ffreestanding
 -fno-tree-loop-distribute-patterns -Wall -Wextra -Werror
@@ -53,7 +56,9 @@ property of a flow, a floorplan and a part, and DMIPS/MHz is mostly a property o
 
 **On throughput the gap is 1.21× and every factor of it is now measured here.** 26.84 against 22.10,
 from 1.48× the clock and 0.82× the cycles. This core needs **18.0% fewer cycles** for the same work,
-which is most of what its slower clock costs it back.
+which is most of what its slower clock costs it back. *This paragraph is superseded — the cycle
+factor moved when the bus transaction moved into the execute slot. The amendment at the end carries
+the current pair.*
 
 ## The blocker was real, and it is the harness's memory
 
@@ -170,3 +175,89 @@ there. ADR-0086's all-NOP case was 0.26×.
 - **ADR-0086's table is amended** with the second factor and the absolute figures; its clock
   measurements are unchanged and were reproduced by this work at 30.73 ns and 20.75 ns worst of
   five.
+
+## Amendment, 2026-08-12 — both factors re-taken on one tree, and the product is 1.05×
+
+**Which factor went stale, and how.** The **cycle** factor above is superseded; the **clock** factor
+is re-measured here and holds. Both were recorded on 2026-08-11, and the cycle one moved the same
+day: launching the bus transaction from the execute slot took this core from 0.679 to
+**0.784 DMIPS/MHz** in this harness (ADR-0099), which is 1.41× on cycles alone where the whole
+product above was 1.21×. That left the headline as a current numerator over a stale denominator — a
+cycle ratio from one tree beside a clock ratio from another, with a different accessor, one fewer
+stall reason and several merges of decode logic in between. **A product whose two factors were not
+measured on the same tree is not a measurement**, so both are re-taken here.
+
+Measured on `be293ff`, with the toolchain ADR-0086 recorded: Yosys 0.68+post (`c12172fb`),
+nextpnr-0.10-108-g68c1acd8, `riscv64-elf-gcc 16.2.0`, Icarus Verilog 13.0. VexRiscv's Verilog is
+byte-identical to that run's — it comes out of the SHA-pinned clone and this repository never edits
+it — so its whole column is a reproduction check on the flow rather than a new number.
+
+### The clock, five placements a side
+
+`COMPARE_SEEDS='default 1 2 3 4' soc/compare/sweep.sh`, the same seed set ADR-0086 used:
+
+| | ns, sorted | worst | median | spread |
+|---|---|---|---|---|
+| **this core** | 29.00 · 29.68 · 29.79 · 30.07 · **30.67** | **30.67 ns — 32.61 MHz** | 29.79 ns | 5.8% |
+| **VexRiscv** | 19.19 · 19.87 · 20.28 · 20.66 · **20.75** | **20.75 ns — 48.19 MHz** | 20.28 ns | 8.1% |
+
+**The clock factor is unmoved: 1.48× worst on worst, 1.47× median on median.** Reading it off the
+distributions rather than off one placement is what says so — the two ways of reading it differ by
+less than a percent, which is inside either side's own spread. This core reproduces the 30.73 ns
+recorded above at 30.67, and VexRiscv reproduces 20.75 exactly.
+
+### The cycles, one image and one simulation
+
+`make compare-dhrystone`, 400 runs, both self-checks passing and both data RAMs identical in all
+4096 words:
+
+| | cycles | cycles/Dhrystone | DMIPS/MHz |
+|---|---|---|---|
+| **this core** | 290,427 | 726.1 | **0.784** |
+| **VexRiscv** | 408,758 | 1021.9 | **0.557** |
+
+**1.41× on cycles**, this core needing **29.0% fewer** for the same work. Both figures reproduce
+ADR-0099's to the cycle, so nothing merged since has moved this half either.
+
+### The product
+
+| | DMIPS/MHz | worst-of-five MHz | DMIPS |
+|---|---|---|---|
+| **this core** | 0.784 | 32.61 | **25.56** |
+| **VexRiscv** | 0.557 | 48.19 | **26.84** |
+
+**The throughput gap is 1.05×, from 1.48× on clock against 0.71× on cycles** — down from the 1.21×
+recorded above, and the whole move is in the cycle factor. On each side's *median* placement instead
+of its worst it is 1.04× (26.32 against 27.47), so the conclusion does not depend on which placement
+is read.
+
+**Quote it with what it is.** Neither side is a shipped design: this core is RV32IMC + Zicsr with
+five traps and a machine timer, and has no timer in this harness and 4 KB of ROM; that one is RV32IC
+with a 1024-entry branch predictor, no CSR file, no traps and no interrupt. The DMIPS column
+multiplies a clock placed at 4 KB / 2 KB by cycles simulated at 8 KB / 16 KB, because no ice40 in
+this flow has the block RAM to hold Dhrystone. All nine distortions are listed above and none of
+them changed.
+
+**Their published 92 MHz still does not reproduce.** Best of five here is **52.11 MHz** and worst is
+**48.19**, against a published 92 — 1.77× to 1.91× short, the same picture ADR-0086 measured at 54.00
+and 50.23. Their published 0.52 DMIPS/MHz still does, at 0.557. Two numbers from one project, one of
+which travels to another flow and one of which does not.
+
+### The graded harness check was exercised, not assumed
+
+`soc/compare/placed_vs_synth.py` passes on both sides — 6644 placed `ICESTORM_LC` against 6003
+`SB_LUT4` synthesised alone here (1.11×), 2356 against 1711 there (1.38×), against a 0.80× floor —
+and `make compare-smoke` is green on six published values that both cores agree on and that are not
+all the same value.
+
+Passing says nothing on its own, so the founding defect was re-run live rather than left to the
+fixture probes. **An all-NOP ROM still folds VexRiscv away and is still caught**: 1101 placed cells
+against 1711, **0.64× and red** — less of a collapse than the 0.26× that founded the gate, but well
+under the floor. **It no longer folds this core**: 6626 placed cells against the
+real program's 6644, 1.10×, green, and 6345 `SB_LUT4` synthesised against 6364. The block-RAM census
+says why — the NOP image makes every ROM word identical, and the VexRiscv harness's read-only array
+collapses to a constant that takes 9 of its 30 `SB_RAM40_4K` and most of the core with it, while
+this harness's instruction memory is written by the design and survives at 16 blocks whatever it
+holds. So on this core's side the demonstrated red direction is `test/probe_gates.sh`'s fixture and
+not a placement, and a future stimulus meant to test this gate has to fold something a write port
+cannot protect.
