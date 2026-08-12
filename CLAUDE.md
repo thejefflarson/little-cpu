@@ -84,7 +84,12 @@ are kept in parentheses so those references still resolve.
   writable and the fetch address publishes early, so an older store's write edge must pass first
   (ADR-0061). Do not collapse them. The emptiness check reads **three** slots —
   `accessor_out.valid` is routed in separately because a store writes no register and is therefore
-  invisible to the scoreboard's two (ADR-0026 as amended by ADR-0099).
+  invisible to the scoreboard's two (ADR-0026 as amended by ADR-0099). **The `.S` suite cannot see
+  `fence.i`'s half of this and no program can be written that does** (ADR-0105): a text store takes
+  the fetch port for its write cycle, so the earliest fetch the wait could still be covering is one
+  the memory already holds back, and deleting `instr_fencei` from `serialize` leaves the whole suite
+  green. `test/decoder_tb.v` is the grader; `test/asm/selfmod.S` is red only when both mechanisms
+  are deleted, and the wait stays because a memory that answers fetch and data at once has only it.
 - **The regfile read is synchronous, and the answer belongs to the address pair presented the
   previous cycle** (6, 9). Decode presents a pair, bubbles a cycle (`operand_stall`) whenever what
   was presented is not what the instruction reads, then issues — and in the issue cycle observes the

@@ -5,19 +5,23 @@
 // instruction. Text and data share one address space, so `sw` can reach the
 // instruction memory.
 //
-// Test 2 is the case the fence has to cover. Decode publishes the fetch address
-// a cycle early, so the word for the instruction after `fence.i` is read out of
-// the banks on the edge `fence.i` issues. `fence.i` waits for the pipeline to
-// empty, which puts a store still in flight ahead of that read.
+// Test 2 is the tightest spelling of that: the store is the instruction right
+// before the fence, so the patched word is fetched on the earliest cycle
+// anything has to cover. Two mechanisms cover it, and either alone is enough --
+// deleting `instr_fencei` from `serialize` in rtl/decoder.v leaves this green,
+// so does dropping the store from `text_access` in rtl/imemory.v, and doing
+// both fails test 2. The wait is what orders a store against a fetch on a
+// memory that answers fetch and data at once; on this one the write also takes
+// the fetch port for its own cycle, which holds the next fetch back by itself.
+// test/decoder_tb.v is what grades the wait.
 //
-// The store in test 2 has to use x0 as its base. Decode presents rs1 one cycle
-// and issues the next, and `fence.i`'s rs1 field is zero, so it can only issue
-// one cycle behind a store that presented rs1 = x0 too. Behind any other store
-// it issues a cycle later, the write has already landed, and the test passes
-// with the wait taken out of the decoder. Writing it as
-// `la t0, patch_adjacent; sw t1, 0(t0)` reads better and checks nothing. The
-// `%lo` form needs the patch site inside the first 2 KB of .text; past that the
-// store address comes out negative and test 2 fails.
+// The store keeps x0 as its base so the `fence.i` cannot need an operand cycle
+// behind it, which is what keeps the patched word in that earliest slot. Decode
+// now guesses the next instruction's register pair out of the fetch window, so
+// `la t0, patch_adjacent; sw t1, 0(t0)` measures the same thing today; the x0
+// form does not depend on that guess. It does need the patch site inside the
+// first 2 KB of .text -- past that the `%lo` store address comes out negative
+// and test 2 fails.
 //
 // Every patch site is `.option norvc`, so it is exactly the four bytes the
 // `sw` writes, and follows an `.align 2` so the store address is word aligned.
