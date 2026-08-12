@@ -102,8 +102,8 @@ module decoder_tb;
   // pc must have exactly one driver, and it must be next_pc. The memory latches
   // its address off next_pc one cycle before the fetch that reads it. Give pc a
   // second driver and the memory runs a cycle out of step with decode, so the
-  // core executes whatever is at the wrong addresses. Nothing on the
-  // riscv-formal ladder reads that port.
+  // core executes whatever is at the wrong addresses. No riscv-formal check
+  // reads that port.
   //
   // Checked on every edge rather than in one vector, because a change like that
   // shows up on some instructions and not on others.

@@ -1,6 +1,8 @@
 # 0086 — Both cores in one harness, and the gap is the fetch loop
 
-Status: Accepted
+Status: Accepted · *The 1.6× below is this tree's, 2026-08-08. Re-swept over the same seed set on
+2026-08-12 it is 1.48×, and the throughput product it feeds is in
+[ADR-0098](0098-dhrystone-on-both-cores-and-their-published-rate-reproduces.md)'s amendment.*
 
 ## Context
 

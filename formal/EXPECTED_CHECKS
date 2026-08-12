@@ -1,4 +1,4 @@
-# The riscv-formal ladder's EXPECTED SHAPE: every check formal/checks.cfg's
+# The riscv-formal check set's EXPECTED SHAPE: every check formal/checks.cfg's
 # [depth] table causes genchecks to generate, one per line.
 #
 # WHY THIS FILE EXISTS (ADR-0033, gap 1). formal/EXPECTED_FAIL answers "did
@@ -8,7 +8,7 @@
 # mistyping one [depth] line removes a check silently -- no .sby, no
 # directory, no status file, no warning, exit 0. A never-generated check is
 # then absent from the results AND absent from EXPECTED_FAIL at once, so
-# that file's set-equality reports a clean match on a smaller ladder. The
+# that file's set-equality reports a clean match on a smaller set. The
 # worst single line to lose is `reg`: ADR-0023 calls reg_ch0 the check that
 # ties RVFI's self-report back to the actual register file.
 #
@@ -17,7 +17,7 @@
 #   formal/genchecks-audit.py  set-equalities the GENERATED set against it
 #                              at generation time, so a lost depth line
 #                              fails in a second rather than after a
-#                              three-minute ladder.
+#                              three-minute run.
 #   formal/check-baseline.sh   set-equalities the *.sby files on disk
 #                              against it after the run, and treats a name
 #                              here with no status file as non-PASS. That is
@@ -28,7 +28,7 @@
 # Set equality in BOTH directions, per ADR-0014's contract: an unexpected
 # ADDITION fails this as loudly as a disappearance. That is the case worth
 # having after a pin bump (ADR-0013) -- upstream growing a check nobody here
-# has ruled on should stop the ladder, not join it unexamined.
+# has ruled on should stop the gate, not join the set unexamined.
 #
 # Edit by hand, never regenerate from a run; regenerating launders exactly
 # the regression this file exists to catch. Adding a line is a claim that
@@ -37,7 +37,7 @@
 # corresponding check should no longer exist, which needs a `#omit` line in
 # checks.cfg saying why.
 #
-# Nothing here is a verdict. Every check on this ladder is `mode bmc`, so a
+# Nothing here is a verdict. Every check in this set is `mode bmc`, so a
 # PASS means "no counterexample found within the check's configured depth",
 # not that the property holds; and everything runs under
 # RISCV_FORMAL_ALTOPS, so insn_mul/insn_div/insn_rem passing says nothing
@@ -45,7 +45,7 @@
 # asserts only that the checks EXIST.
 #
 # Seeded from a from-scratch `python3 formal/genchecks-audit.py` against
-# main at 0d23294: 82 generated, 15 declined. The 79-check ladder recorded in
+# main at 0d23294: 82 generated, 15 declined. The 79-check set recorded in
 # ADR-0031 and ADR-0034 grew by three there -- causal_mem_ch0, hang and
 # ill_ch0 -- see checks.cfg's declined-checks block for why each.
 #

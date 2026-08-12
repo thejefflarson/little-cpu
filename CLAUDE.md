@@ -307,27 +307,32 @@ and times.
   throughput and a placement that closes higher does not (ADR-0089).
 - **The only cross-core comparison that means anything is one harness**, and `soc/compare/` is it:
   same part, memories, program, toolchain and seeds, this core against the VexRiscv Verilog in the
-  pinned riscv-formal clone. **Both factors of throughput are measured there and neither is quoted
-  from a README.** On clock the gap is **1.6×, not the 3× two separately-published numbers
-  suggested**, both critical paths are the fetch loop, and their 92 MHz does not reproduce here
-  (ADR-0086). On cycles it goes the other way: Dhrystone in that harness was **0.679 DMIPS/MHz here
-  against 0.557 there** when ADR-0098 measured it, so this core needed 18.0% fewer cycles for the
-  same work and the throughput gap was **1.21× — 22.10 DMIPS against 26.84** on each core's worst of
-  five placements. **Launching the bus from the execute slot moves the cycle half to 0.784 against
-  the same 0.557** — 29.0% fewer cycles, 1.41× on cycles alone (ADR-0099) — and the clock half has
-  not been re-swept since, so the 1.21× product is the stale number of the two. **Their published
-  0.52 reproduces**, 7.1% low, where the same project's published clock missed by 1.9× (ADR-0098). Neither side is a shipped design — theirs is RV32IC with a branch predictor and no
-  privileged architecture, ours has no timer in the harness and 4 KB of ROM — so quote it with what
-  it is. Dhrystone needs 26 of that part's 32 block RAMs before either core's own 4 and 18, so those
-  cycles are **simulated at a larger map than the clock was placed at**; that and eight more
-  distortions are listed in ADR-0098, and `make compare-dhrystone` prints the block arithmetic every
-  run. **A harness whose outputs do not depend on the datapath measures nothing**: an all-NOP ROM
-  placed 449 cells of a 1711-cell core and reported a critical path, so
-  `soc/compare/placed_vs_synth.py` grades the placed count against the core's own synthesis,
-  `make compare-smoke` requires both cores to publish the same values, and the Dhrystone run
-  compares the two cores' whole data RAMs word for word. **That harness gives VexRiscv no data path
-  to its ROM** — a load from a ROM address reads zero there — so anything run in it keeps its
-  read-only data out of ROM until that is fixed.
+  pinned riscv-formal clone. **Both factors of throughput are measured there, neither is quoted from
+  a README, and a product is only a measurement when both of its factors were taken on one tree** —
+  the cycle half is the one that moves, and it left the last product stale inside a day. Re-taken
+  together on `be293ff`, five placements a side: the gap on **clock** is **1.48×, not the 3× two
+  separately-published numbers suggested** (32.61 MHz here against 48.19 there, worst of five, and
+  1.47× median on median), both critical paths are
+  the fetch loop; the gap on **cycles** goes the other way at **0.784 DMIPS/MHz here against 0.557
+  there**, 29.0% fewer cycles for the same work; and the **product is 1.05× — 25.56 DMIPS against
+  26.84**, 1.04× if both medians are read instead (ADR-0098 as amended, ADR-0086, ADR-0099). **Their
+  published 0.52 reproduces**, 7.1% low, where the same project's published 92 MHz does not: 52.11
+  at its best placement here, 48.19 at its worst. Neither side is a shipped design — theirs is
+  RV32IC with a branch predictor and no privileged architecture, ours has no timer in the harness
+  and 4 KB of ROM — so quote it with what it is. Dhrystone needs 26 of that part's 32 block RAMs
+  before either core's own 4 and 18, so those cycles are **simulated at a larger map than the clock
+  was placed at**; that and eight more distortions are listed in ADR-0098, and
+  `make compare-dhrystone` prints the block arithmetic every run. **A harness whose outputs do not
+  depend on the datapath measures nothing**: an all-NOP ROM placed 449 cells of a 1711-cell core and
+  reported a critical path, so `soc/compare/placed_vs_synth.py` grades the placed count against the
+  core's own synthesis, `make compare-smoke` requires both cores to publish the same values, and the
+  Dhrystone run compares the two cores' whole data RAMs word for word. **That stimulus is still a
+  live control on one side only**: a NOP image makes every ROM word identical, which collapses
+  VexRiscv's read-only array and most of its core with it — still red at 0.64× — while this
+  harness's instruction memory is written by the design and survives whatever it holds, so on this
+  side the gate's demonstrated red direction is `test/probe_gates.sh`'s fixture, not a placement.
+  **That harness gives VexRiscv no data path to its ROM** — a load from a ROM address reads zero
+  there — so anything run in it keeps its read-only data out of ROM until that is fixed.
 - **Taking the instruction memory out of that fetch loop is priced and declined** (ADR-0087). A
   synchronous memory leaves a combinational loop only behind a register, and a register in the fetch
   loop is a fetch stage — so "the memory out" and "the depth curve" are one experiment. Measured over

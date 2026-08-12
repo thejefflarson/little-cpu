@@ -18,7 +18,7 @@ module rvfi_wrapper (
   (* keep *) logic [31:0] imem_addr2;
   // The fetch address one cycle early, for a synchronous memory. Unread here:
   // this environment answers `imem_data` against `imem_addr` in the same cycle,
-  // so the whole ladder sees a combinational fetch bus and never the port the
+  // so every check sees a combinational fetch bus and never the port the
   // shipping SoC uses.
   (* keep *) logic [31:0] imem_addr_next;
   (* keep *) logic [31:0] mem_addr;
@@ -87,7 +87,7 @@ module rvfi_wrapper (
   // counterexamples at k = 30.
   //
   // What it costs: a defect that shows up only when one address answers two
-  // different ways in consecutive cycles is invisible to the whole ladder. No
+  // different ways in consecutive cycles is invisible to every check. No
   // memory does that, but the narrowing is real.
   //
   // Stability across two cycles rather than a full memory model, because that is

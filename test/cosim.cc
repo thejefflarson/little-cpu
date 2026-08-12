@@ -7,7 +7,7 @@
 //
 // WHY A SEPARATE BINARY, AND WHY IT READS `regs` RATHER THAN RVFI.
 //
-// The RVFI monitor (test/monitor.v) and the riscv-formal ladder both check
+// The RVFI monitor (test/monitor.v) and the riscv-formal check set both check
 // what the core SAYS it did: rvfi_rd_wdata against a spec model evaluated on
 // rvfi_rs1_rdata / rvfi_rs2_rdata / rvfi_insn. A core that mis-reports a
 // value and then computes with that same mis-reported value tells an
