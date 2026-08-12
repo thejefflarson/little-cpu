@@ -15,6 +15,7 @@ cover. It is not, and has not been since the merge before last. Delete `instr_fe
 |---|---|---|
 | `b20c33c` — before the execute-slot launch | **FAIL 2**, retires 17 | 61/62 |
 | `3d183fe` — after it | **PASS**, retires 47, spec-checked 44 | 62/62, failure list matches the baseline |
+| `d749a74` — the tree this merges onto | **PASS**, retires 47, spec-checked 44 | 63/63, failure list matches the baseline |
 
 The same deletion is loud on the microscope leg either way: `test/decoder_tb.v` reports five
 mismatches — "fence.i serializes while the pipe is busy", "...and that is a stall", "...so nothing
@@ -29,6 +30,7 @@ Four probe programs, `gap0..gap3`: a word stored into `.text` at a site *k* inst
 |---|---|---|---|---|
 | `b20c33c` | old word | **old word** | new word | new word |
 | `3d183fe` | old word | new word | new word | new word |
+| `d749a74` | old word | new word | new word | new word |
 
 Cycle by cycle, with *S* the cycle decode publishes the store. The executor takes it in *S+1* and
 `rtl/accessor.v` drives the bus from `decoder_out` that same cycle, so the write edge ends *S+1*.
@@ -72,8 +74,8 @@ property of the configuration, and it stopped being true when the configuration 
 measurement above as that same lesson arriving from the other side: the configuration moved again,
 and this time it moved *towards* correctness and took the oracle with it.
 
-**2. `selfmod.S` grades the two mechanisms as a disjunction, and its note now says so.** Measured on
-`3d183fe`, one mutation at a time:
+**2. `selfmod.S` grades the two mechanisms as a disjunction, and its note now says so.** One mutation
+at a time on `d749a74`, reproducing what `3d183fe` read:
 
 | mutation | `selfmod.S` |
 |---|---|
@@ -99,8 +101,8 @@ memory for a reason that is not a defect. The exposed slot stays a measurement i
   ordered them. Both of this repo's checks on `fence.i`'s wait — `test/decoder_tb.v` and the decoder
   proof — are outside the behavioural leg.
 - The load half of the same shared port is still watched by four programs: with `text_access` reduced
-  to the store side, `textload.S` (FAIL 3), `contend.S`, `datainit.c` and `selfmod.S` all go red.
-  `textload.S` never had this hole — it writes no text and contains no `fence.i`.
+  to the store side, `textload.S` (FAIL 3), `contend.S`, `datainit.c` and `selfmod.S` all go red,
+  59/63. `textload.S` never had this hole — it writes no text and contains no `fence.i`.
 - The retire counts in `test/OBSERVED_FLOOR` do not move; nothing in the suite changed.
 - **This oracle was disarmed twice by merges that were green both times**, and neither merge was
   wrong: one made the base register irrelevant, the other closed the slot. A comment claiming a red
