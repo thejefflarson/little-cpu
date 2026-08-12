@@ -30,6 +30,28 @@ module rvfi_wrapper (
   (* keep *) logic fetch_stall;
   logic text_write;
 
+  // The memory has nothing at the address it is answering. Free, like the data
+  // it accompanies, because this environment models no address map -- what
+  // ranges rtl/imemory.v calls text is test/imem_tb.v's question, not this
+  // ladder's. What the ladder needs is the one thing a memory that answers
+  // nothing always does, which is the assumption below.
+  (* keep *) `rvformal_rand_reg imem_fault;
+
+  // Assumed: on a cycle it reports having nothing, the instruction memory
+  // answers zero on both fetch ports.
+  //
+  // rtl/imemory.v gates both of them on the same range test that raises the
+  // fault, so this is structural rather than believed. It is also what makes the
+  // instruction-access-fault arm of checks/rvfi_fault_check.sv say something
+  // about this core: that arm requires `insn == 0`, and without this the
+  // environment could report a fault alongside a word it invented.
+  always @* begin
+    if (imem_fault) begin
+      assume (imem_data  == 32'b0);
+      assume (imem_data2 == 32'b0);
+    end
+  end
+
   imem_arbiter arbiter (
     .clock(clock),
     .reset(reset),
@@ -109,6 +131,7 @@ module rvfi_wrapper (
     .mem_ren(mem_ren),
     .mem_rdata(mem_rdata),
     .fetch_stall(fetch_stall),
+    .imem_fault(imem_fault),
     // Tied off, and formal/check-interrupt-tie-off.py is what says so. Every
     // depth in formal/checks.cfg is derived from F and G measured with no
     // interrupt in the trace, and riscv-formal ships no model at the pin of

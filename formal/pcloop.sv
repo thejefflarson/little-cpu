@@ -23,6 +23,10 @@ module pcloop (
     input executor_output executor_out,
     input logic divider_stall,
     input logic fetch_stall,
+    // Free, like everything else not instantiated here. It redirects the pc,
+    // and the increment assertion skips a redirect because the decoder's own
+    // `branch_jump` names the trap it raises.
+    input logic imem_fault,
     input logic accessor_out_valid,
     input logic [31:0] csr_rdata,
     input logic csr_implemented,
@@ -67,6 +71,7 @@ module pcloop (
     .executor_out(executor_out),
     .divider_stall(divider_stall),
     .fetch_stall(fetch_stall),
+    .imem_fault(imem_fault),
     .accessor_out_valid(accessor_out_valid),
     .csr_rdata(csr_rdata),
     .csr_implemented(csr_implemented),

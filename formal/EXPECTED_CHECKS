@@ -58,6 +58,7 @@
 # --- consistency checks (genchecks' check_cons) -------------------------
 causal_ch0
 causal_mem_ch0
+fault_ch0
 hang
 ill_ch0
 liveness_ch0

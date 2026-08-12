@@ -30,6 +30,11 @@ module writeback(
   output logic [ 3:0] rvfi_mem_wmask,
   output logic [31:0] rvfi_mem_rdata,
   output logic [31:0] rvfi_mem_wdata,
+  `ifdef RISCV_FORMAL_MEM_FAULT
+  output logic        rvfi_mem_fault,
+  output logic [ 3:0] rvfi_mem_fault_rmask,
+  output logic [ 3:0] rvfi_mem_fault_wmask,
+  `endif
   // The CSRs formal/checks.cfg's `[csrs]` list names. mcycle and minstret are
   // 64-bit RVFI CSRs -- mcycleh/minstreth address the upper half of the same
   // report rather than a second CSR.
@@ -45,6 +50,13 @@ module writeback(
   output logic [31:0] rvfi_csr_mscratch_wmask,
   output logic [31:0] rvfi_csr_mscratch_rdata,
   output logic [31:0] rvfi_csr_mscratch_wdata
+  `ifdef RISCV_FORMAL_CSR_MCAUSE
+  ,
+  output logic [31:0] rvfi_csr_mcause_rmask,
+  output logic [31:0] rvfi_csr_mcause_wmask,
+  output logic [31:0] rvfi_csr_mcause_rdata,
+  output logic [31:0] rvfi_csr_mcause_wdata
+  `endif
  `endif
 );
   // Continuous assigns rather than an always_comb, for the reason this file
@@ -87,6 +99,16 @@ module writeback(
   assign rvfi_trap = in.rvfi.trap;
   // Same continuous-assign reason as rvfi_trap above.
   assign rvfi_intr = in.rvfi.intr;
+ `ifdef RISCV_FORMAL_MEM_FAULT
+  assign rvfi_mem_fault = in.rvfi.mem_fault;
+  // Constant zero, and that is the report rather than a placeholder: the only
+  // access this core refuses is a fetch, and checks/rvfi_fault_check.sv reads
+  // both masks being clear as exactly that. A load or a store outside the map is
+  // still answered -- rtl/imemory.v, rtl/memory.v and rtl/timer.v each drop it
+  // and read zero -- so there is nothing to set them for.
+  assign rvfi_mem_fault_rmask = 4'b0;
+  assign rvfi_mem_fault_wmask = 4'b0;
+ `endif
 
   always_comb begin
     rvfi_valid = !reset && in.valid;
@@ -126,6 +148,12 @@ module writeback(
   assign rvfi_csr_mscratch_wmask = in.rvfi.csr_mscratch.wmask;
   assign rvfi_csr_mscratch_rdata = in.rvfi.csr_mscratch.rdata;
   assign rvfi_csr_mscratch_wdata = in.rvfi.csr_mscratch.wdata;
+ `ifdef RISCV_FORMAL_CSR_MCAUSE
+  assign rvfi_csr_mcause_rmask   = in.rvfi.csr_mcause.rmask;
+  assign rvfi_csr_mcause_wmask   = in.rvfi.csr_mcause.wmask;
+  assign rvfi_csr_mcause_rdata   = in.rvfi.csr_mcause.rdata;
+  assign rvfi_csr_mcause_wdata   = in.rvfi.csr_mcause.wdata;
+ `endif
 
   // The only sequential piece of RVFI state here: everything else is a
   // combinational read of `in`, which is already registered upstream.

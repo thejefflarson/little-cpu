@@ -69,6 +69,14 @@ typedef struct packed {
   // and leaves the chain unbroken. Both sim legs' monitor and riscv-formal's
   // two pc checks read it to stop expecting continuity across that gap.
   logic        intr;
+  // `rvfi_mem_fault`: the platform had no memory at this instruction's address.
+  // Decode is the one stage that knows it -- the fetch that failed is the one it
+  // is looking at, and no access reaches the bus -- so it rides down here rather
+  // than coming from rtl/accessor.v with the rest of the mem_* report.
+  // checks/rvfi_fault_check.sv reads it with the two fault masks, which
+  // rtl/writeback.v holds at zero: both zero is how that check says instruction
+  // rather than load or store.
+  logic        mem_fault;
   // Exactly the CSRs formal/checks.cfg's `[csrs]` list names, captured in
   // decode -- the one stage that knows them, since ADR-0005 reads and
   // commits every CSR access there -- and forwarded on the same valid-bit
@@ -77,6 +85,12 @@ typedef struct packed {
   rvfi_csr64   csr_mcycle;
   rvfi_csr64   csr_minstret;
   rvfi_csr32   csr_mscratch;
+ `ifdef RISCV_FORMAL_CSR_MCAUSE
+  // Not one of those, and carried for one consumer: checks/rvfi_fault_check.sv
+  // asserts that a refused access wrote the whole of mcause with the cause the
+  // spec names. rtl/csrs.v exports it under the same macro.
+  rvfi_csr32   csr_mcause;
+ `endif
 } rvfi_shadow;
 `endif
 

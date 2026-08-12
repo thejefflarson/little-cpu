@@ -20,7 +20,7 @@ module imem_tb;
   logic [31:0] imem_data, imem_data2;
   logic [31:0] mem_addr, mem_wdata, mem_rdata;
   logic [3:0]  mem_wstrb;
-  logic        mem_ren, fetch_stall;
+  logic        mem_ren, fetch_stall, imem_fault;
 
   imemory #(.ROM_WORDS(ROM_WORDS)) dut (
     .clk(clk),
@@ -32,7 +32,8 @@ module imem_tb;
     .mem_wstrb(mem_wstrb),
     .mem_ren(mem_ren),
     .mem_rdata(mem_rdata),
-    .fetch_stall(fetch_stall)
+    .fetch_stall(fetch_stall),
+    .imem_fault(imem_fault)
   );
 
   // Unique in both halves per word, so a transposed window or a swapped bank
@@ -84,6 +85,15 @@ module imem_tb;
     check(what, {31'b0, fetch_stall}, {31'b0, expected});
   endtask
 
+  // The bit decode raises as an instruction access fault. It is checked beside
+  // every out-of-range window below rather than on its own, because zero data
+  // and a raised fault are one answer: the data alone is an illegal instruction
+  // and reports the wrong cause, and the fault alone would be a cause with a
+  // real word behind it.
+  task automatic check_fault(input string what, input logic expected);
+    check(what, {31'b0, imem_fault}, {31'b0, expected});
+  endtask
+
   // One task, so the memory and the reference always get the same arguments.
   // Out of range the reference does nothing, which is how check_all tells that
   // a dropped write really was dropped.
@@ -123,6 +133,7 @@ module imem_tb;
     end
 
     fetch(32'b0);
+    check_fault("word 0 is in the ROM", 1'b0);
 
     for (i = 0; i < ROM_WORDS - 1; i++) begin
       fetch(32'(i) * 4);
@@ -133,14 +144,17 @@ module imem_tb;
     fetch(32'(ROM_WORDS - 1) * 4);
     check("last word: imem_data", imem_data, ref_rom[ROM_WORDS-1]);
     check("last word: imem_data2 is out of range", imem_data2, 32'b0);
+    check_fault("the last word is still in the ROM", 1'b0);
 
     // Neither aliases ref_rom[0], which bit truncation alone would produce.
     fetch(32'(ROM_WORDS) * 4);
     check("one past the end: imem_data", imem_data, 32'b0);
     check("one past the end: imem_data2", imem_data2, 32'b0);
+    check_fault("one past the end faults", 1'b1);
     fetch(32'h0000_1000);
     check("far out of range: imem_data", imem_data, 32'b0);
     check("far out of range: imem_data2", imem_data2, 32'b0);
+    check_fault("far out of range faults", 1'b1);
 
     // A `word + 1` range test would wrap to 0 here and answer the second word
     // out of real ROM; rtl/imemory.v tests `word < ROM_WORDS - 1` instead.
@@ -148,9 +162,11 @@ module imem_tb;
     check("top of the address space: imem_data faults", imem_data, 32'b0);
     check("top of the address space: imem_data2 does not wrap to word 0",
           imem_data2, 32'b0);
+    check_fault("the top of the address space faults", 1'b1);
 
     fetch(32'h0000_0008);
     check("back in range after an out-of-range fetch", imem_data, ref_rom[2]);
+    check_fault("...and the fault clears with it", 1'b0);
     check("...and its second word", imem_data2, ref_rom[3]);
 
     // Holding the address re-presents the same words, which is what makes a
