@@ -24,6 +24,11 @@ module littlecpu(
   output logic        mem_ren,
   input  logic [31:0] mem_rdata,
   input  logic        fetch_stall,
+  // The instruction memory has nothing at the address it is answering. It
+  // arrives with the word, so decode commits it as an instruction access fault
+  // in the cycle it is looking at that word. A memory that answers everywhere
+  // ties it low.
+  input  logic        imem_fault,
   // The platform's machine-timer line. Registered at its source (rtl/timer.v
   // does it), because inside the core it is one gate away from the fetch loop.
   // A platform with no timer ties it low and the core never takes an interrupt.
@@ -52,6 +57,14 @@ module littlecpu(
   output logic [ 3:0] rvfi_mem_wmask,
   output logic [31:0] rvfi_mem_rdata,
   output logic [31:0] rvfi_mem_wdata,
+  `ifdef RISCV_FORMAL_MEM_FAULT
+  // Guarded by the same macro riscv-formal declares these three under, so a
+  // harness that does not ask for them does not connect ports that are not in
+  // its `RVFI_CONN` either. Both sim legs are such a harness.
+  output logic        rvfi_mem_fault,
+  output logic [ 3:0] rvfi_mem_fault_rmask,
+  output logic [ 3:0] rvfi_mem_fault_wmask,
+  `endif
   output logic [63:0] rvfi_csr_mcycle_rmask,
   output logic [63:0] rvfi_csr_mcycle_wmask,
   output logic [63:0] rvfi_csr_mcycle_rdata,
@@ -64,6 +77,17 @@ module littlecpu(
   output logic [31:0] rvfi_csr_mscratch_wmask,
   output logic [31:0] rvfi_csr_mscratch_rdata,
   output logic [31:0] rvfi_csr_mscratch_wdata
+  `ifdef RISCV_FORMAL_CSR_MCAUSE
+  // The comma LEADS, and that is what makes both arms of this `ifdef` legal: the
+  // port above cannot carry a trailing one, because with the macro absent it is
+  // the last in the list. iverilog and svlint both reject the other spelling and
+  // yosys accepts it, so this is a shape only the second frontend catches.
+  ,
+  output logic [31:0] rvfi_csr_mcause_rmask,
+  output logic [31:0] rvfi_csr_mcause_wmask,
+  output logic [31:0] rvfi_csr_mcause_rdata,
+  output logic [31:0] rvfi_csr_mcause_wdata
+  `endif
   `endif //  `ifdef RISCV_FORMAL
   );
   // Declared up here rather than next to the module that drives each one. Later
@@ -125,6 +149,9 @@ module littlecpu(
  `ifdef RISCV_FORMAL
   rvfi_csr64 csr_rvfi_mcycle, csr_rvfi_minstret;
   rvfi_csr32 csr_rvfi_mscratch;
+  `ifdef RISCV_FORMAL_CSR_MCAUSE
+  rvfi_csr32 csr_rvfi_mcause;
+  `endif
  `endif
 
   decoder decoder(
@@ -136,6 +163,7 @@ module littlecpu(
     .executor_out(executor_out),
     .divider_stall(divider_stalled),
     .fetch_stall(fetch_stall),
+    .imem_fault(imem_fault),
     .accessor_out_valid(accessor_out_valid),
     .csr_rdata(csr_rdata),
     .csr_implemented(csr_implemented),
@@ -146,6 +174,9 @@ module littlecpu(
     .csr_rvfi_mcycle(csr_rvfi_mcycle),
     .csr_rvfi_minstret(csr_rvfi_minstret),
     .csr_rvfi_mscratch(csr_rvfi_mscratch),
+    `ifdef RISCV_FORMAL_CSR_MCAUSE
+    .csr_rvfi_mcause(csr_rvfi_mcause),
+    `endif
    `endif
     .pc(pc),
     .next_pc(next_pc),
@@ -186,6 +217,9 @@ module littlecpu(
     .rvfi_mcycle(csr_rvfi_mcycle),
     .rvfi_minstret(csr_rvfi_minstret),
     .rvfi_mscratch(csr_rvfi_mscratch)
+    `ifdef RISCV_FORMAL_CSR_MCAUSE
+    , .rvfi_mcause(csr_rvfi_mcause)
+    `endif
    `endif
   );
 
@@ -244,6 +278,11 @@ module littlecpu(
     .rvfi_mem_wmask(rvfi_mem_wmask),
     .rvfi_mem_rdata(rvfi_mem_rdata),
     .rvfi_mem_wdata(rvfi_mem_wdata),
+   `ifdef RISCV_FORMAL_MEM_FAULT
+    .rvfi_mem_fault(rvfi_mem_fault),
+    .rvfi_mem_fault_rmask(rvfi_mem_fault_rmask),
+    .rvfi_mem_fault_wmask(rvfi_mem_fault_wmask),
+   `endif
     .rvfi_csr_mcycle_rmask(rvfi_csr_mcycle_rmask),
     .rvfi_csr_mcycle_wmask(rvfi_csr_mcycle_wmask),
     .rvfi_csr_mcycle_rdata(rvfi_csr_mcycle_rdata),
@@ -256,6 +295,13 @@ module littlecpu(
     .rvfi_csr_mscratch_wmask(rvfi_csr_mscratch_wmask),
     .rvfi_csr_mscratch_rdata(rvfi_csr_mscratch_rdata),
     .rvfi_csr_mscratch_wdata(rvfi_csr_mscratch_wdata)
+    `ifdef RISCV_FORMAL_CSR_MCAUSE
+    ,
+    .rvfi_csr_mcause_rmask(rvfi_csr_mcause_rmask),
+    .rvfi_csr_mcause_wmask(rvfi_csr_mcause_wmask),
+    .rvfi_csr_mcause_rdata(rvfi_csr_mcause_rdata),
+    .rvfi_csr_mcause_wdata(rvfi_csr_mcause_wdata)
+    `endif
    `endif
   );
 

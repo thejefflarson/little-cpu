@@ -142,6 +142,7 @@ divu.S               61     61
 fencenop.S            40     35
 hazard.S             48     48
 hpm.S               122     98
+ifault.S             65     59
 jal.S                18     18
 jalr.S               73     73
 lb.S                209    209

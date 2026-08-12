@@ -28,6 +28,10 @@ module traps (
     input executor_output executor_out,
     input logic divider_stall,
     input logic fetch_stall,
+    // Free, like everything else not instantiated here. It redirects the pc,
+    // and the increment assertion skips a redirect because the decoder's own
+    // `branch_jump` names the trap it raises.
+    input logic imem_fault,
     input logic accessor_out_valid,
     // The platform's timer line, free every cycle. rtl/csrs.v decides what to
     // do with it, so `interrupt_pending` below is a real signal of this design
@@ -71,6 +75,7 @@ module traps (
     .executor_out(executor_out),
     .divider_stall(divider_stall),
     .fetch_stall(fetch_stall),
+    .imem_fault(imem_fault),
     .accessor_out_valid(accessor_out_valid),
     .csr_rdata(csr_rdata),
     .csr_implemented(csr_implemented),
@@ -278,7 +283,7 @@ module traps (
   logic prev_reset, prev_trap_entry, prev_mret_entry, prev_csr_wen;
   logic prev_expected_trap, prev_counter_ticking, prev_written_by_trap;
   logic prev_mstatus_addressed, prev_mstatus_static;
-  logic prev_interrupt_pending, prev_interrupt_entry;
+  logic prev_interrupt_pending, prev_interrupt_entry, prev_imem_fault;
   logic [31:0] prev2_rdata;
   logic prev2_reset, prev2_mstatus_addressed, prev2_mstatus_static;
   always_ff @(posedge clk) begin
@@ -298,6 +303,7 @@ module traps (
     prev_mstatus_addressed <= mstatus_addressed;
     prev_mstatus_static    <= mstatus_static;
     prev_interrupt_pending <= interrupt_pending;
+    prev_imem_fault        <= imem_fault;
     prev_interrupt_entry   <= trap_entry && interrupt_pending;
 
     prev2_rdata             <= prev_rdata;
@@ -354,10 +360,19 @@ module traps (
 
   // `!prev_interrupt_pending` because an interrupted instruction did not
   // execute, so whatever it would have faulted on is not what happened. Its own
-  // cause is asserted below.
+  // cause is asserted below. `!prev_imem_fault` for the same reason one step
+  // earlier: a word the memory never supplied has no cause of its own, and the
+  // instruction access fault is what mcause holds instead.
   always_comb if (settled && prev_trap_entry && !prev_interrupt_pending &&
-                  prev_expected_trap && csr_addr == MCAUSE)
+                  !prev_imem_fault && prev_expected_trap && csr_addr == MCAUSE)
     assert(csr_rdata == prev_cause);
+
+  // ...and that is the cause it holds. The two together are the whole of what a
+  // fetch the memory could not answer does to architectural state: mcause is 1,
+  // and mepc and mtvec are asserted above whatever the cause.
+  always_comb if (settled && prev_trap_entry && !prev_interrupt_pending &&
+                  prev_imem_fault && csr_addr == MCAUSE)
+    assert(csr_rdata == 32'd1);
 
   // MIE moves into MPIE and interrupts go off. Both halves need the value
   // mstatus held before the trap, so this fires only when the trapping
@@ -406,11 +421,13 @@ module traps (
   always_comb if (clocked) assert(!(trap_entry && (csr_wen || csr_ren)));
 
   // The encodings the ISA fixes: these fault, those do not, whatever else the
-  // decoder decides about them. The second one carries `!interrupt_pending`
-  // because an interrupt on the cycle a harmless instruction would have issued
-  // is a redirect the instruction had no part in.
+  // decoder decides about them. The second one carries `!interrupt_pending` and
+  // `!imem_fault` for one reason between them: both are redirects the
+  // instruction had no part in. `imem_fault` says the memory never supplied a
+  // word, so the encoding this assertion is about is not what the core is
+  // looking at.
   always_comb if (clocked && issuing && expected_trap) assert(trap_entry);
-  always_comb if (clocked && issuing && must_not_trap && !interrupt_pending)
+  always_comb if (clocked && issuing && must_not_trap && !interrupt_pending && !imem_fault)
     assert(!trap_entry);
 
   // ---- the machine timer interrupt ----------------------------------------
