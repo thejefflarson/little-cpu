@@ -1,10 +1,11 @@
 // The fetcher, the decoder and the CSR file, wired together the way
 // rtl/littlecpu.v wires them, so that mtvec, mepc, mcause and mstatus are real
 // registers rather than free inputs. That is the whole reason this file exists.
-// The riscv-formal ladder stops comparing values the moment an instruction
-// traps -- its instruction check keeps only the trap flag itself -- and its two
-// pc checks accept any target the core reports, mtvec of 0 included. So nothing
-// else in the tree says where a trap goes or what it writes.
+// The generated riscv-formal checks stop comparing values the moment an
+// instruction traps -- the instruction check keeps only the trap flag itself --
+// and the two pc checks accept any target the core reports, mtvec of 0
+// included. So nothing else in the tree says where a trap goes or what it
+// writes.
 //
 // Keep reading the RTL without -formal for this task; formal/components.sby
 // does. With -formal the decoder brings its own assume(in.pc == pc) along, and

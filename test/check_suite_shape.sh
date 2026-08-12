@@ -40,7 +40,7 @@
 # BOTH DIRECTIONS, and the second one is the one worth arguing for. A program
 # present in the tree but absent from the manifest is red, so a program that lands
 # without being wired into the floor file fails immediately rather than joining
-# the suite unmeasured. That is why the ladder's version is bidirectional too.
+# the suite unmeasured. That is why formal/EXPECTED_CHECKS is bidirectional too.
 #
 # This script reads ONLY the first field of each manifest line. The remaining
 # fields are the floor numbers, and grading those is test/run_tests.sh's job —

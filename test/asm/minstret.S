@@ -17,9 +17,9 @@
 # increment `minstret`, because it did not retire architecturally — is checked
 # in test/asm/trap.S, next to the trap that provokes it. No trap is taken here.
 #
-# The riscv-formal ladder cannot see either rule — rvfi_csrw_check checks that
+# The riscv-formal checks cannot see either rule — rvfi_csrw_check checks that
 # a CSR *write* lands, not that a counter's increment semantics are right, and
-# the csrc_* checks are not on this ladder (formal/checks.cfg's [csrs] note).
+# the csrc_* checks are not in that set (formal/checks.cfg's [csrs] note).
 # So simulation is the only mechanised check of them today.
 #
 # No trap is expected anywhere in this file, so it installs the *fatal*

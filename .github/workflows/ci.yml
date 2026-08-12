@@ -510,7 +510,7 @@ jobs:
           if [ "$missing" -ne 0 ]; then
             echo "::error::formal/check-baseline.sh cannot tell ERROR from FAIL," \
                  "so an incomplete toolchain would make this gate green on a" \
-                 "ladder that never really ran. Refusing to report a verdict."
+                 "check set that never really ran. Refusing to report a verdict."
             exit 1
           fi
 
@@ -520,7 +520,7 @@ jobs:
       # right on a workstation and wrong in a container, where a CPU quota does
       # not narrow the affinity mask. The diagnostics below print what the host
       # actually has; re-tune against those rather than guessing.
-      - name: Generate and run the ladder (make -C formal check)
+      - name: Generate and run the checks (make -C formal check)
         run: |
           set -uo pipefail
           echo "nproc:            $(nproc)"
@@ -548,14 +548,14 @@ jobs:
           set -e
           cat "$RUNNER_TEMP/baseline-report.txt"
           {
-            echo "### formal ladder vs formal/EXPECTED_{FAIL,CHECKS}"
+            echo "### riscv-formal checks vs formal/EXPECTED_{FAIL,CHECKS}"
             echo '```'
             cat "$RUNNER_TEMP/baseline-report.txt"
             echo '```'
-            echo "A match here means the ladder still agrees with its baseline."
+            echo "A match here means the check set still agrees with its baseline."
             echo "It is not a correctness result: every check is \`mode bmc\` (no"
             echo "counterexample within a bounded depth, not a proof), and the"
-            echo "ladder runs under \`RISCV_FORMAL_ALTOPS\`, so the mul/div checks"
+            echo "checks run under \`RISCV_FORMAL_ALTOPS\`, so the mul/div checks"
             echo "do not exercise the real multiplier or divider (ADR-0010)."
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$status"

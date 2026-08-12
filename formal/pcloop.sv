@@ -243,7 +243,7 @@ module pcloop (
   // must be imem_addr next cycle. rtl/decoder.v checks the same thing one level
   // up, on pc and next_pc. This one is on the fetcher's output ports, so it
   // also covers the two word-alignment masks: change one and forget the other
-  // and only this fails. Nothing on the riscv-formal ladder reads either port.
+  // and only this fails. No generated riscv-formal check reads either port.
   logic [31:0] past_imem_addr_next;
   always_ff @(posedge clk) past_imem_addr_next <= imem_addr_next;
   always_comb if (clocked) assert(imem_addr == past_imem_addr_next);

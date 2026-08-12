@@ -1,4 +1,4 @@
-# The riscv-formal ladder's regression baseline (ADR-0022), the same contract
+# The riscv-formal check set's regression baseline (ADR-0022), the same contract
 # test/EXPECTED_FAIL applies to the `.S` suite (ADR-0014): formal/check-baseline.sh
 # exits 0 only when the set of `formal/checks/*` whose status is not PASS matches
 # this file EXACTLY — in both directions. A check that starts failing is caught;
@@ -47,14 +47,14 @@
 #
 # WHY THE STATUS IS HERE AT ALL. Matching on the name alone made this gate blind
 # to *why* a check was red, and ADR-0036 measured the consequence rather than
-# arguing it: a ladder run on a machine without `btorsim` printed "82 checks:
+# arguing it: a run on a machine without `btorsim` printed "82 checks:
 # 72 pass, 10 fail / Failure list matches EXPECTED_FAIL exactly" and exited 0,
 # with all ten of those checks at `ERROR 16 2`. `btormc` had found the
 # counterexamples correctly; `sby` could not render the traces, because that step
 # shells out to `btorsim`. A real counterexample and a missing trace renderer
 # were the same result to this file. The inverse is the case that matters: if
 # `btorsim` left CI's OSS CAD Suite, every red check would flip
-# FAIL → ERROR, the set equality would still match, and the ladder would stay
+# FAIL → ERROR, the set equality would still match, and the gate would stay
 # green having stopped distinguishing a proof failure from a tooling failure.
 #
 # CHANGING A LINE'S STATUS IS THE SAME KIND OF CLAIM AS REMOVING THE LINE, and
@@ -65,7 +65,7 @@
 # moved. It cannot report whether a check stopped existing — a check with no
 # formal/checks.cfg [depth] line is never generated, so it is absent from the
 # results AND absent from here at once, and set equality on this file alone would
-# call that a clean match on a smaller ladder (ADR-0033 gap 1). Its sibling
+# call that a clean match on a smaller check set (ADR-0033 gap 1). Its sibling
 # formal/EXPECTED_CHECKS asserts which checks exist; check-baseline.sh enforces
 # both, and a name in EXPECTED_CHECKS with no status file counts as non-PASS here.
 #
@@ -73,8 +73,8 @@
 # sufficient, M2 signal — ADR-0037 rewrote that criterion after an empty baseline
 # turned out to be reachable without the milestone. Read it beside:
 #
-#   - formal/EXPECTED_CHECKS, which is what asserts the ladder did not merely shrink
-#   - ADR-0023 and ADR-0033, which state what a green ladder does not cover
+#   - formal/EXPECTED_CHECKS, which is what asserts the set did not merely shrink
+#   - ADR-0023 and ADR-0033, which state what a green run does not cover
 #
 # Every check here is `mode bmc` (checks.cfg's `solver btormc`, which genchecks
 # turns into `btor btormc`). A PASS means "no counterexample found within the
@@ -86,7 +86,7 @@
 # says nothing whatever about the real multiplier or divider (ADR-0010).
 #
 # ADR-0006's guarantee that RVFI instrumentation does not perturb the core is
-# established by `make -C formal nonperturbation`, not by anything on this ladder.
+# established by `make -C formal nonperturbation`, not by any check listed here.
 # (This paragraph named formal/equiv.sh and said it "still does not converge"; that
 # script is deleted as of ADR-0047, which replaced it. The replacement is strictly
 # weaker than sequential equivalence — it proves the instrumentation is UNREAD.)
