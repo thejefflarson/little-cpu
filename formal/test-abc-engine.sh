@@ -1,6 +1,6 @@
 #!/bin/bash
 # Drives formal/check-abc-engine.sh against a stub yosys and a stub sby, and
-# pins both directions: it goes red naming the pinned toolchain on a yosys that
+# pins both directions: it goes red naming the OSS CAD Suite on a yosys that
 # refuses sby's abc call, and it stays silently green on one that accepts it.
 #
 # The message is checked, not just the status. What this diagnostic is for is

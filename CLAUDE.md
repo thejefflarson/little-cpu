@@ -133,7 +133,8 @@ pipeline drain — see the serialization commitment.
 
 **One interrupt: the machine timer, cause `0x8000_0007`.** `mie.MTIE` is the only writable bit of
 `mie`; `mip.MTIP` is `rtl/timer.v`'s line and read-only; `mip.MSIP`/`mip.MEIP` stay read-only zero,
-which is conformant WARL on a platform with neither source. `mtime`/`mtimecmp` are four words at
+which the spec allows in any position of `mip` whose interrupt can never become pending, and names
+outright for `mip.MSIP` on a single-hart system. `mtime`/`mtimecmp` are four words at
 `0x0002_0000`, in `rtl/littlesoc.v` and `test/testbench.v` alike. **It is taken on a cycle that
 would otherwise have issued**, because `stall` outranks the trap arm of `next_pc` — so it waits out
 a divide, a load turnaround and a serialization with no logic of its own, the displaced instruction
