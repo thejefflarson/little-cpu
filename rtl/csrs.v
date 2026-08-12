@@ -9,7 +9,10 @@
 //
 // The set below is a floor, not a closed list. Every register the privileged
 // spec lists unconditionally for RV32 machine mode is here, because trapping on
-// a mandatory register is non-conformant however minimal the set is.
+// a mandatory register is non-conformant however minimal the set is. Read it as
+// the named addresses plus the performance monitor's three ranges -- 87 of the
+// implemented addresses are recognised by a range compare and appear in no
+// list.
 //
 // This module never decides that an access is illegal. `implemented` feeds the
 // decoder's `instr_valid` term and the read-only test is on the address, so both
