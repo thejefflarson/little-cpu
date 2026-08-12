@@ -399,6 +399,25 @@ check-unit-benches:
 	    exit 1; }; ) true
 	@echo "$(words $(UNIT_BENCHES)) unit benches, matching test/*_tb.v exactly."
 
+# The bench names, for a caller that has to run them one at a time. UNIT_BENCHES
+# stays the one list: a second copy in a script is the stale-list defect
+# SIM_RTL_SRCS's comment describes.
+.PHONY: unit-bench-list
+unit-bench-list:
+	@printf '%s\n' $(UNIT_BENCHES)
+
+# One bench, on its own. `test-units` below stops at the first failure, which is
+# right for a merge gate and useless to test/mutation_check.sh, whose whole
+# verdict is the SET of benches a mutation turns red.
+.PHONY: $(addprefix test-unit-,$(UNIT_BENCHES))
+$(addprefix test-unit-,$(UNIT_BENCHES)): test-unit-%: test/monitor.sim.v
+	@set -e; \
+	tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/test-unit.XXXXXX"); \
+	test -n "$$tmp" -a -d "$$tmp"; \
+	trap 'rm -rf "$$tmp"' EXIT; \
+	iverilog -I./rtl/ -g2012 -o $$tmp/$*.vvp $(UNIT_BENCH_SRC_$*) test/$*.v; \
+	vvp $$tmp/$*.vvp
+
 .PHONY: test-units
 test-units: check-unit-benches test/monitor.sim.v
 	@set -e; \
@@ -467,9 +486,28 @@ window-test:
 abc-engine-test:
 	@./formal/test-abc-engine.sh
 
+# Deletes a term from rtl/ and requires exactly the detectors test/MUTATION_DETECTORS
+# pairs with it to go red. `probe-gates` asks whether a graded comparison can
+# report a failure at all; this asks whether a program still detects the hardware
+# property it was written for, which is a different question and has been
+# answered no here more than once. Deliberately NOT a prerequisite of `test`: it
+# rebuilds `sim` for every mutation, and it adds no ratchet.
+.PHONY: mutation-check
+mutation-check:
+	@./test/mutation_check.sh
+
+# Forces every comparison in mutation_check.sh red against a fixture, including
+# its revert-on-interrupt path. Hangs off `test` for the reason `probe-gates`
+# does -- it is bash and a stub, so it runs anywhere -- and it has to, because
+# `mutation-check` itself is too slow to be a merge gate and nothing else would
+# notice its graders rotting.
+.PHONY: mutation-probe
+mutation-probe:
+	@./test/mutation_probe.sh
+
 .PHONY: test
 test: sim test-units probe-gates pin-bump-test tool-cache-test memmap-test \
-      compare-geometry-test window-test abc-engine-test
+      compare-geometry-test window-test abc-engine-test mutation-probe
 	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 # The same suite `make test` runs, with the runner charging every cycle to the
