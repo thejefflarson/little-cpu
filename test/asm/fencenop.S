@@ -15,9 +15,10 @@
 // caches leave it nothing to order, and `wfi` because the spec lets an
 // implementation resume for any reason. `fence.i` is not -- it waits until the
 // pipeline is empty, because text is writable and the fetch address goes out a
-// cycle early, so an older store's write edge has to land first. selfmod.S is
-// what checks that wait; nothing here would notice it gone. What is checked
-// here is that all four retire without trapping and without disturbing
+// cycle early, so an older store's write edge has to land first. Delete that
+// wait and no program in this suite goes red, this one included; the only
+// grader that currently catches it is test/decoder_tb.v. What is checked here
+// is that all four retire without trapping and without disturbing
 // architectural state -- the two ways any of them can be wrong.
 
 RVTEST_CODE_BEGIN
