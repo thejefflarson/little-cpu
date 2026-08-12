@@ -28,12 +28,18 @@
 # trade off. A scope statement calling the set "exact" is what once made this
 # gap read as a design choice; do not remove either arm to shrink rtl/csrs.v.
 #
-# TWO THINGS THAT ARE *NOT* FINDINGS, checked the same way and recorded here so
-# nobody re-opens them:
+# ONE THING THAT IS *NOT* A FINDING, checked the same way and recorded here so
+# nobody re-opens it. The list used to have two, and how the other one came off
+# it is the more useful half:
 #
-#   * mhpmcounter3 (0xB03), mhpmcounter3h (0xB83) and mhpmevent3 (0x323) --
-#     sail-riscv 0.13.1 raises illegal instruction on all three, exactly as
-#     this core does. The reference model agrees; there is nothing to close.
+#   * mhpmcounter3 (0xB03), mhpmcounter3h (0xB83) and mhpmevent3 (0x323) WERE
+#     ON THIS LIST, on the grounds that sail-riscv raised illegal instruction on
+#     all three exactly as this core did. That was the wrong instrument: the
+#     model trapped because this repo's own Sail config said this core has no
+#     such counters, so it was agreeing with us, not with the spec -- which asks
+#     for all 29 counters and their event selectors and permits both to read
+#     zero. All 87 addresses read zero now; test/asm/hpm.S is where they are
+#     asserted.
 #   * mcountinhibit (0x320) -- the spec makes it explicitly optional ("if not
 #     implemented, the implementation behaves as though the register were set
 #     to zero"), so trapping is a legal way to not implement it. Sail happens

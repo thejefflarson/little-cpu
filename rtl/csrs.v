@@ -134,17 +134,19 @@ module csrs(
   // what these are -- no counter, no event logic, and the read mux's default
   // arm already answers zero, so only `implemented` learns about them.
   //
-  // Each of the three is an aligned 32-address window with the counter number
-  // in the low five bits, and the numbers start at 3 because 0-2 are the two
-  // machine counters and their neighbours. The low and high halves of one
-  // counter differ only in addr[7], so `hpm_counter` covers both of those
-  // windows at once. Do not split it back into two: three separate window
-  // compares synthesise 32 more SoC LUTs for the same 87 addresses.
-  localparam logic [6:0] MHPMEVENT_WINDOW = 7'h19;   // 0x320-0x33F
-  localparam logic [3:0] MHPMCOUNTER_HIGH = 4'b1011; // 0xB00-0xBFF
+  // Each of the three is an aligned 32-address window carrying the counter
+  // number in its low five bits, and the numbers start at 3 because 0-2 are the
+  // machine counters and their reserved neighbours. One window per spec range,
+  // priced against the cheaper spelling that folds the two counter windows into
+  // one compare on the bit that separates them: that one is 39 placed cells
+  // smaller and was declined, so do not re-derive it as a saving.
+  localparam logic [6:0] MHPMCOUNTER_WINDOW  = 7'h58; // 0xB00-0xB1F
+  localparam logic [6:0] MHPMCOUNTERH_WINDOW = 7'h5C; // 0xB80-0xB9F
+  localparam logic [6:0] MHPMEVENT_WINDOW    = 7'h19; // 0x320-0x33F
   logic hpm_number, hpm_counter, hpm_event, hpm_zero;
   assign hpm_number  = addr[4:0] > 5'd2;
-  assign hpm_counter = addr[11:8] == MHPMCOUNTER_HIGH && addr[6:5] == 2'b00;
+  assign hpm_counter = addr[11:5] == MHPMCOUNTER_WINDOW ||
+                       addr[11:5] == MHPMCOUNTERH_WINDOW;
   assign hpm_event   = addr[11:5] == MHPMEVENT_WINDOW;
   assign hpm_zero    = hpm_number && (hpm_counter || hpm_event);
 
