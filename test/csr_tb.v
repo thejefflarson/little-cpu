@@ -298,6 +298,64 @@ module csr_tb;
     check_read("a write at the boundary still beats the increment", 12'hB02, 32'h0000_0000);
     check_read("...and its discarded carry does not reach minstreth", 12'hB82, 32'h0000_0000);
 
+    //-----------------------------------------------------------------------
+    // The 87 hardware performance monitor addresses. The spec asks for all 29
+    // counters and their event selectors and permits both to be read-only
+    // zero, so `implemented` high with a zero read is the whole contract --
+    // and there is no state behind them for a `.S` program to observe. Each is
+    // recognised by an address range, so BOTH ENDS of every range are read
+    // here and so are the addresses just outside it: a range one address too
+    // wide swallows a neighbour and nothing else in this file would say so.
+    //-----------------------------------------------------------------------
+
+    check_read("mhpmcounter3 reads 0", 12'hB03, 32'h0);
+    check_read("mhpmcounter31 reads 0", 12'hB1F, 32'h0);
+    check_read("mhpmcounter3h reads 0", 12'hB83, 32'h0);
+    check_read("mhpmcounter31h reads 0", 12'hB9F, 32'h0);
+    check_read("mhpmevent3 reads 0", 12'h323, 32'h0);
+    check_read("mhpmevent31 reads 0", 12'h33F, 32'h0);
+
+    // Writable by encoding with no implemented fields, so a write is a legal
+    // WARL no-op on all three ranges, the way mstatush's is.
+    poke(12'hB03, 32'hffff_ffff);
+    check_read("mhpmcounter3 still reads 0 after a write", 12'hB03, 32'h0);
+    poke(12'hB9F, 32'hffff_ffff);
+    check_read("mhpmcounter31h still reads 0 after a write", 12'hB9F, 32'h0);
+    poke(12'h33F, 32'hffff_ffff);
+    check_read("mhpmevent31 still reads 0 after a write", 12'h33F, 32'h0);
+
+    // One past the top of each range, and the counter numbers 0-2 inside each
+    // window that belong to something else or to nothing.
+    peek(12'hB20);
+    check_bit("0xb20 is one past mhpmcounter31", implemented, 1'b0);
+    peek(12'hBA0);
+    check_bit("0xba0 is one past mhpmcounter31h", implemented, 1'b0);
+    // Number 3 of the window ABOVE each range. A compare that took one bit too
+    // few of the address would double every range's width, and these are the
+    // only addresses that see it: the three above are number 0 of that window
+    // and stay illegal on the counter-number test alone.
+    peek(12'hB23);
+    check_bit("0xb23 is number 3 of the window above the counters", implemented, 1'b0);
+    peek(12'hBA3);
+    check_bit("0xba3 is number 3 of the window above the high counters", implemented, 1'b0);
+    peek(12'h345);
+    check_bit("0x345 is inside the window above the events", implemented, 1'b0);
+    peek(12'hB01);
+    check_bit("0xb01 is inside the counter window and is not a counter", implemented, 1'b0);
+    peek(12'hB81);
+    check_bit("0xb81 is inside the high window and is not a counter", implemented, 1'b0);
+    peek(12'h321);
+    check_bit("0x321 is inside the event window and is not an event", implemented, 1'b0);
+    peek(12'h322);
+    check_bit("0x322 is one below mhpmevent3", implemented, 1'b0);
+
+    // The implemented neighbours must still answer with their own register
+    // rather than the ranges' zero. mscratch was written 0xdeadbeef above and
+    // nothing since has touched it.
+    poke(12'hB02, 32'h5a5a_5a5a);
+    check_read("minstret still answers 0xb02, one below mhpmcounter3", 12'hB02, 32'h5a5a_5a5a);
+    check_read("mscratch still answers 0x340, one past mhpmevent31", 12'h340, 32'hdead_beef);
+
     // Nothing on the riscv-formal ladder sees any of this. Its per-instruction
     // checks drop every value assertion for a retire that traps, and the CSRs a
     // trap writes are the WARL ones the header explains cannot go on the
