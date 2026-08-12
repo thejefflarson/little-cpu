@@ -440,6 +440,12 @@ make test           # the test/asm suite (.S and .c) under cxxrtl + unit benches
 make test-units     # the unit benches alone; the bench list is checked against
                     # test/*_tb.v in both directions
 make probe-gates    # force every graded comparison red for its own reason; hermetic
+make mutation-check # delete a term from rtl/ and require exactly the detectors
+                    # test/MUTATION_DETECTORS pairs with it to go red, both ways.
+                    # probe-gates asks whether a comparison can fail at all; this
+                    # asks whether a program still sees the property it was
+                    # written for. ~3.5 min, not on `make test`, no ratchet.
+                    # `make mutation-probe` forces its own graders red and IS on it
 make window-test    # force the elaboration checks in rtl/{imemory,memory,timer}.v
                     # red, in both frontends. Runs inside `make test`
 make cycles         # the suite again, every cycle charged to an issuing cycle or

@@ -1,0 +1,75 @@
+# What each declared mutation must be caught by. `make mutation-check` applies
+# every patch in test/mutations/, runs the detectors, and requires the set that
+# goes red to be exactly the set named here — in both directions, the way
+# test/EXPECTED_FAIL and test/OBSERVED_FLOOR are read.
+#
+# The name is not MUTATIONS because test/mutations/ already exists and macOS
+# would make them the same path.
+#
+# WHAT THIS FILE IS FOR. `make probe-gates` asks whether a graded comparison can
+# report a failure at all. It is hermetic, so it cannot mutate the design, and it
+# says nothing about whether a program still detects the hardware property it was
+# written to detect. That is a separate question with a measured answer, and the
+# answer is not always yes: a store landing a cycle earlier is a win everywhere
+# except in the program whose job was to notice it used to land late. Every claim
+# of the form "this program catches that" rested on someone running the mutation
+# once, by hand, on the day it was written. These lines are the ones that get
+# re-run.
+#
+# FORMAT — one pairing per line, one leg per line:
+#
+#     <mutation>  bench  <bench>
+#     <mutation>  asm    <program> <STATUS>
+#
+# <mutation> is the name of test/mutations/<mutation>.patch, and that set is
+# checked against this file's first column in both directions before anything
+# runs. <bench> is a test/*_tb.v run by `make test-unit-<bench>`. <STATUS> is the
+# exact label test/run_tests.sh prints for that program, so a program that goes
+# red a different way is red here too — the same rule test/EXPECTED_FAIL carries.
+#
+# BOTH LEGS RUN FOR EVERY MUTATION, so a mutation with no `asm` line is the claim
+# that the whole test/asm suite stays green under it. That is a real result and
+# two of the four below are it. Do not add an `asm` line to make one look better
+# covered: the grading is a set equality, and a line that does not fire is red.
+#
+# ADDING ONE. Measure it, do not assert it: apply the patch, `make sim`, run
+# ./test/run_tests.sh and the benches, and write down what actually went red. A
+# mutation nothing catches does not belong here as a red entry — it is either a
+# gap to close with a new program or a fact about the machine to record in an
+# ADR, and the fence.i pair below is both of those stories.
+#
+# NOT ON `make test`'s PATH. It rebuilds the cxxrtl runner once per mutation.
+# It adds no ratchet.
+
+# The fence.i half of the serialization commitment. No `.S` program can see this
+# one and none is paired against it: a text store takes the instruction memory's
+# read port for its write cycle, so the earliest fetch the wait could still be
+# covering is one the memory already holds back. The whole suite stays green and
+# test/decoder_tb.v is the grader — five named mismatches.
+serialize-drops-fencei      bench decoder_tb
+
+# The CSR and mret half, which shares the mechanism for a different reason: a
+# one-cycle architectural update must not interleave with older instructions.
+# The suite stays green here too, and that is measured rather than argued.
+# test/asm/minstret.S's exactness case reads `minstret` before and after three
+# nops and still gets 4 without the wait, because the counter advances when an
+# instruction issues and both reads are issues.
+serialize-drops-csr-mret    bench decoder_tb
+
+# Both mechanisms that order a text store against the fetch behind it, deleted
+# together. test/asm/selfmod.S is a live grader for the pair and for neither
+# term alone, which is why this mutation is two deletions and the one above is
+# one. imem_tb sees the port half by itself.
+fencei-wait-and-store-port  bench decoder_tb
+fencei-wait-and-store-port  bench imem_tb
+fencei-wait-and-store-port  asm   selfmod.S FAIL 2
+
+# The load half of the same shared port: a load from .text no longer takes the
+# port, so it answers with whatever the fetch put there. Four programs watch
+# this one, and textload.S is the only one of the four that neither writes text
+# nor contains a fence.i.
+text-port-drops-load        bench imem_tb
+text-port-drops-load        asm   contend.S FAIL 2
+text-port-drops-load        asm   datainit.c FAIL 1
+text-port-drops-load        asm   selfmod.S FAIL 2
+text-port-drops-load        asm   textload.S FAIL 3
