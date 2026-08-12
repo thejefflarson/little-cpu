@@ -14,7 +14,7 @@ The core's REAL architectural register file -- `uut regfile regs`, read
 through cxxrtl `debug_items` by test/cosim.cc -- against the register file of
 RISC-V International's own executable specification.  No rvfi_* signal is read
 on either side.  That is the whole point: test/monitor.v and the riscv-formal
-ladder both check the core's SELF-REPORT (rvfi_rd_wdata against a spec model
+check set both check the core's SELF-REPORT (rvfi_rd_wdata against a spec model
 evaluated on rvfi_rs1_rdata / rvfi_rs2_rdata / rvfi_insn), so a core that
 mis-reports a value and computes with that same mis-reported value satisfies
 both.  This compares state that neither side got to describe.

@@ -1,8 +1,8 @@
 #!/bin/bash
-# Checks the ladder two ways: the checks that were generated must match
-# formal/EXPECTED_CHECKS, and the ones that did not pass must match
-# formal/EXPECTED_FAIL. Both comparisons run in both directions, so a check that
-# starts passing fails this too, until someone moves its line.
+# Checks the generated riscv-formal checks two ways: the checks that were
+# generated must match formal/EXPECTED_CHECKS, and the ones that did not pass
+# must match formal/EXPECTED_FAIL. Both comparisons run in both directions, so a
+# check that starts passing fails this too, until someone moves its line.
 #
 # The first comparison is there because the [depth] table in checks.cfg is what
 # decides which checks exist. Delete a line and that check is never generated, so
@@ -14,7 +14,7 @@
 # different fixes, so the gate should not treat them as the same red.
 #
 # None of this says the core is correct. Every check searches to a fixed depth,
-# so passing means no counterexample was found that shallow. The ladder also
+# so passing means no counterexample was found that shallow. The check set also
 # defines RISCV_FORMAL_ALTOPS, which replaces multiply and divide with simpler
 # stand-ins, so insn_mul passing says nothing about the real multiplier.
 #
@@ -32,7 +32,7 @@ EXPECTED_CHECKS=${3:-$(dirname "$0")/EXPECTED_CHECKS}
 
 # READABLE, not merely present. This script sets `set -u` and neither `-e` nor
 # `pipefail`, so a `sed` that cannot open its input yields an EMPTY string — and
-# an empty expected set matches an all-passing ladder exactly.
+# an empty expected set matches an all-passing check set exactly.
 for f in "$EXPECTED_FAIL" "$EXPECTED_CHECKS"; do
   if [ ! -f "$f" ]; then
     echo "error: no such file: $f" >&2
@@ -41,7 +41,7 @@ for f in "$EXPECTED_FAIL" "$EXPECTED_CHECKS"; do
   if [ ! -r "$f" ]; then
     echo "error: $f exists but is not readable." >&2
     echo "An unreadable baseline reads as an EMPTY one here, which matches an" >&2
-    echo "all-passing ladder exactly and exits 0. Refusing to grade." >&2
+    echo "all-passing check set exactly and exits 0. Refusing to grade." >&2
     exit 2
   fi
 done
@@ -77,8 +77,8 @@ baselineable_status() {
   esac
 }
 
-# Exit 2 is "the inputs are broken" against exit 1's "the ladder disagrees with
-# them", so a rejected line cannot read as a regression in the ladder.
+# Exit 2 is "the inputs are broken" against exit 1's "the check set disagrees
+# with them", so a rejected line cannot read as a regression in the check set.
 baseline_errors=""
 while IFS= read -r line; do
   [ -n "$line" ] || continue
@@ -129,7 +129,7 @@ generated=$(find "$CHECKS_DIR" -maxdepth 1 -name '*.sby' \
   -exec basename {} .sby \; 2>/dev/null | sort)
 
 if [ -z "$generated" ]; then
-  echo "error: no *.sby files under $CHECKS_DIR -- the ladder was never" >&2
+  echo "error: no *.sby files under $CHECKS_DIR -- the check set was never" >&2
   echo "       generated. Run 'make -C formal checks' first." >&2
   exit 2
 fi

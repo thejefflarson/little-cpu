@@ -5,7 +5,7 @@ name: riscv-formal pin bump
 # regenerated against the new pin, and opens an issue asking a human
 # to open the pull request from that branch. The existing gates --
 # monitor-freshness, formal/check-genchecks.py,
-# formal/check-complete-exclusions.py, the ladder itself -- grade the bump;
+# formal/check-complete-exclusions.py, the generated checks -- grade the bump;
 # this workflow only notices and proposes.
 #
 # It opens an issue rather than a pull request because a PR opened by this

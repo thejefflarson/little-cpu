@@ -66,7 +66,7 @@ module writeback(
  `ifdef RISCV_FORMAL
   // What this core reports on a trapping retire, and what no oracle checks.
   // riscv-formal's checks/rvfi_insn_check.sv puts rd_addr, rd_wdata, pc_wdata
-  // and every mem_* assertion inside `if (!spec_trap)`, so the ladder cannot
+  // and every mem_* assertion inside `if (!spec_trap)`, so those checks cannot
   // tell a core that traps correctly from one that traps and also corrupts rd,
   // writes memory and redirects somewhere arbitrary. The convention is
   // rvfi_valid 1 (a trapping instruction does retire), rvfi_trap 1, rd_addr /

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 #
-# Generates the riscv-formal ladder and checks which checks came out of it. Run
-# from formal/, the same way `python3 genchecks-local.py` was.
+# Generates the riscv-formal check set and reports which checks came out of it.
+# Run from formal/, the same way `python3 genchecks-local.py` was.
 #
 # The `[depth]` section of checks.cfg looks like a tuning table. It is really the
 # list of checks that exist. Both call sites in genchecks end with
@@ -91,7 +91,7 @@ def call_tracer(frame, event, arg):
 def main():
     # genchecks reads `checks.cfg` and writes `checks/` relative to the cwd and
     # takes `corename` from its last component, so running it elsewhere silently
-    # produces a ladder elsewhere.
+    # produces a check set elsewhere.
     if os.path.realpath(os.getcwd()) != os.path.realpath(HERE):
         print(f"error: run from {HERE}, not {os.getcwd()}", file=sys.stderr)
         return 1
@@ -156,14 +156,14 @@ def main():
 
     expected = set(read_name_list(EXPECTED_CHECKS))
     failed |= report_set_diff(
-        "generated ladder vs formal/EXPECTED_CHECKS",
+        "generated checks vs formal/EXPECTED_CHECKS",
         expected,
         generated,
         "EXPECTED_CHECKS",
         "generated",
     )
 
-    # Every check upstream offered and this ladder declined is declined in
+    # Every check upstream offered and this repo declined is declined in
     # writing, next to [depth].
     omitted = read_omit_decls(CFG)
     failed |= report_set_diff(
@@ -175,12 +175,12 @@ def main():
     )
 
     print(
-        f"Ladder shape: {len(generated)} generated, {len(dropped)} declined "
+        f"Check-set shape: {len(generated)} generated, {len(dropped)} declined "
         f"for want of a [depth] line."
     )
     if failed:
         print(
-            "\nThe ladder is not the shape this repo committed to. Either the\n"
+            "\nThe check set is not the shape this repo committed to. Either the\n"
             "change was intended -- in which case update formal/EXPECTED_CHECKS\n"
             "and/or checks.cfg's #omit list in the same commit, and say why --\n"
             "or a [depth] line was lost, which is the failure ADR-0033 named.",

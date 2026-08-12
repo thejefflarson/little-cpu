@@ -8,7 +8,7 @@
 // rtl/decoder.v's `instr_valid`, so an address wrongly accepted becomes an
 // instruction the core executes and one wrongly rejected becomes an illegal
 // instruction -- in a `.S` test either reads as an execution bug rather than a
-// CSR one. And the WARL masks cannot be checked on the riscv-formal ladder at
+// CSR one. And the WARL masks cannot be checked by riscv-formal at
 // all: rvfi_csrw_check.sv compares the write against the value the core says it
 // wrote, with no model of a register that legally keeps only some bits, so a
 // correctly masked CSR fails it. That is why mtvec, mepc and mstatus are kept
@@ -275,7 +275,7 @@ module csr_tb;
     // 64-bit counter, not just for the half the address names, so the carry
     // boundary is the one place the rule can be broken: with the low half at
     // 0xffff_ffff a write to it must also suppress the carry into the high
-    // half. Nothing else reaches that cycle -- the ladder's CSR checks read
+    // half. Nothing else reaches that cycle -- the generated CSR checks read
     // only what the core reports writing and never look at the register, and a
     // `.S` program lands a write there only by calibrating instruction spacing.
     poke(12'hB80, 32'h0000_0000);
@@ -356,10 +356,11 @@ module csr_tb;
     check_read("minstret still answers 0xb02, one below mhpmcounter3", 12'hB02, 32'h5a5a_5a5a);
     check_read("mscratch still answers 0x340, one past mhpmevent31", 12'h340, 32'hdead_beef);
 
-    // Nothing on the riscv-formal ladder sees any of this. Its per-instruction
-    // checks drop every value assertion for a retire that traps, and the CSRs a
-    // trap writes are the WARL ones the header explains cannot go on the
-    // `[csrs]` list, so this bench and test/asm/trap.S are all there is.
+    // Nothing in the generated riscv-formal checks sees any of this. Their
+    // per-instruction checks drop every value assertion for a retire that
+    // traps, and the CSRs a trap writes are the WARL ones the header explains
+    // cannot go on the `[csrs]` list, so this bench and test/asm/trap.S are all
+    // there is.
     poke(12'h305, 32'h0000_0100);   // mtvec = 0x100
     poke(12'h300, 32'h0000_0008);   // mstatus.MIE = 1, MPIE = 0
     check_hex("mtvec_value echoes mtvec for the decoder", mtvec_value, 32'h0000_0100);
