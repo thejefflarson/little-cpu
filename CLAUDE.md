@@ -326,11 +326,16 @@ and times.
   depend on the datapath measures nothing**: an all-NOP ROM placed 449 cells of a 1711-cell core and
   reported a critical path, so `soc/compare/placed_vs_synth.py` grades the placed count against the
   core's own synthesis, `make compare-smoke` requires both cores to publish the same values, and the
-  Dhrystone run compares the two cores' whole data RAMs word for word. **That stimulus is still a
+  Dhrystone run compares the two cores' whole data RAMs word for word. **That stimulus is a
   live control on one side only**: a NOP image makes every ROM word identical, which collapses
-  VexRiscv's read-only array and most of its core with it — still red at 0.64× — while this
-  harness's instruction memory is written by the design and survives whatever it holds, so on this
-  side the gate's demonstrated red direction is `test/probe_gates.sh`'s fixture, not a placement.
+  VexRiscv's read-only array and most of its core with it — still red at 0.64×, weaker than the
+  0.26× that founded the gate — while this harness's instruction memory is written by the design, so
+  its contents are never a constant and the datapath survives whatever it holds, at 1.10×. **What
+  folds this side makes the datapath dead rather than uniform**: the same NOP image with the text
+  write port disconnected is 0.02×, a core handed a constant instruction instead of the memory's
+  answer is 0.02×, and a core input left unconnected — which is how the gate last went red for real,
+  on a harness an `rtl/` change did not update — is 0.09×, with icetime reporting 50.77 MHz for one
+  sixth of the core.
   **That harness gives VexRiscv no data path to its ROM** — a load from a ROM address reads zero
   there — so anything run in it keeps its read-only data out of ROM until that is fixed.
 - **Taking the instruction memory out of that fetch loop is priced and declined** (ADR-0087). A

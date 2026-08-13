@@ -2,7 +2,9 @@
 
 Status: Accepted · *The 1.6× below is this tree's, 2026-08-08. Re-swept over the same seed set on
 2026-08-12 it is 1.48×, and the throughput product it feeds is in
-[ADR-0098](0098-dhrystone-on-both-cores-and-their-published-rate-reproduces.md)'s amendment.*
+[ADR-0098](0098-dhrystone-on-both-cores-and-their-published-rate-reproduces.md)'s amendment. The
+all-NOP demonstration under "the first attempt produced no number" no longer folds this core, and
+the amendment at the end says what does.*
 
 ## Context
 
@@ -229,3 +231,75 @@ because a branch predictor had to fit beside it, not because of a register file.
   Three separate defects in this one flow produced a green run and a number: the folded core, the
   saturating program, and the sweep that never re-placed. The first two are checks now; the third is a
   fixed prerequisite order with the reason written beside it.
+
+## Amendment, 2026-08-12 — the all-NOP stimulus no longer folds this core, and what does
+
+The all-NOP ROM above is quoted as the demonstration that this gate discriminates. **On this core's
+side it no longer does.** Re-run live rather than trusted, on `d8ecfa2` with the toolchain this ADR
+records — Yosys 0.68+post (`c12172fb`), nextpnr-0.10-108-g68c1acd8 — one placement at the default
+seed each, the placed `ICESTORM_LC` against the same standalone `SB_LUT4` the gate reads:
+
+| stimulus | this core, against 6006 | verdict | VexRiscv, against 1711 | verdict |
+|---|---|---|---|---|
+| the real program, `bench.S` | 6635 — **1.10×** | green, 30.21 ns | 2356 — **1.38×** | green, 20.66 ns |
+| all-NOP ROM image | 6628 — **1.10×** | **green — no fold at all** | 1101 — **0.64×** | red |
+| both pads tied off | 1 — 0.00× | red, 0.24 ns | 1 — 0.00× | red |
+| reset held asserted | 1 — 0.00× | red | 1 — 0.00× | red |
+| a constant instruction in place of the memory's answer | 125 — **0.02×** | red, 10.59 ns | 1 — 0.00× | red |
+| all-NOP image, text write port disconnected | 129 — **0.02×** | red, 10.63 ns | no write port to remove | — |
+| a core input left unconnected, as found | 536 — **0.09×** | red, 19.70 ns | not applicable | — |
+
+The ratios differ by factors of fifty, so nothing here turns on which placement is read and no sweep
+was taken; the whole-design rows reproduce the amended clock figures to within their spread.
+
+**The reason is the write port, and yosys's own memory map says so in one line.** Under the NOP
+image `bench_littlecpu.imem.rom_even` and `imem.rom_odd` are still `mapping memory ... via
+$__ICE40_RAM4K_`; disconnect `mem_wstrb` and both disappear from that list entirely. A memory the
+design writes cannot be a constant whatever it was initialised with, so the instruction word is not
+a constant, so the decoder that reads it is live and the datapath behind it with it. VexRiscv's
+`bench_vexriscv.rom` is read-only, and it is exactly the memory that leaves the map under the same
+image — 30 block RAMs to 21 — while its register file, its data RAM and its branch predictor's
+history stay. **Text became writable for the `fence.i` reason and took a red direction with it as a
+side effect nobody chose.**
+
+**So the shape of a stimulus that works here is not "make the contents uniform" but "make the
+datapath dead".** Three do. Tying the harness's two pads off is the most direct statement of the
+property under test and deletes everything, which makes it a poor diagnostic — one placed cell is
+obviously wrong, where the defect this gate exists to catch looks like a measurement. The other two
+leave a plausible fragment and a plausible number: a core handed a constant instruction instead of
+the memory's answer places 125 cells and icetime times them at 94.41 MHz, and the all-NOP image with
+the write port taken away places 129 at 94.10 MHz. **The NOP image and that last row differ in one
+connection**, which is what makes it the successor to the founding experiment rather than a new one.
+
+**The founding 0.26× is a weaker red than it was.** The same image against the same SHA-pinned
+VexRiscv now leaves 1101 of 1711 rather than 449 — 0.64× against a 0.80× floor, 0.16 of margin where
+there was 0.54 — because the harness it was first measured in is not this one, and in this one the
+predictor's write-driven history table holds most of that core up on its own. The verdict travelled
+and the ratio did not. A red direction with 0.16 of margin is one flow change from expiring on that
+side too, so the number to re-take on a pin bump or a harness edit is this one, not the 449.
+
+**While this was being measured the gate went red for real, on this core's side, for a defect
+already merged.** Adding an instruction access fault gave `littlecpu` an `imem_fault` input and
+`imemory` an output to drive it, and `soc/compare/bench_littlecpu.v` was not in that change:
+the input was left unconnected. Yosys said `Warning: Wire ... is used but has no driver` and
+carried on; the harness synthesised to 473 `SB_LUT4`, placed 536 cells, and icetime reported
+**19.70 ns — 50.77 MHz, better than the real design's 30.21** for a design that was one sixth of the
+core. `make compare-timing` is not on CI, so nothing had failed. That is the founding defect
+recurring from a different cause, caught by the check written for it, and the fix is in this
+change. **`make compare-smoke` could not have caught it**: it publishes the same six values before
+and after the fix, to the byte, because `bench.S` never fetches outside the ROM window and so never
+asserts the signal that was floating.
+
+**A red direction is a property of the design at the moment it was taken.** This is the third this
+week to expire because the design improved rather than because it broke — `test/asm/selfmod.S` when
+the bus transaction moved to the execute slot, `fence.i`'s half of serialization structurally, and
+now this one when text became writable. A fixture probe survives that, because it drives the
+comparison against numbers on disk and asks only whether the comparison can fail. A live stimulus
+does not, because it asks whether *today's* design still fails, and the answer is allowed to change
+without anyone touching the check. `test/probe_gates.sh`'s five probes for this gate are unchanged
+here and still pass, and they are what keeps it honest in CI; this amendment is what keeps the
+live demonstration true.
+
+Nothing above moves the floor. 0.02× and 0.09× clear 0.80× by more than an order of magnitude, and
+1.10× and 1.38× sit above it by a quarter and a half, so no measurement here argues about where it
+sits.
