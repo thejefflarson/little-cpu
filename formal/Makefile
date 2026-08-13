@@ -76,6 +76,17 @@ RTL_SOURCES := ../rtl/structs.v ../rtl/fetcher.v ../rtl/regfile.v \
                ../rtl/csrs.v ../rtl/decoder.v ../rtl/regsel.v ../rtl/executor.v \
                ../rtl/accessor.v ../rtl/writeback.v ../rtl/littlecpu.v
 
+# The two figures every [depth] entry is derived from, swept out of `hang` and
+# `liveness` and graded against the `#derive` lines that declare them. Six sby
+# runs, a few seconds each, so it is cheap to reach for -- but it is not on CI
+# and adds no ratchet: what CI enforces is that the depths clear the DECLARED
+# figures, which `checks` does in a second. This is what says the declaration is
+# still true of the design, and it is the target to run before landing anything
+# that adds a stall reason or lengthens a stage.
+.PHONY: remeasure-fg
+remeasure-fg: remeasure-fg.py depth_rules.py genchecks-local.py checks.cfg $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
+	python3 $<
+
 dmemcheck: dmemcheck.sby dmemcheck.sv arbiter.v $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
 imemcheck: imemcheck.sby imemcheck.sv arbiter.v $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
 cover:     cover.sby     cover.sv     arbiter.v $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
@@ -178,7 +189,7 @@ components_traps: components.sby ../rtl/fetcher.v ../rtl/decoder.v ../rtl/regsel
 # /bin/sh, make's default shell, passes through literally and deletes nothing.
 clean:
 	rm -rf checks complete complete_cover cover dmemcheck imemcheck components components_*
-	rm -rf pcloop_cover
+	rm -rf pcloop_cover fg-probe fg-probe.cfg
 	rm -rf $(RISCV_FORMAL_DIR) $(RISCV_FORMAL_DIR).tmp
 
 .PHONY: all clean

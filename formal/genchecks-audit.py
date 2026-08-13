@@ -16,21 +16,36 @@
 # has to stay a byte-for-byte copy of the upstream file except for two lines, so
 # it cannot be edited to report anything. Instead `sys.settrace` watches each
 # `get_depth_cfg` call and records its `patterns` argument and whether it
-# returned None. The last pattern is the check name.
+# returned None. The last pattern is the check name and the FIRST is the family
+# it belongs to -- "insn" for all 70 insn_*, "csrc_upcnt" for one per CSR --
+# which is what checks.cfg's [depth] table and its `#floor` lines are keyed on.
 #
 # main() then checks that guess rather than trusting it, against genchecks' own
 # lists and against the `.sby` files on disk.
+#
+# It also grades every generated check's depth against the floor its family
+# declares. That arithmetic is the only thing standing between this repo and a
+# check that runs, reports PASS, and asked a shorter question than the one it
+# was configured for -- a shallow depth is not an error anywhere in sby.
 
 import os
 import re
 import runpy
 import sys
 
+import depth_rules
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 GENCHECKS = os.path.join(HERE, "genchecks-local.py")
 CFG = os.path.join(HERE, "checks.cfg")
 EXPECTED_CHECKS = os.path.join(HERE, "EXPECTED_CHECKS")
 CHECKS_DIR = os.path.join(HERE, "checks")
+
+# The three cycles genchecks writes into every .sby it generates. Read back off
+# the generated file rather than recomputed from the [depth] columns, because
+# which column is which lives in genchecks' call sites and this script does not
+# get to hold a second opinion about that.
+DEFINE_RE = re.compile(r"^`define\s+RISCV_FORMAL_(\w+_CYCLES?)\s+(\d+)\s*$")
 
 # genchecks' own parser drops every `#` line before it sees a section, so these
 # cannot perturb generation.
@@ -70,6 +85,95 @@ def report_set_diff(label, expected, actual, expected_label, actual_label):
         print(f"  in {expected_label} but not {actual_label}: {name}", file=sys.stderr)
     for name in extra:
         print(f"  in {actual_label} but not {expected_label}: {name}", file=sys.stderr)
+    return True
+
+
+def read_check_cycles(name):
+    """The START, TRIG and CHECK cycles out of checks/<name>.sby."""
+    cycles = {}
+    with open(os.path.join(CHECKS_DIR, f"{name}.sby")) as f:
+        for line in f:
+            match = DEFINE_RE.match(line)
+            if match:
+                cycles[match.group(1)] = int(match.group(2))
+    return cycles
+
+
+def audit_depths(families):
+    """Every generated check's CHECK cycle against its family's `#floor` rule.
+    `families` maps a generated check name to the family it came from."""
+    derived = depth_rules.read_derived(CFG)
+    floors = depth_rules.read_floors(CFG)
+
+    failed = report_set_diff(
+        "checks.cfg #floor rules vs the check families generated",
+        set(floors),
+        set(families.values()),
+        "#floor",
+        "generated",
+    )
+    if failed:
+        return True
+
+    # Reported per family, because a family is what one [depth] line
+    # configures: naming all 70 insn_* checks would bury the one line that has
+    # to move. The evidence is still a generated file, so one of them is named.
+    short = {}
+    for name, family in sorted(families.items()):
+        cycles = read_check_cycles(name)
+        depth = cycles.get("CHECK_CYCLE")
+        if depth is None:
+            print(
+                f"error: checks/{name}.sby defines no RISCV_FORMAL_CHECK_CYCLE, "
+                "so there is no depth here to grade.",
+                file=sys.stderr,
+            )
+            return True
+        start = cycles.get("RESET_CYCLES", 1)
+        trig = cycles.get("TRIG_CYCLE")
+        terms, reason = floors[family]
+        breaches = {
+            term: floor
+            for term, floor in (
+                (t, depth_rules.evaluate(t, derived, start, trig)) for t in terms
+            )
+            if depth < floor
+        }
+        if not breaches:
+            continue
+        entry = short.setdefault(
+            family,
+            {"example": name, "depth": depth, "breaches": breaches, "reason": reason,
+             "count": 0},
+        )
+        entry["count"] += 1
+
+    if not short:
+        print(
+            f"[depth] floors: F = {derived['F']}, G = {derived['G']}; "
+            f"{len(families)} checks all at or above theirs."
+        )
+        return False
+
+    print("\n[depth] floors: MISMATCH", file=sys.stderr)
+    for family, entry in sorted(short.items()):
+        for term, floor in sorted(entry["breaches"].items()):
+            print(
+                f"  {family}: depth {entry['depth']} is below {term} = {floor}"
+                f" -- {entry['count']} check(s), e.g. checks/{entry['example']}.sby",
+                file=sys.stderr,
+            )
+        print(f"      {family} is {entry['reason']}", file=sys.stderr)
+    print(
+        f"\nchecks.cfg declares F = {derived['F']} and G = {derived['G']}. A "
+        "depth below its floor does not go red -- it goes\n"
+        "green having stopped asking -- so generation stops here instead. Raise "
+        "the [depth]\n"
+        "entries named above; or, if F or G is what moved, re-measure both with\n"
+        "`make -C formal remeasure-fg` before changing the `#derive` lines to "
+        "match.",
+        file=sys.stderr,
+    )
     return True
 
 
@@ -113,6 +217,7 @@ def main():
         return 1
 
     considered = {}
+    families = {}
     for patterns, result in records:
         name = patterns[-1]
         was_generated = result is not None
@@ -124,6 +229,8 @@ def main():
             )
             return 1
         considered[name] = was_generated
+        if was_generated:
+            families[name] = patterns[0]
 
     generated = {n for n, ok in considered.items() if ok}
     dropped = {n for n, ok in considered.items() if not ok}
@@ -174,6 +281,11 @@ def main():
         "dropped",
     )
 
+    # Last, because a depth is only worth grading once the set carrying it is
+    # the set this repo committed to. Its verdict is kept apart from the shape's
+    # so the diagnostic below answers only the question it was written for.
+    depths_failed = audit_depths(families)
+
     print(
         f"Check-set shape: {len(generated)} generated, {len(dropped)} declined "
         f"for want of a [depth] line."
@@ -186,6 +298,7 @@ def main():
             "or a [depth] line was lost, which is the failure ADR-0033 named.",
             file=sys.stderr,
         )
+    if failed or depths_failed:
         return 1
 
     print(

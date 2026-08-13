@@ -54,6 +54,12 @@ formal/imemcheck
 formal/components_*
 formal/components
 formal/pcloop_cover
+# `make -C formal remeasure-fg`: the one-line-[depth] copy of checks.cfg the
+# sweep writes, and the single-check set it generates from it. Both are rebuilt
+# from checks.cfg on every run.
+formal/fg-probe.cfg
+formal/fg-probe/
+__pycache__/
 test/rtl.cc
 test/monitor.sim.v
 *.vvp
