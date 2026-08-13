@@ -469,6 +469,15 @@ memmap-test:
 compare-geometry-test:
 	@./soc/compare/geometry_test.sh
 
+# Asserts that every module instantiating `littlecpu` names every one of its
+# ports, both ways round. Hangs off `test` like the other bash checks -- python3
+# and git ls-files, no cross compiler, no simulator, no yosys -- because the one
+# grader that catches a floating core input today lives inside
+# `make compare-timing`, which is a measurement nobody runs per PR.
+.PHONY: port-connect-test
+port-connect-test:
+	@python3 ./test/port_connect_test.py
+
 # Asserts that a retired word has not come back outside the sites that state
 # which other sense they use it in. Hangs off `test` like the other bash checks
 # -- git, grep and sed only -- because what brings the word back is a branch
@@ -516,8 +525,8 @@ mutation-probe:
 
 .PHONY: test
 test: sim test-units probe-gates pin-bump-test tool-cache-test memmap-test \
-      compare-geometry-test retired-term-test window-test abc-engine-test \
-      mutation-probe
+      compare-geometry-test retired-term-test port-connect-test window-test \
+      abc-engine-test mutation-probe
 	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 # The same suite `make test` runs, with the runner charging every cycle to the
