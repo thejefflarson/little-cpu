@@ -82,6 +82,9 @@ module rvfi_testbench (
     // Tied off: this task's memory model answers every address, so there is no
     // window for a fetch to fall outside of.
     .imem_fault(1'b0),
+    // Tied off high: this task's memory model answers every address, so every
+    // address it answers is one a reservation may be held at.
+    .mem_reservable(1'b1),
     // Tied off; formal/check-interrupt-tie-off.py enforces it. formal/wrapper.v
     // carries the reason the riscv-formal side of the tree runs with no
     // interrupt in the trace.
@@ -160,7 +163,21 @@ module rvfi_testbench (
   //   decoder and traps proofs.
   wire exclude_system = insn_uncompressed && insn_opcode == 7'b1110011;
 
-  wire insn_excluded = exclude_misc_mem || exclude_system;
+  // EXCLUDE AMO 0101111 amoadd.w amoswap.w amoxor.w amoand.w amoor.w amomin.w amomax.w amominu.w amomaxu.w lr.w sc.w
+  //   No spec model at the pin. insns/generate.py carries an `insn_amo`
+  //   generator with every call site commented out, and it covers neither the
+  //   min/max family nor lr/sc at all, so there is no isa_rv32ia*.txt to drive
+  //   either. All eleven retire non-trapping, so like MISC-MEM they are not
+  //   excused by the !rvfi_trap guard below. What checks them instead is this
+  //   repo's own assertions: rtl/accessor.v's FORMAL block holds the nine
+  //   read-modify-write functions against the operators they replaced and the
+  //   reservation against the region bit, test/accessor_tb.v vectors the
+  //   datapath and the transaction count, test/decoder_tb.v the eleven
+  //   encodings and the three misalignment causes, and `dmemcheck` the
+  //   two-cycle memory report against the pinned rvfi_dmem_check.
+  wire exclude_amo = insn_uncompressed && insn_opcode == 7'b0101111;
+
+  wire insn_excluded = exclude_misc_mem || exclude_system || exclude_amo;
 
   // There is no compressed entry, and that is a result. The one compressed
   // encoding this core implements that isa_rv32imc.txt does not name is C.EBREAK
@@ -207,4 +224,13 @@ module rvfi_testbench (
   cover property (complete_live && rvfi_insn[1:0] == 2'b00);                        // RVC quadrant 0
   cover property (complete_live && rvfi_insn[1:0] == 2'b01);                        // RVC quadrant 1
   cover property (complete_live && rvfi_insn[1:0] == 2'b10);                        // RVC quadrant 2
+
+  // The thirteenth goal is the exclusion's own anti-vacuity control, and it is
+  // the one that must NOT read `complete_live`: an excluded class is excluded
+  // from the assertion, so a goal carrying `!insn_excluded` would be
+  // unreachable by construction and would say nothing about whether the core
+  // ever executes one. What this asks instead is that an AMO really does
+  // retire without trapping, so the exclusion above is a live restriction on
+  // this check rather than a line covering an instruction class nobody reaches.
+  cover property (!reset && rvfi_valid && !rvfi_trap && exclude_amo);
 endmodule

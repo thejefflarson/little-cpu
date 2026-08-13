@@ -164,22 +164,28 @@ bool load_rom_banks(cxxrtl::debug_items &items, const HexImage &image) {
 // `hazard_rs1` and `hazard_rs2` share a bucket: they are one reason, the decode
 // scoreboard finding a producer still in flight, and they sit next to each
 // other in the order so merging them cannot move a cycle past anything else.
+//
+// `atomic` sits second because it is the divider's shape: a multi-cycle unit
+// occupying the bus, on a cycle nothing could have issued whatever else was
+// true. Charged after the scoreboard instead, an AMO's cost would land under
+// `hazard` -- the instruction behind an AMO usually reads its result.
 struct StallReason {
   const char *item;
   int bucket;
 };
 
-constexpr const char *kStallLabels[] = {"divider", "hazard", "serialize",
-                                        "operand", "fetch"};
+constexpr const char *kStallLabels[] = {"divider", "atomic",  "hazard",
+                                        "serialize", "operand", "fetch"};
 constexpr int kStallBuckets = sizeof(kStallLabels) / sizeof(kStallLabels[0]);
 
 constexpr StallReason kStallReasons[] = {
     {"uut decoder divider_stall", 0},
-    {"uut decoder hazard_rs1", 1},
-    {"uut decoder hazard_rs2", 1},
-    {"uut decoder serialize", 2},
-    {"uut decoder operand_stall", 3},
-    {"uut decoder fetch_stall", 4},
+    {"uut decoder atomic_stall", 1},
+    {"uut decoder hazard_rs1", 2},
+    {"uut decoder hazard_rs2", 2},
+    {"uut decoder serialize", 3},
+    {"uut decoder operand_stall", 4},
+    {"uut decoder fetch_stall", 5},
 };
 
 struct Args {

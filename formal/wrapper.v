@@ -37,6 +37,14 @@ module rvfi_wrapper (
   // nothing always does, which is the assumption below.
   (* keep *) `rvformal_rand_reg imem_fault;
 
+  // Whether the data address this cycle is reservable main memory. Free, for
+  // the same reason `imem_fault` is: this environment models no address map,
+  // and a core that only works on a platform that answers everywhere is not
+  // what these checks should accept. Nothing has to be assumed about it --
+  // it decides only whether a store-conditional may succeed, and failing one
+  // spuriously is permitted everywhere.
+  (* keep *) `rvformal_rand_reg mem_reservable;
+
   // Assumed: on a cycle it reports having nothing, the instruction memory
   // answers zero on both fetch ports.
   //
@@ -132,6 +140,7 @@ module rvfi_wrapper (
     .mem_rdata(mem_rdata),
     .fetch_stall(fetch_stall),
     .imem_fault(imem_fault),
+    .mem_reservable(mem_reservable),
     // Tied off, and formal/check-interrupt-tie-off.py is what says so. Every
     // depth in formal/checks.cfg is derived from F and G measured with no
     // interrupt in the trace, and riscv-formal ships no model at the pin of

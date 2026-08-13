@@ -209,8 +209,20 @@ module pcloop (
   logic f_fencei;
   assign f_fencei = f_uncompressed && f_instr[6:2] == 5'b00011;
 
+  // The atomic wait is the one reason not decidable from the word being fetched:
+  // it is raised the cycle AFTER an AMO issues, for the cycle rtl/accessor.v
+  // needs the bus to write back. So it reads `decoder_out`, which is a port of
+  // the instance and not a reach-in. Wider than the decoder's own term, which
+  // also requires the divide to be over.
+  logic f_amo_wait;
+  assign f_amo_wait = decoder_out.valid &&
+      (decoder_out.is_amoswap || decoder_out.is_amoadd || decoder_out.is_amoxor ||
+       decoder_out.is_amoand  || decoder_out.is_amoor  || decoder_out.is_amomin ||
+       decoder_out.is_amomax  || decoder_out.is_amominu || decoder_out.is_amomaxu);
+
   assign f_may_stall = divider_stall || fetch_stall ||
-      f_live_rs1 || f_live_rs2 || f_system || f_fencei || f_operand_fetch;
+      f_live_rs1 || f_live_rs2 || f_system || f_fencei || f_operand_fetch ||
+      f_amo_wait;
 
   // Read off the decoder's outputs rather than decoded here. Working out
   // whether a word is illegal is most of decode, and copying it would defeat

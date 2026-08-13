@@ -34,6 +34,9 @@ module accessor_tb;
   logic [3:0]  mem_wstrb;
   logic [31:0] mem_rdata = 32'hcafef00d;
   logic        mem_ren;
+  // The platform's answer to "may a reservation be held at this address". High
+  // for every vector except the one that asks what happens when it is not.
+  logic        mem_reservable = 1'b1;
   accessor_output out;
 
   accessor dut (
@@ -47,6 +50,7 @@ module accessor_tb;
     .mem_wdata(mem_wdata),
     .mem_ren(mem_ren),
     .mem_rdata(mem_rdata),
+    .mem_reservable(mem_reservable),
     .out(out)
   );
 
@@ -148,6 +152,118 @@ module accessor_tb;
       check_bit({what, " completes"}, out.valid, 1'b1);
       check_hex(what, out.rd_data, expected);
       arrive(1'b0, 32'b0);
+      @(posedge clk);
+      #1;
+    end
+  endtask
+
+  // One AMO, from its read to its write to the value it hands back. Bit 0 of
+  // `ops` is amoswap and the rest follow the order the result mux lists them.
+  // The transaction count is taken across the whole thing: an AMO is one read
+  // and one write, and two writes are one write for RAM and are not one for a
+  // device.
+  task automatic amo_does(input string what, input logic [8:0] ops,
+                          input logic [31:0] addr, input logic [31:0] old,
+                          input logic [31:0] arg, input logic [31:0] expected);
+    begin
+      transactions = 0;
+      present(1'b1, addr);
+      launch.rs2 = arg;
+      {launch.is_amomaxu, launch.is_amominu, launch.is_amomax, launch.is_amomin,
+       launch.is_amoor, launch.is_amoand, launch.is_amoxor, launch.is_amoadd,
+       launch.is_amoswap} = ops;
+      arrive(1'b0, 32'b0);
+      mem_rdata = old;
+      #1;
+      check_bit({what, " reads first"}, mem_ren, 1'b1);
+      check_hex({what, " reads the named word"}, mem_addr, addr);
+      check_bit({what, " writes nothing on its read cycle"}, |mem_wstrb, 1'b0);
+      @(posedge clk);
+      #1;
+      // Decode spends this cycle, so nothing is launched into the accessor
+      // while it owns the bus.
+      present(1'b0, 32'b0);
+      arrive(1'b1, 32'hdead_beef);
+      #1;
+      check_hex({what, " writes back on the next cycle"}, {28'b0, mem_wstrb}, 32'hf);
+      check_hex({what, " writes at the same word"}, mem_addr, addr);
+      check_hex(what, mem_wdata, expected);
+      check_bit({what, " does not read twice"}, mem_ren, 1'b0);
+      @(posedge clk);
+      #1;
+      check_bit({what, " retires"}, out.valid, 1'b1);
+      check_hex({what, " returns the word it found"}, out.rd_data, old);
+      arrive(1'b0, 32'b0);
+      @(posedge clk);
+      #1;
+      check_int({what, " is one read and one write"}, transactions, 2);
+    end
+  endtask
+
+  // One store-conditional, presented for its launch cycle. `expected_fail` is
+  // the bit it writes to rd: 0 for the store that went out, 1 for the one that
+  // did not.
+  task automatic sc_does(input string what, input logic [31:0] addr,
+                         input logic [31:0] arg, input logic expected_fail);
+    begin
+      transactions = 0;
+      present(1'b1, addr);
+      launch.rs2 = arg;
+      launch.is_sc = 1'b1;
+      arrive(1'b0, 32'b0);
+      #1;
+      check_bit({what, " never reads"}, mem_ren, 1'b0);
+      if (expected_fail) begin
+        check_hex({what, " puts nothing on the bus"}, {28'b0, mem_wstrb}, 32'b0);
+        check_hex({what, " drives no address either"}, mem_addr, 32'b0);
+      end else begin
+        check_hex({what, " stores a whole word"}, {28'b0, mem_wstrb}, 32'hf);
+        check_hex({what, " at the named address"}, mem_addr, addr);
+        check_hex({what, " of rs2"}, mem_wdata, arg);
+      end
+      @(posedge clk);
+      #1;
+      present(1'b0, 32'b0);
+      arrive(1'b1, 32'hdead_beef);
+      @(posedge clk);
+      #1;
+      check_bit({what, " retires"}, out.valid, 1'b1);
+      check_hex({what, " reports it in rd"}, out.rd_data, {31'b0, expected_fail});
+      check_int({what, " costs the bus what it says it does"},
+                transactions, expected_fail ? 0 : 1);
+      arrive(1'b0, 32'b0);
+      @(posedge clk);
+      #1;
+    end
+  endtask
+
+  // One load-reserved, which is a word load that leaves a reservation behind.
+  task automatic lr_takes(input logic [31:0] addr, input logic [31:0] word);
+    begin
+      present(1'b1, addr);
+      launch.is_lr = 1'b1;
+      arrive(1'b0, 32'b0);
+      mem_rdata = word;
+      @(posedge clk);
+      #1;
+      present(1'b0, 32'b0);
+      arrive(1'b1, 32'hdead_beef);
+      @(posedge clk);
+      #1;
+      arrive(1'b0, 32'b0);
+      @(posedge clk);
+      #1;
+    end
+  endtask
+
+  // One plain store, used only to invalidate a reservation.
+  task automatic store_word(input logic [31:0] addr);
+    begin
+      present(1'b1, addr);
+      launch.is_sw = 1'b1;
+      @(posedge clk);
+      #1;
+      present(1'b0, 32'b0);
       @(posedge clk);
       #1;
     end
@@ -275,11 +391,125 @@ module accessor_tb;
     load_unpacks("lhu @+2", 5'b01000, 32'h0001_0002, 32'h817293f4, 32'h00008172);
     load_unpacks("lw  @+0", 5'b10000, 32'h0001_0000, 32'h817293f4, 32'h817293f4);
 
+    //-----------------------------------------------------------------------
+    // The nine AMO functions. Each is driven at operands where getting the
+    // shared adder/subtractor wrong is visible: the min/max family straddles
+    // zero so a signed compare read as unsigned lands on the other operand,
+    // and the unsigned pair uses the same two words so the two families
+    // disagree about which one is larger.
+    //-----------------------------------------------------------------------
+    amo_does("amoswap.w", 9'b000000001, 32'h0001_0020, 32'h1111_2222, 32'h3333_4444,
+             32'h3333_4444);
+    amo_does("amoadd.w",  9'b000000010, 32'h0001_0020, 32'hffff_ffff, 32'h0000_0002,
+             32'h0000_0001);
+    amo_does("amoxor.w",  9'b000000100, 32'h0001_0020, 32'hf0f0_ff00, 32'h0ff0_00ff,
+             32'hff00_ffff);
+    amo_does("amoand.w",  9'b000001000, 32'h0001_0020, 32'hf0f0_ff00, 32'h0ff0_00ff,
+             32'h00f0_0000);
+    amo_does("amoor.w",   9'b000010000, 32'h0001_0020, 32'hf0f0_ff00, 32'h0ff0_00ff,
+             32'hfff0_ffff);
+    // -1 against 1. Signed, memory is the smaller; unsigned, it is the larger.
+    amo_does("amomin.w",  9'b000100000, 32'h0001_0020, 32'hffff_ffff, 32'h0000_0001,
+             32'hffff_ffff);
+    amo_does("amomax.w",  9'b001000000, 32'h0001_0020, 32'hffff_ffff, 32'h0000_0001,
+             32'h0000_0001);
+    amo_does("amominu.w", 9'b010000000, 32'h0001_0020, 32'hffff_ffff, 32'h0000_0001,
+             32'h0000_0001);
+    amo_does("amomaxu.w", 9'b100000000, 32'h0001_0020, 32'hffff_ffff, 32'h0000_0001,
+             32'hffff_ffff);
+    // The other direction of each compare, so none of the four passes by
+    // always picking the same operand.
+    amo_does("amomin.w  the other way",  9'b000100000, 32'h0001_0020, 32'h0000_0007,
+             32'h0000_0009, 32'h0000_0007);
+    amo_does("amomax.w  the other way",  9'b001000000, 32'h0001_0020, 32'h0000_0007,
+             32'h0000_0009, 32'h0000_0009);
+    amo_does("amominu.w the other way",  9'b010000000, 32'h0001_0020, 32'h0000_0009,
+             32'h0000_0007, 32'h0000_0007);
+    amo_does("amomaxu.w the other way",  9'b100000000, 32'h0001_0020, 32'h0000_0009,
+             32'h0000_0007, 32'h0000_0009);
+    // Equal operands: min and max must both leave the word alone rather than
+    // depending on which side a strict comparison falls.
+    amo_does("amomin.w  on equal operands", 9'b000100000, 32'h0001_0020, 32'h1234_5678,
+             32'h1234_5678, 32'h1234_5678);
+    amo_does("amomax.w  on equal operands", 9'b001000000, 32'h0001_0020, 32'h1234_5678,
+             32'h1234_5678, 32'h1234_5678);
+
+    // The issued-once guard for an AMO. Decode holds `launch` for every cycle
+    // of a divide, and a request block that read it without `launch_taken`
+    // would read the same word thirty-three times and write it back as many.
+    transactions = 0;
+    present(1'b1, 32'h0001_0030);
+    launch.is_amoadd = 1'b1;
+    launch.rs2 = 32'd1;
+    launch_taken = 1'b0;
+    mem_rdata = 32'd41;
+    repeat (5) begin
+      @(posedge clk);
+      #1;
+      check_bit("a held AMO presents nothing while the divide runs", mem_ren, 1'b0);
+      check_hex("...and drives no address either", mem_addr, 32'b0);
+    end
+    launch_taken = 1'b1;
+    #1;
+    check_bit("the cycle the executor takes it, the read goes out", mem_ren, 1'b1);
+    @(posedge clk);
+    #1;
+    present(1'b0, 32'b0);
+    arrive(1'b1, 32'hdead_beef);
+    #1;
+    check_hex("...and the write follows on the next cycle", mem_wdata, 32'd42);
+    @(posedge clk);
+    #1;
+    arrive(1'b0, 32'b0);
+    @(posedge clk);
+    #1;
+    check_int("one AMO under a divide is one read and one write", transactions, 2);
+
+    //-----------------------------------------------------------------------
+    // The reservation. Every line here is a store-conditional's result, which
+    // is the only thing about a reservation a program can observe.
+    //-----------------------------------------------------------------------
+    lr_takes(32'h0001_0040, 32'h0000_0001);
+    sc_does("sc.w behind its own lr.w", 32'h0001_0040, 32'h5555_6666, 1'b0);
+    // ...and the reservation is gone afterwards, whether the store happened or
+    // not. Without this a lock could be taken twice.
+    sc_does("a second sc.w with nothing reserved", 32'h0001_0040, 32'h5555_6666, 1'b1);
+
+    lr_takes(32'h0001_0040, 32'h0000_0001);
+    sc_does("sc.w one word up from the reservation", 32'h0001_0044, 32'h5555_6666, 1'b1);
+
+    lr_takes(32'h0001_0040, 32'h0000_0001);
+    store_word(32'h0001_0040);
+    sc_does("sc.w after a store to the reserved word", 32'h0001_0040, 32'h5555_6666, 1'b1);
+
+    // A store somewhere else leaves it alone. Without this the vector above
+    // passes on a design that clears the reservation on every store.
+    lr_takes(32'h0001_0040, 32'h0000_0001);
+    store_word(32'h0001_0048);
+    sc_does("...but a store elsewhere does not disturb it",
+            32'h0001_0040, 32'h5555_6666, 1'b0);
+
+    // An AMO is a write too, so it invalidates a reservation on its own word.
+    lr_takes(32'h0001_0040, 32'h0000_0001);
+    amo_does("amoadd.w over the reserved word", 9'b000000010, 32'h0001_0040,
+             32'h0000_0001, 32'h0000_0001, 32'h0000_0002);
+    sc_does("...and the reservation does not survive it",
+            32'h0001_0040, 32'h5555_6666, 1'b1);
+
+    // The region attribute. A platform that will not answer an address will
+    // not hold a reservation at it either, so the store-conditional that would
+    // otherwise report success for a write going nowhere fails instead.
+    mem_reservable = 1'b0;
+    lr_takes(32'h0009_0000, 32'h0000_0001);
+    mem_reservable = 1'b1;
+    sc_does("sc.w after an lr.w outside reservable memory",
+            32'h0009_0000, 32'h5555_6666, 1'b1);
+
     if (errors != 0) begin
       $display("FAILED: %0d mismatches", errors);
       $fatal(1);
     end else begin
-      $display("PASSED: accessor read enable, load unpack and one-transaction guard");
+      $display("PASSED: accessor read enable, load unpack, the AMO datapath, the reservation and the one-transaction guard");
       $finish;
     end
   end

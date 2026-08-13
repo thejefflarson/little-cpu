@@ -282,15 +282,20 @@ module executor(
   // Without it the solver picks combinations no real instruction produces.
   // Discharged by rtl/decoder.v's own `$onehot` assertion under `instr_valid`.
   //
-  // All 29 `is_*` fields of `decoder_output` are listed here and
+  // All 40 `is_*` fields of `decoder_output` are listed here and
   // `is_valid_instr` deliberately is not. Adding a flag to the struct without
-  // adding it here silently widens the environment for everything below.
+  // adding it here silently widens the environment for everything below. The
+  // eleven atomics reach no arm of the op select: an AMO's operands are the
+  // memory word and rs2, which this stage never sees.
   always_comb assume($onehot0({in.is_add, in.is_sub, in.is_xor, in.is_or, in.is_and,
     in.is_sll, in.is_slt, in.is_sltu, in.is_srl, in.is_sra, in.is_lui,
     in.is_mul, in.is_mulh, in.is_mulhu, in.is_mulhsu,
     in.is_div, in.is_divu, in.is_rem, in.is_remu,
     in.is_lb, in.is_lbu, in.is_lh, in.is_lhu, in.is_lw, in.is_sb, in.is_sh, in.is_sw,
-    in.is_ecall, in.is_ebreak}));
+    in.is_ecall, in.is_ebreak,
+    in.is_amoswap, in.is_amoadd, in.is_amoxor, in.is_amoand, in.is_amoor,
+    in.is_amomin, in.is_amomax, in.is_amominu, in.is_amomaxu,
+    in.is_lr, in.is_sc}));
 
   // The shared subtractor and the shared shifter, against the operators they
   // replaced. Each reference is its own self-determined statement over signed

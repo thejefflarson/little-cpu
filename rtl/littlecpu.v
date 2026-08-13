@@ -29,6 +29,11 @@ module littlecpu(
   // in the cycle it is looking at that word. A memory that answers everywhere
   // ties it low.
   input  logic        imem_fault,
+  // The data address this cycle names reservable main memory, so `lr.w` there
+  // may hold a reservation. A platform whose memory answers everywhere ties it
+  // high; one that ties it low never lets a store-conditional succeed, which is
+  // a spurious failure and permitted anywhere.
+  input  logic        mem_reservable,
   // The platform's machine-timer line. Registered at its source (rtl/timer.v
   // does it), because inside the core it is one gate away from the fetch loop.
   // A platform with no timer ties it low and the core never takes an interrupt.
@@ -248,6 +253,7 @@ module littlecpu(
     .mem_wdata(mem_wdata),
     .mem_ren(mem_ren),
     .mem_rdata(mem_rdata),
+    .mem_reservable(mem_reservable),
     .out(accessor_out)
   );
 
