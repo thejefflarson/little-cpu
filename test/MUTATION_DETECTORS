@@ -64,6 +64,25 @@ fencei-wait-and-store-port  bench decoder_tb
 fencei-wait-and-store-port  bench imem_tb
 fencei-wait-and-store-port  asm   selfmod.S FAIL 2
 
+# A store-conditional that reports SUCCESS whatever the reservation says. rd is
+# the only thing an sc.w writes, so this is the whole instruction going wrong,
+# and it is caught at the two places the suite asks for a FAILURE: lrsc.S's
+# first case, which is an sc.w with no lr.w anywhere before it, and
+# amoregion.S's, which is one outside the region the platform will reserve.
+# lrsclock.S is NOT a detector and that is right -- every sc.w in it is meant to
+# succeed, so a core that always says so finishes it.
+sc-reports-success          bench accessor_tb
+sc-reports-success          asm   lrsc.S FAIL 2
+sc-reports-success          asm   amoregion.S FAIL 5
+
+# All four min/max compares read unsigned: the sign-bit correction on the shared
+# 33-bit adder/subtractor deleted. amominmax.S is the ONLY program that catches
+# it and amo.S is measured not to, which is the whole argument for the two being
+# separate files -- amo.S's operands are 5 against 3, where the signed and
+# unsigned answers agree and a comparator read either way looks right.
+amo-compares-unsigned       bench accessor_tb
+amo-compares-unsigned       asm   amominmax.S FAIL 4
+
 # The load half of the same shared port: a load from .text no longer takes the
 # port, so it answers with whatever the fetch put there. Four programs watch
 # this one, and textload.S is the only one of the four that neither writes text

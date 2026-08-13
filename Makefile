@@ -487,6 +487,15 @@ port-connect-test:
 retired-term-test:
 	@./test/retired_term_test.sh
 
+# The ISA string is stated at six sites and three of them build programs that
+# use no atomic, so a site left behind goes on producing numbers rather than
+# failing to assemble. Hangs off `test` like the other bash checks -- git, grep,
+# sed and awk only -- because the two sites it would otherwise take a Dhrystone
+# run and an SoC place-and-route to notice are exactly the silent ones.
+.PHONY: march-test
+march-test:
+	@./test/march_test.sh
+
 # Forces the elaboration checks in rtl/imemory.v, rtl/memory.v and rtl/timer.v
 # to fire, in both frontends. Hangs off `test` because the parameter shapes they
 # guard are the ones the SoC and the benches pass, so nothing else here would
@@ -525,8 +534,8 @@ mutation-probe:
 
 .PHONY: test
 test: sim test-units probe-gates pin-bump-test tool-cache-test memmap-test \
-      compare-geometry-test retired-term-test port-connect-test window-test \
-      abc-engine-test mutation-probe
+      compare-geometry-test retired-term-test port-connect-test march-test \
+      window-test abc-engine-test mutation-probe
 	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 # The same suite `make test` runs, with the runner charging every cycle to the
@@ -565,7 +574,7 @@ cycles: sim
 # residual so the number is checked rather than assumed.
 DHRY_RUNS   ?= 2000
 DHRY_CYCLES ?= 4000000
-DHRY_CFLAGS := -march=rv32imc_zicsr_zifencei -mabi=ilp32 -O2 -std=c11 \
+DHRY_CFLAGS := -march=rv32imac_zicsr_zifencei -mabi=ilp32 -O2 -std=c11 \
                -ffreestanding -fno-tree-loop-distribute-patterns \
                -Wall -Wextra -Werror
 
@@ -666,12 +675,12 @@ soc-rom:
 	test -n "$$tmp" -a -d "$$tmp"; \
 	trap 'rm -rf "$$tmp"' EXIT; \
 	case '$(SOC_PROG)' in \
-	  *.c) $$CC -march=rv32imc_zicsr_zifencei -mabi=ilp32 -nostdlib \
+	  *.c) $$CC -march=rv32imac_zicsr_zifencei -mabi=ilp32 -nostdlib \
 	         -Os -std=c11 -ffreestanding -fno-tree-loop-distribute-patterns \
 	         -Wall -Wextra -Werror -I test/asm -T test/asm/boot.lds \
 	         -o "$$tmp/prog.elf" test/crt0.S test/asm/$(SOC_PROG); \
 	       sections='-j .text -j .data' ;; \
-	  *)   $$CC -march=rv32imc_zicsr_zifencei -mabi=ilp32 -nostdlib -I test/asm \
+	  *)   $$CC -march=rv32imac_zicsr_zifencei -mabi=ilp32 -nostdlib -I test/asm \
 	         -T test/asm/sections.lds -o "$$tmp/prog.elf" test/asm/$(SOC_PROG); \
 	       sections='-j .text' ;; \
 	esac; \

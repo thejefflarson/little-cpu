@@ -12,8 +12,9 @@
 # about what the suite is either.
 #
 # THE MANIFEST HALF ANSWERS A QUESTION NEITHER BASELINE CAN. test/EXPECTED_FAIL
-# and test/COSIM_EXPECTED_FAIL record which programs are known to fail; they are
-# both empty, so nothing in them would disappear if the suite itself did. A bad
+# and test/COSIM_EXPECTED_FAIL record which programs are known to fail; between
+# them they name four of seventy, so almost nothing in them would disappear if
+# the suite itself did. A bad
 # rebase, a directory rename, a .gitignore change or a glob that stopped
 # matching would leave `make test` reporting `12/12 passed`, matching an empty
 # baseline exactly, and exiting 0. The formal side has the same shape: a verdict
@@ -100,8 +101,9 @@
 # allowed not to be checked" here, on purpose.
 #
 # A LOW SPEC-CHECKED NUMBER IS EXPECTED AND IS NOT A DEFECT. riscv-formal ships
-# NO SPEC MODEL AT ALL for `ecall`, `ebreak`, `mret` or the `csrr*` family at
-# the pinned SHA (formal/pin.mk), so `spec_valid` is 0 for every one of those
+# NO SPEC MODEL AT ALL for `ecall`, `ebreak`, `mret`, the `csrr*` family or ANY
+# OF THE ELEVEN A ENCODINGS at the pinned SHA (formal/pin.mk), so `spec_valid`
+# is 0 for every one of those
 # retires by design and the monitor's whole semantic block is skipped for them.
 # The behaviour M3 added is checked by test/asm/trap.S, test/csr_tb.v and
 # test/decoder_tb.v instead, against assertions this repo wrote rather than
@@ -109,6 +111,19 @@
 # between the two columns, and that gap is the pin's coverage boundary, not a
 # bug in this core. Whoever first sees a low number here should not have to
 # rediscover that.
+#
+# THE SIX A PROGRAMS ARE THE SHARPEST CASE OF THAT, AND A LINE HERE SAYS LESS
+# ABOUT THEM THAN ABOUT ANY OTHER PROGRAM. test/monitor.sim.v wraps every value
+# comparison in `if (ch0_spec_valid)` with no `else`, so on an lr.w, an sc.w or
+# any of the nine AMOs the per-retire oracle grades pc continuity and nothing
+# else — not the register written, not the memory access. A number in the
+# `spec-checked` column below therefore counts the ORDINARY instructions
+# surrounding the atomics, and the difference between the two columns is roughly
+# the count of atomics executed. So the floor on amo.S, amominmax.S,
+# amoregion.S, amotrap.S, lrsc.S and lrsclock.S is a bound on those programs
+# still RUNNING, and every claim they make about the A extension is an in-band
+# assertion in the program itself. Reading a green line here as "the atomics
+# were checked" is exactly the inference this file exists to prevent.
 #
 # HOW TO RE-MEASURE, FOR `.S` LINES ONLY. Run `make test` and copy the table's
 # third column. Record the commit SHA it was measured at in the PR that changes
@@ -123,6 +138,10 @@
 # riscv-formal monitor, and CYCLES=5000 in test/run_tests.sh.
 add.S               429    429
 addi.S              206    206
+amo.S               294    272
+amominmax.S         513    472
+amoregion.S         121    107
+amotrap.S           646    564
 and.S               449    449
 andi.S              162    162
 auipc.S              25     25
@@ -149,6 +168,8 @@ lb.S                209    209
 lbu.S               209    209
 lh.S                220    220
 lhu.S               228    228
+lrsc.S              315    283
+lrsclock.S          159    144   # a retry loop under a live timer, like mtimer.S: how far it goes depends on when the interrupt lands
 lui.S                28     28
 lw.S                230    230
 minstret.S           42     31

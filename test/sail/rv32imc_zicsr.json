@@ -211,6 +211,26 @@
     // refused one would diverge from the core on a program that made one. That
     // is the half of the map this core does not yet enforce.
     //
+    // THE SECOND REGION IS NOT SPLIT AT THE DATA RAM'S BOUNDS, and the reason
+    // is a measurement rather than tidiness. rtl/memory.v refuses a reservation
+    // outside the 64 KB it answers, so an sc.w anywhere else on this core fails
+    // and stores nothing. Splitting the region and marking everything but the
+    // RAM `RsrvNone` looks like the way to say that here, and it is not: the
+    // model's `RsrvNone` makes an lr.w raise a LOAD ACCESS FAULT, cause 5,
+    // which this core does not raise anywhere -- the decode-time region test
+    // that would was measured at four logic levels in the fetch loop and
+    // declined (docs/adr/0104). Both settings were run against
+    // test/asm/amoregion.S:
+    //
+    //   RsrvEventual   the sc.w at 0x0004_0000 SUCCEEDS on the model
+    //   RsrvNone       the lr.w before it traps, cause 5
+    //
+    // The first is one register value apart from this core; the second is a
+    // different control flow AND a fault the core is recorded as not raising.
+    // So the region stays whole, amoregion.S carries the one divergence, and
+    // test/COSIM_EXPECTED_FAIL carries the paragraph. Nothing else in the suite
+    // reaches a reservation outside the data RAM.
+    //
     // The model's default RV32 map puts MainMemory at
     // 0x8000_0000, where nothing this suite builds is executable or loadable.
     //

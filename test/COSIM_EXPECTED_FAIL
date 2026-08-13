@@ -2,10 +2,11 @@
 # programs that do NOT agree with the Sail RISC-V model matches this file
 # exactly, in both directions — so an unexpected *agreement* is caught too.
 #
-# THIS FILE IS EMPTY, AND EMPTY IS NOT THE SAME AS ABSENT. Both directions
-# still run: every program in test/asm must AGREE, and any one that does not is
-# red. Deleting the file does not turn the gate green — test/run_cosim.sh
-# refuses to start without a readable baseline, on purpose.
+# A SHORT FILE IS NOT AN ABSENT ONE, AND NEITHER IS AN EMPTY ONE. Both
+# directions still run: every program in test/asm not named below must AGREE,
+# and any one that does not is red. Deleting the file does not turn the gate
+# green — test/run_cosim.sh refuses to start without a readable baseline, on
+# purpose.
 #
 # FORMAT — two fields, not one:
 #
@@ -125,9 +126,65 @@
 # still checked on the other 59 programs, which is where the property it was
 # built for lives.
 #
+# lrsclock.S IS THE SAME ENTRY FOR THE SAME REASON, and it is here rather than
+# folded into the paragraph above because a reader looking it up should not have
+# to decide whether "the two timer-interrupt programs" now means three. It runs
+# an LR/SC critical section with this platform's machine timer armed underneath
+# it, and its wait for the first interrupt is the wait described above: the
+# model's CLINT is elsewhere with a different tick period, so the store that
+# arms this timer lands nowhere on it and the wait never ends. NOTHING WAS
+# COMPARED. What that costs is worth stating plainly, because it is the one
+# property of the A extension that co-simulation would otherwise be the natural
+# oracle for: whether a reservation survives a trap and an mret. It is checked
+# instead by test/sail/reservation_probe.sh, which asks the model that question
+# with no core involved (docs/adr/0102), and in band by lrsclock.S itself.
+#
+# amoregion.S IS THE SUITE'S ONE REAL DIVERGENCE FOR THE A EXTENSION, and it is
+# question 1 of the procedure above answered NO after the configuration was
+# actually tried both ways rather than reasoned about.
+#
+# What the program asserts is this core's reservability attribute: rtl/memory.v
+# exports the range test it already computes, so a reservation is refused
+# anywhere but the 64 KB data RAM and an sc.w there fails and issues no
+# transaction. The divergence is at test 5's sc.w to 0x0004_0000, where the core
+# writes rd=1 and the model writes rd=0.
+#
+# THE MODEL HAS EXACTLY TWO SETTINGS FOR A REGION AND THIS CORE IS NEITHER.
+# Measured on 0.13.1 with the region split at the data RAM's bounds:
+#
+#   reservability     what the model does at 0x0004_0000
+#   RsrvEventual      the lr.w takes a reservation and the sc.w SUCCEEDS
+#   RsrvNone          the lr.w raises a LOAD ACCESS FAULT, cause 5
+#
+# This core does a third thing: it answers the lr.w with zero, takes no
+# reservation, and raises nothing. That is not a choice made here to dodge the
+# model — it is ADR-0104's recorded deviation, where the decode-time region test
+# that would raise causes 5 and 7 was built, measured at four logic levels in
+# the fetch loop and 10.57-11.00 MHz against a 12.00 MHz requirement, and
+# declined. So RsrvNone would trade this divergence for a worse one: a control
+# flow difference rather than a register value, on a fault the core is recorded
+# as not raising. The region split is therefore NOT in
+# test/sail/rv32imc_zicsr.json, and that file's region comment carries the same
+# measurement so the next person to reach for the knob finds it there.
+#
+# Question 2 does not fit either: an sc.w's result IS the branch condition three
+# instructions later, so the two runs take different paths and no value
+# exemption can be scoped narrowly enough. That leaves question 3, and the
+# honest answer to it is that the program asserts an implementation-defined
+# platform attribute the model is entitled to answer differently. Everything
+# about the A extension that IS co-simulable was deliberately kept out of this
+# program and lives in amo.S, amominmax.S, amotrap.S and lrsc.S, all four of
+# which AGREE — so the semantic oracle for the nine AMO functions, for LR/SC's
+# five invalidation events and for the two misalignment causes is live, and this
+# entry costs exactly the region attribute and nothing else.
+#
 # THE FAILURE DIRECTION IS STILL LIVE. These are name-and-status pairs under set
-# equality, so if a future change makes either program AGREE, or makes it
+# equality, so if a future change makes any of these programs AGREE, or makes it
 # diverge some other way, this gate goes red and these paragraphs get re-read.
+# amoregion.S pins the divergence POINT as well: an sc.w that starts failing
+# somewhere else is failing for a new reason.
 
+amoregion.S   DISAGREE AT 18
+lrsclock.S    INCONCLUSIVE SAIL-LIMIT
 mtimer.S      INCONCLUSIVE SAIL-LIMIT
 mtimermask.S  INCONCLUSIVE SAIL-LIMIT

@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=236
+PROBES_EXPECTED=251
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -1342,6 +1342,132 @@ probe "an allow-list entry whose site no longer has the word is red" 1 \
 d=$(new_case)
 probe "a tree git cannot list is a scan of nothing, not a green one" 1 \
   "cannot enumerate any tracked files" "$RN $d"
+
+begin_group "test/march_test.sh"
+
+# A COPY OF THE SHIPPING FILES again, plus a `git init` over it, for the reasons
+# the two fixtures above give: the control is then the real set of build sites
+# and every red probe is one edit away from it. A hand-written fixture would
+# drift from the flags it is supposed to be comparing, which is the defect.
+MA="$HERE/march_test.sh"
+
+ma_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/test/sail" "$d/soc/depth" "$d/soc/compare" "$d/formal" \
+           "$d/docs/adr" "$d/docs/ideas"
+  cp "$REPO/CLAUDE.md" "$REPO/Makefile" "$d/"
+  cp "$REPO/test/run_tests.sh" "$REPO/test/cosim.py" "$REPO/test/march_test.sh" \
+     "$REPO/test/probe_gates.sh" "$d/test/"
+  cp "$REPO/test/sail/reservation_probe.sh" "$d/test/sail/"
+  cp "$REPO/soc/depth/cycles.py" "$d/soc/depth/"
+  cp "$REPO/soc/compare/run_dhrystone.sh" "$d/soc/compare/"
+  cp "$REPO/formal/checks.cfg" "$d/formal/"
+  # One real file under each history directory: those two entries are
+  # directories, and a hundred more copies per fixture would buy only wall time.
+  cp "$REPO/docs/adr/0106-the-a-extension-is-built-and-the-board-still-closes.md" "$d/docs/adr/"
+  cp "$REPO/docs/ideas/the-a-extension-lands-single-hart.md" "$d/docs/ideas/"
+  git -c init.defaultBranch=main -C "$d" init -q
+  git -C "$d" add -A
+  printf '%s' "$d"
+}
+
+# sed's backup goes away before the tree is re-indexed. This check scans every
+# TRACKED file, so a leftover `Makefile.bak` would be a second copy of the
+# unedited flags for it to grade -- the probes would still go red, for a reason
+# that is not the one they name.
+ma_edit() {  # $1 = fixture dir, $2 = path within it, $3 = sed expression
+  sed -i.bak "$3" "$1/$2"
+  rm -f "$1/$2.bak"
+  git -C "$1" add -A
+}
+
+d=$(ma_fixture)
+probe "control: the shipping tree names one ISA at every site" 0 \
+  "at all 6 sites" "$MA $d"
+
+probe "a repo root that does not exist is red before anything is scanned" 1 \
+  "is not a directory" "$MA $d/nowhere"
+
+# THE ONE THAT MATTERS: a site left behind. The `.c` arm of the suite runner
+# assembles a program with no atomic in it either way.
+d=$(ma_fixture)
+ma_edit "$d" test/run_tests.sh '158s/rv32imac_zicsr_zifencei/rv32imc_zicsr_zifencei/'
+probe "one build site left at the narrower ISA is red, and located" 1 \
+  "test/run_tests.sh:158: -march=rv32imc_zicsr_zifencei" "$MA $d"
+
+probe "...and the count that site was declared with is red too" 1 \
+  "test/run_tests.sh states -march=rv32imac_zicsr_zifencei 1 time(s), not 2" "$MA $d"
+
+# The silent one. Nothing about this changes whether anything builds.
+d=$(ma_fixture)
+ma_edit "$d" Makefile \
+  's/^DHRY_CFLAGS := -march=rv32imac_zicsr_zifencei/DHRY_CFLAGS := -march=rv32imc_zicsr_zifencei/'
+probe "the Dhrystone flags drifting from the suite's ISA is red" 1 \
+  "Makefile states -march=rv32imac_zicsr_zifencei 2 time(s), not 3" "$MA $d"
+
+probe "...and their second copy is compared whole, not just its ISA" 1 \
+  "the Dhrystone flags are stated twice and they disagree" "$MA $d"
+
+# The whole-string comparison on its own: same ISA, different optimiser.
+d=$(ma_fixture)
+ma_edit "$d" soc/depth/cycles.py \
+  's/-mabi=ilp32 -O2 -std=c11 -ffreestanding/-mabi=ilp32 -O3 -std=c11 -ffreestanding/'
+probe "two copies of the flags agreeing about -march and nothing else" 1 \
+  "-O3" "$MA $d"
+
+# The other direction, which is the half a one-way sweep would not have. This
+# is the one probe that runs the FIXTURE'S copy of the script rather than the
+# shipping one, because what it moves is the declaration inside it.
+d=$(ma_fixture)
+ma_edit "$d" test/march_test.sh 's/rv32imac_zicsr_zifencei/rv32imafc_zicsr_zifencei/'
+probe "moving the declared string alone, with every site unchanged, is red" 1 \
+  "CLAUDE.md states -march=rv32imafc_zicsr_zifencei 0 time(s), not 1" \
+  "$d/test/march_test.sh $d"
+
+# The two spellings that must not move with it. Widening either generates
+# nothing at the pin.
+d=$(ma_fixture)
+ma_edit "$d" formal/checks.cfg 's/^isa rv32imc$/isa rv32imac/'
+probe "the generated check set's isa line swept along with the flags is red" 1 \
+  "formal/checks.cfg no longer says \`isa rv32imc\`" "$MA $d"
+
+d=$(ma_fixture)
+ma_edit "$d" Makefile 's/generate.py -i rv32imc /generate.py -i rv32imac /'
+probe "the monitor generator's -i swept along with them is red as well" 1 \
+  "MONITOR_GEN no longer passes \`-i rv32imc\`" "$MA $d"
+
+# An unnamed ISA anywhere, which is what a new build site arriving looks like.
+d=$(ma_fixture)
+printf '#!/bin/sh\nriscv64-elf-gcc -march=rv32e -o x y.c\n' > "$d/test/newbuild.sh"
+git -C "$d" add -A
+probe "a new site naming an ISA nothing declared is red, and located" 1 \
+  "test/newbuild.sh:2: -march=rv32e" "$MA $d"
+
+# ...and the exception list's own both-ways direction.
+d=$(ma_fixture)
+ma_edit "$d" Makefile 's/-march=rv32i -mabi=ilp32/-march=rv32imac_zicsr_zifencei -mabi=ilp32/'
+probe "an exception whose site stopped naming that ISA is red" 1 \
+  "the exception list names \`Makefile rv32i\`" "$MA $d"
+
+# A directory entry has to match on the path separator, or it silently exempts
+# every sibling whose name it happens to prefix.
+d=$(ma_fixture)
+printf 'built at -march=rv32im_zicsr once.\n' > "$d/docs/adrenaline.md"
+git -C "$d" add -A
+probe "a lookalike sibling is not covered by the directory entry above it" 1 \
+  "docs/adrenaline.md:1: -march=rv32im_zicsr" "$MA $d"
+
+# A declaration this cannot read must stop the run rather than compare against
+# an empty string, which is how a check reports green over a file it has
+# stopped understanding.
+d=$(ma_fixture)
+ma_edit "$d" Makefile 's/^DHRY_CFLAGS :=/DHRY_CFLAGS_RENAMED :=/'
+probe "a respelled flag declaration stops rather than comparing nothing" 1 \
+  "no Dhrystone flag string could be read out of Makefile" "$MA $d"
+
+d=$(new_case)
+probe "a tree git cannot list is a scan of nothing, not a green one" 1 \
+  "cannot enumerate any tracked files" "$MA $d"
 
 begin_group "soc/fit_report.py"
 

@@ -9,10 +9,10 @@
 # executable in this repo that asks the model a question instead of grading it
 # against something.
 #
-# IT BUILDS AT -march=rv32imac_zicsr_zifencei, and nothing else here does. The
-# graded suite's three build sites -- test/run_tests.sh, test/cosim.py's
-# assemble() and the Makefile's soc-rom -- stay at rv32imc_zicsr_zifencei,
-# because this core does not implement A. Do not "unify" them.
+# IT BUILDS AT THE SUITE'S ISA STRING, which it did not always: this file
+# carried the only `a` in the tree while the core decoded no atomic. The whole
+# set is graded by test/march_test.sh now, this is one of the sites it grades,
+# and the two spellings that must NOT move with it are named there.
 #
 # The probe is graded, not merely printed: bit 0 is a control case whose SC
 # nothing could have invalidated, and a run where it failed exits nonzero
