@@ -32,9 +32,9 @@ module rvfi_wrapper (
 
   // The memory has nothing at the address it is answering. Free, like the data
   // it accompanies, because this environment models no address map -- what
-  // ranges rtl/imemory.v calls text is test/imem_tb.v's question, not this
-  // ladder's. What the ladder needs is the one thing a memory that answers
-  // nothing always does, which is the assumption below.
+  // ranges rtl/imemory.v calls text is test/imem_tb.v's question, not these
+  // checks'. What they need is the one thing a memory that answers nothing
+  // always does, which is the assumption below.
   (* keep *) `rvformal_rand_reg imem_fault;
 
   // Assumed: on a cycle it reports having nothing, the instruction memory

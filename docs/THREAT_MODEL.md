@@ -35,9 +35,12 @@ measure, the security stakes are close to zero.
 **What can actually be damaged is the trustworthiness of the verification result.** This project
 went from formally verified to unverified during a rewrite, and getting back is the entire plan
 (see `CLAUDE.md`). The milestone ladder is defined against specific gates: `make test` passing,
-the riscv-formal ladder's failure set matching `formal/EXPECTED_FAIL`, that baseline reaching
-empty as the M2 signal. Every one of those is a claim about correctness that a person will act
-on.
+the generated riscv-formal checks' failure set matching `formal/EXPECTED_FAIL`, that baseline
+reaching empty as the M2 signal. Every one of those is a claim about correctness that a person
+will act on. ("Milestone ladder" above is a stepwise sequence of milestones, and is deliberately
+not the retired name for the generated riscv-formal check set — a different word that reads the
+same. `test/retired_term_test.sh` allows this file for that reason; renaming it would lose the
+meaning rather than tidy the vocabulary.)
 
 So the failure mode with real consequences is **a gate that reports green while it is not
 actually checking what it claims to check.** A check silently not generated. An oracle silently

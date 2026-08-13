@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=211
+PROBES_EXPECTED=220
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -1268,6 +1268,80 @@ probe "a file that moved away takes the check with it, loudly" 1 \
 d=$(mm_fixture); sed -i.bak 's/LENGTH = 64K/LENGTH = LOTS/' "$d/test/asm/sections.lds"
 probe "a size the parser cannot read stops rather than comparing as zero" 1 \
   "is not a size this check can read" "$MM $d"
+
+begin_group "test/retired_term_test.sh"
+
+# A COPY OF THE SHIPPING FILES for the same reason test/memmap_test.sh's fixture
+# is one, plus a `git init` over it because that check reads git's index rather
+# than the filesystem. The copy carries every allow-listed path, so the control
+# below is the real allow-list and every red probe is one edit away from it.
+RN="$HERE/retired_term_test.sh"
+
+rn_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/docs/adr" "$d/docs/ideas" "$d/test" "$d/formal"
+  cp "$REPO/CODE_OF_CONDUCT.md" "$d/"
+  cp "$REPO/docs/THREAT_MODEL.md" "$d/docs/"
+  # One real file under each history directory rather than all of them: the
+  # entries covering those two are directories, and a hundred more copies per
+  # fixture would buy nothing but wall time.
+  cp "$REPO/docs/adr/README.md" "$d/docs/adr/"
+  cp "$REPO/docs/ideas/fit-the-core-on-the-up5k.md" "$d/docs/ideas/"
+  cp "$REPO/test/probe_gates.sh" "$REPO/test/retired_term_test.sh" "$d/test/"
+  cp "$REPO/formal/wrapper.v" "$d/formal/"
+  # -c init.defaultBranch, so the branch-name advice cannot land in the middle of
+  # a fixture whose stdout is the directory name.
+  git -c init.defaultBranch=main -C "$d" init -q
+  git -C "$d" add -A
+  printf '%s' "$d"
+}
+
+d=$(rn_fixture)
+probe "control: the shipping tree keeps the retired term inside its allow-list" 0 \
+  "confined to its" "$RN $d"
+
+probe "a repo root that does not exist is red before anything is scanned" 1 \
+  "is not a directory" "$RN $d/nowhere"
+
+# THE ONE THAT MATTERS: the original reintroduction, re-entered. That comment was
+# written on a branch predating the sweep and merged after it, and nothing
+# anywhere objected.
+d=$(rn_fixture)
+sed -i.bak "s/What they need is/What the ladder needs is/" "$d/formal/wrapper.v"
+probe "the word coming back in a formal harness comment is red, and located" 1 \
+  "formal/wrapper.v:" "$RN $d"
+
+probe "and the diagnostic says what to write instead, not just what is wrong" 1 \
+  'Write "the generated riscv-formal checks"' "$RN $d"
+
+d=$(rn_fixture); printf 'The Ladder is green.\n' > "$d/test/notes.md"
+git -C "$d" add -A
+probe "a capitalised spelling is the same word and is caught too" 1 \
+  "test/notes.md:" "$RN $d"
+
+# The scan is git's index on purpose: a build artifact or an agent worktree under
+# the checkout is not something a merge can bring the word back through.
+d=$(rn_fixture); printf 'ladder\n' > "$d/test/scratch.log"
+probe "control: an untracked file is out of scope and does not fail the build" 0 \
+  "confined to its" "$RN $d"
+
+# A directory entry has to match on the path separator, or it silently exempts
+# every sibling whose name it happens to prefix.
+d=$(rn_fixture); printf 'ladder\n' > "$d/docs/adrenaline.md"
+git -C "$d" add -A
+probe "a lookalike sibling is not covered by the directory entry above it" 1 \
+  "docs/adrenaline.md:" "$RN $d"
+
+# The other direction, which is the half a one-way grep would not have: an
+# exemption that outlived the use it was written for.
+d=$(rn_fixture)
+sed -i.bak 's/enforcement ladder/enforcement sequence/' "$d/CODE_OF_CONDUCT.md"
+probe "an allow-list entry whose site no longer has the word is red" 1 \
+  "the allow-list exempts CODE_OF_CONDUCT.md" "$RN $d"
+
+d=$(new_case)
+probe "a tree git cannot list is a scan of nothing, not a green one" 1 \
+  "cannot enumerate any tracked files" "$RN $d"
 
 begin_group "soc/fit_report.py"
 
