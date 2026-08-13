@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=220
+PROBES_EXPECTED=236
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -1679,6 +1679,115 @@ probe "a clock for a core nobody graded is named rather than ignored" 1 \
 d=$(dd_fixture)
 probe "a placement at zero MHz is not a placement" 1 "is not placed" \
   "$DD $d/run.log --runs 400 --mhz littlecpu=0"
+
+begin_group "test/port_connect_test.py"
+
+# A COPY OF THE SHIPPING FILES for the same reason test/memmap_test.sh's fixture
+# is one, plus a `git init` over it because that check enumerates tracked files
+# rather than walking the filesystem. formal/wrapper.v is the only one of the
+# five formal harnesses copied in: all five wire the core the same way, through
+# `RVFI_CONN, so a second one would buy wall time and no coverage.
+PC="python3 $REPO/test/port_connect_test.py"
+
+pc_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/rtl" "$d/test" "$d/soc/compare" "$d/formal"
+  cp "$REPO"/rtl/littlecpu.v "$REPO"/rtl/littlesoc.v "$d/rtl/"
+  cp "$REPO"/test/testbench.v "$d/test/"
+  cp "$REPO"/soc/compare/bench_littlecpu.v "$d/soc/compare/"
+  cp "$REPO"/formal/wrapper.v "$d/formal/"
+  git -c init.defaultBranch=main -C "$d" init -q
+  git -C "$d" add -A
+  printf '%s' "$d"
+}
+
+d=$(pc_fixture)
+probe "control: every site names every port of littlecpu" 0 \
+  "named at every one of" "$PC $d"
+
+probe "a repo root that does not exist is red before anything is parsed" 1 \
+  "is not a directory" "$PC $d/nowhere"
+
+# THE ONE THAT MATTERS: the original defect, re-entered. This instance really did
+# miss `imem_fault`, and the harness then placed 536 cells of a 6006-cell core.
+d=$(pc_fixture); sed -i.bak '/\.imem_fault(imem_fault),/d' "$d/soc/compare/bench_littlecpu.v"
+probe "a port the comparison harness stops naming is red, and located" 1 \
+  "soc/compare/bench_littlecpu.v's \`riscv\` instance does not connect .imem_fault" "$PC $d"
+
+probe "and the diagnostic says what it costs, not just that it is missing" 1 \
+  "placed 536 cells of a 6006-cell core" "$PC $d"
+
+# An empty connection is a floating pin spelled a second way, and yosys accepts
+# both.
+d=$(pc_fixture); sed -i.bak 's/\.imem_fault(imem_fault),/.imem_fault(),/' \
+  "$d/soc/compare/bench_littlecpu.v"
+probe "a port named with nothing in the parentheses is red too" 1 \
+  "names .imem_fault() with nothing in it" "$PC $d"
+
+# The other direction, which is the half a one-way check would not have: the
+# port goes away and the harnesses keep naming it.
+d=$(pc_fixture); sed -i.bak 's/^  input  logic        imem_fault,//' "$d/rtl/littlecpu.v"
+probe "a connection to a port littlecpu no longer has is red" 1 \
+  "connects .imem_fault, and littlecpu has no such port" "$PC $d"
+
+d=$(pc_fixture); sed -i.bak '/\.rvfi_mem_rmask(rvfi_mem_rmask),/d' "$d/test/testbench.v"
+probe "half of a macro-guarded group is red, where none of it is not" 1 \
+  "connects littlecpu under RISCV_FORMAL but not .rvfi_mem_rmask" "$PC $d"
+
+# A port declared unconditionally and connected only under a macro floats
+# wherever that macro is absent, which is every build but one.
+d=$(pc_fixture); sed -i.bak -e 's/^    \.irq_timer(irq_timer),$/    .irq_timer(irq_timer)/' \
+  -e 's/^    \.trap(trap)$//' -e 's/^    , \.rvfi_valid/    , .trap(trap), .rvfi_valid/' \
+  "$d/test/testbench.v"
+probe "an unconditional port connected only inside an ifdef is red" 1 \
+  "connects .trap only under RISCV_FORMAL" "$PC $d"
+
+# `RVFI_CONN is the one macro this check cannot expand, so a harness dropping it
+# has to be caught by something other than the port list.
+d=$(pc_fixture); sed -i.bak -e 's/^    \.trap(trap),$/    .trap(trap)/' \
+  -e '/`RVFI_CONN/d' "$d/formal/wrapper.v"
+probe "a formal harness that stops wiring rvfi at all is red" 1 \
+  "carries no \`RVFI_CONN" "$PC $d"
+
+# The exception table both ways round: an omission that has been fixed leaves an
+# entry behind, and an exemption kept past its reason is how the next one gets
+# waved through.
+d=$(pc_fixture); sed -i.bak 's/^    , \.rvfi_valid(rvfi_valid),/    , .rvfi_valid(rvfi_valid), .rvfi_mode(rvfi_mode),/' \
+  "$d/test/testbench.v"
+probe "an exception whose port is connected now is red" 1 \
+  "EXCEPTIONS exempts .rvfi_mode at test/testbench.v" "$PC $d"
+
+# A positional connection re-aims every port after the one that moved, so it
+# stops the run rather than being graded as far as it can be read.
+d=$(pc_fixture); sed -i.bak 's/^    \.clk(clk),/    clk,/' "$d/soc/compare/bench_littlecpu.v"
+probe "a connection by position stops rather than being half-read" 1 \
+  "connects littlecpu by something this check cannot read" "$PC $d"
+
+# The last defect in this file class was a superfluous comma in a port list,
+# which yosys accepts and only iverilog and svlint rejected.
+d=$(pc_fixture); sed -i.bak 's/^    \.trap(trap)$/    .trap(trap),/' "$d/rtl/littlesoc.v"
+probe "a stray comma in a connection list is named as one" 1 \
+  "a stray or trailing comma" "$PC $d"
+
+# The parse is load-bearing: a port this cannot read would go undemanded at
+# every site rather than reported at one.
+d=$(pc_fixture); sed -i.bak 's/^  input  logic clk,/  clk,/' "$d/rtl/littlecpu.v"
+probe "a port declaration the parser cannot read stops the run" 1 \
+  "cannot read as a port declaration" "$PC $d"
+
+d=$(pc_fixture); rm "$d/rtl/littlecpu.v"
+probe "the module file moving away takes the check with it, loudly" 1 \
+  "rtl/littlecpu.v is missing" "$PC $d"
+
+# Without these two the whole check passes over a tree it never read.
+d=$(new_case); mkdir -p "$d/rtl"; cp "$REPO/rtl/littlecpu.v" "$d/rtl/"
+git -c init.defaultBranch=main -C "$d" init -q; git -C "$d" add -A
+probe "a tree that instantiates the core nowhere is not a clean one" 1 \
+  "instantiates littlecpu at all" "$PC $d"
+
+d=$(new_case); mkdir -p "$d/rtl"; cp "$REPO/rtl/littlecpu.v" "$d/rtl/"
+probe "a tree git cannot list is a scan of nothing, not a green one" 1 \
+  "cannot enumerate any tracked Verilog" "$PC $d"
 
 echo
 if [ "$probes" -ne "$PROBES_EXPECTED" ]; then
