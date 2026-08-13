@@ -230,9 +230,14 @@ What a green result does and does not mean:
   that the property holds. Depths are derived from two measured numbers — F (worst-case first
   retire, from `hang`) and G (worst-case retire gap, from `liveness`). **Any change that adds a
   stall reason, lengthens a stage, or widens the scoreboard must re-measure F and G before it
-  lands** (ADR-0046). F is 6 and G is 6 — the atomic write cycle took G back up the cycle the load
+  lands** (ADR-0046), and `make -C formal remeasure-fg` is that sweep, both flip points in both
+  directions. F is 6 and G is 6 — the atomic write cycle took G back up the cycle the load
   turnaround gave back (ADR-0099, ADR-0106), and the thinnest depth clears its derived floor by one
-  again. Both were re-measured by sweeping `hang` and `liveness`, not inferred from the change.
+  again. **The arithmetic is machine-checked now, not commented** (ADR-0107): `checks.cfg` declares
+  F and G in lines genchecks' parser drops, every check's depth is graded against its family's floor
+  by `formal/genchecks-audit.py`, and a depth below its floor fails generation. It has to be
+  checked rather than read, because a shallow depth does not go red — it goes green having stopped
+  asking.
 - **riscv-formal ships no spec model for SYSTEM, MISC-MEM or AMO at the pinned SHA**, so trap, CSR
   and atomic behaviour
   is checked against assertions this repo wrote (`test/asm/trap.S`, `test/csr_tb.v`, the decoder
@@ -516,6 +521,10 @@ make -C formal complete             # depth-50 whole-ISA walk minus COMPLETE_EXC
 make -C formal complete_cover       # its anti-vacuity control
 make -C formal nonperturbation      # RVFI instrumentation is unread by the core;
                                     # structural, NOT sequential equivalence
+make -C formal remeasure-fg         # re-measure F and G by sweeping hang and liveness,
+                                    # both flip points in both directions, graded
+                                    # against the figures checks.cfg declares. Six sby
+                                    # runs, ~20s. Not on CI, no ratchet
 
 make sail-setup     # once: fetch the pinned sail-riscv release
 make cosim-run      # co-sim one program (PROG=add.S)

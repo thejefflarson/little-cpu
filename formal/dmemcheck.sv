@@ -78,9 +78,13 @@ module testbench (
   // input to the core rather than an output, so it can narrow what the solver
   // may try but it cannot excuse a bug.
   //
-  // Compared against last cycle's mem_addr. A load's data arrives the cycle
-  // after its address, and rtl/accessor.v has already put mem_addr back to 0 by
-  // then.
+  // Compared against last cycle's mem_addr, because that is the cycle the data
+  // arriving now was asked for.
+  //
+  // An AMO puts its write on the bus at the same address on the very cycle its
+  // read is answered, so the block above and this one fire in the same time
+  // step there. The read still sees the old word, and what makes that true is
+  // that the shadow's update is non-blocking; neither may become blocking.
   always_ff @(posedge clk) begin
     if (!reset && $past(mem_addr) == dmem_addr && !$past(mem_wstrb))
       assume(dmem_data == mem_rdata);
