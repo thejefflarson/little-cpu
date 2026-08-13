@@ -12,11 +12,22 @@ the flow said a word.
 So the placed cell count is compared against what the core synthesises to
 ON ITS OWN, with no harness around it to fold against. The harness adds
 memories and a few registers and takes nothing away, so the placed count is
-normally ABOVE the standalone one -- 1.13x for this core and 1.41x for VexRiscv
+normally ABOVE the standalone one -- 1.10x for this core and 1.38x for VexRiscv
 as measured. The floor is a fraction rather than an equality because packing,
 `abc9` and the harness's own glue all move the number by more than a percent,
 and because nothing here needs to be precise: the defect it catches is a factor
 of four.
+
+An all-NOP ROM no longer folds this core, so it is not the stimulus to reach for
+when checking that this gate still discriminates. That image only makes every
+ROM word identical, which collapses a read-only instruction array -- VexRiscv's,
+still red at 0.64x -- and this core's instruction memory carries a write port
+the design drives, so its contents are never a constant whatever it holds. What
+folds this side makes the datapath dead rather than uniform: the same image with
+that write port disconnected, a core given a constant instruction instead of the
+memory's answer, and a core port left unconnected, which is how this gate last
+went red for real. All three still place and icetime still times the fragment,
+which is what makes them the shape of defect worth catching.
 
 Reads nextpnr's utilisation table for the placed count and yosys's cell census
 for the synthesised one, both of which the flow already writes. It does not
@@ -81,8 +92,8 @@ def main():
             f"*** synthesis, under the {args.min_ratio:.2f}x floor. Most of the core is\n"
             f"*** not in what was placed, so the timing number describes a fragment.\n"
             f"*** The usual cause is a harness whose outputs do not depend on the\n"
-            f"*** datapath -- an all-NOP ROM does exactly this. Fix the program or\n"
-            f"*** the harness; do not lower the floor."
+            f"*** datapath -- an unconnected core port and an all-NOP ROM both do\n"
+            f"*** exactly this. Fix the harness or the program; do not lower the floor."
         )
     print(f"RATCHET: {ratio:.2f}x against a {args.min_ratio:.2f}x floor -- OK")
 

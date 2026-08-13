@@ -26,6 +26,7 @@ module testbench(
   logic [31:0] mem_rdata;
   logic        fetch_stall;
   logic        imem_fault;
+  logic        mem_reservable;
   logic        irq_timer;
   // All three memories answer zero outside their own range, so the buses join
   // with an OR, exactly as rtl/littlesoc.v joins them.
@@ -65,7 +66,8 @@ module testbench(
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
-    .mem_rdata(dmem_mem_rdata)
+    .mem_rdata(dmem_mem_rdata),
+    .reservable(mem_reservable)
   );
 
   // No init files: the cxxrtl runners fill the banks through `debug_items`
@@ -109,6 +111,7 @@ module testbench(
     .mem_rdata(mem_rdata),
     .fetch_stall(fetch_stall),
     .imem_fault(imem_fault),
+    .mem_reservable(mem_reservable),
     .irq_timer(irq_timer),
     .trap(trap)
    `ifdef RISCV_FORMAL

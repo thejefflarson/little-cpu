@@ -44,7 +44,7 @@ module bench_littlecpu #(
   logic [31:0] mem_addr, mem_wdata, mem_rdata;
   logic [31:0] imem_mem_rdata, dmem_mem_rdata;
   logic [3:0]  mem_wstrb;
-  logic        mem_ren, fetch_stall, irq_timer;
+  logic        mem_ren, fetch_stall, irq_timer, imem_fault, mem_reservable;
 
   // Stands in for rtl/timer.v's `mtip` line, which there is no room on the part
   // for. Tying it to zero instead would let yosys constant-fold `mip.MTIP`, the
@@ -57,6 +57,10 @@ module bench_littlecpu #(
   logic [31:0] imem_addr, imem_addr2, imem_addr_next;
   logic [31:0] imem_data, imem_data2;
 
+  // A port added to littlecpu and left unconnected here floats, and yosys folds
+  // the whole core away behind it -- this instance once missed `imem_fault` and
+  // placed a sixth of the design, which icetime timed faster than the real one.
+  // Only soc/compare/placed_vs_synth.py notices, and it is not on CI.
   littlecpu riscv (
     .clk(clk),
     .reset(reset),
@@ -71,7 +75,9 @@ module bench_littlecpu #(
     .mem_ren(mem_ren),
     .mem_rdata(mem_rdata),
     .fetch_stall(fetch_stall),
+    .mem_reservable(mem_reservable),
     .irq_timer(irq_timer),
+    .imem_fault(imem_fault),
     .trap(trap)
   );
 
@@ -89,7 +95,8 @@ module bench_littlecpu #(
     .mem_wstrb(mem_wstrb),
     .mem_ren(mem_ren),
     .mem_rdata(imem_mem_rdata),
-    .fetch_stall(fetch_stall)
+    .fetch_stall(fetch_stall),
+    .imem_fault(imem_fault)
   );
 
   // The same module soc/compare/bench_vexriscv.v instantiates, at the same base
@@ -99,7 +106,8 @@ module bench_littlecpu #(
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
-    .mem_rdata(dmem_mem_rdata)
+    .mem_rdata(dmem_mem_rdata),
+    .reservable(mem_reservable)
   );
 
   assign mem_rdata = imem_mem_rdata | dmem_mem_rdata;

@@ -9,7 +9,7 @@ attached. This is the invoice. It is the same move `make fit` made for area:
 one aggregate figure, argued about from structure, replaced by a measurement.
 
 EVERY CYCLE IS CHARGED EXACTLY ONCE. test/cxxrtl.cc reads the decoder's own
-`stall` signal and its six named reasons every cycle. A cycle where `stall` is
+`stall` signal and its seven named signals every cycle. A cycle where `stall` is
 low is an issue cycle; a cycle where it is high goes to the first reason that is
 true, in the order rtl/decoder.v tries them. So the columns add up to the cycle
 count by construction, and this script checks that they do -- a mismatch means
@@ -32,11 +32,11 @@ interchangeable.
 import argparse
 import sys
 
-# The five the decoder has, in the order it tries them: it holds `decoder_out`
-# for the divider and bubbles for the other four. The runner writes these names,
+# The six the decoder has, in the order it tries them: it holds `decoder_out`
+# for the divider and bubbles for the other five. The runner writes these names,
 # so a rename has to happen in both places at once -- which the field check
 # below turns into an error rather than a silent zero.
-REASONS = ["divider", "hazard", "serialize", "operand", "fetch"]
+REASONS = ["divider", "atomic", "hazard", "serialize", "operand", "fetch"]
 
 # What the CPI above it describes. It is an argument the caller has to supply,
 # because the honest one differs: `make cycles` runs the hand-written assembly
@@ -54,6 +54,7 @@ SUITE_WORKLOAD = (
 )
 HEADINGS = {
     "divider": "DIVIDER",
+    "atomic": "ATOMIC",
     "hazard": "HAZARD",
     "serialize": "SERIAL",
     "operand": "OPERAND",
@@ -199,7 +200,7 @@ def main():
         sys.exit(
             f"\n*** {total['unattributed']} cycles stalled for a reason this "
             f"report does not name.\n"
-            "*** rtl/decoder.v raised `stall` and none of the six signals this\n"
+            "*** rtl/decoder.v raised `stall` and none of the seven signals this\n"
             "*** counts was high, so there is a stall reason nobody has written\n"
             "*** down. Add it to kStallReasons in test/cxxrtl.cc and to REASONS\n"
             "*** here, and to the stall-reason list in CLAUDE.md."

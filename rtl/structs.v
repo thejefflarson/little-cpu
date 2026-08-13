@@ -133,6 +133,23 @@ typedef struct packed {
   logic        is_sw;
   logic        is_ecall;
   logic        is_ebreak;
+  // The nine AMO functions plus lr.w and sc.w. One flag each rather than the
+  // encoding's funct5, because rtl/accessor.v's result mux is a
+  // `(* parallel_case *)` over them and a marking is spent against a $onehot0
+  // check of the exact arm list. rtl/executor.v passes all eleven through
+  // untouched: an AMO's operands are the memory word and rs2, and the word does
+  // not exist until the accessor has it.
+  logic        is_amoswap;
+  logic        is_amoadd;
+  logic        is_amoxor;
+  logic        is_amoand;
+  logic        is_amoor;
+  logic        is_amomin;
+  logic        is_amomax;
+  logic        is_amominu;
+  logic        is_amomaxu;
+  logic        is_lr;
+  logic        is_sc;
   // What is deliberately NOT here, and must not come back:
   //
   //   `is_csrrw`/`is_csrrs`/`is_csrrc`, which this struct used to carry with

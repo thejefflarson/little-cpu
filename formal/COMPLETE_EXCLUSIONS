@@ -44,3 +44,4 @@
 
 MISC-MEM  0001111  fence fence.i
 SYSTEM    1110011  ecall ebreak mret wfi csrrw csrrs csrrc csrrwi csrrsi csrrci
+AMO       0101111  amoadd.w amoswap.w amoxor.w amoand.w amoor.w amomin.w amomax.w amominu.w amomaxu.w lr.w sc.w
