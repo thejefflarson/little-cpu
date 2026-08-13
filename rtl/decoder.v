@@ -139,6 +139,14 @@ module decoder (
         instr_lh, instr_lw, instr_sb, instr_sh, instr_sw, instr_ecall, instr_ebreak, instr_csrrw,
         instr_csrrs, instr_csrrc;
 
+  // The A extension, single hart. `.aq` and `.rl` are decoded and ignored:
+  // one hart, in order, one outstanding access and every access completing
+  // before the next issues, so memory order is program order. A second agent on
+  // memory, a store buffer, a cache or a posted MMIO write each end that.
+  logic instr_amoswap, instr_amoadd, instr_amoxor, instr_amoand, instr_amoor, instr_amomin,
+        instr_amomax, instr_amominu, instr_amomaxu, instr_lr, instr_sc;
+  logic instr_amo_op, instr_amo, instr_atomic;
+
   // immediate decoder (figure 2.4 & table 16.1)
   logic [31:0] immediate, i_immediate, s_immediate, b_immediate, u_immediate, j_immediate;
   assign i_immediate = {{20{instr[31]}}, instr[31:20]};
@@ -171,6 +179,11 @@ module decoder (
       instr_jal_op: immediate = j_immediate;
       instr_branch_op: immediate = b_immediate;
       instr_math_immediate_op: immediate = i_immediate;
+      // An A encoding's effective address is rs1 exactly. Its funct5, `aq`,
+      // `rl` and rs2 fields sit where the I-immediate is read, so without this
+      // arm the default below is the only thing keeping them out of the address
+      // -- and any later arm that widened to this opcode would put them in it.
+      instr_amo_op: immediate = 32'b0;
       instr_clwsp: immediate = clwsp_immediate;
       instr_cswsp: immediate = css_immediate;
       instr_csw: immediate = cl_immediate;
@@ -229,6 +242,30 @@ module decoder (
   assign instr_sw = (instr_store_op && funct3 == 3'b010) || instr_cswsp || instr_csw;
   assign instr_cswsp = quadrant == 2'b10 && cfunct3 == 3'b110;
   assign instr_csw = quadrant == 2'b00 && cfunct3 == 3'b110;
+
+  // AMO (Ch. 14). funct3 picks the width and only the word form exists on RV32;
+  // instr[26] and instr[25] are `aq` and `rl`, read by nothing, so every
+  // ordering suffix of one instruction decodes identically.
+  logic [4:0] funct5;
+  assign funct5 = instr[31:27];
+  assign instr_amo_op = opcode == 5'b01011 && uncompressed && funct3 == 3'b010;
+  assign instr_amoadd  = instr_amo_op && funct5 == 5'b00000;
+  assign instr_amoswap = instr_amo_op && funct5 == 5'b00001;
+  assign instr_amoxor  = instr_amo_op && funct5 == 5'b00100;
+  assign instr_amoor   = instr_amo_op && funct5 == 5'b01000;
+  assign instr_amoand  = instr_amo_op && funct5 == 5'b01100;
+  assign instr_amomin  = instr_amo_op && funct5 == 5'b10000;
+  assign instr_amomax  = instr_amo_op && funct5 == 5'b10100;
+  assign instr_amominu = instr_amo_op && funct5 == 5'b11000;
+  assign instr_amomaxu = instr_amo_op && funct5 == 5'b11100;
+  // lr.w's rs2 field is an encoding constant, not a register number, so a
+  // non-zero one is a different encoding and not this instruction. sc.w reads
+  // rs2 for real.
+  assign instr_lr = instr_amo_op && funct5 == 5'b00010 && instr[24:20] == 5'b0;
+  assign instr_sc = instr_amo_op && funct5 == 5'b00011;
+  assign instr_amo = instr_amoswap || instr_amoadd || instr_amoxor || instr_amoand ||
+    instr_amoor || instr_amomin || instr_amomax || instr_amominu || instr_amomaxu;
+  assign instr_atomic = instr_amo || instr_lr || instr_sc;
 
   logic math_low;
   assign math_low = funct7 == 7'b0000000;
@@ -351,7 +388,7 @@ module decoder (
     || instr_rem || instr_remu || instr_sll || instr_slt || instr_sltu || instr_srl || instr_sra ||
     instr_lui || instr_lb || instr_lbu || instr_lh || instr_lhu || instr_lw || instr_sb || instr_sh
     || instr_sw || instr_ecall || instr_ebreak || instr_mret || instr_wfi || instr_fence ||
-    instr_fencei || (instr_csr_access && csr_implemented);
+    instr_fencei || instr_atomic || (instr_csr_access && csr_implemented);
 
   // The effective address, used here to decide misalignment and again in the
   // publish block as `out.mem_addr`. Having it this early is what lets a
@@ -368,11 +405,17 @@ module decoder (
   logic [1:0] mem_addr_low;
   assign mem_addr_low = immediate[1:0] + reg_rs1[1:0];
 
+  // An atomic is word-wide and never split, so an unaligned one faults rather
+  // than being emulated. `lr.w` reports as a load and the other ten as stores,
+  // which is what the privileged spec asks: an AMO writes, and so does a
+  // store-conditional that succeeds.
   logic load_misaligned, store_misaligned;
   assign load_misaligned  = (instr_lw && mem_addr_low != 2'b00) ||
-                            ((instr_lh || instr_lhu) && mem_addr_low[0] != 1'b0);
+                            ((instr_lh || instr_lhu) && mem_addr_low[0] != 1'b0) ||
+                            (instr_lr && mem_addr_low != 2'b00);
   assign store_misaligned = (instr_sw && mem_addr_low != 2'b00) ||
-                            (instr_sh && mem_addr_low[0] != 1'b0);
+                            (instr_sh && mem_addr_low[0] != 1'b0) ||
+                            ((instr_amo || instr_sc) && mem_addr_low != 2'b00);
 
   // `csr_write_op` already has Zicsr's suppression rules applied, so `csrr misa`
   // stays legal while `csrw misa` does not.
@@ -478,7 +521,8 @@ module decoder (
   logic uses_rs1, uses_rs2;
   assign uses_rs1 = !(instr_lui || instr_jal || instr_auipc || is_csr_imm);
   assign uses_rs2 = (instr_math && !instr_math_immediate) || instr_sb || instr_sh || instr_sw ||
-    instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu;
+    instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu ||
+    instr_amo || instr_sc;
 
   // Do not fold these two into a shared function. iverilog builds a continuous
   // assign's sensitivity list from the arguments at the call site. A function
@@ -550,9 +594,24 @@ module decoder (
   assign operand_stall = !read_taken || (uses_rs1 && prev_rs1 != rs1) ||
                                         (uses_rs2 && prev_rs2 != rs2);
 
+  // An AMO owns the data bus for two cycles: the read goes out while the
+  // executor takes it, and the read-modify-write goes back out from
+  // rtl/accessor.v on the cycle after. Nothing else may present a transaction
+  // on that cycle, so the cycle is spent here. It is read off `out` rather than
+  // routed back from the accessor because `out` is what the accessor is looking
+  // at, one register earlier and one module nearer the pc.
+  //
+  // `!divider_stall` because a held `out` has not been taken yet: no read has
+  // gone out, so the write cycle is not next. The divider arm of the publish
+  // block below wins for the same reason and this term keeps the two agreeing.
+  logic out_is_amo, atomic_stall;
+  assign out_is_amo = out.is_amoswap || out.is_amoadd || out.is_amoxor || out.is_amoand ||
+    out.is_amoor || out.is_amomin || out.is_amomax || out.is_amominu || out.is_amomaxu;
+  assign atomic_stall = out.valid && out_is_amo && !divider_stall;
+
   // Every reason to stall, in one signal. They all hold the PC; the block that
   // writes `out` below is where they differ.
-  assign stall = hazard || operand_stall || divider_stall || fetch_stall;
+  assign stall = hazard || operand_stall || divider_stall || fetch_stall || atomic_stall;
 
   // On a cycle that issues, ask for the NEXT instruction's pair. The guess runs
   // the fetch window's successor word through the same register-number mapping
@@ -672,12 +731,19 @@ module decoder (
       // two arms changes that and nothing would say so, which is why the
       // `ifdef FORMAL` block below checks both cases.
       out <= out;
-    end else if (hazard || operand_stall || fetch_stall || interrupt_pending) begin
+    end else if (hazard || operand_stall || fetch_stall || atomic_stall ||
+                 interrupt_pending) begin
       // These zero `out` instead of holding it. The executor reads `in` every
       // cycle, so a held `out` would be executed again and again while the
       // stalled instruction waits. The interrupt is here rather than in the arm
       // below because the instruction it displaces did not issue: it publishes
       // nothing, retires nothing and re-executes after `mret`.
+      //
+      // The atomic wait BUBBLES, and that is the opposite ruling from the
+      // divider's. Its cycle is raised after the executor has already taken the
+      // instruction, so holding would present the same AMO a second time and
+      // put a second read on the bus beside its own write. Holding here is a
+      // duplicated transaction and a duplicated retire, not a lost instruction.
       out <= '0;
     end else begin
       // This arm runs on exactly the cycles an instruction issues. Committing
@@ -742,6 +808,17 @@ module decoder (
       out.is_sw <= instr_sw;
       out.is_ecall <= instr_ecall;
       out.is_ebreak <= instr_ebreak;
+      out.is_amoswap <= instr_amoswap;
+      out.is_amoadd <= instr_amoadd;
+      out.is_amoxor <= instr_amoxor;
+      out.is_amoand <= instr_amoand;
+      out.is_amoor <= instr_amoor;
+      out.is_amomin <= instr_amomin;
+      out.is_amomax <= instr_amomax;
+      out.is_amominu <= instr_amominu;
+      out.is_amomaxu <= instr_amomaxu;
+      out.is_lr <= instr_lr;
+      out.is_sc <= instr_sc;
       out.is_valid_instr <= instr_valid;
       (* parallel_case *)
       case(1'b1)
@@ -795,6 +872,9 @@ module decoder (
         out.is_lui <= 0; out.is_lb <= 0; out.is_lbu <= 0; out.is_lhu <= 0; out.is_lh <= 0; out.is_lw <= 0;
         out.is_sb <= 0; out.is_sh <= 0; out.is_sw <= 0;
         out.is_ecall <= 0; out.is_ebreak <= 0;
+        out.is_amoswap <= 0; out.is_amoadd <= 0; out.is_amoxor <= 0; out.is_amoand <= 0;
+        out.is_amoor <= 0; out.is_amomin <= 0; out.is_amomax <= 0; out.is_amominu <= 0;
+        out.is_amomaxu <= 0; out.is_lr <= 0; out.is_sc <= 0;
         out.rd <= 0; // prevent writeback to arbitrary register
       end
     end
@@ -852,14 +932,22 @@ module decoder (
   // coincide loses an instruction, and holding it on a plain stall hands the
   // executor the same instruction twice.
   decoder_output past_out;
-  logic prev_hold_and_steal, prev_steal_only;
+  logic prev_hold_and_steal, prev_steal_only, prev_atomic_stall;
   always_ff @(posedge clk) begin
     past_out            <= out;
     prev_hold_and_steal <= fetch_stall && divider_stall;
     prev_steal_only     <= fetch_stall && !divider_stall;
+    prev_atomic_stall   <= atomic_stall;
   end
   always_comb if (clocked && !prev_reset && prev_hold_and_steal) assert(out == past_out);
   always_comb if (clocked && !prev_reset && prev_steal_only)     assert(out == '0);
+
+  // The atomic wait's half of that ruling, and it goes the other way. The
+  // executor has already taken the AMO on the cycle this is raised, so holding
+  // would re-present it: a second bus transaction beside the write it is
+  // waiting for, and a second retire of one instruction. Nothing else in the
+  // tree says which arm it belongs in.
+  always_comb if (clocked && !prev_reset && prev_atomic_stall) assert(out == '0);
 
   // Obviously true one flip-flop apart, and that is the point. It fails the
   // moment something else also writes `pc`. A second writer puts the
@@ -888,7 +976,9 @@ module decoder (
     // that differ only in funct3 or funct12 on separate terms, so a decode
     // change that makes two of them true at once still trips this.
     instr_ebreak, instr_csrrw, instr_csrrs, instr_csrrc,
-    instr_mret, instr_wfi, instr_fence, instr_fencei});
+    instr_mret, instr_wfi, instr_fence, instr_fencei,
+    instr_amoswap, instr_amoadd, instr_amoxor, instr_amoand, instr_amoor, instr_amomin,
+    instr_amomax, instr_amominu, instr_amomaxu, instr_lr, instr_sc});
 
   always_comb if (instr_valid) assert(one_of);
 
@@ -903,7 +993,7 @@ module decoder (
   // immediate
   always_comb assert($onehot0({instr_load_op || instr_jalr_op, instr_store_op,
     instr_lui_op || instr_auipc, instr_jal_op, instr_branch_op, instr_math_immediate_op,
-    instr_clwsp, instr_cswsp, instr_csw, instr_clw, instr_cj || instr_cjal,
+    instr_amo_op, instr_clwsp, instr_cswsp, instr_csw, instr_clw, instr_cj || instr_cjal,
     instr_cbeqz || instr_cbnez, instr_cli, instr_clui, instr_caddi, instr_caddi16sp,
     instr_caddi4spn, instr_candi}));
   // rd
@@ -969,6 +1059,7 @@ module decoder (
     assert(out.rd == 5'b0);
     assert(!out.is_lb && !out.is_lbu && !out.is_lh && !out.is_lhu && !out.is_lw);
     assert(!out.is_sb && !out.is_sh && !out.is_sw);
+    assert(!out_is_amo && !out.is_lr && !out.is_sc);
   end
 
   // Gating these on `instr_valid` instead would look right and be weaker: an

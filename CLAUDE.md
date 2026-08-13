@@ -121,10 +121,20 @@ are kept in parentheses so those references still resolve.
   would drop an issued instruction — and that ruling is only arm order in the publish block, so it
   is asserted in `rtl/decoder.v`'s `FORMAL` block and vectored in `test/decoder_tb.v`. Every
   in-flight non-`x0` `rd` must be visible to the scoreboard on every cycle between issue and the
-  regfile write-through, with no gap. **Five** reasons raise `stall`, and it is exactly their OR:
-  the divider, the decode scoreboard, serialization, the operand-fetch cycle, the stolen fetch
-  window. `test/decoder_tb.v` checks that identity and `make cycles` charges every stalled cycle to
-  the first reason that is true, so a sixth has to be added in both places as well as here.
+  regfile write-through, with no gap. **Six** reasons raise `stall`, and it is exactly their OR:
+  the divider, the atomic write cycle, the decode scoreboard, serialization, the operand-fetch
+  cycle, the stolen fetch window. `test/decoder_tb.v` checks that identity and `make cycles` charges
+  every stalled cycle to the first reason that is true, so a seventh has to be added in both places
+  as well as here.
+  **The atomic write cycle is the sixth, and it BUBBLES** — the only reason to be added since the
+  divider and the only one whose arm was a live question. An AMO reads its word while the executor
+  takes it and writes the result back on the cycle after, so that cycle is spent to keep anything
+  else off the bus; by then the executor has already consumed the instruction, and a hold would
+  present it again — a second read beside its own write, and one instruction retiring twice. That is
+  the opposite of the divider's ruling for the opposite reason, it is only arm order in the publish
+  block, and it is asserted in `rtl/decoder.v`'s `FORMAL` block and vectored in `test/decoder_tb.v`
+  both ways round. It moved **G from 5 to 6**, so the depths that cleared `F + 2G` by three now
+  clear it by one (ADR-0106).
   **The load turnaround was the sixth and is gone** (ADR-0099): the bus transaction is presented
   from `decoder_out` during the executor's own cycle, so the answer is there when the instruction
   reaches the accessor. A held `decoder_out` would re-present it, which is idempotent for RAM and
@@ -153,6 +163,19 @@ answers is still read as zero and written nowhere — a deviation from the privi
 recommendation that precise access faults be raised, recorded as one rather than as a design choice.
 C stays because code density is a product constraint on the up5k (ADR-0002/0003). `fence.i` costs a
 pipeline drain — see the serialization commitment.
+
+**The eleven A instructions are decoded and executed, and `misa` does not claim them yet**
+(ADR-0106). `rtl/` implements Zaamo and Zalrsc in full — nine AMOs, `lr.w`, `sc.w`, `.aq`/`.rl`
+decoded and ignored, cause 4 for a misaligned `lr.w` and cause 6 for the other ten — while
+`misa` stays `0x4000_1104` and all three of the suite's build sites stay at
+`-march=rv32imc_zicsr_zifencei`. So no program in `test/asm` executes one and the graded suite says
+nothing about them; `test/accessor_tb.v`, `test/decoder_tb.v`, `components_accessor` and `dmemcheck`
+are what do. Claiming the bit and moving `-march` is one later change, and it has to move both
+together or the ISA string and the register disagree. **The reservation is refused outside the
+region `rtl/memory.v` answers**, which is the whole of the A extension's region attribute here: a
+`sc.w` where nothing is reserved fails and issues no transaction, so it cannot report success for a
+store that went nowhere. The decode-time region test that would instead raise causes 5 and 7 is the
+one ADR-0104 measured at four logic levels in the fetch loop and declined.
 
 **One interrupt: the machine timer, cause `0x8000_0007`.** `mie.MTIE` is the only writable bit of
 `mie`; `mip.MTIP` is `rtl/timer.v`'s line and read-only; `mip.MSIP`/`mip.MEIP` stay read-only zero,
@@ -207,10 +230,11 @@ What a green result does and does not mean:
   that the property holds. Depths are derived from two measured numbers — F (worst-case first
   retire, from `hang`) and G (worst-case retire gap, from `liveness`). **Any change that adds a
   stall reason, lengthens a stage, or widens the scoreboard must re-measure F and G before it
-  lands** (ADR-0046). F is 6 and G is 5 — ADR-0099 re-derived both from scratch when the load
-  turnaround left, and the thinnest depth now clears its derived floor by three rather than one.
-- **riscv-formal ships no spec model for SYSTEM or MISC-MEM at the pinned SHA**, so trap and CSR
-  behaviour
+  lands** (ADR-0046). F is 6 and G is 6 — the atomic write cycle took G back up the cycle the load
+  turnaround gave back (ADR-0099, ADR-0106), and the thinnest depth clears its derived floor by one
+  again. Both were re-measured by sweeping `hang` and `liveness`, not inferred from the change.
+- **riscv-formal ships no spec model for SYSTEM, MISC-MEM or AMO at the pinned SHA**, so trap, CSR
+  and atomic behaviour
   is checked against assertions this repo wrote (`test/asm/trap.S`, `test/csr_tb.v`, the decoder
   and `traps` proofs), not an oracle. `formal/COMPLETE_EXCLUSIONS` mechanises that boundary: a pin
   bump that adds a spec model goes red until the exclusion comes out. The generated instruction
@@ -288,7 +312,10 @@ and times.
   touched. Only totals are comparable across builds.
 - **`make soc-timing` has a ~3.6% edit-churn band and a 1–2% placement spread.** One placement is a
   sample: `soc/timing_sweep.sh` runs four seeds; compare distributions, not single runs. A delta of
-  a couple of percent is not evidence of anything.
+  a couple of percent is not evidence of anything. **It is spelling-dependent the way `fit` is**, and
+  by more: two texts of one design, two cells apart on `fit`, swept 12.34 and 12.75 MHz at their
+  worst seeds — 3.3% — with one of them a hair faster than the base and the other 1.7% slower
+  (ADR-0106). Quote the distribution of the text that ships.
 - **12 MHz is a requirement, not a regression floor** (ADR-0066). `SOC_MIN_MHZ` is 12.0 — the board
   clock, whose next divider step down is 6 — and it does not slide. When it trips, fix the design,
   not the floor. The margin over the worst placement is deliberately tighter than the churn band.

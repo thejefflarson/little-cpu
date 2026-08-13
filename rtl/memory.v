@@ -43,7 +43,14 @@ module memory #(
   input  logic [31:0] mem_addr,
   input  logic [31:0] mem_wdata,
   input  logic [3:0]  mem_wstrb,
-  output logic [31:0] mem_rdata
+  output logic [31:0] mem_rdata,
+  // This is the region a reservation may be held in. It is the range test below
+  // exported rather than a second one: what makes an address reservable here is
+  // that this memory really answers it, so a store-conditional cannot report
+  // success for a write that went nowhere. Combinational, and it accompanies the
+  // request rather than the response for the same reason the fetch bus's refusal
+  // does -- the reservation is taken on the cycle the request goes out.
+  output logic        reservable
 );
   localparam int ADDR_BITS = $clog2(RAM_WORDS);
 
@@ -68,6 +75,7 @@ module memory #(
   assign in_range = mem_addr[31:ADDR_BITS+2] == BASE[31:ADDR_BITS+2];
   logic [ADDR_BITS-1:0] index;
   assign index = mem_addr[ADDR_BITS+1:2];
+  assign reservable = in_range;
 
   // An out-of-range access is dropped and reads as zero. It must not ALIAS a
   // mapped word, which is what indexing on truncated address bits alone would

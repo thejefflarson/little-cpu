@@ -580,11 +580,20 @@ fit.json: $(FIT_SRCS)
 # alone, and that tree read 3543 under CI against 3575 under a local Homebrew
 # yosys. CI resolves the OSS CAD Suite rather than pinning it, so the second term
 # is what stops a suite bump going red on a pull request that changed no RTL.
-# Launching the bus from the execute slot has since taken the job's number to
-# 3469, so there is more slack here than the derivation left. Tightening it is a
-# measurement of its own.
+# Launching the bus from the execute slot took the job's number to 3469, leaving
+# more slack than the derivation left.
+#
+# The A extension spent all of it and more. Measured on one machine and one
+# toolchain, the same tree either side: 3464 without it and 3935 with, **+471
+# cells** for eleven instructions -- decode and its flags through two pipeline
+# registers, a 30-bit reservation, the 33-bit adder/subtractor and the result
+# mux, the held address and rs2, and the two 32-bit muxes that give the
+# read-modify-write the bus for its write cycle. That is a tenth of the whole
+# core spent on instructions no current workload executes, and the reason to
+# spend it is in the ADR rather than here. 4000 is that 3935 plus the same 50-
+# cell churn band and 17 for the toolchain term above.
 # If this goes red, find out what grew; raising it to pass defeats the point.
-FIT_MAX_LC := 3625
+FIT_MAX_LC := 4000
 
 .PHONY: fit
 fit: fit.json

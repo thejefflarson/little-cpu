@@ -103,6 +103,9 @@ module testbench (
     // Tied off: this task's memory model answers every address, so there is no
     // window for a fetch to fall outside of.
     .imem_fault(1'b0),
+    // Tied off high: this task's memory model answers every address, so every
+    // address it answers is one a reservation may be held at.
+    .mem_reservable(1'b1),
     // Tied off; formal/check-interrupt-tie-off.py enforces it. formal/wrapper.v
     // carries the reason the riscv-formal side of the tree runs with no
     // interrupt in the trace.

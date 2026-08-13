@@ -118,7 +118,7 @@ module decoder_tb;
     prev_next_pc_valid <= 1'b1;
   end
 
-  // `stall` is exactly these six terms ORed together. `make cycles` charges
+  // `stall` is exactly these seven terms ORed together. `make cycles` charges
   // every stalled cycle to the first of them that is true, so a term added to
   // `stall` and not there would leave the cycles it costs unexplained. This says
   // so in a gate that runs on every change, rather than the next time somebody
@@ -134,11 +134,11 @@ module decoder_tb;
   // settled and being decoded. Sampling only the rising edge misses that, and
   // the probe for this check -- a seventh term ORed into `stall` -- goes green.
   always @(clk) begin
-    if (dut.stall !== (dut.divider_stall || dut.hazard_rs1 ||
+    if (dut.stall !== (dut.divider_stall || dut.atomic_stall || dut.hazard_rs1 ||
                        dut.hazard_rs2 || dut.serialize || dut.operand_stall ||
                        dut.fetch_stall)) begin
-      $display("MISMATCH stall is not the OR of the five named reasons: stall=%b divider=%b rs1=%b rs2=%b serialize=%b operand=%b fetch=%b",
-               dut.stall, dut.divider_stall, dut.hazard_rs1,
+      $display("MISMATCH stall is not the OR of the six named reasons: stall=%b divider=%b atomic=%b rs1=%b rs2=%b serialize=%b operand=%b fetch=%b",
+               dut.stall, dut.divider_stall, dut.atomic_stall, dut.hazard_rs1,
                dut.hazard_rs2, dut.serialize, dut.operand_stall, dut.fetch_stall);
       errors++;
     end
@@ -786,11 +786,239 @@ module decoder_tb;
               out.is_sw || out.is_sh || out.is_sb, 1'b0);
     imem_fault = 1'b0;
 
+    //-----------------------------------------------------------------------
+    // The A extension. Every encoding below is `.w`, rd = a0, rs1 = a2 and
+    // rs2 = a1, so only funct5 and the ordering bits differ between them.
+    //-----------------------------------------------------------------------
+
+    in.instr = 32'h00b6252f;   // amoadd.w a0, a1, (a2)
+    #1;
+    check_bit("amoadd.w decodes", dut.instr_amoadd, 1'b1);
+    check_bit("...as a valid instruction", dut.instr_valid, 1'b1);
+    check_bit("...and does not trap", dut.trap_pending, 1'b0);
+    in.instr = 32'h08b6252f;
+    #1;
+    check_bit("amoswap.w decodes", dut.instr_amoswap, 1'b1);
+    in.instr = 32'h20b6252f;
+    #1;
+    check_bit("amoxor.w decodes", dut.instr_amoxor, 1'b1);
+    in.instr = 32'h40b6252f;
+    #1;
+    check_bit("amoor.w decodes", dut.instr_amoor, 1'b1);
+    in.instr = 32'h60b6252f;
+    #1;
+    check_bit("amoand.w decodes", dut.instr_amoand, 1'b1);
+    in.instr = 32'h80b6252f;
+    #1;
+    check_bit("amomin.w decodes", dut.instr_amomin, 1'b1);
+    in.instr = 32'ha0b6252f;
+    #1;
+    check_bit("amomax.w decodes", dut.instr_amomax, 1'b1);
+    in.instr = 32'hc0b6252f;
+    #1;
+    check_bit("amominu.w decodes", dut.instr_amominu, 1'b1);
+    in.instr = 32'he0b6252f;
+    #1;
+    check_bit("amomaxu.w decodes", dut.instr_amomaxu, 1'b1);
+    in.instr = 32'h1006252f;
+    #1;
+    check_bit("lr.w decodes", dut.instr_lr, 1'b1);
+    check_bit("...and is not an AMO", dut.instr_amo, 1'b0);
+    in.instr = 32'h18b6252f;
+    #1;
+    check_bit("sc.w decodes", dut.instr_sc, 1'b1);
+    check_bit("...and is not an AMO either", dut.instr_amo, 1'b0);
+
+    // The reserved rows of the same opcode, both directions of each field.
+    in.instr = 32'h28b6252f;   // funct5 = 00101, which names nothing
+    #1;
+    check_bit("an unassigned funct5 is not an atomic", dut.instr_atomic, 1'b0);
+    check_bit("...and is illegal", dut.instr_valid, 1'b0);
+    in.instr = 32'h00b6352f;   // amoadd.d -- funct3 = 011, RV64 only
+    #1;
+    check_bit("the doubleword width is not implemented here", dut.instr_atomic, 1'b0);
+    check_bit("...so it is illegal", dut.instr_valid, 1'b0);
+    // lr.w's rs2 field is an encoding constant. A non-zero one is a different
+    // encoding, and reading it as a register would make the decoder wait on a
+    // value the instruction does not read.
+    in.instr = 32'h1056252f;
+    #1;
+    check_bit("lr.w with a non-zero rs2 field is not an lr.w", dut.instr_lr, 1'b0);
+    check_bit("...it is illegal", dut.instr_valid, 1'b0);
+
+    // `.aq` and `.rl` are decoded and ignored, so all four ordering suffixes of
+    // one instruction are one instruction. Vectored rather than argued: the two
+    // bits sit inside the field the immediate is read from, and a decode that
+    // let them through would differ here and nowhere else.
+    in.instr = 32'h02b6252f;   // amoadd.w.rl
+    #1;
+    check_bit("amoadd.w.rl is the same instruction", dut.instr_amoadd, 1'b1);
+    in.instr = 32'h04b6252f;   // amoadd.w.aq
+    #1;
+    check_bit("...and so is amoadd.w.aq", dut.instr_amoadd, 1'b1);
+    in.instr = 32'h06b6252f;   // amoadd.w.aqrl
+    #1;
+    check_bit("...and amoadd.w.aqrl", dut.instr_amoadd, 1'b1);
+    check_hex("...and none of them puts anything in the immediate",
+              dut.immediate, 32'b0);
+
+    // The effective address is rs1 exactly. The bits an I-immediate would be
+    // read from are funct5, `aq`, `rl` and rs2 here, and 0x06b is what they
+    // would arrive as, so this is the vector that says the A arm of the
+    // immediate mux is doing something.
+    reg_rs1 = 32'h0001_0000;
+    present_and_fetch(32'h06b6252f);
+    check_hex("an atomic's effective address is rs1 and nothing else",
+              dut.mem_addr_calc, 32'h0001_0000);
+    @(posedge clk);
+    #1;
+    check_hex("...which is what reaches the accessor", out.mem_addr, 32'h0001_0000);
+    reg_rs1 = 32'b0;
+
+    // The operands each of the eleven really reads. Widen `uses_rs2` to lr.w
+    // and the core waits on a register its encoding does not name; narrow it
+    // from sc.w and the store goes out with a stale word.
+    in.instr = 32'h00b6252f;
+    #1;
+    check_bit("an AMO uses rs1", dut.uses_rs1, 1'b1);
+    check_bit("...and rs2", dut.uses_rs2, 1'b1);
+    in.instr = 32'h18b6252f;
+    #1;
+    check_bit("sc.w uses rs1", dut.uses_rs1, 1'b1);
+    check_bit("...and rs2, which is the word it stores", dut.uses_rs2, 1'b1);
+    in.instr = 32'h1006252f;
+    #1;
+    check_bit("lr.w uses rs1", dut.uses_rs1, 1'b1);
+    check_bit("...and NOT rs2: that field is an encoding constant",
+              dut.uses_rs2, 1'b0);
+
+    // All three misalignment causes. An atomic is word-wide and never split, so
+    // anything but a word-aligned address faults -- as a store for the ten that
+    // write and as a load for the one that does not.
+    reg_rs1 = 32'h0001_0002;
+    in.instr = 32'h00b6252f;
+    #1;
+    check_hex("a misaligned AMO is a store misalignment", trap_cause, 32'd6);
+    in.instr = 32'h18b6252f;
+    #1;
+    check_hex("...and so is a misaligned sc.w", trap_cause, 32'd6);
+    in.instr = 32'h1006252f;
+    #1;
+    check_hex("a misaligned lr.w is a LOAD misalignment", trap_cause, 32'd4);
+    reg_rs1 = 32'h0001_0001;
+    #1;
+    check_hex("...at a byte offset too", trap_cause, 32'd4);
+    reg_rs1 = 32'h0001_0000;
+    #1;
+    check_bit("an aligned lr.w does not trap", dut.trap_pending, 1'b0);
+    in.instr = 32'h00b6252f;
+    #1;
+    check_bit("...nor does an aligned AMO", dut.trap_pending, 1'b0);
+    reg_rs1 = 32'b0;
+
+    // The scoreboard. An AMO's result arrives a cycle later than a load's and a
+    // store-conditional writes a register at all, which no other store does --
+    // so both are checked for the gap commitment 8 forbids, at the one place
+    // decode can see it.
+    in.pc = 32'h0000_0700;
+    present_and_fetch(32'h003120af);   // amoadd.w x1, x3, (x2)
+    check_bit("an AMO issues", dut.issuing, 1'b1);
+    @(posedge clk);
+    #1;
+    check_bit("...into decoder_out", out.valid, 1'b1);
+    check_hex("...carrying its rd, where the scoreboard can see it",
+              {27'b0, out.rd}, 32'd1);
+    check_bit("...and its own flag", out.is_amoadd, 1'b1);
+    in.instr = 32'h00108093;           // addi x1, x1, 1 -- reads the AMO's rd
+    #1;
+    check_bit("...so the instruction behind it interlocks", dut.hazard_rs1, 1'b1);
+
+    // The atomic wait itself, which is the sixth stall reason. It is raised on
+    // the cycle after the AMO issues, because that is the cycle rtl/accessor.v
+    // needs the bus for the write half.
+    check_bit("an AMO in flight raises the atomic wait", dut.atomic_stall, 1'b1);
+    check_bit("...and that is a stall", dut.stall, 1'b1);
+    check_bit("...so nothing issues", dut.issuing, 1'b0);
+    check_hex("...and the pc holds", next_pc, pc);
+    @(posedge clk);
+    #1;
+    // BUBBLES rather than holds, which is the opposite of the divider's
+    // ruling. The executor has already taken the AMO, so a held decoder_out
+    // would put a second read on the bus beside the write and retire the
+    // instruction twice. Only the arm order in the publish block decides this.
+    check_bit("the atomic wait bubbles decoder_out rather than holding it",
+              out.valid, 1'b0);
+    check_bit("...and it is over after that one cycle", dut.atomic_stall, 1'b0);
+
+    // A held AMO has not been taken yet, so the write cycle is not next and the
+    // wait must not be raised. Without this the wait would fire on every cycle
+    // of a divide and cost the pipeline an instruction each time.
+    in.pc = 32'h0000_0740;
+    present_and_fetch(32'h003120af);
+    @(posedge clk);
+    #1;
+    divider_stall = 1'b1;
+    #1;
+    check_bit("a held AMO does not raise the atomic wait", dut.atomic_stall, 1'b0);
+    repeat (3) begin
+      @(posedge clk);
+      #1;
+      check_bit("...and decoder_out holds it, unchanged, for as long as the divide runs",
+                out.valid, 1'b1);
+      check_bit("...still raising no wait", dut.atomic_stall, 1'b0);
+    end
+    divider_stall = 1'b0;
+    #1;
+    check_bit("...the wait comes the moment the executor takes it",
+              dut.atomic_stall, 1'b1);
+    @(posedge clk);
+    #1;
+    @(posedge clk);
+    #1;
+
+    // A store-conditional is a store that writes a register. Neither lr.w nor
+    // sc.w needs the extra cycle -- each is one bus transaction -- so neither
+    // raises the wait.
+    in.pc = 32'h0000_0780;
+    present_and_fetch(32'h183120af);   // sc.w x1, x3, (x2)
+    check_bit("sc.w issues", dut.issuing, 1'b1);
+    @(posedge clk);
+    #1;
+    check_hex("...carrying an rd the scoreboard can see, unlike every other store",
+              {27'b0, out.rd}, 32'd1);
+    check_bit("...and its own flag", out.is_sc, 1'b1);
+    check_bit("...and it raises no atomic wait: one transaction, one cycle",
+              dut.atomic_stall, 1'b0);
+    in.instr = 32'h00108093;
+    #1;
+    check_bit("...and the instruction behind it interlocks on that rd",
+              dut.hazard_rs1, 1'b1);
+
+    in.pc = 32'h0000_07c0;
+    present_and_fetch(32'h100120af);   // lr.w x1, (x2)
+    @(posedge clk);
+    #1;
+    check_hex("lr.w carries its rd too", {27'b0, out.rd}, 32'd1);
+    check_bit("...and raises no atomic wait either", dut.atomic_stall, 1'b0);
+
+    // A trapping atomic publishes none of its flags, so nothing downstream
+    // starts a transaction for an instruction that faulted in decode.
+    reg_rs1 = 32'h0001_0002;
+    in.pc = 32'h0000_0800;
+    present_and_fetch(32'h003120af);
+    check_bit("a misaligned AMO commits a trap", trap_entry, 1'b1);
+    @(posedge clk);
+    #1;
+    check_bit("...and retires with every atomic flag clear",
+              out.is_amoadd || out.is_lr || out.is_sc, 1'b0);
+    check_hex("...writing no register", {27'b0, out.rd}, 32'b0);
+    reg_rs1 = 32'b0;
+
     if (errors != 0) begin
       $display("FAILED: %0d mismatches", errors);
       $fatal(1);
     end else begin
-      $display("PASSED: decode vectors (xori immediate, ebreak/mret/wfi, Zicsr, M3 traps)");
+      $display("PASSED: decode vectors (xori immediate, ebreak/mret/wfi, Zicsr, M3 traps, the A extension)");
       $finish;
     end
   end

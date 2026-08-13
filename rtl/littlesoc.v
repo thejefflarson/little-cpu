@@ -47,7 +47,7 @@ module littlesoc (
   logic [31:0] mem_addr, mem_wdata, mem_rdata;
   logic [31:0] imem_mem_rdata, dmem_mem_rdata, timer_mem_rdata;
   logic [3:0]  mem_wstrb;
-  logic        mem_ren, fetch_stall, irq_timer, imem_fault;
+  logic        mem_ren, fetch_stall, irq_timer, imem_fault, mem_reservable;
   logic [31:0] imem_addr, imem_addr2, imem_addr_next;
   logic [31:0] imem_data, imem_data2;
 
@@ -66,6 +66,7 @@ module littlesoc (
     .mem_rdata(mem_rdata),
     .fetch_stall(fetch_stall),
     .imem_fault(imem_fault),
+    .mem_reservable(mem_reservable),
     .irq_timer(irq_timer),
     .trap(trap)
   );
@@ -103,7 +104,8 @@ module littlesoc (
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
-    .mem_rdata(dmem_mem_rdata)
+    .mem_rdata(dmem_mem_rdata),
+    .reservable(mem_reservable)
   );
 
   // The machine timer, at rtl/timer.v's default base, which is the first word
