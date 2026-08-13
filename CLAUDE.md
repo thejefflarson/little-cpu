@@ -167,15 +167,32 @@ pipeline drain — see the serialization commitment.
 **The eleven A instructions are decoded and executed, and `misa` does not claim them yet**
 (ADR-0106). `rtl/` implements Zaamo and Zalrsc in full — nine AMOs, `lr.w`, `sc.w`, `.aq`/`.rl`
 decoded and ignored, cause 4 for a misaligned `lr.w` and cause 6 for the other ten — while
-`misa` stays `0x4000_1104` and all three of the suite's build sites stay at
-`-march=rv32imc_zicsr_zifencei`. So no program in `test/asm` executes one and the graded suite says
-nothing about them; `test/accessor_tb.v`, `test/decoder_tb.v`, `components_accessor` and `dmemcheck`
-are what do. Claiming the bit and moving `-march` is one later change, and it has to move both
-together or the ISA string and the register disagree. **The reservation is refused outside the
+`misa` stays `0x4000_1104`. **The suite builds at `-march=rv32imac_zicsr_zifencei`**, so six
+programs execute atomics — `amo.S`, `amominmax.S`, `amotrap.S`, `lrsc.S`, `lrsclock.S` and
+`amoregion.S` — and four of the six **agree with the reference model**, which is the semantic oracle
+for the nine functions, LR/SC's five invalidation events and the two misalignment causes. The `.S`
+suite is not one: **`test/monitor.sim.v` value-checks nothing in an A retire**, because the pin
+ships no spec model for any of the eleven, so an `OBSERVED_FLOOR` line for one of those programs is
+a retire count and not evidence anything was compared. Every claim they make is an in-band
+assertion, and every one reads its memory result back into a register because `test/cosim.cc`
+compares registers and never compares memory.
+**Claiming the `misa` bit is still a later change** — it moves `rtl/csrs.v` and the Sail model's
+`A` key together, and `misa` is what an ISA string cannot say.
+**The reservation is refused outside the
 region `rtl/memory.v` answers**, which is the whole of the A extension's region attribute here: a
 `sc.w` where nothing is reserved fails and issues no transaction, so it cannot report success for a
 store that went nowhere. The decode-time region test that would instead raise causes 5 and 7 is the
-one ADR-0104 measured at four logic levels in the fetch loop and declined.
+one ADR-0104 measured at four logic levels in the fetch loop and declined — and that deviation is
+the suite's one co-simulation divergence, because the model has RsrvEventual (the `sc.w` succeeds)
+and RsrvNone (the `lr.w` faults, cause 5) and this core is neither.
+
+**The ISA string has one source and `make test` grades it**: `test/march_test.sh` declares
+`rv32imac_zicsr_zifencei` and checks all six sites that state it, three of which are silent when
+wrong — the Makefile's `soc-rom` builds a program with no atomic in it, and `DHRY_CFLAGS` is copied
+verbatim into `soc/depth/cycles.py` with nothing else comparing the two. Two spellings that look
+identical must **not** move with it: `formal/checks.cfg`'s `isa rv32imc` and `MONITOR_GEN -i
+rv32imc` name what riscv-formal generates a spec model for, and the pin has none for A, so widening
+either generates nothing.
 
 **One interrupt: the machine timer, cause `0x8000_0007`.** `mie.MTIE` is the only writable bit of
 `mie`; `mip.MTIP` is `rtl/timer.v`'s line and read-only; `mip.MSIP`/`mip.MEIP` stay read-only zero,

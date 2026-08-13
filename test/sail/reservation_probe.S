@@ -1,7 +1,8 @@
 // An LR/SC reservation probe for the Sail model ALONE. No core runs this, and
-// it is deliberately not in test/asm: both sim legs glob that directory, this
-// core does not decode lr.w/sc.w yet, and the graded suite must keep assembling
-// at -march=rv32imc_zicsr_zifencei. Built and run by
+// it is deliberately not in test/asm: both sim legs glob that directory and
+// would grade this against a core, which is exactly what it must not be. The
+// graded programs that DO exercise lr.w/sc.w against the core are
+// test/asm/lrsc.S and its neighbours. Built and run by
 // test/sail/reservation_probe.sh; see docs/adr/0102.
 //
 // WHAT IT ASKS. The reservation policy is the one part of LR/SC the spec leaves

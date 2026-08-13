@@ -8,9 +8,9 @@
 //
 //   1. Wrap every trapping instruction in `.option norvc` / `.option pop`. The
 //      handler resumes at mepc+4 unconditionally, because Harvard buses mean it
-//      cannot read the faulting instruction to tell 2 bytes from 4, and the
-//      assembler compresses freely at -march=rv32imc_zicsr. Tests that
-//      terminate from inside the handler are unconstrained.
+//      cannot read the faulting instruction to tell 2 bytes from 4, and this
+//      suite's ISA string has C in it, so the assembler compresses freely.
+//      Tests that terminate from inside the handler are unconstrained.
 //   2. Install the handler before faulting. `mtvec` resets to 0, which is
 //      `_start`, so a trap before installation restarts the program.
 //   3. Assert in band. riscv-formal has no spec model for csrr*/ecall/ebreak/
@@ -72,6 +72,28 @@ tohost:                                                                      \
         .align  2;
 
 #define RVTEST_DATA_END
+
+// One AMO, graded on the word it RETURNS and the word it LEAVES BEHIND. The
+// read-back is the half that matters: test/cosim.cc compares architectural
+// registers and never compares memory, and riscv-formal ships no spec model for
+// any A encoding at the pin, so an AMO's effect on RAM is checked by nothing
+// anywhere unless the program loads it into a register itself.
+//
+// Needs an aligned word named `amodat` in `.data`. Clobbers x1, x2, x4, x5, x6
+// and x29, and sets TESTNUM.
+#define TEST_AMO( testnum, inst, memval, rs2val, oldval, newval )            \
+test_ ## testnum:                                                            \
+        li      TESTNUM, testnum;                                           \
+        la      x1, amodat;                                                 \
+        li      x2, memval;                                                 \
+        sw      x2, 0(x1);                                                  \
+        li      x4, rs2val;                                                 \
+        inst    x5, x4, (x1);                                               \
+        li      x29, oldval;                                                \
+        bne     x5, x29, fail;                                              \
+        lw      x6, 0(x1);                                                  \
+        li      x29, newval;                                                \
+        bne     x6, x29, fail;
 
 // Invoke after RVTEST_DATA_BEGIN so it lands in RAM, the only memory a load can
 // reach on this Harvard core.

@@ -1,0 +1,13 @@
+diff --git a/rtl/accessor.v b/rtl/accessor.v
+index f43d4aa..581b4c8 100644
+--- a/rtl/accessor.v
++++ b/rtl/accessor.v
+@@ -217,7 +217,7 @@ module accessor(
+   // signed expression, so no arm can take its signedness from a neighbour.
+   logic amo_compare, amo_signed;
+   assign amo_compare = take_amo_min || take_amo_max || take_amo_minu || take_amo_maxu;
+-  assign amo_signed  = take_amo_min || take_amo_max;
++  assign amo_signed  = 1'b0;
+ 
+   logic [32:0] amo_wide_mem, amo_wide_arg, amo_addend, amo_sum;
+   assign amo_wide_mem = {1'b0, amo_mem};
