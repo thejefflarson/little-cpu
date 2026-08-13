@@ -200,13 +200,15 @@ and the ticket that moves `misa` is where the suite and the reference model star
 
 ## What it cost
 
-**`make fit`: 3464 → 3935, +471 cells**, both on one machine and one toolchain with the same tree
-either side. The brief estimated 300–380 and it is 23% over that. Where it goes, in descending
-order: two 32-bit held registers for the write cycle's address and rs2, the two 32-bit muxes that
-give the read-modify-write the bus, the 33-bit adder/subtractor and the nine-way result mux, the
-30-bit reservation and its comparator, and eleven flags through the decoder's publish register.
-`FIT_MAX_LC` goes 3625 → 4000, which is 3935 plus the same ±50 churn band and the same toolchain
-term the old figure was derived with. **That is about a tenth of the core spent on instructions no
+**`make fit`: 3486 → 3938, +452 cells**, both figures the `fit` job's on the two trees, which is the
+number CLAUDE.md says to quote. A local Homebrew yosys reads 3464 and 3935 on the same pair — +471,
+19 cells apart on the delta and inside the churn band both ways — and that is the sanity check
+rather than the measurement. The brief estimated 300–380 and it is 19% over. Where it goes, in
+descending order: two 32-bit held registers for the write cycle's address and rs2, the two 32-bit
+muxes that give the read-modify-write the bus, the 33-bit adder/subtractor and the nine-way result
+mux, the 30-bit reservation and its comparator, and eleven flags through the decoder's publish
+register. `FIT_MAX_LC` goes 3625 → 4000, which is the job's 3938 plus the ±50 churn band, so the
+ratchet sits outside it. **That is about a tenth of the core spent on instructions no
 current workload executes**, and the brief's answer to why is the one this ADR adopts: every
 verification leg this project owns is single-hart, so this is where the eleven can be checked, and
 the multi-core milestone is then left verifying exactly one new thing.
@@ -259,7 +261,7 @@ placements above.
 | `make -C formal complete` / `complete_cover` | PASS / PASS |
 | `make -C formal complete-exclusions` / `interrupt-tie-off` | PASS / PASS |
 | `make -C formal dmemcheck` / `imemcheck` / `nonperturbation` | PASS / PASS / PASS |
-| `make fit` | 3935 of 4000 budgeted |
+| `make fit` | 3935 locally, **3938 in the `fit` job**, of 4000 budgeted |
 | `soc/timing_sweep.sh`, four seeds, both trees | the table above |
 
 `formal/pcloop.sv`'s `f_may_stall` gained the atomic wait, and it had to: that list is the harness's
@@ -288,8 +290,8 @@ Six red directions were forced rather than argued, three in each bench:
 - **G is 6 and the thinnest depths clear their floor by one.** The next change that adds a stall
   reason will have to raise a depth or find the cycle back somewhere, and it will find that out from
   `formal/checks.cfg`'s arithmetic rather than from a red check.
-- **`FIT_MAX_LC` is 4000 against 3935** — 67 cells of headroom where there had been 161. The up5k is
-  at 74% for the core alone.
+- **`FIT_MAX_LC` is 4000 against the job's 3938** — 62 cells of headroom, just outside the churn
+  band, where there had been 139. The up5k is at 74% for the core alone.
 - **The multi-core milestone now verifies one new thing.** The clear-on-matching-write rule is
   already the shape that extends to snooping a second hart's writes, and the `.aq`/`.rl` argument is
   recorded with the four things that invalidate it named: a second agent on memory, a store buffer,
