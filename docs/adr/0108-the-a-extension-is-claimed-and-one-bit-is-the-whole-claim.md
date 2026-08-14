@@ -186,7 +186,11 @@ it is ABC re-mapping the cone around a constant, which is the ±50 churn band CL
 records, exercised here about as cheaply as it can be. Reporting +53 as the price of claiming A
 would have been reading noise as a bill. `FIT_MAX_LC` stays 4000 — the `fit` job reads about 32
 cells below a local Homebrew yosys on identical RTL, so the job's number is expected near 3956, and
-the ratchet is what grades it.
+the ratchet is what grades it. **12 cells of local headroom is thinner than it sounds and thinner
+than it looks**: the OSS CAD Suite is not pinned, CI installs the latest release, so the offset
+between the two toolchains is itself free to move. The right response if the job trips is the same
+as ever — find the cells, or find the suite bump — and not a ratchet edit, because these four rows
+say there are no cells here to find.
 
 **`soc/timing_sweep.sh`, eight seeds a side, `SOC_PROG=datainit.c`, both taken on this tree and this
 machine rather than inherited.**

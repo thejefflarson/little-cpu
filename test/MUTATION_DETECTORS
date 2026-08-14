@@ -94,12 +94,10 @@ text-port-drops-load        asm   selfmod.S FAIL 2
 text-port-drops-load        asm   textload.S FAIL 3
 
 # misa gives bit 0 back, so the core executes the eleven atomics without
-# claiming them. Nothing else in the design moves and nothing else can see it:
-# the eleven still decode, still retire and still agree with the reference
-# model, so every other program and every other bench stays green. That is the
-# point of pairing it -- the bit is a claim about the hardware with no other
-# consequence, so the only thing standing between a wrong claim and a green
-# suite is one asm case and two bench reads. csr.S FAILs at its first misa read
-# of two, and csr_tb catches the read AND the write it is supposed to swallow.
+# claiming them. A self-description register has no other consequence -- the
+# eleven still decode, still retire and still agree with the reference model --
+# so this pairing is the measurement of how thin the claim's coverage is, and
+# the answer is one asm case and two bench reads. csr.S FAILs at the first of
+# its two misa reads; csr_tb catches the read AND the write it must swallow.
 misa-drops-the-a-bit        bench csr_tb
 misa-drops-the-a-bit        asm   csr.S FAIL 5

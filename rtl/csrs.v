@@ -101,9 +101,8 @@ module csrs(
   localparam logic [11:0] MIMPID    = 12'hF13;
   localparam logic [11:0] MHARTID   = 12'hF14;
 
-  // RV32 I M A C, MXL = 1. Bit 0 is A, and it is the only runtime statement
-  // that this core implements the eleven atomics -- a -march string is what the
-  // assembler accepts, not what the hardware claims.
+  // RV32 I M A C, MXL = 1. Bit 0 is A: the only run-time claim that this core
+  // implements the atomics, which a -march string does not make.
   localparam logic [31:0] MISA_VALUE = 32'h4000_1105;
 
   logic [63:0] mcycle, minstret;

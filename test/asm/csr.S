@@ -76,11 +76,9 @@ RVTEST_CODE_BEGIN
   TEST_CASE( 15, a0, 0, csrr a0, mtval; )
 
   # misa is read-only by VALUE, not by address: 0x301 is outside the read-only
-  # encoding range, so `csrw misa` retires rather than trapping and the WARL
-  # fallback swallows it. The spec allows a read-only misa, and CSRRW writes
-  # unconditionally even with rs1 = x0 — so this is the one form that would
-  # actually clear the A bit if anything could. The reference model agrees
-  # because its config says `writable_misa: false`.
+  # encoding range, so this retires rather than trapping and the WARL fallback
+  # swallows it. CSRRW writes even with rs1 = x0, so it is the one form that
+  # would clear the A bit if anything could; the model agrees at writable_misa.
   TEST_CASE( 16, a0, 0x40001105, \
     csrw misa, x0; \
     csrr a0, misa; )
