@@ -209,17 +209,21 @@
     // rtl/memory.v answers its range test about an atomic's address too, and
     // rtl/decoder.v faults the eleven encodings everywhere else -- cause 5 for
     // lr.w and cause 7 for the nine AMOs and sc.w. So exactly the 64 KB at
-    // 0x10000 is `RsrvEventual` and `AMOSwap`, and the three regions around it
-    // are `RsrvNone` and `AMONone`, where the model raises the same two causes
-    // the core does. That is what closed the suite's one A-extension
+    // 0x10000 is `RsrvEventual` and `AMOArithmetic`, and the three regions
+    // around it are `RsrvNone` and `AMONone`, where the model raises the same
+    // two causes the core does. That is what closed the suite's one A-extension
     // divergence: it used to be here because the model had only two settings
     // and the core was neither, answering an out-of-region lr.w with zero and
     // raising nothing.
     //
-    // `AMOSwap` rather than the model's widest atomic class because it is the
-    // narrowest one that admits every encoding this core implements -- amoswap
-    // through amomaxu and LR/SC. The wider classes name compare-and-swap and
-    // quadword variants that no `misa` bit here claims.
+    // `AMOArithmetic` rather than the model's widest atomic class because these
+    // values are ordered by strength and it is the weakest one that admits
+    // every encoding this core implements -- swap, the four logical and the
+    // four min/max. Measured, not read off the schema: at `AMOSwap` the model
+    // faults amoadd.w and test/asm's amo.S, amominmax.S, amotrap.S and lrsc.S
+    // all stop agreeing. The stronger values add compare-and-swap widths no
+    // `misa` bit here claims. LR/SC is `reservability`'s to decide, not this
+    // key's.
     //
     // WHAT IS STILL NOT SPLIT is loads and stores, which every region below
     // answers. An out-of-region load reads zero on this core and an
@@ -316,7 +320,7 @@
             "vector": { "None": null },
             "amo": "AccessFault"
           },
-          "atomic_support": "AMOSwap",
+          "atomic_support": "AMOArithmetic",
           "misaligned_atomicity_granule_size_exp": 4,
           "vector_misaligned_atomicity_granule_size_exp": 4,
           "reservability": "RsrvEventual",
