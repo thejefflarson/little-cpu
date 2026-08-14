@@ -208,6 +208,7 @@ raises no atomic wait and occupies the pipeline exactly as a trapping instructio
 | `make probe-gates` | all probes green (it runs inside `make test`) |
 | `make mutation-check` | **7 mutations**, each caught by exactly its declared detectors |
 | `make window-test` | 14 elaborations, each rejected or accepted as required |
+| `make cycles` | columns add up, `unattributed` 0, the `atomic` bucket unmoved — a refused atomic clears every flag, so it raises no wait |
 | `make lint` | clean in both passes |
 | `make waves` | PASS, and no `sorry:` note added |
 | `make -C formal check` | **86 checks, 86 pass**; `EXPECTED_FAIL` and `EXPECTED_CHECKS` exact both ways |
@@ -259,3 +260,8 @@ that half the file would pass on a core that faulted all eleven.
   expect to raise it with CI's number.
 - **The multi-core milestone is unaffected.** The bit is a PMA and a second hart does not change what
   region answers an atomic.
+- **`make cycles`'s hazard share reads 37.1% here against CLAUDE.md's 35.7%, and that is the SUITE
+  moving, not the core.** `amoregion.S` grew from 121 retires to 604 and now takes seventeen traps.
+  The 35.7% is ADR-0084's, re-derived by ADR-0099 on the suite as it was then; it is not re-derived
+  here, because a number that travels with a commitment should be re-taken by the change that means
+  to spend it, not adjusted in passing by one that changed a test program.
