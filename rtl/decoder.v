@@ -21,6 +21,18 @@ module decoder (
   // looking at that word, so the fault is committed with everything else here
   // and nothing downstream has to be told.
   input  logic imem_fault,
+  // The address an atomic would use, published for the platform to decode. It is
+  // `reg_rs1` verbatim: the A encodings put funct5, aq, rl and rs2 exactly where
+  // the I-immediate is read from, so the immediate mux forces zero and there is
+  // no adder in front of this. That is the whole reason the region question is
+  // affordable for the eleven and was not for a load or a store, whose answer
+  // waits on the top of a 32-bit sum.
+  output logic [31:0] atomic_addr,
+  // ...and the platform's answer: this address is memory that answers an atomic.
+  // Low means an lr.w there faults with cause 5 and an AMO or sc.w with cause 7,
+  // committed in decode with every other cause. A platform whose memory answers
+  // atomics everywhere ties it high and the core never takes either.
+  input  logic atomic_supported,
   // A store writes no register, so the hazard check ignores it. Serialization
   // still has to wait for one. That is what this is for -- without it a CSR
   // access can issue while a store is still in the accessor.
@@ -397,6 +409,14 @@ module decoder (
   logic [31:0] mem_addr_calc;
   assign mem_addr_calc = $signed(immediate) + $signed(reg_rs1);
 
+  // The address the platform is asked about, which is the same effective address
+  // for the eleven encodings that reach it -- the immediate mux forces zero for
+  // them, so the sum above and this wire agree. Not written as `mem_addr_calc`,
+  // because the whole value of this term is that it is the register output and
+  // not the adder's result; the `ifdef FORMAL` block below is what keeps the two
+  // facts from drifting apart.
+  assign atomic_addr = reg_rs1;
+
   // Misalignment needs two bits of the sum, and the low two bits of a sum depend
   // only on the low two bits of the operands -- so they are added here rather
   // than read off `mem_addr_calc`. Read from there, this test waits on a 32-bit
@@ -408,14 +428,34 @@ module decoder (
   // An atomic is word-wide and never split, so an unaligned one faults rather
   // than being emulated. `lr.w` reports as a load and the other ten as stores,
   // which is what the privileged spec asks: an AMO writes, and so does a
-  // store-conditional that succeeds.
+  // store-conditional that succeeds. That split is the same one the region fault
+  // below makes, so the ten that write are named once here.
+  logic instr_atomic_write, word_misaligned;
+  assign instr_atomic_write = instr_amo || instr_sc;
+  assign word_misaligned = mem_addr_low != 2'b00;
+
   logic load_misaligned, store_misaligned;
-  assign load_misaligned  = (instr_lw && mem_addr_low != 2'b00) ||
+  assign load_misaligned  = (instr_lw && word_misaligned) ||
                             ((instr_lh || instr_lhu) && mem_addr_low[0] != 1'b0) ||
-                            (instr_lr && mem_addr_low != 2'b00);
-  assign store_misaligned = (instr_sw && mem_addr_low != 2'b00) ||
+                            (instr_lr && word_misaligned);
+  assign store_misaligned = (instr_sw && word_misaligned) ||
                             (instr_sh && mem_addr_low[0] != 1'b0) ||
-                            ((instr_amo || instr_sc) && mem_addr_low != 2'b00);
+                            (instr_atomic_write && word_misaligned);
+
+  // An atomic the platform's memory does not answer. The address is `reg_rs1`
+  // with nothing in front of it, so this equality does not wait on a carry
+  // chain -- which is what a load's or a store's would, and is why those two
+  // causes are still absent.
+  //
+  // `!word_misaligned` keeps the four data causes disjoint and states an order
+  // at the same time: an atomic that is both unaligned and out of region reports
+  // the misalignment, which is what the reference model does. Take it out and
+  // two arms of the cause chain below match at once.
+  logic atomic_outside;
+  assign atomic_outside = !atomic_supported && !word_misaligned;
+  logic load_access_fault, store_access_fault;
+  assign load_access_fault  = instr_lr && atomic_outside;
+  assign store_access_fault = instr_atomic_write && atomic_outside;
 
   // `csr_write_op` already has Zicsr's suppression rules applied, so `csrr misa`
   // stays legal while `csrw misa` does not.
@@ -429,14 +469,17 @@ module decoder (
   localparam logic [31:0] CAUSE_ILLEGAL_INSTRUCTION = 32'd2;
   localparam logic [31:0] CAUSE_BREAKPOINT          = 32'd3;
   localparam logic [31:0] CAUSE_LOAD_MISALIGNED     = 32'd4;
+  localparam logic [31:0] CAUSE_LOAD_ACCESS_FAULT   = 32'd5;
   localparam logic [31:0] CAUSE_STORE_MISALIGNED    = 32'd6;
+  localparam logic [31:0] CAUSE_STORE_ACCESS_FAULT  = 32'd7;
   localparam logic [31:0] CAUSE_ECALL_M             = 32'd11;
   // Bit 31 says interrupt; 7 is the machine timer.
   localparam logic [31:0] CAUSE_MACHINE_TIMER       = 32'h8000_0007;
 
   logic trap_pending;
   assign trap_pending = imem_fault || instr_illegal || instr_ebreak || instr_ecall ||
-                        load_misaligned || store_misaligned;
+                        load_misaligned || store_misaligned ||
+                        load_access_fault || store_access_fault;
 
   // The instruction's own fault and an interrupt really can be true together,
   // and the interrupt wins: the instruction does not execute, so its fault does
@@ -445,12 +488,12 @@ module decoder (
   logic trap_taken;
   assign trap_taken = trap_pending || interrupt_pending;
 
-  // No `(* parallel_case *)` here. No two of the six synchronous causes can be
+  // No `(* parallel_case *)` here. No two of the eight synchronous causes can be
   // true at once today, so their order never matters -- but marking the case
   // one-hot tells synthesis it may assume that, and the two arms on top
   // genuinely overlap them. Add a cause that overlaps an existing one and you
   // get whatever the optimiser chose, instead of a failed assertion. The
-  // `ifdef FORMAL` block below checks the six can't overlap each other.
+  // `ifdef FORMAL` block below checks the eight can't overlap each other.
   //
   // The two arms on top are the deliberate overlaps. An interrupt wins because
   // the instruction does not execute, so its own fault does not happen. A fetch
@@ -467,6 +510,8 @@ module decoder (
       instr_ecall:      trap_cause = CAUSE_ECALL_M;
       load_misaligned:  trap_cause = CAUSE_LOAD_MISALIGNED;
       store_misaligned: trap_cause = CAUSE_STORE_MISALIGNED;
+      load_access_fault:  trap_cause = CAUSE_LOAD_ACCESS_FAULT;
+      store_access_fault: trap_cause = CAUSE_STORE_ACCESS_FAULT;
       default:          trap_cause = 32'b0;
     endcase
   end
@@ -765,7 +810,11 @@ module decoder (
       out.rvfi.pc_rdata <= fetcher_pc;
       out.rvfi.trap <= trap_pending;
       out.rvfi.intr <= intr_report;
-      out.rvfi.mem_fault <= imem_fault;
+      out.rvfi.mem_fault <= imem_fault || load_access_fault || store_access_fault;
+      // An lr.w reads, an sc.w writes, and an AMO does both -- so the masks are
+      // the access the instruction would have made, not the one it made.
+      out.rvfi.mem_fault_rmask <= {4{load_access_fault || (store_access_fault && !instr_sc)}};
+      out.rvfi.mem_fault_wmask <= {4{store_access_fault}};
       out.rvfi.rs1_addr <= rvfi_rs1_valid ? rs1 : 5'b0;
       out.rvfi.rs2_addr <= rvfi_rs2_valid ? rs2 : 5'b0;
       out.rvfi.rs1_rdata <= rvfi_rs1_valid ? reg_rs1 : 32'b0;
@@ -1009,16 +1058,24 @@ module decoder (
     instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu}));
 
   // This is what makes the trap-cause case above safe without a one-hot marking.
-  // Add a seventh cause that overlaps an existing one and this fails here. It is
+  // Add a ninth cause that overlaps an existing one and this fails here. It is
   // stated under `!imem_fault` because that arm deliberately overlaps every one
   // of them: a word the memory never supplied decodes to zero, which is illegal,
   // and reads register fields that could name any address at all.
   always_comb if (!imem_fault)
     assert($onehot0({instr_illegal, instr_ebreak, instr_ecall,
-                     load_misaligned, store_misaligned}));
+                     load_misaligned, store_misaligned,
+                     load_access_fault, store_access_fault}));
+
+  // The address the platform decodes really is the address the instruction uses,
+  // for every encoding that can raise the two region causes. Nothing else says
+  // so: `atomic_addr` skips the adder on purpose, so a change to the immediate
+  // mux would leave the fault talking about one address and the transaction
+  // about another, with the fault's own tests still green.
+  always_comb if (instr_atomic) assert(mem_addr_calc == atomic_addr);
 
   // One line per cause, not a copy of the case statement, so reordering its arms
-  // trips these instead of changing them to match. The six synchronous causes
+  // trips these instead of changing them to match. The eight synchronous causes
   // are each stated under the two arms above them, which is the priority those
   // arms buy: the interrupted instruction did not execute, so its own fault is
   // not what happened, and a word that was never fetched decoded to nothing.
@@ -1036,6 +1093,10 @@ module decoder (
   always_comb if (word_decides && instr_ecall)      assert(trap_cause == CAUSE_ECALL_M);
   always_comb if (word_decides && load_misaligned)  assert(trap_cause == CAUSE_LOAD_MISALIGNED);
   always_comb if (word_decides && store_misaligned) assert(trap_cause == CAUSE_STORE_MISALIGNED);
+  always_comb if (word_decides && load_access_fault)
+    assert(trap_cause == CAUSE_LOAD_ACCESS_FAULT);
+  always_comb if (word_decides && store_access_fault)
+    assert(trap_cause == CAUSE_STORE_ACCESS_FAULT);
   always_comb if (!trap_taken)       assert(trap_cause == 32'b0);
 
   // `mtvec`/`mepc` are free inputs here, so these are registered copies rather

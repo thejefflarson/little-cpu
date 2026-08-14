@@ -34,6 +34,14 @@ module littlecpu(
   // high; one that ties it low never lets a store-conditional succeed, which is
   // a spurious failure and permitted anywhere.
   input  logic        mem_reservable,
+  // The address an atomic in decode would use, and the platform's answer about
+  // it. This pair is the fetch bus's shape on the data side: the platform
+  // decodes its own map and hands back one bit, and the bit accompanies the
+  // address rather than a response, so decode can commit the fault with every
+  // other cause. Low means an lr.w there raises cause 5 and an AMO or sc.w
+  // cause 7. A platform whose memory answers atomics everywhere ties it high.
+  output logic [31:0] atomic_addr,
+  input  logic        atomic_supported,
   // The platform's machine-timer line. Registered at its source (rtl/timer.v
   // does it), because inside the core it is one gate away from the fetch loop.
   // A platform with no timer ties it low and the core never takes an interrupt.
@@ -169,6 +177,8 @@ module littlecpu(
     .divider_stall(divider_stalled),
     .fetch_stall(fetch_stall),
     .imem_fault(imem_fault),
+    .atomic_addr(atomic_addr),
+    .atomic_supported(atomic_supported),
     .accessor_out_valid(accessor_out_valid),
     .csr_rdata(csr_rdata),
     .csr_implemented(csr_implemented),

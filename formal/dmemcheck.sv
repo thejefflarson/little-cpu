@@ -33,6 +33,9 @@ module testbench (
   logic [31:0] imem_addr2;
   logic [31:0] imem_data2;
   logic [31:0] imem_addr_next;
+  // The address the core publishes for the platform to decode. Unread here:
+  // `atomic_supported` is tied high, so no atomic can fault in this task.
+  logic [31:0] atomic_addr;
   logic [31:0] mem_addr;
   logic [31:0] mem_wdata;
   logic [3:0]  mem_wstrb;
@@ -108,8 +111,12 @@ module testbench (
     // window for a fetch to fall outside of.
     .imem_fault(1'b0),
     // Tied off high: this task's memory model answers every address, so every
-    // address it answers is one a reservation may be held at.
+    // address it answers is one a reservation may be held at, and one an atomic
+    // is answered at. The address the core publishes for that second question is
+    // left unread for the same reason.
     .mem_reservable(1'b1),
+    .atomic_addr(atomic_addr),
+    .atomic_supported(1'b1),
     // Tied off; formal/check-interrupt-tie-off.py enforces it. formal/wrapper.v
     // carries the reason the riscv-formal side of the tree runs with no
     // interrupt in the trace.

@@ -30,6 +30,11 @@ module decoder_tb;
   // instruction-access-fault vectors below; every other vector presents a word
   // some memory really answered.
   logic imem_fault = 1'b0;
+  // The platform answers atomics at the address decode is publishing. Held high
+  // for every vector but the region-fault ones below, the way a memory that
+  // answers everywhere would drive it.
+  logic atomic_supported = 1'b1;
+  logic [31:0] atomic_addr;
   logic accessor_out_valid = 1'b0;
   // rtl/csrs.v is a sibling of the decoder, not part of it, so it is stubbed.
   logic [31:0] csr_rdata = 32'b0;
@@ -55,6 +60,8 @@ module decoder_tb;
     .divider_stall(divider_stall),
     .fetch_stall(fetch_stall),
     .imem_fault(imem_fault),
+    .atomic_addr(atomic_addr),
+    .atomic_supported(atomic_supported),
     .accessor_out_valid(accessor_out_valid),
     .csr_rdata(csr_rdata),
     .csr_implemented(csr_implemented),

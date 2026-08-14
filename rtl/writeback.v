@@ -101,13 +101,13 @@ module writeback(
   assign rvfi_intr = in.rvfi.intr;
  `ifdef RISCV_FORMAL_MEM_FAULT
   assign rvfi_mem_fault = in.rvfi.mem_fault;
-  // Constant zero, and that is the report rather than a placeholder: the only
-  // access this core refuses is a fetch, and checks/rvfi_fault_check.sv reads
-  // both masks being clear as exactly that. A load or a store outside the map is
-  // still answered -- rtl/imemory.v, rtl/memory.v and rtl/timer.v each drop it
-  // and read zero -- so there is nothing to set them for.
-  assign rvfi_mem_fault_rmask = 4'b0;
-  assign rvfi_mem_fault_wmask = 4'b0;
+  // Both clear is how checks/rvfi_fault_check.sv says a fetch was refused, which
+  // is the only refusal a plain load or store can produce here: an address no
+  // memory answers is still read as zero and written nowhere. An atomic outside
+  // the data RAM is the one data access that is refused, and decode sets these
+  // to the access it would have made.
+  assign rvfi_mem_fault_rmask = in.rvfi.mem_fault_rmask;
+  assign rvfi_mem_fault_wmask = in.rvfi.mem_fault_wmask;
  `endif
 
   always_comb begin

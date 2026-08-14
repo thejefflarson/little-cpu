@@ -71,12 +71,17 @@ typedef struct packed {
   logic        intr;
   // `rvfi_mem_fault`: the platform had no memory at this instruction's address.
   // Decode is the one stage that knows it -- the fetch that failed is the one it
-  // is looking at, and no access reaches the bus -- so it rides down here rather
-  // than coming from rtl/accessor.v with the rest of the mem_* report.
-  // checks/rvfi_fault_check.sv reads it with the two fault masks, which
-  // rtl/writeback.v holds at zero: both zero is how that check says instruction
-  // rather than load or store.
+  // is looking at, and an atomic the data memory refuses never reaches the bus
+  // either -- so all three ride down here rather than coming from
+  // rtl/accessor.v with the rest of the mem_* report.
+  //
+  // The two masks are how checks/rvfi_fault_check.sv tells the three refusals
+  // apart, and it reads them as the cause: both clear is a fetch and cause 1, a
+  // read mask alone is cause 5, and any write mask is cause 7 whatever the read
+  // mask says -- which is why an AMO sets both and gets the store cause.
   logic        mem_fault;
+  logic [3:0]  mem_fault_rmask;
+  logic [3:0]  mem_fault_wmask;
   // Exactly the CSRs formal/checks.cfg's `[csrs]` list names, captured in
   // decode -- the one stage that knows them, since ADR-0005 reads and
   // commits every CSR access there -- and forwarded on the same valid-bit
