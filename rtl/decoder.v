@@ -451,11 +451,17 @@ module decoder (
   // at the same time: an atomic that is both unaligned and out of region reports
   // the misalignment, which is what the reference model does. Take it out and
   // two arms of the cause chain below match at once.
-  logic atomic_outside;
-  assign atomic_outside = !atomic_supported && !word_misaligned;
+  //
+  // ONE term reaches the pc, not two. Which of the two causes it is depends on
+  // which way the instruction goes, and that question is answered off the fetch
+  // loop entirely -- `trap_cause` and the RVFI report are its only readers. The
+  // other spelling, two terms each carrying their own encoding test, measured
+  // 11.98 MHz at a placement this one clears.
+  logic atomic_fault;
+  assign atomic_fault = instr_atomic && !atomic_supported && !word_misaligned;
   logic load_access_fault, store_access_fault;
-  assign load_access_fault  = instr_lr && atomic_outside;
-  assign store_access_fault = instr_atomic_write && atomic_outside;
+  assign load_access_fault  = atomic_fault && instr_lr;
+  assign store_access_fault = atomic_fault && instr_atomic_write;
 
   // `csr_write_op` already has Zicsr's suppression rules applied, so `csrr misa`
   // stays legal while `csrw misa` does not.
@@ -478,8 +484,7 @@ module decoder (
 
   logic trap_pending;
   assign trap_pending = imem_fault || instr_illegal || instr_ebreak || instr_ecall ||
-                        load_misaligned || store_misaligned ||
-                        load_access_fault || store_access_fault;
+                        load_misaligned || store_misaligned || atomic_fault;
 
   // The instruction's own fault and an interrupt really can be true together,
   // and the interrupt wins: the instruction does not execute, so its fault does
