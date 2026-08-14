@@ -45,11 +45,10 @@ fi
 # THE ONE SOURCE. Everything below is graded against this string; changing it
 # alone, with no site changed, is red at every site.
 #
-# `a` is here while `misa` still reads 0x4000_1104, which is deliberate and
-# temporary: rtl/ decodes and executes the eleven A instructions, and claiming
-# the misa bit is a separate change that has to move rtl/csrs.v and the Sail
-# model's `A` key together. Nothing about a `-march` string is a claim about
-# misa -- it is what the assembler will accept.
+# `a` is here and `misa` reads 0x4000_1105 now, but the two are not the same
+# statement and this check grades only one of them. A `-march` string is what
+# the assembler will accept; misa is what the hardware claims at run time, and
+# it is graded by test/asm/csr.S and test/csr_tb.v instead.
 DECLARED_MARCH='rv32imac_zicsr_zifencei'
 
 # The sites, with the exact number of times each states it. An exact count

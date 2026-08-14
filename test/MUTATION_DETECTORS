@@ -92,3 +92,14 @@ text-port-drops-load        asm   contend.S FAIL 2
 text-port-drops-load        asm   datainit.c FAIL 1
 text-port-drops-load        asm   selfmod.S FAIL 2
 text-port-drops-load        asm   textload.S FAIL 3
+
+# misa gives bit 0 back, so the core executes the eleven atomics without
+# claiming them. Nothing else in the design moves and nothing else can see it:
+# the eleven still decode, still retire and still agree with the reference
+# model, so every other program and every other bench stays green. That is the
+# point of pairing it -- the bit is a claim about the hardware with no other
+# consequence, so the only thing standing between a wrong claim and a green
+# suite is one asm case and two bench reads. csr.S FAILs at its first misa read
+# of two, and csr_tb catches the read AND the write it is supposed to swallow.
+misa-drops-the-a-bit        bench csr_tb
+misa-drops-the-a-bit        asm   csr.S FAIL 5

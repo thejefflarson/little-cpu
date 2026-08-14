@@ -1,7 +1,7 @@
 # Little CPU
 
 A hobby RISC-V core in SystemVerilog on the open toolchain (Yosys / iverilog / SymbiYosys — no
-vendor EDA). Target **RV32IMC_Zicsr_Zifencei**, machine mode only; home is an ice40 up5k running at
+vendor EDA). Target **RV32IMAC_Zicsr_Zifencei**, machine mode only; home is an ice40 up5k running at
 the board's 12 MHz crystal.
 
 **Four goals: fast, simple, readable, formally verified.** They are not in tension by default — the
@@ -146,7 +146,7 @@ folded into 6.
 
 ## ISA target
 
-RV32IMC_Zicsr_Zifencei, M-mode only, `misa = 0x4000_1104` (neither Z-extension has a `misa` bit;
+RV32IMAC_Zicsr_Zifencei, M-mode only, `misa = 0x4000_1105` (neither Z-extension has a `misa` bit;
 the ISA string is the only place they are claimed). Traps implemented: instruction access fault = 1,
 illegal instruction = 2, breakpoint = 3, load misaligned = 4, store misaligned = 6,
 ecall from M = 11.
@@ -164,10 +164,13 @@ recommendation that precise access faults be raised, recorded as one rather than
 C stays because code density is a product constraint on the up5k (ADR-0002/0003). `fence.i` costs a
 pipeline drain — see the serialization commitment.
 
-**The eleven A instructions are decoded and executed, and `misa` does not claim them yet**
-(ADR-0106). `rtl/` implements Zaamo and Zalrsc in full — nine AMOs, `lr.w`, `sc.w`, `.aq`/`.rl`
-decoded and ignored, cause 4 for a misaligned `lr.w` and cause 6 for the other ten — while
-`misa` stays `0x4000_1104`. **The suite builds at `-march=rv32imac_zicsr_zifencei`**, so six
+**The eleven A instructions are decoded, executed and now claimed** (ADR-0106, ADR-0108). `rtl/`
+implements Zaamo and Zalrsc in full — `amoadd.w`, `amoswap.w`, `amoand.w`, `amoor.w`, `amoxor.w`,
+`amomin.w`, `amomax.w`, `amominu.w`, `amomaxu.w`, `lr.w` and `sc.w`, with `.aq`/`.rl` decoded and
+ignored, cause 4 for a misaligned `lr.w` and cause 6 for the other ten. **`misa` bit 0 is the only
+runtime statement of that**, and it moved with the reference model's `A` key in one change so the
+transition was falsifiable: at `0x4000_1105` against the model's `A: false`, `csr.S` diverged, and
+flipping the key agreed. **The suite builds at `-march=rv32imac_zicsr_zifencei`**, so six
 programs execute atomics — `amo.S`, `amominmax.S`, `amotrap.S`, `lrsc.S`, `lrsclock.S` and
 `amoregion.S` — and four of the six **agree with the reference model**, which is the semantic oracle
 for the nine functions, LR/SC's five invalidation events and the two misalignment causes. The `.S`
@@ -176,9 +179,9 @@ ships no spec model for any of the eleven, so an `OBSERVED_FLOOR` line for one o
 a retire count and not evidence anything was compared. Every claim they make is an in-band
 assertion, and every one reads its memory result back into a register because `test/cosim.cc`
 compares registers and never compares memory.
-**Claiming the `misa` bit is still a later change** — it moves `rtl/csrs.v` and the Sail model's
-`A` key together, and `misa` is what an ISA string cannot say.
-**The reservation is refused outside the
+**The bit is claimed while causes 5 and 7 are not implemented**, and that is the caveat to carry
+with it: `misa.A` says the eleven instructions are implemented, and they are, but an atomic outside
+RAM does not fault. **The reservation is refused outside the
 region `rtl/memory.v` answers**, which is the whole of the A extension's region attribute here: a
 `sc.w` where nothing is reserved fails and issues no transaction, so it cannot report success for a
 store that went nowhere. The decode-time region test that would instead raise causes 5 and 7 is the

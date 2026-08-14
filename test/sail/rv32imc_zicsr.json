@@ -56,7 +56,7 @@
     // RV32I, not RV32E: x16-x31 exist.
     "E": false,
 
-    // rtl/csrs.v returns misa as a constant 0x4000_1104. A `csrw misa` on this
+    // rtl/csrs.v returns misa as a constant 0x4000_1105. A `csrw misa` on this
     // core is a write to a read-only-value CSR, not a way to turn C off.
     "writable_misa": false,
 
@@ -390,13 +390,13 @@
     "max_time_to_wait": 10
   },
 
-  // EXTENSIONS -- audited against the ISA target. Enabled: I (the base), M, C
-  // and Zicsr, plus the ones that are enabled for a stated reason rather than
+  // EXTENSIONS -- audited against the ISA target. Enabled: I (the base), M, A,
+  // C and Zicsr, plus the ones that are enabled for a stated reason rather than
   // because the target names them:
   //
   //   Zca    is the C extension for this target. misa.C is set from Zca alone
   //          once F and D are off (Zcf and Zcd would otherwise be required
-  //          too), which is what brings misa to 0x4000_1104.
+  //          too), which with A is what brings misa to 0x4000_1105.
   //   Zicntr is enabled because it is what makes mcycle/minstret EXIST in the
   //          model -- measured: with it off, `csrr a0, minstret` raises an
   //          illegal-instruction trap and test/asm/trap.S and
@@ -442,10 +442,15 @@
     "Zifencei": { "supported": true },
 
     // --- the misa bits that were wrong ------------------------------------
-    // A, B, D, F, S, U and V. Each was `true` in the model's default RV32
-    // machine and none of them is implemented here. A is the one that has since
-    // split in two -- the key below is only its misa bit; see the Za* block.
-    "A": { "supported": false },
+    // B, D, F, S, U and V. Each was `true` in the model's default RV32 machine
+    // and none of them is implemented here.
+    //
+    // A IS NO LONGER ONE OF THEM. It is the misa.A bit alone -- the Za* block
+    // below executes the instructions on its own -- and it is true because
+    // rtl/csrs.v claims 0x40001105 now. The two moved in one change on purpose,
+    // so the transition was falsifiable: with the model already claiming A, the
+    // core starting to claim it would have gone green either way.
+    "A": { "supported": true },
     "B": { "supported": false },
     "D": { "supported": false },
     "F": { "supported": false, "fflags_dirty_policy": "Fflags_Dirty_Precise" },
@@ -501,9 +506,9 @@
     // them.
     //
     // `A` ABOVE IS NOT AN UMBRELLA OVER THESE TWO. It is the misa.A bit and
-    // nothing else, and that is the whole reason it is still false while these
-    // are true. Measured, all four combinations, with a csrr of misa and with
-    // the probe:
+    // nothing else, which is why the three keys were once set apart from each
+    // other and are now all true for two different reasons. Measured, all four
+    // combinations, with a csrr of misa and with the probe:
     //
     //   A     Zaamo/Zalrsc   misa         lr.w/sc.w
     //   true  true           0x40001105   execute
@@ -511,13 +516,12 @@
     //   false true           0x40001104   execute
     //   false false          0x40001104   illegal instruction
     //
-    // rtl/csrs.v returns misa as a constant 0x40001104, so `A: true` would put
-    // 0x40001105 in an architectural register at test/asm/csr.S's two misa
-    // reads and diverge there -- a red co-simulation gate earned by the
-    // reference model, not by the core. `A` FLIPS IN THE SAME CHANGE THAT MAKES
-    // rtl/csrs.v CLAIM THE BIT, and not before. Turning it on early would also
-    // hide that transition: with the model already claiming A, the change that
-    // makes the core claim it would go green either way.
+    // So `A` alone decides what test/asm/csr.S's two misa reads compare
+    // against, and the transition was demonstrated in the change that made it:
+    // with rtl/csrs.v at 0x40001105 and this key still false, csr.S diverged at
+    // architectural change 17 on `csrrs x10, misa, x0` -- sail 0x40001104
+    // against the core's 0x40001105 -- and flipping the key agreed. Anything
+    // that moves one of the two must move the other in the same commit.
     //
     // The rest of the Za* family stays off because it is not this target: Zabha
     // is byte and halfword AMOs, Zacas is compare-and-swap, Zama16b is a
