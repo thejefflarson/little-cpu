@@ -66,14 +66,30 @@ fencei-wait-and-store-port  asm   selfmod.S FAIL 2
 
 # A store-conditional that reports SUCCESS whatever the reservation says. rd is
 # the only thing an sc.w writes, so this is the whole instruction going wrong,
-# and it is caught at the two places the suite asks for a FAILURE: lrsc.S's
-# first case, which is an sc.w with no lr.w anywhere before it, and
-# amoregion.S's, which is one outside the region the platform will reserve.
+# and lrsc.S's first case catches it: an sc.w with no lr.w anywhere before it.
 # lrsclock.S is NOT a detector and that is right -- every sc.w in it is meant to
 # succeed, so a core that always says so finishes it.
+#
+# amoregion.S WAS the second detector, at an sc.w outside the region the
+# platform will reserve, and it stopped being one when that sc.w started
+# faulting: an atomic the data RAM does not answer raises cause 7 in decode now,
+# so it never reaches the accessor and the reservation refusal behind it is no
+# longer reachable from software at all. The refusal stays in rtl/accessor.v as
+# the second half of one statement -- a platform that tied the fault bit high
+# would still not let an sc.w claim a write that went nowhere -- and
+# accessor_tb is what grades it. This paragraph is here so the next reader finds
+# the reason rather than a shorter table.
 sc-reports-success          bench accessor_tb
 sc-reports-success          asm   lrsc.S FAIL 2
-sc-reports-success          asm   amoregion.S FAIL 5
+
+# The platform's answer about an atomic's address, ignored: every atomic
+# executes wherever it is pointed, which is the behaviour the two causes
+# replaced. amoregion.S's first refused case is what sees it, and decoder_tb
+# sees it at the decode boundary. amo.S, amominmax.S, lrsc.S and lrsclock.S do
+# NOT, and that is right -- every atomic in them is inside the data RAM, so a
+# core that never refuses one finishes them all.
+atomic-region-ignored       bench decoder_tb
+atomic-region-ignored       asm   amoregion.S FAIL 4
 
 # All four min/max compares read unsigned: the sign-bit correction on the shared
 # 33-bit adder/subtractor deleted. amominmax.S is the ONLY program that catches

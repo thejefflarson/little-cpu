@@ -139,52 +139,51 @@
 # instead by test/sail/reservation_probe.sh, which asks the model that question
 # with no core involved (docs/adr/0102), and in band by lrsclock.S itself.
 #
-# amoregion.S IS THE SUITE'S ONE REAL DIVERGENCE FOR THE A EXTENSION, and it is
-# question 1 of the procedure above answered NO after the configuration was
-# actually tried both ways rather than reasoned about.
+# amoregion.S WAS AN ENTRY HERE AND IS NOT ONE ANY MORE, and the way it was
+# closed is worth more than the line was. It is written down because the entry
+# said the model could not be configured to be this machine, and that was true
+# of the machine at the time and stopped being true when the machine changed.
 #
-# What the program asserts is this core's reservability attribute: rtl/memory.v
-# exports the range test it already computes, so a reservation is refused
-# anywhere but the 64 KB data RAM and an sc.w there fails and issues no
-# transaction. The divergence is at test 5's sc.w to 0x0004_0000, where the core
-# writes rd=1 and the model writes rd=0.
+# It read `DISAGREE AT 18`, at an sc.w to 0x0004_0000 where the core wrote rd=1
+# and the model wrote rd=0. What it recorded was that the model has exactly two
+# settings for a region's reservability and this core was neither:
 #
-# THE MODEL HAS EXACTLY TWO SETTINGS FOR A REGION AND THIS CORE IS NEITHER.
-# Measured on 0.13.1 with the region split at the data RAM's bounds:
-#
-#   reservability     what the model does at 0x0004_0000
 #   RsrvEventual      the lr.w takes a reservation and the sc.w SUCCEEDS
 #   RsrvNone          the lr.w raises a LOAD ACCESS FAULT, cause 5
 #
-# This core does a third thing: it answers the lr.w with zero, takes no
-# reservation, and raises nothing. That is not a choice made here to dodge the
-# model — it is ADR-0104's recorded deviation, where the decode-time region test
-# that would raise causes 5 and 7 was built, measured at four logic levels in
-# the fetch loop and 10.57-11.00 MHz against a 12.00 MHz requirement, and
-# declined. So RsrvNone would trade this divergence for a worse one: a control
-# flow difference rather than a register value, on a fault the core is recorded
-# as not raising. The region split is therefore NOT in
-# test/sail/rv32imac_zicsr.json, and that file's region comment carries the same
-# measurement so the next person to reach for the knob finds it there.
+# The core answered the lr.w with zero, took no reservation and raised nothing —
+# a third behaviour, and one no configuration of the model describes. That was
+# ADR-0104's recorded deviation: the decode-time region test that raises causes
+# 5 and 7 was built for loads and stores, measured at four logic levels in the
+# fetch loop and 10.57-11.00 MHz against a 12.00 MHz requirement, and declined.
 #
-# Question 2 does not fit either: an sc.w's result IS the branch condition three
-# instructions later, so the two runs take different paths and no value
-# exemption can be scoped narrowly enough. That leaves question 3, and the
-# honest answer to it is that the program asserts an implementation-defined
-# platform attribute the model is entitled to answer differently. Everything
-# about the A extension that IS co-simulable was deliberately kept out of this
-# program and lives in amo.S, amominmax.S, amotrap.S and lrsc.S, all four of
-# which AGREE — so the semantic oracle for the nine AMO functions, for LR/SC's
-# five invalidation events and for the two misalignment causes is live, and this
-# entry costs exactly the region attribute and nothing else.
+# THE CORE RAISES BOTH CAUSES FOR AN ATOMIC NOW, so `RsrvNone` is what this
+# platform is and the region map in test/sail/rv32imac_zicsr.json says so — the
+# 64 KB data RAM is RsrvEventual and AMOArithmetic, everything around it
+# RsrvNone and AMONone. The measurement that declined the general case did not
+# transfer, because an atomic's effective address is rs1 with no adder in front
+# of it while a load's and a store's is the top of a 32-bit sum. So the answer
+# to question 1 flipped, and the program AGREEs.
+#
+# WHAT AN ENTRY LIKE THIS COSTS WHILE IT IS OPEN, since that is the reason to
+# record how it closed: co-simulation is the only value-checking oracle the A
+# extension has — the pin ships no spec model for any of the eleven encodings,
+# so test/monitor.sim.v grades pc continuity on an A retire and nothing else.
+# A baselined program is one this oracle says nothing about at all.
+#
+# ONE HALF OF THE DEVIATION IS STILL OPEN AND IS DELIBERATELY NOT ASSERTED. A
+# plain store to an address no memory answers is still dropped silently, so a
+# program that wrote there and read it back would diverge here again: the model
+# has memory at that address. amoregion.S therefore asserts only the load half,
+# which reads zero on both, and says so where it does it.
 #
 # THE FAILURE DIRECTION IS STILL LIVE. These are name-and-status pairs under set
-# equality, so if a future change makes any of these programs AGREE, or makes it
-# diverge some other way, this gate goes red and these paragraphs get re-read.
-# amoregion.S pins the divergence POINT as well: an sc.w that starts failing
-# somewhere else is failing for a new reason.
+# equality, so if a future change makes any of the three below AGREE, or makes
+# one diverge some other way, this gate goes red and these paragraphs get
+# re-read. That is how the entry above came out: the program AGREEd, the gate
+# said so, and the line was removed with the reason rather than the reason being
+# reconstructed later.
 
-amoregion.S   DISAGREE AT 18
 lrsclock.S    INCONCLUSIVE SAIL-LIMIT
 mtimer.S      INCONCLUSIVE SAIL-LIMIT
 mtimermask.S  INCONCLUSIVE SAIL-LIMIT
