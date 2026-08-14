@@ -140,15 +140,15 @@ module traps (
   localparam logic [11:0] MCYCLEH   = 12'hB80;
   localparam logic [11:0] MINSTRETH = 12'hB82;
 
-  localparam logic [31:0] CAUSE_ILLEGAL    = 32'd2;
-  localparam logic [31:0] CAUSE_BREAKPOINT = 32'd3;
-  localparam logic [31:0] CAUSE_LOAD_MIS   = 32'd4;
-  localparam logic [31:0] CAUSE_LOAD_FAULT = 32'd5;
-  localparam logic [31:0] CAUSE_STORE_MIS  = 32'd6;
+  localparam logic [31:0] CAUSE_ILLEGAL     = 32'd2;
+  localparam logic [31:0] CAUSE_BREAKPOINT  = 32'd3;
+  localparam logic [31:0] CAUSE_LOAD_MIS    = 32'd4;
+  localparam logic [31:0] CAUSE_LOAD_FAULT  = 32'd5;
+  localparam logic [31:0] CAUSE_STORE_MIS   = 32'd6;
   localparam logic [31:0] CAUSE_STORE_FAULT = 32'd7;
-  localparam logic [31:0] CAUSE_ECALL_M    = 32'd11;
+  localparam logic [31:0] CAUSE_ECALL_M     = 32'd11;
   // Bit 31 says interrupt; 7 is the machine timer.
-  localparam logic [31:0] CAUSE_TIMER_IRQ  = 32'h8000_0007;
+  localparam logic [31:0] CAUSE_TIMER_IRQ   = 32'h8000_0007;
 
   logic clocked;
   initial clocked = 0;
@@ -233,7 +233,11 @@ module traps (
   // the bits an I-immediate would come from, so there is no immediate to add.
   // `lr.w` is the one whose rs2 field is an encoding constant, and a non-zero
   // one is a different encoding, so it is checked here rather than assumed.
-  logic is_amo_op, is_lr, is_sc, is_amo, atomic_word_aligned, atomic_refused;
+  // The nine funct5 values are written out rather than reduced to a range: the
+  // values between them are reserved, and an encoding this core is free to call
+  // illegal must reach neither list below.
+  logic is_amo_op, is_lr, is_sc, is_amo, is_atomic;
+  logic atomic_word_aligned, atomic_refused;
   assign is_amo_op = uncompressed && opcode == 5'b01011 && funct3 == 3'b010;
   assign is_lr = is_amo_op && instr[31:27] == 5'b00010 && instr[24:20] == 5'b0;
   assign is_sc = is_amo_op && instr[31:27] == 5'b00011;
@@ -242,6 +246,7 @@ module traps (
                                 instr[31:27] == 5'b01100 || instr[31:27] == 5'b10000 ||
                                 instr[31:27] == 5'b10100 || instr[31:27] == 5'b11000 ||
                                 instr[31:27] == 5'b11100);
+  assign is_atomic = is_amo || is_lr || is_sc;
   assign atomic_word_aligned = reg_rs1[1:0] == 2'b00;
   assign atomic_refused = !atomic_supported && atomic_word_aligned;
 
@@ -268,7 +273,7 @@ module traps (
   logic [31:0] expected_cause;
   assign expected_trap = is_illegal || is_ebreak || is_ecall ||
                          lw_misaligned || lh_misaligned || sw_misaligned || sh_misaligned ||
-                         (is_lr && atomic_refused) || ((is_amo || is_sc) && atomic_refused);
+                         (is_atomic && atomic_refused);
   always_comb begin
     if (is_illegal) expected_cause = CAUSE_ILLEGAL;
     else if (is_ebreak) expected_cause = CAUSE_BREAKPOINT;
@@ -288,7 +293,7 @@ module traps (
       (uncompressed && opcode == 5'b01100 && instr[31:25] == 7'b0 && funct3 == 3'b000) ||
       (is_load_op && funct3 == 3'b010 && load_addr[1:0] == 2'b00) ||
       (is_store_op && funct3 == 3'b010 && store_addr[1:0] == 2'b00) ||
-      ((is_amo || is_lr || is_sc) && atomic_supported && atomic_word_aligned);
+      (is_atomic && atomic_supported && atomic_word_aligned);
 
   // mstatus changes on three edges and no others: a write to it, a trap and an
   // mret. The write term is any write, not just one to this address -- coarser

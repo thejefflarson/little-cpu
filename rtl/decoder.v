@@ -409,12 +409,10 @@ module decoder (
   logic [31:0] mem_addr_calc;
   assign mem_addr_calc = $signed(immediate) + $signed(reg_rs1);
 
-  // The address the platform is asked about, which is the same effective address
-  // for the eleven encodings that reach it -- the immediate mux forces zero for
-  // them, so the sum above and this wire agree. Not written as `mem_addr_calc`,
-  // because the whole value of this term is that it is the register output and
-  // not the adder's result; the `ifdef FORMAL` block below is what keeps the two
-  // facts from drifting apart.
+  // Deliberately not `mem_addr_calc`, whose value is identical for the eleven
+  // encodings that read this: the whole worth of the term is that it is the
+  // register output rather than the adder's result. The `ifdef FORMAL` block
+  // below is what keeps those two facts from drifting apart.
   assign atomic_addr = reg_rs1;
 
   // Misalignment needs two bits of the sum, and the low two bits of a sum depend

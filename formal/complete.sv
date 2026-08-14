@@ -87,8 +87,7 @@ module rvfi_testbench (
     .imem_fault(1'b0),
     // Tied off high: this task's memory model answers every address, so every
     // address it answers is one a reservation may be held at, and one an atomic
-    // is answered at. The address the core publishes for that second question is
-    // left unread for the same reason.
+    // is answered at.
     .mem_reservable(1'b1),
     .atomic_addr(atomic_addr),
     .atomic_supported(1'b1),
