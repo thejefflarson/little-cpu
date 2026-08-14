@@ -157,7 +157,7 @@ module csr_tb;
     check_read("mcause resets to 0", 12'h342, 32'h0);
     check_read("mstatus resets to MPP=M", 12'h300, 32'h0000_1800);
 
-    check_read("misa", 12'h301, 32'h4000_1104);
+    check_read("misa", 12'h301, 32'h4000_1105);
     check_read("mie resets to 0", 12'h304, 32'h0);
     check_read("mip reads 0 with no source asserting", 12'h344, 32'h0);
     check_read("mtval reads 0", 12'h343, 32'h0);
@@ -226,7 +226,7 @@ module csr_tb;
     // WARL fallback that swallows these is what makes the RVFI report tell the
     // truth about what landed.
     poke(12'h301, 32'hffff_ffff);
-    check_read("misa ignores a write", 12'h301, 32'h4000_1104);
+    check_read("misa ignores a write", 12'h301, 32'h4000_1105);
     poke(12'h344, 32'hffff_ffff);
     check_read("mip ignores a write -- MTIP is the platform's line", 12'h344, 32'h0);
     poke(12'h343, 32'hffff_ffff);

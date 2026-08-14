@@ -92,3 +92,12 @@ text-port-drops-load        asm   contend.S FAIL 2
 text-port-drops-load        asm   datainit.c FAIL 1
 text-port-drops-load        asm   selfmod.S FAIL 2
 text-port-drops-load        asm   textload.S FAIL 3
+
+# misa gives bit 0 back, so the core executes the eleven atomics without
+# claiming them. A self-description register has no other consequence -- the
+# eleven still decode, still retire and still agree with the reference model --
+# so this pairing is the measurement of how thin the claim's coverage is, and
+# the answer is one asm case and two bench reads. csr.S FAILs at the first of
+# its two misa reads; csr_tb catches the read AND the write it must swallow.
+misa-drops-the-a-bit        bench csr_tb
+misa-drops-the-a-bit        asm   csr.S FAIL 5

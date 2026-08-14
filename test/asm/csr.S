@@ -47,7 +47,7 @@ RVTEST_CODE_BEGIN
   # the fatal handler below would report this test number.
   #-------------------------------------------------------------
 
-  TEST_CASE( 5, a0, 0x40001104, csrrs a0, misa, x0; )
+  TEST_CASE( 5, a0, 0x40001105, csrrs a0, misa, x0; )
   TEST_CASE( 6, a1, 0x5678, csrrs a0, mscratch, x0; csrr a1, mscratch; )
 
   #-------------------------------------------------------------
@@ -65,7 +65,7 @@ RVTEST_CODE_BEGIN
   # The read-only identification CSRs.
   #-------------------------------------------------------------
 
-  TEST_CASE( 10, a0, 0x40001104, csrr a0, misa; )
+  TEST_CASE( 10, a0, 0x40001105, csrr a0, misa; )
   TEST_CASE( 11, a0, 0, csrr a0, mvendorid; )
   TEST_CASE( 12, a0, 0, csrr a0, marchid; )
   TEST_CASE( 13, a0, 0, csrr a0, mimpid; )
@@ -74,6 +74,14 @@ RVTEST_CODE_BEGIN
   # mtval is hardwired zero, so it reads zero out of reset and
   # after any trap. That much is true of the reference model too.
   TEST_CASE( 15, a0, 0, csrr a0, mtval; )
+
+  # misa is read-only by VALUE, not by address: 0x301 is outside the read-only
+  # encoding range, so this retires rather than trapping and the WARL fallback
+  # swallows it. CSRRW writes even with rs1 = x0, so it is the one form that
+  # would clear the A bit if anything could; the model agrees at writable_misa.
+  TEST_CASE( 16, a0, 0x40001105, \
+    csrw misa, x0; \
+    csrr a0, misa; )
 
   # THREE ASSERTIONS USED TO LIVE HERE AND CANNOT — not in this file. They are
   # that `mie` reads zero, that `mip` reads zero, and that a write to either
