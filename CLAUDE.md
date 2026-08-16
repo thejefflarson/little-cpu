@@ -351,7 +351,10 @@ and times.
   cell after a neighbouring net, so neither `icetime`'s net names along a path nor a per-module cell
   count off the placed netlist attributes anything: a ROM-slicing experiment moved the `imem.`
   bucket by −193 while `SB_LUT4` total moved +17, and `executor` "grew" 181 cells on RTL nobody
-  touched. Only totals are comparable across builds.
+  touched. Only totals are comparable across builds. **A `-noflatten` per-module count is not a
+  harvest estimate either**: it sums to 6158 `SB_LUT4` against the flattened design's 4315, unevenly
+  — `regfile`'s 2109 is four block RAMs that only get inferred flat, and `timer`'s 322 understates a
+  real cost of 417 packed cells (ADR-0112). A census is not a ceiling; take the ceiling.
 - **`make soc-timing` has a ~3.6% edit-churn band and a 1–2% placement spread.** One placement is a
   sample: `soc/timing_sweep.sh` runs four seeds; compare distributions, not single runs. A delta of
   a couple of percent is not evidence of anything. **It is spelling-dependent the way `fit` is**, and
@@ -446,10 +449,22 @@ and times.
   counters RV32 M-mode mandates, its WARL write mux and every legal-value mask together are worth
   **one**, the register file's write-through bypass is 31 and all its fabric 133, and `mem_rdata`'s
   three-source OR is at the two-LUT floor its six inputs set — an XOR in its place *costs* 19
-  (ADR-0096). **A conditional increment on this fabric is a clock enable, not a mux**: `en ? x + 1 : x`
+  (ADR-0096). So are `rtl/accessor.v`, `rtl/timer.v`, `rtl/memory.v`'s gating and the A extension's
+  decode rows, on twenty-three more ceilings of which **six are zero or a cost**: only two clear the
+  band, the AMO result mux with its 33-bit adder/subtractor at 241 cells and the timer's 64-bit
+  magnitude compare at 120, and a carry chain here is free — those 67 carry bits are worth three cells
+  between them (ADR-0112). The rest are closed by name, including `rtl/memory.v`'s two range tests at
+  **zero** and the decoder's `instr_amo_op` immediate arm at zero on both tops. **A conditional
+  increment on this fabric is a clock enable, not a mux**: `en ? x + 1 : x`
   is 128 `SB_DFFESR` and no logic, and riding the adder's carry-in instead frees three cells, moves
-  those flops to `SB_DFFSR` and misses 12 MHz at six placements out of six. Read the `SB_DFFE*` census
+  those flops to `SB_DFFSR` and misses 12 MHz at six placements out of six. `mtimecmp`'s byte-write
+  path is the same shape — 64 clock-enable pins and no mux to collect. Read the `SB_DFFE*` census
   before believing a LUT count, and sweep seeds even for a candidate that is a null on area.
+- **Grade a ceiling on packed `ICESTORM_LC`, not on `SB_LUT4`.** The two disagree in magnitude and in
+  sign, on netlists whose packing is seed-independent: `rtl/timer.v`'s read mux is −70 `SB_LUT4` and
+  −41 cells, which is the difference between clearing the ±50 band and not, and `mtime`'s byte-write
+  path is −17 `SB_LUT4` and **+45 cells** (ADR-0112). A LUT the flops beside it were sharing a cell
+  with is not a LUT you can spend.
 - **There are two loops around the fetch address, within 2 ns of each other**, which is why work
   moved out of one arrives in the other at full price: `ROM RDATA → instr → rs1 → scoreboard → stall
   → next_pc → ROM address`, and `accessor_out.rd_data → writeback → the regfile's write-through
