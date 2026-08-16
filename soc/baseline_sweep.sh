@@ -61,8 +61,17 @@ tool_path() {
   printf '%s' "$path"
 }
 
+# Graded on the tool's own status and not merely on whether it printed: the
+# local nextpnr on one machine here answers `--version` with a dynamic-linker
+# error, which is a non-empty first line and would otherwise be stamped as this
+# sweep's toolchain version.
 first_line() {
-  line=$("$@" 2>&1 | sed -n '1p')
+  if ! said=$("$@" 2>&1); then
+    echo "*** soc/baseline_sweep.sh: '$1' could not be asked for its version:" >&2
+    printf '%s\n' "$said" >&2
+    exit 1
+  fi
+  line=$(printf '%s\n' "$said" | sed -n '1p')
   if [ -z "$line" ]; then
     echo "*** soc/baseline_sweep.sh: '$1' printed no version string." >&2
     exit 1

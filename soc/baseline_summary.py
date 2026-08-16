@@ -59,12 +59,13 @@ def load(path):
     except OSError as err:
         sys.exit(f"*** {path}: {err.strerror}, so there is nothing to summarise.")
 
-    if not lines or lines[0].strip() != MARKER:
+    lines = [line.strip() for line in lines]
+    if not lines or lines[0] != MARKER:
         reject(path, f"no provenance block -- the first line is not '{MARKER}'")
-    if END not in [line.strip() for line in lines]:
+    if END not in lines:
         reject(path, f"the provenance block is truncated: no '{END}' line")
 
-    end = [line.strip() for line in lines].index(END)
+    end = lines.index(END)
     provenance = {}
     for line in lines[1:end]:
         key, _, value = line.lstrip("# ").partition(":")
@@ -99,33 +100,37 @@ def span(rows, column):
 
 def stats(rows):
     ns = [row["ns"] for row in rows]
+    worst, best = max(ns), min(ns)
     return {
         "n": len(ns),
-        "worst": max(ns),
-        "best": min(ns),
+        "worst": worst,
+        "best": best,
         "median": statistics.median(ns),
-        "spread": 100 * (max(ns) - min(ns)) / min(ns),
+        "spread": 100 * (worst - best) / best,
     }
+
+
+def field(label, text):
+    print(f"  {label:13s}: {text}")
 
 
 def report(path, provenance, rows):
     s = stats(rows)
     print(f"== {path} ==")
-    print(f"  {'base':13s}: {provenance['base'][:12]} "
-          f"({'DIRTY TREE' if provenance['dirty'] != 'no' else 'clean'})")
-    print(f"  {'program':13s}: {provenance['prog']} into {provenance['rom_words']} ROM words")
+    field("base", f"{provenance['base'][:12]} "
+                  f"({'DIRTY TREE' if provenance['dirty'] != 'no' else 'clean'})")
+    field("program", f"{provenance['prog']} into {provenance['rom_words']} ROM words")
     for tool in ("yosys", "nextpnr-ice40", "icetime"):
-        print(f"  {tool:13s}: {provenance[tool]}")
-    print(f"  {'measured':13s}: {provenance['date']} on {provenance['host']}")
+        field(tool, provenance[tool])
+    field("measured", f"{provenance['date']} on {provenance['host']}")
     print()
-    print(f"  {s['n']} placements of seeds: {provenance['seeds']}")
-    print(f"  {'worst':13s}: {s['worst']:6.2f} ns  {1000 / s['worst']:6.2f} MHz")
-    print(f"  {'median':13s}: {s['median']:6.2f} ns  {1000 / s['median']:6.2f} MHz")
-    print(f"  {'best':13s}: {s['best']:6.2f} ns  {1000 / s['best']:6.2f} MHz")
-    print(f"  {'spread':13s}: {s['spread']:.1f}% of the best placement")
-    print(f"  {'LUT levels':13s}: {span(rows, 'lut_levels')}   "
-          f"carry hops: {span(rows, 'carry_hops')}   LC: {span(rows, 'lc')}")
-    print(f"  {'worst path':13s}: {rows[-1]['start']} -> {rows[-1]['end']}")
+    print(f"  {s['n']} placement{'' if s['n'] == 1 else 's'} of seeds: {provenance['seeds']}")
+    for label in ("worst", "median", "best"):
+        field(label, f"{s[label]:6.2f} ns  {1000 / s[label]:6.2f} MHz")
+    field("spread", f"{s['spread']:.1f}% of the best placement")
+    field("LUT levels", f"{span(rows, 'lut_levels')}   "
+                        f"carry hops: {span(rows, 'carry_hops')}   LC: {span(rows, 'lc')}")
+    field("worst path", f"{rows[-1]['start']} -> {rows[-1]['end']}")
     print()
 
 
@@ -188,8 +193,9 @@ def main():
 
     if len(loaded) != 2:
         return
+    (first_path, first_prov, first_rows), (second_path, second_prov, second_rows) = loaded
 
-    reasons = mismatches(*[(path, provenance) for path, provenance, _ in loaded])
+    reasons = mismatches((first_path, first_prov), (second_path, second_prov))
     if reasons and not args.allow_mismatch:
         print("*** these two sweeps were not measured the same way, so the")
         print("*** difference between them is not a measurement of the design:")
@@ -201,7 +207,7 @@ def main():
         print("--allow-mismatch was passed:")
         emit(reasons, "  ")
         print()
-    delta(loaded[0][2], loaded[1][2])
+    delta(first_rows, second_rows)
 
 
 if __name__ == "__main__":
