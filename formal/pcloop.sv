@@ -27,6 +27,9 @@ module pcloop (
     // and the increment assertion skips a redirect because the decoder's own
     // `branch_jump` names the trap it raises.
     input logic imem_fault,
+    // Free for the same reason and with the same effect: an atomic the platform
+    // does not answer redirects the pc, and `branch_jump` names that trap too.
+    input logic atomic_supported,
     input logic accessor_out_valid,
     input logic [31:0] csr_rdata,
     input logic csr_implemented,
@@ -40,6 +43,10 @@ module pcloop (
   logic [31:0] pc;
   logic [31:0] imem_addr, imem_addr2;
   logic [31:0] next_pc, imem_addr_next;
+  // The address the decoder publishes for a platform to decode. Unread here:
+  // `atomic_supported` is a free input, so the region decision is the
+  // solver's rather than a map's.
+  logic [31:0] atomic_addr;
   fetcher_output fetcher_out;
   decoder_output decoder_out;
   logic [4:0] rs1, rs2, read_rs1, read_rs2;
@@ -72,6 +79,8 @@ module pcloop (
     .divider_stall(divider_stall),
     .fetch_stall(fetch_stall),
     .imem_fault(imem_fault),
+    .atomic_addr(atomic_addr),
+    .atomic_supported(atomic_supported),
     .accessor_out_valid(accessor_out_valid),
     .csr_rdata(csr_rdata),
     .csr_implemented(csr_implemented),

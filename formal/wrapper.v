@@ -45,6 +45,15 @@ module rvfi_wrapper (
   // spuriously is permitted everywhere.
   (* keep *) `rvformal_rand_reg mem_reservable;
 
+  // Whether an atomic's address is memory that answers one. Free for the same
+  // reason, and this is the one that makes the load and store arms of
+  // checks/rvfi_fault_check.sv reachable at all: with it tied high the core
+  // raises causes 5 and 7 nowhere, and that check would be asking only about
+  // fetches. Nothing is assumed about it either -- an atomic decode either
+  // faults with it or issues without it, and both are this core's behaviour.
+  (* keep *) `rvformal_rand_reg atomic_supported;
+  wire [31:0] atomic_addr;
+
   // Assumed: on a cycle it reports having nothing, the instruction memory
   // answers zero on both fetch ports.
   //
@@ -141,6 +150,8 @@ module rvfi_wrapper (
     .fetch_stall(fetch_stall),
     .imem_fault(imem_fault),
     .mem_reservable(mem_reservable),
+    .atomic_addr(atomic_addr),
+    .atomic_supported(atomic_supported),
     // Tied off, and formal/check-interrupt-tie-off.py is what says so. Every
     // depth in formal/checks.cfg is derived from F and G measured with no
     // interrupt in the trace, and riscv-formal ships no model at the pin of

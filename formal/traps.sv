@@ -32,6 +32,11 @@ module traps (
     // and the increment assertion skips a redirect because the decoder's own
     // `branch_jump` names the trap it raises.
     input logic imem_fault,
+    // The platform's answer about the address an atomic in decode would use.
+    // Free, like the fetch bus's refusal: this file models no address map, and
+    // the two causes it decides are asserted below against the encodings the ISA
+    // fixes rather than against a map.
+    input logic atomic_supported,
     input logic accessor_out_valid,
     // The platform's timer line, free every cycle. rtl/csrs.v decides what to
     // do with it, so `interrupt_pending` below is a real signal of this design
@@ -41,6 +46,10 @@ module traps (
 );
   logic [31:0] pc, next_pc;
   logic [31:0] imem_addr, imem_addr2, imem_addr_next;
+  // The address the decoder publishes for a platform to decode. Unread here:
+  // `atomic_supported` is a free input, so the region decision is the
+  // solver's rather than a map's.
+  logic [31:0] atomic_addr;
   fetcher_output fetcher_out;
   decoder_output decoder_out;
   logic [4:0] read_rs1, read_rs2;
@@ -76,6 +85,8 @@ module traps (
     .divider_stall(divider_stall),
     .fetch_stall(fetch_stall),
     .imem_fault(imem_fault),
+    .atomic_addr(atomic_addr),
+    .atomic_supported(atomic_supported),
     .accessor_out_valid(accessor_out_valid),
     .csr_rdata(csr_rdata),
     .csr_implemented(csr_implemented),
@@ -129,13 +140,15 @@ module traps (
   localparam logic [11:0] MCYCLEH   = 12'hB80;
   localparam logic [11:0] MINSTRETH = 12'hB82;
 
-  localparam logic [31:0] CAUSE_ILLEGAL    = 32'd2;
-  localparam logic [31:0] CAUSE_BREAKPOINT = 32'd3;
-  localparam logic [31:0] CAUSE_LOAD_MIS   = 32'd4;
-  localparam logic [31:0] CAUSE_STORE_MIS  = 32'd6;
-  localparam logic [31:0] CAUSE_ECALL_M    = 32'd11;
+  localparam logic [31:0] CAUSE_ILLEGAL     = 32'd2;
+  localparam logic [31:0] CAUSE_BREAKPOINT  = 32'd3;
+  localparam logic [31:0] CAUSE_LOAD_MIS    = 32'd4;
+  localparam logic [31:0] CAUSE_LOAD_FAULT  = 32'd5;
+  localparam logic [31:0] CAUSE_STORE_MIS   = 32'd6;
+  localparam logic [31:0] CAUSE_STORE_FAULT = 32'd7;
+  localparam logic [31:0] CAUSE_ECALL_M     = 32'd11;
   // Bit 31 says interrupt; 7 is the machine timer.
-  localparam logic [31:0] CAUSE_TIMER_IRQ  = 32'h8000_0007;
+  localparam logic [31:0] CAUSE_TIMER_IRQ   = 32'h8000_0007;
 
   logic clocked;
   initial clocked = 0;
@@ -215,6 +228,28 @@ module traps (
   assign sw_misaligned = is_store_op && funct3 == 3'b010 && store_addr[1:0] != 2'b00;
   assign sh_misaligned = is_store_op && funct3 == 3'b001 && store_addr[0];
 
+  // The A encodings, read off the ISA's table rather than off the decoder's
+  // flags. An atomic's effective address is rs1: funct5, aq, rl and rs2 occupy
+  // the bits an I-immediate would come from, so there is no immediate to add.
+  // `lr.w` is the one whose rs2 field is an encoding constant, and a non-zero
+  // one is a different encoding, so it is checked here rather than assumed.
+  // The nine funct5 values are written out rather than reduced to a range: the
+  // values between them are reserved, and an encoding this core is free to call
+  // illegal must reach neither list below.
+  logic is_amo_op, is_lr, is_sc, is_amo, is_atomic;
+  logic atomic_word_aligned, atomic_refused;
+  assign is_amo_op = uncompressed && opcode == 5'b01011 && funct3 == 3'b010;
+  assign is_lr = is_amo_op && instr[31:27] == 5'b00010 && instr[24:20] == 5'b0;
+  assign is_sc = is_amo_op && instr[31:27] == 5'b00011;
+  assign is_amo = is_amo_op && (instr[31:27] == 5'b00000 || instr[31:27] == 5'b00001 ||
+                                instr[31:27] == 5'b00100 || instr[31:27] == 5'b01000 ||
+                                instr[31:27] == 5'b01100 || instr[31:27] == 5'b10000 ||
+                                instr[31:27] == 5'b10100 || instr[31:27] == 5'b11000 ||
+                                instr[31:27] == 5'b11100);
+  assign is_atomic = is_amo || is_lr || is_sc;
+  assign atomic_word_aligned = reg_rs1[1:0] == 2'b00;
+  assign atomic_refused = !atomic_supported && atomic_word_aligned;
+
   // Opcode 7'b1111111 is reserved for instructions longer than 32 bits, and an
   // all-zero halfword is the encoding the C extension defines as illegal. Both
   // are illegal in every conforming RV32 implementation, so neither depends on
@@ -229,29 +264,36 @@ module traps (
   assign is_ebreak = instr == 32'h0010_0073 || instr == 32'h0000_9002;
 
   // The order is illegal, breakpoint, environment call, load misaligned, store
-  // misaligned. No two of the terms above can hold at once -- a reserved opcode
-  // is not a load -- so the chain states the order rather than resolving
-  // anything. Make two causes overlap and this is what decides which one the
-  // core is allowed to report.
+  // misaligned, load access fault, store access fault. No two of the terms above
+  // can hold at once -- a reserved opcode is not a load, and an atomic the
+  // platform refuses is aligned by construction -- so the chain states the order
+  // rather than resolving anything. Make two causes overlap and this is what
+  // decides which one the core is allowed to report.
   logic expected_trap;
   logic [31:0] expected_cause;
   assign expected_trap = is_illegal || is_ebreak || is_ecall ||
-                         lw_misaligned || lh_misaligned || sw_misaligned || sh_misaligned;
+                         lw_misaligned || lh_misaligned || sw_misaligned || sh_misaligned ||
+                         (is_atomic && atomic_refused);
   always_comb begin
     if (is_illegal) expected_cause = CAUSE_ILLEGAL;
     else if (is_ebreak) expected_cause = CAUSE_BREAKPOINT;
     else if (is_ecall) expected_cause = CAUSE_ECALL_M;
     else if (lw_misaligned || lh_misaligned) expected_cause = CAUSE_LOAD_MIS;
-    else expected_cause = CAUSE_STORE_MIS;
+    else if (sw_misaligned || sh_misaligned) expected_cause = CAUSE_STORE_MIS;
+    else if (is_lr) expected_cause = CAUSE_LOAD_FAULT;
+    else expected_cause = CAUSE_STORE_FAULT;
   end
 
   // The other direction. Without these a core that trapped on everything would
-  // satisfy most of this file.
+  // satisfy most of this file. The last one is the half that keeps the region
+  // decode honest: an atomic at an address the platform DOES answer executes,
+  // so a core that faulted all eleven would not pass here.
   logic must_not_trap;
   assign must_not_trap =
       (uncompressed && opcode == 5'b01100 && instr[31:25] == 7'b0 && funct3 == 3'b000) ||
       (is_load_op && funct3 == 3'b010 && load_addr[1:0] == 2'b00) ||
-      (is_store_op && funct3 == 3'b010 && store_addr[1:0] == 2'b00);
+      (is_store_op && funct3 == 3'b010 && store_addr[1:0] == 2'b00) ||
+      (is_atomic && atomic_supported && atomic_word_aligned);
 
   // mstatus changes on three edges and no others: a write to it, a trap and an
   // mret. The write term is any write, not just one to this address -- coarser
@@ -401,6 +443,12 @@ module traps (
     assert(!decoder_out.is_lb && !decoder_out.is_lbu && !decoder_out.is_lh &&
            !decoder_out.is_lhu && !decoder_out.is_lw);
     assert(!decoder_out.is_sb && !decoder_out.is_sh && !decoder_out.is_sw);
+    // The eleven too, which is what says a refused atomic issues no transaction
+    // rather than faulting and reading the address anyway.
+    assert(!decoder_out.is_amoswap && !decoder_out.is_amoadd && !decoder_out.is_amoxor &&
+           !decoder_out.is_amoand && !decoder_out.is_amoor && !decoder_out.is_amomin &&
+           !decoder_out.is_amomax && !decoder_out.is_amominu && !decoder_out.is_amomaxu &&
+           !decoder_out.is_lr && !decoder_out.is_sc);
   end
 
   // minstret counts instructions that retired, and a trapping one did not.

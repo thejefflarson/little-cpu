@@ -50,7 +50,15 @@ module memory #(
   // success for a write that went nowhere. Combinational, and it accompanies the
   // request rather than the response for the same reason the fetch bus's refusal
   // does -- the reservation is taken on the cycle the request goes out.
-  output logic        reservable
+  output logic        reservable,
+  // The same question about a SECOND address, two stages earlier: the one an
+  // atomic's rs1 names while decode is still deciding whether to trap it. Decode
+  // must know before it chooses the next pc, so it cannot wait for that address
+  // to arrive on `mem_addr`. Answering both out of one window is what keeps the
+  // reservation the accessor refuses and the fault decode raises talking about
+  // the same memory.
+  input  logic [31:0] atomic_addr,
+  output logic        atomic_supported
 );
   localparam int ADDR_BITS = $clog2(RAM_WORDS);
 
@@ -76,6 +84,7 @@ module memory #(
   logic [ADDR_BITS-1:0] index;
   assign index = mem_addr[ADDR_BITS+1:2];
   assign reservable = in_range;
+  assign atomic_supported = atomic_addr[31:ADDR_BITS+2] == BASE[31:ADDR_BITS+2];
 
   // An out-of-range access is dropped and reads as zero. It must not ALIAS a
   // mapped word, which is what indexing on truncated address bits alone would

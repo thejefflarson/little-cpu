@@ -63,10 +63,14 @@ are kept in parentheses so those references still resolve.
   exception to it**: the instruction memory reports having nothing at the address it is answering,
   the report arrives with the word in the cycle decode reads it, and the fault is committed there
   with every other cause. A refusal that arrived with the *response* would not be, which is the
-  distinction to hold on to. **The data bus does not refuse**, and that is a recorded deviation with
-  a measured price rather than a property of the design: an out-of-region load reads zero and an
-  out-of-region store is dropped, silently, because the decode-time region test that would fault
-  them costs four logic levels in the fetch loop and 10.57–11.00 MHz over four seeds (ADR-0104).
+  distinction to hold on to. **The data bus refuses an ATOMIC and nothing else**: the data RAM
+  answers its range test about a second address — the one an atomic's rs1 names, a register output
+  with no adder in front of it — and decode raises causes 5 and 7 from it, for zero extra logic
+  levels against the four the same test for a load or a store cost (ADR-0109). **An out-of-region
+  load still reads zero and an out-of-region store is still dropped, silently**, and that is a
+  recorded deviation with a measured price rather than a property of the design: their address is
+  the top of `immediate + reg_rs1`, and the test behind that sum measured 10.57–11.00 MHz over four
+  seeds (ADR-0104).
 - **Every inter-stage struct carries a `valid` bit** (3). A bubble is `valid = 0`; retire is
   `valid` reaching writeback, which gates `wen` and drives `rvfi_valid`.
 - **Hazards are stall-only** (4). No forwarding network, and 35.7% of suite cycles is what that
@@ -148,19 +152,29 @@ folded into 6.
 
 RV32IMAC_Zicsr_Zifencei, M-mode only, `misa = 0x4000_1105` (neither Z-extension has a `misa` bit;
 the ISA string is the only place they are claimed). Traps implemented: instruction access fault = 1,
-illegal instruction = 2, breakpoint = 3, load misaligned = 4, store misaligned = 6,
-ecall from M = 11.
-Two of the remaining causes are absent for opposite reasons, and the difference is the point.
-**Instruction-address-misaligned (0) is unreachable** — C makes 2-byte targets legal — so not
-implementing it costs nothing and closes nothing.
-**Load and store access faults (5 and 7) are reachable and still not implemented**, which is a
-measured decline rather than an omission (ADR-0104). `rtl/imemory.v` publishes a fetch outside the
-text window on `imem_fault` and decode raises it as cause 1, which costs nothing because that range
-test was already there. The same question about a load or store address has to read the top of
-`immediate + reg_rs1` and hand the answer to `next_pc`: four more logic levels in the fetch loop,
-**10.57–11.00 MHz over four seeds** against the 12.00 MHz requirement. So an address no memory
-answers is still read as zero and written nowhere — a deviation from the privileged spec's strong
-recommendation that precise access faults be raised, recorded as one rather than as a design choice.
+illegal instruction = 2, breakpoint = 3, load misaligned = 4, load access fault = 5,
+store misaligned = 6, store/AMO access fault = 7, ecall from M = 11.
+**Instruction-address-misaligned (0) is the one remaining cause and it is unreachable** — C makes
+2-byte targets legal — so not implementing it costs nothing and closes nothing.
+
+**Causes 5 and 7 are raised for the eleven A encodings and for nothing else**, and the asymmetry is
+a measurement rather than an oversight (ADR-0104, ADR-0109). All three refusals have the same shape:
+the platform decodes its own map and hands the core one bit that arrives with the *address*.
+`rtl/imemory.v` publishes a fetch outside the text window on `imem_fault` → cause 1; `rtl/memory.v`
+answers its range test about `atomic_addr` → cause 5 for `lr.w` and 7 for the nine AMOs and `sc.w`,
+which makes the machine timer's four words and the whole text window `AMONone` and `RsrvNone`.
+**An atomic's effective address is rs1 verbatim** — the A encodings put funct5/aq/rl/rs2 where the
+I-immediate is read from — so that test reads a register output and measures **zero extra logic
+levels**. A plain load or store has to read the top of `immediate + reg_rs1` and hand the answer to
+`next_pc`: four more levels, **10.57–11.00 MHz over four seeds** against the 12.00 MHz requirement,
+and still declined. So an address no memory answers is still read as zero and written nowhere for
+those two — a deviation from the privileged spec's strong recommendation that precise access faults
+be raised, recorded as one rather than as a design choice. **Beating four levels is now demonstrated
+not to be sufficient**: the atomic-only test is a level *shallower* and still moved the worst
+placement 2.2%, in routing, at 89% occupancy.
+**Which spelling reaches `next_pc` decides whether the board closes.** One term that says an atomic
+faults, with the cause split answered off the fetch loop, swept a worst of 12.24 MHz over eight
+seeds; two terms each carrying their own encoding test swept 11.82 and missed at two seeds of eight.
 C stays because code density is a product constraint on the up5k (ADR-0002/0003). `fence.i` costs a
 pipeline drain — see the serialization commitment.
 
@@ -172,22 +186,25 @@ runtime statement of that**, and it moved with the reference model's `A` key in 
 transition was falsifiable: at `0x4000_1105` against the model's `A: false`, `csr.S` diverged, and
 flipping the key agreed. **The suite builds at `-march=rv32imac_zicsr_zifencei`**, so six
 programs execute atomics — `amo.S`, `amominmax.S`, `amotrap.S`, `lrsc.S`, `lrsclock.S` and
-`amoregion.S` — and four of the six **agree with the reference model**, which is the semantic oracle
-for the nine functions, LR/SC's five invalidation events and the two misalignment causes. The `.S`
+`amoregion.S` — and five of the six **agree with the reference model**, which is the semantic oracle
+for the nine functions, LR/SC's five invalidation events, the two misalignment causes and the two
+region causes. The `.S`
 suite is not one: **`test/monitor.sim.v` value-checks nothing in an A retire**, because the pin
 ships no spec model for any of the eleven, so an `OBSERVED_FLOOR` line for one of those programs is
 a retire count and not evidence anything was compared. Every claim they make is an in-band
 assertion, and every one reads its memory result back into a register because `test/cosim.cc`
 compares registers and never compares memory.
-**The bit is claimed while causes 5 and 7 are not implemented**, and that is the caveat to carry
-with it: `misa.A` says the eleven instructions are implemented, and they are, but an atomic outside
-RAM does not fault. **The reservation is refused outside the
-region `rtl/memory.v` answers**, which is the whole of the A extension's region attribute here: a
-`sc.w` where nothing is reserved fails and issues no transaction, so it cannot report success for a
-store that went nowhere. The decode-time region test that would instead raise causes 5 and 7 is the
-one ADR-0104 measured at four logic levels in the fetch loop and declined — and that deviation is
-the suite's one co-simulation divergence, because the model has RsrvEventual (the `sc.w` succeeds)
-and RsrvNone (the `lr.w` faults, cause 5) and this core is neither.
+**The bit is claimed and causes 5 and 7 are implemented for the eleven**, which is what closes the
+caveat the claim shipped with. **An atomic outside the region `rtl/memory.v` answers faults** —
+cause 5 for `lr.w`, 7 for the ten that write, alignment outranking the region — so the machine
+timer's four words get the `AMONone` its PMA always should have said. The reservation is *also*
+refused there, and it is no longer reachable from software because the fault gets there first: it
+stays as the second half of one statement, so a platform that tied the fault bit high still could
+not let an `sc.w` claim a write that went nowhere. `test/accessor_tb.v` and `components_accessor`
+are what grade it now, and `test/MUTATION_DETECTORS` lost `amoregion.S` as a detector of
+`sc-reports-success` for exactly that reason. **This is what closed the suite's one A-extension
+co-simulation divergence**: the model has only `RsrvEventual` and `RsrvNone`, the core used to be
+neither, and `RsrvNone` is what it is now.
 
 **The ISA string has one source and `make test` grades it**: `test/march_test.sh` declares
 `rv32imac_zicsr_zifencei` and checks all six sites that state it, three of which are silent when

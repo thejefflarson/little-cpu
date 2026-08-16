@@ -14,6 +14,8 @@ module mem_tb;
   logic [31:0] mem_wdata;
   logic [3:0]  mem_wstrb;
   logic [31:0] mem_rdata;
+  logic [31:0] atomic_addr;
+  logic        atomic_supported;
 
   // BASE = 0 so the vectors below can address the array directly; the shipping
   // instances use a non-zero RAM base. The property the out-of-range
@@ -24,7 +26,9 @@ module mem_tb;
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
-    .mem_rdata(mem_rdata)
+    .mem_rdata(mem_rdata),
+    .atomic_addr(atomic_addr),
+    .atomic_supported(atomic_supported)
   );
 
   int errors = 0;
@@ -73,10 +77,28 @@ module mem_tb;
 
   logic [31:0] got;
 
+  // The atomic port is combinational and reads a different address from
+  // `mem_addr`, so it is checked with its own task rather than folded into the
+  // read and write ones -- driving both from one address would pass on a module
+  // that answered this question about the wrong wire.
+  task automatic check_atomic(input string what, input logic [31:0] addr,
+                              input logic expected);
+    begin
+      atomic_addr = addr;
+      #1;
+      if (atomic_supported !== expected) begin
+        $display("MISMATCH %s: addr=%08x atomic_supported=%0b expected=%0b",
+                 what, addr, atomic_supported, expected);
+        errors++;
+      end
+    end
+  endtask
+
   initial begin
     mem_addr = 0;
     mem_wdata = 0;
     mem_wstrb = 0;
+    atomic_addr = 0;
     @(posedge clk);
     #1;
 
@@ -110,6 +132,16 @@ module mem_tb;
     check("read port holds across a write cycle", mem_rdata, 32'hcafef00d);
     do_read(32'h00000008, got);
     check("...and the write still landed", got, 32'h0f0f0f0f);
+
+    // The atomic port, which decode reads to decide causes 5 and 7. It must
+    // answer about `atomic_addr` alone: `mem_addr` is left pointing inside the
+    // window throughout, so a module that answered about the wrong address would
+    // report every one of these supported.
+    mem_addr = 32'h00000008;
+    check_atomic("the base word answers an atomic", 32'h00000000, 1'b1);
+    check_atomic("the last word answers an atomic", 4 * RAM_WORDS - 4, 1'b1);
+    check_atomic("one past the end does not", 4 * RAM_WORDS, 1'b0);
+    check_atomic("far out of range does not", 32'hfffffffc, 1'b0);
 
     if (errors != 0) begin
       $display("FAILED: %0d mismatches", errors);

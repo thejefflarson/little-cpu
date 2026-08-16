@@ -197,39 +197,43 @@
     // harness never does (no --device-tree-blob, no --print-device-tree).
     "dtb_address": { "len": 64, "value": "0x1000" },
 
-    // TWO regions, split where this core's fetch decode splits: test/asm's `rom`
-    // is 16 KB at 0x0 and rtl/imemory.v answers nothing above it, so a PC past
-    // 16 KB is an instruction access fault here and on the core alike. The
-    // second region carries the rest of the 1 MB the linker script may grow
-    // into -- `ram` at 0x10000, the timer's four words at 0x20000, and the gap
-    // around them -- readable and writable but NOT executable, which is the
-    // whole content of the split. test/asm/ifault.S jumps into it on purpose.
+    // FOUR regions, and two different splits are stacked here. Read them apart.
     //
-    // Everything else about the second region matches the first, because the
-    // core does not distinguish them for loads and stores: an out-of-region
-    // data access is answered rather than refused, so a Sail region that
-    // refused one would diverge from the core on a program that made one. That
-    // is the half of the map this core does not yet enforce.
+    // THE FIRST SPLIT IS EXECUTABILITY, at 0x4000: test/asm's `rom` is 16 KB at
+    // 0x0 and rtl/imemory.v answers nothing above it, so a PC past 16 KB is an
+    // instruction access fault here and on the core alike. Everything above is
+    // readable and writable but NOT executable, and test/asm/ifault.S jumps
+    // into it on purpose.
     //
-    // THE SECOND REGION IS NOT SPLIT AT THE DATA RAM'S BOUNDS, and the reason
-    // is a measurement rather than tidiness. rtl/memory.v refuses a reservation
-    // outside the 64 KB it answers, so an sc.w anywhere else on this core fails
-    // and stores nothing. Splitting the region and marking everything but the
-    // RAM `RsrvNone` looks like the way to say that here, and it is not: the
-    // model's `RsrvNone` makes an lr.w raise a LOAD ACCESS FAULT, cause 5,
-    // which this core does not raise anywhere -- the decode-time region test
-    // that would was measured at four logic levels in the fetch loop and
-    // declined (docs/adr/0104). Both settings were run against
-    // test/asm/amoregion.S:
+    // THE SECOND SPLIT IS THE ATOMIC REGION, at the data RAM's own bounds:
+    // rtl/memory.v answers its range test about an atomic's address too, and
+    // rtl/decoder.v faults the eleven encodings everywhere else -- cause 5 for
+    // lr.w and cause 7 for the nine AMOs and sc.w. So exactly the 64 KB at
+    // 0x10000 is `RsrvEventual` and `AMOArithmetic`, and the three regions
+    // around it are `RsrvNone` and `AMONone`, where the model raises the same
+    // two causes the core does. That is what closed the suite's one A-extension
+    // divergence: it used to be here because the model had only two settings
+    // and the core was neither, answering an out-of-region lr.w with zero and
+    // raising nothing.
     //
-    //   RsrvEventual   the sc.w at 0x0004_0000 SUCCEEDS on the model
-    //   RsrvNone       the lr.w before it traps, cause 5
+    // `AMOArithmetic` rather than the model's widest atomic class because these
+    // values are ordered by strength and it is the weakest one that admits
+    // every encoding this core implements -- swap, the four logical and the
+    // four min/max. Measured, not read off the schema: at `AMOSwap` the model
+    // faults amoadd.w and test/asm's amo.S, amominmax.S, amotrap.S and lrsc.S
+    // all stop agreeing. The stronger values add compare-and-swap widths no
+    // `misa` bit here claims. LR/SC is `reservability`'s to decide, not this
+    // key's.
     //
-    // The first is one register value apart from this core; the second is a
-    // different control flow AND a fault the core is recorded as not raising.
-    // So the region stays whole, amoregion.S carries the one divergence, and
-    // test/COSIM_EXPECTED_FAIL carries the paragraph. Nothing else in the suite
-    // reaches a reservation outside the data RAM.
+    // WHAT IS STILL NOT SPLIT is loads and stores, which every region below
+    // answers. An out-of-region load reads zero on this core and an
+    // out-of-region store is dropped, silently, so a Sail region that refused
+    // one would diverge on any program that made one -- test/asm/amoregion.S
+    // makes several on purpose. That decode-time test has to wait on the top of
+    // `immediate + reg_rs1` and was measured at four logic levels in the fetch
+    // loop and declined (docs/adr/0104); an atomic's address is rs1 with no
+    // adder in front of it, which is why one of the two fits and the other does
+    // not.
     //
     // The model's default RV32 map puts MainMemory at
     // 0x8000_0000, where nothing this suite builds is executable or loadable.
@@ -262,10 +266,10 @@
             "vector": { "None": null },
             "amo": "AccessFault"
           },
-          "atomic_support": "AMOCASQ",
+          "atomic_support": "AMONone",
           "misaligned_atomicity_granule_size_exp": 4,
           "vector_misaligned_atomicity_granule_size_exp": 4,
-          "reservability": "RsrvEventual",
+          "reservability": "RsrvNone",
           "supports_cbo_zero": true,
           "supports_pte_read": true,
           "supports_pte_write": true
@@ -274,7 +278,7 @@
       },
       {
         "base": { "len": 64, "value": "0x0000_4000" },
-        "size": { "len": 64, "value": "0x000f_c000" },
+        "size": { "len": 64, "value": "0x0000_c000" },
         "attributes": {
           "mem_type": "MainMemory",
           "cacheable": true,
@@ -289,10 +293,64 @@
             "vector": { "None": null },
             "amo": "AccessFault"
           },
-          "atomic_support": "AMOCASQ",
+          "atomic_support": "AMONone",
+          "misaligned_atomicity_granule_size_exp": 4,
+          "vector_misaligned_atomicity_granule_size_exp": 4,
+          "reservability": "RsrvNone",
+          "supports_cbo_zero": true,
+          "supports_pte_read": true,
+          "supports_pte_write": true
+        },
+        "include_in_device_tree": true
+      },
+      {
+        "base": { "len": 64, "value": "0x0001_0000" },
+        "size": { "len": 64, "value": "0x0001_0000" },
+        "attributes": {
+          "mem_type": "MainMemory",
+          "cacheable": true,
+          "coherent": true,
+          "executable": false,
+          "readable": true,
+          "writable": true,
+          "read_idempotent": true,
+          "write_idempotent": true,
+          "misaligned_exceptions": {
+            "load_store": { "None": null },
+            "vector": { "None": null },
+            "amo": "AccessFault"
+          },
+          "atomic_support": "AMOArithmetic",
           "misaligned_atomicity_granule_size_exp": 4,
           "vector_misaligned_atomicity_granule_size_exp": 4,
           "reservability": "RsrvEventual",
+          "supports_cbo_zero": true,
+          "supports_pte_read": true,
+          "supports_pte_write": true
+        },
+        "include_in_device_tree": true
+      },
+      {
+        "base": { "len": 64, "value": "0x0002_0000" },
+        "size": { "len": 64, "value": "0x000e_0000" },
+        "attributes": {
+          "mem_type": "MainMemory",
+          "cacheable": true,
+          "coherent": true,
+          "executable": false,
+          "readable": true,
+          "writable": true,
+          "read_idempotent": true,
+          "write_idempotent": true,
+          "misaligned_exceptions": {
+            "load_store": { "None": null },
+            "vector": { "None": null },
+            "amo": "AccessFault"
+          },
+          "atomic_support": "AMONone",
+          "misaligned_atomicity_granule_size_exp": 4,
+          "vector_misaligned_atomicity_granule_size_exp": 4,
+          "reservability": "RsrvNone",
           "supports_cbo_zero": true,
           "supports_pte_read": true,
           "supports_pte_write": true

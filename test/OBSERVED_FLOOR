@@ -140,7 +140,7 @@ add.S               429    429
 addi.S              206    206
 amo.S               294    272
 amominmax.S         513    472
-amoregion.S         121    107
+amoregion.S         604    514
 amotrap.S           646    564
 and.S               449    449
 andi.S              162    162

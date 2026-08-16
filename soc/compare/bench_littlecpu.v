@@ -45,6 +45,8 @@ module bench_littlecpu #(
   logic [31:0] imem_mem_rdata, dmem_mem_rdata;
   logic [3:0]  mem_wstrb;
   logic        mem_ren, fetch_stall, irq_timer, imem_fault, mem_reservable;
+  logic        atomic_supported;
+  logic [31:0] atomic_addr;
 
   // Stands in for rtl/timer.v's `mtip` line, which there is no room on the part
   // for. Tying it to zero instead would let yosys constant-fold `mip.MTIP`, the
@@ -76,6 +78,8 @@ module bench_littlecpu #(
     .mem_rdata(mem_rdata),
     .fetch_stall(fetch_stall),
     .mem_reservable(mem_reservable),
+    .atomic_addr(atomic_addr),
+    .atomic_supported(atomic_supported),
     .irq_timer(irq_timer),
     .imem_fault(imem_fault),
     .trap(trap)
@@ -107,7 +111,9 @@ module bench_littlecpu #(
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
     .mem_rdata(dmem_mem_rdata),
-    .reservable(mem_reservable)
+    .reservable(mem_reservable),
+    .atomic_addr(atomic_addr),
+    .atomic_supported(atomic_supported)
   );
 
   assign mem_rdata = imem_mem_rdata | dmem_mem_rdata;

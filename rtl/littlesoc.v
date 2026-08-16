@@ -5,11 +5,13 @@
 // its cell count is a different design's and the two do not compare.
 //
 // The ROM says when it has nothing at the address it is answering, and decode
-// takes that as an instruction access fault. Neither memory can turn a LOAD or a
-// STORE down: out of range both read zero and drop the write, so a data access
-// the map does not cover is still silently answered. The decode-side region
-// test that would fault one was built and measured: it misses the board clock
-// by four logic levels in the fetch loop.
+// takes that as an instruction access fault. The data RAM says which addresses
+// answer an ATOMIC, and decode faults the eleven encodings elsewhere -- an
+// atomic's address is a register value with no adder in front of it, so that
+// question fits in the cycle the pc is chosen. A plain load or store is still
+// turned down by neither: out of range both read zero and drop the write, and
+// the decode-side test that would fault them has to wait on the top of a 32-bit
+// sum, which was measured at four logic levels in the fetch loop and declined.
 //
 // The ROM is initialised from the bitstream and the SPRAM cannot be, so a
 // program's `.data` is not there at power-on and every `.S` program in test/asm
@@ -48,6 +50,8 @@ module littlesoc (
   logic [31:0] imem_mem_rdata, dmem_mem_rdata, timer_mem_rdata;
   logic [3:0]  mem_wstrb;
   logic        mem_ren, fetch_stall, irq_timer, imem_fault, mem_reservable;
+  logic        atomic_supported;
+  logic [31:0] atomic_addr;
   logic [31:0] imem_addr, imem_addr2, imem_addr_next;
   logic [31:0] imem_data, imem_data2;
 
@@ -67,6 +71,8 @@ module littlesoc (
     .fetch_stall(fetch_stall),
     .imem_fault(imem_fault),
     .mem_reservable(mem_reservable),
+    .atomic_addr(atomic_addr),
+    .atomic_supported(atomic_supported),
     .irq_timer(irq_timer),
     .trap(trap)
   );
@@ -105,7 +111,9 @@ module littlesoc (
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
     .mem_rdata(dmem_mem_rdata),
-    .reservable(mem_reservable)
+    .reservable(mem_reservable),
+    .atomic_addr(atomic_addr),
+    .atomic_supported(atomic_supported)
   );
 
   // The machine timer, at rtl/timer.v's default base, which is the first word

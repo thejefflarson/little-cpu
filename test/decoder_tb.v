@@ -30,6 +30,11 @@ module decoder_tb;
   // instruction-access-fault vectors below; every other vector presents a word
   // some memory really answered.
   logic imem_fault = 1'b0;
+  // The platform answers atomics at the address decode is publishing. Held high
+  // for every vector but the region-fault ones below, the way a memory that
+  // answers everywhere would drive it.
+  logic atomic_supported = 1'b1;
+  logic [31:0] atomic_addr;
   logic accessor_out_valid = 1'b0;
   // rtl/csrs.v is a sibling of the decoder, not part of it, so it is stubbed.
   logic [31:0] csr_rdata = 32'b0;
@@ -55,6 +60,8 @@ module decoder_tb;
     .divider_stall(divider_stall),
     .fetch_stall(fetch_stall),
     .imem_fault(imem_fault),
+    .atomic_addr(atomic_addr),
+    .atomic_supported(atomic_supported),
     .accessor_out_valid(accessor_out_valid),
     .csr_rdata(csr_rdata),
     .csr_implemented(csr_implemented),
@@ -914,6 +921,74 @@ module decoder_tb;
     in.instr = 32'h00b6252f;
     #1;
     check_bit("...nor does an aligned AMO", dut.trap_pending, 1'b0);
+    reg_rs1 = 32'b0;
+
+    // The two region causes. The platform decodes the address the decoder
+    // publishes and hands back one bit, so this drives that bit rather than a
+    // map: what is being checked here is what decode does with the answer.
+    reg_rs1 = 32'h0004_0000;
+    atomic_supported = 1'b0;
+    in.instr = 32'h1006252f;   // lr.w
+    #1;
+    check_hex("the address the platform is asked about is rs1 verbatim",
+              atomic_addr, 32'h0004_0000);
+    check_bit("an lr.w the platform does not answer traps", dut.trap_pending, 1'b1);
+    check_hex("...as a LOAD access fault", trap_cause, 32'd5);
+    in.instr = 32'h00b6252f;   // amoadd.w
+    #1;
+    check_hex("an AMO there is a STORE/AMO access fault", trap_cause, 32'd7);
+    in.instr = 32'h18b6252f;   // sc.w
+    #1;
+    check_hex("...and so is an sc.w", trap_cause, 32'd7);
+
+    // A plain load and a plain store at the same address are unaffected. Their
+    // region test is the one that has to wait on a 32-bit sum, and it is not
+    // built -- so this is the boundary of what the bit is allowed to decide,
+    // and widening the fault to every access would show up here first.
+    in.instr = 32'h00062583;   // lw a1, 0(a2)
+    #1;
+    check_bit("a plain lw at the same address does not fault", dut.trap_pending, 1'b0);
+    in.instr = 32'h00b62023;   // sw a1, 0(a2)
+    #1;
+    check_bit("...nor does a plain sw", dut.trap_pending, 1'b0);
+
+    // Misalignment outranks the region, which keeps the four data causes
+    // disjoint and matches what the reference model reports. Drop the alignment
+    // term from the region test and two arms of the cause chain match at once.
+    reg_rs1 = 32'h0004_0002;
+    in.instr = 32'h1006252f;
+    #1;
+    check_hex("a misaligned lr.w out of region reports the misalignment",
+              trap_cause, 32'd4);
+    in.instr = 32'h00b6252f;
+    #1;
+    check_hex("...and a misaligned AMO out of region reports cause 6",
+              trap_cause, 32'd6);
+
+    // ...and with the platform answering, the same encodings issue. Without
+    // this the file would pass on a core that faulted every atomic.
+    reg_rs1 = 32'h0001_0000;
+    atomic_supported = 1'b1;
+    in.instr = 32'h1006252f;
+    #1;
+    check_bit("an lr.w the platform answers does not trap", dut.trap_pending, 1'b0);
+    in.instr = 32'h00b6252f;
+    #1;
+    check_bit("...nor does an AMO there", dut.trap_pending, 1'b0);
+
+    // A refused atomic publishes none of its eleven flags, so no transaction
+    // goes out and no reservation is taken. The misaligned case below asserts
+    // the same thing for the other reason an atomic can trap.
+    atomic_supported = 1'b0;
+    reg_rs1 = 32'h0004_0000;
+    present_and_fetch(32'h003120af);   // amoadd.w x1, x3, (x2)
+    check_bit("a refused AMO commits a trap", trap_entry, 1'b1);
+    @(posedge clk);
+    #1;
+    check_bit("...and retires with every atomic flag clear",
+              out.is_amoadd || out.is_lr || out.is_sc, 1'b0);
+    check_hex("...and no rd", {27'b0, out.rd}, 32'd0);
+    atomic_supported = 1'b1;
     reg_rs1 = 32'b0;
 
     // The scoreboard. An AMO's result arrives a cycle later than a load's and a
