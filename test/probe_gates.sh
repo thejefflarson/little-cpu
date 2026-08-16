@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=251
+PROBES_EXPECTED=267
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -984,6 +984,112 @@ Total number of logic levels: 1
 RPT
 probe "a path with no LUT level at all reports zero rather than dividing by it" 0 \
   "0.00 ns per LUT level" "$TS $d/report.rpt"
+
+begin_group "soc/baseline_summary.py"
+
+BS="python3 $REPO/soc/baseline_summary.py"
+
+# The block soc/baseline_sweep.sh stamps ahead of its rows, written by hand so a
+# probe costs no placement. Every refusal below breaks one field of it, and the
+# control runs first: a fixture malformed in some other way would take the whole
+# group green-to-red rather than pass it.
+bs_sweep() {  # <file> <base> <dirty> <yosys>
+  cat > "$1" <<EOF
+# baseline-sweep v1
+# date: 2026-08-16T00:00:00Z
+# base: $2
+# dirty: $3
+# yosys: $4 [/opt/bin/yosys]
+# nextpnr-ice40: nextpnr-0.11 [/opt/bin/nextpnr-ice40]
+# icetime: oss-cad-suite 20260811 sha256:0123456789abcdef [/opt/bin/icetime]
+# prog: datainit.c
+# rom_words: 2048
+# seeds: default 1
+# host: Darwin arm64 25.3.0
+# reproduce: git checkout $2 && SOC_SEEDS='default 1' SOC_PROG=datainit.c soc/baseline_sweep.sh
+# end-provenance
+part,variant,seed,ns,mhz,lut_levels,carry_hops,logic_ns,routing_ns,lc,start,end
+up5k,sweep,default,80.00,12.50,23,4,20.00,60.00,4769,rom_RDATA,next_pc
+up5k,sweep,1,82.00,12.20,24,4,21.00,61.00,4769,rom_RDATA,next_pc
+EOF
+}
+
+bs_fixture() {
+  local d; d=$(new_case)
+  bs_sweep "$d/before.csv" aaaaaaaaaaaa no 'Yosys 0.68'
+  bs_sweep "$d/after.csv" aaaaaaaaaaaa no 'Yosys 0.68'
+  sed -i.bak 's/,82.00,12.20,/,84.00,11.90,/' "$d/after.csv"
+  printf '%s' "$d"
+}
+
+d=$(bs_fixture)
+probe "control: a stamped sweep summarises" 0 "2 placements" "$BS $d/before.csv"
+
+d=$(bs_fixture)
+probe "control: two sweeps measured the same way are subtracted" 0 \
+  "delta, second sweep against first" "$BS $d/before.csv $d/after.csv"
+
+d=$(bs_fixture); sed -i.bak '1d' "$d/before.csv"
+probe "an unstamped file is rejected rather than summarised" 1 \
+  "no provenance block" "$BS $d/before.csv"
+
+d=$(bs_fixture); sed -i.bak '/^# end-provenance/d' "$d/before.csv"
+probe "a block with no end is truncated, and a truncated one is not read" 1 \
+  "the provenance block is truncated" "$BS $d/before.csv"
+
+d=$(bs_fixture); sed -i.bak '/^# icetime:/d' "$d/before.csv"
+probe "a block short of a tool is named, not summarised around" 1 \
+  "the provenance block is missing icetime" "$BS $d/before.csv"
+
+d=$(bs_fixture); sed -i.bak '/^part,/,$d' "$d/before.csv"
+probe "a stamp with no table under it is a failed measurement" 1 \
+  "no CSV header" "$BS $d/before.csv"
+
+d=$(bs_fixture); sed -i.bak '/^up5k,/d' "$d/before.csv"
+probe "a table with no placements in it is one too" 1 \
+  "no placements in it" "$BS $d/before.csv"
+
+d=$(bs_fixture); sed -i.bak 's/,80.00,/,eighty,/' "$d/before.csv"
+probe "a row whose period is not a number stops the read" 1 \
+  "ns column reads 'eighty'" "$BS $d/before.csv"
+
+d=$(bs_fixture); sed -i.bak 's/^# base: aaaaaaaaaaaa/# base: bbbbbbbbbbbb/' "$d/after.csv"
+probe "two base commits refuse the delta rather than warning above it" 1 \
+  "not measured the same way" "$BS $d/before.csv $d/after.csv"
+
+d=$(bs_fixture); sed -i.bak 's/^# yosys: Yosys 0.68/# yosys: Yosys 0.55/' "$d/after.csv"
+probe "two toolchains are named, which is the disagreement that flipped a sign" 1 \
+  "yosys:" "$BS $d/before.csv $d/after.csv"
+
+d=$(bs_fixture); sed -i.bak 's/^# dirty: no/# dirty: yes/' "$d/after.csv"
+probe "a dirty tree names no base, so its sweep is not subtracted either" 1 \
+  "uncommitted changes" "$BS $d/before.csv $d/after.csv"
+
+d=$(bs_fixture); sed -i.bak 's/^# base: aaaaaaaaaaaa/# base: bbbbbbbbbbbb/' "$d/after.csv"
+probe "the override prints the mismatch it was passed to get past" 0 \
+  "MISMATCH" "$BS $d/before.csv $d/after.csv --allow-mismatch"
+
+d=$(bs_fixture); sed -i.bak 's/^# base: aaaaaaaaaaaa/# base: bbbbbbbbbbbb/' "$d/after.csv"
+probe "and prints the delta beside it, not instead of it" 0 \
+  "delta, second sweep against first" \
+  "$BS $d/before.csv $d/after.csv --allow-mismatch"
+
+d=$(bs_fixture)
+probe "three sweeps have no one difference, so they are refused" 1 \
+  "takes one sweep, or two" "$BS $d/before.csv $d/after.csv $d/before.csv"
+
+d=$(bs_fixture)
+probe "a sweep file that is not there reads as missing, not as empty" 1 \
+  "nothing to summarise" "$BS $d/gone.csv"
+
+begin_group "soc/baseline_sweep.sh"
+
+# The rest of this script places the SoC, so this is the one check in it that
+# runs without yosys, nextpnr or a cross compiler -- and it is the one that
+# would otherwise silently place the default sixteen seeds for someone who
+# asked for none.
+probe "an empty seed list stops the sweep instead of placing the default" 2 \
+  "SOC_SEEDS is empty" "SOC_SEEDS= sh $REPO/soc/baseline_sweep.sh"
 
 begin_group "soc/cell_census.py"
 

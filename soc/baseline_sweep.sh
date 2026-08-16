@@ -126,7 +126,11 @@ block=$(
   echo "# rom_words: $rom_words"
   echo "# seeds: $seeds"
   echo "# host: $(uname -s) $(uname -m) $(uname -r)"
-  echo "# reproduce: git checkout $base && SOC_SEEDS='$seeds' soc/baseline_sweep.sh $*"
+  # The program travels in the environment rather than in the arguments because
+  # it reaches make either way, and a run that took it from the environment
+  # would otherwise reproduce as whatever the default had become by then.
+  echo "# reproduce: git checkout $base && SOC_SEEDS='$seeds' SOC_PROG=$prog" \
+       "soc/baseline_sweep.sh${*:+ $*}"
   echo "# end-provenance"
 )
 
