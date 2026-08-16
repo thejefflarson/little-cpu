@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=267
+PROBES_EXPECTED=274
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -1392,7 +1392,9 @@ rn_fixture() {
   # entries covering those two are directories, and a hundred more copies per
   # fixture would buy nothing but wall time.
   cp "$REPO/docs/adr/README.md" "$d/docs/adr/"
-  cp "$REPO/docs/ideas/fit-the-core-on-the-up5k.md" "$d/docs/ideas/"
+  # The one brief carrying BOTH retired terms, so a single copy covers the
+  # docs/ideas/ entry on either list.
+  cp "$REPO/docs/ideas/finish-the-rewrite.md" "$d/docs/ideas/"
   cp "$REPO/test/probe_gates.sh" "$REPO/test/retired_term_test.sh" "$d/test/"
   cp "$REPO/formal/wrapper.v" "$d/formal/"
   # -c init.defaultBranch, so the branch-name advice cannot land in the middle of
@@ -1448,6 +1450,48 @@ probe "an allow-list entry whose site no longer has the word is red" 1 \
 d=$(new_case)
 probe "a tree git cannot list is a scan of nothing, not a green one" 1 \
   "cannot enumerate any tracked files" "$RN $d"
+
+# THE SECOND TERM: the ISA name the core outgrew. Its list is not the first
+# term's, so these probes also demonstrate that the two are graded apart.
+d=$(rn_fixture)
+sed -i.bak "s/What they need is/What an RV32IMC core needs is/" "$d/formal/wrapper.v"
+probe "the stale ISA name coming back in a formal harness comment is red" 1 \
+  "formal/wrapper.v:" "$RN $d"
+
+probe "and the diagnostic names the ISA the core does claim" 1 \
+  "Write RV32IMAC" "$RN $d"
+
+# THE ONE THAT DECIDES WHETHER THIS TERM IS USABLE AT ALL. The lower-case
+# spelling is a live argument to riscv-formal's generator, not the retired prose
+# name, and a check that caught it would be red on the shipping tree forever.
+d=$(rn_fixture); printf 'isa rv32imc\n' > "$d/formal/checks.cfg"
+git -C "$d" add -A
+probe "control: the formal flow's lower-case rv32imc is a different thing" 0 \
+  "confined to its" "$RN $d"
+
+# The other direction, on the second term's own list: docs/adr/ is exempt for
+# both words, and losing one of them has to be red for that one alone.
+d=$(rn_fixture); sed -i.bak 's/RV32IMC/RV32IMAC/g' "$d/docs/adr/README.md"
+probe "an allow-list entry whose site lost the stale ISA name is red" 1 \
+  "the allow-list exempts docs/adr/" "$RN $d"
+
+# The table itself. These three run the FIXTURE's copy, because what they edit is
+# the table inside it -- a term added with no list behind it grades against
+# nothing, and a scan of nothing is the failure this whole file exists for.
+RNF="test/retired_term_test.sh"
+
+d=$(rn_fixture); sed -i.bak 's/^ladder any-case$/ladder some-case/' "$d/$RNF"
+probe "a casing keyword the table does not define stops rather than guessing" 1 \
+  "which is neither" "$d/$RNF $d"
+
+d=$(rn_fixture); sed -i.bak 's/^ladder any-case$/ladders any-case/' "$d/$RNF"
+probe "a term with no allow-list behind it stops rather than grading nothing" 1 \
+  "no allow-list is written for the term" "$d/$RNF $d"
+
+d=$(rn_fixture)
+sed -i.bak -e 's/^ladder any-case$//' -e 's/^RV32IMC exact-case$//' "$d/$RNF"
+probe "an empty term table is a scan of nothing, not a green one" 1 \
+  "the term table is empty" "$d/$RNF $d"
 
 begin_group "test/march_test.sh"
 
