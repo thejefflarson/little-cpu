@@ -151,6 +151,11 @@ Two things moved at once between the tables — the base gained ADR-0108, and th
 so neither is attributable and neither is claimed. What is claimed is only what each internal
 comparison supports.
 
+The base then moved again, to `be5842d`, which renames the Sail config and **touches no file under
+`rtl/` or `soc/`** — checked rather than assumed, `git diff 2007d9d..be5842d -- rtl/ soc/` is empty.
+So the second table is not re-taken a third time: a placement is a function of the netlist and the
+seed, and neither moved.
+
 `SOC_MIN_MHZ` does not move and `SOC_EXPECT_SPRAM`/`SOC_EXPECT_EBR` are unchanged at 2 and 20, on
 every one of the forty placements above.
 
@@ -194,7 +199,7 @@ exactly two settings for a region's reservability and this core was neither:
 ```
 
 The core did a third thing — answered the `lr.w` with zero, took no reservation and raised nothing.
-**`RsrvNone` is what this platform is now**, and `test/sail/rv32imc_zicsr.json` says so: four
+**`RsrvNone` is what this platform is now**, and `test/sail/rv32imac_zicsr.json` says so: four
 regions rather than two, the 64 KB data RAM `RsrvEventual` and `AMOArithmetic`, the three around it
 `RsrvNone` and `AMONone`. `amoregion.S` **AGREEs**, and the entry comes out with the reason it
 closed written where the entry was.
