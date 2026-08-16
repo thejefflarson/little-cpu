@@ -82,11 +82,20 @@ ADR-0106 said the timer's PMA should give, and text gets the same answer for the
 data bus reaches it, it is not main memory that supports atomics, and "is this the RAM" is a
 narrower question than "is this mapped". `test/asm/amoregion.S` reaches all three kinds of address.
 
-## Decision 2 — the spelling is the measurement, again, and one of the two misses the board
+## Decision 2 — the go/no-go, taken twice, on two bases and two toolchains
 
-Two texts of one design were built and swept over eight seeds each, `SOC_PROG=datainit.c`, one
-machine and one toolchain. They differ in whether the term that reaches `next_pc` is **one** or
-**two**:
+**Read the two tables below as two experiments, not one.** The first decided the *spelling* and was
+taken on the base this work branched from with a Homebrew toolchain. The second is the *go/no-go*
+against the tree that merges, re-taken after ADR-0108 landed underneath — and on the pinned OSS CAD
+Suite, because the local `nextpnr-ice40` stopped loading mid-ticket after a `boost` 1.92 upgrade
+(`dyld: Symbol not found: boost::program_options::arg`). Both sides of each table share a base and a
+toolchain, so each comparison is internal; **the two tables' numbers do not compare to each other**
+and are not merged here.
+
+### The spelling, on `64759da` with Homebrew yosys/nextpnr
+
+Two texts of one design, eight seeds each, `SOC_PROG=datainit.c`. They differ in whether the term
+that reaches `next_pc` is **one** or **two**:
 
 ```
   two terms          one term
@@ -114,10 +123,36 @@ Full rows, MHz, `default 1 2 3 4 5 6 7`:
 **The median moved 0.31%**, which is a null inside a ~3.6% churn band, and the worst placement moved
 2.2%. The two spellings are 3.0% apart at the median and 3.5% apart at the worst seed, and only one
 of them meets the requirement — the same finding ADR-0106 recorded on this instrument and ADR-0097
-recorded on `fit`. **Quote the distribution of the text that ships.**
+recorded on `fit`. **Quote the distribution of the text that ships.** That is what settled the
+spelling, and nothing below reopens it.
+
+### The go/no-go, on `2007d9d` with the pinned OSS CAD Suite. **GO.**
+
+| tree | worst of 8 | median period | vs. requirement |
+|---|---|---|---|
+| `origin/main` (`2007d9d`) | **12.12 MHz** | 79.97 ns | +1.0% |
+| this change, **as shipped** | **12.39 MHz** | 78.75 ns | **+3.3%** |
+
+Full rows, MHz, `default 1 2 3 4 5 6 7`:
+
+- baseline — 12.12 12.41 12.19 13.14 12.35 12.60 12.82 13.00
+- shipped — 12.47 13.00 12.50 12.99 12.75 12.39 12.76 12.65
+
+**The change is FASTER than its base here** — +2.2% at the worst placement and 1.5% at the median —
+where on the earlier base and toolchain it was 2.2% slower at the worst placement. **Two toolchains
+disagree about the sign of this change's effect on the clock, measured on the same two trees'
+worth of RTL.** CLAUDE.md already records `fit` as toolchain-dependent, at ~21 cells; this is the
+same warning observed on `soc-timing`, and it is the reason to state the verdict and not a
+percentage: **the requirement is met at every seed of both distributions, and the period cost of
+this change is a null whose sign the instrument does not agree on.** Do not quote either delta as
+the price.
+
+Two things moved at once between the tables — the base gained ADR-0108, and the toolchain changed —
+so neither is attributable and neither is claimed. What is claimed is only what each internal
+comparison supports.
 
 `SOC_MIN_MHZ` does not move and `SOC_EXPECT_SPRAM`/`SOC_EXPECT_EBR` are unchanged at 2 and 20, on
-every one of the twenty-four placements above.
+every one of the forty placements above.
 
 ## Decision 3 — the depth attribution, which is what this ticket existed to produce
 
@@ -137,7 +172,7 @@ exactly: the four levels were charged to the top of `immediate + reg_rs1`, and t
 here.
 
 **What moved is routing, not depth** — +7.7% and +10.8% of routing at the two placements while logic
-went *down* 5.3% and 4.9%. `make fit` reads 3935 → 3968 (+33) and the placed SoC 4728 → 4751 (+23),
+went *down* 5.3% and 4.9%. The `fit` job reads 3934 → 3966 (+32) and the placed SoC 4728 → 4751 (+23),
 both inside the ±50 churn band, on a part the SoC already occupies at 89–90%. Read that as what it
 is: **the period moved for a reason the level count cannot see, at an occupancy where it would not
 have to be this change's 33 cells that did it.** ADR-0088 measured occupancy not setting the period
@@ -177,7 +212,12 @@ stop agreeing. `AMOArithmetic` is the weakest value that admits every encoding t
 **One half of the deviation is still open and is deliberately not asserted.** A plain store to an
 address no memory answers is still dropped silently, and the model has memory there, so a program
 that wrote and read back would be a divergence again. `amoregion.S` asserts only the load half —
-which reads zero on both — and says so where it does it. `make cosim-suite`: **67/70 agreed**,
+which reads zero on both — and says so where it does it.
+
+**Re-run against the model that claims A, not carried forward.** ADR-0108 flipped Sail's `A` key to
+`true` after this work was measured, and the claim being made here is about the tree that merges, so
+`amoregion.S` was co-simulated again on the rebased branch: **AGREE**, 382 architectural changes
+identical in order and value. `make cosim-suite`: **67/70 agreed**,
 matching the baseline exactly in both directions, where it was 66/70 with four entries.
 
 ## Decision 5 — `fault_ch0` becomes an oracle for these two causes, having been one for neither
@@ -206,7 +246,7 @@ raises no atomic wait and occupies the pipeline exactly as a trapping instructio
 | `make test` | **70/70**, `EXPECTED_FAIL` exact both ways; `amoregion.S` PASS at 604 retires / 514 spec-checked |
 | `make test-units` | 9 benches, all PASS |
 | `make probe-gates` | all probes green (it runs inside `make test`) |
-| `make mutation-check` | **7 mutations**, each caught by exactly its declared detectors |
+| `make mutation-check` | **8 mutations**, each caught by exactly its declared detectors |
 | `make window-test` | 14 elaborations, each rejected or accepted as required |
 | `make cycles` | columns add up, `unattributed` 0, the `atomic` bucket unmoved — a refused atomic clears every flag, so it raises no wait |
 | `make lint` | clean in both passes |
@@ -216,9 +256,9 @@ raises no atomic wait and occupies the pipeline exactly as a trapping instructio
 | `make -C formal complete` / `complete_cover` | PASS / PASS |
 | `make -C formal complete-exclusions` / `interrupt-tie-off` | PASS / PASS |
 | `make -C formal dmemcheck` / `imemcheck` / `nonperturbation` | PASS / PASS / PASS |
-| `make fit` | **3968** of 4000 budgeted, from 3935 on the same local toolchain |
+| `make fit` | **3966** of 4000 budgeted, from **3934** — both the `fit` job's, on this branch and on `2007d9d` |
 | `make cosim-suite` | **67/70** agreed, baseline exact both ways |
-| `soc/timing_sweep.sh`, eight seeds, three trees | the table above |
+| eight-seed sweeps, five trees over two bases and two toolchains | the two tables above; **GO**, every seed of both distributions over 12.00 MHz |
 
 Both new graded comparisons have a demonstrated red direction, forced rather than argued:
 
@@ -255,9 +295,17 @@ that half the file would pass on a core that faulted all eleven.
   which is a weaker version of the same argument and is worth writing down as the reason rather
   than leaving the ADR's suggestion looking unaddressed. A handler that needs it without decoding
   the instruction is what would change this.
-- **`FIT_MAX_LC` does not move.** 3968 locally of 4000, from 3935 — inside the churn band, and the
-  headroom the ratchet has left is now thinner than that band. The next change in this area should
-  expect to raise it with CI's number.
+- **`FIT_MAX_LC` does not move**, and this ADR deliberately does not raise it. The `fit` job reads
+  **3966 of 4000**, from 3934 — +32, inside the ±50 churn band, leaving **34 cells of headroom**,
+  which is *inside* that band. So the ratchet no longer sits outside the churn CLAUDE.md says it
+  must sit outside, and the change that re-derives it should be the one that owns that value rather
+  than this one raising it in passing.
+- **There is no local-to-CI offset to convert with, and this ADR quotes CI for that reason.** The
+  same day this landed, one bit of a read-only constant moved the local count +53 and the job's −4.
+  Whatever relationship the two instruments once had, it is not additive. Quote the `fit` job.
+  (The local instrument was unavailable here in any case: `nextpnr-ice40` from Homebrew stopped
+  loading after a `boost` 1.92 upgrade, which is also why decision 2's second table is on the
+  pinned OSS CAD Suite.)
 - **The multi-core milestone is unaffected.** The bit is a PMA and a second hart does not change what
   region answers an atomic.
 - **`make cycles`'s hazard share reads 37.1% here against CLAUDE.md's 35.7%, and that is the SUITE
