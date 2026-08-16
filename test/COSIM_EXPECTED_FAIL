@@ -43,9 +43,11 @@
 #               against this core's 0x40001104. The reference model was a
 #               `--config-override` on the model's DEFAULT RV32 machine, and an
 #               override inherits everything it does not mention: A, B, D, F,
-#               S, U and V, none of them implemented here and none of them
+#               S, U and V, none of them implemented here then and none of them
 #               chosen. It is now a complete `--config` describing
-#               RV32IMC_Zicsr — test/sail/rv32imac_zicsr.json — and misa agrees.
+#               RV32IMAC_Zicsr_Zifencei — test/sail/rv32imac_zicsr.json — and
+#               misa agrees; A is claimed deliberately now and the other six
+#               are still false.
 #               Two further divergences that this one was masking, mip.MTIP and
 #               mie's writable bits, are recorded next to the assertions that
 #               used to make them, in test/asm/csr.S.

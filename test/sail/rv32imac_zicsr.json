@@ -1,5 +1,10 @@
-// The Sail RISC-V model, configured as THIS core: RV32IMC_Zicsr, machine mode
-// only. Passed as `sail_riscv_sim --config`, NOT `--rv32
+// The Sail RISC-V model, configured as THIS core: RV32IMAC_Zicsr_Zifencei,
+// machine mode only. Ask the model rather than this sentence --
+// `sail_riscv_sim --config <this file> --print-isa-string` answers
+// rv32imac_zicntr_zicsr_zifencei_zihpm_za128rs_za64rs_zaamo_zalrsc_zca_zvl32b_zvl64b_zvl128b_zvl256b,
+// where `imac` is misa, Zaamo/Zalrsc/Zca name the same instructions as their own
+// extensions, and the Zvl* granules print even with V disabled, as it is here.
+// Passed as `sail_riscv_sim --config`, NOT `--rv32
 // --config-override`, and that distinction is the point of the file.
 //
 // WHY A WHOLE CONFIG AND NOT AN OVERRIDE

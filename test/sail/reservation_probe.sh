@@ -62,9 +62,14 @@ trap 'rm -rf "$tmp"' EXIT
 # output is the command that produced the number beneath it.
 run=("$SAIL_BIN" --config "$CONFIG" --inst-limit 5000 "$tmp/probe.elf")
 
+# Asked here rather than inside the echo: a command substitution that fails as
+# an argument leaves `echo` at status 0, so errexit never sees it. This banner
+# was observed printing an empty ISA for a machine the run below then measured.
+isa=$("$SAIL_BIN" --config "$CONFIG" --print-isa-string)
+
 echo "sail:   $SAIL_BIN"
 echo "config: $CONFIG"
-echo "isa:    $("$SAIL_BIN" --config "$CONFIG" --print-isa-string)"
+echo "isa:    $isa"
 echo "command: ${run[*]}"
 echo
 
