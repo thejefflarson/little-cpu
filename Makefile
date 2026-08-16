@@ -13,8 +13,8 @@ rvfi_macros.vh: $(RISCV_FORMAL_DIR)/checks/rvfi_macros.py
 # landed, and spent a run elaborating a testbench whose memories were not there.
 # That job calls `make elaborate-strict` now, so there is one list to update.
 SIM_RTL_SRCS := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v \
-                rtl/fetcher.v rtl/imemory.v rtl/memory.v rtl/regfile.v rtl/regsel.v \
-                rtl/timer.v rtl/writeback.v rtl/littlecpu.v
+                rtl/fetcher.v rtl/imemory.v rtl/memory.v rtl/pairtable.v rtl/regfile.v \
+                rtl/regsel.v rtl/timer.v rtl/writeback.v rtl/littlecpu.v
 
 testbench.vvp: $(SIM_RTL_SRCS) rvfi_macros.vh test/testbench.v test/monitor.sim.v
 	iverilog -I./rtl/ -DICARUS $(addprefix -D,$(RISCV_FORMAL_MACROS)) -g2012 -o $@ $^
@@ -349,7 +349,7 @@ lint-setup:
 	@'$(SVLINT_DIR)'/bin/svlint --version
 
 UNIT_BENCHES := exec_tb mem_tb imem_tb decoder_tb regfile_tb csr_tb accessor_tb monitor_tb \
-                timer_tb
+                timer_tb pairtable_tb
 
 UNIT_BENCH_SRC_exec_tb     := rtl/structs.v rtl/executor.v
 UNIT_BENCH_SRC_mem_tb      := rtl/memory.v
@@ -360,6 +360,7 @@ UNIT_BENCH_SRC_csr_tb      := rtl/structs.v rtl/csrs.v
 UNIT_BENCH_SRC_accessor_tb := rtl/structs.v rtl/accessor.v
 UNIT_BENCH_SRC_monitor_tb  := test/monitor.sim.v
 UNIT_BENCH_SRC_timer_tb    := rtl/timer.v
+UNIT_BENCH_SRC_pairtable_tb := rtl/pairtable.v
 
 # `present` is read from disk inside the recipe, not with $(wildcard). Make reads
 # a directory once and remembers it, and a check working from a stale listing can
@@ -596,7 +597,8 @@ dhrystone: sim
 # far, and that table is the number we want. Making it place would mean picking
 # real pins, which means building the SoC memory first.
 FIT_SRCS := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v \
-            rtl/fetcher.v rtl/regfile.v rtl/regsel.v rtl/writeback.v rtl/littlecpu.v
+            rtl/fetcher.v rtl/pairtable.v rtl/regfile.v rtl/regsel.v rtl/writeback.v \
+            rtl/littlecpu.v
 
 fit.json: $(FIT_SRCS)
 	@echo 'yosys: synthesising littlecpu for ice40 (log: fit.synth.log)'
@@ -647,14 +649,15 @@ SOC_PROG      ?= datainit.c
 SOC_ROM_WORDS := 2048
 # Exact rather than budgeted the way FIT_MAX_LC is, because both are properties
 # of the RTL rather than of placement: 2 SPRAM for the 64 KB data RAM, and 16
-# EBR for the 8 KB banked ROM plus 4 for rtl/regfile.v.
+# EBR for the 8 KB banked ROM plus 4 for rtl/regfile.v and 1 for
+# rtl/pairtable.v, whose 256 entries of 16 bits are exactly one.
 SOC_EXPECT_SPRAM := 2
-SOC_EXPECT_EBR   := 20
+SOC_EXPECT_EBR   := 21
 
 SOC_SRCS      := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v \
                  rtl/executor.v rtl/fetcher.v rtl/imemory.v rtl/memory.v \
-                 rtl/regfile.v rtl/regsel.v rtl/timer.v rtl/writeback.v rtl/littlecpu.v \
-                 rtl/littlesoc.v
+                 rtl/pairtable.v rtl/regfile.v rtl/regsel.v rtl/timer.v \
+                 rtl/writeback.v rtl/littlecpu.v rtl/littlesoc.v
 
 # PHONY so `soc.json` resynthesises every run: the image depends on SOC_PROG,
 # which make cannot see a change to, and a stale ROM would make the measurement

@@ -73,8 +73,8 @@ genchecks-check: $(RISCV_FORMAL_DIR)/checks/genchecks.py genchecks-local.py | $(
 # rule re-runs the target whatever this list says. What it buys is a loud "No
 # rule to make target" if an rtl/ file is renamed out from under a check.
 RTL_SOURCES := ../rtl/structs.v ../rtl/fetcher.v ../rtl/regfile.v \
-               ../rtl/csrs.v ../rtl/decoder.v ../rtl/regsel.v ../rtl/executor.v \
-               ../rtl/accessor.v ../rtl/writeback.v ../rtl/littlecpu.v
+               ../rtl/csrs.v ../rtl/decoder.v ../rtl/pairtable.v ../rtl/regsel.v \
+               ../rtl/executor.v ../rtl/accessor.v ../rtl/writeback.v ../rtl/littlecpu.v
 
 # The two figures every [depth] entry is derived from, swept out of `hang` and
 # `liveness` and graded against the `#derive` lines that declare them. Six sby
