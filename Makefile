@@ -765,6 +765,13 @@ soc-timing: soc.asc
 	@# second one was the one holding the gate.
 	@python3 soc/timing_split.py soc.timing.rpt --min-mhz $(SOC_MIN_MHZ)
 
+# soc/baseline_sweep.sh stamps a sweep with the variables the build it ran
+# really used, and asks for them here rather than repeating their defaults: a
+# second copy of `SOC_PROG` would stamp a sweep with a program the placements
+# were not built from the moment either one moves.
+print-%:
+	@echo '$($*)'
+
 # ---- the cross-core comparison harness -------------------------------------
 #
 # Places THIS core and VexRiscv in one harness -- one geometry, one program, one

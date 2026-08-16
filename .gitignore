@@ -43,6 +43,12 @@ soc/compare/dhry_ram.hex
 # ARE the measurement and are kept on disk to read, and never committed.
 depth.out/
 depth.*.csv
+# `soc/baseline_sweep.sh`: one report, bitstream and placement log per seed, plus
+# the CSV whose header states the tree and the toolchain they were measured on.
+# Same rule again -- the reports ARE the measurement, kept on disk to read and
+# never committed, because a checked-in timing report is a number that stops
+# tracking the RTL.
+baseline.out/
 formal/riscv-formal
 formal/riscv-formal.tmp
 formal/complete
