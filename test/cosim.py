@@ -56,7 +56,7 @@ sequences matched.
 
 THE REFERENCE MODEL IS CONFIGURED AS THIS CORE, NOT AS A DEFAULT MACHINE
 -----------------------------------------------------------------------
-test/sail/rv32imc_zicsr.json is a COMPLETE `--config`, not a
+test/sail/rv32imac_zicsr.json is a COMPLETE `--config`, not a
 `--config-override` on the model's default RV32 machine.  An override inherits
 everything it does not mention, and that is how a reference model with
 atomics, bit-manipulation, float, supervisor mode, user mode and vectors
@@ -89,7 +89,7 @@ import tempfile
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ASM_DIR = os.path.join(REPO, "test", "asm")
-SAIL_CONFIG = os.path.join(REPO, "test", "sail", "rv32imc_zicsr.json")
+SAIL_CONFIG = os.path.join(REPO, "test", "sail", "rv32imac_zicsr.json")
 # `make sail-setup` unpacks the release here, outside any checkout. The install
 # used to live in the gitignored tools/, and a git worktree gets tracked files
 # only, so co-simulation was unavailable from every worktree while the main
@@ -124,7 +124,7 @@ DUT_RE = re.compile(
 # CSRs whose VALUE this core and the reference model are both entitled to
 # answer differently, and which sail-riscv 0.13.1 gives no way to configure.
 # The whole of the rest of the disagreement between the two machines lives in
-# test/sail/rv32imc_zicsr.json; this is what is left over after that file is as
+# test/sail/rv32imac_zicsr.json; this is what is left over after that file is as
 # faithful as the schema allows.
 #
 # Each entry costs exactly one register's VALUE at the change the read

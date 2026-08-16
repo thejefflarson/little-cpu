@@ -228,7 +228,7 @@ closed list; "exact" once made a conformance gap look like a design choice (ADR-
 the spec merely recommends is still owed a decision** — the monitor's 29 counters are a "should",
 and that gap survived an audit because the question was closed against a reference model that
 trapped on them rather than against the spec sentence. **Sail stops being an independent oracle
-exactly where this repo configured it**: it trapped because `test/sail/rv32imc_zicsr.json` said this
+exactly where this repo configured it**: it trapped because `test/sail/rv32imac_zicsr.json` said this
 core has no such counters, so it was agreeing with us and not with the specification.
 
 ## Verification — three legs, each load-bearing

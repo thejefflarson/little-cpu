@@ -34,7 +34,7 @@ fi
 SAIL_BIN=$1
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/../.." && pwd)
-CONFIG="$HERE/rv32imc_zicsr.json"
+CONFIG="$HERE/rv32imac_zicsr.json"
 PROBE="$HERE/reservation_probe.S"
 
 if [ ! -x "$SAIL_BIN" ]; then

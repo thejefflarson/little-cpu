@@ -45,7 +45,7 @@
 #               override inherits everything it does not mention: A, B, D, F,
 #               S, U and V, none of them implemented here and none of them
 #               chosen. It is now a complete `--config` describing
-#               RV32IMC_Zicsr — test/sail/rv32imc_zicsr.json — and misa agrees.
+#               RV32IMC_Zicsr — test/sail/rv32imac_zicsr.json — and misa agrees.
 #               Two further divergences that this one was masking, mip.MTIP and
 #               mie's writable bits, are recorded next to the assertions that
 #               used to make them, in test/asm/csr.S.
@@ -86,7 +86,7 @@
 #     fixed-frequency system as the case where driving mtime from the cycle
 #     counter is right, which is this board. So mtime here ticks once per clock
 #     cycle. The model's ticks once per two instructions
-#     (`instructions_per_tick: 2` in test/sail/rv32imc_zicsr.json). Both are
+#     (`instructions_per_tick: 2` in test/sail/rv32imac_zicsr.json). Both are
 #     constant. Both are conformant. They are not the same clock.
 #   * WHEN MTIP FOLLOWS THE COMPARISON. "If the result of the comparison between
 #     mtime and mtimecmp changes, it is guaranteed to be reflected in MTIP
@@ -164,7 +164,7 @@
 # declined. So RsrvNone would trade this divergence for a worse one: a control
 # flow difference rather than a register value, on a fault the core is recorded
 # as not raising. The region split is therefore NOT in
-# test/sail/rv32imc_zicsr.json, and that file's region comment carries the same
+# test/sail/rv32imac_zicsr.json, and that file's region comment carries the same
 # measurement so the next person to reach for the knob finds it there.
 #
 # Question 2 does not fit either: an sc.w's result IS the branch condition three
