@@ -9,7 +9,7 @@
 // to be checked after the operand-fetch cycle is spent. Every vector below
 // leaves `in.next_instr` at zero, so decode's guess at the next pair is x0/x0
 // and misses; drive it and the vector after it issues a cycle earlier than the
-// checks expect. The five vectors that do drive it put it back.
+// checks expect. The three vectors that do drive it put it back.
 module decoder_tb;
   logic clk = 0;
   always #5 clk = ~clk;
@@ -36,11 +36,6 @@ module decoder_tb;
   logic atomic_supported = 1'b1;
   logic [31:0] atomic_addr;
   logic accessor_out_valid = 1'b0;
-  // rtl/pairtable.v's answer. Held at a miss for every vector below except the
-  // two that drive it, so the guess falls back to the fetch window's successor
-  // word and each vector's timing is the one it was written against.
-  logic pair_hit = 1'b0;
-  logic [4:0] pair_rs1 = 5'b0, pair_rs2 = 5'b0;
   // rtl/csrs.v is a sibling of the decoder, not part of it, so it is stubbed.
   logic [31:0] csr_rdata = 32'b0;
   logic csr_implemented = 1'b0;
@@ -68,9 +63,6 @@ module decoder_tb;
     .atomic_addr(atomic_addr),
     .atomic_supported(atomic_supported),
     .accessor_out_valid(accessor_out_valid),
-    .pair_hit(pair_hit),
-    .pair_rs1(pair_rs1),
-    .pair_rs2(pair_rs2),
     .csr_rdata(csr_rdata),
     .csr_implemented(csr_implemented),
     .mtvec(mtvec),
@@ -276,44 +268,6 @@ module decoder_tb;
               dut.issuing, 1'b1);
     check_hex("...on the pair it really reads", {27'b0, rs1}, 32'd3);
     check_hex("...on both halves of it", {27'b0, rs2}, 32'd2);
-
-    // rtl/pairtable.v's answer outranks the fetch window's successor word,
-    // which is the whole point of it: after a redirect the word physically
-    // after the branch is not what runs next, and the table entry is. The
-    // successor word here names x2 and the table names x4, so a guess that
-    // ignored the table would present x2 and cost the cycle.
-    in.pc = 32'h0000_00a0;
-    present_and_fetch(32'h00100093);   // addi x1, x0, 1
-    in.next_instr = 32'h00110193;      // addi x3, x2, 1 -- the sequential guess, x2
-    pair_hit = 1'b1;
-    pair_rs1 = 5'd4;
-    pair_rs2 = 5'd0;
-    #1;
-    check_hex("a table hit outranks the successor word", {27'b0, read_rs1}, 32'd4);
-    @(posedge clk);
-    #1;
-    in.instr = 32'h00120213;           // addi x4, x4, 1 -- what really ran next
-    in.next_instr = 32'b0;
-    pair_hit = 1'b0;
-    #1;
-    check_bit("...and the redirect target issues with no operand-fetch cycle",
-              dut.operand_stall, 1'b0);
-    check_bit("...so it issues in the cycle it is presented", dut.issuing, 1'b1);
-
-    // The other direction: a miss leaves the successor word in charge, so the
-    // table can only ever add a hit and never take one away.
-    in.pc = 32'h0000_00c0;
-    present_and_fetch(32'h00100093);
-    in.next_instr = 32'h00110193;      // reads x2
-    pair_hit = 1'b0;
-    pair_rs1 = 5'd4;
-    #1;
-    check_hex("a table miss leaves the successor word presenting",
-              {27'b0, read_rs1}, 32'd2);
-    pair_rs1 = 5'd0;
-    in.next_instr = 32'b0;
-    @(posedge clk);
-    #1;
 
     // A shift's second operand is its amount, zero-extended, at both widths.
     // The poison in reg_rs2 is what says the register operand is not what

@@ -37,13 +37,6 @@ module decoder (
   // still has to wait for one. That is what this is for -- without it a CSR
   // access can issue while a store is still in the accessor.
   input  logic       accessor_out_valid,
-  // What followed this instruction the last time it issued, from
-  // rtl/pairtable.v. `pair_hit` says the entry belongs to this address; the two
-  // numbers are then a better guess at the next instruction's pair than the
-  // fetch window's successor word, because they survive a redirect.
-  input  logic       pair_hit,
-  input  logic [4:0] pair_rs1,
-  input  logic [4:0] pair_rs2,
   output logic [31:0] pc,
   // The value `pc` takes next cycle, ready during this one. A memory that needs
   // a cycle to answer latches this on the same edge `pc` moves, so its data is
@@ -71,10 +64,6 @@ module decoder (
   input  logic [31:0] csr_rdata,
   input  logic        csr_implemented,
   output logic        instret,
-  // This cycle consumes the fetch window: no reset, no stall. A trapping or
-  // interrupted issue is one too -- it consumes the window and redirects --
-  // which is why this and `instret` are different signals.
-  output logic        issuing,
   // A trap takes the same `next_pc` chain a branch does. Nothing downstream has
   // to be told about it, so there is no kill signal anywhere.
   output logic        trap_entry,
@@ -689,20 +678,8 @@ module decoder (
   // is right because nothing issues until the held pair is the pair the issuing
   // instruction reads -- not because the held pair is the presented pair, which
   // it deliberately is not on an issuing cycle.
-  // Two guesses, and history wins where it has one. The successor word is the
-  // instruction physically next, which is wrong after every redirect; the table
-  // entry is whatever really ran next last time, which is wrong when a branch
-  // changes its mind. Both are checked by the same comparison, so the only cost
-  // of preferring the wrong one is the cycle that was already being paid.
-  //
-  // `pair_hit` is a comparison of two registers and the select sits under the
-  // stall mux, so nothing here reaches the fetch loop: `read_rs*` ends at the
-  // register file's address port and at `prev_rs*` below, both registers.
-  logic [4:0] guess_rs1, guess_rs2;
-  assign guess_rs1 = pair_hit ? pair_rs1 : next_rs1;
-  assign guess_rs2 = pair_hit ? pair_rs2 : next_rs2;
-  assign read_rs1 = stall ? rs1 : guess_rs1;
-  assign read_rs2 = stall ? rs2 : guess_rs2;
+  assign read_rs1 = stall ? rs1 : next_rs1;
+  assign read_rs2 = stall ? rs2 : next_rs2;
 
   // All six branch tests come from one subtraction. Unsigned less-than is the
   // borrow out; signed less-than is the same fact except when the operands'
@@ -761,6 +738,7 @@ module decoder (
   // `&& in.valid`: those arms do not test it either. If they ever disagree a
   // CSR write fires once per stalled cycle instead of once per instruction, and
   // nothing says so.
+  logic issuing;
   assign issuing = !reset && !stall;
 
   logic committing;

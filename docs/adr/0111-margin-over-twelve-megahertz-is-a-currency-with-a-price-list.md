@@ -32,7 +32,7 @@ on:
 | item | price | payoff | takeable at |
 |---|---|---|---|
 | ~~operand-fetch guess~~ | — | 16.3% of Dhrystone | **collected**, ADR-0093 |
-| successor-pair table (ADR-0101) | +3.2% worst | −8.0% of Dhrystone, 0.727 → 0.790 DMIPS/MHz | ~7% |
+| ~~successor-pair table (ADR-0101)~~ | +3.9% worst, median a **null**, +90 cells | −8.0% of Dhrystone, 0.727 → 0.790 DMIPS/MHz | **declined, ADR-0113** |
 | narrow forwarding (ADR-0083) | ~2.9% | −7.5% of suite cycles, Dhrystone unmeasured | ~11% |
 | early register write (ADR-0100) | +8.8% | −6.5% of Dhrystone | ~12–13%, dominated |
 | causes 5 and 7, loads and stores (ADR-0104) | ~13–16% | conformance | ~17–20% |
@@ -46,7 +46,15 @@ itself.
 
 **Prices are stale until re-swept.** Every one was measured on a tree that no longer exists. A
 purchase re-takes its own price first, at eight seeds or more; four seeds have twice produced a
-different verdict than eight, most recently in ADR-0108.
+different verdict than eight, most recently in ADR-0108. **Eight has now produced a different verdict
+than sixteen too** — the top row was re-taken and the first eight seeds passed it where all sixteen
+declined it (ADR-0113), so read "eight or more" as a floor and not a target.
+
+**A price can be a variance, and then only the tail sees it.** The pair table's re-taken median cost
+is inside the churn band and its worst seed is +3.9%: it does not slow the design down, it widens the
+distribution, and `SOC_MIN_MHZ` grades worst-of-sweep. Quote a price as a distribution, never as one
+number, and expect margin bought by reducing variance to buy such an item more cheaply than margin
+bought by shortening a path.
 
 **Payoffs do not sum.** Removing operand stalls moves the scoreboard column *up* — ADR-0074 measured
 8381 becoming 8837 — and the pair table and early write measured sub-additive. Tiers are measured as
@@ -84,10 +92,13 @@ prediction rather than a hope.
 ## Consequences
 
 - **A margin-buying change states what it is buying.** "This buys 3% of worst-seed margin" is not a
-  result; "this buys 3%, which puts the pair table in reach at its re-taken price" is.
+  result; "this buys 3%, which puts narrow forwarding in reach at its re-taken price" is. And the
+  purchase has to be re-taken before it is spent, because the one item priced highest here did not
+  survive its own re-take.
 - **The re-read of a ceiling is free and the re-measure is not.** The numbers are in the ADRs. Re-take
   a ceiling in the tree you mean to spend it in, at spend time — doctrine already, reinforced here.
 - **ADR-0089 is qualified, not replaced.** Its rule stands for quoting: a higher-closing placement is
   still not speed and DMIPS is still quoted at the board's 12 MHz.
 - **The list is a living artifact.** An item's price or payoff changing is a reason to update this
-  ADR, and an item collected is struck from it — as the operand-fetch guess already is.
+  ADR, and an item leaving it is struck either way — the operand-fetch guess collected, the pair
+  table declined on its own re-take.

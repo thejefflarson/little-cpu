@@ -110,12 +110,14 @@ are kept in parentheses so those references still resolve.
   fetch window's successor word by `rtl/regsel.v` — the same mapping the issuing instruction goes
   through, instantiated twice, so a compressed successor is decoded rather than masked away
   (ADR-0089, ADR-0093). A guess taken from what really followed that address last time reaches the
-  case a fetch window cannot — a redirect — and is built, measured and deferred rather than declined
-  (ADR-0101). The pair presented and the pair being read are deliberately different
-  signals there. The bypass selects on a **registered copy** of the address
-  pair and is correct because `operand_stall` lets nothing issue until the held pair is the pair the
-  issuing instruction reads (ADR-0064 as amended by ADR-0089) — narrowing `operand_stall` breaks it
-  with nothing to say so except two `test/regfile_tb.v` vectors and `reg_ch0`. Touching
+  case a fetch window cannot — a redirect — and is **built twice, measured twice and declined**: it
+  buys 8.0% of Dhrystone's cycles on both trees it was built on, costs +90 cells against a 4000-cell
+  ratchet, and its period cost is a null at the median with the whole of it in the tail, which puts
+  one placement of sixteen under 12 MHz (ADR-0101, ADR-0113). The pair presented and the pair being
+  read are deliberately different signals there. The bypass selects on a **registered copy** of the
+  address pair and is correct because `operand_stall` lets nothing issue until the held pair is the
+  pair the issuing instruction reads (ADR-0064 as amended by ADR-0089) — narrowing `operand_stall`
+  breaks it with nothing to say so except two `test/regfile_tb.v` vectors and `reg_ch0`. Touching
   `operand_stall` is an amendment, not a tuning change. The standing liveness probe: delete the rs2
   write-through bypass and `reg_ch0` must go SAT — run it before believing any `reg_ch0` result
   under a changed configuration.
@@ -360,7 +362,11 @@ and times.
   a couple of percent is not evidence of anything. **It is spelling-dependent the way `fit` is**, and
   by more: two texts of one design, two cells apart on `fit`, swept 12.34 and 12.75 MHz at their
   worst seeds — 3.3% — with one of them a hair faster than the base and the other 1.7% slower
-  (ADR-0106). Quote the distribution of the text that ships.
+  (ADR-0106). Quote the distribution of the text that ships. **A candidate whose cost is a variance
+  needs sixteen seeds, not eight**: the learned pair table's median cost is +1.2% and a null, its
+  best placement beats the base's best, and what it really does is take the best-to-worst spread from
+  5.5% to 11.2% — so eight seeds passed it at 12.16 MHz and sixteen declined it at 11.93 (ADR-0113).
+  A short sweep cannot see the tail, and the tail is what `SOC_MIN_MHZ` grades.
 - **12 MHz is a requirement, not a regression floor** (ADR-0066). `SOC_MIN_MHZ` is 12.0 — the board
   clock, whose next divider step down is 6 — and it does not slide. When it trips, fix the design,
   not the floor. The margin over the worst placement is deliberately tighter than the churn band.

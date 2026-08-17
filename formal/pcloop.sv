@@ -31,14 +31,6 @@ module pcloop (
     // does not answer redirects the pc, and `branch_jump` names that trap too.
     input logic atomic_supported,
     input logic accessor_out_valid,
-    // rtl/pairtable.v's answer, left free: nothing decode does with it can be
-    // wrong, because `operand_stall` checks the guess against the pair the
-    // issuing instruction really reads. Free is wider than the table, so the
-    // excuse below covers every entry the table could hold and every one it
-    // could not.
-    input logic pair_hit,
-    input logic [4:0] pair_rs1,
-    input logic [4:0] pair_rs2,
     input logic [31:0] csr_rdata,
     input logic csr_implemented,
     input logic [31:0] mtvec,
@@ -90,9 +82,6 @@ module pcloop (
     .atomic_addr(atomic_addr),
     .atomic_supported(atomic_supported),
     .accessor_out_valid(accessor_out_valid),
-    .pair_hit(pair_hit),
-    .pair_rs1(pair_rs1),
-    .pair_rs2(pair_rs2),
     .csr_rdata(csr_rdata),
     .csr_implemented(csr_implemented),
     .mtvec(mtvec),
