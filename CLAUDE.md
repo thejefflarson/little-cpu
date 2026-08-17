@@ -167,23 +167,15 @@ which makes the machine timer's four words and the whole text window `AMONone` a
 **An atomic's effective address is rs1 verbatim** — the A encodings put funct5/aq/rl/rs2 where the
 I-immediate is read from — so that test reads a register output and measures **zero extra logic
 levels**. A plain load or store has to read `immediate + reg_rs1` and hand the answer to `next_pc`,
-and **the whole price is that wait rather than anything about the region decode** (ADR-0113). The
-same three windows, the same union, the same cause split and the same merge into `trap_pending`
-asked about `reg_rs1` instead of the sum are **+0.52% of median period over six placements, a
-null**; asked about the top of the sum they are **+17.30% over sixteen, worst 10.43 MHz**. So the
-cost is monotone in which bit is waited for and in nothing else: a carry-select spelling that needs
-only bit 12 recovers a little under half of it (+9.10%, worst 10.96, one seed of sixteen over 12.00)
-and is declined, and a **coarse** 256 KB check that still reads the top of the sum is +15.95% — a
-null against the exact one, which closes making it cheaper by making it coarser. So an address no
-memory answers is still read as zero and written nowhere for those two — a deviation from the
-privileged spec's strong recommendation that precise access faults be raised, recorded as one rather
-than as a design choice. **Level count is not the instrument here**: two of those trees sit at 27
-levels and are 11% apart in period, and the atomic-only test is a level *shallower* than its base
-and still moved the worst placement 2.2%, in routing, at 89% occupancy. Quote the distribution.
-**The one affordable spelling is not a region test.** Asking whether `rs1`'s page or either
-neighbour is mapped meets 12 MHz at 16 of 16 placements for +3.00%, and is recorded unspent because
-it makes `mcause` a function of the base register rather than of the access — two instructions
-computing the same address then behave differently.
+and **the price is that wait and nothing about the region decode** (ADR-0113): the same three
+windows and the same merge asked about `reg_rs1` instead of the sum are a null, and the cost is
+monotone in which bit of the sum is waited for — bit 31 is +17.30% of median period, bit 12 is
++9.10%, and a **coarse** check that still reads bit 31 is +15.95%, a null against the exact one. So
+an address no memory answers is still read as zero and written nowhere for those two — a deviation
+from the privileged spec's strong recommendation that precise access faults be raised, recorded as
+one rather than as a design choice. **The only affordable spelling is not a region test**: asking
+about `rs1`'s page and its neighbours holds 12 MHz at 16 of 16 placements and is declined because it
+makes `mcause` a function of the base register rather than of the access.
 **Which spelling reaches `next_pc` decides whether the board closes.** One term that says an atomic
 faults, with the cause split answered off the fetch loop, swept a worst of 12.24 MHz over eight
 seeds; two terms each carrying their own encoding test swept 11.82 and missed at two seeds of eight.
@@ -511,6 +503,10 @@ and times.
   in**, and every LUT in the instruction decoder folds in more instruction bits — which are
   `rom_*_RDATA`. So `decode 11 · imem 5` is not five levels of memory: the `imem` bucket is an upper
   bound on the memory's contribution, and decode's share is understated by the same amount.
+  **It attributes a path, not a decision, and the level count orders nothing** (ADR-0113): four
+  spellings of one region test span 4:1 in cost with two of them at the same 27 levels and 11% apart
+  in period, and the tool charged `decode` one extra level for a change worth 16%. What located that
+  cost was substituting one line and re-sweeping — sixteen seeds, paired.
 - **Read logic levels apart**: a LUT level costs ~3.3 ns (delay plus interconnect), a carry hop
   ~0.34 ns and no interconnect. A change that trades a carry hop for a LUT level gets shallower by
   icetime's count and slower in nanoseconds. **Measured, in the fetch loop, at any area price**:
