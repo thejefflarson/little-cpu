@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=275
+PROBES_EXPECTED=276
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -1194,6 +1194,10 @@ probe "a report with no routing hop in it is a failed read, not a wired design" 
 d=$(rb_fixture); rm "$d/sweep/probe.default.rpt"
 probe "a row with no placement behind it stops the read, not just that seed" 1 \
   "no placement behind it" "$(rb "$d")"
+
+d=$(rb_fixture); sed -i.bak 's/"mem.rdata"/"other.rdata"/' "$d/soc.json"
+probe "a netlist from another tree is named, not binned as \`neither\`" 1 \
+  "never heard of" "$(rb "$d")"
 
 d=$(rb_fixture); sed -i.bak '/"riscv.pc"/d' "$d/soc.json"
 probe "a netlist with no pc net would leave that bin empty for ever" 1 \

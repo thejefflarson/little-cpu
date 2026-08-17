@@ -484,6 +484,16 @@ and times.
   in**, and every LUT in the instruction decoder folds in more instruction bits — which are
   `rom_*_RDATA`. So `decode 11 · imem 5` is not five levels of memory: the `imem` bucket is an upper
   bound on the memory's contribution, and decode's share is understated by the same amount.
+- **The routing on that path is flat, and constraining block-RAM placement is closed** (ADR-0114).
+  `soc/routing_bins.py` charges every routing hop of a sweep to what sits at its two ends, reconciled
+  against `soc/timing_split.py`'s routing total per placement. Over sixteen placements the block RAMs
+  are at one end of 3.6% of routing nanoseconds and the SPRAM 0.0% — **0.0% at the worst placement
+  and at the median**, so the tail's critical path never reaches a memory — the contact is the same
+  size in the fast half and the slow half, and the largest hop anywhere is the block RAM's own
+  1.279 ns clock-to-out. What separates the halves is the number of hops, 72.4 against 77.0. So the
+  tail is routing and the routing is **distributed**: there is no long hop, and no column to pin.
+  It bins ADJACENCY, and `icetime -r` prints one path, so it cannot see work displaced by where the
+  memories sit.
 - **Read logic levels apart**: a LUT level costs ~3.3 ns (delay plus interconnect), a carry hop
   ~0.34 ns and no interconnect. A change that trades a carry hop for a LUT level gets shallower by
   icetime's count and slower in nanoseconds. **Measured, in the fetch loop, at any area price**:

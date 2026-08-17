@@ -31,6 +31,12 @@ of the design, and a bin that is empty here says only that the worst path did no
 touch that thing.
 
 Usage: routing_bins.py <baseline_sweep.sh CSV> <synth JSON> [--top littlesoc]
+
+The sweep keeps a report per seed and does not keep the netlist those seeds were
+placed from, because synthesis does not depend on the seed. Re-make `soc.json`
+at the sweep's own base commit rather than reaching for whichever one is lying
+around: a netlist from another tree resolves some of the names and quietly
+leaves the rest in the `neither` bin.
 """
 
 import argparse
@@ -155,6 +161,17 @@ def walk(nl, report):
     if not binned:
         sys.exit(f"*** {report}: no routing hop was read out of it at all. That is\n"
                  f"*** a failed read of the report, not a design with no interconnect.")
+
+    # Every name icetime resolved came out of the netlist nextpnr was given, so
+    # a name this netlist cannot find means the two are different trees. That
+    # failure is silent otherwise -- an unresolved end has no cell type, so it
+    # lands in `neither` and the histogram merely looks lopsided.
+    lost = [hop for hop in binned if hop["bit"] is None]
+    if lost:
+        sys.exit(f"*** {report}: {len(lost)} of {len(binned)} routing hops carry a "
+                 f"net this\n*** netlist has never heard of, the first being "
+                 f"{lost[0]['net'][0]!r}. That is a\n*** netlist from another "
+                 f"tree, and the bins it fills are not this path's.")
 
     walked = sum(hop["delay"] for hop in binned)
     if abs(walked - split["routing"]) > 0.005:
