@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=267
+PROBES_EXPECTED=275
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -1090,6 +1090,118 @@ begin_group "soc/baseline_sweep.sh"
 # asked for none.
 probe "an empty seed list stops the sweep instead of placing the default" 2 \
   "SOC_SEEDS is empty" "SOC_SEEDS= sh $REPO/soc/baseline_sweep.sh"
+
+begin_group "soc/routing_bins.py"
+
+# One placement's worth of fixture: an icetime report whose path leaves a block
+# RAM, crosses a LUT, leaves the pc and stops; the netlist those names resolve
+# through; and the stamped sweep that names the report. Written by hand so the
+# group costs no placement, and small enough that the reconciliation below can
+# be checked with a calculator: 1.279 + 0.649 + 1.099 = 3.027 ns of routing.
+rb_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/sweep"
+  cat > "$d/sweep/probe.default.rpt" <<'RPT'
+        ram0 (SB_RAM40_4K) [clk] -> RDATA[0]: 1.279 ns
+     1.279 ns net_1 (mem.rdata[0])
+        odrv_0 (Odrv4) I -> O: 0.649 ns
+        lc40_0 (LogicCell40) in0 -> lcout: 1.285 ns
+     3.213 ns net_2 (riscv.pc[0])
+        t1 (LocalMux) I -> O: 1.099 ns
+        lc40_1 (LogicCell40) in0 -> lcout: 1.285 ns
+     5.597 ns net_3 (mid[0])
+              lcout -> mid[0]
+Total number of logic levels: 2
+Total path delay: 5.60 ns (178.57 MHz)
+RPT
+  cat > "$d/sweep/probe.csv" <<'CSV'
+# baseline-sweep v1
+# date: 2026-08-16T00:00:00Z
+# base: aaaaaaaaaaaa
+# dirty: no
+# yosys: Yosys 0.68 [/opt/bin/yosys]
+# nextpnr-ice40: nextpnr-0.11 [/opt/bin/nextpnr-ice40]
+# icetime: oss-cad-suite 20260811 sha256:0123456789abcdef [/opt/bin/icetime]
+# prog: datainit.c
+# rom_words: 2048
+# seeds: default
+# host: Darwin arm64 25.3.0
+# reproduce: git checkout aaaaaaaaaaaa && SOC_SEEDS='default' SOC_PROG=datainit.c soc/baseline_sweep.sh
+# end-provenance
+part,variant,seed,ns,mhz,lut_levels,carry_hops,logic_ns,routing_ns,lc,start,end
+up5k,probe,default,5.60,178.57,2,0,2.57,3.03,4754,mem.rdata[0],mid[0]
+CSV
+  cat > "$d/soc.json" <<'JSON'
+{"modules": {"littlesoc": {
+  "cells": {
+    "ram0": {"type": "SB_RAM40_4K", "connections": {"RDATA": [10], "RADDR": [30]}},
+    "pcff": {"type": "SB_DFF", "connections": {"Q": [20], "D": [40]}},
+    "lut0": {"type": "SB_LUT4", "connections": {"O": [50], "I0": [20]}}
+  },
+  "netnames": {
+    "mem.rdata": {"bits": [10]},
+    "riscv.pc": {"bits": [20]},
+    "mid": {"bits": [50]},
+    "ram.addr": {"bits": [30]}
+  }
+}}}
+JSON
+  printf '%s' "$d"
+}
+
+rb() { printf 'python3 %s/soc/routing_bins.py %s/sweep/probe.csv %s/soc.json' \
+  "$REPO" "$1" "$1"; }
+
+d=$(rb_fixture)
+probe "control: a stamped sweep with its reports behind it is binned" 0 \
+  "aggregate over 1 placement" "$(rb "$d")"
+
+d=$(rb_fixture)
+probe "control: the block RAM is named at the end of the path it sits at" 0 \
+  "from ram0 (SB_RAM40_4K)" "$(rb "$d")"
+
+d=$(rb_fixture)
+probe "control: the pc hop reaches the pc bin, by the declared net's bits" 0 \
+  "1.10 ns   36.3%" "$(rb "$d")"
+
+# The defect this whole script exists for: bins that add up to less than the
+# path, printed as confidently as bins that add up to all of it. Forced by
+# giving a COPY of the reader a soc/timing_split.py that charges the Odrv4 hop
+# to logic -- which keeps that script's own reconciliation green, so only this
+# one can catch it.
+d=$(rb_fixture)
+mkdir -p "$d/soc/depth"
+cp "$REPO/soc/routing_bins.py" "$REPO/soc/timing_split.py" \
+   "$REPO/soc/baseline_summary.py" "$d/soc/"
+cp "$REPO/soc/depth/path_stages.py" "$d/soc/depth/"
+sed -i.bak 's/if kind in LOGIC_CELLS:/if kind in LOGIC_CELLS or kind == "Odrv4":/' \
+  "$d/soc/timing_split.py"
+probe "two walks disagreeing about what routing is refuse to print a histogram" 1 \
+  "the bins come to" \
+  "python3 $d/soc/routing_bins.py $d/sweep/probe.csv $d/soc.json"
+
+d=$(rb_fixture)
+cat > "$d/sweep/probe.default.rpt" <<'RPT'
+        lc40_0 (LogicCell40) in0 -> lcout: 1.285 ns
+     1.285 ns net_1 (mid[0])
+              lcout -> mid[0]
+Total number of logic levels: 1
+Total path delay: 1.29 ns
+RPT
+probe "a report with no routing hop in it is a failed read, not a wired design" 1 \
+  "no routing hop was read" "$(rb "$d")"
+
+d=$(rb_fixture); rm "$d/sweep/probe.default.rpt"
+probe "a row with no placement behind it stops the read, not just that seed" 1 \
+  "no placement behind it" "$(rb "$d")"
+
+d=$(rb_fixture); sed -i.bak '/"riscv.pc"/d' "$d/soc.json"
+probe "a netlist with no pc net would leave that bin empty for ever" 1 \
+  "could never be reached" "$(rb "$d")"
+
+d=$(rb_fixture); sed -i.bak '1d' "$d/sweep/probe.csv"
+probe "an unstamped sweep is refused here too, by the reader it shares" 1 \
+  "no provenance block" "$(rb "$d")"
 
 begin_group "soc/cell_census.py"
 
