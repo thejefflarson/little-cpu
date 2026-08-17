@@ -71,7 +71,7 @@ are kept in parentheses so those references still resolve.
   recorded deviation with a measured price rather than a property of the design: their address is a
   32-bit sum, and **the price is which bit of that sum the fetch loop has to wait for** — bit 31
   costs 17.3% of median period, bit 12 costs 9.1%, and waiting for none of it is a null
-  (ADR-0104, ADR-0113).
+  (ADR-0104, ADR-0116).
 - **Every inter-stage struct carries a `valid` bit** (3). A bubble is `valid = 0`; retire is
   `valid` reaching writeback, which gates `wen` and drives `rvfi_valid`.
 - **Hazards are stall-only** (4). No forwarding network, and 35.7% of suite cycles is what that
@@ -167,7 +167,7 @@ which makes the machine timer's four words and the whole text window `AMONone` a
 **An atomic's effective address is rs1 verbatim** — the A encodings put funct5/aq/rl/rs2 where the
 I-immediate is read from — so that test reads a register output and measures **zero extra logic
 levels**. A plain load or store has to read `immediate + reg_rs1` and hand the answer to `next_pc`,
-and **the price is that wait and nothing about the region decode** (ADR-0113): the same three
+and **the price is that wait and nothing about the region decode** (ADR-0116): the same three
 windows and the same merge asked about `reg_rs1` instead of the sum are a null, and the cost is
 monotone in which bit of the sum is waited for — bit 31 is +17.30% of median period, bit 12 is
 +9.10%, and a **coarse** check that still reads bit 31 is +15.95%, a null against the exact one. So
@@ -503,7 +503,7 @@ and times.
   in**, and every LUT in the instruction decoder folds in more instruction bits — which are
   `rom_*_RDATA`. So `decode 11 · imem 5` is not five levels of memory: the `imem` bucket is an upper
   bound on the memory's contribution, and decode's share is understated by the same amount.
-  **It attributes a path, not a decision, and the level count orders nothing** (ADR-0113): four
+  **It attributes a path, not a decision, and the level count orders nothing** (ADR-0116): four
   spellings of one region test span 4:1 in cost with two of them at the same 27 levels and 11% apart
   in period, and the tool charged `decode` one extra level for a change worth 16%. What located that
   cost was substituting one line and re-sweeping — sixteen seeds, paired.

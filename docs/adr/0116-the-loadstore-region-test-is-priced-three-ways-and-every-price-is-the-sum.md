@@ -1,4 +1,4 @@
-# ADR-0113: The load/store region test is priced three ways, and every price is the sum
+# ADR-0116: The load/store region test is priced three ways, and every price is the sum
 
 **Status:** Accepted · 2026-08-16 · *Re-takes
 [ADR-0104](0104-the-fetch-bus-refuses-and-the-data-bus-cannot-afford-to.md) decision 2's price on a
