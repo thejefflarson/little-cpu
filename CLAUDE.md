@@ -389,11 +389,11 @@ and times.
   period — and 12 is already met. A few-percent idea can be read against 41.67 ns and declined in a
   minute, instead of after four placements (ADR-0078).
 - **`make dhrystone` is the only figure comparable to another project's**, and it is quoted in
-  DMIPS/MHz because that is what the field publishes. 0.727 at `-O2`, 3568 bytes of the SoC's 8 KB
-  ROM (ADR-0084, ADR-0093, ADR-0099). Dhrystone is string-dominated and the optimiser can
+  DMIPS/MHz because that is what the field publishes. 0.757 at `-O2`, 3568 bytes of the SoC's 8 KB
+  ROM (ADR-0084, ADR-0093, ADR-0099, ADR-0117). Dhrystone is string-dominated and the optimiser can
   delete part of the work, so **the flags, the compiler and the string library travel with the
   number** — the program prints all three and will not compile without them. It is not a gate and
-  adds no ratchet. **Quote the absolute figure with it**: **8.72 DMIPS** at the board's 12 MHz, from
+  adds no ratchet. **Quote the absolute figure with it**: **9.08 DMIPS** at the board's 12 MHz, from
   7.68, because Fmax above the requirement is margin and not speed, so a CPI win converts to
   throughput and a placement that closes higher does not (ADR-0089).
 - **The only cross-core comparison that means anything is one harness**, and `soc/compare/` is it:
@@ -494,7 +494,12 @@ and times.
   Dhrystone's** for −2.8% of median period, a product 5.1% worse in DMIPS (ADR-0092), and writing a
   committed result into the idle port a cycle early buys 6.5% of Dhrystone's cycles for **+9.4% of
   median period**, under the requirement at four placements of six (ADR-0100). The pair is no
-  better than either half. **A ceiling is perishable**: deleting the whole `stall` arm of `next_pc`
+  better than either half. **What did pay is a cone that had no business being in either loop**: the
+  trap decode read the muxed register numbers rather than the raw encoding fields, so every SYSTEM
+  form dragged the compressed register-select decode into `trap_pending` and so into `next_pc`.
+  Reading the fields is **−2.47% of median period, 13 of 16 seeds faster, the worst placement flat**,
+  and eleven cells — about 1.9 ns of median, bought by depth rather than by area (ADR-0117).
+  **A ceiling is perishable**: deleting the whole `stall` arm of `next_pc`
   was worth −3.8% three merges ago and is a null on both bases measured since, so re-take one in the
   tree you mean to spend it in. So is a CPI cost — the same fourth slot cost 15.8% of suite cycles
   before the operand-fetch guess landed and 19.5% after, because the guess had been paying for part
@@ -524,7 +529,10 @@ and times.
   adder for −103 SoC LUTs — the largest single decode edit measured here — and takes the critical
   path from 23 LUT levels and 4 carry hops to 25 levels and none, +9.1% of median period, **under
   12 MHz at six placements of six** (ADR-0097). Beside ADR-0088's flattened `next_pc` chain, that is
-  two edits in this one chain that buy cells and cost the clock. The SoC is routing-dominated; wide
+  two edits in this one chain that buy cells and cost the clock. **Deleting dead logic from it is the
+  third**: `rtl/writeback.v`'s `wen` masks are unread by every consumer in `rtl/regfile.v` and cost
+  +2.83% of median period and 11.89 MHz at the worst of sixteen seeds to remove, so they stay and say
+  so (ADR-0117). The SoC is routing-dominated; wide
   flat muxes route worse than chains. **There is no single lever.** The decode head
   (`imem.in_range → instr → {rs1/rs2, immediate, hazard}`) was named as one and measures 3.3%
   deleted whole, inside the churn band. The period is in the fetch loop instead: no single input to
