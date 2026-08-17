@@ -150,8 +150,8 @@ the bit is never low for an address the platform does answer, and no correct pro
 Sixteen placements, paired against the same base: **+3.00% of median period, 14 of 16 deltas
 positive** (sign test p ≈ 0.004, so the sign is real while the magnitude sits inside the churn band),
 worst placement **12.21 MHz — over the requirement at 16 of 16.** `make fit` reads 3999 against the
-base's 3969 on the same local toolchain, +30 cells, inside the ±50 band. It meets every gate this
-repo would put in front of it.
+base's 3969 on the same local toolchain, **+30 cells**, inside the band and well under a
+`FIT_MAX_LC` since re-derived to 4088. It meets every gate this repo would put in front of it.
 
 **It is not shipped, and the reason is what it would make `mcause` mean.** The fault is a function of
 the base register's page, not of the access, so two instructions computing the *same* effective
@@ -188,8 +188,8 @@ its range for the exact spelling and gains a second, cheaper entry that is still
 margin. Both are worst-seed costs on the tree they were measured on and both are perishable, per that
 ADR's own rule.
 
-`SOC_MIN_MHZ` stays at 12.0. `FIT_MAX_LC` is untouched and deliberately not raised — nothing here
-ships, and the ratchet is being re-derived elsewhere.
+`SOC_MIN_MHZ` stays at 12.0 and `FIT_MAX_LC` at the 4088 another change derived while this one was
+being measured. Neither moves here, and nothing here ships.
 
 ## What ran, and its provenance
 
@@ -199,6 +199,16 @@ one machine, and the **pinned OSS CAD Suite** — yosys 0.68+48 (`ff5817c34`), n
 `boost` 1.92 upgrade, the same failure ADR-0109 recorded. Both sides of every comparison share that
 base and that toolchain, so each comparison is internal; **none of these numbers compares to
 ADR-0104's**, which were taken on a Homebrew toolchain seventeen commits earlier.
+
+`soc/baseline_sweep.sh`, which stamps a sweep with its base and its resolved tool versions, landed
+while these were being taken; the stamp above is the same information recorded by hand, and a
+re-sweep should use the tool.
+
+**The base moved under this work and the numbers still describe the tree that merges**, checked
+rather than assumed: `git diff 9e26cfd..d737240 -- rtl/` is empty, and the four files that did move
+under `soc/` are the sweep and report scripts, none of which is in `SOC_SRCS`. A placement is a
+function of the netlist and the seed, and neither moved. `make fit` on the rebased tree reads the
+same **3969**.
 
 Sixteen seeds, not four. Four seeds have twice given a different verdict than eight in this repo, the
 placement spread on the base measured here is **76.51–80.68 ns, 5.5%**, well over the 1–2% CLAUDE.md
