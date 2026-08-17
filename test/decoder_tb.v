@@ -35,6 +35,9 @@ module decoder_tb;
   // answers everywhere would drive it.
   logic atomic_supported = 1'b1;
   logic [31:0] atomic_addr;
+  // No writeback in this bench, so the write-through invalidation never fires.
+  logic wt_wen = 1'b0;
+  logic [4:0] wt_waddr = 5'd0;
   logic accessor_out_valid = 1'b0;
   // rtl/csrs.v is a sibling of the decoder, not part of it, so it is stubbed.
   logic [31:0] csr_rdata = 32'b0;
@@ -62,6 +65,8 @@ module decoder_tb;
     .imem_fault(imem_fault),
     .atomic_addr(atomic_addr),
     .atomic_supported(atomic_supported),
+    .wt_wen(wt_wen),
+    .wt_waddr(wt_waddr),
     .accessor_out_valid(accessor_out_valid),
     .csr_rdata(csr_rdata),
     .csr_implemented(csr_implemented),
@@ -143,10 +148,11 @@ module decoder_tb;
   always @(clk) begin
     if (dut.stall !== (dut.divider_stall || dut.atomic_stall || dut.hazard_rs1 ||
                        dut.hazard_rs2 || dut.serialize || dut.operand_stall ||
-                       dut.fetch_stall)) begin
-      $display("MISMATCH stall is not the OR of the six named reasons: stall=%b divider=%b atomic=%b rs1=%b rs2=%b serialize=%b operand=%b fetch=%b",
+                       dut.fetch_stall || dut.ls_wait)) begin
+      $display("MISMATCH stall is not the OR of the seven named reasons: stall=%b divider=%b atomic=%b rs1=%b rs2=%b serialize=%b operand=%b fetch=%b lswait=%b",
                dut.stall, dut.divider_stall, dut.atomic_stall, dut.hazard_rs1,
-               dut.hazard_rs2, dut.serialize, dut.operand_stall, dut.fetch_stall);
+               dut.hazard_rs2, dut.serialize, dut.operand_stall, dut.fetch_stall,
+               dut.ls_wait);
       errors++;
     end
   end

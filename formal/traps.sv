@@ -37,6 +37,10 @@ module traps (
     // the two causes it decides are asserted below against the encodings the ISA
     // fixes rather than against a map.
     input logic atomic_supported,
+    // The regfile write port, free: any write-through pattern the real
+    // pipeline could produce is allowed here.
+    input logic wt_wen,
+    input logic [4:0] wt_waddr,
     input logic accessor_out_valid,
     // The platform's timer line, free every cycle. rtl/csrs.v decides what to
     // do with it, so `interrupt_pending` below is a real signal of this design
@@ -87,6 +91,8 @@ module traps (
     .imem_fault(imem_fault),
     .atomic_addr(atomic_addr),
     .atomic_supported(atomic_supported),
+    .wt_wen(wt_wen),
+    .wt_waddr(wt_waddr),
     .accessor_out_valid(accessor_out_valid),
     .csr_rdata(csr_rdata),
     .csr_implemented(csr_implemented),

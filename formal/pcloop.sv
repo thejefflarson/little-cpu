@@ -30,6 +30,10 @@ module pcloop (
     // Free for the same reason and with the same effect: an atomic the platform
     // does not answer redirects the pc, and `branch_jump` names that trap too.
     input logic atomic_supported,
+    // The regfile write port, free: any write-through pattern the real
+    // pipeline could produce is allowed here.
+    input logic wt_wen,
+    input logic [4:0] wt_waddr,
     input logic accessor_out_valid,
     input logic [31:0] csr_rdata,
     input logic csr_implemented,
@@ -81,6 +85,8 @@ module pcloop (
     .imem_fault(imem_fault),
     .atomic_addr(atomic_addr),
     .atomic_supported(atomic_supported),
+    .wt_wen(wt_wen),
+    .wt_waddr(wt_waddr),
     .accessor_out_valid(accessor_out_valid),
     .csr_rdata(csr_rdata),
     .csr_implemented(csr_implemented),
@@ -229,9 +235,19 @@ module pcloop (
        decoder_out.is_amoand  || decoder_out.is_amoor  || decoder_out.is_amomin ||
        decoder_out.is_amomax  || decoder_out.is_amominu || decoder_out.is_amomaxu);
 
+  // The undecidable-ring wait is raised for a load or store whose base sits
+  // beside a region edge, which this file cannot know without the register
+  // value -- so the excuse is wider than the decoder's own term, the same way
+  // `f_amo_wait` above is: any load or store may stall. The c.li row matches
+  // the compressed test too and is harmless for the same reason.
+  logic f_loadstore;
+  assign f_loadstore =
+      (f_uncompressed && (f_instr[6:2] == 5'b00000 || f_instr[6:2] == 5'b01000)) ||
+      (!f_uncompressed && (f_instr[15:13] == 3'b010 || f_instr[15:13] == 3'b110));
+
   assign f_may_stall = divider_stall || fetch_stall ||
       f_live_rs1 || f_live_rs2 || f_system || f_fencei || f_operand_fetch ||
-      f_amo_wait;
+      f_amo_wait || f_loadstore;
 
   // Read off the decoder's outputs rather than decoded here. Working out
   // whether a word is illegal is most of decode, and copying it would defeat

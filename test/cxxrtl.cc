@@ -175,7 +175,7 @@ struct StallReason {
 };
 
 constexpr const char *kStallLabels[] = {"divider", "atomic",  "hazard",
-                                        "serialize", "operand", "fetch"};
+                                        "serialize", "operand", "lswait", "fetch"};
 constexpr int kStallBuckets = sizeof(kStallLabels) / sizeof(kStallLabels[0]);
 
 constexpr StallReason kStallReasons[] = {
@@ -185,7 +185,8 @@ constexpr StallReason kStallReasons[] = {
     {"uut decoder hazard_rs2", 2},
     {"uut decoder serialize", 3},
     {"uut decoder operand_stall", 4},
-    {"uut decoder fetch_stall", 5},
+    {"uut decoder ls_wait", 5},
+    {"uut decoder fetch_stall", 6},
 };
 
 struct Args {
@@ -361,9 +362,15 @@ int main(int argc, char **argv) {
   // named reasons explains, i.e. a stall reason nobody has written down.
   std::vector<std::pair<const cxxrtl::debug_item *, int>> stall_probes;
   const cxxrtl::debug_item *stall_any = nullptr;
+  const cxxrtl::debug_item *probe_ls_issues = nullptr;
+  const cxxrtl::debug_item *probe_ls_boundary = nullptr;
+  const cxxrtl::debug_item *probe_ls_stale = nullptr;
   if (args.stalls) {
     try {
       stall_any = &all_debug_items.at("uut decoder stall").at(0);
+      probe_ls_issues = &all_debug_items.at("uut decoder probe_ls_issues").at(0);
+      probe_ls_boundary = &all_debug_items.at("uut decoder probe_ls_boundary").at(0);
+      probe_ls_stale = &all_debug_items.at("uut decoder probe_ls_stale").at(0);
       for (const StallReason &reason : kStallReasons)
         stall_probes.emplace_back(&all_debug_items.at(reason.item).at(0),
                                   reason.bucket);
@@ -399,7 +406,14 @@ int main(int argc, char **argv) {
     for (int b = 0; b < kStallBuckets; ++b)
       std::printf(" %s=%llu", kStallLabels[b],
                    (unsigned long long)stall_cycles[b]);
-    std::printf(" unattributed=%llu\n", (unsigned long long)unattributed_cycles);
+    std::printf(" unattributed=%llu", (unsigned long long)unattributed_cycles);
+    // Design-space probes, counted in rtl/decoder.v: issuing loads/stores,
+    // those whose rs1 sits within 2 KB of a region edge, and those whose issue
+    // cycle coincides with a write-through to rs1. Extra keys;
+    // test/stall_report.py totals them when present.
+    std::printf(" lsissue=%u lsedge=%u lsstale=%u\n",
+                 probe_ls_issues->curr[0], probe_ls_boundary->curr[0],
+                 probe_ls_stale->curr[0]);
   };
 
   // Silence outranks the run's own verdict. A run whose oracle never fired has

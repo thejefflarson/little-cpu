@@ -49,6 +49,11 @@ module decoder #(
   // committed in decode with every other cause. A platform whose memory answers
   // atomics everywhere ties it high and the core never takes either.
   input  logic atomic_supported,
+  // The regfile write port, this cycle. The undecidable ring's registered
+  // answer below is invalidated by a write-through to the base register,
+  // which is the one way rs1's value can change while an instruction is held.
+  input  logic       wt_wen,
+  input  logic [4:0] wt_waddr,
   // A store writes no register, so the hazard check ignores it. Serialization
   // still has to wait for one. That is what this is for -- without it a CSR
   // access can issue while a store is still in the accessor.
@@ -432,48 +437,56 @@ module decoder #(
   assign atomic_addr = reg_rs1;
 
   // Does some memory answer a plain load or store at `immediate + reg_rs1`?
-  // The sum's top is not ready when the pc must be chosen, so it is never
-  // read. Every faultable load/store immediate is sign-extended above bit 11,
-  // so sum[31:12] is reg_rs1[31:12] plus (carry into bit 12 minus the
-  // immediate's sign) -- an adjustment of -1, 0 or +1. Each region is
-  // therefore tested three ways on the raw register bits, the sign picks
-  // between those early, and the one late bit -- the carry, read back out of
-  // the adder the address already pays for as rs1[12] ^ immediate[12] ^
-  // sum[12] -- picks between the two precomputed answers, one mux deep.
-  logic [19:0] ls_hi;
-  assign ls_hi = reg_rs1[31:12];
+  // The sum's top is not ready when the pc must be chosen, so the classifier
+  // here never reads it: a 12-bit offset reaches at most 2 KB either way, so
+  // over the 2 KB blocks of rs1[31:11] a base more than one block inside a
+  // region cannot leave it, and one more than one block away from every
+  // region cannot reach one. Both answer in the issue cycle from register
+  // bits alone -- the second is a same-cycle trap. Only the blocks beside an
+  // edge are undecidable here; those spend one bubble (`ls_wait` below) while
+  // the exact answer, computed off the whole sum with a full cycle of slack,
+  // registers.
+  logic [20:0] ls_blk;
+  assign ls_blk = reg_rs1[31:11];
+  localparam logic [20:0] LS_TEXT_BLKS = 21'd2 << LS_TEXT_PAGE_BITS;
+  localparam logic [20:0] LS_RAM_BLK0  = {LS_RAM_PAGE, 1'b0};
+  localparam logic [20:0] LS_RAM_BLKS  = 21'd2 << LS_RAM_PAGE_BITS;
+  localparam logic [20:0] LS_TIMER_BLK = {LS_TIMER_PAGE, 1'b0};
 
-  // Text: pages [0, 2^LS_TEXT_PAGE_BITS), shifted by the adjustment.
-  logic text_d0, text_dp1, text_dm1;
-  assign text_d0  = ~|ls_hi[19:LS_TEXT_PAGE_BITS];
-  assign text_dp1 = (&ls_hi) || (text_d0 && !(&ls_hi[LS_TEXT_PAGE_BITS-1:0]));
-  assign text_dm1 = (text_d0 && |ls_hi[LS_TEXT_PAGE_BITS-1:0]) ||
-                    (ls_hi == (20'd1 << LS_TEXT_PAGE_BITS));
+  // Strictly inside text or RAM, at least one whole block from either end.
+  // The timer's 16 bytes contain no whole block, so it has no interior.
+  logic ls_sup_def;
+  assign ls_sup_def = (ls_blk >= 21'd1 && ls_blk <= LS_TEXT_BLKS - 21'd2) ||
+                      (ls_blk >= LS_RAM_BLK0 + 21'd1 &&
+                       ls_blk <= LS_RAM_BLK0 + LS_RAM_BLKS - 21'd2);
 
-  // RAM: 2^LS_RAM_PAGE_BITS pages at LS_RAM_PAGE, shifted the same three ways.
-  logic ram_d0, ram_dp1, ram_dm1;
-  assign ram_d0  = ls_hi[19:LS_RAM_PAGE_BITS] == LS_RAM_PAGE[19:LS_RAM_PAGE_BITS];
-  assign ram_dp1 = (ls_hi == LS_RAM_PAGE - 20'd1) ||
-                   (ram_d0 && !(&ls_hi[LS_RAM_PAGE_BITS-1:0]));
-  assign ram_dm1 = (ram_d0 && |ls_hi[LS_RAM_PAGE_BITS-1:0]) ||
-                   (ls_hi == LS_RAM_PAGE + (20'd1 << LS_RAM_PAGE_BITS));
+  // The undecidable ring: the outermost block of each region and the block
+  // beyond it, the timer's block and both neighbours (RAM's top block is one
+  // of them), and the two blocks where the offset can wrap the address space
+  // -- block zero reaches the top of memory with a negative offset and the
+  // top block reaches text with a positive one.
+  logic ls_edge;
+  assign ls_edge =
+    ls_blk == 21'd0 || ls_blk == LS_TEXT_BLKS - 21'd1 || ls_blk == LS_TEXT_BLKS ||
+    ls_blk == LS_RAM_BLK0 - 21'd1 || ls_blk == LS_RAM_BLK0 ||
+    ls_blk == LS_RAM_BLK0 + LS_RAM_BLKS - 21'd1 ||
+    ls_blk == LS_TIMER_BLK || ls_blk == LS_TIMER_BLK + 21'd1 || (&ls_blk);
 
-  // The timer: 16 bytes at its page's base, so sum[11:4] must be zero too --
-  // bits that never wait on the carry into bit 12.
-  logic timer_lo_ok, timer_d0, timer_dp1, timer_dm1;
-  assign timer_lo_ok = ~|mem_addr_calc[11:4];
-  assign timer_d0  = ls_hi == LS_TIMER_PAGE;
-  assign timer_dp1 = ls_hi == LS_TIMER_PAGE - 20'd1;
-  assign timer_dm1 = ls_hi == LS_TIMER_PAGE + 20'd1;
+  // The exact answer, off the whole sum. Never on an issue-cycle path: it is
+  // read only through the register below, a cycle after it was computed.
+  logic ls_exact_sup;
+  assign ls_exact_sup =
+    (mem_addr_calc[31:12+LS_TEXT_PAGE_BITS] == '0) ||
+    (mem_addr_calc[31:12+LS_RAM_PAGE_BITS] == LS_RAM_PAGE[19:LS_RAM_PAGE_BITS]) ||
+    (mem_addr_calc[31:4] == {LS_TIMER_PAGE, 8'b0});
 
-  logic ls_neg, ls_carry, ls_sup_carry, ls_sup_nocarry, ls_supported;
-  assign ls_neg = immediate[31];
-  assign ls_sup_carry   = ls_neg ? (text_d0  || ram_d0  || (timer_d0  && timer_lo_ok))
-                                 : (text_dp1 || ram_dp1 || (timer_dp1 && timer_lo_ok));
-  assign ls_sup_nocarry = ls_neg ? (text_dm1 || ram_dm1 || (timer_dm1 && timer_lo_ok))
-                                 : (text_d0  || ram_d0  || (timer_d0  && timer_lo_ok));
-  assign ls_carry     = mem_addr_calc[12] ^ reg_rs1[12] ^ immediate[12];
-  assign ls_supported = ls_carry ? ls_sup_carry : ls_sup_nocarry;
+  // A write-through to rs1 in this cycle: the value a registered answer was
+  // computed from is not the value the instruction reads, so the wait extends
+  // one cycle while both refresh.
+  logic ls_probe, ls_answer_stale, ls_dec_valid, ls_dec_sup, ls_dec_usable, ls_wait;
+  assign ls_answer_stale = wt_wen && wt_waddr == rs1 && rs1 != 5'd0;
+  assign ls_dec_usable = ls_dec_valid && !ls_answer_stale && !fetch_stall;
+  assign ls_wait = ls_probe && !ls_dec_usable;
 
   // Misalignment needs two bits of the sum, and the low two bits of a sum depend
   // only on the low two bits of the operands -- so they are added here rather
@@ -521,10 +534,21 @@ module decoder #(
   // The same refusal for a plain load or store, answered from the decomposed
   // question above. Misalignment outranks the region, the same order the
   // atomic term states, so the four data causes stay disjoint.
-  logic instr_ls_load, instr_ls_store, ls_fault;
+  logic instr_ls_load, instr_ls_store, instr_ls, ls_fault;
   assign instr_ls_load  = instr_lb || instr_lbu || instr_lh || instr_lhu || instr_lw;
   assign instr_ls_store = instr_sb || instr_sh || instr_sw;
-  assign ls_fault = (instr_ls_load || instr_ls_store) && !ls_supported &&
+  assign instr_ls = instr_ls_load || instr_ls_store;
+  // Misalignment outranks the region, so an access that is already
+  // misaligned never needs the region answer: it traps in its issue cycle
+  // like today, and spends no bubble on a question whose answer cannot
+  // change the outcome.
+  assign ls_probe = instr_ls && ls_edge && !load_misaligned && !store_misaligned;
+  // Two ways in: the same-cycle answer for a base beyond the ring, and the
+  // registered answer for a base on it. `ls_wait` above holds the second
+  // until the register describes this instruction, so both commit in an
+  // issue cycle like every other cause.
+  assign ls_fault = ((instr_ls && !ls_sup_def && !ls_edge) ||
+                     (ls_probe && ls_dec_usable && !ls_dec_sup)) &&
                     !load_misaligned && !store_misaligned;
   logic load_access_fault, store_access_fault;
   assign load_access_fault  = (atomic_fault && instr_lr) || (ls_fault && instr_ls_load);
@@ -729,7 +753,29 @@ module decoder #(
 
   // Every reason to stall, in one signal. They all hold the PC; the block that
   // writes `out` below is where they differ.
-  assign stall = hazard || operand_stall || divider_stall || fetch_stall || atomic_stall;
+  assign stall = hazard || operand_stall || divider_stall || fetch_stall || atomic_stall ||
+                 ls_wait;
+
+  // The undecidable ring's answer. Valid means: registered last cycle, from
+  // this same held instruction's own fetched word and its own operand.
+  // `stall` is what guarantees the same instruction is re-presented.
+  // `fetch_stall` is excluded because that window holds a data word rather
+  // than the instruction, and `operand_stall` because `reg_rs1` still answers
+  // the previously presented pair on that cycle -- an answer computed there
+  // describes another register entirely, and no write-through test can see a
+  // re-read. The use side then checks `ls_answer_stale`: a write-through to
+  // rs1 in the use cycle refreshes the value under a decision registered a
+  // cycle earlier.
+  always_ff @(posedge clk) begin
+    if (reset) begin
+      ls_dec_valid <= 1'b0;
+      ls_dec_sup   <= 1'b0;
+    end else begin
+      ls_dec_valid <= ls_probe && stall && !fetch_stall && !operand_stall &&
+                      !ls_answer_stale;
+      ls_dec_sup   <= ls_exact_sup;
+    end
+  end
 
   // On a cycle that issues, ask for the NEXT instruction's pair. The guess runs
   // the fetch window's successor word through the same register-number mapping
@@ -836,6 +882,37 @@ module decoder #(
   end
  `endif
 
+ `ifdef RISCV_FORMAL
+  // Measurement probes for the load/store region-fault design space, summed by
+  // the cxxrtl runner under `--stalls`. Three counters over issuing loads and
+  // stores (atomics excluded):
+  //   probe_ls_issues   -- all of them, the denominator;
+  //   probe_ls_boundary -- rs1 within 2 KB of an edge of the SoC's map (text
+  //                        8 KB at 0, RAM 64 KB at 0x10000, timer 16 B at
+  //                        0x20000), i.e. the 2 KB blocks where a 12-bit offset
+  //                        can cross an edge: a proximity-test design must
+  //                        bubble exactly these;
+  //   probe_ls_stale    -- the write-through bypass fires for rs1 in the issue
+  //                        cycle, i.e. a value-based answer registered a cycle
+  //                        earlier would be stale: a precompute design must
+  //                        bubble at least these.
+  logic probe_event;
+  assign probe_event = !reset && !stall && instr_ls && !trap_taken;
+  (* keep *) logic [31:0] probe_ls_issues, probe_ls_boundary, probe_ls_stale;
+  always_ff @(posedge clk) begin
+    if (reset) begin
+      probe_ls_issues   <= 32'd0;
+      probe_ls_boundary <= 32'd0;
+      probe_ls_stale    <= 32'd0;
+    end else if (probe_event) begin
+      probe_ls_issues <= probe_ls_issues + 32'd1;
+      if (ls_edge) probe_ls_boundary <= probe_ls_boundary + 32'd1;
+      if (ls_answer_stale)
+        probe_ls_stale <= probe_ls_stale + 32'd1;
+    end
+  end
+ `endif
+
   always_ff @(posedge clk) pc <= next_pc;
 
   always_ff @(posedge clk) begin
@@ -849,7 +926,7 @@ module decoder #(
       // two arms changes that and nothing would say so, which is why the
       // `ifdef FORMAL` block below checks both cases.
       out <= out;
-    end else if (hazard || operand_stall || fetch_stall || atomic_stall ||
+    end else if (hazard || operand_stall || fetch_stall || atomic_stall || ls_wait ||
                  interrupt_pending) begin
       // These zero `out` instead of holding it. The executor reads `in` every
       // cycle, so a held `out` would be executed again and again while the
@@ -1152,17 +1229,15 @@ module decoder #(
   // (carry - sign). The third line is the fact the split stands on -- every
   // encoding that can raise the two region causes sign-extends its immediate
   // above bit 15, so no other adjustment of the top half is reachable.
+  // The classifier against the exact test, over free operands: a base
+  // strictly inside a region cannot leave it, and one beyond the ring cannot
+  // reach one -- the boundary arithmetic, wrap included, machine-checked
+  // rather than argued. Both stand on the immediate being sign-extended
+  // above bit 11, which is the first line.
   always_comb if (instr_ls_load || instr_ls_store) begin
     assert(immediate[31:12] == {20{immediate[31]}});
-    assert(mem_addr_calc[31:12] ==
-      (reg_rs1[31:12] + {20{ls_neg}} + {19'b0, ls_carry}));
-    // The split test agrees with the address the transaction will use: the
-    // whole point of the three-way spelling, stated against the sum it
-    // replaces.
-    assert(ls_supported == (
-      (mem_addr_calc[31:12+LS_TEXT_PAGE_BITS] == '0) ||
-      (mem_addr_calc[31:12+LS_RAM_PAGE_BITS] == LS_RAM_PAGE[19:LS_RAM_PAGE_BITS]) ||
-      (mem_addr_calc[31:4] == {LS_TIMER_PAGE, 8'b0})));
+    if (ls_sup_def)              assert(ls_exact_sup);
+    if (!ls_sup_def && !ls_edge) assert(!ls_exact_sup);
   end
 
   // One line per cause, not a copy of the case statement, so reordering its arms

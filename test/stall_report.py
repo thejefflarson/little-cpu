@@ -36,7 +36,7 @@ import sys
 # for the divider and bubbles for the other five. The runner writes these names,
 # so a rename has to happen in both places at once -- which the field check
 # below turns into an error rather than a silent zero.
-REASONS = ["divider", "atomic", "hazard", "serialize", "operand", "fetch"]
+REASONS = ["divider", "atomic", "hazard", "serialize", "operand", "lswait", "fetch"]
 
 # What the CPI above it describes. It is an argument the caller has to supply,
 # because the honest one differs: `make cycles` runs the hand-written assembly
@@ -58,6 +58,7 @@ HEADINGS = {
     "hazard": "HAZARD",
     "serialize": "SERIAL",
     "operand": "OPERAND",
+    "lswait": "LSWAIT",
     "fetch": "FETCH",
 }
 REQUIRED = ["cycles", "issue", "retires", "unattributed"] + REASONS
@@ -119,6 +120,19 @@ def main():
     for _, counts in rows:
         for key in REQUIRED:
             total[key] += counts[key]
+
+    # Design-space probes (rtl/decoder.v): optional extra keys, totalled when
+    # every row carries them so a partial run cannot print a partial rate.
+    probes = ['lsissue', 'lsedge', 'lsstale']
+    if all(all(p in counts for p in probes) for _, counts in rows):
+        ptot = {p: sum(counts[p] for _, counts in rows) for p in probes}
+        if ptot['lsissue']:
+            n = ptot['lsissue']
+            edge_pct = 100.0 * ptot['lsedge'] / n
+            stale_pct = 100.0 * ptot['lsstale'] / n
+            print('LS PROBES: ' + str(n) + ' issuing loads/stores; '
+                  + str(ptot['lsedge']) + ' (' + format(edge_pct, '.1f') + ' pct) with rs1 within 2 KB of a region edge; '
+                  + str(ptot['lsstale']) + ' (' + format(stale_pct, '.1f') + ' pct) issuing on a write-through to rs1.')
 
     # Checked per program as well as over the suite. One program whose columns
     # do not add up is invisible in a total that happens to.

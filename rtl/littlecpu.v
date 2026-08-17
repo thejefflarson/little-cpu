@@ -192,6 +192,8 @@ module littlecpu #(
     .imem_fault(imem_fault),
     .atomic_addr(atomic_addr),
     .atomic_supported(atomic_supported),
+    .wt_wen(wen),
+    .wt_waddr(waddr),
     .accessor_out_valid(accessor_out_valid),
     .csr_rdata(csr_rdata),
     .csr_implemented(csr_implemented),

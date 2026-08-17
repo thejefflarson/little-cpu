@@ -149,7 +149,7 @@ for a in "$@"; do [ "$a" = "--stalls" ] && stalls=1; done
 if [ -n "$stalls" ] && [ -z "${STUB_SIM_NOSTALLS:-}" ]; then
   unattr=${STUB_SIM_UNATTR:-0}
   echo "STALLS cycles=$((20 + unattr + ${STUB_SIM_SKEW:-0})) issue=10 divider=0" \
-       "atomic=0 hazard=10 serialize=0 operand=0 fetch=0 unattributed=$unattr"
+       "atomic=0 hazard=10 serialize=0 operand=0 lswait=0 fetch=0 unattributed=$unattr"
 fi
 case ${STUB_SIM_EXIT:-0} in
   0) echo "PASS" ;;
@@ -1149,8 +1149,8 @@ SR="python3 $REPO/test/stall_report.py"
 sr_fixture() {
   local d; d=$(new_case)
   cat > "$d/counts" <<'COUNTS'
-add.S cycles=40 issue=10 divider=0 atomic=0 hazard=20 serialize=0 operand=10 fetch=0 unattributed=0 retires=10
-lw.S cycles=40 issue=10 divider=0 atomic=0 hazard=5 serialize=0 operand=25 fetch=0 unattributed=0 retires=10
+add.S cycles=40 issue=10 divider=0 atomic=0 hazard=20 serialize=0 operand=10 lswait=0 fetch=0 unattributed=0 retires=10
+lw.S cycles=40 issue=10 divider=0 atomic=0 hazard=5 serialize=0 operand=25 lswait=0 fetch=0 unattributed=0 retires=10
 COUNTS
   printf '%s' "$d"
 }
