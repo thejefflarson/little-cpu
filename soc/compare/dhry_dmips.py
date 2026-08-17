@@ -187,7 +187,7 @@ def main():
             "THE DMIPS COLUMN MULTIPLIES A CLOCK MEASURED AT THE PLACED 4 KB/2 KB\n"
             "GEOMETRY BY CYCLES MEASURED AT A LARGER SIMULATED ONE, because no ice40\n"
             "in this flow has the block RAM to hold Dhrystone. It is a projection.\n"
-            "Neither side is a shipped design either: this core is RV32IMC + Zicsr\n"
+            "Neither side is a shipped design either: this core is RV32IMAC + Zicsr\n"
             "with traps, that one is RV32IC with a branch predictor, no CSR file and\n"
             "no traps, and the image is the ISA they share."
         )

@@ -992,7 +992,7 @@ compare-timing: compare.$(COMPARE_CORE).asc compare.$(COMPARE_CORE).core.log
 	@echo
 	@echo 'THIS IS NOT `make soc-timing`, AND NOT A LIKE-FOR-LIKE COMPARISON.'
 	@echo 'Different part, smaller memories, no timer, and the two cores'
-	@echo 'implement different ISAs: RV32IMC+Zicsr with traps here, RV32IC with'
+	@echo 'implement different ISAs: RV32IMAC+Zicsr with traps here, RV32IC with'
 	@echo 'no CSR file and no traps there. Read ADR-0086 before quoting any of'
 	@echo 'it. One placement is a sample: soc/compare/sweep.sh runs four each.'
 	@python3 soc/timing_split.py compare.$(COMPARE_CORE).timing.rpt

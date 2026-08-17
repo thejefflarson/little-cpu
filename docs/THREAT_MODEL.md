@@ -10,7 +10,7 @@ what is at risk, so a reviewer spends its effort on the things that can really g
 
 ## What this is
 
-A hobby RV32IMC_Zicsr CPU core in SystemVerilog, plus the verification harness that checks it.
+A hobby RV32IMAC_Zicsr CPU core in SystemVerilog, plus the verification harness that checks it.
 It builds and runs in exactly two places:
 
 | | |
