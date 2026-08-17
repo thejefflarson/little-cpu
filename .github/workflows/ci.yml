@@ -369,7 +369,9 @@ jobs:
             cat "$RUNNER_TEMP/fit.txt"
             echo '```'
             echo "Logic cells on up5k/sg48, memories external. This job is a ratchet"
-            echo "against \`FIT_MAX_LC\`, and it is NOT in main's required set."
+            echo "against \`FIT_MAX_LC\`, and it is in main's required set -- so a"
+            echo "re-mapping that moves the count blocks a merge, which is why the"
+            echo "budget is derived to clear a whole churn band."
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
