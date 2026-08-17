@@ -213,6 +213,20 @@ module regfile_tb;
     check_hex("independent ports, bypass side (rs1)", reg_rs1, 32'h88888888);
     check_hex("independent ports, array side (rs2)", reg_rs2, 32'h33333333);
 
+    // `wen` is the only thing this module may take as saying a write is
+    // happening. Aim a live address and word straight at the register both ports
+    // are reading, with `wen` low: the write-first capture, the bypass and the
+    // array must all ignore it. Every other vector here zeroes the pair when
+    // `wen` is low and so cannot tell a consumer that tests it from one that
+    // does not -- which is what rtl/writeback.v's masks are relying on.
+    drive(5'd7, 5'd7, 1'b0, 5'd7, 32'hdeadbeef);   // fetch x7, nothing written
+    drive(5'd7, 5'd7, 1'b0, 5'd7, 32'hdeadbeef);   // use, still nothing written
+    check_hex("a wen-low write is not captured write-first (rs1)", reg_rs1, 32'h33333333);
+    check_hex("...and does not reach the bypass (rs2)", reg_rs2, 32'h33333333);
+    drive(5'd0, 5'd0, 1'b0, 5'd0, 32'h0);
+    check_ne("...nor either array", dut.regs_a[7], 32'hdeadbeef);
+    check_ne("...on both copies", dut.regs_b[7], 32'hdeadbeef);
+
     drive(5'd5, 5'd6, 1'b0, 5'd0, 32'h0);
     drive(5'd5, 5'd6, 1'b0, 5'd0, 32'h0);
     check_hex("x5 holds its last written value", reg_rs1, 32'h66666666);

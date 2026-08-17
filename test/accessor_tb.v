@@ -172,6 +172,10 @@ module accessor_tb;
       {launch.is_amomaxu, launch.is_amominu, launch.is_amomax, launch.is_amomin,
        launch.is_amoor, launch.is_amoand, launch.is_amoxor, launch.is_amoadd,
        launch.is_amoswap} = ops;
+      // Decode publishes the AMO bit beside the nine functions rather than
+      // leaving each reader to OR them, so a launch that named a function
+      // without it is a struct no decoder produces.
+      launch.is_amo = |ops;
       arrive(1'b0, 32'b0);
       mem_rdata = old;
       #1;
@@ -440,6 +444,7 @@ module accessor_tb;
     transactions = 0;
     present(1'b1, 32'h0001_0030);
     launch.is_amoadd = 1'b1;
+    launch.is_amo = 1'b1;
     launch.rs2 = 32'd1;
     launch_taken = 1'b0;
     mem_rdata = 32'd41;
