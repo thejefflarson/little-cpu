@@ -1,7 +1,15 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
 `include "structs.v"
-module littlecpu(
+module littlecpu #(
+  // The data-bus address map rtl/decoder.v needs to raise the two region
+  // causes -- see the parameter block there. Passed through so the platform
+  // states it where it instantiates the core.
+  parameter int LS_TEXT_PAGE_BITS = 1,
+  parameter logic [19:0] LS_RAM_PAGE = 20'h00010,
+  parameter int LS_RAM_PAGE_BITS = 4,
+  parameter logic [19:0] LS_TIMER_PAGE = 20'h00020
+) (
   input  logic clk,
   input  logic reset,
   output logic [31:0] imem_addr,
@@ -167,7 +175,12 @@ module littlecpu(
   `endif
  `endif
 
-  decoder decoder(
+  decoder #(
+    .LS_TEXT_PAGE_BITS(LS_TEXT_PAGE_BITS),
+    .LS_RAM_PAGE(LS_RAM_PAGE),
+    .LS_RAM_PAGE_BITS(LS_RAM_PAGE_BITS),
+    .LS_TIMER_PAGE(LS_TIMER_PAGE)
+  ) decoder(
     .clk(clk),
     .reset(reset),
     .in(fetcher_out),

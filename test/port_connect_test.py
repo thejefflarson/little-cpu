@@ -243,6 +243,17 @@ def module_ports(text):
             "as the source of what every instantiation owes; if the module was",
             "renamed or moved, move this check with it.")
     open_paren = text.find("(", m.end())
+    # A parameterized header -- `module littlecpu #( ... ) ( ... )` -- puts the
+    # parameter list's parenthesis first. Parameters are not ports and owe the
+    # instantiations nothing, so skip the balanced group and read the next one
+    # as the port list.
+    if open_paren >= 0 and text[m.end():open_paren].strip() == "#":
+        param_close = matching_paren(text, open_paren)
+        if param_close is None:
+            die("error: %s's parameter list has no closing parenthesis this"
+                % MODULE_FILE,
+                "check can find, so the port list after it cannot be located.")
+        open_paren = text.find("(", param_close + 1)
     close = matching_paren(text, open_paren) if open_paren >= 0 else None
     if close is None:
         die("error: %s's port list has no closing parenthesis this check can"
@@ -281,7 +292,11 @@ def module_ports(text):
 
 
 INSTANCE = re.compile(
-    r"(?:^|[^A-Za-z0-9_.`])%s\s+([A-Za-z_]\w*)\s*(?:#\s*\([^()]*\)\s*)?\(" % MODULE,
+    r"(?:^|[^A-Za-z0-9_.`])%s\s*"
+    # An optional parameter override group, which SystemVerilog puts BEFORE the
+    # instance name. One nesting level is enough for `.P(expr)` entries.
+    r"(?:#\s*\((?:[^()]|\([^()]*\))*\)\s*)?"
+    r"([A-Za-z_]\w*)\s*\(" % MODULE,
     re.M,
 )
 

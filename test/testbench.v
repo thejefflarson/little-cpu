@@ -100,7 +100,7 @@ module testbench(
     .mtip(irq_timer)
   );
 
-  littlecpu uut (
+  littlecpu #(.LS_TEXT_PAGE_BITS(2)) uut (
     .clk(clk),
     .reset(reset),
     .imem_addr(imem_addr),

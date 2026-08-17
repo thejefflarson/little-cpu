@@ -941,16 +941,18 @@ module decoder_tb;
     #1;
     check_hex("...and so is an sc.w", trap_cause, 32'd7);
 
-    // A plain load and a plain store at the same address are unaffected. Their
-    // region test is the one that has to wait on a 32-bit sum, and it is not
-    // built -- so this is the boundary of what the bit is allowed to decide,
-    // and widening the fault to every access would show up here first.
+    // A plain load and a plain store at the same address fault too now: the
+    // decoder tests its own map -- the split three-way test on rs1[31:12]
+    // picked by the sign and the low carry -- so the region causes no longer
+    // stop at the eleven A encodings. 0x0004_0000 is outside text, RAM and
+    // the timer page.
     in.instr = 32'h00062583;   // lw a1, 0(a2)
     #1;
-    check_bit("a plain lw at the same address does not fault", dut.trap_pending, 1'b0);
+    check_bit("a plain lw at an unmapped address faults", dut.trap_pending, 1'b1);
+    check_hex("...as a LOAD access fault", trap_cause, 32'd5);
     in.instr = 32'h00b62023;   // sw a1, 0(a2)
     #1;
-    check_bit("...nor does a plain sw", dut.trap_pending, 1'b0);
+    check_hex("...and a plain sw as a STORE access fault", trap_cause, 32'd7);
 
     // Misalignment outranks the region, which keeps the four data causes
     // disjoint and matches what the reference model reports. Drop the alignment

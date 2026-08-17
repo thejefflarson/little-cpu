@@ -1,7 +1,23 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
 `include "structs.v"
-module decoder (
+module decoder #(
+  // The data-bus address map, in 4 KB pages: which addresses some memory
+  // answers a plain load or store at. The platform states it here at
+  // elaboration -- constants, so the region tests below are equalities on
+  // register-output bits and route nowhere -- and rtl/littlecpu.v passes it
+  // through. The map has to reach decode itself because the fault commits
+  // with every other cause, in the cycle the pc is chosen: a question routed
+  // out to the memories and back was built and measured, and the round trip
+  // cost more than the logic.
+  //
+  // Text: LS_TEXT_PAGES pages at page 0. RAM: LS_RAM_PAGES pages at
+  // LS_RAM_PAGE. Timer: the 16-byte window at the base of page LS_TIMER_PAGE.
+  parameter int LS_TEXT_PAGE_BITS = 1,
+  parameter logic [19:0] LS_RAM_PAGE = 20'h00010,
+  parameter int LS_RAM_PAGE_BITS = 4,
+  parameter logic [19:0] LS_TIMER_PAGE = 20'h00020
+) (
   input  logic clk,
   input  logic reset,
   input  fetcher_output in,
@@ -415,6 +431,50 @@ module decoder (
   // below is what keeps those two facts from drifting apart.
   assign atomic_addr = reg_rs1;
 
+  // Does some memory answer a plain load or store at `immediate + reg_rs1`?
+  // The sum's top is not ready when the pc must be chosen, so it is never
+  // read. Every faultable load/store immediate is sign-extended above bit 11,
+  // so sum[31:12] is reg_rs1[31:12] plus (carry into bit 12 minus the
+  // immediate's sign) -- an adjustment of -1, 0 or +1. Each region is
+  // therefore tested three ways on the raw register bits, the sign picks
+  // between those early, and the one late bit -- the carry, read back out of
+  // the adder the address already pays for as rs1[12] ^ immediate[12] ^
+  // sum[12] -- picks between the two precomputed answers, one mux deep.
+  logic [19:0] ls_hi;
+  assign ls_hi = reg_rs1[31:12];
+
+  // Text: pages [0, 2^LS_TEXT_PAGE_BITS), shifted by the adjustment.
+  logic text_d0, text_dp1, text_dm1;
+  assign text_d0  = ~|ls_hi[19:LS_TEXT_PAGE_BITS];
+  assign text_dp1 = (&ls_hi) || (text_d0 && !(&ls_hi[LS_TEXT_PAGE_BITS-1:0]));
+  assign text_dm1 = (text_d0 && |ls_hi[LS_TEXT_PAGE_BITS-1:0]) ||
+                    (ls_hi == (20'd1 << LS_TEXT_PAGE_BITS));
+
+  // RAM: 2^LS_RAM_PAGE_BITS pages at LS_RAM_PAGE, shifted the same three ways.
+  logic ram_d0, ram_dp1, ram_dm1;
+  assign ram_d0  = ls_hi[19:LS_RAM_PAGE_BITS] == LS_RAM_PAGE[19:LS_RAM_PAGE_BITS];
+  assign ram_dp1 = (ls_hi == LS_RAM_PAGE - 20'd1) ||
+                   (ram_d0 && !(&ls_hi[LS_RAM_PAGE_BITS-1:0]));
+  assign ram_dm1 = (ram_d0 && |ls_hi[LS_RAM_PAGE_BITS-1:0]) ||
+                   (ls_hi == LS_RAM_PAGE + (20'd1 << LS_RAM_PAGE_BITS));
+
+  // The timer: 16 bytes at its page's base, so sum[11:4] must be zero too --
+  // bits that never wait on the carry into bit 12.
+  logic timer_lo_ok, timer_d0, timer_dp1, timer_dm1;
+  assign timer_lo_ok = ~|mem_addr_calc[11:4];
+  assign timer_d0  = ls_hi == LS_TIMER_PAGE;
+  assign timer_dp1 = ls_hi == LS_TIMER_PAGE - 20'd1;
+  assign timer_dm1 = ls_hi == LS_TIMER_PAGE + 20'd1;
+
+  logic ls_neg, ls_carry, ls_sup_carry, ls_sup_nocarry, ls_supported;
+  assign ls_neg = immediate[31];
+  assign ls_sup_carry   = ls_neg ? (text_d0  || ram_d0  || (timer_d0  && timer_lo_ok))
+                                 : (text_dp1 || ram_dp1 || (timer_dp1 && timer_lo_ok));
+  assign ls_sup_nocarry = ls_neg ? (text_dm1 || ram_dm1 || (timer_dm1 && timer_lo_ok))
+                                 : (text_d0  || ram_d0  || (timer_d0  && timer_lo_ok));
+  assign ls_carry     = mem_addr_calc[12] ^ reg_rs1[12] ^ immediate[12];
+  assign ls_supported = ls_carry ? ls_sup_carry : ls_sup_nocarry;
+
   // Misalignment needs two bits of the sum, and the low two bits of a sum depend
   // only on the low two bits of the operands -- so they are added here rather
   // than read off `mem_addr_calc`. Read from there, this test waits on a 32-bit
@@ -457,9 +517,19 @@ module decoder (
   // 11.98 MHz at a placement this one clears.
   logic atomic_fault;
   assign atomic_fault = instr_atomic && !atomic_supported && !word_misaligned;
+
+  // The same refusal for a plain load or store, answered from the decomposed
+  // question above. Misalignment outranks the region, the same order the
+  // atomic term states, so the four data causes stay disjoint.
+  logic instr_ls_load, instr_ls_store, ls_fault;
+  assign instr_ls_load  = instr_lb || instr_lbu || instr_lh || instr_lhu || instr_lw;
+  assign instr_ls_store = instr_sb || instr_sh || instr_sw;
+  assign ls_fault = (instr_ls_load || instr_ls_store) && !ls_supported &&
+                    !load_misaligned && !store_misaligned;
   logic load_access_fault, store_access_fault;
-  assign load_access_fault  = atomic_fault && instr_lr;
-  assign store_access_fault = atomic_fault && instr_atomic_write;
+  assign load_access_fault  = (atomic_fault && instr_lr) || (ls_fault && instr_ls_load);
+  assign store_access_fault = (atomic_fault && instr_atomic_write) ||
+                              (ls_fault && instr_ls_store);
 
   // `csr_write_op` already has Zicsr's suppression rules applied, so `csrr misa`
   // stays legal while `csrw misa` does not.
@@ -482,7 +552,7 @@ module decoder (
 
   logic trap_pending;
   assign trap_pending = imem_fault || instr_illegal || instr_ebreak || instr_ecall ||
-                        load_misaligned || store_misaligned || atomic_fault;
+                        load_misaligned || store_misaligned || atomic_fault || ls_fault;
 
   // The instruction's own fault and an interrupt really can be true together,
   // and the interrupt wins: the instruction does not execute, so its fault does
@@ -816,7 +886,7 @@ module decoder (
       out.rvfi.mem_fault <= imem_fault || load_access_fault || store_access_fault;
       // An lr.w reads, an sc.w writes, and an AMO does both -- so the masks are
       // the access the instruction would have made, not the one it made.
-      out.rvfi.mem_fault_rmask <= {4{load_access_fault || (store_access_fault && !instr_sc)}};
+      out.rvfi.mem_fault_rmask <= {4{load_access_fault || (store_access_fault && instr_amo)}};
       out.rvfi.mem_fault_wmask <= {4{store_access_fault}};
       out.rvfi.rs1_addr <= rvfi_rs1_valid ? rs1 : 5'b0;
       out.rvfi.rs2_addr <= rvfi_rs2_valid ? rs2 : 5'b0;
@@ -1076,6 +1146,24 @@ module decoder (
   // mux would leave the fault talking about one address and the transaction
   // about another, with the fault's own tests still green.
   always_comb if (instr_atomic) assert(mem_addr_calc == atomic_addr);
+
+  // The decomposed load/store question names the same address the transaction
+  // will use: the low half is the sum's, and the top half is reg_rs1's plus
+  // (carry - sign). The third line is the fact the split stands on -- every
+  // encoding that can raise the two region causes sign-extends its immediate
+  // above bit 15, so no other adjustment of the top half is reachable.
+  always_comb if (instr_ls_load || instr_ls_store) begin
+    assert(immediate[31:12] == {20{immediate[31]}});
+    assert(mem_addr_calc[31:12] ==
+      (reg_rs1[31:12] + {20{ls_neg}} + {19'b0, ls_carry}));
+    // The split test agrees with the address the transaction will use: the
+    // whole point of the three-way spelling, stated against the sum it
+    // replaces.
+    assert(ls_supported == (
+      (mem_addr_calc[31:12+LS_TEXT_PAGE_BITS] == '0) ||
+      (mem_addr_calc[31:12+LS_RAM_PAGE_BITS] == LS_RAM_PAGE[19:LS_RAM_PAGE_BITS]) ||
+      (mem_addr_calc[31:4] == {LS_TIMER_PAGE, 8'b0})));
+  end
 
   // One line per cause, not a copy of the case statement, so reordering its arms
   // trips these instead of changing them to match. The eight synchronous causes
