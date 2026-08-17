@@ -68,9 +68,10 @@ are kept in parentheses so those references still resolve.
   with no adder in front of it — and decode raises causes 5 and 7 from it, for zero extra logic
   levels against the four the same test for a load or a store cost (ADR-0109). **An out-of-region
   load still reads zero and an out-of-region store is still dropped, silently**, and that is a
-  recorded deviation with a measured price rather than a property of the design: their address is
-  the top of `immediate + reg_rs1`, and the test behind that sum measured 10.57–11.00 MHz over four
-  seeds (ADR-0104).
+  recorded deviation with a measured price rather than a property of the design: their address is a
+  32-bit sum, and **the price is which bit of that sum the fetch loop has to wait for** — bit 31
+  costs 17.3% of median period, bit 12 costs 9.1%, and waiting for none of it is a null
+  (ADR-0104, ADR-0116).
 - **Every inter-stage struct carries a `valid` bit** (3). A bubble is `valid = 0`; retire is
   `valid` reaching writeback, which gates `wen` and drives `rvfi_valid`.
 - **Hazards are stall-only** (4). No forwarding network, and 35.7% of suite cycles is what that
@@ -168,13 +169,16 @@ answers its range test about `atomic_addr` → cause 5 for `lr.w` and 7 for the 
 which makes the machine timer's four words and the whole text window `AMONone` and `RsrvNone`.
 **An atomic's effective address is rs1 verbatim** — the A encodings put funct5/aq/rl/rs2 where the
 I-immediate is read from — so that test reads a register output and measures **zero extra logic
-levels**. A plain load or store has to read the top of `immediate + reg_rs1` and hand the answer to
-`next_pc`: four more levels, **10.57–11.00 MHz over four seeds** against the 12.00 MHz requirement,
-and still declined. So an address no memory answers is still read as zero and written nowhere for
-those two — a deviation from the privileged spec's strong recommendation that precise access faults
-be raised, recorded as one rather than as a design choice. **Beating four levels is now demonstrated
-not to be sufficient**: the atomic-only test is a level *shallower* and still moved the worst
-placement 2.2%, in routing, at 89% occupancy.
+levels**. A plain load or store has to read `immediate + reg_rs1` and hand the answer to `next_pc`,
+and **the price is that wait and nothing about the region decode** (ADR-0116): the same three
+windows and the same merge asked about `reg_rs1` instead of the sum are a null, and the cost is
+monotone in which bit of the sum is waited for — bit 31 is +17.30% of median period, bit 12 is
++9.10%, and a **coarse** check that still reads bit 31 is +15.95%, a null against the exact one. So
+an address no memory answers is still read as zero and written nowhere for those two — a deviation
+from the privileged spec's strong recommendation that precise access faults be raised, recorded as
+one rather than as a design choice. **The only affordable spelling is not a region test**: asking
+about `rs1`'s page and its neighbours holds 12 MHz at 16 of 16 placements and is declined because it
+makes `mcause` a function of the base register rather than of the access.
 **Which spelling reaches `next_pc` decides whether the board closes.** One term that says an atomic
 faults, with the cause split answered off the fetch loop, swept a worst of 12.24 MHz over eight
 seeds; two terms each carrying their own encoding test swept 11.82 and missed at two seeds of eight.
@@ -512,6 +516,10 @@ and times.
   in**, and every LUT in the instruction decoder folds in more instruction bits — which are
   `rom_*_RDATA`. So `decode 11 · imem 5` is not five levels of memory: the `imem` bucket is an upper
   bound on the memory's contribution, and decode's share is understated by the same amount.
+  **It attributes a path, not a decision, and the level count orders nothing** (ADR-0116): four
+  spellings of one region test span 4:1 in cost with two of them at the same 27 levels and 11% apart
+  in period, and the tool charged `decode` one extra level for a change worth 16%. What located that
+  cost was substituting one line and re-sweeping — sixteen seeds, paired.
 - **Read logic levels apart**: a LUT level costs ~3.3 ns (delay plus interconnect), a carry hop
   ~0.34 ns and no interconnect. A change that trades a carry hop for a LUT level gets shallower by
   icetime's count and slower in nanoseconds. **Measured, in the fetch loop, at any area price**:
