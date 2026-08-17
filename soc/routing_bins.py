@@ -62,7 +62,9 @@ PC = "riscv.pc"
 # RAM and the pc at once is charged to the memory. Nothing on the paths measured
 # so far does both, and a hop counted twice would break the reconciliation that
 # grades this script.
-BINS = [f"EBR ({EBR})", f"SPRAM ({SPRAM})", f"{PC}-sourced", "neither"]
+BINS = ["EBR", "SPRAM", f"{PC}-sourced", "neither"]
+LEGEND = [f"EBR = an {EBR} at either end of the hop; SPRAM = an {SPRAM};",
+          f"{PC}-sourced = the hop carries a bit of that declared net."]
 
 
 def netlist(path, top):
@@ -106,31 +108,33 @@ def driving(nl, bit):
     return (cell, nl["cells"][cell]["type"]) if cell else (None, None)
 
 
-def ends(nl, hops, index):
-    """What drives the net hop `index` carries, and what that run feeds.
+def carried_nets(hops):
+    """The net each hop carries, in one pass over the path.
 
-    The carried net is the last one icetime resolved above the hop -- or, for the
-    hops ahead of the first name on the path, the first one below it, which is
-    the same net seen from its other side.
+    That is the last name icetime resolved above the hop -- or, for the hops
+    ahead of the first name on the path, the first one below it, which is the
+    same net seen from its other side.
     """
-    carried = None
-    for earlier in hops[:index]:
-        if earlier["net"]:
-            carried = earlier["net"]
-    if carried is None:
-        carried = next((hop["net"] for hop in hops if hop["net"]), None)
+    first = next((hop["net"] for hop in hops if hop["net"]), None)
+    nets, last = [], first
+    for hop in hops:
+        nets.append(last)
+        if hop["net"]:
+            last = hop["net"]
+    return nets
 
+
+def ends(nl, hops, index, carried):
+    """What drives the net this hop carries, and what the run it sits in feeds."""
     sink = next((hop["net"] for hop in hops[index:]
                  if hop["net"] and hop["net"] != carried), None)
-
     carried_bit = bit_of(nl, carried)
     source, source_type = driving(nl, carried_bit)
     if sink is not None:
         target, target_type = driving(nl, bit_of(nl, sink))
     else:
-        reader = next(iter(nl["mem_readers"].get(carried_bit, [])), None)
-        target = reader
-        target_type = nl["cells"][reader]["type"] if reader else None
+        target = next(iter(nl["mem_readers"].get(carried_bit, [])), None)
+        target_type = nl["cells"][target]["type"] if target else None
     return {"net": carried, "bit": carried_bit,
             "from": source, "from_type": source_type,
             "to": target, "to_type": target_type}
@@ -151,11 +155,12 @@ def walk(nl, report):
     """Every routing hop on one path, binned, reconciled against timing_split."""
     split = timing_split.summarise(report)
     hops = path_stages.path_hops(report)
+    carried = carried_nets(hops)
     binned = []
     for index, hop in enumerate(hops):
         if hop["kind"] is None or hop["kind"] in timing_split.LOGIC_CELLS:
             continue
-        end = ends(nl, hops, index)
+        end = ends(nl, hops, index, carried[index])
         binned.append({"cell": hop["cell"], "kind": hop["kind"],
                        "delay": hop["delay"], "bin": bin_of(nl, end), **end})
     if not binned:
@@ -204,9 +209,9 @@ def report_bins(label, counts, delays):
     print(f"  {label}")
     for name in BINS:
         share = 100 * delays[name] / total if total else 0.0
-        print(f"    {name:<24s} {counts[name]:>4d} hops  {delays[name]:7.2f} ns  "
+        print(f"    {name:<18s} {counts[name]:>4d} hops  {delays[name]:7.2f} ns  "
               f"{share:5.1f}%")
-    print(f"    {'all routing':<24s} {sum(counts.values()):>4d} hops  {total:7.2f} ns")
+    print(f"    {'all routing':<18s} {sum(counts.values()):>4d} hops  {total:7.2f} ns")
 
 
 def main():
@@ -224,6 +229,9 @@ def main():
     print(f"  is {len(rows)} sample{'' if len(rows) == 1 else 's'} of ONE path each "
           f"and not a routing census of the design.")
     print("  An empty bin says the worst path missed that thing.")
+    print()
+    for line in LEGEND:
+        print(f"  {line}")
     print()
 
     where = os.path.dirname(os.path.abspath(args.csv))
@@ -262,13 +270,13 @@ def main():
     median = per_seed[(len(per_seed) - 1) // 2]
     for label, entry in (("worst", worst), ("median", median)):
         routing = entry["split"]["routing"]
-        shares = "  ".join(f"{name.split(' ')[0]} {100 * entry['delays'][name] / routing:.1f}%"
+        shares = "  ".join(f"{name} {100 * entry['delays'][name] / routing:.1f}%"
                            for name in BINS)
         print(f"  {label:<7s} seed {entry['seed']:<8s} "
               f"{1000 / entry['split']['total']:5.2f} MHz  {routing:6.2f} ns routing")
         print(f"          {shares}")
-    print("  The median is the lower of the two middle placements at an even count,")
-    print("  so it names a seed a report can be re-read from.")
+    print("  The median names the lower of the two middle placements, so a report")
+    print("  can be re-read from it.")
 
     print()
     print("== the single largest routing hop of each placement, both ends named ==")
