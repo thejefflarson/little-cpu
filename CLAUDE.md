@@ -68,9 +68,10 @@ are kept in parentheses so those references still resolve.
   with no adder in front of it — and decode raises causes 5 and 7 from it, for zero extra logic
   levels against the four the same test for a load or a store cost (ADR-0109). **An out-of-region
   load still reads zero and an out-of-region store is still dropped, silently**, and that is a
-  recorded deviation with a measured price rather than a property of the design: their address is
-  the top of `immediate + reg_rs1`, and the test behind that sum measured 10.57–11.00 MHz over four
-  seeds (ADR-0104).
+  recorded deviation with a measured price rather than a property of the design: their address is a
+  32-bit sum, and **the price is which bit of that sum the fetch loop has to wait for** — bit 31
+  costs 17.3% of median period, bit 12 costs 9.1%, and waiting for none of it is a null
+  (ADR-0104, ADR-0113).
 - **Every inter-stage struct carries a `valid` bit** (3). A bubble is `valid = 0`; retire is
   `valid` reaching writeback, which gates `wen` and drives `rvfi_valid`.
 - **Hazards are stall-only** (4). No forwarding network, and 35.7% of suite cycles is what that
@@ -165,13 +166,24 @@ answers its range test about `atomic_addr` → cause 5 for `lr.w` and 7 for the 
 which makes the machine timer's four words and the whole text window `AMONone` and `RsrvNone`.
 **An atomic's effective address is rs1 verbatim** — the A encodings put funct5/aq/rl/rs2 where the
 I-immediate is read from — so that test reads a register output and measures **zero extra logic
-levels**. A plain load or store has to read the top of `immediate + reg_rs1` and hand the answer to
-`next_pc`: four more levels, **10.57–11.00 MHz over four seeds** against the 12.00 MHz requirement,
-and still declined. So an address no memory answers is still read as zero and written nowhere for
-those two — a deviation from the privileged spec's strong recommendation that precise access faults
-be raised, recorded as one rather than as a design choice. **Beating four levels is now demonstrated
-not to be sufficient**: the atomic-only test is a level *shallower* and still moved the worst
-placement 2.2%, in routing, at 89% occupancy.
+levels**. A plain load or store has to read `immediate + reg_rs1` and hand the answer to `next_pc`,
+and **the whole price is that wait rather than anything about the region decode** (ADR-0113). The
+same three windows, the same union, the same cause split and the same merge into `trap_pending`
+asked about `reg_rs1` instead of the sum are **+0.52% of median period over six placements, a
+null**; asked about the top of the sum they are **+17.30% over sixteen, worst 10.43 MHz**. So the
+cost is monotone in which bit is waited for and in nothing else: a carry-select spelling that needs
+only bit 12 recovers a little under half of it (+9.10%, worst 10.96, one seed of sixteen over 12.00)
+and is declined, and a **coarse** 256 KB check that still reads the top of the sum is +15.95% — a
+null against the exact one, which closes making it cheaper by making it coarser. So an address no
+memory answers is still read as zero and written nowhere for those two — a deviation from the
+privileged spec's strong recommendation that precise access faults be raised, recorded as one rather
+than as a design choice. **Level count is not the instrument here**: two of those trees sit at 27
+levels and are 11% apart in period, and the atomic-only test is a level *shallower* than its base
+and still moved the worst placement 2.2%, in routing, at 89% occupancy. Quote the distribution.
+**The one affordable spelling is not a region test.** Asking whether `rs1`'s page or either
+neighbour is mapped meets 12 MHz at 16 of 16 placements for +3.00%, and is recorded unspent because
+it makes `mcause` a function of the base register rather than of the access — two instructions
+computing the same address then behave differently.
 **Which spelling reaches `next_pc` decides whether the board closes.** One term that says an atomic
 faults, with the cause split answered off the fetch loop, swept a worst of 12.24 MHz over eight
 seeds; two terms each carrying their own encoding test swept 11.82 and missed at two seeds of eight.
