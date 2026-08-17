@@ -603,32 +603,52 @@ fit.json: $(FIT_SRCS)
 	@yosys -p 'read_verilog -sv $^; synth_ice40 -dsp -top littlecpu -json $@' \
 	  > fit.synth.log 2>&1 || { tail -40 fit.synth.log; exit 1; }
 
-# 3625 is a measurement of 3543 under CI's suite plus a 50-cell churn band plus
-# 32 for the toolchain: identical RTL moves about 50 cells on ABC re-mapping
-# alone, and that tree read 3543 under CI against 3575 under a local Homebrew
-# yosys. CI resolves the OSS CAD Suite rather than pinning it, so the second term
-# is what stops a suite bump going red on a pull request that changed no RTL.
-# Launching the bus from the execute slot took the job's number to 3469, leaving
-# more slack than the derivation left.
+# THE INSTRUMENT IS THE `fit` CI JOB, not a local run. Three yosys builds of one
+# version read this design three ways, so a local `make fit` is the sanity check
+# and the job's count is the figure this budget is derived from and graded
+# against.
 #
-# The A extension spent all of it and more. The `fit` job reads 3486 on the base
-# and **3938** here, **+452 cells** for eleven instructions -- decode and its
-# flags through two pipeline registers, a 30-bit reservation, the 33-bit
-# adder/subtractor and the result mux, the held address and rs2, and the two
-# 32-bit muxes that give the read-modify-write the bus for its write cycle. A
-# local Homebrew yosys reads 3464 and 3935 on the same two trees, which is the
-# sanity check and not the figure: 4000 is the job's 3938 plus the ±50 churn
-# band, so the ratchet sits outside it. That is a tenth of the whole core spent
-# on instructions no current workload executes, and the reason to spend it is in
-# the ADR rather than here.
+# 4088 = 3966 + 68 + 54:
+#   3966  the `fit` job's count on 421947f, run 31984969180. It has read 3966 on
+#         five consecutive trees, none of which touched an input to this target.
+#    +68  the churn band, measured rather than quoted at ±50. Setting one further
+#         bit of the read-only `misa` constant spans 68 cells on 64759da (3988,
+#         3979 and 3920 against a base of 3935) and 63 on 2007d9d (3958, 3971,
+#         3987, 3925 and 3980 against 3988) -- edits that change no logic at all.
+#         Budget the whole span and not just its upward half: every probe on the
+#         second tree came out BELOW the base, so a count can sit anywhere in
+#         that window, including at the bottom with the whole of it still to
+#         come.
+#    +54  the widest gap measured between two toolchains on one tree, which is
+#         2007d9d: the job read 3934 where both a local Homebrew yosys and a
+#         cached OSS CAD Suite read 3988. Other trees read 32 (3543 job, 3575
+#         local on d3a9556) and 3 twice (3938 against 3935 on 64759da, 3966
+#         against 3969 here, the sign not the same either time), so the gap is
+#         re-mapping too and has no fixed size or sign. CI resolves the suite
+#         rather than pinning it, so a release moves the count with nothing
+#         committed against it.
+#
+# The budget clears the higher of each tree's pair by more than a band -- 3969
+# here, 3988 on 2007d9d. Preserve that when this is next re-derived.
+#
+# This raise buys band clearance and nothing else. No cells were spent for it and
+# none of the headroom is a budget for a design change. A raise that pays for one
+# reads differently and names what it bought: 3625 -> 4000 was +452 measured
+# cells for the eleven A instructions.
 # If this goes red, find out what grew; raising it to pass defeats the point.
-FIT_MAX_LC := 4000
+FIT_MAX_LC := 4088
+
+# The count above, printed as a delta beside the verdict: a pass says only "under
+# the budget", where a real +50 and a churn +50 read identically. It grades
+# nothing and cannot fail, which is what `test/probe_gates.sh` pins. It is the
+# job's count, so a local run prints the gap between the instruments as well.
+FIT_LAST_LC := 3966
 
 .PHONY: fit
 fit: fit.json
 	@nextpnr-ice40 --up5k --package sg48 --json $< --pcf-allow-unconstrained \
 	  > fit.log 2>&1 || true
-	@python3 soc/fit_report.py fit.log --max-lc $(FIT_MAX_LC)
+	@python3 soc/fit_report.py fit.log --max-lc $(FIT_MAX_LC) --previous $(FIT_LAST_LC)
 
 # This builds `littlesoc`, not the `littlecpu` that `make fit` measures. It
 # includes the ROM and the data RAM, so its cell count is bigger and the two

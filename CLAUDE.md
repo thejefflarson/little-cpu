@@ -334,10 +334,25 @@ and times.
 
 - **`make fit` has a churn band of about ±50 cells**: functionally identical edits move the count
   that much from ABC/nextpnr re-mapping alone. A delta inside the band is not evidence of
-  anything, and a ratchet (`FIT_MAX_LC`) must sit outside it. **The number is also
-  toolchain-dependent** — the `fit` job reads 3543 on `d3a9556` where a local Homebrew yosys reads
-  3575 on the same tree, 32 cells apart with the local one higher — so quote the `fit` job's number;
-  a local run is a sanity check. **The suite is not pinned** — CI installs the latest release — so
+  anything, and a ratchet (`FIT_MAX_LC`) must sit outside it. **±50 is the nominal figure and the
+  band measures wider than it**: setting one further bit of the read-only `misa` constant spans 68
+  cells on `64759da` (3988, 3979 and 3920 against a base of 3935) and 63 on `2007d9d` (3958, 3971,
+  3987, 3925 and 3980 against 3988), all of them edits that change no logic at all — which is why
+  `FIT_MAX_LC` is derived from a span measured on the tree rather than from ±50. Budget the whole
+  span rather than its upward half: every probe on the second tree came out *below* its base, so a
+  count can sit anywhere in that window including the bottom.
+  **The number is also toolchain-dependent, by as much as the band** — the `fit` job reads **3934**
+  on `2007d9d` where both a local Homebrew yosys and a cached OSS CAD Suite read **3988**, 54 cells
+  apart on one tree; other trees read 32 apart (3543 job, 3575 local on `d3a9556`) and 3 apart
+  twice, with the sign not the same either time (3938 against 3935 on `64759da`, 3966 against 3969
+  on `421947f`). The sharp form: the one-bit `misa` edit
+  between `64759da` and `2007d9d` moved the local count **+53** and the job's **−4**, so the gap is the
+  same re-mapping and has no fixed size or sign. Quote the `fit` job's number, budget for the gap's
+  size rather than its direction, and treat a local run as a sanity check. The other instrument
+  answers this with tooling rather than a convention now, and it is the same argument:
+  `soc/baseline_sweep.sh` stamps a sweep with its base commit and its resolved tool versions, and
+  `soc/baseline_summary.py` **refuses** to subtract two sweeps whose stamps disagree.
+  **The suite is not pinned** — CI installs the latest release — so
   `FIT_MAX_LC` and `SOC_MIN_MHZ` are graded against a toolchain that can move under them, and a
   suite bump belongs on the list of causes when either trips. **And it is top-dependent**: one
   decode edit measured −50 `SB_LUT4` synthesising `littlecpu` and −1 synthesising `littlesoc`, both
