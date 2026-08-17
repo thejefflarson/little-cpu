@@ -242,7 +242,17 @@ def module_ports(text):
             % (MODULE_FILE, MODULE),
             "as the source of what every instantiation owes; if the module was",
             "renamed or moved, move this check with it.")
+    # A parameter port list comes first when there is one, and it is not what
+    # this reads: skipped by matching parentheses, because a parameter's default
+    # may itself be parenthesised.
     open_paren = text.find("(", m.end())
+    if text[m.end():].lstrip().startswith("#"):
+        params_close = matching_paren(text, open_paren)
+        if params_close is None:
+            die("error: %s's parameter list has no closing parenthesis this"
+                % MODULE_FILE,
+                "check can find, so it cannot tell where the port list starts.")
+        open_paren = text.find("(", params_close + 1)
     close = matching_paren(text, open_paren) if open_paren >= 0 else None
     if close is None:
         die("error: %s's port list has no closing parenthesis this check can"
@@ -280,10 +290,11 @@ def module_ports(text):
     return ports
 
 
-INSTANCE = re.compile(
-    r"(?:^|[^A-Za-z0-9_.`])%s\s+([A-Za-z_]\w*)\s*(?:#\s*\([^()]*\)\s*)?\(" % MODULE,
-    re.M,
-)
+# Only as far as what follows the module name: an override list may come next,
+# and it is itself full of `.NAME(expr)`, so where it ends is a question for
+# `matching_paren` rather than for a pattern that cannot nest.
+INSTANCE = re.compile(r"(?:^|[^A-Za-z0-9_.`])%s\s+(#|[A-Za-z_])" % MODULE, re.M)
+INSTANCE_NAME = re.compile(r"\s*([A-Za-z_]\w*)\s*\(")
 
 
 def instantiations(path, text):
@@ -295,11 +306,28 @@ def instantiations(path, text):
     """
     found = []
     for m in INSTANCE.finditer(text):
-        open_paren = text.index("(", m.end() - 1)
+        at_line = text.count("\n", 0, m.start()) + 1
+        after = m.start(1)
+        if text[after] == "#":
+            params_close = matching_paren(text, text.index("(", after))
+            if params_close is None:
+                die("error: %s overrides %s's parameters at line %d and the"
+                    % (path, MODULE, at_line),
+                    "override list has no closing parenthesis this check can",
+                    "find, so it cannot tell where the connection list starts.")
+            after = params_close + 1
+        name = INSTANCE_NAME.match(text, after)
+        if not name:
+            die("error: %s names %s at line %d in a shape this check cannot read"
+                % (path, MODULE, at_line),
+                "as an instantiation. Only `%s [#(...)] <name> (...)` is graded;" % MODULE,
+                "teach this script the spelling rather than letting a site go",
+                "ungraded because it was written another way.")
+        open_paren = name.end() - 1
         close = matching_paren(text, open_paren)
         if close is None:
             die("error: %s instantiates %s at line %d and the connection list"
-                % (path, MODULE, text.count("\n", 0, m.start()) + 1),
+                % (path, MODULE, at_line),
                 "has no closing parenthesis this check can find.")
         first_line = text.count("\n", 0, open_paren) + 1
         where = "%s's %s instance" % (path, MODULE)
@@ -325,7 +353,7 @@ def instantiations(path, text):
                 "POSITION is the worst case of what this file exists to catch --",
                 "it silently re-aims every port after the one that moved -- so it",
                 "stops the run rather than being skipped.")
-        found.append((m.group(1), conns))
+        found.append((name.group(1), conns))
     return found
 
 

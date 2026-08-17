@@ -87,6 +87,11 @@ module decoder (
   `ifdef RISCV_FORMAL_CSR_MCAUSE
   input  rvfi_csr32   csr_rvfi_mcause,
   `endif
+  // A plain load or store is issuing this cycle and is not trapping. The
+  // load/store locality counters in rtl/littlecpu.v are summed over exactly
+  // these cycles; everything else they need -- the base register's value, the
+  // register number and the write port -- is already up there.
+  output logic        probe_ls_issuing,
  `endif
   output decoder_output out
 );
@@ -764,6 +769,14 @@ module decoder (
     if (reset) intr_report <= 1'b0;
     else if (issuing) intr_report <= interrupt_pending;
   end
+
+  // The eight plain load and store encodings, atomics excluded: an atomic's
+  // address is rs1 verbatim, so the questions counted up in rtl/littlecpu.v are
+  // not asked about one. `committing` rather than `issuing`, so a trapping
+  // access -- which makes no transaction -- is not counted as one.
+  assign probe_ls_issuing = committing &&
+    (instr_lb || instr_lbu || instr_lh || instr_lhu || instr_lw ||
+     instr_sb || instr_sh || instr_sw);
  `endif
 
   always_ff @(posedge clk) pc <= next_pc;
