@@ -116,7 +116,10 @@ are kept in parentheses so those references still resolve.
   pair and is correct because `operand_stall` lets nothing issue until the held pair is the pair the
   issuing instruction reads (ADR-0064 as amended by ADR-0089) — narrowing `operand_stall` breaks it
   with nothing to say so except two `test/regfile_tb.v` vectors and `reg_ch0`. Touching
-  `operand_stall` is an amendment, not a tuning change. The standing liveness probe: delete the rs2
+  `operand_stall` is an amendment, not a tuning change. **That is a rule about the guard, not about
+  the neighbourhood**: what is *presented* on a stalled cycle is a separate question, and
+  `operand_stall` remains the exact compare whatever is presented — so a change there is checked by
+  the same signal rather than weakening it. The standing liveness probe: delete the rs2
   write-through bypass and `reg_ch0` must go SAT — run it before believing any `reg_ch0` result
   under a changed configuration.
 - **Stalls are one global broadcast over two mechanisms** (8): a divider stall **holds**
@@ -424,7 +427,12 @@ and times.
   subexpressions, duplicate adders. An edit that restates the same arithmetic in the same terms is a
   null, and two are measured: narrowing `mul_div_store` from 64 bits to 32 where only `[31:0]` is
   read moves `fit` by 11 cells because DCE had already removed them, and flattening the `next_pc`
-  priority chain into a parallel mux buys 53 cells and costs 3–9% of period. **What they cannot use
+  priority chain into a parallel mux buys 53 cells and costs 3–9% of period.
+  **Dead logic is free only where ABC has a LUT input to fold it into**, which is a fact about the
+  consumer and not about the expression: `rtl/writeback.v` masked `wdata` with `wen` that every
+  consumer in `rtl/regfile.v` already tests, and the mask survived because the bypass mux it feeds
+  had already spent all four of its inputs. Read the consumer before calling a redundant term free.
+  **What they cannot use
   is a fact from outside the expression**: a parameter is a power of two, a window is aligned, a
   reversal is wiring, an address bit is provably zero because a trap guarantees it. Eleven such edits
   together are worth −169 placed cells on the SoC and −84 on `fit`; **each one alone is inside the
@@ -443,8 +451,8 @@ and times.
   edits that each do state such a fact are worth nothing, and the ceilings say why — the immediate
   mux is 101 LUTs deleted whole, the compressed decode 253, and deleting the fetch window's
   upper-half mask *costs* 13 because ABC had already folded it away (ADR-0094). Six such edits
-  stacked are −28 SoC LUTs (ADR-0097), so that block is closed on two measurements; read the
-  ceilings before reopening it. So are `rtl/csrs.v`, `rtl/regfile.v` and the SoC's
+  stacked are −28 SoC LUTs (ADR-0097), so that block is closed **for area** on two measurements;
+  read the ceilings before reopening it for cells. So are `rtl/csrs.v`, `rtl/regfile.v` and the SoC's
   read-back bus, on six more ceilings: the CSR file is 727 LUTs whole and 340 of that is the two
   counters RV32 M-mode mandates, its WARL write mux and every legal-value mask together are worth
   **one**, the register file's write-through bypass is 31 and all its fabric 133, and `mem_rdata`'s
@@ -460,6 +468,11 @@ and times.
   those flops to `SB_DFFSR` and misses 12 MHz at six placements out of six. `mtimecmp`'s byte-write
   path is the same shape — 64 clock-enable pins and no mux to collect. Read the `SB_DFFE*` census
   before believing a LUT count, and sweep seeds even for a candidate that is a null on area.
+  **Every ceiling above answers "how many cells does deleting this save", and none of them answers
+  "what sits on the path"** — so none of these blocks is closed for period. `rtl/decoder.v`'s
+  `instr_error` is the demonstration: it read the *muxed* register numbers rather than the raw
+  fields, putting the whole compressed-decode cone in the trap arm of the fetch loop for no cells at
+  all (ADR-0115).
 - **Grade a ceiling on packed `ICESTORM_LC`, not on `SB_LUT4`.** The two disagree in magnitude and in
   sign, on netlists whose packing is seed-independent: `rtl/timer.v`'s read mux is −70 `SB_LUT4` and
   −41 cells, which is the difference between clearing the ±50 band and not, and `mtime`'s byte-write
@@ -492,7 +505,10 @@ and times.
   path from 23 LUT levels and 4 carry hops to 25 levels and none, +9.1% of median period, **under
   12 MHz at six placements of six** (ADR-0097). Beside ADR-0088's flattened `next_pc` chain, that is
   two edits in this one chain that buy cells and cost the clock. The SoC is routing-dominated; wide
-  flat muxes route worse than chains. **There is no single lever.** The decode head
+  flat muxes route worse than chains. **There is no single lever** — which bounds how much one
+  *deletion* buys, and says nothing about what a construct already on the path costs for free.
+  Two such were found by reading `soc.timing.rpt` against the RTL after this paragraph had been
+  read as closing the question. The decode head
   (`imem.in_range → instr → {rs1/rs2, immediate, hazard}`) was named as one and measures 3.3%
   deleted whole, inside the churn band. The period is in the fetch loop instead: no single input to
   `next_pc` is worth more than 5%, all of them deleted together are worth 21%, and collecting that
