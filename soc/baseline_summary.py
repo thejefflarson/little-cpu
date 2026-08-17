@@ -128,8 +128,12 @@ def report(path, provenance, rows):
     for label in ("worst", "median", "best"):
         field(label, f"{s[label]:6.2f} ns  {1000 / s[label]:6.2f} MHz")
     field("spread", f"{s['spread']:.1f}% of the best placement")
+    # `packed LC` names the unit on purpose: the row's cell count is nextpnr's
+    # ICESTORM_LC out of the placement, which is what the +/-50 band is in, and
+    # not the `SB_LUT4` count synthesis prints.
     field("LUT levels", f"{span(rows, 'lut_levels')}   "
-                        f"carry hops: {span(rows, 'carry_hops')}   LC: {span(rows, 'lc')}")
+                        f"carry hops: {span(rows, 'carry_hops')}   "
+                        f"packed LC: {span(rows, 'lc')}")
     field("worst path", f"{rows[-1]['start']} -> {rows[-1]['end']}")
     print()
 
