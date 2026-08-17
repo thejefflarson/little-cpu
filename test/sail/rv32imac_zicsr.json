@@ -11,10 +11,12 @@
 // --------------------------------------
 // An override inherits everything it does not mention. The previous file was a
 // small override on the model's default RV32 machine, so the reference model
-// this repo cross-checks against had atomics, bit-manipulation, single and
-// double float, supervisor mode, user mode and vectors -- none of which this
-// core implements, and none of which anybody chose. It surfaced as one wrong
-// CSR read (`csrr misa` reported 0x4034112f against this core's 0x40001104),
+// this repo cross-checks against had bit-manipulation, single and double
+// float, supervisor mode, user mode and vectors -- none of which this core
+// implements, and none of which anybody chose. Atomics rode in with them, and
+// this core does implement those now, but it did not then and nobody had
+// chosen them here either. It surfaced as one wrong CSR read (`csrr misa`
+// reported 0x4034112f against this core's 0x40001104 at the time),
 // but `misa` was the symptom: a model that believes S-mode exists has
 // different trap delegation, different address translation and different CSR
 // legality, and M3's trap work is exactly what starts to touch those.
