@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=267
+PROBES_EXPECTED=270
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -1609,6 +1609,21 @@ probe "over budget names the count and the budget" 1 \
 d=$(fr_fixture); sed -i.bak '/ICESTORM_LC:/d' "$d/fit.log"
 probe "no utilisation table is a failure, not a 0% fit" 1 \
   "printed no utilisation table" "$FR $d/fit.log --max-lc 4100"
+
+# The trend line is a diagnostic and these three probes are what keep it one: a
+# second number that could redden the job would be a ratchet nobody derived, and
+# it would go red for churn, which is the thing it exists to make legible.
+d=$(fr_fixture)
+probe "the trend against the recorded count is printed beside the verdict" 0 \
+  "TREND: +75 cells against the 3800" "$FR $d/fit.log --max-lc 4100 --previous 3800"
+
+d=$(fr_fixture)
+probe "a move far outside the churn band still cannot fail the job" 0 "TREND: +875" \
+  "$FR $d/fit.log --max-lc 4100 --previous 3000"
+
+d=$(fr_fixture)
+probe "a trip prints the trend too, since that is the run that needs it" 1 \
+  "TREND: +75" "$FR $d/fit.log --max-lc 3800 --previous 3800"
 
 begin_group "formal/check-interrupt-tie-off.py"
 

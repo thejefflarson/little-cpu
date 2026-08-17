@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Read nextpnr's fit.log, print the utilisation table, and apply the
-FIT_MAX_LC ratchet.
+"""Read nextpnr's fit.log, print the utilisation table and the move against the
+count the Makefile records, and apply the FIT_MAX_LC ratchet.
 
 Replaces the Makefile's inline grep/sed/awk chain so `test/probe_gates.sh`
 can drive both checks against a fixture log without running nextpnr --
@@ -33,6 +33,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("log", help="nextpnr's fit.log")
     parser.add_argument("--max-lc", type=int, required=True, help="FIT_MAX_LC budget")
+    parser.add_argument(
+        "--previous",
+        type=int,
+        help="FIT_LAST_LC: the count the budget was derived from, printed as a "
+        "delta. Diagnostic only -- it never changes the exit status.",
+    )
     args = parser.parse_args()
 
     try:
@@ -77,6 +83,17 @@ def main():
         print("Placement did not report an IO error -- read fit.log before quoting this.")
 
     got = int(lc)
+
+    # Printed before the verdict so a trip carries it too, which is the run that
+    # most needs to say how far the count moved and not just that it moved.
+    if args.previous is not None:
+        print(
+            f"\nTREND: {got - args.previous:+d} cells against the {args.previous} the "
+            "Makefile records -- a move inside\nthe churn band is noise, and that "
+            "count is the `fit` job's, so a local delta\ncarries the gap between the "
+            "two instruments. A diagnostic: only the budget\nbelow can fail."
+        )
+
     if got > args.max_lc:
         sys.exit(
             f"\n*** make fit: {got} logic cells is over the {args.max_lc}-cell budget.\n"
