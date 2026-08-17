@@ -170,6 +170,10 @@ for seed in $seeds; do
   cp soc.timing.rpt "$out/$name.$seed.rpt"
   cp soc.asc "$out/$name.$seed.asc"
   cp soc.pnr.log "$out/$name.$seed.pnr.log"
+  # The PACKED cell count out of the placement, not `SB_LUT4` out of synthesis.
+  # The two disagree in magnitude and in sign -- a LUT the flops beside it were
+  # sharing a cell with is not a LUT anyone can spend -- so a row that carried
+  # the other unit would be graded against the wrong band.
   lc=$(sed -n 's/.*ICESTORM_LC: *\([0-9]*\)\/.*/\1/p' "$out/$name.$seed.pnr.log" | tail -1)
   if [ -z "$lc" ]; then
     echo "*** soc/baseline_sweep.sh: seed '$seed' placed with no ICESTORM_LC in" >&2
