@@ -20,8 +20,8 @@
 # WHAT THIS PROGRAM CAN AND CANNOT SEE. The per-retire monitor is blind on the
 # faulting retires, deliberately: riscv-formal ships no memory map, so its spec
 # model answers a load at any address at all and would call every case below a
-# "mismatch in trap". test/testbench.v drops exactly those retires and nothing
-# else -- see `ls_fault_retire` there. So every claim here is an in-band
+# "mismatch in trap". test/testbench.v drops exactly those retires and no
+# others -- see `ls_fault_retire` there. So every claim here is an in-band
 # assertion, and the oracles behind them are formal/traps.sv, which requires
 # both the trap and its cause against this same map under k-induction, and
 # co-simulation, whose model carries this platform's regions in
@@ -213,8 +213,8 @@ test_16:
   TEST_REFUSED_LOAD(  19, lw, MTIMER_BASE, 16 );
 
   # Twelve faulting loads in all -- five widths, one for mepc, two misaligned,
-  # two off a window edge, one compressed and one past the timer -- and nothing
-  # else trapped.
+  # two off a window edge, one compressed and one past the timer. Nothing
+  # besides those trapped.
   TEST_CASE( 20, a4, 12, la a0, trap_count; lw a4, 0(a0); )
 
   # ...and the data RAM still reads what it held, so nothing above disturbed it.

@@ -1,0 +1,14 @@
+diff --git a/rtl/decoder.v b/rtl/decoder.v
+index 528c448..7c13f0a 100644
+--- a/rtl/decoder.v
++++ b/rtl/decoder.v
+@@ -554,8 +554,7 @@ module decoder #(
+   logic instr_ls_load, instr_ls_store, ls_fault;
+   assign instr_ls_load  = instr_lb || instr_lbu || instr_lh || instr_lhu || instr_lw;
+   assign instr_ls_store = instr_sb || instr_sh || instr_sw;
+-  assign ls_fault = (instr_ls_load || instr_ls_store) && !ls_supported &&
+-                    !load_misaligned && !store_misaligned;
++  assign ls_fault = 1'b0;
+ 
+   logic load_access_fault, store_access_fault;
+   assign load_access_fault  = (atomic_fault && instr_lr) || (ls_fault && instr_ls_load);
