@@ -51,7 +51,7 @@ need() {
   fi
 }
 
-for f in rtl/memory.v rtl/timer.v rtl/imemory.v rtl/littlesoc.v test/testbench.v \
+for f in rtl/memory.v rtl/timer.v rtl/imemory.v rtl/littlecpu.v rtl/littlesoc.v test/testbench.v \
          test/cxxrtl.cc test/cosim.cc test/asm/riscv_test.h test/asm/sections.lds \
          test/asm/boot.lds test/bench/bench.lds Makefile; do
   need "$f"
@@ -278,6 +278,59 @@ rtl/littlesoc.v's $SOC_ROM_WORDS_RTL. The harness is allowed to be larger --
 simulation has no block RAM to run out of, and rvc.S needs it -- but never
 smaller, or a program the part can hold would fail in simulation."
 fi
+
+# ---- 8. the core's own copy ------------------------------------------------
+#
+# rtl/littlecpu.v restates the map for its load/store locality counters, because
+# a module cannot read another module's parameters. Nothing in the datapath
+# reads it, so a copy that drifted would not fail anything -- it would go on
+# counting accesses against a machine that does not exist, which is a measurement
+# that is wrong rather than absent.
+
+CPU_RAM_BASE=$(hex_param rtl/littlecpu.v LS_RAM_BASE)
+CPU_RAM_WORDS=$(int_param rtl/littlecpu.v LS_RAM_WORDS)
+CPU_TIMER_BASE=$(hex_param rtl/littlecpu.v LS_TIMER_BASE)
+CPU_TEXT_WORDS=$(int_param rtl/littlecpu.v LS_TEXT_WORDS)
+
+cpu_copy() {  # $1 = what, $2 = the core's copy, $3 = the memory's, $4 = whose
+  if [ "$2" -ne "$3" ]; then
+    fail "rtl/littlecpu.v's $1 is $2 against $4's $3. The core's copy of the map
+decides which accesses \`make cycles\` reports as near a region edge, so a
+drifted one answers about a machine neither file describes."
+  fi
+}
+
+cpu_copy LS_RAM_BASE   "$CPU_RAM_BASE"   "$RAM_BASE"   rtl/memory.v
+cpu_copy LS_RAM_WORDS  "$CPU_RAM_WORDS"  "$RAM_WORDS"  rtl/memory.v
+cpu_copy LS_TIMER_BASE "$CPU_TIMER_BASE" "$TIMER_BASE" rtl/timer.v
+# The default is what every harness that does not state a ROM size gets --
+# formal/wrapper.v, soc/compare/bench_littlecpu.v -- so it is the part's.
+cpu_copy LS_TEXT_WORDS "$CPU_TEXT_WORDS" "$SOC_ROM_WORDS_RTL" rtl/littlesoc.v
+
+# The text window is the one part of the map an integrator states, because the
+# harness simulates a larger ROM than the part has. Compared as the TEXT each
+# file passes rather than as a number: in test/testbench.v both are the same
+# localparam, and a check that resolved it would stop being able to say so. Each
+# of these two names appears on exactly one instantiation in either file.
+named_param() {  # $1 = file, $2 = parameter name
+  sed -nE "s/.*\.$2\(([^)]*)\).*/\1/p" "$REPO/$1" | head -1
+}
+
+for f in rtl/littlesoc.v test/testbench.v; do
+  rom=$(named_param "$f" ROM_WORDS)
+  text=$(named_param "$f" LS_TEXT_WORDS)
+  if [ -z "$rom" ] || [ -z "$text" ]; then
+    echo "error: $f names no .ROM_WORDS or no .LS_TEXT_WORDS. This file sizes" >&2
+    echo "its own ROM and has to hand the core the same size; if the spelling" >&2
+    echo "changed, teach this check the new one rather than dropping it." >&2
+    exit 1
+  fi
+  if [ "$rom" != "$text" ]; then
+    fail "$f gives its \`imemory\` $rom words of ROM and tells the core the text
+window is $text. The core counts an access near the top of text against the
+second, and the memory answers according to the first."
+  fi
+done
 
 if [ "$rc" -ne 0 ]; then
   echo >&2

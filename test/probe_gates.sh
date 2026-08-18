@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=286
+PROBES_EXPECTED=298
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -149,7 +149,8 @@ for a in "$@"; do [ "$a" = "--stalls" ] && stalls=1; done
 if [ -n "$stalls" ] && [ -z "${STUB_SIM_NOSTALLS:-}" ]; then
   unattr=${STUB_SIM_UNATTR:-0}
   echo "STALLS cycles=$((20 + unattr + ${STUB_SIM_SKEW:-0})) issue=10 divider=0" \
-       "atomic=0 hazard=10 serialize=0 operand=0 fetch=0 unattributed=$unattr"
+       "atomic=0 hazard=10 serialize=0 operand=0 fetch=0 unattributed=$unattr" \
+       "lsissue=4 lsedge=2 lsbypass=1"
 fi
 case ${STUB_SIM_EXIT:-0} in
   0) echo "PASS" ;;
@@ -1265,8 +1266,8 @@ SR="python3 $REPO/test/stall_report.py"
 sr_fixture() {
   local d; d=$(new_case)
   cat > "$d/counts" <<'COUNTS'
-add.S cycles=40 issue=10 divider=0 atomic=0 hazard=20 serialize=0 operand=10 fetch=0 unattributed=0 retires=10
-lw.S cycles=40 issue=10 divider=0 atomic=0 hazard=5 serialize=0 operand=25 fetch=0 unattributed=0 retires=10
+add.S cycles=40 issue=10 divider=0 atomic=0 hazard=20 serialize=0 operand=10 fetch=0 unattributed=0 lsissue=4 lsedge=1 lsbypass=0 retires=10
+lw.S cycles=40 issue=10 divider=0 atomic=0 hazard=5 serialize=0 operand=25 fetch=0 unattributed=0 lsissue=6 lsedge=3 lsbypass=2 retires=10
 COUNTS
   printf '%s' "$d"
 }
@@ -1290,6 +1291,29 @@ probe "a stall nothing in the list explains is a reason nobody wrote down" 1 \
 d=$(sr_fixture); sed -i.bak 's/ operand=10//' "$d/counts"
 probe "a field the runner stopped printing is named, not counted as zero" 1 \
   "is missing operand" "$SR $d/counts"
+
+# The locality counters are not cycles and add up to nothing, so the arithmetic
+# above cannot see them at all. What can be seen is a subset larger than the set
+# it is drawn from, which is what a counter incremented on the wrong event looks
+# like from here.
+d=$(sr_fixture)
+probe "control: the locality counters are reported under the table" 0 \
+  "10 of those instructions were loads or stores" "$SR $d/counts"
+
+probe "control: each subset is printed as a share of that number" 0 \
+  "4 (40.0%) with rs1 within 2 KB of a mapped-region edge" "$SR $d/counts"
+
+d=$(sr_fixture); sed -i.bak 's/lsedge=3/lsedge=7/' "$d/counts"
+probe "more accesses near an edge than there were accesses is red" 1 \
+  "lsedge is 7 against 6 issuing loads and stores" "$SR $d/counts"
+
+d=$(sr_fixture); sed -i.bak 's/lsbypass=0/lsbypass=5/' "$d/counts"
+probe "the same for the bypass counter, per program rather than in total" 1 \
+  "lsbypass is 5 against 4 issuing loads and stores" "$SR $d/counts"
+
+d=$(sr_fixture); sed -i.bak 's/ lsissue=6//' "$d/counts"
+probe "a locality counter that stopped being printed is named too" 1 \
+  "is missing lsissue" "$SR $d/counts"
 
 d=$(sr_fixture); sed -i.bak 's/cycles=40/cycles=lots/' "$d/counts"
 probe "a count that is not a number stops rather than summing to nonsense" 1 \
@@ -1402,7 +1426,7 @@ mm_fixture() {
   local d; d=$(new_case)
   mkdir -p "$d/rtl" "$d/test/asm" "$d/test/bench"
   cp "$REPO"/rtl/memory.v "$REPO"/rtl/timer.v "$REPO"/rtl/imemory.v \
-     "$REPO"/rtl/littlesoc.v "$d/rtl/"
+     "$REPO"/rtl/littlecpu.v "$REPO"/rtl/littlesoc.v "$d/rtl/"
   cp "$REPO"/test/testbench.v "$REPO"/test/cxxrtl.cc "$REPO"/test/cosim.cc "$d/test/"
   cp "$REPO"/test/asm/riscv_test.h "$REPO"/test/asm/sections.lds \
      "$REPO"/test/asm/boot.lds "$d/test/asm/"
@@ -1490,6 +1514,39 @@ probe "a file that moved away takes the check with it, loudly" 1 \
 d=$(mm_fixture); sed -i.bak 's/LENGTH = 64K/LENGTH = LOTS/' "$d/test/asm/sections.lds"
 probe "a size the parser cannot read stops rather than comparing as zero" 1 \
   "is not a size this check can read" "$MM $d"
+
+# The core's own copy of the map. Nothing in the datapath reads it, so every one
+# of these drifts is silent everywhere else: the counters keep reporting, about
+# a machine no file describes.
+d=$(mm_fixture); sed -i.bak "s/LS_RAM_BASE   = 32'h0001_0000/LS_RAM_BASE   = 32'h0002_0000/" "$d/rtl/littlecpu.v"
+probe "the core's copy of the RAM base drifting from the RAM is red" 1 \
+  "rtl/littlecpu.v's LS_RAM_BASE is 131072 against rtl/memory.v's 65536" "$MM $d"
+
+d=$(mm_fixture); sed -i.bak 's/LS_RAM_WORDS  = 16384/LS_RAM_WORDS  = 8192/' "$d/rtl/littlecpu.v"
+probe "a RAM half the size in the core's copy is red" 1 \
+  "LS_RAM_WORDS is 8192 against rtl/memory.v's 16384" "$MM $d"
+
+d=$(mm_fixture); sed -i.bak "s/LS_TIMER_BASE = 32'h0002_0000/LS_TIMER_BASE = 32'h0003_0000/" "$d/rtl/littlecpu.v"
+probe "the timer moving in the core's copy alone is red" 1 \
+  "LS_TIMER_BASE is 196608 against rtl/timer.v's 131072" "$MM $d"
+
+d=$(mm_fixture); sed -i.bak 's/LS_TEXT_WORDS = 2048/LS_TEXT_WORDS = 4096/' "$d/rtl/littlecpu.v"
+probe "the default text window is the part's, not the harness's" 1 \
+  "LS_TEXT_WORDS is 4096 against rtl/littlesoc.v's 2048" "$MM $d"
+
+# The one the parameter defaults cannot catch: each integrator states its own
+# ROM size twice, once to the memory and once to the core.
+d=$(mm_fixture); sed -i.bak 's/littlecpu #(.LS_TEXT_WORDS(2048))/littlecpu #(.LS_TEXT_WORDS(4096))/' "$d/rtl/littlesoc.v"
+probe "an integrator telling the core a text size its ROM has not got" 1 \
+  "gives its \`imemory\` 2048 words of ROM and tells the core the text" "$MM $d"
+
+d=$(mm_fixture); sed -i.bak 's/littlecpu #(.LS_TEXT_WORDS(ROM_WORDS))/littlecpu #(.LS_TEXT_WORDS(2048))/' "$d/test/testbench.v"
+probe "the harness passing a literal instead of the size it sized" 1 \
+  "gives its \`imemory\` ROM_WORDS words of ROM" "$MM $d"
+
+d=$(mm_fixture); sed -i.bak 's/littlecpu #(.LS_TEXT_WORDS(ROM_WORDS)) uut/littlecpu uut/' "$d/test/testbench.v"
+probe "an integrator that stopped stating it at all is red, not defaulted" 1 \
+  "names no .ROM_WORDS or no .LS_TEXT_WORDS" "$MM $d"
 
 begin_group "test/retired_term_test.sh"
 
