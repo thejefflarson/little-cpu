@@ -235,12 +235,11 @@ module accessor(
   assign amo_add_result = amo_sum[31:0];
 
   // Eight of the nine functions are one bit function of a memory bit and an rs2
-  // bit repeated 32 times, so the op picks a four-entry truth table once and
-  // every bit indexes it with its own operand pair -- one LUT deep, where five
-  // 32-bit arms into a one-hot mux are two. The index is {memory bit, rs2 bit}
-  // and the entries run from index 3 down to 0. The add cannot join them: its
-  // bits depend on the carry into them and not on that pair alone, so it stays a
-  // mux over the adder's sum.
+  // bit repeated 32 times, so the op picks a four-entry truth table -- indexed by
+  // {memory bit, rs2 bit}, entry 3 down to entry 0 -- and every bit reads it one
+  // LUT deep, where five 32-bit arms into a one-hot mux are two. The add is not
+  // one of them: its bits depend on the carry into them rather than on that pair,
+  // so it stays a mux over the adder's sum.
   logic [3:0] amo_fn;
   always_comb begin
     (* parallel_case *)
@@ -459,10 +458,9 @@ module accessor(
   // ...and of the store arm's inner one, which a store-conditional now shares
   // with `sw`.
   always_comb assert($onehot0({launch_is_sw || sc_store, launch_is_sh, launch_is_sb}));
-  // ...and of the read-modify-write's truth-table select, which is the first
-  // five of these. The sixth is the add's own mux below the table, and it is in
-  // the list because a function selecting the table and the sum at once would
-  // take the sum with the table's entries chosen for something else.
+  // ...and of the read-modify-write's truth-table select, which is the first five
+  // of these. The add is in the list too, because a function selecting it and the
+  // table at once would take the sum with entries chosen for something else.
   always_comb assert($onehot0({take_amo_swap, take_amo_xor, take_amo_and,
                                take_amo_or, amo_compare, take_amo_add}));
 

@@ -440,10 +440,8 @@ module accessor_tb;
 
     // Every function that is one bit function of a memory bit and an rs2 bit
     // shares one four-entry table, so each of these drives all four combinations
-    // of that pair -- eight bits per combination -- and a single wrong entry
-    // moves the answer. The min/max pair is here for the two entries that pass
-    // an operand through: `0xcccccccc` and `0xaaaaaaaa` are both negative, so
-    // min takes rs2 and max takes the memory word.
+    // of that pair at eight bits apiece and no entry is graded by fewer. Both
+    // operands are negative, which is why min takes rs2 and max the memory word.
     amo_does("amoswap.w over all four operand-bit pairs", 9'b000000001, 32'h0001_0020,
              32'hcccc_cccc, 32'haaaa_aaaa, 32'haaaa_aaaa);
     amo_does("amoxor.w  over all four operand-bit pairs", 9'b000000100, 32'h0001_0020,
