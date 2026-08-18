@@ -72,6 +72,13 @@ module writeback(
   // Retire is `valid` reaching writeback: a bubble must never commit a
   // register write.
   assign wen   = !reset && in_valid && (in_rd != 5'b0);
+  // The masks are dead logic and they stay. Every consumer in rtl/regfile.v --
+  // both write-first terms, the array write and the write-through bypass --
+  // already tests `wen`, so deleting them changes nothing and reads like a free
+  // level off the loop into the branch comparator. It was built and swept at
+  // sixteen seeds: the median period moved +2.8% and the worst placement went
+  // under the board clock at 11.89 MHz. Deleting dead logic here is a measured
+  // cost, not a saving.
   assign waddr = wen ? in_rd      : 5'b0;
   assign wdata = wen ? in_rd_data : 32'b0;
 

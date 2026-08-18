@@ -87,6 +87,11 @@ module decoder (
   `ifdef RISCV_FORMAL_CSR_MCAUSE
   input  rvfi_csr32   csr_rvfi_mcause,
   `endif
+  // A plain load or store is issuing this cycle and is not trapping. The
+  // load/store locality counters in rtl/littlecpu.v are summed over exactly
+  // these cycles; everything else they need -- the base register's value, the
+  // register number and the write port -- is already up there.
+  output logic        probe_ls_issuing,
  `endif
   output decoder_output out
 );
@@ -369,8 +374,16 @@ module decoder (
 
   // SYSTEM with funct3 == 0. Leave one of these out and it decodes to nothing,
   // which traps as an illegal instruction rather than being ignored.
+  // The raw encoding fields, not the muxed `rs1`/`rd`: reading those puts the
+  // whole compressed register-select decode in front of `trap_pending`, and so
+  // in front of the next pc. They hold the same value here for a different
+  // reason on each side. `uncompressed` settles rs1, because every arm of the
+  // mux that picks it is a compressed encoding; the rd mux needs one step more,
+  // since its first arm also covers uncompressed branches and stores -- and a
+  // SYSTEM opcode is neither, so it falls to the default arm, `rd_field`.
   logic instr_error, instr_mret, instr_wfi, instr_cebreak;
-  assign instr_error = opcode == 5'b11100 && uncompressed && funct3 == 0 && rs1 == 0 && rd == 0;
+  assign instr_error = opcode == 5'b11100 && uncompressed && funct3 == 0 &&
+    rs1_field == 5'b0 && rd_field == 5'b0;
   assign instr_ecall = instr_error && instr[31:20] == 12'h0;
   // C.EBREAK needs its own line. It sits in the same row as `instr_cjalr` and
   // `instr_cadd`, and each of those excludes it by a different field. Without
@@ -652,10 +665,8 @@ module decoder (
   // `!divider_stall` because a held `out` has not been taken yet: no read has
   // gone out, so the write cycle is not next. The divider arm of the publish
   // block below wins for the same reason and this term keeps the two agreeing.
-  logic out_is_amo, atomic_stall;
-  assign out_is_amo = out.is_amoswap || out.is_amoadd || out.is_amoxor || out.is_amoand ||
-    out.is_amoor || out.is_amomin || out.is_amomax || out.is_amominu || out.is_amomaxu;
-  assign atomic_stall = out.valid && out_is_amo && !divider_stall;
+  logic atomic_stall;
+  assign atomic_stall = out.valid && out.is_amo && !divider_stall;
 
   // Every reason to stall, in one signal. They all hold the PC; the block that
   // writes `out` below is where they differ.
@@ -673,13 +684,21 @@ module decoder (
   // because during a hazard stall the guess is one instruction ahead and would
   // cost an extra cycle after every hazard cleared.
   //
+  // A stolen fetch window asks for neither: the word arriving on that cycle is
+  // a data word, so `rs1` is a pair decoded from something that is not an
+  // instruction. Presenting it throws away whatever was presented the cycle
+  // before -- usually the right guess -- and the instruction behind the steal
+  // then pays an operand-fetch cycle it had already earned. Holding the pair
+  // costs at worst what presenting garbage costs, because `operand_stall` is the
+  // same compare either way.
+  //
   // This is also what keeps the register file's write-through bypass honest.
   // That mux selects on its own registered copy of whatever was presented, and
   // is right because nothing issues until the held pair is the pair the issuing
   // instruction reads -- not because the held pair is the presented pair, which
   // it deliberately is not on an issuing cycle.
-  assign read_rs1 = stall ? rs1 : next_rs1;
-  assign read_rs2 = stall ? rs2 : next_rs2;
+  assign read_rs1 = fetch_stall ? prev_rs1 : stall ? rs1 : next_rs1;
+  assign read_rs2 = fetch_stall ? prev_rs2 : stall ? rs2 : next_rs2;
 
   // All six branch tests come from one subtraction. Unsigned less-than is the
   // borrow out; signed less-than is the same fact except when the operands'
@@ -764,6 +783,14 @@ module decoder (
     if (reset) intr_report <= 1'b0;
     else if (issuing) intr_report <= interrupt_pending;
   end
+
+  // The eight plain load and store encodings, atomics excluded: an atomic's
+  // address is rs1 verbatim, so the questions counted up in rtl/littlecpu.v are
+  // not asked about one. `committing` rather than `issuing`, so a trapping
+  // access -- which makes no transaction -- is not counted as one.
+  assign probe_ls_issuing = committing &&
+    (instr_lb || instr_lbu || instr_lh || instr_lhu || instr_lw ||
+     instr_sb || instr_sh || instr_sw);
  `endif
 
   always_ff @(posedge clk) pc <= next_pc;
@@ -801,7 +828,7 @@ module decoder (
       // misalignment test reads the real value of rs1.
       out.valid <= 1'b1;
       out.mem_addr <= mem_addr_calc;
-      out.rs1 <= instr_lui ? immediate : reg_rs1;
+      out.rs1 <= reg_rs1;
       out.rs2 <= instr_math ? math_arg : reg_rs2;
       out.rd <= rd;
      `ifdef RISCV_FORMAL
@@ -849,7 +876,6 @@ module decoder (
       out.is_sltu <= instr_sltu;
       out.is_srl <= instr_srl;
       out.is_sra <= instr_sra;
-      out.is_lui <= instr_lui;
       out.is_lb <= instr_lb;
       out.is_lbu <= instr_lbu;
       out.is_lhu <= instr_lhu;
@@ -858,8 +884,7 @@ module decoder (
       out.is_sb <= instr_sb;
       out.is_sh <= instr_sh;
       out.is_sw <= instr_sw;
-      out.is_ecall <= instr_ecall;
-      out.is_ebreak <= instr_ebreak;
+      out.is_amo <= instr_amo;
       out.is_amoswap <= instr_amoswap;
       out.is_amoadd <= instr_amoadd;
       out.is_amoxor <= instr_amoxor;
@@ -893,6 +918,15 @@ module decoder (
           out.is_add <= 1;
         end
 
+        instr_lui: begin
+          // The immediate IS the result, so it arrives as an add of zero rather
+          // than as a flag of its own with an executor arm behind it. LUI reads
+          // no register: the bits the default selection reads are its immediate.
+          out.rs1 <= immediate;
+          out.rs2 <= 32'b0;
+          out.is_add <= 1;
+        end
+
         instr_jal || instr_jalr: begin
           // The target is `next_pc`; what is left is the return address.
           out.rs1 <= fetcher_pc;
@@ -921,9 +955,9 @@ module decoder (
         out.is_mul <= 0; out.is_mulh <= 0; out.is_mulhu <= 0; out.is_mulhsu <= 0;
         out.is_div <= 0; out.is_divu <= 0; out.is_rem <= 0; out.is_remu <= 0;
         out.is_sll <= 0; out.is_slt <= 0; out.is_sltu <= 0; out.is_srl <= 0; out.is_sra <= 0;
-        out.is_lui <= 0; out.is_lb <= 0; out.is_lbu <= 0; out.is_lhu <= 0; out.is_lh <= 0; out.is_lw <= 0;
+        out.is_lb <= 0; out.is_lbu <= 0; out.is_lhu <= 0; out.is_lh <= 0; out.is_lw <= 0;
         out.is_sb <= 0; out.is_sh <= 0; out.is_sw <= 0;
-        out.is_ecall <= 0; out.is_ebreak <= 0;
+        out.is_amo <= 0;
         out.is_amoswap <= 0; out.is_amoadd <= 0; out.is_amoxor <= 0; out.is_amoand <= 0;
         out.is_amoor <= 0; out.is_amomin <= 0; out.is_amomax <= 0; out.is_amominu <= 0;
         out.is_amomaxu <= 0; out.is_lr <= 0; out.is_sc <= 0;
@@ -1013,6 +1047,15 @@ module decoder (
   // that writes a register.
   always_comb if (clocked && !out.valid) assert(out.rd == 0);
 
+  // The published AMO bit is exactly the nine functions beside it. Both readers
+  // take it on trust now -- `atomic_stall` above and rtl/accessor.v, which
+  // assumes this -- so nothing else would notice the two disagreeing, and a
+  // disagreement is either a bus cycle nobody spent or an AMO with no read.
+  always_comb if (clocked)
+    assert(out.is_amo == (out.is_amoswap || out.is_amoadd || out.is_amoxor ||
+      out.is_amoand || out.is_amoor || out.is_amomin || out.is_amomax ||
+      out.is_amominu || out.is_amomaxu));
+
   always_comb if (rs1 == 0) assert(!hazard_rs1);
   always_comb if (rs2 == 0) assert(!hazard_rs2);
 
@@ -1057,7 +1100,8 @@ module decoder (
     instr_csrai || instr_csrli || instr_candi || instr_cand ||
       instr_cor || instr_cxor || instr_csub}));
   // the operand overrides in the publish block
-  always_comb assert($onehot0({instr_auipc, instr_csr_access, instr_jal || instr_jalr,
+  always_comb assert($onehot0({instr_auipc, instr_csr_access, instr_lui,
+    instr_jal || instr_jalr,
     instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu}));
 
   // This is what makes the trap-cause case above safe without a one-hot marking.
@@ -1123,7 +1167,7 @@ module decoder (
     assert(out.rd == 5'b0);
     assert(!out.is_lb && !out.is_lbu && !out.is_lh && !out.is_lhu && !out.is_lw);
     assert(!out.is_sb && !out.is_sh && !out.is_sw);
-    assert(!out_is_amo && !out.is_lr && !out.is_sc);
+    assert(!out.is_amo && !out.is_lr && !out.is_sc);
   end
 
   // Gating these on `instr_valid` instead would look right and be weaker: an

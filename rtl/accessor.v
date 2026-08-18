@@ -64,6 +64,7 @@ module accessor(
   logic launch_is_amomaxu;
   logic launch_is_lr;
   logic launch_is_sc;
+  logic launch_is_amo;
   logic [31:0] launch_mem_addr;
   logic [31:0] launch_mem_data;
   logic launch_valid;
@@ -90,6 +91,7 @@ module accessor(
   assign launch_is_amomaxu = launch.is_amomaxu;
   assign launch_is_lr = launch.is_lr;
   assign launch_is_sc = launch.is_sc;
+  assign launch_is_amo = launch.is_amo;
   assign launch_mem_addr = launch.mem_addr;
   assign launch_mem_data = launch.rs2;
   assign launch_valid = launch.valid;
@@ -107,10 +109,6 @@ module accessor(
   assign addr16 = launch_mem_addr[1];
   logic [1:0] addr24;
   assign addr24 = launch_mem_addr[1:0];
-  logic launch_is_amo;
-  assign launch_is_amo = launch_is_amoswap || launch_is_amoadd || launch_is_amoxor ||
-    launch_is_amoand || launch_is_amoor || launch_is_amomin || launch_is_amomax ||
-    launch_is_amominu || launch_is_amomaxu;
 
   // One word address, and whether anything is reserved at it. A word is all the
   // set has to be: the spec's minimum reservation set is the aligned word the
@@ -412,6 +410,15 @@ module accessor(
                                launch_is_amoand, launch_is_amoor, launch_is_amomin,
                                launch_is_amomax, launch_is_amominu, launch_is_amomaxu,
                                launch_is_lr, launch_is_sc}));
+
+  // Assumed: the AMO bit is exactly those nine functions, which is how
+  // rtl/decoder.v publishes it and what its own FORMAL block asserts. It arrives
+  // as a bit rather than being rebuilt here, so nothing in this module relates
+  // the two, and the solver would otherwise launch a read-modify-write that is
+  // none of the nine -- or one of the nine with no read behind it.
+  always_comb assume(launch_is_amo == (launch_is_amoswap || launch_is_amoadd ||
+    launch_is_amoxor || launch_is_amoand || launch_is_amoor || launch_is_amomin ||
+    launch_is_amomax || launch_is_amominu || launch_is_amomaxu));
 
   // Otherwise the solver may start the trace part-way through an AMO, for free,
   // at step 0: reset clears these on the first edge and there is no edge before

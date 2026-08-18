@@ -139,21 +139,42 @@ def sources_of(nl, bit):
     return found
 
 
-def path_nets(report):
-    nets = []
-    pending = None
+def path_hops(report):
+    """Every hop icetime printed, in order, each with the net it produced.
+
+    `path_nets` below keeps only the hops that end a level, which is what an
+    attribution of LEVELS needs. A reader that bins the interconnect needs the
+    hops in between as well -- there are five or six of them between two levels
+    -- so this walk is the one that keeps them, and `path_nets` is derived from
+    it rather than walking the file a second time.
+
+    `net` is the resolvable name icetime printed after the hop, or None where
+    the hop is inside a level. A net printed with no hop before it gets an entry
+    of its own with no cell in it, so a hop never collects two nets.
+    """
+    hops = []
     for line in open(report):
         hop = HOP.match(line)
         if hop:
-            pending = (hop.group(2), hop.group(3).strip())
+            hops.append({"cell": hop.group(1), "kind": hop.group(2),
+                         "what": hop.group(3).strip(), "delay": float(hop.group(4)),
+                         "net": None})
             continue
         for pattern in (NET, ENDPOINT):
             match = pattern.match(line)
             if match:
-                nets.append((match.group(1), match.group(2), pending))
-                pending = None
+                if not hops or hops[-1]["net"] is not None:
+                    hops.append({"cell": None, "kind": None, "what": "",
+                                 "delay": 0.0, "net": None})
+                hops[-1]["net"] = (match.group(1), match.group(2))
                 break
-    return nets
+    return hops
+
+
+def path_nets(report):
+    return [(hop["net"][0], hop["net"][1],
+             (hop["kind"], hop["what"]) if hop["kind"] else None)
+            for hop in path_hops(report) if hop["net"]]
 
 
 def main():

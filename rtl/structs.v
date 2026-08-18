@@ -127,7 +127,6 @@ typedef struct packed {
   logic        is_sltu;
   logic        is_srl;
   logic        is_sra;
-  logic        is_lui;
   logic        is_lb;
   logic        is_lbu;
   logic        is_lhu;
@@ -136,8 +135,12 @@ typedef struct packed {
   logic        is_sb;
   logic        is_sh;
   logic        is_sw;
-  logic        is_ecall;
-  logic        is_ebreak;
+  // Is this one of the nine AMO functions? Decoded once here rather than ORed
+  // back together by each reader: rtl/decoder.v needs it to spend the atomic
+  // write cycle and rtl/accessor.v to route the read-modify-write, and the two
+  // spellings of one nine-term OR were a fetch-loop input that had already been
+  // computed a stage earlier.
+  logic        is_amo;
   // The nine AMO functions plus lr.w and sc.w. One flag each rather than the
   // encoding's funct5, because rtl/accessor.v's result mux is a
   // `(* parallel_case *)` over them and a marking is spent against a $onehot0
@@ -170,6 +173,15 @@ typedef struct packed {
   //   trap detection, CSR read/write and trap commit all happen in decode --
   //   so they are gone. Thirteen bits of struct that nothing reads is the
   //   incidental machinery this project's stated goal warns against.
+  //
+  //   `is_lui`, which took the same route the CSR read did: decode hands the
+  //   executor the immediate as rs1 with rs2 zeroed, so an add produces it and
+  //   a flag of its own would be a second arm matching the same instruction.
+  //
+  //   `is_ecall`/`is_ebreak`. Everything that sets them raises `trap_pending`,
+  //   and rtl/decoder.v's trap arm clears every execution flag on a trapping
+  //   issue -- so both were constant zero at this boundary, with an empty
+  //   executor arm and a one-hot assumption as their only readers.
 } decoder_output;
 
 // Nothing memory-related survives this far. The bus transaction goes out from

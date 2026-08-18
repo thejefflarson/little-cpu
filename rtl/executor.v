@@ -148,7 +148,6 @@ module executor(
           (* parallel_case, full_case *)
           case (1'b1)
             in.is_add: out.rd_data <= rs1 + rs2;
-            in.is_lui: out.rd_data <= rs1;
             in.is_sub: out.rd_data <= alu_sub[31:0];
             in.is_sll: out.rd_data <= shift_rev;
             in.is_slt: out.rd_data <= {31'b0, alu_lt};
@@ -216,10 +215,11 @@ module executor(
               out.valid <= 1'b0;
              `endif
             end
-            // A Zicsr access never appears here. rtl/csrs.v reads and commits it
-            // in decode, and the read result arrives as `is_add` with rs2
-            // zeroed, so by this stage it is an add.
-            in.is_ecall || in.is_ebreak: ;
+            // Neither a Zicsr access nor a LUI appears here as itself: decode
+            // hands each to the adder as rs1 with rs2 zeroed, so by this stage
+            // both are adds. What is left for this arm is the instructions with
+            // no result to compute -- loads, stores, fence and wfi -- and it is
+            // what makes the `full_case` marking above true for them.
             in.is_valid_instr: ;
           endcase // case (1'b1)
         end // case: init
@@ -282,17 +282,19 @@ module executor(
   // Without it the solver picks combinations no real instruction produces.
   // Discharged by rtl/decoder.v's own `$onehot` assertion under `instr_valid`.
   //
-  // All 40 `is_*` fields of `decoder_output` are listed here and
-  // `is_valid_instr` deliberately is not. Adding a flag to the struct without
-  // adding it here silently widens the environment for everything below. The
-  // eleven atomics reach no arm of the op select: an AMO's operands are the
+  // All 37 op-selecting `is_*` fields of `decoder_output` are listed here.
+  // `is_valid_instr` and `is_amo` deliberately are not: the first is the arm
+  // every instruction with no result falls to, and the second is the OR of nine
+  // flags already in this list, so listing it would exclude every AMO from the
+  // environment instead of constraining it. Adding an op flag to the struct
+  // without adding it here silently widens the environment for everything below.
+  // The eleven atomics reach no arm of the op select: an AMO's operands are the
   // memory word and rs2, which this stage never sees.
   always_comb assume($onehot0({in.is_add, in.is_sub, in.is_xor, in.is_or, in.is_and,
-    in.is_sll, in.is_slt, in.is_sltu, in.is_srl, in.is_sra, in.is_lui,
+    in.is_sll, in.is_slt, in.is_sltu, in.is_srl, in.is_sra,
     in.is_mul, in.is_mulh, in.is_mulhu, in.is_mulhsu,
     in.is_div, in.is_divu, in.is_rem, in.is_remu,
     in.is_lb, in.is_lbu, in.is_lh, in.is_lhu, in.is_lw, in.is_sb, in.is_sh, in.is_sw,
-    in.is_ecall, in.is_ebreak,
     in.is_amoswap, in.is_amoadd, in.is_amoxor, in.is_amoand, in.is_amoor,
     in.is_amomin, in.is_amomax, in.is_amominu, in.is_amomaxu,
     in.is_lr, in.is_sc}));

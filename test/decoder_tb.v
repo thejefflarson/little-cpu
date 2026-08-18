@@ -329,9 +329,35 @@ module decoder_tb;
               dut.instr_clui, 1'b0);
     check_bit("...which makes it an illegal instruction", dut.instr_valid, 1'b0);
 
+    // LUI reaches the executor as an add of its immediate and zero, the way a
+    // CSR read does, so no flag of its own rides down for it. The poison in both
+    // register operands is what says neither reaches `out`: LUI names no
+    // register, and the bits a register number would be read from are its
+    // immediate.
+    reg_rs1 = 32'ha5a5_a5a5;
+    reg_rs2 = 32'h5a5a_5a5a;
+    in.pc = 32'h0000_0090;
+    present_and_fetch(32'h123450b7);   // lui x1, 0x12345
+    @(posedge clk);
+    #1;
+    check_hex("lui hands the executor its immediate as rs1", out.rs1, 32'h1234_5000);
+    check_hex("...and a zero rs2, so an add produces it", out.rs2, 32'b0);
+    check_bit("...which is what it issues as", out.is_add, 1'b1);
+    check_hex("...writing the rd it names", {27'b0, out.rd}, 32'd1);
+    present_and_fetch(32'h0000_6085);  // c.lui x1, 1
+    @(posedge clk);
+    #1;
+    check_hex("c.lui takes the same route", out.rs1, 32'h0000_1000);
+    check_hex("...with the same zero rs2", out.rs2, 32'b0);
+    check_bit("...and issues as an add too", out.is_add, 1'b1);
+    reg_rs1 = 32'b0;
+    reg_rs2 = 32'b0;
+
     // Every SYSTEM form with funct3 zero is told apart by funct12 alone, so the
     // rs1 and rd fields have to be checked for zero or a neighbouring encoding
-    // decodes as one of them. Both directions.
+    // decodes as one of them. Both fields, both directions -- and both read as
+    // raw encoding fields, which is the whole of what keeps the compressed
+    // register-select decode out of the trap cause and so out of the fetch loop.
     in.instr = 32'h0000_0073;   // ecall
     #1;
     check_bit("ecall decodes", dut.instr_ecall, 1'b1);
@@ -339,6 +365,10 @@ module decoder_tb;
     #1;
     check_bit("...but not with a non-zero rd field", dut.instr_ecall, 1'b0);
     check_bit("...which makes it illegal instead", dut.instr_valid, 1'b0);
+    in.instr = 32'h0000_8073;   // the same funct12, rs1 = x1
+    #1;
+    check_bit("...nor with a non-zero rs1 field", dut.instr_ecall, 1'b0);
+    check_bit("...which is illegal as well", dut.instr_valid, 1'b0);
 
     // Both arms of the next-pc chain that add to the fetched pc. The always
     // block above already checks that pc follows next_pc; these check the value
@@ -632,6 +662,39 @@ module decoder_tb;
     check_bit("...and the same instruction issues once the window is back",
               out.valid, 1'b1);
     check_hex("...as itself", {27'b0, out.rd}, 32'd1);
+
+    // The window a steal delivers holds a data word, so the pair decoded from it
+    // is not a pair any instruction reads. Presenting it would throw away the
+    // successor guess made before the steal, and the instruction behind the
+    // steal would pay an operand-fetch cycle it had already earned. The pair is
+    // held across the steal instead, and `operand_stall` is the same compare
+    // either way.
+    in.pc = 32'h0000_0280;
+    present_and_fetch(32'h00100093);   // addi x1, x0, 1
+    in.next_instr = 32'h00110193;      // addi x3, x2, 1 -- reads x2
+    #1;
+    check_hex("the cycle before a steal presents the successor's rs1",
+              {27'b0, read_rs1}, 32'd2);
+    @(posedge clk);
+    #1;
+    // The steal arrives with a data word in the window. Both halves of it name
+    // registers the guess did not, which is what a held pair has to survive.
+    fetch_stall = 1'b1;
+    in.instr = 32'hdead_beef;
+    #1;
+    check_hex("a stolen window presents the pair from before it, not one off a data word",
+              {27'b0, read_rs1}, 32'd2);
+    @(posedge clk);
+    #1;
+    fetch_stall = 1'b0;
+    in.instr = 32'h00110193;           // the successor, arriving for real now
+    #1;
+    check_bit("...so the instruction behind the steal owes no operand-fetch cycle",
+              dut.operand_stall, 1'b0);
+    check_bit("...and issues in the cycle the window comes back", dut.issuing, 1'b1);
+    in.next_instr = 32'b0;
+    @(posedge clk);
+    #1;
 
     // Text is writable, so a store just before a fence.i can change the words
     // being fetched right behind it. Waiting is what puts that store's write
@@ -986,7 +1049,7 @@ module decoder_tb;
     @(posedge clk);
     #1;
     check_bit("...and retires with every atomic flag clear",
-              out.is_amoadd || out.is_lr || out.is_sc, 1'b0);
+              out.is_amo || out.is_amoadd || out.is_lr || out.is_sc, 1'b0);
     check_hex("...and no rd", {27'b0, out.rd}, 32'd0);
     atomic_supported = 1'b1;
     reg_rs1 = 32'b0;
@@ -1004,6 +1067,11 @@ module decoder_tb;
     check_hex("...carrying its rd, where the scoreboard can see it",
               {27'b0, out.rd}, 32'd1);
     check_bit("...and its own flag", out.is_amoadd, 1'b1);
+    // Published beside the nine rather than ORed back together by each reader.
+    // Decode spends the write cycle off this bit and rtl/accessor.v routes the
+    // read-modify-write off it, so the two would agree about an AMO and
+    // disagree about which cycle the bus is busy.
+    check_bit("...and the AMO bit the write cycle is spent on", out.is_amo, 1'b1);
     in.instr = 32'h00108093;           // addi x1, x1, 1 -- reads the AMO's rd
     #1;
     check_bit("...so the instruction behind it interlocks", dut.hazard_rs1, 1'b1);
@@ -1062,6 +1130,8 @@ module decoder_tb;
     check_hex("...carrying an rd the scoreboard can see, unlike every other store",
               {27'b0, out.rd}, 32'd1);
     check_bit("...and its own flag", out.is_sc, 1'b1);
+    check_bit("...but not the AMO bit: neither store-conditional nor lr.w is one",
+              out.is_amo, 1'b0);
     check_bit("...and it raises no atomic wait: one transaction, one cycle",
               dut.atomic_stall, 1'b0);
     in.instr = 32'h00108093;
@@ -1074,6 +1144,7 @@ module decoder_tb;
     @(posedge clk);
     #1;
     check_hex("lr.w carries its rd too", {27'b0, out.rd}, 32'd1);
+    check_bit("...and no AMO bit", out.is_amo, 1'b0);
     check_bit("...and raises no atomic wait either", dut.atomic_stall, 1'b0);
 
     // A trapping atomic publishes none of its flags, so nothing downstream
@@ -1085,7 +1156,7 @@ module decoder_tb;
     @(posedge clk);
     #1;
     check_bit("...and retires with every atomic flag clear",
-              out.is_amoadd || out.is_lr || out.is_sc, 1'b0);
+              out.is_amo || out.is_amoadd || out.is_lr || out.is_sc, 1'b0);
     check_hex("...writing no register", {27'b0, out.rd}, 32'b0);
     reg_rs1 = 32'b0;
 

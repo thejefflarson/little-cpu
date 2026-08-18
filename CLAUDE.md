@@ -112,14 +112,17 @@ are kept in parentheses so those references still resolve.
   through, instantiated twice, so a compressed successor is decoded rather than masked away
   (ADR-0089, ADR-0093). A guess taken from what really followed that address last time reaches the
   case a fetch window cannot — a redirect — and is **built twice, measured twice and declined**: it
-  buys 8.0% of Dhrystone's cycles on both trees it was built on, costs +90 cells against a 4000-cell
-  ratchet, and its period cost is a null at the median with the whole of it in the tail, which puts
-  one placement of sixteen under 12 MHz (ADR-0101, ADR-0113). The pair presented and the pair being
+  buys 8.0% of Dhrystone's cycles on both trees it was built on, costs +90 cells, and its period
+  cost is a null at the median with the whole of it in the tail, which puts one placement of sixteen
+  under 12 MHz (ADR-0101, ADR-0113). The pair presented and the pair being
   read are deliberately different signals there. The bypass selects on a **registered copy** of the
   address pair and is correct because `operand_stall` lets nothing issue until the held pair is the
   pair the issuing instruction reads (ADR-0064 as amended by ADR-0089) — narrowing `operand_stall`
   breaks it with nothing to say so except two `test/regfile_tb.v` vectors and `reg_ch0`. Touching
-  `operand_stall` is an amendment, not a tuning change. The standing liveness probe: delete the rs2
+  `operand_stall` is an amendment, not a tuning change. **That is a rule about the guard, not about
+  the neighbourhood**: what is *presented* on a stalled cycle is a separate question, and
+  `operand_stall` remains the exact compare whatever is presented — so a change there is checked by
+  the same signal rather than weakening it. The standing liveness probe: delete the rs2
   write-through bypass and `reg_ch0` must go SAT — run it before believing any `reg_ch0` result
   under a changed configuration.
 - **Stalls are one global broadcast over two mechanisms** (8): a divider stall **holds**
@@ -239,7 +242,10 @@ frequency and a published period, and blesses the cycle counter for a fixed-freq
 a handler that returns without moving `mtimecmp` is re-entered before the instruction at `mepc`
 runs. **An RV32 `mtimecmp` update is the spec's three stores in the spec's order** — low all-ones,
 high, low; high-first is unsafe and `test/timer_tb.v` and `test/asm/mtimer.S` each fire a spurious
-interrupt that way on purpose before doing it correctly.
+interrupt that way on purpose before doing it correctly. **A change in the comparison may reach
+`mtip` late and never early**, and `test/timer_tb.v` is the only grader of that: it counts the ticks
+to a crossing and holds `mtip` to the level on every quiet cycle. No `.S` program sees an interrupt
+arriving a tick early, which is measured rather than assumed (ADR-0118).
 
 **Conformance is not negotiable against minimality.** Every CSR the privileged spec mandates for
 RV32 M-mode is implemented, the 87 hardware performance monitor addresses included — most legally
@@ -289,6 +295,16 @@ What a green result does and does not mean:
   check also drops every value comparison once an instruction traps, keeping only the trap flag,
   and its two pc checks accept whatever target the core reports — so `components_traps` is the only
   thing that says a trap lands on `mtvec` and saves the right state.
+  **Its model states a load or store access fault ahead of the mechanism**, and states only half of
+  one: an access the map does not answer is excused from `must_not_trap`, and a core that faults it
+  must report cause 5 or 7 — the trap itself is not required, because reading zero is what this
+  platform does and the spec only recommends otherwise. That is why the map has to reach
+  `formal/traps.sv`, which no port of the core carries it to, so it restates it and
+  `test/memmap_test.sh` compares the copy. An arm no core reaches is worth nothing until it has been
+  shown to fail: `make -C formal traps-region-probe` builds two cores one line of `rtl/decoder.v`
+  apart, requires the one that faults with the right cause to prove and the one that faults with the
+  wrong cause to go red **at that comparison's own line**, and is a prerequisite of the proof for the
+  reason `pcloop_cover` is one.
 - **It ships no model of an INTERRUPT either**, so the core's timer input is tied off in all five
   harnesses under `formal/` and the generated checks run with no interrupt in the trace.
   `formal/INTERRUPT_TIE_OFF` mechanises that the same way, in both directions and re-derived from
@@ -395,11 +411,11 @@ and times.
   period — and 12 is already met. A few-percent idea can be read against 41.67 ns and declined in a
   minute, instead of after four placements (ADR-0078).
 - **`make dhrystone` is the only figure comparable to another project's**, and it is quoted in
-  DMIPS/MHz because that is what the field publishes. 0.727 at `-O2`, 3568 bytes of the SoC's 8 KB
-  ROM (ADR-0084, ADR-0093, ADR-0099). Dhrystone is string-dominated and the optimiser can
+  DMIPS/MHz because that is what the field publishes. 0.757 at `-O2`, 3568 bytes of the SoC's 8 KB
+  ROM (ADR-0084, ADR-0093, ADR-0099, ADR-0117). Dhrystone is string-dominated and the optimiser can
   delete part of the work, so **the flags, the compiler and the string library travel with the
   number** — the program prints all three and will not compile without them. It is not a gate and
-  adds no ratchet. **Quote the absolute figure with it**: **8.72 DMIPS** at the board's 12 MHz, from
+  adds no ratchet. **Quote the absolute figure with it**: **9.08 DMIPS** at the board's 12 MHz, from
   7.68, because Fmax above the requirement is margin and not speed, so a CPI win converts to
   throughput and a placement that closes higher does not (ADR-0089).
 - **The only cross-core comparison that means anything is one harness**, and `soc/compare/` is it:
@@ -449,7 +465,12 @@ and times.
   subexpressions, duplicate adders. An edit that restates the same arithmetic in the same terms is a
   null, and two are measured: narrowing `mul_div_store` from 64 bits to 32 where only `[31:0]` is
   read moves `fit` by 11 cells because DCE had already removed them, and flattening the `next_pc`
-  priority chain into a parallel mux buys 53 cells and costs 3–9% of period. **What they cannot use
+  priority chain into a parallel mux buys 53 cells and costs 3–9% of period.
+  **Dead logic is free only where ABC has a LUT input to fold it into**, which is a fact about the
+  consumer and not about the expression: `rtl/writeback.v` masked `wdata` with `wen` that every
+  consumer in `rtl/regfile.v` already tests, and the mask survived because the bypass mux it feeds
+  had already spent all four of its inputs. Read the consumer before calling a redundant term free.
+  **What they cannot use
   is a fact from outside the expression**: a parameter is a power of two, a window is aligned, a
   reversal is wiring, an address bit is provably zero because a trap guarantees it. Eleven such edits
   together are worth −169 placed cells on the SoC and −84 on `fit`; **each one alone is inside the
@@ -468,8 +489,8 @@ and times.
   edits that each do state such a fact are worth nothing, and the ceilings say why — the immediate
   mux is 101 LUTs deleted whole, the compressed decode 253, and deleting the fetch window's
   upper-half mask *costs* 13 because ABC had already folded it away (ADR-0094). Six such edits
-  stacked are −28 SoC LUTs (ADR-0097), so that block is closed on two measurements; read the
-  ceilings before reopening it. So are `rtl/csrs.v`, `rtl/regfile.v` and the SoC's
+  stacked are −28 SoC LUTs (ADR-0097), so that block is closed **for area** on two measurements;
+  read the ceilings before reopening it for cells. So are `rtl/csrs.v`, `rtl/regfile.v` and the SoC's
   read-back bus, on six more ceilings: the CSR file is 727 LUTs whole and 340 of that is the two
   counters RV32 M-mode mandates, its WARL write mux and every legal-value mask together are worth
   **one**, the register file's write-through bypass is 31 and all its fabric 133, and `mem_rdata`'s
@@ -479,12 +500,23 @@ and times.
   band, the AMO result mux with its 33-bit adder/subtractor at 241 cells and the timer's 64-bit
   magnitude compare at 120, and a carry chain here is free — those 67 carry bits are worth three cells
   between them (ADR-0112). The rest are closed by name, including `rtl/memory.v`'s two range tests at
-  **zero** and the decoder's `instr_amo_op` immediate arm at zero on both tops. **A conditional
+  **zero** and the decoder's `instr_amo_op` immediate arm at zero on both tops. **The timer's compare
+  is closed too, and the reason generalises**: its ceiling re-takes at 88 cells on a later tree, and
+  producing `mtip` from registered partial compares instead costs **+138 placed cells** for a period
+  that is a null at sixteen seeds — equality every cycle, the magnitude a store still needs and the
+  mux that shares it are all LUTs where the compare was a carry chain (ADR-0118). A sticky bit set on
+  the crossing is wrong rather than dear: both registers reset to zero, so the level is true with
+  nothing crossing it. **A conditional
   increment on this fabric is a clock enable, not a mux**: `en ? x + 1 : x`
   is 128 `SB_DFFESR` and no logic, and riding the adder's carry-in instead frees three cells, moves
   those flops to `SB_DFFSR` and misses 12 MHz at six placements out of six. `mtimecmp`'s byte-write
   path is the same shape — 64 clock-enable pins and no mux to collect. Read the `SB_DFFE*` census
   before believing a LUT count, and sweep seeds even for a candidate that is a null on area.
+  **Every ceiling above answers "how many cells does deleting this save", and none of them answers
+  "what sits on the path"** — so none of these blocks is closed for period. `rtl/decoder.v`'s
+  `instr_error` is the demonstration: it read the *muxed* register numbers rather than the raw
+  fields, putting the whole compressed-decode cone in the trap arm of the fetch loop for no cells at
+  all (ADR-0115).
 - **Grade a ceiling on packed `ICESTORM_LC`, not on `SB_LUT4`.** The two disagree in magnitude and in
   sign, on netlists whose packing is seed-independent: `rtl/timer.v`'s read mux is −70 `SB_LUT4` and
   −41 cells, which is the difference between clearing the ±50 band and not, and `mtime`'s byte-write
@@ -500,7 +532,12 @@ and times.
   Dhrystone's** for −2.8% of median period, a product 5.1% worse in DMIPS (ADR-0092), and writing a
   committed result into the idle port a cycle early buys 6.5% of Dhrystone's cycles for **+9.4% of
   median period**, under the requirement at four placements of six (ADR-0100). The pair is no
-  better than either half. **A ceiling is perishable**: deleting the whole `stall` arm of `next_pc`
+  better than either half. **What did pay is a cone that had no business being in either loop**: the
+  trap decode read the muxed register numbers rather than the raw encoding fields, so every SYSTEM
+  form dragged the compressed register-select decode into `trap_pending` and so into `next_pc`.
+  Reading the fields is **−2.47% of median period, 13 of 16 seeds faster, the worst placement flat**,
+  and eleven cells — about 1.9 ns of median, bought by depth rather than by area (ADR-0117).
+  **A ceiling is perishable**: deleting the whole `stall` arm of `next_pc`
   was worth −3.8% three merges ago and is a null on both bases measured since, so re-take one in the
   tree you mean to spend it in. So is a CPI cost — the same fourth slot cost 15.8% of suite cycles
   before the operand-fetch guess landed and 19.5% after, because the guess had been paying for part
@@ -513,6 +550,16 @@ and times.
   spellings of one region test span 4:1 in cost with two of them at the same 27 levels and 11% apart
   in period, and the tool charged `decode` one extra level for a change worth 16%. What located that
   cost was substituting one line and re-sweeping — sixteen seeds, paired.
+- **The routing on that path is flat, and constraining block-RAM placement is closed** (ADR-0114).
+  `soc/routing_bins.py` charges every routing hop of a sweep to what sits at its two ends, reconciled
+  against `soc/timing_split.py`'s routing total per placement. Over sixteen placements the block RAMs
+  are at one end of 3.6% of routing nanoseconds and the SPRAM 0.0% — **0.0% at the worst placement
+  and at the median**, so the tail's critical path never reaches a memory — the contact is the same
+  size in the fast half and the slow half, and the largest hop anywhere is the block RAM's own
+  1.279 ns clock-to-out. What separates the halves is the number of hops, 72.4 against 77.0. So the
+  tail is routing and the routing is **distributed**: there is no long hop, and no column to pin.
+  It bins ADJACENCY, and `icetime -r` prints one path, so it cannot see work displaced by where the
+  memories sit.
 - **Read logic levels apart**: a LUT level costs ~3.3 ns (delay plus interconnect), a carry hop
   ~0.34 ns and no interconnect. A change that trades a carry hop for a LUT level gets shallower by
   icetime's count and slower in nanoseconds. **Measured, in the fetch loop, at any area price**:
@@ -520,8 +567,16 @@ and times.
   adder for −103 SoC LUTs — the largest single decode edit measured here — and takes the critical
   path from 23 LUT levels and 4 carry hops to 25 levels and none, +9.1% of median period, **under
   12 MHz at six placements of six** (ADR-0097). Beside ADR-0088's flattened `next_pc` chain, that is
-  two edits in this one chain that buy cells and cost the clock. The SoC is routing-dominated; wide
-  flat muxes route worse than chains. **There is no single lever.** The decode head
+  two edits in this one chain that buy cells and cost the clock. **Deleting dead logic from it is the
+  third**: `rtl/writeback.v`'s `wen` masks are unread by every consumer in `rtl/regfile.v` and cost
+  +2.83% of median period and 11.89 MHz at the worst of sixteen seeds to remove, so they stay and say
+  so (ADR-0117). The SoC is routing-dominated; wide
+  flat muxes route worse than chains. **There is no single lever** — which bounds how much one
+  *deletion* buys, and says nothing about what a construct already on the path costs for free.
+  Two such were found by reading `soc.timing.rpt` against the RTL after this paragraph had been read
+  as closing the question, and **the two did not measure alike**: spelling `instr_error` off the raw
+  fields is −2.47% of median with its worst seed flat, and deleting those `wen` masks is the anti-win
+  above. Reading the report finds candidates, not wins. The decode head
   (`imem.in_range → instr → {rs1/rs2, immediate, hazard}`) was named as one and measures 3.3%
   deleted whole, inside the churn band. The period is in the fetch loop instead: no single input to
   `next_pc` is worth more than 5%, all of them deleted together are worth 21%, and collecting that
@@ -565,10 +620,14 @@ make mutation-check # delete a term from rtl/ and require exactly the detectors
                     # written for. ~3.5 min, not on `make test`, no ratchet.
                     # `make mutation-probe` forces its own graders red and IS on it
 make window-test    # force the elaboration checks in rtl/{imemory,memory,timer}.v
-                    # red, in both frontends. Runs inside `make test`
+                    # and rtl/littlecpu.v's copy of that map red, in both
+                    # frontends. Runs inside `make test`
 make cycles         # the suite again, every cycle charged to an issuing cycle or
                     # one of the six stall reasons; nonzero on a stalled cycle none
-                    # of them explains. Not on CI -- there is no CPI ratchet
+                    # of them explains. Prints the two load/store locality
+                    # counters under the table -- accesses whose base register is
+                    # within 2 KB of a region edge, and accesses issuing on a
+                    # write-through to it. Not on CI -- there is no CPI ratchet
 make dhrystone      # Dhrystone 2.1 (test/bench, NOT the graded suite) -> DMIPS/MHz,
                     # the ROM image against the SoC's 8 KB, and the same accounting
                     # on compiled code. DHRY_RUNS picks the iteration count.
@@ -597,7 +656,9 @@ make -C formal components_decoder   # component proofs by k-induction (mode prov
 make -C formal components_executor  #   read the sby summaries, not the job colour
 make -C formal components_pcloop    #   pcloop runs pcloop_cover first, its anti-vacuity
                                     #   control, as a prerequisite of the same target
-make -C formal components_traps     #   traps is the only proof over real mtvec/mepc/mcause/mstatus
+make -C formal components_traps     #   traps is the only proof over real mtvec/mepc/mcause/mstatus,
+                                    #   and runs traps-region-probe first the same way -- the red
+                                    #   direction for the load/store region cause arm, two sby runs
 make -C formal complete             # depth-50 whole-ISA walk minus COMPLETE_EXCLUSIONS
 make -C formal complete_cover       # its anti-vacuity control
 make -C formal nonperturbation      # RVFI instrumentation is unread by the core;

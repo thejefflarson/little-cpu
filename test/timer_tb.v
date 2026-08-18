@@ -94,6 +94,43 @@ module timer_tb;
 
   logic [31:0] first_read;
 
+  // The level the privileged spec defines, read off the two architectural
+  // registers rather than off whatever mtip was built from. mtip is a function
+  // of these and of nothing else, and the bus vectors above are what say the
+  // registers themselves hold what software wrote.
+  logic level;
+  assign level = dut.mtime >= dut.mtimecmp;
+
+  // A store lands on the edge that ends the cycle driving it and both sides of
+  // the comparison come out of flip-flops, so the cycle after one is a cycle
+  // the spec lets mtip be stale for -- a change in the comparison is reflected
+  // eventually, not immediately. Skipping that one cycle, and cycles the level
+  // itself moved across, leaves cycles where mtip is owed the level exactly, in
+  // BOTH directions: high with the level absent is a spurious interrupt, low
+  // with the level present is one that never arrives. A scheme that produced
+  // mtip a cycle late would still pass here, which is what makes this a check
+  // on earliness rather than on one particular spelling of the compare.
+  logic level_prev, wrote_prev;
+  int high_checks = 0, low_checks = 0;
+  // A plain `always`: iverilog warns about the $display below in an `always_ff`.
+  always @(posedge clk) begin
+    if (reset) begin
+      level_prev <= 1'b0;
+      wrote_prev <= 1'b0;
+    end else begin
+      if (!wrote_prev && level === level_prev) begin
+        if (level) high_checks++; else low_checks++;
+        if (mtip !== level) begin
+          $display("MISMATCH mtip against the level, mtime=%016x mtimecmp=%016x: got=%b expected=%b",
+                   dut.mtime, dut.mtimecmp, mtip, level);
+          errors++;
+        end
+      end
+      level_prev <= level;
+      wrote_prev <= dut.writing;
+    end
+  end
+
   initial begin
     reset     = 1'b1;
     mem_addr  = 32'h0;
@@ -181,6 +218,26 @@ module timer_tb;
     store(MTIME_LO, 32'h0000_0000, 4'b1111);
     idle();
     check_bit("the compare is over all 64 bits, not the low half", mtip, 1'b1);
+
+    // The crossing software actually waits on: mtimecmp parked four ticks ahead
+    // and no store anywhere near it. The count is what makes this a check --
+    // mtip low on each of the three ticks before the one that reaches
+    // mtimecmp, and high on that one. A comparison that fired a tick early
+    // would be an interrupt taken before the deadline it was armed for.
+    store(MTIMECMP_HI, 32'h0000_0000, 4'b1111);
+    store(MTIMECMP_LO, 32'h0000_0204, 4'b1111);
+    store(MTIME_HI, 32'h0000_0000, 4'b1111);
+    store(MTIME_LO, 32'h0000_0200, 4'b1111);
+    check_bit("armed four ticks short of mtimecmp", mtip, 1'b0);
+    idle();
+    check_bit("...three ticks short is still nothing", mtip, 1'b0);
+    idle();
+    check_bit("...two", mtip, 1'b0);
+    idle();
+    check_bit("...one, and this is the tick an early compare would fire on",
+              mtip, 1'b0);
+    idle();
+    check_bit("...and the tick that reaches mtimecmp raises it", mtip, 1'b1);
 
     //-----------------------------------------------------------------------
     // The torn 64-bit write, and the red direction that makes it a check.
@@ -301,11 +358,19 @@ module timer_tb;
     check_hex("...and the low half restarts from what was written",
               mem_rdata, 32'h0000_0001);
 
+    // The window check above grades every quiet cycle in this file, so it is
+    // worth nothing if the vectors above stopped reaching one of its two arms.
+    if (high_checks == 0 || low_checks == 0) begin
+      $display("MISMATCH the level check never ran both ways: %0d high, %0d low",
+               high_checks, low_checks);
+      errors++;
+    end
+
     if (errors != 0) begin
       $display("FAILED: %0d mismatches", errors);
       $fatal(1);
     end else begin
-      $display("PASSED: machine timer (map, level compare, torn write, byte strobes, counter)");
+      $display("PASSED: machine timer (map, level compare, crossing, torn write, byte strobes, counter)");
       $finish;
     end
   end
