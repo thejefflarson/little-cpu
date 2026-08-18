@@ -518,13 +518,22 @@ and times.
   band, the AMO result mux with its 33-bit adder/subtractor at 241 cells and the timer's 64-bit
   magnitude compare at 120, and a carry chain here is free — those 67 carry bits are worth three cells
   between them (ADR-0112). The rest are closed by name, including `rtl/memory.v`'s two range tests at
-  **zero** and the decoder's `instr_amo_op` immediate arm at zero on both tops. **The timer's compare
-  is closed too, and the reason generalises**: its ceiling re-takes at 88 cells on a later tree, and
+  **zero** and the decoder's `instr_amo_op` immediate arm at zero on both tops. **The AMO row is spent
+  and the accessor is closed for area** (ADR-0119): 241 decomposes into 72 of adder and 162 of mux,
+  the three bitwise arms in that mux are 88 cells for 96 bit-operations — one LUT per output bit, the
+  floor — and what paid was building eight of the nine functions as one four-entry truth table indexed
+  per bit, **−54 cells at all sixteen placements and identical on two texts of the idea**, with the
+  median period −2.67%. **Sharing an arithmetic unit is not a saving on this fabric**: a 33-bit adder
+  and a 33-bit 2:1 mux place at the same cost, so one adder behind two operand muxes and two adders
+  behind a result mux are the same 288 cells — any sharing proposal starts at zero and pays routing.
+  **The timer's compare is closed too, and the reason generalises**: its ceiling re-takes at 88
+  cells on a later tree, and
   producing `mtip` from registered partial compares instead costs **+138 placed cells** for a period
   that is a null at sixteen seeds — equality every cycle, the magnitude a store still needs and the
   mux that shares it are all LUTs where the compare was a carry chain (ADR-0118). A sticky bit set on
   the crossing is wrong rather than dear: both registers reset to zero, so the level is true with
-  nothing crossing it. **A conditional
+  nothing crossing it.
+  **A conditional
   increment on this fabric is a clock enable, not a mux**: `en ? x + 1 : x`
   is 128 `SB_DFFESR` and no logic, and riding the adder's carry-in instead frees three cells, moves
   those flops to `SB_DFFSR` and misses 12 MHz at six placements out of six. `mtimecmp`'s byte-write
