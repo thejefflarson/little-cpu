@@ -482,7 +482,7 @@ and times.
   magnitude compare at 120, and a carry chain here is free — those 67 carry bits are worth three cells
   between them (ADR-0112). The rest are closed by name, including `rtl/memory.v`'s two range tests at
   **zero** and the decoder's `instr_amo_op` immediate arm at zero on both tops. **The AMO row is spent
-  and the accessor is closed for area** (ADR-0118): 241 decomposes into 72 of adder and 162 of mux,
+  and the accessor is closed for area** (ADR-0119): 241 decomposes into 72 of adder and 162 of mux,
   the three bitwise arms in that mux are 88 cells for 96 bit-operations — one LUT per output bit, the
   floor — and what paid was building eight of the nine functions as one four-entry truth table indexed
   per bit, **−54 cells at all sixteen placements and identical on two texts of the idea**, with the

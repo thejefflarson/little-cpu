@@ -1,4 +1,4 @@
-# ADR-0118: The AMO result mux is a truth table, and an adder cannot be shared on this fabric
+# ADR-0119: The AMO result mux is a truth table, and an adder cannot be shared on this fabric
 
 **Status:** Accepted · 2026-08-18 · *Collects the last open row of
 [ADR-0112](0112-the-per-module-census-is-not-a-ceiling-and-four-more-blocks-are-closed.md)'s accessor
