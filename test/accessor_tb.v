@@ -438,6 +438,25 @@ module accessor_tb;
     amo_does("amomax.w  on equal operands", 9'b001000000, 32'h0001_0020, 32'h1234_5678,
              32'h1234_5678, 32'h1234_5678);
 
+    // Every function that is one bit function of a memory bit and an rs2 bit
+    // shares one four-entry table, so each of these drives all four combinations
+    // of that pair -- eight bits per combination -- and a single wrong entry
+    // moves the answer. The min/max pair is here for the two entries that pass
+    // an operand through: `0xcccccccc` and `0xaaaaaaaa` are both negative, so
+    // min takes rs2 and max takes the memory word.
+    amo_does("amoswap.w over all four operand-bit pairs", 9'b000000001, 32'h0001_0020,
+             32'hcccc_cccc, 32'haaaa_aaaa, 32'haaaa_aaaa);
+    amo_does("amoxor.w  over all four operand-bit pairs", 9'b000000100, 32'h0001_0020,
+             32'hcccc_cccc, 32'haaaa_aaaa, 32'h6666_6666);
+    amo_does("amoand.w  over all four operand-bit pairs", 9'b000001000, 32'h0001_0020,
+             32'hcccc_cccc, 32'haaaa_aaaa, 32'h8888_8888);
+    amo_does("amoor.w   over all four operand-bit pairs", 9'b000010000, 32'h0001_0020,
+             32'hcccc_cccc, 32'haaaa_aaaa, 32'heeee_eeee);
+    amo_does("amomin.w  over all four operand-bit pairs", 9'b000100000, 32'h0001_0020,
+             32'hcccc_cccc, 32'haaaa_aaaa, 32'haaaa_aaaa);
+    amo_does("amomax.w  over all four operand-bit pairs", 9'b001000000, 32'h0001_0020,
+             32'hcccc_cccc, 32'haaaa_aaaa, 32'hcccc_cccc);
+
     // The issued-once guard for an AMO. Decode holds `launch` for every cycle
     // of a divide, and a request block that read it without `launch_taken`
     // would read the same word thirty-three times and write it back as many.
