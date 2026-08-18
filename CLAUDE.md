@@ -240,7 +240,10 @@ frequency and a published period, and blesses the cycle counter for a fixed-freq
 a handler that returns without moving `mtimecmp` is re-entered before the instruction at `mepc`
 runs. **An RV32 `mtimecmp` update is the spec's three stores in the spec's order** — low all-ones,
 high, low; high-first is unsafe and `test/timer_tb.v` and `test/asm/mtimer.S` each fire a spurious
-interrupt that way on purpose before doing it correctly.
+interrupt that way on purpose before doing it correctly. **A change in the comparison may reach
+`mtip` late and never early**, and `test/timer_tb.v` is the only grader of that: it counts the ticks
+to a crossing and holds `mtip` to the level on every quiet cycle. No `.S` program sees an interrupt
+arriving a tick early, which is measured rather than assumed (ADR-0118).
 
 **Conformance is not negotiable against minimality.** Every CSR the privileged spec mandates for
 RV32 M-mode is implemented, the 87 hardware performance monitor addresses included — most legally
@@ -481,7 +484,13 @@ and times.
   band, the AMO result mux with its 33-bit adder/subtractor at 241 cells and the timer's 64-bit
   magnitude compare at 120, and a carry chain here is free — those 67 carry bits are worth three cells
   between them (ADR-0112). The rest are closed by name, including `rtl/memory.v`'s two range tests at
-  **zero** and the decoder's `instr_amo_op` immediate arm at zero on both tops. **A conditional
+  **zero** and the decoder's `instr_amo_op` immediate arm at zero on both tops. **The timer's compare
+  is closed too, and the reason generalises**: its ceiling re-takes at 88 cells on a later tree, and
+  producing `mtip` from registered partial compares instead costs **+138 placed cells** for a period
+  that is a null at sixteen seeds — equality every cycle, the magnitude a store still needs and the
+  mux that shares it are all LUTs where the compare was a carry chain (ADR-0118). A sticky bit set on
+  the crossing is wrong rather than dear: both registers reset to zero, so the level is true with
+  nothing crossing it. **A conditional
   increment on this fabric is a clock enable, not a mux**: `en ? x + 1 : x`
   is 128 `SB_DFFESR` and no logic, and riding the adder's carry-in instead frees three cells, moves
   those flops to `SB_DFFSR` and misses 12 MHz at six placements out of six. `mtimecmp`'s byte-write
