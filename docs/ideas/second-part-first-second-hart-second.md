@@ -105,10 +105,25 @@ AMO's read and write cycles are one indivisible grant, and no requester waits un
 Round-robin, because fixed priority starves. The request is a decode-level flag — *this hart
 launches a memory access this cycle* — and deliberately **not** an address-range test, because a
 range test reads the top of `immediate + rs1` and that whole family is priced at 9–17% of period.
-An ungranted hart **holds** `decoder_out` exactly as a divider stall does, which is the seventh stall
-reason and takes ADR-0106's recorded ruling for free: a wait raised before the executor consumes the
-instruction holds. It is declared in all three places commitment 8 names and tied low in every
-single-hart integrator. The core exports its atomic write cycle as `mem_lock` so the grant spans an
+An ungranted hart **bubbles**, and the grant is registered. This brief first said it holds, "exactly
+as a divider stall does," and that was wrong: `rtl/executor.v` publishes `stalled` as an *output* and
+takes no input that freezes it, so a divider stall is the executor being busy in its own FSM rather
+than a hold mechanism the decoder can borrow. A bus-grant wait leaves the executor idle, so a held
+`decoder_out` would be consumed again — one instruction retiring twice, which `rtl/decoder.v` already
+warns about where it zeroes `out` instead of holding it. So the request is raised in decode before
+publishing, an ungranted hart publishes nothing, the pc holds, and the instruction re-decodes and
+re-requests next cycle. Nothing is lost because nothing issued. That is the shape all five existing
+bubble reasons have, it needs no new mechanism, and it costs one cycle per contended access.
+
+**The arm ruling and the grant registration are one question, not two.** A combinational grant forces
+the hold, which forces a freeze input on the module that is the named oracle for real mul/div
+arithmetic — a change this brief's own non-goals exclude.
+
+The seventh reason is declared in **six** places, not the three commitment 8 names: the decoder's
+signal, OR, publish arm and `FORMAL` asserts; `test/decoder_tb.v`'s OR-identity check and both-ways
+vectors; `test/cxxrtl.cc`'s bucket; `test/stall_report.py`'s `REASONS` and `HEADINGS`;
+`formal/pcloop.sv`'s `f_may_stall`; and commitment 8 itself. It is tied low in every single-hart
+integrator. The core exports its atomic write cycle as `mem_lock` so the grant spans an
 AMO's two cycles.
 
 **LR/SC across harts** is the per-hart reservation plus one snoop input — the granted write address
@@ -158,8 +173,15 @@ Each step is independently shippable on green CI and produces its own measuremen
    `NHARTS`, together, both tied off everywhere single-hart. Gates: the netlist diff,
    `SOC_EXPECT_EBR` exact, and the DP16KD census on the ECP5 target.
 5. **The dual top.** Arbiter and its proof, the dual harness, the torture programs and their
-   mutations, ECP5 dual place-and-route at `DUAL_MIN_MHZ := 25.0` graded worst-of-sixteen. The
-   `.aq`/`.rl` ADR lands here, recording the shared-text coherence argument with it.
+   mutations, ECP5 dual place-and-route graded worst-of-sixteen. The `.aq`/`.rl` ADR lands here,
+   recording the shared-text coherence argument with it.
+
+`DUAL_MIN_MHZ` is **25.0 and it is a requirement, not a measurement** — the Colorlight i5's
+oscillator, whose next divider step down is not a design choice, which is exactly ADR-0066's ground
+for `SOC_MIN_MHZ`. What is uncertain here is the instrument rather than the number, so the answer is
+to pin a pessimistic corner — the board's own speed grade, a declared and unchanging target
+constraint handed to the placer, and worst-of-sixteen — rather than to soften the floor. It becomes
+a required check only once the ECP5 band it is graded against has been derived.
 
 ## Risks
 
