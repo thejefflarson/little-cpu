@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=317
+PROBES_EXPECTED=336
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -1297,6 +1297,209 @@ probe "the wrong count is named against the log's real one" 1 \
 d=$(cc_fixture)
 probe "a cell type the log never mentions reads as zero, not a crash" 1 \
   "0 SB_RGBA_DRV cells, expected 1" "$CC $d/soc.synth.log SB_RGBA_DRV 1 reason"
+
+# `make ecp5-timing` runs this same script over yosys's ECP5 cell table, so the
+# diagnostic has to name the flow that stopped and the variable that declares
+# the count. Pointing an ECP5 failure at the ice40 flow's SOC_EXPECT_* would be
+# a dangling reference in the one message a reader has.
+d=$(new_case)
+printf '     36   DP16KD\n' > "$d/ecp5.synth.log"
+
+probe "a census under the other gate names that gate, not the ice40 one" 1 \
+  "*** make ecp5-timing: 36 DP16KD cells, expected 4" \
+  "$CC $d/ecp5.synth.log DP16KD 4 reason --gate 'make ecp5-timing' --declared ECP5_EXPECT_DP16KD"
+
+probe "and points at that flow's own declaration" 1 \
+  "ECP5_EXPECT_DP16KD in the Makefile" \
+  "$CC $d/ecp5.synth.log DP16KD 4 reason --gate 'make ecp5-timing' --declared ECP5_EXPECT_DP16KD"
+
+begin_group "soc/ecp5_report.py"
+
+ER="python3 $REPO/soc/ecp5_report.py"
+ER_ARGS="--clock clk --part LFE5U-25F-6CABGA381 --constraint-mhz 200.0"
+
+# A three-hop path of 5 + 15 + 5 = 25 ns, which is 40.00 MHz exactly, so the
+# reconciliation between the walked path and the frequency nextpnr published
+# from it is arithmetic a reader can check by eye. The clock is spelt the way
+# nextpnr spells a promoted global, because that mangling is the whole reason
+# the parser matches on `$`-separated components instead of on the port name.
+ecp5_fixture() {
+  local d; d=$(new_case)
+  cat > "$d/ecp5.config" <<'CFG'
+.device LFE5U-25F
+
+.comment Part: LFE5U-25F-6CABGA381
+CFG
+  cat > "$d/ecp5.report.json" <<'JSON'
+{
+  "fmax": {"$glbnet$clk$TRELLIS_IO_IN": {"achieved": 40.0, "constraint": 200.0}},
+  "utilization": {"DP16KD": {"available": 56, "used": 36}},
+  "critical_paths": [
+    {
+      "from": "posedge $glbnet$clk$TRELLIS_IO_IN",
+      "to": "posedge $glbnet$clk$TRELLIS_IO_IN",
+      "path": [
+        {"type": "clk-to-q", "delay": 5.0,
+         "from": {"cell": "imem.rom_even.0.0"}, "to": {"cell": "imem.rom_even.0.0"}},
+        {"type": "routing", "delay": 15.0,
+         "from": {"cell": "imem.rom_even.0.0"}, "to": {"cell": "riscv.lut"}},
+        {"type": "logic", "delay": 5.0,
+         "from": {"cell": "riscv.lut"}, "to": {"cell": "imem.addr_ff"}}
+      ]
+    }
+  ]
+}
+JSON
+  printf '%s' "$d"
+}
+
+ecp5_mutate() {  # $1 = report file, stdin = python that rewrites the JSON
+  python3 - "$1"
+}
+
+d=$(ecp5_fixture)
+probe "control: a well-formed report publishes the frequency" 0 \
+  "Fmax          : 40.00 MHz" "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
+
+d=$(ecp5_fixture)
+probe "control: the caveats travel with the number, on every run" 0 \
+  "NEVER MERGED WITH OR SUBTRACTED FROM AN UP5K ONE" \
+  "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
+
+d=$(ecp5_fixture)
+sed -i.bak 's/LFE5U-25F-6CABGA381/LFE5U-45F-8CABGA381/' "$d/ecp5.config"
+probe "a configuration for another corner is refused, not reported" 1 \
+  "does not name LFE5U-25F-6CABGA381" \
+  "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
+
+d=$(ecp5_fixture); : > "$d/ecp5.config"
+probe "an empty configuration means nothing was expressible on the part" 1 \
+  "is empty or missing" "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
+
+d=$(ecp5_fixture); rm -f "$d/ecp5.config"
+probe "a configuration nextpnr never wrote is a failed run, not a fast design" 1 \
+  "is empty or missing" "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
+
+d=$(ecp5_fixture); rm -f "$d/ecp5.report.json"
+probe "a report that does not exist is named, not read as zero" 1 \
+  "does not exist, so NOTHING was" "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
+
+d=$(ecp5_fixture); printf 'Info: placing\n' > "$d/ecp5.report.json"
+probe "a truncated report blames the run rather than parsing what is left" 1 \
+  "is not JSON" "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
+
+d=$(ecp5_fixture)
+ecp5_mutate "$d/ecp5.report.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+r = json.load(open(p))
+r["fmax"] = {}
+json.dump(r, open(p, "w"))
+PY
+probe "no constraint found is red, which is the shape of the recorded defects" 1 \
+  "carries no fmax table" "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
+
+d=$(ecp5_fixture)
+ecp5_mutate "$d/ecp5.report.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+r = json.load(open(p))
+r["fmax"] = {"$glbnet$sysclk$TRELLIS_IO_IN": {"achieved": 40.0, "constraint": 200.0}}
+json.dump(r, open(p, "w"))
+PY
+probe "a report naming some other clock does not stand in for this one" 1 \
+  "no clock named 'clk'" "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
+
+d=$(ecp5_fixture)
+ecp5_mutate "$d/ecp5.report.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+r = json.load(open(p))
+r["fmax"]["clk"] = {"achieved": 12.0, "constraint": 200.0}
+json.dump(r, open(p, "w"))
+PY
+probe "two clocks named clk makes the frequency a guess, so it refuses to guess" 1 \
+  "clocks in the report name" "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
+
+d=$(ecp5_fixture)
+ecp5_mutate "$d/ecp5.report.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+r = json.load(open(p))
+del r["fmax"]["$glbnet$clk$TRELLIS_IO_IN"]["achieved"]
+json.dump(r, open(p, "w"))
+PY
+probe "an fmax entry that stopped carrying both halves is refused, not read" 1 \
+  "nextpnr has changed the shape of its report" \
+  "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
+
+d=$(ecp5_fixture)
+ecp5_mutate "$d/ecp5.report.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+r = json.load(open(p))
+r["fmax"]["$glbnet$clk$TRELLIS_IO_IN"]["constraint"] = 25.0
+json.dump(r, open(p, "w"))
+PY
+probe "a constraint that is not the declared one is a different measurement" 1 \
+  "was placed against a 25.00 MHz" "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
+
+d=$(ecp5_fixture)
+ecp5_mutate "$d/ecp5.report.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+r = json.load(open(p))
+r["fmax"]["$glbnet$clk$TRELLIS_IO_IN"]["achieved"] = 250.0
+json.dump(r, open(p, "w"))
+PY
+probe "a design that MET the target has measured the target" 1 \
+  "measures the CONSTRAINT and not the design" \
+  "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
+
+d=$(ecp5_fixture)
+ecp5_mutate "$d/ecp5.report.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+r = json.load(open(p))
+del r["utilization"]
+json.dump(r, open(p, "w"))
+PY
+probe "a report with no utilisation table is missing half the measurement" 1 \
+  "carries no utilisation table" "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
+
+d=$(ecp5_fixture)
+ecp5_mutate "$d/ecp5.report.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+r = json.load(open(p))
+r["critical_paths"][0]["to"] = "<async>"
+json.dump(r, open(p, "w"))
+PY
+probe "a frequency with no path under it is not a measurement" 1 \
+  "critical paths run from" "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
+
+d=$(ecp5_fixture)
+ecp5_mutate "$d/ecp5.report.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+r = json.load(open(p))
+r["critical_paths"][0]["path"][1]["type"] = "iologic"
+json.dump(r, open(p, "w"))
+PY
+probe "a hop class nothing classifies would move the split silently" 1 \
+  "is not one this" "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
+
+d=$(ecp5_fixture)
+ecp5_mutate "$d/ecp5.report.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+r = json.load(open(p))
+r["critical_paths"][0]["path"][1]["delay"] = 10.0
+json.dump(r, open(p, "w"))
+PY
+probe "a path that does not reconcile blames the script, not the design" 1 \
+  "but nextpnr publishes 40.00 MHz" \
+  "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
 
 begin_group "check-unit-benches"
 
