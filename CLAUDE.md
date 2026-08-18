@@ -350,9 +350,9 @@ to distrust the bench.
 
 ## Measurements and ratchets
 
-Two instruments, two designs — never merge their numbers. `make fit` is the core alone (its top
+Three instruments, three designs — never merge their numbers. `make fit` is the core alone (its top
 never places: 231 `SB_IO` against sg48's 39, expected); `make soc-timing` is the SoC, which places
-and times.
+and times; `make ecp5-timing` is that same SoC on the other part.
 
 - **`make fit` has a churn band of about ±50 cells**: functionally identical edits move the count
   that much from ABC/nextpnr re-mapping alone. A delta inside the band is not evidence of
@@ -392,16 +392,47 @@ and times.
   harvest estimate either**: it sums to 6158 `SB_LUT4` against the flattened design's 4315, unevenly
   — `regfile`'s 2109 is four block RAMs that only get inferred flat, and `timer`'s 322 understates a
   real cost of 417 packed cells (ADR-0112). A census is not a ceiling; take the ceiling.
-- **`make soc-timing` has a ~3.6% edit-churn band and a 1–2% placement spread.** One placement is a
-  sample: `soc/timing_sweep.sh` runs four seeds; compare distributions, not single runs. A delta of
-  a couple of percent is not evidence of anything. **It is spelling-dependent the way `fit` is**, and
-  by more: two texts of one design, two cells apart on `fit`, swept 12.34 and 12.75 MHz at their
-  worst seeds — 3.3% — with one of them a hair faster than the base and the other 1.7% slower
-  (ADR-0106). Quote the distribution of the text that ships. **A candidate whose cost is a variance
+- **`make soc-timing` has a ~3.6% edit-churn band and a 4–9% placement spread**, and this is the one
+  place either number is stated — `soc/timing_sweep.sh`, `soc/depth/sweep.sh`, `soc/depth/summary.py`,
+  `soc/compare/sweep.sh` and `soc/baseline_summary.py` restate the spread and carry no figure of
+  their own. It is best-to-worst over an **unchanged** netlist — five sweeps of eight to sixteen
+  placements read 4.4, 5.5, 6.9, 8.0 and 9.2% — and up to 11% on a netlist whose cost is a variance
+  (ADR-0121 supersedes ADR-0057's 1–2%, which was four placements: a short sweep does not sample a
+  tighter distribution, it takes a shorter look at the same one). **A go/no-go is twelve to sixteen
+  seeds, paired by seed, quoting worst, median and spread** — never worst-of-four, never worst-of-N
+  against worst-of-N, which throws the pairing away and has almost no power against a spread this
+  wide. Four seeds is what `soc/timing_sweep.sh` runs by default and it is a look, not a verdict.
+  **Margin is a sample too**: the shipping design's worst of sixteen read 12.39 MHz on `d737240`,
+  12.21 on `16c5cad` and **12.03** on `c51ebba` — three samples and not a trend, every one
+  meeting the requirement and none of them a regression — so quote a margin with the sweep it came
+  from, the way a price is quoted with its tree. A delta of a couple of percent is not evidence of
+  anything. **It is spelling-dependent the way `fit` is**, and by more: two texts of one design, two
+  cells apart on `fit`, swept 12.34 and 12.75 MHz at their worst seeds — 3.3% — with one of them a
+  hair faster than the base and the other 1.7% slower (ADR-0106). Quote the distribution of the text that ships. **A candidate whose cost is a variance
   needs sixteen seeds, not eight**: the learned pair table's median cost is +1.2% and a null, its
   best placement beats the base's best, and what it really does is take the best-to-worst spread from
   5.5% to 11.2% — so eight seeds passed it at 12.16 MHz and sixteen declined it at 11.93 (ADR-0113).
-  A short sweep cannot see the tail, and the tail is what `SOC_MIN_MHZ` grades.
+  A short sweep cannot see the tail, and the tail is what `SOC_MIN_MHZ` grades. **A median inside
+  the band is a null that does not even reproduce**: one edit read −2.67% of median on one tree and
+  +0.34% on the next, at −54 cells and −37 (ADR-0121).
+- **`make ecp5-timing` is the third instrument and a different CLASS of one.** Same `littlesoc`,
+  same sources, same ROM image, placed on the ECP5 the multi-core milestone targets — no fork, no
+  `ifdef`, no part-specific RTL. There is no `icetime` for ECP5, so **nextpnr's own timing engine
+  both drives the placement and grades it**, with nothing behind it; `soc.asc`'s recipe already
+  treats that as disqualifying on ice40, so `soc/ecp5_report.py` is the single reader and refuses a
+  report that does not name the design's clock, one placed against a constraint other than the
+  declared one, one whose configuration names a corner nobody asked for, and one whose path does not
+  reconcile with the frequency published from it. **The frequency handed to the placer is a pinned
+  constant far above what the design reaches**, because nextpnr stops working a path once the
+  constraint is met — a 25 MHz target reported as 25 MHz would be measuring the target. What it
+  **gates** is the mapping, on three exact censuses — `DP16KD`, the register file's
+  `TRELLIS_DPR16X4` and `MULT18X18D` — because each of those falling back to soft logic is silent in
+  a frequency number and enormous in area. What it **publishes** is the frequency, with no ratchet:
+  one placement is a sample, and the ECP5 churn band is derived from ECP5's own sweep rather than
+  copied from up5k's. The corner is the board's: Colorlight i5, LFE5U-25F-6BG381C, speed grade 6,
+  which is also the pessimistic one of the three. **Pinning `clk` to the module's real oscillator pin
+  is not cosmetic** — letting nextpnr choose that pad instead read 3.5% faster, because the pad
+  decides where the global network is entered.
 - **12 MHz is a requirement, not a regression floor** (ADR-0066). `SOC_MIN_MHZ` is 12.0 — the board
   clock, whose next divider step down is 6 — and it does not slide. When it trips, fix the design,
   not the floor. The margin over the worst placement is deliberately tighter than the churn band.
@@ -476,8 +507,13 @@ and times.
   together are worth −169 placed cells on the SoC and −84 on `fit`; **each one alone is inside the
   ±50 band**, and over eight seeds a side the period moved +0.3% at the median — a null in both
   directions (ADR-0088). It is an
-  area lever, not an Fmax one — **occupancy does not set the period on this part**, measured by
-  ballasting 77% to 95% for no change at all. Where a fact like that is now load-bearing it is an
+  area lever, not an Fmax one — **occupancy does not set the tail on this part**, ballasted 77% to
+  95% for no change at one placement a point and re-measured against a registered prediction at
+  sixteen paired placements: 352 cells of logic nothing reads, 88.6% to 95.2%, the design's own
+  netlist identical cell for cell, is **+2.03% of median with 13 of 16 seeds slower (p = 0.021) and
+  the worst placement 1.1% the other way** (ADR-0121). An effect on the median smaller than the churn
+  band and none at all on the tail, so freeing cells buys headroom on the 5280 and whatever path it
+  takes with it — never margin. Where a fact like that is now load-bearing it is an
   elaboration `$fatal`, not a comment: `rtl/{imemory,memory,timer}.v` refuse to build at a
   non-power-of-two depth or an unaligned `BASE`, and `make window-test` forces all three red.
   **The rule does not only find small things.** The same question asked of `rtl/executor.v` found
@@ -647,6 +683,13 @@ make monitor-check  # regenerate test/monitor.v at the pin and diff
 make fit            # the core's area number; ratchet on FIT_MAX_LC
 make soc-timing     # the SoC place-and-time flow; requirement on SOC_MIN_MHZ.
                     # SOC_SEED picks a placement; soc/timing_sweep.sh runs four
+make ecp5-timing    # the same SoC on ECP5: synth_ecp5 + nextpnr-ecp5 at a
+                    # declared corner. Three exact mapping censuses GATE; the
+                    # frequency PUBLISHES, with no ratchet. nextpnr's own
+                    # estimator both places and grades -- there is no icetime
+                    # here -- and the constraint it is handed is a pinned
+                    # constant above what the design reaches. ECP5_SEED picks a
+                    # placement. Never merge its numbers with an up5k one
 make netlist-digest # the mapped netlist's digest -- the shipping synth script
                     # plus `opt_clean -purge`, with the source attributes
                     # dropped. `make netlist-diff BASE=<ref>` compares two trees

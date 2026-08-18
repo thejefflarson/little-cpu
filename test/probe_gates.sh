@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=358
+PROBES_EXPECTED=382
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -1297,6 +1297,323 @@ probe "the wrong count is named against the log's real one" 1 \
 d=$(cc_fixture)
 probe "a cell type the log never mentions reads as zero, not a crash" 1 \
   "0 SB_RGBA_DRV cells, expected 1" "$CC $d/soc.synth.log SB_RGBA_DRV 1 reason"
+
+# `make ecp5-timing` runs this same script over yosys's ECP5 cell table, so the
+# diagnostic has to name the flow that stopped and the variable that declares
+# the count. Pointing an ECP5 failure at the ice40 flow's SOC_EXPECT_* would be
+# a dangling reference in the one message a reader has.
+d=$(new_case)
+printf '     36   DP16KD\n' > "$d/ecp5.synth.log"
+
+probe "a census under the other gate names that gate, not the ice40 one" 1 \
+  "*** make ecp5-timing: 36 DP16KD cells, expected 4" \
+  "$CC $d/ecp5.synth.log DP16KD 4 reason --gate 'make ecp5-timing' --declared ECP5_EXPECT_DP16KD"
+
+probe "and points at that flow's own declaration" 1 \
+  "ECP5_EXPECT_DP16KD in the Makefile" \
+  "$CC $d/ecp5.synth.log DP16KD 4 reason --gate 'make ecp5-timing' --declared ECP5_EXPECT_DP16KD"
+
+begin_group "soc/ecp5_report.py"
+
+ER="python3 $REPO/soc/ecp5_report.py"
+ER_ARGS="--clock clk --part LFE5U-25F-6CABGA381 --constraint-mhz 200.0"
+
+# A three-hop path of 5 + 15 + 5 = 25 ns, which is 40.00 MHz exactly, so the
+# reconciliation between the walked path and the frequency nextpnr published
+# from it is arithmetic a reader can check by eye. The clock is spelt the way
+# nextpnr spells a promoted global, because that mangling is the whole reason
+# the parser matches on `$`-separated components instead of on the port name.
+ecp5_fixture() {
+  local d; d=$(new_case)
+  cat > "$d/ecp5.config" <<'CFG'
+.device LFE5U-25F
+
+.comment Part: LFE5U-25F-6CABGA381
+CFG
+  cat > "$d/ecp5.report.json" <<'JSON'
+{
+  "fmax": {"$glbnet$clk$TRELLIS_IO_IN": {"achieved": 40.0, "constraint": 200.0}},
+  "utilization": {"DP16KD": {"available": 56, "used": 36}},
+  "critical_paths": [
+    {
+      "from": "posedge $glbnet$clk$TRELLIS_IO_IN",
+      "to": "posedge $glbnet$clk$TRELLIS_IO_IN",
+      "path": [
+        {"type": "clk-to-q", "delay": 5.0,
+         "from": {"cell": "imem.rom_even.0.0"}, "to": {"cell": "imem.rom_even.0.0"}},
+        {"type": "routing", "delay": 15.0,
+         "from": {"cell": "imem.rom_even.0.0"}, "to": {"cell": "riscv.lut"}},
+        {"type": "logic", "delay": 5.0,
+         "from": {"cell": "riscv.lut"}, "to": {"cell": "imem.addr_ff"}}
+      ]
+    }
+  ]
+}
+JSON
+  printf '%s' "$d"
+}
+
+ecp5_mutate() {  # $1 = report file, stdin = python that rewrites the JSON
+  python3 - "$1"
+}
+
+d=$(ecp5_fixture)
+probe "control: a well-formed report publishes the frequency" 0 \
+  "Fmax          : 40.00 MHz" "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
+
+d=$(ecp5_fixture)
+probe "control: the caveats travel with the number, on every run" 0 \
+  "NEVER MERGED WITH OR SUBTRACTED FROM AN UP5K ONE" \
+  "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
+
+d=$(ecp5_fixture)
+sed -i.bak 's/LFE5U-25F-6CABGA381/LFE5U-45F-8CABGA381/' "$d/ecp5.config"
+probe "a configuration for another corner is refused, not reported" 1 \
+  "does not name LFE5U-25F-6CABGA381" \
+  "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
+
+d=$(ecp5_fixture); : > "$d/ecp5.config"
+probe "an empty configuration means nothing was expressible on the part" 1 \
+  "is empty or missing" "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
+
+d=$(ecp5_fixture); rm -f "$d/ecp5.config"
+probe "a configuration nextpnr never wrote is a failed run, not a fast design" 1 \
+  "is empty or missing" "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
+
+d=$(ecp5_fixture); rm -f "$d/ecp5.report.json"
+probe "a report that does not exist is named, not read as zero" 1 \
+  "does not exist, so NOTHING was" "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
+
+d=$(ecp5_fixture); printf 'Info: placing\n' > "$d/ecp5.report.json"
+probe "a truncated report blames the run rather than parsing what is left" 1 \
+  "is not JSON" "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
+
+d=$(ecp5_fixture)
+ecp5_mutate "$d/ecp5.report.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+r = json.load(open(p))
+r["fmax"] = {}
+json.dump(r, open(p, "w"))
+PY
+probe "no constraint found is red, which is the shape of the recorded defects" 1 \
+  "carries no fmax table" "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
+
+d=$(ecp5_fixture)
+ecp5_mutate "$d/ecp5.report.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+r = json.load(open(p))
+r["fmax"] = {"$glbnet$sysclk$TRELLIS_IO_IN": {"achieved": 40.0, "constraint": 200.0}}
+json.dump(r, open(p, "w"))
+PY
+probe "a report naming some other clock does not stand in for this one" 1 \
+  "no clock named 'clk'" "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
+
+d=$(ecp5_fixture)
+ecp5_mutate "$d/ecp5.report.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+r = json.load(open(p))
+r["fmax"]["clk"] = {"achieved": 12.0, "constraint": 200.0}
+json.dump(r, open(p, "w"))
+PY
+probe "two clocks named clk makes the frequency a guess, so it refuses to guess" 1 \
+  "clocks in the report name" "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
+
+d=$(ecp5_fixture)
+ecp5_mutate "$d/ecp5.report.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+r = json.load(open(p))
+del r["fmax"]["$glbnet$clk$TRELLIS_IO_IN"]["achieved"]
+json.dump(r, open(p, "w"))
+PY
+probe "an fmax entry that stopped carrying both halves is refused, not read" 1 \
+  "nextpnr has changed the shape of its report" \
+  "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
+
+d=$(ecp5_fixture)
+ecp5_mutate "$d/ecp5.report.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+r = json.load(open(p))
+r["fmax"]["$glbnet$clk$TRELLIS_IO_IN"]["constraint"] = 25.0
+json.dump(r, open(p, "w"))
+PY
+probe "a constraint that is not the declared one is a different measurement" 1 \
+  "was placed against a 25.00 MHz" "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
+
+d=$(ecp5_fixture)
+ecp5_mutate "$d/ecp5.report.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+r = json.load(open(p))
+r["fmax"]["$glbnet$clk$TRELLIS_IO_IN"]["achieved"] = 250.0
+json.dump(r, open(p, "w"))
+PY
+probe "a design that MET the target has measured the target" 1 \
+  "measures the CONSTRAINT and not the design" \
+  "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
+
+d=$(ecp5_fixture)
+ecp5_mutate "$d/ecp5.report.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+r = json.load(open(p))
+del r["utilization"]
+json.dump(r, open(p, "w"))
+PY
+probe "a report with no utilisation table is missing half the measurement" 1 \
+  "carries no utilisation table" "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
+
+d=$(ecp5_fixture)
+ecp5_mutate "$d/ecp5.report.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+r = json.load(open(p))
+r["critical_paths"][0]["to"] = "<async>"
+json.dump(r, open(p, "w"))
+PY
+probe "a frequency with no path under it is not a measurement" 1 \
+  "critical paths run from" "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
+
+d=$(ecp5_fixture)
+ecp5_mutate "$d/ecp5.report.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+r = json.load(open(p))
+r["critical_paths"][0]["path"][1]["type"] = "iologic"
+json.dump(r, open(p, "w"))
+PY
+probe "a hop class nothing classifies would move the split silently" 1 \
+  "is not one this" "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
+
+d=$(ecp5_fixture)
+ecp5_mutate "$d/ecp5.report.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+r = json.load(open(p))
+r["critical_paths"][0]["path"][1]["delay"] = 10.0
+json.dump(r, open(p, "w"))
+PY
+probe "a path that does not reconcile blames the script, not the design" 1 \
+  "but nextpnr publishes 40.00 MHz" \
+  "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
+
+# The one red direction the sixteen above cannot reach: every one of them assumes
+# the two files describe THIS run. nextpnr writes both only at the very end of
+# its flow, so a run that dies earlier -- killed, out of memory, unroutable, a
+# database it cannot load -- would leave the previous run's pair intact, coherent
+# with each other and with a tree that has since changed underneath them.
+#
+# Driven against the real Makefile rather than against a copy of the guard,
+# because a second copy of a three-line refusal is the shape this file exists to
+# catch. `-o soc-rom` is what keeps it hermetic: `ecp5.json` depends on that
+# phony target, so without it make would rebuild the netlist and want yosys and a
+# cross compiler for a file the stub never reads. Marking it old leaves
+# `ecp5.json` up to date and `ecp5.config` genuinely out of date, which is the
+# state a second run on a laptop is really in.
+ecp5_stale_fixture() {  # stdin = the stub nextpnr-ecp5's body, after --version
+  local d; d=$(new_case)
+  mkdir -p "$d/soc" "$d/formal" "$d/bin"
+  cp "$REPO/Makefile" "$d/Makefile"
+  cp "$REPO/formal/pin.mk" "$d/formal/"
+  cp "$REPO/soc/littlesoc.lpf" "$REPO/soc/ecp5_report.py" \
+     "$REPO/soc/print_toolchain.sh" "$d/soc/"
+  cp -R "$REPO/rtl" "$d/"
+  # The pair a previous, COMPLETE run left behind. Both are exactly what the
+  # parser accepts, which is the whole point: every refusal it has is satisfied
+  # by this pair, so only the recipe can tell it is not this run's.
+  cat > "$d/ecp5.config" <<'CFG'
+.device LFE5U-25F
+
+.comment Part: LFE5U-25F-6CABGA381
+CFG
+  cat > "$d/ecp5.report.json" <<'JSON'
+{
+  "fmax": {"$glbnet$clk$TRELLIS_IO_IN": {"achieved": 40.0, "constraint": 200.0}},
+  "utilization": {"DP16KD": {"available": 56, "used": 36}},
+  "critical_paths": [
+    {
+      "from": "posedge $glbnet$clk$TRELLIS_IO_IN",
+      "to": "posedge $glbnet$clk$TRELLIS_IO_IN",
+      "path": [
+        {"type": "clk-to-q", "delay": 5.0,
+         "from": {"cell": "stale.rom"}, "to": {"cell": "stale.rom"}},
+        {"type": "routing", "delay": 15.0,
+         "from": {"cell": "stale.rom"}, "to": {"cell": "stale.lut"}},
+        {"type": "logic", "delay": 5.0,
+         "from": {"cell": "stale.lut"}, "to": {"cell": "stale.ff"}}
+      ]
+    }
+  ]
+}
+JSON
+  cp "$d/ecp5.report.json" "$d/complete.json"
+  echo 'Info: a previous run' > "$d/ecp5.pnr.log"
+  # Dated rather than merely written first: what makes the recipe run is that
+  # `ecp5.json` is newer than the pair, and a stamp settles that without leaning
+  # on the filesystem's timestamp resolution.
+  touch -t 202001010000 "$d/ecp5.config" "$d/ecp5.report.json"
+  # `ecp5-timing-toolchain` asks both tools for a version before anything else
+  # runs, so both have to answer or a probe would go red before reaching the
+  # guard it is about.
+  printf '#!/bin/sh\necho "stub yosys"\n' > "$d/bin/yosys"
+  { echo '#!/bin/sh'
+    echo 'case "$1" in --version|-V) echo "stub nextpnr-ecp5"; exit 0;; esac'
+    cat
+  } > "$d/bin/nextpnr-ecp5"
+  chmod +x "$d/bin/yosys" "$d/bin/nextpnr-ecp5"
+  touch "$d/ecp5.json"
+  printf '%s' "$d"
+}
+
+ecp5_stale_run() {  # $1 = fixture dir
+  printf "cd '%s' && PATH='%s/bin':\$PATH make -o soc-rom ecp5-timing" "$1" "$1"
+}
+
+# Stands in for a COMPLETE run: writes both files and exits 1, which is what the
+# real nextpnr does every time it misses the pinned constraint. Without this
+# control, a fixture that simply failed to build would take the four below green
+# for a reason that has nothing to do with the guard.
+d=$(ecp5_stale_fixture <<'STUB'
+cat > ecp5.config <<CFG
+.device LFE5U-25F
+
+.comment Part: LFE5U-25F-6CABGA381
+CFG
+cp complete.json ecp5.report.json
+exit 1
+STUB
+)
+probe "control: a nextpnr that wrote its pair is graded, exit 1 and all" 0 \
+  "Fmax          : 40.00 MHz" "$(ecp5_stale_run "$d")"
+
+d=$(ecp5_stale_fixture <<< 'exit 1')
+probe "a nextpnr that died early is NOT graded on the last run's pair" 2 \
+  "so NOTHING was measured" "$(ecp5_stale_run "$d")"
+
+# `.DELETE_ON_ERROR` would remove `ecp5.config` on its own, because that one is a
+# make target. `ecp5.report.json` is not, so nothing but the recipe's own `rm`
+# takes it away -- and a report left behind is half a stale pair waiting for the
+# next run. Graded through a configuration written here, so that the parser gets
+# past its cheapest check and the missing report is what speaks.
+d=$(ecp5_stale_fixture <<< 'exit 1')
+probe "the REPORT goes too, which .DELETE_ON_ERROR cannot do for a non-target" 1 \
+  "does not exist, so NOTHING was" \
+  "$(ecp5_stale_run "$d") > /dev/null 2>&1; \
+   printf '.device LFE5U-25F\n\n.comment Part: LFE5U-25F-6CABGA381\n' > '$d/good.config'; \
+   python3 '$REPO/soc/ecp5_report.py' '$d/ecp5.report.json' '$d/good.config' \
+     --clock clk --part LFE5U-25F-6CABGA381 --constraint-mhz 200.0"
+
+d=$(ecp5_stale_fixture <<< ': > ecp5.config; exit 1')
+probe "a configuration truncated to nothing is caught, which test -e cannot be" 2 \
+  "so NOTHING was measured" "$(ecp5_stale_run "$d")"
+
+d=$(ecp5_stale_fixture <<< 'cp complete.json ecp5.config; exit 1')
+probe "a configuration written without its report is half a run, not a run" 2 \
+  "so NOTHING was measured" "$(ecp5_stale_run "$d")"
 
 begin_group "check-unit-benches"
 
