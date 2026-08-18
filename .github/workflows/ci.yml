@@ -372,6 +372,11 @@ jobs:
             echo "against \`FIT_MAX_LC\`, and it is in main's required set -- so a"
             echo "re-mapping that moves the count blocks a merge, which is why the"
             echo "budget is derived to clear a whole churn band."
+            echo "The \`#\` lines above the count are the toolchain that produced it,"
+            echo "from \`make fit-toolchain\`. They are the first thing \`make fit\`"
+            echo "prints, so a synthesis or placement that dies still records what"
+            echo "was running -- and \"did the tool move?\" is answerable from this"
+            echo "run rather than from a guess about which release CI resolved."
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
@@ -426,6 +431,11 @@ jobs:
             echo "logic/routing split. This job grades \`SOC_MIN_MHZ\`, which is"
             echo "the 12 MHz board clock rather than a margin under the last"
             echo "measurement (ADR-0066), and it is in main's required set."
+            echo "The \`#\` lines above the report are the toolchain that produced"
+            echo "it, from \`make soc-timing-toolchain\` -- the same three lines"
+            echo "\`soc/baseline_sweep.sh\` stamps a sweep with, so a placement here"
+            echo "and one in a sweep can be told apart from a toolchain that moved"
+            echo "under both."
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
