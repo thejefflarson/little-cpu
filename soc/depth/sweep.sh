@@ -6,7 +6,8 @@
 # A SPIKE. Nothing here is a gate, nothing here grades the shipping design, and
 # the memory it measures is functionally wrong on purpose -- see that script's
 # header. The output is a distribution to read against the churn bands (~3.6%
-# edit churn, 1-2% placement spread), not a single number.
+# edit churn, 4-9% placement spread -- CLAUDE.md is where both are stated), not a
+# single number.
 #
 # Two parts because neither one alone answers the question. up5k is the board and
 # carries `SOC_MIN_MHZ`; hx8k is where soc/compare/ put both cores side by side,

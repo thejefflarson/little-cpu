@@ -727,7 +727,11 @@ soc-rom:
 
 soc.json: $(SOC_SRCS) soc-rom
 	@echo 'yosys: synthesising littlesoc for ice40 (log: soc.synth.log)'
-	@yosys -p 'read_verilog -sv $(SOC_SRCS); synth_ice40 -dsp -spram -top littlesoc -json $@' \
+	@# `-device u` names the part abc9 times its LUT mapping against; the default is
+	@# `hx`, where a LUT level costs 3.6 carry hops against this part's 4.5. What it
+	@# is worth is a property of the netlist and not of the flag -- it has measured
+	@# +0.7% on one tree and -2.3% on another -- so re-sweep it, never assume it.
+	@yosys -p 'read_verilog -sv $(SOC_SRCS); synth_ice40 -device u -dsp -spram -top littlesoc -json $@' \
 	  > soc.synth.log 2>&1 || { tail -40 soc.synth.log; exit 1; }
 	@# rtl/memory.v maps to SPRAM only because its read port is no-change on a
 	@# write; the read-first spelling maps the same array to 148 `SB_RAM40_4K`
@@ -985,8 +989,10 @@ print-toolchain:
 # this target's numbers are not comparable to it.
 #
 # `COMPARE_CORE=littlecpu` (default) or `vexriscv`; `COMPARE_SEED=<n>` picks a
-# placement. soc/compare/sweep.sh runs both cores over four seeds each, which is
-# what a distribution needs.
+# placement. soc/compare/sweep.sh runs both cores over four seeds each by
+# default, which is a look at a distribution and not a verdict on one: the
+# placement spread CLAUDE.md records is 4-9% and a decision costs twelve to
+# sixteen.
 COMPARE_CORE  ?= littlecpu
 COMPARE_SEED  ?=
 # 4 KB of ROM (8 SB_RAM40_4K) and 2 KB of data RAM (4 more). Shrunk from the
