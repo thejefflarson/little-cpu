@@ -3,8 +3,10 @@
 same way.
 
 WORST, MEDIAN AND SPREAD, NEVER A MEAN. `make soc-timing` has a ~3.6% edit-churn
-band and a 1-2% placement spread, so one placement is a sample and the tail is
-the part a requirement is read against.
+band and a 4-9% placement spread on an unchanged netlist -- CLAUDE.md states
+both and nothing here carries a figure of its own -- so one placement is a
+sample and the tail is the part a requirement is read against. Sixteen
+placements a side is what a spread that wide costs to see.
 
 THE REFUSAL IS THE POINT OF THIS SCRIPT. Two sweeps taken on different trees, or
 by different toolchains, do not have a difference: the number subtracting them
@@ -174,7 +176,8 @@ def delta(first, second):
         change = 100 * (after[label] - before[label]) / before[label]
         print(f"  {label:8s}: {before[label]:6.2f} -> {after[label]:6.2f} ns  {change:+.1f}%")
     print("  A positive number is slower. Read both against the ~3.6% edit-churn")
-    print("  band and the 1-2% placement spread before calling either a change.")
+    print("  band and the 4-9% placement spread before calling either a change,")
+    print("  and read the paired per-seed column before either of those.")
 
 
 def main():

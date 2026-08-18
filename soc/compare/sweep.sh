@@ -6,10 +6,11 @@
 #   COMPARE_SEEDS='default 1 2 3 4 5' soc/compare/sweep.sh
 #   COMPARE_CORES=vexriscv soc/compare/sweep.sh # one side only
 #
-# One placement is a sample. `make soc-timing`'s spread on the up5k is 1-2% and
-# its edit churn 3.6%; nothing says the hx8k is tighter, so a claim about which
-# of two cores is faster needs a distribution on both sides and is read on the
-# worst placement of each.
+# One placement is a sample. `make soc-timing`'s spread on the up5k is 4-9% and
+# its edit churn 3.6% -- CLAUDE.md states both -- and nothing says the hx8k is
+# tighter, so a claim about which of two cores is faster needs a distribution on
+# both sides and is read on the worst placement of each. Four seeds is a look;
+# twelve to sixteen is what a verdict costs.
 #
 # `make` is deliberately NOT in a pipeline, for the reason soc/timing_sweep.sh
 # records: the default shell is errexit without pipefail, so a graded command
