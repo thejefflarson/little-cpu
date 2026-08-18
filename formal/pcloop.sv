@@ -223,11 +223,14 @@ module pcloop (
   // needs the bus to write back. So it reads `decoder_out`, which is a port of
   // the instance and not a reach-in. Wider than the decoder's own term, which
   // also requires the divide to be over.
+  //
+  // The published bit rather than the nine functions ORed together here. This is
+  // a `prove`, so an induction step may start in a state where the two disagree,
+  // and there the decoder waits for a cycle this excuse does not cover -- while
+  // rtl/decoder.v's own proof is what says they cannot disagree in a reachable
+  // one.
   logic f_amo_wait;
-  assign f_amo_wait = decoder_out.valid &&
-      (decoder_out.is_amoswap || decoder_out.is_amoadd || decoder_out.is_amoxor ||
-       decoder_out.is_amoand  || decoder_out.is_amoor  || decoder_out.is_amomin ||
-       decoder_out.is_amomax  || decoder_out.is_amominu || decoder_out.is_amomaxu);
+  assign f_amo_wait = decoder_out.valid && decoder_out.is_amo;
 
   assign f_may_stall = divider_stall || fetch_stall ||
       f_live_rs1 || f_live_rs2 || f_system || f_fencei || f_operand_fetch ||

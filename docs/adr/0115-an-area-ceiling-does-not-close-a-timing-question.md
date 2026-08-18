@@ -31,9 +31,12 @@ hypothetical:
   **The correction costs nothing in cells**, which is exactly why every ceiling taken over that
   block missed it.
 - **`rtl/writeback.v`** masked `waddr` and `wdata` with `wen`, which all four consumers in
-  `rtl/regfile.v` already test. Redundant — and *not* free, because the bypass mux it feeds had
-  already spent four LUT inputs, so ABC had nowhere to fold the AND. It sat at the head of the
-  second fetch loop.
+  `rtl/regfile.v` already test. Redundant, and it does survive DCE, because the bypass mux it feeds
+  had already spent four LUT inputs so ABC had nowhere to fold the AND. **This ADR then treated that
+  as a reason to delete it, and the measurement says otherwise**: removing the masks is +2.83% of
+  median period and **11.89 MHz at the worst of sixteen seeds**, under the board clock, for 32 cells
+  (ADR-0117). They stay. The mechanism above is confirmed and the inference from it was wrong —
+  finding a redundant term on a path says it is a candidate, not that removing it is a win.
 - **`rtl/decoder.v` presented a register pair decoded from a data word** on a stolen-fetch cycle,
   which `operand_stall` then correctly refused, costing a second bubble on every load or store into
   the text range.
