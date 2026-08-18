@@ -2,6 +2,11 @@
 `default_nettype none
 `include "structs.v"
 module littlecpu #(
+  // This hart's mhartid, handed straight to rtl/csrs.v. Nothing else in the
+  // core reads it: it is a self-description register, so a wrong value changes
+  // no cycle and no retire, and test/csr_tb.v is the only place the read is
+  // graded away from the default.
+  parameter logic [31:0] HART_ID = 32'd0,
   // The data bus's memory map, read by the load/store locality counters under
   // `RISCV_FORMAL` at the bottom of this file and by nothing else: no port of
   // this module and no cycle of the datapath depends on any of it. The RAM's
@@ -251,7 +256,7 @@ module littlecpu #(
     .out(decoder_out)
   );
 
-  csrs csrs(
+  csrs #(.HART_ID(HART_ID)) csrs(
     .clk(clk),
     .reset(reset),
     .addr(csr_addr),
