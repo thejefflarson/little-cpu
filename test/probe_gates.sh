@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=312
+PROBES_EXPECTED=317
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -225,6 +225,34 @@ STUB
   chmod +x "$1"
 }
 
+# Three ways a tool answers when soc/print_toolchain.sh asks it for a version.
+# Stubs rather than the real toolchain: the two red ones are what a broken
+# install does, and no probe here may need yosys or nextpnr to be present.
+make_version_stubs() {  # $1 = bin dir
+  local bin=$1
+  mkdir -p "$bin"
+  cat > "$bin/goodtool" <<'STUB'
+#!/bin/sh
+# The control: answers --version the way every tool in the real toolchain does.
+echo "GoodTool 1.2.3"
+STUB
+  cat > "$bin/mutetool" <<'STUB'
+#!/bin/sh
+# Succeeds having printed nothing, which a stamp built from the first line alone
+# would record as this toolchain's version.
+exit 0
+STUB
+  cat > "$bin/brokentool" <<'STUB'
+#!/bin/sh
+# The case the refusal was written for, and it is live: the Homebrew
+# nextpnr-ice40 on one machine here answers --version with a dynamic-linker
+# error, which is a non-empty first line under a nonzero status.
+echo "dyld: Symbol not found: __ZN5boost15program_options3argE" >&2
+exit 1
+STUB
+  chmod +x "$bin/goodtool" "$bin/mutetool" "$bin/brokentool"
+}
+
 # `leg-rt` / `leg-rc` are scratch copies of the two suite runners, because each
 # resolves its helper scripts relative to its own path.
 mkdir -p "$tmp/bin-none" "$tmp/bin-curl" "$tmp/leg-rt" "$tmp/leg-rc" "$tmp/leg-rc-nopy"
@@ -251,6 +279,7 @@ rm "$tmp/bin-noobjcopy/riscv64-elf-objcopy"
 make_sim_stub "$tmp/sim"
 make_sail_stub "$tmp/sail"
 make_curl_stub "$tmp/bin-curl/curl"
+make_version_stubs "$tmp/bin-tools"
 make_cosim_bin_stub "$tmp/dut"
 cp "$HERE/run_tests.sh" "$HERE/check_suite_shape.sh" "$HERE/stall_report.py" "$tmp/leg-rt/"
 cp "$HERE/run_cosim.sh" "$HERE/check_suite_shape.sh" "$tmp/leg-rc/"
@@ -1091,6 +1120,41 @@ begin_group "soc/baseline_sweep.sh"
 # asked for none.
 probe "an empty seed list stops the sweep instead of placing the default" 2 \
   "SOC_SEEDS is empty" "SOC_SEEDS= sh $REPO/soc/baseline_sweep.sh"
+
+begin_group "soc/print_toolchain.sh"
+
+# The stamp `make fit`, `make soc-timing` and the sweep above all print. What is
+# forced red here is the refusal: a tool that cannot be asked has to stop the
+# run rather than be recorded as whatever it said, because a version nobody can
+# reproduce reads exactly like one anybody can and the number underneath it is
+# graded against a ratchet.
+#
+# The script is reached by its own path and its shebang rather than through an
+# interpreter on PATH, because the PATH set here is the fixture: it holds the
+# three stubs and the utilities the script itself runs, and nothing else.
+PT="PATH='$tmp/bin-tools:$tmp/bin-none' $REPO/soc/print_toolchain.sh"
+
+probe "control: a tool that answers is stamped with its version and its path" 0 \
+  "# goodtool: GoodTool 1.2.3 [$tmp/bin-tools/goodtool]" "$PT goodtool"
+
+probe "a tool that prints nothing is refused, not stamped blank" 1 \
+  "printed no version string" "$PT mutetool"
+
+probe "a tool that exits nonzero while printing is refused on its status" 1 \
+  "could not be asked for its version" "$PT brokentool"
+
+# Whether the good tool's line survives the refusal, not merely whether the exit
+# status did: a short block spliced into a CSV header or a step summary looks
+# exactly like a whole one.
+pt_partial() {
+  local said
+  said=$(eval "$PT goodtool brokentool" 2> /dev/null) || true
+  printf 'stdout=%s\n' "${said:-empty}"
+}
+probe "one red tool leaves no partial stamp on stdout" 0 "stdout=empty" pt_partial
+
+probe "a tool that is not installed names itself rather than the list" 1 \
+  "no nosuchtool on PATH" "$PT nosuchtool"
 
 begin_group "soc/routing_bins.py"
 

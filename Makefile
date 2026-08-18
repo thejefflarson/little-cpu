@@ -650,9 +650,20 @@ FIT_MAX_LC := 4088
 # job's count, so a local run prints the gap between the instruments as well.
 FIT_LAST_LC := 3966
 
+# The two tools this number is a property of. icetime is not among them: this
+# top never places, so nothing here reads a `.asc`.
+FIT_TOOLS := yosys nextpnr-ice40
+
+.PHONY: fit-toolchain
+fit-toolchain:
+	@soc/print_toolchain.sh $(FIT_TOOLS)
+
+# The stamp is a prerequisite rather than the recipe's first line so that it is
+# printed before yosys runs: a synthesis that dies, a placement that dies and a
+# tripped ratchet then all leave a run that says which toolchain produced them.
 .PHONY: fit
-fit: fit.json
-	@nextpnr-ice40 --up5k --package sg48 --json $< --pcf-allow-unconstrained \
+fit: fit-toolchain fit.json
+	@nextpnr-ice40 --up5k --package sg48 --json fit.json --pcf-allow-unconstrained \
 	  > fit.log 2>&1 || true
 	@python3 soc/fit_report.py fit.log --max-lc $(FIT_MAX_LC) --previous $(FIT_LAST_LC)
 
@@ -771,8 +782,15 @@ soc.asc: soc.json soc/littlesoc.pcf
 # clock.
 SOC_MIN_MHZ := 12.0
 
+# All three, unlike `fit`: this flow places and then reads the placement back.
+SOC_TIMING_TOOLS := yosys nextpnr-ice40 icetime
+
+.PHONY: soc-timing-toolchain
+soc-timing-toolchain:
+	@soc/print_toolchain.sh $(SOC_TIMING_TOOLS)
+
 .PHONY: soc-timing
-soc-timing: soc.asc
+soc-timing: soc-timing-toolchain soc.asc
 	@sed -n '/^Info: Device utilisation:/,/^$$/s/^Info: //p' soc.pnr.log
 	@grep -E "Max frequency for clock .*'clk" soc.pnr.log | tail -1 \
 	  | sed -e 's/^Info: /nextpnr /' -e 's/^ERROR: /nextpnr /'
@@ -801,6 +819,21 @@ soc-timing: soc.asc
 # were not built from the moment either one moves.
 print-%:
 	@echo '$($*)'
+
+# Which toolchain a graded number was measured with; soc/print_toolchain.sh
+# carries why that has to travel with the number.
+#
+# Every tool list is a variable here and never a second copy in the workflow:
+# the `elaborate` job spelled a source list out in YAML once, it drifted from
+# this file's, and the gate spent a run elaborating a testbench whose memory
+# instances resolved to nothing. `fit-toolchain` and `soc-timing-toolchain` are
+# the two graded flows' own lists and are what those jobs print; this target
+# takes any list, and defaults to every tool either of them grades.
+TOOLS ?= $(sort $(FIT_TOOLS) $(SOC_TIMING_TOOLS))
+
+.PHONY: print-toolchain
+print-toolchain:
+	@soc/print_toolchain.sh $(TOOLS)
 
 # ---- the cross-core comparison harness -------------------------------------
 #
