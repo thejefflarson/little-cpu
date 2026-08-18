@@ -18,7 +18,22 @@
 // anywhere it likes on any cycle -- including the cycle after a trap.
 `default_nettype none
 
-module traps (
+module traps #(
+    // The data bus's map: the addresses at which some memory on it answers a
+    // plain load or store. rtl/memory.v's and rtl/timer.v's own parameter
+    // defaults and the text window rtl/littlesoc.v gives its `imemory`,
+    // restated here because a module cannot read another module's parameters;
+    // test/memmap_test.sh is what compares the copies.
+    //
+    // It is a map here and a port for an atomic because that is how the core
+    // is built: the platform answers about an atomic's address on
+    // `atomic_supported`, and about a plain load's or store's it is never
+    // asked. So the model is the only place that question has an answer.
+    parameter integer      LS_TEXT_WORDS = 2048,
+    parameter logic [31:0] LS_RAM_BASE   = 32'h0001_0000,
+    parameter integer      LS_RAM_WORDS  = 16384,
+    parameter logic [31:0] LS_TIMER_BASE = 32'h0002_0000
+) (
     input logic clk,
     input logic reset,
     input logic [31:0] imem_data,
@@ -33,9 +48,10 @@ module traps (
     // `branch_jump` names the trap it raises.
     input logic imem_fault,
     // The platform's answer about the address an atomic in decode would use.
-    // Free, like the fetch bus's refusal: this file models no address map, and
-    // the two causes it decides are asserted below against the encodings the ISA
-    // fixes rather than against a map.
+    // Free, like the fetch bus's refusal, so the two causes it decides are
+    // asserted below against the encodings the ISA fixes rather than against
+    // the map above. That map is about a plain load or store instead, an
+    // access the core asks the platform nothing about.
     input logic atomic_supported,
     input logic accessor_out_valid,
     // The platform's timer line, free every cycle. rtl/csrs.v decides what to
@@ -228,6 +244,42 @@ module traps (
   assign sw_misaligned = is_store_op && funct3 == 3'b010 && store_addr[1:0] != 2'b00;
   assign sh_misaligned = is_store_op && funct3 == 3'b001 && store_addr[0];
 
+  // Which of those addresses a memory answers. Three ranges compared against
+  // the whole sum, not the window equalities rtl/{imemory,memory,timer}.v
+  // reduce them to: nothing in a model is timed, so it may add the immediate to
+  // rs1 and wait for the carry out of the top, which is exactly what the core
+  // cannot afford in the cycle it chooses the next pc.
+  localparam logic [31:0] LS_TEXT_TOP  = LS_TEXT_WORDS * 4;
+  localparam logic [31:0] LS_RAM_TOP   = LS_RAM_BASE + LS_RAM_WORDS * 4;
+  // rtl/timer.v's four words.
+  localparam logic [31:0] LS_TIMER_TOP = LS_TIMER_BASE + 32'd16;
+
+  // Selected here rather than added here: each sum above is a self-determined
+  // signed statement and stays one. Every reader below is an opcode test, so
+  // the arm this picks for anything else is not read.
+  logic [31:0] data_addr;
+  logic        data_mapped;
+  assign data_addr = is_store_op ? store_addr : load_addr;
+  assign data_mapped = data_addr < LS_TEXT_TOP ||
+                       (data_addr >= LS_RAM_BASE && data_addr < LS_RAM_TOP) ||
+                       (data_addr >= LS_TIMER_BASE && data_addr < LS_TIMER_TOP);
+
+  // The eight plain load and store encodings. The other three funct3 values of
+  // each opcode are not instructions in RV32 and are left out for the reason the
+  // list here is small: this core may call them illegal, and a model must not
+  // hold an opinion about the cause of an encoding it does not recognise.
+  logic is_load, is_store;
+  assign is_load  = is_load_op && (funct3 == 3'b000 || funct3 == 3'b001 ||
+                                   funct3 == 3'b010 || funct3 == 3'b100 || funct3 == 3'b101);
+  assign is_store = is_store_op && (funct3 == 3'b000 || funct3 == 3'b001 || funct3 == 3'b010);
+
+  // A plain load or store at an address no memory answers. Misalignment
+  // outranks the region, the order the atomic term states, so the four data
+  // causes stay disjoint.
+  logic load_region_fault, store_region_fault;
+  assign load_region_fault  = is_load  && !data_mapped && !lw_misaligned && !lh_misaligned;
+  assign store_region_fault = is_store && !data_mapped && !sw_misaligned && !sh_misaligned;
+
   // The A encodings, read off the ISA's table rather than off the decoder's
   // flags. An atomic's effective address is rs1: funct5, aq, rl and rs2 occupy
   // the bits an I-immediate would come from, so there is no immediate to add.
@@ -265,10 +317,11 @@ module traps (
 
   // The order is illegal, breakpoint, environment call, load misaligned, store
   // misaligned, load access fault, store access fault. No two of the terms above
-  // can hold at once -- a reserved opcode is not a load, and an atomic the
-  // platform refuses is aligned by construction -- so the chain states the order
-  // rather than resolving anything. Make two causes overlap and this is what
-  // decides which one the core is allowed to report.
+  // can hold at once -- a reserved opcode is not a load, an atomic the platform
+  // refuses is aligned by construction, and a plain load or store is neither --
+  // so the chain states the order rather than resolving anything. Make two
+  // causes overlap and this is what decides which one the core is allowed to
+  // report.
   logic expected_trap;
   logic [31:0] expected_cause;
   assign expected_trap = is_illegal || is_ebreak || is_ecall ||
@@ -280,19 +333,36 @@ module traps (
     else if (is_ecall) expected_cause = CAUSE_ECALL_M;
     else if (lw_misaligned || lh_misaligned) expected_cause = CAUSE_LOAD_MIS;
     else if (sw_misaligned || sh_misaligned) expected_cause = CAUSE_STORE_MIS;
+    else if (load_region_fault) expected_cause = CAUSE_LOAD_FAULT;
+    else if (store_region_fault) expected_cause = CAUSE_STORE_FAULT;
     else if (is_lr) expected_cause = CAUSE_LOAD_FAULT;
     else expected_cause = CAUSE_STORE_FAULT;
   end
 
+  // Whether a trap is required and what its cause must be are two questions,
+  // and the two region terms answer only the second. An address no memory
+  // answers is read as zero and a store to one is dropped: this core does not
+  // fault there, the privileged spec only recommends that it should, and
+  // requiring the trap here would state a decision this platform has not taken.
+  // Requiring the CAUSE costs nothing while that holds and is what a core that
+  // does fault has to agree with -- which is the half every prototype of it has
+  // had to write for itself.
+  logic cause_modelled;
+  assign cause_modelled = expected_trap || load_region_fault || store_region_fault;
+
   // The other direction. Without these a core that trapped on everything would
-  // satisfy most of this file. The last one is the half that keeps the region
-  // decode honest: an atomic at an address the platform DOES answer executes,
-  // so a core that faulted all eleven would not pass here.
+  // satisfy most of this file. The last three are the half that keeps a region
+  // decode honest: an access at an address the platform DOES answer executes,
+  // so a core that faulted every atomic, or every load past some line it drew
+  // for itself, would not pass here. `data_mapped` is what a load and a store
+  // are excused by, and it is the reason those two lines can be narrowed
+  // without narrowing what they say -- an aligned `lw` the map answers still
+  // must not trap.
   logic must_not_trap;
   assign must_not_trap =
       (uncompressed && opcode == 5'b01100 && instr[31:25] == 7'b0 && funct3 == 3'b000) ||
-      (is_load_op && funct3 == 3'b010 && load_addr[1:0] == 2'b00) ||
-      (is_store_op && funct3 == 3'b010 && store_addr[1:0] == 2'b00) ||
+      (is_load_op && funct3 == 3'b010 && load_addr[1:0] == 2'b00 && data_mapped) ||
+      (is_store_op && funct3 == 3'b010 && store_addr[1:0] == 2'b00 && data_mapped) ||
       (is_atomic && atomic_supported && atomic_word_aligned);
 
   // mstatus changes on three edges and no others: a write to it, a trap and an
@@ -323,7 +393,7 @@ module traps (
   logic [31:0] past_pc, prev_mtvec, prev_mepc, prev_rdata, prev_cause;
   logic [11:0] prev_csr_addr;
   logic prev_reset, prev_trap_entry, prev_mret_entry, prev_csr_wen;
-  logic prev_expected_trap, prev_counter_ticking, prev_written_by_trap;
+  logic prev_cause_modelled, prev_counter_ticking, prev_written_by_trap;
   logic prev_mstatus_addressed, prev_mstatus_static;
   logic prev_interrupt_pending, prev_interrupt_entry, prev_imem_fault;
   logic [31:0] prev2_rdata;
@@ -339,7 +409,7 @@ module traps (
     prev_trap_entry        <= trap_entry;
     prev_mret_entry        <= mret_entry;
     prev_cause             <= expected_cause;
-    prev_expected_trap     <= expected_trap;
+    prev_cause_modelled    <= cause_modelled;
     prev_counter_ticking   <= counter_ticking;
     prev_written_by_trap   <= csr_written_by_trap;
     prev_mstatus_addressed <= mstatus_addressed;
@@ -406,7 +476,7 @@ module traps (
   // earlier: a word the memory never supplied has no cause of its own, and the
   // instruction access fault is what mcause holds instead.
   always_comb if (settled && prev_trap_entry && !prev_interrupt_pending &&
-                  !prev_imem_fault && prev_expected_trap && csr_addr == MCAUSE)
+                  !prev_imem_fault && prev_cause_modelled && csr_addr == MCAUSE)
     assert(csr_rdata == prev_cause);
 
   // ...and that is the cause it holds. The two together are the whole of what a
