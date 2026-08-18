@@ -444,7 +444,9 @@ module traps (
            !decoder_out.is_lhu && !decoder_out.is_lw);
     assert(!decoder_out.is_sb && !decoder_out.is_sh && !decoder_out.is_sw);
     // The eleven too, which is what says a refused atomic issues no transaction
-    // rather than faulting and reading the address anyway.
+    // rather than faulting and reading the address anyway. The published AMO bit
+    // with them: it is what rtl/accessor.v starts the read-modify-write from.
+    assert(!decoder_out.is_amo);
     assert(!decoder_out.is_amoswap && !decoder_out.is_amoadd && !decoder_out.is_amoxor &&
            !decoder_out.is_amoand && !decoder_out.is_amoor && !decoder_out.is_amomin &&
            !decoder_out.is_amomax && !decoder_out.is_amominu && !decoder_out.is_amomaxu &&
