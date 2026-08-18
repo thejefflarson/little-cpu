@@ -19,7 +19,8 @@
 # back, and it would otherwise be invisible.
 #
 # The rest cannot share a parameter, because they are C++, linker scripts,
-# assembly and make. For those a comparison is the only instrument left.
+# assembly, make -- and one SystemVerilog module that instantiates no memory at
+# all. For those a comparison is the only instrument left.
 #
 # Hermetic: grep, sed and shell arithmetic. No toolchain, no simulator, no
 # yosys, so this runs inside `make test` anywhere.
@@ -51,9 +52,9 @@ need() {
   fi
 }
 
-for f in rtl/memory.v rtl/timer.v rtl/imemory.v rtl/littlesoc.v test/testbench.v \
+for f in rtl/memory.v rtl/timer.v rtl/imemory.v rtl/littlecpu.v rtl/littlesoc.v test/testbench.v \
          test/cxxrtl.cc test/cosim.cc test/asm/riscv_test.h test/asm/sections.lds \
-         test/asm/boot.lds test/bench/bench.lds Makefile; do
+         test/asm/boot.lds test/bench/bench.lds formal/traps.sv Makefile; do
   need "$f"
 done
 
@@ -278,6 +279,87 @@ rtl/littlesoc.v's $SOC_ROM_WORDS_RTL. The harness is allowed to be larger --
 simulation has no block RAM to run out of, and rvc.S needs it -- but never
 smaller, or a program the part can hold would fail in simulation."
 fi
+
+# ---- 8. the core's own copy ------------------------------------------------
+#
+# rtl/littlecpu.v restates the map for its load/store locality counters, because
+# a module cannot read another module's parameters. Nothing in the datapath
+# reads it, so a copy that drifted would not fail anything -- it would go on
+# counting accesses against a machine that does not exist, which is a measurement
+# that is wrong rather than absent.
+
+CPU_RAM_BASE=$(hex_param rtl/littlecpu.v LS_RAM_BASE)
+CPU_RAM_WORDS=$(int_param rtl/littlecpu.v LS_RAM_WORDS)
+CPU_TIMER_BASE=$(hex_param rtl/littlecpu.v LS_TIMER_BASE)
+CPU_TEXT_WORDS=$(int_param rtl/littlecpu.v LS_TEXT_WORDS)
+
+cpu_copy() {  # $1 = what, $2 = the core's copy, $3 = the memory's, $4 = whose
+  if [ "$2" -ne "$3" ]; then
+    fail "rtl/littlecpu.v's $1 is $2 against $4's $3. The core's copy of the map
+decides which accesses \`make cycles\` reports as near a region edge, so a
+drifted one answers about a machine neither file describes."
+  fi
+}
+
+cpu_copy LS_RAM_BASE   "$CPU_RAM_BASE"   "$RAM_BASE"   rtl/memory.v
+cpu_copy LS_RAM_WORDS  "$CPU_RAM_WORDS"  "$RAM_WORDS"  rtl/memory.v
+cpu_copy LS_TIMER_BASE "$CPU_TIMER_BASE" "$TIMER_BASE" rtl/timer.v
+# The default is what every harness that does not state a ROM size gets --
+# formal/wrapper.v, soc/compare/bench_littlecpu.v -- so it is the part's.
+cpu_copy LS_TEXT_WORDS "$CPU_TEXT_WORDS" "$SOC_ROM_WORDS_RTL" rtl/littlesoc.v
+
+# The text window is the one part of the map an integrator states, because the
+# harness simulates a larger ROM than the part has. Compared as the TEXT each
+# file passes rather than as a number: in test/testbench.v both are the same
+# localparam, and a check that resolved it would stop being able to say so. Each
+# of these two names appears on exactly one instantiation in either file.
+named_param() {  # $1 = file, $2 = parameter name
+  sed -nE "s/.*\.$2\(([^)]*)\).*/\1/p" "$REPO/$1" | head -1
+}
+
+for f in rtl/littlesoc.v test/testbench.v; do
+  rom=$(named_param "$f" ROM_WORDS)
+  text=$(named_param "$f" LS_TEXT_WORDS)
+  if [ -z "$rom" ] || [ -z "$text" ]; then
+    echo "error: $f names no .ROM_WORDS or no .LS_TEXT_WORDS. This file sizes" >&2
+    echo "its own ROM and has to hand the core the same size; if the spelling" >&2
+    echo "changed, teach this check the new one rather than dropping it." >&2
+    exit 1
+  fi
+  if [ "$rom" != "$text" ]; then
+    fail "$f gives its \`imemory\` $rom words of ROM and tells the core the text
+window is $text. The core counts an access near the top of text against the
+second, and the memory answers according to the first."
+  fi
+done
+
+# ---- 9. the trap proof's copy ----------------------------------------------
+#
+# formal/traps.sv models a load or store access fault, so it needs to know which
+# addresses a memory here answers -- and no port of the core carries that, so it
+# restates the map. Nothing else reads its copy, which is why a drifted one is
+# silent: the proof would go on passing, having excused the wrong accesses from
+# `must_not_trap` and demanded causes 5 and 7 for a machine no file describes.
+
+TRAPS_RAM_BASE=$(hex_param formal/traps.sv LS_RAM_BASE)
+TRAPS_RAM_WORDS=$(int_param formal/traps.sv LS_RAM_WORDS)
+TRAPS_TIMER_BASE=$(hex_param formal/traps.sv LS_TIMER_BASE)
+TRAPS_TEXT_WORDS=$(int_param formal/traps.sv LS_TEXT_WORDS)
+
+traps_copy() {  # $1 = what, $2 = the proof's copy, $3 = the memory's, $4 = whose
+  if [ "$2" -ne "$3" ]; then
+    fail "formal/traps.sv's $1 is $2 against $4's $3. That copy decides which
+addresses the trap proof excuses from \`must_not_trap\`, so a drifted one proves
+something about a machine neither file describes."
+  fi
+}
+
+traps_copy LS_RAM_BASE   "$TRAPS_RAM_BASE"   "$RAM_BASE"   rtl/memory.v
+traps_copy LS_RAM_WORDS  "$TRAPS_RAM_WORDS"  "$RAM_WORDS"  rtl/memory.v
+traps_copy LS_TIMER_BASE "$TRAPS_TIMER_BASE" "$TIMER_BASE" rtl/timer.v
+# The part's text window, not the harness's larger simulated one: the proof has
+# no imemory in it to size, so what it describes is the machine that ships.
+traps_copy LS_TEXT_WORDS "$TRAPS_TEXT_WORDS" "$SOC_ROM_WORDS_RTL" rtl/littlesoc.v
 
 if [ "$rc" -ne 0 ]; then
   echo >&2

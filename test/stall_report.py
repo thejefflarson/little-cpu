@@ -27,6 +27,13 @@ caller's to say, in `--workload`, and it is printed next to the number because
 that is where it will be read. `make cycles` runs the hand-written assembly
 suite; `make dhrystone` runs compiled code and the two sentences are not
 interchangeable.
+
+THE LOCALITY LINE UNDER THE TABLE IS NOT CYCLES. Its three fields count issuing
+loads and stores, not the cycles they took, so they belong to no column and are
+totalled separately. What they are for is in rtl/littlecpu.v, where they are
+counted; what is checked here is that neither subset exceeds the set it is a
+subset of, which is the one way a runner and this script can disagree about
+which cycles were counted and still print a plausible rate.
 """
 
 import argparse
@@ -60,7 +67,18 @@ HEADINGS = {
     "operand": "OPERAND",
     "fetch": "FETCH",
 }
-REQUIRED = ["cycles", "issue", "retires", "unattributed"] + REASONS
+# The load/store locality counters, in the order the line below prints them:
+# every issuing load and store, then the two subsets. Required like every other
+# field rather than optional -- a counter that stopped being printed would take
+# its line out of the report with nothing to say so, which is the same silence
+# the missing-field check above exists for.
+LS_ISSUES = "lsissue"
+LS_SUBSETS = {
+    "lsedge": "with rs1 within 2 KB of a mapped-region edge",
+    "lsbypass": "issuing on a write-through to rs1",
+}
+REQUIRED = (["cycles", "issue", "retires", "unattributed"] + REASONS +
+            [LS_ISSUES] + list(LS_SUBSETS))
 
 
 def parse(path):
@@ -128,6 +146,18 @@ def main():
         if parts != counts["cycles"]:
             broken.append(f"  {name}: columns sum to {parts}, cycles is {counts['cycles']}")
 
+    # Per program for the same reason, and the same way round: a subset counted
+    # over a wider set of cycles than its denominator is how the two counters
+    # come apart, and over the suite one program's excess hides in another's
+    # slack.
+    ls_broken = [
+        f"  {name}: {key} is {counts[key]} against {counts[LS_ISSUES]} issuing "
+        f"loads and stores"
+        for name, counts in rows
+        for key in LS_SUBSETS
+        if counts[key] > counts[LS_ISSUES]
+    ]
+
     width = max(len(name) for name, _ in rows)
     header = f"{'PROGRAM':<{width}} {'CYCLES':>8} {'RETIRED':>8} {'CPI':>6} {'ISSUE':>8}"
     header += "".join(f"{HEADINGS[r]:>9}" for r in REASONS)
@@ -175,6 +205,20 @@ def main():
         f"{share(total[biggest])} of all cycles and "
         f"{100 * total[biggest] / stalled:.1f}% of the stalled ones."
     )
+    issues = total[LS_ISSUES]
+    print()
+    print(f"{issues} of those instructions were loads or stores. Of them:")
+    for key, what in LS_SUBSETS.items():
+        # Not `share()` above: that one is a share of CYCLES, and these are a
+        # share of the accesses. Reusing it would divide by the wrong total.
+        of_issues = f"{100 * total[key] / issues:.1f}%" if issues else "-"
+        print(f"  {total[key]} ({of_issues}) {what}.")
+    print(
+        "Both are properties of where this workload keeps its data, not of the\n"
+        "core: the first is what a load/store region test answered from rs1\n"
+        "alone would stall on, and the second what a precomputed answer would\n"
+        "have to be recomputed for."
+    )
     print()
     print(args.workload)
     print()
@@ -194,6 +238,16 @@ def main():
             + "\n*** Every cycle is charged to exactly one column by the runner,\n"
             "*** so this is a field name that has drifted between test/cxxrtl.cc\n"
             "*** and this script, not a slower core."
+        )
+
+    if ls_broken:
+        sys.exit(
+            "\n*** a load/store locality counter is larger than the number of\n"
+            "*** issuing loads and stores it counts a subset of:\n"
+            + "\n".join(ls_broken)
+            + "\n*** All three are incremented on the same cycles by\n"
+            "*** rtl/littlecpu.v, so this is a counter reading a different\n"
+            "*** event than the one it is named for, not a workload."
         )
 
     if total["unattributed"]:

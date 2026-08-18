@@ -1,7 +1,21 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
 `include "structs.v"
-module littlecpu(
+module littlecpu #(
+  // The data bus's memory map, read by the load/store locality counters under
+  // `RISCV_FORMAL` at the bottom of this file and by nothing else: no port of
+  // this module and no cycle of the datapath depends on any of it. The RAM's
+  // base and size and the timer's base are rtl/memory.v's and rtl/timer.v's own
+  // parameter defaults, restated here because a module cannot read another
+  // module's parameters; test/memmap_test.sh is what compares the two copies.
+  // The text window's size is the integrator's, because the simulated machine's
+  // ROM is deliberately larger than the part's -- so each integrator hands this
+  // the same number it hands its `imemory`.
+  parameter integer      LS_TEXT_WORDS = 2048,
+  parameter logic [31:0] LS_RAM_BASE   = 32'h0001_0000,
+  parameter integer      LS_RAM_WORDS  = 16384,
+  parameter logic [31:0] LS_TIMER_BASE = 32'h0002_0000
+) (
   input  logic clk,
   input  logic reset,
   output logic [31:0] imem_addr,
@@ -103,6 +117,26 @@ module littlecpu(
   `endif
   `endif //  `ifdef RISCV_FORMAL
   );
+  // The shapes rtl/imemory.v, rtl/memory.v and rtl/timer.v each refuse to
+  // elaborate at, restated at the site that copies their map. A window that is
+  // not a power of two on its own boundary is one no memory here implements, and
+  // the block arithmetic below would go on classifying addresses against it
+  // without a word. `make window-test` forces all four of these.
+  localparam int LS_TEXT_ADDR_BITS = $clog2(LS_TEXT_WORDS);
+  localparam int LS_RAM_ADDR_BITS  = $clog2(LS_RAM_WORDS);
+  if (LS_TEXT_WORDS != (1 << LS_TEXT_ADDR_BITS)) begin : l_ls_text_words_power_of_two
+    $fatal(1, "littlecpu: LS_TEXT_WORDS must be a power of two");
+  end
+  if (LS_RAM_WORDS != (1 << LS_RAM_ADDR_BITS)) begin : l_ls_ram_words_power_of_two
+    $fatal(1, "littlecpu: LS_RAM_WORDS must be a power of two");
+  end
+  if (|LS_RAM_BASE[LS_RAM_ADDR_BITS+1:0]) begin : l_ls_ram_base_aligned
+    $fatal(1, "littlecpu: LS_RAM_BASE must be aligned to LS_RAM_WORDS words");
+  end
+  if (|LS_TIMER_BASE[3:0]) begin : l_ls_timer_base_aligned
+    $fatal(1, "littlecpu: LS_TIMER_BASE must be 16-byte aligned");
+  end
+
   // Declared up here rather than next to the module that drives each one. Later
   // stages feed signals back to earlier ones, so each of these is read by a
   // module written above its driver, and iverilog wants the name first.
@@ -165,6 +199,12 @@ module littlecpu(
   `ifdef RISCV_FORMAL_CSR_MCAUSE
   rvfi_csr32 csr_rvfi_mcause;
   `endif
+  // Instrumentation only, both of them: the register number this instruction
+  // reads as its base, and the cycle it issues on. The datapath asks the
+  // register file for a different pair on an issuing cycle, so `probe_rs1` is
+  // the decoded number rather than the presented one.
+  logic [4:0] probe_rs1;
+  logic       probe_ls_issuing;
  `endif
 
   decoder decoder(
@@ -192,6 +232,8 @@ module littlecpu(
     `ifdef RISCV_FORMAL_CSR_MCAUSE
     .csr_rvfi_mcause(csr_rvfi_mcause),
     `endif
+    .rs1(probe_rs1),
+    .probe_ls_issuing(probe_ls_issuing),
    `endif
     .pc(pc),
     .next_pc(next_pc),
@@ -329,5 +371,73 @@ module littlecpu(
   assign rvfi_halt = 1'b0;
   assign rvfi_mode = 2'd3;
   assign rvfi_ixl = 2'd1;
+
+  // Two questions about issuing loads and stores, counted rather than argued.
+  // Between them they price a whole family of load/store region tests in one
+  // `make cycles` run, and both have come out far from what reading the code
+  // suggested. test/stall_report.py prints them under the cycle table; nothing
+  // here is read by the core, and outside a `RISCV_FORMAL` build none of it
+  // exists at all.
+  //
+  // EDGE PROXIMITY. A 12-bit offset reaches 2 KB either way, so an access whose
+  // base register sits in the 2 KB block beside a region's first or last block
+  // may cross that edge while one a block further in cannot. That is the set a
+  // region test answered from the base register alone would have to stall on.
+  //
+  // BYPASS COINCIDENCE. A writeback commits to the base register in the issue
+  // cycle, through the register file's write-through bypass. Anything computed
+  // about that register's value a cycle earlier describes the value before the
+  // write, so this is the floor on what a design precomputing during the
+  // operand-fetch cycle would have to spend a cycle redoing.
+  localparam int LS_BLOCK_BITS = 11;              // 2 KB: a 12-bit offset's reach
+  localparam int LS_BLOCK_NUM_BITS = 32 - LS_BLOCK_BITS;
+  // rtl/timer.v's four words, the one region smaller than a block.
+  localparam logic [31:0] LS_TIMER_BYTES = 32'd16;
+
+  localparam logic [LS_BLOCK_NUM_BITS-1:0] LS_TEXT_LO = '0;
+  localparam logic [LS_BLOCK_NUM_BITS-1:0] LS_TEXT_HI =
+    (LS_TEXT_WORDS * 4 - 1) >> LS_BLOCK_BITS;
+  localparam logic [LS_BLOCK_NUM_BITS-1:0] LS_RAM_LO = LS_RAM_BASE >> LS_BLOCK_BITS;
+  localparam logic [LS_BLOCK_NUM_BITS-1:0] LS_RAM_HI =
+    (LS_RAM_BASE + LS_RAM_WORDS * 4 - 1) >> LS_BLOCK_BITS;
+  localparam logic [LS_BLOCK_NUM_BITS-1:0] LS_TIMER_LO = LS_TIMER_BASE >> LS_BLOCK_BITS;
+  localparam logic [LS_BLOCK_NUM_BITS-1:0] LS_TIMER_HI =
+    (LS_TIMER_BASE + LS_TIMER_BYTES - 1) >> LS_BLOCK_BITS;
+
+  logic [LS_BLOCK_NUM_BITS-1:0] ls_block;
+  assign ls_block = reg_rs1[31:LS_BLOCK_BITS];
+
+  // Four blocks per region: its first and its last, and the block outside each
+  // of those. Written out rather than folded into a function the three regions
+  // share, because iverilog builds a continuous assign's sensitivity list from
+  // the call's arguments. `1'b1` and not `1`: an integer literal would widen the
+  // whole comparison to 32 bits, and the block below zero has to come out as the
+  // block at the top of memory, which a negative offset really does reach.
+  logic ls_at_edge;
+  assign ls_at_edge =
+    ls_block == LS_TEXT_LO - 1'b1  || ls_block == LS_TEXT_LO  ||
+    ls_block == LS_TEXT_HI         || ls_block == LS_TEXT_HI + 1'b1 ||
+    ls_block == LS_RAM_LO - 1'b1   || ls_block == LS_RAM_LO   ||
+    ls_block == LS_RAM_HI          || ls_block == LS_RAM_HI + 1'b1 ||
+    ls_block == LS_TIMER_LO - 1'b1 || ls_block == LS_TIMER_LO ||
+    ls_block == LS_TIMER_HI        || ls_block == LS_TIMER_HI + 1'b1;
+
+  // `wen` is already low for a write to x0 and `waddr` is zero when it is low,
+  // so a match here is always a real write to a real base register.
+  logic ls_at_bypass;
+  assign ls_at_bypass = wen && waddr == probe_rs1;
+
+  logic [31:0] probe_ls_issues, probe_ls_edges, probe_ls_bypasses;
+  always_ff @(posedge clk) begin
+    if (reset) begin
+      probe_ls_issues   <= 32'd0;
+      probe_ls_edges    <= 32'd0;
+      probe_ls_bypasses <= 32'd0;
+    end else if (probe_ls_issuing) begin
+      probe_ls_issues <= probe_ls_issues + 32'd1;
+      if (ls_at_edge)    probe_ls_edges    <= probe_ls_edges + 32'd1;
+      if (ls_at_bypass)  probe_ls_bypasses <= probe_ls_bypasses + 32'd1;
+    end
+  end
  `endif
 endmodule

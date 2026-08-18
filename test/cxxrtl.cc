@@ -31,11 +31,13 @@
 // `--stalls` adds a second line, splitting the run's cycles between the
 // decoder's stall reasons and the cycles that issue an instruction:
 //
-//     STALLS cycles=<n> issue=<n> hazard=<n> ... unattributed=<n>
+//     STALLS cycles=<n> issue=<n> hazard=<n> ... unattributed=<n> lsissue=<n> ...
 //
 // It is off by default because it costs a debug_eval() per cycle; test/
 // stall_report.py turns those lines into a table. See the counter block below
 // for what each name means and why the order it tries them in is the decoder's.
+// The three `ls*` fields are not cycles and are not part of that accounting:
+// they are rtl/littlecpu.v's load/store locality counters, read out at the end.
 //
 // `--console <addr>` copies the NUL-terminated string the program left at that
 // RAM address to stdout when the run ends. This machine has no output device,
@@ -361,6 +363,14 @@ int main(int argc, char **argv) {
   // named reasons explains, i.e. a stall reason nobody has written down.
   std::vector<std::pair<const cxxrtl::debug_item *, int>> stall_probes;
   const cxxrtl::debug_item *stall_any = nullptr;
+  // The load/store locality counters (rtl/littlecpu.v). Registers rather than
+  // per-cycle probes: the RTL does the counting, so all this reads is the three
+  // final values. They ride on `--stalls` because they answer the same kind of
+  // question the table does -- what a design would cost in cycles -- and because
+  // nothing else here wants a debug_eval() either.
+  const cxxrtl::debug_item *ls_issues = nullptr;
+  const cxxrtl::debug_item *ls_edges = nullptr;
+  const cxxrtl::debug_item *ls_bypasses = nullptr;
   if (args.stalls) {
     try {
       stall_any = &all_debug_items.at("uut decoder stall").at(0);
@@ -373,6 +383,20 @@ int main(int argc, char **argv) {
                     "items, and at least one of them is not in the simulated "
                     "design. They are plain named wires in rtl/decoder.v; a "
                     "rename there means renaming them in kStallReasons here.\n");
+      return 3;
+    }
+    try {
+      ls_issues = &all_debug_items.at("uut probe_ls_issues").at(0);
+      ls_edges = &all_debug_items.at("uut probe_ls_edges").at(0);
+      ls_bypasses = &all_debug_items.at("uut probe_ls_bypasses").at(0);
+    } catch (const std::out_of_range &) {
+      std::fprintf(stderr,
+                    "error: --stalls needs the load/store locality counters as "
+                    "debug items, and at least one of them is not in the "
+                    "simulated design. They are the `probe_ls_*` registers in "
+                    "rtl/littlecpu.v's RISCV_FORMAL block; printing zeros for a "
+                    "counter that is not there would read as a workload with no "
+                    "loads in it.\n");
       return 3;
     }
   }
@@ -399,7 +423,9 @@ int main(int argc, char **argv) {
     for (int b = 0; b < kStallBuckets; ++b)
       std::printf(" %s=%llu", kStallLabels[b],
                    (unsigned long long)stall_cycles[b]);
-    std::printf(" unattributed=%llu\n", (unsigned long long)unattributed_cycles);
+    std::printf(" unattributed=%llu lsissue=%u lsedge=%u lsbypass=%u\n",
+                 (unsigned long long)unattributed_cycles, ls_issues->curr[0],
+                 ls_edges->curr[0], ls_bypasses->curr[0]);
   };
 
   // Silence outranks the run's own verdict. A run whose oracle never fired has

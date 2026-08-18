@@ -117,3 +117,11 @@ text-port-drops-load        asm   textload.S FAIL 3
 # its two misa reads; csr_tb catches the read AND the write it must swallow.
 misa-drops-the-a-bit        bench csr_tb
 misa-drops-the-a-bit        asm   csr.S FAIL 5
+
+# mtip raised one tick before mtime reaches mtimecmp -- an interrupt taken
+# before the deadline software armed. It is the direction the spec forbids: a
+# change in the comparison may reach mtip late, never early. timer_tb is the
+# only detector and the whole suite stays green, which is the measurement here:
+# no `.S` program pins the tick an interrupt arrives on, because arming a timer
+# and waiting for it cannot tell one tick from the next.
+mtip-fires-a-tick-early     bench timer_tb

@@ -240,7 +240,10 @@ frequency and a published period, and blesses the cycle counter for a fixed-freq
 a handler that returns without moving `mtimecmp` is re-entered before the instruction at `mepc`
 runs. **An RV32 `mtimecmp` update is the spec's three stores in the spec's order** — low all-ones,
 high, low; high-first is unsafe and `test/timer_tb.v` and `test/asm/mtimer.S` each fire a spurious
-interrupt that way on purpose before doing it correctly.
+interrupt that way on purpose before doing it correctly. **A change in the comparison may reach
+`mtip` late and never early**, and `test/timer_tb.v` is the only grader of that: it counts the ticks
+to a crossing and holds `mtip` to the level on every quiet cycle. No `.S` program sees an interrupt
+arriving a tick early, which is measured rather than assumed (ADR-0118).
 
 **Conformance is not negotiable against minimality.** Every CSR the privileged spec mandates for
 RV32 M-mode is implemented, the 87 hardware performance monitor addresses included — most legally
@@ -290,6 +293,16 @@ What a green result does and does not mean:
   check also drops every value comparison once an instruction traps, keeping only the trap flag,
   and its two pc checks accept whatever target the core reports — so `components_traps` is the only
   thing that says a trap lands on `mtvec` and saves the right state.
+  **Its model states a load or store access fault ahead of the mechanism**, and states only half of
+  one: an access the map does not answer is excused from `must_not_trap`, and a core that faults it
+  must report cause 5 or 7 — the trap itself is not required, because reading zero is what this
+  platform does and the spec only recommends otherwise. That is why the map has to reach
+  `formal/traps.sv`, which no port of the core carries it to, so it restates it and
+  `test/memmap_test.sh` compares the copy. An arm no core reaches is worth nothing until it has been
+  shown to fail: `make -C formal traps-region-probe` builds two cores one line of `rtl/decoder.v`
+  apart, requires the one that faults with the right cause to prove and the one that faults with the
+  wrong cause to go red **at that comparison's own line**, and is a prerequisite of the proof for the
+  reason `pcloop_cover` is one.
 - **It ships no model of an INTERRUPT either**, so the core's timer input is tied off in all five
   harnesses under `formal/` and the generated checks run with no interrupt in the trace.
   `formal/INTERRUPT_TIE_OFF` mechanises that the same way, in both directions and re-derived from
@@ -488,7 +501,15 @@ and times.
   per bit, **−54 cells at all sixteen placements and identical on two texts of the idea**, with the
   median period −2.67%. **Sharing an arithmetic unit is not a saving on this fabric**: a 33-bit adder
   and a 33-bit 2:1 mux place at the same cost, so one adder behind two operand muxes and two adders
-  behind a result mux are the same 288 cells — any sharing proposal starts at zero and pays routing. **A conditional
+  behind a result mux are the same 288 cells — any sharing proposal starts at zero and pays routing.
+  **The timer's compare is closed too, and the reason generalises**: its ceiling re-takes at 88
+  cells on a later tree, and
+  producing `mtip` from registered partial compares instead costs **+138 placed cells** for a period
+  that is a null at sixteen seeds — equality every cycle, the magnitude a store still needs and the
+  mux that shares it are all LUTs where the compare was a carry chain (ADR-0118). A sticky bit set on
+  the crossing is wrong rather than dear: both registers reset to zero, so the level is true with
+  nothing crossing it.
+  **A conditional
   increment on this fabric is a clock enable, not a mux**: `en ? x + 1 : x`
   is 128 `SB_DFFESR` and no logic, and riding the adder's carry-in instead frees three cells, moves
   those flops to `SB_DFFSR` and misses 12 MHz at six placements out of six. `mtimecmp`'s byte-write
@@ -602,10 +623,14 @@ make mutation-check # delete a term from rtl/ and require exactly the detectors
                     # written for. ~3.5 min, not on `make test`, no ratchet.
                     # `make mutation-probe` forces its own graders red and IS on it
 make window-test    # force the elaboration checks in rtl/{imemory,memory,timer}.v
-                    # red, in both frontends. Runs inside `make test`
+                    # and rtl/littlecpu.v's copy of that map red, in both
+                    # frontends. Runs inside `make test`
 make cycles         # the suite again, every cycle charged to an issuing cycle or
                     # one of the six stall reasons; nonzero on a stalled cycle none
-                    # of them explains. Not on CI -- there is no CPI ratchet
+                    # of them explains. Prints the two load/store locality
+                    # counters under the table -- accesses whose base register is
+                    # within 2 KB of a region edge, and accesses issuing on a
+                    # write-through to it. Not on CI -- there is no CPI ratchet
 make dhrystone      # Dhrystone 2.1 (test/bench, NOT the graded suite) -> DMIPS/MHz,
                     # the ROM image against the SoC's 8 KB, and the same accounting
                     # on compiled code. DHRY_RUNS picks the iteration count.
@@ -634,7 +659,9 @@ make -C formal components_decoder   # component proofs by k-induction (mode prov
 make -C formal components_executor  #   read the sby summaries, not the job colour
 make -C formal components_pcloop    #   pcloop runs pcloop_cover first, its anti-vacuity
                                     #   control, as a prerequisite of the same target
-make -C formal components_traps     #   traps is the only proof over real mtvec/mepc/mcause/mstatus
+make -C formal components_traps     #   traps is the only proof over real mtvec/mepc/mcause/mstatus,
+                                    #   and runs traps-region-probe first the same way -- the red
+                                    #   direction for the load/store region cause arm, two sby runs
 make -C formal complete             # depth-50 whole-ISA walk minus COMPLETE_EXCLUSIONS
 make -C formal complete_cover       # its anti-vacuity control
 make -C formal nonperturbation      # RVFI instrumentation is unread by the core;
