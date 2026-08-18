@@ -11,10 +11,10 @@
 # notice, so the suite was grading a machine that did not exist. Two more copies
 # of the same map went stale the same way in the same day.
 #
-# The map itself is no longer stated twice: rtl/memory.v and rtl/timer.v carry
-# the base and the size as their own parameter defaults, and rtl/littlesoc.v and
-# test/testbench.v both instantiate them without overriding anything, so the two
-# integrators have nothing to disagree about. THE FIRST CHECK BELOW IS WHAT KEEPS
+# The map itself is no longer stated twice: rtl/memory.v, rtl/timer.v and
+# rtl/uart.v carry the base and the size as their own parameter defaults, and
+# rtl/littlesoc.v and test/testbench.v both instantiate them without overriding
+# anything, so the two integrators have nothing to disagree about. THE FIRST CHECK BELOW IS WHAT KEEPS
 # THAT TRUE -- an override reappearing in either file is the whole defect coming
 # back, and it would otherwise be invisible.
 #
@@ -52,7 +52,8 @@ need() {
   fi
 }
 
-for f in rtl/memory.v rtl/timer.v rtl/imemory.v rtl/littlecpu.v rtl/littlesoc.v test/testbench.v \
+for f in rtl/memory.v rtl/timer.v rtl/uart.v rtl/imemory.v rtl/littlecpu.v rtl/littlesoc.v \
+         test/testbench.v \
          test/cxxrtl.cc test/cosim.cc test/asm/riscv_test.h test/asm/sections.lds \
          test/asm/boot.lds test/bench/bench.lds formal/traps.sv Makefile; do
   need "$f"
@@ -91,8 +92,16 @@ int_param() {  # $1 = file, $2 = parameter name
 RAM_BASE=$(hex_param rtl/memory.v BASE)
 RAM_WORDS=$(int_param rtl/memory.v RAM_WORDS)
 TIMER_BASE=$(hex_param rtl/timer.v BASE)
+UART_BASE=$(hex_param rtl/uart.v BASE)
 RAM_BYTES=$((RAM_WORDS * 4))
 RAM_TOP=$((RAM_BASE + RAM_BYTES))
+# Neither device sizes itself with a parameter -- the timer is four words and
+# the UART two, written into their range tests -- so these are the one part of
+# the map this file states rather than reads. They are here and not in three
+# places because the two integrators take both defaults untouched.
+TIMER_BYTES=16
+UART_BYTES=8
+TIMER_TOP=$((TIMER_BASE + TIMER_BYTES))
 
 hexfmt() { printf '0x%08x' "$1"; }
 
@@ -103,17 +112,18 @@ hexfmt() { printf '0x%08x' "$1"; }
 # module with a size of its own.
 
 for f in rtl/littlesoc.v test/testbench.v; do
-  for m in memory timer; do
+  for m in memory timer uart; do
     if ! grep -qE "(^|[^[:alnum:]_])$m[[:space:]]*(#\(|[a-z_]+[[:space:]]*\()" "$REPO/$f"; then
       fail "$f does not instantiate \`$m\` at all. The comparison below would
 pass vacuously, so a deleted memory is red here rather than silent."
     fi
     if grep -qE "(^|[^[:alnum:]_])$m[[:space:]]*#\(" "$REPO/$f"; then
-      fail "$f overrides \`$m\`'s parameters. The data RAM's base and size and
-the timer's base are rtl/$m.v's defaults precisely so that rtl/littlesoc.v and
-test/testbench.v cannot describe different machines -- the harness once modelled
-a RAM sixteen times smaller than the SoC's and every program still fit. If this
-override is deliberate, it needs a reason recorded in an ADR first."
+      fail "$f overrides \`$m\`'s parameters. The data RAM's base and size, the
+timer's base and the UART's base and baud rate are rtl/$m.v's defaults precisely
+so that rtl/littlesoc.v and test/testbench.v cannot describe different machines
+-- the harness once modelled a RAM sixteen times smaller than the SoC's and every
+program still fit. If this override is deliberate, it needs a reason recorded in
+an ADR first."
     fi
   done
 done
@@ -122,11 +132,33 @@ done
 
 if [ "$RAM_TOP" -ne "$TIMER_BASE" ]; then
   fail "the data RAM ends at $(hexfmt $RAM_TOP) and the timer starts at
-$(hexfmt "$TIMER_BASE"). rtl/littlesoc.v and test/testbench.v both join the three
+$(hexfmt "$TIMER_BASE"). rtl/littlesoc.v and test/testbench.v both join the four
 read buses with an OR rather than a mux, which is only sound while the ranges do
 not overlap; a gap is merely wasted map, but an overlap ORs two live answers
 together and neither simulator would report it."
 fi
+
+if [ "$TIMER_TOP" -ne "$UART_BASE" ]; then
+  fail "the timer ends at $(hexfmt $TIMER_TOP) and the UART starts at
+$(hexfmt "$UART_BASE"). Same OR, same reason: an overlap here would put the
+UART's busy bit on top of a word of mtime."
+fi
+
+# Each device's window is a power of two on a multiple of its own size, which is
+# what lets its range test be an equality on the bits above the window rather
+# than a subtraction. rtl/timer.v, rtl/uart.v and rtl/littlecpu.v each refuse to
+# elaborate otherwise and `make window-test` forces them; this is the same
+# statement made about the numbers this file has already read, so a base that
+# drifted is caught here rather than at the next elaboration.
+for pair in "timer:$TIMER_BASE:$TIMER_BYTES" "uart:$UART_BASE:$UART_BYTES"; do
+  who=${pair%%:*}; rest=${pair#*:}; base=${rest%%:*}; bytes=${rest#*:}
+  if [ $((base % bytes)) -ne 0 ]; then
+    fail "the $who's base $(hexfmt "$base") is not a multiple of its own
+$bytes-byte window. Its range test reads the address bits above the window and
+compares them against the base, which admits addresses the device does not
+occupy at any other alignment."
+  fi
+done
 
 # ---- 3. the linker scripts -------------------------------------------------
 #
@@ -256,6 +288,18 @@ dropped by every memory on the bus, so mtimer.S would wait for an interrupt that
 is never armed rather than fail."
 fi
 
+UART_RAW=$(sed -nE "s/^#define[[:space:]]+UART_BASE[[:space:]]+0[xX]([0-9a-fA-F]*).*/\1/p" \
+             "$REPO/test/asm/riscv_test.h" | head -1)
+if [ -z "$UART_RAW" ]; then
+  fail "test/asm/riscv_test.h defines no UART_BASE, so the program that prints
+through the serial port has no address to print at."
+elif [ $((16#$UART_RAW)) -ne "$UART_BASE" ]; then
+  fail "test/asm/riscv_test.h's UART_BASE is $(hexfmt $((16#$UART_RAW)))
+against rtl/uart.v's $(hexfmt "$UART_BASE"). The status register at the wrong
+address reads zero from every memory on the bus, so uart.S would wait for a
+transmission it never started rather than fail."
+fi
+
 # ---- 6. the SoC ROM image --------------------------------------------------
 
 MK_ROM_WORDS=$(sed -nE 's/^SOC_ROM_WORDS[[:space:]]*:=[[:space:]]*([0-9]+).*/\1/p' \
@@ -291,6 +335,7 @@ fi
 CPU_RAM_BASE=$(hex_param rtl/littlecpu.v LS_RAM_BASE)
 CPU_RAM_WORDS=$(int_param rtl/littlecpu.v LS_RAM_WORDS)
 CPU_TIMER_BASE=$(hex_param rtl/littlecpu.v LS_TIMER_BASE)
+CPU_UART_BASE=$(hex_param rtl/littlecpu.v LS_UART_BASE)
 CPU_TEXT_WORDS=$(int_param rtl/littlecpu.v LS_TEXT_WORDS)
 
 cpu_copy() {  # $1 = what, $2 = the core's copy, $3 = the memory's, $4 = whose
@@ -304,6 +349,7 @@ drifted one answers about a machine neither file describes."
 cpu_copy LS_RAM_BASE   "$CPU_RAM_BASE"   "$RAM_BASE"   rtl/memory.v
 cpu_copy LS_RAM_WORDS  "$CPU_RAM_WORDS"  "$RAM_WORDS"  rtl/memory.v
 cpu_copy LS_TIMER_BASE "$CPU_TIMER_BASE" "$TIMER_BASE" rtl/timer.v
+cpu_copy LS_UART_BASE  "$CPU_UART_BASE"  "$UART_BASE"  rtl/uart.v
 # The default is what every harness that does not state a ROM size gets --
 # formal/wrapper.v, soc/compare/bench_littlecpu.v -- so it is the part's.
 cpu_copy LS_TEXT_WORDS "$CPU_TEXT_WORDS" "$SOC_ROM_WORDS_RTL" rtl/littlesoc.v
@@ -344,6 +390,7 @@ done
 TRAPS_RAM_BASE=$(hex_param formal/traps.sv LS_RAM_BASE)
 TRAPS_RAM_WORDS=$(int_param formal/traps.sv LS_RAM_WORDS)
 TRAPS_TIMER_BASE=$(hex_param formal/traps.sv LS_TIMER_BASE)
+TRAPS_UART_BASE=$(hex_param formal/traps.sv LS_UART_BASE)
 TRAPS_TEXT_WORDS=$(int_param formal/traps.sv LS_TEXT_WORDS)
 
 traps_copy() {  # $1 = what, $2 = the proof's copy, $3 = the memory's, $4 = whose
@@ -357,6 +404,7 @@ something about a machine neither file describes."
 traps_copy LS_RAM_BASE   "$TRAPS_RAM_BASE"   "$RAM_BASE"   rtl/memory.v
 traps_copy LS_RAM_WORDS  "$TRAPS_RAM_WORDS"  "$RAM_WORDS"  rtl/memory.v
 traps_copy LS_TIMER_BASE "$TRAPS_TIMER_BASE" "$TIMER_BASE" rtl/timer.v
+traps_copy LS_UART_BASE  "$TRAPS_UART_BASE"  "$UART_BASE"  rtl/uart.v
 # The part's text window, not the harness's larger simulated one: the proof has
 # no imemory in it to size, so what it describes is the machine that ships.
 traps_copy LS_TEXT_WORDS "$TRAPS_TEXT_WORDS" "$SOC_ROM_WORDS_RTL" rtl/littlesoc.v
@@ -370,4 +418,4 @@ if [ "$rc" -ne 0 ]; then
   exit 1
 fi
 
-echo "Memory map agreed on: ram $(hexfmt "$RAM_BASE")+${RAM_BYTES}B, timer $(hexfmt "$TIMER_BASE"), rom ${SOC_ROM_WORDS_RTL} words on the part / ${TB_ROM_WORDS} simulated"
+echo "Memory map agreed on: ram $(hexfmt "$RAM_BASE")+${RAM_BYTES}B, timer $(hexfmt "$TIMER_BASE"), uart $(hexfmt "$UART_BASE"), rom ${SOC_ROM_WORDS_RTL} words on the part / ${TB_ROM_WORDS} simulated"

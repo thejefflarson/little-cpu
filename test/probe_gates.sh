@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=317
+PROBES_EXPECTED=324
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -1489,8 +1489,8 @@ MM="$HERE/memmap_test.sh"
 mm_fixture() {
   local d; d=$(new_case)
   mkdir -p "$d/rtl" "$d/test/asm" "$d/test/bench" "$d/formal"
-  cp "$REPO"/rtl/memory.v "$REPO"/rtl/timer.v "$REPO"/rtl/imemory.v \
-     "$REPO"/rtl/littlecpu.v "$REPO"/rtl/littlesoc.v "$d/rtl/"
+  cp "$REPO"/rtl/memory.v "$REPO"/rtl/timer.v "$REPO"/rtl/uart.v \
+     "$REPO"/rtl/imemory.v "$REPO"/rtl/littlecpu.v "$REPO"/rtl/littlesoc.v "$d/rtl/"
   cp "$REPO"/test/testbench.v "$REPO"/test/cxxrtl.cc "$REPO"/test/cosim.cc "$d/test/"
   cp "$REPO"/test/asm/riscv_test.h "$REPO"/test/asm/sections.lds \
      "$REPO"/test/asm/boot.lds "$d/test/asm/"
@@ -1516,6 +1516,16 @@ probe "the harness sizing its own RAM again is red" 1 \
 d=$(mm_fixture); sed -i.bak "s/^  timer mtimer (/  timer #(.BASE(32'h0003_0000)) mtimer (/" "$d/rtl/littlesoc.v"
 probe "the SoC restating the timer base is red too" 1 \
   "rtl/littlesoc.v overrides \`timer\`'s parameters" "$MM $d"
+
+# The UART is the newest region and the one whose baud rate an integrator would
+# be most tempted to speed up for a simulation, which is the whole defect.
+d=$(mm_fixture); sed -i.bak "s/^  uart tty (/  uart #(.BAUD(1_000_000)) tty (/" "$d/test/testbench.v"
+probe "the harness giving the UART its own baud rate is red" 1 \
+  "test/testbench.v overrides \`uart\`'s parameters" "$MM $d"
+
+d=$(mm_fixture); sed -i.bak 's/^  uart tty (/  nouart tty (/' "$d/rtl/littlesoc.v"
+probe "a SoC with no UART at all does not pass by silence" 1 \
+  "does not instantiate \`uart\` at all" "$MM $d"
 
 # Without this the check above passes vacuously on a file that lost its memory.
 d=$(mm_fixture); sed -i.bak 's/^  memory dmem (/  nomemory dmem (/' "$d/test/testbench.v"
@@ -1555,6 +1565,31 @@ probe "the timer address the programs arm is checked against the timer" 1 \
 d=$(mm_fixture); sed -i.bak "s/BASE = 32'h0002_0000/BASE = 32'h0004_0000/" "$d/rtl/timer.v"
 probe "a gap opening between the data RAM and the timer is red" 1 \
   "the data RAM ends at 0x00020000 and the timer starts at" "$MM $d"
+
+# The UART sits in the eight bytes above the timer's sixteen. A move in either
+# direction is an overlap or a hole in the map, and the OR that joins the read
+# buses would report neither.
+d=$(mm_fixture); sed -i.bak "s/BASE     = 32'h0002_0010/BASE     = 32'h0002_0020/" "$d/rtl/uart.v"
+probe "a gap opening between the timer and the UART is red" 1 \
+  "the timer ends at 0x00020010 and the UART starts at" "$MM $d"
+
+# Its range test reads the address bits above an 8-byte window, which is only a
+# membership test while the base is a multiple of 8.
+d=$(mm_fixture); sed -i.bak "s/BASE     = 32'h0002_0010/BASE     = 32'h0002_0014/" "$d/rtl/uart.v"
+probe "a UART base off its own window is red" 1 \
+  "is not a multiple of its own" "$MM $d"
+
+d=$(mm_fixture); sed -i.bak 's/UART_BASE          0x00020010/UART_BASE          0x00030010/' "$d/test/asm/riscv_test.h"
+probe "the address the printing program writes is checked against the UART" 1 \
+  "UART_BASE is 0x00030010" "$MM $d"
+
+d=$(mm_fixture); sed -i.bak "s/LS_UART_BASE  = 32'h0002_0010/LS_UART_BASE  = 32'h0003_0010/" "$d/rtl/littlecpu.v"
+probe "the UART moving in the core's copy alone is red" 1 \
+  "LS_UART_BASE is 196624 against rtl/uart.v's 131088" "$MM $d"
+
+d=$(mm_fixture); sed -i.bak "s/LS_UART_BASE  = 32'h0002_0010/LS_UART_BASE  = 32'h0003_0010/" "$d/formal/traps.sv"
+probe "the UART moving in the proof's copy alone is red" 1 \
+  "formal/traps.sv's LS_UART_BASE is 196624" "$MM $d"
 
 d=$(mm_fixture); sed -i.bak 's/^SOC_ROM_WORDS := 2048/SOC_ROM_WORDS := 4096/' "$d/Makefile"
 probe "the ROM image built to a different size than the ROM is red" 1 \
