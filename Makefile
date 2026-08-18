@@ -814,6 +814,150 @@ soc-timing: soc-timing-toolchain soc.asc
 	@# second one was the one holding the gate.
 	@python3 soc/timing_split.py soc.timing.rpt --min-mhz $(SOC_MIN_MHZ)
 
+# ---- the ECP5 instrument ----------------------------------------------------
+#
+# A THIRD instrument over a THIRD design, and its numbers merge with neither of
+# the others'. `make fit` is the core alone on up5k, `make soc-timing` is the SoC
+# on up5k with icetime grading what nextpnr placed, and this is the same
+# `littlesoc` -- same SOC_SRCS, same `soc-rom` image, no ifdef and no
+# part-specific RTL -- placed on an ECP5.
+#
+# It is a different CLASS of instrument as well as a different part. There is no
+# icetime for ECP5, so nextpnr's own timing engine both drives the placement and
+# grades it, with no second reader behind it. soc/ecp5_report.py is the one
+# reader of what comes out, it prints what that costs on every run, and it
+# refuses each shape of "nothing was measured" rather than reporting a zero.
+#
+# The censuses below gate; the frequency publishes. There is no Fmax ratchet
+# here and one placement is a sample, so nothing in this block is a floor.
+
+# The board the corner is taken from: a Colorlight i5, whose die is an
+# LFE5U-25F-6BG381C -- Lattice's ordering code for the 25F die, speed grade 6,
+# commercial, in a caBGA381 package. Trellis spells the same part
+# `LFE5U-25F-6CABGA381` and writes it into the configuration it emits, which is
+# the only artifact of the run that names the corner at all: nextpnr's log never
+# does. So it is declared here and GRADED off that line rather than trusted.
+#
+# Speed grade 6 is the part on the module and also the pessimistic corner of the
+# three nextpnr offers. It resolves to the same corner as nextpnr's current
+# default, measured -- what declaring it buys is that a default which moves under
+# us goes red instead of quietly reporting a corner nobody chose.
+#
+# `--25k` keeps the smaller part binding, the same discipline that keeps up5k
+# binding against it.
+ECP5_DEVICE  := --25k
+ECP5_PACKAGE := CABGA381
+ECP5_SPEED   := 6
+ECP5_PART    := LFE5U-25F-6CABGA381
+
+# THE CONSTRAINT IS NOT THE BOARD CLOCK, and that is the whole point of pinning
+# it. nextpnr places timing-driven: it stops working a path once the constraint
+# is met, so a run constrained at the i5's 25 MHz that reported 25 MHz would have
+# measured the constraint. This constant sits about six times above anything this
+# design reaches on this part, so every path stays worth optimising and the
+# reported Fmax describes the design. soc/ecp5_report.py goes red if the design
+# ever meets it -- that is the run where this number moves, and moving it is a
+# change to the measurement rather than a threshold being relaxed.
+ECP5_TARGET_MHZ := 200.0
+
+# Exact rather than budgeted, for the reason SOC_EXPECT_SPRAM and SOC_EXPECT_EBR
+# are: each is a property of the RTL and how it maps, not of placement. Each
+# census carries the sentence saying what a mismatch means, because every one of
+# these failures is silent in a frequency number.
+#   DP16KD: 32 for the 64 KB data RAM plus 4 for the 8 KB banked ROM.
+#   TRELLIS_DPR16X4: rtl/regfile.v as distributed RAM, which is where it lands on
+#   this part -- no block RAM at all.
+#   MULT18X18D: the multiplier, 4 `ICESTORM_DSP` on up5k.
+ECP5_EXPECT_DP16KD := 36
+ECP5_EXPECT_LUTRAM := 32
+ECP5_EXPECT_DSP    := 4
+
+# `ECP5_SEED=<n>` places the same design differently, exactly as SOC_SEED does.
+# One placement is a sample, and ECP5's own spread has not been derived yet, so
+# nothing here reads a single run as a measurement.
+ECP5_SEED ?=
+
+ecp5.json: $(SOC_SRCS) soc-rom
+	@echo 'yosys: synthesising littlesoc for ECP5 (log: ecp5.synth.log)'
+	@# Plain `synth_ecp5`, no mapper flags. abc9 is this script's default on this
+	@# part, so passing `-noabc9` would be as much of a mapper change as turning
+	@# abc9 on is on ice40, and a mapper change landing under a brand-new
+	@# instrument would confound both.
+	@yosys -p 'read_verilog -sv $(SOC_SRCS); synth_ecp5 -top littlesoc -json $@' \
+	  > ecp5.synth.log 2>&1 || { tail -40 ecp5.synth.log; exit 1; }
+	@python3 soc/cell_census.py ecp5.synth.log DP16KD $(ECP5_EXPECT_DP16KD) \
+	  "rtl/memory.v's no-change read port was shaped for SPRAM inference and there is no SPRAM on this part, so a spelling that stops matching block RAM falls back to LUT RAM and says nothing" \
+	  --gate 'make ecp5-timing' --declared ECP5_EXPECT_DP16KD
+	@python3 soc/cell_census.py ecp5.synth.log TRELLIS_DPR16X4 $(ECP5_EXPECT_LUTRAM) \
+	  "rtl/regfile.v has stopped inferring distributed RAM, which is the only memory it maps to here -- zero means it fell into flops and soft muxes" \
+	  --gate 'make ecp5-timing' --declared ECP5_EXPECT_LUTRAM
+	@python3 soc/cell_census.py ecp5.synth.log MULT18X18D $(ECP5_EXPECT_DSP) \
+	  "rtl/executor.v's multiplier has stopped inferring a DSP block; in soft logic it would be invisible in a frequency number and enormous in area" \
+	  --gate 'make ecp5-timing' --declared ECP5_EXPECT_DSP
+
+# The two tools this measurement is a property of. No icetime: there is none for
+# this part, which is the whole reason soc/ecp5_report.py reads nextpnr's own
+# estimate instead. The stamp matters MORE here than for the other two flows --
+# this instrument is new, nothing about it is pinned, and its first numbers have
+# no band to be read against yet.
+ECP5_TOOLS := yosys nextpnr-ecp5
+
+.PHONY: ecp5-timing-toolchain
+ecp5-timing-toolchain:
+	@soc/print_toolchain.sh $(ECP5_TOOLS)
+
+# nextpnr's exit status carries even less here than it does for `soc.asc`. This
+# run is handed a constraint the design is MEANT to miss, so every successful run
+# ends in `ERROR: Max frequency ... (FAIL at ...)` and exits 1. The `|| true`
+# tolerates exactly that, and keeps `.DELETE_ON_ERROR` from deleting the
+# configuration the measurement is read out of.
+#
+# WHICH IS WHY THE FIRST LINE DELETES BOTH OUTPUTS. nextpnr writes them only at
+# the very end of its flow, so a run that dies before that -- out of memory,
+# killed, unroutable, a database it cannot load, a flag it does not know -- would
+# otherwise leave the PREVIOUS run's pair intact. Both files would then be
+# coherent with each other and with nothing else: same clock, same corner, same
+# constraint, a path that reconciles, every one of soc/ecp5_report.py's refusals
+# satisfied, and an old frequency published as this tree's. `ecp5.json` is
+# rebuilt every run because `soc-rom` is phony, so the RTL can have moved
+# completely underneath that number, and `ecp5.report.json` is not a make target
+# at all so nothing else would ever invalidate it. Do not drop this line, and do
+# not weaken the guard below back to `test -e`.
+#
+# `--textcfg` is the cheap "expressible in the target's configuration" check:
+# nextpnr writes it only from a routed design, it costs nothing and it adds no
+# packer. There is no `ecppack` here and no bitstream. The guard is what attaches
+# nextpnr's own log to a run that produced nothing; the verdict on what it did
+# produce belongs to soc/ecp5_report.py.
+ecp5.config: ecp5.json soc/littlesoc.lpf
+	@rm -f $@ ecp5.report.json
+	@echo 'nextpnr: placing and routing littlesoc on $(ECP5_PART) (log: ecp5.pnr.log)'
+	@nextpnr-ecp5 $(ECP5_DEVICE) --package $(ECP5_PACKAGE) --speed $(ECP5_SPEED) \
+	  --json $< --lpf soc/littlesoc.lpf --lpf-allow-unconstrained \
+	  --freq $(ECP5_TARGET_MHZ) $(if $(ECP5_SEED),--seed '$(ECP5_SEED)') \
+	  --textcfg $@ --report ecp5.report.json > ecp5.pnr.log 2>&1 || true
+	@{ test -s $@ && test -s ecp5.report.json; } || { \
+	  echo '*** make ecp5-timing: nextpnr wrote no configuration and report pair,'; \
+	  echo '*** so NOTHING was measured. That is a failed run, not a slow design,'; \
+	  echo '*** and it is deliberately NOT graded against whatever the last run'; \
+	  echo '*** left on disk.'; \
+	  tail -30 ecp5.pnr.log; \
+	  rm -f $@ ecp5.report.json; \
+	  exit 1; \
+	}
+
+# The toolchain stamp is a prerequisite rather than the recipe's first line, the
+# way `fit` and `soc-timing` take theirs: a synthesis that dies, a placement that
+# dies and a census that trips then all leave a run saying what was running.
+.PHONY: ecp5-timing
+ecp5-timing: ecp5-timing-toolchain ecp5.config
+	@echo
+	@echo '== nextpnr-ecp5: the frequency, its corner and its constraint =='
+	@python3 soc/ecp5_report.py ecp5.report.json ecp5.config \
+	  --clock clk --part $(ECP5_PART) --constraint-mhz $(ECP5_TARGET_MHZ)
+	@echo
+	@echo "Placement, routing and nextpnr's own timing analysis: ecp5.pnr.log"
+
 # soc/baseline_sweep.sh stamps a sweep with the variables the build it ran
 # really used, and asks for them here rather than repeating their defaults: a
 # second copy of `SOC_PROG` would stamp a sweep with a program the placements
@@ -827,10 +971,11 @@ print-%:
 # Every tool list is a variable here and never a second copy in the workflow:
 # the `elaborate` job spelled a source list out in YAML once, it drifted from
 # this file's, and the gate spent a run elaborating a testbench whose memory
-# instances resolved to nothing. `fit-toolchain` and `soc-timing-toolchain` are
-# the two graded flows' own lists and are what those jobs print; this target
-# takes any list, and defaults to every tool either of them grades.
-TOOLS ?= $(sort $(FIT_TOOLS) $(SOC_TIMING_TOOLS))
+# instances resolved to nothing. `fit-toolchain`, `soc-timing-toolchain` and
+# `ecp5-timing-toolchain` are the three graded flows' own lists and are what
+# those jobs print; this target takes any list, and defaults to every tool any
+# of them grades.
+TOOLS ?= $(sort $(FIT_TOOLS) $(SOC_TIMING_TOOLS) $(ECP5_TOOLS))
 
 .PHONY: print-toolchain
 print-toolchain:
@@ -1046,6 +1191,7 @@ compare-timing: compare.$(COMPARE_CORE).asc compare.$(COMPARE_CORE).core.log
 clean:
 	rm -f fit.json fit.log fit.synth.log
 	rm -f soc.json soc.asc soc.synth.log soc.pnr.log soc.timing.rpt
+	rm -f ecp5.json ecp5.config ecp5.report.json ecp5.synth.log ecp5.pnr.log
 	rm -f soc/rom_even.hex soc/rom_odd.hex
 	rm -f compare.*.json compare.*.asc compare.*.log compare.*.rpt compare.vvp
 	rm -f compare.dhry.vvp

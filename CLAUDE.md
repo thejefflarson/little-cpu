@@ -350,9 +350,9 @@ to distrust the bench.
 
 ## Measurements and ratchets
 
-Two instruments, two designs — never merge their numbers. `make fit` is the core alone (its top
+Three instruments, three designs — never merge their numbers. `make fit` is the core alone (its top
 never places: 231 `SB_IO` against sg48's 39, expected); `make soc-timing` is the SoC, which places
-and times.
+and times; `make ecp5-timing` is that same SoC on the other part.
 
 - **`make fit` has a churn band of about ±50 cells**: functionally identical edits move the count
   that much from ABC/nextpnr re-mapping alone. A delta inside the band is not evidence of
@@ -415,6 +415,24 @@ and times.
   A short sweep cannot see the tail, and the tail is what `SOC_MIN_MHZ` grades. **A median inside
   the band is a null that does not even reproduce**: one edit read −2.67% of median on one tree and
   +0.34% on the next, at −54 cells and −37 (ADR-0121).
+- **`make ecp5-timing` is the third instrument and a different CLASS of one.** Same `littlesoc`,
+  same sources, same ROM image, placed on the ECP5 the multi-core milestone targets — no fork, no
+  `ifdef`, no part-specific RTL. There is no `icetime` for ECP5, so **nextpnr's own timing engine
+  both drives the placement and grades it**, with nothing behind it; `soc.asc`'s recipe already
+  treats that as disqualifying on ice40, so `soc/ecp5_report.py` is the single reader and refuses a
+  report that does not name the design's clock, one placed against a constraint other than the
+  declared one, one whose configuration names a corner nobody asked for, and one whose path does not
+  reconcile with the frequency published from it. **The frequency handed to the placer is a pinned
+  constant far above what the design reaches**, because nextpnr stops working a path once the
+  constraint is met — a 25 MHz target reported as 25 MHz would be measuring the target. What it
+  **gates** is the mapping, on three exact censuses — `DP16KD`, the register file's
+  `TRELLIS_DPR16X4` and `MULT18X18D` — because each of those falling back to soft logic is silent in
+  a frequency number and enormous in area. What it **publishes** is the frequency, with no ratchet:
+  one placement is a sample, and the ECP5 churn band is derived from ECP5's own sweep rather than
+  copied from up5k's. The corner is the board's: Colorlight i5, LFE5U-25F-6BG381C, speed grade 6,
+  which is also the pessimistic one of the three. **Pinning `clk` to the module's real oscillator pin
+  is not cosmetic** — letting nextpnr choose that pad instead read 3.5% faster, because the pad
+  decides where the global network is entered.
 - **12 MHz is a requirement, not a regression floor** (ADR-0066). `SOC_MIN_MHZ` is 12.0 — the board
   clock, whose next divider step down is 6 — and it does not slide. When it trips, fix the design,
   not the floor. The margin over the worst placement is deliberately tighter than the churn band.
@@ -665,6 +683,13 @@ make monitor-check  # regenerate test/monitor.v at the pin and diff
 make fit            # the core's area number; ratchet on FIT_MAX_LC
 make soc-timing     # the SoC place-and-time flow; requirement on SOC_MIN_MHZ.
                     # SOC_SEED picks a placement; soc/timing_sweep.sh runs four
+make ecp5-timing    # the same SoC on ECP5: synth_ecp5 + nextpnr-ecp5 at a
+                    # declared corner. Three exact mapping censuses GATE; the
+                    # frequency PUBLISHES, with no ratchet. nextpnr's own
+                    # estimator both places and grades -- there is no icetime
+                    # here -- and the constraint it is handed is a pinned
+                    # constant above what the design reaches. ECP5_SEED picks a
+                    # placement. Never merge its numbers with an up5k one
 make compare-timing # this core and VexRiscv in ONE hx8k harness; COMPARE_CORE
                     # picks the side, soc/compare/sweep.sh runs both over seeds.
                     # A measurement, not a gate -- but the placed-vs-synthesised
