@@ -38,6 +38,10 @@
 #   NETLIST_SYNTH    the shipping synth script, minus its `-json <file>`
 #   NETLIST_PNR      the place-and-route command, minus its --json and its output
 #   NETLIST_PNR_OUT  the flag that names the placed output (`--asc` on ice40)
+#   NETLIST_PNR_DONE the placer's own last line, printed after the bitstream
+#   NETLIST_MUTANT   the file the mutation goes into and a signal it can read,
+#                    as `<path> <signal>`. It has to be the part's TOP module --
+#                    see below -- so it belongs to the part table and not here
 #   NETLIST_OUT      where the netlists, bitstreams and logs are kept to read
 set -eu
 
@@ -46,7 +50,8 @@ cd "$(dirname "$0")/.."
 # Spelled out rather than left to `${VAR:?}`, whose exit status is the shell's
 # to choose: this one is probed, and a status that moves with /bin/sh is a probe
 # that passes on one machine and not the next.
-for required in "NETLIST_SYNTH=${NETLIST_SYNTH:-}" "NETLIST_PNR=${NETLIST_PNR:-}"; do
+for required in "NETLIST_SYNTH=${NETLIST_SYNTH:-}" "NETLIST_PNR=${NETLIST_PNR:-}" \
+                "NETLIST_MUTANT=${NETLIST_MUTANT:-}"; do
   case $required in
     *=) echo "*** make netlist-determinism: ${required%=} is not set, so there" >&2
         echo "*** is nothing to synthesise or place. The Makefile's part table" >&2
@@ -55,18 +60,24 @@ for required in "NETLIST_SYNTH=${NETLIST_SYNTH:-}" "NETLIST_PNR=${NETLIST_PNR:-}
   esac
 done
 pnr_out=${NETLIST_PNR_OUT:---asc}
+pnr_done=${NETLIST_PNR_DONE:-Info: Program finished normally.}
 out=${NETLIST_OUT:-netlist.out}
 case $out in
   ""|/|*..*) echo "*** soc/netlist_determinism.sh: NETLIST_OUT='$out' is not a" >&2
              echo "*** directory this may delete and rebuild." >&2; exit 2 ;;
 esac
 
-# The file the mutation goes into and the signal the dead wire reads. Both are
-# core RTL rather than a part's top, so this control does not need a per-part
-# entry -- and the vacuity check above is what reports either of them going
-# stale, in place of a comment nobody re-reads.
-MUTANT_FILE=rtl/decoder.v
-MUTANT_SIGNAL=reg_rs1
+# The file the mutation goes into and the signal the dead wire reads. IT HAS TO
+# BE THE TOP MODULE, which is measured rather than preferred: a dead tie-off
+# injected into `rtl/decoder.v` leaves NO trace in this SoC's mapped netlist at
+# all -- the two netlists differ in source attributes and in nothing else -- so a
+# control built on one would exercise the comment class twice and the dead-net
+# class never. In the top it costs one `netnames` entry carrying `unused_bits`
+# and seven non-attribute lines, which is the class the digest is riskiest
+# about. The assertions below hold that, rather than this comment.
+MUTANT_FILE=${NETLIST_MUTANT%% *}
+MUTANT_SIGNAL=${NETLIST_MUTANT##* }
+DEAD_NET=netlist_control_dead
 
 fail() {
   echo "*** make netlist-determinism: $1" >&2
@@ -102,15 +113,33 @@ synth() {  # <tree> <shipping json> <canonical json> <log>
   }
 }
 
-# nextpnr's exit status is not the signal here for the reason the Makefile's
-# `soc.asc` records -- it grades its own default clock with its own estimator --
-# and this control grades neither. What it needs is the bitstream, so an absent
-# one is the failure.
+# A NON-EMPTY BITSTREAM IS NOT A PLACEMENT. A placer that dies part-way through
+# writing one -- out of memory, a signal, a full disk -- leaves a partial file
+# behind, and a deterministic placer that dies the same way three times leaves
+# three partial files that compare equal to each other. Both comparisons below
+# would then agree and this control would print PASS having placed nothing.
+#
+# What says the run finished is the placer's own last line, printed after the
+# bitstream is written. Its exit STATUS cannot be that grader, for the reason
+# the Makefile's `soc.asc` records and for one more measured here: a run whose
+# own timing estimate fails exits 1 having written a complete bitstream --
+# byte-identical to the same placement made without the requirement -- so
+# demanding zero would void this control on exactly the marginal design it
+# exists for. The status is carried into the diagnostic instead.
 place() {  # <json> <placed output> <log>
-  $NETLIST_PNR --json "$1" "$pnr_out" "$2" > "$3" 2>&1 || true
+  status=0
+  $NETLIST_PNR --json "$1" "$pnr_out" "$2" > "$3" 2>&1 || status=$?
   test -s "$2" || {
     tail -30 "$3" >&2
-    fail "nextpnr wrote no bitstream for $1, so nothing was placed (log: $3)."
+    fail "nextpnr wrote no bitstream for $1 (exit $status), so nothing was" \
+         "placed (log: $3)."
+  }
+  grep -qF "$pnr_done" "$3" || {
+    tail -30 "$3" >&2
+    fail "nextpnr never finished for $1 (exit $status): its log never says" \
+         "'$pnr_done', so $2 holds whatever had been written when it stopped." \
+         "A partial bitstream is not a placement, and a deterministic placer" \
+         "truncated twice compares equal to itself (log: $3)."
   }
 }
 
@@ -138,9 +167,11 @@ done
 # and a red one is re-read here rather than bisected in the report.
 target=$mutant/$MUTANT_FILE
 test -f "$target" || fail "$MUTANT_FILE is not in this tree, so the mutant could not be built."
-python3 - "$target" "$MUTANT_SIGNAL" <<'PY' || fail "the mutant could not be built; read soc/netlist_determinism.sh's injection."
+python3 - "$target" "$MUTANT_SIGNAL" "$DEAD_NET" <<'PY' || fail "the mutant could not be built; read soc/netlist_determinism.sh's injection."
+import re
 import sys
-path, signal = sys.argv[1], sys.argv[2]
+
+path, signal, dead_net = sys.argv[1], sys.argv[2], sys.argv[3]
 text = open(path).read()
 lines = text.splitlines(True)
 if len(lines) < 2:
@@ -148,12 +179,25 @@ if len(lines) < 2:
 lines.insert(1, "// A comment that says nothing, so every line under it moves.\n")
 lines.insert(2, "\n")
 text = "".join(lines)
+
 marker = "\nendmodule"
-if marker not in text or signal not in text:
-    sys.exit(f"{path}: no trailing `endmodule` or no `{signal}` to read")
+if marker not in text:
+    sys.exit(f"{path}: no trailing `endmodule` to splice the tie-off before")
 cut = text.rindex(marker)
-dead = (f"  logic [31:0] netlist_control_dead;\n"
-        f"  assign netlist_control_dead = {{{signal}[15:0], {signal}[31:16]}};\n")
+
+# The signal has to be in scope IN THE MODULE the assign lands in, not merely
+# somewhere in the file: a same-named signal in an earlier module leaves the
+# injected one implicitly declared one bit wide, the part-selects fold to a
+# constant, the assign is optimised away, and the control goes on passing
+# having stopped injecting the class it is here to exercise.
+declarations = [m.start() for m in re.finditer(r"^module\b", text, re.M)]
+if not declarations or declarations[-1] > cut:
+    sys.exit(f"{path}: no module declaration before the last `endmodule`")
+if signal not in text[declarations[-1]:cut]:
+    sys.exit(f"{path}: `{signal}` is not in the module the tie-off splices into")
+
+dead = (f"  logic [31:0] {dead_net};\n"
+        f"  assign {dead_net} = {{{signal}[15:0], {signal}[31:16]}};\n")
 open(path, "w").write(text[:cut + 1] + dead + text[cut + 1:])
 PY
 
@@ -162,10 +206,29 @@ synth "$mutant" "$PWD/$out/mutant.json" "$PWD/$out/mutant.canon.json" "$out/muta
 if cmp -s "$out/this.json" "$out/mutant.json"; then
   fail "the mutant's shipping netlist is byte-identical to this tree's, so" \
        "nothing was injected and this control demonstrates nothing." \
-       "The injection site in soc/netlist_determinism.sh has gone stale:" \
+       "The injection site in the Makefile's part table has gone stale:" \
        "$MUTANT_FILE no longer carries what it reaches for."
 fi
 echo "   the mutant's shipping netlist differs from this tree's, as it must"
+
+# THE COMMENT ALONE SATISFIES THE CHECK ABOVE -- it moves 66 source attributes by
+# itself -- so it cannot say whether the dead net arrived, and the dead net is
+# the class the purge exists to forgive. Assert it by name, both ways: in the
+# shipping netlist, or nothing here exercises the class; out of the canonical
+# one, or the purge is not doing the forgiving the digest is built on.
+if ! grep -q "$DEAD_NET" "$out/mutant.json"; then
+  fail "the injected dead tie-off left no trace in the mapped netlist, so the" \
+       "dead-net class is not exercised and only the comment class is." \
+       "$MUTANT_FILE has to be the TOP module: injected into a submodule this" \
+       "wire is optimised away before the netlist is written, and the two" \
+       "netlists then differ in source attributes alone."
+fi
+if grep -q "$DEAD_NET" "$out/mutant.canon.json"; then
+  fail "the dead tie-off survives \`opt_clean -purge\` into the canonical form," \
+       "so the canonicalisation is no longer what forgives a dead net and the" \
+       "digest below is equal for some other reason."
+fi
+echo "   the dead net reaches the shipping netlist and is purged from the canonical one"
 
 if ! python3 soc/netlist_digest.py compare "$out/this.canon.json" "$out/mutant.canon.json" \
      --base-label "this tree" --new-label "this tree, mutated" > "$out/mutant.digest.log" 2>&1; then

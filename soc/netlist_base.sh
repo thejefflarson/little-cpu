@@ -82,10 +82,30 @@ make --no-print-directory -C "$tree" soc-rom SOC_PROG="${SOC_PROG:-datainit.c}" 
 }
 
 # `env -u` because make lets a variable the makefile does not define fall
-# through from the environment: with this tree's script exported, the base tree
+# through from the environment: with this tree's script passed in, the base tree
 # would print it back and the comparison below could never see a difference.
-base_synth=$(env -u NETLIST_SYNTH make --no-print-directory -C "$tree" \
-  print-NETLIST_SYNTH 2>/dev/null | tail -1)
+#
+# NOT A PIPELINE, and the status is make's own. `set -eu` carries no pipefail, so
+# `make ... | tail -1` collects TAIL's status, which is always zero -- and then
+# every way the base tree's make can fail, a Makefile that errors during parse or
+# a `print-%` rule that is gone included, reads as the one case meant to be
+# handled here. The base commit would be synthesised with THIS tree's flags while
+# the report said nothing and the digest said "no sweep is owed".
+if base_print=$(env -u NETLIST_SYNTH make --no-print-directory -C "$tree" \
+                  print-NETLIST_SYNTH 2> "$tree/print.log"); then
+  base_synth=$(printf '%s\n' "$base_print" | tail -1)
+elif grep -q 'No rule to make target' "$tree/print.log"; then
+  # The one expected failure: a tree from before this target existed has no
+  # `print-%` rule at all.
+  base_synth=""
+else
+  cat "$tree/print.log" >&2
+  echo "*** make netlist-diff: $ref's make could not be asked which synth" >&2
+  echo "*** script it uses, and its netlist is not comparable without that." >&2
+  echo "*** Spend the seeds." >&2
+  exit 2
+fi
+
 if [ -z "$base_synth" ]; then
   base_synth=$NETLIST_SYNTH
   echo "netlist-diff: $ref names no synth script of its own, so this tree's was"

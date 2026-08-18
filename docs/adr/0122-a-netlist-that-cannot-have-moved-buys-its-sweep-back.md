@@ -43,10 +43,19 @@ Under it, on the SoC that places:
 | base | `cd9fc674…` | `17c60265…` | `8da98943…` |
 | a comment inserted | `db5f2a1c…` | `17c60265…` | `8da98943…` |
 | a blank line inserted | `447e3e06…` | `17c60265…` | `8da98943…` |
-| a dead tie-off injected | `8e9256c1…` | `17c60265…` | `8da98943…` |
+| a dead tie-off in the top | `ec7166b3…` | `17c60265…` | `8da98943…` |
 
 Four different netlists, one digest, one bitstream. A one-bit change to the `misa` constant is a
 different digest, and the report names it: −7 `SB_LUT4`, +3 `SB_CARRY`, −4 cells, +27 named nets.
+
+**Where the tie-off goes is not a detail, and the first version of this table got it wrong.** A dead
+wire injected into `rtl/decoder.v` leaves **no trace at all** in this SoC's mapped netlist — the two
+netlists differ in `src` attributes and in nothing else — so a control built on one would exercise
+the comment class twice and the dead-net class never. In the **top** module the same wire costs one
+`netnames` entry carrying `unused_bits` (130 → 131) and seven non-attribute lines, and `opt_clean
+-purge` takes it out again: the name appears once in the shipping netlist and zero times in the
+canonical one. That pair is asserted by name in the control, because it is not visible in "the
+mutant's netlist differs" — the inserted comment satisfies that by itself.
 
 ## The control, and the experiment that changed its shape
 
@@ -69,8 +78,17 @@ forgives move the placement of the *shipping* netlist — which is the table abo
 So the gate lands whole rather than narrowed to strict equality of the unpurged form, and control B
 asks the direct question instead: a copy of the tree carrying all three forgiven classes is
 synthesised in the shipping form, and its bitstream must equal the base's while its digest stays
-equal. The mutant's shipping netlist must also **differ** from the base's, or the control passed
-having injected nothing.
+equal. Three things are asserted about the mutant, none of which the others imply — its shipping
+netlist **differs** from the base's, the dead net is **in** that netlist, and it is **gone** from
+the canonical one.
+
+**A non-empty bitstream is not a placement, either.** A placer killed part-way through writing one
+leaves a partial file, and a deterministic placer killed the same way three times leaves three
+partial files that compare equal — so all three comparisons would agree and the control would pass
+having placed nothing. What grades a run is the placer's own last line, printed after the bitstream.
+Its exit status cannot: measured here, a run whose own timing estimate fails exits 1 having written a
+bitstream byte-identical to the same placement made without the requirement, so demanding zero would
+void this control on exactly the marginal design it exists for.
 
 ## Decision
 
@@ -119,6 +137,11 @@ mistake, rather than asserted.
 - **The control is re-taken per invocation, not quoted.** Three placements and two syntheses, about
   three minutes against twelve for a sweep a side, and the empirical half of the claim is therefore
   as fresh as the tree it is claimed about.
+- **Every check in it has a demonstrated red direction**, including the three that would otherwise
+  pass hardest while testing nothing: a bitstream the placer never finished, a mutant whose dead net
+  never reached the netlist, and one the purge left behind. The injection site is a part-table entry
+  for the same reason — it has to be the top module, and a signal that has drifted out of scope in it
+  stops the control rather than quietly emptying it.
 - **A digest is comparable only within one toolchain**, by construction rather than by convention —
   the same argument `soc/baseline_summary.py` already makes by refusing to subtract two sweeps whose
   stamps disagree.

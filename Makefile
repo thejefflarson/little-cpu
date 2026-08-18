@@ -878,13 +878,21 @@ NETLIST_ROM     := soc-rom
 NETLIST_SYNTH   := $(SOC_SYNTH)
 NETLIST_PNR     := $(SOC_PNR)
 NETLIST_PNR_OUT := --asc
+# Where the control injects its dead tie-off, and a signal that module declares.
+# It has to be the TOP, which is measured: the same wire in a submodule is
+# optimised away before the netlist is written, and the control would then
+# exercise the comment class twice and the dead-net class never. A part whose
+# placer is not nextpnr also sets NETLIST_PNR_DONE, which is that placer's own
+# last line -- printed after the bitstream, so it is what says the run finished.
+NETLIST_MUTANT  := rtl/littlesoc.v mem_addr
 endif
 
 # Passed per command rather than `export`ed: an exported variable reaches every
 # other recipe in this file and every sub-make under them, and the first thing
 # it reached was the probe that asks what happens when the part table is empty.
 NETLIST_ENV = NETLIST_SYNTH='$(NETLIST_SYNTH)' NETLIST_PNR='$(NETLIST_PNR)' \
-              NETLIST_PNR_OUT='$(NETLIST_PNR_OUT)' NETLIST_OUT='$(NETLIST_OUT)' \
+              NETLIST_PNR_OUT='$(NETLIST_PNR_OUT)' NETLIST_PNR_DONE='$(NETLIST_PNR_DONE)' \
+              NETLIST_MUTANT='$(NETLIST_MUTANT)' NETLIST_OUT='$(NETLIST_OUT)' \
               SOC_PROG='$(SOC_PROG)'
 
 # An unknown part is refused rather than digested: with nothing in the table the
@@ -894,7 +902,7 @@ define netlist-part-check
 test -n '$(NETLIST_SYNTH)' || { \
 	  echo '*** NETLIST_PART=$(NETLIST_PART) has no synthesis flow here.'; \
 	  echo '*** Parts with one: up5k. A new part needs NETLIST_ROM, NETLIST_SYNTH,'; \
-	  echo '*** NETLIST_PNR and NETLIST_PNR_OUT set in the Makefile'; \
+	  echo '*** NETLIST_PNR, NETLIST_PNR_OUT and NETLIST_MUTANT set in the Makefile'; \
 	  echo '*** block above. Nothing was digested.'; \
 	  exit 2; }
 endef
@@ -913,18 +921,23 @@ netlist-digest: netlist-determinism
 	@python3 soc/netlist_digest.py digest $(NETLIST_OUT)/this.canon.json \
 	  --label '$(NETLIST_PART), $(SOC_PROG)'
 
+# BASE reaches the shell through the environment and never as recipe text. A ref
+# is a name someone else chose -- `gh pr checkout` puts a contributor's branch in
+# this repository -- and git allows a quote, a semicolon and a backtick in one,
+# so pasted into `'$(BASE)'` it would close the quote and run as a command here.
 .PHONY: netlist-diff
+netlist-diff: export BASE := $(BASE)
 netlist-diff: netlist-determinism
 	@$(netlist-part-check)
-	@test -n '$(BASE)' || { \
+	@test -n "$$BASE" || { \
 	  echo '*** make netlist-diff: name the commit to compare against, e.g.'; \
 	  echo '*** make netlist-diff BASE=origin/main.'; \
 	  exit 2; }
-	@$(NETLIST_ENV) sh soc/netlist_base.sh '$(BASE)' $(NETLIST_OUT)/base.canon.json
+	@$(NETLIST_ENV) sh soc/netlist_base.sh "$$BASE" $(NETLIST_OUT)/base.canon.json
 	@echo
 	@python3 soc/netlist_digest.py compare \
 	  $(NETLIST_OUT)/base.canon.json $(NETLIST_OUT)/this.canon.json \
-	  --base-label '$(BASE)' --new-label 'this tree'
+	  --base-label "$$BASE" --new-label 'this tree'
 
 # ---- the cross-core comparison harness -------------------------------------
 #

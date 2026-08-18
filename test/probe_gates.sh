@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=353
+PROBES_EXPECTED=358
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -2623,14 +2623,18 @@ case \$script in
   *"opt_clean -purge"*)
     if [ "\$tree" = mutant ] && [ -n "\${STUB_YOSYS_CANON_MOVED:-}" ]; then
       cp "$2/canon.moved.json" "\$out"
+    elif [ "\$tree" = mutant ] && [ -n "\${STUB_YOSYS_DEAD_SURVIVES:-}" ]; then
+      cp "$2/canon.dead.json" "\$out"
     else
       cp "$2/canon.json" "\$out"
     fi ;;
   *)
-    if [ "\$tree" = mutant ] && [ -z "\${STUB_YOSYS_NO_TRACE:-}" ]; then
+    if [ "\$tree" != mutant ] || [ -n "\${STUB_YOSYS_NO_TRACE:-}" ]; then
+      printf 'shipping netlist\n' > "\$out"
+    elif [ -n "\${STUB_YOSYS_NO_DEAD:-}" ]; then
       printf 'shipping netlist, mutated\n' > "\$out"
     else
-      printf 'shipping netlist\n' > "\$out"
+      printf 'shipping netlist, mutated, netlist_control_dead\n' > "\$out"
     fi ;;
 esac
 exit \${STUB_YOSYS_EXIT:-0}
@@ -2656,6 +2660,10 @@ case $asc in
   *this.2.asc) if [ -n "${STUB_PNR_FLAKY:-}" ]; then bits=placement-B; fi ;;
 esac
 printf '%s\n' "$bits" > "$asc"
+# Killed part-way through the write: a non-empty bitstream, and a log that never
+# reaches the line the real placer prints after finishing one.
+if [ -n "${STUB_PNR_TRUNCATED:-}" ]; then exit 137; fi
+echo "Info: Program finished normally."
 STUB
   chmod +x "$1/nextpnr-ice40"
 }
@@ -2674,6 +2682,10 @@ RTL
   nd_netlist "$d/fix/canon.json"
   nd_netlist "$d/fix/canon.moved.json"
   sed -i.bak 's/1010101010101010/1010101010101011/' "$d/fix/canon.moved.json"
+  # A canonical form the purge did NOT clean the dead net out of.
+  nd_netlist "$d/fix/canon.dead.json"
+  sed -i.bak 's/"hdlname": "decode"/"hdlname": "netlist_control_dead"/' \
+    "$d/fix/canon.dead.json"
   nl_stub_yosys "$d/bin" "$d/fix"
   nl_stub_pnr "$d/bin"
   printf '%s' "$d"
@@ -2683,6 +2695,7 @@ nl_run() {  # <fixture dir> [what follows the stubs on PATH]
   printf '%s' "PATH=$1/bin:${2:-\$PATH} \
     NETLIST_SYNTH='read_verilog -sv rtl/decoder.v; synth_ice40 -top littlesoc' \
     NETLIST_PNR='nextpnr-ice40 --up5k' NETLIST_PNR_OUT=--asc \
+    NETLIST_MUTANT='rtl/decoder.v reg_rs1' \
     sh $1/repo/soc/netlist_determinism.sh"
 }
 
@@ -2713,6 +2726,25 @@ d=$(nl_fixture)
 probe "a placer that wrote no bitstream placed nothing, which is not a pass" 1 \
   "wrote no bitstream" "STUB_PNR_EMPTY=1 $(nl_run "$d")"
 
+# THE ONE A NON-EMPTY FILE HIDES: a placer killed mid-write leaves a partial
+# bitstream, and a deterministic one killed three times leaves three partial
+# files that compare equal. Size alone calls that a placement.
+d=$(nl_fixture)
+probe "a bitstream the placer never finished writing is not a placement" 1 \
+  "never finished" "STUB_PNR_TRUNCATED=1 $(nl_run "$d")"
+
+# The vacuity checks the comment class cannot stand in for. The mutant carries
+# three edits and the comment alone makes its netlist differ, so "something
+# moved" says nothing about the dead net -- which is the class the purge is what
+# forgives.
+d=$(nl_fixture)
+probe "a dead tie-off that never reached the netlist exercises no class" 1 \
+  "left no trace in the mapped netlist" "STUB_YOSYS_NO_DEAD=1 $(nl_run "$d")"
+
+d=$(nl_fixture)
+probe "...and one the purge did not remove means the digest is equal by luck" 1 \
+  "survives" "STUB_YOSYS_DEAD_SURVIVES=1 $(nl_run "$d")"
+
 d=$(nl_fixture)
 probe "a synthesis that failed is not a passed control either" 1 \
   "could not synthesise" "STUB_YOSYS_EXIT=1 $(nl_run "$d")"
@@ -2732,6 +2764,22 @@ probe "no placer on PATH is refused the same way" 2 \
 d=$(nl_fixture); sed -i.bak 's/reg_rs1/reg_rs9/g' "$d/repo/rtl/decoder.v"
 probe "an injection site that moved stops the control, loudly" 1 \
   "the mutant could not be built" "$(nl_run "$d")"
+
+# The quiet way that site rots: the signal is still in the FILE, in a module the
+# tie-off does not land in. Implicitly declared one bit wide, its part-selects
+# fold to a constant and the assign is optimised away -- so the check has to be
+# scoped to the module being spliced into, not to the file.
+d=$(nl_fixture)
+cat > "$d/repo/rtl/decoder.v" <<'RTL'
+module regsel (input logic [31:0] reg_rs1, output logic [31:0] picked);
+  assign picked = reg_rs1;
+endmodule
+module decoder (input logic [31:0] word, output logic [31:0] out);
+  assign out = word;
+endmodule
+RTL
+probe "a signal in scope only in an earlier module stops it too" 1 \
+  "is not in the module the tie-off splices into" "$(nl_run "$d")"
 
 d=$(nl_fixture); rm "$d/repo/rtl/decoder.v"
 probe "...and so does the file it injects into going away" 1 \
@@ -2787,6 +2835,23 @@ sed -i.bak 's/^print-%:/NETLIST_SYNTH := read_verilog -sv rtl\/decoder.v; synth_
 git -C "$d/repo" -c user.email=probe@example -c user.name=probe commit -qam flags
 probe "a base tree whose synth flags moved is digested with ITS flags, and says so" 0 \
   "synthesises with a different script" "$(nb_run "$d" HEAD)"
+
+# A base tree whose make fails for any reason OTHER than having no `print-%`
+# rule must not read as one that names no synth script: that fallback
+# synthesises the base commit with THIS tree's flags, which is the blind
+# comparison this script exists to refuse. A parse error fails the ROM step
+# first and is reported there, so what is forced here is the rule itself
+# failing -- which is what `| tail -1` used to swallow whole.
+d=$(nb_fixture)
+cat > "$d/repo/Makefile" <<'MK'
+soc-rom:
+	@:
+print-%:
+	@echo '$($*)'; exit 3
+MK
+git -C "$d/repo" -c user.email=probe@example -c user.name=probe commit -qam broken
+probe "a base tree whose make fails is refused, not quietly given ours" 2 \
+  "could not be asked which synth" "$(nb_run "$d" HEAD)"
 
 d=$(nb_fixture)
 probe "a ref that names no commit is refused, not compared" 2 \
