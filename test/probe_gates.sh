@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=317
+PROBES_EXPECTED=334
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -2428,6 +2428,155 @@ probe "a respelled trap_pending stops: an uncommitted fault proves nothing" 2 \
 d=$(tr_fixture); rm "$d/formal/traps.sv"
 probe "the model moving away takes the probe with it, loudly" 2 \
   "formal/traps.sv is missing from" "$(trs "$d")"
+
+begin_group "formal/busarbiter-probe.py"
+
+# Same shape as the group above, and for the same reason: that file is itself
+# the demonstrated red direction for formal/busarbiter.sv's wait bound and its
+# indivisibility arm, it needs a solver to be one, and so it runs under `make -C
+# formal components_busarbiter` rather than here. What is probed here is its own
+# grading -- it builds three arbiters and requires one to prove, one to go red
+# at the wait bound and not at the lock, and one to go red at the lock and take
+# the anti-vacuity cover down with it. Every one of those comparisons has a
+# failure path of its own.
+BA="python3 $REPO/formal/busarbiter-probe.py"
+
+cat > "$tmp/sby-busarbiter-stub" <<'STUB'
+#!/bin/sh
+# Stands in for sby. The case is the name of the directory it runs in and the
+# job is the .sby it was handed, and every line number is read out of the copy
+# of busarbiter.sv beside it -- so a respelled assertion moves this stub's
+# answer exactly the way it moves the real solver's.
+for a in "$@"; do last=$a; done
+job=${last%.sby}
+line_of() { grep -nF -- "$1" src/busarbiter.sv | cut -d: -f1; }
+lock=$(line_of 'if (settled && past_grant[h] && past_mem_lock[h]) assert(grant[h]);')
+bound=$(line_of 'always_comb if (clocked) assert(waited <= BOUND);')
+cover=$(line_of 'cover (settled && grant[h] && past_grant[h] && past_mem_lock[h] &&')
+mkdir -p "$job"
+: > "$job/logfile.txt"
+assert_red() {
+  echo "SBY [probe] engine_0.basecase: Assert failed in busarbiter_check:" \
+       "busarbiter.sv:$1.9-$1.26" >> "$job/logfile.txt"
+}
+cover_red() {
+  echo "SBY [probe] engine_0: Unreached cover statement at busarbiter_check:" \
+       "busarbiter.sv:$1.7-$1.30" >> "$job/logfile.txt"
+}
+status=PASS
+case "$(basename "$PWD")/$job" in
+  shipping/prove) status=${STUB_SHIP_PROVE:-PASS} ;;
+  shipping/cover) status=${STUB_SHIP_COVER:-PASS} ;;
+  fixed-priority/prove)
+    status=${STUB_FIXED:-FAIL}
+    if [ "$status" = FAIL ]; then
+      assert_red "${STUB_FIXED_LINE:-$bound}"
+      [ -n "${STUB_FIXED_ALSO_LOCK:-}" ] && assert_red "$lock"
+    fi ;;
+  grant-mid-lock/prove)
+    status=${STUB_MIDLOCK:-FAIL}
+    [ "$status" = FAIL ] && assert_red "${STUB_MIDLOCK_LINE:-$lock}" ;;
+  grant-mid-lock/cover)
+    status=${STUB_COVER_MID:-FAIL}
+    [ "$status" = FAIL ] && cover_red "${STUB_COVER_MID_LINE:-$cover}" ;;
+esac
+[ -n "${STUB_SBY_NO_STATUS:-}" ] && exit 1
+if [ -n "${STUB_SBY_EMPTY_STATUS:-}" ]; then : > "$job/status"; exit 1; fi
+echo "$status 2 0" > "$job/status"
+STUB
+chmod +x "$tmp/sby-busarbiter-stub"
+
+ba_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/rtl" "$d/formal"
+  cp "$REPO"/rtl/busarbiter.v "$d/rtl/"
+  cp "$REPO"/formal/busarbiter.sv "$d/formal/"
+  printf '%s' "$d"
+}
+
+bas() {
+  printf "%s --repo %s --workdir %s/work --sby %s" \
+    "$BA" "$1" "$1" "$tmp/sby-busarbiter-stub"
+}
+
+d=$(ba_fixture)
+probe "control: both arms admit the shipping arbiter and fail on their mutation" 0 \
+  "fail on their own mutation" "$(bas "$d")"
+
+d=$(ba_fixture)
+probe "a harness that is red at rest makes the two mutations meaningless" 1 \
+  "the shipping arbiter does not prove" "STUB_SHIP_PROVE=FAIL $(bas "$d")"
+
+d=$(ba_fixture)
+probe "a cover the shipping arbiter cannot reach is red before any mutation" 1 \
+  "does not reach its own cover goals" "STUB_SHIP_COVER=FAIL $(bas "$d")"
+
+# THE TWO THAT MATTER: a bound that admits starvation and a lock that admits a
+# torn atomic are the whole reason that file exists.
+d=$(ba_fixture)
+probe "a wait bound that admits a starved hart is red" 1 \
+  "the fixed-priority arbiter proves" "STUB_FIXED=PASS $(bas "$d")"
+
+d=$(ba_fixture)
+probe "a lock arm that admits a grant mid-AMO is red" 1 \
+  "the mid-lock arbiter proves" "STUB_MIDLOCK=PASS $(bas "$d")"
+
+d=$(ba_fixture)
+probe "starvation going red somewhere other than the bound is not evidence" 1 \
+  "which does not include" "STUB_FIXED_LINE=9 $(bas "$d")"
+
+d=$(ba_fixture)
+probe "two arms that cannot be told apart are not two arms" 1 \
+  "as well" "STUB_FIXED_ALSO_LOCK=1 $(bas "$d")"
+
+d=$(ba_fixture)
+probe "a torn atomic going red at the wait bound is not evidence either" 1 \
+  "not at line" "STUB_MIDLOCK_LINE=9 $(bas "$d")"
+
+d=$(ba_fixture)
+probe "an anti-vacuity cover that cannot go red is not a control" 1 \
+  "reaches every cover goal" "STUB_COVER_MID=PASS $(bas "$d")"
+
+d=$(ba_fixture)
+probe "a cover red for some other goal says nothing about the lock" 1 \
+  "cover went red without line" "STUB_COVER_MID_LINE=9 $(bas "$d")"
+
+d=$(ba_fixture)
+probe "a solver that wrote no verdict is exit 2, not a red arm" 2 \
+  "wrote no status for the" "STUB_SBY_NO_STATUS=1 $(bas "$d")"
+
+d=$(ba_fixture)
+probe "an empty status file is refused rather than read as a verdict" 2 \
+  "is empty" "STUB_SBY_EMPTY_STATUS=1 $(bas "$d")"
+
+# The three parses, one per pinned line. Each is what a probe pins its answer
+# to, so a respelling has to stop the run rather than quietly probe nothing.
+d=$(ba_fixture)
+sed -i.bak 's/past_mem_lock\[h\]) assert(grant\[h\]);/past_mem_lock[h]) assert(grant[h] == 1);/' \
+  "$d/formal/busarbiter.sv"
+probe "a respelled indivisibility arm stops rather than pinning nothing" 2 \
+  "states the indivisibility assertion 0 times" "$(bas "$d")"
+
+d=$(ba_fixture)
+sed -i.bak 's/assert(waited <= BOUND);/assert(waited <= BOUND + 0);/' "$d/formal/busarbiter.sv"
+probe "a respelled wait bound stops rather than pinning nothing" 2 \
+  "states the wait bound assertion 0 times" "$(bas "$d")"
+
+d=$(ba_fixture)
+sed -i.bak 's/cover (settled \&\& grant\[h\] \&\& past_grant\[h\]/cover (grant[h] \&\& settled \&\& past_grant[h]/' \
+  "$d/formal/busarbiter.sv"
+probe "a respelled lock cover stops rather than pinning nothing" 2 \
+  "states the lock cover goal 0 times" "$(bas "$d")"
+
+d=$(ba_fixture)
+sed -i.bak "s/else grant <= held ? grant : winner;/else grant <= (held) ? grant : winner;/" \
+  "$d/rtl/busarbiter.v"
+probe "a respelled mutation site stops rather than proving the shipping core thrice" 2 \
+  "no longer spells its tie-break" "$(bas "$d")"
+
+d=$(ba_fixture); rm "$d/formal/busarbiter.sv"
+probe "the harness moving away takes the probe with it, loudly" 2 \
+  "formal/busarbiter.sv is missing from" "$(bas "$d")"
 
 echo
 if [ "$probes" -ne "$PROBES_EXPECTED" ]; then

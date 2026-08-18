@@ -1,0 +1,54 @@
+# The anti-vacuity control for components.sby's `busarbiter` task, and it reads
+# the SAME busarbiter.sv.
+#
+# Every assertion in that file is guarded -- by a grant, by a lock, by a hart
+# having waited some number of cycles -- and every one of them is satisfied by
+# an arbiter that grants nobody. Three cover goals per hart ask the opposite
+# question of the same harness: sby's `mode cover` strips the assertions and
+# keeps the assumes, so what runs here is "find a trace that reaches it".
+#
+#   grant             -- this hart is granted at all.
+#   lock, other asking -- a lock really does span two cycles, on a cycle the
+#                        other hart was asking for the bus. That last clause is
+#                        the point: a lock nobody was competing for demonstrates
+#                        nothing about indivisibility, and a cover without it
+#                        would go on passing over an arbiter that had stopped
+#                        holding anything back.
+#   waited == BOUND   -- the wait bound is reached, so the constant asserted
+#                        over there is this hart's real worst case rather than a
+#                        number safely above it. Widen the bound and this goes
+#                        unreachable.
+#
+# Six goals, both harts, and the harness gives each hart its own bound: hart 0's
+# is 2 and hart 1's is 3, because an idle bus offers itself to hart 0 first. A
+# single shared constant would leave one of these two unreachable.
+#
+# It is a separate .sby rather than a task inside components.sby because that
+# file sets `all: mode prove`, and a cover task would have to override an option
+# every other task there wants. formal/Makefile makes this a prerequisite of
+# `components_busarbiter`, which is what stops the control from rotting apart
+# from the proof it controls.
+#
+# DEPTH 20 is a HEADROOM number rather than a measured floor. Measured, the last
+# goal is reached at step 4 and the task returns in under a second. The bound is
+# left well clear of that because the cheap failure mode is a goal that becomes
+# reachable only slightly later after some future edit, which would read as
+# "unreachable" -- i.e. as an arbiter that had stopped granting or stopped
+# holding -- and send the next reader hunting the wrong thing.
+
+[options]
+mode cover
+depth 20
+
+[engines]
+smtbmc
+
+[script]
+# Read WITH -formal, the way components.sby's busarbiter task does and for the
+# reason it states: rtl/busarbiter.v carries no `ifdef FORMAL` block of its own.
+read -sv -formal busarbiter.v busarbiter.sv
+prep -top busarbiter_check
+
+[files]
+../rtl/busarbiter.v
+busarbiter.sv

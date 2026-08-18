@@ -290,6 +290,17 @@ jobs:
       - name: Trap commit proof
         run: make -C formal components_traps
 
+      # This one make also runs formal/busarbiter_cover.sby and
+      # formal/busarbiter-probe.py, both prerequisites of the target rather than
+      # steps of their own. The cover says the arbiter still grants somebody and
+      # still holds a lock, so the guarded assertions are reached at all; the
+      # probe builds a fixed-priority arbiter and a mid-lock one and requires
+      # the wait bound and the indivisibility arm to go red for their own
+      # reasons. Starvation has no other grader -- no torture program can catch
+      # it.
+      - name: Bus arbiter proof (+ its cover and its forced red directions)
+        run: make -C formal components_busarbiter
+
       - name: Report job wall time
         if: always()
         run: |
