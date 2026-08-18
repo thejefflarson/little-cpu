@@ -845,8 +845,10 @@ print-toolchain:
 # this target's numbers are not comparable to it.
 #
 # `COMPARE_CORE=littlecpu` (default) or `vexriscv`; `COMPARE_SEED=<n>` picks a
-# placement. soc/compare/sweep.sh runs both cores over four seeds each, which is
-# what a distribution needs.
+# placement. soc/compare/sweep.sh runs both cores over four seeds each by
+# default, which is a look at a distribution and not a verdict on one: the
+# placement spread CLAUDE.md records is 4-9% and a decision costs twelve to
+# sixteen.
 COMPARE_CORE  ?= littlecpu
 COMPARE_SEED  ?=
 # 4 KB of ROM (8 SB_RAM40_4K) and 2 KB of data RAM (4 more). Shrunk from the
