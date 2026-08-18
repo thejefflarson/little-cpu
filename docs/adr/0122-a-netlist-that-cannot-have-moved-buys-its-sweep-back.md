@@ -1,4 +1,4 @@
-# ADR-0120: A netlist that cannot have moved buys its sweep back
+# ADR-0122: A netlist that cannot have moved buys its sweep back
 
 **Status:** Accepted · 2026-08-17 · *Adds an instrument, no ratchet and no gate on the shipping
 design. Amends no commitment. Qualifies ADR-0113's sixteen-seed rule by saying when the sixteen are
