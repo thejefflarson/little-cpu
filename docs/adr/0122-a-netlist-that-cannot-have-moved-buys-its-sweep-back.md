@@ -36,7 +36,9 @@ The shipping synth script verbatim, plus `opt_clean -purge`, with `soc/netlist_d
 load-bearing and were measured apart: the purge removes the dead net and restores the numbering, the
 attribute drop survives a comment moving a line, and neither alone forgives both classes.
 
-Under it, on the SoC that places:
+Under it, on the SoC that places — every hash below taken on `553a241`, before the mapper was
+re-pointed at this part's device grade, so they are that tree's values and not this one's. What
+survives a tree is the property, and `make netlist-determinism` re-takes it per invocation:
 
 | tree | shipping netlist | canonical digest | placed bitstream, one seed |
 |---|---|---|---|
