@@ -543,6 +543,11 @@ jobs:
             echo "far above what the design reaches so that the number describes the"
             echo "design and not the target. NEVER merge or subtract an ECP5 number"
             echo "and an up5k one."
+            echo "The \`#\` lines above are the toolchain that produced this, from"
+            echo "\`make ecp5-timing-toolchain\`. Nothing about this instrument is"
+            echo "pinned and its numbers have no derived band yet, so which yosys"
+            echo "and which nextpnr answered matters more here than for the two"
+            echo "up5k flows."
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 

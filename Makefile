@@ -890,31 +890,62 @@ ecp5.json: $(SOC_SRCS) soc-rom
 	  "rtl/executor.v's multiplier has stopped inferring a DSP block; in soft logic it would be invisible in a frequency number and enormous in area" \
 	  --gate 'make ecp5-timing' --declared ECP5_EXPECT_DSP
 
+# The two tools this measurement is a property of. No icetime: there is none for
+# this part, which is the whole reason soc/ecp5_report.py reads nextpnr's own
+# estimate instead. The stamp matters MORE here than for the other two flows --
+# this instrument is new, nothing about it is pinned, and its first numbers have
+# no band to be read against yet.
+ECP5_TOOLS := yosys nextpnr-ecp5
+
+.PHONY: ecp5-timing-toolchain
+ecp5-timing-toolchain:
+	@soc/print_toolchain.sh $(ECP5_TOOLS)
+
 # nextpnr's exit status carries even less here than it does for `soc.asc`. This
 # run is handed a constraint the design is MEANT to miss, so every successful run
-# ends in `ERROR: Max frequency ... (FAIL at ...)` and exits 1. The `|| true` is
-# what keeps `.DELETE_ON_ERROR` from deleting the configuration the measurement
-# is read out of; the guard below only attaches nextpnr's own log to a run that
-# wrote nothing, and the verdict belongs to soc/ecp5_report.py.
+# ends in `ERROR: Max frequency ... (FAIL at ...)` and exits 1. The `|| true`
+# tolerates exactly that, and keeps `.DELETE_ON_ERROR` from deleting the
+# configuration the measurement is read out of.
+#
+# WHICH IS WHY THE FIRST LINE DELETES BOTH OUTPUTS. nextpnr writes them only at
+# the very end of its flow, so a run that dies before that -- out of memory,
+# killed, unroutable, a database it cannot load, a flag it does not know -- would
+# otherwise leave the PREVIOUS run's pair intact. Both files would then be
+# coherent with each other and with nothing else: same clock, same corner, same
+# constraint, a path that reconciles, every one of soc/ecp5_report.py's refusals
+# satisfied, and an old frequency published as this tree's. `ecp5.json` is
+# rebuilt every run because `soc-rom` is phony, so the RTL can have moved
+# completely underneath that number, and `ecp5.report.json` is not a make target
+# at all so nothing else would ever invalidate it. Do not drop this line, and do
+# not weaken the guard below back to `test -e`.
 #
 # `--textcfg` is the cheap "expressible in the target's configuration" check:
 # nextpnr writes it only from a routed design, it costs nothing and it adds no
-# packer. There is no `ecppack` here and no bitstream.
+# packer. There is no `ecppack` here and no bitstream. The guard is what attaches
+# nextpnr's own log to a run that produced nothing; the verdict on what it did
+# produce belongs to soc/ecp5_report.py.
 ecp5.config: ecp5.json soc/littlesoc.lpf
+	@rm -f $@ ecp5.report.json
 	@echo 'nextpnr: placing and routing littlesoc on $(ECP5_PART) (log: ecp5.pnr.log)'
 	@nextpnr-ecp5 $(ECP5_DEVICE) --package $(ECP5_PACKAGE) --speed $(ECP5_SPEED) \
 	  --json $< --lpf soc/littlesoc.lpf --lpf-allow-unconstrained \
 	  --freq $(ECP5_TARGET_MHZ) $(if $(ECP5_SEED),--seed '$(ECP5_SEED)') \
 	  --textcfg $@ --report ecp5.report.json > ecp5.pnr.log 2>&1 || true
-	@test -e $@ || { \
-	  echo '*** make ecp5-timing: nextpnr wrote no configuration, so NOTHING was'; \
-	  echo '*** measured. That is a failed run, not a slow design.'; \
+	@{ test -s $@ && test -s ecp5.report.json; } || { \
+	  echo '*** make ecp5-timing: nextpnr wrote no configuration and report pair,'; \
+	  echo '*** so NOTHING was measured. That is a failed run, not a slow design,'; \
+	  echo '*** and it is deliberately NOT graded against whatever the last run'; \
+	  echo '*** left on disk.'; \
 	  tail -30 ecp5.pnr.log; \
+	  rm -f $@ ecp5.report.json; \
 	  exit 1; \
 	}
 
+# The toolchain stamp is a prerequisite rather than the recipe's first line, the
+# way `fit` and `soc-timing` take theirs: a synthesis that dies, a placement that
+# dies and a census that trips then all leave a run saying what was running.
 .PHONY: ecp5-timing
-ecp5-timing: ecp5.config
+ecp5-timing: ecp5-timing-toolchain ecp5.config
 	@echo
 	@echo '== nextpnr-ecp5: the frequency, its corner and its constraint =='
 	@python3 soc/ecp5_report.py ecp5.report.json ecp5.config \
@@ -935,10 +966,11 @@ print-%:
 # Every tool list is a variable here and never a second copy in the workflow:
 # the `elaborate` job spelled a source list out in YAML once, it drifted from
 # this file's, and the gate spent a run elaborating a testbench whose memory
-# instances resolved to nothing. `fit-toolchain` and `soc-timing-toolchain` are
-# the two graded flows' own lists and are what those jobs print; this target
-# takes any list, and defaults to every tool either of them grades.
-TOOLS ?= $(sort $(FIT_TOOLS) $(SOC_TIMING_TOOLS))
+# instances resolved to nothing. `fit-toolchain`, `soc-timing-toolchain` and
+# `ecp5-timing-toolchain` are the three graded flows' own lists and are what
+# those jobs print; this target takes any list, and defaults to every tool any
+# of them grades.
+TOOLS ?= $(sort $(FIT_TOOLS) $(SOC_TIMING_TOOLS) $(ECP5_TOOLS))
 
 .PHONY: print-toolchain
 print-toolchain:

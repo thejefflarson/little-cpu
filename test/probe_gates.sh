@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=336
+PROBES_EXPECTED=341
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -1500,6 +1500,120 @@ PY
 probe "a path that does not reconcile blames the script, not the design" 1 \
   "but nextpnr publishes 40.00 MHz" \
   "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
+
+# The one red direction the sixteen above cannot reach: every one of them assumes
+# the two files describe THIS run. nextpnr writes both only at the very end of
+# its flow, so a run that dies earlier -- killed, out of memory, unroutable, a
+# database it cannot load -- would leave the previous run's pair intact, coherent
+# with each other and with a tree that has since changed underneath them.
+#
+# Driven against the real Makefile rather than against a copy of the guard,
+# because a second copy of a three-line refusal is the shape this file exists to
+# catch. `-o soc-rom` is what keeps it hermetic: `ecp5.json` depends on that
+# phony target, so without it make would rebuild the netlist and want yosys and a
+# cross compiler for a file the stub never reads. Marking it old leaves
+# `ecp5.json` up to date and `ecp5.config` genuinely out of date, which is the
+# state a second run on a laptop is really in.
+ecp5_stale_fixture() {  # stdin = the stub nextpnr-ecp5's body, after --version
+  local d; d=$(new_case)
+  mkdir -p "$d/soc" "$d/formal" "$d/bin"
+  cp "$REPO/Makefile" "$d/Makefile"
+  cp "$REPO/formal/pin.mk" "$d/formal/"
+  cp "$REPO/soc/littlesoc.lpf" "$REPO/soc/ecp5_report.py" \
+     "$REPO/soc/print_toolchain.sh" "$d/soc/"
+  cp -R "$REPO/rtl" "$d/"
+  # The pair a previous, COMPLETE run left behind. Both are exactly what the
+  # parser accepts, which is the whole point: every refusal it has is satisfied
+  # by this pair, so only the recipe can tell it is not this run's.
+  cat > "$d/ecp5.config" <<'CFG'
+.device LFE5U-25F
+
+.comment Part: LFE5U-25F-6CABGA381
+CFG
+  cat > "$d/ecp5.report.json" <<'JSON'
+{
+  "fmax": {"$glbnet$clk$TRELLIS_IO_IN": {"achieved": 40.0, "constraint": 200.0}},
+  "utilization": {"DP16KD": {"available": 56, "used": 36}},
+  "critical_paths": [
+    {
+      "from": "posedge $glbnet$clk$TRELLIS_IO_IN",
+      "to": "posedge $glbnet$clk$TRELLIS_IO_IN",
+      "path": [
+        {"type": "clk-to-q", "delay": 5.0,
+         "from": {"cell": "stale.rom"}, "to": {"cell": "stale.rom"}},
+        {"type": "routing", "delay": 15.0,
+         "from": {"cell": "stale.rom"}, "to": {"cell": "stale.lut"}},
+        {"type": "logic", "delay": 5.0,
+         "from": {"cell": "stale.lut"}, "to": {"cell": "stale.ff"}}
+      ]
+    }
+  ]
+}
+JSON
+  cp "$d/ecp5.report.json" "$d/complete.json"
+  echo 'Info: a previous run' > "$d/ecp5.pnr.log"
+  # Dated rather than merely written first: what makes the recipe run is that
+  # `ecp5.json` is newer than the pair, and a stamp settles that without leaning
+  # on the filesystem's timestamp resolution.
+  touch -t 202001010000 "$d/ecp5.config" "$d/ecp5.report.json"
+  # `ecp5-timing-toolchain` asks both tools for a version before anything else
+  # runs, so both have to answer or a probe would go red before reaching the
+  # guard it is about.
+  printf '#!/bin/sh\necho "stub yosys"\n' > "$d/bin/yosys"
+  { echo '#!/bin/sh'
+    echo 'case "$1" in --version|-V) echo "stub nextpnr-ecp5"; exit 0;; esac'
+    cat
+  } > "$d/bin/nextpnr-ecp5"
+  chmod +x "$d/bin/yosys" "$d/bin/nextpnr-ecp5"
+  touch "$d/ecp5.json"
+  printf '%s' "$d"
+}
+
+ecp5_stale_run() {  # $1 = fixture dir
+  printf "cd '%s' && PATH='%s/bin':\$PATH make -o soc-rom ecp5-timing" "$1" "$1"
+}
+
+# Stands in for a COMPLETE run: writes both files and exits 1, which is what the
+# real nextpnr does every time it misses the pinned constraint. Without this
+# control, a fixture that simply failed to build would take the four below green
+# for a reason that has nothing to do with the guard.
+d=$(ecp5_stale_fixture <<'STUB'
+cat > ecp5.config <<CFG
+.device LFE5U-25F
+
+.comment Part: LFE5U-25F-6CABGA381
+CFG
+cp complete.json ecp5.report.json
+exit 1
+STUB
+)
+probe "control: a nextpnr that wrote its pair is graded, exit 1 and all" 0 \
+  "Fmax          : 40.00 MHz" "$(ecp5_stale_run "$d")"
+
+d=$(ecp5_stale_fixture <<< 'exit 1')
+probe "a nextpnr that died early is NOT graded on the last run's pair" 2 \
+  "so NOTHING was measured" "$(ecp5_stale_run "$d")"
+
+# `.DELETE_ON_ERROR` would remove `ecp5.config` on its own, because that one is a
+# make target. `ecp5.report.json` is not, so nothing but the recipe's own `rm`
+# takes it away -- and a report left behind is half a stale pair waiting for the
+# next run. Graded through a configuration written here, so that the parser gets
+# past its cheapest check and the missing report is what speaks.
+d=$(ecp5_stale_fixture <<< 'exit 1')
+probe "the REPORT goes too, which .DELETE_ON_ERROR cannot do for a non-target" 1 \
+  "does not exist, so NOTHING was" \
+  "$(ecp5_stale_run "$d") > /dev/null 2>&1; \
+   printf '.device LFE5U-25F\n\n.comment Part: LFE5U-25F-6CABGA381\n' > '$d/good.config'; \
+   python3 '$REPO/soc/ecp5_report.py' '$d/ecp5.report.json' '$d/good.config' \
+     --clock clk --part LFE5U-25F-6CABGA381 --constraint-mhz 200.0"
+
+d=$(ecp5_stale_fixture <<< ': > ecp5.config; exit 1')
+probe "a configuration truncated to nothing is caught, which test -e cannot be" 2 \
+  "so NOTHING was measured" "$(ecp5_stale_run "$d")"
+
+d=$(ecp5_stale_fixture <<< 'cp complete.json ecp5.config; exit 1')
+probe "a configuration written without its report is half a run, not a run" 2 \
+  "so NOTHING was measured" "$(ecp5_stale_run "$d")"
 
 begin_group "check-unit-benches"
 
