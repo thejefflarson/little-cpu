@@ -11,6 +11,11 @@
 #   SOC_SEEDS='default 1 2 3 4 5' soc/timing_sweep.sh
 #   soc/timing_sweep.sh SOC_PROG=lw.S       # arguments go through to make
 #
+# A sweep is only owed when the netlist moved. `make netlist-diff BASE=<ref>`
+# says whether it did: digest unchanged, no sweep owed; digest changed, the
+# paired sixteen-seed sweep in soc/baseline_sweep.sh is what is owed, not this
+# four-seed look.
+#
 # Nothing here grades anything. `make soc-timing` carries the SOC_MIN_MHZ ratchet
 # and this script hands its exit status straight back, so a placement that fails
 # stops the sweep with that target's own diagnostic rather than leaving a blank

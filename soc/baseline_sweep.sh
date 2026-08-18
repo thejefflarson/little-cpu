@@ -18,6 +18,15 @@
 #
 # Sixteen placements of the shipping SoC is about 12 minutes of compute.
 #
+# ASK WHETHER THEY ARE OWED BEFORE SPENDING THEM. `make netlist-diff BASE=<ref>`
+# digests the mapped netlist on both sides of a change, and the landing
+# procedure is: DIGEST UNCHANGED, NO SWEEP OWED -- the placer's input differs
+# only in dead nets and source attributes, which is measured not to move the
+# placement; DIGEST CHANGED, the paired sixteen-seed sweep is owed and this is
+# it. Sound in that one direction only: a digest that moved says nothing about
+# the period, and at today's margin it is a stop-and-redesign signal rather than
+# merely a sweep owed, because there is nowhere to put the cells.
+#
 # Nothing here grades anything and nothing here is a gate. `make soc-timing`
 # carries the SOC_MIN_MHZ requirement and this script hands its status straight
 # back, so a placement under the board clock stops the sweep with that target's
