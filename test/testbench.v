@@ -100,7 +100,11 @@ module testbench(
     .mtip(irq_timer)
   );
 
-  littlecpu uut (
+  // The same localparam the `imemory` above is given, so the core's copy of the
+  // map describes THIS machine's text window rather than the part's. It is the
+  // one parameter of the map an integrator states, for the same reason it is the
+  // one memory sized here.
+  littlecpu #(.LS_TEXT_WORDS(ROM_WORDS)) uut (
     .clk(clk),
     .reset(reset),
     .imem_addr(imem_addr),

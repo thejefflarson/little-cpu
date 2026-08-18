@@ -605,10 +605,14 @@ make mutation-check # delete a term from rtl/ and require exactly the detectors
                     # written for. ~3.5 min, not on `make test`, no ratchet.
                     # `make mutation-probe` forces its own graders red and IS on it
 make window-test    # force the elaboration checks in rtl/{imemory,memory,timer}.v
-                    # red, in both frontends. Runs inside `make test`
+                    # and rtl/littlecpu.v's copy of that map red, in both
+                    # frontends. Runs inside `make test`
 make cycles         # the suite again, every cycle charged to an issuing cycle or
                     # one of the six stall reasons; nonzero on a stalled cycle none
-                    # of them explains. Not on CI -- there is no CPI ratchet
+                    # of them explains. Prints the two load/store locality
+                    # counters under the table -- accesses whose base register is
+                    # within 2 KB of a region edge, and accesses issuing on a
+                    # write-through to it. Not on CI -- there is no CPI ratchet
 make dhrystone      # Dhrystone 2.1 (test/bench, NOT the graded suite) -> DMIPS/MHz,
                     # the ROM image against the SoC's 8 KB, and the same accounting
                     # on compiled code. DHRY_RUNS picks the iteration count.
