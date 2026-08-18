@@ -65,6 +65,10 @@ formal/pcloop_cover
 # from checks.cfg on every run.
 formal/fg-probe.cfg
 formal/fg-probe/
+# `make -C formal traps-region-probe`: the two mutated cores it proves the
+# region cause arm against, and their sby workdirs. Rebuilt from rtl/ and
+# formal/traps.sv on every run.
+formal/region-probe/
 __pycache__/
 test/rtl.cc
 test/monitor.sim.v

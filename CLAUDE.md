@@ -293,6 +293,16 @@ What a green result does and does not mean:
   check also drops every value comparison once an instruction traps, keeping only the trap flag,
   and its two pc checks accept whatever target the core reports — so `components_traps` is the only
   thing that says a trap lands on `mtvec` and saves the right state.
+  **Its model states a load or store access fault ahead of the mechanism**, and states only half of
+  one: an access the map does not answer is excused from `must_not_trap`, and a core that faults it
+  must report cause 5 or 7 — the trap itself is not required, because reading zero is what this
+  platform does and the spec only recommends otherwise. That is why the map has to reach
+  `formal/traps.sv`, which no port of the core carries it to, so it restates it and
+  `test/memmap_test.sh` compares the copy. An arm no core reaches is worth nothing until it has been
+  shown to fail: `make -C formal traps-region-probe` builds two cores one line of `rtl/decoder.v`
+  apart, requires the one that faults with the right cause to prove and the one that faults with the
+  wrong cause to go red **at that comparison's own line**, and is a prerequisite of the proof for the
+  reason `pcloop_cover` is one.
 - **It ships no model of an INTERRUPT either**, so the core's timer input is tied off in all five
   harnesses under `formal/` and the generated checks run with no interrupt in the trace.
   `formal/INTERRUPT_TIE_OFF` mechanises that the same way, in both directions and re-derived from
@@ -640,7 +650,9 @@ make -C formal components_decoder   # component proofs by k-induction (mode prov
 make -C formal components_executor  #   read the sby summaries, not the job colour
 make -C formal components_pcloop    #   pcloop runs pcloop_cover first, its anti-vacuity
                                     #   control, as a prerequisite of the same target
-make -C formal components_traps     #   traps is the only proof over real mtvec/mepc/mcause/mstatus
+make -C formal components_traps     #   traps is the only proof over real mtvec/mepc/mcause/mstatus,
+                                    #   and runs traps-region-probe first the same way -- the red
+                                    #   direction for the load/store region cause arm, two sby runs
 make -C formal complete             # depth-50 whole-ISA walk minus COMPLETE_EXCLUSIONS
 make -C formal complete_cover       # its anti-vacuity control
 make -C formal nonperturbation      # RVFI instrumentation is unread by the core;
