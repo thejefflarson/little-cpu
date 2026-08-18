@@ -51,63 +51,11 @@ name=${BASELINE_NAME:-baseline}
 csv="$out/$name.csv"
 
 # A tool with no resolved path and no version is a sweep nobody can reproduce,
-# so both are stamped for each and a missing one stops the run here.
-tool_path() {
-  path=$(command -v "$1") || {
-    echo "*** soc/baseline_sweep.sh: no $1 on PATH, so there is nothing to" >&2
-    echo "*** stamp this sweep with." >&2
-    exit 1
-  }
-  printf '%s' "$path"
-}
-
-# Graded on the tool's own status and not merely on whether it printed: the
-# local nextpnr on one machine here answers `--version` with a dynamic-linker
-# error, which is a non-empty first line and would otherwise be stamped as this
-# sweep's toolchain version.
-first_line() {
-  if ! said=$("$@" 2>&1); then
-    echo "*** soc/baseline_sweep.sh: '$1' could not be asked for its version:" >&2
-    printf '%s\n' "$said" >&2
-    exit 1
-  fi
-  line=$(printf '%s\n' "$said" | sed -n '1p')
-  if [ -z "$line" ]; then
-    echo "*** soc/baseline_sweep.sh: '$1' printed no version string." >&2
-    exit 1
-  fi
-  printf '%s' "$line"
-}
-
-digest() {
-  if command -v shasum > /dev/null 2>&1; then
-    shasum -a 256 "$1" | cut -c1-16
-  elif command -v sha256sum > /dev/null 2>&1; then
-    sha256sum "$1" | cut -c1-16
-  else
-    printf 'no-digest-tool'
-  fi
-}
-
-# icetime publishes no version string -- every flag it does not recognise gets
-# the same usage message -- so the suite's own VERSION file beside the binary and
-# a digest of the binary stand in for one. Two installs that both stamped
-# "unknown" would compare equal, which is the mismatch this block exists to
-# catch.
-icetime_version() {
-  version_file=$(dirname "$1")/../VERSION
-  if [ -r "$version_file" ]; then
-    printf 'oss-cad-suite %s sha256:%s' "$(sed -n '1p' "$version_file")" "$(digest "$1")"
-  else
-    printf 'no version string sha256:%s' "$(digest "$1")"
-  fi
-}
-
-yosys_path=$(tool_path yosys)
-nextpnr_path=$(tool_path nextpnr-ice40)
-icetime_path=$(tool_path icetime)
-yosys_version=$(first_line yosys -V)
-nextpnr_version=$(first_line nextpnr-ice40 --version)
+# so soc/print_toolchain.sh stamps both for each and stops the run when one
+# cannot be asked. Asked through `make soc-timing-toolchain` because that is the
+# target the CI job grading SOC_MIN_MHZ stamps itself with, so a sweep's
+# provenance and CI's cannot become two answers to one question.
+tools=$(make -s soc-timing-toolchain "$@")
 
 # Asked of make rather than repeated here: a second copy of either default would
 # stamp the sweep with a program the build did not use the moment one moves, and
@@ -128,9 +76,7 @@ block=$(
   echo "# date: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
   echo "# base: $base"
   echo "# dirty: $dirty"
-  echo "# yosys: $yosys_version [$yosys_path]"
-  echo "# nextpnr-ice40: $nextpnr_version [$nextpnr_path]"
-  echo "# icetime: $(icetime_version "$icetime_path") [$icetime_path]"
+  printf '%s\n' "$tools"
   echo "# prog: $prog"
   echo "# rom_words: $rom_words"
   echo "# seeds: $seeds"

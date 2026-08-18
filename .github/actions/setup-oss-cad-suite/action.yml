@@ -3,7 +3,10 @@ description: >-
   Put the OSS CAD Suite (yosys, iverilog, sby, nextpnr-ice40, icetime, the
   solvers) on PATH. Uses the copy in the runner image when there is one,
   otherwise downloads the latest release and verifies it against the digest
-  GitHub publishes for the asset.
+  GitHub publishes for the asset. The two are different builds, so which branch
+  a job took is part of what its number means: the self-hosted pool always takes
+  the image's copy and only the GitHub-hosted `formal` job downloads anything.
+  The step summary records which, and the tag.
 runs:
   using: composite
   steps:
@@ -23,8 +26,10 @@ runs:
           echo "no copy in the runner image -- downloading the latest release"
         fi
 
-    # Latest, not a pin. A toolchain bump that changes the hardware shows up in
-    # `make fit` and `make soc-timing`, both of which ratchet: 32 cells were
+    # Latest, and reached only when the step above found nothing -- which on the
+    # self-hosted pool is never, so the graded synthesis jobs run the image's
+    # build and not this one. A toolchain bump that changes the hardware shows up
+    # in `make fit` and `make soc-timing`, both of which ratchet: 32 cells were
     # measured between two yosys builds on identical RTL. formal/pin.mk is a
     # different question and stays pinned -- test/monitor.v is generated from it
     # and tracked, so bumping that one means regenerating the monitor.
@@ -72,14 +77,38 @@ runs:
 
     - name: Add OSS CAD Suite to PATH
       shell: bash
+      # The tag reaches the shell through the environment rather than through
+      # `${{ }}`: it is a release name resolved from an upstream API, and an
+      # expression is pasted into the script before bash parses it.
+      env:
+        RELEASE_TAG: ${{ steps.release.outputs.tag }}
       run: |
         set -euo pipefail
         if [ "${{ steps.image.outputs.found }}" = "true" ]; then
           root=/opt/oss-cad-suite
+          # Whatever the runner image was built with: a de facto pin nothing in
+          # this repo declares or moves, and it does move -- the self-hosted pool
+          # read Yosys 0.68+40 on one day and 0.68+71 eight days later. Which of
+          # the two branches a job took decides which toolchain its number came
+          # from, so it is recorded rather than left in the step log.
+          origin="the runner image's copy at $root"
+          tag=$(sed -n '1p' "$root/VERSION" 2> /dev/null || true)
         else
           root="$GITHUB_WORKSPACE/oss-cad-suite"
+          origin="a downloaded release"
+          tag="$RELEASE_TAG"
         fi
         echo "$root/bin" >> "$GITHUB_PATH"
         echo "$root/py3bin" >> "$GITHUB_PATH"
+        {
+          echo "### OSS CAD Suite"
+          echo "- source: $origin"
+          echo "- tag: ${tag:-unrecorded}"
+          echo "- yosys: \`$("$root/bin/yosys" -V 2> /dev/null || echo 'could not be asked for its version')\`"
+          echo
+          echo "Not pinned, and the two sources are two different builds. \`make"
+          echo "print-toolchain\` is what stamps a graded number with the one that"
+          echo "produced it; this says which install that came out of."
+        } >> "$GITHUB_STEP_SUMMARY"
         # Fail here rather than in whichever job first reaches for yosys.
         test -x "$root/bin/yosys"
