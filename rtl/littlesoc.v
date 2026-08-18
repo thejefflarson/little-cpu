@@ -55,7 +55,11 @@ module littlesoc (
   logic [31:0] imem_addr, imem_addr2, imem_addr_next;
   logic [31:0] imem_data, imem_data2;
 
-  littlecpu riscv (
+  // The text window's size, the one number the core's copy of the map cannot
+  // take from a memory's own default: the harness simulates a larger ROM than
+  // this part has. It is the same 2048 the `imemory` below is given, and
+  // test/memmap_test.sh compares the two.
+  littlecpu #(.LS_TEXT_WORDS(2048)) riscv (
     .clk(clk),
     .reset(reset),
     .imem_addr(imem_addr),
