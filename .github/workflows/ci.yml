@@ -459,6 +459,118 @@ jobs:
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
 
+  # The third instrument, and the first one that is not up5k. Same `littlesoc`,
+  # same SOC_SRCS, same ROM image, placed on the ECP5 the multi-core milestone
+  # targets. It gates the MAPPING -- three exact censuses -- and publishes the
+  # frequency; there is no Fmax ratchet here, because one placement is a sample
+  # and ECP5's own churn band has not been derived yet.
+  #
+  # NOT in main's required set, and making it required is a branch-protection
+  # change rather than a change to this file. Which jobs are required is a
+  # repository setting, so read it live:
+  #
+  #   gh api repos/thejefflarson/little-cpu/branches/main/protection \
+  #     -q '.required_status_checks.contexts'
+  #
+  # It needs the cross compiler for the same reason `soc-timing` does: it
+  # assembles a real ROM image before synthesising.
+  ecp5-timing:
+    name: ecp5-timing
+    runs-on: little-cpu-runners
+    timeout-minutes: 10
+    steps:
+      - name: Record job start
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Verify the toolchain is present in the runner image
+        uses: ./.github/actions/verify-toolchain
+        with:
+          tools: riscv64-unknown-elf-gcc
+
+      - name: Set up OSS CAD Suite
+        uses: ./.github/actions/setup-oss-cad-suite
+
+      # Asserted BEFORE any verdict is reported, for the reason the `formal` job
+      # asserts btorsim: a tool missing under a gate that is otherwise green is
+      # invisible until the day something goes red, and the diagnostic then
+      # describes the wrong thing.
+      #
+      # The device database is checked by ASKING nextpnr for the exact corner
+      # this measurement is declared against, rather than by probing wherever a
+      # given install happens to put Trellis. `--test` walks that device's BELs
+      # and PIPs in about four seconds, and it is the corner the Makefile
+      # declares rather than a corner written out again here.
+      - name: Confirm the ECP5 toolchain is complete
+        run: |
+          set -euo pipefail
+          missing=0
+          for tool in yosys nextpnr-ecp5; do
+            if path=$(command -v "$tool"); then
+              echo "$tool: $path"
+            else
+              echo "::error::$tool is not on PATH in the OSS CAD Suite"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::refusing to report a verdict on a toolchain that cannot" \
+                 "run the flow: a missing tool would make every result here a" \
+                 "statement about the runner rather than about the design."
+            exit 1
+          fi
+          device=$(make print-ECP5_DEVICE)
+          package=$(make print-ECP5_PACKAGE)
+          speed=$(make print-ECP5_SPEED)
+          if ! nextpnr-ecp5 "$device" --package "$package" --speed "$speed" --test \
+                 > "$RUNNER_TEMP/ecp5-db.txt" 2>&1; then
+            cat "$RUNNER_TEMP/ecp5-db.txt"
+            echo "::error::the Trellis device database for $device $package speed" \
+                 "$speed did not load, so no corner could be placed."
+            exit 1
+          fi
+          echo "Trellis device database: $device $package speed $speed checks out"
+
+      - name: make ecp5-timing
+        # Redirected rather than piped -- see the `fit` job for why. The summary
+        # is written before the exit, so the censuses and the frequency land
+        # whether this passes or fails.
+        run: |
+          set +e
+          make ecp5-timing > "$RUNNER_TEMP/ecp5-timing.txt" 2>&1
+          status=$?
+          set -e
+          cat "$RUNNER_TEMP/ecp5-timing.txt"
+          {
+            echo "### ECP5 (ADR-0110's part)"
+            echo '```'
+            cat "$RUNNER_TEMP/ecp5-timing.txt"
+            echo '```'
+            echo "nextpnr's own estimate, from the model it routed with -- there is"
+            echo "no icetime for ECP5, so the engine that placed the design is also"
+            echo "the one that graded it. What is GATED here is the three exact"
+            echo "censuses; the frequency is published, against a pinned constraint"
+            echo "far above what the design reaches so that the number describes the"
+            echo "design and not the target. NEVER merge or subtract an ECP5 number"
+            echo "and an up5k one."
+            echo "The \`#\` lines above are the toolchain that produced this, from"
+            echo "\`make ecp5-timing-toolchain\`. Nothing about this instrument is"
+            echo "pinned and its numbers have no derived band yet, so which yosys"
+            echo "and which nextpnr answered matters more here than for the two"
+            echo "up5k flows."
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      - name: Report job wall time
+        if: always()
+        run: |
+          elapsed=$(( $(date +%s) - JOB_START ))
+          {
+            echo "### ecp5-timing"
+            echo "wall time: ${elapsed}s"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   # The `-D RISCV_FORMAL` build, with its rvfi_* ports deleted and every gate
   # that only fed them swept away, must be structurally identical to the plain
   # build. Strictly weaker than sequential equivalence and must not be quoted as
