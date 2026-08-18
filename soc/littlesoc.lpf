@@ -1,0 +1,25 @@
+// Pin constraints for rtl/littlesoc.v on an ECP5 LFE5U-25F in a caBGA381
+// package -- the die on a Colorlight i5, which is the board `make ecp5-timing`
+// names its corner from.
+//
+// ONE PIN, and the other three are deliberately unconstrained.
+// The i5 is a module, not a board: its 25 MHz oscillator is a fact of the module
+// and lands on P3, but the button and the LEDs belong to whatever baseboard it
+// is plugged into and vary between them. soc/littlesoc.pcf records why that
+// matters -- "a number taken against a board that does not exist is the kind of
+// thing this repo has been burned by twice" -- so the pin that is a real fact is
+// pinned and the three that are not are left to nextpnr with
+// `--lpf-allow-unconstrained`.
+//
+// It is not free and it is not cosmetic: letting nextpnr choose the clock pad
+// too read 34.88 MHz against 33.65 MHz here, 3.5% apart, because the pad it
+// picks decides where the global network is entered from. The pessimistic
+// number is the one taken against the real oscillator, which is the same
+// direction as taking speed grade 6.
+//
+// NO `FREQUENCY` LINE, and that is a tripwire rather than an omission. A clock
+// constraint here would override the pinned `--freq` the Makefile hands the
+// placer, and a 25 MHz target met at 25 MHz would report the constraint instead
+// of the design -- which is the whole reason that constant exists.
+LOCATE COMP "clk" SITE "P3";
+IOBUF PORT "clk" IO_TYPE=LVCMOS33;
