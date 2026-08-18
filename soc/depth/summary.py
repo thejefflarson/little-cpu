@@ -3,9 +3,10 @@
 against.
 
 WORST AND BEST, NEVER A MEAN. `make soc-timing` has a ~3.6% edit-churn band and a
-1-2% placement spread, so one placement is a sample. A variant is ahead only if
-its distribution is ahead, and the two readings are printed together because a
-change that wins on one end and loses on the other has not been measured yet.
+4-9% placement spread (CLAUDE.md states both), so one placement is a sample. A
+variant is ahead only if its distribution is ahead, and the two readings are
+printed together because a change that wins on one end and loses on the other
+has not been measured yet.
 
 THE LEVEL COUNT IS THE PART THAT IS NOT NOISE. Nanoseconds move with placement;
 LUT levels are a property of the mapped netlist and move only when the netlist
