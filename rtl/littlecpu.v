@@ -56,6 +56,23 @@ module littlecpu #(
   // cause 7. A platform whose memory answers atomics everywhere ties it high.
   output logic [31:0] atomic_addr,
   input  logic        atomic_supported,
+  // The shared-bus surface. `bus_wait` says the bus is somebody else's this
+  // cycle: decode publishes nothing, the pc holds, and the instruction asks
+  // again next cycle. `snoop_write`/`snoop_addr` are the write another master
+  // is making, which clears a reservation on that word. `mem_lock` is high on
+  // the cycle an AMO reads and low on the cycle it writes back, which is how an
+  // arbiter that registers its grant learns to keep the bus here for the second
+  // cycle.
+  //
+  // A platform with one bus master ties both inputs low and leaves the output
+  // unread, and only the INPUTS are free that way: they fold before mapping and
+  // the cell census does not move. An unread output is still a net for ABC to
+  // map around, and this one moved the SoC's mapped count by tens of cells --
+  // so it arrived with a placement sweep rather than with an equal netlist.
+  input  logic        bus_wait,
+  input  logic        snoop_write,
+  input  logic [31:0] snoop_addr,
+  output logic        mem_lock,
   // The platform's machine-timer line. Registered at its source (rtl/timer.v
   // does it), because inside the core it is one gate away from the fetch loop.
   // A platform with no timer ties it low and the core never takes an interrupt.
@@ -216,6 +233,7 @@ module littlecpu #(
     .executor_out(executor_out),
     .divider_stall(divider_stalled),
     .fetch_stall(fetch_stall),
+    .bus_wait(bus_wait),
     .imem_fault(imem_fault),
     .atomic_addr(atomic_addr),
     .atomic_supported(atomic_supported),
@@ -306,6 +324,9 @@ module littlecpu #(
     .mem_ren(mem_ren),
     .mem_rdata(mem_rdata),
     .mem_reservable(mem_reservable),
+    .snoop_write(snoop_write),
+    .snoop_addr(snoop_addr),
+    .mem_lock(mem_lock),
     .out(accessor_out)
   );
 

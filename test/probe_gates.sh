@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=358
+PROBES_EXPECTED=367
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -149,8 +149,8 @@ for a in "$@"; do [ "$a" = "--stalls" ] && stalls=1; done
 if [ -n "$stalls" ] && [ -z "${STUB_SIM_NOSTALLS:-}" ]; then
   unattr=${STUB_SIM_UNATTR:-0}
   echo "STALLS cycles=$((20 + unattr + ${STUB_SIM_SKEW:-0})) issue=10 divider=0" \
-       "atomic=0 hazard=10 serialize=0 operand=0 fetch=0 unattributed=$unattr" \
-       "lsissue=4 lsedge=2 lsbypass=1"
+       "atomic=0 hazard=10 serialize=0 operand=0 fetch=0 bus=0" \
+       "unattributed=$unattr lsissue=4 lsedge=2 lsbypass=1"
 fi
 case ${STUB_SIM_EXIT:-0} in
   0) echo "PASS" ;;
@@ -1330,8 +1330,8 @@ SR="python3 $REPO/test/stall_report.py"
 sr_fixture() {
   local d; d=$(new_case)
   cat > "$d/counts" <<'COUNTS'
-add.S cycles=40 issue=10 divider=0 atomic=0 hazard=20 serialize=0 operand=10 fetch=0 unattributed=0 lsissue=4 lsedge=1 lsbypass=0 retires=10
-lw.S cycles=40 issue=10 divider=0 atomic=0 hazard=5 serialize=0 operand=25 fetch=0 unattributed=0 lsissue=6 lsedge=3 lsbypass=2 retires=10
+add.S cycles=40 issue=10 divider=0 atomic=0 hazard=20 serialize=0 operand=10 fetch=0 bus=0 unattributed=0 lsissue=4 lsedge=1 lsbypass=0 retires=10
+lw.S cycles=40 issue=10 divider=0 atomic=0 hazard=5 serialize=0 operand=25 fetch=0 bus=0 unattributed=0 lsissue=6 lsedge=3 lsbypass=2 retires=10
 COUNTS
   printf '%s' "$d"
 }
@@ -1996,6 +1996,74 @@ probe "a malformed baseline line is named rather than skipped" 1 \
 d=$(it_fixture); rm -rf "$d/rf/checks"
 probe "an unreadable clone makes the re-derivation impossible, and fatal" 1 \
   "is not a directory" "$(its "$d")"
+
+begin_group "formal/check-multihart-tie-off.py"
+
+MT="python3 $REPO/formal/check-multihart-tie-off.py"
+
+# The real harnesses, the real port list and the real parser: this check reads
+# littlecpu's ports through test/port_connect_test.py rather than through a
+# second regex, so a fixture that stubbed either would be probing neither.
+mt_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/formal" "$d/repo/rtl" "$d/repo/test"
+  for f in wrapper.v complete.sv cover.sv dmemcheck.sv imemcheck.sv; do
+    cp "$REPO/formal/$f" "$d/formal/$f"
+  done
+  cp "$REPO/rtl/littlecpu.v" "$d/repo/rtl/littlecpu.v"
+  cp "$REPO/test/port_connect_test.py" "$d/repo/test/port_connect_test.py"
+  {
+    printf 'HARNESS wrapper.v\nHARNESS complete.sv\nHARNESS cover.sv\n'
+    printf 'HARNESS dmemcheck.sv\nHARNESS imemcheck.sv\n'
+    printf "PORT bus_wait 1'b0\nPORT snoop_write 1'b0\nPORT snoop_addr 32'b0\n"
+    printf 'ELSEWHERE irq_timer INTERRUPT_TIE_OFF\n'
+  } > "$d/BASELINE"
+  printf '%s' "$d"
+}
+
+mts() { printf "%s %s/formal %s/BASELINE %s/repo" "$MT" "$1" "$1" "$1"; }
+
+d=$(mt_fixture)
+probe "control: the shipping harnesses tie off, both directions" 0 \
+  "MULTI-HART TIE-OFF: PASS" "$(mts "$d")"
+
+probe "wrong argument count is exit 2" 2 "check-multihart-tie-off.py" \
+  "$MT $d/formal"
+
+# The failure that matters most: a harness the baseline claims is tied off and
+# is not. Its checks would be running against a machine whose bus another agent
+# can take away, at depths derived where nobody can.
+d=$(mt_fixture); sed -i.bak "s/\.bus_wait(1'b0)/.bus_wait(free_wait)/" "$d/formal/complete.sv"
+probe "a declared harness that does not tie the input off is red" 1 \
+  "connects .bus_wait(free_wait)" "$(mts "$d")"
+
+d=$(mt_fixture); sed -i.bak '/^HARNESS cover.sv$/d' "$d/BASELINE"
+probe "a harness with no line in the baseline is red" 1 \
+  "does not name it" "$(mts "$d")"
+
+d=$(mt_fixture); rm "$d/formal/cover.sv"
+probe "a line with no harness behind it is red too" 1 \
+  "which does not instantiate littlecpu" "$(mts "$d")"
+
+# The re-derivation from the RTL, which is what a baseline alone cannot do: a
+# port renamed leaves the line behind declaring a tie-off of nothing.
+d=$(mt_fixture); printf "PORT no_such_port 1'b0\n" >> "$d/BASELINE"
+probe "a declared port littlecpu does not have is red" 1 \
+  "is not an input of littlecpu" "$(mts "$d")"
+
+# ...and the direction that rots: the next tied-off input landing with the
+# depths derived under it and nothing written down.
+d=$(mt_fixture); sed -i.bak "/^PORT snoop_write /d" "$d/BASELINE"
+probe "a tie-off at every harness that no baseline declares is red" 1 \
+  "and no baseline says so" "$(mts "$d")"
+
+d=$(mt_fixture); printf 'PORT\n' >> "$d/BASELINE"
+probe "a malformed baseline line is named rather than skipped" 1 \
+  "expected \`HARNESS <path>\`" "$(mts "$d")"
+
+d=$(mt_fixture); rm "$d/repo/test/port_connect_test.py"
+probe "a missing parser stops the run rather than grading with a second one" 2 \
+  "port_connect_test.py is missing" "$(mts "$d")"
 
 begin_group "soc/compare/placed_vs_synth.py"
 

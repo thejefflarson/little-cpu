@@ -10,7 +10,8 @@ ifeq ($(shell printf '%s' '$(JOBS)' | grep -cE '^[1-9][0-9]{0,3}$$'),0)
 override JOBS := 4
 endif
 
-all: complete complete_cover complete-exclusions interrupt-tie-off check \
+all: complete complete_cover complete-exclusions interrupt-tie-off \
+     multihart-tie-off check \
      dmemcheck imemcheck \
      components_decoder components_executor components_accessor \
      components_pcloop components_traps
@@ -37,7 +38,7 @@ FORCE:
 # carries `expect pass,fail`, so sby exits 0 whether a check passed or failed,
 # and anything that really failed to run reaches check-baseline as a missing
 # status file.
-check: checks interrupt-tie-off $(RISCV_FORMAL_DIR)
+check: checks interrupt-tie-off multihart-tie-off $(RISCV_FORMAL_DIR)
 	-$(MAKE) -C $< -j$(JOBS) -k
 	$(MAKE) check-baseline
 
@@ -134,6 +135,16 @@ complete-exclusions: check-complete-exclusions.py complete.sv COMPLETE_EXCLUSION
 .PHONY: interrupt-tie-off
 interrupt-tie-off: check-interrupt-tie-off.py INTERRUPT_TIE_OFF | $(RISCV_FORMAL_DIR)
 	python3 $< . INTERRUPT_TIE_OFF $(RISCV_FORMAL_DIR)
+
+# The other half of the same boundary, and a prerequisite of `check` for the
+# same reason: the shared-bus inputs are constants in every harness, so the
+# generated checks describe one hart and the depths are derived on that machine.
+# It needs no riscv-formal clone -- what it re-derives is littlecpu's own port
+# list, through test/port_connect_test.py's parser rather than a second one.
+.PHONY: multihart-tie-off
+multihart-tie-off: check-multihart-tie-off.py MULTIHART_TIE_OFF ../rtl/littlecpu.v \
+                   ../test/port_connect_test.py
+	python3 $< . MULTIHART_TIE_OFF ..
 
 # A structural comparison of two yosys builds rather than a solver query, so it
 # is not covered by the `%: %.sby` rule above. It shows the RVFI instrumentation

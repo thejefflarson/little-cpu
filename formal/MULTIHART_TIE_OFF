@@ -1,0 +1,74 @@
+# The core's shared-bus surface is TIED OFF in every riscv-formal harness in
+# this directory, and this file is the declaration of that boundary.
+#
+# It is a BASELINE in exactly the sense formal/INTERRUPT_TIE_OFF is:
+# formal/check-multihart-tie-off.py exits 0 only when the sets below match what
+# is on disk EXACTLY, in both directions, and it re-derives the port half from
+# rtl/littlecpu.v rather than believing it. A harness added without a line
+# fails; a line here with no harness fails too; and a port tied to a constant at
+# every harness with no line here fails, because that is a restriction arriving
+# unrecorded.
+#
+# WHAT IS TIED OFF. Three inputs, all of them the second hart's half of a
+# conversation there is no second hart to have:
+#
+#   bus_wait     the shared bus is somebody else's this cycle
+#   snoop_write  another bus master is writing
+#   snoop_addr   ...and where
+#
+# `mem_lock` is the fourth port of that surface and is deliberately NOT here.
+# It is an OUTPUT: a harness that leaves it unread cannot weaken a check, and
+# what it says is proved by formal/components.sby's accessor task, where the
+# lock is asserted to cover exactly the cycle an AMO writes back.
+#
+# WHY THE TIE-OFF. riscv-formal at formal/pin.mk's SHA describes ONE hart. Its
+# channels are one core's retires, it models no second agent on memory, and no
+# check upstream names a foreign write, a bus grant or a reservation. So a free
+# `snoop_write` would clear reservations for reasons the spec model cannot see,
+# and a free `bus_wait` would not weaken the checks so much as point them at a
+# machine their spec does not describe -- an environment allowed to withhold the
+# grant forever holds the core still forever, which is exactly what `hang` and
+# `liveness_ch0` measure.
+#
+# THE DEPTHS ARE DERIVED UNDER IT, and this is the half that is easy to miss.
+# Every `[depth]` line in formal/checks.cfg comes from F (worst-case first
+# retire) and G (worst-case retire gap), both measured on the machine these
+# harnesses build -- the SINGLE-HART configuration, where all three inputs are
+# constants and the seventh stall reason can never rise. An ungranted cycle
+# issues nothing, so in a dual configuration G grows by however long a hart may
+# wait for the bus, and every depth built on G with it. That configuration has
+# no generated checks at all today: nothing here builds two cores, so nothing
+# here has a G to measure for one. When something does, its depths are a fresh
+# derivation and not these numbers.
+#
+# WHEN THIS GOES RED. A harness that stops tying one of these off, a port
+# renamed in rtl/littlecpu.v, or a new port tied to a constant everywhere and
+# not written down. Do not edit the lines below to make that go away: the last
+# case is a restriction on what the generated checks cover, and the whole point
+# of a baseline is that such a restriction is declared rather than discovered.
+#
+# FORMAT -- whitespace-separated records:
+#
+#     HARNESS   <path>              a file in formal/ that instantiates
+#                                   littlecpu. It must tie off every PORT below.
+#     PORT      <name> <value>      an input of rtl/littlecpu.v, and the exact
+#                                   constant every harness connects to it.
+#     ELSEWHERE <name> <baseline>   an input tied to a constant at every harness
+#                                   whose restriction is recorded in another
+#                                   file. Without this the check below could not
+#                                   tell a declared tie-off from an undeclared
+#                                   one.
+
+HARNESS  wrapper.v
+HARNESS  complete.sv
+HARNESS  cover.sv
+HARNESS  dmemcheck.sv
+HARNESS  imemcheck.sv
+
+PORT bus_wait    1'b0
+PORT snoop_write 1'b0
+PORT snoop_addr  32'b0
+
+# The interrupt, tied off for its own reasons in its own baseline. It is named
+# here only so the sweep for undeclared tie-offs has one set to compare against.
+ELSEWHERE irq_timer INTERRUPT_TIE_OFF

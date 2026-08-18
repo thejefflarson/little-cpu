@@ -40,6 +40,17 @@ module accessor(
     // Without it an `sc.w` to an address no memory answers would report success
     // for a store that went nowhere, and the spec has no room for that.
     input  logic mem_reservable,
+    // Another bus master wrote, and where. It joins this core's own writes in
+    // the clear term below, so a reservation cannot outlive somebody else's
+    // store to the reserved word. A platform with one bus master ties
+    // `snoop_write` low and the reservation is cleared by this core alone.
+    input  logic        snoop_write,
+    input  logic [31:0] snoop_addr,
+    // High on the cycle an AMO puts its read on the bus, low on the cycle after,
+    // when the read-modify-write goes back out. A shared-bus arbiter needs the
+    // second cycle promised before it starts, so this is raised with the read
+    // rather than with the write it covers, and never on two cycles running.
+    output logic        mem_lock,
     output accessor_output out
 );
   // Pulled out here rather than read inside the always_* blocks below: iverilog
@@ -130,10 +141,22 @@ module accessor(
   assign is_store = launch_is_sw || launch_is_sh || launch_is_sb || sc_store;
   assign mem_ren = requesting && is_load;
 
+  assign mem_lock = requesting && launch_is_amo;
+
+  // Another master's write to the reserved word. It outranks the `lr.w` arm
+  // below rather than joining the clear arm, so a reservation taken on the
+  // cycle a foreign write lands on the same word is dropped instead of kept: a
+  // store-conditional that fails spuriously is permitted anywhere and one that
+  // succeeds over somebody else's write is not.
+  logic snoop_clear;
+  assign snoop_clear = snoop_write && rsrv_held && snoop_addr[31:2] == rsrv_word;
+
   always_ff @(posedge clk) begin
     if (reset) begin
       rsrv_held <= 1'b0;
       rsrv_word <= 30'b0;
+    end else if (snoop_clear) begin
+      rsrv_held <= 1'b0;
     end else if (requesting) begin
       if (launch_is_lr) begin
         rsrv_held <= mem_reservable;
@@ -503,6 +526,29 @@ module accessor(
   logic prev_reservable;
   always_ff @(posedge clk) prev_reservable <= mem_reservable;
   always_comb if (clocked && take_is_lr && !prev_reservable) assert(!rsrv_held);
+
+  // Another master's write to the reserved word ends the reservation, whatever
+  // this core was doing on that cycle -- including taking a new one, which is
+  // why the clear outranks the `lr.w` arm. `snoop_write` and `snoop_addr` are
+  // free inputs here, so this is a statement about a real second master rather
+  // than about a port nobody drove.
+  logic prev_snoop_clear;
+  always_ff @(posedge clk) prev_snoop_clear <= snoop_clear;
+  always_comb if (clocked && prev_snoop_clear) assert(!rsrv_held);
+
+  // THE ARBITER'S CONTRACT, and the whole of it. A shared-bus arbiter registers
+  // its grant, so it has to be told on the read cycle that the write cycle is
+  // coming: `mem_lock` marks the read, and the equality says both halves at
+  // once -- every locked cycle is followed by the write-back it bought, and
+  // every write-back had a lock in front of it.
+  logic past_mem_lock;
+  always_ff @(posedge clk) past_mem_lock <= mem_lock;
+  always_comb if (clocked) assert(take_amo == past_mem_lock);
+
+  // ...and it buys exactly one cycle. An arbiter cannot take a bus back from a
+  // master that keeps asking for it, so a lock that could run twice would be a
+  // hart able to hold the bus for as long as it liked.
+  always_comb if (clocked) assert(!(mem_lock && past_mem_lock));
 
   // A failed store-conditional leaves the bus completely alone. This is the
   // half no register value can show: the result it writes is the same 1 either

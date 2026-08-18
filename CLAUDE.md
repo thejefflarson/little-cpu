@@ -131,11 +131,22 @@ are kept in parentheses so those references still resolve.
   would drop an issued instruction — and that ruling is only arm order in the publish block, so it
   is asserted in `rtl/decoder.v`'s `FORMAL` block and vectored in `test/decoder_tb.v`. Every
   in-flight non-`x0` `rd` must be visible to the scoreboard on every cycle between issue and the
-  regfile write-through, with no gap. **Six** reasons raise `stall`, and it is exactly their OR:
+  regfile write-through, with no gap. **Seven** reasons raise `stall`, and it is exactly their OR:
   the divider, the atomic write cycle, the decode scoreboard, serialization, the operand-fetch
-  cycle, the stolen fetch window. `test/decoder_tb.v` checks that identity and `make cycles` charges
-  every stalled cycle to the first reason that is true, so a seventh has to be added in both places
-  as well as here.
+  cycle, the stolen fetch window, the ungranted bus. A reason is declared in **six** places, not
+  the three this paragraph used to name: the decoder's signal, its OR, its publish arm and its
+  `FORMAL` asserts; `test/decoder_tb.v`'s OR-identity check and its both-ways vectors;
+  `test/cxxrtl.cc`'s bucket; `test/stall_report.py`'s `REASONS` and `HEADINGS`;
+  `formal/pcloop.sv`'s `f_may_stall`; and this list.
+  **The ungranted bus is the seventh and it BUBBLES**, and unlike the sixth its arm was settled by
+  construction rather than by argument: `rtl/executor.v` publishes `stalled` as an output and takes
+  no input that freezes it, so a divider stall is the executor being busy in its own FSM and not a
+  hold the decoder can borrow. A bus-grant wait leaves the executor idle, so a held `decoder_out`
+  is consumed a second time. It is tied low in every integrator here — no platform in this repo has
+  a second bus master — so `make cycles` reports the column at zero, `test/decoder_tb.v` drives the
+  input directly because nothing single-hart can otherwise say which arm shipped, and
+  `formal/MULTIHART_TIE_OFF` is where the tie-off and its depth consequence are declared. G is
+  measured on the tied-off machine and would grow with the wait in a configuration that has one.
   **The atomic write cycle is the sixth, and it BUBBLES** — the only reason to be added since the
   divider and the only one whose arm was a live question. An AMO reads its word while the executor
   takes it and writes the result back on the cycle after, so that cycle is spent to keep anything
@@ -313,6 +324,16 @@ What a green result does and does not mean:
   `test/asm/mtimermask.S` for the whole path. `rvfi_intr` is now driven and is **not** optional:
   both sim legs' monitor checks pc continuity across retires and stops only for a retire carrying
   it, so an undriven `rvfi_intr` makes every interrupt a monitor error.
+- **It describes ONE hart**, so the core's shared-bus inputs — the grant wait and the write snoop —
+  are tied off in the same five harnesses and `formal/MULTIHART_TIE_OFF` mechanises that in both
+  directions, re-deriving the port half from `rtl/littlecpu.v` through
+  `test/port_connect_test.py`'s parser rather than a second one. It also sweeps for the direction
+  that rots: an input every harness holds at a constant and no baseline declares is red, because
+  that is a restriction on every generated check arriving unrecorded. A free `bus_wait` would let
+  the environment withhold the grant forever, which is what `hang` and `liveness_ch0` measure, and
+  the depths are derived on the tied-off machine — F and G re-measured under it reproduce exactly.
+  `mem_lock` is deliberately not in that baseline: an unread output cannot weaken a check, and
+  `components_accessor` is where it is asserted to cover exactly the cycle an AMO writes back.
 - **Both sim legs read the sanitized `test/monitor.sim.v` as their per-retire oracle**, so
   `test/sanitize_monitor.py` is a change to the oracle, not to plumbing. `test/monitor.v` is
   generated but tracked: regenerate it (`make monitor-check`), never hand-edit it.
@@ -632,7 +653,7 @@ make window-test    # force the elaboration checks in rtl/{imemory,memory,timer}
                     # and rtl/littlecpu.v's copy of that map red, in both
                     # frontends. Runs inside `make test`
 make cycles         # the suite again, every cycle charged to an issuing cycle or
-                    # one of the six stall reasons; nonzero on a stalled cycle none
+                    # one of the seven stall reasons; nonzero on a stalled cycle none
                     # of them explains. Prints the two load/store locality
                     # counters under the table -- accesses whose base register is
                     # within 2 KB of a region edge, and accesses issuing on a
