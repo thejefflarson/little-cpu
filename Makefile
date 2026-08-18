@@ -496,6 +496,15 @@ retired-term-test:
 march-test:
 	@./test/march_test.sh
 
+# The placement spread and the edit-churn band are soc/bands.py's, keyed by part.
+# Hangs off `test` like the other repo-scanning checks -- git and file reads
+# only -- and it has to, because the failure it guards against is a comment: the
+# figures had six prose copies, they were four times too narrow, and no run of
+# anything could go red for it.
+.PHONY: band-source-test
+band-source-test:
+	@python3 ./test/band_source_test.py
+
 # Forces the elaboration checks in rtl/imemory.v, rtl/memory.v and rtl/timer.v
 # to fire, in both frontends. Hangs off `test` because the parameter shapes they
 # guard are the ones the SoC and the benches pass, so nothing else here would
@@ -535,7 +544,7 @@ mutation-probe:
 .PHONY: test
 test: sim test-units probe-gates pin-bump-test tool-cache-test memmap-test \
       compare-geometry-test retired-term-test port-connect-test march-test \
-      window-test abc-engine-test mutation-probe
+      band-source-test window-test abc-engine-test mutation-probe
 	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 # The same suite `make test` runs, with the runner charging every cycle to the
@@ -868,6 +877,13 @@ ECP5_PART    := LFE5U-25F-6CABGA381
 # change to the measurement rather than a threshold being relaxed.
 ECP5_TARGET_MHZ := 200.0
 
+# The design port the constraint and the report are read against. A variable
+# because soc/baseline_sweep.sh asks make for it rather than spelling it again:
+# nextpnr names the promoted global net rather than the port, so the matching is
+# soc/ecp5_report.py's, and two spellings of which port to match would be two
+# different questions asked of one report.
+ECP5_CLOCK := clk
+
 # Exact rather than budgeted, for the reason SOC_EXPECT_SPRAM and SOC_EXPECT_EBR
 # are: each is a property of the RTL and how it maps, not of placement. Each
 # census carries the sentence saying what a mismatch means, because every one of
@@ -908,7 +924,7 @@ ecp5.json: $(SOC_SRCS) soc-rom
 # estimate instead. The stamp matters MORE here than for the other two flows --
 # this instrument is new, nothing about it is pinned, and its first numbers have
 # no band to be read against yet.
-ECP5_TOOLS := yosys nextpnr-ecp5
+ECP5_TOOLS := yosys nextpnr-ecp5 trellis-db
 
 .PHONY: ecp5-timing-toolchain
 ecp5-timing-toolchain:
@@ -962,7 +978,7 @@ ecp5-timing: ecp5-timing-toolchain ecp5.config
 	@echo
 	@echo '== nextpnr-ecp5: the frequency, its corner and its constraint =='
 	@python3 soc/ecp5_report.py ecp5.report.json ecp5.config \
-	  --clock clk --part $(ECP5_PART) --constraint-mhz $(ECP5_TARGET_MHZ)
+	  --clock $(ECP5_CLOCK) --part $(ECP5_PART) --constraint-mhz $(ECP5_TARGET_MHZ)
 	@echo
 	@echo "Placement, routing and nextpnr's own timing analysis: ecp5.pnr.log"
 
@@ -1094,9 +1110,10 @@ netlist-diff: netlist-determinism
 #
 # `COMPARE_CORE=littlecpu` (default) or `vexriscv`; `COMPARE_SEED=<n>` picks a
 # placement. soc/compare/sweep.sh runs both cores over four seeds each by
-# default, which is a look at a distribution and not a verdict on one: the
-# placement spread CLAUDE.md records is 4-9% and a decision costs twelve to
-# sixteen.
+# default, which is a look at a distribution and not a verdict on one: a decision
+# costs twelve to sixteen. This harness places hx8k, whose spread nobody has
+# swept -- `soc/bands.py hx8k` is where that is stated, and it does not hand back
+# up5k's figures for it.
 COMPARE_CORE  ?= littlecpu
 COMPARE_SEED  ?=
 # 4 KB of ROM (8 SB_RAM40_4K) and 2 KB of data RAM (4 more). Shrunk from the

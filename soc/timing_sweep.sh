@@ -2,11 +2,14 @@
 # Run `make soc-timing` at several placements of the same netlist and print the
 # spread.
 #
-# One placement is a sample, not a measurement. Unmodified `main` spans 4-9%
-# best-to-worst across eight to sixteen seeds -- CLAUDE.md states that figure and
-# this script carries none of its own -- and an edit that changes no hardware
-# moves the number by up to 3.6%, so a comparison between two designs needs
-# distributions on both sides.
+# One placement is a sample, not a measurement: an unmodified netlist spans a
+# wide range across seeds, and an edit that changes no hardware moves the number
+# too, so a comparison between two designs needs distributions on both sides.
+# BOTH FIGURES ARE soc/bands.py's AND THIS SCRIPT CARRIES NEITHER -- it prints
+# them at the end from there. A band written into a comment is a band that stops
+# being true silently: the copy that used to be here was four times too narrow,
+# and so were the five others, for as long as it took a sixteen-seed sweep to
+# measure it.
 #
 # FOUR SEEDS IS A LOOK AND NOT A VERDICT, which is why the default below is not
 # the sweep a decision is made on. The spread is a range statistic: a short sweep
@@ -72,3 +75,7 @@ done
 echo
 echo "sorted: $(printf '%s\n' $rows | sort -n | tr '\n' ' ')"
 echo "Compare distributions against a baseline sweep, not single runs."
+# Printed rather than commented, so the figures a reader judges these rows
+# against are the ones that were last measured rather than the ones that were
+# last typed. This target only ever places up5k.
+python3 soc/bands.py up5k --note

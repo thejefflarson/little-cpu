@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=382
+PROBES_EXPECTED=413
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -1029,6 +1029,7 @@ bs_sweep() {  # <file> <base> <dirty> <yosys>
 # date: 2026-08-16T00:00:00Z
 # base: $2
 # dirty: $3
+# part: up5k
 # yosys: $4 [/opt/bin/yosys]
 # nextpnr-ice40: nextpnr-0.11 [/opt/bin/nextpnr-ice40]
 # icetime: oss-cad-suite 20260811 sha256:0123456789abcdef [/opt/bin/icetime]
@@ -1041,6 +1042,34 @@ bs_sweep() {  # <file> <base> <dirty> <yosys>
 part,variant,seed,ns,mhz,lut_levels,carry_hops,logic_ns,routing_ns,lc,start,end
 up5k,sweep,default,80.00,12.50,23,4,20.00,60.00,4769,rom_RDATA,next_pc
 up5k,sweep,1,82.00,12.20,24,4,21.00,61.00,4769,rom_RDATA,next_pc
+EOF
+}
+
+# The other part's stamp, which is a different SET of fields rather than the same
+# fields with different values: no icetime, the database nextpnr places against,
+# and the constraint it was handed. The four icetime columns are the `NA` literal
+# soc/depth/row.py writes for a part with no icetime walk behind it.
+bs_ecp5() {  # <file> <base> <dirty> <yosys>
+  cat > "$1" <<EOF
+# baseline-sweep v1
+# date: 2026-08-16T00:00:00Z
+# base: $2
+# dirty: $3
+# part: ecp5
+# yosys: $4 [/opt/bin/yosys]
+# nextpnr-ecp5: nextpnr-0.11 [/opt/bin/nextpnr-ecp5]
+# trellis-db: devices.json sha256:0123456789abcdef [/opt/share/trellis/database]
+# corner: LFE5U-25F-6CABGA381
+# constraint_mhz: 200.0
+# prog: datainit.c
+# rom_words: 2048
+# seeds: default 1
+# host: Darwin arm64 25.3.0
+# reproduce: git checkout $2 && BASELINE_PART=ecp5 soc/baseline_sweep.sh
+# end-provenance
+part,variant,seed,ns,mhz,lut_levels,carry_hops,logic_ns,routing_ns,lc,start,end
+ecp5,sweep,default,29.72,33.65,NA,NA,NA,NA,5331,imem.rom_even,imem.rom_odd
+ecp5,sweep,1,28.80,34.73,NA,NA,NA,NA,5331,imem.rom_even,imem.rom_odd
 EOF
 }
 
@@ -1112,7 +1141,85 @@ d=$(bs_fixture)
 probe "a sweep file that is not there reads as missing, not as empty" 1 \
   "nothing to summarise" "$BS $d/gone.csv"
 
+# ---- the part, which is a stamped and compared field and not just a column ----
+#
+# The subtraction these forbid was available for as long as `part` was a CSV
+# column nothing read: two sweeps of two different fabrics, placed by two
+# different engines and graded by two different classes of estimator, would
+# produce a tidy percentage under a heading that says "delta".
+
+bs_pair() {  # an up5k sweep and an ECP5 one, same tree, same everything else
+  local d; d=$(new_case)
+  bs_sweep "$d/up5k.csv" aaaaaaaaaaaa no 'Yosys 0.68'
+  bs_ecp5 "$d/ecp5.csv" aaaaaaaaaaaa no 'Yosys 0.68'
+  printf '%s' "$d"
+}
+
+d=$(bs_pair)
+probe "control: an ECP5 sweep summarises against its own instrument" 0 \
+  "2 placements" "$BS $d/ecp5.csv"
+
+d=$(bs_pair)
+probe "control: and names the corner and constraint it was placed against" 0 \
+  "LFE5U-25F-6CABGA381" "$BS $d/ecp5.csv"
+
+# The four icetime columns, which this part has none of. A zero here is a number
+# somebody subtracts; the literal is a statement that no such number exists.
+d=$(bs_pair)
+probe "a part with no icetime walk reads NA rather than a fabricated zero" 0 \
+  "LUT levels   : NA   carry hops: NA" "$BS $d/ecp5.csv"
+
+d=$(bs_pair)
+probe "and says why it is NA, so it is not read as a path with no logic on it" 0 \
+  "no icetime walk behind it" "$BS $d/ecp5.csv"
+
+d=$(bs_pair)
+probe "the cell count names its own unit rather than borrowing the other's" 0 \
+  "TRELLIS_COMB: 5331" "$BS $d/ecp5.csv"
+
+d=$(bs_fixture); sed -i.bak '/^# part: up5k/d' "$d/before.csv"
+probe "a sweep that names no part says which instrument is missing" 1 \
+  "names no part" "$BS $d/before.csv"
+
+d=$(bs_fixture); sed -i.bak 's/^# part: up5k/# part: ecp5x/' "$d/before.csv"
+probe "a part this script cannot grade a stamp for is rejected, not guessed at" 1 \
+  "not one this" "$BS $d/before.csv"
+
+# Both directions of "the stamp describes a run that did not happen". The first
+# is the shape a hand-edited header takes when someone changes the part line to
+# make a comparison stop complaining.
+d=$(bs_fixture); sed -i.bak 's/^# part: up5k/# part: ecp5/' "$d/before.csv"
+probe "an ECP5 stamp carrying up5k's tools is missing its own" 1 \
+  "missing nextpnr-ecp5, trellis-db" "$BS $d/before.csv"
+
+# A complete up5k stamp with one ECP5 field added, so the `missing` check has
+# nothing to say and the foreign-field check is the one under test.
+d=$(bs_fixture)
+sed -i.bak 's|^# icetime: \(.*\)$|# icetime: \1\
+# nextpnr-ecp5: nextpnr-0.11 [/opt/bin/nextpnr-ecp5]|' "$d/before.csv"
+probe "and an up5k stamp carrying an ECP5 tool is rejected on the foreign field" 1 \
+  "belongs to another part's instrument" "$BS $d/before.csv"
+
+d=$(bs_pair)
+probe "two parts are refused rather than subtracted" 1 \
+  "There is no difference between them" "$BS $d/up5k.csv $d/ecp5.csv"
+
+# THE ONE THAT MATTERS. --allow-mismatch covers a tree, a toolchain, a program
+# and a ROM size, every one of which can be a deliberate before-and-after. It
+# must not cover this one, and the probe above passing says nothing about that.
+d=$(bs_pair)
+probe "and --allow-mismatch does NOT cover a cross-part subtraction" 1 \
+  "does NOT cover this" "$BS $d/up5k.csv $d/ecp5.csv --allow-mismatch"
+
+d=$(bs_pair)
+probe "the refusal is the part, not the four tool mismatches it also produces" 1 \
+  "placed up5k and" "$BS $d/up5k.csv $d/ecp5.csv --allow-mismatch"
+
 begin_group "soc/baseline_sweep.sh"
+
+probe "a part this repo does not place stops the sweep before any placement" 2 \
+  "BASELINE_PART is 'xc7'" \
+  "BASELINE_PART=xc7 sh $REPO/soc/baseline_sweep.sh"
 
 # The rest of this script places the SoC, so this is the one check in it that
 # runs without yosys, nextpnr or a cross compiler -- and it is the one that
@@ -1156,6 +1263,125 @@ probe "one red tool leaves no partial stamp on stdout" 0 "stdout=empty" pt_parti
 probe "a tool that is not installed names itself rather than the list" 1 \
   "no nosuchtool on PATH" "$PT nosuchtool"
 
+# The Trellis database is stamped as a pseudo-tool, so it has its own refusal:
+# it is resolved from nextpnr-ecp5's install, and the fixture PATH here has no
+# nextpnr-ecp5 in it at all.
+probe "the Trellis database cannot be stamped without the tool it belongs to" 1 \
+  "no nextpnr-ecp5 on PATH" "$PT trellis-db"
+
+probe "and an empty TRELLIS_DB is refused rather than stamped as nothing" 1 \
+  "no readable" "TRELLIS_DB='$tmp/no-such-db' PATH='$tmp/bin-tools' \
+    $REPO/soc/print_toolchain.sh trellis-db"
+
+begin_group "soc/bands.py"
+
+# The band figures had six prose copies and no owner. What is forced red here is
+# the property that replaced them: a part whose band nobody measured gets an
+# answer about THAT part, never another part's numbers. A fallback would be a
+# wrong answer that looks exactly like a right one, and every caller here prints
+# what it gets without checking.
+BD="python3 $REPO/soc/bands.py"
+
+probe "control: a derived part states both figures and names itself" 0 \
+  "up5k (make soc-timing): placement spread" "$BD up5k"
+
+probe "control: the note a delta is read against carries the part too" 0 \
+  "up5k" "$BD up5k --note"
+
+# hx8k is the cross-core harness's part and nothing has ever been swept on it.
+# It is in the table precisely so that asking gets this sentence rather than a
+# KeyError somebody would 'fix' by copying up5k's row.
+probe "an underived part says so rather than borrowing another part's band" 0 \
+  "no other part's transfer" "$BD hx8k"
+
+probe "a caller that needs the figures rather than the prose is refused" 1 \
+  "no band has been derived for hx8k" "$BD hx8k --require"
+
+probe "and is told that another part's does not transfer" 1 \
+  "does not transfer" "$BD hx8k --require"
+
+probe "a part this repo does not place is refused, not added by asking" 1 \
+  "is not a part this repo places" "$BD xc7"
+
+probe "--list answers for every part, derived or not" 0 \
+  "hx8k: no placement spread" "$BD --list"
+
+begin_group "test/band_source_test.py"
+
+# A COPY OF THE SHIPPING FILES plus a `git init`, the same fixture shape
+# test/march_test.sh's probes use and for the same reason: the control is then
+# the real tree, and every red probe is one edit away from it.
+BSRC="python3 $HERE/band_source_test.py"
+
+bsrc_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/soc" "$d/test" "$d/docs/adr" "$d/rtl"
+  cp "$REPO/CLAUDE.md" "$d/"
+  cp "$REPO/soc/bands.py" "$REPO/soc/timing_sweep.sh" "$REPO/soc/baseline_summary.py" "$d/soc/"
+  cp "$REPO/test/band_source_test.py" "$d/test/"
+  # One real ADR, because that directory is exempt and the exemption is itself a
+  # decision worth a probe: a dated record must NOT move when a later sweep
+  # moves the band.
+  cp "$REPO/docs/adr/0121-the-occupancy-prediction-is-registered-and-the-placement-spread-is-corrected.md" \
+     "$d/docs/adr/"
+  git -c init.defaultBranch=main -C "$d" init -q
+  git -C "$d" add -A
+  printf '%s' "$d"
+}
+
+bsrc_edit() {  # $1 = fixture, $2 = path within it, $3 = sed expression
+  sed -i.bak "$3" "$1/$2"
+  rm -f "$1/$2.bak"
+  git -C "$1" add -A
+}
+
+d=$(bsrc_fixture)
+probe "control: the shipping tree states every band figure in one place" 0 \
+  "every band figure is soc/bands.py's" "$BSRC $d"
+
+# The defect this exists for, reintroduced: a comment stating a spread.
+d=$(bsrc_fixture)
+bsrc_edit "$d" soc/timing_sweep.sh \
+  's|^# One placement is a sample|# The placement spread is 1-2%.\n# One placement is a sample|'
+probe "a prose copy of a band figure goes red where it is written" 1 \
+  "soc/timing_sweep.sh" "$BSRC $d"
+
+d=$(bsrc_fixture)
+bsrc_edit "$d" soc/timing_sweep.sh \
+  's|^# One placement is a sample|# The placement spread is 1-2%.\n# One placement is a sample|'
+probe "and is named as a percentage beside the word that makes it a claim" 1 \
+  "beside 'churn' or 'spread'" "$BSRC $d"
+
+# The wrapped case, which is how all six of the real copies were written: the
+# word on one line and the number on the next.
+d=$(bsrc_fixture)
+bsrc_edit "$d" soc/baseline_summary.py \
+  's|^WORST, MEDIAN AND SPREAD|A wrapped churn band of\n3.9% goes here.\nWORST, MEDIAN AND SPREAD|'
+probe "a copy wrapped across lines is caught, not read as two harmless ones" 1 \
+  "soc/baseline_summary.py" "$BSRC $d"
+
+# The staleness direction. The rulebook keeps its copy on purpose and it is
+# graded, so a re-derived band that was not carried into it goes red.
+d=$(bsrc_fixture)
+bsrc_edit "$d" CLAUDE.md 's|4–9% placement spread|5–11% placement spread|'
+probe "the rulebook quoting a figure the source no longer states is red" 1 \
+  "CLAUDE.md states no placement spread" "$BSRC $d"
+
+d=$(bsrc_fixture)
+bsrc_edit "$d" CLAUDE.md 's|`soc/bands.py` is the one place|it is the one place|'
+probe "and a rulebook that does not name the source is red too" 1 \
+  "does not name soc/bands.py" "$BSRC $d"
+
+# The exemption, asserted rather than assumed. An ADR is a measurement with a
+# date on it: if this went red for one, the pressure would be to edit the record.
+d=$(bsrc_fixture)
+probe "a dated ADR stating an old band figure is NOT red" 0 \
+  "every band figure is soc/bands.py's" "$BSRC $d"
+
+d=$(bsrc_fixture); rm -f "$d/soc/bands.py"; git -C "$d" add -A
+probe "a tree with no source file at all is red rather than vacuously green" 1 \
+  "is not in" "$BSRC $d"
+
 begin_group "soc/routing_bins.py"
 
 # One placement's worth of fixture: an icetime report whose path leaves a block
@@ -1166,7 +1392,7 @@ begin_group "soc/routing_bins.py"
 rb_fixture() {
   local d; d=$(new_case)
   mkdir -p "$d/sweep"
-  cat > "$d/sweep/probe.default.rpt" <<'RPT'
+  cat > "$d/sweep/probe.default.timing.rpt" <<'RPT'
         ram0 (SB_RAM40_4K) [clk] -> RDATA[0]: 1.279 ns
      1.279 ns net_1 (mem.rdata[0])
         odrv_0 (Odrv4) I -> O: 0.649 ns
@@ -1184,6 +1410,7 @@ RPT
 # date: 2026-08-16T00:00:00Z
 # base: aaaaaaaaaaaa
 # dirty: no
+# part: up5k
 # yosys: Yosys 0.68 [/opt/bin/yosys]
 # nextpnr-ice40: nextpnr-0.11 [/opt/bin/nextpnr-ice40]
 # icetime: oss-cad-suite 20260811 sha256:0123456789abcdef [/opt/bin/icetime]
@@ -1237,7 +1464,7 @@ probe "control: the pc hop reaches the pc bin, by the declared net's bits" 0 \
 d=$(rb_fixture)
 mkdir -p "$d/soc/depth"
 cp "$REPO/soc/routing_bins.py" "$REPO/soc/timing_split.py" \
-   "$REPO/soc/baseline_summary.py" "$d/soc/"
+   "$REPO/soc/baseline_summary.py" "$REPO/soc/bands.py" "$d/soc/"
 cp "$REPO/soc/depth/path_stages.py" "$d/soc/depth/"
 sed -i.bak 's/if kind in LOGIC_CELLS:/if kind in LOGIC_CELLS or kind == "Odrv4":/' \
   "$d/soc/timing_split.py"
@@ -1246,7 +1473,7 @@ probe "two walks disagreeing about what routing is refuse to print a histogram" 
   "python3 $d/soc/routing_bins.py $d/sweep/probe.csv $d/soc.json"
 
 d=$(rb_fixture)
-cat > "$d/sweep/probe.default.rpt" <<'RPT'
+cat > "$d/sweep/probe.default.timing.rpt" <<'RPT'
         lc40_0 (LogicCell40) in0 -> lcout: 1.285 ns
      1.285 ns net_1 (mid[0])
               lcout -> mid[0]
@@ -1256,9 +1483,19 @@ RPT
 probe "a report with no routing hop in it is a failed read, not a wired design" 1 \
   "no routing hop was read" "$(rb "$d")"
 
-d=$(rb_fixture); rm "$d/sweep/probe.default.rpt"
+d=$(rb_fixture); rm "$d/sweep/probe.default.timing.rpt"
 probe "a row with no placement behind it stops the read, not just that seed" 1 \
   "no placement behind it" "$(rb "$d")"
+
+# Everything this script does walks an icetime report, and one of the two parts
+# has none. Refused where the answer is still readable, rather than a hundred
+# lines later blaming the sweep for a report it never wrote.
+# A WELL-FORMED sweep of the other part, not this one's stamp with its part line
+# flipped: that shape is rejected by the shared reader first, so it would probe
+# the field check rather than this one.
+d=$(rb_fixture); bs_ecp5 "$d/sweep/probe.csv" aaaaaaaaaaaa no 'Yosys 0.68'
+probe "a sweep of the part with no icetime is refused, not walked" 1 \
+  "there is nothing here to walk" "$(rb "$d")"
 
 d=$(rb_fixture); sed -i.bak 's/"mem.rdata"/"other.rdata"/' "$d/soc.json"
 probe "a netlist from another tree is named, not binned as \`neither\`" 1 \
@@ -1556,21 +1793,24 @@ JSON
   # `ecp5.json` is newer than the pair, and a stamp settles that without leaning
   # on the filesystem's timestamp resolution.
   touch -t 202001010000 "$d/ecp5.config" "$d/ecp5.report.json"
-  # `ecp5-timing-toolchain` asks both tools for a version before anything else
-  # runs, so both have to answer or a probe would go red before reaching the
-  # guard it is about.
+  # `ecp5-timing-toolchain` asks both tools for a version and the Trellis
+  # database for its device table before anything else runs, so all three have
+  # to answer or a probe would go red before reaching the guard it is about.
   printf '#!/bin/sh\necho "stub yosys"\n' > "$d/bin/yosys"
   { echo '#!/bin/sh'
     echo 'case "$1" in --version|-V) echo "stub nextpnr-ecp5"; exit 0;; esac'
     cat
   } > "$d/bin/nextpnr-ecp5"
   chmod +x "$d/bin/yosys" "$d/bin/nextpnr-ecp5"
+  mkdir -p "$d/trellis-db"
+  echo '{"families": {}}' > "$d/trellis-db/devices.json"
   touch "$d/ecp5.json"
   printf '%s' "$d"
 }
 
 ecp5_stale_run() {  # $1 = fixture dir
-  printf "cd '%s' && PATH='%s/bin':\$PATH make -o soc-rom ecp5-timing" "$1" "$1"
+  printf "cd '%s' && PATH='%s/bin':\$PATH TRELLIS_DB='%s/trellis-db' make -o soc-rom ecp5-timing" \
+    "$1" "$1" "$1"
 }
 
 # Stands in for a COMPLETE run: writes both files and exits 1, which is what the
