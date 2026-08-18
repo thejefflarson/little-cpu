@@ -152,7 +152,8 @@ heresy. Reopening requires demonstrating:
    missing `parallel_case` attributes, the decode head, and the `minstret` carry path, which
    caps the design at 11.49 MHz independently of the fetch loop (ADR-0058).
 2. **The full chain measures ≥ 12.0 MHz at every placement**, clearing both noise bands
-   (1–2% placement, 3.6% edit). A flush that lands at 11.6 buys nothing and costs the bet.
+   (4–9% placement, 3.6% edit — CLAUDE.md carries both) at twelve to sixteen seeds. A flush
+   that lands at 11.6 buys nothing and costs the bet.
 3. **F and G re-measured under the kill**, and every `[depth]` line re-derived in the same
    change (ADR-0046's rule).
 4. **The machinery reads well.** One killed valid bit on a registered fetch might pass that
