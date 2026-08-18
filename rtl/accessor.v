@@ -234,19 +234,31 @@ module accessor(
   logic [31:0] amo_add_result;
   assign amo_add_result = amo_sum[31:0];
 
-  logic [31:0] amo_result;
+  // Eight of the nine functions are one bit function of a memory bit and an rs2
+  // bit repeated 32 times, so the op picks a four-entry truth table -- indexed by
+  // {memory bit, rs2 bit}, entry 3 down to entry 0 -- and every bit reads it one
+  // LUT deep, where five 32-bit arms into a one-hot mux are two. The add is not
+  // one of them: its bits depend on the carry into them rather than on that pair,
+  // so it stays a mux over the adder's sum.
+  logic [3:0] amo_fn;
   always_comb begin
     (* parallel_case *)
     case (1'b1)
-      take_amo_swap: amo_result = take_amo_arg;
-      take_amo_add:  amo_result = amo_add_result;
-      take_amo_xor:  amo_result = amo_mem ^ take_amo_arg;
-      take_amo_and:  amo_result = amo_mem & take_amo_arg;
-      take_amo_or:   amo_result = amo_mem | take_amo_arg;
-      amo_compare:   amo_result = amo_keep_mem ? amo_mem : take_amo_arg;
-      default: amo_result = 32'b0;
+      take_amo_swap: amo_fn = 4'b1010;
+      take_amo_xor:  amo_fn = 4'b0110;
+      take_amo_and:  amo_fn = 4'b1000;
+      take_amo_or:   amo_fn = 4'b1110;
+      amo_compare:   amo_fn = amo_keep_mem ? 4'b1100 : 4'b1010;
+      default: amo_fn = 4'b0000;
     endcase
   end
+
+  logic [31:0] amo_bitwise, amo_result;
+  for (genvar i = 0; i < 32; i++) begin : l_amo_fn
+    assign amo_bitwise[i] = amo_fn[{amo_mem[i], take_amo_arg[i]}];
+  end
+  assign amo_result = take_amo_add ? amo_add_result : amo_bitwise;
+
   // All three outputs are driven from this one block and none of them is
   // registered: the write data has to change on the same cycle the address and
   // the strobes do, or the memory writes the last cycle's data to this cycle's
@@ -446,9 +458,11 @@ module accessor(
   // ...and of the store arm's inner one, which a store-conditional now shares
   // with `sw`.
   always_comb assert($onehot0({launch_is_sw || sc_store, launch_is_sh, launch_is_sb}));
-  // ...and of the read-modify-write's result mux.
-  always_comb assert($onehot0({take_amo_swap, take_amo_add, take_amo_xor, take_amo_and,
-                               take_amo_or, amo_compare}));
+  // ...and of the read-modify-write's truth-table select, which is the first five
+  // of these. The add is in the list too, because a function selecting it and the
+  // table at once would take the sum with entries chosen for something else.
+  always_comb assert($onehot0({take_amo_swap, take_amo_xor, take_amo_and,
+                               take_amo_or, amo_compare, take_amo_add}));
 
   logic transacting;
   assign transacting = mem_ren || |mem_wstrb;

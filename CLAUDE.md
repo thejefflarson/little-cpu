@@ -111,12 +111,14 @@ are kept in parentheses so those references still resolve.
   fetch window's successor word by `rtl/regsel.v` — the same mapping the issuing instruction goes
   through, instantiated twice, so a compressed successor is decoded rather than masked away
   (ADR-0089, ADR-0093). A guess taken from what really followed that address last time reaches the
-  case a fetch window cannot — a redirect — and is built, measured and deferred rather than declined
-  (ADR-0101). The pair presented and the pair being read are deliberately different
-  signals there. The bypass selects on a **registered copy** of the address
-  pair and is correct because `operand_stall` lets nothing issue until the held pair is the pair the
-  issuing instruction reads (ADR-0064 as amended by ADR-0089) — narrowing `operand_stall` breaks it
-  with nothing to say so except two `test/regfile_tb.v` vectors and `reg_ch0`. Touching
+  case a fetch window cannot — a redirect — and is **built twice, measured twice and declined**: it
+  buys 8.0% of Dhrystone's cycles on both trees it was built on, costs +90 cells, and its period
+  cost is a null at the median with the whole of it in the tail, which puts one placement of sixteen
+  under 12 MHz (ADR-0101, ADR-0113). The pair presented and the pair being
+  read are deliberately different signals there. The bypass selects on a **registered copy** of the
+  address pair and is correct because `operand_stall` lets nothing issue until the held pair is the
+  pair the issuing instruction reads (ADR-0064 as amended by ADR-0089) — narrowing `operand_stall`
+  breaks it with nothing to say so except two `test/regfile_tb.v` vectors and `reg_ch0`. Touching
   `operand_stall` is an amendment, not a tuning change. **That is a rule about the guard, not about
   the neighbourhood**: what is *presented* on a stalled cycle is a separate question, and
   `operand_stall` remains the exact compare whatever is presented — so a change there is checked by
@@ -240,7 +242,10 @@ frequency and a published period, and blesses the cycle counter for a fixed-freq
 a handler that returns without moving `mtimecmp` is re-entered before the instruction at `mepc`
 runs. **An RV32 `mtimecmp` update is the spec's three stores in the spec's order** — low all-ones,
 high, low; high-first is unsafe and `test/timer_tb.v` and `test/asm/mtimer.S` each fire a spurious
-interrupt that way on purpose before doing it correctly.
+interrupt that way on purpose before doing it correctly. **A change in the comparison may reach
+`mtip` late and never early**, and `test/timer_tb.v` is the only grader of that: it counts the ticks
+to a crossing and holds `mtip` to the level on every quiet cycle. No `.S` program sees an interrupt
+arriving a tick early, which is measured rather than assumed (ADR-0118).
 
 **Conformance is not negotiable against minimality.** Every CSR the privileged spec mandates for
 RV32 M-mode is implemented, the 87 hardware performance monitor addresses included — most legally
@@ -392,7 +397,11 @@ and times.
   a couple of percent is not evidence of anything. **It is spelling-dependent the way `fit` is**, and
   by more: two texts of one design, two cells apart on `fit`, swept 12.34 and 12.75 MHz at their
   worst seeds — 3.3% — with one of them a hair faster than the base and the other 1.7% slower
-  (ADR-0106). Quote the distribution of the text that ships.
+  (ADR-0106). Quote the distribution of the text that ships. **A candidate whose cost is a variance
+  needs sixteen seeds, not eight**: the learned pair table's median cost is +1.2% and a null, its
+  best placement beats the base's best, and what it really does is take the best-to-worst spread from
+  5.5% to 11.2% — so eight seeds passed it at 12.16 MHz and sixteen declined it at 11.93 (ADR-0113).
+  A short sweep cannot see the tail, and the tail is what `SOC_MIN_MHZ` grades.
 - **12 MHz is a requirement, not a regression floor** (ADR-0066). `SOC_MIN_MHZ` is 12.0 — the board
   clock, whose next divider step down is 6 — and it does not slide. When it trips, fix the design,
   not the floor. The margin over the worst placement is deliberately tighter than the churn band.
@@ -491,7 +500,22 @@ and times.
   band, the AMO result mux with its 33-bit adder/subtractor at 241 cells and the timer's 64-bit
   magnitude compare at 120, and a carry chain here is free — those 67 carry bits are worth three cells
   between them (ADR-0112). The rest are closed by name, including `rtl/memory.v`'s two range tests at
-  **zero** and the decoder's `instr_amo_op` immediate arm at zero on both tops. **A conditional
+  **zero** and the decoder's `instr_amo_op` immediate arm at zero on both tops. **The AMO row is spent
+  and the accessor is closed for area** (ADR-0119): 241 decomposes into 72 of adder and 162 of mux,
+  the three bitwise arms in that mux are 88 cells for 96 bit-operations — one LUT per output bit, the
+  floor — and what paid was building eight of the nine functions as one four-entry truth table indexed
+  per bit, **−54 cells at all sixteen placements and identical on two texts of the idea**, with the
+  median period −2.67%. **Sharing an arithmetic unit is not a saving on this fabric**: a 33-bit adder
+  and a 33-bit 2:1 mux place at the same cost, so one adder behind two operand muxes and two adders
+  behind a result mux are the same 288 cells — any sharing proposal starts at zero and pays routing.
+  **The timer's compare is closed too, and the reason generalises**: its ceiling re-takes at 88
+  cells on a later tree, and
+  producing `mtip` from registered partial compares instead costs **+138 placed cells** for a period
+  that is a null at sixteen seeds — equality every cycle, the magnitude a store still needs and the
+  mux that shares it are all LUTs where the compare was a carry chain (ADR-0118). A sticky bit set on
+  the crossing is wrong rather than dear: both registers reset to zero, so the level is true with
+  nothing crossing it.
+  **A conditional
   increment on this fabric is a clock enable, not a mux**: `en ? x + 1 : x`
   is 128 `SB_DFFESR` and no logic, and riding the adder's carry-in instead frees three cells, moves
   those flops to `SB_DFFSR` and misses 12 MHz at six placements out of six. `mtimecmp`'s byte-write
