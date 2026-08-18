@@ -19,10 +19,11 @@
 #
 # IT DOES NOT AGREE WITH THE REFERENCE MODEL, AND CANNOT. Sail has plain memory
 # where this device is, so the status register reads back whatever was last
-# stored there and `busy` is never set: the model spins in the first wait below
-# forever and `make cosim-suite` records INCONCLUSIVE SAIL-LIMIT, which is
-# NOTHING COMPARED rather than a divergence. test/COSIM_EXPECTED_FAIL carries
-# why.
+# stored there and `busy` is never set. `make cosim-suite` records DISAGREE AT 5,
+# which is test 4 below: the core's load changes a0 and the model's does not.
+# Everything before that point is compared and agrees.
+# test/COSIM_EXPECTED_FAIL carries why, and why no configuration of the model
+# reaches it.
 #
 # The waits are unbounded on purpose. A device that never raises `busy` and one
 # that never lowers it both hang here, and the runner's cycle budget turns that

@@ -179,37 +179,44 @@
 # has memory at that address. amoregion.S therefore asserts only the load half,
 # which reads zero on both, and says so where it does it.
 #
-# uart.S IS A FOURTH ENTRY OF THE SAME SHAPE, AND ITS REASON IS SHORTER: THE
-# MODEL HAS NO DEVICE THERE AT ALL. rtl/uart.v puts a write-only data register
-# and a status register whose bit 0 is `busy` at 0x0002_0010, inside the region
-# test/sail/rv32imac_zicsr.json declares MainMemory from 0x0002_0000 up. So on
-# the model the store lands in ordinary memory, the status word reads back
-# whatever was last written to it — zero — and `busy` is never set. uart.S waits
-# for it, and the model waits forever: INCONCLUSIVE SAIL-LIMIT, NOTHING
-# COMPARED.
+# uart.S IS A FOURTH ENTRY AND THE ONLY ONE THAT IS A DIVERGENCE RATHER THAN A
+# BUDGET: THE MODEL HAS NO DEVICE THERE AT ALL. rtl/uart.v puts a write-only
+# data register and a status register whose bit 0 is `busy` in eight bytes at
+# 0x0002_0010, inside the region test/sail/rv32imac_zicsr.json declares
+# MainMemory from 0x0002_0000 up. So on the model the store lands in ordinary
+# memory and the status word reads back what was last written to it, which is
+# zero. `DISAGREE AT 5` is the first read of `busy` after a write: the core's
+# `lw` changes a0 from 0 to 1 and the model's does not, so the model's next
+# change is the `li x29, 1` behind it and the sequences part there.
 #
-# THE THREE QUESTIONS ABOVE, ANSWERED IN ORDER. (1) The model cannot be
-# configured to be this machine: a region's attributes describe cacheability,
-# executability, atomicity and reservability, and none of them turns a word of
-# memory into a transmitter. There is no UART in the schema the way there is a
-# CLINT. (2) It is not a value exemption either — `busy` decides how many times
-# the poll loop goes round, so the POSITION of every later architectural change
-# moves, and the position is what NONCOMPARABLE_CSRS keeps comparing. (3) So it
-# is question 3: the program asserts against a device this platform defines and
-# the model has not got, and the two runs take different paths.
+# THAT IS A STRONGER ENTRY THAN THE THREE ABOVE, AND WORTH SAYING. The four
+# architectural changes before it were compared and agreed, and the point is
+# pinned: a program that starts diverging anywhere else is diverging for a new
+# reason and this gate goes red. The three timer entries compare NOTHING.
 #
-# WHAT COVERS IT MEANWHILE. The wire is decoded in test/uart_tb.v — every sample
+# THE THREE QUESTIONS, ANSWERED IN ORDER. (1) The model cannot be configured to
+# be this machine: a region's attributes describe cacheability, executability,
+# atomicity and reservability, and none of them turns a word of memory into a
+# transmitter. There is no UART in the schema the way there is a CLINT. (2) It is
+# not a value exemption either. NONCOMPARABLE_CSRS is keyed on a CSR encoding and
+# this is a load from memory, and even if it reached, `busy` decides how many
+# times the poll loop goes round -- so the POSITION of every later change moves,
+# and the position is what that mechanism keeps comparing. (3) So it is question
+# 3: the program asserts against a device this platform defines and the model has
+# not got, and the two runs take different paths from there.
+#
+# WHAT COVERS IT MEANWHILE. The wire is decoded in test/uart_tb.v -- every sample
 # of the line at the configured divisor, with two wrong divisors, a missing stop
-# bit, an idle line and a truncated frame each forced red. The memory-mapped
-# half is uart.S's own in-band assertions, run against the whole core on both sim
-# legs. What co-simulation uniquely catches — an architectural register write no
-# self-reporting oracle sees — is unchecked on this one program and checked on
-# every other one, which is where the property it was built for lives.
+# bit, an idle line and a truncated frame each forced red. The memory-mapped half
+# is uart.S's own in-band assertions, run against the whole core on both sim legs.
+# What co-simulation uniquely catches -- an architectural register write no
+# self-reporting oracle sees -- is unchecked past change 5 of this one program and
+# checked on every other one, which is where the property it was built for lives.
 #
-# THIS ENTRY IS NOT A PRECEDENT FOR THE NEXT DEVICE. A platform register a
-# program can read WITHOUT branching on it costs nothing here. What makes this
-# one an entry is that the only interesting thing to assert about a transmitter
-# is that a write makes it busy, and that assertion is a branch.
+# THIS ENTRY IS NOT A PRECEDENT FOR THE NEXT DEVICE. A platform register a program
+# can read WITHOUT branching on it costs nothing here. What makes this one an
+# entry is that the only interesting thing to assert about a transmitter is that a
+# write makes it busy, and that assertion is a branch.
 #
 # THE FAILURE DIRECTION IS STILL LIVE. These are name-and-status pairs under set
 # equality, so if a future change makes any of the four below AGREE, or makes
@@ -221,4 +228,4 @@
 lrsclock.S    INCONCLUSIVE SAIL-LIMIT
 mtimer.S      INCONCLUSIVE SAIL-LIMIT
 mtimermask.S  INCONCLUSIVE SAIL-LIMIT
-uart.S        INCONCLUSIVE SAIL-LIMIT
+uart.S        DISAGREE AT 5

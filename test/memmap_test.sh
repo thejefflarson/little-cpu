@@ -150,15 +150,17 @@ fi
 # elaborate otherwise and `make window-test` forces them; this is the same
 # statement made about the numbers this file has already read, so a base that
 # drifted is caught here rather than at the next elaboration.
-for pair in "timer:$TIMER_BASE:$TIMER_BYTES" "uart:$UART_BASE:$UART_BYTES"; do
-  who=${pair%%:*}; rest=${pair#*:}; base=${rest%%:*}; bytes=${rest#*:}
-  if [ $((base % bytes)) -ne 0 ]; then
-    fail "the $who's base $(hexfmt "$base") is not a multiple of its own
-$bytes-byte window. Its range test reads the address bits above the window and
+aligned_window() {  # $1 = whose, $2 = base, $3 = window size in bytes
+  if [ $(($2 % $3)) -ne 0 ]; then
+    fail "the $1's base $(hexfmt "$2") is not a multiple of its own
+$3-byte window. Its range test reads the address bits above the window and
 compares them against the base, which admits addresses the device does not
 occupy at any other alignment."
   fi
-done
+}
+
+aligned_window timer "$TIMER_BASE" "$TIMER_BYTES"
+aligned_window uart  "$UART_BASE"  "$UART_BYTES"
 
 # ---- 3. the linker scripts -------------------------------------------------
 #

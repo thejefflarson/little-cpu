@@ -397,11 +397,10 @@ module littlecpu #(
   localparam int LS_BLOCK_BITS = 11;              // 2 KB: a 12-bit offset's reach
   localparam int LS_BLOCK_NUM_BITS = 32 - LS_BLOCK_BITS;
   // rtl/timer.v's four words and rtl/uart.v's two, the regions smaller than a
-  // block. Both sit inside the same one, so the four comparisons they add below
-  // are the same two the timer already makes and yosys folds them together --
-  // which is why the UART costs this counter nothing. Written out anyway: what
-  // makes them equal is where the UART happens to be, and a region that moved
-  // would need the terms and not get them.
+  // block. Both sit inside the same block today, so yosys folds the UART's four
+  // comparisons into the timer's; they are written out because what makes them
+  // equal is where the UART happens to be, and a region that moved would need
+  // them.
   localparam logic [31:0] LS_TIMER_BYTES = 32'd16;
   localparam logic [31:0] LS_UART_BYTES  = 32'd8;
 

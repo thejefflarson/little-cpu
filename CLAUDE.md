@@ -762,8 +762,9 @@ it is outside `make fit`'s top entirely — `littlecpu` does not contain it, so 
 `soc-timing` number and never a `fit` one. **Nothing here produces a bitstream**: `make soc-timing`
 stops at the `.asc`, there is no `icepack` and no `iceprog`, so the pin is measured and not yet
 flashed. **Co-simulation cannot cover it** — the model has plain memory at that address, so
-`test/asm/uart.S` is `INCONCLUSIVE SAIL-LIMIT` and `test/uart_tb.v`, which decodes the line at the
-configured divisor with five of its own failures forced, is the only oracle for the wire.
+`test/asm/uart.S` is `DISAGREE AT 5`, at the first read of `busy` after a write, and
+`test/uart_tb.v`, which decodes the line at the configured divisor with five of its own failures
+forced, is the only oracle for the wire.
 
 The suite is `test/asm/*.S` **and** `test/asm/*.c`, and `test/OBSERVED_FLOOR` names both. Anything
 under `test/bench/` is deliberately outside it: both legs glob `test/asm`, and a benchmark that

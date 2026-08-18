@@ -176,13 +176,15 @@ module uart_tb;
           return;
         end
         mid  = i + div / 2;
-        last = mid + FRAME_BITS - 1 > 0 ? mid + (FRAME_BITS - 1) * div : mid;
+        // The stop bit's sample, which is the last of the frame and therefore
+        // the bound the whole frame has to fit inside.
+        last = mid + (FRAME_BITS - 1) * div;
         if (last >= trace_n) begin
           decode_status = DEC_TRUNCATED;
           return;
         end
         for (k = 0; k < 8; k++) value[k] = trace[mid + (k + 1) * div];
-        if (trace[mid + 9 * div] !== 1'b1) begin
+        if (trace[last] !== 1'b1) begin
           decode_status = DEC_FRAMING;
           return;
         end
@@ -191,7 +193,7 @@ module uart_tb;
         decode_status = DEC_OK;
         // Past the stop bit, so the next search starts on the next frame rather
         // than re-triggering inside this one.
-        i = mid + 9 * div + div / 2;
+        i = last + div / 2;
       end
     end
   endtask
@@ -296,7 +298,6 @@ module uart_tb;
   //--------------------------------------------------------------------------
 
   int busy_cycles;
-  int i;
 
   initial begin
     reset     = 1'b1;
