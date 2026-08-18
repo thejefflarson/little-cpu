@@ -423,6 +423,15 @@ and times.
   best placement beats the base's best, and what it really does is take the best-to-worst spread from
   5.5% to 11.2% — so eight seeds passed it at 12.16 MHz and sixteen declined it at 11.93 (ADR-0113).
   A short sweep cannot see the tail, and the tail is what `SOC_MIN_MHZ` grades.
+- **A tied-off PORT is not a tied-off change, and the digest is where the two come apart.** An input
+  the integrator holds at a constant folds before mapping and leaves the cell census untouched; an
+  **output the integrator does not read does not fold** — it is still a net for ABC to map around,
+  and a one-line probe adding any unread output to `rtl/littlecpu.v` moves the SoC **+44 `SB_LUT4`**
+  on its own. So a change that only adds ports can still owe the sixteen seeds, and the seeds are
+  the answer rather than the alarm: the multi-hart surface digests different at +48 packed cells and
+  sweeps −0.2% at the worst placement, +1.5% at the median, inside the churn band with all sixteen
+  over 12 MHz. Read a digest difference for the class of edit it is, and do not read `fit` for this
+  one — the same change is **−35 cells** on the core's own top.
 - **12 MHz is a requirement, not a regression floor** (ADR-0066). `SOC_MIN_MHZ` is 12.0 — the board
   clock, whose next divider step down is 6 — and it does not slide. When it trips, fix the design,
   not the floor. The margin over the worst placement is deliberately tighter than the churn band.
