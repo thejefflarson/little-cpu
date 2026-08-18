@@ -545,6 +545,12 @@ test: sim test-units probe-gates pin-bump-test tool-cache-test memmap-test \
 # compare against the last one, not something to fail a merge on. What it does
 # grade is its own arithmetic -- a cycle the decoder stalled for a reason this
 # does not name is a reason nobody has written down, and it exits nonzero.
+#
+# It also prints rtl/littlecpu.v's two load/store locality counters, which are
+# not cycles and belong to no column: how many issuing accesses have a base
+# register within 2 KB of a mapped region's edge, and how many issue on a
+# write-through to that register. They are what prices a load/store region test
+# in bubbles without building one.
 .PHONY: cycles
 cycles: sim
 	@STALL_REPORT=1 ./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR

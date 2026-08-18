@@ -1,7 +1,7 @@
 #!/bin/bash
-# Asserts that the three range decodes refuse to elaborate at a parameter shape
-# they are not valid for -- in both frontends, and for the reason each is
-# written for.
+# Asserts that the range decodes refuse to elaborate at a parameter shape they
+# are not valid for -- in both frontends, and for the reason each is written
+# for.
 #
 # Usage: window_test.sh          # every case; exit 0 only if all of them hold
 #
@@ -10,7 +10,8 @@
 # compare against the size, which is correct at any base and any size and costs
 # a carry chain. Each now reads the address bits above the window instead, which
 # is correct only while the window is a power of two sitting on a multiple of
-# its own size.
+# its own size. rtl/littlecpu.v copies all three windows for its load/store
+# locality counters, and demands the same shapes of its copy.
 #
 # That is a different KIND of dependency from the one it replaced. The old
 # spelling was slow at a bad parameter; the new one is silently wrong -- it
@@ -49,11 +50,15 @@ failed=0
 # path containing a space would read as two files.
 cd "$tmp"
 
+# What each frontend is handed, set by the two case runners below. The memories
+# elaborate from their own file alone; the core needs the rest of rtl/ behind it.
+SRCS=dut.v
+
 # elaborate <frontend> -> prints the diagnostic, returns the frontend's status
 elaborate() {
   case $1 in
-    iverilog) iverilog -g2012 -o /dev/null dut.v probe.v 2>&1 ;;
-    yosys)    yosys -p 'read_verilog -sv dut.v probe.v; hierarchy -top window_probe' 2>&1 ;;
+    iverilog) iverilog -g2012 -o /dev/null $SRCS probe.v 2>&1 ;;
+    yosys)    yosys -p "read_verilog -sv $SRCS probe.v; hierarchy -top window_probe" 2>&1 ;;
   esac
 }
 
@@ -70,7 +75,19 @@ run_case() {
   local label=$1 file=$2 module=$3 params=$4 expect=$5 want=$6
   printf '`default_nettype none\nmodule window_probe;\n  %s #(%s) dut ();\nendmodule\n' \
     "$module" "$params" > probe.v
-  cp "$REPO/$file" dut.v
+  # A file that includes another one cannot elaborate on its own, and neither
+  # can the stages it goes on to instantiate: those get the whole directory,
+  # flat, so the include resolves with no search path. It also puts the shipping
+  # rtl/littlesoc.v in front of the frontend beside the probe, which is a second
+  # instantiation of the module under test at the parameters that place on the
+  # part. The three memories include nothing and are handed their own file.
+  if grep -q '^`include' "$REPO/$file"; then
+    cp "$REPO"/rtl/*.v .
+    SRCS=$(cd "$REPO/rtl" && printf '%s ' *.v)
+  else
+    cp "$REPO/$file" dut.v
+    SRCS=dut.v
+  fi
   local frontend out rc
   for frontend in iverilog yosys; do
     cases=$((cases + 1))
@@ -130,6 +147,26 @@ echo "== rtl/timer.v: a 16-byte aligned BASE"
 run_case "BASE = 0x0002_0008" rtl/timer.v timer ".BASE(32'h0002_0008)" \
   reject "BASE must be 16-byte aligned"
 run_case "the SoC's own" rtl/timer.v timer ".BASE(32'h0002_0000)" accept ""
+
+# The core copies that map for its load/store locality counters, and its copy is
+# read by nothing else -- so a shape no memory here could be built at would be
+# counted against silently rather than refused. These are the same three checks,
+# restated where the copy is.
+echo
+echo "== rtl/littlecpu.v: the copied map has the shape the memories demand"
+# One override per case, so each names the parameter it is about and the other
+# three stay at the values that ship; the accept below states all four.
+run_case "LS_TEXT_WORDS = 3072" rtl/littlecpu.v littlecpu ".LS_TEXT_WORDS(3072)" \
+  reject "LS_TEXT_WORDS must be a power of two"
+run_case "LS_RAM_WORDS = 12288" rtl/littlecpu.v littlecpu ".LS_RAM_WORDS(12288)" \
+  reject "LS_RAM_WORDS must be a power of two"
+run_case "LS_RAM_BASE off the window" rtl/littlecpu.v littlecpu \
+  ".LS_RAM_BASE(32'h0001_0004)" reject "LS_RAM_BASE must be aligned"
+run_case "LS_TIMER_BASE = 0x0002_0008" rtl/littlecpu.v littlecpu \
+  ".LS_TIMER_BASE(32'h0002_0008)" reject "LS_TIMER_BASE must be 16-byte aligned"
+run_case "the SoC's own" rtl/littlecpu.v littlecpu \
+  ".LS_TEXT_WORDS(2048), .LS_RAM_BASE(32'h0001_0000), .LS_RAM_WORDS(16384), .LS_TIMER_BASE(32'h0002_0000)" \
+  accept ""
 
 echo
 if [ "$failed" -ne 0 ]; then

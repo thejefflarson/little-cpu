@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=286
+PROBES_EXPECTED=312
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -149,7 +149,8 @@ for a in "$@"; do [ "$a" = "--stalls" ] && stalls=1; done
 if [ -n "$stalls" ] && [ -z "${STUB_SIM_NOSTALLS:-}" ]; then
   unattr=${STUB_SIM_UNATTR:-0}
   echo "STALLS cycles=$((20 + unattr + ${STUB_SIM_SKEW:-0})) issue=10 divider=0" \
-       "atomic=0 hazard=10 serialize=0 operand=0 fetch=0 unattributed=$unattr"
+       "atomic=0 hazard=10 serialize=0 operand=0 fetch=0 unattributed=$unattr" \
+       "lsissue=4 lsedge=2 lsbypass=1"
 fi
 case ${STUB_SIM_EXIT:-0} in
   0) echo "PASS" ;;
@@ -1265,8 +1266,8 @@ SR="python3 $REPO/test/stall_report.py"
 sr_fixture() {
   local d; d=$(new_case)
   cat > "$d/counts" <<'COUNTS'
-add.S cycles=40 issue=10 divider=0 atomic=0 hazard=20 serialize=0 operand=10 fetch=0 unattributed=0 retires=10
-lw.S cycles=40 issue=10 divider=0 atomic=0 hazard=5 serialize=0 operand=25 fetch=0 unattributed=0 retires=10
+add.S cycles=40 issue=10 divider=0 atomic=0 hazard=20 serialize=0 operand=10 fetch=0 unattributed=0 lsissue=4 lsedge=1 lsbypass=0 retires=10
+lw.S cycles=40 issue=10 divider=0 atomic=0 hazard=5 serialize=0 operand=25 fetch=0 unattributed=0 lsissue=6 lsedge=3 lsbypass=2 retires=10
 COUNTS
   printf '%s' "$d"
 }
@@ -1290,6 +1291,29 @@ probe "a stall nothing in the list explains is a reason nobody wrote down" 1 \
 d=$(sr_fixture); sed -i.bak 's/ operand=10//' "$d/counts"
 probe "a field the runner stopped printing is named, not counted as zero" 1 \
   "is missing operand" "$SR $d/counts"
+
+# The locality counters are not cycles and add up to nothing, so the arithmetic
+# above cannot see them at all. What can be seen is a subset larger than the set
+# it is drawn from, which is what a counter incremented on the wrong event looks
+# like from here.
+d=$(sr_fixture)
+probe "control: the locality counters are reported under the table" 0 \
+  "10 of those instructions were loads or stores" "$SR $d/counts"
+
+probe "control: each subset is printed as a share of that number" 0 \
+  "4 (40.0%) with rs1 within 2 KB of a mapped-region edge" "$SR $d/counts"
+
+d=$(sr_fixture); sed -i.bak 's/lsedge=3/lsedge=7/' "$d/counts"
+probe "more accesses near an edge than there were accesses is red" 1 \
+  "lsedge is 7 against 6 issuing loads and stores" "$SR $d/counts"
+
+d=$(sr_fixture); sed -i.bak 's/lsbypass=0/lsbypass=5/' "$d/counts"
+probe "the same for the bypass counter, per program rather than in total" 1 \
+  "lsbypass is 5 against 4 issuing loads and stores" "$SR $d/counts"
+
+d=$(sr_fixture); sed -i.bak 's/ lsissue=6//' "$d/counts"
+probe "a locality counter that stopped being printed is named too" 1 \
+  "is missing lsissue" "$SR $d/counts"
 
 d=$(sr_fixture); sed -i.bak 's/cycles=40/cycles=lots/' "$d/counts"
 probe "a count that is not a number stops rather than summing to nonsense" 1 \
@@ -1400,13 +1424,14 @@ MM="$HERE/memmap_test.sh"
 
 mm_fixture() {
   local d; d=$(new_case)
-  mkdir -p "$d/rtl" "$d/test/asm" "$d/test/bench"
+  mkdir -p "$d/rtl" "$d/test/asm" "$d/test/bench" "$d/formal"
   cp "$REPO"/rtl/memory.v "$REPO"/rtl/timer.v "$REPO"/rtl/imemory.v \
-     "$REPO"/rtl/littlesoc.v "$d/rtl/"
+     "$REPO"/rtl/littlecpu.v "$REPO"/rtl/littlesoc.v "$d/rtl/"
   cp "$REPO"/test/testbench.v "$REPO"/test/cxxrtl.cc "$REPO"/test/cosim.cc "$d/test/"
   cp "$REPO"/test/asm/riscv_test.h "$REPO"/test/asm/sections.lds \
      "$REPO"/test/asm/boot.lds "$d/test/asm/"
   cp "$REPO"/test/bench/bench.lds "$d/test/bench/"
+  cp "$REPO"/formal/traps.sv "$d/formal/"
   cp "$REPO"/Makefile "$d/"
   printf '%s' "$d"
 }
@@ -1490,6 +1515,58 @@ probe "a file that moved away takes the check with it, loudly" 1 \
 d=$(mm_fixture); sed -i.bak 's/LENGTH = 64K/LENGTH = LOTS/' "$d/test/asm/sections.lds"
 probe "a size the parser cannot read stops rather than comparing as zero" 1 \
   "is not a size this check can read" "$MM $d"
+
+# The core's own copy of the map. Nothing in the datapath reads it, so every one
+# of these drifts is silent everywhere else: the counters keep reporting, about
+# a machine no file describes.
+d=$(mm_fixture); sed -i.bak "s/LS_RAM_BASE   = 32'h0001_0000/LS_RAM_BASE   = 32'h0002_0000/" "$d/rtl/littlecpu.v"
+probe "the core's copy of the RAM base drifting from the RAM is red" 1 \
+  "rtl/littlecpu.v's LS_RAM_BASE is 131072 against rtl/memory.v's 65536" "$MM $d"
+
+d=$(mm_fixture); sed -i.bak 's/LS_RAM_WORDS  = 16384/LS_RAM_WORDS  = 8192/' "$d/rtl/littlecpu.v"
+probe "a RAM half the size in the core's copy is red" 1 \
+  "LS_RAM_WORDS is 8192 against rtl/memory.v's 16384" "$MM $d"
+
+d=$(mm_fixture); sed -i.bak "s/LS_TIMER_BASE = 32'h0002_0000/LS_TIMER_BASE = 32'h0003_0000/" "$d/rtl/littlecpu.v"
+probe "the timer moving in the core's copy alone is red" 1 \
+  "LS_TIMER_BASE is 196608 against rtl/timer.v's 131072" "$MM $d"
+
+d=$(mm_fixture); sed -i.bak 's/LS_TEXT_WORDS = 2048/LS_TEXT_WORDS = 4096/' "$d/rtl/littlecpu.v"
+probe "the default text window is the part's, not the harness's" 1 \
+  "LS_TEXT_WORDS is 4096 against rtl/littlesoc.v's 2048" "$MM $d"
+
+# The one the parameter defaults cannot catch: each integrator states its own
+# ROM size twice, once to the memory and once to the core.
+d=$(mm_fixture); sed -i.bak 's/littlecpu #(.LS_TEXT_WORDS(2048))/littlecpu #(.LS_TEXT_WORDS(4096))/' "$d/rtl/littlesoc.v"
+probe "an integrator telling the core a text size its ROM has not got" 1 \
+  "gives its \`imemory\` 2048 words of ROM and tells the core the text" "$MM $d"
+
+d=$(mm_fixture); sed -i.bak 's/littlecpu #(.LS_TEXT_WORDS(ROM_WORDS))/littlecpu #(.LS_TEXT_WORDS(2048))/' "$d/test/testbench.v"
+probe "the harness passing a literal instead of the size it sized" 1 \
+  "gives its \`imemory\` ROM_WORDS words of ROM" "$MM $d"
+
+d=$(mm_fixture); sed -i.bak 's/littlecpu #(.LS_TEXT_WORDS(ROM_WORDS)) uut/littlecpu uut/' "$d/test/testbench.v"
+probe "an integrator that stopped stating it at all is red, not defaulted" 1 \
+  "names no .ROM_WORDS or no .LS_TEXT_WORDS" "$MM $d"
+
+# The trap proof's copy of the map. Nothing but that proof reads it, so each of
+# these drifts is silent everywhere else: components_traps goes on passing,
+# having excused the wrong accesses from `must_not_trap`.
+d=$(mm_fixture); sed -i.bak "s/LS_RAM_BASE   = 32'h0001_0000/LS_RAM_BASE   = 32'h0002_0000/" "$d/formal/traps.sv"
+probe "the proof's copy of the RAM base drifting from the RAM is red" 1 \
+  "formal/traps.sv's LS_RAM_BASE is 131072 against rtl/memory.v's 65536" "$MM $d"
+
+d=$(mm_fixture); sed -i.bak 's/LS_RAM_WORDS  = 16384/LS_RAM_WORDS  = 8192/' "$d/formal/traps.sv"
+probe "a RAM half the size in the proof's copy is red" 1 \
+  "LS_RAM_WORDS is 8192 against rtl/memory.v's 16384" "$MM $d"
+
+d=$(mm_fixture); sed -i.bak "s/LS_TIMER_BASE = 32'h0002_0000/LS_TIMER_BASE = 32'h0003_0000/" "$d/formal/traps.sv"
+probe "the timer moving in the proof's copy alone is red" 1 \
+  "LS_TIMER_BASE is 196608 against rtl/timer.v's 131072" "$MM $d"
+
+d=$(mm_fixture); sed -i.bak 's/LS_TEXT_WORDS = 2048/LS_TEXT_WORDS = 4096/' "$d/formal/traps.sv"
+probe "the proof describes the part's text window, not the harness's" 1 \
+  "LS_TEXT_WORDS is 4096 against rtl/littlesoc.v's 2048" "$MM $d"
 
 begin_group "test/retired_term_test.sh"
 
@@ -2195,6 +2272,98 @@ probe "a tree that instantiates the core nowhere is not a clean one" 1 \
 d=$(new_case); mkdir -p "$d/rtl"; cp "$REPO/rtl/littlecpu.v" "$d/rtl/"
 probe "a tree git cannot list is a scan of nothing, not a green one" 1 \
   "cannot enumerate any tracked Verilog" "$PC $d"
+
+begin_group "formal/traps-region-probe.py"
+
+# That file is itself the demonstrated red direction for formal/traps.sv's
+# load/store region cause arm, and it needs a solver to be one -- so it runs
+# under `make -C formal components_traps` rather than here. What is probed here
+# is its own grading: it builds two mutated cores and requires one to prove and
+# the other to go red at one named line, and each of those comparisons has a
+# failure path of its own.
+#
+# The stub reads the tree it is handed and answers the way sby does, so the
+# control below is the real script over the real RTL with only the solver
+# replaced. A stub that answered from its arguments alone would make every probe
+# here a test of the stub.
+TR="python3 $REPO/formal/traps-region-probe.py"
+
+cat > "$tmp/sby-stub" <<'STUB'
+#!/bin/sh
+# Stands in for sby. The case being run is the name of the directory it is run
+# in, and the assertion line is read out of the copy of traps.sv it was handed,
+# so PASS and FAIL land where the real solver puts them.
+mkdir -p probe
+line=$(grep -n 'assert(csr_rdata == prev_cause);' src/traps.sv | cut -d: -f1)
+case $(basename "$PWD") in
+  right-cause) status=${STUB_SBY_RIGHT:-PASS} ;;
+  wrong-cause) status=${STUB_SBY_WRONG:-FAIL}; line=${STUB_SBY_WRONG_LINE:-$line} ;;
+esac
+: > probe/logfile.txt
+if [ "$status" = FAIL ]; then
+  echo "SBY [probe] engine_0.basecase: Assert failed in traps: traps.sv:$line.5-$line.36" \
+    > probe/logfile.txt
+fi
+[ -n "${STUB_SBY_NO_STATUS:-}" ] && exit 1
+if [ -n "${STUB_SBY_EMPTY_STATUS:-}" ]; then : > probe/status; exit 1; fi
+echo "$status 2 0" > probe/status
+STUB
+chmod +x "$tmp/sby-stub"
+
+tr_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/rtl" "$d/formal"
+  cp "$REPO"/rtl/structs.v "$REPO"/rtl/fetcher.v "$REPO"/rtl/decoder.v \
+     "$REPO"/rtl/regsel.v "$REPO"/rtl/csrs.v "$d/rtl/"
+  cp "$REPO"/formal/traps.sv "$d/formal/"
+  printf '%s' "$d"
+}
+
+trs() { printf "%s --repo %s --workdir %s/work --sby %s" "$TR" "$1" "$1" "$tmp/sby-stub"; }
+
+d=$(tr_fixture)
+probe "control: the arm admits one core and fails on the other" 0 \
+  "admits the mechanism and fails on the cause" "$(trs "$d")"
+
+d=$(tr_fixture)
+probe "a model that refuses the mechanism outright is red, not a proof" 1 \
+  "The model must ADMIT a core that" "STUB_SBY_RIGHT=FAIL $(trs "$d")"
+
+# THE ONE THAT MATTERS: an arm that cannot fail is the whole reason this file
+# exists.
+d=$(tr_fixture)
+probe "an arm that admits the wrong cause is red" 1 \
+  "the wrong-cause core proves" "STUB_SBY_WRONG=PASS $(trs "$d")"
+
+d=$(tr_fixture)
+probe "a proof going red somewhere else is not evidence about this arm" 1 \
+  "not at line" "STUB_SBY_WRONG_LINE=9 $(trs "$d")"
+
+d=$(tr_fixture)
+probe "a solver that wrote no verdict is exit 2, not a red arm" 2 \
+  "wrote no status for the" "STUB_SBY_NO_STATUS=1 $(trs "$d")"
+
+d=$(tr_fixture)
+probe "an empty status file is refused rather than read as a verdict" 2 \
+  "status file for the right-cause core is empty" "STUB_SBY_EMPTY_STATUS=1 $(trs "$d")"
+
+# The three parses. Each one is what the probe pins its answer to, so a
+# respelling has to stop the run rather than quietly probe nothing.
+d=$(tr_fixture); sed -i.bak 's/assert(csr_rdata == prev_cause);/assert(csr_rdata == prev_cause2);/' "$d/formal/traps.sv"
+probe "a respelled cause comparison stops rather than pinning nothing" 2 \
+  "0 times" "$(trs "$d")"
+
+d=$(tr_fixture); sed -i.bak 's/assign load_access_fault  = atomic_fault/assign load_access_fault = atomic_fault/' "$d/rtl/decoder.v"
+probe "a respelled fault site stops rather than building the shipping core twice" 2 \
+  "no longer spells its two access-fault assignments" "$(trs "$d")"
+
+d=$(tr_fixture); sed -i.bak 's/load_misaligned || store_misaligned || atomic_fault;/load_misaligned || atomic_fault || store_misaligned;/' "$d/rtl/decoder.v"
+probe "a respelled trap_pending stops: an uncommitted fault proves nothing" 2 \
+  "no longer spells the last line of" "$(trs "$d")"
+
+d=$(tr_fixture); rm "$d/formal/traps.sv"
+probe "the model moving away takes the probe with it, loudly" 2 \
+  "formal/traps.sv is missing from" "$(trs "$d")"
 
 echo
 if [ "$probes" -ne "$PROBES_EXPECTED" ]; then
