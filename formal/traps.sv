@@ -27,8 +27,9 @@ module traps #(
     //
     // It is a map here and a port for an atomic because that is how the core
     // is built: the platform answers about an atomic's address on
-    // `atomic_supported`, and about a plain load's or store's it is never
-    // asked. So the model is the only place that question has an answer.
+    // `atomic_supported`, and hands the decoder this map at elaboration for a
+    // plain load's or store's. The same four numbers go to the instance below,
+    // so the model and the core under it are reading one map.
     parameter integer      LS_TEXT_WORDS = 2048,
     parameter logic [31:0] LS_RAM_BASE   = 32'h0001_0000,
     parameter integer      LS_RAM_WORDS  = 16384,
@@ -50,8 +51,8 @@ module traps #(
     // The platform's answer about the address an atomic in decode would use.
     // Free, like the fetch bus's refusal, so the two causes it decides are
     // asserted below against the encodings the ISA fixes rather than against
-    // the map above. That map is about a plain load or store instead, an
-    // access the core asks the platform nothing about.
+    // the map above. The map decides the same two causes for a plain load or
+    // store, an access the core asks the platform nothing about at runtime.
     input logic atomic_supported,
     input logic accessor_out_valid,
     // The platform's timer line, free every cycle. rtl/csrs.v decides what to
@@ -91,7 +92,12 @@ module traps #(
     .out(fetcher_out)
   );
 
-  decoder decoder (
+  decoder #(
+    .LS_TEXT_WORDS(LS_TEXT_WORDS),
+    .LS_RAM_BASE(LS_RAM_BASE),
+    .LS_RAM_WORDS(LS_RAM_WORDS),
+    .LS_TIMER_BASE(LS_TIMER_BASE)
+  ) decoder (
     .clk(clk),
     .reset(reset),
     .in(fetcher_out),
@@ -326,6 +332,7 @@ module traps #(
   logic [31:0] expected_cause;
   assign expected_trap = is_illegal || is_ebreak || is_ecall ||
                          lw_misaligned || lh_misaligned || sw_misaligned || sh_misaligned ||
+                         load_region_fault || store_region_fault ||
                          (is_atomic && atomic_refused);
   always_comb begin
     if (is_illegal) expected_cause = CAUSE_ILLEGAL;
@@ -339,25 +346,25 @@ module traps #(
     else expected_cause = CAUSE_STORE_FAULT;
   end
 
-  // Whether a trap is required and what its cause must be are two questions,
-  // and the two region terms answer only the second. An address no memory
-  // answers is read as zero and a store to one is dropped: this core does not
-  // fault there, the privileged spec only recommends that it should, and
-  // requiring the trap here would state a decision this platform has not taken.
-  // Requiring the CAUSE costs nothing while that holds and is what a core that
-  // does fault has to agree with -- which is the half every prototype of it has
-  // had to write for itself.
+  // The two region terms are inside `expected_trap` now, so this model requires
+  // the trap as well as its cause. It required only the cause for as long as an
+  // address no memory answered was read as zero and a store to one was dropped
+  // -- the privileged spec recommends the fault rather than mandating it, so
+  // requiring it would have stated a decision the platform had not taken. The
+  // decoder decides it against this same map now, so the decision is taken and
+  // the weaker half is gone. `cause_modelled` stays as a name for the cycles the
+  // mcause comparison below is allowed to fire on.
   logic cause_modelled;
-  assign cause_modelled = expected_trap || load_region_fault || store_region_fault;
+  assign cause_modelled = expected_trap;
 
   // The other direction. Without these a core that trapped on everything would
   // satisfy most of this file. The last three are the half that keeps a region
   // decode honest: an access at an address the platform DOES answer executes,
   // so a core that faulted every atomic, or every load past some line it drew
   // for itself, would not pass here. `data_mapped` is what a load and a store
-  // are excused by, and it is the reason those two lines can be narrowed
-  // without narrowing what they say -- an aligned `lw` the map answers still
-  // must not trap.
+  // are excused by, and it is what makes the pair above and this pair the two
+  // halves of one statement rather than two opinions -- an aligned `lw` the map
+  // answers must not trap, and one it does not answer must.
   logic must_not_trap;
   assign must_not_trap =
       (uncompressed && opcode == 5'b01100 && instr[31:25] == 7'b0 && funct3 == 3'b000) ||

@@ -55,6 +55,11 @@ module testbench(
   logic [3:0]  rvfi_mem_wmask;
   logic [31:0] rvfi_mem_rdata;
   logic [31:0] rvfi_mem_wdata;
+  `ifdef RISCV_FORMAL_MEM_FAULT
+  logic        rvfi_mem_fault;
+  logic [3:0]  rvfi_mem_fault_rmask;
+  logic [3:0]  rvfi_mem_fault_wmask;
+  `endif
   // test/cxxrtl.cc reads this by debug-item name ("monitor errcode").
   logic [15:0] rvfi_monitor_errcode;
  `endif //  `ifdef RISCV_FORMAL
@@ -143,7 +148,12 @@ module testbench(
     .rvfi_mem_rmask(rvfi_mem_rmask),
     .rvfi_mem_wmask(rvfi_mem_wmask),
     .rvfi_mem_rdata(rvfi_mem_rdata),
-    .rvfi_mem_wdata(rvfi_mem_wdata)
+    .rvfi_mem_wdata(rvfi_mem_wdata),
+    `ifdef RISCV_FORMAL_MEM_FAULT
+    .rvfi_mem_fault(rvfi_mem_fault),
+    .rvfi_mem_fault_rmask(rvfi_mem_fault_rmask),
+    .rvfi_mem_fault_wmask(rvfi_mem_fault_wmask)
+    `endif
    `endif
   );
  `ifdef RISCV_FORMAL
@@ -155,8 +165,24 @@ module testbench(
   // should report MONITOR-SILENT. Do the same on a tree without the counters
   // and the whole suite still passes, because each program reaches tohost on
   // its own assertions with nothing checking a single instruction.
+  //
+  // What it is NOT is a way to hide a disagreement. riscv-formal ships no memory
+  // map, so its spec model answers a load at any address at all: a retire that
+  // reports a load or store access fault would be error 101, "mismatch in trap",
+  // on a core doing exactly what this platform's map says. That one retire is
+  // therefore not shown to the monitor, and the term below is the narrowest
+  // statement of it there is. `rvfi_mem_fault` alone is too wide -- an
+  // instruction access fault sets it too -- so the two fault masks are read
+  // beside it, and only a DATA access sets either. The eleven A encodings are
+  // excluded by opcode rather than left in: the pin ships no spec model for any
+  // of them, so nothing was being graded there and dropping their retires would
+  // only cost the observation counts amoregion.S and amotrap.S are floored on.
+  logic ls_fault_retire;
+  assign ls_fault_retire = rvfi_mem_fault &&
+                           (|rvfi_mem_fault_rmask || |rvfi_mem_fault_wmask) &&
+                           rvfi_insn[6:0] != 7'b0101111;
   logic rvfi_valid_observed;
-  assign rvfi_valid_observed = rvfi_valid;
+  assign rvfi_valid_observed = rvfi_valid && !ls_fault_retire;
 
   monitor monitor (
     .clock(clk),

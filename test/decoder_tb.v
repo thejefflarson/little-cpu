@@ -1004,16 +1004,89 @@ module decoder_tb;
     #1;
     check_hex("...and so is an sc.w", trap_cause, 32'd7);
 
-    // A plain load and a plain store at the same address are unaffected. Their
-    // region test is the one that has to wait on a 32-bit sum, and it is not
-    // built -- so this is the boundary of what the bit is allowed to decide,
-    // and widening the fault to every access would show up here first.
+    // A plain load and a plain store at the same address raise the same two
+    // causes, off the map the decoder is elaborated with rather than off the
+    // bit. This instance takes the parameter defaults: 8 KB of text at 0, 64 KB
+    // of RAM at 0x0001_0000 and the timer's four words at 0x0002_0000, so
+    // 0x0004_0000 is outside all three.
     in.instr = 32'h00062583;   // lw a1, 0(a2)
     #1;
-    check_bit("a plain lw at the same address does not fault", dut.trap_pending, 1'b0);
+    check_bit("a plain lw at the same address faults too", dut.trap_pending, 1'b1);
+    check_hex("...as a LOAD access fault", trap_cause, 32'd5);
     in.instr = 32'h00b62023;   // sw a1, 0(a2)
     #1;
-    check_bit("...nor does a plain sw", dut.trap_pending, 1'b0);
+    check_hex("...and a plain sw as a STORE access fault", trap_cause, 32'd7);
+    in.instr = 32'h00060583;   // lb a1, 0(a2)
+    #1;
+    check_hex("a byte load faults there as well", trap_cause, 32'd5);
+    in.instr = 32'h00b60023;   // sb a1, 0(a2)
+    #1;
+    check_hex("...and a byte store", trap_cause, 32'd7);
+
+    // The carry into bit 12 is the whole mechanism: the region is tested on
+    // rs1[31:12], so an access that leaves its page has to be decided by the one
+    // late bit rather than by the register. Ignore it and the four vectors below
+    // are the ones that go the wrong way -- each sits in a page the other side of
+    // the window's edge from its own effective address.
+    reg_rs1 = 32'h0000_1FFC;   // the last word of the 8 KB text window
+    in.instr = 32'h00462583;   // lw a1, 4(a2)
+    #1;
+    check_bit("a load off the top of text carries out of its page",
+              dut.trap_pending, 1'b1);
+    check_hex("...and faults as a load", trap_cause, 32'd5);
+    reg_rs1 = 32'h0000_2000;   // the first word past it
+    in.instr = 32'hFFC62583;   // lw a1, -4(a2)
+    #1;
+    check_bit("...and a load back into text from just past it does not fault",
+              dut.trap_pending, 1'b0);
+    reg_rs1 = 32'h0001_0000;   // the base of the RAM
+    #1;
+    check_bit("a negative offset off the bottom of RAM faults",
+              dut.trap_pending, 1'b1);
+    check_hex("...as a load", trap_cause, 32'd5);
+    reg_rs1 = 32'h0001_0008;
+    #1;
+    check_bit("...and one that stays inside RAM does not", dut.trap_pending, 1'b0);
+
+    // The timer is four words, not a page. Its window is the only one tested on
+    // bits below 12, and those bits come off the sum rather than off rs1.
+    reg_rs1 = 32'h0001_FFFC;
+    in.instr = 32'h00462583;   // lw a1, 4(a2)
+    #1;
+    check_bit("a load of mtime from the top of RAM is answered",
+              dut.trap_pending, 1'b0);
+    reg_rs1 = 32'h0002_0000;
+    in.instr = 32'h01062583;   // lw a1, 16(a2)
+    #1;
+    check_bit("...and one 16 bytes past the timer's last word is not",
+              dut.trap_pending, 1'b1);
+    check_hex("...faulting as a load", trap_cause, 32'd5);
+
+    // The other direction, without which this file would pass on a core that
+    // faulted every load and every store.
+    reg_rs1 = 32'h0001_0000;
+    in.instr = 32'h00062583;   // lw a1, 0(a2)
+    #1;
+    check_bit("a load the map answers does not fault", dut.trap_pending, 1'b0);
+    in.instr = 32'h00b62023;   // sw a1, 0(a2)
+    #1;
+    check_bit("...nor does a store there", dut.trap_pending, 1'b0);
+    reg_rs1 = 32'h0000_0000;
+    #1;
+    check_bit("...nor a store into text", dut.trap_pending, 1'b0);
+
+    // Misalignment outranks the region for a plain access too, the order the
+    // atomic term states. Drop either alignment term from `ls_fault` and two
+    // arms of the cause chain match at once.
+    reg_rs1 = 32'h0004_0002;
+    in.instr = 32'h00062583;   // lw a1, 0(a2)
+    #1;
+    check_hex("a misaligned lw out of region reports the misalignment",
+              trap_cause, 32'd4);
+    in.instr = 32'h00b62023;   // sw a1, 0(a2)
+    #1;
+    check_hex("...and a misaligned sw reports cause 6", trap_cause, 32'd6);
+    reg_rs1 = 32'h0004_0000;
 
     // Misalignment outranks the region, which keeps the four data causes
     // disjoint and matches what the reference model reports. Drop the alignment

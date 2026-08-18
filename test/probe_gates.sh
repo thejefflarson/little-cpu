@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=341
+PROBES_EXPECTED=343
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -2656,12 +2656,12 @@ probe "a tree git cannot list is a scan of nothing, not a green one" 1 \
 
 begin_group "formal/traps-region-probe.py"
 
-# That file is itself the demonstrated red direction for formal/traps.sv's
-# load/store region cause arm, and it needs a solver to be one -- so it runs
-# under `make -C formal components_traps` rather than here. What is probed here
-# is its own grading: it builds two mutated cores and requires one to prove and
-# the other to go red at one named line, and each of those comparisons has a
-# failure path of its own.
+# That file is itself the demonstrated red direction for formal/traps.sv's two
+# load/store region arms -- the trap and its cause -- and it needs a solver to be
+# one, so it runs under `make -C formal components_traps` rather than here. What
+# is probed here is its own grading: it builds two mutated cores and requires
+# each to go red at one named line, and each of those comparisons has a failure
+# path of its own.
 #
 # The stub reads the tree it is handed and answers the way sby does, so the
 # control below is the real script over the real RTL with only the solver
@@ -2675,10 +2675,13 @@ cat > "$tmp/sby-stub" <<'STUB'
 # in, and the assertion line is read out of the copy of traps.sv it was handed,
 # so PASS and FAIL land where the real solver puts them.
 mkdir -p probe
-line=$(grep -n 'assert(csr_rdata == prev_cause);' src/traps.sv | cut -d: -f1)
 case $(basename "$PWD") in
-  right-cause) status=${STUB_SBY_RIGHT:-PASS} ;;
-  wrong-cause) status=${STUB_SBY_WRONG:-FAIL}; line=${STUB_SBY_WRONG_LINE:-$line} ;;
+  no-trap)
+    line=$(grep -n 'assert(trap_entry);' src/traps.sv | cut -d: -f1)
+    status=${STUB_SBY_NOTRAP:-FAIL}; line=${STUB_SBY_NOTRAP_LINE:-$line} ;;
+  wrong-cause)
+    line=$(grep -n 'assert(csr_rdata == prev_cause);' src/traps.sv | cut -d: -f1)
+    status=${STUB_SBY_WRONG:-FAIL}; line=${STUB_SBY_WRONG_LINE:-$line} ;;
 esac
 : > probe/logfile.txt
 if [ "$status" = FAIL ]; then
@@ -2703,22 +2706,27 @@ tr_fixture() {
 trs() { printf "%s --repo %s --workdir %s/work --sby %s" "$TR" "$1" "$1" "$tmp/sby-stub"; }
 
 d=$(tr_fixture)
-probe "control: the arm admits one core and fails on the other" 0 \
-  "admits the mechanism and fails on the cause" "$(trs "$d")"
+probe "control: both arms fail, each at its own line" 0 \
+  "Both load/store region arms fail for their own reason" "$(trs "$d")"
 
+# THE TWO THAT MATTER: an arm that cannot fail is the whole reason this file
+# exists, and there are two of them now that the model requires the trap as well
+# as the cause.
 d=$(tr_fixture)
-probe "a model that refuses the mechanism outright is red, not a proof" 1 \
-  "The model must ADMIT a core that" "STUB_SBY_RIGHT=FAIL $(trs "$d")"
+probe "an arm that admits a fault the core never commits is red" 1 \
+  "the no-trap core proves" "STUB_SBY_NOTRAP=PASS $(trs "$d")"
 
-# THE ONE THAT MATTERS: an arm that cannot fail is the whole reason this file
-# exists.
 d=$(tr_fixture)
 probe "an arm that admits the wrong cause is red" 1 \
   "the wrong-cause core proves" "STUB_SBY_WRONG=PASS $(trs "$d")"
 
 d=$(tr_fixture)
-probe "a proof going red somewhere else is not evidence about this arm" 1 \
-  "not at line" "STUB_SBY_WRONG_LINE=9 $(trs "$d")"
+probe "a must-trap proof going red somewhere else is not evidence" 1 \
+  "which does not include line" "STUB_SBY_NOTRAP_LINE=9 $(trs "$d")"
+
+d=$(tr_fixture)
+probe "a cause proof going red somewhere else is not evidence either" 1 \
+  "which does not include line" "STUB_SBY_WRONG_LINE=9 $(trs "$d")"
 
 d=$(tr_fixture)
 probe "a solver that wrote no verdict is exit 2, not a red arm" 2 \
@@ -2726,21 +2734,25 @@ probe "a solver that wrote no verdict is exit 2, not a red arm" 2 \
 
 d=$(tr_fixture)
 probe "an empty status file is refused rather than read as a verdict" 2 \
-  "status file for the right-cause core is empty" "STUB_SBY_EMPTY_STATUS=1 $(trs "$d")"
+  "status file for the no-trap core is empty" "STUB_SBY_EMPTY_STATUS=1 $(trs "$d")"
 
-# The three parses. Each one is what the probe pins its answer to, so a
+# The four parses. Each one is what the probe pins its answer to, so a
 # respelling has to stop the run rather than quietly probe nothing.
 d=$(tr_fixture); sed -i.bak 's/assert(csr_rdata == prev_cause);/assert(csr_rdata == prev_cause2);/' "$d/formal/traps.sv"
 probe "a respelled cause comparison stops rather than pinning nothing" 2 \
-  "0 times" "$(trs "$d")"
+  "prev_cause);\` 0 times" "$(trs "$d")"
 
-d=$(tr_fixture); sed -i.bak 's/assign load_access_fault  = atomic_fault/assign load_access_fault = atomic_fault/' "$d/rtl/decoder.v"
+d=$(tr_fixture); sed -i.bak 's/assert(trap_entry);/assert(trap_entry != 1'"'"'b0);/' "$d/formal/traps.sv"
+probe "a respelled must-trap assertion stops rather than pinning nothing" 2 \
+  "assert(trap_entry);\` 0 times" "$(trs "$d")"
+
+d=$(tr_fixture); sed -i.bak 's/assign load_access_fault  = (atomic_fault/assign load_access_fault = (atomic_fault/' "$d/rtl/decoder.v"
 probe "a respelled fault site stops rather than building the shipping core twice" 2 \
-  "no longer spells its two access-fault assignments" "$(trs "$d")"
+  "no longer spells what the wrong-cause mutation replaces" "$(trs "$d")"
 
-d=$(tr_fixture); sed -i.bak 's/load_misaligned || store_misaligned || atomic_fault;/load_misaligned || atomic_fault || store_misaligned;/' "$d/rtl/decoder.v"
+d=$(tr_fixture); sed -i.bak 's/load_misaligned || store_misaligned || atomic_fault ||/load_misaligned || atomic_fault || store_misaligned ||/' "$d/rtl/decoder.v"
 probe "a respelled trap_pending stops: an uncommitted fault proves nothing" 2 \
-  "no longer spells the last line of" "$(trs "$d")"
+  "no longer spells what the no-trap mutation replaces" "$(trs "$d")"
 
 d=$(tr_fixture); rm "$d/formal/traps.sv"
 probe "the model moving away takes the probe with it, loudly" 2 \
