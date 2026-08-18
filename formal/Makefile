@@ -180,16 +180,25 @@ components_pcloop: components.sby pcloop_cover ../rtl/fetcher.v ../rtl/decoder.v
 # traps, keeping only the trap flag, and their pc checks accept whatever target
 # the core reports -- so nothing else says a trap lands on mtvec, or that the
 # state it saved is right.
-components_traps: components.sby ../rtl/fetcher.v ../rtl/decoder.v ../rtl/regsel.v ../rtl/csrs.v \
-                  ../rtl/structs.v traps.sv
+#
+# traps-region-probe is a prerequisite for the reason pcloop_cover is one of the
+# proof it controls: this core raises no load or store access fault, so the arm
+# that models one is satisfied by never being reached, and a control that can be
+# run separately from the thing it controls eventually is not run at all.
+components_traps: components.sby traps-region-probe ../rtl/fetcher.v ../rtl/decoder.v \
+                  ../rtl/regsel.v ../rtl/csrs.v ../rtl/structs.v traps.sv
 	rm -rf $@
 	sby -f $< traps
+
+.PHONY: traps-region-probe
+traps-region-probe: traps-region-probe.py traps.sv ../rtl/decoder.v
+	python3 $<
 
 # Written out rather than brace-expanded: `rm -rf {a,b,c}` is a bashism that
 # /bin/sh, make's default shell, passes through literally and deletes nothing.
 clean:
 	rm -rf checks complete complete_cover cover dmemcheck imemcheck components components_*
-	rm -rf pcloop_cover fg-probe fg-probe.cfg
+	rm -rf pcloop_cover fg-probe fg-probe.cfg region-probe
 	rm -rf $(RISCV_FORMAL_DIR) $(RISCV_FORMAL_DIR).tmp
 
 .PHONY: all clean
