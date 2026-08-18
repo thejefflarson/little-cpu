@@ -57,9 +57,9 @@ a median win that carries its tail along, not as a tail lever.
 
 At **64 paired placements** on `ac7ee91` the median goes the other way (+0.74%, p = 0.10 by the sign
 test) and the same permutation test puts p75 and p90 about 1.1 ns **slower** at p ≈ 0.006 with the
-better worst placement at **p = 1.000**. Between the two trees sits one RTL change,
-[ADR-0119](0119-the-amo-result-mux-is-a-truth-table-and-an-adder-cannot-be-shared.md)'s AMO result
-mux, worth −37 placed cells.
+better worst placement at **p = 1.000**. Three commits separate the two trees and only one touches
+`rtl/` — [ADR-0119](0119-the-amo-result-mux-is-a-truth-table-and-an-adder-cannot-be-shared.md)'s AMO
+result mux, worth −37 placed cells on the SoC.
 
 The split says what the difference is made of. The grade always buys a little of the delay abc9
 models; what decides the outcome is whether the two thirds it does not model follow or fight:
@@ -74,9 +74,11 @@ a property of the netlist it maps and not of the flag, it swings ±3% across tre
 apart, and **it is not margin that ADR-0111's price list may bank** — a purchase there re-takes its
 own price, and this price expires faster than most.
 
-At the netlist level the change is almost nothing: **+13 `SB_LUT4`** (4238 → 4251 on `ac7ee91`),
-`SB_CARRY` identical at 688, every flop, DSP, block RAM and SPRAM count identical. Three runs of
-each recipe hash to one digest, so synthesis stays reproducible with the grade named.
+At the netlist level the change is almost nothing: **+12 `SB_LUT4`** (4205 → 4217) and +3
+`SB_CARRY` (685 → 688) on today's tree, +13 and none on the earlier one, with every flop, DSP, block
+RAM and SPRAM count identical on both. Three runs of each recipe hash to one digest, so synthesis
+stays reproducible with the grade named — which is what makes the paragraph below a detector rather
+than a guess.
 
 ### The measurement caught a hazard that has nothing to do with the flag
 
@@ -98,7 +100,7 @@ and not an attribution: many cones, one destination, and the destination is the 
 
 That retires a class of attempt rather than one attempt. Three RTL spellings that hoisted the
 even-bank increment off that shared tail — in the decoder alone, and plumbed through to the memory —
-all measured null, and the one that measured **moved the reported endpoint to a `minstret` net at
+all measured null, and the one that got closest **moved the reported endpoint to a `minstret` net at
 the same length**. Deleting one cone crowns the next. Those were swept on `16c5cad` with dirty
 candidate arms and are recorded as context rather than as prices.
 
@@ -127,8 +129,8 @@ its own measurement; neither follows from this one.
   A purchase re-takes its own price anyway.
 - **Zero cycles, and checked rather than asserted.** No RTL changed and the grade only rewrites
   `specify` blocks, so `make cycles` (34 051 cycles, 18 352 retired, CPI 1.86) and `make dhrystone`
-  (1 544 344 cycles, 0.757 DMIPS/MHz) are byte-identical either way, and `make fit` reads 3932 on
-  both because its line is untouched.
+  (1 544 344 cycles, 0.757 DMIPS/MHz) are byte-identical either way, and `make fit` reads 3945
+  either way because its line is untouched.
 - **The equivalence claim is graded, not argued**: `make -C formal nonperturbation`, the four
   component proofs, the 86 generated checks against `EXPECTED_FAIL` and `EXPECTED_CHECKS`,
   `complete`, `complete_cover`, `make test`, `test-units`, `probe-gates`, `mutation-check`,
