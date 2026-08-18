@@ -716,10 +716,11 @@ soc-rom:
 
 soc.json: $(SOC_SRCS) soc-rom
 	@echo 'yosys: synthesising littlesoc for ice40 (log: soc.synth.log)'
-	@# `-device u` is the grade abc9 times its LUT mapping against; the default is
-	@# `hx`, where a LUT level costs about 3.6 carry hops against this part's 4.5,
-	@# so the default under-buys the carry chain for the fabric this SoC ships on.
-	@yosys -p 'read_verilog -sv $(SOC_SRCS); synth_ice40 -device u -dsp -spram -top littlesoc -json $@' \
+	@# The grade abc9 times its LUT mapping against defaults to `hx` and this part is
+	@# an up5k, which reads like a bug and was measured at 64 paired placements:
+	@# `-device u` buys 0.33 ns of the logic abc9 models and pays 1.41 ns of the
+	@# routing it does not, and routing is 68% of this path. Sweep before re-adding.
+	@yosys -p 'read_verilog -sv $(SOC_SRCS); synth_ice40 -dsp -spram -top littlesoc -json $@' \
 	  > soc.synth.log 2>&1 || { tail -40 soc.synth.log; exit 1; }
 	@# rtl/memory.v maps to SPRAM only because its read port is no-change on a
 	@# write; the read-first spelling maps the same array to 148 `SB_RAM40_4K`
