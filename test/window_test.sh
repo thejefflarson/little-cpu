@@ -143,10 +143,22 @@ run_case "the SoC's own" rtl/memory.v memory \
   ".BASE(32'h0001_0000), .RAM_WORDS(16384)" accept ""
 
 echo
-echo "== rtl/timer.v: a 16-byte aligned BASE"
+echo "== rtl/timer.v: a BASE aligned to the whole window, which NHARTS sizes"
 run_case "BASE = 0x0002_0008" rtl/timer.v timer ".BASE(32'h0002_0008)" \
-  reject "BASE must be 16-byte aligned"
+  reject "BASE must be aligned"
 run_case "the SoC's own" rtl/timer.v timer ".BASE(32'h0002_0000)" accept ""
+# Two harts is two more words of mtimecmp, so the window is eight words and the
+# alignment its range test needs doubles with it. THIS PAIR IS WHAT SAYS THE
+# CHECK MOVED: one base, accepted at one hart and refused at two. A fixed
+# `BASE[3:0]` test would take both, and the message alone could not tell them
+# apart -- iverilog's elaboration tasks take one string literal, so the number is
+# not in it.
+run_case "a 16-byte aligned BASE at one hart" rtl/timer.v timer \
+  ".BASE(32'h0002_0010)" accept ""
+run_case "...the same BASE at two harts" rtl/timer.v timer \
+  ".BASE(32'h0002_0010), .NHARTS(2)" reject "BASE must be aligned"
+run_case "two harts at the SoC's own" rtl/timer.v timer \
+  ".BASE(32'h0002_0000), .NHARTS(2)" accept ""
 
 # The core copies that map for its load/store locality counters, and its copy is
 # read by nothing else -- so a shape no memory here could be built at would be

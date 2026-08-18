@@ -91,8 +91,31 @@ int_param() {  # $1 = file, $2 = parameter name
 RAM_BASE=$(hex_param rtl/memory.v BASE)
 RAM_WORDS=$(int_param rtl/memory.v RAM_WORDS)
 TIMER_BASE=$(hex_param rtl/timer.v BASE)
+TIMER_HARTS=$(int_param rtl/timer.v NHARTS)
 RAM_BYTES=$((RAM_WORDS * 4))
 RAM_TOP=$((RAM_BASE + RAM_BYTES))
+
+# The timer's window is two words of `mtime` plus two per hart, rounded up to a
+# power of two: four words at one hart and eight at two. Computed the way
+# rtl/timer.v computes it rather than copied, because a copied constant is the
+# drift this file exists to catch.
+timer_bytes() {  # $1 = NHARTS
+  local words=$(( 2 + 2 * $1 )) rounded=1
+  while [ "$rounded" -lt "$words" ]; do rounded=$((rounded * 2)); done
+  echo $((rounded * 4))
+}
+
+TIMER_BYTES=$(timer_bytes "$TIMER_HARTS")
+# THE MAP RESERVES THE WIDEST WINDOW THE TIMER CAN BE BUILT WITH, not the one
+# this build decodes. Two harts need eight words where one needs four, and a
+# device placed in the four words between them would have to move on the day the
+# second hart lands -- silently, because at one hart those addresses read zero
+# and nothing would report the overlap. So the reservation is stated here and
+# checked below, and the cost is 16 bytes of address space that read zero on the
+# shipping machine.
+TIMER_RESERVED_HARTS=2
+TIMER_RESERVED=$(timer_bytes "$TIMER_RESERVED_HARTS")
+TIMER_RESERVED_TOP=$((TIMER_BASE + TIMER_RESERVED))
 
 hexfmt() { printf '0x%08x' "$1"; }
 
@@ -127,6 +150,45 @@ read buses with an OR rather than a mux, which is only sound while the ranges do
 not overlap; a gap is merely wasted map, but an overlap ORs two live answers
 together and neither simulator would report it."
 fi
+
+# Its range test is an equality on the bits above the window, which is only the
+# window while the base is a multiple of the whole of it. rtl/timer.v refuses to
+# elaborate otherwise and `make window-test` forces that both ways; this says the
+# same thing about the RESERVED span, so a base that is legal for this build and
+# not for the two-hart one is caught here rather than on the day it is built.
+if [ $((TIMER_BASE % TIMER_RESERVED)) -ne 0 ]; then
+  fail "the timer's base $(hexfmt "$TIMER_BASE") is off its reserved
+${TIMER_RESERVED}-byte window. It decodes $TIMER_BYTES bytes at
+NHARTS=$TIMER_HARTS, so this build would elaborate and the two-hart one would
+not -- the range test reads the bits above the window and admits addresses the
+timer does not occupy at any other alignment."
+fi
+
+# NOTHING ELSE MAY SIT IN THE RESERVED SPAN. Every peripheral on this bus states
+# its own base as a `BASE` parameter default, so they are read from rtl/ rather
+# than listed here -- a list is what goes stale when a device is added, and a
+# device landing in the timer's reserved words is exactly the change that would
+# not be noticed: at one hart those addresses read zero from every memory on the
+# bus, so the new device would work perfectly until the second hart needed them.
+#
+# The loop cannot come up empty: rtl/memory.v is in the `need` list above and
+# states a `BASE`, and the `hex_param` that reads it stops the whole run rather
+# than comparing against an empty string if that is ever respelled.
+for f in "$REPO"/rtl/*.v; do
+  name=$(basename "$f")
+  [ "$name" = timer.v ] && continue
+  raw=$(sed -nE "s/.*parameter[[:space:]]+logic[[:space:]]*\[31:0\][[:space:]]*BASE[[:space:]]*=[[:space:]]*32'h([0-9a-fA-F_]*).*/\1/p" \
+          "$f" | head -1 | tr -d _)
+  [ -n "$raw" ] || continue
+  base=$((16#$raw))
+  if [ "$base" -ge "$TIMER_BASE" ] && [ "$base" -lt "$TIMER_RESERVED_TOP" ]; then
+    fail "rtl/$name puts its window at $(hexfmt "$base"), inside the
+$(hexfmt "$TIMER_BASE")..$(hexfmt $((TIMER_RESERVED_TOP - 1))) the timer reserves
+for one mtimecmp per hart. Move it to $(hexfmt "$TIMER_RESERVED_TOP") or above.
+At NHARTS=$TIMER_HARTS the timer answers only the first $TIMER_BYTES bytes, so
+nothing here would overlap today and nothing would report it either."
+  fi
+done
 
 # ---- 3. the linker scripts -------------------------------------------------
 #
@@ -370,4 +432,4 @@ if [ "$rc" -ne 0 ]; then
   exit 1
 fi
 
-echo "Memory map agreed on: ram $(hexfmt "$RAM_BASE")+${RAM_BYTES}B, timer $(hexfmt "$TIMER_BASE"), rom ${SOC_ROM_WORDS_RTL} words on the part / ${TB_ROM_WORDS} simulated"
+echo "Memory map agreed on: ram $(hexfmt "$RAM_BASE")+${RAM_BYTES}B, timer $(hexfmt "$TIMER_BASE")+${TIMER_BYTES}B of ${TIMER_RESERVED}B reserved, rom ${SOC_ROM_WORDS_RTL} words on the part / ${TB_ROM_WORDS} simulated"

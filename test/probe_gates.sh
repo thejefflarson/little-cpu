@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=358
+PROBES_EXPECTED=361
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -1555,6 +1555,30 @@ probe "the timer address the programs arm is checked against the timer" 1 \
 d=$(mm_fixture); sed -i.bak "s/BASE = 32'h0002_0000/BASE = 32'h0004_0000/" "$d/rtl/timer.v"
 probe "a gap opening between the data RAM and the timer is red" 1 \
   "the data RAM ends at 0x00020000 and the timer starts at" "$MM $d"
+
+# The timer decodes four words at one hart and eight at two, so a base that is
+# only 16-byte aligned elaborates today and stops elaborating the day the second
+# hart lands. That is the failure the reserved span exists to bring forward.
+d=$(mm_fixture); sed -i.bak "s/BASE = 32'h0002_0000/BASE = 32'h0002_0010/" "$d/rtl/timer.v"
+probe "a timer base aligned only for one hart is red" 1 \
+  "0x00020010 is off its reserved" "$MM $d"
+
+# A device in the words the second hart's mtimecmp needs. At one hart they read
+# zero from every memory on this bus, so the device would work and the overlap
+# would surface only when the dual top was built.
+d=$(mm_fixture)
+printf "module probe_device #(\n  parameter logic [31:0] BASE = 32'h0002_0010\n) ();\nendmodule\n" \
+  > "$d/rtl/probe_device.v"
+probe "a peripheral inside the timer's reserved span is red" 1 \
+  "rtl/probe_device.v puts its window at 0x00020010" "$MM $d"
+
+# ...and the same device above the span is not, or the check above would be
+# refusing every address rather than the reserved ones.
+d=$(mm_fixture)
+printf "module probe_device #(\n  parameter logic [31:0] BASE = 32'h0002_0020\n) ();\nendmodule\n" \
+  > "$d/rtl/probe_device.v"
+probe "control: a peripheral above the reserved span is accepted" 0 \
+  "Memory map agreed on:" "$MM $d"
 
 d=$(mm_fixture); sed -i.bak 's/^SOC_ROM_WORDS := 2048/SOC_ROM_WORDS := 4096/' "$d/Makefile"
 probe "the ROM image built to a different size than the ROM is red" 1 \
