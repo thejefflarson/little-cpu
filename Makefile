@@ -725,13 +725,22 @@ soc-rom:
 	python3 soc/rom_banks.py "$$tmp/rom.hex" soc/rom_even.hex soc/rom_odd.hex \
 	  --rom-words $(SOC_ROM_WORDS)
 
+# The synth script and the placement command are named once and used verbatim
+# wherever they are needed. The netlist digest has to be taken over exactly what
+# places and the determinism control has to place exactly what is digested, so a
+# second copy of either would let both describe a netlist nothing builds -- the
+# same reason SIM_RTL_SRCS is one list.
+#
+# `-device u` names the part abc9 times its LUT mapping against; the default is
+# `hx`, where a LUT level costs 3.6 carry hops against this part's 4.5. What it
+# is worth is a property of the netlist and not of the flag -- it has measured
+# +0.7% on one tree and -2.3% on another -- so re-sweep it, never assume it.
+SOC_SYNTH := read_verilog -sv $(SOC_SRCS); synth_ice40 -device u -dsp -spram -top littlesoc
+SOC_PNR   := nextpnr-ice40 --up5k --package sg48 --pcf soc/littlesoc.pcf
+
 soc.json: $(SOC_SRCS) soc-rom
 	@echo 'yosys: synthesising littlesoc for ice40 (log: soc.synth.log)'
-	@# `-device u` names the part abc9 times its LUT mapping against; the default is
-	@# `hx`, where a LUT level costs 3.6 carry hops against this part's 4.5. What it
-	@# is worth is a property of the netlist and not of the flag -- it has measured
-	@# +0.7% on one tree and -2.3% on another -- so re-sweep it, never assume it.
-	@yosys -p 'read_verilog -sv $(SOC_SRCS); synth_ice40 -device u -dsp -spram -top littlesoc -json $@' \
+	@yosys -p '$(SOC_SYNTH) -json $@' \
 	  > soc.synth.log 2>&1 || { tail -40 soc.synth.log; exit 1; }
 	@# rtl/memory.v maps to SPRAM only because its read port is no-change on a
 	@# write; the read-first spelling maps the same array to 148 `SB_RAM40_4K`
@@ -758,7 +767,7 @@ SOC_SEED ?=
 
 soc.asc: soc.json soc/littlesoc.pcf
 	@echo 'nextpnr: placing and routing littlesoc on up5k/sg48 (log: soc.pnr.log)'
-	@nextpnr-ice40 --up5k --package sg48 --json $< --pcf soc/littlesoc.pcf $(if $(SOC_SEED),--seed '$(SOC_SEED)') \
+	@$(SOC_PNR) --json $< $(if $(SOC_SEED),--seed '$(SOC_SEED)') \
 	  --asc $@ > soc.pnr.log 2>&1 || true
 	@test -s $@ || { \
 	  echo '*** make soc-timing: nextpnr produced no bitstream, so NOTHING was'; \
@@ -979,6 +988,101 @@ TOOLS ?= $(sort $(FIT_TOOLS) $(SOC_TIMING_TOOLS) $(ECP5_TOOLS))
 .PHONY: print-toolchain
 print-toolchain:
 	@soc/print_toolchain.sh $(TOOLS)
+
+# ---- the mapped netlist's digest -------------------------------------------
+#
+# Sixteen placements are about twelve minutes a side, and the shipping SoC's
+# worst placement of sixteen sits a fraction of a nanosecond over the 12 MHz
+# requirement -- with area measured twice not to buy any of it back. So "can
+# this edit have moved the placer's input at all?" is worth answering before a
+# seed is spent, and for a tied-off change the answer is usually no.
+#
+#   make netlist-digest                # this tree's digest, and what it means
+#   make netlist-diff BASE=origin/main # against another commit, with the
+#                                      # structural difference where they differ
+#   make netlist-determinism           # the control, which both run first
+#
+# THE DIGEST REPLACES A SWEEP, NEVER A GATE. `make fit` and `make soc-timing`
+# are graded against exactly what they are graded against today; what an equal
+# digest buys is the sixteen placements a tied-off change would otherwise owe.
+# It is sound in one direction only: equal means the placer's input moved by
+# nothing but dead nets and source attributes, and different means nothing at
+# all except that the seeds have to be spent.
+#
+# `make netlist-determinism` is a prerequisite of both, the way pcloop_cover is
+# of pcloop. It places three bitstreams and compares bytes; a digest printed
+# without it would be a claim about a placer nobody had asked.
+#
+# Part-parameterised: one block per part, and the scripts read the block rather
+# than knowing a part. up5k is the one with a flow today.
+NETLIST_PART ?= up5k
+NETLIST_OUT  ?= netlist.out
+
+ifeq ($(NETLIST_PART),up5k)
+NETLIST_ROM     := soc-rom
+NETLIST_SYNTH   := $(SOC_SYNTH)
+NETLIST_PNR     := $(SOC_PNR)
+NETLIST_PNR_OUT := --asc
+# Where the control injects its dead tie-off, and a signal that module declares.
+# It has to be the TOP, which is measured: the same wire in a submodule is
+# optimised away before the netlist is written, and the control would then
+# exercise the comment class twice and the dead-net class never. A part whose
+# placer is not nextpnr also sets NETLIST_PNR_DONE, which is that placer's own
+# last line -- printed after the bitstream, so it is what says the run finished.
+NETLIST_MUTANT  := rtl/littlesoc.v mem_addr
+endif
+
+# Passed per command rather than `export`ed: an exported variable reaches every
+# other recipe in this file and every sub-make under them, and the first thing
+# it reached was the probe that asks what happens when the part table is empty.
+NETLIST_ENV = NETLIST_SYNTH='$(NETLIST_SYNTH)' NETLIST_PNR='$(NETLIST_PNR)' \
+              NETLIST_PNR_OUT='$(NETLIST_PNR_OUT)' NETLIST_PNR_DONE='$(NETLIST_PNR_DONE)' \
+              NETLIST_MUTANT='$(NETLIST_MUTANT)' NETLIST_OUT='$(NETLIST_OUT)' \
+              SOC_PROG='$(SOC_PROG)'
+
+# An unknown part is refused rather than digested: with nothing in the table the
+# scripts below would synthesise nothing, hash it, and report two empty trees as
+# equal -- which is the one verdict this gate must never reach by accident.
+define netlist-part-check
+test -n '$(NETLIST_SYNTH)' || { \
+	  echo '*** NETLIST_PART=$(NETLIST_PART) has no synthesis flow here.'; \
+	  echo '*** Parts with one: up5k. A new part needs NETLIST_ROM, NETLIST_SYNTH,'; \
+	  echo '*** NETLIST_PNR, NETLIST_PNR_OUT and NETLIST_MUTANT set in the Makefile'; \
+	  echo '*** block above. Nothing was digested.'; \
+	  exit 2; }
+endef
+
+.PHONY: netlist-determinism
+netlist-determinism: $(NETLIST_ROM)
+	@$(netlist-part-check)
+	@$(NETLIST_ENV) sh soc/netlist_determinism.sh
+
+# The canonical netlist digested here is the one the control just placed, so the
+# claim is about a netlist that was measured rather than one built beside it.
+.PHONY: netlist-digest
+netlist-digest: netlist-determinism
+	@$(netlist-part-check)
+	@echo
+	@python3 soc/netlist_digest.py digest $(NETLIST_OUT)/this.canon.json \
+	  --label '$(NETLIST_PART), $(SOC_PROG)'
+
+# BASE reaches the shell through the environment and never as recipe text. A ref
+# is a name someone else chose -- `gh pr checkout` puts a contributor's branch in
+# this repository -- and git allows a quote, a semicolon and a backtick in one,
+# so pasted into `'$(BASE)'` it would close the quote and run as a command here.
+.PHONY: netlist-diff
+netlist-diff: export BASE := $(BASE)
+netlist-diff: netlist-determinism
+	@$(netlist-part-check)
+	@test -n "$$BASE" || { \
+	  echo '*** make netlist-diff: name the commit to compare against, e.g.'; \
+	  echo '*** make netlist-diff BASE=origin/main.'; \
+	  exit 2; }
+	@$(NETLIST_ENV) sh soc/netlist_base.sh "$$BASE" $(NETLIST_OUT)/base.canon.json
+	@echo
+	@python3 soc/netlist_digest.py compare \
+	  $(NETLIST_OUT)/base.canon.json $(NETLIST_OUT)/this.canon.json \
+	  --base-label "$$BASE" --new-label 'this tree'
 
 # ---- the cross-core comparison harness -------------------------------------
 #

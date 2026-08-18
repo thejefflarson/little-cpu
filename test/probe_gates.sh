@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=341
+PROBES_EXPECTED=382
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -2745,6 +2745,440 @@ probe "a respelled trap_pending stops: an uncommitted fault proves nothing" 2 \
 d=$(tr_fixture); rm "$d/formal/traps.sv"
 probe "the model moving away takes the probe with it, loudly" 2 \
   "formal/traps.sv is missing from" "$(trs "$d")"
+
+begin_group "soc/netlist_digest.py"
+
+ND="python3 $REPO/soc/netlist_digest.py"
+
+# A yosys-shaped netlist small enough to read: one blackbox module, one top with
+# two cells, one port and one named net. Written by hand rather than captured,
+# because a captured one is 7 MB and every edit below has to be visible.
+nd_netlist() {  # <file>
+  cat > "$1" <<'JSON'
+{
+  "creator": "Yosys 0.68 (git sha1 abcdef0)",
+  "modules": {
+    "SB_LUT4": {
+      "attributes": { "blackbox": "00000000000000000000000000000001" },
+      "ports": { "O": { "direction": "output", "bits": [2] } },
+      "cells": {},
+      "netnames": {}
+    },
+    "littlesoc": {
+      "attributes": {
+        "top": "00000000000000000000000000000001",
+        "src": "rtl/littlesoc.v:4.1-99.10"
+      },
+      "ports": { "clk": { "direction": "input", "bits": [2] } },
+      "cells": {
+        "lut.1": {
+          "hide_name": 1, "type": "SB_LUT4",
+          "parameters": { "LUT_INIT": "1010101010101010" },
+          "attributes": { "src": "rtl/decoder.v:120.3-120.9", "hdlname": "decode" },
+          "connections": { "I0": [2], "O": [3] }
+        },
+        "dff.2": {
+          "hide_name": 1, "type": "SB_DFF", "parameters": {},
+          "attributes": {
+            "src": "rtl/decoder.v:121.3-121.9",
+            "module_src": "rtl/decoder.v:4.1-1205.10"
+          },
+          "connections": { "C": [2], "D": [3], "Q": [4] }
+        }
+      },
+      "netnames": {
+        "clk": {
+          "hide_name": 0, "bits": [2],
+          "attributes": { "src": "rtl/littlesoc.v:5.1-5.9" }
+        }
+      }
+    }
+  }
+}
+JSON
+}
+
+nd_pair() {  # a fixture directory holding base.json and new.json, identical
+  local d; d=$(new_case)
+  nd_netlist "$d/base.json"
+  nd_netlist "$d/new.json"
+  printf '%s' "$d"
+}
+
+d=$(nd_pair)
+probe "control: a netlist digests, and the digest is a sha256" 0 \
+  "digest    sha256:" "$ND digest $d/base.json"
+
+d=$(nd_pair)
+probe "control: the digest states what its two verdicts mean" 0 \
+  "sound in one" "$ND digest $d/base.json"
+
+d=$(nd_pair)
+probe "control: two identical netlists are equal" 0 "DIGEST-EQUAL" \
+  "$ND compare $d/base.json $d/new.json"
+
+# The comment and whitespace classes, which is every `src` and `module_src` in
+# the file moving and nothing else. This is the whole reason a bare hash of the
+# netlist was not enough.
+d=$(nd_pair); sed -i.bak 's/\.v:\([0-9]*\)\./.v:9\1./g' "$d/new.json"
+probe "every source line moving is the comment class, and is forgiven" 0 \
+  "DIGEST-EQUAL" "$ND compare $d/base.json $d/new.json"
+
+# ...and only those two. An attribute that is not a source line is a difference,
+# because dropping one is forgiving one, and the placer is not obliged to agree.
+d=$(nd_pair); sed -i.bak 's/"hdlname": "decode"/"hdlname": "decoder"/' "$d/new.json"
+probe "an attribute that is not a source line is not forgiven" 1 \
+  "DIGEST-DIFFERENT" "$ND compare $d/base.json $d/new.json"
+
+# The dead tie-off class is `opt_clean -purge`'s to remove, upstream of this
+# script. What is pinned here is that this script does NOT forgive a dead net
+# left in the file: a netlist that still carries one is a netlist that differs.
+d=$(nd_pair)
+python3 - "$d/new.json" <<'PY'
+import json, sys
+design = json.load(open(sys.argv[1]))
+design["modules"]["littlesoc"]["netnames"]["dead_tieoff"] = {
+    "hide_name": 0, "bits": [5],
+    "attributes": {"unused_bits": "0 1", "src": "rtl/decoder.v:98.3-98.9"}}
+json.dump(design, open(sys.argv[1], "w"))
+PY
+probe "a dead net still in the file is a difference, not a forgiveness" 1 \
+  "named nets: 1 -> 2" "$ND compare $d/base.json $d/new.json"
+
+# A one-bit constant change: no module, cell count or port moves, so the
+# structural summary has nothing to say and the report has to name the path.
+d=$(nd_pair); sed -i.bak 's/1010101010101010/1010101010101011/' "$d/new.json"
+probe "a one-bit constant is a different digest" 1 "DIGEST-DIFFERENT" \
+  "$ND compare $d/base.json $d/new.json"
+
+d=$(nd_pair); sed -i.bak 's/1010101010101010/1010101010101011/' "$d/new.json"
+probe "...and the report names the parameter, not merely 'changed'" 1 \
+  "parameters.LUT_INIT: 1010101010101010 -> 1010101010101011" \
+  "$ND compare $d/base.json $d/new.json"
+
+d=$(nd_pair); sed -i.bak 's/"dff.2"/"dff.3"/' "$d/new.json"
+probe "a renamed cell is named by path" 1 "cells.dff.2: in base only" \
+  "$ND compare $d/base.json $d/new.json"
+
+d=$(nd_pair); sed -i.bak 's/"type": "SB_DFF"/"type": "SB_LUT4"/' "$d/new.json"
+probe "a cell type that moved is reported as a count, both ways" 1 \
+  "SB_LUT4                       1 ->      2  (+1)" \
+  "$ND compare $d/base.json $d/new.json"
+
+d=$(nd_pair)
+sed -i.bak 's/"clk": { "direction": "input", "bits": \[2\] }/"clk": { "direction": "input", "bits": [2] }, "hart_id": { "direction": "input", "bits": [7] }/' "$d/new.json"
+probe "a port that appeared is named, which is what a tie-off adds" 1 \
+  "port hart_id: (none) -> input [1]" "$ND compare $d/base.json $d/new.json"
+
+d=$(nd_pair); sed -i.bak 's/"SB_LUT4": {/"SB_MAC16": { "attributes": {}, "ports": {}, "cells": {}, "netnames": {} },\n    "SB_LUT4": {/' "$d/new.json"
+probe "a module that appeared is named too" 1 "modules in this tree only: SB_MAC16" \
+  "$ND compare $d/base.json $d/new.json"
+
+# The toolchain is inside the digest, so a yosys that moved reads as different.
+# That is the sound direction and the one this repo has been bitten in.
+d=$(nd_pair); sed -i.bak 's/Yosys 0.68 (git sha1 abcdef0)/Yosys 0.55 (git sha1 abcdef0)/' "$d/new.json"
+probe "a toolchain that moved is a different digest, and is named first" 1 \
+  "toolchain: Yosys 0.68" "$ND compare $d/base.json $d/new.json"
+
+# The four refusals. None of them may read as equal: the whole value of this
+# gate is that its equal verdict is the one that skips twelve minutes of work.
+d=$(nd_pair)
+probe "a netlist that is not there is refused, not read as equal" 2 \
+  "so there is nothing to digest" "$ND compare $d/gone.json $d/new.json"
+
+d=$(nd_pair); : > "$d/new.json"
+probe "an empty netlist is a synthesis that wrote nothing" 2 \
+  "empty, which is a synthesis that wrote nothing" \
+  "$ND compare $d/base.json $d/new.json"
+
+d=$(nd_pair); head -c 400 "$d/base.json" > "$d/new.json"
+probe "a truncated netlist is refused, which is what a full disk leaves" 2 \
+  "not parseable as JSON" "$ND compare $d/base.json $d/new.json"
+
+d=$(nd_pair); printf '{"creator": "yosys"}' > "$d/new.json"
+probe "JSON that is not a netlist is refused" 2 \
+  "no \`modules\` object in it" "$ND compare $d/base.json $d/new.json"
+
+d=$(nd_pair); sed -i.bak 's/"top": "00000000000000000000000000000001",//' "$d/new.json"
+probe "a netlist with no top module names no one design" 2 \
+  "0 modules are marked \`top\`" "$ND compare $d/base.json $d/new.json"
+
+d=$(nd_pair); python3 - "$d/new.json" <<'PY'
+import json, sys
+design = json.load(open(sys.argv[1]))
+design["modules"]["littlesoc"]["cells"] = {}
+json.dump(design, open(sys.argv[1], "w"))
+PY
+probe "a top module with no cells in it is a failed synthesis" 2 \
+  "has no cells in it" "$ND compare $d/base.json $d/new.json"
+
+begin_group "soc/netlist_determinism.sh"
+
+# The control that decides whether the digest means anything, run against stub
+# tools: three placements of the real flow are three minutes and need yosys and
+# nextpnr, and what is graded here is the four comparisons rather than the
+# placer. The stubs are keyed on the paths the script itself chooses, so a
+# renamed output would stop them standing in.
+nl_stub_yosys() {  # $1 = bin dir, $2 = fixture dir
+  cat > "$1/yosys" <<STUB
+#!/bin/sh
+# Writes the fixture netlist the -p script names as its output. Which fixture
+# depends on the tree it is run in and on whether the script asks for the purge:
+# the shipping forms are only ever compared byte for byte, the canonical ones
+# are read by the real soc/netlist_digest.py.
+script=; prev=
+for a in "\$@"; do
+  if [ "\$prev" = "-p" ]; then script=\$a; fi
+  prev=\$a
+done
+out=\$(printf '%s' "\$script" | tr ' ' '\n' | tail -1)
+case \$(pwd) in
+  */mutant) tree=mutant ;;
+  *)        tree=this ;;
+esac
+case \$script in
+  *"opt_clean -purge"*)
+    if [ "\$tree" = mutant ] && [ -n "\${STUB_YOSYS_CANON_MOVED:-}" ]; then
+      cp "$2/canon.moved.json" "\$out"
+    elif [ "\$tree" = mutant ] && [ -n "\${STUB_YOSYS_DEAD_SURVIVES:-}" ]; then
+      cp "$2/canon.dead.json" "\$out"
+    else
+      cp "$2/canon.json" "\$out"
+    fi ;;
+  *)
+    if [ "\$tree" != mutant ] || [ -n "\${STUB_YOSYS_NO_TRACE:-}" ]; then
+      printf 'shipping netlist\n' > "\$out"
+    elif [ -n "\${STUB_YOSYS_NO_DEAD:-}" ]; then
+      printf 'shipping netlist, mutated\n' > "\$out"
+    else
+      printf 'shipping netlist, mutated, netlist_control_dead\n' > "\$out"
+    fi ;;
+esac
+exit \${STUB_YOSYS_EXIT:-0}
+STUB
+  chmod +x "$1/yosys"
+}
+
+nl_stub_pnr() {  # $1 = bin dir
+  cat > "$1/nextpnr-ice40" <<'STUB'
+#!/bin/sh
+# Stands in for the placer. The bitstream it writes is keyed on the output name
+# the script asked for, so a placement that is not a function of the netlist and
+# a mutant that places elsewhere are each one environment variable away.
+asc=; prev=
+for a in "$@"; do
+  if [ "$prev" = "--asc" ]; then asc=$a; fi
+  prev=$a
+done
+if [ -n "${STUB_PNR_EMPTY:-}" ]; then exit 1; fi
+bits=placement-A
+case $asc in
+  *mutant.asc) if [ -n "${STUB_PNR_MUTANT_MOVED:-}" ]; then bits=placement-B; fi ;;
+  *this.2.asc) if [ -n "${STUB_PNR_FLAKY:-}" ]; then bits=placement-B; fi ;;
+esac
+printf '%s\n' "$bits" > "$asc"
+# Killed part-way through the write: a non-empty bitstream, and a log that never
+# reaches the line the real placer prints after finishing one.
+if [ -n "${STUB_PNR_TRUNCATED:-}" ]; then exit 137; fi
+echo "Info: Program finished normally."
+STUB
+  chmod +x "$1/nextpnr-ice40"
+}
+
+nl_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/bin" "$d/repo/rtl" "$d/repo/soc" "$d/fix"
+  cp "$REPO/soc/netlist_determinism.sh" "$REPO/soc/netlist_digest.py" "$d/repo/soc/"
+  # Two lines of the shape the injection reaches for: a trailing `endmodule` and
+  # the signal the dead wire reads.
+  cat > "$d/repo/rtl/decoder.v" <<'RTL'
+module decoder (input logic [31:0] reg_rs1, output logic [31:0] out);
+  assign out = reg_rs1;
+endmodule
+RTL
+  nd_netlist "$d/fix/canon.json"
+  nd_netlist "$d/fix/canon.moved.json"
+  sed -i.bak 's/1010101010101010/1010101010101011/' "$d/fix/canon.moved.json"
+  # A canonical form the purge did NOT clean the dead net out of.
+  nd_netlist "$d/fix/canon.dead.json"
+  sed -i.bak 's/"hdlname": "decode"/"hdlname": "netlist_control_dead"/' \
+    "$d/fix/canon.dead.json"
+  nl_stub_yosys "$d/bin" "$d/fix"
+  nl_stub_pnr "$d/bin"
+  printf '%s' "$d"
+}
+
+nl_run() {  # <fixture dir> [what follows the stubs on PATH]
+  printf '%s' "PATH=$1/bin:${2:-\$PATH} \
+    NETLIST_SYNTH='read_verilog -sv rtl/decoder.v; synth_ice40 -top littlesoc' \
+    NETLIST_PNR='nextpnr-ice40 --up5k' NETLIST_PNR_OUT=--asc \
+    NETLIST_MUTANT='rtl/decoder.v reg_rs1' \
+    sh $1/repo/soc/netlist_determinism.sh"
+}
+
+d=$(nl_fixture)
+probe "control: a deterministic placer and a forgiven mutant pass" 0 \
+  "netlist-determinism: PASS" "$(nl_run "$d")"
+
+d=$(nl_fixture)
+probe "one netlist placed twice giving two bitstreams voids the gate" 1 \
+  "Placement is not a function of the netlist" \
+  "STUB_PNR_FLAKY=1 $(nl_run "$d")"
+
+d=$(nl_fixture)
+probe "a mutant the digest calls equal placing elsewhere voids it too" 1 \
+  "placed to different bitstreams" "STUB_PNR_MUTANT_MOVED=1 $(nl_run "$d")"
+
+# The vacuity check. Without it the control passes hardest when it is testing
+# nothing, which is the shape of every defect this file exists for.
+d=$(nl_fixture)
+probe "a mutant that left no trace demonstrates nothing, and says so" 1 \
+  "nothing was injected" "STUB_YOSYS_NO_TRACE=1 $(nl_run "$d")"
+
+d=$(nl_fixture)
+probe "a canonical form that stopped forgiving the class is red" 1 \
+  "no longer forgives a comment" "STUB_YOSYS_CANON_MOVED=1 $(nl_run "$d")"
+
+d=$(nl_fixture)
+probe "a placer that wrote no bitstream placed nothing, which is not a pass" 1 \
+  "wrote no bitstream" "STUB_PNR_EMPTY=1 $(nl_run "$d")"
+
+# THE ONE A NON-EMPTY FILE HIDES: a placer killed mid-write leaves a partial
+# bitstream, and a deterministic one killed three times leaves three partial
+# files that compare equal. Size alone calls that a placement.
+d=$(nl_fixture)
+probe "a bitstream the placer never finished writing is not a placement" 1 \
+  "never finished" "STUB_PNR_TRUNCATED=1 $(nl_run "$d")"
+
+# The vacuity checks the comment class cannot stand in for. The mutant carries
+# three edits and the comment alone makes its netlist differ, so "something
+# moved" says nothing about the dead net -- which is the class the purge is what
+# forgives.
+d=$(nl_fixture)
+probe "a dead tie-off that never reached the netlist exercises no class" 1 \
+  "left no trace in the mapped netlist" "STUB_YOSYS_NO_DEAD=1 $(nl_run "$d")"
+
+d=$(nl_fixture)
+probe "...and one the purge did not remove means the digest is equal by luck" 1 \
+  "survives" "STUB_YOSYS_DEAD_SURVIVES=1 $(nl_run "$d")"
+
+d=$(nl_fixture)
+probe "a synthesis that failed is not a passed control either" 1 \
+  "could not synthesise" "STUB_YOSYS_EXIT=1 $(nl_run "$d")"
+
+# These two name the WHOLE path, for the reason the `bin-none` note above gives:
+# with the caller's PATH behind the stubs, deleting one finds the host's real
+# yosys or nextpnr and the probe demonstrates nothing. Both refusals fire before
+# anything is synthesised, so /usr/bin and /bin are all either one needs.
+d=$(nl_fixture); rm "$d/bin/yosys"
+probe "no yosys on PATH is refused rather than skipped" 2 "no yosys on PATH" \
+  "$(nl_run "$d" /usr/bin:/bin)"
+
+d=$(nl_fixture); rm "$d/bin/nextpnr-ice40"
+probe "no placer on PATH is refused the same way" 2 \
+  "no nextpnr-ice40 on PATH" "$(nl_run "$d" /usr/bin:/bin)"
+
+d=$(nl_fixture); sed -i.bak 's/reg_rs1/reg_rs9/g' "$d/repo/rtl/decoder.v"
+probe "an injection site that moved stops the control, loudly" 1 \
+  "the mutant could not be built" "$(nl_run "$d")"
+
+# The quiet way that site rots: the signal is still in the FILE, in a module the
+# tie-off does not land in. Implicitly declared one bit wide, its part-selects
+# fold to a constant and the assign is optimised away -- so the check has to be
+# scoped to the module being spliced into, not to the file.
+d=$(nl_fixture)
+cat > "$d/repo/rtl/decoder.v" <<'RTL'
+module regsel (input logic [31:0] reg_rs1, output logic [31:0] picked);
+  assign picked = reg_rs1;
+endmodule
+module decoder (input logic [31:0] word, output logic [31:0] out);
+  assign out = word;
+endmodule
+RTL
+probe "a signal in scope only in an earlier module stops it too" 1 \
+  "is not in the module the tie-off splices into" "$(nl_run "$d")"
+
+d=$(nl_fixture); rm "$d/repo/rtl/decoder.v"
+probe "...and so does the file it injects into going away" 1 \
+  "is not in this tree" "$(nl_run "$d")"
+
+d=$(nl_fixture)
+probe "an empty part table synthesises nothing, so it is refused" 2 \
+  "NETLIST_SYNTH is not set" \
+  "PATH=$d/bin:\$PATH sh $d/repo/soc/netlist_determinism.sh"
+
+begin_group "soc/netlist_base.sh"
+
+# The other tree's half of `make netlist-diff`. `git archive` and a stub yosys,
+# so the whole extraction runs without a placement or a cross compiler.
+nb_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/bin" "$d/repo/rtl" "$d/repo/soc"
+  cp "$REPO/soc/netlist_base.sh" "$d/repo/soc/"
+  printf 'module decoder ();\nendmodule\n' > "$d/repo/rtl/decoder.v"
+  # A Makefile with the two targets this script asks another tree for, and
+  # nothing else: soc-rom, which builds the image that gets synthesised, and
+  # print-%, which is how the base tree is asked to name its own synth script.
+  cat > "$d/repo/Makefile" <<'MK'
+soc-rom:
+	@:
+print-%:
+	@echo '$($*)'
+MK
+  nl_stub_yosys "$d/bin" "$d"
+  nd_netlist "$d/canon.json"
+  git -c init.defaultBranch=main -C "$d/repo" init -q
+  git -C "$d/repo" add -A
+  git -C "$d/repo" -c user.email=probe@example -c user.name=probe commit -qm base
+  printf '%s' "$d"
+}
+
+nb_run() {  # <fixture dir> <ref>
+  printf '%s' "cd $1/repo && PATH=$1/bin:\$PATH \
+    NETLIST_SYNTH='read_verilog -sv rtl/decoder.v; synth_ice40 -top littlesoc' \
+    sh soc/netlist_base.sh $2 $1/base.canon.json"
+}
+
+d=$(nb_fixture)
+probe "control: another commit's canonical netlist is built from its own tree" 0 \
+  "canonical netlist is" "$(nb_run "$d" HEAD)"
+
+d=$(nb_fixture)
+probe "a tree that names no synth script of its own says whose was used" 0 \
+  "names no synth script of its own" "$(nb_run "$d" HEAD)"
+
+d=$(nb_fixture)
+sed -i.bak 's/^print-%:/NETLIST_SYNTH := read_verilog -sv rtl\/decoder.v; synth_ice40 -abc9 -top littlesoc\nprint-%:/' "$d/repo/Makefile"
+git -C "$d/repo" -c user.email=probe@example -c user.name=probe commit -qam flags
+probe "a base tree whose synth flags moved is digested with ITS flags, and says so" 0 \
+  "synthesises with a different script" "$(nb_run "$d" HEAD)"
+
+# A base tree whose make fails for any reason OTHER than having no `print-%`
+# rule must not read as one that names no synth script: that fallback
+# synthesises the base commit with THIS tree's flags, which is the blind
+# comparison this script exists to refuse. A parse error fails the ROM step
+# first and is reported there, so what is forced here is the rule itself
+# failing -- which is what `| tail -1` used to swallow whole.
+d=$(nb_fixture)
+cat > "$d/repo/Makefile" <<'MK'
+soc-rom:
+	@:
+print-%:
+	@echo '$($*)'; exit 3
+MK
+git -C "$d/repo" -c user.email=probe@example -c user.name=probe commit -qam broken
+probe "a base tree whose make fails is refused, not quietly given ours" 2 \
+  "could not be asked which synth" "$(nb_run "$d" HEAD)"
+
+d=$(nb_fixture)
+probe "a ref that names no commit is refused, not compared" 2 \
+  "does not name a commit" "$(nb_run "$d" v9.9.9)"
+
+d=$(nb_fixture)
+git -C "$d/repo" rm -q rtl/decoder.v
+git -C "$d/repo" -c user.email=probe@example -c user.name=probe commit -qm drop
+probe "a source this tree synthesises that the base lacks is not comparable" 2 \
+  "has no rtl/decoder.v" "$(nb_run "$d" HEAD)"
 
 echo
 if [ "$probes" -ne "$PROBES_EXPECTED" ]; then

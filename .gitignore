@@ -60,6 +60,13 @@ depth.*.csv
 # never committed, because a checked-in timing report is a number that stops
 # tracking the RTL.
 baseline.out/
+# `make netlist-digest` / `netlist-diff` / `netlist-determinism`: the canonical
+# netlists both sides of a comparison, the shipping ones the control places, its
+# three bitstreams and logs, and the mutated copy of the tree it builds. The
+# canonical netlist in here is a classifier and NOT a design -- it is not what
+# ships, and it places to a different bitstream, so nothing may hand it to
+# nextpnr.
+netlist.out/
 formal/riscv-formal
 formal/riscv-formal.tmp
 formal/complete

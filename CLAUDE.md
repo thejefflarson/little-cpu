@@ -690,6 +690,15 @@ make ecp5-timing    # the same SoC on ECP5: synth_ecp5 + nextpnr-ecp5 at a
                     # here -- and the constraint it is handed is a pinned
                     # constant above what the design reaches. ECP5_SEED picks a
                     # placement. Never merge its numbers with an up5k one
+make netlist-digest # the mapped netlist's digest -- the shipping synth script
+                    # plus `opt_clean -purge`, with the source attributes
+                    # dropped. `make netlist-diff BASE=<ref>` compares two trees
+                    # and names what moved. Digest unchanged, NO SWEEP IS OWED;
+                    # changed, the paired sixteen-seed sweep is, and it says
+                    # nothing about the period. Sound in one direction only.
+                    # netlist-determinism is a prerequisite of both, the way
+                    # pcloop_cover is of pcloop: it places three bitstreams and
+                    # compares bytes. Replaces a sweep, never a gate. Not on CI
 make compare-timing # this core and VexRiscv in ONE hx8k harness; COMPARE_CORE
                     # picks the side, soc/compare/sweep.sh runs both over seeds.
                     # A measurement, not a gate -- but the placed-vs-synthesised
