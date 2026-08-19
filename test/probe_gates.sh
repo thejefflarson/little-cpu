@@ -2048,7 +2048,8 @@ mm_fixture() {
   mkdir -p "$d/rtl" "$d/test/asm" "$d/test/bench" "$d/formal"
   cp "$REPO"/rtl/memory.v "$REPO"/rtl/timer.v "$REPO"/rtl/imemory.v \
      "$REPO"/rtl/littlecpu.v "$REPO"/rtl/littlesoc.v "$d/rtl/"
-  cp "$REPO"/test/testbench.v "$REPO"/test/cxxrtl.cc "$REPO"/test/cosim.cc "$d/test/"
+  cp "$REPO"/test/testbench.v "$REPO"/test/cxxrtl.cc "$REPO"/test/cosim.cc \
+     "$REPO"/test/dual_cxxrtl.cc "$d/test/"
   cp "$REPO"/test/asm/riscv_test.h "$REPO"/test/asm/sections.lds \
      "$REPO"/test/asm/boot.lds "$d/test/asm/"
   cp "$REPO"/test/bench/bench.lds "$d/test/bench/"
