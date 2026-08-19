@@ -82,7 +82,18 @@ module littledual #(
   output logic [7:0]   rvfi_mem_rmask,
   output logic [7:0]   rvfi_mem_wmask,
   output logic [63:0]  rvfi_mem_rdata,
-  output logic [63:0]  rvfi_mem_wdata
+  output logic [63:0]  rvfi_mem_wdata,
+  // Which harts have a transaction on the shared bus this cycle. Instrumentation
+  // and nothing reads it here: the OR that joins the two harts' buses below is
+  // correct only while at most one bit of this is set, and an OR of two live
+  // masters is silent. test/dual_testbench.v is what turns it into a failure.
+  output logic [1:0]   probe_bus_active,
+  // Each hart's fetch address. Instrumentation for the same reason: `mtvec`
+  // resets to zero and `.text` is linked there, so a trap taken before a
+  // handler is installed restarts that hart at `_start` and reads as a hang.
+  // Which hart it was is the whole diagnostic, and no retire carries it -- the
+  // trap happens several cycles before anything of that hart's has retired.
+  output logic [63:0]  probe_imem_addr
  `endif
 );
   localparam int NHARTS = 2;
@@ -111,6 +122,15 @@ module littledual #(
   assign mem_wstrb = hart_mem_wstrb[3:0]  | hart_mem_wstrb[7:4];
   assign mem_ren   = hart_mem_ren[0]      | hart_mem_ren[1];
   assign mem_rdata = imem_mem_rdata | dmem_mem_rdata | timer_mem_rdata;
+
+ `ifdef RISCV_FORMAL
+  // A load, a store, an atomic's read and an atomic's write-back are all of the
+  // transactions there are, and every one of them shows here.
+  for (genvar h = 0; h < NHARTS; h++) begin : l_probe
+    assign probe_bus_active[h] = hart_mem_ren[h] || |hart_mem_wstrb[4*h+3:4*h];
+  end
+  assign probe_imem_addr = imem_addr;
+ `endif
 
   busarbiter arbiter (
     .clk(clk),
