@@ -5,9 +5,10 @@
 #
 # A SPIKE. Nothing here is a gate, nothing here grades the shipping design, and
 # the memory it measures is functionally wrong on purpose -- see that script's
-# header. The output is a distribution to read against the churn bands (~3.6%
-# edit churn, 4-9% placement spread -- CLAUDE.md is where both are stated), not a
-# single number.
+# header. The output is a distribution to read against the part's own bands,
+# which are soc/bands.py's and are printed at the end from there rather than
+# restated here. One of the two parts below has no band derived at all, and that
+# script says so instead of lending it the other's.
 #
 # Two parts because neither one alone answers the question. up5k is the board and
 # carries `SOC_MIN_MHZ`; hx8k is where soc/compare/ put both cores side by side,
@@ -39,8 +40,9 @@ python3 soc/depth/variants.py "$mem"
 
 # The spike memory sits in rtl/imemory.v's place in the list rather than at the
 # end of it. yosys names cells in the order it reads them and ABC's mapping
-# follows those names, so a reordered source list is an edit-churn-sized move on
-# its own -- 3.6% here, measured, which is the whole band.
+# follows those names, so a reordered source list moves the number by about as
+# much as the whole edit-churn band on its own -- measured, and it is one of the
+# functionally identical texts that band is derived from.
 CORE_SRCS="rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v \
 rtl/fetcher.v $mem rtl/memory.v rtl/regfile.v rtl/regsel.v"
 
@@ -112,3 +114,7 @@ for variant in base addr data both; do
     python3 soc/depth/row.py "$out/$tag.$seed.rpt" "$part" "$variant" "$seed" "$lc"
   done
 done
+
+# The band these rows are read against, for the part they were placed on. Printed
+# to stderr so it cannot land in the CSV a caller is redirecting stdout into.
+python3 soc/bands.py "$part" --note >&2
