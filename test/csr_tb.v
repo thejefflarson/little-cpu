@@ -63,6 +63,40 @@ module csr_tb;
    `endif
   );
 
+  // A second copy of the same module at a non-zero HART_ID, sharing every input
+  // with the DUT so the parameter is the only thing that can differ between the
+  // two reads. A parameter never instantiated away from its default is
+  // indistinguishable from the constant it replaced, and hart 0's mhartid is
+  // that constant. Top bit and bottom bit both set, so a value that arrived
+  // truncated does not read as this one.
+  localparam logic [31:0] OTHER_HART_ID = 32'h8000_0001;
+  logic [31:0] other_rdata;
+  csrs #(.HART_ID(OTHER_HART_ID)) other_hart (
+    .clk(clk),
+    .reset(reset),
+    .addr(addr),
+    .ren(ren),
+    .wen(wen),
+    .wdata(wdata),
+    .rdata(other_rdata),
+    .implemented(),
+    .instret(instret),
+    .trap_entry(trap_entry),
+    .trap_cause(trap_cause),
+    .trap_epc(trap_epc),
+    .mret_entry(mret_entry),
+    .irq_timer(irq_timer),
+    .mtvec_value(),
+    .mepc_value(),
+    .interrupt_pending()
+   `ifdef RISCV_FORMAL
+    ,
+    .rvfi_mcycle(),
+    .rvfi_minstret(),
+    .rvfi_mscratch()
+   `endif
+  );
+
   int errors = 0;
 
   task automatic check_hex(input string what, input logic [31:0] got, input logic [31:0] expected);
@@ -110,6 +144,18 @@ module csr_tb;
       peek(a);
       check_hex(what, rdata, expected);
       check_bit(what, implemented, 1'b1);
+    end
+  endtask
+
+  // The same read taken from the second instance instead, which differs from
+  // the DUT in nothing but HART_ID. Only the value is compared: `implemented`
+  // has no HART_ID in its cone, so checking it here could not fail for a reason
+  // the DUT's own read at the same address has not already covered.
+  task automatic check_other_read(input string what, input logic [11:0] a,
+                                  input logic [31:0] expected);
+    begin
+      peek(a);
+      check_hex(what, other_rdata, expected);
     end
   endtask
 
@@ -165,6 +211,12 @@ module csr_tb;
     check_read("marchid", 12'hF12, 32'h0);
     check_read("mimpid", 12'hF13, 32'h0);
     check_read("mhartid", 12'hF14, 32'h0);
+    // Hart 0 keeps id 0 because the spec requires some hart to have it, so the
+    // read above cannot tell the parameter from the read-only zero mhartid used
+    // to be spelled as. The first line below is what does; the second says the
+    // split left mhartid's four neighbours in the shared arm.
+    check_other_read("mhartid reads HART_ID", 12'hF14, OTHER_HART_ID);
+    check_other_read("...and mimpid beside it still reads 0", 12'hF13, 32'h0);
     check_read("minstret", 12'hB02, 32'h0);
     check_read("minstreth", 12'hB82, 32'h0);
     check_read("mcycleh", 12'hB80, 32'h0);
@@ -233,6 +285,8 @@ module csr_tb;
     check_read("mtval ignores a write", 12'h343, 32'h0);
     poke(12'hF14, 32'hffff_ffff);
     check_read("mhartid ignores a write", 12'hF14, 32'h0);
+    check_other_read("...and a non-zero HART_ID survives one too",
+                     12'hF14, OTHER_HART_ID);
 
     peek(12'hB00);
     before_lo = rdata;
