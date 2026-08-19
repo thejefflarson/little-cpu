@@ -69,15 +69,20 @@ module littlecpu #(
   // arbiter that registers its grant learns to keep the bus here for the second
   // cycle.
   //
-  // A platform with one bus master ties both inputs low and leaves the output
+  // A platform with one bus master ties both inputs low and leaves both outputs
   // unread, and only the INPUTS are free that way: they fold before mapping and
   // the cell census does not move. An unread output is still a net for ABC to
-  // map around, and this one moved the SoC's mapped count by tens of cells --
-  // so it arrived with a placement sweep rather than with an equal netlist.
+  // map around, and these moved the SoC's mapped count by tens of cells -- so
+  // each arrived with a placement sweep rather than with an equal netlist.
   input  logic        bus_wait,
   input  logic        snoop_write,
   input  logic [31:0] snoop_addr,
   output logic        mem_lock,
+  // Decode's request for the shared data bus, a cycle before the transaction it
+  // asks for. `bus_wait` is what comes back, and the platform -- not this
+  // module -- ANDs the two: a hart that is not granted publishes nothing and
+  // asks again next cycle.
+  output logic        bus_request,
   // The platform's machine-timer line. Registered at its source (rtl/timer.v
   // does it), because inside the core it is one gate away from the fetch loop.
   // A platform with no timer ties it low and the core never takes an interrupt.
@@ -239,6 +244,7 @@ module littlecpu #(
     .divider_stall(divider_stalled),
     .fetch_stall(fetch_stall),
     .bus_wait(bus_wait),
+    .bus_request(bus_request),
     .imem_fault(imem_fault),
     .atomic_addr(atomic_addr),
     .atomic_supported(atomic_supported),

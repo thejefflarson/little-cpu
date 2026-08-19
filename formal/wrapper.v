@@ -58,6 +58,7 @@ module rvfi_wrapper (
   // would drive. Tied off below; the lock is unread because nothing here
   // arbitrates for anything.
   wire mem_lock;
+  wire bus_request;
 
   // Assumed: on a cycle it reports having nothing, the instruction memory
   // answers zero on both fetch ports.
@@ -171,6 +172,7 @@ module rvfi_wrapper (
     .snoop_write(1'b0),
     .snoop_addr(32'b0),
     .mem_lock(mem_lock),
+    .bus_request(bus_request),
     // Tied off, and formal/check-interrupt-tie-off.py is what says so. Every
     // depth in formal/checks.cfg is derived from F and G measured with no
     // interrupt in the trace, and riscv-formal ships no model at the pin of

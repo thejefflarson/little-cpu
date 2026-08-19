@@ -29,6 +29,7 @@ module testbench(
   logic        mem_reservable;
   logic        atomic_supported;
   logic        mem_lock;
+  logic        bus_request;
   logic [31:0] atomic_addr;
   logic        irq_timer;
   // All three memories answer zero outside their own range, so the buses join
@@ -129,6 +130,7 @@ module testbench(
     .snoop_write(1'b0),
     .snoop_addr(32'b0),
     .mem_lock(mem_lock),
+    .bus_request(bus_request),
     .irq_timer(irq_timer),
     .trap(trap)
    `ifdef RISCV_FORMAL

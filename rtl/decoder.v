@@ -23,6 +23,14 @@ module decoder (
   // already consumed -- the wait leaves the executor idle, unlike a divide.
   // A platform with one bus master ties it low and the core never waits.
   input  logic bus_wait,
+  // This cycle would publish a memory transaction, if the bus were this core's
+  // to publish on. It is the arbiter's request line and the one signal the
+  // shared-bus surface was left owing: an arbiter that registers its grant has
+  // to be told a cycle before the transaction, and the only stage that knows a
+  // cycle early is this one. `bus_wait` is deliberately NOT a term of it --
+  // the platform ANDs this against its own grant to make that wait, so a term
+  // here would close the loop through the arbiter.
+  output logic bus_request,
   // The instruction memory had nothing at `pc` -- the address is outside the
   // text window. It arrives with the word it is about, in the cycle decode is
   // looking at that word, so the fault is committed with everything else here
@@ -679,6 +687,18 @@ module decoder (
   // writes `out` below is where they differ.
   assign stall = hazard || operand_stall || divider_stall || fetch_stall || atomic_stall ||
                  bus_wait;
+
+  // The same conjunction as `stall` with `bus_wait` left out, and the nine
+  // encodings that reach the data bus. It is an OVER-approximation on purpose:
+  // a store-conditional that finds no reservation puts nothing on the bus, and
+  // asking for a cycle this core then does not use costs an arbitration slot
+  // where under-asking would put two masters on the bus at once. Trapping
+  // accesses are out, because decode clears their `is_l*`/`is_s*` flags and the
+  // accessor never sees a transaction to make.
+  assign bus_request = !reset && !trap_taken &&
+    !(hazard || operand_stall || divider_stall || fetch_stall || atomic_stall) &&
+    (instr_lb || instr_lbu || instr_lh || instr_lhu || instr_lw ||
+     instr_sb || instr_sh || instr_sw || instr_atomic);
 
   // On a cycle that issues, ask for the NEXT instruction's pair. The guess runs
   // the fetch window's successor word through the same register-number mapping

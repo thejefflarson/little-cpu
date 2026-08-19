@@ -50,7 +50,7 @@ module littlesoc (
   logic [31:0] imem_mem_rdata, dmem_mem_rdata, timer_mem_rdata;
   logic [3:0]  mem_wstrb;
   logic        mem_ren, fetch_stall, irq_timer, imem_fault, mem_reservable;
-  logic        atomic_supported, mem_lock;
+  logic        atomic_supported, mem_lock, bus_request;
   logic [31:0] atomic_addr;
   logic [31:0] imem_addr, imem_addr2, imem_addr_next;
   logic [31:0] imem_data, imem_data2;
@@ -85,6 +85,7 @@ module littlesoc (
     .snoop_write(1'b0),
     .snoop_addr(32'b0),
     .mem_lock(mem_lock),
+    .bus_request(bus_request),
     .irq_timer(irq_timer),
     .trap(trap)
   );
