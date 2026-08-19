@@ -162,6 +162,13 @@ module littledual #(
     // so a hart with no memory instruction in decode never waits.
     assign bus_wait[h] = bus_request[h] && (!grant[h] || mem_lock[OTHER]);
 
+   `ifdef RISCV_FORMAL
+    logic [1:0]  u_mode, u_ixl;
+    logic [63:0] u_mcycle_rmask, u_mcycle_wmask, u_mcycle_rdata, u_mcycle_wdata;
+    logic [63:0] u_minstret_rmask, u_minstret_wmask, u_minstret_rdata, u_minstret_wdata;
+    logic [31:0] u_mscratch_rmask, u_mscratch_wmask, u_mscratch_rdata, u_mscratch_wdata;
+   `endif
+
     littlecpu #(
       .HART_ID(h[31:0]),
       .LS_TEXT_WORDS(ROM_WORDS)
@@ -204,9 +211,13 @@ module littledual #(
       .rvfi_trap(rvfi_trap[h]),
       .rvfi_halt(rvfi_halt[h]),
       .rvfi_intr(rvfi_intr[h]),
-      // Constants inside the core and unread by either monitor.
-      .rvfi_mode(),
-      .rvfi_ixl(),
+      // Named rather than left empty. test/port_connect_test.py refuses an
+      // empty connection at a littlecpu site and is right to: for an INPUT that
+      // is a floating pin, and the text does not say which a port is. Nothing
+      // reads any of these -- they are constants inside the core, or channels
+      // riscv-formal defines and no monitor here connects.
+      .rvfi_mode(u_mode),
+      .rvfi_ixl(u_ixl),
       .rvfi_rs1_addr(rvfi_rs1_addr[5*h+4:5*h]),
       .rvfi_rs2_addr(rvfi_rs2_addr[5*h+4:5*h]),
       .rvfi_rs1_rdata(rvfi_rs1_rdata[32*h+31:32*h]),
@@ -220,13 +231,12 @@ module littledual #(
       .rvfi_mem_wmask(rvfi_mem_wmask[4*h+3:4*h]),
       .rvfi_mem_rdata(rvfi_mem_rdata[32*h+31:32*h]),
       .rvfi_mem_wdata(rvfi_mem_wdata[32*h+31:32*h]),
-      // The CSR channels are riscv-formal's and no harness here reads them.
-      .rvfi_csr_mcycle_rmask(), .rvfi_csr_mcycle_wmask(),
-      .rvfi_csr_mcycle_rdata(), .rvfi_csr_mcycle_wdata(),
-      .rvfi_csr_minstret_rmask(), .rvfi_csr_minstret_wmask(),
-      .rvfi_csr_minstret_rdata(), .rvfi_csr_minstret_wdata(),
-      .rvfi_csr_mscratch_rmask(), .rvfi_csr_mscratch_wmask(),
-      .rvfi_csr_mscratch_rdata(), .rvfi_csr_mscratch_wdata()
+      .rvfi_csr_mcycle_rmask(u_mcycle_rmask), .rvfi_csr_mcycle_wmask(u_mcycle_wmask),
+      .rvfi_csr_mcycle_rdata(u_mcycle_rdata), .rvfi_csr_mcycle_wdata(u_mcycle_wdata),
+      .rvfi_csr_minstret_rmask(u_minstret_rmask), .rvfi_csr_minstret_wmask(u_minstret_wmask),
+      .rvfi_csr_minstret_rdata(u_minstret_rdata), .rvfi_csr_minstret_wdata(u_minstret_wdata),
+      .rvfi_csr_mscratch_rmask(u_mscratch_rmask), .rvfi_csr_mscratch_wmask(u_mscratch_wmask),
+      .rvfi_csr_mscratch_rdata(u_mscratch_rdata), .rvfi_csr_mscratch_wdata(u_mscratch_wdata)
      `endif
     );
   end

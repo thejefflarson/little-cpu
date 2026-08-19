@@ -83,6 +83,7 @@ module pcloop (
     .divider_stall(divider_stall),
     .fetch_stall(fetch_stall),
     .bus_wait(bus_wait),
+    .bus_request(bus_request),
     .imem_fault(imem_fault),
     .atomic_addr(atomic_addr),
     .atomic_supported(atomic_supported),

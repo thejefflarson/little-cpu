@@ -30,6 +30,7 @@ module testbench (
   logic [31:0] atomic_addr;
   // The lock an arbiter would read. Unread here: one hart, one bus master.
   logic mem_lock;
+  logic bus_request;
   logic [31:0] mem_addr;
   logic [31:0] mem_wdata;
   logic [3:0]  mem_wstrb;
@@ -147,6 +148,7 @@ module testbench (
     .snoop_write(1'b0),
     .snoop_addr(32'b0),
     .mem_lock(mem_lock),
+    .bus_request(bus_request),
     // Tied off; formal/check-interrupt-tie-off.py enforces it. formal/wrapper.v
     // carries the reason the riscv-formal side of the tree runs with no
     // interrupt in the trace.
