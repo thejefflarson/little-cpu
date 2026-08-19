@@ -94,6 +94,10 @@ formal/region-probe/
 formal/busarbiter-probe/
 __pycache__/
 test/rtl.cc
+# The dual configuration's generated netlist and its runner, the same rule.
+test/dual_rtl.cc
+dual-sim
+dual-sim.dSYM/
 test/monitor.sim.v
 *.vvp
 *.vcd

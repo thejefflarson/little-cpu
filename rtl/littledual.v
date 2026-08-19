@@ -112,15 +112,26 @@ module littledual #(
   logic [4*NHARTS-1:0]  hart_mem_wstrb;
   logic [NHARTS-1:0]    hart_mem_ren;
 
-  // The shared data bus. One master a cycle, so these are ORs and not muxes.
+  // The shared data bus. One master a cycle, so three of these four are ORs.
   logic [31:0] mem_addr, mem_wdata, mem_rdata;
   logic [3:0]  mem_wstrb;
   logic        mem_ren, mem_reservable;
   logic [31:0] imem_mem_rdata, dmem_mem_rdata, timer_mem_rdata;
-  assign mem_addr  = hart_mem_addr[31:0]  | hart_mem_addr[63:32];
-  assign mem_wdata = hart_mem_wdata[31:0] | hart_mem_wdata[63:32];
-  assign mem_wstrb = hart_mem_wstrb[3:0]  | hart_mem_wstrb[7:4];
-  assign mem_ren   = hart_mem_ren[0]      | hart_mem_ren[1];
+  assign mem_addr  = hart_mem_addr[31:0] | hart_mem_addr[63:32];
+  assign mem_wstrb = hart_mem_wstrb[3:0] | hart_mem_wstrb[7:4];
+  assign mem_ren   = hart_mem_ren[0]     | hart_mem_ren[1];
+
+  // `mem_wdata` IS THE ONE PORT THAT CANNOT BE ORed, and the reason is worth
+  // keeping: rtl/accessor.v publishes rs2 on it for every issuing instruction
+  // and not only for a store, because with one bus master `mem_wstrb` is the
+  // only gate that matters and nothing there ever had to drive it to zero. Two
+  // masters ORed make one hart's rs2 part of the other hart's store, on any
+  // cycle a non-memory instruction issues beside one. That is not a hypothetical
+  // -- ORing it here lost 30 of a smoke program's 32 counted increments, and it
+  // is invisible to a bus-exclusivity check, because the hart doing the damage
+  // has neither a read enable nor a strobe raised.
+  assign mem_wdata = |hart_mem_wstrb[3:0] ? hart_mem_wdata[31:0]
+                                          : hart_mem_wdata[63:32];
   assign mem_rdata = imem_mem_rdata | dmem_mem_rdata | timer_mem_rdata;
 
  `ifdef RISCV_FORMAL

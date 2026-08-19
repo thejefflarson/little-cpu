@@ -211,6 +211,38 @@ test/monitor.sim.v: test/monitor.v test/sanitize_monitor.py
 test/rtl.cc: $(SIM_RTL_SRCS) rvfi_macros.vh test/testbench.v test/monitor.sim.v
 	yosys -p 'read_verilog -sv $(addprefix -D ,$(RISCV_FORMAL_MACROS)) $^; hierarchy -top testbench; write_cxxrtl $@'
 
+# ---- the dual configuration ------------------------------------------------
+#
+# A SEPARATE runner and a SEPARATE harness, not a configuration axis on the
+# single-hart pair. Two monitor instances roughly double a 7000-line generated
+# module through cxxrtl, and `sim` is a merge gate that must not get slower or
+# grow a flag; the runner also looks its signals up by flat debug-item name, and
+# two of everything does not have one. So nothing below is on `make test`'s path
+# and `dual-smoke` is a job of its own.
+DUAL_RTL_SRCS := $(SIM_RTL_SRCS) rtl/busarbiter.v rtl/littledual.v
+
+test/dual_rtl.cc: $(DUAL_RTL_SRCS) rvfi_macros.vh test/dual_testbench.v test/monitor.sim.v
+	yosys -p 'read_verilog -sv $(addprefix -D ,$(RISCV_FORMAL_MACROS)) $^; hierarchy -top dual_testbench; write_cxxrtl $@'
+
+dual-sim: test/dual_cxxrtl.cc test/dual_rtl.cc
+	clang++ -O2 -DNDEBUG -std=c++17 -Wall -Wextra -Werror \
+	  -isystem $$(yosys-config --datdir)/include/backends/cxxrtl/runtime $< -o $@
+
+# The second frontend's look at the dual harness. Elaboration only: iverilog is
+# the microscope leg and there is no dual program worth a waveform yet, but a
+# harness that only one frontend has ever read is one whose second reader finds
+# something the day somebody needs it.
+.PHONY: dual-elaborate
+dual-elaborate: $(DUAL_RTL_SRCS) rvfi_macros.vh test/dual_testbench.v test/monitor.sim.v
+	iverilog -I./rtl/ $(addprefix -D,$(RISCV_FORMAL_MACROS)) -g2012 -o /dev/null $^
+	@echo 'dual-elaborate: iverilog read test/dual_testbench.v'
+
+# Both directions of the one program, graded. Not on CI's default path and not
+# on `make test`: see the note above the sources.
+.PHONY: dual-smoke
+dual-smoke: dual-sim
+	@./test/dual_smoke.sh ./dual-sim
+
 # `check` is what reports a wire nothing drives. The test/rtl.cc recipe above
 # builds one of those quietly and exits 0.
 ELABORATE_STRICT_OUT ?= /tmp/elaborate-strict.cc
