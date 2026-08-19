@@ -61,12 +61,12 @@ unclaimed=$(comm -13 <(printf '%s\n' "$claimed") <(printf '%s\n' "$present"))
 
 if [ -n "$missing" ]; then
   echo "error: $PAIRINGS names programs that do not exist in $DUAL_DIR:" >&2
-  printf '  %s\n' $missing >&2
+  printf '%s\n' "$missing" | sed -e 's|^|  |' >&2
   exit 1
 fi
 if [ -n "$unclaimed" ]; then
   echo "error: $DUAL_DIR holds programs no pairing in $PAIRINGS claims:" >&2
-  printf '  %s\n' $unclaimed >&2
+  printf '%s\n' "$unclaimed" | sed -e 's|^|  |' >&2
   echo "A torture program nothing is paired against is a program nobody has" >&2
   echo "said what it catches. Add the pairing or delete the program." >&2
   exit 1

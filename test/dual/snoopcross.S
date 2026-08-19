@@ -51,11 +51,11 @@
 
 // Sweep rounds, and the two ordered rounds in front of them.
 #define SC_SWEEP    32
-#define SC_ROUNDS   34
+#define SC_ROUNDS   (SC_SWEEP + 2)
 // The round in which hart 1 writes the other word.
 #define SC_OTHER    2
 
-// 1 and 2 belong to test/dual/dual_test.h.
+// 1 belongs to test/dual/dual_test.h.
 #define TN_W1       3
 #define TN_W2       4
 #define TN_W3       5
@@ -193,7 +193,7 @@ hart1:
   blt   s0, a7, 1b
   DUALTEST_HART1_DONE
 
-DUALTEST_CODE_END
+RVTEST_CODE_END
 
   .data
 RVTEST_DATA_BEGIN

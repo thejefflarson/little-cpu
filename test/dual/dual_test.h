@@ -49,7 +49,9 @@
 #define DUALTEST_BAD_HARTID 1
 
 // `_start` for both harts. Hart 0 falls through to the code that follows;
-// hart 1 jumps to `hart1`, which every program in this directory defines.
+// hart 1 jumps to `hart1`, which every program in this directory defines. There
+// is no matching end: a program here closes with RVTEST_CODE_END like every
+// other program in the suite.
 #define DUALTEST_CODE_BEGIN                                                  \
         .text;                                                              \
         .align  2;                                                          \
@@ -63,9 +65,6 @@ _start:                                                                      \
         li      TESTNUM, DUALTEST_BAD_HARTID;                               \
         j       fail;                                                       \
 8:
-
-#define DUALTEST_CODE_END                                                    \
-1:      j       1b
 
 // Spins until the word at `sym` reads what `valreg` holds, and fails at
 // `testnum` if it never does. Clobbers t0, t1, t2 and TESTNUM, so `valreg` may

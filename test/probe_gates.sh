@@ -2321,7 +2321,7 @@ ma_fixture() {
            "$d/docs/adr" "$d/docs/ideas"
   cp "$REPO/CLAUDE.md" "$REPO/Makefile" "$d/"
   cp "$REPO/test/run_tests.sh" "$REPO/test/cosim.py" "$REPO/test/march_test.sh" \
-     "$REPO/test/probe_gates.sh" "$d/test/"
+     "$REPO/test/dual_build.sh" "$REPO/test/probe_gates.sh" "$d/test/"
   cp "$REPO/test/sail/reservation_probe.sh" "$d/test/sail/"
   cp "$REPO/soc/depth/cycles.py" "$d/soc/depth/"
   cp "$REPO/soc/compare/run_dhrystone.sh" "$d/soc/compare/"
@@ -2347,7 +2347,7 @@ ma_edit() {  # $1 = fixture dir, $2 = path within it, $3 = sed expression
 
 d=$(ma_fixture)
 probe "control: the shipping tree names one ISA at every site" 0 \
-  "at all 6 sites" "$MA $d"
+  "at all 7 sites" "$MA $d"
 
 probe "a repo root that does not exist is red before anything is scanned" 1 \
   "is not a directory" "$MA $d/nowhere"

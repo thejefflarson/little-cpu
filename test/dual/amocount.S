@@ -18,12 +18,11 @@
 // arithmetic surprise at the end.
 
 #define AMO_N     64
-// 2 * AMO_N.
-#define AMO_TOTAL 128
-// 0 + 1 + ... + (2*AMO_N - 1), which is AMO_N * (2*AMO_N - 1).
-#define AMO_SUM   8128
+#define AMO_TOTAL (2 * AMO_N)
+// 0 + 1 + ... + (AMO_TOTAL - 1).
+#define AMO_SUM   (AMO_N * (AMO_TOTAL - 1))
 
-// 1 and 2 belong to test/dual/dual_test.h.
+// 1 belongs to test/dual/dual_test.h.
 #define TN_RANGE  3
 #define TN_JOIN   4
 
@@ -73,7 +72,7 @@ amo_burst:
   bnez  a4, 1b
   ret
 
-DUALTEST_CODE_END
+RVTEST_CODE_END
 
   .data
 RVTEST_DATA_BEGIN

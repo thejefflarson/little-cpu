@@ -35,7 +35,7 @@
 #define PATCH_OLD 0x11
 #define PATCH_NEW 0x2a
 
-// 1 and 2 belong to test/dual/dual_test.h.
+// 1 belongs to test/dual/dual_test.h.
 #define TN_WAIT_PATCH 3
 #define TN_WAIT_READY 4
 #define TN_JOIN       5
@@ -100,7 +100,7 @@ tmpl_new:
   addi  a0, x0, PATCH_NEW
   .option pop
 
-DUALTEST_CODE_END
+RVTEST_CODE_END
 
   .data
 RVTEST_DATA_BEGIN

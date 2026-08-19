@@ -4,9 +4,10 @@
 #
 # Usage: march_test.sh [repo-root]     # defaults to this script's parent
 #
-# WHY THIS EXISTS. The ISA string is stated at six sites and three of them are
-# silent when they are wrong. test/run_tests.sh and test/cosim.py's assemble()
-# are loud -- the assembler rejects `amoadd.w` outright -- but the Makefile's
+# WHY THIS EXISTS. The ISA string is stated at seven sites and three of them are
+# silent when they are wrong. test/run_tests.sh, test/cosim.py's assemble() and
+# test/dual_build.sh are loud -- the assembler rejects `amoadd.w` outright,
+# and every one of those builds a program that has one -- but the Makefile's
 # soc-rom target builds test/asm/datainit.c, which uses no atomics and would go
 # on building for years at the old string; DHRY_CFLAGS builds a benchmark that
 # uses none either; and DHRY_CFLAGS is duplicated VERBATIM into
@@ -85,6 +86,12 @@ soc/depth/cycles.py 1
 # model about lr.w/sc.w -- so it is exactly the file that must not be left
 # behind at a narrower string.
 test/sail/reservation_probe.sh 1
+
+# The two-hart programs' build check. No machine runs them, so this is the one
+# place their ISA string is stated and there is no simulation behind it to go
+# red -- and it is the site most likely to be forgotten, because a program left
+# behind at the old string still assembles right up until the day it does not.
+test/dual_build.sh 1
 SITES
 }
 

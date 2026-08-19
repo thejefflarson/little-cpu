@@ -28,10 +28,9 @@
 // Rounds per hart. The critical section is about twenty instructions, so the
 // longest legitimate wait is well inside DUALTEST_SPIN_LIMIT.
 #define LOCK_N     16
-// 2 * LOCK_N.
-#define LOCK_TOTAL 32
+#define LOCK_TOTAL (2 * LOCK_N)
 
-// 1 and 2 belong to test/dual/dual_test.h.
+// 1 belongs to test/dual/dual_test.h.
 #define TN_OCCUPIED 3
 #define TN_TORN     4
 #define TN_STUCK    5
@@ -123,7 +122,7 @@ critical:
   sw    x0, 0(a1)
   ret
 
-DUALTEST_CODE_END
+RVTEST_CODE_END
 
   .data
 RVTEST_DATA_BEGIN
