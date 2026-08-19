@@ -142,11 +142,15 @@ are kept in parentheses so those references still resolve.
   construction rather than by argument: `rtl/executor.v` publishes `stalled` as an output and takes
   no input that freezes it, so a divider stall is the executor being busy in its own FSM and not a
   hold the decoder can borrow. A bus-grant wait leaves the executor idle, so a held `decoder_out`
-  is consumed a second time. It is tied low in every integrator here — no platform in this repo has
-  a second bus master — so `make cycles` reports the column at zero, `test/decoder_tb.v` drives the
-  input directly because nothing single-hart can otherwise say which arm shipped, and
-  `formal/MULTIHART_TIE_OFF` is where the tie-off and its depth consequence are declared. G is
-  measured on the tied-off machine and would grow with the wait in a configuration that has one.
+  is consumed a second time. It is tied low in every SINGLE-HART integrator — so `make cycles`
+  reports the column at zero, `test/decoder_tb.v` drives the input directly because nothing
+  single-hart can otherwise say which arm shipped, and `formal/MULTIHART_TIE_OFF` is where the
+  tie-off and its depth consequence are declared. `rtl/littledual.v` is the one platform that drives
+  it, and **the core does not decide its own wait**: decode publishes `bus_request` — its stall
+  conjunction with `bus_wait` left out, ANDed with the nine encodings that reach the data bus — and
+  the platform ANDs that against its grant. A grant term inside the decoder would close the loop
+  through the arbiter. G is measured on the tied-off machine, nothing under `formal/` builds two
+  cores, and no generated check's depth applies to a configuration that has a wait in it.
   **The atomic write cycle is the sixth, and it BUBBLES** — the only reason to be added since the
   divider and the only one whose arm was a live question. An AMO reads its word while the executor
   takes it and writes the result back on the cycle after, so that cycle is spent to keep anything
@@ -484,6 +488,28 @@ and times; `make ecp5-timing` is that same SoC on the other part.
   which is also the pessimistic one of the three. **Pinning `clk` to the module's real oscillator pin
   is not cosmetic** — letting nextpnr choose that pad instead read 3.5% faster, because the pad
   decides where the global network is entered.
+- **The DUAL configuration is a FOURTH design on the third instrument, and ECP5 only.** Two fetch
+  windows are two copies of the banked ROM — 32 block RAMs against the up5k's 30 — so no up5k number
+  describes it and none may be subtracted from one of its. `make dual-ecp5-timing` publishes a
+  frequency with no ratchet (35.36 MHz at one placement) and **gates three mapping censuses that
+  double where the design does and not where it does not**: `DP16KD` 40 — 32 for the one data RAM
+  plus 4 for *each* ROM copy — with `TRELLIS_DPR16X4` and `MULT18X18D` at exactly twice the
+  single-hart counts. All three were declared before the first run and matched, which is what says
+  two windows are two copies of one storage and two harts are two whole cores (ADR-0125).
+  **`make dual-smoke` is its own job and is off `make test`'s path**: two monitor instances roughly
+  double a 7000-line generated module, and `test/cxxrtl.cc` is a merge gate that must not grow a
+  configuration axis or a flag. It runs one program twice and grades both directions — 32 with two
+  harts, 16 with hart 1 held in reset — because **a dual harness that measures one hart looks exactly
+  like a working one** unless the answer depends on the second hart having run. `test/monitor.sim.v`
+  is read UNMODIFIED by both instances and `test/sanitize_monitor.py` is untouched, which was a
+  prediction and is now measured: 114 of 115 and 139 of 140 retires spec-checked.
+- **A signal a single-master design never had to drive to zero is not a signal two masters may OR.**
+  Three of the shared bus's four ports join with an OR the way `mem_rdata`'s three sources do;
+  `mem_wdata` does not, because `rtl/accessor.v` publishes rs2 on it for **every issuing
+  instruction** and not only for a store — with one master `mem_wstrb` is the only gate that
+  matters. ORed across two harts it lost **30 of a smoke program's 32 counted increments**, and it is
+  invisible to a bus-exclusivity check because the hart doing the damage has neither a read enable
+  nor a strobe raised. Read the producer's idle behaviour before joining two of anything (ADR-0125).
 - **12 MHz is a requirement, not a regression floor** (ADR-0066). `SOC_MIN_MHZ` is 12.0 — the board
   clock, whose next divider step down is 6 — and it does not slide. When it trips, fix the design,
   not the floor. The margin over the worst placement is deliberately tighter than the churn band.
@@ -740,6 +766,15 @@ make monitor-check  # regenerate test/monitor.v at the pin and diff
 make fit            # the core's area number; ratchet on FIT_MAX_LC
 make soc-timing     # the SoC place-and-time flow; requirement on SOC_MIN_MHZ.
                     # SOC_SEED picks a placement; soc/timing_sweep.sh runs four
+make dual-smoke     # the dual configuration under cxxrtl: two harts, one text
+                    # storage, one arbiter. Builds one smoke program and runs it
+                    # BOTH ways -- both harts, and hart 1 held in reset -- and
+                    # grades the shared count moving between them. Off `make
+                    # test`'s path: two monitor instances double a 7000-line
+                    # generated module. `make dual-elaborate` is iverilog's look
+make dual-ecp5-timing # the dual top placed. ECP5 only -- 32 block RAMs against
+                    # the up5k's 30. Three mapping censuses GATE, the frequency
+                    # PUBLISHES, and no number here merges with an up5k one
 make ecp5-timing    # the same SoC on ECP5: synth_ecp5 + nextpnr-ecp5 at a
                     # declared corner. Three exact mapping censuses GATE; the
                     # frequency PUBLISHES, with no ratchet. nextpnr's own
