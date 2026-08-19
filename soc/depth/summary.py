@@ -2,11 +2,11 @@
 """Turn soc/depth/sweep.sh's CSV into the distribution a churn band can be read
 against.
 
-WORST AND BEST, NEVER A MEAN. `make soc-timing` has a ~3.6% edit-churn band and a
-4-9% placement spread (CLAUDE.md states both), so one placement is a sample. A
-variant is ahead only if its distribution is ahead, and the two readings are
-printed together because a change that wins on one end and loses on the other
-has not been measured yet.
+WORST AND BEST, NEVER A MEAN. One placement is a sample. A variant is ahead only
+if its distribution is ahead, and the two readings are printed together because a
+change that wins on one end and loses on the other has not been measured yet. The
+band those readings are judged against is soc/bands.py's, printed for the part
+these rows were placed on; no figure is restated here.
 
 THE LEVEL COUNT IS THE PART THAT IS NOT NOISE. Nanoseconds move with placement;
 LUT levels are a property of the mapped netlist and move only when the netlist
@@ -18,8 +18,13 @@ Usage: summary.py <csv> [<csv> ...]
 
 import collections
 import csv
+import os
 import statistics
 import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+import bands  # noqa: E402
 
 ORDER = ["base", "addr", "data", "both"]
 
@@ -89,6 +94,12 @@ def report(path):
         worst = 100 * (ns[-1] - base[-1]) / base[-1]
         median = 100 * (statistics.median(ns) - statistics.median(base)) / statistics.median(base)
         print(f"  {variant} against base: worst {worst:+.1f}%, median {median:+.1f}%")
+    print()
+    # Every part these rows were placed on, each with its own band. Read off the
+    # rows rather than taken from a flag, so a file concatenated from two sweeps
+    # cannot be judged against one of the two parts' figures.
+    for part in sorted({row["part"] for group in by.values() for row in group}):
+        print(bands.note(part))
     print()
 
 
