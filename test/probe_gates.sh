@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=413
+PROBES_EXPECTED=427
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -3419,6 +3419,84 @@ git -C "$d/repo" rm -q rtl/decoder.v
 git -C "$d/repo" -c user.email=probe@example -c user.name=probe commit -qm drop
 probe "a source this tree synthesises that the base lacks is not comparable" 2 \
   "has no rtl/decoder.v" "$(nb_run "$d" HEAD)"
+
+begin_group "test/dual_build.sh"
+
+# The two-hart programs are source with no machine to run on, so this is the
+# whole of what grades them: they still assemble, and the pairings that claim
+# they catch something still name them. Both halves of that are graded here, and
+# the toolchain stubs are the same ones test/run_tests.sh's group uses -- these
+# probes need a cross compiler exactly as little as that group does.
+DB="$REPO/test/dual_build.sh"
+
+db_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/dual" "$d/asm"
+  : > "$d/asm/sections.lds"
+  : > "$d/dual/amocount.S"
+  : > "$d/dual/crosspatch.S"
+  printf '# a comment\namo-torn  prog  amocount.S FAIL 5\nno-copy  prog  crosspatch.S FAIL 7\nstarved  formal  components_busarbiter\n' \
+    > "$d/PAIRINGS"
+  printf '%s' "$d"
+}
+
+db() { printf "PATH='%s/bin:%s/bin-none:/usr/bin:/bin' %s %s/dual %s/asm %s/PAIRINGS" \
+  "$tmp" "$tmp" "$DB" "$1" "$1" "$1"; }
+
+d=$(db_fixture)
+probe "control: programs that build and are paired are green" 0 \
+  "build and are paired" "$(db "$d")"
+
+probe "wrong argument count is a usage error, not a silent pass" 1 "usage:" \
+  "PATH='$tmp/bin:$tmp/bin-none:/usr/bin:/bin' $DB $d/dual $d/asm"
+
+probe "a dual directory that is not there is the failure this exists to see" 1 \
+  "is not a directory" \
+  "PATH='$tmp/bin:$tmp/bin-none:/usr/bin:/bin' $DB $d/nowhere $d/asm $d/PAIRINGS"
+
+probe "a mistyped pairings path cannot leave every program unclaimed and pass" 1 \
+  "does not exist or is not readable" \
+  "PATH='$tmp/bin:$tmp/bin-none:/usr/bin:/bin' $DB $d/dual $d/asm $d/NOPE"
+
+d=$(db_fixture); rm "$d/dual/amocount.S" "$d/dual/crosspatch.S"
+probe "a directory the glob stopped matching is red, not a suite of size zero" 1 \
+  "contains no .S programs" "$(db "$d")"
+
+d=$(db_fixture); rm "$d/dual/crosspatch.S"
+probe "a pairing naming a program nobody wrote is red" 1 \
+  "names programs that do not exist" "$(db "$d")"
+
+d=$(db_fixture); : > "$d/dual/unclaimed.S"
+probe "the other direction: a program no pairing claims to catch anything" 1 \
+  "holds programs no pairing" "$(db "$d")"
+
+# The `formal` leg has no program in its third field, and reading it as one
+# would make the set check demand a file called components_busarbiter.S.
+d=$(db_fixture); printf 'starved  formal  components_busarbiter\n' > "$d/PAIRINGS"
+probe "a mutation with no program leg is a real entry, not a missing file" 1 \
+  "holds programs no pairing" "$(db "$d")"
+
+d=$(db_fixture)
+probe "a half-installed toolchain says so once, up front" 1 \
+  "no RISC-V cross compiler found" "PATH='$tmp/bin-none' $DB $d/dual $d/asm $d/PAIRINGS"
+
+probe "objcopy is probed, not assumed to exist because gcc did" 1 \
+  "but not its matching" \
+  "PATH='$tmp/bin-noobjcopy:$tmp/bin-none' $DB $d/dual $d/asm $d/PAIRINGS"
+
+probe "a program that stopped assembling is ASSEMBLE-ERROR" 1 "ASSEMBLE-ERROR" \
+  "STUB_CC_EXIT=1 $(db "$d")"
+
+probe "assembler output on a successful build is still a defect" 1 \
+  "ASSEMBLE-WARNING" "STUB_CC_WARN=1 $(db "$d")"
+
+probe "an objcopy that refuses names the region it refused for" 1 \
+  "OBJCOPY-ERROR rom" "STUB_OBJCOPY_FAIL=1 $(db "$d")"
+
+# The quiet one: exit 0 having written nothing. A runner handed that image would
+# start, and every check that reads RAM would see zero.
+probe "an image objcopy wrote nothing into is red, not empty and accepted" 1 \
+  "OBJCOPY-EMPTY rom" "STUB_OBJCOPY_EMPTY=1 $(db "$d")"
 
 echo
 if [ "$probes" -ne "$PROBES_EXPECTED" ]; then

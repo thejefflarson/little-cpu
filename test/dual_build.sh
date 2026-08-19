@@ -54,7 +54,7 @@ fi
 # entry and not an omission -- starvation is one -- so only the `prog` lines
 # take part.
 claimed=$(sed -e 's/#.*//' "$PAIRINGS" | awk '$2 == "prog" { print $3 }' | sort -u)
-present=$(printf '%s\n' "${programs[@]}" | xargs -n1 basename | sort -u)
+present=$(for p in "${programs[@]}"; do printf '%s\n' "${p##*/}"; done | sort -u)
 
 missing=$(comm -23 <(printf '%s\n' "$claimed") <(printf '%s\n' "$present"))
 unclaimed=$(comm -13 <(printf '%s\n' "$claimed") <(printf '%s\n' "$present"))
@@ -104,7 +104,7 @@ trap 'rm -rf "$tmp"' EXIT
 
 status=0
 for src in "${programs[@]}"; do
-  name=$(basename "$src")
+  name=${src##*/}
   base=${name%.*}
   elf="$tmp/$base.elf"
   log="$tmp/$base.build.log"

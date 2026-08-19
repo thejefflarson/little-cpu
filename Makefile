@@ -541,10 +541,20 @@ mutation-check:
 mutation-probe:
 	@./test/mutation_probe.sh
 
+# The two-hart programs, which no machine in this tree can run: this assembles
+# and links each one and checks it against the pairing that claims it catches
+# something, in both directions. It is on `test` because four programs nothing
+# builds would rot between now and the day a dual runner exists, and the
+# pairings would rot with them. It needs the same cross compiler `make test`
+# already needs and no simulator, so it runs wherever the suite runs.
+.PHONY: dual-build
+dual-build:
+	@./test/dual_build.sh test/dual test/asm test/dual/MUTATION_PAIRINGS
+
 .PHONY: test
 test: sim test-units probe-gates pin-bump-test tool-cache-test memmap-test \
       compare-geometry-test retired-term-test port-connect-test march-test \
-      band-source-test window-test abc-engine-test mutation-probe
+      band-source-test window-test abc-engine-test mutation-probe dual-build
 	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 # The same suite `make test` runs, with the runner charging every cycle to the
@@ -981,6 +991,29 @@ ecp5-timing: ecp5-timing-toolchain ecp5.config
 	  --clock $(ECP5_CLOCK) --part $(ECP5_PART) --constraint-mhz $(ECP5_TARGET_MHZ)
 	@echo
 	@echo "Placement, routing and nextpnr's own timing analysis: ecp5.pnr.log"
+
+# ---- the dual-core requirement ----------------------------------------------
+#
+# The Colorlight i5's oscillator, and a REQUIREMENT rather than a measurement,
+# on the same ground SOC_MIN_MHZ stands on: it is the board's clock, and a clock
+# a design misses is not a threshold to relax. Nothing reads this yet -- no top
+# in this tree instantiates two harts -- and it is declared here rather than
+# with that top so the number is settled before the design that has to meet it
+# is drawn, which is what SOC_MIN_MHZ's own history argues for.
+#
+# GRADED WORST-OF-SIXTEEN, on nextpnr's own report. One placement is a sample
+# and there is no icetime for this part, so the engine that placed the design is
+# also the one that grades it and the only defence against that is the
+# distribution.
+#
+# THE BAND IT IS READ AGAINST DOES NOT EXIST. up5k has a measured edit-churn
+# band and a measured placement spread; this part has neither yet -- deriving
+# them is separate, in progress, and partial. So what is uncertain here is the
+# instrument and not the number, and the answer to an uncertain instrument is a
+# pinned pessimistic corner rather than a softened floor: ECP5_SPEED above is
+# the slowest of the three nextpnr offers and the part on the module. Do not
+# lower this to fit a sweep.
+DUAL_MIN_MHZ := 25.0
 
 # soc/baseline_sweep.sh stamps a sweep with the variables the build it ran
 # really used, and asks for them here rather than repeating their defaults: a
