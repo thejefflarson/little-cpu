@@ -1025,6 +1025,68 @@ ecp5-timing: ecp5-timing-toolchain ecp5.config
 	@echo
 	@echo "Placement, routing and nextpnr's own timing analysis: ecp5.pnr.log"
 
+# ---- the dual configuration, placed ----------------------------------------
+#
+# ECP5 ONLY, and that is a measurement rather than a preference: two fetch
+# windows are two copies of the banked ROM -- 32 block RAMs against the up5k's
+# 30 -- so there is no `make soc-timing` for this and the single-hart SoC is
+# still the design that part's numbers describe. Never merge a number from here
+# with one from either up5k flow.
+#
+# Same corner, same constraint, same reader and same `.lpf` as `ecp5-timing`:
+# rtl/littledualsoc.v carries rtl/littlesoc.v's four pins so that one
+# constraints file describes both. What this publishes is a frequency with no
+# ratchet -- there is no `DUAL_MIN_MHZ` here on purpose, because one placement
+# is a sample and the ECP5 spread for THIS design has not been derived.
+DUAL_SRCS := $(SIM_RTL_SRCS) rtl/busarbiter.v rtl/littledual.v rtl/littledualsoc.v
+
+# The censuses double where the design does and do not where it does not: two
+# register files of LUT RAM and two multipliers, and one data RAM -- 32 DP16KD
+# for it plus 4 for EACH of the two ROM copies.
+DUAL_EXPECT_DP16KD := 40
+DUAL_EXPECT_LUTRAM := 64
+DUAL_EXPECT_DSP    := 8
+
+dual_ecp5.json: $(DUAL_SRCS) soc-rom
+	@echo 'yosys: synthesising littledualsoc for ECP5 (log: dual_ecp5.synth.log)'
+	@yosys -p 'read_verilog -sv $(DUAL_SRCS); synth_ecp5 -top littledualsoc -json $@' \
+	  > dual_ecp5.synth.log 2>&1 || { tail -40 dual_ecp5.synth.log; exit 1; }
+	@python3 soc/cell_census.py dual_ecp5.synth.log DP16KD $(DUAL_EXPECT_DP16KD) \
+	  "two fetch windows are two copies of the banked ROM and one data RAM; a count that stopped doubling means the second window stopped being its own storage" \
+	  --gate 'make dual-ecp5-timing' --declared DUAL_EXPECT_DP16KD
+	@python3 soc/cell_census.py dual_ecp5.synth.log TRELLIS_DPR16X4 $(DUAL_EXPECT_LUTRAM) \
+	  "one register file per hart as distributed RAM; zero means it fell into flops and soft muxes, half means one core did" \
+	  --gate 'make dual-ecp5-timing' --declared DUAL_EXPECT_LUTRAM
+	@python3 soc/cell_census.py dual_ecp5.synth.log MULT18X18D $(DUAL_EXPECT_DSP) \
+	  "one multiplier per hart; in soft logic either would be invisible in a frequency number and enormous in area" \
+	  --gate 'make dual-ecp5-timing' --declared DUAL_EXPECT_DSP
+
+dual_ecp5.config: dual_ecp5.json soc/littlesoc.lpf
+	@rm -f $@ dual_ecp5.report.json
+	@echo 'nextpnr: placing and routing littledualsoc on $(ECP5_PART) (log: dual_ecp5.pnr.log)'
+	@nextpnr-ecp5 $(ECP5_DEVICE) --package $(ECP5_PACKAGE) --speed $(ECP5_SPEED) \
+	  --json $< --lpf soc/littlesoc.lpf --lpf-allow-unconstrained \
+	  --freq $(ECP5_TARGET_MHZ) $(if $(ECP5_SEED),--seed '$(ECP5_SEED)') \
+	  --textcfg $@ --report dual_ecp5.report.json > dual_ecp5.pnr.log 2>&1 || true
+	@{ test -s $@ && test -s dual_ecp5.report.json; } || { \
+	  echo '*** make dual-ecp5-timing: nextpnr wrote no configuration and report'; \
+	  echo '*** pair, so NOTHING was measured. That is a failed run, not a slow'; \
+	  echo '*** design, and it is deliberately NOT graded against whatever the'; \
+	  echo '*** last run left on disk.'; \
+	  tail -30 dual_ecp5.pnr.log; \
+	  rm -f $@ dual_ecp5.report.json; \
+	  exit 1; \
+	}
+
+.PHONY: dual-ecp5-timing
+dual-ecp5-timing: ecp5-timing-toolchain dual_ecp5.config
+	@echo
+	@echo '== nextpnr-ecp5: the DUAL frequency, its corner and its constraint =='
+	@python3 soc/ecp5_report.py dual_ecp5.report.json dual_ecp5.config \
+	  --clock $(ECP5_CLOCK) --part $(ECP5_PART) --constraint-mhz $(ECP5_TARGET_MHZ)
+	@echo
+	@echo "Placement, routing and nextpnr's own timing analysis: dual_ecp5.pnr.log"
+
 # soc/baseline_sweep.sh stamps a sweep with the variables the build it ran
 # really used, and asks for them here rather than repeating their defaults: a
 # second copy of `SOC_PROG` would stamp a sweep with a program the placements
@@ -1355,6 +1417,8 @@ clean:
 	rm -f fit.json fit.log fit.synth.log
 	rm -f soc.json soc.asc soc.synth.log soc.pnr.log soc.timing.rpt
 	rm -f ecp5.json ecp5.config ecp5.report.json ecp5.synth.log ecp5.pnr.log
+	rm -f dual_ecp5.json dual_ecp5.config dual_ecp5.report.json dual_ecp5.synth.log dual_ecp5.pnr.log
+	rm -f test/dual_rtl.cc dual-sim
 	rm -f soc/rom_even.hex soc/rom_odd.hex
 	rm -f compare.*.json compare.*.asc compare.*.log compare.*.rpt compare.vvp
 	rm -f compare.dhry.vvp
