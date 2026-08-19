@@ -222,6 +222,15 @@ def main():
     args = parser.parse_args()
 
     provenance, rows = baseline_summary.load(args.csv)
+    # Everything below walks an icetime report, and only one part has one. An
+    # ECP5 sweep would get as far as looking for a `.timing.rpt` that was never
+    # written and blame the sweep for it, so the part is checked where the answer
+    # is still readable.
+    if provenance[baseline_summary.PART_FIELD] != "up5k":
+        sys.exit(f"*** {args.csv} placed "
+                 f"{provenance[baseline_summary.PART_FIELD]}, and this script\n"
+                 "*** bins the hops of an icetime report. There is no icetime for\n"
+                 "*** any other part, so there is nothing here to walk.")
     baseline_summary.report(args.csv, provenance, rows)
     print(f"  netlist      : {args.netlist} (top {args.top})")
     print()
@@ -239,7 +248,7 @@ def main():
 
     per_seed = []
     for row in rows:
-        report = os.path.join(where, f"{row['variant']}.{row['seed']}.rpt")
+        report = os.path.join(where, f"{row['variant']}.{row['seed']}.timing.rpt")
         if not os.path.exists(report):
             sys.exit(f"*** {report} is not there, so seed '{row['seed']}' has a row\n"
                      f"*** and no placement behind it. Re-run the sweep rather than\n"

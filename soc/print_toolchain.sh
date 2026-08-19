@@ -4,6 +4,7 @@
 # when a tool cannot be asked.
 #
 #   soc/print_toolchain.sh yosys nextpnr-ice40 icetime
+#   soc/print_toolchain.sh yosys nextpnr-ecp5 trellis-db
 #   make print-toolchain TOOLS='yosys nextpnr-ice40'
 #
 # `make fit` and `make soc-timing` are graded against FIT_MAX_LC and
@@ -50,6 +51,43 @@ icetime_version() {
   fi
 }
 
+# `trellis-db` is not a program and has no version string: it is the device
+# database nextpnr-ecp5 places against, so it is resolved from that tool's own
+# install and fingerprinted by a digest of the device table it publishes. It is
+# stamped separately from the tool because it is the half of an ECP5 measurement
+# that says what the fabric IS -- an ECP5 number has no icetime behind it, so
+# nothing else in the run would notice the database moving.
+#
+# WHAT THIS DOES AND DOES NOT COVER. The OSS CAD Suite compiles the chip database
+# into the nextpnr binary, so `devices.json` fingerprints the INSTALL rather than
+# the copy that placed the design; the two move together inside a release, and
+# the `nextpnr-ecp5` line beside this one carries that binary's own path and
+# version. A from-source nextpnr built against some other database is the case
+# neither line catches on its own, which is why both are stamped and compared.
+trellis_db() {
+  # An explicit TRELLIS_DB is answered on its own: it exists for the install
+  # whose database does not sit beside the tool, and demanding the tool as well
+  # would refuse exactly the case the override is for.
+  if [ -n "${TRELLIS_DB:-}" ]; then
+    db=$TRELLIS_DB
+  else
+    pnr=$(command -v nextpnr-ecp5) || {
+      echo "*** soc/print_toolchain.sh: no nextpnr-ecp5 on PATH, so the Trellis" >&2
+      echo "*** database it places against cannot be located either." >&2
+      exit 1
+    }
+    db=$(dirname "$pnr")/../share/trellis/database
+  fi
+  devices=$db/devices.json
+  if [ ! -r "$devices" ]; then
+    echo "*** soc/print_toolchain.sh: no readable $devices, so there is no" >&2
+    echo "*** Trellis database to stamp this measurement with. Set TRELLIS_DB" >&2
+    echo "*** to the database directory rather than leaving it unrecorded." >&2
+    exit 1
+  fi
+  printf 'devices.json sha256:%s [%s]' "$(digest "$devices")" "$db"
+}
+
 # Graded on the tool's own status and not merely on whether it printed: the
 # local nextpnr on one machine here answers `--version` with a dynamic-linker
 # error, which is a non-empty first line and would otherwise be stamped as the
@@ -76,6 +114,13 @@ nl='
 '
 block=
 for tool in "$@"; do
+  # Resolved on its own terms rather than through `command -v`: it is a
+  # database, not a program, and asking PATH for it would only ever refuse.
+  if [ "$tool" = trellis-db ]; then
+    version=$(trellis_db) || exit 1
+    block=${block:+$block$nl}"# trellis-db: $version"
+    continue
+  fi
   path=$(command -v "$tool") || {
     echo "*** soc/print_toolchain.sh: no $tool on PATH, so there is nothing to" >&2
     echo "*** stamp this measurement with." >&2

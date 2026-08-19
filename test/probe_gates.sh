@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=348
+PROBES_EXPECTED=420
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -1029,6 +1029,7 @@ bs_sweep() {  # <file> <base> <dirty> <yosys>
 # date: 2026-08-16T00:00:00Z
 # base: $2
 # dirty: $3
+# part: up5k
 # yosys: $4 [/opt/bin/yosys]
 # nextpnr-ice40: nextpnr-0.11 [/opt/bin/nextpnr-ice40]
 # icetime: oss-cad-suite 20260811 sha256:0123456789abcdef [/opt/bin/icetime]
@@ -1041,6 +1042,34 @@ bs_sweep() {  # <file> <base> <dirty> <yosys>
 part,variant,seed,ns,mhz,lut_levels,carry_hops,logic_ns,routing_ns,lc,start,end
 up5k,sweep,default,80.00,12.50,23,4,20.00,60.00,4769,rom_RDATA,next_pc
 up5k,sweep,1,82.00,12.20,24,4,21.00,61.00,4769,rom_RDATA,next_pc
+EOF
+}
+
+# The other part's stamp, which is a different SET of fields rather than the same
+# fields with different values: no icetime, the database nextpnr places against,
+# and the constraint it was handed. The four icetime columns are the `NA` literal
+# soc/depth/row.py writes for a part with no icetime walk behind it.
+bs_ecp5() {  # <file> <base> <dirty> <yosys>
+  cat > "$1" <<EOF
+# baseline-sweep v1
+# date: 2026-08-16T00:00:00Z
+# base: $2
+# dirty: $3
+# part: ecp5
+# yosys: $4 [/opt/bin/yosys]
+# nextpnr-ecp5: nextpnr-0.11 [/opt/bin/nextpnr-ecp5]
+# trellis-db: devices.json sha256:0123456789abcdef [/opt/share/trellis/database]
+# corner: LFE5U-25F-6CABGA381
+# constraint_mhz: 200.0
+# prog: datainit.c
+# rom_words: 2048
+# seeds: default 1
+# host: Darwin arm64 25.3.0
+# reproduce: git checkout $2 && BASELINE_PART=ecp5 soc/baseline_sweep.sh
+# end-provenance
+part,variant,seed,ns,mhz,lut_levels,carry_hops,logic_ns,routing_ns,lc,start,end
+ecp5,sweep,default,29.72,33.65,NA,NA,NA,NA,5331,imem.rom_even,imem.rom_odd
+ecp5,sweep,1,28.80,34.73,NA,NA,NA,NA,5331,imem.rom_even,imem.rom_odd
 EOF
 }
 
@@ -1112,7 +1141,85 @@ d=$(bs_fixture)
 probe "a sweep file that is not there reads as missing, not as empty" 1 \
   "nothing to summarise" "$BS $d/gone.csv"
 
+# ---- the part, which is a stamped and compared field and not just a column ----
+#
+# The subtraction these forbid was available for as long as `part` was a CSV
+# column nothing read: two sweeps of two different fabrics, placed by two
+# different engines and graded by two different classes of estimator, would
+# produce a tidy percentage under a heading that says "delta".
+
+bs_pair() {  # an up5k sweep and an ECP5 one, same tree, same everything else
+  local d; d=$(new_case)
+  bs_sweep "$d/up5k.csv" aaaaaaaaaaaa no 'Yosys 0.68'
+  bs_ecp5 "$d/ecp5.csv" aaaaaaaaaaaa no 'Yosys 0.68'
+  printf '%s' "$d"
+}
+
+d=$(bs_pair)
+probe "control: an ECP5 sweep summarises against its own instrument" 0 \
+  "2 placements" "$BS $d/ecp5.csv"
+
+d=$(bs_pair)
+probe "control: and names the corner and constraint it was placed against" 0 \
+  "LFE5U-25F-6CABGA381" "$BS $d/ecp5.csv"
+
+# The four icetime columns, which this part has none of. A zero here is a number
+# somebody subtracts; the literal is a statement that no such number exists.
+d=$(bs_pair)
+probe "a part with no icetime walk reads NA rather than a fabricated zero" 0 \
+  "LUT levels   : NA   carry hops: NA" "$BS $d/ecp5.csv"
+
+d=$(bs_pair)
+probe "and says why it is NA, so it is not read as a path with no logic on it" 0 \
+  "no icetime walk behind it" "$BS $d/ecp5.csv"
+
+d=$(bs_pair)
+probe "the cell count names its own unit rather than borrowing the other's" 0 \
+  "TRELLIS_COMB: 5331" "$BS $d/ecp5.csv"
+
+d=$(bs_fixture); sed -i.bak '/^# part: up5k/d' "$d/before.csv"
+probe "a sweep that names no part says which instrument is missing" 1 \
+  "names no part" "$BS $d/before.csv"
+
+d=$(bs_fixture); sed -i.bak 's/^# part: up5k/# part: ecp5x/' "$d/before.csv"
+probe "a part this script cannot grade a stamp for is rejected, not guessed at" 1 \
+  "not one this" "$BS $d/before.csv"
+
+# Both directions of "the stamp describes a run that did not happen". The first
+# is the shape a hand-edited header takes when someone changes the part line to
+# make a comparison stop complaining.
+d=$(bs_fixture); sed -i.bak 's/^# part: up5k/# part: ecp5/' "$d/before.csv"
+probe "an ECP5 stamp carrying up5k's tools is missing its own" 1 \
+  "missing nextpnr-ecp5, trellis-db" "$BS $d/before.csv"
+
+# A complete up5k stamp with one ECP5 field added, so the `missing` check has
+# nothing to say and the foreign-field check is the one under test.
+d=$(bs_fixture)
+sed -i.bak 's|^# icetime: \(.*\)$|# icetime: \1\
+# nextpnr-ecp5: nextpnr-0.11 [/opt/bin/nextpnr-ecp5]|' "$d/before.csv"
+probe "and an up5k stamp carrying an ECP5 tool is rejected on the foreign field" 1 \
+  "belongs to another part's instrument" "$BS $d/before.csv"
+
+d=$(bs_pair)
+probe "two parts are refused rather than subtracted" 1 \
+  "There is no difference between them" "$BS $d/up5k.csv $d/ecp5.csv"
+
+# THE ONE THAT MATTERS. --allow-mismatch covers a tree, a toolchain, a program
+# and a ROM size, every one of which can be a deliberate before-and-after. It
+# must not cover this one, and the probe above passing says nothing about that.
+d=$(bs_pair)
+probe "and --allow-mismatch does NOT cover a cross-part subtraction" 1 \
+  "does NOT cover this" "$BS $d/up5k.csv $d/ecp5.csv --allow-mismatch"
+
+d=$(bs_pair)
+probe "the refusal is the part, not the four tool mismatches it also produces" 1 \
+  "placed up5k and" "$BS $d/up5k.csv $d/ecp5.csv --allow-mismatch"
+
 begin_group "soc/baseline_sweep.sh"
+
+probe "a part this repo does not place stops the sweep before any placement" 2 \
+  "BASELINE_PART is 'xc7'" \
+  "BASELINE_PART=xc7 sh $REPO/soc/baseline_sweep.sh"
 
 # The rest of this script places the SoC, so this is the one check in it that
 # runs without yosys, nextpnr or a cross compiler -- and it is the one that
@@ -1156,6 +1263,125 @@ probe "one red tool leaves no partial stamp on stdout" 0 "stdout=empty" pt_parti
 probe "a tool that is not installed names itself rather than the list" 1 \
   "no nosuchtool on PATH" "$PT nosuchtool"
 
+# The Trellis database is stamped as a pseudo-tool, so it has its own refusal:
+# it is resolved from nextpnr-ecp5's install, and the fixture PATH here has no
+# nextpnr-ecp5 in it at all.
+probe "the Trellis database cannot be stamped without the tool it belongs to" 1 \
+  "no nextpnr-ecp5 on PATH" "$PT trellis-db"
+
+probe "and an empty TRELLIS_DB is refused rather than stamped as nothing" 1 \
+  "no readable" "TRELLIS_DB='$tmp/no-such-db' PATH='$tmp/bin-tools' \
+    $REPO/soc/print_toolchain.sh trellis-db"
+
+begin_group "soc/bands.py"
+
+# The band figures had six prose copies and no owner. What is forced red here is
+# the property that replaced them: a part whose band nobody measured gets an
+# answer about THAT part, never another part's numbers. A fallback would be a
+# wrong answer that looks exactly like a right one, and every caller here prints
+# what it gets without checking.
+BD="python3 $REPO/soc/bands.py"
+
+probe "control: a derived part states both figures and names itself" 0 \
+  "up5k (make soc-timing): placement spread" "$BD up5k"
+
+probe "control: the note a delta is read against carries the part too" 0 \
+  "up5k" "$BD up5k --note"
+
+# hx8k is the cross-core harness's part and nothing has ever been swept on it.
+# It is in the table precisely so that asking gets this sentence rather than a
+# KeyError somebody would 'fix' by copying up5k's row.
+probe "an underived part says so rather than borrowing another part's band" 0 \
+  "no other part's transfer" "$BD hx8k"
+
+probe "a caller that needs the figures rather than the prose is refused" 1 \
+  "no band has been derived for hx8k" "$BD hx8k --require"
+
+probe "and is told that another part's does not transfer" 1 \
+  "does not transfer" "$BD hx8k --require"
+
+probe "a part this repo does not place is refused, not added by asking" 1 \
+  "is not a part this repo places" "$BD xc7"
+
+probe "--list answers for every part, derived or not" 0 \
+  "hx8k: no placement spread" "$BD --list"
+
+begin_group "test/band_source_test.py"
+
+# A COPY OF THE SHIPPING FILES plus a `git init`, the same fixture shape
+# test/march_test.sh's probes use and for the same reason: the control is then
+# the real tree, and every red probe is one edit away from it.
+BSRC="python3 $HERE/band_source_test.py"
+
+bsrc_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/soc" "$d/test" "$d/docs/adr" "$d/rtl"
+  cp "$REPO/CLAUDE.md" "$d/"
+  cp "$REPO/soc/bands.py" "$REPO/soc/timing_sweep.sh" "$REPO/soc/baseline_summary.py" "$d/soc/"
+  cp "$REPO/test/band_source_test.py" "$d/test/"
+  # One real ADR, because that directory is exempt and the exemption is itself a
+  # decision worth a probe: a dated record must NOT move when a later sweep
+  # moves the band.
+  cp "$REPO/docs/adr/0121-the-occupancy-prediction-is-registered-and-the-placement-spread-is-corrected.md" \
+     "$d/docs/adr/"
+  git -c init.defaultBranch=main -C "$d" init -q
+  git -C "$d" add -A
+  printf '%s' "$d"
+}
+
+bsrc_edit() {  # $1 = fixture, $2 = path within it, $3 = sed expression
+  sed -i.bak "$3" "$1/$2"
+  rm -f "$1/$2.bak"
+  git -C "$1" add -A
+}
+
+d=$(bsrc_fixture)
+probe "control: the shipping tree states every band figure in one place" 0 \
+  "every band figure is soc/bands.py's" "$BSRC $d"
+
+# The defect this exists for, reintroduced: a comment stating a spread.
+d=$(bsrc_fixture)
+bsrc_edit "$d" soc/timing_sweep.sh \
+  's|^# One placement is a sample|# The placement spread is 1-2%.\n# One placement is a sample|'
+probe "a prose copy of a band figure goes red where it is written" 1 \
+  "soc/timing_sweep.sh" "$BSRC $d"
+
+d=$(bsrc_fixture)
+bsrc_edit "$d" soc/timing_sweep.sh \
+  's|^# One placement is a sample|# The placement spread is 1-2%.\n# One placement is a sample|'
+probe "and is named as a percentage beside the word that makes it a claim" 1 \
+  "beside 'churn' or 'spread'" "$BSRC $d"
+
+# The wrapped case, which is how all six of the real copies were written: the
+# word on one line and the number on the next.
+d=$(bsrc_fixture)
+bsrc_edit "$d" soc/baseline_summary.py \
+  's|^WORST, MEDIAN AND SPREAD|A wrapped churn band of\n3.9% goes here.\nWORST, MEDIAN AND SPREAD|'
+probe "a copy wrapped across lines is caught, not read as two harmless ones" 1 \
+  "soc/baseline_summary.py" "$BSRC $d"
+
+# The staleness direction. The rulebook keeps its copy on purpose and it is
+# graded, so a re-derived band that was not carried into it goes red.
+d=$(bsrc_fixture)
+bsrc_edit "$d" CLAUDE.md 's|4–9% placement spread|5–11% placement spread|'
+probe "the rulebook quoting a figure the source no longer states is red" 1 \
+  "CLAUDE.md states no placement spread" "$BSRC $d"
+
+d=$(bsrc_fixture)
+bsrc_edit "$d" CLAUDE.md 's|`soc/bands.py` is the one place|it is the one place|'
+probe "and a rulebook that does not name the source is red too" 1 \
+  "does not name soc/bands.py" "$BSRC $d"
+
+# The exemption, asserted rather than assumed. An ADR is a measurement with a
+# date on it: if this went red for one, the pressure would be to edit the record.
+d=$(bsrc_fixture)
+probe "a dated ADR stating an old band figure is NOT red" 0 \
+  "every band figure is soc/bands.py's" "$BSRC $d"
+
+d=$(bsrc_fixture); rm -f "$d/soc/bands.py"; git -C "$d" add -A
+probe "a tree with no source file at all is red rather than vacuously green" 1 \
+  "is not in" "$BSRC $d"
+
 begin_group "soc/routing_bins.py"
 
 # One placement's worth of fixture: an icetime report whose path leaves a block
@@ -1166,7 +1392,7 @@ begin_group "soc/routing_bins.py"
 rb_fixture() {
   local d; d=$(new_case)
   mkdir -p "$d/sweep"
-  cat > "$d/sweep/probe.default.rpt" <<'RPT'
+  cat > "$d/sweep/probe.default.timing.rpt" <<'RPT'
         ram0 (SB_RAM40_4K) [clk] -> RDATA[0]: 1.279 ns
      1.279 ns net_1 (mem.rdata[0])
         odrv_0 (Odrv4) I -> O: 0.649 ns
@@ -1184,6 +1410,7 @@ RPT
 # date: 2026-08-16T00:00:00Z
 # base: aaaaaaaaaaaa
 # dirty: no
+# part: up5k
 # yosys: Yosys 0.68 [/opt/bin/yosys]
 # nextpnr-ice40: nextpnr-0.11 [/opt/bin/nextpnr-ice40]
 # icetime: oss-cad-suite 20260811 sha256:0123456789abcdef [/opt/bin/icetime]
@@ -1237,7 +1464,7 @@ probe "control: the pc hop reaches the pc bin, by the declared net's bits" 0 \
 d=$(rb_fixture)
 mkdir -p "$d/soc/depth"
 cp "$REPO/soc/routing_bins.py" "$REPO/soc/timing_split.py" \
-   "$REPO/soc/baseline_summary.py" "$d/soc/"
+   "$REPO/soc/baseline_summary.py" "$REPO/soc/bands.py" "$d/soc/"
 cp "$REPO/soc/depth/path_stages.py" "$d/soc/depth/"
 sed -i.bak 's/if kind in LOGIC_CELLS:/if kind in LOGIC_CELLS or kind == "Odrv4":/' \
   "$d/soc/timing_split.py"
@@ -1246,7 +1473,7 @@ probe "two walks disagreeing about what routing is refuse to print a histogram" 
   "python3 $d/soc/routing_bins.py $d/sweep/probe.csv $d/soc.json"
 
 d=$(rb_fixture)
-cat > "$d/sweep/probe.default.rpt" <<'RPT'
+cat > "$d/sweep/probe.default.timing.rpt" <<'RPT'
         lc40_0 (LogicCell40) in0 -> lcout: 1.285 ns
      1.285 ns net_1 (mid[0])
               lcout -> mid[0]
@@ -1256,9 +1483,19 @@ RPT
 probe "a report with no routing hop in it is a failed read, not a wired design" 1 \
   "no routing hop was read" "$(rb "$d")"
 
-d=$(rb_fixture); rm "$d/sweep/probe.default.rpt"
+d=$(rb_fixture); rm "$d/sweep/probe.default.timing.rpt"
 probe "a row with no placement behind it stops the read, not just that seed" 1 \
   "no placement behind it" "$(rb "$d")"
+
+# Everything this script does walks an icetime report, and one of the two parts
+# has none. Refused where the answer is still readable, rather than a hundred
+# lines later blaming the sweep for a report it never wrote.
+# A WELL-FORMED sweep of the other part, not this one's stamp with its part line
+# flipped: that shape is rejected by the shared reader first, so it would probe
+# the field check rather than this one.
+d=$(rb_fixture); bs_ecp5 "$d/sweep/probe.csv" aaaaaaaaaaaa no 'Yosys 0.68'
+probe "a sweep of the part with no icetime is refused, not walked" 1 \
+  "there is nothing here to walk" "$(rb "$d")"
 
 d=$(rb_fixture); sed -i.bak 's/"mem.rdata"/"other.rdata"/' "$d/soc.json"
 probe "a netlist from another tree is named, not binned as \`neither\`" 1 \
@@ -1556,21 +1793,24 @@ JSON
   # `ecp5.json` is newer than the pair, and a stamp settles that without leaning
   # on the filesystem's timestamp resolution.
   touch -t 202001010000 "$d/ecp5.config" "$d/ecp5.report.json"
-  # `ecp5-timing-toolchain` asks both tools for a version before anything else
-  # runs, so both have to answer or a probe would go red before reaching the
-  # guard it is about.
+  # `ecp5-timing-toolchain` asks both tools for a version and the Trellis
+  # database for its device table before anything else runs, so all three have
+  # to answer or a probe would go red before reaching the guard it is about.
   printf '#!/bin/sh\necho "stub yosys"\n' > "$d/bin/yosys"
   { echo '#!/bin/sh'
     echo 'case "$1" in --version|-V) echo "stub nextpnr-ecp5"; exit 0;; esac'
     cat
   } > "$d/bin/nextpnr-ecp5"
   chmod +x "$d/bin/yosys" "$d/bin/nextpnr-ecp5"
+  mkdir -p "$d/trellis-db"
+  echo '{"families": {}}' > "$d/trellis-db/devices.json"
   touch "$d/ecp5.json"
   printf '%s' "$d"
 }
 
 ecp5_stale_run() {  # $1 = fixture dir
-  printf "cd '%s' && PATH='%s/bin':\$PATH make -o soc-rom ecp5-timing" "$1" "$1"
+  printf "cd '%s' && PATH='%s/bin':\$PATH TRELLIS_DB='%s/trellis-db' make -o soc-rom ecp5-timing" \
+    "$1" "$1" "$1"
 }
 
 # Stands in for a COMPLETE run: writes both files and exits 1, which is what the
@@ -2780,6 +3020,440 @@ probe "a respelled trap_pending stops: an uncommitted fault proves nothing" 2 \
 d=$(tr_fixture); rm "$d/formal/traps.sv"
 probe "the model moving away takes the probe with it, loudly" 2 \
   "formal/traps.sv is missing from" "$(trs "$d")"
+
+begin_group "soc/netlist_digest.py"
+
+ND="python3 $REPO/soc/netlist_digest.py"
+
+# A yosys-shaped netlist small enough to read: one blackbox module, one top with
+# two cells, one port and one named net. Written by hand rather than captured,
+# because a captured one is 7 MB and every edit below has to be visible.
+nd_netlist() {  # <file>
+  cat > "$1" <<'JSON'
+{
+  "creator": "Yosys 0.68 (git sha1 abcdef0)",
+  "modules": {
+    "SB_LUT4": {
+      "attributes": { "blackbox": "00000000000000000000000000000001" },
+      "ports": { "O": { "direction": "output", "bits": [2] } },
+      "cells": {},
+      "netnames": {}
+    },
+    "littlesoc": {
+      "attributes": {
+        "top": "00000000000000000000000000000001",
+        "src": "rtl/littlesoc.v:4.1-99.10"
+      },
+      "ports": { "clk": { "direction": "input", "bits": [2] } },
+      "cells": {
+        "lut.1": {
+          "hide_name": 1, "type": "SB_LUT4",
+          "parameters": { "LUT_INIT": "1010101010101010" },
+          "attributes": { "src": "rtl/decoder.v:120.3-120.9", "hdlname": "decode" },
+          "connections": { "I0": [2], "O": [3] }
+        },
+        "dff.2": {
+          "hide_name": 1, "type": "SB_DFF", "parameters": {},
+          "attributes": {
+            "src": "rtl/decoder.v:121.3-121.9",
+            "module_src": "rtl/decoder.v:4.1-1205.10"
+          },
+          "connections": { "C": [2], "D": [3], "Q": [4] }
+        }
+      },
+      "netnames": {
+        "clk": {
+          "hide_name": 0, "bits": [2],
+          "attributes": { "src": "rtl/littlesoc.v:5.1-5.9" }
+        }
+      }
+    }
+  }
+}
+JSON
+}
+
+nd_pair() {  # a fixture directory holding base.json and new.json, identical
+  local d; d=$(new_case)
+  nd_netlist "$d/base.json"
+  nd_netlist "$d/new.json"
+  printf '%s' "$d"
+}
+
+d=$(nd_pair)
+probe "control: a netlist digests, and the digest is a sha256" 0 \
+  "digest    sha256:" "$ND digest $d/base.json"
+
+d=$(nd_pair)
+probe "control: the digest states what its two verdicts mean" 0 \
+  "sound in one" "$ND digest $d/base.json"
+
+d=$(nd_pair)
+probe "control: two identical netlists are equal" 0 "DIGEST-EQUAL" \
+  "$ND compare $d/base.json $d/new.json"
+
+# The comment and whitespace classes, which is every `src` and `module_src` in
+# the file moving and nothing else. This is the whole reason a bare hash of the
+# netlist was not enough.
+d=$(nd_pair); sed -i.bak 's/\.v:\([0-9]*\)\./.v:9\1./g' "$d/new.json"
+probe "every source line moving is the comment class, and is forgiven" 0 \
+  "DIGEST-EQUAL" "$ND compare $d/base.json $d/new.json"
+
+# ...and only those two. An attribute that is not a source line is a difference,
+# because dropping one is forgiving one, and the placer is not obliged to agree.
+d=$(nd_pair); sed -i.bak 's/"hdlname": "decode"/"hdlname": "decoder"/' "$d/new.json"
+probe "an attribute that is not a source line is not forgiven" 1 \
+  "DIGEST-DIFFERENT" "$ND compare $d/base.json $d/new.json"
+
+# The dead tie-off class is `opt_clean -purge`'s to remove, upstream of this
+# script. What is pinned here is that this script does NOT forgive a dead net
+# left in the file: a netlist that still carries one is a netlist that differs.
+d=$(nd_pair)
+python3 - "$d/new.json" <<'PY'
+import json, sys
+design = json.load(open(sys.argv[1]))
+design["modules"]["littlesoc"]["netnames"]["dead_tieoff"] = {
+    "hide_name": 0, "bits": [5],
+    "attributes": {"unused_bits": "0 1", "src": "rtl/decoder.v:98.3-98.9"}}
+json.dump(design, open(sys.argv[1], "w"))
+PY
+probe "a dead net still in the file is a difference, not a forgiveness" 1 \
+  "named nets: 1 -> 2" "$ND compare $d/base.json $d/new.json"
+
+# A one-bit constant change: no module, cell count or port moves, so the
+# structural summary has nothing to say and the report has to name the path.
+d=$(nd_pair); sed -i.bak 's/1010101010101010/1010101010101011/' "$d/new.json"
+probe "a one-bit constant is a different digest" 1 "DIGEST-DIFFERENT" \
+  "$ND compare $d/base.json $d/new.json"
+
+d=$(nd_pair); sed -i.bak 's/1010101010101010/1010101010101011/' "$d/new.json"
+probe "...and the report names the parameter, not merely 'changed'" 1 \
+  "parameters.LUT_INIT: 1010101010101010 -> 1010101010101011" \
+  "$ND compare $d/base.json $d/new.json"
+
+d=$(nd_pair); sed -i.bak 's/"dff.2"/"dff.3"/' "$d/new.json"
+probe "a renamed cell is named by path" 1 "cells.dff.2: in base only" \
+  "$ND compare $d/base.json $d/new.json"
+
+d=$(nd_pair); sed -i.bak 's/"type": "SB_DFF"/"type": "SB_LUT4"/' "$d/new.json"
+probe "a cell type that moved is reported as a count, both ways" 1 \
+  "SB_LUT4                       1 ->      2  (+1)" \
+  "$ND compare $d/base.json $d/new.json"
+
+d=$(nd_pair)
+sed -i.bak 's/"clk": { "direction": "input", "bits": \[2\] }/"clk": { "direction": "input", "bits": [2] }, "hart_id": { "direction": "input", "bits": [7] }/' "$d/new.json"
+probe "a port that appeared is named, which is what a tie-off adds" 1 \
+  "port hart_id: (none) -> input [1]" "$ND compare $d/base.json $d/new.json"
+
+d=$(nd_pair); sed -i.bak 's/"SB_LUT4": {/"SB_MAC16": { "attributes": {}, "ports": {}, "cells": {}, "netnames": {} },\n    "SB_LUT4": {/' "$d/new.json"
+probe "a module that appeared is named too" 1 "modules in this tree only: SB_MAC16" \
+  "$ND compare $d/base.json $d/new.json"
+
+# The toolchain is inside the digest, so a yosys that moved reads as different.
+# That is the sound direction and the one this repo has been bitten in.
+d=$(nd_pair); sed -i.bak 's/Yosys 0.68 (git sha1 abcdef0)/Yosys 0.55 (git sha1 abcdef0)/' "$d/new.json"
+probe "a toolchain that moved is a different digest, and is named first" 1 \
+  "toolchain: Yosys 0.68" "$ND compare $d/base.json $d/new.json"
+
+# The four refusals. None of them may read as equal: the whole value of this
+# gate is that its equal verdict is the one that skips twelve minutes of work.
+d=$(nd_pair)
+probe "a netlist that is not there is refused, not read as equal" 2 \
+  "so there is nothing to digest" "$ND compare $d/gone.json $d/new.json"
+
+d=$(nd_pair); : > "$d/new.json"
+probe "an empty netlist is a synthesis that wrote nothing" 2 \
+  "empty, which is a synthesis that wrote nothing" \
+  "$ND compare $d/base.json $d/new.json"
+
+d=$(nd_pair); head -c 400 "$d/base.json" > "$d/new.json"
+probe "a truncated netlist is refused, which is what a full disk leaves" 2 \
+  "not parseable as JSON" "$ND compare $d/base.json $d/new.json"
+
+d=$(nd_pair); printf '{"creator": "yosys"}' > "$d/new.json"
+probe "JSON that is not a netlist is refused" 2 \
+  "no \`modules\` object in it" "$ND compare $d/base.json $d/new.json"
+
+d=$(nd_pair); sed -i.bak 's/"top": "00000000000000000000000000000001",//' "$d/new.json"
+probe "a netlist with no top module names no one design" 2 \
+  "0 modules are marked \`top\`" "$ND compare $d/base.json $d/new.json"
+
+d=$(nd_pair); python3 - "$d/new.json" <<'PY'
+import json, sys
+design = json.load(open(sys.argv[1]))
+design["modules"]["littlesoc"]["cells"] = {}
+json.dump(design, open(sys.argv[1], "w"))
+PY
+probe "a top module with no cells in it is a failed synthesis" 2 \
+  "has no cells in it" "$ND compare $d/base.json $d/new.json"
+
+begin_group "soc/netlist_determinism.sh"
+
+# The control that decides whether the digest means anything, run against stub
+# tools: three placements of the real flow are three minutes and need yosys and
+# nextpnr, and what is graded here is the four comparisons rather than the
+# placer. The stubs are keyed on the paths the script itself chooses, so a
+# renamed output would stop them standing in.
+nl_stub_yosys() {  # $1 = bin dir, $2 = fixture dir
+  cat > "$1/yosys" <<STUB
+#!/bin/sh
+# Writes the fixture netlist the -p script names as its output. Which fixture
+# depends on the tree it is run in and on whether the script asks for the purge:
+# the shipping forms are only ever compared byte for byte, the canonical ones
+# are read by the real soc/netlist_digest.py.
+script=; prev=
+for a in "\$@"; do
+  if [ "\$prev" = "-p" ]; then script=\$a; fi
+  prev=\$a
+done
+out=\$(printf '%s' "\$script" | tr ' ' '\n' | tail -1)
+case \$(pwd) in
+  */mutant) tree=mutant ;;
+  *)        tree=this ;;
+esac
+case \$script in
+  *"opt_clean -purge"*)
+    if [ "\$tree" = mutant ] && [ -n "\${STUB_YOSYS_CANON_MOVED:-}" ]; then
+      cp "$2/canon.moved.json" "\$out"
+    elif [ "\$tree" = mutant ] && [ -n "\${STUB_YOSYS_DEAD_SURVIVES:-}" ]; then
+      cp "$2/canon.dead.json" "\$out"
+    else
+      cp "$2/canon.json" "\$out"
+    fi ;;
+  *)
+    if [ "\$tree" != mutant ] || [ -n "\${STUB_YOSYS_NO_TRACE:-}" ]; then
+      printf 'shipping netlist\n' > "\$out"
+    elif [ -n "\${STUB_YOSYS_NO_DEAD:-}" ]; then
+      printf 'shipping netlist, mutated\n' > "\$out"
+    else
+      printf 'shipping netlist, mutated, netlist_control_dead\n' > "\$out"
+    fi ;;
+esac
+exit \${STUB_YOSYS_EXIT:-0}
+STUB
+  chmod +x "$1/yosys"
+}
+
+nl_stub_pnr() {  # $1 = bin dir
+  cat > "$1/nextpnr-ice40" <<'STUB'
+#!/bin/sh
+# Stands in for the placer. The bitstream it writes is keyed on the output name
+# the script asked for, so a placement that is not a function of the netlist and
+# a mutant that places elsewhere are each one environment variable away.
+asc=; prev=
+for a in "$@"; do
+  if [ "$prev" = "--asc" ]; then asc=$a; fi
+  prev=$a
+done
+if [ -n "${STUB_PNR_EMPTY:-}" ]; then exit 1; fi
+bits=placement-A
+case $asc in
+  *mutant.asc) if [ -n "${STUB_PNR_MUTANT_MOVED:-}" ]; then bits=placement-B; fi ;;
+  *this.2.asc) if [ -n "${STUB_PNR_FLAKY:-}" ]; then bits=placement-B; fi ;;
+esac
+printf '%s\n' "$bits" > "$asc"
+# Killed part-way through the write: a non-empty bitstream, and a log that never
+# reaches the line the real placer prints after finishing one.
+if [ -n "${STUB_PNR_TRUNCATED:-}" ]; then exit 137; fi
+echo "Info: Program finished normally."
+STUB
+  chmod +x "$1/nextpnr-ice40"
+}
+
+nl_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/bin" "$d/repo/rtl" "$d/repo/soc" "$d/fix"
+  cp "$REPO/soc/netlist_determinism.sh" "$REPO/soc/netlist_digest.py" "$d/repo/soc/"
+  # Two lines of the shape the injection reaches for: a trailing `endmodule` and
+  # the signal the dead wire reads.
+  cat > "$d/repo/rtl/decoder.v" <<'RTL'
+module decoder (input logic [31:0] reg_rs1, output logic [31:0] out);
+  assign out = reg_rs1;
+endmodule
+RTL
+  nd_netlist "$d/fix/canon.json"
+  nd_netlist "$d/fix/canon.moved.json"
+  sed -i.bak 's/1010101010101010/1010101010101011/' "$d/fix/canon.moved.json"
+  # A canonical form the purge did NOT clean the dead net out of.
+  nd_netlist "$d/fix/canon.dead.json"
+  sed -i.bak 's/"hdlname": "decode"/"hdlname": "netlist_control_dead"/' \
+    "$d/fix/canon.dead.json"
+  nl_stub_yosys "$d/bin" "$d/fix"
+  nl_stub_pnr "$d/bin"
+  printf '%s' "$d"
+}
+
+nl_run() {  # <fixture dir> [what follows the stubs on PATH]
+  printf '%s' "PATH=$1/bin:${2:-\$PATH} \
+    NETLIST_SYNTH='read_verilog -sv rtl/decoder.v; synth_ice40 -top littlesoc' \
+    NETLIST_PNR='nextpnr-ice40 --up5k' NETLIST_PNR_OUT=--asc \
+    NETLIST_MUTANT='rtl/decoder.v reg_rs1' \
+    sh $1/repo/soc/netlist_determinism.sh"
+}
+
+d=$(nl_fixture)
+probe "control: a deterministic placer and a forgiven mutant pass" 0 \
+  "netlist-determinism: PASS" "$(nl_run "$d")"
+
+d=$(nl_fixture)
+probe "one netlist placed twice giving two bitstreams voids the gate" 1 \
+  "Placement is not a function of the netlist" \
+  "STUB_PNR_FLAKY=1 $(nl_run "$d")"
+
+d=$(nl_fixture)
+probe "a mutant the digest calls equal placing elsewhere voids it too" 1 \
+  "placed to different bitstreams" "STUB_PNR_MUTANT_MOVED=1 $(nl_run "$d")"
+
+# The vacuity check. Without it the control passes hardest when it is testing
+# nothing, which is the shape of every defect this file exists for.
+d=$(nl_fixture)
+probe "a mutant that left no trace demonstrates nothing, and says so" 1 \
+  "nothing was injected" "STUB_YOSYS_NO_TRACE=1 $(nl_run "$d")"
+
+d=$(nl_fixture)
+probe "a canonical form that stopped forgiving the class is red" 1 \
+  "no longer forgives a comment" "STUB_YOSYS_CANON_MOVED=1 $(nl_run "$d")"
+
+d=$(nl_fixture)
+probe "a placer that wrote no bitstream placed nothing, which is not a pass" 1 \
+  "wrote no bitstream" "STUB_PNR_EMPTY=1 $(nl_run "$d")"
+
+# THE ONE A NON-EMPTY FILE HIDES: a placer killed mid-write leaves a partial
+# bitstream, and a deterministic one killed three times leaves three partial
+# files that compare equal. Size alone calls that a placement.
+d=$(nl_fixture)
+probe "a bitstream the placer never finished writing is not a placement" 1 \
+  "never finished" "STUB_PNR_TRUNCATED=1 $(nl_run "$d")"
+
+# The vacuity checks the comment class cannot stand in for. The mutant carries
+# three edits and the comment alone makes its netlist differ, so "something
+# moved" says nothing about the dead net -- which is the class the purge is what
+# forgives.
+d=$(nl_fixture)
+probe "a dead tie-off that never reached the netlist exercises no class" 1 \
+  "left no trace in the mapped netlist" "STUB_YOSYS_NO_DEAD=1 $(nl_run "$d")"
+
+d=$(nl_fixture)
+probe "...and one the purge did not remove means the digest is equal by luck" 1 \
+  "survives" "STUB_YOSYS_DEAD_SURVIVES=1 $(nl_run "$d")"
+
+d=$(nl_fixture)
+probe "a synthesis that failed is not a passed control either" 1 \
+  "could not synthesise" "STUB_YOSYS_EXIT=1 $(nl_run "$d")"
+
+# These two name the WHOLE path, for the reason the `bin-none` note above gives:
+# with the caller's PATH behind the stubs, deleting one finds the host's real
+# yosys or nextpnr and the probe demonstrates nothing. Both refusals fire before
+# anything is synthesised, so /usr/bin and /bin are all either one needs.
+d=$(nl_fixture); rm "$d/bin/yosys"
+probe "no yosys on PATH is refused rather than skipped" 2 "no yosys on PATH" \
+  "$(nl_run "$d" /usr/bin:/bin)"
+
+d=$(nl_fixture); rm "$d/bin/nextpnr-ice40"
+probe "no placer on PATH is refused the same way" 2 \
+  "no nextpnr-ice40 on PATH" "$(nl_run "$d" /usr/bin:/bin)"
+
+d=$(nl_fixture); sed -i.bak 's/reg_rs1/reg_rs9/g' "$d/repo/rtl/decoder.v"
+probe "an injection site that moved stops the control, loudly" 1 \
+  "the mutant could not be built" "$(nl_run "$d")"
+
+# The quiet way that site rots: the signal is still in the FILE, in a module the
+# tie-off does not land in. Implicitly declared one bit wide, its part-selects
+# fold to a constant and the assign is optimised away -- so the check has to be
+# scoped to the module being spliced into, not to the file.
+d=$(nl_fixture)
+cat > "$d/repo/rtl/decoder.v" <<'RTL'
+module regsel (input logic [31:0] reg_rs1, output logic [31:0] picked);
+  assign picked = reg_rs1;
+endmodule
+module decoder (input logic [31:0] word, output logic [31:0] out);
+  assign out = word;
+endmodule
+RTL
+probe "a signal in scope only in an earlier module stops it too" 1 \
+  "is not in the module the tie-off splices into" "$(nl_run "$d")"
+
+d=$(nl_fixture); rm "$d/repo/rtl/decoder.v"
+probe "...and so does the file it injects into going away" 1 \
+  "is not in this tree" "$(nl_run "$d")"
+
+d=$(nl_fixture)
+probe "an empty part table synthesises nothing, so it is refused" 2 \
+  "NETLIST_SYNTH is not set" \
+  "PATH=$d/bin:\$PATH sh $d/repo/soc/netlist_determinism.sh"
+
+begin_group "soc/netlist_base.sh"
+
+# The other tree's half of `make netlist-diff`. `git archive` and a stub yosys,
+# so the whole extraction runs without a placement or a cross compiler.
+nb_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/bin" "$d/repo/rtl" "$d/repo/soc"
+  cp "$REPO/soc/netlist_base.sh" "$d/repo/soc/"
+  printf 'module decoder ();\nendmodule\n' > "$d/repo/rtl/decoder.v"
+  # A Makefile with the two targets this script asks another tree for, and
+  # nothing else: soc-rom, which builds the image that gets synthesised, and
+  # print-%, which is how the base tree is asked to name its own synth script.
+  cat > "$d/repo/Makefile" <<'MK'
+soc-rom:
+	@:
+print-%:
+	@echo '$($*)'
+MK
+  nl_stub_yosys "$d/bin" "$d"
+  nd_netlist "$d/canon.json"
+  git -c init.defaultBranch=main -C "$d/repo" init -q
+  git -C "$d/repo" add -A
+  git -C "$d/repo" -c user.email=probe@example -c user.name=probe commit -qm base
+  printf '%s' "$d"
+}
+
+nb_run() {  # <fixture dir> <ref>
+  printf '%s' "cd $1/repo && PATH=$1/bin:\$PATH \
+    NETLIST_SYNTH='read_verilog -sv rtl/decoder.v; synth_ice40 -top littlesoc' \
+    sh soc/netlist_base.sh $2 $1/base.canon.json"
+}
+
+d=$(nb_fixture)
+probe "control: another commit's canonical netlist is built from its own tree" 0 \
+  "canonical netlist is" "$(nb_run "$d" HEAD)"
+
+d=$(nb_fixture)
+probe "a tree that names no synth script of its own says whose was used" 0 \
+  "names no synth script of its own" "$(nb_run "$d" HEAD)"
+
+d=$(nb_fixture)
+sed -i.bak 's/^print-%:/NETLIST_SYNTH := read_verilog -sv rtl\/decoder.v; synth_ice40 -abc9 -top littlesoc\nprint-%:/' "$d/repo/Makefile"
+git -C "$d/repo" -c user.email=probe@example -c user.name=probe commit -qam flags
+probe "a base tree whose synth flags moved is digested with ITS flags, and says so" 0 \
+  "synthesises with a different script" "$(nb_run "$d" HEAD)"
+
+# A base tree whose make fails for any reason OTHER than having no `print-%`
+# rule must not read as one that names no synth script: that fallback
+# synthesises the base commit with THIS tree's flags, which is the blind
+# comparison this script exists to refuse. A parse error fails the ROM step
+# first and is reported there, so what is forced here is the rule itself
+# failing -- which is what `| tail -1` used to swallow whole.
+d=$(nb_fixture)
+cat > "$d/repo/Makefile" <<'MK'
+soc-rom:
+	@:
+print-%:
+	@echo '$($*)'; exit 3
+MK
+git -C "$d/repo" -c user.email=probe@example -c user.name=probe commit -qam broken
+probe "a base tree whose make fails is refused, not quietly given ours" 2 \
+  "could not be asked which synth" "$(nb_run "$d" HEAD)"
+
+d=$(nb_fixture)
+probe "a ref that names no commit is refused, not compared" 2 \
+  "does not name a commit" "$(nb_run "$d" v9.9.9)"
+
+d=$(nb_fixture)
+git -C "$d/repo" rm -q rtl/decoder.v
+git -C "$d/repo" -c user.email=probe@example -c user.name=probe commit -qm drop
+probe "a source this tree synthesises that the base lacks is not comparable" 2 \
+  "has no rtl/decoder.v" "$(nb_run "$d" HEAD)"
 
 echo
 if [ "$probes" -ne "$PROBES_EXPECTED" ]; then

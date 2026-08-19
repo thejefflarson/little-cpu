@@ -125,64 +125,53 @@ def walk(path):
     return logic, routing, levels
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("report", help="nextpnr-ecp5 --report output, e.g. ecp5.report.json")
-    parser.add_argument("config", help="nextpnr-ecp5 --textcfg output, e.g. ecp5.config")
-    parser.add_argument("--clock", required=True, help="the design's clock port, e.g. clk")
-    parser.add_argument(
-        "--part",
-        required=True,
-        help="the part the recipe declared, in Trellis's spelling: the corner "
-        "has to be graded off the configuration rather than trusted, because "
-        "nextpnr's log never names it",
-    )
-    parser.add_argument(
-        "--constraint-mhz",
-        type=float,
-        required=True,
-        help="ECP5_TARGET_MHZ: the constant handed to --freq. Graded against "
-        "what the report says it was placed at, so the two cannot drift.",
-    )
-    args = parser.parse_args()
+def summarise(report_path, config_path, clock, part, constraint_mhz):
+    """Everything one ECP5 placement is allowed to claim, or exit saying why not.
+
+    Split out from the printing so that soc/depth/row.py writes a sweep row
+    through THIS reader rather than a second parse of the same report. Every
+    refusal below therefore stops a sweep row as well as a report: a row is what
+    a number gets quoted from months later, so it is the last place that can
+    afford to carry an unchecked one.
+    """
 
     # The textcfg first: it is the cheapest thing here and it answers the
     # question every number below depends on -- which part was this placed for.
     try:
-        with open(args.config) as handle:
+        with open(config_path) as handle:
             head = handle.read(4096)
     except FileNotFoundError:
         head = ""
     if not head.strip():
         sys.exit(
-            f"*** make ecp5-timing: {args.config} is empty or missing, so the\n"
+            f"*** make ecp5-timing: {config_path} is empty or missing, so the\n"
             "*** placement was never expressed in the part's configuration.\n"
             "*** Nothing below would describe a placeable design."
         )
-    if args.part not in head:
+    if part not in head:
         sys.exit(
-            f"*** make ecp5-timing: {args.config} does not name {args.part}.\n"
+            f"*** make ecp5-timing: {config_path} does not name {part}.\n"
             "*** The device, package and speed grade are declared in the\n"
             "*** Makefile; a run that placed some other part -- nextpnr's own\n"
             "*** defaults, say -- reports a corner nobody chose."
         )
 
-    report = load_report(args.report)
+    report = load_report(report_path)
     fmax = report.get("fmax")
     if not isinstance(fmax, dict) or not fmax:
         sys.exit(
-            f"*** make ecp5-timing: {args.report} carries no fmax table. That\n"
+            f"*** make ecp5-timing: {report_path} carries no fmax table. That\n"
             "*** is a run that constrained nothing, not a design with no\n"
             "*** critical path."
         )
     utilisation = report.get("utilization")
     if not isinstance(utilisation, dict) or not utilisation:
         sys.exit(
-            f"*** make ecp5-timing: {args.report} carries no utilisation table,\n"
+            f"*** make ecp5-timing: {report_path} carries no utilisation table,\n"
             "*** so the mapping half of this measurement is missing."
         )
 
-    net, entry = clock_entry(fmax, args.clock)
+    net, entry = clock_entry(fmax, clock)
     if "achieved" not in entry or "constraint" not in entry:
         sys.exit(
             f"*** make ecp5-timing: the fmax entry for {net} carries "
@@ -194,11 +183,11 @@ def main():
     achieved = float(entry["achieved"])
     placed_at = float(entry["constraint"])
 
-    if abs(placed_at - args.constraint_mhz) > 1e-6:
+    if abs(placed_at - constraint_mhz) > 1e-6:
         sys.exit(
             f"*** make ecp5-timing: the report was placed against a "
             f"{placed_at:.2f} MHz\n"
-            f"*** constraint, but ECP5_TARGET_MHZ declares {args.constraint_mhz:.2f}.\n"
+            f"*** constraint, but ECP5_TARGET_MHZ declares {constraint_mhz:.2f}.\n"
             "*** The constraint is an input to the placer, so two spellings of\n"
             "*** it are two different measurements."
         )
@@ -234,13 +223,54 @@ def main():
             "*** split."
         )
 
-    print(f"part          : {args.part}")
-    print(f"clock         : {net}  (design port '{args.clock}')")
+
+    return {
+        "part": part,
+        "net": net,
+        "clock": clock,
+        "achieved": achieved,
+        "placed_at": placed_at,
+        "walked": walked,
+        "logic": logic,
+        "routing": routing,
+        "levels": levels,
+        "hops": hops,
+        "utilisation": utilisation,
+    }
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("report", help="nextpnr-ecp5 --report output, e.g. ecp5.report.json")
+    parser.add_argument("config", help="nextpnr-ecp5 --textcfg output, e.g. ecp5.config")
+    parser.add_argument("--clock", required=True, help="the design's clock port, e.g. clk")
+    parser.add_argument(
+        "--part",
+        required=True,
+        help="the part the recipe declared, in Trellis's spelling: the corner "
+        "has to be graded off the configuration rather than trusted, because "
+        "nextpnr's log never names it",
+    )
+    parser.add_argument(
+        "--constraint-mhz",
+        type=float,
+        required=True,
+        help="ECP5_TARGET_MHZ: the constant handed to --freq. Graded against "
+        "what the report says it was placed at, so the two cannot drift.",
+    )
+    args = parser.parse_args()
+    s = summarise(args.report, args.config, args.clock, args.part,
+                  args.constraint_mhz)
+    walked, achieved, hops = s["walked"], s["achieved"], s["hops"]
+    logic, routing = s["logic"], s["routing"]
+    utilisation = s["utilisation"]
+
+    print(f"part          : {s['part']}")
+    print(f"clock         : {s['net']}  (design port '{s['clock']}')")
     print(f"Fmax          : {achieved:.2f} MHz  ({walked:.2f} ns)")
-    print(f"  constraint  : {placed_at:.2f} MHz -- an INPUT to the placer, not a threshold")
+    print(f"  constraint  : {s['placed_at']:.2f} MHz -- an INPUT to the placer, not a threshold")
     print(f"  logic       : {logic:6.2f} ns  {100 * logic / walked:4.1f}%")
     print(f"  routing     : {routing:6.2f} ns  {100 * routing / walked:4.1f}%")
-    print(f"  logic hops  : {levels} of {len(hops)} hops on the path")
+    print(f"  logic hops  : {s['levels']} of {len(hops)} hops on the path")
     print(f"  start       : {hops[0]['from']['cell']}")
     print(f"  end         : {hops[-1]['to']['cell']}")
     print()

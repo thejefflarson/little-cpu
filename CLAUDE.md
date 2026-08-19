@@ -392,10 +392,15 @@ and times; `make ecp5-timing` is that same SoC on the other part.
   harvest estimate either**: it sums to 6158 `SB_LUT4` against the flattened design's 4315, unevenly
   — `regfile`'s 2109 is four block RAMs that only get inferred flat, and `timer`'s 322 understates a
   real cost of 417 packed cells (ADR-0112). A census is not a ceiling; take the ceiling.
-- **`make soc-timing` has a ~3.6% edit-churn band and a 4–9% placement spread**, and this is the one
-  place either number is stated — `soc/timing_sweep.sh`, `soc/depth/sweep.sh`, `soc/depth/summary.py`,
-  `soc/compare/sweep.sh` and `soc/baseline_summary.py` restate the spread and carry no figure of
-  their own. It is best-to-worst over an **unchanged** netlist — five sweeps of eight to sixteen
+- **`make soc-timing` has a ~3.6% edit-churn band and a 4–9% placement spread**, and
+  **`soc/bands.py` is the one place either number is stated** — keyed by part, printed by every
+  sweep script, and restated by none of them. `test/band_source_test.py` grades that both ways: a
+  percentage written beside "churn" or "spread" anywhere else in the tree is red, and so is this
+  file quoting a figure that file no longer states. The copies it replaced sat in six files and were
+  four times too narrow for as long as it took one sixteen-seed sweep to say so, with nothing able to
+  go red for it. `docs/adr/` is exempt on purpose — an ADR is a measurement with a date on it and
+  must **not** move when a later sweep moves the band. It is best-to-worst over an **unchanged**
+  netlist — five sweeps of eight to sixteen
   placements read 4.4, 5.5, 6.9, 8.0 and 9.2% — and up to 11% on a netlist whose cost is a variance
   (ADR-0121 supersedes ADR-0057's 1–2%, which was four placements: a short sweep does not sample a
   tighter distribution, it takes a shorter look at the same one). **A go/no-go is twelve to sixteen
@@ -690,6 +695,15 @@ make ecp5-timing    # the same SoC on ECP5: synth_ecp5 + nextpnr-ecp5 at a
                     # here -- and the constraint it is handed is a pinned
                     # constant above what the design reaches. ECP5_SEED picks a
                     # placement. Never merge its numbers with an up5k one
+make netlist-digest # the mapped netlist's digest -- the shipping synth script
+                    # plus `opt_clean -purge`, with the source attributes
+                    # dropped. `make netlist-diff BASE=<ref>` compares two trees
+                    # and names what moved. Digest unchanged, NO SWEEP IS OWED;
+                    # changed, the paired sixteen-seed sweep is, and it says
+                    # nothing about the period. Sound in one direction only.
+                    # netlist-determinism is a prerequisite of both, the way
+                    # pcloop_cover is of pcloop: it places three bitstreams and
+                    # compares bytes. Replaces a sweep, never a gate. Not on CI
 make compare-timing # this core and VexRiscv in ONE hx8k harness; COMPARE_CORE
                     # picks the side, soc/compare/sweep.sh runs both over seeds.
                     # A measurement, not a gate -- but the placed-vs-synthesised
