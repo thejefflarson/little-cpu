@@ -53,7 +53,8 @@ need() {
 }
 
 for f in rtl/memory.v rtl/timer.v rtl/imemory.v rtl/littlecpu.v rtl/littlesoc.v test/testbench.v \
-         test/cxxrtl.cc test/cosim.cc test/asm/riscv_test.h test/asm/sections.lds \
+         test/cxxrtl.cc test/cosim.cc test/dual_cxxrtl.cc \
+         test/asm/riscv_test.h test/asm/sections.lds \
          test/asm/boot.lds test/bench/bench.lds formal/traps.sv Makefile; do
   need "$f"
 done
@@ -303,6 +304,7 @@ before poking it in, so the whole image would land at the wrong offset."
 
 check_ram_base_cc test/cxxrtl.cc
 check_ram_base_cc test/cosim.cc
+check_ram_base_cc test/dual_cxxrtl.cc
 
 # ---- 5. the assembly header ------------------------------------------------
 

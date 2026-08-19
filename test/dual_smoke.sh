@@ -22,19 +22,16 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/.." && pwd)
 ASM_DIR="$REPO/test/asm"
 CYCLES=${DUAL_CYCLES:-8000}
+PROG="$HERE/dual/smoke.S"
 
-# The counter the program sums into, read back through the runner's
-# `--report-word`. `.tohost` is the first thing test/asm/sections.lds places in
-# `ram`, and this program's `.data` follows it: tohost is a doubleword, then
-# mailbox, count0, count1, done1, total.
-RAM_BASE=0x00010000
-TOTAL_ADDR=$((RAM_BASE + 8 + 16))
-
-# test/asm/sections.lds' ITERS. Restated here because a shell cannot read the
-# assembler's define, and checked below by requiring BOTH numbers rather than
-# just the doubled one -- a copy that drifted would fail in both directions
-# instead of passing vacuously in one.
-ITERS=16
+# Both numbers this script grades come out of the program itself: the iteration
+# count from its own `#define`, and the address of the counter from the linked
+# ELF's symbol table. Neither is restated here, so adding a word to `.data` or
+# changing the loop moves both without anything having to be kept in step -- and
+# a copy of `ram`'s base is one restatement of the memory map that does not have
+# to exist.
+ITERS=$(sed -n 's/^#define[[:space:]][[:space:]]*ITERS[[:space:]][[:space:]]*\([0-9][0-9]*\).*/\1/p' \
+          "$PROG" | head -1)
 
 if [ ! -x "$SIM" ]; then
   echo "error: $SIM is not an executable -- run \`make dual-sim\` first." >&2
@@ -58,7 +55,20 @@ trap 'rm -rf "$tmp"' EXIT
 # `.data` poked into RAM by the runner rather than copied by a startup.
 "$CC" -march=rv32imac_zicsr_zifencei -mabi=ilp32 -nostdlib \
   -I "$ASM_DIR" -T "$ASM_DIR/sections.lds" \
-  "$HERE/dual/smoke.S" -o "$tmp/smoke.elf"
+  "$PROG" -o "$tmp/smoke.elf"
+TOTAL_ADDR=$("${CC%gcc}nm" "$tmp/smoke.elf" | awk '$3 == "total" { print "0x" $1 }')
+
+# Both reads have a silent failure mode -- an unmatched pattern is an empty
+# string, and every comparison below would then compare against nothing and
+# report a mismatch that names the wrong cause.
+if [ -z "$ITERS" ]; then
+  echo "error: no \`#define ITERS\` in $PROG, so this script does not know what to expect." >&2
+  exit 1
+fi
+if [ -z "$TOTAL_ADDR" ]; then
+  echo "error: $PROG links no \`total\` symbol, so there is no counter to read back." >&2
+  exit 1
+fi
 "$OBJCOPY" -O verilog --verilog-data-width=4 --only-section=.text \
   "$tmp/smoke.elf" "$tmp/rom.hex"
 "$OBJCOPY" -O verilog --verilog-data-width=4 --remove-section=.text \
@@ -73,8 +83,7 @@ run() {
   status=$?
   set -e
   echo "== $1 (exit $status) =="
-  cat "$tmp/$1.out"
-  [ -s "$tmp/$1.err" ] && cat "$tmp/$1.err"
+  cat "$tmp/$1.out" "$tmp/$1.err"
   return 0
 }
 
@@ -84,7 +93,7 @@ fail() {
 }
 
 word_of() {
-  awk -v want="$1" '$1 == "WORD" { print $3 }' "$tmp/$2.out"
+  awk '$1 == "WORD" { print $3 }' "$tmp/$1.out"
 }
 
 retires_of() {
@@ -97,7 +106,7 @@ both_status=$status
 [ "$both_status" -eq 0 ] || fail "the two-hart run exited $both_status, not 0"
 grep -q '^PASS$' "$tmp/both.out" || fail "the two-hart run did not report PASS"
 
-both_total=$(word_of "$TOTAL_ADDR" both)
+both_total=$(word_of both)
 [ "$both_total" = "$((2 * ITERS))" ] || \
   fail "the two-hart run counted $both_total, not $((2 * ITERS))"
 
@@ -116,7 +125,7 @@ held_status=$status
 [ "$held_status" -eq 6 ] || \
   fail "the held run exited $held_status, not 6 (the per-hart silence gate)"
 
-held_total=$(word_of "$TOTAL_ADDR" held)
+held_total=$(word_of held)
 [ "$held_total" = "$ITERS" ] || \
   fail "the held run counted $held_total, not $ITERS -- the harness cannot tell one hart from two"
 

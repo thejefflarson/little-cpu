@@ -1038,7 +1038,10 @@ ecp5-timing: ecp5-timing-toolchain ecp5.config
 # constraints file describes both. What this publishes is a frequency with no
 # ratchet -- there is no `DUAL_MIN_MHZ` here on purpose, because one placement
 # is a sample and the ECP5 spread for THIS design has not been derived.
-DUAL_SRCS := $(SIM_RTL_SRCS) rtl/busarbiter.v rtl/littledual.v rtl/littledualsoc.v
+# Derived, not a second list: `DUAL_RTL_SRCS` above is the complex and this is
+# that plus its pins. A copy would go stale the day either gains a file, which is
+# the rule SIM_RTL_SRCS already carries.
+DUAL_SRCS := $(DUAL_RTL_SRCS) rtl/littledualsoc.v
 
 # The censuses double where the design does and do not where it does not: two
 # register files of LUT RAM and two multipliers, and one data RAM -- 32 DP16KD

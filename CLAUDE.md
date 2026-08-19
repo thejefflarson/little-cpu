@@ -903,8 +903,10 @@ under `test/bench/` is deliberately outside it: both legs glob `test/asm`, and a
 needs two million cycles would time out against the runner's 5000 and be graded as a failure. The two
 shapes differ only in how `.data` reaches RAM: an assembly program's is poked in by the harness,
 which is the thing the hardware cannot do, and a C program's is copied by the startup, which is the
-thing it can. A change to one program shape's build is a change in three places —
-`test/run_tests.sh`, `test/cosim.py`'s `assemble()` and the Makefile's `soc-rom`.
+thing it can. A change to one program shape's build is a change in FOUR places —
+`test/run_tests.sh`, `test/cosim.py`'s `assemble()`, the Makefile's `soc-rom` and
+`test/dual_smoke.sh`, which builds the one program that needs two harts to terminate and is
+therefore outside `test/asm` for the same reason `test/bench/` is.
 
 ## Pointers
 

@@ -17,8 +17,11 @@
 module littledualsoc (
   input  logic clk,
   input  logic btn_n,
-  // Watchers, the way rtl/littlesoc.v's are: a design whose output nothing can
-  // see is a design yosys deletes.
+  // rtl/littlesoc.v watches a bit of the data bus here so that yosys cannot
+  // delete a design nothing observes. This top does not need to: what says the
+  // datapath survived synthesis is the three exact mapping censuses
+  // `make dual-ecp5-timing` gates on -- two register files, two multipliers and
+  // two copies of the ROM -- and every one of them collapses if it does not.
   output logic ledr_n,
   output logic ledg_n
 );
