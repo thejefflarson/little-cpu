@@ -14,6 +14,17 @@ soc.synth.log
 soc.pnr.log
 soc.timing.rpt
 soc.icetime.log
+# `make ecp5-timing`: the ECP5 netlist, the Trellis text configuration, the two
+# logs and nextpnr's own JSON report. Same rule as the soc.* files above -- the
+# report and the placement log ARE the measurement, so they stay on disk to
+# read, and are never committed. There is no bitstream here: `--textcfg` is
+# written as the "expressible in the target's configuration" check and nothing
+# packs it.
+ecp5.json
+ecp5.config
+ecp5.report.json
+ecp5.synth.log
+ecp5.pnr.log
 # The de-interleaved ROM banks `make soc-rom` writes from a test program. Build
 # artifacts of whichever SOC_PROG was last built, not source.
 soc/rom_even.hex
@@ -67,6 +78,7 @@ formal/imemcheck
 formal/components_*
 formal/components
 formal/pcloop_cover
+formal/busarbiter_cover
 # `make -C formal remeasure-fg`: the one-line-[depth] copy of checks.cfg the
 # sweep writes, and the single-check set it generates from it. Both are rebuilt
 # from checks.cfg on every run.
@@ -76,6 +88,10 @@ formal/fg-probe/
 # region cause arm against, and their sby workdirs. Rebuilt from rtl/ and
 # formal/traps.sv on every run.
 formal/region-probe/
+# `make -C formal busarbiter-probe`: the three arbiters it proves the wait bound
+# and the indivisibility arm against, and their sby workdirs. Rebuilt from
+# rtl/busarbiter.v and formal/busarbiter.sv on every run.
+formal/busarbiter-probe/
 __pycache__/
 test/rtl.cc
 test/monitor.sim.v

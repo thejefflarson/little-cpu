@@ -2,10 +2,19 @@
 # Run `make soc-timing` at several placements of the same netlist and print the
 # spread.
 #
-# One placement is a sample, not a measurement. Unmodified `main` spans about
-# 1.2% across four seeds and an edit that changes no hardware moves the number
-# by up to 3.6%, so a comparison between two designs needs distributions on
-# both sides.
+# One placement is a sample, not a measurement. Unmodified `main` spans 4-9%
+# best-to-worst across eight to sixteen seeds -- CLAUDE.md states that figure and
+# this script carries none of its own -- and an edit that changes no hardware
+# moves the number by up to 3.6%, so a comparison between two designs needs
+# distributions on both sides.
+#
+# FOUR SEEDS IS A LOOK AND NOT A VERDICT, which is why the default below is not
+# the sweep a decision is made on. The spread is a range statistic: a short sweep
+# does not sample a tighter distribution, it takes a shorter look at the same
+# one, and this repo has twice had four seeds say something eight did not. A
+# go/no-go is twelve to sixteen placements paired by seed --
+# soc/baseline_sweep.sh, which keeps every report and stamps the tree and the
+# toolchain that produced them.
 #
 #   soc/timing_sweep.sh                     # the default placement plus seeds 1-3
 #   SOC_SEEDS='default 1 2 3 4 5' soc/timing_sweep.sh

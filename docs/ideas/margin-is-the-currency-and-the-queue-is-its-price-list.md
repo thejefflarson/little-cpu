@@ -62,10 +62,11 @@ that forwarding then *needs*, so the order they land in changes what fits.
 
 ## Where margin is bought, cheapest first
 
-**1. Instrument honesty, free.** `SOC_SEEDS` already takes a list. Re-baseline at 12–16 seeds and
-correct the rulebook: `make soc-timing`'s recorded "1–2% placement spread" is contradicted by this
-repo's own eight-seed tables, which run **4.4% to 8.4%** — ADR-0088's base row alone spans 76.73 to
-82.00 ns. On an honest baseline the effective worst-seed margin is plausibly **3–5% already**.
+**1. Instrument honesty, free.** ~~`SOC_SEEDS` already takes a list. Re-baseline at 12–16 seeds and
+correct the rulebook: `make soc-timing`'s recorded placement spread is contradicted by this repo's
+own eight-seed tables.~~ **Collected by ADR-0121**: the figure is 4–9% best-to-worst on an unchanged
+netlist, the go/no-go convention is twelve to sixteen seeds paired by seed, and the effective
+worst-seed margin came out at **0.25%, not 3–5%** — the base's worst of sixteen is 12.03 MHz.
 
 **2. Tree hygiene, near-free.** Null respellings move the worst seed by up to 3.3% — ADR-0106
 measured two cells doing exactly that, and A shipped on its better spelling.
