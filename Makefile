@@ -505,6 +505,17 @@ march-test:
 window-test:
 	@./test/window_test.sh
 
+# Maps rtl/imemory.v for both parts at one and at two fetch windows, and asserts
+# that two windows are two copies of ONE storage -- every copy on the same write
+# enable, address, data and edge. That claim is about the mapped netlist and
+# about nothing in the source: at RTL there is one array and every window reads
+# it by construction, so no simulation can confirm it or fail on its absence.
+# Hangs off `test` because it needs yosys, which `window-test` already requires,
+# and because the answer belongs to a toolchain nothing here pins.
+.PHONY: imem-share-test
+imem-share-test:
+	@./test/imem_share_test.sh
+
 # Drives formal/check-abc-engine.sh both ways against a stub yosys and a stub
 # sby. Hangs off `test` like the other bash checks -- it is bash and two stubs,
 # so it runs anywhere -- and it has to, because the diagnostic it covers only
@@ -535,7 +546,7 @@ mutation-probe:
 .PHONY: test
 test: sim test-units probe-gates pin-bump-test tool-cache-test memmap-test \
       compare-geometry-test retired-term-test port-connect-test march-test \
-      window-test abc-engine-test mutation-probe
+      window-test imem-share-test abc-engine-test mutation-probe
 	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 # The same suite `make test` runs, with the runner charging every cycle to the

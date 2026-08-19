@@ -238,7 +238,13 @@ either generates nothing.
 `mie`; `mip.MTIP` is `rtl/timer.v`'s line and read-only; `mip.MSIP`/`mip.MEIP` stay read-only zero,
 which the spec allows in any position of `mip` whose interrupt can never become pending, and names
 outright for `mip.MSIP` on a single-hart system. `mtime`/`mtimecmp` are four words at
-`0x0002_0000`, in `rtl/littlesoc.v` and `test/testbench.v` alike. **It is taken on a cycle that
+`0x0002_0000`, in `rtl/littlesoc.v` and `test/testbench.v` alike — and **the map reserves eight**,
+which is what `rtl/timer.v`'s `NHARTS` widens to for one `mtimecmp` and one `mtip` per hart against
+the one `mtime` (ADR-0124). The four reserved words read zero here and a peripheral put in them
+would work on this machine and have to move on the day a second hart landed, with nothing to say so,
+so `test/memmap_test.sh` reads every `BASE` under `rtl/` and refuses one inside the span. That
+layout is **deliberately not a CLINT's** and firmware written against it does not port to one.
+**It is taken on a cycle that
 would otherwise have issued**, because `stall` outranks the trap arm of `next_pc` — so it waits out
 a divide, a load turnaround and a serialization with no logic of its own, the displaced instruction
 has not issued, and nothing is un-committed. It is therefore **not** a stall reason and adds no
@@ -405,6 +411,16 @@ and times; `make ecp5-timing` is that same SoC on the other part.
   same warning: those three edits rebuilt from their own description read SoC −45 rather than −1, so
   44 LUTs separate two texts stating one fact (ADR-0097). Quote a group's number with the tree and
   the text it was measured on, and do not read either top's count as the value of the idea.
+  **A parameter tied off to today's value is not free of the mapper either**, which is the sharp
+  form for a digest gate that forgives nothing: at one hart, folding the shipping fetch window into
+  the loop that serves the others is +30 SoC cells, naming `|mem_wstrb && text_range` once instead
+  of writing it twice is +64, the general form of the timer's read mux is +19 to +25, an in-process
+  `for` loop over the harts is 36 in either direction — and **an inert generate loop, zero
+  iterations and nothing elaborated, is −18**. Only a widened port and an *untaken* `generate` arm
+  measured zero, which is why `rtl/imemory.v` and `rtl/timer.v` spell the first window and the first
+  hart on their own (ADR-0124). **Bit-identity is not reachable for a width-one vector port at all**:
+  the canonical JSON records the declaration, so a scalar that becomes `[0:0]` leaves either an
+  attribute or a net name behind under every spelling tried.
 - **A generated cell's module prefix is ancestry, not ownership.** After flatten yosys names a new
   cell after a neighbouring net, so neither `icetime`'s net names along a path nor a per-module cell
   count off the placed netlist attributes anything: a ROM-slicing experiment moved the `imem.`
@@ -697,6 +713,12 @@ make mutation-check # delete a term from rtl/ and require exactly the detectors
 make window-test    # force the elaboration checks in rtl/{imemory,memory,timer}.v
                     # and rtl/littlecpu.v's copy of that map red, in both
                     # frontends. Runs inside `make test`
+make imem-share-test # map rtl/imemory.v for ice40 and ECP5 at one and at two
+                    # fetch windows, and require two windows to be two copies of
+                    # ONE storage -- every copy on the same write enable,
+                    # address, data and edge. A claim about the MAPPED netlist:
+                    # at RTL there is one array and no simulation can fail on
+                    # its absence. Forces its own red directions. Inside `make test`
 make cycles         # the suite again, every cycle charged to an issuing cycle or
                     # one of the seven stall reasons; nonzero on a stalled cycle none
                     # of them explains. Prints the two load/store locality
