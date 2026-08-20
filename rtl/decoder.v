@@ -16,7 +16,8 @@ module decoder #(
   parameter integer      LS_TEXT_WORDS = 2048,
   parameter logic [31:0] LS_RAM_BASE   = 32'h0001_0000,
   parameter integer      LS_RAM_WORDS  = 16384,
-  parameter logic [31:0] LS_TIMER_BASE = 32'h0002_0000
+  parameter logic [31:0] LS_TIMER_BASE = 32'h0002_0000,
+  parameter logic [31:0] LS_UART_BASE  = 32'h0002_0010
 ) (
   input  logic clk,
   input  logic reset,
@@ -470,6 +471,8 @@ module decoder #(
   // The timer is four words, so its page is tested on eight more bits of the
   // sum. Those bits are the low adder's and do not wait on the carry into 12.
   localparam logic [7:0] LS_TIMER_OFF = LS_TIMER_BASE[11:4];
+  localparam logic [19:0] LS_UART_PAGE = LS_UART_BASE[31:12];
+  localparam logic [8:0] LS_UART_OFF = LS_UART_BASE[11:3];
 
   logic [19:0] ls_hi;
   assign ls_hi = reg_rs1[31:12];
@@ -497,12 +500,25 @@ module decoder #(
   assign timer_dp1 = ls_hi == LS_TIMER_PAGE - 20'd1;
   assign timer_dm1 = ls_hi == LS_TIMER_PAGE + 20'd1;
 
+  // The UART is eight bytes, so like the timer it needs low bits the carry
+  // split never reaches. Its own page tests rather than the timer's: the two
+  // share a page in today's map and nothing requires them to.
+  logic uart_off_ok, uart_d0, uart_dp1, uart_dm1;
+  assign uart_off_ok = mem_addr_calc[11:3] == LS_UART_OFF;
+  assign uart_d0  = ls_hi == LS_UART_PAGE;
+  assign uart_dp1 = ls_hi == LS_UART_PAGE - 20'd1;
+  assign uart_dm1 = ls_hi == LS_UART_PAGE + 20'd1;
+
   logic ls_neg, ls_carry, ls_sup_carry, ls_sup_nocarry, ls_supported;
   assign ls_neg = immediate[31];
-  assign ls_sup_carry   = ls_neg ? (text_d0  || ram_d0  || (timer_d0  && timer_off_ok))
-                                 : (text_dp1 || ram_dp1 || (timer_dp1 && timer_off_ok));
-  assign ls_sup_nocarry = ls_neg ? (text_dm1 || ram_dm1 || (timer_dm1 && timer_off_ok))
-                                 : (text_d0  || ram_d0  || (timer_d0  && timer_off_ok));
+  assign ls_sup_carry   = ls_neg ? (text_d0  || ram_d0  || (timer_d0  && timer_off_ok) ||
+                                    (uart_d0  && uart_off_ok))
+                                 : (text_dp1 || ram_dp1 || (timer_dp1 && timer_off_ok) ||
+                                    (uart_dp1 && uart_off_ok));
+  assign ls_sup_nocarry = ls_neg ? (text_dm1 || ram_dm1 || (timer_dm1 && timer_off_ok) ||
+                                    (uart_dm1 && uart_off_ok))
+                                 : (text_d0  || ram_d0  || (timer_d0  && timer_off_ok) ||
+                                    (uart_d0  && uart_off_ok));
   assign ls_carry     = mem_addr_calc[12] ^ reg_rs1[12] ^ immediate[12];
   assign ls_supported = ls_carry ? ls_sup_carry : ls_sup_nocarry;
 

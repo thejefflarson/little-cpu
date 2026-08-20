@@ -1055,10 +1055,18 @@ module decoder_tb;
     #1;
     check_bit("a load of mtime from the top of RAM is answered",
               dut.trap_pending, 1'b0);
+    // 16 bytes past the timer's last word is the UART, which the map answers.
     reg_rs1 = 32'h0002_0000;
     in.instr = 32'h01062583;   // lw a1, 16(a2)
     #1;
-    check_bit("...and one 16 bytes past the timer's last word is not",
+    check_bit("...and one 16 bytes past the timer's last word is the UART",
+              dut.trap_pending, 1'b0);
+
+    // 24 past it is the first address in that page no device claims.
+    reg_rs1 = 32'h0002_0000;
+    in.instr = 32'h01862583;   // lw a1, 24(a2)
+    #1;
+    check_bit("...and one 24 bytes past it is claimed by nothing",
               dut.trap_pending, 1'b1);
     check_hex("...faulting as a load", trap_cause, 32'd5);
 

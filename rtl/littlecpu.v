@@ -218,7 +218,8 @@ module littlecpu #(
     .LS_TEXT_WORDS(LS_TEXT_WORDS),
     .LS_RAM_BASE(LS_RAM_BASE),
     .LS_RAM_WORDS(LS_RAM_WORDS),
-    .LS_TIMER_BASE(LS_TIMER_BASE)
+    .LS_TIMER_BASE(LS_TIMER_BASE),
+    .LS_UART_BASE(LS_UART_BASE)
   ) decoder(
     .clk(clk),
     .reset(reset),
