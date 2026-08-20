@@ -519,8 +519,8 @@ and times; `make ecp5-timing` is that same SoC on the other part.
   the worst placement 1.1% the other way** (ADR-0121). An effect on the median smaller than the churn
   band and none at all on the tail, so freeing cells buys headroom on the 5280 and whatever path it
   takes with it — never margin. Where a fact like that is now load-bearing it is an
-  elaboration `$fatal`, not a comment: `rtl/{imemory,memory,timer}.v` refuse to build at a
-  non-power-of-two depth or an unaligned `BASE`, and `make window-test` forces all three red.
+  elaboration `$fatal`, not a comment: `rtl/{imemory,memory,timer,uart}.v` refuse to build at a
+  non-power-of-two depth or an unaligned `BASE`, and `make window-test` forces all four red.
   **The rule does not only find small things.** The same question asked of `rtl/executor.v` found
   three that each clear the band alone — a divider carrying 64-bit registers for a 32-bit division,
   a duplicated negator inside a one-hot mux, and the multiplier's 33rd partial-product row in soft
@@ -669,8 +669,8 @@ make mutation-check # delete a term from rtl/ and require exactly the detectors
                     # asks whether a program still sees the property it was
                     # written for. ~3.5 min, not on `make test`, no ratchet.
                     # `make mutation-probe` forces its own graders red and IS on it
-make window-test    # force the elaboration checks in rtl/{imemory,memory,timer}.v
-                    # and rtl/littlecpu.v's copy of that map red, in both
+make window-test    # force the elaboration checks in rtl/{imemory,memory,timer,
+                    # uart}.v and rtl/littlecpu.v's copy of that map red, in both
                     # frontends. Runs inside `make test`
 make cycles         # the suite again, every cycle charged to an issuing cycle or
                     # one of the six stall reasons; nonzero on a stalled cycle none
@@ -810,6 +810,18 @@ ROM at a load address `test/asm/boot.lds` puts there and `test/crt0.S` copies in
 Dhrystone is 3568 of it — so SPI-flash boot stays deferred, alongside the radix-4 divider. Two things have come off that list:
 the machine timer is built (ADR-0082), and the forwarding network is priced and declined rather than
 pending (ADR-0083). An interrupt controller, more sources and a vectored `mtvec` are still on it.
+
+**A transmit-only UART is the fifth pin and the only observable output a flashed bitstream has** —
+eight bytes at `0x0002_0010`, a write-only data register and a `busy` bit, 8N1 at 115200 baud from a
+divisor of 104 the header states the 0.16% error of. No receiver, no queue, no interrupt. Its
+read-back is one flip-flop, so it joins `mem_rdata`'s OR on bit 0 and costs the other 31 nothing, and
+it is outside `make fit`'s top entirely — `littlecpu` does not contain it, so the device's area is a
+`soc-timing` number and never a `fit` one. **Nothing here produces a bitstream**: `make soc-timing`
+stops at the `.asc`, there is no `icepack` and no `iceprog`, so the pin is measured and not yet
+flashed. **Co-simulation cannot cover it** — the model has plain memory at that address, so
+`test/asm/uart.S` is `DISAGREE AT 5`, at the first read of `busy` after a write, and
+`test/uart_tb.v`, which decodes the line at the configured divisor with five of its own failures
+forced, is the only oracle for the wire.
 
 The suite is `test/asm/*.S` **and** `test/asm/*.c`, and `test/OBSERVED_FLOOR` names both. Anything
 under `test/bench/` is deliberately outside it: both legs glob `test/asm`, and a benchmark that
