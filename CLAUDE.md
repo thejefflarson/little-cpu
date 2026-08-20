@@ -392,10 +392,15 @@ and times; `make ecp5-timing` is that same SoC on the other part.
   harvest estimate either**: it sums to 6158 `SB_LUT4` against the flattened design's 4315, unevenly
   — `regfile`'s 2109 is four block RAMs that only get inferred flat, and `timer`'s 322 understates a
   real cost of 417 packed cells (ADR-0112). A census is not a ceiling; take the ceiling.
-- **`make soc-timing` has a ~3.6% edit-churn band and a 4–9% placement spread**, and this is the one
-  place either number is stated — `soc/timing_sweep.sh`, `soc/depth/sweep.sh`, `soc/depth/summary.py`,
-  `soc/compare/sweep.sh` and `soc/baseline_summary.py` restate the spread and carry no figure of
-  their own. It is best-to-worst over an **unchanged** netlist — five sweeps of eight to sixteen
+- **`make soc-timing` has a ~3.6% edit-churn band and a 4–9% placement spread**, and
+  **`soc/bands.py` is the one place either number is stated** — keyed by part, printed by every
+  sweep script, and restated by none of them. `test/band_source_test.py` grades that both ways: a
+  percentage written beside "churn" or "spread" anywhere else in the tree is red, and so is this
+  file quoting a figure that file no longer states. The copies it replaced sat in six files and were
+  four times too narrow for as long as it took one sixteen-seed sweep to say so, with nothing able to
+  go red for it. `docs/adr/` is exempt on purpose — an ADR is a measurement with a date on it and
+  must **not** move when a later sweep moves the band. It is best-to-worst over an **unchanged**
+  netlist — five sweeps of eight to sixteen
   placements read 4.4, 5.5, 6.9, 8.0 and 9.2% — and up to 11% on a netlist whose cost is a variance
   (ADR-0121 supersedes ADR-0057's 1–2%, which was four placements: a short sweep does not sample a
   tighter distribution, it takes a shorter look at the same one). **A go/no-go is twelve to sixteen
@@ -514,8 +519,8 @@ and times; `make ecp5-timing` is that same SoC on the other part.
   the worst placement 1.1% the other way** (ADR-0121). An effect on the median smaller than the churn
   band and none at all on the tail, so freeing cells buys headroom on the 5280 and whatever path it
   takes with it — never margin. Where a fact like that is now load-bearing it is an
-  elaboration `$fatal`, not a comment: `rtl/{imemory,memory,timer}.v` refuse to build at a
-  non-power-of-two depth or an unaligned `BASE`, and `make window-test` forces all three red.
+  elaboration `$fatal`, not a comment: `rtl/{imemory,memory,timer,uart}.v` refuse to build at a
+  non-power-of-two depth or an unaligned `BASE`, and `make window-test` forces all four red.
   **The rule does not only find small things.** The same question asked of `rtl/executor.v` found
   three that each clear the band alone — a divider carrying 64-bit registers for a 32-bit division,
   a duplicated negator inside a one-hot mux, and the multiplier's 33rd partial-product row in soft
@@ -664,8 +669,8 @@ make mutation-check # delete a term from rtl/ and require exactly the detectors
                     # asks whether a program still sees the property it was
                     # written for. ~3.5 min, not on `make test`, no ratchet.
                     # `make mutation-probe` forces its own graders red and IS on it
-make window-test    # force the elaboration checks in rtl/{imemory,memory,timer}.v
-                    # and rtl/littlecpu.v's copy of that map red, in both
+make window-test    # force the elaboration checks in rtl/{imemory,memory,timer,
+                    # uart}.v and rtl/littlecpu.v's copy of that map red, in both
                     # frontends. Runs inside `make test`
 make cycles         # the suite again, every cycle charged to an issuing cycle or
                     # one of the six stall reasons; nonzero on a stalled cycle none
@@ -690,6 +695,15 @@ make ecp5-timing    # the same SoC on ECP5: synth_ecp5 + nextpnr-ecp5 at a
                     # here -- and the constraint it is handed is a pinned
                     # constant above what the design reaches. ECP5_SEED picks a
                     # placement. Never merge its numbers with an up5k one
+make netlist-digest # the mapped netlist's digest -- the shipping synth script
+                    # plus `opt_clean -purge`, with the source attributes
+                    # dropped. `make netlist-diff BASE=<ref>` compares two trees
+                    # and names what moved. Digest unchanged, NO SWEEP IS OWED;
+                    # changed, the paired sixteen-seed sweep is, and it says
+                    # nothing about the period. Sound in one direction only.
+                    # netlist-determinism is a prerequisite of both, the way
+                    # pcloop_cover is of pcloop: it places three bitstreams and
+                    # compares bytes. Replaces a sweep, never a gate. Not on CI
 make compare-timing # this core and VexRiscv in ONE hx8k harness; COMPARE_CORE
                     # picks the side, soc/compare/sweep.sh runs both over seeds.
                     # A measurement, not a gate -- but the placed-vs-synthesised
@@ -796,6 +810,18 @@ ROM at a load address `test/asm/boot.lds` puts there and `test/crt0.S` copies in
 Dhrystone is 3568 of it — so SPI-flash boot stays deferred, alongside the radix-4 divider. Two things have come off that list:
 the machine timer is built (ADR-0082), and the forwarding network is priced and declined rather than
 pending (ADR-0083). An interrupt controller, more sources and a vectored `mtvec` are still on it.
+
+**A transmit-only UART is the fifth pin and the only observable output a flashed bitstream has** —
+eight bytes at `0x0002_0010`, a write-only data register and a `busy` bit, 8N1 at 115200 baud from a
+divisor of 104 the header states the 0.16% error of. No receiver, no queue, no interrupt. Its
+read-back is one flip-flop, so it joins `mem_rdata`'s OR on bit 0 and costs the other 31 nothing, and
+it is outside `make fit`'s top entirely — `littlecpu` does not contain it, so the device's area is a
+`soc-timing` number and never a `fit` one. **Nothing here produces a bitstream**: `make soc-timing`
+stops at the `.asc`, there is no `icepack` and no `iceprog`, so the pin is measured and not yet
+flashed. **Co-simulation cannot cover it** — the model has plain memory at that address, so
+`test/asm/uart.S` is `DISAGREE AT 5`, at the first read of `busy` after a write, and
+`test/uart_tb.v`, which decodes the line at the configured divisor with five of its own failures
+forced, is the only oracle for the wire.
 
 The suite is `test/asm/*.S` **and** `test/asm/*.c`, and `test/OBSERVED_FLOOR` names both. Anything
 under `test/bench/` is deliberately outside it: both legs glob `test/asm`, and a benchmark that

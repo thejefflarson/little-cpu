@@ -6,11 +6,15 @@
 #   COMPARE_SEEDS='default 1 2 3 4 5' soc/compare/sweep.sh
 #   COMPARE_CORES=vexriscv soc/compare/sweep.sh # one side only
 #
-# One placement is a sample. `make soc-timing`'s spread on the up5k is 4-9% and
-# its edit churn 3.6% -- CLAUDE.md states both -- and nothing says the hx8k is
-# tighter, so a claim about which of two cores is faster needs a distribution on
-# both sides and is read on the worst placement of each. Four seeds is a look;
-# twelve to sixteen is what a verdict costs.
+# One placement is a sample, so a claim about which of two cores is faster needs
+# a distribution on both sides and is read on the worst placement of each. Four
+# seeds is a look; twelve to sixteen is what a verdict costs.
+#
+# THIS HARNESS PLACES hx8k AND NO BAND HAS EVER BEEN DERIVED FOR IT. soc/bands.py
+# says exactly that at the end of the run rather than lending it up5k's figures:
+# different part, and a different design as well -- 4 KB of ROM and 2 KB of block
+# RAM here against 8 KB and 64 KB of SPRAM there, and no timer. Until somebody
+# sweeps this part, a delta here cannot be called a change or a null.
 #
 # `make` is deliberately NOT in a pipeline, for the reason soc/timing_sweep.sh
 # records: the default shell is errexit without pipefail, so a graded command
@@ -55,3 +59,4 @@ done
 
 echo "Read the WORST placement of each. Neither core's number here is its own"
 echo "project's published figure, and the two ISAs are not the same -- ADR-0086."
+python3 soc/bands.py hx8k --note

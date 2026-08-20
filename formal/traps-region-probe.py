@@ -12,7 +12,9 @@ which is what `make probe-gates` demands of every other graded comparison in thi
 tree and what this file does for the two that need a solver.
 
 Two cores are built, each one line of rtl/decoder.v away from the shipping one,
-and each must turn `make -C formal components_traps` red at a named assertion:
+and each faults an aligned `lw` whose address has bit 31 set -- an address
+outside all four windows of any map this platform can be given -- and each must
+turn `make -C formal components_traps` red at a named assertion:
 
   no-trap      computes the region fault and never commits it, so the trap the
                model requires does not happen. The proof must go FAIL at the

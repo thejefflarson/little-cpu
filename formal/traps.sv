@@ -20,10 +20,10 @@
 
 module traps #(
     // The data bus's map: the addresses at which some memory on it answers a
-    // plain load or store. rtl/memory.v's and rtl/timer.v's own parameter
-    // defaults and the text window rtl/littlesoc.v gives its `imemory`,
-    // restated here because a module cannot read another module's parameters;
-    // test/memmap_test.sh is what compares the copies.
+    // plain load or store. rtl/memory.v's, rtl/timer.v's and rtl/uart.v's own
+    // parameter defaults and the text window rtl/littlesoc.v gives its
+    // `imemory`, restated here because a module cannot read another module's
+    // parameters; test/memmap_test.sh is what compares the copies.
     //
     // It is a map here and a port for an atomic because that is how the core
     // is built: the platform answers about an atomic's address on
@@ -33,7 +33,8 @@ module traps #(
     parameter integer      LS_TEXT_WORDS = 2048,
     parameter logic [31:0] LS_RAM_BASE   = 32'h0001_0000,
     parameter integer      LS_RAM_WORDS  = 16384,
-    parameter logic [31:0] LS_TIMER_BASE = 32'h0002_0000
+    parameter logic [31:0] LS_TIMER_BASE = 32'h0002_0000,
+    parameter logic [31:0] LS_UART_BASE  = 32'h0002_0010
 ) (
     input logic clk,
     input logic reset,
@@ -250,8 +251,8 @@ module traps #(
   assign sw_misaligned = is_store_op && funct3 == 3'b010 && store_addr[1:0] != 2'b00;
   assign sh_misaligned = is_store_op && funct3 == 3'b001 && store_addr[0];
 
-  // Which of those addresses a memory answers. Three ranges compared against
-  // the whole sum, not the window equalities rtl/{imemory,memory,timer}.v
+  // Which of those addresses a memory answers. Four ranges compared against
+  // the whole sum, not the window equalities rtl/{imemory,memory,timer,uart}.v
   // reduce them to: nothing in a model is timed, so it may add the immediate to
   // rs1 and wait for the carry out of the top, which is exactly what the core
   // cannot afford in the cycle it chooses the next pc.
@@ -259,6 +260,8 @@ module traps #(
   localparam logic [31:0] LS_RAM_TOP   = LS_RAM_BASE + LS_RAM_WORDS * 4;
   // rtl/timer.v's four words.
   localparam logic [31:0] LS_TIMER_TOP = LS_TIMER_BASE + 32'd16;
+  // rtl/uart.v's two.
+  localparam logic [31:0] LS_UART_TOP  = LS_UART_BASE + 32'd8;
 
   // Selected here rather than added here: each sum above is a self-determined
   // signed statement and stays one. Every reader below is an opcode test, so
@@ -268,7 +271,8 @@ module traps #(
   assign data_addr = is_store_op ? store_addr : load_addr;
   assign data_mapped = data_addr < LS_TEXT_TOP ||
                        (data_addr >= LS_RAM_BASE && data_addr < LS_RAM_TOP) ||
-                       (data_addr >= LS_TIMER_BASE && data_addr < LS_TIMER_TOP);
+                       (data_addr >= LS_TIMER_BASE && data_addr < LS_TIMER_TOP) ||
+                       (data_addr >= LS_UART_BASE && data_addr < LS_UART_TOP);
 
   // The eight plain load and store encodings. The other three funct3 values of
   // each opcode are not instructions in RV32 and are left out for the reason the

@@ -156,6 +156,20 @@ trap_handler:                                                                \
 #define MTIMECMP_OFFSET  8
 #define MTIMECMPH_OFFSET 12
 
+// The transmit-only UART, two words: a write-only data register and a status
+// register whose bit 0 is `busy`. Assembly cannot read rtl/uart.v's `BASE`
+// either, so this is a copy of it and test/memmap_test.sh compares the two.
+//
+// There is no queue behind the data register, so a byte written while `busy` is
+// set is dropped. Every write is therefore preceded by a poll, which is what
+// UART_WAIT_IDLE does; it clobbers t1.
+#define UART_BASE          0x00020010
+#define UART_STATUS_OFFSET 4
+
+#define UART_WAIT_IDLE(base)                                                 \
+1:      lw      t1, UART_STATUS_OFFSET(base);                               \
+        bnez    t1, 1b;
+
 // Constraint 1 does NOT apply to the handler below and its opposite does: an
 // interrupt is taken BETWEEN instructions, so `mepc` holds an instruction that
 // has not run and the handler must resume AT it, not past it. Advancing mepc

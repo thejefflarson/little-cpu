@@ -205,6 +205,7 @@ sub.S               421    421
 sw.S                454    454
 textload.S          196    176
 trap.S              302    258
+uart.S             1512   1512   # poll loops around a 10-bit frame: how many times they go round is a CPI question, like mtimer.S
 xor.S               450    450
 xori.S              171    171
 zicsr.S              224    184
