@@ -14,7 +14,7 @@ rvfi_macros.vh: $(RISCV_FORMAL_DIR)/checks/rvfi_macros.py
 # That job calls `make elaborate-strict` now, so there is one list to update.
 SIM_RTL_SRCS := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v \
                 rtl/fetcher.v rtl/imemory.v rtl/memory.v rtl/regfile.v rtl/regsel.v \
-                rtl/timer.v rtl/writeback.v rtl/littlecpu.v
+                rtl/timer.v rtl/uart.v rtl/writeback.v rtl/littlecpu.v
 
 testbench.vvp: $(SIM_RTL_SRCS) rvfi_macros.vh test/testbench.v test/monitor.sim.v
 	iverilog -I./rtl/ -DICARUS $(addprefix -D,$(RISCV_FORMAL_MACROS)) -g2012 -o $@ $^
@@ -381,7 +381,7 @@ lint-setup:
 	@'$(SVLINT_DIR)'/bin/svlint --version
 
 UNIT_BENCHES := exec_tb mem_tb imem_tb decoder_tb regfile_tb csr_tb accessor_tb monitor_tb \
-                timer_tb
+                timer_tb uart_tb
 
 UNIT_BENCH_SRC_exec_tb     := rtl/structs.v rtl/executor.v
 UNIT_BENCH_SRC_mem_tb      := rtl/memory.v
@@ -392,6 +392,7 @@ UNIT_BENCH_SRC_csr_tb      := rtl/structs.v rtl/csrs.v
 UNIT_BENCH_SRC_accessor_tb := rtl/structs.v rtl/accessor.v
 UNIT_BENCH_SRC_monitor_tb  := test/monitor.sim.v
 UNIT_BENCH_SRC_timer_tb    := rtl/timer.v
+UNIT_BENCH_SRC_uart_tb     := rtl/uart.v
 
 # `present` is read from disk inside the recipe, not with $(wildcard). Make reads
 # a directory once and remembers it, and a check working from a stale listing can
@@ -537,8 +538,8 @@ march-test:
 band-source-test:
 	@python3 ./test/band_source_test.py
 
-# Forces the elaboration checks in rtl/imemory.v, rtl/memory.v and rtl/timer.v
-# to fire, in both frontends. Hangs off `test` because the parameter shapes they
+# Forces the elaboration checks in rtl/imemory.v, rtl/memory.v, rtl/timer.v and
+# rtl/uart.v to fire, in both frontends. Hangs off `test` because the parameter shapes they
 # guard are the ones the SoC and the benches pass, so nothing else here would
 # notice a check that had stopped checking. It needs iverilog and yosys, which
 # `sim` and `test-units` already require.
@@ -742,8 +743,8 @@ SOC_EXPECT_EBR   := 20
 
 SOC_SRCS      := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v \
                  rtl/executor.v rtl/fetcher.v rtl/imemory.v rtl/memory.v \
-                 rtl/regfile.v rtl/regsel.v rtl/timer.v rtl/writeback.v rtl/littlecpu.v \
-                 rtl/littlesoc.v
+                 rtl/regfile.v rtl/regsel.v rtl/timer.v rtl/uart.v rtl/writeback.v \
+                 rtl/littlecpu.v rtl/littlesoc.v
 
 # PHONY so `soc.json` resynthesises every run: the image depends on SOC_PROG,
 # which make cannot see a change to, and a stale ROM would make the measurement
