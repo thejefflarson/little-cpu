@@ -102,20 +102,47 @@
     "medeleg": { "delegatable_bits": { "len": 64,    "value": "0x0000_0000_0000_0000" } },
     "mideleg": { "delegatable_bits": { "len": "xlen", "value": "0x0000_0000" } },
 
-    // rtl/csrs.v hardwires mtval to 0, which is spec-legal for every cause
-    // this core raises. Every trap therefore writes mtval = 0.
+    // The per-cause mtval table, which rtl/csrs.v's header states in prose and
+    // rtl/decoder.v builds. This is the knob that makes the model an ORACLE for
+    // that table instead of an agreement: with a key false the model writes
+    // zero, so a core reporting the wrong address would still have agreed with
+    // it. Every value below was checked by running the model on a program that
+    // takes that exact cause, not read off the schema.
+    //
+    // `true` for the six causes this core reports a value for; `false` for the
+    // one it deliberately reports zero for, and for every cause it cannot
+    // raise.
+    //
+    //   illegal_instruction       the faulting word, a compressed one
+    //                             zero-extended
+    //   load_address_misaligned   the effective address
+    //   samo_address_misaligned   the effective address
+    //   load_access_fault         }  an atomic the platform refuses; its
+    //   samo_access_fault         }  effective address is rs1 verbatim
+    //   fetch_access_fault        the address the fetch was refused at
+    //
+    //   software_breakpoint       zero. mepc already holds an ebreak's only
+    //                             address, and the spec's rule is that a value
+    //                             written must be the faulting address, not
+    //                             that one must be. Set this true and the model
+    //                             reports the pc -- a real disagreement with
+    //                             this platform's choice, not a knob nobody
+    //                             thought about.
+    //
+    // An ecall has no key at all: mtval is zero for it in every configuration,
+    // which is the spec's own "for other traps, mtval is set to zero".
     "xtval_nonzero": {
-      "illegal_instruction": false,
+      "illegal_instruction": true,
       "software_breakpoint": false,
       "hardware_breakpoint": false,
-      "load_address_misaligned": false,
-      "load_access_fault": false,
+      "load_address_misaligned": true,
+      "load_access_fault": true,
       "load_page_fault": false,
-      "samo_address_misaligned": false,
-      "samo_access_fault": false,
+      "samo_address_misaligned": true,
+      "samo_access_fault": true,
       "samo_page_fault": false,
       "fetch_address_misaligned": false,
-      "fetch_access_fault": false,
+      "fetch_access_fault": true,
       "fetch_page_fault": false,
       "software_check": false,
       "reserved_exceptions": false

@@ -58,7 +58,7 @@ module pcloop (
   logic        csr_ren, csr_wen, instret;
   logic [31:0] csr_wdata;
   logic        trap_entry, mret_entry;
-  logic [31:0] trap_cause, trap_epc;
+  logic [31:0] trap_cause, trap_epc, trap_tval;
 
   fetcher fetcher (
     .clk(clk),
@@ -107,6 +107,7 @@ module pcloop (
     .trap_entry(trap_entry),
     .trap_cause(trap_cause),
     .trap_epc(trap_epc),
+    .trap_tval(trap_tval),
     .mret_entry(mret_entry),
     .out(decoder_out)
   );

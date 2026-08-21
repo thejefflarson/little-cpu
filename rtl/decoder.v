@@ -84,6 +84,10 @@ module decoder (
   output logic        trap_entry,
   output logic [31:0] trap_cause,
   output logic [31:0] trap_epc,
+  // What the trap happened to, for mtval. Latched by rtl/csrs.v on the same
+  // edge as the cause and the pc; nothing in the `next_pc` chain reads it, so
+  // it is off the fetch loop however wide the mux below gets.
+  output logic [31:0] trap_tval,
   output logic        mret_entry,
   input  logic [31:0] mtvec,
   input  logic [31:0] mepc,
@@ -508,9 +512,17 @@ module decoder (
   // Bit 31 says interrupt; 7 is the machine timer.
   localparam logic [31:0] CAUSE_MACHINE_TIMER       = 32'h8000_0007;
 
+  // The four causes that happened to a data address rather than to the
+  // instruction. Named once and read twice -- here and by the mtval mux below
+  // -- because those two must not be able to disagree: a fifth data cause added
+  // to the trap chain alone would fault correctly and report nothing about
+  // where.
+  logic data_fault;
+  assign data_fault = load_misaligned || store_misaligned || atomic_fault;
+
   logic trap_pending;
   assign trap_pending = imem_fault || instr_illegal || instr_ebreak || instr_ecall ||
-                        load_misaligned || store_misaligned || atomic_fault;
+                        data_fault;
 
   // The instruction's own fault and an interrupt really can be true together,
   // and the interrupt wins: the instruction does not execute, so its fault does
@@ -551,6 +563,28 @@ module decoder (
   // a handler fix up and resume. For an interrupt it is the address of the
   // instruction that did not issue, so `mret` re-executes it.
   assign trap_epc = fetcher_pc;
+
+  // ...and what it happened to, for mtval. Which value each cause carries is a
+  // platform statement firmware cannot derive, so the table is written out in
+  // rtl/csrs.v's header, where a reader asking what a CSR holds will look; it
+  // is stated once because two copies of it can disagree.
+  //
+  // Three things about the mux and not about the table. The order is the cause
+  // chain's above, for the same reasons -- an interrupt and a fetch that read
+  // nothing outrank the word. The arms that report zero are left to the
+  // default. And all four data causes share one arm: an atomic's effective
+  // address is rs1 verbatim and `mem_addr_calc` is provably equal to it for
+  // those encodings, so the sum covers the region pair without their needing
+  // `atomic_addr`.
+  always_comb begin
+    case (1'b1)
+      interrupt_pending: trap_tval = 32'b0;
+      imem_fault:        trap_tval = fetcher_pc;
+      instr_illegal:     trap_tval = instr;
+      data_fault:        trap_tval = mem_addr_calc;
+      default:           trap_tval = 32'b0;
+    endcase
+  end
 
   always_comb begin
     (* parallel_case, full_case *)

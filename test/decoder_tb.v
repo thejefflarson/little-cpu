@@ -53,7 +53,7 @@ module decoder_tb;
   // driving this directly is driving the whole interrupt decision.
   logic interrupt_pending = 1'b0;
   logic trap_entry, mret_entry;
-  logic [31:0] trap_cause, trap_epc;
+  logic [31:0] trap_cause, trap_epc, trap_tval;
 
   decoder dut (
     .clk(clk),
@@ -88,6 +88,7 @@ module decoder_tb;
     .trap_entry(trap_entry),
     .trap_cause(trap_cause),
     .trap_epc(trap_epc),
+    .trap_tval(trap_tval),
     .mret_entry(mret_entry),
     .out(out)
   );
@@ -603,6 +604,93 @@ module decoder_tb;
     check_bit("...and commits no CSR write", csr_wen, 1'b0);
     check_bit("...and no CSR read", csr_ren, 1'b0);
     check_bit("...but it does commit a trap", trap_entry, 1'b1);
+
+    //-----------------------------------------------------------------------
+    // What the trap reports it happened to. The value is a platform statement
+    // firmware cannot derive, so every cause gets a vector and the two that
+    // report zero are asserted rather than left to the default arm -- a mux
+    // that fell through to zero for a cause that should carry an address would
+    // otherwise be indistinguishable from one that meant to.
+    //-----------------------------------------------------------------------
+
+    in.pc = 32'h0000_0240;
+    imem_fault = 1'b1;
+    in.instr = 32'h00000073;
+    #1;
+    check_hex("an instruction access fault reports the address it was refused at",
+              trap_tval, 32'h0000_0240);
+    imem_fault = 1'b0;
+
+    in.instr = 32'hf1151073;   // csrw mvendorid, a0
+    #1;
+    check_hex("an illegal instruction reports the faulting word",
+              trap_tval, 32'hf1151073);
+    in.instr = 32'h00000000;
+    #1;
+    check_hex("...and the all-zero word reports itself", trap_tval, 32'h0);
+
+    // A compressed illegal instruction is zero-extended, not handed its
+    // neighbour: the upper half of the fetch window is the NEXT instruction in
+    // memory, and reporting it would name a word that did not fault.
+    in.instr = 32'hdead_0000;
+    #1;
+    check_hex("a compressed illegal instruction reports its 16 bits alone",
+              trap_tval, 32'h0000_0000);
+
+    in.instr = 32'h00100073;   // ebreak
+    #1;
+    check_hex("a breakpoint reports nothing -- mepc already has its address",
+              trap_tval, 32'h0);
+    in.instr = 32'h00000073;   // ecall
+    #1;
+    check_hex("...and so does an environment call", trap_tval, 32'h0);
+
+    // The EFFECTIVE address, which is what a handler cannot cheaply recompute:
+    // it would have to re-fetch the instruction, decode it and redo this add
+    // out of its own saved context.
+    in.instr = 32'h00452583;   // lw a1, 4(a0)
+    reg_rs1 = 32'h0001_0001;
+    #1;
+    check_hex("a misaligned load reports the address it computed",
+              trap_tval, 32'h0001_0005);
+    in.instr = 32'h00b51023;   // sh a1, 0(a0)
+    #1;
+    check_hex("...and a misaligned store the same", trap_tval, 32'h0001_0001);
+
+    // An atomic's effective address is rs1 verbatim, and the sum is what is
+    // reported. Those two are the same number by construction here; a mux
+    // reading the sum for one and the register for the other would still agree.
+    reg_rs1 = 32'h0004_0000;
+    atomic_supported = 1'b0;
+    in.instr = 32'h1006252f;   // lr.w
+    #1;
+    check_hex("a refused lr.w reports its address", trap_tval, 32'h0004_0000);
+    in.instr = 32'h00b6252f;   // amoadd.w
+    #1;
+    check_hex("...and a refused AMO reports its address", trap_tval, 32'h0004_0000);
+    atomic_supported = 1'b1;
+    reg_rs1 = 32'b0;
+
+    // An interrupt happened to nothing, and it outranks whatever the displaced
+    // instruction would have faulted on -- so this is driven over an
+    // instruction that reports an address of its own.
+    in.instr = 32'h00452583;
+    reg_rs1 = 32'h0001_0001;
+    #1;
+    check_hex("the displaced instruction would have reported an address",
+              trap_tval, 32'h0001_0005);
+    interrupt_pending = 1'b1;
+    #1;
+    check_hex("...and the interrupt that outranks it reports nothing",
+              trap_tval, 32'h0);
+    interrupt_pending = 1'b0;
+    reg_rs1 = 32'b0;
+
+    // Nothing is trapping, so there is nothing to report.
+    in.instr = 32'h00000013;   // nop
+    #1;
+    check_bit("a non-trapping instruction is not a trap", dut.trap_taken, 1'b0);
+    check_hex("...and reports nothing", trap_tval, 32'h0);
 
     reg_rs1 = 32'h0001_0001;
     in.pc = 32'h0000_0080;

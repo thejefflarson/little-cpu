@@ -3071,13 +3071,104 @@ d=$(tr_fixture); sed -i.bak 's/assign load_access_fault  = atomic_fault/assign l
 probe "a respelled fault site stops rather than building the shipping core twice" 2 \
   "no longer spells its two access-fault assignments" "$(trs "$d")"
 
-d=$(tr_fixture); sed -i.bak 's/load_misaligned || store_misaligned || atomic_fault;/load_misaligned || atomic_fault || store_misaligned;/' "$d/rtl/decoder.v"
-probe "a respelled trap_pending stops: an uncommitted fault proves nothing" 2 \
-  "no longer spells the last line of" "$(trs "$d")"
+d=$(tr_fixture); sed -i.bak 's/  assign data_fault = load_misaligned || store_misaligned || atomic_fault;/  assign data_fault = load_misaligned || atomic_fault || store_misaligned;/' \
+  "$d/rtl/decoder.v"
+probe "a respelled data_fault stops: an uncommitted fault proves nothing" 2 \
+  "no longer spells \`data_fault\`" "$(trs "$d")"
 
 d=$(tr_fixture); rm "$d/formal/traps.sv"
 probe "the model moving away takes the probe with it, loudly" 2 \
   "formal/traps.sv is missing from" "$(trs "$d")"
+
+begin_group "formal/traps-tval-probe.py"
+
+# The same demand on formal/traps.sv's mtval arm, and the same division of
+# labour: the script itself needs a solver, so it runs under
+# `make -C formal components_traps`, and what is probed HERE is its own grading.
+# Nothing else in the tree reads mtval -- no generated check names it, and both
+# sim legs see only what a program loaded it into -- so that arm failing when it
+# should is the whole oracle.
+TT="python3 $REPO/formal/traps-tval-probe.py"
+
+cat > "$tmp/sby-tval-stub" <<'STUB'
+#!/bin/sh
+# Stands in for sby, the way the region probe's stub does: the case is the name
+# of the directory it runs in, and the assertion line is read out of the copy of
+# traps.sv it was handed, so PASS and FAIL land where the real solver puts them.
+mkdir -p probe
+line=$(grep -n 'assert(csr_rdata == prev_tval);' src/traps.sv | cut -d: -f1)
+case $(basename "$PWD") in
+  control)    status=${STUB_TVAL_CONTROL:-PASS} ;;
+  wrong-addr) status=${STUB_TVAL_ADDR:-FAIL}; line=${STUB_TVAL_ADDR_LINE:-$line} ;;
+  wrong-word) status=${STUB_TVAL_WORD:-FAIL}; line=${STUB_TVAL_WORD_LINE:-$line} ;;
+esac
+: > probe/logfile.txt
+if [ "$status" = FAIL ]; then
+  echo "SBY [probe] engine_0.basecase: Assert failed in traps: traps.sv:$line.5-$line.36" \
+    > probe/logfile.txt
+fi
+[ -n "${STUB_TVAL_NO_STATUS:-}" ] && exit 1
+if [ -n "${STUB_TVAL_EMPTY_STATUS:-}" ]; then : > probe/status; exit 1; fi
+echo "$status 2 0" > probe/status
+STUB
+chmod +x "$tmp/sby-tval-stub"
+
+tts() { printf "%s --repo %s --workdir %s/work --sby %s" "$TT" "$1" "$1" "$tmp/sby-tval-stub"; }
+
+d=$(tr_fixture)
+probe "control: the arm proves for the shipping core and fails on both values" 0 \
+  "proves for the shipping core and fails on the value" "$(tts "$d")"
+
+d=$(tr_fixture)
+probe "a model that cannot prove the shipping core makes both reds meaningless" 1 \
+  "the shipping core does not prove" "STUB_TVAL_CONTROL=FAIL $(tts "$d")"
+
+# THE TWO THAT MATTER: an arm that admits the wrong value is the whole reason
+# this file exists, once per value source.
+d=$(tr_fixture)
+probe "an arm that admits rs1 where the effective address belongs is red" 1 \
+  "the wrong-addr core proves" "STUB_TVAL_ADDR=PASS $(tts "$d")"
+
+d=$(tr_fixture)
+probe "an arm that admits a zero where the faulting word belongs is red" 1 \
+  "the wrong-word core proves" "STUB_TVAL_WORD=PASS $(tts "$d")"
+
+d=$(tr_fixture)
+probe "a proof going red somewhere else is not evidence about the mtval arm" 1 \
+  "not at line" "STUB_TVAL_ADDR_LINE=9 $(tts "$d")"
+
+d=$(tr_fixture)
+probe "...and the same for the second mutation, which shares that line" 1 \
+  "not at line" "STUB_TVAL_WORD_LINE=9 $(tts "$d")"
+
+d=$(tr_fixture)
+probe "a solver that wrote no verdict is exit 2, not a red arm" 2 \
+  "wrote no status for the" "STUB_TVAL_NO_STATUS=1 $(tts "$d")"
+
+d=$(tr_fixture)
+probe "an empty status file is refused rather than read as a verdict" 2 \
+  "status file for the control core is empty" "STUB_TVAL_EMPTY_STATUS=1 $(tts "$d")"
+
+# The three parses. Each is what the probe pins its answer to, so a respelling
+# has to stop the run rather than quietly probe nothing -- and the control case
+# checks BOTH mutation sites, which is what stops a half-respelled mux from
+# building the shipping core three times.
+d=$(tr_fixture); sed -i.bak 's/assert(csr_rdata == prev_tval);/assert(csr_rdata == prev_tval2);/' "$d/formal/traps.sv"
+probe "a respelled mtval comparison stops rather than pinning nothing" 2 \
+  "0 times" "$(tts "$d")"
+
+d=$(tr_fixture); sed -i.bak "s/      data_fault:        trap_tval = mem_addr_calc;/      data_fault: trap_tval = mem_addr_calc;/" "$d/rtl/decoder.v"
+probe "a respelled address arm stops rather than proving the shipping core" 2 \
+  "no longer spells its mtval mux" "$(tts "$d")"
+
+d=$(tr_fixture); sed -i.bak "s/      instr_illegal:     trap_tval = instr;/      instr_illegal: trap_tval = instr;/" "$d/rtl/decoder.v"
+probe "a respelled word arm stops the same way" 2 \
+  "no longer spells its mtval mux" "$(tts "$d")"
+
+d=$(tr_fixture); rm "$d/formal/traps.sv"
+probe "the model moving away takes this probe with it too" 2 \
+  "formal/traps.sv is missing from" "$(tts "$d")"
+
 
 begin_group "soc/netlist_digest.py"
 

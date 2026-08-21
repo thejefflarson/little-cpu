@@ -1,7 +1,7 @@
 diff --git a/rtl/csrs.v b/rtl/csrs.v
 --- a/rtl/csrs.v
 +++ b/rtl/csrs.v
-@@ -101,9 +101,9 @@ module csrs(
+@@ -128,9 +128,9 @@ module csrs(
    localparam logic [11:0] MIMPID    = 12'hF13;
    localparam logic [11:0] MHARTID   = 12'hF14;
 
@@ -11,4 +11,4 @@ diff --git a/rtl/csrs.v b/rtl/csrs.v
 +  localparam logic [31:0] MISA_VALUE = 32'h4000_1104;
 
    logic [63:0] mcycle, minstret;
-   logic [31:0] mscratch, mtvec, mepc, mcause;
+   logic [31:0] mscratch, mtvec, mepc, mcause, mtval;

@@ -92,6 +92,9 @@ formal/region-probe/
 # and the indivisibility arm against, and their sby workdirs. Rebuilt from
 # rtl/busarbiter.v and formal/busarbiter.sv on every run.
 formal/busarbiter-probe/
+# `make -C formal traps-tval-probe`: the shipping core and the two mutated ones
+# it proves the mtval arm against, same shape and rebuilt the same way.
+formal/tval-probe/
 __pycache__/
 test/rtl.cc
 # The dual configuration's generated netlist and its runner, the same rule.
