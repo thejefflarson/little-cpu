@@ -617,7 +617,7 @@ module decoder #(
   // Bit 31 says interrupt; 7 is the machine timer.
   localparam logic [31:0] CAUSE_MACHINE_TIMER       = 32'h8000_0007;
 
- `ifdef RISCV_FORMAL_MEM_FAULT
+ `ifdef RISCV_FORMAL
   // The strobe the refused store would have driven, which is what
   // checks/rvfi_insn_check.sv compares the fault report against. The whole read
   // mask is legal for a load -- that check takes a superset there -- but the
