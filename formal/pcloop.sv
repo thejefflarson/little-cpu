@@ -23,6 +23,10 @@ module pcloop (
     input executor_output executor_out,
     input logic divider_stall,
     input logic fetch_stall,
+    // Free, like every other stall input here: a hart that has not been granted
+    // the shared bus holds the pc, and the increment assertion has to skip that
+    // cycle the same way it skips a stolen fetch window.
+    input logic bus_wait,
     // Free, like everything else not instantiated here. It redirects the pc,
     // and the increment assertion skips a redirect because the decoder's own
     // `branch_jump` names the trap it raises.
@@ -78,6 +82,8 @@ module pcloop (
     .executor_out(executor_out),
     .divider_stall(divider_stall),
     .fetch_stall(fetch_stall),
+    .bus_wait(bus_wait),
+    .bus_request(bus_request),
     .imem_fault(imem_fault),
     .atomic_addr(atomic_addr),
     .atomic_supported(atomic_supported),
@@ -232,7 +238,7 @@ module pcloop (
   logic f_amo_wait;
   assign f_amo_wait = decoder_out.valid && decoder_out.is_amo;
 
-  assign f_may_stall = divider_stall || fetch_stall ||
+  assign f_may_stall = divider_stall || fetch_stall || bus_wait ||
       f_live_rs1 || f_live_rs2 || f_system || f_fencei || f_operand_fetch ||
       f_amo_wait;
 
@@ -250,13 +256,14 @@ module pcloop (
   // computed from values that had settled before it.
   logic [31:0] past_pc, prev_mtvec, prev_mepc;
   logic prev_reset, prev_may_stall, prev_hard_stall, prev_jump_branch, prev_uncompressed;
-  logic prev_trap_entry, prev_mret_entry, prev_fetch_stall, prev_pair_moved;
+  logic prev_trap_entry, prev_mret_entry, prev_fetch_stall, prev_pair_moved, prev_bus_wait;
   always_ff @(posedge clk) begin
     past_pc           <= pc;
     prev_reset        <= reset;
     prev_may_stall    <= f_may_stall;
     prev_hard_stall   <= divider_stall;
     prev_fetch_stall  <= fetch_stall;
+    prev_bus_wait     <= bus_wait;
     prev_jump_branch  <= f_jump_branch || f_redirect;
     prev_uncompressed <= f_uncompressed;
     prev_trap_entry   <= trap_entry;
@@ -321,6 +328,13 @@ module pcloop (
   // publish block.
   always_ff @(posedge clk)
     if (clocked && prev_fetch_stall && !prev_reset) assert(pc == past_pc);
+
+  // The same statement about an ungranted bus, and it is what makes that wait
+  // free: the instruction re-decodes and asks again, so a grant arriving late
+  // costs cycles and nothing else. Without it `bus_wait` would only be an
+  // excuse in `f_may_stall` above, which asks nothing of the design.
+  always_ff @(posedge clk)
+    if (clocked && prev_bus_wait && !prev_reset) assert(pc == past_pc);
 
   always_ff @(posedge clk)
     if (clocked && !prev_reset && prev_trap_entry) assert(pc == prev_mtvec);

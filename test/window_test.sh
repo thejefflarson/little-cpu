@@ -145,10 +145,22 @@ run_case "the SoC's own" rtl/memory.v memory \
   ".BASE(32'h0001_0000), .RAM_WORDS(16384)" accept ""
 
 echo
-echo "== rtl/timer.v: a 16-byte aligned BASE"
+echo "== rtl/timer.v: a BASE aligned to the whole window, which NHARTS sizes"
 run_case "BASE = 0x0002_0008" rtl/timer.v timer ".BASE(32'h0002_0008)" \
-  reject "BASE must be 16-byte aligned"
+  reject "BASE must be aligned"
 run_case "the SoC's own" rtl/timer.v timer ".BASE(32'h0002_0000)" accept ""
+# Two harts is two more words of mtimecmp, so the window is eight words and the
+# alignment its range test needs doubles with it. THIS PAIR IS WHAT SAYS THE
+# CHECK MOVED: one base, accepted at one hart and refused at two. A fixed
+# `BASE[3:0]` test would take both, and the message alone could not tell them
+# apart -- iverilog's elaboration tasks take one string literal, so the number is
+# not in it.
+run_case "a 16-byte aligned BASE at one hart" rtl/timer.v timer \
+  ".BASE(32'h0002_0010)" accept ""
+run_case "...the same BASE at two harts" rtl/timer.v timer \
+  ".BASE(32'h0002_0010), .NHARTS(2)" reject "BASE must be aligned"
+run_case "two harts at the SoC's own" rtl/timer.v timer \
+  ".BASE(32'h0002_0000), .NHARTS(2)" accept ""
 
 echo
 echo "== rtl/uart.v: an 8-byte aligned BASE, and a divisor with bits in it"
@@ -159,7 +171,7 @@ run_case "BASE = 0x0002_0014" rtl/uart.v uart ".BASE(32'h0002_0014)" \
 run_case "BAUD = the clock" rtl/uart.v uart ".BAUD(12_000_000)" \
   reject "CLOCK_HZ / BAUD must be at least 2"
 run_case "the SoC's own" rtl/uart.v uart \
-  ".BASE(32'h0002_0010), .CLOCK_HZ(12_000_000), .BAUD(115_200)" accept ""
+  ".BASE(32'h0002_0020), .CLOCK_HZ(12_000_000), .BAUD(115_200)" accept ""
 
 # The core copies that map for its load/store locality counters, and its copy is
 # read by nothing else -- so a shape no memory here could be built at would be
@@ -180,7 +192,7 @@ run_case "LS_TIMER_BASE = 0x0002_0008" rtl/littlecpu.v littlecpu \
 run_case "LS_UART_BASE = 0x0002_0014" rtl/littlecpu.v littlecpu \
   ".LS_UART_BASE(32'h0002_0014)" reject "LS_UART_BASE must be 8-byte aligned"
 run_case "the SoC's own" rtl/littlecpu.v littlecpu \
-  ".LS_TEXT_WORDS(2048), .LS_RAM_BASE(32'h0001_0000), .LS_RAM_WORDS(16384), .LS_TIMER_BASE(32'h0002_0000), .LS_UART_BASE(32'h0002_0010)" \
+  ".LS_TEXT_WORDS(2048), .LS_RAM_BASE(32'h0001_0000), .LS_RAM_WORDS(16384), .LS_TIMER_BASE(32'h0002_0000), .LS_UART_BASE(32'h0002_0020)" \
   accept ""
 
 echo

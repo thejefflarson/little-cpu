@@ -2,6 +2,11 @@
 `default_nettype none
 `include "structs.v"
 module littlecpu #(
+  // This hart's mhartid, handed straight to rtl/csrs.v. Nothing else in the
+  // core reads it: it is a self-description register, so a wrong value changes
+  // no cycle and no retire, and test/csr_tb.v is the only place the read is
+  // graded away from the default.
+  parameter logic [31:0] HART_ID = 32'd0,
   // The data bus's memory map. Two readers: rtl/decoder.v raises the two region
   // causes for a plain load or store against it, and the load/store locality
   // counters under `RISCV_FORMAL` at the bottom of this file count against it.
@@ -18,7 +23,7 @@ module littlecpu #(
   parameter logic [31:0] LS_RAM_BASE   = 32'h0001_0000,
   parameter integer      LS_RAM_WORDS  = 16384,
   parameter logic [31:0] LS_TIMER_BASE = 32'h0002_0000,
-  parameter logic [31:0] LS_UART_BASE  = 32'h0002_0010
+  parameter logic [31:0] LS_UART_BASE  = 32'h0002_0020
 ) (
   input  logic clk,
   input  logic reset,
@@ -60,6 +65,28 @@ module littlecpu #(
   // cause 7. A platform whose memory answers atomics everywhere ties it high.
   output logic [31:0] atomic_addr,
   input  logic        atomic_supported,
+  // The shared-bus surface. `bus_wait` says the bus is somebody else's this
+  // cycle: decode publishes nothing, the pc holds, and the instruction asks
+  // again next cycle. `snoop_write`/`snoop_addr` are the write another master
+  // is making, which clears a reservation on that word. `mem_lock` is high on
+  // the cycle an AMO reads and low on the cycle it writes back, which is how an
+  // arbiter that registers its grant learns to keep the bus here for the second
+  // cycle.
+  //
+  // A platform with one bus master ties both inputs low and leaves both outputs
+  // unread, and only the INPUTS are free that way: they fold before mapping and
+  // the cell census does not move. An unread output is still a net for ABC to
+  // map around, and these moved the SoC's mapped count by tens of cells -- so
+  // each arrived with a placement sweep rather than with an equal netlist.
+  input  logic        bus_wait,
+  input  logic        snoop_write,
+  input  logic [31:0] snoop_addr,
+  output logic        mem_lock,
+  // Decode's request for the shared data bus, a cycle before the transaction it
+  // asks for. `bus_wait` is what comes back, and the platform -- not this
+  // module -- ANDs the two: a hart that is not granted publishes nothing and
+  // asks again next cycle.
+  output logic        bus_request,
   // The platform's machine-timer line. Registered at its source (rtl/timer.v
   // does it), because inside the core it is one gate away from the fetch loop.
   // A platform with no timer ties it low and the core never takes an interrupt.
@@ -229,6 +256,8 @@ module littlecpu #(
     .executor_out(executor_out),
     .divider_stall(divider_stalled),
     .fetch_stall(fetch_stall),
+    .bus_wait(bus_wait),
+    .bus_request(bus_request),
     .imem_fault(imem_fault),
     .atomic_addr(atomic_addr),
     .atomic_supported(atomic_supported),
@@ -264,7 +293,7 @@ module littlecpu #(
     .out(decoder_out)
   );
 
-  csrs csrs(
+  csrs #(.HART_ID(HART_ID)) csrs(
     .clk(clk),
     .reset(reset),
     .addr(csr_addr),
@@ -319,6 +348,9 @@ module littlecpu #(
     .mem_ren(mem_ren),
     .mem_rdata(mem_rdata),
     .mem_reservable(mem_reservable),
+    .snoop_write(snoop_write),
+    .snoop_addr(snoop_addr),
+    .mem_lock(mem_lock),
     .out(accessor_out)
   );
 

@@ -1,0 +1,14 @@
+diff --git a/rtl/csrs.v b/rtl/csrs.v
+--- a/rtl/csrs.v
++++ b/rtl/csrs.v
+@@ -191,9 +191,9 @@
+       MCYCLE:    rdata = mcycle_lo;
+       MCYCLEH:   rdata = mcycle_hi;
+       MINSTRET:  rdata = minstret_lo;
+       MINSTRETH: rdata = minstret_hi;
+-      MHARTID:   rdata = HART_ID;
++      MHARTID:   rdata = 32'b0;
+       MVENDORID, MARCHID, MIMPID, MCONFIGPTR: rdata = 32'b0;
+       default: begin
+         rdata = 32'b0;
+         implemented = hpm_zero;

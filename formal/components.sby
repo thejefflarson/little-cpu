@@ -4,6 +4,7 @@ decoder all
 accessor all
 pcloop all
 traps all
+busarbiter all
 
 [options]
 all: mode prove
@@ -27,6 +28,15 @@ all: smtbmc
 # is the next thing to measure rather than reverting to the default and calling a
 # fourteen-minute non-answer a slow proof.
 pcloop: smtbmc boolector
+
+# `--keep-going` reports EVERY assertion a failing step breaks instead of
+# stopping at the first, and this task has assertions that catch one defect
+# several steps before another does: a starving arbiter breaks the round-robin
+# handoff at step 3 and the wait bound at step 6, and the first alone does not
+# say the bound still works. Free on a run that passes -- there is nothing to
+# keep going past -- so busarbiter-probe.py grades the engine that ships rather
+# than a second one of its own.
+busarbiter: smtbmc --keep-going
 
 [script]
 decoder:
@@ -63,6 +73,14 @@ traps:
 read -sv structs.v fetcher.v decoder.v regsel.v csrs.v
 read -sv -formal structs.v traps.sv
 prep -top traps
+
+busarbiter:
+# The RTL is read WITH -formal, unlike pcloop and traps: rtl/busarbiter.v
+# carries no `ifdef FORMAL` block, so there is no assume of its own to compile
+# into the instance and nothing for the harness to be circular about. Give it
+# one and this line has to split the way those two did.
+read -sv -formal busarbiter.v busarbiter.sv
+prep -top busarbiter_check
 --
 [files]
 decoder:
@@ -92,5 +110,9 @@ traps:
 ../rtl/csrs.v
 ../rtl/structs.v
 traps.sv
+
+busarbiter:
+../rtl/busarbiter.v
+busarbiter.sv
 
 --

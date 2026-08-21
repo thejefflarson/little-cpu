@@ -37,7 +37,12 @@ module memory #(
   parameter logic [31:0] BASE = 32'h0001_0000,
   // 32-bit words. 16384 = 64 KB = two `SB_SPRAM256KA`; the part has four, so
   // this can double without touching anything else.
-  parameter integer RAM_WORDS = 16384
+  parameter integer RAM_WORDS = 16384,
+  // One `atomic_addr`/`atomic_supported` pair per hart, packed low hart first.
+  // The bus-side ports stay scalar because the bus is shared and only one
+  // master drives it per cycle; this pair is the exception because it is asked
+  // in DECODE, where every hart is asking about its own instruction at once.
+  parameter integer NHARTS = 1
 ) (
   input  logic        clk,
   input  logic [31:0] mem_addr,
@@ -57,8 +62,8 @@ module memory #(
   // to arrive on `mem_addr`. Answering both out of one window is what keeps the
   // reservation the accessor refuses and the fault decode raises talking about
   // the same memory.
-  input  logic [31:0] atomic_addr,
-  output logic        atomic_supported
+  input  logic [32*NHARTS-1:0] atomic_addr,
+  output logic [NHARTS-1:0]    atomic_supported
 );
   localparam int ADDR_BITS = $clog2(RAM_WORDS);
 
@@ -84,7 +89,16 @@ module memory #(
   logic [ADDR_BITS-1:0] index;
   assign index = mem_addr[ADDR_BITS+1:2];
   assign reservable = in_range;
-  assign atomic_supported = atomic_addr[31:ADDR_BITS+2] == BASE[31:ADDR_BITS+2];
+  assign atomic_supported[0] = atomic_addr[31:ADDR_BITS+2] == BASE[31:ADDR_BITS+2];
+
+  // The harts above the first. Hart 0 keeps its own line above rather than
+  // becoming an arm of this loop, and the loop is left to elaborate to nothing
+  // at the default, because rtl/imemory.v measured both of those spellings on
+  // the shipping netlist and folding hart 0 in was the more expensive one.
+  for (genvar h = 1; h < NHARTS; h++) begin : l_atomic
+    assign atomic_supported[h] =
+      atomic_addr[32*h+31:32*h+ADDR_BITS+2] == BASE[31:ADDR_BITS+2];
+  end
 
   // An out-of-range access is dropped and reads as zero. It must not ALIAS a
   // mapped word, which is what indexing on truncated address bits alone would

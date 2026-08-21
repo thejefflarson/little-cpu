@@ -56,7 +56,7 @@ module littlesoc (
   logic [31:0] imem_mem_rdata, dmem_mem_rdata, timer_mem_rdata, uart_mem_rdata;
   logic [3:0]  mem_wstrb;
   logic        mem_ren, fetch_stall, irq_timer, imem_fault, mem_reservable;
-  logic        atomic_supported;
+  logic        atomic_supported, mem_lock, bus_request;
   logic [31:0] atomic_addr;
   logic [31:0] imem_addr, imem_addr2, imem_addr_next;
   logic [31:0] imem_data, imem_data2;
@@ -83,6 +83,15 @@ module littlesoc (
     .mem_reservable(mem_reservable),
     .atomic_addr(atomic_addr),
     .atomic_supported(atomic_supported),
+    // One bus master, so nothing ever takes the bus away and nothing else
+    // writes memory, and `mem_lock` has no arbiter to tell. The two inputs fold
+    // away here; the output does not, and its wire is why this SoC's mapped
+    // netlist is not the one it was before the surface landed.
+    .bus_wait(1'b0),
+    .snoop_write(1'b0),
+    .snoop_addr(32'b0),
+    .mem_lock(mem_lock),
+    .bus_request(bus_request),
     .irq_timer(irq_timer),
     .trap(trap)
   );

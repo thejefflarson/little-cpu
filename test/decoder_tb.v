@@ -26,6 +26,11 @@ module decoder_tb;
   executor_output executor_out = '0;
   logic divider_stall = 1'b0;
   logic fetch_stall = 1'b0;
+  // The platform has not granted this core the shared bus. Low for every vector
+  // but the ones that drive it below: with one bus master it never rises, and
+  // nothing single-hart can otherwise say which arm of the publish block it
+  // takes.
+  logic bus_wait = 1'b0;
   // The instruction memory had nothing at `pc`. Driven high only by the
   // instruction-access-fault vectors below; every other vector presents a word
   // some memory really answered.
@@ -59,6 +64,7 @@ module decoder_tb;
     .executor_out(executor_out),
     .divider_stall(divider_stall),
     .fetch_stall(fetch_stall),
+    .bus_wait(bus_wait),
     .imem_fault(imem_fault),
     .atomic_addr(atomic_addr),
     .atomic_supported(atomic_supported),
@@ -125,7 +131,7 @@ module decoder_tb;
     prev_next_pc_valid <= 1'b1;
   end
 
-  // `stall` is exactly these seven terms ORed together. `make cycles` charges
+  // `stall` is exactly these eight terms ORed together. `make cycles` charges
   // every stalled cycle to the first of them that is true, so a term added to
   // `stall` and not there would leave the cycles it costs unexplained. This says
   // so in a gate that runs on every change, rather than the next time somebody
@@ -139,14 +145,15 @@ module decoder_tb;
   // On both clock edges, not just the rising one. Every vector here presents its
   // instruction just after a rising edge, so the falling edge is where it is
   // settled and being decoded. Sampling only the rising edge misses that, and
-  // the probe for this check -- a seventh term ORed into `stall` -- goes green.
+  // the probe for this check -- an eighth term ORed into `stall` -- goes green.
   always @(clk) begin
     if (dut.stall !== (dut.divider_stall || dut.atomic_stall || dut.hazard_rs1 ||
                        dut.hazard_rs2 || dut.serialize || dut.operand_stall ||
-                       dut.fetch_stall)) begin
-      $display("MISMATCH stall is not the OR of the six named reasons: stall=%b divider=%b atomic=%b rs1=%b rs2=%b serialize=%b operand=%b fetch=%b",
+                       dut.fetch_stall || dut.bus_wait)) begin
+      $display("MISMATCH stall is not the OR of the seven named reasons: stall=%b divider=%b atomic=%b rs1=%b rs2=%b serialize=%b operand=%b fetch=%b bus=%b",
                dut.stall, dut.divider_stall, dut.atomic_stall, dut.hazard_rs1,
-               dut.hazard_rs2, dut.serialize, dut.operand_stall, dut.fetch_stall);
+               dut.hazard_rs2, dut.serialize, dut.operand_stall, dut.fetch_stall,
+               dut.bus_wait);
       errors++;
     end
   end
@@ -1227,6 +1234,67 @@ module decoder_tb;
     check_hex("lr.w carries its rd too", {27'b0, out.rd}, 32'd1);
     check_bit("...and no AMO bit", out.is_amo, 1'b0);
     check_bit("...and raises no atomic wait either", dut.atomic_stall, 1'b0);
+
+    // The seventh stall reason: the platform has given the shared bus to
+    // somebody else. Nothing single-hart raises it, so this is the only place
+    // in the tree that says which arm of the publish block it takes, and both
+    // ways of getting that wrong are silent -- a hold hands the executor an
+    // instruction it has already run, and a bubble on the divide's cycle throws
+    // away one it has not.
+    in.pc = 32'h0000_0840;
+    present_and_fetch(32'h00100093);   // addi x1, x0, 1
+    @(posedge clk);
+    #1;
+    check_bit("the instruction issued", out.valid, 1'b1);
+    check_hex("...into decoder_out", {27'b0, out.rd}, 32'd1);
+
+    bus_wait = 1'b1;
+    #1;
+    check_bit("an ungranted bus is a stall", dut.stall, 1'b1);
+    check_bit("...so nothing issues", dut.issuing, 1'b0);
+    check_hex("...and the pc holds, so the instruction asks again next cycle",
+              next_pc, pc);
+    check_bit("...and no trap is committed on a cycle that issued nothing",
+              trap_entry, 1'b0);
+
+    // The divider holds; every other reason bubbles. On a cycle with both, the
+    // hold has to win or the instruction the executor has not taken is lost.
+    divider_stall = 1'b1;
+    #1;
+    @(posedge clk);
+    #1;
+    check_bit("a bus wait coinciding with a divide holds decoder_out",
+              out.valid, 1'b1);
+    check_hex("...unchanged", {27'b0, out.rd}, 32'd1);
+    divider_stall = 1'b0;
+    #1;
+    @(posedge clk);
+    #1;
+    check_bit("a bus wait on its own bubbles decoder_out instead", out.valid, 1'b0);
+    bus_wait = 1'b0;
+    #1;
+    @(posedge clk);
+    #1;
+    check_bit("...and the same instruction issues once the bus is granted",
+              out.valid, 1'b1);
+    check_hex("...as itself", {27'b0, out.rd}, 32'd1);
+
+    // An interrupt is taken on a cycle that would otherwise have issued, so it
+    // waits out an ungranted bus the way it waits out everything else. Without
+    // this the trap would be committed for an instruction that never issued and
+    // then issued again.
+    interrupt_pending = 1'b1;
+    bus_wait = 1'b1;
+    #1;
+    check_bit("an interrupt waits for the grant", trap_entry, 1'b0);
+    bus_wait = 1'b0;
+    #1;
+    check_bit("...and is taken on the cycle the grant arrives", trap_entry, 1'b1);
+    interrupt_pending = 1'b0;
+    @(posedge clk);
+    #1;
+    @(posedge clk);
+    #1;
 
     // A trapping atomic publishes none of its flags, so nothing downstream
     // starts a transaction for an instruction that faulted in decode.
