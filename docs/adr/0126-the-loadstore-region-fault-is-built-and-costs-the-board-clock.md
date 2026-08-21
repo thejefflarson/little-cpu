@@ -54,10 +54,12 @@ underneath it" is not what the earlier 12.04 was.
 
 ## Consequences
 
-**A single-seed gate does not see this.** `make soc-timing` at the default seed reads 12.06 MHz and
-passes, which is how a change that misses at nine placements of sixteen arrives looking green. That
-is the argument for the paired sweep, made again: a go/no-go on this part is twelve to sixteen
-seeds, and one placement is a look.
+**CI's own `soc-timing` job reads 11.87 MHz and goes red**, so the miss does not need the sweep to be
+believed. What the sweep adds is the attribution: sixteen of sixteen seeds, against a control one
+line away, is the feature and not a placement. **Read the toolchain gap while reading the two** — the
+same default seed is 12.06 MHz locally and 11.87 on the runner, which is `make fit`'s
+quote-the-job-number argument arriving at the other instrument. A go/no-go on this part is twelve to
+sixteen seeds; one placement is a look, and this one happened to look the right way locally.
 
 **What is built is complete and is not the doubtful part.** The eleven A encodings and the twelve
 plain load and store encodings now raise the same two causes; `formal/traps.sv`'s region arm is
