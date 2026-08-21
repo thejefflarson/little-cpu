@@ -617,6 +617,23 @@ module decoder #(
   // Bit 31 says interrupt; 7 is the machine timer.
   localparam logic [31:0] CAUSE_MACHINE_TIMER       = 32'h8000_0007;
 
+ `ifdef RISCV_FORMAL_MEM_FAULT
+  // The strobe the refused store would have driven, which is what
+  // checks/rvfi_insn_check.sv compares the fault report against. The whole read
+  // mask is legal for a load -- that check takes a superset there -- but the
+  // write mask has to be the exact one, so the width and the two low address
+  // bits are read here. An atomic and a word store are both word accesses and
+  // report all four; nothing else reaches the `else`, because the arm below
+  // publishes this only for a store the map refused.
+  logic [3:0] ls_fault_wstrb;
+  always_comb begin
+    if (instr_sb)      ls_fault_wstrb = 4'b0001 << mem_addr_calc[1:0];
+    else if (instr_sh) ls_fault_wstrb = 4'b0011 << mem_addr_calc[1:0];
+    else               ls_fault_wstrb = 4'b1111;
+  end
+
+ `endif
+
   logic trap_pending;
   assign trap_pending = imem_fault || instr_illegal || instr_ebreak || instr_ecall ||
                         load_misaligned || store_misaligned || atomic_fault ||
@@ -989,7 +1006,8 @@ module decoder #(
       // read half names the AMOs rather than excusing `sc.w`, because a plain
       // store raises this cause now and reads nothing either.
       out.rvfi.mem_fault_rmask <= {4{load_access_fault || (store_access_fault && instr_amo)}};
-      out.rvfi.mem_fault_wmask <= {4{store_access_fault}};
+      out.rvfi.mem_fault_wmask <= store_access_fault ? ls_fault_wstrb : 4'b0;
+      out.rvfi.mem_fault_addr <= {mem_addr_calc[31:2], 2'b00};
       out.rvfi.rs1_addr <= rvfi_rs1_valid ? rs1 : 5'b0;
       out.rvfi.rs2_addr <= rvfi_rs2_valid ? rs2 : 5'b0;
       out.rvfi.rs1_rdata <= rvfi_rs1_valid ? reg_rs1 : 32'b0;

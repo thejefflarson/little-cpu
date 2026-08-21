@@ -108,11 +108,11 @@ module writeback(
   assign rvfi_intr = in.rvfi.intr;
  `ifdef RISCV_FORMAL_MEM_FAULT
   assign rvfi_mem_fault = in.rvfi.mem_fault;
-  // Both clear is how checks/rvfi_fault_check.sv says a fetch was refused, which
-  // is the only refusal a plain load or store can produce here: an address no
-  // memory answers is still read as zero and written nowhere. An atomic outside
-  // the data RAM is the one data access that is refused, and decode sets these
-  // to the access it would have made.
+  // Both clear is how checks/rvfi_fault_check.sv says a FETCH was refused. A
+  // data access sets one or both, and decode sets them to the access it would
+  // have made -- exactly, for the write mask, because
+  // checks/rvfi_insn_check.sv compares that one against the spec model rather
+  // than accepting a superset of it.
   assign rvfi_mem_fault_rmask = in.rvfi.mem_fault_rmask;
   assign rvfi_mem_fault_wmask = in.rvfi.mem_fault_wmask;
  `endif
@@ -132,7 +132,14 @@ module writeback(
     rvfi_rd_wdata = |in.rd ? in.rd_data : 32'b0;
     rvfi_pc_rdata = in.rvfi.pc_rdata;
     rvfi_pc_wdata = in.rvfi.pc_wdata;
+    // A refused access never reached rtl/accessor.v, so it has no transaction to
+    // report -- and the same check that reads the masks above reads this against
+    // the spec model's effective address. Decode is where that address is known.
+   `ifdef RISCV_FORMAL_MEM_FAULT
+    rvfi_mem_addr = in.rvfi.mem_fault ? in.rvfi.mem_fault_addr : in.rvfi_mem_addr;
+   `else
     rvfi_mem_addr = in.rvfi_mem_addr;
+   `endif
     rvfi_mem_rmask = in.rvfi_mem_rmask;
     rvfi_mem_wmask = in.rvfi_mem_wmask;
     rvfi_mem_rdata = in.rvfi_mem_rdata;
