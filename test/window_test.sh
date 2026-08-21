@@ -5,12 +5,12 @@
 #
 # Usage: window_test.sh          # every case; exit 0 only if all of them hold
 #
-# WHY THIS EXISTS. rtl/imemory.v, rtl/memory.v and rtl/timer.v each decide
-# whether an address is inside their window. Each used to subtract the base and
+# WHY THIS EXISTS. rtl/imemory.v, rtl/memory.v, rtl/timer.v and rtl/uart.v each
+# decide whether an address is inside their window. Each used to subtract the base and
 # compare against the size, which is correct at any base and any size and costs
 # a carry chain. Each now reads the address bits above the window instead, which
 # is correct only while the window is a power of two sitting on a multiple of
-# its own size. rtl/littlecpu.v copies all three windows for its load/store
+# its own size. rtl/littlecpu.v copies all four windows for its load/store
 # locality counters, and demands the same shapes of its copy.
 #
 # That is a different KIND of dependency from the one it replaced. The old
@@ -18,7 +18,9 @@
 # admits addresses past the end of the memory, and those alias onto real words
 # instead of reading zero. A comment saying "the window must be aligned" is not
 # a check, so each file carries an elaboration `$fatal` beside the test it
-# guards, and this asserts that each one fires.
+# guards, and this asserts that each one fires. rtl/uart.v's second guard is a
+# different fact of the same kind: its divisor is derived rather than given, and
+# a derivation that lands on one declares a counter with no bits in it.
 #
 # BOTH FRONTENDS, because a check only iverilog enforces would let the
 # synthesised design be wrong while every simulation stayed green -- which is
@@ -80,7 +82,7 @@ run_case() {
   # flat, so the include resolves with no search path. It also puts the shipping
   # rtl/littlesoc.v in front of the frontend beside the probe, which is a second
   # instantiation of the module under test at the parameters that place on the
-  # part. The three memories include nothing and are handed their own file.
+  # part. The memories and the UART include nothing and are handed their own file.
   if grep -q '^`include' "$REPO/$file"; then
     cp "$REPO"/rtl/*.v .
     SRCS=$(cd "$REPO/rtl" && printf '%s ' *.v)
@@ -160,14 +162,25 @@ run_case "...the same BASE at two harts" rtl/timer.v timer \
 run_case "two harts at the SoC's own" rtl/timer.v timer \
   ".BASE(32'h0002_0000), .NHARTS(2)" accept ""
 
+echo
+echo "== rtl/uart.v: an 8-byte aligned BASE, and a divisor with bits in it"
+run_case "BASE = 0x0002_0014" rtl/uart.v uart ".BASE(32'h0002_0014)" \
+  reject "BASE must be 8-byte aligned"
+# One cycle a bit is the clock rather than a serial line, and $clog2 of it is
+# zero -- a counter declared with no bits, which elaborates and never counts.
+run_case "BAUD = the clock" rtl/uart.v uart ".BAUD(12_000_000)" \
+  reject "CLOCK_HZ / BAUD must be at least 2"
+run_case "the SoC's own" rtl/uart.v uart \
+  ".BASE(32'h0002_0020), .CLOCK_HZ(12_000_000), .BAUD(115_200)" accept ""
+
 # The core copies that map for its load/store locality counters, and its copy is
 # read by nothing else -- so a shape no memory here could be built at would be
-# counted against silently rather than refused. These are the same three checks,
-# restated where the copy is.
+# counted against silently rather than refused. These are the same alignment and
+# size checks, restated where the copy is.
 echo
 echo "== rtl/littlecpu.v: the copied map has the shape the memories demand"
-# One override per case, so each names the parameter it is about and the other
-# three stay at the values that ship; the accept below states all four.
+# One override per case, so each names the parameter it is about and the rest
+# stay at the values that ship; the accept below states all five.
 run_case "LS_TEXT_WORDS = 3072" rtl/littlecpu.v littlecpu ".LS_TEXT_WORDS(3072)" \
   reject "LS_TEXT_WORDS must be a power of two"
 run_case "LS_RAM_WORDS = 12288" rtl/littlecpu.v littlecpu ".LS_RAM_WORDS(12288)" \
@@ -176,8 +189,10 @@ run_case "LS_RAM_BASE off the window" rtl/littlecpu.v littlecpu \
   ".LS_RAM_BASE(32'h0001_0004)" reject "LS_RAM_BASE must be aligned"
 run_case "LS_TIMER_BASE = 0x0002_0008" rtl/littlecpu.v littlecpu \
   ".LS_TIMER_BASE(32'h0002_0008)" reject "LS_TIMER_BASE must be 16-byte aligned"
+run_case "LS_UART_BASE = 0x0002_0014" rtl/littlecpu.v littlecpu \
+  ".LS_UART_BASE(32'h0002_0014)" reject "LS_UART_BASE must be 8-byte aligned"
 run_case "the SoC's own" rtl/littlecpu.v littlecpu \
-  ".LS_TEXT_WORDS(2048), .LS_RAM_BASE(32'h0001_0000), .LS_RAM_WORDS(16384), .LS_TIMER_BASE(32'h0002_0000)" \
+  ".LS_TEXT_WORDS(2048), .LS_RAM_BASE(32'h0001_0000), .LS_RAM_WORDS(16384), .LS_TIMER_BASE(32'h0002_0000), .LS_UART_BASE(32'h0002_0010)" \
   accept ""
 
 echo

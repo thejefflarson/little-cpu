@@ -1,8 +1,10 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// The whole chip: core, both memories, four pins. `make soc-timing` measures
-// this. `make fit` measures the core on its own with the memories outside it, so
-// its cell count is a different design's and the two do not compare.
+// The whole chip: core, both memories, the machine timer, a transmit-only UART
+// and five pins. `make soc-timing` measures this. `make fit` measures the core
+// on its own with the memories outside it, so its cell count is a different
+// design's and the two do not compare -- and rtl/uart.v is outside that top
+// entirely, so it moves this design's cell count and not that one's.
 //
 // The ROM says when it has nothing at the address it is answering, and decode
 // takes that as an instruction access fault. The data RAM says which addresses
@@ -25,7 +27,11 @@ module littlesoc (
   // These two only watch signals the core already drives, so they add no
   // registers to the memory map and change nothing about how it runs.
   output logic ledr_n,
-  output logic ledg_n
+  output logic ledg_n,
+  // The one pin a program can say anything through. It goes to the FTDI bridge
+  // on the board, so a host sees it as a serial port; soc/littlesoc.pcf carries
+  // the assignment.
+  output logic uart_tx
 );
   // The FPGA comes out of configuration with no reset of its own, so this makes
   // one. Keep `reset` registered. The button is asynchronous and needs the two
@@ -47,7 +53,7 @@ module littlesoc (
 
   logic        trap;
   logic [31:0] mem_addr, mem_wdata, mem_rdata;
-  logic [31:0] imem_mem_rdata, dmem_mem_rdata, timer_mem_rdata;
+  logic [31:0] imem_mem_rdata, dmem_mem_rdata, timer_mem_rdata, uart_mem_rdata;
   logic [3:0]  mem_wstrb;
   logic        mem_ren, fetch_stall, irq_timer, imem_fault, mem_reservable;
   logic        atomic_supported, mem_lock, bus_request;
@@ -142,10 +148,23 @@ module littlesoc (
     .mtip(irq_timer)
   );
 
-  // An OR instead of a mux, which is one less level of logic here. The three
+  // The transmit-only UART, at rtl/uart.v's default base, which is the first
+  // word past the timer's four. Its read-back is one bit wide, so the OR below
+  // gains a fourth input on bit 0 and nothing anywhere else.
+  uart tty (
+    .clk(clk),
+    .reset(reset),
+    .mem_addr(mem_addr),
+    .mem_wdata(mem_wdata),
+    .mem_wstrb(mem_wstrb),
+    .mem_rdata(uart_mem_rdata),
+    .tx(uart_tx)
+  );
+
+  // An OR instead of a mux, which is one less level of logic here. The four
   // ranges do not overlap. On a store the RAM holds its last read value and the
-  // other two give zero, so this can never mix two real values together.
-  assign mem_rdata = imem_mem_rdata | dmem_mem_rdata | timer_mem_rdata;
+  // others give zero, so this can never mix two real values together.
+  assign mem_rdata = imem_mem_rdata | dmem_mem_rdata | timer_mem_rdata | uart_mem_rdata;
 
   logic store_bit, trap_seen;
   always_ff @(posedge clk) begin

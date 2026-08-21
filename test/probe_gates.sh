@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=442
+PROBES_EXPECTED=446
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -149,8 +149,8 @@ for a in "$@"; do [ "$a" = "--stalls" ] && stalls=1; done
 if [ -n "$stalls" ] && [ -z "${STUB_SIM_NOSTALLS:-}" ]; then
   unattr=${STUB_SIM_UNATTR:-0}
   echo "STALLS cycles=$((20 + unattr + ${STUB_SIM_SKEW:-0})) issue=10 divider=0" \
-       "atomic=0 hazard=10 serialize=0 operand=0 fetch=0 bus=0" \
-       "unattributed=$unattr lsissue=4 lsedge=2 lsbypass=1"
+       "atomic=0 hazard=10 serialize=0 operand=0 fetch=0 bus=0 unattributed=$unattr" \
+       "lsissue=4 lsedge=2 lsbypass=1"
 fi
 case ${STUB_SIM_EXIT:-0} in
   0) echo "PASS" ;;
@@ -2046,8 +2046,8 @@ MM="$HERE/memmap_test.sh"
 mm_fixture() {
   local d; d=$(new_case)
   mkdir -p "$d/rtl" "$d/test/asm" "$d/test/bench" "$d/formal"
-  cp "$REPO"/rtl/memory.v "$REPO"/rtl/timer.v "$REPO"/rtl/imemory.v \
-     "$REPO"/rtl/littlecpu.v "$REPO"/rtl/littlesoc.v "$d/rtl/"
+  cp "$REPO"/rtl/memory.v "$REPO"/rtl/timer.v "$REPO"/rtl/uart.v \
+     "$REPO"/rtl/imemory.v "$REPO"/rtl/littlecpu.v "$REPO"/rtl/littlesoc.v "$d/rtl/"
   cp "$REPO"/test/testbench.v "$REPO"/test/cxxrtl.cc "$REPO"/test/cosim.cc \
      "$REPO"/test/dual_cxxrtl.cc "$d/test/"
   cp "$REPO"/test/asm/riscv_test.h "$REPO"/test/asm/sections.lds \
@@ -2074,6 +2074,16 @@ probe "the harness sizing its own RAM again is red" 1 \
 d=$(mm_fixture); sed -i.bak "s/^  timer mtimer (/  timer #(.BASE(32'h0003_0000)) mtimer (/" "$d/rtl/littlesoc.v"
 probe "the SoC restating the timer base is red too" 1 \
   "rtl/littlesoc.v overrides \`timer\`'s parameters" "$MM $d"
+
+# The UART is the newest region and the one whose baud rate an integrator would
+# be most tempted to speed up for a simulation, which is the whole defect.
+d=$(mm_fixture); sed -i.bak "s/^  uart tty (/  uart #(.BAUD(1_000_000)) tty (/" "$d/test/testbench.v"
+probe "the harness giving the UART its own baud rate is red" 1 \
+  "test/testbench.v overrides \`uart\`'s parameters" "$MM $d"
+
+d=$(mm_fixture); sed -i.bak 's/^  uart tty (/  nouart tty (/' "$d/rtl/littlesoc.v"
+probe "a SoC with no UART at all does not pass by silence" 1 \
+  "does not instantiate \`uart\` at all" "$MM $d"
 
 # Without this the check above passes vacuously on a file that lost its memory.
 d=$(mm_fixture); sed -i.bak 's/^  memory dmem (/  nomemory dmem (/' "$d/test/testbench.v"
@@ -2114,29 +2124,30 @@ d=$(mm_fixture); sed -i.bak "s/BASE = 32'h0002_0000/BASE = 32'h0004_0000/" "$d/r
 probe "a gap opening between the data RAM and the timer is red" 1 \
   "the data RAM ends at 0x00020000 and the timer starts at" "$MM $d"
 
-# The timer decodes four words at one hart and eight at two, so a base that is
-# only 16-byte aligned elaborates today and stops elaborating the day the second
-# hart lands. That is the failure the reserved span exists to bring forward.
-d=$(mm_fixture); sed -i.bak "s/BASE = 32'h0002_0000/BASE = 32'h0002_0010/" "$d/rtl/timer.v"
-probe "a timer base aligned only for one hart is red" 1 \
-  "0x00020010 is off its reserved" "$MM $d"
+# The UART abuts the span the timer RESERVES for one mtimecmp per hart, not the
+# sixteen bytes it decodes at one hart. A move in either direction is an overlap
+# or a hole, and the OR that joins the read buses would report neither.
+d=$(mm_fixture); sed -i.bak "s/BASE     = 32'h0002_0020/BASE     = 32'h0002_0040/" "$d/rtl/uart.v"
+probe "a gap opening between the timer's reservation and the UART is red" 1 \
+  "the timer reserves through" "$MM $d"
 
-# A device in the words the second hart's mtimecmp needs. At one hart they read
-# zero from every memory on this bus, so the device would work and the overlap
-# would surface only when the dual top was built.
-d=$(mm_fixture)
-printf "module probe_device #(\n  parameter logic [31:0] BASE = 32'h0002_0010\n) ();\nendmodule\n" \
-  > "$d/rtl/probe_device.v"
-probe "a peripheral inside the timer's reserved span is red" 1 \
-  "rtl/probe_device.v puts its window at 0x00020010" "$MM $d"
+# Its range test reads the address bits above an 8-byte window, which is only a
+# membership test while the base is a multiple of 8.
+d=$(mm_fixture); sed -i.bak "s/BASE     = 32'h0002_0020/BASE     = 32'h0002_0024/" "$d/rtl/uart.v"
+probe "a UART base off its own window is red" 1 \
+  "is not a multiple of its own" "$MM $d"
 
-# ...and the same device above the span is not, or the check above would be
-# refusing every address rather than the reserved ones.
-d=$(mm_fixture)
-printf "module probe_device #(\n  parameter logic [31:0] BASE = 32'h0002_0020\n) ();\nendmodule\n" \
-  > "$d/rtl/probe_device.v"
-probe "control: a peripheral above the reserved span is accepted" 0 \
-  "Memory map agreed on:" "$MM $d"
+d=$(mm_fixture); sed -i.bak 's/UART_BASE          0x00020020/UART_BASE          0x00030020/' "$d/test/asm/riscv_test.h"
+probe "the address the printing program writes is checked against the UART" 1 \
+  "UART_BASE is 0x00030020" "$MM $d"
+
+d=$(mm_fixture); sed -i.bak "s/LS_UART_BASE  = 32'h0002_0020/LS_UART_BASE  = 32'h0003_0020/" "$d/rtl/littlecpu.v"
+probe "the UART moving in the core's copy alone is red" 1 \
+  "LS_UART_BASE is 196640 against rtl/uart.v's 131104" "$MM $d"
+
+d=$(mm_fixture); sed -i.bak "s/LS_UART_BASE  = 32'h0002_0020/LS_UART_BASE  = 32'h0003_0020/" "$d/formal/traps.sv"
+probe "the UART moving in the proof's copy alone is red" 1 \
+  "formal/traps.sv's LS_UART_BASE is 196640" "$MM $d"
 
 d=$(mm_fixture); sed -i.bak 's/^SOC_ROM_WORDS := 2048/SOC_ROM_WORDS := 4096/' "$d/Makefile"
 probe "the ROM image built to a different size than the ROM is red" 1 \
@@ -2578,74 +2589,6 @@ probe "a malformed baseline line is named rather than skipped" 1 \
 d=$(it_fixture); rm -rf "$d/rf/checks"
 probe "an unreadable clone makes the re-derivation impossible, and fatal" 1 \
   "is not a directory" "$(its "$d")"
-
-begin_group "formal/check-multihart-tie-off.py"
-
-MT="python3 $REPO/formal/check-multihart-tie-off.py"
-
-# The real harnesses, the real port list and the real parser: this check reads
-# littlecpu's ports through test/port_connect_test.py rather than through a
-# second regex, so a fixture that stubbed either would be probing neither.
-mt_fixture() {
-  local d; d=$(new_case)
-  mkdir -p "$d/formal" "$d/repo/rtl" "$d/repo/test"
-  for f in wrapper.v complete.sv cover.sv dmemcheck.sv imemcheck.sv; do
-    cp "$REPO/formal/$f" "$d/formal/$f"
-  done
-  cp "$REPO/rtl/littlecpu.v" "$d/repo/rtl/littlecpu.v"
-  cp "$REPO/test/port_connect_test.py" "$d/repo/test/port_connect_test.py"
-  {
-    printf 'HARNESS wrapper.v\nHARNESS complete.sv\nHARNESS cover.sv\n'
-    printf 'HARNESS dmemcheck.sv\nHARNESS imemcheck.sv\n'
-    printf "PORT bus_wait 1'b0\nPORT snoop_write 1'b0\nPORT snoop_addr 32'b0\n"
-    printf 'ELSEWHERE irq_timer INTERRUPT_TIE_OFF\n'
-  } > "$d/BASELINE"
-  printf '%s' "$d"
-}
-
-mts() { printf "%s %s/formal %s/BASELINE %s/repo" "$MT" "$1" "$1" "$1"; }
-
-d=$(mt_fixture)
-probe "control: the shipping harnesses tie off, both directions" 0 \
-  "MULTI-HART TIE-OFF: PASS" "$(mts "$d")"
-
-probe "wrong argument count is exit 2" 2 "check-multihart-tie-off.py" \
-  "$MT $d/formal"
-
-# The failure that matters most: a harness the baseline claims is tied off and
-# is not. Its checks would be running against a machine whose bus another agent
-# can take away, at depths derived where nobody can.
-d=$(mt_fixture); sed -i.bak "s/\.bus_wait(1'b0)/.bus_wait(free_wait)/" "$d/formal/complete.sv"
-probe "a declared harness that does not tie the input off is red" 1 \
-  "connects .bus_wait(free_wait)" "$(mts "$d")"
-
-d=$(mt_fixture); sed -i.bak '/^HARNESS cover.sv$/d' "$d/BASELINE"
-probe "a harness with no line in the baseline is red" 1 \
-  "does not name it" "$(mts "$d")"
-
-d=$(mt_fixture); rm "$d/formal/cover.sv"
-probe "a line with no harness behind it is red too" 1 \
-  "which does not instantiate littlecpu" "$(mts "$d")"
-
-# The re-derivation from the RTL, which is what a baseline alone cannot do: a
-# port renamed leaves the line behind declaring a tie-off of nothing.
-d=$(mt_fixture); printf "PORT no_such_port 1'b0\n" >> "$d/BASELINE"
-probe "a declared port littlecpu does not have is red" 1 \
-  "is not an input of littlecpu" "$(mts "$d")"
-
-# ...and the direction that rots: the next tied-off input landing with the
-# depths derived under it and nothing written down.
-d=$(mt_fixture); sed -i.bak "/^PORT snoop_write /d" "$d/BASELINE"
-probe "a tie-off at every harness that no baseline declares is red" 1 \
-  "and no baseline says so" "$(mts "$d")"
-
-d=$(mt_fixture); printf 'PORT\n' >> "$d/BASELINE"
-probe "a malformed baseline line is named rather than skipped" 1 \
-  "expected \`HARNESS <path>\`" "$(mts "$d")"
-
-d=$(mt_fixture); rm "$d/repo/test/port_connect_test.py"
-probe "a missing parser stops the run rather than grading with a second one" 2 \
-  "port_connect_test.py is missing" "$(mts "$d")"
 
 begin_group "soc/compare/placed_vs_synth.py"
 
@@ -3512,6 +3455,74 @@ git -C "$d/repo" rm -q rtl/decoder.v
 git -C "$d/repo" -c user.email=probe@example -c user.name=probe commit -qm drop
 probe "a source this tree synthesises that the base lacks is not comparable" 2 \
   "has no rtl/decoder.v" "$(nb_run "$d" HEAD)"
+begin_group "formal/check-multihart-tie-off.py"
+
+MT="python3 $REPO/formal/check-multihart-tie-off.py"
+
+# The real harnesses, the real port list and the real parser: this check reads
+# littlecpu's ports through test/port_connect_test.py rather than through a
+# second regex, so a fixture that stubbed either would be probing neither.
+mt_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/formal" "$d/repo/rtl" "$d/repo/test"
+  for f in wrapper.v complete.sv cover.sv dmemcheck.sv imemcheck.sv; do
+    cp "$REPO/formal/$f" "$d/formal/$f"
+  done
+  cp "$REPO/rtl/littlecpu.v" "$d/repo/rtl/littlecpu.v"
+  cp "$REPO/test/port_connect_test.py" "$d/repo/test/port_connect_test.py"
+  {
+    printf 'HARNESS wrapper.v\nHARNESS complete.sv\nHARNESS cover.sv\n'
+    printf 'HARNESS dmemcheck.sv\nHARNESS imemcheck.sv\n'
+    printf "PORT bus_wait 1'b0\nPORT snoop_write 1'b0\nPORT snoop_addr 32'b0\n"
+    printf 'ELSEWHERE irq_timer INTERRUPT_TIE_OFF\n'
+  } > "$d/BASELINE"
+  printf '%s' "$d"
+}
+
+mts() { printf "%s %s/formal %s/BASELINE %s/repo" "$MT" "$1" "$1" "$1"; }
+
+d=$(mt_fixture)
+probe "control: the shipping harnesses tie off, both directions" 0 \
+  "MULTI-HART TIE-OFF: PASS" "$(mts "$d")"
+
+probe "wrong argument count is exit 2" 2 "check-multihart-tie-off.py" \
+  "$MT $d/formal"
+
+# The failure that matters most: a harness the baseline claims is tied off and
+# is not. Its checks would be running against a machine whose bus another agent
+# can take away, at depths derived where nobody can.
+d=$(mt_fixture); sed -i.bak "s/\.bus_wait(1'b0)/.bus_wait(free_wait)/" "$d/formal/complete.sv"
+probe "a declared harness that does not tie the input off is red" 1 \
+  "connects .bus_wait(free_wait)" "$(mts "$d")"
+
+d=$(mt_fixture); sed -i.bak '/^HARNESS cover.sv$/d' "$d/BASELINE"
+probe "a harness with no line in the baseline is red" 1 \
+  "does not name it" "$(mts "$d")"
+
+d=$(mt_fixture); rm "$d/formal/cover.sv"
+probe "a line with no harness behind it is red too" 1 \
+  "which does not instantiate littlecpu" "$(mts "$d")"
+
+# The re-derivation from the RTL, which is what a baseline alone cannot do: a
+# port renamed leaves the line behind declaring a tie-off of nothing.
+d=$(mt_fixture); printf "PORT no_such_port 1'b0\n" >> "$d/BASELINE"
+probe "a declared port littlecpu does not have is red" 1 \
+  "is not an input of littlecpu" "$(mts "$d")"
+
+# ...and the direction that rots: the next tied-off input landing with the
+# depths derived under it and nothing written down.
+d=$(mt_fixture); sed -i.bak "/^PORT snoop_write /d" "$d/BASELINE"
+probe "a tie-off at every harness that no baseline declares is red" 1 \
+  "and no baseline says so" "$(mts "$d")"
+
+d=$(mt_fixture); printf 'PORT\n' >> "$d/BASELINE"
+probe "a malformed baseline line is named rather than skipped" 1 \
+  "expected \`HARNESS <path>\`" "$(mts "$d")"
+
+d=$(mt_fixture); rm "$d/repo/test/port_connect_test.py"
+probe "a missing parser stops the run rather than grading with a second one" 2 \
+  "port_connect_test.py is missing" "$(mts "$d")"
+
 begin_group "formal/busarbiter-probe.py"
 
 # Same shape as the group above, and for the same reason: that file is itself
@@ -3660,6 +3671,24 @@ probe "a respelled mutation site stops rather than proving the shipping core thr
 d=$(ba_fixture); rm "$d/formal/busarbiter.sv"
 probe "the harness moving away takes the probe with it, loudly" 2 \
   "formal/busarbiter.sv is missing from" "$(bas "$d")"
+
+echo
+if [ "$probes" -ne "$PROBES_EXPECTED" ]; then
+  echo "error: ran $probes probes, expected $PROBES_EXPECTED." >&2
+  echo "A probe was added or removed. Update PROBES_EXPECTED in the same commit;" >&2
+  echo "the literal is what stops this file quietly covering less than it did." >&2
+  exit 1
+fi
+
+if [ "$failed" -ne 0 ]; then
+  echo "error: a graded comparison did not go red where it was supposed to." >&2
+  echo "Read the probe above: either the grader stopped checking something, or" >&2
+  echo "its diagnostic changed and this file has to be updated to match." >&2
+  exit 1
+fi
+
+printf "  (%ss)\n" "$((SECONDS - group_started))"
+echo "$probes graded comparisons, every failure path executed."
 
 echo
 if [ "$probes" -ne "$PROBES_EXPECTED" ]; then
