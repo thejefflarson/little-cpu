@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=442
+PROBES_EXPECTED=456
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -877,7 +877,11 @@ sm_mutate() {  # $1 = file, stdin = python that rewrites `text`
 
 d=$(sm_fixture)
 probe "control: the tracked monitor sanitizes, and rule 3 fires" 0 \
-  "if (!ch0_spec_trap) begin" "$SM $d/monitor.v"
+  "if (!ch0_spec_trap && !ch0_rvfi_mem_fault) begin" "$SM $d/monitor.v"
+
+d=$(sm_fixture)
+probe "control: rule 6 gates the trap comparison and writes its compensation" 0 \
+  'ch0_handle_error(150, "refused access without a trap")' "$SM $d/monitor.v"
 
 probe "usage: a missing argument is exit 2" 2 "usage:" "$SM"
 
@@ -929,15 +933,76 @@ probe "layer 2: the enclosed handle_error multiset is pinned, not merely counted
   "the span encloses" "$SM $d/monitor.v"
 
 # Layers 1 and 2 both accept this one, because neither looks outside the span.
+# It mutates the sanitizer rather than the monitor because rule 6 anchors on the
+# trap comparison: take that out of the INPUT and rule 6's site count is what
+# goes red. What is left for this layer is the output, which is where an edit to
+# rule 6's own replacement would drop it.
+d=$(sm_fixture)
+python3 - "$REPO/test/sanitize_monitor.py" "$d/sanitize.py" <<'PY'
+import sys
+# The unescaped paren and the trailing semicolon are what make this the emitted
+# line and not the regex that looks for it afterwards.
+src = open(sys.argv[1]).read()
+out = src.replace('_handle_error(101, "mismatch in trap");', '_nothing();', 1)
+assert out != src, "the sanitizer no longer spells what this probe removes"
+open(sys.argv[2], 'w').write(out)
+PY
+probe "layer 3: error 101 vanishing from the OUTPUT is caught after every rule" 1 \
+  "the trap comparison survives" "python3 $d/sanitize.py $d/monitor.v"
+
+# Rules 4 to 6 carry rvfi_mem_fault into the monitor. Each declares its own site
+# count, for the reason rules 1 and 2 do: the spec model has no memory map, so a
+# rule here that stopped applying would put both sim legs back to reporting
+# error 101 on a core doing what this platform's map says.
 d=$(sm_fixture)
 sm_mutate "$d/monitor.v" <<'PY'
 import sys
 p = sys.argv[1]
-t = open(p).read().replace('ch0_handle_error(101, "mismatch in trap");', ';', 1)
+t = open(p).read().replace('  input [0:0] rvfi_mem_extamo,\n', '', 1)
 open(p, 'w').write(t)
 PY
-probe "layer 3: error 101 vanishing from the OUTPUT is caught after every rule" 1 \
-  "the trap comparison survives" "$SM $d/monitor.v"
+probe "rule 4: the port has nowhere to go if the generator drops its anchor" 1 \
+  'rule "give the monitor rvfi_mem_fault": matched 0 site(s)' "$SM $d/monitor.v"
+
+d=$(sm_fixture)
+sm_mutate "$d/monitor.v" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read().replace(
+    '  wire ch0_rvfi_mem_extamo = rvfi_mem_extamo[0];\n', '', 1)
+open(p, 'w').write(t)
+PY
+probe "rule 5: a port the channel never reads is caught, not shipped" 1 \
+  'rule "read rvfi_mem_fault into the channel": matched 0 site(s)' "$SM $d/monitor.v"
+
+d=$(sm_fixture)
+sm_mutate "$d/monitor.v" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read().replace(
+    'if (ch0_rvfi_trap != ch0_spec_trap) begin',
+    'if (ch0_spec_trap != ch0_rvfi_trap) begin', 1)
+open(p, 'w').write(t)
+PY
+probe "rule 6: a respelled trap comparison stops rather than gating nothing" 1 \
+  'rule "gate the trap comparison on a refused access": matched 0 site(s)' "$SM $d/monitor.v"
+
+# THE ONE THAT MATTERS: the gate is what makes a refused access unreadable by
+# the spec model, and the compensation is the only thing that asks what the core
+# did with the flag it excused itself with. Rule 6 writes both halves in one
+# substitution, so losing one alone is an edit to the sanitizer -- which is what
+# this mutates.
+d=$(sm_fixture)
+python3 - "$REPO/test/sanitize_monitor.py" "$d/sanitize.py" <<'PY'
+import sys
+src = open(sys.argv[1]).read()
+out = src.replace('handle_error(150, "refused access without a trap");',
+                  'handle_error(150, "refused access");', 1)
+assert out != src, "the sanitizer no longer spells what this probe removes"
+open(sys.argv[2], 'w').write(out)
+PY
+probe "the compensation going missing is caught after every rule" 1 \
+  "the refused-access compensation survives" "python3 $d/sanitize.py $d/monitor.v"
 
 begin_group "formal/genchecks-audit.py"
 
