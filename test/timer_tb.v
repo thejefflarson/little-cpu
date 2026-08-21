@@ -37,6 +37,27 @@ module timer_tb;
     .mtip(mtip)
   );
 
+  // A second instance with two harts, on the same bus. One `mtime` against one
+  // `mtimecmp` per hart is what the privileged spec mandates, and the shipping
+  // SoC has one hart -- so that the second `mtimecmp` is a register of its own,
+  // that its `mtip` is a line of its own, and that the window grew to hold them
+  // are only checkable here.
+  localparam logic [31:0] CMP1_LO = BASE + 32'd16;
+  localparam logic [31:0] CMP1_HI = BASE + 32'd20;
+
+  logic [31:0] d_mem_rdata;
+  logic [1:0]  d_mtip;
+
+  timer #(.BASE(BASE), .NHARTS(2)) dut2 (
+    .clk(clk),
+    .reset(reset),
+    .mem_addr(mem_addr),
+    .mem_wdata(mem_wdata),
+    .mem_wstrb(mem_wstrb),
+    .mem_rdata(d_mem_rdata),
+    .mtip(d_mtip)
+  );
+
   int errors = 0;
 
   task automatic check_hex(input string what, input logic [31:0] got, input logic [31:0] expected);
@@ -357,6 +378,81 @@ module timer_tb;
     // Plus the one cycle the mtimeh read above took.
     check_hex("...and the low half restarts from what was written",
               mem_rdata, 32'h0000_0001);
+
+    //-----------------------------------------------------------------------
+    // Two harts: one mtime, one mtimecmp and one mtip each
+    //-----------------------------------------------------------------------
+
+    // Disarm both, in the order the spec's own RV32 sample uses.
+    store(MTIMECMP_LO, 32'hffff_ffff, 4'b1111);
+    store(MTIMECMP_HI, 32'hffff_ffff, 4'b1111);
+    store(CMP1_LO,     32'hffff_ffff, 4'b1111);
+    store(CMP1_HI,     32'hffff_ffff, 4'b1111);
+    idle();
+    check_hex("two harts: neither mtip is posted with both disarmed",
+              {30'b0, d_mtip}, 32'h0);
+
+    // The two windows above hart 0's four words are hart 1's own registers, and
+    // a write there must not reach hart 0's -- the defect a truncated register
+    // select produces.
+    store(CMP1_LO, 32'h1234_5678, 4'b1111);
+    store(CMP1_HI, 32'h9abc_def0, 4'b1111);
+    load(CMP1_LO);
+    check_hex("hart 1's mtimecmp reads back", d_mem_rdata, 32'h1234_5678);
+    load(CMP1_HI);
+    check_hex("...and its high half", d_mem_rdata, 32'h9abc_def0);
+    load(MTIMECMP_LO);
+    check_hex("hart 0's mtimecmp is untouched by it", d_mem_rdata, 32'hffff_ffff);
+    load(MTIMECMP_HI);
+    check_hex("...and so is its high half", d_mem_rdata, 32'hffff_ffff);
+
+    // One counter for the machine, not one per hart: the same two words answer
+    // at the same addresses and advance once per cycle.
+    load(MTIME_LO);
+    first_read = d_mem_rdata;
+    load(MTIME_LO);
+    check_hex("two harts: mtime is shared and still advances one per cycle",
+              d_mem_rdata, first_read + 32'd1);
+
+    // Arm hart 1 alone. Its line is its own, so hart 0's must stay low.
+    store(CMP1_LO, 32'h0000_0000, 4'b1111);
+    store(CMP1_HI, 32'h0000_0000, 4'b1111);
+    idle();
+    check_hex("hart 1 armed posts hart 1's mtip alone", {30'b0, d_mtip}, 32'h2);
+
+    store(MTIMECMP_LO, 32'h0000_0000, 4'b1111);
+    store(MTIMECMP_HI, 32'h0000_0000, 4'b1111);
+    idle();
+    check_hex("...and arming hart 0 posts both", {30'b0, d_mtip}, 32'h3);
+
+    store(CMP1_LO, 32'hffff_ffff, 4'b1111);
+    store(CMP1_HI, 32'hffff_ffff, 4'b1111);
+    idle();
+    check_hex("...and disarming hart 1 lowers only its line",
+              {30'b0, d_mtip}, 32'h1);
+
+    // The window is rounded up to eight words, so the two above hart 1's read
+    // zero rather than aliasing a register, and a store there lands nowhere.
+    store(BASE + 32'd24, 32'hdead_beef, 4'b1111);
+    store(BASE + 32'd28, 32'hdead_beef, 4'b1111);
+    load(BASE + 32'd24);
+    check_hex("the reserved word reads zero", d_mem_rdata, 32'h0);
+    load(BASE + 32'd28);
+    check_hex("...and so does the one above it", d_mem_rdata, 32'h0);
+    load(CMP1_LO);
+    check_hex("...and neither store aliased hart 1's mtimecmp",
+              d_mem_rdata, 32'hffff_ffff);
+
+    // Just past the widened window, which is the address a select built from
+    // the one-hart window's two bits would fold onto mtime.
+    load(BASE + 32'd32);
+    check_hex("just past the eight-word window reads zero, not mtime",
+              d_mem_rdata, 32'h0);
+    // And inside it: at one hart this address is out of range and reads zero,
+    // which is what makes the two instances describe different maps.
+    load(CMP1_LO);
+    check_hex("the one-hart instance does not answer hart 1's address",
+              mem_rdata, 32'h0);
 
     // The window check above grades every quiet cycle in this file, so it is
     // worth nothing if the vectors above stopped reaching one of its two arms.

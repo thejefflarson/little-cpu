@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=420
+PROBES_EXPECTED=456
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -149,8 +149,8 @@ for a in "$@"; do [ "$a" = "--stalls" ] && stalls=1; done
 if [ -n "$stalls" ] && [ -z "${STUB_SIM_NOSTALLS:-}" ]; then
   unattr=${STUB_SIM_UNATTR:-0}
   echo "STALLS cycles=$((20 + unattr + ${STUB_SIM_SKEW:-0})) issue=10 divider=0" \
-       "atomic=0 hazard=10 serialize=0 operand=0 fetch=0 unattributed=$unattr" \
-       "lsissue=4 lsedge=2 lsbypass=1"
+       "atomic=0 hazard=10 serialize=0 operand=0 fetch=0 bus=0" \
+       "unattributed=$unattr lsissue=4 lsedge=2 lsbypass=1"
 fi
 case ${STUB_SIM_EXIT:-0} in
   0) echo "PASS" ;;
@@ -877,7 +877,11 @@ sm_mutate() {  # $1 = file, stdin = python that rewrites `text`
 
 d=$(sm_fixture)
 probe "control: the tracked monitor sanitizes, and rule 3 fires" 0 \
-  "if (!ch0_spec_trap) begin" "$SM $d/monitor.v"
+  "if (!ch0_spec_trap && !ch0_rvfi_mem_fault) begin" "$SM $d/monitor.v"
+
+d=$(sm_fixture)
+probe "control: rule 6 gates the trap comparison and writes its compensation" 0 \
+  'ch0_handle_error(150, "refused access without a trap")' "$SM $d/monitor.v"
 
 probe "usage: a missing argument is exit 2" 2 "usage:" "$SM"
 
@@ -929,15 +933,76 @@ probe "layer 2: the enclosed handle_error multiset is pinned, not merely counted
   "the span encloses" "$SM $d/monitor.v"
 
 # Layers 1 and 2 both accept this one, because neither looks outside the span.
+# It mutates the sanitizer rather than the monitor because rule 6 anchors on the
+# trap comparison: take that out of the INPUT and rule 6's site count is what
+# goes red. What is left for this layer is the output, which is where an edit to
+# rule 6's own replacement would drop it.
+d=$(sm_fixture)
+python3 - "$REPO/test/sanitize_monitor.py" "$d/sanitize.py" <<'PY'
+import sys
+# The unescaped paren and the trailing semicolon are what make this the emitted
+# line and not the regex that looks for it afterwards.
+src = open(sys.argv[1]).read()
+out = src.replace('_handle_error(101, "mismatch in trap");', '_nothing();', 1)
+assert out != src, "the sanitizer no longer spells what this probe removes"
+open(sys.argv[2], 'w').write(out)
+PY
+probe "layer 3: error 101 vanishing from the OUTPUT is caught after every rule" 1 \
+  "the trap comparison survives" "python3 $d/sanitize.py $d/monitor.v"
+
+# Rules 4 to 6 carry rvfi_mem_fault into the monitor. Each declares its own site
+# count, for the reason rules 1 and 2 do: the spec model has no memory map, so a
+# rule here that stopped applying would put both sim legs back to reporting
+# error 101 on a core doing what this platform's map says.
 d=$(sm_fixture)
 sm_mutate "$d/monitor.v" <<'PY'
 import sys
 p = sys.argv[1]
-t = open(p).read().replace('ch0_handle_error(101, "mismatch in trap");', ';', 1)
+t = open(p).read().replace('  input [0:0] rvfi_mem_extamo,\n', '', 1)
 open(p, 'w').write(t)
 PY
-probe "layer 3: error 101 vanishing from the OUTPUT is caught after every rule" 1 \
-  "the trap comparison survives" "$SM $d/monitor.v"
+probe "rule 4: the port has nowhere to go if the generator drops its anchor" 1 \
+  'rule "give the monitor rvfi_mem_fault": matched 0 site(s)' "$SM $d/monitor.v"
+
+d=$(sm_fixture)
+sm_mutate "$d/monitor.v" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read().replace(
+    '  wire ch0_rvfi_mem_extamo = rvfi_mem_extamo[0];\n', '', 1)
+open(p, 'w').write(t)
+PY
+probe "rule 5: a port the channel never reads is caught, not shipped" 1 \
+  'rule "read rvfi_mem_fault into the channel": matched 0 site(s)' "$SM $d/monitor.v"
+
+d=$(sm_fixture)
+sm_mutate "$d/monitor.v" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read().replace(
+    'if (ch0_rvfi_trap != ch0_spec_trap) begin',
+    'if (ch0_spec_trap != ch0_rvfi_trap) begin', 1)
+open(p, 'w').write(t)
+PY
+probe "rule 6: a respelled trap comparison stops rather than gating nothing" 1 \
+  'rule "gate the trap comparison on a refused access": matched 0 site(s)' "$SM $d/monitor.v"
+
+# THE ONE THAT MATTERS: the gate is what makes a refused access unreadable by
+# the spec model, and the compensation is the only thing that asks what the core
+# did with the flag it excused itself with. Rule 6 writes both halves in one
+# substitution, so losing one alone is an edit to the sanitizer -- which is what
+# this mutates.
+d=$(sm_fixture)
+python3 - "$REPO/test/sanitize_monitor.py" "$d/sanitize.py" <<'PY'
+import sys
+src = open(sys.argv[1]).read()
+out = src.replace('handle_error(150, "refused access without a trap");',
+                  'handle_error(150, "refused access");', 1)
+assert out != src, "the sanitizer no longer spells what this probe removes"
+open(sys.argv[2], 'w').write(out)
+PY
+probe "the compensation going missing is caught after every rule" 1 \
+  "the refused-access compensation survives" "python3 $d/sanitize.py $d/monitor.v"
 
 begin_group "formal/genchecks-audit.py"
 
@@ -1887,8 +1952,8 @@ SR="python3 $REPO/test/stall_report.py"
 sr_fixture() {
   local d; d=$(new_case)
   cat > "$d/counts" <<'COUNTS'
-add.S cycles=40 issue=10 divider=0 atomic=0 hazard=20 serialize=0 operand=10 fetch=0 unattributed=0 lsissue=4 lsedge=1 lsbypass=0 retires=10
-lw.S cycles=40 issue=10 divider=0 atomic=0 hazard=5 serialize=0 operand=25 fetch=0 unattributed=0 lsissue=6 lsedge=3 lsbypass=2 retires=10
+add.S cycles=40 issue=10 divider=0 atomic=0 hazard=20 serialize=0 operand=10 fetch=0 bus=0 unattributed=0 lsissue=4 lsedge=1 lsbypass=0 retires=10
+lw.S cycles=40 issue=10 divider=0 atomic=0 hazard=5 serialize=0 operand=25 fetch=0 bus=0 unattributed=0 lsissue=6 lsedge=3 lsbypass=2 retires=10
 COUNTS
   printf '%s' "$d"
 }
@@ -2048,7 +2113,8 @@ mm_fixture() {
   mkdir -p "$d/rtl" "$d/test/asm" "$d/test/bench" "$d/formal"
   cp "$REPO"/rtl/memory.v "$REPO"/rtl/timer.v "$REPO"/rtl/uart.v \
      "$REPO"/rtl/imemory.v "$REPO"/rtl/littlecpu.v "$REPO"/rtl/littlesoc.v "$d/rtl/"
-  cp "$REPO"/test/testbench.v "$REPO"/test/cxxrtl.cc "$REPO"/test/cosim.cc "$d/test/"
+  cp "$REPO"/test/testbench.v "$REPO"/test/cxxrtl.cc "$REPO"/test/cosim.cc \
+     "$REPO"/test/dual_cxxrtl.cc "$d/test/"
   cp "$REPO"/test/asm/riscv_test.h "$REPO"/test/asm/sections.lds \
      "$REPO"/test/asm/boot.lds "$d/test/asm/"
   cp "$REPO"/test/bench/bench.lds "$d/test/bench/"
@@ -2123,30 +2189,54 @@ d=$(mm_fixture); sed -i.bak "s/BASE = 32'h0002_0000/BASE = 32'h0004_0000/" "$d/r
 probe "a gap opening between the data RAM and the timer is red" 1 \
   "the data RAM ends at 0x00020000 and the timer starts at" "$MM $d"
 
-# The UART sits in the eight bytes above the timer's sixteen. A move in either
-# direction is an overlap or a hole in the map, and the OR that joins the read
-# buses would report neither.
-d=$(mm_fixture); sed -i.bak "s/BASE     = 32'h0002_0010/BASE     = 32'h0002_0020/" "$d/rtl/uart.v"
-probe "a gap opening between the timer and the UART is red" 1 \
-  "the timer ends at 0x00020010 and the UART starts at" "$MM $d"
+# The timer decodes four words at one hart and eight at two, so a base that is
+# only 16-byte aligned elaborates today and stops elaborating the day the second
+# hart lands. That is the failure the reserved span exists to bring forward.
+d=$(mm_fixture); sed -i.bak "s/BASE = 32'h0002_0000/BASE = 32'h0002_0010/" "$d/rtl/timer.v"
+probe "a timer base aligned only for one hart is red" 1 \
+  "0x00020010 is off its reserved" "$MM $d"
+
+# A device in the words the second hart's mtimecmp needs. At one hart they read
+# zero from every memory on this bus, so the device would work and the overlap
+# would surface only when the dual top was built.
+d=$(mm_fixture)
+printf "module probe_device #(\n  parameter logic [31:0] BASE = 32'h0002_0010\n) ();\nendmodule\n" \
+  > "$d/rtl/probe_device.v"
+probe "a peripheral inside the timer's reserved span is red" 1 \
+  "rtl/probe_device.v puts its window at 0x00020010" "$MM $d"
+
+# ...and the same device above the span is not, or the check above would be
+# refusing every address rather than the reserved ones.
+d=$(mm_fixture)
+printf "module probe_device #(\n  parameter logic [31:0] BASE = 32'h0002_0020\n) ();\nendmodule\n" \
+  > "$d/rtl/probe_device.v"
+probe "control: a peripheral above the reserved span is accepted" 0 \
+  "Memory map agreed on:" "$MM $d"
+
+# The UART sits in the eight bytes above the whole of that reserved span. A move
+# in either direction is an overlap or a hole in the map, and the OR that joins
+# the read buses would report neither.
+d=$(mm_fixture); sed -i.bak "s/BASE     = 32'h0002_0020/BASE     = 32'h0002_0028/" "$d/rtl/uart.v"
+probe "a gap opening between the timer's reserved span and the UART is red" 1 \
+  "the timer reserves up to 0x00020020 and the UART" "$MM $d"
 
 # Its range test reads the address bits above an 8-byte window, which is only a
 # membership test while the base is a multiple of 8.
-d=$(mm_fixture); sed -i.bak "s/BASE     = 32'h0002_0010/BASE     = 32'h0002_0014/" "$d/rtl/uart.v"
+d=$(mm_fixture); sed -i.bak "s/BASE     = 32'h0002_0020/BASE     = 32'h0002_0024/" "$d/rtl/uart.v"
 probe "a UART base off its own window is red" 1 \
   "is not a multiple of its own" "$MM $d"
 
-d=$(mm_fixture); sed -i.bak 's/UART_BASE          0x00020010/UART_BASE          0x00030010/' "$d/test/asm/riscv_test.h"
+d=$(mm_fixture); sed -i.bak 's/UART_BASE          0x00020020/UART_BASE          0x00030020/' "$d/test/asm/riscv_test.h"
 probe "the address the printing program writes is checked against the UART" 1 \
-  "UART_BASE is 0x00030010" "$MM $d"
+  "UART_BASE is 0x00030020" "$MM $d"
 
-d=$(mm_fixture); sed -i.bak "s/LS_UART_BASE  = 32'h0002_0010/LS_UART_BASE  = 32'h0003_0010/" "$d/rtl/littlecpu.v"
+d=$(mm_fixture); sed -i.bak "s/LS_UART_BASE  = 32'h0002_0020/LS_UART_BASE  = 32'h0003_0020/" "$d/rtl/littlecpu.v"
 probe "the UART moving in the core's copy alone is red" 1 \
-  "LS_UART_BASE is 196624 against rtl/uart.v's 131088" "$MM $d"
+  "LS_UART_BASE is 196640 against rtl/uart.v's 131104" "$MM $d"
 
-d=$(mm_fixture); sed -i.bak "s/LS_UART_BASE  = 32'h0002_0010/LS_UART_BASE  = 32'h0003_0010/" "$d/formal/traps.sv"
+d=$(mm_fixture); sed -i.bak "s/LS_UART_BASE  = 32'h0002_0020/LS_UART_BASE  = 32'h0003_0020/" "$d/formal/traps.sv"
 probe "the UART moving in the proof's copy alone is red" 1 \
-  "formal/traps.sv's LS_UART_BASE is 196624" "$MM $d"
+  "formal/traps.sv's LS_UART_BASE is 196640" "$MM $d"
 
 d=$(mm_fixture); sed -i.bak 's/^SOC_ROM_WORDS := 2048/SOC_ROM_WORDS := 4096/' "$d/Makefile"
 probe "the ROM image built to a different size than the ROM is red" 1 \
@@ -2589,6 +2679,74 @@ d=$(it_fixture); rm -rf "$d/rf/checks"
 probe "an unreadable clone makes the re-derivation impossible, and fatal" 1 \
   "is not a directory" "$(its "$d")"
 
+begin_group "formal/check-multihart-tie-off.py"
+
+MT="python3 $REPO/formal/check-multihart-tie-off.py"
+
+# The real harnesses, the real port list and the real parser: this check reads
+# littlecpu's ports through test/port_connect_test.py rather than through a
+# second regex, so a fixture that stubbed either would be probing neither.
+mt_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/formal" "$d/repo/rtl" "$d/repo/test"
+  for f in wrapper.v complete.sv cover.sv dmemcheck.sv imemcheck.sv; do
+    cp "$REPO/formal/$f" "$d/formal/$f"
+  done
+  cp "$REPO/rtl/littlecpu.v" "$d/repo/rtl/littlecpu.v"
+  cp "$REPO/test/port_connect_test.py" "$d/repo/test/port_connect_test.py"
+  {
+    printf 'HARNESS wrapper.v\nHARNESS complete.sv\nHARNESS cover.sv\n'
+    printf 'HARNESS dmemcheck.sv\nHARNESS imemcheck.sv\n'
+    printf "PORT bus_wait 1'b0\nPORT snoop_write 1'b0\nPORT snoop_addr 32'b0\n"
+    printf 'ELSEWHERE irq_timer INTERRUPT_TIE_OFF\n'
+  } > "$d/BASELINE"
+  printf '%s' "$d"
+}
+
+mts() { printf "%s %s/formal %s/BASELINE %s/repo" "$MT" "$1" "$1" "$1"; }
+
+d=$(mt_fixture)
+probe "control: the shipping harnesses tie off, both directions" 0 \
+  "MULTI-HART TIE-OFF: PASS" "$(mts "$d")"
+
+probe "wrong argument count is exit 2" 2 "check-multihart-tie-off.py" \
+  "$MT $d/formal"
+
+# The failure that matters most: a harness the baseline claims is tied off and
+# is not. Its checks would be running against a machine whose bus another agent
+# can take away, at depths derived where nobody can.
+d=$(mt_fixture); sed -i.bak "s/\.bus_wait(1'b0)/.bus_wait(free_wait)/" "$d/formal/complete.sv"
+probe "a declared harness that does not tie the input off is red" 1 \
+  "connects .bus_wait(free_wait)" "$(mts "$d")"
+
+d=$(mt_fixture); sed -i.bak '/^HARNESS cover.sv$/d' "$d/BASELINE"
+probe "a harness with no line in the baseline is red" 1 \
+  "does not name it" "$(mts "$d")"
+
+d=$(mt_fixture); rm "$d/formal/cover.sv"
+probe "a line with no harness behind it is red too" 1 \
+  "which does not instantiate littlecpu" "$(mts "$d")"
+
+# The re-derivation from the RTL, which is what a baseline alone cannot do: a
+# port renamed leaves the line behind declaring a tie-off of nothing.
+d=$(mt_fixture); printf "PORT no_such_port 1'b0\n" >> "$d/BASELINE"
+probe "a declared port littlecpu does not have is red" 1 \
+  "is not an input of littlecpu" "$(mts "$d")"
+
+# ...and the direction that rots: the next tied-off input landing with the
+# depths derived under it and nothing written down.
+d=$(mt_fixture); sed -i.bak "/^PORT snoop_write /d" "$d/BASELINE"
+probe "a tie-off at every harness that no baseline declares is red" 1 \
+  "and no baseline says so" "$(mts "$d")"
+
+d=$(mt_fixture); printf 'PORT\n' >> "$d/BASELINE"
+probe "a malformed baseline line is named rather than skipped" 1 \
+  "expected \`HARNESS <path>\`" "$(mts "$d")"
+
+d=$(mt_fixture); rm "$d/repo/test/port_connect_test.py"
+probe "a missing parser stops the run rather than grading with a second one" 2 \
+  "port_connect_test.py is missing" "$(mts "$d")"
+
 begin_group "soc/compare/placed_vs_synth.py"
 
 PS="python3 $REPO/soc/compare/placed_vs_synth.py"
@@ -2931,12 +3089,12 @@ probe "a tree git cannot list is a scan of nothing, not a green one" 1 \
 
 begin_group "formal/traps-region-probe.py"
 
-# That file is itself the demonstrated red direction for formal/traps.sv's
-# load/store region cause arm, and it needs a solver to be one -- so it runs
-# under `make -C formal components_traps` rather than here. What is probed here
-# is its own grading: it builds two mutated cores and requires one to prove and
-# the other to go red at one named line, and each of those comparisons has a
-# failure path of its own.
+# That file is itself the demonstrated red direction for formal/traps.sv's two
+# load/store region arms -- the trap and its cause -- and it needs a solver to be
+# one, so it runs under `make -C formal components_traps` rather than here. What
+# is probed here is its own grading: it builds two mutated cores and requires
+# each to go red at one named line, and each of those comparisons has a failure
+# path of its own.
 #
 # The stub reads the tree it is handed and answers the way sby does, so the
 # control below is the real script over the real RTL with only the solver
@@ -2950,10 +3108,13 @@ cat > "$tmp/sby-stub" <<'STUB'
 # in, and the assertion line is read out of the copy of traps.sv it was handed,
 # so PASS and FAIL land where the real solver puts them.
 mkdir -p probe
-line=$(grep -n 'assert(csr_rdata == prev_cause);' src/traps.sv | cut -d: -f1)
 case $(basename "$PWD") in
-  right-cause) status=${STUB_SBY_RIGHT:-PASS} ;;
-  wrong-cause) status=${STUB_SBY_WRONG:-FAIL}; line=${STUB_SBY_WRONG_LINE:-$line} ;;
+  no-trap)
+    line=$(grep -n 'assert(trap_entry);' src/traps.sv | cut -d: -f1)
+    status=${STUB_SBY_NOTRAP:-FAIL}; line=${STUB_SBY_NOTRAP_LINE:-$line} ;;
+  wrong-cause)
+    line=$(grep -n 'assert(csr_rdata == prev_cause);' src/traps.sv | cut -d: -f1)
+    status=${STUB_SBY_WRONG:-FAIL}; line=${STUB_SBY_WRONG_LINE:-$line} ;;
 esac
 : > probe/logfile.txt
 if [ "$status" = FAIL ]; then
@@ -2978,22 +3139,27 @@ tr_fixture() {
 trs() { printf "%s --repo %s --workdir %s/work --sby %s" "$TR" "$1" "$1" "$tmp/sby-stub"; }
 
 d=$(tr_fixture)
-probe "control: the arm admits one core and fails on the other" 0 \
-  "admits the mechanism and fails on the cause" "$(trs "$d")"
+probe "control: both arms fail, each at its own line" 0 \
+  "Both load/store region arms fail for their own reason" "$(trs "$d")"
 
+# THE TWO THAT MATTER: an arm that cannot fail is the whole reason this file
+# exists, and there are two of them now that the model requires the trap as well
+# as the cause.
 d=$(tr_fixture)
-probe "a model that refuses the mechanism outright is red, not a proof" 1 \
-  "The model must ADMIT a core that" "STUB_SBY_RIGHT=FAIL $(trs "$d")"
+probe "an arm that admits a fault the core never commits is red" 1 \
+  "the no-trap core proves" "STUB_SBY_NOTRAP=PASS $(trs "$d")"
 
-# THE ONE THAT MATTERS: an arm that cannot fail is the whole reason this file
-# exists.
 d=$(tr_fixture)
 probe "an arm that admits the wrong cause is red" 1 \
   "the wrong-cause core proves" "STUB_SBY_WRONG=PASS $(trs "$d")"
 
 d=$(tr_fixture)
-probe "a proof going red somewhere else is not evidence about this arm" 1 \
-  "not at line" "STUB_SBY_WRONG_LINE=9 $(trs "$d")"
+probe "a must-trap proof going red somewhere else is not evidence" 1 \
+  "which does not include line" "STUB_SBY_NOTRAP_LINE=9 $(trs "$d")"
+
+d=$(tr_fixture)
+probe "a cause proof going red somewhere else is not evidence either" 1 \
+  "which does not include line" "STUB_SBY_WRONG_LINE=9 $(trs "$d")"
 
 d=$(tr_fixture)
 probe "a solver that wrote no verdict is exit 2, not a red arm" 2 \
@@ -3001,21 +3167,25 @@ probe "a solver that wrote no verdict is exit 2, not a red arm" 2 \
 
 d=$(tr_fixture)
 probe "an empty status file is refused rather than read as a verdict" 2 \
-  "status file for the right-cause core is empty" "STUB_SBY_EMPTY_STATUS=1 $(trs "$d")"
+  "status file for the no-trap core is empty" "STUB_SBY_EMPTY_STATUS=1 $(trs "$d")"
 
-# The three parses. Each one is what the probe pins its answer to, so a
+# The four parses. Each one is what the probe pins its answer to, so a
 # respelling has to stop the run rather than quietly probe nothing.
 d=$(tr_fixture); sed -i.bak 's/assert(csr_rdata == prev_cause);/assert(csr_rdata == prev_cause2);/' "$d/formal/traps.sv"
 probe "a respelled cause comparison stops rather than pinning nothing" 2 \
-  "0 times" "$(trs "$d")"
+  "prev_cause);\` 0 times" "$(trs "$d")"
 
-d=$(tr_fixture); sed -i.bak 's/assign load_access_fault  = atomic_fault/assign load_access_fault = atomic_fault/' "$d/rtl/decoder.v"
+d=$(tr_fixture); sed -i.bak 's/assert(trap_entry);/assert(trap_entry != 1'"'"'b0);/' "$d/formal/traps.sv"
+probe "a respelled must-trap assertion stops rather than pinning nothing" 2 \
+  "assert(trap_entry);\` 0 times" "$(trs "$d")"
+
+d=$(tr_fixture); sed -i.bak 's/assign load_access_fault  = (atomic_fault/assign load_access_fault = (atomic_fault/' "$d/rtl/decoder.v"
 probe "a respelled fault site stops rather than building the shipping core twice" 2 \
-  "no longer spells its two access-fault assignments" "$(trs "$d")"
+  "no longer spells what the wrong-cause mutation replaces" "$(trs "$d")"
 
-d=$(tr_fixture); sed -i.bak 's/load_misaligned || store_misaligned || atomic_fault;/load_misaligned || atomic_fault || store_misaligned;/' "$d/rtl/decoder.v"
+d=$(tr_fixture); sed -i.bak 's/load_misaligned || store_misaligned || atomic_fault ||/load_misaligned || atomic_fault || store_misaligned ||/' "$d/rtl/decoder.v"
 probe "a respelled trap_pending stops: an uncommitted fault proves nothing" 2 \
-  "no longer spells the last line of" "$(trs "$d")"
+  "no longer spells what the no-trap mutation replaces" "$(trs "$d")"
 
 d=$(tr_fixture); rm "$d/formal/traps.sv"
 probe "the model moving away takes the probe with it, loudly" 2 \
@@ -3454,6 +3624,154 @@ git -C "$d/repo" rm -q rtl/decoder.v
 git -C "$d/repo" -c user.email=probe@example -c user.name=probe commit -qm drop
 probe "a source this tree synthesises that the base lacks is not comparable" 2 \
   "has no rtl/decoder.v" "$(nb_run "$d" HEAD)"
+begin_group "formal/busarbiter-probe.py"
+
+# Same shape as the group above, and for the same reason: that file is itself
+# the demonstrated red direction for formal/busarbiter.sv's wait bound and its
+# indivisibility arm, it needs a solver to be one, and so it runs under `make -C
+# formal components_busarbiter` rather than here. What is probed here is its own
+# grading -- it builds three arbiters and requires one to prove, one to go red
+# at the wait bound and not at the lock, and one to go red at the lock and take
+# the anti-vacuity cover down with it. Every one of those comparisons has a
+# failure path of its own.
+BA="python3 $REPO/formal/busarbiter-probe.py"
+
+cat > "$tmp/sby-busarbiter-stub" <<'STUB'
+#!/bin/sh
+# Stands in for sby. The case is the name of the directory it runs in and the
+# job is the .sby it was handed, and every line number is read out of the copy
+# of busarbiter.sv beside it -- so a respelled assertion moves this stub's
+# answer exactly the way it moves the real solver's.
+for a in "$@"; do last=$a; done
+job=${last%.sby}
+line_of() { grep -nF -- "$1" src/busarbiter.sv | cut -d: -f1; }
+lock=$(line_of 'if (settled && past_grant[h] && past_mem_lock[h]) assert(grant[h]);')
+bound=$(line_of 'always_comb if (clocked) assert(waited <= BOUND);')
+cover=$(line_of 'cover (settled && grant[h] && past_grant[h] && past_mem_lock[h] &&')
+mkdir -p "$job"
+: > "$job/logfile.txt"
+assert_red() {
+  echo "SBY [probe] engine_0.basecase: Assert failed in busarbiter_check:" \
+       "busarbiter.sv:$1.9-$1.26" >> "$job/logfile.txt"
+}
+cover_red() {
+  echo "SBY [probe] engine_0: Unreached cover statement at busarbiter_check:" \
+       "busarbiter.sv:$1.7-$1.30" >> "$job/logfile.txt"
+}
+status=PASS
+case "$(basename "$PWD")/$job" in
+  shipping/prove) status=${STUB_SHIP_PROVE:-PASS} ;;
+  shipping/cover) status=${STUB_SHIP_COVER:-PASS} ;;
+  fixed-priority/prove)
+    status=${STUB_FIXED:-FAIL}
+    if [ "$status" = FAIL ]; then
+      assert_red "${STUB_FIXED_LINE:-$bound}"
+      [ -n "${STUB_FIXED_ALSO_LOCK:-}" ] && assert_red "$lock"
+    fi ;;
+  grant-mid-lock/prove)
+    status=${STUB_MIDLOCK:-FAIL}
+    [ "$status" = FAIL ] && assert_red "${STUB_MIDLOCK_LINE:-$lock}" ;;
+  grant-mid-lock/cover)
+    status=${STUB_COVER_MID:-FAIL}
+    [ "$status" = FAIL ] && cover_red "${STUB_COVER_MID_LINE:-$cover}" ;;
+esac
+[ -n "${STUB_SBY_NO_STATUS:-}" ] && exit 1
+if [ -n "${STUB_SBY_EMPTY_STATUS:-}" ]; then : > "$job/status"; exit 1; fi
+echo "$status 2 0" > "$job/status"
+STUB
+chmod +x "$tmp/sby-busarbiter-stub"
+
+ba_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/rtl" "$d/formal"
+  cp "$REPO"/rtl/busarbiter.v "$d/rtl/"
+  cp "$REPO"/formal/busarbiter.sv "$d/formal/"
+  printf '%s' "$d"
+}
+
+bas() {
+  printf "%s --repo %s --workdir %s/work --sby %s" \
+    "$BA" "$1" "$1" "$tmp/sby-busarbiter-stub"
+}
+
+d=$(ba_fixture)
+probe "control: both arms admit the shipping arbiter and fail on their mutation" 0 \
+  "fail on their own mutation" "$(bas "$d")"
+
+d=$(ba_fixture)
+probe "a harness that is red at rest makes the two mutations meaningless" 1 \
+  "the shipping arbiter does not prove" "STUB_SHIP_PROVE=FAIL $(bas "$d")"
+
+d=$(ba_fixture)
+probe "a cover the shipping arbiter cannot reach is red before any mutation" 1 \
+  "does not reach its own cover goals" "STUB_SHIP_COVER=FAIL $(bas "$d")"
+
+# THE TWO THAT MATTER: a bound that admits starvation and a lock that admits a
+# torn atomic are the whole reason that file exists.
+d=$(ba_fixture)
+probe "a wait bound that admits a starved hart is red" 1 \
+  "the fixed-priority arbiter proves" "STUB_FIXED=PASS $(bas "$d")"
+
+d=$(ba_fixture)
+probe "a lock arm that admits a grant mid-AMO is red" 1 \
+  "the mid-lock arbiter proves" "STUB_MIDLOCK=PASS $(bas "$d")"
+
+d=$(ba_fixture)
+probe "starvation going red somewhere other than the bound is not evidence" 1 \
+  "which does not include" "STUB_FIXED_LINE=9 $(bas "$d")"
+
+d=$(ba_fixture)
+probe "two arms that cannot be told apart are not two arms" 1 \
+  "as well" "STUB_FIXED_ALSO_LOCK=1 $(bas "$d")"
+
+d=$(ba_fixture)
+probe "a torn atomic going red at the wait bound is not evidence either" 1 \
+  "not at line" "STUB_MIDLOCK_LINE=9 $(bas "$d")"
+
+d=$(ba_fixture)
+probe "an anti-vacuity cover that cannot go red is not a control" 1 \
+  "reaches every cover goal" "STUB_COVER_MID=PASS $(bas "$d")"
+
+d=$(ba_fixture)
+probe "a cover red for some other goal says nothing about the lock" 1 \
+  "cover went red without line" "STUB_COVER_MID_LINE=9 $(bas "$d")"
+
+d=$(ba_fixture)
+probe "a solver that wrote no verdict is exit 2, not a red arm" 2 \
+  "wrote no status for the" "STUB_SBY_NO_STATUS=1 $(bas "$d")"
+
+d=$(ba_fixture)
+probe "an empty status file is refused rather than read as a verdict" 2 \
+  "is empty" "STUB_SBY_EMPTY_STATUS=1 $(bas "$d")"
+
+# The three parses, one per pinned line. Each is what a probe pins its answer
+# to, so a respelling has to stop the run rather than quietly probe nothing.
+d=$(ba_fixture)
+sed -i.bak 's/past_mem_lock\[h\]) assert(grant\[h\]);/past_mem_lock[h]) assert(grant[h] == 1);/' \
+  "$d/formal/busarbiter.sv"
+probe "a respelled indivisibility arm stops rather than pinning nothing" 2 \
+  "states the indivisibility assertion 0 times" "$(bas "$d")"
+
+d=$(ba_fixture)
+sed -i.bak 's/assert(waited <= BOUND);/assert(waited <= BOUND + 0);/' "$d/formal/busarbiter.sv"
+probe "a respelled wait bound stops rather than pinning nothing" 2 \
+  "states the wait bound assertion 0 times" "$(bas "$d")"
+
+d=$(ba_fixture)
+sed -i.bak 's/cover (settled \&\& grant\[h\] \&\& past_grant\[h\]/cover (grant[h] \&\& settled \&\& past_grant[h]/' \
+  "$d/formal/busarbiter.sv"
+probe "a respelled lock cover stops rather than pinning nothing" 2 \
+  "states the lock cover goal 0 times" "$(bas "$d")"
+
+d=$(ba_fixture)
+sed -i.bak "s/else grant <= held ? grant : winner;/else grant <= (held) ? grant : winner;/" \
+  "$d/rtl/busarbiter.v"
+probe "a respelled mutation site stops rather than proving the shipping core thrice" 2 \
+  "no longer spells its tie-break" "$(bas "$d")"
+
+d=$(ba_fixture); rm "$d/formal/busarbiter.sv"
+probe "the harness moving away takes the probe with it, loudly" 2 \
+  "formal/busarbiter.sv is missing from" "$(bas "$d")"
 
 echo
 if [ "$probes" -ne "$PROBES_EXPECTED" ]; then

@@ -23,8 +23,8 @@ check. So rule 3 also asserts on the contents of its span, and this script
 re-checks the finished output. See rule 3's comment for the three layers.
 
 The diff `test/monitor.v` -> `test/monitor.sim.v` must stay small enough to read
-in full (`diff` it; it is currently eight lines). If it stops being readable at a
-glance, that is the signal to fix the generator upstream instead of adding a
+in full (`diff` it; it is currently sixteen lines). If it stops being readable at
+a glance, that is the signal to fix the generator upstream instead of adding a
 rule here.
 
 Usage: sanitize_monitor.py <monitor.v>   # sanitized source on stdout
@@ -95,6 +95,57 @@ TRAP_GATE_ENCLOSED_CODES = sorted(
 TRAP_COMPARISON = re.compile(r'ch\d+_handle_error\(101, "mismatch in trap"\)')
 TRAP_COMPARISON_SITES = 1
 
+# Rules 4, 5 and 6. THE SPEC MODEL HAS NO MEMORY MAP. It answers a load at any
+# address at all, so a retire this platform refused -- cause 5 or 7, or cause 1
+# for a fetch -- is one the model says executed: error 101 on a core doing
+# exactly what the map says, and then every value comparison behind it, because
+# the core wrote no register and jumped to `mtvec` while the model did neither.
+#
+# The retire is shown to the monitor all the same. Dropping it instead leaves a
+# hole in `rvfi_order`, and the reorder buffer reads that as a lost instruction:
+# the ROB's cursor stops at the missing number and every later retire is graded
+# against the wrong shadow. What is dropped here is the model's opinion about
+# that one retire, not the retire.
+#
+# `rvfi_mem_fault` is the core's own report of the refusal, so this could be
+# spent for nothing if the core simply raised it everywhere. Rule 6 is what
+# stops that: a retire that reports a refused access must also report a trap,
+# and a trap is still graded by everything else -- the pc continuity check, the
+# interrupt-after-trap check, and the program's own reading of `mcause`.
+MEM_FAULT_PORT = (
+    re.compile(r'(  input \[0:0\] rvfi_mem_extamo,\n)'),
+    r'\1  input [0:0] rvfi_mem_fault,\n',
+    1,
+)
+
+MEM_FAULT_CHANNEL = (
+    re.compile(r'(  wire (ch\d+)_rvfi_mem_extamo = rvfi_mem_extamo\[0\];\n)'),
+    r'\1  wire \2_rvfi_mem_fault = rvfi_mem_fault[0];\n',
+    1,
+)
+
+MEM_FAULT_TRAP_GATE = (
+    re.compile(
+        r'(?P<indent>[ ]*)if \((?P<ch>ch\d+)_rvfi_trap != (?P=ch)_spec_trap\) begin\n'
+        r'[ ]*(?P=ch)_handle_error\(101, "mismatch in trap"\);\n'
+        r'[ ]*end\n'
+    ),
+    r'\g<indent>if (\g<ch>_rvfi_trap != \g<ch>_spec_trap && !\g<ch>_rvfi_mem_fault) begin\n'
+    r'\g<indent>  \g<ch>_handle_error(101, "mismatch in trap");\n'
+    r'\g<indent>end\n'
+    r'\g<indent>if (\g<ch>_rvfi_mem_fault && !\g<ch>_rvfi_trap) begin\n'
+    r'\g<indent>  \g<ch>_handle_error(150, "refused access without a trap");\n'
+    r'\g<indent>end\n',
+    1,
+)
+
+# The compensating check must be in the output, for the reason error 101 must:
+# rules 4 and 5 firing says the flag reached the monitor, not that anything
+# grades what the core does with it.
+MEM_FAULT_COMPENSATION = re.compile(
+    r'ch\d+_handle_error\(150, "refused access without a trap"\)')
+MEM_FAULT_COMPENSATION_SITES = 1
+
 
 class SanitizerError(Exception):
     """A rule matched, but not the text it was written to match."""
@@ -131,7 +182,7 @@ def _wrap_in_trap_gate(match):
         )
 
     return (
-        f'{indent}if (!{channel}_spec_trap) begin\n'
+        f'{indent}if (!{channel}_spec_trap && !{channel}_rvfi_mem_fault) begin\n'
         f'{span}'
         f'{indent}end\n'
     )
@@ -144,6 +195,9 @@ RULES = [
     ('strip $time from $display banners', *TIME_IN_DISPLAY),
     ('make signed DIV/REM self-determined', *UNSIGNED_SIGNED_DIVREM),
     ('gate spec-value checks on !spec_trap', *TRAP_GATE),
+    ('give the monitor rvfi_mem_fault', *MEM_FAULT_PORT),
+    ('read rvfi_mem_fault into the channel', *MEM_FAULT_CHANNEL),
+    ('gate the trap comparison on a refused access', *MEM_FAULT_TRAP_GATE),
 ]
 
 
@@ -164,6 +218,26 @@ def _check_trap_comparison_survives(text):
         )
 
 
+def _check_mem_fault_compensation_survives(text):
+    """The `mem_fault implies trap` check must still be in the output.
+
+    Rule 6 writes the gate and the compensation in one substitution, so a
+    generator that respelled the trap comparison takes both away at once and
+    the site count catches that. This is the other direction: an edit here that
+    kept the gate and lost the compensation would leave `rvfi_mem_fault` able to
+    excuse a retire for nothing.
+    """
+    found = len(MEM_FAULT_COMPENSATION.findall(text))
+    if found != MEM_FAULT_COMPENSATION_SITES:
+        raise SanitizerError(
+            f'  post-check "the refused-access compensation survives": found\n'
+            f'  {found} site(s) of handle_error(150, "refused access without a\n'
+            f'  trap") in the sanitized output, expected\n'
+            f'  {MEM_FAULT_COMPENSATION_SITES}. Without it `rvfi_mem_fault` turns\n'
+            f'  off the trap comparison and nothing asks what the core did with it.'
+        )
+
+
 def main(argv):
     if len(argv) != 2:
         sys.stderr.write(f'usage: {argv[0]} <monitor.v>\n')
@@ -180,6 +254,7 @@ def main(argv):
                 failures.append(f'  rule "{name}": matched {count} site(s), expected {expected}')
         if not failures:
             _check_trap_comparison_survives(text)
+            _check_mem_fault_compensation_survives(text)
     except SanitizerError as error:
         failures.append(str(error))
 

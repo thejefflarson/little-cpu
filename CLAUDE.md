@@ -66,12 +66,15 @@ are kept in parentheses so those references still resolve.
   distinction to hold on to. **The data bus refuses an ATOMIC and nothing else**: the data RAM
   answers its range test about a second address — the one an atomic's rs1 names, a register output
   with no adder in front of it — and decode raises causes 5 and 7 from it, for zero extra logic
-  levels against the four the same test for a load or a store cost (ADR-0109). **An out-of-region
-  load still reads zero and an out-of-region store is still dropped, silently**, and that is a
-  recorded deviation with a measured price rather than a property of the design: their address is a
-  32-bit sum, and **the price is which bit of that sum the fetch loop has to wait for** — bit 31
-  costs 17.3% of median period, bit 12 costs 9.1%, and waiting for none of it is a null
-  (ADR-0104, ADR-0116).
+  levels against the four the same test for a load or a store cost (ADR-0109). **The data bus
+  refuses a plain load or store too now, and what that costs is the board clock** (ADR-0126): their
+  address is a 32-bit sum, **the price is which bit of that sum the fetch loop has to wait for** —
+  bit 31 costs 17.3% of median period, bit 12 costs 9.1%, waiting for none of it is a null
+  (ADR-0104, ADR-0116) — and the cheapest exact spelling waits for bit 12 and measures **+9.40% of
+  median period, 16 of 16 seeds slower against a one-line control, under 12.00 MHz at 9 of 16
+  placements with the median at 11.97**. So the conformance gap is closed in RTL and the requirement
+  is not met; read that pair together, because a single-seed `make soc-timing` reads 12.06 and
+  passes.
 - **Every inter-stage struct carries a `valid` bit** (3). A bubble is `valid = 0`; retire is
   `valid` reaching writeback, which gates `wen` and drives `rvfi_valid`.
 - **Hazards are stall-only** (4). No forwarding network, and 35.7% of suite cycles is what that
@@ -131,11 +134,26 @@ are kept in parentheses so those references still resolve.
   would drop an issued instruction — and that ruling is only arm order in the publish block, so it
   is asserted in `rtl/decoder.v`'s `FORMAL` block and vectored in `test/decoder_tb.v`. Every
   in-flight non-`x0` `rd` must be visible to the scoreboard on every cycle between issue and the
-  regfile write-through, with no gap. **Six** reasons raise `stall`, and it is exactly their OR:
+  regfile write-through, with no gap. **Seven** reasons raise `stall`, and it is exactly their OR:
   the divider, the atomic write cycle, the decode scoreboard, serialization, the operand-fetch
-  cycle, the stolen fetch window. `test/decoder_tb.v` checks that identity and `make cycles` charges
-  every stalled cycle to the first reason that is true, so a seventh has to be added in both places
-  as well as here.
+  cycle, the stolen fetch window, the ungranted bus. A reason is declared in **six** places, not
+  the three this paragraph used to name: the decoder's signal, its OR, its publish arm and its
+  `FORMAL` asserts; `test/decoder_tb.v`'s OR-identity check and its both-ways vectors;
+  `test/cxxrtl.cc`'s bucket; `test/stall_report.py`'s `REASONS` and `HEADINGS`;
+  `formal/pcloop.sv`'s `f_may_stall`; and this list.
+  **The ungranted bus is the seventh and it BUBBLES**, and unlike the sixth its arm was settled by
+  construction rather than by argument: `rtl/executor.v` publishes `stalled` as an output and takes
+  no input that freezes it, so a divider stall is the executor being busy in its own FSM and not a
+  hold the decoder can borrow. A bus-grant wait leaves the executor idle, so a held `decoder_out`
+  is consumed a second time. It is tied low in every SINGLE-HART integrator — so `make cycles`
+  reports the column at zero, `test/decoder_tb.v` drives the input directly because nothing
+  single-hart can otherwise say which arm shipped, and `formal/MULTIHART_TIE_OFF` is where the
+  tie-off and its depth consequence are declared. `rtl/littledual.v` is the one platform that drives
+  it, and **the core does not decide its own wait**: decode publishes `bus_request` — its stall
+  conjunction with `bus_wait` left out, ANDed with the nine encodings that reach the data bus — and
+  the platform ANDs that against its grant. A grant term inside the decoder would close the loop
+  through the arbiter. G is measured on the tied-off machine, nothing under `formal/` builds two
+  cores, and no generated check's depth applies to a configuration that has a wait in it.
   **The atomic write cycle is the sixth, and it BUBBLES** — the only reason to be added since the
   divider and the only one whose arm was a live question. An AMO reads its word while the executor
   takes it and writes the result back on the cycle after, so that cycle is spent to keep anything
@@ -163,8 +181,9 @@ store misaligned = 6, store/AMO access fault = 7, ecall from M = 11.
 **Instruction-address-misaligned (0) is the one remaining cause and it is unreachable** — C makes
 2-byte targets legal — so not implementing it costs nothing and closes nothing.
 
-**Causes 5 and 7 are raised for the eleven A encodings and for nothing else**, and the asymmetry is
-a measurement rather than an oversight (ADR-0104, ADR-0109). All three refusals have the same shape:
+**Causes 5 and 7 are raised for the eleven A encodings and for the twelve plain load and store
+encodings**, and what remains asymmetric is the price, not the behaviour (ADR-0104, ADR-0109,
+ADR-0126). All three refusals have the same shape:
 the platform decodes its own map and hands the core one bit that arrives with the *address*.
 `rtl/imemory.v` publishes a fetch outside the text window on `imem_fault` → cause 1; `rtl/memory.v`
 answers its range test about `atomic_addr` → cause 5 for `lr.w` and 7 for the nine AMOs and `sc.w`,
@@ -175,12 +194,16 @@ levels**. A plain load or store has to read `immediate + reg_rs1` and hand the a
 and **the price is that wait and nothing about the region decode** (ADR-0116): the same three
 windows and the same merge asked about `reg_rs1` instead of the sum are a null, and the cost is
 monotone in which bit of the sum is waited for — bit 31 is +17.30% of median period, bit 12 is
-+9.10%, and a **coarse** check that still reads bit 31 is +15.95%, a null against the exact one. So
-an address no memory answers is still read as zero and written nowhere for those two — a deviation
-from the privileged spec's strong recommendation that precise access faults be raised, recorded as
-one rather than as a design choice. **The only affordable spelling is not a region test**: asking
-about `rs1`'s page and its neighbours holds 12 MHz at 16 of 16 placements and is declined because it
-makes `mcause` a function of the base register rather than of the access.
++9.10%, and a **coarse** check that still reads bit 31 is +15.95%, a null against the exact one. The
+cheapest exact spelling waits for bit 12 and it is what ships here: three tests per window on raw
+register bits, the immediate's sign picking the pair, and the carry into bit 12 — recovered from the
+existing adder as `sum[12] ^ rs1[12] ^ imm[12]`, never a second one — picking between two
+precomputed answers one mux deep. **It reproduces the bit-12 figure on a later tree at +9.40% of
+median period and puts 9 of 16 placements under 12.00 MHz** (ADR-0126), so the deviation from the
+privileged spec's strong recommendation is closed and the requirement is open. **The only affordable
+spelling is not a region test**: asking about `rs1`'s page and its neighbours holds 12 MHz at 16 of
+16 placements and is declined because it makes `mcause` a function of the base register rather than
+of the access.
 **Which spelling reaches `next_pc` decides whether the board closes.** One term that says an atomic
 faults, with the cause split answered off the fetch loop, swept a worst of 12.24 MHz over eight
 seeds; two terms each carrying their own encoding test swept 11.82 and missed at two seeds of eight.
@@ -227,7 +250,13 @@ either generates nothing.
 `mie`; `mip.MTIP` is `rtl/timer.v`'s line and read-only; `mip.MSIP`/`mip.MEIP` stay read-only zero,
 which the spec allows in any position of `mip` whose interrupt can never become pending, and names
 outright for `mip.MSIP` on a single-hart system. `mtime`/`mtimecmp` are four words at
-`0x0002_0000`, in `rtl/littlesoc.v` and `test/testbench.v` alike. **It is taken on a cycle that
+`0x0002_0000`, in `rtl/littlesoc.v` and `test/testbench.v` alike — and **the map reserves eight**,
+which is what `rtl/timer.v`'s `NHARTS` widens to for one `mtimecmp` and one `mtip` per hart against
+the one `mtime` (ADR-0124). The four reserved words read zero here and a peripheral put in them
+would work on this machine and have to move on the day a second hart landed, with nothing to say so,
+so `test/memmap_test.sh` reads every `BASE` under `rtl/` and refuses one inside the span. That
+layout is **deliberately not a CLINT's** and firmware written against it does not port to one.
+**It is taken on a cycle that
 would otherwise have issued**, because `stall` outranks the trap arm of `next_pc` — so it waits out
 a divide, a load turnaround and a serialization with no logic of its own, the displaced instruction
 has not issued, and nothing is un-committed. It is therefore **not** a stall reason and adds no
@@ -295,16 +324,20 @@ What a green result does and does not mean:
   check also drops every value comparison once an instruction traps, keeping only the trap flag,
   and its two pc checks accept whatever target the core reports — so `components_traps` is the only
   thing that says a trap lands on `mtvec` and saves the right state.
-  **Its model states a load or store access fault ahead of the mechanism**, and states only half of
-  one: an access the map does not answer is excused from `must_not_trap`, and a core that faults it
-  must report cause 5 or 7 — the trap itself is not required, because reading zero is what this
-  platform does and the spec only recommends otherwise. That is why the map has to reach
-  `formal/traps.sv`, which no port of the core carries it to, so it restates it and
-  `test/memmap_test.sh` compares the copy. An arm no core reaches is worth nothing until it has been
-  shown to fail: `make -C formal traps-region-probe` builds two cores one line of `rtl/decoder.v`
-  apart, requires the one that faults with the right cause to prove and the one that faults with the
-  wrong cause to go red **at that comparison's own line**, and is a prerequisite of the proof for the
-  reason `pcloop_cover` is one.
+  **Its model of a load or store access fault states the whole of it now**: an access the map does
+  not answer must trap and must report cause 5 or 7, where it used to require only the cause,
+  because reading zero was what this platform did and the spec only recommends otherwise. That is
+  why the map has to reach `formal/traps.sv`, which no port of the core carries it to, so it
+  restates it and `test/memmap_test.sh` compares the copy. An arm no core reaches is worth nothing
+  until it has been shown to fail: `make -C formal traps-region-probe` builds two cores one line of
+  `rtl/decoder.v` apart, requires each to go red **at its own arm's line**, and is a prerequisite of
+  the proof for the reason `pcloop_cover` is one.
+  **The generated checks grade the refusal itself, which the atomic half was never graded by**:
+  `checks/rvfi_insn_check.sv` has a memory-fault contract and the eleven A encodings have no spec
+  model to reach it, so it had never once been evaluated here. The twelve plain load and store
+  encodings do reach it, so decode publishes the refused access's own word address and its exact
+  write strobe on the fault channel and the check compares both against the spec model's effective
+  address and mask. A superset is legal for the read mask and not for the write mask.
 - **It ships no model of an INTERRUPT either**, so the core's timer input is tied off in all five
   harnesses under `formal/` and the generated checks run with no interrupt in the trace.
   `formal/INTERRUPT_TIE_OFF` mechanises that the same way, in both directions and re-derived from
@@ -313,8 +346,24 @@ What a green result does and does not mean:
   `test/asm/mtimermask.S` for the whole path. `rvfi_intr` is now driven and is **not** optional:
   both sim legs' monitor checks pc continuity across retires and stops only for a retire carrying
   it, so an undriven `rvfi_intr` makes every interrupt a monitor error.
+- **It describes ONE hart**, so the core's shared-bus inputs — the grant wait and the write snoop —
+  are tied off in the same five harnesses and `formal/MULTIHART_TIE_OFF` mechanises that in both
+  directions, re-deriving the port half from `rtl/littlecpu.v` through
+  `test/port_connect_test.py`'s parser rather than a second one. It also sweeps for the direction
+  that rots: an input every harness holds at a constant and no baseline declares is red, because
+  that is a restriction on every generated check arriving unrecorded. A free `bus_wait` would let
+  the environment withhold the grant forever, which is what `hang` and `liveness_ch0` measure, and
+  the depths are derived on the tied-off machine — F and G re-measured under it reproduce exactly.
+  `mem_lock` is deliberately not in that baseline: an unread output cannot weaken a check, and
+  `components_accessor` is where it is asserted to cover exactly the cycle an AMO writes back.
 - **Both sim legs read the sanitized `test/monitor.sim.v` as their per-retire oracle**, so
-  `test/sanitize_monitor.py` is a change to the oracle, not to plumbing. `test/monitor.v` is
+  `test/sanitize_monitor.py` is a change to the oracle, not to plumbing. **The spec model has no
+  memory map, so a refused access disagrees with it**, and the retire is shown to the monitor all
+  the same: dropping it leaves a hole in `rvfi_order` that the reorder buffer reads as a lost
+  instruction, and every retire after it is then graded against the wrong shadow. What is dropped is
+  the model's opinion about that one retire — `rvfi_mem_fault` gates error 101 and the value
+  comparisons behind it — and the gate is not free, because a retire carrying that flag must also
+  report a trap or the monitor says so itself. `test/monitor.v` is
   generated but tracked: regenerate it (`make monitor-check`), never hand-edit it.
 - **iverilog derives a continuous assign's sensitivity from the call's arguments.** A function
   called from a continuous assign whose body reads module state silently under-evaluates — no
@@ -384,6 +433,16 @@ and times; `make ecp5-timing` is that same SoC on the other part.
   same warning: those three edits rebuilt from their own description read SoC −45 rather than −1, so
   44 LUTs separate two texts stating one fact (ADR-0097). Quote a group's number with the tree and
   the text it was measured on, and do not read either top's count as the value of the idea.
+  **A parameter tied off to today's value is not free of the mapper either**, which is the sharp
+  form for a digest gate that forgives nothing: at one hart, folding the shipping fetch window into
+  the loop that serves the others is +30 SoC cells, naming `|mem_wstrb && text_range` once instead
+  of writing it twice is +64, the general form of the timer's read mux is +19 to +25, an in-process
+  `for` loop over the harts is 36 in either direction — and **an inert generate loop, zero
+  iterations and nothing elaborated, is −18**. Only a widened port and an *untaken* `generate` arm
+  measured zero, which is why `rtl/imemory.v` and `rtl/timer.v` spell the first window and the first
+  hart on their own (ADR-0124). **Bit-identity is not reachable for a width-one vector port at all**:
+  the canonical JSON records the declaration, so a scalar that becomes `[0:0]` leaves either an
+  attribute or a net name behind under every spelling tried.
 - **A generated cell's module prefix is ancestry, not ownership.** After flatten yosys names a new
   cell after a neighbouring net, so neither `icetime`'s net names along a path nor a per-module cell
   count off the placed netlist attributes anything: a ROM-slicing experiment moved the `imem.`
@@ -420,6 +479,15 @@ and times; `make ecp5-timing` is that same SoC on the other part.
   A short sweep cannot see the tail, and the tail is what `SOC_MIN_MHZ` grades. **A median inside
   the band is a null that does not even reproduce**: one edit read −2.67% of median on one tree and
   +0.34% on the next, at −54 cells and −37 (ADR-0121).
+- **A tied-off PORT is not a tied-off change, and the digest is where the two come apart.** An input
+  the integrator holds at a constant folds before mapping and leaves the cell census untouched; an
+  **output the integrator does not read does not fold** — it is still a net for ABC to map around,
+  and a one-line probe adding any unread output to `rtl/littlecpu.v` moves the SoC **+44 `SB_LUT4`**
+  on its own. So a change that only adds ports can still owe the sixteen seeds, and the seeds are
+  the answer rather than the alarm: the multi-hart surface digests different at +48 packed cells and
+  sweeps −0.2% at the worst placement, +1.5% at the median, inside the churn band with all sixteen
+  over 12 MHz. Read a digest difference for the class of edit it is, and do not read `fit` for this
+  one — the same change is **−35 cells** on the core's own top.
 - **`make ecp5-timing` is the third instrument and a different CLASS of one.** Same `littlesoc`,
   same sources, same ROM image, placed on the ECP5 the multi-core milestone targets — no fork, no
   `ifdef`, no part-specific RTL. There is no `icetime` for ECP5, so **nextpnr's own timing engine
@@ -438,6 +506,28 @@ and times; `make ecp5-timing` is that same SoC on the other part.
   which is also the pessimistic one of the three. **Pinning `clk` to the module's real oscillator pin
   is not cosmetic** — letting nextpnr choose that pad instead read 3.5% faster, because the pad
   decides where the global network is entered.
+- **The DUAL configuration is a FOURTH design on the third instrument, and ECP5 only.** Two fetch
+  windows are two copies of the banked ROM — 32 block RAMs against the up5k's 30 — so no up5k number
+  describes it and none may be subtracted from one of its. `make dual-ecp5-timing` publishes a
+  frequency with no ratchet (35.36 MHz at one placement) and **gates three mapping censuses that
+  double where the design does and not where it does not**: `DP16KD` 40 — 32 for the one data RAM
+  plus 4 for *each* ROM copy — with `TRELLIS_DPR16X4` and `MULT18X18D` at exactly twice the
+  single-hart counts. All three were declared before the first run and matched, which is what says
+  two windows are two copies of one storage and two harts are two whole cores (ADR-0125).
+  **`make dual-smoke` is its own job and is off `make test`'s path**: two monitor instances roughly
+  double a 7000-line generated module, and `test/cxxrtl.cc` is a merge gate that must not grow a
+  configuration axis or a flag. It runs one program twice and grades both directions — 32 with two
+  harts, 16 with hart 1 held in reset — because **a dual harness that measures one hart looks exactly
+  like a working one** unless the answer depends on the second hart having run. `test/monitor.sim.v`
+  is read UNMODIFIED by both instances and `test/sanitize_monitor.py` is untouched, which was a
+  prediction and is now measured: 114 of 115 and 139 of 140 retires spec-checked.
+- **A signal a single-master design never had to drive to zero is not a signal two masters may OR.**
+  Three of the shared bus's four ports join with an OR the way `mem_rdata`'s three sources do;
+  `mem_wdata` does not, because `rtl/accessor.v` publishes rs2 on it for **every issuing
+  instruction** and not only for a store — with one master `mem_wstrb` is the only gate that
+  matters. ORed across two harts it lost **30 of a smoke program's 32 counted increments**, and it is
+  invisible to a bus-exclusivity check because the hart doing the damage has neither a read enable
+  nor a strobe raised. Read the producer's idle behaviour before joining two of anything (ADR-0125).
 - **12 MHz is a requirement, not a regression floor** (ADR-0066). `SOC_MIN_MHZ` is 12.0 — the board
   clock, whose next divider step down is 6 — and it does not slide. When it trips, fix the design,
   not the floor. The margin over the worst placement is deliberately tighter than the churn band.
@@ -672,8 +762,14 @@ make mutation-check # delete a term from rtl/ and require exactly the detectors
 make window-test    # force the elaboration checks in rtl/{imemory,memory,timer,
                     # uart}.v and rtl/littlecpu.v's copy of that map red, in both
                     # frontends. Runs inside `make test`
+make imem-share-test # map rtl/imemory.v for ice40 and ECP5 at one and at two
+                    # fetch windows, and require two windows to be two copies of
+                    # ONE storage -- every copy on the same write enable,
+                    # address, data and edge. A claim about the MAPPED netlist:
+                    # at RTL there is one array and no simulation can fail on
+                    # its absence. Forces its own red directions. Inside `make test`
 make cycles         # the suite again, every cycle charged to an issuing cycle or
-                    # one of the six stall reasons; nonzero on a stalled cycle none
+                    # one of the seven stall reasons; nonzero on a stalled cycle none
                     # of them explains. Prints the two load/store locality
                     # counters under the table -- accesses whose base register is
                     # within 2 KB of a region edge, and accesses issuing on a
@@ -688,6 +784,15 @@ make monitor-check  # regenerate test/monitor.v at the pin and diff
 make fit            # the core's area number; ratchet on FIT_MAX_LC
 make soc-timing     # the SoC place-and-time flow; requirement on SOC_MIN_MHZ.
                     # SOC_SEED picks a placement; soc/timing_sweep.sh runs four
+make dual-smoke     # the dual configuration under cxxrtl: two harts, one text
+                    # storage, one arbiter. Builds one smoke program and runs it
+                    # BOTH ways -- both harts, and hart 1 held in reset -- and
+                    # grades the shared count moving between them. Off `make
+                    # test`'s path: two monitor instances double a 7000-line
+                    # generated module. `make dual-elaborate` is iverilog's look
+make dual-ecp5-timing # the dual top placed. ECP5 only -- 32 block RAMs against
+                    # the up5k's 30. Three mapping censuses GATE, the frequency
+                    # PUBLISHES, and no number here merges with an up5k one
 make ecp5-timing    # the same SoC on ECP5: synth_ecp5 + nextpnr-ecp5 at a
                     # declared corner. Three exact mapping censuses GATE; the
                     # frequency PUBLISHES, with no ratchet. nextpnr's own
@@ -812,14 +917,14 @@ the machine timer is built (ADR-0082), and the forwarding network is priced and 
 pending (ADR-0083). An interrupt controller, more sources and a vectored `mtvec` are still on it.
 
 **A transmit-only UART is the fifth pin and the only observable output a flashed bitstream has** —
-eight bytes at `0x0002_0010`, a write-only data register and a `busy` bit, 8N1 at 115200 baud from a
+eight bytes at `0x0002_0020`, a write-only data register and a `busy` bit, 8N1 at 115200 baud from a
 divisor of 104 the header states the 0.16% error of. No receiver, no queue, no interrupt. Its
 read-back is one flip-flop, so it joins `mem_rdata`'s OR on bit 0 and costs the other 31 nothing, and
 it is outside `make fit`'s top entirely — `littlecpu` does not contain it, so the device's area is a
 `soc-timing` number and never a `fit` one. **Nothing here produces a bitstream**: `make soc-timing`
 stops at the `.asc`, there is no `icepack` and no `iceprog`, so the pin is measured and not yet
 flashed. **Co-simulation cannot cover it** — the model has plain memory at that address, so
-`test/asm/uart.S` is `DISAGREE AT 5`, at the first read of `busy` after a write, and
+`test/asm/uart.S` is `DISAGREE AT 7`, at the first read of `busy` after a write, and
 `test/uart_tb.v`, which decodes the line at the configured divisor with five of its own failures
 forced, is the only oracle for the wire.
 
@@ -828,8 +933,10 @@ under `test/bench/` is deliberately outside it: both legs glob `test/asm`, and a
 needs two million cycles would time out against the runner's 5000 and be graded as a failure. The two
 shapes differ only in how `.data` reaches RAM: an assembly program's is poked in by the harness,
 which is the thing the hardware cannot do, and a C program's is copied by the startup, which is the
-thing it can. A change to one program shape's build is a change in three places —
-`test/run_tests.sh`, `test/cosim.py`'s `assemble()` and the Makefile's `soc-rom`.
+thing it can. A change to one program shape's build is a change in FOUR places —
+`test/run_tests.sh`, `test/cosim.py`'s `assemble()`, the Makefile's `soc-rom` and
+`test/dual_smoke.sh`, which builds the one program that needs two harts to terminate and is
+therefore outside `test/asm` for the same reason `test/bench/` is.
 
 ## Pointers
 

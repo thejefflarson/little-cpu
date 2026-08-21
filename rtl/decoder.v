@@ -1,7 +1,24 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
 `include "structs.v"
-module decoder (
+module decoder #(
+  // The data bus's memory map: where some memory answers a plain load or store.
+  // The same four numbers rtl/littlecpu.v takes, in the units rtl/memory.v and
+  // rtl/timer.v state their own windows in, handed down rather than restated --
+  // test/memmap_test.sh compares the copies, and a second spelling of the map
+  // here would be a copy that file does not know about.
+  //
+  // It arrives at elaboration rather than over a port, unlike the answer about
+  // an atomic's address. The fault commits in the cycle the pc is chosen, so
+  // constants that route nowhere are what make the region tests below
+  // equalities on register-output bits; a question sent out to the memories and
+  // back measured 3 ns more than keeping the whole cone inside decode.
+  parameter integer      LS_TEXT_WORDS = 2048,
+  parameter logic [31:0] LS_RAM_BASE   = 32'h0001_0000,
+  parameter integer      LS_RAM_WORDS  = 16384,
+  parameter logic [31:0] LS_TIMER_BASE = 32'h0002_0000,
+  parameter logic [31:0] LS_UART_BASE  = 32'h0002_0020
+) (
   input  logic clk,
   input  logic reset,
   input  fetcher_output in,
@@ -16,6 +33,21 @@ module decoder (
   // arriving this cycle holds a data word, not the instruction at `pc`. If a
   // divide lands on the same cycle, that one wins.
   input  logic fetch_stall,
+  // The platform has not given this core the shared data bus this cycle. It
+  // BUBBLES: nothing issues, the pc holds, and the same instruction decodes and
+  // asks again next cycle, so nothing is lost because nothing was published.
+  // Holding `out` here instead would hand the executor an instruction it has
+  // already consumed -- the wait leaves the executor idle, unlike a divide.
+  // A platform with one bus master ties it low and the core never waits.
+  input  logic bus_wait,
+  // This cycle would publish a memory transaction, if the bus were this core's
+  // to publish on. It is the arbiter's request line and the one signal the
+  // shared-bus surface was left owing: an arbiter that registers its grant has
+  // to be told a cycle before the transaction, and the only stage that knows a
+  // cycle early is this one. `bus_wait` is deliberately NOT a term of it --
+  // the platform ANDs this against its own grant to make that wait, so a term
+  // here would close the loop through the arbiter.
+  output logic bus_request,
   // The instruction memory had nothing at `pc` -- the address is outside the
   // text window. It arrives with the word it is about, in the cycle decode is
   // looking at that word, so the fault is committed with everything else here
@@ -428,6 +460,88 @@ module decoder (
   // below is what keeps those two facts from drifting apart.
   assign atomic_addr = reg_rs1;
 
+  // Does some memory answer a plain load or store at `immediate + reg_rs1`? The
+  // sum's top is not ready when the pc must be chosen, so it is never read.
+  // Every immediate that reaches here is sign-extended above bit 11, so
+  // sum[31:12] is reg_rs1[31:12] plus the carry into bit 12 minus that sign --
+  // an adjustment of -1, 0 or +1. Each window is therefore tested three ways on
+  // the raw register bits, the sign picks between those early, and the one late
+  // bit -- the carry, read back out of the adder the address already pays for
+  // rather than from a second one -- picks between two precomputed answers, one
+  // mux deep.
+  //
+  // The windows are rounded OUT to whole pages, which is the reach of the split.
+  // A window smaller than a page therefore claims the rest of its page: an
+  // address there is one no memory answers and this does not fault it, which is
+  // the silent read of zero this core has always done. Rounding the other way
+  // would fault an address a memory does answer, and that is the direction that
+  // cannot be allowed to be wrong.
+  localparam int LS_TEXT_PAGES = (LS_TEXT_WORDS * 4) / 4096;
+  localparam int LS_RAM_PAGES  = (LS_RAM_WORDS * 4) / 4096;
+  localparam logic [19:0] LS_TEXT_PAGE = 20'd0;
+  localparam logic [19:0] LS_TEXT_MASK = LS_TEXT_PAGES > 1 ? LS_TEXT_PAGES - 1 : 0;
+  localparam logic [19:0] LS_RAM_PAGE  = LS_RAM_BASE[31:12];
+  localparam logic [19:0] LS_RAM_MASK  = LS_RAM_PAGES > 1 ? LS_RAM_PAGES - 1 : 0;
+  localparam logic [19:0] LS_TIMER_PAGE = LS_TIMER_BASE[31:12];
+  // The timer answers eight words, so its page is tested on seven more bits of
+  // the sum. Those bits are the low adder's and do not wait on the carry into
+  // 12. Eight and not the four a one-hart build decodes: that is the span the
+  // map reserves for one `mtimecmp` per hart, and a two-hart build answers all
+  // of it. Rounding out is the safe direction -- the four spare words read zero
+  // on a one-hart machine instead of faulting -- and rounding in would fault
+  // hart 1's `mtimecmp`, which a memory does answer.
+  localparam logic [6:0] LS_TIMER_OFF = LS_TIMER_BASE[11:5];
+  localparam logic [19:0] LS_UART_PAGE = LS_UART_BASE[31:12];
+  localparam logic [8:0] LS_UART_OFF = LS_UART_BASE[11:3];
+
+  logic [19:0] ls_hi;
+  assign ls_hi = reg_rs1[31:12];
+
+  // Each window, asked about `ls_hi`, `ls_hi + 1` and `ls_hi - 1`. The masks are
+  // constants, so the carry into a window's own page bits is done here at
+  // elaboration and the shifted forms cost an equality apiece.
+  logic text_d0, text_dp1, text_dm1;
+  assign text_d0  = ((ls_hi ^ LS_TEXT_PAGE) & ~LS_TEXT_MASK) == 20'd0;
+  assign text_dp1 = (ls_hi == LS_TEXT_PAGE - 20'd1) ||
+                    (text_d0 && (ls_hi & LS_TEXT_MASK) != LS_TEXT_MASK);
+  assign text_dm1 = (text_d0 && (ls_hi & LS_TEXT_MASK) != 20'd0) ||
+                    (ls_hi == LS_TEXT_PAGE + LS_TEXT_MASK + 20'd1);
+
+  logic ram_d0, ram_dp1, ram_dm1;
+  assign ram_d0  = ((ls_hi ^ LS_RAM_PAGE) & ~LS_RAM_MASK) == 20'd0;
+  assign ram_dp1 = (ls_hi == LS_RAM_PAGE - 20'd1) ||
+                   (ram_d0 && (ls_hi & LS_RAM_MASK) != LS_RAM_MASK);
+  assign ram_dm1 = (ram_d0 && (ls_hi & LS_RAM_MASK) != 20'd0) ||
+                   (ls_hi == LS_RAM_PAGE + LS_RAM_MASK + 20'd1);
+
+  logic timer_off_ok, timer_d0, timer_dp1, timer_dm1;
+  assign timer_off_ok = mem_addr_calc[11:5] == LS_TIMER_OFF;
+  assign timer_d0  = ls_hi == LS_TIMER_PAGE;
+  assign timer_dp1 = ls_hi == LS_TIMER_PAGE - 20'd1;
+  assign timer_dm1 = ls_hi == LS_TIMER_PAGE + 20'd1;
+
+  // The UART is eight bytes, so like the timer it needs low bits the carry
+  // split never reaches. Its own page tests rather than the timer's: the two
+  // share a page in today's map and nothing requires them to.
+  logic uart_off_ok, uart_d0, uart_dp1, uart_dm1;
+  assign uart_off_ok = mem_addr_calc[11:3] == LS_UART_OFF;
+  assign uart_d0  = ls_hi == LS_UART_PAGE;
+  assign uart_dp1 = ls_hi == LS_UART_PAGE - 20'd1;
+  assign uart_dm1 = ls_hi == LS_UART_PAGE + 20'd1;
+
+  logic ls_neg, ls_carry, ls_sup_carry, ls_sup_nocarry, ls_supported;
+  assign ls_neg = immediate[31];
+  assign ls_sup_carry   = ls_neg ? (text_d0  || ram_d0  || (timer_d0  && timer_off_ok) ||
+                                    (uart_d0  && uart_off_ok))
+                                 : (text_dp1 || ram_dp1 || (timer_dp1 && timer_off_ok) ||
+                                    (uart_dp1 && uart_off_ok));
+  assign ls_sup_nocarry = ls_neg ? (text_dm1 || ram_dm1 || (timer_dm1 && timer_off_ok) ||
+                                    (uart_dm1 && uart_off_ok))
+                                 : (text_d0  || ram_d0  || (timer_d0  && timer_off_ok) ||
+                                    (uart_d0  && uart_off_ok));
+  assign ls_carry     = mem_addr_calc[12] ^ reg_rs1[12] ^ immediate[12];
+  assign ls_supported = ls_carry ? ls_sup_carry : ls_sup_nocarry;
+
   // Misalignment needs two bits of the sum, and the low two bits of a sum depend
   // only on the low two bits of the operands -- so they are added here rather
   // than read off `mem_addr_calc`. Read from there, this test waits on a 32-bit
@@ -470,9 +584,19 @@ module decoder (
   // 11.98 MHz at a placement this one clears.
   logic atomic_fault;
   assign atomic_fault = instr_atomic && !atomic_supported && !word_misaligned;
+  // The same refusal for a plain load or store, answered off the decomposed
+  // question above instead of off a port. Misalignment outranks the region here
+  // too, so the four data causes stay disjoint whichever access raised them.
+  logic instr_ls_load, instr_ls_store, ls_fault;
+  assign instr_ls_load  = instr_lb || instr_lbu || instr_lh || instr_lhu || instr_lw;
+  assign instr_ls_store = instr_sb || instr_sh || instr_sw;
+  assign ls_fault = (instr_ls_load || instr_ls_store) && !ls_supported &&
+                    !load_misaligned && !store_misaligned;
+
   logic load_access_fault, store_access_fault;
-  assign load_access_fault  = atomic_fault && instr_lr;
-  assign store_access_fault = atomic_fault && instr_atomic_write;
+  assign load_access_fault  = (atomic_fault && instr_lr) || (ls_fault && instr_ls_load);
+  assign store_access_fault = (atomic_fault && instr_atomic_write) ||
+                              (ls_fault && instr_ls_store);
 
   // `csr_write_op` already has Zicsr's suppression rules applied, so `csrr misa`
   // stays legal while `csrw misa` does not.
@@ -493,9 +617,26 @@ module decoder (
   // Bit 31 says interrupt; 7 is the machine timer.
   localparam logic [31:0] CAUSE_MACHINE_TIMER       = 32'h8000_0007;
 
+ `ifdef RISCV_FORMAL
+  // The strobe the refused store would have driven, which is what
+  // checks/rvfi_insn_check.sv compares the fault report against. The whole read
+  // mask is legal for a load -- that check takes a superset there -- but the
+  // write mask has to be the exact one, so the width and the two low address
+  // bits are read here. An atomic and a word store are both word accesses and
+  // report all four; nothing else reaches the `else`, because the arm below
+  // publishes this only for a store the map refused.
+  logic [3:0] ls_fault_wstrb;
+  always_comb begin
+    if (instr_sb)      ls_fault_wstrb = 4'b0001 << mem_addr_calc[1:0];
+    else if (instr_sh) ls_fault_wstrb = 4'b0011 << mem_addr_calc[1:0];
+    else               ls_fault_wstrb = 4'b1111;
+  end
+ `endif
+
   logic trap_pending;
   assign trap_pending = imem_fault || instr_illegal || instr_ebreak || instr_ecall ||
-                        load_misaligned || store_misaligned || atomic_fault;
+                        load_misaligned || store_misaligned || atomic_fault ||
+                        ls_fault;
 
   // The instruction's own fault and an interrupt really can be true together,
   // and the interrupt wins: the instruction does not execute, so its fault does
@@ -670,7 +811,20 @@ module decoder (
 
   // Every reason to stall, in one signal. They all hold the PC; the block that
   // writes `out` below is where they differ.
-  assign stall = hazard || operand_stall || divider_stall || fetch_stall || atomic_stall;
+  assign stall = hazard || operand_stall || divider_stall || fetch_stall || atomic_stall ||
+                 bus_wait;
+
+  // The same conjunction as `stall` with `bus_wait` left out, and the nine
+  // encodings that reach the data bus. It is an OVER-approximation on purpose:
+  // a store-conditional that finds no reservation puts nothing on the bus, and
+  // asking for a cycle this core then does not use costs an arbitration slot
+  // where under-asking would put two masters on the bus at once. Trapping
+  // accesses are out, because decode clears their `is_l*`/`is_s*` flags and the
+  // accessor never sees a transaction to make.
+  assign bus_request = !reset && !trap_taken &&
+    !(hazard || operand_stall || divider_stall || fetch_stall || atomic_stall) &&
+    (instr_lb || instr_lbu || instr_lh || instr_lhu || instr_lw ||
+     instr_sb || instr_sh || instr_sw || instr_atomic);
 
   // On a cycle that issues, ask for the NEXT instruction's pair. The guess runs
   // the fetch window's successor word through the same register-number mapping
@@ -806,7 +960,7 @@ module decoder (
       // two arms changes that and nothing would say so, which is why the
       // `ifdef FORMAL` block below checks both cases.
       out <= out;
-    end else if (hazard || operand_stall || fetch_stall || atomic_stall ||
+    end else if (hazard || operand_stall || fetch_stall || atomic_stall || bus_wait ||
                  interrupt_pending) begin
       // These zero `out` instead of holding it. The executor reads `in` every
       // cycle, so a held `out` would be executed again and again while the
@@ -819,6 +973,11 @@ module decoder (
       // instruction, so holding would present the same AMO a second time and
       // put a second read on the bus beside its own write. Holding here is a
       // duplicated transaction and a duplicated retire, not a lost instruction.
+      //
+      // The bus wait bubbles for the same reason arrived at from the other end:
+      // the executor is idle through it, so it takes a held `out` and executes
+      // it again. Nothing was published while waiting, so there is nothing to
+      // lose by publishing a bubble.
       out <= '0;
     end else begin
       // This arm runs on exactly the cycles an instruction issues. Committing
@@ -842,9 +1001,12 @@ module decoder (
       out.rvfi.intr <= intr_report;
       out.rvfi.mem_fault <= imem_fault || load_access_fault || store_access_fault;
       // An lr.w reads, an sc.w writes, and an AMO does both -- so the masks are
-      // the access the instruction would have made, not the one it made.
-      out.rvfi.mem_fault_rmask <= {4{load_access_fault || (store_access_fault && !instr_sc)}};
-      out.rvfi.mem_fault_wmask <= {4{store_access_fault}};
+      // the access the instruction would have made, not the one it made. The
+      // read half names the AMOs rather than excusing `sc.w`, because a plain
+      // store raises this cause now and reads nothing either.
+      out.rvfi.mem_fault_rmask <= {4{load_access_fault || (store_access_fault && instr_amo)}};
+      out.rvfi.mem_fault_wmask <= store_access_fault ? ls_fault_wstrb : 4'b0;
+      out.rvfi.mem_fault_addr <= {mem_addr_calc[31:2], 2'b00};
       out.rvfi.rs1_addr <= rvfi_rs1_valid ? rs1 : 5'b0;
       out.rvfi.rs2_addr <= rvfi_rs2_valid ? rs2 : 5'b0;
       out.rvfi.rs1_rdata <= rvfi_rs1_valid ? reg_rs1 : 32'b0;
@@ -1019,14 +1181,24 @@ module decoder (
   // executor the same instruction twice.
   decoder_output past_out;
   logic prev_hold_and_steal, prev_steal_only, prev_atomic_stall;
+  logic prev_hold_and_wait, prev_wait_only;
   always_ff @(posedge clk) begin
     past_out            <= out;
     prev_hold_and_steal <= fetch_stall && divider_stall;
     prev_steal_only     <= fetch_stall && !divider_stall;
     prev_atomic_stall   <= atomic_stall;
+    prev_hold_and_wait  <= bus_wait && divider_stall;
+    prev_wait_only      <= bus_wait && !divider_stall;
   end
   always_comb if (clocked && !prev_reset && prev_hold_and_steal) assert(out == past_out);
   always_comb if (clocked && !prev_reset && prev_steal_only)     assert(out == '0);
+
+  // The bus wait's half of the same ruling, and it lands in the same two arms
+  // for its own reasons: an ungranted cycle publishes nothing, and a wait
+  // arriving during a divide must not throw away the instruction the executor
+  // has not taken yet. Nothing else in the tree says which arm it belongs in.
+  always_comb if (clocked && !prev_reset && prev_hold_and_wait) assert(out == past_out);
+  always_comb if (clocked && !prev_reset && prev_wait_only)     assert(out == '0);
 
   // The atomic wait's half of that ruling, and it goes the other way. The
   // executor has already taken the AMO on the cycle this is raised, so holding
@@ -1120,6 +1292,22 @@ module decoder (
   // mux would leave the fault talking about one address and the transaction
   // about another, with the fault's own tests still green.
   always_comb if (instr_atomic) assert(mem_addr_calc == atomic_addr);
+
+  // The split region test names the same address the transaction will use. The
+  // first line is the fact the whole split stands on -- every encoding that can
+  // raise these two causes sign-extends its immediate above bit 11, so no other
+  // adjustment of the top half is reachable -- and the third states the answer
+  // against the sum it replaces, page-rounded the way the windows above are.
+  always_comb if (instr_ls_load || instr_ls_store) begin
+    assert(immediate[31:12] == {20{immediate[31]}});
+    assert(mem_addr_calc[31:12] ==
+      (reg_rs1[31:12] + {20{ls_neg}} + {19'b0, ls_carry}));
+    assert(ls_supported == (
+      (((mem_addr_calc[31:12] ^ LS_TEXT_PAGE) & ~LS_TEXT_MASK) == 20'd0) ||
+      (((mem_addr_calc[31:12] ^ LS_RAM_PAGE) & ~LS_RAM_MASK) == 20'd0) ||
+      (mem_addr_calc[31:5] == {LS_TIMER_PAGE, LS_TIMER_OFF}) ||
+      (mem_addr_calc[31:3] == {LS_UART_PAGE, LS_UART_OFF})));
+  end
 
   // One line per cause, not a copy of the case statement, so reordering its arms
   // trips these instead of changing them to match. The eight synchronous causes

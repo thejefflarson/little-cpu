@@ -163,7 +163,7 @@ trap_handler:                                                                \
 // There is no queue behind the data register, so a byte written while `busy` is
 // set is dropped. Every write is therefore preceded by a poll, which is what
 // UART_WAIT_IDLE does; it clobbers t1.
-#define UART_BASE          0x00020010
+#define UART_BASE          0x00020020
 #define UART_STATUS_OFFSET 4
 
 #define UART_WAIT_IDLE(base)                                                 \

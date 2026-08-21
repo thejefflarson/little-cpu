@@ -1,32 +1,36 @@
 #!/usr/bin/env python3
-"""Forces formal/traps.sv's load/store region cause arm to fail, and requires it
-to fail as that arm rather than as anything else.
+"""Forces formal/traps.sv's load/store region arms to fail, and requires each to
+fail as its own arm rather than as anything else.
 
 Usage: traps-region-probe.py [--repo DIR] [--workdir DIR] [--sby SBY]
 
-WHY THIS EXISTS. formal/traps.sv models a load or store access fault the way it
-models a refused atomic: it does not require the trap -- an address no memory
-answers is read as zero here, and the privileged spec only recommends faulting
--- but it does require the CAUSE, 5 for a load and 7 for a store, and it excuses
-only an access the map does not answer from `must_not_trap`. Today's core raises
-neither cause for a plain access, so that arm is satisfied by a core that never
-reaches it. An arm in that position is worth nothing until it has been shown to
-fail, which is what `make probe-gates` demands of every other graded comparison
-in this tree and what this file does for one that needs a solver.
+WHY THIS EXISTS. formal/traps.sv states two things about a plain load or store
+at an address its map does not answer: that the core must trap, and that the
+cause must be 5 for a load and 7 for a store. Both are arms of proofs that pass,
+and an arm in that position is worth nothing until it has been shown to fail --
+which is what `make probe-gates` demands of every other graded comparison in this
+tree and what this file does for the two that need a solver.
 
 Two cores are built, each one line of rtl/decoder.v away from the shipping one,
 and each faults an aligned `lw` whose address has bit 31 set -- an address
-outside all four windows of any map this platform can be given:
+outside all four windows of any map this platform can be given -- and each must
+turn `make -C formal components_traps` red at a named assertion:
 
-  right-cause  raises cause 5, and the proof must still PASS. This is the half
-               that says the model does not simply forbid the mechanism: every
-               prototype of precise load/store faults so far turned this proof
-               red for the missing model rather than for a defect.
-  wrong-cause  raises cause 7 for that same load, and the proof must go FAIL at
-               the mcause comparison. A core that faults the right access with
-               the wrong cause is the defect this arm exists to catch.
+  no-trap      computes the region fault and never commits it, so the trap the
+               model requires does not happen. The proof must go FAIL at the
+               `assert(trap_entry)` under `expected_trap`. This is the arm that
+               moved from may-trap to must-trap when the core started raising
+               these two causes, and it is the one a model that only required the
+               cause would have been satisfied by.
+  wrong-cause  swaps the two causes -- cause 7 for a load and 5 for a store --
+               and the proof must go FAIL at the mcause comparison. A core that
+               faults the right access with the wrong cause is what that arm
+               exists to catch.
 
-The failing assertion is pinned by line, read out of traps.sv here rather than
+The unmutated core is not built here: it is what `components_traps` proves, and
+this file is a prerequisite of that target.
+
+Each failing assertion is pinned by line, read out of traps.sv here rather than
 written down: a probe that only checked the status would be satisfied by a proof
 that went red for an unrelated reason, which is the failure mode this whole
 mechanism is about.
@@ -71,29 +75,35 @@ src/traps.sv
 
 SOURCES = ("structs.v", "fetcher.v", "decoder.v", "regsel.v", "csrs.v")
 
-# The comparison being probed, found in traps.sv by its text. It is the only
-# statement in that file comparing a CSR read-back against the modelled cause.
-MCAUSE_ASSERT = "assert(csr_rdata == prev_cause);"
+# The two comparisons being probed, found in traps.sv by their text. Each is the
+# only statement in that file that says what it says.
+ASSERTS = {
+    "no-trap": "assert(trap_entry);",
+    "wrong-cause": "assert(csr_rdata == prev_cause);",
+}
 
-# The two lines of rtl/decoder.v the mutation replaces, matched in full so a
-# respelling stops this file rather than silently probing nothing.
-FAULT_SITE = """  assign load_access_fault  = atomic_fault && instr_lr;
-  assign store_access_fault = atomic_fault && instr_atomic_write;
-"""
-
-TRAP_SITE = "                        load_misaligned || store_misaligned || atomic_fault;"
-
-# An aligned `lw` at an address with bit 31 set. No window of this machine's map
-# reaches there, whatever the four parameters are set to, so the model's region
-# terms hold for it and its misalignment terms do not.
-FAULT_TERM = "instr_lw && !word_misaligned && mem_addr_calc[31]"
-
-# Which of the two assignments above the term is added to, and so which cause
-# the mutated core reports for one and the same access. Each is a line of
-# FAULT_SITE, so the two cases differ by exactly that and nothing else.
-CASES = {
-    "right-cause": "assign load_access_fault  = atomic_fault && instr_lr",
-    "wrong-cause": "assign store_access_fault = atomic_fault && instr_atomic_write",
+# The lines of rtl/decoder.v each mutation replaces, matched in full so a
+# respelling stops this file rather than silently probing nothing. The value is
+# what the key is replaced by; an empty replacement is not allowed, because a
+# mutation that deletes nothing builds the shipping core twice.
+MUTATIONS = {
+    "no-trap": (
+        """                        load_misaligned || store_misaligned || atomic_fault ||
+                        ls_fault;
+""",
+        """                        load_misaligned || store_misaligned || atomic_fault;
+""",
+    ),
+    "wrong-cause": (
+        """  assign load_access_fault  = (atomic_fault && instr_lr) || (ls_fault && instr_ls_load);
+  assign store_access_fault = (atomic_fault && instr_atomic_write) ||
+                              (ls_fault && instr_ls_store);
+""",
+        """  assign load_access_fault  = (atomic_fault && instr_lr) || (ls_fault && instr_ls_store);
+  assign store_access_fault = (atomic_fault && instr_atomic_write) ||
+                              (ls_fault && instr_ls_load);
+""",
+    ),
 }
 
 
@@ -107,50 +117,35 @@ def stop(message):
     sys.exit(2)
 
 
-def mcause_assert_line(traps_sv):
-    """The line traps.sv states the cause comparison on, 1-based."""
-    hits = [n for n, line in enumerate(traps_sv.splitlines(), 1) if MCAUSE_ASSERT in line]
+def assert_line(traps_sv, case):
+    """The line traps.sv states this case's assertion on, 1-based."""
+    needle = ASSERTS[case]
+    hits = [n for n, line in enumerate(traps_sv.splitlines(), 1) if needle in line]
     if len(hits) != 1:
         stop(
-            f"formal/traps.sv states `{MCAUSE_ASSERT}` {len(hits)} times, and this\n"
-            "probe pins the failing assertion by its line. Teach it the new spelling\n"
-            "rather than dropping the comparison: a probe that only reads the status\n"
-            "passes for a proof that went red somewhere else entirely."
+            f"formal/traps.sv states `{needle}` {len(hits)} times, and this probe\n"
+            "pins the failing assertion by its line. Teach it the new spelling rather\n"
+            "than dropping the assertion: a probe that only reads the status passes\n"
+            "for a proof that went red somewhere else entirely."
         )
     return hits[0]
 
 
 def mutate(decoder_v, case):
-    """rtl/decoder.v with one region fault added, at the case's cause."""
-    if FAULT_SITE not in decoder_v:
+    """rtl/decoder.v with this case's one line replaced."""
+    old, new = MUTATIONS[case]
+    if old not in decoder_v:
         stop(
-            "rtl/decoder.v no longer spells its two access-fault assignments the way\n"
-            "this probe patches them. Re-anchor the mutation on the new spelling --\n"
-            "left alone it would build the shipping core twice and report that an\n"
-            "arm which was never exercised is fine."
+            f"rtl/decoder.v no longer spells what the {case} mutation replaces.\n"
+            "Re-anchor it on the new spelling -- left alone it would build the\n"
+            "shipping core and report that an arm which was never exercised is fine."
         )
-    if TRAP_SITE not in decoder_v:
+    if old == new:
         stop(
-            "rtl/decoder.v no longer spells the last line of `trap_pending` the way\n"
-            "this probe patches it. Without that line the mutated core computes a\n"
-            "fault it never commits, so the proof stays green having asked nothing."
+            f"the {case} mutation replaces its text with itself, so the core below\n"
+            "would be the shipping one and the proof would say nothing."
         )
-    site = FAULT_SITE.replace(CASES[case] + ";", CASES[case] + " || probe_region_fault;")
-    if site == FAULT_SITE:
-        stop(
-            f"this probe's own {case} line is not one of the two it patches, so the\n"
-            "mutation is a no-op and both cores below would be the shipping one."
-        )
-    body = (
-        "  logic probe_region_fault;\n"
-        f"  assign probe_region_fault = {FAULT_TERM};\n" + site
-    )
-    out = decoder_v.replace(FAULT_SITE, body)
-    return out.replace(
-        TRAP_SITE,
-        "                        load_misaligned || store_misaligned || atomic_fault ||\n"
-        "                        probe_region_fault;",
-    )
+    return decoder_v.replace(old, new, 1)
 
 
 def run_case(repo, workdir, sby, case):
@@ -200,34 +195,25 @@ def main():
     workdir = pathlib.Path(args.workdir).resolve()
     workdir.mkdir(parents=True, exist_ok=True)
 
-    line = mcause_assert_line((repo / "formal" / "traps.sv").read_text())
-    print(f"formal/traps.sv states the cause comparison on line {line}.")
-
+    traps_sv = (repo / "formal" / "traps.sv").read_text()
     red = []
 
-    status, failed = run_case(repo, workdir, args.sby, "right-cause")
-    print(f"  right-cause: {status}, assertions failed at {failed or 'none'}")
-    if status != "PASS":
-        red.append(
-            "the right-cause core does not prove. The model must ADMIT a core that\n"
-            "faults an access no memory answers, or it is the reason a prototype of\n"
-            "one goes red rather than a check on it."
-        )
-
-    status, failed = run_case(repo, workdir, args.sby, "wrong-cause")
-    print(f"  wrong-cause: {status}, assertions failed at {failed or 'none'}")
-    if status != "FAIL":
-        red.append(
-            "the wrong-cause core proves. A load faulting with cause 7 is what the\n"
-            "region arm was written to catch, so an arm that admits it is asking\n"
-            "nothing at all."
-        )
-    elif failed != [line]:
-        red.append(
-            f"the wrong-cause core went red at {failed}, not at line {line} alone.\n"
-            "That is the mcause comparison's line; a proof failing anywhere else is\n"
-            "one this probe cannot read as evidence about the region arm."
-        )
+    for case in ("no-trap", "wrong-cause"):
+        line = assert_line(traps_sv, case)
+        print(f"formal/traps.sv states {case}'s assertion on line {line}.")
+        status, failed = run_case(repo, workdir, args.sby, case)
+        print(f"  {case}: {status}, assertions failed at {failed or 'none'}")
+        if status != "FAIL":
+            red.append(
+                f"the {case} core proves. That mutation is exactly what the arm was\n"
+                "written to catch, so an arm that admits it is asking nothing at all."
+            )
+        elif line not in failed:
+            red.append(
+                f"the {case} core went red at {failed}, which does not include line\n"
+                f"{line} -- the assertion this case is about. A proof failing somewhere\n"
+                "else is not evidence about this arm."
+            )
 
     if red:
         print()
@@ -235,7 +221,7 @@ def main():
             print("*** " + why.replace("\n", "\n*** "), file=sys.stderr)
         sys.exit(1)
 
-    print("The load/store region cause arm admits the mechanism and fails on the cause.")
+    print("Both load/store region arms fail for their own reason.")
 
 
 if __name__ == "__main__":

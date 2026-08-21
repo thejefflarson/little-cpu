@@ -10,10 +10,11 @@ ifeq ($(shell printf '%s' '$(JOBS)' | grep -cE '^[1-9][0-9]{0,3}$$'),0)
 override JOBS := 4
 endif
 
-all: complete complete_cover complete-exclusions interrupt-tie-off check \
+all: complete complete_cover complete-exclusions interrupt-tie-off \
+     multihart-tie-off check \
      dmemcheck imemcheck \
      components_decoder components_executor components_accessor \
-     components_pcloop components_traps
+     components_pcloop components_traps components_busarbiter
 
 # Every sby target here names a directory sby creates, and a directory's mtime
 # bumps whenever an entry is written inside it -- so after one run the workdir
@@ -37,7 +38,7 @@ FORCE:
 # carries `expect pass,fail`, so sby exits 0 whether a check passed or failed,
 # and anything that really failed to run reaches check-baseline as a missing
 # status file.
-check: checks interrupt-tie-off $(RISCV_FORMAL_DIR)
+check: checks interrupt-tie-off multihart-tie-off $(RISCV_FORMAL_DIR)
 	-$(MAKE) -C $< -j$(JOBS) -k
 	$(MAKE) check-baseline
 
@@ -97,6 +98,11 @@ cover:     cover.sby     cover.sv     arbiter.v $(RTL_SOURCES) | $(RISCV_FORMAL_
 pcloop_cover: pcloop_cover.sby pcloop.sv ../rtl/fetcher.v ../rtl/decoder.v ../rtl/regsel.v \
               ../rtl/structs.v
 
+# The anti-vacuity control for components_busarbiter, over the same
+# busarbiter.sv. Every assertion in that harness is guarded, and an arbiter that
+# grants nobody satisfies the lot; these six goals are what say otherwise.
+busarbiter_cover: busarbiter_cover.sby busarbiter.sv ../rtl/busarbiter.v
+
 # complete-exclusions is a prerequisite rather than a companion target: the
 # exclusion set is what makes this check passable at all, and checking it costs
 # milliseconds and fails before sby starts.
@@ -135,6 +141,16 @@ complete-exclusions: check-complete-exclusions.py complete.sv COMPLETE_EXCLUSION
 interrupt-tie-off: check-interrupt-tie-off.py INTERRUPT_TIE_OFF | $(RISCV_FORMAL_DIR)
 	python3 $< . INTERRUPT_TIE_OFF $(RISCV_FORMAL_DIR)
 
+# The other half of the same boundary, and a prerequisite of `check` for the
+# same reason: the shared-bus inputs are constants in every harness, so the
+# generated checks describe one hart and the depths are derived on that machine.
+# It needs no riscv-formal clone -- what it re-derives is littlecpu's own port
+# list, through test/port_connect_test.py's parser rather than a second one.
+.PHONY: multihart-tie-off
+multihart-tie-off: check-multihart-tie-off.py MULTIHART_TIE_OFF ../rtl/littlecpu.v \
+                   ../test/port_connect_test.py
+	python3 $< . MULTIHART_TIE_OFF ..
+
 # A structural comparison of two yosys builds rather than a solver query, so it
 # is not covered by the `%: %.sby` rule above. It shows the RVFI instrumentation
 # is unread by the core, which is strictly weaker than sequential equivalence
@@ -151,7 +167,8 @@ nonperturbation: check-nonperturbation.py
 # These five pass a task name, so they need their own recipes and cannot reach
 # the `%: %.sby` rule -- which is why they can say .PHONY where that rule
 # cannot. Same two properties as it: always run, delete the workdir first.
-.PHONY: components_decoder components_executor components_accessor components_pcloop components_traps
+.PHONY: components_decoder components_executor components_accessor components_pcloop components_traps \
+        components_busarbiter
 components_decoder: components.sby ../rtl/decoder.v ../rtl/regsel.v ../rtl/structs.v
 	rm -rf $@
 	sby -f $< decoder
@@ -194,11 +211,30 @@ components_traps: components.sby traps-region-probe ../rtl/fetcher.v ../rtl/deco
 traps-region-probe: traps-region-probe.py traps.sv ../rtl/decoder.v
 	python3 $<
 
+# The bus arbiter, which no core is wired to yet: two harts, free requests, free
+# locks and two bits of state, so this proves the whole reachable state of it
+# rather than a bounded walk through part. Starvation is why it exists, and it
+# is the one property no program can be written to catch.
+#
+# Both prerequisites are prerequisites rather than companion targets, for the
+# reason pcloop_cover is one: busarbiter_cover says the guarded assertions are
+# still reached at all, busarbiter-probe says two of them still fail for their
+# own reason, and a control that can be run apart from the thing it controls
+# eventually is not run at all.
+components_busarbiter: components.sby busarbiter_cover busarbiter-probe \
+                       ../rtl/busarbiter.v busarbiter.sv
+	rm -rf $@
+	sby -f $< busarbiter
+
+.PHONY: busarbiter-probe
+busarbiter-probe: busarbiter-probe.py busarbiter.sv ../rtl/busarbiter.v
+	python3 $<
+
 # Written out rather than brace-expanded: `rm -rf {a,b,c}` is a bashism that
 # /bin/sh, make's default shell, passes through literally and deletes nothing.
 clean:
 	rm -rf checks complete complete_cover cover dmemcheck imemcheck components components_*
-	rm -rf pcloop_cover fg-probe fg-probe.cfg region-probe
+	rm -rf pcloop_cover busarbiter_cover fg-probe fg-probe.cfg region-probe busarbiter-probe
 	rm -rf $(RISCV_FORMAL_DIR) $(RISCV_FORMAL_DIR).tmp
 
 .PHONY: all clean

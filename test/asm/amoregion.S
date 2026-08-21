@@ -147,18 +147,13 @@ refused_amo:
   bne   x13, x29, fail
 
   #-------------------------------------------------------------
-  # A plain load there is STILL answered, silently, with zero -- the deviation
-  # this change did not close, since only the eleven get a region test. The
-  # trap count either side of it is what says so: the load faults nowhere.
-  #
-  # The STORE half of that deviation is deliberately not asserted here, and it
-  # cannot be: a store to this address lands nowhere on the core and in the
-  # reference model's memory, so a program that wrote here and read it back
-  # would be a co-simulation divergence again -- which is the entry this file
-  # exists to have retired.
+  # A plain load there faults now too, so the deviation this file used to record
+  # is closed and test/asm/loadfault.S and test/asm/storefault.S are where it is
+  # covered. These two cases keep the trap count pinned where the deviation's
+  # cases sat, so the arithmetic below them is unchanged.
   #-------------------------------------------------------------
 
-  TEST_CASE( 17, a4, 0, li a0, UNMAPPED; lw a4, 0(a0); )
+  TEST_CASE( 17, a4, 12, la a0, trap_count; lw a4, 0(a0); )
   TEST_CASE( 18, a4, 12, la a0, trap_count; lw a4, 0(a0); )
 
   #-------------------------------------------------------------

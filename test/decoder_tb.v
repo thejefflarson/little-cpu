@@ -26,6 +26,11 @@ module decoder_tb;
   executor_output executor_out = '0;
   logic divider_stall = 1'b0;
   logic fetch_stall = 1'b0;
+  // The platform has not granted this core the shared bus. Low for every vector
+  // but the ones that drive it below: with one bus master it never rises, and
+  // nothing single-hart can otherwise say which arm of the publish block it
+  // takes.
+  logic bus_wait = 1'b0;
   // The instruction memory had nothing at `pc`. Driven high only by the
   // instruction-access-fault vectors below; every other vector presents a word
   // some memory really answered.
@@ -59,6 +64,7 @@ module decoder_tb;
     .executor_out(executor_out),
     .divider_stall(divider_stall),
     .fetch_stall(fetch_stall),
+    .bus_wait(bus_wait),
     .imem_fault(imem_fault),
     .atomic_addr(atomic_addr),
     .atomic_supported(atomic_supported),
@@ -125,7 +131,7 @@ module decoder_tb;
     prev_next_pc_valid <= 1'b1;
   end
 
-  // `stall` is exactly these seven terms ORed together. `make cycles` charges
+  // `stall` is exactly these eight terms ORed together. `make cycles` charges
   // every stalled cycle to the first of them that is true, so a term added to
   // `stall` and not there would leave the cycles it costs unexplained. This says
   // so in a gate that runs on every change, rather than the next time somebody
@@ -139,14 +145,15 @@ module decoder_tb;
   // On both clock edges, not just the rising one. Every vector here presents its
   // instruction just after a rising edge, so the falling edge is where it is
   // settled and being decoded. Sampling only the rising edge misses that, and
-  // the probe for this check -- a seventh term ORed into `stall` -- goes green.
+  // the probe for this check -- an eighth term ORed into `stall` -- goes green.
   always @(clk) begin
     if (dut.stall !== (dut.divider_stall || dut.atomic_stall || dut.hazard_rs1 ||
                        dut.hazard_rs2 || dut.serialize || dut.operand_stall ||
-                       dut.fetch_stall)) begin
-      $display("MISMATCH stall is not the OR of the six named reasons: stall=%b divider=%b atomic=%b rs1=%b rs2=%b serialize=%b operand=%b fetch=%b",
+                       dut.fetch_stall || dut.bus_wait)) begin
+      $display("MISMATCH stall is not the OR of the seven named reasons: stall=%b divider=%b atomic=%b rs1=%b rs2=%b serialize=%b operand=%b fetch=%b bus=%b",
                dut.stall, dut.divider_stall, dut.atomic_stall, dut.hazard_rs1,
-               dut.hazard_rs2, dut.serialize, dut.operand_stall, dut.fetch_stall);
+               dut.hazard_rs2, dut.serialize, dut.operand_stall, dut.fetch_stall,
+               dut.bus_wait);
       errors++;
     end
   end
@@ -1004,16 +1011,106 @@ module decoder_tb;
     #1;
     check_hex("...and so is an sc.w", trap_cause, 32'd7);
 
-    // A plain load and a plain store at the same address are unaffected. Their
-    // region test is the one that has to wait on a 32-bit sum, and it is not
-    // built -- so this is the boundary of what the bit is allowed to decide,
-    // and widening the fault to every access would show up here first.
+    // A plain load and a plain store at the same address raise the same two
+    // causes, off the map the decoder is elaborated with rather than off the
+    // bit. This instance takes the parameter defaults: 8 KB of text at 0, 64 KB
+    // of RAM at 0x0001_0000 and the timer's four words at 0x0002_0000, so
+    // 0x0004_0000 is outside all three.
     in.instr = 32'h00062583;   // lw a1, 0(a2)
     #1;
-    check_bit("a plain lw at the same address does not fault", dut.trap_pending, 1'b0);
+    check_bit("a plain lw at the same address faults too", dut.trap_pending, 1'b1);
+    check_hex("...as a LOAD access fault", trap_cause, 32'd5);
     in.instr = 32'h00b62023;   // sw a1, 0(a2)
     #1;
-    check_bit("...nor does a plain sw", dut.trap_pending, 1'b0);
+    check_hex("...and a plain sw as a STORE access fault", trap_cause, 32'd7);
+    in.instr = 32'h00060583;   // lb a1, 0(a2)
+    #1;
+    check_hex("a byte load faults there as well", trap_cause, 32'd5);
+    in.instr = 32'h00b60023;   // sb a1, 0(a2)
+    #1;
+    check_hex("...and a byte store", trap_cause, 32'd7);
+
+    // The carry into bit 12 is the whole mechanism: the region is tested on
+    // rs1[31:12], so an access that leaves its page has to be decided by the one
+    // late bit rather than by the register. Ignore it and the four vectors below
+    // are the ones that go the wrong way -- each sits in a page the other side of
+    // the window's edge from its own effective address.
+    reg_rs1 = 32'h0000_1FFC;   // the last word of the 8 KB text window
+    in.instr = 32'h00462583;   // lw a1, 4(a2)
+    #1;
+    check_bit("a load off the top of text carries out of its page",
+              dut.trap_pending, 1'b1);
+    check_hex("...and faults as a load", trap_cause, 32'd5);
+    reg_rs1 = 32'h0000_2000;   // the first word past it
+    in.instr = 32'hFFC62583;   // lw a1, -4(a2)
+    #1;
+    check_bit("...and a load back into text from just past it does not fault",
+              dut.trap_pending, 1'b0);
+    reg_rs1 = 32'h0001_0000;   // the base of the RAM
+    #1;
+    check_bit("a negative offset off the bottom of RAM faults",
+              dut.trap_pending, 1'b1);
+    check_hex("...as a load", trap_cause, 32'd5);
+    reg_rs1 = 32'h0001_0008;
+    #1;
+    check_bit("...and one that stays inside RAM does not", dut.trap_pending, 1'b0);
+
+    // The timer and the UART are words, not pages. Their windows are the only
+    // ones tested on bits below 12, and those bits come off the sum rather than
+    // off rs1.
+    reg_rs1 = 32'h0001_FFFC;
+    in.instr = 32'h00462583;   // lw a1, 4(a2)
+    #1;
+    check_bit("a load of mtime from the top of RAM is answered",
+              dut.trap_pending, 1'b0);
+    // The timer's window is the eight words the map reserves for one mtimecmp
+    // per hart, so 16 bytes up is inside it even where only four are decoded.
+    reg_rs1 = 32'h0002_0000;
+    in.instr = 32'h01062583;   // lw a1, 16(a2)
+    #1;
+    check_bit("...and one 16 bytes up is inside the timer's reserved window",
+              dut.trap_pending, 1'b0);
+
+    // 32 past the base is the UART, which the map answers.
+    reg_rs1 = 32'h0002_0000;
+    in.instr = 32'h02062583;   // lw a1, 32(a2)
+    #1;
+    check_bit("...and one 32 bytes past the base is the UART",
+              dut.trap_pending, 1'b0);
+
+    // 40 past it is the first address in that page no device claims.
+    reg_rs1 = 32'h0002_0000;
+    in.instr = 32'h02862583;   // lw a1, 40(a2)
+    #1;
+    check_bit("...and one 40 bytes past it is claimed by nothing",
+              dut.trap_pending, 1'b1);
+    check_hex("...faulting as a load", trap_cause, 32'd5);
+
+    // The other direction, without which this file would pass on a core that
+    // faulted every load and every store.
+    reg_rs1 = 32'h0001_0000;
+    in.instr = 32'h00062583;   // lw a1, 0(a2)
+    #1;
+    check_bit("a load the map answers does not fault", dut.trap_pending, 1'b0);
+    in.instr = 32'h00b62023;   // sw a1, 0(a2)
+    #1;
+    check_bit("...nor does a store there", dut.trap_pending, 1'b0);
+    reg_rs1 = 32'h0000_0000;
+    #1;
+    check_bit("...nor a store into text", dut.trap_pending, 1'b0);
+
+    // Misalignment outranks the region for a plain access too, the order the
+    // atomic term states. Drop either alignment term from `ls_fault` and two
+    // arms of the cause chain match at once.
+    reg_rs1 = 32'h0004_0002;
+    in.instr = 32'h00062583;   // lw a1, 0(a2)
+    #1;
+    check_hex("a misaligned lw out of region reports the misalignment",
+              trap_cause, 32'd4);
+    in.instr = 32'h00b62023;   // sw a1, 0(a2)
+    #1;
+    check_hex("...and a misaligned sw reports cause 6", trap_cause, 32'd6);
+    reg_rs1 = 32'h0004_0000;
 
     // Misalignment outranks the region, which keeps the four data causes
     // disjoint and matches what the reference model reports. Drop the alignment
@@ -1146,6 +1243,67 @@ module decoder_tb;
     check_hex("lr.w carries its rd too", {27'b0, out.rd}, 32'd1);
     check_bit("...and no AMO bit", out.is_amo, 1'b0);
     check_bit("...and raises no atomic wait either", dut.atomic_stall, 1'b0);
+
+    // The seventh stall reason: the platform has given the shared bus to
+    // somebody else. Nothing single-hart raises it, so this is the only place
+    // in the tree that says which arm of the publish block it takes, and both
+    // ways of getting that wrong are silent -- a hold hands the executor an
+    // instruction it has already run, and a bubble on the divide's cycle throws
+    // away one it has not.
+    in.pc = 32'h0000_0840;
+    present_and_fetch(32'h00100093);   // addi x1, x0, 1
+    @(posedge clk);
+    #1;
+    check_bit("the instruction issued", out.valid, 1'b1);
+    check_hex("...into decoder_out", {27'b0, out.rd}, 32'd1);
+
+    bus_wait = 1'b1;
+    #1;
+    check_bit("an ungranted bus is a stall", dut.stall, 1'b1);
+    check_bit("...so nothing issues", dut.issuing, 1'b0);
+    check_hex("...and the pc holds, so the instruction asks again next cycle",
+              next_pc, pc);
+    check_bit("...and no trap is committed on a cycle that issued nothing",
+              trap_entry, 1'b0);
+
+    // The divider holds; every other reason bubbles. On a cycle with both, the
+    // hold has to win or the instruction the executor has not taken is lost.
+    divider_stall = 1'b1;
+    #1;
+    @(posedge clk);
+    #1;
+    check_bit("a bus wait coinciding with a divide holds decoder_out",
+              out.valid, 1'b1);
+    check_hex("...unchanged", {27'b0, out.rd}, 32'd1);
+    divider_stall = 1'b0;
+    #1;
+    @(posedge clk);
+    #1;
+    check_bit("a bus wait on its own bubbles decoder_out instead", out.valid, 1'b0);
+    bus_wait = 1'b0;
+    #1;
+    @(posedge clk);
+    #1;
+    check_bit("...and the same instruction issues once the bus is granted",
+              out.valid, 1'b1);
+    check_hex("...as itself", {27'b0, out.rd}, 32'd1);
+
+    // An interrupt is taken on a cycle that would otherwise have issued, so it
+    // waits out an ungranted bus the way it waits out everything else. Without
+    // this the trap would be committed for an instruction that never issued and
+    // then issued again.
+    interrupt_pending = 1'b1;
+    bus_wait = 1'b1;
+    #1;
+    check_bit("an interrupt waits for the grant", trap_entry, 1'b0);
+    bus_wait = 1'b0;
+    #1;
+    check_bit("...and is taken on the cycle the grant arrives", trap_entry, 1'b1);
+    interrupt_pending = 1'b0;
+    @(posedge clk);
+    #1;
+    @(posedge clk);
+    #1;
 
     // A trapping atomic publishes none of its flags, so nothing downstream
     // starts a transaction for an instruction that faulted in decode.

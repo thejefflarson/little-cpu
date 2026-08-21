@@ -9,7 +9,7 @@ attached. This is the invoice. It is the same move `make fit` made for area:
 one aggregate figure, argued about from structure, replaced by a measurement.
 
 EVERY CYCLE IS CHARGED EXACTLY ONCE. test/cxxrtl.cc reads the decoder's own
-`stall` signal and its seven named signals every cycle. A cycle where `stall` is
+`stall` signal and its eight named signals every cycle. A cycle where `stall` is
 low is an issue cycle; a cycle where it is high goes to the first reason that is
 true, in the order rtl/decoder.v tries them. So the columns add up to the cycle
 count by construction, and this script checks that they do -- a mismatch means
@@ -17,7 +17,7 @@ the runner and the report disagree about the field names, not that the core got
 slower.
 
 `unattributed` IS THE ONE THAT MATTERS. It counts cycles the decoder called a
-stall that none of the six named reasons explains. It is zero, and if it ever is
+stall that none of the seven named reasons explains. It is zero, and if it ever is
 not, the taxonomy has fallen behind rtl/decoder.v -- a stall reason nobody has
 written down. That is a finding, so this script exits nonzero on it rather than
 printing it as a curiosity.
@@ -39,11 +39,15 @@ which cycles were counted and still print a plausible rate.
 import argparse
 import sys
 
-# The six the decoder has, in the order it tries them: it holds `decoder_out`
-# for the divider and bubbles for the other five. The runner writes these names,
+# The seven the decoder has, in the order it tries them: it holds `decoder_out`
+# for the divider and bubbles for the other six. The runner writes these names,
 # so a rename has to happen in both places at once -- which the field check
 # below turns into an error rather than a silent zero.
-REASONS = ["divider", "atomic", "hazard", "serialize", "operand", "fetch"]
+#
+# `bus` is zero on every machine in this repo and is counted all the same: with
+# one bus master nothing ever takes the bus away, and a reason left out of this
+# list is charged to `unattributed`, which exits nonzero.
+REASONS = ["divider", "atomic", "hazard", "serialize", "operand", "fetch", "bus"]
 
 # What the CPI above it describes. It is an argument the caller has to supply,
 # because the honest one differs: `make cycles` runs the hand-written assembly
@@ -66,6 +70,7 @@ HEADINGS = {
     "serialize": "SERIAL",
     "operand": "OPERAND",
     "fetch": "FETCH",
+    "bus": "BUS",
 }
 # The load/store locality counters, in the order the line below prints them:
 # every issuing load and store, then the two subsets. Required like every other
@@ -254,7 +259,7 @@ def main():
         sys.exit(
             f"\n*** {total['unattributed']} cycles stalled for a reason this "
             f"report does not name.\n"
-            "*** rtl/decoder.v raised `stall` and none of the seven signals this\n"
+            "*** rtl/decoder.v raised `stall` and none of the eight signals this\n"
             "*** counts was high, so there is a stall reason nobody has written\n"
             "*** down. Add it to kStallReasons in test/cxxrtl.cc and to REASONS\n"
             "*** here, and to the stall-reason list in CLAUDE.md."

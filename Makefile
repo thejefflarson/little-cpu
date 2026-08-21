@@ -2,7 +2,11 @@ include formal/pin.mk
 
 .DELETE_ON_ERROR:
 
-RISCV_FORMAL_MACROS := RISCV_FORMAL RISCV_FORMAL_COMPRESSED RISCV_FORMAL_ALIGNED_MEM RISCV_FORMAL_NRET=1 RISCV_FORMAL_XLEN=32 RISCV_FORMAL_ILEN=32
+# RISCV_FORMAL_MEM_FAULT is what declares rvfi_mem_fault and its two masks.
+# Both sim legs ask for it because test/testbench.v reads that flag to tell
+# the monitor which retires it cannot grade: the spec model has no memory
+# map, so an access this platform refuses is one the model says executes.
+RISCV_FORMAL_MACROS := RISCV_FORMAL RISCV_FORMAL_COMPRESSED RISCV_FORMAL_ALIGNED_MEM RISCV_FORMAL_MEM_FAULT RISCV_FORMAL_NRET=1 RISCV_FORMAL_XLEN=32 RISCV_FORMAL_ILEN=32
 
 rvfi_macros.vh: $(RISCV_FORMAL_DIR)/checks/rvfi_macros.py
 	python3 $^ > $@
@@ -210,6 +214,38 @@ test/monitor.sim.v: test/monitor.v test/sanitize_monitor.py
 
 test/rtl.cc: $(SIM_RTL_SRCS) rvfi_macros.vh test/testbench.v test/monitor.sim.v
 	yosys -p 'read_verilog -sv $(addprefix -D ,$(RISCV_FORMAL_MACROS)) $^; hierarchy -top testbench; write_cxxrtl $@'
+
+# ---- the dual configuration ------------------------------------------------
+#
+# A SEPARATE runner and a SEPARATE harness, not a configuration axis on the
+# single-hart pair. Two monitor instances roughly double a 7000-line generated
+# module through cxxrtl, and `sim` is a merge gate that must not get slower or
+# grow a flag; the runner also looks its signals up by flat debug-item name, and
+# two of everything does not have one. So nothing below is on `make test`'s path
+# and `dual-smoke` is a job of its own.
+DUAL_RTL_SRCS := $(SIM_RTL_SRCS) rtl/busarbiter.v rtl/littledual.v
+
+test/dual_rtl.cc: $(DUAL_RTL_SRCS) rvfi_macros.vh test/dual_testbench.v test/monitor.sim.v
+	yosys -p 'read_verilog -sv $(addprefix -D ,$(RISCV_FORMAL_MACROS)) $^; hierarchy -top dual_testbench; write_cxxrtl $@'
+
+dual-sim: test/dual_cxxrtl.cc test/dual_rtl.cc
+	clang++ -O2 -DNDEBUG -std=c++17 -Wall -Wextra -Werror \
+	  -isystem $$(yosys-config --datdir)/include/backends/cxxrtl/runtime $< -o $@
+
+# The second frontend's look at the dual harness. Elaboration only: iverilog is
+# the microscope leg and there is no dual program worth a waveform yet, but a
+# harness that only one frontend has ever read is one whose second reader finds
+# something the day somebody needs it.
+.PHONY: dual-elaborate
+dual-elaborate: $(DUAL_RTL_SRCS) rvfi_macros.vh test/dual_testbench.v test/monitor.sim.v
+	iverilog -I./rtl/ $(addprefix -D,$(RISCV_FORMAL_MACROS)) -g2012 -o /dev/null $^
+	@echo 'dual-elaborate: iverilog read test/dual_testbench.v'
+
+# Both directions of the one program, graded. Not on CI's default path and not
+# on `make test`: see the note above the sources.
+.PHONY: dual-smoke
+dual-smoke: dual-sim
+	@./test/dual_smoke.sh ./dual-sim
 
 # `check` is what reports a wire nothing drives. The test/rtl.cc recipe above
 # builds one of those quietly and exits 0.
@@ -515,6 +551,17 @@ band-source-test:
 window-test:
 	@./test/window_test.sh
 
+# Maps rtl/imemory.v for both parts at one and at two fetch windows, and asserts
+# that two windows are two copies of ONE storage -- every copy on the same write
+# enable, address, data and edge. That claim is about the mapped netlist and
+# about nothing in the source: at RTL there is one array and every window reads
+# it by construction, so no simulation can confirm it or fail on its absence.
+# Hangs off `test` because it needs yosys, which `window-test` already requires,
+# and because the answer belongs to a toolchain nothing here pins.
+.PHONY: imem-share-test
+imem-share-test:
+	@./test/imem_share_test.sh
+
 # Drives formal/check-abc-engine.sh both ways against a stub yosys and a stub
 # sby. Hangs off `test` like the other bash checks -- it is bash and two stubs,
 # so it runs anywhere -- and it has to, because the diagnostic it covers only
@@ -545,7 +592,7 @@ mutation-probe:
 .PHONY: test
 test: sim test-units probe-gates pin-bump-test tool-cache-test memmap-test \
       compare-geometry-test retired-term-test port-connect-test march-test \
-      band-source-test window-test abc-engine-test mutation-probe
+      band-source-test window-test imem-share-test abc-engine-test mutation-probe
 	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 # The same suite `make test` runs, with the runner charging every cycle to the
@@ -983,6 +1030,71 @@ ecp5-timing: ecp5-timing-toolchain ecp5.config
 	@echo
 	@echo "Placement, routing and nextpnr's own timing analysis: ecp5.pnr.log"
 
+# ---- the dual configuration, placed ----------------------------------------
+#
+# ECP5 ONLY, and that is a measurement rather than a preference: two fetch
+# windows are two copies of the banked ROM -- 32 block RAMs against the up5k's
+# 30 -- so there is no `make soc-timing` for this and the single-hart SoC is
+# still the design that part's numbers describe. Never merge a number from here
+# with one from either up5k flow.
+#
+# Same corner, same constraint, same reader and same `.lpf` as `ecp5-timing`:
+# rtl/littledualsoc.v carries rtl/littlesoc.v's four pins so that one
+# constraints file describes both. What this publishes is a frequency with no
+# ratchet -- there is no `DUAL_MIN_MHZ` here on purpose, because one placement
+# is a sample and the ECP5 spread for THIS design has not been derived.
+# Derived, not a second list: `DUAL_RTL_SRCS` above is the complex and this is
+# that plus its pins. A copy would go stale the day either gains a file, which is
+# the rule SIM_RTL_SRCS already carries.
+DUAL_SRCS := $(DUAL_RTL_SRCS) rtl/littledualsoc.v
+
+# The censuses double where the design does and do not where it does not: two
+# register files of LUT RAM and two multipliers, and one data RAM -- 32 DP16KD
+# for it plus 4 for EACH of the two ROM copies.
+DUAL_EXPECT_DP16KD := 40
+DUAL_EXPECT_LUTRAM := 64
+DUAL_EXPECT_DSP    := 8
+
+dual_ecp5.json: $(DUAL_SRCS) soc-rom
+	@echo 'yosys: synthesising littledualsoc for ECP5 (log: dual_ecp5.synth.log)'
+	@yosys -p 'read_verilog -sv $(DUAL_SRCS); synth_ecp5 -top littledualsoc -json $@' \
+	  > dual_ecp5.synth.log 2>&1 || { tail -40 dual_ecp5.synth.log; exit 1; }
+	@python3 soc/cell_census.py dual_ecp5.synth.log DP16KD $(DUAL_EXPECT_DP16KD) \
+	  "two fetch windows are two copies of the banked ROM and one data RAM; a count that stopped doubling means the second window stopped being its own storage" \
+	  --gate 'make dual-ecp5-timing' --declared DUAL_EXPECT_DP16KD
+	@python3 soc/cell_census.py dual_ecp5.synth.log TRELLIS_DPR16X4 $(DUAL_EXPECT_LUTRAM) \
+	  "one register file per hart as distributed RAM; zero means it fell into flops and soft muxes, half means one core did" \
+	  --gate 'make dual-ecp5-timing' --declared DUAL_EXPECT_LUTRAM
+	@python3 soc/cell_census.py dual_ecp5.synth.log MULT18X18D $(DUAL_EXPECT_DSP) \
+	  "one multiplier per hart; in soft logic either would be invisible in a frequency number and enormous in area" \
+	  --gate 'make dual-ecp5-timing' --declared DUAL_EXPECT_DSP
+
+dual_ecp5.config: dual_ecp5.json soc/littlesoc.lpf
+	@rm -f $@ dual_ecp5.report.json
+	@echo 'nextpnr: placing and routing littledualsoc on $(ECP5_PART) (log: dual_ecp5.pnr.log)'
+	@nextpnr-ecp5 $(ECP5_DEVICE) --package $(ECP5_PACKAGE) --speed $(ECP5_SPEED) \
+	  --json $< --lpf soc/littlesoc.lpf --lpf-allow-unconstrained \
+	  --freq $(ECP5_TARGET_MHZ) $(if $(ECP5_SEED),--seed '$(ECP5_SEED)') \
+	  --textcfg $@ --report dual_ecp5.report.json > dual_ecp5.pnr.log 2>&1 || true
+	@{ test -s $@ && test -s dual_ecp5.report.json; } || { \
+	  echo '*** make dual-ecp5-timing: nextpnr wrote no configuration and report'; \
+	  echo '*** pair, so NOTHING was measured. That is a failed run, not a slow'; \
+	  echo '*** design, and it is deliberately NOT graded against whatever the'; \
+	  echo '*** last run left on disk.'; \
+	  tail -30 dual_ecp5.pnr.log; \
+	  rm -f $@ dual_ecp5.report.json; \
+	  exit 1; \
+	}
+
+.PHONY: dual-ecp5-timing
+dual-ecp5-timing: ecp5-timing-toolchain dual_ecp5.config
+	@echo
+	@echo '== nextpnr-ecp5: the DUAL frequency, its corner and its constraint =='
+	@python3 soc/ecp5_report.py dual_ecp5.report.json dual_ecp5.config \
+	  --clock $(ECP5_CLOCK) --part $(ECP5_PART) --constraint-mhz $(ECP5_TARGET_MHZ)
+	@echo
+	@echo "Placement, routing and nextpnr's own timing analysis: dual_ecp5.pnr.log"
+
 # soc/baseline_sweep.sh stamps a sweep with the variables the build it ran
 # really used, and asks for them here rather than repeating their defaults: a
 # second copy of `SOC_PROG` would stamp a sweep with a program the placements
@@ -1313,6 +1425,8 @@ clean:
 	rm -f fit.json fit.log fit.synth.log
 	rm -f soc.json soc.asc soc.synth.log soc.pnr.log soc.timing.rpt
 	rm -f ecp5.json ecp5.config ecp5.report.json ecp5.synth.log ecp5.pnr.log
+	rm -f dual_ecp5.json dual_ecp5.config dual_ecp5.report.json dual_ecp5.synth.log dual_ecp5.pnr.log
+	rm -f test/dual_rtl.cc dual-sim
 	rm -f soc/rom_even.hex soc/rom_odd.hex
 	rm -f compare.*.json compare.*.asc compare.*.log compare.*.rpt compare.vvp
 	rm -f compare.dhry.vvp

@@ -37,6 +37,13 @@ module accessor_tb;
   // The platform's answer to "may a reservation be held at this address". High
   // for every vector except the one that asks what happens when it is not.
   logic        mem_reservable = 1'b1;
+  // Another bus master's write. Low except in the vectors that drive it: this
+  // core has no second master, so nothing else in the tree can say whether a
+  // foreign write ends a reservation.
+  logic        snoop_write = 1'b0;
+  logic [31:0] snoop_addr = 32'b0;
+  // The cycle an arbiter has to keep the bus here. Watched rather than driven.
+  logic        mem_lock;
   accessor_output out;
 
   accessor dut (
@@ -51,6 +58,9 @@ module accessor_tb;
     .mem_ren(mem_ren),
     .mem_rdata(mem_rdata),
     .mem_reservable(mem_reservable),
+    .snoop_write(snoop_write),
+    .snoop_addr(snoop_addr),
+    .mem_lock(mem_lock),
     .out(out)
   );
 
@@ -182,6 +192,9 @@ module accessor_tb;
       check_bit({what, " reads first"}, mem_ren, 1'b1);
       check_hex({what, " reads the named word"}, mem_addr, addr);
       check_bit({what, " writes nothing on its read cycle"}, |mem_wstrb, 1'b0);
+      // The lock is raised with the READ, because an arbiter that registers its
+      // grant has to be told a cycle before the one it covers.
+      check_bit({what, " locks the bus on its read cycle"}, mem_lock, 1'b1);
       @(posedge clk);
       #1;
       // Decode spends this cycle, so nothing is launched into the accessor
@@ -193,6 +206,10 @@ module accessor_tb;
       check_hex({what, " writes at the same word"}, mem_addr, addr);
       check_hex(what, mem_wdata, expected);
       check_bit({what, " does not read twice"}, mem_ren, 1'b0);
+      // ...and dropped on the cycle it bought. A lock still up here would be a
+      // second cycle of the bus this instruction has no use for, and a hart
+      // able to hold a shared bus for as long as it liked.
+      check_bit({what, " holds the lock for that one cycle only"}, mem_lock, 1'b0);
       @(posedge clk);
       #1;
       check_bit({what, " retires"}, out.valid, 1'b1);
@@ -217,6 +234,8 @@ module accessor_tb;
       arrive(1'b0, 32'b0);
       #1;
       check_bit({what, " never reads"}, mem_ren, 1'b0);
+      // One transaction, so there is no second cycle to keep the bus for.
+      check_bit({what, " locks nothing"}, mem_lock, 1'b0);
       if (expected_fail) begin
         check_hex({what, " puts nothing on the bus"}, {28'b0, mem_wstrb}, 32'b0);
         check_hex({what, " drives no address either"}, mem_addr, 32'b0);
@@ -255,6 +274,26 @@ module accessor_tb;
       @(posedge clk);
       #1;
       arrive(1'b0, 32'b0);
+      @(posedge clk);
+      #1;
+    end
+  endtask
+
+  // Another bus master's write, for one cycle, with this core launching
+  // nothing. That is the shape a snoop really has: the other hart owns the bus
+  // on the cycle it writes, so this one is not requesting on it.
+  task automatic snoop_writes(input logic [31:0] addr);
+    begin
+      present(1'b0, 32'b0);
+      snoop_write = 1'b1;
+      snoop_addr = addr;
+      transactions = 0;
+      @(posedge clk);
+      #1;
+      check_int("a foreign write puts nothing of this core's on the bus",
+                transactions, 0);
+      snoop_write = 1'b0;
+      snoop_addr = 32'b0;
       @(posedge clk);
       #1;
     end
@@ -518,6 +557,23 @@ module accessor_tb;
     sc_does("...and the reservation does not survive it",
             32'h0001_0040, 32'h5555_6666, 1'b1);
 
+    // Another master's write to the reserved word ends the reservation, which
+    // is the whole of what a second hart needs from this module. The failing
+    // store-conditional puts nothing on the bus, and `sc_does` counts that: a
+    // reservation cleared is a transaction not made, not just a bit in rd.
+    lr_takes(32'h0001_0040, 32'h0000_0001);
+    snoop_writes(32'h0001_0040);
+    sc_does("sc.w after another master wrote the reserved word",
+            32'h0001_0040, 32'h5555_6666, 1'b1);
+
+    // ...and a foreign write elsewhere leaves it alone. Without this the vector
+    // above passes on a design that clears on any snoop at all, which would
+    // fail every store-conditional the moment a second hart touched memory.
+    lr_takes(32'h0001_0040, 32'h0000_0001);
+    snoop_writes(32'h0001_0048);
+    sc_does("...but another master's write elsewhere does not disturb it",
+            32'h0001_0040, 32'h5555_6666, 1'b0);
+
     // The region attribute. A platform that will not answer an address will
     // not hold a reservation at it either, so the store-conditional that would
     // otherwise report success for a write going nowhere fails instead.
@@ -531,7 +587,7 @@ module accessor_tb;
       $display("FAILED: %0d mismatches", errors);
       $fatal(1);
     end else begin
-      $display("PASSED: accessor read enable, load unpack, the AMO datapath, the reservation and the one-transaction guard");
+      $display("PASSED: accessor read enable, load unpack, the AMO datapath, the reservation under this core's writes and another master's, the bus lock and the one-transaction guard");
       $finish;
     end
   end

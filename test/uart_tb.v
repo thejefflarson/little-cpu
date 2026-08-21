@@ -34,7 +34,7 @@ module uart_tb;
   logic [31:0] mem_rdata;
   logic        tx;
 
-  localparam logic [31:0] BASE     = 32'h0002_0010;
+  localparam logic [31:0] BASE     = 32'h0002_0020;
   localparam integer      CLOCK_HZ = 12_000_000;
   localparam integer      BAUD     = 115_200;
 

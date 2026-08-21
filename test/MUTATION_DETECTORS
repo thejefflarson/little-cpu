@@ -90,6 +90,9 @@ sc-reports-success          asm   lrsc.S FAIL 2
 # core that never refuses one finishes them all.
 atomic-region-ignored       bench decoder_tb
 atomic-region-ignored       asm   amoregion.S FAIL 4
+loadstore-region-ignored    bench decoder_tb
+loadstore-region-ignored    asm   loadfault.S FAIL 3
+loadstore-region-ignored    asm   storefault.S FAIL 3
 
 # All four min/max compares read unsigned: the sign-bit correction on the shared
 # 33-bit adder/subtractor deleted. amominmax.S is the ONLY program that catches
@@ -117,6 +120,16 @@ text-port-drops-load        asm   textload.S FAIL 3
 # its two misa reads; csr_tb catches the read AND the write it must swallow.
 misa-drops-the-a-bit        bench csr_tb
 misa-drops-the-a-bit        asm   csr.S FAIL 5
+
+# mhartid back in the shared read-only-zero arm it came out of, ignoring
+# HART_ID. This pairing is the whole grader rather than a sample of one: mhartid
+# is a self-description register, nothing in the datapath reads it, and this
+# design has only ever had hart 0 -- so at the default the mutation changes no
+# bit anywhere, and no `.S` program, no formal check and no co-simulation run
+# can see it. csr_tb is the only detector because it holds the only csrs
+# instance at a non-zero HART_ID, and the suite staying green is the
+# measurement rather than a gap.
+mhartid-ignores-hart-id     bench csr_tb
 
 # mtip raised one tick before mtime reaches mtimecmp -- an interrupt taken
 # before the deadline software armed. It is the direction the spec forbids: a
