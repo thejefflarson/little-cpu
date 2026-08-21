@@ -1055,25 +1055,34 @@ module decoder_tb;
     #1;
     check_bit("...and one that stays inside RAM does not", dut.trap_pending, 1'b0);
 
-    // The timer is four words, not a page. Its window is the only one tested on
-    // bits below 12, and those bits come off the sum rather than off rs1.
+    // The timer and the UART are words, not pages. Their windows are the only
+    // ones tested on bits below 12, and those bits come off the sum rather than
+    // off rs1.
     reg_rs1 = 32'h0001_FFFC;
     in.instr = 32'h00462583;   // lw a1, 4(a2)
     #1;
     check_bit("a load of mtime from the top of RAM is answered",
               dut.trap_pending, 1'b0);
-    // 16 bytes past the timer's last word is the UART, which the map answers.
+    // The timer's window is the eight words the map reserves for one mtimecmp
+    // per hart, so 16 bytes up is inside it even where only four are decoded.
     reg_rs1 = 32'h0002_0000;
     in.instr = 32'h01062583;   // lw a1, 16(a2)
     #1;
-    check_bit("...and one 16 bytes past the timer's last word is the UART",
+    check_bit("...and one 16 bytes up is inside the timer's reserved window",
               dut.trap_pending, 1'b0);
 
-    // 24 past it is the first address in that page no device claims.
+    // 32 past the base is the UART, which the map answers.
     reg_rs1 = 32'h0002_0000;
-    in.instr = 32'h01862583;   // lw a1, 24(a2)
+    in.instr = 32'h02062583;   // lw a1, 32(a2)
     #1;
-    check_bit("...and one 24 bytes past it is claimed by nothing",
+    check_bit("...and one 32 bytes past the base is the UART",
+              dut.trap_pending, 1'b0);
+
+    // 40 past it is the first address in that page no device claims.
+    reg_rs1 = 32'h0002_0000;
+    in.instr = 32'h02862583;   // lw a1, 40(a2)
+    #1;
+    check_bit("...and one 40 bytes past it is claimed by nothing",
               dut.trap_pending, 1'b1);
     check_hex("...faulting as a load", trap_cause, 32'd5);
 
