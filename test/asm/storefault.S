@@ -29,7 +29,8 @@
 # stack anywhere -- these programs never set one.
 #
 # Every faulting instruction is wrapped in `.option norvc` per riscv_test.h's
-# first constraint, except case 12, which is a compressed store on purpose.
+# first constraint, except case 12, which is a compressed store on purpose and
+# carries the two bytes that constraint really asks for.
 #
 
 #include "riscv_test.h"
@@ -176,6 +177,11 @@ test_11:
   #-------------------------------------------------------------
   # A compressed store faults the same way. `c.swsp` sets the same decoder flag
   # and its offset is zero-extended.
+  #
+  # The `c.nop` behind it is what makes riscv_test.h's handler usable here: that
+  # handler resumes at mepc+4 whatever the instruction was, so a two-byte
+  # faulting instruction needs two bytes of its own behind it or control comes
+  # back inside the next word.
   #-------------------------------------------------------------
 
 test_12:
@@ -187,6 +193,7 @@ test_12:
   .option push
   .option rvc
   c.swsp a1, 0(sp)
+  c.nop
   .option pop
   la    x1, trap_cause
   lw    x13, 0(x1)
@@ -194,15 +201,16 @@ test_12:
   bne   x13, x29, fail
 
   #-------------------------------------------------------------
-  # Sixteen bytes past the machine timer's four words is not the timer. That
-  # boundary is below bit 12, so it is the one part of this file decided by the
-  # sum rather than by the base register.
+  # The word above the UART is neither the UART nor the eight words the map
+  # reserves for one `mtimecmp` per hart. That boundary is below bit 12, so it
+  # is the one part of this file decided by the sum rather than by the base
+  # register.
   #-------------------------------------------------------------
 
-  TEST_REFUSED_STORE( 13, sw, MTIMER_BASE, 16 );
+  TEST_REFUSED_STORE( 13, sw, UART_BASE, 8 );
 
   # Ten faulting stores in all: three widths, one for mepc, two misaligned, two
-  # off a window edge, one compressed and one past the timer.
+  # off a window edge, one compressed and one past the UART.
   TEST_CASE( 14, a4, 10, la a0, trap_count; lw a4, 0(a0); )
 
   # ...and the word case 2 wrote is still there, so nothing above reached the

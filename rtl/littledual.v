@@ -83,6 +83,11 @@ module littledual #(
   output logic [7:0]   rvfi_mem_wmask,
   output logic [63:0]  rvfi_mem_rdata,
   output logic [63:0]  rvfi_mem_wdata,
+ `ifdef RISCV_FORMAL_MEM_FAULT
+  // The access this platform's map refused, which test/monitor.sim.v reads to
+  // know which retires the spec model cannot grade -- it has no memory map.
+  output logic [1:0]   rvfi_mem_fault,
+ `endif
   // Which harts have a transaction on the shared bus this cycle. Instrumentation
   // and nothing reads it here: the OR that joins the two harts' buses below is
   // correct only while at most one bit of this is set, and an OR of two live
@@ -168,6 +173,12 @@ module littledual #(
     logic [63:0] u_minstret_rmask, u_minstret_wmask, u_minstret_rdata, u_minstret_wdata;
     logic [31:0] u_mscratch_rmask, u_mscratch_wmask, u_mscratch_rdata, u_mscratch_wdata;
    `endif
+   `ifdef RISCV_FORMAL_MEM_FAULT
+    // The masks are the access the refused instruction would have made. Only
+    // the flag leaves this module -- no monitor here reads either mask -- and
+    // they are named rather than left empty for the reason above.
+    logic [3:0]  u_mem_fault_rmask, u_mem_fault_wmask;
+   `endif
 
     littlecpu #(
       .HART_ID(h[31:0]),
@@ -231,6 +242,10 @@ module littledual #(
       .rvfi_mem_wmask(rvfi_mem_wmask[4*h+3:4*h]),
       .rvfi_mem_rdata(rvfi_mem_rdata[32*h+31:32*h]),
       .rvfi_mem_wdata(rvfi_mem_wdata[32*h+31:32*h]),
+     `ifdef RISCV_FORMAL_MEM_FAULT
+      .rvfi_mem_fault(rvfi_mem_fault[h]),
+      .rvfi_mem_fault_rmask(u_mem_fault_rmask), .rvfi_mem_fault_wmask(u_mem_fault_wmask),
+     `endif
       .rvfi_csr_mcycle_rmask(u_mcycle_rmask), .rvfi_csr_mcycle_wmask(u_mcycle_wmask),
       .rvfi_csr_mcycle_rdata(u_mcycle_rdata), .rvfi_csr_mcycle_wdata(u_mcycle_wdata),
       .rvfi_csr_minstret_rmask(u_minstret_rmask), .rvfi_csr_minstret_wmask(u_minstret_wmask),

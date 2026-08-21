@@ -168,7 +168,7 @@ lb.S                209    209
 lbu.S               209    209
 lh.S                220    220
 lhu.S               228    228
-loadfault.S           1      1
+loadfault.S         440    391
 lrsc.S              315    283
 lrsclock.S          159    144   # a retry loop under a live timer, like mtimer.S: how far it goes depends on when the interrupt lands
 lui.S                28     28
@@ -199,13 +199,13 @@ sra.S               476    476
 srai.S              219    219
 srl.S               469    469
 srli.S              214    214
-storefault.S          1      1
+storefault.S        378    337
 straddle.S           17     17
 sub.S               421    421
 sw.S                454    454
 textload.S          196    176
 trap.S              302    258
-uart.S             1512   1512   # poll loops around a 10-bit frame: how many times they go round is a CPI question, like mtimer.S
+uart.S             1653   1648   # poll loops around a 10-bit frame: how many times they go round is a CPI question, like mtimer.S
 xor.S               450    450
 xori.S              171    171
 zicsr.S              224    184

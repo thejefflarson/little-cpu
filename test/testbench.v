@@ -188,23 +188,14 @@ module testbench(
   // and the whole suite still passes, because each program reaches tohost on
   // its own assertions with nothing checking a single instruction.
   //
-  // What it is NOT is a way to hide a disagreement. riscv-formal ships no memory
-  // map, so its spec model answers a load at any address at all: a retire that
-  // reports a load or store access fault would be error 101, "mismatch in trap",
-  // on a core doing exactly what this platform's map says. That one retire is
-  // therefore not shown to the monitor, and the term below is the narrowest
-  // statement of it there is. `rvfi_mem_fault` alone is too wide -- an
-  // instruction access fault sets it too -- so the two fault masks are read
-  // beside it, and only a DATA access sets either. The eleven A encodings are
-  // excluded by opcode rather than left in: the pin ships no spec model for any
-  // of them, so nothing was being graded there and dropping their retires would
-  // only cost the observation counts amoregion.S and amotrap.S are floored on.
-  logic ls_fault_retire;
-  assign ls_fault_retire = rvfi_mem_fault &&
-                           (|rvfi_mem_fault_rmask || |rvfi_mem_fault_wmask) &&
-                           rvfi_insn[6:0] != 7'b0101111;
+  // What it is NOT is where a refused access is excused. The spec model has no
+  // memory map, so a retire this platform refused disagrees with it -- but
+  // hiding the retire here leaves a hole in `rvfi_order` that the monitor's
+  // reorder buffer reads as a lost instruction, and every retire after it is
+  // graded against the wrong shadow. `rvfi_mem_fault` goes to the monitor
+  // instead and test/sanitize_monitor.py's rules 4 to 6 are what read it.
   logic rvfi_valid_observed;
-  assign rvfi_valid_observed = rvfi_valid && !ls_fault_retire;
+  assign rvfi_valid_observed = rvfi_valid;
 
   monitor monitor (
     .clock(clk),
@@ -228,6 +219,7 @@ module testbench(
     .rvfi_mem_wmask(rvfi_mem_wmask),
     .rvfi_mem_rdata(rvfi_mem_rdata),
     .rvfi_mem_wdata(rvfi_mem_wdata),
+    .rvfi_mem_fault(rvfi_mem_fault),
     .errcode(rvfi_monitor_errcode)
   );
 

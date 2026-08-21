@@ -38,7 +38,8 @@
 # window through a negative offset must not.
 #
 # Every faulting instruction is wrapped in `.option norvc` per riscv_test.h's
-# first constraint, except case 16, which is a compressed load on purpose.
+# first constraint, except case 16, which is a compressed load on purpose and
+# carries the two bytes that constraint really asks for.
 #
 
 #include "riscv_test.h"
@@ -182,6 +183,11 @@ test_11:
   # A compressed load faults the same way. `c.lw` sets the same decoder flag and
   # its offset is zero-extended and five bits wide, which is inside the same
   # sign extension the split stands on.
+  #
+  # The `c.nop` behind it is what makes riscv_test.h's handler usable here: that
+  # handler resumes at mepc+4 whatever the instruction was, so a two-byte
+  # faulting instruction needs two bytes of its own behind it or control comes
+  # back inside the next word.
   #-------------------------------------------------------------
 
 test_16:
@@ -193,6 +199,7 @@ test_16:
   .option push
   .option rvc
   c.lw  a1, 0(a0)
+  c.nop
   .option pop
   la    x1, trap_cause
   lw    x13, 0(x1)
@@ -202,23 +209,28 @@ test_16:
   bne   a1, x29, fail
 
   #-------------------------------------------------------------
-  # The map is three windows and not one. Text is readable through the data bus
-  # and the timer answers four words; sixteen bytes past those four is not the
-  # timer, and that boundary is below bit 12 -- the only part of this test that
-  # reads the sum rather than the register.
+  # The map is four windows and not one. Text is readable through the data bus,
+  # the timer's window is the eight words the map reserves for one `mtimecmp`
+  # per hart, and the UART's two words sit above the whole of that; the word
+  # above THOSE is nobody's. Every boundary here is below bit 12 -- the only
+  # part of this test that reads the sum rather than the register.
+  #
+  # Case 19 reads the UART's status register, which is the one window a store
+  # cannot be used to probe: writing it is how a byte is sent.
   #-------------------------------------------------------------
 
   TEST_ANSWERED_LOAD( 17, 0x00000000, 0 );
   TEST_ANSWERED_LOAD( 18, MTIMER_BASE, 0 );
-  TEST_REFUSED_LOAD(  19, lw, MTIMER_BASE, 16 );
+  TEST_ANSWERED_LOAD( 19, UART_BASE, UART_STATUS_OFFSET );
+  TEST_REFUSED_LOAD(  20, lw, UART_BASE, 8 );
 
   # Twelve faulting loads in all -- five widths, one for mepc, two misaligned,
-  # two off a window edge, one compressed and one past the timer. Nothing
+  # two off a window edge, one compressed and one past the UART. Nothing
   # besides those trapped.
-  TEST_CASE( 20, a4, 12, la a0, trap_count; lw a4, 0(a0); )
+  TEST_CASE( 21, a4, 12, la a0, trap_count; lw a4, 0(a0); )
 
   # ...and the data RAM still reads what it held, so nothing above disturbed it.
-  TEST_CASE( 21, a4, 0x0ff00ff0, la a0, rdat; lw a4, 0(a0); )
+  TEST_CASE( 22, a4, 0x0ff00ff0, la a0, rdat; lw a4, 0(a0); )
 
   TEST_PASSFAIL
 
