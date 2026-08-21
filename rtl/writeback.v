@@ -115,6 +115,13 @@ module writeback(
   // than accepting a superset of it.
   assign rvfi_mem_fault_rmask = in.rvfi.mem_fault_rmask;
   assign rvfi_mem_fault_wmask = in.rvfi.mem_fault_wmask;
+  // A refused access never reached rtl/accessor.v, so it has no transaction to
+  // report -- and the check that reads the masks above reads this against the
+  // spec model's effective address. Decode is where that address is known.
+  // Continuous, for the same sensitivity reason as the three above.
+  assign rvfi_mem_addr = in.rvfi.mem_fault ? in.rvfi.mem_fault_addr : in.rvfi_mem_addr;
+ `else
+  assign rvfi_mem_addr = in.rvfi_mem_addr;
  `endif
 
   always_comb begin
@@ -132,14 +139,6 @@ module writeback(
     rvfi_rd_wdata = |in.rd ? in.rd_data : 32'b0;
     rvfi_pc_rdata = in.rvfi.pc_rdata;
     rvfi_pc_wdata = in.rvfi.pc_wdata;
-    // A refused access never reached rtl/accessor.v, so it has no transaction to
-    // report -- and the same check that reads the masks above reads this against
-    // the spec model's effective address. Decode is where that address is known.
-   `ifdef RISCV_FORMAL_MEM_FAULT
-    rvfi_mem_addr = in.rvfi.mem_fault ? in.rvfi.mem_fault_addr : in.rvfi_mem_addr;
-   `else
-    rvfi_mem_addr = in.rvfi_mem_addr;
-   `endif
     rvfi_mem_rmask = in.rvfi_mem_rmask;
     rvfi_mem_wmask = in.rvfi_mem_wmask;
     rvfi_mem_rdata = in.rvfi_mem_rdata;

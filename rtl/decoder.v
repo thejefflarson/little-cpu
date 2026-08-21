@@ -631,7 +631,6 @@ module decoder #(
     else if (instr_sh) ls_fault_wstrb = 4'b0011 << mem_addr_calc[1:0];
     else               ls_fault_wstrb = 4'b1111;
   end
-
  `endif
 
   logic trap_pending;
