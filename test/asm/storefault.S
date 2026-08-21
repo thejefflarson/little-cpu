@@ -200,18 +200,15 @@ test_12:
   li    x29, 7
   bne   x13, x29, fail
 
-  #-------------------------------------------------------------
-  # The word above the UART is neither the UART nor the eight words the map
-  # reserves for one `mtimecmp` per hart. That boundary is below bit 12, so it
-  # is the one part of this file decided by the sum rather than by the base
-  # register.
-  #-------------------------------------------------------------
+  # THE REFUSAL ABOVE THE UART IS NOT HERE, for the reason the header of
+  # test/asm/loadfault.S gives: the reference model's regions are 4K-aligned, so
+  # a sub-page refusal is one no configuration of it can express.
+  # test/decoder_tb.v vectors that boundary and the generated riscv-formal
+  # checks reach it with a free base register.
 
-  TEST_REFUSED_STORE( 13, sw, UART_BASE, 8 );
-
-  # Ten faulting stores in all: three widths, one for mepc, two misaligned, two
-  # off a window edge, one compressed and one past the UART.
-  TEST_CASE( 14, a4, 10, la a0, trap_count; lw a4, 0(a0); )
+  # Nine faulting stores in all: three widths, one for mepc, two misaligned, two
+  # off a window edge and one compressed.
+  TEST_CASE( 14, a4, 9, la a0, trap_count; lw a4, 0(a0); )
 
   # ...and the word case 2 wrote is still there, so nothing above reached the
   # data RAM by accident.

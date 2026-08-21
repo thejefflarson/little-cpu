@@ -173,11 +173,17 @@
 # so test/monitor.sim.v grades pc continuity on an A retire and nothing else.
 # A baselined program is one this oracle says nothing about at all.
 #
-# ONE HALF OF THE DEVIATION IS STILL OPEN AND IS DELIBERATELY NOT ASSERTED. A
-# plain store to an address no memory answers is still dropped silently, so a
-# program that wrote there and read it back would diverge here again: the model
-# has memory at that address. amoregion.S therefore asserts only the load half,
-# which reads zero on both, and says so where it does it.
+# THAT HALF IS CLOSED NOW, AND SO IS THE OTHER ONE. A plain load or store to an
+# address no memory answers raises cause 5 or 7 as well, so the model's map is
+# the core's map: the 48 KB between the text window and the data RAM is no
+# longer a region at all, and the peripheral region is one page rather than
+# 896 KB. test/asm/loadfault.S and test/asm/storefault.S AGREE, which is why
+# neither is a line below.
+#
+# WHAT THE MODEL CANNOT BE CONFIGURED TO SAY is a refusal below bit 12: it
+# rejects a region that does not end on a 4K page, so the 40 bytes the timer and
+# the UART really occupy are a whole page there. Those two programs carry the
+# boundary they can test and name where the rest of it is graded.
 #
 # uart.S IS A FOURTH ENTRY AND THE ONLY ONE THAT IS A DIVERGENCE RATHER THAN A
 # BUDGET: THE MODEL HAS NO DEVICE THERE AT ALL. rtl/uart.v puts a write-only
@@ -185,11 +191,13 @@
 # 0x0002_0020, inside the region test/sail/rv32imac_zicsr.json declares
 # MainMemory from 0x0002_0000 up. So on the model the store lands in ordinary
 # memory and the status word reads back what was last written to it, which is
-# zero. `DISAGREE AT 5` is the first read of `busy` after a write: the core's
+# zero. `DISAGREE AT 7` is the first read of `busy` after a write: the core's
 # `lw` changes a0 from 0 to 1 and the model's does not, so the model's next
-# change is the `li x29, 1` behind it and the sequences part there.
+# change is the `li x29, 1` behind it and the sequences part there. It was
+# `DISAGREE AT 5` until the program installed a trap handler, whose `la t0`
+# writes t0 twice ahead of everything else it does.
 #
-# THAT IS A STRONGER ENTRY THAN THE THREE ABOVE, AND WORTH SAYING. The four
+# THAT IS A STRONGER ENTRY THAN THE THREE ABOVE, AND WORTH SAYING. The six
 # architectural changes before it were compared and agreed, and the point is
 # pinned: a program that starts diverging anywhere else is diverging for a new
 # reason and this gate goes red. The three timer entries compare NOTHING.
@@ -228,4 +236,4 @@
 lrsclock.S    INCONCLUSIVE SAIL-LIMIT
 mtimer.S      INCONCLUSIVE SAIL-LIMIT
 mtimermask.S  INCONCLUSIVE SAIL-LIMIT
-uart.S        DISAGREE AT 5
+uart.S        DISAGREE AT 7

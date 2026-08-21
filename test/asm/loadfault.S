@@ -217,17 +217,23 @@ test_16:
   #
   # Case 19 reads the UART's status register, which is the one window a store
   # cannot be used to probe: writing it is how a byte is sent.
+  #
+  # THE REFUSAL ABOVE THE UART IS NOT HERE, AND CANNOT BE. The word at
+  # UART_BASE+8 is one no device answers, but the reference model's regions are
+  # 4K-aligned -- it refuses a configuration that ends anywhere else -- so on
+  # Sail that whole page is ordinary memory and a program refusing an address
+  # inside it would take a different path there. test/decoder_tb.v vectors it
+  # instead, and the generated riscv-formal checks reach it with a free base
+  # register, which is more than a program can do.
   #-------------------------------------------------------------
 
   TEST_ANSWERED_LOAD( 17, 0x00000000, 0 );
   TEST_ANSWERED_LOAD( 18, MTIMER_BASE, 0 );
   TEST_ANSWERED_LOAD( 19, UART_BASE, UART_STATUS_OFFSET );
-  TEST_REFUSED_LOAD(  20, lw, UART_BASE, 8 );
 
-  # Twelve faulting loads in all -- five widths, one for mepc, two misaligned,
-  # two off a window edge, one compressed and one past the UART. Nothing
-  # besides those trapped.
-  TEST_CASE( 21, a4, 12, la a0, trap_count; lw a4, 0(a0); )
+  # Eleven faulting loads in all -- five widths, one for mepc, two misaligned,
+  # two off a window edge and one compressed. Nothing besides those trapped.
+  TEST_CASE( 21, a4, 11, la a0, trap_count; lw a4, 0(a0); )
 
   # ...and the data RAM still reads what it held, so nothing above disturbed it.
   TEST_CASE( 22, a4, 0x0ff00ff0, la a0, rdat; lw a4, 0(a0); )
