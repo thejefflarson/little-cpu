@@ -170,7 +170,7 @@ lh.S                220    220
 lhu.S               228    228
 loadfault.S         409    364
 lrsc.S              315    283
-lrsclock.S          159    144   # a retry loop under a live timer, like mtimer.S: how far it goes depends on when the interrupt lands
+lrsclock.S          156    141   # a retry loop under a live timer, like mtimer.S: how far it goes depends on when the interrupt lands, so the region wait moved it too
 lui.S                28     28
 lw.S                230    230
 minstret.S           42     31
@@ -205,7 +205,7 @@ sub.S               421    421
 sw.S                454    454
 textload.S          196    176
 trap.S              302    258
-uart.S             1653   1648   # poll loops around a 10-bit frame: how many times they go round is a CPI question, like mtimer.S
+uart.S             1379   1373   # poll loops around a 10-bit frame: how many times they go round is a CPI question, like mtimer.S. Re-derived when the region wait landed: each poll costs a cycle more, so fewer go round before the frame ends
 xor.S               450    450
 xori.S              171    171
 zicsr.S              224    184
