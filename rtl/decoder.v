@@ -464,87 +464,99 @@ module decoder #(
   // below is what keeps those two facts from drifting apart.
   assign atomic_addr = reg_rs1;
 
-  // Does some memory answer a plain load or store at `immediate + reg_rs1`? The
-  // sum's top is not ready when the pc must be chosen, so it is never read.
-  // Every immediate that reaches here is sign-extended above bit 11, so
-  // sum[31:12] is reg_rs1[31:12] plus the carry into bit 12 minus that sign --
-  // an adjustment of -1, 0 or +1. Each window is therefore tested three ways on
-  // the raw register bits, the sign picks between those early, and the one late
-  // bit -- the carry, read back out of the adder the address already pays for
-  // rather than from a second one -- picks between two precomputed answers, one
-  // mux deep.
+  // The twelve plain load and store encodings, split the way the two region
+  // causes are: a store-conditional that succeeds writes, so the split an atomic
+  // makes is the same one.
+  logic instr_ls_load, instr_ls_store;
+  assign instr_ls_load  = instr_lb || instr_lbu || instr_lh || instr_lhu || instr_lw;
+  assign instr_ls_store = instr_sb || instr_sh || instr_sw;
+
+  // Does some memory answer a plain load or store at `immediate + reg_rs1`?
+  // Four windows, each a power of two on a multiple of its own size, so each is
+  // one equality on the address bits above the window. It reads the whole sum,
+  // top bit included, which is affordable HERE and nowhere else: the only thing
+  // it drives is the flip-flop below, so the effective-address carry chain ends
+  // at a register instead of at the pc. Seven spellings that answered in the
+  // issue cycle were built and priced, the cheapest exact one at +9.4% of the
+  // median period and under the board clock at nine placements of sixteen.
   //
-  // The windows are rounded OUT to whole pages, which is the reach of the split.
-  // A window smaller than a page therefore claims the rest of its page: an
-  // address there is one no memory answers and this does not fault it, which is
-  // the silent read of zero this core has always done. Rounding the other way
-  // would fault an address a memory does answer, and that is the direction that
-  // cannot be allowed to be wrong.
-  localparam int LS_TEXT_PAGES = (LS_TEXT_WORDS * 4) / 4096;
-  localparam int LS_RAM_PAGES  = (LS_RAM_WORDS * 4) / 4096;
-  localparam logic [19:0] LS_TEXT_PAGE = 20'd0;
-  localparam logic [19:0] LS_TEXT_MASK = LS_TEXT_PAGES > 1 ? LS_TEXT_PAGES - 1 : 0;
-  localparam logic [19:0] LS_RAM_PAGE  = LS_RAM_BASE[31:12];
-  localparam logic [19:0] LS_RAM_MASK  = LS_RAM_PAGES > 1 ? LS_RAM_PAGES - 1 : 0;
-  localparam logic [19:0] LS_TIMER_PAGE = LS_TIMER_BASE[31:12];
-  // The timer answers eight words, so its page is tested on seven more bits of
-  // the sum. Those bits are the low adder's and do not wait on the carry into
-  // 12. Eight and not the four a one-hart build decodes: that is the span the
-  // map reserves for one `mtimecmp` per hart, and a two-hart build answers all
-  // of it. Rounding out is the safe direction -- the four spare words read zero
-  // on a one-hart machine instead of faulting -- and rounding in would fault
-  // hart 1's `mtimecmp`, which a memory does answer.
-  localparam logic [6:0] LS_TIMER_OFF = LS_TIMER_BASE[11:5];
-  localparam logic [19:0] LS_UART_PAGE = LS_UART_BASE[31:12];
-  localparam logic [8:0] LS_UART_OFF = LS_UART_BASE[11:3];
+  // The timer's window is the eight words the map reserves for one `mtimecmp`
+  // per hart, not the four a one-hart build decodes: rounding out reads zero
+  // where rounding in would fault an address the two-hart machine answers.
+  localparam logic [31:0] LS_TEXT_BYTES = LS_TEXT_WORDS * 4;
+  localparam logic [31:0] LS_RAM_BYTES  = LS_RAM_WORDS * 4;
+  logic ls_supported;
+  assign ls_supported =
+    ((mem_addr_calc & ~(LS_TEXT_BYTES - 32'd1)) == 32'd0) ||
+    (((mem_addr_calc ^ LS_RAM_BASE) & ~(LS_RAM_BYTES - 32'd1)) == 32'd0) ||
+    (mem_addr_calc[31:5] == LS_TIMER_BASE[31:5]) ||
+    (mem_addr_calc[31:3] == LS_UART_BASE[31:3]);
 
-  logic [19:0] ls_hi;
-  assign ls_hi = reg_rs1[31:12];
+  // Whether that answer can depend on the immediate at all, asked of `reg_rs1`
+  // by itself so it costs no adder. A 12-bit offset reaches 2 KB either way, so
+  // an effective address lies in the 2 KB block `reg_rs1` names or in one either
+  // side. When all three of those blocks are inside one window the access is
+  // answered whatever the immediate is, and the cycle issues with no region term
+  // in it.
+  //
+  // ONE-SIDED ON PURPOSE: low means "wait for the flip-flop", never "fault". So
+  // a window narrower than three blocks -- the timer's, the UART's -- simply
+  // never reaches the fast path, and `mcause` stays a function of the access
+  // rather than of the base register. That is the whole difference between this
+  // and the neighbourhood test that meets the clock by calling rs1's own answer
+  // final.
+  localparam int LS_BLOCK_BITS = 11;
+  localparam int LS_BLOCK_NUM  = 32 - LS_BLOCK_BITS;
+  localparam logic [LS_BLOCK_NUM-1:0] LS_TEXT_BLOCK = '0;
+  localparam logic [LS_BLOCK_NUM-1:0] LS_TEXT_BMASK =
+    LS_BLOCK_NUM'((LS_TEXT_BYTES - 32'd1) >> LS_BLOCK_BITS);
+  localparam logic [LS_BLOCK_NUM-1:0] LS_RAM_BLOCK =
+    LS_BLOCK_NUM'(LS_RAM_BASE >> LS_BLOCK_BITS);
+  localparam logic [LS_BLOCK_NUM-1:0] LS_RAM_BMASK =
+    LS_BLOCK_NUM'((LS_RAM_BYTES - 32'd1) >> LS_BLOCK_BITS);
 
-  // Each window, asked about `ls_hi`, `ls_hi + 1` and `ls_hi - 1`. The masks are
-  // constants, so the carry into a window's own page bits is done here at
-  // elaboration and the shifted forms cost an equality apiece.
-  logic text_d0, text_dp1, text_dm1;
-  assign text_d0  = ((ls_hi ^ LS_TEXT_PAGE) & ~LS_TEXT_MASK) == 20'd0;
-  assign text_dp1 = (ls_hi == LS_TEXT_PAGE - 20'd1) ||
-                    (text_d0 && (ls_hi & LS_TEXT_MASK) != LS_TEXT_MASK);
-  assign text_dm1 = (text_d0 && (ls_hi & LS_TEXT_MASK) != 20'd0) ||
-                    (ls_hi == LS_TEXT_PAGE + LS_TEXT_MASK + 20'd1);
+  logic [LS_BLOCK_NUM-1:0] ls_block;
+  assign ls_block = reg_rs1[31:LS_BLOCK_BITS];
 
-  logic ram_d0, ram_dp1, ram_dm1;
-  assign ram_d0  = ((ls_hi ^ LS_RAM_PAGE) & ~LS_RAM_MASK) == 20'd0;
-  assign ram_dp1 = (ls_hi == LS_RAM_PAGE - 20'd1) ||
-                   (ram_d0 && (ls_hi & LS_RAM_MASK) != LS_RAM_MASK);
-  assign ram_dm1 = (ram_d0 && (ls_hi & LS_RAM_MASK) != 20'd0) ||
-                   (ls_hi == LS_RAM_PAGE + LS_RAM_MASK + 20'd1);
+  // In the window, and neither its first block nor its last. A window of one or
+  // two blocks has no such block and these fold to constant zero, which is the
+  // safe direction.
+  logic ls_text_deep, ls_ram_deep, ls_settled;
+  assign ls_text_deep = ((ls_block ^ LS_TEXT_BLOCK) & ~LS_TEXT_BMASK) == '0 &&
+                        (ls_block & LS_TEXT_BMASK) != '0 &&
+                        (ls_block & LS_TEXT_BMASK) != LS_TEXT_BMASK;
+  assign ls_ram_deep  = ((ls_block ^ LS_RAM_BLOCK) & ~LS_RAM_BMASK) == '0 &&
+                        (ls_block & LS_RAM_BMASK) != '0 &&
+                        (ls_block & LS_RAM_BMASK) != LS_RAM_BMASK;
+  assign ls_settled = ls_text_deep || ls_ram_deep;
 
-  logic timer_off_ok, timer_d0, timer_dp1, timer_dm1;
-  assign timer_off_ok = mem_addr_calc[11:5] == LS_TIMER_OFF;
-  assign timer_d0  = ls_hi == LS_TIMER_PAGE;
-  assign timer_dp1 = ls_hi == LS_TIMER_PAGE - 20'd1;
-  assign timer_dm1 = ls_hi == LS_TIMER_PAGE + 20'd1;
+  // The wait that pays for all of the above. A load or store whose base register
+  // sits near a window's edge bubbles one cycle, and the answer about its own
+  // effective address is registered on that cycle and read on the next.
+  //
+  // `ls_answer_valid` is one cycle wide by construction -- it is set only by a
+  // capture cycle and cleared by every other cycle -- so an answer that is read
+  // is always exactly one cycle old. What makes it an answer about the same
+  // ACCESS is `ls_capture` requiring every other stall reason to be low: the
+  // decode scoreboard is clear, so no instruction is in flight that could write
+  // rs1, and nothing issued on that cycle to start one. THAT IS THE ONE THING
+  // THIS DESIGN NEEDS AND CANNOT SEE. rtl/regfile.v and the scoreboard provide
+  // it; formal/traps.sv, which has no register file, assumes it and says so.
+  logic ls_access, ls_capture, ls_answer, ls_answer_valid, region_stall, ls_fault;
+  logic stall_other;
+  assign ls_access = instr_ls_load || instr_ls_store;
+  assign region_stall = ls_access && !ls_settled && !ls_answer_valid;
+  assign ls_capture = region_stall && !stall_other;
 
-  // The UART is eight bytes, so like the timer it needs low bits the carry
-  // split never reaches. Its own page tests rather than the timer's: the two
-  // share a page in today's map and nothing requires them to.
-  logic uart_off_ok, uart_d0, uart_dp1, uart_dm1;
-  assign uart_off_ok = mem_addr_calc[11:3] == LS_UART_OFF;
-  assign uart_d0  = ls_hi == LS_UART_PAGE;
-  assign uart_dp1 = ls_hi == LS_UART_PAGE - 20'd1;
-  assign uart_dm1 = ls_hi == LS_UART_PAGE + 20'd1;
-
-  logic ls_neg, ls_carry, ls_sup_carry, ls_sup_nocarry, ls_supported;
-  assign ls_neg = immediate[31];
-  assign ls_sup_carry   = ls_neg ? (text_d0  || ram_d0  || (timer_d0  && timer_off_ok) ||
-                                    (uart_d0  && uart_off_ok))
-                                 : (text_dp1 || ram_dp1 || (timer_dp1 && timer_off_ok) ||
-                                    (uart_dp1 && uart_off_ok));
-  assign ls_sup_nocarry = ls_neg ? (text_dm1 || ram_dm1 || (timer_dm1 && timer_off_ok) ||
-                                    (uart_dm1 && uart_off_ok))
-                                 : (text_d0  || ram_d0  || (timer_d0  && timer_off_ok) ||
-                                    (uart_d0  && uart_off_ok));
-  assign ls_carry     = mem_addr_calc[12] ^ reg_rs1[12] ^ immediate[12];
-  assign ls_supported = ls_carry ? ls_sup_carry : ls_sup_nocarry;
+  always_ff @(posedge clk) begin
+    if (reset) begin
+      ls_answer       <= 1'b0;
+      ls_answer_valid <= 1'b0;
+    end else begin
+      ls_answer       <= ls_supported;
+      ls_answer_valid <= ls_capture;
+    end
+  end
 
   // Misalignment needs two bits of the sum, and the low two bits of a sum depend
   // only on the low two bits of the operands -- so they are added here rather
@@ -591,10 +603,11 @@ module decoder #(
   // The same refusal for a plain load or store, answered off the decomposed
   // question above instead of off a port. Misalignment outranks the region here
   // too, so the four data causes stay disjoint whichever access raised them.
-  logic instr_ls_load, instr_ls_store, ls_fault;
-  assign instr_ls_load  = instr_lb || instr_lbu || instr_lh || instr_lhu || instr_lw;
-  assign instr_ls_store = instr_sb || instr_sh || instr_sw;
-  assign ls_fault = (instr_ls_load || instr_ls_store) && !ls_supported &&
+  // Read a cycle late, off the flip-flop the wait above filled, so the trap
+  // chain and the pc never see the effective-address adder. Misalignment
+  // outranks the region here too, so the four data causes stay disjoint
+  // whichever access raised them.
+  assign ls_fault = ls_access && ls_answer_valid && !ls_answer &&
                     !load_misaligned && !store_misaligned;
 
   logic load_access_fault, store_access_fault;
@@ -844,8 +857,15 @@ module decoder #(
 
   // Every reason to stall, in one signal. They all hold the PC; the block that
   // writes `out` below is where they differ.
-  assign stall = hazard || operand_stall || divider_stall || fetch_stall || atomic_stall ||
-                 bus_wait;
+  //
+  // Split in two because the region wait is the one reason that is about an
+  // answer rather than about a resource: `ls_capture` above registers the
+  // region answer on the cycle nothing else is holding the instruction, which is
+  // the cycle after which rs1 cannot move again. Declared beside the region
+  // block; assigned here, where the other seven are born.
+  assign stall_other = hazard || operand_stall || divider_stall || fetch_stall ||
+                       atomic_stall || bus_wait;
+  assign stall = stall_other || region_stall;
 
   // The same conjunction as `stall` with `bus_wait` left out, and the nine
   // encodings that reach the data bus. It is an OVER-approximation on purpose:
@@ -853,8 +873,10 @@ module decoder #(
   // asking for a cycle this core then does not use costs an arbitration slot
   // where under-asking would put two masters on the bus at once. Trapping
   // accesses are out, because decode clears their `is_l*`/`is_s*` flags and the
-  // accessor never sees a transaction to make.
-  assign bus_request = !reset && !trap_taken &&
+  // accessor never sees a transaction to make. So is the region wait's own
+  // cycle: the transaction it precedes is two cycles away, not one, and asking
+  // early there is an over-approximation with nothing to buy.
+  assign bus_request = !reset && !trap_taken && !region_stall &&
     !(hazard || operand_stall || divider_stall || fetch_stall || atomic_stall) &&
     (instr_lb || instr_lbu || instr_lh || instr_lhu || instr_lw ||
      instr_sb || instr_sh || instr_sw || instr_atomic);
@@ -994,7 +1016,7 @@ module decoder #(
       // `ifdef FORMAL` block below checks both cases.
       out <= out;
     end else if (hazard || operand_stall || fetch_stall || atomic_stall || bus_wait ||
-                 interrupt_pending) begin
+                 region_stall || interrupt_pending) begin
       // These zero `out` instead of holding it. The executor reads `in` every
       // cycle, so a held `out` would be executed again and again while the
       // stalled instruction waits. The interrupt is here rather than in the arm
@@ -1215,13 +1237,16 @@ module decoder #(
   decoder_output past_out;
   logic prev_hold_and_steal, prev_steal_only, prev_atomic_stall;
   logic prev_hold_and_wait, prev_wait_only;
+  logic prev_hold_and_region, prev_region_only;
   always_ff @(posedge clk) begin
-    past_out            <= out;
-    prev_hold_and_steal <= fetch_stall && divider_stall;
-    prev_steal_only     <= fetch_stall && !divider_stall;
-    prev_atomic_stall   <= atomic_stall;
-    prev_hold_and_wait  <= bus_wait && divider_stall;
-    prev_wait_only      <= bus_wait && !divider_stall;
+    past_out             <= out;
+    prev_hold_and_steal  <= fetch_stall && divider_stall;
+    prev_steal_only      <= fetch_stall && !divider_stall;
+    prev_atomic_stall    <= atomic_stall;
+    prev_hold_and_wait   <= bus_wait && divider_stall;
+    prev_wait_only       <= bus_wait && !divider_stall;
+    prev_hold_and_region <= region_stall && divider_stall;
+    prev_region_only     <= region_stall && !divider_stall;
   end
   always_comb if (clocked && !prev_reset && prev_hold_and_steal) assert(out == past_out);
   always_comb if (clocked && !prev_reset && prev_steal_only)     assert(out == '0);
@@ -1239,6 +1264,15 @@ module decoder #(
   // waiting for, and a second retire of one instruction. Nothing else in the
   // tree says which arm it belongs in.
   always_comb if (clocked && !prev_reset && prev_atomic_stall) assert(out == '0);
+
+  // The region wait's half, and it bubbles: nothing has issued, so there is
+  // nothing to re-present and holding would hand the executor an instruction
+  // twice. It lands in the divider's arm for the same reason the stolen window
+  // and the bus wait do -- a held `out` is an instruction the executor has not
+  // taken. This is only arm order in the publish block above, so nothing else
+  // in the tree says which arm it belongs in.
+  always_comb if (clocked && !prev_reset && prev_hold_and_region) assert(out == past_out);
+  always_comb if (clocked && !prev_reset && prev_region_only)     assert(out == '0);
 
   // Obviously true one flip-flop apart, and that is the point. It fails the
   // moment something else also writes `pc`. A second writer puts the
@@ -1326,21 +1360,26 @@ module decoder #(
   // about another, with the fault's own tests still green.
   always_comb if (instr_atomic) assert(mem_addr_calc == atomic_addr);
 
-  // The split region test names the same address the transaction will use. The
-  // first line is the fact the whole split stands on -- every encoding that can
-  // raise these two causes sign-extends its immediate above bit 11, so no other
-  // adjustment of the top half is reachable -- and the third states the answer
-  // against the sum it replaces, page-rounded the way the windows above are.
-  always_comb if (instr_ls_load || instr_ls_store) begin
+  // THE FAST PATH NEVER SKIPS A FAULT. `ls_settled` is answered from `reg_rs1`
+  // alone and lets a load or store issue with no region term in it, so it has to
+  // imply the answer about the effective address; nothing else in the tree says
+  // so, and getting it wrong reads memory that is not there instead of trapping.
+  // The first line is the fact it stands on -- every encoding that can raise
+  // these two causes sign-extends its immediate above bit 11, so the address
+  // cannot leave the block `reg_rs1` names or the two beside it.
+  always_comb if (ls_access) begin
     assert(immediate[31:12] == {20{immediate[31]}});
-    assert(mem_addr_calc[31:12] ==
-      (reg_rs1[31:12] + {20{ls_neg}} + {19'b0, ls_carry}));
-    assert(ls_supported == (
-      (((mem_addr_calc[31:12] ^ LS_TEXT_PAGE) & ~LS_TEXT_MASK) == 20'd0) ||
-      (((mem_addr_calc[31:12] ^ LS_RAM_PAGE) & ~LS_RAM_MASK) == 20'd0) ||
-      (mem_addr_calc[31:5] == {LS_TIMER_PAGE, LS_TIMER_OFF}) ||
-      (mem_addr_calc[31:3] == {LS_UART_PAGE, LS_UART_OFF})));
+    if (ls_settled) assert(ls_supported);
   end
+
+  // The answer read by the trap chain is at most one cycle old. That bound is
+  // what the register file's guarantee has to cover -- rs1 cannot move under a
+  // held instruction -- so it is asserted rather than argued: `region_stall`
+  // reads `ls_answer_valid`, so a valid answer suppresses the capture that would
+  // keep it alive.
+  logic prev_answer_valid;
+  always_ff @(posedge clk) prev_answer_valid <= ls_answer_valid;
+  always_comb if (clocked && prev_answer_valid) assert(!ls_answer_valid);
 
   // One line per cause, not a copy of the case statement, so reordering its arms
   // trips these instead of changing them to match. The eight synchronous causes
