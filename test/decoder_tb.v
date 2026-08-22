@@ -132,7 +132,7 @@ module decoder_tb;
     prev_next_pc_valid <= 1'b1;
   end
 
-  // `stall` is exactly these eight terms ORed together. `make cycles` charges
+  // `stall` is exactly these nine terms ORed together. `make cycles` charges
   // every stalled cycle to the first of them that is true, so a term added to
   // `stall` and not there would leave the cycles it costs unexplained. This says
   // so in a gate that runs on every change, rather than the next time somebody
@@ -146,15 +146,15 @@ module decoder_tb;
   // On both clock edges, not just the rising one. Every vector here presents its
   // instruction just after a rising edge, so the falling edge is where it is
   // settled and being decoded. Sampling only the rising edge misses that, and
-  // the probe for this check -- an eighth term ORed into `stall` -- goes green.
+  // the probe for this check -- a ninth term ORed into `stall` -- goes green.
   always @(clk) begin
     if (dut.stall !== (dut.divider_stall || dut.atomic_stall || dut.hazard_rs1 ||
                        dut.hazard_rs2 || dut.serialize || dut.operand_stall ||
-                       dut.fetch_stall || dut.bus_wait)) begin
-      $display("MISMATCH stall is not the OR of the seven named reasons: stall=%b divider=%b atomic=%b rs1=%b rs2=%b serialize=%b operand=%b fetch=%b bus=%b",
+                       dut.fetch_stall || dut.bus_wait || dut.region_stall)) begin
+      $display("MISMATCH stall is not the OR of the eight named reasons: stall=%b divider=%b atomic=%b rs1=%b rs2=%b serialize=%b operand=%b fetch=%b bus=%b region=%b",
                dut.stall, dut.divider_stall, dut.atomic_stall, dut.hazard_rs1,
                dut.hazard_rs2, dut.serialize, dut.operand_stall, dut.fetch_stall,
-               dut.bus_wait);
+               dut.bus_wait, dut.region_stall);
       errors++;
     end
   end

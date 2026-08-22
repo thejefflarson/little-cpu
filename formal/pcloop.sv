@@ -239,9 +239,25 @@ module pcloop (
   logic f_amo_wait;
   assign f_amo_wait = decoder_out.valid && decoder_out.is_amo;
 
+  // The region wait, and every plain load and store rather than the ones that
+  // really wait: whether a load waits depends on where `reg_rs1` points and on a
+  // flip-flop inside the instance, and reading either would be the reach-in the
+  // comment above forbids. Wider is safe -- it only skips more cycles -- and it
+  // is not near-universal: nothing arithmetic, no branch and no jump is here,
+  // which is what `increment_reached` below is the control for.
+  //
+  // Both compressed quadrants that carry a load or a store: `c.lw`/`c.sw` in
+  // quadrant 00 and `c.lwsp`/`c.swsp` in quadrant 10, both at cfunct3 010 and
+  // 110. The decoder expands them, so the wait sees them as loads and stores.
+  logic f_load_store;
+  assign f_load_store =
+      (f_uncompressed && (f_instr[6:2] == 5'b00000 || f_instr[6:2] == 5'b01000)) ||
+      ((f_instr[1:0] == 2'b00 || f_instr[1:0] == 2'b10) &&
+         (f_instr[15:13] == 3'b010 || f_instr[15:13] == 3'b110));
+
   assign f_may_stall = divider_stall || fetch_stall || bus_wait ||
       f_live_rs1 || f_live_rs2 || f_system || f_fencei || f_operand_fetch ||
-      f_amo_wait;
+      f_amo_wait || f_load_store;
 
   // Read off the decoder's outputs rather than decoded here. Working out
   // whether a word is illegal is most of decode, and copying it would defeat

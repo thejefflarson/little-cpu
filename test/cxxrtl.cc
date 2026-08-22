@@ -177,7 +177,8 @@ struct StallReason {
 };
 
 constexpr const char *kStallLabels[] = {"divider", "atomic",  "hazard",
-                                        "serialize", "operand", "fetch", "bus"};
+                                        "serialize", "operand", "fetch", "bus",
+                                        "region"};
 constexpr int kStallBuckets = sizeof(kStallLabels) / sizeof(kStallLabels[0]);
 
 constexpr StallReason kStallReasons[] = {
@@ -193,6 +194,13 @@ constexpr StallReason kStallReasons[] = {
     // reason `stall` names and the table does not shows up as `unattributed`,
     // which is the finding this accounting exists to report.
     {"uut decoder bus_wait", 6},
+    // The load/store region wait. Last on purpose, and that makes this column
+    // exactly the cycles the wait itself costs: `region_stall` is also high
+    // while the same access waits on the scoreboard or its operands, and the
+    // decoder registers the region answer only on the cycle nothing else is
+    // holding it, so every cycle charged here is one of those capture cycles
+    // and every earlier one belongs to the reason that came first.
+    {"uut decoder region_stall", 7},
 };
 
 struct Args {

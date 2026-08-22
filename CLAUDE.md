@@ -134,14 +134,23 @@ are kept in parentheses so those references still resolve.
   would drop an issued instruction — and that ruling is only arm order in the publish block, so it
   is asserted in `rtl/decoder.v`'s `FORMAL` block and vectored in `test/decoder_tb.v`. Every
   in-flight non-`x0` `rd` must be visible to the scoreboard on every cycle between issue and the
-  regfile write-through, with no gap. **Seven** reasons raise `stall`, and it is exactly their OR:
+  regfile write-through, with no gap. **Eight** reasons raise `stall`, and it is exactly their OR:
   the divider, the atomic write cycle, the decode scoreboard, serialization, the operand-fetch
-  cycle, the stolen fetch window, the ungranted bus. A reason is declared in **six** places, not
+  cycle, the stolen fetch window, the ungranted bus, the load/store region wait. A reason is
+  declared in **six** places, not
   the three this paragraph used to name: the decoder's signal, its OR, its publish arm and its
   `FORMAL` asserts; `test/decoder_tb.v`'s OR-identity check and its both-ways vectors;
   `test/cxxrtl.cc`'s bucket; `test/stall_report.py`'s `REASONS` and `HEADINGS`;
   `formal/pcloop.sv`'s `f_may_stall`; and this list.
-  **The ungranted bus is the seventh and it BUBBLES**, and unlike the sixth its arm was settled by
+  **The load/store region wait is the eighth and it BUBBLES**, for the scoreboard's reason rather
+  than the bus's: nothing has issued, so a held `decoder_out` would hand the executor an
+  instruction twice. Its arm is only arm order in the publish block, so it is asserted in
+  `rtl/decoder.v`'s `FORMAL` block and vectored in `test/decoder_tb.v` both ways round.
+  **It is the only reason that is about an answer rather than about a resource**, which is what
+  fixes where it sits in `make cycles`' order: it is raised for every cycle its access spends
+  waiting on anything, and charged last, so its column counts exactly the capture cycles — one per
+  load or store whose base register sits near a mapped window's edge.
+    **The ungranted bus is the seventh and it BUBBLES**, and unlike the sixth its arm was settled by
   construction rather than by argument: `rtl/executor.v` publishes `stalled` as an output and takes
   no input that freezes it, so a divider stall is the executor being busy in its own FSM and not a
   hold the decoder can borrow. A bus-grant wait leaves the executor idle, so a held `decoder_out`
