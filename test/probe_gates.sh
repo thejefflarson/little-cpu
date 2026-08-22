@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=0
+PROBES_EXPECTED=502
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -149,7 +149,7 @@ for a in "$@"; do [ "$a" = "--stalls" ] && stalls=1; done
 if [ -n "$stalls" ] && [ -z "${STUB_SIM_NOSTALLS:-}" ]; then
   unattr=${STUB_SIM_UNATTR:-0}
   echo "STALLS cycles=$((20 + unattr + ${STUB_SIM_SKEW:-0})) issue=10 divider=0" \
-       "atomic=0 hazard=10 serialize=0 operand=0 fetch=0 bus=0" \
+       "atomic=0 hazard=10 serialize=0 operand=0 fetch=0 bus=0 region=0" \
        "unattributed=$unattr lsissue=4 lsedge=2 lsbypass=1"
 fi
 case ${STUB_SIM_EXIT:-0} in
@@ -1952,8 +1952,8 @@ SR="python3 $REPO/test/stall_report.py"
 sr_fixture() {
   local d; d=$(new_case)
   cat > "$d/counts" <<'COUNTS'
-add.S cycles=40 issue=10 divider=0 atomic=0 hazard=20 serialize=0 operand=10 fetch=0 bus=0 unattributed=0 lsissue=4 lsedge=1 lsbypass=0 retires=10
-lw.S cycles=40 issue=10 divider=0 atomic=0 hazard=5 serialize=0 operand=25 fetch=0 bus=0 unattributed=0 lsissue=6 lsedge=3 lsbypass=2 retires=10
+add.S cycles=40 issue=10 divider=0 atomic=0 hazard=20 serialize=0 operand=10 fetch=0 bus=0 region=0 unattributed=0 lsissue=4 lsedge=1 lsbypass=0 retires=10
+lw.S cycles=40 issue=10 divider=0 atomic=0 hazard=5 serialize=0 operand=25 fetch=0 bus=0 region=0 unattributed=0 lsissue=6 lsedge=3 lsbypass=2 retires=10
 COUNTS
   printf '%s' "$d"
 }
