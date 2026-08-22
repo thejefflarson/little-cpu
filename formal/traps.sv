@@ -254,19 +254,25 @@ module traps #(
   // fires on an issuing cycle or the one after a trap. rtl/imemory.v,
   // rtl/regfile.v and the scoreboard are what provide it; the generated
   // riscv-formal checks are what run over all three.
-  logic [31:0] prev_reg_rs1, prev_imem_data, prev_imem_data2;
+  // STATED OVER `fetcher_out`, WHICH IS WHAT THE DECODER ACTUALLY READS. An
+  // earlier spelling held `imem_data` and `imem_data2` instead and was weaker
+  // than this comment claims: rtl/fetcher.v sits between them and carries state,
+  // so the same memory words can still produce a different `fetcher_out` on the
+  // next cycle. The decoder's input is the thing that has to stand still, so it
+  // is the thing assumed.
+  logic [31:0] prev_reg_rs1;
+  fetcher_output prev_fetcher_out;
   logic        prev_issuing;
   always_ff @(posedge clk) begin
-    prev_reg_rs1    <= reg_rs1;
-    prev_imem_data  <= imem_data;
-    prev_imem_data2 <= imem_data2;
-    prev_issuing    <= issuing || reset;
+    prev_reg_rs1     <= reg_rs1;
+    prev_fetcher_out <= fetcher_out;
+    prev_issuing     <= issuing || reset;
   end
   always_comb if (clocked && !reset && !prev_issuing) begin
     assume(reg_rs1 == prev_reg_rs1);
-    assume(imem_data == prev_imem_data);
-    assume(imem_data2 == prev_imem_data2);
+    assume(fetcher_out == prev_fetcher_out);
   end
+
 
   // Which instructions must trap, and with which cause. Written from the ISA,
   // not transcribed from rtl/decoder.v: each encoding below is one this core

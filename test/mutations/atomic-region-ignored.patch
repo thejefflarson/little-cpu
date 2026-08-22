@@ -1,13 +1,12 @@
 diff --git a/rtl/decoder.v b/rtl/decoder.v
-index 528c448..8a58888 100644
 --- a/rtl/decoder.v
 +++ b/rtl/decoder.v
-@@ -547,7 +547,7 @@ module decoder #(
+@@ -599,7 +599,7 @@ module decoder #(
    // other spelling, two terms each carrying their own encoding test, measured
    // 11.98 MHz at a placement this one clears.
    logic atomic_fault;
 -  assign atomic_fault = instr_atomic && !atomic_supported && !word_misaligned;
 +  assign atomic_fault = 1'b0;
-   // The same refusal for a plain load or store, answered off the decomposed
-   // question above instead of off a port. Misalignment outranks the region here
-   // too, so the four data causes stay disjoint whichever access raised them.
+   // The same refusal for a plain load or store, read a cycle late off the
+   // flip-flop the wait above filled, so the trap chain and the pc never see the
+   // effective-address adder. Misalignment outranks the region here too, so the

@@ -542,22 +542,6 @@ module decoder #(
   // rs1, and nothing issued on that cycle to start one. THAT IS THE ONE THING
   // THIS DESIGN NEEDS AND CANNOT SEE. rtl/regfile.v and the scoreboard provide
   // it; formal/traps.sv, which has no register file, assumes it and says so.
-  logic ls_access, ls_capture, ls_answer, ls_answer_valid, region_stall, ls_fault;
-  logic stall_other;
-  assign ls_access = instr_ls_load || instr_ls_store;
-  assign region_stall = ls_access && !ls_settled && !ls_answer_valid;
-  assign ls_capture = region_stall && !stall_other;
-
-  always_ff @(posedge clk) begin
-    if (reset) begin
-      ls_answer       <= 1'b0;
-      ls_answer_valid <= 1'b0;
-    end else begin
-      ls_answer       <= ls_supported;
-      ls_answer_valid <= ls_capture;
-    end
-  end
-
   // Misalignment needs two bits of the sum, and the low two bits of a sum depend
   // only on the low two bits of the operands -- so they are added here rather
   // than read off `mem_addr_calc`. Read from there, this test waits on a 32-bit
@@ -565,6 +549,46 @@ module decoder #(
   // misaligned access traps and a trap chooses the next pc.
   logic [1:0] mem_addr_low;
   assign mem_addr_low = immediate[1:0] + reg_rs1[1:0];
+
+  logic ls_access, ls_capture, ls_answer, ls_answer_valid, region_stall, ls_fault;
+  logic stall_other, stall_own;
+  assign ls_access = instr_ls_load || instr_ls_store;
+  assign region_stall = ls_access && !ls_settled && !ls_answer_valid;
+  assign ls_capture = region_stall && !stall_own;
+
+  // THE ANSWER IS HELD UNTIL THE INSTRUCTION IT IS ABOUT ISSUES, not for one
+  // cycle. A one-cycle answer livelocks the moment anything else holds the same
+  // instruction for longer: the answer expires, `region_stall` comes back, that
+  // drops `bus_request`, the grant never arrives, and the pair oscillates
+  // forever. `make dual-smoke` reproduced exactly that at cycle 17 -- a
+  // single-hart build ties `bus_wait` low, so nothing there can hold a load
+  // past its own capture and this is invisible.
+  //
+  // HELD FOR TWO REASONS AND NO OTHERS, and the list is short because the
+  // capture already required every reason of the instruction's own to be low.
+  // Nothing has issued since, so the scoreboard cannot have filled, the operand
+  // pair cannot have changed and the divider cannot have started -- the only
+  // reasons that can newly assert over a captured access are the two that come
+  // from outside it: another hart holding the bus, and a text write stealing
+  // the fetch window. Neither changes the instruction, so the answer is still
+  // about the access it was taken for.
+  //
+  // Holding on `stall` at large is WRONG and the suite says so: an
+  // operand-fetch cycle would carry the answer across into the NEXT access,
+  // which then issues on a stale bit without waiting. `ls_access` is in the
+  // term for the same reason -- parking on a nop must retire the answer.
+  always_ff @(posedge clk) begin
+    if (reset) begin
+      ls_answer       <= 1'b0;
+      ls_answer_valid <= 1'b0;
+    end else if (ls_capture) begin
+      ls_answer       <= ls_supported;
+      ls_answer_valid <= 1'b1;
+    end else begin
+      ls_answer_valid <= ls_answer_valid && ls_access &&
+                         (bus_wait || fetch_stall);
+    end
+  end
 
   // An atomic is word-wide and never split, so an unaligned one faults rather
   // than being emulated. `lr.w` reports as a load and the other ten as stores,
@@ -860,8 +884,26 @@ module decoder #(
   // region answer on the cycle nothing else is holding the instruction, which is
   // the cycle after which rs1 cannot move again. Declared beside the region
   // block; assigned here, where the other seven are born.
-  assign stall_other = hazard || operand_stall || divider_stall || fetch_stall ||
-                       atomic_stall || bus_wait;
+  // Everything that holds this instruction for a reason of its OWN, which is
+  // every reason but the bus. Named once and read three times: `stall_other`
+  // adds the bus to it, `bus_request` asks off it, and the region capture is
+  // guarded by it rather than by `stall_other`.
+  //
+  // THE CAPTURE MUST NOT WAIT ON THE BUS, and the deadlock is immediate if it
+  // does: the region wait suppresses `bus_request`, an unasked-for grant never
+  // arrives, `bus_wait` stays high, and a capture guarded on it never fires --
+  // so the wait never ends. A single-hart build ties `bus_wait` low and cannot
+  // see any of that; `make dual-smoke` is what does, and it did.
+  //
+  // Leaving the bus out costs the guard nothing. What the capture registers is
+  // a function of `immediate` and `reg_rs1`: the immediate is decoded from a
+  // word that is being held, and rs1 cannot move while `hazard` and
+  // `operand_stall` are low, since the scoreboard is clear and nothing issued
+  // to start a write. The bus changes neither -- it says only that some other
+  // hart is publishing this cycle.
+  assign stall_own = hazard || operand_stall || divider_stall || fetch_stall ||
+                     atomic_stall;
+  assign stall_other = stall_own || bus_wait;
   assign stall = stall_other || region_stall;
 
   // The same conjunction as `stall` with `bus_wait` left out, and the nine
@@ -873,8 +915,7 @@ module decoder #(
   // accessor never sees a transaction to make. So is the region wait's own
   // cycle: the transaction it precedes is two cycles away, not one, and asking
   // early there is an over-approximation with nothing to buy.
-  assign bus_request = !reset && !trap_taken && !region_stall &&
-    !(hazard || operand_stall || divider_stall || fetch_stall || atomic_stall) &&
+  assign bus_request = !reset && !trap_taken && !region_stall && !stall_own &&
     (instr_lb || instr_lbu || instr_lh || instr_lhu || instr_lw ||
      instr_sb || instr_sh || instr_sw || instr_atomic);
 
@@ -1369,14 +1410,31 @@ module decoder #(
     if (ls_settled) assert(ls_supported);
   end
 
-  // The answer read by the trap chain is at most one cycle old. That bound is
-  // what the register file's guarantee has to cover -- rs1 cannot move under a
-  // held instruction -- so it is asserted rather than argued: `region_stall`
-  // reads `ls_answer_valid`, so a valid answer suppresses the capture that would
-  // keep it alive.
-  logic prev_answer_valid;
-  always_ff @(posedge clk) prev_answer_valid <= ls_answer_valid;
-  always_comb if (clocked && prev_answer_valid) assert(!ls_answer_valid);
+  // THE ANSWER NEVER OUTLIVES THE ACCESS IT WAS TAKEN FOR. That is what the
+  // register file's guarantee has to cover -- rs1 cannot move under a held
+  // instruction -- and it is asserted rather than argued, in two statements
+  // neither of which is the RTL's own clause restated.
+  //
+  // Issuing retires it: if the instruction went out last cycle then decode has
+  // moved on, and any answer surviving into this one is about an access that is
+  // gone. Stated in terms of `stall` rather than of the two hold reasons, so it
+  // is a claim about the design and not the assignment read back.
+  //
+  // The companion claim -- a valid answer implies a load or store is still in
+  // decode -- is `test/decoder_tb.v`'s and deliberately NOT asserted here. This
+  // harness drives `instr` as a free input, so it can put a different
+  // instruction under a captured answer on the very next cycle, which the fetch
+  // path cannot: the pc holds through a stall and re-presents the same word.
+  // Asserting it here would fail on a trace the machine cannot reach. An
+  // earlier spelling of the hold really did carry an answer across an
+  // operand-fetch cycle into the next access, and the bench is what caught it.
+  logic prev_answer_valid, prev_issued;
+  always_ff @(posedge clk) begin
+    prev_answer_valid <= ls_answer_valid;
+    prev_issued       <= !stall;
+  end
+  always_comb if (clocked && prev_answer_valid && prev_issued)
+    assert(!ls_answer_valid);
 
   // One line per cause, not a copy of the case statement, so reordering its arms
   // trips these instead of changing them to match. The eight synchronous causes
