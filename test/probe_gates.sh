@@ -3183,8 +3183,8 @@ d=$(tr_fixture); sed -i.bak 's/assign load_access_fault  = (atomic_fault/assign 
 probe "a respelled fault site stops rather than building the shipping core twice" 2 \
   "no longer spells what the wrong-cause mutation replaces" "$(trs "$d")"
 
-d=$(tr_fixture); sed -i.bak 's/load_misaligned || store_misaligned || atomic_fault ||/load_misaligned || atomic_fault || store_misaligned ||/' "$d/rtl/decoder.v"
-probe "a respelled trap_pending stops: an uncommitted fault proves nothing" 2 \
+d=$(tr_fixture); sed -i.bak 's/assign data_fault = load_misaligned || store_misaligned/assign data_fault = load_misaligned  || store_misaligned/' "$d/rtl/decoder.v"
+probe "a respelled data_fault stops: an uncommitted fault proves nothing" 2 \
   "no longer spells what the no-trap mutation replaces" "$(trs "$d")"
 
 d=$(tr_fixture); rm "$d/formal/traps.sv"

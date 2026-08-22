@@ -88,10 +88,9 @@ ASSERTS = {
 # mutation that deletes nothing builds the shipping core twice.
 MUTATIONS = {
     "no-trap": (
-        """                        load_misaligned || store_misaligned || atomic_fault ||
-                        ls_fault;
+        """  assign data_fault = load_misaligned || store_misaligned || atomic_fault || ls_fault;
 """,
-        """                        load_misaligned || store_misaligned || atomic_fault;
+        """  assign data_fault = load_misaligned || store_misaligned || atomic_fault;
 """,
     ),
     "wrong-cause": (

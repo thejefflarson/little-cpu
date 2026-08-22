@@ -229,6 +229,45 @@ module traps #(
   logic hard_stall;
   assign hard_stall = divider_stall || fetch_stall || bus_wait;
 
+  // A HELD INSTRUCTION IS STILL THE SAME INSTRUCTION, AND NOTHING IN THIS FILE
+  // DISCHARGES IT. The decoder answers the load/store region question a cycle
+  // late: an access whose base register sits near a window's edge waits one
+  // cycle, decode registers the answer about its own effective address on that
+  // cycle, and the trap chain reads the flip-flop on the next one. That is an
+  // answer about the same access only while the word and the register it was
+  // computed from stay put -- and this is the first thing in the core to read a
+  // decode input across a cycle boundary at all, which is why the sentence has
+  // to be written down here rather than relied on the way formal/pcloop.sv's
+  // comments rely on it.
+  //
+  // In the core neither can move. A stalled cycle holds the pc and `imem_addr`
+  // is the pc, so the memory answers the same address with the same word; and a
+  // stalled cycle issues nothing, so no write to rs1 can be started on it, while
+  // the decode scoreboard holds any instruction whose rs1 is already in flight
+  // until that write has gone through. Here all three are free inputs with no
+  // memory and no register file behind them.
+  //
+  // Stated on `issuing` rather than on the wait itself, because the wait is
+  // internal to the decoder: this covers every stalled cycle, which is wider
+  // than the property needs and costs nothing -- the solver still picks all
+  // three freely on every cycle an assertion fires, and every assertion here
+  // fires on an issuing cycle or the one after a trap. rtl/imemory.v,
+  // rtl/regfile.v and the scoreboard are what provide it; the generated
+  // riscv-formal checks are what run over all three.
+  logic [31:0] prev_reg_rs1, prev_imem_data, prev_imem_data2;
+  logic        prev_issuing;
+  always_ff @(posedge clk) begin
+    prev_reg_rs1    <= reg_rs1;
+    prev_imem_data  <= imem_data;
+    prev_imem_data2 <= imem_data2;
+    prev_issuing    <= issuing || reset;
+  end
+  always_comb if (clocked && !reset && !prev_issuing) begin
+    assume(reg_rs1 == prev_reg_rs1);
+    assume(imem_data == prev_imem_data);
+    assume(imem_data2 == prev_imem_data2);
+  end
+
   // Which instructions must trap, and with which cause. Written from the ISA,
   // not transcribed from rtl/decoder.v: each encoding below is one this core
   // must either execute or fault on, and the cause is the one the privileged
