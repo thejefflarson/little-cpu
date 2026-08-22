@@ -231,7 +231,7 @@ co-simulation divergence**: the model has only `RsrvEventual` and `RsrvNone`, th
 neither, and `RsrvNone` is what it is now.
 
 **The ISA string has one source and `make test` grades it**: `test/march_test.sh` declares
-`rv32imac_zicsr_zifencei` and checks all six sites that state it, three of which are silent when
+`rv32imac_zicsr_zifencei` and checks all seven sites that state it, three of which are silent when
 wrong — the Makefile's `soc-rom` builds a program with no atomic in it, and `DHRY_CFLAGS` is copied
 verbatim into `soc/depth/cycles.py` with nothing else comparing the two. Two spellings that look
 identical must **not** move with it: `formal/checks.cfg`'s `isa rv32imc` and `MONITOR_GEN -i
