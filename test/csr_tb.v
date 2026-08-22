@@ -27,7 +27,7 @@ module csr_tb;
   // The second write port, driven for exactly the cycle rtl/decoder.v commits
   // a trap or an mret.
   logic        trap_entry, mret_entry;
-  logic [31:0] trap_cause, trap_epc;
+  logic [31:0] trap_cause, trap_epc, trap_tval;
   logic [31:0] mtvec_value, mepc_value;
   // The platform's timer line, and the one bit rtl/decoder.v reads back.
   logic        irq_timer;
@@ -50,6 +50,7 @@ module csr_tb;
     .trap_entry(trap_entry),
     .trap_cause(trap_cause),
     .trap_epc(trap_epc),
+    .trap_tval(trap_tval),
     .mret_entry(mret_entry),
     .irq_timer(irq_timer),
     .mtvec_value(mtvec_value),
@@ -159,10 +160,12 @@ module csr_tb;
     end
   endtask
 
-  task automatic take_trap(input logic [31:0] cause, input logic [31:0] epc);
+  task automatic take_trap(input logic [31:0] cause, input logic [31:0] epc,
+                           input logic [31:0] tval);
     begin
       trap_cause = cause;
       trap_epc = epc;
+      trap_tval = tval;
       trap_entry = 1'b1;
       @(posedge clk);
       #1;
@@ -191,6 +194,7 @@ module csr_tb;
     mret_entry = 1'b0;
     trap_cause = 32'b0;
     trap_epc = 32'b0;
+    trap_tval = 32'b0;
     irq_timer = 1'b0;
     reset = 1'b1;
     repeat (2) @(posedge clk);
@@ -206,7 +210,7 @@ module csr_tb;
     check_read("misa", 12'h301, 32'h4000_1105);
     check_read("mie resets to 0", 12'h304, 32'h0);
     check_read("mip reads 0 with no source asserting", 12'h344, 32'h0);
-    check_read("mtval reads 0", 12'h343, 32'h0);
+    check_read("mtval resets to 0", 12'h343, 32'h0);
     check_read("mvendorid", 12'hF11, 32'h0);
     check_read("marchid", 12'hF12, 32'h0);
     check_read("mimpid", 12'hF13, 32'h0);
@@ -281,8 +285,14 @@ module csr_tb;
     check_read("misa ignores a write", 12'h301, 32'h4000_1105);
     poke(12'h344, 32'hffff_ffff);
     check_read("mip ignores a write -- MTIP is the platform's line", 12'h344, 32'h0);
+    // Writable in full, with no legal-value mask: every 32-bit pattern is one
+    // some trap could have left here, and a handler that nests traps has to be
+    // able to save and restore it. All ones is the vector that separates
+    // "writable" from "writable except for a field somebody masked".
     poke(12'h343, 32'hffff_ffff);
-    check_read("mtval ignores a write", 12'h343, 32'h0);
+    check_read("mtval round-trips every bit", 12'h343, 32'hffff_ffff);
+    poke(12'h343, 32'h0000_0000);
+    check_read("...and clears again", 12'h343, 32'h0);
     poke(12'hF14, 32'hffff_ffff);
     check_read("mhartid ignores a write", 12'hF14, 32'h0);
     check_other_read("...and a non-zero HART_ID survives one too",
@@ -419,9 +429,13 @@ module csr_tb;
     poke(12'h300, 32'h0000_0008);   // mstatus.MIE = 1, MPIE = 0
     check_hex("mtvec_value echoes mtvec for the decoder", mtvec_value, 32'h0000_0100);
 
-    take_trap(32'd4, 32'h0000_0080);
+    take_trap(32'd4, 32'h0000_0080, 32'h0001_0049);
     check_read("a trap records the cause", 12'h342, 32'd4);
     check_read("...and the faulting pc in mepc", 12'h341, 32'h0000_0080);
+    // Unmasked, unlike mepc: an effective address may be odd, and a misaligned
+    // one always is -- masking mtval the way mepc is masked would report the
+    // aligned address the access did not use, for cause 4 and cause 6 alike.
+    check_read("...and what it happened to in mtval", 12'h343, 32'h0001_0049);
     check_read("...pushes MIE into MPIE and clears MIE", 12'h300, 32'h0000_1880);
     check_hex("mepc_value echoes mepc for the decoder", mepc_value, 32'h0000_0080);
 
@@ -430,19 +444,36 @@ module csr_tb;
     check_read("mret restores MIE from MPIE and sets MPIE", 12'h300, 32'h0000_1888);
     check_read("...and leaves mepc alone", 12'h341, 32'h0000_0080);
     check_read("...and leaves mcause alone", 12'h342, 32'd4);
+    check_read("...and leaves mtval alone", 12'h343, 32'h0001_0049);
 
     poke(12'h300, 32'h0000_0000);
-    take_trap(32'd2, 32'h0000_0200);
+    take_trap(32'd2, 32'h0000_0200, 32'h7c00_2573);
     check_read("a trap with MIE clear pushes a clear MPIE", 12'h300, 32'h0000_1800);
     check_read("...and records the new cause", 12'h342, 32'd2);
+    // The instruction word, for cause 2. Not sticky: an mtval still carrying
+    // the previous trap's address here is a handler reading the wrong trap's
+    // report, which is what a register written only on the first entry does.
+    check_read("...and replaces mtval rather than keeping the older one",
+               12'h343, 32'h7c00_2573);
+
+    // A software write and then a trap, in that order. The two write paths land
+    // on one register, and trap entry has to beat what software parked there --
+    // a nested handler restores mtval on its way out, and the next trap must
+    // not report the restored value.
+    poke(12'h343, 32'h5a5a_5a5a);
+    check_read("software owns mtval between traps", 12'h343, 32'h5a5a_5a5a);
+    take_trap(32'd6, 32'h0000_0240, 32'h0001_0102);
+    check_read("...and the next trap overwrites it", 12'h343, 32'h0001_0102);
 
     // A compressed instruction faulting at pc % 4 == 2 must record an mepc with
     // bit 1 set, or the handler resumes two bytes early. test/asm/trap.S faults
     // a real `c.lw` at that alignment for the same reason.
-    take_trap(32'd4, 32'h0000_0146);
+    take_trap(32'd4, 32'h0000_0146, 32'h0001_0002);
     check_read("mepc preserves bit 1 on a 2-aligned faulting pc", 12'h341, 32'h0000_0146);
-    take_trap(32'd4, 32'h0000_0147);
+    take_trap(32'd4, 32'h0000_0147, 32'h0001_0003);
     check_read("...and still masks bit 0", 12'h341, 32'h0000_0146);
+    check_read("...while mtval keeps the odd address that faulted",
+               12'h343, 32'h0001_0003);
 
     //-----------------------------------------------------------------------
     // mie, mip and the interrupt decision. No riscv-formal check at the pin
@@ -492,11 +523,16 @@ module csr_tb;
     // re-arms until `mret`. Delete the `mstatus_mie <= 1'b0` in rtl/csrs.v's
     // trap block and the core takes an interrupt every cycle forever, with
     // this vector the only thing that says so.
-    take_trap(32'h8000_0007, 32'h0000_0400);
+    take_trap(32'h8000_0007, 32'h0000_0400, 32'h0);
     check_bit("entry disarms it, so there is no second entry", interrupt_pending, 1'b0);
     check_read("...recording the interrupt cause", 12'h342, 32'h8000_0007);
     check_read("...and mepc, which points AT the un-executed instruction",
                12'h341, 32'h0000_0400);
+    // An interrupt happened to nothing: the instruction it displaced did not
+    // execute, so neither its address nor its encoding is what mtval reports.
+    // Its predecessor above left 0x00010003 there, so a register that failed to
+    // take the interrupt's zero would still be holding an address.
+    check_read("...and mtval, which an interrupt reports nothing in", 12'h343, 32'h0);
     check_read("...having pushed MIE into MPIE", 12'h300, 32'h0000_1880);
 
     take_mret();

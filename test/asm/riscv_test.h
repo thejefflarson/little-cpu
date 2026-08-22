@@ -107,6 +107,9 @@ trap_cause:                                                                  \
         .word   0;                                                          \
         .global trap_epc;                                                   \
 trap_epc:                                                                    \
+        .word   0;                                                          \
+        .global trap_tval;                                                  \
+trap_tval:                                                                   \
         .word   0;
 
 // Invoke in .text somewhere control cannot fall into -- after TEST_PASSFAIL by
@@ -128,6 +131,9 @@ trap_handler:                                                                \
         sw      t1, 0(t0);                                                  \
         csrr    t1, mcause;                                                 \
         la      t0, trap_cause;                                             \
+        sw      t1, 0(t0);                                                  \
+        csrr    t1, mtval;                                                  \
+        la      t0, trap_tval;                                              \
         sw      t1, 0(t0);                                                  \
         csrr    t1, mepc;                                                   \
         la      t0, trap_epc;                                               \

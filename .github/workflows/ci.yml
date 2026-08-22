@@ -132,6 +132,12 @@ jobs:
   mutation-check:
     name: mutation-check
     runs-on: little-cpu-runners
+    # Ten mutations, each rebuilding the cxxrtl runner: about nine minutes of
+    # work on an idle machine, on a runner pool the whole workflow shares. At 15
+    # the budget was thin enough that a busy pool killed the job mid-run, and a
+    # cancelled job with the log still inside the redirect below reads as a
+    # failed gate rather than as a busy pool -- the same way `components` did at
+    # 5. Every mutation added spends about a minute of this.
     timeout-minutes: 25
     steps:
       - name: Record job start

@@ -6,7 +6,10 @@
 #
 # Every trap cause this core implements, taken
 # deliberately, recorded by the opt-in handler in riscv_test.h, and asserted
-# on from the test body.
+# on from the test body — the cause, the saved pc, and what mtval says the
+# trap happened to. That last one is a platform statement firmware cannot
+# derive, so every cause reached here asserts it, the two that report zero
+# included.
 #
 # This test self-checks in band rather than leaning on the per-retire RVFI
 # monitor, and that is not a stylistic choice: riscv-formal ships no spec model
@@ -48,6 +51,19 @@ mis_lw:
   TEST_CASE( 2, a4, 4, la a3, trap_cause; lw a4, 0(a3); )
   TEST_CASE( 3, a4, 1, la a3, trap_count; lw a4, 0(a3); )
 
+  # mtval holds the EFFECTIVE address, which is the whole reason it is worth
+  # its flops: `tdat + 1` is a number the handler would otherwise have to
+  # rebuild by re-fetching the instruction at mepc and redoing the add out of
+  # its own saved context. Computed here rather than written down, so a change
+  # to the data layout cannot turn this into an assertion about a constant.
+test_21:
+  la    a3, trap_tval
+  lw    a4, 0(a3)
+  la    x29, tdat
+  addi  x29, x29, 1
+  li    TESTNUM, 21
+  bne   a4, x29, fail
+
   # mepc holds the address of the faulting instruction, and resuming at mepc+4
   # therefore landed on the instruction after it — which is where the code
   # asserting this is running.
@@ -66,11 +82,14 @@ test_4:
   #-------------------------------------------------------------
 
   la    a0, tdat
-  addi  a0, a0, 2
 
+  # The offset rides in the instruction rather than being folded into the base,
+  # and that is deliberate: mtval must be the EFFECTIVE address, and with a
+  # zero immediate the sum and rs1 are the same number. The misaligned load
+  # above is the zero-immediate shape; this is the one that tells them apart.
   .option push
   .option norvc
-  sw    a1, 0(a0)
+  sw    a1, 2(a0)
   .option pop
 
   TEST_CASE(  6, a4, 6, la a3, trap_cause; lw a4, 0(a3); )
@@ -78,6 +97,17 @@ test_4:
 
   # ...and wrote no memory: tdat is untouched.
   TEST_CASE(  8, a4, 0x0ff0, la a3, tdat; lw a4, 0(a3); )
+
+  # A misaligned STORE reports its effective address too, and this one is a
+  # different offset from the load above -- so a core reporting a stale mtval
+  # from the previous trap fails here rather than passing on a repeat.
+test_22:
+  la    a3, trap_tval
+  lw    a4, 0(a3)
+  la    x29, tdat
+  addi  x29, x29, 2
+  li    TESTNUM, 22
+  bne   a4, x29, fail
 
   #-------------------------------------------------------------
   # Environment call from M-mode: cause 11.
@@ -90,6 +120,12 @@ test_4:
 
   TEST_CASE(  9, a4, 11, la a3, trap_cause; lw a4, 0(a3); )
 
+  # An environment call happened to no address and to no word, so mtval is
+  # zero -- and it was NOT zero on the way in, because the store above left an
+  # address there. That is what makes this a check on the write rather than on
+  # a register nobody touched.
+  TEST_CASE( 23, a4, 0, la a3, trap_tval; lw a4, 0(a3); )
+
   #-------------------------------------------------------------
   # Breakpoint: cause 3.
   #-------------------------------------------------------------
@@ -100,6 +136,11 @@ test_4:
   .option pop
 
   TEST_CASE( 10, a4, 3, la a3, trap_cause; lw a4, 0(a3); )
+
+  # A breakpoint reports nothing either: mepc already holds the only address it
+  # could name, and the privileged spec requires a nonzero mtval for no cause.
+  # Written down here because firmware cannot derive it from anything else.
+  TEST_CASE( 24, a4, 0, la a3, trap_tval; lw a4, 0(a3); )
 
   #-------------------------------------------------------------
   # Illegal instruction: cause 2. Two flavours — an encoding that decodes to
@@ -114,6 +155,13 @@ test_4:
 
   TEST_CASE( 11, a4, 2, la a3, trap_cause; lw a4, 0(a3); )
 
+  # An illegal instruction reports the faulting WORD, which is what lets a
+  # handler emulate it without going back to text at mepc -- and on a Harvard
+  # core it cannot go back to text at all. The all-zero word reports itself, so
+  # this one number is both the instruction and a zero mtval; test 26 below is
+  # the case where the two are distinguishable.
+  TEST_CASE( 25, a4, 0, la a3, trap_tval; lw a4, 0(a3); )
+
   # Clear the recorded cause so the next case cannot pass on a stale value.
   la    a3, trap_cause
   sw    x0, 0(a3)
@@ -124,6 +172,18 @@ test_4:
   .option pop
 
   TEST_CASE( 12, a4, 2, la a3, trap_cause; lw a4, 0(a3); )
+
+  # ...and here the word is not zero, which is the case that separates
+  # "reports the instruction" from "reports zero and got lucky". The expected
+  # value is a literal because it has to be: text is unreachable from a load on
+  # this Harvard core, so nothing here can read the faulting word back out of
+  # ROM to compare against.
+test_26:
+  la    a3, trap_tval
+  lw    a4, 0(a3)
+  li    x29, 0x7c002573        # csrr a0, 0x7c0
+  li    TESTNUM, 26
+  bne   a4, x29, fail
 
   #-------------------------------------------------------------
   # ...and the other illegal-CSR rule: a WRITE to a CSR that is read-only by
@@ -177,6 +237,18 @@ mis_clw:
 
   TEST_CASE( 14, a4, 4, la a3, trap_cause; lw a4, 0(a3); )
 
+  # The COMPRESSED load reports its effective address the same way the
+  # uncompressed one did. Nothing about mtval's value depends on the length of
+  # the instruction that faulted, which is the half a 32-bit-only case cannot
+  # say.
+test_27:
+  la    a3, trap_tval
+  lw    a4, 0(a3)
+  la    x29, tdat
+  addi  x29, x29, 1
+  li    TESTNUM, 27
+  bne   a4, x29, fail
+
 test_15:
   la    a3, trap_epc
   lw    a4, 0(a3)
@@ -191,6 +263,18 @@ test_15:
 
   # Eight traps taken, eight handler entries.
   TEST_CASE( 18, a4, 8, la a3, trap_count; lw a4, 0(a3); )
+
+  # mtval is writable by software, with no legal-value mask. A nested handler
+  # saves it on entry and restores it on the way out, so a write that did not
+  # land would destroy the outer trap's report -- and this is the only place a
+  # program can see that at all. All ones is the pattern that separates
+  # "writable" from "writable except for a field somebody masked".
+test_28:
+  li    t0, -1
+  csrw  mtval, t0
+  csrr  a4, mtval
+  li    TESTNUM, 28
+  bne   a4, t0, fail
 
   #-------------------------------------------------------------
   # A trapping instruction issues, and retires in RVFI with

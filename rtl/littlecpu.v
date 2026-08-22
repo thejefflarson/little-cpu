@@ -222,7 +222,7 @@ module littlecpu #(
   logic        csr_implemented;
   logic        csr_instret;
   logic        csr_trap_entry, csr_mret_entry;
-  logic [31:0] csr_trap_cause, csr_trap_epc;
+  logic [31:0] csr_trap_cause, csr_trap_epc, csr_trap_tval;
   logic [31:0] csr_mtvec, csr_mepc;
   logic        csr_interrupt_pending;
  `ifdef RISCV_FORMAL
@@ -281,6 +281,7 @@ module littlecpu #(
     .trap_entry(decoder_trap_entry),
     .trap_cause(csr_trap_cause),
     .trap_epc(csr_trap_epc),
+    .trap_tval(csr_trap_tval),
     .mret_entry(csr_mret_entry),
     .out(decoder_out)
   );
@@ -296,6 +297,7 @@ module littlecpu #(
     .trap_entry(decoder_trap_entry),
     .trap_cause(csr_trap_cause),
     .trap_epc(csr_trap_epc),
+    .trap_tval(csr_trap_tval),
     .mret_entry(csr_mret_entry),
     .irq_timer(irq_timer),
     .rdata(csr_rdata),

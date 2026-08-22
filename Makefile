@@ -667,9 +667,13 @@ fit.json: $(FIT_SRCS)
 # and the job's count is the figure this budget is derived from and graded
 # against.
 #
-# 4088 = 3966 + 68 + 54:
-#   3966  the `fit` job's count on 421947f, run 31984969180. It has read 3966 on
-#         five consecutive trees, none of which touched an input to this target.
+# 4219 = 4097 + 68 + 54:
+#   4097  the `fit` job's count on this tree, run 32450082354. The tree before
+#         mtval read 3937 in the same job, so +160 of that count is this
+#         change: a 32-bit register in rtl/csrs.v, the write mux that chooses
+#         between a trap's value and a software write, and the four-arm mux in
+#         rtl/decoder.v that builds it. That is what this raise bought, and
+#         none of the headroom below is a budget for the next change.
 #    +68  the churn band, measured rather than quoted at ±50. Setting one further
 #         bit of the read-only `misa` constant spans 68 cells on 64759da (3988,
 #         3979 and 3920 against a base of 3935) and 63 on 2007d9d (3958, 3971,
@@ -687,21 +691,20 @@ fit.json: $(FIT_SRCS)
 #         rather than pinning it, so a release moves the count with nothing
 #         committed against it.
 #
-# The budget clears the higher of each tree's pair by more than a band -- 3969
-# here, 3988 on 2007d9d. Preserve that when this is next re-derived.
+# The budget clears the higher of this tree's pair by more than a band -- 4084
+# local against 4097 in the job. Preserve that when this is next re-derived.
 #
-# This raise buys band clearance and nothing else. No cells were spent for it and
-# none of the headroom is a budget for a design change. A raise that pays for one
-# reads differently and names what it bought: 3625 -> 4000 was +452 measured
-# cells for the eleven A instructions.
+# A raise names what it bought, and the two kinds read differently: 4000 -> 4088
+# bought band clearance with no cells spent for it, and 3625 -> 4000 was +452
+# measured cells for the eleven A instructions. This one is the second kind.
 # If this goes red, find out what grew; raising it to pass defeats the point.
-FIT_MAX_LC := 4088
+FIT_MAX_LC := 4219
 
 # The count above, printed as a delta beside the verdict: a pass says only "under
 # the budget", where a real +50 and a churn +50 read identically. It grades
 # nothing and cannot fail, which is what `test/probe_gates.sh` pins. It is the
 # job's count, so a local run prints the gap between the instruments as well.
-FIT_LAST_LC := 3966
+FIT_LAST_LC := 4097
 
 # The two tools this number is a property of. icetime is not among them: this
 # top never places, so nothing here reads a `.asc`.
