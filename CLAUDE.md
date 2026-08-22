@@ -66,12 +66,15 @@ are kept in parentheses so those references still resolve.
   distinction to hold on to. **The data bus refuses an ATOMIC and nothing else**: the data RAM
   answers its range test about a second address — the one an atomic's rs1 names, a register output
   with no adder in front of it — and decode raises causes 5 and 7 from it, for zero extra logic
-  levels against the four the same test for a load or a store cost (ADR-0109). **An out-of-region
-  load still reads zero and an out-of-region store is still dropped, silently**, and that is a
-  recorded deviation with a measured price rather than a property of the design: their address is a
-  32-bit sum, and **the price is which bit of that sum the fetch loop has to wait for** — bit 31
-  costs 17.3% of median period, bit 12 costs 9.1%, and waiting for none of it is a null
-  (ADR-0104, ADR-0116).
+  levels against the four the same test for a load or a store cost (ADR-0109). **The data bus
+  refuses a plain load or store too now, and what that costs is the board clock** (ADR-0126): their
+  address is a 32-bit sum, **the price is which bit of that sum the fetch loop has to wait for** —
+  bit 31 costs 17.3% of median period, bit 12 costs 9.1%, waiting for none of it is a null
+  (ADR-0104, ADR-0116) — and the cheapest exact spelling waits for bit 12 and measures **+9.40% of
+  median period, 16 of 16 seeds slower against a one-line control, under 12.00 MHz at 9 of 16
+  placements with the median at 11.97**. So the conformance gap is closed in RTL and the requirement
+  is not met; read that pair together, because a single-seed `make soc-timing` reads 12.06 and
+  passes.
 - **Every inter-stage struct carries a `valid` bit** (3). A bubble is `valid = 0`; retire is
   `valid` reaching writeback, which gates `wen` and drives `rvfi_valid`.
 - **Hazards are stall-only** (4). No forwarding network, and 35.7% of suite cycles is what that
@@ -178,8 +181,9 @@ store misaligned = 6, store/AMO access fault = 7, ecall from M = 11.
 **Instruction-address-misaligned (0) is the one remaining cause and it is unreachable** — C makes
 2-byte targets legal — so not implementing it costs nothing and closes nothing.
 
-**Causes 5 and 7 are raised for the eleven A encodings and for nothing else**, and the asymmetry is
-a measurement rather than an oversight (ADR-0104, ADR-0109). All three refusals have the same shape:
+**Causes 5 and 7 are raised for the eleven A encodings and for the twelve plain load and store
+encodings**, and what remains asymmetric is the price, not the behaviour (ADR-0104, ADR-0109,
+ADR-0126). All three refusals have the same shape:
 the platform decodes its own map and hands the core one bit that arrives with the *address*.
 `rtl/imemory.v` publishes a fetch outside the text window on `imem_fault` → cause 1; `rtl/memory.v`
 answers its range test about `atomic_addr` → cause 5 for `lr.w` and 7 for the nine AMOs and `sc.w`,
@@ -190,12 +194,16 @@ levels**. A plain load or store has to read `immediate + reg_rs1` and hand the a
 and **the price is that wait and nothing about the region decode** (ADR-0116): the same three
 windows and the same merge asked about `reg_rs1` instead of the sum are a null, and the cost is
 monotone in which bit of the sum is waited for — bit 31 is +17.30% of median period, bit 12 is
-+9.10%, and a **coarse** check that still reads bit 31 is +15.95%, a null against the exact one. So
-an address no memory answers is still read as zero and written nowhere for those two — a deviation
-from the privileged spec's strong recommendation that precise access faults be raised, recorded as
-one rather than as a design choice. **The only affordable spelling is not a region test**: asking
-about `rs1`'s page and its neighbours holds 12 MHz at 16 of 16 placements and is declined because it
-makes `mcause` a function of the base register rather than of the access.
++9.10%, and a **coarse** check that still reads bit 31 is +15.95%, a null against the exact one. The
+cheapest exact spelling waits for bit 12 and it is what ships here: three tests per window on raw
+register bits, the immediate's sign picking the pair, and the carry into bit 12 — recovered from the
+existing adder as `sum[12] ^ rs1[12] ^ imm[12]`, never a second one — picking between two
+precomputed answers one mux deep. **It reproduces the bit-12 figure on a later tree at +9.40% of
+median period and puts 9 of 16 placements under 12.00 MHz** (ADR-0126), so the deviation from the
+privileged spec's strong recommendation is closed and the requirement is open. **The only affordable
+spelling is not a region test**: asking about `rs1`'s page and its neighbours holds 12 MHz at 16 of
+16 placements and is declined because it makes `mcause` a function of the base register rather than
+of the access.
 **Which spelling reaches `next_pc` decides whether the board closes.** One term that says an atomic
 faults, with the cause split answered off the fetch loop, swept a worst of 12.24 MHz over eight
 seeds; two terms each carrying their own encoding test swept 11.82 and missed at two seeds of eight.
@@ -316,16 +324,20 @@ What a green result does and does not mean:
   check also drops every value comparison once an instruction traps, keeping only the trap flag,
   and its two pc checks accept whatever target the core reports — so `components_traps` is the only
   thing that says a trap lands on `mtvec` and saves the right state.
-  **Its model states a load or store access fault ahead of the mechanism**, and states only half of
-  one: an access the map does not answer is excused from `must_not_trap`, and a core that faults it
-  must report cause 5 or 7 — the trap itself is not required, because reading zero is what this
-  platform does and the spec only recommends otherwise. That is why the map has to reach
-  `formal/traps.sv`, which no port of the core carries it to, so it restates it and
-  `test/memmap_test.sh` compares the copy. An arm no core reaches is worth nothing until it has been
-  shown to fail: `make -C formal traps-region-probe` builds two cores one line of `rtl/decoder.v`
-  apart, requires the one that faults with the right cause to prove and the one that faults with the
-  wrong cause to go red **at that comparison's own line**, and is a prerequisite of the proof for the
-  reason `pcloop_cover` is one.
+  **Its model of a load or store access fault states the whole of it now**: an access the map does
+  not answer must trap and must report cause 5 or 7, where it used to require only the cause,
+  because reading zero was what this platform did and the spec only recommends otherwise. That is
+  why the map has to reach `formal/traps.sv`, which no port of the core carries it to, so it
+  restates it and `test/memmap_test.sh` compares the copy. An arm no core reaches is worth nothing
+  until it has been shown to fail: `make -C formal traps-region-probe` builds two cores one line of
+  `rtl/decoder.v` apart, requires each to go red **at its own arm's line**, and is a prerequisite of
+  the proof for the reason `pcloop_cover` is one.
+  **The generated checks grade the refusal itself, which the atomic half was never graded by**:
+  `checks/rvfi_insn_check.sv` has a memory-fault contract and the eleven A encodings have no spec
+  model to reach it, so it had never once been evaluated here. The twelve plain load and store
+  encodings do reach it, so decode publishes the refused access's own word address and its exact
+  write strobe on the fault channel and the check compares both against the spec model's effective
+  address and mask. A superset is legal for the read mask and not for the write mask.
 - **It ships no model of an INTERRUPT either**, so the core's timer input is tied off in all five
   harnesses under `formal/` and the generated checks run with no interrupt in the trace.
   `formal/INTERRUPT_TIE_OFF` mechanises that the same way, in both directions and re-derived from
@@ -345,7 +357,13 @@ What a green result does and does not mean:
   `mem_lock` is deliberately not in that baseline: an unread output cannot weaken a check, and
   `components_accessor` is where it is asserted to cover exactly the cycle an AMO writes back.
 - **Both sim legs read the sanitized `test/monitor.sim.v` as their per-retire oracle**, so
-  `test/sanitize_monitor.py` is a change to the oracle, not to plumbing. `test/monitor.v` is
+  `test/sanitize_monitor.py` is a change to the oracle, not to plumbing. **The spec model has no
+  memory map, so a refused access disagrees with it**, and the retire is shown to the monitor all
+  the same: dropping it leaves a hole in `rvfi_order` that the reorder buffer reads as a lost
+  instruction, and every retire after it is then graded against the wrong shadow. What is dropped is
+  the model's opinion about that one retire — `rvfi_mem_fault` gates error 101 and the value
+  comparisons behind it — and the gate is not free, because a retire carrying that flag must also
+  report a trap or the monitor says so itself. `test/monitor.v` is
   generated but tracked: regenerate it (`make monitor-check`), never hand-edit it.
 - **iverilog derives a continuous assign's sensitivity from the call's arguments.** A function
   called from a continuous assign whose body reads module state silently under-evaluates — no
@@ -907,7 +925,7 @@ it is outside `make fit`'s top entirely — `littlecpu` does not contain it, so 
 `soc-timing` number and never a `fit` one. **Nothing here produces a bitstream**: `make soc-timing`
 stops at the `.asc`, there is no `icepack` and no `iceprog`, so the pin is measured and not yet
 flashed. **Co-simulation cannot cover it** — the model has plain memory at that address, so
-`test/asm/uart.S` is `DISAGREE AT 5`, at the first read of `busy` after a write, and
+`test/asm/uart.S` is `DISAGREE AT 7`, at the first read of `busy` after a write, and
 `test/uart_tb.v`, which decodes the line at the configured divisor with five of its own failures
 forced, is the only oracle for the wire.
 

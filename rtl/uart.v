@@ -38,8 +38,10 @@
 // only, `tx` leaves the chip, and the read-back is one bit wide by construction
 // -- see `mem_rdata` below.
 module uart #(
-  // The eight bytes above rtl/timer.v's four words, so the four ranges on the
-  // shared bus abut and the read buses can be ORed together.
+  // The eight bytes above the whole span rtl/timer.v reserves for one
+  // `mtimecmp` per hart -- eight words, not the four a one-hart build decodes --
+  // so the four ranges on the shared bus abut at every hart count and the read
+  // buses can be ORed together. test/memmap_test.sh is what says so.
   parameter logic [31:0] BASE     = 32'h0002_0020,
   // The two numbers the divisor is derived from, rather than the divisor: a
   // literal here would silently keep its old meaning the day either moves.

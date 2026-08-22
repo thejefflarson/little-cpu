@@ -7,10 +7,12 @@ module littlecpu #(
   // no cycle and no retire, and test/csr_tb.v is the only place the read is
   // graded away from the default.
   parameter logic [31:0] HART_ID = 32'd0,
-  // The data bus's memory map, read by the load/store locality counters under
-  // `RISCV_FORMAL` at the bottom of this file and by nothing else: no port of
-  // this module and no cycle of the datapath depends on any of it. The RAM's
-  // base and size and the timer's and the UART's bases are rtl/memory.v's,
+  // The data bus's memory map. Two readers: rtl/decoder.v raises the two region
+  // causes for a plain load or store against it, and the load/store locality
+  // counters under `RISCV_FORMAL` at the bottom of this file count against it.
+  // Handed to the decoder rather than restated there, so the copies this file's
+  // comment is about stay the ones test/memmap_test.sh compares. The RAM's base
+  // and size and the timer's and the UART's bases are rtl/memory.v's,
   // rtl/timer.v's and rtl/uart.v's own parameter defaults, restated here
   // because a module cannot read another module's parameters;
   // test/memmap_test.sh is what compares the copies.
@@ -239,7 +241,13 @@ module littlecpu #(
   logic       probe_ls_issuing;
  `endif
 
-  decoder decoder(
+  decoder #(
+    .LS_TEXT_WORDS(LS_TEXT_WORDS),
+    .LS_RAM_BASE(LS_RAM_BASE),
+    .LS_RAM_WORDS(LS_RAM_WORDS),
+    .LS_TIMER_BASE(LS_TIMER_BASE),
+    .LS_UART_BASE(LS_UART_BASE)
+  ) decoder(
     .clk(clk),
     .reset(reset),
     .in(fetcher_out),

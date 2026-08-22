@@ -90,6 +90,9 @@ sc-reports-success          asm   lrsc.S FAIL 2
 # core that never refuses one finishes them all.
 atomic-region-ignored       bench decoder_tb
 atomic-region-ignored       asm   amoregion.S FAIL 4
+loadstore-region-ignored    bench decoder_tb
+loadstore-region-ignored    asm   loadfault.S FAIL 3
+loadstore-region-ignored    asm   storefault.S FAIL 3
 
 # All four min/max compares read unsigned: the sign-bit correction on the shared
 # 33-bit adder/subtractor deleted. amominmax.S is the ONLY program that catches
