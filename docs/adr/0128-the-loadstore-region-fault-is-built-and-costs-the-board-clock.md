@@ -1,4 +1,4 @@
-# 0126 — The load/store region fault is built, and it costs the board clock
+# 0128 — The load/store region fault is built, and it costs the board clock
 
 Status: accepted (the measurement); the design question it opens is not closed
 

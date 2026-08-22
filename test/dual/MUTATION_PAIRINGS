@@ -1,0 +1,132 @@
+# What each two-hart defect is expected to be caught by.
+#
+# THESE ARE PREDICTIONS AND NOT MEASUREMENTS, and that is the first thing to
+# know about this file. test/MUTATION_DETECTORS' own header says it in the
+# imperative -- "Measure it, do not assert it" -- and every line there was
+# produced by applying a patch and writing down what actually went red. Not one
+# line here has been through that, because nothing in this tree instantiates two
+# harts: the dual top, its harness and its runner are owed, and until they exist
+# no program in test/dual/ has executed and no mutation below has been applied.
+#
+# EXEMPT LINES ARE THE OTHER HALF OF THE SET CHECK. `test/dual/smoke.S` is not a
+# torture program -- it is the dual runner's own fixture, and `make dual-smoke`
+# grades it against published values every run. So it is exempt rather than
+# paired, named here so that the exemption and the program are checked against
+# each other in both directions:
+#
+#     EXEMPT  <program>  <the target that grades it>
+#
+# So this file is a design record, and it becomes a grader in one step. The day
+# the dual runner runs these programs:
+#
+#   1. write the patches into test/mutations/, one per `<mutation>` named below;
+#   2. apply each and record what ACTUALLY goes red;
+#   3. move the lines into test/MUTATION_DETECTORS, in its format, where
+#      `make mutation-check` grades them by set equality in both directions.
+#
+# A prediction that does not reproduce is not a line to quietly fix. It is
+# either a gap to close with a new program or a fact about the machine to record
+# in an ADR -- the same two outcomes test/MUTATION_DETECTORS names, and the
+# fence.i pairing there is both of them.
+#
+# WHAT IS GRADED TODAY. test/dual_build.sh checks the `prog` column against
+# test/dual/ in both directions: a pairing naming a program nobody wrote is red,
+# and a program no pairing claims is red. That says the two lists agree. It says
+# nothing whatever about whether a program catches what it is paired with.
+#
+# FORMAT -- one pairing per line, one leg per line:
+#
+#     <mutation>  prog    <program> <STATUS>
+#     <mutation>  bench   <bench>
+#     <mutation>  formal  <task>
+#
+# `prog` is a test/dual/ program and the status the runner would print for it,
+# read the way test/EXPECTED_FAIL reads one: a program that goes red a different
+# way is red here too. `bench` is a test/*_tb.v. `formal` is a `make -C formal`
+# target.
+#
+# A MUTATION WITH NO `prog` LEG IS A REAL ENTRY. One of the six below is exactly
+# that, and it is the most important line in the file.
+
+
+# The arbiter re-arbitrates in the middle of an AMO: the grant is handed to the
+# other hart on the write cycle the read cycle bought. The read-modify-write is
+# then not indivisible, the other hart's increment lands between them, and two
+# increments count as one.
+#
+# The arbiter's own proof is the primary grader and it exists today -- the lock
+# arm is asserted over the module's whole reachable state, and this is the
+# mutation its cover control is red against. amocount.S is what says the defect
+# reaches software: the count comes up short and the sum of the returned values
+# comes up short with it.
+grant-during-amo-write      formal  components_busarbiter
+grant-during-amo-write      prog    amocount.S FAIL 5
+
+# `snoop_clear` deleted from rtl/accessor.v: a reservation survives another
+# hart's store to the reserved word. This is the defect that makes an LR/SC lock
+# grant both harts at once, and neither hart hangs when it does.
+#
+# The single-hart suite is expected to stay entirely green, and that is a result
+# rather than a gap: `snoop_write` is tied low on a one-master platform, so the
+# term this deletes never fires there. accessor_tb and the accessor's own proof
+# see it because both drive the input.
+snoop-term-deleted          bench   accessor_tb
+snoop-term-deleted          formal  components_accessor
+snoop-term-deleted          prog    snoopcross.S FAIL 11
+snoop-term-deleted          prog    lockwitness.S FAIL 3
+
+# The same term, registered: the reservation is cleared one cycle after the
+# write instead of on it. THIS IS THE ONE TO GET RIGHT. It is the likeliest real
+# defect in the design and the one an ordered program cannot see -- snoopcross.S
+# round 1 leaves tens of cycles between the write and the store-conditional, and
+# a snoop that is one cycle late is still forty cycles early for that. It goes
+# wrong only when the sc.w takes the bus on the cycle after the write took it,
+# and the sweep is what walks the attempt onto that cycle.
+#
+# The expected `prog` status is the sweep's own invariant failing: hart 0's
+# value survives a write that was already committed, which is a lost update
+# rather than a wrong sc.w result. The accessor's proof is expected to see it
+# too, at the assertion that says a reservation is gone the cycle after a
+# foreign write to it -- if it does not, the assertion is the thing to fix.
+snoop-delayed-one-cycle     formal  components_accessor
+snoop-delayed-one-cycle     prog    snoopcross.S FAIL 6
+
+# The round-robin tie frozen to hart 0: a fixed-priority arbiter. Hart 1 is
+# starved whenever hart 0 keeps asking.
+#
+# NO TORTURE PROGRAM SEES THIS, and none is paired against it. Starvation is not
+# a wrong answer, it is an answer that does not arrive; every program in
+# test/dual/ that hart 1 has to finish would hang, and a hang is what this
+# directory's bounded waits exist to turn into a FAIL -- which reports "hart 1
+# never got there" and not "the arbiter is unfair". A fixed-priority arbiter
+# under a program whose harts contend lightly passes everything. The arbiter's
+# wait-bound proof is the whole of the coverage, it is a safety property with a
+# constant per hart, and each constant is covered as well as asserted so a bound
+# loosened by a later edit goes red as an unreachable cover goal.
+arbiter-token-frozen        formal  components_busarbiter
+
+# A load issued by the hart that does not own the window loads are answered from
+# no longer steals that window. The load then reads whatever the fetch put on
+# that port, and the other hart's fetch is not held back.
+#
+# crosspatch.S is on this path on purpose: hart 1 reads the replacement encoding
+# out of `.text`, so the steal is a load by the hart that does not own the
+# window. With it deleted the word written into the stub is a fetched
+# instruction rather than the template, and hart 0 runs it.
+cross-steal-deleted         bench   imem_tb
+cross-steal-deleted         prog    crosspatch.S FAIL 7
+
+# A write into text lands in the writing hart's copy of the replicated bank and
+# not in the other's. Every copy still reads, so nothing is X and nothing traps;
+# the two harts simply stop agreeing about what the program is.
+#
+# This is the mutation that makes "one storage" a claim with a grader instead of
+# a description. crosspatch.S is the software half -- hart 1 patches, hart 0
+# fences its own instruction fetch and still runs the old word. The netlist half
+# is already built and grades the write ports directly: the mapped block RAM
+# cells must group by a common write enable, address, data and edge, and differ
+# only on their read port.
+write-lands-in-one-copy     bench   imem_tb
+write-lands-in-one-copy     prog    crosspatch.S FAIL 7
+
+EXEMPT  smoke.S  make dual-smoke

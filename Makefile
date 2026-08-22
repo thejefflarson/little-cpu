@@ -589,10 +589,21 @@ mutation-check:
 mutation-probe:
 	@./test/mutation_probe.sh
 
+# The two-hart programs, which no machine in this tree can run: this assembles
+# and links each one and checks it against the pairing that claims it catches
+# something, in both directions. It is on `test` because four programs nothing
+# builds would rot between now and the day a dual runner exists, and the
+# pairings would rot with them. It needs the same cross compiler `make test`
+# already needs and no simulator, so it runs wherever the suite runs.
+.PHONY: dual-build
+dual-build:
+	@./test/dual_build.sh test/dual test/asm test/dual/MUTATION_PAIRINGS
+
 .PHONY: test
 test: sim test-units probe-gates pin-bump-test tool-cache-test memmap-test \
       compare-geometry-test retired-term-test port-connect-test march-test \
-      band-source-test window-test imem-share-test abc-engine-test mutation-probe
+      band-source-test window-test imem-share-test abc-engine-test mutation-probe \
+      dual-build
 	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 # The same suite `make test` runs, with the runner charging every cycle to the
@@ -1046,6 +1057,16 @@ ecp5-timing: ecp5-timing-toolchain ecp5.config
 # constraints file describes both. What this publishes is a frequency with no
 # ratchet -- there is no `DUAL_MIN_MHZ` here on purpose, because one placement
 # is a sample and the ECP5 spread for THIS design has not been derived.
+#
+# The number that ratchet would carry is already known: the Colorlight i5's
+# oscillator is 25 MHz, and that is a REQUIREMENT of the same kind as
+# SOC_MIN_MHZ -- a board clock, not a regression floor, so it is not read
+# against a churn band and does not slide. What is missing is not the number
+# but its grader. `soc/timing_sweep.sh` has no dual counterpart, so the only
+# thing that could be graded today is one placement, and a requirement graded
+# on a sample is the shape of the comparison defects recorded here. Declare it
+# in the same commit as the sweep that takes its worst of sixteen, never
+# before: a constant no recipe reads looks like a gate and is not one.
 # Derived, not a second list: `DUAL_RTL_SRCS` above is the complex and this is
 # that plus its pins. A copy would go stale the day either gains a file, which is
 # the rule SIM_RTL_SRCS already carries.
