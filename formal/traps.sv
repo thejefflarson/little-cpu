@@ -33,7 +33,7 @@ module traps #(
     parameter logic [31:0] LS_RAM_BASE   = 32'h0001_0000,
     parameter integer      LS_RAM_WORDS  = 16384,
     parameter logic [31:0] LS_TIMER_BASE = 32'h0002_0000,
-    parameter logic [31:0] LS_UART_BASE  = 32'h0002_0010
+    parameter logic [31:0] LS_UART_BASE  = 32'h0002_0020
 ) (
     input logic clk,
     input logic reset,
@@ -44,6 +44,9 @@ module traps #(
     input executor_output executor_out,
     input logic divider_stall,
     input logic fetch_stall,
+    // Free, like the other two: a hart waiting for the shared bus issues
+    // nothing, so no trap is committed on that cycle either.
+    input logic bus_wait,
     // Free, like everything else not instantiated here. It redirects the pc,
     // and the increment assertion skips a redirect because the decoder's own
     // `branch_jump` names the trap it raises.
@@ -101,6 +104,8 @@ module traps #(
     .executor_out(executor_out),
     .divider_stall(divider_stall),
     .fetch_stall(fetch_stall),
+    .bus_wait(bus_wait),
+    .bus_request(bus_request),
     .imem_fault(imem_fault),
     .atomic_addr(atomic_addr),
     .atomic_supported(atomic_supported),
@@ -212,7 +217,7 @@ module traps #(
   // never a necessary one -- the hazard, serialization and operand-fetch
   // reasons are decided inside the decoder and are not visible here.
   logic hard_stall;
-  assign hard_stall = divider_stall || fetch_stall;
+  assign hard_stall = divider_stall || fetch_stall || bus_wait;
 
   // Which instructions must trap, and with which cause. Written from the ISA,
   // not transcribed from rtl/decoder.v: each encoding below is one this core

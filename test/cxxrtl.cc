@@ -177,7 +177,7 @@ struct StallReason {
 };
 
 constexpr const char *kStallLabels[] = {"divider", "atomic",  "hazard",
-                                        "serialize", "operand", "fetch"};
+                                        "serialize", "operand", "fetch", "bus"};
 constexpr int kStallBuckets = sizeof(kStallLabels) / sizeof(kStallLabels[0]);
 
 constexpr StallReason kStallReasons[] = {
@@ -188,6 +188,11 @@ constexpr StallReason kStallReasons[] = {
     {"uut decoder serialize", 3},
     {"uut decoder operand_stall", 4},
     {"uut decoder fetch_stall", 5},
+    // The shared bus given to another master. This machine has one, so the
+    // column is zero here by construction -- it is counted anyway because a
+    // reason `stall` names and the table does not shows up as `unattributed`,
+    // which is the finding this accounting exists to report.
+    {"uut decoder bus_wait", 6},
 };
 
 struct Args {

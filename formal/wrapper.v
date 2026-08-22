@@ -54,6 +54,12 @@ module rvfi_wrapper (
   (* keep *) `rvformal_rand_reg atomic_supported;
   wire [31:0] atomic_addr;
 
+  // The lock an arbiter would read, and the two inputs a second bus master
+  // would drive. Tied off below; the lock is unread because nothing here
+  // arbitrates for anything.
+  wire mem_lock;
+  wire bus_request;
+
   // Assumed: on a cycle it reports having nothing, the instruction memory
   // answers zero on both fetch ports.
   //
@@ -152,6 +158,21 @@ module rvfi_wrapper (
     .mem_reservable(mem_reservable),
     .atomic_addr(atomic_addr),
     .atomic_supported(atomic_supported),
+    // Tied off, and formal/check-multihart-tie-off.py is what says so. These
+    // checks describe ONE hart: riscv-formal's channels are one core's retires,
+    // it models no second agent on memory, and nothing at the pin can say what
+    // a foreign write should do to a reservation. Left free, `bus_wait` would
+    // let the environment hold this core still forever -- `hang` and
+    // `liveness_ch0` are the two checks that measure exactly that -- and
+    // `snoop_write` would clear reservations no program can see, which is a
+    // machine the spec model does not describe rather than a weaker property of
+    // this one. The depths in formal/checks.cfg are derived under the tie-off
+    // too: an ungranted cycle issues nothing, so a free input there moves G.
+    .bus_wait(1'b0),
+    .snoop_write(1'b0),
+    .snoop_addr(32'b0),
+    .mem_lock(mem_lock),
+    .bus_request(bus_request),
     // Tied off, and formal/check-interrupt-tie-off.py is what says so. Every
     // depth in formal/checks.cfg is derived from F and G measured with no
     // interrupt in the trace, and riscv-formal ships no model at the pin of
@@ -172,7 +193,10 @@ module rvfi_wrapper (
   // the core never waits on their value, and every stall it does have is driven
   // by its own state: the divider counts down from 32 on its own, the load
   // turnaround is one cycle by construction, and `fetch_stall` comes from the
-  // arbiter above, which reads the core's own bus rather than being chosen.
+  // arbiter above, which reads the core's own bus rather than being chosen. The
+  // one stall an environment COULD choose is `bus_wait`, and it is tied off
+  // above -- a bus grant withheld forever is exactly the shape this block would
+  // otherwise have to bound.
   //
   // Left as an explicit empty block so that a liveness surprise later reads as a
   // decision rather than an omission.

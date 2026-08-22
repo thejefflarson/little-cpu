@@ -24,33 +24,44 @@ module imemory #(
   // number of `SB_RAM40_4K` depths (256 words), or the mapping picks up leftover
   // logic.
   parameter integer ROM_WORDS = 2048,
+  // One fetch window per hart, all reading ONE storage. Neither part infers a
+  // true dual-port primitive from the second read port: yosys replicates each
+  // bank and drives every copy from the same write, so a store lands in all of
+  // them on one edge and each copy keeps the one-read-one-write shape a block
+  // RAM has. That is what makes text SHARED rather than mirrored -- there is no
+  // cycle in which two windows read different words at one address.
+  parameter integer NHARTS = 1,
   // Two files rather than one plus a de-interleaving loop: yosys does not turn a
   // loop copying between arrays in an `initial` block into memory init, so that
   // would elaborate and then synthesise to an empty ROM.
   parameter INIT_EVEN = "",
   parameter INIT_ODD  = ""
 ) (
-  input  logic        clk,
-  input  logic [31:0] imem_addr_next,
-  output logic [31:0] imem_data,
-  output logic [31:0] imem_data2,
+  input  logic                 clk,
+  // One address, one pair of words, one stall bit and one fault bit per window,
+  // packed low window first. At the default one hart every width here is the
+  // scalar it has always been, so a single-hart integrator connects the nets it
+  // always did.
+  input  logic [32*NHARTS-1:0] imem_addr_next,
+  output logic [32*NHARTS-1:0] imem_data,
+  output logic [32*NHARTS-1:0] imem_data2,
   // The range decode lives here because rtl/littlesoc.v and test/testbench.v run
   // different `ROM_WORDS`, so a range test written outside this module would put
   // the two legs on different maps.
-  input  logic [31:0] mem_addr,
-  input  logic [31:0] mem_wdata,
-  input  logic [3:0]  mem_wstrb,
+  input  logic [31:0]          mem_addr,
+  input  logic [31:0]          mem_wdata,
+  input  logic [3:0]           mem_wstrb,
   // The idle bus presents address 0, which is inside the text range, so without
   // this every idle cycle would steal a fetch.
-  input  logic        mem_ren,
+  input  logic                 mem_ren,
   // Zero unless the previous cycle was a text-range load, so a consumer can OR
   // this with the data RAM's answer.
-  output logic [31:0] mem_rdata,
-  output logic        fetch_stall,
+  output logic [31:0]          mem_rdata,
+  output logic [NHARTS-1:0]    fetch_stall,
   // The word arriving this cycle is not in the ROM. Decode raises it as an
   // instruction access fault; without it a PC past the end of text is only a
   // word of zeroes, which is an illegal instruction and the wrong cause.
-  output logic        imem_fault
+  output logic [NHARTS-1:0]    imem_fault
 );
   localparam int BANK_WORDS = ROM_WORDS / 2;
   localparam int BANK_BITS  = $clog2(BANK_WORDS);
@@ -140,9 +151,9 @@ module imemory #(
     in_range  <= next_in_rom;
     in_range2 <= next_in_rom && !next_is_last;
 
-    fetch_stall  <= text_access;
-    data_hit     <= mem_ren && text_range;
-    data_hit_odd <= data_odd;
+    fetch_stall[0] <= text_access;
+    data_hit       <= mem_ren && text_range;
+    data_hit_odd   <= data_odd;
 
     if (text_write_even) begin
       if (mem_wstrb[0]) rom_even[data_index][7:0]   <= mem_wdata[7:0];
@@ -161,9 +172,57 @@ module imemory #(
   logic [31:0] window_lo, window_hi;
   assign window_lo = odd_first ? odd_data  : even_data;
   assign window_hi = odd_first ? even_data : odd_data;
-  assign imem_data  = in_range  ? window_lo : 32'b0;
-  assign imem_data2 = in_range2 ? window_hi : 32'b0;
-  assign imem_fault = !in_range;
+  assign imem_data [31:0] = in_range  ? window_lo : 32'b0;
+  assign imem_data2[31:0] = in_range2 ? window_hi : 32'b0;
+  assign imem_fault[0] = !in_range;
 
   assign mem_rdata = data_hit ? (data_hit_odd ? odd_data : even_data) : 32'b0;
+
+  // The windows above the first, which are that window without the data port.
+  //
+  // WHY WINDOW 0 IS NOT AN ARM OF THIS LOOP, AND WHY THE WRITE TEST IS SPELLED
+  // OUT AGAIN BELOW. Both restatements were measured against the single-hart
+  // SoC's mapped netlist, which is what lets a tied-off change skip a
+  // sixteen-seed sweep: folding window 0 into the loop is +30 cells, and merely
+  // naming `|mem_wstrb && text_range` once and using it twice is +64. Neither
+  // changes the logic; both change the nets ABC maps over. The shipping build
+  // has to elaborate to today's design, so change either copy and change the
+  // other.
+  for (genvar h = 1; h < NHARTS; h++) begin : l_window
+    logic [29:0]          w_next_word;
+    logic [BANK_BITS:0]   w_word_index;
+    logic [BANK_BITS-1:0] w_even_index, w_odd_index;
+    logic                 w_next_in_rom, w_next_is_last;
+    logic [31:0]          w_even_data, w_odd_data, w_window_lo, w_window_hi;
+    logic                 w_odd_first, w_in_range, w_in_range2;
+
+    assign w_next_word    = imem_addr_next[32*h+31:32*h+2];
+    assign w_word_index   = w_next_word[BANK_BITS:0];
+    assign w_odd_index    = w_word_index[BANK_BITS:1];
+    assign w_even_index   = w_odd_index + {{(BANK_BITS-1){1'b0}}, w_word_index[0]};
+    assign w_next_in_rom  = ~|w_next_word[29:ROM_BITS];
+    assign w_next_is_last = &w_next_word[ROM_BITS-1:0];
+
+    // A load is answered out of window 0's copy, so it takes that copy's read
+    // port and no other and this window goes on fetching. A WRITE lands in every
+    // copy on one edge, and both parts define a same-address write-during-read
+    // as returning invalid data on the reading port rather than the old word --
+    // Zifencei permits fetching the old or the new instruction, never garbage --
+    // so a write is published to every window.
+    always_ff @(posedge clk) begin
+      w_even_data <= rom_even[w_even_index];
+      w_odd_data  <= rom_odd[w_odd_index];
+      w_odd_first <= w_word_index[0];
+      w_in_range  <= w_next_in_rom;
+      w_in_range2 <= w_next_in_rom && !w_next_is_last;
+
+      fetch_stall[h] <= |mem_wstrb && text_range;
+    end
+
+    assign w_window_lo = w_odd_first ? w_odd_data  : w_even_data;
+    assign w_window_hi = w_odd_first ? w_even_data : w_odd_data;
+    assign imem_data [32*h+31:32*h] = w_in_range  ? w_window_lo : 32'b0;
+    assign imem_data2[32*h+31:32*h] = w_in_range2 ? w_window_hi : 32'b0;
+    assign imem_fault[h] = !w_in_range;
+  end
 endmodule

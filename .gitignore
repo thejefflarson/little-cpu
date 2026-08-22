@@ -25,6 +25,11 @@ ecp5.config
 ecp5.report.json
 ecp5.synth.log
 ecp5.pnr.log
+dual_ecp5.json
+dual_ecp5.config
+dual_ecp5.report.json
+dual_ecp5.synth.log
+dual_ecp5.pnr.log
 # The de-interleaved ROM banks `make soc-rom` writes from a test program. Build
 # artifacts of whichever SOC_PROG was last built, not source.
 soc/rom_even.hex
@@ -78,6 +83,7 @@ formal/imemcheck
 formal/components_*
 formal/components
 formal/pcloop_cover
+formal/busarbiter_cover
 # `make -C formal remeasure-fg`: the one-line-[depth] copy of checks.cfg the
 # sweep writes, and the single-check set it generates from it. Both are rebuilt
 # from checks.cfg on every run.
@@ -87,8 +93,16 @@ formal/fg-probe/
 # region cause arm against, and their sby workdirs. Rebuilt from rtl/ and
 # formal/traps.sv on every run.
 formal/region-probe/
+# `make -C formal busarbiter-probe`: the three arbiters it proves the wait bound
+# and the indivisibility arm against, and their sby workdirs. Rebuilt from
+# rtl/busarbiter.v and formal/busarbiter.sv on every run.
+formal/busarbiter-probe/
 __pycache__/
 test/rtl.cc
+# The dual configuration's generated netlist and its runner, the same rule.
+test/dual_rtl.cc
+dual-sim
+dual-sim.dSYM/
 test/monitor.sim.v
 *.vvp
 *.vcd

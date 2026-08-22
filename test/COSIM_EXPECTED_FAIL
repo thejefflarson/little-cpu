@@ -182,7 +182,7 @@
 # uart.S IS A FOURTH ENTRY AND THE ONLY ONE THAT IS A DIVERGENCE RATHER THAN A
 # BUDGET: THE MODEL HAS NO DEVICE THERE AT ALL. rtl/uart.v puts a write-only
 # data register and a status register whose bit 0 is `busy` in eight bytes at
-# 0x0002_0010, inside the region test/sail/rv32imac_zicsr.json declares
+# 0x0002_0020, inside the region test/sail/rv32imac_zicsr.json declares
 # MainMemory from 0x0002_0000 up. So on the model the store lands in ordinary
 # memory and the status word reads back what was last written to it, which is
 # zero. `DISAGREE AT 5` is the first read of `busy` after a write: the core's

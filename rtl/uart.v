@@ -40,7 +40,7 @@
 module uart #(
   // The eight bytes above rtl/timer.v's four words, so the four ranges on the
   // shared bus abut and the read buses can be ORed together.
-  parameter logic [31:0] BASE     = 32'h0002_0010,
+  parameter logic [31:0] BASE     = 32'h0002_0020,
   // The two numbers the divisor is derived from, rather than the divisor: a
   // literal here would silently keep its old meaning the day either moves.
   // CLOCK_HZ is the board crystal rtl/littlesoc.v is placed and timed against.
