@@ -1,4 +1,4 @@
-# ADR-0126: The shared text is one storage, and what the dual milestone does not claim
+# ADR-0127: The shared text is one storage, and what the dual milestone does not claim
 
 **Status:** Accepted · 2026-08-19 · *Records the coherence argument for text two harts fetch from,
 the software protocol the cross-patch program executes, and — at length, because this is the half
@@ -145,14 +145,24 @@ fact about the machine to record.
 `make dual-build` assembles and links each one, checks the pairings against the directory in both
 directions, and prints that nothing has run. That is the whole of what is graded about them today.
 
-### The frequency requirement is a requirement, and its band does not exist
+### The frequency requirement is known and is not yet declared
 
-`DUAL_MIN_MHZ` is 25.0 — the Colorlight i5's oscillator — graded worst-of-sixteen on nextpnr's own
-report, on the same ground `SOC_MIN_MHZ` stands on: a board clock is not a threshold to relax. **The
-ECP5 edit-churn band and placement spread it would be read against have not been derived** — that
-work is separate and partial — so what is uncertain is the instrument and not the number. The answer
-to an uncertain instrument is a pinned pessimistic corner, which the ECP5 flow already declares and
-grades off the configuration Trellis emits, rather than a softened floor.
+The number is settled: 25 MHz, the Colorlight i5's oscillator, a requirement of exactly
+`SOC_MIN_MHZ`'s kind. A board clock is not read against a churn band and does not slide, so the
+missing ECP5 edit-churn band and placement spread are **not** what stops it being declared — that
+argument was this ADR's, and it is right as far as it goes.
+
+**What stops it is that no recipe could read it.** `soc/timing_sweep.sh` has no dual counterpart, so
+the only thing `make dual-ecp5-timing` could grade today is one placement, and a requirement graded
+on a sample is the shape of the five comparison defects this repo has recorded. A constant no recipe
+reads is worse than no constant: it looks like a gate. So `DUAL_MIN_MHZ` is **not** declared here,
+and it lands in the same commit as the sweep that takes its worst of sixteen. ADR-0125 named that
+sweep as owed for the same design; this is the same debt and not a second one.
+
+The pinned pessimistic corner stands on its own and is already in the flow: `ECP5_SPEED` is the
+slowest of the three nextpnr offers and the part on the module, and the ECP5 reader refuses a
+frequency reported at or above the constraint it was placed against, because nextpnr stops working a
+path once it meets one.
 
 ## What the four programs do claim
 
@@ -187,4 +197,4 @@ has drifted off the case goes red instead of passing having covered nothing.
 - **Writing the mutation patches and measuring the pairings is owed**, and is the step that turns
   `test/dual/MUTATION_PAIRINGS` from a design record into a graded set.
 - **F and G for the dual configuration are owed** before any generated check describes it.
-- The `.aq`/`.rl` derivation for two harts is ADR-0125's and is not repeated here.
+- The `.aq`/`.rl` derivation for two harts is ADR-0126's and is not repeated here.

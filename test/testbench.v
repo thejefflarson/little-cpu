@@ -28,12 +28,17 @@ module testbench(
   logic        imem_fault;
   logic        mem_reservable;
   logic        atomic_supported;
+  logic        mem_lock;
+  logic        bus_request;
   logic [31:0] atomic_addr;
   logic        irq_timer;
-  // All three memories answer zero outside their own range, so the buses join
+  // All four memories answer zero outside their own range, so the buses join
   // with an OR, exactly as rtl/littlesoc.v joins them.
-  logic [31:0] imem_mem_rdata, dmem_mem_rdata, timer_mem_rdata;
-  assign mem_rdata = imem_mem_rdata | dmem_mem_rdata | timer_mem_rdata;
+  logic [31:0] imem_mem_rdata, dmem_mem_rdata, timer_mem_rdata, uart_mem_rdata;
+  assign mem_rdata = imem_mem_rdata | dmem_mem_rdata | timer_mem_rdata | uart_mem_rdata;
+  // Left unread on purpose: this harness grades programs through `tohost`, and
+  // the serial line itself is decoded bit by bit in test/uart_tb.v instead.
+  logic        uart_tx;
   logic        trap;
  `ifdef RISCV_FORMAL
   logic        rvfi_valid;
@@ -100,6 +105,16 @@ module testbench(
     .mtip(irq_timer)
   );
 
+  uart tty (
+    .clk(clk),
+    .reset(reset),
+    .mem_addr(mem_addr),
+    .mem_wdata(mem_wdata),
+    .mem_wstrb(mem_wstrb),
+    .mem_rdata(uart_mem_rdata),
+    .tx(uart_tx)
+  );
+
   // The same localparam the `imemory` above is given, so the core's copy of the
   // map describes THIS machine's text window rather than the part's. It is the
   // one parameter of the map an integrator states, for the same reason it is the
@@ -122,6 +137,13 @@ module testbench(
     .mem_reservable(mem_reservable),
     .atomic_addr(atomic_addr),
     .atomic_supported(atomic_supported),
+    // One bus master in this machine, so the bus is never withheld and nothing
+    // but the core writes memory. `mem_lock` has no arbiter to tell.
+    .bus_wait(1'b0),
+    .snoop_write(1'b0),
+    .snoop_addr(32'b0),
+    .mem_lock(mem_lock),
+    .bus_request(bus_request),
     .irq_timer(irq_timer),
     .trap(trap)
    `ifdef RISCV_FORMAL

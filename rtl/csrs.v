@@ -17,7 +17,13 @@
 // This module never decides that an access is illegal. `implemented` feeds the
 // decoder's `instr_valid` term and the read-only test is on the address, so both
 // illegal-CSR rules are decided in rtl/decoder.v with every other trap cause.
-module csrs(
+module csrs #(
+  // The value mhartid reads: this hart's unique id, chosen by the integrator
+  // rather than by the core. The spec requires the ids to be unique and one of
+  // them to be zero, so a single-hart machine takes the default and never says
+  // anything, and a second core is the parameter's only caller.
+  parameter logic [31:0] HART_ID = 32'd0
+) (
   input  logic clk,
   input  logic reset,
 
@@ -186,7 +192,8 @@ module csrs(
       MCYCLEH:   rdata = mcycle_hi;
       MINSTRET:  rdata = minstret_lo;
       MINSTRETH: rdata = minstret_hi;
-      MVENDORID, MARCHID, MIMPID, MHARTID, MCONFIGPTR: rdata = 32'b0;
+      MHARTID:   rdata = HART_ID;
+      MVENDORID, MARCHID, MIMPID, MCONFIGPTR: rdata = 32'b0;
       default: begin
         rdata = 32'b0;
         implemented = hpm_zero;

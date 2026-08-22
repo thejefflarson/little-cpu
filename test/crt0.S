@@ -21,6 +21,35 @@
   .section .text.init,"ax",@progbits
   .globl _start
 _start:
+  // One hart runs the program. Every other one parks, before touching a
+  // register the C ABI cares about or a word of memory: `.data` has not been
+  // copied out of ROM yet, `.bss` has not been cleared, and there is exactly one
+  // stack below. On the single-hart machines this reads zero and falls straight
+  // through.
+  //
+  // PARKING IS POLLING -- this core decodes no `wfi`. It polls a mailbox that
+  // nothing in this tree ever writes, and that is deliberate rather than
+  // unfinished: a release protocol needs somewhere to release a hart TO, and
+  // the second hart's stack, its `.data` and its entry point are all decisions
+  // no program here has made. Giving it a word to watch is what makes adding
+  // them a change to the program rather than a change to the startup.
+  //
+  // `norelax` for the reason the `gp` sequence below needs it, arrived at from
+  // the other side: the linker relaxes a nearby `la` to gp-relative, and `gp`
+  // is not set until AFTER this branch. Relaxed, the parked hart polls an
+  // address computed from whatever `gp` powered up holding -- and an address in
+  // the text window takes the shared read port from the hart that is trying to
+  // run.
+  csrr    t0, mhartid
+  beqz    t0, 1f
+  .option push
+  .option norelax
+  la      t1, __hart_park
+  .option pop
+2:
+  lw      t2, 0(t1)
+  j       2b
+1:
   // gp first: the linker relaxes nearby data accesses to gp-relative, including
   // ones in runtime_init below. `norelax` stops it relaxing this very sequence
   // into `addi gp, gp, 0`.
@@ -56,3 +85,12 @@ runtime_init:
   j       3b
 4:
   ret
+
+  // The parked hart's mailbox. In `.bss` so it costs no ROM, and never read by
+  // the hart that clears `.bss`, so the clearing race below it does not matter:
+  // the parked hart is discarding the word it loads.
+  .section .bss
+  .align 2
+  .globl __hart_park
+__hart_park:
+  .word 0

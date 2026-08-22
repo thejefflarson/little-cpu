@@ -1,4 +1,4 @@
-# ADR-0125: The second agent is here, and `.aq`/`.rl` still cost nothing
+# ADR-0126: The second agent is here, and `.aq`/`.rl` still cost nothing
 
 **Status:** Accepted · 2026-08-19 · *Re-derives ADR-0108's `.aq`/`.rl` argument for two harts and
 discharges the first of its four named invalidators. Changes no RTL, so no instrument reads

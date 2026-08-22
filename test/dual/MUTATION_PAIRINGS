@@ -8,6 +8,14 @@
 # harts: the dual top, its harness and its runner are owed, and until they exist
 # no program in test/dual/ has executed and no mutation below has been applied.
 #
+# EXEMPT LINES ARE THE OTHER HALF OF THE SET CHECK. `test/dual/smoke.S` is not a
+# torture program -- it is the dual runner's own fixture, and `make dual-smoke`
+# grades it against published values every run. So it is exempt rather than
+# paired, named here so that the exemption and the program are checked against
+# each other in both directions:
+#
+#     EXEMPT  <program>  <the target that grades it>
+#
 # So this file is a design record, and it becomes a grader in one step. The day
 # the dual runner runs these programs:
 #
@@ -120,3 +128,5 @@ cross-steal-deleted         prog    crosspatch.S FAIL 7
 # only on their read port.
 write-lands-in-one-copy     bench   imem_tb
 write-lands-in-one-copy     prog    crosspatch.S FAIL 7
+
+EXEMPT  smoke.S  make dual-smoke

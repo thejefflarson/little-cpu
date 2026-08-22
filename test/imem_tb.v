@@ -36,6 +36,30 @@ module imem_tb;
     .imem_fault(imem_fault)
   );
 
+  // A second instance with two fetch windows, on the same data bus. What the
+  // two windows do to EACH OTHER is only visible here: the shipping SoC has one,
+  // and the vectors above cannot tell a per-window signal from a shared one.
+  // That the two windows read one storage rather than two is a property of the
+  // MAPPED netlist and is graded by test/imem_share_test.sh -- here there is one
+  // array by construction and the question cannot be asked.
+  logic [63:0] d_addr_next, d_data, d_data2;
+  logic [31:0] d_mem_rdata;
+  logic [1:0]  d_fetch_stall, d_imem_fault;
+
+  imemory #(.ROM_WORDS(ROM_WORDS), .NHARTS(2)) dut2 (
+    .clk(clk),
+    .imem_addr_next(d_addr_next),
+    .imem_data(d_data),
+    .imem_data2(d_data2),
+    .mem_addr(mem_addr),
+    .mem_wdata(mem_wdata),
+    .mem_wstrb(mem_wstrb),
+    .mem_ren(mem_ren),
+    .mem_rdata(d_mem_rdata),
+    .fetch_stall(d_fetch_stall),
+    .imem_fault(d_imem_fault)
+  );
+
   // Unique in both halves per word, so a transposed window or a swapped bank
   // cannot coincide with the right answer.
   logic [31:0] ref_rom[0:ROM_WORDS-1];
@@ -122,6 +146,32 @@ module imem_tb;
     end
   endtask
 
+  // The two-window instance's own step, so a case can put a different address in
+  // each window on one cycle. The data bus is the same one the tasks above
+  // drive.
+  task automatic dstep(input logic [31:0] fetch0, input logic [31:0] fetch1,
+                       input logic [31:0] data_addr, input logic ren,
+                       input logic [3:0] strb, input logic [31:0] wdata);
+    begin
+      d_addr_next    = {fetch1, fetch0};
+      imem_addr_next = 32'b0;
+      mem_addr       = data_addr;
+      mem_ren        = ren;
+      mem_wstrb      = strb;
+      mem_wdata      = wdata;
+      @(posedge clk);
+      #1;
+    end
+  endtask
+
+  task automatic dfetch(input logic [31:0] a0, input logic [31:0] a1);
+    dstep(a0, a1, 32'b0, 1'b0, 4'b0000, 32'b0);
+  endtask
+
+  task automatic check_dstall(input string what, input logic [1:0] expected);
+    check(what, {30'b0, d_fetch_stall}, {30'b0, expected});
+  endtask
+
   int i;
   initial begin
     for (i = 0; i < ROM_WORDS; i++) begin
@@ -130,7 +180,10 @@ module imem_tb;
       // has to invert.
       if (i % 2 == 0) dut.rom_even[i/2] = ref_rom[i];
       else            dut.rom_odd[i/2]  = ref_rom[i];
+      if (i % 2 == 0) dut2.rom_even[i/2] = ref_rom[i];
+      else            dut2.rom_odd[i/2]  = ref_rom[i];
     end
+    d_addr_next = 64'b0;
 
     fetch(32'b0);
     check_fault("word 0 is in the ROM", 1'b0);
@@ -245,11 +298,62 @@ module imem_tb;
     write_word(32'hffff_fffc, 4'b1111, 32'hffff_ffff);
     check_all("after three out-of-range writes");
 
+    // ---- two fetch windows ------------------------------------------------
+
+    // Each window answers about its own address on the same cycle, which is
+    // what says the second one is a read port of its own rather than a copy of
+    // the first's answer.
+    dfetch(32'h0000_0008, 32'h0000_0014);
+    check("window 0 fetches its own word", d_data[31:0], ref_rom[2]);
+    check("window 1 fetches its own word", d_data[63:32], ref_rom[5]);
+    check("window 0's second word", d_data2[31:0], ref_rom[3]);
+    check("window 1's second word", d_data2[63:32], ref_rom[6]);
+    check_dstall("an idle data bus steals neither window", 2'b00);
+
+    // The fault is per window: one hart running off the end of text must not
+    // trap the other.
+    dfetch(32'h0000_0004, 32'(ROM_WORDS) * 4);
+    check("window 0 is in the ROM", {31'b0, d_imem_fault[0]}, 32'b0);
+    check("window 1 past the end faults", {31'b0, d_imem_fault[1]}, 32'b1);
+    check("window 1 past the end reads zero", d_data[63:32], 32'b0);
+    check("window 0 is unaffected by it", d_data[31:0], ref_rom[1]);
+
+    // A LOAD is answered out of window 0's copy, so it takes that window's read
+    // port and no other.
+    dstep(32'h0000_0008, 32'h0000_0014, 32'h0000_0010, 1'b1, 4'b0000, 32'b0);
+    check("a text read is answered", d_mem_rdata, ref_rom[4]);
+    check_dstall("a text read steals window 0 alone", 2'b01);
+    // Both banks, because a read stolen from one of window 1's two ports shows
+    // up in only one of the two words it publishes.
+    check("window 1 kept fetching through it", d_data[63:32], ref_rom[5]);
+    check("...including its second word", d_data2[63:32], ref_rom[6]);
+
+    // A WRITE lands in every window's copy on one edge, and both parts define a
+    // same-address write-during-read as returning invalid data on the reading
+    // port -- so both windows have to be told, and this is the vector that says
+    // the second one is.
+    dstep(32'h0000_0008, 32'h0000_0014, 32'h0000_0014, 1'b0, 4'b1111, 32'h4a4a_5b5b);
+    check_dstall("a text write steals BOTH windows", 2'b11);
+    ref_rom[5] = 32'h4a4a_5b5b;
+
+    // ...and the word it wrote is what both windows fetch afterwards, which is
+    // the same array in this simulation and two block RAMs on the part.
+    dfetch(32'h0000_0014, 32'h0000_0014);
+    check("window 0 fetches the written word", d_data[31:0], ref_rom[5]);
+    check("window 1 fetches the written word", d_data[63:32], ref_rom[5]);
+
+    // Out of the text range the fetch keeps both ports: the access was never
+    // this memory's.
+    dstep(32'h0000_0008, 32'h0000_0014, 32'h0000_1000, 1'b1, 4'b0000, 32'b0);
+    check_dstall("an out-of-range access steals neither window", 2'b00);
+    check("...and window 0 fetched through it", d_data[31:0], ref_rom[2]);
+    check("...and so did window 1", d_data[63:32], ref_rom[5]);
+
     if (errors != 0) begin
       $display("FAILED: %0d mismatches", errors);
       $fatal(1);
     end else begin
-      $display("PASSED: imemory.v bank select, dual-word window, range decode, data port");
+      $display("PASSED: imemory.v bank select, dual-word window, range decode, data port, two windows");
       $finish;
     end
   end

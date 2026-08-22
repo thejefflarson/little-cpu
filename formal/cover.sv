@@ -23,6 +23,9 @@ module testbench (
   // The address the core publishes for the platform to decode. Unread here:
   // `atomic_supported` is tied high, so no atomic can fault in this task.
   logic [31:0] atomic_addr;
+  // The lock an arbiter would read. Unread here: one hart, one bus master.
+  logic mem_lock;
+  logic bus_request;
   logic        mem_ren;
   logic        fetch_stall;
 
@@ -59,6 +62,13 @@ module testbench (
     .mem_reservable(1'b1),
     .atomic_addr(atomic_addr),
     .atomic_supported(1'b1),
+    // Tied off; formal/check-multihart-tie-off.py enforces it. formal/wrapper.v
+    // carries the reason the riscv-formal side of the tree describes one hart.
+    .bus_wait(1'b0),
+    .snoop_write(1'b0),
+    .snoop_addr(32'b0),
+    .mem_lock(mem_lock),
+    .bus_request(bus_request),
     // Tied off; formal/check-interrupt-tie-off.py enforces it. formal/wrapper.v
     // carries the reason the riscv-formal side of the tree runs with no
     // interrupt in the trace.

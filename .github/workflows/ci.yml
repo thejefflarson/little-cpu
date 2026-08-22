@@ -121,12 +121,18 @@ jobs:
   # a runner slot rather than wall time. A red result here reads as "a detector
   # stopped detecting", not as a suite failure.
   #
+  # 25 minutes because it grows with the manifest and this step redirects its log:
+  # at ten mutations it runs 12-13 minutes, so a 15-minute budget was at 85% of
+  # itself. A job killed by its timeout is `cancelled` rather than `failure` and
+  # publishes nothing, so it reads as a caught defect with no output to say
+  # otherwise -- raise this before adding a mutation, not after.
+  #
   # Same toolchain as `test`: this builds and runs `sim`, so it needs the cross
   # compiler, clang++ and yosys, and nothing that only synthesis or Sail needs.
   mutation-check:
     name: mutation-check
     runs-on: little-cpu-runners
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - name: Record job start
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
@@ -289,6 +295,17 @@ jobs:
 
       - name: Trap commit proof
         run: make -C formal components_traps
+
+      # This one make also runs formal/busarbiter_cover.sby and
+      # formal/busarbiter-probe.py, both prerequisites of the target rather than
+      # steps of their own. The cover says the arbiter still grants somebody and
+      # still holds a lock, so the guarded assertions are reached at all; the
+      # probe builds a fixed-priority arbiter and a mid-lock one and requires
+      # the wait bound and the indivisibility arm to go red for their own
+      # reasons. Starvation has no other grader -- no torture program can catch
+      # it.
+      - name: Bus arbiter proof (+ its cover and its forced red directions)
+        run: make -C formal components_busarbiter
 
       - name: Report job wall time
         if: always()

@@ -2,14 +2,19 @@
 # Assembles and links every program in test/dual/ and checks it against
 # test/dual/MUTATION_PAIRINGS, in both directions.
 #
-# WHAT THIS IS AND IS NOT. Nothing in this tree instantiates two harts, so no
-# program in test/dual/ has ever executed and this script does not pretend
-# otherwise: it does not run a simulator and it reports no pass/fail for any
-# hardware property. What it grades is that the source still assembles at the
-# suite's own ISA string, links into the suite's own map, produces both images a
-# runner would need, and is still named by the pairing that claims it catches
-# something. Four programs nothing builds would rot silently between now and the
-# day the dual runner lands, and the pairings would rot with them.
+# WHAT THIS IS AND IS NOT. It does not run a simulator and reports no pass/fail
+# for any hardware property. What it grades is that the source still assembles
+# at the suite's own ISA string, links into the suite's own map, produces both
+# images a runner would need, and is still named by the pairing that claims it
+# catches something. Four programs nothing builds would rot silently, and the
+# pairings would rot with them.
+#
+# The dual top, its harness and its runner now exist, so `make dual-smoke` does
+# execute one program here. That is the whole of what has run: no torture
+# program has, and no mutation below has been applied. A program the runner
+# grades directly is EXEMPT rather than paired -- see the exemption block below,
+# which is checked in both directions so an exemption outliving its grader is
+# red.
 #
 # The build flags are test/run_tests.sh's `.S` arm verbatim, plus this
 # directory on the include path. When that arm changes this has to change with
@@ -56,8 +61,31 @@ fi
 claimed=$(sed -e 's/#.*//' "$PAIRINGS" | awk '$2 == "prog" { print $3 }' | sort -u)
 present=$(for p in "${programs[@]}"; do printf '%s\n' "${p##*/}"; done | sort -u)
 
+# An EXEMPT line names a program the dual RUNNER grades directly, so no mutation
+# pairing claims it and none should. It must name its grader, and the program
+# must exist: an exemption for a program nobody wrote is how a deleted grader
+# stops being noticed.
+exempt=$(sed -e 's/#.*//' "$PAIRINGS" | awk '$1 == "EXEMPT" { print $2 }' | sort -u)
+stale_exempt=$(comm -23 <(printf '%s\n' "$exempt") <(printf '%s\n' "$present"))
+if [ -n "$stale_exempt" ]; then
+  echo "error: $PAIRINGS exempts programs that do not exist in $DUAL_DIR:" >&2
+  printf '%s\n' "$stale_exempt" | sed -e 's|^|  |' >&2
+  echo "An exemption naming nothing is an exemption nobody can check. Delete it" >&2
+  echo "with the program, or restore the program it was written for." >&2
+  exit 1
+fi
+double=$(comm -12 <(printf '%s\n' "$exempt") <(printf '%s\n' "$claimed"))
+if [ -n "$double" ]; then
+  echo "error: $PAIRINGS both exempts and pairs:" >&2
+  printf '%s\n' "$double" | sed -e 's|^|  |' >&2
+  echo "A program is graded by the runner or by a mutation pairing, not by an" >&2
+  echo "exemption AND a pairing -- the exemption would hide the pairing rotting." >&2
+  exit 1
+fi
+
 missing=$(comm -23 <(printf '%s\n' "$claimed") <(printf '%s\n' "$present"))
-unclaimed=$(comm -13 <(printf '%s\n' "$claimed") <(printf '%s\n' "$present"))
+unclaimed=$(comm -13 <(printf '%s\n' "$claimed") <(printf '%s\n' "$present") \
+            | comm -23 - <(printf '%s\n' "$exempt"))
 
 if [ -n "$missing" ]; then
   echo "error: $PAIRINGS names programs that do not exist in $DUAL_DIR:" >&2
@@ -153,5 +181,7 @@ if [ "$status" -ne 0 ]; then
   exit 1
 fi
 
-echo "${#programs[@]} two-hart programs build and are paired. None of them has run:"
-echo "nothing in this tree instantiates two harts."
+n_exempt=$(printf '%s\n' "$exempt" | grep -c . || true)
+echo "${#programs[@]} two-hart programs build; $((${#programs[@]} - n_exempt)) are paired against a"
+echo "mutation and $n_exempt exempt to the runner. NO TORTURE PROGRAM HAS RUN and no"
+echo "mutation below has been applied, so every pairing is still a prediction."

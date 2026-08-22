@@ -2,19 +2,26 @@
 `default_nettype none
 `include "structs.v"
 module littlecpu #(
+  // This hart's mhartid, handed straight to rtl/csrs.v. Nothing else in the
+  // core reads it: it is a self-description register, so a wrong value changes
+  // no cycle and no retire, and test/csr_tb.v is the only place the read is
+  // graded away from the default.
+  parameter logic [31:0] HART_ID = 32'd0,
   // The data bus's memory map, read by the load/store locality counters under
   // `RISCV_FORMAL` at the bottom of this file and by nothing else: no port of
   // this module and no cycle of the datapath depends on any of it. The RAM's
-  // base and size and the timer's base are rtl/memory.v's and rtl/timer.v's own
-  // parameter defaults, restated here because a module cannot read another
-  // module's parameters; test/memmap_test.sh is what compares the two copies.
+  // base and size and the timer's and the UART's bases are rtl/memory.v's,
+  // rtl/timer.v's and rtl/uart.v's own parameter defaults, restated here
+  // because a module cannot read another module's parameters;
+  // test/memmap_test.sh is what compares the copies.
   // The text window's size is the integrator's, because the simulated machine's
   // ROM is deliberately larger than the part's -- so each integrator hands this
   // the same number it hands its `imemory`.
   parameter integer      LS_TEXT_WORDS = 2048,
   parameter logic [31:0] LS_RAM_BASE   = 32'h0001_0000,
   parameter integer      LS_RAM_WORDS  = 16384,
-  parameter logic [31:0] LS_TIMER_BASE = 32'h0002_0000
+  parameter logic [31:0] LS_TIMER_BASE = 32'h0002_0000,
+  parameter logic [31:0] LS_UART_BASE  = 32'h0002_0020
 ) (
   input  logic clk,
   input  logic reset,
@@ -56,6 +63,28 @@ module littlecpu #(
   // cause 7. A platform whose memory answers atomics everywhere ties it high.
   output logic [31:0] atomic_addr,
   input  logic        atomic_supported,
+  // The shared-bus surface. `bus_wait` says the bus is somebody else's this
+  // cycle: decode publishes nothing, the pc holds, and the instruction asks
+  // again next cycle. `snoop_write`/`snoop_addr` are the write another master
+  // is making, which clears a reservation on that word. `mem_lock` is high on
+  // the cycle an AMO reads and low on the cycle it writes back, which is how an
+  // arbiter that registers its grant learns to keep the bus here for the second
+  // cycle.
+  //
+  // A platform with one bus master ties both inputs low and leaves both outputs
+  // unread, and only the INPUTS are free that way: they fold before mapping and
+  // the cell census does not move. An unread output is still a net for ABC to
+  // map around, and these moved the SoC's mapped count by tens of cells -- so
+  // each arrived with a placement sweep rather than with an equal netlist.
+  input  logic        bus_wait,
+  input  logic        snoop_write,
+  input  logic [31:0] snoop_addr,
+  output logic        mem_lock,
+  // Decode's request for the shared data bus, a cycle before the transaction it
+  // asks for. `bus_wait` is what comes back, and the platform -- not this
+  // module -- ANDs the two: a hart that is not granted publishes nothing and
+  // asks again next cycle.
+  output logic        bus_request,
   // The platform's machine-timer line. Registered at its source (rtl/timer.v
   // does it), because inside the core it is one gate away from the fetch loop.
   // A platform with no timer ties it low and the core never takes an interrupt.
@@ -117,11 +146,11 @@ module littlecpu #(
   `endif
   `endif //  `ifdef RISCV_FORMAL
   );
-  // The shapes rtl/imemory.v, rtl/memory.v and rtl/timer.v each refuse to
-  // elaborate at, restated at the site that copies their map. A window that is
-  // not a power of two on its own boundary is one no memory here implements, and
-  // the block arithmetic below would go on classifying addresses against it
-  // without a word. `make window-test` forces all four of these.
+  // The shapes rtl/imemory.v, rtl/memory.v, rtl/timer.v and rtl/uart.v each
+  // refuse to elaborate at, restated at the site that copies their map. A window
+  // that is not a power of two on its own boundary is one no memory here
+  // implements, and the block arithmetic below would go on classifying addresses
+  // against it without a word. `make window-test` forces all five of these.
   localparam int LS_TEXT_ADDR_BITS = $clog2(LS_TEXT_WORDS);
   localparam int LS_RAM_ADDR_BITS  = $clog2(LS_RAM_WORDS);
   if (LS_TEXT_WORDS != (1 << LS_TEXT_ADDR_BITS)) begin : l_ls_text_words_power_of_two
@@ -135,6 +164,9 @@ module littlecpu #(
   end
   if (|LS_TIMER_BASE[3:0]) begin : l_ls_timer_base_aligned
     $fatal(1, "littlecpu: LS_TIMER_BASE must be 16-byte aligned");
+  end
+  if (|LS_UART_BASE[2:0]) begin : l_ls_uart_base_aligned
+    $fatal(1, "littlecpu: LS_UART_BASE must be 8-byte aligned");
   end
 
   // Declared up here rather than next to the module that drives each one. Later
@@ -216,6 +248,8 @@ module littlecpu #(
     .executor_out(executor_out),
     .divider_stall(divider_stalled),
     .fetch_stall(fetch_stall),
+    .bus_wait(bus_wait),
+    .bus_request(bus_request),
     .imem_fault(imem_fault),
     .atomic_addr(atomic_addr),
     .atomic_supported(atomic_supported),
@@ -251,7 +285,7 @@ module littlecpu #(
     .out(decoder_out)
   );
 
-  csrs csrs(
+  csrs #(.HART_ID(HART_ID)) csrs(
     .clk(clk),
     .reset(reset),
     .addr(csr_addr),
@@ -306,6 +340,9 @@ module littlecpu #(
     .mem_ren(mem_ren),
     .mem_rdata(mem_rdata),
     .mem_reservable(mem_reservable),
+    .snoop_write(snoop_write),
+    .snoop_addr(snoop_addr),
+    .mem_lock(mem_lock),
     .out(accessor_out)
   );
 
@@ -391,8 +428,13 @@ module littlecpu #(
   // operand-fetch cycle would have to spend a cycle redoing.
   localparam int LS_BLOCK_BITS = 11;              // 2 KB: a 12-bit offset's reach
   localparam int LS_BLOCK_NUM_BITS = 32 - LS_BLOCK_BITS;
-  // rtl/timer.v's four words, the one region smaller than a block.
+  // rtl/timer.v's four words and rtl/uart.v's two, the regions smaller than a
+  // block. Both sit inside the same block today, so yosys folds the UART's four
+  // comparisons into the timer's; they are written out because what makes them
+  // equal is where the UART happens to be, and a region that moved would need
+  // them.
   localparam logic [31:0] LS_TIMER_BYTES = 32'd16;
+  localparam logic [31:0] LS_UART_BYTES  = 32'd8;
 
   localparam logic [LS_BLOCK_NUM_BITS-1:0] LS_TEXT_LO = '0;
   localparam logic [LS_BLOCK_NUM_BITS-1:0] LS_TEXT_HI =
@@ -403,12 +445,15 @@ module littlecpu #(
   localparam logic [LS_BLOCK_NUM_BITS-1:0] LS_TIMER_LO = LS_TIMER_BASE >> LS_BLOCK_BITS;
   localparam logic [LS_BLOCK_NUM_BITS-1:0] LS_TIMER_HI =
     (LS_TIMER_BASE + LS_TIMER_BYTES - 1) >> LS_BLOCK_BITS;
+  localparam logic [LS_BLOCK_NUM_BITS-1:0] LS_UART_LO = LS_UART_BASE >> LS_BLOCK_BITS;
+  localparam logic [LS_BLOCK_NUM_BITS-1:0] LS_UART_HI =
+    (LS_UART_BASE + LS_UART_BYTES - 1) >> LS_BLOCK_BITS;
 
   logic [LS_BLOCK_NUM_BITS-1:0] ls_block;
   assign ls_block = reg_rs1[31:LS_BLOCK_BITS];
 
   // Four blocks per region: its first and its last, and the block outside each
-  // of those. Written out rather than folded into a function the three regions
+  // of those. Written out rather than folded into a function the four regions
   // share, because iverilog builds a continuous assign's sensitivity list from
   // the call's arguments. `1'b1` and not `1`: an integer literal would widen the
   // whole comparison to 32 bits, and the block below zero has to come out as the
@@ -420,7 +465,9 @@ module littlecpu #(
     ls_block == LS_RAM_LO - 1'b1   || ls_block == LS_RAM_LO   ||
     ls_block == LS_RAM_HI          || ls_block == LS_RAM_HI + 1'b1 ||
     ls_block == LS_TIMER_LO - 1'b1 || ls_block == LS_TIMER_LO ||
-    ls_block == LS_TIMER_HI        || ls_block == LS_TIMER_HI + 1'b1;
+    ls_block == LS_TIMER_HI        || ls_block == LS_TIMER_HI + 1'b1 ||
+    ls_block == LS_UART_LO - 1'b1  || ls_block == LS_UART_LO  ||
+    ls_block == LS_UART_HI         || ls_block == LS_UART_HI + 1'b1;
 
   // `wen` is already low for a write to x0 and `waddr` is zero when it is low,
   // so a match here is always a real write to a real base register.

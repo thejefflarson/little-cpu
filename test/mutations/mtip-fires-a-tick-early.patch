@@ -1,14 +1,22 @@
 diff --git a/rtl/timer.v b/rtl/timer.v
 --- a/rtl/timer.v
 +++ b/rtl/timer.v
-@@ -143,7 +143,7 @@
-       // Both sides come out of flip-flops, so a write to `mtimecmp` is visible
+@@ -169,7 +169,7 @@
+             if (mem_wstrb[2]) cmp[55:48] <= mem_wdata[23:16];
+             if (mem_wstrb[3]) cmp[63:56] <= mem_wdata[31:24];
+           end
+-          mtip[h] <= mtime_next >= cmp;
++          mtip[h] <= mtime_next + 64'd1 >= cmp;
+         end
+       end
+     end
+@@ -233,7 +233,7 @@
        // here one cycle later. Comparing against the value the write is
        // installing would put `mem_wdata` in front of a 64-bit carry chain, and
        // the cycle buys nothing: an `mret` cannot commit until the pipeline is
        // empty, which is several cycles after the handler's store lands.
--      mtip <= mtime_next >= mtimecmp;
-+      mtip <= mtime_next + 64'd1 >= mtimecmp;
+-      mtip[0] <= mtime_next >= mtimecmp;
++      mtip[0] <= mtime_next + 64'd1 >= mtimecmp;
        // An out-of-range access reads zero, so the three memories on this bus
        // join with an OR rather than a mux.
        mem_rdata <= in_range ? read_word : 32'b0;
