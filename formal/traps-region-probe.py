@@ -14,7 +14,7 @@ reaches it. An arm in that position is worth nothing until it has been shown to
 fail, which is what `make probe-gates` demands of every other graded comparison
 in this tree and what this file does for one that needs a solver.
 
-Two cores are built, each one line of rtl/decoder.v away from the shipping one,
+Two cores are built, each two lines of rtl/decoder.v away from the shipping one,
 and each faults an aligned `lw` whose address has bit 31 set -- an address
 outside all four windows of any map this platform can be given:
 
@@ -81,7 +81,12 @@ FAULT_SITE = """  assign load_access_fault  = atomic_fault && instr_lr;
   assign store_access_fault = atomic_fault && instr_atomic_write;
 """
 
-TRAP_SITE = "                        load_misaligned || store_misaligned || atomic_fault;"
+# The term the trap chain and the mtval mux share. Patching it commits the
+# fault AND makes the mutated core report the address it happened to, which is
+# what the model requires of a core that raises cause 5 or 7 -- a prototype that
+# faulted and reported nothing would go red at the mtval arm instead, which is a
+# fact about the prototype and not about the region.
+TRAP_SITE = "  assign data_fault = load_misaligned || store_misaligned || atomic_fault;"
 
 # An aligned `lw` at an address with bit 31 set. No window of this machine's map
 # reaches there, whatever the four parameters are set to, so the model's region
@@ -131,9 +136,10 @@ def mutate(decoder_v, case):
         )
     if TRAP_SITE not in decoder_v:
         stop(
-            "rtl/decoder.v no longer spells the last line of `trap_pending` the way\n"
-            "this probe patches it. Without that line the mutated core computes a\n"
-            "fault it never commits, so the proof stays green having asked nothing."
+            "rtl/decoder.v no longer spells `data_fault` the way this probe patches\n"
+            "it. Without that line the mutated core computes a fault it never\n"
+            "commits and never reports, so the proof stays green having asked\n"
+            "nothing."
         )
     site = FAULT_SITE.replace(CASES[case] + ";", CASES[case] + " || probe_region_fault;")
     if site == FAULT_SITE:
@@ -148,8 +154,8 @@ def mutate(decoder_v, case):
     out = decoder_v.replace(FAULT_SITE, body)
     return out.replace(
         TRAP_SITE,
-        "                        load_misaligned || store_misaligned || atomic_fault ||\n"
-        "                        probe_region_fault;",
+        "  assign data_fault = load_misaligned || store_misaligned || atomic_fault ||\n"
+        "                      probe_region_fault;",
     )
 
 

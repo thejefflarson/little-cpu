@@ -78,7 +78,7 @@ module traps #(
   logic [31:0] csr_wdata, csr_rdata;
   logic        csr_implemented;
   logic        trap_entry, mret_entry;
-  logic [31:0] trap_cause, trap_epc;
+  logic [31:0] trap_cause, trap_epc, trap_tval;
   logic [31:0] mtvec_value, mepc_value;
   logic        interrupt_pending;
 
@@ -127,6 +127,7 @@ module traps #(
     .trap_entry(trap_entry),
     .trap_cause(trap_cause),
     .trap_epc(trap_epc),
+    .trap_tval(trap_tval),
     .mret_entry(mret_entry),
     .out(decoder_out)
   );
@@ -144,6 +145,7 @@ module traps #(
     .trap_entry(trap_entry),
     .trap_cause(trap_cause),
     .trap_epc(trap_epc),
+    .trap_tval(trap_tval),
     .mret_entry(mret_entry),
     .irq_timer(irq_timer),
     .mtvec_value(mtvec_value),
@@ -156,6 +158,7 @@ module traps #(
   localparam logic [11:0] MIE       = 12'h304;
   localparam logic [11:0] MEPC      = 12'h341;
   localparam logic [11:0] MCAUSE    = 12'h342;
+  localparam logic [11:0] MTVAL     = 12'h343;
   localparam logic [11:0] MIP       = 12'h344;
   localparam logic [11:0] MCYCLE    = 12'hB00;
   localparam logic [11:0] MINSTRET  = 12'hB02;
@@ -331,21 +334,57 @@ module traps #(
   // so the chain states the order rather than resolving anything. Make two
   // causes overlap and this is what decides which one the core is allowed to
   // report.
+  //
+  // The cause AND what mtval must report with it are decided in ONE chain. Two
+  // chains over the same conditions would be two readings of one instruction
+  // that could drift apart, and a cause paired with the wrong value is exactly
+  // what the mtval arm exists to catch.
+  //
+  // mtval is zero for a breakpoint and for an environment call by this
+  // platform's choice, not by the spec's requirement: its rule is that a value
+  // written must be the faulting address, not that one must be. A core
+  // reporting an address for either disagrees with THIS model and with nothing
+  // else.
+  //
+  // `data_addr` on the region arms because each already implies which of the
+  // two sums it selects. The last arm is an atomic the platform refused, whose
+  // effective address is rs1: the A encodings put funct5, aq, rl and rs2 where
+  // an I-immediate would be read from, so there is no immediate to add and this
+  // is not `load_addr` with a zero in it.
   logic expected_trap;
-  logic [31:0] expected_cause;
+  logic [31:0] expected_cause, expected_tval;
   assign expected_trap = is_illegal || is_ebreak || is_ecall ||
                          lw_misaligned || lh_misaligned || sw_misaligned || sh_misaligned ||
                          (is_atomic && atomic_refused);
   always_comb begin
-    if (is_illegal) expected_cause = CAUSE_ILLEGAL;
-    else if (is_ebreak) expected_cause = CAUSE_BREAKPOINT;
-    else if (is_ecall) expected_cause = CAUSE_ECALL_M;
-    else if (lw_misaligned || lh_misaligned) expected_cause = CAUSE_LOAD_MIS;
-    else if (sw_misaligned || sh_misaligned) expected_cause = CAUSE_STORE_MIS;
-    else if (load_region_fault) expected_cause = CAUSE_LOAD_FAULT;
-    else if (store_region_fault) expected_cause = CAUSE_STORE_FAULT;
-    else if (is_lr) expected_cause = CAUSE_LOAD_FAULT;
-    else expected_cause = CAUSE_STORE_FAULT;
+    if (is_illegal) begin
+      expected_cause = CAUSE_ILLEGAL;
+      expected_tval  = instr;
+    end else if (is_ebreak) begin
+      expected_cause = CAUSE_BREAKPOINT;
+      expected_tval  = 32'b0;
+    end else if (is_ecall) begin
+      expected_cause = CAUSE_ECALL_M;
+      expected_tval  = 32'b0;
+    end else if (lw_misaligned || lh_misaligned) begin
+      expected_cause = CAUSE_LOAD_MIS;
+      expected_tval  = load_addr;
+    end else if (sw_misaligned || sh_misaligned) begin
+      expected_cause = CAUSE_STORE_MIS;
+      expected_tval  = store_addr;
+    end else if (load_region_fault) begin
+      expected_cause = CAUSE_LOAD_FAULT;
+      expected_tval  = data_addr;
+    end else if (store_region_fault) begin
+      expected_cause = CAUSE_STORE_FAULT;
+      expected_tval  = data_addr;
+    end else if (is_lr) begin
+      expected_cause = CAUSE_LOAD_FAULT;
+      expected_tval  = reg_rs1;
+    end else begin
+      expected_cause = CAUSE_STORE_FAULT;
+      expected_tval  = reg_rs1;
+    end
   end
 
   // Whether a trap is required and what its cause must be are two questions,
@@ -396,10 +435,11 @@ module traps #(
   // other address must read back the same value it read last cycle.
   logic csr_written_by_trap;
   assign csr_written_by_trap =
-      (trap_entry && (csr_addr == MEPC || csr_addr == MCAUSE || mstatus_addressed)) ||
+      (trap_entry && (csr_addr == MEPC || csr_addr == MCAUSE || csr_addr == MTVAL ||
+                      mstatus_addressed)) ||
       (mret_entry && mstatus_addressed);
 
-  logic [31:0] past_pc, prev_mtvec, prev_mepc, prev_rdata, prev_cause;
+  logic [31:0] past_pc, prev_mtvec, prev_mepc, prev_rdata, prev_cause, prev_tval;
   logic [11:0] prev_csr_addr;
   logic prev_reset, prev_trap_entry, prev_mret_entry, prev_csr_wen;
   logic prev_cause_modelled, prev_counter_ticking, prev_written_by_trap;
@@ -418,6 +458,7 @@ module traps #(
     prev_trap_entry        <= trap_entry;
     prev_mret_entry        <= mret_entry;
     prev_cause             <= expected_cause;
+    prev_tval              <= expected_tval;
     prev_cause_modelled    <= cause_modelled;
     prev_counter_ticking   <= counter_ticking;
     prev_written_by_trap   <= csr_written_by_trap;
@@ -494,6 +535,27 @@ module traps #(
   always_comb if (settled && prev_trap_entry && !prev_interrupt_pending &&
                   prev_imem_fault && csr_addr == MCAUSE)
     assert(csr_rdata == 32'd1);
+
+  // mtval says what the trap happened to. Same three guards as the cause
+  // comparison above and for the same reasons, so the two arms cover the same
+  // cycles and a core that reported the right cause about the wrong access
+  // fails here alone.
+  always_comb if (settled && prev_trap_entry && !prev_interrupt_pending &&
+                  !prev_imem_fault && prev_cause_modelled && csr_addr == MTVAL)
+    assert(csr_rdata == prev_tval);
+
+  // A fetch the memory could not answer reports the address it was refused at,
+  // which is the address the instruction would have been at -- so this is the
+  // one cause whose mtval and mepc carry the same number, and the model reads
+  // it off `past_pc` rather than off a word that was never supplied.
+  always_comb if (settled && prev_trap_entry && !prev_interrupt_pending &&
+                  prev_imem_fault && csr_addr == MTVAL)
+    assert(csr_rdata == past_pc);
+
+  // An interrupt happened to nothing. The instruction it displaced did not
+  // execute, so neither its address nor its encoding is what mtval is about.
+  always_comb if (settled && prev_interrupt_entry && csr_addr == MTVAL)
+    assert(csr_rdata == 32'b0);
 
   // MIE moves into MPIE and interrupts go off. Both halves need the value
   // mstatus held before the trap, so this fires only when the trapping

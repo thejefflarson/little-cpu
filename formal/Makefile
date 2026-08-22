@@ -202,13 +202,23 @@ components_pcloop: components.sby pcloop_cover ../rtl/fetcher.v ../rtl/decoder.v
 # proof it controls: this core raises no load or store access fault, so the arm
 # that models one is satisfied by never being reached, and a control that can be
 # run separately from the thing it controls eventually is not run at all.
-components_traps: components.sby traps-region-probe ../rtl/fetcher.v ../rtl/decoder.v \
-                  ../rtl/regsel.v ../rtl/csrs.v ../rtl/structs.v traps.sv
+#
+# traps-tval-probe is the same demand on a different arm, for a different reason:
+# the mtval arm IS reached by the shipping core, but nothing else in the tree
+# reads mtval at all -- no generated check names it and the sim legs see only
+# what a program loaded it into -- so this proof is its only oracle and an oracle
+# nobody has watched fail is worth nothing.
+components_traps: components.sby traps-region-probe traps-tval-probe ../rtl/fetcher.v \
+                  ../rtl/decoder.v ../rtl/regsel.v ../rtl/csrs.v ../rtl/structs.v traps.sv
 	rm -rf $@
 	sby -f $< traps
 
 .PHONY: traps-region-probe
 traps-region-probe: traps-region-probe.py traps.sv ../rtl/decoder.v
+	python3 $<
+
+.PHONY: traps-tval-probe
+traps-tval-probe: traps-tval-probe.py traps.sv ../rtl/decoder.v
 	python3 $<
 
 # The bus arbiter, which no core is wired to yet: two harts, free requests, free
@@ -234,7 +244,8 @@ busarbiter-probe: busarbiter-probe.py busarbiter.sv ../rtl/busarbiter.v
 # /bin/sh, make's default shell, passes through literally and deletes nothing.
 clean:
 	rm -rf checks complete complete_cover cover dmemcheck imemcheck components components_*
-	rm -rf pcloop_cover busarbiter_cover fg-probe fg-probe.cfg region-probe busarbiter-probe
+	rm -rf pcloop_cover busarbiter_cover fg-probe fg-probe.cfg
+	rm -rf region-probe tval-probe busarbiter-probe
 	rm -rf $(RISCV_FORMAL_DIR) $(RISCV_FORMAL_DIR).tmp
 
 .PHONY: all clean

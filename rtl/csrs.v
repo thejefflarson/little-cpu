@@ -17,6 +17,32 @@
 // This module never decides that an access is illegal. `implemented` feeds the
 // decoder's `instr_valid` term and the read-only test is on the address, so both
 // illegal-CSR rules are decided in rtl/decoder.v with every other trap cause.
+//
+// WHAT mtval REPORTS, PER CAUSE. Firmware cannot derive this -- the privileged
+// spec leaves every entry to the platform -- so it is stated rather than
+// implied, the way the machine timer's period is:
+//
+//   1 instruction access fault   the address the fetch was refused at
+//   2 illegal instruction        the faulting instruction, a compressed one
+//                                zero-extended into the upper half
+//   4 load misaligned            the effective address
+//   5 load access fault          the effective address
+//   6 store misaligned           the effective address
+//   7 store/AMO access fault     the effective address
+//   3 breakpoint                 zero
+//   11 ecall from M              zero
+//   an interrupt                 zero
+//
+// The two exceptions that report zero do so because `mepc` already holds the
+// only address either could name, and the spec asks for a nonzero mtval on
+// neither: its rule is that IF a value is written it must be the faulting
+// address, not that one must be. rtl/decoder.v builds the value; this file only
+// latches it.
+//
+// A software write is honoured in full, with no legal-value mask. Every 32-bit
+// pattern is a value some trap could have left here -- it holds addresses and
+// instruction words -- so a mask would have nothing to reject, and a handler
+// that nests traps has to be able to save and restore it.
 module csrs #(
   // The value mhartid reads: this hart's unique id, chosen by the integrator
   // rather than by the core. The spec requires the ids to be unique and one of
@@ -51,6 +77,7 @@ module csrs #(
   input  logic        trap_entry,
   input  logic [31:0] trap_cause,
   input  logic [31:0] trap_epc,
+  input  logic [31:0] trap_tval,
   input  logic        mret_entry,
   // The platform's machine-timer line, high while its mtime has reached
   // mtimecmp. It must arrive REGISTERED -- rtl/timer.v registers the comparison
@@ -112,7 +139,7 @@ module csrs #(
   localparam logic [31:0] MISA_VALUE = 32'h4000_1105;
 
   logic [63:0] mcycle, minstret;
-  logic [31:0] mscratch, mtvec, mepc, mcause;
+  logic [31:0] mscratch, mtvec, mepc, mcause, mtval;
   // mstatus is three fields rather than a register: MPP is hardwired to M-mode
   // (WARL, and this core has no other mode) and every other bit is 0.
   logic        mstatus_mie, mstatus_mpie;
@@ -186,7 +213,7 @@ module csrs #(
       MSCRATCH:  rdata = mscratch;
       MEPC:      rdata = mepc;
       MCAUSE:    rdata = mcause;
-      MTVAL:     rdata = 32'b0;
+      MTVAL:     rdata = mtval;
       MIP:       rdata = mip_value;
       MCYCLE:    rdata = mcycle_lo;
       MCYCLEH:   rdata = mcycle_hi;
@@ -226,6 +253,7 @@ module csrs #(
       MSCRATCH:  warl = wdata;
       MEPC:      warl = wdata_mepc;
       MCAUSE:    warl = wdata;
+      MTVAL:     warl = wdata;
       MCYCLE, MCYCLEH, MINSTRET, MINSTRETH: warl = wdata;
       // Read-only, or not implemented at all: nothing lands, so the value
       // after the write is the value before it.
@@ -291,6 +319,7 @@ module csrs #(
       mtvec        <= 32'b0;
       mepc         <= 32'b0;
       mcause       <= 32'b0;
+      mtval        <= 32'b0;
       mstatus_mie  <= 1'b0;
       mstatus_mpie <= 1'b0;
       mie_mtie     <= 1'b0;
@@ -309,6 +338,7 @@ module csrs #(
           MSCRATCH: mscratch <= warl;
           MEPC:     mepc     <= warl;
           MCAUSE:   mcause   <= warl;
+          MTVAL:    mtval    <= warl;
           // The counters are driven unconditionally above, with an explicit
           // write folded into *_next so it beats the increment.
           default: ;
@@ -326,6 +356,7 @@ module csrs #(
       if (trap_entry) begin
         mepc         <= trap_epc_warl;
         mcause       <= trap_cause;
+        mtval        <= trap_tval;
         mstatus_mpie <= mstatus_mie;
         mstatus_mie  <= 1'b0;
       end else if (mret_entry) begin
