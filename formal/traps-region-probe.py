@@ -16,7 +16,7 @@ in this tree and what this file does for one that needs a solver.
 
 Two cores are built, each two lines of rtl/decoder.v away from the shipping one,
 and each faults an aligned `lw` whose address has bit 31 set -- an address
-outside all three windows of any map this platform can be given:
+outside all four windows of any map this platform can be given:
 
   right-cause  raises cause 5, and the proof must still PASS. This is the half
                that says the model does not simply forbid the mechanism: every

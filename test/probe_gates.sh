@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=454
+PROBES_EXPECTED=461
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -2046,8 +2046,8 @@ MM="$HERE/memmap_test.sh"
 mm_fixture() {
   local d; d=$(new_case)
   mkdir -p "$d/rtl" "$d/test/asm" "$d/test/bench" "$d/formal"
-  cp "$REPO"/rtl/memory.v "$REPO"/rtl/timer.v "$REPO"/rtl/imemory.v \
-     "$REPO"/rtl/littlecpu.v "$REPO"/rtl/littlesoc.v "$d/rtl/"
+  cp "$REPO"/rtl/memory.v "$REPO"/rtl/timer.v "$REPO"/rtl/uart.v \
+     "$REPO"/rtl/imemory.v "$REPO"/rtl/littlecpu.v "$REPO"/rtl/littlesoc.v "$d/rtl/"
   cp "$REPO"/test/testbench.v "$REPO"/test/cxxrtl.cc "$REPO"/test/cosim.cc \
      "$REPO"/test/dual_cxxrtl.cc "$d/test/"
   cp "$REPO"/test/asm/riscv_test.h "$REPO"/test/asm/sections.lds \
@@ -2074,6 +2074,16 @@ probe "the harness sizing its own RAM again is red" 1 \
 d=$(mm_fixture); sed -i.bak "s/^  timer mtimer (/  timer #(.BASE(32'h0003_0000)) mtimer (/" "$d/rtl/littlesoc.v"
 probe "the SoC restating the timer base is red too" 1 \
   "rtl/littlesoc.v overrides \`timer\`'s parameters" "$MM $d"
+
+# The UART is the newest region and the one whose baud rate an integrator would
+# be most tempted to speed up for a simulation, which is the whole defect.
+d=$(mm_fixture); sed -i.bak "s/^  uart tty (/  uart #(.BAUD(1_000_000)) tty (/" "$d/test/testbench.v"
+probe "the harness giving the UART its own baud rate is red" 1 \
+  "test/testbench.v overrides \`uart\`'s parameters" "$MM $d"
+
+d=$(mm_fixture); sed -i.bak 's/^  uart tty (/  nouart tty (/' "$d/rtl/littlesoc.v"
+probe "a SoC with no UART at all does not pass by silence" 1 \
+  "does not instantiate \`uart\` at all" "$MM $d"
 
 # Without this the check above passes vacuously on a file that lost its memory.
 d=$(mm_fixture); sed -i.bak 's/^  memory dmem (/  nomemory dmem (/' "$d/test/testbench.v"
@@ -2133,10 +2143,35 @@ probe "a peripheral inside the timer's reserved span is red" 1 \
 # ...and the same device above the span is not, or the check above would be
 # refusing every address rather than the reserved ones.
 d=$(mm_fixture)
-printf "module probe_device #(\n  parameter logic [31:0] BASE = 32'h0002_0020\n) ();\nendmodule\n" \
+printf "module probe_device #(\n  parameter logic [31:0] BASE = 32'h0004_0000\n) ();\nendmodule\n" \
   > "$d/rtl/probe_device.v"
 probe "control: a peripheral above the reserved span is accepted" 0 \
   "Memory map agreed on:" "$MM $d"
+
+# The UART abuts the RESERVED span, not the decoded one -- it starts where the
+# second hart's mtimecmp would end. A move in either direction is an overlap or
+# a hole, and the OR that joins the read buses would report neither.
+d=$(mm_fixture); sed -i.bak "s/BASE     = 32'h0002_0020/BASE     = 32'h0002_0028/" "$d/rtl/uart.v"
+probe "a gap opening between the timer's reservation and the UART is red" 1 \
+  "the timer reserves through 0x0002001f and the" "$MM $d"
+
+# Its range test reads the address bits above an 8-byte window, which is only a
+# membership test while the base is a multiple of 8.
+d=$(mm_fixture); sed -i.bak "s/BASE     = 32'h0002_0020/BASE     = 32'h0002_0024/" "$d/rtl/uart.v"
+probe "a UART base off its own window is red" 1 \
+  "is not a multiple of its own" "$MM $d"
+
+d=$(mm_fixture); sed -i.bak 's/UART_BASE          0x00020020/UART_BASE          0x00030020/' "$d/test/asm/riscv_test.h"
+probe "the address the printing program writes is checked against the UART" 1 \
+  "UART_BASE is 0x00030020" "$MM $d"
+
+d=$(mm_fixture); sed -i.bak "s/LS_UART_BASE  = 32'h0002_0020/LS_UART_BASE  = 32'h0003_0020/" "$d/rtl/littlecpu.v"
+probe "the UART moving in the core's copy alone is red" 1 \
+  "LS_UART_BASE is 196640 against rtl/uart.v's 131104" "$MM $d"
+
+d=$(mm_fixture); sed -i.bak "s/LS_UART_BASE  = 32'h0002_0020/LS_UART_BASE  = 32'h0003_0020/" "$d/formal/traps.sv"
+probe "the UART moving in the proof's copy alone is red" 1 \
+  "formal/traps.sv's LS_UART_BASE is 196640" "$MM $d"
 
 d=$(mm_fixture); sed -i.bak 's/^SOC_ROM_WORDS := 2048/SOC_ROM_WORDS := 4096/' "$d/Makefile"
 probe "the ROM image built to a different size than the ROM is red" 1 \
@@ -3170,6 +3205,7 @@ probe "the model moving away takes this probe with it too" 2 \
   "formal/traps.sv is missing from" "$(tts "$d")"
 
 
+
 begin_group "soc/netlist_digest.py"
 
 ND="python3 $REPO/soc/netlist_digest.py"
@@ -3603,6 +3639,7 @@ git -C "$d/repo" rm -q rtl/decoder.v
 git -C "$d/repo" -c user.email=probe@example -c user.name=probe commit -qm drop
 probe "a source this tree synthesises that the base lacks is not comparable" 2 \
   "has no rtl/decoder.v" "$(nb_run "$d" HEAD)"
+
 begin_group "formal/busarbiter-probe.py"
 
 # Same shape as the group above, and for the same reason: that file is itself

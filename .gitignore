@@ -25,6 +25,11 @@ ecp5.config
 ecp5.report.json
 ecp5.synth.log
 ecp5.pnr.log
+dual_ecp5.json
+dual_ecp5.config
+dual_ecp5.report.json
+dual_ecp5.synth.log
+dual_ecp5.pnr.log
 # The de-interleaved ROM banks `make soc-rom` writes from a test program. Build
 # artifacts of whichever SOC_PROG was last built, not source.
 soc/rom_even.hex
