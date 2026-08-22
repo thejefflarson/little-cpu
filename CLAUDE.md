@@ -67,14 +67,19 @@ are kept in parentheses so those references still resolve.
   answers its range test about a second address — the one an atomic's rs1 names, a register output
   with no adder in front of it — and decode raises causes 5 and 7 from it, for zero extra logic
   levels against the four the same test for a load or a store cost (ADR-0109). **The data bus
-  refuses a plain load or store too now, and what that costs is the board clock** (ADR-0126): their
-  address is a 32-bit sum, **the price is which bit of that sum the fetch loop has to wait for** —
-  bit 31 costs 17.3% of median period, bit 12 costs 9.1%, waiting for none of it is a null
-  (ADR-0104, ADR-0116) — and the cheapest exact spelling waits for bit 12 and measures **+9.40% of
-  median period, 16 of 16 seeds slower against a one-line control, under 12.00 MHz at 9 of 16
-  placements with the median at 11.97**. So the conformance gap is closed in RTL and the requirement
-  is not met; read that pair together, because a single-seed `make soc-timing` reads 12.06 and
-  passes.
+  refuses a plain load or store too now, and it costs cycles and no clock** (ADR-0129). Their
+  address is a 32-bit sum, and every spelling that answered in the ISSUING cycle put that sum in the
+  fetch loop: the price was monotone in which bit the loop waited for — bit 31 is +17.3% of median
+  period, bit 12 is +9.1% (ADR-0104, ADR-0116) — and the cheapest exact one of the seven measured
+  **+9.40% of median period with 9 of 16 placements under 12.00 MHz and the median at 11.97**
+  (ADR-0128). **So the answer arrives a cycle late instead**, and only when it is not already known:
+  `reg_rs1` deep inside a window — in it, and in neither its first 2 KB block nor its last — is
+  answered whatever the 12-bit offset is, off raw register bits with no adder; anything nearer an
+  edge bubbles one cycle and reads a flip-flop. **The trap is still committed in decode**, so the
+  commitment holds rather than bending: the instruction is held there, nothing issued, and a
+  deferred *answer* is not a deferred *trap*. Sixteen paired placements put the period at
+  **−0.74% of median, 7 of 16 seeds slower, sign test p = 0.80 and 0 of 16 under 12.00 MHz**. The
+  price is **+13.79% of Dhrystone's cycles**, 9.10 → 7.97 DMIPS.
 - **Every inter-stage struct carries a `valid` bit** (3). A bubble is `valid = 0`; retire is
   `valid` reaching writeback, which gates `wen` and drives `rvfi_valid`.
 - **Hazards are stall-only** (4). No forwarding network, and 35.7% of suite cycles is what that
@@ -192,7 +197,7 @@ store misaligned = 6, store/AMO access fault = 7, ecall from M = 11.
 
 **Causes 5 and 7 are raised for the eleven A encodings and for the twelve plain load and store
 encodings**, and what remains asymmetric is the price, not the behaviour (ADR-0104, ADR-0109,
-ADR-0126). All three refusals have the same shape:
+ADR-0128, ADR-0129). All three refusals have the same shape:
 the platform decodes its own map and hands the core one bit that arrives with the *address*.
 `rtl/imemory.v` publishes a fetch outside the text window on `imem_fault` → cause 1; `rtl/memory.v`
 answers its range test about `atomic_addr` → cause 5 for `lr.w` and 7 for the nine AMOs and `sc.w`,
@@ -208,11 +213,13 @@ cheapest exact spelling waits for bit 12 and it is what ships here: three tests 
 register bits, the immediate's sign picking the pair, and the carry into bit 12 — recovered from the
 existing adder as `sum[12] ^ rs1[12] ^ imm[12]`, never a second one — picking between two
 precomputed answers one mux deep. **It reproduces the bit-12 figure on a later tree at +9.40% of
-median period and puts 9 of 16 placements under 12.00 MHz** (ADR-0126), so the deviation from the
-privileged spec's strong recommendation is closed and the requirement is open. **The only affordable
-spelling is not a region test**: asking about `rs1`'s page and its neighbours holds 12 MHz at 16 of
-16 placements and is declined because it makes `mcause` a function of the base register rather than
-of the access.
+median period and puts 9 of 16 placements under 12.00 MHz** (ADR-0128), which is what closed the
+same-cycle direction after seven spellings of it. **What ships answers a cycle late** (ADR-0129) and
+is a null at sixteen seeds. **The fast arm is one-sided on purpose**: a miss means "wait for the
+flip-flop", never "fault", so a window narrower than three 2 KB blocks — the timer's, the UART's —
+never reaches it. That is the whole difference between this and asking about `rs1`'s page and its
+neighbours, which holds 12 MHz at 16 of 16 placements and is declined because it makes `mcause` a
+function of the base register rather than of the access.
 **Which spelling reaches `next_pc` decides whether the board closes.** One term that says an atomic
 faults, with the cause split answered off the fetch loop, swept a worst of 12.24 MHz over eight
 seeds; two terms each carrying their own encoding test swept 11.82 and missed at two seeds of eight.
@@ -546,13 +553,16 @@ and times; `make ecp5-timing` is that same SoC on the other part.
   period — and 12 is already met. A few-percent idea can be read against 41.67 ns and declined in a
   minute, instead of after four placements (ADR-0078).
 - **`make dhrystone` is the only figure comparable to another project's**, and it is quoted in
-  DMIPS/MHz because that is what the field publishes. 0.757 at `-O2`, 3568 bytes of the SoC's 8 KB
-  ROM (ADR-0084, ADR-0093, ADR-0099, ADR-0117). Dhrystone is string-dominated and the optimiser can
-  delete part of the work, so **the flags, the compiler and the string library travel with the
-  number** — the program prints all three and will not compile without them. It is not a gate and
-  adds no ratchet. **Quote the absolute figure with it**: **9.08 DMIPS** at the board's 12 MHz, from
-  7.68, because Fmax above the requirement is margin and not speed, so a CPI win converts to
-  throughput and a placement that closes higher does not (ADR-0089).
+  DMIPS/MHz because that is what the field publishes. **0.664** at `-O2`, 3568 bytes of the SoC's
+  8 KB ROM (ADR-0084, ADR-0093, ADR-0099, ADR-0117, ADR-0129). Dhrystone is string-dominated and the
+  optimiser can delete part of the work, so **the flags, the compiler and the string library travel
+  with the number** — the program prints all three and will not compile without them. It is not a
+  gate and adds no ratchet. **Quote the absolute figure with it**: **7.97 DMIPS** at the board's
+  12 MHz, because Fmax above the requirement is margin and not speed, so a CPI win converts to
+  throughput and a placement that closes higher does not (ADR-0089). **It went 9.08 → 7.97 on
+  purpose**: the region wait spends 13.79% of Dhrystone's cycles to make an out-of-region access
+  fault, which is the one trade the board clock could not pay for (ADR-0129). A CPI regression with
+  no conformance behind it is still a regression.
 - **The only cross-core comparison that means anything is one harness**, and `soc/compare/` is it:
   same part, memories, program, toolchain and seeds, this core against the VexRiscv Verilog in the
   pinned riscv-formal clone. **Both factors of throughput are measured there, neither is quoted from
@@ -563,7 +573,11 @@ and times; `make ecp5-timing` is that same SoC on the other part.
   1.47× median on median), both critical paths are
   the fetch loop; the gap on **cycles** goes the other way at **0.784 DMIPS/MHz here against 0.557
   there**, 29.0% fewer cycles for the same work; and the **product is 1.05× — 25.56 DMIPS against
-  26.84**, 1.04× if both medians are read instead (ADR-0098 as amended, ADR-0086, ADR-0099). **Their
+  26.84**, 1.04× if both medians are read instead (ADR-0098 as amended, ADR-0086, ADR-0099).
+  **That product is STALE and the cycle half is why**: ADR-0129 spent 13.79% of Dhrystone's cycles on the region
+wait, so this core's 0.784 no longer describes the tree that number was taken on. Re-take BOTH
+halves together before quoting it again — a product whose factors come from two trees is not a
+measurement, which is the rule this very paragraph exists to enforce. **Their
   published 0.52 reproduces**, 7.1% low, where the same project's published 92 MHz does not: 52.11
   at its best placement here, 48.19 at its worst. Neither side is a shipped design — theirs is
   RV32IC with a branch predictor and no privileged architecture, ours has no timer in the harness
