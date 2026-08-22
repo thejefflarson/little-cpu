@@ -600,13 +600,10 @@ module decoder #(
   // 11.98 MHz at a placement this one clears.
   logic atomic_fault;
   assign atomic_fault = instr_atomic && !atomic_supported && !word_misaligned;
-  // The same refusal for a plain load or store, answered off the decomposed
-  // question above instead of off a port. Misalignment outranks the region here
-  // too, so the four data causes stay disjoint whichever access raised them.
-  // Read a cycle late, off the flip-flop the wait above filled, so the trap
-  // chain and the pc never see the effective-address adder. Misalignment
-  // outranks the region here too, so the four data causes stay disjoint
-  // whichever access raised them.
+  // The same refusal for a plain load or store, read a cycle late off the
+  // flip-flop the wait above filled, so the trap chain and the pc never see the
+  // effective-address adder. Misalignment outranks the region here too, so the
+  // four data causes stay disjoint whichever access raised them.
   assign ls_fault = ls_access && ls_answer_valid && !ls_answer &&
                     !load_misaligned && !store_misaligned;
 
