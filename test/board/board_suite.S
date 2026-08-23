@@ -100,6 +100,18 @@ run_next:
   lw    t2, 0(t2)
   bgeu  t1, t2, all_done
 
+  /* WAIT FOR THE UART TO GO QUIET BEFORE HANDING OVER. This driver reports each
+   * verdict down the same wire the programs can use, and one of them tests that
+   * wire: test/asm/uart.S case 2 reads the status expecting zero, above the
+   * comment "nothing has been written, so nothing is in flight". Inside a batch
+   * that is false -- the previous program's verdict is still going out -- and it
+   * failed on hardware for exactly that reason. Draining first makes the
+   * program's premise true again. */
+  li    t0, UART_BASE
+11:
+  lw    t1, UART_STATUS_OFFSET(t0)
+  bnez  t1, 11b
+
   li    TESTNUM, 0
 
   la    t0, board_table
