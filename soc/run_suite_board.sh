@@ -24,7 +24,19 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
 export PATH="$HOME/.cache/little-cpu/oss-cad-suite/bin:$PATH"
 
-BUDGET=${BUDGET:-7600}          # bytes of the 8192-byte ROM to fill per batch
+# How much of the 8192-byte ROM a batch's PROGRAMS may fill. Computed rather
+# than guessed: the driver has to fit beside them, so does a four-byte table
+# entry per program, and the per-program sizes below are measured on OBJECTS,
+# which understate the linked result because the linker aligns each one. The
+# margin covers that. build_batch.sh still refuses a batch that overflows, so
+# this only decides how well packed the batches are, never whether they are
+# correct.
+DRIVER_BYTES=$(riscv64-elf-gcc -march=rv32imac_zicsr_zifencei -mabi=ilp32 -nostdlib \
+                 -DBOARD_SUITE -I test/asm -c -o /tmp/.drv.$$.o test/board/board_suite.S 2>/dev/null \
+               && riscv64-elf-size /tmp/.drv.$$.o | awk 'NR==2{print $1+$2}')
+rm -f /tmp/.drv.$$.o
+: "${DRIVER_BYTES:=512}"
+BUDGET=${BUDGET:-$(( 8192 - DRIVER_BYTES - 600 ))}
 READ_MS=${READ_MS:-8000}
 FTREAD=${FTREAD:-$ROOT/ftread}
 OUT=$(mktemp -d "${TMPDIR:-/tmp}/suiteboard.XXXXXX")
@@ -34,6 +46,7 @@ trap 'rm -rf "$OUT"' EXIT
 # fact about the program and the part, not a thing to work around here.
 SKIP="rvc.S"
 
+echo "== driver is ${DRIVER_BYTES} bytes; budgeting ${BUDGET} per batch of the 8192-byte ROM"
 echo "== sizing the programs"
 sizes=""
 for f in test/asm/*.S; do
