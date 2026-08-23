@@ -18,6 +18,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/time.h>
 #include <ftdi.h>
 
 int main(int argc, char **argv) {
@@ -42,8 +43,17 @@ int main(int argc, char **argv) {
    * 0.8s; the FTDI's FIFO overran and successive reports came back interleaved,
    * which reads exactly like a crashing program and is not one. 1ms costs
    * nothing here and keeps the buffer empty. */
-  int iters = ms;
-  for (int i = 0; i < iters; i++) {
+  /* A WALL-CLOCK DEADLINE, not an iteration count. Counting iterations assumes
+   * each costs the sleep and nothing else; a board transmitting at line rate
+   * makes every read take real time, and a run asked for 8 seconds took 113.
+   * The caller means seconds, so measure seconds. */
+  struct timeval t_start, t_now;
+  gettimeofday(&t_start, NULL);
+  for (;;) {
+    gettimeofday(&t_now, NULL);
+    long elapsed = (t_now.tv_sec - t_start.tv_sec) * 1000L
+                 + (t_now.tv_usec - t_start.tv_usec) / 1000L;
+    if (elapsed >= ms) break;
     int n = ftdi_read_data(f, buf, sizeof buf);
     for (int j = 0; j < n; j++) {
       unsigned char c = buf[j];

@@ -55,8 +55,10 @@ SECTIONS {
      * at program 0 forever. */
     .driver (NOLOAD) : {
         . = ALIGN(4);
+        __driver_start = .;
         *(.driver);
         . = ALIGN(4);
+        __driver_end = .;
     } >ram
 
     __stack_top = ORIGIN(ram) + LENGTH(ram);

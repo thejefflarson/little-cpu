@@ -27,8 +27,21 @@
   .section .text.init
   .globl _board_start
 _board_start:
-  la    t0, board_index
+  /* ZERO `.driver` BEFORE ANYTHING READS IT. It is NOLOAD and sits outside the
+   * range init_memory clears, so nothing else ever touches it -- and SPRAM
+   * comes out of configuration holding whatever the last program to run left
+   * there. A simulator hands out zeroed RAM and hid this completely; on a board
+   * that had just run another batch, `board_console_len` came up holding the
+   * previous buffer's length and the replay dumped a megabyte of stale SPRAM
+   * down the wire at line rate. */
+  la    t0, __driver_start
+  la    t1, __driver_end
+0:
+  bgeu  t0, t1, 1f
   sw    x0, 0(t0)
+  addi  t0, t0, 4
+  j     0b
+1:
   j     run_next
 
 /* BEFORE EVERY PROGRAM, NOT ONCE PER BATCH, and hardware is what taught this.
