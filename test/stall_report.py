@@ -9,7 +9,7 @@ attached. This is the invoice. It is the same move `make fit` made for area:
 one aggregate figure, argued about from structure, replaced by a measurement.
 
 EVERY CYCLE IS CHARGED EXACTLY ONCE. test/cxxrtl.cc reads the decoder's own
-`stall` signal and its eight named signals every cycle. A cycle where `stall` is
+`stall` signal and its nine named signals every cycle. A cycle where `stall` is
 low is an issue cycle; a cycle where it is high goes to the first reason that is
 true, in the order rtl/decoder.v tries them. So the columns add up to the cycle
 count by construction, and this script checks that they do -- a mismatch means
@@ -17,7 +17,7 @@ the runner and the report disagree about the field names, not that the core got
 slower.
 
 `unattributed` IS THE ONE THAT MATTERS. It counts cycles the decoder called a
-stall that none of the seven named reasons explains. It is zero, and if it ever is
+stall that none of the eight named reasons explains. It is zero, and if it ever is
 not, the taxonomy has fallen behind rtl/decoder.v -- a stall reason nobody has
 written down. That is a finding, so this script exits nonzero on it rather than
 printing it as a curiosity.
@@ -39,15 +39,23 @@ which cycles were counted and still print a plausible rate.
 import argparse
 import sys
 
-# The seven the decoder has, in the order it tries them: it holds `decoder_out`
-# for the divider and bubbles for the other six. The runner writes these names,
+# The eight the decoder has, in the order it tries them: it holds `decoder_out`
+# for the divider and bubbles for the other seven. The runner writes these names,
 # so a rename has to happen in both places at once -- which the field check
 # below turns into an error rather than a silent zero.
 #
 # `bus` is zero on every machine in this repo and is counted all the same: with
 # one bus master nothing ever takes the bus away, and a reason left out of this
 # list is charged to `unattributed`, which exits nonzero.
-REASONS = ["divider", "atomic", "hazard", "serialize", "operand", "fetch", "bus"]
+#
+# `region` is last, and that is what makes its column the cost of the wait
+# rather than of the access: the signal is also high while the same load or
+# store waits on the scoreboard or on its operands, and the decoder registers
+# the region answer only on the cycle nothing else is holding it. So this column
+# counts capture cycles -- one per load or store whose base register sits near a
+# window edge -- and the earlier cycles stay with the reason that came first.
+REASONS = ["divider", "atomic", "hazard", "serialize", "operand", "fetch", "bus",
+           "region"]
 
 # What the CPI above it describes. It is an argument the caller has to supply,
 # because the honest one differs: `make cycles` runs the hand-written assembly
@@ -71,6 +79,7 @@ HEADINGS = {
     "operand": "OPERAND",
     "fetch": "FETCH",
     "bus": "BUS",
+    "region": "REGION",
 }
 # The load/store locality counters, in the order the line below prints them:
 # every issuing load and store, then the two subsets. Required like every other

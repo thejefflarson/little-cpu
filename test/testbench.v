@@ -60,6 +60,11 @@ module testbench(
   logic [3:0]  rvfi_mem_wmask;
   logic [31:0] rvfi_mem_rdata;
   logic [31:0] rvfi_mem_wdata;
+  `ifdef RISCV_FORMAL_MEM_FAULT
+  logic        rvfi_mem_fault;
+  logic [3:0]  rvfi_mem_fault_rmask;
+  logic [3:0]  rvfi_mem_fault_wmask;
+  `endif
   // test/cxxrtl.cc reads this by debug-item name ("monitor errcode").
   logic [15:0] rvfi_monitor_errcode;
  `endif //  `ifdef RISCV_FORMAL
@@ -165,7 +170,12 @@ module testbench(
     .rvfi_mem_rmask(rvfi_mem_rmask),
     .rvfi_mem_wmask(rvfi_mem_wmask),
     .rvfi_mem_rdata(rvfi_mem_rdata),
-    .rvfi_mem_wdata(rvfi_mem_wdata)
+    .rvfi_mem_wdata(rvfi_mem_wdata),
+    `ifdef RISCV_FORMAL_MEM_FAULT
+    .rvfi_mem_fault(rvfi_mem_fault),
+    .rvfi_mem_fault_rmask(rvfi_mem_fault_rmask),
+    .rvfi_mem_fault_wmask(rvfi_mem_fault_wmask)
+    `endif
    `endif
   );
  `ifdef RISCV_FORMAL
@@ -177,6 +187,13 @@ module testbench(
   // should report MONITOR-SILENT. Do the same on a tree without the counters
   // and the whole suite still passes, because each program reaches tohost on
   // its own assertions with nothing checking a single instruction.
+  //
+  // What it is NOT is where a refused access is excused. The spec model has no
+  // memory map, so a retire this platform refused disagrees with it -- but
+  // hiding the retire here leaves a hole in `rvfi_order` that the monitor's
+  // reorder buffer reads as a lost instruction, and every retire after it is
+  // graded against the wrong shadow. `rvfi_mem_fault` goes to the monitor
+  // instead and test/sanitize_monitor.py's rules 4 to 6 are what read it.
   logic rvfi_valid_observed;
   assign rvfi_valid_observed = rvfi_valid;
 
@@ -202,6 +219,7 @@ module testbench(
     .rvfi_mem_wmask(rvfi_mem_wmask),
     .rvfi_mem_rdata(rvfi_mem_rdata),
     .rvfi_mem_wdata(rvfi_mem_wdata),
+    .rvfi_mem_fault(rvfi_mem_fault),
     .errcode(rvfi_monitor_errcode)
   );
 

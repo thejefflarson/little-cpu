@@ -79,9 +79,16 @@ typedef struct packed {
   // apart, and it reads them as the cause: both clear is a fetch and cause 1, a
   // read mask alone is cause 5, and any write mask is cause 7 whatever the read
   // mask says -- which is why an AMO sets both and gets the store cause.
+  //
+  // The address goes with them, because a refused access never reaches
+  // rtl/accessor.v and so has nothing to report through `rvfi_mem_addr` with
+  // the rest of the mem_* report. checks/rvfi_insn_check.sv compares it against
+  // the spec model's own effective address whenever `mem_fault` is set, which is
+  // what grades the region decode's arithmetic rather than only its verdict.
   logic        mem_fault;
   logic [3:0]  mem_fault_rmask;
   logic [3:0]  mem_fault_wmask;
+  logic [31:0] mem_fault_addr;
   // Exactly the CSRs formal/checks.cfg's `[csrs]` list names, captured in
   // decode -- the one stage that knows them, since ADR-0005 reads and
   // commits every CSR access there -- and forwarded on the same valid-bit

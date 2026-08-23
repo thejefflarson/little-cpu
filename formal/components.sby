@@ -67,10 +67,22 @@ read -sv -formal structs.v pcloop.sv
 prep -top pcloop
 
 traps:
-# Same split as pcloop, for the same reason: -formal on the RTL would compile
-# rtl/decoder.v's own assume(in.pc == pc) into the instance, and the fetcher
-# below is what answers that here. Only the harness carries proof content.
-read -sv structs.v fetcher.v decoder.v regsel.v csrs.v
+# The same split as pcloop and for the same reason, drawn one statement finer.
+# `-noassume` drops rtl/decoder.v's assume(in.pc == pc) -- the standalone model
+# of the fetcher that the instance below is what answers here -- while keeping
+# its assertions, and it is the assume alone that made pcloop's echo circular.
+# The three reset assumes it also drops are restated in traps.sv verbatim.
+#
+# THE ASSERTIONS HAVE TO COME IN, and induction is what needs them. The
+# decoder answers the load/store region question a cycle late, which is state
+# no port publishes: induction may start from a held answer that belongs to no
+# access, and `must_not_trap => !trap_entry` then fails on a trace no run
+# reaches. The invariant that rules that state out is a statement about the
+# decoder's own registers, so it is asserted where they are visible. Nothing in
+# this harness can reach them -- yosys resolves no hierarchical reference and
+# ignores `bind`, and both failure modes are silent: `decoder.ls_answer_valid`
+# parses as an implicitly declared undriven wire whose value the solver picks.
+read -sv -formal -noassume structs.v fetcher.v decoder.v regsel.v csrs.v
 read -sv -formal structs.v traps.sv
 prep -top traps
 

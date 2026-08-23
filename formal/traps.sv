@@ -27,8 +27,9 @@ module traps #(
     //
     // It is a map here and a port for an atomic because that is how the core
     // is built: the platform answers about an atomic's address on
-    // `atomic_supported`, and about a plain load's or store's it is never
-    // asked. So the model is the only place that question has an answer.
+    // `atomic_supported`, and hands the decoder this map at elaboration for a
+    // plain load's or store's. The same four numbers go to the instance below,
+    // so the model and the core under it are reading one map.
     parameter integer      LS_TEXT_WORDS = 2048,
     parameter logic [31:0] LS_RAM_BASE   = 32'h0001_0000,
     parameter integer      LS_RAM_WORDS  = 16384,
@@ -54,8 +55,8 @@ module traps #(
     // The platform's answer about the address an atomic in decode would use.
     // Free, like the fetch bus's refusal, so the two causes it decides are
     // asserted below against the encodings the ISA fixes rather than against
-    // the map above. That map is about a plain load or store instead, an
-    // access the core asks the platform nothing about.
+    // the map above. The map decides the same two causes for a plain load or
+    // store, an access the core asks the platform nothing about at runtime.
     input logic atomic_supported,
     input logic accessor_out_valid,
     // The platform's timer line, free every cycle. rtl/csrs.v decides what to
@@ -78,6 +79,11 @@ module traps #(
   logic [31:0] csr_wdata, csr_rdata;
   logic        csr_implemented;
   logic        trap_entry, mret_entry;
+  // Unread here, and declared anyway: an output connected to an undeclared
+  // identifier is an implicit net, which `default_nettype none` makes an error
+  // in iverilog and a warning in yosys. Both frontends have to elaborate this
+  // file -- iverilog is what replays a counterexample trace from it.
+  logic        bus_request;
   logic [31:0] trap_cause, trap_epc, trap_tval;
   logic [31:0] mtvec_value, mepc_value;
   logic        interrupt_pending;
@@ -95,7 +101,13 @@ module traps #(
     .out(fetcher_out)
   );
 
-  decoder decoder (
+  decoder #(
+    .LS_TEXT_WORDS(LS_TEXT_WORDS),
+    .LS_RAM_BASE(LS_RAM_BASE),
+    .LS_RAM_WORDS(LS_RAM_WORDS),
+    .LS_TIMER_BASE(LS_TIMER_BASE),
+    .LS_UART_BASE(LS_UART_BASE)
+  ) decoder (
     .clk(clk),
     .reset(reset),
     .in(fetcher_out),
@@ -222,6 +234,51 @@ module traps #(
   logic hard_stall;
   assign hard_stall = divider_stall || fetch_stall || bus_wait;
 
+  // A HELD INSTRUCTION IS STILL THE SAME INSTRUCTION, AND NOTHING IN THIS FILE
+  // DISCHARGES IT. The decoder answers the load/store region question a cycle
+  // late: an access whose base register sits near a window's edge waits one
+  // cycle, decode registers the answer about its own effective address on that
+  // cycle, and the trap chain reads the flip-flop on the next one. That is an
+  // answer about the same access only while the word and the register it was
+  // computed from stay put -- and this is the first thing in the core to read a
+  // decode input across a cycle boundary at all, which is why the sentence has
+  // to be written down here rather than relied on the way formal/pcloop.sv's
+  // comments rely on it.
+  //
+  // In the core neither can move. A stalled cycle holds the pc and `imem_addr`
+  // is the pc, so the memory answers the same address with the same word; and a
+  // stalled cycle issues nothing, so no write to rs1 can be started on it, while
+  // the decode scoreboard holds any instruction whose rs1 is already in flight
+  // until that write has gone through. Here all three are free inputs with no
+  // memory and no register file behind them.
+  //
+  // Stated on `issuing` rather than on the wait itself, because the wait is
+  // internal to the decoder: this covers every stalled cycle, which is wider
+  // than the property needs and costs nothing -- the solver still picks all
+  // three freely on every cycle an assertion fires, and every assertion here
+  // fires on an issuing cycle or the one after a trap. rtl/imemory.v,
+  // rtl/regfile.v and the scoreboard are what provide it; the generated
+  // riscv-formal checks are what run over all three.
+  // STATED OVER `fetcher_out`, WHICH IS WHAT THE DECODER ACTUALLY READS. An
+  // earlier spelling held `imem_data` and `imem_data2` instead and was weaker
+  // than this comment claims: rtl/fetcher.v sits between them and carries state,
+  // so the same memory words can still produce a different `fetcher_out` on the
+  // next cycle. The decoder's input is the thing that has to stand still, so it
+  // is the thing assumed.
+  logic [31:0] prev_reg_rs1;
+  fetcher_output prev_fetcher_out;
+  logic        prev_issuing;
+  always_ff @(posedge clk) begin
+    prev_reg_rs1     <= reg_rs1;
+    prev_fetcher_out <= fetcher_out;
+    prev_issuing     <= issuing || reset;
+  end
+  always_comb if (clocked && !reset && !prev_issuing) begin
+    assume(reg_rs1 == prev_reg_rs1);
+    assume(fetcher_out == prev_fetcher_out);
+  end
+
+
   // Which instructions must trap, and with which cause. Written from the ISA,
   // not transcribed from rtl/decoder.v: each encoding below is one this core
   // must either execute or fault on, and the cause is the one the privileged
@@ -260,8 +317,12 @@ module traps #(
   // cannot afford in the cycle it chooses the next pc.
   localparam logic [31:0] LS_TEXT_TOP  = LS_TEXT_WORDS * 4;
   localparam logic [31:0] LS_RAM_TOP   = LS_RAM_BASE + LS_RAM_WORDS * 4;
-  // rtl/timer.v's four words.
-  localparam logic [31:0] LS_TIMER_TOP = LS_TIMER_BASE + 32'd16;
+  // The eight words the map reserves for one `mtimecmp` per hart, not the four
+  // a one-hart build decodes. The core's window is the reserved span for the
+  // same reason -- rounding out reads zero where rounding in would fault an
+  // address the two-hart machine answers -- and this model states the machine
+  // the core describes, so the two spans are the same span.
+  localparam logic [31:0] LS_TIMER_TOP = LS_TIMER_BASE + 32'd32;
   // rtl/uart.v's two.
   localparam logic [31:0] LS_UART_TOP  = LS_UART_BASE + 32'd8;
 
@@ -355,6 +416,7 @@ module traps #(
   logic [31:0] expected_cause, expected_tval;
   assign expected_trap = is_illegal || is_ebreak || is_ecall ||
                          lw_misaligned || lh_misaligned || sw_misaligned || sh_misaligned ||
+                         load_region_fault || store_region_fault ||
                          (is_atomic && atomic_refused);
   always_comb begin
     if (is_illegal) begin
@@ -387,25 +449,25 @@ module traps #(
     end
   end
 
-  // Whether a trap is required and what its cause must be are two questions,
-  // and the two region terms answer only the second. An address no memory
-  // answers is read as zero and a store to one is dropped: this core does not
-  // fault there, the privileged spec only recommends that it should, and
-  // requiring the trap here would state a decision this platform has not taken.
-  // Requiring the CAUSE costs nothing while that holds and is what a core that
-  // does fault has to agree with -- which is the half every prototype of it has
-  // had to write for itself.
+  // The two region terms are inside `expected_trap` now, so this model requires
+  // the trap as well as its cause. It required only the cause for as long as an
+  // address no memory answered was read as zero and a store to one was dropped
+  // -- the privileged spec recommends the fault rather than mandating it, so
+  // requiring it would have stated a decision the platform had not taken. The
+  // decoder decides it against this same map now, so the decision is taken and
+  // the weaker half is gone. `cause_modelled` stays as a name for the cycles the
+  // mcause comparison below is allowed to fire on.
   logic cause_modelled;
-  assign cause_modelled = expected_trap || load_region_fault || store_region_fault;
+  assign cause_modelled = expected_trap;
 
   // The other direction. Without these a core that trapped on everything would
   // satisfy most of this file. The last three are the half that keeps a region
   // decode honest: an access at an address the platform DOES answer executes,
   // so a core that faulted every atomic, or every load past some line it drew
   // for itself, would not pass here. `data_mapped` is what a load and a store
-  // are excused by, and it is the reason those two lines can be narrowed
-  // without narrowing what they say -- an aligned `lw` the map answers still
-  // must not trap.
+  // are excused by, and it is what makes the pair above and this pair the two
+  // halves of one statement rather than two opinions -- an aligned `lw` the map
+  // answers must not trap, and one it does not answer must.
   logic must_not_trap;
   assign must_not_trap =
       (uncompressed && opcode == 5'b01100 && instr[31:25] == 7'b0 && funct3 == 3'b000) ||

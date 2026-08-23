@@ -37,6 +37,8 @@
 RVTEST_RV64U
 RVTEST_CODE_BEGIN
 
+  RVTEST_INSTALL_TRAP_HANDLER
+
   li    t0, UART_BASE
 
   # Nothing has been written, so nothing is in flight.
@@ -95,16 +97,43 @@ RVTEST_CODE_BEGIN
   TEST_CASE( 7, a0, 0, lw a0, UART_STATUS_OFFSET(t0); )
 
   #-------------------------------------------------------------
-  # The status register is read-only and the word past the region is nobody's,
-  # so neither store starts anything. Without these a device that transmitted on
-  # any store to its neighbourhood would pass everything above.
+  # The status register is read-only, so a store to it starts nothing. Without
+  # this a device that transmitted on any store to its neighbourhood would pass
+  # everything above.
   #-------------------------------------------------------------
 
   li    a1, 'X'
   sw    a1, UART_STATUS_OFFSET(t0)
   TEST_CASE( 8, a0, 0, lw a0, UART_STATUS_OFFSET(t0); )
 
+  #-------------------------------------------------------------
+  # The word past the region is nobody's, and the core refuses the store rather
+  # than dropping it: cause 7, committed in decode, so nothing reaches the bus
+  # at all. That refusal is what this case reads, and the status register after
+  # it is the same control as above -- a device that answered its neighbourhood
+  # would have been started by a store the bus never carried.
+  #
+  # The handler clobbers t0 and t1, so the base is reloaded behind it.
+  #-------------------------------------------------------------
+
+  li    TESTNUM, 9
+  la    x1, trap_cause
+  sw    x0, 0(x1)
+  la    x1, trap_count
+  lw    x14, 0(x1)
+  .option push
+  .option norvc
   sw    a1, 8(t0)
+  .option pop
+  li    t0, UART_BASE
+  la    x1, trap_cause
+  lw    x13, 0(x1)
+  li    x29, 7
+  bne   x13, x29, fail
+  la    x1, trap_count
+  lw    x13, 0(x1)
+  addi  x29, x14, 1
+  bne   x13, x29, fail
   TEST_CASE( 9, a0, 0, lw a0, UART_STATUS_OFFSET(t0); )
 
   #-------------------------------------------------------------
@@ -120,11 +149,14 @@ RVTEST_CODE_BEGIN
 
   TEST_PASSFAIL
 
+  RVTEST_TRAP_HANDLER
+
 RVTEST_CODE_END
 
   .data
 RVTEST_DATA_BEGIN
 
   TEST_DATA
+  RVTEST_TRAP_DATA
 
 RVTEST_DATA_END

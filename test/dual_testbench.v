@@ -55,6 +55,7 @@ module dual_testbench(
   logic [7:0]   rvfi_mem_wmask;
   logic [63:0]  rvfi_mem_rdata;
   logic [63:0]  rvfi_mem_wdata;
+  logic [1:0]   rvfi_mem_fault;
   logic [1:0]   probe_bus_active;
   logic [63:0]  probe_imem_addr;
 
@@ -86,6 +87,7 @@ module dual_testbench(
     .rvfi_mem_wmask(rvfi_mem_wmask),
     .rvfi_mem_rdata(rvfi_mem_rdata),
     .rvfi_mem_wdata(rvfi_mem_wdata),
+    .rvfi_mem_fault(rvfi_mem_fault),
     .probe_bus_active(probe_bus_active),
     .probe_imem_addr(probe_imem_addr)
   );
@@ -129,6 +131,7 @@ module dual_testbench(
     .rvfi_mem_wmask(rvfi_mem_wmask[3:0]),
     .rvfi_mem_rdata(rvfi_mem_rdata[31:0]),
     .rvfi_mem_wdata(rvfi_mem_wdata[31:0]),
+    .rvfi_mem_fault(rvfi_mem_fault[0]),
     .errcode(errcode0)
   );
 
@@ -154,6 +157,7 @@ module dual_testbench(
     .rvfi_mem_wmask(rvfi_mem_wmask[7:4]),
     .rvfi_mem_rdata(rvfi_mem_rdata[63:32]),
     .rvfi_mem_wdata(rvfi_mem_wdata[63:32]),
+    .rvfi_mem_fault(rvfi_mem_fault[1]),
     .errcode(errcode1)
   );
 

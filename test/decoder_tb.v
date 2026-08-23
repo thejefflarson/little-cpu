@@ -132,7 +132,7 @@ module decoder_tb;
     prev_next_pc_valid <= 1'b1;
   end
 
-  // `stall` is exactly these eight terms ORed together. `make cycles` charges
+  // `stall` is exactly these nine terms ORed together. `make cycles` charges
   // every stalled cycle to the first of them that is true, so a term added to
   // `stall` and not there would leave the cycles it costs unexplained. This says
   // so in a gate that runs on every change, rather than the next time somebody
@@ -146,15 +146,15 @@ module decoder_tb;
   // On both clock edges, not just the rising one. Every vector here presents its
   // instruction just after a rising edge, so the falling edge is where it is
   // settled and being decoded. Sampling only the rising edge misses that, and
-  // the probe for this check -- an eighth term ORed into `stall` -- goes green.
+  // the probe for this check -- a ninth term ORed into `stall` -- goes green.
   always @(clk) begin
     if (dut.stall !== (dut.divider_stall || dut.atomic_stall || dut.hazard_rs1 ||
                        dut.hazard_rs2 || dut.serialize || dut.operand_stall ||
-                       dut.fetch_stall || dut.bus_wait)) begin
-      $display("MISMATCH stall is not the OR of the seven named reasons: stall=%b divider=%b atomic=%b rs1=%b rs2=%b serialize=%b operand=%b fetch=%b bus=%b",
+                       dut.fetch_stall || dut.bus_wait || dut.region_stall)) begin
+      $display("MISMATCH stall is not the OR of the eight named reasons: stall=%b divider=%b atomic=%b rs1=%b rs2=%b serialize=%b operand=%b fetch=%b bus=%b region=%b",
                dut.stall, dut.divider_stall, dut.atomic_stall, dut.hazard_rs1,
                dut.hazard_rs2, dut.serialize, dut.operand_stall, dut.fetch_stall,
-               dut.bus_wait);
+               dut.bus_wait, dut.region_stall);
       errors++;
     end
   end
@@ -179,6 +179,36 @@ module decoder_tb;
       in.instr = instr;
       #1;
       operand_fetch_cycle();
+    end
+  endtask
+
+  // The load/store region answer is registered on the cycle the access waits and
+  // read on the next, so a vector that checks the trap in its presenting cycle
+  // reads the answer to the PREVIOUS access. This takes that cycle -- and
+  // asserts what it is taking, so a core that stopped waiting, or one that let
+  // the answer live longer than the one cycle it is about, goes red here rather
+  // than passing on a stale bit.
+  // The load/store region answer is registered on the cycle the access waits and
+  // read on the next, so a vector that checks the trap in the presenting cycle
+  // reads the answer to the previous access. This presents the access, takes the
+  // wait, and asserts both halves of it -- a core that stopped waiting and one
+  // that answered from a stale flip-flop both go red here rather than passing.
+  //
+  // `present_and_fetch` first, for its own reason: it parks on a nop so the
+  // previous vector's answer expires without that vector's access issuing, and
+  // it spends the operand-fetch cycle the changed pair costs. Both of those are
+  // cycles the region wait is NOT, which is what makes the check below the
+  // wait's own.
+  task automatic region_access(input logic [31:0] instr);
+    begin
+      present_and_fetch(instr);
+      check_bit("the access waits for its region answer", dut.region_stall, 1'b1);
+      check_bit("...which is a stall", dut.stall, 1'b1);
+      @(posedge clk);
+      #1;
+      check_bit("...and the answer is there on the next cycle",
+                dut.ls_answer_valid, 1'b1);
+      check_bit("...with the wait over", dut.region_stall, 1'b0);
     end
   endtask
 
@@ -692,9 +722,13 @@ module decoder_tb;
     check_bit("a non-trapping instruction is not a trap", dut.trap_taken, 1'b0);
     check_hex("...and reports nothing", trap_tval, 32'h0);
 
+    // Through the region wait, which a misaligned access spends like any other:
+    // the wait is raised on where the base register points and not on what the
+    // instruction will do about it, so an access that is going to trap on its
+    // alignment waits first and traps a cycle later.
     reg_rs1 = 32'h0001_0001;
     in.pc = 32'h0000_0080;
-    present_and_fetch(32'h00452583);   // the misaligned lw again
+    region_access(32'h00452583);   // the misaligned lw again
     check_hex("trap_epc is the FAULTING pc, not the next one", trap_epc, 32'h0000_0080);
     @(posedge clk);
     #1;
@@ -902,7 +936,7 @@ module decoder_tb;
     // re-executes after the handler returns.
     in.pc = 32'h0000_0600;
     reg_rs1 = 32'h0001_0001;
-    present_and_fetch(32'h00452583);   // the misaligned lw
+    region_access(32'h00452583);   // the misaligned lw, through its region wait
     check_hex("on its own it is a load-misaligned fault", trap_cause, 32'd4);
     interrupt_pending = 1'b1;
     #1;
@@ -1099,16 +1133,177 @@ module decoder_tb;
     #1;
     check_hex("...and so is an sc.w", trap_cause, 32'd7);
 
-    // A plain load and a plain store at the same address are unaffected. Their
-    // region test is the one that has to wait on a 32-bit sum, and it is not
-    // built -- so this is the boundary of what the bit is allowed to decide,
-    // and widening the fault to every access would show up here first.
+    // A plain load and a plain store at the same address raise the same two
+    // causes, off the map the decoder is elaborated with rather than off the
+    // bit. This instance takes the parameter defaults: 8 KB of text at 0, 64 KB
+    // of RAM at 0x0001_0000, the timer's reserved 32 bytes at 0x0002_0000 and
+    // the UART's eight above them, so 0x0004_0000 is outside all four.
+    //
+    // THE ANSWER IS A CYCLE LATE, and `region_access` is what every vector from
+    // here down goes through because of it. Check the trap in the cycle the
+    // access is presented and what comes back is the answer to the PREVIOUS
+    // access, which is how a core whose deferral had stopped working would pass
+    // this file. So the task asserts the wait it takes as well as taking it.
+    reg_rs1 = 32'h0004_0000;
+    region_access(32'h00062583);   // lw a1, 0(a2)
+    check_bit("a plain lw at the same address faults too", dut.trap_pending, 1'b1);
+    check_hex("...as a LOAD access fault", trap_cause, 32'd5);
+    region_access(32'h00b62023);   // sw a1, 0(a2)
+    check_hex("...and a plain sw as a STORE access fault", trap_cause, 32'd7);
+    region_access(32'h00060583);   // lb a1, 0(a2)
+    check_hex("a byte load faults there as well", trap_cause, 32'd5);
+    region_access(32'h00b60023);   // sb a1, 0(a2)
+    check_hex("...and a byte store", trap_cause, 32'd7);
+
+    // The whole sum is what the answer is about, which is what the cycle buys:
+    // each of the four below sits in a 2 KB block the other side of a window's
+    // edge from its own effective address, so a test that stopped at the base
+    // register would get every one of them the wrong way round.
+    reg_rs1 = 32'h0000_1FFC;       // the last word of the 8 KB text window
+    region_access(32'h00462583);   // lw a1, 4(a2)
+    check_bit("a load off the top of text leaves its block", dut.trap_pending, 1'b1);
+    check_hex("...and faults as a load", trap_cause, 32'd5);
+    reg_rs1 = 32'h0000_2000;       // the first word past it
+    region_access(32'hFFC62583);   // lw a1, -4(a2)
+    check_bit("...and a load back into text from just past it does not fault",
+              dut.trap_pending, 1'b0);
+    reg_rs1 = 32'h0001_0000;       // the base of the RAM
+    region_access(32'hFFC62583);
+    check_bit("a negative offset off the bottom of RAM faults",
+              dut.trap_pending, 1'b1);
+    check_hex("...as a load", trap_cause, 32'd5);
+    reg_rs1 = 32'h0001_0008;
+    region_access(32'hFFC62583);
+    check_bit("...and one that stays inside RAM does not", dut.trap_pending, 1'b0);
+
+    // The timer and the UART are words, not blocks. Neither window is three
+    // blocks wide, so no address in either can reach the fast path and every
+    // access there is answered from the sum.
+    reg_rs1 = 32'h0001_FFFC;
+    region_access(32'h00462583);   // lw a1, 4(a2)
+    check_bit("a load of mtime from the top of RAM is answered",
+              dut.trap_pending, 1'b0);
+    // The timer's window is the eight words the map reserves for one mtimecmp
+    // per hart, so 16 bytes up is inside it even where only four are decoded.
+    reg_rs1 = 32'h0002_0000;
+    region_access(32'h01062583);   // lw a1, 16(a2)
+    check_bit("...and one 16 bytes up is inside the timer's reserved window",
+              dut.trap_pending, 1'b0);
+
+    // 32 past the base is the UART, which the map answers.
+    region_access(32'h02062583);   // lw a1, 32(a2)
+    check_bit("...and one 32 bytes past the base is the UART",
+              dut.trap_pending, 1'b0);
+
+    // 40 past it is the first address in that page no device claims.
+    region_access(32'h02862583);   // lw a1, 40(a2)
+    check_bit("...and one 40 bytes past it is claimed by nothing",
+              dut.trap_pending, 1'b1);
+    check_hex("...faulting as a load", trap_cause, 32'd5);
+
+    // The other direction, without which this file would pass on a core that
+    // faulted every load and every store.
+    reg_rs1 = 32'h0001_0000;
+    region_access(32'h00062583);   // lw a1, 0(a2)
+    check_bit("a load the map answers does not fault", dut.trap_pending, 1'b0);
+    region_access(32'h00b62023);   // sw a1, 0(a2)
+    check_bit("...nor does a store there", dut.trap_pending, 1'b0);
+    reg_rs1 = 32'h0000_0000;
+    region_access(32'h00b62023);
+    check_bit("...nor a store into text", dut.trap_pending, 1'b0);
+
+    // THE FAST PATH, which is what the wait is being spent to buy. A base
+    // register a whole block inside a window cannot leave it whatever the
+    // immediate is, so decode issues with no region term in the cycle at all --
+    // no wait, and no answer to read. Delete the settled test and every load in
+    // a program costs a cycle; make it two-sided and it starts faulting
+    // addresses a memory answers, which the pair after these is the check for.
+    reg_rs1 = 32'h0001_1000;       // deep inside the 64 KB RAM
+    present_and_fetch(32'h00062583);   // lw a1, 0(a2)
+    check_bit("a load deep inside RAM waits for nothing", dut.region_stall, 1'b0);
+    check_bit("...and is not a stall at all", dut.stall, 1'b0);
+    check_bit("...and does not fault", dut.trap_pending, 1'b0);
+    reg_rs1 = 32'h0001_17FC;       // the top word of that block
+    present_and_fetch(32'h00462583);   // lw a1, 4(a2) -- into the block above
+    check_bit("...nor does one that leaves the block upwards",
+              dut.region_stall, 1'b0);
+    check_bit("...which still does not fault", dut.trap_pending, 1'b0);
+    reg_rs1 = 32'h0001_1000;
+    present_and_fetch(32'h80062583);   // lw a1, -2048(a2) -- and downwards
+    check_bit("...nor one that leaves it downwards", dut.region_stall, 1'b0);
+    check_bit("...which still does not fault", dut.trap_pending, 1'b0);
+    reg_rs1 = 32'h0000_0800;       // deep inside the 8 KB text window
+    present_and_fetch(32'h00062583);
+    check_bit("a load deep inside text waits for nothing too",
+              dut.region_stall, 1'b0);
+    check_bit("...and does not fault", dut.trap_pending, 1'b0);
+
+    // A window's own first and last blocks are what the fast path may not
+    // claim, and this pair says so. 0x0001_0400 is the RAM's first block, where
+    // a negative offset really does leave the window; 0x0001_0800 is the second,
+    // where none can. Widen the settled test by a block and the first of these
+    // stops waiting and starts reading memory that is not there.
+    reg_rs1 = 32'h0001_0400;
+    present_and_fetch(32'h00062583);
+    check_bit("the RAM's first block does not reach the fast path",
+              dut.region_stall, 1'b1);
+    reg_rs1 = 32'h0001_0800;
+    present_and_fetch(32'h00062583);
+    check_bit("...and the block above it does", dut.region_stall, 1'b0);
+
+    // THE WAIT'S ARM, both ways round. It BUBBLES: nothing has issued, so a held
+    // decoder_out would hand the executor the same instruction twice. A wait
+    // coinciding with a divide HOLDS, for the divider's own reason -- what
+    // decoder_out carries then is an instruction the executor has not taken.
+    // Only the order of the arms in the publish block decides either, and
+    // swapping them is silent everywhere else.
+    //
+    // `in.next_instr` is driven so the second load's pair is the one decode
+    // guessed: without it that load pays an operand-fetch cycle, which bubbles
+    // decoder_out for a reason that is not this one and leaves the hold below
+    // comparing zero against zero.
+    in.pc = 32'h0000_07C0;
+    reg_rs1 = 32'h0001_0000;
+    region_access(32'h00062303);       // lw x6, 0(a2) -- the RAM's base block
+    in.next_instr = 32'h00462383;      // lw x7, 4(a2) -- the same pair
+    @(posedge clk);
+    #1;
+    check_bit("a load whose answer has arrived issues", out.valid, 1'b1);
+    check_hex("...into decoder_out", {27'b0, out.rd}, 32'd6);
+    in.instr = 32'h00462383;
+    in.next_instr = 32'b0;
+    #1;
+    check_bit("the load behind it waits for its own answer",
+              dut.region_stall, 1'b1);
+    check_bit("...with nothing else holding it", dut.stall_other, 1'b0);
+    divider_stall = 1'b1;
+    #1;
+    @(posedge clk);
+    #1;
+    check_bit("a region wait coinciding with a divide holds decoder_out",
+              out.valid, 1'b1);
+    check_hex("...unchanged", {27'b0, out.rd}, 32'd6);
+    divider_stall = 1'b0;
+    #1;
+    @(posedge clk);
+    #1;
+    check_bit("the region wait on its own bubbles decoder_out instead",
+              out.valid, 1'b0);
+
+    reg_rs1 = 32'h0004_0000;
+
+    // Misalignment outranks the region for a plain access too, the order the
+    // atomic term states. Drop either alignment term from `ls_fault` and two
+    // arms of the cause chain match at once.
+    reg_rs1 = 32'h0004_0002;
     in.instr = 32'h00062583;   // lw a1, 0(a2)
     #1;
-    check_bit("a plain lw at the same address does not fault", dut.trap_pending, 1'b0);
+    check_hex("a misaligned lw out of region reports the misalignment",
+              trap_cause, 32'd4);
     in.instr = 32'h00b62023;   // sw a1, 0(a2)
     #1;
-    check_bit("...nor does a plain sw", dut.trap_pending, 1'b0);
+    check_hex("...and a misaligned sw reports cause 6", trap_cause, 32'd6);
+    reg_rs1 = 32'h0004_0000;
 
     // Misalignment outranks the region, which keeps the four data causes
     // disjoint and matches what the reference model reports. Drop the alignment

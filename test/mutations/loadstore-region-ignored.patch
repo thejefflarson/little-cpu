@@ -1,0 +1,13 @@
+diff --git a/rtl/decoder.v b/rtl/decoder.v
+--- a/rtl/decoder.v
++++ b/rtl/decoder.v
+@@ -604,8 +604,7 @@ module decoder #(
+   // flip-flop the wait above filled, so the trap chain and the pc never see the
+   // effective-address adder. Misalignment outranks the region here too, so the
+   // four data causes stay disjoint whichever access raised them.
+-  assign ls_fault = ls_access && ls_answer_valid && !ls_answer &&
+-                    !load_misaligned && !store_misaligned;
++  assign ls_fault = 1'b0;
+ 
+   logic load_access_fault, store_access_fault;
+   assign load_access_fault  = (atomic_fault && instr_lr) || (ls_fault && instr_ls_load);

@@ -231,13 +231,17 @@
     // harness never does (no --device-tree-blob, no --print-device-tree).
     "dtb_address": { "len": 64, "value": "0x1000" },
 
-    // FOUR regions, and two different splits are stacked here. Read them apart.
+    // THREE regions, and each one is a window some memory on this platform
+    // answers. Everything outside them faults on both machines, which is what
+    // makes this map the core's map rather than a superset of it.
     //
-    // THE FIRST SPLIT IS EXECUTABILITY, at 0x4000: test/asm's `rom` is 16 KB at
-    // 0x0 and rtl/imemory.v answers nothing above it, so a PC past 16 KB is an
-    // instruction access fault here and on the core alike. Everything above is
-    // readable and writable but NOT executable, and test/asm/ifault.S jumps
-    // into it on purpose.
+    // THE FIRST IS THE TEXT WINDOW, 16 KB at 0x0: test/asm's `rom` is that
+    // size and rtl/imemory.v answers nothing above it, so a PC past 16 KB is an
+    // instruction access fault here and on the core alike, and test/asm/ifault.S
+    // jumps there on purpose. The 48 KB between it and the data RAM used to be
+    // a fourth region -- readable and writable but not executable -- and it is
+    // gone because nothing answers it: rtl/decoder.v raises cause 5 or 7 for a
+    // plain access there now, and a region would have the model reading zero.
     //
     // THE SECOND SPLIT IS THE ATOMIC REGION, at the data RAM's own bounds:
     // rtl/memory.v answers its range test about an atomic's address too, and
@@ -259,15 +263,17 @@
     // `misa` bit here claims. LR/SC is `reservability`'s to decide, not this
     // key's.
     //
-    // WHAT IS STILL NOT SPLIT is loads and stores, which every region below
-    // answers. An out-of-region load reads zero on this core and an
-    // out-of-region store is dropped, silently, so a Sail region that refused
-    // one would diverge on any program that made one -- test/asm/amoregion.S
-    // makes several on purpose. That decode-time test has to wait on the top of
-    // `immediate + reg_rs1` and was measured at four logic levels in the fetch
-    // loop and declined (docs/adr/0104); an atomic's address is rs1 with no
-    // adder in front of it, which is why one of the two fits and the other does
-    // not.
+    // LOADS AND STORES ARE SPLIT NOW TOO, and that is what closed
+    // test/asm/loadfault.S and test/asm/storefault.S without a baseline entry
+    // between them: the core refuses a plain access outside these windows, so
+    // the model has to as well or every refusal is a divergence. What the model
+    // CANNOT express is the boundary below bit 12 -- it rejects a region that
+    // does not end on a 4K page, so the 40 bytes the timer and the UART occupy
+    // are a whole page here. Those two programs say where that half is graded
+    // instead.
+    //
+    // The peripheral region is therefore ONE PAGE and not the 896 KB it was.
+    // Above it nothing answers, which is where those programs put `UNMAPPED`.
     //
     // The model's default RV32 map puts MainMemory at
     // 0x8000_0000, where nothing this suite builds is executable or loadable.
@@ -291,33 +297,6 @@
           "cacheable": true,
           "coherent": true,
           "executable": true,
-          "readable": true,
-          "writable": true,
-          "read_idempotent": true,
-          "write_idempotent": true,
-          "misaligned_exceptions": {
-            "load_store": { "None": null },
-            "vector": { "None": null },
-            "amo": "AccessFault"
-          },
-          "atomic_support": "AMONone",
-          "misaligned_atomicity_granule_size_exp": 4,
-          "vector_misaligned_atomicity_granule_size_exp": 4,
-          "reservability": "RsrvNone",
-          "supports_cbo_zero": true,
-          "supports_pte_read": true,
-          "supports_pte_write": true
-        },
-        "include_in_device_tree": true
-      },
-      {
-        "base": { "len": 64, "value": "0x0000_4000" },
-        "size": { "len": 64, "value": "0x0000_c000" },
-        "attributes": {
-          "mem_type": "MainMemory",
-          "cacheable": true,
-          "coherent": true,
-          "executable": false,
           "readable": true,
           "writable": true,
           "read_idempotent": true,
@@ -366,7 +345,7 @@
       },
       {
         "base": { "len": 64, "value": "0x0002_0000" },
-        "size": { "len": 64, "value": "0x000e_0000" },
+        "size": { "len": 64, "value": "0x0000_1000" },
         "attributes": {
           "mem_type": "MainMemory",
           "cacheable": true,

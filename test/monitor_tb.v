@@ -10,6 +10,7 @@
 module monitor_tb;
   localparam [31:0] MTVEC = 32'h0000_0100;  // where the trapping vectors redirect
   localparam [31:0] RAM   = 32'h0001_0000;  // RAM base in the test memory map
+  localparam [31:0] UNMAPPED = 32'h0004_0000;  // no memory on this platform answers
 
   reg clock = 0;
   reg reset = 1;
@@ -35,6 +36,7 @@ module monitor_tb;
   reg  [31:0] rvfi_mem_rdata = 0;
   reg  [31:0] rvfi_mem_wdata = 0;
   reg  [0:0]  rvfi_mem_extamo = 0;
+  reg  [0:0]  rvfi_mem_fault = 0;
 
   wire [15:0] errcode;
 
@@ -62,6 +64,7 @@ module monitor_tb;
     .rvfi_mem_rdata(rvfi_mem_rdata),
     .rvfi_mem_wdata(rvfi_mem_wdata),
     .rvfi_mem_extamo(rvfi_mem_extamo),
+    .rvfi_mem_fault(rvfi_mem_fault),
     .errcode(errcode)
   );
 
@@ -96,6 +99,7 @@ module monitor_tb;
     input [3:0]  mem_wmask;
     input [31:0] mem_rdata;
     input [31:0] mem_wdata;
+    input        mem_fault;
     begin
       @(negedge clock);
       rvfi_valid     <= 1;
@@ -114,6 +118,7 @@ module monitor_tb;
       rvfi_mem_wmask <= mem_wmask;
       rvfi_mem_rdata <= mem_rdata;
       rvfi_mem_wdata <= mem_wdata;
+      rvfi_mem_fault <= mem_fault;
       @(negedge clock);
       rvfi_valid <= 0;
       rvfi_order <= rvfi_order + 1;  // the ROB requires a dense, in-order stream
@@ -151,7 +156,7 @@ module monitor_tb;
                  5'd1, 5'd2, 32'd5, 32'd7,
                  5'd3, 32'd12,
                  32'h0000_0000, 32'h0000_0004,
-                 32'd0, 4'b0000, 4'b0000, 32'd0, 32'd0);
+                 32'd0, 4'b0000, 4'b0000, 32'd0, 32'd0, 1'b0);
     expect_errcode(16'd0, "correct add retire");
 
     // 2. lw x5, 1(x1) with x1 = RAM base -- address 0x00010001, misaligned, so
@@ -165,7 +170,7 @@ module monitor_tb;
                  5'd1, 5'd0, RAM, 32'd0,
                  5'd0, 32'd0,
                  32'h0000_0004, MTVEC,
-                 32'd0, 4'b0000, 4'b0000, 32'hdead_beef, 32'd0);
+                 32'd0, 4'b0000, 4'b0000, 32'hdead_beef, 32'd0, 1'b0);
     expect_errcode(16'd0, "trapping misaligned lw retire");
 
     // 3. addi x6, x0, 3 at mtvec -- the handler's first instruction. Proves the
@@ -174,7 +179,7 @@ module monitor_tb;
                  5'd0, 5'd0, 32'd0, 32'd0,
                  5'd6, 32'd3,
                  MTVEC, MTVEC + 4,
-                 32'd0, 4'b0000, 4'b0000, 32'd0, 32'd0);
+                 32'd0, 4'b0000, 4'b0000, 32'd0, 32'd0, 1'b0);
     expect_errcode(16'd0, "correct addi retire after the trap");
 
     // 4. Positive control: the same add as vector 1, but reporting 13 instead
@@ -185,7 +190,7 @@ module monitor_tb;
                  5'd1, 5'd2, 32'd5, 32'd7,
                  5'd3, 32'd13,
                  MTVEC + 4, MTVEC + 8,
-                 32'd0, 4'b0000, 4'b0000, 32'd0, 32'd0);
+                 32'd0, 4'b0000, 4'b0000, 32'd0, 32'd0, 1'b0);
     expect_errcode(16'd105, "wrong rd_wdata is still caught");
 
     // 5. sw x2, 1(x1) with x1 = RAM base -- misaligned store. Here the spec
@@ -195,7 +200,7 @@ module monitor_tb;
                  5'd1, 5'd2, RAM, 32'hcafe_f00d,
                  5'd0, 32'd0,
                  MTVEC + 8, MTVEC,
-                 32'd0, 4'b0000, 4'b0000, 32'd0, 32'd0);
+                 32'd0, 4'b0000, 4'b0000, 32'd0, 32'd0, 1'b0);
     expect_errcode(16'd0, "trapping misaligned sw retire");
 
     // 6. ecall. riscv-formal ships no spec model for it at the pinned SHA, so
@@ -206,10 +211,35 @@ module monitor_tb;
                  5'd0, 5'd0, 32'd0, 32'd0,
                  5'd0, 32'd0,
                  MTVEC + 12, MTVEC,
-                 32'd0, 4'b0000, 4'b0000, 32'd0, 32'd0);
+                 32'd0, 4'b0000, 4'b0000, 32'd0, 32'd0, 1'b0);
     expect_errcode(16'd0, "ecall retire (no spec model exists -- unchecked)");
 
-    // 7. Positive control for the trap comparison itself (error 101), which is
+    // 7. A load at an address no memory on this platform answers. The core
+    //    refuses it -- cause 5, and `rvfi_mem_fault` beside the retire -- while
+    //    the spec model, which has no memory map at all, says the load executed.
+    //    Every comparison in the semantic block therefore disagrees, 101
+    //    included, and test/sanitize_monitor.py's rules 4 to 6 are the whole
+    //    reason this vector is silent. Delete the gate and it reports 101.
+    drive_retire(32'h0000_a283, 1'b1,
+                 5'd1, 5'd0, UNMAPPED, 32'd0,
+                 5'd0, 32'd0,
+                 MTVEC, MTVEC,
+                 32'd0, 4'b0000, 4'b0000, 32'd0, 32'd0, 1'b1);
+    expect_errcode(16'd0, "a refused load is not graded against the spec model");
+
+    // 8. ...and the compensation, which is what stops that gate being free. The
+    //    same refused access reported WITHOUT a trap: nothing else in the
+    //    monitor would object, because the flag has already turned the semantic
+    //    block off, so a core could excuse every retire it liked by raising it.
+    $display("monitor_tb: the monitor error banner below is EXPECTED (positive control)");
+    drive_retire(32'h0000_a283, 1'b0,
+                 5'd1, 5'd0, UNMAPPED, 32'd0,
+                 5'd5, 32'hdead_beef,
+                 MTVEC, MTVEC + 16,
+                 UNMAPPED, 4'b1111, 4'b0000, 32'hdead_beef, 32'd0, 1'b1);
+    expect_errcode(16'd150, "a refused access reported without a trap is caught");
+
+    // 9. Positive control for the trap comparison itself (error 101), which is
     //    the one check checks/rvfi_insn_check.sv keeps live under spec_trap and
     //    that test/sanitize_monitor.py's third rule must therefore leave outside
     //    the gate it inserts. Vector 4 does not cover it: its wrong retire is
@@ -230,7 +260,7 @@ module monitor_tb;
                  5'd1, 5'd0, RAM, 32'd0,
                  5'd5, 32'hdead_beef,
                  MTVEC + 16, MTVEC + 20,
-                 RAM + 1, 4'b1111, 4'b0000, 32'hdead_beef, 32'd0);
+                 RAM + 1, 4'b1111, 4'b0000, 32'hdead_beef, 32'd0, 1'b0);
     expect_errcode(16'd101, "failure to trap on a misaligned lw is still caught");
 
     if (failures != 0) begin

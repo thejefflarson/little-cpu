@@ -90,6 +90,15 @@ sc-reports-success          asm   lrsc.S FAIL 2
 # core that never refuses one finishes them all.
 atomic-region-ignored       bench decoder_tb
 atomic-region-ignored       asm   amoregion.S FAIL 4
+loadstore-region-ignored    bench decoder_tb
+loadstore-region-ignored    asm   loadfault.S FAIL 3
+loadstore-region-ignored    asm   storefault.S FAIL 3
+# uart.S is a detector by accident of what it was written to prove, and it is
+# kept because an accident that grades is still a grader. Its case 9 stores to
+# the word just past the device's two registers to show the UART does not answer
+# its neighbourhood; with the region refusal deleted that store is dropped
+# silently and the case reads back the value it was checking is absent.
+loadstore-region-ignored    asm   uart.S FAIL 9
 
 # All four min/max compares read unsigned: the sign-bit correction on the shared
 # 33-bit adder/subtractor deleted. amominmax.S is the ONLY program that catches

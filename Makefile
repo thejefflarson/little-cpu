@@ -2,7 +2,11 @@ include formal/pin.mk
 
 .DELETE_ON_ERROR:
 
-RISCV_FORMAL_MACROS := RISCV_FORMAL RISCV_FORMAL_COMPRESSED RISCV_FORMAL_ALIGNED_MEM RISCV_FORMAL_NRET=1 RISCV_FORMAL_XLEN=32 RISCV_FORMAL_ILEN=32
+# RISCV_FORMAL_MEM_FAULT is what declares rvfi_mem_fault and its two masks.
+# Both sim legs ask for it because test/testbench.v reads that flag to tell
+# the monitor which retires it cannot grade: the spec model has no memory
+# map, so an access this platform refuses is one the model says executes.
+RISCV_FORMAL_MACROS := RISCV_FORMAL RISCV_FORMAL_COMPRESSED RISCV_FORMAL_ALIGNED_MEM RISCV_FORMAL_MEM_FAULT RISCV_FORMAL_NRET=1 RISCV_FORMAL_XLEN=32 RISCV_FORMAL_ILEN=32
 
 rvfi_macros.vh: $(RISCV_FORMAL_DIR)/checks/rvfi_macros.py
 	python3 $^ > $@
