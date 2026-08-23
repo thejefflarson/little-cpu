@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=502
+PROBES_EXPECTED=506
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -3132,7 +3132,7 @@ tr_fixture() {
   mkdir -p "$d/rtl" "$d/formal"
   cp "$REPO"/rtl/structs.v "$REPO"/rtl/fetcher.v "$REPO"/rtl/decoder.v \
      "$REPO"/rtl/regsel.v "$REPO"/rtl/csrs.v "$d/rtl/"
-  cp "$REPO"/formal/traps.sv "$d/formal/"
+  cp "$REPO"/formal/traps.sv "$REPO"/formal/components.sby "$d/formal/"
   printf '%s' "$d"
 }
 
@@ -3183,13 +3183,26 @@ d=$(tr_fixture); sed -i.bak 's/assign load_access_fault  = (atomic_fault/assign 
 probe "a respelled fault site stops rather than building the shipping core twice" 2 \
   "no longer spells what the wrong-cause mutation replaces" "$(trs "$d")"
 
-d=$(tr_fixture); sed -i.bak 's/assign data_fault = load_misaligned || store_misaligned/assign data_fault = load_misaligned  || store_misaligned/' "$d/rtl/decoder.v"
-probe "a respelled data_fault stops: an uncommitted fault proves nothing" 2 \
+d=$(tr_fixture); sed -i.bak 's/assign ls_fault = ls_access \&\& ls_answer_valid/assign ls_fault = ls_access\&\& ls_answer_valid/' "$d/rtl/decoder.v"
+probe "a respelled ls_fault stops: a core that still faults proves nothing" 2 \
   "no longer spells what the no-trap mutation replaces" "$(trs "$d")"
 
 d=$(tr_fixture); rm "$d/formal/traps.sv"
 probe "the model moving away takes the probe with it, loudly" 2 \
   "formal/traps.sv is missing from" "$(trs "$d")"
+
+# The script is READ from formal/components.sby rather than copied into these
+# probes, so the two ways that read can come up empty are their own red
+# directions. Both are silent otherwise: a probe built against a script it
+# invented proves a design the shipping task does not build, and says so with a
+# green control.
+d=$(tr_fixture); rm "$d/formal/components.sby"
+probe "no components.sby is exit 2, not a probe against an invented script" 2 \
+  "components.sby is missing" "$(trs "$d")"
+
+d=$(tr_fixture); sed -i.bak 's/^traps:$/trapsx:/' "$d/formal/components.sby"
+probe "a renamed task stops rather than probing some other design" 2 \
+  "block under [script]" "$(trs "$d")"
 
 begin_group "formal/traps-tval-probe.py"
 
@@ -3279,6 +3292,17 @@ probe "a respelled word arm stops the same way" 2 \
 d=$(tr_fixture); rm "$d/formal/traps.sv"
 probe "the model moving away takes this probe with it too" 2 \
   "formal/traps.sv is missing from" "$(tts "$d")"
+
+# Both ways the shared read of components.sby's `traps` block can come up empty.
+# This probe has a control that must PASS, so a script it invented would report
+# a green one about a design the shipping task does not build.
+d=$(tr_fixture); rm "$d/formal/components.sby"
+probe "no components.sby is exit 2 here too, not a green control" 2 \
+  "components.sby is missing" "$(tts "$d")"
+
+d=$(tr_fixture); sed -i.bak 's/^traps:$/trapsx:/' "$d/formal/components.sby"
+probe "a renamed task stops this probe rather than moving its control" 2 \
+  "block under [script]" "$(tts "$d")"
 
 
 
