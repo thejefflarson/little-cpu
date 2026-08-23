@@ -120,10 +120,24 @@ board_next:
   sw    t1, 0(t0)
   j     run_next
 
+/* THE BATCH RUNS ONCE. The marker below repeats so a host that attached late
+ * can still tell the run finished, but the PROGRAMS do not, and that is the
+ * whole point.
+ *
+ * An earlier version re-ran everything on a loop, and four programs failed
+ * because of it. `.data` and `.bss` are restored before each program, but two
+ * things cannot be: the CSRs -- `mtvec`, `mstatus`, the counters -- and the
+ * TEXT. test/asm/selfmod.S writes to its own instructions, and this SoC's
+ * instruction memory is writable by design, so a second pass ran against code
+ * the first pass had already modified. There is no pristine copy to restore
+ * from: the ROM *is* the instruction memory. Only reconfiguring the part puts
+ * it back.
+ *
+ * So one pass, and the host reads what it says. Cross-program contamination
+ * within that pass remains and is documented at the top; cross-PASS
+ * contamination is now impossible. */
 all_done:
-  /* A marker the host can stop on, then repeat the whole batch: the report is
-   * printed seconds after configuration and nothing is listening yet. */
-  li    a0, 46                     /* '.' */
+  li    a0, 46                     /* '.', end of the one and only pass */
   jal   ra, put_char
   li    a0, 10
   jal   ra, put_char
@@ -131,9 +145,7 @@ all_done:
 5:
   addi  t0, t0, -1
   bnez  t0, 5b
-  la    t0, board_index
-  sw    x0, 0(t0)
-  j     run_next
+  j     all_done
 
 /* ---- the wire ------------------------------------------------------------ */
 

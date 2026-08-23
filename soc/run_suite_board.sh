@@ -129,13 +129,13 @@ while read -r progs; do
   nbytes=$(sed -E 's/.*bytes=([0-9]+).*/\1/' < "$OUT/read.err" | tr -d '\n')
   echo "   read:  ${nbytes:-0} bytes in $((SECONDS-t0))s"
 
-  # The driver repeats and marks each pass with a lone '.', so the block between
-  # two of them is one complete run. Falling back to the whole capture is
-  # deliberate: a partial block still names some programs, and naming a few is
-  # better than reporting nothing at all.
-  block=$(printf '%s' "$raw" | awk '/^\.$/{n++; next} {a[n]=a[n]$0"\n"} END{print a[n-1]}')
+  # The batch runs ONCE and then repeats a lone '.' forever, so everything before
+  # the first dot is the run. Taking a later block was the bug that made four
+  # programs look broken: the driver used to re-run the batch, and text and CSRs
+  # do not survive a second pass.
+  block=$(printf '%s' "$raw" | awk '/^\.$/{exit} {print}')
   if [ -z "$block" ]; then
-    echo "   (no complete block between two '.' markers -- parsing the whole capture)"
+    echo "   (nothing before a '.' marker -- parsing the whole capture)"
     block=$(printf '%s' "$raw")
   fi
 
