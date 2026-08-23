@@ -49,5 +49,15 @@ SECTIONS {
         __bss_end = .;
     } >ram
 
+    /* OUTSIDE [__bss_start, __bss_end) ON PURPOSE. The driver re-zeroes .bss
+     * before every program, so anything of its own kept in there -- the program
+     * index above all -- would be wiped mid-batch and the batch would restart
+     * at program 0 forever. */
+    .driver (NOLOAD) : {
+        . = ALIGN(4);
+        *(.driver);
+        . = ALIGN(4);
+    } >ram
+
     __stack_top = ORIGIN(ram) + LENGTH(ram);
 }

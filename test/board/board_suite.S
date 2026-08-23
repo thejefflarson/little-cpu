@@ -27,7 +27,22 @@
   .section .text.init
   .globl _board_start
 _board_start:
-  /* .data lives in ROM and has to reach RAM before any program reads it. */
+  la    t0, board_index
+  sw    x0, 0(t0)
+  j     run_next
+
+/* BEFORE EVERY PROGRAM, NOT ONCE PER BATCH, and hardware is what taught this.
+ * .data is restored from ROM and .bss re-zeroed each time, because a program
+ * that ran already has written to both -- and the batch repeats forever so the
+ * second pass would see the first pass's leavings. amoregion.S checks
+ * `trap_count == 11` and read 22 on the second pass; amotrap.S failed the same
+ * way. Under simulation each program gets a fresh machine, and this is what
+ * makes the board's arrangement match it.
+ *
+ * The driver's own state is in `.driver`, deliberately outside the range zeroed
+ * here: the program index lives there, and wiping it would restart the batch at
+ * program 0 forever. */
+init_memory:
   la    t0, __data_load
   la    t1, __data_start
   la    t2, __data_end
@@ -39,7 +54,6 @@ _board_start:
   addi  t1, t1, 4
   j     1b
 2:
-  /* .bss, likewise: the SPRAM comes up holding whatever it held. */
   la    t0, __bss_start
   la    t1, __bss_end
 3:
@@ -48,8 +62,7 @@ _board_start:
   addi  t0, t0, 4
   j     3b
 4:
-  la    t0, board_index
-  sw    x0, 0(t0)
+  ret
 
 /* THE DRIVER'S STATE LIVES IN MEMORY, NOT IN REGISTERS, and that is not a
  * stylistic choice. A suite program owns every register while it runs -- these
@@ -59,13 +72,21 @@ _board_start:
  * held both in registers and trapped to mtvec == 0 partway through the second
  * program. */
 run_next:
+  /* INIT FIRST, AND THE COUNT IS WHY. `board_count` and `board_table` are
+   * .rodata, which this linker script places in .data -- loaded in ROM and run
+   * in RAM. Reading the count before the copy reads uninitialised SPRAM, which
+   * came back zero: the batch looked empty and the driver printed nothing but
+   * its end-of-pass marker, forever. */
+  la    sp, __stack_top            /* the program before it may have moved this */
+  jal   ra, init_memory            /* a fresh machine, as under simulation */
+  la    sp, __stack_top
+
   la    t0, board_index
   lw    t1, 0(t0)
   la    t2, board_count
   lw    t2, 0(t2)
   bgeu  t1, t2, all_done
 
-  la    sp, __stack_top            /* the program before it may have moved this */
   li    TESTNUM, 0
 
   la    t0, board_table
@@ -165,7 +186,7 @@ put_dec:
   addi  sp, sp, 32
   ret
 
-  .section .bss
+  .section .driver,"aw",@nobits
   .align 2
   .globl board_console
 board_console:

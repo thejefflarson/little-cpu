@@ -13,6 +13,10 @@
 # are reset between them. Where a batched verdict disagrees with the simulated
 # suite, the single-program build is the one to believe.
 #
+# SHOW_RAW=1 dumps every byte the wire carried and the block that was parsed out
+# of it, which is what to reach for when a verdict is missing: it separates "the
+# board said nothing" from "the board said something this could not read".
+#
 # NEEDS ROOT, for the reason `make prog` does: Apple's FTDI dext owns the
 # FT232H's only interface and root takes it anyway.
 set -uo pipefail
@@ -22,7 +26,7 @@ export PATH="$HOME/.cache/little-cpu/oss-cad-suite/bin:$PATH"
 
 BUDGET=${BUDGET:-7600}          # bytes of the 8192-byte ROM to fill per batch
 READ_MS=${READ_MS:-8000}
-FTREAD=${FTREAD:-/tmp/ftread}
+FTREAD=${FTREAD:-$ROOT/ftread}
 OUT=$(mktemp -d "${TMPDIR:-/tmp}/suiteboard.XXXXXX")
 trap 'rm -rf "$OUT"' EXIT
 
@@ -56,6 +60,15 @@ while read -r n f; do
 done < <(printf '%s' "$sizes" | sort -rn)
 [ -n "$cur" ] && { echo "$cur" >> "$OUT/plan"; batches=$((batches+1)); }
 echo "== $batches batches"
+echo
+i=0
+while read -r progs; do
+  i=$((i+1))
+  n=$(printf '%s' "$progs" | wc -w | tr -d ' ')
+  printf '   batch %d: %2d programs --' "$i" "$n"
+  for p in $progs; do printf ' %s' "$(basename "$p" .S)"; done
+  printf '\n'
+done < "$OUT/plan"
 
 pass=0; fail=0; missing=0
 : > "$OUT/results"
@@ -64,29 +77,70 @@ while read -r progs; do
   i=$((i+1))
   echo
   echo "== batch $i of $batches"
-  ./test/board/build_batch.sh "$OUT/b$i" $progs || { echo "   BUILD FAILED"; continue; }
+  echo "   programs:$(for p in $progs; do printf ' %s' "$(basename "$p" .S)"; done)"
+
+  t0=$SECONDS
+  if ! ./test/board/build_batch.sh "$OUT/b$i" $progs > "$OUT/link.log" 2>&1; then
+    echo "   LINK FAILED:"; sed 's/^/      /' "$OUT/link.log" | tail -12; continue
+  fi
+  echo "   link:  $(tail -1 "$OUT/link.log")  [$((SECONDS-t0))s]"
+
+  t0=$SECONDS
   rm -f board.json board.asc board.bin
-  make board.bin BOARD_OSC=internal BOARD_ROM=noop-rom >"$OUT/build.log" 2>&1 || {
-    tail -5 "$OUT/build.log"; echo "   PLACE FAILED"; continue; }
-  iceprog board.bin >/dev/null 2>&1 || { echo "   FLASH FAILED"; continue; }
-  raw=$("$FTREAD" 115200 "$READ_MS" 2>/dev/null)
-  # The driver repeats; take the last complete block, the one between two dots.
+  if ! make board.bin BOARD_OSC=internal BOARD_ROM=noop-rom >"$OUT/build.log" 2>&1; then
+    echo "   PLACE FAILED:"; tail -12 "$OUT/build.log" | sed 's/^/      /'; continue
+  fi
+  echo "   place: $(grep -o 'board.bin: [0-9]* bytes.*' "$OUT/build.log" | head -1)  [$((SECONDS-t0))s]"
+
+  # iceprog's own output, live and unfiltered. It takes about thirty seconds and
+  # prints its progress as it goes, so hiding it makes a working flash
+  # indistinguishable from a hung one -- which is exactly how it looked the first
+  # time this ran quietly.
+  t0=$SECONDS
+  echo "   flashing (iceprog, ~30s):"
+  if ! iceprog board.bin 2>&1 | tee "$OUT/flash.log" | sed 's/^/      | /'; then
+    echo "   FLASH FAILED"; continue
+  fi
+  grep -q 'VERIFY OK' "$OUT/flash.log" || { echo "   FLASH DID NOT VERIFY"; continue; }
+  echo "   flash: VERIFY OK  [$((SECONDS-t0))s]"
+
+  t0=$SECONDS
+  raw=$("$FTREAD" 115200 "$READ_MS" 2>"$OUT/read.err")
+  nbytes=$(sed -E 's/.*bytes=([0-9]+).*/\1/' < "$OUT/read.err" | tr -d '\n')
+  echo "   read:  ${nbytes:-0} bytes in $((SECONDS-t0))s"
+
+  # The driver repeats and marks each pass with a lone '.', so the block between
+  # two of them is one complete run. Falling back to the whole capture is
+  # deliberate: a partial block still names some programs, and naming a few is
+  # better than reporting nothing at all.
   block=$(printf '%s' "$raw" | awk '/^\.$/{n++; next} {a[n]=a[n]$0"\n"} END{print a[n-1]}')
-  [ -z "$block" ] && block=$(printf '%s' "$raw")
+  if [ -z "$block" ]; then
+    echo "   (no complete block between two '.' markers -- parsing the whole capture)"
+    block=$(printf '%s' "$raw")
+  fi
+
+  if [ -n "${SHOW_RAW:-}" ]; then
+    echo "   ---- raw capture ----"; printf '%s' "$raw" | sed 's/^/      /'
+    echo "   ---- parsed block ----"; printf '%s' "$block" | sed 's/^/      /'
+  else
+    echo "   verdicts: $(printf '%s' "$block" | tr '\n' ' ' | cut -c1-70)"
+  fi
+
   j=0
   for p in $progs; do
     name=$(basename "$p")
     v=$(printf '%s' "$block" | awk -v k="$j" '$1==k{print $2; exit}')
     if [ -z "$v" ]; then
-      echo "   $name: NO REPORT"; missing=$((missing+1)); echo "$name MISSING" >> "$OUT/results"
+      printf '      %-18s NO REPORT\n' "$name"; missing=$((missing+1)); echo "$name MISSING" >> "$OUT/results"
     elif [ "$v" = "1" ]; then
-      pass=$((pass+1)); echo "$name PASS" >> "$OUT/results"
+      printf '      %-18s pass\n' "$name"; pass=$((pass+1)); echo "$name PASS" >> "$OUT/results"
     else
-      echo "   $name: FAIL verdict $v (test $(( v >> 1 )))"
+      printf '      %-18s FAIL at test %d (verdict %s)\n' "$name" "$(( v >> 1 ))" "$v"
       fail=$((fail+1)); echo "$name FAIL $(( v >> 1 ))" >> "$OUT/results"
     fi
     j=$((j+1))
   done
+  echo "   running total: $pass pass, $fail fail, $missing no report"
 done < "$OUT/plan"
 
 echo

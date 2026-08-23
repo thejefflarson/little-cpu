@@ -39,6 +39,8 @@ board.asc
 board.bin
 board.synth.log
 board.pnr.log
+# `make ftread`: a host binary, built from soc/ftread.c against libftdi.
+ftread
 # The de-interleaved ROM banks `make soc-rom` writes from a test program. Build
 # artifacts of whichever SOC_PROG was last built, not source.
 soc/rom_even.hex
