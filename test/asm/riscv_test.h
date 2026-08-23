@@ -42,6 +42,28 @@ _start:                                                                      \
 // and Sail's HTIF fires on whichever half-write completes the pair: this way
 // the verdict store is what stops the reference model, on the same instruction
 // the cxxrtl runners stop on.
+// BOARD_SUITE REPLACES THE SPIN WITH A HANDOFF, and changes nothing else. A
+// part has no HTIF, so the store below reaches ordinary RAM and no one reads
+// it; test/asm/board_suite.S runs several programs from one ROM and reports
+// each verdict over the UART, which it can only do if a finished program comes
+// back. The store is KEPT so the two builds differ by the ending alone.
+//
+// `board_next` reads the verdict out of TESTNUM, which is why it is set before
+// the jump in both arms rather than only in the failing one.
+#ifdef BOARD_SUITE
+// The HTIF store goes too, not just the spin. `tohost` is a harness convention
+// -- a part has nothing that reads it -- and keeping it would stop a batch at
+// its first program, because both sim legs end the run on that write. Dropping
+// it is what lets a batch be simulated end to end before it is ever flashed.
+#define RVTEST_PASS                                                          \
+        li      TESTNUM, 1;                                                 \
+        j       board_next
+
+#define RVTEST_FAIL                                                          \
+        sll     TESTNUM, TESTNUM, 1;                                        \
+        or      TESTNUM, TESTNUM, 1;                                        \
+        j       board_next
+#else
 #define RVTEST_PASS                                                          \
         li      TESTNUM, 1;                                                 \
         la      t0, tohost;                                                 \
@@ -56,6 +78,7 @@ _start:                                                                      \
         sw      x0, 4(t0);                                                  \
         sw      TESTNUM, 0(t0);                                             \
 1:      j       1b
+#endif
 
 // `tohost` must stay a full doubleword, 8-byte aligned: HTIF defines it as a
 // 64-bit location and every consumer claims the whole doubleword at the symbol

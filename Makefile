@@ -1156,6 +1156,18 @@ BOARD_OSC_PARAM := $(if $(filter internal,$(BOARD_OSC)),1,0)
 # different linker script and does not go through soc-rom's single-file arms.
 BOARD_ROM ?= soc-rom
 
+# `BOARD_ROM=noop-rom` means the banks are already written and must not be
+# rebuilt. soc/run_suite_board.sh needs it: test/board/build_batch.sh has just
+# written a batch into soc/rom_*.hex, and letting soc-rom run would replace that
+# batch with SOC_PROG before the placement ever saw it.
+.PHONY: noop-rom
+noop-rom:
+	@test -s soc/rom_even.hex -a -s soc/rom_odd.hex || { \
+	  echo '*** BOARD_ROM=noop-rom, but soc/rom_*.hex are missing or empty.'; \
+	  echo '*** Something was meant to write them before this ran.'; \
+	  exit 1; \
+	}
+
 board.json: $(BOARD_SRCS) $(BOARD_ROM)
 	@echo 'yosys: synthesising $(BOARD_TOP) for ice40 (log: board.synth.log)'
 	@yosys -p 'read_verilog -sv $(BOARD_SRCS); \
