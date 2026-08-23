@@ -1054,6 +1054,35 @@ ecp5-timing: ecp5-timing-toolchain ecp5.config
 	@echo
 	@echo "Placement, routing and nextpnr's own timing analysis: ecp5.pnr.log"
 
+# ---- reading the board back ------------------------------------------------
+#
+# soc/ftread.c talks to the FT232H through libftdi and needs no `/dev` node,
+# which is the only thing that works on macOS: Apple's DriverKit extension owns
+# the chip's single interface, and after `make prog` it is left in MPSSE mode
+# with no serial device attached at all until it re-enumerates. Root can open it
+# through libusb regardless.
+#
+# NOT a prerequisite of anything and not on CI. It needs libftdi, which is not
+# among the tools `make setup` installs, and nothing in the graded flow reads a
+# wire.
+# pkg-config points INTO libftdi1/, so soc/ftread.c includes <ftdi.h> bare
+# rather than <libftdi1/ftdi.h>; the fallback below has to name the same
+# directory or the two disagree about which spelling is right.
+FTDI_CFLAGS ?= $(shell pkg-config --cflags libftdi1 2>/dev/null || echo -I/opt/homebrew/opt/libftdi/include/libftdi1)
+FTDI_LIBS   ?= $(shell pkg-config --libs libftdi1 2>/dev/null || echo -L/opt/homebrew/opt/libftdi/lib -lftdi1)
+
+ftread: soc/ftread.c
+	@command -v cc >/dev/null || { echo 'error: no C compiler for the host.' >&2; exit 1; }
+	cc -O2 -Wall -o $@ $< $(FTDI_CFLAGS) $(FTDI_LIBS)
+	@echo 'built ./ftread -- run it as root: sudo ./ftread 115200 8000'
+
+.PHONY: suite-board
+suite-board: ftread
+	@echo 'Runs the .S suite on the part, in batches. Needs root for the same'
+	@echo 'reason `make prog` does. Roughly ten minutes.'
+	@echo
+	@sudo ./soc/run_suite_board.sh
+
 # ---- Dhrystone, on the part ------------------------------------------------
 #
 # The same benchmark `make dhrystone` runs, built for a board instead of a

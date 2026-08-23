@@ -27,7 +27,35 @@
   .section .text.init
   .globl _board_start
 _board_start:
-  /* .data lives in ROM and has to reach RAM before any program reads it. */
+  /* ZERO `.driver` BEFORE ANYTHING READS IT. It is NOLOAD and sits outside the
+   * range init_memory clears, so nothing else ever touches it -- and SPRAM
+   * comes out of configuration holding whatever the last program to run left
+   * there. A simulator hands out zeroed RAM and hid this completely; on a board
+   * that had just run another batch, `board_console_len` came up holding the
+   * previous buffer's length and the replay dumped a megabyte of stale SPRAM
+   * down the wire at line rate. */
+  la    t0, __driver_start
+  la    t1, __driver_end
+0:
+  bgeu  t0, t1, 1f
+  sw    x0, 0(t0)
+  addi  t0, t0, 4
+  j     0b
+1:
+  j     run_next
+
+/* BEFORE EVERY PROGRAM, NOT ONCE PER BATCH, and hardware is what taught this.
+ * .data is restored from ROM and .bss re-zeroed each time, because a program
+ * that ran already has written to both -- and the batch repeats forever so the
+ * second pass would see the first pass's leavings. amoregion.S checks
+ * `trap_count == 11` and read 22 on the second pass; amotrap.S failed the same
+ * way. Under simulation each program gets a fresh machine, and this is what
+ * makes the board's arrangement match it.
+ *
+ * The driver's own state is in `.driver`, deliberately outside the range zeroed
+ * here: the program index lives there, and wiping it would restart the batch at
+ * program 0 forever. */
+init_memory:
   la    t0, __data_load
   la    t1, __data_start
   la    t2, __data_end
@@ -39,7 +67,6 @@ _board_start:
   addi  t1, t1, 4
   j     1b
 2:
-  /* .bss, likewise: the SPRAM comes up holding whatever it held. */
   la    t0, __bss_start
   la    t1, __bss_end
 3:
@@ -48,8 +75,7 @@ _board_start:
   addi  t0, t0, 4
   j     3b
 4:
-  la    t0, board_index
-  sw    x0, 0(t0)
+  ret
 
 /* THE DRIVER'S STATE LIVES IN MEMORY, NOT IN REGISTERS, and that is not a
  * stylistic choice. A suite program owns every register while it runs -- these
@@ -59,13 +85,21 @@ _board_start:
  * held both in registers and trapped to mtvec == 0 partway through the second
  * program. */
 run_next:
+  /* INIT FIRST, AND THE COUNT IS WHY. `board_count` and `board_table` are
+   * .rodata, which this linker script places in .data -- loaded in ROM and run
+   * in RAM. Reading the count before the copy reads uninitialised SPRAM, which
+   * came back zero: the batch looked empty and the driver printed nothing but
+   * its end-of-pass marker, forever. */
+  la    sp, __stack_top            /* the program before it may have moved this */
+  jal   ra, init_memory            /* a fresh machine, as under simulation */
+  la    sp, __stack_top
+
   la    t0, board_index
   lw    t1, 0(t0)
   la    t2, board_count
   lw    t2, 0(t2)
   bgeu  t1, t2, all_done
 
-  la    sp, __stack_top            /* the program before it may have moved this */
   li    TESTNUM, 0
 
   la    t0, board_table
@@ -99,20 +133,59 @@ board_next:
   sw    t1, 0(t0)
   j     run_next
 
+/* THE BATCH RUNS ONCE. The marker below repeats so a host that attached late
+ * can still tell the run finished, but the PROGRAMS do not, and that is the
+ * whole point.
+ *
+ * An earlier version re-ran everything on a loop, and four programs failed
+ * because of it. `.data` and `.bss` are restored before each program, but two
+ * things cannot be: the CSRs -- `mtvec`, `mstatus`, the counters -- and the
+ * TEXT. test/asm/selfmod.S writes to its own instructions, and this SoC's
+ * instruction memory is writable by design, so a second pass ran against code
+ * the first pass had already modified. There is no pristine copy to restore
+ * from: the ROM *is* the instruction memory. Only reconfiguring the part puts
+ * it back.
+ *
+ * So one pass, and the host reads what it says. Cross-program contamination
+ * within that pass remains and is documented at the top; cross-PASS
+ * contamination is now impossible. */
 all_done:
-  /* A marker the host can stop on, then repeat the whole batch: the report is
-   * printed seconds after configuration and nothing is listening yet. */
-  li    a0, 46                     /* '.' */
-  jal   ra, put_char
+  /* REPLAY THE REPORT, DO NOT RE-RUN THE PROGRAMS. Both halves are needed and
+   * an earlier version had one at a time.
+   *
+   * Re-running contaminates: CSRs and text carry between passes and cannot be
+   * restored, so selfmod.S and three others failed on the second pass. But
+   * printing once does not work either -- the report lands seconds after the
+   * part configures, and a host that is still finishing `iceprog` sees nothing
+   * but the marker. That is what "no report" for every program looked like.
+   *
+   * So the programs run once and their verdicts, already in `board_console`,
+   * are re-sent from the buffer forever. Every replay is identical because
+   * nothing re-executes; the wire repeats and the machine does not. */
+/* s-registers, because put_wire clobbers t1 and t2 and one of those was this
+ * loop's index. Nothing else is running by now, so the whole file is ours. */
+all_done_loop:
+  la    s0, board_console
+  la    s1, board_console_len
+  lw    s1, 0(s1)
+  li    s2, 0
+6:
+  bgeu  s2, s1, 7f
+  add   a0, s0, s2
+  lbu   a0, 0(a0)
+  jal   ra, put_wire               /* wire only: re-buffering would grow it */
+  addi  s2, s2, 1
+  j     6b
+7:
+  li    a0, 46                     /* '.', end of one replay */
+  jal   ra, put_wire
   li    a0, 10
-  jal   ra, put_char
+  jal   ra, put_wire
   li    t0, 3000000
 5:
   addi  t0, t0, -1
   bnez  t0, 5b
-  la    t0, board_index
-  sw    x0, 0(t0)
-  j     run_next
+  j     all_done_loop
 
 /* ---- the wire ------------------------------------------------------------ */
 
@@ -121,6 +194,16 @@ all_done:
  * NUL-terminated string out of RAM, so the same report the wire carries can be
  * read from a simulation. Same bytes, one function, so the two cannot differ. */
   .globl board_console
+/* Wire only. The replay above uses this: sending a buffered byte back through
+ * the buffer would append it again and the report would grow without end. */
+put_wire:
+  li    t2, UART_BASE
+1:
+  lw    t1, UART_STATUS_OFFSET(t2)
+  bnez  t1, 1b
+  sw    a0, 0(t2)
+  ret
+
 put_char:
   li    t2, UART_BASE
 1:
@@ -165,7 +248,7 @@ put_dec:
   addi  sp, sp, 32
   ret
 
-  .section .bss
+  .section .driver,"aw",@nobits
   .align 2
   .globl board_console
 board_console:
