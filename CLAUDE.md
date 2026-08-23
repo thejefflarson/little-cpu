@@ -385,6 +385,17 @@ What a green result does and does not mean:
   called from a continuous assign whose body reads module state silently under-evaluates — no
   diagnostic — and once left this leg dead for a whole milestone while every grader stayed green.
   Write such logic out. Treat a green iverilog run as evidence only if it could have failed.
+- **A HARNESS CANNOT REACH INSIDE AN INSTANCE, and both ways of trying are silent.** yosys resolves
+  no hierarchical reference — `decoder.ls_answer_valid` parses as an *implicitly declared undriven
+  wire* whose value the solver picks, on a Warning nothing grades — and it parses `bind` and drops
+  it, on no diagnostic at all. An invariant written over such a wire has the giveaway shape of
+  passing the property it was meant to strengthen and then failing the BASE CASE, because the solver
+  picks the wire adversarially in each direction; five spellings were written and read as five
+  different modelling mistakes before the wire was the answer. So an invariant about a submodule's
+  own state is **asserted in that submodule**, and the composed task reads it with `-formal
+  -noassume`: assertions in, standalone environment models out. `formal/components.sby`'s `traps`
+  task is the one that does it, and its split is by that flag rather than by `-formal` on the whole
+  file — `pcloop`'s is still the coarse one, and the two comments say which and why.
 - **cxxrtl is two-state, so this leg is the only one that can see an X.** Decode reads register
   numbers out of the word *after* the instruction it is issuing, so an undefined ROM word reaches
   the register file's address port and turns the whole pipeline X — green under cxxrtl, green under

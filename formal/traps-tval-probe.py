@@ -113,7 +113,7 @@ def mutate(decoder_v, case):
     return decoder_v.replace(site, replacement)
 
 
-def run_case(repo, workdir, sby, case):
+def run_case(repo, workdir, sby, config, case):
     """Builds the mutated tree, runs sby, and returns (status, failing lines)."""
     root = workdir / case
     shutil.rmtree(root, ignore_errors=True)
@@ -123,7 +123,7 @@ def run_case(repo, workdir, sby, case):
     shutil.copy(repo / "formal" / "traps.sv", root / "src" / "traps.sv")
     decoder = (repo / "rtl" / "decoder.v").read_text()
     (root / "src" / "decoder.v").write_text(mutate(decoder, case))
-    (root / "probe.sby").write_text(probe_sby(repo, stop))
+    (root / "probe.sby").write_text(config)
 
     # sby's own exit status is not read: FAIL is the required outcome of two of
     # the three cases, and a non-zero status there says nothing this file does
@@ -160,12 +160,16 @@ def main():
     workdir = pathlib.Path(args.workdir).resolve()
     workdir.mkdir(parents=True, exist_ok=True)
 
+    # Built once, with the other input checks: the script is an input to this
+    # file the way traps.sv and decoder.v are, and a missing one is a reason not
+    # to start rather than something to discover per case.
+    config = probe_sby(repo, stop)
     line = mtval_assert_line((repo / "formal" / "traps.sv").read_text())
     print(f"formal/traps.sv states the mtval comparison on line {line}.")
 
     red = []
 
-    status, failed = run_case(repo, workdir, args.sby, "control")
+    status, failed = run_case(repo, workdir, args.sby, config, "control")
     print(f"  control:    {status}, assertions failed at {failed or 'none'}")
     if status != "PASS":
         red.append(
@@ -175,7 +179,7 @@ def main():
         )
 
     for case in ("wrong-addr", "wrong-word"):
-        status, failed = run_case(repo, workdir, args.sby, case)
+        status, failed = run_case(repo, workdir, args.sby, config, case)
         print(f"  {case}: {status}, assertions failed at {failed or 'none'}")
         if status != "FAIL":
             red.append(

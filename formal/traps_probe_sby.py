@@ -14,6 +14,11 @@ and the drift is silent in the direction that matters: a probe on a stale script
 proves a design the shipping task does not build, and reports a green control
 about it. This happened -- the copies said `read -sv` for as long as it took one
 run to notice, and only the probe with a control noticed at all.
+
+THE SCRIPT IS READ AND THE ENGINE IS NOT, deliberately. components.sby gives
+`pcloop` boolector and `busarbiter` `--keep-going`; a probe that inherited an
+engine choice would inherit one made for some other task's runtime, and both
+files here pin their answer to the FIRST assertion a failing step breaks.
 """
 
 import re
@@ -23,10 +28,23 @@ import re
 LABEL = re.compile(r"^([A-Za-z_][A-Za-z0-9_ ]*):\s*$")
 SECTION = re.compile(r"^\[(\w+)\]\s*$")
 
-# The files the script names, in the order components.sby's `[files]` lists
-# them. The probe copies its own mutated tree into `src/`, so it writes this
-# section itself rather than reading it: the paths differ by construction.
+# The files the script names. The probe copies its own mutated tree into `src/`,
+# so this section is written here rather than read: the paths differ by
+# construction.
 SOURCES = ("structs.v", "fetcher.v", "decoder.v", "regsel.v", "csrs.v")
+
+TEMPLATE = """[options]
+mode prove
+
+[engines]
+smtbmc
+
+[script]
+{script}
+
+[files]
+{files}
+"""
 
 
 def script_block(components_sby, task="traps"):
@@ -47,7 +65,7 @@ def script_block(components_sby, task="traps"):
             if label == task:
                 out = []
             continue
-        if label == task and out is not None:
+        if label == task:
             out.append(line)
     return out
 
@@ -69,6 +87,7 @@ def probe_sby(repo, stop, task="traps"):
             "probe cannot read the script it is meant to build against. Teach it the\n"
             "new task name rather than restoring a copy here."
         )
-    body = "\n".join(block).strip("\n")
-    files = "\n".join(f"src/{name}" for name in SOURCES + ("traps.sv",))
-    return f"[options]\nmode prove\n\n[engines]\nsmtbmc\n\n[script]\n{body}\n\n[files]\n{files}\n"
+    return TEMPLATE.format(
+        script="\n".join(block).strip("\n"),
+        files="\n".join(f"src/{name}" for name in SOURCES + ("traps.sv",)),
+    )

@@ -79,9 +79,10 @@ module traps #(
   logic [31:0] csr_wdata, csr_rdata;
   logic        csr_implemented;
   logic        trap_entry, mret_entry;
-  // Unread here, and declared anyway: `default_nettype none` makes an
-  // undeclared output connection an error in iverilog, which is the frontend
-  // that replays a counterexample trace from this task.
+  // Unread here, and declared anyway: an output connected to an undeclared
+  // identifier is an implicit net, which `default_nettype none` makes an error
+  // in iverilog and a warning in yosys. Both frontends have to elaborate this
+  // file -- iverilog is what replays a counterexample trace from it.
   logic        bus_request;
   logic [31:0] trap_cause, trap_epc, trap_tval;
   logic [31:0] mtvec_value, mepc_value;

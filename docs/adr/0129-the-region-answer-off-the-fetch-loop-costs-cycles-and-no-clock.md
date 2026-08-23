@@ -93,6 +93,20 @@ arm cannot price it.
 - **F and G did not move**, re-measured by `make -C formal remeasure-fg` with both flip points in
   both directions. A stall reason that adds no retire gap adds no depth, so every derived BMC floor
   stands.
+- **It cost `components_traps` its induction, and buying that back moved the harness split.** The
+  answer is the first state in this core computed from a decode input on one cycle and read on the
+  next, so k-induction may start from a held answer that belongs to no access — valid, refusing, and
+  the map answering the address the instruction really uses — and `must_not_trap => !trap_entry`
+  then fails on a trace no run reaches. The invariant that rules it out is a statement about two
+  decoder registers, and `formal/traps.sv` can reach neither: **yosys resolves no hierarchical
+  reference and ignores `bind`, and both are silent** — `decoder.ls_answer_valid` parses as an
+  implicitly declared undriven wire whose value the solver picks, which is exactly the shape that
+  passes induction and fails the base case. So the assertion is stated in `rtl/decoder.v`, the
+  environment fact it stands on is assumed there in the same shape as the standalone fetcher model
+  beside it, and `formal/components.sby` reads the decoder `-formal -noassume` for this task: the
+  assertions come in, the standalone model does not. That draws the split one statement finer than
+  the whole file, which is where it always belonged — it was the fetcher assume alone that made
+  `pcloop`'s echo circular. The proof went from 174 seconds of failing to 23 of proving.
 - **Two floors were re-derived and no others moved.** `uart.S` and `lrsclock.S` are the only suite
   programs whose retire count is a function of CPI rather than of their instruction sequence, and
   both lines already said so. A change that altered anything but timing would not land on exactly
