@@ -30,6 +30,15 @@ dual_ecp5.config
 dual_ecp5.report.json
 dual_ecp5.synth.log
 dual_ecp5.pnr.log
+
+# `make bitstream`: the board wrapper's netlist, placement, logs, and the one
+# artifact in this repo that is not a measurement -- the bytes a part is
+# configured with. Same rule as the soc.* files: they are outputs, never source.
+board.json
+board.asc
+board.bin
+board.synth.log
+board.pnr.log
 # The de-interleaved ROM banks `make soc-rom` writes from a test program. Build
 # artifacts of whichever SOC_PROG was last built, not source.
 soc/rom_even.hex

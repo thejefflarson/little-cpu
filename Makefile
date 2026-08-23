@@ -1044,6 +1044,88 @@ ecp5-timing: ecp5-timing-toolchain ecp5.config
 	@echo
 	@echo "Placement, routing and nextpnr's own timing analysis: ecp5.pnr.log"
 
+# ---- a bitstream, and a board to put it on ---------------------------------
+#
+# THE FIRST THING HERE THAT MEETS SILICON. Everything else in this file stops at
+# a measurement: `soc-timing` writes an `.asc` and reads icetime's report of it,
+# and nothing ever packed that into something a part can be configured with. So
+# these two targets are not graded and carry no ratchet -- there is nothing to
+# compare a flashed board against yet, and inventing a number here would be
+# inventing one.
+#
+# A SEPARATE FLOW FROM `soc-timing` ON PURPOSE. That target is the graded one and
+# its numbers are quoted against SOC_MIN_MHZ; it places `littlesoc` with the
+# iCEBreaker's pin assignment. This places a board WRAPPER around the same SoC,
+# so a frequency from here is not comparable with one from there -- different
+# top, different pins, possibly a different clock source. Do not merge the two.
+BOARD ?= upduino
+
+BOARD_SRCS := $(SOC_SRCS) soc/board_upduino.v
+BOARD_TOP  := upduino_top
+BOARD_PCF  := soc/upduino.pcf
+
+# `BOARD_OSC=internal` builds against SB_HFOSC and needs no soldering; the
+# default takes the 12 MHz crystal, which on this board requires R16 (silkscreen
+# OSC) shorted. soc/board_upduino.v carries the reason the UART cares.
+BOARD_OSC ?= crystal
+BOARD_OSC_PARAM := $(if $(filter internal,$(BOARD_OSC)),1,0)
+
+board.json: $(BOARD_SRCS) soc-rom
+	@echo 'yosys: synthesising $(BOARD_TOP) for ice40 (log: board.synth.log)'
+	@yosys -p 'read_verilog -sv $(BOARD_SRCS); \
+	   chparam -set INTERNAL_OSC $(BOARD_OSC_PARAM) $(BOARD_TOP); \
+	   synth_ice40 -device u -dsp -spram -top $(BOARD_TOP) -json $@' \
+	  > board.synth.log 2>&1 || { tail -40 board.synth.log; exit 1; }
+	@python3 soc/cell_census.py board.synth.log SB_SPRAM256KA $(SOC_EXPECT_SPRAM) \
+	  "the board wrapper changed how rtl/memory.v maps -- the SoC underneath it is the same design"
+
+board.asc: board.json $(BOARD_PCF)
+	@echo 'nextpnr: placing $(BOARD_TOP) on up5k/sg48 (log: board.pnr.log)'
+	@nextpnr-ice40 --up5k --package sg48 --pcf $(BOARD_PCF) --json $< \
+	  --asc $@ > board.pnr.log 2>&1 || true
+	@test -s $@ || { \
+	  echo '*** make bitstream: nextpnr wrote no .asc, so there is nothing to'; \
+	  echo '*** pack. That is a failed placement, not a slow design.'; \
+	  tail -30 board.pnr.log; \
+	  rm -f $@; \
+	  exit 1; \
+	}
+
+# icepack turns the placement into the bytes the part is configured with. It is
+# the one step in this repo with no measurement in it at all.
+board.bin: board.asc
+	@icepack $< $@
+	@echo "board.bin: $$(wc -c < $@ | tr -d ' ') bytes for $(BOARD), clock $(BOARD_OSC)"
+
+.PHONY: bitstream
+bitstream: board.bin
+	@echo
+	@echo "== $(BOARD): a bitstream, not a measurement =="
+	@# No `-p`: icetime's pcf parser takes exactly two arguments per line and
+	@# rejects the `-nowarn` this board's file needs, which nextpnr requires so
+	@# that an unused clock pin under BOARD_OSC=internal is not an error. The
+	@# flag only teaches icetime the IO net names, and nothing here reads them.
+	@icetime -d up5k -P sg48 -t board.asc 2>&1 | tail -3
+	@echo
+	@echo 'This says what the TOOLS think the placement does. A board is the only'
+	@echo 'thing that can disagree, and none has run this yet.'
+
+# Not a prerequisite of anything: flashing is an outward-facing act on hardware
+# that is not always plugged in, and a target that quietly programmes a board
+# during an unrelated build is the wrong shape.
+#
+# The UPduino programmes over its on-board FT232H. `ICEPROG_DEV` picks the
+# device when more than one FTDI is attached.
+ICEPROG_DEV ?=
+.PHONY: prog
+prog: board.bin
+	@command -v iceprog >/dev/null || { \
+	  echo '*** iceprog is not on PATH. It ships with the OSS CAD Suite that'; \
+	  echo '*** `make setup` caches -- put its bin/ first on PATH.'; \
+	  exit 1; \
+	}
+	iceprog $(if $(ICEPROG_DEV),-d '$(ICEPROG_DEV)') board.bin
+
 # ---- the dual configuration, placed ----------------------------------------
 #
 # ECP5 ONLY, and that is a measurement rather than a preference: two fetch
@@ -1448,6 +1530,7 @@ compare-timing: compare.$(COMPARE_CORE).asc compare.$(COMPARE_CORE).core.log
 clean:
 	rm -f fit.json fit.log fit.synth.log
 	rm -f soc.json soc.asc soc.synth.log soc.pnr.log soc.timing.rpt
+	rm -f board.json board.asc board.bin board.synth.log board.pnr.log
 	rm -f ecp5.json ecp5.config ecp5.report.json ecp5.synth.log ecp5.pnr.log
 	rm -f dual_ecp5.json dual_ecp5.config dual_ecp5.report.json dual_ecp5.synth.log dual_ecp5.pnr.log
 	rm -f test/dual_rtl.cc dual-sim
