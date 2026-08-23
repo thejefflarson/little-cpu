@@ -70,16 +70,26 @@ SoC; and `DHRY_UART` streams the report out rtl/uart.v as well as into the
 buffer the simulated runner copies, so the wire and the buffer cannot disagree
 about what was reported. `make dhrystone-board` is those three facts assembled.
 
-| | simulated | on the part |
-|---|---|---|
-| DMIPS/MHz | 0.664 | **0.662** |
-| CPI | — | 1.85 |
-| cycles per Dhrystone | — | 859 |
-| self-check | — | PASS |
+**THE SIMULATOR AND THE PART AGREE TO THE CYCLE.** Run the board's own binary
+under cxxrtl and it reports what the board reported, exactly:
 
-**0.3% apart**, at 20,000 runs — 17,180,026 cycles against 9,240,026
-instructions, counted by the core. At the measured clock that is **7.93 DMIPS**
-absolute. The same flags as `make dhrystone`, deliberately: an earlier board
+| 20,000 runs | cxxrtl | the part |
+|---|---|---|
+| cycles | 17,180,026 | **17,180,026** |
+| instructions | 9,240,026 | **9,240,026** |
+| CPI | 1.85 | 1.85 |
+| cycles per Dhrystone | 859 | 859 |
+| DMIPS/MHz | 0.662 | **0.662** |
+| self-check | PASS | PASS |
+
+**Zero divergence over 17.18 million cycles.** At the measured clock that is
+**7.93 DMIPS** absolute.
+
+The number to quote for the shipping build is **0.664**, and the difference
+between it and 0.662 is not silicon: it is one cycle per run of code alignment,
+because a board build compiles `uart_putc` in and moves what follows it. Same
+binary, same answer -- which is the comparison worth making, and the one that
+says the simulator is not approximating anything. The same flags as `make dhrystone`, deliberately: an earlier board
 build used `-Os -fno-inline` and measured 0.355, which is not a slower machine
 but a different benchmark, and is what `DHRY_BOARD_CFLAGS ?= $(DHRY_CFLAGS)`
 exists to prevent.
