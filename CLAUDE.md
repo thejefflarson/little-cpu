@@ -28,6 +28,19 @@ Three habits carry the goals:
   (ADR-0093). Occupancy moved in the direction the outcome moved, but the datapath and the toolchain
   moved too — what is claimed is that the decline did not survive re-measurement, not that
   congestion was the cause.
+- **An inherited conclusion is not a measurement, and the cheap test outranks it.**
+  A report that something cannot work — an upstream issue, a datasheet's worst case,
+  a pin table — is evidence about someone else's setup until it has been run here.
+  Three in one evening, each of which closed a question that was not closed:
+  YosysHQ's icestorm issue says `sudo iceprog` does not help on macOS, and it is
+  what made the board flashable; `SB_HFOSC`'s ±10% trim was quoted to argue the
+  UART could never work, and the part measures nominal within error so 115200
+  reads clean; and two community pin tables give the UPduino's clock as 41 and 44
+  against the vendor's own file, which says 20 (ADR-0130). The rule is not that
+  external reports are wrong — it is that **the cost of testing one is usually a
+  single command**, and a conclusion adopted without paying it will be defended as
+  though it had been.
+
 - **Prove the property, then spend it.** Find a place the design pays for a property it already
   proves — a priority chain over proven-disjoint flags, a comparator that cannot differ — simplify
   it, and let the riscv-formal checks, the component proofs and the `.S` suite say whether the

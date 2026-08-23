@@ -768,6 +768,11 @@ SOC_SRCS      := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v \
 # which make cannot see a change to, and a stale ROM would make the measurement
 # describe a program nobody asked for.
 .PHONY: soc-rom
+# `SOC_PROG` names a file in test/asm, or a PATH if it has a slash in it. The
+# second form is for programs that cannot live in test/asm: both sim legs glob
+# that directory and grade every file in it against a 5000-cycle limit, so a
+# bring-up program that blinks forever would be a suite failure rather than a
+# program. test/bench/ is where those go, and this is how they reach a ROM.
 soc-rom:
 	@set -e; \
 	for candidate in riscv64-elf-gcc riscv64-unknown-elf-gcc; do \
@@ -783,13 +788,18 @@ soc-rom:
 	test -n "$$tmp" -a -d "$$tmp"; \
 	trap 'rm -rf "$$tmp"' EXIT; \
 	case '$(SOC_PROG)' in \
+	  */*) prog='$(SOC_PROG)' ;; \
+	  *)   prog='test/asm/$(SOC_PROG)' ;; \
+	esac; \
+	test -f "$$prog" || { echo "error: no such program: $$prog" >&2; exit 1; }; \
+	case '$(SOC_PROG)' in \
 	  *.c) $$CC -march=rv32imac_zicsr_zifencei -mabi=ilp32 -nostdlib \
 	         -Os -std=c11 -ffreestanding -fno-tree-loop-distribute-patterns \
 	         -Wall -Wextra -Werror -I test/asm -T test/asm/boot.lds \
-	         -o "$$tmp/prog.elf" test/crt0.S test/asm/$(SOC_PROG); \
+	         -o "$$tmp/prog.elf" test/crt0.S "$$prog"; \
 	       sections='-j .text -j .data' ;; \
 	  *)   $$CC -march=rv32imac_zicsr_zifencei -mabi=ilp32 -nostdlib -I test/asm \
-	         -T test/asm/sections.lds -o "$$tmp/prog.elf" test/asm/$(SOC_PROG); \
+	         -T test/asm/sections.lds -o "$$tmp/prog.elf" "$$prog"; \
 	       sections='-j .text' ;; \
 	esac; \
 	$$OBJCOPY -O verilog --verilog-data-width=4 $$sections "$$tmp/prog.elf" "$$tmp/rom.hex"; \
@@ -1116,7 +1126,20 @@ bitstream: board.bin
 #
 # The UPduino programmes over its on-board FT232H. `ICEPROG_DEV` picks the
 # device when more than one FTDI is attached.
-ICEPROG_DEV ?=
+#
+# ROOT, ON macOS, AND THAT IS NOT A STYLE CHOICE. Apple's DriverKit extension
+# `com.apple.DriverKit-AppleUSBFTDI` claims the FT232H's interface 0 at
+# enumeration, and on that part interface 0 is BOTH the serial port and the
+# MPSSE engine iceprog drives. Unprivileged, every libftdi tool reports zero
+# devices while `ioreg` shows the board plainly -- iceprog, openFPGALoader, and
+# a Homebrew build against a different libusb all fail identically. Root can
+# take it anyway. Measured on macOS 26.3.1 with SIP enabled, where
+# `kmutil unload` of that dext does nothing and a replug re-attaches it.
+#
+# Linux needs no `sudo` here: libftdi detaches the kernel driver itself. So this
+# is `$(ICEPROG_SUDO)` rather than a hardcoded `sudo`, and it is empty off Darwin.
+ICEPROG_DEV  ?=
+ICEPROG_SUDO ?= $(if $(filter Darwin,$(shell uname -s)),sudo,)
 .PHONY: prog
 prog: board.bin
 	@command -v iceprog >/dev/null || { \
@@ -1124,7 +1147,8 @@ prog: board.bin
 	  echo '*** `make setup` caches -- put its bin/ first on PATH.'; \
 	  exit 1; \
 	}
-	iceprog $(if $(ICEPROG_DEV),-d '$(ICEPROG_DEV)') board.bin
+	@echo 'Flashing $(BOARD). On macOS this needs root -- see the comment above.'
+	$(ICEPROG_SUDO) iceprog $(if $(ICEPROG_DEV),-d '$(ICEPROG_DEV)') board.bin
 
 # ---- the dual configuration, placed ----------------------------------------
 #
