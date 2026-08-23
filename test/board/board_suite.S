@@ -137,15 +137,42 @@ board_next:
  * within that pass remains and is documented at the top; cross-PASS
  * contamination is now impossible. */
 all_done:
-  li    a0, 46                     /* '.', end of the one and only pass */
-  jal   ra, put_char
+  /* REPLAY THE REPORT, DO NOT RE-RUN THE PROGRAMS. Both halves are needed and
+   * an earlier version had one at a time.
+   *
+   * Re-running contaminates: CSRs and text carry between passes and cannot be
+   * restored, so selfmod.S and three others failed on the second pass. But
+   * printing once does not work either -- the report lands seconds after the
+   * part configures, and a host that is still finishing `iceprog` sees nothing
+   * but the marker. That is what "no report" for every program looked like.
+   *
+   * So the programs run once and their verdicts, already in `board_console`,
+   * are re-sent from the buffer forever. Every replay is identical because
+   * nothing re-executes; the wire repeats and the machine does not. */
+/* s-registers, because put_wire clobbers t1 and t2 and one of those was this
+ * loop's index. Nothing else is running by now, so the whole file is ours. */
+all_done_loop:
+  la    s0, board_console
+  la    s1, board_console_len
+  lw    s1, 0(s1)
+  li    s2, 0
+6:
+  bgeu  s2, s1, 7f
+  add   a0, s0, s2
+  lbu   a0, 0(a0)
+  jal   ra, put_wire               /* wire only: re-buffering would grow it */
+  addi  s2, s2, 1
+  j     6b
+7:
+  li    a0, 46                     /* '.', end of one replay */
+  jal   ra, put_wire
   li    a0, 10
-  jal   ra, put_char
+  jal   ra, put_wire
   li    t0, 3000000
 5:
   addi  t0, t0, -1
   bnez  t0, 5b
-  j     all_done
+  j     all_done_loop
 
 /* ---- the wire ------------------------------------------------------------ */
 
@@ -154,6 +181,16 @@ all_done:
  * NUL-terminated string out of RAM, so the same report the wire carries can be
  * read from a simulation. Same bytes, one function, so the two cannot differ. */
   .globl board_console
+/* Wire only. The replay above uses this: sending a buffered byte back through
+ * the buffer would append it again and the report would grow without end. */
+put_wire:
+  li    t2, UART_BASE
+1:
+  lw    t1, UART_STATUS_OFFSET(t2)
+  bnez  t1, 1b
+  sw    a0, 0(t2)
+  ret
+
 put_char:
   li    t2, UART_BASE
 1:

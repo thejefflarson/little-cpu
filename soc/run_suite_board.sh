@@ -129,11 +129,12 @@ while read -r progs; do
   nbytes=$(sed -E 's/.*bytes=([0-9]+).*/\1/' < "$OUT/read.err" | tr -d '\n')
   echo "   read:  ${nbytes:-0} bytes in $((SECONDS-t0))s"
 
-  # The batch runs ONCE and then repeats a lone '.' forever, so everything before
-  # the first dot is the run. Taking a later block was the bug that made four
-  # programs look broken: the driver used to re-run the batch, and text and CSRs
-  # do not survive a second pass.
-  block=$(printf '%s' "$raw" | awk '/^\.$/{exit} {print}')
+  # The programs run ONCE; the driver then replays their verdicts from a buffer,
+  # marking each replay with a lone '.'. So every block between two markers is
+  # the same one-pass result, and taking the last COMPLETE one is safe -- which
+  # matters because reading starts after `iceprog` returns, by which time the
+  # first report is already gone.
+  block=$(printf '%s' "$raw" | awk '/^\.$/{n++; next} {a[n]=a[n]$0"\n"} END{print a[n-1]}')
   if [ -z "$block" ]; then
     echo "   (nothing before a '.' marker -- parsing the whole capture)"
     block=$(printf '%s' "$raw")
