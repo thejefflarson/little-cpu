@@ -62,6 +62,35 @@ The model was not contradicted. That is the whole result: not that the numbers
 were impressive, but that hardware was finally in a position to disagree with
 them and did not.
 
+## Dhrystone, timed by the part
+
+The benchmark reads `mcycle` and `minstret` itself, so a board times its own
+interval with no host involved; `test/bench/bench.lds` already describes this
+SoC; and `DHRY_UART` streams the report out rtl/uart.v as well as into the
+buffer the simulated runner copies, so the wire and the buffer cannot disagree
+about what was reported. `make dhrystone-board` is those three facts assembled.
+
+| | simulated | on the part |
+|---|---|---|
+| DMIPS/MHz | 0.664 | **0.662** |
+| CPI | — | 1.85 |
+| cycles per Dhrystone | — | 859 |
+| self-check | — | PASS |
+
+**0.3% apart**, at 20,000 runs — 17,180,026 cycles against 9,240,026
+instructions, counted by the core. At the measured clock that is **7.93 DMIPS**
+absolute. The same flags as `make dhrystone`, deliberately: an earlier board
+build used `-Os -fno-inline` and measured 0.355, which is not a slower machine
+but a different benchmark, and is what `DHRY_BOARD_CFLAGS ?= $(DHRY_CFLAGS)`
+exists to prevent.
+
+**THE REPORT'S OWN FLAGS LINE IS PART OF THE RESULT AND IT LIED ONCE.** A first
+board build printed `-fno-tree-loop-distribute-patterns)` -- `-Wall -Wextra
+-Werror` dropped and a stray bracket gained -- because the Makefile interpolated
+the string loosely. `dhry_port.c` refuses to build without `DHRY_FLAGS` for
+exactly this reason, and a flags line that lies defeats that check rather than
+failing it. Quote it.
+
 ## What this does not claim
 
 **Not that the design meets 12 MHz on silicon.** It ran correctly at whatever
@@ -69,8 +98,9 @@ them and did not.
 12.00 from the crystal has not been tried, and one board is one sample of one
 process corner at one temperature.
 
-**Not that the suite passes on hardware.** `firstlight.S` exercises the divider,
-a device register, the UART and the fetch path. The other 73 programs have run
+**Not that the suite passes on hardware.** `firstlight.S` and Dhrystone between
+them exercise the divider, the multiplier, a device register, the UART, the
+fetch path and 9.2 million retired instructions with a self-check that passes. The other 73 programs have run
 only under cxxrtl and iverilog. There is no HTIF on a board, so a `.S` program's
 verdict has nowhere to go — reading one back is unbuilt work, not a result.
 

@@ -1054,6 +1054,77 @@ ecp5-timing: ecp5-timing-toolchain ecp5.config
 	@echo
 	@echo "Placement, routing and nextpnr's own timing analysis: ecp5.pnr.log"
 
+# ---- Dhrystone, on the part ------------------------------------------------
+#
+# The same benchmark `make dhrystone` runs, built for a board instead of a
+# simulator. Two things make that possible without a runner: the program reads
+# `mcycle` and `minstret` ITSELF, so it times its own interval with no help, and
+# test/bench/bench.lds already describes this SoC exactly -- 8 KB of ROM at zero
+# and 64 KB of RAM at 0x00010000. What it lacks on a part is a way to say the
+# answer, which is what `DHRY_UART` supplies: the report streams out rtl/uart.v
+# as well as into the buffer the simulated runner copies.
+#
+# THE FLAGS STRING IS PART OF THE RESULT, so it is quoted rather than
+# interpolated loosely. A first attempt built one with an unquoted parenthetical
+# and the report printed `-fno-tree-loop-distribute-patterns)` -- dropping
+# -Wall -Wextra -Werror and gaining a stray bracket. dhry_port.c refuses to
+# build without DHRY_FLAGS for exactly this reason, and a flags line that lies
+# defeats the check rather than failing it.
+#
+# NOT COMPARABLE TO `make dhrystone`'S NUMBER WITHOUT SAYING SO. That one runs
+# at whatever the simulator advances; this one runs at whatever the board's
+# oscillator supplies, which on the UPduino is SB_HFOSC and measured just under
+# 12 MHz rather than exactly it. The DMIPS/MHz figure is per-megahertz and so
+# survives that, but any absolute DMIPS does not -- multiply by the clock the
+# board was measured at, never by the nominal one.
+# THE SAME FLAGS AS THE SIMULATED RUN, and that is the whole point of naming
+# DHRY_CFLAGS rather than writing a second list. Dhrystone is notoriously
+# flag-sensitive -- a first attempt here used -Os -fno-inline and measured 0.355
+# DMIPS/MHz against the -O2 build's 0.664, which is not a slower machine, it is
+# a different benchmark. A board figure that cannot be set beside the simulated
+# one measures nothing anybody wants.
+DHRY_BOARD_CFLAGS ?= $(DHRY_CFLAGS)
+
+.PHONY: dhrystone-rom
+dhrystone-rom:
+	@set -e; \
+	for candidate in riscv64-elf-gcc riscv64-unknown-elf-gcc; do \
+	  if command -v $$candidate >/dev/null 2>&1; then CC=$$candidate; break; fi; \
+	done; \
+	if [ -z "$$CC" ]; then echo "error: no RISC-V cross compiler; see \`make setup\`." >&2; exit 1; fi; \
+	OBJCOPY=$${CC%gcc}objcopy; \
+	tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/dhry-rom.XXXXXX"); \
+	test -n "$$tmp" -a -d "$$tmp"; \
+	trap 'rm -rf "$$tmp"' EXIT; \
+	flags='$(DHRY_BOARD_CFLAGS)'; \
+	$$CC $$flags -DDHRY_UART=$(DHRY_UART_BASE) \
+	  "-DDHRY_FLAGS=\"$$flags\"" \
+	  -DDHRY_RUNS=$(DHRY_BOARD_RUNS) \
+	  -nostdlib -I test/bench -T test/bench/bench.lds -o "$$tmp/dhry.elf" \
+	  test/crt0.S test/bench/dhry_1.c test/bench/dhry_2.c test/bench/dhry_port.c; \
+	$$OBJCOPY -O verilog --verilog-data-width=4 -j .text -j .data \
+	  "$$tmp/dhry.elf" "$$tmp/rom.hex"; \
+	python3 soc/rom_banks.py "$$tmp/rom.hex" soc/rom_even.hex soc/rom_odd.hex \
+	  --rom-words $(SOC_ROM_WORDS)
+
+# The UART's base, stated here because the C has no header that reads the RTL.
+# test/memmap_test.sh does not police this one -- it grades the map's own copies
+# -- so if the UART ever moves, this moves with it.
+DHRY_UART_BASE   ?= 0x00020020
+
+# Fewer runs than the simulated default: this one is real time, and at ~12 MHz a
+# run is milliseconds rather than a simulator's minutes. Enough that mcycle's
+# interval is long against the report that follows it.
+DHRY_BOARD_RUNS  ?= 20000
+
+.PHONY: dhrystone-board
+dhrystone-board:
+	@rm -f board.json board.asc board.bin
+	@$(MAKE) --no-print-directory board.bin BOARD_OSC=$(BOARD_OSC) BOARD_ROM=dhrystone-rom
+	@echo
+	@echo 'Dhrystone is in board.bin. Flash it with `make prog`, then read the'
+	@echo 'report off the UART -- it prints itself, cycles and all.'
+
 # ---- a bitstream, and a board to put it on ---------------------------------
 #
 # THE FIRST THING HERE THAT MEETS SILICON. Everything else in this file stops at
@@ -1080,7 +1151,12 @@ BOARD_PCF  := soc/upduino.pcf
 BOARD_OSC ?= crystal
 BOARD_OSC_PARAM := $(if $(filter internal,$(BOARD_OSC)),1,0)
 
-board.json: $(BOARD_SRCS) soc-rom
+# Which target fills soc/rom_*.hex. `soc-rom` builds one SOC_PROG; the Dhrystone
+# board build sets this to its own, because that program is three .c files and a
+# different linker script and does not go through soc-rom's single-file arms.
+BOARD_ROM ?= soc-rom
+
+board.json: $(BOARD_SRCS) $(BOARD_ROM)
 	@echo 'yosys: synthesising $(BOARD_TOP) for ice40 (log: board.synth.log)'
 	@yosys -p 'read_verilog -sv $(BOARD_SRCS); \
 	   chparam -set INTERNAL_OSC $(BOARD_OSC_PARAM) $(BOARD_TOP); \

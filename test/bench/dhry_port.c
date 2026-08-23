@@ -90,9 +90,42 @@ Rec_Pointer dhry_alloc_record(void) {
   return &record_pool[records_taken++];
 }
 
+/* THE SAME BYTES, ALSO DOWN THE WIRE, when this is built for a board.
+ *
+ * The report is written into `dhry_console` for the runner's `--console` to copy
+ * out, and on a part there is no runner and nothing copies it. So every byte the
+ * report produces is ALSO pushed through rtl/uart.v when DHRY_UART names its
+ * base -- the buffer is left exactly as it was, so the simulated path is
+ * unchanged and the two cannot disagree about what was reported.
+ *
+ * It goes through the same one function every byte already went through, rather
+ * than being flushed at the end: the buffer is 2048 bytes and truncates, and a
+ * report that overran it would go out the wire complete while the copy in RAM
+ * was short. Streaming makes the wire the longer of the two, never the shorter.
+ *
+ * COSTS CYCLES, AND NOT THE MEASURED ONES. Every character busy-waits on a
+ * 10-bit frame -- about a thousand cycles each at 115200 and 12 MHz. The report
+ * is printed after `dhry_mcycle` has been read for the last time, so none of it
+ * lands inside the interval the DMIPS figure is computed from. Print anything
+ * from inside the loop and that stops being true. */
+#ifdef DHRY_UART
+static void uart_putc(char c) {
+  volatile unsigned *uart = (volatile unsigned *)(unsigned long)DHRY_UART;
+  while ((uart[1] & 1u) != 0u) {
+  }
+  uart[0] = (unsigned char)c;
+}
+#else
+static void uart_putc(char c) { (void)c; }
+#endif
+
 static void put_str(const char *s) {
-  while (*s != '\0' && console_len + 1 < sizeof(dhry_console)) {
-    dhry_console[console_len++] = *s++;
+  while (*s != '\0') {
+    uart_putc(*s);
+    if (console_len + 1 < sizeof(dhry_console)) {
+      dhry_console[console_len++] = *s;
+    }
+    s++;
   }
 }
 
@@ -103,8 +136,11 @@ static void put_u32(unsigned value) {
     digits[n++] = (char)('0' + value % 10u);
     value /= 10u;
   } while (value != 0u);
-  while (n-- > 0 && console_len + 1 < sizeof(dhry_console)) {
-    dhry_console[console_len++] = digits[n];
+  while (n-- > 0) {
+    uart_putc(digits[n]);
+    if (console_len + 1 < sizeof(dhry_console)) {
+      dhry_console[console_len++] = digits[n];
+    }
   }
 }
 
@@ -203,6 +239,28 @@ void dhry_report(int runs, unsigned cycles, unsigned instructions, int ok) {
 
   tohost[1] = 0;
   tohost[0] = ok ? 1u : 3u;
+
+  /* ON A BOARD, SAY IT AGAIN UNTIL SOMEONE IS LISTENING. The report is printed
+   * once, a couple of seconds after the part configures itself out of flash, and
+   * whoever is reading the wire is generally not attached yet -- the first
+   * attempt here caught one stray byte in twenty seconds for exactly that
+   * reason. There is no handshake to wait for on a transmit-only UART and no
+   * host to ask, so the only thing that makes the report catchable is repeating
+   * it.
+   *
+   * AFTER `tohost`, deliberately: the verdict is written before this loop, so a
+   * simulated run still stops at the same store and its output is unchanged.
+   * Only a build with DHRY_UART set ever reaches the repeat. */
+#ifdef DHRY_UART
+  for (;;) {
+    for (volatile unsigned d = 0; d < 2000000u; d++) {
+    }
+    for (unsigned i = 0; i < console_len; i++) {
+      uart_putc(dhry_console[i]);
+    }
+  }
+#else
   for (;;) {
   }
+#endif
 }
