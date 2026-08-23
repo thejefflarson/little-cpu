@@ -78,7 +78,7 @@ are kept in parentheses so those references still resolve.
   edge bubbles one cycle and reads a flip-flop. **The trap is still committed in decode**, so the
   commitment holds rather than bending: the instruction is held there, nothing issued, and a
   deferred *answer* is not a deferred *trap*. Sixteen paired placements put the period at
-  **−0.74% of median, 7 of 16 seeds slower, sign test p = 0.80 and 0 of 16 under 12.00 MHz**. The
+  **−1.23% of median, 5 of 16 seeds slower, sign test p = 0.21 and 0 of 16 under 12.00 MHz**. The
   price is **+13.79% of Dhrystone's cycles**, 9.10 → 7.97 DMIPS.
 - **Every inter-stage struct carries a `valid` bit** (3). A bubble is `valid = 0`; retire is
   `valid` reaching writeback, which gates `wen` and drives `rvfi_valid`.

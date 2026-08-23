@@ -50,20 +50,27 @@ subtracted is the whole region cone including the wait, and not only the fault.
 
 | | worst | median | best | under 12.00 MHz |
 |---|---|---|---|---|
-| control | 12.05 | 12.680 | 13.20 | 0 of 16 |
-| with the fault | **12.04** | **12.755** | 13.10 | **0 of 16** |
+| control | 12.03 | 12.625 | 13.14 | 0 of 16 |
+| with the fault | **12.23** | **12.660** | 13.03 | **0 of 16** |
 
-**Median of the per-seed period deltas: −0.74%. Seven of sixteen seeds slower; two-sided sign test
-p = 0.80.** There is no effect to find. The two worst placements are 12.04 against 12.05, a
-hundredth of a megahertz apart, so the thin worst seed is what this tree does with or without the
-feature and not margin the feature spent.
+**Median of the per-seed period deltas: −1.23%. Five of sixteen seeds slower; two-sided sign test
+p = 0.21.** There is no effect to find. The feature tree's WORST placement is better than the
+control's, 12.23 against 12.03, which is the clearest way to say that the thin end of this
+distribution is what the tree does and not margin the feature spent.
+
+**This table was re-taken, and the first one is why the rule exists.** An earlier sweep of the same
+design read 12.04 worst and −0.74% median, and it was measured before the deadlock fix and the
+answer-hold correction below landed. `make netlist-diff` against that commit reports the netlist
+moved — one flop from `SB_DFFSR` to `SB_DFFESR` and nine named nets — so the numbers described a
+design that no longer existed. They are not quoted here. A sweep is owed whenever the digest moves,
+however small the move looks.
 
 Read that beside the spelling it replaces, on the same instrument:
 
 | | median Δ period | seeds slower | p | under 12.00 |
 |---|---|---|---|---|
 | same-cycle, bit 12 (ADR-0128) | +9.40% | 16 of 16 | 3.05e-05 | 9 of 16 |
-| deferred (this) | **−0.74%** | 7 of 16 | 0.80 | **0 of 16** |
+| deferred (this) | **−1.23%** | 5 of 16 | 0.21 | **0 of 16** |
 
 ## The price is cycles, and the prediction held
 
