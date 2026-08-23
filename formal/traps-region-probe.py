@@ -16,12 +16,18 @@ and each faults an aligned `lw` whose address has bit 31 set -- an address
 outside all four windows of any map this platform can be given -- and each must
 turn `make -C formal components_traps` red at a named assertion:
 
-  no-trap      computes the region fault and never commits it, so the trap the
-               model requires does not happen. The proof must go FAIL at the
-               `assert(trap_entry)` under `expected_trap`. This is the arm that
-               moved from may-trap to must-trap when the core started raising
-               these two causes, and it is the one a model that only required the
-               cause would have been satisfied by.
+  no-trap      still waits for the region answer and then never faults on it, so
+               the trap the model requires does not happen. The proof must go
+               FAIL at the `assert(trap_entry)` under `expected_trap`. This is
+               the arm that moved from may-trap to must-trap when the core
+               started raising these two causes, and it is the one a model that
+               only required the cause would have been satisfied by.
+
+               IT DROPS THE FAULT RATHER THAN THE COMMIT, and the difference is
+               new: the composed task reads the decoder with `-formal` now, so a
+               core that computes a cause and does not commit it breaks the
+               decoder's own `!trap_taken => trap_cause == 0` at step 3 -- in
+               decoder.v, which is not this arm and not even this file.
   wrong-cause  swaps the two causes -- cause 7 for a load and 5 for a store --
                and the proof must go FAIL at the mcause comparison. A core that
                faults the right access with the wrong cause is what that arm
@@ -49,31 +55,8 @@ import shutil
 import subprocess
 import sys
 
-# The design under proof, exactly formal/components.sby's `traps` task. Read
-# WITHOUT -formal, because -formal would compile rtl/decoder.v's own
-# assume(in.pc == pc) into the instance and the fetcher below is what answers
-# that here.
-SBY = """[options]
-mode prove
-
-[engines]
-smtbmc
-
-[script]
-read -sv structs.v fetcher.v decoder.v regsel.v csrs.v
-read -sv -formal structs.v traps.sv
-prep -top traps
-
-[files]
-src/structs.v
-src/fetcher.v
-src/decoder.v
-src/regsel.v
-src/csrs.v
-src/traps.sv
-"""
-
-SOURCES = ("structs.v", "fetcher.v", "decoder.v", "regsel.v", "csrs.v")
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from traps_probe_sby import SOURCES, probe_sby  # noqa: E402
 
 # The two comparisons being probed, found in traps.sv by their text. Each is the
 # only statement in that file that says what it says.
@@ -88,9 +71,10 @@ ASSERTS = {
 # mutation that deletes nothing builds the shipping core twice.
 MUTATIONS = {
     "no-trap": (
-        """  assign data_fault = load_misaligned || store_misaligned || atomic_fault || ls_fault;
+        """  assign ls_fault = ls_access && ls_answer_valid && !ls_answer &&
+                    !load_misaligned && !store_misaligned;
 """,
-        """  assign data_fault = load_misaligned || store_misaligned || atomic_fault;
+        """  assign ls_fault = 1'b0;
 """,
     ),
     "wrong-cause": (
@@ -157,7 +141,7 @@ def run_case(repo, workdir, sby, case):
     shutil.copy(repo / "formal" / "traps.sv", root / "src" / "traps.sv")
     decoder = (repo / "rtl" / "decoder.v").read_text()
     (root / "src" / "decoder.v").write_text(mutate(decoder, case))
-    (root / "probe.sby").write_text(SBY)
+    (root / "probe.sby").write_text(probe_sby(repo, stop))
 
     # sby's own exit status is not read: FAIL is the required outcome of one of
     # the two cases, and a non-zero status there says nothing this file does not
