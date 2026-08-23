@@ -1,8 +1,20 @@
 # 0130 — First light, and what the board said back
 
-Status: accepted · the first measurement in this repo that no tool produced
+Status: accepted · 2026-08-23 · first silicon, twelve years in · the first
+measurement in this repo that no tool produced
 
 ## Context
+
+**Twelve years, and until tonight none of it had ever been a physical object.**
+
+That is the fact this record exists to hold, because nothing else in the tree
+carries it. `git log` has the code's history and `docs/adr/` has the decisions,
+but neither says what the measurement below cost or why it took this long to be
+possible. A core that blinks an LED on an FPGA is a weekend. Arriving at silicon
+with a formal proof stack, a mutation-checked suite, a simulator whose CPI
+figures have priced every declined optimisation along the way, and 129 decisions
+written down -- that is the part that takes twelve years, and it is invisible
+right up until the moment it either holds or does not.
 
 Every number here has been a model. `make fit` counts cells yosys reports,
 `make soc-timing` reads icetime's opinion of a placement nextpnr wrote, the
