@@ -42,6 +42,14 @@ FTREAD=${FTREAD:-$ROOT/ftread}
 OUT=$(mktemp -d "${TMPDIR:-/tmp}/suiteboard.XXXXXX")
 trap 'rm -rf "$OUT"' EXIT
 
+# RESULTS ARE WRITTEN AS THEY ARRIVE, to a path that outlives this script. A
+# ten-minute run that records nothing until its last line loses everything to
+# any interruption -- which is exactly what happened the first time the whole
+# suite ran, when the file was edited underneath a running bash and the
+# interpreter resumed at a shifted offset. Sixty-seven verdicts went with it.
+RESULTS=${RESULTS:-/tmp/suite_board_results.txt}
+: > "$RESULTS"
+
 # rvc.S is 12256 bytes and does not fit an 8192-byte ROM even alone. That is a
 # fact about the program and the part, not a thing to work around here.
 SKIP="rvc.S"
@@ -84,7 +92,6 @@ while read -r progs; do
 done < "$OUT/plan"
 
 pass=0; fail=0; missing=0
-: > "$OUT/results"
 i=0
 while read -r progs; do
   i=$((i+1))
@@ -144,12 +151,12 @@ while read -r progs; do
     name=$(basename "$p")
     v=$(printf '%s' "$block" | awk -v k="$j" '$1==k{print $2; exit}')
     if [ -z "$v" ]; then
-      printf '      %-18s NO REPORT\n' "$name"; missing=$((missing+1)); echo "$name MISSING" >> "$OUT/results"
+      printf '      %-18s NO REPORT\n' "$name"; missing=$((missing+1)); echo "$name MISSING" >> "$RESULTS"
     elif [ "$v" = "1" ]; then
-      printf '      %-18s pass\n' "$name"; pass=$((pass+1)); echo "$name PASS" >> "$OUT/results"
+      printf '      %-18s pass\n' "$name"; pass=$((pass+1)); echo "$name PASS" >> "$RESULTS"
     else
       printf '      %-18s FAIL at test %d (verdict %s)\n' "$name" "$(( v >> 1 ))" "$v"
-      fail=$((fail+1)); echo "$name FAIL $(( v >> 1 ))" >> "$OUT/results"
+      fail=$((fail+1)); echo "$name FAIL $(( v >> 1 ))" >> "$RESULTS"
     fi
     j=$((j+1))
   done
@@ -164,5 +171,7 @@ echo
 echo "baseline says these fail under simulation:"
 grep -v '^#' test/EXPECTED_FAIL 2>/dev/null | grep -v '^$' || echo "(none)"
 echo
-sort "$OUT/results" > /tmp/suite_board_results.txt
-echo "per-program results: /tmp/suite_board_results.txt"
+echo "per-program results, written as they arrived: $RESULTS"
+echo
+echo "failures:"
+grep -v ' PASS$' "$RESULTS" | sed 's/^/   /' || echo "   (none)"
