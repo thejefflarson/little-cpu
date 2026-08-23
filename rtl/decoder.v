@@ -1244,6 +1244,32 @@ module decoder #(
   // for, and nothing else below reads `in.pc`.
   always_comb assume(in.pc == pc);
 
+  // Assume a held instruction is still the same instruction. The machine does
+  // it: a stalled cycle holds the pc and `imem_addr` is the pc, so the memory
+  // re-presents the same words; and a stalled cycle issues nothing, so no write
+  // to rs1 can be started on it, while the decode scoreboard holds any
+  // instruction whose rs1 is already in flight until that write has gone
+  // through. This module can see none of that, which is why it is the same
+  // shape of standalone environment model as the fetcher assume above --
+  // formal/traps.sv states it over `fetcher_out` and formal/components.sby
+  // drops both copies there with `-noassume`.
+  //
+  // The region answer below is the first state in this core computed from a
+  // decode input on one cycle and read on the next, so it is the first thing
+  // here that needs the fact written down rather than relied on.
+  fetcher_output prev_in;
+  logic [31:0] prev_reg_rs1;
+  logic        prev_issued;
+  always_ff @(posedge clk) begin
+    prev_in      <= in;
+    prev_reg_rs1 <= reg_rs1;
+    prev_issued  <= !stall || reset;
+  end
+  always_comb if (clocked && !prev_issued) begin
+    assume(in == prev_in);
+    assume(reg_rs1 == prev_reg_rs1);
+  end
+
   // Each of these keeps its own copy of last cycle's value instead of using
   // $past(). `in.pc` and `instr` are free inputs here, and $past() through
   // another register would let the solver fill in a value from before reset that
@@ -1428,13 +1454,27 @@ module decoder #(
   // Asserting it here would fail on a trace the machine cannot reach. An
   // earlier spelling of the hold really did carry an answer across an
   // operand-fetch cycle into the next access, and the bench is what caught it.
-  logic prev_answer_valid, prev_issued;
-  always_ff @(posedge clk) begin
-    prev_answer_valid <= ls_answer_valid;
-    prev_issued       <= !stall;
-  end
+  // `prev_issued` is the one the hold assume above keeps, `|| reset` included:
+  // an answer cannot survive a reset cycle either, since reset clears it.
+  logic prev_answer_valid;
+  always_ff @(posedge clk) prev_answer_valid <= ls_answer_valid;
   always_comb if (clocked && prev_answer_valid && prev_issued)
     assert(!ls_answer_valid);
+
+  // A VALID ANSWER IS AN ANSWER ABOUT THE ACCESS THAT IS IN DECODE NOW. The
+  // region flip-flop is the only state here computed from a decode input on one
+  // cycle and read on the next, and `ls_fault` reads it with no term of its own
+  // about the effective address -- so this is the whole of what keeps the two
+  // region causes about the access that raised them.
+  //
+  // It stands on the hold assume above and on nothing else, which is why it is
+  // stated where the two flip-flops are rather than argued in a comment: it is
+  // what formal/traps.sv's induction needs and cannot reach. That harness sees
+  // no decoder internal, and both ways of reaching for one are silent --
+  // `decoder.ls_answer_valid` parses as an implicitly declared undriven wire
+  // and `bind` is ignored -- so an invariant written there is a claim about a
+  // free wire, passing induction and failing the base case.
+  always_comb if (clocked && ls_answer_valid) assert(ls_answer == ls_supported);
 
   // One line per cause, not a copy of the case statement, so reordering its arms
   // trips these instead of changing them to match. The eight synchronous causes

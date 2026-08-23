@@ -79,6 +79,10 @@ module traps #(
   logic [31:0] csr_wdata, csr_rdata;
   logic        csr_implemented;
   logic        trap_entry, mret_entry;
+  // Unread here, and declared anyway: `default_nettype none` makes an
+  // undeclared output connection an error in iverilog, which is the frontend
+  // that replays a counterexample trace from this task.
+  logic        bus_request;
   logic [31:0] trap_cause, trap_epc, trap_tval;
   logic [31:0] mtvec_value, mepc_value;
   logic        interrupt_pending;
