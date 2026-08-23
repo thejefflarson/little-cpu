@@ -1,0 +1,21 @@
+# UPduino v3.x, iCE40UP5K in SG48. Read off the vendor's own RTL/common/upduino.pcf
+# rather than off a pin table: two community tables give the clock as 41 and 44
+# and both are wrong. The vendor's file states pin 20, and says why -- it is
+# IOB_25B_G3, a global clock input.
+#
+# THE CLOCK IS NOT CONNECTED UNTIL R16 IS SHORTED. R16 is silkscreened OSC. With
+# it open this pin floats and the design will not run, however green the build is.
+#
+# V3.0 SILKSCREEN ERRATUM: the GND and 12M labels on the header are swapped. The
+# documentation drawing is right and the board is wrong. This file constrains the
+# FPGA pin, so it is unaffected -- but anything probed by the labels is not.
+set_io -nowarn clk_pin 20
+
+# The RGB LED, on its three dedicated pins, active low the way littlesoc drives
+# them. Blue is left unconstrained: this design has two LEDs to say.
+set_io -nowarn ledr_n 41
+set_io -nowarn ledg_n 39
+
+# The FTDI's receive line, so the UART lands on the USB serial port with no
+# wiring at all. 115200 8N1: screen /dev/tty.usbserial-* 115200
+set_io -nowarn uart_tx 14

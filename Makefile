@@ -768,6 +768,11 @@ SOC_SRCS      := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v \
 # which make cannot see a change to, and a stale ROM would make the measurement
 # describe a program nobody asked for.
 .PHONY: soc-rom
+# `SOC_PROG` names a file in test/asm, or a PATH if it has a slash in it. The
+# second form is for programs that cannot live in test/asm: both sim legs glob
+# that directory and grade every file in it against a 5000-cycle limit, so a
+# bring-up program that blinks forever would be a suite failure rather than a
+# program. test/bench/ is where those go, and this is how they reach a ROM.
 soc-rom:
 	@set -e; \
 	for candidate in riscv64-elf-gcc riscv64-unknown-elf-gcc; do \
@@ -783,13 +788,18 @@ soc-rom:
 	test -n "$$tmp" -a -d "$$tmp"; \
 	trap 'rm -rf "$$tmp"' EXIT; \
 	case '$(SOC_PROG)' in \
+	  */*) prog='$(SOC_PROG)' ;; \
+	  *)   prog='test/asm/$(SOC_PROG)' ;; \
+	esac; \
+	test -f "$$prog" || { echo "error: no such program: $$prog" >&2; exit 1; }; \
+	case '$(SOC_PROG)' in \
 	  *.c) $$CC -march=rv32imac_zicsr_zifencei -mabi=ilp32 -nostdlib \
 	         -Os -std=c11 -ffreestanding -fno-tree-loop-distribute-patterns \
 	         -Wall -Wextra -Werror -I test/asm -T test/asm/boot.lds \
-	         -o "$$tmp/prog.elf" test/crt0.S test/asm/$(SOC_PROG); \
+	         -o "$$tmp/prog.elf" test/crt0.S "$$prog"; \
 	       sections='-j .text -j .data' ;; \
 	  *)   $$CC -march=rv32imac_zicsr_zifencei -mabi=ilp32 -nostdlib -I test/asm \
-	         -T test/asm/sections.lds -o "$$tmp/prog.elf" test/asm/$(SOC_PROG); \
+	         -T test/asm/sections.lds -o "$$tmp/prog.elf" "$$prog"; \
 	       sections='-j .text' ;; \
 	esac; \
 	$$OBJCOPY -O verilog --verilog-data-width=4 $$sections "$$tmp/prog.elf" "$$tmp/rom.hex"; \
@@ -1043,6 +1053,190 @@ ecp5-timing: ecp5-timing-toolchain ecp5.config
 	  --clock $(ECP5_CLOCK) --part $(ECP5_PART) --constraint-mhz $(ECP5_TARGET_MHZ)
 	@echo
 	@echo "Placement, routing and nextpnr's own timing analysis: ecp5.pnr.log"
+
+# ---- Dhrystone, on the part ------------------------------------------------
+#
+# The same benchmark `make dhrystone` runs, built for a board instead of a
+# simulator. Two things make that possible without a runner: the program reads
+# `mcycle` and `minstret` ITSELF, so it times its own interval with no help, and
+# test/bench/bench.lds already describes this SoC exactly -- 8 KB of ROM at zero
+# and 64 KB of RAM at 0x00010000. What it lacks on a part is a way to say the
+# answer, which is what `DHRY_UART` supplies: the report streams out rtl/uart.v
+# as well as into the buffer the simulated runner copies.
+#
+# THE FLAGS STRING IS PART OF THE RESULT, so it is quoted rather than
+# interpolated loosely. A first attempt built one with an unquoted parenthetical
+# and the report printed `-fno-tree-loop-distribute-patterns)` -- dropping
+# -Wall -Wextra -Werror and gaining a stray bracket. dhry_port.c refuses to
+# build without DHRY_FLAGS for exactly this reason, and a flags line that lies
+# defeats the check rather than failing it.
+#
+# NOT COMPARABLE TO `make dhrystone`'S NUMBER WITHOUT SAYING SO. That one runs
+# at whatever the simulator advances; this one runs at whatever the board's
+# oscillator supplies, which on the UPduino is SB_HFOSC and measured just under
+# 12 MHz rather than exactly it. The DMIPS/MHz figure is per-megahertz and so
+# survives that, but any absolute DMIPS does not -- multiply by the clock the
+# board was measured at, never by the nominal one.
+# THE SAME FLAGS AS THE SIMULATED RUN, and that is the whole point of naming
+# DHRY_CFLAGS rather than writing a second list. Dhrystone is notoriously
+# flag-sensitive -- a first attempt here used -Os -fno-inline and measured 0.355
+# DMIPS/MHz against the -O2 build's 0.664, which is not a slower machine, it is
+# a different benchmark. A board figure that cannot be set beside the simulated
+# one measures nothing anybody wants.
+DHRY_BOARD_CFLAGS ?= $(DHRY_CFLAGS)
+
+.PHONY: dhrystone-rom
+dhrystone-rom:
+	@set -e; \
+	for candidate in riscv64-elf-gcc riscv64-unknown-elf-gcc; do \
+	  if command -v $$candidate >/dev/null 2>&1; then CC=$$candidate; break; fi; \
+	done; \
+	if [ -z "$$CC" ]; then echo "error: no RISC-V cross compiler; see \`make setup\`." >&2; exit 1; fi; \
+	OBJCOPY=$${CC%gcc}objcopy; \
+	tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/dhry-rom.XXXXXX"); \
+	test -n "$$tmp" -a -d "$$tmp"; \
+	trap 'rm -rf "$$tmp"' EXIT; \
+	flags='$(DHRY_BOARD_CFLAGS)'; \
+	$$CC $$flags -DDHRY_UART=$(DHRY_UART_BASE) \
+	  "-DDHRY_FLAGS=\"$$flags\"" \
+	  -DDHRY_RUNS=$(DHRY_BOARD_RUNS) \
+	  -nostdlib -I test/bench -T test/bench/bench.lds -o "$$tmp/dhry.elf" \
+	  test/crt0.S test/bench/dhry_1.c test/bench/dhry_2.c test/bench/dhry_port.c; \
+	$$OBJCOPY -O verilog --verilog-data-width=4 -j .text -j .data \
+	  "$$tmp/dhry.elf" "$$tmp/rom.hex"; \
+	python3 soc/rom_banks.py "$$tmp/rom.hex" soc/rom_even.hex soc/rom_odd.hex \
+	  --rom-words $(SOC_ROM_WORDS)
+
+# The UART's base, stated here because the C has no header that reads the RTL.
+# test/memmap_test.sh does not police this one -- it grades the map's own copies
+# -- so if the UART ever moves, this moves with it.
+DHRY_UART_BASE   ?= 0x00020020
+
+# Fewer runs than the simulated default: this one is real time, and at ~12 MHz a
+# run is milliseconds rather than a simulator's minutes. Enough that mcycle's
+# interval is long against the report that follows it.
+DHRY_BOARD_RUNS  ?= 20000
+
+.PHONY: dhrystone-board
+dhrystone-board:
+	@rm -f board.json board.asc board.bin
+	@$(MAKE) --no-print-directory board.bin BOARD_OSC=$(BOARD_OSC) BOARD_ROM=dhrystone-rom
+	@echo
+	@echo 'Dhrystone is in board.bin. Flash it with `make prog`, then read the'
+	@echo 'report off the UART -- it prints itself, cycles and all.'
+
+# ---- a bitstream, and a board to put it on ---------------------------------
+#
+# THE FIRST THING HERE THAT MEETS SILICON. Everything else in this file stops at
+# a measurement: `soc-timing` writes an `.asc` and reads icetime's report of it,
+# and nothing ever packed that into something a part can be configured with. So
+# these two targets are not graded and carry no ratchet -- there is nothing to
+# compare a flashed board against yet, and inventing a number here would be
+# inventing one.
+#
+# A SEPARATE FLOW FROM `soc-timing` ON PURPOSE. That target is the graded one and
+# its numbers are quoted against SOC_MIN_MHZ; it places `littlesoc` with the
+# iCEBreaker's pin assignment. This places a board WRAPPER around the same SoC,
+# so a frequency from here is not comparable with one from there -- different
+# top, different pins, possibly a different clock source. Do not merge the two.
+BOARD ?= upduino
+
+BOARD_SRCS := $(SOC_SRCS) soc/board_upduino.v
+BOARD_TOP  := upduino_top
+BOARD_PCF  := soc/upduino.pcf
+
+# `BOARD_OSC=internal` builds against SB_HFOSC and needs no soldering; the
+# default takes the 12 MHz crystal, which on this board requires R16 (silkscreen
+# OSC) shorted. soc/board_upduino.v carries the reason the UART cares.
+BOARD_OSC ?= crystal
+BOARD_OSC_PARAM := $(if $(filter internal,$(BOARD_OSC)),1,0)
+
+# Which target fills soc/rom_*.hex. `soc-rom` builds one SOC_PROG; the Dhrystone
+# board build sets this to its own, because that program is three .c files and a
+# different linker script and does not go through soc-rom's single-file arms.
+BOARD_ROM ?= soc-rom
+
+# `BOARD_ROM=noop-rom` means the banks are already written and must not be
+# rebuilt. soc/run_suite_board.sh needs it: test/board/build_batch.sh has just
+# written a batch into soc/rom_*.hex, and letting soc-rom run would replace that
+# batch with SOC_PROG before the placement ever saw it.
+.PHONY: noop-rom
+noop-rom:
+	@test -s soc/rom_even.hex -a -s soc/rom_odd.hex || { \
+	  echo '*** BOARD_ROM=noop-rom, but soc/rom_*.hex are missing or empty.'; \
+	  echo '*** Something was meant to write them before this ran.'; \
+	  exit 1; \
+	}
+
+board.json: $(BOARD_SRCS) $(BOARD_ROM)
+	@echo 'yosys: synthesising $(BOARD_TOP) for ice40 (log: board.synth.log)'
+	@yosys -p 'read_verilog -sv $(BOARD_SRCS); \
+	   chparam -set INTERNAL_OSC $(BOARD_OSC_PARAM) $(BOARD_TOP); \
+	   synth_ice40 -device u -dsp -spram -top $(BOARD_TOP) -json $@' \
+	  > board.synth.log 2>&1 || { tail -40 board.synth.log; exit 1; }
+	@python3 soc/cell_census.py board.synth.log SB_SPRAM256KA $(SOC_EXPECT_SPRAM) \
+	  "the board wrapper changed how rtl/memory.v maps -- the SoC underneath it is the same design"
+
+board.asc: board.json $(BOARD_PCF)
+	@echo 'nextpnr: placing $(BOARD_TOP) on up5k/sg48 (log: board.pnr.log)'
+	@nextpnr-ice40 --up5k --package sg48 --pcf $(BOARD_PCF) --json $< \
+	  --asc $@ > board.pnr.log 2>&1 || true
+	@test -s $@ || { \
+	  echo '*** make bitstream: nextpnr wrote no .asc, so there is nothing to'; \
+	  echo '*** pack. That is a failed placement, not a slow design.'; \
+	  tail -30 board.pnr.log; \
+	  rm -f $@; \
+	  exit 1; \
+	}
+
+# icepack turns the placement into the bytes the part is configured with. It is
+# the one step in this repo with no measurement in it at all.
+board.bin: board.asc
+	@icepack $< $@
+	@echo "board.bin: $$(wc -c < $@ | tr -d ' ') bytes for $(BOARD), clock $(BOARD_OSC)"
+
+.PHONY: bitstream
+bitstream: board.bin
+	@echo
+	@echo "== $(BOARD): a bitstream, not a measurement =="
+	@# No `-p`: icetime's pcf parser takes exactly two arguments per line and
+	@# rejects the `-nowarn` this board's file needs, which nextpnr requires so
+	@# that an unused clock pin under BOARD_OSC=internal is not an error. The
+	@# flag only teaches icetime the IO net names, and nothing here reads them.
+	@icetime -d up5k -P sg48 -t board.asc 2>&1 | tail -3
+	@echo
+	@echo 'This says what the TOOLS think the placement does. A board is the only'
+	@echo 'thing that can disagree, and none has run this yet.'
+
+# Not a prerequisite of anything: flashing is an outward-facing act on hardware
+# that is not always plugged in, and a target that quietly programmes a board
+# during an unrelated build is the wrong shape.
+#
+# The UPduino programmes over its on-board FT232H. `ICEPROG_DEV` picks the
+# device when more than one FTDI is attached.
+#
+# ROOT, ON macOS, AND THAT IS NOT A STYLE CHOICE. Apple's DriverKit extension
+# `com.apple.DriverKit-AppleUSBFTDI` claims the FT232H's interface 0 at
+# enumeration, and on that part interface 0 is BOTH the serial port and the
+# MPSSE engine iceprog drives. Unprivileged, every libftdi tool reports zero
+# devices while `ioreg` shows the board plainly -- iceprog, openFPGALoader, and
+# a Homebrew build against a different libusb all fail identically. Root can
+# take it anyway. Measured on macOS 26.3.1 with SIP enabled, where
+# `kmutil unload` of that dext does nothing and a replug re-attaches it.
+#
+# Linux needs no `sudo` here: libftdi detaches the kernel driver itself. So this
+# is `$(ICEPROG_SUDO)` rather than a hardcoded `sudo`, and it is empty off Darwin.
+ICEPROG_DEV  ?=
+ICEPROG_SUDO ?= $(if $(filter Darwin,$(shell uname -s)),sudo,)
+.PHONY: prog
+prog: board.bin
+	@command -v iceprog >/dev/null || { \
+	  echo '*** iceprog is not on PATH. It ships with the OSS CAD Suite that'; \
+	  echo '*** `make setup` caches -- put its bin/ first on PATH.'; \
+	  exit 1; \
+	}
+	@echo 'Flashing $(BOARD). On macOS this needs root -- see the comment above.'
+	$(ICEPROG_SUDO) iceprog $(if $(ICEPROG_DEV),-d '$(ICEPROG_DEV)') board.bin
 
 # ---- the dual configuration, placed ----------------------------------------
 #
@@ -1448,6 +1642,7 @@ compare-timing: compare.$(COMPARE_CORE).asc compare.$(COMPARE_CORE).core.log
 clean:
 	rm -f fit.json fit.log fit.synth.log
 	rm -f soc.json soc.asc soc.synth.log soc.pnr.log soc.timing.rpt
+	rm -f board.json board.asc board.bin board.synth.log board.pnr.log
 	rm -f ecp5.json ecp5.config ecp5.report.json ecp5.synth.log ecp5.pnr.log
 	rm -f dual_ecp5.json dual_ecp5.config dual_ecp5.report.json dual_ecp5.synth.log dual_ecp5.pnr.log
 	rm -f test/dual_rtl.cc dual-sim
