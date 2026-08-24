@@ -49,10 +49,18 @@ done
 # The table the driver indexes. Written here rather than in the driver because
 # only this script knows how many programs went in.
 {
+  # .align 2 IS LOAD-BEARING. These are read with `lw`, and where .rodata lands
+  # depends on how much of it the batch's programs contributed -- so without an
+  # explicit alignment a batch can put board_count on a 2-byte boundary and the
+  # driver takes a load-misaligned trap reading it, before any program has
+  # installed a handler, with mtvec still zero. Seven programs did exactly that
+  # where six were fine, and the batch went silent with no verdict at all.
   echo '  .section .rodata'
+  echo '  .align 2'
   echo '  .globl board_table'
   echo 'board_table:'
   for n in $(seq 0 $((i-1))); do echo "  .word p${n}__start"; done
+  echo '  .align 2'
   echo '  .globl board_count'
   echo 'board_count:'
   echo "  .word $i"

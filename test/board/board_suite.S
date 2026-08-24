@@ -112,6 +112,24 @@ run_next:
   lw    t1, UART_STATUS_OFFSET(t0)
   bnez  t1, 11b
 
+  /* PUT THE INTERRUPT STATE BACK, and the machine timer is why. `mtimecmp`
+   * resets to zero, so `mtip` is asserted out of reset and stays asserted --
+   * the only thing standing between that and a trap is `mie.MTIE`. A program
+   * that enables it and returns leaves the next one one instruction away from
+   * an interrupt it never asked for, and the next one then reports whatever
+   * cause it happened to take.
+   *
+   * test/asm/csrset.S caught this on hardware: its case 8 saw exactly one trap
+   * and case 9 saw the wrong cause for it. Under simulation the same batch is
+   * fine, because nothing there had enabled the timer first.
+   *
+   * mtvec goes back to zero too, which is its reset value: every program in
+   * this suite installs its own handler, and inheriting the previous one means
+   * a trap lands in another program's code. */
+  csrw  mie, zero
+  csrw  mstatus, zero
+  csrw  mtvec, zero
+
   li    TESTNUM, 0
 
   la    t0, board_table
@@ -216,19 +234,18 @@ all_done_loop:
    *
    * Red is untouched and still means `a trap happened since reset`, which
    * during a suite run is uninformative. */
-  la    s3, board_led
+  /* GREEN FOR A CLEAN RUN, RED FOR A FAILING ONE. rtl/littlesoc.v latches bit 0
+   * of the last store's data into the green LED and bit 1 into the red one, so
+   * storing 1 or 2 is the whole protocol and no RTL of ours is involved. The
+   * store below is the last one this loop makes, which is what the LEDs hold. */
   la    s4, board_failed
   lw    s4, 0(s4)
-  lw    s5, 0(s3)
-  bnez  s4, 9f
-  li    s5, 1                      /* clean: hold it on */
-  j     10f
-9:
-  xori  s5, s5, 1                  /* failing: toggle, so it blinks */
+  li    s5, 1                      /* green */
+  beqz  s4, 10f
+  li    s5, 2                      /* red */
 10:
-  sw    s5, 0(s3)
   la    s3, board_scratch
-  sw    s5, 0(s3)                  /* the store the LED actually latches */
+  sw    s5, 0(s3)
 
   li    t0, 3000000
 5:
