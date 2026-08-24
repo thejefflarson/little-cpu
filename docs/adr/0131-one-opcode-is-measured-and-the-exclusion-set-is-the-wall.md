@@ -114,12 +114,13 @@ not a LUT anyone can spend.
 
 The period is flat: a one-mux, no-new-arithmetic opcode moved the median 0.5% and held 12 MHz at
 every placement, which is the null direction ADR-0117's "measure the whole set" rule expects for one
-term. **The area is not flat.** +110 packed cells for the cheapest possible instruction leaves 68 of
-`FIT_MAX_LC`'s remaining headroom on `littlecpu`'s own count, which was 117 before this probe. Read
-linearly against that one data point: Zba's other two shifts (`sh1add`, `sh3add`) at a similar cost
-would clear the ratchet outright before the register-write path or the immediate encoding of anything
-bigger is even touched, and the ten-opcode `Zknh` or the roughly forty of full `Zbb`+`Zbs` are not
-close. **This is one point, not a curve** -- a second probe of a different shape (`sha256sig0`,
+term. **The area is not flat.** The cheapest possible instruction spent 49 of `FIT_MAX_LC`'s roughly
+117 cells of headroom on `littlecpu`'s own count, leaving 68, and the SoC top's cleaner +110 agrees
+on direction if not on magnitude. Read linearly against that one data point: Zba's other two shifts
+(`sh1add`, `sh3add`) at a similar cost would clear the ratchet outright before the register-write
+path or the immediate encoding of anything bigger is even touched, and the ten-opcode `Zknh` or the
+roughly forty of full `Zbb`+`Zbs` are not close. **This is one point, not a curve** -- a second probe
+of a different shape (`sha256sig0`,
 rotations and a 3-input XOR with no adder contact) was in scope to build if `sh2add` came back cheap,
 and its period does read as cheap; it was not built, because the formal-completeness finding above
 declines any next opcode in the same major opcode space regardless of what a second area number would
