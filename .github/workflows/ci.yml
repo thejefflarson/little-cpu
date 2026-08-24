@@ -8,10 +8,30 @@ on:
 permissions:
   contents: read
 
+# The repo is public and `little-cpu-runners` is a self-hosted pool: a job
+# on it that runs a PR head's own `make`/shell recipes gives that PR author
+# code execution inside the cluster once a maintainer has approved one of
+# their runs, and GitHub does not ask again for that author's later PRs. So
+# every job below picks its runner with this expression rather than a bare
+# `runs-on: little-cpu-runners`:
+#
+#   ${{ (github.event_name != 'pull_request' ||
+#        github.event.pull_request.head.repo.full_name == github.repository)
+#       && 'little-cpu-runners' || 'ubuntu-latest' }}
+#
+# A fork PR gets ubuntu-latest under the SAME job name, not a skip: a skipped
+# required check either blocks the PR forever or, depending on how branch
+# protection is set, counts as passing -- and the second is worse than the
+# exposure this guards. On `push`, `github.event.pull_request` does not
+# exist, so the first disjunct is true and the second is never evaluated. On
+# a pull_request from this repository's own branches -- how every PR here has
+# been opened so far -- the head repo equals this one, so the second disjunct
+# is true. Only a pull_request whose head repo is a fork takes ubuntu-latest.
 jobs:
   elaborate:
     name: elaborate
-    runs-on: little-cpu-runners
+    # Fork-PR routing: see the note above `jobs:` for what this picks and why.
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
     timeout-minutes: 8
     steps:
       - name: Record job start
@@ -77,13 +97,24 @@ jobs:
 
   test:
     name: test
-    runs-on: little-cpu-runners
+    # Fork-PR routing: see the note above `jobs:` for what this picks and why.
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
       - name: Record job start
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # A fork PR routes here to ubuntu-latest (see the note above
+      # `jobs:`), whose image has no RISC-V cross compiler baked in --
+      # unlike the self-hosted pool's, where installing one is blocked by
+      # runAsNonRoot. Installing before the assertion below is the bridge
+      # between the two; on the self-hosted pool this step's condition is
+      # false and it does not run.
+      - name: Install the RISC-V cross compiler (fork PR routing only)
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+        run: sudo apt-get update && sudo apt-get install -y gcc-riscv64-unknown-elf clang
 
       # An assertion, not an install: these runners are runAsNonRoot with
       # allowPrivilegeEscalation:false, so `sudo apt-get install` fails with
@@ -131,7 +162,8 @@ jobs:
   # compiler, clang++ and yosys, and nothing that only synthesis or Sail needs.
   mutation-check:
     name: mutation-check
-    runs-on: little-cpu-runners
+    # Fork-PR routing: see the note above `jobs:` for what this picks and why.
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
     # Ten mutations, each rebuilding the cxxrtl runner: about nine minutes of
     # work on an idle machine, on a runner pool the whole workflow shares. At 15
     # the budget was thin enough that a busy pool killed the job mid-run, and a
@@ -144,6 +176,11 @@ jobs:
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Fork-PR routing only -- see the `test` job for why.
+      - name: Install the RISC-V cross compiler (fork PR routing only)
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+        run: sudo apt-get update && sudo apt-get install -y gcc-riscv64-unknown-elf clang
 
       - name: Verify the toolchain is present in the runner image
         uses: ./.github/actions/verify-toolchain
@@ -187,13 +224,19 @@ jobs:
   # suite failure. Nothing on `make test`'s path reaches any of it.
   cosim:
     name: cosim
-    runs-on: little-cpu-runners
+    # Fork-PR routing: see the note above `jobs:` for what this picks and why.
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
     timeout-minutes: 15
     steps:
       - name: Record job start
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Fork-PR routing only -- see the `test` job for why.
+      - name: Install the RISC-V cross compiler (fork PR routing only)
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+        run: sudo apt-get update && sudo apt-get install -y gcc-riscv64-unknown-elf clang
 
       - name: Verify the toolchain is present in the runner image
         uses: ./.github/actions/verify-toolchain
@@ -265,7 +308,8 @@ jobs:
   # is worth only what pcloop's is.
   components:
     name: components
-    runs-on: little-cpu-runners
+    # Fork-PR routing: see the note above `jobs:` for what this picks and why.
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
     # Four proofs in about four minutes, on a runner pool the whole workflow
     # shares. At 5 the budget was under a minute of headroom and the job was
     # killed after the fourth proof reported PASS, which reads as a failed gate
@@ -324,7 +368,8 @@ jobs:
 
   lint:
     name: lint
-    runs-on: little-cpu-runners
+    # Fork-PR routing: see the note above `jobs:` for what this picks and why.
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
     timeout-minutes: 5
     steps:
       - name: Record job start
@@ -358,7 +403,8 @@ jobs:
   # design constraint, not a correctness one.
   fit:
     name: fit
-    runs-on: little-cpu-runners
+    # Fork-PR routing: see the note above `jobs:` for what this picks and why.
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
     timeout-minutes: 8
     steps:
       - name: Record job start
@@ -419,13 +465,19 @@ jobs:
   # icetime has no `.asc` to read otherwise.
   soc-timing:
     name: soc-timing
-    runs-on: little-cpu-runners
+    # Fork-PR routing: see the note above `jobs:` for what this picks and why.
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
       - name: Record job start
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Fork-PR routing only -- see the `test` job for why.
+      - name: Install the RISC-V cross compiler (fork PR routing only)
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+        run: sudo apt-get update && sudo apt-get install -y gcc-riscv64-unknown-elf
 
       - name: Verify the toolchain is present in the runner image
         uses: ./.github/actions/verify-toolchain
@@ -488,13 +540,19 @@ jobs:
   # assembles a real ROM image before synthesising.
   ecp5-timing:
     name: ecp5-timing
-    runs-on: little-cpu-runners
+    # Fork-PR routing: see the note above `jobs:` for what this picks and why.
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
       - name: Record job start
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Fork-PR routing only -- see the `test` job for why.
+      - name: Install the RISC-V cross compiler (fork PR routing only)
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+        run: sudo apt-get update && sudo apt-get install -y gcc-riscv64-unknown-elf
 
       - name: Verify the toolchain is present in the runner image
         uses: ./.github/actions/verify-toolchain
@@ -596,7 +654,8 @@ jobs:
   #     -q '.required_status_checks.contexts'
   nonperturbation:
     name: nonperturbation
-    runs-on: little-cpu-runners
+    # Fork-PR routing: see the note above `jobs:` for what this picks and why.
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
     timeout-minutes: 8
     steps:
       - name: Record job start
@@ -638,7 +697,8 @@ jobs:
   # runner gives for free, and nothing but python3 and git.
   monitor-freshness:
     name: monitor-freshness
-    runs-on: little-cpu-runners
+    # Fork-PR routing: see the note above `jobs:` for what this picks and why.
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
     timeout-minutes: 5
     steps:
       - name: Record job start
