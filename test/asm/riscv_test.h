@@ -199,6 +199,32 @@ trap_handler:                                                                \
 1:      lw      t1, UART_STATUS_OFFSET(base);                               \
         bnez    t1, 1b;
 
+// The read-only SPI master, two words: a data register whose write shifts one
+// byte out and eight bits in, and a control register whose bit 0 drives the
+// chip select and whose read gives `busy`. A copy of rtl/spiflash.v's `BASE`
+// for the same reason UART_BASE is one, compared by test/memmap_test.sh.
+//
+// A write to either register while `busy` is set is dropped, so every step
+// polls first. SPI_XFER leaves the byte that came back in t2 and clobbers t1.
+#define SPI_BASE            0x00020028
+#define SPI_CONTROL_OFFSET  4
+
+#define SPI_WAIT_IDLE(base)                                                  \
+1:      lw      t1, SPI_CONTROL_OFFSET(base);                               \
+        bnez    t1, 1b;
+
+#define SPI_SELECT(base, level)                                              \
+        SPI_WAIT_IDLE(base);                                                 \
+        li      t1, level;                                                   \
+        sw      t1, SPI_CONTROL_OFFSET(base);
+
+#define SPI_XFER(base, byte)                                                 \
+        SPI_WAIT_IDLE(base);                                                 \
+        li      t1, byte;                                                    \
+        sw      t1, 0(base);                                                 \
+        SPI_WAIT_IDLE(base);                                                 \
+        lw      t2, 0(base);
+
 // Constraint 1 does NOT apply to the handler below and its opposite does: an
 // interrupt is taken BETWEEN instructions, so `mepc` holds an instruction that
 // has not run and the handler must resume AT it, not past it. Advancing mepc

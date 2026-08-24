@@ -23,7 +23,8 @@ module littlecpu #(
   parameter logic [31:0] LS_RAM_BASE   = 32'h0001_0000,
   parameter integer      LS_RAM_WORDS  = 16384,
   parameter logic [31:0] LS_TIMER_BASE = 32'h0002_0000,
-  parameter logic [31:0] LS_UART_BASE  = 32'h0002_0020
+  parameter logic [31:0] LS_UART_BASE  = 32'h0002_0020,
+  parameter logic [31:0] LS_FLASH_BASE = 32'h0002_0028
 ) (
   input  logic clk,
   input  logic reset,
@@ -170,6 +171,9 @@ module littlecpu #(
   if (|LS_UART_BASE[2:0]) begin : l_ls_uart_base_aligned
     $fatal(1, "littlecpu: LS_UART_BASE must be 8-byte aligned");
   end
+  if (|LS_FLASH_BASE[2:0]) begin : l_ls_flash_base_aligned
+    $fatal(1, "littlecpu: LS_FLASH_BASE must be 8-byte aligned");
+  end
 
   // Declared up here rather than next to the module that drives each one. Later
   // stages feed signals back to earlier ones, so each of these is read by a
@@ -246,7 +250,8 @@ module littlecpu #(
     .LS_RAM_BASE(LS_RAM_BASE),
     .LS_RAM_WORDS(LS_RAM_WORDS),
     .LS_TIMER_BASE(LS_TIMER_BASE),
-    .LS_UART_BASE(LS_UART_BASE)
+    .LS_UART_BASE(LS_UART_BASE),
+    .LS_FLASH_BASE(LS_FLASH_BASE)
   ) decoder(
     .clk(clk),
     .reset(reset),
@@ -438,13 +443,14 @@ module littlecpu #(
   // operand-fetch cycle would have to spend a cycle redoing.
   localparam int LS_BLOCK_BITS = 11;              // 2 KB: a 12-bit offset's reach
   localparam int LS_BLOCK_NUM_BITS = 32 - LS_BLOCK_BITS;
-  // rtl/timer.v's four words and rtl/uart.v's two, the regions smaller than a
-  // block. Both sit inside the same block today, so yosys folds the UART's four
-  // comparisons into the timer's; they are written out because what makes them
-  // equal is where the UART happens to be, and a region that moved would need
-  // them.
+  // rtl/timer.v's four words, rtl/uart.v's two and rtl/spiflash.v's two, the
+  // regions smaller than a block. All three sit inside the same block today, so
+  // yosys folds two sets of four comparisons into the timer's; they are written
+  // out because what makes them equal is where those two happen to be, and a
+  // region that moved would need them.
   localparam logic [31:0] LS_TIMER_BYTES = 32'd16;
   localparam logic [31:0] LS_UART_BYTES  = 32'd8;
+  localparam logic [31:0] LS_FLASH_BYTES = 32'd8;
 
   localparam logic [LS_BLOCK_NUM_BITS-1:0] LS_TEXT_LO = '0;
   localparam logic [LS_BLOCK_NUM_BITS-1:0] LS_TEXT_HI =
@@ -458,12 +464,15 @@ module littlecpu #(
   localparam logic [LS_BLOCK_NUM_BITS-1:0] LS_UART_LO = LS_UART_BASE >> LS_BLOCK_BITS;
   localparam logic [LS_BLOCK_NUM_BITS-1:0] LS_UART_HI =
     (LS_UART_BASE + LS_UART_BYTES - 1) >> LS_BLOCK_BITS;
+  localparam logic [LS_BLOCK_NUM_BITS-1:0] LS_FLASH_LO = LS_FLASH_BASE >> LS_BLOCK_BITS;
+  localparam logic [LS_BLOCK_NUM_BITS-1:0] LS_FLASH_HI =
+    (LS_FLASH_BASE + LS_FLASH_BYTES - 1) >> LS_BLOCK_BITS;
 
   logic [LS_BLOCK_NUM_BITS-1:0] ls_block;
   assign ls_block = reg_rs1[31:LS_BLOCK_BITS];
 
   // Four blocks per region: its first and its last, and the block outside each
-  // of those. Written out rather than folded into a function the four regions
+  // of those. Written out rather than folded into a function the five regions
   // share, because iverilog builds a continuous assign's sensitivity list from
   // the call's arguments. `1'b1` and not `1`: an integer literal would widen the
   // whole comparison to 32 bits, and the block below zero has to come out as the
@@ -477,7 +486,9 @@ module littlecpu #(
     ls_block == LS_TIMER_LO - 1'b1 || ls_block == LS_TIMER_LO ||
     ls_block == LS_TIMER_HI        || ls_block == LS_TIMER_HI + 1'b1 ||
     ls_block == LS_UART_LO - 1'b1  || ls_block == LS_UART_LO  ||
-    ls_block == LS_UART_HI         || ls_block == LS_UART_HI + 1'b1;
+    ls_block == LS_UART_HI         || ls_block == LS_UART_HI + 1'b1 ||
+    ls_block == LS_FLASH_LO - 1'b1 || ls_block == LS_FLASH_LO ||
+    ls_block == LS_FLASH_HI        || ls_block == LS_FLASH_HI + 1'b1;
 
   // `wen` is already low for a write to x0 and `waddr` is zero when it is low,
   // so a match here is always a real write to a real base register.

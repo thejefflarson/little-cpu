@@ -168,7 +168,7 @@ lb.S                209    209
 lbu.S               209    209
 lh.S                220    220
 lhu.S               228    228
-loadfault.S         409    364
+loadfault.S         465    409
 lrsc.S              315    283
 lrsclock.S          156    141   # a retry loop under a live timer, like mtimer.S: how far it goes depends on when the interrupt lands, so the region wait moved it too
 lui.S                28     28
@@ -195,6 +195,7 @@ slt.S               423    423
 slti.S              200    200
 sltiu.S             200    200
 sltu.S              423    423
+spiflash.S          214    208
 sra.S               476    476
 srai.S              219    219
 srl.S               469    469

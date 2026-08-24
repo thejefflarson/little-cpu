@@ -18,9 +18,14 @@ rvfi_macros.vh: $(RISCV_FORMAL_DIR)/checks/rvfi_macros.py
 # That job calls `make elaborate-strict` now, so there is one list to update.
 SIM_RTL_SRCS := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v \
                 rtl/fetcher.v rtl/imemory.v rtl/memory.v rtl/regfile.v rtl/regsel.v \
-                rtl/timer.v rtl/uart.v rtl/writeback.v rtl/littlecpu.v
+                rtl/timer.v rtl/uart.v rtl/spiflash.v rtl/writeback.v rtl/littlecpu.v
 
-testbench.vvp: $(SIM_RTL_SRCS) rvfi_macros.vh test/testbench.v test/monitor.sim.v
+# The harness's own modules, for the same reason: test/testbench.v instantiates
+# a model of the board's flash, and a rule that read the harness without it
+# would elaborate a master whose miso nothing drives.
+SIM_TB_SRCS := test/testbench.v test/spiflash_model.v
+
+testbench.vvp: $(SIM_RTL_SRCS) rvfi_macros.vh $(SIM_TB_SRCS) test/monitor.sim.v
 	iverilog -I./rtl/ -DICARUS $(addprefix -D,$(RISCV_FORMAL_MACROS)) -g2012 -o $@ $^
 
 .PHONY: waves
@@ -212,7 +217,7 @@ sail-reservation-probe:
 test/monitor.sim.v: test/monitor.v test/sanitize_monitor.py
 	python3 test/sanitize_monitor.py $< > $@
 
-test/rtl.cc: $(SIM_RTL_SRCS) rvfi_macros.vh test/testbench.v test/monitor.sim.v
+test/rtl.cc: $(SIM_RTL_SRCS) rvfi_macros.vh $(SIM_TB_SRCS) test/monitor.sim.v
 	yosys -p 'read_verilog -sv $(addprefix -D ,$(RISCV_FORMAL_MACROS)) $^; hierarchy -top testbench; write_cxxrtl $@'
 
 # ---- the dual configuration ------------------------------------------------
@@ -255,8 +260,8 @@ ELABORATE_STRICT_OUT ?= /tmp/elaborate-strict.cc
 # quotes stays literal, so yosys reads the backslash as a command and dies with
 # "No such command: \". It works with the make on macOS and fails on the runner.
 .PHONY: elaborate-strict
-elaborate-strict: $(SIM_RTL_SRCS) test/testbench.v
-	yosys -p 'read_verilog -sv $(SIM_RTL_SRCS) test/testbench.v; hierarchy -top testbench; proc; opt_clean; check; write_cxxrtl $(ELABORATE_STRICT_OUT)'
+elaborate-strict: $(SIM_RTL_SRCS) $(SIM_TB_SRCS)
+	yosys -p 'read_verilog -sv $(SIM_RTL_SRCS) $(SIM_TB_SRCS); hierarchy -top testbench; proc; opt_clean; check; write_cxxrtl $(ELABORATE_STRICT_OUT)'
 
 # The `cd` is required: generate.py opens ../insns/isa_<isa>.txt relative to its
 # own CWD.

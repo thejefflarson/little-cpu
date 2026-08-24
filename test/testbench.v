@@ -32,13 +32,19 @@ module testbench(
   logic        bus_request;
   logic [31:0] atomic_addr;
   logic        irq_timer;
-  // All four memories answer zero outside their own range, so the buses join
+  // All five memories answer zero outside their own range, so the buses join
   // with an OR, exactly as rtl/littlesoc.v joins them.
   logic [31:0] imem_mem_rdata, dmem_mem_rdata, timer_mem_rdata, uart_mem_rdata;
-  assign mem_rdata = imem_mem_rdata | dmem_mem_rdata | timer_mem_rdata | uart_mem_rdata;
+  logic [31:0] flash_mem_rdata;
+  assign mem_rdata = imem_mem_rdata | dmem_mem_rdata | timer_mem_rdata | uart_mem_rdata
+                   | flash_mem_rdata;
   // Left unread on purpose: this harness grades programs through `tohost`, and
   // the serial line itself is decoded bit by bit in test/uart_tb.v instead.
   logic        uart_tx;
+  // The flash's four wires, with test/spiflash_model.v on the other end of
+  // them. The board has a real part there; a program cannot tell the difference
+  // through the master, which is the point of putting one here.
+  logic        spi_sck, spi_mosi, spi_miso, spi_cs_n;
   logic        trap;
  `ifdef RISCV_FORMAL
   logic        rvfi_valid;
@@ -118,6 +124,27 @@ module testbench(
     .mem_wstrb(mem_wstrb),
     .mem_rdata(uart_mem_rdata),
     .tx(uart_tx)
+  );
+
+  spiflash flash (
+    .clk(clk),
+    .reset(reset),
+    .mem_addr(mem_addr),
+    .mem_wdata(mem_wdata),
+    .mem_wstrb(mem_wstrb),
+    .mem_rdata(flash_mem_rdata),
+    .sck(spi_sck),
+    .mosi(spi_mosi),
+    .miso(spi_miso),
+    .cs_n(spi_cs_n)
+  );
+
+  spiflash_model flash_part (
+    .clk(clk),
+    .sck(spi_sck),
+    .cs_n(spi_cs_n),
+    .mosi(spi_mosi),
+    .miso(spi_miso)
   );
 
   // The same localparam the `imemory` above is given, so the core's copy of the

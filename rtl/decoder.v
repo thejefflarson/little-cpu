@@ -17,7 +17,8 @@ module decoder #(
   parameter logic [31:0] LS_RAM_BASE   = 32'h0001_0000,
   parameter integer      LS_RAM_WORDS  = 16384,
   parameter logic [31:0] LS_TIMER_BASE = 32'h0002_0000,
-  parameter logic [31:0] LS_UART_BASE  = 32'h0002_0020
+  parameter logic [31:0] LS_UART_BASE  = 32'h0002_0020,
+  parameter logic [31:0] LS_FLASH_BASE = 32'h0002_0028
 ) (
   input  logic clk,
   input  logic reset,
@@ -472,7 +473,7 @@ module decoder #(
   assign instr_ls_store = instr_sb || instr_sh || instr_sw;
 
   // Does some memory answer a plain load or store at `immediate + reg_rs1`?
-  // Four windows, each a power of two on a multiple of its own size, so each is
+  // Five windows, each a power of two on a multiple of its own size, so each is
   // one equality on the address bits above the window. It reads the whole sum,
   // top bit included, which is affordable HERE and nowhere else: the only thing
   // it drives is the flip-flop below, so the effective-address carry chain ends
@@ -490,7 +491,8 @@ module decoder #(
     ((mem_addr_calc & ~(LS_TEXT_BYTES - 32'd1)) == 32'd0) ||
     (((mem_addr_calc ^ LS_RAM_BASE) & ~(LS_RAM_BYTES - 32'd1)) == 32'd0) ||
     (mem_addr_calc[31:5] == LS_TIMER_BASE[31:5]) ||
-    (mem_addr_calc[31:3] == LS_UART_BASE[31:3]);
+    (mem_addr_calc[31:3] == LS_UART_BASE[31:3]) ||
+    (mem_addr_calc[31:3] == LS_FLASH_BASE[31:3]);
 
   // Whether that answer can depend on the immediate at all, asked of `reg_rs1`
   // by itself so it costs no adder. A 12-bit offset reaches 2 KB either way, so
@@ -500,7 +502,8 @@ module decoder #(
   // in it.
   //
   // ONE-SIDED ON PURPOSE: low means "wait for the flip-flop", never "fault". So
-  // a window narrower than three blocks -- the timer's, the UART's -- simply
+  // a window narrower than three blocks -- the timer's, the UART's, the SPI
+  // master's -- simply
   // never reaches the fast path, and `mcause` stays a function of the access
   // rather than of the base register. That is the whole difference between this
   // and the neighbourhood test that meets the clock by calling rs1's own answer

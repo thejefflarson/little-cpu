@@ -107,11 +107,12 @@ RVTEST_CODE_BEGIN
   TEST_CASE( 8, a0, 0, lw a0, UART_STATUS_OFFSET(t0); )
 
   #-------------------------------------------------------------
-  # The word past the region is nobody's, and the core refuses the store rather
-  # than dropping it: cause 7, committed in decode, so nothing reaches the bus
-  # at all. That refusal is what this case reads, and the status register after
-  # it is the same control as above -- a device that answered its neighbourhood
-  # would have been started by a store the bus never carried.
+  # The first word past every device is nobody's -- two words up is the SPI
+  # master's window and four is unclaimed -- and the core refuses the store
+  # rather than dropping it: cause 7, committed in decode, so nothing reaches
+  # the bus at all. That refusal is what this case reads, and the status
+  # register after it is the same control as above -- a device that answered its
+  # neighbourhood would have been started by a store the bus never carried.
   #
   # The handler clobbers t0 and t1, so the base is reloaded behind it.
   #-------------------------------------------------------------
@@ -123,7 +124,7 @@ RVTEST_CODE_BEGIN
   lw    x14, 0(x1)
   .option push
   .option norvc
-  sw    a1, 8(t0)
+  sw    a1, 16(t0)
   .option pop
   li    t0, UART_BASE
   la    x1, trap_cause
