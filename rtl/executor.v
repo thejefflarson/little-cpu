@@ -158,10 +158,6 @@ module executor(
             in.is_srl || in.is_sra: out.rd_data <= shift_res;
             in.is_or: out.rd_data <= rs1 | rs2;
             in.is_and: out.rd_data <= rs1 & rs2;
-            // Zba's sh2add probe: the constant shift is wiring ahead of this
-            // arithmetic add, not a second adder -- one mux picking the shifted
-            // rs1 in front of the same `+` the add arm above uses.
-            in.is_sh2add: out.rd_data <= {rs1[29:0], 2'b00} + rs2;
             in.is_mul || in.is_mulh || in.is_mulhu || in.is_mulhsu: begin
              `ifndef RISCV_FORMAL_ALTOPS
               if (in.is_mul) begin
@@ -286,7 +282,7 @@ module executor(
   // Without it the solver picks combinations no real instruction produces.
   // Discharged by rtl/decoder.v's own `$onehot` assertion under `instr_valid`.
   //
-  // All 38 op-selecting `is_*` fields of `decoder_output` are listed here.
+  // All 37 op-selecting `is_*` fields of `decoder_output` are listed here.
   // `is_valid_instr` and `is_amo` deliberately are not: the first is the arm
   // every instruction with no result falls to, and the second is the OR of nine
   // flags already in this list, so listing it would exclude every AMO from the
@@ -294,7 +290,7 @@ module executor(
   // without adding it here silently widens the environment for everything below.
   // The eleven atomics reach no arm of the op select: an AMO's operands are the
   // memory word and rs2, which this stage never sees.
-  always_comb assume($onehot0({in.is_add, in.is_sub, in.is_xor, in.is_or, in.is_and, in.is_sh2add,
+  always_comb assume($onehot0({in.is_add, in.is_sub, in.is_xor, in.is_or, in.is_and,
     in.is_sll, in.is_slt, in.is_sltu, in.is_srl, in.is_sra,
     in.is_mul, in.is_mulh, in.is_mulhu, in.is_mulhsu,
     in.is_div, in.is_divu, in.is_rem, in.is_remu,

@@ -186,7 +186,7 @@ module decoder #(
 
   // all instructions
   logic instr_auipc, instr_jal, instr_jalr, instr_beq, instr_bne, instr_blt, instr_bltu, instr_bge,
-        instr_bgeu, instr_add, instr_sub, instr_sh2add, instr_mul, instr_mulh, instr_mulhu, instr_mulhsu,
+        instr_bgeu, instr_add, instr_sub, instr_mul, instr_mulh, instr_mulhu, instr_mulhsu,
         instr_div, instr_divu, instr_rem, instr_remu, instr_xor, instr_or, instr_and, instr_sll,
         instr_slt, instr_sltu, instr_srl, instr_sra, instr_lui, instr_lb, instr_lbu, instr_lhu,
         instr_lh, instr_lw, instr_sb, instr_sh, instr_sw, instr_ecall, instr_ebreak, instr_csrrw,
@@ -366,11 +366,6 @@ module decoder #(
   assign instr_and = (instr_math_op && math_low && funct3 == 3'b111) || instr_cand || instr_andi;
   assign instr_cand = quadrant == 2'b01 && cfunct6 == 6'b100011 && cmath_funct2 == 2'b11;
 
-  // Zba's sh2add probe: rd = rs2 + (rs1 << 2), one funct7 of the three the
-  // extension defines and the OP major opcode's fourth funct7 value beside
-  // math_low, math_high and instr_m.
-  assign instr_sh2add = instr_math_op && funct7 == 7'b0010000 && funct3 == 3'b100;
-
   logic instr_m;
   assign instr_m = instr_math_op && funct7 == 7'b0000001;
   assign instr_mul = instr_m && funct3 == 3'b000;
@@ -449,9 +444,9 @@ module decoder #(
   logic instr_valid;
 
   assign instr_valid = instr_auipc || instr_jal || instr_jalr || instr_beq || instr_bne || instr_blt
-    || instr_bltu || instr_bge || instr_bgeu || instr_add || instr_sub || instr_sh2add || instr_xor
-    || instr_or || instr_and || instr_mul || instr_mulh || instr_mulhu || instr_mulhsu || instr_div
-    || instr_divu || instr_rem || instr_remu || instr_sll || instr_slt || instr_sltu || instr_srl || instr_sra ||
+    || instr_bltu || instr_bge || instr_bgeu || instr_add || instr_sub || instr_xor || instr_or ||
+    instr_and || instr_mul || instr_mulh || instr_mulhu || instr_mulhsu || instr_div || instr_divu
+    || instr_rem || instr_remu || instr_sll || instr_slt || instr_sltu || instr_srl || instr_sra ||
     instr_lui || instr_lb || instr_lbu || instr_lh || instr_lhu || instr_lw || instr_sb || instr_sh
     || instr_sw || instr_ecall || instr_ebreak || instr_mret || instr_wfi || instr_fence ||
     instr_fencei || instr_atomic || (instr_csr_access && csr_implemented);
@@ -774,9 +769,9 @@ module decoder #(
 
   // ALU handling
   logic instr_math, instr_shift;
-  assign instr_math = instr_add || instr_sub || instr_sh2add || instr_sll || instr_slt || instr_sltu ||
-    instr_xor || instr_srl || instr_sra || instr_or || instr_and || instr_mul || instr_mulh ||
-    instr_mulhu || instr_mulhsu || instr_div || instr_divu || instr_rem || instr_remu;
+  assign instr_math = instr_add || instr_sub || instr_sll || instr_slt || instr_sltu || instr_xor || instr_srl ||
+    instr_sra || instr_or || instr_and || instr_mul || instr_mulh || instr_mulhu || instr_mulhsu || instr_div ||
+    instr_divu || instr_rem || instr_remu;
   assign instr_shift = instr_slli || instr_srli || instr_srai;
 
   logic [31:0] math_arg;
@@ -1123,7 +1118,6 @@ module decoder #(
       out.is_xor <= instr_xor;
       out.is_or <= instr_or;
       out.is_and <= instr_and;
-      out.is_sh2add <= instr_sh2add;
       out.is_mul <= instr_mul;
       out.is_mulh <= instr_mulh;
       out.is_mulhu <= instr_mulhu;
@@ -1213,7 +1207,6 @@ module decoder #(
       // rtl/writeback.v writing a register.
       if (trap_pending) begin
         out.is_add <= 0; out.is_sub <= 0; out.is_xor <= 0; out.is_or <= 0; out.is_and <= 0;
-        out.is_sh2add <= 0;
         out.is_mul <= 0; out.is_mulh <= 0; out.is_mulhu <= 0; out.is_mulhsu <= 0;
         out.is_div <= 0; out.is_divu <= 0; out.is_rem <= 0; out.is_remu <= 0;
         out.is_sll <= 0; out.is_slt <= 0; out.is_sltu <= 0; out.is_srl <= 0; out.is_sra <= 0;
@@ -1373,8 +1366,8 @@ module decoder #(
   // $onehot() rather than XOR, so a pairwise overlap is detected instead of
   // cancelling out.
   assign one_of = $onehot({instr_auipc, instr_jal, instr_jalr, instr_beq, instr_bne, instr_blt,
-    instr_bltu, instr_bge, instr_bgeu, instr_add, instr_sub, instr_sh2add, instr_xor, instr_or,
-    instr_and, instr_mul, instr_mulh, instr_mulhu, instr_mulhsu, instr_div, instr_divu, instr_rem,
+    instr_bltu, instr_bge, instr_bgeu, instr_add, instr_sub, instr_xor, instr_or, instr_and,
+    instr_mul, instr_mulh, instr_mulhu, instr_mulhsu, instr_div, instr_divu, instr_rem,
     instr_remu, instr_sll, instr_slt, instr_sltu, instr_srl, instr_sra, instr_lui, instr_lb,
     instr_lbu, instr_lh, instr_lhu, instr_lw, instr_sb, instr_sh, instr_sw, instr_ecall,
     // Everything `instr_valid` accepts has to appear here too. Keep the forms

@@ -188,7 +188,6 @@ rvc.S               184    184
 sb.S                394    394
 selfmod.S            47     44
 sh.S                447    447
-sh2add.S             88     74   # riscv-formal has no spec model for Zba, like the eleven A encodings; the gap is the sh2add retires themselves
 simple.S              4      4
 sll.S               456    456
 slli.S              204    204
