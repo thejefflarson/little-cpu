@@ -49,6 +49,10 @@ trap 'rm -rf "$OUT"' EXIT
 # interpreter resumed at a shifted offset. Sixty-seven verdicts went with it.
 RESULTS=${RESULTS:-/tmp/suite_board_results.txt}
 : > "$RESULTS"
+# Every raw capture, kept. Diagnosing a missing verdict without the bytes means
+# re-running the suite, and the suite takes minutes.
+RAWDIR=${RAWDIR:-/tmp/suite_board_raw}
+rm -rf "$RAWDIR"; mkdir -p "$RAWDIR"
 
 # rvc.S is 12256 bytes and does not fit an 8192-byte ROM even alone. That is a
 # fact about the program and the part, not a thing to work around here.
@@ -173,17 +177,22 @@ while read -r progs; do
   [ -n "$flashed" ] || { echo "   FLASH FAILED after 4 attempts"; continue; }
   echo "   flash: VERIFY OK  [$((SECONDS-t0))s]"
 
+  # RETRIED UNTIL THE BLOCK IS WHOLE, and every capture kept. A short read is
+  # indistinguishable from a batch that did not run unless the bytes are on
+  # disk to look at, and re-running the whole suite to see them costs minutes.
+  # The board replays forever, so another read is nearly free.
   t0=$SECONDS
-  raw=$("$FTREAD" 115200 "$READ_MS" 2>"$OUT/read.err")
-  nbytes=$(sed -E 's/.*bytes=([0-9]+).*/\1/' < "$OUT/read.err" | tr -d '\n')
-  echo "   read:  ${nbytes:-0} bytes in $((SECONDS-t0))s"
+  want=$(printf '%s' "$progs" | wc -w | tr -d ' ')
+  for attempt in 1 2 3; do
+    raw=$("$FTREAD" 115200 "$READ_MS" 2>"$OUT/read.err")
+    printf '%s' "$raw" > "$RAWDIR/batch$i.attempt$attempt.txt"
+    nbytes=$(sed -E 's/.*bytes=([0-9]+).*/\1/' < "$OUT/read.err" | tr -d '\n')
+    block=$(printf '%s' "$raw" | awk '/^\.$/{n++; next} {a[n]=a[n]$0"\n"} END{print a[n-1]}')
+    got=$(printf '%s' "$block" | grep -c '^[0-9]' || true)
+    echo "   read:  ${nbytes:-0} bytes, $got of $want verdicts (attempt $attempt) [$((SECONDS-t0))s]"
+    [ "$got" -ge "$want" ] && break
+  done
 
-  # The programs run ONCE; the driver then replays their verdicts from a buffer,
-  # marking each replay with a lone '.'. So every block between two markers is
-  # the same one-pass result, and taking the last COMPLETE one is safe -- which
-  # matters because reading starts after `iceprog` returns, by which time the
-  # first report is already gone.
-  block=$(printf '%s' "$raw" | awk '/^\.$/{n++; next} {a[n]=a[n]$0"\n"} END{print a[n-1]}')
   if [ -z "$block" ]; then
     echo "   (nothing before a '.' marker -- parsing the whole capture)"
     block=$(printf '%s' "$raw")
@@ -222,6 +231,7 @@ echo "baseline says these fail under simulation:"
 grep -v '^#' test/EXPECTED_FAIL 2>/dev/null | grep -v '^$' || echo "(none)"
 echo
 echo "per-program results, written as they arrived: $RESULTS"
+echo "raw UART captures, one file per batch and attempt: $RAWDIR"
 echo
 echo "failures:"
 grep -v ' PASS$' "$RESULTS" | sed 's/^/   /' || echo "   (none)"

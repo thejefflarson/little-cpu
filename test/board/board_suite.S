@@ -112,6 +112,24 @@ run_next:
   lw    t1, UART_STATUS_OFFSET(t0)
   bnez  t1, 11b
 
+  /* PUT THE INTERRUPT STATE BACK, and the machine timer is why. `mtimecmp`
+   * resets to zero, so `mtip` is asserted out of reset and stays asserted --
+   * the only thing standing between that and a trap is `mie.MTIE`. A program
+   * that enables it and returns leaves the next one one instruction away from
+   * an interrupt it never asked for, and the next one then reports whatever
+   * cause it happened to take.
+   *
+   * test/asm/csrset.S caught this on hardware: its case 8 saw exactly one trap
+   * and case 9 saw the wrong cause for it. Under simulation the same batch is
+   * fine, because nothing there had enabled the timer first.
+   *
+   * mtvec goes back to zero too, which is its reset value: every program in
+   * this suite installs its own handler, and inheriting the previous one means
+   * a trap lands in another program's code. */
+  csrw  mie, zero
+  csrw  mstatus, zero
+  csrw  mtvec, zero
+
   li    TESTNUM, 0
 
   la    t0, board_table
