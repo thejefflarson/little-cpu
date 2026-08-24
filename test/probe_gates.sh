@@ -2265,6 +2265,13 @@ d=$(mm_fixture); sed -i.bak "s/LS_FLASH_BASE = 32'h0002_0028/LS_FLASH_BASE = 32'
 probe "the SPI master moving in the proof's copy alone is red" 1 \
   "formal/traps.sv's LS_FLASH_BASE is 196648" "$MM $d"
 
+# MAP_TOP is the address two programs store to expecting a refusal. Left behind
+# when a device lands above the topmost window, it names an address that IS
+# answered and both programs fail for a reason that is not in the core.
+d=$(mm_fixture); sed -i.bak 's/MAP_TOP            0x00020030/MAP_TOP            0x00020028/' "$d/test/asm/riscv_test.h"
+probe "a MAP_TOP inside the topmost window is red" 1 \
+  "MAP_TOP is 0x00020028" "$MM $d"
+
 d=$(mm_fixture); sed -i.bak 's/^SOC_ROM_WORDS := 2048/SOC_ROM_WORDS := 4096/' "$d/Makefile"
 probe "the ROM image built to a different size than the ROM is red" 1 \
   "builds the SoC ROM image for 4096 words" "$MM $d"

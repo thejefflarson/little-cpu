@@ -12,6 +12,17 @@
 // first time one is needed; this one already reads the JEDEC id, the status
 // register and the data array, because it does not know what any of them are.
 //
+// SO "READ-ONLY" IS A DESCRIPTION OF THE FIRMWARE AND NOT A PROPERTY OF THIS
+// MODULE. It shifts out whatever byte it is given, which includes `0x06` and
+// then `0x20` -- write enable and sector erase -- and the sector at the bottom
+// of this part's flash is the bitstream that configured it. Nothing here can
+// tell those bytes from `0x03`. The flash's own write-enable latch is what
+// stands between a stray store and a damaged board: a program has to send two
+// commands in the right order to erase anything, so no single mistaken write
+// does it. If that ever needs to be a hardware guarantee it is a comparison on
+// the FIRST byte of a transaction, which this module does not currently know it
+// is looking at -- it would need the chip select to tell it.
+//
 // Two registers, eight bytes:
 //
 //   BASE+0  data     writing byte lane 0 shifts that byte out and shifts eight
@@ -75,7 +86,7 @@ module spiflash #(
 
   logic [7:0] shift_out, shift_in;
   logic [3:0] bits_left;
-  logic       phase, selected;
+  logic       selected;
 
   logic busy;
   assign busy = |bits_left;
@@ -104,7 +115,6 @@ module spiflash #(
       shift_out <= 8'b0;
       shift_in  <= 8'b0;
       bits_left <= 4'b0;
-      phase     <= 1'b0;
       rd_word   <= 9'b0;
     end else begin
       if (control_write) selected <= mem_wdata[0];
@@ -114,14 +124,15 @@ module spiflash #(
       if (start_xfer) begin
         shift_out <= mem_wdata[7:0];
         bits_left <= 4'd8;
-        phase     <= 1'b0;
         sck       <= 1'b0;
       end else if (busy) begin
-        if (!phase) begin
-          // The rising edge. The bit this master presents has been on the wire
-          // for a whole cycle by now, which is the setup the flash is owed.
-          sck   <= 1'b1;
-          phase <= 1'b1;
+        // `sck` IS the phase: it is low for the cycle that presents a bit and
+        // high for the cycle that takes one, so there is no second state bit
+        // and no pair of arms to keep agreeing.
+        if (!sck) begin
+          // The bit this master presents has been on the wire for a whole cycle
+          // by now, which is the setup the flash is owed. Rise.
+          sck <= 1'b1;
         end else begin
           // The clock is high across this cycle, so the flash's bit is the one
           // it settled on before the rise: sample it here and not on the edge
@@ -131,7 +142,6 @@ module spiflash #(
           sck       <= 1'b0;
           shift_out <= {shift_out[6:0], 1'b0};
           bits_left <= bits_left - 1'b1;
-          phase     <= 1'b0;
         end
       end
 

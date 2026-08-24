@@ -165,12 +165,33 @@ module spiflash_tb;
     end
   endtask
 
+  // The poll firmware writes, and the only place this file spells the busy
+  // bit's position: a bench that read it in five places would be five copies of
+  // a fact rtl/spiflash.v states once.
+  task automatic wait_idle();
+    begin
+      load(SPI_DATA);
+      while (|(mem_rdata & SPI_BUSY)) load(SPI_DATA);
+    end
+  endtask
+
   task automatic xfer(input logic [7:0] send, output logic [7:0] got);
     begin
       store(SPI_DATA, {24'b0, send}, 4'b0001);
-      load(SPI_DATA);
-      while (mem_rdata[8] === 1'b1) load(SPI_DATA);
+      wait_idle();
       got = mem_rdata[7:0];
+    end
+  endtask
+
+  // A whole id read, down to the first byte of the answer. Three call sites
+  // want exactly this and differ only in what the line is doing meanwhile.
+  task automatic read_id_first(output logic [7:0] got);
+    logic [7:0] cmd_ignored;
+    begin
+      select_flash(1'b1);
+      xfer(8'h9f, cmd_ignored);
+      xfer(8'h00, got);
+      select_flash(1'b0);
     end
   endtask
 
@@ -193,7 +214,7 @@ module spiflash_tb;
     end
   endtask
 
-  logic [7:0] b, id0, id1, id2;
+  logic [7:0] id0, id1, id2;
   logic [7:0] data[];
   int         rises_before;
 
@@ -244,7 +265,7 @@ module spiflash_tb;
     store(SPI_DATA, 32'h0000_009f, 4'b0001);
     load(SPI_DATA);
     check_hex("an exchange takes the device busy", mem_rdata & SPI_BUSY, SPI_BUSY);
-    while (mem_rdata[8] === 1'b1) load(SPI_DATA);
+    wait_idle();
     rises_before = sck_rises;
     xfer(8'h00, id0);
     check_int("one exchange is exactly eight clocks", sck_rises - rises_before, 8);
@@ -257,10 +278,7 @@ module spiflash_tb;
 
     // The id survives being asked for twice, which a model carrying state
     // across a chip select would not manage.
-    select_flash(1'b1);
-    xfer(8'h9f, b);
-    xfer(8'h00, id0);
-    select_flash(1'b0);
+    read_id_first(id0);
     check_hex("the id again after a chip select", {24'b0, id0}, 32'h0000_00ef);
 
     //-----------------------------------------------------------------------
@@ -288,8 +306,7 @@ module spiflash_tb;
     rises_before = sck_rises;
     store(SPI_DATA, 32'h0000_009f, 4'b0001);
     store(SPI_DATA, 32'h0000_00ff, 4'b0001);   // arrives while busy
-    load(SPI_DATA);
-    while (mem_rdata[8] === 1'b1) load(SPI_DATA);
+    wait_idle();
     check_int("a write while busy is dropped, not queued", sck_rises - rises_before, 8);
     // The command that landed was the first one, so the id still comes back.
     xfer(8'h00, id0);
@@ -303,8 +320,7 @@ module spiflash_tb;
     store(SPI_DATA, 32'h0000_009f, 4'b0001);
     store(SPI_CONTROL, 32'h0000_0000, 4'b0001);
     check_bit("a control write while busy is dropped", cs_n, 1'b0);
-    load(SPI_DATA);
-    while (mem_rdata[8] === 1'b1) load(SPI_DATA);
+    wait_idle();
     select_flash(1'b0);
 
     //-----------------------------------------------------------------------
@@ -319,19 +335,13 @@ module spiflash_tb;
     // cannot come back -- if it does, this bench is reading the model's
     // parameters rather than the wire.
     force_line = 1'b1; forced_value = 1'b1;
-    select_flash(1'b1);
-    xfer(8'h9f, b);
-    xfer(8'h00, id0);
-    select_flash(1'b0);
+    read_id_first(id0);
     force_red("a line held high cannot produce the id", {24'b0, id0}, 32'h0000_00ef);
     check_hex("...it produces all ones",                {24'b0, id0}, 32'h0000_00ff);
 
     // 3. And held low, which is the other way a wire fails.
     forced_value = 1'b0;
-    select_flash(1'b1);
-    xfer(8'h9f, b);
-    xfer(8'h00, id0);
-    select_flash(1'b0);
+    read_id_first(id0);
     force_red("a line held low cannot produce the id",  {24'b0, id0}, 32'h0000_00ef);
     check_hex("...it produces all zeroes",              {24'b0, id0}, 32'h0000_0000);
     force_line = 1'b0;

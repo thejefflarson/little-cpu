@@ -211,6 +211,15 @@ trap_handler:                                                                \
 #define SPI_CONTROL_OFFSET  4
 #define SPI_BUSY_BIT        0x100
 
+// The first address above every device on this bus, so a program that wants an
+// access no memory answers has one address to name rather than an offset it
+// derives from whichever device happens to be topmost. Two programs probe the
+// region refusal that way and both used to count words up from their own base,
+// which meant the day a device landed above them their assertion silently
+// became one about the new device. test/memmap_test.sh computes this from the
+// topmost window and compares.
+#define MAP_TOP            0x00020030
+
 #define SPI_WAIT_IDLE(base)                                                  \
 1:      lw      t1, 0(base);                                                \
         andi    t1, t1, SPI_BUSY_BIT;                                       \

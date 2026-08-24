@@ -106,11 +106,9 @@ module upduino_top #(
   logic own_flash;
   assign own_flash = !soc_cs_n;
 
-  // ...and the host owns it when the select is low and we are not the ones
-  // holding it there. Only meaningful while `own_flash` is clear, which is the
-  // only place it is read.
-  logic ssn_in, host_flash;
-  assign host_flash = !own_flash && !ssn_in;
+  // Pin 16's level, read back whenever the master is not driving it. That is
+  // where the host's chip select shows up.
+  logic ssn_in;
 
   // PIN_TYPE 6'b1010_01: a simple output behind an output enable, and a simple
   // input. The same eight bits for all four, because all four are the same
@@ -119,7 +117,8 @@ module upduino_top #(
 
   SB_IO #(.PIN_TYPE(SHARED_PIN), .PULLUP(1'b1)) io_miso_txd (
     .PACKAGE_PIN(spi_miso_txd),
-    .OUTPUT_ENABLE(!own_flash && !host_flash),
+    // The UART has pin 14 only while neither owner holds the select low.
+    .OUTPUT_ENABLE(!own_flash && ssn_in),
     .D_OUT_0(uart_tx),
     .D_IN_0(soc_miso)
   );

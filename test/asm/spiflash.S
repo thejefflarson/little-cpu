@@ -104,22 +104,24 @@ RVTEST_CODE_BEGIN
   SPI_SELECT( t0, 0 )
 
   #-------------------------------------------------------------
-  # The word past the region is nobody's, and the core refuses the store rather
-  # than dropping it: cause 7, committed in decode, so nothing reaches the bus.
-  # That is what says the region decode grew to cover THIS window and stopped
-  # there -- a decode that had swallowed the neighbourhood would answer here.
+  # MAP_TOP is the first address above every device on this bus -- which today
+  # is the word past this one -- and the core refuses the store rather than
+  # dropping it: cause 7, committed in decode, so nothing reaches the bus. That
+  # is what says the region decode grew to cover THIS window and stopped there;
+  # a decode that had swallowed the neighbourhood would answer here.
   #
   # The handler clobbers t0 and t1, so the base is reloaded behind it.
   #-------------------------------------------------------------
 
   li    TESTNUM, 12
+  li    t0, MAP_TOP
   la    x1, trap_cause
   sw    x0, 0(x1)
   la    x1, trap_count
   lw    x14, 0(x1)
   .option push
   .option norvc
-  sw    a1, 8(t0)
+  sw    a1, 0(t0)
   .option pop
   li    t0, SPI_BASE
   la    x1, trap_cause

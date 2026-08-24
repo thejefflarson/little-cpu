@@ -148,8 +148,8 @@ pass vacuously, so a deleted memory is red here rather than silent."
     if grep -qE "(^|[^[:alnum:]_])$m[[:space:]]*#\(" "$REPO/$f"; then
       fail "$f overrides \`$m\`'s parameters. The data RAM's base and size, the
 timer's base, the UART's base and baud rate and the SPI master's base are
-rtl/$m.v's defaults precisely
-so that rtl/littlesoc.v and test/testbench.v cannot describe different machines
+rtl/$m.v's defaults precisely so that rtl/littlesoc.v and test/testbench.v
+cannot describe different machines
 -- the harness once modelled a RAM sixteen times smaller than the SoC's and every
 program still fit. If this override is deliberate, it needs a reason recorded in
 an ADR first."
@@ -379,6 +379,19 @@ elif [ $((16#$UART_RAW)) -ne "$UART_BASE" ]; then
 against rtl/uart.v's $(hexfmt "$UART_BASE"). The status register at the wrong
 address reads zero from every memory on the bus, so uart.S would wait for a
 transmission it never started rather than fail."
+fi
+
+MAP_TOP_RAW=$(sed -nE "s/^#define[[:space:]]+MAP_TOP[[:space:]]+0[xX]([0-9a-fA-F]*).*/\1/p" \
+                "$REPO/test/asm/riscv_test.h" | head -1)
+if [ -z "$MAP_TOP_RAW" ]; then
+  fail "test/asm/riscv_test.h defines no MAP_TOP, so the two programs that probe
+the region refusal have no address to probe it at."
+elif [ $((16#$MAP_TOP_RAW)) -ne $((FLASH_BASE + FLASH_BYTES)) ]; then
+  fail "test/asm/riscv_test.h's MAP_TOP is $(hexfmt $((16#$MAP_TOP_RAW)))
+against the $(hexfmt $((FLASH_BASE + FLASH_BYTES))) the topmost window ends at.
+A store there is meant to be refused; at an address a device DOES answer it is
+accepted, and the two programs that read the refusal would fail for a reason
+that is not in the core."
 fi
 
 SPI_RAW=$(sed -nE "s/^#define[[:space:]]+SPI_BASE[[:space:]]+0[xX]([0-9a-fA-F]*).*/\1/p" \

@@ -609,7 +609,7 @@ dual-build:
 test: sim test-units probe-gates pin-bump-test tool-cache-test memmap-test \
       compare-geometry-test retired-term-test port-connect-test march-test \
       band-source-test window-test imem-share-test abc-engine-test mutation-probe \
-      dual-build
+      dual-build board-elaborate
 	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 # The same suite `make test` runs, with the runner charging every cycle to the
@@ -1315,6 +1315,13 @@ noop-rom:
 	  echo '*** Something was meant to write them before this ran.'; \
 	  exit 1; \
 	}
+
+# The board wrapper's only grader that does not need a board. It forces its own
+# red directions, the way `window-test` does and for the same reason -- see
+# soc/board_elaborate.sh, which is where all of it lives.
+.PHONY: board-elaborate
+board-elaborate: $(BOARD_SRCS)
+	@./soc/board_elaborate.sh yosys $(BOARD_TOP) $(BOARD_SRCS)
 
 board.json: $(BOARD_SRCS) $(BOARD_ROM)
 	@echo 'yosys: synthesising $(BOARD_TOP) for ice40 (log: board.synth.log)'

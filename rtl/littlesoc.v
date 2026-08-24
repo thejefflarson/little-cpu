@@ -1,7 +1,7 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
 // The whole chip: core, both memories, the machine timer, a transmit-only UART,
-// a read-only master for the configuration flash, and nine pins.
+// a byte-at-a-time master for the configuration flash, and nine pins.
 // `make soc-timing` measures this. `make fit` measures the core
 // on its own with the memories outside it, so its cell count is a different
 // design's and the two do not compare -- and rtl/uart.v is outside that top
@@ -181,8 +181,11 @@ module littlesoc (
   );
 
   // The SPI master, at rtl/spiflash.v's default base, which is the first word
-  // past the UART's two. Its read-back is eight bits wide, so the OR below
-  // gains a fifth input on bits 0 to 7 and nothing above them.
+  // past the UART's two. Its read-back is nine bits wide, so the OR below gains
+  // a fourth input on bits 1 to 8 -- still one `SB_LUT4` each -- and a FIFTH on
+  // bit 0, which the UART already shares, so that bit alone costs a second LUT.
+  // Nine bits is what "one load answers both questions" costs; moving `busy`
+  // out of bit 8 would save the LUT and put a shift in every poll.
   spiflash flash (
     .clk(clk),
     .reset(reset),
