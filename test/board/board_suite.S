@@ -141,7 +141,7 @@ board_next:
 
   /* Any verdict that is not 1 makes the whole batch failing, for the LED below.
    * Sticky, like the red one, but about the SUITE rather than about traps --
-   * most of these programs trap deliberately, so `trap_seen` is lit within
+   * most of these programs trap deliberately, so `trap_seen` lights within
    * seconds of any batch starting and says nothing about the result. */
   la    t0, board_verdict
   lw    t1, 0(t0)
@@ -214,10 +214,8 @@ all_done_loop:
    *   all passed  ->  solid on
    *   any failed  ->  blinking
    *
-   * Red is untouched and still means `a trap happened since reset`. During a
-   * suite run that is uninformative: trap.S, cebreak.S, ifault.S, amotrap.S,
-   * loadfault.S and others trap on purpose, so it lights early in almost every
-   * batch and stays lit whatever the verdicts were. */
+   * Red is untouched and still means `a trap happened since reset`, which
+   * during a suite run is uninformative. */
   la    s3, board_led
   la    s4, board_failed
   lw    s4, 0(s4)
