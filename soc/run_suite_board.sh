@@ -116,12 +116,33 @@ while read -r progs; do
   # prints its progress as it goes, so hiding it makes a working flash
   # indistinguishable from a hung one -- which is exactly how it looked the first
   # time this ran quietly.
+  # RETRIED, BECAUSE THE UART FIGHTS THE FLASH FOR PIN 14.
+  #
+  # soc/upduino.pcf puts uart_tx on pin 14 and the vendor's own constraint file
+  # calls that pin spi_miso -- the flash's data line into the FPGA. Once a batch
+  # has run, the driver replays its report forever, so the FPGA is driving that
+  # pin while iceprog is trying to read the flash through it. The symptom is
+  # exact: `cdone: high` after reset instead of low, a flash ID that comes back
+  # with a spurious leading 0xFF, and then a write error. The first flash of a
+  # session works because the board is still quiet.
+  #
+  # A retry usually wins -- the contention is a race against the replay's duty
+  # cycle, not a permanent conflict. The real fix is to move the UART off that
+  # pin, which costs the USB serial path and is JEF-866's to decide.
   t0=$SECONDS
-  echo "   flashing (iceprog, ~30s):"
-  if ! iceprog board.bin 2>&1 | tee "$OUT/flash.log" | sed 's/^/      | /'; then
-    echo "   FLASH FAILED"; continue
-  fi
-  grep -q 'VERIFY OK' "$OUT/flash.log" || { echo "   FLASH DID NOT VERIFY"; continue; }
+  flashed=""
+  for attempt in 1 2 3 4; do
+    echo "   flashing (iceprog, attempt $attempt):"
+    if iceprog board.bin 2>&1 | tee "$OUT/flash.log" | sed 's/^/      | /' \
+       && grep -q 'VERIFY OK' "$OUT/flash.log"; then
+      flashed=yes; break
+    fi
+    if grep -q 'unexpected rx byte\|Write error' "$OUT/flash.log"; then
+      echo "   (the running design is driving pin 14, the flash's MISO -- retrying)"
+    fi
+    sleep 2
+  done
+  [ -n "$flashed" ] || { echo "   FLASH FAILED after 4 attempts"; continue; }
   echo "   flash: VERIFY OK  [$((SECONDS-t0))s]"
 
   t0=$SECONDS
