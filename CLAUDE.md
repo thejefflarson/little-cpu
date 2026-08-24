@@ -673,8 +673,8 @@ measurement, which is the rule this very paragraph exists to enforce. **Their
   the worst placement 1.1% the other way** (ADR-0121). An effect on the median smaller than the churn
   band and none at all on the tail, so freeing cells buys headroom on the 5280 and whatever path it
   takes with it — never margin. Where a fact like that is now load-bearing it is an
-  elaboration `$fatal`, not a comment: `rtl/{imemory,memory,timer,uart}.v` refuse to build at a
-  non-power-of-two depth or an unaligned `BASE`, and `make window-test` forces all four red.
+  elaboration `$fatal`, not a comment: `rtl/{imemory,memory,timer,uart,spiflash}.v` refuse to build
+  at a non-power-of-two depth or an unaligned `BASE`, and `make window-test` forces all five red.
   **The rule does not only find small things.** The same question asked of `rtl/executor.v` found
   three that each clear the band alone — a divider carrying 64-bit registers for a 32-bit division,
   a duplicated negator inside a one-hot mux, and the multiplier's 33rd partial-product row in soft
@@ -824,8 +824,8 @@ make mutation-check # delete a term from rtl/ and require exactly the detectors
                     # written for. ~3.5 min, not on `make test`, no ratchet.
                     # `make mutation-probe` forces its own graders red and IS on it
 make window-test    # force the elaboration checks in rtl/{imemory,memory,timer,
-                    # uart}.v and rtl/littlecpu.v's copy of that map red, in both
-                    # frontends. Runs inside `make test`
+                    # uart,spiflash}.v and rtl/littlecpu.v's copy of that map
+                    # red, in both frontends. Runs inside `make test`
 make imem-share-test # map rtl/imemory.v for ice40 and ECP5 at one and at two
                     # fetch windows, and require two windows to be two copies of
                     # ONE storage -- every copy on the same write enable,
@@ -980,9 +980,39 @@ four `SB_SPRAM256KA` at 256 kbit each. **128 KB is the up5k's whole SPRAM, not t
 a program that reads its own `.data`. SPRAM still cannot be initialised, so `.data` rides in the
 ROM at a load address `test/asm/boot.lds` puts there and `test/crt0.S` copies into RAM before
 `main`. That runtime costs 82 bytes and `test/asm/datainit.c`'s whole ROM image is 284 of 8192 — a whole
-Dhrystone is 3568 of it — so SPI-flash boot stays deferred, alongside the radix-4 divider. Two things have come off that list:
+Dhrystone is 3568 of it. The radix-4 divider is still deferred, and so is booting a program out of the
+flash, though the flash itself is reachable now (see below). Two things have come off that list:
 the machine timer is built (ADR-0082), and the forwarding network is priced and declined rather than
 pending (ADR-0083). An interrupt controller, more sources and a vectored `mtvec` are still on it.
+
+**8 KB of text is the ceiling and it is a range test's, not the part's** (ADR-0131). `rtl/imemory.v`
+refuses a `ROM_WORDS` that is not a power of two, because both its range tests are reductions on the
+address bits above the ROM; the next legal size up is 16 KB, which is 32 block RAMs against the 26
+free. So there is no ROM size between the one that ships and one that does not fit, and spending the
+spare block RAMs is not a thing that can be done. **The two free `SB_SPRAM256KA` cannot hold text
+either, and that is arithmetic rather than a timing question**: fetch reads two neighbouring words
+every cycle out of two parity banks, `SB_SPRAM256KA` is 16 bits wide with one address port, so a
+32-bit bank is two of them and a fetch window is four — the whole part, with none left for the 64 KB
+data RAM. ADR-0087's warning about the fetch loop was never reached; the design it would have
+measured cannot be built here. `test/asm/rvc.S` is 12 256 bytes and therefore still cannot run on
+silicon, and `soc/run_suite_board.sh` still batches.
+
+**A read-only master for the configuration flash is the ninth pin, and the flash's own chip select
+is what shares four of them** (ADR-0131). `rtl/spiflash.v` is a byte-at-a-time single-lane mode-0
+shift register — eight bytes at `0x0002_0028`, a data register whose read gives `busy` in bit 8 above
+the byte the last exchange shifted in, and a write-only control register whose bit 0 is the chip
+select. It knows no commands, so a JEDEC id read and an `0x03` sequential read are the same eight
+clocks a byte. **`busy` sits beside the byte rather than in the register software writes, and the
+co-simulation is why**: the model has plain memory here, so a wait that polled back the chip select
+it had just stored spun on Sail and the entry read `INCONCLUSIVE SAIL-LIMIT`, which compares nothing;
+polling a register nothing stores a set bit to makes it `DISAGREE AT 9`, with eight changes compared.
+**The UPduino's pin 14 is `serial_txd` and `spi_miso` at once**, so the FPGA's only route to the USB
+serial port is the flash's data line and neither owner can be moved off it. `soc/board_upduino.v`
+puts all four dedicated pins behind `SB_IO` output enables and lets the chip select arbitrate: the
+master drives them while it holds the flash selected, the UART drives pin 14 while nobody does, and
+pin 16 is read back so a host asserting the select releases it. That is what a flashed design was
+getting wrong — `iceprog` read `FF EF 70 16` and then failed a write while the board replayed its
+report — and `soc/run_suite_board.sh`'s four retries stay until a board has run the fix.
 
 **A transmit-only UART is the fifth pin and the only observable output a flashed bitstream has** —
 eight bytes at `0x0002_0020` — above the timer's reservation rather than abutting the four words it
