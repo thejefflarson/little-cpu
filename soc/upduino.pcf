@@ -16,6 +16,15 @@ set_io -nowarn clk_pin 20
 set_io -nowarn ledr_n 41
 set_io -nowarn ledg_n 39
 
-# The FTDI's receive line, so the UART lands on the USB serial port with no
-# wiring at all. 115200 8N1: screen /dev/tty.usbserial-* 115200
-set_io -nowarn uart_tx 14
+# THE FOUR SHARED PINS. The vendor's own file gives each of these two names:
+# pin 14 is `serial_txd` and `spi_miso`, pin 15 is `serial_rxd` and `spi_sck`,
+# and 16 and 17 are the flash's select and data-in. So the FPGA's only route to
+# the USB serial port runs over the flash's data line, and there is no fifth pin
+# that reaches a host. soc/board_upduino.v is where the two owners are separated,
+# by the flash's own chip select; nothing here can express that.
+#
+# 115200 8N1 when the flash is idle: screen /dev/tty.usbserial-* 115200
+set_io -nowarn spi_miso_txd 14
+set_io -nowarn spi_sck      15
+set_io -nowarn spi_ssn      16
+set_io -nowarn spi_mosi     17

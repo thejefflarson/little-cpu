@@ -22,6 +22,44 @@
 // on the three dedicated pins the RGB driver block also uses. Driving them as
 // ordinary IO is what the vendor's own example does; cut R28 if the current
 // draw is unwanted.
+//
+// ---- FOUR PINS, TWO OWNERS, AND WHY NONE OF THEM MOVED --------------------
+//
+// The vendor's own constraint file gives one pin two names each:
+//
+//     serial_txd 14  = spi_miso 14      serial_rxd 15 = spi_sck 15
+//     spi_ssn    16                     spi_mosi 17
+//
+// So the FPGA's only path to the USB serial port is pin 14, and pin 14 is also
+// the flash's data output. There is no third pin to move the UART to that a
+// host can read -- the other headers go nowhere but a wire -- and there is no
+// way to read the flash without pin 14 either. The two have to share it, and
+// the only question is who drives it when.
+//
+// THE FLASH'S CHIP SELECT IS THE ARBITER, and it is the one signal both owners
+// can see. While the on-chip master holds the flash selected, pin 14 is an
+// input and the flash drives it. While the HOST holds it selected -- `iceprog`
+// drives pin 16 from the FTDI, and the FPGA is still running its old design
+// throughout, because this board's CRESET is not wired to the programmer --
+// pin 14 is released as well, and the flash has the wire to itself. The rest of
+// the time nobody is talking to the flash, so the UART drives pin 14 and the
+// serial port works exactly as it did.
+//
+// That last arm is the bug this arrangement fixes rather than a nicety. With
+// the UART driving pin 14 unconditionally, a board replaying a report fought
+// the flash for the wire while `iceprog` read it: `cdone` high after a reset
+// that should have lowered it, a JEDEC id arriving a byte late as
+// `FF EF 70 16`, and then a write error. soc/run_suite_board.sh retried four
+// times to get around it. Nothing here has to retry.
+//
+// THE PULL-UPS ARE LOAD-BEARING. Three of these four pins are released most of
+// the time, and a released pin is an input with nothing on it: the UART's idle
+// level is high, and a chip select read low by accident selects the flash. Both
+// are the `SB_IO` pull-up below, not the board's -- the vendor's file says to
+// drive pin 16 high unless the flash is in use, which is what a part without a
+// pull-up on it needs.
+`timescale 1 ns / 1 ps
+`default_nettype none
 module upduino_top #(
   // 0 takes the 12 MHz crystal off pin 20 and requires R16 shorted.
   // 1 takes `SB_HFOSC`, the internal oscillator, divided to 12 MHz.
@@ -36,7 +74,12 @@ module upduino_top #(
   input  logic clk_pin,
   output logic ledr_n,
   output logic ledg_n,
-  output logic uart_tx
+  // The four shared pins above. Declared `inout` because three of them really
+  // are bidirectional here and the fourth is read back.
+  inout  wire  spi_miso_txd,
+  inout  wire  spi_sck,
+  inout  wire  spi_ssn,
+  inout  wire  spi_mosi
 );
   logic clk;
 
@@ -56,11 +99,63 @@ module upduino_top #(
     end
   endgenerate
 
+  logic uart_tx;
+  logic soc_sck, soc_mosi, soc_miso, soc_cs_n;
+
+  // The on-chip master owns the flash exactly while it holds the select low.
+  logic own_flash;
+  assign own_flash = !soc_cs_n;
+
+  // ...and the host owns it when the select is low and we are not the ones
+  // holding it there. Only meaningful while `own_flash` is clear, which is the
+  // only place it is read.
+  logic ssn_in, host_flash;
+  assign host_flash = !own_flash && !ssn_in;
+
+  // PIN_TYPE 6'b1010_01: a simple output behind an output enable, and a simple
+  // input. The same eight bits for all four, because all four are the same
+  // shape -- what differs is only what raises the enable.
+  localparam logic [5:0] SHARED_PIN = 6'b1010_01;
+
+  SB_IO #(.PIN_TYPE(SHARED_PIN), .PULLUP(1'b1)) io_miso_txd (
+    .PACKAGE_PIN(spi_miso_txd),
+    .OUTPUT_ENABLE(!own_flash && !host_flash),
+    .D_OUT_0(uart_tx),
+    .D_IN_0(soc_miso)
+  );
+
+  SB_IO #(.PIN_TYPE(SHARED_PIN), .PULLUP(1'b1)) io_sck (
+    .PACKAGE_PIN(spi_sck),
+    .OUTPUT_ENABLE(own_flash),
+    .D_OUT_0(soc_sck),
+    .D_IN_0()
+  );
+
+  // Driven low to select, released to deselect: the pull-up is what deselects
+  // it, and releasing is also what lets the level above be read.
+  SB_IO #(.PIN_TYPE(SHARED_PIN), .PULLUP(1'b1)) io_ssn (
+    .PACKAGE_PIN(spi_ssn),
+    .OUTPUT_ENABLE(own_flash),
+    .D_OUT_0(1'b0),
+    .D_IN_0(ssn_in)
+  );
+
+  SB_IO #(.PIN_TYPE(SHARED_PIN), .PULLUP(1'b1)) io_mosi (
+    .PACKAGE_PIN(spi_mosi),
+    .OUTPUT_ENABLE(own_flash),
+    .D_OUT_0(soc_mosi),
+    .D_IN_0()
+  );
+
   littlesoc soc (
     .clk(clk),
     .btn_n(1'b1),
     .ledr_n(ledr_n),
     .ledg_n(ledg_n),
-    .uart_tx(uart_tx)
+    .uart_tx(uart_tx),
+    .spi_sck(soc_sck),
+    .spi_mosi(soc_mosi),
+    .spi_miso(soc_miso),
+    .spi_cs_n(soc_cs_n)
   );
 endmodule

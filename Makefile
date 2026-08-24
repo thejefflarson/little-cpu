@@ -880,8 +880,8 @@ SOC_EXPECT_EBR   := 20
 
 SOC_SRCS      := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v \
                  rtl/executor.v rtl/fetcher.v rtl/imemory.v rtl/memory.v \
-                 rtl/regfile.v rtl/regsel.v rtl/timer.v rtl/uart.v rtl/writeback.v \
-                 rtl/littlecpu.v rtl/littlesoc.v
+                 rtl/regfile.v rtl/regsel.v rtl/timer.v rtl/uart.v rtl/spiflash.v \
+                 rtl/writeback.v rtl/littlecpu.v rtl/littlesoc.v
 
 # PHONY so `soc.json` resynthesises every run: the image depends on SOC_PROG,
 # which make cannot see a change to, and a stale ROM would make the measurement

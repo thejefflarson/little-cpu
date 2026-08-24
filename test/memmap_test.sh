@@ -52,7 +52,8 @@ need() {
   fi
 }
 
-for f in rtl/memory.v rtl/timer.v rtl/uart.v rtl/imemory.v rtl/littlecpu.v rtl/littlesoc.v \
+for f in rtl/memory.v rtl/timer.v rtl/uart.v rtl/spiflash.v rtl/imemory.v \
+         rtl/littlecpu.v rtl/littlesoc.v \
          test/testbench.v \
          test/cxxrtl.cc test/cosim.cc test/dual_cxxrtl.cc \
          test/asm/riscv_test.h test/asm/sections.lds \
