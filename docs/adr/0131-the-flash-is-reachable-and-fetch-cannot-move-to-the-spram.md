@@ -144,7 +144,18 @@ budget of 4219.
 The mapped netlist moved, so the paired sixteen-seed sweep is owed and was taken —
 `soc/baseline_sweep.sh` on both trees, paired by seed, one toolchain:
 
-<!-- SWEEP TABLE -->
+| | worst | median | best | spread | under 12.00 MHz |
+|---|---|---|---|---|---|
+| control, `9944aad` | 12.45 | 12.77 | 13.14 | 5.5% | 0 of 16 |
+| with the master, `fe2a934` | **12.26** | **12.74** | 13.61 | 11.0% | **0 of 16** |
+
+**Median of the per-seed deltas: −0.25%, with 8 of 16 seeds slower.** Half and half is as null as a
+sign test gets. The worst placement gives up 1.6% of period and the best gains 3.5%, both inside
+this part's churn band, and the requirement holds at every one of the sixteen.
+
+What did move is the spread, 5.5% to 11.0% of the best placement. That is at the top of the range
+`soc/bands.py` records for an unchanged netlist rather than outside it, and the tail — which is what
+`SOC_MIN_MHZ` grades — is 12.26 MHz. Packed cells go 4875 to 4941–4999.
 
 ## Consequences
 
