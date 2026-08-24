@@ -65,7 +65,7 @@ ladder any-case
 
 # The ISA name this core outgrew. It claims RV32IMAC_Zicsr_Zifencei: `misa`
 # reads 0x4000_1105, the eleven A encodings are decoded and executed, and the
-# suite builds at -march=rv32imac_zicsr_zifencei.
+# suite builds at -march=rv32imac_zicsr_zifencei_zkt.
 #
 # CASE-SENSITIVE, AND THE REASON IS THE WHOLE DESIGN OF THIS ENTRY. The prose
 # name of an ISA is written in capitals; the lower-case `rv32imc` is a live and
@@ -171,7 +171,7 @@ explain_term() {  # $1 = term; writes to stderr
     echo "That is the ISA this core used to target. It claims" >&2
     echo "RV32IMAC_Zicsr_Zifencei now: misa reads 0x4000_1105, the eleven A" >&2
     echo "encodings are decoded and executed, and the suite builds at" >&2
-    echo "-march=rv32imac_zicsr_zifencei. Write RV32IMAC, with whichever" >&2
+    echo "-march=rv32imac_zicsr_zifencei_zkt. Write RV32IMAC, with whichever" >&2
     echo "Z-extensions the sentence was already naming." >&2
     echo >&2
     echo "If what you meant is the instruction set riscv-formal GENERATES a spec" >&2

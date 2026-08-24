@@ -245,7 +245,7 @@ implements Zaamo and Zalrsc in full — `amoadd.w`, `amoswap.w`, `amoand.w`, `am
 ignored, cause 4 for a misaligned `lr.w` and cause 6 for the other ten. **`misa` bit 0 is the only
 runtime statement of that**, and it moved with the reference model's `A` key in one change so the
 transition was falsifiable: at `0x4000_1105` against the model's `A: false`, `csr.S` diverged, and
-flipping the key agreed. **The suite builds at `-march=rv32imac_zicsr_zifencei`**, so six
+flipping the key agreed. **The suite builds at `-march=rv32imac_zicsr_zifencei_zkt`**, so six
 programs execute atomics — `amo.S`, `amominmax.S`, `amotrap.S`, `lrsc.S`, `lrsclock.S` and
 `amoregion.S` — and five of the six **agree with the reference model**, which is the semantic oracle
 for the nine functions, LR/SC's five invalidation events, the two misalignment causes and the two
@@ -268,12 +268,33 @@ co-simulation divergence**: the model has only `RsrvEventual` and `RsrvNone`, th
 neither, and `RsrvNone` is what it is now.
 
 **The ISA string has one source and `make test` grades it**: `test/march_test.sh` declares
-`rv32imac_zicsr_zifencei` and checks all seven sites that state it, three of which are silent when
-wrong — the Makefile's `soc-rom` builds a program with no atomic in it, and `DHRY_CFLAGS` is copied
-verbatim into `soc/depth/cycles.py` with nothing else comparing the two. Two spellings that look
-identical must **not** move with it: `formal/checks.cfg`'s `isa rv32imc` and `MONITOR_GEN -i
-rv32imc` name what riscv-formal generates a spec model for, and the pin has none for A, so widening
-either generates nothing.
+`rv32imac_zicsr_zifencei_zkt` and checks all seven sites that state it, three of which are silent
+when wrong — the Makefile's `soc-rom` builds a program with no atomic in it, and `DHRY_CFLAGS` is
+copied verbatim into `soc/depth/cycles.py` with nothing else comparing the two. Two spellings that
+look identical must **not** move with it: `formal/checks.cfg`'s `isa rv32imc` and `MONITOR_GEN -i
+rv32imc` name what riscv-formal generates a spec model for, and the pin has none for A or for Zkt,
+so widening either generates nothing.
+
+**Zkt is claimed too, and it adds no instruction and no `misa` bit** (ADR-0131). It is a promise about
+instructions the design already implements: a listed set — RV32I arithmetic, logical and shift,
+`MUL`/`MULH`/`MULHSU`/`MULHU`, and the arithmetic C encodings — must execute in time independent of
+its operands' VALUES. `DIV`/`REM`, loads, stores, branches and jumps are excluded from the list, and
+that exclusion is what makes the claim true here rather than merely convenient: `rtl/decoder.v`'s
+`stall` is the OR of eight reasons, and `test/zkt_isolation_test.py` proves structurally — a
+fan-in graph over the file's own continuous assigns, in the shape
+`formal/check-nonperturbation.py`'s cone check already uses — that seven of them read only register
+NUMBERS, instruction bits and control state, never a register-file DATA output. The eighth,
+`region_stall`, does read one (`reg_rs1`, on the way to deciding whether a load's or a store's
+address lands near a mapped window's edge), and is gated on `ls_access`, true only for the twelve
+load and store encodings — none of which is on Zkt's list. `rtl/executor.v` is the other half:
+`MUL`/`MULH`/`MULHSU`/`MULHU` resolve in decode's `init` state with no counter, so they are
+constant-time by inspection. `DIV`/`REM` are the one place this design is NOT constant-time — 32
+cycles ordinarily, one cycle when `rs2 == 0` or on `INT_MIN / -1` — which is exactly why the
+list excludes them rather than the claim being false. The load/store address-timing this leaves
+outside the list is backwards from the usual case: most cores' load timing varies with CACHE
+STATE, and this one has none — it varies with ADDRESS ARITHMETIC instead, and the standard
+constant-time model treats addresses as non-secret, so it sits inside the model without needing
+its own exception.
 
 **One interrupt: the machine timer, cause `0x8000_0007`.** `mie.MTIE` is the only writable bit of
 `mie`; `mip.MTIP` is `rtl/timer.v`'s line and read-only; `mip.MSIP`/`mip.MEIP` stay read-only zero,

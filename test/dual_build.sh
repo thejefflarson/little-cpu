@@ -138,7 +138,7 @@ for src in "${programs[@]}"; do
   log="$tmp/$base.build.log"
 
   verdict="BUILT"
-  if ! "$CC" -march=rv32imac_zicsr_zifencei -mabi=ilp32 -nostdlib \
+  if ! "$CC" -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -nostdlib \
        -I "$ASM_DIR" -I "$DUAL_DIR" -T "$ASM_DIR/sections.lds" \
        "$src" -o "$elf" > "$log" 2>&1; then
     verdict="ASSEMBLE-ERROR"

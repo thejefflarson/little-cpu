@@ -1447,6 +1447,63 @@ d=$(bsrc_fixture); rm -f "$d/soc/bands.py"; git -C "$d" add -A
 probe "a tree with no source file at all is red rather than vacuously green" 1 \
   "is not in" "$BSRC $d"
 
+begin_group "test/zkt_isolation_test.py"
+
+# The script takes a path argument directly, so a fixture is just a mutated
+# COPY of the shipping rtl/decoder.v -- no git init needed, unlike the
+# checks above that enumerate tracked files.
+ZKT="python3 $HERE/zkt_isolation_test.py"
+
+zkt_fixture() {
+  local d; d=$(new_case)
+  cp "$REPO/rtl/decoder.v" "$d/decoder.v"
+  printf '%s' "$d"
+}
+
+d=$(zkt_fixture)
+probe "control: the shipping decoder reaches region_stall only, gated" 0 \
+  "reach only region_stall" "$ZKT $d/decoder.v"
+
+# THE FIRST NAMED DIRECTION: the gate comes off, so region_stall could now
+# assert for any instruction rather than only a load or a store.
+d=$(zkt_fixture)
+sed -i.bak \
+  's/assign region_stall = ls_access && !ls_settled && !ls_answer_valid;/assign region_stall = !ls_settled \&\& !ls_answer_valid;/' \
+  "$d/decoder.v"
+probe "deleting the ls_access gate is red, at region_stall's own site" 1 \
+  "region_stall\` no longer conjoins \`ls_access\`" "$ZKT $d/decoder.v"
+
+# THE SECOND NAMED DIRECTION: a register-file DATA bit routed straight into
+# hazard, the way a forwarding path or a data-dependent early-out might be
+# added by someone who never meant to touch Zkt's claim.
+d=$(zkt_fixture)
+sed -i.bak \
+  's/assign hazard = hazard_rs1 || hazard_rs2 || serialize;/assign hazard = hazard_rs1 || hazard_rs2 || serialize || reg_rs1[0];/' \
+  "$d/decoder.v"
+probe "a reg_rs1 bit routed into hazard is red, at hazard's own site" 1 \
+  "\`hazard\` depends on a register-file DATA output" "$ZKT $d/decoder.v"
+
+# The anti-vacuity control: if the RTL stopped carrying reg_rs1 into
+# region_stall at all, every PASS above would be a check of nothing, and this
+# is what says so instead of staying green.
+d=$(zkt_fixture)
+sed -i.bak "s/assign ls_block = reg_rs1\[31:LS_BLOCK_BITS\];/assign ls_block = '0;/" \
+  "$d/decoder.v"
+probe "a graph with no edges out of reg_rs1 is red, not a vacuous pass" 1 \
+  "found no edges at all" "$ZKT $d/decoder.v"
+
+probe "wrong argument count is exit 2" 2 "Usage:" "$ZKT $d/decoder.v extra"
+
+probe "a decoder.v that does not exist is exit 2, not a vacuous pass" 2 \
+  "cannot read" "$ZKT $d/nonexistent.v"
+
+# A stall reason moved out of a continuous assign would silently escape this
+# graph, so that is a hard error rather than a signal read as clean.
+d=$(zkt_fixture)
+sed -i.bak '/assign hazard = hazard_rs1 || hazard_rs2 || serialize;/d' "$d/decoder.v"
+probe "a stall reason with no continuous assign defining it stops the run" 2 \
+  "has no continuous assign defining: hazard" "$ZKT $d/decoder.v"
+
 begin_group "soc/routing_bins.py"
 
 # One placement's worth of fixture: an icetime report whose path leaves a block
@@ -2514,19 +2571,19 @@ probe "a repo root that does not exist is red before anything is scanned" 1 \
 # THE ONE THAT MATTERS: a site left behind. The `.c` arm of the suite runner
 # assembles a program with no atomic in it either way.
 d=$(ma_fixture)
-ma_edit "$d" test/run_tests.sh '158s/rv32imac_zicsr_zifencei/rv32imc_zicsr_zifencei/'
+ma_edit "$d" test/run_tests.sh '158s/rv32imac_zicsr_zifencei_zkt/rv32imc_zicsr_zifencei_zkt/'
 probe "one build site left at the narrower ISA is red, and located" 1 \
-  "test/run_tests.sh:158: -march=rv32imc_zicsr_zifencei" "$MA $d"
+  "test/run_tests.sh:158: -march=rv32imc_zicsr_zifencei_zkt" "$MA $d"
 
 probe "...and the count that site was declared with is red too" 1 \
-  "test/run_tests.sh states -march=rv32imac_zicsr_zifencei 1 time(s), not 2" "$MA $d"
+  "test/run_tests.sh states -march=rv32imac_zicsr_zifencei_zkt 1 time(s), not 2" "$MA $d"
 
 # The silent one. Nothing about this changes whether anything builds.
 d=$(ma_fixture)
 ma_edit "$d" Makefile \
-  's/^DHRY_CFLAGS := -march=rv32imac_zicsr_zifencei/DHRY_CFLAGS := -march=rv32imc_zicsr_zifencei/'
+  's/^DHRY_CFLAGS := -march=rv32imac_zicsr_zifencei_zkt/DHRY_CFLAGS := -march=rv32imc_zicsr_zifencei_zkt/'
 probe "the Dhrystone flags drifting from the suite's ISA is red" 1 \
-  "Makefile states -march=rv32imac_zicsr_zifencei 3 time(s), not 4" "$MA $d"
+  "Makefile states -march=rv32imac_zicsr_zifencei_zkt 3 time(s), not 4" "$MA $d"
 
 probe "...and their second copy is compared whole, not just its ISA" 1 \
   "the Dhrystone flags are stated twice and they disagree" "$MA $d"
@@ -2544,7 +2601,7 @@ probe "two copies of the flags agreeing about -march and nothing else" 1 \
 d=$(ma_fixture)
 ma_edit "$d" test/march_test.sh 's/rv32imac_zicsr_zifencei/rv32imafc_zicsr_zifencei/'
 probe "moving the declared string alone, with every site unchanged, is red" 1 \
-  "CLAUDE.md states -march=rv32imafc_zicsr_zifencei 0 time(s), not 1" \
+  "CLAUDE.md states -march=rv32imafc_zicsr_zifencei_zkt 0 time(s), not 1" \
   "$d/test/march_test.sh $d"
 
 # The two spellings that must not move with it. Widening either generates

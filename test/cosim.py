@@ -297,7 +297,7 @@ def assemble(cc, src, outdir):
     ram = os.path.join(outdir, base + ".ram.hex")
     objcopy = cc[: -len("gcc")] + "objcopy"
     if src.endswith(".c"):
-        build = [cc, "-march=rv32imac_zicsr_zifencei", "-mabi=ilp32", "-nostdlib",
+        build = [cc, "-march=rv32imac_zicsr_zifencei_zkt", "-mabi=ilp32", "-nostdlib",
                  "-Os", "-std=c11", "-ffreestanding",
                  "-fno-tree-loop-distribute-patterns",
                  "-Wall", "-Wextra", "-Werror", "-I", ASM_DIR,
@@ -306,7 +306,7 @@ def assemble(cc, src, outdir):
         rom_args = ["--only-section=.text", "--only-section=.data"]
         ram_args = ["--only-section=.tohost"]
     else:
-        build = [cc, "-march=rv32imac_zicsr_zifencei", "-mabi=ilp32", "-nostdlib",
+        build = [cc, "-march=rv32imac_zicsr_zifencei_zkt", "-mabi=ilp32", "-nostdlib",
                  "-I", ASM_DIR,
                  "-T", os.path.join(ASM_DIR, "sections.lds"), src, "-o", elf]
         rom_args = ["--only-section=.text"]

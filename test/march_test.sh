@@ -50,7 +50,12 @@ fi
 # statement and this check grades only one of them. A `-march` string is what
 # the assembler will accept; misa is what the hardware claims at run time, and
 # it is graded by test/asm/csr.S and test/csr_tb.v instead.
-DECLARED_MARCH='rv32imac_zicsr_zifencei'
+#
+# `zkt` has no misa bit -- the spec defines none for it, the way it defines
+# none for the Zicsr and Zifencei already claimed here -- so this string is
+# the only runtime statement of it. test/zkt_isolation_test.py is what the
+# claim is graded against.
+DECLARED_MARCH='rv32imac_zicsr_zifencei_zkt'
 
 # The sites, with the exact number of times each states it. An exact count
 # rather than "at least one", because two of these files state it twice for two
