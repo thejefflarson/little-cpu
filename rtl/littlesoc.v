@@ -51,7 +51,13 @@ module littlesoc (
     reset    <= !por_done || !btn_sync[1];
   end
 
+  // Published by the core and read by nothing here since the red LED stopped
+  // being a trap latch. Kept connected rather than left dangling so the port
+  // list still says what the core reports, and so a future reader of it does
+  // not have to re-derive the connection.
+  /* verilator lint_off UNUSED */
   logic        trap;
+  /* verilator lint_on UNUSED */
   logic [31:0] mem_addr, mem_wdata, mem_rdata;
   logic [31:0] imem_mem_rdata, dmem_mem_rdata, timer_mem_rdata, uart_mem_rdata;
   logic [3:0]  mem_wstrb;
@@ -166,16 +172,31 @@ module littlesoc (
   // others give zero, so this can never mix two real values together.
   assign mem_rdata = imem_mem_rdata | dmem_mem_rdata | timer_mem_rdata | uart_mem_rdata;
 
-  logic store_bit, trap_seen;
+  // TWO BITS OF THE LAST STORE, one per LED. A program says what it means by
+  // storing it: bit 0 lights green, bit 1 lights red, and a store of 1 or 2 is
+  // the whole protocol. Both are active low, which is what the boards want.
+  //
+  // Red used to be a `trap_seen` latch instead, and that was the wrong signal
+  // for the only thing that reads these. It set on ANY trap and never cleared,
+  // and most of the .S suite traps deliberately -- trap.S, cebreak.S, ifault.S,
+  // amotrap.S, loadfault.S -- so on a board running the suite it lit within
+  // seconds of the first batch and stayed lit whatever the verdicts were. It
+  // could not distinguish a run that passed from one that did not, which is the
+  // question anyone standing in front of the board is actually asking.
+  //
+  // Nothing is lost that software cannot say for itself: a program that wants
+  // to report a fault has a trap handler at the point it would want to, and
+  // storing 2 from it is one instruction.
+  logic led_green, led_red;
   always_ff @(posedge clk) begin
     if (reset) begin
-      store_bit <= 1'b0;
-      trap_seen <= 1'b0;
-    end else begin
-      if (|mem_wstrb) store_bit <= mem_wdata[0];
-      if (trap)       trap_seen <= 1'b1;
+      led_green <= 1'b0;
+      led_red   <= 1'b0;
+    end else if (|mem_wstrb) begin
+      led_green <= mem_wdata[0];
+      led_red   <= mem_wdata[1];
     end
   end
-  assign ledg_n = !store_bit;
-  assign ledr_n = !trap_seen;
+  assign ledg_n = !led_green;
+  assign ledr_n = !led_red;
 endmodule // littlesoc
