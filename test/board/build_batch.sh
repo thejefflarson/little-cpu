@@ -12,6 +12,10 @@
 # Usage: build_batch.sh <out-dir> <prog.S> [prog.S ...]
 set -euo pipefail
 OUT=$1; shift
+# The part's instruction memory, in words, read from the Makefile so it cannot
+# drift from what soc/rom_banks.py is told to pad to.
+ROM_WORDS=${ROM_WORDS:-$(awk -F'= *' '/^SOC_ROM_WORDS/{print $2; exit}' "$(dirname "$0")/../../Makefile" | tr -d ' ')}
+: "${ROM_WORDS:=2048}"
 mkdir -p "$OUT"
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
@@ -26,7 +30,13 @@ OBJCOPY=${CC%gcc}objcopy
 objs=(); names=(); i=0
 for prog in "$@"; do
   base=$(basename "$prog")
+  # TEXT_PAST is the top of the instruction memory and differs between a
+  # simulator and the part -- 4096 words against 2048. loadfault.S and
+  # storefault.S probe just below it, so a program built with the simulator's
+  # value tests an address this machine does not have and fails on a core that
+  # refused it correctly.
   $CC -march=rv32imac_zicsr_zifencei -mabi=ilp32 -nostdlib -DBOARD_SUITE \
+      -DTEXT_PAST=$(( ROM_WORDS * 4 )) \
       -I "$ROOT/test/asm" -c -o "$OUT/p$i.o" "$prog"
   $OBJCOPY --prefix-symbols="p${i}_" "$OUT/p$i.o"
   # --prefix-symbols renames UNDEFINED symbols too, so the program's reference to

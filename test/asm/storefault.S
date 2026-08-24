@@ -40,7 +40,16 @@
 
 # The last word of the 16 KB text window, and the first word past it.
 #define TEXT_TOP  0x00003FFC
+// One past the top of the text window -- and it is NOT the same on every
+// machine this runs on. test/testbench.v gives a simulator 4096 words, the part
+// has 2048, and test/memmap_test.sh prints both: "rom 2048 words on the part /
+// 4096 simulated". Hardcoding the simulator's number made this program test an
+// address the part does not have: the load below was answered under simulation
+// and correctly REFUSED on hardware, so the check failed on a core that was
+// right. Overridable, and the board build passes the part's value.
+#ifndef TEXT_PAST
 #define TEXT_PAST 0x00004000
+#endif
 
 # The base of the 64 KB data RAM, its last word, and the first word past it.
 #define RAM_BASE  0x00010000

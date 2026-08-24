@@ -100,6 +100,18 @@ run_next:
   lw    t2, 0(t2)
   bgeu  t1, t2, all_done
 
+  /* WAIT FOR THE UART TO GO QUIET BEFORE HANDING OVER. This driver reports each
+   * verdict down the same wire the programs can use, and one of them tests that
+   * wire: test/asm/uart.S case 2 reads the status expecting zero, above the
+   * comment "nothing has been written, so nothing is in flight". Inside a batch
+   * that is false -- the previous program's verdict is still going out -- and it
+   * failed on hardware for exactly that reason. Draining first makes the
+   * program's premise true again. */
+  li    t0, UART_BASE
+11:
+  lw    t1, UART_STATUS_OFFSET(t0)
+  bnez  t1, 11b
+
   li    TESTNUM, 0
 
   la    t0, board_table
@@ -127,6 +139,18 @@ board_next:
   li    a0, 10
   jal   ra, put_char
 
+  /* Any verdict that is not 1 makes the whole batch failing, for the LED below.
+   * Sticky, like the red one, but about the SUITE rather than about traps --
+   * most of these programs trap deliberately, so `trap_seen` lights within
+   * seconds of any batch starting and says nothing about the result. */
+  la    t0, board_verdict
+  lw    t1, 0(t0)
+  li    t2, 1
+  beq   t1, t2, 8f
+  la    t0, board_failed
+  li    t1, 1
+  sw    t1, 0(t0)
+8:
   la    t0, board_index
   lw    t1, 0(t0)
   addi  t1, t1, 1
@@ -181,6 +205,31 @@ all_done_loop:
   jal   ra, put_wire
   li    a0, 10
   jal   ra, put_wire
+  /* THE GREEN LED CARRIES THE RESULT, readable across a room without a wire.
+   * rtl/littlesoc.v latches bit 0 of the last store's data into it, so a store
+   * of 1 lights it and a store of 0 puts it out -- no RTL change, and none is
+   * wanted: that file is the shipping SoC and its LED meanings are part of the
+   * graded design, not somewhere to put a test convenience.
+   *
+   *   all passed  ->  solid on
+   *   any failed  ->  blinking
+   *
+   * Red is untouched and still means `a trap happened since reset`, which
+   * during a suite run is uninformative. */
+  la    s3, board_led
+  la    s4, board_failed
+  lw    s4, 0(s4)
+  lw    s5, 0(s3)
+  bnez  s4, 9f
+  li    s5, 1                      /* clean: hold it on */
+  j     10f
+9:
+  xori  s5, s5, 1                  /* failing: toggle, so it blinks */
+10:
+  sw    s5, 0(s3)
+  la    s3, board_scratch
+  sw    s5, 0(s3)                  /* the store the LED actually latches */
+
   li    t0, 3000000
 5:
   addi  t0, t0, -1
@@ -258,4 +307,10 @@ board_console_len:
 board_index:
   .word 0
 board_verdict:
+  .word 0
+board_failed:
+  .word 0
+board_led:
+  .word 0
+board_scratch:
   .word 0
