@@ -2492,7 +2492,7 @@ d=$(ma_fixture)
 ma_edit "$d" Makefile \
   's/^DHRY_CFLAGS := -march=rv32imac_zicsr_zifencei/DHRY_CFLAGS := -march=rv32imc_zicsr_zifencei/'
 probe "the Dhrystone flags drifting from the suite's ISA is red" 1 \
-  "Makefile states -march=rv32imac_zicsr_zifencei 2 time(s), not 3" "$MA $d"
+  "Makefile states -march=rv32imac_zicsr_zifencei 3 time(s), not 4" "$MA $d"
 
 probe "...and their second copy is compared whole, not just its ISA" 1 \
   "the Dhrystone flags are stated twice and they disagree" "$MA $d"

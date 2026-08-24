@@ -659,6 +659,45 @@ DHRY_CFLAGS := -march=rv32imac_zicsr_zifencei -mabi=ilp32 -O2 -std=c11 \
 dhrystone: sim
 	@./test/bench/run_dhrystone.sh ./sim $(DHRY_RUNS) $(DHRY_CYCLES) '$(DHRY_CFLAGS)'
 
+# CoreMark, the figure the cores worth comparing to now (Hazard3's RP2350
+# build publishes 4.15 CoreMark/MHz and no Dhrystone number at all). Not a
+# prerequisite of anything and not on CI, the same as `make dhrystone`: no CPI
+# ratchet exists here and this adds none.
+#
+# SIMULATED AT 16 KB OF ROM, DOUBLE THE PART'S 8. test/bench/coremark.lds
+# links against test/testbench.v's ROM_WORDS rather than rtl/imemory.v's
+# shipping 2048 words, because CoreMark does not fit the smaller one -- see
+# test/bench/run_coremark.sh's header for the wall it hits. The figure this
+# prints describes a machine that cannot be built until this part's deferred
+# SPI-flash boot path lands and the ROM grows; the program's own report and
+# the runner both say so on every line that matters.
+#
+# COREMARK_FLAGS IS THE MEASUREMENT'S OTHER HALF, the same rule DHRY_CFLAGS
+# states for Dhrystone: this string compiles the benchmark and is printed
+# beside its own result, and test/bench/coremark_port.c will not build without
+# it. -O2 rather than the suite's -Os for the same reason Dhrystone takes it --
+# it is what the cores in the comparison set publish.
+#
+# COREMARK_ITERATIONS is a compiled-in constant (SEED_METHOD SEED_VOLATILE, not
+# the auto-tuning loop core_main.c offers) because a cxxrtl run has no wall
+# clock to tune against. EEMBC's own rule -- run at least 10 seconds -- exists
+# to average out a REAL clock's jitter, which a cycle-exact simulator does not
+# have: measured here, the CoreMark/MHz figure this prints was identical to
+# three decimal places at 10 and at 40 iterations, so the ratio is already
+# stable well short of it. 100 keeps `make coremark` at a couple of minutes
+# rather than the ~15 minutes 120M cycles' worth of iterations would cost this
+# simulator at its own `--stalls` rate. Raise it for a longer run.
+COREMARK_ITERATIONS ?= 100
+COREMARK_CYCLES     ?= 200000000
+COREMARK_CFLAGS := -march=rv32imac_zicsr_zifencei -mabi=ilp32 -O2 -std=c11 \
+                    -ffreestanding -fno-tree-loop-distribute-patterns \
+                    -Wall -Wextra -Werror
+
+.PHONY: coremark
+coremark: sim
+	@./test/bench/run_coremark.sh ./sim $(COREMARK_ITERATIONS) $(COREMARK_CYCLES) \
+	  '$(COREMARK_CFLAGS)'
+
 # Count logic cells from nextpnr, never cell counts from yosys. A flip-flop that
 # cannot share a cell with the LUT feeding it takes a whole cell by itself, and
 # over a thousand of this design's cells are like that. Counting `SB_LUT4`
