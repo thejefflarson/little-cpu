@@ -88,6 +88,27 @@ Code and data this repo executes or believes, that it did not write:
 - **Pull-request-authored build tooling**, which CI executes by running `make test` on the PR
   branch.
 
+### Which runner class a fork PR can reach
+
+`little-cpu-runners` is a self-hosted Kubernetes pool; its pods are `runAsNonRoot` with
+`allowPrivilegeEscalation: false` and fresh per job. That hardening stops host takeover and
+cross-job persistence on the node — it does not stop code execution inside the pod, lateral reach
+to whatever the pod can dial, exfiltration, or abuse of the `actions/cache` entry the untrusted
+section above already names.
+
+`ci.yml`'s eleven build/test/proof jobs pick their runner with an expression rather than a bare
+`runs-on: little-cpu-runners`: a `push` to `main` and a `pull_request` whose head repository is
+this one take the self-hosted pool; a `pull_request` from anywhere else — a fork — takes
+`ubuntu-latest`, GitHub's own hosted runner, under the same job name. **So the self-hosted pool
+never executes a fork's `make` recipes or shell scripts**, and a fork PR still gets a real CI
+signal because the check runs rather than skips. `formal` was already on `ubuntu-latest` for an
+unrelated memory-limit reason and needed no change.
+
+**The repository setting that is the other half of this is not something a workflow file can
+set.** "Require approval for all external contributors" turns a first-time outside contributor's
+run from a standing grant into a per-run approval; it lives in the repo's Actions settings, not in
+`ci.yml`, and is a maintainer action outside this repo's tracked files.
+
 ## The in-repo standard for third-party code
 
 `formal/pin.mk` is the reference implementation and new code should be measured against it. It:
