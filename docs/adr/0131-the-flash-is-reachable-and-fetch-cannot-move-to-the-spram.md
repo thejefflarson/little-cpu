@@ -147,15 +147,27 @@ The mapped netlist moved, so the paired sixteen-seed sweep is owed and was taken
 | | worst | median | best | spread | under 12.00 MHz |
 |---|---|---|---|---|---|
 | control, `9944aad` | 12.45 | 12.77 | 13.14 | 5.5% | 0 of 16 |
-| with the master, `fe2a934` | **12.26** | **12.74** | 13.61 | 11.0% | **0 of 16** |
+| with the master, `03b70c5` | **12.06** | **12.99** | 13.37 | 10.8% | **0 of 16** |
 
-**Median of the per-seed deltas: −0.25%, with 8 of 16 seeds slower.** Half and half is as null as a
-sign test gets. The worst placement gives up 1.6% of period and the best gains 3.5%, both inside
-this part's churn band, and the requirement holds at every one of the sixteen.
+**Median of the per-seed deltas: −1.60%, with 3 of 16 seeds slower.** The middle of the distribution
+moved the right way by less than this part's churn band, which is a null read generously.
 
-What did move is the spread, 5.5% to 11.0% of the best placement. That is at the top of the range
-`soc/bands.py` records for an unchanged netlist rather than outside it, and the tail — which is what
-`SOC_MIN_MHZ` grades — is 12.26 MHz. Packed cells go 4875 to 4941–4999.
+**The tail is the number to argue about, and it is 12.06 MHz.** One seed of sixteen accounts for the
+whole of it: seed 2 is +5.00% where the other fifteen span −4.69% to +1.85%. The requirement holds
+at all sixteen and the margin over it is half a percent, which is thinner than the control's 3.6%
+and is not outside what this design has read before — `CLAUDE.md` records the shipping tree's own
+worst-of-sixteen at 12.39, 12.21 and **12.03** MHz on three earlier trees, "three samples and not a
+trend". Read this the same way: a sample of a wide tail, not a regression with a mechanism. The
+spread went 5.5% to 10.8% of the best placement, inside the range `soc/bands.py` records for a
+netlist that did not change at all.
+
+Packed cells go 4875 to 4943, and `make fit` reads 4109 against the 4097 the Makefile records —
+both inside the churn band, both from the region test's new window term rather than from the device,
+which is outside `fit`'s top entirely.
+
+An earlier sweep of this change read 12.26 MHz worst and −0.25% median, and it is not quoted above:
+it was taken before the simplification pass took 29 `SB_LUT4` back out, `make netlist-diff` reported
+the digest had moved, and a sweep whose netlist no longer exists describes a design nobody ships.
 
 ## Consequences
 
