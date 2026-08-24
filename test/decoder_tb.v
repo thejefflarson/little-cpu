@@ -331,6 +331,23 @@ module decoder_tb;
     check_hex("...and so is a compressed left shift's", dut.math_arg, 32'd13);
     reg_rs2 = 32'b0;
 
+    // Zba's sh2add probe: funct7 0010000, a fourth value in the OP major
+    // opcode's funct7 space beside math_low, math_high and instr_m. rd = rs2 +
+    // (rs1 << 2), and the shift is the executor's, so both operands reach
+    // decoder_out unshifted -- the same pass-through every other R-type op uses.
+    reg_rs1 = 32'h0000_0003;
+    reg_rs2 = 32'h0000_1000;
+    present_and_fetch(32'h2020c1b3);   // sh2add x3, x1, x2
+    check_bit("sh2add decodes", dut.instr_sh2add, 1'b1);
+    check_bit("...and not as an add", dut.instr_add, 1'b0);
+    @(posedge clk);
+    #1;
+    check_bit("...issuing with its own flag", out.is_sh2add, 1'b1);
+    check_hex("...rs1 unshifted", out.rs1, 32'h0000_0003);
+    check_hex("...and rs2 the plain register", out.rs2, 32'h0000_1000);
+    reg_rs1 = 32'b0;
+    reg_rs2 = 32'b0;
+
     // The compressed group that shares one quadrant and funct3 and is told
     // apart by the two fields above them, each decoded off a different width of
     // that prefix: c.andi off funct3, c.sub off funct6.

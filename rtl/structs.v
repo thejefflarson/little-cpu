@@ -121,6 +121,10 @@ typedef struct packed {
   logic        is_xor;
   logic        is_or;
   logic        is_and;
+  // Zba's sh2add: rd = rs2 + (rs1 << 2). rtl/decoder.v hands rs1 through
+  // unshifted, the same as every other arm here; rtl/executor.v is the one
+  // reader that shifts it, ahead of the adder it already has.
+  logic        is_sh2add;
   logic        is_mul;
   logic        is_mulh;
   logic        is_mulhu;
