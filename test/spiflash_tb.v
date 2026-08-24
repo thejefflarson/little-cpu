@@ -30,6 +30,7 @@ module spiflash_tb;
   localparam logic [31:0] BASE = 32'h0002_0028;
   localparam logic [31:0] SPI_DATA    = BASE + 32'd0;
   localparam logic [31:0] SPI_CONTROL = BASE + 32'd4;
+  localparam logic [31:0] SPI_BUSY    = 32'h0000_0100;
 
   // The line the device reads. Normally the model's; `force_line` replaces it
   // so a dead flash and a stuck flash can both be shown to be visible here.
@@ -167,9 +168,8 @@ module spiflash_tb;
   task automatic xfer(input logic [7:0] send, output logic [7:0] got);
     begin
       store(SPI_DATA, {24'b0, send}, 4'b0001);
-      load(SPI_CONTROL);
-      while (mem_rdata[0] === 1'b1) load(SPI_CONTROL);
       load(SPI_DATA);
+      while (mem_rdata[8] === 1'b1) load(SPI_DATA);
       got = mem_rdata[7:0];
     end
   endtask
@@ -210,8 +210,10 @@ module spiflash_tb;
     //-----------------------------------------------------------------------
     check_bit("cs_n is released out of reset", cs_n, 1'b1);
     check_bit("sck idles low",                 sck,  1'b0);
+    load(SPI_DATA);
+    check_hex("nothing busy and nothing received out of reset", mem_rdata, 32'h0);
     load(SPI_CONTROL);
-    check_hex("busy is clear out of reset", mem_rdata, 32'h0);
+    check_hex("the control register is write-only", mem_rdata, 32'h0);
 
     // An address this device does not occupy reads zero, so the read buses on
     // the shared bus can be ORed rather than muxed.
@@ -224,7 +226,7 @@ module spiflash_tb;
     // was on the bus.
     store(SPI_DATA, 32'hffff_ff00, 4'b1110);
     idle();
-    load(SPI_CONTROL);
+    load(SPI_DATA);
     check_hex("a write outside byte lane 0 starts nothing", mem_rdata, 32'h0);
 
     //-----------------------------------------------------------------------
@@ -239,10 +241,13 @@ module spiflash_tb;
     // The JEDEC id: three literal bytes no shift-order mistake produces.
     //-----------------------------------------------------------------------
     select_flash(1'b1);
+    store(SPI_DATA, 32'h0000_009f, 4'b0001);
+    load(SPI_DATA);
+    check_hex("an exchange takes the device busy", mem_rdata & SPI_BUSY, SPI_BUSY);
+    while (mem_rdata[8] === 1'b1) load(SPI_DATA);
     rises_before = sck_rises;
-    xfer(8'h9f, b);
-    check_int("one exchange is exactly eight clocks", sck_rises - rises_before, 8);
     xfer(8'h00, id0);
+    check_int("one exchange is exactly eight clocks", sck_rises - rises_before, 8);
     xfer(8'h00, id1);
     xfer(8'h00, id2);
     select_flash(1'b0);
@@ -283,8 +288,8 @@ module spiflash_tb;
     rises_before = sck_rises;
     store(SPI_DATA, 32'h0000_009f, 4'b0001);
     store(SPI_DATA, 32'h0000_00ff, 4'b0001);   // arrives while busy
-    load(SPI_CONTROL);
-    while (mem_rdata[0] === 1'b1) load(SPI_CONTROL);
+    load(SPI_DATA);
+    while (mem_rdata[8] === 1'b1) load(SPI_DATA);
     check_int("a write while busy is dropped, not queued", sck_rises - rises_before, 8);
     // The command that landed was the first one, so the id still comes back.
     xfer(8'h00, id0);
@@ -298,8 +303,8 @@ module spiflash_tb;
     store(SPI_DATA, 32'h0000_009f, 4'b0001);
     store(SPI_CONTROL, 32'h0000_0000, 4'b0001);
     check_bit("a control write while busy is dropped", cs_n, 1'b0);
-    load(SPI_CONTROL);
-    while (mem_rdata[0] === 1'b1) load(SPI_CONTROL);
+    load(SPI_DATA);
+    while (mem_rdata[8] === 1'b1) load(SPI_DATA);
     select_flash(1'b0);
 
     //-----------------------------------------------------------------------

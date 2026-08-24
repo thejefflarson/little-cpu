@@ -226,6 +226,31 @@
 # entry is that the only interesting thing to assert about a transmitter is that a
 # write makes it busy, and that assertion is a branch.
 #
+# spiflash.S IS THE FIFTH ENTRY AND THE NEXT DEVICE THAT DID COST ONE, for the
+# same reason and by the same three questions. rtl/spiflash.v puts a data
+# register and a write-only control register in the eight bytes above the UART's
+# two, inside the same declared page, so on the model both are ordinary memory:
+# a write to the data register stays there and `busy` is never set. `DISAGREE AT
+# 9` is the first read of it after a write -- the core's `lw` puts 0x100 in a0
+# and the model's puts back the 0x9f it stored.
+#
+# TWO THINGS ABOUT THE PROGRAM ARE SHAPED BY THIS FILE AND SAY SO IN IT. The
+# load at the divergence reads over a0 = -1, so it is a CHANGE on both sides and
+# the traces differ in a value rather than in a length; left reading over zero
+# the model recorded nothing and reported the divergence as the budget it later
+# ran out of. And `busy` sits in the data register rather than in the one the
+# program writes the chip select to, so the model's plain memory cannot hold the
+# poll loop -- with the poll on the control register the model spun on the 1 it
+# had just stored and this line read INCONCLUSIVE SAIL-LIMIT, which compares
+# nothing. A device layout is allowed to take an observation like that into
+# account; what is not allowed is a program written to agree.
+#
+# WHAT COVERS IT MEANWHILE: test/spiflash_tb.v drives the master against a model
+# of the flash and grades the wire -- eight clocks a byte, mode 0's sampling
+# edge, the JEDEC id as three literals and a sequential read across a 256-byte
+# boundary -- with four of its own failures forced. spiflash.S's own in-band
+# assertions run against the whole core on both sim legs.
+#
 # THE FAILURE DIRECTION IS STILL LIVE. These are name-and-status pairs under set
 # equality, so if a future change makes any of the four below AGREE, or makes
 # one diverge some other way, this gate goes red and these paragraphs get
@@ -236,4 +261,5 @@
 lrsclock.S    INCONCLUSIVE SAIL-LIMIT
 mtimer.S      INCONCLUSIVE SAIL-LIMIT
 mtimermask.S  INCONCLUSIVE SAIL-LIMIT
+spiflash.S    DISAGREE AT 9
 uart.S        DISAGREE AT 7

@@ -20,10 +20,10 @@
 #
 # IT DOES NOT AGREE WITH THE REFERENCE MODEL, AND CANNOT, for the reason
 # test/asm/uart.S does not: Sail has plain memory where this device is, so the
-# control register reads back whatever was last stored to it and `busy` is never
-# set. Test 4 below is the first load whose value differs, and it is placed
-# before the first unbounded poll on purpose -- everything up to it is compared
-# and agrees.
+# data register reads back whatever byte was last stored to it and `busy` is
+# never set. Test 4 below is the first load whose value differs, and it is
+# placed before the first unbounded poll on purpose -- everything up to it is
+# compared and agrees.
 #
 # The waits are unbounded on purpose. A master that never raises `busy` and one
 # that never lowers it both hang here, and the runner's cycle budget turns that
@@ -46,8 +46,8 @@ RVTEST_CODE_BEGIN
   # board.
   #-------------------------------------------------------------
 
-  TEST_CASE( 2, a0, 0, lw a0, SPI_CONTROL_OFFSET(t0); )
-  TEST_CASE( 3, a0, 0, lw a0, 0(t0); )
+  TEST_CASE( 2, a0, 0, lw a0, 0(t0); )
+  TEST_CASE( 3, a0, 0, lw a0, SPI_CONTROL_OFFSET(t0); )
 
   #-------------------------------------------------------------
   # Select the flash and start the command. This is the first thing the
@@ -58,9 +58,16 @@ RVTEST_CODE_BEGIN
   li    a1, 1
   sw    a1, SPI_CONTROL_OFFSET(t0)
 
+  # a0 is put somewhere neither answer is, so the load below WRITES it on both
+  # sides. Left holding zero it would change nothing on Sail, and the traces
+  # would then differ in length rather than in a value -- which is a divergence
+  # the model reports by running out of budget in the wait after it instead of
+  # by disagreeing at the load. Loaded over -1 it disagrees where it should.
+  li    a0, -1
+
   li    a1, 0x9f
   sw    a1, 0(t0)
-  TEST_CASE( 4, a0, 1, lw a0, SPI_CONTROL_OFFSET(t0); )
+  TEST_CASE( 4, a0, SPI_BUSY_BIT, lw a0, 0(t0); )
 
   # An exchange is sixteen cycles, which is not many instructions, so the load
   # above is the one that has to land inside it and it is the instruction after
@@ -69,7 +76,7 @@ RVTEST_CODE_BEGIN
   # arrives on is chosen rather than inferred from a CPI.
 
   SPI_WAIT_IDLE( t0 )
-  TEST_CASE( 5, a0, 0, lw a0, SPI_CONTROL_OFFSET(t0); )
+  TEST_CASE( 5, a0, 0, lw a0, 0(t0); andi a0, a0, SPI_BUSY_BIT; )
 
   #-------------------------------------------------------------
   # The three id bytes. `0xEF 0x70 0x16` is a Winbond W25Q32JV, which is what

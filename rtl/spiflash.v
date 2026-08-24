@@ -15,14 +15,22 @@
 // Two registers, eight bytes:
 //
 //   BASE+0  data     writing byte lane 0 shifts that byte out and shifts eight
-//                    bits in; reading gives the byte the LAST exchange shifted
-//                    in
+//                    bits in; reading gives `busy` in bit 8 and, below it, the
+//                    byte the LAST exchange shifted in
 //   BASE+4  control  writing bit 0 drives the chip select -- 1 selects the
-//                    flash, 0 releases it; reading gives `busy` in bit 0
+//                    flash, 0 releases it; reads as zero, the way rtl/uart.v's
+//                    data register does
 //
 // A write to either register while `busy` is set is DROPPED, the way rtl/uart.v
-// drops a byte written mid-frame, so software polls the control register
-// between steps. Nothing here is queued and nothing is interrupted.
+// drops a byte written mid-frame, so software polls between steps. Nothing here
+// is queued and nothing is interrupted.
+//
+// `busy` SITS BESIDE THE BYTE rather than in the other register, so one load
+// answers both questions a caller has. It also keeps the poll off the register
+// software writes: the reference model has plain memory here, and a wait that
+// read back the chip select it had just stored would spin on Sail forever and
+// report a divergence as a budget it ran out of rather than as a value it
+// disagreed on.
 //
 // MODE 0, WHICH IS THE ONE THE PART ITSELF USES: the clock idles low, this
 // master presents a bit while it is low, and both ends sample on the rising
@@ -37,7 +45,7 @@
 // holds the flash selected, and lets go the rest of the time.
 //
 // Nothing in this module reaches the core's fetch loop. It answers the data bus
-// only, and its read-back is eight bits wide by construction.
+// only, and its read-back is nine bits wide by construction.
 module spiflash #(
   // The eight bytes above rtl/uart.v's two registers, so the five regions on
   // the shared bus abut and the read buses can be ORed together.
@@ -68,11 +76,11 @@ module spiflash #(
   logic [7:0] shift_out, shift_in;
   logic [3:0] bits_left;
   logic       phase, selected;
-  logic [7:0] rd_byte;
 
   logic busy;
   assign busy = |bits_left;
 
+  logic [8:0] rd_word;
   logic in_range, is_control, start_xfer, control_write;
   assign in_range      = mem_addr[31:3] == BASE[31:3];
   assign is_control    = mem_addr[2];
@@ -81,10 +89,10 @@ module spiflash #(
   assign start_xfer    = in_range && !is_control && mem_wstrb[0] && !busy;
   assign control_write = in_range &&  is_control && mem_wstrb[0] && !busy;
 
-  // EIGHT FLIP-FLOPS, not a registered 32-bit word: everything this device
-  // reports fits in a byte, so the other 24 bits are constants yosys folds out
-  // of the read-back OR in rtl/littlesoc.v.
-  assign mem_rdata = {24'b0, rd_byte};
+  // NINE FLIP-FLOPS, not a registered 32-bit word: everything this device
+  // reports fits in nine bits, so the other 23 are constants yosys folds out of
+  // the read-back OR in rtl/littlesoc.v.
+  assign mem_rdata = {23'b0, rd_word};
 
   assign mosi = shift_out[7];
   assign cs_n = !selected;
@@ -97,7 +105,7 @@ module spiflash #(
       shift_in  <= 8'b0;
       bits_left <= 4'b0;
       phase     <= 1'b0;
-      rd_byte   <= 8'b0;
+      rd_word   <= 9'b0;
     end else begin
       if (control_write) selected <= mem_wdata[0];
 
@@ -128,14 +136,12 @@ module spiflash #(
       end
 
       // An out-of-range access reads zero, so the memories on this bus join
-      // with an OR rather than a mux. The data register reads the byte the last
-      // exchange shifted in, which is the only thing a read-only master has to
-      // report; `shift_in` is stable whenever software is allowed to read it,
-      // because a read arriving mid-exchange is a read of a device the caller
-      // was told to poll first.
-      rd_byte <= !in_range   ? 8'b0
-               :  is_control ? {7'b0, busy}
-                             : shift_in;
+      // with an OR rather than a mux. The control register reads zero as well:
+      // it is write-only, and reporting the chip select back would be a second
+      // thing to keep true. `shift_in` is whatever the last completed exchange
+      // left, and a caller reading it mid-exchange is reading a device it was
+      // told to poll -- which is the bit beside it.
+      rd_word <= (in_range && !is_control) ? {busy, shift_in} : 9'b0;
     end
   end
 endmodule

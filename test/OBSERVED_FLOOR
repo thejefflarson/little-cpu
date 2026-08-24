@@ -195,7 +195,7 @@ slt.S               423    423
 slti.S              200    200
 sltiu.S             200    200
 sltu.S              423    423
-spiflash.S          214    208
+spiflash.S          240    234
 sra.S               476    476
 srai.S              219    219
 srl.S               469    469
