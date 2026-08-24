@@ -81,6 +81,23 @@ while read -r n f; do
 done < <(printf '%s' "$sizes" | sort -rn)
 [ -n "$cur" ] && { echo "$cur" >> "$OUT/plan"; batches=$((batches+1)); }
 echo "== $batches batches"
+
+# ONE PLACEMENT FOR THE WHOLE RUN. The design is identical across batches --
+# only the ROM's contents differ -- so nextpnr runs once here and icebram
+# rewrites the ROM per batch. Against `icebram -g` random data, so the pattern
+# is unique enough to find again.
+echo
+echo "== placing once (the design does not change between batches)"
+icebram -g 32 1024 > "$OUT/ph_even.hex"
+icebram -g 32 1024 > "$OUT/ph_odd.hex"
+cp "$OUT/ph_even.hex" soc/rom_even.hex
+cp "$OUT/ph_odd.hex" soc/rom_odd.hex
+rm -f board.json board.asc board.bin
+if ! make board.asc BOARD_OSC=internal BOARD_ROM=noop-rom >"$OUT/place.log" 2>&1; then
+  echo "PLACE FAILED:"; tail -15 "$OUT/place.log" | sed 's/^/   /'; exit 1
+fi
+cp board.asc "$OUT/base.asc"
+echo "   placed [$SECONDS s]"
 echo
 i=0
 while read -r progs; do
@@ -105,12 +122,23 @@ while read -r progs; do
   fi
   echo "   link:  $(tail -1 "$OUT/link.log")  [$((SECONDS-t0))s]"
 
+  # SWAPPED, NOT RE-PLACED. Placement is 60s and everything else in a batch is
+  # seconds, so re-running nextpnr seven times was seven eighths of the runtime
+  # for a design that never changes -- only its ROM does. icebram rewrites a
+  # block RAM's contents inside an already-placed .asc.
+  #
+  # It needs the placed image to carry a UNIQUE pattern, which is why the
+  # placement above is done against `icebram -g` random data rather than against
+  # a real program: a zero-padded ROM appears identically in both banks and
+  # icebram refuses it -- "Conflicting from pattern for bit slice" -- because it
+  # cannot tell which bank it is being asked to rewrite.
   t0=$SECONDS
-  rm -f board.json board.asc board.bin
-  if ! make board.bin BOARD_OSC=internal BOARD_ROM=noop-rom >"$OUT/build.log" 2>&1; then
-    echo "   PLACE FAILED:"; tail -12 "$OUT/build.log" | sed 's/^/      /'; continue
+  if ! icebram "$OUT/ph_even.hex" soc/rom_even.hex < "$OUT/base.asc" > "$OUT/b0.asc" 2>"$OUT/ib.log" \
+     || ! icebram "$OUT/ph_odd.hex" soc/rom_odd.hex < "$OUT/b0.asc" > "$OUT/b1.asc" 2>>"$OUT/ib.log"; then
+    echo "   ROM SWAP FAILED:"; sed 's/^/      /' "$OUT/ib.log" | head -6; continue
   fi
-  echo "   place: $(grep -o 'board.bin: [0-9]* bytes.*' "$OUT/build.log" | head -1)  [$((SECONDS-t0))s]"
+  icepack "$OUT/b1.asc" board.bin || { echo "   PACK FAILED"; continue; }
+  echo "   swap:  $(wc -c < board.bin | tr -d ' ') bytes, no re-placement  [$((SECONDS-t0))s]"
 
   # iceprog's own output, live and unfiltered. It takes about thirty seconds and
   # prints its progress as it goes, so hiding it makes a working flash
