@@ -826,6 +826,15 @@ make mutation-check # delete a term from rtl/ and require exactly the detectors
 make window-test    # force the elaboration checks in rtl/{imemory,memory,timer,
                     # uart,spiflash}.v and rtl/littlecpu.v's copy of that map
                     # red, in both frontends. Runs inside `make test`
+make board-elaborate # read soc/board_upduino.v, the one file nothing else on
+                    # `make test` or on CI touches -- `bitstream` and `prog`
+                    # both need a board. Warning-free elaboration, and two ways
+                    # of breaking the wrapper forced red: a port the SoC does
+                    # not have, which yosys fails on, and an enable reading a
+                    # pin nothing drives, which it only warns about. It does NOT
+                    # read soc/upduino.pcf -- nothing here parses one, so a pin
+                    # naming a port that no longer exists is nextpnr's to catch.
+                    # Inside `make test`
 make imem-share-test # map rtl/imemory.v for ice40 and ECP5 at one and at two
                     # fetch windows, and require two windows to be two copies of
                     # ONE storage -- every copy on the same write enable,

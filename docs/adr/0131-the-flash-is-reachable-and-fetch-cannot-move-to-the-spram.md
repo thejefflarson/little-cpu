@@ -182,6 +182,12 @@ the digest had moved, and a sweep whose netlist no longer exists describes a des
   `test/decoder_tb.v` each probed the region decode with the first address no memory answered, and
   that address is the master's. Both now store four words up instead of two, and both gained the
   positive half — the master's own window is answered.
+- **The board wrapper has a grader now, and it did not before.** `soc/board_upduino.v` is read by
+  `make bitstream` and `make prog` and by nothing else, and both need a board — so the one file this
+  change put real logic in was the one file CI could not fail. `make board-elaborate` reads it on
+  `make test` and forces two ways of breaking it red, the way `make window-test` does. It does not
+  read `soc/upduino.pcf`: nothing in this repo parses one, so a pin assignment naming a port that no
+  longer exists is still nextpnr's to catch and nobody else's.
 - **What is NOT claimed: that a board has run any of this.** No board was attached while this was
   written. The master, the model, the program and the whole map are graded in simulation on both
   legs; the pin arrangement is graded by `make bitstream` placing it, and by nothing else. The first
