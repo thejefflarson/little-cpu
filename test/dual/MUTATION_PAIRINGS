@@ -67,7 +67,7 @@ grant-during-amo-write      prog    amocount.S FAIL 5
 # grant both harts at once, and neither hart hangs when it does.
 #
 # The single-hart suite is expected to stay entirely green, and that is a result
-# rather than a gap: `snoop_write` is tied low on a one-master platform, so the
+# rather than a gap: `snoop_write` is tied low on a one-initiator platform, so the
 # term this deletes never fires there. accessor_tb and the accessor's own proof
 # see it because both drive the input.
 snoop-term-deleted          bench   accessor_tb

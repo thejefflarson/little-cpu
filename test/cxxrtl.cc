@@ -189,7 +189,7 @@ constexpr StallReason kStallReasons[] = {
     {"uut decoder serialize", 3},
     {"uut decoder operand_stall", 4},
     {"uut decoder fetch_stall", 5},
-    // The shared bus given to another master. This machine has one, so the
+    // The shared bus given to another initiator. This machine has one, so the
     // column is zero here by construction -- it is counted anyway because a
     // reason `stall` names and the table does not shows up as `unattributed`,
     // which is the finding this accounting exists to report.

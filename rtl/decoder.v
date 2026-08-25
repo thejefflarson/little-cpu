@@ -39,7 +39,7 @@ module decoder #(
   // asks again next cycle, so nothing is lost because nothing was published.
   // Holding `out` here instead would hand the executor an instruction it has
   // already consumed -- the wait leaves the executor idle, unlike a divide.
-  // A platform with one bus master ties it low and the core never waits.
+  // A platform with one bus initiator ties it low and the core never waits.
   input  logic bus_wait,
   // This cycle would publish a memory transaction, if the bus were this core's
   // to publish on. It is the arbiter's request line and the one signal the
@@ -912,7 +912,7 @@ module decoder #(
   // encodings that reach the data bus. It is an OVER-approximation on purpose:
   // a store-conditional that finds no reservation puts nothing on the bus, and
   // asking for a cycle this core then does not use costs an arbitration slot
-  // where under-asking would put two masters on the bus at once. Trapping
+  // where under-asking would put two initiators on the bus at once. Trapping
   // accesses are out, because decode clears their `is_l*`/`is_s*` flags and the
   // accessor never sees a transaction to make. So is the region wait's own
   // cycle: the transaction it precedes is two cycles away, not one, and asking

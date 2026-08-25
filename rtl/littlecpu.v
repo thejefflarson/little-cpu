@@ -68,13 +68,13 @@ module littlecpu #(
   input  logic        atomic_supported,
   // The shared-bus surface. `bus_wait` says the bus is somebody else's this
   // cycle: decode publishes nothing, the pc holds, and the instruction asks
-  // again next cycle. `snoop_write`/`snoop_addr` are the write another master
+  // again next cycle. `snoop_write`/`snoop_addr` are the write another initiator
   // is making, which clears a reservation on that word. `mem_lock` is high on
   // the cycle an AMO reads and low on the cycle it writes back, which is how an
   // arbiter that registers its grant learns to keep the bus here for the second
   // cycle.
   //
-  // A platform with one bus master ties both inputs low and leaves both outputs
+  // A platform with one bus initiator ties both inputs low and leaves both outputs
   // unread, and only the INPUTS are free that way: they fold before mapping and
   // the cell census does not move. An unread output is still a net for ABC to
   // map around, and these moved the SoC's mapped count by tens of cells -- so

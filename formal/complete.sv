@@ -55,7 +55,7 @@ module rvfi_testbench (
   // The address the core publishes for the platform to decode. Unread here:
   // `atomic_supported` is tied high, so no atomic can fault in this task.
   logic [31:0] atomic_addr;
-  // The lock an arbiter would read. Unread here: one hart, one bus master.
+  // The lock an arbiter would read. Unread here: one hart, one bus initiator.
   logic mem_lock;
   logic bus_request;
   logic        mem_ren;

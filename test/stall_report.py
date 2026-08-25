@@ -45,7 +45,7 @@ import sys
 # below turns into an error rather than a silent zero.
 #
 # `bus` is zero on every machine in this repo and is counted all the same: with
-# one bus master nothing ever takes the bus away, and a reason left out of this
+# one bus initiator nothing ever takes the bus away, and a reason left out of this
 # list is charged to `unattributed`, which exits nonzero.
 #
 # `region` is last, and that is what makes its column the cost of the wait

@@ -44,7 +44,7 @@
 // rtl/accessor.v drives address, write data and strobes to zero on a cycle it
 // is not requesting, so the two harts' bus outputs join with an OR exactly the
 // way rtl/littlesoc.v joins its three memories' read data. That is sound only
-// under the invariant above, and an OR of two live masters is silent -- so
+// under the invariant above, and an OR of two live initiators is silent -- so
 // test/dual_testbench.v checks it every cycle rather than trusting it.
 module littledual #(
   // The text window, in words. The integrator's number, the way it is for one
@@ -91,7 +91,7 @@ module littledual #(
   // Which harts have a transaction on the shared bus this cycle. Instrumentation
   // and nothing reads it here: the OR that joins the two harts' buses below is
   // correct only while at most one bit of this is set, and an OR of two live
-  // masters is silent. test/dual_testbench.v is what turns it into a failure.
+  // initiators is silent. test/dual_testbench.v is what turns it into a failure.
   output logic [1:0]   probe_bus_active,
   // Each hart's fetch address. Instrumentation for the same reason: `mtvec`
   // resets to zero and `.text` is linked there, so a trap taken before a
@@ -117,7 +117,7 @@ module littledual #(
   logic [4*NHARTS-1:0]  hart_mem_wstrb;
   logic [NHARTS-1:0]    hart_mem_ren;
 
-  // The shared data bus. One master a cycle, so three of these four are ORs.
+  // The shared data bus. One initiator a cycle, so three of these four are ORs.
   logic [31:0] mem_addr, mem_wdata, mem_rdata;
   logic [3:0]  mem_wstrb;
   logic        mem_ren, mem_reservable;
@@ -128,9 +128,9 @@ module littledual #(
 
   // `mem_wdata` IS THE ONE PORT THAT CANNOT BE ORed, and the reason is worth
   // keeping: rtl/accessor.v publishes rs2 on it for every issuing instruction
-  // and not only for a store, because with one bus master `mem_wstrb` is the
+  // and not only for a store, because with one bus initiator `mem_wstrb` is the
   // only gate that matters and nothing there ever had to drive it to zero. Two
-  // masters ORed make one hart's rs2 part of the other hart's store, on any
+  // initiators ORed make one hart's rs2 part of the other hart's store, on any
   // cycle a non-memory instruction issues beside one. That is not a hypothetical
   // -- ORing it here lost 30 of a smoke program's 32 counted increments, and it
   // is invisible to a bus-exclusivity check, because the hart doing the damage

@@ -561,11 +561,11 @@ and times; `make ecp5-timing` is that same SoC on the other part.
   like a working one** unless the answer depends on the second hart having run. `test/monitor.sim.v`
   is read UNMODIFIED by both instances and `test/sanitize_monitor.py` is untouched, which was a
   prediction and is now measured: 114 of 115 and 139 of 140 retires spec-checked.
-- **A signal a single-master design never had to drive to zero is not a signal two masters may OR.**
-  Three of the shared bus's four ports join with an OR the way `mem_rdata`'s three sources do;
-  `mem_wdata` does not, because `rtl/accessor.v` publishes rs2 on it for **every issuing
-  instruction** and not only for a store — with one master `mem_wstrb` is the only gate that
-  matters. ORed across two harts it lost **30 of a smoke program's 32 counted increments**, and it is
+- **A signal a single-initiator design never had to drive to zero is not a signal two initiators
+  may OR.** Three of the shared bus's four ports join with an OR the way `mem_rdata`'s three
+  sources do; `mem_wdata` does not, because `rtl/accessor.v` publishes rs2 on it for **every
+  issuing instruction** and not only for a store — with one initiator `mem_wstrb` is the only gate
+  that matters. ORed across two harts it lost **30 of a smoke program's 32 counted increments**, and it is
   invisible to a bus-exclusivity check because the hart doing the damage has neither a read enable
   nor a strobe raised. Read the producer's idle behaviour before joining two of anything (ADR-0125).
 - **12 MHz is a requirement, not a regression floor** (ADR-0066). `SOC_MIN_MHZ` is 12.0 — the board

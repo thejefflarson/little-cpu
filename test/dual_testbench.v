@@ -94,7 +94,7 @@ module dual_testbench(
 
   // AT MOST ONE HART ON THE BUS PER CYCLE. rtl/littledual.v joins the two harts'
   // address, write-data and strobe ports with an OR, which is only sound while
-  // that holds -- and an OR of two live masters produces a plausible wrong
+  // that holds -- and an OR of two live initiators produces a plausible wrong
   // address rather than an error. So it is checked here every cycle, and it is
   // sticky: the runner turns it into an exit status of its own so a collision
   // cannot be read as a program bug.

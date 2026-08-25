@@ -40,7 +40,7 @@ module memory #(
   parameter integer RAM_WORDS = 16384,
   // One `atomic_addr`/`atomic_supported` pair per hart, packed low hart first.
   // The bus-side ports stay scalar because the bus is shared and only one
-  // master drives it per cycle; this pair is the exception because it is asked
+  // initiator drives it per cycle; this pair is the exception because it is asked
   // in DECODE, where every hart is asking about its own instruction at once.
   parameter integer NHARTS = 1
 ) (
