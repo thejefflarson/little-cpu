@@ -275,7 +275,7 @@ look identical must **not** move with it: `formal/checks.cfg`'s `isa rv32imc` an
 rv32imc` name what riscv-formal generates a spec model for, and the pin has none for A or for Zkt,
 so widening either generates nothing.
 
-**Zkt is claimed too, and it adds no instruction and no `misa` bit** (ADR-0131). It is a promise about
+**Zkt is claimed too, and it adds no instruction and no `misa` bit** (ADR-0134). It is a promise about
 instructions the design already implements: a listed set — RV32I arithmetic, logical and shift,
 `MUL`/`MULH`/`MULHSU`/`MULHU`, and the arithmetic C encodings — must execute in time independent of
 its operands' VALUES. `DIV`/`REM`, loads, stores, branches and jumps are excluded from the list, and
@@ -283,10 +283,20 @@ that exclusion is what makes the claim true here rather than merely convenient: 
 `stall` is the OR of eight reasons, and `test/zkt_isolation_test.py` proves structurally — a
 fan-in graph over the file's own continuous assigns, in the shape
 `formal/check-nonperturbation.py`'s cone check already uses — that seven of them read only register
-NUMBERS, instruction bits and control state, never a register-file DATA output. The eighth,
+NUMBERS, instruction bits and control state, never a register-file or CSR-file DATA output (`SEEDS`
+names `reg_rs1`, `reg_rs2` and `executor_out.rd_data`, every decoder input this script's own read of
+`rtl/decoder.v`'s port list finds wider than a register NUMBER that can carry one; `NON_VALUE_INPUTS`
+names the rest, and either an unclassified new input or a stale entry is red). The eighth,
 `region_stall`, does read one (`reg_rs1`, on the way to deciding whether a load's or a store's
-address lands near a mapped window's edge), and is gated on `ls_access`, true only for the twelve
-load and store encodings — none of which is on Zkt's list. `rtl/executor.v` is the other half:
+address lands near a mapped window's edge), is gated on `ls_access`, true only for the twelve
+load and store encodings — none of which is on Zkt's list — and its own assign is checked for a
+top-level `||` beside that gate, because a split on `&&` alone cannot see one. **A leaf this script
+reaches from any of those eight signals that it cannot trace to a continuous assign — an
+intermediate moved into `always_comb`, an always_ff register, a submodule's output port — is a hard
+error at that exact signal unless it is named in `KNOWN_CLEAN_LEAVES` or `SEEDS`, not a signal read
+as clean by default**: forward taint alone never notices a leaf that is not itself a SEED, which is
+what let a procedural copy of `reg_rs1` or of the branch comparison pass this check silently before
+the fan-in walk was added. `rtl/executor.v` is the other half:
 `MUL`/`MULH`/`MULHSU`/`MULHU` resolve in decode's `init` state with no counter, so they are
 constant-time by inspection. `DIV`/`REM` are the one place this design is NOT constant-time — 32
 cycles ordinarily, one cycle when `rs2 == 0` or on `INT_MIN / -1` — which is exactly why the

@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=522
+PROBES_EXPECTED=525
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -1457,6 +1457,7 @@ ZKT="python3 $HERE/zkt_isolation_test.py"
 zkt_fixture() {
   local d; d=$(new_case)
   cp "$REPO/rtl/decoder.v" "$d/decoder.v"
+  cp "$REPO/rtl/structs.v" "$d/structs.v"
   printf '%s' "$d"
 }
 
@@ -1503,6 +1504,40 @@ d=$(zkt_fixture)
 sed -i.bak '/assign hazard = hazard_rs1 || hazard_rs2 || serialize;/d' "$d/decoder.v"
 probe "a stall reason with no continuous assign defining it stops the run" 2 \
   "has no continuous assign defining: hazard" "$ZKT $d/decoder.v"
+
+# THE THIRD NAMED DIRECTION: an intermediate that used to be a continuous
+# assign moved into an always_comb block. `live_rs1` never stops depending on
+# what it depended on before -- the RTL itself is unchanged in every way this
+# script cannot see -- but it is no longer a name the fan-in walk can trace,
+# so it must stop the run rather than being read as a clean leaf the way
+# `out.rs1` and `branch_taken` were before this fix.
+d=$(zkt_fixture)
+sed -i.bak 's/assign live_rs1 = /always_comb live_rs1 = /' "$d/decoder.v"
+probe "a signal moved into always_comb stops the run at its own site" 2 \
+  "reaches live_rs1" "$ZKT $d/decoder.v"
+
+# THE FOURTH NAMED DIRECTION: region_stall's own `&&` chain is intact, but an
+# `||` term is added beside it. `top_level_and_terms` alone still finds
+# ls_access among the split terms, so this defeats the ORIGINAL gate check
+# and is also invisible to taint, because `stall`/`stall_other` read
+# `region_stall` by name and never look inside its assign.
+d=$(zkt_fixture)
+sed -i.bak \
+  's/assign region_stall = ls_access && !ls_settled && !ls_answer_valid;/assign region_stall = ls_access \&\& !ls_settled \&\& !ls_answer_valid || reg_rs1[0];/' \
+  "$d/decoder.v"
+probe "an || term beside region_stall's && chain is red, not a silent pass" 1 \
+  "region_stall\` has a top-level \`||\`" "$ZKT $d/decoder.v"
+
+# THE FIFTH NAMED DIRECTION: a register-file DATA output SEEDS never named.
+# executor_out.rd_data is a 32-bit input port, the same shape as reg_rs1/
+# reg_rs2, and a forwarding path routing it into a stall reason is exactly
+# the change this repo keeps pricing and declining (ADR-0083/0092/0100).
+d=$(zkt_fixture)
+sed -i.bak \
+  's/assign atomic_stall = out.valid && out.is_amo && !divider_stall;/assign atomic_stall = out.valid \&\& out.is_amo \&\& !divider_stall || executor_out.rd_data[0];/' \
+  "$d/decoder.v"
+probe "an executor_out.rd_data bit routed into a stall reason is red" 1 \
+  "\`atomic_stall\` depends on a register-file DATA output" "$ZKT $d/decoder.v"
 
 begin_group "soc/routing_bins.py"
 
