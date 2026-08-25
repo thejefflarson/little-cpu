@@ -16,6 +16,13 @@ set_io -nowarn clk_pin 20
 set_io -nowarn ledr_n 41
 set_io -nowarn ledg_n 39
 
-# The FTDI's receive line, so the UART lands on the USB serial port with no
-# wiring at all. 115200 8N1: screen /dev/tty.usbserial-* 115200
-set_io -nowarn uart_tx 14
+# THE TWO SHARED PINS THIS BOARD WIRES. The vendor's own file gives each of
+# these two names: pin 14 is `serial_txd` and `spi_miso`, pin 16 is the
+# flash's chip select. soc/board_upduino.v reads pin 16 to decide when it is
+# safe to drive pin 14 with the UART; pins 15 and 17 (the flash's clock and
+# data-in) are not wired to this board at all, and neither is the on-chip
+# flash controller's own chip select -- see that file's header for why.
+#
+# 115200 8N1 when the flash is idle: screen /dev/tty.usbserial-* 115200
+set_io -nowarn spi_miso_txd 14
+set_io -nowarn spi_ssn      16

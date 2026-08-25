@@ -99,6 +99,11 @@ loadstore-region-ignored    asm   storefault.S FAIL 3
 # its neighbourhood; with the region refusal deleted that store is dropped
 # silently and the case reads back the value it was checking is absent.
 loadstore-region-ignored    asm   uart.S FAIL 9
+# spiflash.S is a detector for exactly uart.S's reason, one window further up:
+# its case 12 stores to the word past the master's two registers to show the
+# region decode grew to cover the new window and stopped there. That store is
+# the same shape and is dropped by the same deletion.
+loadstore-region-ignored    asm   spiflash.S FAIL 12
 
 # All four min/max compares read unsigned: the sign-bit correction on the shared
 # 33-bit adder/subtractor deleted. amominmax.S is the ONLY program that catches

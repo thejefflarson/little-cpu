@@ -52,7 +52,8 @@ need() {
   fi
 }
 
-for f in rtl/memory.v rtl/timer.v rtl/uart.v rtl/imemory.v rtl/littlecpu.v rtl/littlesoc.v \
+for f in rtl/memory.v rtl/timer.v rtl/uart.v rtl/spiflash.v rtl/imemory.v \
+         rtl/littlecpu.v rtl/littlesoc.v \
          test/testbench.v \
          test/cxxrtl.cc test/cosim.cc test/dual_cxxrtl.cc \
          test/asm/riscv_test.h test/asm/sections.lds \
@@ -95,6 +96,7 @@ RAM_WORDS=$(int_param rtl/memory.v RAM_WORDS)
 TIMER_BASE=$(hex_param rtl/timer.v BASE)
 TIMER_HARTS=$(int_param rtl/timer.v NHARTS)
 UART_BASE=$(hex_param rtl/uart.v BASE)
+FLASH_BASE=$(hex_param rtl/spiflash.v BASE)
 RAM_BYTES=$((RAM_WORDS * 4))
 RAM_TOP=$((RAM_BASE + RAM_BYTES))
 # The UART does not size itself with a parameter -- two words, written into its
@@ -102,6 +104,10 @@ RAM_TOP=$((RAM_BASE + RAM_BYTES))
 # reads. It is here and not in three places because the two integrators take the
 # default untouched. The timer's size is computed from NHARTS just below.
 UART_BYTES=8
+# rtl/spiflash.v's window is two words for the same reason and stated the same
+# way: a data register and a control register, written into its range test.
+FLASH_BYTES=8
+UART_TOP=$((UART_BASE + UART_BYTES))
 
 # The timer's window is two words of `mtime` plus two per hart, rounded up to a
 # power of two: four words at one hart and eight at two. Computed the way
@@ -134,15 +140,16 @@ hexfmt() { printf '0x%08x' "$1"; }
 # module with a size of its own.
 
 for f in rtl/littlesoc.v test/testbench.v; do
-  for m in memory timer uart; do
+  for m in memory timer uart spiflash; do
     if ! grep -qE "(^|[^[:alnum:]_])$m[[:space:]]*(#\(|[a-z_]+[[:space:]]*\()" "$REPO/$f"; then
       fail "$f does not instantiate \`$m\` at all. The comparison below would
 pass vacuously, so a deleted memory is red here rather than silent."
     fi
     if grep -qE "(^|[^[:alnum:]_])$m[[:space:]]*#\(" "$REPO/$f"; then
       fail "$f overrides \`$m\`'s parameters. The data RAM's base and size, the
-timer's base and the UART's base and baud rate are rtl/$m.v's defaults precisely
-so that rtl/littlesoc.v and test/testbench.v cannot describe different machines
+timer's base, the UART's base and baud rate and the SPI master's base are
+rtl/$m.v's defaults precisely so that rtl/littlesoc.v and test/testbench.v
+cannot describe different machines
 -- the harness once modelled a RAM sixteen times smaller than the SoC's and every
 program still fit. If this override is deliberate, it needs a reason recorded in
 an ADR first."
@@ -160,9 +167,17 @@ a UART inside the reservation would work perfectly until the second hart needed
 those words, and the OR below would then hand back two live answers at once."
 fi
 
+if [ "$UART_TOP" -ne "$FLASH_BASE" ]; then
+  fail "the UART ends at $(hexfmt "$UART_TOP") and the SPI master starts at
+$(hexfmt "$FLASH_BASE"). The five read buses join with an OR rather than a mux,
+which is only sound while the ranges do not overlap. A gap here is merely wasted
+map; an overlap ORs two live answers together and neither simulator would report
+it."
+fi
+
 if [ "$RAM_TOP" -ne "$TIMER_BASE" ]; then
   fail "the data RAM ends at $(hexfmt $RAM_TOP) and the timer starts at
-$(hexfmt "$TIMER_BASE"). rtl/littlesoc.v and test/testbench.v both join the four
+$(hexfmt "$TIMER_BASE"). rtl/littlesoc.v and test/testbench.v both join the five
 read buses with an OR rather than a mux, which is only sound while the ranges do
 not overlap; a gap is merely wasted map, but an overlap ORs two live answers
 together and neither simulator would report it."
@@ -223,6 +238,7 @@ occupy at any other alignment."
 }
 
 aligned_window uart "$UART_BASE" "$UART_BYTES"
+aligned_window "SPI master" "$FLASH_BASE" "$FLASH_BYTES"
 
 # ---- 3. the linker scripts -------------------------------------------------
 #
@@ -365,6 +381,31 @@ address reads zero from every memory on the bus, so uart.S would wait for a
 transmission it never started rather than fail."
 fi
 
+MAP_TOP_RAW=$(sed -nE "s/^#define[[:space:]]+MAP_TOP[[:space:]]+0[xX]([0-9a-fA-F]*).*/\1/p" \
+                "$REPO/test/asm/riscv_test.h" | head -1)
+if [ -z "$MAP_TOP_RAW" ]; then
+  fail "test/asm/riscv_test.h defines no MAP_TOP, so the two programs that probe
+the region refusal have no address to probe it at."
+elif [ $((16#$MAP_TOP_RAW)) -ne $((FLASH_BASE + FLASH_BYTES)) ]; then
+  fail "test/asm/riscv_test.h's MAP_TOP is $(hexfmt $((16#$MAP_TOP_RAW)))
+against the $(hexfmt $((FLASH_BASE + FLASH_BYTES))) the topmost window ends at.
+A store there is meant to be refused; at an address a device DOES answer it is
+accepted, and the two programs that read the refusal would fail for a reason
+that is not in the core."
+fi
+
+SPI_RAW=$(sed -nE "s/^#define[[:space:]]+SPI_BASE[[:space:]]+0[xX]([0-9a-fA-F]*).*/\1/p" \
+            "$REPO/test/asm/riscv_test.h" | head -1)
+if [ -z "$SPI_RAW" ]; then
+  fail "test/asm/riscv_test.h defines no SPI_BASE, so the program that reads the
+flash has no address to read it through."
+elif [ $((16#$SPI_RAW)) -ne "$FLASH_BASE" ]; then
+  fail "test/asm/riscv_test.h's SPI_BASE is $(hexfmt $((16#$SPI_RAW)))
+against rtl/spiflash.v's $(hexfmt "$FLASH_BASE"). The control register at the
+wrong address reads zero from every memory on the bus, so spiflash.S would see a
+master that is never busy and read back nothing but zeroes."
+fi
+
 # ---- 6. the SoC ROM image --------------------------------------------------
 
 MK_ROM_WORDS=$(sed -nE 's/^SOC_ROM_WORDS[[:space:]]*:=[[:space:]]*([0-9]+).*/\1/p' \
@@ -401,6 +442,7 @@ CPU_RAM_BASE=$(hex_param rtl/littlecpu.v LS_RAM_BASE)
 CPU_RAM_WORDS=$(int_param rtl/littlecpu.v LS_RAM_WORDS)
 CPU_TIMER_BASE=$(hex_param rtl/littlecpu.v LS_TIMER_BASE)
 CPU_UART_BASE=$(hex_param rtl/littlecpu.v LS_UART_BASE)
+CPU_FLASH_BASE=$(hex_param rtl/littlecpu.v LS_FLASH_BASE)
 CPU_TEXT_WORDS=$(int_param rtl/littlecpu.v LS_TEXT_WORDS)
 
 cpu_copy() {  # $1 = what, $2 = the core's copy, $3 = the memory's, $4 = whose
@@ -415,6 +457,7 @@ cpu_copy LS_RAM_BASE   "$CPU_RAM_BASE"   "$RAM_BASE"   rtl/memory.v
 cpu_copy LS_RAM_WORDS  "$CPU_RAM_WORDS"  "$RAM_WORDS"  rtl/memory.v
 cpu_copy LS_TIMER_BASE "$CPU_TIMER_BASE" "$TIMER_BASE" rtl/timer.v
 cpu_copy LS_UART_BASE  "$CPU_UART_BASE"  "$UART_BASE"  rtl/uart.v
+cpu_copy LS_FLASH_BASE "$CPU_FLASH_BASE" "$FLASH_BASE" rtl/spiflash.v
 # The default is what every harness that does not state a ROM size gets --
 # formal/wrapper.v, soc/compare/bench_littlecpu.v -- so it is the part's.
 cpu_copy LS_TEXT_WORDS "$CPU_TEXT_WORDS" "$SOC_ROM_WORDS_RTL" rtl/littlesoc.v
@@ -456,6 +499,7 @@ TRAPS_RAM_BASE=$(hex_param formal/traps.sv LS_RAM_BASE)
 TRAPS_RAM_WORDS=$(int_param formal/traps.sv LS_RAM_WORDS)
 TRAPS_TIMER_BASE=$(hex_param formal/traps.sv LS_TIMER_BASE)
 TRAPS_UART_BASE=$(hex_param formal/traps.sv LS_UART_BASE)
+TRAPS_FLASH_BASE=$(hex_param formal/traps.sv LS_FLASH_BASE)
 TRAPS_TEXT_WORDS=$(int_param formal/traps.sv LS_TEXT_WORDS)
 
 traps_copy() {  # $1 = what, $2 = the proof's copy, $3 = the memory's, $4 = whose
@@ -470,6 +514,7 @@ traps_copy LS_RAM_BASE   "$TRAPS_RAM_BASE"   "$RAM_BASE"   rtl/memory.v
 traps_copy LS_RAM_WORDS  "$TRAPS_RAM_WORDS"  "$RAM_WORDS"  rtl/memory.v
 traps_copy LS_TIMER_BASE "$TRAPS_TIMER_BASE" "$TIMER_BASE" rtl/timer.v
 traps_copy LS_UART_BASE  "$TRAPS_UART_BASE"  "$UART_BASE"  rtl/uart.v
+traps_copy LS_FLASH_BASE "$TRAPS_FLASH_BASE" "$FLASH_BASE" rtl/spiflash.v
 # The part's text window, not the harness's larger simulated one: the proof has
 # no imemory in it to size, so what it describes is the machine that ships.
 traps_copy LS_TEXT_WORDS "$TRAPS_TEXT_WORDS" "$SOC_ROM_WORDS_RTL" rtl/littlesoc.v
@@ -483,4 +528,4 @@ if [ "$rc" -ne 0 ]; then
   exit 1
 fi
 
-echo "Memory map agreed on: ram $(hexfmt "$RAM_BASE")+${RAM_BYTES}B, timer $(hexfmt "$TIMER_BASE")+${TIMER_BYTES}B of ${TIMER_RESERVED}B reserved, uart $(hexfmt "$UART_BASE"), rom ${SOC_ROM_WORDS_RTL} words on the part / ${TB_ROM_WORDS} simulated"
+echo "Memory map agreed on: ram $(hexfmt "$RAM_BASE")+${RAM_BYTES}B, timer $(hexfmt "$TIMER_BASE")+${TIMER_BYTES}B of ${TIMER_RESERVED}B reserved, uart $(hexfmt "$UART_BASE"), spi $(hexfmt "$FLASH_BASE"), rom ${SOC_ROM_WORDS_RTL} words on the part / ${TB_ROM_WORDS} simulated"

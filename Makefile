@@ -18,9 +18,14 @@ rvfi_macros.vh: $(RISCV_FORMAL_DIR)/checks/rvfi_macros.py
 # That job calls `make elaborate-strict` now, so there is one list to update.
 SIM_RTL_SRCS := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v \
                 rtl/fetcher.v rtl/imemory.v rtl/memory.v rtl/regfile.v rtl/regsel.v \
-                rtl/timer.v rtl/uart.v rtl/writeback.v rtl/littlecpu.v
+                rtl/timer.v rtl/uart.v rtl/spiflash.v rtl/writeback.v rtl/littlecpu.v
 
-testbench.vvp: $(SIM_RTL_SRCS) rvfi_macros.vh test/testbench.v test/monitor.sim.v
+# The harness's own modules, for the same reason: test/testbench.v instantiates
+# a model of the board's flash, and a rule that read the harness without it
+# would elaborate a master whose miso nothing drives.
+SIM_TB_SRCS := test/testbench.v test/spiflash_model.v
+
+testbench.vvp: $(SIM_RTL_SRCS) rvfi_macros.vh $(SIM_TB_SRCS) test/monitor.sim.v
 	iverilog -I./rtl/ -DICARUS $(addprefix -D,$(RISCV_FORMAL_MACROS)) -g2012 -o $@ $^
 
 .PHONY: waves
@@ -212,7 +217,7 @@ sail-reservation-probe:
 test/monitor.sim.v: test/monitor.v test/sanitize_monitor.py
 	python3 test/sanitize_monitor.py $< > $@
 
-test/rtl.cc: $(SIM_RTL_SRCS) rvfi_macros.vh test/testbench.v test/monitor.sim.v
+test/rtl.cc: $(SIM_RTL_SRCS) rvfi_macros.vh $(SIM_TB_SRCS) test/monitor.sim.v
 	yosys -p 'read_verilog -sv $(addprefix -D ,$(RISCV_FORMAL_MACROS)) $^; hierarchy -top testbench; write_cxxrtl $@'
 
 # ---- the dual configuration ------------------------------------------------
@@ -255,8 +260,8 @@ ELABORATE_STRICT_OUT ?= /tmp/elaborate-strict.cc
 # quotes stays literal, so yosys reads the backslash as a command and dies with
 # "No such command: \". It works with the make on macOS and fails on the runner.
 .PHONY: elaborate-strict
-elaborate-strict: $(SIM_RTL_SRCS) test/testbench.v
-	yosys -p 'read_verilog -sv $(SIM_RTL_SRCS) test/testbench.v; hierarchy -top testbench; proc; opt_clean; check; write_cxxrtl $(ELABORATE_STRICT_OUT)'
+elaborate-strict: $(SIM_RTL_SRCS) $(SIM_TB_SRCS)
+	yosys -p 'read_verilog -sv $(SIM_RTL_SRCS) $(SIM_TB_SRCS); hierarchy -top testbench; proc; opt_clean; check; write_cxxrtl $(ELABORATE_STRICT_OUT)'
 
 # The `cd` is required: generate.py opens ../insns/isa_<isa>.txt relative to its
 # own CWD.
@@ -385,7 +390,7 @@ lint-setup:
 	@'$(SVLINT_DIR)'/bin/svlint --version
 
 UNIT_BENCHES := exec_tb mem_tb imem_tb decoder_tb regfile_tb csr_tb accessor_tb monitor_tb \
-                timer_tb uart_tb
+                timer_tb uart_tb spiflash_tb pin_lockout_tb miso_share_enable_tb
 
 UNIT_BENCH_SRC_exec_tb     := rtl/structs.v rtl/executor.v
 UNIT_BENCH_SRC_mem_tb      := rtl/memory.v
@@ -397,6 +402,9 @@ UNIT_BENCH_SRC_accessor_tb := rtl/structs.v rtl/accessor.v
 UNIT_BENCH_SRC_monitor_tb  := test/monitor.sim.v
 UNIT_BENCH_SRC_timer_tb    := rtl/timer.v
 UNIT_BENCH_SRC_uart_tb     := rtl/uart.v
+UNIT_BENCH_SRC_spiflash_tb := rtl/spiflash.v test/spiflash_model.v
+UNIT_BENCH_SRC_pin_lockout_tb := soc/pin_lockout.v
+UNIT_BENCH_SRC_miso_share_enable_tb := soc/miso_share_enable.v
 
 # `present` is read from disk inside the recipe, not with $(wildcard). Make reads
 # a directory once and remembers it, and a check working from a stale listing can
@@ -603,7 +611,7 @@ dual-build:
 test: sim test-units probe-gates pin-bump-test tool-cache-test memmap-test \
       compare-geometry-test retired-term-test port-connect-test march-test \
       band-source-test window-test imem-share-test abc-engine-test mutation-probe \
-      dual-build
+      dual-build board-elaborate
 	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 # The same suite `make test` runs, with the runner charging every cycle to the
@@ -874,8 +882,8 @@ SOC_EXPECT_EBR   := 20
 
 SOC_SRCS      := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v \
                  rtl/executor.v rtl/fetcher.v rtl/imemory.v rtl/memory.v \
-                 rtl/regfile.v rtl/regsel.v rtl/timer.v rtl/uart.v rtl/writeback.v \
-                 rtl/littlecpu.v rtl/littlesoc.v
+                 rtl/regfile.v rtl/regsel.v rtl/timer.v rtl/uart.v rtl/spiflash.v \
+                 rtl/writeback.v rtl/littlecpu.v rtl/littlesoc.v
 
 # PHONY so `soc.json` resynthesises every run: the image depends on SOC_PROG,
 # which make cannot see a change to, and a stale ROM would make the measurement
@@ -1283,7 +1291,7 @@ dhrystone-board:
 # top, different pins, possibly a different clock source. Do not merge the two.
 BOARD ?= upduino
 
-BOARD_SRCS := $(SOC_SRCS) soc/board_upduino.v
+BOARD_SRCS := $(SOC_SRCS) soc/miso_share_enable.v soc/board_upduino.v
 BOARD_TOP  := upduino_top
 BOARD_PCF  := soc/upduino.pcf
 
@@ -1309,6 +1317,20 @@ noop-rom:
 	  echo '*** Something was meant to write them before this ran.'; \
 	  exit 1; \
 	}
+
+# The board wrapper's only grader that does not need a board. It forces its own
+# red directions, the way `window-test` does and for the same reason -- see
+# soc/board_elaborate.sh, which is where all of it lives.
+#
+# Also needs $(BOARD_ROM): rtl/imemory.v reads soc/rom_*.hex with $readmemh at
+# elaboration time regardless of what board-elaborate is checking, and on a
+# fresh checkout nothing else in `make test`'s chain writes them first. Missing,
+# yosys treats it as a fatal ERROR rather than a warning, which is what made
+# this target fail on a clean CI checkout while passing on a working tree that
+# still had the files from an earlier `make bitstream` or `make fit`.
+.PHONY: board-elaborate
+board-elaborate: $(BOARD_SRCS) $(BOARD_ROM)
+	@./soc/board_elaborate.sh yosys $(BOARD_TOP) $(BOARD_SRCS)
 
 board.json: $(BOARD_SRCS) $(BOARD_ROM)
 	@echo 'yosys: synthesising $(BOARD_TOP) for ice40 (log: board.synth.log)'

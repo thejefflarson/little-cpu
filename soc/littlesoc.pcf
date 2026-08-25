@@ -1,6 +1,6 @@
 # Pin constraints for rtl/littlesoc.v on an ice40 up5k in an sg48 package.
 #
-# FIVE PINS, and that is the honest answer rather than a shortcut.
+# NINE PINS, and that is the honest answer rather than a shortcut.
 # Both memories are internal -- ROM in block RAM, RAM in SPRAM -- so the design
 # has no external bus at all. That is precisely why it places when `make fit`'s
 # top does not: `littlecpu` with its memories external presents 231 `SB_IO`
@@ -29,3 +29,13 @@ set_io btn_n  10
 set_io ledr_n 11
 set_io ledg_n 37
 set_io uart_tx 9
+
+# The configuration flash, on the four dedicated pins every up5k in an sg48
+# carries it on. rtl/littlesoc.v drives them as plain signals; the tri-states
+# that let a programmer have the same wires are a board's business and live in
+# soc/board_upduino.v, which is a different top. What they are for HERE is that
+# the device is inside the design being timed, so its pads are real.
+set_io spi_miso 14
+set_io spi_sck  15
+set_io spi_cs_n 16
+set_io spi_mosi 17
