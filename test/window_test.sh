@@ -173,6 +173,12 @@ run_case "BAUD = the clock" rtl/uart.v uart ".BAUD(12_000_000)" \
 run_case "the SoC's own" rtl/uart.v uart \
   ".BASE(32'h0002_0020), .CLOCK_HZ(12_000_000), .BAUD(115_200)" accept ""
 
+echo
+echo "== rtl/spiflash.v: an 8-byte aligned BASE"
+run_case "BASE = 0x0002_002c" rtl/spiflash.v spiflash ".BASE(32'h0002_002c)" \
+  reject "BASE must be 8-byte aligned"
+run_case "the SoC's own" rtl/spiflash.v spiflash ".BASE(32'h0002_0028)" accept ""
+
 # The core copies that map for its load/store locality counters, and its copy is
 # read by nothing else -- so a shape no memory here could be built at would be
 # counted against silently rather than refused. These are the same alignment and
@@ -180,7 +186,7 @@ run_case "the SoC's own" rtl/uart.v uart \
 echo
 echo "== rtl/littlecpu.v: the copied map has the shape the memories demand"
 # One override per case, so each names the parameter it is about and the rest
-# stay at the values that ship; the accept below states all five.
+# stay at the values that ship; the accept below states all six.
 run_case "LS_TEXT_WORDS = 3072" rtl/littlecpu.v littlecpu ".LS_TEXT_WORDS(3072)" \
   reject "LS_TEXT_WORDS must be a power of two"
 run_case "LS_RAM_WORDS = 12288" rtl/littlecpu.v littlecpu ".LS_RAM_WORDS(12288)" \
@@ -191,8 +197,10 @@ run_case "LS_TIMER_BASE = 0x0002_0008" rtl/littlecpu.v littlecpu \
   ".LS_TIMER_BASE(32'h0002_0008)" reject "LS_TIMER_BASE must be 16-byte aligned"
 run_case "LS_UART_BASE = 0x0002_0014" rtl/littlecpu.v littlecpu \
   ".LS_UART_BASE(32'h0002_0014)" reject "LS_UART_BASE must be 8-byte aligned"
+run_case "LS_FLASH_BASE = 0x0002_002c" rtl/littlecpu.v littlecpu \
+  ".LS_FLASH_BASE(32'h0002_002c)" reject "LS_FLASH_BASE must be 8-byte aligned"
 run_case "the SoC's own" rtl/littlecpu.v littlecpu \
-  ".LS_TEXT_WORDS(2048), .LS_RAM_BASE(32'h0001_0000), .LS_RAM_WORDS(16384), .LS_TIMER_BASE(32'h0002_0000), .LS_UART_BASE(32'h0002_0020)" \
+  ".LS_TEXT_WORDS(2048), .LS_RAM_BASE(32'h0001_0000), .LS_RAM_WORDS(16384), .LS_TIMER_BASE(32'h0002_0000), .LS_UART_BASE(32'h0002_0020), .LS_FLASH_BASE(32'h0002_0028)" \
   accept ""
 
 echo

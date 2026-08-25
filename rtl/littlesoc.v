@@ -1,7 +1,8 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// The whole chip: core, both memories, the machine timer, a transmit-only UART
-// and five pins. `make soc-timing` measures this. `make fit` measures the core
+// The whole chip: core, both memories, the machine timer, a transmit-only UART,
+// a byte-at-a-time master for the configuration flash, and nine pins.
+// `make soc-timing` measures this. `make fit` measures the core
 // on its own with the memories outside it, so its cell count is a different
 // design's and the two do not compare -- and rtl/uart.v is outside that top
 // entirely, so it moves this design's cell count and not that one's.
@@ -18,7 +19,8 @@
 // The ROM is initialised from the bitstream and the SPRAM cannot be, so a
 // program's `.data` is not there at power-on and every `.S` program in test/asm
 // has one. Running a real program needs a stub in `.text` that copies the data
-// image out of ROM, or a boot path that reads it from external SPI flash.
+// image out of ROM; the SPI master below is the other half of that, and lets a
+// program read an image the bitstream never carried.
 module littlesoc (
   input  logic clk,
   input  logic btn_n,
@@ -31,7 +33,17 @@ module littlesoc (
   // The one pin a program can say anything through. It goes to the FTDI bridge
   // on the board, so a host sees it as a serial port; soc/littlesoc.pcf carries
   // the assignment.
-  output logic uart_tx
+  output logic uart_tx,
+  // The configuration flash, after configuration. `spi_cs_n` is the chip select
+  // AND the output enable a board file needs: these three outputs are shared
+  // with whatever programmes the board, so a design that drove them all the
+  // time would fight the programmer for the wire. soc/board_upduino.v is where
+  // that tri-state lives, because which wires are shared is a fact about one
+  // board and not about this chip.
+  output logic spi_sck,
+  output logic spi_mosi,
+  input  logic spi_miso,
+  output logic spi_cs_n
 );
   // The FPGA comes out of configuration with no reset of its own, so this makes
   // one. Keep `reset` registered. The button is asynchronous and needs the two
@@ -60,6 +72,7 @@ module littlesoc (
   /* verilator lint_on UNUSED */
   logic [31:0] mem_addr, mem_wdata, mem_rdata;
   logic [31:0] imem_mem_rdata, dmem_mem_rdata, timer_mem_rdata, uart_mem_rdata;
+  logic [31:0] flash_mem_rdata;
   logic [3:0]  mem_wstrb;
   logic        mem_ren, fetch_stall, irq_timer, imem_fault, mem_reservable;
   logic        atomic_supported, mem_lock, bus_request;
@@ -167,10 +180,30 @@ module littlesoc (
     .tx(uart_tx)
   );
 
-  // An OR instead of a mux, which is one less level of logic here. The four
+  // The SPI master, at rtl/spiflash.v's default base, which is the first word
+  // past the UART's two. Its read-back is nine bits wide, so the OR below gains
+  // a fourth input on bits 1 to 8 -- still one `SB_LUT4` each -- and a FIFTH on
+  // bit 0, which the UART already shares, so that bit alone costs a second LUT.
+  // Nine bits is what "one load answers both questions" costs; moving `busy`
+  // out of bit 8 would save the LUT and put a shift in every poll.
+  spiflash flash (
+    .clk(clk),
+    .reset(reset),
+    .mem_addr(mem_addr),
+    .mem_wdata(mem_wdata),
+    .mem_wstrb(mem_wstrb),
+    .mem_rdata(flash_mem_rdata),
+    .sck(spi_sck),
+    .mosi(spi_mosi),
+    .miso(spi_miso),
+    .cs_n(spi_cs_n)
+  );
+
+  // An OR instead of a mux, which is one less level of logic here. The five
   // ranges do not overlap. On a store the RAM holds its last read value and the
   // others give zero, so this can never mix two real values together.
-  assign mem_rdata = imem_mem_rdata | dmem_mem_rdata | timer_mem_rdata | uart_mem_rdata;
+  assign mem_rdata = imem_mem_rdata | dmem_mem_rdata | timer_mem_rdata | uart_mem_rdata
+                   | flash_mem_rdata;
 
   // TWO BITS OF THE LAST STORE, one per LED. A program says what it means by
   // storing it: bit 0 lights green, bit 1 lights red, and a store of 1 or 2 is

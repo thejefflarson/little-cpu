@@ -673,8 +673,8 @@ measurement, which is the rule this very paragraph exists to enforce. **Their
   the worst placement 1.1% the other way** (ADR-0121). An effect on the median smaller than the churn
   band and none at all on the tail, so freeing cells buys headroom on the 5280 and whatever path it
   takes with it — never margin. Where a fact like that is now load-bearing it is an
-  elaboration `$fatal`, not a comment: `rtl/{imemory,memory,timer,uart}.v` refuse to build at a
-  non-power-of-two depth or an unaligned `BASE`, and `make window-test` forces all four red.
+  elaboration `$fatal`, not a comment: `rtl/{imemory,memory,timer,uart,spiflash}.v` refuse to build
+  at a non-power-of-two depth or an unaligned `BASE`, and `make window-test` forces all five red.
   **The rule does not only find small things.** The same question asked of `rtl/executor.v` found
   three that each clear the band alone — a divider carrying 64-bit registers for a 32-bit division,
   a duplicated negator inside a one-hot mux, and the multiplier's 33rd partial-product row in soft
@@ -824,8 +824,17 @@ make mutation-check # delete a term from rtl/ and require exactly the detectors
                     # written for. ~3.5 min, not on `make test`, no ratchet.
                     # `make mutation-probe` forces its own graders red and IS on it
 make window-test    # force the elaboration checks in rtl/{imemory,memory,timer,
-                    # uart}.v and rtl/littlecpu.v's copy of that map red, in both
-                    # frontends. Runs inside `make test`
+                    # uart,spiflash}.v and rtl/littlecpu.v's copy of that map
+                    # red, in both frontends. Runs inside `make test`
+make board-elaborate # read soc/board_upduino.v, the one file nothing else on
+                    # `make test` or on CI touches -- `bitstream` and `prog`
+                    # both need a board. Warning-free elaboration, and two ways
+                    # of breaking the wrapper forced red: a port the SoC does
+                    # not have, which yosys fails on, and a synchroniser input
+                    # reading a pin nothing drives, which it only warns about.
+                    # It does NOT read soc/upduino.pcf -- nothing here parses
+                    # one, so a pin naming a port that no longer exists is
+                    # nextpnr's to catch. Inside `make test`
 make imem-share-test # map rtl/imemory.v for ice40 and ECP5 at one and at two
                     # fetch windows, and require two windows to be two copies of
                     # ONE storage -- every copy on the same write enable,
@@ -980,9 +989,60 @@ four `SB_SPRAM256KA` at 256 kbit each. **128 KB is the up5k's whole SPRAM, not t
 a program that reads its own `.data`. SPRAM still cannot be initialised, so `.data` rides in the
 ROM at a load address `test/asm/boot.lds` puts there and `test/crt0.S` copies into RAM before
 `main`. That runtime costs 82 bytes and `test/asm/datainit.c`'s whole ROM image is 284 of 8192 — a whole
-Dhrystone is 3568 of it — so SPI-flash boot stays deferred, alongside the radix-4 divider. Two things have come off that list:
+Dhrystone is 3568 of it. The radix-4 divider is still deferred, and so is booting a program out of the
+flash — the controller for it is built and reachable in simulation, but not yet wired to this board's
+pins (see below). Two things have come off that list:
 the machine timer is built (ADR-0082), and the forwarding network is priced and declined rather than
 pending (ADR-0083). An interrupt controller, more sources and a vectored `mtvec` are still on it.
+
+**8 KB of text is the ceiling and it is a range test's, not the part's** (ADR-0135). `rtl/imemory.v`
+refuses a `ROM_WORDS` that is not a power of two, because both its range tests are reductions on the
+address bits above the ROM; the next legal size up is 16 KB, which is 32 block RAMs against the 26
+free. So there is no ROM size between the one that ships and one that does not fit, and spending the
+spare block RAMs is not a thing that can be done. **The two free `SB_SPRAM256KA` cannot hold text
+either, and that is arithmetic rather than a timing question**: fetch reads two neighbouring words
+every cycle out of two parity banks, `SB_SPRAM256KA` is 16 bits wide with one address port, so a
+32-bit bank is two of them and a fetch window is four — the whole part, with none left for the 64 KB
+data RAM. ADR-0087's warning about the fetch loop was never reached; the design it would have
+measured cannot be built here. `test/asm/rvc.S` is 12 256 bytes and therefore still cannot run on
+silicon, and `soc/run_suite_board.sh` still batches.
+
+**A read-only controller for the configuration flash is the ninth pin** (ADR-0135). `rtl/spiflash.v`
+is a byte-at-a-time single-lane mode-0 shift register — eight bytes at `0x0002_0028`, a data register
+whose read gives `busy` in bit 8 above the byte the last exchange shifted in, and a write-only control
+register whose bit 0 is the chip select. It knows no commands, so a JEDEC id read and an `0x03`
+sequential read are the same eight clocks a byte. **`busy` sits beside the byte rather than in the
+register software writes, and the co-simulation is why**: the model has plain memory here, so a wait
+that polled back the chip select it had just stored spun on Sail and the entry read `INCONCLUSIVE
+SAIL-LIMIT`, which compares nothing; polling a register nothing stores a set bit to makes it
+`DISAGREE AT 9`, with eight changes compared. **The controller itself is not wired to a board pin —
+only the UART's own long-standing pin conflict with the flash chip is.** The UPduino's pin 14 is
+`serial_txd` and `spi_miso` at once, so the FPGA's only route to the USB serial port is also the
+on-board configuration flash's own data-out line, and driving it unconditionally — as
+`soc/board_upduino.v` always had — fights that flash chip for the wire while `iceprog` reads it,
+because this board's CRESET is not wired to the programmer and the FPGA keeps running throughout.
+`soc/board_upduino.v` now reads pin 16, the flash's chip select, and drives pin 14 with the UART
+only once that reads released. That predicate is sound at DC where a grant built on `released` alone
+would not be: an SPI slave's own output stage is a deterministic function of its chip select —
+driving low, high-impedance high — regardless of whether a pull-up or `iceprog` itself is what holds
+the select high, so the LEVEL answers "is the flash's own driver off" with no ambiguity about who is
+holding it. **The edge is a different question, and `soc/miso_share_enable.v` answers the two
+directions differently rather than trusting one predicate for both**: turn-on goes through a
+two-flop synchroniser, because a fresh transition needs those two cycles to settle before it is
+trusted; turn-off is combinational, on the raw read, because a synchronised-only enable would keep
+this design driving pin 14 for up to two clock periods after the flash's own driver is already live
+on it — two push-pull drivers on one pin, on every chip-select assertion a host makes. **A predicate
+good enough for the level is not good enough to grant the on-chip controller its own pins on.** `soc/pin_lockout.v` was built to arbitrate all four shared pins by the same chip select, on the
+same kind of read, but there its question is different — "is a host there at all" — and `released`
+cannot answer that: a host idle with its own chip select parked high reads exactly like no host being
+there, and `iceprog` parks it that way, as a push-pull MPSSE output, for most of a programming
+session and not a corner of it. A grant built on that predicate could still drive three pins into the
+FTDI's own driver. So `rtl/spiflash.v`'s own pins — `sck`, `mosi`, and its own `cs_n` — are not wired
+to this board at all; `soc/board_upduino.v` ties them off (`spi_miso` high, the rest unconnected), and
+`soc/pin_lockout.v` still ships, bounded so a hung on-chip request cannot hold pins forever once
+something wires a requester to it (below), graded standalone by its own bench. Reaching the flash's
+data path from this board is a future ticket's, and it owes a real-board measurement of the
+contention window described above before it wires that sharing in.
 
 **A transmit-only UART is the fifth pin and the only observable output a flashed bitstream has** —
 eight bytes at `0x0002_0020` — above the timer's reservation rather than abutting the four words it

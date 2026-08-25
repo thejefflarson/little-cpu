@@ -148,19 +148,13 @@ while read -r progs; do
   # prints its progress as it goes, so hiding it makes a working flash
   # indistinguishable from a hung one -- which is exactly how it looked the first
   # time this ran quietly.
-  # RETRIED, BECAUSE THE UART FIGHTS THE FLASH FOR PIN 14.
-  #
-  # soc/upduino.pcf puts uart_tx on pin 14 and the vendor's own constraint file
-  # calls that pin spi_miso -- the flash's data line into the FPGA. Once a batch
-  # has run, the driver replays its report forever, so the FPGA is driving that
-  # pin while iceprog is trying to read the flash through it. The symptom is
-  # exact: `cdone: high` after reset instead of low, a flash ID that comes back
-  # with a spurious leading 0xFF, and then a write error. The first flash of a
-  # session works because the board is still quiet.
-  #
-  # A retry usually wins -- the contention is a race against the replay's duty
-  # cycle, not a permanent conflict. The real fix is to move the UART off that
-  # pin, which costs the USB serial path and is JEF-866's to decide.
+  # RETRIED, AND THE DESIGN SHOULD NOT NEED IT ANY MORE. The UART used to drive
+  # pin 14 unconditionally and pin 14 is the flash's data line, so a board
+  # replaying its report fought iceprog for the wire. soc/board_upduino.v
+  # releases it whenever the host asserts the chip select; read that file for
+  # how. The loop stays until a board has run without it -- it costs nothing
+  # when the first attempt wins, and removing it on an argument rather than on a
+  # run is how this project has been wrong before.
   t0=$SECONDS
   flashed=""
   for attempt in 1 2 3 4; do

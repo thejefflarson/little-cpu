@@ -22,6 +22,51 @@
 // on the three dedicated pins the RGB driver block also uses. Driving them as
 // ordinary IO is what the vendor's own example does; cut R28 if the current
 // draw is unwanted.
+//
+// ---- PIN 14 IS SHARED, AND ONLY PIN 14 IS WIRED HERE -----------------------
+//
+// The vendor's own constraint file gives pin 14 two names: `serial_txd` and
+// `spi_miso`. So the FPGA's only route to the USB serial port is also the
+// on-board configuration flash's own data-out line, and there is no other pin
+// that reaches a host. Driving pin 14 unconditionally fought that flash chip
+// for the wire during a real flashing session -- `cdone` read high after a
+// reset that should have lowered it, a JEDEC id arrived a byte late as
+// `FF EF 70 16`, and then a write failed -- because this board's CRESET is not
+// wired to the programmer, so the FPGA keeps running, and keeps driving pin
+// 14, throughout `iceprog`'s own access to the same wire.
+//
+// THE FIX READS PIN 16 RATHER THAN GUESSING. Pin 16 is the flash's own chip
+// select, and an SPI slave's output stage is a deterministic function of its
+// own chip select: LOW, it drives; HIGH, it is high-impedance, no matter who
+// or what is holding that pin high. So "does pin 16 read high" is a sound
+// question at DC -- the level pin 16 settles to does not depend on whether a
+// pull-up or `iceprog` itself is what holds it there. It is NOT sound to ask
+// only through a synchroniser, though: soc/miso_share_enable.v gates turn-ON
+// through one (two cycles, because `now` crosses from a source this design
+// has no clock relationship with), but turns the enable OFF combinationally,
+// on the raw read, the instant pin 16 goes low. A synchronised-only enable
+// would keep this design driving pin 14 for up to two clock periods after
+// the flash's own driver is already live on it -- two push-pull drivers on
+// one pin, on every chip-select assertion a host makes. Nothing here ever
+// writes pin 16, so there is no loop through the pad to freeze against,
+// unlike the mechanism in soc/pin_lockout.v this board does not use.
+//
+// PINS 15 AND 17 ARE NOT WIRED HERE AT ALL. `rtl/spiflash.v` -- the on-chip
+// controller for the same flash -- ships on `littlesoc`'s bus and is
+// reachable in simulation, but this board does not connect it to a physical
+// pin. Its own chip select is a different question from the flash's, and
+// `released` (soc/pin_lockout.v's own predicate) cannot tell a host that is
+// idle with the flash's chip select parked high from one that was never
+// there -- `iceprog` parks it exactly that way, as a push-pull output,
+// between its own transactions, which is most of a session and not a corner
+// of it. Granting the on-chip controller those two pins on that predicate
+// risks driving them into the FTDI's own driver. `soc/pin_lockout.v` still
+// ships, bounded so a hung on-chip request cannot hold the pins forever once
+// something DOES wire a requester to it, but wiring it to this board's real
+// pins is a future ticket's, and it owes a real-board measurement of the
+// contention window described above, not another RTL argument.
+`timescale 1 ns / 1 ps
+`default_nettype none
 module upduino_top #(
   // 0 takes the 12 MHz crystal off pin 20 and requires R16 shorted.
   // 1 takes `SB_HFOSC`, the internal oscillator, divided to 12 MHz.
@@ -36,7 +81,11 @@ module upduino_top #(
   input  logic clk_pin,
   output logic ledr_n,
   output logic ledg_n,
-  output logic uart_tx
+  // Pin 14, shared with the flash's data-out. Pin 16, the flash's chip
+  // select, read only -- see the note above for why this board never drives
+  // it.
+  inout  wire  spi_miso_txd,
+  inout  wire  spi_ssn
 );
   logic clk;
 
@@ -56,11 +105,49 @@ module upduino_top #(
     end
   endgenerate
 
+  logic uart_tx;
+  logic ssn_pin;
+  logic miso_enable;
+
+  // Turn-on synchronised, turn-off combinational -- see soc/miso_share_enable.v
+  // and the header comment above for why the two directions need different
+  // treatment. `ssn_pin` is read here only, so there is no loop through the
+  // pad for this design's own drive to close: nothing below ever writes pin
+  // 16, unlike the mechanism in soc/pin_lockout.v this board does not use.
+  miso_share_enable enable_gate (
+    .clk(clk),
+    .now(ssn_pin),
+    .enable(miso_enable)
+  );
+
+  // PIN_TYPE 6'b1010_01: a simple output behind an output enable, and a
+  // simple input. Pin 14 uses both halves; pin 16 only the input half, with
+  // its output enable tied low so this design never drives it.
+  localparam logic [5:0] SHARED_PIN = 6'b1010_01;
+
+  SB_IO #(.PIN_TYPE(SHARED_PIN), .PULLUP(1'b1)) io_miso_txd (
+    .PACKAGE_PIN(spi_miso_txd),
+    .OUTPUT_ENABLE(miso_enable),
+    .D_OUT_0(uart_tx),
+    .D_IN_0()
+  );
+
+  SB_IO #(.PIN_TYPE(SHARED_PIN), .PULLUP(1'b1)) io_ssn (
+    .PACKAGE_PIN(spi_ssn),
+    .OUTPUT_ENABLE(1'b0),
+    .D_OUT_0(1'b0),
+    .D_IN_0(ssn_pin)
+  );
+
   littlesoc soc (
     .clk(clk),
     .btn_n(1'b1),
     .ledr_n(ledr_n),
     .ledg_n(ledg_n),
-    .uart_tx(uart_tx)
+    .uart_tx(uart_tx),
+    .spi_sck(),
+    .spi_mosi(),
+    .spi_miso(1'b1),
+    .spi_cs_n()
   );
 endmodule
