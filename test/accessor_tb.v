@@ -37,8 +37,8 @@ module accessor_tb;
   // The platform's answer to "may a reservation be held at this address". High
   // for every vector except the one that asks what happens when it is not.
   logic        mem_reservable = 1'b1;
-  // Another bus master's write. Low except in the vectors that drive it: this
-  // core has no second master, so nothing else in the tree can say whether a
+  // Another bus initiator's write. Low except in the vectors that drive it: this
+  // core has no second initiator, so nothing else in the tree can say whether a
   // foreign write ends a reservation.
   logic        snoop_write = 1'b0;
   logic [31:0] snoop_addr = 32'b0;
@@ -279,7 +279,7 @@ module accessor_tb;
     end
   endtask
 
-  // Another bus master's write, for one cycle, with this core launching
+  // Another bus initiator's write, for one cycle, with this core launching
   // nothing. That is the shape a snoop really has: the other hart owns the bus
   // on the cycle it writes, so this one is not requesting on it.
   task automatic snoop_writes(input logic [31:0] addr);
@@ -557,13 +557,13 @@ module accessor_tb;
     sc_does("...and the reservation does not survive it",
             32'h0001_0040, 32'h5555_6666, 1'b1);
 
-    // Another master's write to the reserved word ends the reservation, which
+    // Another initiator's write to the reserved word ends the reservation, which
     // is the whole of what a second hart needs from this module. The failing
     // store-conditional puts nothing on the bus, and `sc_does` counts that: a
     // reservation cleared is a transaction not made, not just a bit in rd.
     lr_takes(32'h0001_0040, 32'h0000_0001);
     snoop_writes(32'h0001_0040);
-    sc_does("sc.w after another master wrote the reserved word",
+    sc_does("sc.w after another initiator wrote the reserved word",
             32'h0001_0040, 32'h5555_6666, 1'b1);
 
     // ...and a foreign write elsewhere leaves it alone. Without this the vector
@@ -571,7 +571,7 @@ module accessor_tb;
     // fail every store-conditional the moment a second hart touched memory.
     lr_takes(32'h0001_0040, 32'h0000_0001);
     snoop_writes(32'h0001_0048);
-    sc_does("...but another master's write elsewhere does not disturb it",
+    sc_does("...but another initiator's write elsewhere does not disturb it",
             32'h0001_0040, 32'h5555_6666, 1'b0);
 
     // The region attribute. A platform that will not answer an address will
@@ -587,7 +587,7 @@ module accessor_tb;
       $display("FAILED: %0d mismatches", errors);
       $fatal(1);
     end else begin
-      $display("PASSED: accessor read enable, load unpack, the AMO datapath, the reservation under this core's writes and another master's, the bus lock and the one-transaction guard");
+      $display("PASSED: accessor read enable, load unpack, the AMO datapath, the reservation under this core's writes and another initiator's, the bus lock and the one-transaction guard");
       $finish;
     end
   end

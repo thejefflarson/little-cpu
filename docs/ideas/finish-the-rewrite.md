@@ -438,6 +438,6 @@ dominate the non-RTL work; no product or data questions in play.
 
 **External:** [riscv-formal verification procedure](https://yosyshq.readthedocs.io/projects/riscv-formal/en/latest/procedure.html) ·
 [YosysHQ/riscv-formal](https://github.com/YosysHQ/riscv-formal) ·
-[riscv-gnu-toolchain](https://github.com/riscv-collab/riscv-gnu-toolchain/blob/master/README.md) ·
+[riscv-gnu-toolchain](https://github.com/riscv-collab/riscv-gnu-toolchain/blob/HEAD/README.md) ·
 [Homebrew riscv64-elf-gcc](https://formulae.brew.sh/formula/riscv64-elf-gcc) ·
 [Sentinel riscv-formal setup (prior art)](https://sentinel-cpu.readthedocs.io/en/main/development/testing.html)

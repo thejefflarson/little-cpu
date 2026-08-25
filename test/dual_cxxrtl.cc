@@ -22,7 +22,7 @@
 // whatever the program on hart 0 concluded. And 7 is the check the dual top's
 // bus needs -- the two harts' address, write-data and strobe ports are joined
 // with an OR, which is sound only while at most one of them is live, and an OR
-// of two live masters produces a plausible wrong address rather than an error.
+// of two live initiators produces a plausible wrong address rather than an error.
 //
 // A deadlock is reported rather than merely timing out: the cycle of each
 // hart's last retire is tracked, so a TIMEOUT says which hart stopped and when.

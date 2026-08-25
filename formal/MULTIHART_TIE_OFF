@@ -13,7 +13,7 @@
 # conversation there is no second hart to have:
 #
 #   bus_wait     the shared bus is somebody else's this cycle
-#   snoop_write  another bus master is writing
+#   snoop_write  another bus initiator is writing
 #   snoop_addr   ...and where
 #
 # `mem_lock` is the fourth port of that surface and is deliberately NOT here.

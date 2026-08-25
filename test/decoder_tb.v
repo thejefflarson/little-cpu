@@ -27,7 +27,7 @@ module decoder_tb;
   logic divider_stall = 1'b0;
   logic fetch_stall = 1'b0;
   // The platform has not granted this core the shared bus. Low for every vector
-  // but the ones that drive it below: with one bus master it never rises, and
+  // but the ones that drive it below: with one bus initiator it never rises, and
   // nothing single-hart can otherwise say which arm of the publish block it
   // takes.
   logic bus_wait = 1'b0;

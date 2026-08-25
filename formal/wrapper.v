@@ -54,7 +54,7 @@ module rvfi_wrapper (
   (* keep *) `rvformal_rand_reg atomic_supported;
   wire [31:0] atomic_addr;
 
-  // The lock an arbiter would read, and the two inputs a second bus master
+  // The lock an arbiter would read, and the two inputs a second bus initiator
   // would drive. Tied off below; the lock is unread because nothing here
   // arbitrates for anything.
   wire mem_lock;

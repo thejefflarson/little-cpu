@@ -80,7 +80,7 @@ module bench_littlecpu #(
     .mem_reservable(mem_reservable),
     .atomic_addr(atomic_addr),
     .atomic_supported(atomic_supported),
-    // One bus master here too. The other core in this harness has no such
+    // One bus initiator here too. The other core in this harness has no such
     // surface, so tying these off is also what keeps the two sides comparable.
     .bus_wait(1'b0),
     .snoop_write(1'b0),

@@ -40,9 +40,9 @@ module accessor(
     // Without it an `sc.w` to an address no memory answers would report success
     // for a store that went nowhere, and the spec has no room for that.
     input  logic mem_reservable,
-    // Another bus master wrote, and where. It joins this core's own writes in
+    // Another bus initiator wrote, and where. It joins this core's own writes in
     // the clear term below, so a reservation cannot outlive somebody else's
-    // store to the reserved word. A platform with one bus master ties
+    // store to the reserved word. A platform with one bus initiator ties
     // `snoop_write` low and the reservation is cleared by this core alone.
     input  logic        snoop_write,
     input  logic [31:0] snoop_addr,
@@ -143,7 +143,7 @@ module accessor(
 
   assign mem_lock = requesting && launch_is_amo;
 
-  // Another master's write to the reserved word. It outranks the `lr.w` arm
+  // Another initiator's write to the reserved word. It outranks the `lr.w` arm
   // below rather than joining the clear arm, so a reservation taken on the
   // cycle a foreign write lands on the same word is dropped instead of kept: a
   // store-conditional that fails spuriously is permitted anywhere and one that
@@ -527,10 +527,10 @@ module accessor(
   always_ff @(posedge clk) prev_reservable <= mem_reservable;
   always_comb if (clocked && take_is_lr && !prev_reservable) assert(!rsrv_held);
 
-  // Another master's write to the reserved word ends the reservation, whatever
+  // Another initiator's write to the reserved word ends the reservation, whatever
   // this core was doing on that cycle -- including taking a new one, which is
   // why the clear outranks the `lr.w` arm. `snoop_write` and `snoop_addr` are
-  // free inputs here, so this is a statement about a real second master rather
+  // free inputs here, so this is a statement about a real second initiator rather
   // than about a port nobody drove.
   logic prev_snoop_clear;
   always_ff @(posedge clk) prev_snoop_clear <= snoop_clear;
@@ -545,8 +545,8 @@ module accessor(
   always_ff @(posedge clk) past_mem_lock <= mem_lock;
   always_comb if (clocked) assert(take_amo == past_mem_lock);
 
-  // ...and it buys exactly one cycle. An arbiter cannot take a bus back from a
-  // master that keeps asking for it, so a lock that could run twice would be a
+  // ...and it buys exactly one cycle. An arbiter cannot take a bus back from an
+  // initiator that keeps asking for it, so a lock that could run twice would be a
   // hart able to hold the bus for as long as it liked.
   always_comb if (clocked) assert(!(mem_lock && past_mem_lock));
 

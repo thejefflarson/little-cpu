@@ -142,7 +142,7 @@ module testbench(
     .mem_reservable(mem_reservable),
     .atomic_addr(atomic_addr),
     .atomic_supported(atomic_supported),
-    // One bus master in this machine, so the bus is never withheld and nothing
+    // One bus initiator in this machine, so the bus is never withheld and nothing
     // but the core writes memory. `mem_lock` has no arbiter to tell.
     .bus_wait(1'b0),
     .snoop_write(1'b0),
