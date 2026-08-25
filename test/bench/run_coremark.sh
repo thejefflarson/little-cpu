@@ -53,10 +53,42 @@ if [ -z "$SIM_ROM_BUDGET" ] || [ -z "$SHIP_ROM_BUDGET" ]; then
   exit 1
 fi
 
+# Membership is a two-way match, not just shasum -c's one-way one: shasum only
+# verifies the names PINNED.sha256 lists, and says nothing about a file
+# dropped in beside them. That is concretely exploitable here -- coremark.h's
+# `#include "core_portme.h"` is a quoted include, which searches the including
+# file's own directory FIRST, so an unlisted core_portme.h in $VENDOR_DIR would
+# shadow this port's real header (which carries the timing hooks) for every
+# vendored unit while shasum -c reports the tree unmodified.
+manifest_files=$(awk '!/^#/ && NF { print $NF }' "$VENDOR_DIR/PINNED.sha256" | sort)
+tree_files=$(cd "$VENDOR_DIR" && for f in *; do
+  if [ -f "$f" ] && [ "$f" != "PINNED.sha256" ]; then
+    echo "$f"
+  fi
+done | sort)
+# comm, the same two-way idiom test/check_suite_shape.sh and test/dual_build.sh
+# use for a manifest against a directory: -23 is named but missing, -13 is
+# present but unnamed.
+missing=$(comm -23 <(printf '%s\n' "$manifest_files") <(printf '%s\n' "$tree_files"))
+unlisted=$(comm -13 <(printf '%s\n' "$manifest_files") <(printf '%s\n' "$tree_files"))
+if [ -n "$missing" ] || [ -n "$unlisted" ]; then
+  echo "error: $VENDOR_DIR does not have exactly the files PINNED.sha256" >&2
+  echo "lists -- shasum -c cannot see a file that manifest never named." >&2
+  if [ -n "$missing" ]; then
+    echo "named in the manifest but missing from the directory:" >&2
+    echo "$missing" | sed 's/^/  /' >&2
+  fi
+  if [ -n "$unlisted" ]; then
+    echo "in the directory but not named in the manifest:" >&2
+    echo "$unlisted" | sed 's/^/  /' >&2
+  fi
+  exit 1
+fi
+
 if command -v shasum >/dev/null 2>&1; then
-  SHA_CHECK=(shasum -a 256 -c)
+  SHA_CHECK=(shasum -a 256 -c --strict)
 elif command -v sha256sum >/dev/null 2>&1; then
-  SHA_CHECK=(sha256sum -c)
+  SHA_CHECK=(sha256sum -c --strict)
 else
   echo "error: neither shasum nor sha256sum is on PATH, so the vendored" >&2
   echo "CoreMark sources cannot be checked against $VENDOR_DIR/PINNED.sha256." >&2
@@ -76,6 +108,11 @@ if ! (cd "$VENDOR_DIR" && "${SHA_CHECK[@]}" PINNED.sha256) >"$pin_check" 2>&1; t
   echo "*** rather than editing a file in that directory." >&2
   exit 1
 fi
+# --strict makes a malformed manifest line fail the check above; this is the
+# quieter half of the same guard -- a WARNING for a line that is merely
+# unusual (a comment shasum tolerates, say) does not fail the run, so it must
+# not be silently dropped either.
+cat "$pin_check" >&2
 rm -f "$pin_check"
 
 if [ ! -x "$SIM" ]; then
@@ -197,33 +234,44 @@ sim_status=$?
 set -e
 
 # One pass over run.log rather than three: at COREMARK_CYCLES' default budget
-# this log is 50x the size run_dhrystone.sh's DHRY_CYCLES ever produces, and
-# the STALLS/RETIRES lines it also wants are the last two lines in it -- so a
-# second and third full scan just to find them is real cost on a real file.
-# The two lines this pass pulls out go to a two-line sidecar instead, small
-# enough that reading it back twice below is free.
+# this log is 50x the size run_dhrystone.sh's DHRY_CYCLES ever produces. The
+# LAST STALLS/RETIRES line is kept, not the first: test/cxxrtl.cc's
+# report_counts() prints the guest's own console buffer before its own
+# STALLS/RETIRES lines and nothing after them, so a run whose guest program
+# writes text that happens to start with "STALLS " or "RETIRES " (coremark.h's
+# console buffer is otherwise-arbitrary bytes this port copies verbatim) must
+# not have that text mistaken for the runner's own accounting.
 : > "$tmp/extract"
 awk -v out="$tmp/extract" \
-  '/^STALLS /{line = $0; sub(/^STALLS/, "", line); print "S" line > out}
-   /^RETIRES /{print "R" $2 > out}
-   !/^(ifetch |write  |read   |trap!)/' "$tmp/run.log"
+  '/^STALLS /{stalls = $0}
+   /^RETIRES /{retires = $2}
+   !/^(ifetch |write  |read   |trap!)/
+   END {
+     if (stalls != "") { sub(/^STALLS/, "", stalls); print "S" stalls > out }
+     if (retires != "") print "R" retires > out
+   }' "$tmp/run.log"
 
 if [ "$sim_status" -ne 0 ]; then
   echo >&2
   echo "*** the run did not reach a PASS verdict (runner exit $sim_status)." >&2
   echo "*** Exit 2 is the cycle limit: raise the third argument. Anything" >&2
-  echo "*** else is a CRC self-check core_main.c printed above, or the" >&2
-  echo "*** per-retire monitor, saying the core computed the wrong thing --" >&2
-  echo "*** in which case the timing number below describes a run that was" >&2
-  echo "*** not correct and means nothing." >&2
+  echo "*** else is a CRC self-check core_main.c printed above, this port's" >&2
+  echo "*** own could-not-be-validated verdict, or the per-retire monitor," >&2
+  echo "*** saying the core computed the wrong thing -- in which case the" >&2
+  echo "*** timing number below describes a run that was not correct and" >&2
+  echo "*** means nothing." >&2
   exit "$sim_status"
 fi
 
 stall_line=$(awk '/^S/{sub(/^S/, ""); print; exit}' "$tmp/extract")
 retires=$(awk '/^R/{sub(/^R/, ""); print; exit}' "$tmp/extract")
-if [ -n "$stall_line" ] && [ -n "$retires" ]; then
-  echo "coremark.c $stall_line retires=$retires" > "$tmp/stall_counts"
-  python3 "$TEST_DIR/stall_report.py" "$tmp/stall_counts" --workload \
+if [ -z "$stall_line" ] || [ -z "$retires" ]; then
+  echo "error: the run printed no STALLS/RETIRES line, so there is nothing to" >&2
+  echo "account for. Was '$SIM' built from test/cxxrtl.cc?" >&2
+  exit 1
+fi
+echo "coremark.c $stall_line retires=$retires" > "$tmp/stall_counts"
+python3 "$TEST_DIR/stall_report.py" "$tmp/stall_counts" --workload \
 "READ THE CPI AS A PROPERTY OF COREMARK, and COREMARK'S AS A PROPERTY OF THIS
 CONFIGURATION. This core has no forwarding network (priced and declined --
 see the hazards commitment in CLAUDE.md) and no bitmanip extension, and
@@ -231,4 +279,3 @@ CoreMark leans on both harder than Dhrystone does. Reading this table against
 \`make cycles\`'s hand-written-assembly one is what running this is for; reading
 either DMIPS/MHz or CoreMark/MHz against a number this repo did not measure on
 its own hardware, at its own ROM size, is not something either supports."
-fi

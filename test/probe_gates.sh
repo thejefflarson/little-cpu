@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=506
+PROBES_EXPECTED=511
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -4134,6 +4134,64 @@ probe "an objcopy that refuses names the region it refused for" 1 \
 # start, and every check that reads RAM would see zero.
 probe "an image objcopy wrote nothing into is red, not empty and accepted" 1 \
   "OBJCOPY-EMPTY rom" "STUB_OBJCOPY_EMPTY=1 $(db "$d")"
+
+begin_group "test/bench/run_coremark.sh"
+
+# Every probe here exits before the toolchain search does, so none needs the
+# stub compiler the groups above build. The control run instead reaches and
+# fails AT that search -- proof the manifest and pin checks above it passed
+# silently, the way a real `make coremark` would.
+rc_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/test/bench/coremark"
+  cp "$REPO/test/bench/run_coremark.sh" "$REPO/test/bench/coremark.lds" \
+     "$REPO/test/bench/bench.lds" "$d/test/bench/"
+  cp "$REPO"/test/bench/coremark/*.c "$REPO"/test/bench/coremark/*.h \
+     "$REPO/test/bench/coremark/PINNED.sha256" \
+     "$REPO/test/bench/coremark/LICENSE.md" \
+     "$REPO/test/bench/coremark/coremark.md5" "$d/test/bench/coremark/"
+  printf '%s' "$d"
+}
+
+rc() { printf "%s/test/bench/run_coremark.sh no-such-sim 1 1 -O2" "$1"; }
+
+d=$(rc_fixture)
+probe "control: an unmodified vendor tree passes the manifest and pin checks" 1 \
+  "is not an executable runner" "$(rc "$d")"
+
+# A mutated vendored byte: shasum -c catches it, and prints why -- the same
+# case CoreMark's own trademark terms exist to guard.
+d=$(rc_fixture)
+printf '\n' >> "$d/test/bench/coremark/core_main.c"
+probe "a mutated vendored byte fails the pin, and says so" 1 \
+  "no longer matches PINNED.sha256" "$(rc "$d")"
+
+# A deleted manifest line: shasum -c never sees the file it was never told
+# about, so only a two-way name comparison catches it.
+d=$(rc_fixture)
+grep -v 'core_util\.c$' "$d/test/bench/coremark/PINNED.sha256" \
+  > "$d/test/bench/coremark/PINNED.sha256.new"
+mv "$d/test/bench/coremark/PINNED.sha256.new" "$d/test/bench/coremark/PINNED.sha256"
+probe "a file the manifest stopped naming is red before shasum ever runs" 1 \
+  "does not have exactly the files PINNED.sha256" "$(rc "$d")"
+
+# An unlisted file added: the concrete exploit. core_portme.h dropped in next
+# to the vendored sources shadows this port's real header for every vendored
+# unit's quoted #include, and shasum -c alone would report the tree
+# unmodified.
+d=$(rc_fixture)
+cp "$REPO/test/bench/core_portme.h" "$d/test/bench/coremark/core_portme.h"
+probe "an unlisted core_portme.h would shadow the port's header, and is caught" 1 \
+  "core_portme.h" "$(rc "$d")"
+
+# A malformed manifest line: shasum -c alone exits 0 on this, printing only a
+# WARNING nothing here would have read -- --strict is what turns it red.
+d=$(rc_fixture)
+sed -i.bak -E 's/^[0-9a-f]{64}(  core_list_join\.c)$/deadbeef\1/' \
+  "$d/test/bench/coremark/PINNED.sha256"
+rm -f "$d/test/bench/coremark/PINNED.sha256.bak"
+probe "a malformed manifest line is red under --strict, not a silent pass" 1 \
+  "improperly formatted" "$(rc "$d")"
 
 echo
 if [ "$probes" -ne "$PROBES_EXPECTED" ]; then

@@ -7,14 +7,26 @@
  *
  * THE REPORT IS THIS FILE'S OWN OUTPUT, not core_main.c's. core_main.c prints
  * its own text (sizes, per-algorithm CRCs, a pass/fail verdict) and that stays
- * exactly as EEMBC wrote it -- it is the only thing that says the CRCs matched
- * a published performance-run configuration. What decides PASS/FAIL for this
- * simulation and prints the CoreMark/MHz figure is coremark_report() below,
- * called from portable_fini() after core_main.c's own report has already gone
- * out. It reads a live core_results back through the core_portable pointer
+ * exactly as EEMBC wrote it. What decides PASS/FAIL for this simulation and
+ * prints the CoreMark/MHz figure is coremark_report() below, called from
+ * portable_fini() after core_main.c's own report has already gone out. It
+ * reads a live core_results back through the core_portable pointer
  * portable_fini() is handed, via the struct layout coremark.h declares --
  * `port` is that struct's last member, so this is offsetof arithmetic on a
  * type this file never redefines, not a guess at one it does.
+ *
+ * portable_fini() DOES NOT TRUST core_main.c's `err` FIELD ALONE. `err` stays
+ * zero whenever the seed/size CRC does not match one of EEMBC's five known
+ * configurations -- core_main.c sets its own local `known_id` to -1, skips the
+ * whole CRC comparison, prints "Cannot validate operation for these seed
+ * values", and never touches `err`. `TOTAL_DATA_SIZE` is an overridable build
+ * flag, so a run built with a different data size would sail through that gap
+ * with a PASS neither this file nor core_main.c ever checked. So this file
+ * re-derives "the checked configuration ran" itself, against the same
+ * literals core_main.c's switch on `seedcrc` case 0xe9f5 encodes for the 2K
+ * performance run, and against EEMBC's own published CRCs for it rather than
+ * core_main.c's copy of them -- and folds in check_data_types(), which
+ * core_main.c calls but never folds into `err` either.
  *
  * COREMARK_FLAGS must be defined with the exact compiler flags this was built
  * with, the same rule test/bench/dhry_port.c enforces for Dhrystone: a
@@ -268,12 +280,23 @@ static void put_line(const char *label, const char *text) {
   put_str("\n");
 }
 
+/* One of three outcomes, each with its own tohost code so a run that could
+ * not be validated cannot exit the way a PASS does. Codes are riscv_test.h's
+ * shape (odd, decoded as `testnum = tohost >> 1`), and 1 is reserved for a
+ * true PASS by the same convention every other program in this repo uses. */
+enum coremark_verdict {
+  COREMARK_PASS = 1,
+  COREMARK_FAIL = 3,
+  COREMARK_UNVALIDATED = 5,
+};
+
 /* Read the flags with the number, the same way test/bench/dhry_port.c's
  * report does: separate compilation and -O2 mean the optimiser cannot inline
  * across the three units the way core_list_join.c, core_matrix.c and
  * core_state.c would let it if built together. */
 static void coremark_report(unsigned iterations, unsigned cycles,
-                             unsigned instructions, int ok) {
+                             unsigned instructions,
+                             enum coremark_verdict verdict) {
   put_str("\n== this core's own CoreMark/MHz, not core_main.c's own report "
           "above ==\n");
   put_line("Compiler       : ", __VERSION__);
@@ -294,8 +317,22 @@ static void coremark_report(unsigned iterations, unsigned cycles,
   put_str("\nCoreMark/MHz   : ");
   put_fixed((unsigned)udiv64(umul64(iterations, 1000000000u), cycles), 3);
   put_str("\nSelf-check     : ");
-  put_str(ok ? "PASS (list/matrix/state CRCs matched)\n"
-             : "FAIL (see the CRC lines core_main.c printed above)\n");
+  switch (verdict) {
+  case COREMARK_PASS:
+    put_str("PASS (2K performance seeds and size, list/matrix/state CRCs "
+            "matched against EEMBC's published values, check_data_types "
+            "clean)\n");
+    break;
+  case COREMARK_FAIL:
+    put_str("FAIL (ran the 2K performance configuration; see the CRC lines "
+            "core_main.c printed above, or a check_data_types error)\n");
+    break;
+  default:
+    put_str("COULD NOT BE VALIDATED (seeds, size or the executed-algorithm "
+            "mask did not match EEMBC's 2K performance run -- this figure "
+            "is not a scored CoreMark result)\n");
+    break;
+  }
   put_str("\n"
           "READ THE FLAGS AND THE ROM SIZE WITH THE NUMBER. CoreMark is\n"
           "less string-dominated than Dhrystone and harder for the optimiser\n"
@@ -307,7 +344,7 @@ static void coremark_report(unsigned iterations, unsigned cycles,
           "price of this core's four goals, not a defect in the port.\n");
 
   tohost[1] = 0;
-  tohost[0] = ok ? 1u : 3u;
+  tohost[0] = (unsigned)verdict;
 
 #ifdef COREMARK_UART
   for (;;) {
@@ -323,9 +360,36 @@ static void coremark_report(unsigned iterations, unsigned cycles,
 #endif
 }
 
+/* The 2K performance run's seeds, size and EEMBC-published CRCs -- the same
+ * literals core_main.c's own `switch (seedcrc)` encodes as case 0xe9f5 and
+ * the same `list_known_crc`/`matrix_known_crc`/`state_known_crc[3]` it never
+ * exposes past its own stack frame, so this file states them once more
+ * rather than trusting a comparison it cannot see ran. */
+#define COREMARK_2K_SEED1 0
+#define COREMARK_2K_SEED2 0
+#define COREMARK_2K_SEED3 0x66
+#define COREMARK_2K_SIZE 666
+#define COREMARK_2K_CRCLIST 0xe714u
+#define COREMARK_2K_CRCMATRIX 0x1fd7u
+#define COREMARK_2K_CRCSTATE 0x8e3au
+
 void portable_fini(core_portable *p) {
   core_results *res =
       (core_results *)((char *)p - offsetof(core_results, port));
+  int ran_2k_performance = res->execs == ALL_ALGORITHMS_MASK &&
+                            res->seed1 == COREMARK_2K_SEED1 &&
+                            res->seed2 == COREMARK_2K_SEED2 &&
+                            res->seed3 == COREMARK_2K_SEED3 &&
+                            res->size == COREMARK_2K_SIZE;
+  enum coremark_verdict verdict = COREMARK_UNVALIDATED;
+  if (ran_2k_performance) {
+    int crcs_ok = res->crclist == COREMARK_2K_CRCLIST &&
+                  res->crcmatrix == COREMARK_2K_CRCMATRIX &&
+                  res->crcstate == COREMARK_2K_CRCSTATE;
+    verdict = (crcs_ok && check_data_types() == 0 && res->err == 0)
+                  ? COREMARK_PASS
+                  : COREMARK_FAIL;
+  }
   coremark_report((unsigned)res->iterations, stop_ticks - start_ticks,
-                   stop_instret - start_instret, res->err == 0);
+                   stop_instret - start_instret, verdict);
 }
