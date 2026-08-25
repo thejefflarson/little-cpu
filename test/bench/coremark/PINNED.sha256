@@ -8,11 +8,15 @@
 # own code, not EEMBC's.
 #
 # Checked against `shasum -a 256` on every `make coremark` run, because
-# upstream's own coremark.md5 cannot be trusted for this: it disagrees with a
-# byte-identical fetch of coremark.h at this same commit, which means it was
-# already stale in the tree it shipped from. This manifest is what this repo
-# vendored, not a re-statement of a file we cannot re-verify against its
-# origin.
+# upstream's own coremark.md5 cannot be trusted for this: its coremark.h entry
+# claims 8ca974c013b380dc7f0d6d1afb76eb2d, and a byte-identical fetch of
+# coremark.h at this same commit hashes to b0ec69b6c8e75853d06accb3b1bcf534
+# instead -- upstream never regenerated coremark.md5 after a later edit to
+# coremark.h. The other five entries in coremark.md5 are correct; this is a
+# one-file staleness bug in the tree it shipped from, not tampering, and
+# `make revendor-coremark` reproduces it on demand rather than leaving it as
+# an assertion. This manifest is what this repo vendored, verified against
+# the pin by that target, not a re-statement of a file taken on faith.
 ca00e4e010ece47d7f040cb92aa50a95345a00d3171b59d088f6b243be06ce7b  core_list_join.c
 17884c93c5b94378eb0ff02b4df3725756cf2addb9b8cbcaa6200a4649ff5ca7  core_main.c
 ecdff717b5a5c4907d221a606760e25499899cbf617582c05d40db71c91351e4  core_matrix.c

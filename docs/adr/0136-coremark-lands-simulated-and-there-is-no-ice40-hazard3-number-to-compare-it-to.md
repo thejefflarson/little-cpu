@@ -33,8 +33,13 @@ to a specific number nobody has published on a comparable part.
 `1f483d5b8316753a742cbf5590caf5bd0a4e4777` (2025-05-01), Apache-2.0: `core_list_join.c`,
 `core_main.c`, `core_matrix.c`, `core_state.c`, `core_util.c`, plus `coremark.h` and upstream's own
 `coremark.md5`. `test/bench/coremark/PINNED.sha256` is this repo's own manifest, checked on every
-`make coremark` run — not upstream's `coremark.md5`, which disagrees with a byte-identical fetch of
-`coremark.h` at the same commit and so cannot be trusted as a tripwire for this tree. Keeping these
+`make coremark` run — not upstream's `coremark.md5`, whose `coremark.h` entry is a stale ONE-FILE
+mismatch: it claims `8ca974c013b380dc7f0d6d1afb76eb2d`, and every byte fetched from upstream at this
+same commit — `coremark.h` included — hashes to `b0ec69b6c8e75853d06accb3b1bcf534` instead, matching
+what is vendored here exactly. The other five entries in `coremark.md5` are correct. This is upstream
+never having regenerated its own manifest after a later edit to `coremark.h`, not tampering and not an
+open question — `make revendor-coremark` re-fetches the pin and would reproduce this same one-file
+disagreement on demand, which is how it was confirmed. Keeping these
 five files untouched is not a style choice: CoreMark's trademark agreement (bundled in the same
 `LICENSE.md` as the Apache-2.0 grant) permits using the name "CoreMark" only "in connection with...
 an unmodified copy of the software", and the port below touches none of them.
