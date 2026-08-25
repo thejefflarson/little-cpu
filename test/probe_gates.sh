@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=506
+PROBES_EXPECTED=515
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -2492,7 +2492,7 @@ d=$(ma_fixture)
 ma_edit "$d" Makefile \
   's/^DHRY_CFLAGS := -march=rv32imac_zicsr_zifencei/DHRY_CFLAGS := -march=rv32imc_zicsr_zifencei/'
 probe "the Dhrystone flags drifting from the suite's ISA is red" 1 \
-  "Makefile states -march=rv32imac_zicsr_zifencei 2 time(s), not 3" "$MA $d"
+  "Makefile states -march=rv32imac_zicsr_zifencei 3 time(s), not 4" "$MA $d"
 
 probe "...and their second copy is compared whole, not just its ISA" 1 \
   "the Dhrystone flags are stated twice and they disagree" "$MA $d"
@@ -4135,7 +4135,133 @@ probe "an objcopy that refuses names the region it refused for" 1 \
 probe "an image objcopy wrote nothing into is red, not empty and accepted" 1 \
   "OBJCOPY-EMPTY rom" "STUB_OBJCOPY_EMPTY=1 $(db "$d")"
 
-echo
+begin_group "test/bench/run_coremark.sh"
+
+# Every probe here exits before the toolchain search does, so none needs the
+# stub compiler the groups above build. The control run instead reaches and
+# fails AT that search -- proof the manifest and pin checks above it passed
+# silently, the way a real `make coremark` would.
+rc_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/test/bench/coremark"
+  cp "$REPO/test/bench/run_coremark.sh" "$REPO/test/bench/coremark.lds" \
+     "$REPO/test/bench/bench.lds" "$d/test/bench/"
+  cp "$REPO"/test/bench/coremark/*.c "$REPO"/test/bench/coremark/*.h \
+     "$REPO/test/bench/coremark/PINNED.sha256" \
+     "$REPO/test/bench/coremark/LICENSE.md" \
+     "$REPO/test/bench/coremark/coremark.md5" "$d/test/bench/coremark/"
+  printf '%s' "$d"
+}
+
+rc() { printf "%s/test/bench/run_coremark.sh no-such-sim 1 1 -O2" "$1"; }
+
+d=$(rc_fixture)
+probe "control: an unmodified vendor tree passes the manifest and pin checks" 1 \
+  "is not an executable runner" "$(rc "$d")"
+
+# A mutated vendored byte: shasum -c catches it, and prints why -- the same
+# case CoreMark's own trademark terms exist to guard.
+d=$(rc_fixture)
+printf '\n' >> "$d/test/bench/coremark/core_main.c"
+probe "a mutated vendored byte fails the pin, and says so" 1 \
+  "no longer matches PINNED.sha256" "$(rc "$d")"
+
+# A deleted manifest line: shasum -c never sees the file it was never told
+# about, so only a two-way name comparison catches it.
+d=$(rc_fixture)
+grep -v 'core_util\.c$' "$d/test/bench/coremark/PINNED.sha256" \
+  > "$d/test/bench/coremark/PINNED.sha256.new"
+mv "$d/test/bench/coremark/PINNED.sha256.new" "$d/test/bench/coremark/PINNED.sha256"
+probe "a file the manifest stopped naming is red before shasum ever runs" 1 \
+  "does not have exactly the files PINNED.sha256" "$(rc "$d")"
+
+# An unlisted file added: the concrete exploit. core_portme.h dropped in next
+# to the vendored sources shadows this port's real header for every vendored
+# unit's quoted #include, and shasum -c alone would report the tree
+# unmodified.
+d=$(rc_fixture)
+cp "$REPO/test/bench/core_portme.h" "$d/test/bench/coremark/core_portme.h"
+probe "an unlisted core_portme.h would shadow the port's header, and is caught" 1 \
+  "core_portme.h" "$(rc "$d")"
+
+# A malformed manifest line: shasum -c alone exits 0 on this, printing only a
+# WARNING nothing here would have read -- --strict is what turns it red.
+d=$(rc_fixture)
+sed -i.bak -E 's/^[0-9a-f]{64}(  core_list_join\.c)$/deadbeef\1/' \
+  "$d/test/bench/coremark/PINNED.sha256"
+rm -f "$d/test/bench/coremark/PINNED.sha256.bak"
+probe "a malformed manifest line is red under --strict, not a silent pass" 1 \
+  "improperly formatted" "$(rc "$d")"
+
+begin_group "make revendor-coremark"
+
+# The manifest check earlier in this file grades PINNED.sha256 against the
+# TREE; this recipe is the other half -- it grades the tree against UPSTREAM.
+# A stub curl substitutes what "upstream" answers, so what is forced red
+# below is exactly the byte comparison that stands between a substituted
+# download and an endorsed vendor tree. RV_PREFIX has to match the pin the
+# Makefile states -- it is not read back out of the Makefile here, the same
+# way SS_ASSET above is a fixed fixture value rather than a second reader.
+RV_PREFIX=coremark-1f483d5b8316753a742cbf5590caf5bd0a4e4777
+
+rv() {  # $1 = bin dir with a curl stub on it
+  printf "MAKEFLAGS= MFLAGS= MAKELEVEL= PATH='%s:%s' make --no-print-directory -C '%s' revendor-coremark" \
+    "$1" "$PATH" "$REPO"
+}
+
+# Builds a real, valid tarball out of the shipping vendored files, optionally
+# mutating or dropping one member -- so "the archive itself is well-formed"
+# and "its bytes agree with the tree" are tested as two separate questions,
+# the way make_curl_stub's garbage bytes alone could not.
+rv_tarball() {  # $1 = output path, $2 = member to mutate (or ""), $3 = member to drop (or "")
+  local out=$1 mutate=$2 drop=$3
+  local src; src=$(mktemp -d "$tmp/rv-src.XXXXXX")
+  mkdir -p "$src/$RV_PREFIX"
+  cp "$REPO"/test/bench/coremark/*.c "$REPO"/test/bench/coremark/*.h \
+     "$REPO/test/bench/coremark/LICENSE.md" "$REPO/test/bench/coremark/coremark.md5" \
+     "$src/$RV_PREFIX/"
+  [ -n "$mutate" ] && printf '\n/* mutated */\n' >> "$src/$RV_PREFIX/$mutate"
+  [ -n "$drop" ] && rm -f "$src/$RV_PREFIX/$drop"
+  tar czf "$out" -C "$src" "$RV_PREFIX"
+}
+
+# Serves one fixed tarball for every request, whatever -o names -- the same
+# shape make_curl_stub uses, parameterised on which bytes to hand back.
+rv_curl_stub() {  # $1 = bin dir, $2 = tarball to serve
+  mkdir -p "$1"
+  cat > "$1/curl" <<STUBEOF
+#!/bin/sh
+out=; prev=
+for a in "\$@"; do
+  if [ "\$prev" = "-o" ]; then out=\$a; fi
+  prev=\$a
+done
+[ -n "\$out" ] && cp "$2" "\$out"
+exit 0
+STUBEOF
+  chmod +x "$1/curl"
+}
+
+d=$(new_case); rv_tarball "$d/upstream.tar.gz" "" ""
+rv_curl_stub "$d/bin" "$d/upstream.tar.gz"
+probe "control: an archive matching the vendored tree exactly is endorsed" 0 \
+  "matches eembc/coremark at" "$(rv "$d/bin")"
+
+d=$(new_case); mkdir -p "$d/bin"
+make_curl_stub "$d/bin/curl"
+probe "a substituted, non-archive download is refused for every file, not silently skipped" 2 \
+  "does NOT match eembc/coremark" "$(rv "$d/bin")"
+
+d=$(new_case); rv_tarball "$d/upstream.tar.gz" "coremark.h" ""
+rv_curl_stub "$d/bin" "$d/upstream.tar.gz"
+probe "a real archive with one byte-mutated file is caught, and named" 2 \
+  "DIFFERS  : coremark.h" "$(rv "$d/bin")"
+
+d=$(new_case); rv_tarball "$d/upstream.tar.gz" "" "coremark.md5"
+rv_curl_stub "$d/bin" "$d/upstream.tar.gz"
+probe "a real archive missing one vendored member is caught, and named" 2 \
+  "MISSING upstream: coremark.md5" "$(rv "$d/bin")"
+
 if [ "$probes" -ne "$PROBES_EXPECTED" ]; then
   echo "error: ran $probes probes, expected $PROBES_EXPECTED." >&2
   echo "A probe was added or removed. Update PROBES_EXPECTED in the same commit;" >&2

@@ -70,11 +70,12 @@ test/run_tests.sh 2
 # of the comparison. Loud for the same reason.
 test/cosim.py 2
 
-# THREE, and two of them are the silent ones: soc-rom's two program shapes build
-# test/asm/datainit.c and the `.S` suite for the SoC's ROM image, neither of
-# which executes an atomic, and DHRY_CFLAGS compiles a benchmark that does not
-# either. A wrong string here changes what is measured, not whether it builds.
-Makefile 3
+# FOUR, and three of them are the silent ones: soc-rom's two program shapes
+# build test/asm/datainit.c and the `.S` suite for the SoC's ROM image, neither
+# of which executes an atomic, and DHRY_CFLAGS and COREMARK_CFLAGS each compile
+# a benchmark that does not either. A wrong string here changes what is
+# measured, not whether it builds.
+Makefile 4
 
 # DHRY_CFLAGS again, copied verbatim into the depth sweep. The two full strings
 # are compared below as well, because agreeing about `-march` and disagreeing

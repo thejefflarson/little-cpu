@@ -659,6 +659,119 @@ DHRY_CFLAGS := -march=rv32imac_zicsr_zifencei -mabi=ilp32 -O2 -std=c11 \
 dhrystone: sim
 	@./test/bench/run_dhrystone.sh ./sim $(DHRY_RUNS) $(DHRY_CYCLES) '$(DHRY_CFLAGS)'
 
+# CoreMark, the figure the cores worth comparing to now (Hazard3's RP2350
+# build publishes 4.15 CoreMark/MHz and no Dhrystone number at all). Not a
+# prerequisite of anything and not on CI, the same as `make dhrystone`: no CPI
+# ratchet exists here and this adds none.
+#
+# SIMULATED AT 16 KB OF ROM, DOUBLE THE PART'S 8. test/bench/coremark.lds
+# links against test/testbench.v's ROM_WORDS rather than rtl/imemory.v's
+# shipping 2048 words, because CoreMark does not fit the smaller one -- see
+# test/bench/run_coremark.sh's header for the wall it hits. The figure this
+# prints describes a machine that cannot be built until this part's deferred
+# SPI-flash boot path lands and the ROM grows; the program's own report and
+# the runner both say so on every line that matters.
+#
+# COREMARK_FLAGS IS THE MEASUREMENT'S OTHER HALF, the same rule DHRY_CFLAGS
+# states for Dhrystone: this string compiles the benchmark and is printed
+# beside its own result, and test/bench/coremark_port.c will not build without
+# it. -O2 rather than the suite's -Os for the same reason Dhrystone takes it --
+# it is what the cores in the comparison set publish.
+#
+# COREMARK_ITERATIONS is a compiled-in constant (SEED_METHOD SEED_VOLATILE, not
+# the auto-tuning loop core_main.c offers) because a cxxrtl run has no wall
+# clock to tune against. EEMBC's own rule -- run at least 10 seconds -- exists
+# to average out a REAL clock's jitter, which a cycle-exact simulator does not
+# have: measured here, the CoreMark/MHz figure this prints was identical to
+# three decimal places at 10 and at 40 iterations, so the ratio is already
+# stable well short of it. 100 keeps `make coremark` at a couple of minutes
+# rather than the ~15 minutes 120M cycles' worth of iterations would cost this
+# simulator at its own `--stalls` rate. Raise it for a longer run.
+COREMARK_ITERATIONS ?= 100
+COREMARK_CYCLES     ?= 200000000
+COREMARK_CFLAGS := -march=rv32imac_zicsr_zifencei -mabi=ilp32 -O2 -std=c11 \
+                    -ffreestanding -fno-tree-loop-distribute-patterns \
+                    -Wall -Wextra -Werror
+
+# Verifies the vendored tree against UPSTREAM, not only against itself.
+# PINNED.sha256 proves "unchanged since it was committed" -- which git already
+# says -- never that the committed bytes are eembc/coremark's. This is that
+# other half, and it is strictly SMALLER than a standing control this repo
+# already runs daily: formal/pin.mk clones a third-party repo and executes its
+# Python, committing the stdout as tracked source; this fetches a pinned
+# commit and diffs bytes, executing nothing it downloads. Modelled on `make
+# sail-setup` and pinned the way formal/pin.mk pins -- a 40-hex commit,
+# `override` so it cannot be widened from the command line or CI, and
+# fail-closed. Off `make test`'s path and optional, the same shape as
+# `make sail-setup`: nothing here calls it, so a machine with no network still
+# runs the suite. Reads each file straight out of the archive by its known
+# path (`tar -O`) rather than extracting the tarball to disk, so there is no
+# path-traversal surface to check the way sail-setup's tree unpack has to.
+ifneq ($(filter command line environment,$(origin COREMARK_PIN)),)
+$(error COREMARK_PIN cannot be set from the command line or the environment: \
+  it pins the bytes this target treats as ground truth. Change it in the \
+  Makefile, together with test/bench/coremark/PINNED.sha256's header)
+endif
+override COREMARK_PIN := 1f483d5b8316753a742cbf5590caf5bd0a4e4777
+
+ifeq ($(shell printf '%s' '$(COREMARK_PIN)' | grep -cE '^[0-9a-f]{40}$$'),0)
+$(error COREMARK_PIN must be a full 40-hex commit id, not a branch or tag: '$(COREMARK_PIN)')
+endif
+
+COREMARK_VENDOR_DIR := test/bench/coremark
+
+.PHONY: revendor-coremark
+revendor-coremark:
+	@set -e; \
+	if command -v shasum >/dev/null 2>&1; then sha='shasum -a 256'; \
+	elif command -v sha256sum >/dev/null 2>&1; then sha='sha256sum'; \
+	else \
+	  echo "neither shasum nor sha256sum is on PATH; refusing to verify a" >&2; \
+	  echo "tree this machine cannot hash." >&2; \
+	  exit 1; \
+	fi; \
+	files=$$(awk '!/^#/ && NF { print $$NF }' '$(COREMARK_VENDOR_DIR)/PINNED.sha256'); \
+	if [ -z "$$files" ]; then \
+	  echo "$(COREMARK_VENDOR_DIR)/PINNED.sha256 names no files; nothing to verify." >&2; \
+	  exit 1; \
+	fi; \
+	tmp=$$(mktemp -d); trap 'rm -rf $$tmp' EXIT; \
+	tgz=$$tmp/coremark.tar.gz; \
+	url=https://codeload.github.com/eembc/coremark/tar.gz/$(COREMARK_PIN); \
+	echo "fetching $$url"; \
+	curl -fsSL -o "$$tgz" "$$url"; \
+	prefix=coremark-$(COREMARK_PIN); \
+	mismatch=0; \
+	for f in $$files; do \
+	  if ! tar xzf "$$tgz" -O "$$prefix/$$f" > "$$tmp/$$f" 2>/dev/null; then \
+	    echo "MISSING upstream: $$f is not at $$prefix/$$f in the pinned archive" >&2; \
+	    mismatch=1; continue; \
+	  fi; \
+	  got=$$($$sha "$$tmp/$$f" | cut -d ' ' -f 1); \
+	  want=$$($$sha '$(COREMARK_VENDOR_DIR)'/$$f | cut -d ' ' -f 1); \
+	  if [ "$$got" = "$$want" ]; then \
+	    echo "match    : $$f"; \
+	  else \
+	    echo "DIFFERS  : $$f" >&2; \
+	    echo "  vendored : $$want" >&2; \
+	    echo "  upstream : $$got" >&2; \
+	    mismatch=1; \
+	  fi; \
+	done; \
+	if [ "$$mismatch" -ne 0 ]; then \
+	  echo "$(COREMARK_VENDOR_DIR) does NOT match eembc/coremark at $(COREMARK_PIN)." >&2; \
+	  echo "This is a finding, not something this target fixes: read the diff" >&2; \
+	  echo "above, decide whether to accept the new bytes, and update both" >&2; \
+	  echo "$(COREMARK_VENDOR_DIR)/ and its PINNED.sha256 by hand if so." >&2; \
+	  exit 1; \
+	fi; \
+	echo "$(COREMARK_VENDOR_DIR) matches eembc/coremark at $(COREMARK_PIN) exactly."
+
+.PHONY: coremark
+coremark: sim
+	@./test/bench/run_coremark.sh ./sim $(COREMARK_ITERATIONS) $(COREMARK_CYCLES) \
+	  '$(COREMARK_CFLAGS)'
+
 # Count logic cells from nextpnr, never cell counts from yosys. A flip-flop that
 # cannot share a cell with the LUT feeding it takes a whole cell by itself, and
 # over a thousand of this design's cells are like that. Counting `SB_LUT4`

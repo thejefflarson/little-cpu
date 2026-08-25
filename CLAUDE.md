@@ -576,7 +576,12 @@ and times; `make ecp5-timing` is that same SoC on the other part.
   if a change ever earns one. The target for Fmax work is 24 MHz — 41.67 ns, about half of today's
   period — and 12 is already met. A few-percent idea can be read against 41.67 ns and declined in a
   minute, instead of after four placements (ADR-0078).
-- **`make dhrystone` is the only figure comparable to another project's**, and it is quoted in
+- **`make dhrystone` and `make coremark` are the figures comparable to another project's** — Dhrystone
+  to VexRiscv, whose comparison harness is `soc/compare/`, and CoreMark to Hazard3 and most cores
+  published since, which quote CoreMark and not Dhrystone. Neither merges with the other's number;
+  see ADR-0098 for why a product needs both factors from one tree, and read the rest of this bullet
+  before quoting either.
+  `make dhrystone` is quoted in
   DMIPS/MHz because that is what the field publishes. **0.664** at `-O2`, 3568 bytes of the SoC's
   8 KB ROM (ADR-0084, ADR-0093, ADR-0099, ADR-0117, ADR-0129). Dhrystone is string-dominated and the
   optimiser can delete part of the work, so **the flags, the compiler and the string library travel
@@ -587,6 +592,18 @@ and times; `make ecp5-timing` is that same SoC on the other part.
   purpose**: the region wait spends 13.79% of Dhrystone's cycles to make an out-of-region access
   fault, which is the one trade the board clock could not pay for (ADR-0129). A CPI regression with
   no conformance behind it is still a regression.
+- **`make coremark` is SIMULATED AT 16 KB OF ROM, a configuration the part does not have.** CoreMark
+  is several times Dhrystone's size and does not fit rtl/imemory.v's shipping 8 KB, so it links against
+  test/testbench.v's double-sized ROM_WORDS instead — a figure this labels every place it is printed,
+  because a number that forgets its own memory configuration is not one EEMBC's own run rules would
+  let stand. `test/bench/coremark/` vendors the five algorithm files unmodified (Apache-2.0, checked
+  against `test/bench/coremark/PINNED.sha256` on every run) and `test/bench/core_portme.h` /
+  `test/bench/coremark_port.c` are this repo's own porting layer, the same split
+  `test/bench/dhry_port.c` uses for Dhrystone. Not a gate and adds no ratchet, and not on CI, the same
+  as `make dhrystone`. See ADR-0136 for the number, the Hazard3 comparison and its configuration
+  caveat — Hazard3's published 4.15 CoreMark/MHz is its RP2350 build (Zba/Zbb/Zbs, a fast multiplier,
+  a branch predictor); its iCE40/iCEBreaker build has none of those, and quoting the RP2350 figure
+  against an ice40 core is the mixed-configuration error ADR-0098 already has a name for.
 - **The only cross-core comparison that means anything is one harness**, and `soc/compare/` is it:
   same part, memories, program, toolchain and seeds, this core against the VexRiscv Verilog in the
   pinned riscv-formal clone. **Both factors of throughput are measured there, neither is quoted from
@@ -825,6 +842,10 @@ make dhrystone      # Dhrystone 2.1 (test/bench, NOT the graded suite) -> DMIPS/
                     # the ROM image against the SoC's 8 KB, and the same accounting
                     # on compiled code. DHRY_RUNS picks the iteration count.
                     # Not on CI, and it adds no ratchet either
+make coremark       # CoreMark (test/bench, NOT the graded suite) -> CoreMark/MHz,
+                    # SIMULATED AT 16 KB OF ROM -- double the part's 8, because
+                    # CoreMark does not fit the smaller one. COREMARK_ITERATIONS
+                    # picks the iteration count. Not on CI, and it adds no ratchet
 make waves          # iverilog leg -> waves.vcd; one baked-in program, graded,
                     # not the test/asm suite (test/testbench.v has no image loader)
 make monitor-check  # regenerate test/monitor.v at the pin and diff
