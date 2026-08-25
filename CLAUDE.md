@@ -1021,13 +1021,18 @@ only the UART's own long-standing pin conflict with the flash chip is.** The UPd
 on-board configuration flash's own data-out line, and driving it unconditionally — as
 `soc/board_upduino.v` always had — fights that flash chip for the wire while `iceprog` reads it,
 because this board's CRESET is not wired to the programmer and the FPGA keeps running throughout.
-`soc/board_upduino.v` now reads pin 16, the flash's chip select, through a free-running synchroniser
-and drives pin 14 with the UART only once that reads released. That predicate is sound where a grant
-built on it would not be: an SPI slave's own output stage is a deterministic function of its chip
-select — driving low, high-impedance high — regardless of whether a pull-up or `iceprog` itself is
-what holds the select high, so reading it answers "is the flash's own driver off" with no ambiguity.
-**A predicate good enough for that is not good enough to grant the on-chip controller its own pins
-on.** `soc/pin_lockout.v` was built to arbitrate all four shared pins by the same chip select, on the
+`soc/board_upduino.v` now reads pin 16, the flash's chip select, and drives pin 14 with the UART
+only once that reads released. That predicate is sound at DC where a grant built on `released` alone
+would not be: an SPI slave's own output stage is a deterministic function of its chip select —
+driving low, high-impedance high — regardless of whether a pull-up or `iceprog` itself is what holds
+the select high, so the LEVEL answers "is the flash's own driver off" with no ambiguity about who is
+holding it. **The edge is a different question, and `soc/miso_share_enable.v` answers the two
+directions differently rather than trusting one predicate for both**: turn-on goes through a
+two-flop synchroniser, because a fresh transition needs those two cycles to settle before it is
+trusted; turn-off is combinational, on the raw read, because a synchronised-only enable would keep
+this design driving pin 14 for up to two clock periods after the flash's own driver is already live
+on it — two push-pull drivers on one pin, on every chip-select assertion a host makes. **A predicate
+good enough for the level is not good enough to grant the on-chip controller its own pins on.** `soc/pin_lockout.v` was built to arbitrate all four shared pins by the same chip select, on the
 same kind of read, but there its question is different — "is a host there at all" — and `released`
 cannot answer that: a host idle with its own chip select parked high reads exactly like no host being
 there, and `iceprog` parks it that way, as a push-pull MPSSE output, for most of a programming

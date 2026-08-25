@@ -39,13 +39,17 @@
 // select, and an SPI slave's output stage is a deterministic function of its
 // own chip select: LOW, it drives; HIGH, it is high-impedance, no matter who
 // or what is holding that pin high. So "does pin 16 read high" is a sound
-// question to ask before letting the UART drive pin 14 -- it is answering
-// "is the flash's own driver off", which pin 16's LEVEL settles regardless of
-// whether a pull-up or `iceprog` itself is the reason it reads high. `ssn_in`
-// below is a free-running two-flop synchroniser on that read, because it
-// crosses from a source this design has no clock relationship with; nothing
-// here ever writes pin 16, so there is no loop through the pad to freeze
-// against, unlike the mechanism in soc/pin_lockout.v this board does not use.
+// question at DC -- the level pin 16 settles to does not depend on whether a
+// pull-up or `iceprog` itself is what holds it there. It is NOT sound to ask
+// only through a synchroniser, though: soc/miso_share_enable.v gates turn-ON
+// through one (two cycles, because `now` crosses from a source this design
+// has no clock relationship with), but turns the enable OFF combinationally,
+// on the raw read, the instant pin 16 goes low. A synchronised-only enable
+// would keep this design driving pin 14 for up to two clock periods after
+// the flash's own driver is already live on it -- two push-pull drivers on
+// one pin, on every chip-select assertion a host makes. Nothing here ever
+// writes pin 16, so there is no loop through the pad to freeze against,
+// unlike the mechanism in soc/pin_lockout.v this board does not use.
 //
 // PINS 15 AND 17 ARE NOT WIRED HERE AT ALL. `rtl/spiflash.v` -- the on-chip
 // controller for the same flash -- ships on `littlesoc`'s bus and is
@@ -103,18 +107,18 @@ module upduino_top #(
 
   logic uart_tx;
   logic ssn_pin;
+  logic miso_enable;
 
-  // A free-running synchroniser on pin 16's raw read: no loop to freeze
-  // against, because nothing here ever writes that pin. Every `SB_LUT4` on
-  // this part's FPGA fabric powers up at 0 out of configuration, an
-  // SRAM-based part's usual guarantee, so the UART stays off pin 14 until two
-  // real samples of pin 16 have come back high rather than racing a
-  // power-on value onto a pin the flash chip might still be driving.
-  logic ssn_sync0, ssn_in;
-  always_ff @(posedge clk) begin
-    ssn_sync0 <= ssn_pin;
-    ssn_in    <= ssn_sync0;
-  end
+  // Turn-on synchronised, turn-off combinational -- see soc/miso_share_enable.v
+  // and the header comment above for why the two directions need different
+  // treatment. `ssn_pin` is read here only, so there is no loop through the
+  // pad for this design's own drive to close: nothing below ever writes pin
+  // 16, unlike the mechanism in soc/pin_lockout.v this board does not use.
+  miso_share_enable enable_gate (
+    .clk(clk),
+    .now(ssn_pin),
+    .enable(miso_enable)
+  );
 
   // PIN_TYPE 6'b1010_01: a simple output behind an output enable, and a
   // simple input. Pin 14 uses both halves; pin 16 only the input half, with
@@ -123,9 +127,7 @@ module upduino_top #(
 
   SB_IO #(.PIN_TYPE(SHARED_PIN), .PULLUP(1'b1)) io_miso_txd (
     .PACKAGE_PIN(spi_miso_txd),
-    // Driven only once the flash's own chip select reads released -- see the
-    // header comment for why that reading is sound here.
-    .OUTPUT_ENABLE(ssn_in),
+    .OUTPUT_ENABLE(miso_enable),
     .D_OUT_0(uart_tx),
     .D_IN_0()
   );

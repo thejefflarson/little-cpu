@@ -212,17 +212,29 @@ That conflict was never about the on-chip controller: `soc/board_upduino.v` drov
 UART unconditionally from the day this board wrapper was written, long before this ticket, and that
 already fought the same flash chip for the wire whenever `iceprog` read it — the `cdone`/JEDEC-id/
 write-error symptom this document opened with. Pin 16 answers a *different* question than `released`
-does, and one this board can answer soundly: not "is a host there", but "is the flash chip's own
-output driver enabled" — and that is a deterministic function of the flash's chip select alone,
-independent of who or what is holding it at a given level. So `soc/board_upduino.v` reads pin 16
-through a free-running two-flop synchroniser (no loop to freeze against, since nothing here ever
-writes it) and drives pin 14 with the UART only once that reads released. **Read-back settles this
-one:** whether the flash's own driver is off does not depend on whether a pull-up or `iceprog` is what
-put pin 16 high, so this predicate carries none of the ambiguity `released` does — that ambiguity was
-specifically about whether a second, active driver might be present to contend with a grant *this*
-design would go on to assert, and here nothing this design does depends on the answer being anything
-but "the flash is not talking." Pins 15 and 17 are not wired to this board at all; only pin 14
-(shared) and pin 16 (read only) are ports of `upduino_top`.
+does, and one this board can answer soundly at DC: not "is a host there", but "is the flash chip's own
+output driver enabled" — a deterministic function of the flash's chip select alone, independent of
+who or what is holding it at a given level. That soundness is about the LEVEL, and it does not by
+itself make a synchronised read of that level a sound gate for pin 14's enable.
+
+**The level is sound; a single synchronised copy of it is not, on the turn-off edge.** The first cut
+of this fix read pin 16 through one free-running two-flop synchroniser and gated pin 14's enable on
+the synchronised copy alone. Turn-on needing two cycles to settle is correct and cheap — a beat of
+extra caution before this design starts driving. Turn-off needing the same two cycles is neither:
+the flash's own output driver goes live the instant its chip select reads low, not two cycles later,
+so a synchronised-only enable kept the UART driving pin 14 for up to two clock periods — about
+167 ns at 12 MHz — after the flash's driver was already live on it. That is two push-pull drivers on
+one pin, on every chip-select assertion `iceprog` makes over a session, which is the exact hazard
+this fix exists to remove, reintroduced one clock domain crossing later. `soc/miso_share_enable.v`
+answers the two directions differently instead: `enable = released && now`, where `released` is the
+two-flop synchronised copy and `now` is the raw, unsynchronised read of pin 16, used only to turn the
+enable off faster and never to turn it on. Turn-off is combinational on `now`, landing the same edge
+the flash sees; turn-on still needs both signals, so it is exactly as cautious as before. Reading
+`now` combinationally here creates no loop through the pad, the way gating a *grant* on it would:
+nothing downstream of this module ever writes pin 16, so there is nothing for `now`'s glitches to
+feed back into — the module's own header states that reasoning rather than assuming it. Pins 15 and
+17 are not wired to this board at all; only pin 14 (shared) and pin 16 (read only) are ports of
+`upduino_top`.
 
 ## The grant is bounded now, independent of whether it is ever wired to a pin
 
