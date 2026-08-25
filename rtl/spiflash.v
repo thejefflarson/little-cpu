@@ -1,6 +1,6 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// A byte-at-a-time SPI master on the data bus, so software can read the flash
+// A byte-at-a-time SPI controller on the data bus, so software can read the flash
 // the part already configures from. Single lane, mode 0, one byte per
 // transaction step -- the whole device is a shift register, a bit counter and a
 // chip select.
@@ -44,7 +44,7 @@
 // disagreed on.
 //
 // MODE 0, WHICH IS THE ONE THE PART ITSELF USES: the clock idles low, this
-// master presents a bit while it is low, and both ends sample on the rising
+// controller presents a bit while it is low, and both ends sample on the rising
 // edge. `sck` is the bus clock divided by two, so a byte is sixteen cycles --
 // 1.33 us at 12 MHz, and 8 KB is about 11 ms.
 //
@@ -52,7 +52,7 @@
 // pins below are shared with the FTDI, which drives three of them whenever the
 // host talks to the flash, so a design that drove them all the time would fight
 // `iceprog` for the wire. `cs_n` is published for soc/board_upduino.v to use as
-// the enable on all three outputs: this master drives the pins only while it
+// the enable on all three outputs: this controller drives the pins only while it
 // holds the flash selected, and lets go the rest of the time.
 //
 // Nothing in this module reaches the core's fetch loop. It answers the data bus
@@ -130,7 +130,7 @@ module spiflash #(
         // high for the cycle that takes one, so there is no second state bit
         // and no pair of arms to keep agreeing.
         if (!sck) begin
-          // The bit this master presents has been on the wire for a whole cycle
+          // The bit this controller presents has been on the wire for a whole cycle
           // by now, which is the setup the flash is owed. Rise.
           sck <= 1'b1;
         end else begin

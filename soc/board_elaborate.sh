@@ -3,16 +3,16 @@
 #
 # WHY THIS EXISTS. soc/board_upduino.v is the only file in this tree that no
 # check on `make test` or on CI reads. `make bitstream` synthesises it and
-# `make prog` flashes it, and both need a board plugged in. That was survivable
-# while the file was ten lines of glue around `littlesoc`; it is not now that it
-# arbitrates four shared pins behind `SB_IO` output enables, because the ways
-# that goes wrong -- a port renamed on one side of the instantiation, an enable
-# left unconnected, a net nothing drives -- are exactly what yosys reports for
-# free and what a human with hardware would otherwise find.
+# `make prog` flashes it, and both need a board plugged in. That was
+# survivable while the file was ten lines of glue around `littlesoc`; it is
+# not now that pin 14's `SB_IO` output enable is read off a synchronised
+# sample of pin 16, because the ways that goes wrong -- a port renamed on one
+# side of the instantiation, a synchroniser input left unconnected -- are
+# exactly what yosys reports for free.
 #
-# WARNINGS ARE ERRORS HERE, and the warning is the interesting half: yosys fails
-# on a port that does not exist, and merely WARNS about a wire with no driver,
-# which is what a mis-wired enable leaves behind.
+# WARNINGS ARE ERRORS HERE, and the warning is the interesting half: yosys
+# fails on a port that does not exist, and merely WARNS about a wire with no
+# driver, which is what an unconnected synchroniser input leaves behind.
 #
 # yosys prefixes a diagnostic tied to a source line with "file:line: " ahead of
 # "ERROR: "/"Warning: " -- $readmemh's own "Can not open file" is one -- so a
@@ -133,12 +133,12 @@ if mutate "$TMP/renamed.v" 's/\.uart_tx(uart_tx),/.uart_txx(uart_tx),/'; then
     "${rest[@]}" "$TMP/renamed.v"
 fi
 
-# The pin whose level the enable on pin 14 reads, no longer wired back out of
-# its `SB_IO`. yosys does NOT fail on this -- it warns that the wire has no
-# driver -- so this is the case that says treating a warning as an error is
-# load-bearing here rather than decorative.
-if mutate "$TMP/undriven.v" 's/\.D_IN_0(ssn_in)/.D_IN_0()/'; then
-  run_case "the enable reading a pin nothing drives" reject "has no driver" \
+# The synchroniser's own input, no longer wired back out of pin 16's `SB_IO`.
+# yosys does NOT fail on this -- it warns that the wire has no driver -- so
+# this is the case that says treating a warning as an error is load-bearing
+# here rather than decorative.
+if mutate "$TMP/undriven.v" 's/\.D_IN_0(ssn_pin)/.D_IN_0()/'; then
+  run_case "the synchroniser reading a pin nothing drives" reject "has no driver" \
     "${rest[@]}" "$TMP/undriven.v"
 fi
 

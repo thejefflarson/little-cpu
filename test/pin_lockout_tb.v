@@ -12,11 +12,12 @@ module pin_lockout_tb;
   logic clk = 0;
   always #5 clk = ~clk;
 
-  logic want, release_in, grant;
+  logic want, busy, release_in, grant;
 
   pin_lockout dut (
     .clk(clk),
     .want(want),
+    .busy(busy),
     .release_in(release_in),
     .grant(grant)
   );
@@ -41,6 +42,7 @@ module pin_lockout_tb;
 
   initial begin
     want       = 1'b0;
+    busy       = 1'b0;
     release_in = 1'b1;
 
     //-------------------------------------------------------------------
@@ -115,11 +117,82 @@ module pin_lockout_tb;
     step();
     check_bit("released at last: grant follows want down, not release_in's glitch", grant, 1'b0);
 
+    //-------------------------------------------------------------------
+    // The bound protects a real transfer: `busy` shaped like
+    // rtl/spiflash.v's own duty cycle -- sixteen cycles high for a byte
+    // shifting, then a handful low for the software overhead between bytes
+    // -- resets the idle counter every time, so a request held for several
+    // such bytes, far longer than one IDLE_LIMIT window, never sees a
+    // forced drop. 16 below mirrors soc/pin_lockout.v's own IDLE_LIMIT.
+    //-------------------------------------------------------------------
+    want       = 1'b1;
+    release_in = 1'b1;
+    repeat (2) step();
+    check_bit("granted for the transfer", grant, 1'b1);
+    repeat (4) begin
+      busy = 1'b1;
+      repeat (16) begin
+        step();
+        check_bit("busy high for a byte: grant holds", grant, 1'b1);
+      end
+      busy = 1'b0;
+      repeat (10) begin
+        step();
+        check_bit("busy low between bytes, still under the bound: grant holds", grant, 1'b1);
+      end
+    end
+    want = 1'b0;
+    step();
+    check_bit("transfer done, want dropped: grant follows it down", grant, 1'b0);
+
+    //-------------------------------------------------------------------
+    // No bound protects an idle hold: `want` stays up with `busy` never once
+    // true, standing in for firmware that asserted the request and then
+    // trapped, hung or forgot to lower it. `released` is already settled
+    // from the idle cycle above, so the count is exact: IDLE_LIMIT (16)
+    // granted cycles, then two more while the synchroniser gets a genuine
+    // fresh sample, then -- uncontested -- the grant returns on its own.
+    // One bounded window, not a permanent loss of the bus.
+    //-------------------------------------------------------------------
+    want       = 1'b1;
+    busy       = 1'b0;
+    release_in = 1'b1;
+    repeat (15) step();
+    check_bit("granted, one cycle short of the bound", grant, 1'b1);
+    step();
+    check_bit("bound hit: grant drops", grant, 1'b0);
+    step();
+    check_bit("still resyncing", grant, 1'b0);
+    step();
+    check_bit("uncontested: the grant comes back on its own", grant, 1'b1);
+    want = 1'b0;
+    step();
+
+    //-------------------------------------------------------------------
+    // Contested past the timeout: a host takes the pin in the window a
+    // forced drop opens, and the grant must stay withheld exactly as if
+    // this had been the very first request -- the bound does not weaken the
+    // guard `release_in` reading low has always had.
+    //-------------------------------------------------------------------
+    want       = 1'b1;
+    busy       = 1'b0;
+    release_in = 1'b1;
+    repeat (16) step();
+    check_bit("bound hit again: grant drops", grant, 1'b0);
+    release_in = 1'b0;
+    repeat (10) begin
+      step();
+      check_bit("host took the window: grant stays withheld", grant, 1'b0);
+    end
+    release_in = 1'b1;
+    want       = 1'b0;
+    step();
+
     if (errors != 0) begin
       $display("FAILED: %0d mismatches", errors);
       $fatal(1);
     end else begin
-      $display("PASSED: pin_lockout (samples before granting, holds for the request, never re-reads while driving)");
+      $display("PASSED: pin_lockout (samples before granting, holds for the request, never re-reads while driving, and bounds an idle grant to one byte time)");
       $finish;
     end
   end

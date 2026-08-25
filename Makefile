@@ -1290,7 +1290,7 @@ dhrystone-board:
 # top, different pins, possibly a different clock source. Do not merge the two.
 BOARD ?= upduino
 
-BOARD_SRCS := $(SOC_SRCS) soc/pin_lockout.v soc/board_upduino.v
+BOARD_SRCS := $(SOC_SRCS) soc/board_upduino.v
 BOARD_TOP  := upduino_top
 BOARD_PCF  := soc/upduino.pcf
 
