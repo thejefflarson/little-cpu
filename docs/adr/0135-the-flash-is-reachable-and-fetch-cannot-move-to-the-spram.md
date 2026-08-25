@@ -1,4 +1,4 @@
-# 0131 — The flash is reachable, and fetch cannot move to the SPRAM
+# 0135 — The flash is reachable, and fetch cannot move to the SPRAM
 
 Status: accepted
 
@@ -133,6 +133,82 @@ tidy: a released pin 14 has to idle high because that is the UART's idle level, 
 the first attempt wins, and removing it on an argument rather than a run is the mistake this project
 has a rule about.
 
+## The arbitration was one-directional, and a second pass closed it
+
+The table above states what the pins do once the on-chip master holds the select; what it elides is
+that nothing stopped the master asserting its own select while the host held pin 16 low. The pin's
+read-back gated the *UART's* enable — `!own_flash && ssn_in` — but `own_flash` itself was `!soc_cs_n`
+alone, so a program that reached for the flash mid-`iceprog` put two drivers on pins 15/16/17: the
+same contention class already measured on this board, one entry up in this same document.
+
+The obvious fix — require `ssn_in` read high before `own_flash` may go high — is wrong, and wrong in
+a way that only shows up on the part: `own_flash` enables `io_ssn`'s output, which drives pin 16 low,
+which is what `ssn_in` then reads, which would drop `own_flash`, which releases the pin, which the
+pull-up takes back high, which regrants — a combinational loop closed through the pad rather than
+through any net yosys can see, so it synthesises clean and oscillates at whatever speed the fabric
+settles at. `soc/pin_lockout.v` is the sequential answer: a two-flop synchroniser on `ssn_in` that
+free-runs only while it is not granting, and freezes the instant it grants, so pin 16 is read *before*
+this design drives it and never re-read *through* its own drive. `own_flash` is `want && released`
+where `released` is that frozen sample — combinational in the request/grant sense, but built from a
+register the request path cannot feed back into within a cycle, so `check -assert` has nothing to
+flag and there is nothing to oscillate.
+
+The FSM adds no cycles in the case that matters: `released` is already valid, sampled across however
+many idle cycles preceded the request, at the instant `soc_cs_n` first goes low, so a program that
+selects the flash and immediately shifts a byte behaves exactly as before whenever the host was not
+there. When the host *is* there, the request is silently withheld — the master's internal shift
+register still runs to completion off `mem_wstrb`, unaware anything is wrong, and `shift_in` fills
+with whatever the released, pulled-up pins read — because nothing in `rtl/spiflash.v` needs to know
+about a board-level lock; the two masters simply never share a wire. `test/pin_lockout_tb.v` grades
+the module standalone against a testbench-driven `release_in`, which is what a second chip on the
+far side of the pin looks like from here, and demonstrates its own red direction: `grant = want &&
+release_in`, the version this ADR just argued is wrong, fails the same bench by granting the instant
+a glitch on `release_in` — which is what this module's own drive would read back as — coincides with
+`want`.
+
+**Ratified.** The obvious fix closing a loop through the pad, and the FSM instead, is the architect's
+call and is recorded here rather than only in the pull request that made it, per the pattern the rest
+of this file follows.
+
+## Read-only is firmware convention, and staying that way is ratified too
+
+`rtl/spiflash.v`'s own header already says why: the module is a shift register with no notion of
+commands, so `0x06` then `0x20` — write-enable and sector-erase, and the sector at the bottom of this
+part's flash is the bitstream that configured it — cost the same eight clocks a byte as a `0x03`
+read. Making that a hardware guarantee needs the shifter to recognise the first byte of a transaction
+against a table of what a command means, which is a policy engine — the exact thing this module's
+whole design avoids needing, since it is what lets it read the JEDEC id and the status register and
+the data array alike without knowing what any of them are. The flash's own write-enable latch is what
+actually stands between a stray store and a damaged board, and the software on this chip already has
+full bus access, so gating one more device buys no new trust boundary. **Ratified**: the module stays
+read-only by firmware convention and by nothing else.
+
+## The board's own grader was blind, and the diagnosis was an environment gap, not a toolchain one
+
+`make board-elaborate` failed on CI's yosys and passed on two others the same day it was reviewed, and
+`soc/board_elaborate.sh` printed nothing under the failure either time it was tried. Both looked like
+one story — the toolchain that moves under CI, which this file already warns about elsewhere — and
+were two different, smaller ones.
+
+**The grader's silence was its own defect, unrelated to which yosys ran it.** Yosys attaches a
+`file:line: ` prefix ahead of `ERROR: `/`Warning: ` for any diagnostic tied to a source line —
+`$readmemh`'s own "Can not open file" among them — so `grep -E '^(ERROR|Warning)'`, anchored at the
+start of the line, matches a bare diagnostic and silently drops every file-scoped one. That has been
+true of every yosys version tried here; it had simply never been exercised, because elaboration had
+never failed with a file-scoped diagnostic before. `soc/board_elaborate.sh` now matches the prefix
+wherever it starts, and falls back to the log's own tail when nothing matches either shape, so a
+diagnostic in some third form still shows something rather than nothing.
+
+**The failure itself was `rtl/imemory.v`'s `$readmemh` on `soc/rom_even.hex`, which does not exist on
+a fresh checkout.** `make board-elaborate: $(BOARD_SRCS)` never depended on the ROM the RTL it
+elaborates reads unconditionally, and nothing else in `make test`'s chain writes those files first —
+so the target only ever worked on a working tree carrying leftovers from an earlier `make bitstream`
+or `make fit`, which is exactly what two different local runs had and CI's checkout does not.
+Reproduced directly under CI's own yosys build (a linux/amd64 container running the pinned binary):
+the elaboration fails identically missing the ROM and passes identically once
+`board-elaborate: $(BOARD_SRCS) $(BOARD_ROM)` builds it first — on the same yosys, the same sources,
+nothing else different. The toolchain was never the variable; the checkout state was.
+
 ## The measurements
 
 Nothing moved that a memory census can see. `SOC_EXPECT_EBR` is 20 and `SOC_EXPECT_SPRAM` is 2,
@@ -159,7 +235,8 @@ and is not outside what this design has read before — `CLAUDE.md` records the 
 worst-of-sixteen at 12.39, 12.21 and **12.03** MHz on three earlier trees, "three samples and not a
 trend". Read this the same way: a sample of a wide tail, not a regression with a mechanism. The
 spread went 5.5% to 10.8% of the best placement, inside the range `soc/bands.py` records for a
-netlist that did not change at all.
+netlist that did not change at all. **Ratified**: 12.06 MHz is not a regression, on this evidence,
+and this sweep is not owed a re-take on that account.
 
 Packed cells go 4875 to 4943, and `make fit` reads 4109 against the 4097 the Makefile records —
 both inside the churn band, both from the region test's new window term rather than from the device,
@@ -168,6 +245,13 @@ which is outside `fit`'s top entirely.
 An earlier sweep of this change read 12.26 MHz worst and −0.25% median, and it is not quoted above:
 it was taken before the simplification pass took 29 `SB_LUT4` back out, `make netlist-diff` reported
 the digest had moved, and a sweep whose netlist no longer exists describes a design nobody ships.
+
+**`soc/pin_lockout.v` is outside every one of those figures.** It lives only in `upduino_top`, which
+`make fit` and `make soc-timing` never synthesise — both place `littlecpu` or `littlesoc`, and the
+board wrapper is neither. It is inside `make bitstream`'s placement, which carries no ratchet and is
+a single seed: `board.json` placed at 12.82 MHz after the FSM landed, against 12.93 MHz for the
+tree above it, both single placements of a design this ADR's own sixteen-seed sweep does not cover
+and does not owe a sweep to.
 
 ## Consequences
 
@@ -185,13 +269,19 @@ the digest had moved, and a sweep whose netlist no longer exists describes a des
 - **The board wrapper has a grader now, and it did not before.** `soc/board_upduino.v` is read by
   `make bitstream` and `make prog` and by nothing else, and both need a board — so the one file this
   change put real logic in was the one file CI could not fail. `make board-elaborate` reads it on
-  `make test` and forces two ways of breaking it red, the way `make window-test` does. It does not
-  read `soc/upduino.pcf`: nothing in this repo parses one, so a pin assignment naming a port that no
-  longer exists is still nextpnr's to catch and nobody else's.
+  `make test` and forces two ways of breaking it red, the way `make window-test` does, and now
+  depends on the ROM its own elaboration reads rather than on a working tree happening to have one
+  already. It does not read `soc/upduino.pcf`: nothing in this repo parses one, so a pin assignment
+  naming a port that no longer exists is still nextpnr's to catch and nobody else's.
+- **The arbitration is two-directional now, and `soc/pin_lockout.v` has a grader that does not need a
+  board.** `test/pin_lockout_tb.v` drives the synchroniser directly and demonstrates the red
+  direction the naive combinational gate takes. What it cannot grade is the pad it will sit behind —
+  no simulated `SB_IO` model here reflects a design's own drive back onto its own input the way
+  silicon does, which is the exact behaviour the freeze exists for.
 - **What is NOT claimed: that a board has run any of this.** No board was attached while this was
-  written. The master, the model, the program and the whole map are graded in simulation on both
-  legs; the pin arrangement is graded by `make bitstream` placing it, and by nothing else. The first
-  board run is owed and is where the pull-ups and the chip-select handover are really tested.
+  written. The master, the model, the program, the lockout and the whole map are graded in
+  simulation; the pin arrangement is graded by `make bitstream` placing it, and by nothing else. The
+  first board run is owed and is where the pull-ups and the chip-select handover are really tested.
 - **What is NOT claimed: that either payoff arrived.** `rvc.S` is still too large for the part,
   `soc/run_suite_board.sh` still batches, and neither is fixed by anything here. What a flash boot
   still needs is a loader — software, not RTL, since text is writable and `test/asm/selfmod.S`

@@ -14,6 +14,13 @@
 # on a port that does not exist, and merely WARNS about a wire with no driver,
 # which is what a mis-wired enable leaves behind.
 #
+# yosys prefixes a diagnostic tied to a source line with "file:line: " ahead of
+# "ERROR: "/"Warning: " -- $readmemh's own "Can not open file" is one -- so a
+# grep anchored at the start of the line finds a bare ERROR/Warning and misses
+# every file-scoped one. That once left a FAIL here with nothing printed under
+# it. `show_diagnostics` below matches both, and falls back to the log's tail
+# so a diagnostic in a form neither of those covers still shows something.
+#
 # IT DOES NOT READ soc/upduino.pcf. Nothing in this repo parses a pcf, so a pin
 # assignment naming a port that no longer exists is caught by nextpnr during
 # `make bitstream` and by nothing here. That gap is real and is named rather
@@ -45,6 +52,20 @@ elaborate() {  # $1 = log path, then the sources
     > "$log" 2>&1
 }
 
+# Prints the log's ERROR/Warning lines, wherever in the line they start, or --
+# if none matched, meaning the diagnostic took some third shape -- the log's
+# own tail, so a FAIL here is never silent.
+show_diagnostics() {  # $1 = log path
+  local log=$1 matches
+  matches=$(grep -E '(ERROR|Warning):' "$log")
+  if [ -n "$matches" ]; then
+    echo "$matches" | head -5 | sed 's/^/       /'
+  else
+    echo "       (no ERROR:/Warning: line matched -- last 10 lines of the log:)"
+    tail -10 "$log" | sed 's/^/       /'
+  fi
+}
+
 # `accept` wants exit 0 AND no warning; `reject` wants one or the other to go,
 # with the given text in the log. A reject that failed for some unrelated reason
 # is not a demonstration, which is why the text is compared and not just the
@@ -56,14 +77,14 @@ run_case() {  # $1 = what, $2 = accept|reject, $3 = expected text, then sources
   elaborate "$log" "$@"
   local rc=$?
   local warned=no
-  grep -q '^Warning' "$log" && warned=yes
+  grep -qE 'Warning:' "$log" && warned=yes
 
   if [ "$want" = accept ]; then
     if [ "$rc" -eq 0 ] && [ "$warned" = no ]; then
       echo "ok   $what elaborated, warning-free"
     else
       echo "FAIL $what did not elaborate cleanly (rc=$rc, warnings=$warned):"
-      grep -E '^(ERROR|Warning)' "$log" | head -5 | sed 's/^/       /'
+      show_diagnostics "$log"
       failed=$((failed + 1))
     fi
   else
@@ -71,7 +92,7 @@ run_case() {  # $1 = what, $2 = accept|reject, $3 = expected text, then sources
       echo "ok   $what refused, and for its own reason"
     else
       echo "FAIL $what was accepted, or refused for some other reason:"
-      grep -E '^(ERROR|Warning)' "$log" | head -5 | sed 's/^/       /'
+      show_diagnostics "$log"
       failed=$((failed + 1))
     fi
   fi

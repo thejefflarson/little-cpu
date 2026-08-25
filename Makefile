@@ -390,7 +390,7 @@ lint-setup:
 	@'$(SVLINT_DIR)'/bin/svlint --version
 
 UNIT_BENCHES := exec_tb mem_tb imem_tb decoder_tb regfile_tb csr_tb accessor_tb monitor_tb \
-                timer_tb uart_tb spiflash_tb
+                timer_tb uart_tb spiflash_tb pin_lockout_tb
 
 UNIT_BENCH_SRC_exec_tb     := rtl/structs.v rtl/executor.v
 UNIT_BENCH_SRC_mem_tb      := rtl/memory.v
@@ -403,6 +403,7 @@ UNIT_BENCH_SRC_monitor_tb  := test/monitor.sim.v
 UNIT_BENCH_SRC_timer_tb    := rtl/timer.v
 UNIT_BENCH_SRC_uart_tb     := rtl/uart.v
 UNIT_BENCH_SRC_spiflash_tb := rtl/spiflash.v test/spiflash_model.v
+UNIT_BENCH_SRC_pin_lockout_tb := soc/pin_lockout.v
 
 # `present` is read from disk inside the recipe, not with $(wildcard). Make reads
 # a directory once and remembers it, and a check working from a stale listing can
@@ -1289,7 +1290,7 @@ dhrystone-board:
 # top, different pins, possibly a different clock source. Do not merge the two.
 BOARD ?= upduino
 
-BOARD_SRCS := $(SOC_SRCS) soc/board_upduino.v
+BOARD_SRCS := $(SOC_SRCS) soc/pin_lockout.v soc/board_upduino.v
 BOARD_TOP  := upduino_top
 BOARD_PCF  := soc/upduino.pcf
 
@@ -1319,8 +1320,15 @@ noop-rom:
 # The board wrapper's only grader that does not need a board. It forces its own
 # red directions, the way `window-test` does and for the same reason -- see
 # soc/board_elaborate.sh, which is where all of it lives.
+#
+# Also needs $(BOARD_ROM): rtl/imemory.v reads soc/rom_*.hex with $readmemh at
+# elaboration time regardless of what board-elaborate is checking, and on a
+# fresh checkout nothing else in `make test`'s chain writes them first. Missing,
+# yosys treats it as a fatal ERROR rather than a warning, which is what made
+# this target fail on a clean CI checkout while passing on a working tree that
+# still had the files from an earlier `make bitstream` or `make fit`.
 .PHONY: board-elaborate
-board-elaborate: $(BOARD_SRCS)
+board-elaborate: $(BOARD_SRCS) $(BOARD_ROM)
 	@./soc/board_elaborate.sh yosys $(BOARD_TOP) $(BOARD_SRCS)
 
 board.json: $(BOARD_SRCS) $(BOARD_ROM)

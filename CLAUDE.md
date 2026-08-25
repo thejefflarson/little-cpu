@@ -994,7 +994,7 @@ flash, though the flash itself is reachable now (see below). Two things have com
 the machine timer is built (ADR-0082), and the forwarding network is priced and declined rather than
 pending (ADR-0083). An interrupt controller, more sources and a vectored `mtvec` are still on it.
 
-**8 KB of text is the ceiling and it is a range test's, not the part's** (ADR-0131). `rtl/imemory.v`
+**8 KB of text is the ceiling and it is a range test's, not the part's** (ADR-0135). `rtl/imemory.v`
 refuses a `ROM_WORDS` that is not a power of two, because both its range tests are reductions on the
 address bits above the ROM; the next legal size up is 16 KB, which is 32 block RAMs against the 26
 free. So there is no ROM size between the one that ships and one that does not fit, and spending the
@@ -1007,7 +1007,7 @@ measured cannot be built here. `test/asm/rvc.S` is 12 256 bytes and therefore st
 silicon, and `soc/run_suite_board.sh` still batches.
 
 **A read-only master for the configuration flash is the ninth pin, and the flash's own chip select
-is what shares four of them** (ADR-0131). `rtl/spiflash.v` is a byte-at-a-time single-lane mode-0
+is what shares four of them** (ADR-0135). `rtl/spiflash.v` is a byte-at-a-time single-lane mode-0
 shift register — eight bytes at `0x0002_0028`, a data register whose read gives `busy` in bit 8 above
 the byte the last exchange shifted in, and a write-only control register whose bit 0 is the chip
 select. It knows no commands, so a JEDEC id read and an `0x03` sequential read are the same eight

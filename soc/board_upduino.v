@@ -38,19 +38,24 @@
 //
 // THE FLASH'S CHIP SELECT IS THE ARBITER, and it is the one signal both owners
 // can see. While the on-chip master holds the flash selected, pin 14 is an
-// input and the flash drives it. While the HOST holds it selected -- `iceprog`
-// drives pin 16 from the FTDI, and the FPGA is still running its old design
-// throughout, because this board's CRESET is not wired to the programmer --
-// pin 14 is released as well, and the flash has the wire to itself. The rest of
-// the time nobody is talking to the flash, so the UART drives pin 14 and the
-// serial port works exactly as it did.
+// input and the flash drives it. The rest of the time nobody is talking to the
+// flash, so the UART drives pin 14 and the serial port works exactly as it
+// did.
 //
-// That last arm is the bug this arrangement fixes rather than a nicety. With
-// the UART driving pin 14 unconditionally, a board replaying a report fought
-// the flash for the wire while `iceprog` read it: `cdone` high after a reset
-// that should have lowered it, a JEDEC id arriving a byte late as
-// `FF EF 70 16`, and then a write error. soc/run_suite_board.sh retried four
-// times to get around it. Nothing here has to retry.
+// That is the bug this arrangement fixes rather than a nicety. With the UART
+// driving pin 14 unconditionally, a board replaying a report fought the flash
+// for the wire while `iceprog` read it: `cdone` high after a reset that should
+// have lowered it, a JEDEC id arriving a byte late as `FF EF 70 16`, and then a
+// write error. soc/run_suite_board.sh retried four times to get around it.
+//
+// BUT THE HOST CAN ASSERT ITS OWN SELECT AT ANY TIME, on the same pin 16 the
+// on-chip master drives out -- `iceprog` drives it from the FTDI, and the FPGA
+// is still running its old design throughout, because this board's CRESET is
+// not wired to the programmer. So `own_flash` below does not just reflect the
+// on-chip master's own request: `pin_lockout` withholds it until pin 16 has
+// been read released, and holds that answer for the whole request once given,
+// so the two masters are never driving pin 16 -- or the three pins its select
+// gates -- at once.
 //
 // THE PULL-UPS ARE LOAD-BEARING. Three of these four pins are released most of
 // the time, and a released pin is an input with nothing on it: the UART's idle
@@ -102,13 +107,20 @@ module upduino_top #(
   logic uart_tx;
   logic soc_sck, soc_mosi, soc_miso, soc_cs_n;
 
-  // The on-chip master owns the flash exactly while it holds the select low.
-  logic own_flash;
-  assign own_flash = !soc_cs_n;
-
   // Pin 16's level, read back whenever the master is not driving it. That is
   // where the host's chip select shows up.
   logic ssn_in;
+
+  // The on-chip master owns the flash while it holds its own select low AND
+  // pin 16 was last read released -- see soc/pin_lockout.v for why that read
+  // has to be a synchroniser and not `!soc_cs_n && ssn_in` directly.
+  logic own_flash;
+  pin_lockout flash_lockout (
+    .clk(clk),
+    .want(!soc_cs_n),
+    .release_in(ssn_in),
+    .grant(own_flash)
+  );
 
   // PIN_TYPE 6'b1010_01: a simple output behind an output enable, and a simple
   // input. The same eight bits for all four, because all four are the same
