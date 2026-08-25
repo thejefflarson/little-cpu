@@ -1,4 +1,4 @@
-# 0134 — CoreMark lands simulated, and there is no ice40 Hazard3 number to compare it to
+# 0136 — CoreMark lands simulated, and there is no ice40 Hazard3 number to compare it to
 
 Status: accepted · 2026-08-24 · a second benchmark, and the comparison it does not yet support
 

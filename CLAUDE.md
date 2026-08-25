@@ -600,7 +600,7 @@ and times; `make ecp5-timing` is that same SoC on the other part.
   against `test/bench/coremark/PINNED.sha256` on every run) and `test/bench/core_portme.h` /
   `test/bench/coremark_port.c` are this repo's own porting layer, the same split
   `test/bench/dhry_port.c` uses for Dhrystone. Not a gate and adds no ratchet, and not on CI, the same
-  as `make dhrystone`. See ADR-0134 for the number, the Hazard3 comparison and its configuration
+  as `make dhrystone`. See ADR-0136 for the number, the Hazard3 comparison and its configuration
   caveat — Hazard3's published 4.15 CoreMark/MHz is its RP2350 build (Zba/Zbb/Zbs, a fast multiplier,
   a branch predictor); its iCE40/iCEBreaker build has none of those, and quoting the RP2350 figure
   against an ice40 core is the mixed-configuration error ADR-0098 already has a name for.
