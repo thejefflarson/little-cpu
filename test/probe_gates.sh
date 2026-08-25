@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=525
+PROBES_EXPECTED=539
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -1450,23 +1450,33 @@ probe "a tree with no source file at all is red rather than vacuously green" 1 \
 begin_group "test/zkt_isolation_test.py"
 
 # The script takes a path argument directly, so a fixture is just a mutated
-# COPY of the shipping rtl/decoder.v -- no git init needed, unlike the
-# checks above that enumerate tracked files.
+# COPY of the shipping rtl/decoder.v plus its two dependencies -- no git init
+# needed, unlike the checks above that enumerate tracked files. regsel.v
+# joins structs.v here because this script elaborates the real module now,
+# not a text scan of decoder.v alone, and decoder.v instantiates it twice.
 ZKT="python3 $HERE/zkt_isolation_test.py"
 
 zkt_fixture() {
   local d; d=$(new_case)
   cp "$REPO/rtl/decoder.v" "$d/decoder.v"
   cp "$REPO/rtl/structs.v" "$d/structs.v"
+  cp "$REPO/rtl/regsel.v" "$d/regsel.v"
   printf '%s' "$d"
 }
 
+# This control is also the only thing that exercises CONTROL_FIELDS: emptying
+# that table makes live_rs1/live_rs2's real reads of out.rd/out.valid and
+# executor_out.rd/valid show up as reachable on the SHIPPING RTL, no mutation
+# needed, because out.valid's own bubble condition genuinely depends on
+# region_stall and trap_pending genuinely depends on reg_rs1 (misalignment).
+# A red here can mean that table went stale as easily as it can mean a real
+# decoder.v regression.
 d=$(zkt_fixture)
 probe "control: the shipping decoder reaches region_stall only, gated" 0 \
   "reach only region_stall" "$ZKT $d/decoder.v"
 
-# THE FIRST NAMED DIRECTION: the gate comes off, so region_stall could now
-# assert for any instruction rather than only a load or a store.
+# THE GATE'S OWN SHAPE, first direction: the gate comes off, so region_stall
+# could now assert for any instruction rather than only a load or a store.
 d=$(zkt_fixture)
 sed -i.bak \
   's/assign region_stall = ls_access && !ls_settled && !ls_answer_valid;/assign region_stall = !ls_settled \&\& !ls_answer_valid;/' \
@@ -1474,21 +1484,147 @@ sed -i.bak \
 probe "deleting the ls_access gate is red, at region_stall's own site" 1 \
   "region_stall\` no longer conjoins \`ls_access\`" "$ZKT $d/decoder.v"
 
-# THE SECOND NAMED DIRECTION: a register-file DATA bit routed straight into
-# hazard, the way a forwarding path or a data-dependent early-out might be
-# added by someone who never meant to touch Zkt's claim.
+# THE GATE'S OWN SHAPE, second direction: the `&&` chain is intact, but an
+# `||` term sits beside it. Precedence makes this an OR of the whole
+# conjunction with reg_rs1[0], which shows up on the elaborated netlist as an
+# `$_OR_` cell sitting directly on region_stall's own driving path --
+# whatever the source text's operator precedence was, and unlike an
+# RTL-text scan that only ever re-split the same string.
+d=$(zkt_fixture)
+sed -i.bak \
+  's/assign region_stall = ls_access && !ls_settled && !ls_answer_valid;/assign region_stall = ls_access \&\& !ls_settled \&\& !ls_answer_valid || reg_rs1[0];/' \
+  "$d/decoder.v"
+probe "an || term beside region_stall's && chain is red, not a silent pass" 1 \
+  "has a top-level \`||\`" "$ZKT $d/decoder.v"
+
+# FORWARD REACHABILITY, the plain case: a register-file DATA bit routed
+# straight into hazard, the way a forwarding path or a data-dependent
+# early-out might be added by someone who never meant to touch Zkt's claim.
 d=$(zkt_fixture)
 sed -i.bak \
   's/assign hazard = hazard_rs1 || hazard_rs2 || serialize;/assign hazard = hazard_rs1 || hazard_rs2 || serialize || reg_rs1[0];/' \
   "$d/decoder.v"
 probe "a reg_rs1 bit routed into hazard is red, at hazard's own site" 1 \
-  "\`hazard\` depends on a register-file DATA output" "$ZKT $d/decoder.v"
+  "\`hazard\` is reachable" "$ZKT $d/decoder.v"
+
+# FORWARD REACHABILITY THROUGH A REGISTER: reg_rs1 laundered through the
+# publish block's own `out.rs1 <= reg_rs1` before reaching hazard. An
+# RTL-text scan of continuous assigns alone cannot see this -- `out.rs1` is
+# written procedurally -- and this defeated an earlier round of this check
+# for exactly that reason. On the elaborated netlist a flip-flop's D input
+# feeding its Q output is one more edge, not a different kind of thing.
+d=$(zkt_fixture)
+sed -i.bak \
+  's/assign hazard = hazard_rs1 || hazard_rs2 || serialize;/assign hazard = hazard_rs1 || hazard_rs2 || serialize || out.rs1[0];/' \
+  "$d/decoder.v"
+probe "reg_rs1 laundered through out.rs1's own register is still red" 1 \
+  "\`hazard\` is reachable" "$ZKT $d/decoder.v"
+
+# FORWARD REACHABILITY THROUGH A COMPARATOR: branch_taken depends on
+# cmp_eq/cmp_lt/cmp_ltu, which are reg_rs1/reg_rs2 through a subtraction --
+# every bit of it real dataflow, computed in an always_comb block. This is
+# the other shape that defeated an earlier round: `branch_taken` is never a
+# continuous assign's own left-hand side, so a text scan of assigns alone
+# never followed a path through it either.
+d=$(zkt_fixture)
+sed -i.bak \
+  's/assign hazard = hazard_rs1 || hazard_rs2 || serialize;/assign hazard = hazard_rs1 || hazard_rs2 || serialize || branch_taken;/' \
+  "$d/decoder.v"
+probe "branch_taken carrying reg_rs1/reg_rs2 into hazard is red" 1 \
+  "\`hazard\` is reachable" "$ZKT $d/decoder.v"
+
+# FORWARD REACHABILITY, the other seed: a register-file DATA output
+# STRUCT_FIELD_SEEDS never named. executor_out.rd_data is a 32-bit field of
+# a decoder input port, the same shape as reg_rs1/reg_rs2, and a forwarding
+# path routing it into a stall reason is exactly the change this repo keeps
+# pricing and declining (ADR-0083/0092/0100).
+d=$(zkt_fixture)
+sed -i.bak \
+  's/assign atomic_stall = out.valid && out.is_amo && !divider_stall;/assign atomic_stall = out.valid \&\& out.is_amo \&\& !divider_stall || executor_out.rd_data[0];/' \
+  "$d/decoder.v"
+probe "an executor_out.rd_data bit routed into a stall reason is red" 1 \
+  "\`atomic_stall\` is reachable" "$ZKT $d/decoder.v"
+
+# FINDING 1: a stall reason reading region_stall's own captured state
+# directly, bypassing the ls_access gate rather than going through it. The
+# RTL-text version trusted `ls_answer_valid` as a KNOWN_CLEAN_LEAF without
+# verifying the claim against what it depends on; this version computes it,
+# with a narrower reachability pass seeded from ls_capture/ls_answer/
+# ls_answer_valid themselves rather than from reg_rs1.
+d=$(zkt_fixture)
+sed -i.bak \
+  's/assign hazard = hazard_rs1 || hazard_rs2 || serialize;/assign hazard = hazard_rs1 || hazard_rs2 || serialize || ls_answer_valid;/' \
+  "$d/decoder.v"
+probe "hazard reading ls_answer_valid directly is red (finding 1)" 1 \
+  "region_stall's own captured answer" "$ZKT $d/decoder.v"
+
+# FINDING 2: the same leak, behind a decoy. An `assign` inside an un-taken
+# \`generate if (0)\` claiming ls_answer_valid is a harmless constant would
+# have fooled a regex that does not understand generate semantics, by
+# masking the real always_ff driver underneath two textual definitions for
+# one name. Elaboration never sees the dead branch at all, so the real
+# driver -- and the leak above -- is exactly as reachable as it was without
+# the decoy.
+d=$(zkt_fixture)
+python3 - "$d/decoder.v" <<'PYEOF'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+s = s.replace(
+    'assign hazard = hazard_rs1 || hazard_rs2 || serialize;',
+    'assign hazard = hazard_rs1 || hazard_rs2 || serialize || ls_answer_valid;\n'
+    '  generate\n'
+    '    if (0) begin : dead_gen\n'
+    "      assign ls_answer_valid = 1'b0;\n"
+    '    end\n'
+    '  endgenerate',
+    1)
+open(p, 'w').write(s)
+PYEOF
+probe "a dead generate-if(0) decoy does not hide the same leak (finding 2)" 1 \
+  "region_stall's own captured answer" "$ZKT $d/decoder.v"
+
+# FINDING 3: a new decoder input wider than a register NUMBER, added with no
+# Zkt classification at all. An RTL-text \`[N:0]\` match against a
+# parameterised width can read the wrong number of bits; this script reads
+# the port's MEASURED width off the elaborated netlist instead, so a plain
+# 10-bit port is unmistakably wide enough to matter.
+d=$(zkt_fixture)
+sed -i.bak \
+  's/  input  logic \[31:0\] reg_rs1,/  input  logic [31:0] reg_rs1,\n  input  logic [9:0] probe_wide_input,/' \
+  "$d/decoder.v"
+probe "a new wide input port with no classification is red (finding 3)" 2 \
+  "no Zkt classification" "$ZKT $d/decoder.v"
+
+# THE OTHER DIRECTION: a classification whose port the netlist no longer
+# has. Unlike the probes above, the RTL is the shipping one and the SCRIPT
+# is the fixture -- the asymmetry finding 1 named: SEEDS/NON_VALUE_PORTS are
+# checked stale in both directions, and KNOWN_CLEAN_LEAVES never was.
+d=$(new_case)
+cp "$HERE/zkt_isolation_test.py" "$d/zkt_isolation_test.py"
+sed -i.bak \
+  "s/NON_VALUE_PORTS = {/NON_VALUE_PORTS = {\n    'totally_fake_port',/" \
+  "$d/zkt_isolation_test.py"
+probe "a classification naming a port the netlist has never seen is red" 2 \
+  "Remove the stale entry" "python3 $d/zkt_isolation_test.py $REPO/rtl/decoder.v"
+
+# A stall-reason name with no driving cell at all -- a deleted
+# \`assign hazard = ...;\` with the declaration left behind -- would make
+# reachability through it vacuously true (nothing flows out of a wire
+# nothing drives) rather than the missing stall reason it is.
+d=$(zkt_fixture)
+sed -i.bak '/assign hazard = hazard_rs1 || hazard_rs2 || serialize;/d' "$d/decoder.v"
+probe "a stall reason with no driving cell stops the run" 2 \
+  "hazard has no driving cell" "$ZKT $d/decoder.v"
 
 # The anti-vacuity control: if the RTL stopped carrying reg_rs1 into
 # region_stall at all, every PASS above would be a check of nothing, and this
-# is what says so instead of staying green.
+# is what says so instead of staying green. Redirected to csr_rdata rather
+# than tied to a constant, so ls_block stays a real (if irrelevant) alias
+# instead of tripping the driving-cell probe above for an unrelated reason.
 d=$(zkt_fixture)
-sed -i.bak "s/assign ls_block = reg_rs1\[31:LS_BLOCK_BITS\];/assign ls_block = '0;/" \
+sed -i.bak \
+  's/assign ls_block = reg_rs1\[31:LS_BLOCK_BITS\];/assign ls_block = csr_rdata[31:LS_BLOCK_BITS];/' \
   "$d/decoder.v"
 probe "a graph with no edges out of reg_rs1 is red, not a vacuous pass" 1 \
   "found no edges at all" "$ZKT $d/decoder.v"
@@ -1497,47 +1633,6 @@ probe "wrong argument count is exit 2" 2 "Usage:" "$ZKT $d/decoder.v extra"
 
 probe "a decoder.v that does not exist is exit 2, not a vacuous pass" 2 \
   "cannot read" "$ZKT $d/nonexistent.v"
-
-# A stall reason moved out of a continuous assign would silently escape this
-# graph, so that is a hard error rather than a signal read as clean.
-d=$(zkt_fixture)
-sed -i.bak '/assign hazard = hazard_rs1 || hazard_rs2 || serialize;/d' "$d/decoder.v"
-probe "a stall reason with no continuous assign defining it stops the run" 2 \
-  "has no continuous assign defining: hazard" "$ZKT $d/decoder.v"
-
-# THE THIRD NAMED DIRECTION: an intermediate that used to be a continuous
-# assign moved into an always_comb block. `live_rs1` never stops depending on
-# what it depended on before -- the RTL itself is unchanged in every way this
-# script cannot see -- but it is no longer a name the fan-in walk can trace,
-# so it must stop the run rather than being read as a clean leaf the way
-# `out.rs1` and `branch_taken` were before this fix.
-d=$(zkt_fixture)
-sed -i.bak 's/assign live_rs1 = /always_comb live_rs1 = /' "$d/decoder.v"
-probe "a signal moved into always_comb stops the run at its own site" 2 \
-  "reaches live_rs1" "$ZKT $d/decoder.v"
-
-# THE FOURTH NAMED DIRECTION: region_stall's own `&&` chain is intact, but an
-# `||` term is added beside it. `top_level_and_terms` alone still finds
-# ls_access among the split terms, so this defeats the ORIGINAL gate check
-# and is also invisible to taint, because `stall`/`stall_other` read
-# `region_stall` by name and never look inside its assign.
-d=$(zkt_fixture)
-sed -i.bak \
-  's/assign region_stall = ls_access && !ls_settled && !ls_answer_valid;/assign region_stall = ls_access \&\& !ls_settled \&\& !ls_answer_valid || reg_rs1[0];/' \
-  "$d/decoder.v"
-probe "an || term beside region_stall's && chain is red, not a silent pass" 1 \
-  "region_stall\` has a top-level \`||\`" "$ZKT $d/decoder.v"
-
-# THE FIFTH NAMED DIRECTION: a register-file DATA output SEEDS never named.
-# executor_out.rd_data is a 32-bit input port, the same shape as reg_rs1/
-# reg_rs2, and a forwarding path routing it into a stall reason is exactly
-# the change this repo keeps pricing and declining (ADR-0083/0092/0100).
-d=$(zkt_fixture)
-sed -i.bak \
-  's/assign atomic_stall = out.valid && out.is_amo && !divider_stall;/assign atomic_stall = out.valid \&\& out.is_amo \&\& !divider_stall || executor_out.rd_data[0];/' \
-  "$d/decoder.v"
-probe "an executor_out.rd_data bit routed into a stall reason is red" 1 \
-  "\`atomic_stall\` depends on a register-file DATA output" "$ZKT $d/decoder.v"
 
 begin_group "soc/routing_bins.py"
 

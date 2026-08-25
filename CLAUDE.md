@@ -280,31 +280,44 @@ instructions the design already implements: a listed set — RV32I arithmetic, l
 `MUL`/`MULH`/`MULHSU`/`MULHU`, and the arithmetic C encodings — must execute in time independent of
 its operands' VALUES. `DIV`/`REM`, loads, stores, branches and jumps are excluded from the list, and
 that exclusion is what makes the claim true here rather than merely convenient: `rtl/decoder.v`'s
-`stall` is the OR of eight reasons, and `test/zkt_isolation_test.py` proves structurally — a
-fan-in graph over the file's own continuous assigns, in the shape
-`formal/check-nonperturbation.py`'s cone check already uses — that seven of them read only register
-NUMBERS, instruction bits and control state, never a register-file or CSR-file DATA output (`SEEDS`
-names `reg_rs1`, `reg_rs2` and `executor_out.rd_data`, every decoder input this script's own read of
-`rtl/decoder.v`'s port list finds wider than a register NUMBER that can carry one; `NON_VALUE_INPUTS`
-names the rest, and either an unclassified new input or a stale entry is red). The eighth,
-`region_stall`, does read one (`reg_rs1`, on the way to deciding whether a load's or a store's
-address lands near a mapped window's edge), is gated on `ls_access`, true only for the twelve
-load and store encodings — none of which is on Zkt's list — and its own assign is checked for a
-top-level `||` beside that gate, because a split on `&&` alone cannot see one. **A leaf this script
-reaches from any of those eight signals that it cannot trace to a continuous assign — an
-intermediate moved into `always_comb`, an always_ff register, a submodule's output port — is a hard
-error at that exact signal unless it is named in `KNOWN_CLEAN_LEAVES` or `SEEDS`, not a signal read
-as clean by default**: forward taint alone never notices a leaf that is not itself a SEED, which is
-what let a procedural copy of `reg_rs1` or of the branch comparison pass this check silently before
-the fan-in walk was added. `rtl/executor.v` is the other half:
-`MUL`/`MULH`/`MULHSU`/`MULHU` resolve in decode's `init` state with no counter, so they are
-constant-time by inspection. `DIV`/`REM` are the one place this design is NOT constant-time — 32
-cycles ordinarily, one cycle when `rs2 == 0` or on `INT_MIN / -1` — which is exactly why the
-list excludes them rather than the claim being false. The load/store address-timing this leaves
-outside the list is backwards from the usual case: most cores' load timing varies with CACHE
-STATE, and this one has none — it varies with ADDRESS ARITHMETIC instead, and the standard
-constant-time model treats addresses as non-secret, so it sits inside the model without needing
-its own exception.
+`stall` is the OR of eight reasons. **`test/zkt_isolation_test.py` grades this on the ELABORATED
+NETLIST, not on the source text** (ADR-0135, superseding ADR-0134's RTL-text-and-regex version,
+which three rounds of review defeated on facts only elaboration knows: a value laundered through
+`out.rs1 <= reg_rs1`'s own register, a procedural `branch_taken` no continuous-assign scan ever
+followed, an `assign` inside an un-taken `` generate if (0) `` masking a real driver, and a
+parameterised port width a `[N:0]` regex read as 1 bit). It runs `yosys -q -s` the way
+`formal/check-nonperturbation.py` does, and reads cells and named nets off the JSON `write_json`
+writes: `SEEDS` names `reg_rs1`, `reg_rs2` and `executor_out.rd_data`, every decoder input the
+netlist's own measured width finds wider than the 5 bits a register NUMBER ever needs, and a
+struct-typed port's field offsets come from a satellite module elaborated against `rtl/structs.v`
+alone rather than this script guessing struct layout — a renamed field fails that elaboration
+outright, an added or resized one fails a sum-of-widths check. Forward reachability from those
+seeds, following a flip-flop's D to its Q the same as any other cell's inputs to its outputs, must
+not reach seven of the eight reasons. The eighth, `region_stall`, does read a register value (on
+the way to deciding whether a load's or a store's address lands near a mapped window's edge), is
+gated on `ls_access`, true only for the twelve load and store encodings — none of which is on
+Zkt's list — and is blocked from being used as a taint SOURCE past its own one hop, so everything
+that legitimately reads it (`stall` directly, and `out`'s own bubble condition, and so
+`live_rs1`/`live_rs2`'s RAW-hazard check by way of `out.rd`/`out.valid`, which are blocked the same
+way `region_stall` is for the identical reason: a register NUMBER or a single control flag read
+back is not a VALUE, even though which number it holds can itself have been decided by a
+value-dependent fault check) is judged as if that one read were invisible, while any OTHER path
+still counts. Its own gate is checked separately, on the netlist: `region_stall`'s driving cell (or
+chain of AND/NOT cells feeding it) must bottom out at a set of named leaves that includes
+`ls_access` and must never pass through an OR cell, which is what an `||` added beside its `&&`
+chain looks like however the source text spelled the precedence. `region_stall`'s own captured
+state (`ls_capture`, `ls_answer`, `ls_answer_valid`) gets a second, independent check: none of the
+eight reasons may read one of THOSE directly either, seeded from their own bits rather than from a
+register — closing the gap where an earlier round's `KNOWN_CLEAN_LEAVES` trusted
+`ls_answer_valid` as control state without ever checking what it depends on. `rtl/executor.v` is
+the other half: `MUL`/`MULH`/`MULHSU`/`MULHU` resolve in decode's `init` state with no counter, so
+they are constant-time by inspection. `DIV`/`REM` are the one place this design is NOT
+constant-time — 32 cycles ordinarily, one cycle when `rs2 == 0` or on `INT_MIN / -1` — which is
+exactly why the list excludes them rather than the claim being false. The load/store
+address-timing this leaves outside the list is backwards from the usual case: most cores' load
+timing varies with CACHE STATE, and this one has none — it varies with ADDRESS ARITHMETIC instead,
+and the standard constant-time model treats addresses as non-secret, so it sits inside the model
+without needing its own exception.
 
 **One interrupt: the machine timer, cause `0x8000_0007`.** `mie.MTIE` is the only writable bit of
 `mie`; `mip.MTIP` is `rtl/timer.v`'s line and read-only; `mip.MSIP`/`mip.MEIP` stay read-only zero,
