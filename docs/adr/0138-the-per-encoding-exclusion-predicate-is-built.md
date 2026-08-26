@@ -1,4 +1,4 @@
-# 0137 — The per-encoding exclusion predicate is built
+# 0138 — The per-encoding exclusion predicate is built
 
 Status: accepted · builds the mechanism ADR-0132 decided but left as a ticket of its own. Amends
 `formal/complete.sv` and `formal/check-complete-exclusions.py`; supersedes nothing, because every
