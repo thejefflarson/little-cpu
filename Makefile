@@ -1,4 +1,5 @@
 include formal/pin.mk
+include soc/compare/hazard3_pin.mk
 
 .DELETE_ON_ERROR:
 

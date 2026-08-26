@@ -85,6 +85,8 @@ baseline.out/
 netlist.out/
 formal/riscv-formal
 formal/riscv-formal.tmp
+soc/compare/hazard3
+soc/compare/hazard3.tmp
 formal/complete
 formal/complete_cover
 formal/cover
