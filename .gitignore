@@ -115,6 +115,10 @@ formal/tval-probe/
 # region_stall's own Zkt-isolation assertions against, same shape as
 # region-probe/. Rebuilt from rtl/ on every run.
 formal/decoder-zkt-probe/
+# `make -C formal executor-zkt-probe`: the one mutated core it proves the MUL
+# constant-latency assertion against, same shape as region-probe/. Rebuilt
+# from rtl/executor.v on every run.
+formal/executor-zkt-probe/
 __pycache__/
 test/rtl.cc
 # The dual configuration's generated netlist and its runner, the same rule.

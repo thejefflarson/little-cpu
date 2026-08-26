@@ -63,9 +63,10 @@ fan-in walk must stop on rather than silently accept; adding a top-level `||` be
 `region_stall`'s gate; and routing an `executor_out.rd_data` bit into a stall reason, which SEEDS
 now names.
 
-The second half is `rtl/executor.v`, read rather than graded: `MUL`/`MULH`/`MULHU`/`MULHSU`
-resolve in decode's `init` state with no counter, so they take one cycle regardless of the
-operands. `DIV`/`REM` are the one place this design is genuinely **not** constant-time — the
+The second half is `rtl/executor.v`: `MUL`/`MULH`/`MULHU`/`MULHSU` resolve in decode's `init`
+state with no counter, so they take one cycle regardless of the operands. **This was read rather
+than graded at the time this ADR shipped; Amendment 1 below states it as a proved property
+instead.** `DIV`/`REM` are the one place this design is genuinely **not** constant-time — the
 normal path runs the restoring divider for 32 cycles, and two early exits short-circuit to one
 cycle: `rs2 == 0` and the signed-overflow case `INT_MIN / -1`. That is exactly why Zkt's list
 excludes `DIV`/`REM` rather than the claim being false for including them.
@@ -95,6 +96,62 @@ No RTL changed. `make fit` and `make netlist-digest` are unmoved because there i
 either to see: this is a claim about a property `rtl/decoder.v` already has, decided by a new
 hermetic Python check and an extended `-march` string, not a datapath change. No sweep is owed.
 
+## Amendment 1 — the executor half is proved too, not merely read
+
+Both halves of this ADR's isolation argument were graded from the day it shipped except one:
+`rtl/decoder.v`'s stall reasons were checked against the real RTL by `test/zkt_isolation_test.py`,
+but `rtl/executor.v`'s claim — the mul family resolves in `init` with no counter, for every operand
+pair — was a sentence in this ADR's Context section and nothing else. That gap is exactly the shape
+the divider sits next to as a warning: `DIV`/`REM` already carry two real early exits keyed on
+operand values (`rs2 == 0`, `INT_MIN / -1`), on the same file, three lines from the multiply arm
+this ADR was making a claim about. Nothing would have gone red if MUL grew a shortcut of the same
+shape — an area or Fmax pass narrowing an operand, say — because `make test`, every riscv-formal
+check and the `.S` suite are all blind to a change in *how many cycles* a correct-valued instruction
+takes.
+
+`rtl/executor.v`'s `ifdef FORMAL` block now states the property as an assertion, beside the four
+that already pin a completing multiply's *value*:
+
+```systemverilog
+always_ff @(posedge clk)
+  if (clocked && !reset && !$past(reset) && $past(state) == init &&
+      $past(in.is_mul || in.is_mulh || in.is_mulhu || in.is_mulhsu))
+    assert(state == init);
+```
+
+Guarded on `$past(state) == init` rather than left to run every cycle, for the same reason the four
+value assertions beside it are: `in` is free while a divide runs (nothing in this component-level
+proof plays the role of decode holding it), so an unguarded assertion could catch a divide's stale
+`in` still naming the multiply that issued it, rather than the multiply's own issuing cycle.
+`make -C formal components_executor` proves it by k-induction, the same task that already proves
+the multiplier's and divider's own arithmetic.
+
+`formal/executor-zkt-probe.py` is the demonstrated red direction, `formal/decoder-zkt-probe.py`'s
+own pattern applied here: it builds one core three lines from the shipping one, diverting `MUL` at
+`rs1 == 0` into the divider's own arm — latching `op_is_divu` alongside it so the divide arm's
+onehot invariant over its four op flags still holds, and its completion still reports the right
+value, since dividing 0 by anything is 0, which is what `MUL` at `rs1 == 0` was always going to
+produce. `rs1 == 0` is what keeps the mutation isolated to *latency*: every other assertion this
+file states about a multiply's value keeps holding on any trace reset can reach, so the basecase
+leg reports no failure but this one, at its own line. (The induction leg, which explores states
+BMC's basecase never has to reach from reset, separately reports an unrelated pre-existing
+assertion once this one stops being provable — `smtbmc`'s own bookkeeping under `mode prove`
+needing every assertion in the file to stay mutually inductive, not a second defect, which is why
+the probe reads every `Assert failed` line in the log rather than assuming there is only one.) It
+is wired as a prerequisite of `components_executor`, the relationship `decoder-zkt-probe` has to
+`components_decoder`: a control that can be run separately from the thing it controls eventually is
+not run at all. Its own grading — a respelled assertion or mutation site stopping the run, a solver
+that wrote no verdict, a proof going red somewhere else — is covered by a `test/probe_gates.sh`
+group against a stub `sby`, mirroring `decoder-zkt-probe`'s own.
+
+`DIV`/`REM` get no such assertion, on purpose: they are excluded from Zkt's list precisely because
+they are not constant-time, and an assertion claiming otherwise would be asserting something false.
+
+## Cost (amendment)
+
+No RTL behaviour changes: the new assertion sits inside `rtl/executor.v`'s `ifdef FORMAL` block,
+which no synthesis recipe ever defines. `make fit` and `make netlist-digest` are unmoved.
+
 ## Consequences
 
 - `test/zkt_isolation_test.py` is a new `make test` prerequisite (`zkt-isolation-test`) and a new
@@ -112,3 +169,8 @@ hermetic Python check and an extended `-march` string, not a datapath change. No
   `rtl/executor.v` and recorded here. A future change to the divider's early-out arms should
   re-read this ADR's context before assuming Zkt is unaffected, since `DIV`/`REM` are excluded
   from the list precisely because of them.
+- (Amendment 1) `rtl/executor.v` states the mul family's constant-latency property as an
+  assertion, proved by `make -C formal components_executor`.
+  `formal/executor-zkt-probe.py` is its demonstrated red direction and a prerequisite of that
+  target; `test/probe_gates.sh`'s own `formal/executor-zkt-probe.py` group grades the probe itself,
+  against a stub `sby`.

@@ -373,6 +373,18 @@ module executor(
     if (clocked && !reset && !$past(reset) && $past(state) == init && $past(in.is_mulhsu))
       assert(out.rd_data == $past(mul_hi));
 
+  // The multiply family never leaves `init`: `stalled` is `state != init`, so
+  // this is the fact that makes a multiply single-cycle whatever its operands
+  // are. Guarded on $past(state) == init rather than left to run every cycle,
+  // the same reason the four completion assertions above are: `in` is free
+  // while a divide runs (see the ghost-operand comment below), so an
+  // unguarded assertion could catch a divide's stale `in` still naming the
+  // multiply that issued it, rather than the multiply's own issuing cycle.
+  always_ff @(posedge clk)
+    if (clocked && !reset && !$past(reset) && $past(state) == init &&
+        $past(in.is_mul || in.is_mulh || in.is_mulhu || in.is_mulhsu))
+      assert(state == init);
+
   // Each multiplies by a constant -- zero, zero, one and one -- so the solver
   // sees shifts and adds rather than a second `bvmul` term. These are the only
   // assertions here that constrain the product's own value; the four above read

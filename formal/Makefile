@@ -183,9 +183,17 @@ components_decoder: components.sby decoder-zkt-probe ../rtl/decoder.v ../rtl/reg
 .PHONY: decoder-zkt-probe
 decoder-zkt-probe: decoder-zkt-probe.py ../rtl/decoder.v components.sby
 	python3 $<
-components_executor: components.sby ../rtl/executor.v ../rtl/structs.v
+# executor-zkt-probe is a prerequisite for the same reason decoder-zkt-probe
+# is: rtl/executor.v's MUL-family constant-latency assertion is worth nothing
+# until shown to fail, and a control that can be run separately from the
+# thing it controls eventually is not run at all.
+components_executor: components.sby executor-zkt-probe ../rtl/executor.v ../rtl/structs.v
 	rm -rf $@
 	sby -f $< executor
+
+.PHONY: executor-zkt-probe
+executor-zkt-probe: executor-zkt-probe.py ../rtl/executor.v components.sby
+	python3 $<
 # One bus transaction per memory instruction. Decode holds `launch` for every
 # cycle of a divide, and a device written twice for one store is a defect no
 # value anywhere in the machine records.
@@ -256,7 +264,7 @@ busarbiter-probe: busarbiter-probe.py busarbiter.sv ../rtl/busarbiter.v
 clean:
 	rm -rf checks complete complete_cover cover dmemcheck imemcheck components components_*
 	rm -rf pcloop_cover busarbiter_cover fg-probe fg-probe.cfg
-	rm -rf region-probe tval-probe busarbiter-probe
+	rm -rf region-probe tval-probe busarbiter-probe executor-zkt-probe
 	rm -rf $(RISCV_FORMAL_DIR) $(RISCV_FORMAL_DIR).tmp
 
 .PHONY: all clean

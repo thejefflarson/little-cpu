@@ -329,10 +329,24 @@ forms in behind their OWN `assign`. `make -C formal components_decoder` proves b
 `formal/decoder-zkt-probe.py` is their demonstrated red direction, one core one line of
 `rtl/decoder.v` from the shipping one per assertion, wired as a prerequisite the same way
 `traps-region-probe` is of `components_traps`. `rtl/executor.v` is
-the other half: `MUL`/`MULH`/`MULHSU`/`MULHU` resolve in decode's `init` state with no counter, so
-they are constant-time by inspection. `DIV`/`REM` are the one place this design is NOT
+the other half, and it is proved now too, not merely read (ADR-0134, amendment 1): `MUL`/`MULH`/
+`MULHSU`/`MULHU` resolve in decode's `init` state with no counter, so they are constant-time
+whatever the operands are, and `rtl/executor.v`'s `ifdef FORMAL` block states that as an assertion
+beside the four that already pin a completing multiply's own value — `state == init` one cycle
+after any of the four issues, guarded on `$past(state) == init` for the same reason those four
+are: `in` is free while a divide runs, so an unguarded assertion could catch a divide's stale `in`
+still naming the multiply that issued it. `make -C formal components_executor` proves it by
+k-induction, the same task that already proves the multiplier's and divider's own arithmetic.
+`formal/executor-zkt-probe.py` is its demonstrated red direction: one core three lines from the
+shipping one, diverting `MUL` at `rs1 == 0` into the divider's own arm — latching `op_is_divu`
+alongside it so the divide arm's onehot invariant over its four op flags still holds, and its
+completion still reports the right value, since dividing 0 by anything is 0 whatever the divisor —
+so the mutation changes only the multiply's LATENCY and the basecase leg reports no failure but
+this one, at its own line. Wired as a prerequisite of `components_executor` the same way
+`decoder-zkt-probe` is of `components_decoder`. `DIV`/`REM` are the one place this design is NOT
 constant-time — 32 cycles ordinarily, one cycle when `rs2 == 0` or on `INT_MIN / -1` — which is
-exactly why the list excludes them rather than the claim being false. The load/store
+exactly why the list excludes them rather than the claim being false, and they get no such
+assertion: asserting constant-time division would be asserting something false. The load/store
 address-timing this leaves outside the list is backwards from the usual case: most cores' load
 timing varies with CACHE STATE, and this one has none — it varies with ADDRESS ARITHMETIC instead,
 and the standard constant-time model treats addresses as non-secret, so it sits inside the model
