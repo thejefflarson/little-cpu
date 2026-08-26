@@ -281,7 +281,7 @@ instructions the design already implements: a listed set — RV32I arithmetic, l
 its operands' VALUES. `DIV`/`REM`, loads, stores, branches and jumps are excluded from the list, and
 that exclusion is what makes the claim true here rather than merely convenient: `rtl/decoder.v`'s
 `stall` is the OR of eight reasons. **`test/zkt_isolation_test.py` grades this on the ELABORATED
-NETLIST, not on the source text** (ADR-0135, superseding ADR-0134's RTL-text-and-regex version,
+NETLIST, not on the source text** (ADR-0137, superseding ADR-0134's RTL-text-and-regex version,
 which three rounds of review defeated on facts only elaboration knows: a value laundered through
 `out.rs1 <= reg_rs1`'s own register, a procedural `branch_taken` no continuous-assign scan ever
 followed, an `assign` inside an un-taken `` generate if (0) `` masking a real driver, and a
@@ -302,10 +302,18 @@ that legitimately reads it (`stall` directly, and `out`'s own bubble condition, 
 way `region_stall` is for the identical reason: a register NUMBER or a single control flag read
 back is not a VALUE, even though which number it holds can itself have been decided by a
 value-dependent fault check) is judged as if that one read were invisible, while any OTHER path
-still counts. Its own gate is checked separately, on the netlist: `region_stall`'s driving cell (or
+still counts. The written case for blocking them is entirely a width argument, and the script now
+enforces the bound it argues from: every one of those fields must still measure 5 bits or fewer on
+the elaborated netlist, or the run stops rather than blocking a field the argument no longer covers.
+Its own gate is checked separately, on the netlist: `region_stall`'s driving cell (or
 chain of AND/NOT cells feeding it) must bottom out at a set of named leaves that includes
 `ls_access` and must never pass through an OR cell, which is what an `||` added beside its `&&`
-chain looks like however the source text spelled the precedence. `region_stall`'s own captured
+chain looks like however the source text spelled the precedence. Naming `ls_access` as a leaf is not
+the same as knowing what `ls_access` IS, so a separate check walks ITS OWN OR tree the same way,
+past its two named intermediates, down to the eight base loads and stores it must equal exactly in
+both directions — an encoding added to or dropped from `ls_access` carries no register value for
+forward reachability to catch and still names `ls_access` for the gate-shape check, so neither of
+those two would have caught it alone. `region_stall`'s own captured
 state (`ls_capture`, `ls_answer`, `ls_answer_valid`) gets a second, independent check: none of the
 eight reasons may read one of THOSE directly either, seeded from their own bits rather than from a
 register — closing the gap where an earlier round's `KNOWN_CLEAN_LEAVES` trusted

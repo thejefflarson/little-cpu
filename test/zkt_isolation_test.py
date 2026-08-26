@@ -57,7 +57,7 @@ nothing else) does not extend to being read by an unrelated instruction's
 stall decision, and blocking `region_stall` as a taint source would hide
 that if it were checked by reachability from `reg_rs1`/`reg_rs2` alone.
 
-Three checks, all against the netlist `yosys -q -s` writes for `rtl/
+Four checks, all against the netlist `yosys -q -s` writes for `rtl/
 decoder.v` (plus its dependencies), never against the source text:
 
   1. FORWARD REACHABILITY, twice. Starting from the bits of `reg_rs1`,
@@ -75,7 +75,9 @@ decoder.v` (plus its dependencies), never against the source text:
      `ls_access`, and must never be reached through an OR at any point on the
      way there. A `||` added beside `region_stall`'s `&&` chain shows up on
      the netlist as an `$_OR_` cell sitting directly on that path, which this
-     check cannot fail to notice however the source text spelled it.
+     check cannot fail to notice however the source text spelled it. Naming
+     `ls_access` as a leaf is not the same as knowing what `ls_access` IS,
+     so this is paired with a fourth check below rather than trusted alone.
   3. PORT COVERAGE, BOTH WAYS. Every input port of `decoder` wider than 5
      bits (5 is the widest a register NUMBER gets: rd/rs1/rs2 are all
      `[4:0]`) must be classified SEED_PORTS/STRUCT_FIELD_SEEDS (can carry a
@@ -90,7 +92,25 @@ decoder.v` (plus its dependencies), never against the source text:
      resized one fails a sum-of-widths check, rather than silently omitting
      a bit. Classifications are checked stale in both directions: an entry
      naming a port or field the netlist no longer has is as wrong as a port
-     the tables have never seen.
+     the tables have never seen. CONTROL_FIELDS' own fields (out.rd,
+     out.is_amo, out.valid, executor_out.rd, executor_out.valid) are held to
+     the same 5-bit bound: unlike a plain input port, a field wider than
+     that is not merely unclassified, it is an exemption whose only stated
+     justification -- "this is a register NUMBER, not a value" -- has
+     stopped being true.
+  4. `ls_access` ITSELF. Check 2 trusts `ls_access` by NAME; this asks what
+     it resolves to. `ls_access`'s own OR tree is walked past its two named
+     intermediates (`instr_ls_load`/`instr_ls_store`, named in
+     LS_ACCESS_TRANSPARENT so the walk sees through rather than stops at
+     them) down to LS_ACCESS_ENCODINGS -- five base loads, three base
+     stores -- and the two sets must match exactly, in both directions.
+     `instr_lw`/`instr_sw` each fold two further compressed forms in behind
+     their OWN `assign`, one hop past where this check stops, the same
+     boundary it draws everywhere else. Without this check, `assign
+     ls_access = instr_ls_load || instr_ls_store || instr_add;` passes
+     checks 1-3 unchanged: `instr_add` carries no register value for check 1
+     to find, and check 2 still finds `ls_access` named among
+     `region_stall`'s leaves.
 
 It does not simulate anything, and it does not reach into rtl/executor.v's
 multi-cycle divider -- that half of the argument (MUL resolves in decode's
@@ -127,6 +147,28 @@ STALL_TARGETS = [
 # term its own gate must conjoin.
 GATED_SIGNAL = 'region_stall'
 GATE_TERM = 'ls_access'
+
+# GATE_TERM's own definition is graded by NAME only in the gate-shape check
+# below -- it walks region_stall's AND-tree and stops the moment it reaches a
+# net called `ls_access`, without asking what `ls_access` itself resolves to.
+# `assign ls_access = instr_ls_load || instr_ls_store || instr_add;` passes
+# that check unchanged, and passes forward reachability too, since
+# `instr_add` is built from instruction bits rather than seeded as a
+# register-file DATA output. LS_ACCESS_TRANSPARENT names the two intermediate
+# nets this check sees THROUGH on the way to `ls_access`'s own leaves (the
+# same one-hop-per-name rule and_tree_leaves already applies, just applied
+# twice instead of once), and LS_ACCESS_ENCODINGS is the exact set those
+# leaves must equal in both directions: five base loads and three base
+# stores. `instr_lw`/`instr_sw` each fold two further compressed forms in
+# (`c.lwsp`/`c.lw`, `c.swsp`/`c.sw` -- RV32C decodes them as the base 32-bit
+# op rather than its own major opcode) behind their OWN `assign`, one hop
+# past this check's leaves, the same boundary and_tree_leaves already draws
+# everywhere else it stops at a named net one level in.
+LS_ACCESS_TRANSPARENT = frozenset({'instr_ls_load', 'instr_ls_store'})
+LS_ACCESS_ENCODINGS = frozenset({
+    'instr_lb', 'instr_lh', 'instr_lw', 'instr_lbu', 'instr_lhu',
+    'instr_sb', 'instr_sh', 'instr_sw',
+})
 
 # Registers derived from region_stall that hold a load's or store's own
 # region answer across the cycle it is read on (ADR-0129's capture/hold
@@ -195,6 +237,13 @@ STRUCT_FIELD_NON_VALUE = {'in.pc', 'in.instr', 'in.next_instr'}
 # SEED/NON_VALUE split already draws at the module boundary. `executor_out`
 # gets the same two fields blocked for the identical reason -- it is already
 # in STRUCT_PORTS for its DATA field, `rd_data`, which stays a seed.
+#
+# `executor_out.valid`/`executor_out.rd` are inert rather than wrong: unlike
+# `out`, `executor_out` is a decoder INPUT port, so its bits have no driving
+# cell inside decoder for forward_taint to ever reach -- nothing here can
+# taint a primary input, so blocking them is a no-op. Kept anyway, for the
+# same reason `out`'s two are named rather than left to a width rule: the
+# table states what is safe to read back, not merely what currently matters.
 CONTROL_FIELDS = {
     'out': ('decoder_output', ['valid', 'rd', 'is_amo']),
     'executor_out': ('executor_output', ['valid', 'rd']),
@@ -452,7 +501,15 @@ def control_field_bits(mod, structs_path, field_cache, out_dir):
     names exactly three fields against two ports, not a coverage surface a
     human could leave half-classified the way decoder's whole port list can.
     `field_cache` is shared with classify_inputs: `executor_output` is named
-    by both, and this is what stops it being elaborated twice."""
+    by both, and this is what stops it being elaborated twice.
+
+    The written justification for this exemption is entirely a width
+    argument -- `rd` is `[4:0]`, the same width SEED_PORTS/NON_VALUE_PORTS
+    draw the line at -- so this function enforces that bound the same way
+    classify_inputs already enforces it for input ports: every field wider
+    than 5 bits is an error, not a silently-blocked taint source. Widening
+    `out.rd` to a full register value would otherwise blanket it from every
+    check below with nothing to say so."""
     bits = set()
     errors = []
     all_bits = {name: data['bits'] for name, data in mod['netnames'].items()}
@@ -472,6 +529,15 @@ def control_field_bits(mod, structs_path, field_cache, out_dir):
         # identical guard against a cache entry widened by the other table.
         for field in fields:
             start, width = offsets[field]
+            if width > 5:
+                errors.append(
+                    '`%s.%s` measures %d bits on the elaborated netlist, '
+                    'wider than a register NUMBER (5 bits). CONTROL_FIELDS '
+                    'blocks it as a taint source on the strength of a width '
+                    'argument alone, and a field this wide is exactly what '
+                    'that argument no longer covers.'
+                    % (port_name, field, width))
+                continue
             field_bits = whole[start:start + width]
             bits.update(b for b in field_bits if isinstance(b, int))
     return bits, errors
@@ -600,6 +666,47 @@ def and_tree_leaves(bit_driver, bit_names, bit, is_root=False, seen=None):
     return {'<%s:%s>' % (cname, ctype)}, False
 
 
+def bool_tree_leaves(bit_driver, bit_names, bit, transparent, is_root=False,
+                      seen=None):
+    """Walk from `bit` through AND/OR/NOT cells and return the set of NAMED
+    leaves it bottoms out at. Unlike and_tree_leaves, an OR is not a defeat
+    here -- `ls_access` IS an OR tree -- so recursion is controlled by NAME
+    instead: a named leaf in `transparent` is seen THROUGH (its own driver is
+    walked in turn) rather than stopped at, which is how this reaches
+    `ls_access`'s twelve individual encodings past its two named
+    intermediates, `instr_ls_load`/`instr_ls_store`. Any other named signal,
+    or a primary input bit with no driving cell, is a boundary leaf -- the
+    same one-hop-per-name rule and_tree_leaves applies, just re-applied at
+    each transparent name instead of only once from the root."""
+    if seen is None:
+        seen = set()
+    if not is_root:
+        name = bit_names.get(bit)
+        if name is not None and name not in transparent:
+            return {name}
+    if bit in seen:
+        return set()
+    seen.add(bit)
+    driver = bit_driver.get(bit)
+    if driver is None:
+        return {bit_names.get(bit, '<bit %d>' % bit)}
+    cname, cell = driver
+    ctype = cell['type']
+    if ctype in AND_TYPES or ctype in OR_TYPES:
+        leaves = set()
+        for ib in cell_input_bits(cell):
+            leaves |= bool_tree_leaves(bit_driver, bit_names, ib,
+                                        transparent, False, seen)
+        return leaves
+    if ctype in NOT_TYPES:
+        ins = cell_input_bits(cell)
+        if len(ins) != 1:
+            return {'<%s:%s>' % (cname, ctype)}
+        return bool_tree_leaves(bit_driver, bit_names, ins[0], transparent,
+                                 False, seen)
+    return {'<%s:%s>' % (cname, ctype)}
+
+
 def main():
     argv = sys.argv[1:]
     if len(argv) > 1:
@@ -710,6 +817,34 @@ def main():
             'allowed to read a register-file DATA output, and only because '
             '`%s` is false for every Zkt-listed instruction.'
             % (GATED_SIGNAL, GATE_TERM, sorted(leaves), GATED_SIGNAL, GATE_TERM))
+
+    # The check above grades `ls_access` by NAME alone -- it never asks what
+    # `ls_access` itself resolves to. This walks `ls_access`'s own OR tree,
+    # past the two named intermediates in LS_ACCESS_TRANSPARENT, and requires
+    # the leaves it bottoms out at to equal LS_ACCESS_ENCODINGS exactly, in
+    # both directions: an encoding added to `ls_access` (`ls_access =
+    # instr_ls_load || instr_ls_store || instr_add`) is as red as one
+    # dropped from it.
+    ls_access_bit = name_bits[GATE_TERM][0]
+    ls_access_leaves = bool_tree_leaves(bit_driver, bit_names, ls_access_bit,
+                                         LS_ACCESS_TRANSPARENT, is_root=True)
+    extra = sorted(ls_access_leaves - LS_ACCESS_ENCODINGS)
+    missing_enc = sorted(LS_ACCESS_ENCODINGS - ls_access_leaves)
+    if extra or missing_enc:
+        detail = []
+        if extra:
+            detail.append('unexpected: %s' % ', '.join(extra))
+        if missing_enc:
+            detail.append('missing: %s' % ', '.join(missing_enc))
+        failures.append(
+            '`%s` no longer resolves to exactly its eight named base load '
+            'and store encodings on the elaborated netlist (%s). `%s` is '
+            'the one stall reason allowed to read a register-file DATA '
+            'output, and only because `%s` is true for exactly those '
+            'encodings (plus the compressed forms folded into `instr_lw`/'
+            '`instr_sw` behind their own `assign`), none of which is on '
+            'Zkt\'s list.'
+            % (GATE_TERM, '; '.join(detail), GATED_SIGNAL, GATE_TERM))
 
     # Full (unblocked) reachability is the anti-vacuity control: it is the
     # graph reg_rs1/reg_rs2 are KNOWN to reach in the real design, on the way

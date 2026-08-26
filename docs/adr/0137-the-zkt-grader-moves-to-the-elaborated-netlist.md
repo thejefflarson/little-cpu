@@ -42,7 +42,7 @@ must never depend, on the elaborated netlist, on a register-file or CSR-file DAT
 register NUMBER ever needs) except through `region_stall`, the one reason allowed to, because it is
 conjoined with `ls_access`, true only for the twelve load and store encodings Zkt's list excludes.
 
-Three checks:
+Five checks:
 
 1. **Forward reachability**, from the bits of `reg_rs1`/`reg_rs2`/`executor_out.rd_data`, following
    every cell's inputs to its outputs including a flip-flop's D to its Q — so a value laundered
@@ -84,7 +84,19 @@ Three checks:
    is checked stale in both directions, which is the asymmetry the old `KNOWN_CLEAN_LEAVES` never
    had: `SEEDS`/`NON_VALUE_INPUTS` were graded against the port list both ways, but a struct field
    or a submodule output landing in `KNOWN_CLEAN_LEAVES` was trusted forever with no check that it
-   was still reached, still narrow, or still true.
+   was still reached, still narrow, or still true. `CONTROL_FIELDS`' own fields are held to the same
+   5-bit bound `SEED_PORTS`/`NON_VALUE_PORTS` draw the line at — a field measured wider on the
+   elaborated netlist is an error, not a silently-widened block.
+5. **`ls_access` itself.** Check 3 grades `ls_access` by NAME — it stops the moment `region_stall`'s
+   AND-tree reaches a net called `ls_access`, without asking what `ls_access` resolves to. `assign
+   ls_access = instr_ls_load || instr_ls_store || instr_add;` passed checks 1–4 unchanged: `instr_add`
+   carries no register-file DATA output, so reachability never reaches it, and `ls_access` still
+   names `ls_access`. This check walks `ls_access`'s own OR tree — through `$_AND_`/`$_OR_`/`$_NOT_`
+   cells, unlike check 3's AND-only walk, because `ls_access` IS an OR of ORs — past its two named
+   intermediates (`instr_ls_load`, `instr_ls_store`, seen THROUGH rather than stopped at) down to the
+   eight base loads and stores it is declared to equal exactly, in both directions. `instr_lw`/
+   `instr_sw` each fold two further compressed forms in behind their own `assign`, one hop past where
+   this check stops, the same one-hop boundary check 3 already draws everywhere else.
 
 **What is NOT proven.** This is the same explicitly weaker-than-equivalence stance
 `formal/check-nonperturbation.py` states for itself: connectivity, not a 2-safety proof. A signal
@@ -96,9 +108,10 @@ here, exactly as ADR-0134 recorded.
 
 ## Cost
 
-No RTL changed. Nine yosys elaborations per `make probe-gates` run (one per mutated fixture) add a
-few seconds to that target; `make test`'s own single run is one elaboration. No `fit` or
-`soc-timing` number can move, because nothing under `rtl/` was touched.
+No RTL changed. Seventeen yosys elaborations per `make probe-gates` run (one per mutated fixture,
+the two usage-error probes excepted — they exit before this script ever reaches one) add a few
+seconds to that target; `make test`'s own single run is one elaboration. No `fit` or `soc-timing`
+number can move, because nothing under `rtl/` was touched.
 
 ## Consequences
 
@@ -109,10 +122,19 @@ few seconds to that target; `make test`'s own single run is one elaboration. No 
   narrow, named exemption, not a width-based rule: blocking every ≤5-bit signal automatically was
   considered and rejected, because a stall reason reading a genuine ≤5-bit SLICE of a register
   value directly would then go undetected — the exemption has to name the specific fields it
-  covers, the way `region_stall` itself is one named signal and not a class.
-- `test/probe_gates.sh`'s group is fifteen probes: the control, both directions of the gate's own
+  covers, the way `region_stall` itself is one named signal and not a class. Its own fields are
+  still held to the 5-bit bound (check 4's amendment): the table's only written justification is
+  that bound, and until now nothing asserted it. `executor_out.valid`/`executor_out.rd` are inert
+  rather than wrong — they are primary INPUT bits with no driving cell inside `decoder`, so blocking
+  them as taint sources is a no-op — and are kept anyway, because the table states what is safe to
+  read back, not merely what currently matters.
+- `ls_access` is graded by what it resolves to, not by its name (check 5's amendment): an encoding
+  added to or dropped from its own OR tree is red, naming which one, whether the mutation sits in
+  `ls_access`'s own `assign` or one hop down in `instr_ls_load`/`instr_ls_store`'s.
+- `test/probe_gates.sh`'s group is nineteen probes: the control, both directions of the gate's own
   shape, three shapes of forward reachability (a direct read, a value laundered through a register,
   a value carried through a comparator), the other seed, the two findings above (the direct
   `region_stall`-family read, and the same read behind a dead `generate if (0)` decoy), an
-  unclassified wide port, a stale classification, an undriven stall-reason name, the anti-vacuity
-  control, and the two usage-error cases.
+  unclassified wide port, both directions of `ls_access`'s own encoding set, `CONTROL_FIELDS`
+  emptied against the shipping decoder and its width bound, a stale classification, an undriven
+  stall-reason name, the anti-vacuity control, and the two usage-error cases.

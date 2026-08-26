@@ -27,7 +27,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=539
+PROBES_EXPECTED=541
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -1595,6 +1595,71 @@ sed -i.bak \
   "$d/decoder.v"
 probe "a new wide input port with no classification is red (finding 3)" 2 \
   "no Zkt classification" "$ZKT $d/decoder.v"
+
+# FINDING 4, first direction: check 2 (the gate's own shape) grades
+# `ls_access` by NAME alone -- it never asks what `ls_access` itself
+# resolves to. An encoding added straight into `ls_access`'s own OR carries
+# no register value, so check 1's taint walk never reaches it either, and
+# `ls_access` still names `ls_access` for check 2. This passed both checks,
+# silently, before check 4 existed.
+d=$(zkt_fixture)
+sed -i.bak \
+  's/assign ls_access = instr_ls_load || instr_ls_store;/assign ls_access = instr_ls_load || instr_ls_store || instr_add;/' \
+  "$d/decoder.v"
+probe "an encoding added to ls_access is red, naming it (finding 4)" 1 \
+  "unexpected: instr_add" "$ZKT $d/decoder.v"
+
+# FINDING 4, the other direction: an encoding dropped from ls_access's own
+# OR tree is as wrong as one added to it, wherever in the tree it is
+# dropped from -- here, one hop down, inside instr_ls_load's own definition.
+d=$(zkt_fixture)
+sed -i.bak \
+  's/assign instr_ls_load  = instr_lb || instr_lbu || instr_lh || instr_lhu || instr_lw;/assign instr_ls_load  = instr_lbu || instr_lh || instr_lhu || instr_lw;/' \
+  "$d/decoder.v"
+probe "an encoding dropped from ls_access is red, naming it (finding 4)" 1 \
+  "missing: instr_lb" "$ZKT $d/decoder.v"
+
+# FINDING 5: CONTROL_FIELDS' own written justification is entirely a width
+# argument, and nothing checked it. This is the load-bearing half: emptying
+# the table is red against the SHIPPING decoder.v with no mutation needed,
+# the same way the top control probe above is -- live_rs1/live_rs2's real
+# reads of out.rd/out.valid, and executor_out's own two, are genuinely
+# reachable once nothing blocks them.
+d=$(new_case)
+cp "$HERE/zkt_isolation_test.py" "$d/zkt_isolation_test.py"
+python3 - "$d/zkt_isolation_test.py" <<'PYEOF'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+old = ("CONTROL_FIELDS = {\n"
+       "    'out': ('decoder_output', ['valid', 'rd', 'is_amo']),\n"
+       "    'executor_out': ('executor_output', ['valid', 'rd']),\n"
+       "}")
+assert s.count(old) == 1
+open(p, 'w').write(s.replace(old, 'CONTROL_FIELDS = {}'))
+PYEOF
+probe "CONTROL_FIELDS emptied is red against the shipping decoder (finding 5)" 1 \
+  "is reachable" "python3 $d/zkt_isolation_test.py $REPO/rtl/decoder.v"
+
+# FINDING 5, the width bound: control_field_bits asserted no width, even
+# though the written justification for the whole table is entirely one --
+# "rd is [4:0], the same width SEED_PORTS/NON_VALUE_PORTS draw the line at."
+# Widening decoder_output's own `rd` field past 5 bits must be caught here,
+# the same bound classify_inputs already enforces for input ports.
+d=$(zkt_fixture)
+python3 - "$d/structs.v" <<'PYEOF'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+marker = '} decoder_output;'
+idx = s.index(marker)
+head, tail = s[:idx], s[idx:]
+old = '  logic [4:0]  rd;'
+assert head.count(old) == 1
+open(p, 'w').write(head.replace(old, '  logic [31:0]  rd;', 1) + tail)
+PYEOF
+probe "decoder_output.rd widened past 5 bits is red (finding 5)" 2 \
+  "wider than a register NUMBER" "$ZKT $d/decoder.v"
 
 # THE OTHER DIRECTION: a classification whose port the netlist no longer
 # has. Unlike the probes above, the RTL is the shipping one and the SCRIPT

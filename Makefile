@@ -551,12 +551,12 @@ band-source-test:
 	@python3 ./test/band_source_test.py
 
 # Zkt's claim is that a listed set of instructions -- arithmetic, logical,
-# shift, MUL -- has data-independent timing. Builds the fan-in graph of
-# rtl/decoder.v's own continuous assigns and asks whether a register-file DATA
-# output reaches any stall reason other than the load/store region wait, which
-# is gated on an instruction class Zkt's list never names. Hangs off `test`
-# like the other repo-scanning checks -- python3 and a regex over one file, no
-# cross compiler, no simulator, no yosys.
+# shift, MUL -- has data-independent timing. Elaborates rtl/decoder.v with
+# yosys and builds the fan-in graph of the resulting netlist, asking whether a
+# register-file DATA output reaches any stall reason other than the
+# load/store region wait, which is gated on an instruction class Zkt's list
+# never names. Hangs off `test` like the other repo-scanning checks, but --
+# unlike them -- it needs yosys: no cross compiler, no simulator.
 .PHONY: zkt-isolation-test
 zkt-isolation-test:
 	@python3 ./test/zkt_isolation_test.py
