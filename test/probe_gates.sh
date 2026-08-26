@@ -2110,9 +2110,10 @@ probe "a path that does not reconcile blames the script, not the design" 1 \
 # state a second run on a laptop is really in.
 ecp5_stale_fixture() {  # stdin = the stub nextpnr-ecp5's body, after --version
   local d; d=$(new_case)
-  mkdir -p "$d/soc" "$d/formal" "$d/bin"
+  mkdir -p "$d/soc/compare" "$d/formal" "$d/bin"
   cp "$REPO/Makefile" "$d/Makefile"
   cp "$REPO/formal/pin.mk" "$d/formal/"
+  cp "$REPO/soc/compare/hazard3_pin.mk" "$d/soc/compare/"
   cp "$REPO/soc/littlesoc.lpf" "$REPO/soc/ecp5_report.py" \
      "$REPO/soc/print_toolchain.sh" "$d/soc/"
   cp -R "$REPO/rtl" "$d/"
