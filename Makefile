@@ -22,7 +22,7 @@ SIM_RTL_SRCS := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/execut
 
 # The harness's own modules, for the same reason: test/testbench.v instantiates
 # a model of the board's flash, and a rule that read the harness without it
-# would elaborate a master whose miso nothing drives.
+# would elaborate a controller whose miso nothing drives.
 SIM_TB_SRCS := test/testbench.v test/spiflash_model.v
 
 testbench.vvp: $(SIM_RTL_SRCS) rvfi_macros.vh $(SIM_TB_SRCS) test/monitor.sim.v

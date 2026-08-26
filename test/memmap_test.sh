@@ -147,7 +147,7 @@ pass vacuously, so a deleted memory is red here rather than silent."
     fi
     if grep -qE "(^|[^[:alnum:]_])$m[[:space:]]*#\(" "$REPO/$f"; then
       fail "$f overrides \`$m\`'s parameters. The data RAM's base and size, the
-timer's base, the UART's base and baud rate and the SPI master's base are
+timer's base, the UART's base and baud rate and the SPI controller's base are
 rtl/$m.v's defaults precisely so that rtl/littlesoc.v and test/testbench.v
 cannot describe different machines
 -- the harness once modelled a RAM sixteen times smaller than the SoC's and every
@@ -168,7 +168,7 @@ those words, and the OR below would then hand back two live answers at once."
 fi
 
 if [ "$UART_TOP" -ne "$FLASH_BASE" ]; then
-  fail "the UART ends at $(hexfmt "$UART_TOP") and the SPI master starts at
+  fail "the UART ends at $(hexfmt "$UART_TOP") and the SPI controller starts at
 $(hexfmt "$FLASH_BASE"). The five read buses join with an OR rather than a mux,
 which is only sound while the ranges do not overlap. A gap here is merely wasted
 map; an overlap ORs two live answers together and neither simulator would report
@@ -238,7 +238,7 @@ occupy at any other alignment."
 }
 
 aligned_window uart "$UART_BASE" "$UART_BYTES"
-aligned_window "SPI master" "$FLASH_BASE" "$FLASH_BYTES"
+aligned_window "SPI controller" "$FLASH_BASE" "$FLASH_BYTES"
 
 # ---- 3. the linker scripts -------------------------------------------------
 #
@@ -403,7 +403,7 @@ elif [ $((16#$SPI_RAW)) -ne "$FLASH_BASE" ]; then
   fail "test/asm/riscv_test.h's SPI_BASE is $(hexfmt $((16#$SPI_RAW)))
 against rtl/spiflash.v's $(hexfmt "$FLASH_BASE"). The control register at the
 wrong address reads zero from every memory on the bus, so spiflash.S would see a
-master that is never busy and read back nothing but zeroes."
+controller that is never busy and read back nothing but zeroes."
 fi
 
 # ---- 6. the SoC ROM image --------------------------------------------------

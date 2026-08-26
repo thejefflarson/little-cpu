@@ -221,15 +221,15 @@ test_16:
   # The map is four windows and not one. Text is readable through the data bus,
   # the timer's window is the eight words the map reserves for one `mtimecmp`
   # per hart, the UART's two words sit above the whole of that, and the SPI
-  # master's two above those; the word above ALL of them is nobody's. Every
+  # controller's two above those; the word above ALL of them is nobody's. Every
   # boundary here is below bit 12 -- the only part of this test that reads the
   # sum rather than the register.
   #
   # Case 19 reads the UART's status register, which is the one window a store
   # cannot be used to probe: writing it is how a byte is sent. Case 20 does the
-  # same for the SPI master, whose data register a store would set shifting.
+  # same for the SPI controller, whose data register a store would set shifting.
   #
-  # THE REFUSAL ABOVE THE SPI MASTER IS NOT HERE, AND CANNOT BE. The word at
+  # THE REFUSAL ABOVE THE SPI CONTROLLER IS NOT HERE, AND CANNOT BE. The word at
   # SPI_BASE+8 is one no device answers, but the reference model's regions are
   # 4K-aligned -- it refuses a configuration that ends anywhere else -- so on
   # Sail that whole page is ordinary memory and a program refusing an address
