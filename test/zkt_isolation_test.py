@@ -82,9 +82,18 @@ decoder.v` (plus its dependencies), never against the source text:
      Morgan, whatever the source text's precedence -- is caught by the SAME
      `$_OR_`-on-the-path rule an explicit `||` beside the `&&` chain is. A
      signal reached under EVEN polarity (two NOTs, or none) is graded exactly
-     as it was before this mattered. Naming `ls_access` as a leaf is not the
-     same as knowing what `ls_access` IS, so this is paired with a fourth
-     check below rather than trusted alone.
+     as it was before this mattered. A cell that is NEITHER an AND nor an OR
+     -- a MUX, an XOR, a comparator, an adder, anything `simplemap` leaves
+     whole -- is checked BEFORE polarity is consulted at all, and is always
+     an opaque leaf: `negated` only ever chooses which of AND/OR counts as
+     the conjunction at a given point, and a cell that is neither has no
+     side of that choice to fall onto. (An earlier version of this check
+     asked "is this cell an AND, adjusted for polarity" and let that
+     question answer itself True for any non-AND type under odd polarity --
+     `!(ls_settled ? !ls_access : 1'b0)` walked straight through the MUX as
+     though it were a clean conjunction.) Naming `ls_access` as a leaf is
+     not the same as knowing what `ls_access` IS, so this is paired with a
+     fourth check below rather than trusted alone.
   3. PORT COVERAGE, BOTH WAYS. Every input port of `decoder` wider than 5
      bits (5 is the widest a register NUMBER gets: rd/rs1/rs2 are all
      `[4:0]`) must be classified SEED_PORTS/STRUCT_FIELD_SEEDS (can carry a
@@ -693,6 +702,21 @@ def and_tree_leaves(bit_driver, bit_names, bit, is_root=False, seen=None,
             return {'<%s:%s>' % (cname, ctype)}, False
         return and_tree_leaves(bit_driver, bit_names, ins[0], False, seen,
                                 not negated)
+    if ctype not in AND_TYPES and ctype not in OR_TYPES:
+        # Not an AND or an OR at all -- a MUX, an XOR, a comparator, an
+        # adder, anything simplemap leaves whole -- so it is an opaque leaf
+        # regardless of polarity. Checked before is_and_here/is_or_here
+        # below, whose `!= negated` flip would otherwise read ANY non-AND
+        # cell type as "the OR side of the pairing" under odd polarity and
+        # walk straight through it: `!(ls_settled ? !ls_access : 1'b0)`
+        # would have reached the leaves {ls_access, !ls_settled} with no OR
+        # found, describing `ls_settled ? ls_access : 1'b1` -- a real
+        # dependence on ls_settled's value -- while reporting a clean
+        # AND-tree. bool_tree_leaves never had this gap: its own connective
+        # test (`ctype in AND_TYPES or ctype in OR_TYPES`) does not read
+        # `negated` at all, so an unhandled cell already fell through to the
+        # opaque leaf at both polarities.
+        return {'<%s:%s>' % (cname, ctype)}, False
     is_and_here = (ctype in AND_TYPES) != negated
     is_or_here = (ctype in OR_TYPES) != negated
     if is_and_here:

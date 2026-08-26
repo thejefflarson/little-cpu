@@ -314,7 +314,15 @@ looks like, and what a NOT distributed over the whole chain looks like too, howe
 spelled either. A `$_NOT_` does not stop this walk, it flips an accumulated polarity and keeps
 going, so `!ls_access && !ls_settled && !ls_answer_valid` bottoms out at the leaf `!ls_access` —
 rejected, since that gate would assert `region_stall` on every instruction `ls_access` is FALSE for,
-which is every Zkt-listed one. Naming `ls_access` as a leaf is not the same as knowing what
+which is every Zkt-listed one. That polarity check first shipped with a gap of its own: which
+connective counts as a conjunction was computed as `(ctype in AND_TYPES) != negated` with no prior
+check that the cell was an AND or an OR at all, so a `$_MUX_`/`$_XOR_`/comparator/adder read True
+under odd polarity and was walked through rather than stopped at as the opaque leaf it is at every
+polarity — `!(ls_settled ? !ls_access : 1'b0)` walked to `{ls_access, !ls_settled}` with no OR found
+and passed, describing a real dependence on `ls_settled`'s (and so `reg_rs1`'s) value that none of
+the other checks could see either. Fixed by checking the cell IS an AND or an OR before either
+`!= negated` comparison runs, the connective test `bool_tree_leaves` already had and never needed
+`negated` for. Naming `ls_access` as a leaf is not the same as knowing what
 `ls_access` IS, so a separate check walks ITS OWN OR tree the same way, past its two named
 intermediates, down to the eight base loads and stores it must equal exactly in both directions,
 each leaf carrying its own polarity into that comparison so `ls_access =

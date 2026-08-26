@@ -75,12 +75,25 @@ Five checks:
    out at a set of NAMED leaves that includes `ls_access` UN-NEGATED, and must never pass through a
    genuine disjunction on the way. This is De Morgan-aware: a `$_NOT_` does not stop the walk or leave
    polarity untracked, it flips an accumulated `negated` flag and keeps walking, and which connective
-   counts as "pure AND" at a given point is `(ctype == AND) != negated` — an AND reached un-negated,
-   or an OR reached negated (`!(a || b) == !a && !b`), is walked through; the other pairing is a
-   genuine disjunction regardless of which token produced it (`!(a && b) == !a || !b`) and is graded
-   exactly as a bare `||` already was. `!ls_access && !ls_settled && !ls_answer_valid` therefore
-   bottoms out at the leaf `!ls_access`, not `ls_access` — and is rejected, because that gate asserts
-   `region_stall` on every instruction `ls_access` is FALSE for, which is every Zkt-listed one.
+   counts as "pure AND" at a given point is `(ctype in AND_TYPES) != negated` — but **only once the
+   cell is known to be an AND or an OR at all**. That guard was missing at first: computed
+   unconditionally, `!= negated` reads True for ANY non-AND cell type under odd polarity — a `$_MUX_`,
+   an `$_XOR_`, a comparator, an adder, anything `simplemap` leaves whole — so it was walked THROUGH
+   as a pure conjunction rather than terminating as the opaque leaf it correctly becomes at even
+   polarity. `assign region_stall = !(ls_settled ? !ls_access : 1'b0);` — describing `ls_settled ?
+   ls_access : 1'b1`, a real dependence on `ls_settled`'s (and so `reg_rs1`'s) value — walked to the
+   leaves `{ls_access, !ls_settled}` with no OR found and PASSED, because the `$_MUX_` cell's inputs
+   were traversed as though it were the AND it is not. The other three checks all missed it: forward
+   reachability is clean because `region_stall` is blocked as a taint source, `ls_access`'s own tree
+   is untouched, and the anti-vacuity control still passes because `region_stall` stays reachable
+   from `reg_rs1` — this is a defect only the gate-shape check itself could have caught, and initially
+   did not. `bool_tree_leaves` never had this gap: its own connective test
+   (`ctype in AND_TYPES or ctype in OR_TYPES`) does not read `negated` at all, so an unhandled cell
+   already fell through to the opaque leaf at both polarities — `and_tree_leaves` now checks the same
+   thing, before either `!= negated` comparison is evaluated. `!ls_access && !ls_settled &&
+   !ls_answer_valid` bottoms out at the leaf `!ls_access`, not `ls_access` — and is rejected, because
+   that gate asserts `region_stall` on every instruction `ls_access` is FALSE for, which is every
+   Zkt-listed one.
 4. **Port coverage, both ways**, off the netlist's own measured widths rather than a `[N:0]` match:
    every decoder input wider than 5 bits must be `SEED_PORTS`/`STRUCT_FIELD_SEEDS` or
    `NON_VALUE_PORTS`/`STRUCT_FIELD_NON_VALUE`, and a struct-typed port's field offsets are read off
@@ -127,10 +140,10 @@ here, exactly as ADR-0134 recorded.
 
 ## Cost
 
-No RTL changed. Twenty yosys elaborations per `make probe-gates` run (one per mutated fixture,
-the two usage-error probes excepted — they exit before this script ever reaches one) add a few
-seconds to that target; `make test`'s own single run is one elaboration. No `fit` or `soc-timing`
-number can move, because nothing under `rtl/` was touched.
+No RTL changed. Twenty-one yosys elaborations per `make probe-gates` run (one per mutated
+fixture, the two usage-error probes excepted — they exit before this script ever reaches one) add a
+few seconds to that target; `make test`'s own single run is one elaboration. No `fit` or
+`soc-timing` number can move, because nothing under `rtl/` was touched.
 
 ## Consequences
 
@@ -161,12 +174,18 @@ number can move, because nothing under `rtl/` was touched.
   eight encodings — both invert the property under test while printing PASS. Every leaf either walk
   returns now carries its accumulated polarity, and `and_tree_leaves` additionally treats an AND
   reached under negation (or an OR reached without it) as the disjunction it is by De Morgan, exactly
-  as a bare `||` already was.
-- `test/probe_gates.sh`'s group is twenty-two probes: the control, both directions of the gate's own
-  shape, three shapes of forward reachability (a direct read, a value laundered through a register,
-  a value carried through a comparator), the other seed, the two findings above (the direct
-  `region_stall`-family read, and the same read behind a dead `generate if (0)` decoy), an
+  as a bare `||` already was. **That polarity check itself had a gap** (check 3's third amendment):
+  `(ctype in AND_TYPES) != negated` is True for any non-AND cell under odd polarity, not only an OR,
+  so a `$_MUX_`, `$_XOR_`, a comparator or an adder was walked through as a pure conjunction rather
+  than stopped at as the opaque leaf it is at every polarity. `and_tree_leaves` now checks whether a
+  cell is an AND or an OR at all BEFORE either `!= negated` comparison runs, matching
+  `bool_tree_leaves`'s own connective test, which never read `negated` and so never had the gap.
+- `test/probe_gates.sh`'s group is twenty-three probes: the control, both directions of the gate's
+  own shape, three shapes of forward reachability (a direct read, a value laundered through a
+  register, a value carried through a comparator), the other seed, the two findings above (the
+  direct `region_stall`-family read, and the same read behind a dead `generate if (0)` decoy), an
   unclassified wide port, both directions of `ls_access`'s own encoding set, `CONTROL_FIELDS`
   emptied against the shipping decoder and its width bound, both directions of the polarity fix plus
-  its De Morgan spelling, a stale classification, an undriven stall-reason name, the anti-vacuity
-  control, and the two usage-error cases.
+  its De Morgan spelling, the MUX-cloaked gate the polarity fix's own gap let through, a stale
+  classification, an undriven stall-reason name, the anti-vacuity control, and the two usage-error
+  cases.

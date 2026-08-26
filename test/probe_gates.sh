@@ -29,7 +29,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=544
+PROBES_EXPECTED=545
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -1699,6 +1699,22 @@ sed -i.bak \
   "$d/decoder.v"
 probe "NOT over the whole region_stall conjunction is red as an OR (finding 6)" 1 \
   "driven by an OR at or above its own conjunction" "$ZKT $d/decoder.v"
+
+# FINDING 7: the polarity fix (finding 6) computed is_and_here/is_or_here as
+# `(ctype in AND_TYPES) != negated`, which is True for ANY non-AND cell type
+# under odd polarity -- a MUX, an XOR, a comparator, an adder, anything
+# simplemap leaves whole -- so it got walked through as a pure conjunction
+# instead of terminating as the opaque leaf it correctly becomes at even
+# polarity. `!(ls_settled ? !ls_access : 1'b0)` describes `ls_settled ?
+# ls_access : 1'b1` -- region_stall asserts for EVERY instruction whenever
+# ls_settled is false, a real dependence on reg_rs1's value -- and used to
+# walk to leaves {ls_access, !ls_settled} with no OR found, passing clean.
+d=$(zkt_fixture)
+sed -i.bak \
+  "s/assign region_stall = ls_access && !ls_settled && !ls_answer_valid;/assign region_stall = !(ls_settled ? !ls_access : 1'b0);/" \
+  "$d/decoder.v"
+probe "a MUX cloaking region_stall's gate is red, not a clean AND-tree (finding 7)" 1 \
+  "no longer conjoins \`ls_access\`" "$ZKT $d/decoder.v"
 
 # THE OTHER DIRECTION: a classification whose port the netlist no longer
 # has. Unlike the probes above, the RTL is the shipping one and the SCRIPT
