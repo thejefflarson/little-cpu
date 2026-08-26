@@ -1659,6 +1659,27 @@ COMPARE_RAM_WORDS := 512
 # stops this flow reporting a number for a core yosys folded away.
 COMPARE_MIN_RATIO := 0.8
 
+# Hazard3's own file list (soc/compare/hazard3/hdl/hazard3.f), minus
+# hazard3_cpu_2port.v: this harness uses the single-AHB-port top only.
+# HAZARD3_DIR comes from soc/compare/hazard3_pin.mk.
+HAZARD3_HDL  := $(HAZARD3_DIR)/hdl
+HAZARD3_SRCS := $(HAZARD3_HDL)/hazard3_core.v $(HAZARD3_HDL)/hazard3_cpu_1port.v \
+                $(HAZARD3_HDL)/arith/hazard3_alu.v \
+                $(HAZARD3_HDL)/arith/hazard3_branchcmp.v \
+                $(HAZARD3_HDL)/arith/hazard3_mul_fast.v \
+                $(HAZARD3_HDL)/arith/hazard3_muldiv_seq.v \
+                $(HAZARD3_HDL)/arith/hazard3_onehot_encode.v \
+                $(HAZARD3_HDL)/arith/hazard3_onehot_priority.v \
+                $(HAZARD3_HDL)/arith/hazard3_onehot_priority_dynamic.v \
+                $(HAZARD3_HDL)/arith/hazard3_priority_encode.v \
+                $(HAZARD3_HDL)/arith/hazard3_shift_barrel.v \
+                $(HAZARD3_HDL)/hazard3_csr.v $(HAZARD3_HDL)/hazard3_decode.v \
+                $(HAZARD3_HDL)/hazard3_frontend.v \
+                $(HAZARD3_HDL)/hazard3_instr_decompress.v \
+                $(HAZARD3_HDL)/hazard3_irq_ctrl.v $(HAZARD3_HDL)/hazard3_pmp.v \
+                $(HAZARD3_HDL)/hazard3_power_ctrl.v \
+                $(HAZARD3_HDL)/hazard3_regfile_1w2r.v $(HAZARD3_HDL)/hazard3_triggers.v
+
 ifeq ($(COMPARE_CORE),vexriscv)
 COMPARE_TOP  := bench_vexriscv
 COMPARE_SRCS := soc/compare/bench_vexriscv.v rtl/memory.v
@@ -1674,6 +1695,19 @@ COMPARE_CORE_READ := read_verilog $(RISCV_FORMAL_DIR)/cores/VexRiscv/VexRiscv.v;
 COMPARE_CORE_TOP  := VexRiscv
 COMPARE_DEPS      := $(COMPARE_SRCS) | $(RISCV_FORMAL_DIR)
 COMPARE_CORE_DEPS := | $(RISCV_FORMAL_DIR)
+else ifeq ($(COMPARE_CORE),hazard3)
+COMPARE_TOP  := bench_hazard3
+COMPARE_SRCS := $(HAZARD3_SRCS) rtl/memory.v soc/compare/bench_hazard3.v
+# `-I` reaches hazard3_config.vh, hazard3_config_inst.vh and the three other
+# headers hdl/hazard3.f's `include .` names -- soc/compare/bench_hazard3.v is
+# fpga_icebreaker.v's own configuration, read straight out of the SHA-pinned
+# clone soc/compare/hazard3_pin.mk materialises, and never copied into rtl/.
+COMPARE_READ := read_verilog -sv -I $(HAZARD3_HDL) $(COMPARE_SRCS)
+COMPARE_CORE_READ := read_verilog -sv -I $(HAZARD3_HDL) $(HAZARD3_SRCS); \
+                     hierarchy -top hazard3_cpu_1port
+COMPARE_CORE_TOP  := hazard3_cpu_1port
+COMPARE_DEPS      := $(COMPARE_SRCS) | $(HAZARD3_DIR)
+COMPARE_CORE_DEPS := $(HAZARD3_SRCS) | $(HAZARD3_DIR)
 else
 COMPARE_TOP  := bench_littlecpu
 # FIT_SRCS is already this repo's list of "the core and nothing else", which is
@@ -1758,16 +1792,19 @@ compare.$(COMPARE_CORE).asc: compare.$(COMPARE_CORE).json soc/compare/bench_hx8k
 	  exit 1; \
 	}
 
-# Both harnesses in one simulation, running the one image, required to publish
-# the same values. soc/compare/placed_vs_synth.py says the core is still in the
-# netlist; this says the netlist runs. Not a prerequisite of `compare-timing`:
-# it needs iverilog and the cross compiler, and a timing measurement of a design
-# that does not execute is a defect this catches rather than one it prevents.
+# All three harnesses in one simulation, running the one image, required to
+# publish the same values. soc/compare/placed_vs_synth.py says a core is still
+# in the netlist; this says the netlist runs. Not a prerequisite of
+# `compare-timing`: it needs iverilog and the cross compiler, and a timing
+# measurement of a design that does not execute is a defect this catches
+# rather than one it prevents.
 COMPARE_SMOKE_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
-                      soc/compare/bench_vexriscv.v soc/compare/bench_tb.v
+                      soc/compare/bench_vexriscv.v soc/compare/bench_hazard3.v \
+                      soc/compare/bench_tb.v
 
-compare.vvp: $(COMPARE_SMOKE_SRCS) compare-rom | $(RISCV_FORMAL_DIR)
-	iverilog -I./rtl/ -g2012 -o $@ $(RISCV_FORMAL_DIR)/cores/VexRiscv/VexRiscv.v \
+compare.vvp: $(COMPARE_SMOKE_SRCS) compare-rom | $(RISCV_FORMAL_DIR) $(HAZARD3_DIR)
+	iverilog -I./rtl/ -I$(HAZARD3_HDL) -g2012 -o $@ \
+	  $(RISCV_FORMAL_DIR)/cores/VexRiscv/VexRiscv.v $(HAZARD3_SRCS) \
 	  $(COMPARE_SMOKE_SRCS)
 
 .PHONY: compare-smoke

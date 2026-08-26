@@ -32,9 +32,9 @@
 // **CSR_M_MANDATORY and CSR_M_TRAP stay on** (example_soc.v's own values,
 // not fpga_icebreaker.v's list): with them off the core cannot execute at
 // all -- `misa` and the trap CSRs are the bare minimum any RISC-V CPU with
-// CSRs needs -- and CSR_COUNTER, the one this ADR's ticket is actually
-// about, stays off exactly as fpga_icebreaker.v sets it, which is why this
-// core cannot self-time a benchmark.
+// CSRs needs. CSR_COUNTER stays off exactly as fpga_icebreaker.v sets it,
+// so this core has no `mcycle`/`minstret` and cannot self-time a benchmark
+// the way the other two cores in this harness can.
 //
 // ---- the bus ----------------------------------------------------------
 //
