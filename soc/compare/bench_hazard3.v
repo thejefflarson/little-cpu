@@ -202,9 +202,7 @@ module bench_hazard3 #(
   logic        wr_pending_q;
   logic [31:0] wr_addr_q;
   logic [3:0]  wr_strb_q;
-  logic        hready_int;
-  assign hready_int = !wr_pending_q;
-  assign hready = hready_int;
+  assign hready = !wr_pending_q;
 
   logic [3:0] size_mask;
   // A continuous assign, not a `case` in an `always_comb`: iverilog will not
@@ -222,7 +220,7 @@ module bench_hazard3 #(
   always_ff @(posedge clk) begin
     if (!rst_n) begin
       wr_pending_q <= 1'b0;
-    end else if (hready_int) begin
+    end else if (hready) begin
       // Accepting a new address phase this cycle (or an idle one): latch it
       // in case it turns out to be a write, which is serviced next cycle.
       wr_pending_q <= want_write;
@@ -282,7 +280,7 @@ module bench_hazard3 #(
   // rtl/memory.v answers it exactly one cycle later -- the same cycle this
   // becomes true.
   logic ram_read_q;
-  always_ff @(posedge clk) ram_read_q <= !is_rom_next && !(|mem_wstrb_mux);
+  always_ff @(posedge clk) ram_read_q <= !is_rom_next && !wr_pending_q;
 
   logic store_bit, load_bit;
   always_ff @(posedge clk) begin
