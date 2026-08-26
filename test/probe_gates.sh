@@ -29,7 +29,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=584
+PROBES_EXPECTED=586
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -2879,6 +2879,29 @@ d=$(ti_fixture)
 printf 'scratch.log\n' > "$d/.gitignore"
 printf 'noise\n' > "$d/scratch.log"
 probe "control: an ignored file that was never tracked is not a defect" 0 \
+  "tracked files, none matching a .gitignore rule" "$TI $d"
+
+# THE FALSE-POSITIVE DIRECTION: `check-ignore --no-index` also consults two
+# exclude sources this repository does not carry -- a developer's own
+# `core.excludesFile` and `$GIT_DIR/info/exclude`, neither committed and
+# neither shared. A rule on either must not turn this check red for a file
+# this tree tracks on purpose; each fixture below matches a tracked file
+# against a rule from exactly one of the two, with no matching rule anywhere
+# in the tree itself.
+d=$(ti_fixture)
+gx=$(new_case)/global-gitignore
+printf 'globalrule.json\n' > "$gx"
+printf 'built\n' > "$d/globalrule.json"
+git -C "$d" add -f globalrule.json
+git -C "$d" config core.excludesFile "$gx"
+probe "control: a rule from this developer's core.excludesFile is not this repository's to grade" 0 \
+  "tracked files, none matching a .gitignore rule" "$TI $d"
+
+d=$(ti_fixture)
+printf 'excluderule.json\n' >> "$d/.git/info/exclude"
+printf 'built\n' > "$d/excluderule.json"
+git -C "$d" add -f excluderule.json
+probe "control: a rule from this clone's \$GIT_DIR/info/exclude is not this repository's to grade" 0 \
   "tracked files, none matching a .gitignore rule" "$TI $d"
 
 begin_group "test/march_test.sh"
