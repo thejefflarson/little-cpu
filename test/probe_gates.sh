@@ -29,7 +29,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=569
+PROBES_EXPECTED=584
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -3674,18 +3674,27 @@ cat > "$tmp/sby-dz-stub" <<'STUB'
 # Stands in for sby. The case being run is the name of the directory it is run
 # in, and the assertion line is read out of the copy of decoder.v it was
 # handed, so PASS and FAIL land where the real solver puts them.
+# STUB_SBY_REGION_LEG/STUB_SBY_ENCODING_LEG pick which engine leg the log
+# attributes the failure to -- basecase by default, the one over a
+# reachable-from-reset trace, so a probe reading the induction leg's own
+# arbitrary-starting-state report is a real case rather than an invented one.
 mkdir -p probe
 case $(basename "$PWD") in
   region-stall-ungated)
     line=$(grep -n 'assert(!region_stall || ls_access);' src/decoder.v | cut -d: -f1)
-    status=${STUB_SBY_REGION:-FAIL}; line=${STUB_SBY_REGION_LINE:-$line} ;;
+    status=${STUB_SBY_REGION:-FAIL}; line=${STUB_SBY_REGION_LINE:-$line}
+    leg=${STUB_SBY_REGION_LEG:-engine_0.basecase} ;;
   ls-access-extra)
     line=$(grep -n 'assert(ls_access == (instr_lb ||' src/decoder.v | cut -d: -f1)
-    status=${STUB_SBY_ENCODING:-FAIL}; line=${STUB_SBY_ENCODING_LINE:-$line} ;;
+    status=${STUB_SBY_ENCODING:-FAIL}; line=${STUB_SBY_ENCODING_LINE:-$line}
+    leg=${STUB_SBY_ENCODING_LEG:-engine_0.basecase} ;;
 esac
 : > probe/logfile.txt
 if [ "$status" = FAIL ]; then
-  echo "SBY [probe] engine_0.basecase: Assert failed in decoder: decoder.v:$line.5-$line.36" \
+  # `##   0:00:00  ` is what real sby interposes between the engine leg and the
+  # engine's own output. Reproduced so the probes' `engine_N.basecase:.*Assert`
+  # regexes are exercised across the same gap they must span in a real log.
+  echo "SBY [probe] $leg: ##   0:00:00  Assert failed in decoder: decoder.v:$line.5-$line.36" \
     > probe/logfile.txt
 fi
 [ -n "${STUB_SBY_NO_STATUS:-}" ] && exit 1
@@ -3725,6 +3734,17 @@ probe "the gate proof going red somewhere else is not evidence" 1 \
 d=$(dz_fixture)
 probe "the encoding proof going red somewhere else is not evidence either" 1 \
   "which does not include line" "STUB_SBY_ENCODING_LINE=9 $(dzs "$d")"
+
+# THE OTHER TWO THAT MATTER: a failure the induction leg reports starts from
+# an arbitrary, possibly-unreachable state, so it is not evidence about the
+# basecase's reachable trace either -- even naming the right line.
+d=$(dz_fixture)
+probe "a gate failure reported only by the induction leg is not evidence" 1 \
+  "which does not include line" "STUB_SBY_REGION_LEG=engine_0.induction $(dzs "$d")"
+
+d=$(dz_fixture)
+probe "an encoding failure reported only by the induction leg is not evidence" 1 \
+  "which does not include line" "STUB_SBY_ENCODING_LEG=engine_0.induction $(dzs "$d")"
 
 d=$(dz_fixture)
 probe "a solver that wrote no verdict is exit 2, not a red arm" 2 \
@@ -3770,6 +3790,126 @@ probe "no components.sby is exit 2, not a probe against an invented script" 2 \
 d=$(dz_fixture); sed -i.bak 's/^decoder:$/decoderx:/' "$d/formal/components.sby"
 probe "a renamed task stops rather than probing some other design" 2 \
   "block under [script]" "$(dzs "$d")"
+
+begin_group "formal/executor-zkt-probe.py"
+
+# That file is itself the demonstrated red direction for rtl/executor.v's
+# MUL-family constant-latency assertion -- state == init one cycle after any
+# multiply issues -- and it needs a solver to be one, so it runs under
+# `make -C formal components_executor` rather than here. What is probed here
+# is its own grading: it builds one mutated core and requires it to go red at
+# the named line, and that comparison has a failure path of its own.
+#
+# The stub reads the tree it is handed and answers the way sby does, so the
+# control below is the real script over the real RTL with only the solver
+# replaced. A stub that answered from its arguments alone would make every
+# probe here a test of the stub.
+EZ="python3 $REPO/formal/executor-zkt-probe.py"
+
+cat > "$tmp/sby-ez-stub" <<'STUB'
+#!/bin/sh
+# Stands in for sby. The assertion line is read out of the copy of
+# executor.v it was handed, so PASS and FAIL land where the real solver puts
+# them. STUB_SBY_LEG picks which engine leg the log attributes the failure
+# to -- basecase by default, the one over a reachable-from-reset trace, so a
+# probe reading the induction leg's own arbitrary-starting-state report is a
+# real case rather than an invented one.
+mkdir -p probe
+line=$(grep -n 'assert(state == init);' src/executor.v | cut -d: -f1)
+status=${STUB_SBY_STATUS:-FAIL}; line=${STUB_SBY_LINE:-$line}
+leg=${STUB_SBY_LEG:-engine_0.basecase}
+: > probe/logfile.txt
+if [ "$status" = FAIL ]; then
+  # See the decoder stub above: real sby interposes `##   0:00:00  ` here, and
+  # the probe's regex has to span it.
+  echo "SBY [probe] $leg: ##   0:00:00  Assert failed in executor: executor.v:$line.7-$line.28" \
+    > probe/logfile.txt
+fi
+[ -n "${STUB_SBY_NO_STATUS:-}" ] && exit 1
+if [ -n "${STUB_SBY_EMPTY_STATUS:-}" ]; then : > probe/status; exit 1; fi
+echo "$status 2 0" > probe/status
+STUB
+chmod +x "$tmp/sby-ez-stub"
+
+ez_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/rtl" "$d/formal"
+  cp "$REPO"/rtl/structs.v "$REPO"/rtl/executor.v "$d/rtl/"
+  cp "$REPO"/formal/components.sby "$d/formal/"
+  printf '%s' "$d"
+}
+
+ezs() { printf "%s --repo %s --workdir %s/work --sby %s" "$EZ" "$1" "$1" "$tmp/sby-ez-stub"; }
+
+d=$(ez_fixture)
+probe "control: the MUL constant-latency assertion fails at its own line" 0 \
+  "The MUL constant-latency assertion fails for its own reason" "$(ezs "$d")"
+
+# THE ONE THAT MATTERS: an assertion that cannot fail is the whole reason
+# this file exists.
+d=$(ez_fixture)
+probe "the mutated core proving is red" 1 \
+  "the mul-into-divide core proves" "STUB_SBY_STATUS=PASS $(ezs "$d")"
+
+d=$(ez_fixture)
+probe "the proof going red somewhere else is not evidence" 1 \
+  "which does not include" "STUB_SBY_LINE=9 $(ezs "$d")"
+
+# THE OTHER ONE THAT MATTERS: a failure the induction leg reports starts from
+# an arbitrary, possibly-unreachable state, so it is not evidence about the
+# basecase's reachable trace either -- even naming the right line.
+d=$(ez_fixture)
+probe "a failure reported only by the induction leg is not evidence" 1 \
+  "which does not include" "STUB_SBY_LEG=engine_0.induction $(ezs "$d")"
+
+d=$(ez_fixture)
+probe "a solver that wrote no verdict is exit 2, not a red arm" 2 \
+  "wrote no status for the" "STUB_SBY_NO_STATUS=1 $(ezs "$d")"
+
+d=$(ez_fixture)
+probe "an empty status file is refused rather than read as a verdict" 2 \
+  "status file for the mul-into-divide core is empty" \
+  "STUB_SBY_EMPTY_STATUS=1 $(ezs "$d")"
+
+# The four parses. Each is what the probe pins its answer to, so a
+# respelling has to stop the run rather than quietly probing nothing.
+d=$(ez_fixture)
+sed -i.bak 's/assert(state == init);/assert(state==init);/' "$d/rtl/executor.v"
+probe "a respelled constant-latency assertion stops rather than pinning nothing" 2 \
+  "states \`assert(state == init);\` 0 times" "$(ezs "$d")"
+
+d=$(ez_fixture)
+sed -i.bak 's/in.is_mul || in.is_mulh || in.is_mulhu || in.is_mulhsu: begin/in.is_mul || in.is_mulh || in.is_mulhu ||in.is_mulhsu: begin/' \
+  "$d/rtl/executor.v"
+probe "a respelled mul case item stops rather than building the shipping core" 2 \
+  "no longer spells one of the lines this probe patches" "$(ezs "$d")"
+
+d=$(ez_fixture)
+sed -i.bak 's/in.is_div || in.is_divu || in.is_rem || in.is_remu: begin/in.is_div || in.is_divu || in.is_rem ||in.is_remu: begin/' \
+  "$d/rtl/executor.v"
+probe "a respelled divide case item stops the same way" 2 \
+  "no longer spells one of the lines this probe patches" "$(ezs "$d")"
+
+d=$(ez_fixture)
+sed -i.bak 's/op_is_divu <= in.is_divu;/op_is_divu <= in.is_divu ;/' "$d/rtl/executor.v"
+probe "a respelled op_is_divu latch stops the same way too" 2 \
+  "no longer spells one of the lines this probe patches" "$(ezs "$d")"
+
+d=$(ez_fixture); rm "$d/rtl/executor.v"
+probe "the RTL moving away takes the probe with it, loudly" 2 \
+  "rtl/executor.v is missing from" "$(ezs "$d")"
+
+# The script is READ from formal/components.sby rather than copied into these
+# probes, the same reasoning decoder-zkt-probe.py's own two probes apply: a
+# probe built against an invented script proves a design the shipping task
+# does not build.
+d=$(ez_fixture); rm "$d/formal/components.sby"
+probe "no components.sby is exit 2, not a probe against an invented script" 2 \
+  "formal/components.sby is missing" "$(ezs "$d")"
+
+d=$(ez_fixture); sed -i.bak 's/^executor:$/executorx:/' "$d/formal/components.sby"
+probe "a renamed task stops rather than probing some other design" 2 \
+  "block under [script]" "$(ezs "$d")"
 
 begin_group "formal/traps-tval-probe.py"
 
