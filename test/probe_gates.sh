@@ -3691,7 +3691,10 @@ case $(basename "$PWD") in
 esac
 : > probe/logfile.txt
 if [ "$status" = FAIL ]; then
-  echo "SBY [probe] $leg: Assert failed in decoder: decoder.v:$line.5-$line.36" \
+  # `##   0:00:00  ` is what real sby interposes between the engine leg and the
+  # engine's own output. Reproduced so the probes' `engine_N.basecase:.*Assert`
+  # regexes are exercised across the same gap they must span in a real log.
+  echo "SBY [probe] $leg: ##   0:00:00  Assert failed in decoder: decoder.v:$line.5-$line.36" \
     > probe/logfile.txt
 fi
 [ -n "${STUB_SBY_NO_STATUS:-}" ] && exit 1
@@ -3817,7 +3820,9 @@ status=${STUB_SBY_STATUS:-FAIL}; line=${STUB_SBY_LINE:-$line}
 leg=${STUB_SBY_LEG:-engine_0.basecase}
 : > probe/logfile.txt
 if [ "$status" = FAIL ]; then
-  echo "SBY [probe] $leg: Assert failed in executor: executor.v:$line.7-$line.28" \
+  # See the decoder stub above: real sby interposes `##   0:00:00  ` here, and
+  # the probe's regex has to span it.
+  echo "SBY [probe] $leg: ##   0:00:00  Assert failed in executor: executor.v:$line.7-$line.28" \
     > probe/logfile.txt
 fi
 [ -n "${STUB_SBY_NO_STATUS:-}" ] && exit 1
