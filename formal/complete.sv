@@ -164,6 +164,16 @@ module rvfi_testbench (
   wire        insn_uncompressed = rvfi_insn[1:0] == 2'b11;
   wire [6:0]  insn_opcode       = rvfi_insn[6:0];
 
+  // funct3 and funct7 let a predicate name one row of an opcode instead of
+  // the whole class -- unused by every exclusion below today, since none of
+  // MISC-MEM, SYSTEM or AMO has any modelled row to stay clear of. A future
+  // exclusion that shares an opcode with a modelled instruction must use one
+  // or both: check-complete-exclusions.py re-derives, from the pinned clone,
+  // every encoding a class-wide predicate would excuse and rejects a class
+  // where a narrower predicate would leave the modelled rows checked.
+  wire [2:0]  insn_funct3       = rvfi_insn[14:12];
+  wire [6:0]  insn_funct7       = rvfi_insn[31:25];
+
   // EXCLUDE MISC-MEM 0001111 fence fence.i
   //   No spec model at the pin. rtl/decoder.v makes both NOPs and they retire
   //   non-trapping, so unlike ecall/ebreak they are not already excused by the
