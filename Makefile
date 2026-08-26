@@ -506,6 +506,16 @@ tool-cache-test:
 memmap-test:
 	@./test/memmap_test.sh
 
+# Asserts that every ADR file has a unique number and exactly one row in
+# docs/adr/README.md, both ways round. Hangs off `test` like the other bash
+# checks -- ls, grep and sed, no cross compiler, no simulator, no yosys.
+# Catches the failure a README-row conflict does not: two files claiming the
+# same reserved number under two different filenames merge with no conflict
+# at all, because only one of them needs a row.
+.PHONY: adr-numbering-test
+adr-numbering-test:
+	@./test/adr_numbering_test.sh
+
 # The cross-core comparison harness states its geometry in six places and this
 # is what says they agree. Hangs off `test` like the other bash checks -- grep
 # and sed only -- because the harness itself needs yosys, nextpnr and the pinned
@@ -632,7 +642,7 @@ dual-build:
 
 .PHONY: test
 test: sim test-units probe-gates pin-bump-test tool-cache-test memmap-test \
-      compare-geometry-test retired-term-test port-connect-test march-test \
+      adr-numbering-test compare-geometry-test retired-term-test port-connect-test march-test \
       band-source-test zkt-isolation-test window-test imem-share-test \
       abc-engine-test mutation-probe dual-build board-elaborate \
       tracked-ignored-test

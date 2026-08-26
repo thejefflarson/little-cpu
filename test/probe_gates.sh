@@ -2640,6 +2640,63 @@ d=$(mm_fixture); sed -i.bak 's/LS_TEXT_WORDS = 2048/LS_TEXT_WORDS = 4096/' "$d/f
 probe "the proof describes the part's text window, not the harness's" 1 \
   "LS_TEXT_WORDS is 4096 against rtl/littlesoc.v's 2048" "$MM $d"
 
+begin_group "test/adr_numbering_test.sh"
+
+# A COPY OF THE SHIPPING docs/adr/, for the same reason test/memmap_test.sh's
+# fixture is one: a hand-written stand-in would drift from the index it is
+# supposed to be checking, which is the defect this whole check exists for.
+AN="$HERE/adr_numbering_test.sh"
+
+an_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/docs"
+  cp -R "$REPO/docs/adr" "$d/docs/"
+  printf '%s' "$d"
+}
+
+d=$(an_fixture)
+probe "control: the shipping index has one row per file and no number twice" 0 \
+  "ADR files, each with exactly one README row, no number claimed twice" "$AN $d"
+
+probe "a repo root that does not exist is red before anything is scanned" 1 \
+  "is missing, so there is nothing to grade" "$AN $d/nowhere"
+
+# THE ONE THAT MATTERS: two files claiming the same reserved number under two
+# different slugs, which is exactly what a README-row conflict does not catch
+# -- the filename never appears in the diff that git refuses to merge.
+d=$(an_fixture)
+cp "$d/docs/adr/0001-finish-the-staged-rewrite.md" \
+   "$d/docs/adr/0001-a-second-pr-claimed-this-too.md"
+probe "two files claiming the same number is named" 1 \
+  "ADR number 0001 is claimed by more than one file" "$AN $d"
+
+# The half that DOES self-limit, forced anyway: a row deleted from the index
+# leaves the file it named with no row, which is what an architect once caught
+# by reading the table -- this is the mechanism that catches it now.
+d=$(an_fixture)
+sed -i.bak '/\[0001\](0001-finish-the-staged-rewrite\.md)/d' "$d/docs/adr/README.md"
+probe "a file with no row in the index is named as orphaned" 1 \
+  "0001-finish-the-staged-rewrite.md has no row" "$AN $d"
+
+# A row naming a file that was never added, or that moved out from under it.
+d=$(an_fixture)
+sed -i.bak "s|\[0002\](0002-isa-target-rv32imc-zicsr\.md)|[0002](0002-a-file-that-does-not-exist.md)|" \
+  "$d/docs/adr/README.md"
+probe "a row naming a file that does not exist is named" 1 \
+  "a row naming 0002-a-file-that-does-not-exist.md, and no such file exists" "$AN $d"
+
+# THE FALSE-POSITIVE DIRECTION, and it matters as much as the three above: a
+# gap in the sequence -- work merged around a reserved number and left it
+# unused, the way 0072, 0073 and 0077 are on this tree right now -- must stay
+# green. Deleting one file and its row together, leaving every remaining
+# number and row still paired, is exactly that: a wider gap with nothing
+# orphaned and nothing doubled.
+d=$(an_fixture)
+rm "$d/docs/adr/0001-finish-the-staged-rewrite.md"
+sed -i.bak '/\[0001\](0001-finish-the-staged-rewrite\.md)/d' "$d/docs/adr/README.md"
+probe "a gap in the sequence is not a defect" 0 \
+  "each with exactly one README row, no number claimed twice" "$AN $d"
+
 begin_group "test/retired_term_test.sh"
 
 # A COPY OF THE SHIPPING FILES for the same reason test/memmap_test.sh's fixture
