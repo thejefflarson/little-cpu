@@ -11,7 +11,7 @@
 # cheapest way to make a future red go green is to widen this set. Making the
 # widening a tracked, reviewable diff -- rather than an edit to a predicate
 # nobody diffs -- is the whole control. Excluding an opcode from an assertion
-# IS weakening a check (ADR-0010, applied one level up). Read the three
+# IS weakening a check (ADR-0010, applied one level up). Read the four
 # questions below before adding a line.
 #
 #   1. Does riscv-formal really ship no spec model for the encoding at
@@ -25,18 +25,31 @@
 #   3. Is something else checking the excluded behaviour? Say what, on the
 #      entry, at the complete.sv site. "Nothing" is an acceptable answer and a
 #      loud one -- ADR-0049 clause 2's "nowhere" -- but it must be written.
+#   4. Is the whole opcode class unmodelled, or only the one row you are
+#      adding? The script re-derives every encoding the pin models under the
+#      class's opcode and refuses a class-wide line where any of them land --
+#      narrow the entry with a funct3, or a funct3 and a funct7, until it
+#      excuses only the row that has no model. A class stays whole-opcode only
+#      where nothing under it is modelled at all, the way MISC-MEM, SYSTEM and
+#      AMO are today.
 #
 # FORMAT -- three fields, whitespace-separated, the third running to end of
 # line:
 #
-#     <CLASS>  <opcode>  <mnemonic> [<mnemonic> ...]
+#     <CLASS>  <encoding>  <mnemonic> [<mnemonic> ...]
 #
-# <CLASS> is the RISC-V opcode-map name, <opcode> the seven-bit inst[6:0] the
-# predicate in complete.sv matches on, and the rest the mnemonics that encoding
-# covers in this core's ISA (ADR-0002). Mnemonics are compared against
-# riscv-formal's insns/ directory and its isa_rv32imc.txt, so they must be
+# <CLASS> is the RISC-V opcode-map name (plus whatever distinguishes the row,
+# once an entry narrows past the opcode -- OP-SH2ADD, not a second OP).
+# <encoding> is `<opcode>[/<funct3>[/<funct7>]]`, each field the literal bits
+# the predicate in complete.sv matches on -- opcode alone excuses the whole
+# class, opcode/funct3 one funct3 row of it, opcode/funct3/funct7 one exact
+# row. The rest of the line is the mnemonics that encoding covers in this
+# core's ISA (ADR-0002). Mnemonics are compared against riscv-formal's
+# isa_rv32imc.txt and the insns/insn_<mnemonic>.v it names, so they must be
 # spelled as riscv-formal would (`fence.i`, not `fencei`; the script maps `.`
-# to `_` for the filename).
+# to `_` for the filename). A model riscv-formal ships for some OTHER isa
+# variant -- Zba, Zbb, the rest of insns/ -- is not a model this check can
+# see: formal/complete.sv's spec instance is built from isa_rv32imc.txt alone.
 #
 # The per-entry REASON lives at the complete.sv site, next to the predicate it
 # governs, not here -- one place for the prose, and it is the place a reader of

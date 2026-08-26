@@ -29,7 +29,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=550
+PROBES_EXPECTED=556
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -758,11 +758,17 @@ CE="$REPO/formal/check-complete-exclusions.py"
 
 # The riscv-formal stand-in carries only what clause 5 reads. Naming `add` and
 # `lw` is what makes the control meaningful: the file is non-empty and names no
-# excluded mnemonic.
+# excluded mnemonic. Each gets its own spec_valid line, real encodings, so the
+# clause 6 overlap check has something to compare a declared exclusion against
+# -- `add` sits at OP (0110011) beside every opcode a probe below excludes.
 ce_fixture() {
   local d; d=$(new_case)
   mkdir -p "$d/rf/insns"
   printf 'add\nlw\n' > "$d/rf/insns/isa_rv32imc.txt"
+  printf "assign spec_valid = rvfi_valid && !insn_padding && insn_funct7 == 7'b 0000000 && insn_funct3 == 3'b 000 && insn_opcode == 7'b 0110011;\n" \
+    > "$d/rf/insns/insn_add.v"
+  printf "assign spec_valid = rvfi_valid && !insn_padding && insn_funct3 == 3'b 010 && insn_opcode == 7'b 0000011;\n" \
+    > "$d/rf/insns/insn_lw.v"
   cp "$REPO/formal/complete.sv" "$d/complete.sv"
   cp "$REPO/formal/COMPLETE_EXCLUSIONS" "$d/BASELINE"
   printf '%s' "$d"
@@ -822,15 +828,23 @@ probe "a baseline line with no predicate behind it is red too" 1 \
 d=$(ce_fixture)
 sed -i.bak 's|^MISC-MEM  0001111  fence fence.i$|MISC-MEM  00011 fence fence.i|' "$d/BASELINE"
 probe "a baseline opcode that is not seven binary digits is named" 1 \
-  "seven binary digits" "$(ces "$d")"
+  "which is not" "$(ces "$d")"
+
+d=$(ce_fixture)
+printf 'OP-BADFUNCT3  0110011/10/0010000  fake\n' >> "$d/BASELINE"
+probe "a baseline funct3 that is not three binary digits is named" 1 \
+  "which is not" "$(ces "$d")"
 
 d=$(ce_fixture); : > "$d/rf/insns/insn_fence.v"
-probe "a pin that ADDS a spec model makes the exclusion stale, and red" 1 \
-  "EXISTS at the pin" "$(ces "$d")"
+probe "control: a model file OUTSIDE isa_rv32imc.txt is not one this check can see" 0 \
+  "COMPLETE EXCLUSION SET: PASS" "$(ces "$d")"
 
-d=$(ce_fixture); printf 'add\nlw\nfence\n' > "$d/rf/insns/isa_rv32imc.txt"
-probe "the isa list is read too, not just the insns/ directory" 1 \
-  "so rvfi_isa_rv32imc drives a spec model" "$(ces "$d")"
+d=$(ce_fixture)
+printf 'add\nlw\nfence\n' > "$d/rf/insns/isa_rv32imc.txt"
+printf "assign spec_valid = rvfi_valid && !insn_padding && insn_opcode == 7'b 0001111;\n" \
+  > "$d/rf/insns/insn_fence.v"
+probe "the isa list is what wires a model in, not the insns/ directory alone" 1 \
+  "rvfi_isa_rv32imc models it at" "$(ces "$d")"
 
 d=$(ce_fixture); rm "$d/rf/insns/isa_rv32imc.txt"
 probe "an unreadable clone makes 'no spec model' unmeasurable, and fatal" 1 \
@@ -858,6 +872,75 @@ open(path, 'w').write(''.join(out))
 PY
 probe "an exclusion with no reason written under it is rejected" 1 \
   "has no reason written under it" "$(ces "$d")"
+
+# Inserts a synthetic exclusion block into a fixture's complete.sv, right
+# before the real insn_excluded assignment, and ORs its wire into that
+# assignment -- the same shape every EXCLUDE entry above has. $2 is the
+# `// EXCLUDE ...` header line (no leading `//`), $3 the wire's right-hand
+# side (no `wire <slug> = `), $4 the wire's own name.
+ce_insert_exclusion() {
+  python3 - "$1/complete.sv" "$2" "$3" "$4" <<'PY'
+import sys
+path, header, rhs, slug = sys.argv[1:5]
+marker = "  wire insn_excluded = exclude_misc_mem || exclude_system || exclude_amo;"
+text = open(path).read()
+assert marker in text, "fixture complete.sv no longer carries the marker this helper anchors on"
+block = (
+    f"  // {header}\n"
+    f"  //   Synthetic probe entry, forty-plus characters of reason so clause 2\n"
+    f"  //   does not itself fire on this one.\n"
+    f"  wire {slug} = {rhs};\n\n"
+)
+open(path, 'w').write(
+    text.replace(marker, block + marker.replace("exclude_amo;", f"exclude_amo || {slug};")))
+PY
+}
+
+d=$(ce_fixture)
+ce_insert_exclusion "$d" "EXCLUDE OP-PROBEA 1111111/000 probea" \
+  "insn_uncompressed && insn_opcode == 7'b1111111 && insn_funct3 == 3'b000" \
+  "exclude_op_probea"
+printf 'OP-PROBEA  1111111/000  probea\n' >> "$d/BASELINE"
+probe "control: an opcode+funct3 predicate is accepted" 0 \
+  "COMPLETE EXCLUSION SET: PASS" "$(ces "$d")"
+
+d=$(ce_fixture)
+ce_insert_exclusion "$d" "EXCLUDE OP-PROBEB 1111111/001/1111111 probeb" \
+  "insn_uncompressed && insn_opcode == 7'b1111111 && insn_funct3 == 3'b001 && insn_funct7 == 7'b1111111" \
+  "exclude_op_probeb"
+printf 'OP-PROBEB  1111111/001/1111111  probeb\n' >> "$d/BASELINE"
+probe "control: an opcode+funct3+funct7 predicate is accepted" 0 \
+  "COMPLETE EXCLUSION SET: PASS" "$(ces "$d")"
+
+d=$(ce_fixture)
+ce_insert_exclusion "$d" "EXCLUDE OP-PROBEC 0110011/100/0010000 probec" \
+  "insn_uncompressed && insn_opcode == 7'b0110011 && insn_funct7 == 7'b0010000" \
+  "exclude_op_probec"
+printf 'OP-PROBEC  0110011/100/0010000  probec\n' >> "$d/BASELINE"
+probe "a wire that names a funct7 without a funct3 is rejected, not parsed" 1 \
+  "must be followed by exactly" "$(ces "$d")"
+
+d=$(ce_fixture)
+ce_insert_exclusion "$d" "EXCLUDE OP-PROBED 0110011 probed" \
+  "insn_uncompressed && insn_opcode == 7'b0110011" \
+  "exclude_op_probed"
+printf 'OP-PROBED  0110011  probed\n' >> "$d/BASELINE"
+probe "a class-wide predicate over an opcode the pin partly models is rejected" 1 \
+  "rvfi_isa_rv32imc models" "$(ces "$d")"
+
+# `mul` shares OP and funct3 000 with `add` but a different funct7, so a
+# predicate narrowed only to funct3 still excuses two modelled mnemonics, not
+# one -- funct3 alone is not always as narrow as the pin lets a predicate be.
+d=$(ce_fixture)
+printf 'add\nlw\nmul\n' > "$d/rf/insns/isa_rv32imc.txt"
+printf "assign spec_valid = rvfi_valid && !insn_padding && insn_funct7 == 7'b 0000001 && insn_funct3 == 3'b 000 && insn_opcode == 7'b 0110011;\n" \
+  > "$d/rf/insns/insn_mul.v"
+ce_insert_exclusion "$d" "EXCLUDE OP-PROBEE 0110011/000 probee" \
+  "insn_uncompressed && insn_opcode == 7'b0110011 && insn_funct3 == 3'b000" \
+  "exclude_op_probee"
+printf 'OP-PROBEE  0110011/000  probee\n' >> "$d/BASELINE"
+probe "a funct3-only predicate is rejected when a funct7 still separates two modelled rows" 1 \
+  "rvfi_isa_rv32imc models" "$(ces "$d")"
 
 # Nothing below edits the sanitizer's constants: each probe mutates a COPY of
 # the tracked test/monitor.v and requires the sanitizer to refuse it. Re-deriving
@@ -2360,7 +2443,7 @@ probe "a SoC with no UART at all does not pass by silence" 1 \
   "does not instantiate \`uart\` at all" "$MM $d"
 
 d=$(mm_fixture); sed -i.bak 's/^  spiflash flash (/  nospiflash flash (/' "$d/rtl/littlesoc.v"
-probe "a SoC with no SPI master at all does not pass by silence" 1 \
+probe "a SoC with no SPI controller at all does not pass by silence" 1 \
   "does not instantiate \`spiflash\` at all" "$MM $d"
 
 # Without this the check above passes vacuously on a file that lost its memory.
@@ -2451,27 +2534,27 @@ d=$(mm_fixture); sed -i.bak "s/LS_UART_BASE  = 32'h0002_0020/LS_UART_BASE  = 32'
 probe "the UART moving in the proof's copy alone is red" 1 \
   "formal/traps.sv's LS_UART_BASE is 196640" "$MM $d"
 
-# The SPI master abuts the UART's two words the way the UART abuts the timer's
+# The SPI controller abuts the UART's two words the way the UART abuts the timer's
 # reservation, and for the same reason: five read buses join with an OR, so a
 # hole is wasted map and an overlap is two live answers at once.
 d=$(mm_fixture); sed -i.bak "s/BASE = 32'h0002_0028/BASE = 32'h0002_0030/" "$d/rtl/spiflash.v"
-probe "a gap opening between the UART and the SPI master is red" 1 \
-  "the UART ends at 0x00020028 and the SPI master starts at" "$MM $d"
+probe "a gap opening between the UART and the SPI controller is red" 1 \
+  "the UART ends at 0x00020028 and the SPI controller starts at" "$MM $d"
 
 d=$(mm_fixture); sed -i.bak "s/BASE = 32'h0002_0028/BASE = 32'h0002_002c/" "$d/rtl/spiflash.v"
 probe "an SPI base off its own window is red" 1 \
   "is not a multiple of its own" "$MM $d"
 
 d=$(mm_fixture); sed -i.bak 's/SPI_BASE            0x00020028/SPI_BASE            0x00030028/' "$d/test/asm/riscv_test.h"
-probe "the address the flash-reading program uses is checked against the master" 1 \
+probe "the address the flash-reading program uses is checked against the controller" 1 \
   "SPI_BASE is 0x00030028" "$MM $d"
 
 d=$(mm_fixture); sed -i.bak "s/LS_FLASH_BASE = 32'h0002_0028/LS_FLASH_BASE = 32'h0003_0028/" "$d/rtl/littlecpu.v"
-probe "the SPI master moving in the core's copy alone is red" 1 \
+probe "the SPI controller moving in the core's copy alone is red" 1 \
   "LS_FLASH_BASE is 196648 against rtl/spiflash.v's 131112" "$MM $d"
 
 d=$(mm_fixture); sed -i.bak "s/LS_FLASH_BASE = 32'h0002_0028/LS_FLASH_BASE = 32'h0003_0028/" "$d/formal/traps.sv"
-probe "the SPI master moving in the proof's copy alone is red" 1 \
+probe "the SPI controller moving in the proof's copy alone is red" 1 \
   "formal/traps.sv's LS_FLASH_BASE is 196648" "$MM $d"
 
 # MAP_TOP is the address two programs store to expecting a refusal. Left behind

@@ -19,7 +19,7 @@
 // is what a real device's input register does anyway.
 //
 // TIMING IS NOT MODELLED. No `tRES`, no page boundary, no write path at all --
-// this is read-only, like the master that drives it.
+// this is read-only, like the controller that drives it.
 module spiflash_model #(
   // The three bytes `0x9F` returns. Winbond W25Q32JV, which is what the
   // UPduino carries and what `iceprog` prints.
@@ -36,7 +36,7 @@ module spiflash_model #(
   // The whole data array, as a function of the address. Both halves of the
   // address take part so that a sequential read crossing a 256-byte boundary
   // does not repeat, which is the mistake a program reading only `a[7:0]`
-  // could not tell from a master that stopped incrementing.
+  // could not tell from a controller that stopped incrementing.
   function automatic logic [7:0] flash_byte(input logic [23:0] a);
     flash_byte = a[7:0] ^ a[15:8] ^ 8'h5a;
   endfunction
@@ -115,7 +115,7 @@ module spiflash_model #(
       end
 
       if (sck_fall) begin
-        // The output changes while the clock is low, so the master's rising
+        // The output changes while the clock is low, so the controller's rising
         // edge samples a bit that has been stable for half a period. A byte
         // boundary loads instead of shifting: the bit already presented at the
         // completing rising edge belongs to the byte that just ended.

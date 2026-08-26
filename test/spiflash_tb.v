@@ -6,7 +6,7 @@
 //
 // WHAT THE ORACLE IS. The three JEDEC bytes are literals -- `0xEF 0x70 0x16`,
 // which is what `iceprog` prints for the part the UPduino carries -- so a
-// master that shifted the wrong number of bits, sampled the wrong edge or
+// controller that shifted the wrong number of bits, sampled the wrong edge or
 // dropped the most significant bit first cannot produce them. The data array's
 // bytes are a function the model states and this bench restates, which is a
 // weaker oracle and is used only for what the id cannot show: that a sequential
@@ -283,7 +283,7 @@ module spiflash_tb;
 
     //-----------------------------------------------------------------------
     // `0x03`, and the only thing the id cannot show: that the address advances.
-    // The window straddles a 256-byte boundary on purpose -- a master that
+    // The window straddles a 256-byte boundary on purpose -- a controller that
     // stopped incrementing the high half would agree with a bench that read
     // only the low one.
     //-----------------------------------------------------------------------

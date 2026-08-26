@@ -1086,7 +1086,7 @@ on-board configuration flash's own data-out line, and driving it unconditionally
 because this board's CRESET is not wired to the programmer and the FPGA keeps running throughout.
 `soc/board_upduino.v` now reads pin 16, the flash's chip select, and drives pin 14 with the UART
 only once that reads released. That predicate is sound at DC where a grant built on `released` alone
-would not be: an SPI slave's own output stage is a deterministic function of its chip select —
+would not be: an SPI peripheral's own output stage is a deterministic function of its chip select —
 driving low, high-impedance high — regardless of whether a pull-up or `iceprog` itself is what holds
 the select high, so the LEVEL answers "is the flash's own driver off" with no ambiguity about who is
 holding it. **The edge is a different question, and `soc/miso_share_enable.v` answers the two
