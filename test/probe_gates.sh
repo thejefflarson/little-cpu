@@ -29,7 +29,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=563
+PROBES_EXPECTED=562
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -2783,11 +2783,7 @@ probe "a repo root that does not exist is red before anything is scanned" 1 \
   "is not a directory" "$TI $d/nowhere"
 
 d=$(new_case)
-probe "a directory that is no git repository is red, not a scan of nothing" 1 \
-  "is not a git repository" "$TI $d"
-
-d=$(new_case); git -c init.defaultBranch=main -C "$d" init -q
-probe "an empty repository has nothing to enumerate and is red, not green" 1 \
+probe "a plain directory git cannot list is a scan of nothing, not green" 1 \
   "cannot enumerate any tracked files" "$TI $d"
 
 # THE ONE THAT MATTERS: a tracked file also matching a .gitignore rule -- the

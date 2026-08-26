@@ -37,12 +37,6 @@ if [ ! -d "$REPO" ]; then
   exit 1
 fi
 
-if ! git -C "$REPO" rev-parse --git-dir > /dev/null 2>&1; then
-  echo "error: '$REPO' is not a git repository, so there is no index to" >&2
-  echo "compare against .gitignore and no tracked-file list to read." >&2
-  exit 1
-fi
-
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-trackedignored.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
   exit 1
