@@ -169,9 +169,20 @@ nonperturbation: check-nonperturbation.py
 # cannot. Same two properties as it: always run, delete the workdir first.
 .PHONY: components_decoder components_executor components_accessor components_pcloop components_traps \
         components_busarbiter
-components_decoder: components.sby ../rtl/decoder.v ../rtl/regsel.v ../rtl/structs.v
+# decoder-zkt-probe is a prerequisite for the same reason pcloop_cover and
+# traps-region-probe are: rtl/decoder.v's two Zkt-isolation assertions
+# (region_stall implies ls_access; ls_access is exactly the eight base
+# load/store encodings) are worth nothing until shown to fail, and a control
+# that can be run separately from the thing it controls eventually is not
+# run at all.
+components_decoder: components.sby decoder-zkt-probe ../rtl/decoder.v ../rtl/regsel.v \
+                     ../rtl/structs.v
 	rm -rf $@
 	sby -f $< decoder
+
+.PHONY: decoder-zkt-probe
+decoder-zkt-probe: decoder-zkt-probe.py ../rtl/decoder.v components.sby
+	python3 $<
 components_executor: components.sby ../rtl/executor.v ../rtl/structs.v
 	rm -rf $@
 	sby -f $< executor

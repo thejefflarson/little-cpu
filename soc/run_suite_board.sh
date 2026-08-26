@@ -31,7 +31,7 @@ export PATH="$HOME/.cache/little-cpu/oss-cad-suite/bin:$PATH"
 # margin covers that. build_batch.sh still refuses a batch that overflows, so
 # this only decides how well packed the batches are, never whether they are
 # correct.
-DRIVER_BYTES=$(riscv64-elf-gcc -march=rv32imac_zicsr_zifencei -mabi=ilp32 -nostdlib \
+DRIVER_BYTES=$(riscv64-elf-gcc -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -nostdlib \
                  -DBOARD_SUITE -I test/asm -c -o /tmp/.drv.$$.o test/board/board_suite.S 2>/dev/null \
                && riscv64-elf-size /tmp/.drv.$$.o | awk 'NR==2{print $1+$2}')
 rm -f /tmp/.drv.$$.o
@@ -67,7 +67,7 @@ for f in test/asm/*.S; do
   # Sized as an OBJECT, not as a link: linking one program with the driver needs
   # board_table and board_count, which build_batch.sh generates per batch and
   # cannot exist here. The object's text+data is what the batch will carry.
-  riscv64-elf-gcc -march=rv32imac_zicsr_zifencei -mabi=ilp32 -nostdlib -DBOARD_SUITE \
+  riscv64-elf-gcc -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -nostdlib -DBOARD_SUITE \
     -I test/asm -c -o "$OUT/one.o" "$f" 2>/dev/null || { echo "   skip $b (does not assemble)"; continue; }
   n=$(riscv64-elf-size "$OUT/one.o" | awk 'NR==2{print $1+$2}')
   sizes="$sizes$n $f"$'\n'

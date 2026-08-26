@@ -477,8 +477,8 @@ test-units: check-unit-benches test/monitor.sim.v
 
 # Hangs off `test` rather than standing alone, so it runs in the job CI already
 # requires and nobody has to add a step for it. It needs no cross compiler, no
-# Sail, no yosys and no sby, so it does not stop `make test` running anywhere it
-# ran before.
+# Sail and no sby -- but the test/zkt_isolation_test.py group inside it needs
+# yosys, so this no longer runs everywhere `make test` used to.
 .PHONY: probe-gates
 probe-gates:
 	@./test/probe_gates.sh
@@ -550,6 +550,17 @@ march-test:
 band-source-test:
 	@python3 ./test/band_source_test.py
 
+# Zkt's claim is that a listed set of instructions -- arithmetic, logical,
+# shift, MUL -- has data-independent timing. Elaborates rtl/decoder.v with
+# yosys and builds the fan-in graph of the resulting netlist, asking whether a
+# register-file DATA output reaches any stall reason other than the
+# load/store region wait, which is gated on an instruction class Zkt's list
+# never names. Hangs off `test` like the other repo-scanning checks, but --
+# unlike them -- it needs yosys: no cross compiler, no simulator.
+.PHONY: zkt-isolation-test
+zkt-isolation-test:
+	@python3 ./test/zkt_isolation_test.py
+
 # Forces the elaboration checks in rtl/imemory.v, rtl/memory.v, rtl/timer.v and
 # rtl/uart.v to fire, in both frontends. Hangs off `test` because the parameter shapes they
 # guard are the ones the SoC and the benches pass, so nothing else here would
@@ -610,8 +621,8 @@ dual-build:
 .PHONY: test
 test: sim test-units probe-gates pin-bump-test tool-cache-test memmap-test \
       compare-geometry-test retired-term-test port-connect-test march-test \
-      band-source-test window-test imem-share-test abc-engine-test mutation-probe \
-      dual-build board-elaborate
+      band-source-test zkt-isolation-test window-test imem-share-test \
+      abc-engine-test mutation-probe dual-build board-elaborate
 	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 # The same suite `make test` runs, with the runner charging every cycle to the
@@ -656,7 +667,7 @@ cycles: sim
 # residual so the number is checked rather than assumed.
 DHRY_RUNS   ?= 2000
 DHRY_CYCLES ?= 4000000
-DHRY_CFLAGS := -march=rv32imac_zicsr_zifencei -mabi=ilp32 -O2 -std=c11 \
+DHRY_CFLAGS := -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -O2 -std=c11 \
                -ffreestanding -fno-tree-loop-distribute-patterns \
                -Wall -Wextra -Werror
 
@@ -697,7 +708,7 @@ dhrystone: sim
 # simulator at its own `--stalls` rate. Raise it for a longer run.
 COREMARK_ITERATIONS ?= 100
 COREMARK_CYCLES     ?= 200000000
-COREMARK_CFLAGS := -march=rv32imac_zicsr_zifencei -mabi=ilp32 -O2 -std=c11 \
+COREMARK_CFLAGS := -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -O2 -std=c11 \
                     -ffreestanding -fno-tree-loop-distribute-patterns \
                     -Wall -Wextra -Werror
 
@@ -914,12 +925,12 @@ soc-rom:
 	esac; \
 	test -f "$$prog" || { echo "error: no such program: $$prog" >&2; exit 1; }; \
 	case '$(SOC_PROG)' in \
-	  *.c) $$CC -march=rv32imac_zicsr_zifencei -mabi=ilp32 -nostdlib \
+	  *.c) $$CC -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -nostdlib \
 	         -Os -std=c11 -ffreestanding -fno-tree-loop-distribute-patterns \
 	         -Wall -Wextra -Werror -I test/asm -T test/asm/boot.lds \
 	         -o "$$tmp/prog.elf" test/crt0.S "$$prog"; \
 	       sections='-j .text -j .data' ;; \
-	  *)   $$CC -march=rv32imac_zicsr_zifencei -mabi=ilp32 -nostdlib -I test/asm \
+	  *)   $$CC -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -nostdlib -I test/asm \
 	         -T test/asm/sections.lds -o "$$tmp/prog.elf" "$$prog"; \
 	       sections='-j .text' ;; \
 	esac; \

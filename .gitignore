@@ -111,6 +111,10 @@ formal/busarbiter-probe/
 # `make -C formal traps-tval-probe`: the shipping core and the two mutated ones
 # it proves the mtval arm against, same shape and rebuilt the same way.
 formal/tval-probe/
+# `make -C formal decoder-zkt-probe`: the two mutated cores it proves
+# region_stall's own Zkt-isolation assertions against, same shape as
+# region-probe/. Rebuilt from rtl/ on every run.
+formal/decoder-zkt-probe/
 __pycache__/
 test/rtl.cc
 # The dual configuration's generated netlist and its runner, the same rule.

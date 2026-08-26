@@ -157,7 +157,7 @@ def main():
 
     dhry_log = work / "dhry.redirects"
     dhry_log.unlink(missing_ok=True)
-    dhry_flags = ("-march=rv32imac_zicsr_zifencei -mabi=ilp32 -O2 -std=c11 -ffreestanding "
+    dhry_flags = ("-march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -O2 -std=c11 -ffreestanding "
                   "-fno-tree-loop-distribute-patterns -Wall -Wextra -Werror")
     subprocess.run(["./test/bench/run_dhrystone.sh", str(binary), str(args.runs),
                     "4000000", dhry_flags],

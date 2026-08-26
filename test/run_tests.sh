@@ -155,7 +155,7 @@ for src in "${programs[@]}"; do
 
   case $name in
     *.c)
-      build=("$CC" -march=rv32imac_zicsr_zifencei -mabi=ilp32 -nostdlib
+      build=("$CC" -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -nostdlib
              -Os -std=c11 -ffreestanding -fno-tree-loop-distribute-patterns
              -Wall -Wextra -Werror -I "$ASM_DIR"
              -T "$ASM_DIR/boot.lds" "$HERE/crt0.S" "$src" -o "$elf")
@@ -163,7 +163,7 @@ for src in "${programs[@]}"; do
       ram_flags=(--only-section=.tohost)
       ;;
     *)
-      build=("$CC" -march=rv32imac_zicsr_zifencei -mabi=ilp32 -nostdlib
+      build=("$CC" -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -nostdlib
              -I "$ASM_DIR" -T "$ASM_DIR/sections.lds" "$src" -o "$elf")
       rom_flags=(--only-section=.text)
       ram_flags=(--remove-section=.text)

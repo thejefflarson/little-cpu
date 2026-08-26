@@ -53,7 +53,7 @@ trap 'rm -rf "$tmp"' EXIT
 
 # The same build an `.S` program in the suite gets: sections.lds, no crt0, and
 # `.data` poked into RAM by the runner rather than copied by a startup.
-"$CC" -march=rv32imac_zicsr_zifencei -mabi=ilp32 -nostdlib \
+"$CC" -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -nostdlib \
   -I "$ASM_DIR" -T "$ASM_DIR/sections.lds" \
   "$PROG" -o "$tmp/smoke.elf"
 TOTAL_ADDR=$("${CC%gcc}nm" "$tmp/smoke.elf" | awk '$3 == "total" { print "0x" $1 }')

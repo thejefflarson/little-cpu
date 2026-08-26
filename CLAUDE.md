@@ -245,7 +245,7 @@ implements Zaamo and Zalrsc in full — `amoadd.w`, `amoswap.w`, `amoand.w`, `am
 ignored, cause 4 for a misaligned `lr.w` and cause 6 for the other ten. **`misa` bit 0 is the only
 runtime statement of that**, and it moved with the reference model's `A` key in one change so the
 transition was falsifiable: at `0x4000_1105` against the model's `A: false`, `csr.S` diverged, and
-flipping the key agreed. **The suite builds at `-march=rv32imac_zicsr_zifencei`**, so six
+flipping the key agreed. **The suite builds at `-march=rv32imac_zicsr_zifencei_zkt`**, so six
 programs execute atomics — `amo.S`, `amominmax.S`, `amotrap.S`, `lrsc.S`, `lrsclock.S` and
 `amoregion.S` — and five of the six **agree with the reference model**, which is the semantic oracle
 for the nine functions, LR/SC's five invalidation events, the two misalignment causes and the two
@@ -268,12 +268,75 @@ co-simulation divergence**: the model has only `RsrvEventual` and `RsrvNone`, th
 neither, and `RsrvNone` is what it is now.
 
 **The ISA string has one source and `make test` grades it**: `test/march_test.sh` declares
-`rv32imac_zicsr_zifencei` and checks all seven sites that state it, three of which are silent when
-wrong — the Makefile's `soc-rom` builds a program with no atomic in it, and `DHRY_CFLAGS` is copied
-verbatim into `soc/depth/cycles.py` with nothing else comparing the two. Two spellings that look
-identical must **not** move with it: `formal/checks.cfg`'s `isa rv32imc` and `MONITOR_GEN -i
-rv32imc` name what riscv-formal generates a spec model for, and the pin has none for A, so widening
-either generates nothing.
+`rv32imac_zicsr_zifencei_zkt` and checks all seven sites that state it, three of which are silent
+when wrong — the Makefile's `soc-rom` builds a program with no atomic in it, and `DHRY_CFLAGS` is
+copied verbatim into `soc/depth/cycles.py` with nothing else comparing the two. Two spellings that
+look identical must **not** move with it: `formal/checks.cfg`'s `isa rv32imc` and `MONITOR_GEN -i
+rv32imc` name what riscv-formal generates a spec model for, and the pin has none for A or for Zkt,
+so widening either generates nothing.
+
+**Zkt is claimed too, and it adds no instruction and no `misa` bit** (ADR-0134). It is a promise about
+instructions the design already implements: a listed set — RV32I arithmetic, logical and shift,
+`MUL`/`MULH`/`MULHSU`/`MULHU`, and the arithmetic C encodings — must execute in time independent of
+its operands' VALUES. `DIV`/`REM`, loads, stores, branches and jumps are excluded from the list, and
+that exclusion is what makes the claim true here rather than merely convenient: `rtl/decoder.v`'s
+`stall` is the OR of eight reasons. **`test/zkt_isolation_test.py` grades the taint half of this on
+the ELABORATED NETLIST, not on the source text** (ADR-0137, superseding ADR-0134's RTL-text-and-regex
+version, which three rounds of review defeated on facts only elaboration knows: a value laundered
+through `out.rs1 <= reg_rs1`'s own register, a procedural `branch_taken` no continuous-assign scan
+ever followed, an `assign` inside an un-taken `` generate if (0) `` masking a real driver, and a
+parameterised port width a `[N:0]` regex read as 1 bit). It runs `yosys -q -s` the way
+`formal/check-nonperturbation.py` does, and reads cells and named nets off the JSON `write_json`
+writes: `SEEDS` names `reg_rs1`, `reg_rs2` and `executor_out.rd_data`, every decoder input the
+netlist's own measured width finds wider than the 5 bits a register NUMBER ever needs, and a
+struct-typed port's field offsets come from a satellite module elaborated against `rtl/structs.v`
+alone rather than this script guessing struct layout — a renamed field fails that elaboration
+outright, an added or resized one fails a sum-of-widths check. Forward reachability from those
+seeds, following a flip-flop's D to its Q the same as any other cell's inputs to its outputs, must
+not reach seven of the eight reasons. The eighth, `region_stall`, does read a register value (on
+the way to deciding whether a load's or a store's address lands near a mapped window's edge), is
+gated on `ls_access`, and is blocked from being used as a taint SOURCE past its own one hop, so
+everything that legitimately reads it (`stall` directly, and `out`'s own bubble condition, and so
+`live_rs1`/`live_rs2`'s RAW-hazard check by way of `out.rd`/`out.valid`, which are blocked the same
+way `region_stall` is for the identical reason: a register NUMBER or a single control flag read
+back is not a VALUE, even though which number it holds can itself have been decided by a
+value-dependent fault check) is judged as if that one read were invisible, while any OTHER path
+still counts. What actually licenses blocking `out.rd`/`out.valid`/`out.is_amo` is that every path
+a register VALUE can take to reach one is TRAP-MEDIATED — taking a trap is architecturally visible,
+not a covert timing channel — not their width, which a 5-bit field can violate while still being
+narrow; the script enforces the 5-bit bound as a tripwire on top of that argument, not in place of
+it, so a field growing past the point that argument could even be attempted stops the run.
+`region_stall`'s own captured state (`ls_capture`, `ls_answer`, `ls_answer_valid`) gets a second,
+independent check: none of the eight reasons may read one of THOSE directly either, seeded from
+their own bits rather than from a register.
+
+**`region_stall`'s own gate, and that `ls_access` is exactly the eight base load/store encodings,
+are proved by a SOLVER now, not walked structurally** (ADR-0137, second amendment). Three rounds
+each defeated a different structural spelling of those same two facts — graded `ls_access` by NAME,
+then treated a NOT as polarity-preserving (`region_stall = !ls_access && ...` bottomed out at the
+leaf `ls_access`, asserting on every NON-load/store instruction), then let a MUX read as an AND
+under odd polarity (`!(ls_settled ? !ls_access : 1'b0)` walked straight through it). Each fix was
+correct and each new spelling got through, because both facts are single-trace exact-set-equality
+invariants with no VALUE comparison in them at all — the same shape as `assert(out.is_amo ==
+(out.is_amoswap || ...))`, which already sits in `rtl/decoder.v`'s own `ifdef FORMAL` block — and a
+structural netlist walk is an over-approximation built for the 2-safety question the taint check
+above still needs it for, not an exact decision procedure. So `rtl/decoder.v` now states both as
+assertions instead: `assert(!region_stall || ls_access)`, and `assert(ls_access == (instr_lb ||
+instr_lbu || instr_lh || instr_lhu || instr_lw || instr_sb || instr_sh || instr_sw))` — the eight
+base encodings rather than `ls_access`'s own two named intermediates, since those are nothing but
+this same OR restated in two pieces, and `instr_lw`/`instr_sw` each fold two further compressed
+forms in behind their OWN `assign`. `make -C formal components_decoder` proves both by k-induction;
+`formal/decoder-zkt-probe.py` is their demonstrated red direction, one core one line of
+`rtl/decoder.v` from the shipping one per assertion, wired as a prerequisite the same way
+`traps-region-probe` is of `components_traps`. `rtl/executor.v` is
+the other half: `MUL`/`MULH`/`MULHSU`/`MULHU` resolve in decode's `init` state with no counter, so
+they are constant-time by inspection. `DIV`/`REM` are the one place this design is NOT
+constant-time — 32 cycles ordinarily, one cycle when `rs2 == 0` or on `INT_MIN / -1` — which is
+exactly why the list excludes them rather than the claim being false. The load/store
+address-timing this leaves outside the list is backwards from the usual case: most cores' load
+timing varies with CACHE STATE, and this one has none — it varies with ADDRESS ARITHMETIC instead,
+and the standard constant-time model treats addresses as non-secret, so it sits inside the model
+without needing its own exception.
 
 **One interrupt: the machine timer, cause `0x8000_0007`.** `mie.MTIE` is the only writable bit of
 `mie`; `mip.MTIP` is `rtl/timer.v`'s line and read-only; `mip.MSIP`/`mip.MEIP` stay read-only zero,

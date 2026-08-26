@@ -35,7 +35,7 @@ for prog in "$@"; do
   # storefault.S probe just below it, so a program built with the simulator's
   # value tests an address this machine does not have and fails on a core that
   # refused it correctly.
-  $CC -march=rv32imac_zicsr_zifencei -mabi=ilp32 -nostdlib -DBOARD_SUITE \
+  $CC -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -nostdlib -DBOARD_SUITE \
       -DTEXT_PAST=$(( ROM_WORDS * 4 )) \
       -I "$ROOT/test/asm" -c -o "$OUT/p$i.o" "$prog"
   $OBJCOPY --prefix-symbols="p${i}_" "$OUT/p$i.o"
@@ -65,9 +65,9 @@ done
   echo 'board_count:'
   echo "  .word $i"
 } > "$OUT/table.S"
-$CC -march=rv32imac_zicsr_zifencei -mabi=ilp32 -nostdlib -c -o "$OUT/table.o" "$OUT/table.S"
+$CC -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -nostdlib -c -o "$OUT/table.o" "$OUT/table.S"
 
-$CC -march=rv32imac_zicsr_zifencei -mabi=ilp32 -nostdlib -DBOARD_SUITE \
+$CC -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -nostdlib -DBOARD_SUITE \
     -I "$ROOT/test/asm" -T "$HERE/board.lds" -o "$OUT/batch.elf" \
     "$HERE/board_suite.S" "$OUT/table.o" "${objs[@]}"
 

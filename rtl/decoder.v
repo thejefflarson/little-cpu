@@ -1361,6 +1361,27 @@ module decoder #(
       out.is_amoand || out.is_amoor || out.is_amomin || out.is_amomax ||
       out.is_amominu || out.is_amomaxu));
 
+  // Zkt's isolation argument (test/zkt_isolation_test.py) rests on two facts
+  // about `region_stall`, the one stall reason allowed to read a
+  // register-file DATA output: it can only assert alongside `ls_access`, and
+  // `ls_access` is true for exactly the eight base load/store encodings --
+  // never for a Zkt-listed one. Both are exact-set-equality-shaped, plain
+  // 1-safety properties with no history in them, so they are proved here
+  // rather than approximated by a structural walk over the netlist -- the
+  // same reasoning that puts `out.is_amo`'s equality just above rather than
+  // in a Python script. Three rounds of that walk were each defeated by a
+  // different spelling of the same two properties (graded by name, fooled
+  // by a NOT, fooled by an unfamiliar cell type); an SMT solver decides an
+  // exact equality outright and is not spelling-dependent. Asserted against
+  // the eight base signals rather than `instr_ls_load`/`instr_ls_store`,
+  // because those two intermediates are themselves nothing but this same
+  // OR restated in two pieces -- asserting the flat sum says everything the
+  // two-piece version would, plus that the split matches it exactly.
+  always_comb if (clocked) assert(!region_stall || ls_access);
+  always_comb if (clocked)
+    assert(ls_access == (instr_lb || instr_lbu || instr_lh || instr_lhu ||
+      instr_lw || instr_sb || instr_sh || instr_sw));
+
   always_comb if (rs1 == 0) assert(!hazard_rs1);
   always_comb if (rs2 == 0) assert(!hazard_rs2);
 
