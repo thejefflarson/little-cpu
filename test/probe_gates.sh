@@ -29,7 +29,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=556
+PROBES_EXPECTED=563
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -2757,6 +2757,67 @@ d=$(rn_fixture)
 sed -i.bak -e 's/^ladder any-case$//' -e 's/^RV32IMC exact-case$//' "$d/$RNF"
 probe "an empty term table is a scan of nothing, not a green one" 1 \
   "the term table is empty" "$d/$RNF $d"
+
+begin_group "test/tracked_ignored_test.sh"
+
+# A git repository of its own rather than a copy of this one, because what this
+# check reads is the INDEX and the property under test is a relationship
+# between one tracked file and one .gitignore line -- not a scan of this
+# repo's tree. No commit is needed: both `git ls-files` and
+# `git check-ignore --no-index` answer from the staged index alone.
+TI="$HERE/tracked_ignored_test.sh"
+
+ti_fixture() {
+  local d; d=$(new_case)
+  git -c init.defaultBranch=main -C "$d" init -q
+  printf 'kept\n' > "$d/kept.txt"
+  git -C "$d" add -A
+  printf '%s' "$d"
+}
+
+d=$(ti_fixture)
+probe "control: a tracked file with no matching ignore rule is clean" 0 \
+  "tracked files, none matching a .gitignore rule" "$TI $d"
+
+probe "a repo root that does not exist is red before anything is scanned" 1 \
+  "is not a directory" "$TI $d/nowhere"
+
+d=$(new_case)
+probe "a directory that is no git repository is red, not a scan of nothing" 1 \
+  "is not a git repository" "$TI $d"
+
+d=$(new_case); git -c init.defaultBranch=main -C "$d" init -q
+probe "an empty repository has nothing to enumerate and is red, not green" 1 \
+  "cannot enumerate any tracked files" "$TI $d"
+
+# THE ONE THAT MATTERS: a tracked file also matching a .gitignore rule -- the
+# exact shape of the defect this check exists for. `git add -f` is required
+# because ordinary `git add` refuses an ignored path, the same way it refused
+# nothing for the five files this check was written after.
+d=$(ti_fixture)
+printf 'artifact.json\n' > "$d/.gitignore"
+printf 'built\n' > "$d/artifact.json"
+git -C "$d" add -f artifact.json .gitignore
+probe "a tracked file matching its own .gitignore rule is red and named" 1 \
+  'artifact.json  (matches "artifact.json" at .gitignore:1)' "$TI $d"
+
+probe "and the diagnostic says git rm --cached, not an edit to the rule" 1 \
+  "git rm --cached" "$TI $d"
+
+# The fixture just above is also the demonstration of the flag that makes
+# this check able to see the class at all: WITHOUT --no-index, check-ignore
+# silently skips every tracked path, which is precisely how the five files
+# this check was written after went unnoticed. There is nothing further to
+# probe here -- the red direction above already depends on the flag being
+# present, since it is what makes a tracked path visible to check-ignore.
+
+# An ignored file that was never tracked is the ordinary case .gitignore
+# exists for, and must stay quiet.
+d=$(ti_fixture)
+printf 'scratch.log\n' > "$d/.gitignore"
+printf 'noise\n' > "$d/scratch.log"
+probe "control: an ignored file that was never tracked is not a defect" 0 \
+  "tracked files, none matching a .gitignore rule" "$TI $d"
 
 begin_group "test/march_test.sh"
 
