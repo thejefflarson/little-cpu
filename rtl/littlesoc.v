@@ -1,7 +1,7 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
 // The whole chip: core, both memories, the machine timer, a transmit-only UART,
-// a byte-at-a-time master for the configuration flash, and nine pins.
+// a byte-at-a-time controller for the configuration flash, and nine pins.
 // `make soc-timing` measures this. `make fit` measures the core
 // on its own with the memories outside it, so its cell count is a different
 // design's and the two do not compare -- and rtl/uart.v is outside that top
@@ -19,7 +19,7 @@
 // The ROM is initialised from the bitstream and the SPRAM cannot be, so a
 // program's `.data` is not there at power-on and every `.S` program in test/asm
 // has one. Running a real program needs a stub in `.text` that copies the data
-// image out of ROM; the SPI master below is the other half of that, and lets a
+// image out of ROM; the SPI controller below is the other half of that, and lets a
 // program read an image the bitstream never carried.
 module littlesoc (
   input  logic clk,
@@ -180,7 +180,7 @@ module littlesoc (
     .tx(uart_tx)
   );
 
-  // The SPI master, at rtl/spiflash.v's default base, which is the first word
+  // The SPI controller, at rtl/spiflash.v's default base, which is the first word
   // past the UART's two. Its read-back is nine bits wide, so the OR below gains
   // a fourth input on bits 1 to 8 -- still one `SB_LUT4` each -- and a FIFTH on
   // bit 0, which the UART already shares, so that bit alone costs a second LUT.

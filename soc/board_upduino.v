@@ -36,7 +36,7 @@
 // 14, throughout `iceprog`'s own access to the same wire.
 //
 // THE FIX READS PIN 16 RATHER THAN GUESSING. Pin 16 is the flash's own chip
-// select, and an SPI slave's output stage is a deterministic function of its
+// select, and an SPI peripheral's output stage is a deterministic function of its
 // own chip select: LOW, it drives; HIGH, it is high-impedance, no matter who
 // or what is holding that pin high. So "does pin 16 read high" is a sound
 // question at DC -- the level pin 16 settles to does not depend on whether a

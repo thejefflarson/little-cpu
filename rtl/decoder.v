@@ -503,7 +503,7 @@ module decoder #(
   //
   // ONE-SIDED ON PURPOSE: low means "wait for the flip-flop", never "fault". So
   // a window narrower than three blocks -- the timer's, the UART's, the SPI
-  // master's -- never reaches the fast path, and `mcause` stays a function of
+  // controller's -- never reaches the fast path, and `mcause` stays a function of
   // the access rather than of the base register. That is the whole difference between this
   // and the neighbourhood test that meets the clock by calling rs1's own answer
   // final.

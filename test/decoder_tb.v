@@ -1195,9 +1195,9 @@ module decoder_tb;
     check_bit("...and one 32 bytes past the base is the UART",
               dut.trap_pending, 1'b0);
 
-    // 40 past the base is the SPI master, which the map answers too.
+    // 40 past the base is the SPI controller, which the map answers too.
     region_access(32'h02862583);   // lw a1, 40(a2)
-    check_bit("...and one 40 bytes past the base is the SPI master",
+    check_bit("...and one 40 bytes past the base is the SPI controller",
               dut.trap_pending, 1'b0);
 
     // 48 past it is the first address in that page no device claims.

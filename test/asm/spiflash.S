@@ -4,7 +4,7 @@
 # spiflash.S
 #-----------------------------------------------------------------------------
 #
-# The read-only SPI master, driven the way a boot loader drives it: select the
+# The read-only SPI controller, driven the way a boot loader drives it: select the
 # flash, exchange a command byte, poll, exchange the bytes the answer is made
 # of, release. Reading the JEDEC id is the whole program.
 #
@@ -25,7 +25,7 @@
 # placed before the first unbounded poll on purpose -- everything up to it is
 # compared and agrees.
 #
-# The waits are unbounded on purpose. A master that never raises `busy` and one
+# The waits are unbounded on purpose. A controller that never raises `busy` and one
 # that never lowers it both hang here, and the runner's cycle budget turns that
 # into a red program, where a bounded retry that carried on would not.
 #
@@ -41,7 +41,7 @@ RVTEST_CODE_BEGIN
   li    t0, SPI_BASE
 
   #-------------------------------------------------------------
-  # Out of reset the master holds nothing and has received nothing, which is
+  # Out of reset the controller holds nothing and has received nothing, which is
   # also the state that leaves the flash's wires to whatever is programming the
   # board.
   #-------------------------------------------------------------

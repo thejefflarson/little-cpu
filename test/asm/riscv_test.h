@@ -199,7 +199,7 @@ trap_handler:                                                                \
 1:      lw      t1, UART_STATUS_OFFSET(base);                               \
         bnez    t1, 1b;
 
-// The read-only SPI master, two words: a data register whose write shifts one
+// The read-only SPI controller, two words: a data register whose write shifts one
 // byte out and eight bits in and whose read gives `busy` above the byte that
 // came back, and a write-only control register whose bit 0 drives the chip
 // select. A copy of rtl/spiflash.v's `BASE` for the same reason UART_BASE is

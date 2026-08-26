@@ -2151,7 +2151,7 @@ probe "a SoC with no UART at all does not pass by silence" 1 \
   "does not instantiate \`uart\` at all" "$MM $d"
 
 d=$(mm_fixture); sed -i.bak 's/^  spiflash flash (/  nospiflash flash (/' "$d/rtl/littlesoc.v"
-probe "a SoC with no SPI master at all does not pass by silence" 1 \
+probe "a SoC with no SPI controller at all does not pass by silence" 1 \
   "does not instantiate \`spiflash\` at all" "$MM $d"
 
 # Without this the check above passes vacuously on a file that lost its memory.
@@ -2242,27 +2242,27 @@ d=$(mm_fixture); sed -i.bak "s/LS_UART_BASE  = 32'h0002_0020/LS_UART_BASE  = 32'
 probe "the UART moving in the proof's copy alone is red" 1 \
   "formal/traps.sv's LS_UART_BASE is 196640" "$MM $d"
 
-# The SPI master abuts the UART's two words the way the UART abuts the timer's
+# The SPI controller abuts the UART's two words the way the UART abuts the timer's
 # reservation, and for the same reason: five read buses join with an OR, so a
 # hole is wasted map and an overlap is two live answers at once.
 d=$(mm_fixture); sed -i.bak "s/BASE = 32'h0002_0028/BASE = 32'h0002_0030/" "$d/rtl/spiflash.v"
-probe "a gap opening between the UART and the SPI master is red" 1 \
-  "the UART ends at 0x00020028 and the SPI master starts at" "$MM $d"
+probe "a gap opening between the UART and the SPI controller is red" 1 \
+  "the UART ends at 0x00020028 and the SPI controller starts at" "$MM $d"
 
 d=$(mm_fixture); sed -i.bak "s/BASE = 32'h0002_0028/BASE = 32'h0002_002c/" "$d/rtl/spiflash.v"
 probe "an SPI base off its own window is red" 1 \
   "is not a multiple of its own" "$MM $d"
 
 d=$(mm_fixture); sed -i.bak 's/SPI_BASE            0x00020028/SPI_BASE            0x00030028/' "$d/test/asm/riscv_test.h"
-probe "the address the flash-reading program uses is checked against the master" 1 \
+probe "the address the flash-reading program uses is checked against the controller" 1 \
   "SPI_BASE is 0x00030028" "$MM $d"
 
 d=$(mm_fixture); sed -i.bak "s/LS_FLASH_BASE = 32'h0002_0028/LS_FLASH_BASE = 32'h0003_0028/" "$d/rtl/littlecpu.v"
-probe "the SPI master moving in the core's copy alone is red" 1 \
+probe "the SPI controller moving in the core's copy alone is red" 1 \
   "LS_FLASH_BASE is 196648 against rtl/spiflash.v's 131112" "$MM $d"
 
 d=$(mm_fixture); sed -i.bak "s/LS_FLASH_BASE = 32'h0002_0028/LS_FLASH_BASE = 32'h0003_0028/" "$d/formal/traps.sv"
-probe "the SPI master moving in the proof's copy alone is red" 1 \
+probe "the SPI controller moving in the proof's copy alone is red" 1 \
   "formal/traps.sv's LS_FLASH_BASE is 196648" "$MM $d"
 
 # MAP_TOP is the address two programs store to expecting a refusal. Left behind

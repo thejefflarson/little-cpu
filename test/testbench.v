@@ -43,7 +43,7 @@ module testbench(
   logic        uart_tx;
   // The flash's four wires, with test/spiflash_model.v on the other end of
   // them. The board has a real part there; a program cannot tell the difference
-  // through the master, which is the point of putting one here.
+  // through the controller, which is the point of putting one here.
   logic        spi_sck, spi_mosi, spi_miso, spi_cs_n;
   logic        trap;
  `ifdef RISCV_FORMAL

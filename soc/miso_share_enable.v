@@ -30,7 +30,7 @@ module miso_share_enable (
 );
   logic sync0, released;
 
-  // Every `SB_LUT4` on this part's FPGA fabric powers up at 0 out of
+  // Every `SB_DFF` on this part's FPGA fabric powers up at 0 out of
   // configuration, an SRAM-based part's usual guarantee, so the enable
   // stays off until two real samples of `now` have come back high rather
   // than racing a power-on value onto a pin the flash chip might still be

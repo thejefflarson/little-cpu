@@ -245,7 +245,7 @@
 # nothing. A device layout is allowed to take an observation like that into
 # account; what is not allowed is a program written to agree.
 #
-# WHAT COVERS IT MEANWHILE: test/spiflash_tb.v drives the master against a model
+# WHAT COVERS IT MEANWHILE: test/spiflash_tb.v drives the controller against a model
 # of the flash and grades the wire -- eight clocks a byte, mode 0's sampling
 # edge, the JEDEC id as three literals and a sequential read across a 256-byte
 # boundary -- with four of its own failures forced. spiflash.S's own in-band
