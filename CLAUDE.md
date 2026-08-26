@@ -280,11 +280,11 @@ instructions the design already implements: a listed set — RV32I arithmetic, l
 `MUL`/`MULH`/`MULHSU`/`MULHU`, and the arithmetic C encodings — must execute in time independent of
 its operands' VALUES. `DIV`/`REM`, loads, stores, branches and jumps are excluded from the list, and
 that exclusion is what makes the claim true here rather than merely convenient: `rtl/decoder.v`'s
-`stall` is the OR of eight reasons. **`test/zkt_isolation_test.py` grades this on the ELABORATED
-NETLIST, not on the source text** (ADR-0137, superseding ADR-0134's RTL-text-and-regex version,
-which three rounds of review defeated on facts only elaboration knows: a value laundered through
-`out.rs1 <= reg_rs1`'s own register, a procedural `branch_taken` no continuous-assign scan ever
-followed, an `assign` inside an un-taken `` generate if (0) `` masking a real driver, and a
+`stall` is the OR of eight reasons. **`test/zkt_isolation_test.py` grades the taint half of this on
+the ELABORATED NETLIST, not on the source text** (ADR-0137, superseding ADR-0134's RTL-text-and-regex
+version, which three rounds of review defeated on facts only elaboration knows: a value laundered
+through `out.rs1 <= reg_rs1`'s own register, a procedural `branch_taken` no continuous-assign scan
+ever followed, an `assign` inside an un-taken `` generate if (0) `` masking a real driver, and a
 parameterised port width a `[N:0]` regex read as 1 bit). It runs `yosys -q -s` the way
 `formal/check-nonperturbation.py` does, and reads cells and named nets off the JSON `write_json`
 writes: `SEEDS` names `reg_rs1`, `reg_rs2` and `executor_out.rd_data`, every decoder input the
@@ -295,44 +295,40 @@ outright, an added or resized one fails a sum-of-widths check. Forward reachabil
 seeds, following a flip-flop's D to its Q the same as any other cell's inputs to its outputs, must
 not reach seven of the eight reasons. The eighth, `region_stall`, does read a register value (on
 the way to deciding whether a load's or a store's address lands near a mapped window's edge), is
-gated on `ls_access`, true only for the twelve load and store encodings — none of which is on
-Zkt's list — and is blocked from being used as a taint SOURCE past its own one hop, so everything
-that legitimately reads it (`stall` directly, and `out`'s own bubble condition, and so
+gated on `ls_access`, and is blocked from being used as a taint SOURCE past its own one hop, so
+everything that legitimately reads it (`stall` directly, and `out`'s own bubble condition, and so
 `live_rs1`/`live_rs2`'s RAW-hazard check by way of `out.rd`/`out.valid`, which are blocked the same
 way `region_stall` is for the identical reason: a register NUMBER or a single control flag read
 back is not a VALUE, even though which number it holds can itself have been decided by a
 value-dependent fault check) is judged as if that one read were invisible, while any OTHER path
-still counts. What actually licenses blocking them is that every path a register VALUE can take to
-reach one is TRAP-MEDIATED — taking a trap is architecturally visible, not a covert timing channel —
-not their width, which a 5-bit field can violate while still being narrow; the script enforces the
-5-bit bound as a tripwire on top of that argument, not in place of it, so a field growing past the
-point that argument could even be attempted stops the run. Its own gate is checked separately, on
-the netlist, and is De Morgan-aware: `region_stall`'s driving cell (or chain of AND/OR/NOT cells
-feeding it) must bottom out at a set of named leaves that includes `ls_access` UN-NEGATED, and must
-never pass through a genuine disjunction — which is what an explicit `||` beside its `&&` chain
-looks like, and what a NOT distributed over the whole chain looks like too, however the source text
-spelled either. A `$_NOT_` does not stop this walk, it flips an accumulated polarity and keeps
-going, so `!ls_access && !ls_settled && !ls_answer_valid` bottoms out at the leaf `!ls_access` —
-rejected, since that gate would assert `region_stall` on every instruction `ls_access` is FALSE for,
-which is every Zkt-listed one. That polarity check first shipped with a gap of its own: which
-connective counts as a conjunction was computed as `(ctype in AND_TYPES) != negated` with no prior
-check that the cell was an AND or an OR at all, so a `$_MUX_`/`$_XOR_`/comparator/adder read True
-under odd polarity and was walked through rather than stopped at as the opaque leaf it is at every
-polarity — `!(ls_settled ? !ls_access : 1'b0)` walked to `{ls_access, !ls_settled}` with no OR found
-and passed, describing a real dependence on `ls_settled`'s (and so `reg_rs1`'s) value that none of
-the other checks could see either. Fixed by checking the cell IS an AND or an OR before either
-`!= negated` comparison runs, the connective test `bool_tree_leaves` already had and never needed
-`negated` for. Naming `ls_access` as a leaf is not the same as knowing what
-`ls_access` IS, so a separate check walks ITS OWN OR tree the same way, past its two named
-intermediates, down to the eight base loads and stores it must equal exactly in both directions,
-each leaf carrying its own polarity into that comparison so `ls_access =
-!(instr_ls_load || instr_ls_store)` fails the same organic way — an encoding added to or dropped
-from `ls_access` carries no register value for forward reachability to catch and still names
-`ls_access` for the gate-shape check, so neither of those two would have caught it alone. `region_stall`'s own captured
-state (`ls_capture`, `ls_answer`, `ls_answer_valid`) gets a second, independent check: none of the
-eight reasons may read one of THOSE directly either, seeded from their own bits rather than from a
-register — closing the gap where an earlier round's `KNOWN_CLEAN_LEAVES` trusted
-`ls_answer_valid` as control state without ever checking what it depends on. `rtl/executor.v` is
+still counts. What actually licenses blocking `out.rd`/`out.valid`/`out.is_amo` is that every path
+a register VALUE can take to reach one is TRAP-MEDIATED — taking a trap is architecturally visible,
+not a covert timing channel — not their width, which a 5-bit field can violate while still being
+narrow; the script enforces the 5-bit bound as a tripwire on top of that argument, not in place of
+it, so a field growing past the point that argument could even be attempted stops the run.
+`region_stall`'s own captured state (`ls_capture`, `ls_answer`, `ls_answer_valid`) gets a second,
+independent check: none of the eight reasons may read one of THOSE directly either, seeded from
+their own bits rather than from a register.
+
+**`region_stall`'s own gate, and that `ls_access` is exactly the eight base load/store encodings,
+are proved by a SOLVER now, not walked structurally** (ADR-0137, second amendment). Three rounds
+each defeated a different structural spelling of those same two facts — graded `ls_access` by NAME,
+then treated a NOT as polarity-preserving (`region_stall = !ls_access && ...` bottomed out at the
+leaf `ls_access`, asserting on every NON-load/store instruction), then let a MUX read as an AND
+under odd polarity (`!(ls_settled ? !ls_access : 1'b0)` walked straight through it). Each fix was
+correct and each new spelling got through, because both facts are single-trace exact-set-equality
+invariants with no VALUE comparison in them at all — the same shape as `assert(out.is_amo ==
+(out.is_amoswap || ...))`, which already sits in `rtl/decoder.v`'s own `ifdef FORMAL` block — and a
+structural netlist walk is an over-approximation built for the 2-safety question the taint check
+above still needs it for, not an exact decision procedure. So `rtl/decoder.v` now states both as
+assertions instead: `assert(!region_stall || ls_access)`, and `assert(ls_access == (instr_lb ||
+instr_lbu || instr_lh || instr_lhu || instr_lw || instr_sb || instr_sh || instr_sw))` — the eight
+base encodings rather than `ls_access`'s own two named intermediates, since those are nothing but
+this same OR restated in two pieces, and `instr_lw`/`instr_sw` each fold two further compressed
+forms in behind their OWN `assign`. `make -C formal components_decoder` proves both by k-induction;
+`formal/decoder-zkt-probe.py` is their demonstrated red direction, one core one line of
+`rtl/decoder.v` from the shipping one per assertion, wired as a prerequisite the same way
+`traps-region-probe` is of `components_traps`. `rtl/executor.v` is
 the other half: `MUL`/`MULH`/`MULHSU`/`MULHU` resolve in decode's `init` state with no counter, so
 they are constant-time by inspection. `DIV`/`REM` are the one place this design is NOT
 constant-time — 32 cycles ordinarily, one cycle when `rs2 == 0` or on `INT_MIN / -1` — which is
