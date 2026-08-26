@@ -477,8 +477,8 @@ test-units: check-unit-benches test/monitor.sim.v
 
 # Hangs off `test` rather than standing alone, so it runs in the job CI already
 # requires and nobody has to add a step for it. It needs no cross compiler, no
-# Sail, no yosys and no sby, so it does not stop `make test` running anywhere it
-# ran before.
+# Sail and no sby -- but the test/zkt_isolation_test.py group inside it needs
+# yosys, so this no longer runs everywhere `make test` used to.
 .PHONY: probe-gates
 probe-gates:
 	@./test/probe_gates.sh

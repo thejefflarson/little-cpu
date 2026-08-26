@@ -302,18 +302,25 @@ that legitimately reads it (`stall` directly, and `out`'s own bubble condition, 
 way `region_stall` is for the identical reason: a register NUMBER or a single control flag read
 back is not a VALUE, even though which number it holds can itself have been decided by a
 value-dependent fault check) is judged as if that one read were invisible, while any OTHER path
-still counts. The written case for blocking them is entirely a width argument, and the script now
-enforces the bound it argues from: every one of those fields must still measure 5 bits or fewer on
-the elaborated netlist, or the run stops rather than blocking a field the argument no longer covers.
-Its own gate is checked separately, on the netlist: `region_stall`'s driving cell (or
-chain of AND/NOT cells feeding it) must bottom out at a set of named leaves that includes
-`ls_access` and must never pass through an OR cell, which is what an `||` added beside its `&&`
-chain looks like however the source text spelled the precedence. Naming `ls_access` as a leaf is not
-the same as knowing what `ls_access` IS, so a separate check walks ITS OWN OR tree the same way,
-past its two named intermediates, down to the eight base loads and stores it must equal exactly in
-both directions — an encoding added to or dropped from `ls_access` carries no register value for
-forward reachability to catch and still names `ls_access` for the gate-shape check, so neither of
-those two would have caught it alone. `region_stall`'s own captured
+still counts. What actually licenses blocking them is that every path a register VALUE can take to
+reach one is TRAP-MEDIATED — taking a trap is architecturally visible, not a covert timing channel —
+not their width, which a 5-bit field can violate while still being narrow; the script enforces the
+5-bit bound as a tripwire on top of that argument, not in place of it, so a field growing past the
+point that argument could even be attempted stops the run. Its own gate is checked separately, on
+the netlist, and is De Morgan-aware: `region_stall`'s driving cell (or chain of AND/OR/NOT cells
+feeding it) must bottom out at a set of named leaves that includes `ls_access` UN-NEGATED, and must
+never pass through a genuine disjunction — which is what an explicit `||` beside its `&&` chain
+looks like, and what a NOT distributed over the whole chain looks like too, however the source text
+spelled either. A `$_NOT_` does not stop this walk, it flips an accumulated polarity and keeps
+going, so `!ls_access && !ls_settled && !ls_answer_valid` bottoms out at the leaf `!ls_access` —
+rejected, since that gate would assert `region_stall` on every instruction `ls_access` is FALSE for,
+which is every Zkt-listed one. Naming `ls_access` as a leaf is not the same as knowing what
+`ls_access` IS, so a separate check walks ITS OWN OR tree the same way, past its two named
+intermediates, down to the eight base loads and stores it must equal exactly in both directions,
+each leaf carrying its own polarity into that comparison so `ls_access =
+!(instr_ls_load || instr_ls_store)` fails the same organic way — an encoding added to or dropped
+from `ls_access` carries no register value for forward reachability to catch and still names
+`ls_access` for the gate-shape check, so neither of those two would have caught it alone. `region_stall`'s own captured
 state (`ls_capture`, `ls_answer`, `ls_answer_valid`) gets a second, independent check: none of the
 eight reasons may read one of THOSE directly either, seeded from their own bits rather than from a
 register — closing the gap where an earlier round's `KNOWN_CLEAN_LEAVES` trusted

@@ -12,9 +12,11 @@
 # also carries a control, because a grader degenerated into `exit 1` would
 # otherwise pass the lot.
 #
-# Hermetic: no RISC-V toolchain, no `sim`, no Sail, no yosys, no sby, so this can
-# run inside `make test` on any machine. It is all fork and no work, so the wall
-# time is the host's property rather than this file's.
+# Hermetic: no RISC-V toolchain, no `sim`, no Sail, no sby -- but the
+# test/zkt_isolation_test.py group elaborates rtl/decoder.v with yosys, once per
+# fixture, so this file needs yosys and fails loudly rather than silently on a
+# machine without it. It is otherwise all fork and no work, so the wall time is
+# the host's property rather than this file's.
 #
 # Four failure paths need the elaborated design or the pinned clone and are
 # demonstrated by hand instead: test/cxxrtl.cc's exits 4 and 5, test/cosim.cc's
@@ -27,7 +29,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=541
+PROBES_EXPECTED=544
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -1660,6 +1662,43 @@ open(p, 'w').write(head.replace(old, '  logic [31:0]  rd;', 1) + tail)
 PYEOF
 probe "decoder_output.rd widened past 5 bits is red (finding 5)" 2 \
   "wider than a register NUMBER" "$ZKT $d/decoder.v"
+
+# FINDING 6, first direction: both leaf walks used to treat NOT as
+# polarity-preserving -- they recursed through a `$_NOT_` cell and returned
+# the child's leaf/or-flag UNCHANGED, so `!ls_access` read as the leaf
+# `ls_access` itself. This inverts the gate: region_stall would then assert
+# for every NON-load/store instruction, which is every Zkt-listed one, so
+# `add`/`xor`/`sll`/`mul` would stall or not depending on the VALUE in rs1.
+# Check 1 cannot see it (region_stall is blocked as a taint source) and the
+# anti-vacuity control still passes (region_stall stays reachable via
+# ls_settled), so this printed PASS over a real data-dependent-timing leak.
+d=$(zkt_fixture)
+sed -i.bak \
+  's/assign region_stall = ls_access && !ls_settled && !ls_answer_valid;/assign region_stall = !ls_access \&\& !ls_settled \&\& !ls_answer_valid;/' \
+  "$d/decoder.v"
+probe "region_stall gated on !ls_access is red, not a passing conjunction (finding 6)" 1 \
+  "reaches \`ls_access\` only under NEGATION" "$ZKT $d/decoder.v"
+
+# FINDING 6, the other direction: the same inversion one level down, in
+# ls_access's own definition rather than in region_stall's gate.
+d=$(zkt_fixture)
+sed -i.bak \
+  's/assign ls_access = instr_ls_load || instr_ls_store;/assign ls_access = !(instr_ls_load || instr_ls_store);/' \
+  "$d/decoder.v"
+probe "ls_access = !(instr_ls_load || instr_ls_store) is red (finding 6)" 1 \
+  "unexpected: !instr_" "$ZKT $d/decoder.v"
+
+# FINDING 6, the De Morgan spelling of the first direction: a NOT over the
+# WHOLE conjunction rather than over `ls_access` alone. This is a genuine
+# top-level `||` by De Morgan (`!(a && b) == !a || !b`), so it is graded by
+# the SAME check as an explicit `||` beside the `&&` chain, not by the
+# negated-leaf check above.
+d=$(zkt_fixture)
+sed -i.bak \
+  's/assign region_stall = ls_access && !ls_settled && !ls_answer_valid;/assign region_stall = !(ls_access \&\& !ls_settled \&\& !ls_answer_valid);/' \
+  "$d/decoder.v"
+probe "NOT over the whole region_stall conjunction is red as an OR (finding 6)" 1 \
+  "driven by an OR at or above its own conjunction" "$ZKT $d/decoder.v"
 
 # THE OTHER DIRECTION: a classification whose port the netlist no longer
 # has. Unlike the probes above, the RTL is the shipping one and the SCRIPT

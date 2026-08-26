@@ -70,11 +70,17 @@ Five checks:
    second, independent reachability pass, seeded from THEIR OWN bits rather than from
    `reg_rs1`/`reg_rs2`, with the same two blocked sets. This is what closes the finding above: none
    of the nine may read one of these three directly, whatever mediates the read.
-3. **The gate's own shape.** `region_stall`'s driving cell — or a chain of `$_AND_`/`$_NOT_` cells
-   feeding it, the netlist's analogue of one text-level `&&`/`!` expression — must bottom out at a
-   set of NAMED leaves that includes `ls_access`, and must never pass through an `$_OR_` cell on the
-   way. A `||` added beside the `&&` chain shows up as an OR cell sitting directly on this path,
-   however the source text spelled the precedence.
+3. **The gate's own shape.** `region_stall`'s driving cell — or a chain of `$_AND_`/`$_OR_`/`$_NOT_`
+   cells feeding it, the netlist's analogue of one text-level `&&`/`||`/`!` expression — must bottom
+   out at a set of NAMED leaves that includes `ls_access` UN-NEGATED, and must never pass through a
+   genuine disjunction on the way. This is De Morgan-aware: a `$_NOT_` does not stop the walk or leave
+   polarity untracked, it flips an accumulated `negated` flag and keeps walking, and which connective
+   counts as "pure AND" at a given point is `(ctype == AND) != negated` — an AND reached un-negated,
+   or an OR reached negated (`!(a || b) == !a && !b`), is walked through; the other pairing is a
+   genuine disjunction regardless of which token produced it (`!(a && b) == !a || !b`) and is graded
+   exactly as a bare `||` already was. `!ls_access && !ls_settled && !ls_answer_valid` therefore
+   bottoms out at the leaf `!ls_access`, not `ls_access` — and is rejected, because that gate asserts
+   `region_stall` on every instruction `ls_access` is FALSE for, which is every Zkt-listed one.
 4. **Port coverage, both ways**, off the netlist's own measured widths rather than a `[N:0]` match:
    every decoder input wider than 5 bits must be `SEED_PORTS`/`STRUCT_FIELD_SEEDS` or
    `NON_VALUE_PORTS`/`STRUCT_FIELD_NON_VALUE`, and a struct-typed port's field offsets are read off
@@ -86,7 +92,16 @@ Five checks:
    or a submodule output landing in `KNOWN_CLEAN_LEAVES` was trusted forever with no check that it
    was still reached, still narrow, or still true. `CONTROL_FIELDS`' own fields are held to the same
    5-bit bound `SEED_PORTS`/`NON_VALUE_PORTS` draw the line at — a field measured wider on the
-   elaborated netlist is an error, not a silently-widened block.
+   elaborated netlist is an error, not a silently-widened block. **The bound is a tripwire, not the
+   reason**: what actually licenses blocking `out.rd`/`out.valid`/`out.is_amo` (and `executor_out`'s
+   two, inert since they are primary inputs with no driver inside `decoder` for this to reach) is
+   that every path by which a register VALUE can reach them is TRAP-MEDIATED — `out.rd` reads 0
+   exactly when a register value decided the PREVIOUS instruction faulted — and taking a trap is
+   architecturally visible, not a covert timing channel. A 5-bit field can perfectly well carry a
+   value-dependent decision that is NOT trap-mediated; the width bound alone cannot tell the two
+   apart, which is why the trap-mediated argument is made by eye, per field, in this script's own
+   `CONTROL_FIELDS` comment, and the width bound only catches a field growing past the point where
+   that argument could even be attempted.
 5. **`ls_access` itself.** Check 3 grades `ls_access` by NAME — it stops the moment `region_stall`'s
    AND-tree reaches a net called `ls_access`, without asking what `ls_access` resolves to. `assign
    ls_access = instr_ls_load || instr_ls_store || instr_add;` passed checks 1–4 unchanged: `instr_add`
@@ -94,9 +109,13 @@ Five checks:
    names `ls_access`. This check walks `ls_access`'s own OR tree — through `$_AND_`/`$_OR_`/`$_NOT_`
    cells, unlike check 3's AND-only walk, because `ls_access` IS an OR of ORs — past its two named
    intermediates (`instr_ls_load`, `instr_ls_store`, seen THROUGH rather than stopped at) down to the
-   eight base loads and stores it is declared to equal exactly, in both directions. `instr_lw`/
-   `instr_sw` each fold two further compressed forms in behind their own `assign`, one hop past where
-   this check stops, the same one-hop boundary check 3 already draws everywhere else.
+   eight base loads and stores it is declared to equal exactly, in both directions. Every leaf carries
+   its own accumulated polarity into that comparison (a `!` prefix), so `ls_access =
+   !(instr_ls_load || instr_ls_store)` fails organically rather than needing a special case: every
+   leaf below that `NOT` comes back tagged (`!instr_lb`, ...), matching none of the plain declared
+   names in either direction. `instr_lw`/`instr_sw` each fold two further compressed forms in behind
+   their own `assign`, one hop past where this check stops, the same one-hop boundary check 3 already
+   draws everywhere else.
 
 **What is NOT proven.** This is the same explicitly weaker-than-equivalence stance
 `formal/check-nonperturbation.py` states for itself: connectivity, not a 2-safety proof. A signal
@@ -108,7 +127,7 @@ here, exactly as ADR-0134 recorded.
 
 ## Cost
 
-No RTL changed. Seventeen yosys elaborations per `make probe-gates` run (one per mutated fixture,
+No RTL changed. Twenty yosys elaborations per `make probe-gates` run (one per mutated fixture,
 the two usage-error probes excepted — they exit before this script ever reaches one) add a few
 seconds to that target; `make test`'s own single run is one elaboration. No `fit` or `soc-timing`
 number can move, because nothing under `rtl/` was touched.
@@ -122,19 +141,32 @@ number can move, because nothing under `rtl/` was touched.
   narrow, named exemption, not a width-based rule: blocking every ≤5-bit signal automatically was
   considered and rejected, because a stall reason reading a genuine ≤5-bit SLICE of a register
   value directly would then go undetected — the exemption has to name the specific fields it
-  covers, the way `region_stall` itself is one named signal and not a class. Its own fields are
-  still held to the 5-bit bound (check 4's amendment): the table's only written justification is
-  that bound, and until now nothing asserted it. `executor_out.valid`/`executor_out.rd` are inert
-  rather than wrong — they are primary INPUT bits with no driving cell inside `decoder`, so blocking
-  them as taint sources is a no-op — and are kept anyway, because the table states what is safe to
-  read back, not merely what currently matters.
+  covers, the way `region_stall` itself is one named signal and not a class. **What actually
+  licenses blocking them is that every path a register VALUE can take to reach one is
+  TRAP-MEDIATED** — `out.rd` reads 0 exactly when a register value decided the PREVIOUS instruction
+  faulted, and taking a trap is architecturally visible rather than a covert timing channel — not
+  their width, which a 5-bit field can violate while still being narrow. The 5-bit bound (check 4's
+  amendment) is kept as a tripwire on top of that argument, not in place of it: the table's comment
+  now says so; it previously named only the bound, which is a claim the bound cannot by itself
+  support. `executor_out.valid`/`executor_out.rd` are inert rather than wrong — they are primary
+  INPUT bits with no driving cell inside `decoder`, so blocking them as taint sources is a no-op —
+  and are kept anyway, because the table states what is safe to read back, not merely what currently
+  matters.
 - `ls_access` is graded by what it resolves to, not by its name (check 5's amendment): an encoding
   added to or dropped from its own OR tree is red, naming which one, whether the mutation sits in
   `ls_access`'s own `assign` or one hop down in `instr_ls_load`/`instr_ls_store`'s.
-- `test/probe_gates.sh`'s group is nineteen probes: the control, both directions of the gate's own
+- **Both leaf walks are polarity-aware** (checks 3 and 5's second amendment): a `$_NOT_` used to be
+  transparent to both, so `!ls_access && !ls_settled && !ls_answer_valid` read as a pure conjunction
+  over `ls_access` itself, and `ls_access = !(instr_ls_load || instr_ls_store)` read as the correct
+  eight encodings — both invert the property under test while printing PASS. Every leaf either walk
+  returns now carries its accumulated polarity, and `and_tree_leaves` additionally treats an AND
+  reached under negation (or an OR reached without it) as the disjunction it is by De Morgan, exactly
+  as a bare `||` already was.
+- `test/probe_gates.sh`'s group is twenty-two probes: the control, both directions of the gate's own
   shape, three shapes of forward reachability (a direct read, a value laundered through a register,
   a value carried through a comparator), the other seed, the two findings above (the direct
   `region_stall`-family read, and the same read behind a dead `generate if (0)` decoy), an
   unclassified wide port, both directions of `ls_access`'s own encoding set, `CONTROL_FIELDS`
-  emptied against the shipping decoder and its width bound, a stale classification, an undriven
-  stall-reason name, the anti-vacuity control, and the two usage-error cases.
+  emptied against the shipping decoder and its width bound, both directions of the polarity fix plus
+  its De Morgan spelling, a stale classification, an undriven stall-reason name, the anti-vacuity
+  control, and the two usage-error cases.
