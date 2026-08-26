@@ -29,7 +29,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=562
+PROBES_EXPECTED=563
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -2669,6 +2669,15 @@ cp "$d/docs/adr/0001-finish-the-staged-rewrite.md" \
    "$d/docs/adr/0001-a-second-pr-claimed-this-too.md"
 probe "two files claiming the same number is named" 1 \
   "ADR number 0001 is claimed by more than one file" "$AN $d"
+
+# The third way an index can drift from a one-to-one mapping: a real file
+# with a real row, duplicated -- a copy-paste in the table rather than a
+# missing or an extra file.
+d=$(an_fixture)
+sed -n '/\[0002\](0002-isa-target-rv32imc-zicsr\.md)/p' "$d/docs/adr/README.md" \
+  >> "$d/docs/adr/README.md"
+probe "a file with two rows in the index is named" 1 \
+  "0002-isa-target-rv32imc-zicsr.md has more than one row" "$AN $d"
 
 # The half that DOES self-limit, forced anyway: a row deleted from the index
 # leaves the file it named with no row, which is what an architect once caught

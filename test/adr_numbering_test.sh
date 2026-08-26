@@ -37,7 +37,10 @@ rc=0
 files=$(cd "$ADR" && ls -1 | grep -E '^[0-9]{4}-.*\.md$' | sort)
 [ -n "$files" ] || { echo "error: no NNNN-*.md files found under $ADR." >&2; exit 1; }
 
-dupes=$(sed -E 's/^([0-9]{4})-.*/\1/' <<< "$files" | sort | uniq -d)
+# $files is already sorted by full filename, and a 4-digit prefix of an
+# already-sorted list can't be out of order -- so a duplicate number is
+# already adjacent and `uniq -d` alone finds it, with no re-sort.
+dupes=$(sed -E 's/^([0-9]{4})-.*/\1/' <<< "$files" | uniq -d)
 if [ -n "$dupes" ]; then
   rc=1
   while IFS= read -r n; do
@@ -51,24 +54,31 @@ fi
 rows=$(grep -oE '^\| \[[0-9]{4}\]\([0-9]{4}-[a-z0-9-]+\.md\)' "$README" \
          | sed -E 's/.*\(([0-9]{4}-[a-z0-9-]+\.md)\)/\1/' | sort)
 
-while IFS= read -r f; do
-  n=$(grep -cxF -- "$f" <<< "$rows" || true)
-  if [ "$n" -eq 0 ]; then
-    rc=1
-    echo "error: $f has no row in docs/adr/README.md." >&2
-  elif [ "$n" -gt 1 ]; then
-    rc=1
-    echo "error: $f has $n rows in docs/adr/README.md, not one." >&2
-  fi
-done <<< "$files"
+# Both directions in one linear pass each over the two already-sorted lists,
+# via `comm`, rather than one `grep` subprocess per file -- the same idiom
+# test/check_suite_shape.sh and test/dual_build.sh already use for a name-set
+# comparison. `rows_unique` collapses a file with more than one row to one
+# entry, so it does not read as an orphan on either side; `uniq -d` on the
+# (still sorted) `rows` catches that case on its own.
+rows_unique=$(sort -u <<< "$rows")
 
 while IFS= read -r f; do
   [ -n "$f" ] || continue
-  if ! grep -qxF -- "$f" <<< "$files"; then
-    rc=1
-    echo "error: docs/adr/README.md has a row naming $f, and no such file exists." >&2
-  fi
-done <<< "$rows"
+  rc=1
+  echo "error: $f has no row in docs/adr/README.md." >&2
+done < <(comm -23 <(printf '%s\n' "$files") <(printf '%s\n' "$rows_unique"))
+
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  rc=1
+  echo "error: $f has more than one row in docs/adr/README.md, not one." >&2
+done < <(comm -12 <(printf '%s\n' "$files") <(uniq -d <<< "$rows"))
+
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  rc=1
+  echo "error: docs/adr/README.md has a row naming $f, and no such file exists." >&2
+done < <(comm -23 <(printf '%s\n' "$rows_unique") <(printf '%s\n' "$files"))
 
 if [ "$rc" -ne 0 ]; then
   echo >&2
