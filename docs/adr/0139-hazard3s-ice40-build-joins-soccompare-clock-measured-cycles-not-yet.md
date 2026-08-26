@@ -69,24 +69,29 @@ file's own header comment:
   touched.
 
 **The bus**: `hazard3_cpu_1port` arbitrates fetch and load/store down to one AHB5 master port,
-unlike VexRiscv's separate `iBus`/`dBus` in this harness's other bench. The adapter is a
-zero-wait-state AHB5 slave — `hready` tied high, `hresp`/`hexokay` tied to always-OKAY the way
-`example_soc.v`'s own comment says ("No global monitor") — so the data phase for the transfer
-addressed in cycle N is the read `rtl/memory.v` (reused unmodified) registers in cycle N+1, the same
-latency the AHB protocol already assumes at zero wait states. ROM and RAM answer the same `haddr`,
-distinguished purely by which side of `ROM_WORDS*4` it falls on, since AHB has no separate read and
-write bus the way this harness's other two benches do. `hwdata` is not shifted to byte 0 for a narrow
-store — `hazard3_core.v` replicates it across all four lanes (`MEMOP_SB`/`MEMOP_SH`), the same
-replication `bench_vexriscv.v`'s own comment names for VexRiscv — so the byte strobe alone, shifted
-by the low address bits, is what picks the right byte out of a lane that already holds it everywhere.
+unlike VexRiscv's separate `iBus`/`dBus` in this harness's other bench. `hresp`/`hexokay` are tied
+to always-OKAY the way `example_soc.v`'s own comment says ("No global monitor"). Reads answer at
+zero wait states — a read's address phase in cycle N is the answer `rtl/memory.v` (reused
+unmodified for the RAM half) registers in cycle N+1, the same latency the AHB protocol already
+assumes at zero wait states. **Writes are not zero wait states**, and getting this wrong is the
+subject of its own section below: `hready` is held low for one cycle after a write's own address
+phase, because AHB5 does not present `hwdata` until the following cycle and a single-ported memory
+cannot service that write's data phase and a new transfer's address phase at once. ROM and RAM
+answer the same `haddr` (or its one-cycle-captured copy, for a pending write), distinguished purely
+by which side of `ROM_WORDS*4` it falls on, since AHB has no separate read and write bus the way
+this harness's other two benches do. `hwdata` is not shifted to byte 0 for a narrow store —
+`hazard3_core.v` replicates it across all four lanes (`MEMOP_SB`/`MEMOP_SH`), the same replication
+`bench_vexriscv.v`'s own comment names for VexRiscv — so the byte strobe alone, shifted by the low
+address bits, is what picks the right byte out of a lane that already holds it everywhere.
 
 **Anti-fraud, extended to the new core.** `soc/compare/placed_vs_synth.py` is fully generic (a placed
 count, a standalone count, a floor) and needed no code change — only a Makefile branch that hands it
 Hazard3's own two logs. `soc/compare/bench_tb.v` now instantiates all three cores on
 `soc/compare/bench.S` and requires all three to publish the same sequence of stores; Hazard3's own
-sequence is read off `rtl/memory.v`'s ports at the harness's own `haddr`/`hwdata`, the same way
-`bench_littlecpu.v`'s is read off `mem_addr`/`mem_wdata`, since Hazard3 has no separate data bus to
-watch the way VexRiscv's `dbus_cmd_address` gives one for free.
+sequence is read off the same captured address/strobe the adapter performs its write against
+(`mem_addr_mux`/`mem_wstrb_mux`, with `hwdata` as the value), since Hazard3 has no separate data bus
+to watch the way VexRiscv's `dbus_cmd_address` gives one for free. **This check is why the bus bug
+above was ever visible** — see the section below.
 
 `soc/compare/geometry_test.sh`'s six-file cross-check is **not** extended to Hazard3's own file in
 this pass — it stays a two-core check between `bench_littlecpu.v` and `bench_vexriscv.v`. Hazard3's
@@ -96,22 +101,47 @@ cross-checked by that particular hermetic script. Left out on purpose to keep th
 in `test/probe_gates.sh` at zero, since another ticket is running concurrently against that file;
 extending `geometry_test.sh` to a third core is a small, separable follow-up.
 
+## The anti-fraud check found a real defect, not a hypothetical one
+
+`make compare-smoke` is not a formality here: the first working version of `bench_hazard3.v`
+placed, synthesised at a plausible 0.95× ratio, and **published three all-X words** where
+littlecpu's and VexRiscv's own sequences were real numbers. The adapter fed `hwdata` into
+`rtl/memory.v` on the SAME cycle as `haddr`/`hwrite`, treating the bus as a zero-wait-state SRAM
+port for writes as well as reads. AHB5 does not work that way for a write: `hwdata` is valid one
+cycle **later**, in the transfer's data phase, which overlaps the following transfer's own address
+phase. A single-ported memory cannot service a write's data phase and a new transfer's address
+phase in the same cycle, so a correct AHB-to-simple-RAM bridge needs a wait state exactly there —
+and `soc/compare/bench.S` hits that collision on every inner-loop iteration (`sw` immediately
+followed by `lw` of the same word). The fix captures a write's address-phase information into a
+one-cycle-pending register, holds `hready` low for the cycle its data phase needs, and performs
+the write against the captured address once `hwdata` is valid; reads were already correct, since a
+read's response never depends on data the core has not presented yet. Verified directly: Hazard3's
+six published values now match littlecpu's exactly, where before they read `xxxxxxxx` from the
+first unaligned byte/halfword store onward. This is the same shape of defect `CLAUDE.md` already
+names for VexRiscv's own harness — a bus adapter that is wrong rather than a core that is slow —
+and it is exactly what this gate exists to catch.
+
 ## The clock factor
 
 Both cores placed on the existing `hx8k`/`ct256` comparison harness, `soc/compare/bench.S` (RV32I
 only — no M, no A, no C exercised, so this is the two cores' shared datapath and not their differing
-extensions), default seed plus four explicit seeds, this tree (`fbd4864`):
+extensions), default seed plus four explicit seeds, this tree (`5f005c7`, after the adapter fix
+above):
 
 | | worst | median | best | placed `ICESTORM_LC` | standalone `SB_LUT4` | ratio |
 |---|---|---|---|---|---|---|
 | **littlecpu** | 30.90 MHz | 32.01 MHz | 32.69 MHz | 7254 / 7680 (94%) | 6517 | 1.11× |
-| **Hazard3 (iCE40 config)** | 33.08 MHz | 34.48 MHz | 34.98 MHz | 3346 / 7680 (43%) | 3505 | 0.95× |
+| **Hazard3 (iCE40 config)** | 32.60 MHz | 33.63 MHz | 33.89 MHz | 3346 / 7680 (43%) | 3505 | 0.95× |
 
 Both ratios clear `COMPARE_MIN_RATIO`'s 0.80× floor, so neither core folded away behind the harness.
-**Hazard3's iCE40 configuration clocks 1.07× this core's on the worst placement of five
-(1.08× on the median)** — 33.08 MHz against 30.90, both on the same part, memories, program and
+**Hazard3's iCE40 configuration clocks 1.06× this core's on the worst placement of five
+(1.05× on the median)** — 32.60 MHz against 30.90, both on the same part, memories, program and
 seeds. Five seeds is a look, not a verdict; `SOC_MIN_MHZ`'s own convention wants twelve to sixteen
-before reading a gap this size as settled, and that sweep has not been run.
+before reading a gap this size as settled, and that sweep has not been run. Placed area and the
+placed/standalone ratio are unchanged by the adapter fix (3346 cells, 0.95× either way) — the wait
+state the fix adds is one flip-flop and a small mux, evidently inside this placement's churn rather
+than outside it — but the fix moved the worst-case clock from 33.08 to 32.60 MHz and the median from
+34.48 to 33.63, so the gap is real but smaller than the broken adapter first reported.
 
 **Read the standalone counts as area context, not as the clock explanation.** Hazard3's iCE40 build
 is roughly half this core's size here (3505 against 6517 `SB_LUT4`) mostly because it is a smaller
@@ -192,7 +222,9 @@ prints the equivalent caveat.
   `vexriscv`; `soc/compare/sweep.sh COMPARE_CORES='littlecpu hazard3'` runs the paired sweep this
   ADR's five-seed look should be replaced with before the clock figure is treated as settled.
 - `make compare-smoke` now runs three cores in one simulation and requires all three to agree,
-  extending the existing anti-fraud check rather than adding a parallel one.
+  extending the existing anti-fraud check rather than adding a parallel one -- and it is why the
+  write-data-timing defect above is a footnote here rather than a wrong number in this ADR's own
+  table.
 - No `rtl/` file changed. This is entirely `soc/compare/`, the same boundary ADR-0086 and ADR-0098
   already draw around this kind of measurement.
 - **The CoreMark cross-core product ADR-0136 was written to eventually support still does not
