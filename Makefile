@@ -541,6 +541,18 @@ retired-term-test:
 march-test:
 	@./test/march_test.sh
 
+# A `.gitignore` rule never applies to a file git already tracks, so a tracked
+# file matching one is always a mistake -- a dead rule, or a commit that should
+# not have happened. `git ls-files | git check-ignore --stdin --no-index -v` is
+# the query that finds the class; nothing ran it, and five nextpnr build
+# artifacts sat tracked for as long as their own .gitignore lines did nothing.
+# Hangs off `test` like the other bash checks -- git only -- for the same
+# reason `retired-term-test` does: the mistake is a commit, and no review of
+# the commit that adds the ignore rule can see that tracking predates it.
+.PHONY: tracked-ignored-test
+tracked-ignored-test:
+	@./test/tracked_ignored_test.sh
+
 # The placement spread and the edit-churn band are soc/bands.py's, keyed by part.
 # Hangs off `test` like the other repo-scanning checks -- git and file reads
 # only -- and it has to, because the failure it guards against is a comment: the
@@ -622,7 +634,8 @@ dual-build:
 test: sim test-units probe-gates pin-bump-test tool-cache-test memmap-test \
       compare-geometry-test retired-term-test port-connect-test march-test \
       band-source-test zkt-isolation-test window-test imem-share-test \
-      abc-engine-test mutation-probe dual-build board-elaborate
+      abc-engine-test mutation-probe dual-build board-elaborate \
+      tracked-ignored-test
 	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 # The same suite `make test` runs, with the runner charging every cycle to the
