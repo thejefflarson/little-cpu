@@ -338,11 +338,20 @@ are: `in` is free while a divide runs, so an unguarded assertion could catch a d
 still naming the multiply that issued it. `make -C formal components_executor` proves it by
 k-induction, the same task that already proves the multiplier's and divider's own arithmetic.
 `formal/executor-zkt-probe.py` is its demonstrated red direction: one core three lines from the
-shipping one, diverting `MUL` at `rs1 == 0` into the divider's own arm — latching `op_is_divu`
-alongside it so the divide arm's onehot invariant over its four op flags still holds, and its
-completion still reports the right value, since dividing 0 by anything is 0 whatever the divisor —
-so the mutation changes only the multiply's LATENCY and the basecase leg reports no failure but
-this one, at its own line. Wired as a prerequisite of `components_executor` the same way
+shipping one, diverting `MUL` at `rs1 == 0 && rs2 != 0` into the divider's own arm — latching
+`op_is_divu` alongside it so the divide arm's onehot invariant over its four op flags still holds.
+**`rs2 != 0` is load-bearing, not incidental**: the divide arm's own first branch is `if (rs2 ==
+0)`, which writes `32'hffffffff` while a real `MUL(0, 0)`'s value is `0`, so diverting `rs2 == 0`
+too would make it a second, genuine counterexample to a pre-existing MUL-value assertion — reachable
+from reset in the same steps as the latency one — and which of the two a basecase run happens to
+report would be the solver's own arbitrary choice, not a property of the mutation. Excluding it
+leaves only the real divide reachable, which completes at `0 / rs2 == 0` for every `rs2` the
+mutation can reach, so the mutation changes only the multiply's LATENCY and the basecase leg —
+the one over a reachable-from-reset trace — reports no failure but this one, at its own line.
+Both this probe and `decoder-zkt-probe.py` require the failing line to come with an
+`engine_N.basecase:` prefix on its log line for exactly this reason: `mode prove`'s INDUCTION leg
+starts from an arbitrary, possibly-unreachable state, so a line it reports is not evidence about a
+reachable trace at all. Wired as a prerequisite of `components_executor` the same way
 `decoder-zkt-probe` is of `components_decoder`. `DIV`/`REM` are the one place this design is NOT
 constant-time — 32 cycles ordinarily, one cycle when `rs2 == 0` or on `INT_MIN / -1` — which is
 exactly why the list excludes them rather than the claim being false, and they get no such

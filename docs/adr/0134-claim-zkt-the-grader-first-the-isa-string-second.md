@@ -128,21 +128,35 @@ the multiplier's and divider's own arithmetic.
 
 `formal/executor-zkt-probe.py` is the demonstrated red direction, `formal/decoder-zkt-probe.py`'s
 own pattern applied here: it builds one core three lines from the shipping one, diverting `MUL` at
-`rs1 == 0` into the divider's own arm — latching `op_is_divu` alongside it so the divide arm's
-onehot invariant over its four op flags still holds, and its completion still reports the right
-value, since dividing 0 by anything is 0, which is what `MUL` at `rs1 == 0` was always going to
-produce. `rs1 == 0` is what keeps the mutation isolated to *latency*: every other assertion this
-file states about a multiply's value keeps holding on any trace reset can reach, so the basecase
-leg reports no failure but this one, at its own line. (The induction leg, which explores states
-BMC's basecase never has to reach from reset, separately reports an unrelated pre-existing
-assertion once this one stops being provable — `smtbmc`'s own bookkeeping under `mode prove`
-needing every assertion in the file to stay mutually inductive, not a second defect, which is why
-the probe reads every `Assert failed` line in the log rather than assuming there is only one.) It
+`rs1 == 0 && rs2 != 0` into the divider's own arm — latching `op_is_divu` alongside it so the divide
+arm's onehot invariant over its four op flags still holds. **`rs2 != 0` is not incidental.** The
+divide arm's own first branch is `if (rs2 == 0)`, which — with `is_rem`/`is_remu` forced low by the
+`$onehot0` assume, since only `in.is_mul` is set on the diverted path — writes `32'hffffffff` into
+`out.rd_data`, while a real `MUL(0, 0)`'s `mul_lo` is `0`. Diverting `rs2 == 0` too was tried first
+and does not isolate the mutation to *latency*: it makes `rs2 == 0` a second, genuine counterexample
+to the pre-existing MUL-value assertion four lines above this one, reachable from reset in the same
+steps as the latency assertion — and which of the two a solver's basecase run reports is the
+solver's own arbitrary choice among satisfying states, not a property of the mutation, so a version
+bump could silently swap the evidence a passing run offers from a latency defect to a value one.
+Excluding `rs2 == 0` leaves exactly one arm reachable for the diverted operands — the real divide,
+which completes at `divu_ref = div_ghost_rs1 / div_ghost_rs2 == 0 / rs2 == 0` for every `rs2` the
+mutation can reach — so the pre-existing MUL-value assertion holds on every basecase-reachable trace
+of this mutation and only the latency assertion this file is about can fail there.
+
+Only the BASECASE leg counts as evidence: `mode prove`'s INDUCTION leg starts from an arbitrary
+state that need not be reachable from reset at all, so once the latency assertion is generally
+false its counterexamples can name a *different*, otherwise-true assertion for reasons that have
+nothing to do with this mutation — which line is not a property of the mutation, so treating it
+as one interchangeably would let a future solver version silently swap a latency demonstration for
+noise with nobody able to tell. `formal/executor-zkt-probe.py` and `formal/decoder-zkt-probe.py`
+both require an `engine_N.basecase:` prefix on the same log line before a line number counts as a
+failure at all, rather than reading every `Assert failed` line in the log. It
 is wired as a prerequisite of `components_executor`, the relationship `decoder-zkt-probe` has to
 `components_decoder`: a control that can be run separately from the thing it controls eventually is
 not run at all. Its own grading — a respelled assertion or mutation site stopping the run, a solver
-that wrote no verdict, a proof going red somewhere else — is covered by a `test/probe_gates.sh`
-group against a stub `sby`, mirroring `decoder-zkt-probe`'s own.
+that wrote no verdict, a proof going red somewhere else, a failure reported only by the induction
+leg — is covered by a `test/probe_gates.sh` group against a stub `sby`, mirroring
+`decoder-zkt-probe`'s own.
 
 `DIV`/`REM` get no such assertion, on purpose: they are excluded from Zkt's list precisely because
 they are not constant-time, and an assertion claiming otherwise would be asserting something false.

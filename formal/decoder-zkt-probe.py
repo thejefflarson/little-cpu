@@ -187,7 +187,8 @@ def run_case(repo, workdir, sby, config, case):
         stop(f"sby's status file for the {case} core is empty.")
     log = (root / "probe" / "logfile.txt").read_text()
     failed = sorted(
-        set(int(n) for n in re.findall(r"Assert failed in decoder: decoder\.v:(\d+)", log))
+        set(int(n) for n in re.findall(
+            r"engine_\d+\.basecase:.*Assert failed in decoder: decoder\.v:(\d+)", log))
     )
     return status[0], failed
 

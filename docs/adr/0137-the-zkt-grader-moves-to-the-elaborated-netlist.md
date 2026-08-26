@@ -163,6 +163,25 @@ recipe, `SOC_SYNTH`) ever defines `RISCV_FORMAL` — their yosys recipes pass no
 this round, the two checks it lost included); `formal/decoder-zkt-probe.py`'s own group runs against
 a stub `sby` and elaborates nothing.
 
+## Amendment 1 — the log scrape names its leg
+
+`formal/decoder-zkt-probe.py`'s two mutated cores are graded under `mode prove`, which runs two
+solver legs at once: a BASECASE bounded from reset, over a trace that is really reachable, and an
+INDUCTION leg whose starting state need not be reachable at all. The original scrape —
+`re.findall(r"Assert failed in decoder: decoder\.v:(\d+)", log)` — read every `Assert failed` line
+in the whole log without asking which leg wrote it. That is sound only while the mutation under
+test cannot make any OTHER assertion in the file fail too; `formal/executor-zkt-probe.py`
+(docs/adr/0134, amendment 1) found a mutation where it could, and once an induction leg's arbitrary,
+possibly-unreachable starting state can report an unrelated line, which line it reports is the
+solver's own choice among satisfying states rather than a property of the mutation — not evidence
+either way, and indistinguishable from real evidence to a scrape that does not ask where the report
+came from. The regex now requires an `engine_N.basecase:` prefix on the same log line, so only a
+failure over a genuinely reachable trace counts: `re.findall(r"engine_\d+\.basecase:.*Assert
+failed in decoder: decoder\.v:(\d+)", log)`. `test/probe_gates.sh`'s group gained two probes, one
+per mutation case, whose stub emits the failure under `engine_0.induction:` instead and requires
+this file to reject it — the same shape as the existing "a proof going red somewhere else is not
+evidence" probes, for the leg rather than the line.
+
 ## Consequences
 
 - `test/zkt_isolation_test.py` no longer has a `KNOWN_CLEAN_LEAVES`-shaped escape hatch, and now
@@ -182,8 +201,9 @@ a stub `sby` and elaborates nothing.
   dead `generate if (0)` decoy), an unclassified wide port, `CONTROL_FIELDS` emptied against the
   shipping decoder and its width bound, a stale classification, an undriven stall-reason name, the
   anti-vacuity control, and the two usage-error cases. A new `formal/decoder-zkt-probe.py` group is
-  thirteen probes, mirroring `traps-region-probe.py`'s own: the control, both directions of "an
-  assertion that cannot fail is worth nothing", both directions of "a proof going red elsewhere is
-  not evidence", a solver with no verdict, an empty status file, two respelling guards, the RTL
-  moving away, and the two ways reading `formal/components.sby`'s own `decoder` task script can come
-  up empty.
+  fifteen probes (amendment 1's leg fix added two), mirroring `traps-region-probe.py`'s own: the
+  control, both directions of "an assertion that cannot fail is worth nothing", both directions of
+  "a proof going red elsewhere is not evidence", both directions of "a failure the induction leg
+  reports is not evidence", a solver with no verdict, an empty status file, two respelling guards,
+  the RTL moving away, and the two ways reading `formal/components.sby`'s own `decoder` task script
+  can come up empty.
