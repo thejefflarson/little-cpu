@@ -29,35 +29,60 @@ how wide a port really is -- and a netlist has already resolved every one of
 them before this script ever sees it: there is no leaf to guess at, because
 the cell graph says what drives what.
 
-WHAT THIS PROVES, AND WHAT IT DOES NOT. `rtl/decoder.v`'s `stall` is the OR of
-eight reasons, and `stall` itself plus `ls_access`, `serialize`,
+WHAT THIS SCRIPT PROVES, AND WHAT IT DOES NOT. `rtl/decoder.v`'s `stall` is
+the OR of eight reasons, and `stall` itself plus `ls_access`, `serialize`,
 `hazard_rs1`, `hazard_rs2`, `hazard`, `operand_stall`, `atomic_stall`,
 `stall_own` and `stall_other` must never depend, on the elaborated netlist,
 on a register-file or CSR-file DATA output (`reg_rs1`, `reg_rs2` or
 `executor_out.rd_data`, the three ports of `decoder` wide enough to carry
 one) EXCEPT through `region_stall`, the one reason allowed to -- that is what
-lets a load or store answer a cycle late instead of faulting -- because it is
-conjoined with `ls_access`, true for exactly the twelve load and store
-encodings, none of which is on Zkt's list. "Except through region_stall"
-means what formal/check-nonperturbation.py's own restricted-taint mechanism
-means for a signal legitimately downstream of an `ifdef`'d one: `region_stall`
-can still become reachable (that is the point -- `stall` reads it directly,
-and `out`'s own bubble condition re-lists it beside `hazard`/`operand_stall`/
-etc, which is what lets `out.valid`, and everything built from it such as
-`pipe_drained` and `serialize`, correctly bubble on a captured region wait)
-but is never used as a SOURCE for tainting anything FURTHER -- so a read of
-`region_stall` is judged as if it were invisible to whatever reads it, and
-any OTHER path from a DATA output into the same target still counts. Two
-named registers derived from `region_stall` -- `ls_capture` and
-`ls_answer`/`ls_answer_valid`, which hold a load's or store's own region
-answer across the cycle it is read on -- get a second, narrower check on top:
-none of the nine reasons above may read THEM directly either, because their
-own correctness (a captured answer is about the access still in decode, and
-nothing else) does not extend to being read by an unrelated instruction's
-stall decision, and blocking `region_stall` as a taint source would hide
-that if it were checked by reachability from `reg_rs1`/`reg_rs2` alone.
+lets a load or store answer a cycle late instead of faulting. "Except through
+region_stall" means what formal/check-nonperturbation.py's own
+restricted-taint mechanism means for a signal legitimately downstream of an
+`ifdef`'d one: `region_stall` can still become reachable (that is the point
+-- `stall` reads it directly, and `out`'s own bubble condition re-lists it
+beside `hazard`/`operand_stall`/etc, which is what lets `out.valid`, and
+everything built from it such as `pipe_drained` and `serialize`, correctly
+bubble on a captured region wait) but is never used as a SOURCE for tainting
+anything FURTHER -- so a read of `region_stall` is judged as if it were
+invisible to whatever reads it, and any OTHER path from a DATA output into
+the same target still counts. Two named registers derived from
+`region_stall` -- `ls_capture` and `ls_answer`/`ls_answer_valid`, which hold
+a load's or store's own region answer across the cycle it is read on -- get
+a second, narrower check on top: none of the nine reasons above may read
+THEM directly either, because their own correctness (a captured answer is
+about the access still in decode, and nothing else) does not extend to
+being read by an unrelated instruction's stall decision, and blocking
+`region_stall` as a taint source would hide that if it were checked by
+reachability from `reg_rs1`/`reg_rs2` alone. This whole question is
+2-safety-shaped -- it is about which VALUE reaches where, not about one
+instantaneous fact -- so a structural over-approximation is the right tool
+for it, the same one formal/check-nonperturbation.py uses.
 
-Four checks, all against the netlist `yosys -q -s` writes for `rtl/
+WHY `region_stall`'S OWN GATE IS NOT DECIDED HERE ANY MORE. Two further
+facts used to be checked the same structural way: that `region_stall` can
+only assert alongside `ls_access`, and that `ls_access` is true for exactly
+the twelve load and store encodings, none on Zkt's list. Neither is
+2-safety -- both are single-trace, exact-set-equality invariants with no
+VALUE comparison in them at all, the same shape as
+`assert(out.is_amo == (out.is_amoswap || ...))`, which already sits in
+`rtl/decoder.v`'s own `ifdef FORMAL` block a few lines away. Three rounds of
+deciding them by walking the netlist by hand -- graded `ls_access` by NAME,
+then tracked a NOT's polarity, then tracked polarity but not every OTHER
+cell type a NOT could sit over -- were three different spellings of the same
+defeat: a structural walk is an approximation, and an approximation has
+edges an exact decision procedure does not. `rtl/decoder.v` now states both
+facts as assertions instead (`assert(!region_stall || ls_access)`,
+`assert(ls_access == (instr_lb || instr_lbu || instr_lh || instr_lhu ||
+instr_lw || instr_sb || instr_sh || instr_sw))`), `make -C formal
+components_decoder` proves them by k-induction, and `make -C formal
+decoder-zkt-probe` demonstrates both fail at their own assertion for the
+mutations this script used to catch structurally -- the same discipline
+`make -C formal traps-region-probe` applies to formal/traps.sv. This script
+keeps only the half of the original argument that is genuinely 2-safety and
+has no exact decision procedure to hand a solver instead.
+
+Two checks, all against the netlist `yosys -q -s` writes for `rtl/
 decoder.v` (plus its dependencies), never against the source text:
 
   1. FORWARD REACHABILITY, twice. Starting from the bits of `reg_rs1`,
@@ -69,32 +94,7 @@ decoder.v` (plus its dependencies), never against the source text:
      nine reasons above may be reached this way. Then, separately, starting
      from `ls_capture`/`ls_answer`/`ls_answer_valid`'s own bits with nothing
      blocked, the same nine must not be reachable either.
-  2. THE GATE'S OWN SHAPE. `region_stall`'s driving cell (or chain of
-     AND/OR/NOT cells feeding it, the netlist's own analogue of one
-     text-level `&&`/`||`/`!` expression) must bottom out at a set of named
-     leaves that includes `ls_access` -- UN-NEGATED -- and must never pass
-     through a genuine disjunction on the way there. This is De Morgan-aware,
-     not merely OR-aware: a NOT does not stop the walk, it flips the
-     accumulated polarity and keeps walking, so `!ls_access && !ls_settled &&
-     !ls_answer_valid` finds the leaf `!ls_access` rather than `ls_access`
-     (and is rejected for it, since that gate asserts on every NON-load/store
-     instruction), and `!(ls_access && ...)` -- a real disjunction by De
-     Morgan, whatever the source text's precedence -- is caught by the SAME
-     `$_OR_`-on-the-path rule an explicit `||` beside the `&&` chain is. A
-     signal reached under EVEN polarity (two NOTs, or none) is graded exactly
-     as it was before this mattered. A cell that is NEITHER an AND nor an OR
-     -- a MUX, an XOR, a comparator, an adder, anything `simplemap` leaves
-     whole -- is checked BEFORE polarity is consulted at all, and is always
-     an opaque leaf: `negated` only ever chooses which of AND/OR counts as
-     the conjunction at a given point, and a cell that is neither has no
-     side of that choice to fall onto. (An earlier version of this check
-     asked "is this cell an AND, adjusted for polarity" and let that
-     question answer itself True for any non-AND type under odd polarity --
-     `!(ls_settled ? !ls_access : 1'b0)` walked straight through the MUX as
-     though it were a clean conjunction.) Naming `ls_access` as a leaf is
-     not the same as knowing what `ls_access` IS, so this is paired with a
-     fourth check below rather than trusted alone.
-  3. PORT COVERAGE, BOTH WAYS. Every input port of `decoder` wider than 5
+  2. PORT COVERAGE, BOTH WAYS. Every input port of `decoder` wider than 5
      bits (5 is the widest a register NUMBER gets: rd/rs1/rs2 are all
      `[4:0]`) must be classified SEED_PORTS/STRUCT_FIELD_SEEDS (can carry a
      register-file or CSR-file DATA output) or NON_VALUE_PORTS/
@@ -114,31 +114,6 @@ decoder.v` (plus its dependencies), never against the source text:
      that is not merely unclassified, it is an exemption whose only stated
      justification -- "this is a register NUMBER, not a value" -- has
      stopped being true.
-  4. `ls_access` ITSELF. Check 2 trusts `ls_access` by NAME; this asks what
-     it resolves to. `ls_access`'s own OR tree is walked past its two named
-     intermediates (`instr_ls_load`/`instr_ls_store`, named in
-     LS_ACCESS_TRANSPARENT so the walk sees through rather than stops at
-     them) down to LS_ACCESS_ENCODINGS -- five base loads, three base
-     stores -- and the two sets must match exactly, in both directions. Each
-     leaf carries its own accumulated polarity into the comparison (a `!`
-     prefix), so `ls_access = !(instr_ls_load || instr_ls_store)` fails
-     organically: every leaf below that NOT comes back tagged `!instr_lb`
-     etc, which matches none of LS_ACCESS_ENCODINGS' plain names in either
-     direction, rather than passing because the SET of names underneath
-     happens to be the right eight. `instr_lw`/`instr_sw` each fold two
-     further compressed forms in behind their OWN `assign`, one hop past
-     where this check stops, the same boundary it draws everywhere else.
-     Without this check, `assign ls_access = instr_ls_load || instr_ls_store
-     || instr_add;` passes checks 1-3 unchanged: `instr_add` carries no
-     register value for check 1 to find, and check 2 still finds `ls_access`
-     named among `region_stall`'s leaves.
-
-It does not simulate anything, and it does not reach into rtl/executor.v's
-multi-cycle divider -- that half of the argument (MUL resolves in decode's
-`init` state with no counter; DIV/REM's two early exits are the one place
-this design is NOT constant-time, and DIV/REM are excluded from the list for
-exactly that reason) is read by eye against rtl/executor.v and recorded in an
-ADR, not graded by this script.
 
 Usage: zkt_isolation_test.py [decoder.v]     # defaults to rtl/decoder.v
 """
@@ -164,32 +139,16 @@ STALL_TARGETS = [
     'operand_stall', 'atomic_stall', 'stall_own', 'stall_other', 'stall',
 ]
 
-# The one reason allowed to depend on a register-file DATA output, and the
-# term its own gate must conjoin.
+# The one reason allowed to depend on a register-file DATA output. That it
+# can only assert alongside `ls_access`, and that `ls_access` is true for
+# exactly the eight base load/store encodings, are no longer decided here --
+# both are single-trace exact-set-equality facts, proved by k-induction as
+# assertions inside rtl/decoder.v's own `ifdef FORMAL` block instead
+# (`make -C formal components_decoder`, demonstrated red by
+# `make -C formal decoder-zkt-probe`). What THIS script still owns is the
+# 2-safety half: that no register-file DATA output reaches any of the nine
+# reasons below except by way of a read of `GATED_SIGNAL` itself.
 GATED_SIGNAL = 'region_stall'
-GATE_TERM = 'ls_access'
-
-# GATE_TERM's own definition is graded by NAME only in the gate-shape check
-# below -- it walks region_stall's AND-tree and stops the moment it reaches a
-# net called `ls_access`, without asking what `ls_access` itself resolves to.
-# `assign ls_access = instr_ls_load || instr_ls_store || instr_add;` passes
-# that check unchanged, and passes forward reachability too, since
-# `instr_add` is built from instruction bits rather than seeded as a
-# register-file DATA output. LS_ACCESS_TRANSPARENT names the two intermediate
-# nets this check sees THROUGH on the way to `ls_access`'s own leaves (the
-# same one-hop-per-name rule and_tree_leaves already applies, just applied
-# twice instead of once), and LS_ACCESS_ENCODINGS is the exact set those
-# leaves must equal in both directions: five base loads and three base
-# stores. `instr_lw`/`instr_sw` each fold two further compressed forms in
-# (`c.lwsp`/`c.lw`, `c.swsp`/`c.sw` -- RV32C decodes them as the base 32-bit
-# op rather than its own major opcode) behind their OWN `assign`, one hop
-# past this check's leaves, the same boundary and_tree_leaves already draws
-# everywhere else it stops at a named net one level in.
-LS_ACCESS_TRANSPARENT = frozenset({'instr_ls_load', 'instr_ls_store'})
-LS_ACCESS_ENCODINGS = frozenset({
-    'instr_lb', 'instr_lh', 'instr_lw', 'instr_lbu', 'instr_lhu',
-    'instr_sb', 'instr_sh', 'instr_sw',
-})
 
 # Registers derived from region_stall that hold a load's or store's own
 # region answer across the cycle it is read on (ADR-0129's capture/hold
@@ -280,10 +239,6 @@ CONTROL_FIELDS = {
     'executor_out': ('executor_output', ['valid', 'rd']),
 }
 
-AND_TYPES = frozenset({'$_AND_', '$and', '$reduce_and', '$logic_and'})
-OR_TYPES = frozenset({'$_OR_', '$or', '$reduce_or', '$logic_or'})
-NOT_TYPES = frozenset({'$_NOT_', '$not', '$logic_not'})
-
 
 def run_yosys(script_path):
     """Run `yosys -q -s script_path`. A yosys that fails to elaborate fails
@@ -308,8 +263,8 @@ def build_decoder_netlist(decoder_path, structs_path, regsel_path, out_dir):
     cells and named nets before this script reads any of it; `memory_map;
     simplemap` is the same struct-breaking step formal/check-nonperturbation.py
     applies, for the same reason -- a packed struct is one wide cell until
-    simplemap breaks it apart into the primitives and_tree_leaves knows how
-    to read. Deliberately NO `opt_clean` here, unlike that check: a pure
+    simplemap breaks it apart into the primitives build_graph and forward_taint
+    know how to read. Deliberately NO `opt_clean` here, unlike that check: a pure
     bit-select such as `ls_block = reg_rs1[31:21]` has no cell of its own, so
     a fanout sweep folds its name away in favour of reg_rs1's, and this
     script needs every intermediate's OWN name to walk the graph one
@@ -594,8 +549,8 @@ def cell_input_bits(cell):
 def build_graph(mod):
     """bit -> (driving cell name, cell), and bit -> [(cell name, its own
     output bits)] for every cell that reads `bit` as one of its inputs. Built
-    once so forward_taint and and_tree_leaves both walk the same graph
-    without re-deriving it."""
+    once so forward_taint (from `fanout`) and the undriven-signal check below
+    (from `bit_driver`) both walk the same graph without re-deriving it."""
     bit_driver = {}
     fanout = collections.defaultdict(list)
     for cname, cell in mod['cells'].items():
@@ -656,136 +611,6 @@ def reachable_targets(reached, name_bits, targets):
     return [n for n in targets if any(b in reached for b in name_bits[n])]
 
 
-def and_tree_leaves(bit_driver, bit_names, bit, is_root=False, seen=None,
-                    negated=False):
-    """Walk from `bit` through AND/OR/NOT cells, De Morgan-aware, and return
-    the set of NAMED leaves (each tagged `!name` if reached under ODD
-    polarity) it bottoms out at plus whether an OR was found anywhere on the
-    way. `negated` is the polarity accumulated from every NOT passed through
-    so far; a NOT does not stop the walk, it flips `negated` and continues --
-    `!ls_access` is a leaf named `!ls_access`, not `ls_access`, because
-    treating NOT as transparent is exactly the defeat this parameter exists
-    to close (`region_stall = !ls_access && ...` used to read as a pure
-    conjunction over `ls_access` itself).
-
-    Which connective is "pure AND" at this polarity is what De Morgan says it
-    is: an AND cell reached un-negated, or an OR cell reached negated (`!(a
-    || b) == !a && !b`), is walked through with `negated` unchanged into
-    every input. The other pairing -- an OR reached un-negated, or an AND
-    reached negated (`!(a && b) == !a || !b`) -- is a genuine disjunction at
-    this point in the tree, whatever polarity produced it, so it is graded
-    exactly as a bare OR already was: `or_found=True`, walked no further.
-
-    A named bit (other than the root itself) is a boundary -- this does not
-    recurse into what THAT signal is itself defined by, the same
-    single-level reading `top_level_and_terms` gave the RTL-text version.
-    An OR found at or beneath the root means the signal is not a pure
-    conjunction, whatever terms it lists."""
-    if seen is None:
-        seen = set()
-    if not is_root:
-        name = bit_names.get(bit)
-        if name is not None:
-            return {('!' if negated else '') + name}, False
-    if bit in seen:
-        return set(), False
-    seen.add(bit)
-    driver = bit_driver.get(bit)
-    if driver is None:
-        leaf = bit_names.get(bit, '<bit %d>' % bit)
-        return {('!' if negated else '') + leaf}, False
-    cname, cell = driver
-    ctype = cell['type']
-    if ctype in NOT_TYPES:
-        ins = cell_input_bits(cell)
-        if len(ins) != 1:
-            return {'<%s:%s>' % (cname, ctype)}, False
-        return and_tree_leaves(bit_driver, bit_names, ins[0], False, seen,
-                                not negated)
-    if ctype not in AND_TYPES and ctype not in OR_TYPES:
-        # Not an AND or an OR at all -- a MUX, an XOR, a comparator, an
-        # adder, anything simplemap leaves whole -- so it is an opaque leaf
-        # regardless of polarity. Checked before is_and_here/is_or_here
-        # below, whose `!= negated` flip would otherwise read ANY non-AND
-        # cell type as "the OR side of the pairing" under odd polarity and
-        # walk straight through it: `!(ls_settled ? !ls_access : 1'b0)`
-        # would have reached the leaves {ls_access, !ls_settled} with no OR
-        # found, describing `ls_settled ? ls_access : 1'b1` -- a real
-        # dependence on ls_settled's value -- while reporting a clean
-        # AND-tree. bool_tree_leaves never had this gap: its own connective
-        # test (`ctype in AND_TYPES or ctype in OR_TYPES`) does not read
-        # `negated` at all, so an unhandled cell already fell through to the
-        # opaque leaf at both polarities.
-        return {'<%s:%s>' % (cname, ctype)}, False
-    is_and_here = (ctype in AND_TYPES) != negated
-    is_or_here = (ctype in OR_TYPES) != negated
-    if is_and_here:
-        leaves = set()
-        or_found = False
-        for ib in cell_input_bits(cell):
-            l, o = and_tree_leaves(bit_driver, bit_names, ib, False, seen,
-                                    negated)
-            leaves |= l
-            or_found = or_found or o
-        return leaves, or_found
-    if is_or_here:
-        return set(), True
-    return {'<%s:%s>' % (cname, ctype)}, False
-
-
-def bool_tree_leaves(bit_driver, bit_names, bit, transparent, is_root=False,
-                      seen=None, negated=False):
-    """Walk from `bit` through AND/OR/NOT cells and return the set of NAMED
-    leaves (each tagged `!name` if reached under ODD polarity) it bottoms out
-    at. Unlike and_tree_leaves, an OR is not a defeat here -- `ls_access` IS
-    an OR tree -- so both AND and OR are walked through identically and
-    `negated` exists only to tag each leaf's polarity, not to change which
-    connective is walkable: a NOT flips `negated` and keeps walking, whatever
-    it sits over, because a leaf's caller (LS_ACCESS_ENCODINGS' set-equality
-    check) needs to see `!instr_lb` as a DIFFERENT leaf than `instr_lb`
-    rather than as the same encoding read through one more inverter. This is
-    what makes `ls_access = !(instr_ls_load || instr_ls_store)` fail the
-    equality check organically: every leaf below the NOT comes back negated,
-    so none of them match LS_ACCESS_ENCODINGS' plain names in either
-    direction.
-
-    A named leaf in `transparent` is seen THROUGH (its own driver is walked
-    in turn, `negated` carried onward) rather than stopped at, which is how
-    this reaches `ls_access`'s individual encodings past its two named
-    intermediates, `instr_ls_load`/`instr_ls_store`. Any other named signal,
-    or a primary input bit with no driving cell, is a boundary leaf -- the
-    same one-hop-per-name rule and_tree_leaves applies, just re-applied at
-    each transparent name instead of only once from the root."""
-    if seen is None:
-        seen = set()
-    if not is_root:
-        name = bit_names.get(bit)
-        if name is not None and name not in transparent:
-            return {('!' if negated else '') + name}
-    if bit in seen:
-        return set()
-    seen.add(bit)
-    driver = bit_driver.get(bit)
-    if driver is None:
-        leaf = bit_names.get(bit, '<bit %d>' % bit)
-        return {('!' if negated else '') + leaf}
-    cname, cell = driver
-    ctype = cell['type']
-    if ctype in AND_TYPES or ctype in OR_TYPES:
-        leaves = set()
-        for ib in cell_input_bits(cell):
-            leaves |= bool_tree_leaves(bit_driver, bit_names, ib,
-                                        transparent, False, seen, negated)
-        return leaves
-    if ctype in NOT_TYPES:
-        ins = cell_input_bits(cell)
-        if len(ins) != 1:
-            return {'<%s:%s>' % (cname, ctype)}
-        return bool_tree_leaves(bit_driver, bit_names, ins[0], transparent,
-                                 False, seen, not negated)
-    return {'<%s:%s>' % (cname, ctype)}
-
-
 def main():
     argv = sys.argv[1:]
     if len(argv) > 1:
@@ -837,7 +662,7 @@ def main():
 
         name_bits = {name: data['bits']
                      for name, data in mod['netnames'].items()}
-        needed = (list(STALL_TARGETS) + [GATED_SIGNAL, GATE_TERM]
+        needed = (list(STALL_TARGETS) + [GATED_SIGNAL]
                   + list(REGION_STATE) + list(EXPECT_TAINTED))
         missing = sorted(set(n for n in needed if n not in name_bits))
         if missing:
@@ -878,60 +703,6 @@ def main():
         return 2
 
     failures = []
-
-    region_bit = name_bits[GATED_SIGNAL][0]
-    leaves, or_found = and_tree_leaves(bit_driver, bit_names, region_bit,
-                                        is_root=True)
-    if or_found:
-        failures.append(
-            '`%s` is driven by an OR at or above its own conjunction on the '
-            'elaborated netlist -- it has a top-level `||`, not just `&&`. '
-            'Every term feeding it is meant to be ANDed with `%s`; a term '
-            'joined by `||` instead can make `%s` assert whether or not '
-            '`%s` does.' % (GATED_SIGNAL, GATE_TERM, GATED_SIGNAL, GATE_TERM))
-    elif ('!' + GATE_TERM) in leaves:
-        failures.append(
-            '`%s`\'s AND-tree reaches `%s` only under NEGATION, as `!%s` --'
-            ' which asserts `%s` when `%s` is FALSE, the exact opposite of '
-            'the gate this check exists to verify. `%s` must appear '
-            'un-negated among %s\'s own AND-tree leaves.'
-            % (GATED_SIGNAL, GATE_TERM, GATE_TERM, GATED_SIGNAL, GATE_TERM,
-               GATE_TERM, GATED_SIGNAL))
-    elif GATE_TERM not in leaves:
-        failures.append(
-            '`%s` no longer conjoins `%s` on the elaborated netlist -- its '
-            'AND-tree bottoms out at %s. `%s` is the one stall reason '
-            'allowed to read a register-file DATA output, and only because '
-            '`%s` is false for every Zkt-listed instruction.'
-            % (GATED_SIGNAL, GATE_TERM, sorted(leaves), GATED_SIGNAL, GATE_TERM))
-
-    # The check above grades `ls_access` by NAME alone -- it never asks what
-    # `ls_access` itself resolves to. This walks `ls_access`'s own OR tree,
-    # past the two named intermediates in LS_ACCESS_TRANSPARENT, and requires
-    # the leaves it bottoms out at to equal LS_ACCESS_ENCODINGS exactly, in
-    # both directions: an encoding added to `ls_access` (`ls_access =
-    # instr_ls_load || instr_ls_store || instr_add`) is as red as one
-    # dropped from it.
-    ls_access_bit = name_bits[GATE_TERM][0]
-    ls_access_leaves = bool_tree_leaves(bit_driver, bit_names, ls_access_bit,
-                                         LS_ACCESS_TRANSPARENT, is_root=True)
-    extra = sorted(ls_access_leaves - LS_ACCESS_ENCODINGS)
-    missing_enc = sorted(LS_ACCESS_ENCODINGS - ls_access_leaves)
-    if extra or missing_enc:
-        detail = []
-        if extra:
-            detail.append('unexpected: %s' % ', '.join(extra))
-        if missing_enc:
-            detail.append('missing: %s' % ', '.join(missing_enc))
-        failures.append(
-            '`%s` no longer resolves to exactly its eight named base load '
-            'and store encodings on the elaborated netlist (%s). `%s` is '
-            'the one stall reason allowed to read a register-file DATA '
-            'output, and only because `%s` is true for exactly those '
-            'encodings (plus the compressed forms folded into `instr_lw`/'
-            '`instr_sw` behind their own `assign`), none of which is on '
-            'Zkt\'s list.'
-            % (GATE_TERM, '; '.join(detail), GATED_SIGNAL, GATE_TERM))
 
     # Full (unblocked) reachability is the anti-vacuity control: it is the
     # graph reg_rs1/reg_rs2 are KNOWN to reach in the real design, on the way
@@ -1015,8 +786,9 @@ def main():
         return 1
 
     print('%s: on the elaborated netlist, reg_rs1/reg_rs2/'
-          'executor_out.rd_data reach only %s among the stall reasons, and '
-          'it stays gated on %s.' % (decoder_path, GATED_SIGNAL, GATE_TERM))
+          'executor_out.rd_data reach only %s among the stall reasons '
+          '(its own gate is proved separately by make -C formal '
+          'components_decoder).' % (decoder_path, GATED_SIGNAL))
     print('ZKT STALL ISOLATION: PASS')
     return 0
 

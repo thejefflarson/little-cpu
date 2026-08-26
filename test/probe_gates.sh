@@ -29,7 +29,7 @@ REPO=$(cd "$HERE/.." && pwd)
 # Pinned as a literal: a probe that is deleted, or that stops being reached by
 # an early `return`, would otherwise cut this file's coverage while it kept
 # printing a green summary.
-PROBES_EXPECTED=545
+PROBES_EXPECTED=550
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -1477,28 +1477,6 @@ d=$(zkt_fixture)
 probe "control: the shipping decoder reaches region_stall only, gated" 0 \
   "reach only region_stall" "$ZKT $d/decoder.v"
 
-# THE GATE'S OWN SHAPE, first direction: the gate comes off, so region_stall
-# could now assert for any instruction rather than only a load or a store.
-d=$(zkt_fixture)
-sed -i.bak \
-  's/assign region_stall = ls_access && !ls_settled && !ls_answer_valid;/assign region_stall = !ls_settled \&\& !ls_answer_valid;/' \
-  "$d/decoder.v"
-probe "deleting the ls_access gate is red, at region_stall's own site" 1 \
-  "region_stall\` no longer conjoins \`ls_access\`" "$ZKT $d/decoder.v"
-
-# THE GATE'S OWN SHAPE, second direction: the `&&` chain is intact, but an
-# `||` term sits beside it. Precedence makes this an OR of the whole
-# conjunction with reg_rs1[0], which shows up on the elaborated netlist as an
-# `$_OR_` cell sitting directly on region_stall's own driving path --
-# whatever the source text's operator precedence was, and unlike an
-# RTL-text scan that only ever re-split the same string.
-d=$(zkt_fixture)
-sed -i.bak \
-  's/assign region_stall = ls_access && !ls_settled && !ls_answer_valid;/assign region_stall = ls_access \&\& !ls_settled \&\& !ls_answer_valid || reg_rs1[0];/' \
-  "$d/decoder.v"
-probe "an || term beside region_stall's && chain is red, not a silent pass" 1 \
-  "has a top-level \`||\`" "$ZKT $d/decoder.v"
-
 # FORWARD REACHABILITY, the plain case: a register-file DATA bit routed
 # straight into hazard, the way a forwarding path or a data-dependent
 # early-out might be added by someone who never meant to touch Zkt's claim.
@@ -1598,29 +1576,6 @@ sed -i.bak \
 probe "a new wide input port with no classification is red (finding 3)" 2 \
   "no Zkt classification" "$ZKT $d/decoder.v"
 
-# FINDING 4, first direction: check 2 (the gate's own shape) grades
-# `ls_access` by NAME alone -- it never asks what `ls_access` itself
-# resolves to. An encoding added straight into `ls_access`'s own OR carries
-# no register value, so check 1's taint walk never reaches it either, and
-# `ls_access` still names `ls_access` for check 2. This passed both checks,
-# silently, before check 4 existed.
-d=$(zkt_fixture)
-sed -i.bak \
-  's/assign ls_access = instr_ls_load || instr_ls_store;/assign ls_access = instr_ls_load || instr_ls_store || instr_add;/' \
-  "$d/decoder.v"
-probe "an encoding added to ls_access is red, naming it (finding 4)" 1 \
-  "unexpected: instr_add" "$ZKT $d/decoder.v"
-
-# FINDING 4, the other direction: an encoding dropped from ls_access's own
-# OR tree is as wrong as one added to it, wherever in the tree it is
-# dropped from -- here, one hop down, inside instr_ls_load's own definition.
-d=$(zkt_fixture)
-sed -i.bak \
-  's/assign instr_ls_load  = instr_lb || instr_lbu || instr_lh || instr_lhu || instr_lw;/assign instr_ls_load  = instr_lbu || instr_lh || instr_lhu || instr_lw;/' \
-  "$d/decoder.v"
-probe "an encoding dropped from ls_access is red, naming it (finding 4)" 1 \
-  "missing: instr_lb" "$ZKT $d/decoder.v"
-
 # FINDING 5: CONTROL_FIELDS' own written justification is entirely a width
 # argument, and nothing checked it. This is the load-bearing half: emptying
 # the table is red against the SHIPPING decoder.v with no mutation needed,
@@ -1662,59 +1617,6 @@ open(p, 'w').write(head.replace(old, '  logic [31:0]  rd;', 1) + tail)
 PYEOF
 probe "decoder_output.rd widened past 5 bits is red (finding 5)" 2 \
   "wider than a register NUMBER" "$ZKT $d/decoder.v"
-
-# FINDING 6, first direction: both leaf walks used to treat NOT as
-# polarity-preserving -- they recursed through a `$_NOT_` cell and returned
-# the child's leaf/or-flag UNCHANGED, so `!ls_access` read as the leaf
-# `ls_access` itself. This inverts the gate: region_stall would then assert
-# for every NON-load/store instruction, which is every Zkt-listed one, so
-# `add`/`xor`/`sll`/`mul` would stall or not depending on the VALUE in rs1.
-# Check 1 cannot see it (region_stall is blocked as a taint source) and the
-# anti-vacuity control still passes (region_stall stays reachable via
-# ls_settled), so this printed PASS over a real data-dependent-timing leak.
-d=$(zkt_fixture)
-sed -i.bak \
-  's/assign region_stall = ls_access && !ls_settled && !ls_answer_valid;/assign region_stall = !ls_access \&\& !ls_settled \&\& !ls_answer_valid;/' \
-  "$d/decoder.v"
-probe "region_stall gated on !ls_access is red, not a passing conjunction (finding 6)" 1 \
-  "reaches \`ls_access\` only under NEGATION" "$ZKT $d/decoder.v"
-
-# FINDING 6, the other direction: the same inversion one level down, in
-# ls_access's own definition rather than in region_stall's gate.
-d=$(zkt_fixture)
-sed -i.bak \
-  's/assign ls_access = instr_ls_load || instr_ls_store;/assign ls_access = !(instr_ls_load || instr_ls_store);/' \
-  "$d/decoder.v"
-probe "ls_access = !(instr_ls_load || instr_ls_store) is red (finding 6)" 1 \
-  "unexpected: !instr_" "$ZKT $d/decoder.v"
-
-# FINDING 6, the De Morgan spelling of the first direction: a NOT over the
-# WHOLE conjunction rather than over `ls_access` alone. This is a genuine
-# top-level `||` by De Morgan (`!(a && b) == !a || !b`), so it is graded by
-# the SAME check as an explicit `||` beside the `&&` chain, not by the
-# negated-leaf check above.
-d=$(zkt_fixture)
-sed -i.bak \
-  's/assign region_stall = ls_access && !ls_settled && !ls_answer_valid;/assign region_stall = !(ls_access \&\& !ls_settled \&\& !ls_answer_valid);/' \
-  "$d/decoder.v"
-probe "NOT over the whole region_stall conjunction is red as an OR (finding 6)" 1 \
-  "driven by an OR at or above its own conjunction" "$ZKT $d/decoder.v"
-
-# FINDING 7: the polarity fix (finding 6) computed is_and_here/is_or_here as
-# `(ctype in AND_TYPES) != negated`, which is True for ANY non-AND cell type
-# under odd polarity -- a MUX, an XOR, a comparator, an adder, anything
-# simplemap leaves whole -- so it got walked through as a pure conjunction
-# instead of terminating as the opaque leaf it correctly becomes at even
-# polarity. `!(ls_settled ? !ls_access : 1'b0)` describes `ls_settled ?
-# ls_access : 1'b1` -- region_stall asserts for EVERY instruction whenever
-# ls_settled is false, a real dependence on reg_rs1's value -- and used to
-# walk to leaves {ls_access, !ls_settled} with no OR found, passing clean.
-d=$(zkt_fixture)
-sed -i.bak \
-  "s/assign region_stall = ls_access && !ls_settled && !ls_answer_valid;/assign region_stall = !(ls_settled ? !ls_access : 1'b0);/" \
-  "$d/decoder.v"
-probe "a MUX cloaking region_stall's gate is red, not a clean AND-tree (finding 7)" 1 \
-  "no longer conjoins \`ls_access\`" "$ZKT $d/decoder.v"
 
 # THE OTHER DIRECTION: a classification whose port the netlist no longer
 # has. Unlike the probes above, the RTL is the shipping one and the SCRIPT
@@ -3544,6 +3446,124 @@ probe "no components.sby is exit 2, not a probe against an invented script" 2 \
 d=$(tr_fixture); sed -i.bak 's/^traps:$/trapsx:/' "$d/formal/components.sby"
 probe "a renamed task stops rather than probing some other design" 2 \
   "block under [script]" "$(trs "$d")"
+
+begin_group "formal/decoder-zkt-probe.py"
+
+# That file is itself the demonstrated red direction for rtl/decoder.v's two
+# Zkt-isolation assertions -- region_stall implies ls_access, and ls_access is
+# exactly the eight base load/store encodings -- and it needs a solver to be
+# one, so it runs under `make -C formal components_decoder` rather than here.
+# What is probed here is its own grading: it builds two mutated cores and
+# requires each to go red at one named line, and each of those comparisons has
+# a failure path of its own.
+#
+# The stub reads the tree it is handed and answers the way sby does, so the
+# control below is the real script over the real RTL with only the solver
+# replaced. A stub that answered from its arguments alone would make every
+# probe here a test of the stub.
+DZ="python3 $REPO/formal/decoder-zkt-probe.py"
+
+cat > "$tmp/sby-dz-stub" <<'STUB'
+#!/bin/sh
+# Stands in for sby. The case being run is the name of the directory it is run
+# in, and the assertion line is read out of the copy of decoder.v it was
+# handed, so PASS and FAIL land where the real solver puts them.
+mkdir -p probe
+case $(basename "$PWD") in
+  region-stall-ungated)
+    line=$(grep -n 'assert(!region_stall || ls_access);' src/decoder.v | cut -d: -f1)
+    status=${STUB_SBY_REGION:-FAIL}; line=${STUB_SBY_REGION_LINE:-$line} ;;
+  ls-access-extra)
+    line=$(grep -n 'assert(ls_access == (instr_lb ||' src/decoder.v | cut -d: -f1)
+    status=${STUB_SBY_ENCODING:-FAIL}; line=${STUB_SBY_ENCODING_LINE:-$line} ;;
+esac
+: > probe/logfile.txt
+if [ "$status" = FAIL ]; then
+  echo "SBY [probe] engine_0.basecase: Assert failed in decoder: decoder.v:$line.5-$line.36" \
+    > probe/logfile.txt
+fi
+[ -n "${STUB_SBY_NO_STATUS:-}" ] && exit 1
+if [ -n "${STUB_SBY_EMPTY_STATUS:-}" ]; then : > probe/status; exit 1; fi
+echo "$status 2 0" > probe/status
+STUB
+chmod +x "$tmp/sby-dz-stub"
+
+dz_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/rtl" "$d/formal"
+  cp "$REPO"/rtl/structs.v "$REPO"/rtl/decoder.v "$REPO"/rtl/regsel.v "$d/rtl/"
+  cp "$REPO"/formal/components.sby "$d/formal/"
+  printf '%s' "$d"
+}
+
+dzs() { printf "%s --repo %s --workdir %s/work --sby %s" "$DZ" "$1" "$1" "$tmp/sby-dz-stub"; }
+
+d=$(dz_fixture)
+probe "control: both Zkt-isolation assertions fail, each at its own line" 0 \
+  "Both Zkt-isolation assertions fail for their own reason" "$(dzs "$d")"
+
+# THE TWO THAT MATTER: an assertion that cannot fail is the whole reason this
+# file exists.
+d=$(dz_fixture)
+probe "an ungated region_stall proving is red" 1 \
+  "the region-stall-ungated core proves" "STUB_SBY_REGION=PASS $(dzs "$d")"
+
+d=$(dz_fixture)
+probe "an ls_access with an extra encoding proving is red" 1 \
+  "the ls-access-extra core proves" "STUB_SBY_ENCODING=PASS $(dzs "$d")"
+
+d=$(dz_fixture)
+probe "the gate proof going red somewhere else is not evidence" 1 \
+  "which does not include line" "STUB_SBY_REGION_LINE=9 $(dzs "$d")"
+
+d=$(dz_fixture)
+probe "the encoding proof going red somewhere else is not evidence either" 1 \
+  "which does not include line" "STUB_SBY_ENCODING_LINE=9 $(dzs "$d")"
+
+d=$(dz_fixture)
+probe "a solver that wrote no verdict is exit 2, not a red arm" 2 \
+  "wrote no status for the" "STUB_SBY_NO_STATUS=1 $(dzs "$d")"
+
+d=$(dz_fixture)
+probe "an empty status file is refused rather than read as a verdict" 2 \
+  "status file for the region-stall-ungated core is empty" \
+  "STUB_SBY_EMPTY_STATUS=1 $(dzs "$d")"
+
+# The two parses. Each one is what the probe pins its answer to, so a
+# respelling has to stop the run rather than quietly probe nothing.
+d=$(dz_fixture)
+sed -i.bak 's/assert(!region_stall || ls_access);/assert(!region_stall || ls_access == 1);/' \
+  "$d/rtl/decoder.v"
+probe "a respelled gate assertion stops rather than pinning nothing" 2 \
+  "states \`assert(!region_stall || ls_access);\` 0 times" "$(dzs "$d")"
+
+d=$(dz_fixture)
+sed -i.bak "s/assign region_stall = ls_access && !ls_settled && !ls_answer_valid;/assign region_stall = ls_access \&\& !ls_settled\&\& !ls_answer_valid;/" \
+  "$d/rtl/decoder.v"
+probe "a respelled region_stall site stops rather than building the shipping core twice" 2 \
+  "no longer spells what the region-stall-ungated mutation replaces" "$(dzs "$d")"
+
+d=$(dz_fixture)
+sed -i.bak "s/assign ls_access = instr_ls_load || instr_ls_store;/assign ls_access = instr_ls_load||instr_ls_store;/" \
+  "$d/rtl/decoder.v"
+probe "a respelled ls_access site stops rather than building the shipping core twice" 2 \
+  "no longer spells what the ls-access-extra mutation replaces" "$(dzs "$d")"
+
+d=$(dz_fixture); rm "$d/rtl/decoder.v"
+probe "the RTL moving away takes the probe with it, loudly" 2 \
+  "rtl/decoder.v is missing from" "$(dzs "$d")"
+
+# The script is READ from formal/components.sby rather than copied into these
+# probes, the same reasoning traps-region-probe.py's own two probes below
+# apply: a probe built against an invented script proves a design the shipping
+# task does not build, and says so with a green control.
+d=$(dz_fixture); rm "$d/formal/components.sby"
+probe "no components.sby is exit 2, not a probe against an invented script" 2 \
+  "formal/components.sby is missing" "$(dzs "$d")"
+
+d=$(dz_fixture); sed -i.bak 's/^decoder:$/decoderx:/' "$d/formal/components.sby"
+probe "a renamed task stops rather than probing some other design" 2 \
+  "block under [script]" "$(dzs "$d")"
 
 begin_group "formal/traps-tval-probe.py"
 
