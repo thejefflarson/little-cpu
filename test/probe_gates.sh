@@ -50,7 +50,6 @@ if [ -z "$tmp" ] || [ ! -d "$tmp" ]; then
 fi
 trap 'rm -rf "$tmp"' EXIT
 
-probes=0
 probe_labels=()
 failed=0
 group=""
@@ -77,7 +76,6 @@ begin_group() {
 # probe <label> <expected-exit> <expected-text> <shell-snippet>
 probe() {
   local label=$1 want_exit=$2 want_text=$3 snippet=$4
-  probes=$((probes + 1))
   probe_labels+=("$label")
   local out rc
   set +e
@@ -5010,7 +5008,7 @@ probe "a real archive missing one vendored member is caught, and named" 2 \
 # exactly which label is missing or extra rather than reporting a mismatched
 # total with nothing to point at.
 actual_labels=$(printf '%s\n' "${probe_labels[@]}" | LC_ALL=C sort)
-expected_labels=$(grep -v '^#' "$PROBES_MANIFEST" | grep -v '^[[:space:]]*$' | LC_ALL=C sort)
+expected_labels=$(grep -vE '^#|^[[:space:]]*$' "$PROBES_MANIFEST" | LC_ALL=C sort)
 if [ "$actual_labels" != "$expected_labels" ]; then
   echo "error: the probes that ran do not match $PROBES_MANIFEST." >&2
   echo "A probe was added, removed, renamed, or skipped by an early return." >&2
@@ -5029,4 +5027,4 @@ if [ "$failed" -ne 0 ]; then
 fi
 
 printf "  (%ss)\n" "$((SECONDS - group_started))"
-echo "$probes graded comparisons, every failure path executed."
+echo "${#probe_labels[@]} graded comparisons, every failure path executed."
