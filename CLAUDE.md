@@ -691,9 +691,12 @@ and times; `make ecp5-timing` is that same SoC on the other part.
   a branch predictor); its iCE40/iCEBreaker build has none of those, and quoting the RP2350 figure
   against an ice40 core is the mixed-configuration error ADR-0098 already has a name for.
 - **The only cross-core comparison that means anything is one harness**, and `soc/compare/` is it:
-  same part, memories, program, toolchain and seeds, this core against the VexRiscv Verilog in the
-  pinned riscv-formal clone. **Both factors of throughput are measured there, neither is quoted from
-  a README, and a product is only a measurement when both of its factors were taken on one tree** —
+  same part, memories, program, toolchain and seeds, this core against two others — the VexRiscv
+  Verilog in the pinned riscv-formal clone, and Hazard3's iCE40 build, pinned separately by
+  `soc/compare/hazard3_pin.mk` (ADR-0139). What follows through the DMIPS product below is the
+  VexRiscv comparison specifically — **both factors of throughput are measured there, neither is
+  quoted from a README, and a product is only a measurement when both of its factors were taken on
+  one tree** —
   the cycle half is the one that moves, and it left the last product stale inside a day. Re-taken
   together on `be293ff`, five placements a side: the gap on **clock** is **1.48×, not the 3× two
   separately-published numbers suggested** (32.61 MHz here against 48.19 there, worst of five, and
@@ -711,11 +714,17 @@ measurement, which is the rule this very paragraph exists to enforce. **Their
   and 4 KB of ROM — so quote it with what it is. Dhrystone needs 26 of that part's 32 block RAMs
   before either core's own 4 and 18, so those cycles are **simulated at a larger map than the clock
   was placed at**; that and eight more distortions are listed in ADR-0098, and
-  `make compare-dhrystone` prints the block arithmetic every run. **A harness whose outputs do not
+  `make compare-dhrystone` prints the block arithmetic every run — VexRiscv only; Hazard3's cycle
+  factor is not built (below). **A harness whose outputs do not
   depend on the datapath measures nothing**: an all-NOP ROM placed 449 cells of a 1711-cell core and
   reported a critical path, so `soc/compare/placed_vs_synth.py` grades the placed count against the
-  core's own synthesis, `make compare-smoke` requires both cores to publish the same values, and the
-  Dhrystone run compares the two cores' whole data RAMs word for word. **That stimulus is a
+  core's own synthesis, and `make compare-smoke` requires all three cores to publish the same
+  values — **this is not a formality**: the first version of Hazard3's own bus adapter fed a
+  write's data to memory on the same cycle as its address, which AHB5 does not guarantee, so
+  Hazard3 published three all-X words where the other two published real ones. Without that
+  three-way check the harness would have measured a core whose every store was corrupt and
+  reported a perfectly plausible clock number beside it (ADR-0139). The Dhrystone run compares the
+  two cores' whole data RAMs word for word. **That stimulus is a
   live control on one side only**: a NOP image makes every ROM word identical, which collapses
   VexRiscv's read-only array and most of its core with it — still red at 0.64×, weaker than the
   0.26× that founded the gate — while this harness's instruction memory is written by the design, so
@@ -727,6 +736,23 @@ measurement, which is the rule this very paragraph exists to enforce. **Their
   sixth of the core.
   **That harness gives VexRiscv no data path to its ROM** — a load from a ROM address reads zero
   there — so anything run in it keeps its read-only data out of ROM until that is fixed.
+- **Hazard3's iCE40 build is the third core in the harness, and only its clock factor is
+  measured** — its `CSR_COUNTER=0` configuration has no `mcycle`, so it cannot self-time a
+  CoreMark run the way `mcycle`/`minstret` let this core do and `soc/compare/dhry_tb.v`'s marker
+  count lets VexRiscv's own CSR-free configuration do; that half is not built, so there is no
+  cycle figure to multiply the clock by and **no product to quote for this pair, in either
+  direction** (ADR-0139). Five placements a side, same part, memories, program and seeds as the
+  VexRiscv comparison: littlecpu's worst is 30.90 MHz, median 32.01, best 32.69, placed/standalone
+  ratio 1.11×; Hazard3's iCE40 configuration is 32.60 MHz worst, 33.63 median, 33.89 best, ratio
+  0.95× — **1.06× at the worst placement, 1.05× at the median**. Read the ratio as area context
+  (Hazard3's iCE40 build is roughly half this core's cell count, mostly for lacking a bitmanip
+  extension, a branch predictor and this core's parallel multiplier), not as the clock's
+  explanation — neither core's critical path was walked for this comparison. Five seeds is a
+  look, not a verdict, the same qualifier the rest of this
+  file holds every comparison to: `SOC_MIN_MHZ`'s own convention wants twelve to sixteen before
+  reading a gap this size as settled, and that sweep has not been run. The pre-fix adapter — see
+  the AHB bug above — reported a *larger* gap, 33.08 MHz worst, so the defect had been flattering
+  this core rather than the other way round.
 - **Taking the instruction memory out of that fetch loop is priced and declined** (ADR-0087). A
   synchronous memory leaves a combinational loop only behind a register, and a register in the fetch
   loop is a fetch stage — so "the memory out" and "the depth curve" are one experiment. Measured over
@@ -972,12 +998,14 @@ make netlist-digest # the mapped netlist's digest -- the shipping synth script
                     # netlist-determinism is a prerequisite of both, the way
                     # pcloop_cover is of pcloop: it places three bitstreams and
                     # compares bytes. Replaces a sweep, never a gate. Not on CI
-make compare-timing # this core and VexRiscv in ONE hx8k harness; COMPARE_CORE
-                    # picks the side, soc/compare/sweep.sh runs both over seeds.
-                    # A measurement, not a gate -- but the placed-vs-synthesised
+make compare-timing # this core, VexRiscv and Hazard3's iCE40 build in ONE hx8k
+                    # harness; COMPARE_CORE picks among the three,
+                    # soc/compare/sweep.sh's COMPARE_CORES sweeps whichever
+                    # subset over seeds (littlecpu and vexriscv by default). A
+                    # measurement, not a gate -- but the placed-vs-synthesised
                     # check inside it is graded
-make compare-smoke  # both harnesses run the one image in iverilog and must
-                    # publish the same values; says the netlist RUNS
+make compare-smoke  # all three harnesses run the one image in iverilog and
+                    # must publish the same values; says the netlist RUNS
 make compare-dhrystone  # the other factor: Dhrystone on BOTH cores, one image,
                     # one simulation -> DMIPS/MHz each. Simulated at a larger map
                     # than compare-timing places; COMPARE_DHRY_MHZ adds the
@@ -1044,6 +1072,11 @@ only pinned tool. CI runs on every PR (`.github/workflows/ci.yml`); read the req
 - **No ticket IDs in code, comments, ADRs, docs, or commit messages.** Cite the ADR, the commit
   SHA, or just say the reason. PR titles and descriptions are the exception — a ticket ID there
   buys automatic closing and rots nothing in the repo.
+- **`git config --local` in a worktree writes the checkout's one shared `.git/config`, not a
+  copy scoped to that worktree**, and every other engineer's concurrent worktree reads the same
+  file. With several engineers working in parallel worktrees, a config change meant to be local
+  to one is live in all of them until it is unset. Use a fully isolated clone instead of a
+  worktree for anything that needs its own git config.
 - Prefer verified/first-party GitHub Actions; simplest approach unless asked otherwise.
 
 ## State
