@@ -33,6 +33,15 @@
 # its own instead -- `--work-tree` keeps every path resolved against $REPO,
 # so a real .gitignore anywhere in it still matches exactly as before.
 #
+# A THIRD source reaches that same throwaway repository: `git init --bare`
+# itself honours `init.templateDir`, and a template directory holding its own
+# `info/exclude` is copied into the fresh `$GIT_DIR` -- measured the same way,
+# with a template naming a tracked path. `--template=` pointed at an empty
+# directory answers it; git-init(1)'s TEMPLATE DIRECTORY section orders the
+# three sources `--template` above `$GIT_TEMPLATE_DIR` above
+# `init.templateDir`, so `-c init.templateDir=` would still lose to a
+# developer's own `$GIT_TEMPLATE_DIR`.
+#
 # A hit here is never a matter of taste: a tracked-and-ignored file is either a
 # dead rule (the file was committed first) or a commit that should not have
 # happened (the rule was there first and something bypassed it with
@@ -66,8 +75,13 @@ fi
 
 # A bare repository with no info/exclude of its own, so the check below can be
 # pointed at it in place of $REPO's real $GIT_DIR -- see the note above.
+# --template= names an empty directory so `git init --bare` cannot pick one
+# up out of a developer's own init.templateDir or $GIT_TEMPLATE_DIR and copy
+# an info/exclude of ITS OWN into the throwaway repository it just isolated.
+notemplate="$tmp/no-template"
+mkdir -p "$notemplate"
 noexclude="$tmp/no-info-exclude"
-if ! git init -q --bare "$noexclude" > /dev/null 2> "$tmp/init-err"; then
+if ! git init -q --bare --template="$notemplate" "$noexclude" > /dev/null 2> "$tmp/init-err"; then
   echo "error: could not create a throwaway git directory under $tmp to" >&2
   echo "isolate the check from this developer's \$GIT_DIR/info/exclude:" >&2
   cat "$tmp/init-err" >&2

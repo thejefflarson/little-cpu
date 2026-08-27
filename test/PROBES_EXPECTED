@@ -420,7 +420,9 @@ control: a peripheral above the reserved span is accepted
 control: a placement holding the whole core is green
 control: a report clearing the floor is green
 control: a rule from this clone's $GIT_DIR/info/exclude is not this repository's to grade
+control: a rule from this developer's $GIT_TEMPLATE_DIR is not this repository's to grade
 control: a rule from this developer's core.excludesFile is not this repository's to grade
+control: a rule from this developer's init.templateDir is not this repository's to grade
 control: a stamped sweep summarises
 control: a stamped sweep with its reports behind it is binned
 control: a suite matching its manifest is green
