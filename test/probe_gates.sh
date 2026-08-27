@@ -2914,6 +2914,24 @@ git -C "$d" add -f excluderule.json
 probe "control: a rule from this clone's \$GIT_DIR/info/exclude is not this repository's to grade" 0 \
   "tracked files, none matching a .gitignore rule" "$TI $d"
 
+# A THIRD such source: a developer's own init.templateDir. `git init --bare`
+# copies a template directory's contents -- including an info/exclude of its
+# own -- into the fresh $GIT_DIR the check builds to isolate itself from the
+# CLONE's info/exclude, so a rule sitting in the template reaches that same
+# throwaway repository unless something stops it. GIT_CONFIG_GLOBAL, scoped
+# to this one probe invocation, stands in for that developer's real global
+# config without touching this session's.
+d=$(ti_fixture)
+template=$(new_case)/hostile-template
+mkdir -p "$template/info"
+printf 'templaterule.json\n' > "$template/info/exclude"
+printf 'built\n' > "$d/templaterule.json"
+git -C "$d" add -f templaterule.json
+hostileconf=$(new_case)/hostile-gitconfig
+printf '[init]\n\ttemplateDir = %s\n' "$template" > "$hostileconf"
+probe "control: a rule from this developer's init.templateDir is not this repository's to grade" 0 \
+  "tracked files, none matching a .gitignore rule" "GIT_CONFIG_GLOBAL='$hostileconf' $TI $d"
+
 begin_group "test/march_test.sh"
 
 # A COPY OF THE SHIPPING FILES again, plus a `git init` over it, for the reasons
