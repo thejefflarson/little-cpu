@@ -121,4 +121,12 @@ after the run (never committed):
 - Deleting or renaming a probe requires removing or updating its manifest line by hand, the same
   discipline `test/EXPECTED_FAIL` already imposes — not enforced by tooling beyond the exact-match
   check itself, which is the same level of enforcement the scalar had.
+- `test/band_source_test.py`'s `EXEMPT_FILES` gains the manifest, for the reason
+  `test/probe_gates.sh` is already on that list: the manifest holds that script's labels
+  verbatim, so the same strings are scanned twice. One shipping label names the churn band
+  and another carries a percentage; the checker fires on a percentage within three lines of
+  "churn" or "spread", and the two sit apart only because the file is sorted and a future
+  label's alphabetical neighbours are nobody's choice. Measured both ways before the
+  exemption was added: a percentage-carrying label inserted beside the churn one is red
+  without it and green with it.
 - No RTL changed; `make netlist-digest` is unaffected.

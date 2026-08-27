@@ -54,8 +54,14 @@ SOURCE = "soc/bands.py"
 
 # The figures live in the source, so the source is imported rather than parsed.
 # A checker with its own copy of the numbers would be the seventh copy.
+# test/PROBES_EXPECTED is exempt for test/probe_gates.sh's own reason: it holds
+# that script's probe labels verbatim, so the same strings are scanned twice and
+# an exemption that covered only one of the two files would be inconsistent by
+# accident. One shipping label already names the churn band and another already
+# carries a percentage; they are apart today only because the file is sorted and
+# nobody chooses a future label's alphabetical neighbours.
 EXEMPT_FILES = {SOURCE, "CLAUDE.md", "test/band_source_test.py",
-                "test/probe_gates.sh"}
+                "test/probe_gates.sh", "test/PROBES_EXPECTED"}
 EXEMPT_PREFIXES = ("docs/adr/", "docs/ideas/")
 
 # A band figure is a percentage. Ranges are written with a hyphen or an en dash
