@@ -2932,6 +2932,22 @@ printf '[init]\n\ttemplateDir = %s\n' "$template" > "$hostileconf"
 probe "control: a rule from this developer's init.templateDir is not this repository's to grade" 0 \
   "tracked files, none matching a .gitignore rule" "GIT_CONFIG_GLOBAL='$hostileconf' $TI $d"
 
+# The SAME template, delivered by the MIDDLE rung of git-init(1)'s precedence
+# instead of the bottom one. Two things only this direction grades: it needs no
+# git-version support, where GIT_CONFIG_GLOBAL above is honoured only from
+# 2.32, so on an older git that probe passes having demonstrated nothing; and
+# it is the rung that decides the FLAG. Measured, not read off the manual: a
+# `-c init.templateDir=` on the init line does not defeat $GIT_TEMPLATE_DIR
+# and `--template=` does, which is why the check spells it the second way.
+d=$(ti_fixture)
+template=$(new_case)/hostile-env-template
+mkdir -p "$template/info"
+printf 'envtemplaterule.json\n' > "$template/info/exclude"
+printf 'built\n' > "$d/envtemplaterule.json"
+git -C "$d" add -f envtemplaterule.json
+probe "control: a rule from this developer's \$GIT_TEMPLATE_DIR is not this repository's to grade" 0 \
+  "tracked files, none matching a .gitignore rule" "GIT_TEMPLATE_DIR='$template' $TI $d"
+
 begin_group "test/march_test.sh"
 
 # A COPY OF THE SHIPPING FILES again, plus a `git init` over it, for the reasons
