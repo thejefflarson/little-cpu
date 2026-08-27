@@ -18,18 +18,27 @@
 # machine without it. It is otherwise all fork and no work, so the wall time is
 # the host's property rather than this file's.
 #
-# Four failure paths need the elaborated design or the pinned clone and are
-# demonstrated by hand instead: test/cxxrtl.cc's exits 4 and 5, test/cosim.cc's
-# divergence check, and genchecks-audit.py's three set equalities.
+# Five failure paths are demonstrated by hand instead of by a `probe` call:
+# four because they need the elaborated design or the pinned clone --
+# test/cxxrtl.cc's exits 4 and 5, test/cosim.cc's divergence check, and
+# genchecks-audit.py's three set equalities -- and a fifth because it is this
+# file's OWN coverage ratchet against test/PROBES_EXPECTED, at the bottom: a
+# `probe` call cannot grade the gate that runs after every `probe` call has
+# already run without this file invoking itself.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/.." && pwd)
 
-# Pinned as a literal: a probe that is deleted, or that stops being reached by
-# an early `return`, would otherwise cut this file's coverage while it kept
-# printing a green summary.
-PROBES_EXPECTED=586
+# The coverage ratchet: every probe's label, checked against test/PROBES_EXPECTED
+# under set equality in both directions -- see that file's header. A probe that
+# is deleted, or that stops being reached by an early `return`, would otherwise
+# cut this file's coverage while it kept printing a green summary.
+PROBES_MANIFEST="$HERE/PROBES_EXPECTED"
+if [ ! -f "$PROBES_MANIFEST" ] || [ ! -r "$PROBES_MANIFEST" ]; then
+  echo "error: manifest '$PROBES_MANIFEST' does not exist or is not readable." >&2
+  exit 1
+fi
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
@@ -42,6 +51,7 @@ fi
 trap 'rm -rf "$tmp"' EXIT
 
 probes=0
+probe_labels=()
 failed=0
 group=""
 
@@ -68,6 +78,7 @@ begin_group() {
 probe() {
   local label=$1 want_exit=$2 want_text=$3 snippet=$4
   probes=$((probes + 1))
+  probe_labels+=("$label")
   local out rc
   set +e
   out=$(eval "$snippet" 2>&1)
@@ -4993,10 +5004,20 @@ rv_curl_stub "$d/bin" "$d/upstream.tar.gz"
 probe "a real archive missing one vendored member is caught, and named" 2 \
   "MISSING upstream: coremark.md5" "$(rv "$d/bin")"
 
-if [ "$probes" -ne "$PROBES_EXPECTED" ]; then
-  echo "error: ran $probes probes, expected $PROBES_EXPECTED." >&2
-  echo "A probe was added or removed. Update PROBES_EXPECTED in the same commit;" >&2
-  echo "the literal is what stops this file quietly covering less than it did." >&2
+# A probe's label is compared against the checked-in manifest as a MULTISET
+# (sorted, duplicates kept), never reduced to a bare count first: a count can
+# stay right while one probe is swapped for an unrelated one, and `diff` names
+# exactly which label is missing or extra rather than reporting a mismatched
+# total with nothing to point at.
+actual_labels=$(printf '%s\n' "${probe_labels[@]}" | LC_ALL=C sort)
+expected_labels=$(grep -v '^#' "$PROBES_MANIFEST" | grep -v '^[[:space:]]*$' | LC_ALL=C sort)
+if [ "$actual_labels" != "$expected_labels" ]; then
+  echo "error: the probes that ran do not match $PROBES_MANIFEST." >&2
+  echo "A probe was added, removed, renamed, or skipped by an early return." >&2
+  echo "Update test/PROBES_EXPECTED in the same commit -- '<' is a label the" >&2
+  echo "manifest has that this run did not reach, '>' is one this run reached" >&2
+  echo "that the manifest does not name:" >&2
+  diff <(printf '%s\n' "$expected_labels") <(printf '%s\n' "$actual_labels") >&2 || true
   exit 1
 fi
 
