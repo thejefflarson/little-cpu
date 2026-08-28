@@ -213,3 +213,52 @@ the other direction.
 the decoder_tb vectors, the `.S` program, the `OBSERVED_FLOOR` line and the formal exclusion all come
 back out, per the ADR-0100/0101/0113/0131 convention that a probe is a measurement and not a feature.
 What survives is this record.
+
+## Amendment 1 — the cost is the functions' own LUT floor, and the period was the spelling (2026-08-28)
+
+At integration the four-flag spelling was challenged: the four encodings share one
+opcode/funct3/funct7 triple and differ only in a 2-bit field, so if the cost above is really the
+decode row and op-select slot, a one-flag spelling should flatten it. It was built — one
+`is_sha256` row flag gated on `instr[24:22] == 0`, a 2-bit `sha_sel <= instr[21:20]` carried
+beside it, the executor picking among the same four XOR networks off the select — on the same
+toolchain, after first reproducing both endpoints above exactly (base `fit` 4109, four-flag 4300).
+The whole suite passed with it, 75/75, `test/asm/sha256.S`'s spec-derived vectors included, and it
+was reverted after measuring, per the same convention.
+
+**Area does not flatten: 4296 against the four-flag 4300, a null at the ±50 band.** The four op
+flags were never the cost. What is: synthesised standalone for ice40 — no decoder, no fetch loop,
+nothing else in the module — one σ/Σ function is exactly **32 `SB_LUT4`, one LUT per output bit**,
+the same floor ADR-0119 measured for the AMO's bitwise arms; the four functions plus their
+four-way select are **187**; the two Σs plus a two-way select are **96**. Against the +191 `fit`
+cells and +242 pre-place `SB_LUT4` the probe measured in the whole core, the XOR datapath is the
+whole bill. A constant rotate is wiring; a three-input XOR is not. The sentence above attributing
+the cost to the decode row and op-select slot in a cone carrying roughly forty other flags does not
+survive this measurement — and neither does the growing-marginal reading, or this record's own
+title. The marginals (+23, +36, +63, +69) are differences of single `fit` runs on an instrument
+whose churn band is about ±50 cells, and their mean, 47.75 per instruction, is the flat floor
+187/4 ≈ 47. Four points drifting monotonically inside the band are churn, by this repo's own rule
+that a delta inside the band is not evidence of anything.
+
+**The period cost was the text, not the instructions.** Sixteen paired seeds of the one-flag
+spelling, against a base sweep that reproduces this record's own base column seed for seed: worst
+**−2.61%** (80.73 ns, 12.39 MHz — faster than the base's own worst), median +0.39%, best +1.07%,
+9 of 16 seeds slower, sign test p = 0.804, and **0 of 16 placements under 12.00 MHz** where the
+four-flag text lost one. That is ADR-0106's spelling-dependence showing up at the sweep level: two
+texts of the same four instructions, one a decline signature and one a null. "One placement misses
+the board clock" above is a fact about the four-flag text. (`littlesoc`'s packed count reads the
+other way from `fit` between the two spellings — 5259 against 5183 — the two tops disagreeing at
+the band, which ADR-0094 says to read as churn.)
+
+**The sum0/sum1 subset does not fit either: `fit` 4225 against the 4219 budget.** The compression
+loop's two Σ functions, spelled the one-flag way, consume the entire remaining headroom and land
+within re-mapping churn of the ratchet line — not affordable without raising `FIT_MAX_LC` for
+cause, and the area ceilings say the named blocks are already closed for cells. No separate sweep
+was taken for it; the all-four null above bounds a strictly smaller change of the same spelling,
+which is an inference and labelled as one.
+
+**What stands: Zknh stays dead on this part, on harder ground than the Decision gives.** An
+implementation artifact could have been re-spelled away; a one-LUT-per-output-bit floor cannot.
+Ten opcodes of this shape are roughly 320 cells of function alone against the ~110 the budget
+leaves, whatever the decoder says — and the SHA-512 six are wider still. What falls is the
+mechanism paragraph, the growing-marginal claim, and the period half of the verdict: a
+period-clean spelling of all four exists, so the wall is area, and only area.
