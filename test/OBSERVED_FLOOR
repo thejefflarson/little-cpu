@@ -188,6 +188,7 @@ rvc.S               184    184
 sb.S                394    394
 selfmod.S            47     44
 sh.S                447    447
+sha256.S             360    312   # riscv-formal has no spec model for Zknh; the gap is the sha256 retires themselves
 simple.S              4      4
 sll.S               456    456
 slli.S              204    204
