@@ -121,15 +121,6 @@ typedef struct packed {
   logic        is_xor;
   logic        is_or;
   logic        is_and;
-  // Zknh's SHA-256 half, a cost probe: rd = f(rs1), one function per flag.
-  // rtl/decoder.v hands rs1 through unshifted, the same as every other arm
-  // here; rtl/executor.v is the one reader, and each function is a constant
-  // rotate -- wiring, not a barrel shifter -- XORed three ways, so nothing
-  // here carries a shift amount or reads rs2.
-  logic        is_sha256sig0;
-  logic        is_sha256sig1;
-  logic        is_sha256sum0;
-  logic        is_sha256sum1;
   logic        is_mul;
   logic        is_mulh;
   logic        is_mulhu;

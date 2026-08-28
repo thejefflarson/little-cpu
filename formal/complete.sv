@@ -203,18 +203,7 @@ module rvfi_testbench (
   //   two-cycle memory report against the pinned rvfi_dmem_check.
   wire exclude_amo = insn_uncompressed && insn_opcode == 7'b0101111;
 
-  // EXCLUDE OP-IMM-SHA256 0010011/001/0001000 sha256sig0 sha256sig1 sha256sum0 sha256sum1
-  //   No spec model at the pin for any of the four -- Zknh is not in
-  //   isa_rv32imc.txt. All four share one row of OP-IMM's funct3 001, told
-  //   apart from each other by the field a normal R-type reads as rs2, so one
-  //   opcode/funct3/funct7 predicate excuses all four rather than needing
-  //   four. What checks them instead is this repo's own assertions:
-  //   test/decoder_tb.v vectors the four encodings and test/asm/sha256.S
-  //   self-checks each function's value against the ratified spec's own
-  //   ror32/xor definition.
-  wire exclude_op_imm_sha256 = insn_uncompressed && insn_opcode == 7'b0010011 && insn_funct3 == 3'b001 && insn_funct7 == 7'b0001000;
-
-  wire insn_excluded = exclude_misc_mem || exclude_system || exclude_amo || exclude_op_imm_sha256;
+  wire insn_excluded = exclude_misc_mem || exclude_system || exclude_amo;
 
   // There is no compressed entry, and that is a result. The one compressed
   // encoding this core implements that isa_rv32imc.txt does not name is C.EBREAK

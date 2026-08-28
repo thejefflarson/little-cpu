@@ -331,42 +331,6 @@ module decoder_tb;
     check_hex("...and so is a compressed left shift's", dut.math_arg, 32'd13);
     reg_rs2 = 32'b0;
 
-    // Zknh's SHA-256 half, a cost probe: one funct7 row of OP-IMM's funct3
-    // 001, told apart from slli's (funct7 0000000) and from each other by the
-    // field a normal R-type reads as rs2. Single-operand, so out.rs2's value
-    // is unconstrained here -- only rs1 and the issuing flag matter.
-    reg_rs1 = 32'h1234_5678;
-    present_and_fetch(32'h1020_9193);   // sha256sig0 x3, x1
-    check_bit("sha256sig0 decodes", dut.instr_sha256sig0, 1'b1);
-    check_bit("...and not as slli", dut.instr_slli, 1'b0);
-    check_bit("...nor as any of the other three", dut.instr_sha256sig1, 1'b0);
-    @(posedge clk);
-    #1;
-    check_bit("...issuing with its own flag", out.is_sha256sig0, 1'b1);
-    check_hex("...rs1 unshifted", out.rs1, 32'h1234_5678);
-
-    present_and_fetch(32'h1030_9193);   // sha256sig1 x3, x1
-    check_bit("sha256sig1 decodes", dut.instr_sha256sig1, 1'b1);
-    check_bit("...and not as sig0", dut.instr_sha256sig0, 1'b0);
-    @(posedge clk);
-    #1;
-    check_bit("...issuing with its own flag", out.is_sha256sig1, 1'b1);
-
-    present_and_fetch(32'h1000_9193);   // sha256sum0 x3, x1
-    check_bit("sha256sum0 decodes", dut.instr_sha256sum0, 1'b1);
-    check_bit("...and not as sum1", dut.instr_sha256sum1, 1'b0);
-    @(posedge clk);
-    #1;
-    check_bit("...issuing with its own flag", out.is_sha256sum0, 1'b1);
-
-    present_and_fetch(32'h1010_9193);   // sha256sum1 x3, x1
-    check_bit("sha256sum1 decodes", dut.instr_sha256sum1, 1'b1);
-    check_bit("...and not as sum0", dut.instr_sha256sum0, 1'b0);
-    @(posedge clk);
-    #1;
-    check_bit("...issuing with its own flag", out.is_sha256sum1, 1'b1);
-    reg_rs1 = 32'b0;
-
     // The compressed group that shares one quadrant and funct3 and is told
     // apart by the two fields above them, each decoded off a different width of
     // that prefix: c.andi off funct3, c.sub off funct6.

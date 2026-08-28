@@ -41,17 +41,6 @@ module executor(
   assign shift_wide = $signed({shift_fill, shift_src}) >>> rs2[4:0];
   assign shift_res  = shift_wide[31:0];
 
-  // Zknh's SHA-256 half, a cost probe: XOR of three constant rotates apiece,
-  // rd = f(rs1) for the four functions the ratified spec names. A constant
-  // rotate is wiring -- {rs1[n-1:0], rs1[31:n]} -- so nothing here is a
-  // shifter or an adder; the question this probe measures is what a
-  // three-input XOR per output bit costs with no arithmetic behind it.
-  logic [31:0] sha256sig0_res, sha256sig1_res, sha256sum0_res, sha256sum1_res;
-  assign sha256sig0_res = {rs1[6:0], rs1[31:7]} ^ {rs1[17:0], rs1[31:18]} ^ (rs1 >> 3);
-  assign sha256sig1_res = {rs1[16:0], rs1[31:17]} ^ {rs1[18:0], rs1[31:19]} ^ (rs1 >> 10);
-  assign sha256sum0_res = {rs1[1:0], rs1[31:2]} ^ {rs1[12:0], rs1[31:13]} ^ {rs1[21:0], rs1[31:22]};
-  assign sha256sum1_res = {rs1[5:0], rs1[31:6]} ^ {rs1[10:0], rs1[31:11]} ^ {rs1[24:0], rs1[31:25]};
-
   // The restoring divider below only divides unsigned, so signed div/rem hand it
   // the magnitudes. The result signs are restored from the original operand
   // signs once the loop finishes.
@@ -169,10 +158,6 @@ module executor(
             in.is_srl || in.is_sra: out.rd_data <= shift_res;
             in.is_or: out.rd_data <= rs1 | rs2;
             in.is_and: out.rd_data <= rs1 & rs2;
-            in.is_sha256sig0: out.rd_data <= sha256sig0_res;
-            in.is_sha256sig1: out.rd_data <= sha256sig1_res;
-            in.is_sha256sum0: out.rd_data <= sha256sum0_res;
-            in.is_sha256sum1: out.rd_data <= sha256sum1_res;
             in.is_mul || in.is_mulh || in.is_mulhu || in.is_mulhsu: begin
              `ifndef RISCV_FORMAL_ALTOPS
               if (in.is_mul) begin
@@ -297,7 +282,7 @@ module executor(
   // Without it the solver picks combinations no real instruction produces.
   // Discharged by rtl/decoder.v's own `$onehot` assertion under `instr_valid`.
   //
-  // All 41 op-selecting `is_*` fields of `decoder_output` are listed here.
+  // All 37 op-selecting `is_*` fields of `decoder_output` are listed here.
   // `is_valid_instr` and `is_amo` deliberately are not: the first is the arm
   // every instruction with no result falls to, and the second is the OR of nine
   // flags already in this list, so listing it would exclude every AMO from the
@@ -306,7 +291,6 @@ module executor(
   // The eleven atomics reach no arm of the op select: an AMO's operands are the
   // memory word and rs2, which this stage never sees.
   always_comb assume($onehot0({in.is_add, in.is_sub, in.is_xor, in.is_or, in.is_and,
-    in.is_sha256sig0, in.is_sha256sig1, in.is_sha256sum0, in.is_sha256sum1,
     in.is_sll, in.is_slt, in.is_sltu, in.is_srl, in.is_sra,
     in.is_mul, in.is_mulh, in.is_mulhu, in.is_mulhsu,
     in.is_div, in.is_divu, in.is_rem, in.is_remu,

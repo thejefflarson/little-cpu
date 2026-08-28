@@ -183,7 +183,6 @@ module decoder #(
   logic instr_math_immediate, instr_math_immediate_op, instr_cli, instr_caddi, instr_caddi16sp,
     instr_caddi4spn, instr_cslli, instr_csrli, instr_csrai, instr_candi, instr_addi, instr_slti,
     instr_sltiu, instr_xori, instr_ori, instr_andi, instr_slli, instr_srli, instr_srai;
-  logic instr_sha256op, instr_sha256sig0, instr_sha256sig1, instr_sha256sum0, instr_sha256sum1;
   logic [4:0] rd;
 
   // all instructions
@@ -349,17 +348,6 @@ module decoder #(
   assign instr_math_immediate = instr_addi || instr_slti || instr_sltiu || instr_xori || instr_ori || instr_andi ||
     instr_slli || instr_srli || instr_srai;
 
-  // Zknh's SHA-256 half, a cost probe: OP-IMM, funct3 001, funct7 0001000 --
-  // a fourth funct7 row of the funct3 SLLI already occupies, told apart from
-  // it because SLLI's is fixed at math_low (0000000). All four instructions
-  // share this one row; what distinguishes them is the field a normal R-type
-  // reads as rs2, here a four-valued function select with no register in it.
-  assign instr_sha256op = instr_math_immediate_op && funct3 == 3'b001 && funct7 == 7'b0001000;
-  assign instr_sha256sum0 = instr_sha256op && instr[24:20] == 5'b00000;
-  assign instr_sha256sum1 = instr_sha256op && instr[24:20] == 5'b00001;
-  assign instr_sha256sig0 = instr_sha256op && instr[24:20] == 5'b00010;
-  assign instr_sha256sig1 = instr_sha256op && instr[24:20] == 5'b00011;
-
   logic instr_math_op, instr_cmv, instr_cadd, instr_cand, instr_cor, instr_cxor, instr_csub;
   assign instr_math_op = opcode == 5'b01100 && uncompressed;
   assign instr_add = (instr_math_op && math_low && funct3 == 3'b000) || instr_cmv || instr_cadd || instr_addi;
@@ -462,8 +450,7 @@ module decoder #(
     || instr_rem || instr_remu || instr_sll || instr_slt || instr_sltu || instr_srl || instr_sra ||
     instr_lui || instr_lb || instr_lbu || instr_lh || instr_lhu || instr_lw || instr_sb || instr_sh
     || instr_sw || instr_ecall || instr_ebreak || instr_mret || instr_wfi || instr_fence ||
-    instr_fencei || instr_atomic || (instr_csr_access && csr_implemented) ||
-    instr_sha256sig0 || instr_sha256sig1 || instr_sha256sum0 || instr_sha256sum1;
+    instr_fencei || instr_atomic || (instr_csr_access && csr_implemented);
 
   // The effective address, used here to decide misalignment and again in the
   // publish block as `out.mem_addr`. Having it this early is what lets a
@@ -1133,10 +1120,6 @@ module decoder #(
       out.is_xor <= instr_xor;
       out.is_or <= instr_or;
       out.is_and <= instr_and;
-      out.is_sha256sig0 <= instr_sha256sig0;
-      out.is_sha256sig1 <= instr_sha256sig1;
-      out.is_sha256sum0 <= instr_sha256sum0;
-      out.is_sha256sum1 <= instr_sha256sum1;
       out.is_mul <= instr_mul;
       out.is_mulh <= instr_mulh;
       out.is_mulhu <= instr_mulhu;
@@ -1226,7 +1209,6 @@ module decoder #(
       // rtl/writeback.v writing a register.
       if (trap_pending) begin
         out.is_add <= 0; out.is_sub <= 0; out.is_xor <= 0; out.is_or <= 0; out.is_and <= 0;
-        out.is_sha256sig0 <= 0; out.is_sha256sig1 <= 0; out.is_sha256sum0 <= 0; out.is_sha256sum1 <= 0;
         out.is_mul <= 0; out.is_mulh <= 0; out.is_mulhu <= 0; out.is_mulhsu <= 0;
         out.is_div <= 0; out.is_divu <= 0; out.is_rem <= 0; out.is_remu <= 0;
         out.is_sll <= 0; out.is_slt <= 0; out.is_sltu <= 0; out.is_srl <= 0; out.is_sra <= 0;
@@ -1408,7 +1390,6 @@ module decoder #(
   // cancelling out.
   assign one_of = $onehot({instr_auipc, instr_jal, instr_jalr, instr_beq, instr_bne, instr_blt,
     instr_bltu, instr_bge, instr_bgeu, instr_add, instr_sub, instr_xor, instr_or, instr_and,
-    instr_sha256sig0, instr_sha256sig1, instr_sha256sum0, instr_sha256sum1,
     instr_mul, instr_mulh, instr_mulhu, instr_mulhsu, instr_div, instr_divu, instr_rem,
     instr_remu, instr_sll, instr_slt, instr_sltu, instr_srl, instr_sra, instr_lui, instr_lb,
     instr_lbu, instr_lh, instr_lhu, instr_lw, instr_sb, instr_sh, instr_sw, instr_ecall,
