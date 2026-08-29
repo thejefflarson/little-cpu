@@ -668,27 +668,7 @@ cycles: sim
 
 # Dhrystone 2.1, the one number this core can be quoted against other cores'.
 # Not a prerequisite of anything and not on CI: there is no CPI ratchet here and
-# this adds none. It reports DMIPS/MHz, the ROM image against the SoC's 8 KB,
-# and the same per-reason cycle accounting `make cycles` prints -- which is the
-# first read of that split on compiled code rather than on hand-written
-# assembly.
-#
-# DHRY_CFLAGS IS THE MEASUREMENT'S OTHER HALF. The same string compiles the
-# benchmark and is compiled INTO it, so the flags print beside the number and
-# cannot be separated from it; test/bench/dhry_port.c will not build without
-# them. Changing them changes the number -- Dhrystone is famously sensitive to
-# the optimiser -- so quote both or neither, the same rule `make fit` and
-# `make soc-timing` already carry about their toolchains.
-#
-# -O2 rather than the suite's -Os: it is what the cores in the comparison set
-# publish, and the ROM budget below is what says whether this part can afford
-# it. -fno-tree-loop-distribute-patterns keeps gcc from rewriting the byte loops
-# in dhry_port.c into calls to the very routines they define.
-# 2000 runs, not the smallest number that produces a figure. test/crt0.S zeroes
-# Dhrystone's 10 KB Arr_2_Glob a word at a time before main, and that loop's
-# stall mix is nothing like the benchmark's -- at 500 runs it is a tenth of the
-# accounted cycles and at 2000 it is under three percent. The runner prints the
-# residual so the number is checked rather than assumed.
+# this adds none. Why 2000 runs and this exact DHRY_CFLAGS: ADR-0142.
 DHRY_RUNS   ?= 2000
 DHRY_CYCLES ?= 4000000
 DHRY_CFLAGS := -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -O2 -std=c11 \
@@ -705,31 +685,9 @@ dhrystone: sim
 # CoreMark, the figure the cores worth comparing to now (Hazard3's RP2350
 # build publishes 4.15 CoreMark/MHz and no Dhrystone number at all). Not a
 # prerequisite of anything and not on CI, the same as `make dhrystone`: no CPI
-# ratchet exists here and this adds none.
-#
-# SIMULATED AT 16 KB OF ROM, DOUBLE THE PART'S 8. test/bench/coremark.lds
-# links against test/testbench.v's ROM_WORDS rather than rtl/imemory.v's
-# shipping 2048 words, because CoreMark does not fit the smaller one -- see
-# test/bench/run_coremark.sh's header for the wall it hits. The figure this
-# prints describes a machine that cannot be built until this part's deferred
-# SPI-flash boot path lands and the ROM grows; the program's own report and
-# the runner both say so on every line that matters.
-#
-# COREMARK_FLAGS IS THE MEASUREMENT'S OTHER HALF, the same rule DHRY_CFLAGS
-# states for Dhrystone: this string compiles the benchmark and is printed
-# beside its own result, and test/bench/coremark_port.c will not build without
-# it. -O2 rather than the suite's -Os for the same reason Dhrystone takes it --
-# it is what the cores in the comparison set publish.
-#
-# COREMARK_ITERATIONS is a compiled-in constant (SEED_METHOD SEED_VOLATILE, not
-# the auto-tuning loop core_main.c offers) because a cxxrtl run has no wall
-# clock to tune against. EEMBC's own rule -- run at least 10 seconds -- exists
-# to average out a REAL clock's jitter, which a cycle-exact simulator does not
-# have: measured here, the CoreMark/MHz figure this prints was identical to
-# three decimal places at 10 and at 40 iterations, so the ratio is already
-# stable well short of it. 100 keeps `make coremark` at a couple of minutes
-# rather than the ~15 minutes 120M cycles' worth of iterations would cost this
-# simulator at its own `--stalls` rate. Raise it for a longer run.
+# ratchet exists here and this adds none. SIMULATED AT 16 KB OF ROM, double the
+# part's 8 -- test/bench/run_coremark.sh's header has the wall it hits. Why 100
+# iterations and this exact COREMARK_CFLAGS: ADR-0143.
 COREMARK_ITERATIONS ?= 100
 COREMARK_CYCLES     ?= 200000000
 COREMARK_CFLAGS := -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -O2 -std=c11 \
@@ -833,41 +791,7 @@ fit.json: $(FIT_SRCS)
 	@yosys -p 'read_verilog -sv $^; synth_ice40 -dsp -top littlecpu -json $@' \
 	  > fit.synth.log 2>&1 || { tail -40 fit.synth.log; exit 1; }
 
-# THE INSTRUMENT IS THE `fit` CI JOB, not a local run. Three yosys builds of one
-# version read this design three ways, so a local `make fit` is the sanity check
-# and the job's count is the figure this budget is derived from and graded
-# against.
-#
-# 4219 = 4097 + 68 + 54:
-#   4097  the `fit` job's count on this tree, run 32450082354. The tree before
-#         mtval read 3937 in the same job, so +160 of that count is this
-#         change: a 32-bit register in rtl/csrs.v, the write mux that chooses
-#         between a trap's value and a software write, and the four-arm mux in
-#         rtl/decoder.v that builds it. That is what this raise bought, and
-#         none of the headroom below is a budget for the next change.
-#    +68  the churn band, measured rather than quoted at ±50. Setting one further
-#         bit of the read-only `misa` constant spans 68 cells on 64759da (3988,
-#         3979 and 3920 against a base of 3935) and 63 on 2007d9d (3958, 3971,
-#         3987, 3925 and 3980 against 3988) -- edits that change no logic at all.
-#         Budget the whole span and not just its upward half: every probe on the
-#         second tree came out BELOW the base, so a count can sit anywhere in
-#         that window, including at the bottom with the whole of it still to
-#         come.
-#    +54  the widest gap measured between two toolchains on one tree, which is
-#         2007d9d: the job read 3934 where both a local Homebrew yosys and a
-#         cached OSS CAD Suite read 3988. Other trees read 32 (3543 job, 3575
-#         local on d3a9556) and 3 twice (3938 against 3935 on 64759da, 3966
-#         against 3969 here, the sign not the same either time), so the gap is
-#         re-mapping too and has no fixed size or sign. CI resolves the suite
-#         rather than pinning it, so a release moves the count with nothing
-#         committed against it.
-#
-# The budget clears the higher of this tree's pair by more than a band -- 4084
-# local against 4097 in the job. Preserve that when this is next re-derived.
-#
-# A raise names what it bought, and the two kinds read differently: 4000 -> 4088
-# bought band clearance with no cells spent for it, and 3625 -> 4000 was +452
-# measured cells for the eleven A instructions. This one is the second kind.
+# 4219 = 4097 + 68 + 54, each term measured and cited: see ADR-0141.
 # If this goes red, find out what grew; raising it to pass defeats the point.
 FIT_MAX_LC := 4219
 
@@ -1632,11 +1556,14 @@ netlist-diff: netlist-determinism
 
 # ---- the cross-core comparison harness -------------------------------------
 #
-# Places THIS core and VexRiscv in one harness -- one geometry, one program, one
-# part, one toolchain, the same seeds -- so the two Fmax figures are one
-# experiment instead of two. Nothing here is a gate on the shipping design and
-# nothing here touches rtl/: `make soc-timing` remains the SoC's measurement and
-# this target's numbers are not comparable to it.
+# Places THIS core, VexRiscv and Hazard3's iCE40 build in one harness -- one
+# geometry, one program, one part, one toolchain, the same seeds -- so the Fmax
+# figures are one experiment instead of several. Only this core and VexRiscv are
+# cycle-measurable here: Hazard3's iCE40 configuration sets CSR_COUNTER=0, so it
+# has no mcycle to self-time a Dhrystone run with (ADR-0139) and compare-dhrystone
+# below is two cores, not three. Nothing here is a gate on the shipping design
+# and nothing here touches rtl/: `make soc-timing` remains the SoC's measurement
+# and this target's numbers are not comparable to it.
 #
 # `COMPARE_CORE=littlecpu` (default) or `vexriscv`; `COMPARE_SEED=<n>` picks a
 # placement. soc/compare/sweep.sh runs both cores over four seeds each by
