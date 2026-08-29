@@ -668,7 +668,7 @@ cycles: sim
 
 # Dhrystone 2.1, the one number this core can be quoted against other cores'.
 # Not a prerequisite of anything and not on CI: there is no CPI ratchet here and
-# this adds none. Why 2000 runs and this exact DHRY_CFLAGS: ADR-0142.
+# this adds none. Why 2000 runs and this exact DHRY_CFLAGS: ADR-0143.
 DHRY_RUNS   ?= 2000
 DHRY_CYCLES ?= 4000000
 DHRY_CFLAGS := -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -O2 -std=c11 \
@@ -687,7 +687,7 @@ dhrystone: sim
 # prerequisite of anything and not on CI, the same as `make dhrystone`: no CPI
 # ratchet exists here and this adds none. SIMULATED AT 16 KB OF ROM, double the
 # part's 8 -- test/bench/run_coremark.sh's header has the wall it hits. Why 100
-# iterations and this exact COREMARK_CFLAGS: ADR-0143.
+# iterations and this exact COREMARK_CFLAGS: ADR-0144.
 COREMARK_ITERATIONS ?= 100
 COREMARK_CYCLES     ?= 200000000
 COREMARK_CFLAGS := -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -O2 -std=c11 \
@@ -791,7 +791,7 @@ fit.json: $(FIT_SRCS)
 	@yosys -p 'read_verilog -sv $^; synth_ice40 -dsp -top littlecpu -json $@' \
 	  > fit.synth.log 2>&1 || { tail -40 fit.synth.log; exit 1; }
 
-# 4219 = 4097 + 68 + 54, each term measured and cited: see ADR-0141.
+# 4219 = 4097 + 68 + 54, each term measured and cited: see ADR-0142.
 # If this goes red, find out what grew; raising it to pass defeats the point.
 FIT_MAX_LC := 4219
 

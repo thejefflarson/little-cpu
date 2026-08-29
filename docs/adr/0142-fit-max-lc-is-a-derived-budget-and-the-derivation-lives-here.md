@@ -1,4 +1,4 @@
-# 0141 — `FIT_MAX_LC` is a derived budget, and the derivation lives here
+# 0142 — `FIT_MAX_LC` is a derived budget, and the derivation lives here
 
 Status: Accepted · 2026-08-29
 

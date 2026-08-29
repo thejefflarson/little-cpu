@@ -1,4 +1,4 @@
-# 0143 — Why `COREMARK_ITERATIONS` and `COREMARK_CFLAGS` are what they are
+# 0144 — Why `COREMARK_ITERATIONS` and `COREMARK_CFLAGS` are what they are
 
 Status: Accepted · 2026-08-29
 
@@ -7,7 +7,7 @@ Status: Accepted · 2026-08-29
 `make coremark` builds and runs CoreMark under the simulator, at 16 KB of ROM rather than the part's
 8 (see ADR-0136). Its two knobs, `COREMARK_ITERATIONS` and `COREMARK_CFLAGS`, were each set from a
 measurement, and a 28-line comment carried that measurement directly above them in the Makefile,
-mirroring the one `DHRY_RUNS`/`DHRY_CFLAGS` carried (moved to ADR-0142) — long enough to be one of
+mirroring the one `DHRY_RUNS`/`DHRY_CFLAGS` carried (moved to ADR-0143) — long enough to be one of
 the largest comment blocks in a file CLAUDE.md holds to "one or two plain sentences." This ADR is
 that derivation, moved out; the Makefile keeps the values and a one-line pointer here.
 
