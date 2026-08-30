@@ -1,0 +1,169 @@
+name: Cross-core product re-take
+
+# Weekly, re-measures both cross-core throughput pairs soc/compare/ knows --
+# Dhrystone against VexRiscv, and CoreMark against Hazard3 once
+# `make compare-coremark` exists -- and opens a pull request only when the
+# OLD stamp would have called itself stale against the tree this run checked
+# out. soc/compare/product_diff.py's --require-news is the verdict, and it
+# asks soc/compare/product_check.py's own question rather than inventing a
+# percentage threshold -- no churn band has ever been derived for the hx8k
+# part this harness places, so a moved-by-how-much gate would be a number
+# nobody swept standing in for one.
+#
+# `make compare-product` is not on CI and adds no ratchet -- CLAUDE.md is
+# explicit that none of `make compare-*` is. This workflow does not change
+# that: it is a refresh mechanism, and the PR it opens is reviewed like any
+# other before it can merge.
+#
+# THE MAINTAINER REVIEWS A PR INSTEAD OF REMEMBERING TO ASK. The problem this
+# closes: the product's own paragraph in CLAUDE.md has gone stale on record
+# twice, once inside a day and once by being re-derived by hand a second time,
+# because nothing was watching either factor. This is what watches.
+#
+# GITHUB_TOKEN-AUTHORED PUSHES DO NOT TRIGGER `pull_request`/`push` WORKFLOWS
+# BY GITHUB'S OWN ANTI-RECURSION RULE, so the PR this opens shows no CI checks
+# until something re-runs them (closing and reopening the PR is the usual
+# nudge; workflow_dispatch on ci.yml against the branch also works).
+# formal/bump-riscv-formal-pin.sh hits the same wall and opens an issue instead
+# for that reason; this workflow opens a PR anyway because soc/compare/product.json
+# is data rather than RTL, and the checks branch protection actually requires do
+# not depend on it moving. If this PR ever sits with no green checks, that is
+# the explanation -- it needs a nudge, not a fix.
+#
+# NO AUTO-MERGE. dependabot-automerge.yml is scoped to dependabot[bot] and does
+# not apply here, and nothing in this file enables it: a moved product is news
+# for a person to read, not a change to wave through.
+on:
+  schedule:
+    - cron: "23 5 * * 1" # weekly, Monday
+  workflow_dispatch:
+
+permissions:
+  contents: write # git push, for the branch carrying the refreshed stamp
+  pull-requests: write # gh pr create
+
+jobs:
+  re-take:
+    name: re-take
+    # Bare, not ci.yml's fork-PR ternary: that ternary exists because a
+    # `pull_request` job runs a fork author's own code on this pool once a
+    # maintainer has approved one of their runs. `schedule` and
+    # `workflow_dispatch` carry no fork PR context at all -- this job only
+    # ever runs this repository's own `main`.
+    runs-on: little-cpu-runners
+    # Twenty-four placements (twelve seeds a side for the Dhrystone pair) is
+    # roughly half an hour; the CoreMark pair, once it exists, is another two
+    # sweeps on top of that. 90 minutes leaves headroom for a busy pool without
+    # masking a genuinely hung placement.
+    timeout-minutes: 90
+    steps:
+      - name: Record job start
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      # fetch-depth: 0, not the default shallow clone: soc/compare/product_check.py
+      # diffs the currently committed stamp's base commit against this tree, and
+      # a shallow clone would not have that commit to diff against.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Verify the toolchain is present in the runner image
+        uses: ./.github/actions/verify-toolchain
+        with:
+          tools: riscv64-unknown-elf-gcc
+
+      - name: Set up OSS CAD Suite
+        uses: ./.github/actions/setup-oss-cad-suite
+
+      # Copied aside before make compare-product overwrites it in place, so the
+      # diff step below has both sides. A tree with no artifact yet (the very
+      # first run) diffs against an empty document, which soc/compare/product_diff.py
+      # reads the same way it reads a pair that stopped being measured.
+      - name: Save the currently committed stamp
+        run: |
+          if [ -f soc/compare/product.json ]; then
+            cp soc/compare/product.json /tmp/product.before.json
+          else
+            echo '{}' > /tmp/product.before.json
+          fi
+
+      - name: make compare-product
+        run: make compare-product
+
+      - name: Diff against the committed stamp
+        id: diff
+        run: |
+          set -euo pipefail
+          python3 soc/compare/product_diff.py /tmp/product.before.json soc/compare/product.json \
+            | tee /tmp/product-diff.md
+          # --require-news asks soc/compare/product_check.py's own question of
+          # the OLD stamp against the tree this run checked out -- rtl/,
+          # soc/compare/, or a --current value moved -- rather than a
+          # percentage threshold on the result. Never in a pipeline: the
+          # graded call's own status is what this step reports, not `tee`'s --
+          # see CLAUDE.md's rule against exactly that.
+          if python3 soc/compare/product_diff.py /tmp/product.before.json \
+               soc/compare/product.json --require-news --repo . \
+               --current "dhrystone:cflags=$(make -s print-COMPARE_DHRY_CFLAGS)" \
+               --current "dhrystone:rom_words=$(make -s print-COMPARE_ROM_WORDS)" \
+               --current "dhrystone:ram_words=$(make -s print-COMPARE_RAM_WORDS)" \
+               --current "coremark:cflags=$(make -s print-COMPARE_COREMARK_CFLAGS)"; then
+            echo "moved=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "moved=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The no-move path is as visible as the move path on purpose: a silent
+      # success here is indistinguishable from a job that never ran, which is
+      # what let four PRs' CI queue for a day once before anyone noticed the
+      # runner pool had gone to zero.
+      - name: No move -- say so and stop
+        if: steps.diff.outputs.moved != 'true'
+        run: |
+          {
+            echo "### Cross-core product re-take: no change"
+            echo
+            echo "Re-measured $(date -u '+%Y-%m-%dT%H:%M:%SZ'); nothing moved enough to be"
+            echo "news. Not opening a PR."
+            echo
+            cat /tmp/product-diff.md
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Open a PR with the refreshed stamp
+        if: steps.diff.outputs.moved == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          branch="compare-product/refresh-$(date -u +%Y%m%d)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add soc/compare/product.json
+          git commit -m "Refresh the cross-core product stamp" -F /tmp/product-diff.md
+          git push --quiet origin "$branch"
+          {
+            cat /tmp/product-diff.md
+            echo
+            echo "Machine-refreshed by \`.github/workflows/compare-product-schedule.yml\`."
+            echo "This PR only updates \`soc/compare/product.json\`. CLAUDE.md's cross-core"
+            echo "paragraph and any ADR that quotes this pair's numbers still need a"
+            echo "person to read this diff and decide whether the prose needs updating --"
+            echo "see CLAUDE.md's own rule that numbers there stay hand-written."
+          } > /tmp/pr-body.md
+          gh pr create --title "Refresh the cross-core product stamp ($(date -u +%Y-%m-%d))" \
+            --body-file /tmp/pr-body.md --head "$branch" --base main
+          {
+            echo "### Cross-core product re-take: opened a PR"
+            echo
+            cat /tmp/product-diff.md
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report job wall time
+        if: always()
+        run: |
+          elapsed=$(( $(date +%s) - JOB_START ))
+          {
+            echo "### re-take"
+            echo "wall time: ${elapsed}s"
+          } >> "$GITHUB_STEP_SUMMARY"

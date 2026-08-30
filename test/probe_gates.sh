@@ -2966,6 +2966,9 @@ ma_fixture() {
   cp "$REPO/test/sail/reservation_probe.sh" "$d/test/sail/"
   cp "$REPO/soc/depth/cycles.py" "$d/soc/depth/"
   cp "$REPO/soc/compare/run_dhrystone.sh" "$d/soc/compare/"
+  cp "$REPO/soc/compare/product.json" "$d/soc/compare/"
+  cp "$REPO/soc/compare/run_product.sh" "$d/soc/compare/"
+  cp "$REPO/soc/compare/product_write.py" "$d/soc/compare/"
   cp "$REPO/formal/checks.cfg" "$d/formal/"
   # One real file under each history directory: those two entries are
   # directories, and a hundred more copies per fixture would buy only wall time.
@@ -5035,6 +5038,245 @@ d=$(new_case); rv_tarball "$d/upstream.tar.gz" "" "coremark.md5"
 rv_curl_stub "$d/bin" "$d/upstream.tar.gz"
 probe "a real archive missing one vendored member is caught, and named" 2 \
   "MISSING upstream: coremark.md5" "$(rv "$d/bin")"
+
+begin_group "soc/compare/product_check.py"
+
+# A real git repo, not a copy of this one: the paths product_check.py diffs are
+# rtl/ and soc/compare/, so a two-file fixture is enough, and it needs its own
+# commit for the stamp's `base` to name. soc/compare/product_write.py builds
+# the stamp itself, the same script `make compare-product` uses, so a probe
+# that mutates this fixture's product.json by hand would be testing a document
+# nothing real ever writes. Named product_check_fixture/product_check_run
+# rather than the shorter pc_* this group used to use: test/port_connect_test.py's
+# own group already owns pc_fixture, and a same-named redefinition later in
+# this file would have silently shadowed it for every probe after this point.
+product_check_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/repo/rtl" "$d/repo/soc/compare"
+  echo 'module decoder(); endmodule' > "$d/repo/rtl/decoder.v"
+  echo 'module dhry_tb(); endmodule' > "$d/repo/soc/compare/dhry_tb.v"
+  git -c init.defaultBranch=main -C "$d/repo" init -q
+  git -C "$d/repo" add -A
+  git -C "$d/repo" -c user.email=probe@example -c user.name=probe commit -qm base
+  local base; base=$(git -C "$d/repo" rev-parse HEAD)
+  python3 "$REPO/soc/compare/product_write.py" "$d/repo/product.json" dhrystone --measured \
+    --target-core littlecpu --base "$base" --dirty no --date 2026-08-16T00:00:00Z \
+    --seeds 'default 1' --cflags '-march=rv32ic -O2' --isa rv32ic \
+    --rom-words 1024 --ram-words 512 \
+    --unit DMIPS/MHz --tool 'yosys=Yosys 0.68 [/opt/bin/yosys]' \
+    --clock-ns 'littlecpu=32.36,31.25' --clock-ns 'vexriscv=20.73,20.18' \
+    --cycle-factor 'littlecpu=0.748' --cycle-factor 'vexriscv=0.557' > /dev/null
+  python3 "$REPO/soc/compare/product_write.py" "$d/repo/product.json" coremark \
+    --not-yet-measured --target-core littlecpu --core hazard3 \
+    --reason 'not on this tree yet' > /dev/null
+  printf '%s' "$d"
+}
+
+# `<current>` is embedded inside single quotes in the generated snippet, not
+# handed through positionally: the snippet is a STRING that probe() later
+# `eval`s, which re-splits on whitespace, so a value with a space in it (every
+# CFLAGS string here has one) survives only if the quoting is in the text
+# itself rather than in this function's own argument boundaries.
+product_check_run() {  # <fixture dir> <benchmark> <--current field=value, or "" to omit>
+  local d=$1 bench=$2 current=$3
+  local cmd="python3 $REPO/soc/compare/product_check.py $d/repo/product.json $bench --repo $d/repo"
+  [ -n "$current" ] && cmd="$cmd --current '$current'"
+  printf '%s' "$cmd"
+}
+
+d=$(product_check_fixture)
+probe "control: a fresh stamp with nothing changed prints clean and exits 0" 0 \
+  "dhrystone: fresh, stamped" "$(product_check_run "$d" dhrystone 'cflags=-march=rv32ic -O2')"
+
+d=$(product_check_fixture)
+echo '/* touched */' >> "$d/repo/rtl/decoder.v"
+git -C "$d/repo" -c user.email=probe@example -c user.name=probe commit -qam touch
+probe "an rtl/ change since the stamp's base is STALE, and the file is named" 1 \
+  "rtl/ or soc/compare/ changed since" \
+  "$(product_check_run "$d" dhrystone 'cflags=-march=rv32ic -O2')"
+
+d=$(product_check_fixture)
+echo '/* touched */' >> "$d/repo/soc/compare/dhry_tb.v"
+git -C "$d/repo" -c user.email=probe@example -c user.name=probe commit -qam touch
+probe "a soc/compare/ change since the stamp's base is STALE, and the file is named" 1 \
+  "soc/compare/dhry_tb.v" "$(product_check_run "$d" dhrystone 'cflags=-march=rv32ic -O2')"
+
+d=$(product_check_fixture)
+probe "a CFLAGS change with no rtl/ or soc/compare/ move is STALE too, named by field" 1 \
+  "cflags changed: stamped '-march=rv32ic -O2', now '-march=rv32ic -O3'" \
+  "$(product_check_run "$d" dhrystone 'cflags=-march=rv32ic -O3')"
+
+d=$(product_check_fixture)
+probe "a ROM/RAM geometry change is checked the same generic way as CFLAGS" 1 \
+  "rom_words changed: stamped '1024', now '2048'" \
+  "$(product_check_run "$d" dhrystone 'rom_words=2048')"
+
+d=$(product_check_fixture)
+sed -i.bak 's/"dirty": "no"/"dirty": "yes"/' "$d/repo/product.json"
+probe "a stamp measured on a dirty tree is STALE even if nothing has moved since" 1 \
+  "measured on a tree with uncommitted changes" "$(product_check_run "$d" dhrystone '')"
+
+d=$(product_check_fixture)
+probe "a not-yet-measured pair is reported, not graded as stale" 0 \
+  "coremark: not yet measured -- not on this tree yet" "$(product_check_run "$d" coremark '')"
+
+d=$(product_check_fixture)
+probe "a benchmark this artifact never recorded is refused, not read as fresh" 1 \
+  "has no 'coreturbo' pair" "$(product_check_run "$d" coreturbo '')"
+
+d=$(product_check_fixture)
+probe "a missing artifact refuses rather than reporting on nothing" 1 \
+  "does not exist. Run" \
+  "python3 $REPO/soc/compare/product_check.py $d/repo/no-such-product.json dhrystone --repo $d/repo"
+
+begin_group "soc/compare/product_write.py"
+
+# `--cflags '-march=rv32ic -mabi=ilp32'`, never a single flag: argparse reads a
+# lone `-march=rv32ic` as an option it does not recognise rather than as this
+# option's value (it only trusts a `-`-prefixed token as a plain value once a
+# space in it rules out its being a flag) -- the same reason CFLAGS is always
+# more than one flag in every real caller.
+d=$(new_case)
+probe "control: a complete --measured call writes a valid pair" 0 \
+  "wrote dhrystone (measured)" \
+  "python3 $REPO/soc/compare/product_write.py $d/p.json dhrystone --measured \
+    --target-core littlecpu --base aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+    --dirty no --date 2026-08-16T00:00:00Z --seeds default \
+    --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --clock-ns littlecpu=30.0,31.0 --clock-ns vexriscv=20.0,21.0 \
+    --cycle-factor littlecpu=0.7 --cycle-factor vexriscv=0.5"
+
+d=$(new_case)
+probe "control: a THIRD core's --clock-ns/--cycle-factor adds a second product, not a rewrite" 0 \
+  "wrote dhrystone (measured)" \
+  "python3 $REPO/soc/compare/product_write.py $d/p.json dhrystone --measured \
+    --target-core littlecpu --base aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+    --dirty no --date 2026-08-16T00:00:00Z --seeds default \
+    --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --clock-ns littlecpu=30.0,31.0 --clock-ns vexriscv=20.0,21.0 \
+    --clock-ns hazard3=25.0,26.0 \
+    --cycle-factor littlecpu=0.7 --cycle-factor vexriscv=0.5 --cycle-factor hazard3=0.6"
+
+d=$(new_case)
+probe "a lone target core with no other core is refused, not written as an empty pair" 1 \
+  "at least twice" \
+  "python3 $REPO/soc/compare/product_write.py $d/p.json dhrystone --measured \
+    --target-core littlecpu --base aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+    --dirty no --date 2026-08-16T00:00:00Z --seeds default \
+    --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --clock-ns littlecpu=30.0,31.0 --cycle-factor littlecpu=0.7"
+
+d=$(new_case)
+probe "--clock-ns and --cycle-factor naming different core sets is refused" 1 \
+  "every core needs both" \
+  "python3 $REPO/soc/compare/product_write.py $d/p.json dhrystone --measured \
+    --target-core littlecpu --base aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+    --dirty no --date 2026-08-16T00:00:00Z --seeds default \
+    --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --clock-ns littlecpu=30.0 --clock-ns hazard3=20.0 \
+    --cycle-factor littlecpu=0.7 --cycle-factor vexriscv=0.5"
+
+d=$(new_case)
+probe "cores given with no --target-core among them is refused" 1 \
+  "has no --clock-ns/--cycle-factor of its own" \
+  "python3 $REPO/soc/compare/product_write.py $d/p.json dhrystone --measured \
+    --target-core littlecpu --base aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+    --dirty no --date 2026-08-16T00:00:00Z --seeds default \
+    --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --clock-ns vexriscv=30.0 --clock-ns hazard3=20.0 \
+    --cycle-factor vexriscv=0.7 --cycle-factor hazard3=0.5"
+
+d=$(new_case)
+probe "a --measured call with no --tool is refused rather than stamping an unknown toolchain" 1 \
+  "wants at least one --tool" \
+  "python3 $REPO/soc/compare/product_write.py $d/p.json dhrystone --measured \
+    --target-core littlecpu --base aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+    --dirty no --date 2026-08-16T00:00:00Z --seeds default \
+    --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz \
+    --clock-ns littlecpu=30.0 --clock-ns vexriscv=20.0 \
+    --cycle-factor littlecpu=0.7 --cycle-factor vexriscv=0.5"
+
+d=$(new_case)
+probe "a --measured call with no --isa is refused the same way as a missing --cflags" 1 \
+  "wants --isa" \
+  "python3 $REPO/soc/compare/product_write.py $d/p.json dhrystone --measured \
+    --target-core littlecpu --base aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+    --dirty no --date 2026-08-16T00:00:00Z --seeds default \
+    --cflags '-march=rv32ic -mabi=ilp32' \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --clock-ns littlecpu=30.0 --clock-ns vexriscv=20.0 \
+    --cycle-factor littlecpu=0.7 --cycle-factor vexriscv=0.5"
+
+begin_group "soc/compare/product_diff.py"
+
+# --require-news reuses soc/compare/product_check.py's own moved_paths(), which
+# runs a real `git diff` -- so this fixture is a real, isolated git repo (the
+# same shape product_check_fixture above builds) rather than pointing --repo at
+# this checkout: this checkout is mid-development on the very files under
+# soc/compare/ these probes would otherwise be diffing against, which would
+# make "no news" depend on whether this tree happened to be clean when the
+# probe ran.
+pd_fixture() {  # writes before.json and after.json into a fresh, isolated repo
+  local d; d=$(new_case)
+  mkdir -p "$d/repo/rtl" "$d/repo/soc/compare"
+  echo 'module decoder(); endmodule' > "$d/repo/rtl/decoder.v"
+  git -c init.defaultBranch=main -C "$d/repo" init -q
+  git -C "$d/repo" add -A
+  git -C "$d/repo" -c user.email=probe@example -c user.name=probe commit -qm base
+  local base; base=$(git -C "$d/repo" rev-parse HEAD)
+  python3 "$REPO/soc/compare/product_write.py" "$d/before.json" dhrystone --measured \
+    --target-core littlecpu --base "$base" \
+    --dirty no --date 2026-08-16T00:00:00Z --seeds default \
+    --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --clock-ns littlecpu=30.0 --clock-ns vexriscv=20.0 \
+    --cycle-factor littlecpu=0.7 --cycle-factor vexriscv=0.5 > /dev/null
+  cp "$d/before.json" "$d/after.json"
+  printf '%s' "$d"
+}
+
+d=$(pd_fixture)
+probe "control: two identical snapshots print a null delta and no news" 0 \
+  "(+0.0%)" "python3 $REPO/soc/compare/product_diff.py $d/before.json $d/after.json"
+
+d=$(pd_fixture)
+probe "--require-news against an unchanged repo and matching --current is quiet" 1 \
+  "no news" \
+  "python3 $REPO/soc/compare/product_diff.py $d/before.json $d/after.json --require-news \
+    --repo $d/repo --current 'dhrystone:cflags=-march=rv32ic -mabi=ilp32' \
+    --current 'dhrystone:rom_words=1024' --current 'dhrystone:ram_words=512'"
+
+d=$(pd_fixture)
+probe "--require-news is news the moment --current disagrees with the older stamp" 0 \
+  "news" \
+  "python3 $REPO/soc/compare/product_diff.py $d/before.json $d/after.json --require-news \
+    --repo $d/repo --current 'dhrystone:cflags=-march=rv32imc -mabi=ilp32'"
+
+d=$(pd_fixture)
+echo '/* touched */' >> "$d/repo/rtl/decoder.v"
+git -C "$d/repo" -c user.email=probe@example -c user.name=probe commit -qam touch
+probe "--require-news is news the moment rtl/ moved under the older stamp too" 0 \
+  "news" \
+  "python3 $REPO/soc/compare/product_diff.py $d/before.json $d/after.json --require-news \
+    --repo $d/repo"
+
+d=$(pd_fixture)
+python3 "$REPO/soc/compare/product_write.py" "$d/after.json" coremark --measured \
+  --target-core littlecpu --base bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb \
+  --dirty no --date 2026-08-17T00:00:00Z --seeds default \
+  --cflags '-march=rv32ima -mabi=ilp32' --isa rv32ima \
+  --rom-words 4096 --ram-words 4096 --unit CoreMark/MHz --tool yosys=Yosys \
+  --clock-ns littlecpu=30.0 --clock-ns hazard3=25.0 \
+  --cycle-factor littlecpu=2.0 --cycle-factor hazard3=1.4 > /dev/null
+probe "a pair measured for the first time is news on its own, with no --current at all" 0 \
+  "news" \
+  "python3 $REPO/soc/compare/product_diff.py $d/before.json $d/after.json --require-news --repo $d/repo"
 
 # A probe's label is compared against the checked-in manifest as a MULTISET
 # (sorted, duplicates kept), never reduced to a bare count first: a count can

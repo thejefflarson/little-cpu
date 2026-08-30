@@ -697,7 +697,16 @@ and times; `make ecp5-timing` is that same SoC on the other part.
   VexRiscv comparison specifically — **both factors of throughput are measured there, neither is
   quoted from a README, and a product is only a measurement when both of its factors were taken on
   one tree** —
-  the cycle half is the one that moves, and it left the last product stale inside a day. Re-taken
+  **the numbers below are prose, written by a person, and the artifact behind them is not**:
+  `make compare-product` measures both factors of both cross-core pairs (this one against VexRiscv,
+  and CoreMark against Hazard3 once `make compare-coremark` lands) in one run and stamps
+  `soc/compare/product.json` with the commit, the seeds and the CFLAGS each number came from;
+  `soc/compare/product_check.py` refuses to print a quotable product once `rtl/`, `soc/compare/` or
+  the CFLAGS have moved past that stamp, which is what `make compare-dhrystone` calls after its own
+  measurement; and `.github/workflows/compare-product-schedule.yml` re-takes the pair weekly and
+  opens a pull request when it moved. None of that writes this paragraph — read the artifact, then
+  update the prose by hand, the same discipline every other measured figure in this file follows.
+  The cycle half is the one that moves, and it left the last product stale inside a day. Re-taken
   together on `be293ff`, five placements a side: the gap on **clock** is **1.48×, not the 3× two
   separately-published numbers suggested** (32.61 MHz here against 48.19 there, worst of five, and
   1.47× median on median), both critical paths are
@@ -1010,6 +1019,13 @@ make compare-dhrystone  # the other factor: Dhrystone on BOTH cores, one image,
                     # one simulation -> DMIPS/MHz each. Simulated at a larger map
                     # than compare-timing places; COMPARE_DHRY_MHZ adds the
                     # absolute column from a placement. Not a gate, not on CI
+make compare-product # both factors of every cross-core pair in one run, stamped
+                    # into soc/compare/product.json with the commit, seeds and
+                    # CFLAGS behind each number. COMPARE_PRODUCT_SEEDS picks the
+                    # sweep (twelve by default); COMPARE_PRODUCT_OUT redirects
+                    # the artifact for a dry run. Not a gate, not on CI --
+                    # .github/workflows/compare-product-schedule.yml re-takes it
+                    # weekly and opens a PR when it moved
 
 make -C formal check                # the generated riscv-formal checks; always a fresh run.
                                     # interrupt-tie-off is a prerequisite

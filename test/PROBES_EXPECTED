@@ -28,7 +28,11 @@
 # most additions land as independent line insertions a merge or a rebase
 # applies cleanly on their own, rather than two commits both rewriting the
 # one line a bare counter used to be.
+--clock-ns and --cycle-factor naming different core sets is refused
 --list answers for every part, derived or not
+--require-news against an unchanged repo and matching --current is quiet
+--require-news is news the moment --current disagrees with the older stamp
+--require-news is news the moment rtl/ moved under the older stamp too
 ...and one the purge did not remove means the digest is equal by luck
 ...and so does the file it injects into going away
 ...and the count that site was declared with is red too
@@ -39,12 +43,16 @@ CONTROL_FIELDS emptied is red against the shipping decoder (finding 5)
 JSON that is not a netlist is refused
 NO-STATUS is a broken harness and is not baselineable either
 PASS in a failure set is a comparison whose only branch is failure
+a --measured call with no --isa is refused the same way as a missing --cflags
+a --measured call with no --tool is refused rather than stamping an unknown toolchain
 a C floor copied out of the measured table is rejected, not honoured
+a CFLAGS change with no rtl/ or soc/compare/ move is STALE too, named by field
 a MAP_TOP inside the topmost window is red
 a PASS with no counts line is not a pass
 a RAM comparison over no words is named as unable to fail
 a RAM half the size in the core's copy is red
 a RAM half the size in the proof's copy is red
+a ROM/RAM geometry change is checked the same generic way as CFLAGS
 a SHRUNK suite is caught when the missing program is the C one
 a SHRUNK suite: the manifest names a program the tree does not have
 a Sail install back inside the checkout is red
@@ -60,6 +68,7 @@ a baselined program that diverges SOMEWHERE ELSE is red
 a baselined test that starts failing a DIFFERENT way is red
 a baselined upstream file that stopped mentioning it is red
 a bench in test/ that make does not run is named
+a benchmark this artifact never recorded is refused, not read as fresh
 a bitstream the placer never finished writing is not a placement
 a block short of a tool is named, not summarised around
 a block with no end is truncated, and a truncated one is not read
@@ -157,6 +166,7 @@ a linker script that moves ram off the decoded base is red
 a locality counter that stopped being printed is named too
 a lock arm that admits a grant mid-AMO is red
 a lock arm that admits a grant mid-AMO is red
+a lone target core with no other core is refused, not written as an empty pair
 a lookalike sibling is not covered by the directory entry above it
 a lookalike sibling is not covered by the directory entry above it
 a lost [depth] line trips the shape check AND the verdict check
@@ -165,6 +175,7 @@ a malformed baseline line is named rather than skipped
 a malformed manifest line is red under --strict, not a silent pass
 a manifest entry that names no program is a typo, not a phantom
 a missing Sail install stops the run rather than scoring it
+a missing artifact refuses rather than reporting on nothing
 a missing asm directory is named
 a missing baseline file is exit 2, not an empty expected set
 a missing parser stops the run rather than grading with a second one
@@ -190,8 +201,10 @@ a new wide input port with no classification is red (finding 3)
 a nextpnr that died early is NOT graded on the last run's pair
 a non-comparable CSR value is exempted -- and every exemption printed
 a non-numeric floor is named rather than compared arithmetically
+a not-yet-measured pair is reported, not graded as stale
 a one-bit constant is a different digest
 a one-field baseline line is rejected before the suite runs
+a pair measured for the first time is news on its own, with no --current at all
 a pairing naming a program nobody wrote is red
 a parameter this cannot read stops rather than comparing nothing
 a part this repo does not place is refused, not added by asking
@@ -277,6 +290,7 @@ a signal in scope only in an earlier module stops it too
 a simulated ROM smaller than the part's is red
 a simulation this cannot parse is a run that did not happen
 a size the parser cannot read stops rather than comparing as zero
+a soc/compare/ change since the stamp's base is STALE, and the file is named
 a solver that wrote no verdict is exit 2, not a red arm
 a solver that wrote no verdict is exit 2, not a red arm
 a solver that wrote no verdict is exit 2, not a red arm
@@ -287,6 +301,7 @@ a source this tree synthesises that the base lacks is not comparable
 a stall nothing in the list explains is a reason nobody wrote down
 a stall reason the accounting cannot name is red even with every test passing
 a stall reason with no driving cell stops the run
+a stamp measured on a dirty tree is STALE even if nothing has moved since
 a stamp with no table under it is a failed measurement
 a standalone synthesis of zero cells is named, not divided by
 a status sby cannot produce is rejected at format time
@@ -366,6 +381,7 @@ an integrator telling the core a text size its ROM has not got
 an integrator that stopped stating it at all is red, not defaulted
 an ls_access with an extra encoding proving is red
 an objcopy that refuses names the region it refused for
+an rtl/ change since the stamp's base is STALE, and the file is named
 an svlint install inside the checkout is red on its own
 an unconditional port connected only inside an ifdef is red
 an underived part says so rather than borrowing another part's band
@@ -403,12 +419,15 @@ columns that do not add up blame the report, not the core
 columns that no longer add up to the cycle count are red
 control: STALL_REPORT prints the accounting and keeps the suite green
 control: TIMEOUT is a real verdict and IS baselineable
+control: a THIRD core's --clock-ns/--cycle-factor adds a second product, not a rewrite
 control: a baselined divergence at the baselined point is green
 control: a baselined failure that fails exactly that way is green
 control: a baselined red check at the baselined status is green
+control: a complete --measured call writes a valid pair
 control: a count matching the declaration is green
 control: a derived part states both figures and names itself
 control: a deterministic placer and a forgiven mutant pass
+control: a fresh stamp with nothing changed prints clean and exits 0
 control: a full-pass check set against an empty baseline is green
 control: a good run reports both cores' figures
 control: a measurement within budget is green
@@ -475,7 +494,9 @@ control: the shipping tree names one ISA at every site
 control: the shipping tree states every band figure in one place
 control: the tracked monitor sanitizes, and rule 3 fires
 control: two identical netlists are equal
+control: two identical snapshots print a null delta and no news
 control: two sweeps measured the same way are subtracted
+cores given with no --target-core among them is refused
 data past the end of the simulated RAM is red, not silent
 decoder_output.rd widened past 5 bits is red (finding 5)
 every source line moving is the comment class, and is forgiven
