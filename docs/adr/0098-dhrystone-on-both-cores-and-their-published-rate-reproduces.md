@@ -3,8 +3,8 @@
 Status: Accepted · *Amended 2026-08-12: both factors re-measured on one tree. The cycle factor below
 is superseded and the 1.21× product with it; the clock factor is re-measured and holds.* · *Amended
 2026-08-30: a third core, Hazard3's iCE40 build, joins the harness for Dhrystone (its clock alone was
-ADR-0139's). The cycle factor is measured for all three at their one shared ISA, RV32I; the absolute
-product is not, pending a twelve-seed clock re-sweep.*
+ADR-0139's). All three cores measured at their one shared ISA, RV32I, both factors on one tree: a
+twelve-seed clock sweep and the product for every pair the ISA permits.*
 
 ## Context
 
@@ -392,29 +392,49 @@ not have room to reach. The isolated pair above holds the geometry fixed and var
 `make dhrystone`'s figure holds neither fixed against this table, so it is not a third row of this
 same comparison and is not read as one.
 
-### What this amendment does not settle: the clock, and the absolute product
+### The clock, twelve seeds a side, and the product
 
-**No absolute DMIPS figure is quoted here, on purpose.** ADR-0139's clock table (littlecpu 30.90 MHz
-worst / 32.01 median / 32.69 best of five; Hazard3's iCE40 build 32.60 / 33.63 / 33.89) was taken on
-`5f005c7`. Several merges sit between that commit and this one, ADR-0129's region-wait fault among
-them — a real change to `rtl/memory.v` and `rtl/decoder.v` on the critical path `soc/compare/bench.S`
-also exercises — so multiplying this amendment's freshly-measured cycle counts by that stale clock
-table would be exactly the mistake this ADR's own earlier amendment named and reversed: **"a product
-whose two factors were not measured on the same tree is not a measurement."** A twelve-seed re-sweep
-of all three cores, paired by seed, is what closes this — the same convention `SOC_MIN_MHZ` already
-holds every other clock claim in this repository to — and it is not run as part of this amendment
-because host contention during this session's placements (nextpnr runs measured in minutes rather
-than the usual tens of seconds, on a machine otherwise idle at other times) made finishing a
-sixteen-placement sweep before its own numbers went stale impractical to complete reliably. This is
-recorded rather than papered over: `soc/compare/dhry_dmips.py` already refuses to invent a clock
-(`--mhz` is optional and the DMIPS column stays empty without it), and this ADR holds itself to the
-same rule its own script does.
+`COMPARE_SEEDS='default 1 2 3 4 5 6 7 8 9 10 11' COMPARE_CORES='littlecpu vexriscv hazard3'
+soc/compare/sweep.sh`, on `b068533` — the same tree the cycle table above was measured on, so this is
+a product rather than the two-trees mistake this ADR's own first amendment already named and reversed
+once. Reading it off the distribution rather than one placement is what says the tree has not moved
+much since ADR-0139's five-seed table: littlecpu's worst reproduces ADR-0139's 30.90 MHz exactly, and
+the two other cores land within a few tenths of a percent of it.
 
-**What this leaves for a follow-up, stated so it does not have to be re-derived**: `COMPARE_SEEDS='default 1
-2 3 4 5 6 7 8 9 10 11' COMPARE_CORES='littlecpu vexriscv hazard3' soc/compare/sweep.sh`, worst/median
-read off each core's twelve, `COMPARE_DHRY_MHZ='littlecpu=<worst> vexriscv=<worst> hazard3=<worst>'
-make compare-dhrystone` to print the DMIPS column, and the three pairwise products the RV32I table
-above already gives the cycle half of.
+| | worst | median | best |
+|---|---|---|---|
+| **littlecpu** | 30.90 MHz | 32.00 MHz | 33.06 MHz |
+| **VexRiscv** | 48.24 MHz | 49.55 MHz | 50.84 MHz |
+| **Hazard3 (iCE40)** | 32.07 MHz | 33.20 MHz | 33.78 MHz |
+
+### Every product the ISA permits, all three at RV32I, worst-of-twelve × the cycle table above
+
+| | DMIPS/MHz | worst-of-twelve MHz | DMIPS |
+|---|---|---|---|
+| **littlecpu** | 0.758 | 30.90 | **23.42** |
+| **VexRiscv** | 0.590 | 48.24 | **28.46** |
+| **Hazard3 (iCE40)** | 0.712 | 32.07 | **22.83** |
+
+**VexRiscv leads littlecpu 1.22× on the worst placement of each (1.21× on medians)** — 28.46 DMIPS
+against 23.42, from 1.56× on clock against 0.78× on cycles (littlecpu needs 22.1% fewer cycles for
+the same work). This is the RV32I three-way row's own number, not the two-core RV32IC pair's 1.05×
+prior amendments recorded — different ISA, different image, not the same measurement re-stated.
+
+**Hazard3 and littlecpu are close, in Hazard3's favour on clock and littlecpu's on cycles, netting to
+a near-tie**: littlecpu leads 1.03× on the worst placement of each (23.42 against 22.83), 1.03× on
+medians too (24.26 against 23.64) — Hazard3's 1.04× clock advantage (32.07 against 30.90) does not
+quite cover littlecpu's 6.0% fewer cycles.
+
+**VexRiscv leads Hazard3 1.25× worst-of-twelve (1.24× on medians)** — 28.46 DMIPS against 22.83, from
+VexRiscv's 1.50× clock advantage (48.24 against 32.07 MHz) outrunning Hazard3's 17.1% fewer cycles.
+
+None of these are shipped designs, and none of the three implements the ISA the image is built at:
+this core is RV32IMAC + Zicsr with traps, VexRiscv here is RV32IC with a branch predictor, no CSR
+file and no traps, Hazard3's iCE40 build is RV32IMA with no CSR counters and no interrupt. The DMIPS
+column multiplies a clock placed at the harness's 4 KB/2 KB geometry by cycles simulated at 8 KB/16 KB
+— no ice40 in this flow has the block RAM to hold Dhrystone at any core's placed size, littlecpu and
+Hazard3's own 4 blocks each included. Read on medians instead of worst placements the ranking does
+not change, which is what says it is not an artefact of which seed happened to place worst.
 
 ### Consequences
 
@@ -436,8 +456,10 @@ above already gives the cycle half of.
 - **The block-RAM question a third core raises was checked, not assumed**: Hazard3's iCE40 build is 4
   `SB_RAM40_4K` standalone, the same as littlecpu's, so it fits the same 32-block budget VexRiscv's
   branch predictor does not. Three cores did not make the harness's arithmetic impossible.
-- **The clock and the absolute DMIPS product are the acceptance criterion this amendment does not
-  close.** A twelve-seed sweep of all three cores is still owed before either is quoted; the cycle
-  factor above stands on its own until it is taken.
+- **The clock is twelve seeds a side, on the same tree the cycle table was taken on, and reproduces
+  ADR-0139's five-seed one rather than moving away from it**: littlecpu's worst-of-twelve is
+  ADR-0139's own 30.90 MHz exactly. VexRiscv leads littlecpu 1.22× on DMIPS at their RV32I row's
+  worst placements (1.21× on medians); littlecpu and Hazard3 are within 3% of each other, littlecpu
+  ahead on both readings; VexRiscv leads Hazard3 1.25× (1.24× on medians).
 - No `rtl/` file changed. This is entirely `soc/compare/`, the same boundary ADR-0086, ADR-0098 and
   ADR-0139 already draw around this kind of measurement.

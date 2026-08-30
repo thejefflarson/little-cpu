@@ -737,32 +737,28 @@ measurement, which is the rule this very paragraph exists to enforce. **Their
   sixth of the core.
   **That harness gives VexRiscv no data path to its ROM** — a load from a ROM address reads zero
   there — so anything run in it keeps its read-only data out of ROM until that is fixed.
-- **Hazard3's iCE40 build is the third core in the harness. Its Dhrystone cycle factor is measured;
-  its CoreMark one and the twelve-seed clock re-sweep both of those DMIPS/MHz figures still want are
-  not.** `CSR_COUNTER=0` means it has no `mcycle` and cannot self-time a CoreMark run the way
-  `mcycle`/`minstret` let this core do — that half is still not built (ADR-0139) — but
-  `soc/compare/dhry_tb.v`'s marker mechanism, built for VexRiscv's identical CSR-free gap, needed no
-  new mechanism to close Hazard3's Dhrystone half, only wiring: **0.712 DMIPS/MHz for Hazard3's iCE40
-  build in the three-way RV32I row, against 0.758 for littlecpu and 0.590 for VexRiscv** — the only
-  ISA all three cores share, so every pairwise ratio the ISA permits comes out of one image and one
-  simulation (ADR-0098's second amendment). **Hazard3's own row carries a disclosed bias the other
-  two do not pay**: its AHB5 adapter's mandatory write-data wait state is 9.01% of its measured
-  cycles, counted directly rather than estimated, and printed beside the row rather than folded into
-  it silently. No absolute DMIPS product is quoted for any of the three pairs yet — the clock table
-  below is ADR-0139's own five-seed one, taken on a tree before ADR-0129's region-wait fault, and
-  reusing it against fresh cycle counts would be the exact stale-product mistake named above for the
-  VexRiscv pair. Five placements a side, same part, memories, program and seeds as the
-  VexRiscv comparison: littlecpu's worst is 30.90 MHz, median 32.01, best 32.69, placed/standalone
-  ratio 1.11×; Hazard3's iCE40 configuration is 32.60 MHz worst, 33.63 median, 33.89 best, ratio
-  0.95× — **1.06× at the worst placement, 1.05× at the median**. Read the ratio as area context
-  (Hazard3's iCE40 build is roughly half this core's cell count, mostly for lacking a bitmanip
-  extension, a branch predictor and this core's parallel multiplier), not as the clock's
-  explanation — neither core's critical path was walked for this comparison. Five seeds is a
-  look, not a verdict, the same qualifier the rest of this
-  file holds every comparison to: `SOC_MIN_MHZ`'s own convention wants twelve to sixteen before
-  reading a gap this size as settled, and that sweep has not been run. The pre-fix adapter — see
-  the AHB bug above — reported a *larger* gap, 33.08 MHz worst, so the defect had been flattering
-  this core rather than the other way round.
+- **Hazard3's iCE40 build is the third core in the harness. Its Dhrystone factors — both cycles and
+  clock — are measured; its CoreMark one is not.** `CSR_COUNTER=0` means it has no `mcycle` and
+  cannot self-time a CoreMark run the way `mcycle`/`minstret` let this core do — that half is still
+  not built (ADR-0139) — but `soc/compare/dhry_tb.v`'s marker mechanism, built for VexRiscv's
+  identical CSR-free gap, needed no new mechanism to close Hazard3's Dhrystone cycle half, only
+  wiring: **0.712 DMIPS/MHz for Hazard3's iCE40 build in the three-way RV32I row, against 0.758 for
+  littlecpu and 0.590 for VexRiscv** — the only ISA all three cores share, so every pairwise ratio
+  the ISA permits comes out of one image and one simulation (ADR-0098's second amendment).
+  **Hazard3's own row carries a disclosed bias the other two do not pay**: its AHB5 adapter's
+  mandatory write-data wait state is 9.01% of its measured cycles, counted directly rather than
+  estimated, and printed beside the row rather than folded into it silently. **Twelve placements a
+  side, on the same tree the cycle factor was taken on** — littlecpu's worst reproduces ADR-0139's
+  own five-seed 30.90 MHz exactly, so the tree has not moved much on this path since: littlecpu
+  30.90/32.00/33.06 MHz (worst/median/best), VexRiscv 48.24/49.55/50.84, Hazard3's iCE40 build
+  32.07/33.20/33.78. **The product, worst-of-twelve × the RV32I cycle table**: VexRiscv leads
+  littlecpu 1.22× (28.46 against 23.42 DMIPS, 1.21× on medians) — a different ISA and image from the
+  two-core RV32IC pair's 1.05–1.16× above, not the same measurement restated; littlecpu and Hazard3
+  are within 3% of each other, littlecpu ahead both ways (23.42 against 22.83, 1.03× on medians too);
+  VexRiscv leads Hazard3 1.25× (28.46 against 22.83, 1.24× on medians). Read on medians instead of
+  worst placements none of the three rankings flip. The pre-fix adapter — see the AHB bug above —
+  reported a *larger* clock gap on the five-seed compare-timing-only comparison, 33.08 MHz worst, so
+  the defect had been flattering this core rather than the other way round.
 - **Taking the instruction memory out of that fetch loop is priced and declined** (ADR-0087). A
   synchronous memory leaves a combinational loop only behind a register, and a register in the fetch
   loop is a fetch stage — so "the memory out" and "the depth curve" are one experiment. Measured over
