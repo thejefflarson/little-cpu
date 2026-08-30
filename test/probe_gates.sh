@@ -3430,69 +3430,129 @@ begin_group "soc/compare/dhry_dmips.py"
 
 DD="python3 $REPO/soc/compare/dhry_dmips.py"
 
-# The numbers this repo measured, at 400 runs.
+# The two-core numbers this repo measured, at 400 runs. littlecpu is the
+# reference core, so every probe below names it first in --cores.
 dd_fixture() {
   local d; d=$(new_case)
   cat > "$d/run.log" <<'LOG'
 DHRY ran 431000 cycles of a 2000000 cycle limit
 DHRY core=littlecpu marks=2 cycles=335229 verdict=1 writes=31474
 DHRY core=vexriscv marks=2 cycles=408758 verdict=1 writes=31474
-DHRY ramdiff=0 of=4096 words
+DHRY ramdiff core=vexriscv diff=0 of=4096 words
 LOG
   printf '%s' "$d"
 }
 
+DD2="$DD --cores littlecpu,vexriscv"
+
 d=$(dd_fixture)
 probe "control: a good run reports both cores' figures" 0 "0.679" \
-  "$DD $d/run.log --runs 400"
+  "$DD2 $d/run.log --runs 400"
 
 d=$(dd_fixture)
 probe "a clock turns the per-MHz figure into an absolute one" 0 "22.10" \
-  "$DD $d/run.log --runs 400 --mhz littlecpu=32.54 --mhz vexriscv=48.19"
+  "$DD2 $d/run.log --runs 400 --mhz littlecpu=32.54 --mhz vexriscv=48.19"
 
 # THE ONE THAT MATTERS: two cores that did not compute the same thing have no
 # comparable cycle count between them.
-d=$(dd_fixture); sed -i.bak 's/ramdiff=0/ramdiff=111/' "$d/run.log"
+d=$(dd_fixture); sed -i.bak 's/diff=0/diff=111/' "$d/run.log"
 probe "two cores whose RAMs differ are red, not a 1.2x result" 1 \
-  "data RAMs differ in 111 of 4096 words" "$DD $d/run.log --runs 400"
+  "data RAMs differ in 111 of 4096 words" "$DD2 $d/run.log --runs 400"
 
 d=$(dd_fixture); sed -i.bak 's/of=4096/of=0/' "$d/run.log"
 probe "a RAM comparison over no words is named as unable to fail" 1 \
-  "could not have failed" "$DD $d/run.log --runs 400"
+  "could not have failed" "$DD2 $d/run.log --runs 400"
 
 d=$(dd_fixture); sed -i.bak '/ramdiff/d' "$d/run.log"
 probe "a run that never made the cross-core check is red" 1 \
-  "no ramdiff line" "$DD $d/run.log --runs 400"
+  "no ramdiff line for vexriscv" "$DD2 $d/run.log --runs 400"
 
 d=$(dd_fixture); sed -i.bak 's/core=vexriscv marks=2/core=vexriscv marks=1/' "$d/run.log"
 probe "a core that reached the start of the loop and not the end is red" 1 \
-  "published 1 marker(s), not 2" "$DD $d/run.log --runs 400"
+  "published 1 marker(s), not 2" "$DD2 $d/run.log --runs 400"
 
 d=$(dd_fixture); sed -i.bak 's/core=littlecpu marks=2 cycles=335229 verdict=1/core=littlecpu marks=2 cycles=335229 verdict=3/' \
   "$d/run.log"
 probe "the benchmark's own FAIL verdict stops the number being quoted" 1 \
-  "did not compute the published results" "$DD $d/run.log --runs 400"
+  "did not compute the published results" "$DD2 $d/run.log --runs 400"
 
 d=$(dd_fixture); sed -i.bak '/core=vexriscv/d' "$d/run.log"
 probe "one side alone is not a cross-core figure" 1 \
-  "no result for vexriscv" "$DD $d/run.log --runs 400"
+  "no result for vexriscv" "$DD2 $d/run.log --runs 400"
 
 d=$(dd_fixture); sed -i.bak 's/^DHRY core=/DHRY CORE=/' "$d/run.log"
 probe "a simulation this cannot parse is a run that did not happen" 1 \
-  "no DHRY result lines" "$DD $d/run.log --runs 400"
+  "no DHRY result lines" "$DD2 $d/run.log --runs 400"
 
 d=$(dd_fixture)
 probe "zero runs would divide the work by nothing" 1 "nothing was measured" \
-  "$DD $d/run.log --runs 0"
+  "$DD2 $d/run.log --runs 0"
 
 d=$(dd_fixture)
 probe "a clock for a core nobody graded is named rather than ignored" 1 \
   "which is not one of the cores graded" \
-  "$DD $d/run.log --runs 400 --mhz picorv32=40"
+  "$DD2 $d/run.log --runs 400 --mhz picorv32=40"
 
 d=$(dd_fixture)
 probe "a placement at zero MHz is not a placement" 1 "is not placed" \
-  "$DD $d/run.log --runs 400 --mhz littlecpu=0"
+  "$DD2 $d/run.log --runs 400 --mhz littlecpu=0"
+
+d=$(dd_fixture)
+probe "--cores naming no core at all is red before anything is parsed" 1 \
+  "named no core at all" "$DD $d/run.log --runs 400 --cores ,"
+
+# THE THREE-WAY ROW: littlecpu is still the reference; both other cores are
+# RAM-compared against it, not against each other.
+dd_fixture3() {
+  local d; d=$(new_case)
+  cat > "$d/run.log" <<'LOG'
+DHRY ran 431000 cycles of a 2000000 cycle limit
+DHRY core=littlecpu marks=2 cycles=412000 verdict=1 writes=38000
+DHRY core=vexriscv marks=2 cycles=612000 verdict=1 writes=38000
+DHRY core=hazard3 marks=2 cycles=498000 verdict=1 writes=38000
+DHRY core=hazard3 wait_cycles=9960
+DHRY ramdiff core=vexriscv diff=0 of=4096 words
+DHRY ramdiff core=hazard3 diff=0 of=4096 words
+LOG
+  printf '%s' "$d"
+}
+
+DD3="$DD --cores littlecpu,vexriscv,hazard3"
+
+d=$(dd_fixture3)
+probe "control: a good three-way run reports all three cores' figures" 0 \
+  "hazard3" "$DD3 $d/run.log --runs 400"
+
+d=$(dd_fixture3)
+probe "the wait-state bias is disclosed as a percentage of hazard3's own cycles" 0 \
+  "hazard3 spends 9960 of its 498000 measured cycles (2.00%)" \
+  "$DD3 $d/run.log --runs 400"
+
+# THE PAIR ROTATION MATTERS: hazard3's RAM diverging is graded even though it
+# is the second non-reference core, not only the first.
+d=$(dd_fixture3); sed -i.bak 's/core=hazard3 diff=0/core=hazard3 diff=42/' "$d/run.log"
+probe "the SECOND core's RAM diverging is graded, not only the first" 1 \
+  "littlecpu and hazard3's data RAMs differ in 42 of 4096 words" \
+  "$DD3 $d/run.log --runs 400"
+
+d=$(dd_fixture3); sed -i.bak '/ramdiff core=hazard3/d' "$d/run.log"
+probe "a missing ramdiff for the SECOND core is red, not silently skipped" 1 \
+  "no ramdiff line for hazard3" "$DD3 $d/run.log --runs 400"
+
+# THE ISA-COST ROW: one core, no reference, so no ramdiff line is required at
+# all -- there is nothing on the other side to compare a RAM against.
+dd_fixture_solo() {
+  local d; d=$(new_case)
+  cat > "$d/run.log" <<'LOG'
+DHRY ran 290427 cycles of a 2000000 cycle limit
+DHRY core=littlecpu marks=2 cycles=290427 verdict=1 writes=31474
+LOG
+  printf '%s' "$d"
+}
+
+d=$(dd_fixture_solo)
+probe "a solo run needs no ramdiff line -- there is no reference to compare" 0 \
+  "littlecpu" "$DD $d/run.log --runs 400 --cores littlecpu"
 
 begin_group "test/port_connect_test.py"
 

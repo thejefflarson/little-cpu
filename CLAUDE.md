@@ -714,8 +714,9 @@ measurement, which is the rule this very paragraph exists to enforce. **Their
   and 4 KB of ROM — so quote it with what it is. Dhrystone needs 26 of that part's 32 block RAMs
   before either core's own 4 and 18, so those cycles are **simulated at a larger map than the clock
   was placed at**; that and eight more distortions are listed in ADR-0098, and
-  `make compare-dhrystone` prints the block arithmetic every run — VexRiscv only; Hazard3's cycle
-  factor is not built (below). **A harness whose outputs do not
+  `make compare-dhrystone` prints the block arithmetic every run for all three cores now, littlecpu
+  and Hazard3 both fitting the same 32-block budget VexRiscv's branch predictor does not (below).
+  **A harness whose outputs do not
   depend on the datapath measures nothing**: an all-NOP ROM placed 449 cells of a 1711-cell core and
   reported a critical path, so `soc/compare/placed_vs_synth.py` grades the placed count against the
   core's own synthesis, and `make compare-smoke` requires all three cores to publish the same
@@ -723,8 +724,8 @@ measurement, which is the rule this very paragraph exists to enforce. **Their
   write's data to memory on the same cycle as its address, which AHB5 does not guarantee, so
   Hazard3 published three all-X words where the other two published real ones. Without that
   three-way check the harness would have measured a core whose every store was corrupt and
-  reported a perfectly plausible clock number beside it (ADR-0139). The Dhrystone run compares the
-  two cores' whole data RAMs word for word. **That stimulus is a
+  reported a perfectly plausible clock number beside it (ADR-0139). The Dhrystone run compares every
+  core's whole data RAM against littlecpu's, word for word. **That stimulus is a
   live control on one side only**: a NOP image makes every ROM word identical, which collapses
   VexRiscv's read-only array and most of its core with it — still red at 0.64×, weaker than the
   0.26× that founded the gate — while this harness's instruction memory is written by the design, so
@@ -736,12 +737,21 @@ measurement, which is the rule this very paragraph exists to enforce. **Their
   sixth of the core.
   **That harness gives VexRiscv no data path to its ROM** — a load from a ROM address reads zero
   there — so anything run in it keeps its read-only data out of ROM until that is fixed.
-- **Hazard3's iCE40 build is the third core in the harness, and only its clock factor is
-  measured** — its `CSR_COUNTER=0` configuration has no `mcycle`, so it cannot self-time a
-  CoreMark run the way `mcycle`/`minstret` let this core do and `soc/compare/dhry_tb.v`'s marker
-  count lets VexRiscv's own CSR-free configuration do; that half is not built, so there is no
-  cycle figure to multiply the clock by and **no product to quote for this pair, in either
-  direction** (ADR-0139). Five placements a side, same part, memories, program and seeds as the
+- **Hazard3's iCE40 build is the third core in the harness. Its Dhrystone cycle factor is measured;
+  its CoreMark one and the twelve-seed clock re-sweep both of those DMIPS/MHz figures still want are
+  not.** `CSR_COUNTER=0` means it has no `mcycle` and cannot self-time a CoreMark run the way
+  `mcycle`/`minstret` let this core do — that half is still not built (ADR-0139) — but
+  `soc/compare/dhry_tb.v`'s marker mechanism, built for VexRiscv's identical CSR-free gap, needed no
+  new mechanism to close Hazard3's Dhrystone half, only wiring: **0.712 DMIPS/MHz for Hazard3's iCE40
+  build in the three-way RV32I row, against 0.758 for littlecpu and 0.590 for VexRiscv** — the only
+  ISA all three cores share, so every pairwise ratio the ISA permits comes out of one image and one
+  simulation (ADR-0098's second amendment). **Hazard3's own row carries a disclosed bias the other
+  two do not pay**: its AHB5 adapter's mandatory write-data wait state is 9.01% of its measured
+  cycles, counted directly rather than estimated, and printed beside the row rather than folded into
+  it silently. No absolute DMIPS product is quoted for any of the three pairs yet — the clock table
+  below is ADR-0139's own five-seed one, taken on a tree before ADR-0129's region-wait fault, and
+  reusing it against fresh cycle counts would be the exact stale-product mistake named above for the
+  VexRiscv pair. Five placements a side, same part, memories, program and seeds as the
   VexRiscv comparison: littlecpu's worst is 30.90 MHz, median 32.01, best 32.69, placed/standalone
   ratio 1.11×; Hazard3's iCE40 configuration is 32.60 MHz worst, 33.63 median, 33.89 best, ratio
   0.95× — **1.06× at the worst placement, 1.05× at the median**. Read the ratio as area context
@@ -1006,10 +1016,13 @@ make compare-timing # this core, VexRiscv and Hazard3's iCE40 build in ONE hx8k
                     # check inside it is graded
 make compare-smoke  # all three harnesses run the one image in iverilog and
                     # must publish the same values; says the netlist RUNS
-make compare-dhrystone  # the other factor: Dhrystone on BOTH cores, one image,
-                    # one simulation -> DMIPS/MHz each. Simulated at a larger map
-                    # than compare-timing places; COMPARE_DHRY_MHZ adds the
-                    # absolute column from a placement. Not a gate, not on CI
+make compare-dhrystone  # the other factor: Dhrystone on all THREE cores, one
+                    # RV32I image, one simulation -> DMIPS/MHz each, plus a
+                    # fourth row -- this core alone, at its native ISA, same
+                    # geometry -- so the shared subset's cost is a number.
+                    # Simulated at a larger map than compare-timing places;
+                    # COMPARE_DHRY_MHZ adds the absolute column from a
+                    # placement. Not a gate, not on CI
 
 make -C formal check                # the generated riscv-formal checks; always a fresh run.
                                     # interrupt-tie-off is a prerequisite
