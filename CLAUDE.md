@@ -736,23 +736,49 @@ measurement, which is the rule this very paragraph exists to enforce. **Their
   sixth of the core.
   **That harness gives VexRiscv no data path to its ROM** — a load from a ROM address reads zero
   there — so anything run in it keeps its read-only data out of ROM until that is fixed.
-- **Hazard3's iCE40 build is the third core in the harness, and only its clock factor is
-  measured** — its `CSR_COUNTER=0` configuration has no `mcycle`, so it cannot self-time a
-  CoreMark run the way `mcycle`/`minstret` let this core do and `soc/compare/dhry_tb.v`'s marker
-  count lets VexRiscv's own CSR-free configuration do; that half is not built, so there is no
-  cycle figure to multiply the clock by and **no product to quote for this pair, in either
-  direction** (ADR-0139). Five placements a side, same part, memories, program and seeds as the
-  VexRiscv comparison: littlecpu's worst is 30.90 MHz, median 32.01, best 32.69, placed/standalone
-  ratio 1.11×; Hazard3's iCE40 configuration is 32.60 MHz worst, 33.63 median, 33.89 best, ratio
-  0.95× — **1.06× at the worst placement, 1.05× at the median**. Read the ratio as area context
-  (Hazard3's iCE40 build is roughly half this core's cell count, mostly for lacking a bitmanip
-  extension, a branch predictor and this core's parallel multiplier), not as the clock's
-  explanation — neither core's critical path was walked for this comparison. Five seeds is a
-  look, not a verdict, the same qualifier the rest of this
-  file holds every comparison to: `SOC_MIN_MHZ`'s own convention wants twelve to sixteen before
-  reading a gap this size as settled, and that sweep has not been run. The pre-fix adapter — see
-  the AHB bug above — reported a *larger* gap, 33.08 MHz worst, so the defect had been flattering
-  this core rather than the other way round.
+- **Hazard3's iCE40 build is the third core in the harness, and both factors are now measured for
+  it — VexRiscv is not part of this second comparison at all.** `soc/compare/coremark_tb.v` times
+  Hazard3 the way `soc/compare/dhry_tb.v` already times VexRiscv's identical `CSR_COUNTER`/CSR-file
+  gap: a marker stored to a fixed RAM word, counted on the bus. **VexRiscv is excluded by
+  construction**, not by choice — the pinned riscv-formal clone's VexRiscv build is RV32IC with no
+  M extension at all, so it cannot execute the multiply and divide CoreMark's matrix and
+  state-machine benchmarks need, and dropping the shared image to the narrower ISA VexRiscv actually
+  implements (the way `COMPARE_DHRY_CFLAGS` does for Dhrystone) would erase littlecpu's and
+  Hazard3's own hardware multipliers, the exact thing this pair exists to compare (ADR-0146). One
+  iteration, RV32IMA (the
+  ISA littlecpu and Hazard3's iCE40 build share): **Hazard3 takes 1.491× littlecpu's cycles for the
+  same work**, both cores' list/matrix/state CRCs matching EEMBC's published 2K-performance values
+  and their 16 KB data RAMs bit-identical after — CoreMark/MHz is 2.086 for littlecpu, 1.399 for
+  Hazard3's iCE40 configuration. One iteration is exact rather than undersized: `iterate()`'s
+  measured loop is the identical seed-determined call pair every time with no cache on either core
+  to warm or cool, and the ratio reproduces to three decimals at two iterations. **The clock was
+  re-taken on the same tree in the same session** rather than reused from a stale run, five
+  placements a side on the existing hx8k harness and `bench.S`: littlecpu's worst is 30.90 MHz,
+  median 32.01 (reproducing the earlier sweep below exactly); Hazard3's iCE40 configuration is
+  32.07 MHz worst, 32.45 median here — a different five-seed sample from the one below, both
+  inside a part whose churn band nobody has derived, so read neither as a change in either design.
+  **The product: littlecpu's CoreMark score is 1.437× Hazard3's iCE40 configuration's at the worst
+  placement, 1.471× at the median** — 64.45 against 44.85, and 66.77 against 45.39 — the cycle gap
+  outweighing Hazard3's own clock edge by roughly 40%. Bitmanip's own contribution stays
+  undecomposed, the same standing statement below already makes — neither side of this pair has a
+  build with any. **The C extension's own contribution is measured on littlecpu alone**, the only
+  side of the pair that can even be asked (Hazard3 cannot decode a compressed encoding at all, so
+  handing it an `rv32imac` build leaves it never reaching its own verdict rather than failing
+  loudly): same harness, same geometry, same port, only the ISA target moved, and **littlecpu takes
+  2.37% MORE cycles with the C extension on while its own `.text` shrinks 29.4%** — the opposite
+  direction from "smaller code is faster code" on this pipeline.
+  **The clock-only sweep it superseded stays worth reading for the clock alone**: same part,
+  memories, program and seeds as the VexRiscv comparison, littlecpu's worst is 30.90 MHz, median
+  32.01, best 32.69, placed/standalone ratio 1.11×; Hazard3's iCE40 configuration is 32.60 MHz
+  worst, 33.63 median, 33.89 best, ratio 0.95× — **1.06× at the worst placement, 1.05× at the
+  median**. Read the ratio as area context (Hazard3's iCE40 build is roughly half this core's cell
+  count, mostly for lacking a bitmanip extension, a branch predictor and this core's parallel
+  multiplier), not as the clock's explanation — neither core's critical path was walked for this
+  comparison. Five seeds is a look, not a verdict, the same qualifier the rest of this file holds
+  every comparison to: `SOC_MIN_MHZ`'s own convention wants twelve to sixteen before reading a gap
+  this size as settled, and that sweep has not been run. The pre-fix adapter — see the AHB bug
+  above — reported a *larger* gap, 33.08 MHz worst, so the defect had been flattering this core
+  rather than the other way round (ADR-0139).
 - **Taking the instruction memory out of that fetch loop is priced and declined** (ADR-0087). A
   synchronous memory leaves a combinational loop only behind a register, and a register in the fetch
   loop is a fetch stage — so "the memory out" and "the depth curve" are one experiment. Measured over
@@ -1010,6 +1036,11 @@ make compare-dhrystone  # the other factor: Dhrystone on BOTH cores, one image,
                     # one simulation -> DMIPS/MHz each. Simulated at a larger map
                     # than compare-timing places; COMPARE_DHRY_MHZ adds the
                     # absolute column from a placement. Not a gate, not on CI
+make compare-coremark  # the same, for CoreMark, on littlecpu and Hazard3's
+                    # iCE40 build only -- VexRiscv has no M extension at all in
+                    # this harness's pinned build, so it cannot run an RV32IMA
+                    # image. COMPARE_COREMARK_MHZ adds the absolute column.
+                    # Not a gate, not on CI
 
 make -C formal check                # the generated riscv-formal checks; always a fresh run.
                                     # interrupt-tie-off is a prerequisite

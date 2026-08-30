@@ -36,10 +36,21 @@
 ...and the same for the second mutation, which shares that line
 ...and their second copy is compared whole, not just its ISA
 CONTROL_FIELDS emptied is red against the shipping decoder (finding 5)
+CoreMark data past the end of the simulated RAM is red, not silent
+CoreMark's own FAIL verdict stops the number being quoted
 JSON that is not a netlist is refused
 NO-STATUS is a broken harness and is not baselineable either
 PASS in a failure set is a comparison whose only branch is failure
 a C floor copied out of the measured table is rejected, not honoured
+a CoreMark RAM comparison over no words is named as unable to fail
+a CoreMark census with no block RAM line is a synthesis that did not finish
+a CoreMark clock for a core nobody graded is named rather than ignored
+a CoreMark core that reached the start of the section and not the end is red
+a CoreMark parameter this cannot read stops rather than comparing nothing
+a CoreMark placement at zero MHz is not a placement
+a CoreMark run that never made the cross-core check is red
+a CoreMark simulation this cannot parse is a run that did not happen
+a CoreMark testbench simulating a different map than the image is linked for is red
 a MAP_TOP inside the topmost window is red
 a PASS with no counts line is not a pass
 a RAM comparison over no words is named as unable to fail
@@ -80,6 +91,7 @@ a check that went red is red here
 a class-wide predicate over an opcode the pin partly models is rejected
 a classification naming a port the netlist has never seen is red
 a clock for a core nobody graded is named rather than ignored
+a clock turns the CoreMark per-MHz figure into an absolute one
 a clock turns the per-MHz figure into an absolute one
 a configuration for another corner is refused, not reported
 a configuration nextpnr never wrote is a failed run, not a fast design
@@ -89,6 +101,7 @@ a connection by position stops rather than being half-read
 a connection to a port littlecpu no longer has is red
 a constraint that is not the declared one is a different measurement
 a copy wrapped across lines is caught, not read as two harmless ones
+a core that cannot hold the CoreMark image is named, not left to the reader
 a core that cannot hold the image is named, not left to the reader
 a core that reached the start of the loop and not the end is red
 a core yosys folded away is red, not a fast design
@@ -339,6 +352,7 @@ an arm that admits a zero where the faulting word belongs is red
 an arm that admits rs1 where the effective address belongs is red
 an arm that admits the wrong cause is red
 an attribute that is not a source line is not forgiven
+an empty CoreMark image is named rather than reported as fitting easily
 an empty asm directory is red rather than a suite of size zero
 an empty configuration means nothing was expressible on the part
 an empty image is named rather than reported as fitting easily
@@ -411,6 +425,7 @@ control: a count matching the declaration is green
 control: a derived part states both figures and names itself
 control: a deterministic placer and a forgiven mutant pass
 control: a full-pass check set against an empty baseline is green
+control: a good CoreMark run reports both cores' figures
 control: a good run reports both cores' figures
 control: a measurement within budget is green
 control: a model file OUTSIDE isa_rv32imc.txt is not one this check can see
@@ -461,6 +476,7 @@ control: the declared list matches the tree exactly
 control: the digest states what its two verdicts mean
 control: the formal flow's lower-case rv32imc is a different thing
 control: the locality counters are reported under the table
+control: the measured CoreMark image reports the shortfall it has
 control: the measured image reports the shortfall it has
 control: the note a delta is read against carries the part too
 control: the pc hop reaches the pc bin, by the declared net's bits
@@ -503,6 +519,7 @@ no utilisation table means nothing was placed, not that nothing was lost
 no yosys on PATH is refused rather than skipped
 objcopy is probed, not assumed to exist because gcc did
 objcopy is probed, not assumed to exist because gcc did
+one CoreMark side alone is not a cross-core figure
 one build site left at the narrower ISA is red, and located
 one core's ROM growing behind the other's is red
 one core's data RAM shrinking behind the other's is red
@@ -596,6 +613,7 @@ the two definitions the predicates are built from are pinned literally
 the word coming back in a formal harness comment is red, and located
 the wrong count is named against the log's real one
 three sweeps have no one difference, so they are refused
+two CoreMark cores whose RAMs differ are red, not a ratio
 two arms that cannot be told apart are not two arms
 two arms that cannot be told apart are not two arms
 two base commits refuse the delta rather than warning above it
@@ -617,4 +635,5 @@ wrong argument count is exit 2
 wrong argument count is exit 2
 wrong argument count is exit 2
 wrong argument count is exit 2 -- the inputs are broken, not the checks
+zero CoreMark iterations would divide the work by nothing
 zero runs would divide the work by nothing
