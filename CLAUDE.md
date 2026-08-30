@@ -698,18 +698,27 @@ and times; `make ecp5-timing` is that same SoC on the other part.
   quoted from a README, and a product is only a measurement when both of its factors were taken on
   one tree** —
   the cycle half is the one that moves, and it left the last product stale inside a day. Re-taken
-  together on `be293ff`, five placements a side: the gap on **clock** is **1.48×, not the 3× two
-  separately-published numbers suggested** (32.61 MHz here against 48.19 there, worst of five, and
-  1.47× median on median), both critical paths are
-  the fetch loop; the gap on **cycles** goes the other way at **0.784 DMIPS/MHz here against 0.557
-  there**, 29.0% fewer cycles for the same work; and the **product is 1.05× — 25.56 DMIPS against
-  26.84**, 1.04× if both medians are read instead (ADR-0098 as amended, ADR-0086, ADR-0099).
-  **That product is STALE and the cycle half is why**: ADR-0129 spent 13.79% of Dhrystone's cycles on the region
-wait, so this core's 0.784 no longer describes the tree that number was taken on. Re-take BOTH
-halves together before quoting it again — a product whose factors come from two trees is not a
-measurement, which is the rule this very paragraph exists to enforce. **Their
-  published 0.52 reproduces**, 7.1% low, where the same project's published 92 MHz does not: 52.11
-  at its best placement here, 48.19 at its worst. Neither side is a shipped design — theirs is
+  together on `ab5af01`, **twelve placements a side** rather than five: the gap on **clock** is
+  **1.56× worst on worst and 1.55× median on median, not the 3× two separately-published numbers
+  suggested** (30.90 MHz here against 48.24 there at the worst placement, 32.00 against 49.55 at the
+  median), both critical paths are the fetch loop; the gap on **cycles** goes the other way at
+  **0.748 DMIPS/MHz here against 0.557 there**, 25.5% fewer cycles for the same work; and the
+  **product is 1.16× — 23.11 DMIPS against 26.87**, 1.15× if both medians are read instead
+  (ADR-0098 as amended, ADR-0086, ADR-0099).
+  **The clock gap widened from 1.48× because the SAMPLE did, not because anything got slower**: this
+  core's best of twelve (33.06 MHz) is faster than its worst of five was (32.61), its worst of twelve
+  reproduces the 30.90 MHz ADR-0139 recorded independently on this harness, and VexRiscv's whole
+  twelve-seed span (48.24–50.84) sits inside its five-seed one (48.19–52.11). Five seeds was a look;
+  twelve is what this file's own convention has asked for since ADR-0121. **The cycle half is a real
+  move and a smaller one than the SoC's**: ADR-0129's region wait costs 13.79% of `make dhrystone`'s
+  cycles on the shipping SoC and 4.6% here, because this harness is 4 KB of ROM with no timer and a
+  different map — the mechanism transfers and the magnitude does not.
+  **Both slaves are zero-wait-state, and that is checked rather than assumed**: `bench_littlecpu.v`
+  drives `.bus_wait(1'b0)`, `bench_vexriscv.v` holds `iBus_cmd_ready`/`dBus_cmd_ready` high with the
+  response a cycle later, and `dhry_tb.v` counts both cores' writes on `|mem_wstrb`. Neither the
+  wait-state charge nor the write-counter asymmetry found in the CoreMark harness is present here.
+  **Their published 0.52 reproduces**, 7.1% low, where the same project's published 92 MHz does not:
+  50.84 at its best placement here, 48.24 at its worst. Neither side is a shipped design — theirs is
   RV32IC with a branch predictor and no privileged architecture, ours has no timer in the harness
   and 4 KB of ROM — so quote it with what it is. Dhrystone needs 26 of that part's 32 block RAMs
   before either core's own 4 and 18, so those cycles are **simulated at a larger map than the clock
