@@ -3052,7 +3052,25 @@ probe "a new site naming an ISA nothing declared is red, and located" 1 \
 d=$(ma_fixture)
 ma_edit "$d" Makefile 's/-march=rv32i -mabi=ilp32/-march=rv32imac_zicsr_zifencei -mabi=ilp32/'
 probe "an exception whose site stopped naming that ISA is red" 1 \
-  "the exception list names \`Makefile rv32i\`" "$MA $d"
+  "the exception \`Makefile rv32i 1\` matched 0 time(s), not 1" "$MA $d"
+
+# A counted exception is exact-count too, not "at least one": `rv32ima` is
+# one keystroke from the declared ISA, so a SECOND, uncounted occurrence of an
+# exempted near-miss must be as red as a required site losing one. The
+# exception line is planted in this fixture's own copy of the script rather
+# than the shipping one, because `rv32ima` names no exception there yet.
+d=$(ma_fixture)
+ma_edit "$d" test/march_test.sh \
+  's/^Makefile rv32ic 1$/Makefile rv32ic 1\
+\
+Makefile rv32ima 1/'
+ma_edit "$d" Makefile \
+  's/^COMPARE_DHRY_CFLAGS := -march=rv32ic/# probe: -march=rv32ima\
+# probe: -march=rv32ima\
+COMPARE_DHRY_CFLAGS := -march=rv32ic/'
+probe "a second occurrence of a counted exception value is red" 1 \
+  "the exception \`Makefile rv32ima 1\` matched 2 time(s), not 1" \
+  "$d/test/march_test.sh $d"
 
 # A directory entry has to match on the path separator, or it silently exempts
 # every sibling whose name it happens to prefix.
