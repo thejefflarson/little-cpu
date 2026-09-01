@@ -251,6 +251,43 @@
 # boundary -- with four of its own failures forced. spiflash.S's own in-band
 # assertions run against the whole core on both sim legs.
 #
+# spioverlay.S IS THE SIXTH ENTRY, for the same underlying reason as the fifth
+# and a different shape of consequence. It reads a flash-sourced word into the
+# writable text window and runs it, so it is not just a value this program
+# loads and asserts on -- it is an INSTRUCTION the core fetches next. On the
+# model, every byte spioverlay.S's read loop clocks out as its dummy is 0x00,
+# and plain memory echoes exactly that back, so all four bytes patched into
+# the slot come back zero: an illegal instruction, where the real controller
+# would have delivered the four bytes test/spioverlay.S's own header derives
+# from test/spiflash_model.v's formula. `DISAGREE AT 22` is the busy-bit
+# read inside that corrupted word's own read loop, sixteen architectural
+# changes after the store that produced it -- both sides are still inside
+# `spi_read_bytes` at the point named, not yet at the patched instruction
+# itself, because `compare()` walks distinct register-file states and most of
+# this program's own values do not move on a mismatched byte alone.
+#
+# WHY THIS ONE HAS A TRAP HANDLER WHERE test/asm/selfmod.S HAS NONE. Left
+# untrapped, the corrupted word is `c.illegal 0x0` on the model, `mtvec` is
+# still zero, and the fault restarts the whole program at `_start` -- forever,
+# since the same corruption recurs every pass. That reproduces as
+# `INCONCLUSIVE SAIL-LIMIT` and compares nothing, the same as the three
+# entries above. Installing the handler here is not a workaround for the
+# co-simulation gate; it is what stops an actual authoring mistake in this
+# program from looking identical to the divergence this file already expects,
+# and it happens to turn an opaque budget exhaustion into the sharper
+# DISAGREE this baseline records. With the handler, the model resumes past
+# the fault holding test 2's un-overwritten value, test 3's own in-band check
+# takes the branch that a genuinely broken loader would also take, and the
+# HTIF verdict it reaches (`FAIL 3`) is the same shape spiflash.S's own trap
+# handler produces elsewhere in this suite for an unrelated reason.
+#
+# WHAT COVERS IT MEANWHILE: test/spiflash_tb.v is the same oracle spiflash.S
+# leans on, for the same controller. What this program adds beyond spiflash.S
+# -- that the copied bytes are correct AT THIS ADDRESS and that running them
+# does what test/asm/selfmod.S's own local templates prove self-modifying
+# code does at all -- is checked entirely by the real core on both sim legs,
+# never by the model, because the model was never going to see a real byte.
+#
 # THE FAILURE DIRECTION IS STILL LIVE. These are name-and-status pairs under set
 # equality, so if a future change makes any of the four below AGREE, or makes
 # one diverge some other way, this gate goes red and these paragraphs get
@@ -258,8 +295,9 @@
 # said so, and the line was removed with the reason rather than the reason being
 # reconstructed later.
 
-lrsclock.S    INCONCLUSIVE SAIL-LIMIT
-mtimer.S      INCONCLUSIVE SAIL-LIMIT
-mtimermask.S  INCONCLUSIVE SAIL-LIMIT
-spiflash.S    DISAGREE AT 9
-uart.S        DISAGREE AT 7
+lrsclock.S     INCONCLUSIVE SAIL-LIMIT
+mtimer.S       INCONCLUSIVE SAIL-LIMIT
+mtimermask.S   INCONCLUSIVE SAIL-LIMIT
+spiflash.S     DISAGREE AT 9
+spioverlay.S   DISAGREE AT 22
+uart.S         DISAGREE AT 7
