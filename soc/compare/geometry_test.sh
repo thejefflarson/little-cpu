@@ -4,12 +4,13 @@
 #
 # Usage: geometry_test.sh [repo-root]     # defaults to this script's grandparent
 #
-# The harness's whole claim is that both cores were measured in ONE geometry. Six
-# files state part of it -- the Makefile's variables, both harness tops' parameter
-# defaults, the linker script's two regions and the program's RAM base -- and
-# nothing but this compares them. A ROM that is 1024 words in the Makefile and
-# 2048 in the RTL still synthesises, still places and still reports a critical
-# path; it just reports it for a design the other core was not measured against.
+# The harness's whole claim is that all three cores were measured in ONE geometry.
+# Seven files state part of it -- the Makefile's variables, all three harness
+# tops' parameter defaults, the linker script's two regions and the program's
+# RAM base -- and nothing but this compares them. A ROM that is 1024 words in the
+# Makefile and 2048 in the RTL still synthesises, still places and still reports
+# a critical path; it just reports it for a design the other cores were not
+# measured against.
 #
 # The Makefile's numbers reach synthesis through `chparam`, so they are what the
 # placed netlist is built from. The tops' defaults are what iverilog uses in
@@ -36,7 +37,8 @@ fail() {
 }
 
 for f in Makefile soc/compare/bench_littlecpu.v soc/compare/bench_vexriscv.v \
-         soc/compare/bench.lds soc/compare/bench.S rtl/memory.v; do
+         soc/compare/bench_hazard3.v soc/compare/bench.lds soc/compare/bench.S \
+         rtl/memory.v; do
   if [ ! -f "$REPO/$f" ]; then
     echo "error: $f is missing, so its copy of the harness geometry cannot be" >&2
     echo "compared. If it moved, move this check with it." >&2
@@ -64,7 +66,7 @@ mk_rom=$(read_or_die "COMPARE_ROM_WORDS" Makefile \
 mk_ram=$(read_or_die "COMPARE_RAM_WORDS" Makefile \
   's/^COMPARE_RAM_WORDS *:= *\([0-9]*\).*/\1/p')
 
-for top in bench_littlecpu bench_vexriscv; do
+for top in bench_littlecpu bench_vexriscv bench_hazard3; do
   v_rom=$(read_or_die "ROM_WORDS default" "soc/compare/$top.v" \
     's/.*parameter integer ROM_WORDS *= *\([0-9]*\).*/\1/p')
   v_ram=$(read_or_die "RAM_WORDS default" "soc/compare/$top.v" \
@@ -92,7 +94,7 @@ lds_ram=$(lds_bytes ram)
   "soc/compare/bench.lds' ram region is $lds_ram bytes, the harness RAM is $((mk_ram * 4))"
 
 # The program reaches RAM through a literal, because it has no .data for the
-# linker to place there. rtl/memory.v's default base is what both harnesses
+# linker to place there. rtl/memory.v's default base is what all three harnesses
 # instantiate, so the literal has to be that number.
 prog_base=$(read_or_die "RAM base literal" soc/compare/bench.S \
   's/.*li *t0, *\(0x[0-9a-fA-F]*\).*/\1/p')
@@ -112,6 +114,6 @@ fi
 
 if [ "$rc" -eq 0 ]; then
   echo "soc/compare geometry: ${mk_rom}-word ROM, ${mk_ram}-word RAM at $rtl_base," \
-       "stated the same way in all six places"
+       "stated the same way in all seven places"
 fi
 exit $rc
