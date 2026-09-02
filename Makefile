@@ -8,7 +8,11 @@ RISCV_FORMAL_MACROS := RISCV_FORMAL RISCV_FORMAL_COMPRESSED RISCV_FORMAL_ALIGNED
 rvfi_macros.vh: $(RISCV_FORMAL_DIR)/checks/rvfi_macros.py
 	python3 $^ > $@
 
-# One list for both sim legs -- a second copy once let CI miss two new RTL files.
+# Both sim legs build from this list. Do not copy it anywhere else — a second
+# copy goes stale and the gate then checks a different design than it says it
+# does. The CI job had one; it missed rtl/imemory.v and rtl/memory.v when they
+# landed, and spent a run elaborating a testbench whose memories were not there.
+# That job calls `make elaborate-strict` now, so there is one list to update.
 SIM_RTL_SRCS := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v \
                 rtl/fetcher.v rtl/imemory.v rtl/memory.v rtl/regfile.v rtl/regsel.v \
                 rtl/timer.v rtl/uart.v rtl/spiflash.v rtl/writeback.v rtl/littlecpu.v
@@ -438,6 +442,14 @@ retired-term-test:
 march-test:
 	@./test/march_test.sh
 
+# A `.gitignore` rule never applies to a file git already tracks, so a tracked
+# file matching one is always a mistake -- a dead rule, or a commit that should
+# not have happened. `git ls-files | git check-ignore --stdin --no-index -v` is
+# the query that finds the class; nothing ran it, and five nextpnr build
+# artifacts sat tracked for as long as their own .gitignore lines did nothing.
+# Hangs off `test` like the other bash checks -- git only -- for the same
+# reason `retired-term-test` does: the mistake is a commit, and no review of
+# the commit that adds the ignore rule can see that tracking predates it.
 .PHONY: tracked-ignored-test
 tracked-ignored-test:
 	@./test/tracked_ignored_test.sh
@@ -487,8 +499,9 @@ cycles: sim
 	@STALL_REPORT=1 ./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 # Dhrystone 2.1, the one number this core can be quoted against other cores'.
-# Not a prerequisite of anything and not on CI. Why 2000 runs and this exact
-# DHRY_CFLAGS: ADR-0143.
+# Not a prerequisite of anything and not on CI. 2000 runs: test/crt0.S's
+# Arr_2_Glob zeroing loop is under 3% of accounted cycles by then. Flags fixed
+# for comparability with the cores in the comparison set.
 DHRY_RUNS   ?= 2000
 DHRY_CYCLES ?= 4000000
 DHRY_CFLAGS := -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -O2 -std=c11 \
@@ -500,8 +513,9 @@ dhrystone: sim
 	@./test/bench/run_dhrystone.sh ./sim $(DHRY_RUNS) $(DHRY_CYCLES) '$(DHRY_CFLAGS)'
 
 # CoreMark, SIMULATED AT 16 KB OF ROM -- double the part's 8, because it does
-# not fit the smaller one. Not a prerequisite of anything and not on CI. Why 100
-# iterations and this exact COREMARK_CFLAGS: ADR-0144.
+# not fit the smaller one. Not a prerequisite of anything and not on CI. 100
+# iterations: the CoreMark/MHz ratio is already stable to three decimals by 10.
+# Flags fixed for comparability with the cores in the comparison set.
 COREMARK_ITERATIONS ?= 100
 COREMARK_CYCLES     ?= 200000000
 COREMARK_CFLAGS := -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -O2 -std=c11 \
@@ -573,6 +587,10 @@ coremark: sim
 	@./test/bench/run_coremark.sh ./sim $(COREMARK_ITERATIONS) $(COREMARK_CYCLES) \
 	  '$(COREMARK_CFLAGS)'
 
+# Count logic cells from nextpnr, never cell counts from yosys. A flip-flop that
+# cannot share a cell with the LUT feeding it takes a whole cell by itself, and
+# over a thousand of this design's cells are like that. Counting `SB_LUT4`
+# instead gave two planning estimates that were wrong in opposite directions.
 FIT_SRCS := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v \
             rtl/fetcher.v rtl/regfile.v rtl/regsel.v rtl/writeback.v rtl/littlecpu.v
 
@@ -581,7 +599,8 @@ fit.json: $(FIT_SRCS)
 	@yosys -p 'read_verilog -sv $^; synth_ice40 -dsp -top littlecpu -json $@' \
 	  > fit.synth.log 2>&1 || { tail -40 fit.synth.log; exit 1; }
 
-# 4219 = 4097 + 68 + 54, each term measured and cited: see ADR-0142.
+# 4219 = 4097 + 68 + 54: the fit job's measured count, the measured churn
+# band, and the widest toolchain gap measured on one tree.
 # If this goes red, find out what grew; raising it to pass defeats the point.
 FIT_MAX_LC := 4219
 
@@ -1001,9 +1020,12 @@ print-toolchain:
 	@soc/print_toolchain.sh $(TOOLS)
 
 # ---- the mapped netlist's digest -------------------------------------------
-# Equal digest means the placer's input moved by nothing but dead nets or
-# source attributes; different means only that the sixteen-seed sweep is owed.
-# Sound in one direction only.
+# THE DIGEST REPLACES A SWEEP, NEVER A GATE. `make fit` and `make soc-timing`
+# are graded against exactly what they are graded against today; what an equal
+# digest buys is the sixteen placements a tied-off change would otherwise owe.
+# It is sound in one direction only: equal means the placer's input moved by
+# nothing but dead nets and source attributes, and different means nothing at
+# all except that the seeds have to be spent.
 NETLIST_PART ?= up5k
 NETLIST_OUT  ?= netlist.out
 
