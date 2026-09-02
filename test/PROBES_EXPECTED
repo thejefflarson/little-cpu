@@ -587,6 +587,7 @@ the rulebook quoting a figure the source no longer states is red
 the same for the bypass counter, per program rather than in total
 the stale ISA name coming back in a formal harness comment is red
 the suite's shape is asserted before a single program is assembled
+the third core's ROM drifting behind the other two is red
 the timer address the programs arm is checked against the timer
 the timer moving in the core's copy alone is red
 the timer moving in the proof's copy alone is red
