@@ -285,7 +285,7 @@ whether the two slaves in `soc/compare/dhry_tb.v`'s harness hold the same wait-s
 whether that harness's write counters have the same asymmetry a CoreMark harness under review
 elsewhere was found to have. Both come back negative, below.
 
-Measured on `main` at `ab5af01b6a1d8a6b7e6e1027317c30121d2b6b6`. Toolchain: Yosys 0.68+post
+Measured on `main` at `ab5af011b6a1d8a6b7e6e1027317c30121d2b6b6`. Toolchain: Yosys 0.68+post
 (`c12172fb`), nextpnr 0.11.1, `riscv64-elf-gcc 16.2.0`, Icarus Verilog 13.0.
 
 ### The clock, twelve seeds a side
