@@ -51,6 +51,7 @@ a Sail install back inside the checkout is red
 a SoC with no SPI controller at all does not pass by silence
 a SoC with no UART at all does not pass by silence
 a UART base off its own window is red
+a bare unpaired with no grader does not pass by silence
 a base tree whose make fails is refused, not quietly given ours
 a base tree whose synth flags moved is digested with ITS flags, and says so
 a baseline funct3 that is not three binary digits is named
@@ -123,6 +124,7 @@ a failing objcopy names the region that failed
 a failure reported only by the induction leg is not evidence
 a field the runner stopped printing is named, not counted as zero
 a field with no value is a malformed line
+a file named twice is red rather than averaging into one pass
 a file that moved away takes the check with it, loudly
 a file that moved out from under the check is fatal, not skipped
 a file the manifest stopped naming is red before shasum ever runs
@@ -148,6 +150,7 @@ a harness with no line in the baseline is red
 a harness with no line in the baseline is red
 a hop class nothing classifies would move the split silently
 a hop sum that does not reconcile blames the script, not the design
+a line naming a mutation test/mutations/ does not have is red
 a line with no harness behind it is red too
 a line with no harness behind it is red too
 a linker script back on the old 4 KB ram is red
@@ -180,11 +183,13 @@ a must-trap proof going red somewhere else is not evidence
 a mutant that left no trace demonstrates nothing, and says so
 a mutant the digest calls equal placing elsewhere voids it too
 a mutated vendored byte fails the pin, and says so
+a mutation line with a stray extra field is red rather than read as the name
 a mutation with no program leg is a real entry, not a missing file
 a netlist from another tree is named, not binned as `neither`
 a netlist that is not there is refused, not read as equal
 a netlist with no pc net would leave that bin empty for ever
 a netlist with no top module names no one design
+a new rtl file with no line is red, naming the file
 a new site naming an ISA nothing declared is red, and located
 a new wide input port with no classification is red (finding 3)
 a nextpnr that died early is NOT graded on the last run's pair
@@ -230,6 +235,7 @@ a renamed task stops rather than probing some other design
 a renamed task stops rather than probing some other design
 a renamed task stops rather than probing some other design
 a renamed task stops this probe rather than moving its control
+a repo root that does not exist is red before anything is parsed
 a repo root that does not exist is red before anything is parsed
 a repo root that does not exist is red before anything is parsed
 a repo root that does not exist is red before anything is parsed
@@ -375,6 +381,7 @@ an unexpected agreement is red -- both directions, as everywhere
 an unexpected runner status is RUNNER-ERROR, carrying it
 an ungated region_stall proving is red
 an unlisted core_portme.h would shadow the port's header, and is caught
+an unpaired line whose named grader is not a real bench or formal task is red
 an unreadable clone makes 'no spec model' unmeasurable, and fatal
 an unreadable clone makes the re-derivation impossible, and fatal
 an unrecognised CS line is a hard error, never guessed at
@@ -471,6 +478,7 @@ control: the shipping harness states one geometry
 control: the shipping harnesses tie off, both directions
 control: the shipping harnesses tie off, both directions
 control: the shipping index has one row per file and no number twice
+control: the shipping manifest rules on every rtl/*.v file
 control: the shipping tree keeps the retired term inside its allow-list
 control: the shipping tree names one ISA at every site
 control: the shipping tree states every band figure in one place
@@ -479,6 +487,7 @@ control: two identical netlists are equal
 control: two sweeps measured the same way are subtracted
 data past the end of the simulated RAM is red, not silent
 decoder_output.rd widened past 5 bits is red (finding 5)
+deleting an rtl file and leaving its line is red
 every source line moving is the comment class, and is forgiven
 half of a macro-guarded group is red, where none of it is not
 hazard reading ls_answer_valid directly is red (finding 1)
