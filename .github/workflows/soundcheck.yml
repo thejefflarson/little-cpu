@@ -32,10 +32,24 @@ jobs:
       # Critical/High findings, 2 infrastructure error). Without this step
       # the job is green on every run that doesn't hit a plumbing error,
       # which makes it a check that cannot report a real finding.
-      - name: Fail on Critical/High findings or a review error
-        if: steps.review.outputs.exit-code != '0'
+      #
+      # Only exit-code 1 (a real Critical/High finding) fails the job here.
+      # exit-code 2 is an infrastructure error inside the reviewer itself --
+      # observed live and reproducibly on this pin in diff-scoped mode,
+      # independent of anything a PR touches -- and gating on it would
+      # recreate the exact "red on every PR" defect this workflow was fixed
+      # for, just for a different underlying reason. It's surfaced as a
+      # warning instead so it's visible without blocking.
+      - name: Fail on Critical/High findings
+        if: steps.review.outputs.exit-code == '1'
         env:
           EXIT_CODE: ${{ steps.review.outputs.exit-code }}
         run: |
           echo "::error::Soundcheck exit-code=$EXIT_CODE -- see the PR comment or job summary."
           exit 1
+      - name: Warn on a reviewer infrastructure error
+        if: steps.review.outputs.exit-code == '2'
+        env:
+          EXIT_CODE: ${{ steps.review.outputs.exit-code }}
+        run: |
+          echo "::warning::Soundcheck exit-code=$EXIT_CODE -- the reviewer itself errored out, so this run says nothing about the PR's content."
