@@ -3329,7 +3329,7 @@ gt_fixture() {
 
 d=$(gt_fixture)
 probe "control: the shipping harness states one geometry" 0 \
-  "stated the same way in all seven places" "$GT $d"
+  "stated the same way everywhere it is declared" "$GT $d"
 
 probe "a repo root that does not exist is red before anything is parsed" 1 \
   "is not a directory" "$GT $d/nowhere"
@@ -3364,7 +3364,7 @@ probe "the linker script's RAM origin drifting from the RTL's base is red" 1 \
 
 d=$(gt_fixture); rm "$d/soc/compare/bench.lds"
 probe "a file that moved out from under the check is fatal, not skipped" 1 \
-  "is missing" "$GT $d"
+  "does not exist" "$GT $d"
 
 d=$(gt_fixture); sed -i.bak 's/^COMPARE_ROM_WORDS/COMPARE_ROMWORDS/' "$d/Makefile"
 probe "a declaration this cannot read stops rather than comparing empty strings" 1 \
@@ -3374,6 +3374,55 @@ d=$(gt_fixture); sed -i.bak 's/parameter integer ROM_WORDS = 1024/parameter inte
   "$d/soc/compare/bench_hazard3.v"
 probe "the third core's ROM drifting behind the other two is red" 1 \
   "has ROM_WORDS=2048, the Makefile has COMPARE_ROM_WORDS=1024" "$GT $d"
+
+# THE ENUMERATION HALF: the file list above is discovered from the Makefile's
+# own COMPARE_TOP/-T lines, not kept a second time in this script, so these two
+# probes are what actually cover JEF-923 -- a new comparison-harness file that
+# declares geometry and is never wired into the Makefile now has a comparison
+# to trip, which is the gap the ticket opened over.
+d=$(gt_fixture); cat > "$d/soc/compare/bench_fourth.v" <<'BENCHV'
+module bench_fourth #(
+  parameter integer ROM_WORDS = 1024,
+  parameter integer RAM_WORDS = 512
+) (
+  input logic clk
+);
+endmodule
+BENCHV
+probe "a fourth core's ROM_WORDS with no Makefile entry to reach it is red" 1 \
+  "declares parameter integer ROM_WORDS but no 'COMPARE_TOP := bench_fourth' line in the Makefile reaches it" \
+  "$GT $d"
+
+d=$(gt_fixture); cat > "$d/soc/compare/bench_fourth.v" <<'BENCHV'
+module bench_fourth (
+  input logic clk
+);
+endmodule
+BENCHV
+probe "a bench_*.v file with no ROM_WORDS parameter needs no Makefile entry" 0 \
+  "stated the same way everywhere it is declared" "$GT $d"
+
+d=$(gt_fixture); : > "$d/soc/compare/orphan.lds"
+probe "a linker script the Makefile does not link and nothing else names is red" 1 \
+  "soc/compare/orphan.lds is linked by nothing" "$GT $d"
+
+d=$(gt_fixture); : > "$d/soc/compare/orphan.lds"
+printf '#!/bin/bash\necho "reads soc/compare/orphan.lds"\n' > "$d/soc/compare/run_orphan.sh"
+probe "a linker script named by another soc/compare script is not orphaned" 0 \
+  "stated the same way everywhere it is declared" "$GT $d"
+
+d=$(gt_fixture); : > "$d/soc/compare/orphan.lds"
+printf '#!/bin/bash\necho "reads soc/compare/not_orphan.lds"\n' > "$d/soc/compare/run_decoy.sh"
+probe "a longer name sharing the substring does not stand in for the real one" 1 \
+  "soc/compare/orphan.lds is linked by nothing" "$GT $d"
+
+# A script that mentions no .lds name at all -- unlike every fixture script
+# above, which always matches something -- so this is the one case that
+# exercises a real "grep finds nothing" outcome under `pipefail`.
+d=$(gt_fixture)
+printf '#!/bin/bash\necho "nothing to see here"\n' > "$d/soc/compare/run_unrelated.sh"
+probe "a soc/compare script naming no .lds at all does not sink the scan" 0 \
+  "stated the same way everywhere it is declared" "$GT $d"
 
 begin_group "soc/compare/dhry_fit.py"
 

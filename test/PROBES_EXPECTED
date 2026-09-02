@@ -60,6 +60,7 @@ a baselined program that diverges SOMEWHERE ELSE is red
 a baselined test that starts failing a DIFFERENT way is red
 a baselined upstream file that stopped mentioning it is red
 a bench in test/ that make does not run is named
+a bench_*.v file with no ROM_WORDS parameter needs no Makefile entry
 a bitstream the placer never finished writing is not a placement
 a block short of a tool is named, not summarised around
 a block with no end is truncated, and a truncated one is not read
@@ -130,6 +131,7 @@ a file with no row in the index is named as orphaned
 a file with two rows in the index is named
 a floor line this loop cannot parse is a floor that is not enforced
 a formal harness that stops wiring rvfi at all is red
+a fourth core's ROM_WORDS with no Makefile entry to reach it is red
 a frequency with no path under it is not a measurement
 a funct3-only predicate is rejected when a funct7 still separates two modelled rows
 a gap in the sequence is not a defect
@@ -152,11 +154,14 @@ a line with no harness behind it is red too
 a line with no harness behind it is red too
 a linker script back on the old 4 KB ram is red
 a linker script linking past the harness ROM is red
+a linker script named by another soc/compare script is not orphaned
 a linker script promising RAM the harness does not have is red
 a linker script that moves ram off the decoded base is red
+a linker script the Makefile does not link and nothing else names is red
 a locality counter that stopped being printed is named too
 a lock arm that admits a grant mid-AMO is red
 a lock arm that admits a grant mid-AMO is red
+a longer name sharing the substring does not stand in for the real one
 a lookalike sibling is not covered by the directory entry above it
 a lookalike sibling is not covered by the directory entry above it
 a lost [depth] line trips the shape check AND the verdict check
@@ -277,6 +282,7 @@ a signal in scope only in an earlier module stops it too
 a simulated ROM smaller than the part's is red
 a simulation this cannot parse is a run that did not happen
 a size the parser cannot read stops rather than comparing as zero
+a soc/compare script naming no .lds at all does not sink the scan
 a solver that wrote no verdict is exit 2, not a red arm
 a solver that wrote no verdict is exit 2, not a red arm
 a solver that wrote no verdict is exit 2, not a red arm
