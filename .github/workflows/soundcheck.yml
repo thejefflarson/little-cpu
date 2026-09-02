@@ -11,14 +11,31 @@ jobs:
   review:
     runs-on: ubuntu-latest
     permissions:
-      # autofix (which needs contents:write to push rewrites) is off — the
-      # `autofix` input below is never set, so it defaults to "false" per
-      # thejefflarson/soundcheck-action's action.yml. read is sufficient.
+      # autofix needs contents:write to push its rewrite commit, and this repo
+      # will not carry a PAT in public CI -- so autofix is explicitly refused
+      # below rather than left to the action's own default, which this pin
+      # (v2.1.2) flipped to "true". Left at the default, every run whose
+      # review found anything to rewrite tried to push with this read-only
+      # token and failed the job on a 403, regardless of what the PR touched.
       contents: read
       pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      - uses: thejefflarson/soundcheck-action@ba406c301382211d66118ebcc699267745f7f849  # v2.1.2
+      - id: review
+        uses: thejefflarson/soundcheck-action@ba406c301382211d66118ebcc699267745f7f849  # v2.1.2
         with:
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          autofix: "false"
+      # The action itself never fails the job on the review's own verdict --
+      # it only comments and returns exit-code as an output (0 clean, 1
+      # Critical/High findings, 2 infrastructure error). Without this step
+      # the job is green on every run that doesn't hit a plumbing error,
+      # which makes it a check that cannot report a real finding.
+      - name: Fail on Critical/High findings or a review error
+        if: steps.review.outputs.exit-code != '0'
+        env:
+          EXIT_CODE: ${{ steps.review.outputs.exit-code }}
+        run: |
+          echo "::error::Soundcheck exit-code=$EXIT_CODE -- see the PR comment or job summary."
+          exit 1
