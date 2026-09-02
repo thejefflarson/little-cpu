@@ -14,6 +14,18 @@ module executor(
   assign rs1 = in.rs1;
   assign rs2 = in.rs2;
 
+  // Whether this instruction's `rd_data` is a finished value rather than a
+  // placeholder -- the set the `init` case below actually computes a result
+  // for. Read every cycle rather than latched inside `init` alone: a
+  // multi-cycle divide holds `in` unchanged throughout, because decode holds
+  // `out` on `divider_stall`, so this keeps tracking the same instruction the
+  // divide is working on instead of going stale mid-loop.
+  logic in_has_result;
+  assign in_has_result = in.is_add || in.is_sub || in.is_xor || in.is_or || in.is_and ||
+    in.is_sll || in.is_slt || in.is_sltu || in.is_srl || in.is_sra ||
+    in.is_mul || in.is_mulh || in.is_mulhu || in.is_mulhsu ||
+    in.is_div || in.is_divu || in.is_rem || in.is_remu;
+
   // One subtraction serves sub, slt and sltu. Unsigned less-than is the borrow
   // out; signed less-than is the same except when the sign bits disagree, and
   // then the negative operand is the smaller. Nothing here is a signed
@@ -131,6 +143,10 @@ module executor(
       op_sign_x <= 0;
       op_sign_y <= 0;
     end else begin
+      // Tracks `in_has_result` every cycle rather than only inside `init`,
+      // so decode's forwarding path reads the right answer on the cycle a
+      // divide completes too.
+      out.rd_ready <= in_has_result;
       (* parallel_case, full_case *)
       case (state)
         init: begin

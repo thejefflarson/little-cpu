@@ -109,8 +109,9 @@ decoder.v` (plus its dependencies), never against the source text:
      a bit. Classifications are checked stale in both directions: an entry
      naming a port or field the netlist no longer has is as wrong as a port
      the tables have never seen. CONTROL_FIELDS' own fields (out.rd,
-     out.is_amo, out.valid, executor_out.rd, executor_out.valid) are held to
-     the same 5-bit bound: unlike a plain input port, a field wider than
+     out.is_amo, out.valid, executor_out.rd, executor_out.valid,
+     executor_out.rd_ready) are held to the same 5-bit bound: unlike a plain
+     input port, a field wider than
      that is not merely unclassified, it is an exemption whose only stated
      justification -- "this is a register NUMBER, not a value" -- has
      stopped being true.
@@ -189,7 +190,7 @@ NON_VALUE_PORTS = {
 # removed or resized one fails the sum-of-widths check in classify_inputs.
 STRUCT_PORTS = {
     'in': ('fetcher_output', ['valid', 'pc', 'instr', 'next_instr']),
-    'executor_out': ('executor_output', ['valid', 'rd', 'rd_data']),
+    'executor_out': ('executor_output', ['valid', 'rd', 'rd_data', 'rd_ready']),
 }
 
 # Struct fields (as `port.field`) wide enough (>5 bits) to matter, and their
@@ -197,7 +198,10 @@ STRUCT_PORTS = {
 # the same shape ADR-0083/0092/0100 keep pricing and declining as a
 # forwarding path -- so it is the one struct field that IS a seed. in's three
 # wide fields are the fetch address and the instruction words decode reads
-# register NUMBERS out of, never an operand value.
+# register NUMBERS out of, never an operand value. executor_out.rd_ready is
+# not named here at all: it is 1 bit, so classify_inputs' own width test
+# skips it the same way it skips rd/valid -- CONTROL_FIELDS below is where a
+# sub-5-bit field this script still cares about gets its written argument.
 STRUCT_FIELD_SEEDS = {'executor_out.rd_data'}
 STRUCT_FIELD_NON_VALUE = {'in.pc', 'in.instr', 'in.next_instr'}
 
@@ -218,14 +222,20 @@ STRUCT_FIELD_NON_VALUE = {'in.pc', 'in.instr', 'in.next_instr'}
 # licenses blocking these as taint sources rather than their width.
 # `executor_out` gets the same two fields blocked for the identical reason --
 # it is already in STRUCT_PORTS for its DATA field, `rd_data`, which stays a
-# seed.
+# seed. `executor_out.rd_ready` joins them on a narrower argument: it decides
+# whether decode's forwarding path (`ex_fwd_rs1`/`ex_fwd_rs2`) may read
+# `rd_data` at all, but it is itself computed in rtl/executor.v from the
+# op-select flags decode already published (`in.is_add` and the rest, none
+# of them wider than a control bit) -- never from a register VALUE -- so it
+# is a decision ABOUT an operand, not a narrow slice of one.
 #
-# `executor_out.valid`/`executor_out.rd` are inert rather than wrong: unlike
-# `out`, `executor_out` is a decoder INPUT port, so its bits have no driving
-# cell inside decoder for forward_taint to ever reach -- nothing here can
-# taint a primary input, so blocking them is a no-op. Kept anyway, for the
-# same reason `out`'s two are named rather than left to a width rule: the
-# table states what is safe to read back, not merely what currently matters.
+# `executor_out.valid`/`executor_out.rd`/`executor_out.rd_ready` are inert
+# rather than wrong: unlike `out`, `executor_out` is a decoder INPUT port, so
+# its bits have no driving cell inside decoder for forward_taint to ever
+# reach -- nothing here can taint a primary input, so blocking them is a
+# no-op. Kept anyway, for the same reason `out`'s two are named rather than
+# left to a width rule: the table states what is safe to read back, not
+# merely what currently matters.
 #
 # The 5-bit bound control_field_bits enforces below is a USEFUL TRIPWIRE, not
 # the reason: it catches a field growing wide enough to plausibly carry a raw
@@ -236,7 +246,7 @@ STRUCT_FIELD_NON_VALUE = {'in.pc', 'in.instr', 'in.next_instr'}
 # an added CONTROL_FIELDS entry has to repeat.
 CONTROL_FIELDS = {
     'out': ('decoder_output', ['valid', 'rd', 'is_amo']),
-    'executor_out': ('executor_output', ['valid', 'rd']),
+    'executor_out': ('executor_output', ['valid', 'rd', 'rd_ready']),
 }
 
 

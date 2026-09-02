@@ -776,14 +776,6 @@ module decoder #(
     instr_divu || instr_rem || instr_remu;
   assign instr_shift = instr_slli || instr_srli || instr_srai;
 
-  logic [31:0] math_arg;
-  always_comb
-    if (instr_math_immediate) math_arg = instr_shift ? {27'b0, rs2} : immediate;
-    else math_arg = reg_rs2;
-
-  logic [31:0] pc_inc;
-  assign pc_inc = uncompressed ? 4 : 2;
-
   // Does this instruction really read rsN? Not a shift amount, not immediate
   // bits that happen to sit where a register number would, not a Zicsr
   // constant. Both `hazard_rs1`/`hazard_rs2` and `operand_stall` use these.
@@ -794,6 +786,59 @@ module decoder #(
   assign uses_rs2 = (instr_math && !instr_math_immediate) || instr_sb || instr_sh || instr_sw ||
     instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu ||
     instr_amo || instr_sc;
+
+  // Forwarding reaches only the executor's own operands: `out.rs1` and
+  // `out.rs2`, which rtl/executor.v reads as its ALU inputs and
+  // rtl/accessor.v reads (via `out.rs2`, launched straight off `out`) as a
+  // store's or an AMO's write data. Every other reader of `reg_rs1`/
+  // `reg_rs2` this cycle -- the branch comparator, the jalr target, the
+  // effective address, an atomic's own address, a register-form CSR's
+  // operand -- reads the register file directly rather than through `out`,
+  // so forwarding must not excuse a stall for any of them. `instr_math` is
+  // exactly the set with no such other reader: it is disjoint from every
+  // load, store, branch, jump, atomic and CSR encoding, so gating rs1
+  // forwarding on it alone is enough. rs2's eligible set adds a store's, an
+  // AMO's and sc.w's write data, which has no other decode-side reader
+  // either -- and deliberately leaves out a branch's rs2, which the
+  // comparator reads directly.
+  logic rs1_fwd_eligible, rs2_fwd_eligible;
+  assign rs1_fwd_eligible = instr_math;
+  assign rs2_fwd_eligible = (instr_math && !instr_math_immediate) ||
+    instr_sb || instr_sh || instr_sw || instr_amo || instr_sc;
+
+  // Forward only from the executor's own slot, and only once it holds the
+  // real result -- never from `out`, whose instruction has not reached the
+  // executor yet, and never from a load, a store, an AMO, lr.w or sc.w
+  // sitting in the executor's slot, whose result rtl/accessor.v has not
+  // produced yet (`executor_out.rd_ready` is low for exactly those).
+  // Excluding `out` as a source when it ALSO names this register keeps the
+  // most recent write authoritative: architecturally that is the write this
+  // operand must see, and it is not ready yet.
+  logic ex_fwd_rs1, ex_fwd_rs2;
+  assign ex_fwd_rs1 = rs1_fwd_eligible && uses_rs1 && rs1 != 0 &&
+    executor_out.valid && executor_out.rd == rs1 && executor_out.rd_ready &&
+    !(out.valid && out.rd == rs1);
+  assign ex_fwd_rs2 = rs2_fwd_eligible && uses_rs2 && rs2 != 0 &&
+    executor_out.valid && executor_out.rd == rs2 && executor_out.rd_ready &&
+    !(out.valid && out.rd == rs2);
+
+  // reg_rs1/reg_rs2 with the forward applied, read by math_arg below and by
+  // the publish block further down. A continuous assign rather than reading
+  // `executor_out.rd_data` inside either always_* block: a struct field read
+  // inside one is a constant part-select iverilog cannot build a precise
+  // sensitivity list for, and warns about (the same reason rtl/writeback.v
+  // uses continuous assigns for its own RVFI struct reads).
+  logic [31:0] rs1_forwarded, rs2_forwarded;
+  assign rs1_forwarded = ex_fwd_rs1 ? executor_out.rd_data : reg_rs1;
+  assign rs2_forwarded = ex_fwd_rs2 ? executor_out.rd_data : reg_rs2;
+
+  logic [31:0] math_arg;
+  always_comb
+    if (instr_math_immediate) math_arg = instr_shift ? {27'b0, rs2} : immediate;
+    else math_arg = rs2_forwarded;
+
+  logic [31:0] pc_inc;
+  assign pc_inc = uncompressed ? 4 : 2;
 
   // Do not fold these two into a shared function. iverilog builds a continuous
   // assign's sensitivity list from the arguments at the call site. A function
@@ -824,8 +869,8 @@ module decoder #(
   assign serialize = (instr_csr_access || instr_mret || instr_fencei) && !pipe_drained;
 
   logic hazard_rs1, hazard_rs2, hazard, stall;
-  assign hazard_rs1 = uses_rs1 && rs1 != 0 && live_rs1;
-  assign hazard_rs2 = uses_rs2 && rs2 != 0 && live_rs2;
+  assign hazard_rs1 = uses_rs1 && rs1 != 0 && live_rs1 && !ex_fwd_rs1;
+  assign hazard_rs2 = uses_rs2 && rs2 != 0 && live_rs2 && !ex_fwd_rs2;
   assign hazard = hazard_rs1 || hazard_rs2 || serialize;
 
  `ifdef RISCV_FORMAL
@@ -1082,8 +1127,8 @@ module decoder #(
       // misalignment test reads the real value of rs1.
       out.valid <= 1'b1;
       out.mem_addr <= mem_addr_calc;
-      out.rs1 <= reg_rs1;
-      out.rs2 <= instr_math ? math_arg : reg_rs2;
+      out.rs1 <= rs1_forwarded;
+      out.rs2 <= instr_math ? math_arg : rs2_forwarded;
       out.rd <= rd;
      `ifdef RISCV_FORMAL
       // `next_pc` rather than `pc`: the non-blocking assignment above is not
@@ -1104,8 +1149,14 @@ module decoder #(
       out.rvfi.mem_fault_addr <= {mem_addr_calc[31:2], 2'b00};
       out.rvfi.rs1_addr <= rvfi_rs1_valid ? rs1 : 5'b0;
       out.rvfi.rs2_addr <= rvfi_rs2_valid ? rs2 : 5'b0;
-      out.rvfi.rs1_rdata <= rvfi_rs1_valid ? reg_rs1 : 32'b0;
-      out.rvfi.rs2_rdata <= rvfi_rs2_valid ? reg_rs2 : 32'b0;
+      // The forwarded value where forwarding supplied the operand, not
+      // reg_rs1/reg_rs2: RVFI's contract is the value the instruction
+      // actually computed with, and the monitor checks rd_wdata against
+      // exactly these two fields. Reporting the register file's answer
+      // instead would be internally inconsistent on every forwarded
+      // instruction -- correct data, a self-contradictory retire report.
+      out.rvfi.rs1_rdata <= rvfi_rs1_valid ? rs1_forwarded : 32'b0;
+      out.rvfi.rs2_rdata <= rvfi_rs2_valid ? rs2_forwarded : 32'b0;
       // A non-CSR instruction gets all-zero masks for free, because
       // `csr_ren`/`csr_wen` are low for it.
       out.rvfi.csr_mcycle   <= csr_rvfi_mcycle;

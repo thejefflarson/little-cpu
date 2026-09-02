@@ -9,7 +9,7 @@ diff --git a/rtl/decoder.v b/rtl/decoder.v
 +  assign serialize = (instr_csr_access || instr_mret) && !pipe_drained;
  
    logic hazard_rs1, hazard_rs2, hazard, stall;
-   assign hazard_rs1 = uses_rs1 && rs1 != 0 && live_rs1;
+   assign hazard_rs1 = uses_rs1 && rs1 != 0 && live_rs1 && !ex_fwd_rs1;
 diff --git a/rtl/imemory.v b/rtl/imemory.v
 --- a/rtl/imemory.v
 +++ b/rtl/imemory.v
