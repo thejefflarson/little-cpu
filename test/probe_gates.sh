@@ -3321,6 +3321,7 @@ gt_fixture() {
   mkdir -p "$d/rtl" "$d/soc/compare"
   cp "$REPO"/rtl/memory.v "$d/rtl/"
   cp "$REPO"/soc/compare/bench_littlecpu.v "$REPO"/soc/compare/bench_vexriscv.v \
+     "$REPO"/soc/compare/bench_hazard3.v \
      "$REPO"/soc/compare/bench.lds "$REPO"/soc/compare/bench.S "$d/soc/compare/"
   cp "$REPO"/Makefile "$d/"
   printf '%s' "$d"
@@ -3328,7 +3329,7 @@ gt_fixture() {
 
 d=$(gt_fixture)
 probe "control: the shipping harness states one geometry" 0 \
-  "stated the same way in all six places" "$GT $d"
+  "stated the same way in all seven places" "$GT $d"
 
 probe "a repo root that does not exist is red before anything is parsed" 1 \
   "is not a directory" "$GT $d/nowhere"
@@ -3368,6 +3369,11 @@ probe "a file that moved out from under the check is fatal, not skipped" 1 \
 d=$(gt_fixture); sed -i.bak 's/^COMPARE_ROM_WORDS/COMPARE_ROMWORDS/' "$d/Makefile"
 probe "a declaration this cannot read stops rather than comparing empty strings" 1 \
   "teach this script the new" "$GT $d"
+
+d=$(gt_fixture); sed -i.bak 's/parameter integer ROM_WORDS = 1024/parameter integer ROM_WORDS = 2048/' \
+  "$d/soc/compare/bench_hazard3.v"
+probe "the third core's ROM drifting behind the other two is red" 1 \
+  "has ROM_WORDS=2048, the Makefile has COMPARE_ROM_WORDS=1024" "$GT $d"
 
 begin_group "soc/compare/dhry_fit.py"
 
