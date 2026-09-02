@@ -22,6 +22,13 @@
 // with. littlecpu is timed the same marker-counting way for consistency, the
 // same choice dhry_tb.v makes for itself.
 //
+// Hazard3's AHB5 adapter holds `hready` low for one cycle after every write's
+// address phase (soc/compare/bench_hazard3.v's `wr_pending_q`), correctly --
+// see that comment for why -- and littlecpu's harness pays no equivalent
+// cost. Those cycles are counted directly, the same way dhry_tb.v counts
+// them, rather than left folded into the cycle count with no way to size
+// them back out.
+//
 // THE GEOMETRY HERE IS NOT soc/compare/bench_hx8k.pcf'S EITHER. CoreMark's
 // linked image is roughly four times Dhrystone's even at RV32IMA with no
 // compressed encodings, so this is 16 KB of ROM and 16 KB of RAM against the
@@ -96,6 +103,13 @@ module coremark_tb;
   int unsigned haz_begin = 0, haz_end = 0, haz_marks = 0;
   int unsigned ours_writes = 0, haz_writes = 0;
   int unsigned ours_verdict = 0, haz_verdict = 0;
+  // Cycles inside the measured window that Hazard3's AHB5 adapter spends
+  // holding `hready` low for a write's data phase -- see
+  // soc/compare/bench_hazard3.v's `wr_pending_q` comment. littlecpu drives
+  // `.bus_wait(1'b0)`, so it does not pay this; disclosing it beside
+  // Hazard3's cycle count is what keeps that difference from hiding inside a
+  // single "cycles" number, the same reason soc/compare/dhry_tb.v counts it.
+  int unsigned haz_wait_cycles = 0;
 
   int i;
   initial begin
@@ -124,8 +138,12 @@ module coremark_tb;
     // Hazard3 has no separate data bus -- see soc/compare/bench_hazard3.v and
     // soc/compare/bench_tb.v's own comment for why its publications are read
     // off `mem_addr_mux`/`mem_wstrb_mux`/`hwdata` rather than off `haddr` on
-    // its own cycle.
-    if (dut_haz.mem_wstrb_mux == 4'b1111) begin
+    // its own cycle. Any strobe counts as a write, the same test the
+    // littlecpu side uses above -- a `== 4'b1111` filter here would make the
+    // marker/verdict compares below depend on `.coremarkctl` staying a
+    // naturally-aligned 32-bit type, which nothing enforces, and would leave
+    // every sub-word store Hazard3 makes uncounted in `haz_writes`.
+    if (|dut_haz.mem_wstrb_mux) begin
       haz_writes <= haz_writes + 1;
       if (dut_haz.mem_addr_mux == CTL_MARK) begin
         haz_marks <= haz_marks + 1;
@@ -134,6 +152,8 @@ module coremark_tb;
       end
       if (dut_haz.mem_addr_mux == CTL_DONE) haz_verdict <= dut_haz.hwdata;
     end
+
+    if (haz_marks == 1 && dut_haz.wr_pending_q) haz_wait_cycles <= haz_wait_cycles + 1;
   end
 
   // Every fact this prints is raw. soc/compare/coremark_dmips.py grades them
@@ -164,6 +184,7 @@ module coremark_tb;
     $display("COREMARK ran %0d cycles of a %0d cycle limit", cycle, cycle_limit);
     report("littlecpu", ours_marks, ours_begin, ours_end, ours_verdict, ours_writes);
     report("hazard3", haz_marks, haz_begin, haz_end, haz_verdict, haz_writes);
+    $display("COREMARK core=hazard3 wait_cycles=%0d", haz_wait_cycles);
     $display("COREMARK ramdiff=%0d of=%0d words", differing, RAM_WORDS);
     $finish;
   end

@@ -139,6 +139,7 @@ a field with no value is a malformed line
 a file that moved away takes the check with it, loudly
 a file that moved out from under the check is fatal, not skipped
 a file the manifest stopped naming is red before shasum ever runs
+a file the manifest stopped naming is red before shasum ever runs
 a file with no row in the index is named as orphaned
 a file with two rows in the index is named
 a floor line this loop cannot parse is a floor that is not enforced
@@ -192,6 +193,7 @@ a move far outside the churn band still cannot fail the job
 a must-trap proof going red somewhere else is not evidence
 a mutant that left no trace demonstrates nothing, and says so
 a mutant the digest calls equal placing elsewhere voids it too
+a mutated vendored byte fails the pin, and says so
 a mutated vendored byte fails the pin, and says so
 a mutation with no program leg is a real entry, not a missing file
 a netlist from another tree is named, not binned as `neither`
@@ -389,6 +391,7 @@ an unexpected agreement is red -- both directions, as everywhere
 an unexpected runner status is RUNNER-ERROR, carrying it
 an ungated region_stall proving is red
 an unlisted core_portme.h would shadow the port's header, and is caught
+an unlisted core_portme.h would shadow the port's header, and is caught
 an unreadable clone makes 'no spec model' unmeasurable, and fatal
 an unreadable clone makes the re-derivation impossible, and fatal
 an unrecognised CS line is a hard error, never guessed at
@@ -455,6 +458,7 @@ control: an ignored file that was never tracked is not a defect
 control: an opcode+funct3 predicate is accepted
 control: an opcode+funct3+funct7 predicate is accepted
 control: an unmodified vendor tree passes the manifest and pin checks
+control: an unmodified vendor tree reaches the stub compiler
 control: an untracked file is out of scope and does not fail the build
 control: and names the corner and constraint it was placed against
 control: another commit's canonical netlist is built from its own tree
@@ -545,6 +549,7 @@ starvation going red somewhere other than the bound is not evidence
 starvation going red somewhere other than the bound is not evidence
 status AGREE with a nonzero exit is a broken harness, not agreement
 still red, but for a DIFFERENT reason: FAIL baselined, ERROR on disk
+the CoreMark wait-state bias is disclosed as a percentage of hazard3's own cycles
 the Dhrystone flags drifting from the suite's ISA is red
 the Makefile and test/cosim.py drifting apart is red
 the REPORT goes too, which .DELETE_ON_ERROR cannot do for a non-target

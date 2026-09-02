@@ -3525,9 +3525,9 @@ CF="python3 $REPO/soc/compare/coremark_fit.py"
 
 # The measured image, the measured geometries, and littlecpu's measured block
 # RAM count -- real. Hazard3's own is inflated so this fixture demonstrates
-# the DOES NOT FIT arm, the same shape soc/compare/dhry_fit.py's own fixture
-# does for vexriscv: at its real 4 blocks, both cores fit and that arm never
-# fires.
+# the DOES NOT FIT arm -- soc/compare/dhry_fit.py's own fixture uses
+# vexriscv's real 18 blocks instead of inflating one, so at Hazard3's real
+# 4 blocks, both cores fit and that arm never fires.
 cf_fixture() {
   local d; d=$(new_case)
   printf '     6517   SB_LUT4\n        4   SB_RAM40_4K\n' > "$d/ours.log"
@@ -3584,7 +3584,8 @@ cd_fixture() {
   cat > "$d/run.log" <<'LOG'
 COREMARK ran 738413 cycles of a 200000000 cycle limit
 COREMARK core=littlecpu marks=2 cycles=479420 verdict=1 writes=15701
-COREMARK core=hazard3 marks=2 cycles=714984 verdict=1 writes=13350
+COREMARK core=hazard3 marks=2 cycles=714984 verdict=1 writes=15701
+COREMARK core=hazard3 wait_cycles=14176
 COREMARK ramdiff=0 of=4096 words
 LOG
   printf '%s' "$d"
@@ -3597,6 +3598,11 @@ probe "control: a good CoreMark run reports both cores' figures" 0 "2.086" \
 d=$(cd_fixture)
 probe "a clock turns the CoreMark per-MHz figure into an absolute one" 0 "25.03" \
   "$CD $d/run.log --iterations 1 --mhz littlecpu=12.00 --mhz hazard3=12.00"
+
+d=$(cd_fixture)
+probe "the CoreMark wait-state bias is disclosed as a percentage of hazard3's own cycles" 0 \
+  "hazard3 spends 14176 of its 714984 measured cycles (1.98%)" \
+  "$CD $d/run.log --iterations 1"
 
 # THE ONE THAT MATTERS: two cores that did not compute the same thing have no
 # comparable cycle count between them.
@@ -3641,6 +3647,75 @@ probe "a CoreMark clock for a core nobody graded is named rather than ignored" 1
 d=$(cd_fixture)
 probe "a CoreMark placement at zero MHz is not a placement" 1 "is not placed" \
   "$CD $d/run.log --iterations 1 --mhz littlecpu=0"
+
+begin_group "soc/compare/run_coremark_compare.sh"
+
+# UNLIKE test/bench/run_coremark.sh's group above, this script's toolchain
+# search runs BEFORE its manifest/pin check, so a probe here has to reach the
+# manifest check with something on PATH that answers `command -v` -- a stub
+# that exists and fails loudly the moment it is actually invoked, which is
+# the first real work after the manifest check passes. No probe needs it to
+# succeed: the manifest check is what is being graded.
+RCC_TOOLCHAIN_MARKER="stub: reached the compiler; nothing past the manifest check is real here"
+
+rcc_bin() {  # $1 = bin dir to create
+  local bin=$1
+  mkdir -p "$bin"
+  for tool in riscv64-elf-gcc riscv64-elf-objcopy riscv64-elf-size riscv64-elf-nm; do
+    cat > "$bin/$tool" <<STUB
+#!/bin/sh
+echo "$RCC_TOOLCHAIN_MARKER"
+exit 1
+STUB
+    chmod +x "$bin/$tool"
+  done
+}
+
+# A COPY OF THE SHIPPING VENDOR TREE, the same reason rc_fixture above is one:
+# the control is then the real set of vendored files and every red probe is
+# one edit away from it.
+rcc_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/soc/compare" "$d/test/bench/coremark"
+  cp "$REPO/soc/compare/run_coremark_compare.sh" "$REPO/soc/compare/bench.lds" \
+     "$REPO/soc/compare/coremark.lds" "$d/soc/compare/"
+  cp "$REPO"/test/bench/coremark/*.c "$REPO"/test/bench/coremark/*.h \
+     "$REPO/test/bench/coremark/PINNED.sha256" \
+     "$REPO/test/bench/coremark/LICENSE.md" \
+     "$REPO/test/bench/coremark/coremark.md5" "$d/test/bench/coremark/"
+  rcc_bin "$d/bin"
+  printf '%s' "$d"
+}
+
+rcc() { printf "PATH='%s/bin:%s/bin-none:/usr/bin:/bin' %s/soc/compare/run_coremark_compare.sh 1 1 -O2" \
+  "$1" "$tmp" "$1"; }
+
+d=$(rcc_fixture)
+probe "control: an unmodified vendor tree reaches the stub compiler" 1 \
+  "$RCC_TOOLCHAIN_MARKER" "$(rcc "$d")"
+
+# A mutated vendored byte: shasum -c catches it, and prints why.
+d=$(rcc_fixture)
+printf '\n' >> "$d/test/bench/coremark/core_main.c"
+probe "a mutated vendored byte fails the pin, and says so" 1 \
+  "no longer matches PINNED.sha256" "$(rcc "$d")"
+
+# A deleted manifest line: shasum -c never sees the file it was never told
+# about, so only a two-way name comparison catches it.
+d=$(rcc_fixture)
+grep -v 'core_util\.c$' "$d/test/bench/coremark/PINNED.sha256" \
+  > "$d/test/bench/coremark/PINNED.sha256.new"
+mv "$d/test/bench/coremark/PINNED.sha256.new" "$d/test/bench/coremark/PINNED.sha256"
+probe "a file the manifest stopped naming is red before shasum ever runs" 1 \
+  "does not have exactly the files PINNED.sha256" "$(rcc "$d")"
+
+# THE CONCRETE EXPLOIT: core_portme.h dropped in beside the vendored sources
+# shadows this port's real header for every vendored unit's quoted #include,
+# and shasum -c alone would report the tree unmodified.
+d=$(rcc_fixture)
+cp "$REPO/test/bench/core_portme.h" "$d/test/bench/coremark/core_portme.h"
+probe "an unlisted core_portme.h would shadow the port's header, and is caught" 1 \
+  "core_portme.h" "$(rcc "$d")"
 
 begin_group "test/port_connect_test.py"
 

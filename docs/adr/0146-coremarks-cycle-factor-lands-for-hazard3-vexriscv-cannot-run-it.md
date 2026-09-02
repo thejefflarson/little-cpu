@@ -119,7 +119,8 @@ the two measurements the way ADR-0098's own product had one.
 
 ```
 COREMARK core=littlecpu marks=2 cycles=479420 verdict=1 writes=15701
-COREMARK core=hazard3   marks=2 cycles=714984 verdict=1 writes=13350
+COREMARK core=hazard3   marks=2 cycles=714984 verdict=1 writes=15701
+COREMARK core=hazard3 wait_cycles=14176
 COREMARK ramdiff=0 of=4096 words
 ```
 
@@ -127,6 +128,33 @@ Both verdicts PASS — CoreMark's own list/matrix/state CRCs matched EEMBC's pub
 values on **both** cores — and the two 16 KB data RAMs are bit-identical afterward. **Hazard3 takes
 1.491× littlecpu's cycles for the same work.** CoreMark/MHz: **2.086** for littlecpu, **1.399** for
 Hazard3's iCE40 configuration.
+
+**The harness itself charges Hazard3 a cost littlecpu never pays, and it is now counted rather than
+folded silently into that ratio.** `soc/compare/bench_hazard3.v`'s AHB5 adapter holds `hready` low
+for one cycle after every write's address phase — correctly, and for the reason its own
+`wr_pending_q` comment gives (a single-ported synchronous memory needs it for a store immediately
+followed by a load of the same word); `bench_littlecpu.v` drives `.bus_wait(1'b0)` and pays nothing
+equivalent. `coremark_tb.v` now counts those cycles directly off `wr_pending_q` — an independent
+measurement on the Dhrystone side of this same adapter found 9.01% there, so this figure was not
+assumed to travel from that one: **14,176 of Hazard3's 714,984 measured cycles, 1.98%.** Subtracting
+them bounds what the harness itself contributes: 714,984 −
+14,176 = 700,808 cycles the core accounts for, which is **1.462×** littlecpu's rather than 1.491× —
+a 2.0% correction, not the 9.01% the Dhrystone harness pays for the identical adapter, because
+CoreMark's own write mix differs from Dhrystone's. **Both figures are reported, not one substituted
+for the other**: 1.491× is what the harness measured, 1.462× is a lower bound on what the two cores'
+own execution accounts for, and `soc/compare/coremark_dmips.py` prints the wait-cycle count and its
+share alongside the ratio so a reader can do this arithmetic without re-running the simulation.
+
+**Fixing this also fixed a second, independent undercount.** `coremark_tb.v` used to count a Hazard3
+write toward `haz_writes` only when `mem_wstrb_mux == 4'b1111` — a full word — where littlecpu's own
+counter (`|dut_ours.mem_wstrb`) counts any strobe. Every sub-word store CoreMark makes on Hazard3's
+side was invisible to the printed `writes=` figure, which under-counted at 13350 against littlecpu's
+15701 for identical C source. The two now agree exactly (15701 each), which is what the fix predicts
+for one image compiled once and run on two cores that compute the same thing: the `4'b1111` filter
+also made marker/verdict detection depend on `.coremarkctl` staying a naturally-aligned 32-bit type,
+which nothing enforced, so the fix moves those compares out from under the width test entirely rather
+than merely widening it. Neither cycle count moved — CoreMark's markers and verdict word are always
+full-word stores by construction, so this was a reporting defect in `writes=`, not in `cycles=`.
 
 **1 iteration is not an undersized sample; it is exact.** `core_main.c`'s own `iterate()` is
 `for (i = 0; i < iterations; i++) { core_bench_list(res, 1); core_bench_list(res, -1); }` — the
@@ -194,6 +222,13 @@ both factors taken in one session on one tree. Compare against the **clock** gap
 Hazard3 ahead) to see the cycle factor doing essentially all of the work: Hazard3 is faster clocked
 and slower per iteration, and the second effect outweighs the first by roughly 40%.
 
+**The wait-state bias above moves this product too, in Hazard3's favour**: correcting its cycle count
+for the 1.98% the harness's write adapter spends puts Hazard3 at 45.76 CoreMark at the worst
+placement and 46.30 at the median, which narrows the gap to **1.408× at the worst placement, 1.442×
+at the median** rather than 1.437×/1.471×. Quote either pair with what it is — 1.437×/1.471× is what
+the harness measured, 1.408×/1.442× is a lower bound with the adapter's own cost taken out — and do
+not average them.
+
 ## The decomposition
 
 **Hazard, region and operand stalls are already priced for this core alone**, on its own
@@ -252,7 +287,13 @@ cores on `bench.S`, and this measurement adds no fourth harness top, only a new 
 reason (a much longer run, graded by its own RAM comparison instead). `soc/compare/coremark_fit.py`
 and `soc/compare/coremark_dmips.py` are both probed in `test/probe_gates.sh`, mirroring
 `dhry_fit.py`/`dhry_dmips.py`'s own probe groups line for line — including the one that matters most:
-two cores whose data RAMs disagree are red, never a plausible-looking ratio.
+two cores whose data RAMs disagree are red, never a plausible-looking ratio. The wait-cycle
+disclosure is probed too — a fixture with the real measured `wait_cycles=14176` line pins the exact
+sentence `coremark_dmips.py` prints, so a later edit that silently drops or miscomputes the
+percentage is caught the same way a dropped RAM comparison would be. `soc/compare/run_coremark_compare.sh`'s
+own manifest check — the two-way match against `PINNED.sha256` that catches a file dropped in beside
+the vendored tree rather than only a mutated one — is probed the same way `test/bench/run_coremark.sh`'s
+identical check already is, including the concrete `core_portme.h`-shadowing case.
 
 ## Consequences
 
@@ -266,3 +307,8 @@ two cores whose data RAMs disagree are red, never a plausible-looking ratio.
 - VexRiscv is excluded from this comparison, by construction, for as long as the pinned riscv-formal
   clone's Verilog has no M extension; that is a fact about the pinned clone rather than about this
   repository's own core, and is worth restating if the pin ever moves.
+- Quote the ratio with its bias: 1.491× and 1.437×/1.471× are what the harness measured, 1.462× and
+  1.408×/1.442× are lower bounds with the write-adapter's own cost taken out. Both belong in the same
+  sentence, the way `soc/compare/coremark_dmips.py` now prints them in the same run.
+- `run_coremark_compare.sh`'s vendor-tree check is a two-way match now, not `shasum -c` alone, closing
+  the same gap `test/bench/run_coremark.sh`'s own check already closed for the single-core build.

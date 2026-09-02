@@ -749,7 +749,14 @@ measurement, which is the rule this very paragraph exists to enforce. **Their
   ISA littlecpu and Hazard3's iCE40 build share): **Hazard3 takes 1.491× littlecpu's cycles for the
   same work**, both cores' list/matrix/state CRCs matching EEMBC's published 2K-performance values
   and their 16 KB data RAMs bit-identical after — CoreMark/MHz is 2.086 for littlecpu, 1.399 for
-  Hazard3's iCE40 configuration. One iteration is exact rather than undersized: `iterate()`'s
+  Hazard3's iCE40 configuration. **1.491× carries a harness bias, disclosed rather than folded in**:
+  `bench_hazard3.v`'s AHB5 adapter holds `hready` low for one cycle after every write's address phase
+  (correctly — see its own `wr_pending_q` comment), and `bench_littlecpu.v`'s `.bus_wait(1'b0)` pays
+  nothing equivalent, so every Hazard3 store here costs a cycle littlecpu never does.
+  `soc/compare/coremark_tb.v` counts those cycles directly: 14,176 of Hazard3's 714,984, **1.98%**,
+  which bounds the ratio at **1.462×** with the adapter's own cost taken out. Quote both — 1.491× is
+  what the harness measured, 1.462× is what the two cores' own execution accounts for. One iteration
+  is exact rather than undersized: `iterate()`'s
   measured loop is the identical seed-determined call pair every time with no cache on either core
   to warm or cool, and the ratio reproduces to three decimals at two iterations. **The clock was
   re-taken on the same tree in the same session** rather than reused from a stale run, five
@@ -759,7 +766,9 @@ measurement, which is the rule this very paragraph exists to enforce. **Their
   inside a part whose churn band nobody has derived, so read neither as a change in either design.
   **The product: littlecpu's CoreMark score is 1.437× Hazard3's iCE40 configuration's at the worst
   placement, 1.471× at the median** — 64.45 against 44.85, and 66.77 against 45.39 — the cycle gap
-  outweighing Hazard3's own clock edge by roughly 40%. Bitmanip's own contribution stays
+  outweighing Hazard3's own clock edge by roughly 40%. **The same wait-state bias narrows this to
+  1.408×/1.442×** with the harness's own cost taken out of Hazard3's cycle count (45.76/46.30
+  CoreMark instead of 44.85/45.39). Bitmanip's own contribution stays
   undecomposed, the same standing statement below already makes — neither side of this pair has a
   build with any. **The C extension's own contribution is measured on littlecpu alone**, the only
   side of the pair that can even be asked (Hazard3 cannot decode a compressed encoding at all, so

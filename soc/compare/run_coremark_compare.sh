@@ -85,6 +85,32 @@ done
 # Membership is a two-way match against PINNED.sha256, the same reason
 # test/bench/run_coremark.sh checks it: a file dropped in beside the vendored
 # tree that shasum was never told to look at is invisible to a one-way check.
+# coremark.h's `#include "core_portme.h"` is a quoted include, which searches
+# the including file's own directory FIRST, so an unlisted core_portme.h in
+# $VENDOR_DIR would shadow this port's real header (which carries the timing
+# hooks) for every vendored unit while shasum -c reports the tree unmodified.
+manifest_files=$(awk '!/^#/ && NF { print $NF }' "$VENDOR_DIR/PINNED.sha256" | sort)
+tree_files=$(cd "$VENDOR_DIR" && for f in *; do
+  if [ -f "$f" ] && [ "$f" != "PINNED.sha256" ]; then
+    echo "$f"
+  fi
+done | sort)
+missing=$(comm -23 <(printf '%s\n' "$manifest_files") <(printf '%s\n' "$tree_files"))
+unlisted=$(comm -13 <(printf '%s\n' "$manifest_files") <(printf '%s\n' "$tree_files"))
+if [ -n "$missing" ] || [ -n "$unlisted" ]; then
+  echo "error: $VENDOR_DIR does not have exactly the files PINNED.sha256" >&2
+  echo "lists -- shasum -c cannot see a file that manifest never named." >&2
+  if [ -n "$missing" ]; then
+    echo "named in the manifest but missing from the directory:" >&2
+    echo "$missing" | sed 's/^/  /' >&2
+  fi
+  if [ -n "$unlisted" ]; then
+    echo "in the directory but not named in the manifest:" >&2
+    echo "$unlisted" | sed 's/^/  /' >&2
+  fi
+  exit 1
+fi
+
 if command -v shasum >/dev/null 2>&1; then
   SHA_CHECK=(shasum -a 256 -c --strict)
 elif command -v sha256sum >/dev/null 2>&1; then
@@ -94,11 +120,20 @@ else
   echo "CoreMark sources cannot be checked against $VENDOR_DIR/PINNED.sha256." >&2
   exit 1
 fi
-if ! (cd "$VENDOR_DIR" && "${SHA_CHECK[@]}" PINNED.sha256) >/dev/null 2>&1; then
+pin_check=$(mktemp "${TMPDIR:-/tmp}/coremark_compare_pin_check.XXXXXX") || {
+  echo "error: could not create a temporary file under ${TMPDIR:-/tmp}." >&2
+  exit 1
+}
+trap 'rm -f "$pin_check"' EXIT
+if ! (cd "$VENDOR_DIR" && "${SHA_CHECK[@]}" PINNED.sha256) >"$pin_check" 2>&1; then
+  cat "$pin_check" >&2
+  echo >&2
   echo "error: $VENDOR_DIR no longer matches PINNED.sha256; run" >&2
   echo "'make coremark' first, which checks this the same way and explains it." >&2
   exit 1
 fi
+cat "$pin_check" >&2
+rm -f "$pin_check"
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/compare-coremark.XXXXXX")
 test -n "$tmp" -a -d "$tmp"

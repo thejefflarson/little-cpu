@@ -36,6 +36,7 @@ FACT = re.compile(
     r"verdict=(?P<verdict>\d+) writes=(?P<writes>\d+)"
 )
 RAMDIFF = re.compile(r"^COREMARK ramdiff=(\d+) of=(\d+) words")
+WAIT = re.compile(r"^COREMARK core=(?P<core>\S+) wait_cycles=(?P<n>\d+)")
 
 
 def parse(path):
@@ -46,6 +47,7 @@ def parse(path):
         sys.exit(f"cannot read the simulation log: {exc}")
     cores = {}
     ramdiff = None
+    waits = {}
     for line in text.splitlines():
         line = line.strip()
         match = FACT.match(line)
@@ -59,6 +61,10 @@ def parse(path):
         match = RAMDIFF.match(line)
         if match:
             ramdiff = (int(match.group(1)), int(match.group(2)))
+            continue
+        match = WAIT.match(line)
+        if match:
+            waits[match.group("core")] = int(match.group("n"))
     if not cores:
         sys.exit(
             f"no COREMARK result lines in {path}. The simulation printed nothing "
@@ -71,7 +77,7 @@ def parse(path):
             "the\ntwo cores computed the same thing, and a run that did not report "
             "it is a\nrun whose cross-core check did not happen."
         )
-    return cores, ramdiff
+    return cores, ramdiff, waits
 
 
 def grade(cores, ramdiff, want):
@@ -151,7 +157,7 @@ def main():
     if len(want) != 2:
         sys.exit(f"--cores wants exactly two names, got '{args.cores}'")
 
-    cores, ramdiff = parse(args.log)
+    cores, ramdiff, waits = parse(args.log)
     grade(cores, ramdiff, want)
     clocks = read_clocks(args.mhz)
     for core in clocks:
@@ -177,6 +183,16 @@ def main():
         f"\n{want[1]} takes {ratio:.3f}x {want[0]}'s cycles for the same work, and "
         f"the\ntwo data RAMs are identical in all {ramdiff[1]} words afterwards."
     )
+
+    for core in want:
+        if core in waits and cores[core]["cycles"] > 0:
+            share = 100.0 * waits[core] / cores[core]["cycles"]
+            print(
+                f"\n{core} spends {waits[core]} of its {cores[core]['cycles']} "
+                f"measured cycles ({share:.2f}%) in a bus wait state the other "
+                "core here does not pay -- disclosed, not corrected."
+            )
+
     if not clocks:
         print(
             "No clock was given, so the CoreMark column is empty. It is each\n"
