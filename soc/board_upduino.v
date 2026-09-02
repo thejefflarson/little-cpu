@@ -14,9 +14,8 @@
 //
 // THE CRYSTAL IS NOT CONNECTED FROM THE FACTORY. The 12 MHz oscillator reaches
 // the FPGA on pin 20 only if R16 -- silkscreened OSC -- is shorted. Set
-// INTERNAL_OSC to build against `SB_HFOSC` instead, which needs no iron. Read
-// its comment below before choosing: the two are not interchangeable for the
-// UART.
+// INTERNAL_OSC to build against `SB_HFOSC` instead, which needs no iron. Its
+// comment below says what the UART makes of each.
 //
 // THE LEDs ARE THE RGB LED. Same active-low sense `littlesoc` already drives,
 // on the three dedicated pins the RGB driver block also uses. Driving them as
@@ -28,12 +27,10 @@
 // The vendor's own constraint file gives pin 14 two names: `serial_txd` and
 // `spi_miso`. So the FPGA's only route to the USB serial port is also the
 // on-board configuration flash's own data-out line, and there is no other pin
-// that reaches a host. Driving pin 14 unconditionally fought that flash chip
-// for the wire during a real flashing session -- `cdone` read high after a
-// reset that should have lowered it, a JEDEC id arrived a byte late as
-// `FF EF 70 16`, and then a write failed -- because this board's CRESET is not
-// wired to the programmer, so the FPGA keeps running, and keeps driving pin
-// 14, throughout `iceprog`'s own access to the same wire.
+// that reaches a host. Driving pin 14 unconditionally fights that flash chip
+// for the wire whenever `iceprog` reads it, because this board's CRESET is not
+// wired to the programmer, so the FPGA keeps running -- and keeps driving pin
+// 14 -- throughout.
 //
 // THE FIX READS PIN 16 RATHER THAN GUESSING. Pin 16 is the flash's own chip
 // select, and an SPI peripheral's output stage is a deterministic function of its
@@ -41,15 +38,12 @@
 // or what is holding that pin high. So "does pin 16 read high" is a sound
 // question at DC -- the level pin 16 settles to does not depend on whether a
 // pull-up or `iceprog` itself is what holds it there. It is NOT sound to ask
-// only through a synchroniser, though: soc/miso_share_enable.v gates turn-ON
-// through one (two cycles, because `now` crosses from a source this design
-// has no clock relationship with), but turns the enable OFF combinationally,
-// on the raw read, the instant pin 16 goes low. A synchronised-only enable
-// would keep this design driving pin 14 for up to two clock periods after
-// the flash's own driver is already live on it -- two push-pull drivers on
-// one pin, on every chip-select assertion a host makes. Nothing here ever
-// writes pin 16, so there is no loop through the pad to freeze against,
-// unlike the mechanism in soc/pin_lockout.v this board does not use.
+// only through a synchroniser, though: soc/miso_share_enable.v gates turn-on
+// through one and turns the enable off combinationally on the raw read the
+// instant pin 16 goes low -- its own header says why the two directions need
+// different treatment. Nothing here ever writes pin 16, so there is no loop
+// through the pad to freeze against, unlike the mechanism in soc/pin_lockout.v
+// this board does not use.
 //
 // PINS 15 AND 17 ARE NOT WIRED HERE AT ALL. `rtl/spiflash.v` -- the on-chip
 // controller for the same flash -- ships on `littlesoc`'s bus and is
@@ -59,23 +53,27 @@
 // idle with the flash's chip select parked high from one that was never
 // there -- `iceprog` parks it exactly that way, as a push-pull output,
 // between its own transactions, which is most of a session and not a corner
-// of it. Granting the on-chip controller those two pins on that predicate
-// risks driving them into the FTDI's own driver. `soc/pin_lockout.v` still
-// ships, bounded so a hung on-chip request cannot hold the pins forever once
-// something DOES wire a requester to it, but wiring it to this board's real
-// pins is a future ticket's, and it owes a real-board measurement of the
-// contention window described above, not another RTL argument.
+// of it. Granting the on-chip controller its pins on that predicate -- 15, 17
+// and its own drive of 16 -- risks driving three pins into the FTDI's own
+// driver. `soc/pin_lockout.v` still ships, bounded so a hung on-chip request
+// cannot hold the pins forever once something DOES wire a requester to it, but
+// wiring it to this board's real pins is a future ticket's, and it owes a
+// real-board measurement of the contention window described above, not another
+// RTL argument.
 `timescale 1 ns / 1 ps
 `default_nettype none
 module upduino_top #(
   // 0 takes the 12 MHz crystal off pin 20 and requires R16 shorted.
   // 1 takes `SB_HFOSC`, the internal oscillator, divided to 12 MHz.
   //
-  // THE UART IS WHAT DECIDES THIS. `SB_HFOSC` is trimmed to about +/-10%, and
-  // rtl/uart.v divides the clock by 104 for 115200 baud, which the header
-  // states a 0.16% error for. Ten percent of clock error swamps that and the
-  // FTDI at the other end will read garbage. So: internal to see the core run
-  // with no soldering, crystal for anything that has to be read.
+  // THE UART IS WHAT DECIDES THIS. rtl/uart.v divides the clock by 104 for
+  // 115200, so the wire rate moves with the oscillator, and 8N1 still decodes
+  // over about +/-5% of it. `SB_HFOSC`'s datasheet trim is +/-10% at worst
+  // case; the one board this has been measured on runs it at 11.98 +/- 0.11
+  // MHz, and 115200 reads clean with R16 open. Internal needs no soldering;
+  // crystal is for a board whose oscillator falls outside that plateau, and
+  // stays the default because it is the 12.00 MHz the timing requirement is
+  // stated against.
   parameter bit INTERNAL_OSC = 1'b0
 ) (
   input  logic clk_pin,
@@ -109,11 +107,9 @@ module upduino_top #(
   logic ssn_pin;
   logic miso_enable;
 
-  // Turn-on synchronised, turn-off combinational -- see soc/miso_share_enable.v
-  // and the header comment above for why the two directions need different
-  // treatment. `ssn_pin` is read here only, so there is no loop through the
-  // pad for this design's own drive to close: nothing below ever writes pin
-  // 16, unlike the mechanism in soc/pin_lockout.v this board does not use.
+  // Turn-on synchronised, turn-off combinational -- soc/miso_share_enable.v
+  // says why, and the header above says why this design needs none of
+  // soc/pin_lockout.v's guard.
   miso_share_enable enable_gate (
     .clk(clk),
     .now(ssn_pin),

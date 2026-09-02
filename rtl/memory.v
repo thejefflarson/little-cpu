@@ -4,8 +4,7 @@
 //
 // `SB_SPRAM256KA` is 16 bits wide with a 14-bit address and FOUR-BIT NIBBLE
 // write masks, so a 32-bit word is two instances side by side and this core's
-// 4-bit BYTE strobe becomes eight nibble masks. ADR-0044 flagged that mapping
-// as a real detail rather than a rename, and it is: get it wrong and `sb`
+// 4-bit BYTE strobe becomes eight nibble masks; get that mapping wrong and `sb`
 // writes a halfword.
 //
 // The mapping is not written out here, though, and that is deliberate. Yosys
@@ -16,27 +15,31 @@
 // could drift from the synthesised one. `make soc-timing` reports the SPRAM
 // count, which is how the inference is checked rather than assumed.
 //
-// ---- the one non-obvious line: `rdata` is NO-CHANGE on a write -------------
+// `rdata` is NO-CHANGE on a write: yosys's SPRAM rule (`ice40/spram.txt`)
+// declares `rdwr no_change`, so the read port holds its value on a cycle the
+// port writes. The obvious spelling -- `rdata <= ram[addr]` unconditionally,
+// alongside the byte writes -- is read-first, which the hardware CANNOT do, so
+// yosys silently declines SPRAM and maps the array to 128 `SB_RAM40_4K`
+// instead. That is four times the part's entire block RAM, reported as a
+// normal synthesis run. MEASURED, both ways; the `else` below is what makes
+// the difference.
 //
-// yosys's SPRAM rule (`ice40/spram.txt`) declares `rdwr no_change`: the read
-// port holds its value on a cycle the port writes. The obvious spelling --
-// `rdata <= ram[addr]` unconditionally, alongside the byte writes -- is
-// read-first, which the hardware CANNOT do, so yosys silently declines SPRAM
-// and maps the array to 128 `SB_RAM40_4K` instead. That is four times the
-// part's entire block RAM, reported as a normal synthesis run. MEASURED, both
-// ways; the `else` below is what makes the difference.
-//
-// Nothing observes the difference in behaviour. rtl/accessor.v reads
-// `mem_rdata` only on the cycle after a LOAD request (ADR-0015's one-cycle
-// turnaround), and decode is bubbled on that cycle, so no store is ever in
-// flight when a load's data is being captured.
+// Nothing observes the difference: rtl/accessor.v is the only reader of
+// `mem_rdata`, and it captures a load's answer on exactly one cycle, the one
+// after the load's own request went out -- which is also the cycle the
+// following instruction's store, if there is one, is on the bus, since a load
+// costs what an add costs (rtl/accessor.v's header says why). Holding or
+// re-reading on that store's edge changes only what `mem_rdata` carries on the
+// cycle after a write, and no load's request goes out in a write cycle for
+// that to be the answer to.
 module memory #(
-  // Base of the mapped region, subtracted before indexing. ADR-0008's map puts
-  // RAM at a non-zero base so a store through a null pointer lands outside it
-  // rather than silently on real data.
+  // Base of the mapped region. RAM sits at a non-zero base so a store through
+  // a null pointer lands outside it rather than silently on real data.
   parameter logic [31:0] BASE = 32'h0001_0000,
-  // 32-bit words. 16384 = 64 KB = two `SB_SPRAM256KA`; the part has four, so
-  // this can double without touching anything else.
+  // 32-bit words: 16384 = 64 KB = two `SB_SPRAM256KA` of the part's four.
+  // Doubling it is not free: the check below then wants a BASE on a 128 KB
+  // boundary, which this one is not, and rtl/littlecpu.v's `LS_RAM_*` copy of
+  // the map and test/asm/boot.lds move with it.
   parameter integer RAM_WORDS = 16384,
   // One `atomic_addr`/`atomic_supported` pair per hart, packed low hart first.
   // The bus-side ports stay scalar because the bus is shared and only one
@@ -104,17 +107,10 @@ module memory #(
   // mapped word, which is what indexing on truncated address bits alone would
   // do; test/mem_tb.v checks exactly that, at the boundary and far away.
   //
-  // THE FLAT SPELLING IS DELIBERATE, AND IT IS A MEASURED DECISION. The nested
-  // form -- `if (|wstrb) begin if (in_range) ... end else ...` -- says the
-  // no-change property more directly and was written that way first. It costs
-  // **11 logic cells and 3.6% of the SoC's critical path** (88.51 -> 91.67 ns,
-  // 41 -> 53 logic levels), measured by building both, twice each. This module
-  // is not on that path at all: 11 cells of difference anywhere in the netlist
-  // is enough to redistribute placement. The same trade was declined twice
-  // before: a shifter merge worth 19 cells SAVED, and a counter narrowing
-  // costing 37. Spending 11 cells and 3.6% of the only timing number
-  // this project has, on a design already 6% short of its declared 12 MHz,
-  // cuts the same way. Read ADR-0054 before rewriting it back.
+  // The flat spelling is deliberate: the nested form -- `if (|wstrb) begin if
+  // (in_range) ... end else ...` -- says the no-change property more directly
+  // and measured 11 cells and 3.6% of the SoC's period dearer, built both ways.
+  // Do not rewrite it back.
   always_ff @(posedge clk) begin
     if (in_range && |mem_wstrb) begin
       if (mem_wstrb[0]) ram[index][7:0]   <= mem_wdata[7:0];

@@ -334,11 +334,10 @@ module executor(
     if (div_rem < div_divisor && rem_sub[32]) assert(rem_shifted[32] == 1'b0);
 
   // Multiply, against free 32-bit operands: the divide cap below is guarded to
-  // the divide state. It was unguarded once, and an unguarded assume is
-  // proof-global, so these assertions ran against operands in 0..15 where every
-  // high half and sign bit is zero -- MULH/MULHU/MULHSU asserted
-  // `out.rd_data == 0` and three known multiplier defects passed the proof
-  // written to catch them.
+  // the divide state on purpose. An unguarded assume is proof-global, and with
+  // the cap unguarded every high half and sign bit was zero, so
+  // MULH/MULHU/MULHSU asserted `out.rd_data == 0` and three known multiplier
+  // defects passed the proof written to catch them.
 
   // MUL and MULHU take both operands unsigned, MULH both signed, MULHSU rs1
   // signed and rs2 unsigned. `{mul_sign_x, in.rs1}` is the 33-bit operand the
@@ -414,7 +413,8 @@ module executor(
   // edge -- which is the edge the divider loads on. Nothing in the RTL reads
   // `in` outside `init`, so `in` is left completely free while dividing: that
   // covers the held successor the pipeline really presents and every other
-  // sequence too, and is weaker than either assumption it replaces.
+  // sequence too, which is the weakest environment that still proves the
+  // completion arm.
   logic [31:0] div_ghost_rs1, div_ghost_rs2;
   always_ff @(posedge clk)
     if (!reset && state == init) begin
@@ -457,15 +457,13 @@ module executor(
   //
   // The product is 32 bits by 32 into 64, which cannot wrap: (2**32-1)**2 is
   // below 2**64. So the equation over 64-bit modular arithmetic is the equation
-  // over the integers, and no bound is needed to rule wraparound solutions out
-  // -- the old invariant needed one for exactly that, because its scaled divisor
-  // reached 2**64.
+  // over the integers, and no bound is needed to rule wraparound solutions out.
   //
   // Assumed: the magnitudes the divider loaded are at most this cap. That is a
   // recorded restriction on the proof, not a claim about the design; full width
   // is covered by test/exec_tb.v's randomized vectors. What it buys now is
-  // solver time on one symbolic 32x32 product, and the width was measured rather
-  // than guessed -- see the ADR for the sweep.
+  // solver time on one symbolic 32x32 product; the width was swept rather than
+  // guessed, and git blame finds the sweep.
   localparam [31:0] div_proof_cap = 32'h000000ff;
   always_comb if (state == divide) assume(div_mag_x <= div_proof_cap);
   always_comb if (state == divide) assume(div_mag_y <= div_proof_cap);

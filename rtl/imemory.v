@@ -122,14 +122,14 @@ module imemory #(
   // off the end traps with the cause the privileged spec names rather than as
   // an illegal instruction.
   //
-  // Both tests are reductions, not magnitude comparisons: `ROM_WORDS` is a power
-  // of two, so `< ROM_WORDS` is exactly "the bits above the ROM are all zero"
-  // and `< ROM_WORDS - 1` is that and "not the last word". Written as `<`, the
-  // second one compares against a non-power-of-two constant, which yosys can
-  // only build as a carry chain longer than a tile column -- so it becomes carry
-  // segments with general routing between them, and it measured a quarter of the
-  // whole period. The two reductions below are independent and evaluate in
-  // parallel.
+  // Both tests are reductions: `next_in_rom` is the power-of-two check above
+  // (the bits above the ROM all zero), and `next_is_last` is "not the last
+  // word" only because ROM_WORDS is a power of two, so ROM_WORDS - 1 is all
+  // ones across the low ROM_BITS bits, which is what the AND-reduction tests.
+  // Written as `< ROM_WORDS - 1`, the second is a magnitude compare against a
+  // non-power-of-two constant, a carry chain longer than a tile column with
+  // general routing between its segments, and it measured a quarter of the
+  // whole period.
   //
   // Do not restore `word + 1 < ROM_WORDS`: the adder would sit in front of the
   // test, the address arriving here is the next PC which an adder just produced,
@@ -179,15 +179,11 @@ module imemory #(
   assign mem_rdata = data_hit ? (data_hit_odd ? odd_data : even_data) : 32'b0;
 
   // The windows above the first, which are that window without the data port.
-  //
-  // WHY WINDOW 0 IS NOT AN ARM OF THIS LOOP, AND WHY THE WRITE TEST IS SPELLED
-  // OUT AGAIN BELOW. Both restatements were measured against the single-hart
-  // SoC's mapped netlist, which is what lets a tied-off change skip a
-  // sixteen-seed sweep: folding window 0 into the loop is +30 cells, and merely
-  // naming `|mem_wstrb && text_range` once and using it twice is +64. Neither
-  // changes the logic; both change the nets ABC maps over. The shipping build
-  // has to elaborate to today's design, so change either copy and change the
-  // other.
+  // Window 0 is spelled on its own above and the write test is written out
+  // again below on purpose: folding either into this loop changes nothing in
+  // the logic and moves the single-hart SoC's mapped netlist by tens of cells,
+  // and the netlist digest that lets a tied-off change skip a sweep forgives
+  // none of it. Change one copy and change the other.
   for (genvar h = 1; h < NHARTS; h++) begin : l_window
     logic [29:0]          w_next_word;
     logic [BANK_BITS:0]   w_word_index;

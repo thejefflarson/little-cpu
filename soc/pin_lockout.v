@@ -58,12 +58,9 @@ module pin_lockout (
 
   assign grant = want && released;
 
-  // Four states, one chain: not granted (free-run and reset the idle count
-  // for the next request); granted and busy (hold everything); granted and
-  // idle at the limit (force a fresh sample); granted and idle short of it
-  // (keep counting). Only two of the four touch `sync0`/`released`, and each
-  // is stated once rather than split across guards that have to be proven
-  // mutually exclusive by tracing them.
+  // Only two of the four arms touch `sync0`/`released`, and each is stated once
+  // rather than split across guards that would have to be proven mutually
+  // exclusive by tracing them.
   always_ff @(posedge clk) begin
     if (!grant) begin
       sync0      <= release_in;

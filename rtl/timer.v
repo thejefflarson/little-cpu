@@ -47,8 +47,8 @@
 // gives about `mcycle`: the two halves are one register, so a write to either
 // suppresses the carry as well as the half it names.
 module timer #(
-  // Above rtl/memory.v's 64 KB at 0x0001_0000, so the three ranges on the
-  // shared bus do not overlap and the read buses can be ORed together.
+  // Above rtl/memory.v's 64 KB at 0x0001_0000, so the ranges on the shared
+  // bus do not overlap and the read buses can be ORed together.
   parameter logic [31:0] BASE = 32'h0002_0000,
   // One `mtimecmp` and one `mtip` line per hart, against the one `mtime`.
   parameter integer      NHARTS = 1
@@ -98,8 +98,9 @@ module timer #(
   assign wr_cmp_hi  = writing && word == 2'd3;
 
   // Selected out here rather than inside the always blocks below: a constant
-  // part-select taken inside one defeats iverilog's sensitivity analysis and
-  // draws a `sorry:` note. Use a named continuous assign for any added later.
+  // part-select taken inside one draws iverilog's `sorry:` note
+  // (over-sensitivity, harmless, and allowlisted only for rtl/writeback.v).
+  // Use a named continuous assign for any added later.
   logic [31:0] mtime_lo, mtime_hi, mtimecmp_lo, mtimecmp_hi;
   assign mtime_lo    = mtime[31:0];
   assign mtime_hi    = mtime[63:32];
@@ -109,15 +110,11 @@ module timer #(
   logic [63:0] mtime_next;
   assign mtime_next = (wr_time_lo || wr_time_hi) ? mtime : mtime + 64'd1;
 
-  // ONE HART AND MANY ARE TWO TEXTS, and the measurement is why. Written once,
-  // with hart 0 an arm of the general mux, the single-hart SoC maps 19 to 25
-  // more cells for logic that did not change; an in-process `for` loop over the
-  // harts moves it by as much as 36 in either direction; and even an inert
-  // generate loop -- zero iterations, nothing elaborated -- moves it by 18,
-  // measured on its own. Only a generate arm that is NOT TAKEN costs nothing,
-  // which is why every further hart lives inside one. The mapped-netlist digest
-  // that lets a tied-off change skip a sixteen-seed sweep forgives none of the
-  // rest. Change one arm and change the other.
+  // One hart and many are two texts on purpose: with hart 0 an arm of the
+  // general mux, or the harts in a `for` loop, the single-hart SoC maps to a
+  // different netlist for logic that did not change, and only a generate arm
+  // that is not taken costs nothing -- which is why every further hart lives
+  // inside one. Change one arm and change the other.
   logic [31:0] read_word;
   generate if (NHARTS == 1) begin : l_read_one
     always_comb begin
@@ -131,18 +128,15 @@ module timer #(
     end
   end else begin : l_harts
     // The answer to a read of any word above hart 0's four, ORed up the harts.
-    // `read_above` is named rather than selected inside the mux below: a
-    // constant part-select taken inside an `always_*` process draws iverilog's
-    // `sorry:` note, which is over-sensitivity and harmless, but the two
-    // allowlisted ones are in rtl/writeback.v and this is not one of them.
+    // `read_above` is a named continuous assign for the reason `mtime_lo`
+    // gives above.
     logic [32*NHARTS-1:0] read_hart;
     logic [31:0]          read_above;
     assign read_hart[31:0] = 32'b0;
     assign read_above = read_hart[32*(NHARTS-1) +: 32];
 
     // The harts above the first: their `mtimecmp`, their two words of the
-    // window, and their `mtip`. `mtime` is not among them -- it is one counter
-    // for the machine, which is what the privileged spec says it is.
+    // window, and their `mtip`.
     for (genvar h = 1; h < NHARTS; h++) begin : l_hart
       logic [63:0] cmp;
       logic        sel_lo, sel_hi;
@@ -236,8 +230,8 @@ module timer #(
       // the cycle buys nothing: an `mret` cannot commit until the pipeline is
       // empty, which is several cycles after the handler's store lands.
       mtip[0] <= mtime_next >= mtimecmp;
-      // An out-of-range access reads zero, so the three memories on this bus
-      // join with an OR rather than a mux.
+      // An out-of-range access reads zero, so the memories on this bus join
+      // with an OR rather than a mux.
       mem_rdata <= in_range ? read_word : 32'b0;
     end
   end

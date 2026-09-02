@@ -6,7 +6,8 @@
 // with a bigger ROM, no init files and the two resets driven apart -- one copy
 // of the arbitration, placed and simulated.
 //
-// The pins are rtl/littlesoc.v's, so soc/littlesoc.lpf constrains this too. Do
+// The four pins are the ones soc/littlesoc.lpf was written for -- the clock
+// pinned, the other three left to nextpnr -- so it constrains this top too. Do
 // not add a pin without adding it there: nextpnr is run with
 // `--lpf-allow-unconstrained`, so an unconstrained pin is placed wherever and
 // says nothing.

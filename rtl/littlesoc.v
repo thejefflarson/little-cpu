@@ -11,21 +11,23 @@
 // takes that as an instruction access fault. The data RAM says which addresses
 // answer an ATOMIC, and decode faults the eleven encodings elsewhere -- an
 // atomic's address is a register value with no adder in front of it, so that
-// question fits in the cycle the pc is chosen. A plain load or store is still
-// turned down by neither: out of range both read zero and drop the write, and
-// the decode-side test that would fault them has to wait on the top of a 32-bit
-// sum, which was measured at four logic levels in the fetch loop and declined.
+// question fits in the cycle the pc is chosen. A plain load or store outside
+// every window faults too, cause 5 or 7: an access whose base register sits
+// deep inside RAM or the text window is answered the same cycle, off raw
+// register bits with no adder; one nearer an edge, or aimed at the timer, UART
+// or flash windows, bubbles a cycle and reads a flip-flop instead -- every
+// same-cycle spelling for that case put a 32-bit sum in the fetch loop and
+// missed the clock.
 //
 // The ROM is initialised from the bitstream and the SPRAM cannot be, so a
 // program's `.data` is not there at power-on and every `.S` program in test/asm
-// has one. Running a real program needs a stub in `.text` that copies the data
-// image out of ROM; the SPI controller below is the other half of that, and lets a
-// program read an image the bitstream never carried.
+// has one. test/crt0.S is the stub in `.text` that copies the data image out of
+// ROM at the address test/asm/boot.lds puts it; the SPI controller below is the
+// other half, and lets a program read an image the bitstream never carried.
 module littlesoc (
   input  logic clk,
   input  logic btn_n,
-  // Give yosys a design whose output nothing can see and it deletes the lot. An
-  // earlier version of this module did exactly that and reported 4 logic cells.
+  // Give yosys a design whose output nothing can see and it deletes the lot.
   // These two only watch signals the core already drives, so they add no
   // registers to the memory map and change nothing about how it runs.
   output logic ledr_n,
@@ -35,11 +37,13 @@ module littlesoc (
   // the assignment.
   output logic uart_tx,
   // The configuration flash, after configuration. `spi_cs_n` is the chip select
-  // AND the output enable a board file needs: these three outputs are shared
+  // AND the output enable a board file needs: these three outputs share pins
   // with whatever programmes the board, so a design that drove them all the
-  // time would fight the programmer for the wire. soc/board_upduino.v is where
-  // that tri-state lives, because which wires are shared is a fact about one
-  // board and not about this chip.
+  // time would fight the programmer for the wire. Which wires are shared is a
+  // fact about one board and not about this chip, so the sharing is a board
+  // file's to wire -- and soc/board_upduino.v leaves all three unconnected and
+  // ties `spi_miso` high, because no board here has been shown safe to share
+  // them yet.
   output logic spi_sck,
   output logic spi_mosi,
   input  logic spi_miso,
@@ -104,8 +108,7 @@ module littlesoc (
     .atomic_supported(atomic_supported),
     // One bus initiator, so nothing ever takes the bus away and nothing else
     // writes memory, and `mem_lock` has no arbiter to tell. The two inputs fold
-    // away here; the output does not, and its wire is why this SoC's mapped
-    // netlist is not the one it was before the surface landed.
+    // away; the unread output does not.
     .bus_wait(1'b0),
     .snoop_write(1'b0),
     .snoop_addr(32'b0),
@@ -168,8 +171,12 @@ module littlesoc (
   );
 
   // The transmit-only UART, at rtl/uart.v's default base, which is the first
-  // word past the timer's four. Its read-back is one bit wide, so the OR below
-  // gains a fourth input on bit 0 and nothing anywhere else.
+  // word past the eight the map reserves for the timer. rtl/timer.v answers
+  // only the first four at this SoC's one hart; the top four read zero here,
+  // and test/memmap_test.sh refuses a BASE inside them, because they are a
+  // second hart's mtimecmp the day NHARTS grows. The UART's read-back is one
+  // bit wide, so the OR below gains a fourth input on bit 0 and nothing
+  // anywhere else.
   uart tty (
     .clk(clk),
     .reset(reset),
@@ -209,17 +216,9 @@ module littlesoc (
   // storing it: bit 0 lights green, bit 1 lights red, and a store of 1 or 2 is
   // the whole protocol. Both are active low, which is what the boards want.
   //
-  // Red used to be a `trap_seen` latch instead, and that was the wrong signal
-  // for the only thing that reads these. It set on ANY trap and never cleared,
-  // and most of the .S suite traps deliberately -- trap.S, cebreak.S, ifault.S,
-  // amotrap.S, loadfault.S -- so on a board running the suite it lit within
-  // seconds of the first batch and stayed lit whatever the verdicts were. It
-  // could not distinguish a run that passed from one that did not, which is the
-  // question anyone standing in front of the board is actually asking.
-  //
-  // Nothing is lost that software cannot say for itself: a program that wants
-  // to report a fault has a trap handler at the point it would want to, and
-  // storing 2 from it is one instruction.
+  // Not a trap latch: most of the .S suite traps on purpose, so a latch lights
+  // on any run and cannot tell a pass from a failure. A program that wants to
+  // report a fault stores 2 from its handler.
   logic led_green, led_red;
   always_ff @(posedge clk) begin
     if (reset) begin

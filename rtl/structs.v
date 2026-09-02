@@ -1,31 +1,27 @@
 `default_nettype none
 `ifndef STRUCTS_V
 `define STRUCTS_V
-// ADR-0004 / ADR-0009: every inter-stage struct carries a `valid` bit. A
-// bubble is `valid = 0` with the rest of the struct zeroed (reset does this
-// unconditionally; the stall-only interlock does it whenever a stage
-// withholds a real instruction). Retire is `valid` reaching writeback.
+// Every inter-stage struct carries a `valid` bit. A bubble is `valid = 0` with
+// the rest of the struct zeroed (reset does this unconditionally; a stalled
+// stage does it whenever it withholds a real instruction). Retire is `valid`
+// reaching writeback.
 typedef struct packed {
   logic        valid;
   logic [31:0] pc;
   logic [31:0] instr;
-  // The 32 bits sitting at pc + 2 or pc + 4, whichever follows `instr`, masked
-  // above the low half when they are a compressed instruction. Decode reads
+  // The 32 bits sitting at pc + 2 or pc + 4, whichever follows `instr`, raw:
+  // rtl/regsel.v masks a compressed one's upper half itself. Decode reads
   // register numbers out of it a cycle early and checks what it read, so this is
   // never decoded and is not required to be an instruction at all.
   logic [31:0] next_instr;
 } fetcher_output;
 
-// ADR-0006: RVFI via per-stage shadow payloads rather than a separate retire
-// tracker. This carries the fields decode alone knows (the instruction word,
-// the pc this instruction was fetched at and the pc it hands off to the next
-// one, and the register-file read side of rs1/rs2) down through the pipeline
-// unchanged, riding the same struct/valid-bit protocol as everything else --
-// so a bubble zeroes it for free and a stall holds it for free. Everything
-// mem-related is captured separately in rtl/accessor.v, where it's actually
-// known (see accessor_output below). `ifdef`'d out of synthesis so it costs
-// no LUTs (ADR-0006): none of this exists unless
-// RISCV_FORMAL is defined.
+// RVFI rides each stage struct as a shadow payload, so a bubble zeroes it and
+// a stall holds it with no plumbing of its own. It carries what decode alone
+// knows -- the word, the pc fetched at and the pc handed off to, the rs1/rs2
+// read side; the mem_* report is captured in rtl/accessor.v, where it is
+// known. None of this exists unless RISCV_FORMAL is defined, and
+// `make -C formal nonperturbation` is what says the core never reads it.
 `ifdef RISCV_FORMAL
 // One RVFI CSR report: what the retiring instruction read and wrote of one
 // CSR. Two widths because riscv-formal's own port widths differ -- the
@@ -56,12 +52,11 @@ typedef struct packed {
   logic [4:0]  rs2_addr;
   logic [31:0] rs1_rdata;
   logic [31:0] rs2_rdata;
-  // ADR-0028: `rvfi_trap` for this instruction. Decode is the one stage that
-  // knows it -- every trap is detected and committed there -- so it rides down
-  // with the rest of the shadow rather than being recomputed at retire. A
-  // trapping instruction still retires (`valid` reaching writeback); it just
-  // retires having
-  // architecturally done nothing except redirect the PC.
+  // `rvfi_trap` for this instruction. Decode is the one stage that knows it --
+  // every trap is detected and committed there -- so it rides down with the
+  // rest of the shadow rather than being recomputed at retire. A trapping
+  // instruction still retires (`valid` reaching writeback); it just retires
+  // having architecturally done nothing except redirect the PC.
   logic        trap;
   // `rvfi_intr`: this instruction is the first of a handler that no earlier
   // retire handed off to. Only an interrupt sets it -- an exception rides out
@@ -69,11 +64,14 @@ typedef struct packed {
   // and leaves the chain unbroken. Both sim legs' monitor and riscv-formal's
   // two pc checks read it to stop expecting continuity across that gap.
   logic        intr;
-  // `rvfi_mem_fault`: the platform had no memory at this instruction's address.
-  // Decode is the one stage that knows it -- the fetch that failed is the one it
-  // is looking at, and an atomic the data memory refuses never reaches the bus
-  // either -- so all three ride down here rather than coming from
-  // rtl/accessor.v with the rest of the mem_* report.
+  // `rvfi_mem_fault`: the platform had no memory at an address this instruction
+  // touched. Decode is the one stage that knows it -- the fetch that failed is
+  // the one it is looking at; an atomic whose address rtl/memory.v refuses
+  // (its `atomic_supported` input) never reaches the bus; and neither does a
+  // plain load or store, which decode tests against its own elaboration-time
+  // copy of the map and never issues once that test fails -- so the flag and
+  // its two masks ride down here rather than coming from rtl/accessor.v with
+  // the rest of the mem_* report.
   //
   // The two masks are how checks/rvfi_fault_check.sv tells the three refusals
   // apart, and it reads them as the cause: both clear is a fetch and cause 1, a
@@ -90,10 +88,9 @@ typedef struct packed {
   logic [3:0]  mem_fault_wmask;
   logic [31:0] mem_fault_addr;
   // Exactly the CSRs formal/checks.cfg's `[csrs]` list names, captured in
-  // decode -- the one stage that knows them, since ADR-0005 reads and
-  // commits every CSR access there -- and forwarded on the same valid-bit
-  // protocol as everything else above (ADR-0006: no new plumbing concept, a
-  // bubble zeroes them for free and a stall holds them for free).
+  // decode -- the one stage that knows them, since every CSR access is read
+  // and committed there -- and forwarded on the same valid-bit protocol as
+  // everything above.
   rvfi_csr64   csr_mcycle;
   rvfi_csr64   csr_minstret;
   rvfi_csr32   csr_mscratch;
@@ -165,30 +162,13 @@ typedef struct packed {
   logic        is_amomaxu;
   logic        is_lr;
   logic        is_sc;
-  // What is deliberately NOT here, and must not come back:
-  //
-  //   `is_csrrw`/`is_csrrs`/`is_csrrc`, which this struct used to carry with
-  //   rtl/executor.v an empty statement for them. They cannot coexist with
-  //   ADR-0005's `is_add` pass-through: the executor's op select is one
-  //   `(* parallel_case *) case (1'b1)`, and setting both `is_add` and a CSR
-  //   flag would make two arms match at once -- a lie to synthesis, not
-  //   merely redundant.
-  //
-  //   `csr_addr`/`is_csr_imm`, which ADR-0034 kept as scaffolding with an
-  //   explicit sunset condition: strike them in the trap-entry change if
-  //   neither has acquired a downstream consumer by then. Neither did --
-  //   trap detection, CSR read/write and trap commit all happen in decode --
-  //   so they are gone. Thirteen bits of struct that nothing reads is the
-  //   incidental machinery this project's stated goal warns against.
-  //
-  //   `is_lui`, which took the same route the CSR read did: decode hands the
-  //   executor the immediate as rs1 with rs2 zeroed, so an add produces it and
-  //   a flag of its own would be a second arm matching the same instruction.
-  //
-  //   `is_ecall`/`is_ebreak`. Everything that sets them raises `trap_pending`,
-  //   and rtl/decoder.v's trap arm clears every execution flag on a trapping
-  //   issue -- so both were constant zero at this boundary, with an empty
-  //   executor arm and a one-hot assumption as their only readers.
+  // No flag here may match an instruction `is_add` already matches: a CSR read
+  // and `lui` both ride the add pass-through with the value handed over as rs1,
+  // and rtl/executor.v's op select is a `(* parallel_case *)` over these flags,
+  // so a second arm matching the same instruction is a lie to synthesis rather
+  // than redundancy. Nothing here names a trap either: the trap arm clears
+  // every execution flag on a trapping issue, so an `is_ecall` would be
+  // constant zero.
 } decoder_output;
 
 // Nothing memory-related survives this far. The bus transaction goes out from
@@ -211,7 +191,7 @@ typedef struct packed {
   // Everything mem-related is captured here, not forwarded from
   // executor_output: this is the stage that actually issues the bus
   // request and (one cycle later, for loads) sees the response, so it is
-  // the only stage that knows the real rmask/wmask/wdata/rdata (ADR-0006).
+  // the only stage that knows the real rmask/wmask/wdata/rdata.
   logic [31:0] rvfi_mem_addr;
   logic [3:0]  rvfi_mem_rmask;
   logic [3:0]  rvfi_mem_wmask;

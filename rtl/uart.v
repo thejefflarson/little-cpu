@@ -39,9 +39,10 @@
 // -- see `mem_rdata` below.
 module uart #(
   // The eight bytes above the whole span rtl/timer.v reserves for one
-  // `mtimecmp` per hart -- eight words, not the four a one-hart build decodes --
-  // so the four ranges on the shared bus abut at every hart count and the read
-  // buses can be ORed together. test/memmap_test.sh is what says so.
+  // `mtimecmp` per hart -- the two-hart window of eight words, not the four a
+  // one-hart build decodes -- so the ranges on the shared bus abut at one hart
+  // and at two and the read buses can be ORed together. test/memmap_test.sh is
+  // what says so.
   parameter logic [31:0] BASE     = 32'h0002_0020,
   // The two numbers the divisor is derived from, rather than the divisor: a
   // literal here would silently keep its old meaning the day either moves.
@@ -100,11 +101,10 @@ module uart #(
   logic baud_tick;
   assign baud_tick = busy && baud_count == '0;
 
-  // ONE FLIP-FLOP, not a registered 32-bit word. Everything this device reports
-  // is `busy`, so the other 31 bits are constants that yosys folds out of the
-  // OR in rtl/littlesoc.v: the three-input OR the other memories already need
-  // stays one `SB_LUT4` per bit and gains a fourth input on bit 0 alone. A
-  // 32-bit register here would cost 32 flops to say the same thing.
+  // ONE FLIP-FLOP, not a registered 32-bit word: everything this device reports
+  // is `busy`, so the other 31 bits are constants yosys folds out of the
+  // read-back OR in rtl/littlesoc.v. A 32-bit register here would cost 32
+  // flops to say the same thing.
   logic rd_busy;
   assign mem_rdata = {31'b0, rd_busy};
 

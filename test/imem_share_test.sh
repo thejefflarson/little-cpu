@@ -47,7 +47,7 @@ trap 'rm -rf "$tmp"' EXIT
 cases=0
 failed=0
 
-# Pinned as a literal, the way test/probe_gates.sh pins its probe count: a case
+# Pinned as a literal, for the reason test/PROBES_EXPECTED gives: a case
 # deleted, or one stopped being reached by an early return, would otherwise cut
 # this file's coverage while it went on printing a green summary.
 CASES_EXPECTED=9

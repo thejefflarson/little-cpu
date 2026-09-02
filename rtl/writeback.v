@@ -4,9 +4,7 @@
 module writeback(
   input  logic clk,
   input  logic reset,
-  // inputs
   input accessor_output in,
-  // outputs
   output logic wen,
   output logic [4:0] waddr,
   output logic [31:0] wdata
@@ -72,13 +70,10 @@ module writeback(
   // Retire is `valid` reaching writeback: a bubble must never commit a
   // register write.
   assign wen   = !reset && in_valid && (in_rd != 5'b0);
-  // The masks are dead logic and they stay. Every consumer in rtl/regfile.v --
-  // both write-first terms, the array write and the write-through bypass --
-  // already tests `wen`, so deleting them changes nothing and reads like a free
-  // level off the loop into the branch comparator. It was built and swept at
-  // sixteen seeds: the median period moved +2.8% and the worst placement went
-  // under the board clock at 11.89 MHz. Deleting dead logic here is a measured
-  // cost, not a saving.
+  // The masks are dead logic and they stay: every consumer in rtl/regfile.v
+  // already tests `wen`, and deleting them measured +2.8% of median period
+  // with the worst of sixteen placements at 11.89 MHz, under the board clock.
+  // Deleting dead logic here is a measured cost, not a saving.
   assign waddr = wen ? in_rd      : 5'b0;
   assign wdata = wen ? in_rd_data : 32'b0;
 
@@ -89,7 +84,7 @@ module writeback(
   // tell a core that traps correctly from one that traps and also corrupts rd,
   // writes memory and redirects somewhere arbitrary. The convention is
   // rvfi_valid 1 (a trapping instruction does retire), rvfi_trap 1, rd_addr /
-  // rd_wdata / mem_rmask / mem_wmask 0, and pc_wdata = mtvec (ADR-0028).
+  // rd_wdata / mem_rmask / mem_wmask 0, and pc_wdata = mtvec.
   //
   // None of it is enforced here. rtl/decoder.v suppresses `out.rd` and every
   // execution flag on a trapping issue, so the values below are zero because
@@ -145,10 +140,10 @@ module writeback(
     rvfi_mem_wdata = in.rvfi_mem_wdata;
   end
 
-  // Captured in decode (ADR-0005 commits every CSR access there) and reported
-  // here at retire. Continuous assigns for the same sensitivity reason as
-  // rvfi_trap above: these twelve reads inside the always_comb are twelve more
-  // `sorry:` notes.
+  // Captured in decode, which commits every CSR access on the edge the
+  // instruction issues, and reported here at retire. Continuous assigns for
+  // the same sensitivity reason as rvfi_trap above: these twelve reads inside
+  // the always_comb are twelve more `sorry:` notes.
   assign rvfi_csr_mcycle_rmask   = in.rvfi.csr_mcycle.rmask;
   assign rvfi_csr_mcycle_wmask   = in.rvfi.csr_mcycle.wmask;
   assign rvfi_csr_mcycle_rdata   = in.rvfi.csr_mcycle.rdata;

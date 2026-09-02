@@ -18,7 +18,7 @@
 // decoder's `instr_valid` term and the read-only test is on the address, so both
 // illegal-CSR rules are decided in rtl/decoder.v with every other trap cause.
 //
-// WHAT mtval REPORTS, PER CAUSE. Firmware cannot derive this -- the privileged
+// What mtval reports, per cause. Firmware cannot derive this -- the privileged
 // spec leaves every entry to the platform -- so it is stated rather than
 // implied, the way the machine timer's period is:
 //
@@ -183,7 +183,9 @@ module csrs #(
   // machine counters and their reserved neighbours. One window per spec range,
   // priced against the cheaper spelling that folds the two counter windows into
   // one compare on the bit that separates them: that one is 39 placed cells
-  // smaller and was declined, so do not re-derive it as a saving.
+  // smaller -- inside `make fit`'s churn band -- and was declined because three
+  // named windows read the way the spec's three ranges do, so do not re-derive
+  // it as a saving.
   localparam logic [6:0] MHPMCOUNTER_WINDOW  = 7'h58; // 0xB00-0xB1F
   localparam logic [6:0] MHPMCOUNTERH_WINDOW = 7'h5C; // 0xB80-0xB9F
   localparam logic [6:0] MHPMEVENT_WINDOW    = 7'h19; // 0x320-0x33F

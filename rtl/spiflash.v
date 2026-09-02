@@ -48,12 +48,13 @@
 // edge. `sck` is the bus clock divided by two, so a byte is sixteen cycles --
 // 1.33 us at 12 MHz, and 8 KB is about 11 ms.
 //
-// THE CHIP SELECT IS ALSO THE BOARD'S OUTPUT ENABLE. On the UPduino the four
-// pins below are shared with the FTDI, which drives three of them whenever the
-// host talks to the flash, so a design that drove them all the time would fight
-// `iceprog` for the wire. `cs_n` is published for soc/board_upduino.v to use as
-// the enable on all three outputs: this controller drives the pins only while it
-// holds the flash selected, and lets go the rest of the time.
+// THE CHIP SELECT IS THE OUTPUT ENABLE A BOARD WOULD USE. On the UPduino the
+// four pins below are shared with the FTDI, which drives three of them whenever
+// the host talks to the flash, so a wrapper may drive them only while `cs_n` is
+// low -- and soc/board_upduino.v does not wire them at all: it ties `miso` high
+// and leaves the other three unconnected, because the level on the flash's chip
+// select cannot tell an idle host from no host. This controller is reachable in
+// simulation only.
 //
 // Nothing in this module reaches the core's fetch loop. It answers the data bus
 // only, and its read-back is nine bits wide by construction.
@@ -69,7 +70,7 @@ module spiflash #(
   input  logic [3:0]  mem_wstrb,
   output logic [31:0] mem_rdata,
   // The flash's pins. `sck` and `mosi` are meaningful only while `cs_n` is low;
-  // see the output-enable note above.
+  // on the shipping board none of the three is connected (see above).
   output logic        sck,
   output logic        mosi,
   input  logic        miso,

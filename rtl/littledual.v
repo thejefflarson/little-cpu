@@ -13,8 +13,6 @@
 // the packed widths and the generate loop can be written once, not an
 // invitation to raise it.
 //
-// ---- how a hart gets the data bus ------------------------------------------
-//
 // The arbiter's grant is REGISTERED, so it has to be asked a cycle before the
 // cycle it covers. Decode is the stage that knows a cycle early: `bus_request`
 // is high on a cycle that would publish a memory instruction, and the
@@ -39,13 +37,12 @@
 // together: the lock says "the bus is busy next cycle too", the grant says "you
 // may publish".
 //
-// ---- why the two harts' buses can be ORed ----------------------------------
-//
-// rtl/accessor.v drives address, write data and strobes to zero on a cycle it
-// is not requesting, so the two harts' bus outputs join with an OR exactly the
-// way rtl/littlesoc.v joins its three memories' read data. That is sound only
-// under the invariant above, and an OR of two live initiators is silent -- so
-// test/dual_testbench.v checks it every cycle rather than trusting it.
+// rtl/accessor.v drives address, read enable and strobes to zero on a cycle it
+// has no transaction, so three of the four bus outputs join with an OR the way
+// rtl/littlesoc.v joins its five read buses; write data is the exception, and
+// the mux below says why. That is sound only under the invariant above, and an
+// OR of two live initiators is silent -- so test/dual_testbench.v checks it
+// every cycle rather than trusting it.
 module littledual #(
   // The text window, in words. The integrator's number, the way it is for one
   // hart: the simulated machine's ROM is deliberately larger than the part's.
@@ -126,15 +123,12 @@ module littledual #(
   assign mem_wstrb = hart_mem_wstrb[3:0] | hart_mem_wstrb[7:4];
   assign mem_ren   = hart_mem_ren[0]     | hart_mem_ren[1];
 
-  // `mem_wdata` IS THE ONE PORT THAT CANNOT BE ORed, and the reason is worth
-  // keeping: rtl/accessor.v publishes rs2 on it for every issuing instruction
-  // and not only for a store, because with one bus initiator `mem_wstrb` is the
-  // only gate that matters and nothing there ever had to drive it to zero. Two
-  // initiators ORed make one hart's rs2 part of the other hart's store, on any
-  // cycle a non-memory instruction issues beside one. That is not a hypothetical
-  // -- ORing it here lost 30 of a smoke program's 32 counted increments, and it
-  // is invisible to a bus-exclusivity check, because the hart doing the damage
-  // has neither a read enable nor a strobe raised.
+  // `mem_wdata` is the one port that cannot be ORed: rtl/accessor.v publishes
+  // rs2 on it for every issuing instruction, not only a store, because with one
+  // initiator `mem_wstrb` is the only gate that matters. ORed, one hart's rs2
+  // lands in the other hart's store whenever a non-memory instruction issues
+  // beside it, and no bus-exclusivity check sees it because that hart raises
+  // neither a read enable nor a strobe.
   assign mem_wdata = |hart_mem_wstrb[3:0] ? hart_mem_wdata[31:0]
                                           : hart_mem_wdata[63:32];
   assign mem_rdata = imem_mem_rdata | dmem_mem_rdata | timer_mem_rdata;
@@ -176,7 +170,8 @@ module littledual #(
    `ifdef RISCV_FORMAL_MEM_FAULT
     // The masks are the access the refused instruction would have made. Only
     // the flag leaves this module -- no monitor here reads either mask -- and
-    // they are named rather than left empty for the reason above.
+    // they are named rather than left empty for the reason at the `rvfi_mode`
+    // connection below.
     logic [3:0]  u_mem_fault_rmask, u_mem_fault_wmask;
    `endif
 

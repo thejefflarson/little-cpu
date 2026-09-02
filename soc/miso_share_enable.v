@@ -19,9 +19,7 @@
 // goes low, which is the same edge the flash sees, while `released` still
 // gates how fast it may come back on.
 //
-// `now` IS READ COMBINATIONALLY ON PURPOSE, and only to turn the enable
-// OFF faster -- never to turn it on, which stays gated by `released` too. A
-// glitch on `now` can at worst truncate this design's own drive by a cycle,
+// A glitch on `now` can at worst truncate this design's own drive by a cycle,
 // which costs a UART bit and not a fault.
 module miso_share_enable (
   input  logic clk,

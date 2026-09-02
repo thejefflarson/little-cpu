@@ -21,11 +21,11 @@ module accessor(
     output logic [3:0]  mem_wstrb,
     output logic [31:0] mem_wdata,
     input  logic [31:0] mem_rdata,
-    // There is no fault output here on purpose. A misaligned load or store is
-    // caught in decode, which clears its `is_l*`/`is_s*` flags, so an access
-    // that gets this far cannot fail. Add one and an instruction could fail
-    // after decode had already let the ones behind it through, and there is no
-    // way to take those back.
+    // There is no fault output here on purpose. A misaligned or region-refused
+    // load or store is caught in decode, which clears its `is_l*`/`is_s*`
+    // flags, so an access that gets this far cannot fail. Add one and an
+    // instruction could fail after decode had already let the ones behind it
+    // through, and there is no way to take those back.
     //
     // The instruction memory shares one read port between fetch and data, and
     // uses this to tell a real load from an idle bus. An idle bus shows address
@@ -38,7 +38,12 @@ module accessor(
     // anywhere and which the eventual-success guarantee excuses because that
     // guarantee attaches only to a region whose reservability PMA says so.
     // Without it an `sc.w` to an address no memory answers would report success
-    // for a store that went nowhere, and the spec has no room for that.
+    // for a store that went nowhere, and the spec has no room for that. Decode
+    // faults an atomic outside the platform's region before it gets here, so
+    // software cannot reach this arm; it stays for a platform that tied that
+    // fault off, which still must not let an `sc.w` claim a write that went
+    // nowhere. test/accessor_tb.v and the reservation assertion in the FORMAL
+    // block below are what grade it.
     input  logic mem_reservable,
     // Another bus initiator wrote, and where. It joins this core's own writes in
     // the clear term below, so a reservation cannot outlive somebody else's
@@ -195,9 +200,9 @@ module accessor(
   // traps in decode, so this one shift serves both widths, and a word is the
   // lane at offset zero.
   //
-  // Two continuous assigns rather than a four-way case: a constant part-select
-  // read inside an `always_*` draws iverilog's `sorry:` note, and the two stages
-  // are the byte shifter a LUT fabric builds from the case anyway.
+  // Two continuous assigns rather than a four-way case, for the iverilog
+  // reason at the top of the file -- and the two stages are the byte shifter a
+  // LUT fabric builds from the case anyway.
   logic [31:0] load_lane1, load_lane, load_value;
   logic        load_byte, load_half, load_sign;
   assign load_lane1 = take_lane[0] ? {8'b0,  mem_rdata[31:8]}   : mem_rdata;
@@ -216,8 +221,6 @@ module accessor(
   assign store_halfword    = launch_mem_data[15:0];
   assign store_byte        = launch_mem_data[7:0];
 
-  // ---- the read-modify-write, on the cycle after the read ------------------
-  //
   // The op, the address and rs2 are all spent with the read a cycle earlier, so
   // each is held here. The memory word is not: it is on `mem_rdata` for exactly
   // this cycle, which is why the arithmetic lives here and not in
@@ -252,8 +255,7 @@ module accessor(
   assign amo_less     = amo_signed ? amo_lt : amo_ltu;
   assign amo_keep_mem = (take_amo_min || take_amo_minu) ? amo_less : !amo_less;
 
-  // Named out here rather than sliced inside the mux below: a constant
-  // part-select read inside an `always_*` draws iverilog's `sorry:` note.
+  // A continuous assign, for the iverilog reason at the top of the file.
   logic [31:0] amo_add_result;
   assign amo_add_result = amo_sum[31:0];
 
@@ -337,7 +339,7 @@ module accessor(
  `ifdef RISCV_FORMAL
   // The request as it really went out, held for the one cycle until the
   // instruction it belongs to reaches `out`. This is the only stage that ever
-  // knows the real address, masks and write data, and now it knows them a cycle
+  // knows the real address, masks and write data, and it knows them a cycle
   // before it reports them.
   logic [31:0] take_rvfi_mem_addr, take_rvfi_mem_wdata;
   logic [3:0]  take_rvfi_mem_wstrb;
@@ -478,8 +480,8 @@ module accessor(
   // The exact arm list of the request block's outer `(* parallel_case *)`. A
   // marking is spent against an assertion, never against belief.
   always_comb assert($onehot0({is_load, is_store}));
-  // ...and of the store arm's inner one, which a store-conditional now shares
-  // with `sw`.
+  // ...and of the store arm's inner one, where a store-conditional shares the
+  // `sw` arm.
   always_comb assert($onehot0({launch_is_sw || sc_store, launch_is_sh, launch_is_sb}));
   // ...and of the read-modify-write's truth-table select, which is the first five
   // of these. The add is in the list too, because a function selecting it and the
@@ -536,7 +538,7 @@ module accessor(
   always_ff @(posedge clk) prev_snoop_clear <= snoop_clear;
   always_comb if (clocked && prev_snoop_clear) assert(!rsrv_held);
 
-  // THE ARBITER'S CONTRACT, and the whole of it. A shared-bus arbiter registers
+  // The arbiter's contract, and the whole of it: a shared-bus arbiter registers
   // its grant, so it has to be told on the read cycle that the write cycle is
   // coming: `mem_lock` marks the read, and the equality says both halves at
   // once -- every locked cycle is followed by the write-back it bought, and
@@ -555,21 +557,17 @@ module accessor(
   // way a wrong design might reach it.
   always_comb if (requesting && launch_is_sc && !rsrv_hit) assert(!transacting);
 
-  // The issued-once guard, in the two halves that make it one. Decode holds
-  // `launch` unchanged for every cycle of a divide and the executor takes it on
-  // exactly one of them, so a bus driven only on a taken cycle is a bus driven
-  // once per memory instruction. Two writes are one write for RAM and are not
-  // one for a device, which is why this is a correctness statement and not a
-  // tidiness one. Delete `launch_taken` from `requesting` above and both go red.
-  // An AMO is the one instruction that drives the bus on a cycle it is not
-  // being launched on, and it drives it exactly once more: `take_amo` is high
-  // for the single cycle after the read.
+  // The issued-once guard, in two halves. Decode holds `launch` for every
+  // cycle of a divide and the executor takes it on exactly one, so a bus driven
+  // only on a taken cycle is driven once per memory instruction (see
+  // `launch_taken` above for why that is correctness). Delete `launch_taken`
+  // from `requesting` and both go red. An AMO drives the bus once more, on the
+  // single cycle `take_amo` is high.
   always_comb assert(transacting == (take_amo || (requesting && (is_load || is_store))));
   always_comb if (!launch_taken && !take_amo) assert(!transacting && mem_addr == 32'b0);
 
-  // An instruction that touches no memory leaves the bus alone, so an idle
-  // cycle cannot be mistaken for a load by a memory that arbitrates on address
-  // alone -- address 0 is a text address.
+  // An instruction that touches no memory leaves the bus alone; `mem_ren`'s
+  // port comment says why an idle bus must not look like a load.
   always_comb if (!is_load && !is_store && !take_amo)
     assert(!transacting && mem_addr == 32'b0);
  `endif

@@ -23,7 +23,7 @@ check. So rule 3 also asserts on the contents of its span, and this script
 re-checks the finished output. See rule 3's comment for the three layers.
 
 The diff `test/monitor.v` -> `test/monitor.sim.v` must stay small enough to read
-in full (`diff` it; it is currently sixteen lines). If it stops being readable at
+in full (`diff` it; it is currently 39 lines). If it stops being readable at
 a glance, that is the signal to fix the generator upstream instead of adding a
 rule here.
 
@@ -264,7 +264,7 @@ def main(argv):
             f'expect. A riscv-formal pin bump (formal/pin.mk) may have changed the\n'
             f'generator output -- re-read each rule against {argv[1]} and either fix\n'
             f'or delete it. Do NOT ship a silently-unapplied sanitizer: both sim legs\n'
-            f'read this output as their oracle (ADR-0019).\n'
+            f'read this output as their oracle.\n'
             + '\n'.join(failures) + '\n'
         )
         return 1

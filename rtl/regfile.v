@@ -16,7 +16,7 @@ module regfile(
   // `regs_a[i] == regs_b[i]` is asserted in test/regfile_tb.v because nothing
   // else would notice them drifting -- test/cosim.cc reads regs_a alone, and
   // reg_rs2 is the only consumer of regs_b. yosys infers the EBRs from these
-  // plain arrays with no attribute (ADR-0042).
+  // plain arrays with no attribute.
   logic [31:0] regs_a[31:0];
   logic [31:0] regs_b[31:0];
   logic [31:0] read_a;
@@ -25,9 +25,10 @@ module regfile(
   logic [4:0]  held_rs2;
 
   // The read is registered, so the operand for the address presented in cycle N
-  // appears in cycle N+1 -- a cycle after decode needs it. Decode therefore
-  // presents the address, bubbles, and issues on the next cycle
-  // (`operand_stall` in rtl/decoder.v).
+  // appears in cycle N+1. Decode therefore bubbles a cycle whenever the pair it
+  // presented last cycle is not the pair this instruction reads
+  // (`operand_stall` in rtl/decoder.v); the paragraph below says what it
+  // presents.
   //
   // Without the write-first term a write committed at the very posedge that
   // captures the read would be missed, leaving the operand exactly one writeback
@@ -60,8 +61,6 @@ module regfile(
   // at the next instruction's and is deliberately something else. Narrow that
   // stall and this mux starts answering with another instruction's operand,
   // with nothing to say so.
-  //
-  // x0 always reads 0, regardless of wen/waddr.
   always_comb begin
     reg_rs1 = (held_rs1 == 5'd0) ? 32'b0 : (wen && waddr == held_rs1) ? wdata : read_a;
     reg_rs2 = (held_rs2 == 5'd0) ? 32'b0 : (wen && waddr == held_rs2) ? wdata : read_b;

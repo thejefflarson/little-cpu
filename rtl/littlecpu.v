@@ -10,12 +10,13 @@ module littlecpu #(
   // The data bus's memory map. Two readers: rtl/decoder.v raises the two region
   // causes for a plain load or store against it, and the load/store locality
   // counters under `RISCV_FORMAL` at the bottom of this file count against it.
-  // Handed to the decoder rather than restated there, so the copies this file's
-  // comment is about stay the ones test/memmap_test.sh compares. The RAM's base
-  // and size and the timer's and the UART's bases are rtl/memory.v's,
-  // rtl/timer.v's and rtl/uart.v's own parameter defaults, restated here
-  // because a module cannot read another module's parameters;
-  // test/memmap_test.sh is what compares the copies.
+  // Handed to the decoder as a parameter rather than restated there, so
+  // rtl/decoder.v carries no copy of its own for test/memmap_test.sh to track.
+  // The RAM's base and size and the timer's, the UART's and the SPI
+  // controller's bases are rtl/memory.v's, rtl/timer.v's, rtl/uart.v's and
+  // rtl/spiflash.v's own parameter defaults, restated here because a module
+  // cannot read another module's parameters; test/memmap_test.sh compares those
+  // copies.
   // The text window's size is the integrator's, because the simulated machine's
   // ROM is deliberately larger than the part's -- so each integrator hands this
   // the same number it hands its `imemory`.
@@ -34,8 +35,9 @@ module littlecpu #(
   input  logic [31:0] imem_data2,
   // The value `imem_addr` takes on the next edge. A synchronous memory latches
   // this on the same edge the PC moves, so its data is ready for the whole of
-  // the cycle that needs it; a combinational memory -- test benches,
-  // formal/wrapper.v -- leaves it unread and answers `imem_addr` directly.
+  // the cycle that needs it; a combinational memory -- formal/wrapper.v --
+  // leaves it unread and answers `imem_addr` directly. Both sim legs build
+  // test/testbench.v, whose rtl/imemory.v reads only this port.
   output logic [31:0] imem_addr_next,
   // The fetch and data buses share one address space, and the instruction
   // memory arbitrates: a load or store to the text range takes the read port
@@ -77,8 +79,7 @@ module littlecpu #(
   // A platform with one bus initiator ties both inputs low and leaves both outputs
   // unread, and only the INPUTS are free that way: they fold before mapping and
   // the cell census does not move. An unread output is still a net for ABC to
-  // map around, and these moved the SoC's mapped count by tens of cells -- so
-  // each arrived with a placement sweep rather than with an equal netlist.
+  // map around, so adding one is a netlist change that owes a sweep.
   input  logic        bus_wait,
   input  logic        snoop_write,
   input  logic [31:0] snoop_addr,
@@ -117,9 +118,10 @@ module littlecpu #(
   output logic [31:0] rvfi_mem_rdata,
   output logic [31:0] rvfi_mem_wdata,
   `ifdef RISCV_FORMAL_MEM_FAULT
-  // Guarded by the same macro riscv-formal declares these three under, so a
-  // harness that does not ask for them does not connect ports that are not in
-  // its `RVFI_CONN` either. Both sim legs are such a harness.
+  // Guarded by the macro riscv-formal declares these three under, so a harness
+  // whose `RVFI_CONN` lacks them connects nothing here. Both sim legs define
+  // it: test/testbench.v reads the flag to tell the monitor which retires the
+  // spec model cannot grade.
   output logic        rvfi_mem_fault,
   output logic [ 3:0] rvfi_mem_fault_rmask,
   output logic [ 3:0] rvfi_mem_fault_wmask,
@@ -149,11 +151,12 @@ module littlecpu #(
   `endif
   `endif //  `ifdef RISCV_FORMAL
   );
-  // The shapes rtl/imemory.v, rtl/memory.v, rtl/timer.v and rtl/uart.v each
-  // refuse to elaborate at, restated at the site that copies their map. A window
-  // that is not a power of two on its own boundary is one no memory here
-  // implements, and the block arithmetic below would go on classifying addresses
-  // against it without a word. `make window-test` forces all five of these.
+  // The shapes rtl/imemory.v, rtl/memory.v, rtl/timer.v, rtl/uart.v and
+  // rtl/spiflash.v each refuse to elaborate at, restated at the site that
+  // copies their map. A window that is not a power of two on its own boundary
+  // is one no memory here implements, and the block arithmetic below would go
+  // on classifying addresses against it without a word. `make window-test`
+  // forces all six of these.
   localparam int LS_TEXT_ADDR_BITS = $clog2(LS_TEXT_WORDS);
   localparam int LS_RAM_ADDR_BITS  = $clog2(LS_RAM_WORDS);
   if (LS_TEXT_WORDS != (1 << LS_TEXT_ADDR_BITS)) begin : l_ls_text_words_power_of_two
@@ -426,15 +429,16 @@ module littlecpu #(
 
   // Two questions about issuing loads and stores, counted rather than argued.
   // Between them they price a whole family of load/store region tests in one
-  // `make cycles` run, and both have come out far from what reading the code
-  // suggested. test/stall_report.py prints them under the cycle table; nothing
-  // here is read by the core, and outside a `RISCV_FORMAL` build none of it
-  // exists at all.
+  // `make cycles` run. test/stall_report.py prints them under the cycle table;
+  // nothing here is read by the core, and outside a `RISCV_FORMAL` build none
+  // of it exists at all.
   //
   // EDGE PROXIMITY. A 12-bit offset reaches 2 KB either way, so an access whose
   // base register sits in the 2 KB block beside a region's first or last block
-  // may cross that edge while one a block further in cannot. That is the set a
-  // region test answered from the base register alone would have to stall on.
+  // may cross that edge while one a block further in cannot. rtl/decoder.v's
+  // region wait answers an access deep inside RAM or the text window the same
+  // cycle and bubbles on the rest, and this count is what that wait was priced
+  // against before it shipped.
   //
   // BYPASS COINCIDENCE. A writeback commits to the base register in the issue
   // cycle, through the register file's write-through bypass. Anything computed
