@@ -138,6 +138,7 @@ a gap opening between the data RAM and the timer is red
 a gap opening between the timer's reservation and the UART is red
 a gate failure reported only by the induction leg is not evidence
 a generated check that was never scheduled resolves to NO-STATUS
+a graded target quietly depending on netlist-digest is red, and named
 a graph with no edges out of reg_rs1 is red, not a vacuous pass
 a half-installed toolchain says so once, up front
 a half-installed toolchain says so once, up front
@@ -157,6 +158,7 @@ a linker script that moves ram off the decoded base is red
 a locality counter that stopped being printed is named too
 a lock arm that admits a grant mid-AMO is red
 a lock arm that admits a grant mid-AMO is red
+a lookalike sibling is not covered by the directory entry above it
 a lookalike sibling is not covered by the directory entry above it
 a lookalike sibling is not covered by the directory entry above it
 a lost [depth] line trips the shape check AND the verdict check
@@ -206,6 +208,7 @@ a pin that models an interrupt CSR makes the tie-off an argument again
 a placement at zero MHz is not a placement
 a placer that wrote no bitstream placed nothing, which is not a pass
 a plain directory git cannot list is a scan of nothing, not green
+a plain directory git cannot list is a scan of nothing, not green
 a port declaration the parser cannot read stops the run
 a port named with nothing in the parentheses is red too
 a port that appeared is named, which is what a tie-off adds
@@ -226,6 +229,7 @@ a reference model that produced no trace is fatal
 a reg_rs1 bit routed into hazard is red, at hazard's own site
 a relative install directory is red before it is compared
 a renamed cell is named by path
+a renamed or deleted netlist-digest target stops the check rather than passing it
 a renamed task stops rather than probing some other design
 a renamed task stops rather than probing some other design
 a renamed task stops rather than probing some other design
@@ -237,6 +241,10 @@ a repo root that does not exist is red before anything is scanned
 a repo root that does not exist is red before anything is scanned
 a repo root that does not exist is red before anything is scanned
 a repo root that does not exist is red before anything is scanned
+a repo root that does not exist is red before anything is scanned
+a repo root that does not exist is red before anything is scanned
+a repo root with no Makefile is red before anything is parsed
+a repo with no .github/workflows is red rather than a scan of nothing
 a report naming some other clock does not stand in for this one
 a report that does not exist is named, not read as zero
 a report under the floor fails, because the floor is the board clock
@@ -331,6 +339,7 @@ an EXTRA architectural write the model never made is caught
 an SPI base off its own window is red
 an UNREADABLE baseline is refused, not read as an empty one
 an allow-list entry whose site lost the stale ISA name is red
+an allow-list entry whose site lost the string is red
 an allow-list entry whose site no longer has the word is red
 an anti-vacuity cover that cannot go red is not a control
 an anti-vacuity cover that cannot go red is not a control
@@ -375,6 +384,7 @@ an unexpected agreement is red -- both directions, as everywhere
 an unexpected runner status is RUNNER-ERROR, carrying it
 an ungated region_stall proving is red
 an unlisted core_portme.h would shadow the port's header, and is caught
+an unlisted site is red and named, with the file:line quoted
 an unreadable clone makes 'no spec model' unmeasurable, and fatal
 an unreadable clone makes the re-derivation impossible, and fatal
 an unrecognised CS line is a hard error, never guessed at
@@ -390,10 +400,13 @@ and is told that another part's does not transfer
 and points at that flow's own declaration
 and prints the delta beside it, not instead of it
 and says why it is NA, so it is not read as a path with no logic on it
+and the diagnostic explains which unit is safe to read instead
 and the diagnostic names the ISA the core does claim
+and the diagnostic points at make elaborate-strict, not a rewrite here
 and the diagnostic says git rm --cached, not an edit to the rule
 and the diagnostic says what it costs, not just that it is missing
 and the diagnostic says what to write instead, not just what is wrong
+and the diagnostic states the corollary this check is enforcing
 and the reverse: a divergence reported with exit 0
 and the same for the check-set baseline
 assembler output on a successful build is still a defect
@@ -402,6 +415,7 @@ baselining ERROR would re-create the btorsim hole with this gate's blessing
 branch_taken carrying reg_rs1/reg_rs2 into hazard is red
 columns that do not add up blame the report, not the core
 columns that no longer add up to the cycle count are red
+control: .PHONY declaring netlist-digest is not a dependency edge
 control: STALL_REPORT prints the accounting and keeps the suite green
 control: TIMEOUT is a real verdict and IS baselineable
 control: a baselined divergence at the baselined point is green
@@ -424,6 +438,7 @@ control: a rule from this clone's $GIT_DIR/info/exclude is not this repository's
 control: a rule from this developer's $GIT_TEMPLATE_DIR is not this repository's to grade
 control: a rule from this developer's core.excludesFile is not this repository's to grade
 control: a rule from this developer's init.templateDir is not this repository's to grade
+control: a single rtl/*.v mention is prose, not a list
 control: a stamped sweep summarises
 control: a stamped sweep with its reports behind it is binned
 control: a suite matching its manifest is green
@@ -449,6 +464,7 @@ control: both arms admit the shipping arbiter and fail on their mutation
 control: both arms fail, each at its own line
 control: both sides failing the same test number still AGREE
 control: each subset is printed as a share of that number
+control: every allowed site is covered and nothing else carries the string
 control: every site names every port of littlecpu
 control: identical register traces and verdicts AGREE
 control: programs that build and are paired are green
@@ -464,6 +480,7 @@ control: the locality counters are reported under the table
 control: the measured image reports the shortfall it has
 control: the note a delta is read against carries the part too
 control: the pc hop reaches the pc bin, by the declared net's bits
+control: the shipping Makefile owes nothing but themselves to the two targets
 control: the shipping decoder reaches region_stall only, gated
 control: the shipping exclusion set matches its baseline both ways
 control: the shipping files describe one machine
@@ -489,6 +506,7 @@ layer 2: the enclosed handle_error multiset is pinned, not merely counted
 layer 3: error 101 vanishing from the OUTPUT is caught after every rule
 more accesses near an edge than there were accesses is red
 moving the declared string alone, with every site unchanged, is red
+netlist-diff reaches the same check as netlist-digest does
 no components.sby is exit 2 here too, not a green control
 no components.sby is exit 2, not a probe against an invented script
 no components.sby is exit 2, not a probe against an invented script
@@ -585,6 +603,7 @@ the refusal is the part, not the four tool mismatches it also produces
 the refused download is neither unpacked nor kept to be served again
 the rulebook quoting a figure the source no longer states is red
 the same for the bypass counter, per program rather than in total
+the same path repeated on one line is not a second copy
 the stale ISA name coming back in a formal harness comment is red
 the suite's shape is asserted before a single program is assembled
 the third core's ROM drifting behind the other two is red
@@ -604,6 +623,7 @@ two copies of the flags agreeing about -march and nothing else
 two cores whose RAMs differ are red, not a 1.2x result
 two files claiming the same number is named
 two parts are refused rather than subtracted
+two rtl/*.v paths on one line is a second copy, and is red
 two toolchains are named, which is the disagreement that flipped a sign
 two walks disagreeing about what routing is refuse to print a histogram
 usage: a missing argument is exit 2

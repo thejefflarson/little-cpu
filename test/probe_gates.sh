@@ -5060,6 +5060,149 @@ rv_curl_stub "$d/bin" "$d/upstream.tar.gz"
 probe "a real archive missing one vendored member is caught, and named" 2 \
   "MISSING upstream: coremark.md5" "$(rv "$d/bin")"
 
+begin_group "test/netlist_digest_gate_test.py"
+
+ND="python3 $HERE/netlist_digest_gate_test.py"
+
+nd_fixture() {
+  local d; d=$(new_case)
+  cp "$REPO/Makefile" "$d/Makefile"
+  printf '%s' "$d"
+}
+
+d=$(nd_fixture)
+probe "control: the shipping Makefile owes nothing but themselves to the two targets" 0 \
+  "prerequisites of nothing but themselves" "$ND $d"
+
+d=$(new_case)
+probe "a repo root with no Makefile is red before anything is parsed" 1 \
+  "does not exist, so there is nothing to parse" "$ND $d"
+
+# THE ONE THAT MATTERS: a target other than the two starts depending on
+# netlist-digest, which is exactly the corollary "the digest replaces a
+# sweep, never a gate" exists to forbid -- a sweep silently skipped.
+d=$(nd_fixture)
+sed -i.bak \
+  's/^test: sim test-units probe-gates pin-bump-test tool-cache-test memmap-test \\$/test: sim test-units probe-gates netlist-digest pin-bump-test tool-cache-test memmap-test \\/' \
+  "$d/Makefile"
+probe "a graded target quietly depending on netlist-digest is red, and named" 1 \
+  "test: depends on netlist-digest" "$ND $d"
+
+probe "and the diagnostic states the corollary this check is enforcing" 1 \
+  "THE DIGEST REPLACES A SWEEP, NEVER A GATE" "$ND $d"
+
+# The sibling comparison target is graded the same way.
+d=$(nd_fixture)
+sed -i.bak 's/^tracked-ignored-test:$/tracked-ignored-test: netlist-diff/' "$d/Makefile"
+probe "netlist-diff reaches the same check as netlist-digest does" 1 \
+  "tracked-ignored-test: depends on netlist-diff" "$ND $d"
+
+# A .PHONY declaration lists a target by name without creating a real
+# dependency edge -- it must not be mistaken for one.
+d=$(nd_fixture)
+probe "control: .PHONY declaring netlist-digest is not a dependency edge" 0 \
+  "prerequisites of nothing but themselves" "$ND $d"
+
+# The other direction: the check has to be able to find the two targets' own
+# rule lines, or it is asserting a property of nothing.
+d=$(nd_fixture)
+sed -i.bak 's/^netlist-digest: netlist-determinism$/netlist-digest-renamed: netlist-determinism/' \
+  "$d/Makefile"
+probe "a renamed or deleted netlist-digest target stops the check rather than passing it" 1 \
+  "no rule line defines netlist-digest" "$ND $d"
+
+begin_group "test/lut4_site_test.sh"
+
+# A COPY OF EVERY ALLOW-LISTED SITE, the same reason test/retired_term_test.sh's
+# fixture is one: the control below is the real allow-list and every red probe
+# is one edit away from it. git init over the copy because this check reads
+# git's index, the same property test/tracked_ignored_test.sh's fixture reads.
+L4="$HERE/lut4_site_test.sh"
+
+l4_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/rtl" "$d/soc/compare" "$d/soc/depth" "$d/test" "$d/docs/adr" "$d/docs/ideas"
+  cp "$REPO/CLAUDE.md" "$d/"
+  cp "$REPO/Makefile" "$d/"
+  cp "$REPO/rtl/littlesoc.v" "$REPO/rtl/uart.v" "$d/rtl/"
+  cp "$REPO/soc/baseline_summary.py" "$REPO/soc/baseline_sweep.sh" "$d/soc/"
+  cp "$REPO/soc/compare/dhry_fit.py" "$REPO/soc/compare/placed_vs_synth.py" "$d/soc/compare/"
+  cp "$REPO/soc/depth/path_stages.py" "$d/soc/depth/"
+  cp "$REPO/test/probe_gates.sh" "$REPO/test/lut4_site_test.sh" "$d/test/"
+  cp "$REPO/docs/adr/0038-area-is-measured-in-logic-cells-and-two-levers-are-rejected.md" \
+    "$d/docs/adr/"
+  cp "$REPO/docs/ideas/fit-the-core-on-the-up5k.md" "$d/docs/ideas/"
+  git -c init.defaultBranch=main -C "$d" init -q
+  git -C "$d" add -A
+  printf '%s' "$d"
+}
+
+d=$(l4_fixture)
+probe "control: every allowed site is covered and nothing else carries the string" 0 \
+  "confined to its" "$L4 $d"
+
+probe "a repo root that does not exist is red before anything is scanned" 1 \
+  "is not a directory" "$L4 $d/nowhere"
+
+d=$(new_case)
+probe "a plain directory git cannot list is a scan of nothing, not green" 1 \
+  "cannot enumerate any tracked files" "$L4 $d"
+
+# THE ONE THAT MATTERS: a new site nothing on the list reviewed.
+d=$(l4_fixture); printf '# SB_LUT4 is a nice round number\n' >> "$d/soc/depth/summary.py"
+mkdir -p "$d/soc/depth"; git -C "$d" add -A
+probe "an unlisted site is red and named, with the file:line quoted" 1 \
+  "soc/depth/summary.py:" "$L4 $d"
+
+probe "and the diagnostic explains which unit is safe to read instead" 1 \
+  "ICESTORM_LC" "$L4 $d"
+
+# A directory entry has to match on the path separator, the same guard
+# test/retired_term_test.sh's own allow-list carries.
+d=$(l4_fixture); printf 'SB_LUT4\n' > "$d/docs/adrenaline.md"; git -C "$d" add -A
+probe "a lookalike sibling is not covered by the directory entry above it" 1 \
+  "docs/adrenaline.md:" "$L4 $d"
+
+# The other direction: an exemption whose site no longer carries the string.
+d=$(l4_fixture); sed -i.bak '/SB_LUT4/d' "$d/rtl/uart.v"; git -C "$d" add -A
+probe "an allow-list entry whose site lost the string is red" 1 \
+  "the allow-list exempts rtl/uart.v" "$L4 $d"
+
+begin_group "test/workflow_rtl_list_test.sh"
+
+WR="$HERE/workflow_rtl_list_test.sh"
+
+wr_fixture() {  # $1 = one line to put in ci.yml's run: step
+  local d; d=$(new_case)
+  mkdir -p "$d/.github/workflows"
+  printf '%s\n' "$1" > "$d/.github/workflows/ci.yml"
+  printf '%s' "$d"
+}
+
+d=$(wr_fixture "        # see rtl/writeback.v's rvfi shadow reads")
+probe "control: a single rtl/*.v mention is prose, not a list" 0 \
+  "no workflow file enumerates more than one" "$WR $d"
+
+probe "a repo root that does not exist is red before anything is scanned" 1 \
+  "is not a directory" "$WR $d/nowhere"
+
+d=$(new_case)
+probe "a repo with no .github/workflows is red rather than a scan of nothing" 1 \
+  "there is nothing to scan" "$WR $d"
+
+# THE ONE THAT MATTERS: two source files named on one line, the shape a
+# second hand-written copy of SIM_RTL_SRCS takes.
+d=$(wr_fixture "        run: iverilog rtl/structs.v rtl/decoder.v")
+probe "two rtl/*.v paths on one line is a second copy, and is red" 1 \
+  "names 2 distinct rtl/*.v paths on one line" "$WR $d"
+
+probe "and the diagnostic points at make elaborate-strict, not a rewrite here" 1 \
+  "elaborate-strict" "$WR $d"
+
+d=$(wr_fixture "        run: iverilog rtl/structs.v rtl/structs.v")
+probe "the same path repeated on one line is not a second copy" 0 \
+  "no workflow file enumerates more than one" "$WR $d"
+
 # A probe's label is compared against the checked-in manifest as a MULTISET
 # (sorted, duplicates kept), never reduced to a bare count first: a count can
 # stay right while one probe is swapped for an unrelated one, and `diff` names
