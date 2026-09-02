@@ -40,16 +40,11 @@ jobs:
       # recreate the exact "red on every PR" defect this workflow was fixed
       # for, just for a different underlying reason. It's surfaced as a
       # warning instead so it's visible without blocking.
-      - name: Fail on Critical/High findings
-        if: steps.review.outputs.exit-code == '1'
+      - name: Grade the review's exit code
         env:
           EXIT_CODE: ${{ steps.review.outputs.exit-code }}
         run: |
-          echo "::error::Soundcheck exit-code=$EXIT_CODE -- see the PR comment or job summary."
-          exit 1
-      - name: Warn on a reviewer infrastructure error
-        if: steps.review.outputs.exit-code == '2'
-        env:
-          EXIT_CODE: ${{ steps.review.outputs.exit-code }}
-        run: |
-          echo "::warning::Soundcheck exit-code=$EXIT_CODE -- the reviewer itself errored out, so this run says nothing about the PR's content."
+          case "$EXIT_CODE" in
+            1) echo "::error::Soundcheck exit-code=1 -- see the PR comment or job summary."; exit 1 ;;
+            2) echo "::warning::Soundcheck exit-code=2 -- the reviewer itself errored out, so this run says nothing about the PR's content." ;;
+          esac
