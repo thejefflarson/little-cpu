@@ -95,22 +95,41 @@ are kept in parentheses so those references still resolve.
   price is **+13.79% of Dhrystone's cycles**, 9.10 → 7.97 DMIPS.
 - **Every inter-stage struct carries a `valid` bit** (3). A bubble is `valid = 0`; retire is
   `valid` reaching writeback, which gates `wen` and drives `rvfi_valid`.
-- **Hazards are stall-only** (4). No forwarding network, and 35.7% of suite cycles is what that
-  costs — **22.5% on Dhrystone, and the two are not separable from the operand-fetch cycle in either**
+- **Hazards are stall-only, except where the executor's own slot already has the answer** (4).
+  35.7% of suite cycles and 22.5% of Dhrystone's is what stalling for a hazard used to cost outright
+  — the two are not separable from the operand-fetch cycle in either
   (ADR-0084): a cycle that is both is charged to the scoreboard, which is why removing most of the
   operand column moved the scoreboard column *up* (ADR-0089, ADR-0093), and why deleting the load
   turnaround gave 11 995 of its cycles straight back as operand misses (ADR-0099). Read 35.7%
   as an upper bound on one workload, never as the prize.
-  Both spellings were built and measured (ADR-0083): forwarding the executor's result to every
-  operand reader buys 12.9% of cycles and misses 12 MHz outright at 9.49, and confining it to the
-  executor's operands buys 7.5% and holds 12 MHz on 0.48% of margin against today's 3.35%. Deleting
-  the scoreboard outright buys **0% of period** at its ceiling, so nothing in this direction pays for
-  the muxes, and only one of the two in-flight slots can be forwarded from at all.
+  Three spellings were built and measured against it (ADR-0083): forwarding the executor's result to
+  every operand reader buys 12.9% of cycles and misses 12 MHz outright at 9.49; confining it to the
+  executor's operands buys 7.5% and held 12 MHz on 0.48% of margin against that tree's 3.35%, and was
+  declined on the margin alone; deleting the scoreboard outright buys **0% of period** at its
+  ceiling, so nothing in this direction pays for the muxes, and only one of the two in-flight slots
+  (`executor_out`, never `out`) can be forwarded from at all.
+  **Re-measured on a tree that has moved through the A extension, the region wait and Zkt's proofs,
+  the 0.48%-margin spelling ships** (ADR-0154): sixteen paired seeds put the worst placement at
+  12.33 MHz, 2.75% of margin, 0 of 16 under the requirement, against a 2.73%-of-median clock cost
+  (sign test p = 0.0042) and +105 cells. It buys **8.65% of suite cycles and 2.10% of Dhrystone's**,
+  0.664 → 0.679 DMIPS/MHz, 7.97 → 8.15 DMIPS at the board clock. Forwarding still reaches only
+  `out.rs1`/`out.rs2` and only from `executor_out`, gated on a new `rd_ready` bit that keeps a load's,
+  an AMO's, `lr.w`'s or `sc.w`'s still-unpacked result from forwarding as if it were finished — the
+  two remaining scoreboard slots' worth of hazard cycles behind those four is what this candidate
+  still does not touch. Eligibility is exact rather than approximate: `instr_math` for rs1 (the one
+  category with no *other* decode-side reader of `reg_rs1` — a load's or store's effective address,
+  an atomic's own address, the jalr target and a register-form CSR's operand all read it directly,
+  not through `out.rs1`, so suppressing their hazard would issue on a stale value there even with
+  `out.rs1` forwarded correctly), the same plus store/AMO/`sc.w` write data for rs2, explicitly never
+  a branch's rs2, which the comparator reads directly. **RVFI's `rs1_rdata`/`rs2_rdata` report the
+  forwarded value, not the register file's** — reporting the latter is what made the first build fail
+  every program in the suite on a self-contradictory retire (`rd_wdata` computed from the forwarded
+  operand, the report naming the one it replaced), not a computation the executor got wrong.
   **Writing a committed executor result into the register file on a cycle the port is idle** needs no
-  operand mux at all — the existing write-through bypass carries it — and is the third measurement in
+  operand mux at all — the existing write-through bypass carries it — and is a fourth measurement in
   the same chain: −9.1% of suite cycles, −6.5% of Dhrystone's, **+9.4% of median period and under
-  12 MHz at four placements of six** (ADR-0100). That is the evidence to beat, and the pattern in it
-  is that every candidate so far touches the bypass or the loop it sits in.
+  12 MHz at four placements of six** (ADR-0100), declined on the clock the way ADR-0083's confined
+  spelling used to be and ADR-0154 shows a re-measurement is owed before that stays closed either.
 - **CSR instructions, `mret` and `fence.i` serialize** (5) — held in decode until execute, access
   and writeback are empty. Two distinct reasons share the mechanism: the first two so a one-cycle
   architectural update cannot interleave with older instructions; `fence.i` because text is
