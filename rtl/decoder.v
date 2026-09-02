@@ -800,11 +800,27 @@ module decoder #(
   // forwarding on it alone is enough. rs2's eligible set adds a store's, an
   // AMO's and sc.w's write data, which has no other decode-side reader
   // either -- and deliberately leaves out a branch's rs2, which the
-  // comparator reads directly.
+  // comparator reads directly. That disjointness is not left to this
+  // paragraph: every flag either set is built from -- instr_math's eighteen
+  // and the load/store/branch/jump/atomic/CSR flags this argument excludes
+  // -- is named individually in the `one_of` $onehot check further down, so
+  // the k-induction proof that check is part of (`make -C formal
+  // components_decoder`) is what actually closes this claim.
   logic rs1_fwd_eligible, rs2_fwd_eligible;
   assign rs1_fwd_eligible = instr_math;
   assign rs2_fwd_eligible = (instr_math && !instr_math_immediate) ||
     instr_sb || instr_sh || instr_sw || instr_amo || instr_sc;
+
+  // The two matches both `ex_fwd_rs1`/`ex_fwd_rs2` below and `live_rs1`/
+  // `live_rs2` further down need, named once rather than written out twice:
+  // yosys/ABC would fold the restated pair back into one comparator either
+  // way, but naming it once is also one fewer place a later edit to either
+  // copy can drift from the other.
+  logic out_match_rs1, out_match_rs2, ex_match_rs1, ex_match_rs2;
+  assign out_match_rs1 = out.valid && out.rd == rs1;
+  assign out_match_rs2 = out.valid && out.rd == rs2;
+  assign ex_match_rs1 = executor_out.valid && executor_out.rd == rs1;
+  assign ex_match_rs2 = executor_out.valid && executor_out.rd == rs2;
 
   // Forward only from the executor's own slot, and only once it holds the
   // real result -- never from `out`, whose instruction has not reached the
@@ -814,13 +830,19 @@ module decoder #(
   // Excluding `out` as a source when it ALSO names this register keeps the
   // most recent write authoritative: architecturally that is the write this
   // operand must see, and it is not ready yet.
+  //
+  // Neither `uses_rs1` nor `uses_rs2` is tested again here, and both are
+  // provably redundant rather than merely omitted: `rs1_fwd_eligible`
+  // (`instr_math`) cannot be true alongside `instr_lui`/`instr_jal`/
+  // `instr_auipc`/`is_csr_imm` -- the four terms `uses_rs1` excludes -- so
+  // `rs1_fwd_eligible` already implies `uses_rs1`. `rs2_fwd_eligible`'s own
+  // OR terms are a literal subset of `uses_rs2`'s, so that implication is
+  // ordinary absorption and free on top of being redundant.
   logic ex_fwd_rs1, ex_fwd_rs2;
-  assign ex_fwd_rs1 = rs1_fwd_eligible && uses_rs1 && rs1 != 0 &&
-    executor_out.valid && executor_out.rd == rs1 && executor_out.rd_ready &&
-    !(out.valid && out.rd == rs1);
-  assign ex_fwd_rs2 = rs2_fwd_eligible && uses_rs2 && rs2 != 0 &&
-    executor_out.valid && executor_out.rd == rs2 && executor_out.rd_ready &&
-    !(out.valid && out.rd == rs2);
+  assign ex_fwd_rs1 = rs1_fwd_eligible && rs1 != 0 && ex_match_rs1 &&
+    executor_out.rd_ready && !out_match_rs1;
+  assign ex_fwd_rs2 = rs2_fwd_eligible && rs2 != 0 && ex_match_rs2 &&
+    executor_out.rd_ready && !out_match_rs2;
 
   // reg_rs1/reg_rs2 with the forward applied, read by math_arg below and by
   // the publish block further down. A continuous assign rather than reading
@@ -846,11 +868,12 @@ module decoder #(
   // either of those changed. `hazard_rs1` then sticks high at the
   // first conflict and the core stops. iverilog gives no warning for this, and
   // yosys gets the same function right, so every other check stays green.
+  // `out_match_rs1`/`ex_match_rs1` and their rs2 pair are plain `assign`s
+  // above, not a function, so that warning does not apply to reusing them
+  // here.
   logic live_rs1, live_rs2;
-  assign live_rs1 = (out.valid && out.rd == rs1) ||
-    (executor_out.valid && executor_out.rd == rs1);
-  assign live_rs2 = (out.valid && out.rd == rs2) ||
-    (executor_out.valid && executor_out.rd == rs2);
+  assign live_rs1 = out_match_rs1 || ex_match_rs1;
+  assign live_rs2 = out_match_rs2 || ex_match_rs2;
 
   // These three wait until the pipeline is empty, for two different reasons.
   // Narrowing the test to suit one of them breaks the other.

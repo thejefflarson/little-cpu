@@ -20,6 +20,21 @@ module executor(
   // multi-cycle divide holds `in` unchanged throughout, because decode holds
   // `out` on `divider_stall`, so this keeps tracking the same instruction the
   // divide is working on instead of going stale mid-loop.
+  //
+  // NOT rtl/decoder.v's `instr_math`, on purpose, though the two lists read
+  // alike: `in.is_add` is also true for AUIPC, a register-form CSR read,
+  // LUI and JAL/JALR, which reach this same `is_add` arm as the "add
+  // idiom" decode's publish block hands them (rs1/rs2 already holding what
+  // needs adding, or zero-extended). Those results ARE ready this cycle,
+  // the same as any other add's -- `instr_math` excludes all four, because
+  // none of them is an arithmetic op by instruction type, so sourcing
+  // `rd_ready` from `instr_math` instead would wrongly hold up a consumer
+  // reading one of their results. If a future op gains an `is_add`-alike
+  // pass-through of its own, or a term is added to one list and not the
+  // other, `test/exec_tb.v`'s randomized vectors and `make -C formal
+  // components_executor`'s completing-multiply/divide assertions read
+  // `out.rd_data` on the cycle this bit claims it is valid, so a wrong
+  // `rd_ready` reads as a wrong retired value there, not a silent drift.
   logic in_has_result;
   assign in_has_result = in.is_add || in.is_sub || in.is_xor || in.is_or || in.is_and ||
     in.is_sll || in.is_slt || in.is_sltu || in.is_srl || in.is_sra ||

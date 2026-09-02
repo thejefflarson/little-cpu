@@ -111,7 +111,7 @@ are kept in parentheses so those references still resolve.
   **Re-measured on a tree that has moved through the A extension, the region wait and Zkt's proofs,
   the 0.48%-margin spelling ships** (ADR-0154): sixteen paired seeds put the worst placement at
   12.33 MHz, 2.75% of margin, 0 of 16 under the requirement, against a 2.73%-of-median clock cost
-  (sign test p = 0.0042) and +105 cells. It buys **8.65% of suite cycles and 2.10% of Dhrystone's**,
+  (sign test p = 0.0042) and +83 cells. It buys **8.65% of suite cycles and 2.10% of Dhrystone's**,
   0.664 → 0.679 DMIPS/MHz, 7.97 → 8.15 DMIPS at the board clock. Forwarding still reaches only
   `out.rs1`/`out.rs2` and only from `executor_out`, gated on a new `rd_ready` bit that keeps a load's,
   an AMO's, `lr.w`'s or `sc.w`'s still-unpacked result from forwarding as if it were finished — the

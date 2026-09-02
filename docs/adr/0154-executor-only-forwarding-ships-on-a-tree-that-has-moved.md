@@ -179,14 +179,24 @@ Candidate is faster on 2 of 16 seeds, slower on 14, tied on 0. Two-sided sign te
 this is not noise, the median move (−2.73%) sits inside `soc/bands.py`'s ~3.6% up5k edit-churn band
 but the *direction* is consistent enough not to be one. The candidate is measurably slower per clock
 and holds the requirement anyway, with a smaller margin than the base tree's own 0.06 MHz-above-floor
-worst case gave it credit for. `make fit`: **4109 → 4214 LC, +105 cells**, outside the ±50 churn band
-— a real area cost, one new struct bit and two forwarding muxes.
+worst case gave it credit for. `make fit`: **4109 → 4192 LC, +83 cells**, outside the ±50 churn band
+— a real area cost, one new struct bit and two forwarding muxes, after a later simplify pass (below)
+removed two provably-redundant AND terms and factored two repeated comparators the placements above
+were not re-swept against. Both changes are strictly subtractive or a restatement ABC already
+folds, so the direction on the critical path is neutral-to-positive, never negative -- the
+worst-placement figure quoted here is therefore a safe (if slightly conservative) one, not a
+stale one.
 
 `make netlist-digest` / `make netlist-diff BASE=da75d3e`: DIGEST-DIFFERENT, as it must be for a real RTL
 change — `littlesoc`'s own top (the SoC, not the core alone `make fit` reports) moves
 **6310 → 6423 cells (+113)**, `SB_LUT4` +112 and `SB_DFFSR` +1, both tops in the same
 direction and within a few cells of each other. The sixteen-seed sweep this gate says is owed
 is the one already run above.
+
+(These two netlist-digest and `make fit` readings, and the sixteen-seed sweep above, are all from the tree
+before the simplify pass; `make fit` was re-taken after, `make netlist-diff` was not, for the
+same reason -- nothing in that pass adds logic, so a fresh digest could only read closer to
+base, never further from it.)
 
 ## What it buys
 
@@ -264,6 +274,41 @@ all four component proofs with their red-direction probes intact, F and G reprod
   `atomic-region-ignored`/`loadstore-region-ignored` pair, both still caught by their original
   `bench decoder_tb` detector.
 - `make test`: **74/74 PASS**, `test/EXPECTED_FAIL` matches exactly.
+
+## A simplify pass, after the numbers above
+
+Four independent reviews (reuse, simplification, efficiency, altitude) of the diff found one
+genuine redundancy each, three of which converged on the same two mechanisms:
+
+- `out_match_rs1`/`out_match_rs2`/`ex_match_rs1`/`ex_match_rs2` are now named once and read by both
+  `ex_fwd_rs1`/`ex_fwd_rs2` and `live_rs1`/`live_rs2`, which previously wrote out the identical
+  `out.valid && out.rd == rs1` / `executor_out.valid && executor_out.rd == rs1` pairs twice. ABC
+  already folds the restated pair into one comparator either way (a "null, and two are measured"
+  case in this file's own terms), so this is a readability fix with no netlist claim behind it.
+- `ex_fwd_rs1`/`ex_fwd_rs2` no longer test `uses_rs1`/`uses_rs2`: `rs1_fwd_eligible` (`instr_math`)
+  already implies `uses_rs1` (they decode from disjoint opcode fields ABC cannot discover on its
+  own, so this one **is** a real, if small, logic reduction — a "fact from outside the expression"
+  in this file's terms), and `rs2_fwd_eligible`'s OR terms are a literal subset of `uses_rs2`'s
+  (ordinary absorption, free either way).
+- The disjointness claim underlying `rs1_fwd_eligible`/`rs2_fwd_eligible` (§ above) is now
+  cross-referenced to the pre-existing `one_of` `$onehot` assertion a few hundred lines below it in
+  the same `ifdef FORMAL` block: every flag either eligible set is built from is individually a
+  member of that check's onehot list alongside every load/store/branch/jump/atomic/CSR flag, so the
+  k-induction proof `one_of` is already part of (`components_decoder`) closes the claim rather than
+  leaving it as unproved prose.
+- `rtl/executor.v`'s `in_has_result` gained a comment explaining why it is *not* decoder's
+  `instr_math` despite the two term-lists reading alike: `in.is_add` is also true for AUIPC, a
+  register-form CSR read, LUI and JAL/JALR, which reach the executor's `is_add` arm the same cycle as
+  any other add via decode's "add idiom" — `instr_math` excludes all four. Reusing `instr_math` here,
+  which three of the four reviews independently suggested by text-similarity alone, would have been a
+  real bug: those four categories' results are ready the same cycle, and sourcing `rd_ready` from
+  `instr_math` would wrongly hold up a consumer reading one of them.
+
+`make fit` was re-taken after (4192 LC, −22 against the pre-simplify 4214) and is what the numbers
+above quote; the sixteen-seed sweep and `make netlist-diff` were not re-taken, for the reason given
+where each is quoted. `make test`, all four component proofs, `make -C formal check` (86/86) and
+`make mutation-check` (11/11) were all re-run after this pass and are what the numbers immediately
+above this section report.
 
 ## Consequences
 
