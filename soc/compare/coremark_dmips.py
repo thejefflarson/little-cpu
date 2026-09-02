@@ -185,7 +185,7 @@ def main():
     )
 
     for core in want:
-        if core in waits and cores[core]["cycles"] > 0:
+        if core in waits:
             share = 100.0 * waits[core] / cores[core]["cycles"]
             print(
                 f"\n{core} spends {waits[core]} of its {cores[core]['cycles']} "

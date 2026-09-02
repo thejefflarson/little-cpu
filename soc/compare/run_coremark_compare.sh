@@ -132,6 +132,10 @@ if ! (cd "$VENDOR_DIR" && "${SHA_CHECK[@]}" PINNED.sha256) >"$pin_check" 2>&1; t
   echo "'make coremark' first, which checks this the same way and explains it." >&2
   exit 1
 fi
+# --strict makes a malformed manifest line fail the check above; this is the
+# quieter half of the same guard -- a WARNING for a line that is merely
+# unusual (a comment shasum tolerates, say) does not fail the run, so it must
+# not be silently dropped either.
 cat "$pin_check" >&2
 rm -f "$pin_check"
 
