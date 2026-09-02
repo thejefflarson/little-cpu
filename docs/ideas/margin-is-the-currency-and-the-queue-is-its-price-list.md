@@ -1,5 +1,7 @@
 # Margin is the currency, and the queue is its price list
 
+**Status:** recorded as ADR-0111 · 2026-08-16 · steps 1–3 executed (ADR-0112, 0114, 0118, 0119, 0121); step 4's pair table declined on the placement tail (ADR-0113). Prices below are stale by design — re-sweep before spending.
+
 **Worst-seed margin over 12 MHz is not a trophy. It is what buys the CPI wins this repo has
 already priced and declined. Get it to about 7%, spend it on the successor-pair table, stretch
 toward 12% if a second unlock is worth it, and stop — above that nothing has a buyer.**

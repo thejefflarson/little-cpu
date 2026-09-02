@@ -1,6 +1,6 @@
 # Finish the rewrite: Little CPU to verified RV32IMC_Zicsr
 
-**Status:** brief settled 2026-07-27 · ladder M0–M4 · target `RV32IMC_Zicsr`, machine mode, ice40 up5k
+**Status:** brief settled 2026-07-27, since executed and superseded · ISA target widened to RV32IMAC_Zicsr_Zifencei (+Zkt) by ADR-0048, ADR-0108 and ADR-0134 · M1–M3 reached (ADR-0079); the M4 nightly was deleted into the PR gate (ADR-0050); Sail co-simulation is a required check (ADR-0095). ADRs 0001–0007 came from this brief; where it and an ADR disagree, the ADR wins. Written for the milestones M0–M4 and target `RV32IMC_Zicsr`, machine mode, ice40 up5k.
 
 ## Idea
 
