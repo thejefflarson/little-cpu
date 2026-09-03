@@ -368,8 +368,12 @@ jobs:
 
   lint:
     name: lint
-    # Fork-PR routing: see the note above `jobs:` for what this picks and why.
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
+    # NOT the self-hosted pool, and not the fork-PR expression the other jobs
+    # use: that pool is Linux/aarch64, and svlint publishes no aarch64 Linux
+    # asset at any release, so `make lint-setup` correctly refuses to fetch
+    # something it cannot verify and this job cannot run there at all. It needs
+    # only a checkout and svlint, so a hosted x86_64 runner costs nothing.
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Record job start
