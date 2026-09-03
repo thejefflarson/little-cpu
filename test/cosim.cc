@@ -2,8 +2,8 @@
 // whose only job is to emit the core's REAL architectural register-file state
 // as it changes, so test/cosim.py can diff it against the Sail RISC-V model.
 //
-// This is a spike, not a fourth verification leg. `make test` does not build
-// or run it; `make cosim` does. See docs/adr/0032.
+// `make test` neither builds nor runs it; `make cosim` does, and CI requires it
+// on main in a job of its own that fetches Sail first.
 //
 // WHY A SEPARATE BINARY, AND WHY IT READS `regs` RATHER THAN RVFI.
 //
@@ -289,7 +289,8 @@ int main(int argc, char **argv) {
     if (std::memcmp(regs, regs_b, sizeof(shadow)) != 0) {
       std::fprintf(stderr,
                    "error: rtl/regfile.v's two arrays diverged at cycle %ld -- "
-                   "regs_a and regs_b are one register file (ADR-0042)\n",
+                   "regs_a and regs_b are one register file, written from one "
+                   "address and one data word\n",
                    cycle);
       return 3;
     }

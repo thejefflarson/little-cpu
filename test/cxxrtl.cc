@@ -1,7 +1,7 @@
-// The cxxrtl test runner: loads a `.text` and a
-// `.data`/`.rodata`/`.bss` image straight into test/testbench.v's `rom` and
-// `memory` arrays via debug_items, runs the design for a bounded number of
-// cycles, and watches `tohost` (test/asm/riscv_test.h) for the riscv-tests
+// The cxxrtl test runner: loads a `.text` image into test/testbench.v's two
+// ROM banks (`imem rom_even`/`rom_odd`) and a `.data`/`.rodata`/`.bss` image
+// into `dmem ram`, both via debug_items, runs the design for a bounded number
+// of cycles, and watches `tohost` (test/asm/riscv_test.h) for the riscv-tests
 // pass/fail encoding.
 //
 // Exit codes: 0 = pass, 1 = fail (test number printed), 2 = cycle-limit
@@ -159,7 +159,7 @@ bool load_rom_banks(cxxrtl::debug_items &items, const HexImage &image) {
 // drives rather than rebuilt here. Several of them are true on the same cycle
 // often enough that the count needs an order, and the order below is the
 // decoder's own: it holds `decoder_out` for the divider before it bubbles for
-// anything else, and `stall` ORs the remaining four left to right. Rebuilding
+// anything else, and `stall` ORs the remaining seven left to right. Rebuilding
 // the equation in C++ would let this drift from the RTL with nothing to say so,
 // which is worse than not counting at all.
 //
@@ -340,7 +340,7 @@ int main(int argc, char **argv) {
     trap_to_zero = &all_debug_items.at("trap_to_zero").at(0);
   } catch (const std::out_of_range &) {
     std::fprintf(stderr,
-                  "error: ADR-0029's trap-to-zero check ('trap_to_zero') not "
+                  "error: the trap-to-zero check ('trap_to_zero') not "
                   "found in the simulated design -- did test/testbench.v lose "
                   "the (* keep *) on it?\n");
     return 3;
@@ -371,7 +371,7 @@ int main(int argc, char **argv) {
   // as issue cycles, which is the one wrong answer this measurement can give.
   //
   // `uut decoder stall` is the decoder's own OR of the reasons below. Reading it
-  // rather than OR-ing the seven probes is what makes `unattributed` mean
+  // rather than OR-ing the nine probes is what makes `unattributed` mean
   // something: it counts the cycles the decoder called a stall and none of the
   // named reasons explains, i.e. a stall reason nobody has written down.
   std::vector<std::pair<const cxxrtl::debug_item *, int>> stall_probes;
@@ -549,8 +549,7 @@ int main(int argc, char **argv) {
     if ((trap_to_zero->curr[0] & 1) != 0) {
       std::fprintf(stderr,
                     "trap taken with mtvec == 0 at cycle %ld -- the handler was "
-                    "never installed and the program has restarted at _start "
-                    "(ADR-0029)\n",
+                    "never installed and the program has restarted at _start\n",
                     cycle);
       report_counts();
       return 5;

@@ -4,9 +4,7 @@
 One program per invocation; test/run_cosim.sh runs the suite and grades it
 against test/COSIM_EXPECTED_FAIL. `make test` neither builds nor runs any of
 this, and it stays that way: CI gates on it in a job of its own, which fetches
-Sail at a verified digest before running anything. See docs/adr/0032 for what
-it is for and what it costs, and docs/adr/0039 for what suite-wide integration
-changed.
+Sail at a verified digest before running anything.
 
 WHAT IS ACTUALLY COMPARED
 -------------------------
@@ -61,21 +59,22 @@ test/sail/rv32imac_zicsr.json is a COMPLETE `--config`, not a
 everything it does not mention, and that is how a reference model with
 atomics, bit-manipulation, float, supervisor mode, user mode and vectors
 became the thing this core was cross-checked against.  `--config` is rejected
-outright if a key is missing, so nothing is inherited silently.  See
-docs/adr/0043 and the header of the config itself.
+outright if a key is missing, so nothing is inherited silently.  See the
+header of the config itself.
 
 WHAT REMAINS NOT COMPARABLE, AND WHY THAT IS A SHORT EXPLICIT LIST
 ------------------------------------------------------------------
-Three machine CSRs hold values that are implementation-defined AND that
-sail-riscv 0.13.1 has no knob for, so no configuration makes the two sides
-agree.  Reading one of them into a GPR parks such a value in an architectural
-register at a comparison point.  NONCOMPARABLE_CSRS below names them, one
-reason each, and the comparison skips THE VALUE of exactly the one register
-such a read writes -- never the register's identity, never the position of the
-change in the sequence, and never anything computed from it afterwards.  A
-core that failed to write the register, wrote a different one, or wrote extra
-ones still diverges.  Both the count and every skipped change are printed, so
-this can never quietly become "compared nothing".
+One machine counter, mcycle with its upper half mcycleh, holds a value that is
+implementation-defined AND that sail-riscv 0.13.1 has no knob for, so no
+configuration makes the two sides agree.  Reading either half into a GPR parks
+such a value in an architectural register at a comparison point.
+NONCOMPARABLE_CSRS below names both halves, one reason each, and the comparison
+skips THE VALUE of exactly the one register such a read writes -- never the
+register's identity, never the position of the change in the sequence, and
+never anything computed from it afterwards.  A core that failed to write the
+register, wrote a different one, or wrote extra ones still diverges.  Both the
+count and every skipped change are printed, so this can never quietly become
+"compared nothing".
 """
 
 import argparse
@@ -139,7 +138,7 @@ DUT_RE = re.compile(
 # and the model reads mip.MTIP set, so a program asserting they are zero runs
 # to `fail` on one side and `pass` on the other. That is a different program,
 # not a different value, and it belongs in a bench with no reference model in
-# it -- test/csr_tb.v, where it is (docs/adr/0043).
+# it -- test/csr_tb.v, where it is.
 NONCOMPARABLE_CSRS = {
     0xB00: "mcycle counts CYCLES; an ISA model has no pipeline. No setting "
            "makes these agree, and one that did would mean this core retires "

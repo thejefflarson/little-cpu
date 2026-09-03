@@ -2,9 +2,9 @@
 """Forces rtl/executor.v's own MUL-family constant-latency assertion to fail,
 and requires it to fail as its own assertion rather than as anything else.
 
-WHY THIS EXISTS. Zkt's isolation argument (docs/adr/0134) has two halves. The
-decoder half is graded by test/zkt_isolation_test.py and, for the two facts a
-2-safety taint walk cannot decide on its own, by formal/decoder-zkt-probe.py.
+WHY THIS EXISTS. Zkt's isolation argument has two halves. The decoder half is
+graded by test/zkt_isolation_test.py and, for the two facts a 2-safety taint
+walk cannot decide on its own, by formal/decoder-zkt-probe.py.
 The executor half used to be read rather than graded: `MUL`/`MULH`/`MULHU`/
 `MULHSU` resolve in decode's `init` state with no counter, so they take one
 cycle regardless of the operands -- true today, and nothing said so if it
@@ -40,9 +40,8 @@ the line rtl/executor.v itself states rather than by one recomputed for the
 mutated tree. The mutated core's BASECASE leg -- the one bounded from reset,
 over a concretely reachable trace -- must go FAIL at
 `assert(state == init);` and at no other line; this is the shape a
-narrow-operand fast path or an early-out ADR-0134's own "why this is not
-hypothetical" section warns about would actually take, applied to give MUL a
-slow path instead of a fast one.
+narrow-operand fast path or an early-out would actually take, applied to give
+MUL a slow path instead of a fast one.
 
 Only the BASECASE leg is read. `mode prove`'s INDUCTION leg starts from an
 arbitrary state that need not be reachable from reset at all, and once one
