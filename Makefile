@@ -92,7 +92,7 @@ SAIL_TARBALL      := $(SAIL_DOWNLOAD_DIR)/$(SAIL_ASSET)-$(SAIL_RISCV_VERSION).ta
 SAIL_CACHE_KEY    := sail-$(SAIL_RISCV_VERSION)-$(SAIL_ASSET)-$(SAIL_SHA256)
 
 # Only for the goals that run the binary. If this check could stop `make test`,
-# an out-of-date tools/sail would break the merge gate for everyone.
+# an out-of-date $(SAIL_RISCV_DIR) would break the merge gate for everyone.
 ifneq ($(filter cosim-run cosim-suite sail-reservation-probe,$(MAKECMDGOALS)),)
 ifneq ($(wildcard $(SAIL_SIM_BIN)),)
 SAIL_PIN_ON_DISK := $(shell sed -n 1p $(SAIL_STAMP) 2>/dev/null)
@@ -553,7 +553,7 @@ port-connect-test:
 retired-term-test:
 	@./test/retired_term_test.sh
 
-# The ISA string is stated at six sites and three of them build programs that
+# The ISA string is stated at seven sites and three of them build programs that
 # use no atomic, so a site left behind goes on producing numbers rather than
 # failing to assemble. Hangs off `test` like the other bash checks -- git, grep,
 # sed and awk only -- because the two sites it would otherwise take a Dhrystone
@@ -594,11 +594,12 @@ band-source-test:
 zkt-isolation-test:
 	@python3 ./test/zkt_isolation_test.py
 
-# Forces the elaboration checks in rtl/imemory.v, rtl/memory.v, rtl/timer.v and
-# rtl/uart.v to fire, in both frontends. Hangs off `test` because the parameter shapes they
-# guard are the ones the SoC and the benches pass, so nothing else here would
-# notice a check that had stopped checking. It needs iverilog and yosys, which
-# `sim` and `test-units` already require.
+# Forces the elaboration checks in rtl/{imemory,memory,timer,uart,spiflash}.v
+# and rtl/littlecpu.v's copy of that map to fire, in both frontends. Hangs off
+# `test` because the parameter shapes they guard are the ones the SoC and the
+# benches pass, so nothing else here would notice a check that had stopped
+# checking. It needs iverilog and yosys, which `sim` and `test-units` already
+# require.
 .PHONY: window-test
 window-test:
 	@./test/window_test.sh
@@ -641,12 +642,12 @@ mutation-check:
 mutation-probe:
 	@./test/mutation_probe.sh
 
-# The two-hart programs, which no machine in this tree can run: this assembles
-# and links each one and checks it against the pairing that claims it catches
-# something, in both directions. It is on `test` because four programs nothing
-# builds would rot between now and the day a dual runner exists, and the
-# pairings would rot with them. It needs the same cross compiler `make test`
-# already needs and no simulator, so it runs wherever the suite runs.
+# The two-hart programs. Only one of them runs (`make dual-smoke`, off `test`'s
+# path): this assembles and links every one and checks it against the pairing
+# that claims it catches something, in both directions, so the four the runner
+# does not yet grade cannot rot silently, and the pairings cannot rot with
+# them. It needs the same cross compiler `make test` already needs and no
+# simulator, so it runs wherever the suite runs.
 .PHONY: dual-build
 dual-build:
 	@./test/dual_build.sh test/dual test/asm test/dual/MUTATION_PAIRINGS
@@ -1642,18 +1643,18 @@ netlist-diff: netlist-determinism
 
 # ---- the cross-core comparison harness -------------------------------------
 #
-# Places THIS core and VexRiscv in one harness -- one geometry, one program, one
-# part, one toolchain, the same seeds -- so the two Fmax figures are one
-# experiment instead of two. Nothing here is a gate on the shipping design and
-# nothing here touches rtl/: `make soc-timing` remains the SoC's measurement and
-# this target's numbers are not comparable to it.
+# Places THIS core, VexRiscv and Hazard3's iCE40 build in one harness -- one
+# geometry, one program, one part, one toolchain, the same seeds -- so the Fmax
+# figures are one experiment instead of three. Nothing here is a gate on the
+# shipping design and nothing here touches rtl/: `make soc-timing` remains the
+# SoC's measurement and this target's numbers are not comparable to it.
 #
-# `COMPARE_CORE=littlecpu` (default) or `vexriscv`; `COMPARE_SEED=<n>` picks a
-# placement. soc/compare/sweep.sh runs both cores over four seeds each by
-# default, which is a look at a distribution and not a verdict on one: a decision
-# costs twelve to sixteen. This harness places hx8k, whose spread nobody has
-# swept -- `soc/bands.py hx8k` is where that is stated, and it does not hand back
-# up5k's figures for it.
+# `COMPARE_CORE=littlecpu` (default), `vexriscv` or `hazard3`;
+# `COMPARE_SEED=<n>` picks a placement. soc/compare/sweep.sh runs littlecpu and
+# vexriscv over four seeds each by default, which is a look at a distribution
+# and not a verdict on one: a decision costs twelve to sixteen. This harness
+# places hx8k, whose spread nobody has swept -- `soc/bands.py hx8k` is where
+# that is stated, and it does not hand back up5k's figures for it.
 COMPARE_CORE  ?= littlecpu
 COMPARE_SEED  ?=
 # 4 KB of ROM (8 SB_RAM40_4K) and 2 KB of data RAM (4 more). Shrunk from the
@@ -1879,10 +1880,11 @@ compare-timing: compare.$(COMPARE_CORE).asc compare.$(COMPARE_CORE).core.log
 	  || { cat compare.$(COMPARE_CORE).icetime.log; exit 1; }
 	@echo
 	@echo 'THIS IS NOT `make soc-timing`, AND NOT A LIKE-FOR-LIKE COMPARISON.'
-	@echo 'Different part, smaller memories, no timer, and the two cores'
-	@echo 'implement different ISAs: RV32IMAC+Zicsr with traps here, RV32IC with'
-	@echo 'no CSR file and no traps there. Read ADR-0086 before quoting any of'
-	@echo 'it. One placement is a sample: soc/compare/sweep.sh runs four each.'
+	@echo 'Different part, smaller memories, no timer, and the cores implement'
+	@echo 'different ISAs: RV32IMAC+Zicsr with traps here, RV32IC with no CSR'
+	@echo 'file and no traps for VexRiscv, RV32IMA with no C and no counters'
+	@echo 'for Hazard3. Quote the ISA and the geometry with the number. One'
+	@echo 'placement is a sample: soc/compare/sweep.sh runs four each.'
 	@python3 soc/timing_split.py compare.$(COMPARE_CORE).timing.rpt
 
 clean:
@@ -1907,15 +1909,15 @@ clean:
 	rm -f rvfi_macros.vh
 	@# NOT rtl/rom.mem: gitignored, untracked, and nothing regenerates real
 	@# contents for it, so `clean` deleting it is unrecoverable data loss.
-	@# NOT tools/sail either: it is a multi-megabyte network fetch that nothing
-	@# on `make test`'s path needs, so blowing it away on every `clean` costs a
-	@# download to get back something `clean` was never asked to rebuild.
-	@# Bumping SAIL_RISCV_VERSION and re-running `make sail-setup` re-fetches
-	@# on its own now -- the pin is recorded in tools/sail/.sail-pin and
-	@# compared, so this comment is no longer the only thing making that true.
-	@# `rm -rf tools/sail` still works as the blunt instrument.
-	@# NOT tools/svlint either, and for the same reason: a network fetch that
+	@# NOT $(SAIL_RISCV_DIR) either: a multi-megabyte network fetch outside the
+	@# checkout that nothing on `make test`'s path needs, so blowing it away on
+	@# every `clean` costs a download to get back something `clean` was never
+	@# asked to rebuild. Bumping SAIL_RISCV_VERSION and re-running
+	@# `make sail-setup` re-fetches on its own -- the pin is recorded in
+	@# $(SAIL_STAMP) and compared -- and `rm -rf` of the directory by hand is
+	@# the blunt instrument.
+	@# NOT $(SVLINT_DIR) either, and for the same reason: a network fetch that
 	@# `clean` was never asked to rebuild. `make lint-setup` re-fetches
-	@# unconditionally, so `rm -rf tools/svlint` is the blunt instrument there.
+	@# unconditionally, so `rm -rf` of it by hand is the blunt instrument there.
 
 # The riscv-formal clone rule and its pin guard live in formal/pin.mk.

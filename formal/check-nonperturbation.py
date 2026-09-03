@@ -1,17 +1,14 @@
 #!/usr/bin/env python3
 """Prove, structurally, that the RVFI instrumentation is unread by the core.
 
-ADR-0047 (supersedes formal/equiv.sh; closes ADR-0037's M2 term 4 by taking
-its "or ... proven another way" clause).  Run from formal/ -- the paths below
-are relative to it.
+Run from formal/ -- the paths below are relative to it.
 
 WHAT THIS PROVES, AND WHAT IT DOES NOT
 --------------------------------------
-ADR-0006 kept a non-perturbation obligation: the `ifdef RISCV_FORMAL` shadow
-payload threaded through rtl/structs.v must not change what the core does.
-ADR-0020 recorded that obligation as *argued, not proven*, and put the burden
-on reviewers: "verify by reading that no `ifdef`'d value reaches a
-non-`ifdef`'d signal."
+The obligation is that the `ifdef RISCV_FORMAL` shadow payload threaded
+through rtl/structs.v must not change what the core does.  It was once
+*argued, not proven*, with the burden on reviewers: "verify by reading that no
+`ifdef`'d value reaches a non-`ifdef`'d signal."
 
 That sentence is the property, and it is a STRUCTURAL property, not a
 behavioural one.  This script decides it:
@@ -35,8 +32,8 @@ designs that compute the same function by different structures pass a miter and
 fail this check; that is the correct outcome here, because the thing under test
 is a preprocessor macro, not a redesign.  What it buys in exchange is that it is
 decidable, exact, and runs in about a second -- where the miter it replaces
-(formal/equiv.sh, retired in ADR-0047) did not converge at any budget, because
-`equiv_make`'s name-based matching paired almost nothing across the two builds.
+(formal/equiv.sh) did not converge at any budget, because `equiv_make`'s
+name-based matching paired almost nothing across the two builds.
 
 HOW THE COMPARISON AVOIDS THE FAILURE THAT MADE equiv_make USELESS
 ------------------------------------------------------------------
@@ -335,8 +332,8 @@ def selftest_fingerprint(mod):
     netlist rewired at constant cell count -- and no mutation of this core
     produces one of those without also moving the histogram. So the fingerprint
     would otherwise be a comparison that has never been observed to fail, which
-    is this repo's recurring defect (ADR-0019, ADR-0033, ADR-0035, ADR-0037,
-    ADR-0040) and the exact thing ADR-0047 exists to stop repeating.
+    is this repo's recurring defect and the one this self-test exists to stop
+    repeating.
 
     So: take gold, swap the A and B inputs of exactly one `$_MUX_`, and require
     that the histogram is unchanged and the fingerprint is not. Same shape as

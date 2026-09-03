@@ -10,17 +10,19 @@ what is at risk, so a reviewer spends its effort on the things that can really g
 
 ## What this is
 
-A hobby RV32IMAC_Zicsr CPU core in SystemVerilog, plus the verification harness that checks it.
+A hobby RV32IMAC_Zicsr_Zifencei CPU core (Zkt claimed too) in SystemVerilog, plus the verification
+harness that checks it.
 It builds and runs in exactly two places:
 
 | | |
 |---|---|
 | **A developer laptop** | `make` driving yosys, iverilog, SymbiYosys, clang++, and a riscv64 cross-compiler |
-| **GitHub Actions CI** | `pull_request` and `push` to main, `permissions: contents: read`, SHA-pinned actions |
+| **GitHub Actions CI** | `ci.yml`: `pull_request` and `push` to main, `permissions: contents: read`, SHA-pinned actions. Three more workflows hold more: `dependabot-automerge.yml` (`contents: write`, gated on the required checks, ADR-0018), `riscv-formal-pin-bump.yml` (scheduled; `contents: write` to push a bump branch, `issues: write` to open an issue rather than a PR, ADR-0069), and `soundcheck.yml` (a third-party review action holding `ANTHROPIC_API_KEY`, the one secret in the repo) |
 
 There is **no service, no server, no deployed artifact, no authentication, no user data, no
-personal data, and no cryptography.** Nothing here listens on a socket. The eventual target is an
-ice40 up5k FPGA and possibly a Tiny Tapeout shuttle — silicon, not a fleet.
+personal data, and no cryptography.** Nothing here listens on a socket. The targets are an ice40
+up5k, flashed (ADR-0130), and an ECP5 for the dual-hart configuration (ADR-0110) — silicon, not a
+fleet.
 
 The actors are the maintainer, and whoever opens a pull request.
 
@@ -33,14 +35,16 @@ runner — no customer data, no credentials worth having, no production anything
 measure, the security stakes are close to zero.
 
 **What can actually be damaged is the trustworthiness of the verification result.** This project
-went from formally verified to unverified during a rewrite, and getting back is the entire plan
-(see `CLAUDE.md`). The milestone ladder is defined against specific gates: `make test` passing,
-the generated riscv-formal checks' failure set matching `formal/EXPECTED_FAIL`, that baseline
-reaching empty as the M2 signal. Every one of those is a claim about correctness that a person
-will act on. ("Milestone ladder" above is a stepwise sequence of milestones, and is deliberately
-not the retired name for the generated riscv-formal check set — a different word that reads the
-same. `test/retired_term_test.sh` allows this file for that reason; renaming it would lose the
-meaning rather than tidy the vocabulary.)
+went from formally verified to unverified during a rewrite and is verified again (M2 was declared by
+ADR-0079), and every gate that says so is a claim about correctness that a person will act on:
+`make test` graded against `test/EXPECTED_FAIL` and `test/OBSERVED_FLOOR`, the generated
+riscv-formal checks graded against `formal/EXPECTED_FAIL` and `formal/EXPECTED_CHECKS` — name and
+status, set-equal in both directions; an empty baseline is necessary, not sufficient (ADR-0037) —
+the component proofs, and co-simulation graded against `test/COSIM_EXPECTED_FAIL`. `CLAUDE.md`'s
+"Verification" section says what each one does and does not establish. (The milestone ladder this
+file used to describe is a stepwise sequence of milestones, deliberately not the retired name for
+the generated riscv-formal check set — a different word that reads the same.
+`test/retired_term_test.sh` allows this file for that reason.)
 
 So the failure mode with real consequences is **a gate that reports green while it is not
 actually checking what it claims to check.** A check silently not generated. An oracle silently
@@ -58,12 +62,19 @@ category error. It is the main event.
 Everything the maintainer wrote and committed, and the pins that control what else gets pulled in:
 
 - `rtl/` and its structs and headers
-- test fixtures: `test/asm/*.S`, `riscv_test.h`, `sections.lds`, the testbenches
+- test fixtures: `test/asm/*.S` and `test/asm/*.c`, `riscv_test.h`, `sections.lds`, `boot.lds`,
+  `test/crt0.S`, the testbenches, and `soc/`
 - build orchestration: the Makefiles, `test/run_tests.sh`, `test/cosim.py`,
   `test/sanitize_monitor.py`, `test/cxxrtl.cc`, `test/cosim.cc`
-- pins and baselines: `formal/pin.mk`, `ci.yml`'s `OSS_CAD_SUITE_SHA256`, `test/EXPECTED_FAIL`,
-  `formal/EXPECTED_FAIL`, `formal/checks.cfg`
-- `test/monitor.v` — generated, but tracked and reviewed (invariant 7), freshness re-checked in CI
+- pins and baselines: `formal/pin.mk` (riscv-formal), `soc/compare/hazard3_pin.mk` (Hazard3),
+  `test/bench/coremark/PINNED.sha256` (CoreMark), the Makefile's `SAIL_RISCV_VERSION` and
+  `SVLINT_VERSION` digests, `test/EXPECTED_FAIL`, `test/COSIM_EXPECTED_FAIL`, `test/OBSERVED_FLOOR`,
+  `formal/EXPECTED_FAIL`, `formal/EXPECTED_CHECKS`, `formal/COMPLETE_EXCLUSIONS`,
+  `formal/checks.cfg`. The OSS CAD Suite is deliberately NOT pinned (`CLAUDE.md`, Measurements and
+  ratchets): CI installs the latest release, or uses the runner image's copy
+- `test/monitor.v` — generated but tracked; regenerated by `make test/monitor.v`, never
+  hand-edited (`CLAUDE.md`, Engineering rules), and the `monitor-freshness` job re-checks it on
+  every PR
 - `CLAUDE.md`, `docs/`
 
 **Command-line arguments, environment variables, and config files are maintainer input, not
@@ -75,10 +86,13 @@ worth reporting at all, and rate it accordingly.
 
 Code and data this repo executes or believes, that it did not write:
 
-- **Anything downloaded and then run.** The oss-cad-suite tarball, the riscv-formal clone, the
-  Sail emulator, distro-installed toolchains.
-- **Vendored third-party code.** `formal/genchecks-local.py` is upstream Python that the build
-  executes; it is not covered by `pin.mk`'s SHA verification.
+- **Anything downloaded and then run.** The oss-cad-suite tarball, the riscv-formal clone (and
+  VexRiscv's Verilog inside it), the Sail emulator, svlint, Hazard3's clone under `soc/compare/`,
+  CoreMark's five vendored files, distro-installed toolchains.
+- **Vendored third-party code.** `formal/genchecks-local.py` is a copy of the pin's
+  `checks/genchecks.py`; `make -C formal genchecks-check` (the `monitor-freshness` job) requires it
+  to differ only by this repo's header and `basedir`, so it is covered by `pin.mk` transitively.
+  What is not covered is a widening of that allowed difference.
 - **Generated code that feeds an oracle.** riscv-formal's monitor generator produces the Verilog
   that `test/sanitize_monitor.py` rewrites into what both sim legs check against. A change in
   generator output shape can change what "passing" means.
@@ -120,7 +134,12 @@ run from a standing grant into a per-run approval; it lives in the repo's Action
   recipe for a directory that already exists — "without this check the pin reads as a control
   while providing no protection"
 
-`.github/actions/setup-oss-cad-suite` applies the same idea to a tarball with a SHA-256.
+`.github/actions/setup-oss-cad-suite` is the recorded exception, not a second instance: on the
+self-hosted pool it takes the runner image's copy with no check, and on `ubuntu-latest` it downloads
+the *latest* release and verifies only the digest GitHub publishes beside it, cached by that digest.
+The suite is unpinned on purpose (`CLAUDE.md`, Measurements and ratchets), so a toolchain move is a
+listed cause when `FIT_MAX_LC` or `SOC_MIN_MHZ` trips, and the action's step summary records which
+branch a job took.
 
 **A new dependency that downloads and then executes something, without an equivalent control, is
 a real finding** — not because the risk is large in absolute terms, but because the repo
@@ -183,5 +202,4 @@ Ranked by how much it is worth:
 
 Findings in category 1 should be reported even when no attacker is involved. "A routine edit
 silently deletes a check and the gate stays green" is the highest-value thing a review of this
-repo can find. (It said *the nightly* until ADR-0050 deleted that workflow and folded its checks
-into the required `formal` job; the class of finding is unchanged and the gate is now stricter.)
+repo can find.

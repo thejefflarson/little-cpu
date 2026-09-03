@@ -1,8 +1,9 @@
 diff --git a/rtl/decoder.v b/rtl/decoder.v
+index 331a2ed..9171a9d 100644
 --- a/rtl/decoder.v
 +++ b/rtl/decoder.v
-@@ -489,7 +489,7 @@ module decoder (
-   // old text. An empty pipeline means the store has landed.
+@@ -612,7 +612,7 @@ module decoder #(
+   // address goes out a cycle early, so an older store's write edge must pass.
    logic pipe_drained, serialize;
    assign pipe_drained = !out.valid && !executor_out.valid && !accessor_out_valid;
 -  assign serialize = (instr_csr_access || instr_mret || instr_fencei) && !pipe_drained;
@@ -11,9 +12,10 @@ diff --git a/rtl/decoder.v b/rtl/decoder.v
    logic hazard_rs1, hazard_rs2, hazard, stall;
    assign hazard_rs1 = uses_rs1 && rs1 != 0 && live_rs1;
 diff --git a/rtl/imemory.v b/rtl/imemory.v
+index 77a6616..e2e2fae 100644
 --- a/rtl/imemory.v
 +++ b/rtl/imemory.v
-@@ -95,7 +95,7 @@ module imemory #(
+@@ -71,7 +71,7 @@ module imemory #(
    // A store takes the port too, not just a load. Reading a word while it is
    // being written gives an answer the part does not define.
    logic text_access, text_write_even, text_write_odd;

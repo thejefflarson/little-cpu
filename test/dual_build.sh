@@ -18,7 +18,9 @@
 #
 # The build flags are test/run_tests.sh's `.S` arm verbatim, plus this
 # directory on the include path. When that arm changes this has to change with
-# it -- the same three-places rule the two program shapes already carry.
+# it -- the same rule the two program shapes already carry across
+# test/run_tests.sh, test/cosim.py, the Makefile's soc-rom and
+# test/dual_smoke.sh.
 #
 # Usage: dual_build.sh <dual-dir> <asm-dir> <pairings-file>
 set -euo pipefail

@@ -1,10 +1,11 @@
 diff --git a/rtl/decoder.v b/rtl/decoder.v
+index 331a2ed..02bd38e 100644
 --- a/rtl/decoder.v
 +++ b/rtl/decoder.v
-@@ -604,8 +604,7 @@ module decoder #(
-   // flip-flop the wait above filled, so the trap chain and the pc never see the
-   // effective-address adder. Misalignment outranks the region here too, so the
-   // four data causes stay disjoint whichever access raised them.
+@@ -471,8 +471,7 @@ module decoder #(
+   // `trap_cause`, off the fetch loop.
+   logic atomic_fault;
+   assign atomic_fault = instr_atomic && !atomic_supported && !word_misaligned;
 -  assign ls_fault = ls_access && ls_answer_valid && !ls_answer &&
 -                    !load_misaligned && !store_misaligned;
 +  assign ls_fault = 1'b0;

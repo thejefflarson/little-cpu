@@ -164,13 +164,13 @@ jobs:
     name: mutation-check
     # Fork-PR routing: see the note above `jobs:` for what this picks and why.
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
-    # Ten mutations, each rebuilding the cxxrtl runner: about nine minutes of
-    # work on an idle machine, on a runner pool the whole workflow shares. At 15
-    # the budget was thin enough that a busy pool killed the job mid-run, and a
-    # cancelled job with the log still inside the redirect below reads as a
-    # failed gate rather than as a busy pool -- the same way `components` did at
-    # 5. Every mutation added spends about a minute of this.
-    timeout-minutes: 25
+    # Eleven mutations, each rebuilding the cxxrtl runner: about nine minutes of
+    # work on an idle machine, and every mutation added spends about a minute
+    # more. The pool is one runner serving every job in this workflow, so a
+    # budget near the idle time gets the job killed mid-run under contention --
+    # which reads as a failed gate rather than as a busy pool, with the log
+    # still inside the redirect below. This is set well clear of a loaded run.
+    timeout-minutes: 45
     steps:
       - name: Record job start
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
@@ -310,12 +310,12 @@ jobs:
     name: components
     # Fork-PR routing: see the note above `jobs:` for what this picks and why.
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
-    # Four proofs in about four minutes, on a runner pool the whole workflow
-    # shares. At 5 the budget was under a minute of headroom and the job was
-    # killed after the fourth proof reported PASS, which reads as a failed gate
-    # rather than as a busy pool. Adding a tenth job to the workflow is what
-    # surfaced it.
-    timeout-minutes: 10
+    # The proofs take about five minutes together on an idle pool, but the pool
+    # is one runner serving every job in this workflow, and a budget close to
+    # that time gets the job killed mid-proof under contention -- which reads as
+    # a failed gate rather than as a busy pool. This budget is here to catch a
+    # solver that hangs, so it is set well clear of a healthy run.
+    timeout-minutes: 20
     steps:
       - name: Record job start
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
@@ -368,8 +368,12 @@ jobs:
 
   lint:
     name: lint
-    # Fork-PR routing: see the note above `jobs:` for what this picks and why.
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
+    # NOT the self-hosted pool, and not the fork-PR expression the other jobs
+    # use: that pool is Linux/aarch64, and svlint publishes no aarch64 Linux
+    # asset at any release, so `make lint-setup` correctly refuses to fetch
+    # something it cannot verify and this job cannot run there at all. It needs
+    # only a checkout and svlint, so a hosted x86_64 runner costs nothing.
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Record job start
