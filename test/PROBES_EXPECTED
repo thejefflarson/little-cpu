@@ -399,6 +399,12 @@ and the same for the check-set baseline
 assembler output on a successful build is still a defect
 assembler output on a successful build is still a defect
 baselining ERROR would re-create the btorsim hole with this gate's blessing
+bench.lds putting .data back at ram's origin is red
+bench.lds putting the stack back at the top of ram is red
+board.lds putting .data back at ram's origin is red
+board.lds putting the stack back at the top of ram is red
+boot.lds putting .data back at ram's origin is red
+boot.lds putting the stack back at the top of ram is red
 branch_taken carrying reg_rs1/reg_rs2 into hazard is red
 columns that do not add up blame the report, not the core
 columns that no longer add up to the cycle count are red
@@ -432,6 +438,7 @@ control: a tool that answers is stamped with its version and its path
 control: a tracked file with no matching ignore rule is clean
 control: a well-formed report publishes the frequency
 control: agreeing paths outside the checkout are green
+control: all five shipping scripts link at the inset layout
 control: an ECP5 sweep summarises against its own instrument
 control: an accounting that adds up prints the table
 control: an archive matching the vendored tree exactly is endorsed
@@ -477,6 +484,8 @@ control: the shipping tree states every band figure in one place
 control: the tracked monitor sanitizes, and rule 3 fires
 control: two identical netlists are equal
 control: two sweeps measured the same way are subtracted
+coremark.lds putting .data back at ram's origin is red
+coremark.lds putting the stack back at the top of ram is red
 data past the end of the simulated RAM is red, not silent
 decoder_output.rd widened past 5 bits is red (finding 5)
 every source line moving is the comment class, and is forgiven
@@ -524,6 +533,7 @@ runner exit 5 is TRAP-TO-ZERO, not a timeout with no cause
 runner exit 6 is MONITOR-SILENT: the oracle never looked
 running the generator from the wrong directory is refused, not done
 sby's trailing engine numbers are not part of the status
+sections.lds putting .data back at ram's origin is red
 starvation going red somewhere other than the bound is not evidence
 starvation going red somewhere other than the bound is not evidence
 status AGREE with a nonzero exit is a broken harness, not agreement
