@@ -427,7 +427,7 @@ module testbench(
     trap_taken_d <= !reset && trap;
     if (trap_taken_d && imem_addr == 32'b0) begin
       trap_to_zero <= 1'b1;
-      $display("TRAP TO ZERO: a trap was taken while mtvec == 0 (ADR-0029).");
+      $display("TRAP TO ZERO: a trap was taken while mtvec == 0.");
       $display("No handler was installed, so the program has restarted at _start.");
      `ifdef ICARUS
       $fatal(1);

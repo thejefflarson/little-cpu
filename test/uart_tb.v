@@ -20,10 +20,9 @@
 // failures a working device will not produce.
 //
 // A DECODER THAT MATCHES NOTHING PASSES EVERY TEST WRITTEN AGAINST A WORKING
-// DEVICE, so four of its failures are forced here rather than argued: an absent
-// stream, a stop bit that is not there, a divisor that is not the transmitter's
-// (in both directions), and a second byte written while the shift register is
-// still busy.
+// DEVICE, so five of its failures are forced here rather than argued: an absent
+// stream, a stop bit that is not there, a frame that runs off the trace, and a
+// divisor that is not the transmitter's, in both directions.
 module uart_tb;
   logic clk = 0;
   always #5 clk = ~clk;
