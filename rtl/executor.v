@@ -41,6 +41,12 @@ module executor(
   assign div_x = (in.is_div || in.is_rem) && rs1[31] ? ~(rs1 - 32'd1) : rs1;
   assign div_y = (in.is_div || in.is_rem) && rs2[31] ? ~(rs2 - 32'd1) : rs2;
 
+  // A dividend whose top half is zero spends its first sixteen iterations
+  // shifting those zeros past the divisor, so the loop is loaded with the state
+  // they would have left and starts sixteen in.
+  logic div_skip;
+  assign div_skip = div_x[31:16] == 16'b0;
+
   logic [1:0]  state;
   localparam init = 2'b00;
   localparam divide = 2'b10;
@@ -61,6 +67,12 @@ module executor(
   assign rem_shifted = {div_rem, div_quot[31]};
   assign rem_sub     = rem_shifted + {1'b1, div_divisor_n} + 33'd1;
 
+  // The iteration's next values are named so the last one retires on the edge
+  // that computes it rather than on a further cycle reading the registers back.
+  logic [31:0] div_quot_next, div_rem_next;
+  assign div_quot_next = {div_quot[30:0], ~rem_sub[32]};
+  assign div_rem_next  = rem_sub[32] ? rem_shifted[31:0] : rem_sub[31:0];
+
   always_comb
     stalled = state != init;
 
@@ -70,7 +82,7 @@ module executor(
 
   logic [31:0] div_result_mag;
   logic        div_negate;
-  assign div_result_mag = (op_is_div || op_is_divu) ? div_quot : div_rem;
+  assign div_result_mag = (op_is_div || op_is_divu) ? div_quot_next : div_rem_next;
   assign div_negate     = (op_is_div && (op_sign_x != op_sign_y)) || (op_is_rem && op_sign_x);
 
  `ifdef RISCV_FORMAL_ALTOPS
@@ -165,10 +177,10 @@ module executor(
                 if (in.is_div) out.rd_data <= 32'h80000000; // quotient = INT_MIN
                 else out.rd_data <= 32'b0; // remainder = 0
               end else begin
-                mul_div_counter <= 32;
+                mul_div_counter <= div_skip ? 7'd16 : 7'd32;
                 state <= divide;
                 div_rem <= 0;
-                div_quot <= div_x;
+                div_quot <= div_skip ? {div_x[15:0], 16'b0} : div_x;
                 div_divisor_n <= ~div_y;
                 out.valid <= 1'b0;
               end
@@ -189,11 +201,10 @@ module executor(
 
         divide: begin
          `ifndef RISCV_FORMAL_ALTOPS
-          if (|mul_div_counter) begin
-            div_quot <= {div_quot[30:0], ~rem_sub[32]};
-            div_rem  <= rem_sub[32] ? rem_shifted[31:0] : rem_sub[31:0];
-            mul_div_counter <= mul_div_counter - 1;
-          end else begin
+          div_quot <= div_quot_next;
+          div_rem  <= div_rem_next;
+          mul_div_counter <= mul_div_counter - 1;
+          if (mul_div_counter == 7'd1) begin
             out.rd_data <= div_negate ? -div_result_mag : div_result_mag;
             out.valid <= 1'b1;
             state <= init;
@@ -335,9 +346,12 @@ module executor(
   always_comb if (state == divide) assert(op_sign_y == div_ghost_rs2[31]);
   always_comb if (state == divide) assert(div_divisor == div_mag_y);
 
-  // Without this k-induction may start from a wild counter that the invariant
-  // below reads as an exact count of the iterations left.
+  // Without these k-induction may start from a wild counter that the invariant
+  // below reads as an exact count of the iterations left. Zero is excluded
+  // because the last iteration retires: a divide leaves this state at one, and
+  // starting the step from zero would wrap the counter instead.
   always_comb if (state == divide) assert(mul_div_counter <= 32);
+  always_comb if (state == divide) assert(mul_div_counter != 0);
 
   // A restriction on the proof, not the design, buying solver time on the
   // symbolic product. Guarded to the divide state on purpose: unguarded it is
@@ -377,9 +391,11 @@ module executor(
   assign div_ref  = (div_ghost_rs2 == 0) ? 32'hffffffff : div_q;
   assign rem_ref  = (div_ghost_rs2 == 0) ? div_ghost_rs1 : div_r;
 
-  // Unreachable in the basecase: the real divide needs 33 cycles and `mode
-  // prove` runs 20 basecase steps. A mutation that breaks one of these reports
-  // `UNKNOWN (rc=4)` -- basecase pass, induction FAIL -- rather than `FAIL`.
+  // The proof cap above puts every divide on the sixteen-iteration path, which
+  // reaches these at step 19 of `mode prove`'s 20 basecase steps. So a mutation
+  // that breaks one reports `FAIL` over a trace from reset, where a
+  // 32-iteration divide left it out of basecase reach and reported the
+  // induction-only `UNKNOWN (rc=4)`.
   always_ff @(posedge clk)
     if (clocked && !reset && $past(state) == divide && state == init && $past(op_is_divu))
       assert(out.rd_data == divu_ref);

@@ -181,9 +181,9 @@ for A or for Zkt, so widening either generates nothing.
 
 **Zkt is claimed, and it adds no instruction and no `misa` bit** (ADR-0134). It promises that a
 listed set — RV32I arithmetic, logical and shift, the four multiplies, and the arithmetic C
-encodings — executes in time independent of its operands' VALUES; `DIV`/`REM` (32 cycles, or one
-when `rs2 == 0` or on `INT_MIN / -1`), loads, stores, branches and jumps are excluded, and the
-exclusion is what makes the claim true. Load/store timing here varies with address arithmetic, not
+encodings — executes in time independent of its operands' VALUES; `DIV`/`REM` (32 iterations, 16
+when the dividend's magnitude has a zero top half, or one when `rs2 == 0` or on `INT_MIN / -1`),
+loads, stores, branches and jumps are excluded, and the exclusion is what makes the claim true. Load/store timing here varies with address arithmetic, not
 cache state, and the constant-time model treats addresses as non-secret. Three graders carry it:
 `test/zkt_isolation_test.py` grades the taint half on the ELABORATED NETLIST (ADR-0137 records why
 the source-text version was replaced) — it seeds taint at `reg_rs1`, `reg_rs2` and
@@ -205,8 +205,10 @@ words at `0x0002_0000` and **the map reserves eight**, one `mtimecmp` and one `m
 the span. The layout is **deliberately not a CLINT's**. The interrupt is taken on a cycle that
 would otherwise have issued, because `stall` outranks the trap arm of `next_pc` — so it waits out a
 divide, a region wait and a serialization with no logic of its own, and is **not** a stall reason.
-Worst-case response: 33 cycles, set by the divider. `mtimecmp` resets to zero, so `mtip` is
-asserted out of reset, and both enables resetting to zero makes that harmless (ADR-0082). Three
+Worst-case response: 35 cycles, 2.92 µs at 12 MHz, set by the divider and the stalls behind it;
+re-measured on this tree, where ADR-0082's 33 did not reproduce. `mtimecmp` resets to zero, so
+`mtip` is asserted out of reset, and both enables resetting to zero makes that harmless
+(ADR-0082). Three
 facts are the platform's to state and firmware cannot derive them: **`mtime` ticks once per clock
 cycle**; **MTIP is a level**, posted until `mtimecmp` exceeds `mtime`, so a handler that returns
 without moving `mtimecmp` is re-entered before the instruction at `mepc` runs; **an RV32 `mtimecmp`
