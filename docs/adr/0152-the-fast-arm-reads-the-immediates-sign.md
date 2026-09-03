@@ -1,6 +1,6 @@
 # ADR-0152: The region fast arm can read the immediate's sign, and the layout convention got there first
 
-**Status:** Declined (the measurement stands) · 2026-09-03 · superseded as a change by ADR-0153,
+**Status:** Declined (the measurement stands) · 2026-09-03 · superseded as a change by ADR-0158,
 which recovers the same cycles in the linker for no cells and no period.
 
 ## Context
@@ -134,7 +134,7 @@ locality probes no longer bound them, and nothing here measured which accesses t
 
 ## Why it does not ship
 
-Measured against the CONVENTIONAL layout, this arm is worth 5.38% of Dhrystone's cycles. ADR-0153
+Measured against the CONVENTIONAL layout, this arm is worth 5.38% of Dhrystone's cycles. ADR-0158
 insets `.data` and the stack by one 2 KB block in every shipping linker script and takes the same
 `REGION` column from 212 752 cycles to 2, for no RTL, no cells and no period. Stacked on that
 layout — both changes in one tree, `make cycles` and `make dhrystone` re-run — this arm is worth

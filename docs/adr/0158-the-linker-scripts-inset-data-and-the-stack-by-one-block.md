@@ -1,4 +1,4 @@
-# 0153 — The linker scripts inset `.data` and the stack by one 2 KB block
+# 0158 — The linker scripts inset `.data` and the stack by one 2 KB block
 
 Status: accepted · a SOFTWARE convention, not a core change. No file under `rtl/` moved, `make fit`
 reads the same 4109 `ICESTORM_LC` and `make netlist-digest` reads the same hash.

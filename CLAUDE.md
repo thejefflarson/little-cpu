@@ -71,7 +71,7 @@ references still resolve.
   placements; the price is +13.79% of Dhrystone's cycles (ADR-0129). Enforced by
   `components_traps` over `formal/traps.sv`, `test/decoder_tb.v`'s region vectors and
   `rtl/decoder.v`'s `FORMAL` block.
-  **So this core has a layout preference, and the shipping linker scripts pay it** (ADR-0153). A
+  **So this core has a layout preference, and the shipping linker scripts pay it** (ADR-0158). A
   64 KB window is 32 blocks and 30 of them are deep, so a program whose stack and `.data` sit one
   2 KB block clear of the edges reaches the fast arm on essentially every access, and one that does
   not pays a cycle per access. Every script under `test/` starts `.data` one block above `ram`'s
@@ -397,20 +397,20 @@ top, ECP5 only.
   minute (ADR-0078).
 - **`make dhrystone` and `make coremark` are the figures comparable to another project's** —
   Dhrystone to VexRiscv, CoreMark to Hazard3 and most cores published since — and neither is a
-  gate. Dhrystone: **0.758 DMIPS/MHz, 9.10 DMIPS at 12 MHz** at `-O2` (ADR-0153), quoted with the
+  gate. Dhrystone: **0.758 DMIPS/MHz, 9.10 DMIPS at 12 MHz** at `-O2` (ADR-0158), quoted with the
   absolute figure because Fmax above the requirement is margin and not speed (ADR-0089), and with
   the flags, the compiler, the string library and **the linker script** — the program prints the
   first three and will not compile without them, and `test/bench/bench.lds` asserts the fourth at
   link time. **It went 9.10 → 7.97 and back to 9.10, and the two moves differ in kind**: the region
   wait spends 13.79% of Dhrystone's cycles to make an out-of-region access fault (ADR-0129), and
   insetting the layout gives those cycles back with no RTL change, `make fit` and the netlist digest
-  both unmoved (ADR-0153). A CPI regression with no conformance behind it is still a regression, and
+  both unmoved (ADR-0158). A CPI regression with no conformance behind it is still a regression, and
   a figure recovered by moving the software is the firmware ceasing to pay a cost, never the core
   getting faster. **CoreMark is SIMULATED AT 16 KB OF ROM**,
   double the part's 8, against `test/testbench.v`'s `ROM_WORDS`, and every printed figure says so;
   the five algorithm files are vendored unmodified and pinned by `test/bench/coremark/PINNED.sha256`
   (ADR-0136). **2.013 CoreMark/MHz** on the shipping layout against 1.811 on the conventional one,
-  so it travels with the linker script the way the DMIPS figure does (ADR-0153).
+  so it travels with the linker script the way the DMIPS figure does (ADR-0158).
   Hazard3's published 4.15 CoreMark/MHz is its RP2350 build, not its iCE40 one, and
   quoting it against an ice40 core is the mixed-configuration error ADR-0098 names.
 - **The only cross-core comparison that means anything is one harness**, `soc/compare/`: same part,
