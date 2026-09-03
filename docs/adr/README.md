@@ -270,3 +270,4 @@ trades away simplicity the current design depends on.
   on `main` once the digest-verified fetch ADR-0032 asked for existed. Still `make cosim-run` /
   `make cosim-suite` and never `make test`. The memory comparison remains future work; the nightly
   job does not, having been overtaken by the gate.
+| [0152](0152-the-fast-arm-reads-the-immediates-sign.md) | The region fast arm can read the immediate's sign, and the layout convention got there first | Declined (the measurement stands) · worth 5.38% of Dhrystone's cycles against the conventional layout and **2 cycles** stacked on ADR-0153's, for +112 placed SoC cells and +1.07% of median period at 13 of 16 seeds, p = 0.021. Proved correct by k-induction against the unchanged `ls_settled` assertion, so the design and its price are on record for firmware that cannot inset its own layout. Also the counter-example to reading ADR-0145 as a rule about the signal rather than about its own term |
