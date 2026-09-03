@@ -146,7 +146,7 @@ module decoder_tb;
   // On both clock edges, not just the rising one. Every vector here presents its
   // instruction just after a rising edge, so the falling edge is where it is
   // settled and being decoded. Sampling only the rising edge misses that, and
-  // the probe for this check -- a ninth term ORed into `stall` -- goes green.
+  // the probe for this check -- a tenth term ORed into `stall` -- goes green.
   always @(clk) begin
     if (dut.stall !== (dut.divider_stall || dut.atomic_stall || dut.hazard_rs1 ||
                        dut.hazard_rs2 || dut.serialize || dut.operand_stall ||
@@ -182,12 +182,6 @@ module decoder_tb;
     end
   endtask
 
-  // The load/store region answer is registered on the cycle the access waits and
-  // read on the next, so a vector that checks the trap in its presenting cycle
-  // reads the answer to the PREVIOUS access. This takes that cycle -- and
-  // asserts what it is taking, so a core that stopped waiting, or one that let
-  // the answer live longer than the one cycle it is about, goes red here rather
-  // than passing on a stale bit.
   // The load/store region answer is registered on the cycle the access waits and
   // read on the next, so a vector that checks the trap in the presenting cycle
   // reads the answer to the previous access. This presents the access, takes the
@@ -1136,8 +1130,9 @@ module decoder_tb;
     // A plain load and a plain store at the same address raise the same two
     // causes, off the map the decoder is elaborated with rather than off the
     // bit. This instance takes the parameter defaults: 8 KB of text at 0, 64 KB
-    // of RAM at 0x0001_0000, the timer's reserved 32 bytes at 0x0002_0000 and
-    // the UART's eight above them, so 0x0004_0000 is outside all four.
+    // of RAM at 0x0001_0000, the timer's reserved 32 bytes at 0x0002_0000, the
+    // UART's eight above them and the SPI controller's eight above those, so
+    // 0x0004_0000 is outside all five.
     //
     // THE ANSWER IS A CYCLE LATE, and `region_access` is what every vector from
     // here down goes through because of it. Check the trap in the cycle the
@@ -1351,8 +1346,9 @@ module decoder_tb;
 
     // The scoreboard. An AMO's result arrives a cycle later than a load's and a
     // store-conditional writes a register at all, which no other store does --
-    // so both are checked for the gap commitment 8 forbids, at the one place
-    // decode can see it.
+    // so both are checked, at the one place decode can see it, for the gap the
+    // scoreboard forbids: an in-flight rd invisible for a cycle between issue
+    // and the regfile write-through.
     in.pc = 32'h0000_0700;
     present_and_fetch(32'h003120af);   // amoadd.w x1, x3, (x2)
     check_bit("an AMO issues", dut.issuing, 1'b1);

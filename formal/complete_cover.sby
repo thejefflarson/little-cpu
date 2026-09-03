@@ -11,10 +11,12 @@
 # So this task takes the same harness and asks the opposite question. sby's
 # `mode cover` strips the assertions and keeps the assumes, so what runs here
 # is: find a trace in which the core performs a non-trapping, non-excluded
-# retire of THIS opcode class. Twelve goals -- the nine RV32I opcode classes
-# the exclusion set does not name, plus all three RVC quadrants. Reaching all
-# twelve is the demonstration that `complete`'s green is over a live assertion,
-# class by class, rather than over a guard that never opened.
+# retire of THIS opcode class. Thirteen goals -- the nine RV32I opcode classes
+# the exclusion set does not name, all three RVC quadrants, and one non-trapping
+# AMO retire that says the AMO exclusion is a live restriction rather than a
+# class nobody reaches. Reaching all thirteen is the demonstration that
+# `complete`'s green is over a live assertion, class by class, rather than over
+# a guard that never opened.
 #
 # It is a separate .sby rather than a task inside complete.sby because
 # formal/Makefile's generic `%: %.sby` rule deletes the workdir named by the
@@ -26,13 +28,12 @@
 # the pure-AIG bounded engine complete.sby uses for its single assertion.
 #
 # DEPTH 100 is cover.sby's, and it is a HEADROOM number rather than a measured
-# floor -- state it that way so nobody later quotes it as one (ADR-0025). sby's
-# cover mode emits as many traces as it needs rather than one trace hitting
-# every goal, so what each goal actually costs is the pipeline fill: measured,
-# eleven of the twelve are reached at step 5 and LOAD at step 6, and the whole
-# task returns in 17s. The bound is left well clear of that because the cheap
-# failure mode here is a goal that becomes reachable only slightly later after
-# some future pipeline change, which would read as "unreachable" -- i.e. as an
+# floor -- state it that way so nobody later quotes it as one. sby's cover mode
+# emits as many traces as it needs rather than one trace hitting every goal, so
+# what each goal actually costs is the pipeline fill, a handful of steps against
+# a bound of 100. The bound is left well clear of that because the cheap failure
+# mode here is a goal that becomes reachable only slightly later after some
+# future pipeline change, which would read as "unreachable" -- i.e. as an
 # exclusion set that had swallowed a class -- and send the next reader hunting
 # the wrong thing. Lowering it saves nothing worth having.
 

@@ -13,8 +13,8 @@
 #
 # THE MANIFEST HALF ANSWERS A QUESTION NEITHER BASELINE CAN. test/EXPECTED_FAIL
 # and test/COSIM_EXPECTED_FAIL record which programs are known to fail; between
-# them they name four of seventy, so almost nothing in them would disappear if
-# the suite itself did. A bad
+# them they name five of seventy-four, so almost nothing in them would disappear
+# if the suite itself did. A bad
 # rebase, a directory rename, a .gitignore change or a glob that stopped
 # matching would leave `make test` reporting `12/12 passed`, matching an empty
 # baseline exactly, and exiting 0. The formal side has the same shape: a verdict
@@ -68,7 +68,7 @@
 # — and red for the wrong reason, because the floor exists to catch a program
 # going QUIET and cannot tell "the monitor stopped observing" from "a different
 # gcc emitted five fewer instructions". This repo already knows its two
-# toolchains disagree; `make fit` reads about 21 cells apart on identical RTL.
+# toolchains disagree; `make fit` reads tens of cells apart on identical RTL.
 #
 # So pick a `.c` line's numbers from what the CHECK needs, never from the table.
 # Every recorded instance of the defect this file exists for produced ZERO

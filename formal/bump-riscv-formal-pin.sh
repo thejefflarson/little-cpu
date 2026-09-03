@@ -87,8 +87,8 @@ if n != 1:
 p.write_text(new_text)
 EOF
 
-# A clone left on disk at the old pin trips pin.mk's own fail-closed guard
-# (ADR-0013) the moment the SHA above changes underneath it.
+# A clone left on disk at the old pin trips pin.mk's own fail-closed guard the
+# moment the SHA above changes underneath it.
 rm -rf formal/riscv-formal
 make test/monitor.v
 

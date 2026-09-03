@@ -2,23 +2,10 @@
 `default_nettype none
 `include "structs.v"
 module littlecpu #(
-  // This hart's mhartid, handed straight to rtl/csrs.v. Nothing else in the
-  // core reads it: it is a self-description register, so a wrong value changes
-  // no cycle and no retire, and test/csr_tb.v is the only place the read is
-  // graded away from the default.
   parameter logic [31:0] HART_ID = 32'd0,
-  // The data bus's memory map. Two readers: rtl/decoder.v raises the two region
-  // causes for a plain load or store against it, and the load/store locality
-  // counters under `RISCV_FORMAL` at the bottom of this file count against it.
-  // Handed to the decoder rather than restated there, so the copies this file's
-  // comment is about stay the ones test/memmap_test.sh compares. The RAM's base
-  // and size and the timer's and the UART's bases are rtl/memory.v's,
-  // rtl/timer.v's and rtl/uart.v's own parameter defaults, restated here
-  // because a module cannot read another module's parameters;
-  // test/memmap_test.sh is what compares the copies.
-  // The text window's size is the integrator's, because the simulated machine's
-  // ROM is deliberately larger than the part's -- so each integrator hands this
-  // the same number it hands its `imemory`.
+  // The data bus's memory map, restated here because a module cannot read
+  // another module's parameters. The text window's size is the integrator's:
+  // the simulated machine's ROM is larger than the part's.
   parameter integer      LS_TEXT_WORDS = 2048,
   parameter logic [31:0] LS_RAM_BASE   = 32'h0001_0000,
   parameter integer      LS_RAM_WORDS  = 16384,
@@ -32,65 +19,35 @@ module littlecpu #(
   input  logic [31:0] imem_data,
   output logic [31:0] imem_addr2,
   input  logic [31:0] imem_data2,
-  // The value `imem_addr` takes on the next edge. A synchronous memory latches
-  // this on the same edge the PC moves, so its data is ready for the whole of
-  // the cycle that needs it; a combinational memory -- test benches,
-  // formal/wrapper.v -- leaves it unread and answers `imem_addr` directly.
+  // The value `imem_addr` takes on the next edge, so a synchronous memory can
+  // latch it a cycle early; a combinational memory leaves it unread.
   output logic [31:0] imem_addr_next,
-  // The fetch and data buses share one address space, and the instruction
-  // memory arbitrates: a load or store to the text range takes the read port
-  // for that cycle and the fetch that lost it comes back as `fetch_stall`.
-  // A memory that keeps its two buses separate ties `fetch_stall` low and
-  // leaves `mem_ren` unread.
+  // A load or store to the text range takes the instruction memory's read port
+  // for that cycle, and the fetch that lost it comes back as `fetch_stall`.
   output logic [31:0] mem_addr,
   output logic [31:0] mem_wdata,
   output logic [3:0]  mem_wstrb,
   output logic        mem_ren,
   input  logic [31:0] mem_rdata,
   input  logic        fetch_stall,
-  // The instruction memory has nothing at the address it is answering. It
-  // arrives with the word, so decode commits it as an instruction access fault
-  // in the cycle it is looking at that word. A memory that answers everywhere
-  // ties it low.
+  // Nothing at the address being answered; arrives with the word, not after it.
   input  logic        imem_fault,
-  // The data address this cycle names reservable main memory, so `lr.w` there
-  // may hold a reservation. A platform whose memory answers everywhere ties it
-  // high; one that ties it low never lets a store-conditional succeed, which is
-  // a spurious failure and permitted anywhere.
   input  logic        mem_reservable,
-  // The address an atomic in decode would use, and the platform's answer about
-  // it. This pair is the fetch bus's shape on the data side: the platform
-  // decodes its own map and hands back one bit, and the bit accompanies the
-  // address rather than a response, so decode can commit the fault with every
-  // other cause. Low means an lr.w there raises cause 5 and an AMO or sc.w
-  // cause 7. A platform whose memory answers atomics everywhere ties it high.
+  // The address an atomic in decode would use and the platform's answer about
+  // it, arriving with the address so decode can commit the fault there.
   output logic [31:0] atomic_addr,
   input  logic        atomic_supported,
-  // The shared-bus surface. `bus_wait` says the bus is somebody else's this
-  // cycle: decode publishes nothing, the pc holds, and the instruction asks
-  // again next cycle. `snoop_write`/`snoop_addr` are the write another initiator
-  // is making, which clears a reservation on that word. `mem_lock` is high on
-  // the cycle an AMO reads and low on the cycle it writes back, which is how an
-  // arbiter that registers its grant learns to keep the bus here for the second
-  // cycle.
-  //
-  // A platform with one bus initiator ties both inputs low and leaves both outputs
-  // unread, and only the INPUTS are free that way: they fold before mapping and
-  // the cell census does not move. An unread output is still a net for ABC to
-  // map around, and these moved the SoC's mapped count by tens of cells -- so
-  // each arrived with a placement sweep rather than with an equal netlist.
+  // `bus_wait`: the bus is another initiator's this cycle. `snoop_*`: that
+  // initiator's write, which clears a reservation on its word. `mem_lock`:
+  // high on the cycle an AMO reads, so an arbiter holds the bus for its write.
   input  logic        bus_wait,
   input  logic        snoop_write,
   input  logic [31:0] snoop_addr,
   output logic        mem_lock,
-  // Decode's request for the shared data bus, a cycle before the transaction it
-  // asks for. `bus_wait` is what comes back, and the platform -- not this
-  // module -- ANDs the two: a hart that is not granted publishes nothing and
-  // asks again next cycle.
+  // Decode's request for the data bus, a cycle before the transaction; the
+  // platform ANDs it against its grant and answers on `bus_wait`.
   output logic        bus_request,
-  // The platform's machine-timer line. Registered at its source (rtl/timer.v
-  // does it), because inside the core it is one gate away from the fetch loop.
-  // A platform with no timer ties it low and the core never takes an interrupt.
+  // Registered at its source: in here it is one gate from the fetch loop.
   input  logic        irq_timer,
   output logic trap
   `ifdef RISCV_FORMAL
@@ -117,9 +74,6 @@ module littlecpu #(
   output logic [31:0] rvfi_mem_rdata,
   output logic [31:0] rvfi_mem_wdata,
   `ifdef RISCV_FORMAL_MEM_FAULT
-  // Guarded by the same macro riscv-formal declares these three under, so a
-  // harness that does not ask for them does not connect ports that are not in
-  // its `RVFI_CONN` either. Both sim legs are such a harness.
   output logic        rvfi_mem_fault,
   output logic [ 3:0] rvfi_mem_fault_rmask,
   output logic [ 3:0] rvfi_mem_fault_wmask,
@@ -137,10 +91,8 @@ module littlecpu #(
   output logic [31:0] rvfi_csr_mscratch_rdata,
   output logic [31:0] rvfi_csr_mscratch_wdata
   `ifdef RISCV_FORMAL_CSR_MCAUSE
-  // The comma LEADS, and that is what makes both arms of this `ifdef` legal: the
-  // port above cannot carry a trailing one, because with the macro absent it is
-  // the last in the list. iverilog and svlint both reject the other spelling and
-  // yosys accepts it, so this is a shape only the second frontend catches.
+  // The comma leads because with the macro absent the port above is last in
+  // the list; yosys accepts a trailing one there and iverilog does not.
   ,
   output logic [31:0] rvfi_csr_mcause_rmask,
   output logic [31:0] rvfi_csr_mcause_wmask,
@@ -149,11 +101,8 @@ module littlecpu #(
   `endif
   `endif //  `ifdef RISCV_FORMAL
   );
-  // The shapes rtl/imemory.v, rtl/memory.v, rtl/timer.v and rtl/uart.v each
-  // refuse to elaborate at, restated at the site that copies their map. A window
-  // that is not a power of two on its own boundary is one no memory here
-  // implements, and the block arithmetic below would go on classifying addresses
-  // against it without a word. `make window-test` forces all five of these.
+  // The region arithmetic assumes a power-of-two window on its own boundary
+  // and would go on classifying addresses against one that is not.
   localparam int LS_TEXT_ADDR_BITS = $clog2(LS_TEXT_WORDS);
   localparam int LS_RAM_ADDR_BITS  = $clog2(LS_RAM_WORDS);
   if (LS_TEXT_WORDS != (1 << LS_TEXT_ADDR_BITS)) begin : l_ls_text_words_power_of_two
@@ -175,20 +124,13 @@ module littlecpu #(
     $fatal(1, "littlecpu: LS_FLASH_BASE must be 8-byte aligned");
   end
 
-  // Declared up here rather than next to the module that drives each one. Later
-  // stages feed signals back to earlier ones, so each of these is read by a
-  // module written above its driver, and iverilog wants the name first.
   decoder_output decoder_out;
   executor_output executor_out;
   logic divider_stalled;
-  // A store writes no register, so the decode scoreboard never sees one. The
-  // decoder needs this to tell a store is still in the accessor before it lets
-  // a CSR access issue.
+  // A store writes no register, so the scoreboard cannot see one still in the
+  // accessor; the serializing wait reads this instead.
   logic accessor_out_valid;
-  // High for one cycle per trap, not a level. The test benches watch it to catch
-  // a trap taken before the handler address is installed: mtvec resets to 0 and
-  // test/asm/sections.lds links .text at 0, so such a trap restarts the program
-  // silently and would otherwise look like a timeout.
+  // One cycle per trap, not a level.
   logic decoder_trap_entry;
   assign trap = decoder_trap_entry;
   logic  [31:0] pc;
@@ -237,10 +179,8 @@ module littlecpu #(
   `ifdef RISCV_FORMAL_CSR_MCAUSE
   rvfi_csr32 csr_rvfi_mcause;
   `endif
-  // Instrumentation only, both of them: the register number this instruction
-  // reads as its base, and the cycle it issues on. The datapath asks the
-  // register file for a different pair on an issuing cycle, so `probe_rs1` is
-  // the decoded number rather than the presented one.
+  // Instrumentation only. `probe_rs1` is the issuing instruction's own rs1, not
+  // the pair presented to the register file, which is the next instruction's.
   logic [4:0] probe_rs1;
   logic       probe_ls_issuing;
  `endif
@@ -339,10 +279,8 @@ module littlecpu #(
 
   accessor_output accessor_out;
   assign accessor_out_valid = accessor_out.valid;
-  // The bus transaction goes out from `decoder_out`, a stage ahead of the
-  // struct whose answer it becomes. `divider_stalled` low is exactly the cycle
-  // the executor takes that instruction, and presenting it on any other cycle
-  // would drive the bus twice for one store.
+  // The bus transaction launches from `decoder_out`, a stage early, on the one
+  // cycle the executor takes it; any other cycle would present a store twice.
   accessor accessor(
     .clk(clk),
     .reset(reset),
@@ -416,38 +354,15 @@ module littlecpu #(
   );
 
  `ifdef RISCV_FORMAL
-  // These three never change. There is one privilege mode, registers are 32
-  // bits wide and the core cannot be halted, so none of them depends on which
-  // instruction just finished. `rvfi_intr` does, and comes out of writeback
-  // with the rest of the retire.
   assign rvfi_halt = 1'b0;
   assign rvfi_mode = 2'd3;
   assign rvfi_ixl = 2'd1;
 
-  // Two questions about issuing loads and stores, counted rather than argued.
-  // Between them they price a whole family of load/store region tests in one
-  // `make cycles` run, and both have come out far from what reading the code
-  // suggested. test/stall_report.py prints them under the cycle table; nothing
-  // here is read by the core, and outside a `RISCV_FORMAL` build none of it
-  // exists at all.
-  //
-  // EDGE PROXIMITY. A 12-bit offset reaches 2 KB either way, so an access whose
-  // base register sits in the 2 KB block beside a region's first or last block
-  // may cross that edge while one a block further in cannot. That is the set a
-  // region test answered from the base register alone would have to stall on.
-  //
-  // BYPASS COINCIDENCE. A writeback commits to the base register in the issue
-  // cycle, through the register file's write-through bypass. Anything computed
-  // about that register's value a cycle earlier describes the value before the
-  // write, so this is the floor on what a design precomputing during the
-  // operand-fetch cycle would have to spend a cycle redoing.
+  // Two counters for `make cycles`, unread by the core: issues whose base
+  // register sits within a 2 KB block of a region edge, where a 12-bit offset
+  // can cross it, and issues whose base register is written in the same cycle.
   localparam int LS_BLOCK_BITS = 11;              // 2 KB: a 12-bit offset's reach
   localparam int LS_BLOCK_NUM_BITS = 32 - LS_BLOCK_BITS;
-  // rtl/timer.v's four words, rtl/uart.v's two and rtl/spiflash.v's two, the
-  // regions smaller than a block. All three sit inside the same block today, so
-  // yosys folds two sets of four comparisons into the timer's; they are written
-  // out because what makes them equal is where those two happen to be, and a
-  // region that moved would need them.
   localparam logic [31:0] LS_TIMER_BYTES = 32'd16;
   localparam logic [31:0] LS_UART_BYTES  = 32'd8;
   localparam logic [31:0] LS_FLASH_BYTES = 32'd8;
@@ -471,12 +386,9 @@ module littlecpu #(
   logic [LS_BLOCK_NUM_BITS-1:0] ls_block;
   assign ls_block = reg_rs1[31:LS_BLOCK_BITS];
 
-  // Four blocks per region: its first and its last, and the block outside each
-  // of those. Written out rather than folded into a function the five regions
-  // share, because iverilog builds a continuous assign's sensitivity list from
-  // the call's arguments. `1'b1` and not `1`: an integer literal would widen the
-  // whole comparison to 32 bits, and the block below zero has to come out as the
-  // block at the top of memory, which a negative offset really does reach.
+  // Not a shared function: iverilog derives a continuous assign's sensitivity
+  // from the call's arguments. `1'b1`, not `1`: an integer literal widens the
+  // compare to 32 bits, and the block below zero must wrap to the top.
   logic ls_at_edge;
   assign ls_at_edge =
     ls_block == LS_TEXT_LO - 1'b1  || ls_block == LS_TEXT_LO  ||
@@ -490,8 +402,7 @@ module littlecpu #(
     ls_block == LS_FLASH_LO - 1'b1 || ls_block == LS_FLASH_LO ||
     ls_block == LS_FLASH_HI        || ls_block == LS_FLASH_HI + 1'b1;
 
-  // `wen` is already low for a write to x0 and `waddr` is zero when it is low,
-  // so a match here is always a real write to a real base register.
+  // `wen` is low for a write to x0, so a match is a real write to a real base.
   logic ls_at_bypass;
   assign ls_at_bypass = wen && waddr == probe_rs1;
 

@@ -55,8 +55,6 @@
 //     reference model to disagree. test/cosim.py's own comment above
 //     NONCOMPARABLE_CSRS says this correctly; this header used to claim all
 //     three were exempted there, and that was wrong.
-//
-// See docs/adr/0043.
 {
   "base": {
     "xlen": 32,
@@ -419,7 +417,7 @@
     // is what needs an argument, so this is the direction that has to agree.
     //
     // What the model does at a trap and at an mret is NOT a knob. It is
-    // observed by test/sail/reservation_probe.sh and recorded in docs/adr/0102.
+    // observed by test/sail/reservation_probe.sh.
     "reservation": {
       "reservation_set_size_exp": 2,
       "require_exact_reservation_addr": true,
@@ -450,7 +448,7 @@
     // run would make that assertion fail on the reference side -- turning a
     // real property into a false divergence. mcycle's RATE is not comparable
     // between a pipeline and an ISA model at any setting, which is the actual
-    // problem and is handled where it belongs (docs/adr/0043).
+    // problem and is handled where it belongs, test/cosim.py's NONCOMPARABLE_CSRS.
     "instructions_per_tick": 2,
 
     // rtl/decoder.v decodes `wfi` and executes it as a NOP, which is

@@ -1527,7 +1527,7 @@ probe "the rulebook quoting a figure the source no longer states is red" 1 \
   "CLAUDE.md states no placement spread" "$BSRC $d"
 
 d=$(bsrc_fixture)
-bsrc_edit "$d" CLAUDE.md 's|`soc/bands.py` is the one place|it is the one place|'
+bsrc_edit "$d" CLAUDE.md 's|soc/bands.py|the source|g'
 probe "and a rulebook that does not name the source is red too" 1 \
   "does not name soc/bands.py" "$BSRC $d"
 
@@ -1609,7 +1609,7 @@ probe "branch_taken carrying reg_rs1/reg_rs2 into hazard is red" 1 \
 # STRUCT_FIELD_SEEDS never named. executor_out.rd_data is a 32-bit field of
 # a decoder input port, the same shape as reg_rs1/reg_rs2, and a forwarding
 # path routing it into a stall reason is exactly the change this repo keeps
-# pricing and declining (ADR-0083/0092/0100).
+# pricing and declining.
 d=$(zkt_fixture)
 sed -i.bak \
   's/assign atomic_stall = out.valid && out.is_amo && !divider_stall;/assign atomic_stall = out.valid \&\& out.is_amo \&\& !divider_stall || executor_out.rd_data[0];/' \
@@ -2598,9 +2598,9 @@ d=$(mm_fixture); sed -i.bak 's/LENGTH = 64K/LENGTH = LOTS/' "$d/test/asm/section
 probe "a size the parser cannot read stops rather than comparing as zero" 1 \
   "is not a size this check can read" "$MM $d"
 
-# The core's own copy of the map. Nothing in the datapath reads it, so every one
-# of these drifts is silent everywhere else: the counters keep reporting, about
-# a machine no file describes.
+# The core's own copy of the map, which rtl/decoder.v reads to refuse a load or
+# store the platform does not answer. A drift here is silent everywhere else:
+# no memory on the bus can say the decoder faulted the wrong address.
 d=$(mm_fixture); sed -i.bak "s/LS_RAM_BASE   = 32'h0001_0000/LS_RAM_BASE   = 32'h0002_0000/" "$d/rtl/littlecpu.v"
 probe "the core's copy of the RAM base drifting from the RAM is red" 1 \
   "rtl/littlecpu.v's LS_RAM_BASE is 131072 against rtl/memory.v's 65536" "$MM $d"
@@ -2996,9 +2996,10 @@ probe "a repo root that does not exist is red before anything is scanned" 1 \
 # THE ONE THAT MATTERS: a site left behind. The `.c` arm of the suite runner
 # assembles a program with no atomic in it either way.
 d=$(ma_fixture)
-ma_edit "$d" test/run_tests.sh '158s/rv32imac_zicsr_zifencei_zkt/rv32imc_zicsr_zifencei_zkt/'
+c_arm=$(grep -n -- '-march=rv32imac_zicsr_zifencei_zkt' "$d/test/run_tests.sh" | head -1 | cut -d: -f1)
+ma_edit "$d" test/run_tests.sh "${c_arm}s/rv32imac_zicsr_zifencei_zkt/rv32imc_zicsr_zifencei_zkt/"
 probe "one build site left at the narrower ISA is red, and located" 1 \
-  "test/run_tests.sh:158: -march=rv32imc_zicsr_zifencei_zkt" "$MA $d"
+  "test/run_tests.sh:${c_arm}: -march=rv32imc_zicsr_zifencei_zkt" "$MA $d"
 
 probe "...and the count that site was declared with is red too" 1 \
   "test/run_tests.sh states -march=rv32imac_zicsr_zifencei_zkt 1 time(s), not 2" "$MA $d"
