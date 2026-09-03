@@ -49,11 +49,6 @@ CLAUDE.md
 # is the whole content of the warning.
 Makefile
 
-# Comments about ABC's LUT-packing behaviour on a specific mux, not a count
-# read back and compared anywhere.
-rtl/littlesoc.v
-rtl/uart.v
-
 # soc/baseline_summary.py's CELL_UNIT table names `SB_LUT4` only to say a
 # report's own `lc` column is never it; soc/baseline_sweep.sh's comment says
 # the same about the count that sweep records.
