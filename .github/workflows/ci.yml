@@ -164,13 +164,13 @@ jobs:
     name: mutation-check
     # Fork-PR routing: see the note above `jobs:` for what this picks and why.
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
-    # Ten mutations, each rebuilding the cxxrtl runner: about nine minutes of
-    # work on an idle machine, on a runner pool the whole workflow shares. At 15
-    # the budget was thin enough that a busy pool killed the job mid-run, and a
-    # cancelled job with the log still inside the redirect below reads as a
-    # failed gate rather than as a busy pool -- the same way `components` did at
-    # 5. Every mutation added spends about a minute of this.
-    timeout-minutes: 25
+    # Eleven mutations, each rebuilding the cxxrtl runner: about nine minutes of
+    # work on an idle machine, and every mutation added spends about a minute
+    # more. The pool is one runner serving every job in this workflow, so a
+    # budget near the idle time gets the job killed mid-run under contention --
+    # which reads as a failed gate rather than as a busy pool, with the log
+    # still inside the redirect below. This is set well clear of a loaded run.
+    timeout-minutes: 45
     steps:
       - name: Record job start
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
