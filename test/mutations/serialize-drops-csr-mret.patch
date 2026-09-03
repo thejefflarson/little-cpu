@@ -1,8 +1,9 @@
 diff --git a/rtl/decoder.v b/rtl/decoder.v
+index 331a2ed..271f905 100644
 --- a/rtl/decoder.v
 +++ b/rtl/decoder.v
-@@ -489,7 +489,7 @@ module decoder (
-   // old text. An empty pipeline means the store has landed.
+@@ -612,7 +612,7 @@ module decoder #(
+   // address goes out a cycle early, so an older store's write edge must pass.
    logic pipe_drained, serialize;
    assign pipe_drained = !out.valid && !executor_out.valid && !accessor_out_valid;
 -  assign serialize = (instr_csr_access || instr_mret || instr_fencei) && !pipe_drained;

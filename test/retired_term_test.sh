@@ -123,8 +123,8 @@ PATHS
     ;;
   RV32IMC)
     strip_comments <<'PATHS'
-# Dated decision records, and dated proposals. ADR-0002 IS the decision that the
-# target was this ISA, and ADR-0108 is the record of moving off it; the briefs
+# Dated decision records, and dated proposals. One record IS the decision that
+# the target was this ISA and another is the record of moving off it; the briefs
 # proposed it under that name. Several of the filenames carry it. Rewriting
 # either directory would make the history agree with a later decision, which is
 # vandalism rather than a sweep -- the record's whole value is that it says what

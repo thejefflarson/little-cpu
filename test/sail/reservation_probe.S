@@ -3,7 +3,7 @@
 // would grade this against a core, which is exactly what it must not be. The
 // graded programs that DO exercise lr.w/sc.w against the core are
 // test/asm/lrsc.S and its neighbours. Built and run by
-// test/sail/reservation_probe.sh; see docs/adr/0102.
+// test/sail/reservation_probe.sh.
 //
 // WHAT IT ASKS. The reservation policy is the one part of LR/SC the spec leaves
 // to the implementation, and co-simulation compares register values -- an SC's

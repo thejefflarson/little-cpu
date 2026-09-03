@@ -2,18 +2,16 @@
 """Fail if formal/genchecks-local.py has drifted from the pinned riscv-formal.
 
 genchecks-local.py is a vendored copy of riscv-formal's checks/genchecks.py at
-the SHA in formal/pin.mk. ADR-0031 says exactly two things may differ: this
-repo's header block, and `basedir` (spelled in two places -- the assignment and
-the isa-table open -- which are one change, not two).
+the SHA in formal/pin.mk. Exactly two things may differ: this repo's header
+block, and `basedir` (spelled in two places -- the assignment and the isa-table
+open -- which are one change, not two).
 
-Until now the only control on that was a `cp` + `diff -u` recipe written in
-genchecks-local.py's own header, run by hand or not at all. Nothing failed when
-it was skipped. That is how this repo previously ended up carrying a pre-2021
-fork that had independently reinvented an engine-selection option upstream
-already had, could not generate ten upstream checks, and blocked the six csrc_*
-models outright (ADR-0031). The repo already solves this for the other vendored
-generated artifact -- `make monitor-check` regenerates test/monitor.v from a
-clone at the pin and diffs it -- and this is the same control for this file.
+This repo previously ended up carrying a pre-2021 fork that had independently
+reinvented an engine-selection option upstream already had, could not generate
+ten upstream checks, and blocked the six csrc_* models outright. The repo
+already solves this for the other vendored generated artifact -- `make
+monitor-check` regenerates test/monitor.v from a clone at the pin and diffs it
+-- and this is the same control for this file.
 
 Rather than diffing and eyeballing the result, this UNDOES the two documented
 edits and then requires byte equality with the clone. A residual diff is drift
@@ -31,7 +29,7 @@ import sys
 HEADER_START = '#!/usr/bin/env python3\n#\n'
 HEADER_END = '# Copyright (C) 2017'
 
-# The `basedir` change, in both the places ADR-0031 accounts for. Each must
+# The `basedir` change, in both the places it is spelled. Each must
 # appear exactly once: a re-vendor that forgets one leaves genchecks resolving
 # paths against the caller's cwd, which fails in a way that looks like a broken
 # clone rather than a botched re-sync.

@@ -164,7 +164,7 @@ nonperturbation: check-nonperturbation.py
 # The accessor is back because it acquired one -- the request block's gate is
 # the only thing between a held store and a device written thirty-three times.
 #
-# These five pass a task name, so they need their own recipes and cannot reach
+# These six pass a task name, so they need their own recipes and cannot reach
 # the `%: %.sby` rule -- which is why they can say .PHONY where that rule
 # cannot. Same two properties as it: always run, delete the workdir first.
 .PHONY: components_decoder components_executor components_accessor components_pcloop components_traps \
@@ -217,16 +217,17 @@ components_pcloop: components.sby pcloop_cover ../rtl/fetcher.v ../rtl/decoder.v
 # the core reports -- so nothing else says a trap lands on mtvec, or that the
 # state it saved is right.
 #
-# traps-region-probe is a prerequisite for the reason pcloop_cover is one of the
-# proof it controls: this core raises no load or store access fault, so the arm
-# that models one is satisfied by never being reached, and a control that can be
-# run separately from the thing it controls eventually is not run at all.
+# traps-region-probe is a prerequisite for the reason pcloop_cover is one: the
+# two load/store region arms are proved by a solver, an arm nobody has watched
+# fail is worth nothing, and a control that can be run separately from the
+# thing it controls eventually is not run at all. So two mutated cores must
+# each go red at their own arm's line first.
 #
-# traps-tval-probe is the same demand on a different arm, for a different reason:
-# the mtval arm IS reached by the shipping core, but nothing else in the tree
-# reads mtval at all -- no generated check names it and the sim legs see only
-# what a program loaded it into -- so this proof is its only oracle and an oracle
-# nobody has watched fail is worth nothing.
+# traps-tval-probe is the same demand on a different arm, with one more reason
+# behind it: nothing else in the tree reads mtval at all -- no generated check
+# names it and the sim legs see only what a program loaded it into -- so this
+# proof is its only oracle and an oracle nobody has watched fail is worth
+# nothing.
 components_traps: components.sby traps-region-probe traps-tval-probe ../rtl/fetcher.v \
                   ../rtl/decoder.v ../rtl/regsel.v ../rtl/csrs.v ../rtl/structs.v traps.sv
 	rm -rf $@
@@ -240,10 +241,11 @@ traps-region-probe: traps-region-probe.py traps.sv ../rtl/decoder.v
 traps-tval-probe: traps-tval-probe.py traps.sv ../rtl/decoder.v
 	python3 $<
 
-# The bus arbiter, which no core is wired to yet: two harts, free requests, free
-# locks and two bits of state, so this proves the whole reachable state of it
-# rather than a bounded walk through part. Starvation is why it exists, and it
-# is the one property no program can be written to catch.
+# The bus arbiter rtl/littledual.v puts between two harts, proved alone: two
+# harts, free requests, free locks and two bits of state, so this proves the
+# whole reachable state of it rather than a bounded walk through part.
+# Starvation is why it exists, and it is the one property no program can be
+# written to catch.
 #
 # Both prerequisites are prerequisites rather than companion targets, for the
 # reason pcloop_cover is one: busarbiter_cover says the guarded assertions are

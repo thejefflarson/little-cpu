@@ -20,16 +20,17 @@
 
 module traps #(
     // The data bus's map: the addresses at which some memory on it answers a
-    // plain load or store. rtl/memory.v's, rtl/timer.v's and rtl/uart.v's own
-    // parameter defaults and the text window rtl/littlesoc.v gives its
-    // `imemory`, restated here because a module cannot read another module's
-    // parameters; test/memmap_test.sh is what compares the copies.
+    // plain load or store. rtl/memory.v's, rtl/timer.v's, rtl/uart.v's and
+    // rtl/spiflash.v's own parameter defaults and the text window
+    // rtl/littlesoc.v gives its `imemory`, restated here because a module
+    // cannot read another module's parameters; test/memmap_test.sh is what
+    // compares the copies.
     //
     // It is a map here and a port for an atomic because that is how the core
     // is built: the platform answers about an atomic's address on
     // `atomic_supported`, and hands the decoder this map at elaboration for a
-    // plain load's or store's. The same four numbers go to the instance below,
-    // so the model and the core under it are reading one map.
+    // plain load's or store's. The same six parameters go to the instance
+    // below, so the model and the core under it are reading one map.
     parameter integer      LS_TEXT_WORDS = 2048,
     parameter logic [31:0] LS_RAM_BASE   = 32'h0001_0000,
     parameter integer      LS_RAM_WORDS  = 16384,
@@ -231,8 +232,9 @@ module traps #(
 
   // The three stall reasons that arrive as inputs. Each one on its own forces
   // the decoder to hold, so this is a sufficient condition for a stall and
-  // never a necessary one -- the hazard, serialization and operand-fetch
-  // reasons are decided inside the decoder and are not visible here.
+  // never a necessary one -- the scoreboard, serialization, operand-fetch,
+  // atomic-write and region-wait reasons are decided inside the decoder and
+  // are not visible here.
   logic hard_stall;
   assign hard_stall = divider_stall || fetch_stall || bus_wait;
 
@@ -562,7 +564,7 @@ module traps #(
   always_comb if (clocked && !issuing) assert(!csr_wen && !csr_ren && !mret_entry);
 
   // The other half of the same property, and stated on the write enables rather
-  // than on the stall, so it covers the three stall reasons the decoder keeps to
+  // than on the stall, so it covers the five stall reasons the decoder keeps to
   // itself as well. mtvec moves only through a write to it; mepc through a write
   // or a trap.
   always_comb if (settled && !prev_csr_wen && !prev_trap_entry) begin
