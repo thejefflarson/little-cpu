@@ -1,6 +1,6 @@
 # Audit the oracle stack — measure what green means
 
-**Status:** brief · 2026-08-01 · written against `0f561f9`
+**Status:** executed · 2026-08-01 · written against `0f561f9` · defect 2 fixed and gated by ADR-0046 (`components_pcloop` in `formal/Makefile`'s `all` and the `components` job); the assume census is ADR-0049, the probe catalogue ADR-0053, the no-oracle spec reading ADR-0048, and `formal/EXPECTED_FAIL` matches name-and-status now. Where this brief and an ADR disagree, the ADR wins.
 
 A deep code audit of this repo, designed around one measured fact: **the defects are not
 where an audit would instinctively look.**

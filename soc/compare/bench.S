@@ -1,5 +1,5 @@
 /*
- * The one program both harnesses in this directory run.
+ * The one program all three harnesses in this directory run.
  *
  * Its job is not to compute anything. Its job is to make the datapath
  * OBSERVABLE, because the first version of this measurement filled the ROM with

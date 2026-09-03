@@ -1,5 +1,7 @@
 # The A extension lands single-hart
 
+**Status:** built by ADR-0106 · claimed by ADR-0108 · causes 5 and 7 by ADR-0109 · 2026-08-11. Two predictions did not hold: the AMO write cycle IS a stall reason (the sixth, it bubbles) and G went 5 → 6, not 6 → 7. The deferred multi-core SoC is ADR-0110 and ADR-0125. Where this brief and an ADR disagree, the ADR wins.
+
 **Add Zaamo and Zalrsc to reach `RV32IMAC_Zicsr_Zifencei`, on one core, now — because that is
 where the oracles work. The multi-core SoC it enables is deferred.**
 

@@ -1,28 +1,21 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// The register numbers a fetched word names, for any 32-bit word. Two
-// instances read this one mapping: one over the instruction being issued, one
-// over the word after it, which decode asks the register file for a cycle
-// early. Written out twice instead, the two copies could disagree, and then the
-// early read would miss because the same bytes decoded differently rather than
-// because the flow went somewhere else -- a lost cycle nothing in this tree
-// grades.
+// The register numbers a fetched word names, read over the issuing instruction
+// and again over the word after it.
 module regsel (
   input  logic [31:0] word,
   output logic [4:0]  rs1,
   output logic [4:0]  rs2
 );
-  // The upper half of a compressed word belongs to the instruction after it, so
-  // zero it the way decode zeroes its own. Every compressed encoding with no
-  // register in an arm below falls to the default arms, which read the
-  // uncompressed field positions; masked, those read x0, which is what such an
-  // encoding means.
+  // The upper half of a compressed word belongs to the instruction after it.
+  // Masked, a compressed encoding no arm below names reads x0 out of the
+  // uncompressed field positions, which is what such an encoding means.
   logic [31:0] instr;
   assign instr = (word[1:0] == 2'b11) ? word : {16'b0, word[15:0]};
 
   // Named continuous assigns rather than part-selects inside the always_comb
-  // blocks below, for the reason rtl/decoder.v states: iverilog cannot build a
-  // precise sensitivity entry for a constant select there.
+  // blocks below: iverilog cannot build a precise sensitivity entry for a
+  // constant select there.
   logic [4:0] rd_field, rs1_field, rs2_field, c_rs2_field;
   logic [2:0] c_rd_rs1_prime, c_rs2_prime;
   assign rd_field       = instr[11:7];
@@ -43,10 +36,8 @@ module regsel (
   assign cfunct4      = instr[15:12];
   assign cfunct6      = instr[15:10];
 
-  // Both reserved-immediate tests are transcribed from rtl/decoder.v's
-  // immediates rather than reduced to the bit range they cover: a zero
-  // immediate makes each of these a different instruction, which names a
-  // different register.
+  // A zero immediate makes each of these a different instruction naming a
+  // different register, so the whole immediate is tested, not a bit range.
   logic [31:0] caddi4spn_immediate, caddi16sp_immediate;
   assign caddi4spn_immediate = {22'b0, instr[10:7], instr[12:11], instr[5], instr[6], 2'b00};
   assign caddi16sp_immediate = {{22{instr[12]}}, instr[12], instr[4:3], instr[5], instr[2], instr[6], 4'b0};
@@ -106,11 +97,8 @@ module regsel (
   end
 
  `ifdef FORMAL
-  // Both case statements above are marked one-hot for synthesis, and each
-  // assertion here is one of those arm lists. Without it an encoding change
-  // that made two arms match at once would leave synthesis free to pick either,
-  // and nothing would say so. Each list is transcribed, not shared with the
-  // statement it describes, so adding an arm to one means adding it here too.
+  // Each assertion is the arm list of one `parallel_case` above, transcribed
+  // rather than shared with it; add an arm to one and add it here too.
   always_comb assert($onehot0({
     instr_clwsp || instr_cswsp || instr_caddi4spn,
     instr_clw || instr_csw || instr_cbeqz || instr_cbnez ||

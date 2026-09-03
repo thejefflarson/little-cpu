@@ -11,24 +11,25 @@
 Little CPU
 ==========
 
-Little CPU is an implementation of the RISCV 32 base ISA (IM) in verilog.
+Little CPU is an implementation of RV32IMAC_Zicsr_Zifencei (machine mode only) in SystemVerilog.
 
-You can run a simple test suite by installing the latest development version of icarus-verilog.
-On OSX, you can install it using brew, and then the suite is just a make away:
+You can run the test suite by installing yosys, icarus-verilog and a RISC-V cross compiler.
+On macOS, brew installs the first two and `make setup` the third, and then the suite is just a
+make away:
 
-  brew install icarus-verilog --HEAD
+  brew install yosys icarus-verilog
+  make setup
   make test
 
-It is formally verified with: https://github.com/SymbioticEDA/riscv-formal
+It is formally verified with: https://github.com/YosysHQ/riscv-formal
 
-To run the formal test suite install SymbiYosys by following:
-https://symbiyosys.readthedocs.io/en/latest/quickstart.html#installing
+To run the formal checks install the YosysHQ OSS CAD Suite (which includes SymbiYosys) from:
+https://github.com/YosysHQ/oss-cad-suite-build
 
 And then run:
 
-  cd checks
-  make
-  make complete
+  make -C formal check
+  make -C formal complete
 
 I'm unreasonably proud and excited by this project, it was made with love, and I hope that it is a
 good read. There's much more to come!

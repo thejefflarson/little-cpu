@@ -1,6 +1,6 @@
 # Fit the core on the up5k without spending readability
 
-**Status:** Design brief. Originally measured at `ed2bab5` (pre-trap-entry). **The estimates below
+**Status:** executed and superseded — ADR-0038 (the levers and the 12 MHz declaration), ADR-0040 (the negedge regfile is refused by the harness), ADR-0042 (synchronous read, option B). Originally measured at `ed2bab5` (pre-trap-entry). **The estimates below
 were subsequently checked by building and measuring each variant — see "Measured" immediately below,
 which supersedes them where they disagree.** ADR-0038 carries the same table.
 
