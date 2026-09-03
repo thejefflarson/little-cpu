@@ -29,6 +29,18 @@
  * `.rodata` stays in `rom` and is read over the data bus, which this core
  * allows (test/asm/textload.S is the program that says so). Copying it would
  * cost the same ROM plus the RAM to land in.
+ *
+ * THE 2 KB INSET IS THIS CORE'S LAYOUT CONVENTION and the ASSERTs at the bottom
+ * are what grade it. rtl/decoder.v answers a load or store's region question off
+ * raw register bits only when the base register sits deep inside a mapped
+ * window -- in it, and in neither its first 2 KB block nor its last. A 12-bit
+ * signed offset reaches 2 KB either way, so a base register in an edge block
+ * might cross the edge, the answer has to come from a flip-flop instead, and the
+ * access bubbles one cycle. So `.data` starts one 2 KB block above `ram`'s
+ * ORIGIN and the stack starts one block below its top, and both kinds of access
+ * then issue with no region term in them. `.tohost` keeps the first block: the
+ * runners watch the first word of RAM, and a handful of accesses to one word is
+ * not what the convention is for.
  */
 MEMORY {
     rom(rx)  : ORIGIN = 0x00000000, LENGTH = 16K
@@ -58,7 +70,7 @@ SECTIONS {
      * front of it. Put anything -- an ALIGN, a symbol, a literal -- above it
      * and the copy reads from the wrong place by however many bytes it added.
      */
-    .data : {
+    .data ORIGIN(ram) + 2048 : {
         __data_start = .;
         __global_pointer$ = . + 0x800;
         *(.sdata);
@@ -81,5 +93,19 @@ SECTIONS {
         __bss_end = .;
     } >ram
 
-    __stack_top = ORIGIN(ram) + LENGTH(ram);
+    __stack_top = ORIGIN(ram) + LENGTH(ram) - 2048;
+
+    /*
+     * The grader for the convention the header describes. `.data`'s own address,
+     * and the highest byte the stack can reach -- the stack descends and sp is
+     * decremented before anything is stored through it, so nothing is ever
+     * accessed at __stack_top itself. Both must land in a 2 KB block that is
+     * neither `ram`'s first nor its last.
+     */
+    ASSERT(ADDR(.data) >= ORIGIN(ram) + 2048 &&
+           ADDR(.data) < ORIGIN(ram) + LENGTH(ram) - 2048,
+           "layout: .data starts in ram's first or last 2 KB block, so every access through a pointer into it pays rtl/decoder.v's one-cycle region wait. Start it one 2 KB block above ORIGIN(ram).")
+    ASSERT(__stack_top - 1 >= ORIGIN(ram) + 2048 &&
+           __stack_top - 1 < ORIGIN(ram) + LENGTH(ram) - 2048,
+           "layout: __stack_top puts the top of the stack in ram's first or last 2 KB block, so every lw/sw off sp there pays rtl/decoder.v's one-cycle region wait. Put it one 2 KB block below ORIGIN(ram) + LENGTH(ram).")
 }
