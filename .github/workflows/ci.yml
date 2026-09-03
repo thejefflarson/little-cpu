@@ -310,12 +310,12 @@ jobs:
     name: components
     # Fork-PR routing: see the note above `jobs:` for what this picks and why.
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
-    # Four proofs in about four minutes, on a runner pool the whole workflow
-    # shares. At 5 the budget was under a minute of headroom and the job was
-    # killed after the fourth proof reported PASS, which reads as a failed gate
-    # rather than as a busy pool. Adding a tenth job to the workflow is what
-    # surfaced it.
-    timeout-minutes: 10
+    # The proofs take about five minutes together on an idle pool, but the pool
+    # is one runner serving every job in this workflow, and a budget close to
+    # that time gets the job killed mid-proof under contention -- which reads as
+    # a failed gate rather than as a busy pool. This budget is here to catch a
+    # solver that hangs, so it is set well clear of a healthy run.
+    timeout-minutes: 20
     steps:
       - name: Record job start
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
