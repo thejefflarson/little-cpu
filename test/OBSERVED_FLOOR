@@ -196,6 +196,7 @@ slti.S              200    200
 sltiu.S             200    200
 sltu.S              423    423
 spiflash.S          242    236
+spioverlay.S        786    782
 sra.S               476    476
 srai.S              219    219
 srl.S               469    469
