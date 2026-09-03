@@ -99,7 +99,11 @@ jobs:
     name: test
     # Fork-PR routing: see the note above `jobs:` for what this picks and why.
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
-    timeout-minutes: 10
+    # Two to five minutes on an idle pool, but the pool is one runner serving
+    # every job in this workflow and this job has been killed at 10m25s under
+    # contention -- a cancelled job reads as a failed gate rather than as a busy
+    # pool. The budget catches a run that hangs, so it sits clear of a loaded one.
+    timeout-minutes: 25
     steps:
       - name: Record job start
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
@@ -226,7 +230,9 @@ jobs:
     name: cosim
     # Fork-PR routing: see the note above `jobs:` for what this picks and why.
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
-    timeout-minutes: 15
+    # Eight minutes on an idle pool, and the same single-runner contention that
+    # has killed `test`, `components` and `mutation-check` mid-run applies here.
+    timeout-minutes: 30
     steps:
       - name: Record job start
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
