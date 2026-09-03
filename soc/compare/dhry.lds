@@ -18,6 +18,15 @@
  *
  * The two ORIGINs are soc/compare/bench.lds', unchanged, so the reset vector and
  * the RAM base are the ones both harness tops already implement.
+ *
+ * DELIBERATELY NOT INSET, AND DO NOT "FIX" IT. Every linker script under test/
+ * now starts `.data` one 2 KB block above its RAM origin and puts the stack one
+ * block below the top, because littlecpu's decoder answers a load or store's
+ * region question off raw register bits only when the base register is that far
+ * from a window edge. Doing it here would move ONE side of a two-core
+ * measurement whose product is already owed a re-take on one tree, which is the
+ * error this whole directory exists to prevent. The layout is a variable this
+ * comparison should set for both cores at once, on the day it is re-run.
  */
 MEMORY {
     rom(rx)  : ORIGIN = 0x00000000, LENGTH = 8K
