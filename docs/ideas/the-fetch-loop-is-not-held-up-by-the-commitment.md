@@ -1,5 +1,7 @@
 # The fetch loop is not held up by the commitment
 
+**Status:** spike · 2026-08-16 · the commitment is not amended, and that stands. The clock-model recommendation was NOT taken: 12 MHz does not slide (ADR-0066), the PLL is an option rather than a plan (ADR-0080), and the operand-fetch win was collected at 12 MHz on a re-measured margin (ADR-0089, ADR-0093, ADR-0111). Where this brief and an ADR disagree, the ADR wins.
+
 **A design spike on amending the no-wrong-path-state commitment. The conclusion is: do not
 amend it. Take the margin from the clock model instead.**
 

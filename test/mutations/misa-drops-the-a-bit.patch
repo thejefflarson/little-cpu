@@ -1,14 +1,13 @@
 diff --git a/rtl/csrs.v b/rtl/csrs.v
+index 2b73b03..56e807a 100644
 --- a/rtl/csrs.v
 +++ b/rtl/csrs.v
-@@ -128,9 +128,9 @@ module csrs(
-   localparam logic [11:0] MIMPID    = 12'hF13;
+@@ -65,7 +65,7 @@ module csrs #(
    localparam logic [11:0] MHARTID   = 12'hF14;
-
-   // RV32 I M A C, MXL = 1. Bit 0 is A: the only run-time claim that this core
-   // implements the atomics, which a -march string does not make.
+ 
+   // MXL = 1; extensions I, M, A and C.
 -  localparam logic [31:0] MISA_VALUE = 32'h4000_1105;
 +  localparam logic [31:0] MISA_VALUE = 32'h4000_1104;
-
+ 
    logic [63:0] mcycle, minstret;
    logic [31:0] mscratch, mtvec, mepc, mcause, mtval;

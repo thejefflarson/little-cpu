@@ -125,8 +125,8 @@
 # test/timer_tb.v on the timer itself — including the level property and the
 # torn write, each with a demonstrated red direction. What co-sim uniquely
 # catches — an architectural register write no self-reporting oracle sees — is
-# still checked on the other 59 programs, which is where the property it was
-# built for lives.
+# still checked on every program not named below, which is where the property
+# it was built for lives.
 #
 # lrsclock.S IS THE SAME ENTRY FOR THE SAME REASON, and it is here rather than
 # folded into the paragraph above because a reader looking it up should not have
@@ -139,7 +139,7 @@
 # property of the A extension that co-simulation would otherwise be the natural
 # oracle for: whether a reservation survives a trap and an mret. It is checked
 # instead by test/sail/reservation_probe.sh, which asks the model that question
-# with no core involved (docs/adr/0102), and in band by lrsclock.S itself.
+# with no core involved, and in band by lrsclock.S itself.
 #
 # amoregion.S WAS AN ENTRY HERE AND IS NOT ONE ANY MORE, and the way it was
 # closed is worth more than the line was. It is written down because the entry
@@ -155,7 +155,7 @@
 #
 # The core answered the lr.w with zero, took no reservation and raised nothing —
 # a third behaviour, and one no configuration of the model describes. That was
-# ADR-0104's recorded deviation: the decode-time region test that raises causes
+# a recorded deviation: the decode-time region test that raises causes
 # 5 and 7 was built for loads and stores, measured at four logic levels in the
 # fetch loop and 10.57-11.00 MHz against a 12.00 MHz requirement, and declined.
 #
@@ -289,7 +289,7 @@
 # never by the model, because the model was never going to see a real byte.
 #
 # THE FAILURE DIRECTION IS STILL LIVE. These are name-and-status pairs under set
-# equality, so if a future change makes any of the four below AGREE, or makes
+# equality, so if a future change makes any of the five below AGREE, or makes
 # one diverge some other way, this gate goes red and these paragraphs get
 # re-read. That is how the entry above came out: the program AGREEd, the gate
 # said so, and the line was removed with the reason rather than the reason being

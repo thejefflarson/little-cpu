@@ -29,8 +29,9 @@
 #
 # BOTH LEGS RUN FOR EVERY MUTATION, so a mutation with no `asm` line is the claim
 # that the whole test/asm suite stays green under it. That is a real result and
-# two of the four below are it. Do not add an `asm` line to make one look better
-# covered: the grading is a set equality, and a line that does not fire is red.
+# four of the eleven below are it. Do not add an `asm` line to make one look
+# better covered: the grading is a set equality, and a line that does not fire
+# is red.
 #
 # ADDING ONE. Measure it, do not assert it: apply the patch, `make sim`, run
 # ./test/run_tests.sh and the benches, and write down what actually went red. A

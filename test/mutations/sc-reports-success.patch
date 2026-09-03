@@ -1,10 +1,10 @@
 diff --git a/rtl/accessor.v b/rtl/accessor.v
-index f43d4aa..b881b31 100644
+index 7e64b28..739607f 100644
 --- a/rtl/accessor.v
 +++ b/rtl/accessor.v
-@@ -336,7 +336,7 @@ module accessor(
-       // cycle the reservation is still the one it was tested against: 0 for the
-       // store that went out, 1 for the one that did not.
+@@ -290,7 +290,7 @@ module accessor(
+       take_lane <= addr24;
+       take_is_lr <= requesting && launch_is_lr;
        take_is_sc <= requesting && launch_is_sc;
 -      take_sc_failed <= !sc_store;
 +      take_sc_failed <= 1'b0;

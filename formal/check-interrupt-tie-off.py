@@ -3,10 +3,10 @@
 
 Every riscv-formal harness in formal/ instantiates the core with its timer
 input tied low, so the generated checks run with no interrupt in the trace.
-That is a RESTRICTION on what those checks cover, and ADR-0010's rule --
-restrict the proof, and record the restriction -- is what makes it admissible.
-A recorded restriction nothing compares against is not recorded, which is what
-this script is for.
+That is a RESTRICTION on what those checks cover, and the rule this repo works
+to -- restrict the proof, and record the restriction -- is what makes it
+admissible. A recorded restriction nothing compares against is not recorded,
+which is what this script is for.
 
 Four things are decided here:
 
