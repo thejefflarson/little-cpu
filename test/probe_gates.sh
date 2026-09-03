@@ -12,11 +12,14 @@
 # also carries a control, because a grader degenerated into `exit 1` would
 # otherwise pass the lot.
 #
-# Hermetic: no RISC-V toolchain, no `sim`, no Sail, no sby -- but the
+# Almost hermetic: no `sim`, no Sail, no sby. Two groups need a real tool and
+# fail loudly rather than silently on a machine without it -- the
 # test/zkt_isolation_test.py group elaborates rtl/decoder.v with yosys, once per
-# fixture, so this file needs yosys and fails loudly rather than silently on a
-# machine without it. It is otherwise all fork and no work, so the wall time is
-# the host's property rather than this file's.
+# fixture, and the linker-layout group runs the RISC-V cross linker, because the
+# graders it forces red are ASSERT statements inside the linker scripts and
+# nothing else evaluates one. `make test` is the only caller and needs both. It
+# is otherwise all fork and no work, so the wall time is the host's property
+# rather than this file's.
 #
 # Five failure paths are demonstrated by hand instead of by a `probe` call:
 # four because they need the elaborated design or the pinned clone --
@@ -1527,7 +1530,7 @@ probe "the rulebook quoting a figure the source no longer states is red" 1 \
   "CLAUDE.md states no placement spread" "$BSRC $d"
 
 d=$(bsrc_fixture)
-bsrc_edit "$d" CLAUDE.md 's|`soc/bands.py` is the one place|it is the one place|'
+bsrc_edit "$d" CLAUDE.md 's|soc/bands.py|the source|g'
 probe "and a rulebook that does not name the source is red too" 1 \
   "does not name soc/bands.py" "$BSRC $d"
 
@@ -1609,7 +1612,7 @@ probe "branch_taken carrying reg_rs1/reg_rs2 into hazard is red" 1 \
 # STRUCT_FIELD_SEEDS never named. executor_out.rd_data is a 32-bit field of
 # a decoder input port, the same shape as reg_rs1/reg_rs2, and a forwarding
 # path routing it into a stall reason is exactly the change this repo keeps
-# pricing and declining (ADR-0083/0092/0100).
+# pricing and declining.
 d=$(zkt_fixture)
 sed -i.bak \
   's/assign atomic_stall = out.valid && out.is_amo && !divider_stall;/assign atomic_stall = out.valid \&\& out.is_amo \&\& !divider_stall || executor_out.rd_data[0];/' \
@@ -2598,9 +2601,9 @@ d=$(mm_fixture); sed -i.bak 's/LENGTH = 64K/LENGTH = LOTS/' "$d/test/asm/section
 probe "a size the parser cannot read stops rather than comparing as zero" 1 \
   "is not a size this check can read" "$MM $d"
 
-# The core's own copy of the map. Nothing in the datapath reads it, so every one
-# of these drifts is silent everywhere else: the counters keep reporting, about
-# a machine no file describes.
+# The core's own copy of the map, which rtl/decoder.v reads to refuse a load or
+# store the platform does not answer. A drift here is silent everywhere else:
+# no memory on the bus can say the decoder faulted the wrong address.
 d=$(mm_fixture); sed -i.bak "s/LS_RAM_BASE   = 32'h0001_0000/LS_RAM_BASE   = 32'h0002_0000/" "$d/rtl/littlecpu.v"
 probe "the core's copy of the RAM base drifting from the RAM is red" 1 \
   "rtl/littlecpu.v's LS_RAM_BASE is 131072 against rtl/memory.v's 65536" "$MM $d"
@@ -2649,6 +2652,105 @@ probe "the timer moving in the proof's copy alone is red" 1 \
 d=$(mm_fixture); sed -i.bak 's/LS_TEXT_WORDS = 2048/LS_TEXT_WORDS = 4096/' "$d/formal/traps.sv"
 probe "the proof describes the part's text window, not the harness's" 1 \
   "LS_TEXT_WORDS is 4096 against rtl/littlesoc.v's 2048" "$MM $d"
+
+begin_group "the linker scripts' layout ASSERTs"
+
+# The graders in this group are ASSERT statements inside the linker scripts
+# themselves, so forcing one red means running the real cross linker. That makes
+# this the second group in this file that is not hermetic, after the yosys one.
+#
+# WHAT THEY GRADE. rtl/decoder.v answers a load or store's region question off
+# raw register bits only when the base register sits deep inside a mapped window
+# -- in it, and in neither its first 2 KB block nor its last -- so an access
+# whose base is in an edge block bubbles a cycle. Every script therefore insets
+# `.data` and the stack by one 2 KB block, and every script asserts it: a layout
+# that silently gives the cost back is the failure being forced here.
+#
+# The two candidate names test/run_tests.sh and the Makefile already search for,
+# in their order. Deliberately NOT $CC: an earlier group in this file binds that
+# name to a stub of its own, and reading it here resolved the cross linker to a
+# python script.
+LAYOUT_CC=""
+for layout_candidate in riscv64-elf-gcc riscv64-unknown-elf-gcc; do
+  if command -v "$layout_candidate" > /dev/null 2>&1; then
+    LAYOUT_CC=$layout_candidate
+    break
+  fi
+done
+if [ -z "$LAYOUT_CC" ]; then
+  echo "error: no RISC-V cross compiler found, so the linker scripts' own" >&2
+  echo "ASSERTs cannot be forced red. Install one (make setup)." >&2
+  exit 1
+fi
+
+layout_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/test/asm" "$d/test/bench" "$d/test/board"
+  cp "$REPO"/test/asm/boot.lds "$REPO"/test/asm/sections.lds "$d/test/asm/"
+  cp "$REPO"/test/bench/bench.lds "$REPO"/test/bench/coremark.lds "$d/test/bench/"
+  cp "$REPO"/test/board/board.lds "$d/test/board/"
+  # No crt0 and no program: an ASSERT over ADDR(.data) and __stack_top is
+  # evaluated whatever the input objects contain, and a stub keeps the probe
+  # measuring the script rather than whatever the suite's startup happens to do.
+  cat > "$d/stub.S" <<'STUB'
+  .section .text.init,"ax",@progbits
+  .globl _start
+_start:
+  nop
+STUB
+  printf '%s' "$d"
+}
+
+layout_link() {  # $1 = fixture dir, $2 = script path inside it
+  "$LAYOUT_CC" -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -nostdlib \
+    -T "$1/$2" "$1/stub.S" -o "$1/out.elf"
+}
+
+LAYOUT_DATA_RED="layout: .data starts in ram's first or last 2 KB block"
+LAYOUT_STACK_RED="layout: __stack_top puts the top of the stack in ram's first or last 2 KB block"
+
+d=$(layout_fixture)
+probe "control: all five shipping scripts link at the inset layout" 0 \
+  "all five shipping scripts link" \
+  "layout_link $d test/asm/boot.lds && layout_link $d test/asm/sections.lds &&
+   layout_link $d test/bench/bench.lds && layout_link $d test/bench/coremark.lds &&
+   layout_link $d test/board/board.lds && echo 'all five shipping scripts link'"
+
+d=$(layout_fixture); sed -i.bak 's/ORIGIN(ram) + 2048 : {/ORIGIN(ram) : {/' "$d/test/asm/boot.lds"
+probe "boot.lds putting .data back at ram's origin is red" 1 \
+  "$LAYOUT_DATA_RED" "layout_link $d test/asm/boot.lds"
+
+d=$(layout_fixture); sed -i.bak 's/LENGTH(ram) - 2048;/LENGTH(ram);/' "$d/test/asm/boot.lds"
+probe "boot.lds putting the stack back at the top of ram is red" 1 \
+  "$LAYOUT_STACK_RED" "layout_link $d test/asm/boot.lds"
+
+d=$(layout_fixture); sed -i.bak 's/ORIGIN(ram) + 2048 : {/ORIGIN(ram) : {/' "$d/test/asm/sections.lds"
+probe "sections.lds putting .data back at ram's origin is red" 1 \
+  "$LAYOUT_DATA_RED" "layout_link $d test/asm/sections.lds"
+
+d=$(layout_fixture); sed -i.bak 's/ORIGIN(ram) + 2048 : {/ORIGIN(ram) : {/' "$d/test/bench/bench.lds"
+probe "bench.lds putting .data back at ram's origin is red" 1 \
+  "$LAYOUT_DATA_RED" "layout_link $d test/bench/bench.lds"
+
+d=$(layout_fixture); sed -i.bak 's/LENGTH(ram) - 2048;/LENGTH(ram);/' "$d/test/bench/bench.lds"
+probe "bench.lds putting the stack back at the top of ram is red" 1 \
+  "$LAYOUT_STACK_RED" "layout_link $d test/bench/bench.lds"
+
+d=$(layout_fixture); sed -i.bak 's/ORIGIN(ram) + 2048 : {/ORIGIN(ram) : {/' "$d/test/bench/coremark.lds"
+probe "coremark.lds putting .data back at ram's origin is red" 1 \
+  "$LAYOUT_DATA_RED" "layout_link $d test/bench/coremark.lds"
+
+d=$(layout_fixture); sed -i.bak 's/LENGTH(ram) - 2048;/LENGTH(ram);/' "$d/test/bench/coremark.lds"
+probe "coremark.lds putting the stack back at the top of ram is red" 1 \
+  "$LAYOUT_STACK_RED" "layout_link $d test/bench/coremark.lds"
+
+d=$(layout_fixture); sed -i.bak 's/ORIGIN(ram) + 2048 : {/ORIGIN(ram) : {/' "$d/test/board/board.lds"
+probe "board.lds putting .data back at ram's origin is red" 1 \
+  "$LAYOUT_DATA_RED" "layout_link $d test/board/board.lds"
+
+d=$(layout_fixture); sed -i.bak 's/LENGTH(ram) - 2048;/LENGTH(ram);/' "$d/test/board/board.lds"
+probe "board.lds putting the stack back at the top of ram is red" 1 \
+  "$LAYOUT_STACK_RED" "layout_link $d test/board/board.lds"
 
 begin_group "test/adr_numbering_test.sh"
 
@@ -2996,9 +3098,10 @@ probe "a repo root that does not exist is red before anything is scanned" 1 \
 # THE ONE THAT MATTERS: a site left behind. The `.c` arm of the suite runner
 # assembles a program with no atomic in it either way.
 d=$(ma_fixture)
-ma_edit "$d" test/run_tests.sh '158s/rv32imac_zicsr_zifencei_zkt/rv32imc_zicsr_zifencei_zkt/'
+c_arm=$(grep -n -- '-march=rv32imac_zicsr_zifencei_zkt' "$d/test/run_tests.sh" | head -1 | cut -d: -f1)
+ma_edit "$d" test/run_tests.sh "${c_arm}s/rv32imac_zicsr_zifencei_zkt/rv32imc_zicsr_zifencei_zkt/"
 probe "one build site left at the narrower ISA is red, and located" 1 \
-  "test/run_tests.sh:158: -march=rv32imc_zicsr_zifencei_zkt" "$MA $d"
+  "test/run_tests.sh:${c_arm}: -march=rv32imc_zicsr_zifencei_zkt" "$MA $d"
 
 probe "...and the count that site was declared with is red too" 1 \
   "test/run_tests.sh states -march=rv32imac_zicsr_zifencei_zkt 1 time(s), not 2" "$MA $d"

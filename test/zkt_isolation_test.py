@@ -152,12 +152,12 @@ STALL_TARGETS = [
 GATED_SIGNAL = 'region_stall'
 
 # Registers derived from region_stall that hold a load's or store's own
-# region answer across the cycle it is read on (ADR-0129's capture/hold
-# mechanism). Blocking `region_stall` as a taint source hides a DIRECT read
-# of one of these from the reachability check above -- correctly, since it
-# is region_stall's own downstream, not a new path from a register value --
-# so they get their own narrower check: none of STALL_TARGETS may read one
-# of THESE by name either, seeded independently of reg_rs1/reg_rs2.
+# region answer across the cycle it is read on. Blocking `region_stall` as a
+# taint source hides a DIRECT read of one of these from the reachability
+# check above -- correctly, since it is region_stall's own downstream, not a
+# new path from a register value -- so they get their own narrower check:
+# none of STALL_TARGETS may read one of THESE by name either, seeded
+# independently of reg_rs1/reg_rs2.
 REGION_STATE = ['ls_capture', 'ls_answer', 'ls_answer_valid']
 
 # The positive control: named nets the real RTL is known to carry reg_rs1
@@ -195,7 +195,7 @@ STRUCT_PORTS = {
 
 # Struct fields (as `port.field`) wide enough (>5 bits) to matter, and their
 # classification. executor_out.rd_data is a committed executor result --
-# the same shape ADR-0083/0092/0100 keep pricing and declining as a
+# the same shape this repo keeps pricing and declining as a
 # forwarding path -- so it is the one struct field that IS a seed. in's three
 # wide fields are the fetch address and the instruction words decode reads
 # register NUMBERS out of, never an operand value. executor_out.rd_ready is
@@ -213,9 +213,9 @@ STRUCT_FIELD_NON_VALUE = {'in.pc', 'in.instr', 'in.next_instr'}
 # perfectly well carry a value-dependent decision -- it is that every path by
 # which a register VALUE can reach one of them is TRAP-MEDIATED: `out.rd`
 # reads 0 instead of the real destination exactly when `reg_rs1` decided the
-# PREVIOUS instruction was misaligned or out of region (ADR-0104/0116/0128/
-# 0129's data-fault causes), and `out.valid`/`out.is_amo` change only on that
-# same trap decision or an ordinary bubble. Taking a trap -- or not -- is
+# PREVIOUS instruction was misaligned or out of region (the data-fault
+# causes), and `out.valid`/`out.is_amo` change only on that same trap
+# decision or an ordinary bubble. Taking a trap -- or not -- is
 # architecturally VISIBLE (a different instruction retires, at a different
 # pc), not a covert timing channel a Zkt-listed instruction's cycle count
 # could leak an operand VALUE through, which is the property that actually

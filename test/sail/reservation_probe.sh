@@ -1,7 +1,7 @@
 #!/bin/bash
 # Builds test/sail/reservation_probe.S and runs it under the Sail model ALONE,
 # then decodes the one number the run prints into a labelled table. Invoked by
-# `make sail-reservation-probe`. The finding it produced is docs/adr/0102.
+# `make sail-reservation-probe`.
 #
 # NO CORE IS INVOLVED, on purpose. The question is what the REFERENCE MODEL does
 # to an LR reservation at a trap and at an mret, and a comparison against a core

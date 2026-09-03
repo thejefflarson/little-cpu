@@ -1,6 +1,6 @@
 # Fast, simple, small, formally verified
 
-**Status:** brief, ready to plan · 2026-08-02
+**Status:** executed · 2026-08-02 · landed as the `CLAUDE.md` rewrite of 2026-08-03 (commit 5a612c6): design commitments keep their numbers, 7 and 9 are retired; the `parallel_case` rule is ADR-0068.
 
 Four goals. They are not in tension, and the formal harness is what lets us have all of
 them — it licenses simplifications that would otherwise be too risky to make.
