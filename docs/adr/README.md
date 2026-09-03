@@ -151,3 +151,122 @@ a gap.
 | [0140](0140-probes-expected-becomes-a-named-manifest-not-a-scalar.md) | `PROBES_EXPECTED` becomes a named manifest, not a scalar | Accepted · replaces `test/probe_gates.sh`'s single checked-in literal with `test/PROBES_EXPECTED`, one probe label per line, sorted, checked against the labels actually run under set equality in both directions — the rule `test/EXPECTED_FAIL`/`test/OBSERVED_FLOOR` already use. Reached after a rebase that git reported clean silently dropped six probes' worth of coverage: two commits' diffs to the scalar (515→556, 556→562) replayed onto a base already at 562 landed as a no-op then a near-miss, at 563, with nothing to conflict on. A named manifest's diff is a set of independent line insertions rather than an arithmetic transform, which is the shape git's line-based merge cannot get quietly wrong; sorting spreads unrelated PRs' insertions across the file by label text instead of concentrating every PR on one line, which is what had made three PRs in a row conflict on it. Considered and declined: a merge driver or per-group counts summed at runtime (a union merge can silently accept two groups while a third's count goes missing), and a count generated from the same file it grades (trivially agrees with a version that is already wrong, since both sides move together). Demonstrated by hand, both directions, since the check being replaced is this file's own coverage ratchet and cannot be probed without the file invoking itself |
 | [0145](0145-a-12-kb-text-window-two-windows-ored-not-a-magnitude-compare.md) | A 12 KB text window is priced and declined — the period, not the area | Declined (the measurement) · prices ADR-0135's 8 KB ceiling directly: two power-of-two windows ORed, 3072 = 2048 + 1024, which keeps both `rtl/imemory.v` range tests reductions and is correct everywhere it was built — the bank arrays go non-power-of-two (1536 words) with an index clamp that folds an out-of-range truncation back in before the array read, `rtl/decoder.v`'s `ls_supported`/`ls_text_deep` take the same two-window shape a plain load or store into the text region needs, and all 86 generated riscv-formal checks pass at the new 3072-word default `test/memmap_test.sh` forces onto `rtl/littlecpu.v`. **The period does not survive it**: sixteen paired placements, same tree, put the median at **−5.89%**, **16 of 16 seeds slower** (two-sided sign test p ≈ 3×10⁻⁵) and **5 of 16 under the 12.00 MHz floor** (worst 11.86 MHz against the base's 12.06) — `make fit`'s core-alone count is a null, so the cost is the fetch loop and not area. Every candidate's critical path starts or ends inside `rtl/imemory.v`. Shape (b), a magnitude comparison, is declined without its own sweep: the file's own header already measured that shape at a quarter of the whole period for the adjacent `next_is_last` test, and shape (a) already misses the floor. **All RTL and test changes are reverted in the same commit as this ADR** — the shipping ROM stays 2048 words, `test/asm/rvc.S` still does not run on silicon, and `soc/run_suite_board.sh` still batches |
 | [0150](0150-a-union-merge-driver-replaces-hand-rebasing-docs-adr-readme.md) | A union merge driver replaces hand-rebasing this table | Accepted · tested directly on this tree: two branches each appending a distinct row merge with no conflict under `merge=union` where they conflict under git's default strategy, and `test/adr_numbering_test.sh` still catches a genuine duplicate ADR number the same merge lets through, because that check reads the claimed number off the filenames on disk rather than off this table |
+| [0153](0153-the-linker-scripts-inset-data-and-the-stack-by-one-block.md) | The linker scripts inset `.data` and the stack by one 2 KB block | Accepted · a SOFTWARE convention, not a core change: no `rtl/` file moved, `make fit` reads the same 4109 `ICESTORM_LC` and `make netlist-digest` the same hash. 0129's region wait answers off raw register bits only when the base register sits deep inside a mapped window, and every script in the tree had put `__stack_top` in `ram`'s LAST 2 KB block and `.data` in its FIRST — so every `lw/sw` off `sp` and every pointer access bubbled a cycle. That was the whole of Dhrystone's `REGION` column. Insetting both by one block: Dhrystone 1 756 248 → **1 543 497** cycles with `REGION` 212 752 → **2**, **0.664 → 0.758 DMIPS/MHz** (7.97 → 9.10 DMIPS at 12 MHz), CoreMark **1.811 → 2.013**, the `.S` suite 42 319 → 41 052. Graded rather than remembered: two linker `ASSERT`s per script over `ADDR(.data)` and `__stack_top - 1`, with ten `test/probe_gates.sh` probes planting a bad layout and requiring the link to fail (590 → 600). `soc/compare/dhry.lds` is deliberately LEFT conventional — it feeds the cross-core comparison whose product 0098 already marks stale, and one side of a two-core measurement must not move alone. **The core did not get faster**: its cycle count per access is unchanged, the shipping firmware stopped paying a cost it did not have to, and any DMIPS or CoreMark figure quoted from here now travels with the layout the way it already travels with the flags |
+
+0001–0007 came from the design brief
+([`docs/ideas/finish-the-rewrite.md`](../ideas/finish-the-rewrite.md)). 0008–0011 came out of
+sprint planning, when the panel ran the toolchain and found the brief's assumptions needed
+resolving before work could start. 0012–0014 came out of integrating the first build sprint, when
+review of the build-repair and datapath-fix changes turned up decisions neither had recorded, and the test
+suite that fails in its entirety. 0010 supplements 0006; 0011 scopes 0005; 0012 supplements 0010;
+0013 implements 0006's pinning clause; 0014 supplements 0007 and 0008. 0015-0017 came out of
+integrating the second build sprint: 0015 extends 0009 with a stall source 0009 did not know
+existed, 0016 constrains the CI gate, and 0017 records what the newly-passing decoder
+component proof does and does not establish. 0018-0020 came out of integrating the third build
+sprint: 0018 supersedes 0016 now that required checks exist, 0019 makes the monitor sanitizer the
+place a generated-oracle defect gets repaired, and 0020 records that ADR-0006's non-perturbation
+guarantee is argued rather than proven. 0021-0023 came out of integrating the riscv-formal ladder
+port — the first time any formal check ran against the pipelined core. 0021 keeps the compressed
+checks in the ladder and records the C.JR/C.JALR decode defect they found; 0022 replaces the
+nightly's blanket failure-swallowing with an ADR-0014-style baseline; 0023 states what the run
+does and does not establish, and why M2 is not reached. 0024 closes one of 0023's three named
+holes by switching the ladder's default BMC engine. 0031 re-vendors the `genchecks` copy from the
+pin — retiring the local mechanism 0024 built to reach that engine, while leaving 0024's
+measurement intact — and records why none of the ten `fault`/`bus_*` checks it unlocks apply here.
+0032 came out of a time-boxed spike against the Sail RISC-V model and resolves the "Spike or Sail
+co-simulation" item that used to sit in the deferred list below. 0033 came out of integrating those
+three together: it audits the machinery M2 is *measured* by rather than the core it measures, and
+records what a green ladder and a matching baseline do not, on their own, establish. 0034 came out of
+integrating the CSR file: it records the two decode-side decisions ADR-0005's field list left open,
+corrects ADR-0027 on the counter `h` halves, measures what the `csrw_*` checks cannot see, and fixes
+a `CLAUDE.md` engineering rule that named the wrong file. 0035 amends 0014 and applies 0033's lens
+to the *simulation* gate: `test/run_tests.sh` had three ways to report success without having tested
+anything, so the failure set now records name **and** status and every build step is checked. 0036 was
+recorded integrating those three gate changes together: it ratifies putting `hang` on the ladder
+(`liveness` does not subsume it — it *assumes* a retire at its trigger cycle and is vacuous on a core
+that never retires), corrects 0031 on how the `csrc_*` family is actually reached, and closes the
+`case_default` question by measuring that yosys already errors on the latch. It also records a
+gap it did not close: `formal/EXPECTED_FAIL` still matches on names only, so a red check that flips
+from `FAIL` to `ERROR` keeps the ladder green — 0035's lesson, unapplied to the formal side. 0039
+finishes the first half of 0032's integration list: the whole `.S` suite now runs under
+co-simulation behind `make cosim-suite`, graded by 0014's set equality in 0035's name-and-status
+format, and `tohost` becomes the doubleword the HTIF protocol it borrows always specified — an
+amendment to 0008, and the one change here that touches what both existing sim legs read. 0040 is
+0038's question asked of the verification harness rather than of the area: it measures whether the
+riscv-formal ladder can model the negedge regfile 0038 recommends, finds that it refuses to rather
+than mis-modelling it, rejects `clk2fflogic` as the remedy on measured vacuity, and — applying 0033's
+lens once more — fixes a `make -C formal check` that could not re-run the ladder and had been
+re-grading the previous run's verdict. 0041 came out of integrating those three together: it
+measures what 0039's `tohost` change actually did to the architectural register trace (382 values,
+zero events), and records the co-simulation nightly 0039 deliberately omitted as owed work with its
+preconditions, so it stops depending on anyone's memory. 0043 takes 0039's two baselined
+divergences to zero without touching the core: the reference model was a `--config-override` on
+Sail's *default* RV32 machine, so it had atomics, bit-manipulation, float, supervisor mode, user
+mode and vectors that nobody chose, and `csrr misa` was the one register a test happened to read.
+It is now a complete `--config` describing 0002's RV32IMC_Zicsr, and the leftover — an
+implementation-defined value with no knob — is exempted by name, one register at a time, or moved
+to a bench with no reference model in it when the program *branches* on it.
+0046 is 0025 asked again of a pipeline it no longer described. 0025's own addendum said the sweep
+should be repeated once the CSR RTL existed and it never was, and `e4f5250` then added a fifth stall
+reason without touching the depth table — so the one M2 term marked met rested on a derivation two
+changes stale. It re-derives the numbers and changes how: the whole argument now rests on two
+quantities the ladder measures about itself in seconds (`hang` for the worst-case first retire,
+`liveness` for the worst-case retire gap) rather than on hand-tracing, which is the part that went
+stale. No depth moves. It also gives the 70 `insn_*` checks the liveness probe they had never had,
+and that probe exhibits the failure mode the whole file is about: swept below its floor, a check
+passes on a core that is broken.
+
+## Deferred decisions
+
+These are deliberately *not* decided yet. Each requires a new ADR before being built, because each
+trades away simplicity the current design depends on.
+
+- ~~**Forwarding network**~~ — **priced by
+  [ADR-0083](0083-the-forwarding-network-is-priced-and-declined-on-the-margin.md), and decided
+  AGAINST.** The old entry called it a CPI-only optimisation, safe to add once the core was verified.
+  It is verified now, and the cost is not CPI: both spellings were built, both run the suite and pass
+  every proof, and both are declined on the period they cost against a 12 MHz requirement that does
+  not slide. The ceiling is what settles it — deleting the scoreboard outright buys 0% of period, so
+  nothing in this direction pays for the muxes.
+- ~~**Radix-4 divider / early termination**~~ — **rejected outright by
+  [ADR-0038](0038-area-is-measured-in-logic-cells-and-two-levers-are-rejected.md).** CPI-only and it
+  *increases* area, which is the wrong direction on a part that does not currently place. The
+  "55–70% utilisation" figure this entry used to cite was a yosys cell count and was wrong; the
+  measured figure is 126%.
+- ~~**negedge-BRAM regfile**~~ — **resolved by [ADR-0042](0042-the-regfile-read-is-synchronous-and-costs-a-cycle.md),
+  and decided AGAINST.** The regfile did move to block RAM — 6971/132% to 4236/80%, which is the
+  whole area problem in one lever — but with a **posedge** read plus a one-cycle operand-fetch stall,
+  not a negedge strobe. All three reconciliations of invariant 6 with a synchronous EBR were built
+  and measured, and area does not choose between them (86 cells across the three, 1.6% of the part).
+  The negedge variant is 99 cells cheaper and costs **no** cycles; it was rejected because sby's
+  `prep` fails closed on mixed clock polarity, so the generated ladder cannot run against it at all —
+  every check, not one — and shipping it would mean a posedge substitution in `formal/wrapper.v` plus
+  an equivalence proof whose k-induction does not close. Serialising the two read ports onto one
+  array was built too: 44/52, three red checks, and it needs a second bypass level. See
+  [ADR-0040](0040-the-ladder-refuses-a-negedge-regfile-and-make-check-was-re-grading.md) for the
+  verification-side data the decision was made with.
+- ~~**FPGA timing closure / nextpnr flow**~~ — **built by
+  [ADR-0054](0054-the-memory-system-and-the-first-real-timing-number.md)**, ahead of its post-M4
+  slot and with every M2 term re-run rather than assumed. The SoC places on up5k/sg48 and
+  `make soc-timing` reports `icetime`'s critical path with its logic/routing split. ADR-0003's
+  second ROM read did become interleaved banks — at **word** granularity, not the halfword split
+  ADR-0044 named, because this core's fetch interface asks for two adjacent words and windows them
+  itself. The bootloader is half-built: the `.data` copy stub landed with
+  [ADR-0081](0081-the-data-image-lives-in-rom-and-crt0-copies-it.md), so the SoC runs a C program
+  that reads its own globals. ADR-0044's SPI-flash path stays deferred, now against the measured
+  ROM budget rather than a guess.
+- ~~**Interrupts**~~ — **the machine timer is built by
+  [ADR-0082](0082-the-machine-timer-interrupt-is-taken-at-a-decode-boundary.md).** The old entry's
+  reason ("no interrupt sources exist") was circular: `rtl/timer.v` is the source, and it is four
+  words on the data bus. `mie.MTIE` and `mip.MTIP` are real; `mip.MSIP`/`mip.MEIP` stay read-only
+  zero because this platform has neither source. What is still deferred is a controller, more
+  sources and a vectored `mtvec` — the same mechanism with more inputs.
+- ~~**Spike or Sail co-simulation**~~ — **resolved by [ADR-0032](0032-sail-co-simulation-is-worth-building-and-stays-opt-in.md).**
+  The old test ("revisit only if formal and simulation ever disagree") could only fire on a bug both
+  legs can see; a spike measured what neither can.
+  [ADR-0039](0039-co-simulation-runs-the-whole-suite-against-a-baseline.md) integrated it across the
+  whole suite against a baseline, and
+  [ADR-0095](0095-co-simulation-is-required-and-its-fetch-is-verified.md) makes it a required check
+  on `main` once the digest-verified fetch ADR-0032 asked for existed. Still `make cosim-run` /
+  `make cosim-suite` and never `make test`. The memory comparison remains future work; the nightly
+  job does not, having been overtaken by the gate.
