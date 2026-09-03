@@ -71,6 +71,16 @@ references still resolve.
   placements; the price is +13.79% of Dhrystone's cycles (ADR-0129). Enforced by
   `components_traps` over `formal/traps.sv`, `test/decoder_tb.v`'s region vectors and
   `rtl/decoder.v`'s `FORMAL` block.
+  **So this core has a layout preference, and the shipping linker scripts pay it** (ADR-0158). A
+  64 KB window is 32 blocks and 30 of them are deep, so a program whose stack and `.data` sit one
+  2 KB block clear of the edges reaches the fast arm on essentially every access, and one that does
+  not pays a cycle per access. Every script under `test/` starts `.data` one block above `ram`'s
+  origin and puts `__stack_top` one block below its top, which takes Dhrystone's `REGION` column
+  from 212,752 cycles to 2 on RTL nobody touched. **A program that ignores the convention pays what
+  Dhrystone used to pay.** It is graded in the linker rather than remembered: two `ASSERT`s per
+  script, with `test/probe_gates.sh` planting a bad layout in each and requiring the link to fail.
+  `soc/compare/dhry.lds` is left at the conventional layout on purpose, so the stale cross-core
+  product is re-taken as a pair rather than one side at a time.
 - **Every inter-stage struct carries a `valid` bit** (3). A bubble is `valid = 0`; retire is
   `valid` reaching writeback, which gates `wen` and drives `rvfi_valid`.
 - **Hazards are stall-only** (4). No forwarding network: a RAW hazard stalls in decode against a
@@ -387,14 +397,21 @@ top, ECP5 only.
   minute (ADR-0078).
 - **`make dhrystone` and `make coremark` are the figures comparable to another project's** —
   Dhrystone to VexRiscv, CoreMark to Hazard3 and most cores published since — and neither is a
-  gate. Dhrystone: **0.664 DMIPS/MHz, 7.97 DMIPS at 12 MHz** at `-O2` (ADR-0129), quoted with the
+  gate. Dhrystone: **0.758 DMIPS/MHz, 9.10 DMIPS at 12 MHz** at `-O2` (ADR-0158), quoted with the
   absolute figure because Fmax above the requirement is margin and not speed (ADR-0089), and with
-  the flags, compiler and string library, which the program prints and will not compile without.
-  **It went 9.10 → 7.97 on purpose** — the region wait's price (ADR-0129) — and a CPI regression
-  with no conformance behind it is still a regression. **CoreMark is SIMULATED AT 16 KB OF ROM**,
+  the flags, the compiler, the string library and **the linker script** — the program prints the
+  first three and will not compile without them, and `test/bench/bench.lds` asserts the fourth at
+  link time. **It went 9.10 → 7.97 and back to 9.10, and the two moves differ in kind**: the region
+  wait spends 13.79% of Dhrystone's cycles to make an out-of-region access fault (ADR-0129), and
+  insetting the layout gives those cycles back with no RTL change, `make fit` and the netlist digest
+  both unmoved (ADR-0158). A CPI regression with no conformance behind it is still a regression, and
+  a figure recovered by moving the software is the firmware ceasing to pay a cost, never the core
+  getting faster. **CoreMark is SIMULATED AT 16 KB OF ROM**,
   double the part's 8, against `test/testbench.v`'s `ROM_WORDS`, and every printed figure says so;
   the five algorithm files are vendored unmodified and pinned by `test/bench/coremark/PINNED.sha256`
-  (ADR-0136). Hazard3's published 4.15 CoreMark/MHz is its RP2350 build, not its iCE40 one, and
+  (ADR-0136). **2.013 CoreMark/MHz** on the shipping layout against 1.811 on the conventional one,
+  so it travels with the linker script the way the DMIPS figure does (ADR-0158).
+  Hazard3's published 4.15 CoreMark/MHz is its RP2350 build, not its iCE40 one, and
   quoting it against an ice40 core is the mixed-configuration error ADR-0098 names.
 - **The only cross-core comparison that means anything is one harness**, `soc/compare/`: same part,
 memories, program, toolchain and seeds, against the VexRiscv in the pinned riscv-formal clone and
@@ -501,7 +518,9 @@ make test           # the test/asm suite (.S and .c) under cxxrtl + unit benches
 make test-units     # the unit benches alone; the list is checked against test/*_tb.v both ways
 make elaborate-strict # yosys elaborates every simulation source through `check`; the
                     # required `elaborate` CI job
-make probe-gates    # force every graded comparison red for its own reason; needs only yosys
+make probe-gates    # force every graded comparison red for its own reason. Two groups need a
+                    # real tool: yosys for the zkt netlist walk, and the cross linker
+                    # for the linker scripts' layout ASSERTs
 make mutation-check # delete a term from rtl/ and require exactly the detectors
                     # test/MUTATION_DETECTORS pairs with it to go red, both ways. ~3.5 min,
                     # not on `make test`; `make mutation-probe` forces its graders red and IS
