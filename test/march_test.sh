@@ -139,6 +139,13 @@ test/probe_gates.sh (any)
 # core has: plain RV32I, not even RV32IC.
 Makefile rv32i 2
 
+# COMPARE_COREMARK_CFLAGS: CoreMark for littlecpu and Hazard3's iCE40
+# configuration, RV32IMA -- the ISA both implement in hardware, C dropped
+# because Hazard3's iCE40 build has none. VexRiscv cannot join this one at
+# all: its pinned build has no M extension, so RV32IC (the string above)
+# would not even let it decode a multiply.
+Makefile rv32ima 1
+
 # Not a flag at all: a grep pattern that finds the `-march=` in the command line
 # the Dhrystone runner PRINTS, so the flags travel with the number. It has no
 # ISA after it, which is what the `(empty)` says.
@@ -156,6 +163,9 @@ soc/compare/product.json (any)
 # --isa, and --isa's own help text naming the flag it extracts.
 soc/compare/run_product.sh (empty) 2
 soc/compare/product_write.py (empty) 1
+
+# The same pattern, for the CoreMark runner's own printed command line.
+soc/compare/run_coremark_compare.sh (empty) 1
 EXCEPTIONS
 }
 

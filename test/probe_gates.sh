@@ -3071,6 +3071,7 @@ ma_fixture() {
   cp "$REPO/soc/compare/product.json" "$d/soc/compare/"
   cp "$REPO/soc/compare/run_product.sh" "$d/soc/compare/"
   cp "$REPO/soc/compare/product_write.py" "$d/soc/compare/"
+  cp "$REPO/soc/compare/run_coremark_compare.sh" "$d/soc/compare/"
   cp "$REPO/formal/checks.cfg" "$d/formal/"
   # One real file under each history directory: those two entries are
   # directories, and a hundred more copies per fixture would buy only wall time.
@@ -3162,21 +3163,15 @@ probe "an exception whose site stopped naming that ISA is red" 1 \
 
 # A counted exception is exact-count too, not "at least one": `rv32ima` is
 # one keystroke from the declared ISA, so a SECOND, uncounted occurrence of an
-# exempted near-miss must be as red as a required site losing one. The
-# exception line is planted in this fixture's own copy of the script rather
-# than the shipping one, because `rv32ima` names no exception there yet.
+# exempted near-miss must be as red as a required site losing one.
+# `Makefile rv32ima 1` is a real, shipping exception now (COMPARE_COREMARK_CFLAGS),
+# so this fixture only has to add the second occurrence, not plant the entry.
 d=$(ma_fixture)
-ma_edit "$d" test/march_test.sh \
-  's/^Makefile rv32i 2$/Makefile rv32i 2\
-\
-Makefile rv32ima 1/'
 ma_edit "$d" Makefile \
   's/^COMPARE_DHRY_CFLAGS := -march=rv32i/# probe: -march=rv32ima\
-# probe: -march=rv32ima\
 COMPARE_DHRY_CFLAGS := -march=rv32i/'
 probe "a second occurrence of a counted exception value is red" 1 \
-  "the exception \`Makefile rv32ima 1\` matched 2 time(s), not 1" \
-  "$d/test/march_test.sh $d"
+  "the exception \`Makefile rv32ima 1\` matched 2 time(s), not 1" "$MA $d"
 
 # A directory entry has to match on the path separator, or it silently exempts
 # every sibling whose name it happens to prefix.
@@ -3732,6 +3727,204 @@ LOG
 d=$(dd_fixture_solo)
 probe "a solo run needs no ramdiff line -- there is no reference to compare" 0 \
   "littlecpu" "$DD $d/run.log --runs 400 --cores littlecpu"
+
+begin_group "soc/compare/coremark_fit.py"
+
+CF="python3 $REPO/soc/compare/coremark_fit.py"
+
+# The measured image, the measured geometries, and littlecpu's measured block
+# RAM count -- real. Hazard3's own is inflated so this fixture demonstrates
+# the DOES NOT FIT arm -- soc/compare/dhry_fit.py's own fixture uses
+# vexriscv's real 18 blocks instead of inflating one, so at Hazard3's real
+# 4 blocks, both cores fit and that arm never fires.
+cf_fixture() {
+  local d; d=$(new_case)
+  printf '     6517   SB_LUT4\n        4   SB_RAM40_4K\n' > "$d/ours.log"
+  printf '     3505   SB_LUT4\n       20   SB_RAM40_4K\n' > "$d/theirs.log"
+  cat > "$d/tb.v" <<'TB'
+  localparam int ROM_WORDS = 4096;
+  localparam int RAM_WORDS = 4096;
+TB
+  printf '%s' "$d"
+}
+
+cf_args() {  # $1 = fixture dir
+  printf -- '--rom-bytes 10768 --ram-bytes 2104 --placed-rom 4096 --placed-ram 2048 '
+  printf -- '--sim-rom 16384 --sim-ram 16384 --tb %s/tb.v ' "$1"
+  printf -- '--core littlecpu=%s/ours.log --core hazard3=%s/theirs.log' "$1" "$1"
+}
+
+d=$(cf_fixture)
+probe "control: the measured CoreMark image reports the shortfall it has" 0 \
+  "DOES NOT FIT THE PLACED GEOMETRY" "$CF $(cf_args "$d")"
+
+d=$(cf_fixture)
+probe "a core that cannot hold the CoreMark image is named, not left to the reader" 0 \
+  "hazard3    20 of its own + 28 for the image =  48 blocks: DOES NOT FIT" \
+  "$CF $(cf_args "$d")"
+
+d=$(cf_fixture); sed -i.bak 's/RAM_WORDS = 4096/RAM_WORDS = 2048/' "$d/tb.v"
+probe "a CoreMark testbench simulating a different map than the image is linked for is red" 1 \
+  "the simulated geometry does not agree with itself" "$CF $(cf_args "$d")"
+
+d=$(cf_fixture); sed -i.bak '/RAM_WORDS/d' "$d/tb.v"
+probe "a CoreMark parameter this cannot read stops rather than comparing nothing" 1 \
+  "script the new spelling rather than dropping" "$CF $(cf_args "$d")"
+
+d=$(cf_fixture)
+probe "CoreMark data past the end of the simulated RAM is red, not silent" 1 \
+  "does not fit the simulated geometry" "$CF $(cf_args "$d") --ram-bytes 20000"
+
+d=$(cf_fixture); sed -i.bak '/SB_RAM40_4K/d' "$d/theirs.log"
+probe "a CoreMark census with no block RAM line is a synthesis that did not finish" 1 \
+  "no SB_RAM40_4K line" "$CF $(cf_args "$d")"
+
+d=$(cf_fixture)
+probe "an empty CoreMark image is named rather than reported as fitting easily" 1 \
+  "an empty image is not a measurement" "$CF $(cf_args "$d") --rom-bytes 0"
+
+begin_group "soc/compare/coremark_dmips.py"
+
+CD="python3 $REPO/soc/compare/coremark_dmips.py"
+
+# The numbers this repo measured, at 1 iteration.
+cd_fixture() {
+  local d; d=$(new_case)
+  cat > "$d/run.log" <<'LOG'
+COREMARK ran 738413 cycles of a 200000000 cycle limit
+COREMARK core=littlecpu marks=2 cycles=479420 verdict=1 writes=15701
+COREMARK core=hazard3 marks=2 cycles=714984 verdict=1 writes=15701
+COREMARK core=hazard3 wait_cycles=14176
+COREMARK ramdiff=0 of=4096 words
+LOG
+  printf '%s' "$d"
+}
+
+d=$(cd_fixture)
+probe "control: a good CoreMark run reports both cores' figures" 0 "2.086" \
+  "$CD $d/run.log --iterations 1"
+
+d=$(cd_fixture)
+probe "a clock turns the CoreMark per-MHz figure into an absolute one" 0 "25.03" \
+  "$CD $d/run.log --iterations 1 --mhz littlecpu=12.00 --mhz hazard3=12.00"
+
+d=$(cd_fixture)
+probe "the CoreMark wait-state bias is disclosed as a percentage of hazard3's own cycles" 0 \
+  "hazard3 spends 14176 of its 714984 measured cycles (1.98%)" \
+  "$CD $d/run.log --iterations 1"
+
+# THE ONE THAT MATTERS: two cores that did not compute the same thing have no
+# comparable cycle count between them.
+d=$(cd_fixture); sed -i.bak 's/ramdiff=0/ramdiff=111/' "$d/run.log"
+probe "two CoreMark cores whose RAMs differ are red, not a ratio" 1 \
+  "data RAMs differ in 111 of 4096 words" "$CD $d/run.log --iterations 1"
+
+d=$(cd_fixture); sed -i.bak 's/of=4096/of=0/' "$d/run.log"
+probe "a CoreMark RAM comparison over no words is named as unable to fail" 1 \
+  "could not have failed" "$CD $d/run.log --iterations 1"
+
+d=$(cd_fixture); sed -i.bak '/ramdiff/d' "$d/run.log"
+probe "a CoreMark run that never made the cross-core check is red" 1 \
+  "no ramdiff line" "$CD $d/run.log --iterations 1"
+
+d=$(cd_fixture); sed -i.bak 's/core=hazard3 marks=2/core=hazard3 marks=1/' "$d/run.log"
+probe "a CoreMark core that reached the start of the section and not the end is red" 1 \
+  "published 1 marker(s), not 2" "$CD $d/run.log --iterations 1"
+
+d=$(cd_fixture); sed -i.bak 's/core=littlecpu marks=2 cycles=479420 verdict=1/core=littlecpu marks=2 cycles=479420 verdict=3/' \
+  "$d/run.log"
+probe "CoreMark's own FAIL verdict stops the number being quoted" 1 \
+  "did not validate the 2K performance run" "$CD $d/run.log --iterations 1"
+
+d=$(cd_fixture); sed -i.bak '/core=hazard3/d' "$d/run.log"
+probe "one CoreMark side alone is not a cross-core figure" 1 \
+  "no result for hazard3" "$CD $d/run.log --iterations 1"
+
+d=$(cd_fixture); sed -i.bak 's/^COREMARK core=/COREMARK CORE=/' "$d/run.log"
+probe "a CoreMark simulation this cannot parse is a run that did not happen" 1 \
+  "no COREMARK result lines" "$CD $d/run.log --iterations 1"
+
+d=$(cd_fixture)
+probe "zero CoreMark iterations would divide the work by nothing" 1 \
+  "nothing was measured" "$CD $d/run.log --iterations 0"
+
+d=$(cd_fixture)
+probe "a CoreMark clock for a core nobody graded is named rather than ignored" 1 \
+  "which is not one of the cores graded" \
+  "$CD $d/run.log --iterations 1 --mhz vexriscv=40"
+
+d=$(cd_fixture)
+probe "a CoreMark placement at zero MHz is not a placement" 1 "is not placed" \
+  "$CD $d/run.log --iterations 1 --mhz littlecpu=0"
+
+begin_group "soc/compare/run_coremark_compare.sh"
+
+# UNLIKE test/bench/run_coremark.sh's group above, this script's toolchain
+# search runs BEFORE its manifest/pin check, so a probe here has to reach the
+# manifest check with something on PATH that answers `command -v` -- a stub
+# that exists and fails loudly the moment it is actually invoked, which is
+# the first real work after the manifest check passes. No probe needs it to
+# succeed: the manifest check is what is being graded.
+RCC_TOOLCHAIN_MARKER="stub: reached the compiler; nothing past the manifest check is real here"
+
+rcc_bin() {  # $1 = bin dir to create
+  local bin=$1
+  mkdir -p "$bin"
+  for tool in riscv64-elf-gcc riscv64-elf-objcopy riscv64-elf-size riscv64-elf-nm; do
+    cat > "$bin/$tool" <<STUB
+#!/bin/sh
+echo "$RCC_TOOLCHAIN_MARKER"
+exit 1
+STUB
+    chmod +x "$bin/$tool"
+  done
+}
+
+# A COPY OF THE SHIPPING VENDOR TREE, the same reason rc_fixture above is one:
+# the control is then the real set of vendored files and every red probe is
+# one edit away from it.
+rcc_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/soc/compare" "$d/test/bench/coremark"
+  cp "$REPO/soc/compare/run_coremark_compare.sh" "$REPO/soc/compare/bench.lds" \
+     "$REPO/soc/compare/coremark.lds" "$d/soc/compare/"
+  cp "$REPO"/test/bench/coremark/*.c "$REPO"/test/bench/coremark/*.h \
+     "$REPO/test/bench/coremark/PINNED.sha256" \
+     "$REPO/test/bench/coremark/LICENSE.md" \
+     "$REPO/test/bench/coremark/coremark.md5" "$d/test/bench/coremark/"
+  rcc_bin "$d/bin"
+  printf '%s' "$d"
+}
+
+rcc() { printf "PATH='%s/bin:%s/bin-none:/usr/bin:/bin' %s/soc/compare/run_coremark_compare.sh 1 1 -O2" \
+  "$1" "$tmp" "$1"; }
+
+d=$(rcc_fixture)
+probe "control: an unmodified vendor tree reaches the stub compiler" 1 \
+  "$RCC_TOOLCHAIN_MARKER" "$(rcc "$d")"
+
+# A mutated vendored byte: shasum -c catches it, and prints why.
+d=$(rcc_fixture)
+printf '\n' >> "$d/test/bench/coremark/core_main.c"
+probe "a mutated vendored byte fails the pin, and says so" 1 \
+  "no longer matches PINNED.sha256" "$(rcc "$d")"
+
+# A deleted manifest line: shasum -c never sees the file it was never told
+# about, so only a two-way name comparison catches it.
+d=$(rcc_fixture)
+grep -v 'core_util\.c$' "$d/test/bench/coremark/PINNED.sha256" \
+  > "$d/test/bench/coremark/PINNED.sha256.new"
+mv "$d/test/bench/coremark/PINNED.sha256.new" "$d/test/bench/coremark/PINNED.sha256"
+probe "a file the manifest stopped naming is red before shasum ever runs" 1 \
+  "does not have exactly the files PINNED.sha256" "$(rcc "$d")"
+
+# THE CONCRETE EXPLOIT: core_portme.h dropped in beside the vendored sources
+# shadows this port's real header for every vendored unit's quoted #include,
+# and shasum -c alone would report the tree unmodified.
+d=$(rcc_fixture)
+cp "$REPO/test/bench/core_portme.h" "$d/test/bench/coremark/core_portme.h"
+probe "an unlisted core_portme.h would shadow the port's header, and is caught" 1 \
+  "core_portme.h" "$(rcc "$d")"
 
 begin_group "test/port_connect_test.py"
 

@@ -1395,6 +1395,42 @@ compare-dhrystone: compare.dhry.vvp compare.dhry.solo.vvp
 compare-product:
 	@./soc/compare/run_product.sh
 
+# CoreMark's cycle factor, for the pair this core and Hazard3's iCE40
+# configuration already have a clock for and no cycles. VexRiscv is not a
+# third DUT here -- soc/compare/coremark_tb.v's header says why (no M
+# extension at all in that configuration, so an RV32IMA image is not one it
+# can run). Otherwise this mirrors compare-dhrystone exactly: a simulation and
+# not a placement, soc/compare/coremark_fit.py printing why every run.
+#
+# COMPARE_COREMARK_CFLAGS drops the C extension both cores here do not share
+# (Hazard3's iCE40 build has none) but keeps M, which both implement in
+# hardware -- RV32IMA, neither COMPARE_DHRY_CFLAGS' RV32IC (no M at all on
+# that pair) nor COREMARK_CFLAGS' RV32IMAC_Zicsr_Zifencei_Zkt (this core
+# alone). 1 iteration: `iterate()`'s measured loop is the identical
+# seed-determined call pair every time with no cache on either core to warm
+# or cool, so the per-iteration cost is constant by construction and nothing
+# past 1 buys new information for the wall-clock cost of an RTL core
+# simulation over two more.
+COMPARE_COREMARK_ITERATIONS ?= 1
+COMPARE_COREMARK_CYCLES     ?= 200000000
+COMPARE_COREMARK_CFLAGS := -march=rv32ima -mabi=ilp32 -O2 -std=c11 \
+                           -ffreestanding -fno-tree-loop-distribute-patterns \
+                           -Wall -Wextra -Werror
+
+COMPARE_COREMARK_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
+                         soc/compare/bench_hazard3.v soc/compare/coremark_tb.v
+
+compare.coremark.vvp: $(COMPARE_COREMARK_SRCS) | $(HAZARD3_DIR)
+	iverilog -I./rtl/ -I$(HAZARD3_HDL) -g2012 -o $@ $(HAZARD3_SRCS) \
+	  $(COMPARE_COREMARK_SRCS)
+
+.PHONY: compare-coremark
+compare-coremark: compare.coremark.vvp
+	@$(MAKE) --no-print-directory COMPARE_CORE=littlecpu compare.littlecpu.core.log
+	@$(MAKE) --no-print-directory COMPARE_CORE=hazard3 compare.hazard3.core.log
+	@./soc/compare/run_coremark_compare.sh $(COMPARE_COREMARK_ITERATIONS) \
+	  $(COMPARE_COREMARK_CYCLES) '$(COMPARE_COREMARK_CFLAGS)' compare.coremark.vvp
+
 .PHONY: compare-timing
 compare-timing: compare.$(COMPARE_CORE).asc compare.$(COMPARE_CORE).core.log
 	@sed -n '/^Info: Device utilisation:/,/^$$/s/^Info: //p' compare.$(COMPARE_CORE).pnr.log
@@ -1426,10 +1462,12 @@ clean:
 	rm -f test/dual_rtl.cc dual-sim
 	rm -f soc/rom_even.hex soc/rom_odd.hex
 	rm -f compare.*.json compare.*.asc compare.*.log compare.*.rpt compare.vvp
-	rm -f compare.dhry.vvp compare.dhry.solo.vvp
+	rm -f compare.dhry.vvp compare.dhry.solo.vvp compare.coremark.vvp
 	rm -f soc/compare/rom_even.hex soc/compare/rom_odd.hex soc/compare/rom_flat.hex
 	rm -f soc/compare/dhry_even.hex soc/compare/dhry_odd.hex soc/compare/dhry_flat.hex
 	rm -f soc/compare/dhry_ram.hex
+	rm -f soc/compare/coremark_even.hex soc/compare/coremark_odd.hex
+	rm -f soc/compare/coremark_flat.hex soc/compare/coremark_ram.hex
 	rm -f waves.vcd
 	rm -rf sim sim.dSYM
 	rm -rf cosim cosim.dSYM

@@ -582,6 +582,10 @@ make compare-dhrystone  # Dhrystone on all THREE cores, one RV32I image, one sim
                     # DMIPS/MHz each, plus a fourth row of this core alone at its native
                     # ISA so the shared subset's cost is a number. COMPARE_DHRY_MHZ adds
                     # the absolute column. Not a gate, not on CI
+make compare-coremark # the same for CoreMark, on littlecpu and Hazard3's iCE40 build
+                    # only -- VexRiscv has no M in this harness's pinned build, so it
+                    # cannot run an RV32IMA image. COMPARE_COREMARK_MHZ adds the
+                    # absolute column. Not a gate, not on CI
 make compare-product # both factors of every cross-core pair in one run, stamped into
                     # soc/compare/product.json with the commit, seeds and CFLAGS behind
                     # each number. COMPARE_PRODUCT_SEEDS picks the sweep (twelve by
