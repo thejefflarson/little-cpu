@@ -10,4 +10,4 @@ index 331a2ed..9171a9d 100644
 +  assign serialize = (instr_csr_access || instr_mret) && !pipe_drained;
  
    logic hazard_rs1, hazard_rs2, hazard, stall;
-   assign hazard_rs1 = uses_rs1 && rs1 != 0 && live_rs1;
+   assign hazard_rs1 = uses_rs1 && rs1 != 0 && live_rs1 && !ex_fwd_rs1;

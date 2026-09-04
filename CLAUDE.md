@@ -83,14 +83,25 @@ references still resolve.
   product is re-taken as a pair rather than one side at a time.
 - **Every inter-stage struct carries a `valid` bit** (3). A bubble is `valid = 0`; retire is
   `valid` reaching writeback, which gates `wen` and drives `rvfi_valid`.
-- **Hazards are stall-only** (4). No forwarding network: a RAW hazard stalls in decode against a
-  two-slot scoreboard. A cycle that is both a hazard and an operand-fetch cycle is charged to the
-  scoreboard (`test/cxxrtl.cc`'s bucket order), so those two columns of `make cycles` are not
-  separable, and the scoreboard's share is an upper bound on one workload, never the prize.
-  Forwarding in both widths (ADR-0083), a fourth scoreboard slot in place of the write-through
-  bypass (ADR-0092) and writing a committed result into the idle register port a cycle early
-  (ADR-0100) are each built, measured and declined on the clock; every candidate touched the
-  write-through bypass or the fetch loop it sits in, and ADR-0100 is the evidence to beat.
+- **Hazards are stall-only except where the executor's own slot already holds the answer** (4). A
+  RAW hazard stalls in decode against a two-slot scoreboard, and forwarding excuses that stall only
+  for `out.rs1`/`out.rs2`, only from `executor_out` (never `out`, whose instruction has not reached
+  the executor), and only for encodings with no other decode-side reader of the same register:
+  `instr_math` for rs1, the same plus store/AMO/`sc.w` write data for rs2, never a branch's rs2.
+  `executor_out.rd_ready` holds back a load's, an AMO's, `lr.w`'s or `sc.w`'s still-unpacked result,
+  so those hazards stay stall-only. RVFI's `rs1_rdata`/`rs2_rdata` report the forwarded value, not
+  the register file's — the monitor checks `rd_wdata` against exactly those two fields, so the
+  register file's answer makes every forwarded retire self-contradictory. A cycle that is both a
+  hazard and an operand-fetch cycle is charged to the scoreboard (`test/cxxrtl.cc`'s bucket order),
+  so those two columns of `make cycles` are not separable, and the scoreboard's share is an upper
+  bound on one workload, never the prize. Measured on the tree this
+  lands on: Dhrystone's hazard column falls 357,798 → 317,207 cycles and the run
+  1,543,497 → 1,506,943, which is 0.758 → **0.777 DMIPS/MHz**; the `.S` suite goes
+  41,052 → 39,096 (ADR-0154).
+  Still declined on the clock: forwarding to every operand reader (ADR-0083), a fourth scoreboard
+  slot in place of the write-through bypass (ADR-0092) and writing a committed result into the idle
+  register port a cycle early (ADR-0100), which is the evidence to beat — every candidate so far
+  touched the write-through bypass or the fetch loop it sits in.
 - **CSR instructions, `mret` and `fence.i` serialize** (5) — held in decode until execute, access
   and writeback are empty. Two reasons share the mechanism and must not be collapsed: the first two
   so a one-cycle architectural update cannot interleave with older instructions; `fence.i` because
@@ -397,22 +408,22 @@ top, ECP5 only.
   minute (ADR-0078).
 - **`make dhrystone` and `make coremark` are the figures comparable to another project's** —
   Dhrystone to VexRiscv, CoreMark to Hazard3 and most cores published since — and neither is a
-  gate. Dhrystone: **0.758 DMIPS/MHz, 9.10 DMIPS at 12 MHz** at `-O2` (ADR-0158), quoted with the
+  gate. Dhrystone: **0.777 DMIPS/MHz, 9.32 DMIPS at 12 MHz** at `-O2` (ADR-0154), quoted with the
   absolute figure because Fmax above the requirement is margin and not speed (ADR-0089), and with
   the flags, the compiler, the string library and **the linker script** — the program prints the
   first three and will not compile without them, and `test/bench/bench.lds` asserts the fourth at
-  link time. **It went 9.10 → 7.97 and back to 9.10, and the two moves differ in kind**: the region
-  wait spends 13.79% of Dhrystone's cycles to make an out-of-region access fault (ADR-0129), and
-  insetting the layout gives those cycles back with no RTL change, `make fit` and the netlist digest
-  both unmoved (ADR-0158). A CPI regression with no conformance behind it is still a regression, and
-  a figure recovered by moving the software is the firmware ceasing to pay a cost, never the core
-  getting faster. **CoreMark is SIMULATED AT 16 KB OF ROM**,
-  double the part's 8, against `test/testbench.v`'s `ROM_WORDS`, and every printed figure says so;
-  the five algorithm files are vendored unmodified and pinned by `test/bench/coremark/PINNED.sha256`
-  (ADR-0136). **2.013 CoreMark/MHz** on the shipping layout against 1.811 on the conventional one,
-  so it travels with the linker script the way the DMIPS figure does (ADR-0158).
-  Hazard3's published 4.15 CoreMark/MHz is its RP2350 build, not its iCE40 one, and
-  quoting it against an ice40 core is the mixed-configuration error ADR-0098 names.
+  link time. **It went 9.10 → 7.97 → 9.10 → 9.32, and the moves differ in kind**: the region wait
+  spends 13.79% of Dhrystone's cycles to make an out-of-region access fault (ADR-0129), insetting
+  the layout gives those cycles back with no RTL change and the netlist digest unmoved (ADR-0158),
+  and executor-only forwarding buys the last step in the datapath (ADR-0154). A CPI regression
+  with no conformance behind it is still a regression, and a figure recovered by moving the
+  software is the firmware ceasing to pay a cost, never the core getting faster. **CoreMark is
+  SIMULATED AT 16 KB OF ROM**, double the part's 8, against `test/testbench.v`'s `ROM_WORDS`, and
+  every printed figure says so; the five algorithm files are vendored unmodified and pinned by
+  `test/bench/coremark/PINNED.sha256` (ADR-0136). **2.013 CoreMark/MHz** on the shipping layout
+  against 1.811 on the conventional one, so it travels with the linker script the way the DMIPS
+  figure does (ADR-0158). Hazard3's published 4.15 CoreMark/MHz is its RP2350 build, not its iCE40
+  one, and quoting it against an ice40 core is the mixed-configuration error ADR-0098 names.
 - **The only cross-core comparison that means anything is one harness**, `soc/compare/`: same part,
 memories, program, toolchain and seeds, against the VexRiscv in the pinned riscv-formal clone and
 Hazard3's iCE40 build (`soc/compare/hazard3_pin.mk`, ADR-0139). **A product is a measurement only
@@ -660,7 +671,8 @@ board is not always plugged in. SPRAM cannot be initialised, so `.data` rides in
 address `test/asm/boot.lds` puts there and `test/crt0.S` copies into RAM before `main`. Still
 deferred: the radix-4 divider (a CPI lever that costs area, so never part of an area pass,
 ADR-0038), booting a program out of the flash, an interrupt controller, more interrupt sources and
-a vectored `mtvec`. The forwarding network is declined, not deferred (ADR-0083).
+a vectored `mtvec`. The full forwarding network is declined, not deferred (ADR-0083); the
+executor-only spelling ships (ADR-0154).
 
 **8 KB of text is the ceiling, and it is the fetch loop's, not the part's.** `rtl/imemory.v`
 refuses a `ROM_WORDS` that is not a power of two because both its range tests are reductions on the
