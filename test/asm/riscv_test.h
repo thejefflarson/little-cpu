@@ -238,6 +238,19 @@ trap_handler:                                                                \
         lw      t2, 0(base);                                                \
         andi    t2, t2, 0xff;
 
+// The same exchange with the outgoing byte in a register instead of an
+// immediate, for a caller shifting out an address it computed rather than one
+// it can spell as a literal. `srcreg` and `dstreg` are the caller's choice, so
+// a routine built out of this can keep its own address and count live across
+// the exchange the way SPI_XFER's hardcoded t1/t2 cannot. Only srcreg's low 8
+// bits reach the wire; `dstreg` comes back masked to those same 8 bits.
+#define SPI_XFER_REG(base, srcreg, dstreg)                                   \
+        SPI_WAIT_IDLE(base);                                                 \
+        sw      srcreg, 0(base);                                            \
+        SPI_WAIT_IDLE(base);                                                 \
+        lw      dstreg, 0(base);                                            \
+        andi    dstreg, dstreg, 0xff;
+
 // Constraint 1 does NOT apply to the handler below and its opposite does: an
 // interrupt is taken BETWEEN instructions, so `mepc` holds an instruction that
 // has not run and the handler must resume AT it, not past it. Advancing mepc
