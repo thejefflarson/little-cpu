@@ -507,6 +507,16 @@ tool-cache-test:
 memmap-test:
 	@./test/memmap_test.sh
 
+# Asserts that every rtl/*.v file has a ruling on whether a mutation of it is
+# caught by anything -- a named mutation, or `unpaired` and a real bench or
+# formal task -- checked against `ls rtl/*.v` both ways round. Hangs off
+# `test` like the other bash checks -- grep, sed and comm, no cross compiler,
+# no simulator, no yosys -- so the answer arrives before CI rather than from
+# `make mutation-check`, which is required but off this path.
+.PHONY: mutation-coverage-test
+mutation-coverage-test:
+	@./test/mutation_coverage_test.sh
+
 # Asserts that every ADR file has a unique number and exactly one row in
 # docs/adr/README.md, both ways round. Hangs off `test` like the other bash
 # checks -- ls, grep and sed, no cross compiler, no simulator, no yosys.
@@ -649,7 +659,7 @@ test: sim test-units probe-gates pin-bump-test tool-cache-test memmap-test \
       adr-numbering-test compare-geometry-test retired-term-test port-connect-test march-test \
       band-source-test zkt-isolation-test window-test imem-share-test \
       abc-engine-test mutation-probe dual-build board-elaborate \
-      tracked-ignored-test
+      tracked-ignored-test mutation-coverage-test
 	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 # The same suite `make test` runs, with the runner charging every cycle to the
