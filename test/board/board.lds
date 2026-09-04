@@ -11,6 +11,12 @@
  * sections.lds grants 16K because a simulator's memory is whatever the
  * testbench declares. That is not a formality -- test/asm/rvc.S is 12256 bytes
  * and does not fit a real ROM at all, which nothing said until something tried.
+ *
+ * The 2 KB inset on `.data` and on `__stack_top` is the layout convention
+ * test/asm/boot.lds' header states and the ASSERTs at the bottom grade: a load
+ * or store whose base register sits in a mapped window's first or last 2 KB
+ * block bubbles a cycle in rtl/decoder.v, because a 12-bit offset could cross
+ * the edge and the answer has to come from a flip-flop.
  */
 MEMORY {
     rom(rx)  : ORIGIN = 0x00000000, LENGTH = 8K
@@ -26,10 +32,10 @@ SECTIONS {
     } >rom
 
     /* Load in rom, run in ram. The three symbols are what the driver copies
-     * between; ALIGN(4) on all of them so the copy can move words. */
-    . = ALIGN(4);
+     * between; the run address is a 2 KB multiple and both ends are ALIGN(4),
+     * so the copy can move words. */
     __data_load = LOADADDR(.data);
-    .data : {
+    .data ORIGIN(ram) + 2048 : {
         __data_start = .;
         *(.tohost);
         *(.data);
@@ -61,5 +67,15 @@ SECTIONS {
         __driver_end = .;
     } >ram
 
-    __stack_top = ORIGIN(ram) + LENGTH(ram);
+    __stack_top = ORIGIN(ram) + LENGTH(ram) - 2048;
+
+    /* The grader. `.data`'s address, and the highest byte the stack can reach --
+     * the stack descends and sp is decremented before anything is stored
+     * through it, so nothing is ever accessed at __stack_top itself. */
+    ASSERT(ADDR(.data) >= ORIGIN(ram) + 2048 &&
+           ADDR(.data) < ORIGIN(ram) + LENGTH(ram) - 2048,
+           "layout: .data starts in ram's first or last 2 KB block, so every access through a pointer into it pays rtl/decoder.v's one-cycle region wait. Start it one 2 KB block above ORIGIN(ram).")
+    ASSERT(__stack_top - 1 >= ORIGIN(ram) + 2048 &&
+           __stack_top - 1 < ORIGIN(ram) + LENGTH(ram) - 2048,
+           "layout: __stack_top puts the top of the stack in ram's first or last 2 KB block, so every lw/sw off sp there pays rtl/decoder.v's one-cycle region wait. Put it one 2 KB block below ORIGIN(ram) + LENGTH(ram).")
 }

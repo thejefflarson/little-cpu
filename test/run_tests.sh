@@ -9,8 +9,9 @@
 # program is linked by test/asm/boot.lds with `.data`'s LOAD address in ROM and
 # entered through test/crt0.S, which copies it into RAM and zeroes `.bss` before
 # main -- the image the hardware can actually boot from. test/cosim.py's
-# assemble() and the Makefile's soc-rom target build the same two shapes from
-# the same inputs; a change here is a change in all three.
+# assemble(), the Makefile's soc-rom target and test/dual_smoke.sh build the
+# same shapes from the same inputs, and test/dual_build.sh copies the `.S` arm;
+# a change here is a change in every one of them.
 #
 # Usage: run_tests.sh <sim-binary> <asm-dir> <expected-fail-file> <floor-file>
 #
@@ -315,7 +316,7 @@ expected_sorted=$(sed -e 's/#.*//' "$EXPECTED_FAIL" | awk 'NF { $1=$1; print }' 
 
 malformed=$(printf '%s\n' "$expected_sorted" | awk 'NF == 1 {print}')
 if [ -n "$malformed" ]; then
-  echo "error: $EXPECTED_FAIL has entries with no status (ADR-0035 format is" >&2
+  echo "error: $EXPECTED_FAIL has entries with no status (the format is" >&2
   echo "'<test>.S <STATUS>', e.g. 'trap.S MONITOR-ERROR 101'):" >&2
   printf '  %s\n' "$malformed" >&2
   exit 1

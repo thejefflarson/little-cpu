@@ -422,10 +422,32 @@ tool-cache-test:
 memmap-test:
 	@./test/memmap_test.sh
 
+# Asserts that every rtl/*.v file has a ruling on whether a mutation of it is
+# caught by anything -- a named mutation, or `unpaired` and a real bench or
+# formal task -- checked against `ls rtl/*.v` both ways round. Hangs off
+# `test` like the other bash checks -- grep, sed and comm, no cross compiler,
+# no simulator, no yosys -- so the answer arrives before CI rather than from
+# `make mutation-check`, which is required but off this path.
+.PHONY: mutation-coverage-test
+mutation-coverage-test:
+	@./test/mutation_coverage_test.sh
+
+# Asserts that every ADR file has a unique number and exactly one row in
+# docs/adr/README.md, both ways round. Hangs off `test` like the other bash
+# checks -- ls, grep and sed, no cross compiler, no simulator, no yosys.
+# Catches the failure a README-row conflict does not: two files claiming the
+# same reserved number under two different filenames merge with no conflict
+# at all, because only one of them needs a row.
 .PHONY: adr-numbering-test
 adr-numbering-test:
 	@./test/adr_numbering_test.sh
 
+# The cross-core comparison harness states its geometry in several places, read
+# from this Makefile's own COMPARE_TOP/-T lines rather than a second hand-kept
+# list, and this is what says they agree. Hangs off `test` like the other bash
+# checks -- grep and sed only -- because the harness itself needs yosys,
+# nextpnr and the pinned clone, so nothing else on this machine would notice
+# it rotting.
 .PHONY: compare-geometry-test
 compare-geometry-test:
 	@./soc/compare/geometry_test.sh
@@ -438,6 +460,11 @@ port-connect-test:
 retired-term-test:
 	@./test/retired_term_test.sh
 
+# The ISA string is stated at seven sites and three of them build programs that
+# use no atomic, so a site left behind goes on producing numbers rather than
+# failing to assemble. Hangs off `test` like the other bash checks -- git, grep,
+# sed and awk only -- because the two sites it would otherwise take a Dhrystone
+# run and an SoC place-and-route to notice are exactly the silent ones.
 .PHONY: march-test
 march-test:
 	@./test/march_test.sh
@@ -462,6 +489,12 @@ band-source-test:
 zkt-isolation-test:
 	@python3 ./test/zkt_isolation_test.py
 
+# Forces the elaboration checks in rtl/{imemory,memory,timer,uart,spiflash}.v
+# and rtl/littlecpu.v's copy of that map to fire, in both frontends. Hangs off
+# `test` because the parameter shapes they guard are the ones the SoC and the
+# benches pass, so nothing else here would notice a check that had stopped
+# checking. It needs iverilog and yosys, which `sim` and `test-units` already
+# require.
 .PHONY: window-test
 window-test:
 	@./test/window_test.sh
@@ -482,6 +515,12 @@ mutation-check:
 mutation-probe:
 	@./test/mutation_probe.sh
 
+# The two-hart programs. Only one of them runs (`make dual-smoke`, off `test`'s
+# path): this assembles and links every one and checks it against the pairing
+# that claims it catches something, in both directions, so the four the runner
+# does not yet grade cannot rot silently, and the pairings cannot rot with
+# them. It needs the same cross compiler `make test` already needs and no
+# simulator, so it runs wherever the suite runs.
 .PHONY: dual-build
 dual-build:
 	@./test/dual_build.sh test/dual test/asm test/dual/MUTATION_PAIRINGS
@@ -491,7 +530,7 @@ test: sim test-units probe-gates pin-bump-test tool-cache-test memmap-test \
       adr-numbering-test compare-geometry-test retired-term-test port-connect-test march-test \
       band-source-test zkt-isolation-test window-test imem-share-test \
       abc-engine-test mutation-probe dual-build board-elaborate \
-      tracked-ignored-test
+      tracked-ignored-test mutation-coverage-test
 	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 .PHONY: cycles
@@ -1088,17 +1127,17 @@ netlist-diff: netlist-determinism
 # geometry, one program, one part, one toolchain, the same seeds -- so the Fmax
 # figures are one experiment instead of several. Only this core and VexRiscv are
 # cycle-measurable here: Hazard3's iCE40 configuration sets CSR_COUNTER=0, so it
-# has no mcycle to self-time a Dhrystone run with (ADR-0139) and compare-dhrystone
-# below is two cores, not three. Nothing here is a gate on the shipping design
-# and nothing here touches rtl/: `make soc-timing` remains the SoC's measurement
-# and this target's numbers are not comparable to it.
+# has no mcycle to self-time a Dhrystone run with, and compare-dhrystone below is
+# two cores, not three. Nothing here is a gate on the shipping design and nothing
+# here touches rtl/: `make soc-timing` remains the SoC's measurement and this
+# target's numbers are not comparable to it.
 #
-# `COMPARE_CORE=littlecpu` (default) or `vexriscv`; `COMPARE_SEED=<n>` picks a
-# placement. soc/compare/sweep.sh runs both cores over four seeds each by
-# default, which is a look at a distribution and not a verdict on one: a decision
-# costs twelve to sixteen. This harness places hx8k, whose spread nobody has
-# swept -- `soc/bands.py hx8k` is where that is stated, and it does not hand back
-# up5k's figures for it.
+# `COMPARE_CORE=littlecpu` (default), `vexriscv` or `hazard3`;
+# `COMPARE_SEED=<n>` picks a placement. soc/compare/sweep.sh runs littlecpu and
+# vexriscv over four seeds each by default, which is a look at a distribution
+# and not a verdict on one: a decision costs twelve to sixteen. This harness
+# places hx8k, whose spread nobody has swept -- `soc/bands.py hx8k` is where
+# that is stated, and it does not hand back up5k's figures for it.
 COMPARE_CORE  ?= littlecpu
 COMPARE_SEED  ?=
 # 4 KB of ROM (8 SB_RAM40_4K) and 2 KB of data RAM (4 more). Shrunk from the
@@ -1324,10 +1363,11 @@ compare-timing: compare.$(COMPARE_CORE).asc compare.$(COMPARE_CORE).core.log
 	  || { cat compare.$(COMPARE_CORE).icetime.log; exit 1; }
 	@echo
 	@echo 'THIS IS NOT `make soc-timing`, AND NOT A LIKE-FOR-LIKE COMPARISON.'
-	@echo 'Different part, smaller memories, no timer, and the two cores'
-	@echo 'implement different ISAs: RV32IMAC+Zicsr with traps here, RV32IC with'
-	@echo 'no CSR file and no traps there. Read ADR-0086 before quoting any of'
-	@echo 'it. One placement is a sample: soc/compare/sweep.sh runs four each.'
+	@echo 'Different part, smaller memories, no timer, and the cores implement'
+	@echo 'different ISAs: RV32IMAC+Zicsr with traps here, RV32IC with no CSR'
+	@echo 'file and no traps for VexRiscv, RV32IMA with no C and no counters'
+	@echo 'for Hazard3. Quote the ISA and the geometry with the number. One'
+	@echo 'placement is a sample: soc/compare/sweep.sh runs four each.'
 	@python3 soc/timing_split.py compare.$(COMPARE_CORE).timing.rpt
 
 clean:
@@ -1352,15 +1392,15 @@ clean:
 	rm -f rvfi_macros.vh
 	@# NOT rtl/rom.mem: gitignored, untracked, and nothing regenerates real
 	@# contents for it, so `clean` deleting it is unrecoverable data loss.
-	@# NOT tools/sail either: it is a multi-megabyte network fetch that nothing
-	@# on `make test`'s path needs, so blowing it away on every `clean` costs a
-	@# download to get back something `clean` was never asked to rebuild.
-	@# Bumping SAIL_RISCV_VERSION and re-running `make sail-setup` re-fetches
-	@# on its own now -- the pin is recorded in tools/sail/.sail-pin and
-	@# compared, so this comment is no longer the only thing making that true.
-	@# `rm -rf tools/sail` still works as the blunt instrument.
-	@# NOT tools/svlint either, and for the same reason: a network fetch that
+	@# NOT $(SAIL_RISCV_DIR) either: a multi-megabyte network fetch outside the
+	@# checkout that nothing on `make test`'s path needs, so blowing it away on
+	@# every `clean` costs a download to get back something `clean` was never
+	@# asked to rebuild. Bumping SAIL_RISCV_VERSION and re-running
+	@# `make sail-setup` re-fetches on its own -- the pin is recorded in
+	@# $(SAIL_STAMP) and compared -- and `rm -rf` of the directory by hand is
+	@# the blunt instrument.
+	@# NOT $(SVLINT_DIR) either, and for the same reason: a network fetch that
 	@# `clean` was never asked to rebuild. `make lint-setup` re-fetches
-	@# unconditionally, so `rm -rf tools/svlint` is the blunt instrument there.
+	@# unconditionally, so `rm -rf` of it by hand is the blunt instrument there.
 
 # The riscv-formal clone rule and its pin guard live in formal/pin.mk.

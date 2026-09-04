@@ -31,6 +31,16 @@
  * which links the same map with `.data`'s load address in `rom` so the startup
  * can copy it -- the only shape the SoC can boot, since its SPRAM cannot be
  * initialised from a bitstream.
+ *
+ * `.tohost` IS ITS OWN OUTPUT SECTION so that `.data` can have its own address.
+ * rtl/decoder.v answers a load or store's region question off raw register bits
+ * only when the base register sits deep inside a mapped window -- in it, and in
+ * neither its first 2 KB block nor its last -- because a 12-bit signed offset
+ * reaches 2 KB either way, and an access whose base is in an edge block bubbles
+ * a cycle while the answer comes out of a flip-flop. `.data` therefore starts
+ * one 2 KB block above `ram`'s ORIGIN, which is the same convention
+ * test/asm/boot.lds' header states at length and the ASSERT below grades.
+ * `.tohost` keeps the first block: the runners watch the first word of RAM.
  */
 MEMORY {
     rom(rx)  : ORIGIN = 0x00000000, LENGTH = 16K
@@ -44,8 +54,12 @@ SECTIONS {
         . = ALIGN(4);
     } >rom
 
-    .data : {
+    .tohost : {
         *(.tohost);
+        . = ALIGN(4);
+    } >ram
+
+    .data ORIGIN(ram) + 2048 : {
         *(.data);
         *(.rodata);
         *(.rodata.*);
@@ -56,4 +70,8 @@ SECTIONS {
         *(.bss);
         . = ALIGN(4);
     } >ram
+
+    ASSERT(ADDR(.data) >= ORIGIN(ram) + 2048 &&
+           ADDR(.data) < ORIGIN(ram) + LENGTH(ram) - 2048,
+           "layout: .data starts in ram's first or last 2 KB block, so every access through a pointer into it pays rtl/decoder.v's one-cycle region wait. Start it one 2 KB block above ORIGIN(ram).")
 }

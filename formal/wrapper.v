@@ -46,11 +46,12 @@ module rvfi_wrapper (
   (* keep *) `rvformal_rand_reg mem_reservable;
 
   // Whether an atomic's address is memory that answers one. Free for the same
-  // reason, and this is the one that makes the load and store arms of
-  // checks/rvfi_fault_check.sv reachable at all: with it tied high the core
-  // raises causes 5 and 7 nowhere, and that check would be asking only about
-  // fetches. Nothing is assumed about it either -- an atomic decode either
+  // reason, and nothing is assumed about it either -- an atomic decode either
   // faults with it or issues without it, and both are this core's behaviour.
+  // It is not what makes the load and store arms of checks/rvfi_fault_check.sv
+  // reachable: a plain load or store outside the decoder's own map faults
+  // whatever this bit says, and those are the encodings the check has a spec
+  // model for.
   (* keep *) `rvformal_rand_reg atomic_supported;
   wire [31:0] atomic_addr;
 
@@ -99,7 +100,7 @@ module rvfi_wrapper (
   // Nothing in this repo discharges it. The backing is structural -- both fetch
   // ports read one array in rtl/imemory.v -- and it is believed rather than
   // proved. It sits in the harness every generated check instantiates, so it is
-  // in force over all 85 of them, not only the two it was written for.
+  // in force over every generated check, not only the two it was written for.
   //
   // Why the core needs it: decode presents a register address pair in one cycle
   // and consumes the answer in the next, and it decides the two belong to the
@@ -191,12 +192,13 @@ module rvfi_wrapper (
   // withhold forever, starving the liveness check of a next retire. There is
   // nothing here to bound. `imem_data` and `mem_rdata` are free every cycle but
   // the core never waits on their value, and every stall it does have is driven
-  // by its own state: the divider counts down from 32 on its own, the load
-  // turnaround is one cycle by construction, and `fetch_stall` comes from the
-  // arbiter above, which reads the core's own bus rather than being chosen. The
-  // one stall an environment COULD choose is `bus_wait`, and it is tied off
-  // above -- a bus grant withheld forever is exactly the shape this block would
-  // otherwise have to bound.
+  // by its own state: the divider counts down from 32 on its own, an AMO's
+  // write cycle and the load/store region wait are one cycle each by
+  // construction, and `fetch_stall` comes from the arbiter above, which reads
+  // the core's own bus rather than being chosen. The one stall an environment
+  // COULD choose is `bus_wait`, and it is tied off above -- a bus grant
+  // withheld forever is exactly the shape this block would otherwise have to
+  // bound.
   //
   // Left as an explicit empty block so that a liveness surprise later reads as a
   // decision rather than an omission.

@@ -12,10 +12,10 @@ statement that a trap reports the right thing about the right access -- and an
 arm nobody has watched fail is worth nothing, which is what `make probe-gates`
 demands of every other graded comparison here.
 
-The arm IS reached by the shipping core, unlike the region arm next door, so
-this is a different question from that probe's: not "can the model admit the
-mechanism" but "does the comparison still separate values". Three cores are
-built, each one line of rtl/decoder.v from the shipping one:
+Both this arm and the region arms next door are reached by the shipping core;
+what this probe asks is not whether the trap happens but whether the comparison
+still separates values. Three cores are built, each one line of rtl/decoder.v
+from the shipping one:
 
   control      the shipping mtval mux, and the proof must PASS. Without it a
                model that had become unprovable for some unrelated reason would
