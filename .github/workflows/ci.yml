@@ -5,6 +5,14 @@ on:
   push:
     branches: [main]
 
+# Eleven jobs a run, several pull requests at once, and a runner pool smaller
+# than that: a superseded run is capacity the next one waits behind. A push to a
+# pull request cancels its own earlier run; a push to main never cancels,
+# because main's result is the record for that commit.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
@@ -99,10 +107,10 @@ jobs:
     name: test
     # Fork-PR routing: see the note above `jobs:` for what this picks and why.
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
-    # Two to five minutes on an idle pool, but the pool is one runner serving
-    # every job in this workflow and this job has been killed at 10m25s under
-    # contention -- a cancelled job reads as a failed gate rather than as a busy
-    # pool. The budget catches a run that hangs, so it sits clear of a loaded one.
+    # Two to five minutes on an idle pool, and killed at 10m25s under contention
+    # -- eleven jobs a run across every open pull request, against four runners.
+    # A cancelled job reads as a failed gate rather than as a busy pool, and this
+    # budget is here to catch a run that hangs, so it sits clear of a loaded one.
     timeout-minutes: 25
     steps:
       - name: Record job start
@@ -170,10 +178,11 @@ jobs:
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
     # Eleven mutations, each rebuilding the cxxrtl runner: about nine minutes of
     # work on an idle machine, and every mutation added spends about a minute
-    # more. The pool is one runner serving every job in this workflow, so a
-    # budget near the idle time gets the job killed mid-run under contention --
-    # which reads as a failed gate rather than as a busy pool, with the log
-    # still inside the redirect below. This is set well clear of a loaded run.
+    # more. It ran 31 minutes on main against a 25-minute budget, because the
+    # pool serves eleven jobs a run across every open pull request -- so a budget
+    # near the idle time gets the job killed mid-run, which reads as a failed
+    # gate rather than as a busy pool, with the log still inside the redirect
+    # below. This is set well clear of a loaded run.
     timeout-minutes: 45
     steps:
       - name: Record job start
@@ -230,8 +239,8 @@ jobs:
     name: cosim
     # Fork-PR routing: see the note above `jobs:` for what this picks and why.
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
-    # Eight minutes on an idle pool, and the same single-runner contention that
-    # has killed `test`, `components` and `mutation-check` mid-run applies here.
+    # Eight minutes on an idle pool, and the same contention that has killed
+    # `test`, `components` and `mutation-check` mid-run applies here.
     timeout-minutes: 30
     steps:
       - name: Record job start
@@ -316,11 +325,11 @@ jobs:
     name: components
     # Fork-PR routing: see the note above `jobs:` for what this picks and why.
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
-    # The proofs take about five minutes together on an idle pool, but the pool
-    # is one runner serving every job in this workflow, and a budget close to
-    # that time gets the job killed mid-proof under contention -- which reads as
-    # a failed gate rather than as a busy pool. This budget is here to catch a
-    # solver that hangs, so it is set well clear of a healthy run.
+    # About five minutes together on an idle pool, and twelve on main under load,
+    # because the pool serves eleven jobs a run across every open pull request. A
+    # budget close to the idle time gets the job killed mid-proof, which reads as
+    # a failed gate rather than as a busy pool. This is here to catch a solver
+    # that hangs, so it sits well clear of a healthy run.
     timeout-minutes: 20
     steps:
       - name: Record job start
