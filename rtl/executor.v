@@ -43,24 +43,32 @@ module executor(
   assign shift_res  = shift_wide[31:0];
 
   // The divider is unsigned; signed div and rem hand it magnitudes and restore
-  // the sign on completion.
+  // the sign on completion. `-x` is spelled `~(x - 1)` because an ice40 carry
+  // cell reads its addends off the cell pins, so inverting a register output
+  // there costs a LUT per bit while the constant is free.
   logic [31:0] div_x, div_y;
-  assign div_x = (in.is_div || in.is_rem) && rs1[31] ? -rs1 : rs1;
-  assign div_y = (in.is_div || in.is_rem) && rs2[31] ? -rs2 : rs2;
+  assign div_x = (in.is_div || in.is_rem) && rs1[31] ? ~(rs1 - 32'd1) : rs1;
+  assign div_y = (in.is_div || in.is_rem) && rs2[31] ? ~(rs2 - 32'd1) : rs2;
 
   logic [1:0]  state;
   localparam init = 2'b00;
   localparam divide = 2'b10;
   logic [6:0]  mul_div_counter;
   // div_quot holds the dividend: a quotient bit shifts in at the bottom on the
-  // edge each dividend bit leaves the top.
-  logic [31:0] div_rem, div_quot, div_divisor;
+  // edge each dividend bit leaves the top. The divisor is held complemented so
+  // the subtract reads it straight onto the carry pins, which is why
+  // `div_divisor` reads all-ones out of reset; nothing consumes it outside the
+  // divide state.
+  logic [31:0] div_rem, div_quot, div_divisor_n;
+  logic [31:0] div_divisor;
+  assign div_divisor = ~div_divisor_n;
 
   // The borrow out of rem_sub is the quotient bit's inverse, and div_rem <
-  // div_divisor every iteration is what makes 33 bits enough.
+  // div_divisor every iteration is what makes 33 bits enough. `a - b` is
+  // written out as `a + ~b + 1` so the complemented register is the addend.
   logic [32:0] rem_shifted, rem_sub;
   assign rem_shifted = {div_rem, div_quot[31]};
-  assign rem_sub     = rem_shifted - {1'b0, div_divisor};
+  assign rem_sub     = rem_shifted + {1'b1, div_divisor_n} + 33'd1;
 
   always_comb
     stalled = state != init;
@@ -101,7 +109,7 @@ module executor(
       mul_div_counter <= 0;
       div_rem <= 0;
       div_quot <= 0;
-      div_divisor <= 0;
+      div_divisor_n <= 0;
       op_is_div <= 0;
       op_is_divu <= 0;
       op_is_rem <= 0;
@@ -173,7 +181,7 @@ module executor(
                 state <= divide;
                 div_rem <= 0;
                 div_quot <= div_x;
-                div_divisor <= div_y;
+                div_divisor_n <= ~div_y;
                 out.valid <= 1'b0;
               end
              `else
@@ -181,7 +189,7 @@ module executor(
               state <= divide;
               div_rem <= 0;
               div_quot <= rs1;
-              div_divisor <= rs2;
+              div_divisor_n <= ~rs2;
               out.valid <= 1'b0;
              `endif
             end
