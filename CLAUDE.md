@@ -578,6 +578,11 @@ make compare-timing # this core, VexRiscv and Hazard3 in ONE hx8k harness; COMPA
 make compare-smoke  # all three harnesses run one image in iverilog and must agree
 make compare-dhrystone  # Dhrystone on this core and VexRiscv, one image -> DMIPS/MHz each;
                     # COMPARE_DHRY_MHZ adds the absolute column. Not a gate, not on CI
+make compare-product # both factors of every cross-core pair in one run, stamped into
+                    # soc/compare/product.json with the commit, seeds and CFLAGS behind
+                    # each number. COMPARE_PRODUCT_SEEDS picks the sweep (twelve by
+                    # default). Not a gate, not on CI -- a scheduled workflow re-takes
+                    # it weekly and opens a PR when it moved
 
 make -C formal check                # the generated riscv-formal checks, always a fresh run;
                                     # both tie-off checks are prerequisites

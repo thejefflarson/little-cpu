@@ -147,6 +147,19 @@ Makefile rv32ic 1
 # the Dhrystone runner PRINTS, so the flags travel with the number. It has no
 # ISA after it, which is what the `(empty)` says.
 soc/compare/run_dhrystone.sh (empty) 1
+
+# The stamped cross-core product artifact (`make compare-product`). It records
+# the CFLAGS each pair's image was actually built with, verbatim, so its own
+# ISA moves with whichever pair wrote it -- rv32ic for the Dhrystone pair today,
+# rv32ima for the CoreMark pair once it is measured -- which is why this is
+# (any) rather than one string.
+soc/compare/product.json (any)
+
+# Two more grep patterns and a help string, none of them a flag: the one that
+# pulls the bare -march= value out of a CFLAGS string for soc/compare/product_write.py's
+# --isa, and --isa's own help text naming the flag it extracts.
+soc/compare/run_product.sh (empty) 2
+soc/compare/product_write.py (empty) 1
 EXCEPTIONS
 }
 

@@ -1347,6 +1347,26 @@ compare-dhrystone: compare.dhry.vvp
 	@$(MAKE) --no-print-directory COMPARE_CORE=vexriscv compare.vexriscv.core.log
 	@./soc/compare/run_dhrystone.sh $(COMPARE_DHRY_RUNS) $(COMPARE_DHRY_CYCLES) \
 	  '$(COMPARE_DHRY_CFLAGS)' compare.dhry.vvp
+	@echo
+	@if [ -f soc/compare/product.json ]; then \
+	  echo '== the stamped cross-core product, if the stamp still matches this tree =='; \
+	  python3 soc/compare/product_check.py soc/compare/product.json dhrystone \
+	    --repo . --current 'cflags=$(COMPARE_DHRY_CFLAGS)' \
+	    --current 'rom_words=$(COMPARE_ROM_WORDS)' \
+	    --current 'ram_words=$(COMPARE_RAM_WORDS)' || true; \
+	else \
+	  echo 'no soc/compare/product.json yet -- `make compare-product` stamps one'; \
+	fi
+
+# Both factors of both cross-core pairs (Dhrystone against VexRiscv, CoreMark
+# against Hazard3 once make compare-coremark exists) in one command, written
+# into soc/compare/product.json -- soc/compare/run_product.sh's header has the
+# reasoning. COMPARE_PRODUCT_SEEDS defaults to twelve, this file's own floor for
+# a verdict rather than a look; COMPARE_PRODUCT_OUT overrides where it lands,
+# for a dry run that should not touch the tracked artifact.
+.PHONY: compare-product
+compare-product:
+	@./soc/compare/run_product.sh
 
 .PHONY: compare-timing
 compare-timing: compare.$(COMPARE_CORE).asc compare.$(COMPARE_CORE).core.log
