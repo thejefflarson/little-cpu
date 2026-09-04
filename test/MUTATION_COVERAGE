@@ -1,0 +1,136 @@
+# Every rtl/*.v file's ruling on whether a mutation of it is caught by
+# anything at all.
+#
+# WHY THIS EXISTS. `make mutation-check` grades test/MUTATION_DETECTORS's set
+# of pairings against the set of patches in test/mutations/, both ways round --
+# but that is a claim about the ELEVEN PATCHES that exist, and says nothing
+# about the FOURTEEN rtl/*.v files no patch touches. `rtl/uart.v`,
+# `rtl/spiflash.v`, `rtl/executor.v` and twelve others could each go without a
+# single line changing behaviour and nothing on `make mutation-check`'s path
+# would say so, because nothing there is asked the question. A new file added
+# to rtl/ joins that silence by default. This file is the set-equality check
+# test/MUTATION_DETECTORS does not do: against `ls rtl/*.v`, in both
+# directions, the way test/OBSERVED_FLOOR's name set doubles as the suite
+# manifest and test/PROBES_EXPECTED is a both-ways multiset.
+#
+# FORMAT -- one line per rtl/*.v file:
+#
+#     <rtl-file>  <mutation>
+#     <rtl-file>  unpaired  <grader>
+#
+# <rtl-file> is a path exactly as `ls rtl/*.v` prints it. <mutation> is a name
+# from test/MUTATION_DETECTORS's first column -- a real measured claim that a
+# mutation of THIS file is caught, in whichever direction MUTATION_DETECTORS
+# already demonstrates. `unpaired` is not an excuse: it must be followed by
+# the name of the bench (a test/*_tb.v run by `make test-unit-<bench>`) or the
+# formal component task (`make -C formal components_<task>`) or other named
+# `make` target that DOES exercise this file, checked against the real thing
+# rather than typed on faith -- a name nothing runs is red the same way a
+# missing file is. A bare `unpaired` with no grader is a line this file's own
+# grader refuses to parse.
+#
+# THE EDITORIAL PASS IS THE POINT. Fourteen of the nineteen lines below are the
+# first time anyone asked, file by file, what actually catches a change to it,
+# rather than what a mutation happens to have been written against. Measure or
+# read before writing an entry; do not guess a grader's name to make a line
+# look covered.
+#
+# Edit this file by hand, in the same commit that adds, removes, or repurposes
+# an rtl/*.v file -- the same discipline test/MUTATION_DETECTORS and
+# test/PROBES_EXPECTED already carry.
+
+# ---- files a real mutation patch touches -----------------------------------
+#
+# Each of these five is also paired against at least one OTHER mutation in
+# test/MUTATION_DETECTORS; the name below is one demonstrated pairing, not the
+# whole set test/mutations/ has for it.
+
+rtl/accessor.v  sc-reports-success
+rtl/csrs.v      misa-drops-the-a-bit
+rtl/decoder.v   loadstore-region-ignored
+rtl/imemory.v   text-port-drops-load
+rtl/timer.v     mtip-fires-a-tick-early
+
+# ---- unpaired: caught by a unit bench ---------------------------------------
+
+# rtl/executor.v's arithmetic is what test/exec_tb.v exists to check
+# differentially -- the riscv-formal checks run under RISCV_FORMAL_ALTOPS and
+# never touch the real multiplier or divider.
+rtl/executor.v  unpaired  exec_tb
+
+# rtl/memory.v's own bench drives the two corners the suite never reaches: an
+# out-of-range access, and the no-change read.
+rtl/memory.v    unpaired  mem_tb
+
+# rtl/regfile.v's own bench pins the two-cycle read contract and the
+# write-through bypass -- the fabric no `.S` program isolates from the
+# scoreboard around it.
+rtl/regfile.v   unpaired  regfile_tb
+
+# rtl/regsel.v has no top-level bench of its own; it is a submodule
+# rtl/decoder.v instantiates twice (the issuing instruction's registers and
+# the operand-fetch guess), and test/decoder_tb.v's UNIT_BENCH_SRC list
+# compiles it in for exactly that reason.
+rtl/regsel.v    unpaired  decoder_tb
+
+# rtl/spiflash.v's own bench is the only grader of the controller's shift
+# register and its busy bit; co-simulation cannot reach it (plain memory at
+# that address) and no `.S` program exercises the SPI pins.
+rtl/spiflash.v  unpaired  spiflash_tb
+
+# rtl/structs.v declares the inter-stage struct types every pipeline module
+# reads and writes; it has no behaviour of its own to mutate, but a field
+# reordered, resized, or dropped from `fetcher_output`/`decoder_output` would
+# break decode's struct reads immediately. test/decoder_tb.v's UNIT_BENCH_SRC
+# list compiles it in and is as direct a grader as this file gets.
+rtl/structs.v   unpaired  decoder_tb
+
+# rtl/uart.v's own bench decodes the transmit line at the configured divisor
+# with five of its own failures forced; co-simulation cannot reach it (plain
+# memory at that address) and no `.S` program can read back what it sent.
+rtl/uart.v      unpaired  uart_tb
+
+# ---- unpaired: caught by a component proof ----------------------------------
+
+# rtl/busarbiter.v has no unit bench; it is proved standalone by k-induction,
+# with `--keep-going` so a starving handoff and a broken wait bound are both
+# reported rather than the first alone.
+rtl/busarbiter.v  unpaired  components_busarbiter
+
+# rtl/fetcher.v has no unit bench; formal/pcloop.sv's no-wrong-path-state
+# induction is what its `components_pcloop` task proves, over an instance that
+# actually contains this file rather than the standalone fetcher model most
+# other formal tasks assume.
+rtl/fetcher.v     unpaired  components_pcloop
+
+# ---- unpaired: caught by a whole-core grader --------------------------------
+
+# rtl/littlecpu.v is the exact module formal/wrapper.v instantiates as `dut`,
+# so it is what every generated riscv-formal check grades.
+rtl/littlecpu.v   unpaired  check
+
+# rtl/writeback.v drives the rvfi_* channel and the register-file write those
+# same generated checks compare every cycle; it has no bench of its own, but a
+# mutation to what it reports is exactly what `check` exists to catch.
+rtl/writeback.v   unpaired  check
+
+# rtl/littlesoc.v places on the part but is never instantiated by a bench --
+# test/testbench.v deliberately restates its map rather than instantiating it,
+# because simulation has no block RAM to run out of. test/memmap_test.sh reads
+# rtl/littlesoc.v's own parameter defaults and compares them against
+# rtl/memory.v, rtl/timer.v, rtl/uart.v and rtl/spiflash.v's, both ways round,
+# which is the one real check this file is under.
+rtl/littlesoc.v   unpaired  memmap-test
+
+# rtl/littledual.v is what test/dual_testbench.v instantiates directly, and
+# `make dual-smoke` is the grader that runs a program on it two ways -- both
+# harts, and hart 1 held in reset -- and checks the shared count moving
+# between them against the spec-checking monitor.
+rtl/littledual.v    unpaired  dual-smoke
+
+# rtl/littledualsoc.v adds the pins and the power-on reset around
+# rtl/littledual.v; nothing simulates it, so its only real grader is
+# `make dual-ecp5-timing`, which gates three exact mapping censuses (two
+# register files, two multipliers, two ROM copies) before it publishes a
+# frequency.
+rtl/littledualsoc.v  unpaired  dual-ecp5-timing
