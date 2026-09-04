@@ -407,3 +407,37 @@ both sides of this sweep's own placements, at the same ratios ADR-0098's earlier
 - **A product whose two factors were taken on two trees, or with two different seed counts, is still
   not a measurement.** This amendment moved both factors and the seed count together for exactly the
   reason the 2026-08-12 amendment gives for doing so at all.
+
+## Amendment, 2026-09-04 — re-taken on `e332776`, and the product did not move
+
+The amendment above was measured before executor-only forwarding landed. Re-taking both factors on
+`e332776` — twelve seeds a side, one tree, one toolchain, both cores on the conventional
+`soc/compare/dhry.lds` layout as always — gives the same product from visibly different halves.
+
+| | worst MHz | median MHz | DMIPS/MHz | DMIPS at worst | DMIPS at median |
+|---|---|---|---|---|---|
+| **littlecpu** | 30.13 | 30.80 | **0.768** | **23.14** | 23.65 |
+| **vexriscv** | 48.24 | 49.55 | 0.557 | 26.87 | 27.60 |
+
+**The product is 1.16× in VexRiscv's favour on worst-of-twelve and 1.17× on median-of-twelve** —
+the same 1.16× the previous amendment recorded, reached from halves that both moved:
+
+| factor | previous amendment | here | direction |
+|---|---|---|---|
+| littlecpu DMIPS/MHz | 0.748 | **0.768** | ours, +2.7% |
+| littlecpu worst MHz | 30.90 | **30.13** | theirs, −2.5% |
+| cycles, vexriscv/littlecpu | 1.343× | **1.379×** | ours |
+| **product** | **1.16×** | **1.16×** | unmoved |
+
+VexRiscv's own columns reproduce to the digit — 48.24 and 49.55 MHz, 1021.9 cycles per Dhrystone,
+0.557 DMIPS/MHz — which is the control this pair has always needed: it is a vendored core at a
+pinned SHA and it must not move when ours does. `DHRY ramdiff=0 of 4096 words` again, so both cores
+still leave identical memory.
+
+**This is the amendment worth reading for method rather than for its number.** Forwarding
+(ADR-0154) bought cycles and cost period, the two effects very nearly cancelled in the product, and
+a reader quoting either half alone would have concluded the gap had closed or widened depending on
+which half they picked. That is the whole reason this ADR insists both factors come off one tree.
+It also means **a stale product is not automatically a wrong one** — this one was stale for four
+merges and still correct — so staleness is a reason to re-take, never on its own a reason to
+disbelieve.

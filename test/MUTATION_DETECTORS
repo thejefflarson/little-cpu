@@ -29,8 +29,9 @@
 #
 # BOTH LEGS RUN FOR EVERY MUTATION, so a mutation with no `asm` line is the claim
 # that the whole test/asm suite stays green under it. That is a real result and
-# two of the four below are it. Do not add an `asm` line to make one look better
-# covered: the grading is a set equality, and a line that does not fire is red.
+# four of the eleven below are it. Do not add an `asm` line to make one look
+# better covered: the grading is a set equality, and a line that does not fire
+# is red.
 #
 # ADDING ONE. Measure it, do not assert it: apply the patch, `make sim`, run
 # ./test/run_tests.sh and the benches, and write down what actually went red. A
@@ -114,13 +115,17 @@ amo-compares-unsigned       bench accessor_tb
 amo-compares-unsigned       asm   amominmax.S FAIL 4
 
 # The load half of the same shared port: a load from .text no longer takes the
-# port, so it answers with whatever the fetch put there. Four programs watch
-# this one, and textload.S is the only one of the four that neither writes text
-# nor contains a fence.i.
+# port, so it answers with whatever the fetch put there. Five programs watch
+# this one, and textload.S is the only one of the five that neither writes text
+# nor contains a fence.i. spioverlay.S joined by the same route selfmod.S did:
+# its baseline step reads a patch template out of .text with `lw` before it
+# ever touches the flash, and that plain read is what the mutation breaks --
+# FAIL 2 is that same first template, read wrong before anything is patched.
 text-port-drops-load        bench imem_tb
 text-port-drops-load        asm   contend.S FAIL 2
 text-port-drops-load        asm   datainit.c FAIL 1
 text-port-drops-load        asm   selfmod.S FAIL 2
+text-port-drops-load        asm   spioverlay.S FAIL 2
 text-port-drops-load        asm   textload.S FAIL 3
 
 # misa gives bit 0 back, so the core executes the eleven atomics without

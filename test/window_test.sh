@@ -5,13 +5,14 @@
 #
 # Usage: window_test.sh          # every case; exit 0 only if all of them hold
 #
-# WHY THIS EXISTS. rtl/imemory.v, rtl/memory.v, rtl/timer.v and rtl/uart.v each
-# decide whether an address is inside their window. Each used to subtract the base and
-# compare against the size, which is correct at any base and any size and costs
-# a carry chain. Each now reads the address bits above the window instead, which
-# is correct only while the window is a power of two sitting on a multiple of
-# its own size. rtl/littlecpu.v copies all four windows for its load/store
-# locality counters, and demands the same shapes of its copy.
+# WHY THIS EXISTS. rtl/imemory.v, rtl/memory.v, rtl/timer.v, rtl/uart.v and
+# rtl/spiflash.v each decide whether an address is inside their window. Each
+# used to subtract the base and compare against the size, which is correct at
+# any base and any size and costs a carry chain. Each now reads the address bits
+# above the window instead, which is correct only while the window is a power of
+# two sitting on a multiple of its own size. rtl/littlecpu.v copies all five
+# windows for rtl/decoder.v's region tests and its own load/store locality
+# counters, and demands the same shapes of its copy.
 #
 # That is a different KIND of dependency from the one it replaced. The old
 # spelling was slow at a bad parameter; the new one is silently wrong -- it
@@ -179,10 +180,11 @@ run_case "BASE = 0x0002_002c" rtl/spiflash.v spiflash ".BASE(32'h0002_002c)" \
   reject "BASE must be 8-byte aligned"
 run_case "the SoC's own" rtl/spiflash.v spiflash ".BASE(32'h0002_0028)" accept ""
 
-# The core copies that map for its load/store locality counters, and its copy is
-# read by nothing else -- so a shape no memory here could be built at would be
-# counted against silently rather than refused. These are the same alignment and
-# size checks, restated where the copy is.
+# The core copies that map and hands it to rtl/decoder.v, which decides from it
+# which loads and stores fault and which wait a cycle, as well as counting
+# locality -- so a shape no memory here could be built at would fault or answer
+# the wrong addresses silently rather than be refused. These are the same
+# alignment and size checks, restated where the copy is.
 echo
 echo "== rtl/littlecpu.v: the copied map has the shape the memories demand"
 # One override per case, so each names the parameter it is about and the rest

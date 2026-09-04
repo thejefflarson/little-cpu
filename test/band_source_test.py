@@ -13,7 +13,7 @@ sweep to measure 9.2%, which is the difference between calling a delta noise and
 calling it a placement under the board clock. Nothing went red for that, because
 a comment cannot go red. So the copies are gone and this is what keeps them gone.
 
-WHAT IT SCANS AND WHAT IT DOES NOT. Every tracked file except five kinds:
+WHAT IT SCANS AND WHAT IT DOES NOT. Every tracked file except six kinds:
 
   * soc/bands.py, which is the source and is supposed to carry the figures.
   * docs/adr/, because an ADR is a measurement with a date on it and MUST NOT
@@ -25,6 +25,8 @@ WHAT IT SCANS AND WHAT IT DOES NOT. Every tracked file except five kinds:
     in a fixture and quotes what it planted in the probe's label. A probe that
     cannot name what it is planting is not a probe -- the same exception, for
     the same reason, that test/march_test.sh grants it.
+  * test/PROBES_EXPECTED, which holds test/probe_gates.sh's labels verbatim and
+    so carries the same planted figure.
 
 CLAUDE.md IS GRADED RATHER THAN BANNED, and only in one direction. It is the
 rulebook and a reader needs the number in it, so the copy stays and is required
