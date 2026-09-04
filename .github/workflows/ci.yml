@@ -5,6 +5,13 @@ on:
   push:
     branches: [main]
 
+# One runner serves every job here, so a superseded run is a run the next one
+# waits behind. A push to a pull request cancels its own earlier run; a push to
+# main never cancels, because main's result is the record for that commit.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
