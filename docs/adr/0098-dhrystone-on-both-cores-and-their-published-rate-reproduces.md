@@ -1,7 +1,12 @@
 # 0098 — Dhrystone runs on both cores in one harness, and their published rate reproduces
 
 Status: Accepted · *Amended 2026-08-12: both factors re-measured on one tree. The cycle factor below
-is superseded and the 1.21× product with it; the clock factor is re-measured and holds.*
+is superseded and the 1.21× product with it; the clock factor is re-measured and holds.* · *Amended
+2026-08-30: both factors re-measured again on `main`, twelve seeds a side instead of five. The
+2026-08-12 amendment's cycle factor is superseded — ADR-0129 and sixteen other merges moved `rtl/`
+in between — and its clock factor is superseded too, not because it moved but because five seeds
+is a look and twelve is what this file's own convention for a verdict costs. The 1.05× product is
+superseded by 1.16×.*
 
 ## Context
 
@@ -261,3 +266,178 @@ this harness's instruction memory is written by the design and survives at 16 bl
 holds. So on this core's side the demonstrated red direction is `test/probe_gates.sh`'s fixture and
 not a placement, and a future stimulus meant to test this gate has to fold something a write port
 cannot protect.
+
+## Amendment, 2026-08-30 — both factors on `main`, twelve seeds a side, and the product is 1.16×
+
+**Why this is owed again.** The 2026-08-12 amendment's cycle factor named itself stale the day it
+landed — a launch-from-execute-slot change moved it once already — and `CLAUDE.md` has carried a
+standing note ever since that the region-answer work (ADR-0129, 13.79% of `make dhrystone`'s own
+cycles) left the quoted 0.784 describing a tree that no longer exists. Between `be293ff` and this
+amendment's tree, 61 commits landed and 17 of them touched `rtl/`: ADR-0129's region wait, the
+eleven A instructions' decode and execute (ADR-0106, ADR-0108), atomic region faults (ADR-0109), the
+Zkt claim and its proofs (ADR-0134, ADR-0137), the transmit-only UART, and more. **No single one of
+those is credited for what moved below** — that would need the same tree rebuilt with each held out,
+which nobody has done — the two numbers below are simply what one tree reads today, the way this
+file's own rule requires.
+
+Separately, this amendment also answers two questions nobody had asked of this specific pair before:
+whether the two slaves in `soc/compare/dhry_tb.v`'s harness hold the same wait-state contract, and
+whether that harness's write counters have the same asymmetry a CoreMark harness under review
+elsewhere was found to have. Both come back negative, below.
+
+Measured on `main` at `ab5af011b6a1d8a6b7e6e1027317c30121d2b6b6`. Toolchain: Yosys 0.68+post
+(`c12172fb`), nextpnr 0.11.1, `riscv64-elf-gcc 16.2.0`, Icarus Verilog 13.0.
+
+### The clock, twelve seeds a side
+
+`COMPARE_SEEDS='default 1 2 3 4 5 6 7 8 9 10 11' soc/compare/sweep.sh`, run in six batches of two
+seeds each rather than one call (each placement takes roughly 70 seconds and there are 24 of them):
+
+| | ns, sorted | worst | median | best | spread |
+|---|---|---|---|---|---|
+| **littlecpu** | 30.25 · 30.59 · 30.59 · 30.62 · 30.89 · 31.24 · 31.26 · 31.58 · 31.95 · 32.08 · 32.17 · **32.36** | **32.36 ns — 30.90 MHz** | 31.25 ns — 32.00 MHz | 30.25 ns — 33.06 MHz | 7.0% |
+| **VexRiscv** | 19.67 · 19.78 · 19.88 · 20.00 · 20.07 · 20.09 · 20.27 · 20.29 · 20.63 · 20.66 · 20.66 · **20.73** | **20.73 ns — 48.24 MHz** | 20.18 ns — 49.55 MHz | 19.67 ns — 50.84 MHz | 5.4% |
+
+**The gap on clock is 1.56× worst on worst, 1.55× median on median** — up from the five-seed
+amendment's 1.48×/1.47×, and it is the wider sample rather than the design that moved: littlecpu's
+best-of-twelve (33.06 MHz) is *faster* than its five-seed worst-of-five (32.61 MHz) was, and its
+worst-of-twelve is the same 30.90 MHz ADR-0139 already recorded independently for this design on
+this harness. VexRiscv's whole distribution sits inside the five-seed one's span (19.67–20.73 against
+19.19–20.75). Twelve seeds found a wider tail on this side, not a slower design; `soc/bands.py` still
+declares no churn band or placement spread has been derived for hx8k, so neither distribution can yet
+be called wide or narrow against a standard — only against each other and against the five-seed look
+that preceded it.
+
+### The cycles, one image and one simulation
+
+`make compare-dhrystone`, 400 runs, both self-checks passing and both data RAMs identical in all
+4096 words:
+
+| | cycles | cycles/Dhrystone | DMIPS/MHz |
+|---|---|---|---|
+| **littlecpu** | 304,428 | 761.1 | **0.748** |
+| **VexRiscv** | 408,758 | 1021.9 | **0.557** |
+
+**VexRiscv reproduces exactly**, to the cycle, the same figure every prior amendment recorded — its
+Verilog is byte-identical, read straight out of the pinned clone, so this is a reproduction check on
+the flow and not a new measurement. **littlecpu's own figure moved, 0.784 → 0.748, −4.6%**, and per
+the note above that is 61 commits' worth of `rtl/` change read as one number, not a single line
+item's price.
+
+### The product
+
+| | DMIPS/MHz | worst-of-12 MHz | DMIPS | median-of-12 MHz | DMIPS |
+|---|---|---|---|---|---|
+| **littlecpu** | 0.748 | 30.90 | **23.11** | 32.00 | 23.94 |
+| **VexRiscv** | 0.557 | 48.24 | **26.87** | 49.55 | 27.60 |
+
+**The throughput gap is 1.16× on worst-of-twelve, 1.15× on median-of-twelve** — up from the
+five-seed amendment's 1.05×/1.04×. Reading the move apart: the clock ratio widened from 1.48× to
+1.56× (a wider sample on littlecpu's side, above) and the cycle ratio narrowed from 1.41× to 1.34×
+(littlecpu's own cycle count grew 4.6% while VexRiscv's held). Both factors moved against littlecpu
+this time, where the 2026-08-12 amendment's whole move was in one factor.
+
+**Quote it with what it is**, the same caveat every prior amendment has carried: this is RV32IMC +
+Zicsr with five traps and a machine timer (untimed in this harness, 4 KB of ROM) against RV32IC with
+a 1024-entry branch predictor, no CSR file, no traps and no interrupt; the DMIPS column multiplies a
+clock placed at 4 KB / 2 KB by cycles simulated at 8 KB / 16 KB, for the reason given above the first
+table in this ADR. All nine distortions listed above still apply and none of them changed.
+
+### The wait-state question, asked of this pair and answered negative
+
+A security review of the CoreMark harness (not yet merged to `main`) found `soc/compare/bench_hazard3.v`
+holding `hready` low for one cycle after every write's address phase — an artefact of AHB5 splitting a
+write's address and data phases, which `rtl/memory.v`'s single-ported synchronous RAM cannot service
+in the same cycle it services a new address. **That artefact does not exist in this pair.** Neither
+`bench_littlecpu.v` (`.bus_wait(1'b0)`, tied off) nor `bench_vexriscv.v`
+(`.dBus_cmd_ready(1'b1)`, tied off) ever holds the other side's command off the bus: both cores'
+command interfaces carry address, write data and the byte strobe together on one cycle, matching
+`rtl/memory.v`'s and `memory`'s expectation that a write's address and data arrive together, so
+neither adapter needs — or has — an extra cycle to buffer one phase against the other.
+
+Checked in the generated Verilog rather than assumed from the comment: VexRiscv's own
+`when_DBusSimplePlugin_l482` (the memory stage's only stall on `dBus_rsp_ready`) is gated
+`&& (!memory_MEMORY_STORE)` — it stalls waiting for a response on a **load**, never on a store, so a
+store completes the cycle its command is accepted (`dBus_cmd_ready`, tied high here) and never waits
+on `dbus_rsp_valid` at all. `bench_vexriscv.v`'s own `dbus_rsp_valid <= dbus_cmd_valid &&
+!dbus_cmd_wr` — registered false the cycle after every write — is therefore not a withheld
+acknowledgement; VexRiscv never asks for one. littlecpu's own store path is the same shape: `mem_wstrb`
+is asserted and the write commits in the cycle `rtl/memory.v` sees it, with `bus_wait` tied to zero.
+**A checked negative, not an assumed one**: this pair's cycle counts are not biased against either
+side by an artificial wait state the harness invents, which is a different conclusion than the
+CoreMark harness reached for its own Hazard3 pairing and is recorded here rather than left implicit.
+
+### The write-counter question, asked of `dhry_tb.v` and answered negative
+
+The same review found a CoreMark testbench counting littlecpu's writes on `|mem_wstrb` (any strobe
+bit set) and its other core's writes on an exact `4'b1111` match — a comparison that would silently
+undercount a core whose narrow stores never assert all four bits. **`soc/compare/dhry_tb.v` does not
+have this asymmetry.** Both `ours_writes` and `vex_writes` are counted on `|dut_ours.mem_wstrb` and
+`|dut_vex.mem_wstrb` respectively — the same predicate, the same width test, on both cores — so
+neither side's cycle count nor its write tally is inflated or deflated relative to the other's by how
+the counter is written. This counter is not what the DMIPS/MHz figures above are built from in any
+case (the marker cycles between `CTL_MARK` writes are), so even an asymmetry here would not have
+moved this ADR's numbers; it is checked anyway because a counter that is wrong once and unnoticed is
+a counter nobody can trust the next time it is read for something that does matter.
+
+### `make compare-smoke` re-run
+
+All three benches — littlecpu, VexRiscv, Hazard3's iCE40 build — publish the same six values on the
+one shared image: `first e784a639, last matched b812e4ba`. `soc/compare/placed_vs_synth.py` passed on
+both sides of this sweep's own placements, at the same ratios ADR-0098's earlier amendment recorded
+(1.11× littlecpu, 1.38× VexRiscv).
+
+### Consequences
+
+- **The 2026-08-12 amendment's headline (1.05×, 25.56 against 26.84 DMIPS) is superseded by this
+  one's (1.16×, 23.11 against 26.87 worst-of-twelve).** Nothing about the direction changed — VexRiscv
+  is still ahead on the product, littlecpu is still ahead on cycles by more than VexRiscv is ahead on
+  clock is behind — but the size of the gap moved with the wider seed sample and with 61 merges' worth
+  of `rtl/`, and both are stated above rather than left for the reader to reconcile against a number
+  that was true on a different tree.
+- **Five seeds was a look and twelve is the number this file's own convention has asked for since
+  before this pair existed** (`SOC_MIN_MHZ`'s go/no-go convention, restated for `soc-timing` above).
+  This is the first time that convention was applied to `soc/compare/`'s own hx8k harness rather than
+  only argued for it.
+- **The wait-state and write-counter findings are checked negatives, not assumed ones**, and are
+  recorded here because a comparison this file exists to keep honest does not get to skip a check
+  just because the check came back clean. The Hazard3-specific bias the review found is not this
+  pair's to fix — Hazard3 is not part of the VexRiscv product — and remains open where the CoreMark
+  work that found it will land.
+- **A product whose two factors were taken on two trees, or with two different seed counts, is still
+  not a measurement.** This amendment moved both factors and the seed count together for exactly the
+  reason the 2026-08-12 amendment gives for doing so at all.
+
+## Amendment, 2026-09-04 — re-taken on `e332776`, and the product did not move
+
+The amendment above was measured before executor-only forwarding landed. Re-taking both factors on
+`e332776` — twelve seeds a side, one tree, one toolchain, both cores on the conventional
+`soc/compare/dhry.lds` layout as always — gives the same product from visibly different halves.
+
+| | worst MHz | median MHz | DMIPS/MHz | DMIPS at worst | DMIPS at median |
+|---|---|---|---|---|---|
+| **littlecpu** | 30.13 | 30.80 | **0.768** | **23.14** | 23.65 |
+| **vexriscv** | 48.24 | 49.55 | 0.557 | 26.87 | 27.60 |
+
+**The product is 1.16× in VexRiscv's favour on worst-of-twelve and 1.17× on median-of-twelve** —
+the same 1.16× the previous amendment recorded, reached from halves that both moved:
+
+| factor | previous amendment | here | direction |
+|---|---|---|---|
+| littlecpu DMIPS/MHz | 0.748 | **0.768** | ours, +2.7% |
+| littlecpu worst MHz | 30.90 | **30.13** | theirs, −2.5% |
+| cycles, vexriscv/littlecpu | 1.343× | **1.379×** | ours |
+| **product** | **1.16×** | **1.16×** | unmoved |
+
+VexRiscv's own columns reproduce to the digit — 48.24 and 49.55 MHz, 1021.9 cycles per Dhrystone,
+0.557 DMIPS/MHz — which is the control this pair has always needed: it is a vendored core at a
+pinned SHA and it must not move when ours does. `DHRY ramdiff=0 of 4096 words` again, so both cores
+still leave identical memory.
+
+**This is the amendment worth reading for method rather than for its number.** Forwarding
+(ADR-0154) bought cycles and cost period, the two effects very nearly cancelled in the product, and
+a reader quoting either half alone would have concluded the gap had closed or widened depending on
+which half they picked. That is the whole reason this ADR insists both factors come off one tree.
+It also means **a stale product is not automatically a wrong one** — this one was stale for four
+merges and still correct — so staleness is a reason to re-take, never on its own a reason to
+disbelieve.
