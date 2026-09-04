@@ -1,7 +1,8 @@
 #!/bin/bash
-# Builds one Dhrystone image for the two cores in this directory, reports it
-# against the geometry the harness can actually place, and runs both cores on it
-# in one iverilog simulation.
+# Builds one Dhrystone image for the two cores this directory times -- littlecpu
+# and VexRiscv; Hazard3's iCE40 build has no counters and its cycle factor is
+# not built -- reports it against the geometry the harness can actually place,
+# and runs both cores on it in one iverilog simulation.
 #
 # Usage: run_dhrystone.sh <runs> <cycle-limit> <cflags> [vvp-binary]
 #

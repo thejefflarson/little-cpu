@@ -1,16 +1,16 @@
 # The riscv-formal check set's EXPECTED SHAPE: every check formal/checks.cfg's
 # [depth] table causes genchecks to generate, one per line.
 #
-# WHY THIS FILE EXISTS (ADR-0033, gap 1). formal/EXPECTED_FAIL answers "did
-# any check's verdict move?" It cannot answer "did a check stop existing?",
-# and those are different questions with the same green. genchecks' two call
+# WHY THIS FILE EXISTS. formal/EXPECTED_FAIL answers "did any check's
+# verdict move?" It cannot answer "did a check stop existing?", and those
+# are different questions with the same green. genchecks' two call
 # sites both end with `if depth_cfg is None: return`, so deleting or
 # mistyping one [depth] line removes a check silently -- no .sby, no
 # directory, no status file, no warning, exit 0. A never-generated check is
 # then absent from the results AND absent from EXPECTED_FAIL at once, so
 # that file's set-equality reports a clean match on a smaller set. The
-# worst single line to lose is `reg`: ADR-0023 calls reg_ch0 the check that
-# ties RVFI's self-report back to the actual register file.
+# worst single line to lose is `reg`: reg_ch0 is the check that ties RVFI's
+# self-report back to the actual register file.
 #
 # TWO mechanisms read this file, and they catch different things:
 #
@@ -25,10 +25,10 @@
 #                              directory vanished" both count as failures
 #                              rather than as a quiet, matching baseline.
 #
-# Set equality in BOTH directions, per ADR-0014's contract: an unexpected
-# ADDITION fails this as loudly as a disappearance. That is the case worth
-# having after a pin bump (ADR-0013) -- upstream growing a check nobody here
-# has ruled on should stop the gate, not join the set unexamined.
+# Set equality in BOTH directions: an unexpected ADDITION fails this as
+# loudly as a disappearance. That is the case worth having after a pin bump
+# -- upstream growing a check nobody here has ruled on should stop the gate,
+# not join the set unexamined.
 #
 # Edit by hand, never regenerate from a run; regenerating launders exactly
 # the regression this file exists to catch. Adding a line is a claim that
@@ -41,19 +41,12 @@
 # PASS means "no counterexample found within the check's configured depth",
 # not that the property holds; and everything runs under
 # RISCV_FORMAL_ALTOPS, so insn_mul/insn_div/insn_rem passing says nothing
-# whatever about the real multiplier or divider (ADR-0010). This file
-# asserts only that the checks EXIST.
+# whatever about the real multiplier or divider. This file asserts only that
+# the checks EXIST.
 #
-# Seeded from a from-scratch `python3 formal/genchecks-audit.py` against
-# main at 0d23294: 82 generated, 15 declined. The 79-check set recorded in
-# ADR-0031 and ADR-0034 grew by three there -- causal_mem_ch0, hang and
-# ill_ch0 -- see checks.cfg's declined-checks block for why each.
-#
-# Now 85 generated, 14 declined. The three csrc_* counter checks below joined;
-# the three bare-name `csrc_<csr>_ch0` omissions went away (all three CSRs
-# carry a [csrs] test list now, so genchecks never reaches the bare branch
-# that would have read the never-written rvfi_csrc_check.sv), and two
-# csrc_inc_* omissions replaced them.
+# Every name here is generated; every check genchecks considered and dropped
+# has a `#omit` line in checks.cfg, and formal/genchecks-audit.py grades both
+# sets both ways.
 
 # --- consistency checks (genchecks' check_cons) -------------------------
 causal_ch0

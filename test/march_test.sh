@@ -101,11 +101,17 @@ test/dual_build.sh 1
 SITES
 }
 
-# Every OTHER `-march=` in the tree, as `<path> <ISA>`. A path may be a
+# Every OTHER `-march=` in the tree, as `<path> <ISA> <count>`. A path may be a
 # directory ending in `/`, and the ISA may be `(any)` where the point of the
-# entry is the file rather than one string in it; `(empty)` is a `-march=` with
-# no ISA after it. A path alone teaches the next reader nothing and gets deleted
-# by the next person tidying, so each entry says which ISA it names and why.
+# entry is the file rather than one string in it -- `(any)` carries no count,
+# because a file allowed to say anything has no fixed number of times to say
+# it; `(empty)` is a `-march=` with no ISA after it. Every OTHER value is
+# graded at an exact count for the same reason the required table is: `rv32ic`
+# is a real RISC-V string and `rv32ima` is one keystroke from the declared
+# ISA, so an exception that exempted every occurrence rather than a counted
+# one would wave a second, unnoticed near-miss straight through. A path alone
+# teaches the next reader nothing and gets deleted by the next person tidying,
+# so each entry says which ISA it names, why, and how many times.
 exception_sites() {
   sed -e 's/#.*//' -e 's/[[:space:]]*$//' -e '/^$/d' <<'EXCEPTIONS'
 # Dated decision records, and dated proposals. Both are history, and several of
@@ -130,17 +136,17 @@ test/probe_gates.sh (any)
 # that ONE image runs on both cores -- so the image may use only what the
 # narrower core has. rv32i, not even rv32ic, because the image is also this
 # core's and nothing in it needs the density.
-Makefile rv32i
+Makefile rv32i 1
 
 # COMPARE_DHRY_CFLAGS: Dhrystone for the same harness, at the ISA VexRiscv
 # actually implements. Quoting this core's number against theirs means compiling
 # for each core's own ISA, which is why this one is not the string above.
-Makefile rv32ic
+Makefile rv32ic 1
 
 # Not a flag at all: a grep pattern that finds the `-march=` in the command line
 # the Dhrystone runner PRINTS, so the flags travel with the number. It has no
 # ISA after it, which is what the `(empty)` says.
-soc/compare/run_dhrystone.sh (empty)
+soc/compare/run_dhrystone.sh (empty) 1
 
 # The stamped cross-core product artifact (`make compare-product`). It records
 # the CFLAGS each pair's image was actually built with, verbatim, so its own
@@ -152,8 +158,8 @@ soc/compare/product.json (any)
 # Two more grep patterns and a help string, none of them a flag: the one that
 # pulls the bare -march= value out of a CFLAGS string for soc/compare/product_write.py's
 # --isa, and --isa's own help text naming the flag it extracts.
-soc/compare/run_product.sh (empty)
-soc/compare/product_write.py (empty)
+soc/compare/run_product.sh (empty) 2
+soc/compare/product_write.py (empty) 1
 EXCEPTIONS
 }
 
@@ -197,10 +203,9 @@ rc=0
 # entry matches on the `/` it ends with, so `docs/adr/` cannot quietly cover a
 # `docs/adrenaline.md` nobody meant to exempt.
 match_exception() {  # $1 = path, $2 = value
-  local path=$1 value=$2 entry epath evalue
+  local path=$1 value=$2 entry epath evalue ecount
   while IFS= read -r entry; do
-    epath=${entry%% *}
-    evalue=${entry#* }
+    read -r epath evalue ecount <<< "$entry"
     [ "$evalue" = "(any)" ] || [ "$evalue" = "$value" ] || continue
     case "$epath" in
       */) case "$path" in "$epath"*) printf '%s' "$entry"; return 0 ;; esac ;;
@@ -259,13 +264,28 @@ while read -r path want; do
 done < "$tmp/required"
 
 while IFS= read -r entry; do
-  if ! grep -qxF -- "$entry" "$tmp/covered"; then
+  read -r epath evalue ecount <<< "$entry"
+  if [ "$evalue" = "(any)" ]; then
+    if ! grep -qxF -- "$entry" "$tmp/covered"; then
+      rc=1
+      echo >&2
+      echo "error: the exception list names \`$entry\`, and it is not" >&2
+      echo "there any more. Delete the entry -- or if that build moved, move the" >&2
+      echo "entry with it. An exemption kept past its reason is how the next one" >&2
+      echo "gets waved through, and it is why this comparison runs both ways." >&2
+    fi
+    continue
+  fi
+  got=$(grep -cxF -- "$entry" "$tmp/covered" || true)
+  if [ "$got" -ne "$ecount" ]; then
     rc=1
     echo >&2
-    echo "error: the exception list names \`$entry\`, and it is not" >&2
-    echo "there any more. Delete the entry -- or if that build moved, move the" >&2
-    echo "entry with it. An exemption kept past its reason is how the next one" >&2
-    echo "gets waved through, and it is why this comparison runs both ways." >&2
+    echo "error: the exception \`$entry\` matched $got time(s), not $ecount." >&2
+    echo "An exception exempts a value up to its own declared count, not" >&2
+    echo "without limit -- an unexempted occurrence over that count is a" >&2
+    echo "second, unnoticed use of a near-miss ISA string the same as a" >&2
+    echo "brand-new site would be. If the count moved for a good reason, move" >&2
+    echo "it here in the same commit, with the reason above the line." >&2
   fi
 done < "$tmp/exceptions"
 

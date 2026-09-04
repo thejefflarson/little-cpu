@@ -4,16 +4,16 @@
 `complete` is the whole-ISA walk: for every retire the core reports, the
 riscv-formal spec model must recognise the instruction and agree it does not
 trap. It cannot cover the whole ISA, because riscv-formal ships no spec model
-at all for MISC-MEM or SYSTEM at formal/pin.mk's SHA -- so complete.sv declares
-an exclusion set, and this script is what stops that set from growing.
+at all for MISC-MEM, SYSTEM or AMO at formal/pin.mk's SHA -- so complete.sv
+declares an exclusion set, and this script is what stops that set from growing.
 
-Excluding an opcode from an assertion is weakening a check. ADR-0010's rule --
-restrict the proof, and record the restriction -- is what makes it admissible,
-and a recorded restriction nothing compares against is not recorded. So:
+Excluding an opcode from an assertion is weakening a check. Restricting the
+proof and recording the restriction is what makes it admissible, and a recorded
+restriction nothing compares against is not recorded. So:
 
   1. The set declared in complete.sv and the set in COMPLETE_EXCLUSIONS must
-     match EXACTLY, in both directions (ADR-0014). Adding an entry to either
-     side alone fails.
+     match EXACTLY, in both directions. Adding an entry to either side alone
+     fails.
   2. Every declared entry must have a reason written at the complete.sv site.
   3. Every declared entry must be WIRED: `insn_excluded` must be exactly the
      disjunction of the declared wires, no more and no fewer. A declared-but-

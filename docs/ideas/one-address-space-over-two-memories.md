@@ -1,6 +1,6 @@
 # One address space over two memories
 
-**Status:** brief, ready to plan · 2026-08-02 · follows ADR-0054
+**Status:** executed · 2026-08-02 · follows ADR-0054 · built by ADR-0057, 0059, 0060, 0061, 0063, 0065 and 0081; its "bus stays non-faulting, permanently" ruling (below) was reversed by ADR-0104, 0109 and 0129 — the bus refuses now. Where this brief and an ADR disagree, the ADR wins.
 
 Make instruction memory writable and put it in the same address space as data, so a
 kernel can load and run programs — and so a trap handler can read the instruction that
@@ -134,6 +134,10 @@ flash controller.
 
 ## Invariant 2 and the formal ladder
 
+> **Superseded.** The bus refuses now: cause 1 for an out-of-region fetch (ADR-0104), 5 and 7 for an atomic
+> (ADR-0109) and for a plain load or store, answered a cycle late (ADR-0129). Commitment 2 survives because
+> every refusal is still committed in decode.
+
 **The bus stays non-faulting, permanently.** Every in-range access is answered. Out-of-range
 loads read zero, out-of-range writes are dropped, out-of-range fetch reads zero and traps
 as an illegal instruction in decode. No access fault exists, so nothing faults after
@@ -184,7 +188,7 @@ What does change:
 ## Risks
 
 **This section is measured now, and two of its estimates were wrong** — see
-[ADR-0057](../adr/0056-what-writable-text-costs-in-ladder-depth-and-in-nanoseconds.md). The steal mux
+[ADR-0057](../adr/0057-what-writable-text-costs-in-ladder-depth-and-in-nanoseconds.md). The steal mux
 costs 8.5% of the critical path, not 2-3%; `SOC_MIN_MHZ` is 10.0 rather than the 10.5 quoted below
 and still holds; and the load-free fallback offered here is the *slower* half of the change, because
 the write port is where both the area and the delay go. F and G were re-measured too: F is unchanged

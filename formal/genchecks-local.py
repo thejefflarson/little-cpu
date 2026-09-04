@@ -3,11 +3,11 @@
 # Vendored copy of riscv-formal's checks/genchecks.py, taken verbatim from the
 # SHA in formal/pin.mk.
 #
-# EXACTLY ONE thing differs from upstream, and it is structural: `basedir`.
-# Upstream computes `basedir = f"{os.getcwd()}/../.."` because it expects to be
-# run from riscv-formal/cores/<name>/. This repo does not adopt that layout --
-# the harness lives in formal/ and the pinned clone is a gitignored
-# subdirectory of it (ADR-0006) -- so `basedir` is resolved relative to this
+# Two things differ from upstream: this header, and one structural edit,
+# `basedir`. Upstream computes `basedir = f"{os.getcwd()}/../.."` because it
+# expects to be run from riscv-formal/cores/<name>/. This repo does not adopt
+# that layout -- the harness lives in formal/ and the pinned clone is a
+# gitignored subdirectory of it -- so `basedir` is resolved relative to this
 # script instead. The isa-table open a few hundred lines down spells the same
 # "../.." inline; it is rewritten to `{basedir}/insns/...` for the same reason
 # and is part of the same one change, not a second one.
@@ -27,7 +27,7 @@
 # The diff must show only this header and the two basedir hunks. Anything else
 # is drift, and drift here is how this repo previously ended up carrying a
 # pre-2021 copy that had independently reinvented an engine-selection option
-# upstream already had (see formal/checks.cfg's `solver` line and ADR-0024).
+# upstream already had (see formal/checks.cfg's `solver` line).
 #
 # Copyright (C) 2017  Claire Xenia Wolf <claire@yosyshq.com>
 #
