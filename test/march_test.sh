@@ -131,22 +131,18 @@ test/march_test.sh (any)
 # planting is not a probe.
 test/probe_gates.sh (any)
 
-# soc/compare/bench.S, built for the cross-core harness. VexRiscv there is
-# RV32IC with no privileged architecture, and the whole point of that harness is
-# that ONE image runs on both cores -- so the image may use only what the
-# narrower core has. rv32i, not even rv32ic, because the image is also this
-# core's and nothing in it needs the density.
-Makefile rv32i 1
-
-# COMPARE_DHRY_CFLAGS: Dhrystone for the same harness, at the ISA VexRiscv
-# actually implements. Quoting this core's number against theirs means compiling
-# for each core's own ISA, which is why this one is not the string above.
-Makefile rv32ic 1
+# soc/compare/bench.S and COMPARE_DHRY_CFLAGS, both built for the cross-core
+# harness's three-way row. Neither VexRiscv nor Hazard3's iCE40 build there
+# implements the full declared ISA -- VexRiscv has no M, Hazard3's iCE40
+# configuration has no C -- and the whole point of that harness is that ONE
+# image runs on every core in it, so the image may use only what the narrowest
+# core has: plain RV32I, not even RV32IC.
+Makefile rv32i 2
 
 # Not a flag at all: a grep pattern that finds the `-march=` in the command line
 # the Dhrystone runner PRINTS, so the flags travel with the number. It has no
 # ISA after it, which is what the `(empty)` says.
-soc/compare/run_dhrystone.sh (empty) 1
+soc/compare/run_dhrystone.sh (empty) 2
 
 # The stamped cross-core product artifact (`make compare-product`). It records
 # the CFLAGS each pair's image was actually built with, verbatim, so its own

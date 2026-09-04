@@ -29,6 +29,7 @@
 # applies cleanly on their own, rather than two commits both rewriting the
 # one line a bare counter used to be.
 --clock-ns and --cycle-factor naming different core sets is refused
+--cores naming no core at all is red before anything is parsed
 --list answers for every part, derived or not
 --require-news against an unchanged repo and matching --current is quiet
 --require-news is news the moment --current disagrees with the older stamp
@@ -189,6 +190,7 @@ a missing artifact refuses rather than reporting on nothing
 a missing asm directory is named
 a missing baseline file is exit 2, not an empty expected set
 a missing parser stops the run rather than grading with a second one
+a missing ramdiff for the SECOND core is red, not silently skipped
 a mistyped baseline path cannot compare nothing and pass
 a mistyped baseline path cannot compare nothing and pass
 a mistyped floor path cannot make every floor lookup miss
@@ -312,6 +314,7 @@ a simulation this cannot parse is a run that did not happen
 a size the parser cannot read stops rather than comparing as zero
 a soc/compare script naming no .lds at all does not sink the scan
 a soc/compare/ change since the stamp's base is STALE, and the file is named
+a solo run needs no ramdiff line -- there is no reference to compare
 a solver that wrote no verdict is exit 2, not a red arm
 a solver that wrote no verdict is exit 2, not a red arm
 a solver that wrote no verdict is exit 2, not a red arm
@@ -464,6 +467,7 @@ control: a deterministic placer and a forgiven mutant pass
 control: a fresh stamp with nothing changed prints clean and exits 0
 control: a full-pass check set against an empty baseline is green
 control: a good run reports both cores' figures
+control: a good three-way run reports all three cores' figures
 control: a measurement within budget is green
 control: a model file OUTSIDE isa_rv32imc.txt is not one this check can see
 control: a netlist digests, and the digest is a sha256
@@ -598,6 +602,7 @@ the REPORT goes too, which .DELETE_ON_ERROR cannot do for a non-target
 the ROM image built to a different size than the ROM is red
 the RTL moving away takes the probe with it, loudly
 the RTL moving away takes the probe with it, loudly
+the SECOND core's RAM diverging is graded, not only the first
 the SPI controller moving in the core's copy alone is red
 the SPI controller moving in the proof's copy alone is red
 the Sail download directory inside the checkout is red on its own
@@ -658,6 +663,7 @@ the timer moving in the core's copy alone is red
 the timer moving in the proof's copy alone is red
 the trend against the recorded count is printed beside the verdict
 the two definitions the predicates are built from are pinned literally
+the wait-state bias is disclosed as a percentage of hazard3's own cycles
 the word coming back in a formal harness comment is red, and located
 the wrong count is named against the log's real one
 three sweeps have no one difference, so they are refused

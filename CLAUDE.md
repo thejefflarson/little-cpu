@@ -436,10 +436,12 @@ half.** Between ADR-0129 and here the cycle half rose and the clock half fell, a
 not move at all, so either factor quoted alone tells you the opposite of the other. Re-take
 both halves before quoting the product, with what each side is and with the caveat that Dhrystone's
 cycles are simulated at a larger map than the clock is placed at (`make compare-dhrystone` prints
-the block arithmetic; ADR-0098 lists the distortions). Hazard3's `CSR_COUNTER=0` build cannot
-self-time, so only its clock factor is measured and there is **no product for that pair in either
-direction**; five placements on `5f005c7` read 1.06× at the worst placement in its favour, which is
-area context and not a verdict (ADR-0139). Two graded checks stand in front of every number:
+the block arithmetic; ADR-0098 lists the distortions). **Hazard3's iCE40 build is the third core in the
+harness, and its DHRYSTONE factors are now both measured** — `soc/compare/dhry_tb.v`'s marker
+mechanism, built for VexRiscv's identical CSR-free gap, needed wiring rather than invention. Its
+CoreMark half is still not built: `CSR_COUNTER=0` means no `mcycle`, so it cannot self-time that
+run (ADR-0139). Read the three-way Dhrystone row only at the one ISA all three cores share, RV32I,
+which is what makes every pairwise ratio in it a comparison rather than three configurations. Two graded checks stand in front of every number:
 `soc/compare/placed_vs_synth.py` refuses a placed count under `COMPARE_MIN_RATIO` of the core's own
 synthesis — an all-NOP image once placed a quarter of this core with a plausible critical path
 beside it (ADR-0086) — and `make compare-smoke` requires all three cores to publish the same values,
@@ -576,8 +578,10 @@ make compare-timing # this core, VexRiscv and Hazard3 in ONE hx8k harness; COMPA
                     # picks one, soc/compare/sweep.sh's COMPARE_CORES sweeps a subset.
                     # The placed-vs-synthesised check inside it is graded
 make compare-smoke  # all three harnesses run one image in iverilog and must agree
-make compare-dhrystone  # Dhrystone on this core and VexRiscv, one image -> DMIPS/MHz each;
-                    # COMPARE_DHRY_MHZ adds the absolute column. Not a gate, not on CI
+make compare-dhrystone  # Dhrystone on all THREE cores, one RV32I image, one simulation ->
+                    # DMIPS/MHz each, plus a fourth row of this core alone at its native
+                    # ISA so the shared subset's cost is a number. COMPARE_DHRY_MHZ adds
+                    # the absolute column. Not a gate, not on CI
 make compare-product # both factors of every cross-core pair in one run, stamped into
                     # soc/compare/product.json with the commit, seeds and CFLAGS behind
                     # each number. COMPARE_PRODUCT_SEEDS picks the sweep (twelve by

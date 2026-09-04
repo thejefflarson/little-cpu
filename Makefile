@@ -1307,47 +1307,74 @@ compare-smoke: compare.vvp
 
 # The OTHER factor of throughput. `compare-timing` above reports each core's
 # clock; this reports the cycles each takes for the same work, so a DMIPS figure
-# for either side is measured here rather than quoted from a project's README.
+# for any of the three is measured here rather than quoted from a project's
+# README.
 #
 # IT IS A SIMULATION, AND CANNOT BE A PLACEMENT. Dhrystone needs more memory
 # than an hx8k has block RAM for -- soc/compare/dhry_fit.py prints that
-# arithmetic on every run -- so the memories are enlarged for both cores
+# arithmetic on every run -- so the memories are enlarged for all three cores
 # together and the clock to multiply these cycles by comes from the smaller
 # placed geometry. That is the caveat on the result, and it travels with it.
 #
 # COMPARE_DHRY_CFLAGS is not DHRY_CFLAGS and must not be made to match it: this
-# image has to run on both cores, and their common ISA is RV32IC. No M
-# extension, so multiply and divide are libgcc calls; no Zicsr, so the run is
-# timed on the bus instead of by `mcycle`. `make dhrystone`'s number is a
-# different workload on a different machine and the two are not comparable.
+# image has to run on all three cores, and their shared ISA is plain RV32I --
+# Hazard3's iCE40 build has EXTENSION_C=0, the pinned VexRiscv has no M
+# extension, so RV32I is the only subset every core here executes. No M, so
+# multiply and divide are libgcc calls on all three, even the two whose
+# netlists carry a hardware multiplier; no Zicsr, so the run is timed on the
+# bus instead of by `mcycle`. `make dhrystone`'s number is a different workload
+# on a different machine and the two are not comparable.
 # 400 runs. The measured window is the benchmark's loop and nothing else, so the
 # figure is flat in this: 100 runs and 400 differ by 0.02% on this core and 0.26%
-# on VexRiscv. The count is set by how long two cores in one iverilog simulation
-# take, not by what the number needs.
+# on VexRiscv. The count is set by how long three cores in one iverilog
+# simulation take, not by what the number needs.
 COMPARE_DHRY_RUNS   ?= 400
 COMPARE_DHRY_CYCLES ?= 2000000
-COMPARE_DHRY_CFLAGS := -march=rv32ic -mabi=ilp32 -O2 -std=c11 \
+COMPARE_DHRY_CFLAGS := -march=rv32i -mabi=ilp32 -O2 -std=c11 \
                        -ffreestanding -fno-tree-loop-distribute-patterns \
                        -Wall -Wextra -Werror
 
 COMPARE_DHRY_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
-                     soc/compare/bench_vexriscv.v soc/compare/dhry_tb.v
+                     soc/compare/bench_vexriscv.v soc/compare/bench_hazard3.v \
+                     soc/compare/dhry_monitor.v soc/compare/dhry_tb.v
 
-compare.dhry.vvp: $(COMPARE_DHRY_SRCS) | $(RISCV_FORMAL_DIR)
-	iverilog -I./rtl/ -g2012 -o $@ $(RISCV_FORMAL_DIR)/cores/VexRiscv/VexRiscv.v \
+compare.dhry.vvp: $(COMPARE_DHRY_SRCS) | $(RISCV_FORMAL_DIR) $(HAZARD3_DIR)
+	iverilog -I./rtl/ -I$(HAZARD3_HDL) -g2012 -o $@ \
+	  $(RISCV_FORMAL_DIR)/cores/VexRiscv/VexRiscv.v $(HAZARD3_SRCS) \
 	  $(COMPARE_DHRY_SRCS)
 
-# Both cores' standalone censuses, because the fit arithmetic reads how much
+# THE ISA-COST ROW: this core alone, at soc/compare/dhry_tb.v's own geometry,
+# built at its native ISA instead of the three-way row's shared RV32I --
+# DHRY_CFLAGS is `make dhrystone`'s own -march, unchanged, so the only variable
+# between this row and the shared-subset one is the instruction set the
+# compiler was allowed to use. soc/compare/dhry_solo_tb.v is one core rather
+# than dhry_tb.v's three because there is nothing on the other two sides to run
+# this ISA against.
+COMPARE_DHRY_SOLO_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
+                          soc/compare/dhry_monitor.v soc/compare/dhry_solo_tb.v
+
+compare.dhry.solo.vvp: $(COMPARE_DHRY_SOLO_SRCS)
+	iverilog -I./rtl/ -g2012 -o $@ $(COMPARE_DHRY_SOLO_SRCS)
+
+# Every core's standalone census, because the fit arithmetic reads how much
 # block RAM each core needs before either memory out of them rather than
 # carrying a copy. Recursive, because those log names are COMPARE_CORE's and
-# this target needs both sides at once.
+# this target needs all three sides at once.
 .PHONY: compare-dhrystone
-compare-dhrystone: compare.dhry.vvp
+compare-dhrystone: compare.dhry.vvp compare.dhry.solo.vvp
 	@$(MAKE) --no-print-directory COMPARE_CORE=littlecpu compare.littlecpu.core.log
 	@$(MAKE) --no-print-directory COMPARE_CORE=vexriscv compare.vexriscv.core.log
+	@$(MAKE) --no-print-directory COMPARE_CORE=hazard3 compare.hazard3.core.log
+	@echo '== the three-way row: littlecpu, VexRiscv and Hazard3, all at RV32I =='
 	@./soc/compare/run_dhrystone.sh $(COMPARE_DHRY_RUNS) $(COMPARE_DHRY_CYCLES) \
-	  '$(COMPARE_DHRY_CFLAGS)' compare.dhry.vvp
+	  '$(COMPARE_DHRY_CFLAGS)' libgcc compare.dhry.vvp littlecpu,vexriscv,hazard3 \
+	  littlecpu=compare.littlecpu.core.log vexriscv=compare.vexriscv.core.log \
+	  hazard3=compare.hazard3.core.log
 	@echo
+	@echo '== the ISA-cost row: littlecpu alone, at its native ISA =='
+	@./soc/compare/run_dhrystone.sh $(COMPARE_DHRY_RUNS) $(COMPARE_DHRY_CYCLES) \
+	  '$(DHRY_CFLAGS)' hardware compare.dhry.solo.vvp littlecpu \
+	  littlecpu=compare.littlecpu.core.log
 	@if [ -f soc/compare/product.json ]; then \
 	  echo '== the stamped cross-core product, if the stamp still matches this tree =='; \
 	  python3 soc/compare/product_check.py soc/compare/product.json dhrystone \
@@ -1399,7 +1426,7 @@ clean:
 	rm -f test/dual_rtl.cc dual-sim
 	rm -f soc/rom_even.hex soc/rom_odd.hex
 	rm -f compare.*.json compare.*.asc compare.*.log compare.*.rpt compare.vvp
-	rm -f compare.dhry.vvp
+	rm -f compare.dhry.vvp compare.dhry.solo.vvp
 	rm -f soc/compare/rom_even.hex soc/compare/rom_odd.hex soc/compare/rom_flat.hex
 	rm -f soc/compare/dhry_even.hex soc/compare/dhry_odd.hex soc/compare/dhry_flat.hex
 	rm -f soc/compare/dhry_ram.hex

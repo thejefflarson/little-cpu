@@ -6,7 +6,11 @@ is superseded and the 1.21× product with it; the clock factor is re-measured an
 2026-08-12 amendment's cycle factor is superseded — ADR-0129 and sixteen other merges moved `rtl/`
 in between — and its clock factor is superseded too, not because it moved but because five seeds
 is a look and twelve is what this file's own convention for a verdict costs. The 1.05× product is
-superseded by 1.16×.*
+superseded by 1.16×.
+2026-08-30: a third core, Hazard3's iCE40 build, joins the harness for Dhrystone (its clock alone
+was ADR-0139's), all three cores measured at their one shared ISA, RV32I.
+2026-09-04: both factors re-taken on `e332776`; the halves moved in opposite directions and the
+1.16× product did not move.*
 
 ## Context
 
@@ -407,6 +411,206 @@ both sides of this sweep's own placements, at the same ratios ADR-0098's earlier
 - **A product whose two factors were taken on two trees, or with two different seed counts, is still
   not a measurement.** This amendment moved both factors and the seed count together for exactly the
   reason the 2026-08-12 amendment gives for doing so at all.
+
+## Amendment, 2026-08-30 — a third core, one shared ISA, and the shared subset's own cost
+
+**`make compare-dhrystone` now runs all three cores in one image and one simulation.** Hazard3's
+iCE40 build joined `soc/compare/` with its clock factor measured and its Dhrystone cycle factor
+explicitly deferred (ADR-0139); this closes that gap the way `soc/compare/dhry_port.c`'s marker
+mechanism was always built to close it — `CSR_COUNTER=0` means Hazard3 cannot execute `csrr mcycle`
+any more than the pinned VexRiscv can, and the marker protocol already times a core with no CSR file
+at all, so nothing about Hazard3 needed a new mechanism, only wiring: a third `bench_hazard3`
+instance in `soc/compare/dhry_tb.v`, its regfile zeroed the way the other two already are (Hazard3's
+`RESET_REGFILE` defaults to 0, matching `fpga_icebreaker.v`, so nothing else clears it), and its
+write bus read off `mem_wstrb_mux`/`mem_addr_mux`/`hwdata` — the same captured signals
+`soc/compare/bench_tb.v`'s three-way smoke check already reads for the identical reason.
+
+### The ISA had to be settled before any of this could compile
+
+Each pinned build supports a different subset, verified against the actual sources rather than
+trusted from a README or a prior ADR's summary:
+
+- **littlecpu** — RV32IMAC + Zicsr + Zifencei + Zkt, as `CLAUDE.md` states.
+- **VexRiscv** (the pinned riscv-formal clone) — RV32IC, no M. Confirmed by absence rather than a
+  comment: `formal/riscv-formal/cores/VexRiscv/VexRiscv.v` contains no `mul` or `div` identifier
+  anywhere in the generated Verilog, which is what "no M extension" means for a design with no
+  plugin architecture left to read.
+- **Hazard3's iCE40 build** — RV32IMA, no C. `soc/compare/hazard3/example_soc/fpga/fpga_icebreaker.v`
+  states `EXTENSION_C(0)`, `EXTENSION_M(1)`, `EXTENSION_A(1)` verbatim, and
+  `soc/compare/bench_hazard3.v` already copied that line before this ticket, for the clock-only
+  comparison ADR-0139 built.
+
+**The intersection of all three is plain RV32I** — VexRiscv is the one with no M, Hazard3's iCE40
+build is the one with no C, and nothing narrower than their union of gaps is left. `COMPARE_DHRY_CFLAGS`
+moves from `rv32ic` (the two-core pair's shared subset) to `rv32i`, and `test/march_test.sh`'s
+allow-list entry for it is folded into the one that already named `soc/compare/bench.S`'s reason for
+the same string. Multiply and divide are libgcc calls for every core in the three-way row now, even
+the two whose netlists carry a hardware multiplier — this core's parallel one and Hazard3's
+`MULDIV_UNROLL=1` sequential one are both idle for the whole run.
+
+### The block-RAM arithmetic that could have closed the ticket, and did not
+
+`soc/compare/dhry_fit.py` already refused to guess whether a third core's own census would push the
+harness's block-RAM arithmetic past what an hx8k has, so it was checked before writing the rest of
+this: Hazard3's iCE40 build synthesised alone is **4 `SB_RAM40_4K`**, not 18 like VexRiscv's
+branch-predictor-carrying configuration. Against Dhrystone's own 28 blocks at this geometry (8 KB ROM
+/ 16 KB RAM, unchanged from the two-core harness), that is:
+
+```
+littlecpu   4 of its own + 28 for the image =  32 blocks: fits
+vexriscv   18 of its own + 28 for the image =  46 blocks: DOES NOT FIT
+hazard3     4 of its own + 28 for the image =  32 blocks: fits
+```
+
+Hazard3 fits at exactly the part's ceiling, the same shape littlecpu already did — `make
+compare-timing` never places two of the three cores in this harness at once, so "does this core fit"
+was always a per-core question against the same 32-block budget, and a third core answering it the
+same way littlecpu does is not a new kind of finding, only a repeated one. VexRiscv is still the one
+that does not fit, for the same reason ADR-0086 named: its 1024-entry branch predictor.
+
+### The three-way row: one image, one simulation, all three cores
+
+400 runs, `riscv64-elf-gcc 16.2.0`, all three self-checks passing and all three data RAMs identical
+to littlecpu's (the reference `soc/compare/dhry_tb.v`'s ramdiff lines compare against — agreement is
+transitive, so this is the same claim a full round-robin would be, for one fewer full-RAM scan):
+
+```
+-march=rv32i -mabi=ilp32 -O2 -std=c11 -ffreestanding
+-fno-tree-loop-distribute-patterns -Wall -Wextra -Werror
+```
+
+| | cycles | cycles/Dhrystone | DMIPS/MHz |
+|---|---|---|---|
+| **littlecpu** | 300,427 | 751.1 | **0.758** |
+| **VexRiscv** | 385,647 | 964.1 | **0.590** |
+| **Hazard3 (iCE40)** | 319,632 | 799.1 | **0.712** |
+
+VexRiscv takes 1.284× littlecpu's cycles for the same work; Hazard3 takes 1.064×; Hazard3 takes
+0.829× VexRiscv's. Every ratio the ISA permits comes out of this one table, because RV32I is the only
+subset all three cores share — there is no fourth pairing left over to ask about.
+
+**Hazard3's row carries a disclosed bias the other two do not pay.** `soc/compare/bench_hazard3.v`'s
+AHB5 adapter holds `hready` low for one cycle after every write's address phase, because `hwdata`
+does not arrive until the following cycle and a single-ported memory cannot serve that write's data
+phase and a new transfer's address phase at once (ADR-0139's own bus section). `soc/compare/dhry_tb.v`
+counts those cycles directly — `wr_pending_q` sampled every cycle inside the measured window — rather
+than estimating them: **28,805 of Hazard3's 319,632 measured cycles, 9.01%, are this wait state.**
+littlecpu drives `.bus_wait(1'b0)` in this harness and VexRiscv's bus here is always-ready, so neither
+of the other two rows carries an equivalent charge. This is disclosed rather than corrected, the same
+choice PR #245 made for the two-core VexRiscv pair after finding the equivalent question clean on
+both counts there: the wait state is a real, protocol-mandated cost of Hazard3's single-AHB5-port
+adapter, not a bug in the harness, and removing it from the count would make Hazard3's row describe a
+bus this harness does not build. `soc/compare/dhry_dmips.py` prints the percentage next to the row it
+belongs to on every run, so a reader does not have to go looking for it.
+
+**Also confirmed clean**: `soc/compare/dhry_tb.v` counts a write on all three cores the same way,
+`|mem_wstrb`/`|mem_wstrb_mux` — any write, not `== 4'b1111` for one of them the way an
+already-caught defect in the CoreMark testbench did. There is one write-counting convention in this
+file, not three.
+
+### The ISA's cost, isolated from the geometry
+
+`soc/compare/dhry_solo_tb.v` runs littlecpu alone at `soc/compare/dhry_tb.v`'s own geometry — same
+8 KB ROM / 16 KB RAM, same linker script, same markers — built at `DHRY_CFLAGS`, `make dhrystone`'s
+own native `-march=rv32imac_zicsr_zifencei_zkt`, unchanged. The only variable between this row and
+littlecpu's row in the three-way table above is which instructions the compiler was allowed to emit:
+
+| | cycles | cycles/Dhrystone | DMIPS/MHz |
+|---|---|---|---|
+| **littlecpu, RV32I (shared)** | 300,427 | 751.1 | **0.758** |
+| **littlecpu, native rv32imac_zicsr_zifencei_zkt** | 301,227 | 753.1 | **0.756** |
+
+**The shared subset costs this core nothing on Dhrystone, and if anything runs 0.27% faster than its
+native ISA on this benchmark** — 300,427 against 301,227 cycles, a reproducible difference in what
+the compiler emitted at the two `-march` values (both runs are deterministic RTL simulation of a
+fixed program, not a placement with seed variance), not a hardware-capability cost. That is not the
+surprising result it first looks like: Dhrystone is string- and pointer-dominated, its few
+multiplications are a small fraction of the measured loop, and this core's fetch machinery already
+decodes a compressed successor from the fetch window it holds (ADR-0093), so C's code-density win and
+M's hardware-multiply win both land on a benchmark that spends almost nothing on either. **This is the
+opposite of a hidden asterisk**: the three-way row's 0.758 DMIPS/MHz for littlecpu is not a discount
+against some larger native number — on this benchmark, in this harness, it already is the native
+number, to within a fifth of a percent.
+
+This does not generalise to every workload — `make dhrystone`'s own shipping-SoC figure (0.664
+DMIPS/MHz, ADR-0129) differs from both rows above by more than 0.27%, because that figure is taken at
+a different memory geometry (8 KB ROM / 64 KB RAM) with the region-wait fault this harness's map does
+not have room to reach. The isolated pair above holds the geometry fixed and varies only the ISA;
+`make dhrystone`'s figure holds neither fixed against this table, so it is not a third row of this
+same comparison and is not read as one.
+
+### The clock, twelve seeds a side, and the product
+
+`COMPARE_SEEDS='default 1 2 3 4 5 6 7 8 9 10 11' COMPARE_CORES='littlecpu vexriscv hazard3'
+soc/compare/sweep.sh`, on `b068533` — the same tree the cycle table above was measured on, so this is
+a product rather than the two-trees mistake this ADR's own first amendment already named and reversed
+once. Reading it off the distribution rather than one placement is what says the tree has not moved
+much since ADR-0139's five-seed table: littlecpu's worst reproduces ADR-0139's 30.90 MHz exactly, and
+the two other cores land within a few tenths of a percent of it.
+
+| | worst | median | best |
+|---|---|---|---|
+| **littlecpu** | 30.90 MHz | 32.00 MHz | 33.06 MHz |
+| **VexRiscv** | 48.24 MHz | 49.55 MHz | 50.84 MHz |
+| **Hazard3 (iCE40)** | 32.07 MHz | 33.20 MHz | 33.78 MHz |
+
+### Every product the ISA permits, all three at RV32I, worst-of-twelve × the cycle table above
+
+| | DMIPS/MHz | worst-of-twelve MHz | DMIPS |
+|---|---|---|---|
+| **littlecpu** | 0.758 | 30.90 | **23.42** |
+| **VexRiscv** | 0.590 | 48.24 | **28.46** |
+| **Hazard3 (iCE40)** | 0.712 | 32.07 | **22.83** |
+
+**VexRiscv leads littlecpu 1.22× on the worst placement of each (1.21× on medians)** — 28.46 DMIPS
+against 23.42, from 1.56× on clock against 0.78× on cycles (littlecpu needs 22.1% fewer cycles for
+the same work). This is the RV32I three-way row's own number, not the two-core RV32IC pair's 1.05×
+prior amendments recorded — different ISA, different image, not the same measurement re-stated.
+
+**Hazard3 and littlecpu are close, in Hazard3's favour on clock and littlecpu's on cycles, netting to
+a near-tie**: littlecpu leads 1.03× on the worst placement of each (23.42 against 22.83), 1.03× on
+medians too (24.26 against 23.64) — Hazard3's 1.04× clock advantage (32.07 against 30.90) does not
+quite cover littlecpu's 6.0% fewer cycles.
+
+**VexRiscv leads Hazard3 1.25× worst-of-twelve (1.24× on medians)** — 28.46 DMIPS against 22.83, from
+VexRiscv's 1.50× clock advantage (48.24 against 32.07 MHz) outrunning Hazard3's 17.1% fewer cycles.
+
+None of these are shipped designs, and none of the three implements the ISA the image is built at:
+this core is RV32IMAC + Zicsr with traps, VexRiscv here is RV32IC with a branch predictor, no CSR
+file and no traps, Hazard3's iCE40 build is RV32IMA with no CSR counters and no interrupt. The DMIPS
+column multiplies a clock placed at the harness's 4 KB/2 KB geometry by cycles simulated at 8 KB/16 KB
+— no ice40 in this flow has the block RAM to hold Dhrystone at any core's placed size, littlecpu and
+Hazard3's own 4 blocks each included. Read on medians instead of worst placements the ranking does
+not change, which is what says it is not an artefact of which seed happened to place worst.
+
+### Consequences
+
+- **`make compare-dhrystone` reports four rows, not two**: littlecpu, VexRiscv and Hazard3 in one
+  RV32I image and one simulation, plus littlecpu alone at its native ISA in the same geometry. The
+  two-core RV32IC pair this ADR previously reported stays true of the tree it was measured on and is
+  superseded by the three-way row as the harness's default output; nothing about VexRiscv's own
+  number changed, only which comparison `make compare-dhrystone` runs by default.
+- **The write-counting and bus-wait-state questions PR #245 checked for the two-core pair are checked
+  here for the third**: `soc/compare/dhry_tb.v` counts a write the same way on all three cores
+  (`|mem_wstrb`/`|mem_wstrb_mux`, never `== 4'b1111`), and Hazard3's own disclosed bias — the AHB5
+  adapter's mandatory write-data wait state — is measured directly from the simulation
+  (`wr_pending_q` sampled every cycle of the measured window) and printed as a percentage beside its
+  row, not folded into the cycle count silently.
+- **The per-core marker/verdict monitor is one module, `soc/compare/dhry_monitor.v`, instantiated on
+  each DUT's own bus signal names** rather than copied inline per core — three copies in
+  `soc/compare/dhry_tb.v` before this amendment, a fourth near-copy in
+  `soc/compare/dhry_solo_tb.v`'s first draft, one module now.
+- **The block-RAM question a third core raises was checked, not assumed**: Hazard3's iCE40 build is 4
+  `SB_RAM40_4K` standalone, the same as littlecpu's, so it fits the same 32-block budget VexRiscv's
+  branch predictor does not. Three cores did not make the harness's arithmetic impossible.
+- **The clock is twelve seeds a side, on the same tree the cycle table was taken on, and reproduces
+  ADR-0139's five-seed one rather than moving away from it**: littlecpu's worst-of-twelve is
+  ADR-0139's own 30.90 MHz exactly. VexRiscv leads littlecpu 1.22× on DMIPS at their RV32I row's
+  worst placements (1.21× on medians); littlecpu and Hazard3 are within 3% of each other, littlecpu
+  ahead on both readings; VexRiscv leads Hazard3 1.25× (1.24× on medians).
+- No `rtl/` file changed. This is entirely `soc/compare/`, the same boundary ADR-0086, ADR-0098 and
+  ADR-0139 already draw around this kind of measurement.
+
 
 ## Amendment, 2026-09-04 — re-taken on `e332776`, and the product did not move
 
