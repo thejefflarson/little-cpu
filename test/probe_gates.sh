@@ -5273,10 +5273,9 @@ L4="$HERE/lut4_site_test.sh"
 
 l4_fixture() {
   local d; d=$(new_case)
-  mkdir -p "$d/rtl" "$d/soc/compare" "$d/soc/depth" "$d/test" "$d/docs/adr" "$d/docs/ideas"
+  mkdir -p "$d/soc/compare" "$d/soc/depth" "$d/test" "$d/docs/adr" "$d/docs/ideas"
   cp "$REPO/CLAUDE.md" "$d/"
   cp "$REPO/Makefile" "$d/"
-  cp "$REPO/rtl/littlesoc.v" "$REPO/rtl/uart.v" "$d/rtl/"
   cp "$REPO/soc/baseline_summary.py" "$REPO/soc/baseline_sweep.sh" "$d/soc/"
   cp "$REPO/soc/compare/dhry_fit.py" "$REPO/soc/compare/placed_vs_synth.py" "$d/soc/compare/"
   cp "$REPO/soc/depth/path_stages.py" "$d/soc/depth/"
@@ -5316,9 +5315,9 @@ probe "a lookalike sibling is not covered by the directory entry above it" 1 \
   "docs/adrenaline.md:" "$L4 $d"
 
 # The other direction: an exemption whose site no longer carries the string.
-d=$(l4_fixture); sed -i.bak '/SB_LUT4/d' "$d/rtl/uart.v"; git -C "$d" add -A
+d=$(l4_fixture); sed -i.bak '/SB_LUT4/d' "$d/soc/depth/path_stages.py"; git -C "$d" add -A
 probe "an allow-list entry whose site lost the string is red" 1 \
-  "the allow-list exempts rtl/uart.v" "$L4 $d"
+  "the allow-list exempts soc/depth/path_stages.py" "$L4 $d"
 
 begin_group "test/workflow_rtl_list_test.sh"
 
