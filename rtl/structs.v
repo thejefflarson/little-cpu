@@ -130,6 +130,13 @@ typedef struct packed {
  `endif
   logic [4:0]  rd;
   logic [31:0] rd_data;
+  // `rd_data` is this instruction's real result rather than a placeholder a
+  // later stage still has to fill in. Every arithmetic op sets it the same
+  // cycle it issues; a load, a store, fence, wfi and every atomic do not --
+  // rtl/accessor.v produces theirs, or there is none. rtl/decoder.v's
+  // forwarding path is the one reader: it may only take `rd_data` from here
+  // when this bit says the value behind it is the finished one.
+  logic        rd_ready;
 } executor_output;
 
 typedef struct packed {

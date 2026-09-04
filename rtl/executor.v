@@ -13,6 +13,15 @@ module executor(
   assign rs1 = in.rs1;
   assign rs2 = in.rs2;
 
+  // Deliberately not rtl/decoder.v's `instr_math`, which this list otherwise
+  // matches: `is_add` also carries AUIPC, LUI, JAL/JALR and a register-form CSR
+  // read, whose results are ready this cycle and which `instr_math` excludes.
+  logic in_has_result;
+  assign in_has_result = in.is_add || in.is_sub || in.is_xor || in.is_or || in.is_and ||
+    in.is_sll || in.is_slt || in.is_sltu || in.is_srl || in.is_sra ||
+    in.is_mul || in.is_mulh || in.is_mulhu || in.is_mulhsu ||
+    in.is_div || in.is_divu || in.is_rem || in.is_remu;
+
   logic [32:0] alu_sub;
   logic        alu_ltu, alu_lt;
   assign alu_sub = {1'b0, rs1} - {1'b0, rs2};
@@ -108,6 +117,9 @@ module executor(
       op_sign_x <= 0;
       op_sign_y <= 0;
     end else begin
+      // Outside the case on purpose: the cycle a divide completes must publish
+      // its own answer, not the one latched when it issued.
+      out.rd_ready <= in_has_result;
       (* parallel_case, full_case *)
       case (state)
         init: begin
