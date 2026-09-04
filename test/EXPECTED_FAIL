@@ -13,7 +13,8 @@
 #
 # The status is the exact label test/run_tests.sh prints in its table:
 # ASSEMBLE-ERROR, ASSEMBLE-WARNING, OBJCOPY-ERROR <region>, OBJCOPY-EMPTY <region>,
-# FAIL <n>, TIMEOUT, MONITOR-ERROR <n>, TRAP-TO-ZERO, or RUNNER-ERROR <n>.
+# FAIL <n>, TIMEOUT, MONITOR-ERROR <n>, MONITOR-SILENT, TRAP-TO-ZERO,
+# BELOW-FLOOR <which>, NO-COUNTS, NO-FLOOR, or RUNNER-ERROR <n>.
 # Whitespace between the fields is free; a line with only a name is rejected
 # rather than half-matched.
 #
@@ -24,9 +25,10 @@
 # gate. Changing a line's status is the same kind of claim as removing it, and
 # needs the same justification in the PR that does it.
 #
-# OBJCOPY-ERROR and OBJCOPY-EMPTY describe a broken build rather than a known-red
-# property. Nothing should ever be baselined under either; a line carrying one is
-# a review flag.
+# OBJCOPY-ERROR, OBJCOPY-EMPTY, MONITOR-SILENT, NO-COUNTS, NO-FLOOR and
+# BELOW-FLOOR describe a broken build or a blind oracle rather than a known-red
+# property. Nothing should ever be baselined under any of them; a line carrying
+# one is a review flag.
 #
 # THIS IS NOT THE PLACE TO PARK A DEFECT IN THE ORACLE. When the generated
 # monitor itself is wrong, the repair belongs in test/sanitize_monitor.py, which

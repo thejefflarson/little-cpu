@@ -12,11 +12,14 @@
 # also carries a control, because a grader degenerated into `exit 1` would
 # otherwise pass the lot.
 #
-# Hermetic: no RISC-V toolchain, no `sim`, no Sail, no sby -- but the
+# Almost hermetic: no `sim`, no Sail, no sby. Two groups need a real tool and
+# fail loudly rather than silently on a machine without it -- the
 # test/zkt_isolation_test.py group elaborates rtl/decoder.v with yosys, once per
-# fixture, so this file needs yosys and fails loudly rather than silently on a
-# machine without it. It is otherwise all fork and no work, so the wall time is
-# the host's property rather than this file's.
+# fixture, and the linker-layout group runs the RISC-V cross linker, because the
+# graders it forces red are ASSERT statements inside the linker scripts and
+# nothing else evaluates one. `make test` is the only caller and needs both. It
+# is otherwise all fork and no work, so the wall time is the host's property
+# rather than this file's.
 #
 # Five failure paths are demonstrated by hand instead of by a `probe` call:
 # four because they need the elaborated design or the pinned clone --
@@ -1527,7 +1530,7 @@ probe "the rulebook quoting a figure the source no longer states is red" 1 \
   "CLAUDE.md states no placement spread" "$BSRC $d"
 
 d=$(bsrc_fixture)
-bsrc_edit "$d" CLAUDE.md 's|`soc/bands.py` is the one place|it is the one place|'
+bsrc_edit "$d" CLAUDE.md 's|soc/bands.py|the source|g'
 probe "and a rulebook that does not name the source is red too" 1 \
   "does not name soc/bands.py" "$BSRC $d"
 
@@ -1609,7 +1612,7 @@ probe "branch_taken carrying reg_rs1/reg_rs2 into hazard is red" 1 \
 # STRUCT_FIELD_SEEDS never named. executor_out.rd_data is a 32-bit field of
 # a decoder input port, the same shape as reg_rs1/reg_rs2, and a forwarding
 # path routing it into a stall reason is exactly the change this repo keeps
-# pricing and declining (ADR-0083/0092/0100).
+# pricing and declining.
 d=$(zkt_fixture)
 sed -i.bak \
   's/assign atomic_stall = out.valid && out.is_amo && !divider_stall;/assign atomic_stall = out.valid \&\& out.is_amo \&\& !divider_stall || executor_out.rd_data[0];/' \
@@ -1682,7 +1685,7 @@ p = sys.argv[1]
 s = open(p).read()
 old = ("CONTROL_FIELDS = {\n"
        "    'out': ('decoder_output', ['valid', 'rd', 'is_amo']),\n"
-       "    'executor_out': ('executor_output', ['valid', 'rd']),\n"
+       "    'executor_out': ('executor_output', ['valid', 'rd', 'rd_ready']),\n"
        "}")
 assert s.count(old) == 1
 open(p, 'w').write(s.replace(old, 'CONTROL_FIELDS = {}'))
@@ -2598,9 +2601,9 @@ d=$(mm_fixture); sed -i.bak 's/LENGTH = 64K/LENGTH = LOTS/' "$d/test/asm/section
 probe "a size the parser cannot read stops rather than comparing as zero" 1 \
   "is not a size this check can read" "$MM $d"
 
-# The core's own copy of the map. Nothing in the datapath reads it, so every one
-# of these drifts is silent everywhere else: the counters keep reporting, about
-# a machine no file describes.
+# The core's own copy of the map, which rtl/decoder.v reads to refuse a load or
+# store the platform does not answer. A drift here is silent everywhere else:
+# no memory on the bus can say the decoder faulted the wrong address.
 d=$(mm_fixture); sed -i.bak "s/LS_RAM_BASE   = 32'h0001_0000/LS_RAM_BASE   = 32'h0002_0000/" "$d/rtl/littlecpu.v"
 probe "the core's copy of the RAM base drifting from the RAM is red" 1 \
   "rtl/littlecpu.v's LS_RAM_BASE is 131072 against rtl/memory.v's 65536" "$MM $d"
@@ -2649,6 +2652,105 @@ probe "the timer moving in the proof's copy alone is red" 1 \
 d=$(mm_fixture); sed -i.bak 's/LS_TEXT_WORDS = 2048/LS_TEXT_WORDS = 4096/' "$d/formal/traps.sv"
 probe "the proof describes the part's text window, not the harness's" 1 \
   "LS_TEXT_WORDS is 4096 against rtl/littlesoc.v's 2048" "$MM $d"
+
+begin_group "the linker scripts' layout ASSERTs"
+
+# The graders in this group are ASSERT statements inside the linker scripts
+# themselves, so forcing one red means running the real cross linker. That makes
+# this the second group in this file that is not hermetic, after the yosys one.
+#
+# WHAT THEY GRADE. rtl/decoder.v answers a load or store's region question off
+# raw register bits only when the base register sits deep inside a mapped window
+# -- in it, and in neither its first 2 KB block nor its last -- so an access
+# whose base is in an edge block bubbles a cycle. Every script therefore insets
+# `.data` and the stack by one 2 KB block, and every script asserts it: a layout
+# that silently gives the cost back is the failure being forced here.
+#
+# The two candidate names test/run_tests.sh and the Makefile already search for,
+# in their order. Deliberately NOT $CC: an earlier group in this file binds that
+# name to a stub of its own, and reading it here resolved the cross linker to a
+# python script.
+LAYOUT_CC=""
+for layout_candidate in riscv64-elf-gcc riscv64-unknown-elf-gcc; do
+  if command -v "$layout_candidate" > /dev/null 2>&1; then
+    LAYOUT_CC=$layout_candidate
+    break
+  fi
+done
+if [ -z "$LAYOUT_CC" ]; then
+  echo "error: no RISC-V cross compiler found, so the linker scripts' own" >&2
+  echo "ASSERTs cannot be forced red. Install one (make setup)." >&2
+  exit 1
+fi
+
+layout_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/test/asm" "$d/test/bench" "$d/test/board"
+  cp "$REPO"/test/asm/boot.lds "$REPO"/test/asm/sections.lds "$d/test/asm/"
+  cp "$REPO"/test/bench/bench.lds "$REPO"/test/bench/coremark.lds "$d/test/bench/"
+  cp "$REPO"/test/board/board.lds "$d/test/board/"
+  # No crt0 and no program: an ASSERT over ADDR(.data) and __stack_top is
+  # evaluated whatever the input objects contain, and a stub keeps the probe
+  # measuring the script rather than whatever the suite's startup happens to do.
+  cat > "$d/stub.S" <<'STUB'
+  .section .text.init,"ax",@progbits
+  .globl _start
+_start:
+  nop
+STUB
+  printf '%s' "$d"
+}
+
+layout_link() {  # $1 = fixture dir, $2 = script path inside it
+  "$LAYOUT_CC" -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -nostdlib \
+    -T "$1/$2" "$1/stub.S" -o "$1/out.elf"
+}
+
+LAYOUT_DATA_RED="layout: .data starts in ram's first or last 2 KB block"
+LAYOUT_STACK_RED="layout: __stack_top puts the top of the stack in ram's first or last 2 KB block"
+
+d=$(layout_fixture)
+probe "control: all five shipping scripts link at the inset layout" 0 \
+  "all five shipping scripts link" \
+  "layout_link $d test/asm/boot.lds && layout_link $d test/asm/sections.lds &&
+   layout_link $d test/bench/bench.lds && layout_link $d test/bench/coremark.lds &&
+   layout_link $d test/board/board.lds && echo 'all five shipping scripts link'"
+
+d=$(layout_fixture); sed -i.bak 's/ORIGIN(ram) + 2048 : {/ORIGIN(ram) : {/' "$d/test/asm/boot.lds"
+probe "boot.lds putting .data back at ram's origin is red" 1 \
+  "$LAYOUT_DATA_RED" "layout_link $d test/asm/boot.lds"
+
+d=$(layout_fixture); sed -i.bak 's/LENGTH(ram) - 2048;/LENGTH(ram);/' "$d/test/asm/boot.lds"
+probe "boot.lds putting the stack back at the top of ram is red" 1 \
+  "$LAYOUT_STACK_RED" "layout_link $d test/asm/boot.lds"
+
+d=$(layout_fixture); sed -i.bak 's/ORIGIN(ram) + 2048 : {/ORIGIN(ram) : {/' "$d/test/asm/sections.lds"
+probe "sections.lds putting .data back at ram's origin is red" 1 \
+  "$LAYOUT_DATA_RED" "layout_link $d test/asm/sections.lds"
+
+d=$(layout_fixture); sed -i.bak 's/ORIGIN(ram) + 2048 : {/ORIGIN(ram) : {/' "$d/test/bench/bench.lds"
+probe "bench.lds putting .data back at ram's origin is red" 1 \
+  "$LAYOUT_DATA_RED" "layout_link $d test/bench/bench.lds"
+
+d=$(layout_fixture); sed -i.bak 's/LENGTH(ram) - 2048;/LENGTH(ram);/' "$d/test/bench/bench.lds"
+probe "bench.lds putting the stack back at the top of ram is red" 1 \
+  "$LAYOUT_STACK_RED" "layout_link $d test/bench/bench.lds"
+
+d=$(layout_fixture); sed -i.bak 's/ORIGIN(ram) + 2048 : {/ORIGIN(ram) : {/' "$d/test/bench/coremark.lds"
+probe "coremark.lds putting .data back at ram's origin is red" 1 \
+  "$LAYOUT_DATA_RED" "layout_link $d test/bench/coremark.lds"
+
+d=$(layout_fixture); sed -i.bak 's/LENGTH(ram) - 2048;/LENGTH(ram);/' "$d/test/bench/coremark.lds"
+probe "coremark.lds putting the stack back at the top of ram is red" 1 \
+  "$LAYOUT_STACK_RED" "layout_link $d test/bench/coremark.lds"
+
+d=$(layout_fixture); sed -i.bak 's/ORIGIN(ram) + 2048 : {/ORIGIN(ram) : {/' "$d/test/board/board.lds"
+probe "board.lds putting .data back at ram's origin is red" 1 \
+  "$LAYOUT_DATA_RED" "layout_link $d test/board/board.lds"
+
+d=$(layout_fixture); sed -i.bak 's/LENGTH(ram) - 2048;/LENGTH(ram);/' "$d/test/board/board.lds"
+probe "board.lds putting the stack back at the top of ram is red" 1 \
+  "$LAYOUT_STACK_RED" "layout_link $d test/board/board.lds"
 
 begin_group "test/adr_numbering_test.sh"
 
@@ -2966,6 +3068,9 @@ ma_fixture() {
   cp "$REPO/test/sail/reservation_probe.sh" "$d/test/sail/"
   cp "$REPO/soc/depth/cycles.py" "$d/soc/depth/"
   cp "$REPO/soc/compare/run_dhrystone.sh" "$d/soc/compare/"
+  cp "$REPO/soc/compare/product.json" "$d/soc/compare/"
+  cp "$REPO/soc/compare/run_product.sh" "$d/soc/compare/"
+  cp "$REPO/soc/compare/product_write.py" "$d/soc/compare/"
   cp "$REPO/soc/compare/run_coremark_compare.sh" "$d/soc/compare/"
   cp "$REPO/formal/checks.cfg" "$d/formal/"
   # One real file under each history directory: those two entries are
@@ -2997,9 +3102,10 @@ probe "a repo root that does not exist is red before anything is scanned" 1 \
 # THE ONE THAT MATTERS: a site left behind. The `.c` arm of the suite runner
 # assembles a program with no atomic in it either way.
 d=$(ma_fixture)
-ma_edit "$d" test/run_tests.sh '158s/rv32imac_zicsr_zifencei_zkt/rv32imc_zicsr_zifencei_zkt/'
+c_arm=$(grep -n -- '-march=rv32imac_zicsr_zifencei_zkt' "$d/test/run_tests.sh" | head -1 | cut -d: -f1)
+ma_edit "$d" test/run_tests.sh "${c_arm}s/rv32imac_zicsr_zifencei_zkt/rv32imc_zicsr_zifencei_zkt/"
 probe "one build site left at the narrower ISA is red, and located" 1 \
-  "test/run_tests.sh:158: -march=rv32imc_zicsr_zifencei_zkt" "$MA $d"
+  "test/run_tests.sh:${c_arm}: -march=rv32imc_zicsr_zifencei_zkt" "$MA $d"
 
 probe "...and the count that site was declared with is red too" 1 \
   "test/run_tests.sh states -march=rv32imac_zicsr_zifencei_zkt 1 time(s), not 2" "$MA $d"
@@ -3053,7 +3159,7 @@ probe "a new site naming an ISA nothing declared is red, and located" 1 \
 d=$(ma_fixture)
 ma_edit "$d" Makefile 's/-march=rv32i -mabi=ilp32/-march=rv32imac_zicsr_zifencei -mabi=ilp32/'
 probe "an exception whose site stopped naming that ISA is red" 1 \
-  "the exception \`Makefile rv32i 1\` matched 0 time(s), not 1" "$MA $d"
+  "the exception \`Makefile rv32i 2\` matched 0 time(s), not 2" "$MA $d"
 
 # A counted exception is exact-count too, not "at least one": `rv32ima` is
 # one keystroke from the declared ISA, so a SECOND, uncounted occurrence of an
@@ -3062,8 +3168,8 @@ probe "an exception whose site stopped naming that ISA is red" 1 \
 # so this fixture only has to add the second occurrence, not plant the entry.
 d=$(ma_fixture)
 ma_edit "$d" Makefile \
-  's/^COMPARE_DHRY_CFLAGS := -march=rv32ic/# probe: -march=rv32ima\
-COMPARE_DHRY_CFLAGS := -march=rv32ic/'
+  's/^COMPARE_DHRY_CFLAGS := -march=rv32i/# probe: -march=rv32ima\
+COMPARE_DHRY_CFLAGS := -march=rv32i/'
 probe "a second occurrence of a counted exception value is red" 1 \
   "the exception \`Makefile rv32ima 1\` matched 2 time(s), not 1" "$MA $d"
 
@@ -3342,7 +3448,7 @@ gt_fixture() {
 
 d=$(gt_fixture)
 probe "control: the shipping harness states one geometry" 0 \
-  "stated the same way in all seven places" "$GT $d"
+  "stated the same way everywhere it is declared" "$GT $d"
 
 probe "a repo root that does not exist is red before anything is parsed" 1 \
   "is not a directory" "$GT $d/nowhere"
@@ -3377,7 +3483,7 @@ probe "the linker script's RAM origin drifting from the RTL's base is red" 1 \
 
 d=$(gt_fixture); rm "$d/soc/compare/bench.lds"
 probe "a file that moved out from under the check is fatal, not skipped" 1 \
-  "is missing" "$GT $d"
+  "does not exist" "$GT $d"
 
 d=$(gt_fixture); sed -i.bak 's/^COMPARE_ROM_WORDS/COMPARE_ROMWORDS/' "$d/Makefile"
 probe "a declaration this cannot read stops rather than comparing empty strings" 1 \
@@ -3387,6 +3493,55 @@ d=$(gt_fixture); sed -i.bak 's/parameter integer ROM_WORDS = 1024/parameter inte
   "$d/soc/compare/bench_hazard3.v"
 probe "the third core's ROM drifting behind the other two is red" 1 \
   "has ROM_WORDS=2048, the Makefile has COMPARE_ROM_WORDS=1024" "$GT $d"
+
+# THE ENUMERATION HALF: the file list above is discovered from the Makefile's
+# own COMPARE_TOP/-T lines, not kept a second time in this script, so these two
+# probes are what actually cover JEF-923 -- a new comparison-harness file that
+# declares geometry and is never wired into the Makefile now has a comparison
+# to trip, which is the gap the ticket opened over.
+d=$(gt_fixture); cat > "$d/soc/compare/bench_fourth.v" <<'BENCHV'
+module bench_fourth #(
+  parameter integer ROM_WORDS = 1024,
+  parameter integer RAM_WORDS = 512
+) (
+  input logic clk
+);
+endmodule
+BENCHV
+probe "a fourth core's ROM_WORDS with no Makefile entry to reach it is red" 1 \
+  "declares parameter integer ROM_WORDS but no 'COMPARE_TOP := bench_fourth' line in the Makefile reaches it" \
+  "$GT $d"
+
+d=$(gt_fixture); cat > "$d/soc/compare/bench_fourth.v" <<'BENCHV'
+module bench_fourth (
+  input logic clk
+);
+endmodule
+BENCHV
+probe "a bench_*.v file with no ROM_WORDS parameter needs no Makefile entry" 0 \
+  "stated the same way everywhere it is declared" "$GT $d"
+
+d=$(gt_fixture); : > "$d/soc/compare/orphan.lds"
+probe "a linker script the Makefile does not link and nothing else names is red" 1 \
+  "soc/compare/orphan.lds is linked by nothing" "$GT $d"
+
+d=$(gt_fixture); : > "$d/soc/compare/orphan.lds"
+printf '#!/bin/bash\necho "reads soc/compare/orphan.lds"\n' > "$d/soc/compare/run_orphan.sh"
+probe "a linker script named by another soc/compare script is not orphaned" 0 \
+  "stated the same way everywhere it is declared" "$GT $d"
+
+d=$(gt_fixture); : > "$d/soc/compare/orphan.lds"
+printf '#!/bin/bash\necho "reads soc/compare/not_orphan.lds"\n' > "$d/soc/compare/run_decoy.sh"
+probe "a longer name sharing the substring does not stand in for the real one" 1 \
+  "soc/compare/orphan.lds is linked by nothing" "$GT $d"
+
+# A script that mentions no .lds name at all -- unlike every fixture script
+# above, which always matches something -- so this is the one case that
+# exercises a real "grep finds nothing" outcome under `pipefail`.
+d=$(gt_fixture)
+printf '#!/bin/bash\necho "nothing to see here"\n' > "$d/soc/compare/run_unrelated.sh"
+probe "a soc/compare script naming no .lds at all does not sink the scan" 0 \
+  "stated the same way everywhere it is declared" "$GT $d"
 
 begin_group "soc/compare/dhry_fit.py"
 
@@ -3449,69 +3604,129 @@ begin_group "soc/compare/dhry_dmips.py"
 
 DD="python3 $REPO/soc/compare/dhry_dmips.py"
 
-# The numbers this repo measured, at 400 runs.
+# The two-core numbers this repo measured, at 400 runs. littlecpu is the
+# reference core, so every probe below names it first in --cores.
 dd_fixture() {
   local d; d=$(new_case)
   cat > "$d/run.log" <<'LOG'
 DHRY ran 431000 cycles of a 2000000 cycle limit
 DHRY core=littlecpu marks=2 cycles=335229 verdict=1 writes=31474
 DHRY core=vexriscv marks=2 cycles=408758 verdict=1 writes=31474
-DHRY ramdiff=0 of=4096 words
+DHRY ramdiff core=vexriscv diff=0 of=4096 words
 LOG
   printf '%s' "$d"
 }
 
+DD2="$DD --cores littlecpu,vexriscv"
+
 d=$(dd_fixture)
 probe "control: a good run reports both cores' figures" 0 "0.679" \
-  "$DD $d/run.log --runs 400"
+  "$DD2 $d/run.log --runs 400"
 
 d=$(dd_fixture)
 probe "a clock turns the per-MHz figure into an absolute one" 0 "22.10" \
-  "$DD $d/run.log --runs 400 --mhz littlecpu=32.54 --mhz vexriscv=48.19"
+  "$DD2 $d/run.log --runs 400 --mhz littlecpu=32.54 --mhz vexriscv=48.19"
 
 # THE ONE THAT MATTERS: two cores that did not compute the same thing have no
 # comparable cycle count between them.
-d=$(dd_fixture); sed -i.bak 's/ramdiff=0/ramdiff=111/' "$d/run.log"
+d=$(dd_fixture); sed -i.bak 's/diff=0/diff=111/' "$d/run.log"
 probe "two cores whose RAMs differ are red, not a 1.2x result" 1 \
-  "data RAMs differ in 111 of 4096 words" "$DD $d/run.log --runs 400"
+  "data RAMs differ in 111 of 4096 words" "$DD2 $d/run.log --runs 400"
 
 d=$(dd_fixture); sed -i.bak 's/of=4096/of=0/' "$d/run.log"
 probe "a RAM comparison over no words is named as unable to fail" 1 \
-  "could not have failed" "$DD $d/run.log --runs 400"
+  "could not have failed" "$DD2 $d/run.log --runs 400"
 
 d=$(dd_fixture); sed -i.bak '/ramdiff/d' "$d/run.log"
 probe "a run that never made the cross-core check is red" 1 \
-  "no ramdiff line" "$DD $d/run.log --runs 400"
+  "no ramdiff line for vexriscv" "$DD2 $d/run.log --runs 400"
 
 d=$(dd_fixture); sed -i.bak 's/core=vexriscv marks=2/core=vexriscv marks=1/' "$d/run.log"
 probe "a core that reached the start of the loop and not the end is red" 1 \
-  "published 1 marker(s), not 2" "$DD $d/run.log --runs 400"
+  "published 1 marker(s), not 2" "$DD2 $d/run.log --runs 400"
 
 d=$(dd_fixture); sed -i.bak 's/core=littlecpu marks=2 cycles=335229 verdict=1/core=littlecpu marks=2 cycles=335229 verdict=3/' \
   "$d/run.log"
 probe "the benchmark's own FAIL verdict stops the number being quoted" 1 \
-  "did not compute the published results" "$DD $d/run.log --runs 400"
+  "did not compute the published results" "$DD2 $d/run.log --runs 400"
 
 d=$(dd_fixture); sed -i.bak '/core=vexriscv/d' "$d/run.log"
 probe "one side alone is not a cross-core figure" 1 \
-  "no result for vexriscv" "$DD $d/run.log --runs 400"
+  "no result for vexriscv" "$DD2 $d/run.log --runs 400"
 
 d=$(dd_fixture); sed -i.bak 's/^DHRY core=/DHRY CORE=/' "$d/run.log"
 probe "a simulation this cannot parse is a run that did not happen" 1 \
-  "no DHRY result lines" "$DD $d/run.log --runs 400"
+  "no DHRY result lines" "$DD2 $d/run.log --runs 400"
 
 d=$(dd_fixture)
 probe "zero runs would divide the work by nothing" 1 "nothing was measured" \
-  "$DD $d/run.log --runs 0"
+  "$DD2 $d/run.log --runs 0"
 
 d=$(dd_fixture)
 probe "a clock for a core nobody graded is named rather than ignored" 1 \
   "which is not one of the cores graded" \
-  "$DD $d/run.log --runs 400 --mhz picorv32=40"
+  "$DD2 $d/run.log --runs 400 --mhz picorv32=40"
 
 d=$(dd_fixture)
 probe "a placement at zero MHz is not a placement" 1 "is not placed" \
-  "$DD $d/run.log --runs 400 --mhz littlecpu=0"
+  "$DD2 $d/run.log --runs 400 --mhz littlecpu=0"
+
+d=$(dd_fixture)
+probe "--cores naming no core at all is red before anything is parsed" 1 \
+  "named no core at all" "$DD $d/run.log --runs 400 --cores ,"
+
+# THE THREE-WAY ROW: littlecpu is still the reference; both other cores are
+# RAM-compared against it, not against each other.
+dd_fixture3() {
+  local d; d=$(new_case)
+  cat > "$d/run.log" <<'LOG'
+DHRY ran 431000 cycles of a 2000000 cycle limit
+DHRY core=littlecpu marks=2 cycles=412000 verdict=1 writes=38000
+DHRY core=vexriscv marks=2 cycles=612000 verdict=1 writes=38000
+DHRY core=hazard3 marks=2 cycles=498000 verdict=1 writes=38000
+DHRY core=hazard3 wait_cycles=9960
+DHRY ramdiff core=vexriscv diff=0 of=4096 words
+DHRY ramdiff core=hazard3 diff=0 of=4096 words
+LOG
+  printf '%s' "$d"
+}
+
+DD3="$DD --cores littlecpu,vexriscv,hazard3"
+
+d=$(dd_fixture3)
+probe "control: a good three-way run reports all three cores' figures" 0 \
+  "hazard3" "$DD3 $d/run.log --runs 400"
+
+d=$(dd_fixture3)
+probe "the wait-state bias is disclosed as a percentage of hazard3's own cycles" 0 \
+  "hazard3 spends 9960 of its 498000 measured cycles (2.00%)" \
+  "$DD3 $d/run.log --runs 400"
+
+# THE PAIR ROTATION MATTERS: hazard3's RAM diverging is graded even though it
+# is the second non-reference core, not only the first.
+d=$(dd_fixture3); sed -i.bak 's/core=hazard3 diff=0/core=hazard3 diff=42/' "$d/run.log"
+probe "the SECOND core's RAM diverging is graded, not only the first" 1 \
+  "littlecpu and hazard3's data RAMs differ in 42 of 4096 words" \
+  "$DD3 $d/run.log --runs 400"
+
+d=$(dd_fixture3); sed -i.bak '/ramdiff core=hazard3/d' "$d/run.log"
+probe "a missing ramdiff for the SECOND core is red, not silently skipped" 1 \
+  "no ramdiff line for hazard3" "$DD3 $d/run.log --runs 400"
+
+# THE ISA-COST ROW: one core, no reference, so no ramdiff line is required at
+# all -- there is nothing on the other side to compare a RAM against.
+dd_fixture_solo() {
+  local d; d=$(new_case)
+  cat > "$d/run.log" <<'LOG'
+DHRY ran 290427 cycles of a 2000000 cycle limit
+DHRY core=littlecpu marks=2 cycles=290427 verdict=1 writes=31474
+LOG
+  printf '%s' "$d"
+}
+
+d=$(dd_fixture_solo)
+probe "a solo run needs no ramdiff line -- there is no reference to compare" 0 \
+  "littlecpu" "$DD $d/run.log --runs 400 --cores littlecpu"
 
 begin_group "soc/compare/coremark_fit.py"
 
@@ -5252,6 +5467,452 @@ d=$(new_case); rv_tarball "$d/upstream.tar.gz" "" "coremark.md5"
 rv_curl_stub "$d/bin" "$d/upstream.tar.gz"
 probe "a real archive missing one vendored member is caught, and named" 2 \
   "MISSING upstream: coremark.md5" "$(rv "$d/bin")"
+
+begin_group "test/netlist_digest_gate_test.py"
+
+ND="python3 $HERE/netlist_digest_gate_test.py"
+
+nd_fixture() {
+  local d; d=$(new_case)
+  cp "$REPO/Makefile" "$d/Makefile"
+  printf '%s' "$d"
+}
+
+d=$(nd_fixture)
+probe "control: the shipping Makefile owes nothing but themselves to the two targets" 0 \
+  "prerequisites of nothing but themselves" "$ND $d"
+
+d=$(new_case)
+probe "a repo root with no Makefile is red before anything is parsed" 1 \
+  "does not exist, so there is nothing to parse" "$ND $d"
+
+# THE ONE THAT MATTERS: a target other than the two starts depending on
+# netlist-digest, which is exactly the corollary "the digest replaces a
+# sweep, never a gate" exists to forbid -- a sweep silently skipped.
+d=$(nd_fixture)
+sed -i.bak \
+  's/^test: sim test-units probe-gates pin-bump-test tool-cache-test memmap-test \\$/test: sim test-units probe-gates netlist-digest pin-bump-test tool-cache-test memmap-test \\/' \
+  "$d/Makefile"
+probe "a graded target quietly depending on netlist-digest is red, and named" 1 \
+  "test: depends on netlist-digest" "$ND $d"
+
+probe "and the diagnostic states the corollary this check is enforcing" 1 \
+  "THE DIGEST REPLACES A SWEEP, NEVER A GATE" "$ND $d"
+
+# The sibling comparison target is graded the same way.
+d=$(nd_fixture)
+sed -i.bak 's/^tracked-ignored-test:$/tracked-ignored-test: netlist-diff/' "$d/Makefile"
+probe "netlist-diff reaches the same check as netlist-digest does" 1 \
+  "tracked-ignored-test: depends on netlist-diff" "$ND $d"
+
+# A .PHONY declaration lists a target by name without creating a real
+# dependency edge -- it must not be mistaken for one.
+d=$(nd_fixture)
+probe "control: .PHONY declaring netlist-digest is not a dependency edge" 0 \
+  "prerequisites of nothing but themselves" "$ND $d"
+
+# The other direction: the check has to be able to find the two targets' own
+# rule lines, or it is asserting a property of nothing.
+d=$(nd_fixture)
+sed -i.bak 's/^netlist-digest: netlist-determinism$/netlist-digest-renamed: netlist-determinism/' \
+  "$d/Makefile"
+probe "a renamed or deleted netlist-digest target stops the check rather than passing it" 1 \
+  "no rule line defines netlist-digest" "$ND $d"
+
+begin_group "test/lut4_site_test.sh"
+
+# A COPY OF EVERY ALLOW-LISTED SITE, the same reason test/retired_term_test.sh's
+# fixture is one: the control below is the real allow-list and every red probe
+# is one edit away from it. git init over the copy because this check reads
+# git's index, the same property test/tracked_ignored_test.sh's fixture reads.
+L4="$HERE/lut4_site_test.sh"
+
+l4_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/soc/compare" "$d/soc/depth" "$d/test" "$d/docs/adr" "$d/docs/ideas"
+  cp "$REPO/CLAUDE.md" "$d/"
+  cp "$REPO/Makefile" "$d/"
+  cp "$REPO/soc/baseline_summary.py" "$REPO/soc/baseline_sweep.sh" "$d/soc/"
+  cp "$REPO/soc/compare/dhry_fit.py" "$REPO/soc/compare/placed_vs_synth.py" "$d/soc/compare/"
+  cp "$REPO/soc/depth/path_stages.py" "$d/soc/depth/"
+  cp "$REPO/test/probe_gates.sh" "$REPO/test/lut4_site_test.sh" "$d/test/"
+  cp "$REPO/docs/adr/0038-area-is-measured-in-logic-cells-and-two-levers-are-rejected.md" \
+    "$d/docs/adr/"
+  cp "$REPO/docs/ideas/fit-the-core-on-the-up5k.md" "$d/docs/ideas/"
+  git -c init.defaultBranch=main -C "$d" init -q
+  git -C "$d" add -A
+  printf '%s' "$d"
+}
+
+d=$(l4_fixture)
+probe "control: every allowed site is covered and nothing else carries the string" 0 \
+  "confined to its" "$L4 $d"
+
+probe "a repo root that does not exist is red before anything is scanned" 1 \
+  "is not a directory" "$L4 $d/nowhere"
+
+d=$(new_case)
+probe "a plain directory git cannot list is a scan of nothing, not green" 1 \
+  "cannot enumerate any tracked files" "$L4 $d"
+
+# THE ONE THAT MATTERS: a new site nothing on the list reviewed.
+d=$(l4_fixture); printf '# SB_LUT4 is a nice round number\n' >> "$d/soc/depth/summary.py"
+mkdir -p "$d/soc/depth"; git -C "$d" add -A
+probe "an unlisted site is red and named, with the file:line quoted" 1 \
+  "soc/depth/summary.py:" "$L4 $d"
+
+probe "and the diagnostic explains which unit is safe to read instead" 1 \
+  "ICESTORM_LC" "$L4 $d"
+
+# A directory entry has to match on the path separator, the same guard
+# test/retired_term_test.sh's own allow-list carries.
+d=$(l4_fixture); printf 'SB_LUT4\n' > "$d/docs/adrenaline.md"; git -C "$d" add -A
+probe "a lookalike sibling is not covered by the directory entry above it" 1 \
+  "docs/adrenaline.md:" "$L4 $d"
+
+# The other direction: an exemption whose site no longer carries the string.
+d=$(l4_fixture); sed -i.bak '/SB_LUT4/d' "$d/soc/depth/path_stages.py"; git -C "$d" add -A
+probe "an allow-list entry whose site lost the string is red" 1 \
+  "the allow-list exempts soc/depth/path_stages.py" "$L4 $d"
+
+begin_group "test/workflow_rtl_list_test.sh"
+
+WR="$HERE/workflow_rtl_list_test.sh"
+
+wr_fixture() {  # $1 = one line to put in ci.yml's run: step
+  local d; d=$(new_case)
+  mkdir -p "$d/.github/workflows"
+  printf '%s\n' "$1" > "$d/.github/workflows/ci.yml"
+  printf '%s' "$d"
+}
+
+d=$(wr_fixture "        # see rtl/writeback.v's rvfi shadow reads")
+probe "control: a single rtl/*.v mention is prose, not a list" 0 \
+  "no workflow file enumerates more than one" "$WR $d"
+
+probe "a repo root that does not exist is red before anything is scanned" 1 \
+  "is not a directory" "$WR $d/nowhere"
+
+d=$(new_case)
+probe "a repo with no .github/workflows is red rather than a scan of nothing" 1 \
+  "there is nothing to scan" "$WR $d"
+
+# THE ONE THAT MATTERS: two source files named on one line, the shape a
+# second hand-written copy of SIM_RTL_SRCS takes.
+d=$(wr_fixture "        run: iverilog rtl/structs.v rtl/decoder.v")
+probe "two rtl/*.v paths on one line is a second copy, and is red" 1 \
+  "names 2 distinct rtl/*.v paths on one line" "$WR $d"
+
+probe "and the diagnostic points at make elaborate-strict, not a rewrite here" 1 \
+  "elaborate-strict" "$WR $d"
+
+d=$(wr_fixture "        run: iverilog rtl/structs.v rtl/structs.v")
+probe "the same path repeated on one line is not a second copy" 0 \
+  "no workflow file enumerates more than one" "$WR $d"
+begin_group "test/mutation_coverage_test.sh"
+
+# A COPY OF THE SHIPPING FILES, the same fixture shape test/memmap_test.sh's
+# probes use and for the same reason: the control is then the real tree, and
+# every red probe is one edit away from it.
+MCOV="$HERE/mutation_coverage_test.sh"
+
+mcov_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/rtl" "$d/test" "$d/formal"
+  cp "$REPO"/rtl/*.v "$d/rtl/"
+  cp "$REPO"/test/MUTATION_COVERAGE "$REPO"/test/MUTATION_DETECTORS "$d/test/"
+  cp "$REPO"/test/*_tb.v "$d/test/"
+  cp "$REPO"/formal/components.sby "$d/formal/"
+  cp "$REPO"/Makefile "$d/"
+  cp "$REPO"/formal/Makefile "$d/formal/"
+  printf '%s' "$d"
+}
+
+d=$(mcov_fixture)
+probe "control: the shipping manifest rules on every rtl/*.v file" 0 \
+  "19 rtl/*.v files, each ruled on" "$MCOV $d"
+
+probe "a repo root that does not exist is red before anything is parsed" 1 \
+  "is not a directory" "$MCOV $d/nowhere"
+
+# THE ONE THAT MATTERS: a new rtl/*.v file joining the fourteen no mutation
+# touches, silently, the way rtl/trng.v would when the entropy sprint adds it.
+d=$(mcov_fixture); touch "$d/rtl/trng.v"
+probe "a new rtl file with no line is red, naming the file" 1 \
+  "rtl/trng.v" "$MCOV $d"
+
+d=$(mcov_fixture); rm "$d/rtl/spiflash.v"
+probe "deleting an rtl file and leaving its line is red" 1 \
+  "names files rtl/ does not have" "$MCOV $d"
+
+d=$(mcov_fixture)
+sed -i.bak 's/^rtl\/timer.v     mtip-fires-a-tick-early/rtl\/timer.v     no-such-mutation/' \
+  "$d/test/MUTATION_COVERAGE"
+probe "a line naming a mutation test/mutations/ does not have is red" 1 \
+  "is not in test/MUTATION_DETECTORS's first" "$MCOV $d"
+
+d=$(mcov_fixture)
+sed -i.bak 's/^rtl\/uart.v      unpaired  uart_tb/rtl\/uart.v      unpaired  no_such_bench/' \
+  "$d/test/MUTATION_COVERAGE"
+probe "an unpaired line whose named grader is not a real bench or formal task is red" 1 \
+  "names no real bench, formal" "$MCOV $d"
+
+# A bare \`unpaired\` is the defect this whole file exists to rule out --
+# permitting it teaches people to write it.
+d=$(mcov_fixture)
+sed -i.bak 's/^rtl\/uart.v      unpaired  uart_tb/rtl\/uart.v      unpaired/' \
+  "$d/test/MUTATION_COVERAGE"
+probe "a bare unpaired with no grader does not pass by silence" 1 \
+  "needs exactly one grader name" "$MCOV $d"
+
+d=$(mcov_fixture)
+printf 'rtl/uart.v  uart_tb\n' >> "$d/test/MUTATION_COVERAGE"
+probe "a file named twice is red rather than averaging into one pass" 1 \
+  "names the same file more than once" "$MCOV $d"
+
+d=$(mcov_fixture)
+sed -i.bak 's/^rtl\/timer.v     mtip-fires-a-tick-early/rtl\/timer.v     mtip-fires-a-tick-early extra/' \
+  "$d/test/MUTATION_COVERAGE"
+probe "a mutation line with a stray extra field is red rather than read as the name" 1 \
+  "takes exactly one field" "$MCOV $d"
+begin_group "soc/compare/product_check.py"
+
+# A real git repo, not a copy of this one: the paths product_check.py diffs are
+# rtl/ and soc/compare/, so a two-file fixture is enough, and it needs its own
+# commit for the stamp's `base` to name. soc/compare/product_write.py builds
+# the stamp itself, the same script `make compare-product` uses, so a probe
+# that mutates this fixture's product.json by hand would be testing a document
+# nothing real ever writes. Named product_check_fixture/product_check_run
+# rather than the shorter pc_* this group used to use: test/port_connect_test.py's
+# own group already owns pc_fixture, and a same-named redefinition later in
+# this file would have silently shadowed it for every probe after this point.
+product_check_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/repo/rtl" "$d/repo/soc/compare"
+  echo 'module decoder(); endmodule' > "$d/repo/rtl/decoder.v"
+  echo 'module dhry_tb(); endmodule' > "$d/repo/soc/compare/dhry_tb.v"
+  git -c init.defaultBranch=main -C "$d/repo" init -q
+  git -C "$d/repo" add -A
+  git -C "$d/repo" -c user.email=probe@example -c user.name=probe commit -qm base
+  local base; base=$(git -C "$d/repo" rev-parse HEAD)
+  python3 "$REPO/soc/compare/product_write.py" "$d/repo/product.json" dhrystone --measured \
+    --target-core littlecpu --base "$base" --dirty no --date 2026-08-16T00:00:00Z \
+    --seeds 'default 1' --cflags '-march=rv32ic -O2' --isa rv32ic \
+    --rom-words 1024 --ram-words 512 \
+    --unit DMIPS/MHz --tool 'yosys=Yosys 0.68 [/opt/bin/yosys]' \
+    --clock-ns 'littlecpu=32.36,31.25' --clock-ns 'vexriscv=20.73,20.18' \
+    --cycle-factor 'littlecpu=0.748' --cycle-factor 'vexriscv=0.557' > /dev/null
+  python3 "$REPO/soc/compare/product_write.py" "$d/repo/product.json" coremark \
+    --not-yet-measured --target-core littlecpu --core hazard3 \
+    --reason 'not on this tree yet' > /dev/null
+  printf '%s' "$d"
+}
+
+# `<current>` is embedded inside single quotes in the generated snippet, not
+# handed through positionally: the snippet is a STRING that probe() later
+# `eval`s, which re-splits on whitespace, so a value with a space in it (every
+# CFLAGS string here has one) survives only if the quoting is in the text
+# itself rather than in this function's own argument boundaries.
+product_check_run() {  # <fixture dir> <benchmark> <--current field=value, or "" to omit>
+  local d=$1 bench=$2 current=$3
+  local cmd="python3 $REPO/soc/compare/product_check.py $d/repo/product.json $bench --repo $d/repo"
+  [ -n "$current" ] && cmd="$cmd --current '$current'"
+  printf '%s' "$cmd"
+}
+
+d=$(product_check_fixture)
+probe "control: a fresh stamp with nothing changed prints clean and exits 0" 0 \
+  "dhrystone: fresh, stamped" "$(product_check_run "$d" dhrystone 'cflags=-march=rv32ic -O2')"
+
+d=$(product_check_fixture)
+echo '/* touched */' >> "$d/repo/rtl/decoder.v"
+git -C "$d/repo" -c user.email=probe@example -c user.name=probe commit -qam touch
+probe "an rtl/ change since the stamp's base is STALE, and the file is named" 1 \
+  "rtl/ or soc/compare/ changed since" \
+  "$(product_check_run "$d" dhrystone 'cflags=-march=rv32ic -O2')"
+
+d=$(product_check_fixture)
+echo '/* touched */' >> "$d/repo/soc/compare/dhry_tb.v"
+git -C "$d/repo" -c user.email=probe@example -c user.name=probe commit -qam touch
+probe "a soc/compare/ change since the stamp's base is STALE, and the file is named" 1 \
+  "soc/compare/dhry_tb.v" "$(product_check_run "$d" dhrystone 'cflags=-march=rv32ic -O2')"
+
+d=$(product_check_fixture)
+probe "a CFLAGS change with no rtl/ or soc/compare/ move is STALE too, named by field" 1 \
+  "cflags changed: stamped '-march=rv32ic -O2', now '-march=rv32ic -O3'" \
+  "$(product_check_run "$d" dhrystone 'cflags=-march=rv32ic -O3')"
+
+d=$(product_check_fixture)
+probe "a ROM/RAM geometry change is checked the same generic way as CFLAGS" 1 \
+  "rom_words changed: stamped '1024', now '2048'" \
+  "$(product_check_run "$d" dhrystone 'rom_words=2048')"
+
+d=$(product_check_fixture)
+sed -i.bak 's/"dirty": "no"/"dirty": "yes"/' "$d/repo/product.json"
+probe "a stamp measured on a dirty tree is STALE even if nothing has moved since" 1 \
+  "measured on a tree with uncommitted changes" "$(product_check_run "$d" dhrystone '')"
+
+d=$(product_check_fixture)
+probe "a not-yet-measured pair is reported, not graded as stale" 0 \
+  "coremark: not yet measured -- not on this tree yet" "$(product_check_run "$d" coremark '')"
+
+d=$(product_check_fixture)
+probe "a benchmark this artifact never recorded is refused, not read as fresh" 1 \
+  "has no 'coreturbo' pair" "$(product_check_run "$d" coreturbo '')"
+
+d=$(product_check_fixture)
+probe "a missing artifact refuses rather than reporting on nothing" 1 \
+  "does not exist. Run" \
+  "python3 $REPO/soc/compare/product_check.py $d/repo/no-such-product.json dhrystone --repo $d/repo"
+
+begin_group "soc/compare/product_write.py"
+
+# `--cflags '-march=rv32ic -mabi=ilp32'`, never a single flag: argparse reads a
+# lone `-march=rv32ic` as an option it does not recognise rather than as this
+# option's value (it only trusts a `-`-prefixed token as a plain value once a
+# space in it rules out its being a flag) -- the same reason CFLAGS is always
+# more than one flag in every real caller.
+d=$(new_case)
+probe "control: a complete --measured call writes a valid pair" 0 \
+  "wrote dhrystone (measured)" \
+  "python3 $REPO/soc/compare/product_write.py $d/p.json dhrystone --measured \
+    --target-core littlecpu --base aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+    --dirty no --date 2026-08-16T00:00:00Z --seeds default \
+    --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --clock-ns littlecpu=30.0,31.0 --clock-ns vexriscv=20.0,21.0 \
+    --cycle-factor littlecpu=0.7 --cycle-factor vexriscv=0.5"
+
+d=$(new_case)
+probe "control: a THIRD core's --clock-ns/--cycle-factor adds a second product, not a rewrite" 0 \
+  "wrote dhrystone (measured)" \
+  "python3 $REPO/soc/compare/product_write.py $d/p.json dhrystone --measured \
+    --target-core littlecpu --base aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+    --dirty no --date 2026-08-16T00:00:00Z --seeds default \
+    --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --clock-ns littlecpu=30.0,31.0 --clock-ns vexriscv=20.0,21.0 \
+    --clock-ns hazard3=25.0,26.0 \
+    --cycle-factor littlecpu=0.7 --cycle-factor vexriscv=0.5 --cycle-factor hazard3=0.6"
+
+d=$(new_case)
+probe "a lone target core with no other core is refused, not written as an empty pair" 1 \
+  "at least twice" \
+  "python3 $REPO/soc/compare/product_write.py $d/p.json dhrystone --measured \
+    --target-core littlecpu --base aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+    --dirty no --date 2026-08-16T00:00:00Z --seeds default \
+    --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --clock-ns littlecpu=30.0,31.0 --cycle-factor littlecpu=0.7"
+
+d=$(new_case)
+probe "--clock-ns and --cycle-factor naming different core sets is refused" 1 \
+  "every core needs both" \
+  "python3 $REPO/soc/compare/product_write.py $d/p.json dhrystone --measured \
+    --target-core littlecpu --base aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+    --dirty no --date 2026-08-16T00:00:00Z --seeds default \
+    --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --clock-ns littlecpu=30.0 --clock-ns hazard3=20.0 \
+    --cycle-factor littlecpu=0.7 --cycle-factor vexriscv=0.5"
+
+d=$(new_case)
+probe "cores given with no --target-core among them is refused" 1 \
+  "has no --clock-ns/--cycle-factor of its own" \
+  "python3 $REPO/soc/compare/product_write.py $d/p.json dhrystone --measured \
+    --target-core littlecpu --base aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+    --dirty no --date 2026-08-16T00:00:00Z --seeds default \
+    --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --clock-ns vexriscv=30.0 --clock-ns hazard3=20.0 \
+    --cycle-factor vexriscv=0.7 --cycle-factor hazard3=0.5"
+
+d=$(new_case)
+probe "a --measured call with no --tool is refused rather than stamping an unknown toolchain" 1 \
+  "wants at least one --tool" \
+  "python3 $REPO/soc/compare/product_write.py $d/p.json dhrystone --measured \
+    --target-core littlecpu --base aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+    --dirty no --date 2026-08-16T00:00:00Z --seeds default \
+    --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz \
+    --clock-ns littlecpu=30.0 --clock-ns vexriscv=20.0 \
+    --cycle-factor littlecpu=0.7 --cycle-factor vexriscv=0.5"
+
+d=$(new_case)
+probe "a --measured call with no --isa is refused the same way as a missing --cflags" 1 \
+  "wants --isa" \
+  "python3 $REPO/soc/compare/product_write.py $d/p.json dhrystone --measured \
+    --target-core littlecpu --base aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+    --dirty no --date 2026-08-16T00:00:00Z --seeds default \
+    --cflags '-march=rv32ic -mabi=ilp32' \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --clock-ns littlecpu=30.0 --clock-ns vexriscv=20.0 \
+    --cycle-factor littlecpu=0.7 --cycle-factor vexriscv=0.5"
+
+begin_group "soc/compare/product_diff.py"
+
+# --require-news reuses soc/compare/product_check.py's own moved_paths(), which
+# runs a real `git diff` -- so this fixture is a real, isolated git repo (the
+# same shape product_check_fixture above builds) rather than pointing --repo at
+# this checkout: this checkout is mid-development on the very files under
+# soc/compare/ these probes would otherwise be diffing against, which would
+# make "no news" depend on whether this tree happened to be clean when the
+# probe ran.
+pd_fixture() {  # writes before.json and after.json into a fresh, isolated repo
+  local d; d=$(new_case)
+  mkdir -p "$d/repo/rtl" "$d/repo/soc/compare"
+  echo 'module decoder(); endmodule' > "$d/repo/rtl/decoder.v"
+  git -c init.defaultBranch=main -C "$d/repo" init -q
+  git -C "$d/repo" add -A
+  git -C "$d/repo" -c user.email=probe@example -c user.name=probe commit -qm base
+  local base; base=$(git -C "$d/repo" rev-parse HEAD)
+  python3 "$REPO/soc/compare/product_write.py" "$d/before.json" dhrystone --measured \
+    --target-core littlecpu --base "$base" \
+    --dirty no --date 2026-08-16T00:00:00Z --seeds default \
+    --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --clock-ns littlecpu=30.0 --clock-ns vexriscv=20.0 \
+    --cycle-factor littlecpu=0.7 --cycle-factor vexriscv=0.5 > /dev/null
+  cp "$d/before.json" "$d/after.json"
+  printf '%s' "$d"
+}
+
+d=$(pd_fixture)
+probe "control: two identical snapshots print a null delta and no news" 0 \
+  "(+0.0%)" "python3 $REPO/soc/compare/product_diff.py $d/before.json $d/after.json"
+
+d=$(pd_fixture)
+probe "--require-news against an unchanged repo and matching --current is quiet" 1 \
+  "no news" \
+  "python3 $REPO/soc/compare/product_diff.py $d/before.json $d/after.json --require-news \
+    --repo $d/repo --current 'dhrystone:cflags=-march=rv32ic -mabi=ilp32' \
+    --current 'dhrystone:rom_words=1024' --current 'dhrystone:ram_words=512'"
+
+d=$(pd_fixture)
+probe "--require-news is news the moment --current disagrees with the older stamp" 0 \
+  "news" \
+  "python3 $REPO/soc/compare/product_diff.py $d/before.json $d/after.json --require-news \
+    --repo $d/repo --current 'dhrystone:cflags=-march=rv32imc -mabi=ilp32'"
+
+d=$(pd_fixture)
+echo '/* touched */' >> "$d/repo/rtl/decoder.v"
+git -C "$d/repo" -c user.email=probe@example -c user.name=probe commit -qam touch
+probe "--require-news is news the moment rtl/ moved under the older stamp too" 0 \
+  "news" \
+  "python3 $REPO/soc/compare/product_diff.py $d/before.json $d/after.json --require-news \
+    --repo $d/repo"
+
+d=$(pd_fixture)
+python3 "$REPO/soc/compare/product_write.py" "$d/after.json" coremark --measured \
+  --target-core littlecpu --base bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb \
+  --dirty no --date 2026-08-17T00:00:00Z --seeds default \
+  --cflags '-march=rv32ima -mabi=ilp32' --isa rv32ima \
+  --rom-words 4096 --ram-words 4096 --unit CoreMark/MHz --tool yosys=Yosys \
+  --clock-ns littlecpu=30.0 --clock-ns hazard3=25.0 \
+  --cycle-factor littlecpu=2.0 --cycle-factor hazard3=1.4 > /dev/null
+probe "a pair measured for the first time is news on its own, with no --current at all" 0 \
+  "news" \
+  "python3 $REPO/soc/compare/product_diff.py $d/before.json $d/after.json --require-news --repo $d/repo"
 
 # A probe's label is compared against the checked-in manifest as a MULTISET
 # (sorted, duplicates kept), never reduced to a bare count first: a count can

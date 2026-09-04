@@ -1,12 +1,13 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// This core, in the cross-core comparison harness. Its twin is
-// soc/compare/bench_vexriscv.v, and the two are held to one geometry: the same
-// ROM depth, the same data RAM module at the same base, the same three pads,
-// the same program image, the same part and the same seeds.
+// This core, in the cross-core comparison harness. Its siblings are
+// soc/compare/bench_vexriscv.v and soc/compare/bench_hazard3.v, and the three
+// are held to one geometry: the same ROM depth, the same data RAM module at
+// the same base, the same three pads, the same program image, the same part
+// and the same seeds.
 //
 // It is NOT rtl/littlesoc.v and its number is not `make soc-timing`'s. Four
-// things differ, all of them so that both cores fit one part:
+// things differ, all of them so that every core fits one part:
 //   - 4 KB of ROM instead of 8, and 2 KB of data RAM instead of 64;
 //   - the data RAM is block RAM, because the comparison runs on an hx8k, which
 //     has no SPRAM at all;

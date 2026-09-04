@@ -1,10 +1,10 @@
-# `make fit` (ADR-0038): the netlist it places, nextpnr's log -- which IS the
+# `make fit`: the netlist it places, nextpnr's log -- which IS the
 # measurement, so keep it around to read -- and the yosys log, kept out of the
 # terminal so no yosys cell count is ever mistaken for an area number.
 fit.json
 fit.log
 fit.synth.log
-# `make soc-timing` (ADR-0054): the SoC netlist, the placed bitstream ASCII, the
+# `make soc-timing`: the SoC netlist, the placed bitstream ASCII, the
 # three logs and the `icetime` report. soc.pnr.log and soc.timing.rpt ARE the
 # measurement, so they are kept on disk to read -- and never committed, because
 # a checked-in timing report is a number that stops tracking the RTL.

@@ -28,7 +28,12 @@
 # most additions land as independent line insertions a merge or a rebase
 # applies cleanly on their own, rather than two commits both rewriting the
 # one line a bare counter used to be.
+--clock-ns and --cycle-factor naming different core sets is refused
+--cores naming no core at all is red before anything is parsed
 --list answers for every part, derived or not
+--require-news against an unchanged repo and matching --current is quiet
+--require-news is news the moment --current disagrees with the older stamp
+--require-news is news the moment rtl/ moved under the older stamp too
 ...and one the purge did not remove means the digest is equal by luck
 ...and so does the file it injects into going away
 ...and the count that site was declared with is red too
@@ -41,7 +46,10 @@ CoreMark's own FAIL verdict stops the number being quoted
 JSON that is not a netlist is refused
 NO-STATUS is a broken harness and is not baselineable either
 PASS in a failure set is a comparison whose only branch is failure
+a --measured call with no --isa is refused the same way as a missing --cflags
+a --measured call with no --tool is refused rather than stamping an unknown toolchain
 a C floor copied out of the measured table is rejected, not honoured
+a CFLAGS change with no rtl/ or soc/compare/ move is STALE too, named by field
 a CoreMark RAM comparison over no words is named as unable to fail
 a CoreMark census with no block RAM line is a synthesis that did not finish
 a CoreMark clock for a core nobody graded is named rather than ignored
@@ -56,12 +64,14 @@ a PASS with no counts line is not a pass
 a RAM comparison over no words is named as unable to fail
 a RAM half the size in the core's copy is red
 a RAM half the size in the proof's copy is red
+a ROM/RAM geometry change is checked the same generic way as CFLAGS
 a SHRUNK suite is caught when the missing program is the C one
 a SHRUNK suite: the manifest names a program the tree does not have
 a Sail install back inside the checkout is red
 a SoC with no SPI controller at all does not pass by silence
 a SoC with no UART at all does not pass by silence
 a UART base off its own window is red
+a bare unpaired with no grader does not pass by silence
 a base tree whose make fails is refused, not quietly given ours
 a base tree whose synth flags moved is digested with ITS flags, and says so
 a baseline funct3 that is not three binary digits is named
@@ -71,6 +81,8 @@ a baselined program that diverges SOMEWHERE ELSE is red
 a baselined test that starts failing a DIFFERENT way is red
 a baselined upstream file that stopped mentioning it is red
 a bench in test/ that make does not run is named
+a bench_*.v file with no ROM_WORDS parameter needs no Makefile entry
+a benchmark this artifact never recorded is refused, not read as fresh
 a bitstream the placer never finished writing is not a placement
 a block short of a tool is named, not summarised around
 a block with no end is truncated, and a truncated one is not read
@@ -136,6 +148,7 @@ a failing objcopy names the region that failed
 a failure reported only by the induction leg is not evidence
 a field the runner stopped printing is named, not counted as zero
 a field with no value is a malformed line
+a file named twice is red rather than averaging into one pass
 a file that moved away takes the check with it, loudly
 a file that moved out from under the check is fatal, not skipped
 a file the manifest stopped naming is red before shasum ever runs
@@ -144,6 +157,7 @@ a file with no row in the index is named as orphaned
 a file with two rows in the index is named
 a floor line this loop cannot parse is a floor that is not enforced
 a formal harness that stops wiring rvfi at all is red
+a fourth core's ROM_WORDS with no Makefile entry to reach it is red
 a frequency with no path under it is not a measurement
 a funct3-only predicate is rejected when a funct7 still separates two modelled rows
 a gap in the sequence is not a defect
@@ -152,6 +166,7 @@ a gap opening between the data RAM and the timer is red
 a gap opening between the timer's reservation and the UART is red
 a gate failure reported only by the induction leg is not evidence
 a generated check that was never scheduled resolves to NO-STATUS
+a graded target quietly depending on netlist-digest is red, and named
 a graph with no edges out of reg_rs1 is red, not a vacuous pass
 a half-installed toolchain says so once, up front
 a half-installed toolchain says so once, up front
@@ -162,15 +177,21 @@ a harness with no line in the baseline is red
 a harness with no line in the baseline is red
 a hop class nothing classifies would move the split silently
 a hop sum that does not reconcile blames the script, not the design
+a line naming a mutation test/mutations/ does not have is red
 a line with no harness behind it is red too
 a line with no harness behind it is red too
 a linker script back on the old 4 KB ram is red
 a linker script linking past the harness ROM is red
+a linker script named by another soc/compare script is not orphaned
 a linker script promising RAM the harness does not have is red
 a linker script that moves ram off the decoded base is red
+a linker script the Makefile does not link and nothing else names is red
 a locality counter that stopped being printed is named too
 a lock arm that admits a grant mid-AMO is red
 a lock arm that admits a grant mid-AMO is red
+a lone target core with no other core is refused, not written as an empty pair
+a longer name sharing the substring does not stand in for the real one
+a lookalike sibling is not covered by the directory entry above it
 a lookalike sibling is not covered by the directory entry above it
 a lookalike sibling is not covered by the directory entry above it
 a lost [depth] line trips the shape check AND the verdict check
@@ -179,9 +200,11 @@ a malformed baseline line is named rather than skipped
 a malformed manifest line is red under --strict, not a silent pass
 a manifest entry that names no program is a typo, not a phantom
 a missing Sail install stops the run rather than scoring it
+a missing artifact refuses rather than reporting on nothing
 a missing asm directory is named
 a missing baseline file is exit 2, not an empty expected set
 a missing parser stops the run rather than grading with a second one
+a missing ramdiff for the SECOND core is red, not silently skipped
 a mistyped baseline path cannot compare nothing and pass
 a mistyped baseline path cannot compare nothing and pass
 a mistyped floor path cannot make every floor lookup miss
@@ -195,18 +218,22 @@ a mutant that left no trace demonstrates nothing, and says so
 a mutant the digest calls equal placing elsewhere voids it too
 a mutated vendored byte fails the pin, and says so
 a mutated vendored byte fails the pin, and says so
+a mutation line with a stray extra field is red rather than read as the name
 a mutation with no program leg is a real entry, not a missing file
 a netlist from another tree is named, not binned as `neither`
 a netlist that is not there is refused, not read as equal
 a netlist with no pc net would leave that bin empty for ever
 a netlist with no top module names no one design
+a new rtl file with no line is red, naming the file
 a new site naming an ISA nothing declared is red, and located
 a new wide input port with no classification is red (finding 3)
 a nextpnr that died early is NOT graded on the last run's pair
 a non-comparable CSR value is exempted -- and every exemption printed
 a non-numeric floor is named rather than compared arithmetically
+a not-yet-measured pair is reported, not graded as stale
 a one-bit constant is a different digest
 a one-field baseline line is rejected before the suite runs
+a pair measured for the first time is news on its own, with no --current at all
 a pairing naming a program nobody wrote is red
 a parameter this cannot read stops rather than comparing nothing
 a part this repo does not place is refused, not added by asking
@@ -220,6 +247,7 @@ a pin that makes another check read rvfi_intr is red
 a pin that models an interrupt CSR makes the tie-off an argument again
 a placement at zero MHz is not a placement
 a placer that wrote no bitstream placed nothing, which is not a pass
+a plain directory git cannot list is a scan of nothing, not green
 a plain directory git cannot list is a scan of nothing, not green
 a port declaration the parser cannot read stops the run
 a port named with nothing in the parentheses is red too
@@ -241,6 +269,7 @@ a reference model that produced no trace is fatal
 a reg_rs1 bit routed into hazard is red, at hazard's own site
 a relative install directory is red before it is compared
 a renamed cell is named by path
+a renamed or deleted netlist-digest target stops the check rather than passing it
 a renamed task stops rather than probing some other design
 a renamed task stops rather than probing some other design
 a renamed task stops rather than probing some other design
@@ -248,10 +277,15 @@ a renamed task stops this probe rather than moving its control
 a repo root that does not exist is red before anything is parsed
 a repo root that does not exist is red before anything is parsed
 a repo root that does not exist is red before anything is parsed
+a repo root that does not exist is red before anything is parsed
 a repo root that does not exist is red before anything is scanned
 a repo root that does not exist is red before anything is scanned
 a repo root that does not exist is red before anything is scanned
 a repo root that does not exist is red before anything is scanned
+a repo root that does not exist is red before anything is scanned
+a repo root that does not exist is red before anything is scanned
+a repo root with no Makefile is red before anything is parsed
+a repo with no .github/workflows is red rather than a scan of nothing
 a report naming some other clock does not stand in for this one
 a report that does not exist is named, not read as zero
 a report under the floor fails, because the floor is the board clock
@@ -293,6 +327,9 @@ a signal in scope only in an earlier module stops it too
 a simulated ROM smaller than the part's is red
 a simulation this cannot parse is a run that did not happen
 a size the parser cannot read stops rather than comparing as zero
+a soc/compare script naming no .lds at all does not sink the scan
+a soc/compare/ change since the stamp's base is STALE, and the file is named
+a solo run needs no ramdiff line -- there is no reference to compare
 a solver that wrote no verdict is exit 2, not a red arm
 a solver that wrote no verdict is exit 2, not a red arm
 a solver that wrote no verdict is exit 2, not a red arm
@@ -303,6 +340,7 @@ a source this tree synthesises that the base lacks is not comparable
 a stall nothing in the list explains is a reason nobody wrote down
 a stall reason the accounting cannot name is red even with every test passing
 a stall reason with no driving cell stops the run
+a stamp measured on a dirty tree is STALE even if nothing has moved since
 a stamp with no table under it is a failed measurement
 a standalone synthesis of zero cells is named, not divided by
 a status sby cannot produce is rejected at format time
@@ -346,6 +384,7 @@ an EXTRA architectural write the model never made is caught
 an SPI base off its own window is red
 an UNREADABLE baseline is refused, not read as an empty one
 an allow-list entry whose site lost the stale ISA name is red
+an allow-list entry whose site lost the string is red
 an allow-list entry whose site no longer has the word is red
 an anti-vacuity cover that cannot go red is not a control
 an anti-vacuity cover that cannot go red is not a control
@@ -383,6 +422,7 @@ an integrator telling the core a text size its ROM has not got
 an integrator that stopped stating it at all is red, not defaulted
 an ls_access with an extra encoding proving is red
 an objcopy that refuses names the region it refused for
+an rtl/ change since the stamp's base is STALE, and the file is named
 an svlint install inside the checkout is red on its own
 an unconditional port connected only inside an ifdef is red
 an underived part says so rather than borrowing another part's band
@@ -392,6 +432,8 @@ an unexpected runner status is RUNNER-ERROR, carrying it
 an ungated region_stall proving is red
 an unlisted core_portme.h would shadow the port's header, and is caught
 an unlisted core_portme.h would shadow the port's header, and is caught
+an unlisted site is red and named, with the file:line quoted
+an unpaired line whose named grader is not a real bench or formal task is red
 an unreadable clone makes 'no spec model' unmeasurable, and fatal
 an unreadable clone makes the re-derivation impossible, and fatal
 an unrecognised CS line is a hard error, never guessed at
@@ -407,29 +449,43 @@ and is told that another part's does not transfer
 and points at that flow's own declaration
 and prints the delta beside it, not instead of it
 and says why it is NA, so it is not read as a path with no logic on it
+and the diagnostic explains which unit is safe to read instead
 and the diagnostic names the ISA the core does claim
+and the diagnostic points at make elaborate-strict, not a rewrite here
 and the diagnostic says git rm --cached, not an edit to the rule
 and the diagnostic says what it costs, not just that it is missing
 and the diagnostic says what to write instead, not just what is wrong
+and the diagnostic states the corollary this check is enforcing
 and the reverse: a divergence reported with exit 0
 and the same for the check-set baseline
 assembler output on a successful build is still a defect
 assembler output on a successful build is still a defect
 baselining ERROR would re-create the btorsim hole with this gate's blessing
+bench.lds putting .data back at ram's origin is red
+bench.lds putting the stack back at the top of ram is red
+board.lds putting .data back at ram's origin is red
+board.lds putting the stack back at the top of ram is red
+boot.lds putting .data back at ram's origin is red
+boot.lds putting the stack back at the top of ram is red
 branch_taken carrying reg_rs1/reg_rs2 into hazard is red
 columns that do not add up blame the report, not the core
 columns that no longer add up to the cycle count are red
+control: .PHONY declaring netlist-digest is not a dependency edge
 control: STALL_REPORT prints the accounting and keeps the suite green
 control: TIMEOUT is a real verdict and IS baselineable
+control: a THIRD core's --clock-ns/--cycle-factor adds a second product, not a rewrite
 control: a baselined divergence at the baselined point is green
 control: a baselined failure that fails exactly that way is green
 control: a baselined red check at the baselined status is green
+control: a complete --measured call writes a valid pair
 control: a count matching the declaration is green
 control: a derived part states both figures and names itself
 control: a deterministic placer and a forgiven mutant pass
+control: a fresh stamp with nothing changed prints clean and exits 0
 control: a full-pass check set against an empty baseline is green
 control: a good CoreMark run reports both cores' figures
 control: a good run reports both cores' figures
+control: a good three-way run reports all three cores' figures
 control: a measurement within budget is green
 control: a model file OUTSIDE isa_rv32imc.txt is not one this check can see
 control: a netlist digests, and the digest is a sha256
@@ -442,6 +498,7 @@ control: a rule from this clone's $GIT_DIR/info/exclude is not this repository's
 control: a rule from this developer's $GIT_TEMPLATE_DIR is not this repository's to grade
 control: a rule from this developer's core.excludesFile is not this repository's to grade
 control: a rule from this developer's init.templateDir is not this repository's to grade
+control: a single rtl/*.v mention is prose, not a list
 control: a stamped sweep summarises
 control: a stamped sweep with its reports behind it is binned
 control: a suite matching its manifest is green
@@ -450,6 +507,7 @@ control: a tool that answers is stamped with its version and its path
 control: a tracked file with no matching ignore rule is clean
 control: a well-formed report publishes the frequency
 control: agreeing paths outside the checkout are green
+control: all five shipping scripts link at the inset layout
 control: an ECP5 sweep summarises against its own instrument
 control: an accounting that adds up prints the table
 control: an archive matching the vendored tree exactly is endorsed
@@ -468,6 +526,7 @@ control: both arms admit the shipping arbiter and fail on their mutation
 control: both arms fail, each at its own line
 control: both sides failing the same test number still AGREE
 control: each subset is printed as a share of that number
+control: every allowed site is covered and nothing else carries the string
 control: every site names every port of littlecpu
 control: identical register traces and verdicts AGREE
 control: programs that build and are paired are green
@@ -484,6 +543,7 @@ control: the measured CoreMark image reports the shortfall it has
 control: the measured image reports the shortfall it has
 control: the note a delta is read against carries the part too
 control: the pc hop reaches the pc bin, by the declared net's bits
+control: the shipping Makefile owes nothing but themselves to the two targets
 control: the shipping decoder reaches region_stall only, gated
 control: the shipping exclusion set matches its baseline both ways
 control: the shipping files describe one machine
@@ -491,14 +551,20 @@ control: the shipping harness states one geometry
 control: the shipping harnesses tie off, both directions
 control: the shipping harnesses tie off, both directions
 control: the shipping index has one row per file and no number twice
+control: the shipping manifest rules on every rtl/*.v file
 control: the shipping tree keeps the retired term inside its allow-list
 control: the shipping tree names one ISA at every site
 control: the shipping tree states every band figure in one place
 control: the tracked monitor sanitizes, and rule 3 fires
 control: two identical netlists are equal
+control: two identical snapshots print a null delta and no news
 control: two sweeps measured the same way are subtracted
+coremark.lds putting .data back at ram's origin is red
+coremark.lds putting the stack back at the top of ram is red
+cores given with no --target-core among them is refused
 data past the end of the simulated RAM is red, not silent
 decoder_output.rd widened past 5 bits is red (finding 5)
+deleting an rtl file and leaving its line is red
 every source line moving is the comment class, and is forgiven
 half of a macro-guarded group is red, where none of it is not
 hazard reading ls_answer_valid directly is red (finding 1)
@@ -509,6 +575,7 @@ layer 2: the enclosed handle_error multiset is pinned, not merely counted
 layer 3: error 101 vanishing from the OUTPUT is caught after every rule
 more accesses near an edge than there were accesses is red
 moving the declared string alone, with every site unchanged, is red
+netlist-diff reaches the same check as netlist-digest does
 no components.sby is exit 2 here too, not a green control
 no components.sby is exit 2, not a probe against an invented script
 no components.sby is exit 2, not a probe against an invented script
@@ -545,6 +612,7 @@ runner exit 5 is TRAP-TO-ZERO, not a timeout with no cause
 runner exit 6 is MONITOR-SILENT: the oracle never looked
 running the generator from the wrong directory is refused, not done
 sby's trailing engine numbers are not part of the status
+sections.lds putting .data back at ram's origin is red
 starvation going red somewhere other than the bound is not evidence
 starvation going red somewhere other than the bound is not evidence
 status AGREE with a nonzero exit is a broken harness, not agreement
@@ -556,6 +624,7 @@ the REPORT goes too, which .DELETE_ON_ERROR cannot do for a non-target
 the ROM image built to a different size than the ROM is red
 the RTL moving away takes the probe with it, loudly
 the RTL moving away takes the probe with it, loudly
+the SECOND core's RAM diverging is graded, not only the first
 the SPI controller moving in the core's copy alone is red
 the SPI controller moving in the proof's copy alone is red
 the Sail download directory inside the checkout is red on its own
@@ -607,6 +676,7 @@ the refusal is the part, not the four tool mismatches it also produces
 the refused download is neither unpacked nor kept to be served again
 the rulebook quoting a figure the source no longer states is red
 the same for the bypass counter, per program rather than in total
+the same path repeated on one line is not a second copy
 the stale ISA name coming back in a formal harness comment is red
 the suite's shape is asserted before a single program is assembled
 the third core's ROM drifting behind the other two is red
@@ -615,6 +685,7 @@ the timer moving in the core's copy alone is red
 the timer moving in the proof's copy alone is red
 the trend against the recorded count is printed beside the verdict
 the two definitions the predicates are built from are pinned literally
+the wait-state bias is disclosed as a percentage of hazard3's own cycles
 the word coming back in a formal harness comment is red, and located
 the wrong count is named against the log's real one
 three sweeps have no one difference, so they are refused
@@ -627,6 +698,7 @@ two copies of the flags agreeing about -march and nothing else
 two cores whose RAMs differ are red, not a 1.2x result
 two files claiming the same number is named
 two parts are refused rather than subtracted
+two rtl/*.v paths on one line is a second copy, and is red
 two toolchains are named, which is the disagreement that flipped a sign
 two walks disagreeing about what routing is refuse to print a histogram
 usage: a missing argument is exit 2
