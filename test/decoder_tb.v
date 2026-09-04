@@ -325,6 +325,123 @@ module decoder_tb;
     check_hex("...and so is a compressed left shift's", dut.math_arg, 32'd13);
     reg_rs2 = 32'b0;
 
+    // Executor-only forwarding: a value already sitting in the executor's
+    // own slot may reach an eligible consumer's operand instead of costing
+    // it the usual RAW stall, but only where nothing else in decode still
+    // needs the register file's own answer this cycle.
+    //
+    // rs1: an ALU consumer reading a register the executor's slot already
+    // has the finished value for issues with no hazard at all, and what it
+    // hands the executor is that forwarded value -- never the poisoned
+    // reg_rs1 below, which the register file has not caught up to yet.
+    executor_out.valid = 1'b1;
+    executor_out.rd = 5'd2;
+    executor_out.rd_data = 32'hcafe_babe;
+    executor_out.rd_ready = 1'b1;
+    reg_rs1 = 32'hdead_dead;
+    in.pc = 32'h0000_00c0;
+    present_and_fetch(32'h000100b3);   // add x1, x2, x0 -- reads x2
+    check_bit("a ready result in the executor's slot forwards", dut.ex_fwd_rs1, 1'b1);
+    check_bit("...raising no hazard", dut.hazard_rs1, 1'b0);
+    check_bit("...so nothing stalls it", dut.stall, 1'b0);
+    @(posedge clk);
+    #1;
+    check_hex("...and the forwarded value is what the executor gets",
+              out.rs1, 32'hcafe_babe);
+
+    // rs2: the register-register form of the same forward. math_arg reads
+    // straight from reg_rs2 for a non-immediate op, so this is a separate
+    // path from rs1's.
+    executor_out.rd = 5'd3;
+    reg_rs2 = 32'hdead_dead;
+    in.pc = 32'h0000_00c4;
+    present_and_fetch(32'h003000b3);   // add x1, x0, x3 -- reads x3
+    check_bit("...and the same holds for rs2", dut.ex_fwd_rs2, 1'b1);
+    check_bit("...raising no hazard on it either", dut.hazard_rs2, 1'b0);
+    @(posedge clk);
+    #1;
+    check_hex("...landing in out.rs2 the same way", out.rs2, 32'hcafe_babe);
+    reg_rs2 = 32'b0;
+
+    // A load, an AMO, lr.w and sc.w leave rd_data unfinished in the
+    // executor's slot: rtl/accessor.v has not unpacked the memory word yet.
+    // rd_ready says so, and forwarding must wait for it the same as any
+    // other RAW hazard would.
+    executor_out.rd = 5'd2;
+    executor_out.rd_ready = 1'b0;
+    in.pc = 32'h0000_00c8;
+    present_and_fetch(32'h000100b3);   // add x1, x2, x0 -- reads x2 again
+    check_bit("an unfinished result in the executor's slot does not forward",
+              dut.ex_fwd_rs1, 1'b0);
+    check_bit("...so the consumer still waits for it", dut.hazard_rs1, 1'b1);
+    executor_out.rd_ready = 1'b1;
+
+    // A store's base register is read directly for the effective address
+    // (mem_addr_calc), not through out.rs1 -- forwarding it would issue the
+    // store on a stale address with nothing to say so. Its write data has
+    // no such other reader, so that half forwards.
+    //
+    // reg_rs1 has to name an address the region wait already regards as
+    // settled -- deep inside the text window, so `ls_settled` is true and
+    // `region_stall` never joins the two checks below -- or the store's
+    // OWN wait for its region answer would be indistinguishable from the
+    // hazard this vector is about.
+    reg_rs1 = 32'h0000_1000;
+    executor_out.rd = 5'd2;
+    in.pc = 32'h0000_00cc;
+    present_and_fetch(32'h00312023);   // sw x3, 0(x2) -- base is x2
+    check_bit("a store's base register is not eligible for forwarding",
+              dut.ex_fwd_rs1, 1'b0);
+    check_bit("...so the store still waits for it", dut.hazard_rs1, 1'b1);
+
+    executor_out.rd = 5'd3;
+    reg_rs2 = 32'hdead_dead;
+    in.pc = 32'h0000_00d0;
+    present_and_fetch(32'h00312023);   // sw x3, 0(x2) -- data is x3
+    check_bit("...but its write data is", dut.ex_fwd_rs2, 1'b1);
+    check_bit("...raising no hazard on it", dut.hazard_rs2, 1'b0);
+    @(posedge clk);
+    #1;
+    check_hex("...and out.rs2 carries the forwarded store data",
+              out.rs2, 32'hcafe_babe);
+    reg_rs1 = 32'hdead_dead;
+    reg_rs2 = 32'b0;
+
+    // A branch's rs2 is read directly by the comparator (cmp_sub), not
+    // through out.rs2 -- branches zero both operand fields in the publish
+    // block regardless, so forwarding into them would buy nothing and
+    // suppressing their hazard would resolve branch_taken on a stale
+    // operand.
+    executor_out.rd = 5'd3;
+    in.pc = 32'h0000_00d4;
+    present_and_fetch(32'h00310063);   // beq x2, x3, 0 -- reads x3
+    check_bit("a branch's rs2 is not eligible for forwarding",
+              dut.ex_fwd_rs2, 1'b0);
+    check_bit("...so it still waits for it", dut.hazard_rs2, 1'b1);
+    executor_out.valid = 1'b0;
+    executor_out.rd_data = 32'b0;
+
+    // Forwarding reaches only the executor's slot, never `out`: an
+    // instruction that has not reached the executor yet has no result to
+    // forward at all. Issue a real producer into decoder_out and the
+    // instruction behind it still interlocks on it.
+    in.pc = 32'h0000_00d8;
+    present_and_fetch(32'h000100b3);   // add x1, x2, x0
+    @(posedge clk);
+    #1;
+    check_bit("a producer reaches decoder_out", out.valid, 1'b1);
+    check_hex("...carrying the rd the next check depends on",
+              {27'b0, out.rd}, 32'd1);
+    in.instr = 32'h00008233;           // add x4, x1, x0 -- reads x1
+    #1;
+    check_bit("decoder_out's own slot is never a forwarding source",
+              dut.ex_fwd_rs1, 1'b0);
+    check_bit("...so the instruction behind it still interlocks",
+              dut.hazard_rs1, 1'b1);
+
+    executor_out = '0;
+    reg_rs1 = 32'b0;
+
     // The compressed group that shares one quadrant and funct3 and is told
     // apart by the two fields above them, each decoded off a different width of
     // that prefix: c.andi off funct3, c.sub off funct6.

@@ -1685,7 +1685,7 @@ p = sys.argv[1]
 s = open(p).read()
 old = ("CONTROL_FIELDS = {\n"
        "    'out': ('decoder_output', ['valid', 'rd', 'is_amo']),\n"
-       "    'executor_out': ('executor_output', ['valid', 'rd']),\n"
+       "    'executor_out': ('executor_output', ['valid', 'rd', 'rd_ready']),\n"
        "}")
 assert s.count(old) == 1
 open(p, 'w').write(s.replace(old, 'CONTROL_FIELDS = {}'))

@@ -579,14 +579,6 @@ module decoder #(
     instr_divu || instr_rem || instr_remu;
   assign instr_shift = instr_slli || instr_srli || instr_srai;
 
-  logic [31:0] math_arg;
-  always_comb
-    if (instr_math_immediate) math_arg = instr_shift ? {27'b0, rs2} : immediate;
-    else math_arg = reg_rs2;
-
-  logic [31:0] pc_inc;
-  assign pc_inc = uncompressed ? 4 : 2;
-
   // Whether the instruction reads the register its field names -- not a shift
   // amount, not a Zicsr constant.
   logic uses_rs1, uses_rs2;
@@ -595,16 +587,54 @@ module decoder #(
     instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu ||
     instr_amo || instr_sc;
 
+  // Forwarding may only reach `out.rs1`/`out.rs2`, so an eligible encoding must
+  // have no other decode-side reader of the same register: the branch
+  // comparator, the jalr target, an effective address, an atomic's own address
+  // and a register-form CSR's operand all read `reg_rs1`/`reg_rs2` directly.
+  // Widening either set past that issues an instruction against a stale
+  // register.
+  logic rs1_fwd_eligible, rs2_fwd_eligible;
+  assign rs1_fwd_eligible = instr_math;
+  assign rs2_fwd_eligible = (instr_math && !instr_math_immediate) ||
+    instr_sb || instr_sh || instr_sw || instr_amo || instr_sc;
+
+  logic out_match_rs1, out_match_rs2, ex_match_rs1, ex_match_rs2;
+  assign out_match_rs1 = out.valid && out.rd == rs1;
+  assign out_match_rs2 = out.valid && out.rd == rs2;
+  assign ex_match_rs1 = executor_out.valid && executor_out.rd == rs1;
+  assign ex_match_rs2 = executor_out.valid && executor_out.rd == rs2;
+
+  // `out`'s instruction has not reached the executor, so a match there is the
+  // more recent write and has no result yet. `uses_rs1`/`uses_rs2` are not
+  // retested because both eligible sets already imply them.
+  logic ex_fwd_rs1, ex_fwd_rs2;
+  assign ex_fwd_rs1 = rs1_fwd_eligible && rs1 != 0 && ex_match_rs1 &&
+    executor_out.rd_ready && !out_match_rs1;
+  assign ex_fwd_rs2 = rs2_fwd_eligible && rs2 != 0 && ex_match_rs2 &&
+    executor_out.rd_ready && !out_match_rs2;
+
+  // Continuous assigns rather than a struct field read inside an always_* block,
+  // which iverilog cannot build a precise sensitivity list for and warns about.
+  logic [31:0] rs1_forwarded, rs2_forwarded;
+  assign rs1_forwarded = ex_fwd_rs1 ? executor_out.rd_data : reg_rs1;
+  assign rs2_forwarded = ex_fwd_rs2 ? executor_out.rd_data : reg_rs2;
+
+  logic [31:0] math_arg;
+  always_comb
+    if (instr_math_immediate) math_arg = instr_shift ? {27'b0, rs2} : immediate;
+    else math_arg = rs2_forwarded;
+
+  logic [31:0] pc_inc;
+  assign pc_inc = uncompressed ? 4 : 2;
+
   // Do not fold these into a function: iverilog builds a continuous assign's
   // sensitivity list from the call's arguments, so a body that read `out` or
   // `executor_out` would stop re-evaluating when they changed. It gives no
   // warning, and yosys gets the function right, so every other check stays
   // green.
   logic live_rs1, live_rs2;
-  assign live_rs1 = (out.valid && out.rd == rs1) ||
-    (executor_out.valid && executor_out.rd == rs1);
-  assign live_rs2 = (out.valid && out.rd == rs2) ||
-    (executor_out.valid && executor_out.rd == rs2);
+  assign live_rs1 = out_match_rs1 || ex_match_rs1;
+  assign live_rs2 = out_match_rs2 || ex_match_rs2;
 
   // Two reasons share one wait, and narrowing it to suit one breaks the other:
   // a CSR access or `mret` must not interleave with older instructions still
@@ -615,8 +645,8 @@ module decoder #(
   assign serialize = (instr_csr_access || instr_mret || instr_fencei) && !pipe_drained;
 
   logic hazard_rs1, hazard_rs2, hazard, stall;
-  assign hazard_rs1 = uses_rs1 && rs1 != 0 && live_rs1;
-  assign hazard_rs2 = uses_rs2 && rs2 != 0 && live_rs2;
+  assign hazard_rs1 = uses_rs1 && rs1 != 0 && live_rs1 && !ex_fwd_rs1;
+  assign hazard_rs2 = uses_rs2 && rs2 != 0 && live_rs2 && !ex_fwd_rs2;
   assign hazard = hazard_rs1 || hazard_rs2 || serialize;
 
  `ifdef RISCV_FORMAL
@@ -764,8 +794,8 @@ module decoder #(
     end else begin
       out.valid <= 1'b1;
       out.mem_addr <= mem_addr_calc;
-      out.rs1 <= reg_rs1;
-      out.rs2 <= instr_math ? math_arg : reg_rs2;
+      out.rs1 <= rs1_forwarded;
+      out.rs2 <= instr_math ? math_arg : rs2_forwarded;
       out.rd <= rd;
      `ifdef RISCV_FORMAL
       // `next_pc`, not `pc`: this arm runs only when `stall` is low, so it is
@@ -783,8 +813,11 @@ module decoder #(
       out.rvfi.mem_fault_addr <= {mem_addr_calc[31:2], 2'b00};
       out.rvfi.rs1_addr <= rvfi_rs1_valid ? rs1 : 5'b0;
       out.rvfi.rs2_addr <= rvfi_rs2_valid ? rs2 : 5'b0;
-      out.rvfi.rs1_rdata <= rvfi_rs1_valid ? reg_rs1 : 32'b0;
-      out.rvfi.rs2_rdata <= rvfi_rs2_valid ? reg_rs2 : 32'b0;
+      // The forwarded value, not the register file's: the monitor checks
+      // `rd_wdata` against exactly these two fields, so reporting `reg_rs1`/
+      // `reg_rs2` makes every forwarded retire self-contradictory.
+      out.rvfi.rs1_rdata <= rvfi_rs1_valid ? rs1_forwarded : 32'b0;
+      out.rvfi.rs2_rdata <= rvfi_rs2_valid ? rs2_forwarded : 32'b0;
       out.rvfi.csr_mcycle   <= csr_rvfi_mcycle;
       out.rvfi.csr_minstret <= csr_rvfi_minstret;
       out.rvfi.csr_mscratch <= csr_rvfi_mscratch;
