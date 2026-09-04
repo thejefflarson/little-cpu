@@ -94,7 +94,10 @@ references still resolve.
   register file's answer makes every forwarded retire self-contradictory. A cycle that is both a
   hazard and an operand-fetch cycle is charged to the scoreboard (`test/cxxrtl.cc`'s bucket order),
   so those two columns of `make cycles` are not separable, and the scoreboard's share is an upper
-  bound on one workload, never the prize. CYCLEFIGURES
+  bound on one workload, never the prize. Measured on the tree this
+  lands on: Dhrystone's hazard column falls 357,798 → 317,207 cycles and the run
+  1,543,497 → 1,506,943, which is 0.758 → **0.777 DMIPS/MHz**; the `.S` suite goes
+  41,052 → 39,096 (ADR-0154).
   Still declined on the clock: forwarding to every operand reader (ADR-0083), a fourth scoreboard
   slot in place of the write-through bypass (ADR-0092) and writing a committed result into the idle
   register port a cycle early (ADR-0100), which is the evidence to beat — every candidate so far
@@ -405,22 +408,22 @@ top, ECP5 only.
   minute (ADR-0078).
 - **`make dhrystone` and `make coremark` are the figures comparable to another project's** —
   Dhrystone to VexRiscv, CoreMark to Hazard3 and most cores published since — and neither is a
-  gate. Dhrystone: **0.758 DMIPS/MHz, 9.10 DMIPS at 12 MHz** at `-O2` (ADR-0158), quoted with the
+  gate. Dhrystone: **0.777 DMIPS/MHz, 9.32 DMIPS at 12 MHz** at `-O2` (ADR-0154), quoted with the
   absolute figure because Fmax above the requirement is margin and not speed (ADR-0089), and with
   the flags, the compiler, the string library and **the linker script** — the program prints the
   first three and will not compile without them, and `test/bench/bench.lds` asserts the fourth at
-  link time. **It went 9.10 → 7.97 and back to 9.10, and the two moves differ in kind**: the region
-  wait spends 13.79% of Dhrystone's cycles to make an out-of-region access fault (ADR-0129), and
-  insetting the layout gives those cycles back with no RTL change, `make fit` and the netlist digest
-  both unmoved (ADR-0158). A CPI regression with no conformance behind it is still a regression, and
-  a figure recovered by moving the software is the firmware ceasing to pay a cost, never the core
-  getting faster. **CoreMark is SIMULATED AT 16 KB OF ROM**,
-  double the part's 8, against `test/testbench.v`'s `ROM_WORDS`, and every printed figure says so;
-  the five algorithm files are vendored unmodified and pinned by `test/bench/coremark/PINNED.sha256`
-  (ADR-0136). **2.013 CoreMark/MHz** on the shipping layout against 1.811 on the conventional one,
-  so it travels with the linker script the way the DMIPS figure does (ADR-0158).
-  Hazard3's published 4.15 CoreMark/MHz is its RP2350 build, not its iCE40 one, and
-  quoting it against an ice40 core is the mixed-configuration error ADR-0098 names.
+  link time. **It went 9.10 → 7.97 → 9.10 → 9.32, and the moves differ in kind**: the region wait
+  spends 13.79% of Dhrystone's cycles to make an out-of-region access fault (ADR-0129), insetting
+  the layout gives those cycles back with no RTL change and the netlist digest unmoved (ADR-0158),
+  and executor-only forwarding buys the last step in the datapath (ADR-0154). A CPI regression
+  with no conformance behind it is still a regression, and a figure recovered by moving the
+  software is the firmware ceasing to pay a cost, never the core getting faster. **CoreMark is
+  SIMULATED AT 16 KB OF ROM**, double the part's 8, against `test/testbench.v`'s `ROM_WORDS`, and
+  every printed figure says so; the five algorithm files are vendored unmodified and pinned by
+  `test/bench/coremark/PINNED.sha256` (ADR-0136). **2.013 CoreMark/MHz** on the shipping layout
+  against 1.811 on the conventional one, so it travels with the linker script the way the DMIPS
+  figure does (ADR-0158). Hazard3's published 4.15 CoreMark/MHz is its RP2350 build, not its iCE40
+  one, and quoting it against an ice40 core is the mixed-configuration error ADR-0098 names.
 - **The only cross-core comparison that means anything is one harness**, `soc/compare/`: same part,
 memories, program, toolchain and seeds, against the VexRiscv in the pinned riscv-formal clone and
 Hazard3's iCE40 build (`soc/compare/hazard3_pin.mk`, ADR-0139). **A product is a measurement only
