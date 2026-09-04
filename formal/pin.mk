@@ -3,7 +3,7 @@
 # exactly one recipe that materialises the clone.
 #
 # Bumping this requires regenerating test/monitor.v (`make monitor-check`
-# will fail until you do) and rerunning the generated checks. See ADR-0006.
+# will fail until you do) and rerunning the generated checks.
 #
 # `override` so the pin cannot be defeated with `make RISCV_FORMAL_SHA=...`
 # from a script or CI job: this is a supply-chain control, not a knob. The

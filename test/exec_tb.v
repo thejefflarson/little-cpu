@@ -114,9 +114,9 @@ module exec_tb;
       for (k = 0; k < NUM_OPS; k++) vec_count[k] = 0;
       dir_pending = DIRECTED_N;
 
-      add_directed(0, OP_MULH,   32'hffffffff, 32'hffffffff, 32'h00000000, "ADR-0010 MULH(-1,-1)=0");
-      add_directed(1, OP_MULHSU, 32'hffffffff, 32'h00000001, 32'hffffffff, "ADR-0010 MULHSU(-1,1)=-1");
-      add_directed(2, OP_MULHU,  32'hffffffff, 32'hffffffff, 32'hfffffffe, "ADR-0010 MULHU(-1,-1)=0xFFFFFFFE");
+      add_directed(0, OP_MULH,   32'hffffffff, 32'hffffffff, 32'h00000000, "swapped sign enable: MULH(-1,-1)=0");
+      add_directed(1, OP_MULHSU, 32'hffffffff, 32'h00000001, 32'hffffffff, "swapped sign enable: MULHSU(-1,1)=-1");
+      add_directed(2, OP_MULHU,  32'hffffffff, 32'hffffffff, 32'hfffffffe, "swapped sign enable: MULHU(-1,-1)=0xFFFFFFFE");
       // Specified values, not computed ones.
       add_directed(3, OP_DIV,    32'h00000064, 32'h00000000, 32'hffffffff, "div by zero");
       add_directed(4, OP_DIVU,   32'h00000064, 32'h00000000, 32'hffffffff, "divu by zero");

@@ -1,7 +1,8 @@
 diff --git a/rtl/timer.v b/rtl/timer.v
+index fc85d37..680445e 100644
 --- a/rtl/timer.v
 +++ b/rtl/timer.v
-@@ -169,7 +169,7 @@
+@@ -95,7 +95,7 @@ module timer #(
              if (mem_wstrb[2]) cmp[55:48] <= mem_wdata[23:16];
              if (mem_wstrb[3]) cmp[63:56] <= mem_wdata[31:24];
            end
@@ -10,13 +11,12 @@ diff --git a/rtl/timer.v b/rtl/timer.v
          end
        end
      end
-@@ -233,7 +233,7 @@
-       // here one cycle later. Comparing against the value the write is
-       // installing would put `mem_wdata` in front of a 64-bit carry chain, and
-       // the cycle buys nothing: an `mret` cannot commit until the pipeline is
-       // empty, which is several cycles after the handler's store lands.
+@@ -147,7 +147,7 @@ module timer #(
+       end
+       // Registered because it feeds the decoder's trap term on the fetch loop;
+       // a write to `mtimecmp` therefore reaches `mtip` one cycle later.
 -      mtip[0] <= mtime_next >= mtimecmp;
 +      mtip[0] <= mtime_next + 64'd1 >= mtimecmp;
-       // An out-of-range access reads zero, so the three memories on this bus
-       // join with an OR rather than a mux.
+       // Zero out of range: rtl/littlesoc.v ORs the read buses together.
        mem_rdata <= in_range ? read_word : 32'b0;
+     end
