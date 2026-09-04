@@ -72,13 +72,12 @@ module busarbiter_check (
   // below is false without it, because a lock held forever holds the bus
   // forever and no arbiter can take it back.
   //
-  // NOTHING IN THIS TREE DISCHARGES IT YET. The core publishes no `mem_lock` at
-  // all today; the duration property that owes this assumption its proof lands
-  // with that output, and until it does the wait bound is conditional on an
-  // environment nobody has checked. An assumption nothing discharges is a hole,
-  // not a proof, and this is the hole -- read a PASS on the wait bound as
-  // "granted within the bound, provided the core really does lock for one
-  // cycle".
+  // DISCHARGED BY THE CORE, NOT HERE. rtl/accessor.v publishes `mem_lock` on an
+  // AMO's read cycle only, and its FORMAL block asserts that a lock never lasts
+  // two cycles running -- `!(mem_lock && past_mem_lock)`, proved by
+  // formal/components.sby's accessor task. This harness assumes exactly what
+  // that proof provides, so a PASS on the wait bound is unconditional for a
+  // core that passes that task.
   //
   // Bounding the lock in the arbiter instead -- a bit refusing a second
   // extension -- would delete the assumption and is deliberately not done. It

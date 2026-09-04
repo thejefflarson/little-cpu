@@ -11,12 +11,13 @@
 # notice, so the suite was grading a machine that did not exist. Two more copies
 # of the same map went stale the same way in the same day.
 #
-# The map itself is no longer stated twice: rtl/memory.v, rtl/timer.v and
-# rtl/uart.v carry the base and the size as their own parameter defaults, and
-# rtl/littlesoc.v and test/testbench.v both instantiate them without overriding
-# anything, so the two integrators have nothing to disagree about. THE FIRST CHECK BELOW IS WHAT KEEPS
-# THAT TRUE -- an override reappearing in either file is the whole defect coming
-# back, and it would otherwise be invisible.
+# The map itself is no longer stated twice: rtl/memory.v, rtl/timer.v,
+# rtl/uart.v and rtl/spiflash.v carry the base and the size as their own
+# parameter defaults, and rtl/littlesoc.v and test/testbench.v both instantiate
+# them without overriding anything, so the two integrators have nothing to
+# disagree about. THE FIRST CHECK BELOW IS WHAT KEEPS THAT TRUE -- an override
+# reappearing in either file is the whole defect coming back, and it would
+# otherwise be invisible.
 #
 # The rest cannot share a parameter, because they are C++, linker scripts,
 # assembly, make -- and one SystemVerilog module that instantiates no memory at
@@ -224,10 +225,11 @@ done
 
 # Each device's window is a power of two on a multiple of its own size, which is
 # what lets its range test be an equality on the bits above the window rather
-# than a subtraction. rtl/timer.v, rtl/uart.v and rtl/littlecpu.v each refuse to
-# elaborate otherwise and `make window-test` forces them; this is the same
-# statement made about the numbers this file has already read, so a base that
-# drifted is caught here rather than at the next elaboration.
+# than a subtraction. rtl/timer.v, rtl/uart.v, rtl/spiflash.v and
+# rtl/littlecpu.v each refuse to elaborate otherwise and `make window-test`
+# forces them; this is the same statement made about the numbers this file has
+# already read, so a base that drifted is caught here rather than at the next
+# elaboration.
 aligned_window() {  # $1 = whose, $2 = base, $3 = window size in bytes
   if [ $(($2 % $3)) -ne 0 ]; then
     fail "the $1's base $(hexfmt "$2") is not a multiple of its own
@@ -432,11 +434,12 @@ fi
 
 # ---- 8. the core's own copy ------------------------------------------------
 #
-# rtl/littlecpu.v restates the map for its load/store locality counters, because
-# a module cannot read another module's parameters. Nothing in the datapath
-# reads it, so a copy that drifted would not fail anything -- it would go on
-# counting accesses against a machine that does not exist, which is a measurement
-# that is wrong rather than absent.
+# rtl/littlecpu.v restates the map, because a module cannot read another
+# module's parameters, and hands it to rtl/decoder.v -- which decides from it
+# which loads and stores the platform refuses (causes 5 and 7) and which wait a
+# cycle for their region answer -- and to its own load/store locality counters.
+# A copy that drifted would fault accesses a memory answers, or answer ones it
+# does not, with no memory on the bus saying so.
 
 CPU_RAM_BASE=$(hex_param rtl/littlecpu.v LS_RAM_BASE)
 CPU_RAM_WORDS=$(int_param rtl/littlecpu.v LS_RAM_WORDS)
@@ -448,8 +451,9 @@ CPU_TEXT_WORDS=$(int_param rtl/littlecpu.v LS_TEXT_WORDS)
 cpu_copy() {  # $1 = what, $2 = the core's copy, $3 = the memory's, $4 = whose
   if [ "$2" -ne "$3" ]; then
     fail "rtl/littlecpu.v's $1 is $2 against $4's $3. The core's copy of the map
-decides which accesses \`make cycles\` reports as near a region edge, so a
-drifted one answers about a machine neither file describes."
+decides which loads and stores decode refuses (causes 5 and 7) and which
+\`make cycles\` reports as near a region edge, so a drifted one faults or
+answers accesses about a machine neither file describes."
   fi
 }
 
