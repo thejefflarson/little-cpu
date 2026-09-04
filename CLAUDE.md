@@ -427,9 +427,13 @@ top, ECP5 only.
 - **The only cross-core comparison that means anything is one harness**, `soc/compare/`: same part,
 memories, program, toolchain and seeds, against the VexRiscv in the pinned riscv-formal clone and
 Hazard3's iCE40 build (`soc/compare/hazard3_pin.mk`, ADR-0139). **A product is a measurement only
-when both factors were taken on one tree**; the last was 1.05× against VexRiscv on `be293ff`
-(ADR-0098 as amended) and **it is stale** since ADR-0129 moved the cycle half; its clock half, 1.48×
-at the worst of five placements with both critical paths in the fetch loop, still stands. Re-take
+when both factors were taken on one tree**, and the current one is **1.16× against VexRiscv in its
+favour**, twelve seeds a side on one tree (ADR-0098 as amended): 23.14 DMIPS against 26.87 at each
+core's worst placement, 1.17× median against median. Its halves pull opposite ways — the clock is
+1.60× theirs at the worst placement (30.13 against 48.24 MHz) and the cycles are **1.379× ours**
+(741.1 against 1021.9 per Dhrystone, 0.768 against 0.557 DMIPS/MHz). **Read the product, not a
+half.** Between ADR-0129 and here the cycle half rose and the clock half fell, and the product did
+not move at all, so either factor quoted alone tells you the opposite of the other. Re-take
 both halves before quoting the product, with what each side is and with the caveat that Dhrystone's
 cycles are simulated at a larger map than the clock is placed at (`make compare-dhrystone` prints
 the block arithmetic; ADR-0098 lists the distortions). Hazard3's `CSR_COUNTER=0` build cannot
