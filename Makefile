@@ -517,10 +517,12 @@ memmap-test:
 adr-numbering-test:
 	@./test/adr_numbering_test.sh
 
-# The cross-core comparison harness states its geometry in seven places and this
-# is what says they agree. Hangs off `test` like the other bash checks -- grep
-# and sed only -- because the harness itself needs yosys, nextpnr and the pinned
-# clone, so nothing else on this machine would notice it rotting.
+# The cross-core comparison harness states its geometry in several places, read
+# from this Makefile's own COMPARE_TOP/-T lines rather than a second hand-kept
+# list, and this is what says they agree. Hangs off `test` like the other bash
+# checks -- grep and sed only -- because the harness itself needs yosys,
+# nextpnr and the pinned clone, so nothing else on this machine would notice
+# it rotting.
 .PHONY: compare-geometry-test
 compare-geometry-test:
 	@./soc/compare/geometry_test.sh
