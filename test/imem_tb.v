@@ -4,9 +4,9 @@
 // rtl/imemory.v, the instruction ROM split across two banks.
 //
 // The .S suite only hits whatever alignments its programs happen to produce,
-// and it never touches the data port: no program stores into the text region,
-// and both runners hold mem_ren low. So the bank select, the range decode, the
-// write port and the steal are checked here or nowhere.
+// and it reaches the data port only through the few programs that store into
+// text or load from it. So the bank select, the range decode, the write port's
+// byte lanes and the steal are checked exhaustively here or nowhere.
 //
 // Keep the reference a flat array filled on its own. Build it from the bank
 // images and it will agree with any split, which is the thing being tested.

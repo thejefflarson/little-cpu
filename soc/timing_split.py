@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
 """Summarise an `icetime -r` report: the critical path's LOGIC/ROUTING split.
 
-THE SPLIT IS THE FINDING, not the frequency. The only real timing
-number this project had before the SoC placed was `rtl/regfile.v` on its own --
-2.04 ns logic + 12.78 ns routing, 86% routing -- and what made it useful was the
-breakdown, because it said the cost was a distributed mux's wires rather than
-its gates. A whole-SoC figure without the same breakdown would be a number with
-nowhere to go.
+THE SPLIT IS THE FINDING, not the frequency. A breakdown says whether a path's
+cost is wires or gates, which is what decides what to do about it; a whole-SoC
+figure without one is a number with nowhere to go.
 
 icetime prints one line per hop. A `LogicCell40` hop is a LUT or a flip-flop
 evaluating; every other cell on the path -- `LocalMux`, `InMux`, `Odrv4`, the

@@ -1,5 +1,7 @@
 /*
- * The machine-side half of Dhrystone for THIS directory's two-core harness.
+ * The machine-side half of Dhrystone for the two cores this directory runs it
+ * on, littlecpu and VexRiscv (Hazard3's iCE40 build has no mcycle and its
+ * cycle factor is not built).
  *
  * It implements test/bench/dhry_port.h against a machine with no CSRs, because
  * one of the two cores here has none: the VexRiscv configuration in the pinned

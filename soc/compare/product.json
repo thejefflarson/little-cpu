@@ -1,0 +1,78 @@
+{
+  "note": "written by soc/compare/run_product.sh (make compare-product); do not hand-edit",
+  "pairs": {
+    "coremark": {
+      "cores": [
+        "hazard3"
+      ],
+      "reason": "make compare-coremark is not on this tree yet; run_product.sh will measure it once that lands",
+      "status": "not_yet_measured",
+      "target_core": "littlecpu"
+    },
+    "dhrystone": {
+      "base": "ab5af011b6a1d8a6b7e6e1027317c30121d2b6b6",
+      "cflags": "-march=rv32ic -mabi=ilp32 -O2 -std=c11 -ffreestanding -fno-tree-loop-distribute-patterns -Wall -Wextra -Werror",
+      "cores": {
+        "littlecpu": {
+          "clock_mhz": {
+            "best_mhz": 32.69042170644001,
+            "best_ns": 30.59,
+            "median_mhz": 32.01536737634064,
+            "median_ns": 31.235,
+            "n": 4,
+            "spread_pct": 5.7862046420398805,
+            "worst_mhz": 30.902348578491967,
+            "worst_ns": 32.36
+          },
+          "cycle_factor": 0.7478312948536591
+        },
+        "vexriscv": {
+          "clock_mhz": {
+            "best_mhz": 50.83884087442806,
+            "best_ns": 19.67,
+            "median_mhz": 50.42864346949067,
+            "median_ns": 19.83,
+            "n": 4,
+            "spread_pct": 2.0335536349771153,
+            "worst_mhz": 49.82561036372695,
+            "worst_ns": 20.07
+          },
+          "cycle_factor": 0.556957381701911
+        }
+      },
+      "date": "2026-08-30T17:17:07Z",
+      "dirty": "yes",
+      "isa": "rv32ic",
+      "products": {
+        "vexriscv": {
+          "littlecpu_dmips": {
+            "median": 23.942093640264417,
+            "worst": 23.10974335147278
+          },
+          "ratio": {
+            "median": 1.1731056461291374,
+            "worst": 1.2008243046157592
+          },
+          "vexriscv_dmips": {
+            "median": 28.0866052295467,
+            "worst": 27.750741489880966
+          }
+        }
+      },
+      "ram_words": 512,
+      "rom_words": 1024,
+      "seeds": "default 1 2 3",
+      "status": "measured",
+      "target_core": "littlecpu",
+      "tools": {
+        "icetime": "no version string sha256:4ba28c34e2628592 [/opt/homebrew/bin/icetime]",
+        "iverilog": "Icarus Verilog version 13.0 (stable) (v13_0) [/opt/homebrew/bin/iverilog]",
+        "nextpnr-ice40": "\"nextpnr-ice40\" -- Next Generation Place and Route (Version ) [/opt/homebrew/bin/nextpnr-ice40]",
+        "riscv64-elf-gcc": "riscv64-elf-gcc (GCC) 16.2.0 [/opt/homebrew/bin/riscv64-elf-gcc]",
+        "yosys": "Yosys 0.68+post (git sha1 c12172fbae8af5e20f6fb52e3d4e92d56ed587b6, Release, AppleClang clang++ 21.0.0.21000101) [/opt/homebrew/bin/yosys]"
+      },
+      "unit": "DMIPS/MHz"
+    }
+  },
+  "schema": "compare-product v2"
+}

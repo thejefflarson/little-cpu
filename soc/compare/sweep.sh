@@ -1,8 +1,9 @@
 #!/bin/sh
-# Run `make compare-timing` for both cores at several placements each and print
-# the two distributions.
+# Run `make compare-timing` for each core in COMPARE_CORES -- littlecpu and
+# vexriscv by default; hazard3 is the third -- at several placements each and
+# print the distributions.
 #
-#   soc/compare/sweep.sh                        # both cores, default + seeds 1-3
+#   soc/compare/sweep.sh                    # default cores, default + seeds 1-3
 #   COMPARE_SEEDS='default 1 2 3 4 5' soc/compare/sweep.sh
 #   COMPARE_CORES=vexriscv soc/compare/sweep.sh # one side only
 #

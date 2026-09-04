@@ -9,13 +9,14 @@
 # Usage: check_suite_shape.sh <asm-dir> <manifest>
 #
 # WHY THIS EXISTS. `make test` verified that every program it FOUND passed. It
-# had no idea how many it should find, and test/EXPECTED_FAIL and
-# test/COSIM_EXPECTED_FAIL are both empty, so there was no red entry whose
-# disappearance would have said the suite had shrunk. A bad rebase, a directory
-# rename, a .gitignore change or a glob that stopped matching would leave the
-# gate reporting `12/12 passed`, matching an empty baseline exactly, and exiting
-# 0. That is the same hole formal/EXPECTED_CHECKS closes on the formal side: a
-# verdict baseline cannot report whether a check stopped existing.
+# had no idea how many it should find, and test/EXPECTED_FAIL is empty and
+# test/COSIM_EXPECTED_FAIL names a handful of seventy-odd, so almost no red
+# entry would have disappeared to say the suite had shrunk. A bad rebase, a
+# directory rename, a .gitignore change or a glob that stopped matching would
+# leave the gate reporting `12/12 passed`, matching an empty baseline exactly,
+# and exiting 0. That is the same hole formal/EXPECTED_CHECKS closes on the
+# formal side: a verdict baseline cannot report whether a check stopped
+# existing.
 #
 # THE MANIFEST IS test/OBSERVED_FLOOR, NOT A NEW FILE. That file already names
 # every program in the suite — it has to, since it carries each one's observed

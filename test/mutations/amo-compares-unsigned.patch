@@ -1,9 +1,9 @@
 diff --git a/rtl/accessor.v b/rtl/accessor.v
-index f43d4aa..581b4c8 100644
+index 7e64b28..38ef913 100644
 --- a/rtl/accessor.v
 +++ b/rtl/accessor.v
-@@ -217,7 +217,7 @@ module accessor(
-   // signed expression, so no arm can take its signedness from a neighbour.
+@@ -180,7 +180,7 @@ module accessor(
+   // complement.
    logic amo_compare, amo_signed;
    assign amo_compare = take_amo_min || take_amo_max || take_amo_minu || take_amo_maxu;
 -  assign amo_signed  = take_amo_min || take_amo_max;

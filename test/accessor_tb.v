@@ -13,8 +13,8 @@
 //
 // Stuck high is caught elsewhere -- the generated checks' environment would
 // steal every cycle and `hang` would go red -- but stuck low is invisible to
-// everything else in the tree until a program does a text-region load, and none
-// does yet.
+// everything else in the tree except the handful of programs that load from
+// text, which is what test/asm/textload.S is for.
 //
 // The transaction count is the other half. Decode holds `launch` unchanged for
 // every cycle of a divide, so a request block that read it without

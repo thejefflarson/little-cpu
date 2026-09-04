@@ -1,0 +1,12 @@
+# docs/adr/README.md is a numbered index, and every PR that adds an ADR
+# appends a row to it at the same anchor -- the end of the table. Two such
+# appends are not a real conflict (neither PR touched a line the other
+# wrote), but git's default line-based merge sees two edits converging on
+# one location and refuses to guess an order, so every second PR to land
+# conflicts on this file regardless of what it actually changed. A union
+# merge keeps distinct appended lines from both sides with no conflict; it
+# does not stop two branches from independently choosing the same ADR
+# number for two different files, which test/adr_numbering_test.sh still
+# catches as a collision either way -- that failure needs a person to
+# rename one of the two, not a merge strategy.
+docs/adr/README.md merge=union
