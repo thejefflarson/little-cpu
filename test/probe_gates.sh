@@ -5354,6 +5354,72 @@ probe "and the diagnostic points at make elaborate-strict, not a rewrite here" 1
 d=$(wr_fixture "        run: iverilog rtl/structs.v rtl/structs.v")
 probe "the same path repeated on one line is not a second copy" 0 \
   "no workflow file enumerates more than one" "$WR $d"
+begin_group "test/mutation_coverage_test.sh"
+
+# A COPY OF THE SHIPPING FILES, the same fixture shape test/memmap_test.sh's
+# probes use and for the same reason: the control is then the real tree, and
+# every red probe is one edit away from it.
+MCOV="$HERE/mutation_coverage_test.sh"
+
+mcov_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/rtl" "$d/test" "$d/formal"
+  cp "$REPO"/rtl/*.v "$d/rtl/"
+  cp "$REPO"/test/MUTATION_COVERAGE "$REPO"/test/MUTATION_DETECTORS "$d/test/"
+  cp "$REPO"/test/*_tb.v "$d/test/"
+  cp "$REPO"/formal/components.sby "$d/formal/"
+  cp "$REPO"/Makefile "$d/"
+  cp "$REPO"/formal/Makefile "$d/formal/"
+  printf '%s' "$d"
+}
+
+d=$(mcov_fixture)
+probe "control: the shipping manifest rules on every rtl/*.v file" 0 \
+  "19 rtl/*.v files, each ruled on" "$MCOV $d"
+
+probe "a repo root that does not exist is red before anything is parsed" 1 \
+  "is not a directory" "$MCOV $d/nowhere"
+
+# THE ONE THAT MATTERS: a new rtl/*.v file joining the fourteen no mutation
+# touches, silently, the way rtl/trng.v would when the entropy sprint adds it.
+d=$(mcov_fixture); touch "$d/rtl/trng.v"
+probe "a new rtl file with no line is red, naming the file" 1 \
+  "rtl/trng.v" "$MCOV $d"
+
+d=$(mcov_fixture); rm "$d/rtl/spiflash.v"
+probe "deleting an rtl file and leaving its line is red" 1 \
+  "names files rtl/ does not have" "$MCOV $d"
+
+d=$(mcov_fixture)
+sed -i.bak 's/^rtl\/timer.v     mtip-fires-a-tick-early/rtl\/timer.v     no-such-mutation/' \
+  "$d/test/MUTATION_COVERAGE"
+probe "a line naming a mutation test/mutations/ does not have is red" 1 \
+  "is not in test/MUTATION_DETECTORS's first" "$MCOV $d"
+
+d=$(mcov_fixture)
+sed -i.bak 's/^rtl\/uart.v      unpaired  uart_tb/rtl\/uart.v      unpaired  no_such_bench/' \
+  "$d/test/MUTATION_COVERAGE"
+probe "an unpaired line whose named grader is not a real bench or formal task is red" 1 \
+  "names no real bench, formal" "$MCOV $d"
+
+# A bare \`unpaired\` is the defect this whole file exists to rule out --
+# permitting it teaches people to write it.
+d=$(mcov_fixture)
+sed -i.bak 's/^rtl\/uart.v      unpaired  uart_tb/rtl\/uart.v      unpaired/' \
+  "$d/test/MUTATION_COVERAGE"
+probe "a bare unpaired with no grader does not pass by silence" 1 \
+  "needs exactly one grader name" "$MCOV $d"
+
+d=$(mcov_fixture)
+printf 'rtl/uart.v  uart_tb\n' >> "$d/test/MUTATION_COVERAGE"
+probe "a file named twice is red rather than averaging into one pass" 1 \
+  "names the same file more than once" "$MCOV $d"
+
+d=$(mcov_fixture)
+sed -i.bak 's/^rtl\/timer.v     mtip-fires-a-tick-early/rtl\/timer.v     mtip-fires-a-tick-early extra/' \
+  "$d/test/MUTATION_COVERAGE"
+probe "a mutation line with a stray extra field is red rather than read as the name" 1 \
+  "takes exactly one field" "$MCOV $d"
 
 # A probe's label is compared against the checked-in manifest as a MULTISET
 # (sorted, duplicates kept), never reduced to a bare count first: a count can
