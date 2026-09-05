@@ -19,7 +19,7 @@
 // Nothing about the core changes. rtl/ is untouched by this whole directory.
 module bench_littlecpu #(
   parameter integer ROM_WORDS = 1024,
-  parameter integer RAM_WORDS = 512,
+  parameter integer RAM_WORDS = 16384,
   parameter INIT_EVEN = "soc/compare/rom_even.hex",
   parameter INIT_ODD  = "soc/compare/rom_odd.hex"
 ) (

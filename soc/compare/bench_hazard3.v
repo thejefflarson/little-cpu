@@ -62,7 +62,7 @@
 // the way the other two benches' own dedicated data buses do for free.
 module bench_hazard3 #(
   parameter integer ROM_WORDS = 1024,
-  parameter integer RAM_WORDS = 512,
+  parameter integer RAM_WORDS = 16384,
   parameter INIT_ROM = "soc/compare/rom_flat.hex"
 ) (
   input  logic clk,
