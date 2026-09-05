@@ -95,3 +95,67 @@ this one is.
   would validate the cycle half first, since all three would be clocked from the same crystal.
 - The 12-seed figures above are the bench top, not `littlesoc`. `make soc-timing` remains the
   SoC's own instrument and its numbers do not merge with these.
+
+## Amendment, 2026-09-05 — the VexRiscv this was measured against was not a peer
+
+The figures above are correct about the PARTS and wrong about the RESULT, and the reason is the
+opponent's configuration rather than anything on either part.
+
+`formal/riscv-formal/cores/VexRiscv/VexRiscv.v` is generated from **`FormalSimple`** — riscv-formal's
+own *verification* configuration. Read its plugin list: **no `MulPlugin`, no `DivPlugin`, no
+`CsrPlugin`, and every one of `HazardSimplePlugin`'s four bypasses disabled.** So this core's
+RV32IMAC_Zicsr_Zifencei_Zkt, with traps, a full mandated M-mode CSR set, a timer and executor-only
+forwarding, was being measured against something with no multiplier, no privileged architecture and
+**no register forwarding at all**.
+
+That distorts BOTH halves at once, in opposite directions: it flatters VexRiscv on period (no bypass
+network, no CSR file and no multiplier to place) and flatters this core on cycles (nothing forwards
+there, so everything stalls).
+
+`soc/compare/vexriscv/GenLittleCpuCompare.scala` replaces it, on the principle that **each core
+should be in the configuration its own authors ship for performance, at a comparable ISA** —
+`GenFullNoMmuNoCache` with all four bypasses on, plus `FormalPlugin` because this bench reads
+`rvfi_*` to count Dhrystone's writes, plus `compressedGen`, minus the `DebugPlugin` the bench does
+not wire. It is deliberately NOT hobbled to match this core's narrower forwarding; picking a weaker
+config for the other core earns the same criticism in reverse.
+
+| | FormalSimple (what was measured) | comparable (what ships) |
+|---|---|---|
+| M extension | **none** | `MulPlugin` + `DivPlugin` |
+| CSRs / traps | **none** | `CsrPlugin` |
+| hazard forwarding | **none** | all four bypasses |
+| cycles per Dhrystone | 1021.9 | **640.1** |
+| DMIPS/MHz | 0.590 | **0.889** |
+| up5k, worst of 12 | 18.37 MHz | **21.34 MHz** |
+| ECP5 | 47.49 MHz | **54.77 MHz** |
+
+**It is better on both halves at once**, which is the shape of a configuration change rather than a
+design change. It is also *faster* despite being much larger, because `FormalSimple` uses
+`DYNAMIC_TARGET` prediction with a 1024-entry block-RAM predictor and `GenFullNoMmuNoCache` uses
+`STATIC`: block RAM falls 26 → 12 and the predictor's path goes with it.
+
+### The corrected result
+
+| | up5k (all quantise to 12 MHz) | ECP5 |
+|---|---|---|
+| **vexriscv** | **10.67 DMIPS** | **48.69** |
+| littlecpu | 9.35 | 26.93 |
+| hazard3 | 8.54 | 33.26 |
+| vs vexriscv | **1.14× THEIRS** | **1.81× THEIRS** |
+| vs hazard3 | 1.09× ours | 1.24× theirs |
+
+**What survives from the body above:** hx8k cannot hold this design; the product it reported was a
+hybrid of two netlists; up5k's clock is quantised and no core reaches the 24 MHz step, VexRiscv's
+21.34 included, so its clock advantage is still discarded there. Every one of those is unchanged.
+
+**What does not survive is the conclusion.** This core does not win on up5k. It lost the cycle half
+the moment the opponent was given forwarding, and the 1.32× reported above was an artifact of
+measuring against a core that had none. It still leads hazard3 on up5k, and it trails both on ECP5.
+
+**The lesson is the one this ADR was already about, turned on its author.** ADR-0160 corrected a
+harness that measured the wrong PART and did not think to ask whether it measured the wrong
+CONFIGURATION. A comparison is only as good as its least examined assumption, and "the vendored core
+is a reasonable opponent" had never once been checked.
+
+`soc/compare/vexriscv_pin.mk` pins the upstream SHA, the generator config and a digest of the
+generated Verilog, because a generated artifact is reproducible only with all three.

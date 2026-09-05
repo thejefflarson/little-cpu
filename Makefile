@@ -1200,20 +1200,27 @@ HAZARD3_SRCS := $(HAZARD3_HDL)/hazard3_core.v $(HAZARD3_HDL)/hazard3_cpu_1port.v
                 $(HAZARD3_HDL)/hazard3_power_ctrl.v \
                 $(HAZARD3_HDL)/hazard3_regfile_1w2r.v $(HAZARD3_HDL)/hazard3_triggers.v
 
+include soc/compare/vexriscv_pin.mk
+
 ifeq ($(COMPARE_CORE),vexriscv)
 COMPARE_TOP  := bench_vexriscv
 COMPARE_SRCS := soc/compare/bench_vexriscv.v rtl/memory.v
-# Read as plain Verilog, out of the SHA-pinned clone, and never copied into this
-# repo. Its RVFI outputs are left unconnected in the harness, where synthesis
-# prunes them; on the standalone run below they are the top's own ports, and
-# there `delete -port` -- formal/check-nonperturbation.py's technique -- is what
-# stops 556 SB_IO no ice40 package can place.
-COMPARE_READ := read_verilog $(RISCV_FORMAL_DIR)/cores/VexRiscv/VexRiscv.v; \
+# GENERATED HERE, not taken from the riscv-formal clone. That clone's copy is
+# FormalSimple -- riscv-formal's own VERIFICATION config, with no MulPlugin, no
+# CsrPlugin and every hazard bypass disabled -- which is not a peer for this
+# core and distorted both halves of the product at once. soc/compare/
+# vexriscv_pin.mk carries the reasoning, the upstream SHA and the generator.
+#
+# Its RVFI outputs are left unconnected in the harness, where synthesis prunes
+# them; on the standalone run below they are the top's own ports, and there
+# `delete -port` -- formal/check-nonperturbation.py's technique -- is what stops
+# 556 SB_IO no ice40 package can place.
+COMPARE_READ := read_verilog $(VEXRISCV_V); \
                 read_verilog -sv $(COMPARE_SRCS)
-COMPARE_CORE_READ := read_verilog $(RISCV_FORMAL_DIR)/cores/VexRiscv/VexRiscv.v; \
+COMPARE_CORE_READ := read_verilog $(VEXRISCV_V); \
                      hierarchy -top VexRiscv; delete -port VexRiscv/rvfi_*
 COMPARE_CORE_TOP  := VexRiscv
-COMPARE_DEPS      := $(COMPARE_SRCS) | $(RISCV_FORMAL_DIR)
+COMPARE_DEPS      := $(COMPARE_SRCS) $(VEXRISCV_V)
 COMPARE_CORE_DEPS := | $(RISCV_FORMAL_DIR)
 else ifeq ($(COMPARE_CORE),hazard3)
 COMPARE_TOP  := bench_hazard3
