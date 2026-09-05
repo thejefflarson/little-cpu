@@ -252,6 +252,35 @@ module exec_tb;
     end
   endfunction
 
+  // The divide state's own cycle count, predicted from the operands rather than
+  // read back out of the core: the loop retires its last iteration, so the count
+  // is the counter's load value -- 32 iterations, or 16 when the dividend's
+  // magnitude has a zero top half and the loop is loaded sixteen in. Zero for the
+  // two short-circuits and for everything that is not a divide, which is what
+  // makes an unexpected visit to that state red rather than unmeasured.
+  function automatic int ref_div_cycles(input int id, input logic [31:0] a,
+                                         input logic [31:0] b);
+    logic [31:0] mag;
+    logic        is_signed;
+    begin
+      is_signed = (id == OP_DIV) || (id == OP_REM);
+      // `mag` is assigned in a statement of its own for the reason the shift
+      // references are: a negation in a `?:` arm evaluates unsigned.
+      mag = a;
+      if (is_signed && a[31]) mag = -a;
+      if (id != OP_DIV && id != OP_DIVU && id != OP_REM && id != OP_REMU)
+        ref_div_cycles = 0;
+      else if (b == 32'b0)
+        ref_div_cycles = 0;
+      else if (is_signed && a == 32'h80000000 && b == 32'hffffffff)
+        ref_div_cycles = 0;
+      else if (mag[31:16] == 16'b0)
+        ref_div_cycles = 16;
+      else
+        ref_div_cycles = 32;
+    end
+  endfunction
+
   task automatic clear_in;
     begin
       in = '0;
@@ -295,6 +324,23 @@ module exec_tb;
     end
   endtask
 
+  // Both loop lengths have to have run. A `$random` dividend has a zero top half
+  // about once in 65,536, so the short one is reached by the directed vectors at
+  // the bottom of the run and by nothing else reliably.
+  int div_len_16, div_len_32;
+  task automatic check_div_lengths;
+    begin
+      if (div_len_16 == 0) begin
+        $display("COVERAGE SHORTFALL: no divide took the 16-iteration path");
+        errors++;
+      end
+      if (div_len_32 == 0) begin
+        $display("COVERAGE SHORTFALL: no divide took the 32-iteration path");
+        errors++;
+      end
+    end
+  endtask
+
   // A randomized vector cannot cover for a deleted directed one: these are the
   // cases random operands do not reach, or reach only by accident.
   task automatic check_directed_manifest;
@@ -329,11 +375,16 @@ module exec_tb;
   // of its own latches would divide by zero here and nowhere else.
   logic bubble_after_issue;
 
+  // What the monitor at the bottom of this file grades the next divide against.
+  // Written before the issue edge and read on the first cycle in the divide
+  // state, so a later call cannot overwrite a check still pending.
+  int expect_div_cycles;
+
   // The executor is done when it has returned to `init` after the issue edge --
-  // immediately for the multiply family and the divide short-circuits, 33 cycles
-  // later for a real division. Polling rather than hardcoding a count keeps this
-  // correct however long the divider takes; the count is checked at the bottom
-  // of this file.
+  // immediately for the multiply family and the divide short-circuits, 16 or 32
+  // cycles later for a real division. Polling rather than hardcoding a count
+  // keeps this correct however long the divider takes; the count is checked at
+  // the bottom of this file.
   task automatic run_op(input string op_name, input logic [31:0] rs1_v, input logic [31:0] rs2_v,
                          input logic [31:0] expected);
     int guard;
@@ -367,6 +418,7 @@ module exec_tb;
       endcase
 
       vec_count[id]++;
+      expect_div_cycles = ref_div_cycles(id, rs1_v, rs2_v);
       if (dir_pending > 0) begin
         for (d = 0; d < DIRECTED_N; d++) begin
           if (!dir_ran[d] && dir_op[d] == id && dir_rs1[d] === rs1_v && dir_rs2[d] === rs2_v) begin
@@ -467,6 +519,18 @@ module exec_tb;
     ref_selftest("rem(80000000,ffffffff)",  ref_rem(32'h80000000, 32'hffffffff), 32'h00000000);
     ref_selftest("remu(fffffff9,00000002)", ref_remu(32'hfffffff9, 32'h00000002), 32'h00000001);
     ref_selftest("remu(00000064,00000000)", ref_remu(32'h00000064, 32'h00000000), 32'h00000064);
+    // The loop-length oracle, on both sides of the boundary and on both
+    // short-circuits. -65536 has magnitude 0x00010000, whose top half is not
+    // zero; -65535 has 0x0000ffff, whose top half is.
+    ref_selftest("cycles(divu,0000ffff)", ref_div_cycles(OP_DIVU, 32'h0000ffff, 32'h1), 32'd16);
+    ref_selftest("cycles(divu,00010000)", ref_div_cycles(OP_DIVU, 32'h00010000, 32'h1), 32'd32);
+    ref_selftest("cycles(div,ffff0000)",  ref_div_cycles(OP_DIV,  32'hffff0000, 32'h1), 32'd32);
+    ref_selftest("cycles(div,ffff0001)",  ref_div_cycles(OP_DIV,  32'hffff0001, 32'h1), 32'd16);
+    ref_selftest("cycles(divu,80000000)", ref_div_cycles(OP_DIVU, 32'h80000000, 32'h1), 32'd32);
+    ref_selftest("cycles(div by zero)",   ref_div_cycles(OP_DIV,  32'hdeadbeef, 32'h0), 32'd0);
+    ref_selftest("cycles(div INT_MIN/-1)",
+                  ref_div_cycles(OP_DIV, 32'h80000000, 32'hffffffff), 32'd0);
+    ref_selftest("cycles(mul)", ref_div_cycles(OP_MUL, 32'hdeadbeef, 32'h7), 32'd0);
     ref_selftest("sra(80000000,4)",  ref_sra(32'h80000000, 32'd4),  32'hf8000000);
     ref_selftest("sra(80000000,31)", ref_sra(32'h80000000, 32'd31), 32'hffffffff);
     ref_selftest("sra(deadbeef,8)",  ref_sra(32'hdeadbeef, 32'd8),  32'hffdeadbe);
@@ -568,6 +632,7 @@ module exec_tb;
     // it happened at all.
     check_vector_counts();
     check_directed_manifest();
+    check_div_lengths();
 
     if (errors != 0) begin
       $display("FAILED: %0d errors", errors);
@@ -583,26 +648,34 @@ module exec_tb;
     end
   end
 
-  // 32 restoring-division iterations plus one capture cycle, checked against
-  // every real division performed in the run above.
+  // Every visit to the divide state, graded against what `ref_div_cycles`
+  // predicted for the operands `run_op` drove in.
   int cycle_count;
+  int cycle_expect;
   logic prev_divide;
 
   initial begin
     cycle_count = 0;
+    cycle_expect = 0;
     prev_divide = 0;
+    div_len_16 = 0;
+    div_len_32 = 0;
     forever begin
       @(posedge clk);
       #1;
       if (dut.state == DIVIDE_STATE) begin
+        if (!prev_divide) cycle_expect = expect_div_cycles;
         cycle_count++;
         prev_divide = 1;
       end else if (prev_divide) begin
-        if (cycle_count !== 33) begin
-          $display("TIMING MISMATCH: divider completed in %0d cycles, expected 33", cycle_count);
+        if (cycle_count !== cycle_expect) begin
+          $display("TIMING MISMATCH: divider completed in %0d cycles, expected %0d",
+                    cycle_count, cycle_expect);
           errors++;
           $fatal(1);
         end
+        if (cycle_count == 16) div_len_16++;
+        if (cycle_count == 32) div_len_32++;
         prev_divide = 0;
         cycle_count = 0;
       end
