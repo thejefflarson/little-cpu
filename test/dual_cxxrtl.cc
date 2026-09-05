@@ -31,6 +31,14 @@
 // own red direction and test/dual_smoke.sh is what grades it: the same program
 // must reach a different answer with one hart than with two, or this harness is
 // not measuring the second one.
+//
+// `--console <addr>` copies the NUL-terminated string at that RAM address to
+// stdout, test/cxxrtl.cc's flag repeated once per hart it is given for: a
+// Dhrystone build under this harness formats its report into RAM the same way
+// the single-hart one does, and each hart's copy lives at its own address. It
+// is printed at every exit path, not only PASS -- a two-hart Dhrystone build
+// has no shared verdict to end the run on, so the runner reaches its cycle
+// limit on purpose and the report is what the run was for.
 #include <cxxrtl/cxxrtl_vcd.h>
 #include "dual_rtl.cc"
 
@@ -150,7 +158,25 @@ struct Args {
   // difference test/dual_smoke.sh grades.
   bool report_word = false;
   uint32_t report_addr = 0;
+  // Repeatable: one hart's report, or both. Printed in the order given.
+  std::vector<uint32_t> console_addrs;
 };
+
+// test/cxxrtl.cc's helper, unchanged: walks `ram_data` from `addr` and writes
+// what it finds to stdout, stopping at the first NUL or the end of RAM.
+void print_console(const uint32_t *ram_data, size_t ram_words, uint32_t addr) {
+  if (addr < kRamBase) {
+    std::fprintf(stderr, "error: --console address 0x%08x is below RAM base 0x%08x\n",
+                 addr, kRamBase);
+    return;
+  }
+  for (uint32_t offset = addr - kRamBase; offset / 4 < ram_words; ++offset) {
+    char byte = (char)((ram_data[offset / 4] >> (8 * (offset % 4))) & 0xff);
+    if (byte == '\0')
+      return;
+    std::fputc(byte, stdout);
+  }
+}
 
 bool parse_args(int argc, char **argv, Args &args) {
   for (int i = 1; i < argc; ++i) {
@@ -185,6 +211,10 @@ bool parse_args(int argc, char **argv, Args &args) {
       if (!v) return false;
       args.report_word = true;
       args.report_addr = (uint32_t)std::strtoul(v, nullptr, 0);
+    } else if (arg == "--console") {
+      const char *v = next("--console");
+      if (!v) return false;
+      args.console_addrs.push_back((uint32_t)std::strtoul(v, nullptr, 0));
     } else {
       std::fprintf(stderr, "error: unrecognized argument '%s'\n", arg.c_str());
       return false;
@@ -193,7 +223,8 @@ bool parse_args(int argc, char **argv, Args &args) {
   if (args.rom_path.empty() || args.ram_path.empty() || args.cycles <= 0) {
     std::fprintf(stderr,
                  "usage: dual-sim --rom <hex> --ram <hex> --cycles N "
-                 "[--vcd out.vcd] [--hold-hart1] [--report-word <addr>]\n");
+                 "[--vcd out.vcd] [--hold-hart1] [--report-word <addr>] "
+                 "[--console <addr>]...\n");
     return false;
   }
   return true;
@@ -282,6 +313,8 @@ int main(int argc, char **argv) {
                 spec_retires[0]->curr[0]);
     std::printf("HART1 RETIRES %u SPEC-CHECKED %u\n", retires[1]->curr[0],
                 spec_retires[1]->curr[0]);
+    for (uint32_t addr : args.console_addrs)
+      print_console(ram_data, memory_item.depth, addr);
   };
 
   // Silence outranks the run's own verdict, per hart. `tohost` saying PASS is
