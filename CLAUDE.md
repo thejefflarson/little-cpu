@@ -420,27 +420,39 @@ top, ECP5 only.
   software is the firmware ceasing to pay a cost, never the core getting faster. **CoreMark is
   SIMULATED AT 16 KB OF ROM**, double the part's 8, against `test/testbench.v`'s `ROM_WORDS`, and
   every printed figure says so; the five algorithm files are vendored unmodified and pinned by
-  `test/bench/coremark/PINNED.sha256` (ADR-0136). **2.013 CoreMark/MHz** on the shipping layout
-  against 1.811 on the conventional one, so it travels with the linker script the way the DMIPS
-  figure does (ADR-0158). Hazard3's published 4.15 CoreMark/MHz is its RP2350 build, not its iCE40
+  `test/bench/coremark/PINNED.sha256` (ADR-0136). **2.203 CoreMark/MHz**, and it travels with the
+  linker script the way the DMIPS figure does: the inset layout read 2.013 against 1.811 on the
+  conventional one when ADR-0158 measured it, and executor-only forwarding took the inset figure
+  to 2.203 afterwards (ADR-0154). Hazard3's published 4.15 CoreMark/MHz is its RP2350 build, not its iCE40
   one, and quoting it against an ice40 core is the mixed-configuration error ADR-0098 names.
 - **The only cross-core comparison that means anything is one harness**, `soc/compare/`: same part,
 memories, program, toolchain and seeds, against the VexRiscv in the pinned riscv-formal clone and
 Hazard3's iCE40 build (`soc/compare/hazard3_pin.mk`, ADR-0139). **A product is a measurement only
-when both factors were taken on one tree**, and the current one is **1.16× against VexRiscv in its
-favour**, twelve seeds a side on one tree (ADR-0098 as amended): 23.14 DMIPS against 26.87 at each
-core's worst placement, 1.17× median against median. Its halves pull opposite ways — the clock is
-1.60× theirs at the worst placement (30.13 against 48.24 MHz) and the cycles are **1.379× ours**
-(741.1 against 1021.9 per Dhrystone, 0.768 against 0.557 DMIPS/MHz). **Read the product, not a
-half.** Between ADR-0129 and here the cycle half rose and the clock half fell, and the product did
-not move at all, so either factor quoted alone tells you the opposite of the other. Re-take
+when both factors were taken on one tree AND one toolchain**, and the current pair of them, twelve
+seeds a side at the shared RV32I ISA (ADR-0098 as amended), is **1.16× against VexRiscv in its
+favour** — 23.47 DMIPS against 27.18 at each core's worst placement — and **0.97× against Hazard3,
+which is level rather than a win**: 22.83 against our 23.47, inside the 9.01% of its cycles the
+harness discloses it spends in a bus wait the others do not pay. Every half pulls the same way in
+both pairs: **we win cycles and lose clock.** Against VexRiscv the clock is 1.53× theirs (30.13
+against 46.06 MHz) and the cycles 1.319× ours (731.1 against 964.1 per Dhrystone, 0.779 against
+0.590 DMIPS/MHz); against Hazard3, 1.06× and 1.093×. **Read the product, not a half** — between
+ADR-0129 and here the cycle half rose and the clock half fell and the product did not move at all,
+so either factor alone tells you the opposite of the other. **CoreMark is the pair that separates
+them**: littlecpu against Hazard3 is **0.645×, a 1.55× throughput win for this core** on a
+benchmark that leans on the M extension, where the same pair is level on Dhrystone. VexRiscv's
+pinned build has no M and cannot run that image at all. **The toolchain is part of the stamp, not a
+detail**: the same twelve seeds moved VexRiscv 4.5% at its worst placement between two yosys builds
+while this core's up5k SoC came out bit-identical, so halves synthesised by different toolchains do
+not form a product. Re-take
 both halves before quoting the product, with what each side is and with the caveat that Dhrystone's
 cycles are simulated at a larger map than the clock is placed at (`make compare-dhrystone` prints
 the block arithmetic; ADR-0098 lists the distortions). **Hazard3's iCE40 build is the third core in the
-harness, and its DHRYSTONE factors are now both measured** — `soc/compare/dhry_tb.v`'s marker
-mechanism, built for VexRiscv's identical CSR-free gap, needed wiring rather than invention. Its
-CoreMark half is still not built: `CSR_COUNTER=0` means no `mcycle`, so it cannot self-time that
-run (ADR-0139). Read the three-way Dhrystone row only at the one ISA all three cores share, RV32I,
+harness, and BOTH its benchmark factors are now measured** — `soc/compare/dhry_tb.v`'s marker
+mechanism, built for VexRiscv's identical CSR-free gap, needed wiring rather than invention, and
+`CSR_COUNTER=0` leaving it no `mcycle` to self-time with is what that mechanism exists to route
+around (ADR-0139, ADR-0146). It discloses its own bus wait rather than correcting it — 9.01% of its
+Dhrystone cycles, 1.98% of its CoreMark ones — and on Dhrystone that artifact is larger than the
+gap, which is why that pair reads level. Read the three-way Dhrystone row only at the one ISA all three cores share, RV32I,
 which is what makes every pairwise ratio in it a comparison rather than three configurations. Two graded checks stand in front of every number:
 `soc/compare/placed_vs_synth.py` refuses a placed count under `COMPARE_MIN_RATIO` of the core's own
 synthesis — an all-NOP image once placed a quarter of this core with a plausible critical path
