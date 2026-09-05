@@ -38,7 +38,7 @@
 // back the whole aligned word. Get that backwards and `sb` writes a word.
 module bench_vexriscv #(
   parameter integer ROM_WORDS = 1024,
-  parameter integer RAM_WORDS = 512,
+  parameter integer RAM_WORDS = 16384,
   parameter INIT_ROM = "soc/compare/rom_flat.hex"
 ) (
   input  logic clk,
