@@ -202,9 +202,9 @@ for A or for Zkt, so widening either generates nothing.
 
 **Zkt is claimed, and it adds no instruction and no `misa` bit** (ADR-0134). It promises that a
 listed set — RV32I arithmetic, logical and shift, the four multiplies, and the arithmetic C
-encodings — executes in time independent of its operands' VALUES; `DIV`/`REM` (32 cycles, or one
-when `rs2 == 0` or on `INT_MIN / -1`), loads, stores, branches and jumps are excluded, and the
-exclusion is what makes the claim true. Load/store timing here varies with address arithmetic, not
+encodings — executes in time independent of its operands' VALUES; `DIV`/`REM` (32 iterations, 16
+when the dividend's magnitude has a zero top half, or one when `rs2 == 0` or on `INT_MIN / -1`),
+loads, stores, branches and jumps are excluded, and the exclusion is what makes the claim true. Load/store timing here varies with address arithmetic, not
 cache state, and the constant-time model treats addresses as non-secret. Three graders carry it:
 `test/zkt_isolation_test.py` grades the taint half on the ELABORATED NETLIST (ADR-0137 records why
 the source-text version was replaced) — it seeds taint at `reg_rs1`, `reg_rs2` and
