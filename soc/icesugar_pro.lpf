@@ -1,0 +1,21 @@
+// Pin constraints for soc/board_icesugar_pro.v on a MuseLab iCESugar-Pro:
+// ECP5 LFE5U-25F, caBGA256, speed grade 6.
+//
+// Three pins, and they are the three the board's own documentation states: a
+// 25 MHz crystal on P6, and an RGB LED on {A11, A12, B11}. Which of those three
+// is which colour is NOT documented, so the two the SoC drives are mapped
+// arbitrarily and the third is left alone -- a wrong colour is not a wrong
+// bitstream, and guessing a pin that is not an LED would be.
+//
+// Unlike soc/littlesoc.lpf, this file is for a BITSTREAM and not a measurement,
+// so it constrains every port the top level has. That file leaves three of four
+// unconstrained on purpose because the Colorlight i5 is a module whose baseboard
+// varies; here the board is the whole thing and every pin is a fact.
+LOCATE COMP "clk_pin" SITE "P6";
+IOBUF PORT "clk_pin" IO_TYPE=LVCMOS33;
+
+LOCATE COMP "led_r_n" SITE "A11";
+IOBUF PORT "led_r_n" IO_TYPE=LVCMOS33;
+
+LOCATE COMP "led_g_n" SITE "A12";
+IOBUF PORT "led_g_n" IO_TYPE=LVCMOS33;
