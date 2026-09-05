@@ -139,8 +139,13 @@ if ! DHRY_OUT=$(make compare-dhrystone 2>&1); then
 fi
 printf '%s\n' "$DHRY_OUT"
 
-LC_CYCLES=$(printf '%s\n' "$DHRY_OUT" | grep '^DHRY core=littlecpu' | sed -n 's/.*cycles=\([0-9]*\).*/\1/p')
-VEX_CYCLES=$(printf '%s\n' "$DHRY_OUT" | grep '^DHRY core=vexriscv' | sed -n 's/.*cycles=\([0-9]*\).*/\1/p')
+# FIRST match only. `make compare-dhrystone` prints a fourth row -- this core
+# alone at its native ISA, so the shared subset's cost is a number -- which
+# emits a SECOND `DHRY core=littlecpu` line. The product compares cores at the
+# ISA they SHARE, so the comparison row is the one to read and the solo row is
+# an aside. Taking both fed a two-line value into python3 -c below.
+LC_CYCLES=$(printf '%s\n' "$DHRY_OUT" | grep '^DHRY core=littlecpu' | sed -n 's/.*cycles=\([0-9]*\).*/\1/p' | head -1)
+VEX_CYCLES=$(printf '%s\n' "$DHRY_OUT" | grep '^DHRY core=vexriscv' | sed -n 's/.*cycles=\([0-9]*\).*/\1/p' | head -1)
 if [ -z "$LC_CYCLES" ] || [ -z "$VEX_CYCLES" ]; then
   echo "*** run_product.sh: could not find both cores' 'DHRY core=... cycles='" >&2
   echo "*** lines in make compare-dhrystone's output." >&2
@@ -155,6 +160,24 @@ DHRY_ISA=$(isa_from_cflags "$DHRY_CFLAGS")
 # the two files cannot state two different rates.
 DHRY_VAX_RATE=$(python3 -c "import sys; sys.path.insert(0, 'soc/compare'); \
   from dhry_dmips import VAX_DHRYSTONES_PER_SEC; print(VAX_DHRYSTONES_PER_SEC)")
+
+# Every one of these is interpolated into `python3 -c` below, where an empty or
+# multi-line value becomes SOURCE TEXT and fails as a SyntaxError that names
+# neither the variable nor this script. Check them here, where the diagnostic
+# can say which one and where it came from.
+for pair in "DHRY_RUNS=$DHRY_RUNS" "LC_CYCLES=$LC_CYCLES" \
+            "VEX_CYCLES=$VEX_CYCLES" "DHRY_VAX_RATE=$DHRY_VAX_RATE"; do
+  name=${pair%%=*}; value=${pair#*=}
+  case "$value" in
+    ''|*[!0-9.]*)
+      echo "*** run_product.sh: $name is '$value', which is not a number." >&2
+      echo "*** It is interpolated into a python3 -c expression below, so a" >&2
+      echo "*** blank or multi-line value there dies as a SyntaxError instead" >&2
+      echo "*** of naming itself. Fix what produced it." >&2
+      exit 1 ;;
+  esac
+done
+
 LC_DHRY_FACTOR=$(python3 -c "print($DHRY_RUNS * 1e6 / $LC_CYCLES / $DHRY_VAX_RATE)")
 VEX_DHRY_FACTOR=$(python3 -c "print($DHRY_RUNS * 1e6 / $VEX_CYCLES / $DHRY_VAX_RATE)")
 
@@ -173,11 +196,15 @@ python3 soc/compare/product_write.py "$OUT" dhrystone --measured \
 # whole run. Once `make compare-coremark` is real, a run that still falls back
 # here is a bug in this function to fix, not a steady state to keep tolerating.
 measure_coremark() {
+  # ` cycles=` with the leading space, and FIRST match only: hazard3 prints a
+  # second `COREMARK core=hazard3 wait_cycles=` line disclosing the bus wait the
+  # other core does not pay, and `wait_cycles=` contains `cycles=`. Matching both
+  # fed a two-line value into python3 -c below.
   if HZ_NS=$(sweep_clock hazard3) \
      && CM_OUT=$(make compare-coremark 2>&1) \
-     && LC_CM_CYCLES=$(printf '%s\n' "$CM_OUT" | grep '^COREMARK core=littlecpu' | sed -n 's/.*cycles=\([0-9]*\).*/\1/p') \
-     && HZ_CM_CYCLES=$(printf '%s\n' "$CM_OUT" | grep '^COREMARK core=hazard3' | sed -n 's/.*cycles=\([0-9]*\).*/\1/p') \
-     && CM_ITERATIONS=$(printf '%s\n' "$CM_OUT" | grep '^COREMARK core=littlecpu' | sed -n 's/.*iterations=\([0-9]*\).*/\1/p') \
+     && LC_CM_CYCLES=$(printf '%s\n' "$CM_OUT" | grep '^COREMARK core=littlecpu' | sed -n 's/.* cycles=\([0-9]*\).*/\1/p' | head -1) \
+     && HZ_CM_CYCLES=$(printf '%s\n' "$CM_OUT" | grep '^COREMARK core=hazard3' | sed -n 's/.* cycles=\([0-9]*\).*/\1/p' | head -1) \
+     && CM_ITERATIONS=$(make -s print-COMPARE_COREMARK_ITERATIONS) \
      && CM_CFLAGS=$(make -s print-COMPARE_COREMARK_CFLAGS) \
      && [ -n "$LC_CM_CYCLES" ] && [ -n "$HZ_CM_CYCLES" ] \
      && [ -n "$CM_ITERATIONS" ] && [ -n "$CM_CFLAGS" ]; then
@@ -195,8 +222,8 @@ measure_coremark() {
     return 0
   fi
   echo "*** run_product.sh: make compare-coremark's output did not match the" >&2
-  echo "*** 'COREMARK core=... cycles=... iterations=...' shape this script" >&2
-  echo "*** expects, or COMPARE_COREMARK_CFLAGS is unset. Recording CoreMark" >&2
+  echo "*** 'COREMARK core=... cycles=...' shape this script expects, or" >&2
+  echo "*** COMPARE_COREMARK_CFLAGS/ITERATIONS is unset. Recording CoreMark" >&2
   echo "*** as not yet measured; update measure_coremark() in" >&2
   echo "*** soc/compare/run_product.sh to match what landed." >&2
   return 1
