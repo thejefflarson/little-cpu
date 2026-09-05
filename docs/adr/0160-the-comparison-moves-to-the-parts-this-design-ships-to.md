@@ -27,7 +27,8 @@ different one. That hybrid exists on no silicon and cannot be validated on any.
 
 ## What the step function does to the comparison
 
-up5k's clock is not continuous. The board runs from a 12 MHz crystal, and `SB_HFOSC` offers
+**Neither part's clock is continuous; what differs is how coarse the grid is.** up5k runs from a
+12 MHz crystal, and `SB_HFOSC` offers
 48 / 24 / 12 / 6. There is nothing between 12 and 24, so **Fmax above the requirement is margin and
 not speed** — this repo already says exactly that (ADR-0066, ADR-0089), and it is what the whole
 comparison turned on without anybody noticing.
@@ -55,7 +56,7 @@ The comparison is then decided entirely by cycles, at the one ISA all three shar
 
 **1.32× over VexRiscv and 1.09× over Hazard3, both in this core's favour** — against the hx8k
 harness's 1.16× *against* us. Same two cores, same program, same seeds, same toolchain. The entire
-difference is whether the part's clock is continuous.
+difference is how COARSE the part's clock grid is.
 
 **This is not a flattering measurement, it is a correct one.** VexRiscv is genuinely 1.53× this
 core in raw critical path and that is not in dispute; ADR-0086 measured it and this ADR does not
@@ -73,8 +74,11 @@ asks of this design.
   already flashes. At ROM 1024 / RAM 16384 all three cores fit — 12, 12 and 26 block RAMs of 30 —
   and Dhrystone's 382-word image fits with room, so **the placed geometry and the simulated
   geometry are the same thing** and the product stops being a hybrid.
-- **ECP5 — "what is architecturally faster on a large continuous fabric".** No step function there,
-  so VexRiscv's critical path advantage is real and will likely still show. All three fit at the
+- **ECP5 — "what is architecturally faster when the clock is close to yours to choose".** Its clock
+  is not continuous either: `EHXPLLL` synthesises `ref × M / N / D` on integer dividers from a
+  board's fixed reference, so a design still rounds DOWN to a reachable output. The difference from
+  up5k is degree, not kind — a fine grid costs a fraction of a percent where four frequencies cost
+  half the machine — and it is enough that a critical-path advantage survives here. All three fit at the
   full 8 KB ROM and 64 KB RAM: 36, 36 and 40 `DP16KD` of 56.
 
 Read them as two answers, never averaged. A core can be behind on one and ahead on the other, and

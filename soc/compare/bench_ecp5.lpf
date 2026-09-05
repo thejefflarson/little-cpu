@@ -5,10 +5,12 @@
 # unconstrained pins: a placed LED pad is not part of what this measures, and
 # inventing sites for them would put two made-up numbers in a timing report.
 #
-# ECP5's clock is CONTINUOUS -- no SB_HFOSC step function -- so a frequency here
-# is a frequency, and a core's critical-path advantage is one it can spend. That
-# is why the comparison runs on two parts: up5k answers "what is fastest on the
-# board this ships to", and this answers "what is architecturally faster when the
-# clock is yours to choose".
+# ECP5's clock is NOT continuous either -- `EHXPLLL` synthesises ref x M / N / D
+# with integer dividers, from whatever reference the board carries -- but its
+# grid is fine where up5k's is four frequencies wide. Rounding down to a
+# reachable output costs a fraction of a percent here and half the machine
+# there. That difference in DEGREE is why the comparison runs on two parts:
+# up5k answers "what is fastest on the board this ships to", and this answers
+# "what is architecturally faster when the clock is close to yours to choose".
 LOCATE COMP "clk" SITE "P3";
 IOBUF PORT "clk" IO_TYPE=LVCMOS33;
