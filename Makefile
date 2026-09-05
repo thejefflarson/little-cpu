@@ -822,6 +822,58 @@ ecp5.json: $(SOC_SRCS) soc-rom
 	  "rtl/executor.v's multiplier has stopped inferring a DSP block; in soft logic it would be invisible in a frequency number and enormous in area" \
 	  --gate 'make ecp5-timing' --declared ECP5_EXPECT_DSP
 
+# ---- the iCESugar-Pro, the second board this design has run on ---------------
+#
+# A MuseLab iCESugar-Pro: ECP5 LFE5U-25F in a caBGA256, 25 MHz on P6, flashed by
+# dropping the .bit on the iCELink volume the on-board debugger presents. This
+# is a BITSTREAM target and not an instrument: nothing here is graded, no
+# ratchet reads it, and its frequency constraint is the board's real 25 MHz
+# rather than `make ecp5-timing`'s deliberately-unreachable 200, because the
+# question here is "does it run" and not "how fast could it".
+#
+# Different die package from ECP5_PACKAGE, so its numbers and ecp5-timing's are
+# not comparable: caBGA256 against caBGA381 is a different pinout and a
+# different placement problem on the same 25k die.
+ICESUGAR_DEVICE  := --25k
+ICESUGAR_PACKAGE := CABGA256
+ICESUGAR_SPEED   := 6
+ICESUGAR_PART    := LFE5U-25F-6BG256C
+ICESUGAR_MHZ     := 25
+ICESUGAR_TOP     := icesugar_pro_top
+ICESUGAR_SRCS    := $(SOC_SRCS) soc/board_icesugar_pro.v
+ICESUGAR_PROG    ?= soc/blink.S
+
+icesugar.json: $(ICESUGAR_SRCS) soc/icesugar_pro.lpf
+	@$(MAKE) --no-print-directory soc-rom SOC_PROG=$(ICESUGAR_PROG)
+	@echo 'yosys: synthesising $(ICESUGAR_TOP) for $(ICESUGAR_PART) (log: icesugar.synth.log)'
+	@yosys -p 'read_verilog -sv $(ICESUGAR_SRCS); synth_ecp5 -top $(ICESUGAR_TOP) -json $@' \
+	  > icesugar.synth.log 2>&1 || { tail -40 icesugar.synth.log; exit 1; }
+
+# No `|| true` here, unlike ecp5.config: that constraint is meant to be missed
+# and this one is meant to be met, so a nextpnr failure IS a failure.
+icesugar.config: icesugar.json
+	@rm -f $@
+	@echo 'nextpnr: placing $(ICESUGAR_TOP) on $(ICESUGAR_PART) at $(ICESUGAR_MHZ) MHz (log: icesugar.pnr.log)'
+	@nextpnr-ecp5 $(ICESUGAR_DEVICE) --package $(ICESUGAR_PACKAGE) --speed $(ICESUGAR_SPEED) \
+	  --json $< --lpf soc/icesugar_pro.lpf --freq $(ICESUGAR_MHZ) \
+	  --textcfg $@ > icesugar.pnr.log 2>&1 || { tail -30 icesugar.pnr.log; exit 1; }
+	@test -s $@ || { echo '*** nextpnr wrote no configuration.'; tail -30 icesugar.pnr.log; exit 1; }
+
+icesugar.bit: icesugar.config
+	@ecppack $< $@
+	@test -s $@ || { echo '*** ecppack wrote no bitstream.'; exit 1; }
+
+.PHONY: icesugar-bitstream
+icesugar-bitstream: icesugar.bit
+	@echo
+	@echo '== $(ICESUGAR_PART): a bitstream, not a measurement =='
+	@grep -E 'Max frequency for clock' icesugar.pnr.log | tail -2
+	@ls -l icesugar.bit | awk '{ print "icesugar.bit  " $$5 " bytes" }'
+	@echo
+	@echo 'Flash it by copying icesugar.bit onto the iCELink volume the board'
+	@echo 'presents over USB. What the tools think the placement does is above;'
+	@echo 'a board is the only thing that can disagree.'
+
 ECP5_TOOLS := yosys nextpnr-ecp5 trellis-db
 
 .PHONY: ecp5-timing-toolchain

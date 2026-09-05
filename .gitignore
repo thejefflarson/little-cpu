@@ -158,3 +158,8 @@ tools/
 test/a.out.dSYM/
 # Swarm agent worktrees (.claude/tracker.json stays tracked).
 .claude/worktrees/
+icesugar.json
+icesugar.config
+icesugar.bit
+icesugar.synth.log
+icesugar.pnr.log
