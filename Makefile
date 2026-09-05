@@ -821,6 +821,7 @@ ecp5.json: $(SOC_SRCS) soc-rom
 	@python3 soc/cell_census.py ecp5.synth.log MULT18X18D $(ECP5_EXPECT_DSP) \
 	  "rtl/executor.v's multiplier has stopped inferring a DSP block; in soft logic it would be invisible in a frequency number and enormous in area" \
 	  --gate 'make ecp5-timing' --declared ECP5_EXPECT_DSP
+	@python3 soc/bram_reset_check.py $@ --gate 'make ecp5-timing'
 
 # ---- the iCESugar-Pro, the second board this design has run on ---------------
 #
@@ -843,11 +844,17 @@ ICESUGAR_TOP     := icesugar_pro_top
 ICESUGAR_SRCS    := $(SOC_SRCS) soc/board_icesugar_pro.v
 ICESUGAR_PROG    ?= soc/blink.S
 
+# As BOARD_ROM is to the UPduino: `noop-rom` means the banks are already written
+# and must not be rebuilt, which is how a benchmark's own ROM recipe hands its
+# image to this flow. noop-rom ignores SOC_PROG.
+ICESUGAR_ROM     ?= soc-rom
+
 icesugar.json: $(ICESUGAR_SRCS) soc/icesugar_pro.lpf
-	@$(MAKE) --no-print-directory soc-rom SOC_PROG=$(ICESUGAR_PROG)
+	@$(MAKE) --no-print-directory $(ICESUGAR_ROM) SOC_PROG=$(ICESUGAR_PROG)
 	@echo 'yosys: synthesising $(ICESUGAR_TOP) for $(ICESUGAR_PART) (log: icesugar.synth.log)'
 	@yosys -p 'read_verilog -sv $(ICESUGAR_SRCS); synth_ecp5 -top $(ICESUGAR_TOP) -json $@' \
 	  > icesugar.synth.log 2>&1 || { tail -40 icesugar.synth.log; exit 1; }
+	@python3 soc/bram_reset_check.py $@ --gate 'make icesugar-bitstream'
 
 # No `|| true` here, unlike ecp5.config: that constraint is meant to be missed
 # and this one is meant to be met, so a nextpnr failure IS a failure.
@@ -870,9 +877,48 @@ icesugar-bitstream: icesugar.bit
 	@grep -E 'Max frequency for clock' icesugar.pnr.log | tail -2
 	@ls -l icesugar.bit | awk '{ print "icesugar.bit  " $$5 " bytes" }'
 	@echo
-	@echo 'Flash it by copying icesugar.bit onto the iCELink volume the board'
-	@echo 'presents over USB. What the tools think the placement does is above;'
-	@echo 'a board is the only thing that can disagree.'
+	@echo 'Put it on the board with `make icesugar-prog`. What the tools think'
+	@echo 'the placement does is above; a board is the only thing that can'
+	@echo 'disagree.'
+
+# ---- putting a program on that board, and reading what it says --------------
+#
+# SRAM OVER JTAG, NOT THE FLASH. Copying the .bit onto the iCELink volume, and
+# `icesprog -w`, both write the SPI flash correctly -- a readback compares equal
+# -- and both leave the ECP5 reporting `@cdone:0`, unconfigured, until the board
+# is physically power-cycled. Loading SRAM configures the part the moment the
+# load finishes, which is what makes a run here a command rather than a chore.
+#
+# The vid/pid are the iCELink's own CMSIS-DAP interface. openFPGALoader finds no
+# probe without them on this machine: it looks for a v2 device, fails, and never
+# reaches the HID path the debugger actually speaks.
+ICESUGAR_LOADER  ?= openFPGALoader
+ICESUGAR_VID     ?= 0x1d50
+ICESUGAR_PID     ?= 0x602b
+ICESUGAR_READ_S  ?= 30
+
+.PHONY: icesugar-prog
+icesugar-prog: icesugar.bit
+	@$(ICESUGAR_LOADER) -c cmsisdap --vid $(ICESUGAR_VID) --pid $(ICESUGAR_PID) \
+	  -m icesugar.bit
+	@echo
+	@echo 'Loaded into SRAM; the design is running. Read it with'
+	@echo '`make icesugar-read`, or power-cycle the board to go back to flash.'
+
+.PHONY: icesugar-read
+icesugar-read:
+	@python3 soc/board_read.py --seconds $(ICESUGAR_READ_S)
+
+# The whole loop: build Dhrystone for the board, put it on, and read the report
+# the program prints itself. Off `make test` and off CI -- it needs the board.
+.PHONY: icesugar-dhrystone
+icesugar-dhrystone:
+	@rm -f icesugar.json icesugar.config icesugar.bit
+	@$(MAKE) --no-print-directory dhrystone-rom
+	@$(MAKE) --no-print-directory icesugar.bit ICESUGAR_ROM=noop-rom
+	@$(MAKE) --no-print-directory icesugar-prog
+	@python3 soc/board_read.py --seconds 60 --until 'Self-check' \
+	  --out icesugar_dhrystone.txt
 
 ECP5_TOOLS := yosys nextpnr-ecp5 trellis-db
 
@@ -1074,6 +1120,7 @@ dual_ecp5.json: $(DUAL_SRCS) soc-rom
 	@python3 soc/cell_census.py dual_ecp5.synth.log MULT18X18D $(DUAL_EXPECT_DSP) \
 	  "one multiplier per hart; in soft logic either would be invisible in a frequency number and enormous in area" \
 	  --gate 'make dual-ecp5-timing' --declared DUAL_EXPECT_DSP
+	@python3 soc/bram_reset_check.py $@ --gate 'make dual-ecp5-timing'
 
 dual_ecp5.config: dual_ecp5.json soc/littlesoc.lpf
 	@rm -f $@ dual_ecp5.report.json

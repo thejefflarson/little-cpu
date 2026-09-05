@@ -163,3 +163,5 @@ icesugar.config
 icesugar.bit
 icesugar.synth.log
 icesugar.pnr.log
+# `make icesugar-dhrystone`'s transcript of what the board said.
+icesugar_dhrystone.txt
