@@ -34,6 +34,7 @@
 --require-news against an unchanged repo and matching --current is quiet
 --require-news is news the moment --current disagrees with the older stamp
 --require-news is news the moment rtl/ moved under the older stamp too
+--require-news refuses on its own status, not on "no news"
 ...and one the purge did not remove means the digest is equal by luck
 ...and so does the file it injects into going away
 ...and the count that site was declared with is red too
@@ -404,6 +405,7 @@ an arm that admits a zero where the faulting word belongs is red
 an arm that admits rs1 where the effective address belongs is red
 an arm that admits the wrong cause is red
 an attribute that is not a source line is not forgiven
+an empty --current value is refused, not compared as though it were the field's value
 an empty CoreMark image is named rather than reported as fitting easily
 an empty asm directory is red rather than a suite of size zero
 an empty configuration means nothing was expressible on the part
