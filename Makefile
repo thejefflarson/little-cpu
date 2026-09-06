@@ -834,6 +834,104 @@ ecp5.json: $(SOC_SRCS) soc-rom
 	@python3 soc/cell_census.py ecp5.synth.log MULT18X18D $(ECP5_EXPECT_DSP) \
 	  "rtl/executor.v's multiplier has stopped inferring a DSP block; in soft logic it would be invisible in a frequency number and enormous in area" \
 	  --gate 'make ecp5-timing' --declared ECP5_EXPECT_DSP
+	@python3 soc/bram_reset_check.py $@ --gate 'make ecp5-timing'
+
+# ---- the iCESugar-Pro, the second board this design has run on ---------------
+#
+# A MuseLab iCESugar-Pro: ECP5 LFE5U-25F in a caBGA256, 25 MHz on P6, flashed by
+# dropping the .bit on the iCELink volume the on-board debugger presents. This
+# is a BITSTREAM target and not an instrument: nothing here is graded, no
+# ratchet reads it, and its frequency constraint is the board's real 25 MHz
+# rather than `make ecp5-timing`'s deliberately-unreachable 200, because the
+# question here is "does it run" and not "how fast could it".
+#
+# Different die package from ECP5_PACKAGE, so its numbers and ecp5-timing's are
+# not comparable: caBGA256 against caBGA381 is a different pinout and a
+# different placement problem on the same 25k die.
+ICESUGAR_DEVICE  := --25k
+ICESUGAR_PACKAGE := CABGA256
+ICESUGAR_SPEED   := 6
+ICESUGAR_PART    := LFE5U-25F-6BG256C
+ICESUGAR_MHZ     := 25
+ICESUGAR_TOP     := icesugar_pro_top
+ICESUGAR_SRCS    := $(SOC_SRCS) soc/board_icesugar_pro.v
+ICESUGAR_PROG    ?= soc/blink.S
+
+# As BOARD_ROM is to the UPduino: `noop-rom` means the banks are already written
+# and must not be rebuilt, which is how a benchmark's own ROM recipe hands its
+# image to this flow. noop-rom ignores SOC_PROG.
+ICESUGAR_ROM     ?= soc-rom
+
+icesugar.json: $(ICESUGAR_SRCS) soc/icesugar_pro.lpf
+	@$(MAKE) --no-print-directory $(ICESUGAR_ROM) SOC_PROG=$(ICESUGAR_PROG)
+	@echo 'yosys: synthesising $(ICESUGAR_TOP) for $(ICESUGAR_PART) (log: icesugar.synth.log)'
+	@yosys -p 'read_verilog -sv $(ICESUGAR_SRCS); synth_ecp5 -top $(ICESUGAR_TOP) -json $@' \
+	  > icesugar.synth.log 2>&1 || { tail -40 icesugar.synth.log; exit 1; }
+	@python3 soc/bram_reset_check.py $@ --gate 'make icesugar-bitstream'
+
+# No `|| true` here, unlike ecp5.config: that constraint is meant to be missed
+# and this one is meant to be met, so a nextpnr failure IS a failure.
+icesugar.config: icesugar.json
+	@rm -f $@
+	@echo 'nextpnr: placing $(ICESUGAR_TOP) on $(ICESUGAR_PART) at $(ICESUGAR_MHZ) MHz (log: icesugar.pnr.log)'
+	@nextpnr-ecp5 $(ICESUGAR_DEVICE) --package $(ICESUGAR_PACKAGE) --speed $(ICESUGAR_SPEED) \
+	  --json $< --lpf soc/icesugar_pro.lpf --freq $(ICESUGAR_MHZ) \
+	  --textcfg $@ > icesugar.pnr.log 2>&1 || { tail -30 icesugar.pnr.log; exit 1; }
+	@test -s $@ || { echo '*** nextpnr wrote no configuration.'; tail -30 icesugar.pnr.log; exit 1; }
+
+icesugar.bit: icesugar.config
+	@ecppack $< $@
+	@test -s $@ || { echo '*** ecppack wrote no bitstream.'; exit 1; }
+
+.PHONY: icesugar-bitstream
+icesugar-bitstream: icesugar.bit
+	@echo
+	@echo '== $(ICESUGAR_PART): a bitstream, not a measurement =='
+	@grep -E 'Max frequency for clock' icesugar.pnr.log | tail -2
+	@ls -l icesugar.bit | awk '{ print "icesugar.bit  " $$5 " bytes" }'
+	@echo
+	@echo 'Put it on the board with `make icesugar-prog`. What the tools think'
+	@echo 'the placement does is above; a board is the only thing that can'
+	@echo 'disagree.'
+
+# ---- putting a program on that board, and reading what it says --------------
+#
+# SRAM OVER JTAG, NOT THE FLASH. Copying the .bit onto the iCELink volume, and
+# `icesprog -w`, both write the SPI flash correctly -- a readback compares equal
+# -- and both leave the ECP5 reporting `@cdone:0`, unconfigured, until the board
+# is physically power-cycled. Loading SRAM configures the part the moment the
+# load finishes, which is what makes a run here a command rather than a chore.
+#
+# The vid/pid are the iCELink's own CMSIS-DAP interface. openFPGALoader finds no
+# probe without them on this machine: it looks for a v2 device, fails, and never
+# reaches the HID path the debugger actually speaks.
+ICESUGAR_LOADER  ?= openFPGALoader
+ICESUGAR_VID     ?= 0x1d50
+ICESUGAR_PID     ?= 0x602b
+ICESUGAR_READ_S  ?= 30
+
+.PHONY: icesugar-prog
+icesugar-prog: icesugar.bit
+	@$(ICESUGAR_LOADER) -c cmsisdap --vid $(ICESUGAR_VID) --pid $(ICESUGAR_PID) \
+	  -m icesugar.bit
+	@echo
+	@echo 'Loaded into SRAM; the design is running. Read it with'
+	@echo '`make icesugar-read`, or power-cycle the board to go back to flash.'
+
+.PHONY: icesugar-read
+icesugar-read:
+	@python3 soc/board_read.py --seconds $(ICESUGAR_READ_S)
+
+# The whole loop: build Dhrystone for the board, put it on, and read the report
+# the program prints itself. Off `make test` and off CI -- it needs the board.
+.PHONY: icesugar-dhrystone
+icesugar-dhrystone:
+	@rm -f icesugar.json icesugar.config icesugar.bit
+	@$(MAKE) --no-print-directory dhrystone-rom
+	@$(MAKE) --no-print-directory icesugar.bit ICESUGAR_ROM=noop-rom
+	@$(MAKE) --no-print-directory icesugar-prog
+	@python3 soc/board_read.py --seconds 60 --until 'Self-check' \
+	  --out icesugar_dhrystone.txt
 
 ECP5_TOOLS := yosys nextpnr-ecp5 trellis-db
 
@@ -890,6 +988,13 @@ suite-board: ftread
 # THE FLAGS STRING IS PART OF THE RESULT: an unquoted parenthetical once let the
 # report print a truncated -- and therefore wrong -- flags line. Quoted here and
 # reused from DHRY_CFLAGS so the board and simulated numbers stay comparable.
+#
+# SHARING THE FLAGS IS NOT ENOUGH TO MAKE THE TWO NUMBERS COMPARABLE. The recipe
+# below also defines DHRY_UART, which compiles in the transmit busy-wait and the
+# repeat loop and moves `.text`; `make dhrystone` does not, and the two builds
+# differ by one cycle per run in the measured loop. To pair a board figure
+# against a simulated one, give the simulated side the same define:
+#   make dhrystone DHRY_CFLAGS='$(DHRY_CFLAGS) -DDHRY_UART=$(DHRY_UART_BASE)'
 DHRY_BOARD_CFLAGS ?= $(DHRY_CFLAGS)
 
 .PHONY: dhrystone-rom
@@ -1035,6 +1140,7 @@ dual_ecp5.json: $(DUAL_SRCS) soc-rom
 	@python3 soc/cell_census.py dual_ecp5.synth.log MULT18X18D $(DUAL_EXPECT_DSP) \
 	  "one multiplier per hart; in soft logic either would be invisible in a frequency number and enormous in area" \
 	  --gate 'make dual-ecp5-timing' --declared DUAL_EXPECT_DSP
+	@python3 soc/bram_reset_check.py $@ --gate 'make dual-ecp5-timing'
 
 dual_ecp5.config: dual_ecp5.json soc/littlesoc.lpf
 	@rm -f $@ dual_ecp5.report.json
@@ -1160,7 +1266,33 @@ COMPARE_SEED  ?=
 # its side of the harness then comes to. soc/compare/bench.lds states the same
 # two sizes in its own syntax and soc/compare/geometry_test.sh compares them.
 COMPARE_ROM_WORDS := 1024
-COMPARE_RAM_WORDS := 512
+COMPARE_RAM_WORDS := 16384
+
+# ONE HARNESS, TWO PARTS, AND THE PART IS PART OF THE NUMBER. up5k is the
+# default because it is what this design ships to -- the UPduino's own part and
+# package -- and because its clock is a STEP FUNCTION: the board's 12 MHz
+# crystal, or SB_HFOSC's 48/24/12/6. A core that closes at 19 MHz there runs at
+# 12, exactly as one that closes at 13 does, so what a placement says on this
+# part is which STEP a core reaches and not how many MHz it made. ECP5 has no
+# such quantisation and answers the other question. Never average the two.
+#
+# The data RAM is 64 KB and costs no block RAM on up5k because it infers SPRAM,
+# which is why the ROM is what the geometry is really trading against.
+COMPARE_PART ?= up5k
+
+ifeq ($(COMPARE_PART),up5k)
+COMPARE_PNR_FLAGS   := --up5k --package sg48
+COMPARE_PCF         := soc/compare/bench_up5k.pcf
+COMPARE_SYNTH_FLAGS := -device u -dsp -spram
+COMPARE_ICETIME_ARG := -d up5k -P sg48
+else ifeq ($(COMPARE_PART),hx8k)
+COMPARE_PNR_FLAGS   := --hx8k --package ct256
+COMPARE_PCF         := soc/compare/bench_hx8k.pcf
+COMPARE_SYNTH_FLAGS :=
+COMPARE_ICETIME_ARG := -d hx8k -P ct256
+else
+$(error COMPARE_PART is '$(COMPARE_PART)'; this harness knows up5k and hx8k)
+endif
 # The placed design must be at least this fraction of what the core synthesises
 # to alone. soc/compare/placed_vs_synth.py carries why, and it is the check that
 # stops this flow reporting a number for a core yosys folded away.
@@ -1187,20 +1319,27 @@ HAZARD3_SRCS := $(HAZARD3_HDL)/hazard3_core.v $(HAZARD3_HDL)/hazard3_cpu_1port.v
                 $(HAZARD3_HDL)/hazard3_power_ctrl.v \
                 $(HAZARD3_HDL)/hazard3_regfile_1w2r.v $(HAZARD3_HDL)/hazard3_triggers.v
 
+include soc/compare/vexriscv_pin.mk
+
 ifeq ($(COMPARE_CORE),vexriscv)
 COMPARE_TOP  := bench_vexriscv
 COMPARE_SRCS := soc/compare/bench_vexriscv.v rtl/memory.v
-# Read as plain Verilog, out of the SHA-pinned clone, and never copied into this
-# repo. Its RVFI outputs are left unconnected in the harness, where synthesis
-# prunes them; on the standalone run below they are the top's own ports, and
-# there `delete -port` -- formal/check-nonperturbation.py's technique -- is what
-# stops 556 SB_IO no ice40 package can place.
-COMPARE_READ := read_verilog $(RISCV_FORMAL_DIR)/cores/VexRiscv/VexRiscv.v; \
+# GENERATED HERE, not taken from the riscv-formal clone. That clone's copy is
+# FormalSimple -- riscv-formal's own VERIFICATION config, with no MulPlugin, no
+# CsrPlugin and every hazard bypass disabled -- which is not a peer for this
+# core and distorted both halves of the product at once. soc/compare/
+# vexriscv_pin.mk carries the reasoning, the upstream SHA and the generator.
+#
+# Its RVFI outputs are left unconnected in the harness, where synthesis prunes
+# them; on the standalone run below they are the top's own ports, and there
+# `delete -port` -- formal/check-nonperturbation.py's technique -- is what stops
+# 556 SB_IO no ice40 package can place.
+COMPARE_READ := read_verilog $(VEXRISCV_V); \
                 read_verilog -sv $(COMPARE_SRCS)
-COMPARE_CORE_READ := read_verilog $(RISCV_FORMAL_DIR)/cores/VexRiscv/VexRiscv.v; \
+COMPARE_CORE_READ := read_verilog $(VEXRISCV_V); \
                      hierarchy -top VexRiscv; delete -port VexRiscv/rvfi_*
 COMPARE_CORE_TOP  := VexRiscv
-COMPARE_DEPS      := $(COMPARE_SRCS) | $(RISCV_FORMAL_DIR)
+COMPARE_DEPS      := $(COMPARE_SRCS) $(VEXRISCV_V)
 COMPARE_CORE_DEPS := | $(RISCV_FORMAL_DIR)
 else ifeq ($(COMPARE_CORE),hazard3)
 COMPARE_TOP  := bench_hazard3
@@ -1262,7 +1401,7 @@ compare-rom: compare-geometry-test
 # (both cores present far more SB_IO than any package has) and is not meant to.
 compare.$(COMPARE_CORE).core.log: $(COMPARE_CORE_DEPS)
 	@echo 'yosys: synthesising $(COMPARE_CORE_TOP) alone for hx8k (log: $@)'
-	@yosys -p '$(COMPARE_CORE_READ); synth_ice40 -top $(COMPARE_CORE_TOP); stat' \
+	@yosys -p '$(COMPARE_CORE_READ); synth_ice40 $(COMPARE_SYNTH_FLAGS) -top $(COMPARE_CORE_TOP); stat' \
 	  > $@ 2>&1 || { tail -40 $@; exit 1; }
 
 # `compare-rom` FIRST. COMPARE_DEPS ends with an order-only `| $(RISCV_FORMAL_DIR)`
@@ -1271,24 +1410,25 @@ compare.$(COMPARE_CORE).core.log: $(COMPARE_CORE_DEPS)
 # netlist make never regenerated, and four "placements" of that core reported
 # one number to the millisecond.
 compare.$(COMPARE_CORE).json: compare-rom $(COMPARE_DEPS)
-	@echo 'yosys: synthesising $(COMPARE_TOP) for hx8k (log: compare.$(COMPARE_CORE).synth.log)'
-	@# No `-dsp`: hx8k has no SB_MAC16, so this core's multiplier is soft logic
-	@# here and `make fit`'s DSP-mapped number does not transfer.
+	@echo 'yosys: synthesising $(COMPARE_TOP) for $(COMPARE_PART) (log: compare.$(COMPARE_CORE).synth.log)'
+	@# The synthesis flags come from the part table above. hx8k gets none: it has
+	@# no SB_MAC16 and no SPRAM, so the multiplier is soft logic there and the
+	@# 64 KB data RAM will not fit at all -- which is why up5k is the default.
 	@# chparam BEFORE hierarchy, so the harness's geometry has one source -- the
 	@# variables above -- rather than a second copy in each .v file's defaults.
 	@yosys -p '$(COMPARE_READ); \
 	  chparam -set ROM_WORDS $(COMPARE_ROM_WORDS) -set RAM_WORDS $(COMPARE_RAM_WORDS) $(COMPARE_TOP); \
 	  hierarchy -top $(COMPARE_TOP); \
-	  synth_ice40 -top $(COMPARE_TOP) -json $@; stat' \
+	  synth_ice40 $(COMPARE_SYNTH_FLAGS) -top $(COMPARE_TOP) -json $@; stat' \
 	  > compare.$(COMPARE_CORE).synth.log 2>&1 \
 	  || { tail -40 compare.$(COMPARE_CORE).synth.log; exit 1; }
 
 # nextpnr's own status is not the signal, for the reason `soc.asc` records: it
 # grades its own default clock with its own estimator, and what is graded here
 # is icetime's report of the .asc it wrote.
-compare.$(COMPARE_CORE).asc: compare.$(COMPARE_CORE).json soc/compare/bench_hx8k.pcf
-	@echo 'nextpnr: placing $(COMPARE_TOP) on hx8k/ct256 (log: compare.$(COMPARE_CORE).pnr.log)'
-	@nextpnr-ice40 --hx8k --package ct256 --json $< --pcf soc/compare/bench_hx8k.pcf \
+compare.$(COMPARE_CORE).asc: compare.$(COMPARE_CORE).json $(COMPARE_PCF)
+	@echo 'nextpnr: placing $(COMPARE_TOP) on $(COMPARE_PART) (log: compare.$(COMPARE_CORE).pnr.log)'
+	@nextpnr-ice40 $(COMPARE_PNR_FLAGS) --json $< --pcf $(COMPARE_PCF) \
 	  $(if $(COMPARE_SEED),--seed '$(COMPARE_SEED)') --asc $@ \
 	  > compare.$(COMPARE_CORE).pnr.log 2>&1 || true
 	@test -s $@ || { \
@@ -1445,6 +1585,52 @@ compare-coremark: compare.coremark.vvp
 	  $(COMPARE_COREMARK_CYCLES) '$(COMPARE_COREMARK_CFLAGS)' compare.coremark.vvp
 
 .PHONY: compare-timing
+# The comparison on ECP5, which is a DIFFERENT CLASS OF INSTRUMENT from the
+# ice40 path above and deliberately not folded into COMPARE_PART: there is no
+# icetime on this part, so nextpnr both places and grades, and the frequency it
+# reports is its own estimate rather than a report read back off a bitstream.
+# soc/ecp5_report.py is the single reader for both, and it refuses every shape
+# of "nothing was measured".
+#
+# WHY BOTH PARTS. up5k's clock is quantised -- SB_HFOSC gives 48/24/12/6 and the
+# board has a 12 MHz crystal -- so a core closing at 19 MHz there runs at 12,
+# exactly as one closing at 13 does. ECP5 has no such step, so a critical-path
+# advantage is one a design can actually spend. The two parts answer two
+# questions and their numbers NEVER merge (ADR-0160).
+compare_ecp5.$(COMPARE_CORE).json: compare-rom $(COMPARE_DEPS)
+	@echo 'yosys: synthesising $(COMPARE_TOP) for ECP5 (log: compare_ecp5.$(COMPARE_CORE).synth.log)'
+	@yosys -p '$(COMPARE_READ); \
+	  chparam -set ROM_WORDS $(COMPARE_ROM_WORDS) -set RAM_WORDS $(COMPARE_RAM_WORDS) $(COMPARE_TOP); \
+	  synth_ecp5 -top $(COMPARE_TOP) -json $@; stat' \
+	  > compare_ecp5.$(COMPARE_CORE).synth.log 2>&1 \
+	  || { tail -40 compare_ecp5.$(COMPARE_CORE).synth.log; exit 1; }
+
+compare_ecp5.$(COMPARE_CORE).config: compare_ecp5.$(COMPARE_CORE).json soc/compare/bench_ecp5.lpf
+	@rm -f $@ compare_ecp5.$(COMPARE_CORE).report.json
+	@echo 'nextpnr: placing $(COMPARE_TOP) on $(ECP5_PART) (log: compare_ecp5.$(COMPARE_CORE).pnr.log)'
+	@nextpnr-ecp5 $(ECP5_DEVICE) --package $(ECP5_PACKAGE) --speed $(ECP5_SPEED) \
+	  --json $< --lpf soc/compare/bench_ecp5.lpf --lpf-allow-unconstrained \
+	  --freq $(ECP5_TARGET_MHZ) $(if $(ECP5_SEED),--seed '$(ECP5_SEED)') \
+	  --textcfg $@ --report compare_ecp5.$(COMPARE_CORE).report.json \
+	  > compare_ecp5.$(COMPARE_CORE).pnr.log 2>&1 || true
+	@{ test -s $@ && test -s compare_ecp5.$(COMPARE_CORE).report.json; } || { \
+	  echo '*** make compare-ecp5-timing: nextpnr wrote no configuration and'; \
+	  echo '*** report pair, so NOTHING was measured. That is a failed run, not'; \
+	  echo '*** a slow design, and it is deliberately NOT graded against whatever'; \
+	  echo '*** the last run left on disk.'; \
+	  tail -30 compare_ecp5.$(COMPARE_CORE).pnr.log; \
+	  rm -f $@ compare_ecp5.$(COMPARE_CORE).report.json; \
+	  exit 1; \
+	}
+
+.PHONY: compare-ecp5-timing
+compare-ecp5-timing: compare_ecp5.$(COMPARE_CORE).config
+	@echo
+	@echo '== nextpnr-ecp5: $(COMPARE_CORE) on $(ECP5_PART) =='
+	@python3 soc/ecp5_report.py compare_ecp5.$(COMPARE_CORE).report.json \
+	  compare_ecp5.$(COMPARE_CORE).config --clock clk --part $(ECP5_PART) \
+	  --constraint-mhz $(ECP5_TARGET_MHZ)
+
 compare-timing: compare.$(COMPARE_CORE).asc compare.$(COMPARE_CORE).core.log
 	@sed -n '/^Info: Device utilisation:/,/^$$/s/^Info: //p' compare.$(COMPARE_CORE).pnr.log
 	@echo
@@ -1453,7 +1639,7 @@ compare-timing: compare.$(COMPARE_CORE).asc compare.$(COMPARE_CORE).core.log
 	  compare.$(COMPARE_CORE).core.log $(COMPARE_CORE) --min-ratio $(COMPARE_MIN_RATIO)
 	@echo
 	@echo '== icetime: the critical path, and the LOGIC/ROUTING SPLIT =='
-	@icetime -d hx8k -P ct256 -p soc/compare/bench_hx8k.pcf -t \
+	@icetime $(COMPARE_ICETIME_ARG) -p $(COMPARE_PCF) -t \
 	  -r compare.$(COMPARE_CORE).timing.rpt compare.$(COMPARE_CORE).asc \
 	  > compare.$(COMPARE_CORE).icetime.log 2>&1 \
 	  || { cat compare.$(COMPARE_CORE).icetime.log; exit 1; }

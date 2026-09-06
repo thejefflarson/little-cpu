@@ -146,14 +146,40 @@ for f in rtl/littlesoc.v test/testbench.v; do
       fail "$f does not instantiate \`$m\` at all. The comparison below would
 pass vacuously, so a deleted memory is red here rather than silent."
     fi
-    if grep -qE "(^|[^[:alnum:]_])$m[[:space:]]*#\(" "$REPO/$f"; then
-      fail "$f overrides \`$m\`'s parameters. The data RAM's base and size, the
+    # THE MAP IS WHAT MAY NOT BE RESTATED, not every parameter. `uart`'s
+    # CLOCK_HZ is the board's clock rate rather than a region: two boards run
+    # this one SoC at 12 and 25 MHz and rtl/uart.v divides it down to the baud
+    # rate, so a top that does not say it would transmit at twice the speed the
+    # receiver expects. It names no address and no size, so it cannot make these
+    # two files describe different machines, which is the whole subject here.
+    # Every other parameter of all four modules stays refused.
+    override=$(grep -E "(^|[^[:alnum:]_])$m[[:space:]]*#\(" "$REPO/$f" || true)
+    if [ -n "$override" ]; then
+      allowed=""
+      [ "$m" = uart ] && allowed="CLOCK_HZ"
+      # A parameter list this cannot read whole is refused rather than skimmed:
+      # no closing parenthesis on the line means it is spread over several, and
+      # a check that shrugged at that would be the silence this file exists to
+      # prevent.
+      case $override in
+        *')'*) ;;
+        *) fail "$f spreads \`$m\`'s parameter list over more than one line, which
+this check cannot read. Put it on one line, or the override it hides is
+unreviewable here." ;;
+      esac
+      for param in $(printf '%s\n' "$override" | grep -oE '\.[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\(' | tr -d '.( \t'); do
+        case " $allowed " in
+          *" $param "*) continue ;;
+        esac
+        fail "$f overrides \`$m\`'s parameters. The data RAM's base and size, the
 timer's base, the UART's base and baud rate and the SPI controller's base are
 rtl/$m.v's defaults precisely so that rtl/littlesoc.v and test/testbench.v
 cannot describe different machines
 -- the harness once modelled a RAM sixteen times smaller than the SoC's and every
 program still fit. If this override is deliberate, it needs a reason recorded in
-an ADR first."
+an ADR first. The one exception is \`uart\`'s CLOCK_HZ, a board clock rate that
+names no address; \`$m\`'s \`$param\` is not it."
+      done
     fi
   done
 done
