@@ -502,6 +502,14 @@ band-source-test:
 zkt-isolation-test:
 	@python3 ./test/zkt_isolation_test.py
 
+# Refuses a bare `sed -i` in test/probe_gates.sh's own fixtures (it proves
+# nothing when the pattern matches nothing) and a hand-typed fixture with no
+# fixture_anchor tying it to the real shape it imitates. Hangs off `test` like
+# the other repo-scanning checks -- reads probe_gates.sh as text, no toolchain.
+.PHONY: fixture-freshness-test
+fixture-freshness-test:
+	@python3 ./test/fixture_freshness_test.py
+
 # Forces the elaboration checks in rtl/{imemory,memory,timer,uart,spiflash}.v
 # and rtl/littlecpu.v's copy of that map to fire, in both frontends. Hangs off
 # `test` because the parameter shapes they guard are the ones the SoC and the
@@ -541,7 +549,7 @@ dual-build:
 .PHONY: test
 test: sim test-units probe-gates pin-bump-test tool-cache-test memmap-test \
       adr-numbering-test compare-geometry-test retired-term-test port-connect-test march-test \
-      band-source-test zkt-isolation-test window-test imem-share-test \
+      band-source-test zkt-isolation-test fixture-freshness-test window-test imem-share-test \
       abc-engine-test mutation-probe dual-build board-elaborate \
       tracked-ignored-test mutation-coverage-test
 	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
