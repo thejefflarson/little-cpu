@@ -231,6 +231,7 @@ if [ -n "$stalls" ] && [ -z "${STUB_SIM_NOSTALLS:-}" ]; then
   unattr=${STUB_SIM_UNATTR:-0}
   echo "STALLS cycles=$((20 + unattr + ${STUB_SIM_SKEW:-0})) issue=10 divider=0" \
        "atomic=0 hazard=10 serialize=0 operand=0 fetch=0 bus=0 region=0" \
+       "hzA=4 hzB=3 hzC=3 hzCcsr=0" \
        "unattributed=$unattr lsissue=4 lsedge=2 lsbypass=1"
 fi
 case ${STUB_SIM_EXIT:-0} in
@@ -2412,8 +2413,8 @@ SR="python3 $REPO/test/stall_report.py"
 sr_fixture() {
   local d; d=$(new_case)
   cat > "$d/counts" <<'COUNTS'
-add.S cycles=40 issue=10 divider=0 atomic=0 hazard=20 serialize=0 operand=10 fetch=0 bus=0 region=0 unattributed=0 lsissue=4 lsedge=1 lsbypass=0 retires=10
-lw.S cycles=40 issue=10 divider=0 atomic=0 hazard=5 serialize=0 operand=25 fetch=0 bus=0 region=0 unattributed=0 lsissue=6 lsedge=3 lsbypass=2 retires=10
+add.S cycles=40 issue=10 divider=0 atomic=0 hazard=20 serialize=0 operand=10 fetch=0 bus=0 region=0 hzA=10 hzB=5 hzC=5 hzCcsr=0 unattributed=0 lsissue=4 lsedge=1 lsbypass=0 retires=10
+lw.S cycles=40 issue=10 divider=0 atomic=0 hazard=5 serialize=0 operand=25 fetch=0 bus=0 region=0 hzA=2 hzB=1 hzC=2 hzCcsr=0 unattributed=0 lsissue=6 lsedge=3 lsbypass=2 retires=10
 COUNTS
   printf '%s' "$d"
 }
@@ -2437,6 +2438,14 @@ probe "a stall nothing in the list explains is a reason nobody wrote down" 1 \
 d=$(sr_fixture); mutate "$d/counts" 's/ operand=10//'
 probe "a field the runner stopped printing is named, not counted as zero" 1 \
   "is missing operand" "$SR $d/counts"
+
+# A mis-charged hazard sub-bucket -- test/cxxrtl.cc dropping its
+# `else if (eligible)` arm and leaving the cycle uncounted is enough -- moves a
+# cycle out of hzB without moving it anywhere else, so the three no longer sum
+# to the hazard column they split even though the outer columns still add up.
+d=$(sr_fixture); mutate "$d/counts" 's/hzB=5/hzB=4/'
+probe "hazard's three causes losing a cycle between them is red" 1 \
+  "hzA+hzB+hzC is 19, hazard is 20" "$SR $d/counts"
 
 # The locality counters are not cycles and add up to nothing, so the arithmetic
 # above cannot see them at all. What can be seen is a subset larger than the set
