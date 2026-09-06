@@ -127,16 +127,23 @@ Dhrystone runs on the iCESugar-Pro at **0.775 DMIPS/MHz, 19.4 DMIPS at 25 MHz**,
 | | Cycles | Cycles/Dhrystone | DMIPS/MHz |
 |---|---|---|---|
 | iCESugar-Pro, 25 MHz | 14,680,022 | 734 | 0.775 |
-| cxxrtl, same ROM | 14,660,022 | 733 | 0.776 |
+| cxxrtl, same binary | 14,680,022 | 734 | 0.775 |
 
-Retired instructions are identical at 9,240,026. **The board is exactly 20,000
-cycles slower, which is one cycle per run, and that is not explained.** It is a
-difference between the SoC and `test/bench`'s harness, not a difference in what
-was computed; it is recorded here rather than rounded away.
+**Cycle-identical**, the same standing ADR-0130 records for the UPduino.
+
+Getting there corrected a comparison rather than the core. `make dhrystone`
+first read 14,660,022, exactly 20,000 fewer — one per run — against identical
+retired instructions. That is a DIFFERENT BINARY, not a different machine:
+`dhrystone-rom` defines `DHRY_UART` and `make dhrystone` does not, so the board
+build compiles in `uart_putc`'s busy-wait and the repeat loop, `.text` moves, and
+the measured loop pays one more cycle each run. Built with the same define the
+simulator returns the board's number to the cycle. `DHRY_BOARD_CFLAGS`'s comment
+claimed sharing `DHRY_CFLAGS` made the two comparable; it is necessary and not
+sufficient, and the Makefile now says so beside the define that breaks it.
 
 ## What this does not settle
 
-The one-cycle-per-run gap above. Whether the fault is yosys emitting an output
+Whether the fault is yosys emitting an output
 reset the part cannot honour in this configuration, or nextpnr and Trellis
 encoding it wrongly, is not established — the RTL workaround does not need the
 answer, and no simulation available here can supply it. The edit ties `RSTA` low

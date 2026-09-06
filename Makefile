@@ -975,6 +975,13 @@ suite-board: ftread
 # THE FLAGS STRING IS PART OF THE RESULT: an unquoted parenthetical once let the
 # report print a truncated -- and therefore wrong -- flags line. Quoted here and
 # reused from DHRY_CFLAGS so the board and simulated numbers stay comparable.
+#
+# SHARING THE FLAGS IS NOT ENOUGH TO MAKE THE TWO NUMBERS COMPARABLE. The recipe
+# below also defines DHRY_UART, which compiles in the transmit busy-wait and the
+# repeat loop and moves `.text`; `make dhrystone` does not, and the two builds
+# differ by one cycle per run in the measured loop. To pair a board figure
+# against a simulated one, give the simulated side the same define:
+#   make dhrystone DHRY_CFLAGS='$(DHRY_CFLAGS) -DDHRY_UART=$(DHRY_UART_BASE)'
 DHRY_BOARD_CFLAGS ?= $(DHRY_CFLAGS)
 
 .PHONY: dhrystone-rom

@@ -716,10 +716,12 @@ digit-perfect, and Dhrystone on the part matched cxxrtl to the cycle (ADR-0130).
 and `make dhrystone-board` run the suite and Dhrystone there; neither is graded on CI, because a
 board is not always plugged in. **The same source runs on a second part**: a MuseLab
 iCESugar-Pro (ECP5 LFE5U-25F) reports Dhrystone at **0.775 DMIPS/MHz, 19.4 DMIPS at 25 MHz** over
-`make icesugar-dhrystone`, against cxxrtl's 0.776 on the same ROM and an unexplained
-one-cycle-per-run gap (ADR-0163). Getting there needed the data RAM's out-of-range arm off the
-block RAM's reset, and that board is programmed by loading SRAM over JTAG — a flash write leaves
-the part unconfigured until it is power-cycled. SPRAM cannot be initialised, so `.data` rides in
+`make icesugar-dhrystone`, **cycle-identical to cxxrtl on the same binary** (ADR-0163). Sharing
+`DHRY_CFLAGS` does not make a board figure and a simulated one comparable: `dhrystone-rom` also
+defines `DHRY_UART` and `make dhrystone` does not, which moves `.text` and costs a cycle a run.
+Getting there needed the data RAM's out-of-range arm off the block RAM's reset, and that board is
+programmed by loading SRAM over JTAG — a flash write leaves the part unconfigured until it is
+power-cycled. SPRAM cannot be initialised, so `.data` rides in
 the ROM at a load
 address `test/asm/boot.lds` puts there and `test/crt0.S` copies into RAM before `main`. Still
 deferred: the radix-4 divider (a CPI lever that costs area, so never part of an area pass,
