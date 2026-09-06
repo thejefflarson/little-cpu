@@ -404,7 +404,14 @@ jobs:
       # which is what this host has.
       - name: What this runner actually has
         run: |
-          echo "nproc:              $(nproc)"
+          # nproc does NOT see the CPU quota -- it reports the host's cores --
+          # so the cgroup figures below are the ones that decide JOBS.
+          echo "nproc (NOT the cap):$(nproc)"
+          echo "cgroup cpu.max:     $(cat /sys/fs/cgroup/cpu.max 2>/dev/null \
+            || { q=$(cat /sys/fs/cgroup/cpu/cpu.cfs_quota_us 2>/dev/null); \
+                 p=$(cat /sys/fs/cgroup/cpu/cpu.cfs_period_us 2>/dev/null); \
+                 [ -n "$q" ] && [ -n "$p" ] && echo "$q $p"; } \
+            || echo unavailable)"
           echo "cgroup memory.max:  $(cat /sys/fs/cgroup/memory.max 2>/dev/null \
             || cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null \
             || echo unavailable)"
@@ -846,17 +853,25 @@ jobs:
     #   JOBS=2   252s   1015 MB
     #   JOBS=4   137s   1427 MB
     #
-    # JOBS=4 IS A MEMORY BUDGET AND WANTS ABOUT 3 GiB ON THE POD -- 1427 MB of
-    # work above whatever the runner already holds at job start. Below that drop
-    # to JOBS=2 rather than let a check be OOM-killed: an evicted pod takes its
-    # logs with it and reads as a job that failed for no stated reason, which is
-    # exactly how this was learned. Size it against the limit the `components`
-    # job prints, not against `free`, which reports the host from inside a
-    # container.
+    # JOBS=4 IS BOUNDED BY THE CPU CAP AND THEN BY MEMORY, and the pod is 4 CPUs
+    # and 3 GiB: 4 matches the cap exactly, and 1427 MB leaves room. Raising it
+    # past the cap buys nothing -- these checks are CPU-bound SMT solving, so
+    # oversubscription trades wall time for memory and gets neither.
     #
-    # A hosted runner does JOBS=4 in 237s and an Apple Silicon machine in 137s,
-    # which is the point of moving: the pool is not merely cheaper here. Fork
-    # PRs still route to a hosted runner, where memory is plentiful.
+    # NEITHER LIMIT IS VISIBLE THE OBVIOUS WAY. `nproc` reports 16 on this pod
+    # because a CPU quota does not narrow the affinity mask, and `free` reports
+    # the host's memory from inside a container. The `components` job prints
+    # both cgroup figures; size against those and not against either of the two
+    # numbers that look authoritative and are not.
+    #
+    # Below 3 GiB, drop to JOBS=2 rather than let a check be OOM-killed: an
+    # evicted pod takes its logs with it and reads as a job that failed for no
+    # stated reason, which is how this was learned rather than reasoned.
+    #
+    # A hosted runner does JOBS=4 in 237s and an Apple Silicon machine in 137s
+    # at the same four-way parallelism, so the win here is per-core speed rather
+    # than more cores -- the pod's cap matches the hosted runner's vCPU count.
+    # Fork PRs still route to a hosted runner.
     # Fork-PR routing: see the note above `jobs:` for what this picks and why.
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
     # Loose because there is no per-check wall bound: one non-converging check
