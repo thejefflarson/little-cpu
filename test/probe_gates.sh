@@ -104,6 +104,73 @@ probe() {
   fi
 }
 
+# mutate <file> <sed-expr>...  -- plant a defect in a fixture and PROVE it
+# landed. A `sed -i` whose pattern no longer matches exits 0 having rewritten
+# nothing, which used to hand `probe` an unmutated copy of the real file: the
+# probe still went red, but for the wrong reason ("exited 0, expected 1"),
+# which accuses the grader under test rather than the fixture that drifted.
+# Every remaining argument is its own `-e` script, run in one `sed -i.bak`
+# pass; `-E` as the first argument selects extended regular expressions.
+# Comparing the result against the `.bak` sed itself made is the check --
+# unlike the counter `new_case`'s comment warns about, an exit status DOES
+# cross a `$(...)` subshell, so calling this as a bare statement inside a
+# fixture function is enough: under `set -e` a stale mutation aborts the
+# whole run at this line, named, rather than reaching `probe` with nothing
+# changed.
+mutate() {
+  # `set -u` treats an empty array as unbound on some bash builds, so the
+  # extended-regex flag is a plain string rather than a zero-or-one-element
+  # array.
+  local extended=""
+  if [ "$1" = "-E" ]; then extended="-E"; shift; fi
+  local file=$1; shift
+  if [ "$#" -eq 0 ]; then
+    echo "error: mutate called with no sed expression for $file" >&2
+    exit 1
+  fi
+  local args=() expr
+  for expr in "$@"; do args+=(-e "$expr"); done
+  sed $extended -i.bak "${args[@]}" "$file"
+  local identical=1
+  cmp -s "$file" "$file.bak" && identical=0
+  rm -f "$file.bak"
+  if [ "$identical" -eq 0 ]; then
+    echo "error: fixture stale: '$*' matches nothing in $file" >&2
+    exit 1
+  fi
+}
+
+# mutate_remove <file> -- delete a fixture file a probe claims went missing.
+# Plain `rm` already refuses a path that is not there, but `rm -f` -- used to
+# make repeated fixture teardown idempotent -- does not, so a mistyped path
+# silently leaves the file in place and the probe built on its absence proves
+# nothing. Requiring existence first closes that.
+mutate_remove() {
+  local file=$1
+  if [ ! -e "$file" ]; then
+    echo "error: fixture stale: $file does not exist to remove" >&2
+    exit 1
+  fi
+  rm -rf "$file"
+}
+
+# fixture_anchor <real-path> <literal> -- a fixture that TYPES OUT an
+# artifact's shape (a nextpnr utilisation block, a `localparam` line) rather
+# than copying the real file declares here the exact text it is imitating.
+# Where the artifact itself is generated and has no tracked source -- nextpnr's
+# stdout -- <real-path> names the PARSER that reads that shape instead, so a
+# rewritten field name still breaks the anchor even though nothing in the repo
+# ever produced the fixture's literal bytes. A fixture typing out a format
+# nothing produces (or nothing parses) any more is red by name instead of
+# green forever.
+fixture_anchor() {
+  local real=$1 literal=$2
+  if ! grep -qF -- "$literal" "$real"; then
+    echo "error: fixture anchor stale: '$literal' is no longer in $real" >&2
+    exit 1
+  fi
+}
+
 # Written once and shared by every fixture, as are the scratch copies of the
 # scripts under test: macOS re-scans an executable the first time it is exec'd
 # after being written, so a probe that created its own stub tree measured
@@ -614,12 +681,12 @@ probe "control: identical register traces and verdicts AGREE" 0 \
   "COSIM-STATUS AGREE" "$(cps "$d")"
 
 d=$(cp_fixture)
-sed -i.bak 's/x2=00000002/x2=000000ff/' "$d/dut.out"
+mutate "$d/dut.out" 's/x2=00000002/x2=000000ff/'
 probe "a differing value is a divergence, located by change index" 1 \
   "COSIM-STATUS DISAGREE AT 1" "$(cps "$d")"
 
 d=$(cp_fixture)
-sed -i.bak 's/^CS 1 .*$//' "$d/dut.out"
+mutate "$d/dut.out" 's/^CS 1 .*$//'
 probe "a change the core never made is a length divergence" 1 \
   "COSIM-STATUS DISAGREE LENGTH" "$(cps "$d")"
 
@@ -634,12 +701,12 @@ d=$(cp_fixture); printf '' > "$d/sail.out"
 probe "the reference model hitting its budget is INCONCLUSIVE, not a finding" 2 \
   "COSIM-STATUS INCONCLUSIVE SAIL-LIMIT" "$(cps "$d")"
 
-d=$(cp_fixture); sed -i.bak 's/^CS END PASS 12$/CS END TIMEOUT/' "$d/dut.out"
+d=$(cp_fixture); mutate "$d/dut.out" 's/^CS END PASS 12$/CS END TIMEOUT/'
 probe "the core hitting its cycle budget is INCONCLUSIVE too" 2 \
   "COSIM-STATUS INCONCLUSIVE CORE-TIMEOUT" "$(cps "$d")"
 
 d=$(cp_fixture); printf 'FAILURE: 3\n' > "$d/sail.out"
-sed -i.bak 's/^CS END PASS 12$/CS END FAIL 3 12/' "$d/dut.out"
+mutate "$d/dut.out" 's/^CS END PASS 12$/CS END FAIL 3 12/'
 probe "control: both sides failing the same test number still AGREE" 0 \
   "COSIM-STATUS AGREE" "$(cps "$d")"
 
@@ -647,7 +714,7 @@ d=$(cp_fixture); printf 'FAILURE: 3\n' > "$d/sail.out"
 probe "identical traces with different verdicts is DISAGREE VERDICT" 1 \
   "COSIM-STATUS DISAGREE VERDICT" "$(cps "$d")"
 
-d=$(cp_fixture); sed -i.bak 's/^CS END PASS 12$//' "$d/dut.out"
+d=$(cp_fixture); mutate "$d/dut.out" 's/^CS END PASS 12$//'
 probe "a runner that printed no CS END terminator is a broken harness" 3 \
   "produced no \`CS END\` line" "$(cps "$d")"
 
@@ -818,39 +885,45 @@ probe "wrong argument count is exit 2" 2 "check-complete-exclusions.py" \
   "$CE $d/complete.sv"
 
 d=$(ce_fixture)
-sed -i.bak "s|wire \[6:0\]  insn_opcode       = rvfi_insn\[6:0\];|wire [6:0]  insn_opcode       = decoded_opcode;|" "$d/complete.sv"
+mutate "$d/complete.sv" \
+  "s|wire \[6:0\]  insn_opcode       = rvfi_insn\[6:0\];|wire [6:0]  insn_opcode       = decoded_opcode;|"
 probe "the two definitions the predicates are built from are pinned literally" 1 \
   "expected the exact line defining" "$(ces "$d")"
 
 d=$(ce_fixture)
-sed -i.bak "s|wire exclude_misc_mem = insn_uncompressed && insn_opcode == 7'b0001111;|wire exclude_misc_mem = decoder_is_fence;|" "$d/complete.sv"
+mutate "$d/complete.sv" \
+  "s|wire exclude_misc_mem = insn_uncompressed && insn_opcode == 7'b0001111;|wire exclude_misc_mem = decoder_is_fence;|"
 probe "a predicate keyed on a decoder flag is rejected, not parsed" 1 \
   "must not be able to excuse" "$(ces "$d")"
 
 d=$(ce_fixture)
-sed -i.bak "s|wire exclude_misc_mem = insn_uncompressed && insn_opcode == 7'b0001111;|wire exclude_fences = insn_uncompressed \&\& insn_opcode == 7'b0001111;|" "$d/complete.sv"
+mutate "$d/complete.sv" \
+  "s|wire exclude_misc_mem = insn_uncompressed && insn_opcode == 7'b0001111;|wire exclude_fences = insn_uncompressed \&\& insn_opcode == 7'b0001111;|"
 probe "a wire that does not carry its class's name is named" 1 \
   "must name its wire" "$(ces "$d")"
 
 d=$(ce_fixture)
-sed -i.bak "s|wire exclude_misc_mem = insn_uncompressed && insn_opcode == 7'b0001111;|wire exclude_misc_mem = insn_uncompressed \&\& insn_opcode == 7'b0000011;|" "$d/complete.sv"
+mutate "$d/complete.sv" \
+  "s|wire exclude_misc_mem = insn_uncompressed && insn_opcode == 7'b0001111;|wire exclude_misc_mem = insn_uncompressed \&\& insn_opcode == 7'b0000011;|"
 probe "a predicate matching an opcode its declaration does not is named" 1 \
   "but its wire matches" "$(ces "$d")"
 
 # `@` as the sed delimiter throughout this block: the text being replaced
 # contains `||`, which closes an `s|...|...|` early.
 d=$(ce_fixture)
-sed -i.bak "s@wire insn_excluded = .*@wire insn_excluded = exclude_system;@" "$d/complete.sv"
+mutate "$d/complete.sv" "s@wire insn_excluded = .*@wire insn_excluded = exclude_system;@"
 probe "a declared-but-unwired exclusion over-reports the restriction" 1 \
   "must be wired in and nothing else may be" "$(ces "$d")"
 
 d=$(ce_fixture)
-sed -i.bak "s@wire insn_excluded = .*@wire insn_excluded = exclude_misc_mem || (exclude_system \&\& !rvfi_trap);@" "$d/complete.sv"
+mutate "$d/complete.sv" \
+  "s@wire insn_excluded = .*@wire insn_excluded = exclude_misc_mem || (exclude_system \&\& !rvfi_trap);@"
 probe "insn_excluded must be a plain disjunction, not an expression" 1 \
   "must be a plain" "$(ces "$d")"
 
 d=$(ce_fixture)
-sed -i.bak "s|^  // EXCLUDE MISC-MEM 0001111 fence fence.i$|  // EXCLUDE MISC-MEM 0001111 fence fence.i lw|" "$d/complete.sv"
+mutate "$d/complete.sv" \
+  "s|^  // EXCLUDE MISC-MEM 0001111 fence fence.i$|  // EXCLUDE MISC-MEM 0001111 fence fence.i lw|"
 probe "widening a declared mnemonic list without the baseline is red" 1 \
   "declares an exclusion that" "$(ces "$d")"
 
@@ -860,7 +933,7 @@ probe "a baseline line with no predicate behind it is red too" 1 \
   "names an exclusion" "$(ces "$d")"
 
 d=$(ce_fixture)
-sed -i.bak 's|^MISC-MEM  0001111  fence fence.i$|MISC-MEM  00011 fence fence.i|' "$d/BASELINE"
+mutate "$d/BASELINE" 's|^MISC-MEM  0001111  fence fence.i$|MISC-MEM  00011 fence fence.i|'
 probe "a baseline opcode that is not seven binary digits is named" 1 \
   "which is not" "$(ces "$d")"
 
@@ -1155,12 +1228,12 @@ d=$(ts_fixture)
 probe "a report under the floor fails, because the floor is the board clock" 1 \
   "is under the" "$TS $d/report.rpt --min-mhz 9999"
 
-d=$(ts_fixture); sed -i.bak '/^Total path delay:/d' "$d/report.rpt"
+d=$(ts_fixture); mutate "$d/report.rpt" '/^Total path delay:/d'
 probe "no critical path in the report is a failed measurement, not a fast design" 1 \
   "does not look like an" "$TS $d/report.rpt --min-mhz 10.0"
 
 d=$(ts_fixture)
-sed -i.bak 's/^Total path delay: 1.50 ns/Total path delay: 5.00 ns/' "$d/report.rpt"
+mutate "$d/report.rpt" 's/^Total path delay: 1.50 ns/Total path delay: 5.00 ns/'
 probe "a hop sum that does not reconcile blames the script, not the design" 1 \
   "summed hops come to" "$TS $d/report.rpt --min-mhz 10.0"
 
@@ -1261,7 +1334,7 @@ bs_fixture() {
   local d; d=$(new_case)
   bs_sweep "$d/before.csv" aaaaaaaaaaaa no 'Yosys 0.68'
   bs_sweep "$d/after.csv" aaaaaaaaaaaa no 'Yosys 0.68'
-  sed -i.bak 's/,82.00,12.20,/,84.00,11.90,/' "$d/after.csv"
+  mutate "$d/after.csv" 's/,82.00,12.20,/,84.00,11.90,/'
   printf '%s' "$d"
 }
 
@@ -1272,47 +1345,47 @@ d=$(bs_fixture)
 probe "control: two sweeps measured the same way are subtracted" 0 \
   "delta, second sweep against first" "$BS $d/before.csv $d/after.csv"
 
-d=$(bs_fixture); sed -i.bak '1d' "$d/before.csv"
+d=$(bs_fixture); mutate "$d/before.csv" '1d'
 probe "an unstamped file is rejected rather than summarised" 1 \
   "no provenance block" "$BS $d/before.csv"
 
-d=$(bs_fixture); sed -i.bak '/^# end-provenance/d' "$d/before.csv"
+d=$(bs_fixture); mutate "$d/before.csv" '/^# end-provenance/d'
 probe "a block with no end is truncated, and a truncated one is not read" 1 \
   "the provenance block is truncated" "$BS $d/before.csv"
 
-d=$(bs_fixture); sed -i.bak '/^# icetime:/d' "$d/before.csv"
+d=$(bs_fixture); mutate "$d/before.csv" '/^# icetime:/d'
 probe "a block short of a tool is named, not summarised around" 1 \
   "the provenance block is missing icetime" "$BS $d/before.csv"
 
-d=$(bs_fixture); sed -i.bak '/^part,/,$d' "$d/before.csv"
+d=$(bs_fixture); mutate "$d/before.csv" '/^part,/,$d'
 probe "a stamp with no table under it is a failed measurement" 1 \
   "no CSV header" "$BS $d/before.csv"
 
-d=$(bs_fixture); sed -i.bak '/^up5k,/d' "$d/before.csv"
+d=$(bs_fixture); mutate "$d/before.csv" '/^up5k,/d'
 probe "a table with no placements in it is one too" 1 \
   "no placements in it" "$BS $d/before.csv"
 
-d=$(bs_fixture); sed -i.bak 's/,80.00,/,eighty,/' "$d/before.csv"
+d=$(bs_fixture); mutate "$d/before.csv" 's/,80.00,/,eighty,/'
 probe "a row whose period is not a number stops the read" 1 \
   "ns column reads 'eighty'" "$BS $d/before.csv"
 
-d=$(bs_fixture); sed -i.bak 's/^# base: aaaaaaaaaaaa/# base: bbbbbbbbbbbb/' "$d/after.csv"
+d=$(bs_fixture); mutate "$d/after.csv" 's/^# base: aaaaaaaaaaaa/# base: bbbbbbbbbbbb/'
 probe "two base commits refuse the delta rather than warning above it" 1 \
   "not measured the same way" "$BS $d/before.csv $d/after.csv"
 
-d=$(bs_fixture); sed -i.bak 's/^# yosys: Yosys 0.68/# yosys: Yosys 0.55/' "$d/after.csv"
+d=$(bs_fixture); mutate "$d/after.csv" 's/^# yosys: Yosys 0.68/# yosys: Yosys 0.55/'
 probe "two toolchains are named, which is the disagreement that flipped a sign" 1 \
   "yosys:" "$BS $d/before.csv $d/after.csv"
 
-d=$(bs_fixture); sed -i.bak 's/^# dirty: no/# dirty: yes/' "$d/after.csv"
+d=$(bs_fixture); mutate "$d/after.csv" 's/^# dirty: no/# dirty: yes/'
 probe "a dirty tree names no base, so its sweep is not subtracted either" 1 \
   "uncommitted changes" "$BS $d/before.csv $d/after.csv"
 
-d=$(bs_fixture); sed -i.bak 's/^# base: aaaaaaaaaaaa/# base: bbbbbbbbbbbb/' "$d/after.csv"
+d=$(bs_fixture); mutate "$d/after.csv" 's/^# base: aaaaaaaaaaaa/# base: bbbbbbbbbbbb/'
 probe "the override prints the mismatch it was passed to get past" 0 \
   "MISMATCH" "$BS $d/before.csv $d/after.csv --allow-mismatch"
 
-d=$(bs_fixture); sed -i.bak 's/^# base: aaaaaaaaaaaa/# base: bbbbbbbbbbbb/' "$d/after.csv"
+d=$(bs_fixture); mutate "$d/after.csv" 's/^# base: aaaaaaaaaaaa/# base: bbbbbbbbbbbb/'
 probe "and prints the delta beside it, not instead of it" 0 \
   "delta, second sweep against first" \
   "$BS $d/before.csv $d/after.csv --allow-mismatch"
@@ -1361,26 +1434,27 @@ d=$(bs_pair)
 probe "the cell count names its own unit rather than borrowing the other's" 0 \
   "TRELLIS_COMB: 5331" "$BS $d/ecp5.csv"
 
-d=$(bs_fixture); sed -i.bak '/^# part: up5k/d' "$d/before.csv"
+d=$(bs_fixture); mutate "$d/before.csv" '/^# part: up5k/d'
 probe "a sweep that names no part says which instrument is missing" 1 \
   "names no part" "$BS $d/before.csv"
 
-d=$(bs_fixture); sed -i.bak 's/^# part: up5k/# part: ecp5x/' "$d/before.csv"
+d=$(bs_fixture); mutate "$d/before.csv" 's/^# part: up5k/# part: ecp5x/'
 probe "a part this script cannot grade a stamp for is rejected, not guessed at" 1 \
   "not one this" "$BS $d/before.csv"
 
 # Both directions of "the stamp describes a run that did not happen". The first
 # is the shape a hand-edited header takes when someone changes the part line to
 # make a comparison stop complaining.
-d=$(bs_fixture); sed -i.bak 's/^# part: up5k/# part: ecp5/' "$d/before.csv"
+d=$(bs_fixture); mutate "$d/before.csv" 's/^# part: up5k/# part: ecp5/'
 probe "an ECP5 stamp carrying up5k's tools is missing its own" 1 \
   "missing nextpnr-ecp5, trellis-db" "$BS $d/before.csv"
 
 # A complete up5k stamp with one ECP5 field added, so the `missing` check has
 # nothing to say and the foreign-field check is the one under test.
 d=$(bs_fixture)
-sed -i.bak 's|^# icetime: \(.*\)$|# icetime: \1\
-# nextpnr-ecp5: nextpnr-0.11 [/opt/bin/nextpnr-ecp5]|' "$d/before.csv"
+mutate "$d/before.csv" \
+  's|^# icetime: \(.*\)$|# icetime: \1\
+# nextpnr-ecp5: nextpnr-0.11 [/opt/bin/nextpnr-ecp5]|'
 probe "and an up5k stamp carrying an ECP5 tool is rejected on the foreign field" 1 \
   "belongs to another part's instrument" "$BS $d/before.csv"
 
@@ -1525,8 +1599,7 @@ bsrc_fixture() {
 }
 
 bsrc_edit() {  # $1 = fixture, $2 = path within it, $3 = sed expression
-  sed -i.bak "$3" "$1/$2"
-  rm -f "$1/$2.bak"
+  mutate "$1/$2" "$3"
   git -C "$1" add -A
 }
 
@@ -1573,7 +1646,7 @@ d=$(bsrc_fixture)
 probe "a dated ADR stating an old band figure is NOT red" 0 \
   "every band figure is soc/bands.py's" "$BSRC $d"
 
-d=$(bsrc_fixture); rm -f "$d/soc/bands.py"; git -C "$d" add -A
+d=$(bsrc_fixture); mutate_remove "$d/soc/bands.py"; git -C "$d" add -A
 probe "a tree with no source file at all is red rather than vacuously green" 1 \
   "is not in" "$BSRC $d"
 
@@ -1609,9 +1682,8 @@ probe "control: the shipping decoder reaches region_stall only, gated" 0 \
 # straight into hazard, the way a forwarding path or a data-dependent
 # early-out might be added by someone who never meant to touch Zkt's claim.
 d=$(zkt_fixture)
-sed -i.bak \
-  's/assign hazard = hazard_rs1 || hazard_rs2 || serialize;/assign hazard = hazard_rs1 || hazard_rs2 || serialize || reg_rs1[0];/' \
-  "$d/decoder.v"
+mutate "$d/decoder.v" \
+  's/assign hazard = hazard_rs1 || hazard_rs2 || serialize;/assign hazard = hazard_rs1 || hazard_rs2 || serialize || reg_rs1[0];/'
 probe "a reg_rs1 bit routed into hazard is red, at hazard's own site" 1 \
   "\`hazard\` is reachable" "$ZKT $d/decoder.v"
 
@@ -1622,9 +1694,8 @@ probe "a reg_rs1 bit routed into hazard is red, at hazard's own site" 1 \
 # for exactly that reason. On the elaborated netlist a flip-flop's D input
 # feeding its Q output is one more edge, not a different kind of thing.
 d=$(zkt_fixture)
-sed -i.bak \
-  's/assign hazard = hazard_rs1 || hazard_rs2 || serialize;/assign hazard = hazard_rs1 || hazard_rs2 || serialize || out.rs1[0];/' \
-  "$d/decoder.v"
+mutate "$d/decoder.v" \
+  's/assign hazard = hazard_rs1 || hazard_rs2 || serialize;/assign hazard = hazard_rs1 || hazard_rs2 || serialize || out.rs1[0];/'
 probe "reg_rs1 laundered through out.rs1's own register is still red" 1 \
   "\`hazard\` is reachable" "$ZKT $d/decoder.v"
 
@@ -1635,9 +1706,8 @@ probe "reg_rs1 laundered through out.rs1's own register is still red" 1 \
 # continuous assign's own left-hand side, so a text scan of assigns alone
 # never followed a path through it either.
 d=$(zkt_fixture)
-sed -i.bak \
-  's/assign hazard = hazard_rs1 || hazard_rs2 || serialize;/assign hazard = hazard_rs1 || hazard_rs2 || serialize || branch_taken;/' \
-  "$d/decoder.v"
+mutate "$d/decoder.v" \
+  's/assign hazard = hazard_rs1 || hazard_rs2 || serialize;/assign hazard = hazard_rs1 || hazard_rs2 || serialize || branch_taken;/'
 probe "branch_taken carrying reg_rs1/reg_rs2 into hazard is red" 1 \
   "\`hazard\` is reachable" "$ZKT $d/decoder.v"
 
@@ -1647,9 +1717,8 @@ probe "branch_taken carrying reg_rs1/reg_rs2 into hazard is red" 1 \
 # path routing it into a stall reason is exactly the change this repo keeps
 # pricing and declining.
 d=$(zkt_fixture)
-sed -i.bak \
-  's/assign atomic_stall = out.valid && out.is_amo && !divider_stall;/assign atomic_stall = out.valid \&\& out.is_amo \&\& !divider_stall || executor_out.rd_data[0];/' \
-  "$d/decoder.v"
+mutate "$d/decoder.v" \
+  's/assign atomic_stall = out.valid && out.is_amo && !divider_stall;/assign atomic_stall = out.valid \&\& out.is_amo \&\& !divider_stall || executor_out.rd_data[0];/'
 probe "an executor_out.rd_data bit routed into a stall reason is red" 1 \
   "\`atomic_stall\` is reachable" "$ZKT $d/decoder.v"
 
@@ -1660,9 +1729,8 @@ probe "an executor_out.rd_data bit routed into a stall reason is red" 1 \
 # with a narrower reachability pass seeded from ls_capture/ls_answer/
 # ls_answer_valid themselves rather than from reg_rs1.
 d=$(zkt_fixture)
-sed -i.bak \
-  's/assign hazard = hazard_rs1 || hazard_rs2 || serialize;/assign hazard = hazard_rs1 || hazard_rs2 || serialize || ls_answer_valid;/' \
-  "$d/decoder.v"
+mutate "$d/decoder.v" \
+  's/assign hazard = hazard_rs1 || hazard_rs2 || serialize;/assign hazard = hazard_rs1 || hazard_rs2 || serialize || ls_answer_valid;/'
 probe "hazard reading ls_answer_valid directly is red (finding 1)" 1 \
   "region_stall's own captured answer" "$ZKT $d/decoder.v"
 
@@ -1698,9 +1766,8 @@ probe "a dead generate-if(0) decoy does not hide the same leak (finding 2)" 1 \
 # the port's MEASURED width off the elaborated netlist instead, so a plain
 # 10-bit port is unmistakably wide enough to matter.
 d=$(zkt_fixture)
-sed -i.bak \
-  's/  input  logic \[31:0\] reg_rs1,/  input  logic [31:0] reg_rs1,\n  input  logic [9:0] probe_wide_input,/' \
-  "$d/decoder.v"
+mutate "$d/decoder.v" \
+  's/  input  logic \[31:0\] reg_rs1,/  input  logic [31:0] reg_rs1,\n  input  logic [9:0] probe_wide_input,/'
 probe "a new wide input port with no classification is red (finding 3)" 2 \
   "no Zkt classification" "$ZKT $d/decoder.v"
 
@@ -1752,9 +1819,8 @@ probe "decoder_output.rd widened past 5 bits is red (finding 5)" 2 \
 # checked stale in both directions, and KNOWN_CLEAN_LEAVES never was.
 d=$(new_case)
 cp "$HERE/zkt_isolation_test.py" "$d/zkt_isolation_test.py"
-sed -i.bak \
-  "s/NON_VALUE_PORTS = {/NON_VALUE_PORTS = {\n    'totally_fake_port',/" \
-  "$d/zkt_isolation_test.py"
+mutate "$d/zkt_isolation_test.py" \
+  "s/NON_VALUE_PORTS = {/NON_VALUE_PORTS = {\n    'totally_fake_port',/"
 probe "a classification naming a port the netlist has never seen is red" 2 \
   "Remove the stale entry" "python3 $d/zkt_isolation_test.py $REPO/rtl/decoder.v"
 
@@ -1763,7 +1829,7 @@ probe "a classification naming a port the netlist has never seen is red" 2 \
 # reachability through it vacuously true (nothing flows out of a wire
 # nothing drives) rather than the missing stall reason it is.
 d=$(zkt_fixture)
-sed -i.bak '/assign hazard = hazard_rs1 || hazard_rs2 || serialize;/d' "$d/decoder.v"
+mutate "$d/decoder.v" '/assign hazard = hazard_rs1 || hazard_rs2 || serialize;/d'
 probe "a stall reason with no driving cell stops the run" 2 \
   "hazard has no driving cell" "$ZKT $d/decoder.v"
 
@@ -1773,9 +1839,8 @@ probe "a stall reason with no driving cell stops the run" 2 \
 # than tied to a constant, so ls_block stays a real (if irrelevant) alias
 # instead of tripping the driving-cell probe above for an unrelated reason.
 d=$(zkt_fixture)
-sed -i.bak \
-  's/assign ls_block = reg_rs1\[31:LS_BLOCK_BITS\];/assign ls_block = csr_rdata[31:LS_BLOCK_BITS];/' \
-  "$d/decoder.v"
+mutate "$d/decoder.v" \
+  's/assign ls_block = reg_rs1\[31:LS_BLOCK_BITS\];/assign ls_block = csr_rdata[31:LS_BLOCK_BITS];/'
 probe "a graph with no edges out of reg_rs1 is red, not a vacuous pass" 1 \
   "found no edges at all" "$ZKT $d/decoder.v"
 
@@ -1868,8 +1933,8 @@ mkdir -p "$d/soc/depth"
 cp "$REPO/soc/routing_bins.py" "$REPO/soc/timing_split.py" \
    "$REPO/soc/baseline_summary.py" "$REPO/soc/bands.py" "$d/soc/"
 cp "$REPO/soc/depth/path_stages.py" "$d/soc/depth/"
-sed -i.bak 's/if kind in LOGIC_CELLS:/if kind in LOGIC_CELLS or kind == "Odrv4":/' \
-  "$d/soc/timing_split.py"
+mutate "$d/soc/timing_split.py" \
+  's/if kind in LOGIC_CELLS:/if kind in LOGIC_CELLS or kind == "Odrv4":/'
 probe "two walks disagreeing about what routing is refuse to print a histogram" 1 \
   "the bins come to" \
   "python3 $d/soc/routing_bins.py $d/sweep/probe.csv $d/soc.json"
@@ -1899,15 +1964,15 @@ d=$(rb_fixture); bs_ecp5 "$d/sweep/probe.csv" aaaaaaaaaaaa no 'Yosys 0.68'
 probe "a sweep of the part with no icetime is refused, not walked" 1 \
   "there is nothing here to walk" "$(rb "$d")"
 
-d=$(rb_fixture); sed -i.bak 's/"mem.rdata"/"other.rdata"/' "$d/soc.json"
+d=$(rb_fixture); mutate "$d/soc.json" 's/"mem.rdata"/"other.rdata"/'
 probe "a netlist from another tree is named, not binned as \`neither\`" 1 \
   "never heard of" "$(rb "$d")"
 
-d=$(rb_fixture); sed -i.bak '/"riscv.pc"/d' "$d/soc.json"
+d=$(rb_fixture); mutate "$d/soc.json" '/"riscv.pc"/d'
 probe "a netlist with no pc net would leave that bin empty for ever" 1 \
   "could never be reached" "$(rb "$d")"
 
-d=$(rb_fixture); sed -i.bak '1d' "$d/sweep/probe.csv"
+d=$(rb_fixture); mutate "$d/sweep/probe.csv" '1d'
 probe "an unstamped sweep is refused here too, by the reader it shares" 1 \
   "no provenance block" "$(rb "$d")"
 
@@ -1964,6 +2029,11 @@ BR="python3 $REPO/soc/bram_reset_check.py"
 # is here so the count cannot be inflated by declarations nobody instantiated.
 br_fixture() {  # $1 = RSTA connection, as JSON
   local d; d=$(new_case)
+  # The netlist this types out is nextpnr's input and nothing in the tree
+  # produces it, so the anchor names the parser instead: the cell type it
+  # counts and the exact key path it reads a reset connection through.
+  fixture_anchor "$REPO/soc/bram_reset_check.py" 'BRAM_CELLS = ("DP16KD", "PDPW16KD")'
+  fixture_anchor "$REPO/soc/bram_reset_check.py" 'cell.get("connections", {}).get(port, [])'
   cat > "$d/ecp5.json" <<JSON
 { "modules": {
     "DP16KD": { "cells": {} },
@@ -2055,7 +2125,7 @@ probe "control: the caveats travel with the number, on every run" 0 \
   "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
 
 d=$(ecp5_fixture)
-sed -i.bak 's/LFE5U-25F-6CABGA381/LFE5U-45F-8CABGA381/' "$d/ecp5.config"
+mutate "$d/ecp5.config" 's/LFE5U-25F-6CABGA381/LFE5U-45F-8CABGA381/'
 probe "a configuration for another corner is refused, not reported" 1 \
   "does not name LFE5U-25F-6CABGA381" \
   "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
@@ -2064,11 +2134,11 @@ d=$(ecp5_fixture); : > "$d/ecp5.config"
 probe "an empty configuration means nothing was expressible on the part" 1 \
   "is empty or missing" "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
 
-d=$(ecp5_fixture); rm -f "$d/ecp5.config"
+d=$(ecp5_fixture); mutate_remove "$d/ecp5.config"
 probe "a configuration nextpnr never wrote is a failed run, not a fast design" 1 \
   "is empty or missing" "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
 
-d=$(ecp5_fixture); rm -f "$d/ecp5.report.json"
+d=$(ecp5_fixture); mutate_remove "$d/ecp5.report.json"
 probe "a report that does not exist is named, not read as zero" 1 \
   "does not exist, so NOTHING was" "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
 
@@ -2355,16 +2425,16 @@ probe "control: an accounting that adds up prints the table" 0 \
 probe "the dominant reason is the suite's, not the first program's" 0 \
   "The largest single reason is operand" "$SR $d/counts"
 
-d=$(sr_fixture); sed -i.bak 's/^add.S cycles=40/add.S cycles=41/' "$d/counts"
+d=$(sr_fixture); mutate "$d/counts" 's/^add.S cycles=40/add.S cycles=41/'
 probe "columns that do not add up blame the report, not the core" 1 \
   "columns sum to 40, cycles is 41" "$SR $d/counts"
 
-d=$(sr_fixture); sed -i.bak 's/^add.S \(.*\)unattributed=0/add.S \1unattributed=2/' "$d/counts"
-sed -i.bak2 's/^add.S cycles=40/add.S cycles=42/' "$d/counts"
+d=$(sr_fixture); mutate "$d/counts" 's/^add.S \(.*\)unattributed=0/add.S \1unattributed=2/'
+mutate "$d/counts" 's/^add.S cycles=40/add.S cycles=42/'
 probe "a stall nothing in the list explains is a reason nobody wrote down" 1 \
   "2 cycles stalled for a reason this report does not name" "$SR $d/counts"
 
-d=$(sr_fixture); sed -i.bak 's/ operand=10//' "$d/counts"
+d=$(sr_fixture); mutate "$d/counts" 's/ operand=10//'
 probe "a field the runner stopped printing is named, not counted as zero" 1 \
   "is missing operand" "$SR $d/counts"
 
@@ -2379,23 +2449,23 @@ probe "control: the locality counters are reported under the table" 0 \
 probe "control: each subset is printed as a share of that number" 0 \
   "4 (40.0%) with rs1 within 2 KB of a mapped-region edge" "$SR $d/counts"
 
-d=$(sr_fixture); sed -i.bak 's/lsedge=3/lsedge=7/' "$d/counts"
+d=$(sr_fixture); mutate "$d/counts" 's/lsedge=3/lsedge=7/'
 probe "more accesses near an edge than there were accesses is red" 1 \
   "lsedge is 7 against 6 issuing loads and stores" "$SR $d/counts"
 
-d=$(sr_fixture); sed -i.bak 's/lsbypass=0/lsbypass=5/' "$d/counts"
+d=$(sr_fixture); mutate "$d/counts" 's/lsbypass=0/lsbypass=5/'
 probe "the same for the bypass counter, per program rather than in total" 1 \
   "lsbypass is 5 against 4 issuing loads and stores" "$SR $d/counts"
 
-d=$(sr_fixture); sed -i.bak 's/ lsissue=6//' "$d/counts"
+d=$(sr_fixture); mutate "$d/counts" 's/ lsissue=6//'
 probe "a locality counter that stopped being printed is named too" 1 \
   "is missing lsissue" "$SR $d/counts"
 
-d=$(sr_fixture); sed -i.bak 's/cycles=40/cycles=lots/' "$d/counts"
+d=$(sr_fixture); mutate "$d/counts" 's/cycles=40/cycles=lots/'
 probe "a count that is not a number stops rather than summing to nonsense" 1 \
   "cycles is 'lots', not a number" "$SR $d/counts"
 
-d=$(sr_fixture); sed -i.bak 's/ issue=10/ issue/' "$d/counts"
+d=$(sr_fixture); mutate "$d/counts" 's/ issue=10/ issue/'
 probe "a field with no value is a malformed line" 1 "'issue' is not key=value" \
   "$SR $d/counts"
 
@@ -2522,11 +2592,13 @@ probe "a repo root that does not exist is red before anything is parsed" 1 \
 
 # THE ONE THAT MATTERS: the original defect, re-entered. The harness modelled a
 # RAM sixteen times smaller than the SoC's and every program still fit.
-d=$(mm_fixture); sed -i.bak 's/^  memory dmem (/  memory #(.RAM_WORDS(1024)) dmem (/' "$d/test/testbench.v"
+d=$(mm_fixture); mutate "$d/test/testbench.v" \
+  's/^  memory dmem (/  memory #(.RAM_WORDS(1024)) dmem (/'
 probe "the harness sizing its own RAM again is red" 1 \
   "overrides \`memory\`'s parameters" "$MM $d"
 
-d=$(mm_fixture); sed -i.bak "s/^  timer mtimer (/  timer #(.BASE(32'h0003_0000)) mtimer (/" "$d/rtl/littlesoc.v"
+d=$(mm_fixture); mutate "$d/rtl/littlesoc.v" \
+  "s/^  timer mtimer (/  timer #(.BASE(32'h0003_0000)) mtimer (/"
 probe "the SoC restating the timer base is red too" 1 \
   "rtl/littlesoc.v overrides \`timer\`'s parameters" "$MM $d"
 
@@ -2536,13 +2608,13 @@ probe "the SoC restating the timer base is red too" 1 \
 # which is the only thing this check is about. The exception is narrow, and
 # these three probes are what keeps it narrow.
 d=$(mm_fixture)
-sed -i.bak 's/  uart #(.CLOCK_HZ(CLOCK_HZ)) tty (/  uart #(.CLOCK_HZ(CLOCK_HZ), .BAUD(9600)) tty (/' \
-  "$d/rtl/littlesoc.v"
+mutate "$d/rtl/littlesoc.v" \
+  's/  uart #(.CLOCK_HZ(CLOCK_HZ)) tty (/  uart #(.CLOCK_HZ(CLOCK_HZ), .BAUD(9600)) tty (/'
 probe "the baud rate is still refused beside the clock a top may set" 1 \
   "\`uart\`'s \`BAUD\` is not it" "$MM $d"
 
 d=$(mm_fixture)
-sed -i.bak "s/^  timer mtimer (/  timer #(.CLOCK_HZ(1)) mtimer (/" "$d/rtl/littlesoc.v"
+mutate "$d/rtl/littlesoc.v" "s/^  timer mtimer (/  timer #(.CLOCK_HZ(1)) mtimer (/"
 probe "the clock-rate exception belongs to the UART alone" 1 \
   "\`timer\`'s \`CLOCK_HZ\` is not it" "$MM $d"
 
@@ -2562,61 +2634,62 @@ probe "a parameter list spread over several lines is refused, not skimmed" 1 \
 
 # The UART is the newest region and the one whose baud rate an integrator would
 # be most tempted to speed up for a simulation, which is the whole defect.
-d=$(mm_fixture); sed -i.bak "s/^  uart tty (/  uart #(.BAUD(1_000_000)) tty (/" "$d/test/testbench.v"
+d=$(mm_fixture); mutate "$d/test/testbench.v" "s/^  uart tty (/  uart #(.BAUD(1_000_000)) tty (/"
 probe "the harness giving the UART its own baud rate is red" 1 \
   "test/testbench.v overrides \`uart\`'s parameters" "$MM $d"
 
-d=$(mm_fixture); sed -i.bak 's/^  uart #(/  nouart #(/' "$d/rtl/littlesoc.v"
+d=$(mm_fixture); mutate "$d/rtl/littlesoc.v" 's/^  uart #(/  nouart #(/'
 probe "a SoC with no UART at all does not pass by silence" 1 \
   "does not instantiate \`uart\` at all" "$MM $d"
 
-d=$(mm_fixture); sed -i.bak 's/^  spiflash flash (/  nospiflash flash (/' "$d/rtl/littlesoc.v"
+d=$(mm_fixture); mutate "$d/rtl/littlesoc.v" 's/^  spiflash flash (/  nospiflash flash (/'
 probe "a SoC with no SPI controller at all does not pass by silence" 1 \
   "does not instantiate \`spiflash\` at all" "$MM $d"
 
 # Without this the check above passes vacuously on a file that lost its memory.
-d=$(mm_fixture); sed -i.bak 's/^  memory dmem (/  nomemory dmem (/' "$d/test/testbench.v"
+d=$(mm_fixture); mutate "$d/test/testbench.v" 's/^  memory dmem (/  nomemory dmem (/'
 probe "a harness with no data RAM at all does not pass by silence" 1 \
   "does not instantiate \`memory\` at all" "$MM $d"
 
-d=$(mm_fixture); sed -i.bak 's/LENGTH = 64K/LENGTH = 4K/' "$d/test/asm/sections.lds"
+d=$(mm_fixture); mutate "$d/test/asm/sections.lds" 's/LENGTH = 64K/LENGTH = 4K/'
 probe "a linker script back on the old 4 KB ram is red" 1 \
   "gives \`ram\` 4096 bytes" "$MM $d"
 
-d=$(mm_fixture); sed -i.bak 's/ORIGIN = 0x00010000/ORIGIN = 0x00020000/' "$d/test/asm/boot.lds"
+d=$(mm_fixture); mutate "$d/test/asm/boot.lds" 's/ORIGIN = 0x00010000/ORIGIN = 0x00020000/'
 probe "a linker script that moves ram off the decoded base is red" 1 \
   "puts \`ram\` at 0x00020000" "$MM $d"
 
-d=$(mm_fixture); sed -i.bak 's/LENGTH = 16K/LENGTH = 8K/' "$d/test/asm/boot.lds"
+d=$(mm_fixture); mutate "$d/test/asm/boot.lds" 's/LENGTH = 16K/LENGTH = 8K/'
 probe "a suite script linking against a rom the harness has not got" 1 \
   "gives \`rom\` 8192 bytes" "$MM $d"
 
-d=$(mm_fixture); sed -i.bak 's/LENGTH = 8K/LENGTH = 32K/' "$d/test/bench/bench.lds"
+d=$(mm_fixture); mutate "$d/test/bench/bench.lds" 's/LENGTH = 8K/LENGTH = 32K/'
 probe "the benchmark script must keep linking against the part's rom" 1 \
   "test/bench/bench.lds gives \`rom\` 32768 bytes" "$MM $d"
 
-d=$(mm_fixture); sed -i.bak 's/kRamBase = 0x00010000/kRamBase = 0x00011000/' "$d/test/cxxrtl.cc"
+d=$(mm_fixture); mutate "$d/test/cxxrtl.cc" 's/kRamBase = 0x00010000/kRamBase = 0x00011000/'
 probe "the cxxrtl runner's kRamBase drifting is red" 1 \
   "test/cxxrtl.cc's kRamBase is 0x00011000" "$MM $d"
 
-d=$(mm_fixture); sed -i.bak 's/kRamBase = 0x00010000/kRamBase = 0x00011000/' "$d/test/cosim.cc"
+d=$(mm_fixture); mutate "$d/test/cosim.cc" 's/kRamBase = 0x00010000/kRamBase = 0x00011000/'
 probe "the co-sim runner's kRamBase drifting is red on its own" 1 \
   "test/cosim.cc's kRamBase is 0x00011000" "$MM $d"
 
-d=$(mm_fixture); sed -i.bak 's/MTIMER_BASE      0x00020000/MTIMER_BASE      0x00030000/' "$d/test/asm/riscv_test.h"
+d=$(mm_fixture); mutate "$d/test/asm/riscv_test.h" \
+  's/MTIMER_BASE      0x00020000/MTIMER_BASE      0x00030000/'
 probe "the timer address the programs arm is checked against the timer" 1 \
   "MTIMER_BASE is 0x00030000" "$MM $d"
 
 # A store to an unmapped address is dropped by every memory on this bus, so the
 # programs would wait forever rather than fail.
-d=$(mm_fixture); sed -i.bak "s/BASE = 32'h0002_0000/BASE = 32'h0004_0000/" "$d/rtl/timer.v"
+d=$(mm_fixture); mutate "$d/rtl/timer.v" "s/BASE = 32'h0002_0000/BASE = 32'h0004_0000/"
 probe "a gap opening between the data RAM and the timer is red" 1 \
   "the data RAM ends at 0x00020000 and the timer starts at" "$MM $d"
 
 # The timer decodes four words at one hart and eight at two, so a base that is
 # only 16-byte aligned elaborates today and stops elaborating the day the second
 # hart lands. That is the failure the reserved span exists to bring forward.
-d=$(mm_fixture); sed -i.bak "s/BASE = 32'h0002_0000/BASE = 32'h0002_0010/" "$d/rtl/timer.v"
+d=$(mm_fixture); mutate "$d/rtl/timer.v" "s/BASE = 32'h0002_0000/BASE = 32'h0002_0010/"
 probe "a timer base aligned only for one hart is red" 1 \
   "0x00020010 is off its reserved" "$MM $d"
 
@@ -2640,69 +2713,78 @@ probe "control: a peripheral above the reserved span is accepted" 0 \
 # The UART abuts the RESERVED span, not the decoded one -- it starts where the
 # second hart's mtimecmp would end. A move in either direction is an overlap or
 # a hole, and the OR that joins the read buses would report neither.
-d=$(mm_fixture); sed -i.bak "s/BASE     = 32'h0002_0020/BASE     = 32'h0002_0028/" "$d/rtl/uart.v"
+d=$(mm_fixture); mutate "$d/rtl/uart.v" "s/BASE     = 32'h0002_0020/BASE     = 32'h0002_0028/"
 probe "a gap opening between the timer's reservation and the UART is red" 1 \
   "the timer reserves through 0x0002001f and the" "$MM $d"
 
 # Its range test reads the address bits above an 8-byte window, which is only a
 # membership test while the base is a multiple of 8.
-d=$(mm_fixture); sed -i.bak "s/BASE     = 32'h0002_0020/BASE     = 32'h0002_0024/" "$d/rtl/uart.v"
+d=$(mm_fixture); mutate "$d/rtl/uart.v" "s/BASE     = 32'h0002_0020/BASE     = 32'h0002_0024/"
 probe "a UART base off its own window is red" 1 \
   "is not a multiple of its own" "$MM $d"
 
-d=$(mm_fixture); sed -i.bak 's/UART_BASE          0x00020020/UART_BASE          0x00030020/' "$d/test/asm/riscv_test.h"
+d=$(mm_fixture); mutate "$d/test/asm/riscv_test.h" \
+  's/UART_BASE          0x00020020/UART_BASE          0x00030020/'
 probe "the address the printing program writes is checked against the UART" 1 \
   "UART_BASE is 0x00030020" "$MM $d"
 
-d=$(mm_fixture); sed -i.bak "s/LS_UART_BASE  = 32'h0002_0020/LS_UART_BASE  = 32'h0003_0020/" "$d/rtl/littlecpu.v"
+d=$(mm_fixture); mutate "$d/rtl/littlecpu.v" \
+  "s/LS_UART_BASE  = 32'h0002_0020/LS_UART_BASE  = 32'h0003_0020/"
 probe "the UART moving in the core's copy alone is red" 1 \
   "LS_UART_BASE is 196640 against rtl/uart.v's 131104" "$MM $d"
 
-d=$(mm_fixture); sed -i.bak "s/LS_UART_BASE  = 32'h0002_0020/LS_UART_BASE  = 32'h0003_0020/" "$d/formal/traps.sv"
+d=$(mm_fixture); mutate "$d/formal/traps.sv" \
+  "s/LS_UART_BASE  = 32'h0002_0020/LS_UART_BASE  = 32'h0003_0020/"
 probe "the UART moving in the proof's copy alone is red" 1 \
   "formal/traps.sv's LS_UART_BASE is 196640" "$MM $d"
 
 # The SPI controller abuts the UART's two words the way the UART abuts the timer's
 # reservation, and for the same reason: five read buses join with an OR, so a
 # hole is wasted map and an overlap is two live answers at once.
-d=$(mm_fixture); sed -i.bak "s/BASE = 32'h0002_0028/BASE = 32'h0002_0030/" "$d/rtl/spiflash.v"
+d=$(mm_fixture); mutate "$d/rtl/spiflash.v" "s/BASE = 32'h0002_0028/BASE = 32'h0002_0030/"
 probe "a gap opening between the UART and the SPI controller is red" 1 \
   "the UART ends at 0x00020028 and the SPI controller starts at" "$MM $d"
 
-d=$(mm_fixture); sed -i.bak "s/BASE = 32'h0002_0028/BASE = 32'h0002_002c/" "$d/rtl/spiflash.v"
+d=$(mm_fixture); mutate "$d/rtl/spiflash.v" "s/BASE = 32'h0002_0028/BASE = 32'h0002_002c/"
 probe "an SPI base off its own window is red" 1 \
   "is not a multiple of its own" "$MM $d"
 
-d=$(mm_fixture); sed -i.bak 's/SPI_BASE            0x00020028/SPI_BASE            0x00030028/' "$d/test/asm/riscv_test.h"
+d=$(mm_fixture); mutate "$d/test/asm/riscv_test.h" \
+  's/SPI_BASE            0x00020028/SPI_BASE            0x00030028/'
 probe "the address the flash-reading program uses is checked against the controller" 1 \
   "SPI_BASE is 0x00030028" "$MM $d"
 
-d=$(mm_fixture); sed -i.bak "s/LS_FLASH_BASE = 32'h0002_0028/LS_FLASH_BASE = 32'h0003_0028/" "$d/rtl/littlecpu.v"
+d=$(mm_fixture); mutate "$d/rtl/littlecpu.v" \
+  "s/LS_FLASH_BASE = 32'h0002_0028/LS_FLASH_BASE = 32'h0003_0028/"
 probe "the SPI controller moving in the core's copy alone is red" 1 \
   "LS_FLASH_BASE is 196648 against rtl/spiflash.v's 131112" "$MM $d"
 
-d=$(mm_fixture); sed -i.bak "s/LS_FLASH_BASE = 32'h0002_0028/LS_FLASH_BASE = 32'h0003_0028/" "$d/formal/traps.sv"
+d=$(mm_fixture); mutate "$d/formal/traps.sv" \
+  "s/LS_FLASH_BASE = 32'h0002_0028/LS_FLASH_BASE = 32'h0003_0028/"
 probe "the SPI controller moving in the proof's copy alone is red" 1 \
   "formal/traps.sv's LS_FLASH_BASE is 196648" "$MM $d"
 
 # MAP_TOP is the address two programs store to expecting a refusal. Left behind
 # when a device lands above the topmost window, it names an address that IS
 # answered and both programs fail for a reason that is not in the core.
-d=$(mm_fixture); sed -i.bak 's/MAP_TOP            0x00020030/MAP_TOP            0x00020028/' "$d/test/asm/riscv_test.h"
+d=$(mm_fixture); mutate "$d/test/asm/riscv_test.h" \
+  's/MAP_TOP            0x00020030/MAP_TOP            0x00020028/'
 probe "a MAP_TOP inside the topmost window is red" 1 \
   "MAP_TOP is 0x00020028" "$MM $d"
 
-d=$(mm_fixture); sed -i.bak 's/^SOC_ROM_WORDS := 2048/SOC_ROM_WORDS := 4096/' "$d/Makefile"
+d=$(mm_fixture); mutate "$d/Makefile" 's/^SOC_ROM_WORDS := 2048/SOC_ROM_WORDS := 4096/'
 probe "the ROM image built to a different size than the ROM is red" 1 \
   "builds the SoC ROM image for 4096 words" "$MM $d"
 
-d=$(mm_fixture); sed -i.bak 's/localparam int ROM_WORDS = 4096;/localparam int ROM_WORDS = 1024;/' "$d/test/testbench.v"
+d=$(mm_fixture); mutate "$d/test/testbench.v" \
+  's/localparam int ROM_WORDS = 4096;/localparam int ROM_WORDS = 1024;/'
 probe "a simulated ROM smaller than the part's is red" 1 \
   "The harness is allowed to be larger" "$MM $d"
 
 # The parse is load-bearing: a respelled declaration must stop the run rather
 # than compare against an empty string.
-d=$(mm_fixture); sed -i.bak "s/parameter logic \[31:0\] BASE/parameter logic [31:0] RAM_ORIGIN/" "$d/rtl/memory.v"
+d=$(mm_fixture); mutate "$d/rtl/memory.v" \
+  "s/parameter logic \[31:0\] BASE/parameter logic [31:0] RAM_ORIGIN/"
 probe "a respelled parameter stops rather than comparing nothing" 1 \
   "no \`BASE\` parameter default found in rtl/memory.v" "$MM $d"
 
@@ -2712,59 +2794,66 @@ probe "a file that moved away takes the check with it, loudly" 1 \
 
 # Bash arithmetic reads a bare word as a variable name, so an unparsed size
 # would otherwise compare as zero and report drift that is really a parse bug.
-d=$(mm_fixture); sed -i.bak 's/LENGTH = 64K/LENGTH = LOTS/' "$d/test/asm/sections.lds"
+d=$(mm_fixture); mutate "$d/test/asm/sections.lds" 's/LENGTH = 64K/LENGTH = LOTS/'
 probe "a size the parser cannot read stops rather than comparing as zero" 1 \
   "is not a size this check can read" "$MM $d"
 
 # The core's own copy of the map, which rtl/decoder.v reads to refuse a load or
 # store the platform does not answer. A drift here is silent everywhere else:
 # no memory on the bus can say the decoder faulted the wrong address.
-d=$(mm_fixture); sed -i.bak "s/LS_RAM_BASE   = 32'h0001_0000/LS_RAM_BASE   = 32'h0002_0000/" "$d/rtl/littlecpu.v"
+d=$(mm_fixture); mutate "$d/rtl/littlecpu.v" \
+  "s/LS_RAM_BASE   = 32'h0001_0000/LS_RAM_BASE   = 32'h0002_0000/"
 probe "the core's copy of the RAM base drifting from the RAM is red" 1 \
   "rtl/littlecpu.v's LS_RAM_BASE is 131072 against rtl/memory.v's 65536" "$MM $d"
 
-d=$(mm_fixture); sed -i.bak 's/LS_RAM_WORDS  = 16384/LS_RAM_WORDS  = 8192/' "$d/rtl/littlecpu.v"
+d=$(mm_fixture); mutate "$d/rtl/littlecpu.v" 's/LS_RAM_WORDS  = 16384/LS_RAM_WORDS  = 8192/'
 probe "a RAM half the size in the core's copy is red" 1 \
   "LS_RAM_WORDS is 8192 against rtl/memory.v's 16384" "$MM $d"
 
-d=$(mm_fixture); sed -i.bak "s/LS_TIMER_BASE = 32'h0002_0000/LS_TIMER_BASE = 32'h0003_0000/" "$d/rtl/littlecpu.v"
+d=$(mm_fixture); mutate "$d/rtl/littlecpu.v" \
+  "s/LS_TIMER_BASE = 32'h0002_0000/LS_TIMER_BASE = 32'h0003_0000/"
 probe "the timer moving in the core's copy alone is red" 1 \
   "LS_TIMER_BASE is 196608 against rtl/timer.v's 131072" "$MM $d"
 
-d=$(mm_fixture); sed -i.bak 's/LS_TEXT_WORDS = 2048/LS_TEXT_WORDS = 4096/' "$d/rtl/littlecpu.v"
+d=$(mm_fixture); mutate "$d/rtl/littlecpu.v" 's/LS_TEXT_WORDS = 2048/LS_TEXT_WORDS = 4096/'
 probe "the default text window is the part's, not the harness's" 1 \
   "LS_TEXT_WORDS is 4096 against rtl/littlesoc.v's 2048" "$MM $d"
 
 # The one the parameter defaults cannot catch: each integrator states its own
 # ROM size twice, once to the memory and once to the core.
-d=$(mm_fixture); sed -i.bak 's/littlecpu #(.LS_TEXT_WORDS(2048))/littlecpu #(.LS_TEXT_WORDS(4096))/' "$d/rtl/littlesoc.v"
+d=$(mm_fixture); mutate "$d/rtl/littlesoc.v" \
+  's/littlecpu #(.LS_TEXT_WORDS(2048))/littlecpu #(.LS_TEXT_WORDS(4096))/'
 probe "an integrator telling the core a text size its ROM has not got" 1 \
   "gives its \`imemory\` 2048 words of ROM and tells the core the text" "$MM $d"
 
-d=$(mm_fixture); sed -i.bak 's/littlecpu #(.LS_TEXT_WORDS(ROM_WORDS))/littlecpu #(.LS_TEXT_WORDS(2048))/' "$d/test/testbench.v"
+d=$(mm_fixture); mutate "$d/test/testbench.v" \
+  's/littlecpu #(.LS_TEXT_WORDS(ROM_WORDS))/littlecpu #(.LS_TEXT_WORDS(2048))/'
 probe "the harness passing a literal instead of the size it sized" 1 \
   "gives its \`imemory\` ROM_WORDS words of ROM" "$MM $d"
 
-d=$(mm_fixture); sed -i.bak 's/littlecpu #(.LS_TEXT_WORDS(ROM_WORDS)) uut/littlecpu uut/' "$d/test/testbench.v"
+d=$(mm_fixture); mutate "$d/test/testbench.v" \
+  's/littlecpu #(.LS_TEXT_WORDS(ROM_WORDS)) uut/littlecpu uut/'
 probe "an integrator that stopped stating it at all is red, not defaulted" 1 \
   "names no .ROM_WORDS or no .LS_TEXT_WORDS" "$MM $d"
 
 # The trap proof's copy of the map. Nothing but that proof reads it, so each of
 # these drifts is silent everywhere else: components_traps goes on passing,
 # having excused the wrong accesses from `must_not_trap`.
-d=$(mm_fixture); sed -i.bak "s/LS_RAM_BASE   = 32'h0001_0000/LS_RAM_BASE   = 32'h0002_0000/" "$d/formal/traps.sv"
+d=$(mm_fixture); mutate "$d/formal/traps.sv" \
+  "s/LS_RAM_BASE   = 32'h0001_0000/LS_RAM_BASE   = 32'h0002_0000/"
 probe "the proof's copy of the RAM base drifting from the RAM is red" 1 \
   "formal/traps.sv's LS_RAM_BASE is 131072 against rtl/memory.v's 65536" "$MM $d"
 
-d=$(mm_fixture); sed -i.bak 's/LS_RAM_WORDS  = 16384/LS_RAM_WORDS  = 8192/' "$d/formal/traps.sv"
+d=$(mm_fixture); mutate "$d/formal/traps.sv" 's/LS_RAM_WORDS  = 16384/LS_RAM_WORDS  = 8192/'
 probe "a RAM half the size in the proof's copy is red" 1 \
   "LS_RAM_WORDS is 8192 against rtl/memory.v's 16384" "$MM $d"
 
-d=$(mm_fixture); sed -i.bak "s/LS_TIMER_BASE = 32'h0002_0000/LS_TIMER_BASE = 32'h0003_0000/" "$d/formal/traps.sv"
+d=$(mm_fixture); mutate "$d/formal/traps.sv" \
+  "s/LS_TIMER_BASE = 32'h0002_0000/LS_TIMER_BASE = 32'h0003_0000/"
 probe "the timer moving in the proof's copy alone is red" 1 \
   "LS_TIMER_BASE is 196608 against rtl/timer.v's 131072" "$MM $d"
 
-d=$(mm_fixture); sed -i.bak 's/LS_TEXT_WORDS = 2048/LS_TEXT_WORDS = 4096/' "$d/formal/traps.sv"
+d=$(mm_fixture); mutate "$d/formal/traps.sv" 's/LS_TEXT_WORDS = 2048/LS_TEXT_WORDS = 4096/'
 probe "the proof describes the part's text window, not the harness's" 1 \
   "LS_TEXT_WORDS is 4096 against rtl/littlesoc.v's 2048" "$MM $d"
 
@@ -2831,39 +2920,39 @@ probe "control: all five shipping scripts link at the inset layout" 0 \
    layout_link $d test/bench/bench.lds && layout_link $d test/bench/coremark.lds &&
    layout_link $d test/board/board.lds && echo 'all five shipping scripts link'"
 
-d=$(layout_fixture); sed -i.bak 's/ORIGIN(ram) + 2048 : {/ORIGIN(ram) : {/' "$d/test/asm/boot.lds"
+d=$(layout_fixture); mutate "$d/test/asm/boot.lds" 's/ORIGIN(ram) + 2048 : {/ORIGIN(ram) : {/'
 probe "boot.lds putting .data back at ram's origin is red" 1 \
   "$LAYOUT_DATA_RED" "layout_link $d test/asm/boot.lds"
 
-d=$(layout_fixture); sed -i.bak 's/LENGTH(ram) - 2048;/LENGTH(ram);/' "$d/test/asm/boot.lds"
+d=$(layout_fixture); mutate "$d/test/asm/boot.lds" 's/LENGTH(ram) - 2048;/LENGTH(ram);/'
 probe "boot.lds putting the stack back at the top of ram is red" 1 \
   "$LAYOUT_STACK_RED" "layout_link $d test/asm/boot.lds"
 
-d=$(layout_fixture); sed -i.bak 's/ORIGIN(ram) + 2048 : {/ORIGIN(ram) : {/' "$d/test/asm/sections.lds"
+d=$(layout_fixture); mutate "$d/test/asm/sections.lds" 's/ORIGIN(ram) + 2048 : {/ORIGIN(ram) : {/'
 probe "sections.lds putting .data back at ram's origin is red" 1 \
   "$LAYOUT_DATA_RED" "layout_link $d test/asm/sections.lds"
 
-d=$(layout_fixture); sed -i.bak 's/ORIGIN(ram) + 2048 : {/ORIGIN(ram) : {/' "$d/test/bench/bench.lds"
+d=$(layout_fixture); mutate "$d/test/bench/bench.lds" 's/ORIGIN(ram) + 2048 : {/ORIGIN(ram) : {/'
 probe "bench.lds putting .data back at ram's origin is red" 1 \
   "$LAYOUT_DATA_RED" "layout_link $d test/bench/bench.lds"
 
-d=$(layout_fixture); sed -i.bak 's/LENGTH(ram) - 2048;/LENGTH(ram);/' "$d/test/bench/bench.lds"
+d=$(layout_fixture); mutate "$d/test/bench/bench.lds" 's/LENGTH(ram) - 2048;/LENGTH(ram);/'
 probe "bench.lds putting the stack back at the top of ram is red" 1 \
   "$LAYOUT_STACK_RED" "layout_link $d test/bench/bench.lds"
 
-d=$(layout_fixture); sed -i.bak 's/ORIGIN(ram) + 2048 : {/ORIGIN(ram) : {/' "$d/test/bench/coremark.lds"
+d=$(layout_fixture); mutate "$d/test/bench/coremark.lds" 's/ORIGIN(ram) + 2048 : {/ORIGIN(ram) : {/'
 probe "coremark.lds putting .data back at ram's origin is red" 1 \
   "$LAYOUT_DATA_RED" "layout_link $d test/bench/coremark.lds"
 
-d=$(layout_fixture); sed -i.bak 's/LENGTH(ram) - 2048;/LENGTH(ram);/' "$d/test/bench/coremark.lds"
+d=$(layout_fixture); mutate "$d/test/bench/coremark.lds" 's/LENGTH(ram) - 2048;/LENGTH(ram);/'
 probe "coremark.lds putting the stack back at the top of ram is red" 1 \
   "$LAYOUT_STACK_RED" "layout_link $d test/bench/coremark.lds"
 
-d=$(layout_fixture); sed -i.bak 's/ORIGIN(ram) + 2048 : {/ORIGIN(ram) : {/' "$d/test/board/board.lds"
+d=$(layout_fixture); mutate "$d/test/board/board.lds" 's/ORIGIN(ram) + 2048 : {/ORIGIN(ram) : {/'
 probe "board.lds putting .data back at ram's origin is red" 1 \
   "$LAYOUT_DATA_RED" "layout_link $d test/board/board.lds"
 
-d=$(layout_fixture); sed -i.bak 's/LENGTH(ram) - 2048;/LENGTH(ram);/' "$d/test/board/board.lds"
+d=$(layout_fixture); mutate "$d/test/board/board.lds" 's/LENGTH(ram) - 2048;/LENGTH(ram);/'
 probe "board.lds putting the stack back at the top of ram is red" 1 \
   "$LAYOUT_STACK_RED" "layout_link $d test/board/board.lds"
 
@@ -2910,14 +2999,14 @@ probe "a file with two rows in the index is named" 1 \
 # leaves the file it named with no row, which is what an architect once caught
 # by reading the table -- this is the mechanism that catches it now.
 d=$(an_fixture)
-sed -i.bak '/\[0001\](0001-finish-the-staged-rewrite\.md)/d' "$d/docs/adr/README.md"
+mutate "$d/docs/adr/README.md" '/\[0001\](0001-finish-the-staged-rewrite\.md)/d'
 probe "a file with no row in the index is named as orphaned" 1 \
   "0001-finish-the-staged-rewrite.md has no row" "$AN $d"
 
 # A row naming a file that was never added, or that moved out from under it.
 d=$(an_fixture)
-sed -i.bak "s|\[0002\](0002-isa-target-rv32imc-zicsr\.md)|[0002](0002-a-file-that-does-not-exist.md)|" \
-  "$d/docs/adr/README.md"
+mutate "$d/docs/adr/README.md" \
+  "s|\[0002\](0002-isa-target-rv32imc-zicsr\.md)|[0002](0002-a-file-that-does-not-exist.md)|"
 probe "a row naming a file that does not exist is named" 1 \
   "a row naming 0002-a-file-that-does-not-exist.md, and no such file exists" "$AN $d"
 
@@ -2929,7 +3018,7 @@ probe "a row naming a file that does not exist is named" 1 \
 # orphaned and nothing doubled.
 d=$(an_fixture)
 rm "$d/docs/adr/0001-finish-the-staged-rewrite.md"
-sed -i.bak '/\[0001\](0001-finish-the-staged-rewrite\.md)/d' "$d/docs/adr/README.md"
+mutate "$d/docs/adr/README.md" '/\[0001\](0001-finish-the-staged-rewrite\.md)/d'
 probe "a gap in the sequence is not a defect" 0 \
   "each with exactly one README row, no number claimed twice" "$AN $d"
 
@@ -2973,7 +3062,7 @@ probe "a repo root that does not exist is red before anything is scanned" 1 \
 # written on a branch predating the sweep and merged after it, and nothing
 # anywhere objected.
 d=$(rn_fixture)
-sed -i.bak "s/What they need is/What the ladder needs is/" "$d/formal/wrapper.v"
+mutate "$d/formal/wrapper.v" "s/What they need is/What the ladder needs is/"
 probe "the word coming back in a formal harness comment is red, and located" 1 \
   "formal/wrapper.v:" "$RN $d"
 
@@ -3001,7 +3090,7 @@ probe "a lookalike sibling is not covered by the directory entry above it" 1 \
 # The other direction, which is the half a one-way grep would not have: an
 # exemption that outlived the use it was written for.
 d=$(rn_fixture)
-sed -i.bak 's/enforcement ladder/enforcement sequence/' "$d/CODE_OF_CONDUCT.md"
+mutate "$d/CODE_OF_CONDUCT.md" 's/enforcement ladder/enforcement sequence/'
 probe "an allow-list entry whose site no longer has the word is red" 1 \
   "the allow-list exempts CODE_OF_CONDUCT.md" "$RN $d"
 
@@ -3012,7 +3101,7 @@ probe "a tree git cannot list is a scan of nothing, not a green one" 1 \
 # THE SECOND TERM: the ISA name the core outgrew. Its list is not the first
 # term's, so these probes also demonstrate that the two are graded apart.
 d=$(rn_fixture)
-sed -i.bak "s/What they need is/What an RV32IMC core needs is/" "$d/formal/wrapper.v"
+mutate "$d/formal/wrapper.v" "s/What they need is/What an RV32IMC core needs is/"
 probe "the stale ISA name coming back in a formal harness comment is red" 1 \
   "formal/wrapper.v:" "$RN $d"
 
@@ -3029,7 +3118,7 @@ probe "control: the formal flow's lower-case rv32imc is a different thing" 0 \
 
 # The other direction, on the second term's own list: docs/adr/ is exempt for
 # both words, and losing one of them has to be red for that one alone.
-d=$(rn_fixture); sed -i.bak 's/RV32IMC/RV32IMAC/g' "$d/docs/adr/README.md"
+d=$(rn_fixture); mutate "$d/docs/adr/README.md" 's/RV32IMC/RV32IMAC/g'
 probe "an allow-list entry whose site lost the stale ISA name is red" 1 \
   "the allow-list exempts docs/adr/" "$RN $d"
 
@@ -3038,16 +3127,16 @@ probe "an allow-list entry whose site lost the stale ISA name is red" 1 \
 # nothing, and a scan of nothing is the failure this whole file exists for.
 RNF="test/retired_term_test.sh"
 
-d=$(rn_fixture); sed -i.bak 's/^ladder any-case$/ladder some-case/' "$d/$RNF"
+d=$(rn_fixture); mutate "$d/$RNF" 's/^ladder any-case$/ladder some-case/'
 probe "a casing keyword the table does not define stops rather than guessing" 1 \
   "which is neither" "$d/$RNF $d"
 
-d=$(rn_fixture); sed -i.bak 's/^ladder any-case$/ladders any-case/' "$d/$RNF"
+d=$(rn_fixture); mutate "$d/$RNF" 's/^ladder any-case$/ladders any-case/'
 probe "a term with no allow-list behind it stops rather than grading nothing" 1 \
   "no allow-list is written for the term" "$d/$RNF $d"
 
 d=$(rn_fixture)
-sed -i.bak -e 's/^ladder any-case$//' -e 's/^RV32IMC exact-case$//' "$d/$RNF"
+mutate "$d/$RNF" 's/^ladder any-case$//' 's/^RV32IMC exact-case$//'
 probe "an empty term table is a scan of nothing, not a green one" 1 \
   "the term table is empty" "$d/$RNF $d"
 
@@ -3202,8 +3291,7 @@ ma_fixture() {
 # unedited flags for it to grade -- the probes would still go red, for a reason
 # that is not the one they name.
 ma_edit() {  # $1 = fixture dir, $2 = path within it, $3 = sed expression
-  sed -i.bak "$3" "$1/$2"
-  rm -f "$1/$2.bak"
+  mutate "$1/$2" "$3"
   git -C "$1" add -A
 }
 
@@ -3339,7 +3427,7 @@ d=$(fr_fixture)
 probe "over budget names the count and the budget" 1 \
   "is over the 3800-cell budget" "$FR $d/fit.log --max-lc 3800"
 
-d=$(fr_fixture); sed -i.bak '/ICESTORM_LC:/d' "$d/fit.log"
+d=$(fr_fixture); mutate "$d/fit.log" '/ICESTORM_LC:/d'
 probe "no utilisation table is a failure, not a 0% fit" 1 \
   "printed no utilisation table" "$FR $d/fit.log --max-lc 4100"
 
@@ -3395,11 +3483,11 @@ probe "wrong argument count is exit 2" 2 "check-interrupt-tie-off.py" \
 # The failure that matters most: a harness the baseline claims is tied off and
 # is not. Its checks would be running against a machine with interrupts, at
 # depths derived without them.
-d=$(it_fixture); sed -i.bak "/\.irq_timer(1'b0),/d" "$d/formal/complete.sv"
+d=$(it_fixture); mutate "$d/formal/complete.sv" "/\.irq_timer(1'b0),/d"
 probe "a declared harness that does not tie the input off is red" 1 \
   "does not connect .irq_timer" "$(its "$d")"
 
-d=$(it_fixture); sed -i.bak '/^HARNESS cover.sv$/d' "$d/BASELINE"
+d=$(it_fixture); mutate "$d/BASELINE" '/^HARNESS cover.sv$/d'
 probe "a harness with no line in the baseline is red" 1 \
   "does not name it" "$(its "$d")"
 
@@ -3465,11 +3553,11 @@ probe "wrong argument count is exit 2" 2 "check-multihart-tie-off.py" \
 # The failure that matters most: a harness the baseline claims is tied off and
 # is not. Its checks would be running against a machine whose bus another agent
 # can take away, at depths derived where nobody can.
-d=$(mt_fixture); sed -i.bak "s/\.bus_wait(1'b0)/.bus_wait(free_wait)/" "$d/formal/complete.sv"
+d=$(mt_fixture); mutate "$d/formal/complete.sv" "s/\.bus_wait(1'b0)/.bus_wait(free_wait)/"
 probe "a declared harness that does not tie the input off is red" 1 \
   "connects .bus_wait(free_wait)" "$(mts "$d")"
 
-d=$(mt_fixture); sed -i.bak '/^HARNESS cover.sv$/d' "$d/BASELINE"
+d=$(mt_fixture); mutate "$d/BASELINE" '/^HARNESS cover.sv$/d'
 probe "a harness with no line in the baseline is red" 1 \
   "does not name it" "$(mts "$d")"
 
@@ -3485,7 +3573,7 @@ probe "a declared port littlecpu does not have is red" 1 \
 
 # ...and the direction that rots: the next tied-off input landing with the
 # depths derived under it and nothing written down.
-d=$(mt_fixture); sed -i.bak "/^PORT snoop_write /d" "$d/BASELINE"
+d=$(mt_fixture); mutate "$d/BASELINE" "/^PORT snoop_write /d"
 probe "a tie-off at every harness that no baseline declares is red" 1 \
   "and no baseline says so" "$(mts "$d")"
 
@@ -3506,6 +3594,12 @@ PS="python3 $REPO/soc/compare/placed_vs_synth.py"
 # produced and that nothing caught.
 ps_fixture() {
   local d; d=$(new_case)
+  # Neither log has a tracked source -- nextpnr's and yosys's own stdout -- so
+  # the anchor is the PARSER'S field names rather than a real run's bytes: a
+  # rewritten regex breaks it even though nothing here ever produced these
+  # exact lines.
+  fixture_anchor "$REPO/soc/compare/placed_vs_synth.py" "ICESTORM_LC"
+  fixture_anchor "$REPO/soc/compare/placed_vs_synth.py" "SB_LUT4"
   cat > "$d/pnr.log" <<'LOG'
 Info: Device utilisation:
 Info: 	         ICESTORM_LC:    2379/   7680    30%
@@ -3524,22 +3618,22 @@ probe "control: a placement holding the whole core is green" 0 "RATCHET:" \
   "$PS $d/pnr.log $d/core.log vexriscv --min-ratio 0.8"
 
 # THE ONE THAT MATTERS: the defect this gate was written for.
-d=$(ps_fixture); sed -i.bak 's/2379\/   7680    30%/ 449\/   7680     5%/' "$d/pnr.log"
+d=$(ps_fixture); mutate "$d/pnr.log" 's/2379\/   7680    30%/ 449\/   7680     5%/'
 probe "a core yosys folded away is red, not a fast design" 1 \
   "under the 0.80x floor" "$PS $d/pnr.log $d/core.log vexriscv --min-ratio 0.8"
 
-d=$(ps_fixture); sed -i.bak '/ICESTORM_LC/d' "$d/pnr.log"
+d=$(ps_fixture); mutate "$d/pnr.log" '/ICESTORM_LC/d'
 probe "no utilisation table means nothing was placed, not that nothing was lost" 1 \
   "no ICESTORM_LC utilisation line" \
   "$PS $d/pnr.log $d/core.log vexriscv --min-ratio 0.8"
 
-d=$(ps_fixture); sed -i.bak '/SB_LUT4/d' "$d/core.log"
+d=$(ps_fixture); mutate "$d/core.log" '/SB_LUT4/d'
 probe "no standalone count leaves nothing to compare against" 1 \
   "no SB_LUT4 count" "$PS $d/pnr.log $d/core.log vexriscv --min-ratio 0.8"
 
 # Without this the ratio is a division by zero, which would raise rather than
 # report -- and a traceback is not a diagnostic.
-d=$(ps_fixture); sed -i.bak 's/^     1711   SB_LUT4/        0   SB_LUT4/' "$d/core.log"
+d=$(ps_fixture); mutate "$d/core.log" 's/^     1711   SB_LUT4/        0   SB_LUT4/'
 probe "a standalone synthesis of zero cells is named, not divided by" 1 \
   "no SB_LUT4 count" "$PS $d/pnr.log $d/core.log vexriscv --min-ratio 0.8"
 
@@ -3568,31 +3662,29 @@ probe "control: the shipping harness states one geometry" 0 \
 probe "a repo root that does not exist is red before anything is parsed" 1 \
   "is not a directory" "$GT $d/nowhere"
 
-d=$(gt_fixture); sed -i.bak 's/parameter integer ROM_WORDS = 1024/parameter integer ROM_WORDS = 2048/' \
-  "$d/soc/compare/bench_vexriscv.v"
+d=$(gt_fixture); mutate "$d/soc/compare/bench_vexriscv.v" \
+  's/parameter integer ROM_WORDS = 1024/parameter integer ROM_WORDS = 2048/'
 probe "one core's ROM growing behind the other's is red" 1 \
   "has ROM_WORDS=2048, the Makefile has COMPARE_ROM_WORDS=1024" "$GT $d"
 
-d=$(gt_fixture); sed -i.bak 's/parameter integer RAM_WORDS = 16384/parameter integer RAM_WORDS = 8192/' \
-  "$d/soc/compare/bench_littlecpu.v"
+d=$(gt_fixture); mutate "$d/soc/compare/bench_littlecpu.v" \
+  's/parameter integer RAM_WORDS = 16384/parameter integer RAM_WORDS = 8192/'
 probe "one core's data RAM shrinking behind the other's is red" 1 \
   "has RAM_WORDS=8192, the Makefile has COMPARE_RAM_WORDS=16384" "$GT $d"
 
-d=$(gt_fixture); sed -i.bak 's/LENGTH = 4K/LENGTH = 8K/' "$d/soc/compare/bench.lds"
+d=$(gt_fixture); mutate "$d/soc/compare/bench.lds" 's/LENGTH = 4K/LENGTH = 8K/'
 probe "a linker script linking past the harness ROM is red" 1 \
   "rom region is 8192 bytes, the harness ROM is 4096" "$GT $d"
 
-d=$(gt_fixture); sed -i.bak 's/LENGTH = 64K/LENGTH = 128K/' "$d/soc/compare/bench.lds"
+d=$(gt_fixture); mutate "$d/soc/compare/bench.lds" 's/LENGTH = 64K/LENGTH = 128K/'
 probe "a linker script promising RAM the harness does not have is red" 1 \
   "ram region is 131072 bytes, the harness RAM is 65536" "$GT $d"
 
-d=$(gt_fixture); sed -i.bak 's/li      t0, 0x00010000/li      t0, 0x00020000/' \
-  "$d/soc/compare/bench.S"
+d=$(gt_fixture); mutate "$d/soc/compare/bench.S" 's/li      t0, 0x00010000/li      t0, 0x00020000/'
 probe "the program addressing RAM somewhere the harness has none is red" 1 \
   "addresses RAM at 0x00020000" "$GT $d"
 
-d=$(gt_fixture); sed -i.bak 's/ORIGIN = 0x00010000/ORIGIN = 0x00020000/' \
-  "$d/soc/compare/bench.lds"
+d=$(gt_fixture); mutate "$d/soc/compare/bench.lds" 's/ORIGIN = 0x00010000/ORIGIN = 0x00020000/'
 probe "the linker script's RAM origin drifting from the RTL's base is red" 1 \
   "ram ORIGIN is 0x00020000" "$GT $d"
 
@@ -3600,12 +3692,12 @@ d=$(gt_fixture); rm "$d/soc/compare/bench.lds"
 probe "a file that moved out from under the check is fatal, not skipped" 1 \
   "does not exist" "$GT $d"
 
-d=$(gt_fixture); sed -i.bak 's/^COMPARE_ROM_WORDS/COMPARE_ROMWORDS/' "$d/Makefile"
+d=$(gt_fixture); mutate "$d/Makefile" 's/^COMPARE_ROM_WORDS/COMPARE_ROMWORDS/'
 probe "a declaration this cannot read stops rather than comparing empty strings" 1 \
   "teach this script the new" "$GT $d"
 
-d=$(gt_fixture); sed -i.bak 's/parameter integer ROM_WORDS = 1024/parameter integer ROM_WORDS = 2048/' \
-  "$d/soc/compare/bench_hazard3.v"
+d=$(gt_fixture); mutate "$d/soc/compare/bench_hazard3.v" \
+  's/parameter integer ROM_WORDS = 1024/parameter integer ROM_WORDS = 2048/'
 probe "the third core's ROM drifting behind the other two is red" 1 \
   "has ROM_WORDS=2048, the Makefile has COMPARE_ROM_WORDS=1024" "$GT $d"
 
@@ -3658,6 +3750,27 @@ printf '#!/bin/bash\necho "nothing to see here"\n' > "$d/soc/compare/run_unrelat
 probe "a soc/compare script naming no .lds at all does not sink the scan" 0 \
   "stated the same way everywhere it is declared" "$GT $d"
 
+begin_group "soc/compare/vexriscv_path_test.sh"
+
+VPT="$REPO/soc/compare/vexriscv_path_test.sh"
+
+f=$(new_case)/Makefile
+cp "$REPO/Makefile" "$f"
+mutate "$f" \
+  's#\$(VEXRISCV_V) \$(HAZARD3_SRCS) \\#$(RISCV_FORMAL_DIR)/cores/VexRiscv/VexRiscv.v $(HAZARD3_SRCS) \\#'
+probe "a recipe naming the riscv-formal clone's VexRiscv path instead of \$(VEXRISCV_V) is red" 1 \
+  "names a VexRiscv.v path other" "$VPT $f"
+
+# The scan's other half. Taking every reference OUT leaves nothing forbidden to
+# find, so the absence test alone would call this Makefile clean -- which is
+# what a VexRiscv reached through a variable or a wildcard this grep cannot
+# read would look like.
+f=$(new_case)/Makefile
+cp "$REPO/Makefile" "$f"
+mutate "$f" 's#\$(VEXRISCV_V)##g'
+probe "a Makefile naming \$(VEXRISCV_V) nowhere is red, not vacuously clean" 1 \
+  "names \$(VEXRISCV_V) nowhere" "$VPT $f"
+
 begin_group "soc/compare/dhry_fit.py"
 
 DF="python3 $REPO/soc/compare/dhry_fit.py"
@@ -3666,6 +3779,10 @@ DF="python3 $REPO/soc/compare/dhry_fit.py"
 # counts, so every red probe below is one edit away from the real run.
 df_fixture() {
   local d; d=$(new_case)
+  # tb.v types out the shape soc/compare/dhry_tb.v actually declares, rather
+  # than copying it, so the anchor is what says the two have not drifted apart.
+  fixture_anchor "$REPO/soc/compare/dhry_tb.v" "localparam int ROM_WORDS = 2048;"
+  fixture_anchor "$REPO/soc/compare/dhry_tb.v" "localparam int RAM_WORDS = 4096;"
   printf '     6052   SB_LUT4\n        4   SB_RAM40_4K\n' > "$d/ours.log"
   printf '     1711   SB_LUT4\n       18   SB_RAM40_4K\n' > "$d/theirs.log"
   cat > "$d/tb.v" <<'TB'
@@ -3694,11 +3811,11 @@ probe "a core that cannot hold the image is named, not left to the reader" 0 \
 
 # One geometry, two files. A testbench simulating memories the linker script
 # does not describe is two machines reported as one.
-d=$(df_fixture); sed -i.bak 's/RAM_WORDS = 4096/RAM_WORDS = 2048/' "$d/tb.v"
+d=$(df_fixture); mutate "$d/tb.v" 's/RAM_WORDS = 4096/RAM_WORDS = 2048/'
 probe "a testbench simulating a different map than the image is linked for is red" 1 \
   "the simulated geometry does not agree with itself" "$DF $(df_args "$d")"
 
-d=$(df_fixture); sed -i.bak '/RAM_WORDS/d' "$d/tb.v"
+d=$(df_fixture); mutate "$d/tb.v" '/RAM_WORDS/d'
 probe "a parameter this cannot read stops rather than comparing nothing" 1 \
   "script the new spelling rather than dropping" "$DF $(df_args "$d")"
 
@@ -3707,7 +3824,7 @@ d=$(df_fixture)
 probe "data past the end of the simulated RAM is red, not silent" 1 \
   "does not fit the simulated geometry" "$DF $(df_args "$d") --ram-bytes 20000"
 
-d=$(df_fixture); sed -i.bak '/SB_RAM40_4K/d' "$d/theirs.log"
+d=$(df_fixture); mutate "$d/theirs.log" '/SB_RAM40_4K/d'
 probe "a census with no block RAM line is a synthesis that did not finish" 1 \
   "no SB_RAM40_4K line" "$DF $(df_args "$d")"
 
@@ -3744,32 +3861,32 @@ probe "a clock turns the per-MHz figure into an absolute one" 0 "22.10" \
 
 # THE ONE THAT MATTERS: two cores that did not compute the same thing have no
 # comparable cycle count between them.
-d=$(dd_fixture); sed -i.bak 's/diff=0/diff=111/' "$d/run.log"
+d=$(dd_fixture); mutate "$d/run.log" 's/diff=0/diff=111/'
 probe "two cores whose RAMs differ are red, not a 1.2x result" 1 \
   "data RAMs differ in 111 of 4096 words" "$DD2 $d/run.log --runs 400"
 
-d=$(dd_fixture); sed -i.bak 's/of=4096/of=0/' "$d/run.log"
+d=$(dd_fixture); mutate "$d/run.log" 's/of=4096/of=0/'
 probe "a RAM comparison over no words is named as unable to fail" 1 \
   "could not have failed" "$DD2 $d/run.log --runs 400"
 
-d=$(dd_fixture); sed -i.bak '/ramdiff/d' "$d/run.log"
+d=$(dd_fixture); mutate "$d/run.log" '/ramdiff/d'
 probe "a run that never made the cross-core check is red" 1 \
   "no ramdiff line for vexriscv" "$DD2 $d/run.log --runs 400"
 
-d=$(dd_fixture); sed -i.bak 's/core=vexriscv marks=2/core=vexriscv marks=1/' "$d/run.log"
+d=$(dd_fixture); mutate "$d/run.log" 's/core=vexriscv marks=2/core=vexriscv marks=1/'
 probe "a core that reached the start of the loop and not the end is red" 1 \
   "published 1 marker(s), not 2" "$DD2 $d/run.log --runs 400"
 
-d=$(dd_fixture); sed -i.bak 's/core=littlecpu marks=2 cycles=335229 verdict=1/core=littlecpu marks=2 cycles=335229 verdict=3/' \
-  "$d/run.log"
+d=$(dd_fixture); mutate "$d/run.log" \
+  's/core=littlecpu marks=2 cycles=335229 verdict=1/core=littlecpu marks=2 cycles=335229 verdict=3/'
 probe "the benchmark's own FAIL verdict stops the number being quoted" 1 \
   "did not compute the published results" "$DD2 $d/run.log --runs 400"
 
-d=$(dd_fixture); sed -i.bak '/core=vexriscv/d' "$d/run.log"
+d=$(dd_fixture); mutate "$d/run.log" '/core=vexriscv/d'
 probe "one side alone is not a cross-core figure" 1 \
   "no result for vexriscv" "$DD2 $d/run.log --runs 400"
 
-d=$(dd_fixture); sed -i.bak 's/^DHRY core=/DHRY CORE=/' "$d/run.log"
+d=$(dd_fixture); mutate "$d/run.log" 's/^DHRY core=/DHRY CORE=/'
 probe "a simulation this cannot parse is a run that did not happen" 1 \
   "no DHRY result lines" "$DD2 $d/run.log --runs 400"
 
@@ -3819,12 +3936,12 @@ probe "the wait-state bias is disclosed as a percentage of hazard3's own cycles"
 
 # THE PAIR ROTATION MATTERS: hazard3's RAM diverging is graded even though it
 # is the second non-reference core, not only the first.
-d=$(dd_fixture3); sed -i.bak 's/core=hazard3 diff=0/core=hazard3 diff=42/' "$d/run.log"
+d=$(dd_fixture3); mutate "$d/run.log" 's/core=hazard3 diff=0/core=hazard3 diff=42/'
 probe "the SECOND core's RAM diverging is graded, not only the first" 1 \
   "littlecpu and hazard3's data RAMs differ in 42 of 4096 words" \
   "$DD3 $d/run.log --runs 400"
 
-d=$(dd_fixture3); sed -i.bak '/ramdiff core=hazard3/d' "$d/run.log"
+d=$(dd_fixture3); mutate "$d/run.log" '/ramdiff core=hazard3/d'
 probe "a missing ramdiff for the SECOND core is red, not silently skipped" 1 \
   "no ramdiff line for hazard3" "$DD3 $d/run.log --runs 400"
 
@@ -3854,6 +3971,11 @@ CF="python3 $REPO/soc/compare/coremark_fit.py"
 # 4 blocks, both cores fit and that arm never fires.
 cf_fixture() {
   local d; d=$(new_case)
+  # tb.v types out the shape soc/compare/coremark_tb.v actually declares,
+  # rather than copying it, so the anchor is what says the two have not
+  # drifted apart.
+  fixture_anchor "$REPO/soc/compare/coremark_tb.v" "localparam int ROM_WORDS = 4096;"
+  fixture_anchor "$REPO/soc/compare/coremark_tb.v" "localparam int RAM_WORDS = 4096;"
   printf '     6517   SB_LUT4\n        4   SB_RAM40_4K\n' > "$d/ours.log"
   printf '     3505   SB_LUT4\n       20   SB_RAM40_4K\n' > "$d/theirs.log"
   cat > "$d/tb.v" <<'TB'
@@ -3878,11 +4000,11 @@ probe "a core that cannot hold the CoreMark image is named, not left to the read
   "hazard3    20 of its own + 28 for the image =  48 blocks: DOES NOT FIT" \
   "$CF $(cf_args "$d")"
 
-d=$(cf_fixture); sed -i.bak 's/RAM_WORDS = 4096/RAM_WORDS = 2048/' "$d/tb.v"
+d=$(cf_fixture); mutate "$d/tb.v" 's/RAM_WORDS = 4096/RAM_WORDS = 2048/'
 probe "a CoreMark testbench simulating a different map than the image is linked for is red" 1 \
   "the simulated geometry does not agree with itself" "$CF $(cf_args "$d")"
 
-d=$(cf_fixture); sed -i.bak '/RAM_WORDS/d' "$d/tb.v"
+d=$(cf_fixture); mutate "$d/tb.v" '/RAM_WORDS/d'
 probe "a CoreMark parameter this cannot read stops rather than comparing nothing" 1 \
   "script the new spelling rather than dropping" "$CF $(cf_args "$d")"
 
@@ -3890,7 +4012,7 @@ d=$(cf_fixture)
 probe "CoreMark data past the end of the simulated RAM is red, not silent" 1 \
   "does not fit the simulated geometry" "$CF $(cf_args "$d") --ram-bytes 20000"
 
-d=$(cf_fixture); sed -i.bak '/SB_RAM40_4K/d' "$d/theirs.log"
+d=$(cf_fixture); mutate "$d/theirs.log" '/SB_RAM40_4K/d'
 probe "a CoreMark census with no block RAM line is a synthesis that did not finish" 1 \
   "no SB_RAM40_4K line" "$CF $(cf_args "$d")"
 
@@ -3930,32 +4052,32 @@ probe "the CoreMark wait-state bias is disclosed as a percentage of hazard3's ow
 
 # THE ONE THAT MATTERS: two cores that did not compute the same thing have no
 # comparable cycle count between them.
-d=$(cd_fixture); sed -i.bak 's/ramdiff=0/ramdiff=111/' "$d/run.log"
+d=$(cd_fixture); mutate "$d/run.log" 's/ramdiff=0/ramdiff=111/'
 probe "two CoreMark cores whose RAMs differ are red, not a ratio" 1 \
   "data RAMs differ in 111 of 4096 words" "$CD $d/run.log --iterations 1"
 
-d=$(cd_fixture); sed -i.bak 's/of=4096/of=0/' "$d/run.log"
+d=$(cd_fixture); mutate "$d/run.log" 's/of=4096/of=0/'
 probe "a CoreMark RAM comparison over no words is named as unable to fail" 1 \
   "could not have failed" "$CD $d/run.log --iterations 1"
 
-d=$(cd_fixture); sed -i.bak '/ramdiff/d' "$d/run.log"
+d=$(cd_fixture); mutate "$d/run.log" '/ramdiff/d'
 probe "a CoreMark run that never made the cross-core check is red" 1 \
   "no ramdiff line" "$CD $d/run.log --iterations 1"
 
-d=$(cd_fixture); sed -i.bak 's/core=hazard3 marks=2/core=hazard3 marks=1/' "$d/run.log"
+d=$(cd_fixture); mutate "$d/run.log" 's/core=hazard3 marks=2/core=hazard3 marks=1/'
 probe "a CoreMark core that reached the start of the section and not the end is red" 1 \
   "published 1 marker(s), not 2" "$CD $d/run.log --iterations 1"
 
-d=$(cd_fixture); sed -i.bak 's/core=littlecpu marks=2 cycles=479420 verdict=1/core=littlecpu marks=2 cycles=479420 verdict=3/' \
-  "$d/run.log"
+d=$(cd_fixture); mutate "$d/run.log" \
+  's/core=littlecpu marks=2 cycles=479420 verdict=1/core=littlecpu marks=2 cycles=479420 verdict=3/'
 probe "CoreMark's own FAIL verdict stops the number being quoted" 1 \
   "did not validate the 2K performance run" "$CD $d/run.log --iterations 1"
 
-d=$(cd_fixture); sed -i.bak '/core=hazard3/d' "$d/run.log"
+d=$(cd_fixture); mutate "$d/run.log" '/core=hazard3/d'
 probe "one CoreMark side alone is not a cross-core figure" 1 \
   "no result for hazard3" "$CD $d/run.log --iterations 1"
 
-d=$(cd_fixture); sed -i.bak 's/^COREMARK core=/COREMARK CORE=/' "$d/run.log"
+d=$(cd_fixture); mutate "$d/run.log" 's/^COREMARK core=/COREMARK CORE=/'
 probe "a CoreMark simulation this cannot parse is a run that did not happen" 1 \
   "no COREMARK result lines" "$CD $d/run.log --iterations 1"
 
@@ -4071,7 +4193,7 @@ probe "a repo root that does not exist is red before anything is parsed" 1 \
 
 # THE ONE THAT MATTERS: the original defect, re-entered. This instance really did
 # miss `imem_fault`, and the harness then placed 536 cells of a 6006-cell core.
-d=$(pc_fixture); sed -i.bak '/\.imem_fault(imem_fault),/d' "$d/soc/compare/bench_littlecpu.v"
+d=$(pc_fixture); mutate "$d/soc/compare/bench_littlecpu.v" '/\.imem_fault(imem_fault),/d'
 probe "a port the comparison harness stops naming is red, and located" 1 \
   "soc/compare/bench_littlecpu.v's \`riscv\` instance does not connect .imem_fault" "$PC $d"
 
@@ -4080,59 +4202,61 @@ probe "and the diagnostic says what it costs, not just that it is missing" 1 \
 
 # An empty connection is a floating pin spelled a second way, and yosys accepts
 # both.
-d=$(pc_fixture); sed -i.bak 's/\.imem_fault(imem_fault),/.imem_fault(),/' \
-  "$d/soc/compare/bench_littlecpu.v"
+d=$(pc_fixture); mutate "$d/soc/compare/bench_littlecpu.v" \
+  's/\.imem_fault(imem_fault),/.imem_fault(),/'
 probe "a port named with nothing in the parentheses is red too" 1 \
   "names .imem_fault() with nothing in it" "$PC $d"
 
 # The other direction, which is the half a one-way check would not have: the
 # port goes away and the harnesses keep naming it.
-d=$(pc_fixture); sed -i.bak 's/^  input  logic        imem_fault,//' "$d/rtl/littlecpu.v"
+d=$(pc_fixture); mutate "$d/rtl/littlecpu.v" 's/^  input  logic        imem_fault,//'
 probe "a connection to a port littlecpu no longer has is red" 1 \
   "connects .imem_fault, and littlecpu has no such port" "$PC $d"
 
-d=$(pc_fixture); sed -i.bak '/\.rvfi_mem_rmask(rvfi_mem_rmask),/d' "$d/test/testbench.v"
+d=$(pc_fixture); mutate "$d/test/testbench.v" '/\.rvfi_mem_rmask(rvfi_mem_rmask),/d'
 probe "half of a macro-guarded group is red, where none of it is not" 1 \
   "connects littlecpu under RISCV_FORMAL but not .rvfi_mem_rmask" "$PC $d"
 
 # A port declared unconditionally and connected only under a macro floats
 # wherever that macro is absent, which is every build but one.
-d=$(pc_fixture); sed -i.bak -e 's/^    \.irq_timer(irq_timer),$/    .irq_timer(irq_timer)/' \
-  -e 's/^    \.trap(trap)$//' -e 's/^    , \.rvfi_valid/    , .trap(trap), .rvfi_valid/' \
-  "$d/test/testbench.v"
+d=$(pc_fixture); mutate "$d/test/testbench.v" \
+  's/^    \.irq_timer(irq_timer),$/    .irq_timer(irq_timer)/' \
+  's/^    \.trap(trap)$//' \
+  's/^    , \.rvfi_valid/    , .trap(trap), .rvfi_valid/'
 probe "an unconditional port connected only inside an ifdef is red" 1 \
   "connects .trap only under RISCV_FORMAL" "$PC $d"
 
 # `RVFI_CONN is the one macro this check cannot expand, so a harness dropping it
 # has to be caught by something other than the port list.
-d=$(pc_fixture); sed -i.bak -e 's/^    \.trap(trap),$/    .trap(trap)/' \
-  -e '/`RVFI_CONN/d' "$d/formal/wrapper.v"
+d=$(pc_fixture); mutate "$d/formal/wrapper.v" \
+  's/^    \.trap(trap),$/    .trap(trap)/' \
+  '/`RVFI_CONN/d'
 probe "a formal harness that stops wiring rvfi at all is red" 1 \
   "carries no \`RVFI_CONN" "$PC $d"
 
 # The exception table both ways round: an omission that has been fixed leaves an
 # entry behind, and an exemption kept past its reason is how the next one gets
 # waved through.
-d=$(pc_fixture); sed -i.bak 's/^    , \.rvfi_valid(rvfi_valid),/    , .rvfi_valid(rvfi_valid), .rvfi_mode(rvfi_mode),/' \
-  "$d/test/testbench.v"
+d=$(pc_fixture); mutate "$d/test/testbench.v" \
+  's/^    , \.rvfi_valid(rvfi_valid),/    , .rvfi_valid(rvfi_valid), .rvfi_mode(rvfi_mode),/'
 probe "an exception whose port is connected now is red" 1 \
   "EXCEPTIONS exempts .rvfi_mode at test/testbench.v" "$PC $d"
 
 # A positional connection re-aims every port after the one that moved, so it
 # stops the run rather than being graded as far as it can be read.
-d=$(pc_fixture); sed -i.bak 's/^    \.clk(clk),/    clk,/' "$d/soc/compare/bench_littlecpu.v"
+d=$(pc_fixture); mutate "$d/soc/compare/bench_littlecpu.v" 's/^    \.clk(clk),/    clk,/'
 probe "a connection by position stops rather than being half-read" 1 \
   "connects littlecpu by something this check cannot read" "$PC $d"
 
 # The last defect in this file class was a superfluous comma in a port list,
 # which yosys accepts and only iverilog and svlint rejected.
-d=$(pc_fixture); sed -i.bak 's/^    \.trap(trap)$/    .trap(trap),/' "$d/rtl/littlesoc.v"
+d=$(pc_fixture); mutate "$d/rtl/littlesoc.v" 's/^    \.trap(trap)$/    .trap(trap),/'
 probe "a stray comma in a connection list is named as one" 1 \
   "a stray or trailing comma" "$PC $d"
 
 # The parse is load-bearing: a port this cannot read would go undemanded at
 # every site rather than reported at one.
-d=$(pc_fixture); sed -i.bak 's/^  input  logic clk,/  clk,/' "$d/rtl/littlecpu.v"
+d=$(pc_fixture); mutate "$d/rtl/littlecpu.v" 's/^  input  logic clk,/  clk,/'
 probe "a port declaration the parser cannot read stops the run" 1 \
   "cannot read as a port declaration" "$PC $d"
 
@@ -4234,19 +4358,23 @@ probe "an empty status file is refused rather than read as a verdict" 2 \
 
 # The four parses. Each one is what the probe pins its answer to, so a
 # respelling has to stop the run rather than quietly probe nothing.
-d=$(tr_fixture); sed -i.bak 's/assert(csr_rdata == prev_cause);/assert(csr_rdata == prev_cause2);/' "$d/formal/traps.sv"
+d=$(tr_fixture); mutate "$d/formal/traps.sv" \
+  's/assert(csr_rdata == prev_cause);/assert(csr_rdata == prev_cause2);/'
 probe "a respelled cause comparison stops rather than pinning nothing" 2 \
   "prev_cause);\` 0 times" "$(trs "$d")"
 
-d=$(tr_fixture); sed -i.bak 's/assert(trap_entry);/assert(trap_entry != 1'"'"'b0);/' "$d/formal/traps.sv"
+d=$(tr_fixture); mutate "$d/formal/traps.sv" \
+  's/assert(trap_entry);/assert(trap_entry != 1'"'"'b0);/'
 probe "a respelled must-trap assertion stops rather than pinning nothing" 2 \
   "assert(trap_entry);\` 0 times" "$(trs "$d")"
 
-d=$(tr_fixture); sed -i.bak 's/assign load_access_fault  = (atomic_fault/assign load_access_fault = (atomic_fault/' "$d/rtl/decoder.v"
+d=$(tr_fixture); mutate "$d/rtl/decoder.v" \
+  's/assign load_access_fault  = (atomic_fault/assign load_access_fault = (atomic_fault/'
 probe "a respelled fault site stops rather than building the shipping core twice" 2 \
   "no longer spells what the wrong-cause mutation replaces" "$(trs "$d")"
 
-d=$(tr_fixture); sed -i.bak 's/assign ls_fault = ls_access \&\& ls_answer_valid/assign ls_fault = ls_access\&\& ls_answer_valid/' "$d/rtl/decoder.v"
+d=$(tr_fixture); mutate "$d/rtl/decoder.v" \
+  's/assign ls_fault = ls_access \&\& ls_answer_valid/assign ls_fault = ls_access\&\& ls_answer_valid/'
 probe "a respelled ls_fault stops: a core that still faults proves nothing" 2 \
   "no longer spells what the no-trap mutation replaces" "$(trs "$d")"
 
@@ -4263,7 +4391,7 @@ d=$(tr_fixture); rm "$d/formal/components.sby"
 probe "no components.sby is exit 2, not a probe against an invented script" 2 \
   "components.sby is missing" "$(trs "$d")"
 
-d=$(tr_fixture); sed -i.bak 's/^traps:$/trapsx:/' "$d/formal/components.sby"
+d=$(tr_fixture); mutate "$d/formal/components.sby" 's/^traps:$/trapsx:/'
 probe "a renamed task stops rather than probing some other design" 2 \
   "block under [script]" "$(trs "$d")"
 
@@ -4372,20 +4500,20 @@ probe "an empty status file is refused rather than read as a verdict" 2 \
 # The two parses. Each one is what the probe pins its answer to, so a
 # respelling has to stop the run rather than quietly probe nothing.
 d=$(dz_fixture)
-sed -i.bak 's/assert(!region_stall || ls_access);/assert(!region_stall || ls_access == 1);/' \
-  "$d/rtl/decoder.v"
+mutate "$d/rtl/decoder.v" \
+  's/assert(!region_stall || ls_access);/assert(!region_stall || ls_access == 1);/'
 probe "a respelled gate assertion stops rather than pinning nothing" 2 \
   "states \`assert(!region_stall || ls_access);\` 0 times" "$(dzs "$d")"
 
 d=$(dz_fixture)
-sed -i.bak "s/assign region_stall = ls_access && !ls_settled && !ls_answer_valid;/assign region_stall = ls_access \&\& !ls_settled\&\& !ls_answer_valid;/" \
-  "$d/rtl/decoder.v"
+mutate "$d/rtl/decoder.v" \
+  "s/assign region_stall = ls_access && !ls_settled && !ls_answer_valid;/assign region_stall = ls_access \&\& !ls_settled\&\& !ls_answer_valid;/"
 probe "a respelled region_stall site stops rather than building the shipping core twice" 2 \
   "no longer spells what the region-stall-ungated mutation replaces" "$(dzs "$d")"
 
 d=$(dz_fixture)
-sed -i.bak "s/assign ls_access = instr_ls_load || instr_ls_store;/assign ls_access = instr_ls_load||instr_ls_store;/" \
-  "$d/rtl/decoder.v"
+mutate "$d/rtl/decoder.v" \
+  "s/assign ls_access = instr_ls_load || instr_ls_store;/assign ls_access = instr_ls_load||instr_ls_store;/"
 probe "a respelled ls_access site stops rather than building the shipping core twice" 2 \
   "no longer spells what the ls-access-extra mutation replaces" "$(dzs "$d")"
 
@@ -4401,7 +4529,7 @@ d=$(dz_fixture); rm "$d/formal/components.sby"
 probe "no components.sby is exit 2, not a probe against an invented script" 2 \
   "formal/components.sby is missing" "$(dzs "$d")"
 
-d=$(dz_fixture); sed -i.bak 's/^decoder:$/decoderx:/' "$d/formal/components.sby"
+d=$(dz_fixture); mutate "$d/formal/components.sby" 's/^decoder:$/decoderx:/'
 probe "a renamed task stops rather than probing some other design" 2 \
   "block under [script]" "$(dzs "$d")"
 
@@ -4488,24 +4616,24 @@ probe "an empty status file is refused rather than read as a verdict" 2 \
 # The four parses. Each is what the probe pins its answer to, so a
 # respelling has to stop the run rather than quietly probing nothing.
 d=$(ez_fixture)
-sed -i.bak 's/assert(state == init);/assert(state==init);/' "$d/rtl/executor.v"
+mutate "$d/rtl/executor.v" 's/assert(state == init);/assert(state==init);/'
 probe "a respelled constant-latency assertion stops rather than pinning nothing" 2 \
   "states \`assert(state == init);\` 0 times" "$(ezs "$d")"
 
 d=$(ez_fixture)
-sed -i.bak 's/in.is_mul || in.is_mulh || in.is_mulhu || in.is_mulhsu: begin/in.is_mul || in.is_mulh || in.is_mulhu ||in.is_mulhsu: begin/' \
-  "$d/rtl/executor.v"
+mutate "$d/rtl/executor.v" \
+  's/in.is_mul || in.is_mulh || in.is_mulhu || in.is_mulhsu: begin/in.is_mul || in.is_mulh || in.is_mulhu ||in.is_mulhsu: begin/'
 probe "a respelled mul case item stops rather than building the shipping core" 2 \
   "no longer spells one of the lines this probe patches" "$(ezs "$d")"
 
 d=$(ez_fixture)
-sed -i.bak 's/in.is_div || in.is_divu || in.is_rem || in.is_remu: begin/in.is_div || in.is_divu || in.is_rem ||in.is_remu: begin/' \
-  "$d/rtl/executor.v"
+mutate "$d/rtl/executor.v" \
+  's/in.is_div || in.is_divu || in.is_rem || in.is_remu: begin/in.is_div || in.is_divu || in.is_rem ||in.is_remu: begin/'
 probe "a respelled divide case item stops the same way" 2 \
   "no longer spells one of the lines this probe patches" "$(ezs "$d")"
 
 d=$(ez_fixture)
-sed -i.bak 's/op_is_divu <= in.is_divu;/op_is_divu <= in.is_divu ;/' "$d/rtl/executor.v"
+mutate "$d/rtl/executor.v" 's/op_is_divu <= in.is_divu;/op_is_divu <= in.is_divu ;/'
 probe "a respelled op_is_divu latch stops the same way too" 2 \
   "no longer spells one of the lines this probe patches" "$(ezs "$d")"
 
@@ -4521,7 +4649,7 @@ d=$(ez_fixture); rm "$d/formal/components.sby"
 probe "no components.sby is exit 2, not a probe against an invented script" 2 \
   "formal/components.sby is missing" "$(ezs "$d")"
 
-d=$(ez_fixture); sed -i.bak 's/^executor:$/executorx:/' "$d/formal/components.sby"
+d=$(ez_fixture); mutate "$d/formal/components.sby" 's/^executor:$/executorx:/'
 probe "a renamed task stops rather than probing some other design" 2 \
   "block under [script]" "$(ezs "$d")"
 
@@ -4598,15 +4726,18 @@ probe "an empty status file is refused rather than read as a verdict" 2 \
 # has to stop the run rather than quietly probe nothing -- and the control case
 # checks BOTH mutation sites, which is what stops a half-respelled mux from
 # building the shipping core three times.
-d=$(tr_fixture); sed -i.bak 's/assert(csr_rdata == prev_tval);/assert(csr_rdata == prev_tval2);/' "$d/formal/traps.sv"
+d=$(tr_fixture); mutate "$d/formal/traps.sv" \
+  's/assert(csr_rdata == prev_tval);/assert(csr_rdata == prev_tval2);/'
 probe "a respelled mtval comparison stops rather than pinning nothing" 2 \
   "0 times" "$(tts "$d")"
 
-d=$(tr_fixture); sed -i.bak "s/      data_fault:        trap_tval = mem_addr_calc;/      data_fault: trap_tval = mem_addr_calc;/" "$d/rtl/decoder.v"
+d=$(tr_fixture); mutate "$d/rtl/decoder.v" \
+  "s/      data_fault:        trap_tval = mem_addr_calc;/      data_fault: trap_tval = mem_addr_calc;/"
 probe "a respelled address arm stops rather than proving the shipping core" 2 \
   "no longer spells its mtval mux" "$(tts "$d")"
 
-d=$(tr_fixture); sed -i.bak "s/      instr_illegal:     trap_tval = instr;/      instr_illegal: trap_tval = instr;/" "$d/rtl/decoder.v"
+d=$(tr_fixture); mutate "$d/rtl/decoder.v" \
+  "s/      instr_illegal:     trap_tval = instr;/      instr_illegal: trap_tval = instr;/"
 probe "a respelled word arm stops the same way" 2 \
   "no longer spells its mtval mux" "$(tts "$d")"
 
@@ -4621,7 +4752,7 @@ d=$(tr_fixture); rm "$d/formal/components.sby"
 probe "no components.sby is exit 2 here too, not a green control" 2 \
   "components.sby is missing" "$(tts "$d")"
 
-d=$(tr_fixture); sed -i.bak 's/^traps:$/trapsx:/' "$d/formal/components.sby"
+d=$(tr_fixture); mutate "$d/formal/components.sby" 's/^traps:$/trapsx:/'
 probe "a renamed task stops this probe rather than moving its control" 2 \
   "block under [script]" "$(tts "$d")"
 
@@ -4701,13 +4832,13 @@ probe "control: two identical netlists are equal" 0 "DIGEST-EQUAL" \
 # The comment and whitespace classes, which is every `src` and `module_src` in
 # the file moving and nothing else. This is the whole reason a bare hash of the
 # netlist was not enough.
-d=$(nd_pair); sed -i.bak 's/\.v:\([0-9]*\)\./.v:9\1./g' "$d/new.json"
+d=$(nd_pair); mutate "$d/new.json" 's/\.v:\([0-9]*\)\./.v:9\1./g'
 probe "every source line moving is the comment class, and is forgiven" 0 \
   "DIGEST-EQUAL" "$ND compare $d/base.json $d/new.json"
 
 # ...and only those two. An attribute that is not a source line is a difference,
 # because dropping one is forgiving one, and the placer is not obliged to agree.
-d=$(nd_pair); sed -i.bak 's/"hdlname": "decode"/"hdlname": "decoder"/' "$d/new.json"
+d=$(nd_pair); mutate "$d/new.json" 's/"hdlname": "decode"/"hdlname": "decoder"/'
 probe "an attribute that is not a source line is not forgiven" 1 \
   "DIGEST-DIFFERENT" "$ND compare $d/base.json $d/new.json"
 
@@ -4728,36 +4859,38 @@ probe "a dead net still in the file is a difference, not a forgiveness" 1 \
 
 # A one-bit constant change: no module, cell count or port moves, so the
 # structural summary has nothing to say and the report has to name the path.
-d=$(nd_pair); sed -i.bak 's/1010101010101010/1010101010101011/' "$d/new.json"
+d=$(nd_pair); mutate "$d/new.json" 's/1010101010101010/1010101010101011/'
 probe "a one-bit constant is a different digest" 1 "DIGEST-DIFFERENT" \
   "$ND compare $d/base.json $d/new.json"
 
-d=$(nd_pair); sed -i.bak 's/1010101010101010/1010101010101011/' "$d/new.json"
+d=$(nd_pair); mutate "$d/new.json" 's/1010101010101010/1010101010101011/'
 probe "...and the report names the parameter, not merely 'changed'" 1 \
   "parameters.LUT_INIT: 1010101010101010 -> 1010101010101011" \
   "$ND compare $d/base.json $d/new.json"
 
-d=$(nd_pair); sed -i.bak 's/"dff.2"/"dff.3"/' "$d/new.json"
+d=$(nd_pair); mutate "$d/new.json" 's/"dff.2"/"dff.3"/'
 probe "a renamed cell is named by path" 1 "cells.dff.2: in base only" \
   "$ND compare $d/base.json $d/new.json"
 
-d=$(nd_pair); sed -i.bak 's/"type": "SB_DFF"/"type": "SB_LUT4"/' "$d/new.json"
+d=$(nd_pair); mutate "$d/new.json" 's/"type": "SB_DFF"/"type": "SB_LUT4"/'
 probe "a cell type that moved is reported as a count, both ways" 1 \
   "SB_LUT4                       1 ->      2  (+1)" \
   "$ND compare $d/base.json $d/new.json"
 
 d=$(nd_pair)
-sed -i.bak 's/"clk": { "direction": "input", "bits": \[2\] }/"clk": { "direction": "input", "bits": [2] }, "hart_id": { "direction": "input", "bits": [7] }/' "$d/new.json"
+mutate "$d/new.json" \
+  's/"clk": { "direction": "input", "bits": \[2\] }/"clk": { "direction": "input", "bits": [2] }, "hart_id": { "direction": "input", "bits": [7] }/'
 probe "a port that appeared is named, which is what a tie-off adds" 1 \
   "port hart_id: (none) -> input [1]" "$ND compare $d/base.json $d/new.json"
 
-d=$(nd_pair); sed -i.bak 's/"SB_LUT4": {/"SB_MAC16": { "attributes": {}, "ports": {}, "cells": {}, "netnames": {} },\n    "SB_LUT4": {/' "$d/new.json"
+d=$(nd_pair); mutate "$d/new.json" \
+  's/"SB_LUT4": {/"SB_MAC16": { "attributes": {}, "ports": {}, "cells": {}, "netnames": {} },\n    "SB_LUT4": {/'
 probe "a module that appeared is named too" 1 "modules in this tree only: SB_MAC16" \
   "$ND compare $d/base.json $d/new.json"
 
 # The toolchain is inside the digest, so a yosys that moved reads as different.
 # That is the sound direction and the one this repo has been bitten in.
-d=$(nd_pair); sed -i.bak 's/Yosys 0.68 (git sha1 abcdef0)/Yosys 0.55 (git sha1 abcdef0)/' "$d/new.json"
+d=$(nd_pair); mutate "$d/new.json" 's/Yosys 0.68 (git sha1 abcdef0)/Yosys 0.55 (git sha1 abcdef0)/'
 probe "a toolchain that moved is a different digest, and is named first" 1 \
   "toolchain: Yosys 0.68" "$ND compare $d/base.json $d/new.json"
 
@@ -4780,7 +4913,7 @@ d=$(nd_pair); printf '{"creator": "yosys"}' > "$d/new.json"
 probe "JSON that is not a netlist is refused" 2 \
   "no \`modules\` object in it" "$ND compare $d/base.json $d/new.json"
 
-d=$(nd_pair); sed -i.bak 's/"top": "00000000000000000000000000000001",//' "$d/new.json"
+d=$(nd_pair); mutate "$d/new.json" 's/"top": "00000000000000000000000000000001",//'
 probe "a netlist with no top module names no one design" 2 \
   "0 modules are marked \`top\`" "$ND compare $d/base.json $d/new.json"
 
@@ -4879,11 +5012,10 @@ endmodule
 RTL
   nd_netlist "$d/fix/canon.json"
   nd_netlist "$d/fix/canon.moved.json"
-  sed -i.bak 's/1010101010101010/1010101010101011/' "$d/fix/canon.moved.json"
+  mutate "$d/fix/canon.moved.json" 's/1010101010101010/1010101010101011/'
   # A canonical form the purge did NOT clean the dead net out of.
   nd_netlist "$d/fix/canon.dead.json"
-  sed -i.bak 's/"hdlname": "decode"/"hdlname": "netlist_control_dead"/' \
-    "$d/fix/canon.dead.json"
+  mutate "$d/fix/canon.dead.json" 's/"hdlname": "decode"/"hdlname": "netlist_control_dead"/'
   nl_stub_yosys "$d/bin" "$d/fix"
   nl_stub_pnr "$d/bin"
   printf '%s' "$d"
@@ -4959,7 +5091,7 @@ d=$(nl_fixture); rm "$d/bin/nextpnr-ice40"
 probe "no placer on PATH is refused the same way" 2 \
   "no nextpnr-ice40 on PATH" "$(nl_run "$d" /usr/bin:/bin)"
 
-d=$(nl_fixture); sed -i.bak 's/reg_rs1/reg_rs9/g' "$d/repo/rtl/decoder.v"
+d=$(nl_fixture); mutate "$d/repo/rtl/decoder.v" 's/reg_rs1/reg_rs9/g'
 probe "an injection site that moved stops the control, loudly" 1 \
   "the mutant could not be built" "$(nl_run "$d")"
 
@@ -5029,7 +5161,8 @@ probe "a tree that names no synth script of its own says whose was used" 0 \
   "names no synth script of its own" "$(nb_run "$d" HEAD)"
 
 d=$(nb_fixture)
-sed -i.bak 's/^print-%:/NETLIST_SYNTH := read_verilog -sv rtl\/decoder.v; synth_ice40 -abc9 -top littlesoc\nprint-%:/' "$d/repo/Makefile"
+mutate "$d/repo/Makefile" \
+  's/^print-%:/NETLIST_SYNTH := read_verilog -sv rtl\/decoder.v; synth_ice40 -abc9 -top littlesoc\nprint-%:/'
 git -C "$d/repo" -c user.email=probe@example -c user.name=probe commit -qam flags
 probe "a base tree whose synth flags moved is digested with ITS flags, and says so" 0 \
   "synthesises with a different script" "$(nb_run "$d" HEAD)"
@@ -5183,25 +5316,25 @@ probe "an empty status file is refused rather than read as a verdict" 2 \
 # The three parses, one per pinned line. Each is what a probe pins its answer
 # to, so a respelling has to stop the run rather than quietly probe nothing.
 d=$(ba_fixture)
-sed -i.bak 's/past_mem_lock\[h\]) assert(grant\[h\]);/past_mem_lock[h]) assert(grant[h] == 1);/' \
-  "$d/formal/busarbiter.sv"
+mutate "$d/formal/busarbiter.sv" \
+  's/past_mem_lock\[h\]) assert(grant\[h\]);/past_mem_lock[h]) assert(grant[h] == 1);/'
 probe "a respelled indivisibility arm stops rather than pinning nothing" 2 \
   "states the indivisibility assertion 0 times" "$(bas "$d")"
 
 d=$(ba_fixture)
-sed -i.bak 's/assert(waited <= BOUND);/assert(waited <= BOUND + 0);/' "$d/formal/busarbiter.sv"
+mutate "$d/formal/busarbiter.sv" 's/assert(waited <= BOUND);/assert(waited <= BOUND + 0);/'
 probe "a respelled wait bound stops rather than pinning nothing" 2 \
   "states the wait bound assertion 0 times" "$(bas "$d")"
 
 d=$(ba_fixture)
-sed -i.bak 's/cover (settled \&\& grant\[h\] \&\& past_grant\[h\]/cover (grant[h] \&\& settled \&\& past_grant[h]/' \
-  "$d/formal/busarbiter.sv"
+mutate "$d/formal/busarbiter.sv" \
+  's/cover (settled \&\& grant\[h\] \&\& past_grant\[h\]/cover (grant[h] \&\& settled \&\& past_grant[h]/'
 probe "a respelled lock cover stops rather than pinning nothing" 2 \
   "states the lock cover goal 0 times" "$(bas "$d")"
 
 d=$(ba_fixture)
-sed -i.bak "s/else grant <= held ? grant : winner;/else grant <= (held) ? grant : winner;/" \
-  "$d/rtl/busarbiter.v"
+mutate "$d/rtl/busarbiter.v" \
+  "s/else grant <= held ? grant : winner;/else grant <= (held) ? grant : winner;/"
 probe "a respelled mutation site stops rather than proving the shipping core thrice" 2 \
   "no longer spells its tie-break" "$(bas "$d")"
 
@@ -5332,25 +5465,25 @@ probe "an empty status file is refused rather than read as a verdict" 2 \
 # The three parses, one per pinned line. Each is what a probe pins its answer
 # to, so a respelling has to stop the run rather than quietly probe nothing.
 d=$(ba_fixture)
-sed -i.bak 's/past_mem_lock\[h\]) assert(grant\[h\]);/past_mem_lock[h]) assert(grant[h] == 1);/' \
-  "$d/formal/busarbiter.sv"
+mutate "$d/formal/busarbiter.sv" \
+  's/past_mem_lock\[h\]) assert(grant\[h\]);/past_mem_lock[h]) assert(grant[h] == 1);/'
 probe "a respelled indivisibility arm stops rather than pinning nothing" 2 \
   "states the indivisibility assertion 0 times" "$(bas "$d")"
 
 d=$(ba_fixture)
-sed -i.bak 's/assert(waited <= BOUND);/assert(waited <= BOUND + 0);/' "$d/formal/busarbiter.sv"
+mutate "$d/formal/busarbiter.sv" 's/assert(waited <= BOUND);/assert(waited <= BOUND + 0);/'
 probe "a respelled wait bound stops rather than pinning nothing" 2 \
   "states the wait bound assertion 0 times" "$(bas "$d")"
 
 d=$(ba_fixture)
-sed -i.bak 's/cover (settled \&\& grant\[h\] \&\& past_grant\[h\]/cover (grant[h] \&\& settled \&\& past_grant[h]/' \
-  "$d/formal/busarbiter.sv"
+mutate "$d/formal/busarbiter.sv" \
+  's/cover (settled \&\& grant\[h\] \&\& past_grant\[h\]/cover (grant[h] \&\& settled \&\& past_grant[h]/'
 probe "a respelled lock cover stops rather than pinning nothing" 2 \
   "states the lock cover goal 0 times" "$(bas "$d")"
 
 d=$(ba_fixture)
-sed -i.bak "s/else grant <= held ? grant : winner;/else grant <= (held) ? grant : winner;/" \
-  "$d/rtl/busarbiter.v"
+mutate "$d/rtl/busarbiter.v" \
+  "s/else grant <= held ? grant : winner;/else grant <= (held) ? grant : winner;/"
 probe "a respelled mutation site stops rather than proving the shipping core thrice" 2 \
   "no longer spells its tie-break" "$(bas "$d")"
 
@@ -5508,9 +5641,7 @@ probe "an unlisted core_portme.h would shadow the port's header, and is caught" 
 # A malformed manifest line: shasum -c alone exits 0 on this, printing only a
 # WARNING nothing here would have read -- --strict is what turns it red.
 d=$(rc_fixture)
-sed -i.bak -E 's/^[0-9a-f]{64}(  core_list_join\.c)$/deadbeef\1/' \
-  "$d/test/bench/coremark/PINNED.sha256"
-rm -f "$d/test/bench/coremark/PINNED.sha256.bak"
+mutate -E "$d/test/bench/coremark/PINNED.sha256" 's/^[0-9a-f]{64}(  core_list_join\.c)$/deadbeef\1/'
 probe "a malformed manifest line is red under --strict, not a silent pass" 1 \
   "improperly formatted" "$(rc "$d")"
 
@@ -5605,9 +5736,8 @@ probe "a repo root with no Makefile is red before anything is parsed" 1 \
 # netlist-digest, which is exactly the corollary "the digest replaces a
 # sweep, never a gate" exists to forbid -- a sweep silently skipped.
 d=$(nd_fixture)
-sed -i.bak \
-  's/^test: sim test-units probe-gates pin-bump-test tool-cache-test memmap-test \\$/test: sim test-units probe-gates netlist-digest pin-bump-test tool-cache-test memmap-test \\/' \
-  "$d/Makefile"
+mutate "$d/Makefile" \
+  's/^test: sim test-units probe-gates pin-bump-test tool-cache-test memmap-test \\$/test: sim test-units probe-gates netlist-digest pin-bump-test tool-cache-test memmap-test \\/'
 probe "a graded target quietly depending on netlist-digest is red, and named" 1 \
   "test: depends on netlist-digest" "$ND $d"
 
@@ -5616,7 +5746,7 @@ probe "and the diagnostic states the corollary this check is enforcing" 1 \
 
 # The sibling comparison target is graded the same way.
 d=$(nd_fixture)
-sed -i.bak 's/^tracked-ignored-test:$/tracked-ignored-test: netlist-diff/' "$d/Makefile"
+mutate "$d/Makefile" 's/^tracked-ignored-test:$/tracked-ignored-test: netlist-diff/'
 probe "netlist-diff reaches the same check as netlist-digest does" 1 \
   "tracked-ignored-test: depends on netlist-diff" "$ND $d"
 
@@ -5629,8 +5759,8 @@ probe "control: .PHONY declaring netlist-digest is not a dependency edge" 0 \
 # The other direction: the check has to be able to find the two targets' own
 # rule lines, or it is asserting a property of nothing.
 d=$(nd_fixture)
-sed -i.bak 's/^netlist-digest: netlist-determinism$/netlist-digest-renamed: netlist-determinism/' \
-  "$d/Makefile"
+mutate "$d/Makefile" \
+  's/^netlist-digest: netlist-determinism$/netlist-digest-renamed: netlist-determinism/'
 probe "a renamed or deleted netlist-digest target stops the check rather than passing it" 1 \
   "no rule line defines netlist-digest" "$ND $d"
 
@@ -5686,7 +5816,7 @@ probe "a lookalike sibling is not covered by the directory entry above it" 1 \
   "docs/adrenaline.md:" "$L4 $d"
 
 # The other direction: an exemption whose site no longer carries the string.
-d=$(l4_fixture); sed -i.bak '/SB_LUT4/d' "$d/soc/depth/path_stages.py"; git -C "$d" add -A
+d=$(l4_fixture); mutate "$d/soc/depth/path_stages.py" '/SB_LUT4/d'; git -C "$d" add -A
 probe "an allow-list entry whose site lost the string is red" 1 \
   "the allow-list exempts soc/depth/path_stages.py" "$L4 $d"
 
@@ -5761,22 +5891,22 @@ probe "deleting an rtl file and leaving its line is red" 1 \
   "names files rtl/ does not have" "$MCOV $d"
 
 d=$(mcov_fixture)
-sed -i.bak 's/^rtl\/timer.v     mtip-fires-a-tick-early/rtl\/timer.v     no-such-mutation/' \
-  "$d/test/MUTATION_COVERAGE"
+mutate "$d/test/MUTATION_COVERAGE" \
+  's/^rtl\/timer.v     mtip-fires-a-tick-early/rtl\/timer.v     no-such-mutation/'
 probe "a line naming a mutation test/mutations/ does not have is red" 1 \
   "is not in test/MUTATION_DETECTORS's first" "$MCOV $d"
 
 d=$(mcov_fixture)
-sed -i.bak 's/^rtl\/uart.v      unpaired  uart_tb/rtl\/uart.v      unpaired  no_such_bench/' \
-  "$d/test/MUTATION_COVERAGE"
+mutate "$d/test/MUTATION_COVERAGE" \
+  's/^rtl\/uart.v      unpaired  uart_tb/rtl\/uart.v      unpaired  no_such_bench/'
 probe "an unpaired line whose named grader is not a real bench or formal task is red" 1 \
   "names no real bench, formal" "$MCOV $d"
 
 # A bare \`unpaired\` is the defect this whole file exists to rule out --
 # permitting it teaches people to write it.
 d=$(mcov_fixture)
-sed -i.bak 's/^rtl\/uart.v      unpaired  uart_tb/rtl\/uart.v      unpaired/' \
-  "$d/test/MUTATION_COVERAGE"
+mutate "$d/test/MUTATION_COVERAGE" \
+  's/^rtl\/uart.v      unpaired  uart_tb/rtl\/uart.v      unpaired/'
 probe "a bare unpaired with no grader does not pass by silence" 1 \
   "needs exactly one grader name" "$MCOV $d"
 
@@ -5786,8 +5916,8 @@ probe "a file named twice is red rather than averaging into one pass" 1 \
   "names the same file more than once" "$MCOV $d"
 
 d=$(mcov_fixture)
-sed -i.bak 's/^rtl\/timer.v     mtip-fires-a-tick-early/rtl\/timer.v     mtip-fires-a-tick-early extra/' \
-  "$d/test/MUTATION_COVERAGE"
+mutate "$d/test/MUTATION_COVERAGE" \
+  's/^rtl\/timer.v     mtip-fires-a-tick-early/rtl\/timer.v     mtip-fires-a-tick-early extra/'
 probe "a mutation line with a stray extra field is red rather than read as the name" 1 \
   "takes exactly one field" "$MCOV $d"
 begin_group "soc/compare/product_check.py"
@@ -5863,7 +5993,7 @@ probe "a ROM/RAM geometry change is checked the same generic way as CFLAGS" 1 \
   "$(product_check_run "$d" dhrystone 'rom_words=2048')"
 
 d=$(product_check_fixture)
-sed -i.bak 's/"dirty": "no"/"dirty": "yes"/' "$d/repo/product.json"
+mutate "$d/repo/product.json" 's/"dirty": "no"/"dirty": "yes"/'
 probe "a stamp measured on a dirty tree is STALE even if nothing has moved since" 1 \
   "measured on a tree with uncommitted changes" "$(product_check_run "$d" dhrystone '')"
 
@@ -5872,13 +6002,17 @@ probe "a not-yet-measured pair is reported, not graded as stale" 0 \
   "coremark: not yet measured -- not on this tree yet" "$(product_check_run "$d" coremark '')"
 
 d=$(product_check_fixture)
-probe "a benchmark this artifact never recorded is refused, not read as fresh" 1 \
+probe "a benchmark this artifact never recorded is refused, not read as fresh" 2 \
   "has no 'coreturbo' pair" "$(product_check_run "$d" coreturbo '')"
 
 d=$(product_check_fixture)
-probe "a missing artifact refuses rather than reporting on nothing" 1 \
+probe "a missing artifact refuses rather than reporting on nothing" 2 \
   "does not exist. Run" \
   "python3 $REPO/soc/compare/product_check.py $d/repo/no-such-product.json dhrystone --repo $d/repo"
+
+d=$(product_check_fixture)
+probe "an empty --current value is refused, not compared as though it were the field's value" 2 \
+  "--current cflags= is empty" "$(product_check_run "$d" dhrystone 'cflags=')"
 
 begin_group "soc/compare/product_write.py"
 
@@ -6028,6 +6162,111 @@ python3 "$REPO/soc/compare/product_write.py" "$d/after.json" coremark --measured
 probe "a pair measured for the first time is news on its own, with no --current at all" 0 \
   "news" \
   "python3 $REPO/soc/compare/product_diff.py $d/before.json $d/after.json --require-news --repo $d/repo"
+
+# 1 is "no news" here, so a refusal that also exited 1 reached the scheduled
+# re-take's if/else as a clean negative: no pull request, no error, nothing
+# said. The status is the only thing that tells them apart.
+d=$(pd_fixture)
+probe "--require-news refuses on its own status, not on \"no news\"" 2 \
+  "is empty" \
+  "python3 $REPO/soc/compare/product_diff.py $d/before.json $d/after.json --require-news \
+    --repo $d/repo --current 'dhrystone:cflags='"
+
+begin_group "test/probe_gates.sh: mutate, mutate_remove and fixture_anchor"
+
+d=$(new_case)
+printf 'hello world\n' > "$d/f.txt"
+probe "control: mutate on a real match rewrites the file and returns 0" 0 \
+  "goodbye world" "mutate '$d/f.txt' 's/hello/goodbye/' && cat '$d/f.txt'"
+
+d=$(new_case)
+printf 'hello world\n' > "$d/f.txt"
+probe "a mutate whose sed expression matches nothing is fixture-stale, named" 1 \
+  "fixture stale: 's/nomatch/x/' matches nothing in $d/f.txt" \
+  "mutate '$d/f.txt' 's/nomatch/x/'"
+
+d=$(new_case)
+: > "$d/gone.txt"
+probe "control: mutate_remove deletes a file that is there" 0 "removed" \
+  "mutate_remove '$d/gone.txt' && [ ! -e '$d/gone.txt' ] && echo removed"
+
+d=$(new_case)
+probe "mutate_remove on a path that was never there is fixture-stale, not silent" 1 \
+  "fixture stale: $d/nope.txt does not exist to remove" "mutate_remove '$d/nope.txt'"
+
+d=$(new_case)
+printf 'needle\n' > "$d/real.txt"
+probe "control: fixture_anchor finds its literal in the real file" 0 "anchored" \
+  "fixture_anchor '$d/real.txt' 'needle' && echo anchored"
+
+d=$(new_case)
+printf 'something else\n' > "$d/real.txt"
+probe "fixture_anchor whose literal left the real file is fixture-stale, named" 1 \
+  "fixture anchor stale: 'needle' is no longer in $d/real.txt" \
+  "fixture_anchor '$d/real.txt' 'needle'"
+
+begin_group "test/fixture_freshness_test.py"
+
+ffr() { printf 'python3 %s/test/fixture_freshness_test.py %s' "$1" "$1"; }
+
+# A COPY OF BOTH SHIPPING FILES: the checker reads its own allowlists from
+# whichever copy of itself runs, so proving the staleness direction means
+# mutating that copy too, not just the fixture it reads.
+ffr_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/test"
+  cp "$REPO/test/probe_gates.sh" "$REPO/test/fixture_freshness_test.py" "$d/test/"
+  printf '%s' "$d"
+}
+
+d=$(ffr_fixture)
+probe "control: the shipping fixtures are all mutate/mutate_remove, every anchor holds" 0 \
+  "no bare sed -i" "$(ffr "$d")"
+
+d=$(ffr_fixture)
+printf '\nsed -i.bak "s/x/y/" foo.txt\n' >> "$d/test/probe_gates.sh"
+# The expected text runs THROUGH the quoted line, not just up to the verb: the
+# scan counts lines itself, and a line number that has drifted off the planted
+# edit names an innocent line -- or a masked one, where the edit is dropped
+# with nothing said at all.
+probe "a raw sed -i outside mutate/mutate_remove is red, naming the line" 1 \
+  "directly: sed -i.bak \"s/x/y/\" foo.txt" "$(ffr "$d")"
+
+d=$(ffr_fixture)
+cat >> "$d/test/probe_gates.sh" <<'FIXTURE'
+new_synthetic_fixture() {
+  cat > "$d/x" <<'TOK'
+foo
+TOK
+}
+FIXTURE
+probe "a hand-typed fixture with no anchor and no cp of a real file is red" 1 \
+  "no fixture_anchor and no cp" "$(ffr "$d")"
+
+# The delimiter UNQUOTED, which is what a fixture whose body interpolates a
+# `$1` has to write. Two regexes once disagreed about this shape and the
+# anchor check skipped the fixture behind soc/bram_reset_check.py entirely.
+d=$(ffr_fixture)
+cat >> "$d/test/probe_gates.sh" <<'FIXTURE'
+another_synthetic_fixture() {
+  cat > "$d/x" <<TOK
+foo $1
+TOK
+}
+FIXTURE
+probe "a hand-typed fixture is red on an unquoted heredoc delimiter too" 1 \
+  "another_synthetic_fixture() types out" "$(ffr "$d")"
+
+d=$(ffr_fixture)
+mutate "$d/test/fixture_freshness_test.py" 's/SED_I_ALLOWLIST = \[\]/SED_I_ALLOWLIST = ["bogus entry"]/'
+probe "an allow-listed sed -i that no longer appears anywhere is red too" 1 \
+  "SED_I_ALLOWLIST exempts 'bogus entry'" "$(ffr "$d")"
+
+d=$(ffr_fixture)
+mutate "$d/test/probe_gates.sh" \
+  's|cp_fixture() {|cp_fixture() {\n  fixture_anchor "$REPO/test/cosim.py" "#!/usr/bin/env python3"|'
+probe "an allow-listed fixture that gained a real anchor is red until the entry is deleted" 1 \
+  "is no longer an anchorless synthetic fixture" "$(ffr "$d")"
 
 # A probe's label is compared against the checked-in manifest as a MULTISET
 # (sorted, duplicates kept), never reduced to a bare count first: a count can

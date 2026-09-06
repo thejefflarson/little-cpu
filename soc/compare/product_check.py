@@ -51,16 +51,31 @@ import json
 import subprocess
 import sys
 
+# THREE exit statuses, and the third one is why this is not `sys.exit(message)`.
+# 0 is the answer "fresh", 1 is the answer "stale", and 1 is ALSO what
+# soc/compare/product_diff.py --require-news spends on "no news" -- the benign
+# verdict the scheduled re-take reads as "open no pull request". Python exits 1
+# for `sys.exit(str)`, so a refusal raised anywhere stale_reasons() reaches used
+# to arrive at that workflow as a clean negative: no PR, no error, nothing said.
+# A refusal is a statement that the question could not be asked, so it takes a
+# status of its own and every caller can tell the two apart.
+REFUSED = 2
+
+
+def refuse(message):
+    print(message, file=sys.stderr)
+    sys.exit(REFUSED)
+
 
 def load(path):
     try:
         with open(path) as handle:
             return json.load(handle)
     except FileNotFoundError:
-        sys.exit(f"*** {path} does not exist. Run `make compare-product` first; "
-                 "there is no product to report on without it.")
+        refuse(f"*** {path} does not exist. Run `make compare-product` first; "
+               "there is no product to report on without it.")
     except (OSError, json.JSONDecodeError) as exc:
-        sys.exit(f"*** {path} could not be read as the product artifact: {exc}")
+        refuse(f"*** {path} could not be read as the product artifact: {exc}")
 
 
 def moved_paths(repo, base):
@@ -75,13 +90,13 @@ def moved_paths(repo, base):
             capture_output=True, text=True, check=True,
         )
     except FileNotFoundError:
-        sys.exit("*** no git on PATH, so the stamped commit cannot be compared "
-                 "against the tree.")
+        refuse("*** no git on PATH, so the stamped commit cannot be compared "
+               "against the tree.")
     except subprocess.CalledProcessError as exc:
-        sys.exit(f"*** git could not diff '{base}' against the tree in '{repo}': "
-                 f"{exc.stderr.strip()}\n*** That is a stamp this script cannot "
-                 "grade, which is the same as a stale one -- it names no tree "
-                 "this check can confirm is still current.")
+        refuse(f"*** git could not diff '{base}' against the tree in '{repo}': "
+               f"{exc.stderr.strip()}\n*** That is a stamp this script cannot "
+               "grade, which is the same as a stale one -- it names no tree "
+               "this check can confirm is still current.")
     return [line for line in out.stdout.splitlines() if line]
 
 
@@ -92,7 +107,26 @@ def stale_reasons(pair, repo, current):
     only the fields the caller actually asked about are checked, so a caller
     that does not know a field's current value simply omits it rather than
     forcing a guess.
+
+    An EMPTY value is refused rather than compared: a caller that could not
+    determine a field's current value (a `make print-VAR` on a VAR that does
+    not exist on this tree resolves empty rather than erroring) must omit the
+    field, the same way a caller that does not know it does. Comparing an
+    empty value against a real stamped one still catches drift, but comparing
+    it against a stamp that -- through some future writer bug -- also stamped
+    empty would compare equal and call a moved field fresh; refusing the
+    empty value outright closes that whether or not it has happened yet.
     """
+    for field, value in current.items():
+        # `.strip()`, not `== ""`: a `make print-VAR` that resolved to
+        # whitespace is the same non-answer, and it passes a shell `[ -n ]`
+        # test on the way here.
+        if str(value).strip() == "":
+            refuse(f"*** --current {field}= is empty. That is not a value "
+                   "to compare against the stamp -- it means whatever "
+                   "produced it could not determine the field, most often "
+                   "a `make print-VAR` on a VAR this tree does not define. "
+                   "Omit the field instead of asking to compare it.")
     reasons = []
     if pair.get("dirty") == "yes":
         reasons.append("it was measured on a tree with uncommitted changes, so "
@@ -115,9 +149,9 @@ def report_pair(benchmark, pair, args):
         print(f"{benchmark}: not yet measured -- {pair.get('reason', 'no reason recorded')}")
         return 0
     if status != "measured":
-        sys.exit(f"*** {benchmark}'s status is '{status}', which is neither "
-                 "'measured' nor 'not_yet_measured'. That is not a stamp this "
-                 "script knows how to grade.")
+        refuse(f"*** {benchmark}'s status is '{status}', which is neither "
+               "'measured' nor 'not_yet_measured'. That is not a stamp this "
+               "script knows how to grade.")
 
     reasons = stale_reasons(pair, args.repo, args.current)
     if reasons:
@@ -150,7 +184,7 @@ def parse_current(specs):
     current = {}
     for spec in specs:
         if "=" not in spec:
-            sys.exit(f"*** --current wants FIELD=VALUE, got '{spec}'")
+            refuse(f"*** --current wants FIELD=VALUE, got '{spec}'")
         field, value = spec.split("=", 1)
         current[field] = value
     return current
@@ -175,9 +209,9 @@ def main():
     pairs = doc.get("pairs", {})
     pair = pairs.get(args.benchmark)
     if pair is None:
-        sys.exit(f"*** {args.product_json} has no '{args.benchmark}' pair. Known: "
-                 f"{', '.join(sorted(pairs)) or '(none)'}. Run "
-                 "`make compare-product` first.")
+        refuse(f"*** {args.product_json} has no '{args.benchmark}' pair. Known: "
+               f"{', '.join(sorted(pairs)) or '(none)'}. Run "
+               "`make compare-product` first.")
 
     sys.exit(report_pair(args.benchmark, pair, args))
 

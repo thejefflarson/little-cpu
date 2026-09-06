@@ -96,22 +96,51 @@ jobs:
           set -euo pipefail
           python3 soc/compare/product_diff.py /tmp/product.before.json soc/compare/product.json \
             | tee /tmp/product-diff.md
+
+          # `make print-VAR` never errors on a VAR this tree does not define --
+          # it echoes an empty line (Makefile's print-% recipe) -- so a tree
+          # without COMPARE_COREMARK_CFLAGS would otherwise hand
+          # --require-news an empty --current value with no diagnostic.
+          # product_check.py's stale_reasons() now refuses an empty --current
+          # value outright, so build the CoreMark argument only when the build
+          # actually has one, and say so either way rather than leaving the
+          # field's presence to be inferred from the diff below.
+          COREMARK_CFLAGS=$(make -s print-COMPARE_COREMARK_CFLAGS)
+          if [ -n "$COREMARK_CFLAGS" ]; then
+            echo "COMPARE_COREMARK_CFLAGS is defined; checking CoreMark's cflags for staleness."
+            coremark_current=(--current "coremark:cflags=$COREMARK_CFLAGS")
+          else
+            echo "COMPARE_COREMARK_CFLAGS is undefined on this tree; not checking CoreMark's cflags for staleness."
+            coremark_current=()
+          fi
+
           # --require-news asks soc/compare/product_check.py's own question of
           # the OLD stamp against the tree this run checked out -- rtl/,
           # soc/compare/, or a --current value moved -- rather than a
           # percentage threshold on the result. Never in a pipeline: the
           # graded call's own status is what this step reports, not `tee`'s --
           # see CLAUDE.md's rule against exactly that.
-          if python3 soc/compare/product_diff.py /tmp/product.before.json \
+          # THREE statuses, branched on by number rather than by if/else: 0 is
+          # news, 1 is no news, and anything else is product_diff.py refusing
+          # the question -- an empty --current, an unreadable stamp, no git.
+          # Collapsed into an else, a refusal reports as "nothing moved enough
+          # to be news" and the run looks identical to a clean negative, which
+          # is the shape of silence this whole step exists to avoid.
+          set +e
+          python3 soc/compare/product_diff.py /tmp/product.before.json \
                soc/compare/product.json --require-news --repo . \
                --current "dhrystone:cflags=$(make -s print-COMPARE_DHRY_CFLAGS)" \
                --current "dhrystone:rom_words=$(make -s print-COMPARE_ROM_WORDS)" \
                --current "dhrystone:ram_words=$(make -s print-COMPARE_RAM_WORDS)" \
-               --current "coremark:cflags=$(make -s print-COMPARE_COREMARK_CFLAGS)"; then
-            echo "moved=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "moved=false" >> "$GITHUB_OUTPUT"
-          fi
+               "${coremark_current[@]}"
+          rc=$?
+          set -e
+          case $rc in
+            0) echo "moved=true"  >> "$GITHUB_OUTPUT" ;;
+            1) echo "moved=false" >> "$GITHUB_OUTPUT" ;;
+            *) echo "product_diff.py refused the question (exit $rc); failing the job" >&2
+               exit $rc ;;
+          esac
 
       # The no-move path is as visible as the move path on purpose: a silent
       # success here is indistinguishable from a job that never ran, which is
