@@ -46,6 +46,13 @@ jobs:
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The repo is 3.95 MiB and 473 commits, so a full clone costs about a
+          # second and buys every check the history it might need. Depth 1 is
+          # actions/checkout's default, not a decision anyone took here, and a
+          # grader that walks history under it does not fail loudly -- it grades
+          # nothing, which is the one outcome this tree refuses.
+          fetch-depth: 0
 
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
@@ -117,6 +124,13 @@ jobs:
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The repo is 3.95 MiB and 473 commits, so a full clone costs about a
+          # second and buys every check the history it might need. Depth 1 is
+          # actions/checkout's default, not a decision anyone took here, and a
+          # grader that walks history under it does not fail loudly -- it grades
+          # nothing, which is the one outcome this tree refuses.
+          fetch-depth: 0
 
       # A fork PR routes here to ubuntu-latest (see the note above
       # `jobs:`), whose image has no RISC-V cross compiler baked in --
@@ -207,6 +221,13 @@ jobs:
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The repo is 3.95 MiB and 473 commits, so a full clone costs about a
+          # second and buys every check the history it might need. Depth 1 is
+          # actions/checkout's default, not a decision anyone took here, and a
+          # grader that walks history under it does not fail loudly -- it grades
+          # nothing, which is the one outcome this tree refuses.
+          fetch-depth: 0
 
       # Fork-PR routing only -- see the `test` job for why.
       - name: Install the RISC-V cross compiler (fork PR routing only)
@@ -299,6 +320,13 @@ jobs:
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The repo is 3.95 MiB and 473 commits, so a full clone costs about a
+          # second and buys every check the history it might need. Depth 1 is
+          # actions/checkout's default, not a decision anyone took here, and a
+          # grader that walks history under it does not fail loudly -- it grades
+          # nothing, which is the one outcome this tree refuses.
+          fetch-depth: 0
 
       # Fork-PR routing only -- see the `test` job for why.
       - name: Install the RISC-V cross compiler (fork PR routing only)
@@ -388,6 +416,13 @@ jobs:
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The repo is 3.95 MiB and 473 commits, so a full clone costs about a
+          # second and buys every check the history it might need. Depth 1 is
+          # actions/checkout's default, not a decision anyone took here, and a
+          # grader that walks history under it does not fail loudly -- it grades
+          # nothing, which is the one outcome this tree refuses.
+          fetch-depth: 0
 
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
@@ -476,6 +511,13 @@ jobs:
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The repo is 3.95 MiB and 473 commits, so a full clone costs about a
+          # second and buys every check the history it might need. Depth 1 is
+          # actions/checkout's default, not a decision anyone took here, and a
+          # grader that walks history under it does not fail loudly -- it grades
+          # nothing, which is the one outcome this tree refuses.
+          fetch-depth: 0
 
       - name: Install svlint at the pin
         run: make lint-setup
@@ -511,6 +553,13 @@ jobs:
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The repo is 3.95 MiB and 473 commits, so a full clone costs about a
+          # second and buys every check the history it might need. Depth 1 is
+          # actions/checkout's default, not a decision anyone took here, and a
+          # grader that walks history under it does not fail loudly -- it grades
+          # nothing, which is the one outcome this tree refuses.
+          fetch-depth: 0
 
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
@@ -573,6 +622,13 @@ jobs:
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The repo is 3.95 MiB and 473 commits, so a full clone costs about a
+          # second and buys every check the history it might need. Depth 1 is
+          # actions/checkout's default, not a decision anyone took here, and a
+          # grader that walks history under it does not fail loudly -- it grades
+          # nothing, which is the one outcome this tree refuses.
+          fetch-depth: 0
 
       # Fork-PR routing only -- see the `test` job for why.
       - name: Install the RISC-V cross compiler (fork PR routing only)
@@ -648,6 +704,13 @@ jobs:
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The repo is 3.95 MiB and 473 commits, so a full clone costs about a
+          # second and buys every check the history it might need. Depth 1 is
+          # actions/checkout's default, not a decision anyone took here, and a
+          # grader that walks history under it does not fail loudly -- it grades
+          # nothing, which is the one outcome this tree refuses.
+          fetch-depth: 0
 
       # Fork-PR routing only -- see the `test` job for why.
       - name: Install the RISC-V cross compiler (fork PR routing only)
@@ -762,6 +825,13 @@ jobs:
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The repo is 3.95 MiB and 473 commits, so a full clone costs about a
+          # second and buys every check the history it might need. Depth 1 is
+          # actions/checkout's default, not a decision anyone took here, and a
+          # grader that walks history under it does not fail loudly -- it grades
+          # nothing, which is the one outcome this tree refuses.
+          fetch-depth: 0
 
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
@@ -805,6 +875,13 @@ jobs:
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The repo is 3.95 MiB and 473 commits, so a full clone costs about a
+          # second and buys every check the history it might need. Depth 1 is
+          # actions/checkout's default, not a decision anyone took here, and a
+          # grader that walks history under it does not fail loudly -- it grades
+          # nothing, which is the one outcome this tree refuses.
+          fetch-depth: 0
 
       - name: make monitor-check
         run: make monitor-check
@@ -883,6 +960,13 @@ jobs:
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The repo is 3.95 MiB and 473 commits, so a full clone costs about a
+          # second and buys every check the history it might need. Depth 1 is
+          # actions/checkout's default, not a decision anyone took here, and a
+          # grader that walks history under it does not fail loudly -- it grades
+          # nothing, which is the one outcome this tree refuses.
+          fetch-depth: 0
 
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
@@ -992,6 +1076,13 @@ jobs:
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The repo is 3.95 MiB and 473 commits, so a full clone costs about a
+          # second and buys every check the history it might need. Depth 1 is
+          # actions/checkout's default, not a decision anyone took here, and a
+          # grader that walks history under it does not fail loudly -- it grades
+          # nothing, which is the one outcome this tree refuses.
+          fetch-depth: 0
 
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
