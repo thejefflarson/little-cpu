@@ -404,7 +404,14 @@ jobs:
       # which is what this host has.
       - name: What this runner actually has
         run: |
-          echo "nproc:              $(nproc)"
+          # nproc does NOT see the CPU quota -- it reports the host's cores --
+          # so the cgroup figures below are the ones that decide JOBS.
+          echo "nproc (NOT the cap):$(nproc)"
+          echo "cgroup cpu.max:     $(cat /sys/fs/cgroup/cpu.max 2>/dev/null \
+            || { q=$(cat /sys/fs/cgroup/cpu/cpu.cfs_quota_us 2>/dev/null); \
+                 p=$(cat /sys/fs/cgroup/cpu/cpu.cfs_period_us 2>/dev/null); \
+                 [ -n "$q" ] && [ -n "$p" ] && echo "$q $p"; } \
+            || echo unavailable)"
           echo "cgroup memory.max:  $(cat /sys/fs/cgroup/memory.max 2>/dev/null \
             || cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null \
             || echo unavailable)"
@@ -837,11 +844,36 @@ jobs:
   # question for the log; two jobs answer it in the check name.
   formal-checks:
     name: formal-checks
-    # GitHub-hosted for memory, not packaging. One check peaks around 876 MiB
-    # resident (insn_add_ch0, measured) and the in-cluster pod has a 1.5 GiB
-    # limit with ~836 MiB already held at job start, so a single check does not
-    # fit there at any parallelism.
-    runs-on: ubuntu-latest
+    # ON THE POOL, and faster there. The 876 MiB-per-check figure that used to
+    # send this job to a hosted runner does not survive re-measurement: the
+    # whole flow peaks at 594 MB at JOBS=1, and parallelism costs about 278 MB
+    # per additional check on that base.
+    #
+    #   JOBS=1   484s    594 MB
+    #   JOBS=2   252s   1015 MB
+    #   JOBS=4   137s   1427 MB
+    #
+    # JOBS=4 IS BOUNDED BY THE CPU CAP AND THEN BY MEMORY, and the pod is 4 CPUs
+    # and 3 GiB: 4 matches the cap exactly, and 1427 MB leaves room. Raising it
+    # past the cap buys nothing -- these checks are CPU-bound SMT solving, so
+    # oversubscription trades wall time for memory and gets neither.
+    #
+    # NEITHER LIMIT IS VISIBLE THE OBVIOUS WAY. `nproc` reports 16 on this pod
+    # because a CPU quota does not narrow the affinity mask, and `free` reports
+    # the host's memory from inside a container. The `components` job prints
+    # both cgroup figures; size against those and not against either of the two
+    # numbers that look authoritative and are not.
+    #
+    # Below 3 GiB, drop to JOBS=2 rather than let a check be OOM-killed: an
+    # evicted pod takes its logs with it and reads as a job that failed for no
+    # stated reason, which is how this was learned rather than reasoned.
+    #
+    # A hosted runner does JOBS=4 in 237s and an Apple Silicon machine in 137s
+    # at the same four-way parallelism, so the win here is per-core speed rather
+    # than more cores -- the pod's cap matches the hosted runner's vCPU count.
+    # Fork PRs still route to a hosted runner.
+    # Fork-PR routing: see the note above `jobs:` for what this picks and why.
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
     # Loose because there is no per-check wall bound: one non-converging check
     # starves everything scheduled after it, and `-k` does not help because the
     # job dies rather than the check.
@@ -890,7 +922,15 @@ jobs:
           set -uo pipefail
           echo "nproc:            $(nproc)"
           echo "cgroup cpu.max:   $(cat /sys/fs/cgroup/cpu.max 2>/dev/null || echo unavailable)"
-          echo "cgroup memory.max:$(cat /sys/fs/cgroup/memory.max 2>/dev/null || echo unavailable)"
+          echo "cgroup memory.max:$(cat /sys/fs/cgroup/memory.max 2>/dev/null \
+            || cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null \
+            || echo unavailable)"
+          # `free` reports the HOST's memory from inside a container, so it says
+          # 15Gi on a pod limited to about 2GB. The cgroup line above is the one
+          # to read -- v2's memory.max first, then v1's limit_in_bytes, which is
+          # what this host actually has. Printed anyway, labelled, because the
+          # gap between the two is itself the thing worth seeing.
+          echo "host free -h (NOT the pod's limit):"
           free -h 2>/dev/null || true
           make -C formal check JOBS=4
 
@@ -940,9 +980,12 @@ jobs:
   # `make`s: make stops at the first failure and the log would read as one.
   formal-extra:
     name: formal-extra
-    # Hosted for the same memory reason as formal-checks: `complete` walks the
-    # whole ISA to depth 50 and the in-cluster pod cannot hold it.
-    runs-on: ubuntu-latest
+    # On the pool, and it fits with room to spare at today's limit. Measured:
+    # dmemcheck 400 MB, imemcheck 364 MB, complete 277 MB, complete_cover
+    # 113 MB, cover 64 MB -- the depth-50 whole-ISA walk is not the heavy one,
+    # which is why this half moves without waiting on a bigger pod.
+    # Fork-PR routing: see the note above `jobs:` for what this picks and why.
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
     timeout-minutes: 20
     steps:
       - name: Record job start
