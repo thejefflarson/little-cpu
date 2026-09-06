@@ -60,6 +60,7 @@ a CoreMark run that never made the cross-core check is red
 a CoreMark simulation this cannot parse is a run that did not happen
 a CoreMark testbench simulating a different map than the image is linked for is red
 a MAP_TOP inside the topmost window is red
+a Makefile naming $(VEXRISCV_V) nowhere is red, not vacuously clean
 a PASS with no counts line is not a pass
 a RAM comparison over no words is named as unable to fail
 a RAM half the size in the core's copy is red
@@ -271,6 +272,7 @@ a prose copy of a band figure goes red where it is written
 a raw sed -i outside mutate/mutate_remove is red, naming the line
 a real archive missing one vendored member is caught, and named
 a real archive with one byte-mutated file is caught, and named
+a recipe naming the riscv-formal clone's VexRiscv path instead of $(VEXRISCV_V) is red
 a ref that names no commit is refused, not compared
 a reference model that produced no trace is fatal
 a reg_rs1 bit routed into hazard is red, at hazard's own site

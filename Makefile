@@ -465,6 +465,14 @@ adr-numbering-test:
 compare-geometry-test:
 	@./soc/compare/geometry_test.sh
 
+# The two IVERILOG comparison recipes must read VexRiscv through $(VEXRISCV_V)
+# and never through the riscv-formal clone -- see soc/compare/vexriscv_pin.mk
+# for why the two builds are not peers. grep and sed only, so this hangs off
+# `test` the same way compare-geometry-test does.
+.PHONY: vexriscv-path-test
+vexriscv-path-test:
+	@./soc/compare/vexriscv_path_test.sh
+
 .PHONY: port-connect-test
 port-connect-test:
 	@python3 ./test/port_connect_test.py
@@ -548,7 +556,7 @@ dual-build:
 
 .PHONY: test
 test: sim test-units probe-gates pin-bump-test tool-cache-test memmap-test \
-      adr-numbering-test compare-geometry-test retired-term-test port-connect-test march-test \
+      adr-numbering-test compare-geometry-test vexriscv-path-test retired-term-test port-connect-test march-test \
       band-source-test zkt-isolation-test fixture-freshness-test window-test imem-share-test \
       abc-engine-test mutation-probe dual-build board-elaborate \
       tracked-ignored-test mutation-coverage-test
@@ -1347,8 +1355,14 @@ COMPARE_READ := read_verilog $(VEXRISCV_V); \
 COMPARE_CORE_READ := read_verilog $(VEXRISCV_V); \
                      hierarchy -top VexRiscv; delete -port VexRiscv/rvfi_*
 COMPARE_CORE_TOP  := VexRiscv
-COMPARE_DEPS      := $(COMPARE_SRCS) $(VEXRISCV_V)
-COMPARE_CORE_DEPS := | $(RISCV_FORMAL_DIR)
+# vexriscv-pin-check on BOTH, so the digest gates the clock half of the product
+# and not only the cycle half: these two are the recipes that synthesise and
+# place the core whose period gets published. It is phony, so it forces a
+# rebuild -- which .json already took from `compare-rom` anyway. The standalone
+# synthesis no longer reads the riscv-formal clone at all, so it no longer
+# waits on one being fetched.
+COMPARE_DEPS      := $(COMPARE_SRCS) $(VEXRISCV_V) vexriscv-pin-check
+COMPARE_CORE_DEPS := $(VEXRISCV_V) vexriscv-pin-check
 else ifeq ($(COMPARE_CORE),hazard3)
 COMPARE_TOP  := bench_hazard3
 COMPARE_SRCS := $(HAZARD3_SRCS) rtl/memory.v soc/compare/bench_hazard3.v
@@ -1412,8 +1426,8 @@ compare.$(COMPARE_CORE).core.log: $(COMPARE_CORE_DEPS)
 	@yosys -p '$(COMPARE_CORE_READ); synth_ice40 $(COMPARE_SYNTH_FLAGS) -top $(COMPARE_CORE_TOP); stat' \
 	  > $@ 2>&1 || { tail -40 $@; exit 1; }
 
-# `compare-rom` FIRST. COMPARE_DEPS ends with an order-only `| $(RISCV_FORMAL_DIR)`
-# for VexRiscv, and everything after a `|` is order-only -- so written the other
+# `compare-rom` FIRST. COMPARE_DEPS ends with an order-only `| $(HAZARD3_DIR)`
+# for Hazard3, and everything after a `|` is order-only -- so written the other
 # way round the phony stopped forcing a rebuild, `--seed` reached nextpnr on a
 # netlist make never regenerated, and four "placements" of that core reported
 # one number to the millisecond.
@@ -1457,9 +1471,14 @@ COMPARE_SMOKE_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
                       soc/compare/bench_vexriscv.v soc/compare/bench_hazard3.v \
                       soc/compare/bench_tb.v
 
-compare.vvp: $(COMPARE_SMOKE_SRCS) compare-rom | $(RISCV_FORMAL_DIR) $(HAZARD3_DIR)
+# $(VEXRISCV_V) is a real prerequisite, not order-only: a stale build here must
+# rebuild when the vendored core changes, the way any other source file would.
+# vexriscv-pin-check runs first so a hand-edited VexRiscv.v fails the digest
+# check rather than quietly simulating.
+compare.vvp: $(COMPARE_SMOKE_SRCS) compare-rom $(VEXRISCV_V) vexriscv-pin-check \
+             | $(HAZARD3_DIR)
 	iverilog -I./rtl/ -I$(HAZARD3_HDL) -g2012 -o $@ \
-	  $(RISCV_FORMAL_DIR)/cores/VexRiscv/VexRiscv.v $(HAZARD3_SRCS) \
+	  $(VEXRISCV_V) $(HAZARD3_SRCS) \
 	  $(COMPARE_SMOKE_SRCS)
 
 .PHONY: compare-smoke
@@ -1499,9 +1518,12 @@ COMPARE_DHRY_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
                      soc/compare/bench_vexriscv.v soc/compare/bench_hazard3.v \
                      soc/compare/dhry_monitor.v soc/compare/dhry_tb.v
 
-compare.dhry.vvp: $(COMPARE_DHRY_SRCS) | $(RISCV_FORMAL_DIR) $(HAZARD3_DIR)
+# Same reasoning as compare.vvp above: $(VEXRISCV_V) is a real prerequisite and
+# vexriscv-pin-check gates the digest before this simulates anything.
+compare.dhry.vvp: $(COMPARE_DHRY_SRCS) $(VEXRISCV_V) vexriscv-pin-check \
+                  | $(HAZARD3_DIR)
 	iverilog -I./rtl/ -I$(HAZARD3_HDL) -g2012 -o $@ \
-	  $(RISCV_FORMAL_DIR)/cores/VexRiscv/VexRiscv.v $(HAZARD3_SRCS) \
+	  $(VEXRISCV_V) $(HAZARD3_SRCS) \
 	  $(COMPARE_DHRY_SRCS)
 
 # THE ISA-COST ROW: this core alone, at soc/compare/dhry_tb.v's own geometry,

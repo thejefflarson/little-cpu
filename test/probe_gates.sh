@@ -3717,6 +3717,27 @@ printf '#!/bin/bash\necho "nothing to see here"\n' > "$d/soc/compare/run_unrelat
 probe "a soc/compare script naming no .lds at all does not sink the scan" 0 \
   "stated the same way everywhere it is declared" "$GT $d"
 
+begin_group "soc/compare/vexriscv_path_test.sh"
+
+VPT="$REPO/soc/compare/vexriscv_path_test.sh"
+
+f=$(new_case)/Makefile
+cp "$REPO/Makefile" "$f"
+mutate "$f" \
+  's#\$(VEXRISCV_V) \$(HAZARD3_SRCS) \\#$(RISCV_FORMAL_DIR)/cores/VexRiscv/VexRiscv.v $(HAZARD3_SRCS) \\#'
+probe "a recipe naming the riscv-formal clone's VexRiscv path instead of \$(VEXRISCV_V) is red" 1 \
+  "names a VexRiscv.v path other" "$VPT $f"
+
+# The scan's other half. Taking every reference OUT leaves nothing forbidden to
+# find, so the absence test alone would call this Makefile clean -- which is
+# what a VexRiscv reached through a variable or a wildcard this grep cannot
+# read would look like.
+f=$(new_case)/Makefile
+cp "$REPO/Makefile" "$f"
+mutate "$f" 's#\$(VEXRISCV_V)##g'
+probe "a Makefile naming \$(VEXRISCV_V) nowhere is red, not vacuously clean" 1 \
+  "names \$(VEXRISCV_V) nowhere" "$VPT $f"
+
 begin_group "soc/compare/dhry_fit.py"
 
 DF="python3 $REPO/soc/compare/dhry_fit.py"
