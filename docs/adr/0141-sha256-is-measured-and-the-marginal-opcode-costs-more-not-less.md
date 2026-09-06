@@ -3,6 +3,14 @@
 Status: accepted (declined) · continues ADR-0131's `sh2add` probe, and is the first real user of
 ADR-0132's / ADR-0138's per-encoding completeness exclusion predicate.
 
+**This title is superseded by Amendment 1 below.** The marginal-growth reading was four single
+`fit` runs differenced inside a churn band of about ±50 cells; Amendment 1 re-measured the same
+functions standalone and found a flat, intrinsic floor — one LUT per output bit, the same one
+ADR-0119 measured for the AMO's bitwise arms — with the four-flag spelling's apparent growth an
+artifact of that band. The verdict Zknh stays dead on this part is unchanged; the reason is not
+"the marginal opcode costs more", it is that the functions' own LUT floor alone exceeds the
+headroom.
+
 ## Context
 
 ADR-0131 measured Zba's `sh2add` — a constant shift into the adder `rtl/executor.v`'s add arm
