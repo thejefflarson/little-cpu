@@ -386,8 +386,15 @@ top, ECP5 only.
   three mapping censuses **gate** (`DP16KD`, `TRELLIS_DPR16X4`, `MULT18X18D` — each falling back to
   soft logic is silent in a frequency and enormous in area); the frequency **publishes** with no
   ratchet; the constraint handed to the placer is a pinned constant the design must miss, or the
-  run measures the target. No ECP5 band has been derived and `soc/bands.py` refuses to answer for
-  the part; up5k's figures do not transfer. Pinning `clk` to the module's oscillator pin is not
+  run measures the target. **A fourth check is structural and absolute: no block RAM's reset may be
+  driven by logic** (`soc/bram_reset_check.py`, over the mapped JSON, on all three ECP5 flows).
+  Yosys maps a synchronous constant arm — `mem_rdata <= in_range ? ram[index] : 32'b0` — onto
+  `DP16KD`'s output reset, and on the part that read returns zero whatever the array holds, so a
+  program's stores land and read back as nothing (ADR-0163). Nothing else sees it: RTL simulation
+  passes, the censuses count the same 36 `DP16KD`, nextpnr places and times it, and **yosys ships
+  no behavioural model for `DP16KD`**, so the mapped netlist cannot be simulated on any machine.
+  Spell such an arm as a mux on the block's OUTPUT. No ECP5 band has been derived and
+  `soc/bands.py` refuses to answer for the part; up5k's figures do not transfer. Pinning `clk` to the module's oscillator pin is not
   cosmetic: the pad decides where the global network is entered, and `soc/littlesoc.lpf`'s header
   records the one placement that read faster unpinned.
 - **The DUAL configuration is a FOURTH design, ECP5 only.** Two fetch windows are two copies of the
@@ -565,6 +572,13 @@ make bitstream      # icepack the board wrapper into board.bin; BOARD_OSC=intern
 make prog           # iceprog board.bin onto the UPduino; root on macOS
 make suite-board    # the .S suite on the part, in batches, read back over the UART; root
 make dhrystone-board # Dhrystone built for the board; flash with `make prog`, read the UART
+make icesugar-bitstream # the iCESugar-Pro (ECP5) bitstream; ICESUGAR_PROG picks the program,
+                    # ICESUGAR_ROM=noop-rom takes banks another recipe already wrote
+make icesugar-prog  # load it into SRAM over JTAG. NOT the flash: a flash write leaves the
+                    # part at `@cdone:0`, unconfigured, until it is physically power-cycled
+make icesugar-read  # read that board's UART for a bounded window
+make icesugar-dhrystone # build Dhrystone for it, load it, read the report it prints itself.
+                    # Needs the board, so off `make test` and off CI, like suite-board
 make dual-smoke     # two harts, one text storage, one arbiter, under cxxrtl; one program run
                     # both ways. Off `make test` and CI. `make dual-elaborate` is iverilog's look
 make dual-ecp5-timing # the dual top placed, ECP5 only; three censuses GATE, the frequency
@@ -684,7 +698,13 @@ The SoC is 8 KB of ROM in block RAM plus 64 KB of data RAM in two of the part's 
 12 MHz, and has run on the part: `make prog` flashes an UPduino v3.0, the UART's counter decoded
 digit-perfect, and Dhrystone on the part matched cxxrtl to the cycle (ADR-0130). `make suite-board`
 and `make dhrystone-board` run the suite and Dhrystone there; neither is graded on CI, because a
-board is not always plugged in. SPRAM cannot be initialised, so `.data` rides in the ROM at a load
+board is not always plugged in. **The same source runs on a second part**: a MuseLab
+iCESugar-Pro (ECP5 LFE5U-25F) reports Dhrystone at **0.775 DMIPS/MHz, 19.4 DMIPS at 25 MHz** over
+`make icesugar-dhrystone`, against cxxrtl's 0.776 on the same ROM and an unexplained
+one-cycle-per-run gap (ADR-0163). Getting there needed the data RAM's out-of-range arm off the
+block RAM's reset, and that board is programmed by loading SRAM over JTAG — a flash write leaves
+the part unconfigured until it is power-cycled. SPRAM cannot be initialised, so `.data` rides in
+the ROM at a load
 address `test/asm/boot.lds` puts there and `test/crt0.S` copies into RAM before `main`. Still
 deferred: the radix-4 divider (a CPI lever that costs area, so never part of an area pass,
 ADR-0038), booting a program out of the flash, an interrupt controller, more interrupt sources and

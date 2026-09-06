@@ -84,6 +84,7 @@ a bench in test/ that make does not run is named
 a bench_*.v file with no ROM_WORDS parameter needs no Makefile entry
 a benchmark this artifact never recorded is refused, not read as fresh
 a bitstream the placer never finished writing is not a placement
+a block RAM read through its own reset is refused
 a block short of a tool is named, not summarised around
 a block with no end is truncated, and a truncated one is not read
 a caller that needs the figures rather than the prose is refused
@@ -222,6 +223,7 @@ a mutation line with a stray extra field is red rather than read as the name
 a mutation with no program leg is a real entry, not a missing file
 a netlist from another tree is named, not binned as `neither`
 a netlist that is not there is refused, not read as equal
+a netlist with no block RAM at all is refused, not silently green
 a netlist with no pc net would leave that bin empty for ever
 a netlist with no top module names no one design
 a new rtl file with no line is red, naming the file
@@ -235,6 +237,7 @@ a one-bit constant is a different digest
 a one-field baseline line is rejected before the suite runs
 a pair measured for the first time is news on its own, with no --current at all
 a pairing naming a program nobody wrote is red
+a parameter list spread over several lines is refused, not skimmed
 a parameter this cannot read stops rather than comparing nothing
 a part this repo does not place is refused, not added by asking
 a part this repo does not place stops the sweep before any placement
@@ -436,6 +439,7 @@ an unlisted site is red and named, with the file:line quoted
 an unpaired line whose named grader is not a real bench or formal task is red
 an unreadable clone makes 'no spec model' unmeasurable, and fatal
 an unreadable clone makes the re-derivation impossible, and fatal
+an unreadable netlist is refused rather than read as clean
 an unrecognised CS line is a hard error, never guessed at
 an unstamped file is rejected rather than summarised
 an unstamped sweep is refused here too, by the reader it shares
@@ -520,6 +524,7 @@ control: an unmodified vendor tree reaches the stub compiler
 control: an untracked file is out of scope and does not fail the build
 control: and names the corner and constraint it was placed against
 control: another commit's canonical netlist is built from its own tree
+control: block RAM resets tied to a constant are green
 control: both Zkt-isolation assertions fail, each at its own line
 control: both arms admit the shipping arbiter and fail on their mutation
 control: both arms admit the shipping arbiter and fail on their mutation
@@ -634,10 +639,12 @@ the UART moving in the core's copy alone is red
 the UART moving in the proof's copy alone is red
 the address the flash-reading program uses is checked against the controller
 the address the printing program writes is checked against the UART
+the baud rate is still refused beside the clock a top may set
 the benchmark script must keep linking against the part's rom
 the benchmark's own FAIL verdict stops the number being quoted
 the carry chain's own interconnect is charged to the carry hop
 the cell count names its own unit rather than borrowing the other's
+the clock-rate exception belongs to the UART alone
 the co-sim runner's kRamBase drifting is red on its own
 the compensation going missing is caught after every rule
 the core hitting its cycle budget is INCONCLUSIVE too
@@ -673,6 +680,9 @@ the proof's copy of the RAM base drifting from the RAM is red
 the quiet one: objcopy exits 0 having written no bytes
 the reference model hitting its budget is INCONCLUSIVE, not a finding
 the refusal is the part, not the four tool mismatches it also produces
+the refusal names the cell and the port, not just a count
+the refusal names the flow that stopped, not another part's
+the refusal points at the spelling that fixes it
 the refused download is neither unpacked nor kept to be served again
 the rulebook quoting a figure the source no longer states is red
 the same for the bypass counter, per program rather than in total
