@@ -10,10 +10,26 @@ busarbiter all
 all: mode prove
 
 [engines]
-all: smtbmc
+# Scoped per task rather than one `all:` line, because a task line ADDS an
+# engine to `all`'s rather than replacing it: `pcloop` and `busarbiter` below
+# race two engines on purpose and the other four must not.
+decoder: smtbmc
+accessor: smtbmc
+pcloop: smtbmc
+busarbiter: smtbmc
+
+# THE TWO SLOW PROOFS RUN A DIFFERENT ALGORITHM, not a different solver. Both
+# are `mode prove` over 32-bit arithmetic, where the cost is the basecase
+# walking its steps, and swapping the SMT solver underneath k-induction does not
+# move it -- measured on this tree, boolector loses the race to the yices
+# default outright. IC3 does move it: executor 254s -> 122s and traps 54s -> 40s,
+# which is 45% of this job. Neither proof is weakened, both still report a
+# successful proof, and both keep their forced-red prerequisites.
+executor: aiger rIC3
+traps: aiger rIC3
 # The generated checks' solver finding (formal/checks.cfg's `solver` line),
 # reproduced on a different query. `smtbmc` with no solver name is
-# yosys-smtbmc's default, yices, and it is fine for the two standalone tasks.
+# yosys-smtbmc's default, yices, and it is fine for the four tasks above.
 # On `pcloop` it is not: measured on this tree, yices sat in the basecase at
 # step 6 for over FOURTEEN MINUTES without returning, while `smtbmc boolector`
 # cleared basecase and induction and reported `successful proof by k-induction`

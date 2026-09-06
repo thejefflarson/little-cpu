@@ -204,19 +204,23 @@ jobs:
         uses: ./.github/actions/setup-oss-cad-suite
 
       - name: make mutation-check
-        # NOT `make mutation-check | tee`. The default shell is errexit without
-        # pipefail, so a pipeline's status becomes the last command's and this
-        # gate would report `tee`'s. The log is redirected and printed here
-        # instead, on both paths -- a plain `set -e` would exit before the `cat`
-        # and a failing run would publish no output at all.
+        # STREAMED, not redirected. This is the longest job in the matrix, and a
+        # run whose output arrives only at the end is one where a hang and a
+        # slow mutation look identical for ten minutes. Each mutation prints its
+        # name and its verdict as it finishes, so the log says where it is.
+        #
+        # STILL NOT `make mutation-check | tee`, and now nothing is piped at
+        # all: a graded command in a pipeline reports the LAST command's status,
+        # which under a shell that is errexit without pipefail held the formal
+        # job accidentally green for its entire life. `set -o pipefail` below
+        # would cover a pipeline, but the status this step grades is make's and
+        # there is no reason to route it through anything.
         run: |
           set -euo pipefail
-          if ! make mutation-check > /tmp/mutation-check.log 2>&1; then
-            cat /tmp/mutation-check.log
+          if ! make mutation-check; then
             echo "::error::a declared mutation was not caught by exactly the detectors test/MUTATION_DETECTORS pairs with it"
             exit 1
           fi
-          cat /tmp/mutation-check.log
 
       - name: Report job wall time
         if: always()
