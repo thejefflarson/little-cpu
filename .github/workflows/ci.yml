@@ -344,6 +344,28 @@ jobs:
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
 
+      # WHAT THE POD ACTUALLY HAS, printed from a job that runs ON THE POOL.
+      # `formal` is GitHub-hosted because one of its checks was measured at
+      # ~876 MiB against a 1.5 GiB pod holding ~836 MiB at start -- a number with
+      # a date on it, and the thing that decides whether formal can come back to
+      # the minis, where it would be faster. This job is where to read it: it is
+      # pool-routed and, since bitwuzla, the memory-sensitive one.
+      #
+      # `free` reports the HOST from inside a container, so the cgroup lines are
+      # the ones to believe -- v2's memory.max first, then v1's limit_in_bytes,
+      # which is what this host has.
+      - name: What this runner actually has
+        run: |
+          echo "nproc:              $(nproc)"
+          echo "cgroup memory.max:  $(cat /sys/fs/cgroup/memory.max 2>/dev/null \
+            || cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null \
+            || echo unavailable)"
+          echo "cgroup memory used: $(cat /sys/fs/cgroup/memory.current 2>/dev/null \
+            || cat /sys/fs/cgroup/memory/memory.usage_in_bytes 2>/dev/null \
+            || echo unavailable)"
+          echo "host free -h (NOT the pod's limit):"
+          free -h 2>/dev/null || true
+
       - name: Executor arithmetic BMC
         run: make -C formal components_executor
 
@@ -756,8 +778,17 @@ jobs:
   # Every one is `mode bmc`, and they all run under RISCV_FORMAL_ALTOPS, so a
   # passing insn_mul or insn_div says nothing about the real multiplier or
   # divider.
-  formal:
-    name: formal
+  # SPLIT IN TWO. `make -C formal check` is 237s of this and the five
+  # hand-authored tasks below are 64s together, so running them apart takes the
+  # formal wall time from about 320s to about 250s -- and once mutation-check is
+  # sharded, this job is what the whole run waits on. It costs the self-hosted
+  # pool nothing: both halves are GitHub-hosted for the memory reason below.
+  #
+  # It also makes a red run legible. One job covering the generated sweep and
+  # five standalone proofs reports "formal failed", and which half broke is a
+  # question for the log; two jobs answer it in the check name.
+  formal-checks:
+    name: formal-checks
     # GitHub-hosted for memory, not packaging. One check peaks around 876 MiB
     # resident (insn_add_ch0, measured) and the in-cluster pod has a 1.5 GiB
     # limit with ~836 MiB already held at job start, so a single check does not
@@ -846,7 +877,34 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
-      # The hand-authored tasks. formal/EXPECTED_FAIL covers the genchecks sweep
+      - name: Report job wall time
+        if: always()
+        run: |
+          elapsed=$(( $(date +%s) - JOB_START ))
+          {
+            echo "### formal-checks"
+            echo "wall time: ${elapsed}s"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # The hand-authored tasks, in a job of their own. formal/EXPECTED_FAIL covers
+  # the genchecks sweep only, so each one's verdict is its own exit status --
+  # which is also why they are one step each rather than one step running five
+  # `make`s: make stops at the first failure and the log would read as one.
+  formal-extra:
+    name: formal-extra
+    # Hosted for the same memory reason as formal-checks: `complete` walks the
+    # whole ISA to depth 50 and the in-cluster pod cannot hold it.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Record job start
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up OSS CAD Suite
+        uses: ./.github/actions/setup-oss-cad-suite
+
       # only, so each one's verdict is its own exit status. One step each rather
       # than one step running three `make`s, because make stops at the first
       # failure and the log would read as a single one.
@@ -888,6 +946,29 @@ jobs:
         run: |
           elapsed=$(( $(date +%s) - JOB_START ))
           {
-            echo "### formal"
+            echo "### formal-extra"
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # THE REQUIRED CHECK KEEPS ITS NAME, for the reason `mutation-check` does: a
+  # required context that stops reporting blocks every pull request rather than
+  # failing one, including the pull request that would rename it. Splitting the
+  # work must not make either half optional -- `complete` is the whole-ISA walk,
+  # and it going quiet is exactly what must not become unnoticeable.
+  formal:
+    name: formal
+    needs: [formal-checks, formal-extra]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require both halves to have passed
+        run: |
+          set -euo pipefail
+          checks='${{ needs.formal-checks.result }}'
+          extra='${{ needs.formal-extra.result }}'
+          echo "formal-checks: $checks   formal-extra: $extra"
+          if [ "$checks" != success ] || [ "$extra" != success ]; then
+            echo "::error::a formal half did not pass; read formal-checks and formal-extra"
+            exit 1
+          fi
+
