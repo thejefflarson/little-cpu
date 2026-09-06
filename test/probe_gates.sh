@@ -5839,16 +5839,16 @@ probe "a not-yet-measured pair is reported, not graded as stale" 0 \
   "coremark: not yet measured -- not on this tree yet" "$(product_check_run "$d" coremark '')"
 
 d=$(product_check_fixture)
-probe "a benchmark this artifact never recorded is refused, not read as fresh" 1 \
+probe "a benchmark this artifact never recorded is refused, not read as fresh" 2 \
   "has no 'coreturbo' pair" "$(product_check_run "$d" coreturbo '')"
 
 d=$(product_check_fixture)
-probe "a missing artifact refuses rather than reporting on nothing" 1 \
+probe "a missing artifact refuses rather than reporting on nothing" 2 \
   "does not exist. Run" \
   "python3 $REPO/soc/compare/product_check.py $d/repo/no-such-product.json dhrystone --repo $d/repo"
 
 d=$(product_check_fixture)
-probe "an empty --current value is refused, not compared as though it were the field's value" 1 \
+probe "an empty --current value is refused, not compared as though it were the field's value" 2 \
   "--current cflags= is empty" "$(product_check_run "$d" dhrystone 'cflags=')"
 
 begin_group "soc/compare/product_write.py"
@@ -5999,6 +5999,15 @@ python3 "$REPO/soc/compare/product_write.py" "$d/after.json" coremark --measured
 probe "a pair measured for the first time is news on its own, with no --current at all" 0 \
   "news" \
   "python3 $REPO/soc/compare/product_diff.py $d/before.json $d/after.json --require-news --repo $d/repo"
+
+# 1 is "no news" here, so a refusal that also exited 1 reached the scheduled
+# re-take's if/else as a clean negative: no pull request, no error, nothing
+# said. The status is the only thing that tells them apart.
+d=$(pd_fixture)
+probe "--require-news refuses on its own status, not on \"no news\"" 2 \
+  "is empty" \
+  "python3 $REPO/soc/compare/product_diff.py $d/before.json $d/after.json --require-news \
+    --repo $d/repo --current 'dhrystone:cflags='"
 
 # A probe's label is compared against the checked-in manifest as a MULTISET
 # (sorted, duplicates kept), never reduced to a bare count first: a count can

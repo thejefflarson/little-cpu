@@ -34,6 +34,7 @@
 --require-news against an unchanged repo and matching --current is quiet
 --require-news is news the moment --current disagrees with the older stamp
 --require-news is news the moment rtl/ moved under the older stamp too
+--require-news refuses on its own status, not on "no news"
 ...and one the purge did not remove means the digest is equal by luck
 ...and so does the file it injects into going away
 ...and the count that site was declared with is red too

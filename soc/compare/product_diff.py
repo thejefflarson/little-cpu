@@ -29,7 +29,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from product_check import stale_reasons  # noqa: E402
+from product_check import refuse, stale_reasons  # noqa: E402
 
 
 def load(path):
@@ -37,7 +37,7 @@ def load(path):
         with open(path) as handle:
             return json.load(handle)
     except (OSError, json.JSONDecodeError) as exc:
-        sys.exit(f"*** {path}: {exc}")
+        refuse(f"*** {path}: {exc}")
 
 
 def diff_pair(name, before, after):
@@ -103,7 +103,7 @@ def parse_current(specs):
     current = {}
     for spec in specs:
         if ":" not in spec or "=" not in spec:
-            sys.exit(f"*** --current wants BENCHMARK:FIELD=VALUE, got '{spec}'")
+            refuse(f"*** --current wants BENCHMARK:FIELD=VALUE, got '{spec}'")
         benchmark, rest = spec.split(":", 1)
         field, value = rest.split("=", 1)
         current.setdefault(benchmark, {})[field] = value
@@ -125,8 +125,9 @@ def main():
         "--require-news",
         action="store_true",
         help="exit 0 if any pair is news by product_check's own definition, "
-        "1 if nothing is (the workflow's PR/no-PR decision); with this flag, "
-        "nothing is printed except a one-line verdict",
+        "1 if nothing is (the workflow's PR/no-PR decision), 2 if the question "
+        "could not be asked at all; with this flag, nothing is printed except "
+        "a one-line verdict",
     )
     args = parser.parse_args()
     current = parse_current(args.current)
