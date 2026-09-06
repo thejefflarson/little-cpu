@@ -159,3 +159,115 @@ is a reasonable opponent" had never once been checked.
 
 `soc/compare/vexriscv_pin.mk` pins the upstream SHA, the generator config and a digest of the
 generated Verilog, because a generated artifact is reproducible only with all three.
+
+## Amendment, 2026-09-06 — the shared ISA widens to RV32IM, and Hazard3's clock regresses under a harness fix landed in between
+
+Both benchmark images were narrower than the three cores actually share. Dhrystone's
+`COMPARE_DHRY_CFLAGS` was `rv32i`, dating from when the vendored VexRiscv had no `MulPlugin`; the
+amendment above gave it one. CoreMark's `COMPARE_COREMARK_CFLAGS` was `rv32ima`, and the **A** in it
+is what excluded VexRiscv from that harness entirely — its generated build has no `AtomicPlugin`.
+Verified against each source directly:
+
+| | I | M | A | C |
+|---|---|---|---|---|
+| littlecpu | yes | yes | yes | yes |
+| vexriscv (generated peer build) | yes | yes | **no** | yes |
+| hazard3 (iCE40, `bench_hazard3.v` params) | yes | yes | yes | **no** |
+
+**RV32IM is the widest ISA all three implement in hardware, on both benchmarks.** Both
+`COMPARE_DHRY_CFLAGS` and `COMPARE_COREMARK_CFLAGS` now read `-march=rv32im`, and CoreMark's
+`coremark_tb.v` gains a third DUT (`bench_vexriscv`), reusing `soc/compare/dhry_monitor.v` — the
+marker mechanism built for VexRiscv's Dhrystone gap — rather than inventing a second one; the wiring
+is the whole change.
+
+**This landed on a tree that had, in the same session, already fixed a harness artifact in
+Hazard3's own adapter**: `soc/compare/bench_hazard3.v`'s write-drain buffer used to route every
+transaction following a store through the same address mux the drain was using, including
+instruction fetches, though ROM and RAM are separate physical ports with nothing to contend over.
+Both cycle halves below are re-measured on that fixed tree, in one session, one toolchain — never
+mixing a pre-fix half with a post-fix one.
+
+### What widening Dhrystone's own ISA costs or buys, isolated
+
+Dhrystone multiplies little, so this is measured rather than assumed — the same tree, same
+`compare.dhry.vvp`, `COMPARE_DHRY_CFLAGS` toggled between `rv32i` and `rv32im` and nothing else:
+
+| | RV32I cyc/dhry | RV32IM cyc/dhry | move |
+|---|---|---|---|
+| **littlecpu** | 731.1 | 727.1 | −0.55% |
+| vexriscv | 640.1 | 635.1 | −0.78% |
+| hazard3 | 734.1 | 764.1 | **+4.09%** |
+
+littlecpu and vexriscv both get slightly *faster* with real multiply instructions, the direction a
+reader would guess. **Hazard3 gets slower.** `hazard3_muldiv_seq.v`'s sequencer has no early exit —
+`MULDIV_UNROLL=1` runs a fixed `XLEN`-iteration shift-accumulate loop regardless of the operands'
+values — so its hardware multiply pays the same latency every time, where libgcc's software routine
+apparently resolves faster for whatever multiplicands Dhrystone's own workload happens to hand it.
+That is a plausible mechanism, read from the sequencer's source, not a traced instruction stream —
+the exact call sites and operand values are unmeasured here. The net effect on the three-way ratio
+(1.004× RV32I → 1.051× RV32IM) is real and belongs to the RV32IM row below, not folded silently into
+"the ISA widened."
+
+### Both cycle halves, one tree, RV32IM
+
+400 Dhrystone runs, 1 CoreMark iteration, this tree:
+
+| | Dhrystone cycles | DMIPS/MHz | CoreMark cycles | CoreMark/MHz |
+|---|---|---|---|---|
+| **littlecpu** | 290825 | 0.783 | 433240 | 2.308 |
+| vexriscv | 254026 (0.873×) | 0.896 | 427008 (0.986×) | 2.342 |
+| hazard3 | 305627 (1.051×) | 0.745 | 702907 (1.622×) | 1.423 |
+
+All three verdicts PASS and every data RAM matches littlecpu's, both benchmarks. Hazard3 discloses
+0.92% of its Dhrystone cycles and 0.30% of its CoreMark cycles in a genuine single-ported-memory
+wait the other two cores do not pay — the residual left after the adapter fix above, not the 9.01%/
+1.98% this pair used to carry.
+
+### The clock half — up5k, twelve seeds (`default`, `1`–`11`), same tree
+
+| | worst | median | best | step reached |
+|---|---|---|---|---|
+| **littlecpu** | 12.40 MHz | 12.85 MHz | 13.23 MHz | **12** |
+| vexriscv | 21.92 MHz | 22.78 MHz | 23.65 MHz | **12** |
+| hazard3 | 10.80 MHz | 10.94 MHz | 11.54 MHz | **6** |
+
+**Hazard3 no longer reaches the 12 MHz step, at any of the twelve seeds.** This is not a change in
+Hazard3's own configuration — `bench_hazard3.v`'s parameter list is untouched — and it is not a
+consequence of anything in this ticket's own diff either: it is the adapter fix above, whose
+forwarding path adds a same-word comparator feeding `hready` directly, and that signal was already
+on this design's critical path (the standalone census does move, 3473 placed `ICESTORM_LC` here
+against 3505 `SB_LUT4` synthesised alone, a plausible home for a few more logic levels). This same
+part read 12.56–13.18 MHz before the adapter fix landed (the body of this ADR, above). The reversal
+is real and reproducible — a spot check at seed 1 reads 91.55 ns/10.92 MHz twice — and it belongs to
+whoever tunes that adapter next, not to this ticket, which only measures what is on the tree.
+
+ECP5 (`LFE5U-25F-6CABGA381`, one placement each): littlecpu 33.23 MHz, vexriscv 57.64 MHz, hazard3
+29.73 MHz (down from 33.26 for the identical reason).
+
+### The product, both parts, at the step each core actually reaches
+
+| | up5k DMIPS | up5k CoreMark | ECP5 DMIPS | ECP5 CoreMark |
+|---|---|---|---|---|
+| **littlecpu** | 9.39 (@12) | 27.70 (@12) | 26.01 | 76.70 |
+| vexriscv | 10.75 (@12) | 28.10 (@12) | 51.66 | 134.99 |
+| hazard3 | 4.47 (@6) | 8.54 (@6) | 22.15 | 42.30 |
+
+up5k: vexriscv is **1.14× littlecpu** on Dhrystone against the amendment above's 1.14× (10.67/9.35) —
+both halves moved a little (the ISA table above, plus vexriscv's own clock is untouched by anything
+in this ticket) and the ratio landed on the same two digits — and **1.01×** on CoreMark, the first
+time that pair has a product at all. **Littlecpu is now 2.10× hazard3 on Dhrystone on up5k, against
+the amendment above's 1.09×** — entirely because hazard3 dropped a clock step, not because either
+core's cycles-per-work regressed (hazard3's own DMIPS/MHz *improved*, 0.745 against the old 0.686,
+once the adapter stopped charging it for someone else's fetch). CoreMark's up5k product for this pair
+has no earlier figure to compare against — ADR-0146's 1.437×/1.471× was hx8k's — so **3.24× is a
+first measurement, not a move**. **Read the Dhrystone reversal as what the step function does when a
+design sits close to a boundary, not as a verdict on Hazard3's architecture**: a few nanoseconds
+either side of 83.3 ns (12 MHz) is the whole difference between a 2× product gap and near parity, on
+a part whose real board target is a fixed 12 MHz crystal rather than a chosen divider. ECP5, which has
+no such boundary, reads littlecpu 1.17× hazard3 and vexriscv 2.33× hazard3 on Dhrystone; 1.81× and
+3.19× on CoreMark — the same ordering as up5k's continuous half, without the amplification.
+
+**Not restamped**: `soc/compare/product.json` is already stale on its own check against this tree
+(base `122ef7b`, dirty, pre-peer-VexRiscv, hx8k-derived clocks) and re-taking that stamp is a
+separate ticket's job. Every number above is this session's own fresh run, quoted rather than read
+off the artifact.

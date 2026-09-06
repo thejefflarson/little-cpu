@@ -1,17 +1,15 @@
 #!/bin/bash
-# Builds one CoreMark image for littlecpu and Hazard3's iCE40 configuration,
+# Builds one CoreMark image for all three cores of this directory's harness,
 # reports it against the geometry the harness can actually place, and runs
-# both cores on it in one iverilog simulation. Mirrors
+# all three on it in one iverilog simulation. Mirrors
 # soc/compare/run_dhrystone.sh's split for the identical reasons.
 #
 # Usage: run_coremark_compare.sh <iterations> <cycle-limit> <cflags> [vvp-binary]
 #
 # WHAT THIS IS AND IS NOT. `make compare-timing` places each core and reports
 # a clock. This reports the other factor of throughput -- cycles for the same
-# work, on the SAME cores this repository already measured a clock for
-# (docs/adr/0139-*.md) -- for both, from the same image, so that a CoreMark/MHz
-# figure for either side is measured here rather than quoted from a project's
-# own README.
+# work -- from the same image, so that a CoreMark/MHz figure for any side is
+# measured here rather than quoted from a project's own README.
 #
 # IT IS A SIMULATION AND CANNOT BE A PLACEMENT. CoreMark needs more memory than
 # an hx8k has block RAM for; soc/compare/coremark.lds carries the arithmetic
@@ -194,7 +192,7 @@ fi
 echo "== CoreMark in the cross-core harness =="
 echo "compiler : $CC $($CC -dumpversion)"
 echo "flags    : $built_flags"
-echo "mul/div  : hardware, both cores' own -- this image is RV32IMA"
+echo "mul/div  : hardware, all three cores' own -- this image is RV32IM"
 echo "iterations : $ITERATIONS"
 echo
 
@@ -207,6 +205,7 @@ python3 "$HERE/coremark_fit.py" --rom-bytes "$rom_bytes" --ram-bytes "$ram_bytes
   --placed-rom "$PLACED_ROM" --placed-ram "$PLACED_RAM" \
   --sim-rom "$SIM_ROM" --sim-ram "$SIM_RAM" --tb "$HERE/coremark_tb.v" \
   --core "littlecpu=$REPO/compare.littlecpu.core.log" \
+  --core "vexriscv=$REPO/compare.vexriscv.core.log" \
   --core "hazard3=$REPO/compare.hazard3.core.log"
 echo
 
@@ -237,7 +236,7 @@ if [ ! -s "$VVP_BIN" ]; then
   exit 1
 fi
 
-echo "== both cores, one image, one simulation =="
+echo "== all three cores, one image, one simulation =="
 set +e
 vvp "$VVP_BIN" +cycles="$CYCLE_LIMIT" > "$tmp/run.log" 2>&1
 sim_status=$?

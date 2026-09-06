@@ -21,10 +21,10 @@
 # riscv-formal GENERATES A SPEC MODEL FOR, and the pinned clone has no model for
 # any A encoding -- so widening either produces nothing and makes the generated
 # check set describe an ISA it is not checking. Two more are a different ISA on
-# purpose: soc/compare/bench.S is deliberately rv32i so the cross-core harness
-# can hand one image to a core with no M and no privileged architecture, and
-# COMPARE_DHRY_CFLAGS is rv32ic because that is what VexRiscv implements. A
-# sweep is wrong at four sites and incomplete at three others.
+# purpose: soc/compare/bench.S is deliberately rv32i, and COMPARE_DHRY_CFLAGS
+# and COMPARE_COREMARK_CFLAGS are rv32im because that is the widest ISA all
+# three cores in that harness implement in hardware. A sweep is wrong at four
+# sites and incomplete at three others.
 #
 # So the table below states the allowed set and the comparison runs BOTH WAYS,
 # like every other table in this repo: a site that stops carrying the string is
@@ -131,20 +131,17 @@ test/march_test.sh (any)
 # planting is not a probe.
 test/probe_gates.sh (any)
 
-# soc/compare/bench.S and COMPARE_DHRY_CFLAGS, both built for the cross-core
-# harness's three-way row. Neither VexRiscv nor Hazard3's iCE40 build there
-# implements the full declared ISA -- VexRiscv has no M, Hazard3's iCE40
-# configuration has no C -- and the whole point of that harness is that ONE
-# image runs on every core in it, so the image may use only what the narrowest
-# core has: plain RV32I, not even RV32IC.
-Makefile rv32i 2
+# soc/compare/bench.S, the cross-core harness's own smoke/timing image --
+# `make compare-timing` and `make compare-smoke` hand it to whichever single
+# core COMPARE_CORE selects, and it has no reason to ask for more than plain
+# RV32I.
+Makefile rv32i 1
 
-# COMPARE_COREMARK_CFLAGS: CoreMark for littlecpu and Hazard3's iCE40
-# configuration, RV32IMA -- the ISA both implement in hardware, C dropped
-# because Hazard3's iCE40 build has none. VexRiscv cannot join this one at
-# all: its pinned build has no M extension, so RV32IC (the string above)
-# would not even let it decode a multiply.
-Makefile rv32ima 1
+# COMPARE_DHRY_CFLAGS and COMPARE_COREMARK_CFLAGS: both cross-core benchmark
+# images, RV32IM -- the widest ISA all three cores in that harness implement
+# in hardware. Hazard3's iCE40 build has no C; the generated VexRiscv build
+# has no AtomicPlugin, so the CoreMark image cannot ask for A either.
+Makefile rv32im 2
 
 # Not a flag at all: a grep pattern that finds the `-march=` in the command line
 # the Dhrystone runner PRINTS, so the flags travel with the number. It has no

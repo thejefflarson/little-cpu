@@ -3371,19 +3371,20 @@ probe "a new site naming an ISA nothing declared is red, and located" 1 \
 d=$(ma_fixture)
 ma_edit "$d" Makefile 's/-march=rv32i -mabi=ilp32/-march=rv32imac_zicsr_zifencei -mabi=ilp32/'
 probe "an exception whose site stopped naming that ISA is red" 1 \
-  "the exception \`Makefile rv32i 2\` matched 0 time(s), not 2" "$MA $d"
+  "the exception \`Makefile rv32i 1\` matched 0 time(s), not 1" "$MA $d"
 
-# A counted exception is exact-count too, not "at least one": `rv32ima` is
-# one keystroke from the declared ISA, so a SECOND, uncounted occurrence of an
+# A counted exception is exact-count too, not "at least one": `rv32im` is
+# one keystroke from the declared ISA, so a THIRD, uncounted occurrence of an
 # exempted near-miss must be as red as a required site losing one.
-# `Makefile rv32ima 1` is a real, shipping exception now (COMPARE_COREMARK_CFLAGS),
-# so this fixture only has to add the second occurrence, not plant the entry.
+# `Makefile rv32im 2` is a real, shipping exception now (COMPARE_DHRY_CFLAGS
+# and COMPARE_COREMARK_CFLAGS), so this fixture only has to add a third
+# occurrence, not plant the entry.
 d=$(ma_fixture)
 ma_edit "$d" Makefile \
-  's/^COMPARE_DHRY_CFLAGS := -march=rv32i/# probe: -march=rv32ima\
-COMPARE_DHRY_CFLAGS := -march=rv32i/'
+  's/^COMPARE_DHRY_CFLAGS := -march=rv32im/# probe: -march=rv32im\
+COMPARE_DHRY_CFLAGS := -march=rv32im/'
 probe "a second occurrence of a counted exception value is red" 1 \
-  "the exception \`Makefile rv32ima 1\` matched 2 time(s), not 1" "$MA $d"
+  "the exception \`Makefile rv32im 2\` matched 3 time(s), not 2" "$MA $d"
 
 # A directory entry has to match on the path separator, or it silently exempts
 # every sibling whose name it happens to prefix.
@@ -4033,21 +4034,27 @@ begin_group "soc/compare/coremark_dmips.py"
 
 CD="python3 $REPO/soc/compare/coremark_dmips.py"
 
-# The numbers this repo measured, at 1 iteration.
+# THE THREE-WAY ROW: littlecpu is the reference; both other cores are
+# RAM-compared against it, not against each other -- the same shape
+# soc/compare/dhry_dmips.py's own three-way fixture uses. littlecpu's and
+# hazard3's cycle counts are the numbers this repo measured at 1 iteration;
+# vexriscv's is a placeholder pending its own re-take.
 cd_fixture() {
   local d; d=$(new_case)
   cat > "$d/run.log" <<'LOG'
-COREMARK ran 738413 cycles of a 200000000 cycle limit
+COREMARK ran 1300000 cycles of a 200000000 cycle limit
 COREMARK core=littlecpu marks=2 cycles=479420 verdict=1 writes=15701
+COREMARK core=vexriscv marks=2 cycles=560000 verdict=1 writes=15701
 COREMARK core=hazard3 marks=2 cycles=714984 verdict=1 writes=15701
 COREMARK core=hazard3 wait_cycles=14176
-COREMARK ramdiff=0 of=4096 words
+COREMARK ramdiff core=vexriscv diff=0 of=4096 words
+COREMARK ramdiff core=hazard3 diff=0 of=4096 words
 LOG
   printf '%s' "$d"
 }
 
 d=$(cd_fixture)
-probe "control: a good CoreMark run reports both cores' figures" 0 "2.086" \
+probe "control: a good CoreMark run reports all three cores' figures" 0 "2.086" \
   "$CD $d/run.log --iterations 1"
 
 d=$(cd_fixture)
@@ -4059,19 +4066,33 @@ probe "the CoreMark wait-state bias is disclosed as a percentage of hazard3's ow
   "hazard3 spends 14176 of its 714984 measured cycles (1.98%)" \
   "$CD $d/run.log --iterations 1"
 
-# THE ONE THAT MATTERS: two cores that did not compute the same thing have no
+# THE ONE THAT MATTERS: cores that did not compute the same thing have no
 # comparable cycle count between them.
-d=$(cd_fixture); mutate "$d/run.log" 's/ramdiff=0/ramdiff=111/'
+d=$(cd_fixture); mutate "$d/run.log" \
+  's/ramdiff core=vexriscv diff=0 of=4096/ramdiff core=vexriscv diff=111 of=4096/'
 probe "two CoreMark cores whose RAMs differ are red, not a ratio" 1 \
-  "data RAMs differ in 111 of 4096 words" "$CD $d/run.log --iterations 1"
+  "littlecpu and vexriscv's data RAMs differ in 111 of 4096 words" \
+  "$CD $d/run.log --iterations 1"
 
-d=$(cd_fixture); mutate "$d/run.log" 's/of=4096/of=0/'
+d=$(cd_fixture); mutate "$d/run.log" \
+  's/ramdiff core=vexriscv diff=0 of=4096/ramdiff core=vexriscv diff=0 of=0/'
 probe "a CoreMark RAM comparison over no words is named as unable to fail" 1 \
   "could not have failed" "$CD $d/run.log --iterations 1"
 
-d=$(cd_fixture); mutate "$d/run.log" '/ramdiff/d'
+d=$(cd_fixture); mutate "$d/run.log" '/ramdiff core=vexriscv/d'
 probe "a CoreMark run that never made the cross-core check is red" 1 \
-  "no ramdiff line" "$CD $d/run.log --iterations 1"
+  "no ramdiff line for vexriscv" "$CD $d/run.log --iterations 1"
+
+# THE SECOND CORE MATTERS TOO: the pair rotation is graded even though
+# vexriscv, not hazard3, is the first non-reference core checked.
+d=$(cd_fixture); mutate "$d/run.log" 's/ramdiff core=hazard3 diff=0/ramdiff core=hazard3 diff=42/'
+probe "the SECOND CoreMark core's RAM diverging is graded, not only the first" 1 \
+  "littlecpu and hazard3's data RAMs differ in 42 of 4096 words" \
+  "$CD $d/run.log --iterations 1"
+
+d=$(cd_fixture); mutate "$d/run.log" '/ramdiff core=hazard3/d'
+probe "a missing ramdiff for the SECOND CoreMark core is red, not silently skipped" 1 \
+  "no ramdiff line for hazard3" "$CD $d/run.log --iterations 1"
 
 d=$(cd_fixture); mutate "$d/run.log" 's/core=hazard3 marks=2/core=hazard3 marks=1/'
 probe "a CoreMark core that reached the start of the section and not the end is red" 1 \
@@ -4082,9 +4103,9 @@ d=$(cd_fixture); mutate "$d/run.log" \
 probe "CoreMark's own FAIL verdict stops the number being quoted" 1 \
   "did not validate the 2K performance run" "$CD $d/run.log --iterations 1"
 
-d=$(cd_fixture); mutate "$d/run.log" '/core=hazard3/d'
+d=$(cd_fixture); mutate "$d/run.log" '/core=vexriscv/d'
 probe "one CoreMark side alone is not a cross-core figure" 1 \
-  "no result for hazard3" "$CD $d/run.log --iterations 1"
+  "no result for vexriscv" "$CD $d/run.log --iterations 1"
 
 d=$(cd_fixture); mutate "$d/run.log" 's/^COREMARK core=/COREMARK CORE=/'
 probe "a CoreMark simulation this cannot parse is a run that did not happen" 1 \
@@ -4097,11 +4118,15 @@ probe "zero CoreMark iterations would divide the work by nothing" 1 \
 d=$(cd_fixture)
 probe "a CoreMark clock for a core nobody graded is named rather than ignored" 1 \
   "which is not one of the cores graded" \
-  "$CD $d/run.log --iterations 1 --mhz vexriscv=40"
+  "$CD $d/run.log --iterations 1 --mhz picorv32=40"
 
 d=$(cd_fixture)
 probe "a CoreMark placement at zero MHz is not a placement" 1 "is not placed" \
   "$CD $d/run.log --iterations 1 --mhz littlecpu=0"
+
+d=$(cd_fixture)
+probe "--cores naming no CoreMark core at all is red before anything is parsed" 1 \
+  "named no core at all" "$CD $d/run.log --iterations 1 --cores ,"
 
 begin_group "soc/compare/run_coremark_compare.sh"
 

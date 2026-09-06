@@ -29,6 +29,7 @@
 # applies cleanly on their own, rather than two commits both rewriting the
 # one line a bare counter used to be.
 --clock-ns and --cycle-factor naming different core sets is refused
+--cores naming no CoreMark core at all is red before anything is parsed
 --cores naming no core at all is red before anything is parsed
 --list answers for every part, derived or not
 --require-news against an unchanged repo and matching --current is quiet
@@ -209,6 +210,7 @@ a missing artifact refuses rather than reporting on nothing
 a missing asm directory is named
 a missing baseline file is exit 2, not an empty expected set
 a missing parser stops the run rather than grading with a second one
+a missing ramdiff for the SECOND CoreMark core is red, not silently skipped
 a missing ramdiff for the SECOND core is red, not silently skipped
 a mistyped baseline path cannot compare nothing and pass
 a mistyped baseline path cannot compare nothing and pass
@@ -497,7 +499,7 @@ control: a derived part states both figures and names itself
 control: a deterministic placer and a forgiven mutant pass
 control: a fresh stamp with nothing changed prints clean and exits 0
 control: a full-pass check set against an empty baseline is green
-control: a good CoreMark run reports both cores' figures
+control: a good CoreMark run reports all three cores' figures
 control: a good run reports both cores' figures
 control: a good three-way run reports all three cores' figures
 control: a measurement within budget is green
@@ -648,6 +650,7 @@ the REPORT goes too, which .DELETE_ON_ERROR cannot do for a non-target
 the ROM image built to a different size than the ROM is red
 the RTL moving away takes the probe with it, loudly
 the RTL moving away takes the probe with it, loudly
+the SECOND CoreMark core's RAM diverging is graded, not only the first
 the SECOND core's RAM diverging is graded, not only the first
 the SPI controller moving in the core's copy alone is red
 the SPI controller moving in the proof's copy alone is red

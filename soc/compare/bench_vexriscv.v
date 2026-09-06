@@ -4,16 +4,18 @@
 // the same rtl/memory.v at the same base and depth, the same three pads, the
 // same program image, the same part and the same seeds.
 //
-// The core is not vendored. It is read straight out of the SHA-pinned
-// riscv-formal clone at formal/riscv-formal/cores/VexRiscv/VexRiscv.v, which is
-// the generated Verilog for that project's FormalSimple configuration, so no
-// Scala toolchain is involved and nothing here can drift from the pin.
+// The core is generated, not vendored: $(VEXRISCV_V) is built from
+// soc/compare/vexriscv/GenLittleCpuCompare.scala at the pinned upstream SHA
+// (soc/compare/vexriscv_pin.mk), VexRiscv's own GenFullNoMmuNoCache
+// performance configuration with all four hazard bypasses on, rather than
+// riscv-formal's FormalSimple verification build this harness used to read.
 //
-// **That configuration is RV32IC.** The compressed decoder is there and runs --
-// soc/compare/dhry.lds' image is built for it -- but there is no M extension, no
-// CSR file, no traps and no interrupt. Roughly half of why it is a quarter of
-// this core's size. Any number taken from this file is a measurement of two
-// different ISAs and must be quoted as one.
+// **That configuration has M, C and a CSR file** (MulPlugin, DivPlugin,
+// CsrPlugin(CsrPluginConfig.small), compressedGen) -- it has no AtomicPlugin,
+// so an image built with the A extension is not one it can run. Any number
+// taken from this file must still be quoted with the ISA the calling image
+// was compiled at, since a caller can build narrower than what the core
+// implements.
 //
 // It has NO DATA PATH TO THE ROM: the memory below is a read port for fetch and
 // nothing else, so a load from a ROM address reads back zero. Keep any program

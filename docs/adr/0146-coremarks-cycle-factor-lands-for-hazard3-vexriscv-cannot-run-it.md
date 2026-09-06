@@ -312,3 +312,97 @@ identical check already is, including the concrete `core_portme.h`-shadowing cas
   sentence, the way `soc/compare/coremark_dmips.py` now prints them in the same run.
 - `run_coremark_compare.sh`'s vendor-tree check is a two-way match now, not `shasum -c` alone, closing
   the same gap `test/bench/run_coremark.sh`'s own check already closed for the single-core build.
+
+## AMENDED 2026-09-05: the wait-state bias is removed, not merely disclosed
+
+The disclosure above treated the whole wait state as a real AHB5 cost and reported it rather than
+correcting it. It was not: `soc/compare/bench_hazard3.v` fed ROM's own read index off the SAME
+address register the RAM write-drain used (`mem_addr_mux`), so EVERY instruction fetch immediately
+after a store — the common case, since most bus transactions are fetches — was serialized behind
+that store's completion even though the ROM block RAM and the RAM's SPRAM are two separate physical
+ports with nothing to contend over. `rom_index` and the ROM range test now read `haddr` directly,
+never the drain buffer, so a fetch after a store costs nothing. The one case that still needs the
+write's own value rather than the array's — a read of the exact word just written, e.g. `sw`
+immediately followed by `lw` of the same address — is answered by forwarding the buffered write
+(`can_forward`) instead of waiting for `rtl/memory.v`'s own no-change rule to catch up.
+
+**What is left is a real single-ported-memory cost, not an artifact.** A RAM access at a DIFFERENT
+word, or one that only partially overlaps a narrower-than-word store (no old bytes to merge with,
+short of a second read of `rtl/memory.v`'s private array), still holds `hready` low for one cycle:
+the drain and that access both want the one RAM port on the same cycle, and a single-ported
+synchronous SRAM cannot serve two addresses at once. littlecpu never pays this because its own
+load/store protocol carries address, data and strobe together in one cycle — AHB5's own split of a
+write's data phase from its address phase is what creates the gap `bench_hazard3.v` has to bridge at
+all. This residual is a cost any AHB5 slave built over a plain single-ported SRAM would pay, on real
+silicon, not a defect of this harness's adapter.
+
+On this tree (`c080e67` plus the fix, before ADR-0154's forwarding measurements moved either side's
+absolute cycle count), re-measuring both benchmarks:
+
+```
+DHRY core=hazard3 marks=2 cycles=293627 verdict=1 writes=31474
+DHRY core=hazard3 wait_cycles=2800
+COREMARK core=hazard3 marks=2 cycles=702907 verdict=1 writes=15701
+COREMARK core=hazard3 wait_cycles=2099
+```
+
+| | Dhrystone wait share | Dhrystone cyc/dhry (hazard3) | hazard3/littlecpu cycles | CoreMark wait share | hazard3/littlecpu cycles |
+|---|---|---|---|---|---|
+| before this fix | 9.01% | 799.1 | 1.093× | 1.98% | 1.650× |
+| after this fix | 0.95% | 734.1 | **1.004×** | 0.30% | 1.622× |
+
+**Dhrystone stops reading level and reads almost exactly tied**: littlecpu's own 731.1 cyc/dhry
+(0.779 DMIPS/MHz) against Hazard3's corrected 734.1 (0.775 DMIPS/MHz) is a 0.4% gap, down from the
+9.3% the harness's own artifact was contributing on top of it. Essentially the whole of the
+previously-measured Dhrystone gap between these two cores was the adapter, not the core. CoreMark
+barely moves (1.650× → 1.622×) because writes are a far smaller share of that benchmark's cycles
+than Dhrystone's own struct-copying loops — littlecpu's real lead there, from hardware multiply plus
+forwarding on a benchmark that leans on the M extension, stands.
+
+`make compare-smoke` still passes (all three cores publish the same six values off `bench.S`), and
+both RAM comparisons above are still bit-identical, so the correction changes cycle counts and not
+computed results. `soc/compare/dhry_tb.v` and `soc/compare/coremark_tb.v` now count `ram_conflict`
+rather than `wr_pending_q` for `haz_wait_cycles`: the two signals coincided exactly under the old
+adapter (every drain cycle held `hready` low), so the old counter measured the right thing by
+accident; under the new one a drain no longer implies a stall, so the counter has to name the actual
+stalled cycles or it reports the wrong number with a straight face.
+
+## Amendment, 2026-09-06 — VexRiscv joins after all
+
+The "DECISION NEEDED, resolved" section above is now half wrong, not because the reasoning was bad
+but because its premise stopped being true out from under it. It read `soc/compare/bench_vexriscv.v`
+against **riscv-formal's `FormalSimple`** — no `MulPlugin` at all — and concluded VexRiscv could not
+run a CoreMark image without either erasing every core's hardware multiplier (`-march=rv32ic`) or
+editing a core this repository does not own. Both are still the right calls against that premise.
+The premise itself was replaced: `soc/compare/vexriscv_pin.mk` now generates VexRiscv from
+`GenLittleCpuCompare.scala`, VexRiscv's own performance configuration, which carries `MulPlugin` and
+`DivPlugin`. **What actually excludes VexRiscv from an ISA wider than RV32IM is not M, it is A** —
+the generated build has no `AtomicPlugin` — so `COMPARE_COREMARK_CFLAGS` moves from `rv32ima` to
+`rv32im` (dropping the one extension VexRiscv still lacks, not the one this whole section was
+written about) and `soc/compare/coremark_tb.v` gains `bench_vexriscv` as a third DUT, reusing
+`soc/compare/dhry_monitor.v` rather than a fourth hand-rolled marker block.
+
+This is additive to the fix above, not a replacement of it — the Hazard3 numbers directly above are
+unchanged by adding a third core, and reproduce exactly: `COREMARK core=hazard3 marks=2
+cycles=702907 verdict=1 writes=15701`, `wait_cycles=2099`, both bit-identical to the two-core run.
+One iteration, RV32IM, same tree as the fix above:
+
+```
+COREMARK core=littlecpu marks=2 cycles=433240 verdict=1 writes=15701
+COREMARK core=vexriscv marks=2 cycles=427008 verdict=1 writes=15701
+COREMARK core=hazard3  marks=2 cycles=702907 verdict=1 writes=15701
+COREMARK ramdiff core=vexriscv diff=0 of=4096 words
+COREMARK ramdiff core=hazard3  diff=0 of=4096 words
+```
+
+All three verdicts PASS and both non-reference RAMs are bit-identical to littlecpu's. **VexRiscv
+takes 0.986× littlecpu's cycles for the same work** — essentially tied, the closest any pair in this
+harness has read on either benchmark — at 2.342 CoreMark/MHz against littlecpu's 2.308 and Hazard3's
+1.423. `docs/adr/0160-*.md`'s amendment carries the clock half and the resulting product on both
+parts; this ADR's own job was always the cycle factor, and that factor now has all three cores in
+it, the way the ticket that first asked for a CoreMark comparison wanted.
+
+`soc/compare/run_coremark_compare.sh` gains `--core vexriscv=...` beside littlecpu's and Hazard3's
+own block-RAM census lines; `soc/compare/coremark_dmips.py` is generalised from a fixed two-core
+grader to the same N-core, first-is-reference shape `soc/compare/dhry_dmips.py` already had, so a
+future fourth core is a wiring change there too rather than a rewrite.

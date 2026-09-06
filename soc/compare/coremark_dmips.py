@@ -9,16 +9,18 @@ uses for Dhrystone.
 
 What a run has to satisfy:
 
-  - both cores present, each with two markers. One marker is a run that
-    reached the start of the measured section and not the end of it.
+  - every requested core present, each with two markers. One marker is a run
+    that reached the start of the measured section and not the end of it.
   - a positive cycle count, and the self-check word 1: CoreMark's own verdict
     that its list/matrix/state CRCs matched EEMBC's published values for the
     2K performance run, 3 is its verdict that they did not, 5 is a run that
     validated a DIFFERENT configuration than the one this port checks for,
     and 0 is a program that never got there.
-  - the two data RAMs identical at the end of the run. Same image, same
-    memories, no interrupt on either side -- the two RAMs hold the same bytes
-    or one of the cores computed something else.
+  - with more than one core requested, every core but the first (the
+    reference) reports its data RAM identical to the reference's. Same image,
+    same memories, no interrupt on any side -- agreement is transitive, so
+    comparing every other core against one reference is the same claim a full
+    round-robin would be, for fewer full-RAM scans.
 
 CoreMark/MHz is iterations * 1e6 / cycles -- frequency cancels out of the
 ratio, the same way it does for DMIPS/MHz, which is why this is safe to
@@ -35,7 +37,9 @@ FACT = re.compile(
     r"^COREMARK core=(?P<core>\S+) marks=(?P<marks>\d+) cycles=(?P<cycles>\d+) "
     r"verdict=(?P<verdict>\d+) writes=(?P<writes>\d+)"
 )
-RAMDIFF = re.compile(r"^COREMARK ramdiff=(\d+) of=(\d+) words")
+RAMDIFF = re.compile(
+    r"^COREMARK ramdiff core=(?P<core>\S+) diff=(?P<diff>\d+) of=(?P<total>\d+) words"
+)
 WAIT = re.compile(r"^COREMARK core=(?P<core>\S+) wait_cycles=(?P<n>\d+)")
 
 
@@ -46,7 +50,7 @@ def parse(path):
     except OSError as exc:
         sys.exit(f"cannot read the simulation log: {exc}")
     cores = {}
-    ramdiff = None
+    ramdiff = {}
     waits = {}
     for line in text.splitlines():
         line = line.strip()
@@ -60,7 +64,10 @@ def parse(path):
             continue
         match = RAMDIFF.match(line)
         if match:
-            ramdiff = (int(match.group(1)), int(match.group(2)))
+            ramdiff[match.group("core")] = (
+                int(match.group("diff")),
+                int(match.group("total")),
+            )
             continue
         match = WAIT.match(line)
         if match:
@@ -71,12 +78,6 @@ def parse(path):
             "this\nscript understands, which is a run that did not happen rather "
             "than a\nrun with no result -- there is nothing to report."
         )
-    if ramdiff is None:
-        sys.exit(
-            f"no ramdiff line in {path}. That comparison is the only thing saying "
-            "the\ntwo cores computed the same thing, and a run that did not report "
-            "it is a\nrun whose cross-core check did not happen."
-        )
     return cores, ramdiff, waits
 
 
@@ -84,8 +85,8 @@ def grade(cores, ramdiff, want):
     missing = [core for core in want if core not in cores]
     if missing:
         sys.exit(
-            f"no result for {', '.join(missing)}. A cross-core figure needs both\n"
-            "sides of it, and one side alone is the incomparability this harness\n"
+            f"no result for {', '.join(missing)}. A cross-core figure needs every\n"
+            "side of it, and one side missing is the incomparability this harness\n"
             "exists to remove."
         )
     for core in want:
@@ -105,17 +106,30 @@ def grade(cores, ramdiff, want):
                 "says it did not validate the 2K performance run, so its cycle "
                 "count\ndescribes a run that was not correct and means nothing."
             )
-    differing, total = ramdiff
-    if total <= 0:
-        sys.exit(
-            f"the RAM comparison covered {total} words, so it could not have failed."
-        )
-    if differing != 0:
-        sys.exit(
-            f"the two cores' data RAMs differ in {differing} of {total} words. They\n"
-            "ran the same image on the same memories, so one of them computed\n"
-            "something else and neither cycle count is a measurement."
-        )
+    if len(want) < 2:
+        return
+    reference = want[0]
+    for core in want[1:]:
+        if core not in ramdiff:
+            sys.exit(
+                f"no ramdiff line for {core} in the log. That comparison is the "
+                "only\nthing saying it and "
+                f"{reference} computed the same thing, and a run that\ndid not "
+                "report it is a run whose cross-core check did not happen."
+            )
+        differing, total = ramdiff[core]
+        if total <= 0:
+            sys.exit(
+                f"the RAM comparison for {core} covered {total} words, so it could "
+                "not have failed."
+            )
+        if differing != 0:
+            sys.exit(
+                f"{reference} and {core}'s data RAMs differ in {differing} of "
+                f"{total} words.\nThey ran the same image on the same memories, so "
+                "one of them computed\nsomething else and neither cycle count is a "
+                "measurement."
+            )
 
 
 def read_clocks(specs):
@@ -139,8 +153,9 @@ def main():
     parser.add_argument("--iterations", type=int, required=True)
     parser.add_argument(
         "--cores",
-        default="littlecpu,hazard3",
-        help="the cores a complete run reports, comma separated",
+        default="littlecpu,vexriscv,hazard3",
+        help="the cores a complete run reports, comma separated; the first is "
+        "the reference the rest are RAM-compared against",
     )
     parser.add_argument(
         "--mhz",
@@ -154,8 +169,8 @@ def main():
     if args.iterations <= 0:
         sys.exit(f"--iterations is {args.iterations}; nothing was measured.")
     want = [core for core in args.cores.split(",") if core]
-    if len(want) != 2:
-        sys.exit(f"--cores wants exactly two names, got '{args.cores}'")
+    if not want:
+        sys.exit(f"--cores named no core at all, got '{args.cores}'")
 
     cores, ramdiff, waits = parse(args.log)
     grade(cores, ramdiff, want)
@@ -178,35 +193,38 @@ def main():
             f"{absolute:>12}"
         )
 
-    ratio = cores[want[1]]["cycles"] / cores[want[0]]["cycles"]
-    print(
-        f"\n{want[1]} takes {ratio:.3f}x {want[0]}'s cycles for the same work, and "
-        f"the\ntwo data RAMs are identical in all {ramdiff[1]} words afterwards."
-    )
+    if len(want) >= 2:
+        print()
+        reference = want[0]
+        for core in want[1:]:
+            ratio = cores[core]["cycles"] / cores[reference]["cycles"]
+            print(f"{core} takes {ratio:.3f}x {reference}'s cycles for the same work.")
+        checked = ", ".join(f"{core} against {reference}" for core in want[1:])
+        print(f"Data RAMs identical for {checked}.")
 
     for core in want:
-        if core in waits:
+        if core in waits and cores[core]["cycles"] > 0:
             share = 100.0 * waits[core] / cores[core]["cycles"]
             print(
                 f"\n{core} spends {waits[core]} of its {cores[core]['cycles']} "
                 f"measured cycles ({share:.2f}%) in a bus wait state the other "
-                "core here does not pay -- disclosed, not corrected."
+                "cores here do not pay -- disclosed, not corrected."
             )
 
     if not clocks:
         print(
-            "No clock was given, so the CoreMark column is empty. It is each\n"
+            "\nNo clock was given, so the CoreMark column is empty. It is each\n"
             "core's own worst placement from soc/compare/sweep.sh, and nothing "
             "here\nwill guess one."
         )
     else:
         print(
-            "THE COREMARK COLUMN MULTIPLIES A CLOCK MEASURED AT THE PLACED 4 KB/2 "
+            "\nTHE COREMARK COLUMN MULTIPLIES A CLOCK MEASURED AT THE PLACED 4 KB/2 "
             "KB\nGEOMETRY BY CYCLES MEASURED AT A LARGER SIMULATED ONE, because no "
             "ice40\nin this flow has the block RAM to hold CoreMark. It is a "
-            "projection.\nThe image is RV32IMA, the ISA littlecpu and Hazard3's "
-            "iCE40 build share --\nneither core's own C extension or lack of one "
-            "is exercised here."
+            "projection.\nThe image is RV32IM, the ISA all three cores here share -- "
+            "neither\nlittlecpu's C extension nor Hazard3's and littlecpu's A "
+            "extension is\nexercised here."
         )
     return 0
 

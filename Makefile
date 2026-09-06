@@ -1523,20 +1523,22 @@ compare-smoke: compare.vvp
 # placed geometry. That is the caveat on the result, and it travels with it.
 #
 # COMPARE_DHRY_CFLAGS is not DHRY_CFLAGS and must not be made to match it: this
-# image has to run on all three cores, and their shared ISA is plain RV32I --
-# Hazard3's iCE40 build has EXTENSION_C=0, the pinned VexRiscv has no M
-# extension, so RV32I is the only subset every core here executes. No M, so
-# multiply and divide are libgcc calls on all three, even the two whose
-# netlists carry a hardware multiplier; no Zicsr, so the run is timed on the
-# bus instead of by `mcycle`. `make dhrystone`'s number is a different workload
-# on a different machine and the two are not comparable.
+# image has to run on all three cores, and their shared ISA is RV32IM --
+# Hazard3's iCE40 build has EXTENSION_C=0, and the generated VexRiscv build
+# has no AtomicPlugin, so RV32IM is the widest subset every core here
+# executes. All three implement M in hardware (soc/compare/vexriscv_pin.mk's
+# generated core carries MulPlugin/DivPlugin), so multiply and divide are real
+# instructions rather than libgcc calls; the run is still timed on the bus
+# instead of by `mcycle`, the same choice made uniformly for every core here
+# regardless of which one has a CSR file. `make dhrystone`'s number is a
+# different workload on a different machine and the two are not comparable.
 # 400 runs. The measured window is the benchmark's loop and nothing else, so the
 # figure is flat in this: 100 runs and 400 differ by 0.02% on this core and 0.26%
 # on VexRiscv. The count is set by how long three cores in one iverilog
 # simulation take, not by what the number needs.
 COMPARE_DHRY_RUNS   ?= 400
 COMPARE_DHRY_CYCLES ?= 2000000
-COMPARE_DHRY_CFLAGS := -march=rv32i -mabi=ilp32 -O2 -std=c11 \
+COMPARE_DHRY_CFLAGS := -march=rv32im -mabi=ilp32 -O2 -std=c11 \
                        -ffreestanding -fno-tree-loop-distribute-patterns \
                        -Wall -Wextra -Werror
 
@@ -1574,9 +1576,9 @@ compare-dhrystone: compare.dhry.vvp compare.dhry.solo.vvp
 	@$(MAKE) --no-print-directory COMPARE_CORE=littlecpu compare.littlecpu.core.log
 	@$(MAKE) --no-print-directory COMPARE_CORE=vexriscv compare.vexriscv.core.log
 	@$(MAKE) --no-print-directory COMPARE_CORE=hazard3 compare.hazard3.core.log
-	@echo '== the three-way row: littlecpu, VexRiscv and Hazard3, all at RV32I =='
+	@echo '== the three-way row: littlecpu, VexRiscv and Hazard3, all at RV32IM =='
 	@./soc/compare/run_dhrystone.sh $(COMPARE_DHRY_RUNS) $(COMPARE_DHRY_CYCLES) \
-	  '$(COMPARE_DHRY_CFLAGS)' libgcc compare.dhry.vvp littlecpu,vexriscv,hazard3 \
+	  '$(COMPARE_DHRY_CFLAGS)' hardware compare.dhry.vvp littlecpu,vexriscv,hazard3 \
 	  littlecpu=compare.littlecpu.core.log vexriscv=compare.vexriscv.core.log \
 	  hazard3=compare.hazard3.core.log
 	@echo
@@ -1604,38 +1606,45 @@ compare-dhrystone: compare.dhry.vvp compare.dhry.solo.vvp
 compare-product:
 	@./soc/compare/run_product.sh
 
-# CoreMark's cycle factor, for the pair this core and Hazard3's iCE40
-# configuration already have a clock for and no cycles. VexRiscv is not a
-# third DUT here -- soc/compare/coremark_tb.v's header says why (no M
-# extension at all in that configuration, so an RV32IMA image is not one it
-# can run). Otherwise this mirrors compare-dhrystone exactly: a simulation and
-# not a placement, soc/compare/coremark_fit.py printing why every run.
+# CoreMark's cycle factor, for all three cores. VexRiscv was excluded here
+# for having no M extension at all in the FormalSimple build this harness used
+# to read; the generated build soc/compare/vexriscv_pin.mk now pins carries
+# MulPlugin and DivPlugin, so that exclusion no longer holds. Otherwise this
+# mirrors compare-dhrystone exactly: a simulation and not a placement,
+# soc/compare/coremark_fit.py printing why every run.
 #
-# COMPARE_COREMARK_CFLAGS drops the C extension both cores here do not share
-# (Hazard3's iCE40 build has none) but keeps M, which both implement in
-# hardware -- RV32IMA, neither COMPARE_DHRY_CFLAGS' RV32IC (no M at all on
-# that pair) nor COREMARK_CFLAGS' RV32IMAC_Zicsr_Zifencei_Zkt (this core
-# alone). 1 iteration: `iterate()`'s measured loop is the identical
-# seed-determined call pair every time with no cache on either core to warm
+# COMPARE_COREMARK_CFLAGS drops C and A -- Hazard3's iCE40 build has no C, and
+# the generated VexRiscv build has no AtomicPlugin -- so RV32IM is the widest
+# subset all three implement in hardware, neither COMPARE_DHRY_CFLAGS' RV32IM
+# at Dhrystone's own geometry nor COREMARK_CFLAGS' RV32IMAC_Zicsr_Zifencei_Zkt
+# (this core alone). 1 iteration: `iterate()`'s measured loop is the identical
+# seed-determined call pair every time with no cache on any core to warm
 # or cool, so the per-iteration cost is constant by construction and nothing
 # past 1 buys new information for the wall-clock cost of an RTL core
 # simulation over two more.
 COMPARE_COREMARK_ITERATIONS ?= 1
 COMPARE_COREMARK_CYCLES     ?= 200000000
-COMPARE_COREMARK_CFLAGS := -march=rv32ima -mabi=ilp32 -O2 -std=c11 \
+COMPARE_COREMARK_CFLAGS := -march=rv32im -mabi=ilp32 -O2 -std=c11 \
                            -ffreestanding -fno-tree-loop-distribute-patterns \
                            -Wall -Wextra -Werror
 
 COMPARE_COREMARK_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
-                         soc/compare/bench_hazard3.v soc/compare/coremark_tb.v
+                         soc/compare/bench_vexriscv.v soc/compare/bench_hazard3.v \
+                         soc/compare/dhry_monitor.v soc/compare/coremark_tb.v
 
-compare.coremark.vvp: $(COMPARE_COREMARK_SRCS) | $(HAZARD3_DIR)
-	iverilog -I./rtl/ -I$(HAZARD3_HDL) -g2012 -o $@ $(HAZARD3_SRCS) \
+# Same reasoning as compare.dhry.vvp above: $(VEXRISCV_V) is a real
+# prerequisite and vexriscv-pin-check gates the digest before this simulates
+# anything.
+compare.coremark.vvp: $(COMPARE_COREMARK_SRCS) $(VEXRISCV_V) vexriscv-pin-check \
+                       | $(HAZARD3_DIR)
+	iverilog -I./rtl/ -I$(HAZARD3_HDL) -g2012 -o $@ \
+	  $(VEXRISCV_V) $(HAZARD3_SRCS) \
 	  $(COMPARE_COREMARK_SRCS)
 
 .PHONY: compare-coremark
 compare-coremark: compare.coremark.vvp
 	@$(MAKE) --no-print-directory COMPARE_CORE=littlecpu compare.littlecpu.core.log
+	@$(MAKE) --no-print-directory COMPARE_CORE=vexriscv compare.vexriscv.core.log
 	@$(MAKE) --no-print-directory COMPARE_CORE=hazard3 compare.hazard3.core.log
 	@./soc/compare/run_coremark_compare.sh $(COMPARE_COREMARK_ITERATIONS) \
 	  $(COMPARE_COREMARK_CYCLES) '$(COMPARE_COREMARK_CFLAGS)' compare.coremark.vvp
