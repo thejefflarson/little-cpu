@@ -510,6 +510,14 @@ band-source-test:
 zkt-isolation-test:
 	@python3 ./test/zkt_isolation_test.py
 
+# Refuses a bare `sed -i` in test/probe_gates.sh's own fixtures (it proves
+# nothing when the pattern matches nothing) and a hand-typed fixture with no
+# fixture_anchor tying it to the real shape it imitates. Hangs off `test` like
+# the other repo-scanning checks -- reads probe_gates.sh as text, no toolchain.
+.PHONY: fixture-freshness-test
+fixture-freshness-test:
+	@python3 ./test/fixture_freshness_test.py
+
 # Forces the elaboration checks in rtl/{imemory,memory,timer,uart,spiflash}.v
 # and rtl/littlecpu.v's copy of that map to fire, in both frontends. Hangs off
 # `test` because the parameter shapes they guard are the ones the SoC and the
@@ -549,7 +557,7 @@ dual-build:
 .PHONY: test
 test: sim test-units probe-gates pin-bump-test tool-cache-test memmap-test \
       adr-numbering-test compare-geometry-test vexriscv-path-test retired-term-test port-connect-test march-test \
-      band-source-test zkt-isolation-test window-test imem-share-test \
+      band-source-test zkt-isolation-test fixture-freshness-test window-test imem-share-test \
       abc-engine-test mutation-probe dual-build board-elaborate \
       tracked-ignored-test mutation-coverage-test
 	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
@@ -1347,8 +1355,14 @@ COMPARE_READ := read_verilog $(VEXRISCV_V); \
 COMPARE_CORE_READ := read_verilog $(VEXRISCV_V); \
                      hierarchy -top VexRiscv; delete -port VexRiscv/rvfi_*
 COMPARE_CORE_TOP  := VexRiscv
-COMPARE_DEPS      := $(COMPARE_SRCS) $(VEXRISCV_V)
-COMPARE_CORE_DEPS := | $(RISCV_FORMAL_DIR)
+# vexriscv-pin-check on BOTH, so the digest gates the clock half of the product
+# and not only the cycle half: these two are the recipes that synthesise and
+# place the core whose period gets published. It is phony, so it forces a
+# rebuild -- which .json already took from `compare-rom` anyway. The standalone
+# synthesis no longer reads the riscv-formal clone at all, so it no longer
+# waits on one being fetched.
+COMPARE_DEPS      := $(COMPARE_SRCS) $(VEXRISCV_V) vexriscv-pin-check
+COMPARE_CORE_DEPS := $(VEXRISCV_V) vexriscv-pin-check
 else ifeq ($(COMPARE_CORE),hazard3)
 COMPARE_TOP  := bench_hazard3
 COMPARE_SRCS := $(HAZARD3_SRCS) rtl/memory.v soc/compare/bench_hazard3.v
@@ -1412,8 +1426,8 @@ compare.$(COMPARE_CORE).core.log: $(COMPARE_CORE_DEPS)
 	@yosys -p '$(COMPARE_CORE_READ); synth_ice40 $(COMPARE_SYNTH_FLAGS) -top $(COMPARE_CORE_TOP); stat' \
 	  > $@ 2>&1 || { tail -40 $@; exit 1; }
 
-# `compare-rom` FIRST. COMPARE_DEPS ends with an order-only `| $(RISCV_FORMAL_DIR)`
-# for VexRiscv, and everything after a `|` is order-only -- so written the other
+# `compare-rom` FIRST. COMPARE_DEPS ends with an order-only `| $(HAZARD3_DIR)`
+# for Hazard3, and everything after a `|` is order-only -- so written the other
 # way round the phony stopped forcing a rebuild, `--seed` reached nextpnr on a
 # netlist make never regenerated, and four "placements" of that core reported
 # one number to the millisecond.

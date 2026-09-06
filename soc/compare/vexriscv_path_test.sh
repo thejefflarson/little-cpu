@@ -19,6 +19,19 @@ if [ ! -f "$MK" ]; then
   exit 1
 fi
 
+# THE POSITIVE ASSERTION FIRST. The scan below is an absence test, and an
+# absence test alone passes a Makefile with no VexRiscv in it at all -- zero
+# matches for anything reads exactly like zero matches for the forbidden path.
+# So require the vendored variable to be named at least once before believing
+# anything the absence test says.
+uses=$(grep -c '\$(VEXRISCV_V)' "$MK" || true)
+if [ "$uses" -eq 0 ]; then
+  echo "error: $MK names \$(VEXRISCV_V) nowhere. Either this harness reads no" >&2
+  echo "VexRiscv at all, or it reaches one by some spelling this scan cannot" >&2
+  echo "see -- and in both cases the absence test below proves nothing." >&2
+  exit 1
+fi
+
 # Any non-comment line naming a literal VexRiscv.v path is suspect; comment
 # lines are prose, not a make recipe, and $(VEXRISCV_V) is a make variable
 # reference that never matches the literal filename, so a line using it
@@ -32,4 +45,4 @@ if [ -n "$bad" ]; then
   exit 1
 fi
 
-echo "$MK: every VexRiscv reference goes through \$(VEXRISCV_V)"
+echo "$MK: $uses references to \$(VEXRISCV_V), and no other VexRiscv.v path"
