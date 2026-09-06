@@ -181,6 +181,54 @@ expect_green "two mutations, each caught by exactly its detectors" \
   "2 mutations, each caught by exactly the detectors"
 
 echo
+echo "== --shard, which divides the mutations across CI jobs"
+reset_fixture
+drive --shard 1/2
+expect_green "a shard grades its own share and says which share it is" \
+  "1 mutations, each caught by exactly the detectors it is paired with (shard 1/2)"
+
+# The two halves together must be the whole. A stride that dropped or repeated a
+# mutation would still let every shard pass, and the check would silently stop
+# covering part of the manifest -- which is the failure this whole script is
+# about, one level up.
+reset_fixture
+drive --shard 1/2
+first=$out
+reset_fixture
+drive --shard 2/2
+expect_green "the other shard grades the rest" \
+  "1 mutations, each caught by exactly the detectors it is paired with (shard 2/2)"
+covered=$(printf '%s\n%s\n' "$first" "$out" | sed -n 's/^== \(.*\)$/\1/p' \
+          | grep -v '^baseline' | sort)
+declared=$(grep -vE '^#|^[[:space:]]*$' "$FIXTURE/test/MUTATION_DETECTORS" \
+           | sed -n 's/^\([^ ]*\) .*/\1/p' | sort -u)
+if [ "$covered" = "$declared" ]; then report "two shards cover every mutation exactly once" ok
+else out="shards covered:"$'\n'"$covered"$'\n'"declared:"$'\n'"$declared"
+     report "two shards cover every mutation exactly once" bad; fi
+
+reset_fixture
+drive --shard 3/2
+expect_red "a shard index past the shard count is refused" 1 \
+  "--shard wants 1 <= i <= n"
+
+reset_fixture
+drive --shard bogus
+expect_red "a shard spec that is not i/n is refused" 1 \
+  "--shard wants <i>/<n>"
+
+reset_fixture
+drive --shard 1/2 --only alpha
+expect_red "--shard and --only together are refused, not silently ranked" 1 \
+  "both select mutations"
+
+# More shards than mutations is a real misconfiguration, and the shard with
+# nothing in it must not report success for grading nothing.
+reset_fixture
+drive --shard 3/3
+expect_red "a shard with no mutations in it is refused, not green" 1 \
+  "has no mutations in it"
+
+echo
 echo "== a detector that stops firing"
 reset_fixture
 : > "$FIXTURE/stub/bench.alpha"
