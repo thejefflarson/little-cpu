@@ -478,11 +478,16 @@ VexRiscv no data path to its ROM, so keep read-only data out of ROM there.
   so no depth argument stands on the suite alone.
 - **yosys and ABC already do everything derivable from the expression** — dead bits, common
   subexpressions, duplicate adders — so an edit that restates the same arithmetic is a null
-  (ADR-0088). **Dead logic is free only where ABC has a LUT input to fold it into**:
-  `rtl/writeback.v`'s `wen` masks are unread by every consumer and cost +2.83% of median period and
-  the requirement at the worst of sixteen seeds to delete, so they stay and say so (ADR-0115,
-  ADR-0117); read the consumer before calling a redundant term free. **What the tools cannot use is
-  a fact from outside the expression** — a power-of-two parameter, an aligned window, an address
+  (ADR-0088). **Redundant SOURCE TEXT is not redundant HARDWARE, and it predicts nothing about the
+  period**: it changes how ABC factors the cone and so how nextpnr places it, in either direction.
+  `rtl/writeback.v`'s `wen` masks are the worked example and they have measured BOTH WAYS on
+  sixteen and twelve paired seeds — +2.83% of median period and the requirement at the worst seed
+  to delete when filed, then −3.22% of median, −3.15% at the worst placement and −128 cells to
+  delete a month later, which is how they come to be deleted now (ADR-0115, ADR-0117 as amended).
+  Read the consumer before calling a redundant term free, and **re-take the measurement before
+  citing it**: nothing in this tree expires a ceiling, so a declined edit keeps its authority until
+  someone spends the placements. **What the tools cannot use is a fact from outside the
+  expression** — a power-of-two parameter, an aligned window, an address
   bit a trap guarantees zero — and that is an area lever, not an Fmax one: eleven such edits are
   −169 SoC cells with the period a null (ADR-0088), and 352 cells of ballast moved the median +2%
   and the worst placement the other way, so **occupancy does not set the tail on this part**

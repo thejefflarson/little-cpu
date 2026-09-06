@@ -65,10 +65,13 @@ module writeback(
   assign in_rd_data = in.rd_data;
 
   assign wen   = !reset && in_valid && (in_rd != 5'b0);
-  // These masks are dead logic -- every consumer already tests `wen` -- and
-  // they stay: deleting them puts the worst placement under the board clock.
-  assign waddr = wen ? in_rd      : 5'b0;
-  assign wdata = wen ? in_rd_data : 32'b0;
+  // Presented unmasked. Every consumer in rtl/regfile.v tests `wen`, and
+  // test/regfile_tb.v aims a live address and word at the register both ports
+  // are reading with `wen` low to prove it. Masking these with `wen` has been
+  // measured twice and now costs period: it spends a mux in front of a bypass
+  // with no LUT input left to fold it into.
+  assign waddr = in_rd;
+  assign wdata = in_rd_data;
 
  `ifdef RISCV_FORMAL
   assign rvfi_trap = in.rvfi.trap;
