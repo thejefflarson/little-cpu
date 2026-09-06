@@ -171,6 +171,8 @@ a graded target quietly depending on netlist-digest is red, and named
 a graph with no edges out of reg_rs1 is red, not a vacuous pass
 a half-installed toolchain says so once, up front
 a half-installed toolchain says so once, up front
+a hand-typed fixture is red on an unquoted heredoc delimiter too
+a hand-typed fixture with no anchor and no cp of a real file is red
 a harness that is red at rest makes the two mutations meaningless
 a harness that is red at rest makes the two mutations meaningless
 a harness with no data RAM at all does not pass by silence
@@ -217,6 +219,7 @@ a move far outside the churn band still cannot fail the job
 a must-trap proof going red somewhere else is not evidence
 a mutant that left no trace demonstrates nothing, and says so
 a mutant the digest calls equal placing elsewhere voids it too
+a mutate whose sed expression matches nothing is fixture-stale, named
 a mutated vendored byte fails the pin, and says so
 a mutated vendored byte fails the pin, and says so
 a mutation line with a stray extra field is red rather than read as the name
@@ -265,6 +268,7 @@ a program that stopped assembling is ASSEMBLE-ERROR
 a program that went quiet is BELOW-FLOOR on retires
 a proof going red somewhere else is not evidence about the mtval arm
 a prose copy of a band figure goes red where it is written
+a raw sed -i outside mutate/mutate_remove is red, naming the line
 a real archive missing one vendored member is caught, and named
 a real archive with one byte-mutated file is caught, and named
 a ref that names no commit is refused, not compared
@@ -389,6 +393,8 @@ an UNREADABLE baseline is refused, not read as an empty one
 an allow-list entry whose site lost the stale ISA name is red
 an allow-list entry whose site lost the string is red
 an allow-list entry whose site no longer has the word is red
+an allow-listed fixture that gained a real anchor is red until the entry is deleted
+an allow-listed sed -i that no longer appears anywhere is red too
 an anti-vacuity cover that cannot go red is not a control
 an anti-vacuity cover that cannot go red is not a control
 an arm that admits a fault the core never commits is red
@@ -533,7 +539,10 @@ control: both sides failing the same test number still AGREE
 control: each subset is printed as a share of that number
 control: every allowed site is covered and nothing else carries the string
 control: every site names every port of littlecpu
+control: fixture_anchor finds its literal in the real file
 control: identical register traces and verdicts AGREE
+control: mutate on a real match rewrites the file and returns 0
+control: mutate_remove deletes a file that is there
 control: programs that build and are paired are green
 control: rule 6 gates the trap comparison and writes its compensation
 control: the MUL constant-latency assertion fails at its own line
@@ -552,6 +561,7 @@ control: the shipping Makefile owes nothing but themselves to the two targets
 control: the shipping decoder reaches region_stall only, gated
 control: the shipping exclusion set matches its baseline both ways
 control: the shipping files describe one machine
+control: the shipping fixtures are all mutate/mutate_remove, every anchor holds
 control: the shipping harness states one geometry
 control: the shipping harnesses tie off, both directions
 control: the shipping harnesses tie off, both directions
@@ -571,6 +581,7 @@ data past the end of the simulated RAM is red, not silent
 decoder_output.rd widened past 5 bits is red (finding 5)
 deleting an rtl file and leaving its line is red
 every source line moving is the comment class, and is forgiven
+fixture_anchor whose literal left the real file is fixture-stale, named
 half of a macro-guarded group is red, where none of it is not
 hazard reading ls_answer_valid directly is red (finding 1)
 identical traces with different verdicts is DISAGREE VERDICT
@@ -580,6 +591,7 @@ layer 2: the enclosed handle_error multiset is pinned, not merely counted
 layer 3: error 101 vanishing from the OUTPUT is caught after every rule
 more accesses near an edge than there were accesses is red
 moving the declared string alone, with every site unchanged, is red
+mutate_remove on a path that was never there is fixture-stale, not silent
 netlist-diff reaches the same check as netlist-digest does
 no components.sby is exit 2 here too, not a green control
 no components.sby is exit 2, not a probe against an invented script
