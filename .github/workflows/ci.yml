@@ -172,8 +172,8 @@ jobs:
   #
   # Same toolchain as `test`: this builds and runs `sim`, so it needs the cross
   # compiler, clang++ and yosys, and nothing that only synthesis or Sail needs.
-  mutation-check:
-    name: mutation-check
+  mutation-check-shard:
+    name: mutation-check-shard
     # SHARDED because this job is the run's critical path, not because the pool
     # is short of capacity: measured over a full run, twelve jobs did 44.9
     # minutes of work in 17.6 minutes of wall time -- an effective parallelism
@@ -245,9 +245,39 @@ jobs:
         run: |
           elapsed=$(( $(date +%s) - JOB_START ))
           {
-            echo "### mutation-check"
+            echo "### mutation-check shard ${{ matrix.shard }}"
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # THE REQUIRED CHECK KEEPS ITS NAME. Sharding renames the job that does the
+  # work, and a required context that no longer reports blocks every pull
+  # request rather than failing one -- including the pull request that would
+  # introduce the new names. So `mutation-check` survives as a gate over the
+  # shards: branch protection needs no edit, and there is no window where the
+  # mutation gate is not required.
+  #
+  # `needs.<matrix job>.result` is success only when EVERY shard succeeded, and
+  # `if: always()` is what makes this run at all when one did not -- without it
+  # the gate is skipped, and a skipped required check leaves the pull request
+  # waiting rather than red.
+  #
+  # ubuntu-latest on purpose: it compares one string, and putting it on the
+  # self-hosted pool would spend a runner slot on a job that does no work.
+  mutation-check:
+    name: mutation-check
+    needs: mutation-check-shard
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every shard to have passed
+        run: |
+          set -euo pipefail
+          result='${{ needs.mutation-check-shard.result }}'
+          echo "shards reported: $result"
+          if [ "$result" != success ]; then
+            echo "::error::a mutation-check shard did not pass; read the shard jobs for which pairing broke"
+            exit 1
+          fi
 
   # The only oracle here that reads the core's real register array instead of
   # the core's own report of what it retired. Every other leg evaluates a spec
