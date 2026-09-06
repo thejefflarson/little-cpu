@@ -428,19 +428,23 @@ top, ECP5 only.
 - **The only cross-core comparison that means anything is one harness**, `soc/compare/`: same part,
 memories, program, toolchain and seeds, against the VexRiscv in the pinned riscv-formal clone and
 Hazard3's iCE40 build (`soc/compare/hazard3_pin.mk`, ADR-0139). **A product is a measurement only
-when both factors were taken on one tree AND one toolchain**, and the current pair of them, twelve
-seeds a side at the shared RV32I ISA (ADR-0098 as amended), is **1.16× against VexRiscv in its
-favour** — 23.47 DMIPS against 27.18 at each core's worst placement — and **0.97× against Hazard3,
-which is level rather than a win**: 22.83 against our 23.47, inside the 9.01% of its cycles the
-harness discloses it spends in a bus wait the others do not pay. Every half pulls the same way in
-both pairs: **we win cycles and lose clock.** Against VexRiscv the clock is 1.53× theirs (30.13
-against 46.06 MHz) and the cycles 1.319× ours (731.1 against 964.1 per Dhrystone, 0.779 against
-0.590 DMIPS/MHz); against Hazard3, 1.06× and 1.093×. **Read the product, not a half** — between
+when both factors were taken on one tree AND one toolchain**, and **A COMPARISON IS ONLY AS GOOD AS ITS
+LEAST EXAMINED ASSUMPTION**: the VexRiscv this harness measured for its whole life was
+riscv-formal's `FormalSimple`, a VERIFICATION config with no `MulPlugin`, no `CsrPlugin` and every
+hazard bypass disabled, which is no peer for this core and flattered it on cycles exactly as much as
+it flattered VexRiscv on period (ADR-0160 as amended). `soc/compare/vexriscv_pin.mk` now generates
+each core in **the configuration its own authors ship for performance**, and the result reverses:
+on up5k, where all three quantise to the 12 MHz step, **VexRiscv is 1.14× THIS CORE** (10.67 DMIPS
+against 9.35) and this core is 1.09× Hazard3 (8.54); on ECP5 **VexRiscv is 1.81×** (48.69 against
+26.93) and Hazard3 1.24×. **We lose the cycle half too, once the opponent forwards**: 640.1 cycles
+per Dhrystone against our 731.1, 0.889 DMIPS/MHz against 0.779. The old figures came from a core
+with no forwarding at all. **Read the product, not a half** — between
 ADR-0129 and here the cycle half rose and the clock half fell and the product did not move at all,
 so either factor alone tells you the opposite of the other. **CoreMark is the pair that separates
 them**: littlecpu against Hazard3 is **0.645×, a 1.55× throughput win for this core** on a
-benchmark that leans on the M extension, where the same pair is level on Dhrystone. VexRiscv's
-pinned build has no M and cannot run that image at all. **The toolchain is part of the stamp, not a
+benchmark that leans on the M extension. That pair's VexRiscv column is still unmeasured — the
+comparable build has M now, so the image it could not run is buildable and the measurement is
+owed. **The toolchain is part of the stamp, not a
 detail**: the same twelve seeds moved VexRiscv 4.5% at its worst placement between two yosys builds
 while this core's up5k SoC came out bit-identical, so halves synthesised by different toolchains do
 not form a product. Re-take

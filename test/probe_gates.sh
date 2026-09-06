@@ -2126,6 +2126,9 @@ ecp5_stale_fixture() {  # stdin = the stub nextpnr-ecp5's body, after --version
   cp "$REPO/Makefile" "$d/Makefile"
   cp "$REPO/formal/pin.mk" "$d/formal/"
   cp "$REPO/soc/compare/hazard3_pin.mk" "$d/soc/compare/"
+  # The Makefile `include`s this one HARD, not with `-include`: a missing pin
+  # should stop a measurement, not silently unpin the core it describes.
+  cp "$REPO/soc/compare/vexriscv_pin.mk" "$d/soc/compare/"
   cp "$REPO/soc/littlesoc.lpf" "$REPO/soc/ecp5_report.py" \
      "$REPO/soc/print_toolchain.sh" "$d/soc/"
   cp -R "$REPO/rtl" "$d/"
