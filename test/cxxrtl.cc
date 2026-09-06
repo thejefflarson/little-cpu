@@ -171,6 +171,15 @@ bool load_rom_banks(cxxrtl::debug_items &items, const HexImage &image) {
 // occupying the bus, on a cycle nothing could have issued whatever else was
 // true. Charged after the scoreboard instead, an AMO's cost would land under
 // `hazard` -- the instruction behind an AMO usually reads its result.
+//
+// Whichever of `hazard_rs1`/`hazard_rs2` wins the charge above splits further,
+// in the same rs1-before-rs2 order and then A before B before C: A is
+// `out_match`, the producer still in `out` with no result anywhere to give. B
+// and C both need `ex_match` -- the only other way `hazard_rsN` can be true --
+// and split on `rs1_fwd_eligible`/`rs2_fwd_eligible` alone: eligible with no
+// forward means `executor_out.rd_ready` was false (B, the result is still
+// unpacked), and ineligible is C, a ready result decode has no forwarding path
+// to. `executor_out.rd_ready` itself is never read.
 struct StallReason {
   const char *item;
   int bucket;
@@ -376,6 +385,21 @@ int main(int argc, char **argv) {
   // named reasons explains, i.e. a stall reason nobody has written down.
   std::vector<std::pair<const cxxrtl::debug_item *, int>> stall_probes;
   const cxxrtl::debug_item *stall_any = nullptr;
+  // The signals the hazard split reads beyond `hazard_rs1`/`hazard_rs2`
+  // themselves: which operand's producer is still in `out` (A) and which
+  // operand is wired for forwarding at all (the B/C split). Looked up by
+  // pointer, not by re-deriving `ex_match` -- `hazard_rsN` being true and
+  // `out_match_rsN` being false already says the producer is in the executor.
+  const cxxrtl::debug_item *hazard_rs1_item = nullptr;
+  const cxxrtl::debug_item *hazard_rs2_item = nullptr;
+  const cxxrtl::debug_item *out_match_rs1 = nullptr;
+  const cxxrtl::debug_item *out_match_rs2 = nullptr;
+  const cxxrtl::debug_item *rs1_fwd_eligible = nullptr;
+  const cxxrtl::debug_item *rs2_fwd_eligible = nullptr;
+  // A CSR register-form operand is never forward-eligible, so any hazard it
+  // causes lands in C; test/stall_report.py reports this slice on its own
+  // rather than folding it into C unremarked.
+  const cxxrtl::debug_item *instr_csr_access = nullptr;
   // The load/store locality counters (rtl/littlecpu.v). Registers rather than
   // per-cycle probes: the RTL does the counting, so all this reads is the three
   // final values. They ride on `--stalls` because they answer the same kind of
@@ -390,6 +414,13 @@ int main(int argc, char **argv) {
       for (const StallReason &reason : kStallReasons)
         stall_probes.emplace_back(&all_debug_items.at(reason.item).at(0),
                                   reason.bucket);
+      hazard_rs1_item = &all_debug_items.at("uut decoder hazard_rs1").at(0);
+      hazard_rs2_item = &all_debug_items.at("uut decoder hazard_rs2").at(0);
+      out_match_rs1 = &all_debug_items.at("uut decoder out_match_rs1").at(0);
+      out_match_rs2 = &all_debug_items.at("uut decoder out_match_rs2").at(0);
+      rs1_fwd_eligible = &all_debug_items.at("uut decoder rs1_fwd_eligible").at(0);
+      rs2_fwd_eligible = &all_debug_items.at("uut decoder rs2_fwd_eligible").at(0);
+      instr_csr_access = &all_debug_items.at("uut decoder instr_csr_access").at(0);
     } catch (const std::out_of_range &) {
       std::fprintf(stderr,
                     "error: --stalls needs the decoder's stall signals as debug "
@@ -418,6 +449,7 @@ int main(int argc, char **argv) {
   uint64_t issue_cycles = 0;
   uint64_t unattributed_cycles = 0;
   uint64_t stall_cycles[kStallBuckets] = {};
+  uint64_t hazard_a = 0, hazard_b = 0, hazard_c = 0, hazard_c_csr = 0;
 
   // Printed on every path that reaches the simulation loop. Setup failures
   // above return before this point on purpose: nothing ran, so there is no
@@ -436,6 +468,9 @@ int main(int argc, char **argv) {
     for (int b = 0; b < kStallBuckets; ++b)
       std::printf(" %s=%llu", kStallLabels[b],
                    (unsigned long long)stall_cycles[b]);
+    std::printf(" hzA=%llu hzB=%llu hzC=%llu hzCcsr=%llu",
+                 (unsigned long long)hazard_a, (unsigned long long)hazard_b,
+                 (unsigned long long)hazard_c, (unsigned long long)hazard_c_csr);
     std::printf(" unattributed=%llu lsissue=%u lsedge=%u lsbypass=%u\n",
                  (unsigned long long)unattributed_cycles, ls_issues->curr[0],
                  ls_edges->curr[0], ls_bypasses->curr[0]);
@@ -512,15 +547,42 @@ int main(int argc, char **argv) {
         issue_cycles++;
       } else {
         bool charged = false;
+        const cxxrtl::debug_item *charged_item = nullptr;
         for (const auto &[item, bucket] : stall_probes) {
           if ((item->curr[0] & 1) != 0) {
             stall_cycles[bucket]++;
             charged = true;
+            charged_item = item;
             break;
           }
         }
         if (!charged)
           unattributed_cycles++;
+
+        // A before B before C, for whichever of rs1/rs2 the charge above just
+        // went to: `out_match` wins outright, and otherwise `ex_match` is
+        // implied by `hazard_rsN` itself, so eligibility alone is what is left
+        // to ask.
+        const cxxrtl::debug_item *out_match = nullptr;
+        const cxxrtl::debug_item *eligible = nullptr;
+        if (charged_item == hazard_rs1_item) {
+          out_match = out_match_rs1;
+          eligible = rs1_fwd_eligible;
+        } else if (charged_item == hazard_rs2_item) {
+          out_match = out_match_rs2;
+          eligible = rs2_fwd_eligible;
+        }
+        if (out_match != nullptr) {
+          if ((out_match->curr[0] & 1) != 0) {
+            hazard_a++;
+          } else if ((eligible->curr[0] & 1) != 0) {
+            hazard_b++;
+          } else {
+            hazard_c++;
+            if ((instr_csr_access->curr[0] & 1) != 0)
+              hazard_c_csr++;
+          }
+        }
       }
     }
     sample(cycle * 2 + 0);
