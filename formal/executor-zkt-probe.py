@@ -29,8 +29,9 @@ pre-existing MUL-value assertion four lines above this one, reachable from
 reset in the same steps as the latency assertion -- a second, genuine defect
 the mutation would have introduced, not evidence about the assertion this
 file exists to probe. Excluding it leaves exactly one arm reachable for the
-diverted operands: the real divide, `mul_div_counter <= 32; state <= divide`,
-which completes at `divu_ref = div_ghost_rs1 / div_ghost_rs2 == 0 / rs2 == 0`
+diverted operands: the real divide, `state <= divide` with the loop loaded
+sixteen iterations in because the diverted dividend's top half is zero, which
+completes at `divu_ref = div_ghost_rs1 / div_ghost_rs2 == 0 / rs2 == 0`
 -- so the diverted core's mul-value assertion holds for every choice of rs2
 the mutation can reach, and only the latency assertion this file is about can
 fail on the basecase's own reachable trace. Diverting through the divider's

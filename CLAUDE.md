@@ -202,9 +202,9 @@ for A or for Zkt, so widening either generates nothing.
 
 **Zkt is claimed, and it adds no instruction and no `misa` bit** (ADR-0134). It promises that a
 listed set — RV32I arithmetic, logical and shift, the four multiplies, and the arithmetic C
-encodings — executes in time independent of its operands' VALUES; `DIV`/`REM` (32 cycles, or one
-when `rs2 == 0` or on `INT_MIN / -1`), loads, stores, branches and jumps are excluded, and the
-exclusion is what makes the claim true. Load/store timing here varies with address arithmetic, not
+encodings — executes in time independent of its operands' VALUES; `DIV`/`REM` (32 iterations, 16
+when the dividend's magnitude has a zero top half, or one when `rs2 == 0` or on `INT_MIN / -1`),
+loads, stores, branches and jumps are excluded, and the exclusion is what makes the claim true. Load/store timing here varies with address arithmetic, not
 cache state, and the constant-time model treats addresses as non-secret. Three graders carry it:
 `test/zkt_isolation_test.py` grades the taint half on the ELABORATED NETLIST (ADR-0137 records why
 the source-text version was replaced) — it seeds taint at `reg_rs1`, `reg_rs2` and
@@ -427,27 +427,43 @@ top, ECP5 only.
   software is the firmware ceasing to pay a cost, never the core getting faster. **CoreMark is
   SIMULATED AT 16 KB OF ROM**, double the part's 8, against `test/testbench.v`'s `ROM_WORDS`, and
   every printed figure says so; the five algorithm files are vendored unmodified and pinned by
-  `test/bench/coremark/PINNED.sha256` (ADR-0136). **2.013 CoreMark/MHz** on the shipping layout
-  against 1.811 on the conventional one, so it travels with the linker script the way the DMIPS
-  figure does (ADR-0158). Hazard3's published 4.15 CoreMark/MHz is its RP2350 build, not its iCE40
+  `test/bench/coremark/PINNED.sha256` (ADR-0136). **2.203 CoreMark/MHz**, and it travels with the
+  linker script the way the DMIPS figure does: the inset layout read 2.013 against 1.811 on the
+  conventional one when ADR-0158 measured it, and executor-only forwarding took the inset figure
+  to 2.203 afterwards (ADR-0154). Hazard3's published 4.15 CoreMark/MHz is its RP2350 build, not its iCE40
   one, and quoting it against an ice40 core is the mixed-configuration error ADR-0098 names.
 - **The only cross-core comparison that means anything is one harness**, `soc/compare/`: same part,
 memories, program, toolchain and seeds, against the VexRiscv in the pinned riscv-formal clone and
 Hazard3's iCE40 build (`soc/compare/hazard3_pin.mk`, ADR-0139). **A product is a measurement only
-when both factors were taken on one tree**, and the current one is **1.16× against VexRiscv in its
-favour**, twelve seeds a side on one tree (ADR-0098 as amended): 23.14 DMIPS against 26.87 at each
-core's worst placement, 1.17× median against median. Its halves pull opposite ways — the clock is
-1.60× theirs at the worst placement (30.13 against 48.24 MHz) and the cycles are **1.379× ours**
-(741.1 against 1021.9 per Dhrystone, 0.768 against 0.557 DMIPS/MHz). **Read the product, not a
-half.** Between ADR-0129 and here the cycle half rose and the clock half fell, and the product did
-not move at all, so either factor quoted alone tells you the opposite of the other. Re-take
+when both factors were taken on one tree AND one toolchain**, and **A COMPARISON IS ONLY AS GOOD AS ITS
+LEAST EXAMINED ASSUMPTION**: the VexRiscv this harness measured for its whole life was
+riscv-formal's `FormalSimple`, a VERIFICATION config with no `MulPlugin`, no `CsrPlugin` and every
+hazard bypass disabled, which is no peer for this core and flattered it on cycles exactly as much as
+it flattered VexRiscv on period (ADR-0160 as amended). `soc/compare/vexriscv_pin.mk` now generates
+each core in **the configuration its own authors ship for performance**, and the result reverses:
+on up5k, where all three quantise to the 12 MHz step, **VexRiscv is 1.14× THIS CORE** (10.67 DMIPS
+against 9.35) and this core is 1.09× Hazard3 (8.54); on ECP5 **VexRiscv is 1.81×** (48.69 against
+26.93) and Hazard3 1.24×. **We lose the cycle half too, once the opponent forwards**: 640.1 cycles
+per Dhrystone against our 731.1, 0.889 DMIPS/MHz against 0.779. The old figures came from a core
+with no forwarding at all. **Read the product, not a half** — between
+ADR-0129 and here the cycle half rose and the clock half fell and the product did not move at all,
+so either factor alone tells you the opposite of the other. **CoreMark is the pair that separates
+them**: littlecpu against Hazard3 is **0.645×, a 1.55× throughput win for this core** on a
+benchmark that leans on the M extension. That pair's VexRiscv column is still unmeasured — the
+comparable build has M now, so the image it could not run is buildable and the measurement is
+owed. **The toolchain is part of the stamp, not a
+detail**: the same twelve seeds moved VexRiscv 4.5% at its worst placement between two yosys builds
+while this core's up5k SoC came out bit-identical, so halves synthesised by different toolchains do
+not form a product. Re-take
 both halves before quoting the product, with what each side is and with the caveat that Dhrystone's
 cycles are simulated at a larger map than the clock is placed at (`make compare-dhrystone` prints
 the block arithmetic; ADR-0098 lists the distortions). **Hazard3's iCE40 build is the third core in the
-harness, and its DHRYSTONE factors are now both measured** — `soc/compare/dhry_tb.v`'s marker
-mechanism, built for VexRiscv's identical CSR-free gap, needed wiring rather than invention. Its
-CoreMark half is still not built: `CSR_COUNTER=0` means no `mcycle`, so it cannot self-time that
-run (ADR-0139). Read the three-way Dhrystone row only at the one ISA all three cores share, RV32I,
+harness, and BOTH its benchmark factors are now measured** — `soc/compare/dhry_tb.v`'s marker
+mechanism, built for VexRiscv's identical CSR-free gap, needed wiring rather than invention, and
+`CSR_COUNTER=0` leaving it no `mcycle` to self-time with is what that mechanism exists to route
+around (ADR-0139, ADR-0146). It discloses its own bus wait rather than correcting it — 9.01% of its
+Dhrystone cycles, 1.98% of its CoreMark ones — and on Dhrystone that artifact is larger than the
+gap, which is why that pair reads level. Read the three-way Dhrystone row only at the one ISA all three cores share, RV32I,
 which is what makes every pairwise ratio in it a comparison rather than three configurations. Two graded checks stand in front of every number:
 `soc/compare/placed_vs_synth.py` refuses a placed count under `COMPARE_MIN_RATIO` of the core's own
 synthesis — an all-NOP image once placed a quarter of this core with a plausible critical path

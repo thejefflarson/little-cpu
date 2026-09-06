@@ -2,74 +2,130 @@
   "note": "written by soc/compare/run_product.sh (make compare-product); do not hand-edit",
   "pairs": {
     "coremark": {
-      "cores": [
-        "hazard3"
-      ],
-      "reason": "make compare-coremark is not on this tree yet; run_product.sh will measure it once that lands",
-      "status": "not_yet_measured",
-      "target_core": "littlecpu"
-    },
-    "dhrystone": {
-      "base": "ab5af011b6a1d8a6b7e6e1027317c30121d2b6b6",
-      "cflags": "-march=rv32ic -mabi=ilp32 -O2 -std=c11 -ffreestanding -fno-tree-loop-distribute-patterns -Wall -Wextra -Werror",
+      "base": "122ef7bdd2b04e4810efc3b75fe6ad8ece637c6b",
+      "cflags": "-march=rv32ima -mabi=ilp32 -O2 -std=c11 -ffreestanding -fno-tree-loop-distribute-patterns -Wall -Wextra -Werror",
       "cores": {
+        "hazard3": {
+          "clock_mhz": {
+            "best_mhz": 33.78378378378378,
+            "best_ns": 29.6,
+            "median_mhz": 33.19502074688797,
+            "median_ns": 30.125,
+            "n": 12,
+            "spread_pct": 5.3378378378378315,
+            "worst_mhz": 32.07184092366902,
+            "worst_ns": 31.18
+          },
+          "cycle_factor": 1.3986326966757299
+        },
         "littlecpu": {
           "clock_mhz": {
-            "best_mhz": 32.69042170644001,
-            "best_ns": 30.59,
-            "median_mhz": 32.01536737634064,
-            "median_ns": 31.235,
-            "n": 4,
-            "spread_pct": 5.7862046420398805,
-            "worst_mhz": 30.902348578491967,
-            "worst_ns": 32.36
+            "best_mhz": 32.414910858995135,
+            "best_ns": 30.85,
+            "median_mhz": 30.585716470408318,
+            "median_ns": 32.695,
+            "n": 12,
+            "spread_pct": 7.5850891410048495,
+            "worst_mhz": 30.129557095510698,
+            "worst_ns": 33.19
           },
-          "cycle_factor": 0.7478312948536591
-        },
-        "vexriscv": {
-          "clock_mhz": {
-            "best_mhz": 50.83884087442806,
-            "best_ns": 19.67,
-            "median_mhz": 50.42864346949067,
-            "median_ns": 19.83,
-            "n": 4,
-            "spread_pct": 2.0335536349771153,
-            "worst_mhz": 49.82561036372695,
-            "worst_ns": 20.07
-          },
-          "cycle_factor": 0.556957381701911
+          "cycle_factor": 2.308189456190564
         }
       },
-      "date": "2026-08-30T17:17:07Z",
+      "date": "2026-09-05T19:55:40Z",
       "dirty": "yes",
-      "isa": "rv32ic",
+      "isa": "rv32ima",
       "products": {
-        "vexriscv": {
+        "hazard3": {
+          "hazard3_dmips": {
+            "median": 46.427641383426725,
+            "worst": 44.85672535842624
+          },
           "littlecpu_dmips": {
-            "median": 23.942093640264417,
-            "worst": 23.10974335147278
+            "median": 70.59762826703056,
+            "worst": 69.54472600754939
           },
           "ratio": {
-            "median": 1.1731056461291374,
-            "worst": 1.2008243046157592
-          },
-          "vexriscv_dmips": {
-            "median": 28.0866052295467,
-            "worst": 27.750741489880966
+            "median": 0.6576374096848897,
+            "worst": 0.6450054221733054
           }
         }
       },
       "ram_words": 512,
       "rom_words": 1024,
-      "seeds": "default 1 2 3",
+      "seeds": "default 1 2 3 4 5 6 7 8 9 10 11",
       "status": "measured",
       "target_core": "littlecpu",
       "tools": {
-        "icetime": "no version string sha256:4ba28c34e2628592 [/opt/homebrew/bin/icetime]",
-        "iverilog": "Icarus Verilog version 13.0 (stable) (v13_0) [/opt/homebrew/bin/iverilog]",
-        "nextpnr-ice40": "\"nextpnr-ice40\" -- Next Generation Place and Route (Version ) [/opt/homebrew/bin/nextpnr-ice40]",
+        "icetime": "oss-cad-suite 20260811 sha256:25a4ecb76c094f00 [/Users/jeff/.cache/little-cpu/oss-cad-suite/bin/icetime]",
+        "iverilog": "Icarus Verilog version 14.0 (devel) (s20260301-363-g1d2aa1b6f-dirty) [/Users/jeff/.cache/little-cpu/oss-cad-suite/bin/iverilog]",
+        "nextpnr-ice40": "\"nextpnr-ice40\" -- Next Generation Place and Route (Version nextpnr-0.11-1-g62e659ed) [/Users/jeff/.cache/little-cpu/oss-cad-suite/bin/nextpnr-ice40]",
         "riscv64-elf-gcc": "riscv64-elf-gcc (GCC) 16.2.0 [/opt/homebrew/bin/riscv64-elf-gcc]",
-        "yosys": "Yosys 0.68+post (git sha1 c12172fbae8af5e20f6fb52e3d4e92d56ed587b6, Release, AppleClang clang++ 21.0.0.21000101) [/opt/homebrew/bin/yosys]"
+        "yosys": "Yosys 0.68+48 (git sha1 ff5817c34-dirty, Release, Clang /usr/local/osxcross/target/bin/aarch64-apple-darwin25.5-clang++ 21.1.8) [/Users/jeff/.cache/little-cpu/oss-cad-suite/bin/yosys]"
+      },
+      "unit": "CoreMark/MHz"
+    },
+    "dhrystone": {
+      "base": "122ef7bdd2b04e4810efc3b75fe6ad8ece637c6b",
+      "cflags": "-march=rv32i -mabi=ilp32 -O2 -std=c11 -ffreestanding -fno-tree-loop-distribute-patterns -Wall -Wextra -Werror",
+      "cores": {
+        "littlecpu": {
+          "clock_mhz": {
+            "best_mhz": 32.414910858995135,
+            "best_ns": 30.85,
+            "median_mhz": 30.585716470408318,
+            "median_ns": 32.695,
+            "n": 12,
+            "spread_pct": 7.5850891410048495,
+            "worst_mhz": 30.129557095510698,
+            "worst_ns": 33.19
+          },
+          "cycle_factor": 0.7785270938863289
+        },
+        "vexriscv": {
+          "clock_mhz": {
+            "best_mhz": 50.47955577990914,
+            "best_ns": 19.81,
+            "median_mhz": 48.673643222195174,
+            "median_ns": 20.545,
+            "n": 12,
+            "spread_pct": 9.591115598182748,
+            "worst_mhz": 46.06172270842929,
+            "worst_ns": 21.71
+          },
+          "cycle_factor": 0.590334646528327
+        }
+      },
+      "date": "2026-09-05T19:55:40Z",
+      "dirty": "yes",
+      "isa": "rv32i",
+      "products": {
+        "vexriscv": {
+          "littlecpu_dmips": {
+            "median": 23.81180895813821,
+            "worst": 23.456676525650163
+          },
+          "ratio": {
+            "median": 1.2067011799622263,
+            "worst": 1.1592362952113793
+          },
+          "vexriscv_dmips": {
+            "median": 28.733737966820488,
+            "worst": 27.19183079356642
+          }
+        }
+      },
+      "ram_words": 512,
+      "rom_words": 1024,
+      "seeds": "default 1 2 3 4 5 6 7 8 9 10 11",
+      "status": "measured",
+      "target_core": "littlecpu",
+      "tools": {
+        "icetime": "oss-cad-suite 20260811 sha256:25a4ecb76c094f00 [/Users/jeff/.cache/little-cpu/oss-cad-suite/bin/icetime]",
+        "iverilog": "Icarus Verilog version 14.0 (devel) (s20260301-363-g1d2aa1b6f-dirty) [/Users/jeff/.cache/little-cpu/oss-cad-suite/bin/iverilog]",
+        "nextpnr-ice40": "\"nextpnr-ice40\" -- Next Generation Place and Route (Version nextpnr-0.11-1-g62e659ed) [/Users/jeff/.cache/little-cpu/oss-cad-suite/bin/nextpnr-ice40]",
+        "riscv64-elf-gcc": "riscv64-elf-gcc (GCC) 16.2.0 [/opt/homebrew/bin/riscv64-elf-gcc]",
+        "yosys": "Yosys 0.68+48 (git sha1 ff5817c34-dirty, Release, Clang /usr/local/osxcross/target/bin/aarch64-apple-darwin25.5-clang++ 21.1.8) [/Users/jeff/.cache/little-cpu/oss-cad-suite/bin/yosys]"
       },
       "unit": "DMIPS/MHz"
     }

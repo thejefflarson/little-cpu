@@ -2175,6 +2175,9 @@ ecp5_stale_fixture() {  # stdin = the stub nextpnr-ecp5's body, after --version
   cp "$REPO/Makefile" "$d/Makefile"
   cp "$REPO/formal/pin.mk" "$d/formal/"
   cp "$REPO/soc/compare/hazard3_pin.mk" "$d/soc/compare/"
+  # The Makefile `include`s this one HARD, not with `-include`: a missing pin
+  # should stop a measurement, not silently unpin the core it describes.
+  cp "$REPO/soc/compare/vexriscv_pin.mk" "$d/soc/compare/"
   cp "$REPO/soc/littlesoc.lpf" "$REPO/soc/ecp5_report.py" \
      "$REPO/soc/print_toolchain.sh" "$d/soc/"
   cp -R "$REPO/rtl" "$d/"
@@ -3537,18 +3540,18 @@ d=$(gt_fixture); sed -i.bak 's/parameter integer ROM_WORDS = 1024/parameter inte
 probe "one core's ROM growing behind the other's is red" 1 \
   "has ROM_WORDS=2048, the Makefile has COMPARE_ROM_WORDS=1024" "$GT $d"
 
-d=$(gt_fixture); sed -i.bak 's/parameter integer RAM_WORDS = 512/parameter integer RAM_WORDS = 256/' \
+d=$(gt_fixture); sed -i.bak 's/parameter integer RAM_WORDS = 16384/parameter integer RAM_WORDS = 8192/' \
   "$d/soc/compare/bench_littlecpu.v"
 probe "one core's data RAM shrinking behind the other's is red" 1 \
-  "has RAM_WORDS=256, the Makefile has COMPARE_RAM_WORDS=512" "$GT $d"
+  "has RAM_WORDS=8192, the Makefile has COMPARE_RAM_WORDS=16384" "$GT $d"
 
 d=$(gt_fixture); sed -i.bak 's/LENGTH = 4K/LENGTH = 8K/' "$d/soc/compare/bench.lds"
 probe "a linker script linking past the harness ROM is red" 1 \
   "rom region is 8192 bytes, the harness ROM is 4096" "$GT $d"
 
-d=$(gt_fixture); sed -i.bak 's/LENGTH = 2K/LENGTH = 16K/' "$d/soc/compare/bench.lds"
+d=$(gt_fixture); sed -i.bak 's/LENGTH = 64K/LENGTH = 128K/' "$d/soc/compare/bench.lds"
 probe "a linker script promising RAM the harness does not have is red" 1 \
-  "ram region is 16384 bytes, the harness RAM is 2048" "$GT $d"
+  "ram region is 131072 bytes, the harness RAM is 65536" "$GT $d"
 
 d=$(gt_fixture); sed -i.bak 's/li      t0, 0x00010000/li      t0, 0x00020000/' \
   "$d/soc/compare/bench.S"

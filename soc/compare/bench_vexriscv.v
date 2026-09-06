@@ -38,7 +38,7 @@
 // back the whole aligned word. Get that backwards and `sb` writes a word.
 module bench_vexriscv #(
   parameter integer ROM_WORDS = 1024,
-  parameter integer RAM_WORDS = 512,
+  parameter integer RAM_WORDS = 16384,
   parameter INIT_ROM = "soc/compare/rom_flat.hex"
 ) (
   input  logic clk,
@@ -71,6 +71,12 @@ module bench_vexriscv #(
     .iBus_cmd_ready(1'b1),
     .iBus_cmd_payload_pc(ibus_cmd_pc),
     .iBus_rsp_valid(ibus_rsp_valid),
+    // The comparable build has a CsrPlugin, so it has interrupt inputs the
+    // FormalSimple one did not. This bench has no interrupt controller; tie
+    // them off rather than leave them floating.
+    .timerInterrupt(1'b0),
+    .externalInterrupt(1'b0),
+    .softwareInterrupt(1'b0),
     .iBus_rsp_payload_error(1'b0),
     .iBus_rsp_payload_inst(ibus_rsp_inst),
     .dBus_cmd_valid(dbus_cmd_valid),
