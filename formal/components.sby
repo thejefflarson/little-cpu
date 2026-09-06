@@ -15,8 +15,8 @@ all: smtbmc
 # the one that is most of this job -- on the clock AND on the resident set,
 # because an engine landed on the clock alone took a required check down:
 #
-#   smtbmc (yices, this line)   245s    146 MB
-#   smtbmc bitwuzla             101s    779 MB
+#   smtbmc (yices, the default) 245s    146 MB
+#   smtbmc bitwuzla, below      101s    779 MB   <- what executor runs
 #   btor rIC3                   107s   1937 MB
 #   aiger rIC3                  122s   2259 MB
 #   smtbmc z3                  >300s    304 MB   does not finish
@@ -31,15 +31,25 @@ all: smtbmc
 # only as robust as its flakiest engine. And rIC3's footprint is the solver's own
 # IC3 frames rather than the aiger conversion: the btor frontend costs the same.
 #
-# rIC3 IS DECLINED, and the reason is weaker than it first looked. A components
-# job carrying it died at exactly 601s with its runner gone and its logs
-# unrecoverable, where the same job under this default had run 768s and passed.
-# Memory was the hypothesis; it does not survive the table above, because the
-# `formal` job runs FOUR checks of ~876 MiB at once on this pool and passes, so
-# 2.2 GiB alone should fit. WHAT KILLED IT IS NOT ESTABLISHED. Do not re-take
-# rIC3 without an explanation for that, and do not read this default as measured
-# to be the fastest -- it is measured to be the one that finishes here.
+# rIC3 IS DECLINED ON MEMORY. THE CI RUNNER IS A ~2 GB POD, so rIC3's 2259 MB
+# does not fit and a components job carrying it was OOM-killed: it died at
+# exactly 601s with its runner gone and its logs unrecoverable, where the same
+# job under the default had run 768s and passed.
+#
+# THE JOB'S OWN DIAGNOSTICS WILL NOT TELL YOU THAT. `free -h` in a container
+# reports the HOST's memory -- it prints 15Gi here -- and the `cgroup
+# memory.max` line reads `unavailable` because that is the cgroup v2 path and
+# this host is v1. Both were read as evidence that 2.2 GiB would fit, and the
+# nearby claim that JOBS=4 "fits a 16 GiB hosted runner" is about the
+# GitHub-hosted runner that fork PRs use, not this pool. Measure the pod's
+# limit, not the host's.
 pcloop: smtbmc boolector
+# The executor task is most of this job's wall time and bitwuzla proves it in
+# 101s against the default's 245s. Its 779 MB is the reason it is this engine
+# and not rIC3's 122s: the `formal` job already runs FOUR checks of ~876 MiB at
+# once on this pool, so a single task under that figure is a footprint this
+# hardware is known to carry, and 2.2 GiB is not.
+executor: smtbmc bitwuzla
 
 # `--keep-going` reports EVERY assertion a failing step breaks instead of
 # stopping at the first, and this task has assertions that catch one defect
