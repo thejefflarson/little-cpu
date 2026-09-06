@@ -890,7 +890,15 @@ jobs:
           set -uo pipefail
           echo "nproc:            $(nproc)"
           echo "cgroup cpu.max:   $(cat /sys/fs/cgroup/cpu.max 2>/dev/null || echo unavailable)"
-          echo "cgroup memory.max:$(cat /sys/fs/cgroup/memory.max 2>/dev/null || echo unavailable)"
+          echo "cgroup memory.max:$(cat /sys/fs/cgroup/memory.max 2>/dev/null \
+            || cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null \
+            || echo unavailable)"
+          # `free` reports the HOST's memory from inside a container, so it says
+          # 15Gi on a pod limited to about 2GB. The cgroup line above is the one
+          # to read -- v2's memory.max first, then v1's limit_in_bytes, which is
+          # what this host actually has. Printed anyway, labelled, because the
+          # gap between the two is itself the thing worth seeing.
+          echo "host free -h (NOT the pod's limit):"
           free -h 2>/dev/null || true
           make -C formal check JOBS=4
 
