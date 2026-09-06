@@ -122,3 +122,40 @@ is free until the signal stops being derived.**
   its number, and split it again if the two halves touch different cones.
 - **F and G are unchanged at 6 and 6**, re-measured by `make -C formal remeasure-fg`; both flip
   points reproduce. `make cycles` still reports six stall reasons with zero unattributed.
+
+## Amendment, 2026-09-05: the decline did not survive the tree
+
+**The `wen` mask deletion ships.** Re-taken on `main` at 56d3d70, twelve seeds paired per seed,
+same commit and same toolchain on both arms, nothing between them but the two lines:
+
+| arm | worst | median | best | placed LC | spread |
+|---|---|---|---|---|---|
+| masks kept | 12.06 MHz | 12.415 | 12.90 | 5032 | 7.0% |
+| masks deleted | **12.44 MHz** | **12.815** | **13.09** | **4904** | 5.2% |
+
+**+3.15% at the worst placement, +3.22% at the median, 10 of 12 seeds faster, −128 placed cells,
+and a narrower spread.** Every statistic points the way the table above says it should not, and the
+two that decided the original call — the worst placement and the median — both invert. The 2026-08-17
+measurement is not withdrawn: it was taken on the tree it names, and it declined the edit correctly
+there. It stopped describing this design somewhere between then and now.
+
+Note which arm now scrapes the floor. **The shipping spelling is the one at 12.06 MHz against a
+12.00 MHz requirement**, 0.5% of margin, and had been since the ceiling was filed.
+
+**What generalises is narrower than what was written down.** `CLAUDE.md` promoted this result into
+a rule — dead logic is free only where ABC has a LUT input to fold it into — with these masks as its
+worked example, and the example has since inverted. What survives is only that redundant SOURCE TEXT
+is not redundant HARDWARE: it changes how ABC factors the cone and therefore how nextpnr places it,
+which cuts both ways and predicts neither. The masks were never on the critical path in either
+sweep; the paths are `imem.rom_*_RDATA`, `imem.in_range` and `por_done`, all in the fetch loop.
+
+**Nothing here was a logic question.** `test/regfile_tb.v` already drove a live address and word at
+the register both ports read with `wen` low and required the array, the write-first capture and the
+bypass to ignore it. That vector is what made the deletion safe on the day it was declined, and it
+is unchanged.
+
+**The process gap this exposes is that a declined ceiling has no expiry.** The rule that a margin
+declining a change is a measurement with a date on it is stated in `CLAUDE.md` and obliges nobody:
+no ratchet reads it, nothing goes red, and a stale number keeps its authority until someone spends
+an hour of placement re-taking it. That is the shape of defect this tree already knows — the band
+figure that was four times too narrow, in six files at once, with nothing able to go red for it.

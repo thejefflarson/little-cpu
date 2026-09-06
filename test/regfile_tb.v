@@ -218,7 +218,8 @@ module regfile_tb;
     // are reading, with `wen` low: the write-first capture, the bypass and the
     // array must all ignore it. Every other vector here zeroes the pair when
     // `wen` is low and so cannot tell a consumer that tests it from one that
-    // does not -- which is what rtl/writeback.v's masks are relying on.
+    // does not. rtl/writeback.v presents the pair unmasked, so this vector is
+    // the only thing standing between a wen-low write and the array.
     drive(5'd7, 5'd7, 1'b0, 5'd7, 32'hdeadbeef);   // fetch x7, nothing written
     drive(5'd7, 5'd7, 1'b0, 5'd7, 32'hdeadbeef);   // use, still nothing written
     check_hex("a wen-low write is not captured write-first (rs1)", reg_rs1, 32'h33333333);
