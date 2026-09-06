@@ -89,7 +89,11 @@ restore() {
     cmp -s "$f" "$REPO/rtl/$base" || cp "$f" "$REPO/rtl/$base"
   done
 }
-cleanup() { restore; rm -rf "$tmp"; }
+# `sim` goes too: this script builds it SIM_OPT=-O0, and a binary left behind at
+# that level is newer than its prerequisites, so a later `make test` in the same
+# tree would quietly reuse the slow one. restore() bumps an mtime often enough to
+# hide that most of the time, which is worse than not hiding it.
+cleanup() { restore; rm -f "$REPO/sim"; rm -rf "$tmp"; }
 # INT and TERM are trapped so that the EXIT trap runs at all: bash does not
 # promise to run one when the shell dies from a signal it has no handler for,
 # and an interrupted run is exactly when a mutation would be left in the tree.
@@ -243,7 +247,10 @@ bench_leg() {
 
 suite_leg() {
   if [ -n "${MUTATION_SUITE_LEG:-}" ]; then "$MUTATION_SUITE_LEG"; return; fi
-  if ! make sim > "$tmp/sim.log" 2>&1; then
+  # SIM_OPT=-O0: this rebuild is 75% of the run's wall time and the suite is
+  # short enough that the slower simulator does not pay it back. The verdicts
+  # are identical -- the runner's budget is simulated cycles, not wall time.
+  if ! make sim SIM_OPT=-O0 > "$tmp/sim.log" 2>&1; then
     echo "the design under this mutation does not build:" >&2
     tail -20 "$tmp/sim.log" >&2
     return 1

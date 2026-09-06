@@ -11,22 +11,34 @@ all: mode prove
 
 [engines]
 all: smtbmc
-# The generated checks' solver finding (formal/checks.cfg's `solver` line),
-# reproduced on a different query. `smtbmc` with no solver name is
-# yosys-smtbmc's default, yices, and it is fine for the two standalone tasks.
-# On `pcloop` it is not: measured on this tree, yices sat in the basecase at
-# step 6 for over FOURTEEN MINUTES without returning, while `smtbmc boolector`
-# cleared basecase and induction and reported `successful proof by k-induction`
-# in about five seconds. Same task, same depth, same RTL -- only the solver
-# differs, which is exactly the shape reg_ch0 showed under `smtbmc yices`.
+# EVERY PROVE-CAPABLE ENGINE IN THE SUITE, MEASURED ON THE `executor` TASK --
+# the one that is most of this job -- on the clock AND on the resident set,
+# because an engine landed on the clock alone took a required check down:
 #
-# Deliberately NOT the `btor` engine, which is what the generated checks use:
-# btormc does bmc and cover only, and this task is `mode prove`.
+#   smtbmc (yices, this line)   245s    146 MB
+#   smtbmc bitwuzla             101s    779 MB
+#   btor rIC3                   107s   1937 MB
+#   aiger rIC3                  122s   2259 MB
+#   smtbmc z3                  >300s    304 MB   does not finish
+#   smtbmc cvc5                >300s    430 MB   does not finish
+#   abc pdr                    >300s    637 MB   does not finish
 #
-# boolector ships in the OSS CAD Suite, which anything under formal/
-# needs anyway. It is NOT in a bare `brew install yosys`; if that ever has to
-# hold, `smtbmc z3` is the next thing to measure rather than reverting to the
-# default and calling a fourteen-minute non-answer a slow proof.
+# Three things that are not obvious from that table. The SOLVER is not the lever
+# among the SMT engines that finish -- the cost is the basecase walking its
+# steps, and boolector loses the race to this default outright. `aiger avy` is
+# absent because it cannot report a status here at all, and sby treats one
+# engine's error as the whole task erroring and kills the others, so a race is
+# only as robust as its flakiest engine. And rIC3's footprint is the solver's own
+# IC3 frames rather than the aiger conversion: the btor frontend costs the same.
+#
+# rIC3 IS DECLINED, and the reason is weaker than it first looked. A components
+# job carrying it died at exactly 601s with its runner gone and its logs
+# unrecoverable, where the same job under this default had run 768s and passed.
+# Memory was the hypothesis; it does not survive the table above, because the
+# `formal` job runs FOUR checks of ~876 MiB at once on this pool and passes, so
+# 2.2 GiB alone should fit. WHAT KILLED IT IS NOT ESTABLISHED. Do not re-take
+# rIC3 without an explanation for that, and do not read this default as measured
+# to be the fastest -- it is measured to be the one that finishes here.
 pcloop: smtbmc boolector
 
 # `--keep-going` reports EVERY assertion a failing step breaks instead of

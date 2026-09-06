@@ -28,8 +28,15 @@ waves.vcd: testbench.vvp
 	vvp $<
 	mv testbench.vcd $@
 
+# SIM_OPT is a knob for one caller. test/mutation_check.sh rebuilds this for
+# every mutation and the compile is 75% of that job: -O2 is 38.7s to build and
+# 5.6s to run the suite, -O0 is 6.9s and 19.0s, so the cheap build wins by 18s a
+# mutation there and loses everywhere else. Nothing a test can see changes --
+# the runner's budget is 5000 SIMULATED CYCLES, not wall time.
+SIM_OPT ?= -O2
+
 sim: test/cxxrtl.cc test/rtl.cc
-	clang++ -O2 -DNDEBUG -std=c++17 -Wall -Wextra -Werror \
+	clang++ $(SIM_OPT) -DNDEBUG -std=c++17 -Wall -Wextra -Werror \
 	  -isystem $$(yosys-config --datdir)/include/backends/cxxrtl/runtime $< -o $@
 
 # Outside the checkout: a worktree gets tracked files only, so tools installed
