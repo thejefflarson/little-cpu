@@ -461,16 +461,16 @@ the block arithmetic; ADR-0098 lists the distortions). **Hazard3's iCE40 build i
 harness, and BOTH its benchmark factors are now measured** — `soc/compare/dhry_tb.v`'s marker
 mechanism, built for VexRiscv's identical CSR-free gap, needed wiring rather than invention, and
 `CSR_COUNTER=0` leaving it no `mcycle` to self-time with is what that mechanism exists to route
-around (ADR-0139, ADR-0146). **The bus wait it used to disclose was mostly this harness's own
-artifact, and ADR-0146's amendment removes it rather than reporting it**: `bench_hazard3.v` fed
-ROM's own read index off the RAM write-drain's address register, so a fetch immediately after a
-store — the common case — paid the drain's cost even though ROM and RAM are two separate physical
-ports; ROM now reads its own address directly, and a read-after-write to the exact word just written
-is forwarded instead of waited on. What is left is a genuine single-ported-memory cost — a RAM
-access at a DIFFERENT word colliding with a still-draining write — and it is **0.95% of Dhrystone's
-cycles, 0.30% of CoreMark's**, down from 9.01%/1.98%. **Dhrystone stops reading level**: hazard3
-takes 1.004× littlecpu's cycles now, against 1.093× before the fix, so almost the whole of that gap
-was the adapter rather than the core. Read the three-way Dhrystone row only at the one ISA all three cores share, RV32I,
+around (ADR-0139, ADR-0146). It discloses its own bus wait rather than correcting it — 9.01% of its
+Dhrystone cycles, 1.98% of its CoreMark ones — and on Dhrystone that artifact is larger than the
+gap, which is why that pair reads level. **Correcting it instead of disclosing it was tried and
+declined** (ADR-0146 as amended): reading ROM off `haddr` instead of the RAM write-drain's own
+address register, plus forwarding a same-word read-after-write, cuts the disclosed share to
+0.95%/0.30% with the RAM comparisons still bit-identical — but it costs Hazard3 its own 12 MHz step
+on up5k on every spelling tried (13.15 MHz baseline worst-of-three down to 10.5–11.5 MHz), because
+any selective `hready` has to read `haddr` combinationally within the cycle, and that core's own AHB
+frontend has too little slack above 12 MHz to absorb it. The published figures stay the disclosed
+ones. Read the three-way Dhrystone row only at the one ISA all three cores share, RV32I,
 which is what makes every pairwise ratio in it a comparison rather than three configurations. Two graded checks stand in front of every number:
 `soc/compare/placed_vs_synth.py` refuses a placed count under `COMPARE_MIN_RATIO` of the core's own
 synthesis — an all-NOP image once placed a quarter of this core with a plausible critical path

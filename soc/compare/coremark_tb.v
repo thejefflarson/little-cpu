@@ -22,12 +22,12 @@
 // with. littlecpu is timed the same marker-counting way for consistency, the
 // same choice dhry_tb.v makes for itself.
 //
-// Hazard3's AHB5 adapter still holds `hready` low when a RAM read lands on
-// the same port a buffered write is draining into and cannot be answered by
-// forwarding (soc/compare/bench_hazard3.v's `ram_conflict`) -- see that
-// comment for why -- and littlecpu's harness pays no equivalent cost. Those
-// cycles are counted directly, the same way dhry_tb.v counts them, rather
-// than left folded into the cycle count with no way to size them back out.
+// Hazard3's AHB5 adapter holds `hready` low for one cycle after every write's
+// address phase (soc/compare/bench_hazard3.v's `wr_pending_q`), correctly --
+// see that comment for why -- and littlecpu's harness pays no equivalent
+// cost. Those cycles are counted directly, the same way dhry_tb.v counts
+// them, rather than left folded into the cycle count with no way to size
+// them back out.
 //
 // THE GEOMETRY HERE IS NOT soc/compare/bench_hx8k.pcf'S EITHER. CoreMark's
 // linked image is roughly four times Dhrystone's even at RV32IMA with no
@@ -103,10 +103,9 @@ module coremark_tb;
   int unsigned haz_begin = 0, haz_end = 0, haz_marks = 0;
   int unsigned ours_writes = 0, haz_writes = 0;
   int unsigned ours_verdict = 0, haz_verdict = 0;
-  // Cycles inside the measured window that Hazard3's AHB5 adapter still
-  // holds `hready` low: a RAM read landing on the same port a buffered
-  // write is draining into, one it cannot answer by forwarding -- see
-  // soc/compare/bench_hazard3.v's `ram_conflict` comment. littlecpu drives
+  // Cycles inside the measured window that Hazard3's AHB5 adapter spends
+  // holding `hready` low for a write's data phase -- see
+  // soc/compare/bench_hazard3.v's `wr_pending_q` comment. littlecpu drives
   // `.bus_wait(1'b0)`, so it does not pay this; disclosing it beside
   // Hazard3's cycle count is what keeps that difference from hiding inside a
   // single "cycles" number, the same reason soc/compare/dhry_tb.v counts it.
@@ -154,7 +153,7 @@ module coremark_tb;
       if (dut_haz.mem_addr_mux == CTL_DONE) haz_verdict <= dut_haz.hwdata;
     end
 
-    if (haz_marks == 1 && dut_haz.ram_conflict) haz_wait_cycles <= haz_wait_cycles + 1;
+    if (haz_marks == 1 && dut_haz.wr_pending_q) haz_wait_cycles <= haz_wait_cycles + 1;
   end
 
   // Every fact this prints is raw. soc/compare/coremark_dmips.py grades them
