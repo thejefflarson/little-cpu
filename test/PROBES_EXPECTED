@@ -591,6 +591,7 @@ every source line moving is the comment class, and is forgiven
 fixture_anchor whose literal left the real file is fixture-stale, named
 half of a macro-guarded group is red, where none of it is not
 hazard reading ls_answer_valid directly is red (finding 1)
+hazard's three causes losing a cycle between them is red
 icetime that cannot resolve its chip database is refused before a version is stamped
 identical traces with different verdicts is DISAGREE VERDICT
 insn_excluded must be a plain disjunction, not an expression

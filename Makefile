@@ -543,9 +543,13 @@ imem-share-test:
 abc-engine-test:
 	@./formal/test-abc-engine.sh
 
+# MUTATION_SHARD=<i>/<n> grades every nth mutation starting at i, so CI can run
+# the eleven of them as several jobs. Each shard still checks the manifest whole
+# and still measures its own baseline; the run is critical-path-bound rather
+# than throughput-bound, so that duplicated baseline lands in idle capacity.
 .PHONY: mutation-check
 mutation-check:
-	@./test/mutation_check.sh
+	@./test/mutation_check.sh $(if $(MUTATION_SHARD),--shard $(MUTATION_SHARD))
 
 .PHONY: mutation-probe
 mutation-probe:

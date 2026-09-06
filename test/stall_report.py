@@ -34,6 +34,20 @@ totalled separately. What they are for is in rtl/littlecpu.v, where they are
 counted; what is checked here is that neither subset exceeds the set it is a
 subset of, which is the one way a runner and this script can disagree about
 which cycles were counted and still print a plausible rate.
+
+HAZARD ITSELF HAS THREE CAUSES, checked against the same kind of identity as
+the columns above: hzA (the producer is still in `out`, no result exists
+anywhere), hzB (the producer is in the executor but its result is not unpacked
+yet -- a load, an AMO, `lr.w`, `sc.w`) and hzC (a ready result decode has no
+forwarding path to). Only hzC is a candidate for anything; hzA and hzB name
+cycles nothing could have handed over sooner.
+
+hzCcsr IS HZC'S SLICE BEHIND A CSR REGISTER-FORM READ, reported rather than
+assumed zero: `rs1_fwd_eligible` never covers a CSR operand, so any CSR whose
+rs1 is a producer still in the executor lands in hzC by construction, and
+`test/asm/csr.S`'s own vectors do exactly that (`csrrw a1, mscratch, a0` right
+after `a0` is computed). `serialize` narrows the window this can happen in but
+does not close it, so this is measured, not proved.
 """
 
 import argparse
@@ -91,8 +105,14 @@ LS_SUBSETS = {
     "lsedge": "with rs1 within 2 KB of a mapped-region edge",
     "lsbypass": "issuing on a write-through to rs1",
 }
+# HAZARD's three causes, rs1 before rs2 and then A before B before C in the
+# runner that charges them (test/cxxrtl.cc). hzA + hzB + hzC must equal
+# hazard exactly, checked below the same way the eight columns are checked
+# against cycles.
+HAZARD_SPLIT = ["hzA", "hzB", "hzC"]
+HAZARD_CSR = "hzCcsr"
 REQUIRED = (["cycles", "issue", "retires", "unattributed"] + REASONS +
-            [LS_ISSUES] + list(LS_SUBSETS))
+            [LS_ISSUES] + list(LS_SUBSETS) + HAZARD_SPLIT + [HAZARD_CSR])
 
 
 def parse(path):
@@ -160,6 +180,15 @@ def main():
         if parts != counts["cycles"]:
             broken.append(f"  {name}: columns sum to {parts}, cycles is {counts['cycles']}")
 
+    # The same identity, one level down: hazard's three causes have to sum to
+    # exactly the hazard column they split, per program and not just in total.
+    hazard_broken = [
+        f"  {name}: hzA+hzB+hzC is {counts['hzA'] + counts['hzB'] + counts['hzC']}"
+        f", hazard is {counts['hazard']}"
+        for name, counts in rows
+        if counts["hzA"] + counts["hzB"] + counts["hzC"] != counts["hazard"]
+    ]
+
     # Per program for the same reason, and the same way round: a subset counted
     # over a wider set of cycles than its denominator is how the two counters
     # come apart, and over the suite one program's excess hides in another's
@@ -219,6 +248,17 @@ def main():
         f"{share(total[biggest])} of all cycles and "
         f"{100 * total[biggest] / stalled:.1f}% of the stalled ones."
     )
+    print()
+    print(
+        f"HAZARD ({total['hazard']} cycles) breaks down into hzA={total['hzA']} "
+        f"(no result exists), hzB={total['hzB']} (result not unpacked yet) and "
+        f"hzC={total['hzC']} (a ready result forwarding does not reach). Only "
+        f"hzC is a candidate for anything."
+    )
+    print(
+        f"  {total[HAZARD_CSR]} of hzC belongs to a CSR register-form read, "
+        f"where forwarding is never eligible."
+    )
     issues = total[LS_ISSUES]
     print()
     print(f"{issues} of those instructions were loads or stores. Of them:")
@@ -272,6 +312,15 @@ def main():
             "*** counts was high, so there is a stall reason nobody has written\n"
             "*** down. Add it to kStallReasons in test/cxxrtl.cc and to REASONS\n"
             "*** here, and to the stall-reason list in CLAUDE.md."
+        )
+
+    if hazard_broken:
+        sys.exit(
+            "\n*** hazard's three causes do not add up to the hazard column:\n"
+            + "\n".join(hazard_broken)
+            + "\n*** test/cxxrtl.cc charges every hazard-stalled cycle to exactly\n"
+            "*** one of hzA/hzB/hzC, so this is a mis-charged sub-bucket there,\n"
+            "*** not a slower core."
         )
 
 

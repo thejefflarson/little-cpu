@@ -2,8 +2,9 @@
 # Applies a declared RTL mutation, runs the detectors, and requires exactly the
 # detectors it is paired with to go red.
 #
-# Usage: mutation_check.sh [--only <mutation>] [--repo <dir>] [--manifest <file>]
-#                          [--patches <dir>] [--expected-fail <file>]
+# Usage: mutation_check.sh [--only <mutation>] [--shard <i>/<n>] [--repo <dir>]
+#                          [--manifest <file>] [--patches <dir>]
+#                          [--expected-fail <file>]
 #
 # WHY THIS EXISTS, and how it differs from `make probe-gates`. probe-gates asks
 # whether a graded comparison can report a failure at all; it is hermetic, so it
@@ -48,19 +49,40 @@ MANIFEST=""
 PATCH_DIR=""
 EXPECTED_FAIL=""
 ONLY=""
+SHARD=""
 
 while [ "$#" -gt 0 ]; do
   case $1 in
     --only)          ONLY=${2:-};          shift 2 ;;
+    --shard)         SHARD=${2:-};         shift 2 ;;
     --repo)          REPO=${2:-};          shift 2 ;;
     --manifest)      MANIFEST=${2:-};      shift 2 ;;
     --patches)       PATCH_DIR=${2:-};     shift 2 ;;
     --expected-fail) EXPECTED_FAIL=${2:-}; shift 2 ;;
-    *) echo "usage: mutation_check.sh [--only <mutation>] [--repo <dir>]" >&2
-       echo "       [--manifest <file>] [--patches <dir>] [--expected-fail <file>]" >&2
+    *) echo "usage: mutation_check.sh [--only <mutation>] [--shard <i>/<n>]" >&2
+       echo "       [--repo <dir>] [--manifest <file>] [--patches <dir>]" >&2
+       echo "       [--expected-fail <file>]" >&2
        exit 1 ;;
   esac
 done
+
+# Checked HERE and not beside the selection below, which is after the baseline:
+# a malformed shard spent forty-five seconds measuring a baseline before being
+# told its arguments were wrong.
+shard_i=""
+shard_n=""
+if [ -n "$SHARD" ]; then
+  [ -z "$ONLY" ] || { echo "error: --shard and --only both select mutations; pass one." >&2; exit 1; }
+  case $SHARD in
+    *[!0-9/]*|*/*/*|/*|*/|"") echo "error: --shard wants <i>/<n>, got '$SHARD'." >&2; exit 1 ;;
+  esac
+  shard_i=${SHARD%%/*}
+  shard_n=${SHARD##*/}
+  if ! { [ "$shard_n" -ge 1 ] && [ "$shard_i" -ge 1 ] && [ "$shard_i" -le "$shard_n" ]; } 2>/dev/null; then
+    echo "error: --shard wants 1 <= i <= n with n >= 1, got '$SHARD'." >&2
+    exit 1
+  fi
+fi
 
 REPO=${REPO:-$(cd "$HERE/.." && pwd)}
 REPO=$(cd "$REPO" && pwd)
@@ -338,6 +360,24 @@ if [ -n "$ONLY" ]; then
   to_run=$ONLY
 fi
 
+# --shard i/n takes every nth mutation starting at i, over the SAME sorted list
+# every shard reads. Round-robin and not contiguous blocks: the mutations differ
+# in cost, and a block split puts a run of slow ones in one shard.
+#
+# THE MANIFEST COMPARISON ABOVE IS NOT SHARDED. Declared-against-present runs in
+# full in every shard, both directions, so a mutation added without a pairing is
+# caught by all of them rather than by whichever shard happened to own it. Only
+# the applying-and-grading below is divided.
+if [ -n "$SHARD" ]; then
+  to_run=$(printf '%s\n' "$to_run" | awk -v i="$shard_i" -v n="$shard_n" 'NR % n == i % n')
+  echo "shard $shard_i of $shard_n: $(printf '%s\n' "$to_run" | grep -c . ) of \
+$(grep -c . "$tmp/declared_mutations") mutations."
+  # An empty shard is a real configuration -- more shards than mutations -- and
+  # it must not report success for grading nothing.
+  [ -n "$to_run" ] || fail "shard $shard_i of $shard_n has no mutations in it: \
+there are fewer mutations than shards, so some shard grades nothing."
+fi
+
 graded=0
 failed=0
 for m in $to_run; do
@@ -414,4 +454,5 @@ if [ "$failed" -ne 0 ]; then
   echo "$failed of $graded mutations were not caught by exactly their detectors." >&2
   exit 1
 fi
-echo "$graded mutations, each caught by exactly the detectors it is paired with."
+echo "$graded mutations, each caught by exactly the detectors it is paired with\
+${SHARD:+ (shard $SHARD)}."
