@@ -209,6 +209,19 @@ dual-elaborate: $(DUAL_RTL_SRCS) rvfi_macros.vh test/dual_testbench.v test/monit
 dual-smoke: dual-sim
 	@./test/dual_smoke.sh ./dual-sim
 
+# Dhrystone on the dual configuration, in two shapes that answer different
+# questions -- see test/dual/bench/run_contention.sh and run_aggregate.sh's
+# own headers. Neither is a gate or a ratchet, the same standing as
+# `make dhrystone`; DHRY_RUNS/DHRY_CYCLES/DHRY_CFLAGS are that target's own,
+# reused rather than duplicated.
+.PHONY: dual-dhrystone-contention
+dual-dhrystone-contention: dual-sim
+	@./test/dual/bench/run_contention.sh ./dual-sim $(DHRY_RUNS) $(DHRY_CYCLES) '$(DHRY_CFLAGS)'
+
+.PHONY: dual-dhrystone-aggregate
+dual-dhrystone-aggregate: dual-sim
+	@./test/dual/bench/run_aggregate.sh ./dual-sim $(DHRY_RUNS) $(DHRY_CYCLES) '$(DHRY_CFLAGS)'
+
 # Keep this yosys -p script on one line: a backslash split inside its single
 # quotes stays literal, and yosys dies on it on CI's make though not on macOS's.
 .PHONY: elaborate-strict
