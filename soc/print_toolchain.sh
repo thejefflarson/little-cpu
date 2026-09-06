@@ -38,6 +38,35 @@ digest() {
   fi
 }
 
+# icetime resolves its chip database from a path relative to its own binary
+# (Project IceStorm's `../share/icebox/chipdb-<device>.txt`), so a flattened
+# Homebrew symlink or a half-finished install can leave the binary itself
+# runnable while every device lookup fails -- exactly what cost a placement
+# sweep here before anything caught it short of `make soc-timing` itself. A
+# one-line stub .asc walks icetime far enough to load that file with no real
+# design to grade.
+icetime_probe() {
+  asc=$(mktemp "${TMPDIR:-/tmp}/icetime-chipdb-probe.XXXXXX")
+  printf '.comment icetime chipdb probe\n.device 5k\n' > "$asc"
+  said=$("$1" -d up5k "$asc" 2>&1) || true
+  rm -f "$asc"
+  # A positive marker, not a denylist of known failure text: icetime prints
+  # "Reading ... chipdb file.." whether or not the open that follows succeeds,
+  # so the only line that means the database actually loaded is the one after
+  # it, which starts building the timing netlist from what it found there.
+  case "$said" in
+    *"Creating timing netlist"*) return 0 ;;
+  esac
+  echo "*** soc/print_toolchain.sh: icetime did not reach its timing stage, so" >&2
+  echo "*** it could not resolve its up5k chip database. That breaks the timing" >&2
+  echo "*** half of \`make soc-timing\` and every sweep built on it:" >&2
+  printf '%s\n' "$said" | sed -e 's/^/*** /' >&2
+  echo "*** Put the OSS CAD Suite's icetime ahead of this one on PATH" >&2
+  echo "*** (\$XDG_CACHE_HOME/little-cpu/oss-cad-suite/bin, or" >&2
+  echo "*** ~/.cache/little-cpu/oss-cad-suite/bin), or reinstall icestorm." >&2
+  return 1
+}
+
 # icetime publishes no version string -- every flag it does not recognise gets
 # the same usage message -- so the suite's own VERSION file beside the binary and
 # a digest of the binary stand in for one. Two installs that both stamped
@@ -128,7 +157,8 @@ for tool in "$@"; do
   }
   # The three ways a tool here answers the question, in one table.
   case $tool in
-    icetime)        version=$(icetime_version "$path") ;;
+    icetime)        icetime_probe "$path" || exit 1
+                     version=$(icetime_version "$path") ;;
     yosys|iverilog) version=$(first_line "$tool" -V) ;;
     *)              version=$(first_line "$tool" --version) ;;
   esac

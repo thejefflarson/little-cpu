@@ -1177,6 +1177,21 @@ TOOLS ?= $(sort $(FIT_TOOLS) $(SOC_TIMING_TOOLS) $(ECP5_TOOLS))
 print-toolchain:
 	@soc/print_toolchain.sh $(TOOLS)
 
+# Runs the checks `make fit` and `make soc-timing` already run before they place
+# anything, plus the RISC-V compiler those two don't need, in one command a
+# fresh machine (or one that just fixed a toolchain) can run before spending a
+# placement or a sweep on it.
+.PHONY: doctor
+doctor:
+	@set -e; \
+	for candidate in riscv64-elf-gcc riscv64-unknown-elf-gcc; do \
+	  if command -v $$candidate >/dev/null 2>&1; then CC=$$candidate; break; fi; \
+	done; \
+	if [ -z "$$CC" ]; then \
+	  echo "error: no RISC-V cross compiler found; see \`make setup\`." >&2; exit 1; \
+	fi; \
+	soc/print_toolchain.sh "$$CC" $(SOC_TIMING_TOOLS)
+
 # ---- the mapped netlist's digest -------------------------------------------
 # THE DIGEST REPLACES A SWEEP, NEVER A GATE. `make fit` and `make soc-timing`
 # are graded against exactly what they are graded against today; what an equal

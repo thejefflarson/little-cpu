@@ -533,6 +533,7 @@ control: both sides failing the same test number still AGREE
 control: each subset is printed as a share of that number
 control: every allowed site is covered and nothing else carries the string
 control: every site names every port of littlecpu
+control: icetime whose chip database resolves is stamped like any tool
 control: identical register traces and verdicts AGREE
 control: programs that build and are paired are green
 control: rule 6 gates the trap comparison and writes its compensation
@@ -573,6 +574,7 @@ deleting an rtl file and leaving its line is red
 every source line moving is the comment class, and is forgiven
 half of a macro-guarded group is red, where none of it is not
 hazard reading ls_answer_valid directly is red (finding 1)
+icetime that cannot resolve its chip database is refused before a version is stamped
 identical traces with different verdicts is DISAGREE VERDICT
 insn_excluded must be a plain disjunction, not an expression
 layer 1: the trap comparison moved INTO the span is refused, not gated

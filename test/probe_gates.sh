@@ -267,6 +267,27 @@ STUB
   chmod +x "$bin/goodtool" "$bin/mutetool" "$bin/brokentool"
 }
 
+make_icetime_stub() {  # $1 = bin dir
+  mkdir -p "$1"
+  cat > "$1/icetime" <<'STUB'
+#!/bin/sh
+# STUB_ICETIME_BADCHIPDB reproduces the case this repo hit: the binary runs,
+# but the chip database it resolves relative to its own path is not where it
+# looks. Otherwise the database resolves and timing netlist construction
+# begins, whatever device it was asked for.
+if [ -n "${STUB_ICETIME_BADCHIPDB:-}" ]; then
+  echo "// Reading input .asc file.."
+  echo "// Reading up5k chipdb file.."
+  echo "Can't find chipdb file for device up5k" >&2
+  exit 1
+fi
+echo "// Reading 5k chipdb file.."
+echo "// Creating timing netlist.."
+echo "// Timing estimate: 6.31 ns (158.47 MHz)"
+STUB
+  chmod +x "$1/icetime"
+}
+
 # `leg-rt` / `leg-rc` are scratch copies of the two suite runners, because each
 # resolves its helper scripts relative to its own path.
 mkdir -p "$tmp/bin-none" "$tmp/bin-curl" "$tmp/leg-rt" "$tmp/leg-rc" "$tmp/leg-rc-nopy"
@@ -294,6 +315,7 @@ make_sim_stub "$tmp/sim"
 make_sail_stub "$tmp/sail"
 make_curl_stub "$tmp/bin-curl/curl"
 make_version_stubs "$tmp/bin-tools"
+make_icetime_stub "$tmp/icetime-stub"
 make_cosim_bin_stub "$tmp/dut"
 cp "$HERE/run_tests.sh" "$HERE/check_suite_shape.sh" "$HERE/stall_report.py" "$tmp/leg-rt/"
 cp "$HERE/run_cosim.sh" "$HERE/check_suite_shape.sh" "$tmp/leg-rc/"
@@ -1424,6 +1446,17 @@ probe "one red tool leaves no partial stamp on stdout" 0 "stdout=empty" pt_parti
 
 probe "a tool that is not installed names itself rather than the list" 1 \
   "no nosuchtool on PATH" "$PT nosuchtool"
+
+# icetime's binary can run while its chip database, resolved relative to its
+# own path, is not where it looks -- the break neither `--version` nor a
+# digest of the binary would have noticed.
+probe "control: icetime whose chip database resolves is stamped like any tool" 0 \
+  "# icetime:" "PATH='$tmp/icetime-stub:$tmp/bin-none' $REPO/soc/print_toolchain.sh icetime"
+
+probe "icetime that cannot resolve its chip database is refused before a version is stamped" 1 \
+  "did not reach its timing stage" \
+  "STUB_ICETIME_BADCHIPDB=1 PATH='$tmp/icetime-stub:$tmp/bin-none' \
+    $REPO/soc/print_toolchain.sh icetime"
 
 # The Trellis database is stamped as a pseudo-tool, so it has its own refusal:
 # it is resolved from nextpnr-ecp5's install, and the fixture PATH here has no
