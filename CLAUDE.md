@@ -552,6 +552,9 @@ Baselines and grading:
 
 ```sh
 make setup          # macOS: brew install riscv64-elf-gcc and svlint; Linux: prints the apt line
+make doctor         # resolve and verify the RISC-V compiler, yosys, nextpnr-ice40 and
+                    # icetime -- path, version, and icetime's chip database actually
+                    # loading -- before a placement or a sweep is spent finding out
 make lint           # svlint over rtl/, RVFI macros off and on. A required CI check
 make lint-setup     # fetch the pinned svlint release into the tool cache
 make test           # the test/asm suite (.S and .c) under cxxrtl + unit benches + probe-gates

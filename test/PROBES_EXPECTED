@@ -544,6 +544,7 @@ control: each subset is printed as a share of that number
 control: every allowed site is covered and nothing else carries the string
 control: every site names every port of littlecpu
 control: fixture_anchor finds its literal in the real file
+control: icetime whose chip database resolves is stamped like any tool
 control: identical register traces and verdicts AGREE
 control: mutate on a real match rewrites the file and returns 0
 control: mutate_remove deletes a file that is there
@@ -588,6 +589,7 @@ every source line moving is the comment class, and is forgiven
 fixture_anchor whose literal left the real file is fixture-stale, named
 half of a macro-guarded group is red, where none of it is not
 hazard reading ls_answer_valid directly is red (finding 1)
+icetime that cannot resolve its chip database is refused before a version is stamped
 identical traces with different verdicts is DISAGREE VERDICT
 insn_excluded must be a plain disjunction, not an expression
 layer 1: the trap comparison moved INTO the span is refused, not gated
