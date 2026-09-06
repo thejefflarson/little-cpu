@@ -172,8 +172,26 @@ jobs:
   #
   # Same toolchain as `test`: this builds and runs `sim`, so it needs the cross
   # compiler, clang++ and yosys, and nothing that only synthesis or Sail needs.
-  mutation-check:
-    name: mutation-check
+  mutation-check-shard:
+    name: mutation-check-shard
+    # SHARDED because this job is the run's critical path, not because the pool
+    # is short of capacity: measured over a full run, twelve jobs did 44.9
+    # minutes of work in 17.6 minutes of wall time -- an effective parallelism
+    # of 2.55 against a scale set that reached five runners -- and the wall time
+    # was this job's alone, grinding after everything else had finished.
+    #
+    # Each shard measures its own baseline rather than sharing one. That is
+    # about 10s against 45s for a mutation, and the pool has idle capacity by
+    # the arithmetic above, so duplicating it costs nothing that is scarce and
+    # saves an artifact hand-off between jobs.
+    #
+    # fail-fast: false because every shard's verdict is wanted. A shard that
+    # cancels its siblings turns "these three pairings broke" into "one of them
+    # did", which is the report this check exists to give.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     # Fork-PR routing: see the note above `jobs:` for what this picks and why.
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
     # Eleven mutations, each rebuilding the cxxrtl runner: about nine minutes of
@@ -217,7 +235,7 @@ jobs:
         # there is no reason to route it through anything.
         run: |
           set -euo pipefail
-          if ! make mutation-check; then
+          if ! make mutation-check MUTATION_SHARD=${{ matrix.shard }}/4; then
             echo "::error::a declared mutation was not caught by exactly the detectors test/MUTATION_DETECTORS pairs with it"
             exit 1
           fi
@@ -227,9 +245,39 @@ jobs:
         run: |
           elapsed=$(( $(date +%s) - JOB_START ))
           {
-            echo "### mutation-check"
+            echo "### mutation-check shard ${{ matrix.shard }}"
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # THE REQUIRED CHECK KEEPS ITS NAME. Sharding renames the job that does the
+  # work, and a required context that no longer reports blocks every pull
+  # request rather than failing one -- including the pull request that would
+  # introduce the new names. So `mutation-check` survives as a gate over the
+  # shards: branch protection needs no edit, and there is no window where the
+  # mutation gate is not required.
+  #
+  # `needs.<matrix job>.result` is success only when EVERY shard succeeded, and
+  # `if: always()` is what makes this run at all when one did not -- without it
+  # the gate is skipped, and a skipped required check leaves the pull request
+  # waiting rather than red.
+  #
+  # ubuntu-latest on purpose: it compares one string, and putting it on the
+  # self-hosted pool would spend a runner slot on a job that does no work.
+  mutation-check:
+    name: mutation-check
+    needs: mutation-check-shard
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every shard to have passed
+        run: |
+          set -euo pipefail
+          result='${{ needs.mutation-check-shard.result }}'
+          echo "shards reported: $result"
+          if [ "$result" != success ]; then
+            echo "::error::a mutation-check shard did not pass; read the shard jobs for which pairing broke"
+            exit 1
+          fi
 
   # The only oracle here that reads the core's real register array instead of
   # the core's own report of what it retired. Every other leg evaluates a spec
