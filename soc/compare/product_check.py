@@ -92,7 +92,23 @@ def stale_reasons(pair, repo, current):
     only the fields the caller actually asked about are checked, so a caller
     that does not know a field's current value simply omits it rather than
     forcing a guess.
+
+    An EMPTY value is refused rather than compared: a caller that could not
+    determine a field's current value (a `make print-VAR` on a VAR that does
+    not exist on this tree resolves empty rather than erroring) must omit the
+    field, the same way a caller that does not know it does. Comparing an
+    empty value against a real stamped one still catches drift, but comparing
+    it against a stamp that -- through some future writer bug -- also stamped
+    empty would compare equal and call a moved field fresh; refusing the
+    empty value outright closes that whether or not it has happened yet.
     """
+    for field, value in current.items():
+        if value == "":
+            sys.exit(f"*** --current {field}= is empty. That is not a value "
+                     "to compare against the stamp -- it means whatever "
+                     "produced it could not determine the field, most often "
+                     "a `make print-VAR` on a VAR this tree does not define. "
+                     "Omit the field instead of asking to compare it.")
     reasons = []
     if pair.get("dirty") == "yes":
         reasons.append("it was measured on a tree with uncommitted changes, so "

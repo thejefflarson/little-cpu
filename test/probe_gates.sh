@@ -5847,6 +5847,10 @@ probe "a missing artifact refuses rather than reporting on nothing" 1 \
   "does not exist. Run" \
   "python3 $REPO/soc/compare/product_check.py $d/repo/no-such-product.json dhrystone --repo $d/repo"
 
+d=$(product_check_fixture)
+probe "an empty --current value is refused, not compared as though it were the field's value" 1 \
+  "--current cflags= is empty" "$(product_check_run "$d" dhrystone 'cflags=')"
+
 begin_group "soc/compare/product_write.py"
 
 # `--cflags '-march=rv32ic -mabi=ilp32'`, never a single flag: argparse reads a
