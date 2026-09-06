@@ -1919,6 +1919,55 @@ probe "and points at that flow's own declaration" 1 \
   "ECP5_EXPECT_DP16KD in the Makefile" \
   "$CC $d/ecp5.synth.log DP16KD 4 reason --gate 'make ecp5-timing' --declared ECP5_EXPECT_DP16KD"
 
+begin_group "soc/bram_reset_check.py"
+
+BR="python3 $REPO/soc/bram_reset_check.py"
+
+# A mapped netlist is a big file and only three fields matter here: the cell's
+# type, and whether its reset port carries a net number (logic) or a constant
+# string. yosys writes a constant bit as "0"/"1" and a net as an integer, so the
+# fixture spells both. The empty blackbox module beside the design is what every
+# real synth_ecp5 netlist carries -- one declaration per ECP5 primitive -- and
+# is here so the count cannot be inflated by declarations nobody instantiated.
+br_fixture() {  # $1 = RSTA connection, as JSON
+  local d; d=$(new_case)
+  cat > "$d/ecp5.json" <<JSON
+{ "modules": {
+    "DP16KD": { "cells": {} },
+    "littlesoc": { "cells": {
+      "imem.rom.0": { "type": "DP16KD", "connections": { "RSTA": ["0"], "RSTB": ["0"] } },
+      "dmem.ram.0": { "type": "DP16KD", "connections": { "RSTA": $1, "RSTB": ["0"] } }
+    } }
+} }
+JSON
+  printf '%s' "$d"
+}
+
+d=$(br_fixture '["0"]')
+probe "control: block RAM resets tied to a constant are green" 0   "none driven by logic" "$BR $d/ecp5.json"
+
+# The defect this exists for: the data RAM's zero arm mapped onto the block's
+# reset, which reads zero on the part and passes every other check.
+d=$(br_fixture '[42]')
+probe "a block RAM read through its own reset is refused" 1   "1 of 2 block RAMs read through the block's own reset" "$BR $d/ecp5.json"
+
+d=$(br_fixture '[42]')
+probe "the refusal names the cell and the port, not just a count" 1   "littlesoc.dmem.ram.0  RSTA is driven by logic" "$BR $d/ecp5.json"
+
+d=$(br_fixture '[42]')
+probe "the refusal points at the spelling that fixes it" 1   "mux on the" "$BR $d/ecp5.json"
+
+# The two ways this grader could pass without grading anything.
+d=$(new_case); printf '{ "modules": { "DP16KD": { "cells": {} } } }\n' > "$d/ecp5.json"
+probe "a netlist with no block RAM at all is refused, not silently green" 2   "instantiates no DP16KD" "$BR $d/ecp5.json"
+
+d=$(new_case); printf 'not json\n' > "$d/ecp5.json"
+probe "an unreadable netlist is refused rather than read as clean" 2   "cannot read" "$BR $d/ecp5.json"
+
+# Three flows run this, so a failure has to name the one that stopped.
+d=$(br_fixture '[42]')
+probe "the refusal names the flow that stopped, not another part's" 1   "*** make dual-ecp5-timing:" "$BR $d/ecp5.json --gate 'make dual-ecp5-timing'"
+
 begin_group "soc/ecp5_report.py"
 
 ER="python3 $REPO/soc/ecp5_report.py"
@@ -2448,13 +2497,43 @@ d=$(mm_fixture); sed -i.bak "s/^  timer mtimer (/  timer #(.BASE(32'h0003_0000))
 probe "the SoC restating the timer base is red too" 1 \
   "rtl/littlesoc.v overrides \`timer\`'s parameters" "$MM $d"
 
+# `uart`'s CLOCK_HZ is the one parameter a top may set: two boards run this SoC
+# at 12 and 25 MHz and rtl/uart.v divides that down to the baud rate. It names
+# no address, so it cannot make these two files describe different machines --
+# which is the only thing this check is about. The exception is narrow, and
+# these three probes are what keeps it narrow.
+d=$(mm_fixture)
+sed -i.bak 's/  uart #(.CLOCK_HZ(CLOCK_HZ)) tty (/  uart #(.CLOCK_HZ(CLOCK_HZ), .BAUD(9600)) tty (/' \
+  "$d/rtl/littlesoc.v"
+probe "the baud rate is still refused beside the clock a top may set" 1 \
+  "\`uart\`'s \`BAUD\` is not it" "$MM $d"
+
+d=$(mm_fixture)
+sed -i.bak "s/^  timer mtimer (/  timer #(.CLOCK_HZ(1)) mtimer (/" "$d/rtl/littlesoc.v"
+probe "the clock-rate exception belongs to the UART alone" 1 \
+  "\`timer\`'s \`CLOCK_HZ\` is not it" "$MM $d"
+
+# A parameter list this cannot read whole is refused rather than skimmed: the
+# single-line grep would see the opening line, find no `.NAME(` it disallows,
+# and pass an override spelled over the next three.
+d=$(mm_fixture)
+python3 - "$d" <<'SPREAD'
+import sys
+p = sys.argv[1] + "/rtl/littlesoc.v"
+s = open(p).read()
+open(p, "w").write(s.replace("  uart #(.CLOCK_HZ(CLOCK_HZ)) tty (",
+                             "  uart #(\n    .CLOCK_HZ(CLOCK_HZ)\n  ) tty ("))
+SPREAD
+probe "a parameter list spread over several lines is refused, not skimmed" 1 \
+  "spreads \`uart\`'s parameter list over more than one line" "$MM $d"
+
 # The UART is the newest region and the one whose baud rate an integrator would
 # be most tempted to speed up for a simulation, which is the whole defect.
 d=$(mm_fixture); sed -i.bak "s/^  uart tty (/  uart #(.BAUD(1_000_000)) tty (/" "$d/test/testbench.v"
 probe "the harness giving the UART its own baud rate is red" 1 \
   "test/testbench.v overrides \`uart\`'s parameters" "$MM $d"
 
-d=$(mm_fixture); sed -i.bak 's/^  uart tty (/  nouart tty (/' "$d/rtl/littlesoc.v"
+d=$(mm_fixture); sed -i.bak 's/^  uart #(/  nouart #(/' "$d/rtl/littlesoc.v"
 probe "a SoC with no UART at all does not pass by silence" 1 \
   "does not instantiate \`uart\` at all" "$MM $d"
 

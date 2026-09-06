@@ -2,7 +2,11 @@
 `default_nettype none
 // The ROM is initialised from the bitstream and the SPRAM cannot be, so a
 // program's `.data` is copied out of ROM by its startup code.
-module littlesoc (
+module littlesoc #(
+  // The board's clock, so rtl/uart.v can derive its divisor. Defaulted to the
+  // up5k board's 12 MHz: a board file that does not say runs unchanged.
+  parameter integer CLOCK_HZ = 12_000_000
+) (
   input  logic clk,
   input  logic btn_n,
   // Without an output something can see, yosys deletes the whole design.
@@ -114,7 +118,7 @@ module littlesoc (
     .mtip(irq_timer)
   );
 
-  uart tty (
+  uart #(.CLOCK_HZ(CLOCK_HZ)) tty (
     .clk(clk),
     .reset(reset),
     .mem_addr(mem_addr),

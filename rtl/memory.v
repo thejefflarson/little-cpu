@@ -51,6 +51,15 @@ module memory #(
   // the read-first spelling, `mem_rdata <= ram[index]` beside the byte writes,
   // silently maps to 128 `SB_RAM40_4K` instead. The flat arms are deliberate
   // too: nesting `in_range` under `|mem_wstrb` costs cells and period.
+  //
+  // THE OUT-OF-RANGE ZERO IS A MUX ON THE OUTPUT, NEVER A SYNCHRONOUS CONSTANT.
+  // Written as `mem_rdata <= in_range ? ram[index] : 32'b0`, yosys maps the zero
+  // arm onto the ECP5 block RAM's own reset and drives RSTA from logic, and on
+  // the part every read then returns zero whatever the array holds -- while RTL
+  // simulation, the cell censuses and nextpnr all still pass.
+  // `soc/bram_reset_check.py` is the grader.
+  logic [31:0] ram_q;
+  logic        in_range_q;
   always_ff @(posedge clk) begin
     if (in_range && |mem_wstrb) begin
       if (mem_wstrb[0]) ram[index][7:0]   <= mem_wdata[7:0];
@@ -58,7 +67,9 @@ module memory #(
       if (mem_wstrb[2]) ram[index][23:16] <= mem_wdata[23:16];
       if (mem_wstrb[3]) ram[index][31:24] <= mem_wdata[31:24];
     end else if (!(|mem_wstrb)) begin
-      mem_rdata <= in_range ? ram[index] : 32'b0;
+      ram_q      <= ram[index];
+      in_range_q <= in_range;
     end
   end
+  assign mem_rdata = in_range_q ? ram_q : 32'b0;
 endmodule
