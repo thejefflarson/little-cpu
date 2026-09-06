@@ -3625,6 +3625,16 @@ printf '#!/bin/bash\necho "nothing to see here"\n' > "$d/soc/compare/run_unrelat
 probe "a soc/compare script naming no .lds at all does not sink the scan" 0 \
   "stated the same way everywhere it is declared" "$GT $d"
 
+begin_group "soc/compare/vexriscv_path_test.sh"
+
+VPT="$REPO/soc/compare/vexriscv_path_test.sh"
+
+f=$(new_case)/Makefile
+cp "$REPO/Makefile" "$f"
+sed -i.bak 's#\$(VEXRISCV_V) \$(HAZARD3_SRCS) \\#$(RISCV_FORMAL_DIR)/cores/VexRiscv/VexRiscv.v $(HAZARD3_SRCS) \\#' "$f"
+probe "a recipe naming the riscv-formal clone's VexRiscv path instead of \$(VEXRISCV_V) is red" 1 \
+  "names a VexRiscv.v path other" "$VPT $f"
+
 begin_group "soc/compare/dhry_fit.py"
 
 DF="python3 $REPO/soc/compare/dhry_fit.py"

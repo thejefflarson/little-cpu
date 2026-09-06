@@ -267,6 +267,7 @@ a proof going red somewhere else is not evidence about the mtval arm
 a prose copy of a band figure goes red where it is written
 a real archive missing one vendored member is caught, and named
 a real archive with one byte-mutated file is caught, and named
+a recipe naming the riscv-formal clone's VexRiscv path instead of $(VEXRISCV_V) is red
 a ref that names no commit is refused, not compared
 a reference model that produced no trace is fatal
 a reg_rs1 bit routed into hazard is red, at hazard's own site

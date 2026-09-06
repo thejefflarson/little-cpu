@@ -465,6 +465,14 @@ adr-numbering-test:
 compare-geometry-test:
 	@./soc/compare/geometry_test.sh
 
+# The two IVERILOG comparison recipes must read VexRiscv through $(VEXRISCV_V)
+# and never through the riscv-formal clone -- see soc/compare/vexriscv_pin.mk
+# for why the two builds are not peers. grep and sed only, so this hangs off
+# `test` the same way compare-geometry-test does.
+.PHONY: vexriscv-path-test
+vexriscv-path-test:
+	@./soc/compare/vexriscv_path_test.sh
+
 .PHONY: port-connect-test
 port-connect-test:
 	@python3 ./test/port_connect_test.py
@@ -540,7 +548,7 @@ dual-build:
 
 .PHONY: test
 test: sim test-units probe-gates pin-bump-test tool-cache-test memmap-test \
-      adr-numbering-test compare-geometry-test retired-term-test port-connect-test march-test \
+      adr-numbering-test compare-geometry-test vexriscv-path-test retired-term-test port-connect-test march-test \
       band-source-test zkt-isolation-test window-test imem-share-test \
       abc-engine-test mutation-probe dual-build board-elaborate \
       tracked-ignored-test mutation-coverage-test
@@ -1449,9 +1457,14 @@ COMPARE_SMOKE_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
                       soc/compare/bench_vexriscv.v soc/compare/bench_hazard3.v \
                       soc/compare/bench_tb.v
 
-compare.vvp: $(COMPARE_SMOKE_SRCS) compare-rom | $(RISCV_FORMAL_DIR) $(HAZARD3_DIR)
+# $(VEXRISCV_V) is a real prerequisite, not order-only: a stale build here must
+# rebuild when the vendored core changes, the way any other source file would.
+# vexriscv-pin-check runs first so a hand-edited VexRiscv.v fails the digest
+# check rather than quietly simulating.
+compare.vvp: $(COMPARE_SMOKE_SRCS) compare-rom $(VEXRISCV_V) vexriscv-pin-check \
+             | $(HAZARD3_DIR)
 	iverilog -I./rtl/ -I$(HAZARD3_HDL) -g2012 -o $@ \
-	  $(RISCV_FORMAL_DIR)/cores/VexRiscv/VexRiscv.v $(HAZARD3_SRCS) \
+	  $(VEXRISCV_V) $(HAZARD3_SRCS) \
 	  $(COMPARE_SMOKE_SRCS)
 
 .PHONY: compare-smoke
@@ -1491,9 +1504,12 @@ COMPARE_DHRY_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
                      soc/compare/bench_vexriscv.v soc/compare/bench_hazard3.v \
                      soc/compare/dhry_monitor.v soc/compare/dhry_tb.v
 
-compare.dhry.vvp: $(COMPARE_DHRY_SRCS) | $(RISCV_FORMAL_DIR) $(HAZARD3_DIR)
+# Same reasoning as compare.vvp above: $(VEXRISCV_V) is a real prerequisite and
+# vexriscv-pin-check gates the digest before this simulates anything.
+compare.dhry.vvp: $(COMPARE_DHRY_SRCS) $(VEXRISCV_V) vexriscv-pin-check \
+                  | $(HAZARD3_DIR)
 	iverilog -I./rtl/ -I$(HAZARD3_HDL) -g2012 -o $@ \
-	  $(RISCV_FORMAL_DIR)/cores/VexRiscv/VexRiscv.v $(HAZARD3_SRCS) \
+	  $(VEXRISCV_V) $(HAZARD3_SRCS) \
 	  $(COMPARE_DHRY_SRCS)
 
 # THE ISA-COST ROW: this core alone, at soc/compare/dhry_tb.v's own geometry,
