@@ -1,72 +1,66 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// Runs CoreMark on littlecpu and Hazard3's iCE40 configuration, in one
+// Runs CoreMark on all three cores of this directory's harness, in one
 // simulation, off one image, and counts each core's cycles on its own bus --
-// the cycle factor docs/adr/0139-*.md left deferred.
-//
-// VexRiscv is NOT a third DUT here. soc/compare/bench_vexriscv.v's own header
-// says why: that configuration is RV32IC, with no M extension at all -- not
-// merely a slow one -- so a MUL or DIV encoding is not an instruction it can
-// execute, and it has no trap machinery to survive one either. CoreMark needs
-// real multiply/divide (its matrix and state-machine algorithms), so an
-// RV32IMA image -- the ISA littlecpu and Hazard3's iCE40 build share -- is not
-// one this harness can also hand VexRiscv. Dhrystone's own compare build works
-// around the identical gap by dropping to the narrower ISA VexRiscv actually
-// implements and letting libgcc's software routines carry the multiply; doing
-// the same here would also drop littlecpu's and Hazard3's own hardware
-// multipliers, which is exactly the difference this run exists to measure.
+// the cycle factor docs/adr/0139-*.md left deferred, now widened to include
+// VexRiscv once its generated build (soc/compare/vexriscv_pin.mk) carried a
+// hardware multiplier and divider: the FormalSimple build this harness used
+// to read had neither, so an RV32IM image was not one it could run.
 //
 // The clock has to be counted out here for the same reason
-// soc/compare/dhry_tb.v already counts Dhrystone's: Hazard3's iCE40
-// configuration sets `CSR_COUNTER=0`, so it has no `mcycle` to self-time a run
-// with. littlecpu is timed the same marker-counting way for consistency, the
-// same choice dhry_tb.v makes for itself.
+// soc/compare/dhry_tb.v already counts Dhrystone's: neither Hazard3's iCE40
+// configuration (CSR_COUNTER=0) nor VexRiscv's generated CsrPluginConfig.small
+// exposes the performance counters this port would otherwise read with
+// `mcycle`. littlecpu is timed the same marker-counting way for consistency,
+// the same choice dhry_tb.v makes for itself. soc/compare/dhry_monitor.v is
+// the shared mechanism -- built for VexRiscv's CSR-free gap, reused rather
+// than reinvented here, the way Hazard3's own CSR_COUNTER=0 already reuses it.
 //
 // Hazard3's AHB5 adapter still holds `hready` low when a RAM read lands on
 // the same port a buffered write is draining into and cannot be answered by
 // forwarding (soc/compare/bench_hazard3.v's `ram_conflict`) -- see that
-// comment for why -- and littlecpu's harness pays no equivalent cost. Those
-// cycles are counted directly, the same way dhry_tb.v counts them, rather
-// than left folded into the cycle count with no way to size them back out.
+// comment for why -- and neither littlecpu's nor VexRiscv's harness pays an
+// equivalent cost. Those cycles are counted directly, the same way
+// dhry_tb.v counts them, rather than left folded into the cycle count with
+// no way to size them back out.
 //
 // THE GEOMETRY HERE IS NOT soc/compare/bench_hx8k.pcf'S EITHER. CoreMark's
-// linked image is roughly four times Dhrystone's even at RV32IMA with no
-// compressed encodings, so this is 16 KB of ROM and 16 KB of RAM against the
-// placed harness's 4 KB and 2 KB -- soc/compare/coremark_fit.py prints the
-// arithmetic on every run, the same shape soc/compare/dhry_fit.py already
-// prints for Dhrystone.
+// linked image is roughly four times Dhrystone's even at RV32IM with no
+// compressed or atomic encodings, so this is 16 KB of ROM and 16 KB of RAM
+// against the placed harness's 4 KB and 2 KB -- soc/compare/coremark_fit.py
+// prints the arithmetic on every run, the same shape soc/compare/dhry_fit.py
+// already prints for Dhrystone.
 //
 // ---- what makes this comparison able to fail -------------------------------
 //
-// Two cores agreeing on CoreMark's own list/matrix/state CRCs against EEMBC's
-// published values for the 2K performance run agree on far more than one bit.
-// So the two data RAMs are compared word for word when the run ends: same
-// image, same memories, no interrupt and no timer on either side, so the two
-// RAMs hold the same 16 KB or one of the cores computed something else -- and
-// the cycles counted for a core that computed something else are not a
-// measurement of anything.
+// Three cores agreeing on CoreMark's own list/matrix/state CRCs against
+// EEMBC's published values for the 2K performance run agree on far more than
+// one bit. So this core's data RAM is compared word for word against each of
+// the other two when the run ends: same image, same memories, no interrupt on
+// any side, so all three RAMs hold the same 16 KB or one of the cores
+// computed something else -- and the cycles counted for a core that computed
+// something else are not a measurement of anything.
 //
-// Both RAMs are loaded with the same image and both register files zeroed
-// before the run, for the reason test/testbench.v zeroes its ROM banks and
-// dhry_tb.v zeroes both its cores': block RAM (and Hazard3's own register
-// file, built with `RESET_REGFILE=0` -- see hazard3_regfile_1w2r.v -- so
-// reset never touches it) comes up holding whatever the bitstream put there,
-// and a simulated memory that is X where nothing was written is not a model
-// of one.
+// All three RAMs are loaded with the same image and all three register files
+// zeroed before the run, for the reason test/testbench.v zeroes its ROM banks
+// and dhry_tb.v zeroes all three of its own: block RAM (and Hazard3's own
+// register file, built with `RESET_REGFILE=0` -- see hazard3_regfile_1w2r.v --
+// so reset never touches it) comes up holding whatever the bitstream put
+// there, and a simulated memory that is X where nothing was written is not a
+// model of one.
 //
 // The RAM image carries the benchmark's initialised data AND its `.rodata`:
-// soc/compare/bench_vexriscv.v's comment about giving its core no data path
-// to the ROM does not apply to this pair, but CoreMark's own core_state.c
-// reads its `intpat`/`floatpat`/`scipat`/`errpat` string tables
-// algorithmically, not only to print them, and soc/compare/coremark.lds keeps
-// all of it in the poked RAM region rather than splitting it -- see that file
-// for the fuller reason. soc/compare/coremark_start.S is the startup with the
-// copy loop removed.
+// soc/compare/bench_vexriscv.v gives its core no data path to the ROM at all,
+// and CoreMark's own core_state.c reads its `intpat`/`floatpat`/`scipat`/
+// `errpat` string tables algorithmically, not only to print them, so
+// soc/compare/coremark.lds keeps all of it in the poked RAM region rather
+// than splitting it -- see that file for the fuller reason.
+// soc/compare/coremark_start.S is the startup with the copy loop removed.
 module coremark_tb;
   // soc/compare/coremark.lds' ram ORIGIN, where its .coremarkctl section is
-  // placed.
-  localparam bit [31:0] CTL_MARK = 32'h0001_0000;
-  localparam bit [31:0] CTL_DONE = 32'h0001_0004;
+  // placed -- the same window soc/compare/dhry.lds puts its own control
+  // window at, which is what lets soc/compare/dhry_monitor.v watch it here
+  // unmodified.
   // Held against soc/compare/coremark.lds by soc/compare/run_coremark_compare.sh,
   // which reads both regions out of that file and compares them with these.
   localparam int ROM_WORDS = 4096;
@@ -75,7 +69,7 @@ module coremark_tb;
   logic clk = 1'b0;
   always #5 clk = ~clk;
 
-  logic ours_led0_n, ours_led1_n, haz_led0_n, haz_led1_n;
+  logic ours_led0_n, ours_led1_n, vex_led0_n, vex_led1_n, haz_led0_n, haz_led1_n;
 
   bench_littlecpu #(
     .ROM_WORDS(ROM_WORDS),
@@ -84,6 +78,14 @@ module coremark_tb;
     .INIT_ODD("soc/compare/coremark_odd.hex")
   ) dut_ours (
     .clk(clk), .led0_n(ours_led0_n), .led1_n(ours_led1_n)
+  );
+
+  bench_vexriscv #(
+    .ROM_WORDS(ROM_WORDS),
+    .RAM_WORDS(RAM_WORDS),
+    .INIT_ROM("soc/compare/coremark_flat.hex")
+  ) dut_vex (
+    .clk(clk), .led0_n(vex_led0_n), .led1_n(vex_led1_n)
   );
 
   bench_hazard3 #(
@@ -98,62 +100,65 @@ module coremark_tb;
   int unsigned cycle_limit;
 
   // Per core: the cycle each marker was seen, how many write cycles it spent,
-  // and the self-check word the benchmark ended on.
-  int unsigned ours_begin = 0, ours_end = 0, ours_marks = 0;
-  int unsigned haz_begin = 0, haz_end = 0, haz_marks = 0;
-  int unsigned ours_writes = 0, haz_writes = 0;
-  int unsigned ours_verdict = 0, haz_verdict = 0;
-  // Cycles inside the measured window that Hazard3's AHB5 adapter still
-  // holds `hready` low: a RAM read landing on the same port a buffered
-  // write is draining into, one it cannot answer by forwarding -- see
+  // and the self-check word the benchmark ended on. Each is a
+  // soc/compare/dhry_monitor.v output, which carries its own reset value.
+  int unsigned ours_begin, ours_end, ours_marks;
+  int unsigned vex_begin, vex_end, vex_marks;
+  int unsigned haz_begin, haz_end, haz_marks;
+  int unsigned ours_writes, vex_writes, haz_writes;
+  int unsigned ours_verdict, vex_verdict, haz_verdict;
+  // Cycles inside the measured window that Hazard3's AHB5 adapter spends
+  // unable to forward a read that lands on a buffered write's drain -- see
   // soc/compare/bench_hazard3.v's `ram_conflict` comment. littlecpu drives
-  // `.bus_wait(1'b0)`, so it does not pay this; disclosing it beside
-  // Hazard3's cycle count is what keeps that difference from hiding inside a
-  // single "cycles" number, the same reason soc/compare/dhry_tb.v counts it.
+  // `.bus_wait(1'b0)` and VexRiscv's bus here is always-ready, so neither of
+  // the other two cores pays this; disclosing it beside Hazard3's cycle count
+  // is what keeps that difference from hiding inside a single "cycles" number.
   int unsigned haz_wait_cycles = 0;
+
+  // One monitor per core, instantiated on each DUT's own bus signal names --
+  // soc/compare/dhry_monitor.v is the mechanism, shared rather than copied
+  // three times.
+  dhry_monitor mon_ours (
+    .clk(clk), .cycle(cycle),
+    .mem_addr(dut_ours.mem_addr), .mem_wdata(dut_ours.mem_wdata),
+    .mem_wstrb(dut_ours.mem_wstrb),
+    .marks(ours_marks), .begin_cycle(ours_begin), .end_cycle(ours_end),
+    .writes(ours_writes), .verdict(ours_verdict)
+  );
+  dhry_monitor mon_vex (
+    .clk(clk), .cycle(cycle),
+    .mem_addr(dut_vex.dbus_cmd_address), .mem_wdata(dut_vex.dbus_cmd_data),
+    .mem_wstrb(dut_vex.mem_wstrb),
+    .marks(vex_marks), .begin_cycle(vex_begin), .end_cycle(vex_end),
+    .writes(vex_writes), .verdict(vex_verdict)
+  );
+  // Hazard3 has no separate data bus: mem_wstrb_mux/mem_addr_mux is the one
+  // memory port's captured write, with hwdata (now valid) as its value -- the
+  // same signals soc/compare/bench_tb.v's smoke check reads for the identical
+  // reason.
+  dhry_monitor mon_haz (
+    .clk(clk), .cycle(cycle),
+    .mem_addr(dut_haz.mem_addr_mux), .mem_wdata(dut_haz.hwdata),
+    .mem_wstrb(dut_haz.mem_wstrb_mux),
+    .marks(haz_marks), .begin_cycle(haz_begin), .end_cycle(haz_end),
+    .writes(haz_writes), .verdict(haz_verdict)
+  );
 
   int i;
   initial begin
     $readmemh("soc/compare/coremark_ram.hex", dut_ours.dmem.ram);
+    $readmemh("soc/compare/coremark_ram.hex", dut_vex.dmem.ram);
     $readmemh("soc/compare/coremark_ram.hex", dut_haz.dmem.ram);
     for (i = 0; i < 32; i = i + 1) begin
       dut_ours.riscv.regfile.regs_a[i] = 32'b0;
       dut_ours.riscv.regfile.regs_b[i] = 32'b0;
+      dut_vex.riscv.RegFilePlugin_regFile[i] = 32'b0;
       dut_haz.core.core.regs.real_dualport_noreset.mem[i] = 32'b0;
     end
   end
 
   always_ff @(posedge clk) begin
     cycle <= cycle + 1;
-
-    if (|dut_ours.mem_wstrb) begin
-      ours_writes <= ours_writes + 1;
-      if (dut_ours.mem_addr == CTL_MARK) begin
-        ours_marks <= ours_marks + 1;
-        if (ours_marks == 0) ours_begin <= cycle;
-        else if (ours_marks == 1) ours_end <= cycle;
-      end
-      if (dut_ours.mem_addr == CTL_DONE) ours_verdict <= dut_ours.mem_wdata;
-    end
-
-    // Hazard3 has no separate data bus -- see soc/compare/bench_hazard3.v and
-    // soc/compare/bench_tb.v's own comment for why its publications are read
-    // off `mem_addr_mux`/`mem_wstrb_mux`/`hwdata` rather than off `haddr` on
-    // its own cycle. Any strobe counts as a write, the same test the
-    // littlecpu side uses above -- a `== 4'b1111` filter here would make the
-    // marker/verdict compares below depend on `.coremarkctl` staying a
-    // naturally-aligned 32-bit type, which nothing enforces, and would leave
-    // every sub-word store Hazard3 makes uncounted in `haz_writes`.
-    if (|dut_haz.mem_wstrb_mux) begin
-      haz_writes <= haz_writes + 1;
-      if (dut_haz.mem_addr_mux == CTL_MARK) begin
-        haz_marks <= haz_marks + 1;
-        if (haz_marks == 0) haz_begin <= cycle;
-        else if (haz_marks == 1) haz_end <= cycle;
-      end
-      if (dut_haz.mem_addr_mux == CTL_DONE) haz_verdict <= dut_haz.hwdata;
-    end
-
     if (haz_marks == 1 && dut_haz.ram_conflict) haz_wait_cycles <= haz_wait_cycles + 1;
   end
 
@@ -168,25 +173,32 @@ module coremark_tb;
              core, marks, end_cycle - begin_cycle, verdict, writes);
   endtask
 
-  int unsigned differing = 0;
+  int unsigned differing_vex = 0, differing_haz = 0;
   initial begin
     if (!$value$plusargs("cycles=%d", cycle_limit)) cycle_limit = 200000000;
 
-    while (cycle < cycle_limit && !(ours_verdict != 0 && haz_verdict != 0)) begin
+    while (cycle < cycle_limit &&
+           !(ours_verdict != 0 && vex_verdict != 0 && haz_verdict != 0)) begin
       @(posedge clk);
     end
     // One more edge so the last write's registered effects are visible.
     @(posedge clk);
 
     for (i = 0; i < RAM_WORDS; i = i + 1) begin
-      if (dut_ours.dmem.ram[i] !== dut_haz.dmem.ram[i]) differing = differing + 1;
+      if (dut_ours.dmem.ram[i] !== dut_vex.dmem.ram[i]) differing_vex = differing_vex + 1;
+      if (dut_ours.dmem.ram[i] !== dut_haz.dmem.ram[i]) differing_haz = differing_haz + 1;
     end
 
     $display("COREMARK ran %0d cycles of a %0d cycle limit", cycle, cycle_limit);
     report("littlecpu", ours_marks, ours_begin, ours_end, ours_verdict, ours_writes);
+    report("vexriscv", vex_marks, vex_begin, vex_end, vex_verdict, vex_writes);
     report("hazard3", haz_marks, haz_begin, haz_end, haz_verdict, haz_writes);
     $display("COREMARK core=hazard3 wait_cycles=%0d", haz_wait_cycles);
-    $display("COREMARK ramdiff=%0d of=%0d words", differing, RAM_WORDS);
+    // Each non-reference core against littlecpu; agreement is transitive, so
+    // this is the same claim as a three-way comparison for one fewer full-RAM
+    // scan.
+    $display("COREMARK ramdiff core=vexriscv diff=%0d of=%0d words", differing_vex, RAM_WORDS);
+    $display("COREMARK ramdiff core=hazard3 diff=%0d of=%0d words", differing_haz, RAM_WORDS);
     $finish;
   end
 endmodule

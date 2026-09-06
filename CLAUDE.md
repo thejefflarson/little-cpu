@@ -435,48 +435,55 @@ top, ECP5 only.
 - **The only cross-core comparison that means anything is one harness**, `soc/compare/`: same part,
 memories, program, toolchain and seeds, against the VexRiscv in the pinned riscv-formal clone and
 Hazard3's iCE40 build (`soc/compare/hazard3_pin.mk`, ADR-0139). **A product is a measurement only
-when both factors were taken on one tree AND one toolchain**, and **A COMPARISON IS ONLY AS GOOD AS ITS
-LEAST EXAMINED ASSUMPTION**: the VexRiscv this harness measured for its whole life was
-riscv-formal's `FormalSimple`, a VERIFICATION config with no `MulPlugin`, no `CsrPlugin` and every
-hazard bypass disabled, which is no peer for this core and flattered it on cycles exactly as much as
-it flattered VexRiscv on period (ADR-0160 as amended). `soc/compare/vexriscv_pin.mk` now generates
-each core in **the configuration its own authors ship for performance**, and the result reverses:
-on up5k, where all three quantise to the 12 MHz step, **VexRiscv is 1.14× THIS CORE** (10.67 DMIPS
-against 9.35) and this core is 1.09× Hazard3 (8.54); on ECP5 **VexRiscv is 1.81×** (48.69 against
-26.93) and Hazard3 1.24×. **We lose the cycle half too, once the opponent forwards**: 640.1 cycles
-per Dhrystone against our 731.1, 0.889 DMIPS/MHz against 0.779. The old figures came from a core
-with no forwarding at all. **Read the product, not a half** — between
-ADR-0129 and here the cycle half rose and the clock half fell and the product did not move at all,
-so either factor alone tells you the opposite of the other. **CoreMark is the pair that separates
-them**: littlecpu against Hazard3 is **0.645×, a 1.55× throughput win for this core** on a
-benchmark that leans on the M extension. That pair's VexRiscv column is still unmeasured — the
-comparable build has M now, so the image it could not run is buildable and the measurement is
-owed. **The toolchain is part of the stamp, not a
+when both factors were taken on one tree AND one toolchain**, and **A COMPARISON IS ONLY AS GOOD AS
+ITS LEAST EXAMINED ASSUMPTION** — this harness has been wrong about the part (ADR-0086/ADR-0160),
+the opponent's configuration (ADR-0160 as amended: `FormalSimple` had no `MulPlugin`, no `CsrPlugin`
+and no hazard forwarding, which flattered VexRiscv on period and this core on cycles at once), the
+shared ISA (this amendment) and a harness-only wait-state charged to Hazard3's own core (ADR-0146 as
+amended) — each corrected once found, never all at once.
+**RV32IM, not RV32I or RV32IMA, is the widest ISA all three cores share**: Hazard3's iCE40 build has
+no C, and the generated VexRiscv has no `AtomicPlugin`, so `COMPARE_DHRY_CFLAGS` and
+`COMPARE_COREMARK_CFLAGS` both build at `rv32im`, and CoreMark now runs all three cores in one
+simulation, `soc/compare/coremark_tb.v` reusing `soc/compare/dhry_monitor.v` — the marker mechanism
+built for VexRiscv's Dhrystone gap — for its third DUT rather than inventing a second one (ADR-0146
+as amended). Widening Dhrystone's own multiply cost little and cuts both ways: littlecpu and
+VexRiscv both get slightly faster with real `mul` (731.1→727.1, 640.1→635.1 cycles/dhry), and
+Hazard3 gets *slower* (734.1→764.1) because its `MULDIV_UNROLL=1` sequencer has no early exit and
+pays a fixed latency libgcc's software routine apparently beats for Dhrystone's own multiplicands
+(ADR-0160 as amended).
+**Both factors, one tree, one session** (ADR-0160 as amended): Dhrystone cycles are littlecpu 290825
+(0.783 DMIPS/MHz), VexRiscv 254026 (0.873× littlecpu, 0.896 DMIPS/MHz), Hazard3 305627 (1.051×,
+0.745 DMIPS/MHz, 0.92% disclosed in a genuine single-ported-memory wait); CoreMark cycles are
+littlecpu 433240 (2.308 CoreMark/MHz), VexRiscv 427008 (**0.986× littlecpu — the closest pair this
+harness has measured on either benchmark**, 2.342 CoreMark/MHz), Hazard3 702907 (1.622×, 1.423
+CoreMark/MHz, 0.30% disclosed). Up5k, twelve seeds: littlecpu 12.40/12.85/13.23 MHz and VexRiscv
+21.92/22.78/23.65 MHz both still reach the 12 MHz step, unchanged by anything in this pass —
+**Hazard3 now reads 10.80/10.94/11.54 MHz, missing 12 MHz at all twelve seeds and reaching only the
+6 MHz step**, a clock regression from ADR-0160's own 12.56–13.18 caused by the wait-state fix's
+forwarding comparator landing on Hazard3's `hready` path, not by anything this core or VexRiscv did.
+**Read that as the step function amplifying a few nanoseconds near a boundary, not as an indictment
+of Hazard3's architecture**: its own DMIPS/MHz *improved* (0.745 against 0.686) over the same fix.
+The up5k product: VexRiscv 10.75 DMIPS (**1.14× this core's 9.39**, unchanged in the first two
+digits) and 28.10 CoreMark (**1.01×**, the pair's first CoreMark product at all); Hazard3 4.47 DMIPS
+and 8.54 CoreMark at its now-6 MHz step, so **this core reads 2.10× Hazard3 on Dhrystone and 3.24×
+on CoreMark on up5k**, against ADR-0160's own 1.09× before the step dropped (CoreMark's up5k product
+for this pair did not exist before this pass, so 3.24× is a first measurement, not a move). ECP5
+answers the other question with no such boundary: littlecpu 33.23 MHz, VexRiscv 57.64 MHz, Hazard3
+29.73 MHz (down from 33.26 for the identical reason) — **VexRiscv 1.99× this core and 2.33×
+Hazard3 on Dhrystone, 1.76×/3.19× on CoreMark; this core 1.17× Hazard3**, the same ordering as
+up5k's continuous half without the amplification. **The toolchain is part of the stamp, not a
 detail**: the same twelve seeds moved VexRiscv 4.5% at its worst placement between two yosys builds
 while this core's up5k SoC came out bit-identical, so halves synthesised by different toolchains do
-not form a product. Re-take
-both halves before quoting the product, with what each side is and with the caveat that Dhrystone's
-cycles are simulated at a larger map than the clock is placed at (`make compare-dhrystone` prints
-the block arithmetic; ADR-0098 lists the distortions). **Hazard3's iCE40 build is the third core in the
-harness, and BOTH its benchmark factors are now measured** — `soc/compare/dhry_tb.v`'s marker
-mechanism, built for VexRiscv's identical CSR-free gap, needed wiring rather than invention, and
-`CSR_COUNTER=0` leaving it no `mcycle` to self-time with is what that mechanism exists to route
-around (ADR-0139, ADR-0146). **The bus wait it used to disclose was mostly this harness's own
-artifact, and ADR-0146's amendment removes it rather than reporting it**: `bench_hazard3.v` fed
-ROM's own read index off the RAM write-drain's address register, so a fetch immediately after a
-store — the common case — paid the drain's cost even though ROM and RAM are two separate physical
-ports; ROM now reads its own address directly, and a read-after-write to the exact word just written
-is forwarded instead of waited on. What is left is a genuine single-ported-memory cost — a RAM
-access at a DIFFERENT word colliding with a still-draining write — and it is **0.95% of Dhrystone's
-cycles, 0.30% of CoreMark's**, down from 9.01%/1.98%. **Dhrystone stops reading level**: hazard3
-takes 1.004× littlecpu's cycles now, against 1.093× before the fix, so almost the whole of that gap
-was the adapter rather than the core. Read the three-way Dhrystone row only at the one ISA all three cores share, RV32I,
-which is what makes every pairwise ratio in it a comparison rather than three configurations. Two graded checks stand in front of every number:
-`soc/compare/placed_vs_synth.py` refuses a placed count under `COMPARE_MIN_RATIO` of the core's own
-synthesis — an all-NOP image once placed a quarter of this core with a plausible critical path
-beside it (ADR-0086) — and `make compare-smoke` requires all three cores to publish the same values,
-which caught Hazard3's first bus adapter publishing all-X words (ADR-0139). The harness gives
-VexRiscv no data path to its ROM, so keep read-only data out of ROM there.
+not form a product — re-take both halves together, with the caveat that Dhrystone's and CoreMark's
+cycles are simulated at a larger map than the clock is placed at (`make compare-dhrystone` and
+`make compare-coremark` print the block arithmetic; ADR-0098 lists the distortions).
+`soc/compare/product.json` is not re-stamped by this pass and is already stale on its own check
+against this tree; re-taking that stamp is a separate ticket's. Two graded checks stand in front of
+every number: `soc/compare/placed_vs_synth.py` refuses a placed count under `COMPARE_MIN_RATIO` of
+the core's own synthesis — an all-NOP image once placed a quarter of this core with a plausible
+critical path beside it (ADR-0086) — and `make compare-smoke` requires all three cores to publish
+the same values, which caught Hazard3's first bus adapter publishing all-X words (ADR-0139). The
+harness gives VexRiscv no data path to its ROM, so keep read-only data out of ROM there.
 - **A register in the fetch loop is a fetch stage, and it is priced and declined** (ADR-0087): the
   loop's tail comes out for 3–4 levels, its head not at all (a bank output mux is one `SB_LUT4`
   that ABC folds into the decode reading it, and a register there forbids the sharing), the two

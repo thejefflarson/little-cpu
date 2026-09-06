@@ -366,3 +366,43 @@ rather than `wr_pending_q` for `haz_wait_cycles`: the two signals coincided exac
 adapter (every drain cycle held `hready` low), so the old counter measured the right thing by
 accident; under the new one a drain no longer implies a stall, so the counter has to name the actual
 stalled cycles or it reports the wrong number with a straight face.
+
+## Amendment, 2026-09-06 — VexRiscv joins after all
+
+The "DECISION NEEDED, resolved" section above is now half wrong, not because the reasoning was bad
+but because its premise stopped being true out from under it. It read `soc/compare/bench_vexriscv.v`
+against **riscv-formal's `FormalSimple`** — no `MulPlugin` at all — and concluded VexRiscv could not
+run a CoreMark image without either erasing every core's hardware multiplier (`-march=rv32ic`) or
+editing a core this repository does not own. Both are still the right calls against that premise.
+The premise itself was replaced: `soc/compare/vexriscv_pin.mk` now generates VexRiscv from
+`GenLittleCpuCompare.scala`, VexRiscv's own performance configuration, which carries `MulPlugin` and
+`DivPlugin`. **What actually excludes VexRiscv from an ISA wider than RV32IM is not M, it is A** —
+the generated build has no `AtomicPlugin` — so `COMPARE_COREMARK_CFLAGS` moves from `rv32ima` to
+`rv32im` (dropping the one extension VexRiscv still lacks, not the one this whole section was
+written about) and `soc/compare/coremark_tb.v` gains `bench_vexriscv` as a third DUT, reusing
+`soc/compare/dhry_monitor.v` rather than a fourth hand-rolled marker block.
+
+This is additive to the fix above, not a replacement of it — the Hazard3 numbers directly above are
+unchanged by adding a third core, and reproduce exactly: `COREMARK core=hazard3 marks=2
+cycles=702907 verdict=1 writes=15701`, `wait_cycles=2099`, both bit-identical to the two-core run.
+One iteration, RV32IM, same tree as the fix above:
+
+```
+COREMARK core=littlecpu marks=2 cycles=433240 verdict=1 writes=15701
+COREMARK core=vexriscv marks=2 cycles=427008 verdict=1 writes=15701
+COREMARK core=hazard3  marks=2 cycles=702907 verdict=1 writes=15701
+COREMARK ramdiff core=vexriscv diff=0 of=4096 words
+COREMARK ramdiff core=hazard3  diff=0 of=4096 words
+```
+
+All three verdicts PASS and both non-reference RAMs are bit-identical to littlecpu's. **VexRiscv
+takes 0.986× littlecpu's cycles for the same work** — essentially tied, the closest any pair in this
+harness has read on either benchmark — at 2.342 CoreMark/MHz against littlecpu's 2.308 and Hazard3's
+1.423. `docs/adr/0160-*.md`'s amendment carries the clock half and the resulting product on both
+parts; this ADR's own job was always the cycle factor, and that factor now has all three cores in
+it, the way the ticket that first asked for a CoreMark comparison wanted.
+
+`soc/compare/run_coremark_compare.sh` gains `--core vexriscv=...` beside littlecpu's and Hazard3's
+own block-RAM census lines; `soc/compare/coremark_dmips.py` is generalised from a fixed two-core
+grader to the same N-core, first-is-reference shape `soc/compare/dhry_dmips.py` already had, so a
+future fourth core is a wiring change there too rather than a rewrite.

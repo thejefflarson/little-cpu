@@ -57,6 +57,12 @@ compare.vvp
 soc/compare/rom_even.hex
 soc/compare/rom_odd.hex
 soc/compare/rom_flat.hex
+# `make compare-ecp5-timing`: the same shape as ecp5.* above, one core at a time.
+compare_ecp5.*.json
+compare_ecp5.*.config
+compare_ecp5.*.report.json
+compare_ecp5.*.synth.log
+compare_ecp5.*.pnr.log
 # `make compare-dhrystone`: the benchmark's image in both cores' ROM shapes, the
 # data RAM both start from, and the simulation that runs them.
 compare.dhry.vvp
