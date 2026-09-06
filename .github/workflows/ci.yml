@@ -47,12 +47,7 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # The repo is 3.95 MiB and 473 commits, so a full clone costs about a
-          # second and buys every check the history it might need. Depth 1 is
-          # actions/checkout's default, not a decision anyone took here, and a
-          # grader that walks history under it does not fail loudly -- it grades
-          # nothing, which is the one outcome this tree refuses.
-          fetch-depth: 0
+          # Full history: a grader that walks it grades nothing under depth 1.
 
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
@@ -124,13 +119,6 @@ jobs:
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # The repo is 3.95 MiB and 473 commits, so a full clone costs about a
-          # second and buys every check the history it might need. Depth 1 is
-          # actions/checkout's default, not a decision anyone took here, and a
-          # grader that walks history under it does not fail loudly -- it grades
-          # nothing, which is the one outcome this tree refuses.
-          fetch-depth: 0
 
       # A fork PR routes here to ubuntu-latest (see the note above
       # `jobs:`), whose image has no RISC-V cross compiler baked in --
@@ -167,25 +155,12 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   # Deletes a term from rtl/ and requires exactly the detectors
-  # test/MUTATION_DETECTORS pairs with it to go red. `test` runs probe-gates,
-  # which asks whether a graded comparison can report a failure at all; this
-  # asks whether a program still detects the property it was written for, and
-  # that has been answered no here more than once.
+  # test/MUTATION_DETECTORS pairs with it to go red -- probe-gates asks whether a
+  # comparison CAN fail, this asks whether it still sees what it was written for.
+  # Its own job because it rebuilds the cxxrtl runner once per mutation.
   #
-  # A job of its own rather than a step of `test`: it rebuilds the cxxrtl runner
-  # once per mutation, measured at 3m28s against that job's 70s, and it grows
-  # with the manifest. It is shorter than `formal` and `components`, so it costs
-  # a runner slot rather than wall time. A red result here reads as "a detector
-  # stopped detecting", not as a suite failure.
-  #
-  # 25 minutes because it grows with the manifest and this step redirects its log:
-  # at ten mutations it runs 12-13 minutes, so a 15-minute budget was at 85% of
-  # itself. A job killed by its timeout is `cancelled` rather than `failure` and
-  # publishes nothing, so it reads as a caught defect with no output to say
-  # otherwise -- raise this before adding a mutation, not after.
-  #
-  # Same toolchain as `test`: this builds and runs `sim`, so it needs the cross
-  # compiler, clang++ and yosys, and nothing that only synthesis or Sail needs.
+  # Raise the timeout before adding a mutation: a job killed by its timeout is
+  # `cancelled`, not `failure`, and publishes nothing.
   mutation-check-shard:
     name: mutation-check-shard
     # SHARDED because this job is the run's critical path, not because the pool
@@ -221,13 +196,6 @@ jobs:
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # The repo is 3.95 MiB and 473 commits, so a full clone costs about a
-          # second and buys every check the history it might need. Depth 1 is
-          # actions/checkout's default, not a decision anyone took here, and a
-          # grader that walks history under it does not fail loudly -- it grades
-          # nothing, which is the one outcome this tree refuses.
-          fetch-depth: 0
 
       # Fork-PR routing only -- see the `test` job for why.
       - name: Install the RISC-V cross compiler (fork PR routing only)
@@ -320,13 +288,6 @@ jobs:
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # The repo is 3.95 MiB and 473 commits, so a full clone costs about a
-          # second and buys every check the history it might need. Depth 1 is
-          # actions/checkout's default, not a decision anyone took here, and a
-          # grader that walks history under it does not fail loudly -- it grades
-          # nothing, which is the one outcome this tree refuses.
-          fetch-depth: 0
 
       # Fork-PR routing only -- see the `test` job for why.
       - name: Install the RISC-V cross compiler (fork PR routing only)
@@ -416,13 +377,6 @@ jobs:
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # The repo is 3.95 MiB and 473 commits, so a full clone costs about a
-          # second and buys every check the history it might need. Depth 1 is
-          # actions/checkout's default, not a decision anyone took here, and a
-          # grader that walks history under it does not fail loudly -- it grades
-          # nothing, which is the one outcome this tree refuses.
-          fetch-depth: 0
 
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
@@ -511,13 +465,6 @@ jobs:
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # The repo is 3.95 MiB and 473 commits, so a full clone costs about a
-          # second and buys every check the history it might need. Depth 1 is
-          # actions/checkout's default, not a decision anyone took here, and a
-          # grader that walks history under it does not fail loudly -- it grades
-          # nothing, which is the one outcome this tree refuses.
-          fetch-depth: 0
 
       - name: Install svlint at the pin
         run: make lint-setup
@@ -553,13 +500,6 @@ jobs:
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # The repo is 3.95 MiB and 473 commits, so a full clone costs about a
-          # second and buys every check the history it might need. Depth 1 is
-          # actions/checkout's default, not a decision anyone took here, and a
-          # grader that walks history under it does not fail loudly -- it grades
-          # nothing, which is the one outcome this tree refuses.
-          fetch-depth: 0
 
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
@@ -622,13 +562,6 @@ jobs:
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # The repo is 3.95 MiB and 473 commits, so a full clone costs about a
-          # second and buys every check the history it might need. Depth 1 is
-          # actions/checkout's default, not a decision anyone took here, and a
-          # grader that walks history under it does not fail loudly -- it grades
-          # nothing, which is the one outcome this tree refuses.
-          fetch-depth: 0
 
       # Fork-PR routing only -- see the `test` job for why.
       - name: Install the RISC-V cross compiler (fork PR routing only)
@@ -704,13 +637,6 @@ jobs:
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # The repo is 3.95 MiB and 473 commits, so a full clone costs about a
-          # second and buys every check the history it might need. Depth 1 is
-          # actions/checkout's default, not a decision anyone took here, and a
-          # grader that walks history under it does not fail loudly -- it grades
-          # nothing, which is the one outcome this tree refuses.
-          fetch-depth: 0
 
       # Fork-PR routing only -- see the `test` job for why.
       - name: Install the RISC-V cross compiler (fork PR routing only)
@@ -825,13 +751,6 @@ jobs:
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # The repo is 3.95 MiB and 473 commits, so a full clone costs about a
-          # second and buys every check the history it might need. Depth 1 is
-          # actions/checkout's default, not a decision anyone took here, and a
-          # grader that walks history under it does not fail loudly -- it grades
-          # nothing, which is the one outcome this tree refuses.
-          fetch-depth: 0
 
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
@@ -875,13 +794,6 @@ jobs:
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # The repo is 3.95 MiB and 473 commits, so a full clone costs about a
-          # second and buys every check the history it might need. Depth 1 is
-          # actions/checkout's default, not a decision anyone took here, and a
-          # grader that walks history under it does not fail loudly -- it grades
-          # nothing, which is the one outcome this tree refuses.
-          fetch-depth: 0
 
       - name: make monitor-check
         run: make monitor-check
@@ -921,35 +833,10 @@ jobs:
   # question for the log; two jobs answer it in the check name.
   formal-checks:
     name: formal-checks
-    # ON THE POOL, and faster there. The 876 MiB-per-check figure that used to
-    # send this job to a hosted runner does not survive re-measurement: the
-    # whole flow peaks at 594 MB at JOBS=1, and parallelism costs about 278 MB
-    # per additional check on that base.
-    #
-    #   JOBS=1   484s    594 MB
-    #   JOBS=2   252s   1015 MB
-    #   JOBS=4   137s   1427 MB
-    #
-    # JOBS=4 IS BOUNDED BY THE CPU CAP AND THEN BY MEMORY, and the pod is 4 CPUs
-    # and 3 GiB: 4 matches the cap exactly, and 1427 MB leaves room. Raising it
-    # past the cap buys nothing -- these checks are CPU-bound SMT solving, so
-    # oversubscription trades wall time for memory and gets neither.
-    #
-    # NEITHER LIMIT IS VISIBLE THE OBVIOUS WAY. `nproc` reports 16 on this pod
-    # because a CPU quota does not narrow the affinity mask, and `free` reports
-    # the host's memory from inside a container. The `components` job prints
-    # both cgroup figures; size against those and not against either of the two
-    # numbers that look authoritative and are not.
-    #
-    # Below 3 GiB, drop to JOBS=2 rather than let a check be OOM-killed: an
-    # evicted pod takes its logs with it and reads as a job that failed for no
-    # stated reason, which is how this was learned rather than reasoned.
-    #
-    # A hosted runner does JOBS=4 in 237s and an Apple Silicon machine in 137s
-    # at the same four-way parallelism, so the win here is per-core speed rather
-    # than more cores -- the pod's cap matches the hosted runner's vCPU count.
-    # Fork PRs still route to a hosted runner.
-    # Fork-PR routing: see the note above `jobs:` for what this picks and why.
+    # JOBS=4 matches the pod's CPU cap; the flow peaks at 1427 MB against 3 GiB.
+    # Size it from the cgroup figures the `components` job prints -- `nproc` and
+    # `free` both report the host, not the pod. Below 3 GiB use JOBS=2: an
+    # OOM-killed pod takes its logs with it and reads as a job that just failed.
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
     # Loose because there is no per-check wall bound: one non-converging check
     # starves everything scheduled after it, and `-k` does not help because the
@@ -960,13 +847,6 @@ jobs:
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # The repo is 3.95 MiB and 473 commits, so a full clone costs about a
-          # second and buys every check the history it might need. Depth 1 is
-          # actions/checkout's default, not a decision anyone took here, and a
-          # grader that walks history under it does not fail loudly -- it grades
-          # nothing, which is the one outcome this tree refuses.
-          fetch-depth: 0
 
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
@@ -1076,13 +956,6 @@ jobs:
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # The repo is 3.95 MiB and 473 commits, so a full clone costs about a
-          # second and buys every check the history it might need. Depth 1 is
-          # actions/checkout's default, not a decision anyone took here, and a
-          # grader that walks history under it does not fail loudly -- it grades
-          # nothing, which is the one outcome this tree refuses.
-          fetch-depth: 0
 
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
