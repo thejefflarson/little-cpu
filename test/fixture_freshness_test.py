@@ -60,7 +60,11 @@ FIXTURE_ANCHOR_ALLOWLIST = {
 }
 
 FUNC_START_RE = re.compile(r'^([a-zA-Z0-9_]+)\(\) \{(\s*#.*)?$')
-HEREDOC_RE = re.compile(r"<<-?\s*'[A-Za-z_0-9]+'")
+# ONE definition of "a heredoc opens here", read by both the masker below and
+# the anchor check: an earlier pair of regexes disagreed about the UNQUOTED
+# delimiter a fixture needs when its body interpolates a `$1`, so the anchor
+# check skipped `br_fixture` -- the fixture behind the only detector of a block
+# RAM read through its own reset -- while the masker saw it.
 # `(?<!<)`/`(?!<)` rule out a here-string (`<<<`), which is not a heredoc and
 # has no closing delimiter line to hunt for -- matching it here sent an
 # earlier version of this scan looking for a line that never comes and masked
@@ -138,11 +142,24 @@ def unquoted_sed_i_lines(text):
             continue
         if in_dquote:
             if c == '\\' and i + 1 < n:
+                # A backslash escapes the next character, and that character
+                # is a NEWLINE on every line-continued command here. Counting
+                # it is what keeps the index reported below the line the text
+                # is actually on: an earlier version skipped it, drifted 58
+                # lines by the end of the file, and dropped a real `sed -i`
+                # because the line it named happened to be masked.
+                if text[i + 1] == '\n':
+                    line += 1
                 i += 2
                 continue
             if c == '"':
                 in_dquote = False
             i += 1
+            continue
+        if c == '\\' and i + 1 < n:
+            if text[i + 1] == '\n':
+                line += 1
+            i += 2
             continue
         if c == "'":
             in_squote = True
@@ -208,7 +225,7 @@ def check_fixture_anchors(lines, mask):
         if 'fixture' not in name:
             continue
         body = ''.join(lines[start:end + 1])
-        has_heredoc = bool(HEREDOC_RE.search(body))
+        has_heredoc = bool(HEREDOC_START_RE.search(body))
         has_cp_repo = 'cp "$REPO' in body or "cp '$REPO" in body
         has_anchor = 'fixture_anchor' in body
         if has_heredoc and not has_cp_repo and not has_anchor:

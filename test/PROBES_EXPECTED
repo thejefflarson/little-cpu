@@ -171,6 +171,7 @@ a graded target quietly depending on netlist-digest is red, and named
 a graph with no edges out of reg_rs1 is red, not a vacuous pass
 a half-installed toolchain says so once, up front
 a half-installed toolchain says so once, up front
+a hand-typed fixture is red on an unquoted heredoc delimiter too
 a hand-typed fixture with no anchor and no cp of a real file is red
 a harness that is red at rest makes the two mutations meaningless
 a harness that is red at rest makes the two mutations meaningless

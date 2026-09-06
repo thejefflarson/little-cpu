@@ -1996,6 +1996,11 @@ BR="python3 $REPO/soc/bram_reset_check.py"
 # is here so the count cannot be inflated by declarations nobody instantiated.
 br_fixture() {  # $1 = RSTA connection, as JSON
   local d; d=$(new_case)
+  # The netlist this types out is nextpnr's input and nothing in the tree
+  # produces it, so the anchor names the parser instead: the cell type it
+  # counts and the exact key path it reads a reset connection through.
+  fixture_anchor "$REPO/soc/bram_reset_check.py" 'BRAM_CELLS = ("DP16KD", "PDPW16KD")'
+  fixture_anchor "$REPO/soc/bram_reset_check.py" 'cell.get("connections", {}).get(port, [])'
   cat > "$d/ecp5.json" <<JSON
 { "modules": {
     "DP16KD": { "cells": {} },
@@ -6153,8 +6158,12 @@ probe "control: the shipping fixtures are all mutate/mutate_remove, every anchor
 
 d=$(ffr_fixture)
 printf '\nsed -i.bak "s/x/y/" foo.txt\n' >> "$d/test/probe_gates.sh"
+# The expected text runs THROUGH the quoted line, not just up to the verb: the
+# scan counts lines itself, and a line number that has drifted off the planted
+# edit names an innocent line -- or a masked one, where the edit is dropped
+# with nothing said at all.
 probe "a raw sed -i outside mutate/mutate_remove is red, naming the line" 1 \
-  "calls \`sed -i\` directly" "$(ffr "$d")"
+  "directly: sed -i.bak \"s/x/y/\" foo.txt" "$(ffr "$d")"
 
 d=$(ffr_fixture)
 cat >> "$d/test/probe_gates.sh" <<'FIXTURE'
@@ -6166,6 +6175,20 @@ TOK
 FIXTURE
 probe "a hand-typed fixture with no anchor and no cp of a real file is red" 1 \
   "no fixture_anchor and no cp" "$(ffr "$d")"
+
+# The delimiter UNQUOTED, which is what a fixture whose body interpolates a
+# `$1` has to write. Two regexes once disagreed about this shape and the
+# anchor check skipped the fixture behind soc/bram_reset_check.py entirely.
+d=$(ffr_fixture)
+cat >> "$d/test/probe_gates.sh" <<'FIXTURE'
+another_synthetic_fixture() {
+  cat > "$d/x" <<TOK
+foo $1
+TOK
+}
+FIXTURE
+probe "a hand-typed fixture is red on an unquoted heredoc delimiter too" 1 \
+  "another_synthetic_fixture() types out" "$(ffr "$d")"
 
 d=$(ffr_fixture)
 mutate "$d/test/fixture_freshness_test.py" 's/SED_I_ALLOWLIST = \[\]/SED_I_ALLOWLIST = ["bogus entry"]/'
