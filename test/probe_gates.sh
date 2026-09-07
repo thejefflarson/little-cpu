@@ -1319,10 +1319,7 @@ d=$(bs_fixture)
 probe "a sweep file that is not there reads as missing, not as empty" 1 \
   "nothing to summarise" "$BS $d/gone.csv"
 
-# The part is a stamped and compared field, not just a column. While it was a column
-# nothing read, two sweeps of two different fabrics -- placed by two different engines and
-# graded by two different classes of estimator -- would subtract into a tidy percentage
-# under a heading that says "delta".
+# The part is a stamped and compared field, not just a column.
 
 bs_pair() {  # an up5k sweep and an ECP5 one, same tree, same everything else
   local d; d=$(new_case)
@@ -5532,7 +5529,7 @@ ffr_fixture() {
 
 d=$(ffr_fixture)
 probe "control: the shipping fixtures are all mutate/mutate_remove, every anchor holds" 0 \
-  "no bare sed -i" "$(ffr "$d")"
+  "no bare in-place edit" "$(ffr "$d")"
 
 d=$(ffr_fixture)
 printf '\nsed -i.bak "s/x/y/" foo.txt\n' >> "$d/test/probe_gates.sh"
@@ -5562,9 +5559,9 @@ probe "a hand-typed fixture is red on an unquoted heredoc delimiter too" 1 \
   "another_synthetic_fixture() types out" "$(ffr "$d")"
 
 d=$(ffr_fixture)
-mutate "$d/test/fixture_freshness_test.py" 's/SED_I_ALLOWLIST = \[\]/SED_I_ALLOWLIST = ["bogus entry"]/'
+mutate "$d/test/fixture_freshness_test.py" 's/RAW_EDIT_ALLOWLIST = \[\]/RAW_EDIT_ALLOWLIST = ["bogus entry"]/'
 probe "an allow-listed sed -i that no longer appears anywhere is red too" 1 \
-  "SED_I_ALLOWLIST exempts 'bogus entry'" "$(ffr "$d")"
+  "RAW_EDIT_ALLOWLIST exempts 'bogus entry'" "$(ffr "$d")"
 
 d=$(ffr_fixture)
 mutate "$d/test/probe_gates.sh" \
@@ -5572,11 +5569,111 @@ mutate "$d/test/probe_gates.sh" \
 probe "an allow-listed fixture that gained a real anchor is red until the entry is deleted" 1 \
   "is no longer an anchorless synthetic fixture" "$(ffr "$d")"
 
+# A name defined twice used to let the SECOND definition silently exempt the FIRST from
+# the anchor check: `function_bodies()` stored one range per name in a plain dict, so an
+# earlier body -- possibly the anchorless one -- went invisible the moment a later
+# definition reused its name.
+d=$(ffr_fixture)
+cat >> "$d/test/probe_gates.sh" <<'FIXTURE'
+dup_name_fixture() {
+  cat > "$d/x" <<'TOK'
+foo
+TOK
+}
+dup_name_fixture() {
+  fixture_anchor "$REPO/test/cosim.py" "#!/usr/bin/env python3"
+}
+FIXTURE
+probe "a name defined twice is checked at both definitions, not just the last" 1 \
+  "dup_name_fixture() types out" "$(ffr "$d")"
+
+# A head that opens its body on the same line is a definition too.
+d=$(ffr_fixture)
+cat >> "$d/test/probe_gates.sh" <<'FIXTURE'
+oneline_head_fixture() { cat > "$d/x" <<'TOK'
+foo
+TOK
+}
+FIXTURE
+probe "a fixture that opens its body on the head line is still inspected" 1 \
+  "oneline_head_fixture() types out" "$(ffr "$d")"
+
+# A nested `helper() { ...; }` closing on its own line used to end the OUTER fixture
+# early: the previous scan stopped at the first line that was exactly `}`, with no
+# brace-depth counter to tell an inner close from the fixture's own.
+d=$(ffr_fixture)
+cat >> "$d/test/probe_gates.sh" <<'FIXTURE'
+nested_brace_fixture() {
+  helper() {
+    :
+}
+  cat > "$d/x" <<'TOK'
+foo
+TOK
+}
+FIXTURE
+probe "a nested helper's own closing brace does not end the outer fixture early" 1 \
+  "nested_brace_fixture() types out" "$(ffr "$d")"
+
+# `#` only opens a comment at the start of a word in bash; the previous scan treated
+# every unquoted `#` as a comment opener, so a decoy like this masked a real invocation
+# sitting right after it.
+d=$(ffr_fixture)
+printf '\nx=foo#bar sed -i decoy.txt\n' >> "$d/test/probe_gates.sh"
+probe "a mid-word # does not hide a real sed -i after it" 1 \
+  "sed -i decoy.txt" "$(ffr "$d")"
+
+d=$(ffr_fixture)
+cat >> "$d/test/probe_gates.sh" <<'FIXTURE'
+echo \' ; sed -i real.txt
+FIXTURE
+probe "an escaped apostrophe outside quotes does not mask a real sed -i" 1 \
+  "sed -i real.txt" "$(ffr "$d")"
+
+d=$(ffr_fixture)
+printf '\nsed --in-place file.txt\n' >> "$d/test/probe_gates.sh"
+probe "sed --in-place is a raw edit exactly like sed -i" 1 \
+  "sed --in-place file.txt" "$(ffr "$d")"
+
+d=$(ffr_fixture)
+printf "\nsed -e 's/x/y/' -i file.txt\n" >> "$d/test/probe_gates.sh"
+probe "sed -i is a raw edit even when it is not the first flag" 1 \
+  "-e 's/x/y/' -i file.txt" "$(ffr "$d")"
+
+d=$(ffr_fixture)
+printf '\nperl -pi -e "s/x/y/" file.txt\n' >> "$d/test/probe_gates.sh"
+probe "perl -pi is a raw edit like sed -i" 1 \
+  "perl -pi -e" "$(ffr "$d")"
+
+d=$(ffr_fixture)
+printf "\nawk -i inplace '{print}' file.txt\n" >> "$d/test/probe_gates.sh"
+probe "awk -i inplace is a raw edit like sed -i" 1 \
+  "awk -i inplace" "$(ffr "$d")"
+
+d=$(ffr_fixture)
+cat >> "$d/test/probe_gates.sh" <<'FIXTURE'
+sed \
+  -i file.txt
+FIXTURE
+probe "a backslash-continued sed -i is still a raw edit" 1 \
+  "directly: sed" "$(ffr "$d")"
+
+d=$(ffr_fixture)
+cat >> "$d/test/probe_gates.sh" <<'FIXTURE'
+dq_delim_fixture() {
+  cat > "$d/x" <<"TOK"
+don't break the quote tracker
+TOK
+}
+sed -i real_after_heredoc.txt
+FIXTURE
+probe "a double-quoted heredoc delimiter is masked, so its stray apostrophe cannot hide a real sed -i after it" 1 \
+  "sed -i real_after_heredoc.txt" "$(ffr "$d")"
+
 begin_group "test/comment_density_test.py"
 
 CD="python3 $HERE/comment_density_test.py"
 
-# Synthetic on purpose: the ratio is invented, so none of this is owed a fixture_anchor.
 cd_case_ok() {
   local d; d=$(new_case)
   cat > "$d/example.py" <<'CASE'
@@ -5608,7 +5705,6 @@ CASE
   printf '%s' "$d"
 }
 
-# All comment, no code: the shape the manifests were reduced to.
 cd_case_pointer_only() {
   local d; d=$(new_case)
   cat > "$d/pointer.sh" <<'CASE'
@@ -5630,9 +5726,6 @@ probe "a file pushed over the comment-density budget is named and red" 1 \
 d=$(cd_case_pointer_only)
 probe "a comment-only file's single pointer line is excused by MIN_COMMENT_LINES" 0 \
   "all at or under" "$CD $d"
-
-# Labels compare as a MULTISET, not a count: a count survives one probe swapped for another.
-
 
 actual_labels=$(printf '%s\n' "${probe_labels[@]}" | LC_ALL=C sort)
 expected_labels=$(grep -vE '^#|^[[:space:]]*$' "$PROBES_MANIFEST" | LC_ALL=C sort)
