@@ -665,6 +665,9 @@ jobs:
             echo '```'
             cat "$RUNNER_TEMP/nano-baseline-report.txt"
             echo '```'
+            echo "Same caveats as the main core's checks above: bounded \`mode bmc\`,"
+            echo "and \`RISCV_FORMAL_ALTOPS\` means the mul/div checks do not exercise"
+            echo "the real multiplier or divider."
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 

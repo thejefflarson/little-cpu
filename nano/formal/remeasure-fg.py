@@ -14,21 +14,13 @@ FORMAL = os.path.abspath(os.path.join(HERE, "..", "..", "formal"))
 sys.path.insert(0, FORMAL)
 import depth_rules
 
-CFG_IN = os.path.join(HERE, "checks.cfg.in")
 CFG = os.path.join(HERE, "checks.cfg")
 PROBE = "fg-probe"
 
 TRIGS = (10, 15)
 BELOW, ABOVE = 2, 1
 
-def render_cfg():
-    with open(CFG_IN) as f:
-        text = f.read()
-    with open(CFG, "w") as f:
-        f.write(text.replace("@@NANO_FORMAL_DIR@@", HERE))
-
 def probe(depth_line, check):
-    render_cfg()
     lines = []
     in_depth = False
     with open(CFG) as f:
@@ -108,11 +100,11 @@ def main():
         print(f"error: run from {HERE}, not {os.getcwd()}", file=sys.stderr)
         return 1
 
-    derived = depth_rules.read_derived(CFG_IN)
+    derived = depth_rules.read_derived(CFG)
     f_declared, g_declared = derived["F"], derived["G"]
 
     print(
-        "Re-measuring F and G against nano/formal/checks.cfg.in.\n"
+        "Re-measuring F and G against nano/formal/checks.cfg.\n"
         f"Declared: F = {f_declared}, G = {g_declared}."
     )
 
@@ -166,7 +158,7 @@ def main():
 
     print(
         "\nThe declaration is stale. Update the `#derive` lines in "
-        "nano/formal/checks.cfg.in and\nrun `make -C nano/formal checks`, "
+        "nano/formal/checks.cfg and\nrun `make -C nano/formal checks`, "
         "which grades every [depth] entry against them.",
         file=sys.stderr,
     )

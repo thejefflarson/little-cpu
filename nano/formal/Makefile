@@ -10,11 +10,6 @@ endif
 FORCE:
 .PHONY: FORCE
 
-# checks.cfg is generated with absolute paths spliced in: @basedir@ in the shared
-# genchecks-local.py always names formal/riscv-formal, never this directory.
-checks.cfg: checks.cfg.in
-	sed 's#@@NANO_FORMAL_DIR@@#$(abspath .)#g' $< > $@
-
 .PHONY: checks
 checks: ../../formal/genchecks-local.py checks.cfg | $(RISCV_FORMAL_DIR)
 	rm -rf checks
@@ -42,7 +37,7 @@ remeasure-fg: remeasure-fg.py ../../formal/depth_rules.py checks.cfg ../nano.v |
 	python3 $<
 
 clean:
-	rm -rf checks complete dmemcheck imemcheck fg-probe fg-probe.cfg checks.cfg
+	rm -rf checks complete dmemcheck imemcheck fg-probe fg-probe.cfg
 
 .PHONY: all clean
 all: check dmemcheck imemcheck complete

@@ -20,19 +20,18 @@ new harness that shares this repo's `formal/pin.mk` (so the SHA-pinned
 riscv-formal clone is the one clone, not a second one) and
 `formal/genchecks-local.py` (so the vendored, header-diff-only copy of upstream
 `genchecks.py` stays singular). Everything else under `nano/formal/` --
-`checks.cfg.in`, `wrapper.v`, `dmemcheck.sv`/`dmemcheck.sby`,
+`checks.cfg`, `wrapper.v`, `dmemcheck.sv`/`dmemcheck.sby`,
 `imemcheck.sv`/`imemcheck.sby`, `complete.sv`/`complete.sby`,
 `remeasure-fg.py`, `EXPECTED_FAIL`, `EXPECTED_CHECKS` -- is nanocpu's own,
 adapted from the donor commit's `formal/` tree and from this repo's current
-`formal/` conventions, because `@basedir@` in the shared `genchecks-local.py`
-always names the shared `formal/riscv-formal` clone and can never be made to
-point at `nano/formal/`'s own files. `nano/formal/checks.cfg.in` is the
-tracked template; the Makefile renders it to a generated, gitignored
-`checks.cfg` with the absolute path of `nano/formal/` substituted in, because
-SymbiYosys runs every check's script from inside a per-check sandbox
-directory, and a relative `../wrapper.v` from there does not resolve to this
-directory the way it resolves from a hand-invoked `sby -f
-nano/formal/dmemcheck.sby`.
+`formal/` conventions. `nano/formal/checks.cfg` reaches the donor file the same
+way `formal/checks.cfg` reaches `rtl/*.v`: `@basedir@` in the shared
+`genchecks-local.py` always names the absolute path of the shared
+`formal/riscv-formal` clone, and a plain relative path off it --
+`@basedir@/../../nano/formal/wrapper.v`, `@basedir@/../../nano/nano.v` --
+reaches into `nano/` the same way `formal/checks.cfg`'s own
+`@basedir@/../../rtl/decoder.v` reaches `rtl/`. No template, no generated file,
+no path substitution: `checks.cfg` is tracked directly.
 
 ## Where the donor conflicts with the brief, the brief wins
 

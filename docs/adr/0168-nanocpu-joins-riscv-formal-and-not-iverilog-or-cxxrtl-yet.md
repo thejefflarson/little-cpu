@@ -88,7 +88,7 @@ BELOW/ABOVE = 2/1 window around the declared `#derive` lines.
 **F = 12, G = 10** -- `hang` flips FAIL to PASS exactly at check-cycle 13 (F+1,
 matching `formal/checks.cfg`'s own `#floor hang F+1` term); `liveness_ch0`
 flips at gap 10 from both trigger 10 and trigger 15, so G does not depend on
-where it was asked, the sweep's own soundness check. `nano/formal/checks.cfg.in`
+where it was asked, the sweep's own soundness check. `nano/formal/checks.cfg`
 declares both as `#derive` lines and every `[depth]` row is set from them using
 the same term vocabulary `depth_rules.py` already defines (`F+2G` for `insn`
 and `csrw`, `F+G,start+G` for `reg`/`pc_fwd`/`pc_bwd`/`causal`,
