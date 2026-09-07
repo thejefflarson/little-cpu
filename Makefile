@@ -34,6 +34,8 @@ sim: test/cxxrtl.cc test/rtl.cc
 # inside one is invisible from every other.
 TOOL_CACHE := $(if $(XDG_CACHE_HOME),$(XDG_CACHE_HOME),$(HOME)/.cache)/little-cpu
 
+include nano/nano.mk
+
 ifneq ($(filter command line environment,$(origin SAIL_RISCV_VERSION)),)
 $(error SAIL_RISCV_VERSION cannot be set from the command line or the \
   environment: it pins bytes this repo executes. Change it in the Makefile, \
@@ -422,7 +424,7 @@ pin-bump-test:
 
 .PHONY: tool-cache-test
 tool-cache-test:
-	@./test/tool_cache_test.sh '$(SAIL_RISCV_DIR)' '$(SVLINT_DIR)' '$(SAIL_DOWNLOAD_DIR)'
+	@./test/tool_cache_test.sh '$(SAIL_RISCV_DIR)' '$(SVLINT_DIR)' '$(SAIL_DOWNLOAD_DIR)' '$(NANO_LIBERTY_DIR)'
 
 .PHONY: memmap-test
 memmap-test:

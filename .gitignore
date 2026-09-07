@@ -4,6 +4,8 @@
 fit.json
 fit.log
 fit.synth.log
+nano/area.json
+nano/area.synth.log
 # `make soc-timing`: the SoC netlist, the placed bitstream ASCII, the three logs and the
 # `icetime` report.
 soc.json

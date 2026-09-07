@@ -116,6 +116,18 @@ fixture_anchor() {
   fi
 }
 
+# The Makefile plus every .mk it `include`s or `-include`s, at their own paths -- shared
+# by every fixture that actually invokes `make` against a copy, so a new pin file needs
+# no second fixture taught to remember it.
+copy_makefile_includes() {  # $1 = destination dir
+  local d=$1 mk
+  cp "$REPO/Makefile" "$d/Makefile"
+  for mk in $(sed -nE 's/^-?include[[:space:]]+(.+\.mk)[[:space:]]*$/\1/p' "$REPO/Makefile"); do
+    mkdir -p "$d/$(dirname "$mk")"
+    cp "$REPO/$mk" "$d/$mk"
+  done
+}
+
 # Written once and shared by every fixture, as are the scratch copies of the scripts
 # under test: macOS re-scans an executable the first time it is exec'd after being
 # written, so a probe that created its own stub tree measured 1.5-3.3s of wall against
@@ -2104,13 +2116,8 @@ probe "a path that does not reconcile blames the script, not the design" 1 \
 # files describe THIS run.
 ecp5_stale_fixture() {  # stdin = the stub nextpnr-ecp5's body, after --version
   local d; d=$(new_case)
-  mkdir -p "$d/soc/compare" "$d/formal" "$d/bin"
-  cp "$REPO/Makefile" "$d/Makefile"
-  cp "$REPO/formal/pin.mk" "$d/formal/"
-  cp "$REPO/soc/compare/hazard3_pin.mk" "$d/soc/compare/"
-  # The Makefile `include`s this one HARD, not with `-include`: a missing pin should stop
-  # a measurement, not silently unpin the core it describes.
-  cp "$REPO/soc/compare/vexriscv_pin.mk" "$d/soc/compare/"
+  mkdir -p "$d/soc/compare" "$d/bin"
+  copy_makefile_includes "$d"
   cp "$REPO/soc/littlesoc.lpf" "$REPO/soc/ecp5_report.py" \
      "$REPO/soc/print_toolchain.sh" "$d/soc/"
   cp -R "$REPO/rtl" "$d/"
@@ -2312,29 +2319,33 @@ tc_cache="$tmp/cache/little-cpu"
 
 probe "control: agreeing paths outside the checkout are green" 0 \
   "outside the checkout and agreed on" \
-  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint $tc_cache/download"
+  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint $tc_cache/download $tc_cache/sky130"
 
 probe "the Makefile and test/cosim.py drifting apart is red" 1 \
   "do not agree on where the Sail" \
-  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/elsewhere $tc_cache/svlint $tc_cache/download"
+  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/elsewhere $tc_cache/svlint $tc_cache/download $tc_cache/sky130"
 
 probe "a Sail install back inside the checkout is red" 1 \
   "test/cosim.py installs tools inside the checkout" \
-  "XDG_CACHE_HOME=$REPO/cache $TCT $REPO/cache/little-cpu/sail $tc_cache/svlint $tc_cache/download"
+  "XDG_CACHE_HOME=$REPO/cache $TCT $REPO/cache/little-cpu/sail $tc_cache/svlint $tc_cache/download $tc_cache/sky130"
 
 probe "an svlint install inside the checkout is red on its own" 1 \
   "$REPO/tools/svlint" \
-  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $REPO/tools/svlint $tc_cache/download"
+  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $REPO/tools/svlint $tc_cache/download $tc_cache/sky130"
 
 # The kept release tarball is what a CI cache holds, so a download directory back inside
 # the checkout would be cached under a path no worktree can read.
 probe "the Sail download directory inside the checkout is red on its own" 1 \
   "$REPO/tools/download" \
-  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint $REPO/tools/download"
+  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint $REPO/tools/download $tc_cache/sky130"
+
+probe "the nano liberty install directory inside the checkout is red on its own" 1 \
+  "$REPO/tools/sky130" \
+  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint $tc_cache/download $REPO/tools/sky130"
 
 probe "a relative install directory is red before it is compared" 1 \
   "names a relative tool install directory" \
-  "XDG_CACHE_HOME=$tmp/cache $TCT tools/sail tools/svlint tools/download"
+  "XDG_CACHE_HOME=$tmp/cache $TCT tools/sail tools/svlint tools/download tools/sky130"
 
 begin_group "make sail-setup"
 
@@ -2794,12 +2805,7 @@ MT_TGT="$HERE/makefile_target_test.sh"
 
 mt_fixture() {  # the Makefile plus every .mk it includes, at their own paths
   local d; d=$(new_case)
-  cp "$REPO/Makefile" "$d/Makefile"
-  local mk
-  for mk in $(sed -nE 's/^-?include[[:space:]]+(.+\.mk)[[:space:]]*$/\1/p' "$REPO/Makefile"); do
-    mkdir -p "$d/$(dirname "$mk")"
-    cp "$REPO/$mk" "$d/$mk"
-  done
+  copy_makefile_includes "$d"
   printf '%s' "$d"
 }
 
@@ -5778,6 +5784,97 @@ probe "a file pushed over the comment-density budget is named and red" 1 \
 d=$(cd_case_pointer_only)
 probe "a comment-only file's single pointer line is excused by MIN_COMMENT_LINES" 0 \
   "all at or under" "$CD $d"
+
+begin_group "nano/area_report.py"
+
+AR="python3 $REPO/nano/area_report.py"
+
+ar_sha() {
+  if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | cut -d ' ' -f 1; \
+  else sha256sum "$1" | cut -d ' ' -f 1; fi
+}
+
+ar_liberty() {
+  local d; d=$(new_case)
+  cat > "$d/fake.lib" <<'LIB'
+library(fake) {
+  cell(FAKE_NAND2) {
+    area: 4.256;
+  }
+  cell(FAKE_INV) {
+    area: 1.9152;
+  }
+}
+LIB
+  printf '%s' "$d"
+}
+
+ar_stat() {
+  cat > "$1/stat.json" <<'JSON'
+{
+  "design": {
+    "num_cells": 2,
+    "area": 6.1712,
+    "sequential_area": 0.0,
+    "num_cells_by_type": {
+      "FAKE_INV": 1,
+      "FAKE_NAND2": 1
+    }
+  }
+}
+JSON
+}
+
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"
+probe "control: a measurement within budget is green" 0 "RATCHET:" \
+  "$AR $d/stat.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
+
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"
+probe "total above the ratchet names the figure and the budget" 1 \
+  "is over the 5.0 um2 budget" \
+  "$AR $d/stat.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 5"
+
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib")
+probe "a missing stat.json is refused, not read as a zero-area design" 1 \
+  "does not exist" \
+  "$AR $d/missing.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
+
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib")
+printf 'not json' > "$d/bad.json"
+probe "a truncated stat.json is refused, not read as an empty report" 1 \
+  "is not JSON" \
+  "$AR $d/bad.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
+
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib")
+cat > "$d/zero.json" <<'JSON'
+{"design": {"num_cells": 0, "area": 0.0, "sequential_area": 0.0, "num_cells_by_type": {}}}
+JSON
+probe "zero cells is refused, not read as a zero-area design" 1 \
+  "reports zero cells" \
+  "$AR $d/zero.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
+
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib")
+cat > "$d/unknown.json" <<'JSON'
+{"design": {"num_cells": 1, "area": 2.0, "sequential_area": 0.0, "num_cells_by_type": {"$_DFF_": 1}}}
+JSON
+probe "a cell type outside the read liberty is refused, not priced at zero" 1 \
+  "not in" \
+  "$AR $d/unknown.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
+
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"
+probe "a missing liberty file is refused before the JSON is even opened" 1 \
+  "no liberty file at" \
+  "$AR $d/stat.json --liberty $d/does-not-exist.lib --liberty-sha256 $sha --max-um2 10"
+
+d=$(ar_liberty); ar_stat "$d"
+probe "a liberty file that does not match the pinned digest is refused" 1 \
+  "does not match the pinned digest" \
+  "$AR $d/stat.json --liberty $d/fake.lib --liberty-sha256 0000000000000000000000000000000000000000000000000000000000000000 --max-um2 10"
+
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"
+probe "the trend against a recorded figure is printed beside the verdict" 0 \
+  "TREND: +2.2" \
+  "$AR $d/stat.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10 --previous 4"
 
 actual_labels=$(printf '%s\n' "${probe_labels[@]}" | LC_ALL=C sort)
 expected_labels=$(grep -vE '^#|^[[:space:]]*$' "$PROBES_MANIFEST" | LC_ALL=C sort)
