@@ -1341,10 +1341,14 @@ endif
 COMPARE_MIN_RATIO := 0.8
 
 # Hazard3's own file list (soc/compare/hazard3/hdl/hazard3.f), minus
-# hazard3_cpu_2port.v: this harness uses the single-AHB-port top only.
-# HAZARD3_DIR comes from soc/compare/hazard3_pin.mk.
+# hazard3_cpu_1port.v: this harness gives Hazard3 its own fetch and
+# load/store ports, the same two-memory topology soc/compare/bench_littlecpu.v
+# and soc/compare/bench_vexriscv.v already have, rather than forcing it
+# through the single shared AHB5 port the one-port top arbitrates
+# (soc/compare/bench_hazard3.v's own header says why). HAZARD3_DIR comes
+# from soc/compare/hazard3_pin.mk.
 HAZARD3_HDL  := $(HAZARD3_DIR)/hdl
-HAZARD3_SRCS := $(HAZARD3_HDL)/hazard3_core.v $(HAZARD3_HDL)/hazard3_cpu_1port.v \
+HAZARD3_SRCS := $(HAZARD3_HDL)/hazard3_core.v $(HAZARD3_HDL)/hazard3_cpu_2port.v \
                 $(HAZARD3_HDL)/arith/hazard3_alu.v \
                 $(HAZARD3_HDL)/arith/hazard3_branchcmp.v \
                 $(HAZARD3_HDL)/arith/hazard3_mul_fast.v \
@@ -1398,8 +1402,8 @@ COMPARE_SRCS := $(HAZARD3_SRCS) rtl/memory.v soc/compare/bench_hazard3.v
 # clone soc/compare/hazard3_pin.mk materialises, and never copied into rtl/.
 COMPARE_READ := read_verilog -sv -I $(HAZARD3_HDL) $(COMPARE_SRCS)
 COMPARE_CORE_READ := read_verilog -sv -I $(HAZARD3_HDL) $(HAZARD3_SRCS); \
-                     hierarchy -top hazard3_cpu_1port
-COMPARE_CORE_TOP  := hazard3_cpu_1port
+                     hierarchy -top hazard3_cpu_2port
+COMPARE_CORE_TOP  := hazard3_cpu_2port
 COMPARE_DEPS      := $(COMPARE_SRCS) | $(HAZARD3_DIR)
 COMPARE_CORE_DEPS := $(HAZARD3_SRCS) | $(HAZARD3_DIR)
 else

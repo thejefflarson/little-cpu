@@ -230,3 +230,13 @@ prints the equivalent caveat.
 - **The CoreMark cross-core product ADR-0136 was written to eventually support still does not
   exist.** This ADR is the vendoring and the clock half of it; the cycle half, and the product that
   needs both, are the next ticket's, not a number this one invented to look finished.
+
+## AMENDED: the one-port top was picked for the wrong reason
+
+This ADR justified `hazard3_cpu_1port` by saying it "drops into the same one-memory-map shape
+`bench_littlecpu.v` and `bench_vexriscv.v` already share." That conflated the address MAP (one,
+correctly) with the PORT COUNT (two on both neighbours, one here) — `bench_littlecpu.v` has a
+dedicated `imemory`/`memory` pair and `bench_vexriscv.v` has separate `iBus`/`dBus`, so Hazard3 was
+the only core in this harness forced to arbitrate fetch and load/store onto one shared port, and
+that arbitration, not AHB5 itself, produced the write-wait bias ADR-0146's amendment traces and
+removes by switching to `hazard3_cpu_2port`. See that ADR for the mechanism and the numbers.

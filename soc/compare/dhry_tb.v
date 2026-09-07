@@ -101,8 +101,8 @@ module dhry_tb;
   int unsigned haz_begin, haz_end, haz_marks;
   int unsigned ours_writes, vex_writes, haz_writes;
   int unsigned ours_verdict, vex_verdict, haz_verdict;
-  // Cycles inside the measured window that Hazard3's AHB5 adapter spends
-  // holding `hready` low for a write's data phase -- see
+  // Cycles inside the measured window that Hazard3's D-port write buffer
+  // spends holding `d_hready` low for a write's data phase -- see
   // soc/compare/bench_hazard3.v's `wr_pending_q` comment. littlecpu drives
   // `.bus_wait(1'b0)` and VexRiscv's bus here is always-ready, so neither of
   // the other two cores pays this; disclosing it beside Hazard3's cycle count
@@ -126,14 +126,14 @@ module dhry_tb;
     .marks(vex_marks), .begin_cycle(vex_begin), .end_cycle(vex_end),
     .writes(vex_writes), .verdict(vex_verdict)
   );
-  // Hazard3 has no separate data bus: mem_wstrb_mux/mem_addr_mux is the one
-  // memory port's captured write, with hwdata (now valid) as its value -- the
-  // same signals soc/compare/bench_tb.v's smoke check reads for the identical
-  // reason.
+  // Hazard3's D-port write data trails its own address by a cycle:
+  // dmem_wstrb_mux/dmem_addr_mux is the RAM port's captured write, with
+  // d_hwdata (now valid) as its value -- the same signals
+  // soc/compare/bench_tb.v's smoke check reads for the identical reason.
   dhry_monitor mon_haz (
     .clk(clk), .cycle(cycle),
-    .mem_addr(dut_haz.mem_addr_mux), .mem_wdata(dut_haz.hwdata),
-    .mem_wstrb(dut_haz.mem_wstrb_mux),
+    .mem_addr(dut_haz.dmem_addr_mux), .mem_wdata(dut_haz.d_hwdata),
+    .mem_wstrb(dut_haz.dmem_wstrb_mux),
     .marks(haz_marks), .begin_cycle(haz_begin), .end_cycle(haz_end),
     .writes(haz_writes), .verdict(haz_verdict)
   );
