@@ -1,9 +1,8 @@
 diff --git a/rtl/decoder.v b/rtl/decoder.v
-index 331a2ed..9171a9d 100644
 --- a/rtl/decoder.v
 +++ b/rtl/decoder.v
-@@ -612,7 +612,7 @@ module decoder #(
-   // address goes out a cycle early, so an older store's write edge must pass.
+@@ -555,7 +555,7 @@
+   // because text is writable and the fetch address goes out a cycle early.
    logic pipe_drained, serialize;
    assign pipe_drained = !out.valid && !executor_out.valid && !accessor_out_valid;
 -  assign serialize = (instr_csr_access || instr_mret || instr_fencei) && !pipe_drained;
