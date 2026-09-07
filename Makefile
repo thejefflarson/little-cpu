@@ -431,6 +431,10 @@ memmap-test:
 # Asserts that every rtl/*.v file has a ruling on whether a mutation of it is caught by
 # anything -- a named mutation, or `unpaired` and a real bench or formal task -- checked
 # against `ls rtl/*.v` both ways round.
+.PHONY: comment-density-test
+comment-density-test:
+	@python3 ./test/comment_density_test.py
+
 .PHONY: mutation-coverage-test
 mutation-coverage-test:
 	@./test/mutation_coverage_test.sh
@@ -443,7 +447,7 @@ adr-numbering-test:
 
 # A target defined twice is last-wins with only a warning, and a `?=` default beside it
 # is first-wins, so two additions of one name pair one route's body with the other's
-# variables. make's own parser is the oracle.
+# variables.
 .PHONY: makefile-target-test
 makefile-target-test:
 	@./test/makefile_target_test.sh
@@ -533,7 +537,7 @@ test: sim test-units probe-gates pin-bump-test tool-cache-test memmap-test \
       adr-numbering-test compare-geometry-test vexriscv-path-test retired-term-test port-connect-test march-test \
       band-source-test zkt-isolation-test fixture-freshness-test window-test imem-share-test \
       abc-engine-test makefile-target-test mutation-probe dual-build board-elaborate \
-      tracked-ignored-test mutation-coverage-test
+      tracked-ignored-test mutation-coverage-test comment-density-test
 	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 .PHONY: cycles
@@ -654,20 +658,9 @@ fit: fit-toolchain fit.json
 
 SOC_PROG      ?= datainit.c
 SOC_ROM_WORDS := 2048
-# Named once and referenced by every littlesoc synthesis (ice40, ECP5, the
-# iCESugar-Pro top): chparam before hierarchy/synth_*, so littlesoc's default
-# is what gets elaborated rather than a second copy of the number.
-# EMPTY unless a caller asked for a different ROM size. `origin` is what asks that --
-# `file` when only this Makefile set it, `command line` when a caller or a sub-make
-# overrode it -- so the shipping build states the number once, in rtl/littlesoc.v's own
-# default, which test/memmap_test.sh grades equal to SOC_ROM_WORDS.
-# A chparam at the UNCHANGED value is not free: it moves the up5k SoC netlist from 6289
-# to 6319 mapped cells with nothing to show for it, because yosys derives a parameterised
-# copy of littlesoc and stops sharing across the hierarchy the way it does for the plain
-# module.
-# KEEP EVERY yosys -p SCRIPT USING THIS ON ONE LINE. A backslash-newline inside the
-# single quotes is not a shell continuation -- both characters reach yosys, which reads
-# the lone `\` as a command and stops with "No such command: \".
+# Named once and referenced by every littlesoc synthesis (ice40, ECP5, the iCESugar-Pro
+# top): chparam before hierarchy/synth_*, so littlesoc's default is what gets elaborated
+# rather than a second copy of the number.
 SOC_ROM_CHPARAM := $(if $(filter command line,$(origin SOC_ROM_WORDS)),chparam -set ROM_WORDS $(SOC_ROM_WORDS) littlesoc;)
 # Exact rather than budgeted the way FIT_MAX_LC is, because both are properties of the
 # RTL rather than of placement: 2 SPRAM for the 64 KB data RAM, and 16 EBR for the 8 KB
@@ -717,9 +710,7 @@ soc-rom:
 	  --rom-words $(SOC_ROM_WORDS)
 
 # Named once, used verbatim everywhere the netlist matters: a second copy would let the
-# digest and the placement it grades describe different builds. chparam runs BEFORE
-# synth_ice40's own hierarchy pass, so littlesoc's ROM_WORDS default is what hierarchy
-# elaborates.
+# digest and the placement it grades describe different builds.
 SOC_SYNTH := read_verilog -sv $(SOC_SRCS); \
              $(SOC_ROM_CHPARAM) \
              synth_ice40 -device u -dsp -spram -top littlesoc
@@ -763,8 +754,6 @@ soc.asc: soc.json soc/littlesoc.pcf
 	  exit 1; \
 	}
 
-# 12 MHz is the board crystal's own step (the next one down is 6) -- a requirement, not a
-# regression floor.
 SOC_MIN_MHZ := 12.0
 
 SOC_TIMING_TOOLS := yosys nextpnr-ice40 icetime
@@ -796,9 +785,6 @@ soc-timing: soc-timing-toolchain soc.asc
 	@# was a `python3 -c` here, i.e. a SECOND parser of the same file -- and the
 	@# second one was the one holding the gate.
 	@python3 soc/timing_split.py soc.timing.rpt --min-mhz $(SOC_MIN_MHZ)
-
-# A third instrument over a third design (same littlesoc, placed on an ECP5); none of its
-# numbers merge with `make fit`'s or `make soc-timing`'s.
 
 ECP5_DEVICE  := --25k
 ECP5_PACKAGE := CABGA381
@@ -904,12 +890,6 @@ icesugar-dhrystone:
 	@python3 soc/board_read.py --seconds 60 --until 'Self-check' \
 	  --out icesugar_dhrystone.txt
 
-# CoreMark does not fit the shipping 8 KB ROM (test/bench/run_coremark.sh's own
-# header gives the reason); this board is where a 16 KB ROM can actually be
-# placed, so this is the one CoreMark route that reaches silicon.
-# ICESUGAR_COREMARK_ROM_WORDS overrides SOC_ROM_WORDS for both the ROM build
-# and littlesoc's own ROM_WORDS through icesugar.json's chparam, so the image
-# and the fetch window it is placed against cannot disagree.
 ICESUGAR_COREMARK_ROM_WORDS := 4096
 
 .PHONY: icesugar-coremark
@@ -1006,41 +986,24 @@ dhrystone-board:
 	@echo 'Dhrystone is in board.bin. Flash it with `make prog`, then read the'
 	@echo 'report off the UART -- it prints itself, cycles and all.'
 
-# Two board routes compile the same vendored sources at different geometries, so they
-# are two names, not one target with two bodies: `coremark-rom-ecp5` links the 16 KB
-# region the ECP5 can hold, `coremark-rom-up5k` the 8 KB one the part actually ships.
-# Make resolves a redefined recipe last-wins and a `?=` default first-wins, so one name
-# would pair one route's flags with the other's linker script -- and the flags string is
-# compiled INTO the image for EEMBC's disclosure line, so the report would misstate its
-# own build. test/makefile_target_test.sh grades that off make's own warning.
+# Two names, not one target with two bodies: make's last-wins recipe and first-wins `?=`
+# would pair one route's flags with the other's script. test/makefile_target_test.sh.
 COREMARK_ECP5_UART_BASE  ?= $(DHRY_UART_BASE)
-# Not touching COREMARK_CFLAGS is this route's whole point: 16 KB is where the -O2
-# image fits, so the board figure and the simulated one are the same build.
 COREMARK_ECP5_CFLAGS     ?= $(COREMARK_CFLAGS)
 COREMARK_ECP5_ITERATIONS ?= $(COREMARK_ITERATIONS)
 
-# -Os -flto, not COREMARK_CFLAGS' -O2: the -O2 image does not fit the part's 8 KB ROM at
-# any port size, and -Os -flto is the smallest combination of standard flags that does.
+# -O2 does not fit the part's 8 KB ROM at any port size; this is the smallest that does.
 COREMARK_UP5K_CFLAGS ?= -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -Os -flto \
                           -std=c11 -ffreestanding -fno-tree-loop-distribute-patterns \
                           -Wall -Wextra -Werror
 
-# 800 iterations clears core_main.c's own ">=10 secs" rule at the board's clock with
-# room to spare; COREMARK_HZ travels with it so that check is against the clock the
-# image actually targets. Both move together for a different board.
 COREMARK_UP5K_ITERATIONS ?= 800
 COREMARK_HZ              ?= 12000000
 
-# ONE implementation for both routes, so the one that flashes hardware cannot be the one
-# whose check was forgotten. CoreMark's trademark terms permit the name only for an
-# unmodified copy.
 .PHONY: coremark-pin-check
 coremark-pin-check:
 	@test/bench/coremark_pin_check.sh $(COREMARK_VENDOR_DIR)
 
-# Builds CoreMark against test/bench/coremark.lds -- the 16 KB region
-# test/testbench.v's simulated ROM already uses -- and writes the board's ROM banks at
-# $(SOC_ROM_WORDS), the same split soc-rom and dhrystone-rom use.
 .PHONY: coremark-rom-ecp5
 coremark-rom-ecp5: coremark-pin-check
 	@set -e; \
@@ -1104,9 +1067,6 @@ coremark-board:
 	@echo 'CoreMark is in board.bin. Flash it with `make prog`, then read the'
 	@echo 'report off the UART -- it prints itself, cycles and all.'
 
-# ---- a bitstream, and a board to put it on ---------------------------------
-# A separate flow from `soc-timing` on purpose -- different top, different
-# pins -- so a frequency from here is not comparable. Do not merge the two.
 BOARD ?= upduino
 
 BOARD_SRCS := $(SOC_SRCS) soc/miso_share_enable.v soc/board_upduino.v

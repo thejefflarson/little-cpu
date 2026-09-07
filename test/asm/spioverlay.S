@@ -1,11 +1,11 @@
 # See LICENSE for license details.
 
-# A boot loader's other half: not just reading the flash, but using what it reads.
+// A boot loader's other half: not just reading the flash, but using what it reads.
 
 #include "riscv_test.h"
 #include "test_macros.h"
 
-# The address this file's own search picked; see the header above.
+// The address this file's own search picked; see the header above.
 #define OVERLAY_FLASH_ADDR 0x00064f
 
 #define BULK_FLASH_ADDR    0x00002000
@@ -26,7 +26,7 @@ RVTEST_CODE_BEGIN
   jal   ra, patch_stub
   TEST_CASE( 2, s8, 111, nop; )
 
-  # The overlay: one instruction's worth of the flash, copied into the same slot and run.
+  // The overlay: one instruction's worth of the flash, copied into the same slot and run.
 
   li    a0, OVERLAY_FLASH_ADDR
   la    a1, patch_stub

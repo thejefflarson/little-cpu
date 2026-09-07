@@ -1,28 +1,12 @@
 #include "dual_test.h"
 
-// Two harts add 1 to one shared word AMO_N times each. The word must end at
-// exactly 2*AMO_N, because that is what a lost update destroys: an AMO whose
-// read and write are not indivisible lets the other hart's increment land in
-// between, and the pair of them then count as one.
-//
-// TWO CHECKS, AND THE SECOND IS THE STRONGER ONE. The final count says how many
-// increments survived. The sum of the values the AMOs RETURNED says which ones:
-// across both harts the eleven-encoding definition makes those returns exactly
-// the multiset {0, 1, ... 2N-1} in some interleaving, so their total is
-// N*(2N-1) whatever order the harts ran in. A design that dropped one update
-// and returned one value twice has the right count and the wrong sum. Each hart
-// carries its own partial sum and hart 0 adds them after the join.
-//
-// Every AMO's return is read into a register on the spot and range-checked
-// there as well, so a torn read is a FAIL at the instruction rather than an
-// arithmetic surprise at the end.
+// Two harts add 1 to one shared word AMO_N times each.
 
 #define AMO_N     64
 #define AMO_TOTAL (2 * AMO_N)
 // 0 + 1 + ... + (AMO_TOTAL - 1).
 #define AMO_SUM   (AMO_N * (AMO_TOTAL - 1))
 
-// 1 belongs to test/dual/dual_test.h.
 #define TN_RANGE  3
 #define TN_JOIN   4
 
@@ -31,8 +15,6 @@ DUALTEST_CODE_BEGIN
   jal   ra, amo_burst
   DUALTEST_JOIN( TN_JOIN )
 
-  # Nothing between the join and here writes the counter, so this is the whole
-  # execution's result and not a prefix of it.
   TEST_CASE( 5, a4, AMO_TOTAL, la t0, counter; lw a4, 0(t0); )
 
   TEST_CASE( 6, a5, AMO_SUM, la t0, sum1; lw a5, 0(t0); add a5, a5, a3; )

@@ -1,32 +1,26 @@
 # See LICENSE for license details.
 
-# A plain store at an address no memory on this platform answers: cause 7, store/AMO
-# access fault, committed in decode with every other cause.
+// A plain store at an address no memory on this platform answers: cause 7, store/AMO
+// access fault, committed in decode with every other cause.
 
 #include "riscv_test.h"
 #include "test_macros.h"
 
 #define UNMAPPED 0x00040000
 
-# The last word of the 16 KB text window, and the first word past it.
+// The last word of the 16 KB text window, and the first word past it.
 #define TEXT_TOP  0x00003FFC
-// One past the top of the text window -- and it is NOT the same on every
-// machine this runs on. test/testbench.v gives a simulator 4096 words, the part
-// has 2048, and test/memmap_test.sh prints both: "rom 2048 words on the part /
-// 4096 simulated". Hardcoding the simulator's number made this program test an
-// address the part does not have: the load below was answered under simulation
-// and correctly REFUSED on hardware, so the check failed on a core that was
-// right. Overridable, and the board build passes the part's value.
+// One past the top of the text window -- and it is NOT the same on every machine this
+// runs on.
 #ifndef TEXT_PAST
 #define TEXT_PAST 0x00004000
 #endif
 
-# The base of the 64 KB data RAM, its last word, and the first word past it.
+// The base of the 64 KB data RAM, its last word, and the first word past it.
 #define RAM_BASE  0x00010000
 #define RAM_TOP   0x0001FFFC
 #define RAM_PAST  0x00020000
 
-# One refused store: the cause, and that the trap count moved by exactly one.
 #define TEST_REFUSED_STORE( testnum, inst, base, off ) \
 test_ ## testnum: \
     li  TESTNUM, testnum; \
@@ -52,7 +46,6 @@ test_ ## testnum: \
 RVTEST_RV64U
 RVTEST_CODE_BEGIN
 
-  # mtvec resets to 0, which is _start -- install before faulting.
   RVTEST_INSTALL_TRAP_HANDLER
 
   TEST_CASE( 2, a4, 0x12345678, \
@@ -61,8 +54,6 @@ RVTEST_CODE_BEGIN
     sw  a1, 0(a0); \
     lw  a4, 0(a0); \
   )
-
-  # All three store encodings at an address no memory answers.
 
   TEST_REFUSED_STORE( 3, sw, UNMAPPED, 0 );
   TEST_REFUSED_STORE( 4, sh, UNMAPPED, 0 );

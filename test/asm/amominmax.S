@@ -1,7 +1,7 @@
 # See LICENSE for license details.
 
-# The four min/max AMOs at the only operands where a wrong compare shows: 0x8000_0000 and
-# -1, against each other and against small positives.
+// The four min/max AMOs at the only operands where a wrong compare shows: 0x8000_0000 and
+// -1, against each other and against small positives.
 
 #include "riscv_test.h"
 #include "test_macros.h"

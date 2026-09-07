@@ -1,4 +1,4 @@
-# Direct regression coverage for the stall-only hazard scoreboard.
+// Direct regression coverage for the stall-only hazard scoreboard.
 
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -12,7 +12,7 @@ RVTEST_CODE_BEGIN
     addi x6, x1, 0; \
   )
 
-  # Back-to-back RAW on rs2.
+  // Back-to-back RAW on rs2.
   TEST_CASE( 3, x6, 30, \
     li   x2, 10; \
     addi x2, x2, 20; \

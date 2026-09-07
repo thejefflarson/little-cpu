@@ -1319,10 +1319,7 @@ d=$(bs_fixture)
 probe "a sweep file that is not there reads as missing, not as empty" 1 \
   "nothing to summarise" "$BS $d/gone.csv"
 
-# The part is a stamped and compared field, not just a column. While it was a column
-# nothing read, two sweeps of two different fabrics -- placed by two different engines and
-# graded by two different classes of estimator -- would subtract into a tidy percentage
-# under a heading that says "delta".
+# The part is a stamped and compared field, not just a column.
 
 bs_pair() {  # an up5k sweep and an ECP5 one, same tree, same everything else
   local d; d=$(new_case)
@@ -2626,9 +2623,9 @@ d=$(mm_fixture); mutate "$d/rtl/littlecpu.v" 's/LS_TEXT_WORDS = 2048/LS_TEXT_WOR
 probe "the default text window is the part's, not the harness's" 1 \
   "LS_TEXT_WORDS is 4096 against rtl/littlesoc.v's 2048" "$MM $d"
 
-# rtl/littlesoc.v's own ROM_WORDS parameter drives both instantiations, so the
-# two cannot drift on their own; this is the one way left to disagree, one
-# instantiation respelled off the shared parameter and onto a literal.
+# rtl/littlesoc.v's own ROM_WORDS parameter drives both instantiations, so the two cannot
+# drift on their own; this is the one way left to disagree, one instantiation respelled
+# off the shared parameter and onto a literal.
 d=$(mm_fixture); mutate "$d/rtl/littlesoc.v" \
   's/littlecpu #(.LS_TEXT_WORDS(ROM_WORDS))/littlecpu #(.LS_TEXT_WORDS(4096))/'
 probe "an integrator telling the core a text size its ROM has not got" 1 \
@@ -5071,18 +5068,13 @@ mutate -E "$d/test/bench/coremark/PINNED.sha256" 's/^[0-9a-f]{64}(  core_list_jo
 probe "a malformed manifest line is red under --strict, not a silent pass" 1 \
   "improperly formatted" "$(rc "$d")"
 
-# coremark_port.c is outside test/bench/coremark/ and PINNED.sha256 says
-# nothing about it, so its own restatement of the 2K validation CRCs is
-# cross-checked against the pinned vendor array instead -- mutating one
-# literal here is the red direction for that check.
+# coremark_port.c is outside PINNED.sha256; both its 2K CRC sets are cross-checked.
 d=$(rc_fixture)
 mutate "$d/test/bench/coremark_port.c" \
   's/#define COREMARK_2K_VALIDATION_CRCLIST 0xe3c1u/#define COREMARK_2K_VALIDATION_CRCLIST 0xdeadu/'
 probe "a mutated validation CRC literal in coremark_port.c is caught before a compiler runs" 1 \
   "does not match" "$(rc "$d")"
 
-# The PERFORMANCE set is what every published CoreMark/MHz figure rests on, so it gets
-# the same cross-check and the same red direction.
 d=$(rc_fixture)
 mutate "$d/test/bench/coremark_port.c" \
   's/#define COREMARK_2K_PERF_CRCLIST 0xe714u/#define COREMARK_2K_PERF_CRCLIST 0xdeadu/'
@@ -5635,10 +5627,10 @@ mutate "$d/test/probe_gates.sh" \
 probe "an allow-listed fixture that gained a real anchor is red until the entry is deleted" 1 \
   "is no longer an anchorless synthetic fixture" "$(ffr "$d")"
 
-# A name defined twice used to let the SECOND definition silently exempt the
-# FIRST from the anchor check: `function_bodies()` stored one range per name
-# in a plain dict, so an earlier body -- possibly the anchorless one -- went
-# invisible the moment a later definition reused its name.
+# A name defined twice used to let the SECOND definition silently exempt the FIRST from
+# the anchor check: `function_bodies()` stored one range per name in a plain dict, so an
+# earlier body -- possibly the anchorless one -- went invisible the moment a later
+# definition reused its name.
 d=$(ffr_fixture)
 cat >> "$d/test/probe_gates.sh" <<'FIXTURE'
 dup_name_fixture() {
@@ -5653,9 +5645,7 @@ FIXTURE
 probe "a name defined twice is checked at both definitions, not just the last" 1 \
   "dup_name_fixture() types out" "$(ffr "$d")"
 
-# A head that opens its body on the same line is a definition too. The anchor
-# used to require `{` to be last on the line, so this shape registered as no
-# function at all and its heredoc was invisible to the anchor check.
+# A head that opens its body on the same line is a definition too.
 d=$(ffr_fixture)
 cat >> "$d/test/probe_gates.sh" <<'FIXTURE'
 oneline_head_fixture() { cat > "$d/x" <<'TOK'
@@ -5666,11 +5656,6 @@ FIXTURE
 probe "a fixture that opens its body on the head line is still inspected" 1 \
   "oneline_head_fixture() types out" "$(ffr "$d")"
 
-# A nested `helper() { ...; }` closing on its own line used to end the OUTER
-# fixture early: the previous scan stopped at the first line that was
-# exactly `}`, with no brace-depth counter to tell an inner close from the
-# fixture's own. The truncated body excluded the heredoc entirely, so the
-# fixture went invisible to the anchor check rather than red.
 d=$(ffr_fixture)
 cat >> "$d/test/probe_gates.sh" <<'FIXTURE'
 nested_brace_fixture() {
@@ -5685,18 +5670,11 @@ FIXTURE
 probe "a nested helper's own closing brace does not end the outer fixture early" 1 \
   "nested_brace_fixture() types out" "$(ffr "$d")"
 
-# `#` only opens a comment at the start of a word in bash; the previous scan
-# treated every unquoted `#` as a comment opener, so a decoy like this masked
-# a real invocation sitting right after it.
 d=$(ffr_fixture)
 printf '\nx=foo#bar sed -i decoy.txt\n' >> "$d/test/probe_gates.sh"
 probe "a mid-word # does not hide a real sed -i after it" 1 \
   "sed -i decoy.txt" "$(ffr "$d")"
 
-# A regression pin, not a fix: outside quotes, an escaped quote character was
-# already treated as literal DATA rather than as opening a string, so this
-# stays green. Planted because a broad security pass flagged the shape as
-# suspect; this proves it does not reproduce against the shipping scanner.
 d=$(ffr_fixture)
 cat >> "$d/test/probe_gates.sh" <<'FIXTURE'
 echo \' ; sed -i real.txt
@@ -5709,8 +5687,6 @@ printf '\nsed --in-place file.txt\n' >> "$d/test/probe_gates.sh"
 probe "sed --in-place is a raw edit exactly like sed -i" 1 \
   "sed --in-place file.txt" "$(ffr "$d")"
 
-# -i is not always the first flag, and the scan checks every token after
-# `sed`, not just the first, for exactly this reason.
 d=$(ffr_fixture)
 printf "\nsed -e 's/x/y/' -i file.txt\n" >> "$d/test/probe_gates.sh"
 probe "sed -i is a raw edit even when it is not the first flag" 1 \
@@ -5726,9 +5702,6 @@ printf "\nawk -i inplace '{print}' file.txt\n" >> "$d/test/probe_gates.sh"
 probe "awk -i inplace is a raw edit like sed -i" 1 \
   "awk -i inplace" "$(ffr "$d")"
 
-# Backslash-newline continuations are joined before searching, so a wrapped
-# invocation -- this file wraps long commands exactly this way throughout --
-# cannot hide a real sed -i between the two physical lines.
 d=$(ffr_fixture)
 cat >> "$d/test/probe_gates.sh" <<'FIXTURE'
 sed \
@@ -5737,10 +5710,6 @@ FIXTURE
 probe "a backslash-continued sed -i is still a raw edit" 1 \
   "directly: sed" "$(ffr "$d")"
 
-# A double-quoted heredoc delimiter used to be invisible to the masker, so
-# its raw body text fed the quote tracker; an unbalanced quote inside it
-# (ordinary prose, not an attack) desynced the tracker for the rest of the
-# file and swallowed a real sed -i after the heredoc closed.
 d=$(ffr_fixture)
 cat >> "$d/test/probe_gates.sh" <<'FIXTURE'
 dq_delim_fixture() {
@@ -5752,6 +5721,63 @@ sed -i real_after_heredoc.txt
 FIXTURE
 probe "a double-quoted heredoc delimiter is masked, so its stray apostrophe cannot hide a real sed -i after it" 1 \
   "sed -i real_after_heredoc.txt" "$(ffr "$d")"
+
+begin_group "test/comment_density_test.py"
+
+CD="python3 $HERE/comment_density_test.py"
+
+cd_case_ok() {
+  local d; d=$(new_case)
+  cat > "$d/example.py" <<'CASE'
+def add(a, b):
+    return a + b
+CASE
+  git -c init.defaultBranch=main -C "$d" init -q
+  git -C "$d" add -A
+  printf '%s' "$d"
+}
+
+cd_case_over() {
+  local d; d=$(new_case)
+  cat > "$d/example.py" <<'CASE'
+# one
+# two
+# three
+# four
+# five
+# six
+# seven
+# eight
+# nine
+def add(a, b):
+    return a + b
+CASE
+  git -c init.defaultBranch=main -C "$d" init -q
+  git -C "$d" add -A
+  printf '%s' "$d"
+}
+
+cd_case_pointer_only() {
+  local d; d=$(new_case)
+  cat > "$d/pointer.sh" <<'CASE'
+# See docs/example.md for the format and the reasoning.
+CASE
+  git -c init.defaultBranch=main -C "$d" init -q
+  git -C "$d" add -A
+  printf '%s' "$d"
+}
+
+d=$(cd_case_ok)
+probe "control: a file within the comment-density budget is not reported" 0 \
+  "all at or under" "$CD $d"
+
+d=$(cd_case_over)
+probe "a file pushed over the comment-density budget is named and red" 1 \
+  "example.py" "$CD $d"
+
+d=$(cd_case_pointer_only)
+probe "a comment-only file's single pointer line is excused by MIN_COMMENT_LINES" 0 \
+  "all at or under" "$CD $d"
 
 actual_labels=$(printf '%s\n' "${probe_labels[@]}" | LC_ALL=C sort)
 expected_labels=$(grep -vE '^#|^[[:space:]]*$' "$PROBES_MANIFEST" | LC_ALL=C sort)

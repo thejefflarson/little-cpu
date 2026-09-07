@@ -1,47 +1,7 @@
-// The porting layer CoreMark's own documentation asks for: seeds it cannot read from
-// argv, a timer, a memory block, and a report.
-/*
- * TWO BUILDS SHARE THIS FILE. Undefined, it is the 2K PERFORMANCE run
- * (seed1=seed2=0, seed3=0x66) and its own report at the end is a score.
- * Built with COREMARK_VALIDATION, it is the 2K VALIDATION run (seed1=seed2=
- * 0x3415, seed3=0x66) that EEMBC's run rules also require passing, and it
- * prints no score -- a validation run exercises the same code paths at a
- * different seed, not a different machine, so a CoreMark/MHz figure from it
- * would only invite comparing it to the performance one by mistake.
- *
- * THE REPORT IS THIS FILE'S OWN OUTPUT, not core_main.c's. core_main.c prints
- * its own text (sizes, per-algorithm CRCs, a pass/fail verdict) and that stays
- * exactly as EEMBC wrote it. What decides PASS/FAIL for this simulation, and
- * prints EEMBC's own one-line report syntax for the performance build, is
- * coremark_report() below, called from portable_fini() after core_main.c's
- * own report has already gone out. It reads a live core_results back through
- * the core_portable pointer portable_fini() is handed, via the struct layout
- * coremark.h declares -- `port` is that struct's last member, so this is
- * offsetof arithmetic on a type this file never redefines, not a guess at one
- * it does.
- *
- * portable_fini() DOES NOT TRUST core_main.c's `err` FIELD ALONE. `err` stays
- * zero whenever the seed/size CRC does not match one of EEMBC's five known
- * configurations -- core_main.c sets its own local `known_id` to -1, skips the
- * whole CRC comparison, prints "Cannot validate operation for these seed
- * values", and never touches `err`. `TOTAL_DATA_SIZE` is an overridable build
- * flag, so a run built with a different data size would sail through that gap
- * with a PASS neither this file nor core_main.c ever checked. So this file
- * re-derives "the checked configuration ran" itself, against the same
- * literals core_main.c's switch on `seedcrc` encodes for each 2K run, and
- * against EEMBC's own published CRCs for it rather than core_main.c's copy of
- * them -- and folds in check_data_types(), which core_main.c calls but never
- * folds into `err` either. test/bench/run_coremark.sh cross-checks all six
- * COREMARK_2K_*_CRC* literals below -- the performance set at the vendor
- * arrays' fourth entry, the validation set at their fifth -- before either
- * build is compiled, so a mismatch is caught without running anything. Both
- * sets, because the performance one is what every published figure rests on.
- *
- * COREMARK_FLAGS must be defined with the exact compiler flags this was built
- * with, the same rule test/bench/dhry_port.c enforces for Dhrystone: a
- * CoreMark/MHz figure whose flags are unknown is not a measurement, and EEMBC's
- * own run rules require disclosing them.
- */
+/* CoreMark's porting layer. Undefined this is the 2K performance run; with
+ * COREMARK_VALIDATION the 2K validation run, which prints no score. portable_fini()
+ * re-derives "the checked configuration ran" rather than trusting core_main.c's `err`,
+ * which stays zero when the seed/size CRC matches no known configuration. */
 
 #include "coremark.h"
 #include "core_portme.h"
@@ -52,16 +12,12 @@
 #error "COREMARK_FLAGS must be defined with the exact compiler flags this was built with"
 #endif
 
-// The riscv-tests HTIF window, exactly as test/bench/dhry_port.c uses it.
 volatile unsigned tohost[2] __attribute__((section(".tohost"), aligned(8), used));
 
-// Read out of RAM by the runner's `--console`.
 char coremark_console[2048] __attribute__((used));
 static unsigned console_len;
 
-// The 2K run's seeds, size and EEMBC-published CRCs, one set per build. Both sets are
-// stated unconditionally so a byte in either can be checked against the pinned vendor
-// copy whichever build is compiling; only the COREMARK_2K_* aliases are read below.
+// Both sets unconditionally, so either can be checked against the pin.
 #define COREMARK_2K_SEED3 0x66
 #define COREMARK_2K_SIZE 666
 
@@ -91,10 +47,7 @@ static unsigned console_len;
 #define COREMARK_2K_CRCSTATE COREMARK_2K_PERF_CRCSTATE
 #endif
 
-// SEED_VOLATILE reads these; seed4_volatile is the iteration count, the role DHRY_RUNS
-// plays for Dhrystone. It does not affect crclist/crcmatrix/crcstate, which
-// core_main.c's iterate() latches from the first iteration only, so a validation build
-// can run far fewer iterations and still check the same CRCs.
+// seed4_volatile is the iteration count; iterate() latches the CRCs on the first only.
 #ifndef ITERATIONS
 #error "ITERATIONS must be defined -- the number of CoreMark iterations to run"
 #endif
@@ -106,12 +59,7 @@ volatile ee_s32 seed5_volatile = 0;
 
 ee_u32 default_num_contexts = 1;
 
-// Nominal only: it is what turns a cycle count into the "seconds" core_main.c checks
-// against its own ">=10 secs" rule, and it is NOT what the CoreMark/MHz figure below is
-// computed from -- that figure is iterations * 1e6 / cycles, frequency-independent by
-// construction, the same way DMIPS/MHz is. Overridable because the two boards this runs
-// on clock differently (up5k 12 MHz, iCESugar-Pro 25), and the printed "seconds" line
-// should mean the runtime that board would see.
+// Reaches only core_main.c's ">=10 secs" rule; the score is frequency-independent.
 #ifndef COREMARK_HZ
 #define COREMARK_HZ 12000000u
 #endif
@@ -193,8 +141,7 @@ static void put_hex(unsigned long value, unsigned width, int zero_pad) {
   }
 }
 
-// Only the specifiers the vendored CoreMark sources actually call with: %d, %u, %lu,
-// %04x-style widths on %x, %s, and %%.
+// Only the specifiers the vendored sources call with: %d, %u, %lu, %0Nx, %s, %%.
 int ee_printf(const char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
@@ -258,9 +205,7 @@ int ee_printf(const char *fmt, ...) {
   return 0;
 }
 
-// One of three outcomes, each with its own tohost code so a run that could not be
-// validated cannot exit the way a PASS does. Codes are riscv_test.h's shape (odd,
-// decoded as `testnum = tohost >> 1`), 1 reserved for a true PASS.
+// riscv_test.h's shape: an unvalidated run cannot exit the way a PASS does.
 enum coremark_verdict {
   COREMARK_PASS = 1,
   COREMARK_FAIL = 3,
@@ -268,8 +213,7 @@ enum coremark_verdict {
 };
 
 #ifndef COREMARK_VALIDATION
-// 32x32 -> 64 and 64/64 for the fixed-point CoreMark/MHz print, the same reason
-// test/bench/dhry_port.c writes its own: -nostdlib links no libgcc.
+// Written out because -nostdlib links no libgcc.
 static unsigned long long umul64(unsigned a, unsigned b) {
   return (unsigned long long)a * (unsigned long long)b;
 }
@@ -304,11 +248,8 @@ static void put_fixed(unsigned value, unsigned places) {
   }
 }
 
-/* Populated by test/bench/{bench,coremark}.lds: `.data`'s load address, ROM
- * resident, plus its own size, is the end of the ROM image -- both scripts
- * give `rom` origin 0, so this is the same byte count run_coremark.sh reads
- * back out of the linked ELF with objcopy, computed from inside the image
- * instead of passed in. */
+// Both linker scripts give `rom` origin 0, so `.data`'s load address plus its size is
+// the ROM image's byte count -- the same one run_coremark.sh reads back with objcopy.
 extern char __data_load_start[];
 extern char __data_start[];
 extern char __data_end[];
@@ -319,11 +260,8 @@ static unsigned long rom_bytes(void) {
 }
 #endif
 
-// EEMBC's own one-line report syntax (core_main.c prints it under HAS_FLOAT, which this
-// target does not build with), performance build only. The caveats that used to live
-// here -- simulated at a larger ROM than the part ships, read the flags with the number
-// -- are RELOCATED to test/bench/run_coremark.sh, which prints them host-side where they
-// cost the ROM nothing.
+// EEMBC's one-line report syntax, performance build only. The caveats that travel with
+// the number are printed host-side by run_coremark.sh, where they cost the ROM nothing.
 static void coremark_report(unsigned iterations, unsigned cycles,
                              enum coremark_verdict verdict) {
 #ifndef COREMARK_VALIDATION

@@ -1,7 +1,7 @@
 # See LICENSE for license details.
 
-# Instruction access fault, cause 1: a jump to an address the instruction memory has
-# nothing at.
+// Instruction access fault, cause 1: a jump to an address the instruction memory has
+// nothing at.
 
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -23,7 +23,7 @@ RVTEST_CODE_BEGIN
   jr    a2
   .option pop
 
-  # Control returns here from the handler, not from the jump.
+  // Control returns here from the handler, not from the jump.
 resume:
   TEST_CASE( 2, a4, 1, la a3, trap_cause; lw a4, 0(a3); )
   TEST_CASE( 3, a4, 1, la a3, trap_count; lw a4, 0(a3); )

@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# Test mul instruction.
+// Test mul instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -8,7 +8,7 @@
 RVTEST_RV64U
 RVTEST_CODE_BEGIN
 
-  # Arithmetic tests
+  // Arithmetic tests
 
   TEST_RR_OP(32,  mul, 0x00001200, 0x00007e00, 0xb6db6db7 );
   TEST_RR_OP(33,  mul, 0x00001240, 0x00007fc0, 0xb6db6db7 );

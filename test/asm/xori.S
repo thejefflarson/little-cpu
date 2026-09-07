@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# Test xori instruction.
+// Test xori instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"

@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# Test sh instruction.
+// Test sh instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -8,14 +8,14 @@
 RVTEST_RV64U
 RVTEST_CODE_BEGIN
 
-  # Basic tests
+  // Basic tests
 
   TEST_ST_OP( 2, lh, sh, 0x00000000000000aa, 0, tdat );
   TEST_ST_OP( 3, lh, sh, 0xffffffffffffaa00, 2, tdat );
   TEST_ST_OP( 4, lw, sh, 0xffffffffbeef0aa0, 4, tdat );
   TEST_ST_OP( 5, lh, sh, 0xffffffffffffa00a, 6, tdat );
 
-  # Test with negative offset
+  // Test with negative offset
 
   TEST_ST_OP( 6, lh, sh, 0x00000000000000aa, -6, tdat8 );
   TEST_ST_OP( 7, lh, sh, 0xffffffffffffaa00, -4, tdat8 );

@@ -1,7 +1,7 @@
 # See LICENSE for license details.
 
-# The machine timer interrupt, taken end to end: armed from software, asserted by
-# rtl/timer.v, gated by mie.MTIE and mstatus.MIE, and committed at a decode boundary.
+// The machine timer interrupt, taken end to end: armed from software, asserted by
+// rtl/timer.v, gated by mie.MTIE and mstatus.MIE, and committed at a decode boundary.
 
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -9,10 +9,10 @@
 RVTEST_RV64U
 RVTEST_CODE_BEGIN
 
-  # mtvec resets to 0, which is _start.
+  // mtvec resets to 0, which is _start.
   RVTEST_INSTALL_TIMER_HANDLER
 
-  # Nothing fires until it is armed AND enabled.
+  // Nothing fires until it is armed AND enabled.
 
   RVTEST_DISARM_TIMER
   RVTEST_ENABLE_MTIE
@@ -22,11 +22,11 @@ RVTEST_CODE_BEGIN
     nop; nop; nop; nop; nop; nop; nop; nop; \
     la a3, irq_count; lw a4, 0(a3); )
 
-  # mip.MTIP is the platform's line, and it is low while mtimecmp is out of reach.
+  // mip.MTIP is the platform's line, and it is low while mtimecmp is out of reach.
   TEST_CASE( 3, a0, 0,    csrr a0, mip; )
   TEST_CASE( 4, a0, 0x80, csrr a0, mie; )
 
-  # Armed: the interrupt arrives inside a spin loop.
+  // Armed: the interrupt arrives inside a spin loop.
 
   RVTEST_ARM_TIMER( 40 )
 
@@ -43,7 +43,7 @@ spin_end:
 
   TEST_CASE( 5, a4, 1, la a3, irq_count; lw a4, 0(a3); )
 
-  # Interrupt, machine timer: bit 31 set, exception code 7.
+  // Interrupt, machine timer: bit 31 set, exception code 7.
   TEST_CASE( 6, a4, 0x80000007, la a3, irq_cause; lw a4, 0(a3); )
 
 test_7:

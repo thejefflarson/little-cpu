@@ -722,6 +722,11 @@ svlint (`SAIL_RISCV_VERSION`, `SVLINT_VERSION`), Hazard3 (`soc/compare/hazard3_p
   `rtl/writeback.v`'s `always_comb` struct reads (over-sensitivity, provably safe; do not add new
   ones outside that file), and yosys's `Deep recursion in AST simplifier` notice on the
   `elaborate` CI job.
+- **No file may be more than 5% comment lines**, graded per file by
+  `test/comment_density_test.py` on `make test`; `docs/comment-budget.md` is the derivation
+  and says which comment-shaped lines are code. Prose that outgrows the budget moves to
+  `docs/` rather than dying: the manifests' formats live under `docs/manifests/`, the
+  constraint files' headers in `docs/pin-constraints.md`.
 - **Comments earn their place or go.** A comment must say something the code does not, in one or
   two plain sentences readable without leaving the file. Delete restatement, history (git has it),
   section banners and emphasis furniture. **No ADR numbers and no invariant numbers in comments** —
