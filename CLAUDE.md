@@ -28,7 +28,7 @@ Four habits carry the goals:
   macOS and is what made the board flashable (the `prog` recipe's comment); `SB_HFOSC`'s ±10% trim
   was quoted to argue the UART could never work, and the part measures nominal (ADR-0130); two
   community pin tables give the UPduino's clock as 41 and 44 against the vendor's own 20
-  (`soc/upduino.pcf`'s header). The cost of testing one is usually a single command.
+  (`docs/pin-constraints.md`). The cost of testing one is usually a single command.
 - **Prove the property, then spend it.** Find a place the design pays for a property it already
   proves — a priority chain over proven-disjoint flags, a comparator that cannot differ — simplify
   it, and let the riscv-formal checks, the component proofs and the `.S` suite say whether the
@@ -395,7 +395,7 @@ top, ECP5 only.
   no behavioural model for `DP16KD`**, so the mapped netlist cannot be simulated on any machine.
   Spell such an arm as a mux on the block's OUTPUT. No ECP5 band has been derived and
   `soc/bands.py` refuses to answer for the part; up5k's figures do not transfer. Pinning `clk` to the module's oscillator pin is not
-  cosmetic: the pad decides where the global network is entered, and `soc/littlesoc.lpf`'s header
+  cosmetic: the pad decides where the global network is entered, and `docs/pin-constraints.md`
   records the one placement that read faster unpinned.
 - **The DUAL configuration is a FOURTH design, ECP5 only.** Two fetch windows are two copies of the
   banked ROM — 32 block RAMs against the up5k's 30 — so no up5k number describes it.
@@ -432,15 +432,20 @@ top, ECP5 only.
   conventional one when ADR-0158 measured it, and executor-only forwarding took the inset figure
   to 2.203 afterwards (ADR-0154). Hazard3's published 4.15 CoreMark/MHz is its RP2350 build, not its iCE40
   one, and quoting it against an ice40 core is the mixed-configuration error ADR-0098 names.
+  **`make coremark-rom-up5k` links a CoreMark image the part can actually hold** — 7,076 of the shipping
+  8 KB, `-Os -flto` rather than `COREMARK_CFLAGS`'s `-O2` (1.780 CoreMark/MHz, a 19.2% cost, legal
+  under EEMBC's own build-option allowance) and `COREMARK_UP5K_ITERATIONS`'s 800 iterations, which
+  clears `core_main.c`'s own ">=10 secs" self-check for real at 12 MHz (ADR-0165). No board has run
+  it yet — `make coremark-board` is off `make test` and CI, the same standing as
+  `make dhrystone-board` before ADR-0130.
 - **The only cross-core comparison that means anything is one harness**, `soc/compare/`: same part,
 memories, program, toolchain and seeds, against the VexRiscv in the pinned riscv-formal clone and
 Hazard3's iCE40 build (`soc/compare/hazard3_pin.mk`, ADR-0139). **A product is a measurement only
 when both factors were taken on one tree AND one toolchain**, and **A COMPARISON IS ONLY AS GOOD AS
 ITS LEAST EXAMINED ASSUMPTION** — this harness has been wrong about the part (ADR-0086/ADR-0160),
 the opponent's configuration (ADR-0160 as amended: `FormalSimple` had no `MulPlugin`, no `CsrPlugin`
-and no hazard forwarding, which flattered VexRiscv on period and this core on cycles at once), the
-shared ISA (this amendment) and a harness-only wait-state charged to Hazard3's own core (ADR-0146 as
-amended) — each corrected once found, never all at once.
+and no hazard forwarding, which flattered VexRiscv on period and this core on cycles at once), and
+the shared ISA (this amendment) — each corrected once found, never all at once.
 **RV32IM, not RV32I or RV32IMA, is the widest ISA all three cores share**: Hazard3's iCE40 build has
 no C, and the generated VexRiscv has no `AtomicPlugin`, so `COMPARE_DHRY_CFLAGS` and
 `COMPARE_COREMARK_CFLAGS` both build at `rv32im`, and CoreMark now runs all three cores in one
@@ -448,30 +453,42 @@ simulation, `soc/compare/coremark_tb.v` reusing `soc/compare/dhry_monitor.v` —
 built for VexRiscv's Dhrystone gap — for its third DUT rather than inventing a second one (ADR-0146
 as amended). Widening Dhrystone's own multiply cost little and cuts both ways: littlecpu and
 VexRiscv both get slightly faster with real `mul` (731.1→727.1, 640.1→635.1 cycles/dhry), and
-Hazard3 gets *slower* (734.1→764.1) because its `MULDIV_UNROLL=1` sequencer has no early exit and
+Hazard3 gets *slower* (799.1→829.1) because its `MULDIV_UNROLL=1` sequencer has no early exit and
 pays a fixed latency libgcc's software routine apparently beats for Dhrystone's own multiplicands
-(ADR-0160 as amended).
-**Both factors, one tree, one session** (ADR-0160 as amended): Dhrystone cycles are littlecpu 290825
-(0.783 DMIPS/MHz), VexRiscv 254026 (0.873× littlecpu, 0.896 DMIPS/MHz), Hazard3 305627 (1.051×,
-0.745 DMIPS/MHz, 0.92% disclosed in a genuine single-ported-memory wait); CoreMark cycles are
-littlecpu 433240 (2.308 CoreMark/MHz), VexRiscv 427008 (**0.986× littlecpu — the closest pair this
-harness has measured on either benchmark**, 2.342 CoreMark/MHz), Hazard3 702907 (1.622×, 1.423
-CoreMark/MHz, 0.30% disclosed). Up5k, twelve seeds: littlecpu 12.40/12.85/13.23 MHz and VexRiscv
-21.92/22.78/23.65 MHz both still reach the 12 MHz step, unchanged by anything in this pass —
-**Hazard3 now reads 10.80/10.94/11.54 MHz, missing 12 MHz at all twelve seeds and reaching only the
-6 MHz step**, a clock regression from ADR-0160's own 12.56–13.18 caused by the wait-state fix's
-forwarding comparator landing on Hazard3's `hready` path, not by anything this core or VexRiscv did.
-**Read that as the step function amplifying a few nanoseconds near a boundary, not as an indictment
-of Hazard3's architecture**: its own DMIPS/MHz *improved* (0.745 against 0.686) over the same fix.
-The up5k product: VexRiscv 10.75 DMIPS (**1.14× this core's 9.39**, unchanged in the first two
-digits) and 28.10 CoreMark (**1.01×**, the pair's first CoreMark product at all); Hazard3 4.47 DMIPS
-and 8.54 CoreMark at its now-6 MHz step, so **this core reads 2.10× Hazard3 on Dhrystone and 3.24×
-on CoreMark on up5k**, against ADR-0160's own 1.09× before the step dropped (CoreMark's up5k product
-for this pair did not exist before this pass, so 3.24× is a first measurement, not a move). ECP5
-answers the other question with no such boundary: littlecpu 33.23 MHz, VexRiscv 57.64 MHz, Hazard3
-29.73 MHz (down from 33.26 for the identical reason) — **VexRiscv 1.99× this core and 2.33×
-Hazard3 on Dhrystone, 1.76×/3.19× on CoreMark; this core 1.17× Hazard3**, the same ordering as
-up5k's continuous half without the amplification. **The toolchain is part of the stamp, not a
+(ADR-0160 as amended). **A same-cycle attempt to also remove Hazard3's disclosed adapter wait
+(ADR-0146's "route 3") was tried and reverted**: ROM reading `haddr` directly plus read-after-write
+forwarding cut the disclosed share to 0.95%/0.30%, but cost Hazard3 its own 12 MHz step on up5k on
+every spelling tried (13.15 MHz baseline down to 10.5–11.5 MHz, because a selective `hready` has to
+read `haddr` combinationally, closing a loop through `hazard3_cpu_1port`'s own address-phase logic
+that its 8–13% margin cannot absorb) — declined for that adapter, not foreclosed generally.
+**Hazard3's own two-port top removes the fetch/data contention rather than working around it**
+(`hazard3_cpu_2port`, ADR-0146 as amended a third time): a dedicated fetch port and a dedicated
+load/store port, the same topology this harness's other two cores already have, so nothing about
+either port's own `hready` has to read the other's address at all.
+**Both factors, one tree, one session** (ADR-0160 as amended, ADR-0146 as amended): Dhrystone
+cycles are littlecpu 290825 (0.783 DMIPS/MHz), VexRiscv 254026 (0.873× littlecpu, 0.896 DMIPS/MHz),
+Hazard3 252825 (**0.869× littlecpu, 0.900 DMIPS/MHz — ahead of littlecpu, essentially level with
+VexRiscv**); CoreMark cycles are littlecpu 433240 (2.308 CoreMark/MHz), VexRiscv 427008 (**0.986×
+littlecpu — the closest pair this harness has measured on either benchmark**, 2.342 CoreMark/MHz),
+Hazard3 665416 (1.536×, 1.503 CoreMark/MHz). Up5k, twelve seeds: littlecpu 12.40/12.85/13.23 MHz
+and VexRiscv 21.92/22.78/23.65 MHz both reach the 12 MHz step; **Hazard3 reads 14.30/14.57/14.95
+MHz**, above even the declined one-port adapter's own 12.58/13.04/13.67 (ADR-0146 as amended a
+third time) — the two-port top's fetch and load/store ports removing the arbitration the one-port
+top needed, not merely avoiding route 3's own measured cost of trying to remove it in place.
+**All three cores quantise to the same 12 MHz step** (`SB_HFOSC` gives 48/24/12/6, and
+none of the three clears 24), so the up5k product is the cycle ratio directly at one shared clock:
+littlecpu 9.40 DMIPS/27.70 CoreMark, VexRiscv 10.75 DMIPS/28.10 CoreMark, Hazard3 10.80 DMIPS/18.04
+CoreMark — **Hazard3 and VexRiscv read level on Dhrystone (1.15×/1.14× over littlecpu), and
+littlecpu keeps its CoreMark lead over Hazard3 (1.54×) on the same real M-extension-and-forwarding
+margin the wait-state artifact was never responsible for.** ECP5 has no quantisation step, so its
+own product uses each core's own clock there directly: littlecpu 33.23 MHz, VexRiscv 57.64 MHz,
+Hazard3 50.39 MHz (against the one-port adapter's own 48.50 on this session's toolchain — a
+smaller move than up5k's, and a clock 1.52× littlecpu's own on this part, not merely no longer
+last). Dhrystone: littlecpu 26.02 DMIPS, VexRiscv 51.65 (**1.99× littlecpu**), Hazard3 45.35
+(**1.74× littlecpu, 1.14× VexRiscv** — closer to VexRiscv than to littlecpu, the opposite ordering
+from up5k's quantised tie). CoreMark: littlecpu 76.69, VexRiscv 134.99 (1.76×), Hazard3 75.74
+(**1.01× littlecpu — essentially level**, Hazard3's own higher ECP5 clock nearly cancelling its
+cycle disadvantage there, which up5k's shared 12 MHz step cannot do). **The toolchain is part of the stamp, not a
 detail**: the same twelve seeds moved VexRiscv 4.5% at its worst placement between two yosys builds
 while this core's up5k SoC came out bit-identical, so halves synthesised by different toolchains do
 not form a product — re-take both halves together, with the caveat that Dhrystone's and CoreMark's
@@ -479,11 +496,12 @@ cycles are simulated at a larger map than the clock is placed at (`make compare-
 `make compare-coremark` print the block arithmetic; ADR-0098 lists the distortions).
 `soc/compare/product.json` is not re-stamped by this pass and is already stale on its own check
 against this tree; re-taking that stamp is a separate ticket's. Two graded checks stand in front of
-every number: `soc/compare/placed_vs_synth.py` refuses a placed count under `COMPARE_MIN_RATIO` of
-the core's own synthesis — an all-NOP image once placed a quarter of this core with a plausible
-critical path beside it (ADR-0086) — and `make compare-smoke` requires all three cores to publish
-the same values, which caught Hazard3's first bus adapter publishing all-X words (ADR-0139). The
-harness gives VexRiscv no data path to its ROM, so keep read-only data out of ROM there.
+every number: `soc/compare/placed_vs_synth.py` refuses a placed
+count under `COMPARE_MIN_RATIO` of the core's own synthesis — an all-NOP image once placed a
+quarter of this core with a plausible critical path beside it (ADR-0086) — and `make compare-smoke`
+requires all three cores to publish the same values, which caught Hazard3's first bus adapter
+publishing all-X words (ADR-0139). The harness gives VexRiscv no data path to its ROM, so keep
+read-only data out of ROM there.
 - **A register in the fetch loop is a fetch stage, and it is priced and declined** (ADR-0087): the
   loop's tail comes out for 3–4 levels, its head not at all (a bank output mux is one `SB_LUT4`
   that ABC folds into the decode reading it, and a register there forbids the sharing), the two
@@ -578,7 +596,7 @@ make test           # the test/asm suite (.S and .c) under cxxrtl + unit benches
                     # + every repo-scanning `*-test` target (memmap, march, band-source,
                     # retired-term, adr-numbering, port-connect, compare-geometry,
                     # vexriscv-path, tracked-ignored, tool-cache, pin-bump, abc-engine,
-                    # zkt-isolation, fixture-freshness)
+                    # zkt-isolation, fixture-freshness, makefile-target)
                     # + window-test, imem-share-test, board-elaborate, mutation-probe and
                     # dual-build; graded against EXPECTED_FAIL / OBSERVED_FLOOR
 make test-units     # the unit benches alone; the list is checked against test/*_tb.v both ways
@@ -614,6 +632,9 @@ make bitstream      # icepack the board wrapper into board.bin; BOARD_OSC=intern
 make prog           # iceprog board.bin onto the UPduino; root on macOS
 make suite-board    # the .S suite on the part, in batches, read back over the UART; root
 make dhrystone-board # Dhrystone built for the board; flash with `make prog`, read the UART
+make coremark-board # CoreMark built for the up5k at COREMARK_UP5K_CFLAGS (-Os -flto, not
+                    # COREMARK_CFLAGS' -O2); flash with `make prog`, read the UART.
+                    # `make coremark-rom-up5k` builds that image alone
 make icesugar-bitstream # the iCESugar-Pro (ECP5) bitstream; ICESUGAR_PROG picks the program,
                     # ICESUGAR_ROM=noop-rom takes banks another recipe already wrote
 make icesugar-prog  # load it into SRAM over JTAG. NOT the flash: a flash write leaves the
@@ -621,6 +642,9 @@ make icesugar-prog  # load it into SRAM over JTAG. NOT the flash: a flash write 
 make icesugar-read  # read that board's UART for a bounded window
 make icesugar-dhrystone # build Dhrystone for it, load it, read the report it prints itself.
                     # Needs the board, so off `make test` and off CI, like suite-board
+make icesugar-coremark # the same for CoreMark, at SOC_ROM_WORDS=4096: 16 KB of ROM, which
+                    # this part has the spare block RAM for and the up5k does not.
+                    # `make coremark-rom-ecp5` builds that image alone
 make dual-smoke     # two harts, one text storage, one arbiter, under cxxrtl; one program run
                     # both ways. Off `make test` and CI. `make dual-elaborate` is iverilog's look
 make dual-ecp5-timing # the dual top placed, ECP5 only; three censuses GATE, the frequency
@@ -755,7 +779,16 @@ ADR-0038), booting a program out of the flash, an interrupt controller, more int
 a vectored `mtvec`. The full forwarding network is declined, not deferred (ADR-0083); the
 executor-only spelling ships (ADR-0154).
 
-**8 KB of text is the ceiling, and it is the fetch loop's, not the part's.** `rtl/imemory.v`
+**The ECP5 holds 16 KB of text, and that is where CoreMark reaches a board** (ADR-0165).
+`rtl/littlesoc.v` takes `ROM_WORDS` as a parameter and the three `littlesoc` synthesis
+flows `chparam` it before `hierarchy`, so a wider ROM is one override rather than an
+edit; at 4096 words the LFE5U-25F reads `DP16KD` 36 → 40 of 56 and Fmax 35.11 → 34.78 MHz,
+a null. The default is unchanged, so every existing target is a no-op. **Keep every
+`yosys -p` script that names `SOC_ROM_CHPARAM` on ONE line**: a backslash-newline inside
+the single quotes is not a shell continuation, both characters reach yosys, and it stops
+with `No such command: \`.
+
+**8 KB of text is the ceiling on the up5k, and it is the fetch loop's, not the part's.** `rtl/imemory.v`
 refuses a `ROM_WORDS` that is not a power of two because both its range tests are reductions on the
 address bits above the ROM, and 16 KB is 32 block RAMs against the 26 free (ADR-0135); a 12 KB
 window as two power-of-two windows ORed is buildable and declined on period (ADR-0145). The two

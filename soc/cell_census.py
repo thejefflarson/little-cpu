@@ -20,7 +20,6 @@ import argparse
 import re
 import sys
 
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("log", help="yosys synth_ice40 log, e.g. soc.synth.log")
@@ -47,9 +46,8 @@ def main():
     except FileNotFoundError:
         sys.exit(f"{args.log}: no such file")
 
-    # The LAST match, matching the Makefile's `tail -1`: yosys prints this
-    # table after more than one pass, and the final one is the whole-design
-    # total.
+    # The LAST match, matching the Makefile's `tail -1`: yosys prints this table after
+    # more than one pass, and the final one is the whole-design total.
     pattern = re.compile(r"^\s+(\d+)\s+" + re.escape(args.cell) + r"\s*$")
     got = 0
     for line in lines:
@@ -65,7 +63,6 @@ def main():
             f"*** {args.declared} in the Makefile in the same commit."
         )
     print(f"{args.cell}: {got}, as declared")
-
 
 if __name__ == "__main__":
     main()

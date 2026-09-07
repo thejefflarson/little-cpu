@@ -10,9 +10,8 @@ description: >-
 runs:
   using: composite
   steps:
-    # Seven jobs each restored 607 MB from the cache service every run, measured
-    # at a 129s mean and up to 222s once they contend for bandwidth. The runner
-    # image carries the suite, so on those runners this is a local path.
+    # Seven jobs each restored 607 MB from the cache service every run, measured at a
+    # 129s mean and up to 222s once they contend for bandwidth.
     - name: Use the runner image's OSS CAD Suite if it has one
       id: image
       shell: bash
@@ -26,13 +25,6 @@ runs:
           echo "no copy in the runner image -- downloading the latest release"
         fi
 
-    # Latest, and reached only when the step above found nothing -- which on the
-    # self-hosted pool is never, so the graded synthesis jobs run the image's
-    # build and not this one. A toolchain bump that changes the hardware shows up
-    # in `make fit` and `make soc-timing`, both of which ratchet: 32 cells were
-    # measured between two yosys builds on identical RTL. formal/pin.mk is a
-    # different question and stays pinned -- test/monitor.v is generated from it
-    # and tracked, so bumping that one means regenerating the monitor.
     - name: Resolve the latest OSS CAD Suite release
       id: release
       if: steps.image.outputs.found != 'true'
@@ -59,9 +51,6 @@ runs:
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: oss-cad-suite
-        # Keyed on the digest, not the tag: the verification below is skipped on
-        # a cache hit, so a tag-keyed entry would let a poisoned cache be
-        # restored without ever meeting a checksum.
         key: oss-cad-suite-linux-x64-${{ steps.release.outputs.digest }}
 
     - name: Download OSS CAD Suite (cache miss)
@@ -77,9 +66,6 @@ runs:
 
     - name: Add OSS CAD Suite to PATH
       shell: bash
-      # The tag reaches the shell through the environment rather than through
-      # `${{ }}`: it is a release name resolved from an upstream API, and an
-      # expression is pasted into the script before bash parses it.
       env:
         RELEASE_TAG: ${{ steps.release.outputs.tag }}
       run: |

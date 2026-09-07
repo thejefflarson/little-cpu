@@ -89,56 +89,33 @@ import tempfile
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ASM_DIR = os.path.join(REPO, "test", "asm")
 SAIL_CONFIG = os.path.join(REPO, "test", "sail", "rv32imac_zicsr.json")
-# `make sail-setup` unpacks the release here, outside any checkout. The install
-# used to live in the gitignored tools/, and a git worktree gets tracked files
-# only, so co-simulation was unavailable from every worktree while the main
-# checkout ran it fine. The Makefile computes this same path from TOOL_CACHE;
-# test/tool_cache_test.sh is what says the two still agree.
+# `make sail-setup` unpacks the release here, outside any checkout.
 TOOL_CACHE = os.path.join(
     os.environ.get("XDG_CACHE_HOME")
     or os.path.join(os.path.expanduser("~"), ".cache"),
     "little-cpu")
 SAIL_DIR = os.path.join(TOOL_CACHE, "sail")
 SAIL_BIN = os.path.join(SAIL_DIR, "bin", "sail_riscv_sim")
-# Written by `make sail-setup` after it verifies the release tarball's SHA-256:
-# line 1 is the pin (version, asset, tarball digest), line 2 is the digest of
-# the unpacked sail_riscv_sim. See the Makefile's sail-setup target.
+# Written by `make sail-setup` after it verifies the release tarball's SHA-256: line 1 is
+# the pin (version, asset, tarball digest), line 2 is the digest of the unpacked
+# sail_riscv_sim.
 SAIL_STAMP = os.path.join(SAIL_DIR, ".sail-pin")
 
-# `[123] [M]: 0x00000006 (0x00208733) add x14, x1, x2      test_2+4`
+# `[123] [M]: 0x00000006 (0x00208733) add x14, x1, x2 test_2+4`
 INSN_RE = re.compile(
     r"^\[(?P<idx>\d+)\]\s+\[\w+\]:\s+0x(?P<pc>[0-9A-Fa-f]+)\s+"
     r"\((?P<insn>0x[0-9A-Fa-f]+)\)\s+(?P<disasm>.*?)\s*$"
 )
 # `x14 <- 0x0000000A`
 GPR_RE = re.compile(r"^x(?P<reg>\d+)\s+<-\s+0x(?P<val>[0-9A-Fa-f]+)\s*$")
-# `CS 0 41 x14=0000000a @pc=00000012`. The `CS ` prefix separates the runner's
-# records from test/testbench.v's per-cycle $display chatter, which cxxrtl
-# emits onto the same stdout; see test/cosim.cc.
+# `CS 0 41 x14=0000000a @pc=00000012`.
 DUT_RE = re.compile(
     r"^CS\s+(?P<idx>\d+)\s+(?P<cycle>\d+)\s+(?P<writes>(?:x\d+=[0-9a-f]{8}\s+)+)"
     r"@pc=(?P<pc>[0-9a-f]{8})\s*$"
 )
 
-# CSRs whose VALUE this core and the reference model are both entitled to
-# answer differently, and which sail-riscv 0.13.1 gives no way to configure.
-# The whole of the rest of the disagreement between the two machines lives in
-# test/sail/rv32imac_zicsr.json; this is what is left over after that file is as
-# faithful as the schema allows.
-#
-# Each entry costs exactly one register's VALUE at the change the read
-# produces. Which register, and where in the sequence, are still compared.
-#
-# ADDING AN ENTRY IS TWO CLAIMS, not one, and the second is the one that gets
-# forgotten: (1) no configuration can close the gap -- check
-# `--print-config-schema` first; (2) every program that reads the CSR still
-# takes the SAME BRANCHES on both machines. An exemption relaxes a value, and
-# a value nothing branches on is all it can relax. `mie` and `mip` are the
-# worked example and are deliberately NOT here: this core reads them as zero
-# and the model reads mip.MTIP set, so a program asserting they are zero runs
-# to `fail` on one side and `pass` on the other. That is a different program,
-# not a different value, and it belongs in a bench with no reference model in
-# it -- test/csr_tb.v, where it is.
+# CSRs whose VALUE this core and the reference model are both entitled to answer
+# differently, and which sail-riscv 0.13.1 gives no way to configure.
 NONCOMPARABLE_CSRS = {
     0xB00: "mcycle counts CYCLES; an ISA model has no pipeline. No setting "
            "makes these agree, and one that did would mean this core retires "
@@ -150,10 +127,8 @@ NONCOMPARABLE_CSRS = {
 }
 
 SYSTEM_OPCODE = 0x73
-# funct3 for csrrw/csrrs/csrrc and their immediate forms. funct3 == 0 is
-# ecall/ebreak/mret/wfi, which read no CSR into a register.
+# funct3 for csrrw/csrrs/csrrc and their immediate forms.
 CSR_FUNCT3 = {0b001, 0b010, 0b011, 0b101, 0b110, 0b111}
-
 
 def noncomparable_csr_rd(insn):
     """rd, if `insn` reads one of NONCOMPARABLE_CSRS into a real register.
@@ -172,10 +147,8 @@ def noncomparable_csr_rd(insn):
     rd = (insn >> 7) & 0x1F
     return rd if rd != 0 else None
 
-
 class Fatal(Exception):
     pass
-
 
 def find_cross_compiler():
     for cc in ("riscv64-elf-gcc", "riscv64-unknown-elf-gcc"):
@@ -186,14 +159,12 @@ def find_cross_compiler():
         "riscv64-unknown-elf-gcc). Run 'make setup'."
     )
 
-
 def sha256(path):
     h = hashlib.sha256()
     with open(path, "rb") as fh:
         for chunk in iter(lambda: fh.read(1 << 20), b""):
             h.update(chunk)
     return h.hexdigest()
-
 
 def read_pin():
     """(pin_line, binary_sha256) from the install's .sail-pin, or (None, None)."""
@@ -205,7 +176,6 @@ def read_pin():
     if len(lines) < 2:
         return None, None
     return lines[0], lines[1].split()[0]
-
 
 def find_sail(explicit):
     """Locate sail_riscv_sim and check it against the pin before running it.
@@ -276,7 +246,6 @@ def find_sail(explicit):
         f"release into {SAIL_DIR}/, or set SAIL_RISCV_SIM to an existing build."
     )
 
-
 def assemble(cc, src, outdir):
     """Build one program from test/asm exactly as test/run_tests.sh does, and
     emit the ELF (for Sail) plus the two objcopy images (for the cxxrtl runner).
@@ -320,7 +289,6 @@ def assemble(cc, src, outdir):
         )
     return elf, rom, ram
 
-
 def sail_verdict(output):
     """The reference model's HTIF verdict, in the vocabulary test/cosim.cc
     prints for the core, or None if the run did not reach one.
@@ -340,7 +308,6 @@ def sail_verdict(output):
         if m:
             return f"FAIL {m.group(1)}"
     return None
-
 
 def run_sail(sail, elf, inst_limit, outdir):
     """Run the reference model and return its list of distinct register-file
@@ -369,13 +336,8 @@ def run_sail(sail, elf, inst_limit, outdir):
         changed = {r: v for r, v in pending.items() if regs[r] != v}
         for r, v in changed.items():
             regs[r] = v
-        # A non-comparable CSR read is recorded whether or not it changed a
-        # register on THIS side. It has to be: the two sides read different
-        # values, so one of them can land on the value the register already
-        # holds -- invisible to a distinct-state reduction -- while the other
-        # does not. Emitting the event unconditionally is what lets compare()
-        # stay aligned across that asymmetry instead of reporting it as a
-        # length divergence.
+        # A non-comparable CSR read is recorded whether or not it changed a register on
+        # THIS side.
         if changed or current[3] is not None:
             records.append((len(records), current[0], current[1], current[2],
                             changed, current[3]))
@@ -401,7 +363,6 @@ def run_sail(sail, elf, inst_limit, outdir):
     if not saw_insn:
         raise Fatal(f"sail traced no instructions:\n{proc.stdout}{proc.stderr}")
     return records, sail_verdict(proc.stdout + proc.stderr)
-
 
 def run_dut(binary, rom, ram, cycles):
     proc = subprocess.run(
@@ -431,10 +392,8 @@ def run_dut(binary, rom, ram, cycles):
         )
     return records, verdict
 
-
 def fmt(writes):
     return " ".join(f"x{r}=0x{v:08x}" for r, v in sorted(writes.items()))
-
 
 def compare(sail_records, dut_records):
     """Return (status, report_lines, skipped). Reports the FIRST divergence
@@ -485,8 +444,8 @@ def compare(sail_records, dut_records):
         i += 1
         j += 1
 
-    # A trailing run of non-comparable reads on the sail side that the core
-    # never turned into a change is not a length divergence.
+    # A trailing run of non-comparable reads on the sail side that the core never turned
+    # into a change is not a length divergence.
     while i < len(sail_records) and sail_records[i][5] is not None:
         skipped.append(f"  #{i}: sail instruction #{sail_records[i][1]} "
                        f"{sail_records[i][3]}  -- trailing, not comparable")
@@ -510,7 +469,6 @@ def compare(sail_records, dut_records):
         return "DISAGREE LENGTH", out, skipped
     return "AGREE", out, skipped
 
-
 def core_verdict(raw):
     """test/cosim.cc's terminator line reduced to sail_verdict()'s vocabulary.
 
@@ -524,18 +482,11 @@ def core_verdict(raw):
         return f"FAIL {fields[1]}"
     return fields[0]
 
-
-# The one line test/run_cosim.sh reads. Everything else this script prints is
-# for a human; this is the machine-readable verdict, and it is emitted for
-# every outcome that got as far as running both sides. Its absence means the
-# run did not get that far, which the suite runner reports as its own label
-# rather than as a verdict about the core.
+# The one line test/run_cosim.sh reads.
 STATUS_PREFIX = "COSIM-STATUS"
-
 
 def emit(status):
     print(f"{STATUS_PREFIX} {status}")
-
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
@@ -558,9 +509,9 @@ def main():
         sail, sail_provenance = find_sail(args.sail)
         if not os.path.isfile(args.cosim_binary):
             raise Fatal(f"{args.cosim_binary} not built. Run 'make cosim'.")
-        # test/run_cosim.sh calls this once before the suite, so a missing
-        # toolchain or an unverified sail binary says so once, up front,
-        # instead of as 52 identical per-program errors.
+        # test/run_cosim.sh calls this once before the suite, so a missing toolchain or
+        # an unverified sail binary says so once, up front, instead of as 52 identical
+        # per-program errors.
         if args.check_setup:
             print(f"cross compiler     : {cc}")
             print(f"sail               : {sail}")
@@ -594,9 +545,7 @@ def main():
         print(f"core changes       : {len(dut_records)}   "
               f"(tohost: {dut_end_raw})")
 
-    # Neither budget is a finding. A run that ran out of one was never
-    # compared against a complete reference, so reporting it as agreement or
-    # as a divergence would both be lies about what was measured.
+    # Neither budget is a finding.
     if sail_end is None:
         print(f"INCONCLUSIVE {name}: sail hit --inst-limit "
               f"{args.inst_limit} without an HTIF verdict; raise it.",
@@ -611,18 +560,15 @@ def main():
 
     status, report, skipped = compare(sail_records, dut_records)
     if status == "AGREE" and sail_end != dut_end:
-        # Unreachable by construction if the register comparison is doing its
-        # job -- the verdict is a store of a value the program computed into a
-        # register first -- which is exactly why it is worth asserting: if it
-        # ever fires, the register comparison stopped comparing.
+        # Unreachable by construction if the register comparison is doing its job -- the
+        # verdict is a store of a value the program computed into a register first --
+        # which is exactly why it is worth asserting: if it ever fires, the register
+        # comparison stopped comparing.
         status = "DISAGREE VERDICT"
         report = [f"DIVERGENCE in verdict: sail ran the program to {sail_end}, "
                   f"the core to {dut_end}, with identical register traces"]
 
     # Printed for every outcome, and unconditionally -- not behind --quiet.
-    # Skipping a value is the one thing here that makes the comparison weaker,
-    # so it is the one thing that must never be invisible in a log. The empty
-    # case prints nothing.
     if skipped:
         print(f"NOT COMPARED BY VALUE ({len(skipped)}, "
               f"see NONCOMPARABLE_CSRS in test/cosim.py):")
@@ -641,7 +587,6 @@ def main():
         print(line)
     emit(status)
     return 1
-
 
 if __name__ == "__main__":
     sys.exit(main())

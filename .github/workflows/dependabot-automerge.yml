@@ -1,21 +1,5 @@
 name: Dependabot Auto-merge
 
-# This workflow is only safe because `main` has required status checks with
-# strict: true. That is what `gh pr merge --auto` waits for. Without them
-# `--auto` merges instantly and this workflow is a rubber stamp — which is why
-# it was deleted once, back when `main` had no required checks to wait on.
-#
-# The set is deliberately NOT enumerated here. It was, and it said four while
-# the API returned six -- this file is not the register of what is required,
-# branch protection is, and a hand-copied list of it drifts silently while
-# looking authoritative. What this workflow actually depends on is
-# that SOME required set exists with strict: true, which is what the command
-# below reads.
-#
-# IF YOU EVER REMOVE THE REQUIRED STATUS CHECKS, DELETE THIS FILE TOO.
-# Verify with:
-#   gh api repos/thejefflarson/little-cpu/branches/main/protection \
-#     -q '.required_status_checks.contexts'
 on:
   pull_request
 
@@ -29,10 +13,6 @@ jobs:
     if: github.actor == 'dependabot[bot]'
     steps:
       - name: Enable auto-merge
-        # --squash, not --merge: main requires linear history, so a merge
-        # commit is rejected outright. An earlier version of this file used
-        # --merge and would have failed on every run once linear history was
-        # enforced.
         run: gh pr merge --auto --squash "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}

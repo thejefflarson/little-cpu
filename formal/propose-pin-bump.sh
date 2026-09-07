@@ -1,15 +1,5 @@
 #!/bin/bash
-# Opens an issue naming a pin-bump branch that has already been committed and
-# pushed. A human opens the pull request from that branch.
-#
-# It must not open the pull request itself. GitHub fires no `pull_request` event
-# for a PR the Actions default GITHUB_TOKEN opens, and no `push` for a commit it
-# pushes, so such a PR gets no checks and branch protection blocks it forever.
-# `gh workflow run` does not rescue it: those check runs land on the commit and
-# show up in `gh pr checks`, but never in the pull request's statusCheckRollup,
-# which is what the merge gate reads. Do not put that call back.
-#
-# Usage: propose-pin-bump.sh <branch> <title> <body-file>
+# Opens an issue naming a pin-bump branch that has already been committed and pushed.
 set -euo pipefail
 
 if [ "$#" -ne 3 ]; then

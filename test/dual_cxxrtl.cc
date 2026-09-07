@@ -1,44 +1,5 @@
-// The cxxrtl runner for the DUAL configuration: two harts, one text storage,
-// one data RAM and one bus arbiter (test/dual_testbench.v).
-//
-// A SEPARATE FILE FROM test/cxxrtl.cc ON PURPOSE, and the duplication below is
-// the price of that. The single-hart runner is a merge gate: it must not grow a
-// configuration axis, it must not get slower, and every signal it reads it
-// reads by flat debug-item name -- two instances of everything have two
-// hierarchical names, so a shared runner would be a fork inside a fork.
-//
-// Exit codes are test/cxxrtl.cc's where they mean the same thing, so a reader
-// of one already knows the other:
-//
-//   0 pass, 1 fail (test number printed), 2 cycle-limit timeout,
-//   3 usage/setup error, 4 an RVFI monitor error (the hart is named),
-//   5 a trap taken with mtvec == 0 (the hart is named),
-//   6 the per-retire monitor observed nothing ON EITHER HART,
-//   7 two harts drove the shared data bus on one cycle.
-//
-// 6 AND 7 ARE WHAT MAKE THIS A DUAL RUNNER RATHER THAN A RUNNER THAT HAPPENS TO
-// HAVE TWO CORES IN IT. Silence is graded PER HART: a run in which hart 1 never
-// retired is a run that measured one hart, and it reports that rather than
-// whatever the program on hart 0 concluded. And 7 is the check the dual top's
-// bus needs -- the two harts' address, write-data and strobe ports are joined
-// with an OR, which is sound only while at most one of them is live, and an OR
-// of two live initiators produces a plausible wrong address rather than an error.
-//
-// A deadlock is reported rather than merely timing out: the cycle of each
-// hart's last retire is tracked, so a TIMEOUT says which hart stopped and when.
-//
-// `--hold-hart1` keeps hart 1 in reset for the whole run. That is the harness's
-// own red direction and test/dual_smoke.sh is what grades it: the same program
-// must reach a different answer with one hart than with two, or this harness is
-// not measuring the second one.
-//
-// `--console <addr>` copies the NUL-terminated string at that RAM address to
-// stdout, test/cxxrtl.cc's flag repeated once per hart it is given for: a
-// Dhrystone build under this harness formats its report into RAM the same way
-// the single-hart one does, and each hart's copy lives at its own address. It
-// is printed at every exit path, not only PASS -- a two-hart Dhrystone build
-// has no shared verdict to end the run on, so the runner reaches its cycle
-// limit on purpose and the report is what the run was for.
+// The cxxrtl runner for the DUAL configuration: two harts, one text storage, one data RAM
+// and one bus arbiter (test/dual_testbench.v).
 #include <cxxrtl/cxxrtl_vcd.h>
 #include "dual_rtl.cc"
 
@@ -108,17 +69,8 @@ bool load_image(cxxrtl::debug_items &items, const std::string &name,
   return true;
 }
 
-// EVERY WORD OF EVERY BANK IS WRITTEN BEFORE THE PROGRAM GOES IN, and that is
-// not tidiness. Fetch reads two adjacent words each cycle and decode takes the
-// SECOND one's register fields, so the word after the last instruction of a
-// program is read on every pass through it. A bitstream defines every word of a
-// block RAM; an array written only where a program was is not a model of one,
-// and an undefined word there reaches the register file's address port.
-//
-// THERE ARE TWO BANKS HERE AND NOT FOUR. rtl/imemory.v holds ONE storage
-// however many fetch windows read it; the copies two windows need are made by
-// the mapper, and no simulation of this RTL can see them or fail on their
-// absence -- test/imem_share_test.sh is what grades that half.
+// EVERY WORD OF EVERY BANK IS WRITTEN BEFORE THE PROGRAM GOES IN, and that is not
+// tidiness.
 bool load_rom_banks(cxxrtl::debug_items &items, const HexImage &image) {
   static const char *kBankName[2] = {"dut imem rom_even", "dut imem rom_odd"};
   const cxxrtl::debug_item *bank[2];
@@ -153,17 +105,15 @@ struct Args {
   std::string vcd_path;
   long cycles = 0;
   bool hold_hart1 = false;
-  // A word of RAM to print at the end of the run. The smoke program's shared
-  // counter is read out through it: N with one hart, 2N with two, which is the
-  // difference test/dual_smoke.sh grades.
+  // A word of RAM to print at the end of the run.
   bool report_word = false;
   uint32_t report_addr = 0;
-  // Repeatable: one hart's report, or both. Printed in the order given.
+  // Repeatable: one hart's report, or both.
   std::vector<uint32_t> console_addrs;
 };
 
-// test/cxxrtl.cc's helper, unchanged: walks `ram_data` from `addr` and writes
-// what it finds to stdout, stopping at the first NUL or the end of RAM.
+// test/cxxrtl.cc's helper, unchanged: walks `ram_data` from `addr` and writes what it
+// finds to stdout, stopping at the first NUL or the end of RAM.
 void print_console(const uint32_t *ram_data, size_t ram_words, uint32_t addr) {
   if (addr < kRamBase) {
     std::fprintf(stderr, "error: --console address 0x%08x is below RAM base 0x%08x\n",
@@ -230,9 +180,9 @@ bool parse_args(int argc, char **argv, Args &args) {
   return true;
 }
 
-// Every item this runner reads is looked up the same way and a miss is a setup
-// error rather than something to skip: a silently absent counter reports the
-// exact false green the counters exist to prevent.
+// Every item this runner reads is looked up the same way and a miss is a setup error
+// rather than something to skip: a silently absent counter reports the exact false green
+// the counters exist to prevent.
 const cxxrtl::debug_item *item_or_null(cxxrtl::debug_items &items,
                                        const std::string &name) {
   try {
@@ -290,9 +240,7 @@ int main(int argc, char **argv) {
   if (!bus_conflict)
     return 3;
 
-  // The cycle each hart last retired on, and -1 for a hart that never has. This
-  // is what turns a timeout into a diagnosis: a hart whose last retire is far
-  // behind the other's is the one that stopped.
+  // The cycle each hart last retired on, and -1 for a hart that never has.
   long last_retire[kHarts] = {-1, -1};
   uint32_t seen_retires[kHarts] = {0, 0};
 
@@ -317,15 +265,7 @@ int main(int argc, char **argv) {
       print_console(ram_data, memory_item.depth, addr);
   };
 
-  // Silence outranks the run's own verdict, per hart. `tohost` saying PASS is
-  // exactly what a blind monitor looks like, and a dual run whose second hart
-  // never retired has not measured the thing this harness exists to measure --
-  // whatever hart 0 concluded, it concluded it alone.
-  //
-  // Exits 4, 5 and 7 do not come through here, for test/cxxrtl.cc's reason:
-  // none of them is a verdict the program reached, and each is direct evidence
-  // that the observer fired. Routing them through would replace a specific
-  // diagnosis with "the oracle was blind".
+  // Silence outranks the run's own verdict, per hart.
   auto finish = [&](int code) {
     report_counts();
     for (int h = 0; h < kHarts; ++h) {
@@ -371,9 +311,8 @@ int main(int argc, char **argv) {
     top.step();
     sample(cycle * 2 + 1);
 
-    // Reset spans exactly one rising edge, the shape test/testbench.v drives
-    // and rtl/littledualsoc.v's power-on counter generalizes. `hold_hart1` is
-    // not cleared: it is the whole run's condition, not a reset shape.
+    // Reset spans exactly one rising edge, the shape test/testbench.v drives and
+    // rtl/littledualsoc.v's power-on counter generalizes.
     if (cycle == 0)
       top.p_reset.set(false);
 
@@ -426,9 +365,6 @@ int main(int argc, char **argv) {
   }
 
   std::printf("TIMEOUT\n");
-  // Which hart stopped, and when. A deadlock between two harts is otherwise a
-  // bare timeout, and the two failures it can be -- one hart wedged on a
-  // mailbox, or both wedged on the bus -- look identical without this.
   for (int h = 0; h < kHarts; ++h) {
     if (last_retire[h] < 0)
       std::fprintf(stderr, "hart %d never retired an instruction\n", h);

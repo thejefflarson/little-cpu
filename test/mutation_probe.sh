@@ -1,25 +1,6 @@
 #!/bin/bash
-# Forces every graded comparison in test/mutation_check.sh red, for its own
-# reason, against a fixture design nothing else uses.
-#
-# Usage: mutation_probe.sh          # every case; exit 0 only if all of them hold
-#
-# WHY THIS EXISTS. mutation_check.sh is the answer to "a grader that cannot fail
-# is not a grader" for the .S suite's red directions — and it is a grader itself,
-# so the same rule applies to it. It is also too slow to be a merge gate (it
-# rebuilds the cxxrtl runner once per mutation), so nothing on `make test`'s path
-# would ever notice its comparisons rotting. This runs there instead: it is bash
-# and a stub, no cross compiler, no yosys, no iverilog.
-#
-# THE FIXTURE IS NOT THIS REPO. It is a temporary directory with two one-module
-# `rtl/` files, two patches against them, a manifest, and two stub detector legs
-# that read what to report out of files this script writes. That is what lets a
-# case say "the declared detector stays quiet" without owning a design in which
-# that is true.
-#
-# The revert path is a case like any other: the last two force a red run and an
-# interrupted run, and both require the fixture's rtl/ to come back byte for
-# byte. A left-behind mutation is worse than no check at all.
+# Forces every graded comparison in test/mutation_check.sh red, for its own reason,
+# against a fixture design nothing else uses.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -86,10 +67,9 @@ MANIFEST
   echo '# fixture bench'   > "$FIXTURE/test/alpha_tb.v"
   echo '# fixture program' > "$FIXTURE/test/asm/alpha.S"
 
-  # The stubs report whatever the case wrote for the mutation being applied, so
-  # a case configures the design's behaviour by writing a file rather than by
-  # owning RTL in which that behaviour is real. `.exit` makes a leg fail to run
-  # at all; `.int` interrupts the driver from inside a leg.
+  # The stubs report whatever the case wrote for the mutation being applied, so a case
+  # configures the design's behaviour by writing a file rather than by owning RTL in
+  # which that behaviour is real.
   cat > "$FIXTURE/legs/leg.sh" <<'LEG'
 #!/bin/bash
 f="$FIXTURE/stub/$1.${MUTATION_NAME:-}"
@@ -109,8 +89,8 @@ LEG
   printf '#!/bin/bash\nexec "$FIXTURE/legs/leg.sh" suite\n'  > "$FIXTURE/legs/suite.sh"
   chmod +x "$FIXTURE/legs"/*.sh
 
-  # The control: each mutation is caught by exactly what the manifest pairs it
-  # with, and the unmutated tree is green.
+  # The control: each mutation is caught by exactly what the manifest pairs it with, and
+  # the unmutated tree is green.
   echo 'alpha_tb'       > "$FIXTURE/stub/bench.alpha"
   echo 'alpha.S FAIL 2' > "$FIXTURE/stub/suite.beta"
 
@@ -149,10 +129,6 @@ report() {
 }
 
 # expect_red <label> <want-status> <fragment>...
-#
-# The fragments are pinned as well as the status. A status alone would be
-# satisfied by the driver dying for an unrelated reason, which demonstrates
-# nothing about the comparison the case is named for.
 expect_red() {
   local label=$1 want=$2; shift 2
   local frag verdict=ok
@@ -187,10 +163,7 @@ drive --shard 1/2
 expect_green "a shard grades its own share and says which share it is" \
   "1 mutations, each caught by exactly the detectors it is paired with (shard 1/2)"
 
-# The two halves together must be the whole. A stride that dropped or repeated a
-# mutation would still let every shard pass, and the check would silently stop
-# covering part of the manifest -- which is the failure this whole script is
-# about, one level up.
+# The two halves together must be the whole.
 reset_fixture
 drive --shard 1/2
 first=$out
@@ -221,8 +194,8 @@ drive --shard 1/2 --only alpha
 expect_red "--shard and --only together are refused, not silently ranked" 1 \
   "both select mutations"
 
-# More shards than mutations is a real misconfiguration, and the shard with
-# nothing in it must not report success for grading nothing.
+# More shards than mutations is a real misconfiguration, and the shard with nothing in it
+# must not report success for grading nothing.
 reset_fixture
 drive --shard 3/3
 expect_red "a shard with no mutations in it is refused, not green" 1 \
@@ -350,9 +323,8 @@ expect_red "a leg that fails to run under a mutation" 1 \
 
 echo
 echo "== reverting"
-# Both of these are about rtl/ coming back, which every case above also
-# requires; they are here because a red run and an interrupted run are the two
-# paths where it would not.
+# Both of these are about rtl/ coming back, which every case above also requires; they
+# are here because a red run and an interrupted run are the two paths where it would not.
 reset_fixture
 : > "$FIXTURE/stub/bench.alpha"
 drive

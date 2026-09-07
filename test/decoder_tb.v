@@ -3,13 +3,6 @@
 `include "structs.v"
 
 // Decode vectors, driven straight at rtl/decoder.v with no pipeline around it.
-//
-// The one timing rule: a combinational decode flag is readable the instant
-// `in.instr` settles, but anything about issuing, publishing or committing has
-// to be checked after the operand-fetch cycle is spent. Every vector below
-// leaves `in.next_instr` at zero, so decode's guess at the next pair is x0/x0
-// and misses; drive it and the vector after it issues a cycle earlier than the
-// checks expect. The three vectors that do drive it put it back.
 module decoder_tb;
   logic clk = 0;
   always #5 clk = ~clk;
@@ -21,23 +14,16 @@ module decoder_tb;
   logic [31:0] next_pc;
   logic [4:0] rs1, rs2, read_rs1, read_rs2;
   decoder_output out;
-  // Driven high by the vectors that need something in flight to serialize
-  // against; the hazard scoreboard is test/regfile_tb.v's and hazard.S's.
+  // Driven high by the vectors that need something in flight to serialize against; the
+  // hazard scoreboard is test/regfile_tb.v's and hazard.S's.
   executor_output executor_out = '0;
   logic divider_stall = 1'b0;
   logic fetch_stall = 1'b0;
-  // The platform has not granted this core the shared bus. Low for every vector
-  // but the ones that drive it below: with one bus initiator it never rises, and
-  // nothing single-hart can otherwise say which arm of the publish block it
-  // takes.
+  // The platform has not granted this core the shared bus.
   logic bus_wait = 1'b0;
-  // The instruction memory had nothing at `pc`. Driven high only by the
-  // instruction-access-fault vectors below; every other vector presents a word
-  // some memory really answered.
+  // The instruction memory had nothing at `pc`.
   logic imem_fault = 1'b0;
-  // The platform answers atomics at the address decode is publishing. Held high
-  // for every vector but the region-fault ones below, the way a memory that
-  // answers everywhere would drive it.
+  // The platform answers atomics at the address decode is publishing.
   logic atomic_supported = 1'b1;
   logic [31:0] atomic_addr;
   logic accessor_out_valid = 1'b0;
@@ -49,8 +35,8 @@ module decoder_tb;
   logic [31:0] csr_wdata;
   logic [31:0] mtvec = 32'h0000_0100;
   logic [31:0] mepc  = 32'h0000_0244;
-  // rtl/csrs.v has already ANDed the source, mie and mstatus.MIE together, so
-  // driving this directly is driving the whole interrupt decision.
+  // rtl/csrs.v has already ANDed the source, mie and mstatus.MIE together, so driving
+  // this directly is driving the whole interrupt decision.
   logic interrupt_pending = 1'b0;
   logic trap_entry, mret_entry;
   logic [31:0] trap_cause, trap_epc, trap_tval;
@@ -113,14 +99,7 @@ module decoder_tb;
     end
   endtask
 
-  // pc must have exactly one driver, and it must be next_pc. The memory latches
-  // its address off next_pc one cycle before the fetch that reads it. Give pc a
-  // second driver and the memory runs a cycle out of step with decode, so the
-  // core executes whatever is at the wrong addresses. No riscv-formal check
-  // reads that port.
-  //
-  // Checked on every edge rather than in one vector, because a change like that
-  // shows up on some instructions and not on others.
+  // pc must have exactly one driver, and it must be next_pc.
   logic [31:0] prev_next_pc;
   logic        prev_next_pc_valid = 1'b0;
   always @(posedge clk) begin
@@ -132,21 +111,7 @@ module decoder_tb;
     prev_next_pc_valid <= 1'b1;
   end
 
-  // `stall` is exactly these nine terms ORed together. `make cycles` charges
-  // every stalled cycle to the first of them that is true, so a term added to
-  // `stall` and not there would leave the cycles it costs unexplained. This says
-  // so in a gate that runs on every change, rather than the next time somebody
-  // asks for the table.
-  //
-  // `interrupt_pending` is deliberately NOT one of them, and this is what says
-  // so: an interrupt entry happens ON an issuing cycle and costs no stalled
-  // cycle to explain. Put it in `stall` and the pc would hold instead of
-  // vectoring to mtvec, and this check goes red.
-  //
-  // On both clock edges, not just the rising one. Every vector here presents its
-  // instruction just after a rising edge, so the falling edge is where it is
-  // settled and being decoded. Sampling only the rising edge misses that, and
-  // the probe for this check -- a tenth term ORed into `stall` -- goes green.
+  // `stall` is exactly these nine terms ORed together.
   always @(clk) begin
     if (dut.stall !== (dut.divider_stall || dut.atomic_stall || dut.hazard_rs1 ||
                        dut.hazard_rs2 || dut.serialize || dut.operand_stall ||
@@ -166,11 +131,7 @@ module decoder_tb;
     end
   endtask
 
-  // The addi x0, x0, 0 matters. operand_stall compares rs1 and rs2 against
-  // whatever they were at the last clock edge, and most vectors here take no
-  // edge at all. Without parking on x0 first, an earlier vector can leave the
-  // same pair behind, no fetch cycle happens, and every check below lands a
-  // cycle early.
+  // The addi x0, x0, 0 matters.
   task automatic present_and_fetch(input logic [31:0] instr);
     begin
       in.instr = 32'h00000013;
@@ -182,17 +143,9 @@ module decoder_tb;
     end
   endtask
 
-  // The load/store region answer is registered on the cycle the access waits and
-  // read on the next, so a vector that checks the trap in the presenting cycle
-  // reads the answer to the previous access. This presents the access, takes the
-  // wait, and asserts both halves of it -- a core that stopped waiting and one
-  // that answered from a stale flip-flop both go red here rather than passing.
-  //
-  // `present_and_fetch` first, for its own reason: it parks on a nop so the
-  // previous vector's answer expires without that vector's access issuing, and
-  // it spends the operand-fetch cycle the changed pair costs. Both of those are
-  // cycles the region wait is NOT, which is what makes the check below the
-  // wait's own.
+  // The load/store region answer is registered on the cycle the access waits and read on
+  // the next, so a vector that checks the trap in the presenting cycle reads the answer
+  // to the previous access.
   task automatic region_access(input logic [31:0] instr);
     begin
       present_and_fetch(instr);
@@ -209,8 +162,8 @@ module decoder_tb;
   initial begin
     reset = 1;
     in = '0;
-    // rtl/fetcher.v drives this to exactly !reset, so the real decoder never
-    // sees a non-reset cycle with it low.
+    // rtl/fetcher.v drives this to exactly !reset, so the real decoder never sees a
+    // non-reset cycle with it low.
     in.valid = 1'b1;
     reg_rs1 = 0;
     reg_rs2 = 0;
@@ -218,18 +171,15 @@ module decoder_tb;
     #1;
     reset = 0;
 
-    // xori x1, x2, -1  =>  imm=0xfff (sign -1), rs1=x2, funct3=100, rd=x1,
-    // opcode=0010011 (I-type math-immediate).
+    // xori x1, x2, -1 => imm=0xfff (sign -1), rs1=x2, funct3=100, rd=x1, opcode=0010011
+    // (I-type math-immediate).
     in.instr = 32'hfff14093;
     in.pc = 32'h0;
     #1;
     check_hex("xori math_arg", dut.math_arg, 32'hffffffff);
     check_bit("a newly presented instruction stalls for its operands",
               dut.operand_stall, 1'b1);
-    // Two separate things to get wrong, both silent. Drop the stall and the
-    // instruction issues with a register the file has not read yet. Drop the
-    // bubble and it publishes during its own fetch cycle. Either way every
-    // other vector here still passes.
+    // Two separate things to get wrong, both silent.
     check_bit("...so it does not issue in that cycle", dut.issuing, 1'b0);
     operand_fetch_cycle();
     check_bit("...and the fetch cycle bubbled decoder_out", out.valid, 1'b0);
@@ -240,10 +190,8 @@ module decoder_tb;
     #1;
     check_hex("xori out.rs2 (registered math_arg)", out.rs2, 32'hffffffff);
 
-    // The register file is asked for the NEXT instruction's pair on a cycle
-    // that issues, read flat out of the fetch window's successor word. Right,
-    // and the instruction behind it issues with no operand-fetch cycle at all;
-    // that is the whole of what the guess buys, and nothing else here shows it.
+    // The register file is asked for the NEXT instruction's pair on a cycle that issues,
+    // read flat out of the fetch window's successor word.
     in.pc = 32'h0000_0040;
     present_and_fetch(32'h00100093);   // addi x1, x0, 1
     in.next_instr = 32'h00110193;      // addi x3, x2, 1 -- reads x2
@@ -260,8 +208,8 @@ module decoder_tb;
               dut.operand_stall, 1'b0);
     check_bit("...so it issues in the cycle it is presented", dut.issuing, 1'b1);
 
-    // The red direction, which is what every instruction did before the guess:
-    // present a pair the successor does not read and it pays the cycle.
+    // The red direction, which is what every instruction did before the guess: present a
+    // pair the successor does not read and it pays the cycle.
     in.pc = 32'h0000_0060;
     present_and_fetch(32'h00100093);
     in.next_instr = 32'h00000013;      // addi x0, x0, 0 -- guesses x0/x0
@@ -278,12 +226,8 @@ module decoder_tb;
               dut.issuing, 1'b1);
     in.next_instr = 32'b0;
 
-    // A compressed successor goes through the same register-number mapping, so
-    // it is guessed as accurately as an uncompressed one. The successor word
-    // arrives raw -- its upper half is whatever follows it in memory -- and
-    // rtl/regsel.v masks that off, which is what the 0xffff here tests: sliced
-    // flat, the two fields read x31 and the vector below pays a cycle it should
-    // not.
+    // A compressed successor goes through the same register-number mapping, so it is
+    // guessed as accurately as an uncompressed one.
     in.pc = 32'h0000_0080;
     present_and_fetch(32'h00100093);   // addi x1, x0, 1
     in.next_instr = 32'hffff_918a;     // c.add x3, x2 -- reads x3 and x2
@@ -302,8 +246,6 @@ module decoder_tb;
     check_hex("...on both halves of it", {27'b0, rs2}, 32'd2);
 
     // A shift's second operand is its amount, zero-extended, at both widths.
-    // The poison in reg_rs2 is what says the register operand is not what
-    // reaches `out.rs2` for these.
     reg_rs2 = 32'ha5a5_a5a5;
     present_and_fetch(32'h00d11093);   // slli x1, x2, 13
     check_hex("slli hands the executor its amount", dut.math_arg, 32'd13);
@@ -311,10 +253,9 @@ module decoder_tb;
     #1;
     check_hex("...and out.rs2 carries it", out.rs2, 32'd13);
 
-    // srai is the form that says the amount comes from the register-number
-    // field and not from the immediate: its funct7 sits directly above the
-    // amount, so an immediate carrying it would arrive as 0x40d. The executor
-    // reads five bits, so nothing else here would notice.
+    // srai is the form that says the amount comes from the register-number field and not
+    // from the immediate: its funct7 sits directly above the amount, so an immediate
+    // carrying it would arrive as 0x40d.
     present_and_fetch(32'h40d15093);   // srai x1, x2, 13
     check_hex("srai's amount arrives with nothing above it", dut.math_arg, 32'd13);
 
@@ -325,15 +266,10 @@ module decoder_tb;
     check_hex("...and so is a compressed left shift's", dut.math_arg, 32'd13);
     reg_rs2 = 32'b0;
 
-    // Executor-only forwarding: a value already sitting in the executor's
-    // own slot may reach an eligible consumer's operand instead of costing
-    // it the usual RAW stall, but only where nothing else in decode still
-    // needs the register file's own answer this cycle.
-    //
-    // rs1: an ALU consumer reading a register the executor's slot already
-    // has the finished value for issues with no hazard at all, and what it
-    // hands the executor is that forwarded value -- never the poisoned
-    // reg_rs1 below, which the register file has not caught up to yet.
+    // Executor-only forwarding: a value already sitting in the executor's own slot may
+    // reach an eligible consumer's operand instead of costing it the usual RAW stall, but
+    // only where nothing else in decode still needs the register file's own answer this
+    // cycle.
     executor_out.valid = 1'b1;
     executor_out.rd = 5'd2;
     executor_out.rd_data = 32'hcafe_babe;
@@ -349,9 +285,7 @@ module decoder_tb;
     check_hex("...and the forwarded value is what the executor gets",
               out.rs1, 32'hcafe_babe);
 
-    // rs2: the register-register form of the same forward. math_arg reads
-    // straight from reg_rs2 for a non-immediate op, so this is a separate
-    // path from rs1's.
+    // rs2: the register-register form of the same forward.
     executor_out.rd = 5'd3;
     reg_rs2 = 32'hdead_dead;
     in.pc = 32'h0000_00c4;
@@ -363,10 +297,8 @@ module decoder_tb;
     check_hex("...landing in out.rs2 the same way", out.rs2, 32'hcafe_babe);
     reg_rs2 = 32'b0;
 
-    // A load, an AMO, lr.w and sc.w leave rd_data unfinished in the
-    // executor's slot: rtl/accessor.v has not unpacked the memory word yet.
-    // rd_ready says so, and forwarding must wait for it the same as any
-    // other RAW hazard would.
+    // A load, an AMO, lr.w and sc.w leave rd_data unfinished in the executor's slot:
+    // rtl/accessor.v has not unpacked the memory word yet.
     executor_out.rd = 5'd2;
     executor_out.rd_ready = 1'b0;
     in.pc = 32'h0000_00c8;
@@ -376,16 +308,9 @@ module decoder_tb;
     check_bit("...so the consumer still waits for it", dut.hazard_rs1, 1'b1);
     executor_out.rd_ready = 1'b1;
 
-    // A store's base register is read directly for the effective address
-    // (mem_addr_calc), not through out.rs1 -- forwarding it would issue the
-    // store on a stale address with nothing to say so. Its write data has
-    // no such other reader, so that half forwards.
-    //
-    // reg_rs1 has to name an address the region wait already regards as
-    // settled -- deep inside the text window, so `ls_settled` is true and
-    // `region_stall` never joins the two checks below -- or the store's
-    // OWN wait for its region answer would be indistinguishable from the
-    // hazard this vector is about.
+    // A store's base register is read directly for the effective address (mem_addr_calc),
+    // not through out.rs1 -- forwarding it would issue the store on a stale address with
+    // nothing to say so.
     reg_rs1 = 32'h0000_1000;
     executor_out.rd = 5'd2;
     in.pc = 32'h0000_00cc;
@@ -407,11 +332,10 @@ module decoder_tb;
     reg_rs1 = 32'hdead_dead;
     reg_rs2 = 32'b0;
 
-    // A branch's rs2 is read directly by the comparator (cmp_sub), not
-    // through out.rs2 -- branches zero both operand fields in the publish
-    // block regardless, so forwarding into them would buy nothing and
-    // suppressing their hazard would resolve branch_taken on a stale
-    // operand.
+    // A branch's rs2 is read directly by the comparator (cmp_sub), not through out.rs2 --
+    // branches zero both operand fields in the publish block regardless, so forwarding
+    // into them would buy nothing and suppressing their hazard would resolve branch_taken
+    // on a stale operand.
     executor_out.rd = 5'd3;
     in.pc = 32'h0000_00d4;
     present_and_fetch(32'h00310063);   // beq x2, x3, 0 -- reads x3
@@ -421,10 +345,8 @@ module decoder_tb;
     executor_out.valid = 1'b0;
     executor_out.rd_data = 32'b0;
 
-    // Forwarding reaches only the executor's slot, never `out`: an
-    // instruction that has not reached the executor yet has no result to
-    // forward at all. Issue a real producer into decoder_out and the
-    // instruction behind it still interlocks on it.
+    // Forwarding reaches only the executor's slot, never `out`: an instruction that has
+    // not reached the executor yet has no result to forward at all.
     in.pc = 32'h0000_00d8;
     present_and_fetch(32'h000100b3);   // add x1, x2, x0
     @(posedge clk);
@@ -442,9 +364,9 @@ module decoder_tb;
     executor_out = '0;
     reg_rs1 = 32'b0;
 
-    // The compressed group that shares one quadrant and funct3 and is told
-    // apart by the two fields above them, each decoded off a different width of
-    // that prefix: c.andi off funct3, c.sub off funct6.
+    // The compressed group that shares one quadrant and funct3 and is told apart by the
+    // two fields above them, each decoded off a different width of that prefix: c.andi
+    // off funct3, c.sub off funct6.
     in.instr = 32'h0000_987d;   // c.andi x8, -1
     #1;
     check_bit("c.andi decodes", dut.instr_candi, 1'b1);
@@ -453,10 +375,8 @@ module decoder_tb;
     #1;
     check_bit("c.sub decodes", dut.instr_csub, 1'b1);
     check_bit("...as a sub", dut.instr_sub, 1'b1);
-    // instr[12] is the whole of what separates that group from the RV64 row
-    // above it, and a compressed shift from its reserved shamt[5]. Widen either
-    // test to funct3 and both encodings decode, with every vector above still
-    // passing -- so these two are what say the narrower field is read.
+    // instr[12] is the whole of what separates that group from the RV64 row above it, and
+    // a compressed shift from its reserved shamt[5].
     in.instr = 32'h0000_9c05;   // the same row with instr[12] set: c.subw
     #1;
     check_bit("the RV64 row above it is not a sub", dut.instr_csub, 1'b0);
@@ -467,8 +387,7 @@ module decoder_tb;
               dut.instr_csrli, 1'b0);
     check_bit("...it is illegal too", dut.instr_valid, 1'b0);
 
-    // c.lui's reserved encoding is the one whose immediate is zero. Both
-    // directions, because a test that is always true is silent.
+    // c.lui's reserved encoding is the one whose immediate is zero.
     in.instr = 32'h0000_6085;   // c.lui x1, 1
     #1;
     check_bit("c.lui with a non-zero immediate decodes", dut.instr_clui, 1'b1);
@@ -478,11 +397,8 @@ module decoder_tb;
               dut.instr_clui, 1'b0);
     check_bit("...which makes it an illegal instruction", dut.instr_valid, 1'b0);
 
-    // LUI reaches the executor as an add of its immediate and zero, the way a
-    // CSR read does, so no flag of its own rides down for it. The poison in both
-    // register operands is what says neither reaches `out`: LUI names no
-    // register, and the bits a register number would be read from are its
-    // immediate.
+    // LUI reaches the executor as an add of its immediate and zero, the way a CSR read
+    // does, so no flag of its own rides down for it.
     reg_rs1 = 32'ha5a5_a5a5;
     reg_rs2 = 32'h5a5a_5a5a;
     in.pc = 32'h0000_0090;
@@ -502,11 +418,9 @@ module decoder_tb;
     reg_rs1 = 32'b0;
     reg_rs2 = 32'b0;
 
-    // Every SYSTEM form with funct3 zero is told apart by funct12 alone, so the
-    // rs1 and rd fields have to be checked for zero or a neighbouring encoding
-    // decodes as one of them. Both fields, both directions -- and both read as
-    // raw encoding fields, which is the whole of what keeps the compressed
-    // register-select decode out of the trap cause and so out of the fetch loop.
+    // Every SYSTEM form with funct3 zero is told apart by funct12 alone, so the rs1 and
+    // rd fields have to be checked for zero or a neighbouring encoding decodes as one of
+    // them.
     in.instr = 32'h0000_0073;   // ecall
     #1;
     check_bit("ecall decodes", dut.instr_ecall, 1'b1);
@@ -519,9 +433,7 @@ module decoder_tb;
     check_bit("...nor with a non-zero rs1 field", dut.instr_ecall, 1'b0);
     check_bit("...which is illegal as well", dut.instr_valid, 1'b0);
 
-    // Both arms of the next-pc chain that add to the fetched pc. The always
-    // block above already checks that pc follows next_pc; these check the value
-    // it takes, which nothing here did.
+    // Both arms of the next-pc chain that add to the fetched pc.
     in.pc = 32'h0000_00a0;
     present_and_fetch(32'h0000_0013);  // addi x0, x0, 0
     check_hex("an uncompressed instruction steps four", next_pc, 32'h0000_00a4);
@@ -536,9 +448,9 @@ module decoder_tb;
     check_hex("an untaken one steps four", next_pc, 32'h0000_00a4);
     reg_rs1 = 32'b0;
 
-    // Read off the decode flag, not `out.is_ebreak`: a trapping issue
-    // suppresses every execution flag, so the registered flag is 0 for all
-    // three of these and the vector would pass vacuously.
+    // Read off the decode flag, not `out.is_ebreak`: a trapping issue suppresses every
+    // execution flag, so the registered flag is 0 for all three of these and the vector
+    // would pass vacuously.
     in.instr = 32'h00100073;   // ebreak
     #1;
     check_bit("ebreak sets instr_ebreak", dut.instr_ebreak, 1'b1);
@@ -555,7 +467,6 @@ module decoder_tb;
 
     csr_implemented = 1'b1;
 
-    // csrrw a1, mscratch, a0  ->  0x340515f3
     in.instr = 32'h340515f3;
     reg_rs1 = 32'hdeadbeef;   // re-presented below through present_and_fetch
     csr_rdata = 32'h0000cafe;
@@ -624,8 +535,6 @@ module decoder_tb;
     check_hex("...with cause 2", trap_cause, 32'd2);
     csr_implemented = 1'b1;
 
-    // Anything the decoder does not recognise traps, so a legal encoding left
-    // out of instr_valid faults.
     in.instr = 32'h0ff0000f;   // fence iorw, iorw
     #1;
     check_bit("fence is a valid instruction", dut.instr_valid, 1'b1);
@@ -650,25 +559,14 @@ module decoder_tb;
     check_hex("...cause 2", trap_cause, 32'd2);
     check_bit("...and traps", dut.trap_pending, 1'b1);
 
-    // The memory had nothing at `pc`. The word it hands over is zero, which on
-    // its own is an illegal instruction and cause 2; the fault is what makes it
-    // cause 1, which is what the privileged spec asks for. Nothing else in the
-    // tree distinguishes the two.
     imem_fault = 1'b1;
     #1;
     check_bit("a fetch the memory could not answer traps", dut.trap_pending, 1'b1);
     check_hex("...as an instruction access fault, not an illegal instruction",
               trap_cause, 32'd1);
-    // Arm order is the whole mechanism, and this is what pins it: the zero word
-    // really does decode as illegal, and the cause is 1 anyway. Swap the two
-    // arms and nothing else in the tree says so.
     check_bit("...even though the zero word it was handed decodes as illegal",
               dut.instr_illegal, 1'b1);
 
-    // The fault outranks every cause the word could have produced, because the
-    // word is not an instruction. Presented with a real encoding it still wins:
-    // the memory saying it has nothing is not something a fetched word can
-    // argue with.
     in.instr = 32'h00000073;   // ecall
     #1;
     check_hex("the fault outranks anything the unfetched word decodes to",
@@ -694,7 +592,6 @@ module decoder_tb;
     #1;
     check_hex("ecall is cause 11", trap_cause, 32'd11);
 
-    // The EFFECTIVE address decides, not rs1 and not the immediate.
     in.instr = 32'h00452583;   // lw a1, 4(a0)
     reg_rs1 = 32'h0001_0001;
     #1;
@@ -724,7 +621,6 @@ module decoder_tb;
     check_bit("a byte load never traps", dut.trap_pending, 1'b0);
     reg_rs1 = 32'b0;
 
-    // The other illegal-CSR rule: read-only by address, addr[11:10] == 2'b11.
     in.instr = 32'hf1151073;   // csrw mvendorid, a0
     #1;
     check_bit("an implemented read-only CSR is still a valid encoding",
@@ -736,23 +632,12 @@ module decoder_tb;
     check_bit("reading a read-only CSR is not a write", dut.csr_readonly_write, 1'b0);
     check_bit("...and does not trap", dut.trap_pending, 1'b0);
 
-    // Run again with nothing in the pipeline. A CSR instruction waits either
-    // way, legal or not, so otherwise the checks below pass because it stalled
-    // rather than because it trapped.
     present_and_fetch(32'hf1151073);
     check_bit("...it issues once the pipe drains", dut.issuing, 1'b1);
     check_bit("a trapping issue does not count in minstret", instret, 1'b0);
     check_bit("...and commits no CSR write", csr_wen, 1'b0);
     check_bit("...and no CSR read", csr_ren, 1'b0);
     check_bit("...but it does commit a trap", trap_entry, 1'b1);
-
-    //-----------------------------------------------------------------------
-    // What the trap reports it happened to. The value is a platform statement
-    // firmware cannot derive, so every cause gets a vector and the two that
-    // report zero are asserted rather than left to the default arm -- a mux
-    // that fell through to zero for a cause that should carry an address would
-    // otherwise be indistinguishable from one that meant to.
-    //-----------------------------------------------------------------------
 
     in.pc = 32'h0000_0240;
     imem_fault = 1'b1;
@@ -770,9 +655,6 @@ module decoder_tb;
     #1;
     check_hex("...and the all-zero word reports itself", trap_tval, 32'h0);
 
-    // A compressed illegal instruction is zero-extended, not handed its
-    // neighbour: the upper half of the fetch window is the NEXT instruction in
-    // memory, and reporting it would name a word that did not fault.
     in.instr = 32'hdead_0000;
     #1;
     check_hex("a compressed illegal instruction reports its 16 bits alone",
@@ -786,9 +668,6 @@ module decoder_tb;
     #1;
     check_hex("...and so does an environment call", trap_tval, 32'h0);
 
-    // The EFFECTIVE address, which is what a handler cannot cheaply recompute:
-    // it would have to re-fetch the instruction, decode it and redo this add
-    // out of its own saved context.
     in.instr = 32'h00452583;   // lw a1, 4(a0)
     reg_rs1 = 32'h0001_0001;
     #1;
@@ -798,9 +677,6 @@ module decoder_tb;
     #1;
     check_hex("...and a misaligned store the same", trap_tval, 32'h0001_0001);
 
-    // An atomic's effective address is rs1 verbatim, and the sum is what is
-    // reported. Those two are the same number by construction here; a mux
-    // reading the sum for one and the register for the other would still agree.
     reg_rs1 = 32'h0004_0000;
     atomic_supported = 1'b0;
     in.instr = 32'h1006252f;   // lr.w
@@ -812,9 +688,6 @@ module decoder_tb;
     atomic_supported = 1'b1;
     reg_rs1 = 32'b0;
 
-    // An interrupt happened to nothing, and it outranks whatever the displaced
-    // instruction would have faulted on -- so this is driven over an
-    // instruction that reports an address of its own.
     in.instr = 32'h00452583;
     reg_rs1 = 32'h0001_0001;
     #1;
@@ -827,16 +700,11 @@ module decoder_tb;
     interrupt_pending = 1'b0;
     reg_rs1 = 32'b0;
 
-    // Nothing is trapping, so there is nothing to report.
     in.instr = 32'h00000013;   // nop
     #1;
     check_bit("a non-trapping instruction is not a trap", dut.trap_taken, 1'b0);
     check_hex("...and reports nothing", trap_tval, 32'h0);
 
-    // Through the region wait, which a misaligned access spends like any other:
-    // the wait is raised on where the base register points and not on what the
-    // instruction will do about it, so an access that is going to trap on its
-    // alignment waits first and traps a cycle later.
     reg_rs1 = 32'h0001_0001;
     in.pc = 32'h0000_0080;
     region_access(32'h00452583);   // the misaligned lw again
@@ -865,7 +733,6 @@ module decoder_tb;
     #1;
     check_hex("mret redirects pc to mepc", pc, 32'h0000_0244);
 
-    // Issued once so decoder_out holds something a bubble would visibly destroy.
     present_and_fetch(32'h00100093);   // addi x1, x0, 1
     @(posedge clk);
     #1;
@@ -880,9 +747,6 @@ module decoder_tb;
               next_pc, pc);
     check_bit("...and no trap is committed out of the stolen window", trap_entry, 1'b0);
 
-    // A divide holds decoder_out; a steal clears it. On a cycle with both,
-    // holding has to win or the held instruction is lost. Only the order of the
-    // arms in the publish block decides that, and swapping them is silent.
     divider_stall = 1'b1;
     #1;
     @(posedge clk);
@@ -903,12 +767,6 @@ module decoder_tb;
               out.valid, 1'b1);
     check_hex("...as itself", {27'b0, out.rd}, 32'd1);
 
-    // The window a steal delivers holds a data word, so the pair decoded from it
-    // is not a pair any instruction reads. Presenting it would throw away the
-    // successor guess made before the steal, and the instruction behind the
-    // steal would pay an operand-fetch cycle it had already earned. The pair is
-    // held across the steal instead, and `operand_stall` is the same compare
-    // either way.
     in.pc = 32'h0000_0280;
     present_and_fetch(32'h00100093);   // addi x1, x0, 1
     in.next_instr = 32'h00110193;      // addi x3, x2, 1 -- reads x2
@@ -917,8 +775,6 @@ module decoder_tb;
               {27'b0, read_rs1}, 32'd2);
     @(posedge clk);
     #1;
-    // The steal arrives with a data word in the window. Both halves of it name
-    // registers the guess did not, which is what a held pair has to survive.
     fetch_stall = 1'b1;
     in.instr = 32'hdead_beef;
     #1;
@@ -936,9 +792,6 @@ module decoder_tb;
     @(posedge clk);
     #1;
 
-    // Text is writable, so a store just before a fence.i can change the words
-    // being fetched right behind it. Waiting is what puts that store's write
-    // ahead of the next fetch address.
     executor_out.valid = 1'b1;
     executor_out.rd = 5'd0;
     present_and_fetch(32'h0000100f);
@@ -952,19 +805,11 @@ module decoder_tb;
     check_bit("the drained pipe releases it", dut.pipe_drained, 1'b1);
     check_bit("...so it issues now", dut.issuing, 1'b1);
 
-    // A plain `fence` has nothing to wait for: one bus, one access in flight.
     executor_out.valid = 1'b1;
     in.instr = 32'h0ff0000f;
     #1;
     check_bit("a plain fence does not serialize", dut.serialize, 1'b0);
     executor_out.valid = 1'b0;
-
-    //-----------------------------------------------------------------------
-    // The machine timer interrupt. It is asynchronous and this core commits
-    // every trap in decode, which only works because the interrupt is taken on
-    // a cycle that would otherwise have ISSUED: the instruction it displaces
-    // has not issued, so there is nothing downstream to take back.
-    //-----------------------------------------------------------------------
 
     in.pc = 32'h0000_0300;
     present_and_fetch(32'h00100093);   // addi x1, x0, 1 -- a harmless victim
@@ -989,8 +834,6 @@ module decoder_tb;
               out.valid, 1'b0);
     interrupt_pending = 1'b0;
 
-    // The other direction. Without this the vectors above pass on a decoder
-    // that traps unconditionally.
     in.pc = 32'h0000_0400;
     present_and_fetch(32'h00100093);
     check_bit("a disarmed interrupt takes nothing", trap_entry, 1'b0);
@@ -999,9 +842,6 @@ module decoder_tb;
     #1;
     check_bit("...and the instruction issues normally", out.valid, 1'b1);
 
-    // `stall` outranks the trap arm of the next_pc chain, so every reason the
-    // core already has to wait holds the interrupt off too -- no new logic, and
-    // no way for an interrupt to cut into a divide or a serialization.
     in.pc = 32'h0000_0500;
     present_and_fetch(32'h00100093);
     interrupt_pending = 1'b1;
@@ -1020,10 +860,6 @@ module decoder_tb;
     #1;
     interrupt_pending = 1'b0;
 
-    // Serialization is the one that matters most: an `mret` interrupted
-    // half-way would pop mstatus and then push it again. It cannot happen,
-    // because `mret` is still waiting for the pipeline to empty and waiting is
-    // a stall.
     in.pc = 32'h0000_0540;
     executor_out.valid = 1'b1;
     executor_out.rd = 5'd0;
@@ -1042,9 +878,6 @@ module decoder_tb;
     #1;
     interrupt_pending = 1'b0;
 
-    // An instruction that would fault AND an armed interrupt. The interrupt
-    // wins because the instruction does not execute; it faults instead when it
-    // re-executes after the handler returns.
     in.pc = 32'h0000_0600;
     reg_rs1 = 32'h0001_0001;
     region_access(32'h00452583);   // the misaligned lw, through its region wait
@@ -1062,9 +895,6 @@ module decoder_tb;
     interrupt_pending = 1'b0;
     reg_rs1 = 32'b0;
 
-    // ...and the same ordering for a fetch that never happened. The interrupt
-    // still wins: the instruction did not issue, so the fetch that failed is
-    // re-attempted after the handler returns and faults then.
     in.pc = 32'h0000_0640;
     present_and_fetch(32'h00000000);
     imem_fault = 1'b1;
@@ -1077,10 +907,6 @@ module decoder_tb;
     interrupt_pending = 1'b0;
     #1;
 
-    // A fetch fault is committed on the same override the jumps use, and the
-    // instruction reaches the end of the pipeline having done nothing but
-    // redirect. Everything that could act on the word the memory did not supply
-    // has to be clear.
     check_bit("...and on its own it is one trap entry", trap_entry, 1'b1);
     check_hex("...vectoring to mtvec", next_pc, 32'h0000_0100);
     check_hex("...with mepc at the address that could not be fetched",
@@ -1095,11 +921,6 @@ module decoder_tb;
               out.is_lw || out.is_lh || out.is_lhu || out.is_lb || out.is_lbu ||
               out.is_sw || out.is_sh || out.is_sb, 1'b0);
     imem_fault = 1'b0;
-
-    //-----------------------------------------------------------------------
-    // The A extension. Every encoding below is `.w`, rd = a0, rs1 = a2 and
-    // rs2 = a1, so only funct5 and the ordering bits differ between them.
-    //-----------------------------------------------------------------------
 
     in.instr = 32'h00b6252f;   // amoadd.w a0, a1, (a2)
     #1;
@@ -1139,7 +960,6 @@ module decoder_tb;
     check_bit("sc.w decodes", dut.instr_sc, 1'b1);
     check_bit("...and is not an AMO either", dut.instr_amo, 1'b0);
 
-    // The reserved rows of the same opcode, both directions of each field.
     in.instr = 32'h28b6252f;   // funct5 = 00101, which names nothing
     #1;
     check_bit("an unassigned funct5 is not an atomic", dut.instr_atomic, 1'b0);
@@ -1148,18 +968,11 @@ module decoder_tb;
     #1;
     check_bit("the doubleword width is not implemented here", dut.instr_atomic, 1'b0);
     check_bit("...so it is illegal", dut.instr_valid, 1'b0);
-    // lr.w's rs2 field is an encoding constant. A non-zero one is a different
-    // encoding, and reading it as a register would make the decoder wait on a
-    // value the instruction does not read.
     in.instr = 32'h1056252f;
     #1;
     check_bit("lr.w with a non-zero rs2 field is not an lr.w", dut.instr_lr, 1'b0);
     check_bit("...it is illegal", dut.instr_valid, 1'b0);
 
-    // `.aq` and `.rl` are decoded and ignored, so all four ordering suffixes of
-    // one instruction are one instruction. Vectored rather than argued: the two
-    // bits sit inside the field the immediate is read from, and a decode that
-    // let them through would differ here and nowhere else.
     in.instr = 32'h02b6252f;   // amoadd.w.rl
     #1;
     check_bit("amoadd.w.rl is the same instruction", dut.instr_amoadd, 1'b1);
@@ -1172,10 +985,6 @@ module decoder_tb;
     check_hex("...and none of them puts anything in the immediate",
               dut.immediate, 32'b0);
 
-    // The effective address is rs1 exactly. The bits an I-immediate would be
-    // read from are funct5, `aq`, `rl` and rs2 here, and 0x06b is what they
-    // would arrive as, so this is the vector that says the A arm of the
-    // immediate mux is doing something.
     reg_rs1 = 32'h0001_0000;
     present_and_fetch(32'h06b6252f);
     check_hex("an atomic's effective address is rs1 and nothing else",
@@ -1185,9 +994,6 @@ module decoder_tb;
     check_hex("...which is what reaches the accessor", out.mem_addr, 32'h0001_0000);
     reg_rs1 = 32'b0;
 
-    // The operands each of the eleven really reads. Widen `uses_rs2` to lr.w
-    // and the core waits on a register its encoding does not name; narrow it
-    // from sc.w and the store goes out with a stale word.
     in.instr = 32'h00b6252f;
     #1;
     check_bit("an AMO uses rs1", dut.uses_rs1, 1'b1);
@@ -1202,9 +1008,6 @@ module decoder_tb;
     check_bit("...and NOT rs2: that field is an encoding constant",
               dut.uses_rs2, 1'b0);
 
-    // All three misalignment causes. An atomic is word-wide and never split, so
-    // anything but a word-aligned address faults -- as a store for the ten that
-    // write and as a load for the one that does not.
     reg_rs1 = 32'h0001_0002;
     in.instr = 32'h00b6252f;
     #1;
@@ -1226,9 +1029,6 @@ module decoder_tb;
     check_bit("...nor does an aligned AMO", dut.trap_pending, 1'b0);
     reg_rs1 = 32'b0;
 
-    // The two region causes. The platform decodes the address the decoder
-    // publishes and hands back one bit, so this drives that bit rather than a
-    // map: what is being checked here is what decode does with the answer.
     reg_rs1 = 32'h0004_0000;
     atomic_supported = 1'b0;
     in.instr = 32'h1006252f;   // lr.w
@@ -1244,18 +1044,6 @@ module decoder_tb;
     #1;
     check_hex("...and so is an sc.w", trap_cause, 32'd7);
 
-    // A plain load and a plain store at the same address raise the same two
-    // causes, off the map the decoder is elaborated with rather than off the
-    // bit. This instance takes the parameter defaults: 8 KB of text at 0, 64 KB
-    // of RAM at 0x0001_0000, the timer's reserved 32 bytes at 0x0002_0000, the
-    // UART's eight above them and the SPI controller's eight above those, so
-    // 0x0004_0000 is outside all five.
-    //
-    // THE ANSWER IS A CYCLE LATE, and `region_access` is what every vector from
-    // here down goes through because of it. Check the trap in the cycle the
-    // access is presented and what comes back is the answer to the PREVIOUS
-    // access, which is how a core whose deferral had stopped working would pass
-    // this file. So the task asserts the wait it takes as well as taking it.
     reg_rs1 = 32'h0004_0000;
     region_access(32'h00062583);   // lw a1, 0(a2)
     check_bit("a plain lw at the same address faults too", dut.trap_pending, 1'b1);
@@ -1267,10 +1055,6 @@ module decoder_tb;
     region_access(32'h00b60023);   // sb a1, 0(a2)
     check_hex("...and a byte store", trap_cause, 32'd7);
 
-    // The whole sum is what the answer is about, which is what the cycle buys:
-    // each of the four below sits in a 2 KB block the other side of a window's
-    // edge from its own effective address, so a test that stopped at the base
-    // register would get every one of them the wrong way round.
     reg_rs1 = 32'h0000_1FFC;       // the last word of the 8 KB text window
     region_access(32'h00462583);   // lw a1, 4(a2)
     check_bit("a load off the top of text leaves its block", dut.trap_pending, 1'b1);
@@ -1288,38 +1072,28 @@ module decoder_tb;
     region_access(32'hFFC62583);
     check_bit("...and one that stays inside RAM does not", dut.trap_pending, 1'b0);
 
-    // The timer and the UART are words, not blocks. Neither window is three
-    // blocks wide, so no address in either can reach the fast path and every
-    // access there is answered from the sum.
     reg_rs1 = 32'h0001_FFFC;
     region_access(32'h00462583);   // lw a1, 4(a2)
     check_bit("a load of mtime from the top of RAM is answered",
               dut.trap_pending, 1'b0);
-    // The timer's window is the eight words the map reserves for one mtimecmp
-    // per hart, so 16 bytes up is inside it even where only four are decoded.
     reg_rs1 = 32'h0002_0000;
     region_access(32'h01062583);   // lw a1, 16(a2)
     check_bit("...and one 16 bytes up is inside the timer's reserved window",
               dut.trap_pending, 1'b0);
 
-    // 32 past the base is the UART, which the map answers.
     region_access(32'h02062583);   // lw a1, 32(a2)
     check_bit("...and one 32 bytes past the base is the UART",
               dut.trap_pending, 1'b0);
 
-    // 40 past the base is the SPI controller, which the map answers too.
     region_access(32'h02862583);   // lw a1, 40(a2)
     check_bit("...and one 40 bytes past the base is the SPI controller",
               dut.trap_pending, 1'b0);
 
-    // 48 past it is the first address in that page no device claims.
     region_access(32'h03062583);   // lw a1, 48(a2)
     check_bit("...and one 48 bytes past it is claimed by nothing",
               dut.trap_pending, 1'b1);
     check_hex("...faulting as a load", trap_cause, 32'd5);
 
-    // The other direction, without which this file would pass on a core that
-    // faulted every load and every store.
     reg_rs1 = 32'h0001_0000;
     region_access(32'h00062583);   // lw a1, 0(a2)
     check_bit("a load the map answers does not fault", dut.trap_pending, 1'b0);
@@ -1329,12 +1103,6 @@ module decoder_tb;
     region_access(32'h00b62023);
     check_bit("...nor a store into text", dut.trap_pending, 1'b0);
 
-    // THE FAST PATH, which is what the wait is being spent to buy. A base
-    // register a whole block inside a window cannot leave it whatever the
-    // immediate is, so decode issues with no region term in the cycle at all --
-    // no wait, and no answer to read. Delete the settled test and every load in
-    // a program costs a cycle; make it two-sided and it starts faulting
-    // addresses a memory answers, which the pair after these is the check for.
     reg_rs1 = 32'h0001_1000;       // deep inside the 64 KB RAM
     present_and_fetch(32'h00062583);   // lw a1, 0(a2)
     check_bit("a load deep inside RAM waits for nothing", dut.region_stall, 1'b0);
@@ -1355,11 +1123,6 @@ module decoder_tb;
               dut.region_stall, 1'b0);
     check_bit("...and does not fault", dut.trap_pending, 1'b0);
 
-    // A window's own first and last blocks are what the fast path may not
-    // claim, and this pair says so. 0x0001_0400 is the RAM's first block, where
-    // a negative offset really does leave the window; 0x0001_0800 is the second,
-    // where none can. Widen the settled test by a block and the first of these
-    // stops waiting and starts reading memory that is not there.
     reg_rs1 = 32'h0001_0400;
     present_and_fetch(32'h00062583);
     check_bit("the RAM's first block does not reach the fast path",
@@ -1368,17 +1131,6 @@ module decoder_tb;
     present_and_fetch(32'h00062583);
     check_bit("...and the block above it does", dut.region_stall, 1'b0);
 
-    // THE WAIT'S ARM, both ways round. It BUBBLES: nothing has issued, so a held
-    // decoder_out would hand the executor the same instruction twice. A wait
-    // coinciding with a divide HOLDS, for the divider's own reason -- what
-    // decoder_out carries then is an instruction the executor has not taken.
-    // Only the order of the arms in the publish block decides either, and
-    // swapping them is silent everywhere else.
-    //
-    // `in.next_instr` is driven so the second load's pair is the one decode
-    // guessed: without it that load pays an operand-fetch cycle, which bubbles
-    // decoder_out for a reason that is not this one and leaves the hold below
-    // comparing zero against zero.
     in.pc = 32'h0000_07C0;
     reg_rs1 = 32'h0001_0000;
     region_access(32'h00062303);       // lw x6, 0(a2) -- the RAM's base block
@@ -1409,9 +1161,6 @@ module decoder_tb;
 
     reg_rs1 = 32'h0004_0000;
 
-    // Misalignment outranks the region for a plain access too, the order the
-    // atomic term states. Drop either alignment term from `ls_fault` and two
-    // arms of the cause chain match at once.
     reg_rs1 = 32'h0004_0002;
     in.instr = 32'h00062583;   // lw a1, 0(a2)
     #1;
@@ -1422,9 +1171,6 @@ module decoder_tb;
     check_hex("...and a misaligned sw reports cause 6", trap_cause, 32'd6);
     reg_rs1 = 32'h0004_0000;
 
-    // Misalignment outranks the region, which keeps the four data causes
-    // disjoint and matches what the reference model reports. Drop the alignment
-    // term from the region test and two arms of the cause chain match at once.
     reg_rs1 = 32'h0004_0002;
     in.instr = 32'h1006252f;
     #1;
@@ -1435,8 +1181,6 @@ module decoder_tb;
     check_hex("...and a misaligned AMO out of region reports cause 6",
               trap_cause, 32'd6);
 
-    // ...and with the platform answering, the same encodings issue. Without
-    // this the file would pass on a core that faulted every atomic.
     reg_rs1 = 32'h0001_0000;
     atomic_supported = 1'b1;
     in.instr = 32'h1006252f;
@@ -1446,9 +1190,6 @@ module decoder_tb;
     #1;
     check_bit("...nor does an AMO there", dut.trap_pending, 1'b0);
 
-    // A refused atomic publishes none of its eleven flags, so no transaction
-    // goes out and no reservation is taken. The misaligned case below asserts
-    // the same thing for the other reason an atomic can trap.
     atomic_supported = 1'b0;
     reg_rs1 = 32'h0004_0000;
     present_and_fetch(32'h003120af);   // amoadd.w x1, x3, (x2)
@@ -1461,11 +1202,6 @@ module decoder_tb;
     atomic_supported = 1'b1;
     reg_rs1 = 32'b0;
 
-    // The scoreboard. An AMO's result arrives a cycle later than a load's and a
-    // store-conditional writes a register at all, which no other store does --
-    // so both are checked, at the one place decode can see it, for the gap the
-    // scoreboard forbids: an in-flight rd invisible for a cycle between issue
-    // and the regfile write-through.
     in.pc = 32'h0000_0700;
     present_and_fetch(32'h003120af);   // amoadd.w x1, x3, (x2)
     check_bit("an AMO issues", dut.issuing, 1'b1);
@@ -1475,35 +1211,21 @@ module decoder_tb;
     check_hex("...carrying its rd, where the scoreboard can see it",
               {27'b0, out.rd}, 32'd1);
     check_bit("...and its own flag", out.is_amoadd, 1'b1);
-    // Published beside the nine rather than ORed back together by each reader.
-    // Decode spends the write cycle off this bit and rtl/accessor.v routes the
-    // read-modify-write off it, so the two would agree about an AMO and
-    // disagree about which cycle the bus is busy.
     check_bit("...and the AMO bit the write cycle is spent on", out.is_amo, 1'b1);
     in.instr = 32'h00108093;           // addi x1, x1, 1 -- reads the AMO's rd
     #1;
     check_bit("...so the instruction behind it interlocks", dut.hazard_rs1, 1'b1);
 
-    // The atomic wait itself, which is the sixth stall reason. It is raised on
-    // the cycle after the AMO issues, because that is the cycle rtl/accessor.v
-    // needs the bus for the write half.
     check_bit("an AMO in flight raises the atomic wait", dut.atomic_stall, 1'b1);
     check_bit("...and that is a stall", dut.stall, 1'b1);
     check_bit("...so nothing issues", dut.issuing, 1'b0);
     check_hex("...and the pc holds", next_pc, pc);
     @(posedge clk);
     #1;
-    // BUBBLES rather than holds, which is the opposite of the divider's
-    // ruling. The executor has already taken the AMO, so a held decoder_out
-    // would put a second read on the bus beside the write and retire the
-    // instruction twice. Only the arm order in the publish block decides this.
     check_bit("the atomic wait bubbles decoder_out rather than holding it",
               out.valid, 1'b0);
     check_bit("...and it is over after that one cycle", dut.atomic_stall, 1'b0);
 
-    // A held AMO has not been taken yet, so the write cycle is not next and the
-    // wait must not be raised. Without this the wait would fire on every cycle
-    // of a divide and cost the pipeline an instruction each time.
     in.pc = 32'h0000_0740;
     present_and_fetch(32'h003120af);
     @(posedge clk);
@@ -1527,9 +1249,6 @@ module decoder_tb;
     @(posedge clk);
     #1;
 
-    // A store-conditional is a store that writes a register. Neither lr.w nor
-    // sc.w needs the extra cycle -- each is one bus transaction -- so neither
-    // raises the wait.
     in.pc = 32'h0000_0780;
     present_and_fetch(32'h183120af);   // sc.w x1, x3, (x2)
     check_bit("sc.w issues", dut.issuing, 1'b1);
@@ -1555,12 +1274,6 @@ module decoder_tb;
     check_bit("...and no AMO bit", out.is_amo, 1'b0);
     check_bit("...and raises no atomic wait either", dut.atomic_stall, 1'b0);
 
-    // The seventh stall reason: the platform has given the shared bus to
-    // somebody else. Nothing single-hart raises it, so this is the only place
-    // in the tree that says which arm of the publish block it takes, and both
-    // ways of getting that wrong are silent -- a hold hands the executor an
-    // instruction it has already run, and a bubble on the divide's cycle throws
-    // away one it has not.
     in.pc = 32'h0000_0840;
     present_and_fetch(32'h00100093);   // addi x1, x0, 1
     @(posedge clk);
@@ -1577,8 +1290,6 @@ module decoder_tb;
     check_bit("...and no trap is committed on a cycle that issued nothing",
               trap_entry, 1'b0);
 
-    // The divider holds; every other reason bubbles. On a cycle with both, the
-    // hold has to win or the instruction the executor has not taken is lost.
     divider_stall = 1'b1;
     #1;
     @(posedge clk);
@@ -1599,10 +1310,6 @@ module decoder_tb;
               out.valid, 1'b1);
     check_hex("...as itself", {27'b0, out.rd}, 32'd1);
 
-    // An interrupt is taken on a cycle that would otherwise have issued, so it
-    // waits out an ungranted bus the way it waits out everything else. Without
-    // this the trap would be committed for an instruction that never issued and
-    // then issued again.
     interrupt_pending = 1'b1;
     bus_wait = 1'b1;
     #1;
@@ -1616,8 +1323,6 @@ module decoder_tb;
     @(posedge clk);
     #1;
 
-    // A trapping atomic publishes none of its flags, so nothing downstream
-    // starts a transaction for an instruction that faulted in decode.
     reg_rs1 = 32'h0001_0002;
     in.pc = 32'h0000_0800;
     present_and_fetch(32'h003120af);

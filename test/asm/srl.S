@@ -1,11 +1,6 @@
 # See LICENSE for license details.
 
-#*****************************************************************************
-# srl.S
-#-----------------------------------------------------------------------------
-#
 # Test srl instruction.
-#
 
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -13,9 +8,7 @@
 RVTEST_RV64U
 RVTEST_CODE_BEGIN
 
-  #-------------------------------------------------------------
   # Arithmetic tests
-  #-------------------------------------------------------------
 
 #define TEST_SRL(n, v, a) \
   TEST_RR_OP(n, srl, ((v) & ((1 << (__riscv_xlen-1) << 1) - 1)) >> (a), v, a)
@@ -38,25 +31,15 @@ RVTEST_CODE_BEGIN
   TEST_SRL( 15, 0x0000000021212121, 14 );
   TEST_SRL( 16, 0x0000000021212121, 31 );
 
-  # Verify that shifts only use bottom six(rv64) or five(rv32) bits
-
   TEST_RR_OP( 17, srl, 0x0000000021212121, 0x0000000021212121, 0xffffffffffffffc0 );
   TEST_RR_OP( 18, srl, 0x0000000010909090, 0x0000000021212121, 0xffffffffffffffc1 );
   TEST_RR_OP( 19, srl, 0x0000000000424242, 0x0000000021212121, 0xffffffffffffffc7 );
   TEST_RR_OP( 20, srl, 0x0000000000008484, 0x0000000021212121, 0xffffffffffffffce );
   TEST_RR_OP( 21, srl, 0x0000000000000000, 0x0000000021212121, 0xffffffffffffffff );
 
-  #-------------------------------------------------------------
-  # Source/Destination tests
-  #-------------------------------------------------------------
-
   TEST_RR_SRC1_EQ_DEST( 22, srl, 0x01000000, 0x80000000, 7  );
   TEST_RR_SRC2_EQ_DEST( 23, srl, 0x00020000, 0x80000000, 14 );
   TEST_RR_SRC12_EQ_DEST( 24, srl, 0, 7 );
-
-  #-------------------------------------------------------------
-  # Bypassing tests
-  #-------------------------------------------------------------
 
   TEST_RR_DEST_BYPASS( 25, 0, srl, 0x01000000, 0x80000000, 7  );
   TEST_RR_DEST_BYPASS( 26, 1, srl, 0x00020000, 0x80000000, 14 );

@@ -1,33 +1,6 @@
 #!/bin/bash
-# Builds every program in test/asm, runs it under the cxxrtl runner (`sim`), and
-# grades the pass/fail table against test/EXPECTED_FAIL. Invoked by `make test`.
-#
-# TWO PROGRAM SHAPES, and the difference is which memory holds `.data` at
-# power-on. A `.S` program is freestanding: test/asm/sections.lds links `.data`
-# at its virtual address in RAM and the loop below pokes it straight into the
-# simulated RAM, which is a thing a harness can do and the SoC cannot. A `.c`
-# program is linked by test/asm/boot.lds with `.data`'s LOAD address in ROM and
-# entered through test/crt0.S, which copies it into RAM and zeroes `.bss` before
-# main -- the image the hardware can actually boot from. test/cosim.py's
-# assemble(), the Makefile's soc-rom target and test/dual_smoke.sh build the
-# same shapes from the same inputs, and test/dual_build.sh copies the `.S` arm;
-# a change here is a change in every one of them.
-#
-# Usage: run_tests.sh <sim-binary> <asm-dir> <expected-fail-file> <floor-file>
-#
-# STALL_REPORT=1 additionally runs the simulator with `--stalls` and prints
-# test/stall_report.py's cycle-accounting table. That is `make cycles`, not
-# `make test`: the counting costs a debug_eval() per cycle, and a CPI figure is
-# a measurement rather than a merge gate. Nothing about the pass/fail table or
-# the comparison against the baseline changes either way.
-#
-# This is the merge gate. The failure that matters is passing without having
-# tested anything, and that is what every check below is for. test/probe_gates.sh
-# breaks each one and makes sure it fails, because a check whose failing branch
-# has never run may not work at all.
-#
-# `set -e` is on. Where a command is expected to exit nonzero it is handled right
-# there, so error-exit stays on everywhere else.
+# Builds every program in test/asm, runs it under the cxxrtl runner (`sim`), and grades
+# the pass/fail table against test/EXPECTED_FAIL. Invoked by `make test`.
 set -euo pipefail
 
 if [ "$#" -ne 4 ]; then
@@ -43,9 +16,7 @@ CYCLES=5000
 HERE=$(cd "$(dirname "$0")" && pwd)
 STALL_REPORT=${STALL_REPORT:-0}
 
-# A baseline that is missing or cannot be read gives an empty expected set. If
-# every test passes, that matches, and the run prints "Failure list matches"
-# having compared nothing.
+# A baseline that is missing or cannot be read gives an empty expected set.
 if [ ! -f "$EXPECTED_FAIL" ] || [ ! -r "$EXPECTED_FAIL" ]; then
   echo "error: baseline '$EXPECTED_FAIL' does not exist or is not readable." >&2
   echo "The gate compares the failure set against it; without it there is no gate." >&2
@@ -59,17 +30,14 @@ if [ ! -f "$OBSERVED_FLOOR" ] || [ ! -r "$OBSERVED_FLOOR" ]; then
   exit 1
 fi
 
-# Runs before anything is assembled. Without it, a suite that lost half its
-# programs still passes every program it found and matches an empty baseline.
-# It is a separate script so test/run_cosim.sh can run the same check on the
-# same file, rather than the two legs each deciding what the suite is.
+# Runs before anything is assembled.
 if ! "$HERE/check_suite_shape.sh" "$ASM_DIR" "$OBSERVED_FLOOR"; then
   echo "error: the suite does not match its manifest; nothing was run." >&2
   exit 1
 fi
 
-# A line this cannot parse is a floor nothing enforces, so say so rather than
-# skipping it.
+# A line this cannot parse is a floor nothing enforces, so say so rather than skipping
+# it.
 floors=$(sed -e 's/#.*//' "$OBSERVED_FLOOR" | awk 'NF { $1=$1; print }')
 malformed_floor=$(printf '%s\n' "$floors" | awk 'NF && (NF != 3 || $2 !~ /^[0-9]+$/ || $3 !~ /^[0-9]+$/) { print }')
 if [ -n "$malformed_floor" ]; then
@@ -78,13 +46,9 @@ if [ -n "$malformed_floor" ]; then
   exit 1
 fi
 
-# A C program's floor is a silence bound, not an observation: its instruction
-# count is whatever that gcc chose to inline, and the two toolchains this repo
-# builds with disagree by about 1% on identical source. Recorded as a floor,
-# that disagreement is red for a reason the floor cannot distinguish from the
-# one it exists for. This rejects a number copied out of the table rather than
-# leaving it to the header of $OBSERVED_FLOOR, which is what "copy the third
-# column" already talked someone past once.
+# A C program's floor is a silence bound, not an observation: its instruction count is
+# whatever that gcc chose to inline, and the two toolchains this repo builds with
+# disagree by about 1% on identical source.
 C_FLOOR_MAX=64
 overspecified=$(printf '%s\n' "$floors" \
   | awk -v max="$C_FLOOR_MAX" '$1 ~ /\.c$/ && ($2 > max || $3 > max) { print }')
@@ -121,9 +85,7 @@ tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-test.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
   exit 1
 }
-# Stop if mktemp gave us nothing. An empty $tmp turns every path below into
-# /<name>.hex, at the root of the disk, and leaves the trap with nothing to
-# clean up.
+# Stop if mktemp gave us nothing.
 if [ -z "$tmp" ] || [ ! -d "$tmp" ]; then
   echo "error: mktemp -d produced no usable directory under ${TMPDIR:-/tmp}." >&2
   exit 1
@@ -135,8 +97,7 @@ declare -a table=()
 passed=0
 stall_counts="$tmp/stall_counts"
 : > "$stall_counts"
-# A bare word with no spaces, so it is expanded unquoted below. An empty array
-# under `set -u` is an unbound variable on the bash macOS ships.
+# A bare word with no spaces, so it is expanded unquoted below.
 sim_stall_flag=""
 if [ "$STALL_REPORT" = "1" ]; then
   sim_stall_flag="--stalls"
@@ -172,8 +133,6 @@ for src in "${programs[@]}"; do
   esac
 
   status="PASS"
-  # Cleared every time round. Left over from the previous program, these would
-  # be checked against this program's floor.
   retires=""
   spec_retires=""
   if ! "${build[@]}" > "$build_log" 2>&1; then
@@ -182,9 +141,6 @@ for src in "${programs[@]}"; do
     status="ASSEMBLE-WARNING"
   fi
 
-  # The empty case gets its own label because it is the quiet one. An empty RAM
-  # image still parses, so the simulator starts, `tohost` reads zero, and every
-  # test that does not depend on data in RAM says PASS.
   if [ "$status" = "PASS" ]; then
     for region in rom ram; do
       if [ "$region" = rom ]; then
@@ -208,18 +164,11 @@ for src in "${programs[@]}"; do
   fi
 
   if [ "$status" = "PASS" ]; then
-    # Turned off rather than using `|| sim_status=$?`. With errexit on, bash 3.2
-    # (macOS /bin/bash) turns a 127 from a missing binary into a 1, and a 1 here
-    # means the test failed. A runner that will not start would look like a bug
-    # in the CPU.
     set +e
     "$SIM" --rom "$rom_hex" --ram "$ram_hex" --cycles "$CYCLES" $sim_stall_flag \
       > "$tmp/$base.run.log" 2>&1
     sim_status=$?
     set -e
-    # These exit codes come from test/cxxrtl.cc. 4, 5 and 6 get their own labels
-    # because RUNNER-ERROR reads as "the simulator would not start", and none of
-    # them mean that.
     case $sim_status in
       0) status="PASS" ;;
       1) num=$(awk '/^FAIL/{print $2; exit}' "$tmp/$base.run.log")
@@ -236,9 +185,6 @@ for src in "${programs[@]}"; do
     retires=${1:-}
     spec_retires=${2:-}
 
-    # Collected for every program that ran, whatever its verdict: a program that
-    # times out is exactly the one whose cycles are worth looking at. The retire
-    # count comes from the line above rather than being counted twice.
     if [ "$STALL_REPORT" = "1" ]; then
       stall_line=$(awk '/^STALLS /{$1=""; print; exit}' "$tmp/$base.run.log")
       if [ -n "$stall_line" ]; then
@@ -247,21 +193,13 @@ for src in "${programs[@]}"; do
     fi
   fi
 
-  # A PASS with no counts means the binary that ran is not the runner this
-  # script expects, and the two checks below would quietly do nothing.
   if [ "$status" = "PASS" ] && { [ -z "$retires" ] || [ -z "$spec_retires" ]; }; then
     status="NO-COUNTS"
   fi
 
-  # `>=`, not an exact match. The counts move for ordinary reasons; what we are
-  # looking for is a program that stopped reporting anything. Only PASS programs
-  # are checked, since a failing one already has a more useful status.
   if [ "$status" = "PASS" ]; then
     floor=$(printf '%s\n' "$floors" | awk -v n="$name" '$1 == n { print $2, $3; found = 1 } END { exit !found }') || floor=""
     if [ -z "$floor" ]; then
-      # check_suite_shape.sh above already requires every program to have a
-      # line, so this should never happen. It is here because an empty $floor
-      # would make the two comparisons below compare against nothing.
       status="NO-FLOOR"
     else
       set -- $floor
@@ -286,9 +224,6 @@ for src in "${programs[@]}"; do
       cat "$build_log" >&2
     fi
   fi
-  # The counts stay out of the name and status the baseline matches on. They
-  # move for ordinary reasons, and putting them in would break every baseline
-  # entry the first time one did.
   table+=("$(printf '%-16s %-22s %s' "$name" "$status" \
     "retires=${retires:--} spec-checked=${spec_retires:--}")")
 done
@@ -297,10 +232,6 @@ printf '%s\n' "${table[@]}"
 echo
 echo "$passed/${#table[@]} passed"
 
-# Before the baseline comparison, so the verdict stays the last thing printed.
-# The accounting is graded on its own terms -- every cycle charged to a named
-# reason -- and that is a different question from whether the programs passed,
-# so its status is kept apart and applied at the end.
 stall_report_status=0
 if [ "$STALL_REPORT" = "1" ]; then
   set +e
@@ -309,8 +240,6 @@ if [ "$STALL_REPORT" = "1" ]; then
   set -e
 fi
 
-# `NF` has to come before the rebuild, not after. Assigning to $1 sets NF to 1,
-# so `{$1=$1} NF` would bring every blank and comment line back as an entry.
 actual_sorted=$(printf '%s\n' "${failures[@]:-}" | awk 'NF { $1=$1; print }' | sort)
 expected_sorted=$(sed -e 's/#.*//' "$EXPECTED_FAIL" | awk 'NF { $1=$1; print }' | sort)
 

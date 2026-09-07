@@ -34,12 +34,10 @@ import collections
 import re
 import sys
 
-# A LUT or flip-flop evaluating. Everything else icetime lists is interconnect.
+# A LUT or flip-flop evaluating.
 LOGIC_CELLS = {"LogicCell40"}
 
-# A hop that stays inside the carry chain: `carryin -> carryout`. The chain's
-# entry hop (`in2 -> carryout`) is driven by an ordinary LUT input and counts
-# with the LUT levels, which is what makes this the interconnect-free set.
+# A hop that stays inside the carry chain: `carryin -> carryout`.
 CARRY_HOP = "carryin -> carryout"
 # The interconnect that belongs to the carry chain rather than to a LUT level.
 CARRY_ROUTING = {"ICE_CARRY_IN_MUX"}
@@ -48,11 +46,10 @@ CARRY_ROUTING = {"ICE_CARRY_IN_MUX"}
 HOP = re.compile(r"^\s+(\S+) \((\w+)\)([^:]*): ([0-9.]+) ns")
 # The named nets between hops: `<cumulative> ns <net> (<name>)`
 NET = re.compile(r"^\s+[0-9.]+ ns \S+ \((.+)\)\s*$")
-# The last line of the path listing: `              lcout -> <endpoint>`
+# The last line of the path listing: ` lcout -> <endpoint>`
 ENDPOINT = re.compile(r"^\s+\S+ -> (\S+)\s*$")
 TOTAL = re.compile(r"^Total path delay: ([0-9.]+) ns")
 LEVELS = re.compile(r"^Total number of logic levels: (\d+)")
-
 
 def summarise(report):
     """Walk one `icetime -r` report and return the split, or exit saying why not.
@@ -69,9 +66,6 @@ def summarise(report):
     lut_hops = 0
     per_cell = collections.defaultdict(float)
     counts = collections.Counter()
-    # The first named net on the path is the readable name for where it starts:
-    # icetime names the placed instance, yosys names the net, and the net is the
-    # one a person can find in rtl/.
     start_point = None
     end_point = None
     reported_total = None
@@ -118,10 +112,7 @@ def summarise(report):
             f"path was found in it. That is a failed measurement, not a fast design."
         )
 
-    # The walk must account for the delay icetime reports. A regex that silently
-    # stopped matching a hop class would otherwise shift the split -- toward
-    # logic or toward routing depending on which class it dropped -- and the
-    # summary would still look like a summary.
+    # The walk must account for the delay icetime reports.
     if abs(walked - reported_total) > 0.05:
         sys.exit(
             f"{report}: summed hops come to {walked:.2f} ns but icetime "
@@ -145,7 +136,6 @@ def summarise(report):
         "per_cell": per_cell,
         "counts": counts,
     }
-
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -193,7 +183,6 @@ def main():
                 f"*** stop targeting the board clock and needs its own ADR."
             )
         print(f"\nRATCHET: {mhz:.2f} MHz against a {args.min_mhz:.2f} MHz floor -- OK")
-
 
 if __name__ == "__main__":
     main()

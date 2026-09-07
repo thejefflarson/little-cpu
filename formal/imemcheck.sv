@@ -21,14 +21,11 @@ module testbench (
   logic [31:0] uut_imem_data;
   logic [31:0] uut_imem_addr2;
   logic [31:0] uut_imem_data2;
-  // The fetch address one cycle early. Unread: the assume below pins the data
-  // ports against the addresses the core presents in the same cycle, which is
-  // the combinational fetch bus this task was written for.
+  // The fetch address one cycle early.
   logic [31:0] uut_imem_addr_next;
-  // The address the core publishes for the platform to decode. Unread here:
-  // `atomic_supported` is tied high, so no atomic can fault in this task.
+  // The address the core publishes for the platform to decode.
   logic [31:0] atomic_addr;
-  // The lock an arbiter would read. Unread here: one hart, one bus initiator.
+  // The lock an arbiter would read.
   logic mem_lock;
   logic bus_request;
   logic [31:0] mem_addr;
@@ -49,13 +46,7 @@ module testbench (
     .text_write(text_write)
   );
 
-  // The one halfword this task watches. Its address is fixed for the trace; what
-  // memory holds there starts free and then follows any store that covers it.
-  //
-  // This is written here rather than taken from riscv-formal's rvfi_imem_check,
-  // which fixes the contents for the whole trace as well as the address. That
-  // model has no write port, and the checker is what drives the data, so there
-  // is no way to tell it a store happened.
+  // The one halfword this task watches.
   `rvformal_rand_const_reg [31:0] shadow_addr;
   logic [15:0] shadow_data;
   logic        shadow_stored = 1'b0;
@@ -75,23 +66,6 @@ module testbench (
     end
   end
 
-  // Assumed: whenever either fetch port covers the watched halfword, the core is
-  // handed what the shadow holds.
-  //
-  // Nothing discharges this. The backing is that rtl/imemory.v answers both
-  // fetch ports from one array and writes it from the same strobes read here.
-  // Believed, not proved. It reaches only the assertion below, and it constrains
-  // inputs to the core rather than outputs, so it can shrink the set of traces
-  // but cannot excuse a wrong answer on one that survives.
-  //
-  // Dropped on a stolen window, where the banks answered the data access and the
-  // fetch ports carry that word instead. That is also the one cycle on which the
-  // shadow can be ahead of the array: a store lands on the same edge it steals,
-  // and the first fetch that can see it is the cycle after.
-  //
-  // Compared in the same cycle, with no handshake to wait on, because
-  // rtl/fetcher.v drives both addresses and the windowed instruction
-  // combinationally on every non-reset cycle.
   always_comb begin
     if (!reset && !fetch_stall) begin
       if (uut_imem_addr      == shadow_addr) assume(uut_imem_data [15: 0] == shadow_data);
@@ -101,15 +75,7 @@ module testbench (
     end
   end
 
-  // Every retire at the watched halfword reports it. Pinning both fetch ports to
-  // one halfword model is what makes this the consistency check for the dual-word
-  // fetch window: if imem_addr2 ever disagreed with imem_addr about what sits at
-  // an address, this catches it.
-  //
-  // It stops at the first store to that halfword and does not resume. An
-  // instruction fetched before the store can still retire after it, correctly
-  // reporting the old encoding -- that is the window `fence.i` closes. Asserting
-  // against the new value there would fail correct hardware.
+  // Every retire at the watched halfword reports it.
   always_ff @(posedge clk) begin
     if (!reset && rvfi_valid && !shadow_stored) begin
       if (rvfi_pc_rdata == shadow_addr)
@@ -133,25 +99,15 @@ module testbench (
     .mem_ren(mem_ren),
     .mem_rdata(mem_rdata),
     .fetch_stall(fetch_stall),
-    // Tied off: this task's memory model answers every address, so there is no
-    // window for a fetch to fall outside of.
     .imem_fault(1'b0),
-    // Tied off high: this task's memory model answers every address, so every
-    // address it answers is one a reservation may be held at, and one an atomic
-    // is answered at.
     .mem_reservable(1'b1),
     .atomic_addr(atomic_addr),
     .atomic_supported(1'b1),
-    // Tied off; formal/check-multihart-tie-off.py enforces it. formal/wrapper.v
-    // carries the reason the riscv-formal side of the tree describes one hart.
     .bus_wait(1'b0),
     .snoop_write(1'b0),
     .snoop_addr(32'b0),
     .mem_lock(mem_lock),
     .bus_request(bus_request),
-    // Tied off; formal/check-interrupt-tie-off.py enforces it. formal/wrapper.v
-    // carries the reason the riscv-formal side of the tree runs with no
-    // interrupt in the trace.
     .irq_timer(1'b0),
     .trap(trap),
     `RVFI_CONN

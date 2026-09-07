@@ -52,20 +52,11 @@ import subprocess
 import sys
 
 # THREE exit statuses, and the third one is why this is not `sys.exit(message)`.
-# 0 is the answer "fresh", 1 is the answer "stale", and 1 is ALSO what
-# soc/compare/product_diff.py --require-news spends on "no news" -- the benign
-# verdict the scheduled re-take reads as "open no pull request". Python exits 1
-# for `sys.exit(str)`, so a refusal raised anywhere stale_reasons() reaches used
-# to arrive at that workflow as a clean negative: no PR, no error, nothing said.
-# A refusal is a statement that the question could not be asked, so it takes a
-# status of its own and every caller can tell the two apart.
 REFUSED = 2
-
 
 def refuse(message):
     print(message, file=sys.stderr)
     sys.exit(REFUSED)
-
 
 def load(path):
     try:
@@ -76,7 +67,6 @@ def load(path):
                "there is no product to report on without it.")
     except (OSError, json.JSONDecodeError) as exc:
         refuse(f"*** {path} could not be read as the product artifact: {exc}")
-
 
 def moved_paths(repo, base):
     """Every path under rtl/ or soc/compare/ that differs between `base` and the
@@ -99,7 +89,6 @@ def moved_paths(repo, base):
                "this check can confirm is still current.")
     return [line for line in out.stdout.splitlines() if line]
 
-
 def stale_reasons(pair, repo, current):
     """Every reason a MEASURED `pair` is stale, or [] if it is fresh.
 
@@ -118,9 +107,8 @@ def stale_reasons(pair, repo, current):
     empty value outright closes that whether or not it has happened yet.
     """
     for field, value in current.items():
-        # `.strip()`, not `== ""`: a `make print-VAR` that resolved to
-        # whitespace is the same non-answer, and it passes a shell `[ -n ]`
-        # test on the way here.
+        # `.strip()`, not `== ""`: a `make print-VAR` that resolved to whitespace is the
+        # same non-answer, and it passes a shell `[ -n ]` test on the way here.
         if str(value).strip() == "":
             refuse(f"*** --current {field}= is empty. That is not a value "
                    "to compare against the stamp -- it means whatever "
@@ -141,7 +129,6 @@ def stale_reasons(pair, repo, current):
         if stamped is not None and str(value) != str(stamped):
             reasons.append(f"{field} changed: stamped '{stamped}', now '{value}'")
     return reasons
-
 
 def report_pair(benchmark, pair, args):
     status = pair.get("status")
@@ -179,7 +166,6 @@ def report_pair(benchmark, pair, args):
              f"{ratio['median']:.3f}x median-on-median")
     return 0
 
-
 def parse_current(specs):
     current = {}
     for spec in specs:
@@ -188,7 +174,6 @@ def parse_current(specs):
         field, value = spec.split("=", 1)
         current[field] = value
     return current
-
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
@@ -214,7 +199,6 @@ def main():
                "`make compare-product` first.")
 
     sys.exit(report_pair(args.benchmark, pair, args))
-
 
 if __name__ == "__main__":
     main()

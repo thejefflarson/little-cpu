@@ -5,10 +5,6 @@ on:
   push:
     branches: [main]
 
-# Eleven jobs a run, several pull requests at once, and a runner pool smaller
-# than that: a superseded run is capacity the next one waits behind. A push to a
-# pull request cancels its own earlier run; a push to main never cancels,
-# because main's result is the record for that commit.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -16,29 +12,12 @@ concurrency:
 permissions:
   contents: read
 
-# The repo is public and `little-cpu-runners` is a self-hosted pool: a job
-# on it that runs a PR head's own `make`/shell recipes gives that PR author
-# code execution inside the cluster once a maintainer has approved one of
-# their runs, and GitHub does not ask again for that author's later PRs. So
-# every job below picks its runner with this expression rather than a bare
-# `runs-on: little-cpu-runners`:
-#
-#   ${{ (github.event_name != 'pull_request' ||
-#        github.event.pull_request.head.repo.full_name == github.repository)
-#       && 'little-cpu-runners' || 'ubuntu-latest' }}
-#
-# A fork PR gets ubuntu-latest under the SAME job name, not a skip: a skipped
-# required check either blocks the PR forever or, depending on how branch
-# protection is set, counts as passing -- and the second is worse than the
-# exposure this guards. On `push`, `github.event.pull_request` does not
-# exist, so the first disjunct is true and the second is never evaluated. On
-# a pull_request from this repository's own branches -- how every PR here has
-# been opened so far -- the head repo equals this one, so the second disjunct
-# is true. Only a pull_request whose head repo is a fork takes ubuntu-latest.
+# Every job picks its runner with an expression rather than a bare `runs-on:
+# little-cpu-runners`: the pool is self-hosted and the repo is public, so a fork PR's own
+# recipes must not run on it.
 jobs:
   elaborate:
     name: elaborate
-    # Fork-PR routing: see the note above `jobs:` for what this picks and why.
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
     timeout-minutes: 8
     steps:
@@ -46,31 +25,10 @@ jobs:
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # The repo is 3.95 MiB and 473 commits, so a full clone costs about a
-          # second and buys every check the history it might need. Depth 1 is
-          # actions/checkout's default, not a decision anyone took here, and a
-          # grader that walks history under it does not fail loudly -- it grades
-          # nothing, which is the one outcome this tree refuses.
-          fetch-depth: 0
-
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
 
       - name: yosys write_cxxrtl, warnings promoted
-        # `make elaborate-strict` runs `proc; opt_clean; check` before
-        # write_cxxrtl, which is what reports "is used but has no driver"; the
-        # bare recipe elaborates an undriven wire silently and exits 0.
-        #
-        # Do not spell the source list out here. This step once did, it diverged
-        # from the Makefile's, and the gate spent a run elaborating a testbench
-        # whose memory instances resolved to nothing.
-        #
-        # An allowlist rather than `yosys -e '.*'`: this design legitimately
-        # emits "Deep recursion in AST simplifier", which carries no correctness
-        # content. Implicit declarations and conflicting drivers already abort
-        # hard before write_cxxrtl, so what is promoted here is undriven wires
-        # and width mismatches.
         run: |
           set -euo pipefail
           if ! make elaborate-strict > /tmp/yosys-elaborate.log 2>&1; then
@@ -87,18 +45,9 @@ jobs:
           echo "yosys write_cxxrtl: zero promoted warnings"
 
       - name: iverilog full-pipeline elaboration (second frontend)
-        # rvfi_macros.vh clones the pinned riscv-formal, so this step also
-        # exercises the from-scratch-clone pin guard.
-        #
-        # iverilog emits 16 "sorry: constant selects in always_* processes"
-        # notes here, all against rtl/writeback.v's rvfi shadow reads, and still
-        # exits 0. It was 20 before the write port moved to continuous assigns.
-        # They are notes rather than warnings; do not grep for them.
         run: make rvfi_macros.vh testbench.vvp
 
       - name: iverilog full-pipeline simulation (one fixed program, graded)
-        # test/testbench.v fatals on a nonzero monitor errcode or a write/retire
-        # floor. Not the `.S` suite -- it has no image loader.
         run: vvp testbench.vvp
 
       - name: Report job wall time
@@ -112,40 +61,21 @@ jobs:
 
   test:
     name: test
-    # Fork-PR routing: see the note above `jobs:` for what this picks and why.
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
-    # Two to five minutes on an idle pool, and killed at 10m25s under contention
-    # -- eleven jobs a run across every open pull request, against four runners.
-    # A cancelled job reads as a failed gate rather than as a busy pool, and this
-    # budget is here to catch a run that hangs, so it sits clear of a loaded one.
     timeout-minutes: 25
     steps:
       - name: Record job start
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # The repo is 3.95 MiB and 473 commits, so a full clone costs about a
-          # second and buys every check the history it might need. Depth 1 is
-          # actions/checkout's default, not a decision anyone took here, and a
-          # grader that walks history under it does not fail loudly -- it grades
-          # nothing, which is the one outcome this tree refuses.
-          fetch-depth: 0
 
-      # A fork PR routes here to ubuntu-latest (see the note above
-      # `jobs:`), whose image has no RISC-V cross compiler baked in --
-      # unlike the self-hosted pool's, where installing one is blocked by
-      # runAsNonRoot. Installing before the assertion below is the bridge
-      # between the two; on the self-hosted pool this step's condition is
-      # false and it does not run.
+      # ubuntu-latest has no cross compiler, and the self-hosted image bakes one in
+      # because its pods are runAsNonRoot and apt cannot install one there. On the pool
+      # this step's condition is false.
       - name: Install the RISC-V cross compiler (fork PR routing only)
         if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
         run: sudo apt-get update && sudo apt-get install -y gcc-riscv64-unknown-elf clang
 
-      # An assertion, not an install: these runners are runAsNonRoot with
-      # allowPrivilegeEscalation:false, so `sudo apt-get install` fails with
-      # "the 'no new privileges' flag is set" and the cross compiler has to be
-      # baked into the runner image instead.
       - name: Verify the toolchain is present in the runner image
         uses: ./.github/actions/verify-toolchain
         with:
@@ -166,70 +96,20 @@ jobs:
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # Deletes a term from rtl/ and requires exactly the detectors
-  # test/MUTATION_DETECTORS pairs with it to go red. `test` runs probe-gates,
-  # which asks whether a graded comparison can report a failure at all; this
-  # asks whether a program still detects the property it was written for, and
-  # that has been answered no here more than once.
-  #
-  # A job of its own rather than a step of `test`: it rebuilds the cxxrtl runner
-  # once per mutation, measured at 3m28s against that job's 70s, and it grows
-  # with the manifest. It is shorter than `formal` and `components`, so it costs
-  # a runner slot rather than wall time. A red result here reads as "a detector
-  # stopped detecting", not as a suite failure.
-  #
-  # 25 minutes because it grows with the manifest and this step redirects its log:
-  # at ten mutations it runs 12-13 minutes, so a 15-minute budget was at 85% of
-  # itself. A job killed by its timeout is `cancelled` rather than `failure` and
-  # publishes nothing, so it reads as a caught defect with no output to say
-  # otherwise -- raise this before adding a mutation, not after.
-  #
-  # Same toolchain as `test`: this builds and runs `sim`, so it needs the cross
-  # compiler, clang++ and yosys, and nothing that only synthesis or Sail needs.
   mutation-check-shard:
     name: mutation-check-shard
-    # SHARDED because this job is the run's critical path, not because the pool
-    # is short of capacity: measured over a full run, twelve jobs did 44.9
-    # minutes of work in 17.6 minutes of wall time -- an effective parallelism
-    # of 2.55 against a scale set that reached five runners -- and the wall time
-    # was this job's alone, grinding after everything else had finished.
-    #
-    # Each shard measures its own baseline rather than sharing one. That is
-    # about 10s against 45s for a mutation, and the pool has idle capacity by
-    # the arithmetic above, so duplicating it costs nothing that is scarce and
-    # saves an artifact hand-off between jobs.
-    #
-    # fail-fast: false because every shard's verdict is wanted. A shard that
-    # cancels its siblings turns "these three pairings broke" into "one of them
-    # did", which is the report this check exists to give.
     strategy:
       fail-fast: false
       matrix:
         shard: [1, 2, 3, 4]
-    # Fork-PR routing: see the note above `jobs:` for what this picks and why.
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
-    # Eleven mutations, each rebuilding the cxxrtl runner: about nine minutes of
-    # work on an idle machine, and every mutation added spends about a minute
-    # more. It ran 31 minutes on main against a 25-minute budget, because the
-    # pool serves eleven jobs a run across every open pull request -- so a budget
-    # near the idle time gets the job killed mid-run, which reads as a failed
-    # gate rather than as a busy pool, with the log still inside the redirect
-    # below. This is set well clear of a loaded run.
     timeout-minutes: 45
     steps:
       - name: Record job start
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # The repo is 3.95 MiB and 473 commits, so a full clone costs about a
-          # second and buys every check the history it might need. Depth 1 is
-          # actions/checkout's default, not a decision anyone took here, and a
-          # grader that walks history under it does not fail loudly -- it grades
-          # nothing, which is the one outcome this tree refuses.
-          fetch-depth: 0
 
-      # Fork-PR routing only -- see the `test` job for why.
       - name: Install the RISC-V cross compiler (fork PR routing only)
         if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
         run: sudo apt-get update && sudo apt-get install -y gcc-riscv64-unknown-elf clang
@@ -243,17 +123,6 @@ jobs:
         uses: ./.github/actions/setup-oss-cad-suite
 
       - name: make mutation-check
-        # STREAMED, not redirected. This is the longest job in the matrix, and a
-        # run whose output arrives only at the end is one where a hang and a
-        # slow mutation look identical for ten minutes. Each mutation prints its
-        # name and its verdict as it finishes, so the log says where it is.
-        #
-        # STILL NOT `make mutation-check | tee`, and now nothing is piped at
-        # all: a graded command in a pipeline reports the LAST command's status,
-        # which under a shell that is errexit without pipefail held the formal
-        # job accidentally green for its entire life. `set -o pipefail` below
-        # would cover a pipeline, but the status this step grades is make's and
-        # there is no reason to route it through anything.
         run: |
           set -euo pipefail
           if ! make mutation-check MUTATION_SHARD=${{ matrix.shard }}/4; then
@@ -270,20 +139,8 @@ jobs:
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # THE REQUIRED CHECK KEEPS ITS NAME. Sharding renames the job that does the
-  # work, and a required context that no longer reports blocks every pull
-  # request rather than failing one -- including the pull request that would
-  # introduce the new names. So `mutation-check` survives as a gate over the
-  # shards: branch protection needs no edit, and there is no window where the
-  # mutation gate is not required.
-  #
-  # `needs.<matrix job>.result` is success only when EVERY shard succeeded, and
-  # `if: always()` is what makes this run at all when one did not -- without it
-  # the gate is skipped, and a skipped required check leaves the pull request
-  # waiting rather than red.
-  #
-  # ubuntu-latest on purpose: it compares one string, and putting it on the
-  # self-hosted pool would spend a runner slot on a job that does no work.
+  # THE REQUIRED CHECK KEEPS ITS NAME: a required context that stops reporting blocks
+  # every pull request rather than failing one.
   mutation-check:
     name: mutation-check
     needs: mutation-check-shard
@@ -300,35 +157,16 @@ jobs:
             exit 1
           fi
 
-  # The only oracle here that reads the core's real register array instead of
-  # the core's own report of what it retired. Every other leg evaluates a spec
-  # model on rvfi_*, so a core that mis-reports a value and computes with that
-  # same mis-reported value satisfies all of them and this one alone objects.
-  #
-  # A job of its own, and not a step of `test`: it needs a network fetch none of
-  # the other jobs do, and a red result here has to read as "co-sim", not as a
-  # suite failure. Nothing on `make test`'s path reaches any of it.
   cosim:
     name: cosim
-    # Fork-PR routing: see the note above `jobs:` for what this picks and why.
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
-    # Eight minutes on an idle pool, and the same contention that has killed
-    # `test`, `components` and `mutation-check` mid-run applies here.
     timeout-minutes: 30
     steps:
       - name: Record job start
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # The repo is 3.95 MiB and 473 commits, so a full clone costs about a
-          # second and buys every check the history it might need. Depth 1 is
-          # actions/checkout's default, not a decision anyone took here, and a
-          # grader that walks history under it does not fail loudly -- it grades
-          # nothing, which is the one outcome this tree refuses.
-          fetch-depth: 0
 
-      # Fork-PR routing only -- see the `test` job for why.
       - name: Install the RISC-V cross compiler (fork PR routing only)
         if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
         run: sudo apt-get update && sudo apt-get install -y gcc-riscv64-unknown-elf clang
@@ -341,8 +179,6 @@ jobs:
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
 
-      # Read out of the Makefile rather than written here, so the key names the
-      # bytes the Makefile pins and cannot go on naming an older set.
       - name: Resolve the Sail pin and the directory the fetch is cached in
         id: pin
         run: |
@@ -351,10 +187,6 @@ jobs:
           cat "$RUNNER_TEMP/sail-pin.txt"
           grep -E '^(key|path)=' "$RUNNER_TEMP/sail-pin.txt" >> "$GITHUB_OUTPUT"
 
-      # What is cached is the release tarball, not the unpacked tree, so the
-      # restored bytes still have to meet the Makefile's SHA-256 in the run that
-      # executes what comes out of them. A cache of the tree would put a binary
-      # on PATH that met no checksum here at all.
       - name: Restore the pinned sail-riscv tarball
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -365,10 +197,6 @@ jobs:
         run: make sail-setup
 
       - name: make cosim-suite
-        # Redirected rather than piped -- see the `fit` job for why. What is
-        # graded is test/run_cosim.sh's exit status: the divergence set against
-        # test/COSIM_EXPECTED_FAIL under set equality in both directions, so an
-        # unexpected agreement is as red as an unexpected divergence.
         run: |
           set +e
           make cosim-suite > "$RUNNER_TEMP/cosim.txt" 2>&1
@@ -397,50 +225,23 @@ jobs:
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # Every task in formal/components.sby needs a step here or it runs nowhere.
-  # The standalone decoder proof assumes its pc input is what it last produced,
-  # and components_pcloop is what discharges that, so the decoder task's result
-  # is worth only what pcloop's is.
   components:
     name: components
-    # Fork-PR routing: see the note above `jobs:` for what this picks and why.
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
-    # About five minutes together on an idle pool, and twelve on main under load,
-    # because the pool serves eleven jobs a run across every open pull request. A
-    # budget close to the idle time gets the job killed mid-proof, which reads as
-    # a failed gate rather than as a busy pool. This is here to catch a solver
-    # that hangs, so it sits well clear of a healthy run.
     timeout-minutes: 20
     steps:
       - name: Record job start
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # The repo is 3.95 MiB and 473 commits, so a full clone costs about a
-          # second and buys every check the history it might need. Depth 1 is
-          # actions/checkout's default, not a decision anyone took here, and a
-          # grader that walks history under it does not fail loudly -- it grades
-          # nothing, which is the one outcome this tree refuses.
-          fetch-depth: 0
 
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
 
-      # WHAT THE POD ACTUALLY HAS, printed from a job that runs ON THE POOL.
-      # `formal` is GitHub-hosted because one of its checks was measured at
-      # ~876 MiB against a 1.5 GiB pod holding ~836 MiB at start -- a number with
-      # a date on it, and the thing that decides whether formal can come back to
-      # the minis, where it would be faster. This job is where to read it: it is
-      # pool-routed and, since bitwuzla, the memory-sensitive one.
-      #
-      # `free` reports the HOST from inside a container, so the cgroup lines are
-      # the ones to believe -- v2's memory.max first, then v1's limit_in_bytes,
-      # which is what this host has.
       - name: What this runner actually has
         run: |
-          # nproc does NOT see the CPU quota -- it reports the host's cores --
-          # so the cgroup figures below are the ones that decide JOBS.
+          # `nproc` and `free` both report the HOST from inside a container. Believe the
+          # cgroup lines: v2's memory.max first, then v1's limit_in_bytes.
           echo "nproc (NOT the cap):$(nproc)"
           echo "cgroup cpu.max:     $(cat /sys/fs/cgroup/cpu.max 2>/dev/null \
             || { q=$(cat /sys/fs/cgroup/cpu/cpu.cfs_quota_us 2>/dev/null); \
@@ -465,26 +266,13 @@ jobs:
       - name: Accessor one-transaction proof
         run: make -C formal components_accessor
 
-      # This one make also runs formal/pcloop_cover.sby, which is a prerequisite
-      # of the target rather than a step of its own. That task is the proof's
-      # anti-vacuity control: the increment assertion is excused on an
-      # operand-fetch cycle, and an excuse widened until it covers every issuing
-      # cycle would leave the assertion asking nothing. Wiring it as a
-      # prerequisite is what stops the two from being run apart.
       - name: Fetcher/decoder PC-loop proof (+ its anti-vacuity cover)
         run: make -C formal components_pcloop
 
       - name: Trap commit proof
         run: make -C formal components_traps
 
-      # This one make also runs formal/busarbiter_cover.sby and
-      # formal/busarbiter-probe.py, both prerequisites of the target rather than
-      # steps of their own. The cover says the arbiter still grants somebody and
-      # still holds a lock, so the guarded assertions are reached at all; the
-      # probe builds a fixed-priority arbiter and a mid-lock one and requires
-      # the wait bound and the indivisibility arm to go red for their own
-      # reasons. Starvation has no other grader -- no torture program can catch
-      # it.
+      # Starvation has no other grader: no torture program can catch it.
       - name: Bus arbiter proof (+ its cover and its forced red directions)
         run: make -C formal components_busarbiter
 
@@ -499,11 +287,8 @@ jobs:
 
   lint:
     name: lint
-    # NOT the self-hosted pool, and not the fork-PR expression the other jobs
-    # use: that pool is Linux/aarch64, and svlint publishes no aarch64 Linux
-    # asset at any release, so `make lint-setup` correctly refuses to fetch
-    # something it cannot verify and this job cannot run there at all. It needs
-    # only a checkout and svlint, so a hosted x86_64 runner costs nothing.
+    # NOT the self-hosted pool: it is Linux/aarch64 and svlint publishes no aarch64
+    # asset, so `make lint-setup` correctly refuses to fetch what it cannot verify.
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -511,21 +296,11 @@ jobs:
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # The repo is 3.95 MiB and 473 commits, so a full clone costs about a
-          # second and buys every check the history it might need. Depth 1 is
-          # actions/checkout's default, not a decision anyone took here, and a
-          # grader that walks history under it does not fail loudly -- it grades
-          # nothing, which is the one outcome this tree refuses.
-          fetch-depth: 0
 
       - name: Install svlint at the pin
         run: make lint-setup
 
       - name: make lint
-        # GITHUB_ACTIONS is set on every runner, so `make lint` passes
-        # --github-actions and each finding also lands as an ::error annotation
-        # on the PR diff.
         run: make lint
 
       - name: Report job wall time
@@ -537,15 +312,8 @@ jobs:
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # Quote this job's number and name the toolchain with it: the same commit
-  # synthesises 32 cells lower here than under a local Homebrew yosys. The setup
-  # action resolves the latest OSS CAD Suite rather than pinning it -- what
-  # formal/pin.mk pins is riscv-formal, not this -- so this count can move with
-  # no RTL changing. Not in main's required set, deliberately -- area is a
-  # design constraint, not a correctness one.
   fit:
     name: fit
-    # Fork-PR routing: see the note above `jobs:` for what this picks and why.
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
     timeout-minutes: 8
     steps:
@@ -553,28 +321,14 @@ jobs:
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # The repo is 3.95 MiB and 473 commits, so a full clone costs about a
-          # second and buys every check the history it might need. Depth 1 is
-          # actions/checkout's default, not a decision anyone took here, and a
-          # grader that walks history under it does not fail loudly -- it grades
-          # nothing, which is the one outcome this tree refuses.
-          fetch-depth: 0
 
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
 
       - name: make fit
-        # Never pipe a graded command in a `run:` block. Without an explicit
-        # `shell:` key the step is `bash -e {0}` -- errexit but not pipefail --
-        # so `cmd | tee` takes its status from `tee` and always succeeds. This
-        # repo shipped exactly that once. The same shape in `soc-timing`,
-        # `nonperturbation` and the `formal` gate is this rule.
-        #
-        # `make fit` expects placement to FAIL: the fit top presents 231 SB_IO
-        # against sg48's 39, so nextpnr always errors on a pad, after printing
-        # the utilisation table that is the measurement. The Makefile checks for
-        # that table, so "died before measuring anything" is red.
+        # NEVER PIPE A GRADED COMMAND. Without an explicit `shell:` a step is `bash -e
+        # {0}` -- errexit but not pipefail -- so `cmd | tee` takes tee's status and
+        # always succeeds.
         run: |
           set +e
           make fit > "$RUNNER_TEMP/fit.txt" 2>&1
@@ -607,14 +361,8 @@ jobs:
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # In main's required set, unlike `fit`: the floor it grades is the clock the
-  # board runs at, so missing it means the design does not run on the target
-  # part. It needs the cross compiler because it assembles a real ROM image
-  # before synthesising, and unlike `fit` it expects placement to SUCCEED --
-  # icetime has no `.asc` to read otherwise.
   soc-timing:
     name: soc-timing
-    # Fork-PR routing: see the note above `jobs:` for what this picks and why.
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
@@ -622,15 +370,7 @@ jobs:
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # The repo is 3.95 MiB and 473 commits, so a full clone costs about a
-          # second and buys every check the history it might need. Depth 1 is
-          # actions/checkout's default, not a decision anyone took here, and a
-          # grader that walks history under it does not fail loudly -- it grades
-          # nothing, which is the one outcome this tree refuses.
-          fetch-depth: 0
 
-      # Fork-PR routing only -- see the `test` job for why.
       - name: Install the RISC-V cross compiler (fork PR routing only)
         if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
         run: sudo apt-get update && sudo apt-get install -y gcc-riscv64-unknown-elf
@@ -644,9 +384,6 @@ jobs:
         uses: ./.github/actions/setup-oss-cad-suite
 
       - name: make soc-timing
-        # Redirected rather than piped -- see the `fit` job for why. The summary
-        # is written before the exit, so the census and the logic/routing split
-        # land whether this passes or fails.
         run: |
           set +e
           make soc-timing > "$RUNNER_TEMP/soc-timing.txt" 2>&1
@@ -679,24 +416,10 @@ jobs:
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # The third instrument, and the first one that is not up5k. Same `littlesoc`,
-  # same SOC_SRCS, same ROM image, placed on the ECP5 the multi-core milestone
-  # targets. It gates the MAPPING -- three exact censuses -- and publishes the
-  # frequency; there is no Fmax ratchet here, because one placement is a sample
-  # and ECP5's own churn band has not been derived yet.
-  #
-  # NOT in main's required set, and making it required is a branch-protection
-  # change rather than a change to this file. Which jobs are required is a
-  # repository setting, so read it live:
-  #
-  #   gh api repos/thejefflarson/little-cpu/branches/main/protection \
-  #     -q '.required_status_checks.contexts'
-  #
-  # It needs the cross compiler for the same reason `soc-timing` does: it
-  # assembles a real ROM image before synthesising.
+  # Gates the MAPPING and publishes the frequency. No Fmax ratchet: one placement is a
+  # sample, and ECP5's churn band has not been derived.
   ecp5-timing:
     name: ecp5-timing
-    # Fork-PR routing: see the note above `jobs:` for what this picks and why.
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
@@ -704,15 +427,7 @@ jobs:
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # The repo is 3.95 MiB and 473 commits, so a full clone costs about a
-          # second and buys every check the history it might need. Depth 1 is
-          # actions/checkout's default, not a decision anyone took here, and a
-          # grader that walks history under it does not fail loudly -- it grades
-          # nothing, which is the one outcome this tree refuses.
-          fetch-depth: 0
 
-      # Fork-PR routing only -- see the `test` job for why.
       - name: Install the RISC-V cross compiler (fork PR routing only)
         if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
         run: sudo apt-get update && sudo apt-get install -y gcc-riscv64-unknown-elf
@@ -725,16 +440,9 @@ jobs:
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
 
-      # Asserted BEFORE any verdict is reported, for the reason the `formal` job
-      # asserts btorsim: a tool missing under a gate that is otherwise green is
-      # invisible until the day something goes red, and the diagnostic then
-      # describes the wrong thing.
-      #
-      # The device database is checked by ASKING nextpnr for the exact corner
-      # this measurement is declared against, rather than by probing wherever a
-      # given install happens to put Trellis. `--test` walks that device's BELs
-      # and PIPs in about four seconds, and it is the corner the Makefile
-      # declares rather than a corner written out again here.
+      # Asserted before any verdict is reported: a missing tool under a gate that is
+      # otherwise green stays invisible until the day something goes red, and the
+      # diagnostic then describes the wrong thing.
       - name: Confirm the ECP5 toolchain is complete
         run: |
           set -euo pipefail
@@ -766,9 +474,6 @@ jobs:
           echo "Trellis device database: $device $package speed $speed checks out"
 
       - name: make ecp5-timing
-        # Redirected rather than piped -- see the `fit` job for why. The summary
-        # is written before the exit, so the censuses and the frequency land
-        # whether this passes or fails.
         run: |
           set +e
           make ecp5-timing > "$RUNNER_TEMP/ecp5-timing.txt" 2>&1
@@ -804,20 +509,10 @@ jobs:
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # The `-D RISCV_FORMAL` build, with its rvfi_* ports deleted and every gate
-  # that only fed them swept away, must be structurally identical to the plain
-  # build. Strictly weaker than sequential equivalence and must not be quoted as
-  # if it were: it shows the instrumentation is unread, not that two designs
-  # behave alike.
-  #
-  # Not in main's required set. Which jobs are is a repository setting, so read
-  # it live rather than from any comment here:
-  #
-  #   gh api repos/thejefflarson/little-cpu/branches/main/protection \
-  #     -q '.required_status_checks.contexts'
+  # This is strictly weaker than sequential equivalence: it shows the RVFI
+  # instrumentation is unread, not that the two designs behave alike.
   nonperturbation:
     name: nonperturbation
-    # Fork-PR routing: see the note above `jobs:` for what this picks and why.
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
     timeout-minutes: 8
     steps:
@@ -825,19 +520,11 @@ jobs:
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # The repo is 3.95 MiB and 473 commits, so a full clone costs about a
-          # second and buys every check the history it might need. Depth 1 is
-          # actions/checkout's default, not a decision anyone took here, and a
-          # grader that walks history under it does not fail loudly -- it grades
-          # nothing, which is the one outcome this tree refuses.
-          fetch-depth: 0
 
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
 
       - name: make -C formal nonperturbation
-        # Redirected rather than piped -- see the `fit` job for why.
         run: |
           set +e
           make -C formal nonperturbation > "$RUNNER_TEMP/nonperturbation.txt" 2>&1
@@ -863,11 +550,8 @@ jobs:
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # Both steps need a from-scratch riscv-formal clone at the pin, which a fresh
-  # runner gives for free, and nothing but python3 and git.
   monitor-freshness:
     name: monitor-freshness
-    # Fork-PR routing: see the note above `jobs:` for what this picks and why.
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
     timeout-minutes: 5
     steps:
@@ -875,20 +559,10 @@ jobs:
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # The repo is 3.95 MiB and 473 commits, so a full clone costs about a
-          # second and buys every check the history it might need. Depth 1 is
-          # actions/checkout's default, not a decision anyone took here, and a
-          # grader that walks history under it does not fail loudly -- it grades
-          # nothing, which is the one outcome this tree refuses.
-          fetch-depth: 0
 
       - name: make monitor-check
         run: make monitor-check
 
-      # The same control for the repo's other vendored generated file:
-      # formal/genchecks-local.py may differ from the pin's checks/genchecks.py
-      # only by this repo's header and `basedir`.
       - name: make -C formal genchecks-check
         run: make -C formal genchecks-check
 
@@ -901,81 +575,26 @@ jobs:
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # What is gated here is formal/check-baseline.sh's exit status, not sby's:
-  # every generated .sby carries `expect pass,fail`, so sby exits 0 whether a
-  # check passed or failed and its exit code never carried a verdict. The
-  # verdict is the two set equalities check-baseline.sh performs.
-  #
-  # A green run means the checks still match their baseline and nothing more.
-  # Every one is `mode bmc`, and they all run under RISCV_FORMAL_ALTOPS, so a
-  # passing insn_mul or insn_div says nothing about the real multiplier or
-  # divider.
-  # SPLIT IN TWO. `make -C formal check` is 237s of this and the five
-  # hand-authored tasks below are 64s together, so running them apart takes the
-  # formal wall time from about 320s to about 250s -- and once mutation-check is
-  # sharded, this job is what the whole run waits on. It costs the self-hosted
-  # pool nothing: both halves are GitHub-hosted for the memory reason below.
-  #
-  # It also makes a red run legible. One job covering the generated sweep and
-  # five standalone proofs reports "formal failed", and which half broke is a
-  # question for the log; two jobs answer it in the check name.
+  # What is gated is formal/check-baseline.sh's exit status, not sby's: every generated
+  # .sby carries `expect pass,fail`, so sby exits 0 either way.
   formal-checks:
     name: formal-checks
-    # ON THE POOL, and faster there. The 876 MiB-per-check figure that used to
-    # send this job to a hosted runner does not survive re-measurement: the
-    # whole flow peaks at 594 MB at JOBS=1, and parallelism costs about 278 MB
-    # per additional check on that base.
-    #
-    #   JOBS=1   484s    594 MB
-    #   JOBS=2   252s   1015 MB
-    #   JOBS=4   137s   1427 MB
-    #
-    # JOBS=4 IS BOUNDED BY THE CPU CAP AND THEN BY MEMORY, and the pod is 4 CPUs
-    # and 3 GiB: 4 matches the cap exactly, and 1427 MB leaves room. Raising it
-    # past the cap buys nothing -- these checks are CPU-bound SMT solving, so
-    # oversubscription trades wall time for memory and gets neither.
-    #
-    # NEITHER LIMIT IS VISIBLE THE OBVIOUS WAY. `nproc` reports 16 on this pod
-    # because a CPU quota does not narrow the affinity mask, and `free` reports
-    # the host's memory from inside a container. The `components` job prints
-    # both cgroup figures; size against those and not against either of the two
-    # numbers that look authoritative and are not.
-    #
-    # Below 3 GiB, drop to JOBS=2 rather than let a check be OOM-killed: an
-    # evicted pod takes its logs with it and reads as a job that failed for no
-    # stated reason, which is how this was learned rather than reasoned.
-    #
-    # A hosted runner does JOBS=4 in 237s and an Apple Silicon machine in 137s
-    # at the same four-way parallelism, so the win here is per-core speed rather
-    # than more cores -- the pod's cap matches the hosted runner's vCPU count.
-    # Fork PRs still route to a hosted runner.
-    # Fork-PR routing: see the note above `jobs:` for what this picks and why.
+    # JOBS is a MEMORY budget, not a speed knob: one check peaks near 876 MiB, so the
+    # footprint is roughly JOBS GiB. Below 3 GiB use JOBS=2, since an OOM-killed pod
+    # takes its logs with it.
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
-    # Loose because there is no per-check wall bound: one non-converging check
-    # starves everything scheduled after it, and `-k` does not help because the
-    # job dies rather than the check.
     timeout-minutes: 20
     steps:
       - name: Record job start
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # The repo is 3.95 MiB and 473 commits, so a full clone costs about a
-          # second and buys every check the history it might need. Depth 1 is
-          # actions/checkout's default, not a decision anyone took here, and a
-          # grader that walks history under it does not fail loudly -- it grades
-          # nothing, which is the one outcome this tree refuses.
-          fetch-depth: 0
 
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
 
-      # sby's btor engine replays a counterexample with btorsim, so btorsim is
-      # reached only by a check that found one -- without it, every red check
-      # reports ERROR instead of FAIL. With everything green its absence is
-      # therefore invisible until the first check goes red, and the diagnostic
-      # then reads "status changed" rather than "install btorsim".
+      # sby replays a counterexample with btorsim, so only a check that found one reaches
+      # it. Without btorsim every red check reports ERROR instead of FAIL.
       - name: Confirm the BMC toolchain is complete
         run: |
           set -euo pipefail
@@ -995,12 +614,6 @@ jobs:
             exit 1
           fi
 
-      # JOBS is a memory budget, not a speed knob: one check peaks around
-      # 876 MiB resident, so the footprint is roughly JOBS GiB and 4 fits a
-      # 16 GiB hosted runner. formal/Makefile defaults it to `nproc`, which is
-      # right on a workstation and wrong in a container, where a CPU quota does
-      # not narrow the affinity mask. The diagnostics below print what the host
-      # actually has; re-tune against those rather than guessing.
       - name: Generate and run the checks (make -C formal check)
         run: |
           set -uo pipefail
@@ -1009,28 +622,13 @@ jobs:
           echo "cgroup memory.max:$(cat /sys/fs/cgroup/memory.max 2>/dev/null \
             || cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null \
             || echo unavailable)"
-          # `free` reports the HOST's memory from inside a container, so it says
-          # 15Gi on a pod limited to about 2GB. The cgroup line above is the one
-          # to read -- v2's memory.max first, then v1's limit_in_bytes, which is
-          # what this host actually has. Printed anyway, labelled, because the
-          # gap between the two is itself the thing worth seeing.
           echo "host free -h (NOT the pod's limit):"
           free -h 2>/dev/null || true
           make -C formal check JOBS=4
 
-      # The step above already ends in this same comparison, so the two agree by
-      # construction; re-grading re-runs no check and publishes the verdict
-      # instead of leaving it inferred. `!cancelled()` because if the step above
-      # goes red this one is what says why -- and a run that failed to generate
-      # at all exits 2 here ("no *.sby files"), so a red step above cannot be
-      # followed by a green one here.
       - name: Gate on formal/EXPECTED_FAIL + formal/EXPECTED_CHECKS
         if: ${{ !cancelled() }}
         run: |
-          # Redirected rather than piped -- see the `fit` job for why.
-          # Demonstrated here: with `| tee` in place, a deliberately wrong
-          # formal/EXPECTED_FAIL printed "Failure list does NOT match" and the
-          # job still reported success.
           set +e
           formal/check-baseline.sh formal/checks formal/EXPECTED_FAIL > "$RUNNER_TEMP/baseline-report.txt" 2>&1
           status=$?
@@ -1058,17 +656,10 @@ jobs:
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # The hand-authored tasks, in a job of their own. formal/EXPECTED_FAIL covers
-  # the genchecks sweep only, so each one's verdict is its own exit status --
-  # which is also why they are one step each rather than one step running five
-  # `make`s: make stops at the first failure and the log would read as one.
   formal-extra:
     name: formal-extra
-    # On the pool, and it fits with room to spare at today's limit. Measured:
-    # dmemcheck 400 MB, imemcheck 364 MB, complete 277 MB, complete_cover
-    # 113 MB, cover 64 MB -- the depth-50 whole-ISA walk is not the heavy one,
-    # which is why this half moves without waiting on a bigger pod.
-    # Fork-PR routing: see the note above `jobs:` for what this picks and why.
+    # Measured: dmemcheck 400 MB, imemcheck 364, complete 277, complete_cover 113, cover
+    # 64.
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
     timeout-minutes: 20
     steps:
@@ -1076,20 +667,10 @@ jobs:
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # The repo is 3.95 MiB and 473 commits, so a full clone costs about a
-          # second and buys every check the history it might need. Depth 1 is
-          # actions/checkout's default, not a decision anyone took here, and a
-          # grader that walks history under it does not fail loudly -- it grades
-          # nothing, which is the one outcome this tree refuses.
-          fetch-depth: 0
 
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
 
-      # only, so each one's verdict is its own exit status. One step each rather
-      # than one step running three `make`s, because make stops at the first
-      # failure and the log would read as a single one.
       - name: imemcheck (ADR-0003's dual-word fetch window)
         run: make -C formal imemcheck
 
@@ -1099,27 +680,9 @@ jobs:
       - name: cover (five goals, incl. >=2 compressed retires)
         run: make -C formal cover
 
-      # complete.sby carries no `expect` line, unlike every generated check, so
-      # this step's status is sby's own.
-      #
-      # A green run means every non-trapping retire the core reports, on any
-      # trace of at most 50 cycles, carries an encoding riscv-formal's whole-ISA
-      # model recognises. Each of the 70 insn_* checks constrains rvfi_insn to
-      # its own encoding, so an encoding none of them names is invisible to all
-      # of them, and this is what sees it. It says nothing about spec values and
-      # is silent on the classes in formal/COMPLETE_EXCLUSIONS.
-      #
-      # complete.sby runs `abc bmc3`, a third engine after `btor btormc` and
-      # components.sby's `smtbmc boolector`, so the btorsim check above does not
-      # cover it.
       - name: complete (whole-ISA BMC walk, depth 50)
         run: make -C formal complete
 
-      # `complete`'s assertion is guarded by `rvfi_valid`, `!rvfi_trap` and
-      # `!insn_excluded`, so a core that never retired, or claimed a trap on
-      # everything, or an exclusion set grown to swallow the ISA would each pass
-      # it having been asked nothing. Green above without green here is not a
-      # result.
       - name: complete_cover (anti-vacuity — every non-excluded class retires)
         run: make -C formal complete_cover
 
@@ -1132,11 +695,6 @@ jobs:
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # THE REQUIRED CHECK KEEPS ITS NAME, for the reason `mutation-check` does: a
-  # required context that stops reporting blocks every pull request rather than
-  # failing one, including the pull request that would rename it. Splitting the
-  # work must not make either half optional -- `complete` is the whole-ISA walk,
-  # and it going quiet is exactly what must not become unnoticeable.
   formal:
     name: formal
     needs: [formal-checks, formal-extra]
@@ -1153,4 +711,3 @@ jobs:
             echo "::error::a formal half did not pass; read formal-checks and formal-extra"
             exit 1
           fi
-

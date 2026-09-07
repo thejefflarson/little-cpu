@@ -1,9 +1,9 @@
 diff --git a/rtl/imemory.v b/rtl/imemory.v
 --- a/rtl/imemory.v
 +++ b/rtl/imemory.v
-@@ -95,7 +95,7 @@ module imemory #(
-   // A store takes the port too, not just a load. Reading a word while it is
-   // being written gives an answer the part does not define.
+@@ -56,7 +56,7 @@
+ 
+   // A store takes the port too: reading a word while it is being written is undefined.
    logic text_access, text_write_even, text_write_odd;
 -  assign text_access     = (mem_ren || |mem_wstrb) && text_range;
 +  assign text_access     = |mem_wstrb && text_range;

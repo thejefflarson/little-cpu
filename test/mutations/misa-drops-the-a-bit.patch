@@ -1,11 +1,10 @@
 diff --git a/rtl/csrs.v b/rtl/csrs.v
-index 2b73b03..56e807a 100644
 --- a/rtl/csrs.v
 +++ b/rtl/csrs.v
-@@ -65,7 +65,7 @@ module csrs #(
+@@ -61,7 +61,7 @@
    localparam logic [11:0] MHARTID   = 12'hF14;
  
-   // MXL = 1; extensions I, M, A and C.
+   // MXL = 1, and extensions I, M, A and C.
 -  localparam logic [31:0] MISA_VALUE = 32'h4000_1105;
 +  localparam logic [31:0] MISA_VALUE = 32'h4000_1104;
  

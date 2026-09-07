@@ -1,29 +1,8 @@
 # See LICENSE for license details.
 
-#*****************************************************************************
-# trap.S
-#-----------------------------------------------------------------------------
-#
-# Every trap cause this core implements, taken
-# deliberately, recorded by the opt-in handler in riscv_test.h, and asserted
-# on from the test body — the cause, the saved pc, and what mtval says the
-# trap happened to. That last one is a platform statement firmware cannot
-# derive, so every cause reached here asserts it, the two that report zero
-# included.
-#
-# This test self-checks in band rather than leaning on the per-retire RVFI
-# monitor, and that is not a stylistic choice: riscv-formal ships no spec model
-# for ecall/ebreak/mret/csrr* at the pinned SHA, so `spec_valid` is 0 for every
-# instruction here that matters and the monitor's whole semantic block is
-# skipped. See the constraints at the top of riscv_test.h.
-#
-# Every trapping instruction is wrapped in `.option norvc` because the handler
-# resumes at mepc+4 unconditionally — it cannot read the faulting instruction
-# to find out how long it was (Harvard buses).
-#
-# The handler clobbers t0/t1, so nothing here holds a live value in either
-# across a fault.
-#
+# Every trap cause this core implements, taken deliberately, recorded by the opt-in
+# handler in riscv_test.h, and asserted on from the test body — the cause, the saved pc,
+# and what mtval says the trap happened to.
 
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -34,9 +13,7 @@ RVTEST_CODE_BEGIN
   # mtvec resets to 0, which is _start — install before faulting.
   RVTEST_INSTALL_TRAP_HANDLER
 
-  #-------------------------------------------------------------
   # Load address misaligned: cause 4.
-  #-------------------------------------------------------------
 
   la    a0, tdat
   addi  a0, a0, 1
@@ -51,11 +28,6 @@ mis_lw:
   TEST_CASE( 2, a4, 4, la a3, trap_cause; lw a4, 0(a3); )
   TEST_CASE( 3, a4, 1, la a3, trap_count; lw a4, 0(a3); )
 
-  # mtval holds the EFFECTIVE address, which is the whole reason it is worth
-  # its flops: `tdat + 1` is a number the handler would otherwise have to
-  # rebuild by re-fetching the instruction at mepc and redoing the add out of
-  # its own saved context. Computed here rather than written down, so a change
-  # to the data layout cannot turn this into an assertion about a constant.
 test_21:
   la    a3, trap_tval
   lw    a4, 0(a3)
@@ -64,9 +36,6 @@ test_21:
   li    TESTNUM, 21
   bne   a4, x29, fail
 
-  # mepc holds the address of the faulting instruction, and resuming at mepc+4
-  # therefore landed on the instruction after it — which is where the code
-  # asserting this is running.
 test_4:
   la    a3, trap_epc
   lw    a4, 0(a3)
@@ -77,16 +46,10 @@ test_4:
   # A trapping load writes no register: a1 still holds its sentinel.
   TEST_CASE( 5, a1, 0x5a5, nop; )
 
-  #-------------------------------------------------------------
   # Store address misaligned: cause 6.
-  #-------------------------------------------------------------
 
   la    a0, tdat
 
-  # The offset rides in the instruction rather than being folded into the base,
-  # and that is deliberate: mtval must be the EFFECTIVE address, and with a
-  # zero immediate the sum and rs1 are the same number. The misaligned load
-  # above is the zero-immediate shape; this is the one that tells them apart.
   .option push
   .option norvc
   sw    a1, 2(a0)
@@ -95,12 +58,8 @@ test_4:
   TEST_CASE(  6, a4, 6, la a3, trap_cause; lw a4, 0(a3); )
   TEST_CASE(  7, a4, 2, la a3, trap_count; lw a4, 0(a3); )
 
-  # ...and wrote no memory: tdat is untouched.
   TEST_CASE(  8, a4, 0x0ff0, la a3, tdat; lw a4, 0(a3); )
 
-  # A misaligned STORE reports its effective address too, and this one is a
-  # different offset from the load above -- so a core reporting a stale mtval
-  # from the previous trap fails here rather than passing on a repeat.
 test_22:
   la    a3, trap_tval
   lw    a4, 0(a3)
@@ -109,10 +68,6 @@ test_22:
   li    TESTNUM, 22
   bne   a4, x29, fail
 
-  #-------------------------------------------------------------
-  # Environment call from M-mode: cause 11.
-  #-------------------------------------------------------------
-
   .option push
   .option norvc
   ecall
@@ -120,15 +75,7 @@ test_22:
 
   TEST_CASE(  9, a4, 11, la a3, trap_cause; lw a4, 0(a3); )
 
-  # An environment call happened to no address and to no word, so mtval is
-  # zero -- and it was NOT zero on the way in, because the store above left an
-  # address there. That is what makes this a check on the write rather than on
-  # a register nobody touched.
   TEST_CASE( 23, a4, 0, la a3, trap_tval; lw a4, 0(a3); )
-
-  #-------------------------------------------------------------
-  # Breakpoint: cause 3.
-  #-------------------------------------------------------------
 
   .option push
   .option norvc
@@ -137,16 +84,7 @@ test_22:
 
   TEST_CASE( 10, a4, 3, la a3, trap_cause; lw a4, 0(a3); )
 
-  # A breakpoint reports nothing either: mepc already holds the only address it
-  # could name, and the privileged spec requires a nonzero mtval for no cause.
-  # Written down here because firmware cannot derive it from anything else.
   TEST_CASE( 24, a4, 0, la a3, trap_tval; lw a4, 0(a3); )
-
-  #-------------------------------------------------------------
-  # Illegal instruction: cause 2. Two flavours — an encoding that decodes to
-  # nothing (the all-zero word is illegal by definition), and a read of an
-  # unimplemented CSR.
-  #-------------------------------------------------------------
 
   .option push
   .option norvc
@@ -155,14 +93,8 @@ test_22:
 
   TEST_CASE( 11, a4, 2, la a3, trap_cause; lw a4, 0(a3); )
 
-  # An illegal instruction reports the faulting WORD, which is what lets a
-  # handler emulate it without going back to text at mepc -- and on a Harvard
-  # core it cannot go back to text at all. The all-zero word reports itself, so
-  # this one number is both the instruction and a zero mtval; test 26 below is
-  # the case where the two are distinguishable.
   TEST_CASE( 25, a4, 0, la a3, trap_tval; lw a4, 0(a3); )
 
-  # Clear the recorded cause so the next case cannot pass on a stale value.
   la    a3, trap_cause
   sw    x0, 0(a3)
 
@@ -173,26 +105,12 @@ test_22:
 
   TEST_CASE( 12, a4, 2, la a3, trap_cause; lw a4, 0(a3); )
 
-  # ...and here the word is not zero, which is the case that separates
-  # "reports the instruction" from "reports zero and got lucky". The expected
-  # value is a literal because it has to be: text is unreachable from a load on
-  # this Harvard core, so nothing here can read the faulting word back out of
-  # ROM to compare against.
 test_26:
   la    a3, trap_tval
   lw    a4, 0(a3)
   li    x29, 0x7c002573        # csrr a0, 0x7c0
   li    TESTNUM, 26
   bne   a4, x29, fail
-
-  #-------------------------------------------------------------
-  # ...and the other illegal-CSR rule: a WRITE to a CSR that is read-only by
-  # address (mvendorid is 0xF11, so addr[11:10] == 2'b11). The read side of the
-  # same CSR is legal and csr.S asserts that it is, so this is specifically the
-  # write that must fault. Until trap entry existed the rule was
-  # architecturally unobservable -- which is why formal/checks.cfg records that
-  # csrw_mscratch_ch0 cannot see the sibling suppression rule either.
-  #-------------------------------------------------------------
 
   la    a3, trap_cause
   sw    x0, 0(a3)
@@ -203,24 +121,6 @@ test_26:
   .option pop
 
   TEST_CASE( 13, a4, 2, la a3, trap_cause; lw a4, 0(a3); )
-
-  #-------------------------------------------------------------
-  # A COMPRESSED faulting instruction, so `mepc` is exercised at pc % 4 == 2 --
-  # the one case the WARL mask on mepc must not break. That mask clears bit 0
-  # only, because C makes 2-byte targets legal; a mask that cleared
-  # bit 1 as well would resume two bytes early here and nowhere else in this
-  # file, since every other trapping instruction above is `.option norvc` and
-  # therefore 4-byte aligned.
-  #
-  # Two pieces of layout are load-bearing, both consequences of the handler
-  # resuming at mepc+4 unconditionally (it cannot read the faulting instruction
-  # to learn its length: Harvard buses, and riscv_test.h constraint 1). The
-  # `.align 2` plus a 2-byte `c.nop` puts the faulting instruction at
-  # pc % 4 == 2; the `c.nop` behind it is 2 bytes of padding so mepc+4 lands on
-  # an instruction boundary rather than inside one. Test 16 asserts the
-  # alignment actually came out that way, so this cannot quietly degrade into a
-  # 4-aligned case that proves nothing.
-  #-------------------------------------------------------------
 
   la    a0, tdat
   addi  a0, a0, 1
@@ -237,10 +137,6 @@ mis_clw:
 
   TEST_CASE( 14, a4, 4, la a3, trap_cause; lw a4, 0(a3); )
 
-  # The COMPRESSED load reports its effective address the same way the
-  # uncompressed one did. Nothing about mtval's value depends on the length of
-  # the instruction that faulted, which is the half a 32-bit-only case cannot
-  # say.
 test_27:
   la    a3, trap_tval
   lw    a4, 0(a3)
@@ -258,35 +154,16 @@ test_15:
 
   TEST_CASE( 16, a4, 2, la a3, mis_clw; andi a4, a3, 3; )
 
-  # A trapping compressed load writes no register either.
   TEST_CASE( 17, a1, 0x5a5, nop; )
 
-  # Eight traps taken, eight handler entries.
   TEST_CASE( 18, a4, 8, la a3, trap_count; lw a4, 0(a3); )
 
-  # mtval is writable by software, with no legal-value mask. A nested handler
-  # saves it on entry and restores it on the way out, so a write that did not
-  # land would destroy the outer trap's report -- and this is the only place a
-  # program can see that at all. All ones is the pattern that separates
-  # "writable" from "writable except for a field somebody masked".
 test_28:
   li    t0, -1
   csrw  mtval, t0
   csrr  a4, mtval
   li    TESTNUM, 28
   bne   a4, t0, fail
-
-  #-------------------------------------------------------------
-  # A trapping instruction issues, and retires in RVFI with
-  # rvfi_trap = 1, but it did NOT retire architecturally — so it
-  # must not increment `minstret`. This lives here rather than in
-  # test/asm/minstret.S because it needs a trap to be takeable at all; that
-  # file carries the exactness rule, which does not.
-  #
-  # Between the two reads: the first csrr, the whole handler, and the
-  # misaligned load — which must not count. `.option norvc` because the
-  # handler resumes at mepc+4.
-  #-------------------------------------------------------------
 
 test_19:
   la    a3, tdat
@@ -300,11 +177,6 @@ test_19:
   csrr  a1, minstret
   sub   a2, a1, a0
 
-  # Expected = the first csrr, plus one entry's worth of handler. The handler
-  # body is straight-line and `.option norvc`, so its instruction count is its
-  # byte span / 4. Computed at run time rather than assembled as a constant:
-  # `li` cannot take a label difference, and hardcoding the number would let an
-  # edit to riscv_test.h silently invalidate this assertion.
   la    a5, trap_handler
   la    a6, trap_handler_end
   sub   a5, a6, a5
@@ -313,8 +185,6 @@ test_19:
   li    TESTNUM, 19
   bne   a2, x29, fail
 
-  # The trap really was taken — otherwise test 19 would be asserting about a
-  # sequence that never entered the handler at all.
   TEST_CASE( 20, a4, 9, la a3, trap_count; lw a4, 0(a3); )
 
   TEST_PASSFAIL

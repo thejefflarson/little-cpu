@@ -1,11 +1,6 @@
 # See LICENSE for license details.
 
-#*****************************************************************************
-# mulhu.S
-#-----------------------------------------------------------------------------
-#
 # Test mulhu instruction.
-#
 
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -13,9 +8,7 @@
 RVTEST_RV64U
 RVTEST_CODE_BEGIN
 
-  #-------------------------------------------------------------
   # Arithmetic tests
-  #-------------------------------------------------------------
 
   TEST_RR_OP( 2,  mulhu, 0x00000000, 0x00000000, 0x00000000 );
   TEST_RR_OP( 3,  mulhu, 0x00000000, 0x00000001, 0x00000001 );
@@ -34,17 +27,9 @@ RVTEST_CODE_BEGIN
   TEST_RR_OP(34,  mulhu, 0x00000000, 0xffffffff, 0x00000001 );
   TEST_RR_OP(35,  mulhu, 0x00000000, 0x00000001, 0xffffffff );
 
-  #-------------------------------------------------------------
-  # Source/Destination tests
-  #-------------------------------------------------------------
-
   TEST_RR_SRC1_EQ_DEST( 8, mulhu, 36608, 13<<20, 11<<20 );
   TEST_RR_SRC2_EQ_DEST( 9, mulhu, 39424, 14<<20, 11<<20 );
   TEST_RR_SRC12_EQ_DEST( 10, mulhu, 43264, 13<<20 );
-
-  #-------------------------------------------------------------
-  # Bypassing tests
-  #-------------------------------------------------------------
 
   TEST_RR_DEST_BYPASS( 11, 0, mulhu, 36608, 13<<20, 11<<20 );
   TEST_RR_DEST_BYPASS( 12, 1, mulhu, 39424, 14<<20, 11<<20 );
@@ -68,7 +53,6 @@ RVTEST_CODE_BEGIN
   TEST_RR_ZEROSRC2( 27, mulhu, 0, 32<<26 );
   TEST_RR_ZEROSRC12( 28, mulhu, 0 );
   TEST_RR_ZERODEST( 29, mulhu, 33<<20, 34<<20 );
-
 
   TEST_PASSFAIL
 

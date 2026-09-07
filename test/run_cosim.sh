@@ -1,22 +1,7 @@
 #!/bin/bash
-# Runs every program in test/asm under Sail co-simulation (test/cosim.py) and grades
-# the table against test/COSIM_EXPECTED_FAIL, under the same contract
-# test/run_tests.sh applies to test/EXPECTED_FAIL. Invoked by `make cosim-suite`.
-#
-# Usage: run_cosim.sh <cosim-binary> <asm-dir> <expected-fail-file> <manifest>
-#
-# Deliberately NOT on `make test`'s path: it needs a Sail install and `make test`
-# has to keep working on machines without one. CI requires it all the same, in a
-# job of its own that fetches Sail at a verified digest first -- so it gates
-# without being a prerequisite of anything, and a red result here reads as
-# co-simulation rather than as a suite failure.
-#
-# It is the only oracle here that reads the core's real register array instead of
-# the core's own report of what it retired, which is what a change to
-# rtl/regfile.v is checked against.
-#
-# The guards below are run_tests.sh's, against the same false green: a run that
-# reports success having compared nothing.
+# Runs every program in test/asm under Sail co-simulation (test/cosim.py) and grades the
+# table against test/COSIM_EXPECTED_FAIL, under the same contract test/run_tests.sh
+# applies to test/EXPECTED_FAIL. Invoked by `make cosim-suite`.
 set -euo pipefail
 
 if [ "$#" -ne 4 ]; then
@@ -42,8 +27,7 @@ if [ ! -x "$COSIM_PY" ]; then
   exit 1
 fi
 
-# `NF` has to come before the rebuild, not after. Assigning to $1 sets NF to 1,
-# so `{$1=$1} NF` would bring every blank and comment line back as an entry.
+# `NF` has to come before the rebuild, not after.
 expected_sorted=$(sed -e 's/#.*//' "$EXPECTED_FAIL" | awk 'NF { $1=$1; print }' | sort)
 
 malformed=$(printf '%s\n' "$expected_sorted" | awk 'NF == 1 {print}')
@@ -54,9 +38,6 @@ if [ -n "$malformed" ]; then
   exit 1
 fi
 
-# Against a manifest, not merely for emptiness: an emptiness guard catches a
-# suite of size zero and does nothing about one that shrank to a dozen programs,
-# which prints "12/12 agreed", matches an empty baseline exactly and exits 0.
 if ! "$HERE/check_suite_shape.sh" "$ASM_DIR" "$MANIFEST"; then
   echo "error: the suite does not match its manifest; nothing was run." >&2
   exit 1
@@ -92,15 +73,11 @@ for src in "${programs[@]}"; do
   base=${name%.*}
   log="$tmp/$base.log"
 
-  # Lifted for exactly this call: cosim.py's nonzero exits are verdicts.
   set +e
   "$COSIM_PY" --quiet --cosim-binary "$COSIM_BIN" "$name" > "$log" 2>&1
   rc=$?
   set -e
 
-  # The status line is the contract and the exit code is the cross-check. Them
-  # disagreeing is a broken harness, and must not read as a verdict about the
-  # core.
   status=$(awk '/^COSIM-STATUS /{ $1=""; sub(/^ /,""); print; exit }' "$log")
   if [ -z "$status" ]; then
     status="COSIM-ERROR $rc"

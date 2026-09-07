@@ -313,59 +313,59 @@ identical check already is, including the concrete `core_portme.h`-shadowing cas
 - `run_coremark_compare.sh`'s vendor-tree check is a two-way match now, not `shasum -c` alone, closing
   the same gap `test/bench/run_coremark.sh`'s own check already closed for the single-core build.
 
-## AMENDED 2026-09-05: the wait-state bias is removed, not merely disclosed
+## Route 3 attempted and declined 2026-09-06: the cycle win is real, the clock cost is bigger
 
-The disclosure above treated the whole wait state as a real AHB5 cost and reported it rather than
-correcting it. It was not: `soc/compare/bench_hazard3.v` fed ROM's own read index off the SAME
-address register the RAM write-drain used (`mem_addr_mux`), so EVERY instruction fetch immediately
-after a store — the common case, since most bus transactions are fetches — was serialized behind
-that store's completion even though the ROM block RAM and the RAM's SPRAM are two separate physical
-ports with nothing to contend over. `rom_index` and the ROM range test now read `haddr` directly,
-never the drain buffer, so a fetch after a store costs nothing. The one case that still needs the
-write's own value rather than the array's — a read of the exact word just written, e.g. `sw`
-immediately followed by `lw` of the same address — is answered by forwarding the buffered write
-(`can_forward`) instead of waiting for `rtl/memory.v`'s own no-change rule to catch up.
+An attempt to remove the disclosed bias rather than report it (route 3) shipped briefly, was
+reverted, and the finding is recorded here because it answers the question the disclosure above
+leaves open. `soc/compare/bench_hazard3.v` fed ROM's own read index off the SAME address register
+the RAM write-drain used (`mem_addr_mux`), so every instruction fetch immediately after a store —
+the common case, since most bus transactions are fetches — was serialized behind that store's
+completion even though the ROM block RAM and the RAM's SPRAM are two separate physical ports with
+nothing to contend over. Reading `rom_index` and the ROM range test off `haddr` directly, and
+answering a same-word read-after-write by forwarding instead of waiting, cut Dhrystone's disclosed
+wait share 9.01% → 0.95% and CoreMark's 1.98% → 0.30%, with both RAM comparisons still bit-identical
+and `make compare-smoke` still green.
 
-**What is left is a real single-ported-memory cost, not an artifact.** A RAM access at a DIFFERENT
-word, or one that only partially overlaps a narrower-than-word store (no old bytes to merge with,
-short of a second read of `rtl/memory.v`'s private array), still holds `hready` low for one cycle:
-the drain and that access both want the one RAM port on the same cycle, and a single-ported
-synchronous SRAM cannot serve two addresses at once. littlecpu never pays this because its own
-load/store protocol carries address, data and strobe together in one cycle — AHB5's own split of a
-write's data phase from its address phase is what creates the gap `bench_hazard3.v` has to bridge at
-all. This residual is a cost any AHB5 slave built over a plain single-ported SRAM would pay, on real
-silicon, not a defect of this harness's adapter.
+**That cycle win does not survive contact with Hazard3's own up5k clock.** `soc/compare/sweep.sh
+COMPARE_CORES=hazard3 COMPARE_PART=up5k`, hazard3 alone, three seeds (`default 1 2`), worst of each:
 
-On this tree (`c080e67` plus the fix, before ADR-0154's forwarding measurements moved either side's
-absolute cycle count), re-measuring both benchmarks:
+| spelling | worst MHz | logic levels |
+|---|---|---|
+| baseline (`hready = !wr_pending_q`, this ADR's own figures above) | **13.15** | 21 |
+| full fix: ROM off `haddr` + read-after-write forwarding | 10.92 | up to 70 |
+| ROM off `haddr` alone, no forwarding | 10.53 | up to 44 |
+| ROM off `haddr` alone, `hready` gated on `is_rom_next` only (no read/write split) | 10.63 | up to 44 |
 
-```
-DHRY core=hazard3 marks=2 cycles=293627 verdict=1 writes=31474
-DHRY core=hazard3 wait_cycles=2800
-COREMARK core=hazard3 marks=2 cycles=702907 verdict=1 writes=15701
-COREMARK core=hazard3 wait_cycles=2099
-```
+**All three route-3 spellings cluster at 10.5–11.5 MHz — a clean miss of the 12 MHz requirement, and
+worse, dropping the design to the 6 MHz step below it** (`SB_HFOSC` gives 48/24/12/6, no fractional
+step). This is not the forwarding comparator's fault: the comparator-free spelling is not
+meaningfully faster than the full one, and the minimal one-term spelling costs the same again. What
+every spelling shares is that `hready` — the baseline's `!wr_pending_q`, a bare flip-flop output with
+no same-cycle dependency on anything the core presents — now has to read `haddr` (`is_rom_next`)
+combinationally within the cycle to decide whether THIS transaction may proceed, because "selective"
+is exactly a claim about what the current transaction is. `hready` feeds back into
+`hazard3_cpu_1port`'s own address-phase logic, which the baseline's 13.15–13.55 MHz worst-of-three
+margin above the 12 MHz floor (about 8–13%) turns out not to have much slack in: any same-cycle
+`haddr`-dependence on that feedback path, however cheap the comparison itself, is enough to cost more
+than that margin. littlecpu never has an equivalent path because its own load/store protocol never
+splits address and data into separate phases, so nothing in it makes `stall` depend on `next_pc`
+within the same cycle the way this adapter's `hready` now has to depend on `haddr`.
 
-| | Dhrystone wait share | Dhrystone cyc/dhry (hazard3) | hazard3/littlecpu cycles | CoreMark wait share | hazard3/littlecpu cycles |
-|---|---|---|---|---|---|
-| before this fix | 9.01% | 799.1 | 1.093× | 1.98% | 1.650× |
-| after this fix | 0.95% | 734.1 | **1.004×** | 0.30% | 1.622× |
-
-**Dhrystone stops reading level and reads almost exactly tied**: littlecpu's own 731.1 cyc/dhry
-(0.779 DMIPS/MHz) against Hazard3's corrected 734.1 (0.775 DMIPS/MHz) is a 0.4% gap, down from the
-9.3% the harness's own artifact was contributing on top of it. Essentially the whole of the
-previously-measured Dhrystone gap between these two cores was the adapter, not the core. CoreMark
-barely moves (1.650× → 1.622×) because writes are a far smaller share of that benchmark's cycles
-than Dhrystone's own struct-copying loops — littlecpu's real lead there, from hardware multiply plus
-forwarding on a benchmark that leans on the M extension, stands.
-
-`make compare-smoke` still passes (all three cores publish the same six values off `bench.S`), and
-both RAM comparisons above are still bit-identical, so the correction changes cycle counts and not
-computed results. `soc/compare/dhry_tb.v` and `soc/compare/coremark_tb.v` now count `ram_conflict`
-rather than `wr_pending_q` for `haz_wait_cycles`: the two signals coincided exactly under the old
-adapter (every drain cycle held `hready` low), so the old counter measured the right thing by
-accident; under the new one a drain no longer implies a stall, so the counter has to name the actual
-stalled cycles or it reports the wrong number with a straight face.
+**Route 3 declined on the measurement above, for `hazard3_cpu_1port`'s single-AHB-port adapter as
+built.** The comparison this repo can quote is the disclosure this ADR already has — 9.01%/1.98%,
+both artifact and real cost folded together and reported rather than corrected — because correcting
+it inside this adapter costs the very clock step the published DMIPS/CoreMark-at-clock number
+depends on, for a core already reading close to the requirement. `soc/compare/bench_hazard3.v`,
+`soc/compare/dhry_tb.v` and `soc/compare/coremark_tb.v` are back at the text this ADR originally
+shipped. The one finding worth keeping: this specific adapter's own timing margin, not the RAM-port
+contention it exists to arbitrate, is what sets the ceiling on how clever a bus interface bolted
+onto `hazard3_cpu_1port`'s single AHB port can be without missing up5k's 12 MHz step — a fact about
+*this* adapter, discovered rather than assumed. **The contention's cause is addressed separately,
+not declared unfixable**: Hazard3 ships its own two-port top (`hazard3_cpu_2port`, one AHB master
+for fetch and one for load/store), which removes the fetch/data contention this adapter arbitrates
+by giving each its own bus rather than working around a shared one — that is a different route,
+tracked on its own branch, and this ADR's decline is scoped to route 3's single-port fix, not to
+whether Hazard3's disclosed wait can ever come down.
 
 ## Amendment, 2026-09-06 — VexRiscv joins after all
 
@@ -382,15 +382,16 @@ the generated build has no `AtomicPlugin` — so `COMPARE_COREMARK_CFLAGS` moves
 written about) and `soc/compare/coremark_tb.v` gains `bench_vexriscv` as a third DUT, reusing
 `soc/compare/dhry_monitor.v` rather than a fourth hand-rolled marker block.
 
-This is additive to the fix above, not a replacement of it — the Hazard3 numbers directly above are
-unchanged by adding a third core, and reproduce exactly: `COREMARK core=hazard3 marks=2
-cycles=702907 verdict=1 writes=15701`, `wait_cycles=2099`, both bit-identical to the two-core run.
-One iteration, RV32IM, same tree as the fix above:
+This is additive to the route-3 amendment above, not a replacement of it — the Hazard3 numbers
+directly above are unchanged by adding a third core, and reproduce exactly on the reverted adapter:
+`COREMARK core=hazard3 marks=2 cycles=714984 verdict=1 writes=15701`, `wait_cycles=14176` (1.98%),
+both bit-identical to the two-core run this ADR already reports. One iteration, RV32IM, this tree:
 
 ```
 COREMARK core=littlecpu marks=2 cycles=433240 verdict=1 writes=15701
 COREMARK core=vexriscv marks=2 cycles=427008 verdict=1 writes=15701
-COREMARK core=hazard3  marks=2 cycles=702907 verdict=1 writes=15701
+COREMARK core=hazard3  marks=2 cycles=714984 verdict=1 writes=15701
+COREMARK core=hazard3 wait_cycles=14176
 COREMARK ramdiff core=vexriscv diff=0 of=4096 words
 COREMARK ramdiff core=hazard3  diff=0 of=4096 words
 ```
@@ -398,7 +399,7 @@ COREMARK ramdiff core=hazard3  diff=0 of=4096 words
 All three verdicts PASS and both non-reference RAMs are bit-identical to littlecpu's. **VexRiscv
 takes 0.986× littlecpu's cycles for the same work** — essentially tied, the closest any pair in this
 harness has read on either benchmark — at 2.342 CoreMark/MHz against littlecpu's 2.308 and Hazard3's
-1.423. `docs/adr/0160-*.md`'s amendment carries the clock half and the resulting product on both
+1.399. `docs/adr/0160-*.md`'s amendment carries the clock half and the resulting product on both
 parts; this ADR's own job was always the cycle factor, and that factor now has all three cores in
 it, the way the ticket that first asked for a CoreMark comparison wanted.
 
@@ -406,3 +407,105 @@ it, the way the ticket that first asked for a CoreMark comparison wanted.
 own block-RAM census lines; `soc/compare/coremark_dmips.py` is generalised from a fixed two-core
 grader to the same N-core, first-is-reference shape `soc/compare/dhry_dmips.py` already had, so a
 future fourth core is a wiring change there too rather than a rewrite.
+
+## Route 4, 2026-09-06: `hazard3_cpu_2port` removes the shared-port cause
+
+Route 3 (declined above) treated the symptom: it tried to make the single-AHB-port adapter's
+`hready` selective without costing the clock, and every spelling failed that trade. The cause it
+traced but did not fix is upstream of the adapter entirely — **this harness gave Hazard3 one shared
+AHB5 port while its two neighbours each have two.** `bench_littlecpu.v` has a dedicated
+`imemory`/`memory` pair; `bench_vexriscv.v` has separate `iBus`/`dBus`. `soc/compare/bench_hazard3.v`
+instantiated `hazard3_cpu_1port` — the one Hazard3 top this harness had ever built — which arbitrates
+fetch and load/store onto ONE port, and it was that arbitration, not AHB5's write-data-lag, that put
+a real cost on every fetch that happened to follow a store. Hazard3 ships a two-port top,
+`hazard3_cpu_2port`, with separate `i_*`/`d_*` AHB5 ports; this harness had never used it. ADR-0139,
+which chose the one-port top, said it "drops into the same one-memory-map shape `bench_littlecpu.v`
+and `bench_vexriscv.v` already share" — true of the address MAP, false of the PORT count, and that
+conflation is what this route corrects (ADR-0139 carries a short pointer amendment saying so).
+
+**The fix**: `soc/compare/bench_hazard3.v` now instantiates `hazard3_cpu_2port`. The I-port fetches
+only, from its own `rom` array, with `i_hready` tied high — no wait state is ever needed, matching
+`bench_littlecpu.v`'s own dedicated imem port. The D-port carries every load and store against
+`rtl/memory.v`, with the pre-existing write-buffer mechanism (`wr_pending_q`, unchanged in shape)
+still holding `d_hready` low for one cycle after a write's own data phase, but now with **no
+dependence on `d_haddr` at all** — nothing on the D-port is ever a fetch, so the buffer never has to
+ask what the next transaction IS, only whether there is one. `hready` is therefore the same bare
+flip-flop output it was on the declined-route-3 adapter, and route 3's timing problem does not
+recur because nothing about either port's own `hready` reads the other port's address.
+
+**The D-port has no path to ROM**, the choice `soc/compare/bench_vexriscv.v` already makes and
+CLAUDE.md already states as this harness's standing rule for that core. This harness pokes every
+program's initialised data and read-only data straight into simulated RAM before the run rather than
+having the program copy it out of ROM at boot — `soc/compare/dhry_start.S` and
+`soc/compare/coremark_start.S` are `test/crt0.S` with that copy removed, for exactly the reason their
+own header comments already give for VexRiscv. Checked before building anything: no program this
+harness runs issues a single load from a ROM address, so the D-port needs no second ROM array and no
+read-side ROM decode. (A design that DID need one would duplicate the array the way
+`bench_littlecpu.v`'s own `rom_even`/`rom_odd` split already does for its two-word fetch — the same
+answer to "two block RAM reads in one cycle," reached only if a future program needs it.)
+
+**Re-measured against this ADR's own RV32IM, three-DUT tree (the "VexRiscv joins" amendment above),
+one toolchain, one session — "before" is the declined route-3-adapter's own baseline on that same
+tree, `hazard3_cpu_1port` unmodified:**
+
+```
+DHRY  core=littlecpu marks=2 cycles=290825 verdict=1 writes=31474
+DHRY  core=vexriscv  marks=2 cycles=254026 verdict=1 writes=31474
+DHRY  core=hazard3   marks=2 cycles=252825 verdict=1 writes=31474
+DHRY  core=hazard3 wait_cycles=28805
+DHRY  ramdiff core=vexriscv diff=0 of=4096 words
+DHRY  ramdiff core=hazard3  diff=0 of=4096 words
+COREMARK core=littlecpu marks=2 cycles=433240 verdict=1 writes=15701
+COREMARK core=vexriscv  marks=2 cycles=427008 verdict=1 writes=15701
+COREMARK core=hazard3   marks=2 cycles=665416 verdict=1 writes=15701
+COREMARK core=hazard3 wait_cycles=14176
+COREMARK ramdiff core=vexriscv diff=0 of=4096 words
+COREMARK ramdiff core=hazard3  diff=0 of=4096 words
+```
+
+All verdicts PASS, every RAM comparison bit-identical.
+
+| | Dhrystone cycles (hazard3) | hazard3/littlecpu | DMIPS/MHz | CoreMark cycles (hazard3) | hazard3/littlecpu | CoreMark/MHz |
+|---|---|---|---|---|---|---|
+| one-port adapter, declined (before) | 331,632 | 1.140× | 0.686 | 714,984 | 1.650× | 1.399 |
+| two-port adapter (this route) | **252,825** | **0.869×** | **0.900** | **665,416** | **1.536×** | **1.503** |
+
+**Dhrystone reverses: Hazard3 is now faster than littlecpu in raw cycles** (0.900 DMIPS/MHz against
+0.783) **and effectively level with VexRiscv** (0.900 against 0.896, cycles 252,825 against
+254,026 — closer than either is to littlecpu). CoreMark's gap narrows (1.650× → 1.536×) without
+closing, because writes are a smaller share of CoreMark's own cycles than of Dhrystone's
+struct-copying loop; littlecpu's real M-extension-plus-forwarding lead there stands.
+
+**The clock, twelve seeds (`default 1 2 … 11`), `soc/compare/sweep.sh COMPARE_CORES=hazard3
+COMPARE_PART=up5k`, this tree, paired against the same twelve seeds on the declined one-port text:**
+
+| | worst | median | best |
+|---|---|---|---|
+| one-port adapter, declined (before) | 12.58 MHz | 13.04 MHz | 13.67 MHz |
+| two-port adapter (this route) | **14.30 MHz** | **14.57 MHz** | **14.95 MHz** |
+
+Every seed on both sides already clears 12 MHz — the declined adapter was never the one that missed
+the requirement, route 3 was — and the two-port top is faster at every seed sampled regardless, not
+merely null: the arbitration logic the one-port top needed to interleave fetch and load/store onto
+its shared port is gone, not replaced. `make compare-ecp5-timing`, one placement each, this session's
+toolchain: 48.50 MHz (one port) → **50.39 MHz** (two ports), now above littlecpu's own 33.23 MHz on
+this part.
+
+**Geometry**: `soc/compare/placed_vs_synth.py`'s ratio holds at 0.96× against the 0.80× floor on both
+texts (3374/3505 declined, 3276/3414 two-port — the two-port top's own standalone synthesis is
+SMALLER, not larger, for the same reason its placement is faster: no arbitration mux to build).
+`ICESTORM_RAM`/`ICESTORM_SPRAM` counts are unchanged (12/30, 2/4) since no second ROM array was
+needed. `make compare-smoke` is green — all three cores still publish the same six values off
+`bench.S`.
+
+**Verdict**: Hazard3's iCE40 build is no longer clock-limited on up5k by anything this harness's own
+adapter did to it, Dhrystone reads essentially level with VexRiscv and ahead of littlecpu in raw
+cycles, and CoreMark still favours littlecpu by the same real, M-extension-and-forwarding margin the
+write-wait disclosure was never responsible for.
+
+**Consequences**: `HAZARD3_SRCS` now lists `hazard3_cpu_2port.v` in place of `hazard3_cpu_1port.v`,
+and `COMPARE_CORE_TOP` follows; the Makefile comment that used to justify excluding the two-port top
+is rewritten rather than deleted, so the next reader sees the SHAPE of the old reasoning and not just
+its absence. `soc/compare/bench_tb.v`, `dhry_tb.v` and `coremark_tb.v` read the D-port's own renamed
+internal signals (`dmem_addr_mux`/`dmem_wstrb_mux`/`d_hwdata`); `wr_pending_q` kept its name, so the
+wait-cycle disclosure needed no change to what it counts, only to what the count now means.

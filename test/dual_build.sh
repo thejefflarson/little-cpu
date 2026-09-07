@@ -1,28 +1,6 @@
 #!/bin/bash
 # Assembles and links every program in test/dual/ and checks it against
 # test/dual/MUTATION_PAIRINGS, in both directions.
-#
-# WHAT THIS IS AND IS NOT. It does not run a simulator and reports no pass/fail
-# for any hardware property. What it grades is that the source still assembles
-# at the suite's own ISA string, links into the suite's own map, produces both
-# images a runner would need, and is still named by the pairing that claims it
-# catches something. Four programs nothing builds would rot silently, and the
-# pairings would rot with them.
-#
-# The dual top, its harness and its runner now exist, so `make dual-smoke` does
-# execute one program here. That is the whole of what has run: no torture
-# program has, and no mutation below has been applied. A program the runner
-# grades directly is EXEMPT rather than paired -- see the exemption block below,
-# which is checked in both directions so an exemption outliving its grader is
-# red.
-#
-# The build flags are test/run_tests.sh's `.S` arm verbatim, plus this
-# directory on the include path. When that arm changes this has to change with
-# it -- the same rule the two program shapes already carry across
-# test/run_tests.sh, test/cosim.py, the Makefile's soc-rom and
-# test/dual_smoke.sh.
-#
-# Usage: dual_build.sh <dual-dir> <asm-dir> <pairings-file>
 set -euo pipefail
 
 if [ "$#" -ne 3 ]; then
@@ -55,18 +33,12 @@ if [ "${#programs[@]}" -eq 0 ]; then
   exit 1
 fi
 
-# The set check, before anything is built. `prog` legs name a program each; the
-# two sets must match, so a program that grades nothing and a pairing that names
-# a program nobody wrote are both red. A mutation with no `prog` leg is a real
-# entry and not an omission -- starvation is one -- so only the `prog` lines
-# take part.
+# The set check, before anything is built.
 claimed=$(sed -e 's/#.*//' "$PAIRINGS" | awk '$2 == "prog" { print $3 }' | sort -u)
 present=$(for p in "${programs[@]}"; do printf '%s\n' "${p##*/}"; done | sort -u)
 
-# An EXEMPT line names a program the dual RUNNER grades directly, so no mutation
-# pairing claims it and none should. It must name its grader, and the program
-# must exist: an exemption for a program nobody wrote is how a deleted grader
-# stops being noticed.
+# An EXEMPT line names a program the dual RUNNER grades directly, so no mutation pairing
+# claims it and none should.
 exempt=$(sed -e 's/#.*//' "$PAIRINGS" | awk '$1 == "EXEMPT" { print $2 }' | sort -u)
 stale_exempt=$(comm -23 <(printf '%s\n' "$exempt") <(printf '%s\n' "$present"))
 if [ -n "$stale_exempt" ]; then
@@ -162,8 +134,8 @@ for src in "${programs[@]}"; do
         verdict="OBJCOPY-ERROR $region"
         break
       fi
-      # An empty image is the quiet failure: it still parses, so a runner would
-      # start and every check that reads RAM would see zero.
+      # An empty image is the quiet failure: it still parses, so a runner would start and
+      # every check that reads RAM would see zero.
       if [ ! -s "$image" ]; then
         verdict="OBJCOPY-EMPTY $region"
         break

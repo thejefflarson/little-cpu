@@ -1,9 +1,8 @@
 diff --git a/rtl/decoder.v b/rtl/decoder.v
-index 331a2ed..02bd38e 100644
 --- a/rtl/decoder.v
 +++ b/rtl/decoder.v
-@@ -471,8 +471,7 @@ module decoder #(
-   // `trap_cause`, off the fetch loop.
+@@ -411,8 +411,7 @@
+ 
    logic atomic_fault;
    assign atomic_fault = instr_atomic && !atomic_supported && !word_misaligned;
 -  assign ls_fault = ls_access && ls_answer_valid && !ls_answer &&

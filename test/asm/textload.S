@@ -23,10 +23,7 @@ RVTEST_CODE_BEGIN
   # mtvec resets to 0, which is _start -- install before faulting.
   RVTEST_INSTALL_TRAP_HANDLER
 
-  #-------------------------------------------------------------
-  # A compressed breakpoint at pc % 4 == 0. The `c.li` behind it is two bytes,
-  # so a handler that resumed at mepc+4 would step over it and leave a0 at 0.
-  #-------------------------------------------------------------
+  # A compressed breakpoint at pc % 4 == 0.
 
   li    a0, 0
 
@@ -48,10 +45,8 @@ test_4:
   li    TESTNUM, 4
   bne   a4, x29, fail
 
-  #-------------------------------------------------------------
-  # The same at pc % 4 == 2, which is the halfword the handler has to shift
-  # down before it looks at the low two bits.
-  #-------------------------------------------------------------
+  # The same at pc % 4 == 2, which is the halfword the handler has to shift down before
+  # it looks at the low two bits.
 
   li    a1, 0
 
@@ -75,11 +70,7 @@ test_8:
   li    TESTNUM, 8
   bne   a4, x29, fail
 
-  #-------------------------------------------------------------
-  # A four-byte fault, so the other arm of the length decision runs. Resuming
-  # two bytes early here would land inside `ecall`'s upper halfword, which is
-  # zero and decodes to nothing, and the cause and the count would both move.
-  #-------------------------------------------------------------
+  # A four-byte fault, so the other arm of the length decision runs.
 
   li    a2, 0
   ecall
@@ -87,12 +78,6 @@ test_8:
 
   TEST_CASE(  9, a4, 11, la a3, trap_cause; lw a4, 0(a3); )
   TEST_CASE( 10, a2, 7, nop; )
-
-  #-------------------------------------------------------------
-  # A compressed instruction whose cause comes from its operand address rather
-  # than from its encoding, so the length decision is exercised apart from the
-  # breakpoint path.
-  #-------------------------------------------------------------
 
   la    a0, tdat
   addi  a0, a0, 1
@@ -121,8 +106,7 @@ test_14:
 
   TEST_PASSFAIL
 
-  # Reached only through mtvec. RVTEST_INSTALL_TRAP_HANDLER installs this
-  # label, so the name has to be trap_handler.
+  # Reached only through mtvec.
   .align 2
 trap_handler:
   .option push
@@ -138,15 +122,12 @@ trap_handler:
   la    t1, trap_epc
   sw    t0, 0(t1)
 
-  # The load that this test exists for: the faulting instruction, read back out
-  # of .text.
   andi  t1, t0, -4
   lw    t1, 0(t1)
   andi  t2, t0, 2
   beqz  t2, 1f
   srli  t1, t1, 16
 1:
-  # Both low bits set means four bytes; anything else is two.
   andi  t1, t1, 3
   li    t2, 3
   addi  t0, t0, 2
@@ -165,7 +146,6 @@ RVTEST_DATA_BEGIN
   TEST_DATA
   RVTEST_TRAP_DATA
 
-  # Only its address is used. The `c.lw` one byte past it traps before reading.
   .align 2
 tdat:
   .word 0x0ff0

@@ -1,43 +1,8 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// VexRiscv in the same harness as soc/compare/bench_littlecpu.v: same ROM depth,
-// the same rtl/memory.v at the same base and depth, the same three pads, the
-// same program image, the same part and the same seeds.
-//
-// The core is generated, not vendored: $(VEXRISCV_V) is built from
-// soc/compare/vexriscv/GenLittleCpuCompare.scala at the pinned upstream SHA
-// (soc/compare/vexriscv_pin.mk), VexRiscv's own GenFullNoMmuNoCache
-// performance configuration with all four hazard bypasses on, rather than
-// riscv-formal's FormalSimple verification build this harness used to read.
-//
-// **That configuration has M, C and a CSR file** (MulPlugin, DivPlugin,
-// CsrPlugin(CsrPluginConfig.small), compressedGen) -- it has no AtomicPlugin,
-// so an image built with the A extension is not one it can run. Any number
-// taken from this file must still be quoted with the ISA the calling image
-// was compiled at, since a caller can build narrower than what the core
-// implements.
-//
-// It has NO DATA PATH TO THE ROM: the memory below is a read port for fetch and
-// nothing else, so a load from a ROM address reads back zero. Keep any program
-// run here from putting read-only data in ROM. soc/compare/bench.S has none,
-// which is why this went unnoticed until a benchmark with string literals ran.
-//
-// Its `rvfi_*` outputs are deleted in synthesis rather than tied off here --
-// `delete -port VexRiscv/rvfi_*`, the same technique formal/check-nonperturbation.py
-// uses on this core. Left connected they present 556 SB_IO and no ice40 package
-// can place them.
-//
-// ---- the bus ---------------------------------------------------------------
-//
-// Both sides are valid/ready with the command always accepted and the response
-// one cycle later, which is what the memories on the other harness already do.
-// `dBus_rsp_ready` is an INPUT and means "response valid" -- the name is the
-// generator's.
-//
-// Store data arrives replicated across all four byte lanes and the core shifts
-// load data itself (`writeBack_DBusSimplePlugin_rspShifted`), so the byte strobe
-// below is the size mask shifted by the low address bits and the read side hands
-// back the whole aligned word. Get that backwards and `sb` writes a word.
+// VexRiscv in the same harness as soc/compare/bench_littlecpu.v: same ROM depth, the same
+// rtl/memory.v at the same base and depth, the same three pads, the same program image,
+// the same part and the same seeds.
 module bench_vexriscv #(
   parameter integer ROM_WORDS = 1024,
   parameter integer RAM_WORDS = 16384,
@@ -73,9 +38,8 @@ module bench_vexriscv #(
     .iBus_cmd_ready(1'b1),
     .iBus_cmd_payload_pc(ibus_cmd_pc),
     .iBus_rsp_valid(ibus_rsp_valid),
-    // The comparable build has a CsrPlugin, so it has interrupt inputs the
-    // FormalSimple one did not. This bench has no interrupt controller; tie
-    // them off rather than leave them floating.
+    // The comparable build has a CsrPlugin, so it has interrupt inputs the FormalSimple
+    // one did not.
     .timerInterrupt(1'b0),
     .externalInterrupt(1'b0),
     .softwareInterrupt(1'b0),
@@ -113,13 +77,6 @@ module bench_vexriscv #(
     .rvfi_mem_wdata()
   );
 
-  // One word per cycle, where rtl/imemory.v serves two so a compressed
-  // instruction can straddle a word boundary. Same depth, same block count:
-  // 1024 words either way is 8 SB_RAM40_4K.
-  //
-  // The read is unconditional with the range test registered alongside it,
-  // which is rtl/imemory.v's shape and the one yosys turns into a block RAM's
-  // read port. Written as `inst <= in_range ? rom[i] : 0` it maps to logic.
   logic [31:0] rom[0:ROM_WORDS-1];
   generate if (INIT_ROM != "") begin : l_rom_init
     initial $readmemh(INIT_ROM, rom);
@@ -137,8 +94,6 @@ module bench_vexriscv #(
     ibus_in_range  <= ibus_word < 30'(ROM_WORDS);
     ibus_rsp_valid <= !reset && ibus_cmd_valid;
   end
-  // Out of range reads as zero, which is an illegal instruction, so a pc that
-  // runs off the end cannot wrap round onto real code. Same rule as rtl/imemory.v.
   assign ibus_rsp_inst = ibus_in_range ? rom_data : 32'b0;
 
   logic [3:0] size_mask, mem_wstrb;

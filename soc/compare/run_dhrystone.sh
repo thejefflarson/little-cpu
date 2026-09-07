@@ -1,41 +1,7 @@
 #!/bin/bash
-# Builds one Dhrystone image for the core(s) named on the command line, reports
-# it against the geometry the harness can actually place, and runs it in one
-# iverilog simulation.
-#
-# Usage: run_dhrystone.sh <runs> <cycle-limit> <cflags> <muldiv> <vvp-binary> \
-#          <cores-csv> <core=standalone-log>...
-#
-# <muldiv> is `hardware` or `libgcc`, the caller's own answer for whether
-# <cflags>' `-march` includes M -- the Makefile already knows which of
-# COMPARE_DHRY_CFLAGS or DHRY_CFLAGS built this image, so that is a fact to
-# pass through rather than one for this script to re-derive by pattern-matching
-# the flag string, which would also plant a second `-march=`-shaped literal for
-# test/march_test.sh's scan of that exact flag to trip over.
-#
-# <cores-csv> is soc/compare/dhry_dmips.py's --cores: the first name is the
-# reference core its data RAM is compared against every other name in the list,
-# and is skipped entirely for a single-core run. Each `<core=standalone-log>`
-# is that core's own yosys census, for soc/compare/dhry_fit.py's block-RAM
-# arithmetic -- the same core names as <cores-csv>, but this script does not
-# require the two lists to match, since a single-core solo run still wants
-# every core's fit line reported for context.
-#
-# WHAT THIS IS AND IS NOT. `make compare-timing` places each core and reports a
-# clock. This reports the other factor of throughput -- cycles for the same work
-# -- from the same image, the same compiler and the same string routines, so
-# that a DMIPS figure for any side is measured here rather than quoted from a
-# project's own README.
-#
-# IT IS A SIMULATION AND CANNOT BE A PLACEMENT. Dhrystone needs more memory than
-# an hx8k has block RAM for; soc/compare/dhry.lds carries the arithmetic and the
-# report below prints it every run, because the distortion has to travel with the
-# number. The clock to multiply these cycles by is `make compare-timing`'s, taken
-# at the SMALLER placed geometry, and that mismatch is the headline caveat.
-#
-# The flags arrive from the Makefile, are compiled into the image as
-# `dhry_flags`, and are read back OUT of the image below rather than reprinted
-# from the argument -- so what is reported is what the image was built with.
+# Builds one Dhrystone image for the core(s) named on the command line, reports it
+# against the geometry the harness can actually place, and runs it in one iverilog
+# simulation.
 set -euo pipefail
 
 if [ "$#" -lt 7 ]; then
@@ -59,9 +25,8 @@ CORE_LOGS=("$@")
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/../.." && pwd)
 
-# One reader for both of a MEMORY line's fields, because a second awk over the
-# same file is a second thing that can stop matching it. LENGTH comes back in
-# bytes; ORIGIN comes back as the literal the linker script states.
+# One reader for both of a MEMORY line's fields, because a second awk over the same file
+# is a second thing that can stop matching it.
 lds_field() {  # $1 = region, $2 = LENGTH|ORIGIN, $3 = linker script
   awk -v region="$1" -v key="$2" \
     '{ sub(/^[ \t]+/, "") }
@@ -114,13 +79,9 @@ tmp=$(mktemp -d "${TMPDIR:-/tmp}/compare-dhrystone.XXXXXX")
 test -n "$tmp" -a -d "$tmp"
 trap 'rm -rf "$tmp"' EXIT
 
-# THREE SEPARATE COMPILATIONS, NO -flto, for test/bench/run_dhrystone.sh's
-# reason: letting the compiler see dhry_1.c and dhry_2.c at once lets it inline
-# and then delete most of the benchmark, and no published number is built that
-# way. The first two sources are the ones `make dhrystone` compiles, unedited --
-# only the port differs, because none of the cores here can rely on `csrr
-# mcycle` to time a run (VexRiscv has no CSR file; Hazard3's iCE40 build sets
-# CSR_COUNTER=0), so soc/compare/dhry_port.c times off the bus instead.
+# THREE SEPARATE COMPILATIONS, NO -flto, for test/bench/run_dhrystone.sh's reason:
+# letting the compiler see dhry_1.c and dhry_2.c at once lets it inline and then delete
+# most of the benchmark, and no published number is built that way.
 objects=()
 for unit in "$REPO/test/bench/dhry_1.c" "$REPO/test/bench/dhry_2.c" \
             "$HERE/dhry_port.c"; do
@@ -155,9 +116,6 @@ ram_bytes=$($SIZE -A "$elf" \
   | awk '$1 == ".dhryctl" || $1 == ".data" || $1 == ".bss" { total += $2 }
          END { print total + 0 }')
 
-# Out of the image, not out of "$CFLAGS": a string read back from the bytes the
-# machine will actually run cannot be the flags of some other build. It is in
-# `.data` because that is where this map puts read-only data -- see dhry.lds.
 built_flags=$(LC_ALL=C tr -c '[:print:]' '\n' < "$tmp/data.bin" \
   | grep -m1 -- '-march=' || true)
 if [ -z "$built_flags" ]; then
@@ -202,9 +160,7 @@ python3 "$REPO/soc/rom_banks.py" "$tmp/rom.hex" \
 python3 "$HERE/rom_flat.py" "$tmp/rom.hex" "$HERE/dhry_flat.hex" \
   --rom-words "$sim_rom_words"
 
-# The data RAM every core starts from. The offset comes from the linked symbol
-# rather than from a constant here, so the image lands where the program's own
-# pointers say it is.
+# The data RAM every core starts from.
 data_start=$($NM "$elf" | awk '$3 == "__data_start" { print "0x" $1 }')
 if [ -z "$data_start" ]; then
   echo "error: __data_start is not in the linked image, so there is no offset to" >&2
@@ -236,11 +192,6 @@ if [ "$sim_status" -ne 0 ]; then
 fi
 echo
 
-# COMPARE_DHRY_MHZ is the operator's, deliberately: the clock belongs to a
-# placement -- `soc/compare/sweep.sh`, read on the worst of twelve -- and a copy
-# of it stored in this repository would be a number that stops tracking the
-# RTL. Set it to something like 'littlecpu=32.61 vexriscv=48.19 hazard3=32.60'
-# for the absolute column.
 mhz_args=()
 for spec in ${COMPARE_DHRY_MHZ:-}; do
   mhz_args+=(--mhz "$spec")

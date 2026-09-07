@@ -1,23 +1,5 @@
 #!/bin/bash
-# Asserts that no workflow file enumerates more than one `rtl/*.v` path on a
-# single line.
-#
-# Usage: workflow_rtl_list_test.sh [repo-root]     # defaults to this script's parent
-#
-# WHY THIS EXISTS. Both sim legs build from ONE list, the Makefile's
-# SIM_RTL_SRCS, and CI reaches it only through `make elaborate-strict` --
-# never by naming the RTL files itself. A second, hand-written copy of that
-# list is exactly how this repo's CI job used to miss two files when they
-# landed and spent a run elaborating a testbench whose memories were not
-# there; nothing caught it because a comment describing the rule cannot go
-# red. Two or more distinct `rtl/*.v` paths on one line is the shape that
-# defect took and the shape a workflow step invoking a tool directly --
-# `iverilog rtl/a.v rtl/b.v ...` -- would still take if it came back. A single
-# `rtl/*.v` mention, prose pointing at one file, is not that shape and is left
-# alone.
-#
-# Hermetic: grep only. No toolchain, no simulator, no yosys, so this runs
-# inside `make test` anywhere.
+# Asserts that no workflow file enumerates more than one `rtl/*.v` path on a single line.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -49,11 +31,7 @@ checked=0
 
 for f in "${files[@]}"; do
   checked=$((checked + 1))
-  # One pass over the file, not one grep per matching line. -o prints each
-  # match on its own line as `N:path`; sort -u collapses a path repeated on
-  # the same line to one entry, and the entries that share a line number stay
-  # adjacent under that sort regardless of overall line order, which is what
-  # lets uniq -c count them correctly with no second sort.
+  # One pass over the file, not one grep per matching line.
   while IFS=: read -r lineno n; do
     [ -n "$lineno" ] || continue
     if [ "$n" -ge 2 ]; then

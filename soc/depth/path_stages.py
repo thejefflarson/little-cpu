@@ -44,11 +44,6 @@ SEQUENTIAL = ("SB_DFF", "SB_RAM40_4K", "SB_SPRAM256KA", "SB_MAC16", "ICESTORM_")
 UNINTERESTING = ("clk", "reset", "CLK", "RESET")
 
 # Fetch-loop order, and the tie-break when a level folds in two modules at once.
-# `imem` first would charge decode's work to the memory, because every level on
-# this path has the memory's data somewhere behind it.
-# `riscv.pc` and `riscv.csr_*` are rtl/littlecpu.v's wiring between two of the
-# modules below, so they are charged to the module that drives them rather than
-# to a bucket named after the file the wire is declared in.
 MODULES = [
     ("riscv.decoder.", "decode"),
     ("riscv.pc", "decode"),
@@ -65,13 +60,11 @@ MODULES = [
 ]
 STAGE_ORDER = [stage for _, stage in MODULES] + ["top"]
 
-
 def stage_of(name):
     for prefix, stage in MODULES:
         if name.startswith(prefix):
             return stage
     return "top"
-
 
 def load(path, top):
     design = json.load(open(path))
@@ -87,8 +80,8 @@ def load(path, top):
                     if isinstance(bit, int):
                         driver[bit] = cell_name
 
-    # A bit's best RTL name: the shortest one, which is the declared signal
-    # rather than an alias yosys hung off it.
+    # A bit's best RTL name: the shortest one, which is the declared signal rather than
+    # an alias yosys hung off it.
     names = {}
     bits_of = {}
     for net_name, net in module["netnames"].items():
@@ -104,7 +97,6 @@ def load(path, top):
     return {"cells": module["cells"], "driver": driver, "names": names,
             "bits": bits_of, "memo": {}}
 
-
 def inputs_of(cell):
     """The bits a cell reads, less the clock and reset that reach everything."""
     for port, bits in cell["connections"].items():
@@ -114,11 +106,9 @@ def inputs_of(cell):
             if isinstance(bit, int):
                 yield bit
 
-
 def driver_of(nl, bit):
     cell_name = nl["driver"].get(bit)
     return nl["cells"][cell_name] if cell_name is not None else None
-
 
 def sources_of(nl, bit):
     """The named registers and memories reachable backwards from one bit."""
@@ -137,7 +127,6 @@ def sources_of(nl, bit):
                                   frozenset())
     memo[bit] = found
     return found
-
 
 def path_hops(report):
     """Every hop icetime printed, in order, each with the net it produced.
@@ -170,12 +159,10 @@ def path_hops(report):
                 break
     return hops
 
-
 def path_nets(report):
     return [(hop["net"][0], hop["net"][1],
              (hop["kind"], hop["what"]) if hop["kind"] else None)
             for hop in path_hops(report) if hop["net"]]
-
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -227,7 +214,6 @@ def main():
     for stage in sorted(charged, key=lambda s: -charged[s]):
         print(f"  {stage:<10} {charged[stage]}")
     print(f"  {'total':<10} {sum(charged.values())}")
-
 
 if __name__ == "__main__":
     main()

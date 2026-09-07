@@ -1,23 +1,6 @@
 #!/bin/bash
-# Builds CoreMark for this core, runs it under the cxxrtl runner and prints
-# both core_main.c's own report and this port's CoreMark/MHz trailer.
-# Invoked by `make coremark`.
-#
-# NOT A GATE, AND DELIBERATELY OFF `make test` -- the same reasons
-# run_dhrystone.sh gives: there is no CPI ratchet here, and the benchmark
-# lives in test/bench rather than test/asm because both sim legs glob test/asm
-# against a 5000-cycle limit CoreMark's iteration count is nowhere near.
-#
-# Usage: run_coremark.sh <sim-binary> <iterations> <cycle-limit> <cflags>
-#
-# SIMULATED AT 16 KB OF ROM, NOT THIS PART'S 8. test/bench/coremark.lds gives
-# `rom` that length because test/testbench.v's ROM_WORDS is double
-# rtl/imemory.v's shipping 2048 words, and CoreMark does not fit the smaller
-# one -- several times Dhrystone's 3568 bytes, the wall test/asm/rvc.S hits at
-# 12256. The figure this prints describes a machine that cannot be built until
-# this part's deferred SPI-flash boot path lands and the ROM grows; every line
-# below says so again, because a figure that forgets its own memory
-# configuration is not one EEMBC's run rules would let stand.
+# Builds CoreMark for this core, runs it under the cxxrtl runner and prints both
+# core_main.c's own report and this port's CoreMark/MHz trailer.
 set -euo pipefail
 
 if [ "$#" -ne 4 ]; then
@@ -33,10 +16,9 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 TEST_DIR=$(cd "$HERE/.." && pwd)
 VENDOR_DIR="$HERE/coremark"
 
-# Read out of the linker scripts rather than hardcoded, the same reason
-# run_dhrystone.sh reads bench.lds: a second copy of either budget would be
-# free to drift, and the copy that drifted would be the one printed next to
-# the result.
+# Read out of the linker scripts rather than hardcoded, the same reason run_dhrystone.sh
+# reads bench.lds: a second copy of either budget would be free to drift, and the copy
+# that drifted would be the one printed next to the result.
 lds_region_bytes() {  # $1 = lds path, $2 = region name
   awk -v region="$2" \
     '{ sub(/^[ \t]+/, "") }
@@ -53,22 +35,16 @@ if [ -z "$SIM_ROM_BUDGET" ] || [ -z "$SHIP_ROM_BUDGET" ]; then
   exit 1
 fi
 
-# Membership is a two-way match, not just shasum -c's one-way one: shasum only
-# verifies the names PINNED.sha256 lists, and says nothing about a file
-# dropped in beside them. That is concretely exploitable here -- coremark.h's
-# `#include "core_portme.h"` is a quoted include, which searches the including
-# file's own directory FIRST, so an unlisted core_portme.h in $VENDOR_DIR would
-# shadow this port's real header (which carries the timing hooks) for every
-# vendored unit while shasum -c reports the tree unmodified.
+# Membership is a two-way match, not just shasum -c's one-way one: shasum only verifies
+# the names PINNED.sha256 lists, and says nothing about a file dropped in beside them.
 manifest_files=$(awk '!/^#/ && NF { print $NF }' "$VENDOR_DIR/PINNED.sha256" | sort)
 tree_files=$(cd "$VENDOR_DIR" && for f in *; do
   if [ -f "$f" ] && [ "$f" != "PINNED.sha256" ]; then
     echo "$f"
   fi
 done | sort)
-# comm, the same two-way idiom test/check_suite_shape.sh and test/dual_build.sh
-# use for a manifest against a directory: -23 is named but missing, -13 is
-# present but unnamed.
+# comm, the same two-way idiom test/check_suite_shape.sh and test/dual_build.sh use for a
+# manifest against a directory: -23 is named but missing, -13 is present but unnamed.
 missing=$(comm -23 <(printf '%s\n' "$manifest_files") <(printf '%s\n' "$tree_files"))
 unlisted=$(comm -13 <(printf '%s\n' "$manifest_files") <(printf '%s\n' "$tree_files"))
 if [ -n "$missing" ] || [ -n "$unlisted" ]; then
@@ -108,12 +84,47 @@ if ! (cd "$VENDOR_DIR" && "${SHA_CHECK[@]}" PINNED.sha256) >"$pin_check" 2>&1; t
   echo "*** rather than editing a file in that directory." >&2
   exit 1
 fi
-# --strict makes a malformed manifest line fail the check above; this is the
-# quieter half of the same guard -- a WARNING for a line that is merely
-# unusual (a comment shasum tolerates, say) does not fail the run, so it must
-# not be silently dropped either.
 cat "$pin_check" >&2
 rm -f "$pin_check"
+
+# coremark_port.c restates BOTH 2K runs' CRCs independently -- the performance set the
+# scored `make coremark` compares against, and the validation set EEMBC's run rules also
+# require -- so a mutated literal in either copy is caught against the pinned vendor
+# array before a compiler runs. The performance set is the one every published figure
+# rests on, so it is not the one to leave ungraded.
+known_crc() {  # $1 = array name in core_main.c, $2 = 1-based entry
+  awk "/$1\\[\\]/,/;/" "$VENDOR_DIR/core_main.c" | grep -oE '0x[0-9a-fA-F]+' | sed -n "$2p"
+}
+port_crc() {  # $1 = #define name in coremark_port.c
+  grep -m1 -oE "#define $1 0x[0-9a-fA-F]+" "$HERE/coremark_port.c" | grep -oE '0x[0-9a-fA-F]+'
+}
+# core_main.c indexes both arrays by `known_id`: the 2K performance run is the fourth
+# entry, the 2K validation run the fifth.
+for triple in "list_known_crc:4:COREMARK_2K_PERF_CRCLIST" \
+              "matrix_known_crc:4:COREMARK_2K_PERF_CRCMATRIX" \
+              "state_known_crc:4:COREMARK_2K_PERF_CRCSTATE" \
+              "list_known_crc:5:COREMARK_2K_VALIDATION_CRCLIST" \
+              "matrix_known_crc:5:COREMARK_2K_VALIDATION_CRCMATRIX" \
+              "state_known_crc:5:COREMARK_2K_VALIDATION_CRCSTATE"; do
+  vendor_name=${triple%%:*}
+  rest=${triple#*:}
+  entry=${rest%%:*}
+  port_name=${rest#*:}
+  vendor_val=$(known_crc "$vendor_name" "$entry")
+  port_val=$(port_crc "$port_name")
+  if [ -z "$vendor_val" ] || [ -z "$port_val" ]; then
+    echo "error: could not read $vendor_name entry $entry from" >&2
+    echo "$VENDOR_DIR/core_main.c, or $port_name from" >&2
+    echo "$HERE/coremark_port.c -- nothing to cross-check." >&2
+    exit 1
+  fi
+  if [ "$((vendor_val))" != "$((port_val))" ]; then
+    echo "error: coremark_port.c's $port_name ($port_val) does not match" >&2
+    echo "$VENDOR_DIR/core_main.c's $vendor_name entry $entry ($vendor_val) --" >&2
+    echo "a 2K CRC has drifted from the pinned vendor copy." >&2
+    exit 1
+  fi
+done
 
 if [ ! -x "$SIM" ]; then
   echo "error: '$SIM' is not an executable runner; build it with 'make sim'." >&2
@@ -148,12 +159,6 @@ tmp=$(mktemp -d "${TMPDIR:-/tmp}/coremark.XXXXXX") || {
 }
 trap 'rm -rf "$tmp"' EXIT
 
-# Six separate compilations, no -flto -- the same reason run_dhrystone.sh gives
-# for Dhrystone's three: every published CoreMark number is from a build where
-# the algorithm units cannot see across each other and inline the benchmark
-# away. -I twice: coremark.h needs core_portme.h beside it, and
-# coremark_port.c needs coremark.h beside it, and neither lives in the other's
-# directory.
 objects=()
 for unit in coremark/core_list_join coremark/core_main coremark/core_matrix \
             coremark/core_state coremark/core_util coremark_port; do
@@ -226,6 +231,11 @@ if [ "$rom_bytes" -gt "$SHIP_ROM_BUDGET" ]; then
 fi
 echo "ram (.tohost + .data + .bss)   $ram_bytes of 65536 bytes"
 echo
+echo "SIMULATED AT 16 KB OF ROM -- double this part's 8 KB. This figure"
+echo "describes a machine that cannot be built until the ROM grows; the"
+echo "budget line above says how close the image itself came to the part's"
+echo "real 8 KB anyway."
+echo
 
 set +e
 "$SIM" --rom "$tmp/rom.hex" --ram "$tmp/ram.hex" --cycles "$CYCLE_LIMIT" \
@@ -233,14 +243,8 @@ set +e
 sim_status=$?
 set -e
 
-# One pass over run.log rather than three: at COREMARK_CYCLES' default budget
-# this log is 50x the size run_dhrystone.sh's DHRY_CYCLES ever produces. The
-# LAST STALLS/RETIRES line is kept, not the first: test/cxxrtl.cc's
-# report_counts() prints the guest's own console buffer before its own
-# STALLS/RETIRES lines and nothing after them, so a run whose guest program
-# writes text that happens to start with "STALLS " or "RETIRES " (coremark.h's
-# console buffer is otherwise-arbitrary bytes this port copies verbatim) must
-# not have that text mistaken for the runner's own accounting.
+# One pass over run.log rather than three: at COREMARK_CYCLES' default budget this log is
+# 50x the size run_dhrystone.sh's DHRY_CYCLES ever produces.
 : > "$tmp/extract"
 awk -v out="$tmp/extract" \
   '/^STALLS /{stalls = $0}
@@ -279,3 +283,67 @@ CoreMark leans on both harder than Dhrystone does. Reading this table against
 \`make cycles\`'s hand-written-assembly one is what running this is for; reading
 either DMIPS/MHz or CoreMark/MHz against a number this repo did not measure on
 its own hardware, at its own ROM size, is not something either supports."
+
+# EEMBC's "Required 2": the 2K VALIDATION configuration (seeds 0x3415/0x3415,
+# size 666) must also pass, not just the scored performance one -- the same
+# five vendored objects, relinked against one more compilation of
+# coremark_port.c built with COREMARK_VALIDATION. crclist/crcmatrix/crcstate
+# are latched from the first iteration only (core_main.c's iterate()), so one
+# iteration is enough to check them and the run stays short.
+echo
+echo "== CoreMark, 2K validation configuration -- EEMBC's second required"
+echo "   self-check, not a second score; see coremark_port.c's header =="
+val_obj="$tmp/coremark_port_validation.o"
+# shellcheck disable=SC2086
+$CC $CFLAGS -I "$HERE" -I "$VENDOR_DIR" -DITERATIONS=1 -DCOREMARK_VALIDATION \
+  "-DCOREMARK_FLAGS=\"$CFLAGS\"" -c "$HERE/coremark_port.c" -o "$val_obj"
+val_objects=("${objects[@]:0:5}" "$val_obj")
+
+val_elf="$tmp/coremark_validation.elf"
+# shellcheck disable=SC2086
+if ! $CC $CFLAGS -nostdlib -T "$HERE/coremark.lds" -o "$val_elf" \
+     "$TEST_DIR/crt0.S" "${val_objects[@]}" 2> "$tmp/val_link.log"; then
+  cat "$tmp/val_link.log" >&2
+  echo "*** the 2K validation image did not link." >&2
+  exit 1
+fi
+if [ -s "$tmp/val_link.log" ]; then
+  cat "$tmp/val_link.log" >&2
+  echo "error: the validation link produced diagnostics; warnings are errors here." >&2
+  exit 1
+fi
+
+$OBJCOPY -O verilog --verilog-data-width=4 -j .text -j .data "$val_elf" "$tmp/val_rom.hex"
+$OBJCOPY -O verilog --verilog-data-width=4 -j .tohost "$val_elf" "$tmp/val_ram.hex"
+for image in "$tmp/val_rom.hex" "$tmp/val_ram.hex"; do
+  if [ ! -s "$image" ]; then
+    echo "error: objcopy produced an empty $image for the validation image." >&2
+    exit 1
+  fi
+done
+
+set +e
+"$SIM" --rom "$tmp/val_rom.hex" --ram "$tmp/val_ram.hex" --cycles "$CYCLE_LIMIT" \
+  > "$tmp/val_run.log" 2>&1
+val_status=$?
+set -e
+awk '!/^(ifetch |write  |read   |trap!)/' "$tmp/val_run.log"
+
+if [ "$val_status" -ne 0 ]; then
+  echo >&2
+  echo "*** the 2K validation configuration did not reach a PASS verdict" >&2
+  echo "*** (runner exit $val_status). This is required by EEMBC's own run" >&2
+  echo "*** rules and is not optional -- see the CRC lines above." >&2
+  exit "$val_status"
+fi
+echo "2K validation configuration: PASS"
+
+echo
+echo "READ THE FLAGS AND THE ROM SIZE WITH THE NUMBER. CoreMark is"
+echo "less string-dominated than Dhrystone and harder for the optimiser"
+echo "to delete, but it is still a compiled figure: the compiler, the"
+echo "flags and the iteration count travel with it because EEMBC's own"
+echo "run rules require disclosing all three. This core is stall-only"
+echo "with no bitmanip extension, and CoreMark leans on both -- a figure"
+echo "well under a core built with forwarding and Zba/Zbb/Zbs is the"
+echo "price of this core's four goals, not a defect in the port."

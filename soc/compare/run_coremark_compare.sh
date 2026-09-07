@@ -1,22 +1,7 @@
 #!/bin/bash
-# Builds one CoreMark image for all three cores of this directory's harness,
-# reports it against the geometry the harness can actually place, and runs
-# all three on it in one iverilog simulation. Mirrors
-# soc/compare/run_dhrystone.sh's split for the identical reasons.
-#
-# Usage: run_coremark_compare.sh <iterations> <cycle-limit> <cflags> [vvp-binary]
-#
-# WHAT THIS IS AND IS NOT. `make compare-timing` places each core and reports
-# a clock. This reports the other factor of throughput -- cycles for the same
-# work -- from the same image, so that a CoreMark/MHz figure for any side is
-# measured here rather than quoted from a project's own README.
-#
-# IT IS A SIMULATION AND CANNOT BE A PLACEMENT. CoreMark needs more memory than
-# an hx8k has block RAM for; soc/compare/coremark.lds carries the arithmetic
-# and the report below prints it every run, because the distortion has to
-# travel with the number. The clock to multiply these cycles by is
-# `make compare-timing`'s, taken at the SMALLER placed geometry, and that
-# mismatch is the headline caveat.
+# Builds one CoreMark image for all three cores of this directory's harness, reports it
+# against the geometry the harness can actually place, and runs all three on it in one
+# iverilog simulation.
 set -euo pipefail
 
 if [ "$#" -lt 3 ] || [ "$#" -gt 4 ]; then
@@ -81,12 +66,8 @@ for tool in "$OBJCOPY" "$SIZE" "$NM"; do
 done
 
 # Membership is a two-way match against PINNED.sha256, the same reason
-# test/bench/run_coremark.sh checks it: a file dropped in beside the vendored
-# tree that shasum was never told to look at is invisible to a one-way check.
-# coremark.h's `#include "core_portme.h"` is a quoted include, which searches
-# the including file's own directory FIRST, so an unlisted core_portme.h in
-# $VENDOR_DIR would shadow this port's real header (which carries the timing
-# hooks) for every vendored unit while shasum -c reports the tree unmodified.
+# test/bench/run_coremark.sh checks it: a file dropped in beside the vendored tree that
+# shasum was never told to look at is invisible to a one-way check.
 manifest_files=$(awk '!/^#/ && NF { print $NF }' "$VENDOR_DIR/PINNED.sha256" | sort)
 tree_files=$(cd "$VENDOR_DIR" && for f in *; do
   if [ -f "$f" ] && [ "$f" != "PINNED.sha256" ]; then
@@ -130,10 +111,9 @@ if ! (cd "$VENDOR_DIR" && "${SHA_CHECK[@]}" PINNED.sha256) >"$pin_check" 2>&1; t
   echo "'make coremark' first, which checks this the same way and explains it." >&2
   exit 1
 fi
-# --strict makes a malformed manifest line fail the check above; this is the
-# quieter half of the same guard -- a WARNING for a line that is merely
-# unusual (a comment shasum tolerates, say) does not fail the run, so it must
-# not be silently dropped either.
+# --strict makes a malformed manifest line fail the check above; this is the quieter half
+# of the same guard -- a WARNING for a line that is merely unusual (a comment shasum
+# tolerates, say) does not fail the run, so it must not be silently dropped either.
 cat "$pin_check" >&2
 rm -f "$pin_check"
 
@@ -141,10 +121,6 @@ tmp=$(mktemp -d "${TMPDIR:-/tmp}/compare-coremark.XXXXXX")
 test -n "$tmp" -a -d "$tmp"
 trap 'rm -rf "$tmp"' EXIT
 
-# Six separate compilations, no -flto -- the same reason run_dhrystone.sh gives
-# for Dhrystone's three: every published CoreMark number is from a build where
-# the algorithm units cannot see across each other and inline the benchmark
-# away.
 objects=()
 for unit in "$VENDOR_DIR/core_list_join" "$VENDOR_DIR/core_main" \
             "$VENDOR_DIR/core_matrix" "$VENDOR_DIR/core_state" \
@@ -248,10 +224,6 @@ if [ "$sim_status" -ne 0 ]; then
 fi
 echo
 
-# COMPARE_COREMARK_MHZ is the operator's, the same reason COMPARE_DHRY_MHZ is:
-# the clock belongs to a placement -- soc/compare/sweep.sh, read on the worst
-# of five -- and a copy of it stored in this repository would be a number
-# that stops tracking the RTL.
 mhz_args=()
 for spec in ${COMPARE_COREMARK_MHZ:-}; do
   mhz_args+=(--mhz "$spec")

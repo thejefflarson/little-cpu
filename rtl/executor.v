@@ -13,9 +13,8 @@ module executor(
   assign rs1 = in.rs1;
   assign rs2 = in.rs2;
 
-  // Deliberately not rtl/decoder.v's `instr_math`, which this list otherwise
-  // matches: `is_add` also carries AUIPC, LUI, JAL/JALR and a register-form CSR
-  // read, whose results are ready this cycle and which `instr_math` excludes.
+  // Wider than rtl/decoder.v's `instr_math`: `is_add` also carries AUIPC, LUI, JAL/JALR
+  // and a register-form CSR read, whose results are all ready this cycle.
   logic in_has_result;
   assign in_has_result = in.is_add || in.is_sub || in.is_xor || in.is_or || in.is_and ||
     in.is_sll || in.is_slt || in.is_sltu || in.is_srl || in.is_sra ||
@@ -28,8 +27,6 @@ module executor(
   assign alu_ltu = alu_sub[32];
   assign alu_lt  = (rs1[31] ^ rs2[31]) ? rs1[31] : alu_sub[32];
 
-  // A left shift is a right shift with both ends reversed, so one shifter serves
-  // all three.
   logic [31:0] rs1_rev, shift_src, shift_res, shift_rev;
   logic        shift_fill;
   logic signed [32:0] shift_wide;
@@ -42,17 +39,15 @@ module executor(
   assign shift_wide = $signed({shift_fill, shift_src}) >>> rs2[4:0];
   assign shift_res  = shift_wide[31:0];
 
-  // The divider is unsigned; signed div and rem hand it magnitudes and restore
-  // the sign on completion. `-x` is spelled `~(x - 1)` because an ice40 carry
-  // cell reads its addends off the cell pins, so inverting a register output
-  // there costs a LUT per bit while the constant is free.
+  // The divider is unsigned, so signed div and rem hand it magnitudes and restore the
+  // sign on completion.
   logic [31:0] div_x, div_y;
   assign div_x = (in.is_div || in.is_rem) && rs1[31] ? ~(rs1 - 32'd1) : rs1;
   assign div_y = (in.is_div || in.is_rem) && rs2[31] ? ~(rs2 - 32'd1) : rs2;
 
-  // A dividend whose top half is zero spends its first sixteen iterations
-  // shifting those zeros past the divisor, so the loop is loaded with the state
-  // they would have left and starts sixteen in.
+  // A dividend whose top half is zero would spend sixteen iterations shifting those zeros
+  // past the divisor, so the loop starts sixteen in, loaded with the state they would
+  // have left.
   logic div_skip;
   assign div_skip = div_x[31:16] == 16'b0;
 
@@ -60,24 +55,16 @@ module executor(
   localparam init = 2'b00;
   localparam divide = 2'b10;
   logic [6:0]  mul_div_counter;
-  // div_quot holds the dividend: a quotient bit shifts in at the bottom on the
-  // edge each dividend bit leaves the top. The divisor is held complemented so
-  // the subtract reads it straight onto the carry pins, which is why
-  // `div_divisor` reads all-ones out of reset; nothing consumes it outside the
-  // divide state.
+  // div_quot holds the dividend: a quotient bit shifts in at the bottom as each dividend
+  // bit leaves the top.
   logic [31:0] div_rem, div_quot, div_divisor_n;
   logic [31:0] div_divisor;
   assign div_divisor = ~div_divisor_n;
 
-  // The borrow out of rem_sub is the quotient bit's inverse, and div_rem <
-  // div_divisor every iteration is what makes 33 bits enough. `a - b` is
-  // written out as `a + ~b + 1` so the complemented register is the addend.
   logic [32:0] rem_shifted, rem_sub;
   assign rem_shifted = {div_rem, div_quot[31]};
   assign rem_sub     = rem_shifted + {1'b1, div_divisor_n} + 33'd1;
 
-  // The iteration's next values are named so the last one retires on the edge
-  // that computes it rather than on a further cycle reading the registers back.
   logic [31:0] div_quot_next, div_rem_next;
   assign div_quot_next = {div_quot[30:0], ~rem_sub[32]};
   assign div_rem_next  = rem_sub[32] ? rem_shifted[31:0] : rem_sub[31:0];
@@ -85,8 +72,6 @@ module executor(
   always_comb
     stalled = state != init;
 
-  // `in` does not hold the divide while it runs -- decode has issued the next
-  // instruction and the stall holds that one -- so completion reads these.
   logic op_is_div, op_is_divu, op_is_rem, op_is_remu, op_sign_x, op_sign_y;
 
   logic [31:0] div_result_mag;
@@ -104,9 +89,8 @@ module executor(
   assign mul_sign_x = in.rs1[31] & (in.is_mulh | in.is_mulhsu);
   assign mul_sign_y = in.rs2[31] & in.is_mulh;
 
-  // A negative two's-complement operand contributes one subtraction of the other
-  // operand at bit 32, so the signed high half is the unsigned product's with
-  // two conditional subtracts and the low half untouched.
+  // A negative operand contributes one subtraction of the other at bit 32, so the signed
+  // high half is the unsigned product's with two conditional subtracts.
   logic [63:0] mul_unsigned;
   logic [31:0] mul_lo, mul_hi;
   assign mul_unsigned = in.rs1 * in.rs2;
@@ -129,7 +113,7 @@ module executor(
       op_sign_x <= 0;
       op_sign_y <= 0;
     end else begin
-      // Outside the case on purpose: the cycle a divide completes must publish
+      // Assigned outside the case on purpose: the cycle a divide completes must publish
       // its own answer, not the one latched when it issued.
       out.rd_ready <= in_has_result;
       (* parallel_case, full_case *)
@@ -140,8 +124,6 @@ module executor(
           out.rvfi <= in.rvfi;
          `endif
           out.rd <= in.rd;
-          // A load leaves here with no result; the accessor merges the bus answer
-          // in next cycle.
           out.rd_data <= 0;
           (* parallel_case, full_case *)
           case (1'b1)
@@ -205,8 +187,6 @@ module executor(
               out.valid <= 1'b0;
              `endif
             end
-            // Loads, stores, fence and wfi compute nothing here; a CSR access or
-            // a LUI arrives from decode as an add with rs2 zeroed.
             in.is_valid_instr: ;
           endcase // case (1'b1)
         end // case: init
@@ -242,21 +222,13 @@ module executor(
   logic clocked;
   initial clocked = 0;
   always_ff @(posedge clk) clocked <= 1;
-  // Reset is assumed before the first edge and never after it: nothing in the
-  // tree discharges either, and a reset mid-divide would zero out.rd_data where
-  // the completion assertions expect a result.
   initial assume(reset);
   always_comb if(!clocked) assume(reset);
-  // Reset reaches `state` only at the first edge, so without this the basecase
-  // could start at step 0 in `divide` with the divider's registers free.
   initial state = init;
   always_comb if (clocked) assume(!reset);
 
-  // `is_valid_instr` and `is_amo` are left out on purpose: the first is every
-  // no-result instruction's arm, the second the OR of nine flags already listed.
-  // The eleven atomics fall to that no-result arm: an AMO's operands are the
-  // memory word and rs2, which this stage never sees. An op flag added to the
-  // struct and not here silently widens the environment.
+  // `is_valid_instr` and `is_amo` are left out on purpose: the first is every no-result
+  // instruction's arm, the second the OR of nine flags already listed here.
   always_comb assume($onehot0({in.is_add, in.is_sub, in.is_xor, in.is_or, in.is_and,
     in.is_sll, in.is_slt, in.is_sltu, in.is_srl, in.is_sra,
     in.is_mul, in.is_mulh, in.is_mulhu, in.is_mulhsu,
@@ -266,8 +238,6 @@ module executor(
     in.is_amomin, in.is_amomax, in.is_amominu, in.is_amomaxu,
     in.is_lr, in.is_sc}));
 
-  // Every signed reference here is a signed net of its own, never an arm of a
-  // conditional, where sign-context rules would evaluate it unsigned.
   logic signed [31:0] alu_ref_x, alu_ref_y;
   assign alu_ref_x = rs1;
   assign alu_ref_y = rs2;
@@ -284,17 +254,11 @@ module executor(
   always_comb if (in.is_srl) assert(shift_res == shift_srl_ref);
   always_comb if (in.is_sra) assert(shift_res == shift_sra_ref);
 
-  // The bound is a hypothesis rather than a neighbouring assertion because
-  // k-induction cannot use one assertion to discharge another; above it the
-  // shifted remainder can carry into bit 32 and the bit stops being a borrow.
   always_comb
     if (div_rem < div_divisor) assert(rem_sub[32] == (rem_shifted < {1'b0, div_divisor}));
   always_comb
     if (div_rem < div_divisor && rem_sub[32]) assert(rem_shifted[32] == 1'b0);
 
-  // The references extend by width-extending assignment rather than by
-  // restating the RTL's sign expression, so a sign taken from the wrong bit
-  // disagrees here.
   logic [32:0] rs1_sext33, rs2_sext33, rs1_zext33, rs2_zext33;
   assign rs1_sext33 = $signed(in.rs1);
   assign rs2_sext33 = $signed(in.rs2);
@@ -319,17 +283,11 @@ module executor(
     if (clocked && !reset && !$past(reset) && $past(state) == init && $past(in.is_mulhsu))
       assert(out.rd_data == $past(mul_hi));
 
-  // A multiply is single-cycle whatever its operands. Guarded on $past(state)
-  // == init, as the four above are, because `in` is free while a divide runs
-  // and may name a multiply that never issued.
   always_ff @(posedge clk)
     if (clocked && !reset && !$past(reset) && $past(state) == init &&
         $past(in.is_mul || in.is_mulh || in.is_mulhu || in.is_mulhsu))
       assert(state == init);
 
-  // Each multiplies by a constant, so the solver sees shifts and adds rather
-  // than a second `bvmul` term. A miter against a signed 33x33 product returns
-  // no verdict, and neither does an `in.rs2 == 32'hffffffff` lemma.
   logic [63:0] mul_result;
   assign mul_result = {mul_hi, mul_lo};
   always_comb if (in.rs1 == 32'b0) assert(mul_result == 64'b0);
@@ -339,8 +297,6 @@ module executor(
   always_comb if (in.rs1 == 32'h1 && !mul_sign_x)
     assert(mul_result == {{32{mul_sign_y}}, in.rs2});
 
-  // Proof-only copies of the operands the divider loaded, taken on the edge it
-  // loads on, because `in` is free while it runs.
   logic [31:0] div_ghost_rs1, div_ghost_rs2;
   always_ff @(posedge clk)
     if (!reset && state == init) begin
@@ -358,25 +314,13 @@ module executor(
   always_comb if (state == divide) assert(op_sign_y == div_ghost_rs2[31]);
   always_comb if (state == divide) assert(div_divisor == div_mag_y);
 
-  // Without these k-induction may start from a wild counter that the invariant
-  // below reads as an exact count of the iterations left. Zero is excluded
-  // because the last iteration retires: a divide leaves this state at one, and
-  // starting the step from zero would wrap the counter instead.
   always_comb if (state == divide) assert(mul_div_counter <= 32);
   always_comb if (state == divide) assert(mul_div_counter != 0);
 
-  // A restriction on the proof, not the design, buying solver time on the
-  // symbolic product. Guarded to the divide state on purpose: unguarded it is
-  // proof-global, zeroed every multiply operand's high half, and let three
-  // known multiplier defects pass.
   localparam [31:0] div_proof_cap = 32'h000000ff;
   always_comb if (state == divide) assume(div_mag_x <= div_proof_cap);
   always_comb if (state == divide) assume(div_mag_y <= div_proof_cap);
 
-  // With n iterations left and k = 32 - n run: the dividend's top k bits are
-  // divided, their quotient in div_quot's low k bits and div_rem the remainder,
-  // and its other n bits still sit in div_quot's top. At n == 0 this is the
-  // division identity.
   logic [5:0]  div_done;
   logic [63:0] div_quot_done, div_quot_left, div_mag_x_done, div_mag_x_left;
   assign div_done       = 6'd32 - mul_div_counter[5:0];
@@ -403,11 +347,6 @@ module executor(
   assign div_ref  = (div_ghost_rs2 == 0) ? 32'hffffffff : div_q;
   assign rem_ref  = (div_ghost_rs2 == 0) ? div_ghost_rs1 : div_r;
 
-  // The proof cap above puts every divide on the sixteen-iteration path, which
-  // reaches these at step 19 of `mode prove`'s 20 basecase steps. So a mutation
-  // that breaks one reports `FAIL` over a trace from reset, where a
-  // 32-iteration divide left it out of basecase reach and reported the
-  // induction-only `UNKNOWN (rc=4)`.
   always_ff @(posedge clk)
     if (clocked && !reset && $past(state) == divide && state == init && $past(op_is_divu))
       assert(out.rd_data == divu_ref);

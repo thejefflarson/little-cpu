@@ -1,21 +1,18 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// The register numbers a fetched word names, read over the issuing instruction
-// and again over the word after it.
 module regsel (
   input  logic [31:0] word,
   output logic [4:0]  rs1,
   output logic [4:0]  rs2
 );
-  // The upper half of a compressed word belongs to the instruction after it.
-  // Masked, a compressed encoding no arm below names reads x0 out of the
+  // The upper half of a compressed word belongs to the instruction after it, so it is
+  // masked away. A compressed encoding no arm below names then reads x0 out of the
   // uncompressed field positions, which is what such an encoding means.
   logic [31:0] instr;
   assign instr = (word[1:0] == 2'b11) ? word : {16'b0, word[15:0]};
 
-  // Named continuous assigns rather than part-selects inside the always_comb
-  // blocks below: iverilog cannot build a precise sensitivity entry for a
-  // constant select there.
+  // Named continuous assigns rather than part-selects inside the always_comb blocks
+  // below, for which iverilog cannot build a precise sensitivity entry.
   logic [4:0] rd_field, rs1_field, rs2_field, c_rs2_field;
   logic [2:0] c_rd_rs1_prime, c_rs2_prime;
   assign rd_field       = instr[11:7];
@@ -36,8 +33,6 @@ module regsel (
   assign cfunct4      = instr[15:12];
   assign cfunct6      = instr[15:10];
 
-  // A zero immediate makes each of these a different instruction naming a
-  // different register, so the whole immediate is tested, not a bit range.
   logic [31:0] caddi4spn_immediate, caddi16sp_immediate;
   assign caddi4spn_immediate = {22'b0, instr[10:7], instr[12:11], instr[5], instr[6], 2'b00};
   assign caddi16sp_immediate = {{22{instr[12]}}, instr[12], instr[4:3], instr[5], instr[2], instr[6], 4'b0};
@@ -97,8 +92,6 @@ module regsel (
   end
 
  `ifdef FORMAL
-  // Each assertion is the arm list of one `parallel_case` above, transcribed
-  // rather than shared with it; add an arm to one and add it here too.
   always_comb assert($onehot0({
     instr_clwsp || instr_cswsp || instr_caddi4spn,
     instr_clw || instr_csw || instr_cbeqz || instr_cbnez ||

@@ -1,17 +1,5 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// One core's Dhrystone marker/verdict monitor, instantiated once per DUT by
-// soc/compare/dhry_tb.v and soc/compare/dhry_solo_tb.v rather than open-coded
-// per core: the mechanism watching for soc/compare/dhry.lds' two control-window
-// addresses is the same for every core in this harness, and only the bus
-// signal names at the call site differ per DUT (soc/compare/bench_littlecpu.v's
-// mem_addr/mem_wdata/mem_wstrb, soc/compare/bench_vexriscv.v's
-// dbus_cmd_address/dbus_cmd_data/mem_wstrb, soc/compare/bench_hazard3.v's
-// mem_addr_mux/hwdata/mem_wstrb_mux).
-//
-// `cycle` is the caller's shared testbench clock counter, not a counter of its
-// own, so every core's marks are read against one clock rather than N
-// independently-drifting ones.
 module dhry_monitor (
   input  logic        clk,
   input  int unsigned cycle,

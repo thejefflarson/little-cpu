@@ -1,32 +1,5 @@
 #!/bin/bash
 # Asserts that `SB_LUT4` appears only at a fixed, reviewed list of sites.
-#
-# Usage: lut4_site_test.sh [repo-root]     # defaults to this script's parent
-#
-# WHY THIS EXISTS. `SB_LUT4` is yosys's pre-place LUT count, and it is the
-# wrong unit for an area budget or a ratchet on this fabric: a flip-flop that
-# cannot share a cell with the LUT feeding it takes a whole packed cell by
-# itself, and counting `SB_LUT4` instead of nextpnr's packed `ICESTORM_LC` gave
-# two planning estimates that were wrong in opposite directions. Every place in
-# this tree that reads `SB_LUT4` today is either a comment explaining that
-# pitfall or `soc/compare/placed_vs_synth.py`'s one sanctioned use -- a sanity
-# ratio between a design's own placed and pre-place counts, not a cross-tree
-# area decision. Nothing here can tell a THIRD kind of use -- a new script that
-# quietly treats `SB_LUT4` as a budget -- apart from those two by reading the
-# surrounding text; that is a fact about what a number is used FOR, not a
-# pattern grep can see. What this script mechanises instead is the
-# reintroduction path: `SB_LUT4` arriving at a site nobody on this list
-# reviewed. A new site is not wrong by construction, but it needs a reviewed
-# line here saying which of the two uses it is, the same way this repo already
-# insists a `.gitignore` rule or a retired term earn its exemption rather than
-# accumulate silently.
-#
-# THE ALLOW-LIST IS PATHS, THE SAME SHAPE test/retired_term_test.sh USES for
-# ITS table, because the question is the same one: does this FILE already carry
-# a reviewed reason for the string, not how many times.
-#
-# Hermetic: git and grep only. No toolchain, no simulator, no yosys, so this
-# runs inside `make test` anywhere.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -37,23 +10,13 @@ if [ ! -d "$REPO" ]; then
   exit 1
 fi
 
-# One path per line -- a file, or a directory ending in `/` -- with the reason
-# it carries the string written above it.
+# One path per line -- a file, or a directory ending in `/` -- with the reason it carries
+# the string written above it.
 allow_paths() {
   cat <<'PATHS'
 # The measurements-and-ratchets section's own warning against this unit, and
 # the specific measured cases it warns about.
 CLAUDE.md
-
-# The tripwire this script exists to grade -- naming the unit it warns against
-# is the whole content of the warning.
-Makefile
-
-# soc/baseline_summary.py's CELL_UNIT table names `SB_LUT4` only to say a
-# report's own `lc` column is never it; soc/baseline_sweep.sh's comment says
-# the same about the count that sweep records.
-soc/baseline_summary.py
-soc/baseline_sweep.sh
 
 # The one sanctioned functional use: soc/compare/placed_vs_synth.py reads
 # `SB_LUT4` out of a core's standalone synthesis log and compares it, as a
@@ -96,18 +59,14 @@ if [ ! -s "$tmp/allow" ]; then
   exit 1
 fi
 
-# Tracked files only, git's own enumeration -- what this guards against is the
-# string arriving in a commit, and a checkout carries build artifacts and, in
-# the primary checkout here, whole worktrees of the repo under `.claude/`.
+# Tracked files only: what this guards against is the string arriving in a commit, and a
+# checkout also carries build artifacts and whole worktrees under `.claude/`.
 if ! git -C "$REPO" ls-files -z > "$tmp/files" 2>/dev/null || [ ! -s "$tmp/files" ]; then
   echo "error: cannot enumerate any tracked files under $REPO. This check reads" >&2
   echo "git's index; a tree git cannot list is a scan of nothing reporting green." >&2
   exit 1
 fi
 
-# Which allow-list entry covers a path, or nothing. A directory entry matches
-# on the trailing `/` it ends with, so `docs/adr/` cannot quietly cover a
-# `docs/adrenaline.md` that nobody meant to exempt.
 match_entry() {  # $1 = path
   local path=$1 entry
   while IFS= read -r entry; do
@@ -119,9 +78,6 @@ match_entry() {  # $1 = path
   return 0
 }
 
-# `/dev/null` as a first argument so grep always prefixes the filename, even
-# when xargs hands it a single file. No match at all leaves grep with status 1
-# and xargs with 123, which is not an error here.
 hits=$( (cd "$REPO" && xargs -0 grep -nI -e 'SB_LUT4' -- /dev/null < "$tmp/files") || true)
 
 : > "$tmp/unexpected"

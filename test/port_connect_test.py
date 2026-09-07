@@ -63,19 +63,14 @@ MODULE_FILE = "rtl/littlecpu.v"
 # The macro whose group `RVFI_CONN` stands in for.
 RVFI_MACRO = "RISCV_FORMAL"
 
-# Macros that only a file compiled with RISCV_FORMAL can use. A file naming one
-# of them has to connect the rvfi ports rather than being read as a site that
-# never defines the macro.
+# Macros that only a file compiled with RISCV_FORMAL can use.
 RVFI_WIRE_MACROS = ("RVFI_WIRES", "RVFI_OUTPUTS")
 
-
-# A declared port. `guard` is the tuple of macros it is nested under, empty for
-# a port every build has.
+# A declared port. `guard` is the tuple of macros it is nested under, empty for a port
+# every build has.
 Port = collections.namedtuple("Port", "name direction guard")
 
-# One site's named omissions and the reason they stay. An entry that is only a
-# path and a port teaches the next reader nothing and gets deleted by the next
-# person tidying, so the reason is a field and it is printed.
+# One site's named omissions and the reason they stay.
 Exemption = collections.namedtuple("Exemption", "path ports reason")
 
 EXCEPTIONS = [
@@ -97,20 +92,17 @@ EXCEPTIONS = [
             "rvfi_csr_mscratch_rdata",
             "rvfi_csr_mscratch_wdata",
         ),
-        # These are outputs, and an unnamed output drives nothing where an
-        # unnamed INPUT floats. Connecting them anyway would be fourteen wires
-        # no reader ever looks at.
+        # These are outputs, and an unnamed output drives nothing where an unnamed INPUT
+        # floats.
         "the generated monitor both sim legs read has no CSR channel and no "
         "mode or ixl port, so these outputs have no reader in simulation",
     ),
 ]
 
-
 def die(*lines):
     for line in lines:
         print(line, file=sys.stderr)
     raise SystemExit(1)
-
 
 def strip_comments_and_strings(text):
     """Blank out comments and string bodies, keeping every newline in place.
@@ -146,7 +138,6 @@ def strip_comments_and_strings(text):
             i += 1
     return "".join(out)
 
-
 def matching_paren(text, start):
     """Offset of the `)` closing the `(` at `start`, or None."""
     depth = 0
@@ -159,9 +150,7 @@ def matching_paren(text, start):
                 return i
     return None
 
-
 DIRECTIVE = re.compile(r"^\s*`(ifdef|ifndef|elsif|else|endif)\b\s*(\w+)?")
-
 
 def segments(where, text, first_line):
     """A parenthesised list's top-level comma-separated entries.
@@ -218,13 +207,11 @@ def segments(where, text, first_line):
     out.append((body, body_line, body_guard))
     return out
 
-
 PORT_DECL = re.compile(r"^\s*(input|output|inout)\b(.*)$", re.S)
 CONNECTION = re.compile(r"^\s*\.\s*([A-Za-z_]\w*)\s*\((.*)\)\s*$", re.S)
 BARE_MACRO = re.compile(r"^\s*`([A-Za-z_]\w*)\s*$", re.S)
 RANGE = re.compile(r"\[[^\]]*\]")
 WORD = re.compile(r"[A-Za-z_]\w*")
-
 
 def stray_comma(where, lineno):
     die("error: %s has an empty entry at line %d -- a stray or trailing comma."
@@ -232,7 +219,6 @@ def stray_comma(where, lineno):
         "yosys accepts that spelling and iverilog rejects it, so it is a shape",
         "only the second frontend catches. Fix the list rather than teaching",
         "this check to skip empty entries.")
-
 
 def module_ports(text):
     """The declared ports of `littlecpu`, in order."""
@@ -242,9 +228,9 @@ def module_ports(text):
             % (MODULE_FILE, MODULE),
             "as the source of what every instantiation owes; if the module was",
             "renamed or moved, move this check with it.")
-    # A parameter port list comes first when there is one, and it is not what
-    # this reads: skipped by matching parentheses, because a parameter's default
-    # may itself be parenthesised.
+    # A parameter port list comes first when there is one, and it is not what this reads:
+    # skipped by matching parentheses, because a parameter's default may itself be
+    # parenthesised.
     open_paren = text.find("(", m.end())
     if text[m.end():].lstrip().startswith("#"):
         params_close = matching_paren(text, open_paren)
@@ -289,13 +275,11 @@ def module_ports(text):
             "harness at all.")
     return ports
 
-
-# Only as far as what follows the module name: an override list may come next,
-# and it is itself full of `.NAME(expr)`, so where it ends is a question for
-# `matching_paren` rather than for a pattern that cannot nest.
+# Only as far as what follows the module name: an override list may come next, and it is
+# itself full of `.NAME(expr)`, so where it ends is a question for `matching_paren`
+# rather than for a pattern that cannot nest.
 INSTANCE = re.compile(r"(?:^|[^A-Za-z0-9_.`])%s\s+(#|[A-Za-z_])" % MODULE, re.M)
 INSTANCE_NAME = re.compile(r"\s*([A-Za-z_]\w*)\s*\(")
-
 
 def instantiations(path, text):
     """Every `littlecpu` instance in one file, as (instance, connections).
@@ -355,7 +339,6 @@ def instantiations(path, text):
                 "stops the run rather than being skipped.")
         found.append((name.group(1), conns))
     return found
-
 
 def main():
     here = Path(__file__).resolve().parent
@@ -435,8 +418,8 @@ def main():
                          "is called now.")
                     continue
                 if not expr:
-                    # Recorded as named anyway, so the group below reports this
-                    # port once, in the words that fit it.
+                    # Recorded as named anyway, so the group below reports this port
+                    # once, in the words that fit it.
                     rc = 1
                     fail("%s:%d names .%s() with nothing in it, which for an"
                          % (path, lineno, port),
@@ -453,9 +436,8 @@ def main():
                      "undriven, and a check whose rvfi_valid never rises passes",
                      "without looking at one instruction.")
             for guard, group in sorted(groups.items()):
-                # A guarded group nobody here names is a macro this file never
-                # defines, so its ports do not exist at this site and nothing is
-                # owed. The unguarded group is owed by every site there is.
+                # A guarded group nobody here names is a macro this file never defines,
+                # so its ports do not exist at this site and nothing is owed.
                 covered = has_rvfi_conn and guard and guard[0] == RVFI_MACRO
                 if guard and not covered and not any(p in named for p in group):
                     continue
@@ -513,7 +495,6 @@ def main():
     print("%s: %d ports (%d unguarded) named at every one of %d instantiations, "
           "%d exceptions"
           % (MODULE, len(ports), len(groups.get((), [])), sites, exceptions))
-
 
 if __name__ == "__main__":
     main()

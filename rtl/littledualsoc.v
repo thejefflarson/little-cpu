@@ -1,12 +1,8 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// rtl/littledual.v with its pins and a power-on reset. ECP5 only: two fetch
-// windows are two copies of the banked ROM, 32 block RAMs against the up5k's
-// 30.
+// rtl/littledual.v with its pins and a power-on reset. ECP5 only: two fetch windows are
+// two copies of the banked ROM, 32 block RAMs against the up5k's 30.
 module littledualsoc (
-  // Named for rtl/littlesoc.v's own ports, so soc/littlesoc.lpf constrains this
-  // top too -- only `clk` is located there; nextpnr places the rest anywhere
-  // (`--lpf-allow-unconstrained`).
   input  logic clk,
   input  logic btn_n,
   output logic ledr_n,

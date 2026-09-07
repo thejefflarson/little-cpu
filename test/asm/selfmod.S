@@ -46,9 +46,7 @@ patch_adjacent:
 
   TEST_CASE( 2, a0, 1, nop; )
 
-  #-------------------------------------------------------------
   # The same thing at a distance: patch a stub, fence, then call it.
-  #-------------------------------------------------------------
 
   la    t0, tmpl_set_a1
   lw    t1, 0(t0)
@@ -61,10 +59,7 @@ patch_adjacent:
 
   TEST_CASE( 3, a1, 0x2a, nop; )
 
-  #-------------------------------------------------------------
-  # Writing the original word back and calling the stub again. Without this a
-  # ROM image that already held the patched word would pass test 3.
-  #-------------------------------------------------------------
+  # Writing the original word back and calling the stub again.
 
   la    t0, tmpl_nop
   lw    t1, 0(t0)
@@ -79,8 +74,7 @@ patch_adjacent:
 
   TEST_PASSFAIL
 
-  # Control cannot fall in here: every path above ends in TEST_PASSFAIL's
-  # infinite loop. The stub is only ever entered by the `jal` above.
+  # Control cannot fall in here: every path above ends in TEST_PASSFAIL's infinite loop.
   .align 2
   .option push
   .option norvc
