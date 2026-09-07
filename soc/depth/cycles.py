@@ -38,7 +38,10 @@ ANCHORS = {
     "count": "      if ((stall_any->curr[0] & 1) == 0) {",
     # The last line of `report_counts`, which every path that simulated anything
     # goes through and which has already returned early without `--stalls`.
-    "report": '    std::printf(" unattributed=%llu\\n", (unsigned long long)unattributed_cycles);',
+    "report": (
+        '    std::printf(" unattributed=%llu lsissue=%u lsedge=%u lsbypass=%u\\n",\n'
+        '                 (unsigned long long)unattributed_cycles, ls_issues->curr[0],\n'
+        '                 ls_edges->curr[0], ls_bypasses->curr[0]);'),
 }
 
 PROBES = r"""

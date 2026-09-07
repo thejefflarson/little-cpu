@@ -38,18 +38,43 @@ mkdir -p "$out"
 mem=$out/imemory_depth.v
 python3 soc/depth/variants.py "$mem"
 
-# The spike memory sits in rtl/imemory.v's place in the list rather than at the
-# end of it. yosys names cells in the order it reads them and ABC's mapping
-# follows those names, so a reordered source list moves the number by about as
-# much as the whole edit-churn band on its own -- measured, and it is one of the
-# functionally identical texts that band is derived from.
-CORE_SRCS="rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v \
-rtl/fetcher.v $mem rtl/memory.v rtl/regfile.v rtl/regsel.v"
+# THE SOURCE LIST IS THE MAKEFILE'S, ASKED FOR, NOT A SECOND COPY OF IT. This
+# script kept its own hand-written list for its whole life, and the list went
+# stale the first time a module joined the SoC without anyone thinking of this
+# file: rtl/uart.v and rtl/spiflash.v landed in rtl/littlesoc.v and in SOC_SRCS,
+# nothing here moved, and yosys then stopped because the design had no spiflash
+# in it. Naming the two missing files here would fix that day and re-break on the
+# next module. So each part asks make for the list its own shipping flow places,
+# the way soc/baseline_sweep.sh already asks for SOC_PROG, and the way
+# soc/compare/ reads its geometry from the Makefile rather than from a second
+# hand-kept list.
+#
+# The spike memory is SUBSTITUTED IN PLACE for rtl/imemory.v rather than appended.
+# yosys names cells in the order it reads them and ABC's mapping follows those
+# names, so a reordered source list moves the number by about as much as the
+# whole edit-churn band on its own -- measured, and it is one of the functionally
+# identical texts that band is derived from. Substitution keeps the shipping
+# order exactly; appending would not.
+spike_srcs() {
+  # "$@" so a part can pass the variable assignments its list is a function of.
+  list=$(make -s "$@")
+  case " $list " in
+    *" rtl/imemory.v "*) ;;
+    *)
+      echo "*** soc/depth/sweep.sh: $1 does not name rtl/imemory.v, so the spike" >&2
+      echo "*** memory has nothing to take the place of. The variable this reads" >&2
+      echo "*** was renamed or restructured; re-find it rather than restating the" >&2
+      echo "*** list here." >&2
+      exit 2
+      ;;
+  esac
+  printf '%s\n' "$list" | sed "s#rtl/imemory\\.v#$mem#"
+}
 
 case "$part" in
   up5k)
     # The shipping SoC, with the spike memory swapped in for rtl/imemory.v.
-    srcs="$CORE_SRCS rtl/timer.v rtl/writeback.v rtl/littlecpu.v rtl/littlesoc.v"
+    srcs=$(spike_srcs print-SOC_SRCS)
     top=littlesoc
     synth_args="-dsp -spram"
     chp=""
@@ -60,8 +85,8 @@ case "$part" in
     ;;
   hx8k)
     # soc/compare/'s geometry, so the level count is comparable with the
-    # VexRiscv row in the same harness.
-    srcs="$CORE_SRCS rtl/writeback.v rtl/littlecpu.v soc/compare/bench_littlecpu.v"
+    # VexRiscv row in the same harness -- and its list, so it stays comparable.
+    srcs=$(spike_srcs print-COMPARE_SRCS COMPARE_CORE=littlecpu)
     top=bench_littlecpu
     synth_args=""
     chp="chparam -set ROM_WORDS 1024 -set RAM_WORDS 512 $top;"
