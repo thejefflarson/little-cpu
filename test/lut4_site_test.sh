@@ -22,9 +22,11 @@ CLAUDE.md
 # `SB_LUT4` out of a core's standalone synthesis log and compares it, as a
 # ratio and not a difference, against that SAME core's own placed ICESTORM_LC
 # -- a liveness check that the datapath survived placement, not a cross-tree
-# area budget. soc/compare/dhry_fit.py's comment points at that same log shape.
+# area budget. soc/compare/dhry_fit.py and soc/compare/coremark_fit.py's
+# comments each point at that same log shape.
 soc/compare/placed_vs_synth.py
 soc/compare/dhry_fit.py
+soc/compare/coremark_fit.py
 
 # A comment about how a generated cell gets NAMED after flattening, not a count.
 soc/depth/path_stages.py

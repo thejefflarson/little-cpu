@@ -596,7 +596,7 @@ make test           # the test/asm suite (.S and .c) under cxxrtl + unit benches
                     # + every repo-scanning `*-test` target (memmap, march, band-source,
                     # retired-term, adr-numbering, port-connect, compare-geometry,
                     # vexriscv-path, tracked-ignored, tool-cache, pin-bump, abc-engine,
-                    # zkt-isolation, fixture-freshness, makefile-target)
+                    # zkt-isolation, fixture-freshness, makefile-target, lut4-site)
                     # + window-test, imem-share-test, board-elaborate, mutation-probe and
                     # dual-build; graded against EXPECTED_FAIL / OBSERVED_FLOOR
 make test-units     # the unit benches alone; the list is checked against test/*_tb.v both ways
