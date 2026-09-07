@@ -272,3 +272,58 @@ candidates. Nothing here needs a seventh bucket or a second category, unlike ADR
 - **The suite was run to say the tree is unchanged, not to grade a change.** 62/62 on `make test`
   with the failure list matching `test/EXPECTED_FAIL`, on a working tree byte-identical to `2773832`
   under `rtl/`, `formal/` and `test/`.
+
+## Amendment, 2026-09-06: the question this ADR asked has been answered by shipping half of it
+
+**This ADR is half superseded and the amendment below is not a re-take of its question.** ADR-0083
+asked whether a forwarding network pays. Part of one shipped: ADR-0154's executor-only spelling,
+forwarding `executor_out.rd_data` to `out.rs1`/`out.rs2` for eligible encodings only, is on `main`
+and is worth 0.758 → 0.777 DMIPS/MHz. **The live question is the different one: does widening that
+network to every decode-side operand reader pay ON TOP of the half that shipped?** That is what was
+built and measured here.
+
+What was built, on top of `main` at `1b66af2` (candidate tree `f2891bc`): `rs1_fwd_eligible` and
+`rs2_fwd_eligible` both tied to `1'b1`, and `rs1_forwarded`/`rs2_forwarded` routed to every reader
+the shipping eligibility comment lists as a reason they cannot be — the branch comparator
+(`cmp_sub`, `cmp_lt`), the `jalr` arm of `next_pc`, `mem_addr_calc`, `ls_block`, `mem_addr_low`,
+`atomic_addr` and the register-form CSR operand. Sixteen paired seeds (`default 1`…`15`),
+`SOC_MIN_MHZ=0`, one toolchain on both arms: OSS CAD Suite — Yosys 0.68+48 (`ff5817c34-dirty`),
+nextpnr-0.11-1-g62e659ed, icetime oss-cad-suite 20260811 (`sha256:25a4ecb76c094f00`).
+
+| arm | worst | median | best | spread | placed `ICESTORM_LC` | under 12.00 MHz |
+|---|---|---|---|---|---|---|
+| base `4697eb8` | 80.41 ns / 12.44 MHz | 78.03 / 12.82 | 76.38 / 13.09 | 5.3% | 4904 | 0 of 16 |
+| every reader `f2891bc` | 101.12 ns / **9.89 MHz** | 99.00 / **10.10** | 95.32 / 10.49 | 6.1% | 4877 | **16 of 16** |
+
+**+26.89% of median period, sixteen of sixteen seeds slower, sixteen of sixteen under the board
+clock, and the worst placement is 9.89 MHz — below the 12 MHz requirement by more than a fifth, with
+the next divider step down at 6.** This is the largest period cost any candidate in this tree has
+measured. It is also −27 placed cells and −33 `fit` cells, which is the point: the cost is depth in
+the fetch loop and it is invisible in a cell count.
+
+**And the cycles are real.** The candidate is correct — 75/75 on the `.S`/`.c` suite with
+`test/EXPECTED_FAIL` exact — and:
+
+| | base `4697eb8` | every reader `f2891bc` |
+|---|---|---|
+| suite | 38 746 cycles, CPI 1.77 | 35 120, CPI 1.60 (**−9.36%**) |
+| suite hazard column | 12 121 | 8 126 |
+| Dhrystone, 2000 runs | 1 506 772 cycles, CPI 1.59 | 1 424 673, CPI 1.50 (**−5.45%**) |
+| Dhrystone hazard column | 317 207 | 227 993 |
+| DMIPS/MHz | 0.777 | **0.823 (+5.9%)** |
+
+**The product settles it without appeal.** At the median placement, 0.777 × 12.82 = 9.96 DMIPS
+against 0.823 × 10.10 = 8.31, **−16.6%**; at the worst, 9.67 against 8.14, **−15.8%**. A 5.9%
+DMIPS/MHz gain does not survive a 21% clock loss, and 12 MHz is a requirement rather than a floor
+that slides.
+
+`make test` fails on the candidate at `test/decoder_tb.v`, at the four vectors that grade exactly
+this — "a store's base register is not eligible for forwarding", "a branch's rs2 is not eligible for
+forwarding", and the two "so it still waits for it" companions. Those vectors are the shipping
+eligibility rule asserted, and a candidate that widens the rule must move them; they went red for the
+reason they were written, which is the outcome that says the grader works.
+
+**HELD, on the amended question.** Executor-only forwarding is the part of this network that pays;
+the rest of it costs a quarter of the clock. The comment in `rtl/decoder.v` above
+`rs1_fwd_eligible` — that an eligible encoding must have no other decode-side reader of the same
+register — now has a price attached to widening it. The RTL is not carried on `main`.

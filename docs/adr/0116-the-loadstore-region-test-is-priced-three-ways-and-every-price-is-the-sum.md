@@ -267,3 +267,18 @@ quote the distribution.
   if no unmapped page ever abuts a mapped one, which no finite map satisfies — every region has a
   first page past its end — so widening or aligning the regions moves the inexactness without
   removing it.
+
+## Amendment, 2026-09-06: the curve is unchanged and the reason to spend on it is gone
+
+Re-taken on `main` at `1b66af2` as part of the sweep of every declined ceiling in the tree; the full
+measurement is in
+[ADR-0128](0128-the-loadstore-region-fault-is-built-and-costs-the-board-clock.md)'s amendment of the
+same date and is not repeated here.
+
+Two results bear on this ADR specifically. **The monotone-in-which-bit finding reproduces**: the
+direct spelling, which waits on the top of the sum, reads +17.72% of median period over sixteen
+paired seeds against the +17.30% recorded here for bit 31, on a tree several designs newer. And
+**the thing the curve was being climbed for has gone**: with ADR-0129's deferred answer shipping and
+ADR-0158's inset linker layout under it, the region wait costs **2 cycles of Dhrystone's 1 506 772**.
+Choosing a cheaper point on this curve can no longer buy anything worth a nanosecond, so the bit-12
+spelling was deliberately not rebuilt — its period was not the open question, its purpose was.

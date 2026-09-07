@@ -77,3 +77,51 @@ one.
 
 **What must not happen is the floor moving.** Lowering `SOC_MIN_MHZ` is a decision to stop targeting
 the board clock and needs an ADR of its own, arguing for 6 MHz.
+
+## Amendment, 2026-09-06: re-taken, and the decline has swallowed its own reason for existing
+
+Two things were re-measured: what the deferred answer ADR-0129 shipped still costs, and what a
+same-cycle answer still costs. **The first has gone to nothing and the second has not moved, so the
+whole family is now declined on the cycle side before the period is even read.**
+
+**What the deferred answer costs today: two cycles.** On `main` at `1b66af2`, `make dhrystone`'s
+REGION column is **2 cycles out of 1 506 772**, and the `lsedge` counter says why — 2 of Dhrystone's
+375 915 load/store issues have `rs1` within 2 KB of a mapped-region edge. ADR-0129 priced the wait at
++13.79% of Dhrystone's cycles; [ADR-0158](0158-the-linker-scripts-inset-the-layout-and-dhrystone-gets-its-cycles-back.md)'s
+inset linker layout gave essentially all of it back with no RTL change. On the `.S` suite the column
+is still 1 134 cycles of 38 746 (2.93%), because hand-written assembly does not follow the layout
+convention — which is the two workloads disagreeing in the direction ADR-0084 warns about, with the
+compiled one on the side that matters.
+
+**So the ceiling on what any same-cycle spelling can buy is 2 Dhrystone cycles.** No spelling, however
+cheap, can be worth a period cost against that. The bit-12 carry-recovery spelling this ADR built was
+**not** rebuilt for that reason: pricing it would be pricing the period of a change whose benefit is
+already known to be 0.0001% of the workload this project quotes.
+
+**What was rebuilt is the direct spelling — ADR-0104's, the expensive end of the family** — as an
+upper bound on the family's period, and as the control that says the region cone is still where the
+period is. Two lines in `rtl/decoder.v`: `region_stall = 1'b0`, and `ls_fault` reading `ls_supported`
+combinationally instead of the registered `ls_answer`. Candidate tree `ef71756`, sixteen paired seeds
+(`default 1`…`15`), `SOC_MIN_MHZ=0`, one toolchain on both arms: OSS CAD Suite — Yosys 0.68+48
+(`ff5817c34-dirty`), nextpnr-0.11-1-g62e659ed, icetime oss-cad-suite 20260811
+(`sha256:25a4ecb76c094f00`).
+
+| arm | worst | median | best | spread | placed `ICESTORM_LC` | under 12.00 MHz |
+|---|---|---|---|---|---|---|
+| base `4697eb8` (deferred answer) | 80.41 ns / 12.44 MHz | 78.03 / 12.82 | 76.38 / 13.09 | 5.3% | 4904 | 0 of 16 |
+| same-cycle, direct `ef71756` | 94.85 ns / **10.54 MHz** | 91.85 / **10.89** | 89.73 / 11.14 | 5.7% | 4853 | **16 of 16** |
+
+**+17.72% of median period, sixteen of sixteen seeds slower, sixteen of sixteen under the board
+clock**, and it reproduces ADR-0116's bit-31 figure of +17.30% almost exactly on a tree several
+designs newer — the same thing this ADR said about the bit-12 figure reproducing, now said about the
+other end of the same curve. The candidate is −51 placed cells and −54 `fit` cells, so this is a
+period result and not an area one.
+
+The candidate is functionally correct: the whole `.S`/`.c` suite passes 75/75 with
+`test/EXPECTED_FAIL` exact and the REGION column at 0. `make test` fails only at `test/decoder_tb.v`'s
+region vectors, which grade the wait the candidate deletes — the bench asserting the shipping
+design's behaviour, not a wrong answer.
+
+**HELD, and the three ways out this ADR listed are down to none that matter.** "Accept a deferred
+answer" was taken, and the software convention in ADR-0158 has since made it free on compiled code.
+There is no longer a cycle cost to buy back. The RTL is not carried on `main`.

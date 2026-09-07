@@ -295,3 +295,58 @@ where no single input is worth more than 5% and all of them together are worth 2
   `summarise()` so `soc/depth/row.py` reuses it; a second parser of a file that one already
   reconciles is the shape that once left a ratchet in the copy nobody maintained. Its printed output
   and its `--min-mhz` grading are unchanged, and its probes still cover both.
+
+## Amendment, 2026-09-06: re-taken at twelve seeds a variant, and every cell got worse
+
+**First, the instrument.** This ADR's spike could not run at all. `soc/depth/sweep.sh` kept a
+hand-written copy of the SoC's source list and had been failing since `rtl/uart.v` and
+`rtl/spiflash.v` joined `rtl/littlesoc.v`; `soc/depth/variants.py`'s fetch-data anchor no longer
+matched after the multi-hart widening made `imem_data` a bit-select; `soc/depth/cycles.py`'s report
+anchor no longer matched after the STALLS line grew `lsissue`/`lsedge`/`lsbypass`. Nothing said so,
+because `soc/depth/` is off `make test` and off CI, so **this ADR's ceiling kept its authority for
+months while the tool that produced it exited on a yosys error.** All three are fixed in the commit
+that carries this amendment, the source list by reading the Makefile rather than copying it. The
+`base` control still holds: 4948 packed `ICESTORM_LC` against the shipping SoC's 4904, 44 apart and
+inside the ±50 churn band.
+
+Re-taken on `main` at `1b66af2` with **twelve seeds a variant** — three times this ADR's four —
+`soc/depth/sweep.sh up5k 0 … 11`, one toolchain throughout: OSS CAD Suite — Yosys 0.68+48
+(`ff5817c34-dirty`), nextpnr-0.11-1-g62e659ed, icetime oss-cad-suite 20260811
+(`sha256:25a4ecb76c094f00`). hx8k was **not** re-taken; the board is what the requirement is about,
+and no hx8k band has ever been derived.
+
+| variant | worst ns | MHz | best ns | LUT levels | carry | LC | against base, worst / median |
+|---|---|---|---|---|---|---|---|
+| base | 82.30 | 12.15 | 77.01 | 21–23 | 2–4 | 4948 | — |
+| `addr` | 83.05 | **12.04** | 79.30 | 22–23 | 0 | 4765 | **+0.9% / +4.2%** |
+| `data` | 87.17 | **11.47** | 78.55 | 25 | 0–2 | 4870 | **+5.9% / +5.0%** |
+| `both` | 86.28 | **11.59** | 78.20 | 24–25 | 0 | 4793 | **+4.8% / +4.6%** |
+
+**Every variant is worse than it was.** `addr` read −1.3% at the worst placement and +1.2% at the
+median when this ADR filed it; it reads +0.9% and +4.2% now. `data` went +6.8%/+6.6% → +5.9%/+5.0%
+and `both` +5.5%/+1.6% → +4.8%/+4.6%. **The one finding that has not survived at all is the level
+count**: `addr` was worth 3–4 levels on hx8k and none on up5k then, and on up5k now it costs one
+(22–23 against 21–23) while its worst placement drops under the requirement. The carry hops still
+leave the path entirely and still buy nothing, which is the ~0.34 ns-per-hop reading holding.
+
+**And a fetch stage costs more cycles than it did, because CPI fell.** `soc/depth/cycles.py`,
+re-taken on the same tree:
+
+| workload | cycles | issues | CPI | redirects | of issues |
+|---|---|---|---|---|---|
+| the `.S` and `.c` suite | 38 746 | 22 074 | 1.755 | 1 893 | **8.58%** (was 7.15%) |
+| Dhrystone, 2000 runs | 1 506 772 | 950 439 | 1.585 | 160 869 | **16.93%** (was 16.92%) |
+
+Dhrystone's redirect share is the same to two decimal places, three ADRs later. What moved is the
+denominator: Dhrystone's CPI is 1.585 against this ADR's 2.318, so **one bubble per issue is now
+×1.631 of cycles rather than ×1.431**, and one per redirect ×1.107 rather than ×1.073. A faster core
+pays more for a fetch stage, not less.
+
+**The product, on Dhrystone's redirect rate and at the median of each distribution:** `addr` ×0.867
+under one bubble per redirect and ×0.588 under one per issue; `data` ×0.860 and ×0.584; `both`
+×0.864 and ×0.586. This ADR's best cell across two parts, three depths and both workloads was +0.4%,
+on the part this project does not ship. **On the board there is now no cell above ×0.87, and the
+best of them still needs the refill policy that would amend the no-wrong-path-state commitment.**
+
+**HELD, and the ranking this ADR gave the direction is now worse on every axis it measured.** No RTL
+is carried on `main`; the `soc/depth/` fixes are instrument repairs, not candidates.

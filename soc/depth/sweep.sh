@@ -15,13 +15,26 @@ mkdir -p "$out"
 mem=$out/imemory_depth.v
 python3 soc/depth/variants.py "$mem"
 
-CORE_SRCS="rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v \
-rtl/fetcher.v $mem rtl/memory.v rtl/regfile.v rtl/regsel.v"
+# Each part asks make for the list its own flow places; the copy this had went stale. The
+# spike memory substitutes in place: read order sets ABC's mapping, appending would not.
+spike_srcs() {
+  list=$(make -s "$@")
+  case " $list " in
+    *" rtl/imemory.v "*) ;;
+    *)
+      echo "*** soc/depth/sweep.sh: $1 does not name rtl/imemory.v, so the spike" >&2
+      echo "*** memory has nothing to take the place of. The variable this reads" >&2
+      echo "*** was renamed or restructured; re-find it rather than restating the" >&2
+      echo "*** list here." >&2
+      exit 2
+      ;;
+  esac
+  printf '%s\n' "$list" | sed "s#rtl/imemory\\.v#$mem#"
+}
 
 case "$part" in
   up5k)
-    # The shipping SoC, with the spike memory swapped in for rtl/imemory.v.
-    srcs="$CORE_SRCS rtl/timer.v rtl/writeback.v rtl/littlecpu.v rtl/littlesoc.v"
+    srcs=$(spike_srcs print-SOC_SRCS)
     top=littlesoc
     synth_args="-dsp -spram"
     chp=""
@@ -31,7 +44,7 @@ case "$part" in
     make -s soc-rom
     ;;
   hx8k)
-    srcs="$CORE_SRCS rtl/writeback.v rtl/littlecpu.v soc/compare/bench_littlecpu.v"
+    srcs=$(spike_srcs print-COMPARE_SRCS COMPARE_CORE=littlecpu)
     top=bench_littlecpu
     synth_args=""
     chp="chparam -set ROM_WORDS 1024 -set RAM_WORDS 512 $top;"
