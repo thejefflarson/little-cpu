@@ -470,8 +470,15 @@ cycles are littlecpu 290825 (0.783 DMIPS/MHz), VexRiscv 254026 (0.873× littlecp
 Hazard3 252825 (**0.869× littlecpu, 0.900 DMIPS/MHz — ahead of littlecpu, essentially level with
 VexRiscv**); CoreMark cycles are littlecpu 433240 (2.308 CoreMark/MHz), VexRiscv 427008 (**0.986×
 littlecpu — the closest pair this harness has measured on either benchmark**, 2.342 CoreMark/MHz),
-Hazard3 665416 (1.536×, 1.503 CoreMark/MHz). Up5k, twelve seeds: littlecpu 12.40/12.85/13.23 MHz
-and VexRiscv 21.92/22.78/23.65 MHz both reach the 12 MHz step; **Hazard3 reads 14.30/14.57/14.95
+Hazard3 665416 (1.536×, 1.503 CoreMark/MHz). **Hazard3's disclosed adapter wait is still counted,
+and its share moved**: `wait_cycles=28805` of Dhrystone's 252,825 (11.39%) and `wait_cycles=14176`
+of CoreMark's 665,416 (2.13%), against the one-port adapter's own 8.69%/1.98% (ADR-0146) — the
+counter needed no change to what it counts, only to what the count now means, and the Dhrystone
+share rose because the numerator held while the two-port total fell 24%. Bounding Hazard3 at its
+own account, 252,825 − 28,805 = 224,020 Dhrystone cycles, reads **0.770× littlecpu rather than
+0.869×** — removing the disclosed wait moves Hazard3 further ahead, not less. Up5k, twelve seeds:
+littlecpu 12.40/12.85/13.23 MHz and VexRiscv 21.92/22.78/23.65 MHz both reach the 12 MHz step;
+**Hazard3 reads 14.30/14.57/14.95
 MHz**, above even the declined one-port adapter's own 12.58/13.04/13.67 (ADR-0146 as amended a
 third time) — the two-port top's fetch and load/store ports removing the arbitration the one-port
 top needed, not merely avoiding route 3's own measured cost of trying to remove it in place.
@@ -481,10 +488,15 @@ littlecpu 9.40 DMIPS/27.70 CoreMark, VexRiscv 10.75 DMIPS/28.10 CoreMark, Hazard
 CoreMark — **Hazard3 and VexRiscv read level on Dhrystone (1.15×/1.14× over littlecpu), and
 littlecpu keeps its CoreMark lead over Hazard3 (1.54×) on the same real M-extension-and-forwarding
 margin the wait-state artifact was never responsible for.** ECP5 has no quantisation step, so its
-own product uses each core's own clock there directly: littlecpu 33.23 MHz, VexRiscv 57.64 MHz,
-Hazard3 50.39 MHz (against the one-port adapter's own 48.50 on this session's toolchain — a
-smaller move than up5k's, and a clock 1.52× littlecpu's own on this part, not merely no longer
-last). Dhrystone: littlecpu 26.02 DMIPS, VexRiscv 51.65 (**1.99× littlecpu**), Hazard3 45.35
+own product uses each core's own clock there directly, **one placement each this session**:
+littlecpu 33.23 MHz, VexRiscv 57.64 MHz, Hazard3 50.39 MHz (against the one-port adapter's own
+48.50 on this session's toolchain — a smaller move than up5k's, and a clock 1.52× littlecpu's own
+on this part, not merely no longer last). **Every Hazard3 ECP5 clock reading carries a standing
+flag**: this same RTL, byte-checksummed, read 33.26 MHz in an earlier session and 48.50 in a later
+one before this route, and nextpnr-ecp5 — the one tool this repo does not pin — is the likely,
+unconfirmed explanation; quoted as measured, flagged as unreconciled, not spent on a decision, and
+50.39 inherits the flag rather than resolving it. Dhrystone: littlecpu 26.02 DMIPS, VexRiscv 51.65
+(**1.99× littlecpu**), Hazard3 45.35
 (**1.74× littlecpu, 1.14× VexRiscv** — closer to VexRiscv than to littlecpu, the opposite ordering
 from up5k's quantised tie). CoreMark: littlecpu 76.69, VexRiscv 134.99 (1.76×), Hazard3 75.74
 (**1.01× littlecpu — essentially level**, Hazard3's own higher ECP5 clock nearly cancelling its
@@ -662,10 +674,10 @@ make compare-dhrystone  # Dhrystone on all THREE cores, one RV32I image, one sim
                     # DMIPS/MHz each, plus a fourth row of this core alone at its native
                     # ISA so the shared subset's cost is a number. COMPARE_DHRY_MHZ adds
                     # the absolute column. Not a gate, not on CI
-make compare-coremark # the same for CoreMark, on littlecpu and Hazard3's iCE40 build
-                    # only -- VexRiscv has no M in this harness's pinned build, so it
-                    # cannot run an RV32IMA image. COMPARE_COREMARK_MHZ adds the
-                    # absolute column. Not a gate, not on CI
+make compare-coremark # CoreMark on all THREE cores, one RV32IM image -- VexRiscv's
+                    # generated build has M but no A, the same ceiling Dhrystone
+                    # already builds at. COMPARE_COREMARK_MHZ adds the absolute
+                    # column. Not a gate, not on CI
 make compare-product # both factors of every cross-core pair in one run, stamped into
                     # soc/compare/product.json with the commit, seeds and CFLAGS behind
                     # each number. COMPARE_PRODUCT_SEEDS picks the sweep (twelve by
