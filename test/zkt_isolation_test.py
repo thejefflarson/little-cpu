@@ -126,129 +126,56 @@ import subprocess
 import sys
 import tempfile
 
-# The nine stall-reason signals a Zkt-listed instruction's stall must be
-# blind to, except through `GATED_SIGNAL`. `stall` is here alongside the
-# eight it is built from: `stall = stall_other || region_stall` reads
-# `region_stall` directly, and that read is exempted the same way every
-# other reason's is, by blocking `region_stall` as a taint SOURCE below
-# rather than by severing one wire -- `out`'s own bubble condition re-lists
-# `region_stall` beside `hazard`/`operand_stall`/etc, a second direct read
-# with no wire in common with `stall`'s, so a single severed edge could not
-# have covered both.
+# The nine stall-reason signals a Zkt-listed instruction's stall must be blind to, except
+# through `GATED_SIGNAL`.
 STALL_TARGETS = [
     'ls_access', 'serialize', 'hazard_rs1', 'hazard_rs2', 'hazard',
     'operand_stall', 'atomic_stall', 'stall_own', 'stall_other', 'stall',
 ]
 
-# The one reason allowed to depend on a register-file DATA output. That it
-# can only assert alongside `ls_access`, and that `ls_access` is true for
-# exactly the eight base load/store encodings, are no longer decided here --
-# both are single-trace exact-set-equality facts, proved by k-induction as
-# assertions inside rtl/decoder.v's own `ifdef FORMAL` block instead
-# (`make -C formal components_decoder`, demonstrated red by
-# `make -C formal decoder-zkt-probe`). What THIS script still owns is the
-# 2-safety half: that no register-file DATA output reaches any of the nine
-# reasons below except by way of a read of `GATED_SIGNAL` itself.
+# The one reason allowed to depend on a register-file DATA output.
 GATED_SIGNAL = 'region_stall'
 
-# Registers derived from region_stall that hold a load's or store's own
-# region answer across the cycle it is read on. Blocking `region_stall` as a
-# taint source hides a DIRECT read of one of these from the reachability
-# check above -- correctly, since it is region_stall's own downstream, not a
-# new path from a register value -- so they get their own narrower check:
-# none of STALL_TARGETS may read one of THESE by name either, seeded
-# independently of reg_rs1/reg_rs2.
+# Registers derived from region_stall that hold a load's or store's own region answer
+# across the cycle it is read on.
 REGION_STATE = ['ls_capture', 'ls_answer', 'ls_answer_valid']
 
-# The positive control: named nets the real RTL is known to carry reg_rs1
-# through on the way to region_stall. If none of these end up reachable, the
-# graph found no edges at all and every PASS above is a check of nothing --
-# the same anti-vacuity discipline formal/check-nonperturbation.py applies
-# with its one-mux self-test.
+# The positive control: named nets the real RTL is known to carry reg_rs1 through on the
+# way to region_stall.
 EXPECT_TAINTED = ['ls_block', 'ls_text_deep', 'ls_ram_deep', 'ls_settled',
                    GATED_SIGNAL]
 
-# Plain (non-struct) decoder INPUT ports wide enough (>5 bits) to carry a
-# register-file or CSR-file DATA output, and the ones wide enough that
-# provably cannot.
+# Plain (non-struct) decoder INPUT ports wide enough (>5 bits) to carry a register-file
+# or CSR-file DATA output, and the ones wide enough that provably cannot.
 SEED_PORTS = {'reg_rs1', 'reg_rs2'}
 NON_VALUE_PORTS = {
-    # csr_rdata: the CSR file's read value. CSR instructions are not on
-    # Zkt's list, and the port-coverage check below is what would catch it
-    # reaching a value-blind reason if that ever changed.
+    # csr_rdata: the CSR file's read value.
     'csr_rdata',
-    # mtvec, mepc: trap CSRs, read only on the trap and mret arms of
-    # next_pc, neither of which is on Zkt's list either.
+    # mtvec, mepc: trap CSRs, read only on the trap and mret arms of next_pc, neither of
+    # which is on Zkt's list either.
     'mtvec', 'mepc',
 }
 
-# Struct-typed decoder INPUT ports: the typedef name (declared in
-# rtl/structs.v, used to size a satellite probe module's own port so yosys
-# resolves each field's offset and width by elaborating it, never by this
-# script guessing struct layout) and the field names in the struct's own
-# declared order. A renamed field fails that elaboration outright; an added,
-# removed or resized one fails the sum-of-widths check in classify_inputs.
+# Struct-typed decoder INPUT ports: the typedef name (declared in rtl/structs.v, used to
+# size a satellite probe module's own port so yosys resolves each field's offset and
+# width by elaborating it, never by this script guessing struct layout) and the field
+# names in the struct's own declared order.
 STRUCT_PORTS = {
     'in': ('fetcher_output', ['valid', 'pc', 'instr', 'next_instr']),
     'executor_out': ('executor_output', ['valid', 'rd', 'rd_data', 'rd_ready']),
 }
 
 # Struct fields (as `port.field`) wide enough (>5 bits) to matter, and their
-# classification. executor_out.rd_data is a committed executor result --
-# the same shape this repo keeps pricing and declining as a
-# forwarding path -- so it is the one struct field that IS a seed. in's three
-# wide fields are the fetch address and the instruction words decode reads
-# register NUMBERS out of, never an operand value. executor_out.rd_ready is
-# not named here at all: it is 1 bit, so classify_inputs' own width test
-# skips it the same way it skips rd/valid -- CONTROL_FIELDS below is where a
-# sub-5-bit field this script still cares about gets its written argument.
+# classification.
 STRUCT_FIELD_SEEDS = {'executor_out.rd_data'}
 STRUCT_FIELD_NON_VALUE = {'in.pc', 'in.instr', 'in.next_instr'}
 
 # `out` (decoder_output) is decode's OWN output, not an input port -- outside
-# classify_inputs' scope, since nothing external can feed decoder a value
-# through it. Three of its fields are read back INSIDE decoder.v itself
-# (`live_rs1`/`live_rs2`'s RAW-hazard check, and `atomic_stall`), and what
-# makes reading them back SAFE is not their width -- a 5-bit field can
-# perfectly well carry a value-dependent decision -- it is that every path by
-# which a register VALUE can reach one of them is TRAP-MEDIATED: `out.rd`
-# reads 0 instead of the real destination exactly when `reg_rs1` decided the
-# PREVIOUS instruction was misaligned or out of region (the data-fault
-# causes), and `out.valid`/`out.is_amo` change only on that same trap
-# decision or an ordinary bubble. Taking a trap -- or not -- is
-# architecturally VISIBLE (a different instruction retires, at a different
-# pc), not a covert timing channel a Zkt-listed instruction's cycle count
-# could leak an operand VALUE through, which is the property that actually
-# licenses blocking these as taint sources rather than their width.
-# `executor_out` gets the same two fields blocked for the identical reason --
-# it is already in STRUCT_PORTS for its DATA field, `rd_data`, which stays a
-# seed. `executor_out.rd_ready` joins them on a narrower argument: it decides
-# whether decode's forwarding path (`ex_fwd_rs1`/`ex_fwd_rs2`) may read
-# `rd_data` at all, but it is itself computed in rtl/executor.v from the
-# op-select flags decode already published (`in.is_add` and the rest, none
-# of them wider than a control bit) -- never from a register VALUE -- so it
-# is a decision ABOUT an operand, not a narrow slice of one.
-#
-# `executor_out.valid`/`executor_out.rd`/`executor_out.rd_ready` are inert
-# rather than wrong: unlike `out`, `executor_out` is a decoder INPUT port, so
-# its bits have no driving cell inside decoder for forward_taint to ever
-# reach -- nothing here can taint a primary input, so blocking them is a
-# no-op. Kept anyway, for the same reason `out`'s two are named rather than
-# left to a width rule: the table states what is safe to read back, not
-# merely what currently matters.
-#
-# The 5-bit bound control_field_bits enforces below is a USEFUL TRIPWIRE, not
-# the reason: it catches a field growing wide enough to plausibly carry a raw
-# VALUE rather than a decision ABOUT one, the same line SEED_PORTS/
-# NON_VALUE_PORTS already draw for input ports. It cannot by itself tell a
-# genuinely trap-mediated 5-bit field from a coincidentally narrow VALUE
-# slice -- that argument is made by eye, above, once per field, and is what
-# an added CONTROL_FIELDS entry has to repeat.
+# classify_inputs' scope, since nothing external can feed decoder a value through it.
 CONTROL_FIELDS = {
     'out': ('decoder_output', ['valid', 'rd', 'is_amo']),
     'executor_out': ('executor_output', ['valid', 'rd', 'rd_ready']),
 }
-
 
 def run_yosys(script_path):
     """Run `yosys -q -s script_path`. A yosys that fails to elaborate fails
@@ -264,7 +191,6 @@ def run_yosys(script_path):
         if line.startswith('Warning:'):
             print('  yosys: ' + line)
     return True
-
 
 def build_decoder_netlist(decoder_path, structs_path, regsel_path, out_dir):
     """Elaborate rtl/decoder.v (plus its dependencies) to a JSON netlist and
@@ -307,7 +233,6 @@ def build_decoder_netlist(decoder_path, structs_path, regsel_path, out_dir):
               file=sys.stderr)
         return None
     return mod
-
 
 def probe_struct_fields(structs_path, typedef, fields, out_dir):
     """{field: (offset, width)} within the struct's own bit vector, resolved
@@ -361,7 +286,6 @@ def probe_struct_fields(structs_path, typedef, fields, out_dir):
         offsets[field] = (start, len(field_bits))
     return offsets, None
 
-
 def get_field_offsets(cache, structs_path, typedef, fields, out_dir):
     """probe_struct_fields, memoized per typedef for the run: `executor_output`
     is named by both STRUCT_PORTS (for its DATA field) and CONTROL_FIELDS (for
@@ -379,7 +303,6 @@ def get_field_offsets(cache, structs_path, typedef, fields, out_dir):
         return None, err
     cache[typedef] = offsets
     return offsets, None
-
 
 def classify_inputs(mod, structs_path, field_cache, out_dir):
     """{seed net bit ids}, or a list of errors. Every decoder INPUT port
@@ -406,11 +329,11 @@ def classify_inputs(mod, structs_path, field_cache, out_dir):
                 errors.append(err)
                 continue
             field_offsets[name] = offsets
-            # Summed over THIS port's own declared fields, never over
-            # `offsets` as a whole: get_field_offsets can return a cache
-            # entry widened by some OTHER port sharing the same typedef
-            # (executor_output, named again by CONTROL_FIELDS), and that
-            # extra field is not part of what STRUCT_PORTS declares here.
+            # Summed over THIS port's own declared fields, never over `offsets` as a
+            # whole: get_field_offsets can return a cache entry widened by some OTHER
+            # port sharing the same typedef (executor_output, named again by
+            # CONTROL_FIELDS), and that extra field is not part of what STRUCT_PORTS
+            # declares here.
             total = sum(offsets[f][1] for f in fields)
             if total != width:
                 errors.append(
@@ -488,7 +411,6 @@ def classify_inputs(mod, structs_path, field_cache, out_dir):
 
     return seeds, errors
 
-
 def control_field_bits(mod, structs_path, field_cache, out_dir):
     """Bit ids for CONTROL_FIELDS' register-NUMBER/control fields, blocked
     as taint sources below the same way `region_stall` is. A stale or
@@ -521,8 +443,8 @@ def control_field_bits(mod, structs_path, field_cache, out_dir):
             errors.append(err)
             continue
         whole = all_bits[port_name]
-        # Only THIS entry's own declared fields -- see classify_inputs'
-        # identical guard against a cache entry widened by the other table.
+        # Only THIS entry's own declared fields -- see classify_inputs' identical guard
+        # against a cache entry widened by the other table.
         for field in fields:
             start, width = offsets[field]
             if width > 5:
@@ -538,7 +460,6 @@ def control_field_bits(mod, structs_path, field_cache, out_dir):
             bits.update(b for b in field_bits if isinstance(b, int))
     return bits, errors
 
-
 def cell_io_bits(cell):
     """(input bits, output bits) for one cell, in a single pass over its
     connections -- the two used to be separate functions each re-scanning
@@ -551,10 +472,8 @@ def cell_io_bits(cell):
         target.extend(b for b in conn if isinstance(b, int))
     return in_bits, out_bits
 
-
 def cell_input_bits(cell):
     return cell_io_bits(cell)[0]
-
 
 def build_graph(mod):
     """bit -> (driving cell name, cell), and bit -> [(cell name, its own
@@ -571,7 +490,6 @@ def build_graph(mod):
             fanout[b].append((cname, out_bits))
     return bit_driver, fanout
 
-
 def public_bit_names(mod):
     """bit -> its declared name, for every net a human gave a name (as
     opposed to one of yosys's own auto-generated `$logic_and$...` labels for
@@ -584,7 +502,6 @@ def public_bit_names(mod):
             if isinstance(b, int):
                 names.setdefault(b, name)
     return names
-
 
 def forward_taint(fanout, seed_bits, blocked_bits=frozenset()):
     """Every bit reachable from `seed_bits` by following cells' inputs to
@@ -612,14 +529,12 @@ def forward_taint(fanout, seed_bits, blocked_bits=frozenset()):
                         frontier.append(ob)
     return reached
 
-
 def reachable_targets(reached, name_bits, targets):
     """Which of `targets` has at least one bit in `reached` -- the shared
     shape both reachability checks in main() grade against, so the two only
     differ in what they seeded and blocked, not in how they read the
     result."""
     return [n for n in targets if any(b in reached for b in name_bits[n])]
-
 
 def main():
     argv = sys.argv[1:]
@@ -649,10 +564,10 @@ def main():
         if mod is None:
             return 2
 
-        # Shared across both classification passes: `executor_output` is
-        # named by STRUCT_PORTS (for its DATA field) and CONTROL_FIELDS (for
-        # its two control fields), and this is what stops it being probed
-        # -- and elaborated through yosys -- twice.
+        # Shared across both classification passes: `executor_output` is named by
+        # STRUCT_PORTS (for its DATA field) and CONTROL_FIELDS (for its two control
+        # fields), and this is what stops it being probed -- and elaborated through yosys
+        # -- twice.
         field_cache = {}
 
         seed_bits, class_errors = classify_inputs(mod, structs_path,
@@ -685,17 +600,6 @@ def main():
         bit_driver, fanout = build_graph(mod)
         bit_names = public_bit_names(mod)
 
-    # A signal this script watches can be a NAME with no driving cell at
-    # all -- Verilog allows a wire with nothing assigning it, and yosys
-    # raises no warning for one that is only ever READ, the same silent
-    # shape as a deleted `assign hazard = ...;` -- and reachability through
-    # it would then trivially and vacuously "pass" (nothing flows out of a
-    # wire nothing drives). A bit with no driving cell is legitimate when it
-    # is a pure alias of a primary input with no logic in between (`ls_block
-    # = reg_rs1[31:21]` shares reg_rs1's own bit ids outright, and the
-    # reachability check already treats it correctly for that reason), so
-    # only a watched bit that is NEITHER driven NOR a primary input's own
-    # bit is the deleted-assign shape.
     primary_input_bits = set()
     for pname, pdata in mod['ports'].items():
         if pdata['direction'] == 'input':
@@ -714,11 +618,6 @@ def main():
 
     failures = []
 
-    # Full (unblocked) reachability is the anti-vacuity control: it is the
-    # graph reg_rs1/reg_rs2 are KNOWN to reach in the real design, on the way
-    # to region_stall and, through it, to `stall` and `out`'s bubble
-    # condition. Checked before anything is blocked, so a PASS below cannot
-    # be a check of a graph with no edges in it at all.
     full_reached = forward_taint(fanout, seed_bits)
     vacuous = [n for n in EXPECT_TAINTED
                if not any(b in full_reached for b in name_bits[n])]
@@ -730,21 +629,6 @@ def main():
             'this run found no edges at all, and every PASS above is a '
             'check of nothing.' % (', '.join(vacuous), GATED_SIGNAL))
 
-    # The main check: block `region_stall` AND the register-NUMBER/control
-    # fields of `out`/`executor_out` (CONTROL_FIELDS) as taint SOURCES, then
-    # ask whether any of the nine stall-reason signals is still reachable
-    # from a register-file DATA output. A read of `region_stall` itself --
-    # by `stall` directly, or by `out`'s bubble condition and so,
-    # downstream, `pipe_drained`/`serialize` -- is invisible to this walk,
-    # on purpose: `region_stall` can only be true for a load or a store
-    # (`ls_access`), so its influence on a Zkt-listed instruction's own
-    # stall decision is zero regardless of what it is gated on. `out.rd`/
-    # `out.is_amo`/`out.valid` (and executor_out's) are blocked for the same
-    # reason SEED_PORTS stops at 5 bits: reading a REGISTER NUMBER or a
-    # single control flag back -- which is what live_rs1/live_rs2's RAW
-    # hazard check and atomic_stall do -- is not reading a VALUE, even
-    # though which number or flag out.rd/out.valid ends up holding can
-    # itself have been decided by a fault check that read one.
     def report_reachable(reached, template):
         """failures.append(template % name) for every STALL_TARGETS name
         `reached` has a bit in -- the shared shape both reachability checks
@@ -766,16 +650,6 @@ def main():
         'operand\'s VALUE, not just which registers it names.'
         % ('%s', GATED_SIGNAL))
 
-    # The narrower check blocking exists to make room for: none of the nine
-    # may read `region_stall`'s OWN downstream state -- ls_capture, or the
-    # answer it captures -- directly either. Seeded independently of
-    # reg_rs1/reg_rs2, with the SAME two blocked sets: region_stall itself
-    # (ls_answer_valid feeds back into region_stall's own gate, and that
-    # read is exactly as legitimate seeded from here as it is from a
-    # register value) and CONTROL_FIELDS (the same out.valid bubble path).
-    # What is NOT blocked is ls_capture/ls_answer/ls_answer_valid's own
-    # direct fanout, so a stall reason reading one of them straight -- the
-    # shape that defeated the RTL-text version -- is still one hop away.
     region_state_bits = set()
     for name in REGION_STATE:
         region_state_bits.update(name_bits[name])
@@ -801,7 +675,6 @@ def main():
           'components_decoder).' % (decoder_path, GATED_SIGNAL))
     print('ZKT STALL ISOLATION: PASS')
     return 0
-
 
 if __name__ == '__main__':
     sys.exit(main())

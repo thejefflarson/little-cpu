@@ -1,25 +1,17 @@
-# `make fit`: the netlist it places, nextpnr's log -- which IS the
-# measurement, so keep it around to read -- and the yosys log, kept out of the
-# terminal so no yosys cell count is ever mistaken for an area number.
+# `make fit`: the netlist it places, nextpnr's log -- which IS the measurement, so keep
+# it around to read -- and the yosys log, kept out of the terminal so no yosys cell count
+# is ever mistaken for an area number.
 fit.json
 fit.log
 fit.synth.log
-# `make soc-timing`: the SoC netlist, the placed bitstream ASCII, the
-# three logs and the `icetime` report. soc.pnr.log and soc.timing.rpt ARE the
-# measurement, so they are kept on disk to read -- and never committed, because
-# a checked-in timing report is a number that stops tracking the RTL.
+# `make soc-timing`: the SoC netlist, the placed bitstream ASCII, the three logs and the
+# `icetime` report.
 soc.json
 soc.asc
 soc.synth.log
 soc.pnr.log
 soc.timing.rpt
 soc.icetime.log
-# `make ecp5-timing`: the ECP5 netlist, the Trellis text configuration, the two
-# logs and nextpnr's own JSON report. Same rule as the soc.* files above -- the
-# report and the placement log ARE the measurement, so they stay on disk to
-# read, and are never committed. There is no bitstream here: `--textcfg` is
-# written as the "expressible in the target's configuration" check and nothing
-# packs it.
 ecp5.json
 ecp5.config
 ecp5.report.json
@@ -31,24 +23,14 @@ dual_ecp5.report.json
 dual_ecp5.synth.log
 dual_ecp5.pnr.log
 
-# `make bitstream`: the board wrapper's netlist, placement, logs, and the one
-# artifact in this repo that is not a measurement -- the bytes a part is
-# configured with. Same rule as the soc.* files: they are outputs, never source.
 board.json
 board.asc
 board.bin
 board.synth.log
 board.pnr.log
-# `make ftread`: a host binary, built from soc/ftread.c against libftdi.
 ftread
-# The de-interleaved ROM banks `make soc-rom` writes from a test program. Build
-# artifacts of whichever SOC_PROG was last built, not source.
 soc/rom_even.hex
 soc/rom_odd.hex
-# `make compare-timing`: two netlists, two placements, the logs and the icetime
-# reports. Same rule as the soc.* files above -- the reports ARE the measurement
-# and are kept on disk to read, and never committed, because a checked-in timing
-# report is a number that stops tracking the RTL.
 compare.*.json
 compare.*.asc
 compare.*.log
@@ -57,43 +39,24 @@ compare.vvp
 soc/compare/rom_even.hex
 soc/compare/rom_odd.hex
 soc/compare/rom_flat.hex
-# `make compare-ecp5-timing`: the same shape as ecp5.* above, one core at a time.
 compare_ecp5.*.json
 compare_ecp5.*.config
 compare_ecp5.*.report.json
 compare_ecp5.*.synth.log
 compare_ecp5.*.pnr.log
-# `make compare-dhrystone`: the benchmark's image in both cores' ROM shapes, the
-# data RAM both start from, and the simulation that runs them.
 compare.dhry.vvp
 soc/compare/dhry_even.hex
 soc/compare/dhry_odd.hex
 soc/compare/dhry_flat.hex
 soc/compare/dhry_ram.hex
-# `make compare-coremark`: the same, for CoreMark on littlecpu and Hazard3.
 compare.coremark.vvp
 soc/compare/coremark_even.hex
 soc/compare/coremark_odd.hex
 soc/compare/coremark_flat.hex
 soc/compare/coremark_ram.hex
-# `soc/depth/`: the spike's netlists, placements, logs and icetime reports, plus
-# the memory it generates from rtl/imemory.v and the runner it patches out of
-# test/cxxrtl.cc. Same rule as the soc.* and compare.* files above -- the reports
-# ARE the measurement and are kept on disk to read, and never committed.
 depth.out/
 depth.*.csv
-# `soc/baseline_sweep.sh`: one report, bitstream and placement log per seed, plus
-# the CSV whose header states the tree and the toolchain they were measured on.
-# Same rule again -- the reports ARE the measurement, kept on disk to read and
-# never committed, because a checked-in timing report is a number that stops
-# tracking the RTL.
 baseline.out/
-# `make netlist-digest` / `netlist-diff` / `netlist-determinism`: the canonical
-# netlists both sides of a comparison, the shipping ones the control places, its
-# three bitstreams and logs, and the mutated copy of the tree it builds. The
-# canonical netlist in here is a classifier and NOT a design -- it is not what
-# ships, and it places to a different bitstream, so nothing may hand it to
-# nextpnr.
 netlist.out/
 formal/riscv-formal
 formal/riscv-formal.tmp
@@ -109,33 +72,15 @@ formal/components_*
 formal/components
 formal/pcloop_cover
 formal/busarbiter_cover
-# `make -C formal remeasure-fg`: the one-line-[depth] copy of checks.cfg the
-# sweep writes, and the single-check set it generates from it. Both are rebuilt
-# from checks.cfg on every run.
 formal/fg-probe.cfg
 formal/fg-probe/
-# `make -C formal traps-region-probe`: the two mutated cores it proves the
-# region cause arm against, and their sby workdirs. Rebuilt from rtl/ and
-# formal/traps.sv on every run.
 formal/region-probe/
-# `make -C formal busarbiter-probe`: the three arbiters it proves the wait bound
-# and the indivisibility arm against, and their sby workdirs. Rebuilt from
-# rtl/busarbiter.v and formal/busarbiter.sv on every run.
 formal/busarbiter-probe/
-# `make -C formal traps-tval-probe`: the shipping core and the two mutated ones
-# it proves the mtval arm against, same shape and rebuilt the same way.
 formal/tval-probe/
-# `make -C formal decoder-zkt-probe`: the two mutated cores it proves
-# region_stall's own Zkt-isolation assertions against, same shape as
-# region-probe/. Rebuilt from rtl/ on every run.
 formal/decoder-zkt-probe/
-# `make -C formal executor-zkt-probe`: the one mutated core it proves the MUL
-# constant-latency assertion against, same shape as region-probe/. Rebuilt
-# from rtl/executor.v on every run.
 formal/executor-zkt-probe/
 __pycache__/
 test/rtl.cc
-# The dual configuration's generated netlist and its runner, the same rule.
 test/dual_rtl.cc
 dual-sim
 dual-sim.dSYM/
@@ -152,22 +97,14 @@ obj_dir/
 rtl/rom.mem
 sim
 sim.dSYM/
-# The Sail co-simulation runner: a second cxxrtl binary, and not on `make
-# test`'s path.
 cosim
 cosim.dSYM/
-# `make sail-setup` and `make lint-setup` unpack into a cache outside the
-# checkout, so a git worktree sees the same install the main checkout does.
-# tools/ stays ignored so an install an older checkout left behind here can
-# never be committed.
 tools/
 test/a.out.dSYM/
-# Swarm agent worktrees (.claude/tracker.json stays tracked).
 .claude/worktrees/
 icesugar.json
 icesugar.config
 icesugar.bit
 icesugar.synth.log
 icesugar.pnr.log
-# `make icesugar-dhrystone`'s transcript of what the board said.
 icesugar_dhrystone.txt

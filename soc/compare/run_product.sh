@@ -1,44 +1,8 @@
 #!/bin/sh
-# Runs BOTH factors of the cross-core throughput product for every benchmark
-# pair this repo knows, and writes the result into soc/compare/product.json --
-# collapsing "sweep the clock, run the cycle count, do the arithmetic by hand,
-# edit CLAUDE.md" into one command.
-#
-#   make compare-product
-#   COMPARE_PRODUCT_SEEDS='default 1 2 3' make compare-product   # a shorter look
-#
-# Twelve seeds a side is this file's own convention for a verdict (the same
-# floor soc/baseline_summary.py's callers use for `make soc-timing`), so the
-# default sweeps twelve placements for littlecpu and twelve more for each
-# other core a pair needs -- roughly half an hour total for the Dhrystone
-# pair alone. A shorter COMPARE_PRODUCT_SEEDS is a look, not a verdict, the same
-# distinction soc/compare/sweep.sh's own header states.
-#
-# A BENCHMARK NAMES A LIST OF CORES, NOT A FIXED PAIR -- soc/compare/product_write.py's
-# header has the reasoning. Dhrystone here still measures littlecpu against one
-# other core (VexRiscv) and CoreMark against one other (Hazard3, because the
-# pinned VexRiscv build has no M extension and cannot execute CoreMark's
-# RV32IMA image), but the artifact does not encode "exactly two": a benchmark
-# whose image later runs on three cores is one more `--clock-ns`/
-# `--cycle-factor` pair to this script, not a schema change.
-#
-# THE COREMARK PAIR IS FEATURE-DETECTED, NOT ASSUMED. `make compare-coremark`
-# and soc/compare/coremark_dmips.py do not exist on every tree this script
-# runs on -- as of this writing they are still on a held pull request. Where
-# they are absent this script records CoreMark as "not yet measured" and moves
-# on; where they exist it attempts the same measurement Dhrystone gets, and
-# falls back to "not yet measured" with a diagnostic rather than aborting the
-# whole run if the attempt does not match the shape this script expects. That
-# fallback is temporary scaffolding for one PR's worth of drift, not a
-# permanent hedge: once `make compare-coremark` lands for real, a run that
-# still falls back is a bug in measure_coremark() below to fix, not a
-# steady-state outcome to keep tolerating.
-#
-# WHAT THIS DOES NOT DO. It does not touch CLAUDE.md or any ADR -- those stay a
-# person's sentences about a tree they read, and this script's whole job is to
-# give that person one place the numbers actually came from rather than a
-# second place to keep in sync by hand. It is not on `make test`'s path and
-# adds no ratchet, the same as every other `make compare-*` target.
+# Runs BOTH factors of the cross-core throughput product for every benchmark pair this
+# repo knows, and writes the result into soc/compare/product.json --collapsing "sweep the
+# clock, run the cycle count, do the arithmetic by hand, edit CLAUDE.md" into one
+# command.
 set -eu
 
 cd "$(dirname "$0")/../.."
@@ -72,29 +36,18 @@ while IFS= read -r line; do
   [ -z "$line" ] && continue
   name=${line#\# }; name=${name%%:*}
   value=${line#*: }
-  # `set --` below re-splits on whitespace, so the value's own spaces (every
-  # one of these carries a version string with one in it) travel quoted.
+  # `set --` below re-splits on whitespace, so the value's own spaces (every one of these
+  # carries a version string with one in it) travel quoted.
   TOOL_ARGS="$TOOL_ARGS --tool"
   TOOL_ARGS="$TOOL_ARGS '$name=$value'"
 done <<TOOLS
 $TOOLS_BLOCK
 TOOLS
 
-# The bare -march= value out of a CFLAGS string, for --isa: three cores sharing
-# one image may share a narrower ISA than any one core implements alone, so
-# this is stamped on its own rather than left for a reader to pick back out of
-# the full flag string.
 isa_from_cflags() {  # $1 = CFLAGS string
   printf '%s\n' "$1" | sed -n 's/.*-march=\([A-Za-z0-9_]*\).*/\1/p'
 }
 
-# `make compare-timing` places $1 at $2 (empty for nextpnr's own default seed)
-# and reports the critical path on stdout -- soc/compare/sweep.sh's own
-# extraction, repeated here rather than shared, because this script also needs
-# `make` NOT in a pipeline for the reason both files already give: the default
-# shell is errexit without pipefail, so a graded command piped into `grep`
-# hands back grep's status and a failed placement would print nothing and exit
-# 0.
 sweep_clock() {  # $1 = core; prints comma-separated nanoseconds on stdout
   core=$1
   ns_csv=""
@@ -139,11 +92,8 @@ if ! DHRY_OUT=$(make compare-dhrystone 2>&1); then
 fi
 printf '%s\n' "$DHRY_OUT"
 
-# FIRST match only. `make compare-dhrystone` prints a fourth row -- this core
-# alone at its native ISA, so the shared subset's cost is a number -- which
-# emits a SECOND `DHRY core=littlecpu` line. The product compares cores at the
-# ISA they SHARE, so the comparison row is the one to read and the solo row is
-# an aside. Taking both fed a two-line value into python3 -c below.
+# FIRST match only. `make compare-dhrystone` prints a fourth row -- this core alone at
+# its native ISA, so the shared subset's cost is a number.
 LC_CYCLES=$(printf '%s\n' "$DHRY_OUT" | grep '^DHRY core=littlecpu' | sed -n 's/.*cycles=\([0-9]*\).*/\1/p' | head -1)
 VEX_CYCLES=$(printf '%s\n' "$DHRY_OUT" | grep '^DHRY core=vexriscv' | sed -n 's/.*cycles=\([0-9]*\).*/\1/p' | head -1)
 if [ -z "$LC_CYCLES" ] || [ -z "$VEX_CYCLES" ]; then
@@ -155,16 +105,9 @@ DHRY_RUNS=$(make -s print-COMPARE_DHRY_RUNS)
 DHRY_CFLAGS=$(make -s print-COMPARE_DHRY_CFLAGS)
 DHRY_ISA=$(isa_from_cflags "$DHRY_CFLAGS")
 
-# DMIPS/MHz: runs*1e6/cycles, divided by the VAX 11/780 rate --
-# soc/compare/dhry_dmips.py's own constant, imported rather than restated so
-# the two files cannot state two different rates.
 DHRY_VAX_RATE=$(python3 -c "import sys; sys.path.insert(0, 'soc/compare'); \
   from dhry_dmips import VAX_DHRYSTONES_PER_SEC; print(VAX_DHRYSTONES_PER_SEC)")
 
-# Every one of these is interpolated into `python3 -c` below, where an empty or
-# multi-line value becomes SOURCE TEXT and fails as a SyntaxError that names
-# neither the variable nor this script. Check them here, where the diagnostic
-# can say which one and where it came from.
 for pair in "DHRY_RUNS=$DHRY_RUNS" "LC_CYCLES=$LC_CYCLES" \
             "VEX_CYCLES=$VEX_CYCLES" "DHRY_VAX_RATE=$DHRY_VAX_RATE"; do
   name=${pair%%=*}; value=${pair#*=}
@@ -189,17 +132,7 @@ python3 soc/compare/product_write.py "$OUT" dhrystone --measured \
   --clock-ns "littlecpu=$LC_NS" --clock-ns "vexriscv=$VEX_NS" \
   --cycle-factor "littlecpu=$LC_DHRY_FACTOR" --cycle-factor "vexriscv=$VEX_DHRY_FACTOR"
 
-# Attempts the CoreMark pair exactly the way Dhrystone was measured above, and
-# returns 1 -- never aborts the script -- if make compare-coremark's output does
-# not match what this function expects, so a wrong guess about an interface this
-# script cannot see yet degrades to "not yet measured" instead of failing the
-# whole run. Once `make compare-coremark` is real, a run that still falls back
-# here is a bug in this function to fix, not a steady state to keep tolerating.
 measure_coremark() {
-  # ` cycles=` with the leading space, and FIRST match only: hazard3 prints a
-  # second `COREMARK core=hazard3 wait_cycles=` line disclosing the bus wait the
-  # other core does not pay, and `wait_cycles=` contains `cycles=`. Matching both
-  # fed a two-line value into python3 -c below.
   if HZ_NS=$(sweep_clock hazard3) \
      && CM_OUT=$(make compare-coremark 2>&1) \
      && LC_CM_CYCLES=$(printf '%s\n' "$CM_OUT" | grep '^COREMARK core=littlecpu' | sed -n 's/.* cycles=\([0-9]*\).*/\1/p' | head -1) \

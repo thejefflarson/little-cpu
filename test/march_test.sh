@@ -1,38 +1,6 @@
 #!/bin/bash
-# Asserts that every place naming the ISA this suite builds for names the same
-# one, and that the two places naming a DIFFERENT ISA on purpose still do.
-#
-# Usage: march_test.sh [repo-root]     # defaults to this script's parent
-#
-# WHY THIS EXISTS. The ISA string is stated at seven sites and three of them are
-# silent when they are wrong. test/run_tests.sh, test/cosim.py's assemble() and
-# test/dual_build.sh are loud -- the assembler rejects `amoadd.w` outright,
-# and every one of those builds a program that has one -- but the Makefile's
-# soc-rom target builds test/asm/datainit.c, which uses no atomics and would go
-# on building for years at the old string; DHRY_CFLAGS builds a benchmark that
-# uses none either; and DHRY_CFLAGS is duplicated VERBATIM into
-# soc/depth/cycles.py with nothing anywhere comparing the two. So the failure
-# this guards against is not "the build broke": it is two measurements taken of
-# two different machines, reported in one table.
-#
-# WHY IT IS NOT A GREP-AND-REPLACE, IN BOTH DIRECTIONS. Two strings that look
-# like the ones above must NOT move with them. formal/checks.cfg's `isa rv32imc`
-# and the Makefile's `MONITOR_GEN -i rv32imc` name the instruction set
-# riscv-formal GENERATES A SPEC MODEL FOR, and the pinned clone has no model for
-# any A encoding -- so widening either produces nothing and makes the generated
-# check set describe an ISA it is not checking. Two more are a different ISA on
-# purpose: soc/compare/bench.S is deliberately rv32i, and COMPARE_DHRY_CFLAGS
-# and COMPARE_COREMARK_CFLAGS are rv32im because that is the widest ISA all
-# three cores in that harness implement in hardware. A sweep is wrong at four
-# sites and incomplete at three others.
-#
-# So the table below states the allowed set and the comparison runs BOTH WAYS,
-# like every other table in this repo: a site that stops carrying the string is
-# as red as the string appearing where nothing allows it, and an exception whose
-# site no longer carries the value it names is red too.
-#
-# Hermetic: git, grep, sed and awk. No cross compiler, no Sail, no yosys, so
-# this runs inside `make test` anywhere.
+# Asserts that every place naming the ISA this suite builds for names the same one, and
+# that the two places naming a DIFFERENT ISA on purpose still do.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -43,24 +11,11 @@ if [ ! -d "$REPO" ]; then
   exit 1
 fi
 
-# THE ONE SOURCE. Everything below is graded against this string; changing it
-# alone, with no site changed, is red at every site.
-#
-# `a` is here and `misa` reads 0x4000_1105 now, but the two are not the same
-# statement and this check grades only one of them. A `-march` string is what
-# the assembler will accept; misa is what the hardware claims at run time, and
-# it is graded by test/asm/csr.S and test/csr_tb.v instead.
-#
-# `zkt` has no misa bit -- the spec defines none for it, the way it defines
-# none for the Zicsr and Zifencei already claimed here -- so this string is
-# the only runtime statement of it. test/zkt_isolation_test.py is what the
-# claim is graded against.
+# THE ONE SOURCE. Everything below is graded against this string; changing it alone, with
+# no site changed, is red at every site.
 DECLARED_MARCH='rv32imac_zicsr_zifencei_zkt'
 
-# The sites, with the exact number of times each states it. An exact count
-# rather than "at least one", because two of these files state it twice for two
-# program shapes and a deleted arm is the failure that leaves the other one
-# looking fine.
+# The sites, with the exact number of times each states it.
 required_sites() {
   sed -e 's/#.*//' -e 's/[[:space:]]*$//' -e '/^$/d' <<'SITES'
 # The rulebook. The ISA target section quotes the string the suite builds at, so
@@ -101,17 +56,7 @@ test/dual_build.sh 1
 SITES
 }
 
-# Every OTHER `-march=` in the tree, as `<path> <ISA> <count>`. A path may be a
-# directory ending in `/`, and the ISA may be `(any)` where the point of the
-# entry is the file rather than one string in it -- `(any)` carries no count,
-# because a file allowed to say anything has no fixed number of times to say
-# it; `(empty)` is a `-march=` with no ISA after it. Every OTHER value is
-# graded at an exact count for the same reason the required table is: `rv32ic`
-# is a real RISC-V string and `rv32ima` is one keystroke from the declared
-# ISA, so an exception that exempted every occurrence rather than a counted
-# one would wave a second, unnoticed near-miss straight through. A path alone
-# teaches the next reader nothing and gets deleted by the next person tidying,
-# so each entry says which ISA it names, why, and how many times.
+# Every OTHER `-march=` in the tree, as `<path> <ISA> <count>`.
 exception_sites() {
   sed -e 's/#.*//' -e 's/[[:space:]]*$//' -e '/^$/d' <<'EXCEPTIONS'
 # Dated decision records, and dated proposals. Both are history, and several of
@@ -145,8 +90,9 @@ Makefile rv32im 2
 
 # Not a flag at all: a grep pattern that finds the `-march=` in the command line
 # the Dhrystone runner PRINTS, so the flags travel with the number. It has no
-# ISA after it, which is what the `(empty)` says.
-soc/compare/run_dhrystone.sh (empty) 2
+# ISA after it, which is what the `(empty)` says. One, not two, since the comment
+# that carried the second copy was cut by the comment pass.
+soc/compare/run_dhrystone.sh (empty) 1
 
 # The stamped cross-core product artifact (`make compare-product`). It records
 # the CFLAGS each pair's image was actually built with, verbatim, so its own
@@ -155,10 +101,10 @@ soc/compare/run_dhrystone.sh (empty) 2
 # (any) rather than one string.
 soc/compare/product.json (any)
 
-# Two more grep patterns and a help string, none of them a flag: the one that
-# pulls the bare -march= value out of a CFLAGS string for soc/compare/product_write.py's
-# --isa, and --isa's own help text naming the flag it extracts.
-soc/compare/run_product.sh (empty) 2
+# Not a flag: the sed pattern that pulls the bare -march= value out of a CFLAGS
+# string for soc/compare/product_write.py's --isa. One, not two, since the comment
+# that carried the second copy was cut by the comment pass.
+soc/compare/run_product.sh (empty) 1
 soc/compare/product_write.py (empty) 1
 
 # The same pattern, for the CoreMark runner's own printed command line.
@@ -166,8 +112,7 @@ soc/compare/run_coremark_compare.sh (empty) 1
 EXCEPTIONS
 }
 
-# The look-alikes that must NOT move, as <file> <exact text> <why>. These name
-# the ISA riscv-formal generates a spec model for, not the one gcc assembles.
+# The look-alikes that must NOT move, as <file> <exact text> <why>.
 FORMAL_ISA='rv32imc'
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-march.XXXXXX") || {
@@ -179,11 +124,10 @@ trap 'rm -rf "$tmp"' EXIT
 required_sites  > "$tmp/required"
 exception_sites > "$tmp/exceptions"
 
-# Tracked files only, and git's index rather than a `find` with a prune list,
-# for the reason test/retired_term_test.sh gives: what this guards against is a
-# string arriving in a commit, and a checkout carries build artifacts,
-# downloaded tools and whole agent worktrees a merge cannot bring anything
-# through.
+# Tracked files only, and git's index rather than a `find` with a prune list, for the
+# reason test/retired_term_test.sh gives: what this guards against is a string arriving
+# in a commit, and a checkout carries build artifacts, downloaded tools and whole agent
+# worktrees a merge cannot bring anything through.
 if ! git -C "$REPO" ls-files -z > "$tmp/files" 2>/dev/null || [ ! -s "$tmp/files" ]; then
   echo "error: cannot enumerate any tracked files under $REPO. This check reads" >&2
   echo "git's index, because what it guards is a build flag arriving in a" >&2
@@ -191,9 +135,8 @@ if ! git -C "$REPO" ls-files -z > "$tmp/files" 2>/dev/null || [ ! -s "$tmp/files
   exit 1
 fi
 
-# `/dev/null` first so grep always prefixes the filename, and `-o` so a line
-# stating the flag twice is two hits rather than one. No match at all leaves
-# grep at 1 and xargs at 123, which is not an error here.
+# `/dev/null` first so grep always prefixes the filename, and `-o` so a line stating the
+# flag twice is two hits rather than one.
 hits=$( (cd "$REPO" && xargs -0 grep -noI -E -e '-march=[A-Za-z0-9_]*' -- /dev/null < "$tmp/files") || true)
 
 rc=0
@@ -202,9 +145,6 @@ rc=0
 : > "$tmp/unexpected"
 : > "$tmp/covered"
 
-# Which exception entry covers a path carrying a value, or nothing. A directory
-# entry matches on the `/` it ends with, so `docs/adr/` cannot quietly cover a
-# `docs/adrenaline.md` nobody meant to exempt.
 match_exception() {  # $1 = path, $2 = value
   local path=$1 value=$2 entry epath evalue ecount
   while IFS= read -r entry; do
@@ -292,11 +232,6 @@ while IFS= read -r entry; do
   fi
 done < "$tmp/exceptions"
 
-# ---- the two spellings that must NOT move ----------------------------------
-#
-# Read as their own patterns rather than as `-march=` hits, because that is how
-# they are spelled: neither is a compiler flag.
-
 if ! grep -qE "^[[:space:]]*isa[[:space:]]+$FORMAL_ISA[[:space:]]*$" "$REPO/formal/checks.cfg"; then
   rc=1
   echo >&2
@@ -320,21 +255,8 @@ if ! grep -qE -- "-i[[:space:]]+$FORMAL_ISA([[:space:]]|$)" "$REPO/Makefile"; th
   echo "what the command line claims." >&2
 fi
 
-# ---- the Dhrystone flags, whole -------------------------------------------
-#
-# Not just the ISA: the two copies of DHRY_CFLAGS are one measurement's other
-# half, and agreeing about -march while disagreeing about -O would be the same
-# defect one flag over.
-
-# One line, single-spaced and untrimmed at both ends, so the two copies are
-# compared on what they SAY rather than on how they were wrapped: one is a make
-# variable over three backslash-continued lines and the other is a Python
-# implicit concatenation over two.
 one_line() { tr -s '[:space:]' ' ' | sed -e 's/^ //' -e 's/ $//'; }
 
-# A string this cannot read is fatal rather than empty. Comparing against
-# something the script failed to parse is how a check goes on reporting green
-# over a file it has stopped understanding.
 need_flags() {  # $1 = file, $2 = what was read
   [ -n "$2" ] && return 0
   echo >&2

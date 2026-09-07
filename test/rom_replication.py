@@ -36,16 +36,8 @@ import argparse
 import json
 import sys
 
-# The write half and the read half of each part's block RAM, as pin-name
-# PREFIXES: ice40 carries a bus on one pin and ECP5 spreads the same bus over
-# `ADB0` .. `ADB13`, so a fixed list of whole pin names matches nothing on one of
-# them -- which puts every cell in one group and reports a sharing that was never
-# looked for. A cell type this script has not been told about is refused for the
-# same reason.
-#
-# ECP5's primitive is true dual-port and yosys writes through port A and reads
-# through port B, so A is the write half there; ice40's is one read and one write
-# already.
+# The write half and the read half of each part's block RAM, as pin-name PREFIXES: ice40
+# carries a bus on one pin and ECP5 spreads the same bus over `ADB0` ..
 PORTS = {
     "SB_RAM40_4K": {
         "write": ("WCLK", "WE", "WADDR", "WDATA", "MASK"),
@@ -57,11 +49,9 @@ PORTS = {
     },
 }
 
-
 def refuse(message):
     print(f"*** rom_replication: {message}", file=sys.stderr)
     sys.exit(2)
-
 
 def signature(cell, prefixes):
     pins = {name: nets for name, nets in cell["connections"].items()
@@ -71,7 +61,6 @@ def signature(cell, prefixes):
                "and the check would pass without comparing anything."
                % (cell["type"], " or ".join(prefixes)))
     return json.dumps(pins, sort_keys=True)
-
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -137,7 +126,6 @@ def main():
     print(f"{len(cells)} {args.cell}: {args.groups} write ports, {args.copies} "
           f"copies each, every copy on the same enable, address, data and edge.")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -1,11 +1,6 @@
 # See LICENSE for license details.
 
-#*****************************************************************************
-# jalr.S
-#-----------------------------------------------------------------------------
-#
-# Test jalr instruction.
-#
+# jalr.S Test jalr instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -13,9 +8,7 @@
 RVTEST_RV64U
 RVTEST_CODE_BEGIN
 
-  #-------------------------------------------------------------
   # Test 2: Basic test
-  #-------------------------------------------------------------
 
 test_2:
   li  TESTNUM, 2
@@ -30,17 +23,9 @@ target_2:
   la  t1, linkaddr_2
   bne t0, t1, fail
 
-  #-------------------------------------------------------------
-  # Bypassing tests
-  #-------------------------------------------------------------
-
   TEST_JALR_SRC1_BYPASS( 4, 0, jalr );
   TEST_JALR_SRC1_BYPASS( 5, 1, jalr );
   TEST_JALR_SRC1_BYPASS( 6, 2, jalr );
-
-  #-------------------------------------------------------------
-  # Test delay slot instructions not executed nor bypassed
-  #-------------------------------------------------------------
 
   .option push
   .align 2

@@ -35,8 +35,6 @@ DUALTEST_CODE_BEGIN
   # execution's result and not a prefix of it.
   TEST_CASE( 5, a4, AMO_TOTAL, la t0, counter; lw a4, 0(t0); )
 
-  # test/cosim.cc compares registers and never compares memory, so the sum has
-  # to come back through one too.
   TEST_CASE( 6, a5, AMO_SUM, la t0, sum1; lw a5, 0(t0); add a5, a5, a3; )
 
   TEST_PASSFAIL
@@ -47,13 +45,6 @@ hart1:
   sw    a3, 0(t0)
   DUALTEST_HART1_DONE
 
-  #-------------------------------------------------------------
-  # Both harts run this. Returns the sum of the values its AMOs returned in a3,
-  # and clobbers a0, a1, a2, a4, a6 and TESTNUM.
-  #
-  # Control cannot fall in: hart 0 ends in TEST_PASSFAIL's loop and hart 1 in
-  # DUALTEST_HART1_DONE's.
-  #-------------------------------------------------------------
 amo_burst:
   la    a0, counter
   li    a1, 1
@@ -63,9 +54,6 @@ amo_burst:
   li    TESTNUM, TN_RANGE
 1:
   amoadd.w a2, a1, (a0)
-  # The counter runs 0 .. 2N-1 and an AMO returns the value it replaced, so no
-  # return can reach 2N. One that does is a read that did not come from this
-  # word or did not come from one cycle of it.
   bgeu  a2, a6, fail
   add   a3, a3, a2
   addi  a4, a4, -1

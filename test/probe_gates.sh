@@ -1,42 +1,13 @@
 #!/bin/bash
-# Forces every graded comparison in this repo's grading scripts to FAIL, and
-# asserts that each one goes red for the reason it was written for. The defect
-# class is the comparison whose failure path was never executed, and this repo
-# has shipped five of them.
-#
-# Usage: probe_gates.sh          # run every probe; exit 0 only if all pass
-#
-# A probe pins the exit STATUS and a fragment of the DIAGNOSTIC. Status alone is
-# nearly worthless: a script that exited 1 on a mistyped fixture path would
-# satisfy every exit-status probe here while demonstrating nothing. Every group
-# also carries a control, because a grader degenerated into `exit 1` would
-# otherwise pass the lot.
-#
-# Almost hermetic: no `sim`, no Sail, no sby. Two groups need a real tool and
-# fail loudly rather than silently on a machine without it -- the
-# test/zkt_isolation_test.py group elaborates rtl/decoder.v with yosys, once per
-# fixture, and the linker-layout group runs the RISC-V cross linker, because the
-# graders it forces red are ASSERT statements inside the linker scripts and
-# nothing else evaluates one. `make test` is the only caller and needs both. It
-# is otherwise all fork and no work, so the wall time is the host's property
-# rather than this file's.
-#
-# Five failure paths are demonstrated by hand instead of by a `probe` call:
-# four because they need the elaborated design or the pinned clone --
-# test/cxxrtl.cc's exits 4 and 5, test/cosim.cc's divergence check, and
-# genchecks-audit.py's three set equalities -- and a fifth because it is this
-# file's OWN coverage ratchet against test/PROBES_EXPECTED, at the bottom: a
-# `probe` call cannot grade the gate that runs after every `probe` call has
-# already run without this file invoking itself.
+# Forces every graded comparison in this repo's grading scripts to FAIL, and asserts that
+# each one goes red for the reason it was written for.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/.." && pwd)
 
-# The coverage ratchet: every probe's label, checked against test/PROBES_EXPECTED
-# under set equality in both directions -- see that file's header. A probe that
-# is deleted, or that stops being reached by an early `return`, would otherwise
-# cut this file's coverage while it kept printing a green summary.
+# The coverage ratchet: every probe's label, checked against test/PROBES_EXPECTED under
+# set equality in both directions -- see that file's header.
 PROBES_MANIFEST="$HERE/PROBES_EXPECTED"
 if [ ! -f "$PROBES_MANIFEST" ] || [ ! -r "$PROBES_MANIFEST" ]; then
   echo "error: manifest '$PROBES_MANIFEST' does not exist or is not readable." >&2
@@ -57,9 +28,9 @@ probe_labels=()
 failed=0
 group=""
 
-# `mktemp -d` rather than a counter because fixtures are built inside `$(...)`,
-# a subshell: a counter would never advance in the parent, so every fixture
-# would land on top of the last one and the probes would still report something.
+# `mktemp -d` rather than a counter because fixtures are built inside `$(...)`, a
+# subshell: a counter would never advance in the parent, so every fixture would land on
+# top of the last one and the probes would still report something.
 new_case() {
   mktemp -d "$tmp/case.XXXXXX"
 }
@@ -86,10 +57,7 @@ probe() {
   rc=$?
   set -e
   local why=""
-  # A here-string, not a pipe. `grep -q` exits at the first match and closes the
-  # pipe, so against a large output the writer dies of SIGPIPE -- which under
-  # pipefail becomes the pipeline's status, making a MATCHING probe report no
-  # match.
+  # A here-string, not a pipe.
   if [ "$rc" -ne "$want_exit" ]; then
     why="exited $rc, expected $want_exit"
   elif ! grep -qF -- "$want_text" <<< "$out"; then
@@ -104,23 +72,10 @@ probe() {
   fi
 }
 
-# mutate <file> <sed-expr>...  -- plant a defect in a fixture and PROVE it
-# landed. A `sed -i` whose pattern no longer matches exits 0 having rewritten
-# nothing, which used to hand `probe` an unmutated copy of the real file: the
-# probe still went red, but for the wrong reason ("exited 0, expected 1"),
-# which accuses the grader under test rather than the fixture that drifted.
-# Every remaining argument is its own `-e` script, run in one `sed -i.bak`
-# pass; `-E` as the first argument selects extended regular expressions.
-# Comparing the result against the `.bak` sed itself made is the check --
-# unlike the counter `new_case`'s comment warns about, an exit status DOES
-# cross a `$(...)` subshell, so calling this as a bare statement inside a
-# fixture function is enough: under `set -e` a stale mutation aborts the
-# whole run at this line, named, rather than reaching `probe` with nothing
-# changed.
+# mutate <file> <sed-expr>...
 mutate() {
-  # `set -u` treats an empty array as unbound on some bash builds, so the
-  # extended-regex flag is a plain string rather than a zero-or-one-element
-  # array.
+  # `set -u` treats an empty array as unbound on some bash builds, so the extended-regex
+  # flag is a plain string rather than a zero-or-one-element array.
   local extended=""
   if [ "$1" = "-E" ]; then extended="-E"; shift; fi
   local file=$1; shift
@@ -141,10 +96,6 @@ mutate() {
 }
 
 # mutate_remove <file> -- delete a fixture file a probe claims went missing.
-# Plain `rm` already refuses a path that is not there, but `rm -f` -- used to
-# make repeated fixture teardown idempotent -- does not, so a mistyped path
-# silently leaves the file in place and the probe built on its absence proves
-# nothing. Requiring existence first closes that.
 mutate_remove() {
   local file=$1
   if [ ! -e "$file" ]; then
@@ -154,15 +105,9 @@ mutate_remove() {
   rm -rf "$file"
 }
 
-# fixture_anchor <real-path> <literal> -- a fixture that TYPES OUT an
-# artifact's shape (a nextpnr utilisation block, a `localparam` line) rather
-# than copying the real file declares here the exact text it is imitating.
-# Where the artifact itself is generated and has no tracked source -- nextpnr's
-# stdout -- <real-path> names the PARSER that reads that shape instead, so a
-# rewritten field name still breaks the anchor even though nothing in the repo
-# ever produced the fixture's literal bytes. A fixture typing out a format
-# nothing produces (or nothing parses) any more is red by name instead of
-# green forever.
+# fixture_anchor <real-path> <literal> -- a fixture that TYPES OUT an artifact's shape (a
+# nextpnr utilisation block, a `localparam` line) rather than copying the real file
+# declares here the exact text it is imitating.
 fixture_anchor() {
   local real=$1 literal=$2
   if ! grep -qF -- "$literal" "$real"; then
@@ -171,10 +116,10 @@ fixture_anchor() {
   fi
 }
 
-# Written once and shared by every fixture, as are the scratch copies of the
-# scripts under test: macOS re-scans an executable the first time it is exec'd
-# after being written, so a probe that created its own stub tree measured
-# 1.5-3.3s of wall against 0.06s of user time.
+# Written once and shared by every fixture, as are the scratch copies of the scripts
+# under test: macOS re-scans an executable the first time it is exec'd after being
+# written, so a probe that created its own stub tree measured 1.5-3.3s of wall against
+# 0.06s of user time.
 
 make_toolchain_stubs() {  # $1 = bin dir
   local bin=$1
@@ -308,8 +253,6 @@ STUB
 }
 
 # Three ways a tool answers when soc/print_toolchain.sh asks it for a version.
-# Stubs rather than the real toolchain: the two red ones are what a broken
-# install does, and no probe here may need yosys or nextpnr to be present.
 make_version_stubs() {  # $1 = bin dir
   local bin=$1
   mkdir -p "$bin"
@@ -356,18 +299,16 @@ STUB
   chmod +x "$1/icetime"
 }
 
-# `leg-rt` / `leg-rc` are scratch copies of the two suite runners, because each
-# resolves its helper scripts relative to its own path.
+# `leg-rt` / `leg-rc` are scratch copies of the two suite runners, because each resolves
+# its helper scripts relative to its own path.
 mkdir -p "$tmp/bin-none" "$tmp/bin-curl" "$tmp/leg-rt" "$tmp/leg-rc" "$tmp/leg-rc-nopy"
 
-# For the one probe that claims "no cross compiler", `bin-none` has to be the
-# WHOLE path: with /usr/bin behind it, run_tests.sh finds a real
-# riscv64-unknown-elf-gcc on any host that has one there, which is every CI
-# runner -- that is how that probe went green here and red on CI.
-#
-# No python3 and no env here on purpose: a python3 that is a version-manager shim
-# would shadow the real interpreter for every OTHER probe, whose PATH has this
-# directory on it too.
+# For the one probe that claims "no cross compiler", `bin-none` has to be the WHOLE path:
+# with /usr/bin behind it, run_tests.sh finds a real riscv64-unknown-elf-gcc on any host
+# that has one there, which is every CI runner -- that is how that probe went green here
+# and red on CI. No python3 and no env here on purpose: a python3 that is a
+# version-manager shim would shadow the real interpreter for every OTHER probe, whose
+# PATH has this directory on it too.
 for util in sed awk sort uniq comm basename dirname wc tr cat rm mktemp diff \
              grep find head; do
   path=$(command -v "$util") || {
@@ -396,9 +337,9 @@ begin_group "test/check_suite_shape.sh"
 
 SHAPE="$HERE/check_suite_shape.sh"
 
-# Both program shapes, because the glob and the manifest's name check each have
-# to see .c as well as .S. A fixture with only .S would let either one go back
-# to being .S-only and stay green.
+# Both program shapes, because the glob and the manifest's name check each have to see .c
+# as well as .S. A fixture with only .S would let either one go back to being .S-only and
+# stay green.
 shape_fixture() {
   local d; d=$(new_case)
   mkdir -p "$d/asm"
@@ -568,8 +509,7 @@ probe "a baselined test that starts failing a DIFFERENT way is red" 1 \
 probe "an unexpected PASS is red too -- the baseline is not a ceiling" 1 \
   "does NOT match" "$(rt "$d")"
 
-# STALL_REPORT=1 is `make cycles`. It leaves the pass/fail grading alone and adds
-# one of its own, so both statuses have to be able to reach the caller.
+# STALL_REPORT=1 is `make cycles`.
 d=$(rt_fixture)
 probe "control: STALL_REPORT prints the accounting and keeps the suite green" 0 \
   "cycle accounting" "STALL_REPORT=1 $(rt "$d")"
@@ -653,8 +593,8 @@ probe "an unexpected agreement is red -- both directions, as everywhere" 1 \
 begin_group "test/cosim.py"
 
 # Only the two ends are fixtures; everything between them -- the distinct-state
-# reduction, the two cursors, the divergence labels, the HTIF verdict
-# cross-check -- is the real cosim.py.
+# reduction, the two cursors, the divergence labels, the HTIF verdict cross-check -- is
+# the real cosim.py.
 cp_fixture() {
   local d; d=$(new_case)
   cat > "$d/sail.trace" <<'TRACE'
@@ -735,8 +675,8 @@ d=$(cp_fixture)
 probe "a failing assembler is fatal, not a divergence" 3 "failed" \
   "STUB_CC_EXIT=1 $(cps "$d")"
 
-# NONCOMPARABLE_CSRS is the one thing in cosim.py that makes the comparison
-# weaker, so both halves are probed.
+# NONCOMPARABLE_CSRS is the one thing in cosim.py that makes the comparison weaker, so
+# both halves are probed.
 d=$(cp_fixture)
 cat > "$d/sail.trace" <<'TRACE'
 [1] [M]: 0x00000000 (0xb00025f3) csrr x11, mcycle
@@ -858,11 +798,7 @@ begin_group "formal/check-complete-exclusions.py"
 
 CE="$REPO/formal/check-complete-exclusions.py"
 
-# The riscv-formal stand-in carries only what clause 5 reads. Naming `add` and
-# `lw` is what makes the control meaningful: the file is non-empty and names no
-# excluded mnemonic. Each gets its own spec_valid line, real encodings, so the
-# clause 6 overlap check has something to compare a declared exclusion against
-# -- `add` sits at OP (0110011) beside every opcode a probe below excludes.
+# The riscv-formal stand-in carries only what clause 5 reads.
 ce_fixture() {
   local d; d=$(new_case)
   mkdir -p "$d/rf/insns"
@@ -909,8 +845,8 @@ mutate "$d/complete.sv" \
 probe "a predicate matching an opcode its declaration does not is named" 1 \
   "but its wire matches" "$(ces "$d")"
 
-# `@` as the sed delimiter throughout this block: the text being replaced
-# contains `||`, which closes an `s|...|...|` early.
+# `@` as the sed delimiter throughout this block: the text being replaced contains `||`,
+# which closes an `s|...|...|` early.
 d=$(ce_fixture)
 mutate "$d/complete.sv" "s@wire insn_excluded = .*@wire insn_excluded = exclude_system;@"
 probe "a declared-but-unwired exclusion over-reports the restriction" 1 \
@@ -958,8 +894,8 @@ d=$(ce_fixture); rm "$d/rf/insns/isa_rv32imc.txt"
 probe "an unreadable clone makes 'no spec model' unmeasurable, and fatal" 1 \
   "cannot read" "$(ces "$d")"
 
-# The reason lives on the comment lines under the header, so deleting them is
-# the mutation.
+# The reason lives on the comment lines under the header, so deleting them is the
+# mutation.
 d=$(ce_fixture)
 python3 - "$d/complete.sv" <<'PY'
 import sys
@@ -981,11 +917,9 @@ PY
 probe "an exclusion with no reason written under it is rejected" 1 \
   "has no reason written under it" "$(ces "$d")"
 
-# Inserts a synthetic exclusion block into a fixture's complete.sv, right
-# before the real insn_excluded assignment, and ORs its wire into that
-# assignment -- the same shape every EXCLUDE entry above has. $2 is the
-# `// EXCLUDE ...` header line (no leading `//`), $3 the wire's right-hand
-# side (no `wire <slug> = `), $4 the wire's own name.
+# Inserts a synthetic exclusion block into a fixture's complete.sv, right before the real
+# insn_excluded assignment, and ORs its wire into that assignment -- the same shape every
+# EXCLUDE entry above has.
 ce_insert_exclusion() {
   python3 - "$1/complete.sv" "$2" "$3" "$4" <<'PY'
 import sys
@@ -1036,9 +970,9 @@ printf 'OP-PROBED  0110011  probed\n' >> "$d/BASELINE"
 probe "a class-wide predicate over an opcode the pin partly models is rejected" 1 \
   "rvfi_isa_rv32imc models" "$(ces "$d")"
 
-# `mul` shares OP and funct3 000 with `add` but a different funct7, so a
-# predicate narrowed only to funct3 still excuses two modelled mnemonics, not
-# one -- funct3 alone is not always as narrow as the pin lets a predicate be.
+# `mul` shares OP and funct3 000 with `add` but a different funct7, so a predicate
+# narrowed only to funct3 still excuses two modelled mnemonics, not one -- funct3 alone
+# is not always as narrow as the pin lets a predicate be.
 d=$(ce_fixture)
 printf 'add\nlw\nmul\n' > "$d/rf/insns/isa_rv32imc.txt"
 printf "assign spec_valid = rvfi_valid && !insn_padding && insn_funct7 == 7'b 0000001 && insn_funct3 == 3'b 000 && insn_opcode == 7'b 0110011;\n" \
@@ -1050,10 +984,8 @@ printf 'OP-PROBEE  0110011/000  probee\n' >> "$d/BASELINE"
 probe "a funct3-only predicate is rejected when a funct7 still separates two modelled rows" 1 \
   "rvfi_isa_rv32imc models" "$(ces "$d")"
 
-# Nothing below edits the sanitizer's constants: each probe mutates a COPY of
-# the tracked test/monitor.v and requires the sanitizer to refuse it. Re-deriving
-# TRAP_GATE_ENCLOSED_CODES from whatever the generator currently emits is how a
-# change gets laundered into the expectation, which that list's comment forbids.
+# Nothing below edits the sanitizer's constants: each probe mutates a COPY of the tracked
+# test/monitor.v and requires the sanitizer to refuse it.
 begin_group "test/sanitize_monitor.py"
 
 SM="python3 $REPO/test/sanitize_monitor.py"
@@ -1126,10 +1058,6 @@ probe "layer 2: the enclosed handle_error multiset is pinned, not merely counted
   "the span encloses" "$SM $d/monitor.v"
 
 # Layers 1 and 2 both accept this one, because neither looks outside the span.
-# It mutates the sanitizer rather than the monitor because rule 6 anchors on the
-# trap comparison: take that out of the INPUT and rule 6's site count is what
-# goes red. What is left for this layer is the output, which is where an edit to
-# rule 6's own replacement would drop it.
 d=$(sm_fixture)
 python3 - "$REPO/test/sanitize_monitor.py" "$d/sanitize.py" <<'PY'
 import sys
@@ -1143,10 +1071,7 @@ PY
 probe "layer 3: error 101 vanishing from the OUTPUT is caught after every rule" 1 \
   "the trap comparison survives" "python3 $d/sanitize.py $d/monitor.v"
 
-# Rules 4 to 6 carry rvfi_mem_fault into the monitor. Each declares its own site
-# count, for the reason rules 1 and 2 do: the spec model has no memory map, so a
-# rule here that stopped applying would put both sim legs back to reporting
-# error 101 on a core doing what this platform's map says.
+# Rules 4 to 6 carry rvfi_mem_fault into the monitor.
 d=$(sm_fixture)
 sm_mutate "$d/monitor.v" <<'PY'
 import sys
@@ -1180,11 +1105,9 @@ PY
 probe "rule 6: a respelled trap comparison stops rather than gating nothing" 1 \
   'rule "gate the trap comparison on a refused access": matched 0 site(s)' "$SM $d/monitor.v"
 
-# THE ONE THAT MATTERS: the gate is what makes a refused access unreadable by
-# the spec model, and the compensation is the only thing that asks what the core
-# did with the flag it excused itself with. Rule 6 writes both halves in one
-# substitution, so losing one alone is an edit to the sanitizer -- which is what
-# this mutates.
+# THE ONE THAT MATTERS: the gate is what makes a refused access unreadable by the spec
+# model, and the compensation is the only thing that asks what the core did with the flag
+# it excused itself with.
 d=$(sm_fixture)
 python3 - "$REPO/test/sanitize_monitor.py" "$d/sanitize.py" <<'PY'
 import sys
@@ -1277,10 +1200,8 @@ begin_group "soc/baseline_summary.py"
 
 BS="python3 $REPO/soc/baseline_summary.py"
 
-# The block soc/baseline_sweep.sh stamps ahead of its rows, written by hand so a
-# probe costs no placement. Every refusal below breaks one field of it, and the
-# control runs first: a fixture malformed in some other way would take the whole
-# group green-to-red rather than pass it.
+# The block soc/baseline_sweep.sh stamps ahead of its rows, written by hand so a probe
+# costs no placement.
 bs_sweep() {  # <file> <base> <dirty> <yosys>
   cat > "$1" <<EOF
 # baseline-sweep v1
@@ -1303,10 +1224,9 @@ up5k,sweep,1,82.00,12.20,24,4,21.00,61.00,4769,rom_RDATA,next_pc
 EOF
 }
 
-# The other part's stamp, which is a different SET of fields rather than the same
-# fields with different values: no icetime, the database nextpnr places against,
-# and the constraint it was handed. The four icetime columns are the `NA` literal
-# soc/depth/row.py writes for a part with no icetime walk behind it.
+# The other part's stamp, which is a different SET of fields rather than the same fields
+# with different values: no icetime, the database nextpnr places against, and the
+# constraint it was handed.
 bs_ecp5() {  # <file> <base> <dirty> <yosys>
   cat > "$1" <<EOF
 # baseline-sweep v1
@@ -1399,12 +1319,11 @@ d=$(bs_fixture)
 probe "a sweep file that is not there reads as missing, not as empty" 1 \
   "nothing to summarise" "$BS $d/gone.csv"
 
-# ---- the part, which is a stamped and compared field and not just a column ----
-#
-# The subtraction these forbid was available for as long as `part` was a CSV
-# column nothing read: two sweeps of two different fabrics, placed by two
-# different engines and graded by two different classes of estimator, would
-# produce a tidy percentage under a heading that says "delta".
+# the part, which is a stamped and compared field and not just a column -- The
+# subtraction these forbid was available for as long as `part` was a CSV column nothing
+# read: two sweeps of two different fabrics, placed by two different engines and graded
+# by two different classes of estimator, would produce a tidy percentage under a heading
+# that says "delta".
 
 bs_pair() {  # an up5k sweep and an ECP5 one, same tree, same everything else
   local d; d=$(new_case)
@@ -1421,8 +1340,7 @@ d=$(bs_pair)
 probe "control: and names the corner and constraint it was placed against" 0 \
   "LFE5U-25F-6CABGA381" "$BS $d/ecp5.csv"
 
-# The four icetime columns, which this part has none of. A zero here is a number
-# somebody subtracts; the literal is a statement that no such number exists.
+# The four icetime columns, which this part has none of.
 d=$(bs_pair)
 probe "a part with no icetime walk reads NA rather than a fabricated zero" 0 \
   "LUT levels   : NA   carry hops: NA" "$BS $d/ecp5.csv"
@@ -1443,15 +1361,13 @@ d=$(bs_fixture); mutate "$d/before.csv" 's/^# part: up5k/# part: ecp5x/'
 probe "a part this script cannot grade a stamp for is rejected, not guessed at" 1 \
   "not one this" "$BS $d/before.csv"
 
-# Both directions of "the stamp describes a run that did not happen". The first
-# is the shape a hand-edited header takes when someone changes the part line to
-# make a comparison stop complaining.
+# Both directions of "the stamp describes a run that did not happen".
 d=$(bs_fixture); mutate "$d/before.csv" 's/^# part: up5k/# part: ecp5/'
 probe "an ECP5 stamp carrying up5k's tools is missing its own" 1 \
   "missing nextpnr-ecp5, trellis-db" "$BS $d/before.csv"
 
-# A complete up5k stamp with one ECP5 field added, so the `missing` check has
-# nothing to say and the foreign-field check is the one under test.
+# A complete up5k stamp with one ECP5 field added, so the `missing` check has nothing to
+# say and the foreign-field check is the one under test.
 d=$(bs_fixture)
 mutate "$d/before.csv" \
   's|^# icetime: \(.*\)$|# icetime: \1\
@@ -1463,9 +1379,8 @@ d=$(bs_pair)
 probe "two parts are refused rather than subtracted" 1 \
   "There is no difference between them" "$BS $d/up5k.csv $d/ecp5.csv"
 
-# THE ONE THAT MATTERS. --allow-mismatch covers a tree, a toolchain, a program
-# and a ROM size, every one of which can be a deliberate before-and-after. It
-# must not cover this one, and the probe above passing says nothing about that.
+# THE ONE THAT MATTERS. --allow-mismatch covers a tree, a toolchain, a program and a ROM
+# size, every one of which can be a deliberate before-and-after.
 d=$(bs_pair)
 probe "and --allow-mismatch does NOT cover a cross-part subtraction" 1 \
   "does NOT cover this" "$BS $d/up5k.csv $d/ecp5.csv --allow-mismatch"
@@ -1480,24 +1395,15 @@ probe "a part this repo does not place stops the sweep before any placement" 2 \
   "BASELINE_PART is 'xc7'" \
   "BASELINE_PART=xc7 sh $REPO/soc/baseline_sweep.sh"
 
-# The rest of this script places the SoC, so this is the one check in it that
-# runs without yosys, nextpnr or a cross compiler -- and it is the one that
-# would otherwise silently place the default sixteen seeds for someone who
-# asked for none.
+# The rest of this script places the SoC, so this is the one check in it that runs
+# without yosys, nextpnr or a cross compiler -- and it is the one that would otherwise
+# silently place the default sixteen seeds for someone who asked for none.
 probe "an empty seed list stops the sweep instead of placing the default" 2 \
   "SOC_SEEDS is empty" "SOC_SEEDS= sh $REPO/soc/baseline_sweep.sh"
 
 begin_group "soc/print_toolchain.sh"
 
-# The stamp `make fit`, `make soc-timing` and the sweep above all print. What is
-# forced red here is the refusal: a tool that cannot be asked has to stop the
-# run rather than be recorded as whatever it said, because a version nobody can
-# reproduce reads exactly like one anybody can and the number underneath it is
-# graded against a ratchet.
-#
-# The script is reached by its own path and its shebang rather than through an
-# interpreter on PATH, because the PATH set here is the fixture: it holds the
-# three stubs and the utilities the script itself runs, and nothing else.
+# The stamp `make fit`, `make soc-timing` and the sweep above all print.
 PT="PATH='$tmp/bin-tools:$tmp/bin-none' $REPO/soc/print_toolchain.sh"
 
 probe "control: a tool that answers is stamped with its version and its path" 0 \
@@ -1509,9 +1415,9 @@ probe "a tool that prints nothing is refused, not stamped blank" 1 \
 probe "a tool that exits nonzero while printing is refused on its status" 1 \
   "could not be asked for its version" "$PT brokentool"
 
-# Whether the good tool's line survives the refusal, not merely whether the exit
-# status did: a short block spliced into a CSV header or a step summary looks
-# exactly like a whole one.
+# Whether the good tool's line survives the refusal, not merely whether the exit status
+# did: a short block spliced into a CSV header or a step summary looks exactly like a
+# whole one.
 pt_partial() {
   local said
   said=$(eval "$PT goodtool brokentool" 2> /dev/null) || true
@@ -1522,9 +1428,9 @@ probe "one red tool leaves no partial stamp on stdout" 0 "stdout=empty" pt_parti
 probe "a tool that is not installed names itself rather than the list" 1 \
   "no nosuchtool on PATH" "$PT nosuchtool"
 
-# icetime's binary can run while its chip database, resolved relative to its
-# own path, is not where it looks -- the break neither `--version` nor a
-# digest of the binary would have noticed.
+# icetime's binary can run while its chip database, resolved relative to its own path, is
+# not where it looks -- the break neither `--version` nor a digest of the binary would
+# have noticed.
 probe "control: icetime whose chip database resolves is stamped like any tool" 0 \
   "# icetime:" "PATH='$tmp/icetime-stub:$tmp/bin-none' $REPO/soc/print_toolchain.sh icetime"
 
@@ -1533,9 +1439,9 @@ probe "icetime that cannot resolve its chip database is refused before a version
   "STUB_ICETIME_BADCHIPDB=1 PATH='$tmp/icetime-stub:$tmp/bin-none' \
     $REPO/soc/print_toolchain.sh icetime"
 
-# The Trellis database is stamped as a pseudo-tool, so it has its own refusal:
-# it is resolved from nextpnr-ecp5's install, and the fixture PATH here has no
-# nextpnr-ecp5 in it at all.
+# The Trellis database is stamped as a pseudo-tool, so it has its own refusal: it is
+# resolved from nextpnr-ecp5's install, and the fixture PATH here has no nextpnr-ecp5 in
+# it at all.
 probe "the Trellis database cannot be stamped without the tool it belongs to" 1 \
   "no nextpnr-ecp5 on PATH" "$PT trellis-db"
 
@@ -1545,11 +1451,7 @@ probe "and an empty TRELLIS_DB is refused rather than stamped as nothing" 1 \
 
 begin_group "soc/bands.py"
 
-# The band figures had six prose copies and no owner. What is forced red here is
-# the property that replaced them: a part whose band nobody measured gets an
-# answer about THAT part, never another part's numbers. A fallback would be a
-# wrong answer that looks exactly like a right one, and every caller here prints
-# what it gets without checking.
+# The band figures had six prose copies and no owner.
 BD="python3 $REPO/soc/bands.py"
 
 probe "control: a derived part states both figures and names itself" 0 \
@@ -1559,8 +1461,6 @@ probe "control: the note a delta is read against carries the part too" 0 \
   "up5k" "$BD up5k --note"
 
 # hx8k is the cross-core harness's part and nothing has ever been swept on it.
-# It is in the table precisely so that asking gets this sentence rather than a
-# KeyError somebody would 'fix' by copying up5k's row.
 probe "an underived part says so rather than borrowing another part's band" 0 \
   "no other part's transfer" "$BD hx8k"
 
@@ -1579,8 +1479,8 @@ probe "--list answers for every part, derived or not" 0 \
 begin_group "test/band_source_test.py"
 
 # A COPY OF THE SHIPPING FILES plus a `git init`, the same fixture shape
-# test/march_test.sh's probes use and for the same reason: the control is then
-# the real tree, and every red probe is one edit away from it.
+# test/march_test.sh's probes use and for the same reason: the control is then the real
+# tree, and every red probe is one edit away from it.
 BSRC="python3 $HERE/band_source_test.py"
 
 bsrc_fixture() {
@@ -1589,9 +1489,8 @@ bsrc_fixture() {
   cp "$REPO/CLAUDE.md" "$d/"
   cp "$REPO/soc/bands.py" "$REPO/soc/timing_sweep.sh" "$REPO/soc/baseline_summary.py" "$d/soc/"
   cp "$REPO/test/band_source_test.py" "$d/test/"
-  # One real ADR, because that directory is exempt and the exemption is itself a
-  # decision worth a probe: a dated record must NOT move when a later sweep
-  # moves the band.
+  # One real ADR, because that directory is exempt and the exemption is itself a decision
+  # worth a probe: a dated record must NOT move when a later sweep moves the band.
   cp "$REPO/docs/adr/0121-the-occupancy-prediction-is-registered-and-the-placement-spread-is-corrected.md" \
      "$d/docs/adr/"
   git -c init.defaultBranch=main -C "$d" init -q
@@ -1621,16 +1520,16 @@ bsrc_edit "$d" soc/timing_sweep.sh \
 probe "and is named as a percentage beside the word that makes it a claim" 1 \
   "beside 'churn' or 'spread'" "$BSRC $d"
 
-# The wrapped case, which is how all six of the real copies were written: the
-# word on one line and the number on the next.
+# The wrapped case, which is how all six of the real copies were written: the word on one
+# line and the number on the next.
 d=$(bsrc_fixture)
 bsrc_edit "$d" soc/baseline_summary.py \
   's|^WORST, MEDIAN AND SPREAD|A wrapped churn band of\n3.9% goes here.\nWORST, MEDIAN AND SPREAD|'
 probe "a copy wrapped across lines is caught, not read as two harmless ones" 1 \
   "soc/baseline_summary.py" "$BSRC $d"
 
-# The staleness direction. The rulebook keeps its copy on purpose and it is
-# graded, so a re-derived band that was not carried into it goes red.
+# The staleness direction. The rulebook keeps its copy on purpose and it is graded, so a
+# re-derived band that was not carried into it goes red.
 d=$(bsrc_fixture)
 bsrc_edit "$d" CLAUDE.md 's|4–9% placement spread|5–11% placement spread|'
 probe "the rulebook quoting a figure the source no longer states is red" 1 \
@@ -1641,8 +1540,7 @@ bsrc_edit "$d" CLAUDE.md 's|soc/bands.py|the source|g'
 probe "and a rulebook that does not name the source is red too" 1 \
   "does not name soc/bands.py" "$BSRC $d"
 
-# The exemption, asserted rather than assumed. An ADR is a measurement with a
-# date on it: if this went red for one, the pressure would be to edit the record.
+# The exemption, asserted rather than assumed.
 d=$(bsrc_fixture)
 probe "a dated ADR stating an old band figure is NOT red" 0 \
   "every band figure is soc/bands.py's" "$BSRC $d"
@@ -1653,11 +1551,9 @@ probe "a tree with no source file at all is red rather than vacuously green" 1 \
 
 begin_group "test/zkt_isolation_test.py"
 
-# The script takes a path argument directly, so a fixture is just a mutated
-# COPY of the shipping rtl/decoder.v plus its two dependencies -- no git init
-# needed, unlike the checks above that enumerate tracked files. regsel.v
-# joins structs.v here because this script elaborates the real module now,
-# not a text scan of decoder.v alone, and decoder.v instantiates it twice.
+# The script takes a path argument directly, so a fixture is just a mutated COPY of the
+# shipping rtl/decoder.v plus its two dependencies -- no git init needed, unlike the
+# checks above that enumerate tracked files.
 ZKT="python3 $HERE/zkt_isolation_test.py"
 
 zkt_fixture() {
@@ -1668,32 +1564,26 @@ zkt_fixture() {
   printf '%s' "$d"
 }
 
-# This control is also the only thing that exercises CONTROL_FIELDS: emptying
-# that table makes live_rs1/live_rs2's real reads of out.rd/out.valid and
-# executor_out.rd/valid show up as reachable on the SHIPPING RTL, no mutation
-# needed, because out.valid's own bubble condition genuinely depends on
-# region_stall and trap_pending genuinely depends on reg_rs1 (misalignment).
-# A red here can mean that table went stale as easily as it can mean a real
-# decoder.v regression.
+# This control is also the only thing that exercises CONTROL_FIELDS: emptying that table
+# makes live_rs1/live_rs2's real reads of out.rd/out.valid and executor_out.rd/valid show
+# up as reachable on the SHIPPING RTL, no mutation needed, because out.valid's own bubble
+# condition genuinely depends on region_stall and trap_pending genuinely depends on
+# reg_rs1 (misalignment).
 d=$(zkt_fixture)
 probe "control: the shipping decoder reaches region_stall only, gated" 0 \
   "reach only region_stall" "$ZKT $d/decoder.v"
 
-# FORWARD REACHABILITY, the plain case: a register-file DATA bit routed
-# straight into hazard, the way a forwarding path or a data-dependent
-# early-out might be added by someone who never meant to touch Zkt's claim.
+# FORWARD REACHABILITY, the plain case: a register-file DATA bit routed straight into
+# hazard, the way a forwarding path or a data-dependent early-out might be added by
+# someone who never meant to touch Zkt's claim.
 d=$(zkt_fixture)
 mutate "$d/decoder.v" \
   's/assign hazard = hazard_rs1 || hazard_rs2 || serialize;/assign hazard = hazard_rs1 || hazard_rs2 || serialize || reg_rs1[0];/'
 probe "a reg_rs1 bit routed into hazard is red, at hazard's own site" 1 \
   "\`hazard\` is reachable" "$ZKT $d/decoder.v"
 
-# FORWARD REACHABILITY THROUGH A REGISTER: reg_rs1 laundered through the
-# publish block's own `out.rs1 <= reg_rs1` before reaching hazard. An
-# RTL-text scan of continuous assigns alone cannot see this -- `out.rs1` is
-# written procedurally -- and this defeated an earlier round of this check
-# for exactly that reason. On the elaborated netlist a flip-flop's D input
-# feeding its Q output is one more edge, not a different kind of thing.
+# FORWARD REACHABILITY THROUGH A REGISTER: reg_rs1 laundered through the publish block's
+# own `out.rs1 <= reg_rs1` before reaching hazard.
 d=$(zkt_fixture)
 mutate "$d/decoder.v" \
   's/assign hazard = hazard_rs1 || hazard_rs2 || serialize;/assign hazard = hazard_rs1 || hazard_rs2 || serialize || out.rs1[0];/'
@@ -1701,47 +1591,31 @@ probe "reg_rs1 laundered through out.rs1's own register is still red" 1 \
   "\`hazard\` is reachable" "$ZKT $d/decoder.v"
 
 # FORWARD REACHABILITY THROUGH A COMPARATOR: branch_taken depends on
-# cmp_eq/cmp_lt/cmp_ltu, which are reg_rs1/reg_rs2 through a subtraction --
-# every bit of it real dataflow, computed in an always_comb block. This is
-# the other shape that defeated an earlier round: `branch_taken` is never a
-# continuous assign's own left-hand side, so a text scan of assigns alone
-# never followed a path through it either.
+# cmp_eq/cmp_lt/cmp_ltu, which are reg_rs1/reg_rs2 through a subtraction --every bit of
+# it real dataflow, computed in an always_comb block.
 d=$(zkt_fixture)
 mutate "$d/decoder.v" \
   's/assign hazard = hazard_rs1 || hazard_rs2 || serialize;/assign hazard = hazard_rs1 || hazard_rs2 || serialize || branch_taken;/'
 probe "branch_taken carrying reg_rs1/reg_rs2 into hazard is red" 1 \
   "\`hazard\` is reachable" "$ZKT $d/decoder.v"
 
-# FORWARD REACHABILITY, the other seed: a register-file DATA output
-# STRUCT_FIELD_SEEDS never named. executor_out.rd_data is a 32-bit field of
-# a decoder input port, the same shape as reg_rs1/reg_rs2, and a forwarding
-# path routing it into a stall reason is exactly the change this repo keeps
-# pricing and declining.
+# FORWARD REACHABILITY, the other seed: a register-file DATA output STRUCT_FIELD_SEEDS
+# never named.
 d=$(zkt_fixture)
 mutate "$d/decoder.v" \
   's/assign atomic_stall = out.valid && out.is_amo && !divider_stall;/assign atomic_stall = out.valid \&\& out.is_amo \&\& !divider_stall || executor_out.rd_data[0];/'
 probe "an executor_out.rd_data bit routed into a stall reason is red" 1 \
   "\`atomic_stall\` is reachable" "$ZKT $d/decoder.v"
 
-# FINDING 1: a stall reason reading region_stall's own captured state
-# directly, bypassing the ls_access gate rather than going through it. The
-# RTL-text version trusted `ls_answer_valid` as a KNOWN_CLEAN_LEAF without
-# verifying the claim against what it depends on; this version computes it,
-# with a narrower reachability pass seeded from ls_capture/ls_answer/
-# ls_answer_valid themselves rather than from reg_rs1.
+# FINDING 1: a stall reason reading region_stall's own captured state directly, bypassing
+# the ls_access gate rather than going through it.
 d=$(zkt_fixture)
 mutate "$d/decoder.v" \
   's/assign hazard = hazard_rs1 || hazard_rs2 || serialize;/assign hazard = hazard_rs1 || hazard_rs2 || serialize || ls_answer_valid;/'
 probe "hazard reading ls_answer_valid directly is red (finding 1)" 1 \
   "region_stall's own captured answer" "$ZKT $d/decoder.v"
 
-# FINDING 2: the same leak, behind a decoy. An `assign` inside an un-taken
-# \`generate if (0)\` claiming ls_answer_valid is a harmless constant would
-# have fooled a regex that does not understand generate semantics, by
-# masking the real always_ff driver underneath two textual definitions for
-# one name. Elaboration never sees the dead branch at all, so the real
-# driver -- and the leak above -- is exactly as reachable as it was without
-# the decoy.
+# FINDING 2: the same leak, behind a decoy.
 d=$(zkt_fixture)
 python3 - "$d/decoder.v" <<'PYEOF'
 import sys
@@ -1761,23 +1635,16 @@ PYEOF
 probe "a dead generate-if(0) decoy does not hide the same leak (finding 2)" 1 \
   "region_stall's own captured answer" "$ZKT $d/decoder.v"
 
-# FINDING 3: a new decoder input wider than a register NUMBER, added with no
-# Zkt classification at all. An RTL-text \`[N:0]\` match against a
-# parameterised width can read the wrong number of bits; this script reads
-# the port's MEASURED width off the elaborated netlist instead, so a plain
-# 10-bit port is unmistakably wide enough to matter.
+# FINDING 3: a new decoder input wider than a register NUMBER, added with no Zkt
+# classification at all.
 d=$(zkt_fixture)
 mutate "$d/decoder.v" \
   's/  input  logic \[31:0\] reg_rs1,/  input  logic [31:0] reg_rs1,\n  input  logic [9:0] probe_wide_input,/'
 probe "a new wide input port with no classification is red (finding 3)" 2 \
   "no Zkt classification" "$ZKT $d/decoder.v"
 
-# FINDING 5: CONTROL_FIELDS' own written justification is entirely a width
-# argument, and nothing checked it. This is the load-bearing half: emptying
-# the table is red against the SHIPPING decoder.v with no mutation needed,
-# the same way the top control probe above is -- live_rs1/live_rs2's real
-# reads of out.rd/out.valid, and executor_out's own two, are genuinely
-# reachable once nothing blocks them.
+# FINDING 5: CONTROL_FIELDS' own written justification is entirely a width argument, and
+# nothing checked it.
 d=$(new_case)
 cp "$HERE/zkt_isolation_test.py" "$d/zkt_isolation_test.py"
 python3 - "$d/zkt_isolation_test.py" <<'PYEOF'
@@ -1794,11 +1661,11 @@ PYEOF
 probe "CONTROL_FIELDS emptied is red against the shipping decoder (finding 5)" 1 \
   "is reachable" "python3 $d/zkt_isolation_test.py $REPO/rtl/decoder.v"
 
-# FINDING 5, the width bound: control_field_bits asserted no width, even
-# though the written justification for the whole table is entirely one --
-# "rd is [4:0], the same width SEED_PORTS/NON_VALUE_PORTS draw the line at."
-# Widening decoder_output's own `rd` field past 5 bits must be caught here,
-# the same bound classify_inputs already enforces for input ports.
+# FINDING 5, the width bound: control_field_bits asserted no width, even though the
+# written justification for the whole table is entirely one -- "rd is [4:0], the same
+# width SEED_PORTS/NON_VALUE_PORTS draw the line at." Widening decoder_output's own `rd`
+# field past 5 bits must be caught here, the same bound classify_inputs already enforces
+# for input ports.
 d=$(zkt_fixture)
 python3 - "$d/structs.v" <<'PYEOF'
 import sys
@@ -1814,10 +1681,7 @@ PYEOF
 probe "decoder_output.rd widened past 5 bits is red (finding 5)" 2 \
   "wider than a register NUMBER" "$ZKT $d/decoder.v"
 
-# THE OTHER DIRECTION: a classification whose port the netlist no longer
-# has. Unlike the probes above, the RTL is the shipping one and the SCRIPT
-# is the fixture -- the asymmetry finding 1 named: SEEDS/NON_VALUE_PORTS are
-# checked stale in both directions, and KNOWN_CLEAN_LEAVES never was.
+# THE OTHER DIRECTION: a classification whose port the netlist no longer has.
 d=$(new_case)
 cp "$HERE/zkt_isolation_test.py" "$d/zkt_isolation_test.py"
 mutate "$d/zkt_isolation_test.py" \
@@ -1825,20 +1689,18 @@ mutate "$d/zkt_isolation_test.py" \
 probe "a classification naming a port the netlist has never seen is red" 2 \
   "Remove the stale entry" "python3 $d/zkt_isolation_test.py $REPO/rtl/decoder.v"
 
-# A stall-reason name with no driving cell at all -- a deleted
-# \`assign hazard = ...;\` with the declaration left behind -- would make
-# reachability through it vacuously true (nothing flows out of a wire
-# nothing drives) rather than the missing stall reason it is.
+# A stall-reason name with no driving cell at all -- a deleted \`assign hazard = ...;\`
+# with the declaration left behind -- would make reachability through it vacuously true
+# (nothing flows out of a wire nothing drives) rather than the missing stall reason it
+# is.
 d=$(zkt_fixture)
 mutate "$d/decoder.v" '/assign hazard = hazard_rs1 || hazard_rs2 || serialize;/d'
 probe "a stall reason with no driving cell stops the run" 2 \
   "hazard has no driving cell" "$ZKT $d/decoder.v"
 
-# The anti-vacuity control: if the RTL stopped carrying reg_rs1 into
-# region_stall at all, every PASS above would be a check of nothing, and this
-# is what says so instead of staying green. Redirected to csr_rdata rather
-# than tied to a constant, so ls_block stays a real (if irrelevant) alias
-# instead of tripping the driving-cell probe above for an unrelated reason.
+# The anti-vacuity control: if the RTL stopped carrying reg_rs1 into region_stall at all,
+# every PASS above would be a check of nothing, and this is what says so instead of
+# staying green.
 d=$(zkt_fixture)
 mutate "$d/decoder.v" \
   's/assign ls_block = reg_rs1\[31:LS_BLOCK_BITS\];/assign ls_block = csr_rdata[31:LS_BLOCK_BITS];/'
@@ -1852,11 +1714,9 @@ probe "a decoder.v that does not exist is exit 2, not a vacuous pass" 2 \
 
 begin_group "soc/routing_bins.py"
 
-# One placement's worth of fixture: an icetime report whose path leaves a block
-# RAM, crosses a LUT, leaves the pc and stops; the netlist those names resolve
-# through; and the stamped sweep that names the report. Written by hand so the
-# group costs no placement, and small enough that the reconciliation below can
-# be checked with a calculator: 1.279 + 0.649 + 1.099 = 3.027 ns of routing.
+# One placement's worth of fixture: an icetime report whose path leaves a block RAM,
+# crosses a LUT, leaves the pc and stops; the netlist those names resolve through; and
+# the stamped sweep that names the report.
 rb_fixture() {
   local d; d=$(new_case)
   mkdir -p "$d/sweep"
@@ -1924,11 +1784,8 @@ d=$(rb_fixture)
 probe "control: the pc hop reaches the pc bin, by the declared net's bits" 0 \
   "1.10 ns   36.3%" "$(rb "$d")"
 
-# The defect this whole script exists for: bins that add up to less than the
-# path, printed as confidently as bins that add up to all of it. Forced by
-# giving a COPY of the reader a soc/timing_split.py that charges the Odrv4 hop
-# to logic -- which keeps that script's own reconciliation green, so only this
-# one can catch it.
+# The defect this whole script exists for: bins that add up to less than the path,
+# printed as confidently as bins that add up to all of it.
 d=$(rb_fixture)
 mkdir -p "$d/soc/depth"
 cp "$REPO/soc/routing_bins.py" "$REPO/soc/timing_split.py" \
@@ -1955,12 +1812,7 @@ d=$(rb_fixture); rm "$d/sweep/probe.default.timing.rpt"
 probe "a row with no placement behind it stops the read, not just that seed" 1 \
   "no placement behind it" "$(rb "$d")"
 
-# Everything this script does walks an icetime report, and one of the two parts
-# has none. Refused where the answer is still readable, rather than a hundred
-# lines later blaming the sweep for a report it never wrote.
-# A WELL-FORMED sweep of the other part, not this one's stamp with its part line
-# flipped: that shape is rejected by the shared reader first, so it would probe
-# the field check rather than this one.
+# Everything this script does walks an icetime report, and one of the two parts has none.
 d=$(rb_fixture); bs_ecp5 "$d/sweep/probe.csv" aaaaaaaaaaaa no 'Yosys 0.68'
 probe "a sweep of the part with no icetime is refused, not walked" 1 \
   "there is nothing here to walk" "$(rb "$d")"
@@ -2004,9 +1856,7 @@ probe "a cell type the log never mentions reads as zero, not a crash" 1 \
   "0 SB_RGBA_DRV cells, expected 1" "$CC $d/soc.synth.log SB_RGBA_DRV 1 reason"
 
 # `make ecp5-timing` runs this same script over yosys's ECP5 cell table, so the
-# diagnostic has to name the flow that stopped and the variable that declares
-# the count. Pointing an ECP5 failure at the ice40 flow's SOC_EXPECT_* would be
-# a dangling reference in the one message a reader has.
+# diagnostic has to name the flow that stopped and the variable that declares the count.
 d=$(new_case)
 printf '     36   DP16KD\n' > "$d/ecp5.synth.log"
 
@@ -2022,17 +1872,13 @@ begin_group "soc/bram_reset_check.py"
 
 BR="python3 $REPO/soc/bram_reset_check.py"
 
-# A mapped netlist is a big file and only three fields matter here: the cell's
-# type, and whether its reset port carries a net number (logic) or a constant
-# string. yosys writes a constant bit as "0"/"1" and a net as an integer, so the
-# fixture spells both. The empty blackbox module beside the design is what every
-# real synth_ecp5 netlist carries -- one declaration per ECP5 primitive -- and
-# is here so the count cannot be inflated by declarations nobody instantiated.
+# A mapped netlist is a big file and only three fields matter here: the cell's type, and
+# whether its reset port carries a net number (logic) or a constant string.
 br_fixture() {  # $1 = RSTA connection, as JSON
   local d; d=$(new_case)
-  # The netlist this types out is nextpnr's input and nothing in the tree
-  # produces it, so the anchor names the parser instead: the cell type it
-  # counts and the exact key path it reads a reset connection through.
+  # The netlist this types out is nextpnr's input and nothing in the tree produces it, so
+  # the anchor names the parser instead: the cell type it counts and the exact key path
+  # it reads a reset connection through.
   fixture_anchor "$REPO/soc/bram_reset_check.py" 'BRAM_CELLS = ("DP16KD", "PDPW16KD")'
   fixture_anchor "$REPO/soc/bram_reset_check.py" 'cell.get("connections", {}).get(port, [])'
   cat > "$d/ecp5.json" <<JSON
@@ -2050,8 +1896,8 @@ JSON
 d=$(br_fixture '["0"]')
 probe "control: block RAM resets tied to a constant are green" 0   "none driven by logic" "$BR $d/ecp5.json"
 
-# The defect this exists for: the data RAM's zero arm mapped onto the block's
-# reset, which reads zero on the part and passes every other check.
+# The defect this exists for: the data RAM's zero arm mapped onto the block's reset,
+# which reads zero on the part and passes every other check.
 d=$(br_fixture '[42]')
 probe "a block RAM read through its own reset is refused" 1   "1 of 2 block RAMs read through the block's own reset" "$BR $d/ecp5.json"
 
@@ -2078,10 +1924,8 @@ ER="python3 $REPO/soc/ecp5_report.py"
 ER_ARGS="--clock clk --part LFE5U-25F-6CABGA381 --constraint-mhz 200.0"
 
 # A three-hop path of 5 + 15 + 5 = 25 ns, which is 40.00 MHz exactly, so the
-# reconciliation between the walked path and the frequency nextpnr published
-# from it is arithmetic a reader can check by eye. The clock is spelt the way
-# nextpnr spells a promoted global, because that mangling is the whole reason
-# the parser matches on `$`-separated components instead of on the port name.
+# reconciliation between the walked path and the frequency nextpnr published from it is
+# arithmetic a reader can check by eye.
 ecp5_fixture() {
   local d; d=$(new_case)
   cat > "$d/ecp5.config" <<'CFG'
@@ -2260,34 +2104,21 @@ probe "a path that does not reconcile blames the script, not the design" 1 \
   "but nextpnr publishes 40.00 MHz" \
   "$ER $d/ecp5.report.json $d/ecp5.config $ER_ARGS"
 
-# The one red direction the sixteen above cannot reach: every one of them assumes
-# the two files describe THIS run. nextpnr writes both only at the very end of
-# its flow, so a run that dies earlier -- killed, out of memory, unroutable, a
-# database it cannot load -- would leave the previous run's pair intact, coherent
-# with each other and with a tree that has since changed underneath them.
-#
-# Driven against the real Makefile rather than against a copy of the guard,
-# because a second copy of a three-line refusal is the shape this file exists to
-# catch. `-o soc-rom` is what keeps it hermetic: `ecp5.json` depends on that
-# phony target, so without it make would rebuild the netlist and want yosys and a
-# cross compiler for a file the stub never reads. Marking it old leaves
-# `ecp5.json` up to date and `ecp5.config` genuinely out of date, which is the
-# state a second run on a laptop is really in.
+# The one red direction the sixteen above cannot reach: every one of them assumes the two
+# files describe THIS run.
 ecp5_stale_fixture() {  # stdin = the stub nextpnr-ecp5's body, after --version
   local d; d=$(new_case)
   mkdir -p "$d/soc/compare" "$d/formal" "$d/bin"
   cp "$REPO/Makefile" "$d/Makefile"
   cp "$REPO/formal/pin.mk" "$d/formal/"
   cp "$REPO/soc/compare/hazard3_pin.mk" "$d/soc/compare/"
-  # The Makefile `include`s this one HARD, not with `-include`: a missing pin
-  # should stop a measurement, not silently unpin the core it describes.
+  # The Makefile `include`s this one HARD, not with `-include`: a missing pin should stop
+  # a measurement, not silently unpin the core it describes.
   cp "$REPO/soc/compare/vexriscv_pin.mk" "$d/soc/compare/"
   cp "$REPO/soc/littlesoc.lpf" "$REPO/soc/ecp5_report.py" \
      "$REPO/soc/print_toolchain.sh" "$d/soc/"
   cp -R "$REPO/rtl" "$d/"
-  # The pair a previous, COMPLETE run left behind. Both are exactly what the
-  # parser accepts, which is the whole point: every refusal it has is satisfied
-  # by this pair, so only the recipe can tell it is not this run's.
+  # The pair a previous, COMPLETE run left behind.
   cat > "$d/ecp5.config" <<'CFG'
 .device LFE5U-25F
 
@@ -2315,13 +2146,13 @@ CFG
 JSON
   cp "$d/ecp5.report.json" "$d/complete.json"
   echo 'Info: a previous run' > "$d/ecp5.pnr.log"
-  # Dated rather than merely written first: what makes the recipe run is that
-  # `ecp5.json` is newer than the pair, and a stamp settles that without leaning
-  # on the filesystem's timestamp resolution.
+  # Dated rather than merely written first: what makes the recipe run is that `ecp5.json`
+  # is newer than the pair, and a stamp settles that without leaning on the filesystem's
+  # timestamp resolution.
   touch -t 202001010000 "$d/ecp5.config" "$d/ecp5.report.json"
-  # `ecp5-timing-toolchain` asks both tools for a version and the Trellis
-  # database for its device table before anything else runs, so all three have
-  # to answer or a probe would go red before reaching the guard it is about.
+  # `ecp5-timing-toolchain` asks both tools for a version and the Trellis database for
+  # its device table before anything else runs, so all three have to answer or a probe
+  # would go red before reaching the guard it is about.
   printf '#!/bin/sh\necho "stub yosys"\n' > "$d/bin/yosys"
   { echo '#!/bin/sh'
     echo 'case "$1" in --version|-V) echo "stub nextpnr-ecp5"; exit 0;; esac'
@@ -2339,10 +2170,8 @@ ecp5_stale_run() {  # $1 = fixture dir
     "$1" "$1" "$1"
 }
 
-# Stands in for a COMPLETE run: writes both files and exits 1, which is what the
-# real nextpnr does every time it misses the pinned constraint. Without this
-# control, a fixture that simply failed to build would take the four below green
-# for a reason that has nothing to do with the guard.
+# Stands in for a COMPLETE run: writes both files and exits 1, which is what the real
+# nextpnr does every time it misses the pinned constraint.
 d=$(ecp5_stale_fixture <<'STUB'
 cat > ecp5.config <<CFG
 .device LFE5U-25F
@@ -2360,11 +2189,8 @@ d=$(ecp5_stale_fixture <<< 'exit 1')
 probe "a nextpnr that died early is NOT graded on the last run's pair" 2 \
   "so NOTHING was measured" "$(ecp5_stale_run "$d")"
 
-# `.DELETE_ON_ERROR` would remove `ecp5.config` on its own, because that one is a
-# make target. `ecp5.report.json` is not, so nothing but the recipe's own `rm`
-# takes it away -- and a report left behind is half a stale pair waiting for the
-# next run. Graded through a configuration written here, so that the parser gets
-# past its cheapest check and the missing report is what speaks.
+# `.DELETE_ON_ERROR` would remove `ecp5.config` on its own, because that one is a make
+# target.
 d=$(ecp5_stale_fixture <<< 'exit 1')
 probe "the REPORT goes too, which .DELETE_ON_ERROR cannot do for a non-target" 1 \
   "does not exist, so NOTHING was" \
@@ -2383,9 +2209,9 @@ probe "a configuration written without its report is half a run, not a run" 2 \
 
 begin_group "check-unit-benches"
 
-# Driven against the real Makefile and the real test/*_tb.v tree with the
-# declaration overridden on the command line: duplicating the comparison here
-# would be the second-parser risk this file exists to avoid elsewhere.
+# Driven against the real Makefile and the real test/*_tb.v tree with the declaration
+# overridden on the command line: duplicating the comparison here would be the
+# second-parser risk this file exists to avoid elsewhere.
 MB="make -C $REPO check-unit-benches"
 
 probe "control: the declared list matches the tree exactly" 0 \
@@ -2407,9 +2233,9 @@ begin_group "test/stall_report.py"
 
 SR="python3 $REPO/test/stall_report.py"
 
-# add.S issues 10 of its 40 cycles and spends 20 waiting on the scoreboard and
-# 10 fetching operands; lw.S is the other way round, so the two programs
-# disagree about which reason dominates and the total has to decide.
+# add.S issues 10 of its 40 cycles and spends 20 waiting on the scoreboard and 10
+# fetching operands; lw.S is the other way round, so the two programs disagree about
+# which reason dominates and the total has to decide.
 sr_fixture() {
   local d; d=$(new_case)
   cat > "$d/counts" <<'COUNTS'
@@ -2439,18 +2265,16 @@ d=$(sr_fixture); mutate "$d/counts" 's/ operand=10//'
 probe "a field the runner stopped printing is named, not counted as zero" 1 \
   "is missing operand" "$SR $d/counts"
 
-# A mis-charged hazard sub-bucket -- test/cxxrtl.cc dropping its
-# `else if (eligible)` arm and leaving the cycle uncounted is enough -- moves a
-# cycle out of hzB without moving it anywhere else, so the three no longer sum
-# to the hazard column they split even though the outer columns still add up.
+# A mis-charged hazard sub-bucket -- test/cxxrtl.cc dropping its `else if (eligible)` arm
+# and leaving the cycle uncounted is enough -- moves a cycle out of hzB without moving it
+# anywhere else, so the three no longer sum to the hazard column they split even though
+# the outer columns still add up.
 d=$(sr_fixture); mutate "$d/counts" 's/hzB=5/hzB=4/'
 probe "hazard's three causes losing a cycle between them is red" 1 \
   "hzA+hzB+hzC is 19, hazard is 20" "$SR $d/counts"
 
-# The locality counters are not cycles and add up to nothing, so the arithmetic
-# above cannot see them at all. What can be seen is a subset larger than the set
-# it is drawn from, which is what a counter incremented on the wrong event looks
-# like from here.
+# The locality counters are not cycles and add up to nothing, so the arithmetic above
+# cannot see them at all.
 d=$(sr_fixture)
 probe "control: the locality counters are reported under the table" 0 \
   "10 of those instructions were loads or stores" "$SR $d/counts"
@@ -2484,10 +2308,9 @@ probe "no programs at all would report a clean 0 of 0" 1 \
 
 begin_group "test/tool_cache_test.sh"
 
-# XDG_CACHE_HOME is what both the Makefile and test/cosim.py resolve the tool
-# cache from, so setting it here decides the python side of the comparison
-# without installing anything. Nothing below is created on disk: the check
-# compares path strings and never stats them.
+# XDG_CACHE_HOME is what both the Makefile and test/cosim.py resolve the tool cache from,
+# so setting it here decides the python side of the comparison without installing
+# anything.
 TCT="$HERE/tool_cache_test.sh"
 tc_cache="$tmp/cache/little-cpu"
 
@@ -2507,8 +2330,8 @@ probe "an svlint install inside the checkout is red on its own" 1 \
   "$REPO/tools/svlint" \
   "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $REPO/tools/svlint $tc_cache/download"
 
-# The kept release tarball is what a CI cache holds, so a download directory
-# back inside the checkout would be cached under a path no worktree can read.
+# The kept release tarball is what a CI cache holds, so a download directory back inside
+# the checkout would be cached under a path no worktree can read.
 probe "the Sail download directory inside the checkout is red on its own" 1 \
   "$REPO/tools/download" \
   "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint $REPO/tools/download"
@@ -2519,32 +2342,23 @@ probe "a relative install directory is red before it is compared" 1 \
 
 begin_group "make sail-setup"
 
-# The whole reason co-simulation is allowed in the merge gate is that this
-# recipe verifies the release tarball before anything comes out of it. A stub
-# curl substitutes the asset, so what is forced red below is exactly the
-# comparison that stands between a substituted download and an executed binary.
-#
-# SAIL_ASSET is fixed rather than left to `uname`, so the fixture is the same on
-# every host and `make test` does not start requiring a machine upstream ships a
-# tarball for. It is not `override` in the Makefile, and the three digests are
-# all pinned there, so naming one of them here cannot widen what may be fetched.
+# The whole reason co-simulation is allowed in the merge gate is that this recipe
+# verifies the release tarball before anything comes out of it.
 SS_ASSET=SAIL_ASSET=sail-riscv-Linux-x86_64
 SS="MAKEFLAGS= MFLAGS= MAKELEVEL= PATH='$tmp/bin-curl:$PATH' \
     make --no-print-directory -C '$REPO' $SS_ASSET sail-setup"
 
-# The tarball's name comes from the Makefile, not from a second copy of the
-# naming rule here -- a copy would agree with itself while the recipe wrote
-# somewhere else, and the probes would then be seeding a file nothing reads.
+# The tarball's name comes from the Makefile, not from a second copy of the naming rule
+# here -- a copy would agree with itself while the recipe wrote somewhere else, and the
+# probes would then be seeding a file nothing reads.
 ss_tarball() {  # $1 = case dir
   XDG_CACHE_HOME="$1/cache" make --no-print-directory -C "$REPO" $SS_ASSET \
     sail-pin | sed -n 's/^tarball=//p'
 }
 
-# Runs the recipe against a substituted download and reports what it left
-# behind: whether the digest comparison spoke at all, whether anything was
-# unpacked, and whether the bytes that failed it are still there for the next
-# run to serve. `refused` is in there so this cannot read clean because make
-# died before reaching the comparison.
+# Runs the recipe against a substituted download and reports what it left behind: whether
+# the digest comparison spoke at all, whether anything was unpacked, and whether the
+# bytes that failed it are still there for the next run to serve.
 ss_aftermath() {  # $1 = case dir
   local tgz log=$1/setup.log
   eval "XDG_CACHE_HOME=$1/cache $SS" > "$log" 2>&1
@@ -2571,10 +2385,8 @@ probe "a tarball already in the cache is reused, and still meets the digest" 2 \
 
 begin_group "test/memmap_test.sh"
 
-# The fixture is a COPY OF THE SHIPPING FILES, not a stub tree, so the control
-# below is the real repo and every red probe is one edit away from it. A
-# hand-written fixture would drift from the map it is supposed to be checking,
-# which is the defect this whole check exists for.
+# The fixture is a COPY OF THE SHIPPING FILES, not a stub tree, so the control below is
+# the real repo and every red probe is one edit away from it.
 MM="$HERE/memmap_test.sh"
 
 mm_fixture() {
@@ -2599,8 +2411,7 @@ probe "control: the shipping files describe one machine" 0 \
 probe "a repo root that does not exist is red before anything is parsed" 1 \
   "is not a directory" "$MM $d/nowhere"
 
-# THE ONE THAT MATTERS: the original defect, re-entered. The harness modelled a
-# RAM sixteen times smaller than the SoC's and every program still fit.
+# THE ONE THAT MATTERS: the original defect, re-entered.
 d=$(mm_fixture); mutate "$d/test/testbench.v" \
   's/^  memory dmem (/  memory #(.RAM_WORDS(1024)) dmem (/'
 probe "the harness sizing its own RAM again is red" 1 \
@@ -2611,11 +2422,8 @@ d=$(mm_fixture); mutate "$d/rtl/littlesoc.v" \
 probe "the SoC restating the timer base is red too" 1 \
   "rtl/littlesoc.v overrides \`timer\`'s parameters" "$MM $d"
 
-# `uart`'s CLOCK_HZ is the one parameter a top may set: two boards run this SoC
-# at 12 and 25 MHz and rtl/uart.v divides that down to the baud rate. It names
-# no address, so it cannot make these two files describe different machines --
-# which is the only thing this check is about. The exception is narrow, and
-# these three probes are what keeps it narrow.
+# `uart`'s CLOCK_HZ is the one parameter a top may set: two boards run this SoC at 12 and
+# 25 MHz and rtl/uart.v divides that down to the baud rate.
 d=$(mm_fixture)
 mutate "$d/rtl/littlesoc.v" \
   's/  uart #(.CLOCK_HZ(CLOCK_HZ)) tty (/  uart #(.CLOCK_HZ(CLOCK_HZ), .BAUD(9600)) tty (/'
@@ -2627,9 +2435,9 @@ mutate "$d/rtl/littlesoc.v" "s/^  timer mtimer (/  timer #(.CLOCK_HZ(1)) mtimer 
 probe "the clock-rate exception belongs to the UART alone" 1 \
   "\`timer\`'s \`CLOCK_HZ\` is not it" "$MM $d"
 
-# A parameter list this cannot read whole is refused rather than skimmed: the
-# single-line grep would see the opening line, find no `.NAME(` it disallows,
-# and pass an override spelled over the next three.
+# A parameter list this cannot read whole is refused rather than skimmed: the single-line
+# grep would see the opening line, find no `.NAME(` it disallows, and pass an override
+# spelled over the next three.
 d=$(mm_fixture)
 python3 - "$d" <<'SPREAD'
 import sys
@@ -2641,8 +2449,8 @@ SPREAD
 probe "a parameter list spread over several lines is refused, not skimmed" 1 \
   "spreads \`uart\`'s parameter list over more than one line" "$MM $d"
 
-# The UART is the newest region and the one whose baud rate an integrator would
-# be most tempted to speed up for a simulation, which is the whole defect.
+# The UART is the newest region and the one whose baud rate an integrator would be most
+# tempted to speed up for a simulation, which is the whole defect.
 d=$(mm_fixture); mutate "$d/test/testbench.v" "s/^  uart tty (/  uart #(.BAUD(1_000_000)) tty (/"
 probe "the harness giving the UART its own baud rate is red" 1 \
   "test/testbench.v overrides \`uart\`'s parameters" "$MM $d"
@@ -2689,39 +2497,35 @@ d=$(mm_fixture); mutate "$d/test/asm/riscv_test.h" \
 probe "the timer address the programs arm is checked against the timer" 1 \
   "MTIMER_BASE is 0x00030000" "$MM $d"
 
-# A store to an unmapped address is dropped by every memory on this bus, so the
-# programs would wait forever rather than fail.
+# A store to an unmapped address is dropped by every memory on this bus, so the programs
+# would wait forever rather than fail.
 d=$(mm_fixture); mutate "$d/rtl/timer.v" "s/BASE = 32'h0002_0000/BASE = 32'h0004_0000/"
 probe "a gap opening between the data RAM and the timer is red" 1 \
   "the data RAM ends at 0x00020000 and the timer starts at" "$MM $d"
 
-# The timer decodes four words at one hart and eight at two, so a base that is
-# only 16-byte aligned elaborates today and stops elaborating the day the second
-# hart lands. That is the failure the reserved span exists to bring forward.
+# The timer decodes four words at one hart and eight at two, so a base that is only
+# 16-byte aligned elaborates today and stops elaborating the day the second hart lands.
 d=$(mm_fixture); mutate "$d/rtl/timer.v" "s/BASE = 32'h0002_0000/BASE = 32'h0002_0010/"
 probe "a timer base aligned only for one hart is red" 1 \
   "0x00020010 is off its reserved" "$MM $d"
 
-# A device in the words the second hart's mtimecmp needs. At one hart they read
-# zero from every memory on this bus, so the device would work and the overlap
-# would surface only when the dual top was built.
+# A device in the words the second hart's mtimecmp needs.
 d=$(mm_fixture)
 printf "module probe_device #(\n  parameter logic [31:0] BASE = 32'h0002_0010\n) ();\nendmodule\n" \
   > "$d/rtl/probe_device.v"
 probe "a peripheral inside the timer's reserved span is red" 1 \
   "rtl/probe_device.v puts its window at 0x00020010" "$MM $d"
 
-# ...and the same device above the span is not, or the check above would be
-# refusing every address rather than the reserved ones.
+# ...and the same device above the span is not, or the check above would be refusing
+# every address rather than the reserved ones.
 d=$(mm_fixture)
 printf "module probe_device #(\n  parameter logic [31:0] BASE = 32'h0004_0000\n) ();\nendmodule\n" \
   > "$d/rtl/probe_device.v"
 probe "control: a peripheral above the reserved span is accepted" 0 \
   "Memory map agreed on:" "$MM $d"
 
-# The UART abuts the RESERVED span, not the decoded one -- it starts where the
-# second hart's mtimecmp would end. A move in either direction is an overlap or
-# a hole, and the OR that joins the read buses would report neither.
+# The UART abuts the RESERVED span, not the decoded one -- it starts where the second
+# hart's mtimecmp would end.
 d=$(mm_fixture); mutate "$d/rtl/uart.v" "s/BASE     = 32'h0002_0020/BASE     = 32'h0002_0028/"
 probe "a gap opening between the timer's reservation and the UART is red" 1 \
   "the timer reserves through 0x0002001f and the" "$MM $d"
@@ -2748,8 +2552,8 @@ probe "the UART moving in the proof's copy alone is red" 1 \
   "formal/traps.sv's LS_UART_BASE is 196640" "$MM $d"
 
 # The SPI controller abuts the UART's two words the way the UART abuts the timer's
-# reservation, and for the same reason: five read buses join with an OR, so a
-# hole is wasted map and an overlap is two live answers at once.
+# reservation, and for the same reason: five read buses join with an OR, so a hole is
+# wasted map and an overlap is two live answers at once.
 d=$(mm_fixture); mutate "$d/rtl/spiflash.v" "s/BASE = 32'h0002_0028/BASE = 32'h0002_0030/"
 probe "a gap opening between the UART and the SPI controller is red" 1 \
   "the UART ends at 0x00020028 and the SPI controller starts at" "$MM $d"
@@ -2773,9 +2577,7 @@ d=$(mm_fixture); mutate "$d/formal/traps.sv" \
 probe "the SPI controller moving in the proof's copy alone is red" 1 \
   "formal/traps.sv's LS_FLASH_BASE is 196648" "$MM $d"
 
-# MAP_TOP is the address two programs store to expecting a refusal. Left behind
-# when a device lands above the topmost window, it names an address that IS
-# answered and both programs fail for a reason that is not in the core.
+# MAP_TOP is the address two programs store to expecting a refusal.
 d=$(mm_fixture); mutate "$d/test/asm/riscv_test.h" \
   's/MAP_TOP            0x00020030/MAP_TOP            0x00020028/'
 probe "a MAP_TOP inside the topmost window is red" 1 \
@@ -2790,8 +2592,8 @@ d=$(mm_fixture); mutate "$d/test/testbench.v" \
 probe "a simulated ROM smaller than the part's is red" 1 \
   "The harness is allowed to be larger" "$MM $d"
 
-# The parse is load-bearing: a respelled declaration must stop the run rather
-# than compare against an empty string.
+# The parse is load-bearing: a respelled declaration must stop the run rather than
+# compare against an empty string.
 d=$(mm_fixture); mutate "$d/rtl/memory.v" \
   "s/parameter logic \[31:0\] BASE/parameter logic [31:0] RAM_ORIGIN/"
 probe "a respelled parameter stops rather than comparing nothing" 1 \
@@ -2801,15 +2603,12 @@ d=$(mm_fixture); rm "$d/test/cosim.cc"
 probe "a file that moved away takes the check with it, loudly" 1 \
   "test/cosim.cc is missing" "$MM $d"
 
-# Bash arithmetic reads a bare word as a variable name, so an unparsed size
-# would otherwise compare as zero and report drift that is really a parse bug.
+# Bash arithmetic reads a bare word as a variable name, so an unparsed size would
+# otherwise compare as zero and report drift that is really a parse bug.
 d=$(mm_fixture); mutate "$d/test/asm/sections.lds" 's/LENGTH = 64K/LENGTH = LOTS/'
 probe "a size the parser cannot read stops rather than comparing as zero" 1 \
   "is not a size this check can read" "$MM $d"
 
-# The core's own copy of the map, which rtl/decoder.v reads to refuse a load or
-# store the platform does not answer. A drift here is silent everywhere else:
-# no memory on the bus can say the decoder faulted the wrong address.
 d=$(mm_fixture); mutate "$d/rtl/littlecpu.v" \
   "s/LS_RAM_BASE   = 32'h0001_0000/LS_RAM_BASE   = 32'h0002_0000/"
 probe "the core's copy of the RAM base drifting from the RAM is red" 1 \
@@ -2828,8 +2627,6 @@ d=$(mm_fixture); mutate "$d/rtl/littlecpu.v" 's/LS_TEXT_WORDS = 2048/LS_TEXT_WOR
 probe "the default text window is the part's, not the harness's" 1 \
   "LS_TEXT_WORDS is 4096 against rtl/littlesoc.v's 2048" "$MM $d"
 
-# The one the parameter defaults cannot catch: each integrator states its own
-# ROM size twice, once to the memory and once to the core.
 d=$(mm_fixture); mutate "$d/rtl/littlesoc.v" \
   's/littlecpu #(.LS_TEXT_WORDS(2048))/littlecpu #(.LS_TEXT_WORDS(4096))/'
 probe "an integrator telling the core a text size its ROM has not got" 1 \
@@ -2845,9 +2642,7 @@ d=$(mm_fixture); mutate "$d/test/testbench.v" \
 probe "an integrator that stopped stating it at all is red, not defaulted" 1 \
   "names no .ROM_WORDS or no .LS_TEXT_WORDS" "$MM $d"
 
-# The trap proof's copy of the map. Nothing but that proof reads it, so each of
-# these drifts is silent everywhere else: components_traps goes on passing,
-# having excused the wrong accesses from `must_not_trap`.
+# The trap proof's copy of the map.
 d=$(mm_fixture); mutate "$d/formal/traps.sv" \
   "s/LS_RAM_BASE   = 32'h0001_0000/LS_RAM_BASE   = 32'h0002_0000/"
 probe "the proof's copy of the RAM base drifting from the RAM is red" 1 \
@@ -2868,21 +2663,6 @@ probe "the proof describes the part's text window, not the harness's" 1 \
 
 begin_group "the linker scripts' layout ASSERTs"
 
-# The graders in this group are ASSERT statements inside the linker scripts
-# themselves, so forcing one red means running the real cross linker. That makes
-# this the second group in this file that is not hermetic, after the yosys one.
-#
-# WHAT THEY GRADE. rtl/decoder.v answers a load or store's region question off
-# raw register bits only when the base register sits deep inside a mapped window
-# -- in it, and in neither its first 2 KB block nor its last -- so an access
-# whose base is in an edge block bubbles a cycle. Every script therefore insets
-# `.data` and the stack by one 2 KB block, and every script asserts it: a layout
-# that silently gives the cost back is the failure being forced here.
-#
-# The two candidate names test/run_tests.sh and the Makefile already search for,
-# in their order. Deliberately NOT $CC: an earlier group in this file binds that
-# name to a stub of its own, and reading it here resolved the cross linker to a
-# python script.
 LAYOUT_CC=""
 for layout_candidate in riscv64-elf-gcc riscv64-unknown-elf-gcc; do
   if command -v "$layout_candidate" > /dev/null 2>&1; then
@@ -2902,9 +2682,6 @@ layout_fixture() {
   cp "$REPO"/test/asm/boot.lds "$REPO"/test/asm/sections.lds "$d/test/asm/"
   cp "$REPO"/test/bench/bench.lds "$REPO"/test/bench/coremark.lds "$d/test/bench/"
   cp "$REPO"/test/board/board.lds "$d/test/board/"
-  # No crt0 and no program: an ASSERT over ADDR(.data) and __stack_top is
-  # evaluated whatever the input objects contain, and a stub keeps the probe
-  # measuring the script rather than whatever the suite's startup happens to do.
   cat > "$d/stub.S" <<'STUB'
   .section .text.init,"ax",@progbits
   .globl _start
@@ -2967,9 +2744,6 @@ probe "board.lds putting the stack back at the top of ram is red" 1 \
 
 begin_group "test/adr_numbering_test.sh"
 
-# A COPY OF THE SHIPPING docs/adr/, for the same reason test/memmap_test.sh's
-# fixture is one: a hand-written stand-in would drift from the index it is
-# supposed to be checking, which is the defect this whole check exists for.
 AN="$HERE/adr_numbering_test.sh"
 
 an_fixture() {
@@ -2986,45 +2760,29 @@ probe "control: the shipping index has one row per file and no number twice" 0 \
 probe "a repo root that does not exist is red before anything is scanned" 1 \
   "is missing, so there is nothing to grade" "$AN $d/nowhere"
 
-# THE ONE THAT MATTERS: two files claiming the same reserved number under two
-# different slugs, which is exactly what a README-row conflict does not catch
-# -- the filename never appears in the diff that git refuses to merge.
 d=$(an_fixture)
 cp "$d/docs/adr/0001-finish-the-staged-rewrite.md" \
    "$d/docs/adr/0001-a-second-pr-claimed-this-too.md"
 probe "two files claiming the same number is named" 1 \
   "ADR number 0001 is claimed by more than one file" "$AN $d"
 
-# The third way an index can drift from a one-to-one mapping: a real file
-# with a real row, duplicated -- a copy-paste in the table rather than a
-# missing or an extra file.
 d=$(an_fixture)
 sed -n '/\[0002\](0002-isa-target-rv32imc-zicsr\.md)/p' "$d/docs/adr/README.md" \
   >> "$d/docs/adr/README.md"
 probe "a file with two rows in the index is named" 1 \
   "0002-isa-target-rv32imc-zicsr.md has more than one row" "$AN $d"
 
-# The half that DOES self-limit, forced anyway: a row deleted from the index
-# leaves the file it named with no row, which is what an architect once caught
-# by reading the table -- this is the mechanism that catches it now.
 d=$(an_fixture)
 mutate "$d/docs/adr/README.md" '/\[0001\](0001-finish-the-staged-rewrite\.md)/d'
 probe "a file with no row in the index is named as orphaned" 1 \
   "0001-finish-the-staged-rewrite.md has no row" "$AN $d"
 
-# A row naming a file that was never added, or that moved out from under it.
 d=$(an_fixture)
 mutate "$d/docs/adr/README.md" \
   "s|\[0002\](0002-isa-target-rv32imc-zicsr\.md)|[0002](0002-a-file-that-does-not-exist.md)|"
 probe "a row naming a file that does not exist is named" 1 \
   "a row naming 0002-a-file-that-does-not-exist.md, and no such file exists" "$AN $d"
 
-# THE FALSE-POSITIVE DIRECTION, and it matters as much as the three above: a
-# gap in the sequence -- work merged around a reserved number and left it
-# unused, the way 0072, 0073 and 0077 are on this tree right now -- must stay
-# green. Deleting one file and its row together, leaving every remaining
-# number and row still paired, is exactly that: a wider gap with nothing
-# orphaned and nothing doubled.
 d=$(an_fixture)
 rm "$d/docs/adr/0001-finish-the-staged-rewrite.md"
 mutate "$d/docs/adr/README.md" '/\[0001\](0001-finish-the-staged-rewrite\.md)/d'
@@ -3033,10 +2791,6 @@ probe "a gap in the sequence is not a defect" 0 \
 
 begin_group "test/retired_term_test.sh"
 
-# A COPY OF THE SHIPPING FILES for the same reason test/memmap_test.sh's fixture
-# is one, plus a `git init` over it because that check reads git's index rather
-# than the filesystem. The copy carries every allow-listed path, so the control
-# below is the real allow-list and every red probe is one edit away from it.
 RN="$HERE/retired_term_test.sh"
 
 rn_fixture() {
@@ -3044,17 +2798,10 @@ rn_fixture() {
   mkdir -p "$d/docs/adr" "$d/docs/ideas" "$d/test" "$d/formal"
   cp "$REPO/CODE_OF_CONDUCT.md" "$d/"
   cp "$REPO/docs/THREAT_MODEL.md" "$d/docs/"
-  # One real file under each history directory rather than all of them: the
-  # entries covering those two are directories, and a hundred more copies per
-  # fixture would buy nothing but wall time.
   cp "$REPO/docs/adr/README.md" "$d/docs/adr/"
-  # The one brief carrying BOTH retired terms, so a single copy covers the
-  # docs/ideas/ entry on either list.
   cp "$REPO/docs/ideas/finish-the-rewrite.md" "$d/docs/ideas/"
   cp "$REPO/test/probe_gates.sh" "$REPO/test/retired_term_test.sh" "$d/test/"
   cp "$REPO/formal/wrapper.v" "$d/formal/"
-  # -c init.defaultBranch, so the branch-name advice cannot land in the middle of
-  # a fixture whose stdout is the directory name.
   git -c init.defaultBranch=main -C "$d" init -q
   git -C "$d" add -A
   printf '%s' "$d"
@@ -3067,9 +2814,6 @@ probe "control: the shipping tree keeps the retired term inside its allow-list" 
 probe "a repo root that does not exist is red before anything is scanned" 1 \
   "is not a directory" "$RN $d/nowhere"
 
-# THE ONE THAT MATTERS: the original reintroduction, re-entered. That comment was
-# written on a branch predating the sweep and merged after it, and nothing
-# anywhere objected.
 d=$(rn_fixture)
 mutate "$d/formal/wrapper.v" "s/What they need is/What the ladder needs is/"
 probe "the word coming back in a formal harness comment is red, and located" 1 \
@@ -3083,21 +2827,15 @@ git -C "$d" add -A
 probe "a capitalised spelling is the same word and is caught too" 1 \
   "test/notes.md:" "$RN $d"
 
-# The scan is git's index on purpose: a build artifact or an agent worktree under
-# the checkout is not something a merge can bring the word back through.
 d=$(rn_fixture); printf 'ladder\n' > "$d/test/scratch.log"
 probe "control: an untracked file is out of scope and does not fail the build" 0 \
   "confined to its" "$RN $d"
 
-# A directory entry has to match on the path separator, or it silently exempts
-# every sibling whose name it happens to prefix.
 d=$(rn_fixture); printf 'ladder\n' > "$d/docs/adrenaline.md"
 git -C "$d" add -A
 probe "a lookalike sibling is not covered by the directory entry above it" 1 \
   "docs/adrenaline.md:" "$RN $d"
 
-# The other direction, which is the half a one-way grep would not have: an
-# exemption that outlived the use it was written for.
 d=$(rn_fixture)
 mutate "$d/CODE_OF_CONDUCT.md" 's/enforcement ladder/enforcement sequence/'
 probe "an allow-list entry whose site no longer has the word is red" 1 \
@@ -3107,8 +2845,6 @@ d=$(new_case)
 probe "a tree git cannot list is a scan of nothing, not a green one" 1 \
   "cannot enumerate any tracked files" "$RN $d"
 
-# THE SECOND TERM: the ISA name the core outgrew. Its list is not the first
-# term's, so these probes also demonstrate that the two are graded apart.
 d=$(rn_fixture)
 mutate "$d/formal/wrapper.v" "s/What they need is/What an RV32IMC core needs is/"
 probe "the stale ISA name coming back in a formal harness comment is red" 1 \
@@ -3117,23 +2853,15 @@ probe "the stale ISA name coming back in a formal harness comment is red" 1 \
 probe "and the diagnostic names the ISA the core does claim" 1 \
   "Write RV32IMAC" "$RN $d"
 
-# THE ONE THAT DECIDES WHETHER THIS TERM IS USABLE AT ALL. The lower-case
-# spelling is a live argument to riscv-formal's generator, not the retired prose
-# name, and a check that caught it would be red on the shipping tree forever.
 d=$(rn_fixture); printf 'isa rv32imc\n' > "$d/formal/checks.cfg"
 git -C "$d" add -A
 probe "control: the formal flow's lower-case rv32imc is a different thing" 0 \
   "confined to its" "$RN $d"
 
-# The other direction, on the second term's own list: docs/adr/ is exempt for
-# both words, and losing one of them has to be red for that one alone.
 d=$(rn_fixture); mutate "$d/docs/adr/README.md" 's/RV32IMC/RV32IMAC/g'
 probe "an allow-list entry whose site lost the stale ISA name is red" 1 \
   "the allow-list exempts docs/adr/" "$RN $d"
 
-# The table itself. These three run the FIXTURE's copy, because what they edit is
-# the table inside it -- a term added with no list behind it grades against
-# nothing, and a scan of nothing is the failure this whole file exists for.
 RNF="test/retired_term_test.sh"
 
 d=$(rn_fixture); mutate "$d/$RNF" 's/^ladder any-case$/ladder some-case/'
@@ -3151,11 +2879,6 @@ probe "an empty term table is a scan of nothing, not a green one" 1 \
 
 begin_group "test/tracked_ignored_test.sh"
 
-# A git repository of its own rather than a copy of this one, because what this
-# check reads is the INDEX and the property under test is a relationship
-# between one tracked file and one .gitignore line -- not a scan of this
-# repo's tree. No commit is needed: both `git ls-files` and
-# `git check-ignore --no-index` answer from the staged index alone.
 TI="$HERE/tracked_ignored_test.sh"
 
 ti_fixture() {
@@ -3177,10 +2900,6 @@ d=$(new_case)
 probe "a plain directory git cannot list is a scan of nothing, not green" 1 \
   "cannot enumerate any tracked files" "$TI $d"
 
-# THE ONE THAT MATTERS: a tracked file also matching a .gitignore rule -- the
-# exact shape of the defect this check exists for. `git add -f` is required
-# because ordinary `git add` refuses an ignored path, the same way it refused
-# nothing for the five files this check was written after.
 d=$(ti_fixture)
 printf 'artifact.json\n' > "$d/.gitignore"
 printf 'built\n' > "$d/artifact.json"
@@ -3191,28 +2910,12 @@ probe "a tracked file matching its own .gitignore rule is red and named" 1 \
 probe "and the diagnostic says git rm --cached, not an edit to the rule" 1 \
   "git rm --cached" "$TI $d"
 
-# The fixture just above is also the demonstration of the flag that makes
-# this check able to see the class at all: WITHOUT --no-index, check-ignore
-# silently skips every tracked path, which is precisely how the five files
-# this check was written after went unnoticed. There is nothing further to
-# probe here -- the red direction above already depends on the flag being
-# present, since it is what makes a tracked path visible to check-ignore.
-
-# An ignored file that was never tracked is the ordinary case .gitignore
-# exists for, and must stay quiet.
 d=$(ti_fixture)
 printf 'scratch.log\n' > "$d/.gitignore"
 printf 'noise\n' > "$d/scratch.log"
 probe "control: an ignored file that was never tracked is not a defect" 0 \
   "tracked files, none matching a .gitignore rule" "$TI $d"
 
-# THE FALSE-POSITIVE DIRECTION: `check-ignore --no-index` also consults two
-# exclude sources this repository does not carry -- a developer's own
-# `core.excludesFile` and `$GIT_DIR/info/exclude`, neither committed and
-# neither shared. A rule on either must not turn this check red for a file
-# this tree tracks on purpose; each fixture below matches a tracked file
-# against a rule from exactly one of the two, with no matching rule anywhere
-# in the tree itself.
 d=$(ti_fixture)
 gx=$(new_case)/global-gitignore
 printf 'globalrule.json\n' > "$gx"
@@ -3229,13 +2932,6 @@ git -C "$d" add -f excluderule.json
 probe "control: a rule from this clone's \$GIT_DIR/info/exclude is not this repository's to grade" 0 \
   "tracked files, none matching a .gitignore rule" "$TI $d"
 
-# A THIRD such source: a developer's own init.templateDir. `git init --bare`
-# copies a template directory's contents -- including an info/exclude of its
-# own -- into the fresh $GIT_DIR the check builds to isolate itself from the
-# CLONE's info/exclude, so a rule sitting in the template reaches that same
-# throwaway repository unless something stops it. GIT_CONFIG_GLOBAL, scoped
-# to this one probe invocation, stands in for that developer's real global
-# config without touching this session's.
 d=$(ti_fixture)
 template=$(new_case)/hostile-template
 mkdir -p "$template/info"
@@ -3247,13 +2943,6 @@ printf '[init]\n\ttemplateDir = %s\n' "$template" > "$hostileconf"
 probe "control: a rule from this developer's init.templateDir is not this repository's to grade" 0 \
   "tracked files, none matching a .gitignore rule" "GIT_CONFIG_GLOBAL='$hostileconf' $TI $d"
 
-# The SAME template, delivered by the MIDDLE rung of git-init(1)'s precedence
-# instead of the bottom one. Two things only this direction grades: it needs no
-# git-version support, where GIT_CONFIG_GLOBAL above is honoured only from
-# 2.32, so on an older git that probe passes having demonstrated nothing; and
-# it is the rung that decides the FLAG. Measured, not read off the manual: a
-# `-c init.templateDir=` on the init line does not defeat $GIT_TEMPLATE_DIR
-# and `--template=` does, which is why the check spells it the second way.
 d=$(ti_fixture)
 template=$(new_case)/hostile-env-template
 mkdir -p "$template/info"
@@ -3265,10 +2954,6 @@ probe "control: a rule from this developer's \$GIT_TEMPLATE_DIR is not this repo
 
 begin_group "test/march_test.sh"
 
-# A COPY OF THE SHIPPING FILES again, plus a `git init` over it, for the reasons
-# the two fixtures above give: the control is then the real set of build sites
-# and every red probe is one edit away from it. A hand-written fixture would
-# drift from the flags it is supposed to be comparing, which is the defect.
 MA="$HERE/march_test.sh"
 
 ma_fixture() {
@@ -3286,8 +2971,6 @@ ma_fixture() {
   cp "$REPO/soc/compare/product_write.py" "$d/soc/compare/"
   cp "$REPO/soc/compare/run_coremark_compare.sh" "$d/soc/compare/"
   cp "$REPO/formal/checks.cfg" "$d/formal/"
-  # One real file under each history directory: those two entries are
-  # directories, and a hundred more copies per fixture would buy only wall time.
   cp "$REPO/docs/adr/0106-the-a-extension-is-built-and-the-board-still-closes.md" "$d/docs/adr/"
   cp "$REPO/docs/ideas/the-a-extension-lands-single-hart.md" "$d/docs/ideas/"
   git -c init.defaultBranch=main -C "$d" init -q
@@ -3295,10 +2978,6 @@ ma_fixture() {
   printf '%s' "$d"
 }
 
-# sed's backup goes away before the tree is re-indexed. This check scans every
-# TRACKED file, so a leftover `Makefile.bak` would be a second copy of the
-# unedited flags for it to grade -- the probes would still go red, for a reason
-# that is not the one they name.
 ma_edit() {  # $1 = fixture dir, $2 = path within it, $3 = sed expression
   mutate "$1/$2" "$3"
   git -C "$1" add -A
@@ -3311,8 +2990,6 @@ probe "control: the shipping tree names one ISA at every site" 0 \
 probe "a repo root that does not exist is red before anything is scanned" 1 \
   "is not a directory" "$MA $d/nowhere"
 
-# THE ONE THAT MATTERS: a site left behind. The `.c` arm of the suite runner
-# assembles a program with no atomic in it either way.
 d=$(ma_fixture)
 c_arm=$(grep -n -- '-march=rv32imac_zicsr_zifencei_zkt' "$d/test/run_tests.sh" | head -1 | cut -d: -f1)
 ma_edit "$d" test/run_tests.sh "${c_arm}s/rv32imac_zicsr_zifencei_zkt/rv32imc_zicsr_zifencei_zkt/"
@@ -3322,7 +2999,6 @@ probe "one build site left at the narrower ISA is red, and located" 1 \
 probe "...and the count that site was declared with is red too" 1 \
   "test/run_tests.sh states -march=rv32imac_zicsr_zifencei_zkt 1 time(s), not 2" "$MA $d"
 
-# The silent one. Nothing about this changes whether anything builds.
 d=$(ma_fixture)
 ma_edit "$d" Makefile \
   's/^DHRY_CFLAGS := -march=rv32imac_zicsr_zifencei_zkt/DHRY_CFLAGS := -march=rv32imc_zicsr_zifencei_zkt/'
@@ -3332,24 +3008,18 @@ probe "the Dhrystone flags drifting from the suite's ISA is red" 1 \
 probe "...and their second copy is compared whole, not just its ISA" 1 \
   "the Dhrystone flags are stated twice and they disagree" "$MA $d"
 
-# The whole-string comparison on its own: same ISA, different optimiser.
 d=$(ma_fixture)
 ma_edit "$d" soc/depth/cycles.py \
   's/-mabi=ilp32 -O2 -std=c11 -ffreestanding/-mabi=ilp32 -O3 -std=c11 -ffreestanding/'
 probe "two copies of the flags agreeing about -march and nothing else" 1 \
   "-O3" "$MA $d"
 
-# The other direction, which is the half a one-way sweep would not have. This
-# is the one probe that runs the FIXTURE'S copy of the script rather than the
-# shipping one, because what it moves is the declaration inside it.
 d=$(ma_fixture)
 ma_edit "$d" test/march_test.sh 's/rv32imac_zicsr_zifencei/rv32imafc_zicsr_zifencei/'
 probe "moving the declared string alone, with every site unchanged, is red" 1 \
   "CLAUDE.md states -march=rv32imafc_zicsr_zifencei_zkt 0 time(s), not 1" \
   "$d/test/march_test.sh $d"
 
-# The two spellings that must not move with it. Widening either generates
-# nothing at the pin.
 d=$(ma_fixture)
 ma_edit "$d" formal/checks.cfg 's/^isa rv32imc$/isa rv32imac/'
 probe "the generated check set's isa line swept along with the flags is red" 1 \
@@ -3360,25 +3030,17 @@ ma_edit "$d" Makefile 's/generate.py -i rv32imc /generate.py -i rv32imac /'
 probe "the monitor generator's -i swept along with them is red as well" 1 \
   "MONITOR_GEN no longer passes \`-i rv32imc\`" "$MA $d"
 
-# An unnamed ISA anywhere, which is what a new build site arriving looks like.
 d=$(ma_fixture)
 printf '#!/bin/sh\nriscv64-elf-gcc -march=rv32e -o x y.c\n' > "$d/test/newbuild.sh"
 git -C "$d" add -A
 probe "a new site naming an ISA nothing declared is red, and located" 1 \
   "test/newbuild.sh:2: -march=rv32e" "$MA $d"
 
-# ...and the exception list's own both-ways direction.
 d=$(ma_fixture)
 ma_edit "$d" Makefile 's/-march=rv32i -mabi=ilp32/-march=rv32imac_zicsr_zifencei -mabi=ilp32/'
 probe "an exception whose site stopped naming that ISA is red" 1 \
   "the exception \`Makefile rv32i 1\` matched 0 time(s), not 1" "$MA $d"
 
-# A counted exception is exact-count too, not "at least one": `rv32im` is
-# one keystroke from the declared ISA, so a THIRD, uncounted occurrence of an
-# exempted near-miss must be as red as a required site losing one.
-# `Makefile rv32im 2` is a real, shipping exception now (COMPARE_DHRY_CFLAGS
-# and COMPARE_COREMARK_CFLAGS), so this fixture only has to add a third
-# occurrence, not plant the entry.
 d=$(ma_fixture)
 ma_edit "$d" Makefile \
   's/^COMPARE_DHRY_CFLAGS := -march=rv32im/# probe: -march=rv32im\
@@ -3386,17 +3048,12 @@ COMPARE_DHRY_CFLAGS := -march=rv32im/'
 probe "a second occurrence of a counted exception value is red" 1 \
   "the exception \`Makefile rv32im 2\` matched 3 time(s), not 2" "$MA $d"
 
-# A directory entry has to match on the path separator, or it silently exempts
-# every sibling whose name it happens to prefix.
 d=$(ma_fixture)
 printf 'built at -march=rv32im_zicsr once.\n' > "$d/docs/adrenaline.md"
 git -C "$d" add -A
 probe "a lookalike sibling is not covered by the directory entry above it" 1 \
   "docs/adrenaline.md:1: -march=rv32im_zicsr" "$MA $d"
 
-# A declaration this cannot read must stop the run rather than compare against
-# an empty string, which is how a check reports green over a file it has
-# stopped understanding.
 d=$(ma_fixture)
 ma_edit "$d" Makefile 's/^DHRY_CFLAGS :=/DHRY_CFLAGS_RENAMED :=/'
 probe "a respelled flag declaration stops rather than comparing nothing" 1 \
@@ -3441,9 +3098,6 @@ d=$(fr_fixture); mutate "$d/fit.log" '/ICESTORM_LC:/d'
 probe "no utilisation table is a failure, not a 0% fit" 1 \
   "printed no utilisation table" "$FR $d/fit.log --max-lc 4100"
 
-# The trend line is a diagnostic and these three probes are what keep it one: a
-# second number that could redden the job would be a ratchet nobody derived, and
-# it would go red for churn, which is the thing it exists to make legible.
 d=$(fr_fixture)
 probe "the trend against the recorded count is printed beside the verdict" 0 \
   "TREND: +75 cells against the 3800" "$FR $d/fit.log --max-lc 4100 --previous 3800"
@@ -3460,9 +3114,6 @@ begin_group "formal/check-interrupt-tie-off.py"
 
 IT="python3 $REPO/formal/check-interrupt-tie-off.py"
 
-# The riscv-formal stand-in carries only what the upstream half reads: two
-# files that mention rvfi_intr and one that does not, so the control is
-# non-empty in both directions.
 it_fixture() {
   local d; d=$(new_case)
   mkdir -p "$d/formal" "$d/rf/checks"
@@ -3490,9 +3141,6 @@ probe "control: the shipping harnesses tie off, both directions" 0 \
 probe "wrong argument count is exit 2" 2 "check-interrupt-tie-off.py" \
   "$IT $d/formal"
 
-# The failure that matters most: a harness the baseline claims is tied off and
-# is not. Its checks would be running against a machine with interrupts, at
-# depths derived without them.
 d=$(it_fixture); mutate "$d/formal/complete.sv" "/\.irq_timer(1'b0),/d"
 probe "a declared harness that does not tie the input off is red" 1 \
   "does not connect .irq_timer" "$(its "$d")"
@@ -3505,8 +3153,6 @@ d=$(it_fixture); rm "$d/formal/cover.sv"
 probe "a line with no harness behind it is red too" 1 \
   "which does not instantiate littlecpu" "$(its "$d")"
 
-# The re-derivation from the pin, in both directions. This is what a baseline
-# alone cannot do: a stale tie-off covers less and less while staying green.
 d=$(it_fixture); printf 'if (!rvfi_intr[0]) assert(0);\n' > "$d/rf/checks/rvfi_unique_check.sv"
 probe "a pin that makes another check read rvfi_intr is red" 1 \
   "may now have something to say" "$(its "$d")"
@@ -3531,9 +3177,6 @@ begin_group "formal/check-multihart-tie-off.py"
 
 MT="python3 $REPO/formal/check-multihart-tie-off.py"
 
-# The real harnesses, the real port list and the real parser: this check reads
-# littlecpu's ports through test/port_connect_test.py rather than through a
-# second regex, so a fixture that stubbed either would be probing neither.
 mt_fixture() {
   local d; d=$(new_case)
   mkdir -p "$d/formal" "$d/repo/rtl" "$d/repo/test"
@@ -3560,9 +3203,6 @@ probe "control: the shipping harnesses tie off, both directions" 0 \
 probe "wrong argument count is exit 2" 2 "check-multihart-tie-off.py" \
   "$MT $d/formal"
 
-# The failure that matters most: a harness the baseline claims is tied off and
-# is not. Its checks would be running against a machine whose bus another agent
-# can take away, at depths derived where nobody can.
 d=$(mt_fixture); mutate "$d/formal/complete.sv" "s/\.bus_wait(1'b0)/.bus_wait(free_wait)/"
 probe "a declared harness that does not tie the input off is red" 1 \
   "connects .bus_wait(free_wait)" "$(mts "$d")"
@@ -3575,14 +3215,10 @@ d=$(mt_fixture); rm "$d/formal/cover.sv"
 probe "a line with no harness behind it is red too" 1 \
   "which does not instantiate littlecpu" "$(mts "$d")"
 
-# The re-derivation from the RTL, which is what a baseline alone cannot do: a
-# port renamed leaves the line behind declaring a tie-off of nothing.
 d=$(mt_fixture); printf "PORT no_such_port 1'b0\n" >> "$d/BASELINE"
 probe "a declared port littlecpu does not have is red" 1 \
   "is not an input of littlecpu" "$(mts "$d")"
 
-# ...and the direction that rots: the next tied-off input landing with the
-# depths derived under it and nothing written down.
 d=$(mt_fixture); mutate "$d/BASELINE" "/^PORT snoop_write /d"
 probe "a tie-off at every harness that no baseline declares is red" 1 \
   "and no baseline says so" "$(mts "$d")"
@@ -3599,15 +3235,8 @@ begin_group "soc/compare/placed_vs_synth.py"
 
 PS="python3 $REPO/soc/compare/placed_vs_synth.py"
 
-# The numbers are the ones this repo actually measured: 2379 placed logic cells
-# against 1711 synthesised, and the 449-against-1711 that the all-NOP ROM
-# produced and that nothing caught.
 ps_fixture() {
   local d; d=$(new_case)
-  # Neither log has a tracked source -- nextpnr's and yosys's own stdout -- so
-  # the anchor is the PARSER'S field names rather than a real run's bytes: a
-  # rewritten regex breaks it even though nothing here ever produced these
-  # exact lines.
   fixture_anchor "$REPO/soc/compare/placed_vs_synth.py" "ICESTORM_LC"
   fixture_anchor "$REPO/soc/compare/placed_vs_synth.py" "SB_LUT4"
   cat > "$d/pnr.log" <<'LOG'
@@ -3627,7 +3256,6 @@ d=$(ps_fixture)
 probe "control: a placement holding the whole core is green" 0 "RATCHET:" \
   "$PS $d/pnr.log $d/core.log vexriscv --min-ratio 0.8"
 
-# THE ONE THAT MATTERS: the defect this gate was written for.
 d=$(ps_fixture); mutate "$d/pnr.log" 's/2379\/   7680    30%/ 449\/   7680     5%/'
 probe "a core yosys folded away is red, not a fast design" 1 \
   "under the 0.80x floor" "$PS $d/pnr.log $d/core.log vexriscv --min-ratio 0.8"
@@ -3641,17 +3269,12 @@ d=$(ps_fixture); mutate "$d/core.log" '/SB_LUT4/d'
 probe "no standalone count leaves nothing to compare against" 1 \
   "no SB_LUT4 count" "$PS $d/pnr.log $d/core.log vexriscv --min-ratio 0.8"
 
-# Without this the ratio is a division by zero, which would raise rather than
-# report -- and a traceback is not a diagnostic.
 d=$(ps_fixture); mutate "$d/core.log" 's/^     1711   SB_LUT4/        0   SB_LUT4/'
 probe "a standalone synthesis of zero cells is named, not divided by" 1 \
   "no SB_LUT4 count" "$PS $d/pnr.log $d/core.log vexriscv --min-ratio 0.8"
 
 begin_group "soc/compare/geometry_test.sh"
 
-# A COPY OF THE SHIPPING FILES for the same reason test/memmap_test.sh's fixture
-# is one: the control has to be the real harness, so every red probe below is
-# one edit away from what is actually measured.
 GT="$REPO/soc/compare/geometry_test.sh"
 
 gt_fixture() {
@@ -3711,11 +3334,6 @@ d=$(gt_fixture); mutate "$d/soc/compare/bench_hazard3.v" \
 probe "the third core's ROM drifting behind the other two is red" 1 \
   "has ROM_WORDS=2048, the Makefile has COMPARE_ROM_WORDS=1024" "$GT $d"
 
-# THE ENUMERATION HALF: the file list above is discovered from the Makefile's
-# own COMPARE_TOP/-T lines, not kept a second time in this script, so these two
-# probes are what actually cover JEF-923 -- a new comparison-harness file that
-# declares geometry and is never wired into the Makefile now has a comparison
-# to trip, which is the gap the ticket opened over.
 d=$(gt_fixture); cat > "$d/soc/compare/bench_fourth.v" <<'BENCHV'
 module bench_fourth #(
   parameter integer ROM_WORDS = 1024,
@@ -3752,9 +3370,6 @@ printf '#!/bin/bash\necho "reads soc/compare/not_orphan.lds"\n' > "$d/soc/compar
 probe "a longer name sharing the substring does not stand in for the real one" 1 \
   "soc/compare/orphan.lds is linked by nothing" "$GT $d"
 
-# A script that mentions no .lds name at all -- unlike every fixture script
-# above, which always matches something -- so this is the one case that
-# exercises a real "grep finds nothing" outcome under `pipefail`.
 d=$(gt_fixture)
 printf '#!/bin/bash\necho "nothing to see here"\n' > "$d/soc/compare/run_unrelated.sh"
 probe "a soc/compare script naming no .lds at all does not sink the scan" 0 \
@@ -3771,10 +3386,6 @@ mutate "$f" \
 probe "a recipe naming the riscv-formal clone's VexRiscv path instead of \$(VEXRISCV_V) is red" 1 \
   "names a VexRiscv.v path other" "$VPT $f"
 
-# The scan's other half. Taking every reference OUT leaves nothing forbidden to
-# find, so the absence test alone would call this Makefile clean -- which is
-# what a VexRiscv reached through a variable or a wildcard this grep cannot
-# read would look like.
 f=$(new_case)/Makefile
 cp "$REPO/Makefile" "$f"
 mutate "$f" 's#\$(VEXRISCV_V)##g'
@@ -3785,12 +3396,8 @@ begin_group "soc/compare/dhry_fit.py"
 
 DF="python3 $REPO/soc/compare/dhry_fit.py"
 
-# The measured image, the measured geometries and both cores' measured block RAM
-# counts, so every red probe below is one edit away from the real run.
 df_fixture() {
   local d; d=$(new_case)
-  # tb.v types out the shape soc/compare/dhry_tb.v actually declares, rather
-  # than copying it, so the anchor is what says the two have not drifted apart.
   fixture_anchor "$REPO/soc/compare/dhry_tb.v" "localparam int ROM_WORDS = 2048;"
   fixture_anchor "$REPO/soc/compare/dhry_tb.v" "localparam int RAM_WORDS = 4096;"
   printf '     6052   SB_LUT4\n        4   SB_RAM40_4K\n' > "$d/ours.log"
@@ -3812,15 +3419,11 @@ d=$(df_fixture)
 probe "control: the measured image reports the shortfall it has" 0 \
   "DOES NOT FIT THE PLACED GEOMETRY" "$DF $(df_args "$d")"
 
-# The point of the script: a run whose memories no ice40 in this flow can hold
-# has to say so beside its numbers, every time.
 d=$(df_fixture)
 probe "a core that cannot hold the image is named, not left to the reader" 0 \
   "vexriscv   18 of its own + 26 for the image =  44 blocks: DOES NOT FIT" \
   "$DF $(df_args "$d")"
 
-# One geometry, two files. A testbench simulating memories the linker script
-# does not describe is two machines reported as one.
 d=$(df_fixture); mutate "$d/tb.v" 's/RAM_WORDS = 4096/RAM_WORDS = 2048/'
 probe "a testbench simulating a different map than the image is linked for is red" 1 \
   "the simulated geometry does not agree with itself" "$DF $(df_args "$d")"
@@ -3829,7 +3432,6 @@ d=$(df_fixture); mutate "$d/tb.v" '/RAM_WORDS/d'
 probe "a parameter this cannot read stops rather than comparing nothing" 1 \
   "script the new spelling rather than dropping" "$DF $(df_args "$d")"
 
-# ld refuses a .text overflow; nothing refuses a .bss past the end of RAM.
 d=$(df_fixture)
 probe "data past the end of the simulated RAM is red, not silent" 1 \
   "does not fit the simulated geometry" "$DF $(df_args "$d") --ram-bytes 20000"
@@ -3846,8 +3448,6 @@ begin_group "soc/compare/dhry_dmips.py"
 
 DD="python3 $REPO/soc/compare/dhry_dmips.py"
 
-# The two-core numbers this repo measured, at 400 runs. littlecpu is the
-# reference core, so every probe below names it first in --cores.
 dd_fixture() {
   local d; d=$(new_case)
   cat > "$d/run.log" <<'LOG'
@@ -3869,8 +3469,6 @@ d=$(dd_fixture)
 probe "a clock turns the per-MHz figure into an absolute one" 0 "22.10" \
   "$DD2 $d/run.log --runs 400 --mhz littlecpu=32.54 --mhz vexriscv=48.19"
 
-# THE ONE THAT MATTERS: two cores that did not compute the same thing have no
-# comparable cycle count between them.
 d=$(dd_fixture); mutate "$d/run.log" 's/diff=0/diff=111/'
 probe "two cores whose RAMs differ are red, not a 1.2x result" 1 \
   "data RAMs differ in 111 of 4096 words" "$DD2 $d/run.log --runs 400"
@@ -3917,8 +3515,6 @@ d=$(dd_fixture)
 probe "--cores naming no core at all is red before anything is parsed" 1 \
   "named no core at all" "$DD $d/run.log --runs 400 --cores ,"
 
-# THE THREE-WAY ROW: littlecpu is still the reference; both other cores are
-# RAM-compared against it, not against each other.
 dd_fixture3() {
   local d; d=$(new_case)
   cat > "$d/run.log" <<'LOG'
@@ -3944,8 +3540,6 @@ probe "the wait-state bias is disclosed as a percentage of hazard3's own cycles"
   "hazard3 spends 9960 of its 498000 measured cycles (2.00%)" \
   "$DD3 $d/run.log --runs 400"
 
-# THE PAIR ROTATION MATTERS: hazard3's RAM diverging is graded even though it
-# is the second non-reference core, not only the first.
 d=$(dd_fixture3); mutate "$d/run.log" 's/core=hazard3 diff=0/core=hazard3 diff=42/'
 probe "the SECOND core's RAM diverging is graded, not only the first" 1 \
   "littlecpu and hazard3's data RAMs differ in 42 of 4096 words" \
@@ -3955,8 +3549,6 @@ d=$(dd_fixture3); mutate "$d/run.log" '/ramdiff core=hazard3/d'
 probe "a missing ramdiff for the SECOND core is red, not silently skipped" 1 \
   "no ramdiff line for hazard3" "$DD3 $d/run.log --runs 400"
 
-# THE ISA-COST ROW: one core, no reference, so no ramdiff line is required at
-# all -- there is nothing on the other side to compare a RAM against.
 dd_fixture_solo() {
   local d; d=$(new_case)
   cat > "$d/run.log" <<'LOG'
@@ -3974,16 +3566,8 @@ begin_group "soc/compare/coremark_fit.py"
 
 CF="python3 $REPO/soc/compare/coremark_fit.py"
 
-# The measured image, the measured geometries, and littlecpu's measured block
-# RAM count -- real. Hazard3's own is inflated so this fixture demonstrates
-# the DOES NOT FIT arm -- soc/compare/dhry_fit.py's own fixture uses
-# vexriscv's real 18 blocks instead of inflating one, so at Hazard3's real
-# 4 blocks, both cores fit and that arm never fires.
 cf_fixture() {
   local d; d=$(new_case)
-  # tb.v types out the shape soc/compare/coremark_tb.v actually declares,
-  # rather than copying it, so the anchor is what says the two have not
-  # drifted apart.
   fixture_anchor "$REPO/soc/compare/coremark_tb.v" "localparam int ROM_WORDS = 4096;"
   fixture_anchor "$REPO/soc/compare/coremark_tb.v" "localparam int RAM_WORDS = 4096;"
   printf '     6517   SB_LUT4\n        4   SB_RAM40_4K\n' > "$d/ours.log"
@@ -4034,11 +3618,6 @@ begin_group "soc/compare/coremark_dmips.py"
 
 CD="python3 $REPO/soc/compare/coremark_dmips.py"
 
-# THE THREE-WAY ROW: littlecpu is the reference; both other cores are
-# RAM-compared against it, not against each other -- the same shape
-# soc/compare/dhry_dmips.py's own three-way fixture uses. littlecpu's and
-# hazard3's cycle counts are the numbers this repo measured at 1 iteration;
-# vexriscv's is a placeholder pending its own re-take.
 cd_fixture() {
   local d; d=$(new_case)
   cat > "$d/run.log" <<'LOG'
@@ -4066,8 +3645,6 @@ probe "the CoreMark wait-state bias is disclosed as a percentage of hazard3's ow
   "hazard3 spends 14176 of its 714984 measured cycles (1.98%)" \
   "$CD $d/run.log --iterations 1"
 
-# THE ONE THAT MATTERS: cores that did not compute the same thing have no
-# comparable cycle count between them.
 d=$(cd_fixture); mutate "$d/run.log" \
   's/ramdiff core=vexriscv diff=0 of=4096/ramdiff core=vexriscv diff=111 of=4096/'
 probe "two CoreMark cores whose RAMs differ are red, not a ratio" 1 \
@@ -4083,8 +3660,6 @@ d=$(cd_fixture); mutate "$d/run.log" '/ramdiff core=vexriscv/d'
 probe "a CoreMark run that never made the cross-core check is red" 1 \
   "no ramdiff line for vexriscv" "$CD $d/run.log --iterations 1"
 
-# THE SECOND CORE MATTERS TOO: the pair rotation is graded even though
-# vexriscv, not hazard3, is the first non-reference core checked.
 d=$(cd_fixture); mutate "$d/run.log" 's/ramdiff core=hazard3 diff=0/ramdiff core=hazard3 diff=42/'
 probe "the SECOND CoreMark core's RAM diverging is graded, not only the first" 1 \
   "littlecpu and hazard3's data RAMs differ in 42 of 4096 words" \
@@ -4130,12 +3705,6 @@ probe "--cores naming no CoreMark core at all is red before anything is parsed" 
 
 begin_group "soc/compare/run_coremark_compare.sh"
 
-# UNLIKE test/bench/run_coremark.sh's group above, this script's toolchain
-# search runs BEFORE its manifest/pin check, so a probe here has to reach the
-# manifest check with something on PATH that answers `command -v` -- a stub
-# that exists and fails loudly the moment it is actually invoked, which is
-# the first real work after the manifest check passes. No probe needs it to
-# succeed: the manifest check is what is being graded.
 RCC_TOOLCHAIN_MARKER="stub: reached the compiler; nothing past the manifest check is real here"
 
 rcc_bin() {  # $1 = bin dir to create
@@ -4151,9 +3720,6 @@ STUB
   done
 }
 
-# A COPY OF THE SHIPPING VENDOR TREE, the same reason rc_fixture above is one:
-# the control is then the real set of vendored files and every red probe is
-# one edit away from it.
 rcc_fixture() {
   local d; d=$(new_case)
   mkdir -p "$d/soc/compare" "$d/test/bench/coremark"
@@ -4174,14 +3740,11 @@ d=$(rcc_fixture)
 probe "control: an unmodified vendor tree reaches the stub compiler" 1 \
   "$RCC_TOOLCHAIN_MARKER" "$(rcc "$d")"
 
-# A mutated vendored byte: shasum -c catches it, and prints why.
 d=$(rcc_fixture)
 printf '\n' >> "$d/test/bench/coremark/core_main.c"
 probe "a mutated vendored byte fails the pin, and says so" 1 \
   "no longer matches PINNED.sha256" "$(rcc "$d")"
 
-# A deleted manifest line: shasum -c never sees the file it was never told
-# about, so only a two-way name comparison catches it.
 d=$(rcc_fixture)
 grep -v 'core_util\.c$' "$d/test/bench/coremark/PINNED.sha256" \
   > "$d/test/bench/coremark/PINNED.sha256.new"
@@ -4189,9 +3752,6 @@ mv "$d/test/bench/coremark/PINNED.sha256.new" "$d/test/bench/coremark/PINNED.sha
 probe "a file the manifest stopped naming is red before shasum ever runs" 1 \
   "does not have exactly the files PINNED.sha256" "$(rcc "$d")"
 
-# THE CONCRETE EXPLOIT: core_portme.h dropped in beside the vendored sources
-# shadows this port's real header for every vendored unit's quoted #include,
-# and shasum -c alone would report the tree unmodified.
 d=$(rcc_fixture)
 cp "$REPO/test/bench/core_portme.h" "$d/test/bench/coremark/core_portme.h"
 probe "an unlisted core_portme.h would shadow the port's header, and is caught" 1 \
@@ -4199,11 +3759,6 @@ probe "an unlisted core_portme.h would shadow the port's header, and is caught" 
 
 begin_group "test/port_connect_test.py"
 
-# A COPY OF THE SHIPPING FILES for the same reason test/memmap_test.sh's fixture
-# is one, plus a `git init` over it because that check enumerates tracked files
-# rather than walking the filesystem. formal/wrapper.v is the only one of the
-# five formal harnesses copied in: all five wire the core the same way, through
-# `RVFI_CONN, so a second one would buy wall time and no coverage.
 PC="python3 $REPO/test/port_connect_test.py"
 
 pc_fixture() {
@@ -4225,8 +3780,6 @@ probe "control: every site names every port of littlecpu" 0 \
 probe "a repo root that does not exist is red before anything is parsed" 1 \
   "is not a directory" "$PC $d/nowhere"
 
-# THE ONE THAT MATTERS: the original defect, re-entered. This instance really did
-# miss `imem_fault`, and the harness then placed 536 cells of a 6006-cell core.
 d=$(pc_fixture); mutate "$d/soc/compare/bench_littlecpu.v" '/\.imem_fault(imem_fault),/d'
 probe "a port the comparison harness stops naming is red, and located" 1 \
   "soc/compare/bench_littlecpu.v's \`riscv\` instance does not connect .imem_fault" "$PC $d"
@@ -4234,15 +3787,11 @@ probe "a port the comparison harness stops naming is red, and located" 1 \
 probe "and the diagnostic says what it costs, not just that it is missing" 1 \
   "placed 536 cells of a 6006-cell core" "$PC $d"
 
-# An empty connection is a floating pin spelled a second way, and yosys accepts
-# both.
 d=$(pc_fixture); mutate "$d/soc/compare/bench_littlecpu.v" \
   's/\.imem_fault(imem_fault),/.imem_fault(),/'
 probe "a port named with nothing in the parentheses is red too" 1 \
   "names .imem_fault() with nothing in it" "$PC $d"
 
-# The other direction, which is the half a one-way check would not have: the
-# port goes away and the harnesses keep naming it.
 d=$(pc_fixture); mutate "$d/rtl/littlecpu.v" 's/^  input  logic        imem_fault,//'
 probe "a connection to a port littlecpu no longer has is red" 1 \
   "connects .imem_fault, and littlecpu has no such port" "$PC $d"
@@ -4251,8 +3800,6 @@ d=$(pc_fixture); mutate "$d/test/testbench.v" '/\.rvfi_mem_rmask(rvfi_mem_rmask)
 probe "half of a macro-guarded group is red, where none of it is not" 1 \
   "connects littlecpu under RISCV_FORMAL but not .rvfi_mem_rmask" "$PC $d"
 
-# A port declared unconditionally and connected only under a macro floats
-# wherever that macro is absent, which is every build but one.
 d=$(pc_fixture); mutate "$d/test/testbench.v" \
   's/^    \.irq_timer(irq_timer),$/    .irq_timer(irq_timer)/' \
   's/^    \.trap(trap)$//' \
@@ -4260,36 +3807,25 @@ d=$(pc_fixture); mutate "$d/test/testbench.v" \
 probe "an unconditional port connected only inside an ifdef is red" 1 \
   "connects .trap only under RISCV_FORMAL" "$PC $d"
 
-# `RVFI_CONN is the one macro this check cannot expand, so a harness dropping it
-# has to be caught by something other than the port list.
 d=$(pc_fixture); mutate "$d/formal/wrapper.v" \
   's/^    \.trap(trap),$/    .trap(trap)/' \
   '/`RVFI_CONN/d'
 probe "a formal harness that stops wiring rvfi at all is red" 1 \
   "carries no \`RVFI_CONN" "$PC $d"
 
-# The exception table both ways round: an omission that has been fixed leaves an
-# entry behind, and an exemption kept past its reason is how the next one gets
-# waved through.
 d=$(pc_fixture); mutate "$d/test/testbench.v" \
   's/^    , \.rvfi_valid(rvfi_valid),/    , .rvfi_valid(rvfi_valid), .rvfi_mode(rvfi_mode),/'
 probe "an exception whose port is connected now is red" 1 \
   "EXCEPTIONS exempts .rvfi_mode at test/testbench.v" "$PC $d"
 
-# A positional connection re-aims every port after the one that moved, so it
-# stops the run rather than being graded as far as it can be read.
 d=$(pc_fixture); mutate "$d/soc/compare/bench_littlecpu.v" 's/^    \.clk(clk),/    clk,/'
 probe "a connection by position stops rather than being half-read" 1 \
   "connects littlecpu by something this check cannot read" "$PC $d"
 
-# The last defect in this file class was a superfluous comma in a port list,
-# which yosys accepts and only iverilog and svlint rejected.
 d=$(pc_fixture); mutate "$d/rtl/littlesoc.v" 's/^    \.trap(trap)$/    .trap(trap),/'
 probe "a stray comma in a connection list is named as one" 1 \
   "a stray or trailing comma" "$PC $d"
 
-# The parse is load-bearing: a port this cannot read would go undemanded at
-# every site rather than reported at one.
 d=$(pc_fixture); mutate "$d/rtl/littlecpu.v" 's/^  input  logic clk,/  clk,/'
 probe "a port declaration the parser cannot read stops the run" 1 \
   "cannot read as a port declaration" "$PC $d"
@@ -4298,7 +3834,6 @@ d=$(pc_fixture); rm "$d/rtl/littlecpu.v"
 probe "the module file moving away takes the check with it, loudly" 1 \
   "rtl/littlecpu.v is missing" "$PC $d"
 
-# Without these two the whole check passes over a tree it never read.
 d=$(new_case); mkdir -p "$d/rtl"; cp "$REPO/rtl/littlecpu.v" "$d/rtl/"
 git -c init.defaultBranch=main -C "$d" init -q; git -C "$d" add -A
 probe "a tree that instantiates the core nowhere is not a clean one" 1 \
@@ -4310,17 +3845,6 @@ probe "a tree git cannot list is a scan of nothing, not a green one" 1 \
 
 begin_group "formal/traps-region-probe.py"
 
-# That file is itself the demonstrated red direction for formal/traps.sv's two
-# load/store region arms -- the trap and its cause -- and it needs a solver to be
-# one, so it runs under `make -C formal components_traps` rather than here. What
-# is probed here is its own grading: it builds two mutated cores and requires
-# each to go red at one named line, and each of those comparisons has a failure
-# path of its own.
-#
-# The stub reads the tree it is handed and answers the way sby does, so the
-# control below is the real script over the real RTL with only the solver
-# replaced. A stub that answered from its arguments alone would make every probe
-# here a test of the stub.
 TR="python3 $REPO/formal/traps-region-probe.py"
 
 cat > "$tmp/sby-stub" <<'STUB'
@@ -4363,9 +3887,6 @@ d=$(tr_fixture)
 probe "control: both arms fail, each at its own line" 0 \
   "Both load/store region arms fail for their own reason" "$(trs "$d")"
 
-# THE TWO THAT MATTER: an arm that cannot fail is the whole reason this file
-# exists, and there are two of them now that the model requires the trap as well
-# as the cause.
 d=$(tr_fixture)
 probe "an arm that admits a fault the core never commits is red" 1 \
   "the no-trap core proves" "STUB_SBY_NOTRAP=PASS $(trs "$d")"
@@ -4390,8 +3911,6 @@ d=$(tr_fixture)
 probe "an empty status file is refused rather than read as a verdict" 2 \
   "status file for the no-trap core is empty" "STUB_SBY_EMPTY_STATUS=1 $(trs "$d")"
 
-# The four parses. Each one is what the probe pins its answer to, so a
-# respelling has to stop the run rather than quietly probe nothing.
 d=$(tr_fixture); mutate "$d/formal/traps.sv" \
   's/assert(csr_rdata == prev_cause);/assert(csr_rdata == prev_cause2);/'
 probe "a respelled cause comparison stops rather than pinning nothing" 2 \
@@ -4416,11 +3935,6 @@ d=$(tr_fixture); rm "$d/formal/traps.sv"
 probe "the model moving away takes the probe with it, loudly" 2 \
   "formal/traps.sv is missing from" "$(trs "$d")"
 
-# The script is READ from formal/components.sby rather than copied into these
-# probes, so the two ways that read can come up empty are their own red
-# directions. Both are silent otherwise: a probe built against a script it
-# invented proves a design the shipping task does not build, and says so with a
-# green control.
 d=$(tr_fixture); rm "$d/formal/components.sby"
 probe "no components.sby is exit 2, not a probe against an invented script" 2 \
   "components.sby is missing" "$(trs "$d")"
@@ -4431,18 +3945,6 @@ probe "a renamed task stops rather than probing some other design" 2 \
 
 begin_group "formal/decoder-zkt-probe.py"
 
-# That file is itself the demonstrated red direction for rtl/decoder.v's two
-# Zkt-isolation assertions -- region_stall implies ls_access, and ls_access is
-# exactly the eight base load/store encodings -- and it needs a solver to be
-# one, so it runs under `make -C formal components_decoder` rather than here.
-# What is probed here is its own grading: it builds two mutated cores and
-# requires each to go red at one named line, and each of those comparisons has
-# a failure path of its own.
-#
-# The stub reads the tree it is handed and answers the way sby does, so the
-# control below is the real script over the real RTL with only the solver
-# replaced. A stub that answered from its arguments alone would make every
-# probe here a test of the stub.
 DZ="python3 $REPO/formal/decoder-zkt-probe.py"
 
 cat > "$tmp/sby-dz-stub" <<'STUB'
@@ -4493,8 +3995,6 @@ d=$(dz_fixture)
 probe "control: both Zkt-isolation assertions fail, each at its own line" 0 \
   "Both Zkt-isolation assertions fail for their own reason" "$(dzs "$d")"
 
-# THE TWO THAT MATTER: an assertion that cannot fail is the whole reason this
-# file exists.
 d=$(dz_fixture)
 probe "an ungated region_stall proving is red" 1 \
   "the region-stall-ungated core proves" "STUB_SBY_REGION=PASS $(dzs "$d")"
@@ -4511,9 +4011,6 @@ d=$(dz_fixture)
 probe "the encoding proof going red somewhere else is not evidence either" 1 \
   "which does not include line" "STUB_SBY_ENCODING_LINE=9 $(dzs "$d")"
 
-# THE OTHER TWO THAT MATTER: a failure the induction leg reports starts from
-# an arbitrary, possibly-unreachable state, so it is not evidence about the
-# basecase's reachable trace either -- even naming the right line.
 d=$(dz_fixture)
 probe "a gate failure reported only by the induction leg is not evidence" 1 \
   "which does not include line" "STUB_SBY_REGION_LEG=engine_0.induction $(dzs "$d")"
@@ -4531,8 +4028,6 @@ probe "an empty status file is refused rather than read as a verdict" 2 \
   "status file for the region-stall-ungated core is empty" \
   "STUB_SBY_EMPTY_STATUS=1 $(dzs "$d")"
 
-# The two parses. Each one is what the probe pins its answer to, so a
-# respelling has to stop the run rather than quietly probe nothing.
 d=$(dz_fixture)
 mutate "$d/rtl/decoder.v" \
   's/assert(!region_stall || ls_access);/assert(!region_stall || ls_access == 1);/'
@@ -4555,10 +4050,6 @@ d=$(dz_fixture); rm "$d/rtl/decoder.v"
 probe "the RTL moving away takes the probe with it, loudly" 2 \
   "rtl/decoder.v is missing from" "$(dzs "$d")"
 
-# The script is READ from formal/components.sby rather than copied into these
-# probes, the same reasoning traps-region-probe.py's own two probes below
-# apply: a probe built against an invented script proves a design the shipping
-# task does not build, and says so with a green control.
 d=$(dz_fixture); rm "$d/formal/components.sby"
 probe "no components.sby is exit 2, not a probe against an invented script" 2 \
   "formal/components.sby is missing" "$(dzs "$d")"
@@ -4569,17 +4060,6 @@ probe "a renamed task stops rather than probing some other design" 2 \
 
 begin_group "formal/executor-zkt-probe.py"
 
-# That file is itself the demonstrated red direction for rtl/executor.v's
-# MUL-family constant-latency assertion -- state == init one cycle after any
-# multiply issues -- and it needs a solver to be one, so it runs under
-# `make -C formal components_executor` rather than here. What is probed here
-# is its own grading: it builds one mutated core and requires it to go red at
-# the named line, and that comparison has a failure path of its own.
-#
-# The stub reads the tree it is handed and answers the way sby does, so the
-# control below is the real script over the real RTL with only the solver
-# replaced. A stub that answered from its arguments alone would make every
-# probe here a test of the stub.
 EZ="python3 $REPO/formal/executor-zkt-probe.py"
 
 cat > "$tmp/sby-ez-stub" <<'STUB'
@@ -4621,8 +4101,6 @@ d=$(ez_fixture)
 probe "control: the MUL constant-latency assertion fails at its own line" 0 \
   "The MUL constant-latency assertion fails for its own reason" "$(ezs "$d")"
 
-# THE ONE THAT MATTERS: an assertion that cannot fail is the whole reason
-# this file exists.
 d=$(ez_fixture)
 probe "the mutated core proving is red" 1 \
   "the mul-into-divide core proves" "STUB_SBY_STATUS=PASS $(ezs "$d")"
@@ -4631,9 +4109,6 @@ d=$(ez_fixture)
 probe "the proof going red somewhere else is not evidence" 1 \
   "which does not include" "STUB_SBY_LINE=9 $(ezs "$d")"
 
-# THE OTHER ONE THAT MATTERS: a failure the induction leg reports starts from
-# an arbitrary, possibly-unreachable state, so it is not evidence about the
-# basecase's reachable trace either -- even naming the right line.
 d=$(ez_fixture)
 probe "a failure reported only by the induction leg is not evidence" 1 \
   "which does not include" "STUB_SBY_LEG=engine_0.induction $(ezs "$d")"
@@ -4647,8 +4122,6 @@ probe "an empty status file is refused rather than read as a verdict" 2 \
   "status file for the mul-into-divide core is empty" \
   "STUB_SBY_EMPTY_STATUS=1 $(ezs "$d")"
 
-# The four parses. Each is what the probe pins its answer to, so a
-# respelling has to stop the run rather than quietly probing nothing.
 d=$(ez_fixture)
 mutate "$d/rtl/executor.v" 's/assert(state == init);/assert(state==init);/'
 probe "a respelled constant-latency assertion stops rather than pinning nothing" 2 \
@@ -4675,10 +4148,6 @@ d=$(ez_fixture); rm "$d/rtl/executor.v"
 probe "the RTL moving away takes the probe with it, loudly" 2 \
   "rtl/executor.v is missing from" "$(ezs "$d")"
 
-# The script is READ from formal/components.sby rather than copied into these
-# probes, the same reasoning decoder-zkt-probe.py's own two probes apply: a
-# probe built against an invented script proves a design the shipping task
-# does not build.
 d=$(ez_fixture); rm "$d/formal/components.sby"
 probe "no components.sby is exit 2, not a probe against an invented script" 2 \
   "formal/components.sby is missing" "$(ezs "$d")"
@@ -4689,12 +4158,6 @@ probe "a renamed task stops rather than probing some other design" 2 \
 
 begin_group "formal/traps-tval-probe.py"
 
-# The same demand on formal/traps.sv's mtval arm, and the same division of
-# labour: the script itself needs a solver, so it runs under
-# `make -C formal components_traps`, and what is probed HERE is its own grading.
-# Nothing else in the tree reads mtval -- no generated check names it, and both
-# sim legs see only what a program loaded it into -- so that arm failing when it
-# should is the whole oracle.
 TT="python3 $REPO/formal/traps-tval-probe.py"
 
 cat > "$tmp/sby-tval-stub" <<'STUB'
@@ -4730,8 +4193,6 @@ d=$(tr_fixture)
 probe "a model that cannot prove the shipping core makes both reds meaningless" 1 \
   "the shipping core does not prove" "STUB_TVAL_CONTROL=FAIL $(tts "$d")"
 
-# THE TWO THAT MATTER: an arm that admits the wrong value is the whole reason
-# this file exists, once per value source.
 d=$(tr_fixture)
 probe "an arm that admits rs1 where the effective address belongs is red" 1 \
   "the wrong-addr core proves" "STUB_TVAL_ADDR=PASS $(tts "$d")"
@@ -4756,10 +4217,6 @@ d=$(tr_fixture)
 probe "an empty status file is refused rather than read as a verdict" 2 \
   "status file for the control core is empty" "STUB_TVAL_EMPTY_STATUS=1 $(tts "$d")"
 
-# The three parses. Each is what the probe pins its answer to, so a respelling
-# has to stop the run rather than quietly probe nothing -- and the control case
-# checks BOTH mutation sites, which is what stops a half-respelled mux from
-# building the shipping core three times.
 d=$(tr_fixture); mutate "$d/formal/traps.sv" \
   's/assert(csr_rdata == prev_tval);/assert(csr_rdata == prev_tval2);/'
 probe "a respelled mtval comparison stops rather than pinning nothing" 2 \
@@ -4779,9 +4236,6 @@ d=$(tr_fixture); rm "$d/formal/traps.sv"
 probe "the model moving away takes this probe with it too" 2 \
   "formal/traps.sv is missing from" "$(tts "$d")"
 
-# Both ways the shared read of components.sby's `traps` block can come up empty.
-# This probe has a control that must PASS, so a script it invented would report
-# a green one about a design the shipping task does not build.
 d=$(tr_fixture); rm "$d/formal/components.sby"
 probe "no components.sby is exit 2 here too, not a green control" 2 \
   "components.sby is missing" "$(tts "$d")"
@@ -4790,15 +4244,10 @@ d=$(tr_fixture); mutate "$d/formal/components.sby" 's/^traps:$/trapsx:/'
 probe "a renamed task stops this probe rather than moving its control" 2 \
   "block under [script]" "$(tts "$d")"
 
-
-
 begin_group "soc/netlist_digest.py"
 
 ND="python3 $REPO/soc/netlist_digest.py"
 
-# A yosys-shaped netlist small enough to read: one blackbox module, one top with
-# two cells, one port and one named net. Written by hand rather than captured,
-# because a captured one is 7 MB and every edit below has to be visible.
 nd_netlist() {  # <file>
   cat > "$1" <<'JSON'
 {
@@ -4863,22 +4312,14 @@ d=$(nd_pair)
 probe "control: two identical netlists are equal" 0 "DIGEST-EQUAL" \
   "$ND compare $d/base.json $d/new.json"
 
-# The comment and whitespace classes, which is every `src` and `module_src` in
-# the file moving and nothing else. This is the whole reason a bare hash of the
-# netlist was not enough.
 d=$(nd_pair); mutate "$d/new.json" 's/\.v:\([0-9]*\)\./.v:9\1./g'
 probe "every source line moving is the comment class, and is forgiven" 0 \
   "DIGEST-EQUAL" "$ND compare $d/base.json $d/new.json"
 
-# ...and only those two. An attribute that is not a source line is a difference,
-# because dropping one is forgiving one, and the placer is not obliged to agree.
 d=$(nd_pair); mutate "$d/new.json" 's/"hdlname": "decode"/"hdlname": "decoder"/'
 probe "an attribute that is not a source line is not forgiven" 1 \
   "DIGEST-DIFFERENT" "$ND compare $d/base.json $d/new.json"
 
-# The dead tie-off class is `opt_clean -purge`'s to remove, upstream of this
-# script. What is pinned here is that this script does NOT forgive a dead net
-# left in the file: a netlist that still carries one is a netlist that differs.
 d=$(nd_pair)
 python3 - "$d/new.json" <<'PY'
 import json, sys
@@ -4891,8 +4332,6 @@ PY
 probe "a dead net still in the file is a difference, not a forgiveness" 1 \
   "named nets: 1 -> 2" "$ND compare $d/base.json $d/new.json"
 
-# A one-bit constant change: no module, cell count or port moves, so the
-# structural summary has nothing to say and the report has to name the path.
 d=$(nd_pair); mutate "$d/new.json" 's/1010101010101010/1010101010101011/'
 probe "a one-bit constant is a different digest" 1 "DIGEST-DIFFERENT" \
   "$ND compare $d/base.json $d/new.json"
@@ -4922,14 +4361,10 @@ d=$(nd_pair); mutate "$d/new.json" \
 probe "a module that appeared is named too" 1 "modules in this tree only: SB_MAC16" \
   "$ND compare $d/base.json $d/new.json"
 
-# The toolchain is inside the digest, so a yosys that moved reads as different.
-# That is the sound direction and the one this repo has been bitten in.
 d=$(nd_pair); mutate "$d/new.json" 's/Yosys 0.68 (git sha1 abcdef0)/Yosys 0.55 (git sha1 abcdef0)/'
 probe "a toolchain that moved is a different digest, and is named first" 1 \
   "toolchain: Yosys 0.68" "$ND compare $d/base.json $d/new.json"
 
-# The four refusals. None of them may read as equal: the whole value of this
-# gate is that its equal verdict is the one that skips twelve minutes of work.
 d=$(nd_pair)
 probe "a netlist that is not there is refused, not read as equal" 2 \
   "so there is nothing to digest" "$ND compare $d/gone.json $d/new.json"
@@ -4962,11 +4397,6 @@ probe "a top module with no cells in it is a failed synthesis" 2 \
 
 begin_group "soc/netlist_determinism.sh"
 
-# The control that decides whether the digest means anything, run against stub
-# tools: three placements of the real flow are three minutes and need yosys and
-# nextpnr, and what is graded here is the four comparisons rather than the
-# placer. The stubs are keyed on the paths the script itself chooses, so a
-# renamed output would stop them standing in.
 nl_stub_yosys() {  # $1 = bin dir, $2 = fixture dir
   cat > "$1/yosys" <<STUB
 #!/bin/sh
@@ -5037,8 +4467,6 @@ nl_fixture() {
   local d; d=$(new_case)
   mkdir -p "$d/bin" "$d/repo/rtl" "$d/repo/soc" "$d/fix"
   cp "$REPO/soc/netlist_determinism.sh" "$REPO/soc/netlist_digest.py" "$d/repo/soc/"
-  # Two lines of the shape the injection reaches for: a trailing `endmodule` and
-  # the signal the dead wire reads.
   cat > "$d/repo/rtl/decoder.v" <<'RTL'
 module decoder (input logic [31:0] reg_rs1, output logic [31:0] out);
   assign out = reg_rs1;
@@ -5047,7 +4475,6 @@ RTL
   nd_netlist "$d/fix/canon.json"
   nd_netlist "$d/fix/canon.moved.json"
   mutate "$d/fix/canon.moved.json" 's/1010101010101010/1010101010101011/'
-  # A canonical form the purge did NOT clean the dead net out of.
   nd_netlist "$d/fix/canon.dead.json"
   mutate "$d/fix/canon.dead.json" 's/"hdlname": "decode"/"hdlname": "netlist_control_dead"/'
   nl_stub_yosys "$d/bin" "$d/fix"
@@ -5076,8 +4503,6 @@ d=$(nl_fixture)
 probe "a mutant the digest calls equal placing elsewhere voids it too" 1 \
   "placed to different bitstreams" "STUB_PNR_MUTANT_MOVED=1 $(nl_run "$d")"
 
-# The vacuity check. Without it the control passes hardest when it is testing
-# nothing, which is the shape of every defect this file exists for.
 d=$(nl_fixture)
 probe "a mutant that left no trace demonstrates nothing, and says so" 1 \
   "nothing was injected" "STUB_YOSYS_NO_TRACE=1 $(nl_run "$d")"
@@ -5090,17 +4515,10 @@ d=$(nl_fixture)
 probe "a placer that wrote no bitstream placed nothing, which is not a pass" 1 \
   "wrote no bitstream" "STUB_PNR_EMPTY=1 $(nl_run "$d")"
 
-# THE ONE A NON-EMPTY FILE HIDES: a placer killed mid-write leaves a partial
-# bitstream, and a deterministic one killed three times leaves three partial
-# files that compare equal. Size alone calls that a placement.
 d=$(nl_fixture)
 probe "a bitstream the placer never finished writing is not a placement" 1 \
   "never finished" "STUB_PNR_TRUNCATED=1 $(nl_run "$d")"
 
-# The vacuity checks the comment class cannot stand in for. The mutant carries
-# three edits and the comment alone makes its netlist differ, so "something
-# moved" says nothing about the dead net -- which is the class the purge is what
-# forgives.
 d=$(nl_fixture)
 probe "a dead tie-off that never reached the netlist exercises no class" 1 \
   "left no trace in the mapped netlist" "STUB_YOSYS_NO_DEAD=1 $(nl_run "$d")"
@@ -5113,10 +4531,6 @@ d=$(nl_fixture)
 probe "a synthesis that failed is not a passed control either" 1 \
   "could not synthesise" "STUB_YOSYS_EXIT=1 $(nl_run "$d")"
 
-# These two name the WHOLE path, for the reason the `bin-none` note above gives:
-# with the caller's PATH behind the stubs, deleting one finds the host's real
-# yosys or nextpnr and the probe demonstrates nothing. Both refusals fire before
-# anything is synthesised, so /usr/bin and /bin are all either one needs.
 d=$(nl_fixture); rm "$d/bin/yosys"
 probe "no yosys on PATH is refused rather than skipped" 2 "no yosys on PATH" \
   "$(nl_run "$d" /usr/bin:/bin)"
@@ -5129,10 +4543,6 @@ d=$(nl_fixture); mutate "$d/repo/rtl/decoder.v" 's/reg_rs1/reg_rs9/g'
 probe "an injection site that moved stops the control, loudly" 1 \
   "the mutant could not be built" "$(nl_run "$d")"
 
-# The quiet way that site rots: the signal is still in the FILE, in a module the
-# tie-off does not land in. Implicitly declared one bit wide, its part-selects
-# fold to a constant and the assign is optimised away -- so the check has to be
-# scoped to the module being spliced into, not to the file.
 d=$(nl_fixture)
 cat > "$d/repo/rtl/decoder.v" <<'RTL'
 module regsel (input logic [31:0] reg_rs1, output logic [31:0] picked);
@@ -5156,16 +4566,11 @@ probe "an empty part table synthesises nothing, so it is refused" 2 \
 
 begin_group "soc/netlist_base.sh"
 
-# The other tree's half of `make netlist-diff`. `git archive` and a stub yosys,
-# so the whole extraction runs without a placement or a cross compiler.
 nb_fixture() {
   local d; d=$(new_case)
   mkdir -p "$d/bin" "$d/repo/rtl" "$d/repo/soc"
   cp "$REPO/soc/netlist_base.sh" "$d/repo/soc/"
   printf 'module decoder ();\nendmodule\n' > "$d/repo/rtl/decoder.v"
-  # A Makefile with the two targets this script asks another tree for, and
-  # nothing else: soc-rom, which builds the image that gets synthesised, and
-  # print-%, which is how the base tree is asked to name its own synth script.
   cat > "$d/repo/Makefile" <<'MK'
 soc-rom:
 	@:
@@ -5201,12 +4606,6 @@ git -C "$d/repo" -c user.email=probe@example -c user.name=probe commit -qam flag
 probe "a base tree whose synth flags moved is digested with ITS flags, and says so" 0 \
   "synthesises with a different script" "$(nb_run "$d" HEAD)"
 
-# A base tree whose make fails for any reason OTHER than having no `print-%`
-# rule must not read as one that names no synth script: that fallback
-# synthesises the base commit with THIS tree's flags, which is the blind
-# comparison this script exists to refuse. A parse error fails the ROM step
-# first and is reported there, so what is forced here is the rule itself
-# failing -- which is what `| tail -1` used to swallow whole.
 d=$(nb_fixture)
 cat > "$d/repo/Makefile" <<'MK'
 soc-rom:
@@ -5229,14 +4628,6 @@ probe "a source this tree synthesises that the base lacks is not comparable" 2 \
   "has no rtl/decoder.v" "$(nb_run "$d" HEAD)"
 begin_group "formal/busarbiter-probe.py"
 
-# Same shape as the group above, and for the same reason: that file is itself
-# the demonstrated red direction for formal/busarbiter.sv's wait bound and its
-# indivisibility arm, it needs a solver to be one, and so it runs under `make -C
-# formal components_busarbiter` rather than here. What is probed here is its own
-# grading -- it builds three arbiters and requires one to prove, one to go red
-# at the wait bound and not at the lock, and one to go red at the lock and take
-# the anti-vacuity cover down with it. Every one of those comparisons has a
-# failure path of its own.
 BA="python3 $REPO/formal/busarbiter-probe.py"
 
 cat > "$tmp/sby-busarbiter-stub" <<'STUB'
@@ -5309,8 +4700,6 @@ d=$(ba_fixture)
 probe "a cover the shipping arbiter cannot reach is red before any mutation" 1 \
   "does not reach its own cover goals" "STUB_SHIP_COVER=FAIL $(bas "$d")"
 
-# THE TWO THAT MATTER: a bound that admits starvation and a lock that admits a
-# torn atomic are the whole reason that file exists.
 d=$(ba_fixture)
 probe "a wait bound that admits a starved hart is red" 1 \
   "the fixed-priority arbiter proves" "STUB_FIXED=PASS $(bas "$d")"
@@ -5347,8 +4736,6 @@ d=$(ba_fixture)
 probe "an empty status file is refused rather than read as a verdict" 2 \
   "is empty" "STUB_SBY_EMPTY_STATUS=1 $(bas "$d")"
 
-# The three parses, one per pinned line. Each is what a probe pins its answer
-# to, so a respelling has to stop the run rather than quietly probe nothing.
 d=$(ba_fixture)
 mutate "$d/formal/busarbiter.sv" \
   's/past_mem_lock\[h\]) assert(grant\[h\]);/past_mem_lock[h]) assert(grant[h] == 1);/'
@@ -5378,14 +4765,6 @@ probe "the harness moving away takes the probe with it, loudly" 2 \
 
 begin_group "formal/busarbiter-probe.py"
 
-# Same shape as the group above, and for the same reason: that file is itself
-# the demonstrated red direction for formal/busarbiter.sv's wait bound and its
-# indivisibility arm, it needs a solver to be one, and so it runs under `make -C
-# formal components_busarbiter` rather than here. What is probed here is its own
-# grading -- it builds three arbiters and requires one to prove, one to go red
-# at the wait bound and not at the lock, and one to go red at the lock and take
-# the anti-vacuity cover down with it. Every one of those comparisons has a
-# failure path of its own.
 BA="python3 $REPO/formal/busarbiter-probe.py"
 
 cat > "$tmp/sby-busarbiter-stub" <<'STUB'
@@ -5458,8 +4837,6 @@ d=$(ba_fixture)
 probe "a cover the shipping arbiter cannot reach is red before any mutation" 1 \
   "does not reach its own cover goals" "STUB_SHIP_COVER=FAIL $(bas "$d")"
 
-# THE TWO THAT MATTER: a bound that admits starvation and a lock that admits a
-# torn atomic are the whole reason that file exists.
 d=$(ba_fixture)
 probe "a wait bound that admits a starved hart is red" 1 \
   "the fixed-priority arbiter proves" "STUB_FIXED=PASS $(bas "$d")"
@@ -5496,8 +4873,6 @@ d=$(ba_fixture)
 probe "an empty status file is refused rather than read as a verdict" 2 \
   "is empty" "STUB_SBY_EMPTY_STATUS=1 $(bas "$d")"
 
-# The three parses, one per pinned line. Each is what a probe pins its answer
-# to, so a respelling has to stop the run rather than quietly probe nothing.
 d=$(ba_fixture)
 mutate "$d/formal/busarbiter.sv" \
   's/past_mem_lock\[h\]) assert(grant\[h\]);/past_mem_lock[h]) assert(grant[h] == 1);/'
@@ -5527,11 +4902,6 @@ probe "the harness moving away takes the probe with it, loudly" 2 \
 
 begin_group "test/dual_build.sh"
 
-# The two-hart programs are source with no machine to run on, so this is the
-# whole of what grades them: they still assemble, and the pairings that claim
-# they catch something still name them. Both halves of that are graded here, and
-# the toolchain stubs are the same ones test/run_tests.sh's group uses -- these
-# probes need a cross compiler exactly as little as that group does.
 DB="$REPO/test/dual_build.sh"
 
 db_fixture() {
@@ -5552,10 +4922,6 @@ d=$(db_fixture)
 probe "control: programs that build and are paired are green" 0 \
   "are paired against a" "$(db "$d")"
 
-# The runner-graded exemption, both directions. A program the dual runner grades
-# directly is exempt rather than paired; what must not happen is an exemption
-# outliving the program it names, or a program carrying both -- either one hides
-# the other's grader rotting.
 d=$(db_fixture)
 printf 'EXEMPT  smoke.S  make dual-smoke\n' >> "$d/PAIRINGS"
 probe "an exemption naming no program is red, not a program quietly excused" 1 \
@@ -5595,8 +4961,6 @@ d=$(db_fixture); : > "$d/dual/unclaimed.S"
 probe "the other direction: a program no pairing claims to catch anything" 1 \
   "holds programs no pairing" "$(db "$d")"
 
-# The `formal` leg has no program in its third field, and reading it as one
-# would make the set check demand a file called components_busarbiter.S.
 d=$(db_fixture); printf 'starved  formal  components_busarbiter\n' > "$d/PAIRINGS"
 probe "a mutation with no program leg is a real entry, not a missing file" 1 \
   "holds programs no pairing" "$(db "$d")"
@@ -5618,17 +4982,11 @@ probe "assembler output on a successful build is still a defect" 1 \
 probe "an objcopy that refuses names the region it refused for" 1 \
   "OBJCOPY-ERROR rom" "STUB_OBJCOPY_FAIL=1 $(db "$d")"
 
-# The quiet one: exit 0 having written nothing. A runner handed that image would
-# start, and every check that reads RAM would see zero.
 probe "an image objcopy wrote nothing into is red, not empty and accepted" 1 \
   "OBJCOPY-EMPTY rom" "STUB_OBJCOPY_EMPTY=1 $(db "$d")"
 
 begin_group "test/bench/run_coremark.sh"
 
-# Every probe here exits before the toolchain search does, so none needs the
-# stub compiler the groups above build. The control run instead reaches and
-# fails AT that search -- proof the manifest and pin checks above it passed
-# silently, the way a real `make coremark` would.
 rc_fixture() {
   local d; d=$(new_case)
   mkdir -p "$d/test/bench/coremark"
@@ -5647,15 +5005,11 @@ d=$(rc_fixture)
 probe "control: an unmodified vendor tree passes the manifest and pin checks" 1 \
   "is not an executable runner" "$(rc "$d")"
 
-# A mutated vendored byte: shasum -c catches it, and prints why -- the same
-# case CoreMark's own trademark terms exist to guard.
 d=$(rc_fixture)
 printf '\n' >> "$d/test/bench/coremark/core_main.c"
 probe "a mutated vendored byte fails the pin, and says so" 1 \
   "no longer matches PINNED.sha256" "$(rc "$d")"
 
-# A deleted manifest line: shasum -c never sees the file it was never told
-# about, so only a two-way name comparison catches it.
 d=$(rc_fixture)
 grep -v 'core_util\.c$' "$d/test/bench/coremark/PINNED.sha256" \
   > "$d/test/bench/coremark/PINNED.sha256.new"
@@ -5663,17 +5017,11 @@ mv "$d/test/bench/coremark/PINNED.sha256.new" "$d/test/bench/coremark/PINNED.sha
 probe "a file the manifest stopped naming is red before shasum ever runs" 1 \
   "does not have exactly the files PINNED.sha256" "$(rc "$d")"
 
-# An unlisted file added: the concrete exploit. core_portme.h dropped in next
-# to the vendored sources shadows this port's real header for every vendored
-# unit's quoted #include, and shasum -c alone would report the tree
-# unmodified.
 d=$(rc_fixture)
 cp "$REPO/test/bench/core_portme.h" "$d/test/bench/coremark/core_portme.h"
 probe "an unlisted core_portme.h would shadow the port's header, and is caught" 1 \
   "core_portme.h" "$(rc "$d")"
 
-# A malformed manifest line: shasum -c alone exits 0 on this, printing only a
-# WARNING nothing here would have read -- --strict is what turns it red.
 d=$(rc_fixture)
 mutate -E "$d/test/bench/coremark/PINNED.sha256" 's/^[0-9a-f]{64}(  core_list_join\.c)$/deadbeef\1/'
 probe "a malformed manifest line is red under --strict, not a silent pass" 1 \
@@ -5681,13 +5029,6 @@ probe "a malformed manifest line is red under --strict, not a silent pass" 1 \
 
 begin_group "make revendor-coremark"
 
-# The manifest check earlier in this file grades PINNED.sha256 against the
-# TREE; this recipe is the other half -- it grades the tree against UPSTREAM.
-# A stub curl substitutes what "upstream" answers, so what is forced red
-# below is exactly the byte comparison that stands between a substituted
-# download and an endorsed vendor tree. RV_PREFIX has to match the pin the
-# Makefile states -- it is not read back out of the Makefile here, the same
-# way SS_ASSET above is a fixed fixture value rather than a second reader.
 RV_PREFIX=coremark-1f483d5b8316753a742cbf5590caf5bd0a4e4777
 
 rv() {  # $1 = bin dir with a curl stub on it
@@ -5695,10 +5036,6 @@ rv() {  # $1 = bin dir with a curl stub on it
     "$1" "$PATH" "$REPO"
 }
 
-# Builds a real, valid tarball out of the shipping vendored files, optionally
-# mutating or dropping one member -- so "the archive itself is well-formed"
-# and "its bytes agree with the tree" are tested as two separate questions,
-# the way make_curl_stub's garbage bytes alone could not.
 rv_tarball() {  # $1 = output path, $2 = member to mutate (or ""), $3 = member to drop (or "")
   local out=$1 mutate=$2 drop=$3
   local src; src=$(mktemp -d "$tmp/rv-src.XXXXXX")
@@ -5711,8 +5048,6 @@ rv_tarball() {  # $1 = output path, $2 = member to mutate (or ""), $3 = member t
   tar czf "$out" -C "$src" "$RV_PREFIX"
 }
 
-# Serves one fixed tarball for every request, whatever -o names -- the same
-# shape make_curl_stub uses, parameterised on which bytes to hand back.
 rv_curl_stub() {  # $1 = bin dir, $2 = tarball to serve
   mkdir -p "$1"
   cat > "$1/curl" <<STUBEOF
@@ -5766,9 +5101,6 @@ d=$(new_case)
 probe "a repo root with no Makefile is red before anything is parsed" 1 \
   "does not exist, so there is nothing to parse" "$ND $d"
 
-# THE ONE THAT MATTERS: a target other than the two starts depending on
-# netlist-digest, which is exactly the corollary "the digest replaces a
-# sweep, never a gate" exists to forbid -- a sweep silently skipped.
 d=$(nd_fixture)
 mutate "$d/Makefile" \
   's/^test: sim test-units probe-gates pin-bump-test tool-cache-test memmap-test \\$/test: sim test-units probe-gates netlist-digest pin-bump-test tool-cache-test memmap-test \\/'
@@ -5778,20 +5110,15 @@ probe "a graded target quietly depending on netlist-digest is red, and named" 1 
 probe "and the diagnostic states the corollary this check is enforcing" 1 \
   "THE DIGEST REPLACES A SWEEP, NEVER A GATE" "$ND $d"
 
-# The sibling comparison target is graded the same way.
 d=$(nd_fixture)
 mutate "$d/Makefile" 's/^tracked-ignored-test:$/tracked-ignored-test: netlist-diff/'
 probe "netlist-diff reaches the same check as netlist-digest does" 1 \
   "tracked-ignored-test: depends on netlist-diff" "$ND $d"
 
-# A .PHONY declaration lists a target by name without creating a real
-# dependency edge -- it must not be mistaken for one.
 d=$(nd_fixture)
 probe "control: .PHONY declaring netlist-digest is not a dependency edge" 0 \
   "prerequisites of nothing but themselves" "$ND $d"
 
-# The other direction: the check has to be able to find the two targets' own
-# rule lines, or it is asserting a property of nothing.
 d=$(nd_fixture)
 mutate "$d/Makefile" \
   's/^netlist-digest: netlist-determinism$/netlist-digest-renamed: netlist-determinism/'
@@ -5800,10 +5127,6 @@ probe "a renamed or deleted netlist-digest target stops the check rather than pa
 
 begin_group "test/lut4_site_test.sh"
 
-# A COPY OF EVERY ALLOW-LISTED SITE, the same reason test/retired_term_test.sh's
-# fixture is one: the control below is the real allow-list and every red probe
-# is one edit away from it. git init over the copy because this check reads
-# git's index, the same property test/tracked_ignored_test.sh's fixture reads.
 L4="$HERE/lut4_site_test.sh"
 
 l4_fixture() {
@@ -5834,7 +5157,6 @@ d=$(new_case)
 probe "a plain directory git cannot list is a scan of nothing, not green" 1 \
   "cannot enumerate any tracked files" "$L4 $d"
 
-# THE ONE THAT MATTERS: a new site nothing on the list reviewed.
 d=$(l4_fixture); printf '# SB_LUT4 is a nice round number\n' >> "$d/soc/depth/summary.py"
 mkdir -p "$d/soc/depth"; git -C "$d" add -A
 probe "an unlisted site is red and named, with the file:line quoted" 1 \
@@ -5843,13 +5165,10 @@ probe "an unlisted site is red and named, with the file:line quoted" 1 \
 probe "and the diagnostic explains which unit is safe to read instead" 1 \
   "ICESTORM_LC" "$L4 $d"
 
-# A directory entry has to match on the path separator, the same guard
-# test/retired_term_test.sh's own allow-list carries.
 d=$(l4_fixture); printf 'SB_LUT4\n' > "$d/docs/adrenaline.md"; git -C "$d" add -A
 probe "a lookalike sibling is not covered by the directory entry above it" 1 \
   "docs/adrenaline.md:" "$L4 $d"
 
-# The other direction: an exemption whose site no longer carries the string.
 d=$(l4_fixture); mutate "$d/soc/depth/path_stages.py" '/SB_LUT4/d'; git -C "$d" add -A
 probe "an allow-list entry whose site lost the string is red" 1 \
   "the allow-list exempts soc/depth/path_stages.py" "$L4 $d"
@@ -5876,8 +5195,6 @@ d=$(new_case)
 probe "a repo with no .github/workflows is red rather than a scan of nothing" 1 \
   "there is nothing to scan" "$WR $d"
 
-# THE ONE THAT MATTERS: two source files named on one line, the shape a
-# second hand-written copy of SIM_RTL_SRCS takes.
 d=$(wr_fixture "        run: iverilog rtl/structs.v rtl/decoder.v")
 probe "two rtl/*.v paths on one line is a second copy, and is red" 1 \
   "names 2 distinct rtl/*.v paths on one line" "$WR $d"
@@ -5890,9 +5207,6 @@ probe "the same path repeated on one line is not a second copy" 0 \
   "no workflow file enumerates more than one" "$WR $d"
 begin_group "test/mutation_coverage_test.sh"
 
-# A COPY OF THE SHIPPING FILES, the same fixture shape test/memmap_test.sh's
-# probes use and for the same reason: the control is then the real tree, and
-# every red probe is one edit away from it.
 MCOV="$HERE/mutation_coverage_test.sh"
 
 mcov_fixture() {
@@ -5914,8 +5228,6 @@ probe "control: the shipping manifest rules on every rtl/*.v file" 0 \
 probe "a repo root that does not exist is red before anything is parsed" 1 \
   "is not a directory" "$MCOV $d/nowhere"
 
-# THE ONE THAT MATTERS: a new rtl/*.v file joining the fourteen no mutation
-# touches, silently, the way rtl/trng.v would when the entropy sprint adds it.
 d=$(mcov_fixture); touch "$d/rtl/trng.v"
 probe "a new rtl file with no line is red, naming the file" 1 \
   "rtl/trng.v" "$MCOV $d"
@@ -5936,8 +5248,6 @@ mutate "$d/test/MUTATION_COVERAGE" \
 probe "an unpaired line whose named grader is not a real bench or formal task is red" 1 \
   "names no real bench, formal" "$MCOV $d"
 
-# A bare \`unpaired\` is the defect this whole file exists to rule out --
-# permitting it teaches people to write it.
 d=$(mcov_fixture)
 mutate "$d/test/MUTATION_COVERAGE" \
   's/^rtl\/uart.v      unpaired  uart_tb/rtl\/uart.v      unpaired/'
@@ -5956,15 +5266,6 @@ probe "a mutation line with a stray extra field is red rather than read as the n
   "takes exactly one field" "$MCOV $d"
 begin_group "soc/compare/product_check.py"
 
-# A real git repo, not a copy of this one: the paths product_check.py diffs are
-# rtl/ and soc/compare/, so a two-file fixture is enough, and it needs its own
-# commit for the stamp's `base` to name. soc/compare/product_write.py builds
-# the stamp itself, the same script `make compare-product` uses, so a probe
-# that mutates this fixture's product.json by hand would be testing a document
-# nothing real ever writes. Named product_check_fixture/product_check_run
-# rather than the shorter pc_* this group used to use: test/port_connect_test.py's
-# own group already owns pc_fixture, and a same-named redefinition later in
-# this file would have silently shadowed it for every probe after this point.
 product_check_fixture() {
   local d; d=$(new_case)
   mkdir -p "$d/repo/rtl" "$d/repo/soc/compare"
@@ -5987,11 +5288,6 @@ product_check_fixture() {
   printf '%s' "$d"
 }
 
-# `<current>` is embedded inside single quotes in the generated snippet, not
-# handed through positionally: the snippet is a STRING that probe() later
-# `eval`s, which re-splits on whitespace, so a value with a space in it (every
-# CFLAGS string here has one) survives only if the quoting is in the text
-# itself rather than in this function's own argument boundaries.
 product_check_run() {  # <fixture dir> <benchmark> <--current field=value, or "" to omit>
   local d=$1 bench=$2 current=$3
   local cmd="python3 $REPO/soc/compare/product_check.py $d/repo/product.json $bench --repo $d/repo"
@@ -6050,11 +5346,6 @@ probe "an empty --current value is refused, not compared as though it were the f
 
 begin_group "soc/compare/product_write.py"
 
-# `--cflags '-march=rv32ic -mabi=ilp32'`, never a single flag: argparse reads a
-# lone `-march=rv32ic` as an option it does not recognise rather than as this
-# option's value (it only trusts a `-`-prefixed token as a plain value once a
-# space in it rules out its being a flag) -- the same reason CFLAGS is always
-# more than one flag in every real caller.
 d=$(new_case)
 probe "control: a complete --measured call writes a valid pair" 0 \
   "wrote dhrystone (measured)" \
@@ -6134,13 +5425,6 @@ probe "a --measured call with no --isa is refused the same way as a missing --cf
 
 begin_group "soc/compare/product_diff.py"
 
-# --require-news reuses soc/compare/product_check.py's own moved_paths(), which
-# runs a real `git diff` -- so this fixture is a real, isolated git repo (the
-# same shape product_check_fixture above builds) rather than pointing --repo at
-# this checkout: this checkout is mid-development on the very files under
-# soc/compare/ these probes would otherwise be diffing against, which would
-# make "no news" depend on whether this tree happened to be clean when the
-# probe ran.
 pd_fixture() {  # writes before.json and after.json into a fresh, isolated repo
   local d; d=$(new_case)
   mkdir -p "$d/repo/rtl" "$d/repo/soc/compare"
@@ -6197,9 +5481,6 @@ probe "a pair measured for the first time is news on its own, with no --current 
   "news" \
   "python3 $REPO/soc/compare/product_diff.py $d/before.json $d/after.json --require-news --repo $d/repo"
 
-# 1 is "no news" here, so a refusal that also exited 1 reached the scheduled
-# re-take's if/else as a clean negative: no pull request, no error, nothing
-# said. The status is the only thing that tells them apart.
 d=$(pd_fixture)
 probe "--require-news refuses on its own status, not on \"no news\"" 2 \
   "is empty" \
@@ -6243,9 +5524,6 @@ begin_group "test/fixture_freshness_test.py"
 
 ffr() { printf 'python3 %s/test/fixture_freshness_test.py %s' "$1" "$1"; }
 
-# A COPY OF BOTH SHIPPING FILES: the checker reads its own allowlists from
-# whichever copy of itself runs, so proving the staleness direction means
-# mutating that copy too, not just the fixture it reads.
 ffr_fixture() {
   local d; d=$(new_case)
   mkdir -p "$d/test"
@@ -6259,10 +5537,6 @@ probe "control: the shipping fixtures are all mutate/mutate_remove, every anchor
 
 d=$(ffr_fixture)
 printf '\nsed -i.bak "s/x/y/" foo.txt\n' >> "$d/test/probe_gates.sh"
-# The expected text runs THROUGH the quoted line, not just up to the verb: the
-# scan counts lines itself, and a line number that has drifted off the planted
-# edit names an innocent line -- or a masked one, where the edit is dropped
-# with nothing said at all.
 probe "a raw sed -i outside mutate/mutate_remove is red, naming the line" 1 \
   "directly: sed -i.bak \"s/x/y/\" foo.txt" "$(ffr "$d")"
 
@@ -6277,9 +5551,6 @@ FIXTURE
 probe "a hand-typed fixture with no anchor and no cp of a real file is red" 1 \
   "no fixture_anchor and no cp" "$(ffr "$d")"
 
-# The delimiter UNQUOTED, which is what a fixture whose body interpolates a
-# `$1` has to write. Two regexes once disagreed about this shape and the
-# anchor check skipped the fixture behind soc/bram_reset_check.py entirely.
 d=$(ffr_fixture)
 cat >> "$d/test/probe_gates.sh" <<'FIXTURE'
 another_synthetic_fixture() {
@@ -6302,11 +5573,6 @@ mutate "$d/test/probe_gates.sh" \
 probe "an allow-listed fixture that gained a real anchor is red until the entry is deleted" 1 \
   "is no longer an anchorless synthetic fixture" "$(ffr "$d")"
 
-# A probe's label is compared against the checked-in manifest as a MULTISET
-# (sorted, duplicates kept), never reduced to a bare count first: a count can
-# stay right while one probe is swapped for an unrelated one, and `diff` names
-# exactly which label is missing or extra rather than reporting a mismatched
-# total with nothing to point at.
 actual_labels=$(printf '%s\n' "${probe_labels[@]}" | LC_ALL=C sort)
 expected_labels=$(grep -vE '^#|^[[:space:]]*$' "$PROBES_MANIFEST" | LC_ALL=C sort)
 if [ "$actual_labels" != "$expected_labels" ]; then

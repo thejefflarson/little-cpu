@@ -35,22 +35,19 @@ import argparse
 import re
 import sys
 
-# yosys `stat`, the same line shape soc/compare/placed_vs_synth.py reads for
-# SB_LUT4.
+# yosys `stat`, the same line shape soc/compare/placed_vs_synth.py reads for SB_LUT4.
 BLOCKS = re.compile(r"^\s+(\d+)\s+SB_RAM40_4K\s*$", re.M)
 # `localparam int ROM_WORDS = 2048;` in the testbench.
 PARAM = r"^\s*localparam\s+int\s+{}\s*=\s*(\d+)\s*;"
 
-# One SB_RAM40_4K is 4096 bits, and yosys builds a 32-bit word out of two of
-# them 256 words deep. So a 32-bit memory costs two blocks per 256 words.
+# One SB_RAM40_4K is 4096 bits, and yosys builds a 32-bit word out of two of them 256
+# words deep.
 WORDS_PER_BLOCK_PAIR = 256
-
 
 def blocks_for(byte_count):
     words = (byte_count + 3) // 4
     pairs = (words + WORDS_PER_BLOCK_PAIR - 1) // WORDS_PER_BLOCK_PAIR
     return pairs * 2
-
 
 def read_core_blocks(spec):
     """`name=path` -> (name, blocks), from that core's standalone yosys census."""
@@ -72,7 +69,6 @@ def read_core_blocks(spec):
         )
     return name, int(found[-1])
 
-
 def read_tb_param(path, name):
     try:
         with open(path) as handle:
@@ -88,7 +84,6 @@ def read_tb_param(path, name):
             "script the new spelling rather than dropping the comparison."
         )
     return int(match.group(1))
-
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -172,7 +167,6 @@ def main():
             "DMIPS figures are a projection, not a measured throughput."
         )
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

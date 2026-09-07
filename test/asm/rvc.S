@@ -1,26 +1,6 @@
 # See LICENSE for license details.
 
-#*****************************************************************************
-# rvc.S
-#-----------------------------------------------------------------------------
-#
-# Test RVC corner cases.
-#
-# Adapted from riscv-software-src/riscv-tests isa/rv64uc/rvc.S (upstream's
-# isa/rv32uc/rvc.S is just an #include of it). `#if __riscv_xlen == 64` blocks
-# are dead code on this RV32 core but stay, unmodified, so this file can be
-# diffed against upstream directly. One deliberate deviation, called out where
-# it happens below: upstream's `data:` blob lives in .text and its load/store
-# tests (6, 40) read and write it there, which only works on riscv-tests'
-# unified memory model. This core is strictly Harvard -- mem_addr (the data
-# bus) and imem_addr (the instruction bus) are physically disjoint
-# buses over disjoint address ranges (see sections.lds) -- so a store
-# through `data:`'s ROM address is a silent no-op here, not upstream's
-# round-trip. Tests 6 and 40 are repointed at a second, RAM-resident copy
-# (`ram_data`, added below) instead; `data:` itself stays exactly as
-# upstream for test 2, which never loads or stores through it -- it only
-# needs *something* to skip over while proving a 32-bit instruction fetch
-# across a straddle works, and ROM is where fetches happen.
+# rvc.S Test RVC corner cases.
 
 #include "riscv_test.h"
 #include "test_macros.h"

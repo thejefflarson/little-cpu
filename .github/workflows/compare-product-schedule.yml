@@ -1,38 +1,9 @@
 name: Cross-core product re-take
 
-# Weekly, re-measures both cross-core throughput pairs soc/compare/ knows --
-# Dhrystone against VexRiscv, and CoreMark against Hazard3 once
-# `make compare-coremark` exists -- and opens a pull request only when the
-# OLD stamp would have called itself stale against the tree this run checked
-# out. soc/compare/product_diff.py's --require-news is the verdict, and it
-# asks soc/compare/product_check.py's own question rather than inventing a
-# percentage threshold -- no churn band has ever been derived for the hx8k
-# part this harness places, so a moved-by-how-much gate would be a number
-# nobody swept standing in for one.
-#
-# `make compare-product` is not on CI and adds no ratchet -- CLAUDE.md is
-# explicit that none of `make compare-*` is. This workflow does not change
-# that: it is a refresh mechanism, and the PR it opens is reviewed like any
-# other before it can merge.
-#
-# THE MAINTAINER REVIEWS A PR INSTEAD OF REMEMBERING TO ASK. The problem this
-# closes: the product's own paragraph in CLAUDE.md has gone stale on record
-# twice, once inside a day and once by being re-derived by hand a second time,
-# because nothing was watching either factor. This is what watches.
-#
-# GITHUB_TOKEN-AUTHORED PUSHES DO NOT TRIGGER `pull_request`/`push` WORKFLOWS
-# BY GITHUB'S OWN ANTI-RECURSION RULE, so the PR this opens shows no CI checks
-# until something re-runs them (closing and reopening the PR is the usual
-# nudge; workflow_dispatch on ci.yml against the branch also works).
-# formal/bump-riscv-formal-pin.sh hits the same wall and opens an issue instead
-# for that reason; this workflow opens a PR anyway because soc/compare/product.json
-# is data rather than RTL, and the checks branch protection actually requires do
-# not depend on it moving. If this PR ever sits with no green checks, that is
-# the explanation -- it needs a nudge, not a fix.
-#
-# NO AUTO-MERGE. dependabot-automerge.yml is scoped to dependabot[bot] and does
-# not apply here, and nothing in this file enables it: a moved product is news
-# for a person to read, not a change to wave through.
+# Weekly, re-measures both cross-core throughput pairs soc/compare/ knows -- Dhrystone
+# against VexRiscv, and CoreMark against Hazard3 once `make compare-coremark` exists --
+# and opens a pull request only when the OLD stamp would have called itself stale against
+# the tree this run checked out.
 on:
   schedule:
     - cron: "23 5 * * 1" # weekly, Monday
@@ -45,24 +16,14 @@ permissions:
 jobs:
   re-take:
     name: re-take
-    # Bare, not ci.yml's fork-PR ternary: that ternary exists because a
-    # `pull_request` job runs a fork author's own code on this pool once a
-    # maintainer has approved one of their runs. `schedule` and
-    # `workflow_dispatch` carry no fork PR context at all -- this job only
-    # ever runs this repository's own `main`.
     runs-on: little-cpu-runners
-    # Twenty-four placements (twelve seeds a side for the Dhrystone pair) is
-    # roughly half an hour; the CoreMark pair, once it exists, is another two
-    # sweeps on top of that. 90 minutes leaves headroom for a busy pool without
-    # masking a genuinely hung placement.
+    # Twenty-four placements (twelve seeds a side for the Dhrystone pair) is roughly half
+    # an hour; the CoreMark pair, once it exists, is another two sweeps on top of that.
     timeout-minutes: 90
     steps:
       - name: Record job start
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
-      # fetch-depth: 0, not the default shallow clone: soc/compare/product_check.py
-      # diffs the currently committed stamp's base commit against this tree, and
-      # a shallow clone would not have that commit to diff against.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -75,10 +36,6 @@ jobs:
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
 
-      # Copied aside before make compare-product overwrites it in place, so the
-      # diff step below has both sides. A tree with no artifact yet (the very
-      # first run) diffs against an empty document, which soc/compare/product_diff.py
-      # reads the same way it reads a pair that stopped being measured.
       - name: Save the currently committed stamp
         run: |
           if [ -f soc/compare/product.json ]; then
@@ -142,10 +99,6 @@ jobs:
                exit $rc ;;
           esac
 
-      # The no-move path is as visible as the move path on purpose: a silent
-      # success here is indistinguishable from a job that never ran, which is
-      # what let four PRs' CI queue for a day once before anyone noticed the
-      # runner pool had gone to zero.
       - name: No move -- say so and stop
         if: steps.diff.outputs.moved != 'true'
         run: |

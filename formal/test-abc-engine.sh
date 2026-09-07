@@ -1,19 +1,7 @@
 #!/bin/bash
-# Drives formal/check-abc-engine.sh against a stub yosys and a stub sby, and
-# pins both directions: it goes red naming the OSS CAD Suite on a yosys that
-# refuses sby's abc call, and it stays silently green on one that accepts it.
-#
-# The message is checked, not just the status. What this diagnostic is for is
-# the sentence it prints -- a bare exit 1 would be the raw parse error again,
-# with one more layer on top.
-#
-# It also pins that the call comes out of the sby that will run rather than out
-# of a hardcoded copy. A copy is wrong in the direction that costs: it would
-# refuse to start on a yosys/sby pairing where the real invocation works.
-#
-# Hermetic: no toolchain, no sby, no yosys, nothing but bash.
-#
-# Usage: formal/test-abc-engine.sh
+# Drives formal/check-abc-engine.sh against a stub yosys and a stub sby, and pins both
+# directions: it goes red naming the OSS CAD Suite on a yosys that refuses sby's abc
+# call, and it stays silently green on one that accepts it.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -29,9 +17,9 @@ if [ -z "$tmp" ] || [ ! -d "$tmp" ]; then
 fi
 trap 'rm -rf "$tmp"' EXIT
 
-# The stub yosys accepts exactly the call in $STUB_ACCEPTS and answers anything
-# else the way a yosys that dropped a flag does, so a probe of the wrong string
-# is visible here rather than only on somebody's laptop.
+# The stub yosys accepts exactly the call in $STUB_ACCEPTS and answers anything else the
+# way a yosys that dropped a flag does, so a probe of the wrong string is visible here
+# rather than only on somebody's laptop.
 mkdir -p "$tmp/bin"
 cat > "$tmp/bin/yosys" <<'STUB'
 #!/bin/bash
@@ -51,7 +39,6 @@ exit 1
 STUB
 chmod +x "$tmp/bin/yosys"
 
-# Only its path is read, so it never has to run.
 cat > "$tmp/bin/sby" <<'STUB'
 #!/bin/bash
 echo "stub sby: not meant to run" >&2
@@ -59,7 +46,6 @@ exit 9
 STUB
 chmod +x "$tmp/bin/sby"
 
-# The layout sby's launcher searches, relative to the sby binary.
 mkdir -p "$tmp/share/yosys/python3"
 write_sby_core() {  # write_sby_core <abc call>
   printf '                print("%s", file=f)\n' "$1" > \
@@ -69,10 +55,6 @@ write_sby_core() {  # write_sby_core <abc call>
 cases=0
 failed=0
 
-# check <label> <expected-exit> <expected-text> <shell-snippet>
-#
-# Both the status and a fragment of the output are pinned. A status alone would
-# be satisfied by a script that died on a typo before probing anything.
 check() {
   local label=$1 want_exit=$2 want_text=$3 snippet=$4
   cases=$((cases + 1))

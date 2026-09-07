@@ -55,43 +55,26 @@ import bands  # noqa: E402
 MARKER = "# baseline-sweep v1"
 END = "# end-provenance"
 
-# The fields every sweep writes whatever it placed. A file short of one was
-# written by something else, or by a version of soc/baseline_sweep.sh that
-# stamped less.
+# The fields every sweep writes whatever it placed.
 COMMON_REQUIRED = ["date", "base", "dirty", "part", "yosys", "prog", "rom_words",
                    "seeds", "host", "reproduce"]
 
-# What each part's measurement is additionally a property of. The tool sets are
-# genuinely different rather than two spellings of one: up5k is placed by
-# nextpnr-ice40 and then READ BACK by icetime, and there is no icetime for ECP5,
-# so nextpnr-ecp5's own estimator is the placer and the grader both -- which is
-# why the database it places against is stamped beside it, and why the constraint
-# it was handed is an input to the number rather than a description of it.
-#
-# A part carrying another part's fields is rejected, not merged: that file's
-# header describes an experiment nobody ran, and the likeliest way to produce one
-# is to hand-edit a stamp until a comparison stops complaining.
+# What each part's measurement is additionally a property of.
 PART_REQUIRED = {
     "up5k": ["nextpnr-ice40", "icetime"],
     "ecp5": ["nextpnr-ecp5", "trellis-db", "corner", "constraint_mhz"],
 }
 
-# The fields common to both parts that have to agree before a delta means
-# anything: the tree, the shared tool, and the program and ROM size that decide
-# what was placed. `date`, `seeds` and `host` are recorded but not compared --
-# two sweeps of different sizes on different days are exactly what a
-# before-and-after is.
+# The fields common to both parts that have to agree before a delta means anything: the
+# tree, the shared tool, and the program and ROM size that decide what was placed.
 COMMON_COMPARED = ["base", "yosys", "prog", "rom_words"]
 
-# Compared ahead of everything else and NOT coverable by --allow-mismatch. See
-# the module docstring: a cross-part difference is not a quantity.
+# Compared ahead of everything else and NOT coverable by --allow-mismatch.
 PART_FIELD = "part"
-
 
 def reject(path, why):
     sys.exit(f"*** {path}: {why}\n"
              f"*** That is a failed measurement, not a comparable one.")
-
 
 def load(path):
     """One sweep's provenance block and its placements, or exit saying why not."""
@@ -124,10 +107,9 @@ def load(path):
                if not provenance.get(key)]
     if missing:
         reject(path, "the provenance block is missing " + ", ".join(missing))
-    # The other direction, and the one a hand-edited stamp trips: a sweep that
-    # says up5k while carrying nextpnr-ecp5, or says ecp5 while carrying icetime,
-    # is a header describing a run that did not happen. Either half could be the
-    # wrong one, so neither is believed over the other.
+    # The other direction, and the one a hand-edited stamp trips: a sweep that says up5k
+    # while carrying nextpnr-ecp5, or says ecp5 while carrying icetime, is a header
+    # describing a run that did not happen.
     foreign = sorted({key for other, keys in PART_REQUIRED.items() if other != part
                       for key in keys} - set(PART_REQUIRED[part]))
     carried = [key for key in foreign if provenance.get(key)]
@@ -150,7 +132,6 @@ def load(path):
     rows.sort(key=lambda r: r["ns"])
     return provenance, rows
 
-
 def span(rows, column):
     """`23-25` where the placements disagree, `23` where they do not.
 
@@ -168,7 +149,6 @@ def span(rows, column):
         return "?"
     return f"{values[0]}-{values[-1]}" if values[0] != values[-1] else str(values[0])
 
-
 def stats(rows):
     ns = [row["ns"] for row in rows]
     worst, best = max(ns), min(ns)
@@ -180,18 +160,11 @@ def stats(rows):
         "spread": 100 * (worst - best) / best,
     }
 
-
 def field(label, text):
     print(f"  {label:13s}: {text}")
 
-
-# What the row's cell count is a count OF, per part. Named on every report
-# because the two are not the same unit and neither is `SB_LUT4`: the up5k figure
-# is nextpnr's packed ICESTORM_LC, which is what the +/-50 band is in, and the
-# ECP5 figure is its TRELLIS_COMB. A column headed `lc` for both would invite the
-# subtraction the part check exists to refuse.
+# What the row's cell count is a count OF, per part.
 CELL_UNIT = {"up5k": "packed ICESTORM_LC", "ecp5": "TRELLIS_COMB"}
-
 
 def report(path, provenance, rows):
     s = stats(rows)
@@ -225,7 +198,6 @@ def report(path, provenance, rows):
     print(bands.note(part))
     print()
 
-
 def refuse_across_parts(first, second):
     """Stop, whatever flags were passed, if these two placed different parts.
 
@@ -248,7 +220,6 @@ def refuse_across_parts(first, second):
         "*** for differences that can be deliberate, and this one cannot.\n"
         "*** Summarise each sweep on its own, against its own part's band."
     )
-
 
 def mismatches(first, second):
     """Every recorded reason these two sweeps are not one experiment.
@@ -274,13 +245,11 @@ def mismatches(first, second):
                        f"  {second_prov[key]}  ({second_path})")
     return out
 
-
 def emit(reasons, prefix):
     """One reason may be three lines long; the prefix belongs on all of them."""
     for reason in reasons:
         for line in reason.splitlines():
             print(f"{prefix}{line}")
-
 
 def delta(part, first, second):
     before, after = stats(first), stats(second)
@@ -290,7 +259,6 @@ def delta(part, first, second):
         print(f"  {label:8s}: {before[label]:6.2f} -> {after[label]:6.2f} ns  {change:+.1f}%")
     print("  A positive number is slower. Read it against this part's own band:")
     print(bands.note(part))
-
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -328,7 +296,6 @@ def main():
         emit(reasons, "  ")
         print()
     delta(first_prov[PART_FIELD], first_rows, second_rows)
-
 
 if __name__ == "__main__":
     main()

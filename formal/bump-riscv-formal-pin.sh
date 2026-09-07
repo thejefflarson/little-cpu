@@ -1,19 +1,8 @@
 #!/bin/bash
-# Bumps formal/pin.mk's riscv-formal SHA on a branch when upstream's `main` has
-# moved past it, regenerating test/monitor.v so monitor-freshness is a real
-# verdict on the bump rather than a guaranteed failure, and then opens an issue
-# asking a human to open the pull request. Does nothing -- no branch, no commit,
-# no issue -- if the pin is already current, or if a pull request or issue
-# already proposes the SHA upstream is at.
-#
-# formal/propose-pin-bump.sh opens that issue. Read its header before changing
-# how CI reaches the bump; opening the PR here does not work.
-#
-# The existing gates (monitor-freshness, formal/check-genchecks.py,
-# formal/check-complete-exclusions.py, the checks themselves) decide whether the
-# bump is safe; this script only notices and proposes.
-#
-# Usage: formal/bump-riscv-formal-pin.sh
+# Bumps formal/pin.mk's riscv-formal SHA on a branch when upstream's `main` has moved
+# past it, regenerating test/monitor.v so monitor-freshness is a real verdict on the bump
+# rather than a guaranteed failure, and then opens an issue asking a human to open the
+# pull request.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
@@ -28,9 +17,6 @@ print(m.group(1))
 ")
 
 UPSTREAM_SHA=$(git ls-remote "$UPSTREAM_URL" HEAD | cut -f1)
-# Validated before use anywhere else in this script: it is about to be
-# written into formal/pin.mk, a branch name, and a shell-evaluated Python
-# argument, and an upstream server is who supplies it.
 if ! printf '%s' "$UPSTREAM_SHA" | grep -qE '^[0-9a-f]{40}$'; then
   echo "upstream HEAD for $UPSTREAM_URL is not a 40-hex SHA: '$UPSTREAM_SHA'" >&2
   exit 1
@@ -53,8 +39,6 @@ if [ "$OPEN_COUNT" -gt 0 ]; then
   exit 0
 fi
 
-# Titles are compared exactly rather than handed to `--search`, whose matching
-# is fuzzy: a near miss there would open a fresh issue every week.
 ISSUE_COUNT=$(gh issue list --state open --limit 200 --json title \
   --jq "[.[] | select(.title == \"$TITLE\")] | length")
 if [ "$ISSUE_COUNT" -gt 0 ]; then
@@ -87,8 +71,6 @@ if n != 1:
 p.write_text(new_text)
 EOF
 
-# A clone left on disk at the old pin trips pin.mk's own fail-closed guard the
-# moment the SHA above changes underneath it.
 rm -rf formal/riscv-formal
 make test/monitor.v
 
@@ -102,9 +84,6 @@ COMPARE_URL="https://github.com/YosysHQ/riscv-formal/compare/${PIN_SHA}...${UPST
 git config user.name "github-actions[bot]"
 git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 git add formal/pin.mk test/monitor.v
-# A human opens the pull request from this branch, and `gh pr create --fill`
-# fills its body from this message, so the two SHAs and the compare link belong
-# here rather than only in the issue.
 git commit --quiet -m "$TITLE
 
 pinned:   $PIN_SHA

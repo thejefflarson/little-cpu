@@ -1,7 +1,6 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// A single-lane, mode-0 SPI shift register for the configuration flash. It decodes
-// no commands, and the bottom of that flash is the bitstream itself.
+// A single-lane, mode-0 SPI shift register for the configuration flash.
 module spiflash #(
   parameter logic [31:0] BASE = 32'h0002_0028
 ) (

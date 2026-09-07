@@ -1,20 +1,6 @@
 #!/bin/sh
-# Builds test/dual/smoke.S once and runs it TWICE: with both harts, and with
-# hart 1 held in reset. Both directions are graded, and the second is the point.
-#
-# A DUAL HARNESS THAT MEASURES ONE HART MEASURES NOTHING, and it does not look
-# any different from a working one -- hart 0's program passes either way unless
-# the answer depends on hart 1 having run. So the same program is run both ways
-# and the shared count is required to MOVE: 2 * ITERS with two harts, ITERS with
-# one. A harness whose second core was never clocked, never released from reset,
-# or wired to the same instance as the first reports the same number twice and
-# goes red here.
-#
-# The forward direction grades three things the reverse cannot: the program's
-# own verdict, both harts' retire counts being non-zero, and the exit status
-# being 0 rather than any of the runner's named failures.
-#
-# Usage: dual_smoke.sh <path-to-dual-sim>
+# Builds test/dual/smoke.S once and runs it TWICE: with both harts, and with hart 1 held
+# in reset.
 set -eu
 
 SIM=${1:-./dual-sim}
@@ -24,12 +10,6 @@ ASM_DIR="$REPO/test/asm"
 CYCLES=${DUAL_CYCLES:-8000}
 PROG="$HERE/dual/smoke.S"
 
-# Both numbers this script grades come out of the program itself: the iteration
-# count from its own `#define`, and the address of the counter from the linked
-# ELF's symbol table. Neither is restated here, so adding a word to `.data` or
-# changing the loop moves both without anything having to be kept in step -- and
-# a copy of `ram`'s base is one restatement of the memory map that does not have
-# to exist.
 ITERS=$(sed -n 's/^#define[[:space:]][[:space:]]*ITERS[[:space:]][[:space:]]*\([0-9][0-9]*\).*/\1/p' \
           "$PROG" | head -1)
 
@@ -51,16 +31,13 @@ OBJCOPY=${CC%gcc}objcopy
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/dual-smoke.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT
 
-# The same build an `.S` program in the suite gets: sections.lds, no crt0, and
-# `.data` poked into RAM by the runner rather than copied by a startup.
+# The same build an `.S` program in the suite gets: sections.lds, no crt0, and `.data`
+# poked into RAM by the runner rather than copied by a startup.
 "$CC" -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -nostdlib \
   -I "$ASM_DIR" -T "$ASM_DIR/sections.lds" \
   "$PROG" -o "$tmp/smoke.elf"
 TOTAL_ADDR=$("${CC%gcc}nm" "$tmp/smoke.elf" | awk '$3 == "total" { print "0x" $1 }')
 
-# Both reads have a silent failure mode -- an unmatched pattern is an empty
-# string, and every comparison below would then compare against nothing and
-# report a mismatch that names the wrong cause.
 if [ -z "$ITERS" ]; then
   echo "error: no \`#define ITERS\` in $PROG, so this script does not know what to expect." >&2
   exit 1
@@ -75,7 +52,6 @@ fi
   "$tmp/smoke.elf" "$tmp/ram.hex"
 
 run() {
-  # $1 = label, $2 = extra flag (may be empty)
   set +e
   # shellcheck disable=SC2086
   "$SIM" --rom "$tmp/rom.hex" --ram "$tmp/ram.hex" --cycles "$CYCLES" \
@@ -100,7 +76,6 @@ retires_of() {
   awk -v h="$1" '$1 == h && $2 == "RETIRES" { print $3 }' "$tmp/$2.out"
 }
 
-# ---- both harts -------------------------------------------------------------
 run both ""
 both_status=$status
 [ "$both_status" -eq 0 ] || fail "the two-hart run exited $both_status, not 0"
@@ -115,13 +90,9 @@ for h in HART0 HART1; do
   [ -n "$n" ] && [ "$n" -gt 0 ] || fail "$h retired nothing in the two-hart run"
 done
 
-# ---- hart 1 held in reset ---------------------------------------------------
 run held "--hold-hart1"
 held_status=$status
 
-# 6 is the per-hart silence gate, and it is the RIGHT answer here: hart 1 really
-# did observe nothing. Anything else means the gate did not fire -- including 0,
-# which would mean a program that cannot tell one hart from two.
 [ "$held_status" -eq 6 ] || \
   fail "the held run exited $held_status, not 6 (the per-hart silence gate)"
 

@@ -2,25 +2,14 @@
 `default_nettype none
 `include "structs.v"
 
-// Randomized differential bench for the executor's arithmetic, driving
-// `executor` directly with no decoder or pipeline.
-//
-// For mul and div it is the primary guarantee, because riscv-formal runs under
-// RISCV_FORMAL_ALTOPS and never checks that arithmetic at all. The shifts and
-// ADD/SUB do have generated checks, but those are `mode bmc`, and an ADD
-// off-by-one was measured reaching `tohost` through the `.S` suite and the Sail
-// co-simulation while every unit bench stayed silent.
-//
-// So it asserts its own shape before it asserts anything about the core: the
-// three check_* tasks below each exist because this bench could once stop
-// checking and still print PASSED.
+// Randomized differential bench for the executor's arithmetic, driving `executor`
+// directly with no decoder or pipeline.
 module exec_tb;
   localparam int RANDOM_VECTORS = 10000;
   localparam logic [1:0] DIVIDE_STATE = 2'b10; // must match executor.v's `divide` state
 
-  // The required coverage, deliberately not a second copy of the loop bounds:
-  // these must not move when a loop bound does. If a count check below goes red,
-  // restore the loop; never edit the number down to match it.
+  // The required coverage, deliberately not a second copy of the loop bounds: these must
+  // not move when a loop bound does.
   localparam int MIN_RANDOM_PER_OP        = 10000;
   localparam int MIN_DIRECTED_SHIFT_PER_OP = 384;
 
@@ -40,8 +29,8 @@ module exec_tb;
 
   int errors = 0;
 
-  // `run_op` resolves its `op_name` argument through this table, which is what
-  // makes a typo fatal rather than silent.
+  // `run_op` resolves its `op_name` argument through this table, which is what makes a
+  // typo fatal rather than silent.
   localparam int OP_MUL    = 0;
   localparam int OP_MULH   = 1;
   localparam int OP_MULHU  = 2;
@@ -60,16 +49,7 @@ module exec_tb;
   string op_names  [0:NUM_OPS-1];
   int    vec_count [0:NUM_OPS-1];
 
-  // The corner vectors this bench is required to run. None is meaningfully
-  // reachable by the randomized sweep, since each names both operands exactly --
-  // ten thousand `$random` pairs hit one with probability around 10^4 / 2^64 --
-  // so deleting one is a real loss of coverage rather than a rounding error on a
-  // big number.
-  //
-  // The manifest deliberately does not issue them. `run_op` witnesses each
-  // (op, rs1, rs2) it drove into the DUT against this list, so a deleted call
-  // site is red, and each entry's expected value is checked against the call
-  // site, which catches one kept but weakened in place.
+  // The corner vectors this bench is required to run.
   localparam int DIRECTED_N = 9;
   int          dir_op  [0:DIRECTED_N-1];
   logic [31:0] dir_rs1 [0:DIRECTED_N-1];
@@ -77,9 +57,8 @@ module exec_tb;
   logic [31:0] dir_exp [0:DIRECTED_N-1];
   logic        dir_ran [0:DIRECTED_N-1];
   string       dir_why [0:DIRECTED_N-1];
-  // Witnessing is a linear scan per vector driven, and there are ~111,000 of
-  // them; this counts down so `run_op` can skip the scan once the last directed
-  // call site has run. Purely a cost thing.
+  // Witnessing is a linear scan per vector driven, and there are ~111,000 of them; this
+  // counts down so `run_op` can skip the scan once the last directed call site has run.
   int          dir_pending;
 
   task automatic add_directed(input int slot, input int op, input logic [31:0] rs1_v,
@@ -136,12 +115,10 @@ module exec_tb;
     end
   endfunction
 
-  // The sign-context rule further down, above the shift references, governs
-  // these too, and `ref_div`/`ref_rem` are where it bites: their cases are an
-  // if / else-if / else over separate statements rather than one `?:` chain,
-  // because a chain whose other arms are unsigned literals evaluates
-  // `$signed(a) / $signed(b)` unsigned. That has happened at exactly these two
-  // functions, where -7 / 2 scored 0x7ffffffc.
+  // The sign-context rule further down, above the shift references, governs these too,
+  // and `ref_div`/`ref_rem` are where it bites: their cases are an if / else-if / else
+  // over separate statements rather than one `?:` chain, because a chain whose other arms
+  // are unsigned literals evaluates `$signed(a) / $signed(b)` unsigned.
   function automatic logic [31:0] ref_mul(input logic [31:0] a, input logic [31:0] b);
     logic [63:0] p;
     begin
@@ -214,18 +191,8 @@ module exec_tb;
     ref_sub = a - b;
   endfunction
 
-  // Each shift below is computed in a statement of its own, into a local whose
-  // signedness is declared, and is never an arm of a `?:`. Keep them that way. A
-  // conditional expression is unsigned if any operand is unsigned, and that
-  // pushes down into the context-determined operands, so a `$signed(a) >>> sh`
-  // in one arm evaluates as a logical shift -- with no warning, and only for
-  // negative operands, so every non-negative vector still agrees. The assignment
-  // target cannot rescue it. This repo has been bitten twice, the second time
-  // here, where the natural one-line `ref_sra` written as a `?:` arm reported
-  // six mismatches against correct hardware.
-  //
-  // The `b[4:0]` masks are this reference's own model of the rs2[4:0] rule. The
-  // vectors drive rs2 far above 31 so the RTL has to agree rather than coincide.
+  // Each shift below is computed in a statement of its own, into a local whose signedness
+  // is declared, and is never an arm of a `?:`.
   function automatic logic [31:0] ref_sll(input logic [31:0] a, input logic [31:0] b);
     logic [31:0] v;
     begin
@@ -252,20 +219,18 @@ module exec_tb;
     end
   endfunction
 
-  // The divide state's own cycle count, predicted from the operands rather than
-  // read back out of the core: the loop retires its last iteration, so the count
-  // is the counter's load value -- 32 iterations, or 16 when the dividend's
-  // magnitude has a zero top half and the loop is loaded sixteen in. Zero for the
-  // two short-circuits and for everything that is not a divide, which is what
-  // makes an unexpected visit to that state red rather than unmeasured.
+  // The divide state's own cycle count, predicted from the operands rather than read back
+  // out of the core: the loop retires its last iteration, so the count is the counter's
+  // load value -- 32 iterations, or 16 when the dividend's magnitude has a zero top half
+  // and the loop is loaded sixteen in.
   function automatic int ref_div_cycles(input int id, input logic [31:0] a,
                                          input logic [31:0] b);
     logic [31:0] mag;
     logic        is_signed;
     begin
       is_signed = (id == OP_DIV) || (id == OP_REM);
-      // `mag` is assigned in a statement of its own for the reason the shift
-      // references are: a negation in a `?:` arm evaluates unsigned.
+      // `mag` is assigned in a statement of its own for the reason the shift references
+      // are: a negation in a `?:` arm evaluates unsigned.
       mag = a;
       if (is_signed && a[31]) mag = -a;
       if (id != OP_DIV && id != OP_DIVU && id != OP_REM && id != OP_REMU)
@@ -288,14 +253,6 @@ module exec_tb;
     end
   endtask
 
-  // Checks the oracle, not the core -- no RTL is involved in any call to this. A
-  // reference that degraded to a logical shift, or an unsigned divide, agrees
-  // with a correct one on every non-negative operand, so it would pass thousands
-  // of randomized vectors and then report mismatches against correct hardware.
-  //
-  // Every expected value here is computed by hand. A literal captured from a run
-  // of this bench is derived from the function it is supposed to check, which is
-  // the same defect one level down; do the arithmetic on paper.
   task automatic ref_selftest(input string what, input logic [31:0] got,
                                input logic [31:0] want);
     begin
@@ -306,8 +263,6 @@ module exec_tb;
     end
   endtask
 
-  // Checks that the bench ran what it says it runs. A loop bound edited to zero
-  // during a debugging session and never put back used to print PASSED.
   task automatic check_vector_counts;
     int k, want;
     begin
@@ -324,9 +279,6 @@ module exec_tb;
     end
   endtask
 
-  // Both loop lengths have to have run. A `$random` dividend has a zero top half
-  // about once in 65,536, so the short one is reached by the directed vectors at
-  // the bottom of the run and by nothing else reliably.
   int div_len_16, div_len_32;
   task automatic check_div_lengths;
     begin
@@ -341,8 +293,6 @@ module exec_tb;
     end
   endtask
 
-  // A randomized vector cannot cover for a deleted directed one: these are the
-  // cases random operands do not reach, or reach only by accident.
   task automatic check_directed_manifest;
     int d;
     begin
@@ -367,24 +317,10 @@ module exec_tb;
     end
   endtask
 
-  // When set, run_op zeroes `in` on the cycle after issue and leaves it zeroed.
-  // That is what the pipeline does to a running divide -- the divider stall is
-  // low on the issue cycle, so decode issues normally and then publishes an
-  // operand-fetch bubble that the stall holds -- and it is the one input
-  // sequence a divide really sees. A divider that read `in` after issue instead
-  // of its own latches would divide by zero here and nowhere else.
   logic bubble_after_issue;
 
-  // What the monitor at the bottom of this file grades the next divide against.
-  // Written before the issue edge and read on the first cycle in the divide
-  // state, so a later call cannot overwrite a check still pending.
   int expect_div_cycles;
 
-  // The executor is done when it has returned to `init` after the issue edge --
-  // immediately for the multiply family and the divide short-circuits, 16 or 32
-  // cycles later for a real division. Polling rather than hardcoding a count
-  // keeps this correct however long the divider takes; the count is checked at
-  // the bottom of this file.
   task automatic run_op(input string op_name, input logic [31:0] rs1_v, input logic [31:0] rs2_v,
                          input logic [31:0] expected);
     int guard;
@@ -393,8 +329,6 @@ module exec_tb;
     begin
       id = op_index(op_name);
       if (id < 0) begin
-        // A typo in an op name would otherwise issue an all-zero decoder_output
-        // and silently compare against whatever the executor left on rd_data.
         $display("BENCH BUG: unknown op name '%s'", op_name);
         $fatal(1);
       end
@@ -454,9 +388,6 @@ module exec_tb;
   logic [31:0] a, b;
   int i;
 
-  // Chosen so a lost sign bit, a dropped mask or an off-by-one fill is visible:
-  // INT_MIN, all-ones, INT_MAX, a negative non-trivial value, a positive
-  // alternating one, and 1, which walks a single bit off each end.
   localparam int SHIFT_PATTERNS = 6;
   logic [31:0] pattern [0:SHIFT_PATTERNS-1];
   int p, sh;
@@ -471,39 +402,19 @@ module exec_tb;
     #1;
     reset = 0;
 
-    // The arithmetic behind each literal is written out so a reader can verify
-    // it without running anything.
-    //
-    // MUL: low 32 bits, signedness-independent. (-1)*(-1) = 1; 2^31 * 2 = 2^32,
-    // whose low half is zero; 65535^2 = 0xfffe0001.
     ref_selftest("mul(ffffffff,ffffffff)",  ref_mul(32'hffffffff, 32'hffffffff), 32'h00000001);
     ref_selftest("mul(80000000,00000002)",  ref_mul(32'h80000000, 32'h00000002), 32'h00000000);
     ref_selftest("mul(0000ffff,0000ffff)",  ref_mul(32'h0000ffff, 32'h0000ffff), 32'hfffe0001);
-    // MULH: signed x signed, high 32. (-1)*(-1) = +1 -> 0.
-    // (-2^31)*(-2^31) = 2^62 -> 0x40000000. (-2^31)*2 = 2*(-2^31) = -2^32 ->
-    // 0xffffffff, and that last pair recurs in the MULHU/MULHSU cases below.
     ref_selftest("mulh(ffffffff,ffffffff)", ref_mulh(32'hffffffff, 32'hffffffff), 32'h00000000);
     ref_selftest("mulh(80000000,80000000)", ref_mulh(32'h80000000, 32'h80000000), 32'h40000000);
     ref_selftest("mulh(80000000,00000002)", ref_mulh(32'h80000000, 32'h00000002), 32'hffffffff);
     ref_selftest("mulh(00000002,80000000)", ref_mulh(32'h00000002, 32'h80000000), 32'hffffffff);
-    // MULHU: unsigned x unsigned, high 32. (2^32-1)^2 = 2^64 - 2^33 + 1, whose
-    // high half is 0xfffffffe. (2^32-1)*2^31 = 2^63 - 2^31 = 0x7fff_ffff_8000_0000.
     ref_selftest("mulhu(ffffffff,ffffffff)", ref_mulhu(32'hffffffff, 32'hffffffff), 32'hfffffffe);
     ref_selftest("mulhu(00000002,80000000)", ref_mulhu(32'h00000002, 32'h80000000), 32'h00000001);
     ref_selftest("mulhu(ffffffff,80000000)", ref_mulhu(32'hffffffff, 32'h80000000), 32'h7fffffff);
-    // MULHSU: rs1 signed, rs2 unsigned, high 32. Each of these three differs
-    // from at least one of the two above on the same operands, which is what
-    // makes them a check of the signedness rather than of the multiply:
-    //   (-1)*1      = -1    -> 0xffffffff
-    //   2 * 2^31    = 2^32  -> 0x00000001 (mulh of the same pair is 0xffffffff)
-    //   (-1) * 2^31 = -2^31 -> 0xffffffff (mulhu of the same pair is 0x7fffffff)
     ref_selftest("mulhsu(ffffffff,00000001)", ref_mulhsu(32'hffffffff, 32'h00000001), 32'hffffffff);
     ref_selftest("mulhsu(00000002,80000000)", ref_mulhsu(32'h00000002, 32'h80000000), 32'h00000001);
     ref_selftest("mulhsu(ffffffff,80000000)", ref_mulhsu(32'hffffffff, 32'h80000000), 32'hffffffff);
-    // -7 / 2 truncates toward zero to -3 (0xfffffffd). A reference degraded to
-    // an unsigned divide scores 0x7ffffffc, which is what
-    // `divu(fffffff9,00000002)` legitimately is -- written out just below so the
-    // two are visibly different numbers.
     ref_selftest("div(fffffff9,00000002)",  ref_div(32'hfffffff9, 32'h00000002), 32'hfffffffd);
     ref_selftest("div(00000007,fffffffe)",  ref_div(32'h00000007, 32'hfffffffe), 32'hfffffffd);
     ref_selftest("div(fffffff9,fffffffe)",  ref_div(32'hfffffff9, 32'hfffffffe), 32'h00000003);
@@ -511,17 +422,12 @@ module exec_tb;
     ref_selftest("div(80000000,ffffffff)",  ref_div(32'h80000000, 32'hffffffff), 32'h80000000);
     ref_selftest("divu(fffffff9,00000002)", ref_divu(32'hfffffff9, 32'h00000002), 32'h7ffffffc);
     ref_selftest("divu(00000064,00000000)", ref_divu(32'h00000064, 32'h00000000), 32'hffffffff);
-    // REM takes the sign of the dividend: -7 % 2 = -1, 7 % -2 = +1. An unsigned
-    // degradation scores 0x00000001 for the first, which is the second's answer.
     ref_selftest("rem(fffffff9,00000002)",  ref_rem(32'hfffffff9, 32'h00000002), 32'hffffffff);
     ref_selftest("rem(00000007,fffffffe)",  ref_rem(32'h00000007, 32'hfffffffe), 32'h00000001);
     ref_selftest("rem(00000064,00000000)",  ref_rem(32'h00000064, 32'h00000000), 32'h00000064);
     ref_selftest("rem(80000000,ffffffff)",  ref_rem(32'h80000000, 32'hffffffff), 32'h00000000);
     ref_selftest("remu(fffffff9,00000002)", ref_remu(32'hfffffff9, 32'h00000002), 32'h00000001);
     ref_selftest("remu(00000064,00000000)", ref_remu(32'h00000064, 32'h00000000), 32'h00000064);
-    // The loop-length oracle, on both sides of the boundary and on both
-    // short-circuits. -65536 has magnitude 0x00010000, whose top half is not
-    // zero; -65535 has 0x0000ffff, whose top half is.
     ref_selftest("cycles(divu,0000ffff)", ref_div_cycles(OP_DIVU, 32'h0000ffff, 32'h1), 32'd16);
     ref_selftest("cycles(divu,00010000)", ref_div_cycles(OP_DIVU, 32'h00010000, 32'h1), 32'd32);
     ref_selftest("cycles(div,ffff0000)",  ref_div_cycles(OP_DIV,  32'hffff0000, 32'h1), 32'd32);
@@ -539,11 +445,8 @@ module exec_tb;
     ref_selftest("sra(80000000,0)",  ref_sra(32'h80000000, 32'd0),  32'h80000000);
     ref_selftest("srl(80000000,4)",  ref_srl(32'h80000000, 32'd4),  32'h08000000);
     ref_selftest("sll(00000001,31)", ref_sll(32'h00000001, 32'd31), 32'h80000000);
-    // ...including the reference's own rs2[4:0] masking, on both sides of 32.
     ref_selftest("sra(80000000,36)", ref_sra(32'h80000000, 32'd36), 32'hf8000000);
     ref_selftest("sll(00000001,32)", ref_sll(32'h00000001, 32'd32), 32'h00000001);
-    // Two's complement wraps: -1 + 1 = 0; INT_MAX + 1 overflows into the sign
-    // bit; 0 - 1 wraps to all-ones; INT_MIN - 1 wraps to INT_MAX.
     ref_selftest("add(ffffffff,00000001)", ref_add(32'hffffffff, 32'h00000001), 32'h00000000);
     ref_selftest("add(7fffffff,00000001)", ref_add(32'h7fffffff, 32'h00000001), 32'h80000000);
     ref_selftest("sub(00000000,00000001)", ref_sub(32'h00000000, 32'h00000001), 32'hffffffff);
@@ -553,7 +456,6 @@ module exec_tb;
       $fatal(1);
     end
 
-    // The required directed vectors: the cases a swapped sign enable gets wrong.
     run_op("mulh",   32'hffffffff, 32'hffffffff, 32'h00000000);
     run_op("mulhsu", 32'hffffffff, 32'h00000001, 32'hffffffff);
     run_op("mulhu",  32'hffffffff, 32'hffffffff, 32'hfffffffe);
@@ -565,10 +467,6 @@ module exec_tb;
     run_op("div",  32'h80000000, 32'hffffffff, 32'h80000000);
     run_op("rem",  32'h80000000, 32'hffffffff, 32'h00000000);
 
-    // Every shift amount 0..31 against each pattern, driven twice: once with a
-    // clean rs2 and once with all 27 upper bits set. `$random` reaches every
-    // amount with overwhelming probability but does not guarantee it, and the
-    // pair is what states the rs2[4:0] rule.
     pattern[0] = 32'h80000000;
     pattern[1] = 32'hffffffff;
     pattern[2] = 32'h7fffffff;
@@ -588,8 +486,6 @@ module exec_tb;
       end
     end
 
-    // `$random`'s rs2 is a full 32-bit word, so most shift vectors here also
-    // carry a shift amount above 31.
     for (i = 0; i < RANDOM_VECTORS; i++) begin
       a = $random;
       b = $random;
@@ -608,11 +504,6 @@ module exec_tb;
       run_op("sub",    a, b, ref_sub(a, b));
     end
 
-    // The same divide family again, this time with `in` bubbled the cycle after
-    // issue. Both signs of both operands, so the magnitude conversion and the
-    // sign restoration are exercised from latched state alone; a full-width
-    // divisor, which no capped proof reaches; and the two short-circuits, which
-    // must still answer from the issue cycle.
     bubble_after_issue = 1'b1;
     run_op("div",  32'h00000064, 32'h00000007, ref_div(32'h00000064, 32'h00000007));
     run_op("div",  32'hffffff9c, 32'h00000007, ref_div(32'hffffff9c, 32'h00000007));
@@ -628,8 +519,6 @@ module exec_tb;
     run_op("divu", 32'h00000064, 32'h00000000, 32'hffffffff);
     bubble_after_issue = 1'b0;
 
-    // Everything above is a claim about the core; these two are the claim that
-    // it happened at all.
     check_vector_counts();
     check_directed_manifest();
     check_div_lengths();
@@ -648,8 +537,6 @@ module exec_tb;
     end
   end
 
-  // Every visit to the divide state, graded against what `ref_div_cycles`
-  // predicted for the operands `run_op` drove in.
   int cycle_count;
   int cycle_expect;
   logic prev_divide;

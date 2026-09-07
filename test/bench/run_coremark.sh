@@ -1,23 +1,6 @@
 #!/bin/bash
-# Builds CoreMark for this core, runs it under the cxxrtl runner and prints
-# both core_main.c's own report and this port's CoreMark/MHz trailer.
-# Invoked by `make coremark`.
-#
-# NOT A GATE, AND DELIBERATELY OFF `make test` -- the same reasons
-# run_dhrystone.sh gives: there is no CPI ratchet here, and the benchmark
-# lives in test/bench rather than test/asm because both sim legs glob test/asm
-# against a 5000-cycle limit CoreMark's iteration count is nowhere near.
-#
-# Usage: run_coremark.sh <sim-binary> <iterations> <cycle-limit> <cflags>
-#
-# SIMULATED AT 16 KB OF ROM, NOT THIS PART'S 8. test/bench/coremark.lds gives
-# `rom` that length because test/testbench.v's ROM_WORDS is double
-# rtl/imemory.v's shipping 2048 words, and CoreMark does not fit the smaller
-# one -- several times Dhrystone's 3568 bytes, the wall test/asm/rvc.S hits at
-# 12256. The figure this prints describes a machine that cannot be built until
-# this part's deferred SPI-flash boot path lands and the ROM grows; every line
-# below says so again, because a figure that forgets its own memory
-# configuration is not one EEMBC's run rules would let stand.
+# Builds CoreMark for this core, runs it under the cxxrtl runner and prints both
+# core_main.c's own report and this port's CoreMark/MHz trailer.
 set -euo pipefail
 
 if [ "$#" -ne 4 ]; then
@@ -33,10 +16,9 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 TEST_DIR=$(cd "$HERE/.." && pwd)
 VENDOR_DIR="$HERE/coremark"
 
-# Read out of the linker scripts rather than hardcoded, the same reason
-# run_dhrystone.sh reads bench.lds: a second copy of either budget would be
-# free to drift, and the copy that drifted would be the one printed next to
-# the result.
+# Read out of the linker scripts rather than hardcoded, the same reason run_dhrystone.sh
+# reads bench.lds: a second copy of either budget would be free to drift, and the copy
+# that drifted would be the one printed next to the result.
 lds_region_bytes() {  # $1 = lds path, $2 = region name
   awk -v region="$2" \
     '{ sub(/^[ \t]+/, "") }
@@ -53,22 +35,16 @@ if [ -z "$SIM_ROM_BUDGET" ] || [ -z "$SHIP_ROM_BUDGET" ]; then
   exit 1
 fi
 
-# Membership is a two-way match, not just shasum -c's one-way one: shasum only
-# verifies the names PINNED.sha256 lists, and says nothing about a file
-# dropped in beside them. That is concretely exploitable here -- coremark.h's
-# `#include "core_portme.h"` is a quoted include, which searches the including
-# file's own directory FIRST, so an unlisted core_portme.h in $VENDOR_DIR would
-# shadow this port's real header (which carries the timing hooks) for every
-# vendored unit while shasum -c reports the tree unmodified.
+# Membership is a two-way match, not just shasum -c's one-way one: shasum only verifies
+# the names PINNED.sha256 lists, and says nothing about a file dropped in beside them.
 manifest_files=$(awk '!/^#/ && NF { print $NF }' "$VENDOR_DIR/PINNED.sha256" | sort)
 tree_files=$(cd "$VENDOR_DIR" && for f in *; do
   if [ -f "$f" ] && [ "$f" != "PINNED.sha256" ]; then
     echo "$f"
   fi
 done | sort)
-# comm, the same two-way idiom test/check_suite_shape.sh and test/dual_build.sh
-# use for a manifest against a directory: -23 is named but missing, -13 is
-# present but unnamed.
+# comm, the same two-way idiom test/check_suite_shape.sh and test/dual_build.sh use for a
+# manifest against a directory: -23 is named but missing, -13 is present but unnamed.
 missing=$(comm -23 <(printf '%s\n' "$manifest_files") <(printf '%s\n' "$tree_files"))
 unlisted=$(comm -13 <(printf '%s\n' "$manifest_files") <(printf '%s\n' "$tree_files"))
 if [ -n "$missing" ] || [ -n "$unlisted" ]; then
@@ -108,10 +84,6 @@ if ! (cd "$VENDOR_DIR" && "${SHA_CHECK[@]}" PINNED.sha256) >"$pin_check" 2>&1; t
   echo "*** rather than editing a file in that directory." >&2
   exit 1
 fi
-# --strict makes a malformed manifest line fail the check above; this is the
-# quieter half of the same guard -- a WARNING for a line that is merely
-# unusual (a comment shasum tolerates, say) does not fail the run, so it must
-# not be silently dropped either.
 cat "$pin_check" >&2
 rm -f "$pin_check"
 
@@ -148,12 +120,6 @@ tmp=$(mktemp -d "${TMPDIR:-/tmp}/coremark.XXXXXX") || {
 }
 trap 'rm -rf "$tmp"' EXIT
 
-# Six separate compilations, no -flto -- the same reason run_dhrystone.sh gives
-# for Dhrystone's three: every published CoreMark number is from a build where
-# the algorithm units cannot see across each other and inline the benchmark
-# away. -I twice: coremark.h needs core_portme.h beside it, and
-# coremark_port.c needs coremark.h beside it, and neither lives in the other's
-# directory.
 objects=()
 for unit in coremark/core_list_join coremark/core_main coremark/core_matrix \
             coremark/core_state coremark/core_util coremark_port; do
@@ -233,14 +199,8 @@ set +e
 sim_status=$?
 set -e
 
-# One pass over run.log rather than three: at COREMARK_CYCLES' default budget
-# this log is 50x the size run_dhrystone.sh's DHRY_CYCLES ever produces. The
-# LAST STALLS/RETIRES line is kept, not the first: test/cxxrtl.cc's
-# report_counts() prints the guest's own console buffer before its own
-# STALLS/RETIRES lines and nothing after them, so a run whose guest program
-# writes text that happens to start with "STALLS " or "RETIRES " (coremark.h's
-# console buffer is otherwise-arbitrary bytes this port copies verbatim) must
-# not have that text mistaken for the runner's own accounting.
+# One pass over run.log rather than three: at COREMARK_CYCLES' default budget this log is
+# 50x the size run_dhrystone.sh's DHRY_CYCLES ever produces.
 : > "$tmp/extract"
 awk -v out="$tmp/extract" \
   '/^STALLS /{stalls = $0}

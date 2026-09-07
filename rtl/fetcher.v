@@ -9,8 +9,8 @@ module fetcher(
   input  logic [31:0] imem_data,
   output logic [31:0] imem_addr2,
   input  logic [31:0] imem_data2,
-  // One cycle early, so a synchronous memory answers in the cycle `imem_addr` names
-  // the word. The memory computes the `+ 4` itself.
+  // One cycle early, so a synchronous memory answers in the cycle `imem_addr` names the
+  // word.
   input  logic [31:0] next_pc,
   output logic [31:0] imem_addr_next,
   output fetcher_output out

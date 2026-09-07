@@ -1,36 +1,6 @@
 #!/bin/bash
-# The aggregate measurement: two independently linked Dhrystone copies, one
-# per hart, run concurrently on the DUAL harness. Each copy is the unmodified
-# Dhrystone port (test/bench/dhry_1.c, dhry_2.c, dhry_port.c) compiled ONCE and
-# then renamed twice with `objcopy --prefix-symbols` -- `main` becomes
-# `h0_main`/`h1_main`, `tohost` becomes `h0_tohost`/`h1_tohost`, and so on --
-# so the two can share one link with no line of Dhrystone's source touched and
-# no symbol collision.
-#
-# test/dual/bench/dhry_dual.lds is the linker script this needs and
-# test/bench/bench.lds is not: two stacks, and no shared `tohost` at `ram`'s
-# origin for a runner to poll, because two harts finish at two different times
-# under contention and stopping the run at the first one to finish would
-# truncate whichever is still going. So this reads BOTH consoles after a fixed
-# `--cycles` budget instead of waiting for a verdict.
-#
-# THE ROM BUDGET IS THE FIRST THING PRINTED, AND CHECKED BY THE LINKER: the
-# combined image has to fit rtl/littledualsoc.v's real ROM_WORDS(2048), which
-# `test/dual/bench/dhry_dual.lds` states as the SoC's real 8 KB, the same
-# ceiling test/bench/bench.lds enforces for one copy. If two copies of
-# Dhrystone plus this startup do not fit, the link fails with the overflow in
-# bytes and that is the answer to report, not something to trim -- a Dhrystone
-# built smaller than Dhrystone would not be Dhrystone, the same reason
-# test/bench/run_dhrystone.sh gives for its own 8 KB budget.
-#
-# Usage: run_aggregate.sh <dual-sim-binary> <runs> <cycle-limit> <cflags>
-#
-# Set DUAL_DHRY_MHZ to the dual design's own placed clock -- from
-# `make dual-ecp5-timing`, ECP5 only, never from 12 MHz -- to add the absolute
-# DMIPS column. Left unset, only DMIPS/MHz is printed: the clock belongs to a
-# placement, and a copy of it stored in this script would be a number that
-# stops tracking the RTL, the same reason soc/compare/run_dhrystone.sh takes
-# its own clock as an argument rather than a constant.
+# The aggregate measurement: two independently linked Dhrystone copies, one per hart, run
+# concurrently on the DUAL harness.
 set -euo pipefail
 
 if [ "$#" -ne 4 ]; then
@@ -77,8 +47,8 @@ NM=${CC%gcc}nm
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/dual-aggregate.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT
 
-# ONE compile, per unit -- the two copies are the same object code under two
-# names, not two builds.
+# ONE compile, per unit -- the two copies are the same object code under two names, not
+# two builds.
 for unit in dhry_1 dhry_2 dhry_port; do
   # shellcheck disable=SC2086
   $CC $CFLAGS -DDHRY_RUNS="$RUNS" -DDHRY_FLAGS="\"$CFLAGS\"" \
@@ -143,12 +113,6 @@ set +e
 sim_status=$?
 set -e
 
-# Exit 2 -- the cycle limit -- is THIS BUILD'S EXPECTED OUTCOME: there is no
-# shared verdict to end the run early, by test/dual/bench/dhry_dual.lds'
-# design (see its header), so both consoles are read out after a fixed budget
-# rather than after a PASS. Anything else means a hart trapped, the per-retire
-# monitor fired, or the two harts collided on the bus -- a real failure this
-# script does not paper over.
 if [ "$sim_status" -ne 2 ]; then
   cat "$tmp/run.log"
   echo "*** exited $sim_status, not 2 (the cycle limit). This build has no" >&2
@@ -161,9 +125,9 @@ fi
 grep '^HART[01] RETIRES' "$tmp/run.log"
 echo
 
-# The two consoles print back to back with nothing between them, in the order
-# `--console` named them, so the second "Dhrystone Benchmark" header is where
-# hart 0's report ends and hart 1's begins.
+# The two consoles print back to back with nothing between them, in the order `--console`
+# named them, so the second "Dhrystone Benchmark" header is where hart 0's report ends
+# and hart 1's begins.
 awk '/^Dhrystone Benchmark/ { n++ } { print > ("'"$tmp"'/report" n) }' "$tmp/run.log"
 echo "== hart 0's Dhrystone report =="
 cat "$tmp/report1"

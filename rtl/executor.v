@@ -13,8 +13,8 @@ module executor(
   assign rs1 = in.rs1;
   assign rs2 = in.rs2;
 
-  // Wider than rtl/decoder.v's `instr_math`: `is_add` also carries AUIPC, LUI,
-  // JAL/JALR and a register-form CSR read, whose results are ready this cycle.
+  // Wider than rtl/decoder.v's `instr_math`: `is_add` also carries AUIPC, LUI, JAL/JALR
+  // and a register-form CSR read, whose results are ready this cycle.
   logic in_has_result;
   assign in_has_result = in.is_add || in.is_sub || in.is_xor || in.is_or || in.is_and ||
     in.is_sll || in.is_slt || in.is_sltu || in.is_srl || in.is_sra ||
@@ -39,15 +39,13 @@ module executor(
   assign shift_wide = $signed({shift_fill, shift_src}) >>> rs2[4:0];
   assign shift_res  = shift_wide[31:0];
 
-  // The divider is unsigned; signed div and rem hand it magnitudes. `-x` is spelled
-  // `~(x - 1)` because an ice40 carry cell reads its addends off the cell pins, so
-  // inverting a register output there costs a LUT per bit while the constant is free.
+  // The divider is unsigned; signed div and rem hand it magnitudes.
   logic [31:0] div_x, div_y;
   assign div_x = (in.is_div || in.is_rem) && rs1[31] ? ~(rs1 - 32'd1) : rs1;
   assign div_y = (in.is_div || in.is_rem) && rs2[31] ? ~(rs2 - 32'd1) : rs2;
 
-  // A dividend whose top half is zero would spend sixteen iterations shifting zeros
-  // past the divisor, so the loop starts sixteen in with the state they would leave.
+  // A dividend whose top half is zero would spend sixteen iterations shifting zeros past
+  // the divisor, so the loop starts sixteen in with the state they would leave.
   logic div_skip;
   assign div_skip = div_x[31:16] == 16'b0;
 
@@ -55,9 +53,8 @@ module executor(
   localparam init = 2'b00;
   localparam divide = 2'b10;
   logic [6:0]  mul_div_counter;
-  // div_quot holds the dividend: a quotient bit shifts in at the bottom as each
-  // dividend bit leaves the top. The divisor is held complemented so the subtract
-  // reads it straight onto the carry pins, which is why it is all-ones out of reset.
+  // div_quot holds the dividend: a quotient bit shifts in at the bottom as each dividend
+  // bit leaves the top.
   logic [31:0] div_rem, div_quot, div_divisor_n;
   logic [31:0] div_divisor;
   assign div_divisor = ~div_divisor_n;
@@ -92,8 +89,8 @@ module executor(
   assign mul_sign_x = in.rs1[31] & (in.is_mulh | in.is_mulhsu);
   assign mul_sign_y = in.rs2[31] & in.is_mulh;
 
-  // A negative operand contributes one subtraction of the other at bit 32, so the
-  // signed high half is the unsigned product's with two conditional subtracts.
+  // A negative operand contributes one subtraction of the other at bit 32, so the signed
+  // high half is the unsigned product's with two conditional subtracts.
   logic [63:0] mul_unsigned;
   logic [31:0] mul_lo, mul_hi;
   assign mul_unsigned = in.rs1 * in.rs2;
@@ -229,8 +226,7 @@ module executor(
   initial state = init;
   always_comb if (clocked) assume(!reset);
 
-  // `is_valid_instr` and `is_amo` are left out on purpose. An op flag added to the
-  // struct and not here silently widens the environment.
+  // `is_valid_instr` and `is_amo` are left out on purpose.
   always_comb assume($onehot0({in.is_add, in.is_sub, in.is_xor, in.is_or, in.is_and,
     in.is_sll, in.is_slt, in.is_sltu, in.is_srl, in.is_sra,
     in.is_mul, in.is_mulh, in.is_mulhu, in.is_mulhsu,
@@ -290,8 +286,8 @@ module executor(
         $past(in.is_mul || in.is_mulh || in.is_mulhu || in.is_mulhsu))
       assert(state == init);
 
-  // Constant multipliers, so the solver sees shifts and adds rather than a second
-  // `bvmul` term; a miter against a signed 33x33 product returns no verdict.
+  // Constant multipliers, so the solver sees shifts and adds rather than a second `bvmul`
+  // term; a miter against a signed 33x33 product returns no verdict.
   logic [63:0] mul_result;
   assign mul_result = {mul_hi, mul_lo};
   always_comb if (in.rs1 == 32'b0) assert(mul_result == 64'b0);
@@ -321,16 +317,10 @@ module executor(
   always_comb if (state == divide) assert(mul_div_counter <= 32);
   always_comb if (state == divide) assert(mul_div_counter != 0);
 
-  // A RESTRICTION ON THE PROOF, NOT THE DESIGN. Guarded to the divide state on
-  // purpose: unguarded it is proof-global, zeroes every multiply operand's high
-  // half, and let three known multiplier defects pass.
   localparam [31:0] div_proof_cap = 32'h000000ff;
   always_comb if (state == divide) assume(div_mag_x <= div_proof_cap);
   always_comb if (state == divide) assume(div_mag_y <= div_proof_cap);
 
-  // With n iterations left and k = 32 - n run: the dividend's top k bits are
-  // divided, quotient in div_quot's low k bits, remainder in div_rem, its other n
-  // bits still in div_quot's top. At n == 0 this is the division identity.
   logic [5:0]  div_done;
   logic [63:0] div_quot_done, div_quot_left, div_mag_x_done, div_mag_x_left;
   assign div_done       = 6'd32 - mul_div_counter[5:0];

@@ -18,8 +18,6 @@ module regfile(
   logic [4:0]  held_rs1;
   logic [4:0]  held_rs2;
 
-  // The read is registered, and the write-first term catches a write committed on
-  // the same edge, which an EBR cannot do itself.
   always_ff @(posedge clk) begin
     read_a   <= (wen && waddr == rs1) ? wdata : regs_a[rs1];
     read_b   <= (wen && waddr == rs2) ? wdata : regs_b[rs2];
@@ -31,9 +29,6 @@ module regfile(
     end
   end
 
-  // The bypass selects on the HELD pair, which is the issuing instruction's only
-  // because decode's `operand_stall` lets nothing issue until it is. Selecting on
-  // `rs1`/`rs2` instead would put these comparators in the fetch loop.
   always_comb begin
     reg_rs1 = (held_rs1 == 5'd0) ? 32'b0 : (wen && waddr == held_rs1) ? wdata : read_a;
     reg_rs2 = (held_rs2 == 5'd0) ? 32'b0 : (wen && waddr == held_rs2) ? wdata : read_b;

@@ -1,17 +1,6 @@
 #!/bin/bash
-# Drives formal/propose-pin-bump.sh against a stub `gh` and pins that it opens
-# an issue, that the issue says what a human has to do, and that it opens no
-# pull request. The defect it replaces reported success on a pull request that
-# could never merge, so "it opened something" is not the property worth
-# checking.
-#
-# The stub refuses `gh pr create` and `gh workflow run`, so a script that
-# reached for either goes red here rather than proposing a bump nothing can
-# merge.
-#
-# Hermetic: no network, no toolchain, nothing but bash.
-#
-# Usage: formal/test-propose-pin-bump.sh
+# Drives formal/propose-pin-bump.sh against a stub `gh` and pins that it opens an issue,
+# that the issue says what a human has to do, and that it opens no pull request.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -58,10 +47,8 @@ printf 'body from the caller\n' > "$tmp/body.md"
 cases=0
 failed=0
 
-# check <label> <expected-exit> <expected-text> <shell-snippet>
-#
-# Both the status and a fragment of the output are pinned. A status alone would
-# be satisfied by a script that died on a typo before doing anything.
+# check <label> <expected-exit> <expected-text> <shell-snippet> Both the status and a
+# fragment of the output are pinned.
 check() {
   local label=$1 want_exit=$2 want_text=$3 snippet=$4
   cases=$((cases + 1))
@@ -118,12 +105,7 @@ check "too few arguments" 2 "usage: propose-pin-bump.sh" \
 check "an unreadable body file" 2 "cannot read body file" \
   'PATH="$tmp/bin:$PATH" "$SCRIPT" pin/branch title "$tmp/absent.md"'
 
-# A tripwire, not a style rule. Both of these look like they work: a PR the
-# workflow opens and a run it dispatches are green in the Actions tab and
-# invisible to the merge gate.
-#
-# Comment lines are dropped first, because both scripts name these two commands
-# in prose to say why they must not be called.
+# A tripwire, not a style rule.
 echo
 echo "== no script opens the pull request or dispatches CI"
 for f in propose-pin-bump.sh bump-riscv-formal-pin.sh; do

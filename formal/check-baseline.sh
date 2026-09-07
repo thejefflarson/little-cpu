@@ -1,24 +1,8 @@
 #!/bin/bash
-# Checks the generated riscv-formal checks two ways: the checks that were
-# generated must match formal/EXPECTED_CHECKS, and the ones that did not pass
-# must match formal/EXPECTED_FAIL. Both comparisons run in both directions, so a
-# check that starts passing fails this too, until someone moves its line.
-#
-# The first comparison is there because the [depth] table in checks.cfg is what
-# decides which checks exist. Delete a line and that check is never generated, so
-# it vanishes from the results and from EXPECTED_FAIL at the same time, and
-# comparing failures alone sees nothing wrong.
-#
-# The status is compared as well as the name. FAIL means the check ran and the
-# property did not hold. ERROR means sby did not get that far. Those need
-# different fixes, so the gate should not treat them as the same red.
-#
-# None of this says the core is correct. Every check searches to a fixed depth,
-# so passing means no counterexample was found that shallow. The check set also
-# defines RISCV_FORMAL_ALTOPS, which replaces multiply and divide with simpler
-# stand-ins, so insn_mul passing says nothing about the real multiplier.
-#
-# Usage: check-baseline.sh <checks-dir> <expected-fail-file> [expected-checks-file]
+# Checks the generated riscv-formal checks two ways: the checks that were generated must
+# match formal/EXPECTED_CHECKS, and the ones that did not pass must match
+# formal/EXPECTED_FAIL. Both comparisons run in both directions, so a check that starts
+# passing fails this too, until someone moves its line.
 set -u
 
 if [ $# -lt 2 ] || [ $# -gt 3 ]; then
@@ -30,9 +14,7 @@ CHECKS_DIR=$1
 EXPECTED_FAIL=$2
 EXPECTED_CHECKS=${3:-$(dirname "$0")/EXPECTED_CHECKS}
 
-# READABLE, not merely present. This script sets `set -u` and neither `-e` nor
-# `pipefail`, so a `sed` that cannot open its input yields an EMPTY string — and
-# an empty expected set matches an all-passing check set exactly.
+# READABLE, not merely present.
 for f in "$EXPECTED_FAIL" "$EXPECTED_CHECKS"; do
   if [ ! -f "$f" ]; then
     echo "error: no such file: $f" >&2
@@ -46,8 +28,7 @@ for f in "$EXPECTED_FAIL" "$EXPECTED_CHECKS"; do
   fi
 done
 
-# `NF` has to come before the rebuild, not after. Assigning to $1 sets NF to 1,
-# so `{$1=$1} NF` would bring every blank and comment line back as an entry.
+# `NF` has to come before the rebuild, not after.
 strip() {
   sed -e 's/#.*//' "$1" | awk 'NF { $1 = $1; print }' | sort
 }
@@ -55,9 +36,6 @@ strip() {
 expected_checks=$(strip "$EXPECTED_CHECKS")
 expected_fail=$(strip "$EXPECTED_FAIL")
 
-# Everything sby can write, plus this script's own NO-STATUS. A status outside
-# the set means sby's output changed under us, and is reported rather than
-# bucketed into "not PASS".
 known_status() {
   case $1 in
     PASS | FAIL | ERROR | UNKNOWN | TIMEOUT | NO-STATUS) return 0 ;;
@@ -65,11 +43,7 @@ known_status() {
   esac
 }
 
-# The strictly smaller set EXPECTED_FAIL may carry. ERROR and NO-STATUS mean the
-# harness broke rather than a property failing, and a baseline line saying "this
-# check is expected to not run" would make a missing solver look like a known
-# result forever. TIMEOUT and UNKNOWN are a real verdict about a check that did
-# not converge in its budget, so those are accepted.
+# The strictly smaller set EXPECTED_FAIL may carry.
 baselineable_status() {
   case $1 in
     FAIL | TIMEOUT | UNKNOWN) return 0 ;;
@@ -77,8 +51,6 @@ baselineable_status() {
   esac
 }
 
-# Exit 2 is "the inputs are broken" against exit 1's "the check set disagrees
-# with them", so a rejected line cannot read as a regression in the check set.
 baseline_errors=""
 while IFS= read -r line; do
   [ -n "$line" ] || continue
@@ -121,10 +93,6 @@ if [ -n "$baseline_errors" ]; then
   exit 2
 fi
 
-# The `.sby` FILES, not the run directories: sby creates a directory only for a
-# check it actually starts, so globbing directories made a generated-but-never-
-# scheduled check fall out of the results and out of the baseline at once. `find`
-# rather than a glob so an empty directory yields nothing, not `*.sby`.
 generated=$(find "$CHECKS_DIR" -maxdepth 1 -name '*.sby' \
   -exec basename {} .sby \; 2>/dev/null | sort)
 
@@ -148,8 +116,6 @@ if [ "$generated" != "$expected_checks" ]; then
   failed=1
 fi
 
-# The UNION, so a name missing from either side still gets a verdict rather than
-# dropping out of the tally.
 all_checks=$(printf '%s\n%s\n' "$generated" "$expected_checks" | sort -u)
 
 total=0
@@ -157,8 +123,6 @@ declare -a actual_fail=()
 declare -a unknown_statuses=()
 for name in $all_checks; do
   total=$((total + 1))
-  # First word only: sby writes `<VERDICT> <engine> <depth>`, and the numbers
-  # move with the engine.
   status=$(awk 'NF { print $1; exit }' "$CHECKS_DIR/$name/status" 2>/dev/null)
   if [ -z "$status" ]; then
     status="NO-STATUS"

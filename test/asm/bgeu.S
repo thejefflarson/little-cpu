@@ -1,11 +1,6 @@
 # See LICENSE for license details.
 
-#*****************************************************************************
-# bgeu.S
-#-----------------------------------------------------------------------------
-#
-# Test bgeu instruction.
-#
+# bgeu.S Test bgeu instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -13,11 +8,7 @@
 RVTEST_RV64U
 RVTEST_CODE_BEGIN
 
-  #-------------------------------------------------------------
   # Branch tests
-  #-------------------------------------------------------------
-
-  # Each test checks both forward and backward branches
 
   TEST_BR2_OP_TAKEN( 2, bgeu, 0x00000000, 0x00000000 );
   TEST_BR2_OP_TAKEN( 3, bgeu, 0x00000001, 0x00000001 );
@@ -30,10 +21,6 @@ RVTEST_CODE_BEGIN
   TEST_BR2_OP_NOTTAKEN(  9, bgeu, 0xfffffffe, 0xffffffff );
   TEST_BR2_OP_NOTTAKEN( 10, bgeu, 0x00000000, 0xffffffff );
   TEST_BR2_OP_NOTTAKEN( 11, bgeu, 0x7fffffff, 0x80000000 );
-
-  #-------------------------------------------------------------
-  # Bypassing tests
-  #-------------------------------------------------------------
 
   TEST_BR2_SRC12_BYPASS( 12, 0, 0, bgeu, 0xefffffff, 0xf0000000 );
   TEST_BR2_SRC12_BYPASS( 13, 0, 1, bgeu, 0xefffffff, 0xf0000000 );
@@ -48,10 +35,6 @@ RVTEST_CODE_BEGIN
   TEST_BR2_SRC12_BYPASS( 21, 1, 0, bgeu, 0xefffffff, 0xf0000000 );
   TEST_BR2_SRC12_BYPASS( 22, 1, 1, bgeu, 0xefffffff, 0xf0000000 );
   TEST_BR2_SRC12_BYPASS( 23, 2, 0, bgeu, 0xefffffff, 0xf0000000 );
-
-  #-------------------------------------------------------------
-  # Test delay slot instructions not executed nor bypassed
-  #-------------------------------------------------------------
 
   TEST_CASE( 24, x1, 3, \
     li  x1, 1; \

@@ -5,8 +5,7 @@ typedef struct packed {
   logic        valid;
   logic [31:0] pc;
   logic [31:0] instr;
-  // The raw 32 bits following `instr`. Decode reads a register-number guess out of
-  // it a cycle early; it need not be an instruction.
+  // The raw 32 bits following `instr`.
   logic [31:0] next_instr;
 } fetcher_output;
 
@@ -34,12 +33,12 @@ typedef struct packed {
   logic [31:0] rs1_rdata;
   logic [31:0] rs2_rdata;
   logic        trap;
-  // Only an interrupt sets this: an exception reports mtvec in the faulting
-  // instruction's own pc_wdata, so the pc chain stays unbroken.
+  // Only an interrupt sets this: an exception reports mtvec in the faulting instruction's
+  // own pc_wdata, so the pc chain stays unbroken.
   logic        intr;
-  // The access never reached the accessor, so its address and masks are reported
-  // from here: both masks clear is a refused fetch, a read mask alone a load or
-  // lr.w, any write mask a store, sc.w or AMO.
+  // The access never reached the accessor, so its address and masks are reported from
+  // here: both masks clear is a refused fetch, a read mask alone a load or lr.w, any
+  // write mask a store, sc.w or AMO.
   logic        mem_fault;
   logic [3:0]  mem_fault_rmask;
   logic [3:0]  mem_fault_wmask;
@@ -101,9 +100,6 @@ typedef struct packed {
   logic        is_amomaxu;
   logic        is_lr;
   logic        is_sc;
-  // THESE FLAGS MUST STAY MUTUALLY EXCLUSIVE: the executor selects over them with
-  // `(* parallel_case *)`. No flag names a trap either -- the trap arm clears
-  // `is_add` through `is_sc`, so one like `is_ecall` would read constant zero.
 } decoder_output;
 
 typedef struct packed {
@@ -113,9 +109,6 @@ typedef struct packed {
  `endif
   logic [4:0]  rd;
   logic [31:0] rd_data;
-  // `rd_data` is the finished result, not a placeholder a later stage fills in. A
-  // load, a store, fence, wfi and every atomic clear it -- rtl/accessor.v produces
-  // theirs, or there is none. The forwarding path is the one reader.
   logic        rd_ready;
 } executor_output;
 

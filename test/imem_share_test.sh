@@ -1,31 +1,6 @@
 #!/bin/bash
-# Asserts that rtl/imemory.v's fetch windows read ONE storage, on the mapped
-# netlist of both parts, and forces that assertion red.
-#
-# Usage: imem_share_test.sh      # every case; exit 0 only if all of them hold
-#
-# WHY THIS EXISTS. The module asks each bank for one read port per window.
-# Neither part has a primitive with two read ports, so yosys answers by
-# replicating the bank and driving every copy from the same write -- and that is
-# the whole basis for calling the text shared rather than mirrored. THE CLAIM IS
-# ABOUT THE MAPPED NETLIST AND NOTHING IN THE SOURCE: at RTL there is one array
-# and every window reads it by construction, so no simulation of rtl/imemory.v
-# can confirm the replication or fail on its absence. A comment saying "yosys
-# replicates this" is not a check, and the mapping is a property of a toolchain
-# nothing here pins.
-#
-# BOTH PARTS, because the answer is the toolchain's rather than the design's and
-# the two primitives differ: ice40's block RAM is one read port and one write
-# port, ECP5's is true dual-port and yosys writes through one side of it. The
-# counts are what the ECP5 budget for the dual SoC is built on, and they are the
-# reason the dual configuration can never be built on the up5k -- 32 block RAMs
-# against that part's 30.
-#
-# THE RED DIRECTIONS ARE HERE, not argued: a mutant whose second window reads a
-# pair of banks the write does not reach must be reported, and both of
-# test/rom_replication.py's other refusals are forced against a netlist that
-# passes. Needs yosys and python3; `make window-test` already requires yosys, so
-# this does not narrow where `make test` runs.
+# Asserts that rtl/imemory.v's fetch windows read ONE storage, on the mapped netlist of
+# both parts, and forces that assertion red.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -47,9 +22,9 @@ trap 'rm -rf "$tmp"' EXIT
 cases=0
 failed=0
 
-# Pinned as a literal, for the reason test/PROBES_EXPECTED gives: a case
-# deleted, or one stopped being reached by an early return, would otherwise cut
-# this file's coverage while it went on printing a green summary.
+# Pinned as a literal, for the reason test/PROBES_EXPECTED gives: a case deleted, or one
+# stopped being reached by an early return, would otherwise cut this file's coverage
+# while it went on printing a green summary.
 CASES_EXPECTED=9
 
 ok()   { cases=$((cases + 1)); printf 'ok   %s\n' "$1"; }
@@ -70,7 +45,6 @@ map() {
   fi
 }
 
-# census <tag> <cell> <expected> <label>
 census() {
   local out
   if out=$(python3 "$REPO/soc/cell_census.py" "$tmp/$1.log" "$2" "$3" \
@@ -81,7 +55,6 @@ census() {
   fi
 }
 
-# shares <tag> <cell> <copies> <groups> <label>
 shares() {
   local out
   if out=$(python3 "$REPO/test/rom_replication.py" "$tmp/$1.json" \
@@ -92,7 +65,6 @@ shares() {
   fi
 }
 
-# refuses <tag> <cell> <copies> <groups> <fragment> <label>
 refuses() {
   local out rc
   set +e
@@ -124,9 +96,6 @@ census two_ecp5  DP16KD       8 "ECP5, two windows"
 shares two_ice40 SB_RAM40_4K 2 16 "ice40, the copies share one write"
 shares two_ecp5  DP16KD      2  4 "ECP5, the copies share one write"
 
-# The mutation the brief names: a write that lands in only one hart's copy. The
-# second window reads a private pair of banks, written on a strobe of its own, so
-# the two copies are two storages that can hold different words at one address.
 echo
 echo "== a copy with a write of its own is reported"
 mutant=$tmp/imemory_private.v
@@ -134,11 +103,6 @@ sed -e 's/rom_even\[w_even_index\]/rom_even_private[w_even_index]/' \
     -e 's/rom_odd\[w_odd_index\]/rom_odd_private[w_odd_index]/' \
     -e 's|^  logic \[31:0\] rom_odd \[0:BANK_WORDS-1\];|&\n  logic [31:0] rom_even_private[0:BANK_WORDS-1];\n  logic [31:0] rom_odd_private [0:BANK_WORDS-1];\n  always_ff @(posedge clk) begin\n    if (text_write_even \&\& !mem_wdata[0]) rom_even_private[data_index] <= mem_wdata;\n    if (text_write_odd  \&\& !mem_wdata[0]) rom_odd_private[data_index]  <= mem_wdata;\n  end|' \
     "$REPO/rtl/imemory.v" > "$mutant"
-# EACH EDIT IS CHECKED, not just the name it introduces: the read substitutions
-# and the declaration insertion are three independent patterns, and one of them
-# silently missing leaves a file that either does not elaborate or is the
-# shipping design under another name. Either way the red direction below would be
-# reporting on something nobody built.
 for token in 'rom_even_private\[0:BANK_WORDS-1\]' 'rom_odd_private \[0:BANK_WORDS-1\]' \
              'rom_even_private\[w_even_index\]' 'rom_odd_private\[w_odd_index\]'; do
   if ! grep -q "$token" "$mutant"; then
@@ -152,8 +116,6 @@ map "$mutant" ice40 2 mutant_ice40
 refuses mutant_ice40 SB_RAM40_4K 2 16 "write of its own" \
   "ice40, the second window's private banks"
 
-# The checker's own two other exits, forced against a netlist that passes, so
-# neither can rot into a verdict it can no longer reach.
 echo
 echo "== the checker's other refusals"
 refuses two_ice40 SB_RAM40_4K 2 8 "against the 16 declared" \

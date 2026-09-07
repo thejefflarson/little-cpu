@@ -5,13 +5,13 @@ module regsel (
   output logic [4:0]  rs1,
   output logic [4:0]  rs2
 );
-  // Masked, a compressed encoding no arm below names reads x0 out of the
-  // uncompressed field positions, which is what such an encoding means.
+  // Masked, a compressed encoding no arm below names reads x0 out of the uncompressed
+  // field positions, which is what such an encoding means.
   logic [31:0] instr;
   assign instr = (word[1:0] == 2'b11) ? word : {16'b0, word[15:0]};
 
-  // iverilog cannot build a precise sensitivity entry for a constant select inside
-  // an always_comb.
+  // iverilog cannot build a precise sensitivity entry for a constant select inside an
+  // always_comb.
   logic [4:0] rd_field, rs1_field, rs2_field, c_rs2_field;
   logic [2:0] c_rd_rs1_prime, c_rs2_prime;
   assign rd_field       = instr[11:7];
@@ -32,8 +32,6 @@ module regsel (
   assign cfunct4      = instr[15:12];
   assign cfunct6      = instr[15:10];
 
-  // A zero immediate makes each a different instruction naming a different register,
-  // so the whole immediate is tested.
   logic [31:0] caddi4spn_immediate, caddi16sp_immediate;
   assign caddi4spn_immediate = {22'b0, instr[10:7], instr[12:11], instr[5], instr[6], 2'b00};
   assign caddi16sp_immediate = {{22{instr[12]}}, instr[12], instr[4:3], instr[5], instr[2], instr[6], 4'b0};
@@ -93,8 +91,6 @@ module regsel (
   end
 
  `ifdef FORMAL
-  // Each assertion is the arm list of one `parallel_case` above, transcribed rather
-  // than shared; add an arm to one and add it here too.
   always_comb assert($onehot0({
     instr_clwsp || instr_cswsp || instr_caddi4spn,
     instr_clw || instr_csw || instr_cbeqz || instr_cbnez ||

@@ -1,9 +1,7 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
 
-// Standalone bench for rtl/memory.v. The `.S` suite and the Sail co-simulation
-// also run against this module (test/testbench.v instantiates it), but only this
-// bench drives the corners: an out-of-range access, and the no-change read.
+// Standalone bench for rtl/memory.v.
 module mem_tb;
   localparam int RAM_WORDS = 16;
 
@@ -17,10 +15,8 @@ module mem_tb;
   logic [31:0] atomic_addr;
   logic        atomic_supported;
 
-  // BASE = 0 so the vectors below can address the array directly; the shipping
-  // instances use a non-zero RAM base. The property the out-of-range
-  // vectors check holds either way: an unmapped address must not alias a mapped
-  // word.
+  // BASE = 0 so the vectors below can address the array directly; the shipping instances
+  // use a non-zero RAM base.
   memory #(.BASE(32'h0), .RAM_WORDS(RAM_WORDS)) dut (
     .clk(clk),
     .mem_addr(mem_addr),
@@ -65,8 +61,8 @@ module mem_tb;
   task automatic do_read(input logic [31:0] addr, output logic [31:0] data);
     begin
       mem_addr = addr;
-      // A decoy distinct from anything ever written, so a read that echoes
-      // mem_wdata instead of the array is caught rather than coinciding.
+      // A decoy distinct from anything ever written, so a read that echoes mem_wdata
+      // instead of the array is caught rather than coinciding.
       mem_wdata = 32'hdeadbeef;
       mem_wstrb = 4'b0000;
       @(posedge clk);
@@ -77,10 +73,6 @@ module mem_tb;
 
   logic [31:0] got;
 
-  // The atomic port is combinational and reads a different address from
-  // `mem_addr`, so it is checked with its own task rather than folded into the
-  // read and write ones -- driving both from one address would pass on a module
-  // that answered this question about the wrong wire.
   task automatic check_atomic(input string what, input logic [31:0] addr,
                               input logic expected);
     begin
@@ -120,12 +112,6 @@ module mem_tb;
     do_read(32'hfffffffc, got); // far out of range
     check_ne("out-of-range read does not alias ram[0] (far)", got, 32'ha5a5a5a5);
 
-    // The read port holds on a write cycle. yosys infers `SB_SPRAM256KA` only
-    // from a no-change read port, and the read-first spelling maps the same
-    // array to 128 `SB_RAM40_4K` -- four times the part's block RAM -- with no
-    // diagnostic. Nothing in the pipeline observes the difference (rtl/accessor.v
-    // reads mem_rdata only on a load's response cycle), so nothing but this
-    // vector would notice it being "fixed" back.
     do_read(32'h00000004, got);
     check("read-port setup for the hold check", got, 32'hcafef00d);
     do_write(32'h00000008, 32'h0f0f0f0f);
@@ -133,10 +119,6 @@ module mem_tb;
     do_read(32'h00000008, got);
     check("...and the write still landed", got, 32'h0f0f0f0f);
 
-    // The atomic port, which decode reads to decide causes 5 and 7. It must
-    // answer about `atomic_addr` alone: `mem_addr` is left pointing inside the
-    // window throughout, so a module that answered about the wrong address would
-    // report every one of these supported.
     mem_addr = 32'h00000008;
     check_atomic("the base word answers an atomic", 32'h00000000, 1'b1);
     check_atomic("the last word answers an atomic", 4 * RAM_WORDS - 4, 1'b1);

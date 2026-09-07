@@ -17,8 +17,8 @@ module littlesoc #(
   input  logic spi_miso,
   output logic spi_cs_n
 );
-  // KEEP `reset` REGISTERED: unregistered, the button pin headed the design's
-  // longest path.
+  // KEEP `reset` REGISTERED: unregistered, the button pin headed the design's longest
+  // path.
   logic [3:0] por_count = 4'b0;
   logic       por_done  = 1'b0;
   logic [1:0] btn_sync  = 2'b0;
@@ -32,9 +32,8 @@ module littlesoc #(
     reset    <= !por_done || !btn_sync[1];
   end
 
-  /* verilator lint_off UNUSED */
+  // verilator lint_off UNUSED
   logic        trap;
-  /* verilator lint_on UNUSED */
   logic [31:0] mem_addr, mem_wdata, mem_rdata;
   logic [31:0] imem_mem_rdata, dmem_mem_rdata, timer_mem_rdata, uart_mem_rdata;
   logic [31:0] flash_mem_rdata;
@@ -45,7 +44,6 @@ module littlesoc #(
   logic [31:0] imem_addr, imem_addr2, imem_addr_next;
   logic [31:0] imem_data, imem_data2;
 
-  // Must equal the `imemory` below's ROM_WORDS.
   littlecpu #(.LS_TEXT_WORDS(2048)) riscv (
     .clk(clk),
     .reset(reset),

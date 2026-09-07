@@ -1,12 +1,9 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// Single-port SPRAM, byte-strobed, synchronous read. Yosys infers
-// `SB_SPRAM256KA` from the plain array and splits the width and nibble masks.
+// Single-port SPRAM, byte-strobed, synchronous read.
 module memory #(
   parameter logic [31:0] BASE = 32'h0001_0000,
   parameter integer RAM_WORDS = 16384,
-  // One pair per hart: decode asks for every hart at once while the bus carries one
-  // initiator per cycle.
   parameter integer NHARTS = 1
 ) (
   input  logic        clk,
@@ -37,23 +34,11 @@ module memory #(
   assign reservable = in_range;
   assign atomic_supported[0] = atomic_addr[31:ADDR_BITS+2] == BASE[31:ADDR_BITS+2];
 
-  // Hart 0 keeps its own line above ON PURPOSE: folding it into this loop moves the
-  // single-hart SoC's netlist for no change in logic.
   for (genvar h = 1; h < NHARTS; h++) begin : l_atomic
     assign atomic_supported[h] =
       atomic_addr[32*h+31:32*h+ADDR_BITS+2] == BASE[31:ADDR_BITS+2];
   end
 
-  // SPRAM is no-change on a write, so `mem_rdata` holds; the read-first spelling
-  // beside the byte writes maps to 128 `SB_RAM40_4K` instead. The flat arms are
-  // deliberate: nesting `in_range` under `|mem_wstrb` costs cells and period.
-  //
-  // THE OUT-OF-RANGE ZERO IS A MUX ON THE OUTPUT, NEVER A SYNCHRONOUS CONSTANT.
-  // Written as `mem_rdata <= in_range ? ram[index] : 32'b0`, yosys maps the zero
-  // arm onto the ECP5 block RAM's own reset and drives RSTA from logic, and every
-  // read on the part then returns zero whatever the array holds -- while RTL
-  // simulation, the cell censuses and nextpnr all still pass.
-  // `soc/bram_reset_check.py` is the grader.
   logic [31:0] ram_q;
   logic        in_range_q;
   always_ff @(posedge clk) begin

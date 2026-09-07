@@ -1,21 +1,10 @@
 # See LICENSE for license details.
 
-#*****************************************************************************
-# lui.S
-#-----------------------------------------------------------------------------
-#
-# Test lui instruction.
-#
-
 #include "riscv_test.h"
 #include "test_macros.h"
 
 RVTEST_RV64U
 RVTEST_CODE_BEGIN
-
-  #-------------------------------------------------------------
-  # Basic tests
-  #-------------------------------------------------------------
 
   TEST_CASE( 2, x1, 0x0000000000000000, lui x1, 0x00000 );
   TEST_CASE( 3, x1, 0xfffffffffffff800, lui x1, 0xfffff;sra x1,x1,1);

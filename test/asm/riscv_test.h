@@ -1,23 +1,4 @@
-// Local, minimal riscv_test.h. Every consumer -- both cxxrtl
-// runners, the iverilog bench and the Sail model -- terminates on the `tohost`
-// write below, so nothing here depends on ecall or mtvec.
-//
-// The trap macros at the bottom are opt-in, and RVTEST_CODE_BEGIN must stay
-// untouched by them so the other tests keep assembling to the same bytes.
-// Three constraints on a test that uses them:
-//
-//   1. Wrap every trapping instruction in `.option norvc` / `.option pop`. The
-//      handler resumes at mepc+4 unconditionally, because Harvard buses mean it
-//      cannot read the faulting instruction to tell 2 bytes from 4, and this
-//      suite's ISA string has C in it, so the assembler compresses freely.
-//      Tests that terminate from inside the handler are unconstrained.
-//   2. Install the handler before faulting. `mtvec` resets to 0, which is
-//      `_start`, so a trap before installation restarts the program.
-//   3. Assert in band. riscv-formal has no spec model for csrr*/ecall/ebreak/
-//      mret at the pin, so the per-retire monitor says nothing about the
-//      instructions these tests exist to exercise.
-//
-// The handler clobbers t0 and t1.
+// Local, minimal riscv_test.h.
 
 #ifndef __RISCV_TEST_H
 #define __RISCV_TEST_H
@@ -38,23 +19,11 @@ _start:                                                                      \
 #define RVTEST_CODE_END                                                      \
 1:      j       1b
 
-// The upper word first and the verdict last, because there is no 64-bit store
-// and Sail's HTIF fires on whichever half-write completes the pair: this way
-// the verdict store is what stops the reference model, on the same instruction
-// the cxxrtl runners stop on.
-// BOARD_SUITE REPLACES THE SPIN WITH A HANDOFF, and changes nothing else. A
-// part has no HTIF, so the store below reaches ordinary RAM and no one reads
-// it; test/asm/board_suite.S runs several programs from one ROM and reports
-// each verdict over the UART, which it can only do if a finished program comes
-// back. The store is KEPT so the two builds differ by the ending alone.
-//
-// `board_next` reads the verdict out of TESTNUM, which is why it is set before
-// the jump in both arms rather than only in the failing one.
+// The upper word first and the verdict last, because there is no 64-bit store and Sail's
+// HTIF fires on whichever half-write completes the pair: this way the verdict store is
+// what stops the reference model, on the same instruction the cxxrtl runners stop on.
 #ifdef BOARD_SUITE
-// The HTIF store goes too, not just the spin. `tohost` is a harness convention
-// -- a part has nothing that reads it -- and keeping it would stop a batch at
-// its first program, because both sim legs end the run on that write. Dropping
-// it is what lets a batch be simulated end to end before it is ever flashed.
+// The HTIF store goes too, not just the spin.
 #define RVTEST_PASS                                                          \
         li      TESTNUM, 1;                                                 \
         j       board_next
@@ -80,10 +49,8 @@ _start:                                                                      \
 1:      j       1b
 #endif
 
-// `tohost` must stay a full doubleword, 8-byte aligned: HTIF defines it as a
-// 64-bit location and every consumer claims the whole doubleword at the symbol
-// as an IO window. As a 32-bit `.word` it put the start of `.data` four bytes
-// inside that window, and Sail answered every load from there with zero.
+// `tohost` must stay a full doubleword, 8-byte aligned: HTIF defines it as a 64-bit
+// location and every consumer claims the whole doubleword at the symbol as an IO window.
 #define RVTEST_DATA_BEGIN                                                    \
         .pushsection .tohost,"aw",@progbits;                                \
         .align  3;                                                          \
@@ -96,14 +63,6 @@ tohost:                                                                      \
 
 #define RVTEST_DATA_END
 
-// One AMO, graded on the word it RETURNS and the word it LEAVES BEHIND. The
-// read-back is the half that matters: test/cosim.cc compares architectural
-// registers and never compares memory, and riscv-formal ships no spec model for
-// any A encoding at the pin, so an AMO's effect on RAM is checked by nothing
-// anywhere unless the program loads it into a register itself.
-//
-// Needs an aligned word named `amodat` in `.data`. Clobbers x1, x2, x4, x5, x6
-// and x29, and sets TESTNUM.
 #define TEST_AMO( testnum, inst, memval, rs2val, oldval, newval )            \
 test_ ## testnum:                                                            \
         li      TESTNUM, testnum;                                           \
@@ -118,8 +77,8 @@ test_ ## testnum:                                                            \
         li      x29, newval;                                                \
         bne     x6, x29, fail;
 
-// Invoke after RVTEST_DATA_BEGIN so it lands in RAM, the only memory a load can
-// reach on this Harvard core.
+// Invoke after RVTEST_DATA_BEGIN so it lands in RAM, the only memory a load can reach on
+// this Harvard core.
 #define RVTEST_TRAP_DATA                                                     \
         .align  2;                                                          \
         .global trap_count;                                                 \
@@ -135,14 +94,6 @@ trap_epc:                                                                    \
 trap_tval:                                                                   \
         .word   0;
 
-// Invoke in .text somewhere control cannot fall into -- after TEST_PASSFAIL by
-// convention, since both of those paths end in an infinite loop. The `.align 2`
-// satisfies mtvec's 4-byte-aligned WARL base.
-//
-// The body is straight-line and uncompressed, so
-// `(trap_handler_end - trap_handler) / 4` is how many instructions one trap
-// entry retires. A test reasoning about `minstret` across a trap should compute
-// that rather than hardcode a count.
 #define RVTEST_TRAP_HANDLER                                                  \
         .align  2;                                                          \
 trap_handler:                                                                \
@@ -167,31 +118,19 @@ trap_handler:                                                                \
 trap_handler_end:                                                            \
         .option pop;
 
-// Terminates from inside the handler, so constraint 1 does not apply.
 #define RVTEST_TRAP_HANDLER_FATAL                                            \
         .align  2;                                                          \
 trap_handler:                                                                \
         RVTEST_FAIL
 
-// Direct mode: mtvec[1:0] = 0, which the handler's `.align 2` guarantees.
 #define RVTEST_INSTALL_TRAP_HANDLER                                          \
         la      t0, trap_handler;                                           \
         csrw    mtvec, t0;
 
-// The machine timer, four words: mtime, mtimeh, mtimecmp, mtimecmph. Assembly
-// cannot read rtl/timer.v's `BASE`, so this is a copy of it and
-// test/memmap_test.sh compares the two.
 #define MTIMER_BASE      0x00020000
 #define MTIMECMP_OFFSET  8
 #define MTIMECMPH_OFFSET 12
 
-// The transmit-only UART, two words: a write-only data register and a status
-// register whose bit 0 is `busy`. Assembly cannot read rtl/uart.v's `BASE`
-// either, so this is a copy of it and test/memmap_test.sh compares the two.
-//
-// There is no queue behind the data register, so a byte written while `busy` is
-// set is dropped. Every write is therefore preceded by a poll, which is what
-// UART_WAIT_IDLE does; it clobbers t1.
 #define UART_BASE          0x00020020
 #define UART_STATUS_OFFSET 4
 
@@ -199,25 +138,10 @@ trap_handler:                                                                \
 1:      lw      t1, UART_STATUS_OFFSET(base);                               \
         bnez    t1, 1b;
 
-// The read-only SPI controller, two words: a data register whose write shifts one
-// byte out and eight bits in and whose read gives `busy` above the byte that
-// came back, and a write-only control register whose bit 0 drives the chip
-// select. A copy of rtl/spiflash.v's `BASE` for the same reason UART_BASE is
-// one, compared by test/memmap_test.sh.
-//
-// A write to either register while `busy` is set is dropped, so every step
-// polls first. SPI_XFER leaves the byte that came back in t2 and clobbers t1.
 #define SPI_BASE            0x00020028
 #define SPI_CONTROL_OFFSET  4
 #define SPI_BUSY_BIT        0x100
 
-// The first address above every device on this bus, so a program that wants an
-// access no memory answers has one address to name rather than an offset it
-// derives from whichever device happens to be topmost. Two programs probe the
-// region refusal that way and both used to count words up from their own base,
-// which meant the day a device landed above them their assertion silently
-// became one about the new device. test/memmap_test.sh computes this from the
-// topmost window and compares.
 #define MAP_TOP            0x00020030
 
 #define SPI_WAIT_IDLE(base)                                                  \
@@ -238,12 +162,6 @@ trap_handler:                                                                \
         lw      t2, 0(base);                                                \
         andi    t2, t2, 0xff;
 
-// The same exchange with the outgoing byte in a register instead of an
-// immediate, for a caller shifting out an address it computed rather than one
-// it can spell as a literal. `srcreg` and `dstreg` are the caller's choice, so
-// a routine built out of this can keep its own address and count live across
-// the exchange the way SPI_XFER's hardcoded t1/t2 cannot. Only srcreg's low 8
-// bits reach the wire; `dstreg` comes back masked to those same 8 bits.
 #define SPI_XFER_REG(base, srcreg, dstreg)                                   \
         SPI_WAIT_IDLE(base);                                                 \
         sw      srcreg, 0(base);                                            \
@@ -251,15 +169,6 @@ trap_handler:                                                                \
         lw      dstreg, 0(base);                                            \
         andi    dstreg, dstreg, 0xff;
 
-// Constraint 1 does NOT apply to the handler below and its opposite does: an
-// interrupt is taken BETWEEN instructions, so `mepc` holds an instruction that
-// has not run and the handler must resume AT it, not past it. Advancing mepc
-// here would skip a real instruction, which is the mistake this macro exists to
-// stop each test making on its own.
-//
-// It clobbers t0 and t1, and it disarms the timer before returning: `mtip` is a
-// level, so a handler that returns without moving `mtimecmp` is re-entered
-// immediately and forever.
 #define RVTEST_TIMER_HANDLER                                                 \
         .align  2;                                                          \
 timer_handler:                                                               \
@@ -286,14 +195,6 @@ timer_handler:                                                               \
 timer_handler_end:                                                           \
         .option pop;
 
-// The same, minus the disarm, until `irq_count` reaches `irq_limit`. MTIP is a
-// LEVEL: the spec says the interrupt remains posted until mtimecmp becomes
-// greater than mtime, and taking the trap does not clear it. So a handler that
-// returns without moving mtimecmp is re-entered on the first cycle after `mret`
-// that would otherwise have issued -- before the instruction at mepc runs. The
-// limit is what stops that being a livelock in a test.
-//
-// Clobbers t0 and t1.
 #define RVTEST_STICKY_TIMER_HANDLER                                          \
         .align  2;                                                          \
 sticky_timer_handler:                                                        \
@@ -313,7 +214,6 @@ sticky_timer_handler:                                                        \
 1:      mret;                                                               \
         .option pop;
 
-// Invoke after RVTEST_DATA_BEGIN, like RVTEST_TRAP_DATA, so it lands in RAM.
 #define RVTEST_TIMER_DATA                                                    \
         .align  2;                                                          \
         .global irq_count;                                                  \
@@ -340,22 +240,6 @@ irq_limit:                                                                   \
         la      t0, sticky_timer_handler;                                   \
         csrw    mtvec, t0;
 
-// Arm the timer to assert `delay` ticks from now, in the order the privileged
-// spec's own sample code uses for RV32:
-//
-//     low half = all ones     -- no smaller than the OLD value
-//     high half = new high    -- no smaller than the NEW value
-//     low half = new low      -- the new value
-//
-// A 32-bit store touches one half, so the pair is briefly a mix of old and new.
-// This order makes every intermediate at least as large as the smaller of the
-// two, which is what stops a spurious interrupt being manufactured in the
-// middle of the update. Writing the high half first does NOT: with the old low
-// half small, the pair passes through {new high, old low}, and mtime may
-// already be past it. test/asm/mtimer.S fires an interrupt that way on purpose.
-//
-// mtime's high half is zero for the whole of a program here unless the program
-// writes it, so the arithmetic can be 32-bit. Clobbers t0, t1 and t2.
 #define RVTEST_ARM_TIMER(delay)                                              \
         li      t0, MTIMER_BASE;                                            \
         lw      t1, 0(t0);                                                  \
@@ -365,19 +249,12 @@ irq_limit:                                                                   \
         sw      x0, MTIMECMPH_OFFSET(t0);                                   \
         sw      t1, MTIMECMP_OFFSET(t0);
 
-// mtimecmp resets to zero, so mtip is asserted out of reset -- harmless while
-// both enables are clear, and the first thing any boot path has to undo.
-// The low half first, per the sequence below; the third store would write the
-// low half a second time with the same value, so it is left out.
-// Clobbers t0 and t1.
 #define RVTEST_DISARM_TIMER                                                  \
         li      t0, MTIMER_BASE;                                            \
         li      t1, -1;                                                     \
         sw      t1, MTIMECMP_OFFSET(t0);                                    \
         sw      t1, MTIMECMPH_OFFSET(t0);
 
-// MTIE is bit 7 of mie; MIE is bit 3 of mstatus. Separately, because a test
-// that masks one of them has to leave the other on.
 #define RVTEST_ENABLE_MTIE                                                   \
         li      t0, 0x80;                                                   \
         csrs    mie, t0;

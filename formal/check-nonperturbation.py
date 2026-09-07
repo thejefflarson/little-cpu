@@ -101,26 +101,18 @@ RTL = [
     "littlecpu.v",
 ]
 
-# Repeated rather than looped: `opt_clean` is a single fanout sweep, and a
-# removal can expose the next one, so it has to run to a fixpoint. Six is
-# comfortably past the observed fixpoint (three) on this design, costs
-# milliseconds, and the fixpoint is ASSERTED below rather than assumed -- if a
-# future design needs more passes than this, the assertion says so instead of
-# the comparison silently reporting a difference that is really leftover trash.
+# Repeated rather than looped: `opt_clean` is a single fanout sweep, and a removal can
+# expose the next one, so it has to run to a fixpoint.
 SWEEP_PASSES = 6
 
-# Colour-refinement rounds. The graph diameter that matters is the depth of a
-# combinational cone; 8 rounds distinguishes far more than that in practice, and
-# the cost is linear.
+# Colour-refinement rounds.
 WL_ROUNDS = 8
 
-
-# Resolved from this file's own location, not from the working directory: the
-# Makefile runs it from formal/, but a bare `python3 formal/check-...` from the
-# repo root is the obvious thing to try and would otherwise fail inside yosys
-# with a missing-file error that says nothing about why.
+# Resolved from this file's own location, not from the working directory: the Makefile
+# runs it from formal/, but a bare `python3 formal/check-...` from the repo root is the
+# obvious thing to try and would otherwise fail inside yosys with a missing-file error
+# that says nothing about why.
 RTL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, "rtl")
-
 
 def yosys_script(out_dir):
     """One yosys invocation, three builds, three JSON netlists."""
@@ -153,15 +145,13 @@ def yosys_script(out_dir):
         ]
     )
 
-
 def run_yosys(out_dir):
     script = yosys_script(out_dir)
     path = os.path.join(out_dir, "build.ys")
     with open(path, "w") as f:
         f.write(script + "\n")
-    # check=True: a yosys that fails to elaborate must fail this gate, not
-    # leave a stale or absent JSON for the comparison to trip over later with a
-    # confusing message.
+    # check=True: a yosys that fails to elaborate must fail this gate, not leave a stale
+    # or absent JSON for the comparison to trip over later with a confusing message.
     proc = subprocess.run(
         ["yosys", "-q", "-s", path], capture_output=True, text=True
     )
@@ -170,15 +160,9 @@ def run_yosys(out_dir):
         sys.stderr.write(proc.stderr)
         raise SystemExit("yosys failed (exit %d) -- see output above" % proc.returncode)
     # yosys -q still prints warnings; surface them rather than swallowing them.
-    # NOT promoted to errors here, deliberately: CI's `elaborate` job already
-    # owns that policy for this RTL, with a curated allowlist (the "Deep
-    # recursion in AST simplifier" note), and a second promotion on a different
-    # yosys pipeline would go red for reasons that have nothing to do with the
-    # property this gate decides. Zero appear today; if that changes, read them.
     for line in (proc.stdout + proc.stderr).splitlines():
         if line.startswith("Warning:"):
             print("  yosys: " + line)
-
 
 def load(out_dir, name):
     with open(os.path.join(out_dir, name + ".json")) as f:
@@ -188,18 +172,14 @@ def load(out_dir, name):
         raise SystemExit("%s.json has no littlecpu module" % name)
     return mods["littlecpu"]
 
-
 def histogram(mod):
     return collections.Counter(c["type"] for c in mod["cells"].values())
-
 
 def port_names(mod):
     return sorted(mod["ports"].keys())
 
-
 def _h(obj):
     return hashlib.blake2b(repr(obj).encode(), digest_size=16).hexdigest()
-
 
 def adjacency(mod):
     """cell -> [(port, direction, bit_index, net)], and net -> [(cell, port, direction, bit_index)].
@@ -220,7 +200,6 @@ def adjacency(mod):
         cell_pins[cname] = pins
     return cell_pins, net_pins
 
-
 def fingerprint(mod):
     """Name-independent canonical form: Weisfeiler-Leman colour multisets.
 
@@ -236,10 +215,9 @@ def fingerprint(mod):
         params = sorted((k, str(v)) for k, v in cell.get("parameters", {}).items())
         cell_colour[cname] = _h(("cell", cell["type"], params))
 
-    # A module port bit is the one net a name may legitimately seed from: port
-    # names are the design's interface, identical by construction in both
-    # builds, and pinning them is what stops the refinement from being free to
-    # permute the boundary.
+    # A module port bit is the one net a name may legitimately seed from: port names are
+    # the design's interface, identical by construction in both builds, and pinning them
+    # is what stops the refinement from being free to permute the boundary.
     port_bit = {}
     for pname, pdata in mod["ports"].items():
         for index, bit in enumerate(pdata["bits"]):
@@ -290,7 +268,6 @@ def fingerprint(mod):
         local_cell_colour,
     )
 
-
 def unswept_cells(mod):
     """Cells none of whose output bits is read or exported: sweep residue.
 
@@ -321,7 +298,6 @@ def unswept_cells(mod):
         if outs and not any(b in read for b in outs):
             residue.append((cname, cell["type"]))
     return residue
-
 
 def selftest_fingerprint(mod):
     """Prove the connectivity fingerprint can fail, before trusting it to pass.
@@ -383,7 +359,6 @@ def selftest_fingerprint(mod):
         )
     return problems
 
-
 def main():
     failures = []
 
@@ -443,10 +418,9 @@ def main():
             "`delete -port littlecpu/rvfi_*` left %d rvfi_* port(s): %s"
             % (len(gate_rvfi), ", ".join(gate_rvfi))
         )
-    # The margin is a floor, not a measurement: the instrumentation is thousands
-    # of cells (rtl/structs.v's shadow payload alone is >100 bits per stage), so
-    # anything under a few hundred means the normalisation swept it before the
-    # comparison could see it. Deliberately loose -- this is not a size ratchet.
+    # The margin is a floor, not a measurement: the instrumentation is thousands of cells
+    # (rtl/structs.v's shadow payload alone is >100 bits per stage), so anything under a
+    # few hundred means the normalisation swept it before the comparison could see it.
     if inst_cells <= gold_cells + 200:
         failures.append(
             "the instrumented build is only %d cells larger than gold. The "
@@ -516,18 +490,14 @@ def main():
             "of changed cells)"
             % (sum(only_gate.values()), sum(only_gold.values()))
         )
-        # Names are useless for MATCHING and this is the only place they are
-        # used at all: once a difference is known to exist they are the best
-        # thing to hand a human. The listing uses the ROUND-1 colours, not the
-        # settled ones -- a round-1 colour is a cell plus its immediate
-        # neighbourhood, so it localises to cells actually wired differently
-        # instead of naming everything downstream of the first one.
+        # Names are useless for MATCHING and this is the only place they are used at all:
+        # once a difference is known to exist they are the best thing to hand a human.
         surplus = collections.Counter(gate_local.values()) - collections.Counter(
             gold_local.values()
         )
-        # Consume the surplus rather than listing every cell that happens to
-        # share a colour with it: a colour gate has 100 of and gold has 99 of is
-        # ONE unexplained cell, not a hundred.
+        # Consume the surplus rather than listing every cell that happens to share a
+        # colour with it: a colour gate has 100 of and gold has 99 of is ONE unexplained
+        # cell, not a hundred.
         suspects = []
         for cname in sorted(gate_local):
             colour = gate_local[cname]
@@ -568,7 +538,6 @@ def main():
         "  proves the instrumentation is unread, not that two designs behave alike."
     )
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -1,6 +1,4 @@
-// There is no bus handshake to model. Fetch is combinational and unconditional,
-// and the data bus is a plain address/strobe/data bus with a fixed one-cycle
-// load turnaround, so `imem_data` and `mem_rdata` are simply free every cycle.
+// There is no bus handshake to model.
 module rvfi_wrapper (
   input var clock, reset,
   `RVFI_OUTPUTS
@@ -8,18 +6,13 @@ module rvfi_wrapper (
   `RVFI_WIRES
 
   (* keep *) `rvformal_rand_reg [31:0] imem_data;
-  // The fetch window's second word, resampled every cycle exactly like
-  // `imem_data`. Both are constrained by one thing only, the same-address
-  // stability assumption further down.
+  // The fetch window's second word, resampled every cycle exactly like `imem_data`.
   (* keep *) `rvformal_rand_reg [31:0] imem_data2;
   (* keep *) `rvformal_rand_reg [31:0] mem_rdata;
 
   (* keep *) logic [31:0] imem_addr;
   (* keep *) logic [31:0] imem_addr2;
-  // The fetch address one cycle early, for a synchronous memory. Unread here:
-  // this environment answers `imem_data` against `imem_addr` in the same cycle,
-  // so every check sees a combinational fetch bus and never the port the
-  // shipping SoC uses.
+  // The fetch address one cycle early, for a synchronous memory.
   (* keep *) logic [31:0] imem_addr_next;
   (* keep *) logic [31:0] mem_addr;
   (* keep *) logic [31:0] mem_wdata;
@@ -30,45 +23,17 @@ module rvfi_wrapper (
   (* keep *) logic fetch_stall;
   logic text_write;
 
-  // The memory has nothing at the address it is answering. Free, like the data
-  // it accompanies, because this environment models no address map -- what
-  // ranges rtl/imemory.v calls text is test/imem_tb.v's question, not these
-  // checks'. What they need is the one thing a memory that answers nothing
-  // always does, which is the assumption below.
+  // This environment models no address map, so `imem_fault` is free. What they need is the assumption below, which is what a memory that answers nothing always does.
   (* keep *) `rvformal_rand_reg imem_fault;
 
-  // Whether the data address this cycle is reservable main memory. Free, for
-  // the same reason `imem_fault` is: this environment models no address map,
-  // and a core that only works on a platform that answers everywhere is not
-  // what these checks should accept. Nothing has to be assumed about it --
-  // it decides only whether a store-conditional may succeed, and failing one
-  // spuriously is permitted everywhere.
   (* keep *) `rvformal_rand_reg mem_reservable;
 
-  // Whether an atomic's address is memory that answers one. Free for the same
-  // reason, and nothing is assumed about it either -- an atomic decode either
-  // faults with it or issues without it, and both are this core's behaviour.
-  // It is not what makes the load and store arms of checks/rvfi_fault_check.sv
-  // reachable: a plain load or store outside the decoder's own map faults
-  // whatever this bit says, and those are the encodings the check has a spec
-  // model for.
   (* keep *) `rvformal_rand_reg atomic_supported;
   wire [31:0] atomic_addr;
 
-  // The lock an arbiter would read, and the two inputs a second bus initiator
-  // would drive. Tied off below; the lock is unread because nothing here
-  // arbitrates for anything.
   wire mem_lock;
   wire bus_request;
 
-  // Assumed: on a cycle it reports having nothing, the instruction memory
-  // answers zero on both fetch ports.
-  //
-  // rtl/imemory.v gates both of them on the same range test that raises the
-  // fault, so this is structural rather than believed. It is also what makes the
-  // instruction-access-fault arm of checks/rvfi_fault_check.sv say something
-  // about this core: that arm requires `insn == 0`, and without this the
-  // environment could report a fault alongside a word it invented.
   always @* begin
     if (imem_fault) begin
       assume (imem_data  == 32'b0);
@@ -86,42 +51,10 @@ module rvfi_wrapper (
     .text_write(text_write)
   );
 
-  // Two cycles after a text store the banks answer with the new contents, so the
-  // same-address compare below has to be dropped there as well as on the stolen
-  // cycle. The array is written on the store's own edge and the fetch address is
-  // published a cycle early, which is what puts it two cycles out.
   logic [1:0] text_write_age = 0;
   always @(posedge clock)
     text_write_age <= {text_write_age[0], text_write};
 
-  // Assumed: asked for the same address two cycles running, instruction memory
-  // answers the same both times.
-  //
-  // Nothing in this repo discharges it. The backing is structural -- both fetch
-  // ports read one array in rtl/imemory.v -- and it is believed rather than
-  // proved. It sits in the harness every generated check instantiates, so it is
-  // in force over every generated check, not only the two it was written for.
-  //
-  // Why the core needs it: decode presents a register address pair in one cycle
-  // and consumes the answer in the next, and it decides the two belong to the
-  // same instruction by comparing rs1/rs2, which come straight out of
-  // `imem_data`. Left free, the environment can hand the held pc a different
-  // instruction word every cycle forever and decode never issues. Measured
-  // without it: `hang` and `liveness_ch0` are the only two red, both real
-  // counterexamples at k = 30.
-  //
-  // What it costs: a defect that shows up only when one address answers two
-  // different ways in consecutive cycles is invisible to every check. No
-  // memory does that, but the narrowing is real.
-  //
-  // Stability across two cycles rather than a full memory model, because that is
-  // all the operand-fetch cycle needs and it leaves an address revisited later
-  // free to answer differently.
-  //
-  // The stolen cycle and the two-cycles-after-a-store cycle drop the compare
-  // rather than model what memory answers there. That is the wide side, and an
-  // assumption can only make checks easier, so a depth floor derived under it is
-  // the safe one.
   logic [31:0] past_imem_addr, past_imem_data;
   logic [31:0] past_imem_addr2, past_imem_data2;
   logic        past_imem_valid = 0;
@@ -159,48 +92,16 @@ module rvfi_wrapper (
     .mem_reservable(mem_reservable),
     .atomic_addr(atomic_addr),
     .atomic_supported(atomic_supported),
-    // Tied off, and formal/check-multihart-tie-off.py is what says so. These
-    // checks describe ONE hart: riscv-formal's channels are one core's retires,
-    // it models no second agent on memory, and nothing at the pin can say what
-    // a foreign write should do to a reservation. Left free, `bus_wait` would
-    // let the environment hold this core still forever -- `hang` and
-    // `liveness_ch0` are the two checks that measure exactly that -- and
-    // `snoop_write` would clear reservations no program can see, which is a
-    // machine the spec model does not describe rather than a weaker property of
-    // this one. The depths in formal/checks.cfg are derived under the tie-off
-    // too: an ungranted cycle issues nothing, so a free input there moves G.
     .bus_wait(1'b0),
     .snoop_write(1'b0),
     .snoop_addr(32'b0),
     .mem_lock(mem_lock),
     .bus_request(bus_request),
-    // Tied off, and formal/check-interrupt-tie-off.py is what says so. Every
-    // depth in formal/checks.cfg is derived from F and G measured with no
-    // interrupt in the trace, and riscv-formal ships no model at the pin of
-    // what an interrupt does to mcause, mepc or mstatus -- only the two pc
-    // checks read `rvfi_intr`, and only to stop expecting continuity. Left
-    // free, the generated checks would not be checking a weaker property, they
-    // would be checking a different machine against a spec that does not
-    // describe it. formal/traps.sv is where the interrupt is proved.
     .irq_timer(1'b0),
     .trap(trap),
     `RVFI_CONN
   );
 
  `ifdef RISCV_FAIRNESS
-  // Other cores use this block to bound a bus ack the environment could
-  // withhold forever, starving the liveness check of a next retire. There is
-  // nothing here to bound. `imem_data` and `mem_rdata` are free every cycle but
-  // the core never waits on their value, and every stall it does have is driven
-  // by its own state: the divider counts down from 32 on its own, an AMO's
-  // write cycle and the load/store region wait are one cycle each by
-  // construction, and `fetch_stall` comes from the arbiter above, which reads
-  // the core's own bus rather than being chosen. The one stall an environment
-  // COULD choose is `bus_wait`, and it is tied off above -- a bus grant
-  // withheld forever is exactly the shape this block would otherwise have to
-  // bound.
-  //
-  // Left as an explicit empty block so that a liveness surprise later reads as a
-  // decision rather than an omission.
  `endif
 endmodule

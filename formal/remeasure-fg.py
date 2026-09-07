@@ -1,29 +1,7 @@
 #!/usr/bin/env python3
-#
-# Re-measures F and G -- the two figures every depth in formal/checks.cfg's
-# [depth] table is derived from -- and grades what it measures against the
-# `#derive` lines that declare them.
-#
-# WHY A COMMAND AND NOT A RECIPE IN PROSE. The procedure used to be four
-# sentences telling a reader to copy the cfg, cut [depth] down to one line,
-# regenerate and sweep the last column. It was carried out correctly each time
-# it was carried out at all, which is the problem: the depths it feeds are the
-# reason every generated check is worth its PASS, and a depth that has gone
-# stale reports nothing.
-#
-# BOTH DIRECTIONS, ALWAYS. Each sweep prints the red rows either side of its
-# flip point as well as the green one, because a flip point with no counter-
-# example under it is a measurement that could not have come out any other way:
-# `hang` red at F and PASS at F+1, `liveness` red at gap G-1 and PASS at gap G.
-# The gap-(G-1) counterexample is also this measurement's non-vacuity witness,
-# since rvfi_liveness_check.sv opens with `assume(rvfi_valid)` at its trig
-# cycle.
-#
-# The probe cfg is checks.cfg with [depth] replaced by one line, so everything
-# else -- RISCV_FORMAL_ALTOPS, the solver, the source list, formal/wrapper.v's
-# tie-off of the timer interrupt -- is what the graded run uses. G in particular
-# is only this number under the tie-off: an interrupt costs a cycle that would
-# otherwise have issued.
+# Re-measures F and G -- the two figures every depth in formal/checks.cfg's [depth] table
+# is derived from -- and grades what it measures against the `#derive` lines that declare
+# them.
 
 import os
 import shutil
@@ -36,14 +14,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 CFG = os.path.join(HERE, "checks.cfg")
 PROBE = "fg-probe"
 
-# The two trigs G is taken at. One is a measurement; two agreeing is a
-# measurement whose answer does not depend on where in the trace it was asked.
+# The two trigs G is taken at.
 TRIGS = (10, 15)
 
-# How far either side of the declared figure to sweep. Two red rows below the
-# flip point and one green row above it.
+# How far either side of the declared figure to sweep.
 BELOW, ABOVE = 2, 1
-
 
 def probe(depth_line, check):
     """Generate a one-check set from checks.cfg with `depth_line` as the whole
@@ -94,7 +69,6 @@ def probe(depth_line, check):
     with open(status_file) as f:
         return f.read().split()[0]
 
-
 def sweep(label, check, rows):
     """Run one sweep of `check` and return the lowest value that PASSes, or
     None. `rows` is a list of (value, description, depth_line)."""
@@ -125,7 +99,6 @@ def sweep(label, check, rows):
         )
     return flip
 
-
 def main():
     if os.path.realpath(os.getcwd()) != os.path.realpath(HERE):
         print(f"error: run from {HERE}, not {os.getcwd()}", file=sys.stderr)
@@ -148,8 +121,8 @@ def main():
             for cycle in range(max(1, f_declared - BELOW), f_declared + 1 + ABOVE)
         ],
     )
-    # rvfi_hang_check.sv asserts a registered flag, so it first holds one cycle
-    # after the last cycle a trace can go without retiring.
+    # rvfi_hang_check.sv asserts a registered flag, so it first holds one cycle after the
+    # last cycle a trace can go without retiring.
     f_measured = flip - 1
     print(f"  => flip point {flip}, so F = {f_measured}")
 
@@ -198,7 +171,6 @@ def main():
         file=sys.stderr,
     )
     return 1
-
 
 if __name__ == "__main__":
     sys.exit(main())

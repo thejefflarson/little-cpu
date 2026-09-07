@@ -34,84 +34,44 @@ import re
 import sys
 
 # Rule 1. yosys's AST_AUTOWIRE elaboration trips on `$time` as a bare `$display`
-# argument, so the cxxrtl leg cannot read the file as generated. The iverilog leg
-# loses a timestamp from an error banner, which is not a check.
+# argument, so the cxxrtl leg cannot read the file as generated. The iverilog leg loses a
+# timestamp from an error banner.
 TIME_IN_DISPLAY = (
     re.compile(r' at time %0t --------", ([A-Za-z0-9_]+), \$time\)'),
     r' --------", \1)',
     4,
 )
 
-# Rule 2. monitor_insn_div / monitor_insn_rem compute the signed result as one
-# branch of a conditional whose other branches are unsigned, and per IEEE 1800
-# sign-context rules that makes the division evaluate UNSIGNED -- silently, and
-# for negative operands only. `$signed()` makes it self-determined so the
-# enclosing conditional cannot downgrade it.
+# Rule 2. monitor_insn_div / monitor_insn_rem compute the signed result as one branch of
+# a conditional whose other branches are unsigned.
 UNSIGNED_SIGNED_DIVREM = (
     re.compile(r'\$signed\((rvfi_rs1_rdata)\) ([/%]) \$signed\((rvfi_rs2_rdata)\);'),
     r'$signed($signed(\1) \2 $signed(\3));',
     2,
 )
 
-# Rule 3. When an instruction traps, the spec model still reports what it would
-# have done had it not. A correct core writes no register, touches no memory and
-# jumps to `mtvec`, so those comparisons all disagree. riscv-formal's own checker
-# skips them when the spec model says trap; the monitor generator does not, so
-# without this it reports errors 104, 105, 106 and 110-113 on hardware that is
-# working.
-#
-# The span below is found by position, from the first anchor to the last. That
-# means counting the matches tells us the rule fired but not what it wrapped.
-# Error 101 is the one comparison that must keep running when an instruction
-# traps -- it is the check that the core trapped at all. If a new version of the
-# generator moved it between the two anchors, the count would still be 1 and that
-# check would quietly stop working in both sim legs. So there are three more
-# checks below: literals that must not appear inside the span, the exact list of
-# error codes it is allowed to contain, and one afterwards that 101 is still in
-# the output.
+# Rule 3. When an instruction traps, the spec model still reports what it would have done
+# had it not. A correct core writes no register, touches no memory and jumps to `mtvec`.
 TRAP_GATE_SPAN = re.compile(
     r'(?P<indent>[ ]*)if \((?P<ch>ch\d+)_rvfi_rs1_addr != (?P=ch)_spec_rs1_addr\b.*?'
     r'(?P=ch)_handle_error\(\d+, "mismatch in mem_addr"\);\n[ ]*end\n',
     re.DOTALL,
 )
 
-# Both ways the generator currently writes the trap comparison. Either one
-# inside the span means it has moved and must not be wrapped.
+# Both ways the generator currently writes the trap comparison.
 TRAP_GATE_FORBIDDEN = (
     '"mismatch in trap"',
     '_rvfi_trap != ',
 )
 
-# Read off test/monitor.v at the current pin, not chosen. After a pin bump, read
-# it off again and check each code against riscv-formal's own checker to see that
-# it really does belong inside the gate. Do not edit this list to make a failure
-# go away — a code turning up here that upstream keeps outside the gate is
-# exactly what this list is here to catch.
+# Read off test/monitor.v at the current pin, not chosen.
 TRAP_GATE_ENCLOSED_CODES = sorted(
     [102, 103, 104, 105, 106, 108, 110, 120, 111, 121, 112, 122, 113, 123, 107]
 )
 
-# The monitor is generated with one retire channel, so there is exactly one.
 TRAP_COMPARISON = re.compile(r'ch\d+_handle_error\(101, "mismatch in trap"\)')
 TRAP_COMPARISON_SITES = 1
 
-# Rules 4, 5 and 6. THE SPEC MODEL HAS NO MEMORY MAP. It answers a load at any
-# address at all, so a retire this platform refused -- cause 5 or 7, or cause 1
-# for a fetch -- is one the model says executed: error 101 on a core doing
-# exactly what the map says, and then every value comparison behind it, because
-# the core wrote no register and jumped to `mtvec` while the model did neither.
-#
-# The retire is shown to the monitor all the same. Dropping it instead leaves a
-# hole in `rvfi_order`, and the reorder buffer reads that as a lost instruction:
-# the ROB's cursor stops at the missing number and every later retire is graded
-# against the wrong shadow. What is dropped here is the model's opinion about
-# that one retire, not the retire.
-#
-# `rvfi_mem_fault` is the core's own report of the refusal, so this could be
-# spent for nothing if the core simply raised it everywhere. Rule 6 is what
-# stops that: a retire that reports a refused access must also report a trap,
-# and a trap is still graded by everything else -- the pc continuity check, the
-# interrupt-after-trap check, and the program's own reading of `mcause`.
 MEM_FAULT_PORT = (
     re.compile(r'(  input \[0:0\] rvfi_mem_extamo,\n)'),
     r'\1  input [0:0] rvfi_mem_fault,\n',
@@ -139,17 +99,12 @@ MEM_FAULT_TRAP_GATE = (
     1,
 )
 
-# The compensating check must be in the output, for the reason error 101 must:
-# rules 4 and 5 firing says the flag reached the monitor, not that anything
-# grades what the core does with it.
 MEM_FAULT_COMPENSATION = re.compile(
     r'ch\d+_handle_error\(150, "refused access without a trap"\)')
 MEM_FAULT_COMPENSATION_SITES = 1
 
-
 class SanitizerError(Exception):
     """A rule matched, but not the text it was written to match."""
-
 
 def _wrap_in_trap_gate(match):
     indent = match.group('indent')
@@ -187,9 +142,7 @@ def _wrap_in_trap_gate(match):
         f'{indent}end\n'
     )
 
-
 TRAP_GATE = (TRAP_GATE_SPAN, _wrap_in_trap_gate, 1)
-
 
 RULES = [
     ('strip $time from $display banners', *TIME_IN_DISPLAY),
@@ -199,7 +152,6 @@ RULES = [
     ('read rvfi_mem_fault into the channel', *MEM_FAULT_CHANNEL),
     ('gate the trap comparison on a refused access', *MEM_FAULT_TRAP_GATE),
 ]
-
 
 def _check_trap_comparison_survives(text):
     """Error 101 must still be in the output.
@@ -216,7 +168,6 @@ def _check_trap_comparison_survives(text):
             f'  expected {TRAP_COMPARISON_SITES}. Without it neither sim leg checks\n'
             f'  whether the core traps when the spec model says it must.'
         )
-
 
 def _check_mem_fault_compensation_survives(text):
     """The `mem_fault implies trap` check must still be in the output.
@@ -236,7 +187,6 @@ def _check_mem_fault_compensation_survives(text):
             f'  {MEM_FAULT_COMPENSATION_SITES}. Without it `rvfi_mem_fault` turns\n'
             f'  off the trap comparison and nothing asks what the core did with it.'
         )
-
 
 def main(argv):
     if len(argv) != 2:
@@ -271,7 +221,6 @@ def main(argv):
 
     sys.stdout.write(text)
     return 0
-
 
 if __name__ == '__main__':
     sys.exit(main(sys.argv))

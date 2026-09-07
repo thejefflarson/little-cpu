@@ -1,26 +1,5 @@
 #!/bin/sh
-# Run `make compare-timing` for each core in COMPARE_CORES -- littlecpu and
-# vexriscv by default; hazard3 is the third -- at several placements each and
-# print the distributions.
-#
-#   soc/compare/sweep.sh                    # default cores, default + seeds 1-3
-#   COMPARE_SEEDS='default 1 2 3 4 5' soc/compare/sweep.sh
-#   COMPARE_CORES=vexriscv soc/compare/sweep.sh # one side only
-#
-# One placement is a sample, so a claim about which of two cores is faster needs
-# a distribution on both sides and is read on the worst placement of each. Four
-# seeds is a look; twelve to sixteen is what a verdict costs.
-#
-# THIS HARNESS PLACES hx8k AND NO BAND HAS EVER BEEN DERIVED FOR IT. soc/bands.py
-# says exactly that at the end of the run rather than lending it up5k's figures:
-# different part, and a different design as well -- 4 KB of ROM and 2 KB of block
-# RAM here against 8 KB and 64 KB of SPRAM there, and no timer. Until somebody
-# sweeps this part, a delta here cannot be called a change or a null.
-#
-# `make` is deliberately NOT in a pipeline, for the reason soc/timing_sweep.sh
-# records: the default shell is errexit without pipefail, so a graded command
-# piped into `grep` reports grep's status and a failed placement prints its row
-# and exits 0. The status handed back here is make's.
+# One placement is a sample, not a verdict: twelve to sixteen seeds are the go/no-go.
 set -eu
 
 cd "$(dirname "$0")/../.."

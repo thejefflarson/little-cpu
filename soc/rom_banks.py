@@ -22,7 +22,6 @@ for iverilog, which warns at run time, and a warning fails the build here.
 import argparse
 import sys
 
-
 def parse_verilog_hex(path):
     """word address -> 32-bit word, from objcopy's `-O verilog` format."""
     image = {}
@@ -39,7 +38,6 @@ def parse_verilog_hex(path):
                 image[addr] = int(word, 16)
                 addr += 1
     return image
-
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -62,9 +60,7 @@ def main():
     if not image:
         sys.exit(f"{args.image} contains no words; refusing to write an empty ROM")
 
-    # A program that does not fit is a FINDING, not something to truncate. The
-    # ROM ceiling is the part's block RAM and it is the whole reason this SoC
-    # can be initialised from its bitstream at all.
+    # A program that does not fit is a FINDING, not something to truncate.
     top = max(image)
     if top >= args.rom_words:
         sys.exit(
@@ -87,7 +83,6 @@ def main():
         f"{args.image}: {len(image)} words -> {args.even} + {args.odd} "
         f"({bank_words} words each, {args.rom_words * 4} byte ROM)"
     )
-
 
 if __name__ == "__main__":
     main()

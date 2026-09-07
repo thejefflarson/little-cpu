@@ -1,11 +1,6 @@
 # See LICENSE for license details.
 
-#*****************************************************************************
-# sltu.S
-#-----------------------------------------------------------------------------
-#
-# Test sltu instruction.
-#
+# sltu.S Test sltu instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -13,9 +8,7 @@
 RVTEST_RV64U
 RVTEST_CODE_BEGIN
 
-  #-------------------------------------------------------------
   # Arithmetic tests
-  #-------------------------------------------------------------
 
   TEST_RR_OP( 2,  sltu, 0, 0x00000000, 0x00000000 );
   TEST_RR_OP( 3,  sltu, 0, 0x00000001, 0x00000001 );
@@ -37,17 +30,9 @@ RVTEST_CODE_BEGIN
   TEST_RR_OP( 15, sltu, 0, 0xffffffff, 0x00000001 );
   TEST_RR_OP( 16, sltu, 0, 0xffffffff, 0xffffffff );
 
-  #-------------------------------------------------------------
-  # Source/Destination tests
-  #-------------------------------------------------------------
-
   TEST_RR_SRC1_EQ_DEST( 17, sltu, 0, 14, 13 );
   TEST_RR_SRC2_EQ_DEST( 18, sltu, 1, 11, 13 );
   TEST_RR_SRC12_EQ_DEST( 19, sltu, 0, 13 );
-
-  #-------------------------------------------------------------
-  # Bypassing tests
-  #-------------------------------------------------------------
 
   TEST_RR_DEST_BYPASS( 20, 0, sltu, 1, 11, 13 );
   TEST_RR_DEST_BYPASS( 21, 1, sltu, 0, 14, 13 );

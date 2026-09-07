@@ -28,7 +28,7 @@ Four habits carry the goals:
   macOS and is what made the board flashable (the `prog` recipe's comment); `SB_HFOSC`'s ±10% trim
   was quoted to argue the UART could never work, and the part measures nominal (ADR-0130); two
   community pin tables give the UPduino's clock as 41 and 44 against the vendor's own 20
-  (`soc/upduino.pcf`'s header). The cost of testing one is usually a single command.
+  (`docs/pin-constraints.md`). The cost of testing one is usually a single command.
 - **Prove the property, then spend it.** Find a place the design pays for a property it already
   proves — a priority chain over proven-disjoint flags, a comparator that cannot differ — simplify
   it, and let the riscv-formal checks, the component proofs and the `.S` suite say whether the
@@ -395,7 +395,7 @@ top, ECP5 only.
   no behavioural model for `DP16KD`**, so the mapped netlist cannot be simulated on any machine.
   Spell such an arm as a mux on the block's OUTPUT. No ECP5 band has been derived and
   `soc/bands.py` refuses to answer for the part; up5k's figures do not transfer. Pinning `clk` to the module's oscillator pin is not
-  cosmetic: the pad decides where the global network is entered, and `soc/littlesoc.lpf`'s header
+  cosmetic: the pad decides where the global network is entered, and `docs/pin-constraints.md`
   records the one placement that read faster unpinned.
 - **The DUAL configuration is a FOURTH design, ECP5 only.** Two fetch windows are two copies of the
   banked ROM — 32 block RAMs against the up5k's 30 — so no up5k number describes it.

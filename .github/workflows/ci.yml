@@ -13,9 +13,8 @@ permissions:
   contents: read
 
 # Every job picks its runner with an expression rather than a bare `runs-on:
-# little-cpu-runners`: the pool is self-hosted and the repo is public, so a fork
-# PR's own recipes must not run on it. A fork PR gets ubuntu-latest under the
-# SAME job name -- a skipped required check blocks the pull request forever.
+# little-cpu-runners`: the pool is self-hosted and the repo is public, so a fork PR's own
+# recipes must not run on it.
 jobs:
   elaborate:
     name: elaborate
@@ -70,8 +69,7 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # ubuntu-latest carries no cross compiler. The self-hosted image bakes one in
-      # because its pods are runAsNonRoot, so apt cannot install one there.
+      # ubuntu-latest carries no cross compiler.
       - name: Install the RISC-V cross compiler (fork PR routing only)
         if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
         run: sudo apt-get update && sudo apt-get install -y gcc-riscv64-unknown-elf clang
@@ -139,10 +137,9 @@ jobs:
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # THE REQUIRED CHECK KEEPS ITS NAME. A required context that stops reporting
-  # blocks every pull request rather than failing one, including the pull request
-  # that would rename it. `if: always()` is what makes this run when a shard did
-  # not -- a skipped gate leaves the pull request waiting rather than red.
+  # THE REQUIRED CHECK KEEPS ITS NAME. A required context that stops reporting blocks
+  # every pull request rather than failing one, including the pull request that would
+  # rename it.
   mutation-check:
     name: mutation-check
     needs: mutation-check-shard
@@ -189,7 +186,8 @@ jobs:
           cat "$RUNNER_TEMP/sail-pin.txt"
           grep -E '^(key|path)=' "$RUNNER_TEMP/sail-pin.txt" >> "$GITHUB_OUTPUT"
 
-      # Cache the tarball, not the unpacked tree: the restored bytes still meet the SHA-256.
+      # Cache the tarball, not the unpacked tree: the restored bytes still meet the
+      # SHA-256.
       - name: Restore the pinned sail-riscv tarball
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -330,13 +328,9 @@ jobs:
         uses: ./.github/actions/setup-oss-cad-suite
 
       - name: make fit
-        # NEVER PIPE A GRADED COMMAND. Without an explicit `shell:` a step is
-        # `bash -e {0}` -- errexit but not pipefail -- so `cmd | tee` takes tee's
-        # status and always succeeds. This repo shipped exactly that once.
-        #
-        # `make fit` expects placement to FAIL: the fit top presents 231 SB_IO against
-        # sg48's 39. The Makefile checks for the utilisation table, so dying before
-        # measuring anything is still red.
+        # NEVER PIPE A GRADED COMMAND. Without an explicit `shell:` a step is `bash -e
+        # {0}` -- errexit but not pipefail -- so `cmd | tee` takes tee's status and
+        # always succeeds.
         run: |
           set +e
           make fit > "$RUNNER_TEMP/fit.txt" 2>&1
@@ -424,8 +418,8 @@ jobs:
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # Gates the MAPPING and publishes the frequency; no Fmax ratchet, because one
-  # placement is a sample and ECP5's churn band has not been derived.
+  # Gates the MAPPING and publishes the frequency; no Fmax ratchet, because one placement
+  # is a sample and ECP5's churn band has not been derived.
   ecp5-timing:
     name: ecp5-timing
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
@@ -581,14 +575,13 @@ jobs:
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # What is gated is formal/check-baseline.sh's exit status, not sby's: every
-  # generated .sby carries `expect pass,fail`, so sby exits 0 either way.
+  # What is gated is formal/check-baseline.sh's exit status, not sby's: every generated
+  # .sby carries `expect pass,fail`, so sby exits 0 either way.
   formal-checks:
     name: formal-checks
-    # JOBS is a MEMORY budget, not a speed knob: one check peaks around 876 MiB, so
-    # the footprint is roughly JOBS GiB. Below 3 GiB use JOBS=2 -- an OOM-killed
-    # pod takes its logs with it and reads as a job that merely failed. Size it
-    # from the cgroup figures the `components` job prints.
+    # JOBS is a MEMORY budget, not a speed knob: one check peaks around 876 MiB, so the
+    # footprint is roughly JOBS GiB. Below 3 GiB use JOBS=2 -- an OOM-killed pod takes
+    # its logs with it and reads as a job that merely failed.
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
     timeout-minutes: 20
     steps:
@@ -664,8 +657,8 @@ jobs:
 
   formal-extra:
     name: formal-extra
-    # Measured: dmemcheck 400 MB, imemcheck 364 MB, complete 277 MB, complete_cover
-    # 113 MB, cover 64 MB. The depth-50 whole-ISA walk is not the heavy one.
+    # Measured: dmemcheck 400 MB, imemcheck 364 MB, complete 277 MB, complete_cover 113
+    # MB, cover 64 MB. The depth-50 whole-ISA walk is not the heavy one.
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
     timeout-minutes: 20
     steps:
@@ -686,13 +679,9 @@ jobs:
       - name: cover (five goals, incl. >=2 compressed retires)
         run: make -C formal cover
 
-      # complete.sby carries no `expect` line, so this step's status is sby's own, and
-      # it runs `abc bmc3`, so the btorsim check above does not cover it.
       - name: complete (whole-ISA BMC walk, depth 50)
         run: make -C formal complete
 
-      # `complete`'s assertion is guarded, so a core that never retired would pass it
-      # having been asked nothing.
       - name: complete_cover (anti-vacuity — every non-excluded class retires)
         run: make -C formal complete_cover
 

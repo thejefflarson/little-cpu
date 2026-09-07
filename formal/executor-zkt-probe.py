@@ -85,9 +85,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from traps_probe_sby import script_block  # noqa: E402
 
 # The `executor` task's own files, read directly rather than inherited from
-# traps_probe_sby's SOURCES: that tuple is traps.sv's own dependency list and
-# always appends traps.sv itself, neither of which the `executor` task's
-# script names.
+# traps_probe_sby's SOURCES: that tuple is traps.sv's own dependency list and always
+# appends traps.sv itself, neither of which the `executor` task's script names.
 SOURCES = ("structs.v", "executor.v")
 
 TEMPLATE = """[options]
@@ -103,16 +102,11 @@ smtbmc
 {files}
 """
 
-# The assertion being probed, found in rtl/executor.v by its text. It is the
-# only statement in that file that says what it says.
+# The assertion being probed, found in rtl/executor.v by its text.
 MUL_ASSERT = "assert(state == init);"
 
-# Three lines, each replaced whole so a respelling stops this file rather than
-# silently probing nothing. Together they divert `MUL` at rs1 == 0 into the
-# divider's arm instead of the mul family's own: excluded from the mul
-# family's case item, added to the divide item's, and latched into
-# op_is_divu so the divide arm's own onehot invariant over its four op flags
-# still holds for a divide it entered by this new route.
+# Three lines, each replaced whole so a respelling stops this file rather than silently
+# probing nothing.
 MUTATIONS = (
     (
         "            in.is_mul || in.is_mulh || in.is_mulhu || in.is_mulhsu: begin\n",
@@ -130,12 +124,10 @@ MUTATIONS = (
     ),
 )
 
-
 def stop(message):
     """Exit 2: the probe's own inputs are broken, which is not a red proof."""
     print(f"error: {message}", file=sys.stderr)
     sys.exit(2)
-
 
 def assert_line(executor_v):
     """The line rtl/executor.v states the MUL constant-latency assertion on,
@@ -149,7 +141,6 @@ def assert_line(executor_v):
             "for a proof that went red somewhere else entirely."
         )
     return hits[0]
-
 
 def mutate(executor_v):
     """rtl/executor.v with MUL at rs1 == 0 diverted into the divider's arm."""
@@ -169,7 +160,6 @@ def mutate(executor_v):
             "one and the proof would say nothing."
         )
     return text
-
 
 def executor_probe_sby(repo):
     """The `executor` task's sby text, read out of formal/components.sby rather
@@ -195,7 +185,6 @@ def executor_probe_sby(repo):
         files="\n".join(f"src/{name}" for name in SOURCES),
     )
 
-
 def run_probe(repo, workdir, sby, config):
     """Builds the mutated tree, runs sby, and returns (status, failing lines)."""
     root = workdir / "mul-into-divide"
@@ -207,9 +196,8 @@ def run_probe(repo, workdir, sby, config):
     (root / "src" / "executor.v").write_text(mutate(executor))
     (root / "probe.sby").write_text(config)
 
-    # sby's own exit status is not read: FAIL is the required outcome, and a
-    # non-zero status says nothing this file does not read out of the workdir
-    # instead.
+    # sby's own exit status is not read: FAIL is the required outcome, and a non-zero
+    # status says nothing this file does not read out of the workdir instead.
     proc = subprocess.run(
         [sby, "-f", "probe.sby"], cwd=root, capture_output=True, text=True
     )
@@ -228,7 +216,6 @@ def run_probe(repo, workdir, sby, config):
             r"engine_\d+\.basecase:.*Assert failed in executor: executor\.v:(\d+)", log))
     )
     return status[0], failed
-
 
 def main():
     here = pathlib.Path(__file__).resolve().parent
@@ -274,7 +261,6 @@ def main():
         sys.exit(1)
 
     print("The MUL constant-latency assertion fails for its own reason.")
-
 
 if __name__ == "__main__":
     main()

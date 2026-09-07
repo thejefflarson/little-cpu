@@ -1,32 +1,6 @@
 #!/bin/bash
-# Asserts that the range decodes refuse to elaborate at a parameter shape they
-# are not valid for -- in both frontends, and for the reason each is written
-# for.
-#
-# Usage: window_test.sh          # every case; exit 0 only if all of them hold
-#
-# WHY THIS EXISTS. rtl/imemory.v, rtl/memory.v, rtl/timer.v, rtl/uart.v and
-# rtl/spiflash.v each decide whether an address is inside their window. Each
-# used to subtract the base and compare against the size, which is correct at
-# any base and any size and costs a carry chain. Each now reads the address bits
-# above the window instead, which is correct only while the window is a power of
-# two sitting on a multiple of its own size. rtl/littlecpu.v copies all five
-# windows for rtl/decoder.v's region tests and its own load/store locality
-# counters, and demands the same shapes of its copy.
-#
-# That is a different KIND of dependency from the one it replaced. The old
-# spelling was slow at a bad parameter; the new one is silently wrong -- it
-# admits addresses past the end of the memory, and those alias onto real words
-# instead of reading zero. A comment saying "the window must be aligned" is not
-# a check, so each file carries an elaboration `$fatal` beside the test it
-# guards, and this asserts that each one fires. rtl/uart.v's second guard is a
-# different fact of the same kind: its divisor is derived rather than given, and
-# a derivation that lands on one declares a counter with no bits in it.
-#
-# BOTH FRONTENDS, because a check only iverilog enforces would let the
-# synthesised design be wrong while every simulation stayed green -- which is
-# the shape of the defect it is guarding against. Needs iverilog and yosys, both
-# of which `make test` already requires.
+# Asserts that the range decodes refuse to elaborate at a parameter shape they are not
+# valid for -- in both frontends, and for the reason each is written for.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -48,13 +22,10 @@ trap 'rm -rf "$tmp"' EXIT
 cases=0
 failed=0
 
-# Run from inside the fixture directory so the two frontends are handed bare
-# filenames. yosys takes its script as one string, in which an interpolated
-# path containing a space would read as two files.
+# Run from inside the fixture directory so the two frontends are handed bare filenames.
 cd "$tmp"
 
-# What each frontend is handed, set by the two case runners below. The memories
-# elaborate from their own file alone; the core needs the rest of rtl/ behind it.
+# What each frontend is handed, set by the two case runners below.
 SRCS=dut.v
 
 # elaborate <frontend> -> prints the diagnostic, returns the frontend's status
@@ -65,25 +36,10 @@ elaborate() {
   esac
 }
 
-# run_case <label> <file> <module> <params> <expect: reject|accept> <text>
-#
-# The wrapper names the module under test and overrides one parameter, and is
-# written per case rather than shared so a case cannot pass by elaborating a
-# module other than the one it means to.
-#
-# A rejecting case pins a fragment of the DIAGNOSTIC as well as the status.
-# Status alone would be satisfied by a wrapper that failed to compile for a
-# typo, demonstrating nothing about the check it names.
 run_case() {
   local label=$1 file=$2 module=$3 params=$4 expect=$5 want=$6
   printf '`default_nettype none\nmodule window_probe;\n  %s #(%s) dut ();\nendmodule\n' \
     "$module" "$params" > probe.v
-  # A file that includes another one cannot elaborate on its own, and neither
-  # can the stages it goes on to instantiate: those get the whole directory,
-  # flat, so the include resolves with no search path. It also puts the shipping
-  # rtl/littlesoc.v in front of the frontend beside the probe, which is a second
-  # instantiation of the module under test at the parameters that place on the
-  # part. The memories and the UART include nothing and are handed their own file.
   if grep -q '^`include' "$REPO/$file"; then
     cp "$REPO"/rtl/*.v .
     SRCS=$(cd "$REPO/rtl" && printf '%s ' *.v)
@@ -104,10 +60,6 @@ run_case() {
         failed=$((failed + 1))
         continue
       fi
-      # yosys reports an elaboration $fatal without the message arguments, so
-      # the fragment is matched against iverilog's output only. On yosys the
-      # pinned evidence is that the failure is a FATAL from the design rather
-      # than a parse error in the wrapper.
       local pin=$want
       [ "$frontend" = yosys ] && pin='FATAL'
       case $out in
@@ -150,12 +102,6 @@ echo "== rtl/timer.v: a BASE aligned to the whole window, which NHARTS sizes"
 run_case "BASE = 0x0002_0008" rtl/timer.v timer ".BASE(32'h0002_0008)" \
   reject "BASE must be aligned"
 run_case "the SoC's own" rtl/timer.v timer ".BASE(32'h0002_0000)" accept ""
-# Two harts is two more words of mtimecmp, so the window is eight words and the
-# alignment its range test needs doubles with it. THIS PAIR IS WHAT SAYS THE
-# CHECK MOVED: one base, accepted at one hart and refused at two. A fixed
-# `BASE[3:0]` test would take both, and the message alone could not tell them
-# apart -- iverilog's elaboration tasks take one string literal, so the number is
-# not in it.
 run_case "a 16-byte aligned BASE at one hart" rtl/timer.v timer \
   ".BASE(32'h0002_0010)" accept ""
 run_case "...the same BASE at two harts" rtl/timer.v timer \
@@ -167,8 +113,6 @@ echo
 echo "== rtl/uart.v: an 8-byte aligned BASE, and a divisor with bits in it"
 run_case "BASE = 0x0002_0014" rtl/uart.v uart ".BASE(32'h0002_0014)" \
   reject "BASE must be 8-byte aligned"
-# One cycle a bit is the clock rather than a serial line, and $clog2 of it is
-# zero -- a counter declared with no bits, which elaborates and never counts.
 run_case "BAUD = the clock" rtl/uart.v uart ".BAUD(12_000_000)" \
   reject "CLOCK_HZ / BAUD must be at least 2"
 run_case "the SoC's own" rtl/uart.v uart \
@@ -180,15 +124,8 @@ run_case "BASE = 0x0002_002c" rtl/spiflash.v spiflash ".BASE(32'h0002_002c)" \
   reject "BASE must be 8-byte aligned"
 run_case "the SoC's own" rtl/spiflash.v spiflash ".BASE(32'h0002_0028)" accept ""
 
-# The core copies that map and hands it to rtl/decoder.v, which decides from it
-# which loads and stores fault and which wait a cycle, as well as counting
-# locality -- so a shape no memory here could be built at would fault or answer
-# the wrong addresses silently rather than be refused. These are the same
-# alignment and size checks, restated where the copy is.
 echo
 echo "== rtl/littlecpu.v: the copied map has the shape the memories demand"
-# One override per case, so each names the parameter it is about and the rest
-# stay at the values that ship; the accept below states all six.
 run_case "LS_TEXT_WORDS = 3072" rtl/littlecpu.v littlecpu ".LS_TEXT_WORDS(3072)" \
   reject "LS_TEXT_WORDS must be a power of two"
 run_case "LS_RAM_WORDS = 12288" rtl/littlecpu.v littlecpu ".LS_RAM_WORDS(12288)" \

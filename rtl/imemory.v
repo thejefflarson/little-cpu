@@ -1,13 +1,13 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// A ROM in block RAM, banked by word parity so the two neighbouring words fetch
-// asks for come out of one copy of the storage. The read takes a cycle.
+// A ROM in block RAM, banked by word parity so the two neighbouring words fetch asks for
+// come out of one copy of the storage.
 module imemory #(
   // Whole 256-word `SB_RAM40_4K` depths, or the mapping picks up leftover logic.
   parameter integer ROM_WORDS = 2048,
   parameter integer NHARTS = 1,
-  // Two files: yosys does not turn an `initial` loop copying between arrays into
-  // memory init.
+  // Two files: yosys does not turn an `initial` loop copying between arrays into memory
+  // init.
   parameter INIT_EVEN = "",
   parameter INIT_ODD  = ""
 ) (
@@ -18,8 +18,6 @@ module imemory #(
   input  logic [31:0]          mem_addr,
   input  logic [31:0]          mem_wdata,
   input  logic [3:0]           mem_wstrb,
-  // The idle bus presents address 0, inside the text range, so without this every
-  // idle cycle would steal a fetch.
   input  logic                 mem_ren,
   output logic [31:0]          mem_rdata,
   output logic [NHARTS-1:0]    fetch_stall,
@@ -29,8 +27,6 @@ module imemory #(
   localparam int BANK_BITS  = $clog2(BANK_WORDS);
   localparam int ROM_BITS   = $clog2(ROM_WORDS);
 
-  // Both range tests below are reductions on the address bits above the ROM, which
-  // is `< ROM_WORDS` only at a power of two; any other depth aliases real code.
   if (ROM_WORDS != (1 << ROM_BITS)) begin : l_rom_words_power_of_two
     $fatal(1, "imemory: ROM_WORDS must be a power of two");
   end
@@ -68,8 +64,6 @@ module imemory #(
   assign even_raddr = text_access ? data_index : even_index;
   assign odd_raddr  = text_access ? data_index : odd_index;
 
-  // DO NOT SPELL THIS `word + 1 < ROM_WORDS`: the adder would sit in the fetch loop,
-  // and at the top of the address space `word + 1` wraps and reads word zero back.
   logic next_in_rom, next_is_last;
   assign next_in_rom  = ~|next_word[29:ROM_BITS];
   assign next_is_last = &next_word[ROM_BITS-1:0];
@@ -111,9 +105,6 @@ module imemory #(
 
   assign mem_rdata = data_hit ? (data_hit_odd ? odd_data : even_data) : 32'b0;
 
-  // Window 0 is spelled on its own above ON PURPOSE: folding it into this loop
-  // changes no logic and moves the single-hart SoC's netlist by tens of cells.
-  // Change one copy and change the other.
   for (genvar h = 1; h < NHARTS; h++) begin : l_window
     logic [29:0]          w_next_word;
     logic [BANK_BITS:0]   w_word_index;

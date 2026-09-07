@@ -29,22 +29,15 @@ import argparse
 import json
 import sys
 
-# nextpnr types every hop on a critical path. Everything that is not
-# interconnect is charged to logic -- `clk-to-q` is a driver's output delay,
-# `setup` the endpoint's requirement, `source` an asynchronous launch. A type
-# outside this table is refused rather than bucketed, because a hop class
-# quietly dropped into either side moves the split while the summary goes on
-# looking like a summary.
+# nextpnr types every hop on a critical path.
 LOGIC_HOPS = {"clk-to-q", "logic", "setup", "source"}
 ROUTING_HOPS = {"routing"}
 
-# The walked path must reproduce the frequency nextpnr published from it. Half a
-# LUT hop on this fabric is worth more than this, so a dropped hop cannot hide
-# inside the tolerance.
+# The walked path must reproduce the frequency nextpnr published from it.
 RECONCILE_MHZ = 0.05
 
-# Printed on every run, beside the number rather than in the Makefile recipe, so
-# that a figure quoted from here cannot arrive without the four things it is not.
+# Printed on every run, beside the number rather than in the Makefile recipe, so that a
+# figure quoted from here cannot arrive without the four things it is not.
 REFUSALS = """WHAT THIS TARGET REFUSES TO CLAIM
   * This is nextpnr's own estimate from the model it routed with. There is no
     icetime for ECP5, so the engine that drove the placement is the engine that
@@ -60,7 +53,6 @@ REFUSALS = """WHAT THIS TARGET REFUSES TO CLAIM
     `make soc-timing` are already two instruments over two designs; this is a
     third and the rule binds harder, not less."""
 
-
 def load_report(path):
     try:
         with open(path) as handle:
@@ -75,7 +67,6 @@ def load_report(path):
             f"*** make ecp5-timing: {path} is not JSON ({exc}). nextpnr writes\n"
             "*** this file last, so a truncated one means it died mid-report."
         )
-
 
 def clock_entry(fmax, clock):
     """The report's fmax entry for the design's clock, or exit saying why not.
@@ -101,7 +92,6 @@ def clock_entry(fmax, clock):
         )
     return named[0], fmax[named[0]]
 
-
 def walk(path):
     """Split one critical path into logic and interconnect."""
     logic = routing = 0.0
@@ -124,7 +114,6 @@ def walk(path):
             )
     return logic, routing, levels
 
-
 def summarise(report_path, config_path, clock, part, constraint_mhz):
     """Everything one ECP5 placement is allowed to claim, or exit saying why not.
 
@@ -135,8 +124,8 @@ def summarise(report_path, config_path, clock, part, constraint_mhz):
     afford to carry an unchecked one.
     """
 
-    # The textcfg first: it is the cheapest thing here and it answers the
-    # question every number below depends on -- which part was this placed for.
+    # The textcfg first: it is the cheapest thing here and it answers the question every
+    # number below depends on -- which part was this placed for.
     try:
         with open(config_path) as handle:
             head = handle.read(4096)
@@ -223,7 +212,6 @@ def summarise(report_path, config_path, clock, part, constraint_mhz):
             "*** split."
         )
 
-
     return {
         "part": part,
         "net": net,
@@ -286,7 +274,6 @@ def main():
 
     print()
     print(REFUSALS)
-
 
 if __name__ == "__main__":
     main()

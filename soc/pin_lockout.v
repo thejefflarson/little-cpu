@@ -1,8 +1,5 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// `want` also drives the pin `release_in` reads back, so a synchroniser that
-// kept sampling would loop through the pad and oscillate: it free-runs only
-// while `grant` is low, and the read it froze on holds for the whole request.
 module pin_lockout (
   input  logic clk,
   input  logic want,
@@ -11,9 +8,6 @@ module pin_lockout (
   input  logic release_in,
   output logic grant
 );
-  // rtl/spiflash.v's byte time. A grant held this long with `busy` never true
-  // is presumed hung and both flops cleared for a fresh two-cycle resample; a
-  // caller idle longer between bytes would see the grant blink mid-transfer.
   localparam int IDLE_LIMIT = 16;
 
   logic sync0, released;

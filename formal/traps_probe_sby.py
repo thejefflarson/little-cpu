@@ -23,14 +23,12 @@ files here pin their answer to the FIRST assertion a failing step breaks.
 
 import re
 
-# sby's own task syntax: a label alone on a line opens a block, the next label
-# or the section's `--` closes it.
+# sby's own task syntax: a label alone on a line opens a block, the next label or the
+# section's `--` closes it.
 LABEL = re.compile(r"^([A-Za-z_][A-Za-z0-9_ ]*):\s*$")
 SECTION = re.compile(r"^\[(\w+)\]\s*$")
 
-# The files the script names. The probe copies its own mutated tree into `src/`,
-# so this section is written here rather than read: the paths differ by
-# construction.
+# The files the script names.
 SOURCES = ("structs.v", "fetcher.v", "decoder.v", "regsel.v", "csrs.v")
 
 TEMPLATE = """[options]
@@ -45,7 +43,6 @@ smtbmc
 [files]
 {files}
 """
-
 
 def script_block(components_sby, task="traps"):
     """The lines of one task's `[script]` block, or None if it has none."""
@@ -68,7 +65,6 @@ def script_block(components_sby, task="traps"):
         if label == task:
             out.append(line)
     return out
-
 
 def probe_sby(repo, stop, task="traps"):
     """The probe's sby text: components.sby's script over the probe's own tree."""

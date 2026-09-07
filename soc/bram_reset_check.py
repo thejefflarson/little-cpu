@@ -26,11 +26,9 @@ import argparse
 import json
 import sys
 
-# The two block RAM primitives synth_ecp5 infers. TRELLIS_DPR16X4 is LUT RAM,
-# built out of logic that does honour a reset, and is deliberately not here.
+# The two block RAM primitives synth_ecp5 infers.
 BRAM_CELLS = ("DP16KD", "PDPW16KD")
 RESET_PORTS = ("RSTA", "RSTB", "RST")
-
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -53,17 +51,15 @@ def main():
     total = 0
     offenders = []
     for module_name, module in design.get("modules", {}).items():
-        # Every ECP5 primitive appears here as an empty blackbox declaration
-        # alongside the real design, so a module with no cells is skipped
-        # rather than counted as a design that instantiates nothing.
+        # Every ECP5 primitive appears here as an empty blackbox declaration alongside
+        # the real design, so a module with no cells is skipped rather than counted as a
+        # design that instantiates nothing.
         for cell_name, cell in module.get("cells", {}).items():
             if cell.get("type") not in BRAM_CELLS:
                 continue
             total += 1
             for port in RESET_PORTS:
                 bits = cell.get("connections", {}).get(port, [])
-                # yosys writes a constant bit as the string "0"/"1"/"x"/"z" and
-                # a net as an integer, so "driven by logic" is "any int".
                 if any(isinstance(bit, int) for bit in bits):
                     offenders.append((module_name, cell_name, port))
                     break
@@ -95,7 +91,6 @@ def main():
     print("block RAM resets: %d %s, none driven by logic"
           % (total, " / ".join(BRAM_CELLS)))
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -21,13 +21,13 @@ module accessor(
     input  logic mem_reservable,
     input  logic        snoop_write,
     input  logic [31:0] snoop_addr,
-    // High on the cycle an AMO's read goes out, promising the write-back cycle after
-    // it; never high on two cycles running.
+    // High on the cycle an AMO's read goes out, promising the write-back cycle after it;
+    // never high on two cycles running.
     output logic        mem_lock,
     output accessor_output out
 );
-  // iverilog cannot derive a sensitivity list for a struct field read inside an
-  // always_* block, so every field is read through a continuous assign.
+  // iverilog cannot derive a sensitivity list for a struct field read inside an always_*
+  // block, so every field is read through a continuous assign.
   logic launch_is_lb;
   logic launch_is_lbu;
   logic launch_is_lh;
@@ -164,9 +164,7 @@ module accessor(
   logic [31:0] amo_mem;
   assign amo_mem = mem_rdata;
 
-  // One 33-bit adder/subtractor for the add and all four compares. The subtracting
-  // operand is inverted across all 33 bits: with bit 32 left clear, `amo_sum[32]`
-  // is the carry out, `mem >= arg`, the borrow's complement.
+  // One 33-bit adder/subtractor for the add and all four compares.
   logic amo_compare, amo_signed;
   assign amo_compare = take_amo_min || take_amo_max || take_amo_minu || take_amo_maxu;
   assign amo_signed  = take_amo_min || take_amo_max;
@@ -186,8 +184,8 @@ module accessor(
   logic [31:0] amo_add_result;
   assign amo_add_result = amo_sum[31:0];
 
-  // A per-bit truth table indexed by {memory bit, rs2 bit}; the add depends on the
-  // carry into each bit, so it stays a mux over the sum.
+  // A per-bit truth table indexed by {memory bit, rs2 bit}; the add depends on the carry
+  // into each bit, so it stays a mux over the sum.
   logic [3:0] amo_fn;
   always_comb begin
     (* parallel_case *)
@@ -308,8 +306,6 @@ module accessor(
                      take_load  ? load_value : in_rd_data;
      `ifdef RISCV_FORMAL
       out.rvfi <= in.rvfi;
-      // An AMO's write is on the bus this cycle, so its address, strobe and data are
-      // read live rather than from the held read.
       out.rvfi_mem_addr <= take_amo ? mem_addr : take_rvfi_mem_addr;
       out.rvfi_mem_rmask <= take_load ? 4'b1111 : 4'b0;
       out.rvfi_mem_rdata <= take_load ? mem_rdata : 32'b0;
@@ -347,7 +343,6 @@ module accessor(
 
   always_comb if (take_amo) assume(!requesting);
 
-  // The exact arm lists of the three `(* parallel_case *)` markings above.
   always_comb assert($onehot0({is_load, is_store}));
   always_comb assert($onehot0({launch_is_sw || sc_store, launch_is_sh, launch_is_sb}));
   always_comb assert($onehot0({take_amo_swap, take_amo_xor, take_amo_and,
@@ -356,8 +351,6 @@ module accessor(
   logic transacting;
   assign transacting = mem_ren || |mem_wstrb;
 
-  // Each signed reference is a self-determined statement over signed nets, never an
-  // arm of a conditional.
   logic signed [31:0] amo_ref_x, amo_ref_y;
   assign amo_ref_x = amo_mem;
   assign amo_ref_y = take_amo_arg;
@@ -383,8 +376,6 @@ module accessor(
   always_ff @(posedge clk) prev_reservable <= mem_reservable;
   always_comb if (clocked && take_is_lr && !prev_reservable) assert(!rsrv_held);
 
-  // Free inputs here, so this covers a real second initiator rather than a port
-  // nobody drove.
   logic prev_snoop_clear;
   always_ff @(posedge clk) prev_snoop_clear <= snoop_clear;
   always_comb if (clocked && prev_snoop_clear) assert(!rsrv_held);
@@ -397,7 +388,6 @@ module accessor(
 
   always_comb if (requesting && launch_is_sc && !rsrv_hit) assert(!transacting);
 
-  // Delete `launch_taken` from `requesting` and both go red.
   always_comb assert(transacting == (take_amo || (requesting && (is_load || is_store))));
   always_comb if (!launch_taken && !take_amo) assert(!transacting && mem_addr == 32'b0);
 

@@ -21,13 +21,9 @@ import sys
 UTIL_START = "Info: Device utilisation:"
 LC_LINE = re.compile(r"ICESTORM_LC:\s+(\d+)/\s*(\d+)\s+(\S+)")
 
-# Both spellings, because nextpnr words this differently depending on which
-# phase gives up: "Unable to place cell ... no BELs remaining" when a BEL
-# class is exhausted, "Unable to find a placement location for cell" when it
-# cannot site a constrained IO. Matching only the first made a normal 80%-full
-# run print the "read fit.log before quoting this" warning.
+# Both spellings, because nextpnr words this differently depending on which phase gives
+# up: "Unable to place cell ...
 PLACEMENT_ERROR = re.compile(r"^ERROR: Unable to (place cell|find a placement location for cell)")
-
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -65,9 +61,8 @@ def main():
         if line.startswith("Info: "):
             print(line[len("Info: "):])
 
-    # The last match, matching the Makefile's `tail -1`: yosys/nextpnr can
-    # print more than one utilisation block, and the final one is the
-    # whole-design total.
+    # The last match, matching the Makefile's `tail -1`: yosys/nextpnr can print more
+    # than one utilisation block, and the final one is the whole-design total.
     lc = total = pct = None
     for line in lines:
         m = LC_LINE.search(line)
@@ -84,8 +79,6 @@ def main():
 
     got = int(lc)
 
-    # Printed before the verdict so a trip carries it too, which is the run that
-    # most needs to say how far the count moved and not just that it moved.
     if args.previous is not None:
         print(
             f"\nTREND: {got - args.previous:+d} cells against the {args.previous} the "
@@ -101,7 +94,6 @@ def main():
             "*** raising FIT_MAX_LC in the Makefile needs a reason in the commit."
         )
     print(f"\nRATCHET: {got} of {args.max_lc} cells budgeted -- OK")
-
 
 if __name__ == "__main__":
     main()

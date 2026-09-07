@@ -1,9 +1,9 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
 `include "structs.v"
-// Every access reads and commits in decode on the edge its instruction issues;
-// the decoder serializes them and decides illegal-CSR traps, so nothing here
-// stalls or faults.
+// Every access reads and commits in decode on the edge its instruction issues; the
+// decoder serializes them and decides illegal-CSR traps, so nothing here stalls or
+// faults.
 module csrs #(
   parameter logic [31:0] HART_ID = 32'd0
 ) (
@@ -154,7 +154,7 @@ module csrs #(
   assign warl_mtie = warl[7];
 
   // BIT 1 MUST SURVIVE: C makes 2-byte targets legal, and without it a fault on a
-  // compressed instruction resumes two bytes early. test/asm/trap.S faults there.
+  // compressed instruction resumes two bytes early.
   logic [31:0] trap_epc_warl;
   assign trap_epc_warl = {trap_epc[31:1], 1'b0};
 
@@ -165,8 +165,6 @@ module csrs #(
   assign wr_minstreth = wen && addr == MINSTRETH;
   assign wr_mscratch  = wen && addr == MSCRATCH;
 
-  // A write to either half suppresses the whole 64-bit increment; per half would
-  // let the carry advance mcycleh on a csrw mcycle.
   logic mcycle_tick, minstret_tick;
   assign mcycle_tick   = !wr_mcycle   && !wr_mcycleh;
   assign minstret_tick = !wr_minstret && !wr_minstreth && instret;
@@ -232,8 +230,6 @@ module csrs #(
   end
 
  `ifdef RISCV_FORMAL
-  // WRITE-ONLY WITH RESPECT TO THE CORE: nothing below drives a signal any
-  // non-ifdef logic reads, and `make -C formal nonperturbation` rests on that.
   logic rd_mcycle, rd_mcycleh, rd_minstret, rd_minstreth, rd_mscratch;
   assign rd_mcycle    = ren && addr == MCYCLE;
   assign rd_mcycleh   = ren && addr == MCYCLEH;

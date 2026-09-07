@@ -1,29 +1,6 @@
 #!/bin/bash
-# Builds test/sail/reservation_probe.S and runs it under the Sail model ALONE,
-# then decodes the one number the run prints into a labelled table. Invoked by
-# `make sail-reservation-probe`.
-#
-# NO CORE IS INVOLVED, on purpose. The question is what the REFERENCE MODEL does
-# to an LR reservation at a trap and at an mret, and a comparison against a core
-# that does not decode lr.w/sc.w yet could not answer it. This is the only
-# executable in this repo that asks the model a question instead of grading it
-# against something.
-#
-# IT BUILDS AT THE SUITE'S ISA STRING, which it did not always: this file
-# carried the only `a` in the tree while the core decoded no atomic. The whole
-# set is graded by test/march_test.sh now, this is one of the sites it grades,
-# and the two spellings that must NOT move with it are named there.
-#
-# The probe is graded, not merely printed: bit 0 is a control case whose SC
-# nothing could have invalidated, and a run where it failed exits nonzero
-# instead of reporting five meaningless answers.
-#
-# Usage: reservation_probe.sh <sail-binary>   # the Makefile's SAIL_SIM_BIN
-#
-# The binary is an ARGUMENT and is deliberately not computed here. The Makefile
-# and test/cosim.py already derive that cache path independently, and
-# test/tool_cache_test.sh exists because those two can drift; a third copy would
-# be one this repo has no check for.
+# Builds test/sail/reservation_probe.S and runs it under the Sail model ALONE, then
+# decodes the one number the run prints into a labelled table.
 set -euo pipefail
 
 if [ "$#" -ne 1 ]; then
@@ -58,13 +35,8 @@ trap 'rm -rf "$tmp"' EXIT
   -I "$REPO/test/asm" -T "$REPO/test/asm/sections.lds" \
   "$PROBE" -o "$tmp/probe.elf"
 
-# Built once and both printed and run, so the command an ADR quotes out of this
-# output is the command that produced the number beneath it.
 run=("$SAIL_BIN" --config "$CONFIG" --inst-limit 5000 "$tmp/probe.elf")
 
-# Asked here rather than inside the echo: a command substitution that fails as
-# an argument leaves `echo` at status 0, so errexit never sees it. This banner
-# was observed printing an empty ISA for a machine the run below then measured.
 isa=$("$SAIL_BIN" --config "$CONFIG" --print-isa-string)
 
 echo "sail:   $SAIL_BIN"
@@ -73,17 +45,12 @@ echo "isa:    $isa"
 echo "command: ${run[*]}"
 echo
 
-# Lifted for this call alone: the model exits nonzero on an HTIF FAILURE, and
-# the probe reports its answer AS one.
 set +e
 out=$("${run[@]}" 2>&1)
 set -e
 printf '%s\n' "$out"
 echo
 
-# At least one digit, deliberately: the model also prints prose under FAILURE:
-# ("possible trap loop detected"), and a pattern that admitted the empty match
-# would turn a run that never executed an lr.w into a mask of zero.
 mask=$(printf '%s\n' "$out" | sed -n 's/^FAILURE:[[:space:]]*\([0-9][0-9]*\)\([[:space:]].*\)\{0,1\}$/\1/p' | head -1)
 if [ -z "$mask" ]; then
   echo "error: the model printed no HTIF verdict; nothing was observed." >&2
@@ -91,8 +58,7 @@ if [ -z "$mask" ]; then
   exit 1
 fi
 
-# Bit 6 is the probe's unconditional marker. Without it the model would have
-# read an all-cases-failed word as HTIF's pass encoding and printed SUCCESS.
+# Bit 6 is the probe's unconditional marker.
 if [ $(( (mask >> 6) & 1 )) -ne 1 ]; then
   echo "error: verdict $mask carries no marker bit; this is not the probe's word." >&2
   exit 1

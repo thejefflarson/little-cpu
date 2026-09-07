@@ -1,45 +1,14 @@
 #!/usr/bin/env python3
-#
-# The arithmetic behind formal/checks.cfg's [depth] table, parsed out of the
-# file that states it.
-#
-# WHY THIS EXISTS. Every depth in that table is derived from two measured
-# figures -- F, the worst-case first retire, and G, the worst-case gap between
-# two retires. The derivation used to live only in a comment, and a depth below
-# its derived floor does not fail: the check goes green having stopped asking.
-# Two entries now clear their floor by exactly one cycle, so the next change
-# that lengthens a stall has no margin left to absorb.
-#
-# So F and G are declared in `#`-prefixed lines that genchecks' own cfg parser
-# drops before it sees a section -- the same trick the `#omit` lines use, so
-# reading them here perturbs nothing -- and formal/genchecks-audit.py evaluates
-# every `#floor` rule against the cycles it reads back off the generated .sby.
-# formal/remeasure-fg.py re-measures F and G against the same declaration.
-#
-# Two readers, one format, one parser.
+# The arithmetic behind formal/checks.cfg's [depth] table, parsed out of the file that
+# states it.
 
 import re
 
 DERIVE_RE = re.compile(r"^#derive\s+([FG])\s+(\d+)\s*(\S.*)?$")
 FLOOR_RE = re.compile(r"^#floor\s+(\S+)\s+(\S+)\s+(\S.*)$")
 
-# The whole vocabulary a `#floor` term may use. Anything else is a typo or a
-# rule nobody has thought through, and either way it stops generation rather
-# than being skipped: a floor that silently evaluates to nothing is exactly the
-# green-having-stopped-asking failure this file exists to close.
-#
-#   F+1       the check asserts a registered flag, so it flips one cycle after
-#             the first retire it is watching for.
-#   F+G       one hop: the retire under test may be a second rather than the
-#             first out of reset.
-#   F+2G      two hops: it may be a third.
-#   start+G   a two-retire check shadows the older retire only from its
-#             RISCV_FORMAL_RESET_CYCLES cycle, so its window has to hold a
-#             whole gap.
-#   trig+G    the same window, measured from the cycle the check triggers on.
-#   <number>  measured directly, for a check F and G do not bound.
+# The whole vocabulary a `#floor` term may use.
 TERMS = ("F+1", "F+G", "F+2G", "start+G", "trig+G")
-
 
 def read_derived(path):
     """The `#derive` lines: {"F": 6, "G": 6}. Both are required, because every
@@ -60,7 +29,6 @@ def read_derived(path):
             "floor is written in F and G, so neither may be left implicit."
         )
     return derived
-
 
 def read_floors(path):
     """The `#floor` lines: {check family: ([term, ...], reason)}."""
@@ -84,7 +52,6 @@ def read_floors(path):
                     )
             floors[family] = (terms, reason.strip())
     return floors
-
 
 def evaluate(term, derived, start, trig):
     """One term's lower bound on a check's CHECK cycle."""

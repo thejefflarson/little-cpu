@@ -1,41 +1,5 @@
 #!/bin/bash
-# Asserts that a word this repo retired has not come back anywhere it was
-# retired from.
-#
-# Usage: retired_term_test.sh [repo-root]     # defaults to this script's parent
-#
-# WHY THIS EXISTS. "Ladder" was this repo's name for the generated riscv-formal
-# check set, and it was retired: one sweep took out 59 occurrences across 23
-# files, including probe labels and the diagnostics a gate prints when it refuses
-# to grade. The sweep added no guard, and the word was back on main within hours
-# -- in a comment written on a branch that predated the sweep and merged after
-# it, with nothing anywhere to object. That merge order is the reintroduction
-# path, and no amount of care during a sweep closes it.
-#
-# THE SECOND TERM IS THE SAME STORY WITH A SHORTER FUSE. The core's ISA name
-# widened, and five prose sites went on stating the old one. A sweep corrected
-# two of them believing that was all; the other three were found by a grep
-# afterwards, and that grep found three more the sweep had not looked for. So
-# this file is a loop over a table now rather than one string, because the
-# second term arrived before the first one's guard was a year old.
-#
-# WHY THE ALLOW-LIST IS PROSE. A blind grep for either word would have been wrong
-# several times in this repo already: test/probe_gates.sh used "ladder" for a
-# hierarchy of exit codes, test/check_suite_shape.sh for a set-equality property,
-# and docs/THREAT_MODEL.md for a stepwise sequence of milestones. All three are a
-# different word that reads the same, and the sweep told them apart only because
-# a person read them. So each entry below states WHICH SENSE it carries and why
-# it stays; an entry that is only a path teaches the next reader nothing and gets
-# deleted by the next person tidying.
-#
-# The comparison runs BOTH WAYS, like every other table in this repo: an entry
-# naming a site the word has left is as red as the word appearing at a site no
-# entry names. An exemption that outlives its reason is how the next one gets
-# waved through. Each term carries its own list, so an entry earns its exemption
-# for the word it was written about and not for the other one.
-#
-# Hermetic: git, grep and sed. No toolchain, no simulator, no yosys, so this runs
-# inside `make test` anywhere.
+# Asserts that a word this repo retired has not come back anywhere it was retired from.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -49,13 +13,7 @@ fi
 # A table line is a path or a term followed by a keyword; `#` starts a comment.
 strip_comments() { sed -e 's/#.*//' -e 's/[[:space:]]*$//' -e '/^$/d'; }
 
-# THE TERMS, each with how its match is spelled. Both are matched as substrings
-# rather than whole words, so a pluralised or suffixed spelling cannot walk past.
-#
-# `any-case` is the default a retired word wants: it cannot be written around by
-# capitalising it. `exact-case` exists for exactly one situation -- a retired
-# spelling whose lower-case twin is a live identifier somewhere -- and it is a
-# narrower guard, so it has to earn its narrowness on the line that asks for it.
+# THE TERMS, each with how its match is spelled.
 retired_terms() {
   strip_comments <<'TERMS'
 # This repo's retired name for the generated riscv-formal check set. Nothing in
@@ -89,8 +47,7 @@ RV32IMC exact-case
 TERMS
 }
 
-# The allow-list, per term. One path per line -- a file, or a directory ending
-# in `/` -- with the sense the word carries there written above it.
+# The allow-list, per term.
 allow_paths() {  # $1 = term
   case "$1" in
   ladder)
@@ -151,9 +108,8 @@ PATHS
   esac
 }
 
-# What to write instead, per term, and when an allow-list entry is the right
-# answer instead. A guard that says only "this is wrong" leaves the next reader
-# to guess, and guessing is how a pattern skip gets added.
+# What to write instead, per term, and when an allow-list entry is the right answer
+# instead.
 explain_term() {  # $1 = term; writes to stderr
   case "$1" in
   ladder)
@@ -205,12 +161,8 @@ if [ ! -s "$tmp/terms" ]; then
   exit 1
 fi
 
-# Tracked files only, and the enumeration is git's rather than a `find` with a
-# prune list. What this guard defends against is the word arriving in a commit,
-# and a checkout carries build artifacts, downloaded tools and -- in the primary
-# checkout here -- whole worktrees of the repo under `.claude/`, none of which a
-# merge can reintroduce anything through. A prune list would have to grow every
-# time one of those appeared.
+# Tracked files only, and the enumeration is git's rather than a `find` with a prune
+# list.
 if ! git -C "$REPO" ls-files -z > "$tmp/files" 2>/dev/null || [ ! -s "$tmp/files" ]; then
   echo "error: cannot enumerate any tracked files under $REPO. This check reads" >&2
   echo "git's index, because what it guards is the word arriving in a commit; a" >&2
@@ -218,9 +170,7 @@ if ! git -C "$REPO" ls-files -z > "$tmp/files" 2>/dev/null || [ ! -s "$tmp/files
   exit 1
 fi
 
-# Which allow-list entry covers a path, or nothing. A directory entry matches on
-# the `/` it ends with, so `docs/adr/` cannot quietly cover a `docs/adrenaline.md`
-# that nobody meant to exempt.
+# Which allow-list entry covers a path, or nothing.
 match_entry() {  # $1 = path
   local path=$1 entry
   while IFS= read -r entry; do
@@ -249,9 +199,8 @@ while read -r term casing; do
 
   allow_paths "$term" > "$tmp/allow"
 
-  # `/dev/null` as a first argument so grep always prefixes the filename, even
-  # when xargs hands it a single file. No match at all leaves grep with status 1
-  # and xargs with 123, which is not an error here.
+  # `/dev/null` as a first argument so grep always prefixes the filename, even when xargs
+  # hands it a single file.
   hits=$( (cd "$REPO" && xargs -0 grep "$flags" -e "$term" -- /dev/null < "$tmp/files") || true)
 
   : > "$tmp/unexpected"

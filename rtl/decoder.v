@@ -19,8 +19,7 @@ module decoder #(
   // The fetch port went to a load or store, so `in.instr` is a data word.
   input  logic fetch_stall,
   input  logic bus_wait,
-  // The platform ANDs this against its grant. A `bus_wait` term here would close
-  // the loop through the arbiter.
+  // The platform ANDs this against its grant.
   output logic bus_request,
   input  logic imem_fault,
   output logic [31:0] atomic_addr,
@@ -299,8 +298,8 @@ module decoder #(
                      instr_csrrs ? (csr_rdata | csr_arg) :
                                    (csr_rdata & ~csr_arg);
 
-  // Raw fields, not the muxed `rs1`/`rd`, which would put the compressed
-  // register-select decode in the trap arm of `next_pc`.
+  // Raw fields, not the muxed `rs1`/`rd`, which would put the compressed register-select
+  // decode in the trap arm of `next_pc`.
   logic instr_error, instr_mret, instr_wfi, instr_cebreak;
   assign instr_error = opcode == 5'b11100 && uncompressed && funct3 == 0 &&
     rs1_field == 5'b0 && rd_field == 5'b0;
@@ -346,10 +345,9 @@ module decoder #(
     (mem_addr_calc[31:3] == LS_UART_BASE[31:3]) ||
     (mem_addr_calc[31:3] == LS_FLASH_BASE[31:3]);
 
-  // Whether that answer can depend on the immediate at all, asked of `reg_rs1`
-  // alone: a 12-bit offset reaches 2 KB, so a base block with a whole block of the
-  // same window on each side is answered whatever the immediate is. Low means
-  // "wait for the flip-flop", never "fault".
+  // Whether that answer can depend on the immediate at all, asked of `reg_rs1` alone: a
+  // 12-bit offset reaches 2 KB, so a base block with a whole block of the same window on
+  // each side is answered whatever the immediate is.
   localparam int LS_BLOCK_BITS = 11;
   localparam int LS_BLOCK_NUM  = 32 - LS_BLOCK_BITS;
   localparam logic [LS_BLOCK_NUM-1:0] LS_TEXT_BLOCK = '0;
@@ -375,18 +373,15 @@ module decoder #(
   logic [1:0] mem_addr_low;
   assign mem_addr_low = immediate[1:0] + reg_rs1[1:0];
 
-  // `ls_capture` requires every other stall reason low, so nothing can write rs1
-  // between the capture and the issue.
+  // `ls_capture` requires every other stall reason low, so nothing can write rs1 between
+  // the capture and the issue.
   logic ls_access, ls_capture, ls_answer, ls_answer_valid, region_stall, ls_fault;
   logic stall_other, stall_own;
   assign ls_access = instr_ls_load || instr_ls_store;
   assign region_stall = ls_access && !ls_settled && !ls_answer_valid;
   assign ls_capture = region_stall && !stall_own;
 
-  // HELD UNTIL THE ACCESS ISSUES, not for one cycle. Under a bus wait a one-cycle
-  // answer expires, `region_stall` returns and drops `bus_request`, and the two
-  // livelock -- invisible to any single-hart run. Holding on `stall` instead would
-  // carry the answer across an operand-fetch cycle into the next access.
+  // HELD UNTIL THE ACCESS ISSUES, not for one cycle.
   always_ff @(posedge clk) begin
     if (reset) begin
       ls_answer       <= 1'b0;
@@ -412,8 +407,7 @@ module decoder #(
                             (instr_sh && mem_addr_low[0] != 1'b0) ||
                             (instr_atomic_write && word_misaligned);
 
-  // Keeps the four data causes disjoint. One term reaches `next_pc`; which cause it
-  // is feeds only `trap_cause`, off the fetch loop.
+  // Keeps the four data causes disjoint.
   logic atomic_fault;
   assign atomic_fault = instr_atomic && !atomic_supported && !word_misaligned;
   assign ls_fault = ls_access && ls_answer_valid && !ls_answer &&
@@ -458,9 +452,7 @@ module decoder #(
   assign trap_taken = trap_pending || interrupt_pending;
 
   // No `(* parallel_case *)`: the top two arms deliberately overlap the eight below,
-  // which the FORMAL block proves disjoint. An interrupt wins because the displaced
-  // instruction does not execute; a fetch that read nothing wins because out of
-  // range the memory answers zero, which would report illegal.
+  // which the FORMAL block proves disjoint.
   always_comb begin
     case (1'b1)
       interrupt_pending: trap_cause = CAUSE_MACHINE_TIMER;
@@ -517,9 +509,9 @@ module decoder #(
     instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu ||
     instr_amo || instr_sc;
 
-  // An eligible encoding must have no other decode-side reader of the same register:
-  // the branch comparator, the jalr target, an effective address, an atomic's own
-  // address and a register-form CSR's operand all read `reg_rs1`/`reg_rs2` directly.
+  // An eligible encoding must have no other decode-side reader of the same register: the
+  // branch comparator, the jalr target, an effective address, an atomic's own address and
+  // a register-form CSR's operand all read `reg_rs1`/`reg_rs2` directly.
   logic rs1_fwd_eligible, rs2_fwd_eligible;
   assign rs1_fwd_eligible = instr_math;
   assign rs2_fwd_eligible = (instr_math && !instr_math_immediate) ||
@@ -549,17 +541,17 @@ module decoder #(
   logic [31:0] pc_inc;
   assign pc_inc = uncompressed ? 4 : 2;
 
-  // DO NOT FOLD THESE INTO A FUNCTION. iverilog builds a continuous assign's
-  // sensitivity list from the call's arguments, so a body reading `out` or
-  // `executor_out` stops re-evaluating when they change -- silently, and yosys
-  // gets it right, so every other check stays green.
+  // DO NOT FOLD THESE INTO A FUNCTION. iverilog builds a continuous assign's sensitivity
+  // list from the call's arguments, so a body reading `out` or `executor_out` stops
+  // re-evaluating when they change -- silently, and yosys gets it right, so every other
+  // check stays green.
   logic live_rs1, live_rs2;
   assign live_rs1 = out_match_rs1 || ex_match_rs1;
   assign live_rs2 = out_match_rs2 || ex_match_rs2;
 
   // Two reasons share one wait and narrowing it to suit one breaks the other: a CSR
-  // access or `mret` must not interleave, and `fence.i` waits because text is
-  // writable and the fetch address goes out a cycle early.
+  // access or `mret` must not interleave, and `fence.i` waits because text is writable
+  // and the fetch address goes out a cycle early.
   logic pipe_drained, serialize;
   assign pipe_drained = !out.valid && !executor_out.valid && !accessor_out_valid;
   assign serialize = (instr_csr_access || instr_mret || instr_fencei) && !pipe_drained;
@@ -574,8 +566,8 @@ module decoder #(
   assign rvfi_rs1_valid = !instr_lui && !instr_jal && !instr_auipc && !is_csr_imm;
   assign rvfi_rs2_valid = uses_rs2;
  `endif
-  // The register file answers a cycle late, so this asks whether what was presented
-  // last cycle is what this instruction reads -- which is what lets `read_rs1` be a guess.
+  // The register file answers a cycle late, so this asks whether what was presented last
+  // cycle is what this instruction reads -- which is what lets `read_rs1` be a guess.
   logic [4:0] prev_rs1, prev_rs2;
   logic       read_taken, operand_stall;
   always_ff @(posedge clk) begin
@@ -605,16 +597,12 @@ module decoder #(
     (instr_lb || instr_lbu || instr_lh || instr_lhu || instr_lw ||
      instr_sb || instr_sh || instr_sw || instr_atomic);
 
-  // On a stalled cycle its own, since the same instruction comes back; on a stolen
-  // fetch window, neither. The register file's bypass selects on a registered copy
-  // and is right only because `operand_stall` lets nothing issue until the held
-  // pair is the issuing one's.
+  // On a stalled cycle its own, since the same instruction comes back; on a stolen fetch
+  // window, neither.
   assign read_rs1 = fetch_stall ? prev_rs1 : stall ? rs1 : next_rs1;
   assign read_rs2 = fetch_stall ? prev_rs2 : stall ? rs2 : next_rs2;
 
-  // All six branch tests from one subtraction. DELIBERATELY NO SIGNED EXPRESSION:
-  // a signed comparison written as an arm of a conditional takes its signedness from
-  // the other arms, and has silently turned unsigned here twice.
+  // All six branch tests from one subtraction.
   logic [32:0] cmp_sub;
   logic        cmp_eq, cmp_ltu, cmp_lt;
   assign cmp_sub = {1'b0, reg_rs1} - {1'b0, reg_rs2};
@@ -648,8 +636,8 @@ module decoder #(
     endcase
   end
 
-  // DO NOT ADD `&& in.valid`: those arms do not test it, and if the two disagree a
-  // CSR write fires once per stalled cycle with nothing to say so.
+  // DO NOT ADD `&& in.valid`: those arms do not test it, and if the two disagree a CSR
+  // write fires once per stalled cycle with nothing to say so.
   logic issuing;
   assign issuing = !reset && !stall;
 
@@ -845,7 +833,8 @@ module decoder #(
 
   always_ff @(posedge clk) if (clocked && prev_stall && !prev_reset) assert(pc == past_pc);
 
-  // Arm order in the publish block, both ways round; both ways of getting it wrong are silent.
+  // Arm order in the publish block, both ways round; both ways of getting it wrong are
+  // silent.
   decoder_output past_out;
   logic prev_hold_and_steal, prev_steal_only, prev_atomic_stall;
   logic prev_hold_and_wait, prev_wait_only;
@@ -879,8 +868,8 @@ module decoder #(
       out.is_amoand || out.is_amoor || out.is_amomin || out.is_amomax ||
       out.is_amominu || out.is_amomaxu));
 
-  // The one stall reason that reads a register value asserts only alongside
-  // `ls_access`; the Zkt isolation argument stands on both.
+  // The one stall reason that reads a register value asserts only alongside `ls_access`;
+  // the Zkt isolation argument stands on both.
   always_comb if (clocked) assert(!region_stall || ls_access);
   always_comb if (clocked)
     assert(ls_access == (instr_lb || instr_lbu || instr_lh || instr_lhu ||
@@ -926,9 +915,6 @@ module decoder #(
 
   always_comb if (instr_atomic) assert(mem_addr_calc == atomic_addr);
 
-  // THE FAST PATH NEVER SKIPS A FAULT. `ls_settled` is answered from `reg_rs1`
-  // alone, so it must imply the answer about the effective address: a sign-extended
-  // immediate cannot leave the block `reg_rs1` names or the two beside it.
   always_comb if (ls_access) begin
     assert(immediate[31:12] == {20{immediate[31]}});
     if (ls_settled) assert(ls_supported);

@@ -58,14 +58,11 @@ EBR = "SB_RAM40_4K"
 SPRAM = "SB_SPRAM256KA"
 PC = "riscv.pc"
 
-# Read in order: the first that matches takes the hop, so a hop touching a block
-# RAM and the pc at once is charged to the memory. Nothing on the paths measured
-# so far does both, and a hop counted twice would break the reconciliation that
-# grades this script.
+# Read in order: the first that matches takes the hop, so a hop touching a block RAM and
+# the pc at once is charged to the memory.
 BINS = ["EBR", "SPRAM", f"{PC}-sourced", "neither"]
 LEGEND = [f"EBR = an {EBR} at either end of the hop; SPRAM = an {SPRAM};",
           f"{PC}-sourced = the hop carries a bit of that declared net."]
-
 
 def netlist(path, top):
     """`path_stages.load`, plus the two indexes binning needs on top of it."""
@@ -76,8 +73,8 @@ def netlist(path, top):
         sys.exit(f"*** {path}: no net called {PC!r} in {top}, so one of the bins\n"
                  f"*** could never be reached. Fix the name rather than reading a\n"
                  f"*** zero column as a finding.")
-    # Only the memories, and only to answer the last hop on a path: where a run
-    # feeds no further named net, what it feeds is whatever reads it.
+    # Only the memories, and only to answer the last hop on a path: where a run feeds no
+    # further named net, what it feeds is whatever reads it.
     readers = collections.defaultdict(list)
     for name, cell in nl["cells"].items():
         if cell["type"] in (EBR, SPRAM):
@@ -85,7 +82,6 @@ def netlist(path, top):
                 readers[bit].append(name)
     nl["mem_readers"] = readers
     return nl
-
 
 def bit_of(nl, net):
     """The netlist bit icetime's `<name>[<index>]` refers to, or None."""
@@ -101,12 +97,10 @@ def bit_of(nl, net):
         return None
     return bit if isinstance(bit, int) else None
 
-
 def driving(nl, bit):
     """(cell name, cell type) for whatever drives this bit, or (None, None)."""
     cell = nl["driver"].get(bit)
     return (cell, nl["cells"][cell]["type"]) if cell else (None, None)
-
 
 def carried_nets(hops):
     """The net each hop carries, in one pass over the path.
@@ -123,7 +117,6 @@ def carried_nets(hops):
             last = hop["net"]
     return nets
 
-
 def ends(nl, hops, index, carried):
     """What drives the net this hop carries, and what the run it sits in feeds."""
     sink = next((hop["net"] for hop in hops[index:]
@@ -139,7 +132,6 @@ def ends(nl, hops, index, carried):
             "from": source, "from_type": source_type,
             "to": target, "to_type": target_type}
 
-
 def bin_of(nl, end):
     types = (end["from_type"], end["to_type"])
     if EBR in types:
@@ -149,7 +141,6 @@ def bin_of(nl, end):
     if end["bit"] in nl["pc_bits"]:
         return BINS[2]
     return BINS[3]
-
 
 def walk(nl, report):
     """Every routing hop on one path, binned, reconciled against timing_split."""
@@ -167,10 +158,8 @@ def walk(nl, report):
         sys.exit(f"*** {report}: no routing hop was read out of it at all. That is\n"
                  f"*** a failed read of the report, not a design with no interconnect.")
 
-    # Every name icetime resolved came out of the netlist nextpnr was given, so
-    # a name this netlist cannot find means the two are different trees. That
-    # failure is silent otherwise -- an unresolved end has no cell type, so it
-    # lands in `neither` and the histogram merely looks lopsided.
+    # Every name icetime resolved came out of the netlist nextpnr was given, so a name
+    # this netlist cannot find means the two are different trees.
     lost = [hop for hop in binned if hop["bit"] is None]
     if lost:
         sys.exit(f"*** {report}: {len(lost)} of {len(binned)} routing hops carry a "
@@ -188,7 +177,6 @@ def walk(nl, report):
                  f"*** reading the histogram.")
     return split, binned
 
-
 def tally(binned):
     counts = collections.Counter()
     delays = collections.Counter()
@@ -197,12 +185,10 @@ def tally(binned):
         delays[hop["bin"]] += hop["delay"]
     return counts, delays
 
-
 def named(cell, kind):
     if cell is None:
         return "(unresolved)"
     return f"{cell} ({kind})"
-
 
 def report_bins(label, counts, delays):
     total = sum(delays.values())
@@ -213,7 +199,6 @@ def report_bins(label, counts, delays):
               f"{share:5.1f}%")
     print(f"    {'all routing':<18s} {sum(counts.values()):>4d} hops  {total:7.2f} ns")
 
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("csv", help="a sweep written by soc/baseline_sweep.sh")
@@ -222,10 +207,7 @@ def main():
     args = parser.parse_args()
 
     provenance, rows = baseline_summary.load(args.csv)
-    # Everything below walks an icetime report, and only one part has one. An
-    # ECP5 sweep would get as far as looking for a `.timing.rpt` that was never
-    # written and blame the sweep for it, so the part is checked where the answer
-    # is still readable.
+    # Everything below walks an icetime report, and only one part has one.
     if provenance[baseline_summary.PART_FIELD] != "up5k":
         sys.exit(f"*** {args.csv} placed "
                  f"{provenance[baseline_summary.PART_FIELD]}, and this script\n"
@@ -309,7 +291,6 @@ def main():
         print("  none: no placement's critical path touched a memory at all.")
     for cell, count in sorted(contacts.items(), key=lambda item: -item[1]):
         print(f"  {cell:<28s} at one end of {count} hops")
-
 
 if __name__ == "__main__":
     main()

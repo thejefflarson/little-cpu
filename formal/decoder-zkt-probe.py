@@ -56,9 +56,9 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from traps_probe_sby import script_block  # noqa: E402
 
 # The `decoder` task's own files, read directly rather than inherited from
-# traps_probe_sby's SOURCES: that tuple is traps.sv's own dependency list
-# (fetcher.v, csrs.v included) and always appends traps.sv itself, neither of
-# which the `decoder` task's script names.
+# traps_probe_sby's SOURCES: that tuple is traps.sv's own dependency list (fetcher.v,
+# csrs.v included) and always appends traps.sv itself, neither of which the `decoder`
+# task's script names.
 SOURCES = ("structs.v", "decoder.v", "regsel.v")
 
 TEMPLATE = """[options]
@@ -74,15 +74,14 @@ smtbmc
 {files}
 """
 
-# The two assertions being probed, found in rtl/decoder.v by their text. Each
-# is the only statement in that file that says what it says.
+# The two assertions being probed, found in rtl/decoder.v by their text.
 ASSERTS = {
     "region-stall-ungated": "assert(!region_stall || ls_access);",
     "ls-access-extra": "assert(ls_access == (instr_lb || instr_lbu || instr_lh || instr_lhu ||",
 }
 
-# The lines of rtl/decoder.v each mutation replaces, matched in full so a
-# respelling stops this file rather than silently probing nothing.
+# The lines of rtl/decoder.v each mutation replaces, matched in full so a respelling
+# stops this file rather than silently probing nothing.
 MUTATIONS = {
     "region-stall-ungated": (
         "  assign region_stall = ls_access && !ls_settled && !ls_answer_valid;\n",
@@ -94,12 +93,10 @@ MUTATIONS = {
     ),
 }
 
-
 def stop(message):
     """Exit 2: the probe's own inputs are broken, which is not a red proof."""
     print(f"error: {message}", file=sys.stderr)
     sys.exit(2)
-
 
 def assert_line(decoder_v, case):
     """The line rtl/decoder.v states this case's assertion on, 1-based. A
@@ -116,7 +113,6 @@ def assert_line(decoder_v, case):
         )
     return hits[0]
 
-
 def mutate(decoder_v, case):
     """rtl/decoder.v with this case's one line replaced."""
     old, new = MUTATIONS[case]
@@ -132,7 +128,6 @@ def mutate(decoder_v, case):
             "would be the shipping one and the proof would say nothing."
         )
     return decoder_v.replace(old, new, 1)
-
 
 def decoder_probe_sby(repo):
     """The `decoder` task's sby text, read out of formal/components.sby rather
@@ -158,7 +153,6 @@ def decoder_probe_sby(repo):
         files="\n".join(f"src/{name}" for name in SOURCES),
     )
 
-
 def run_case(repo, workdir, sby, config, case):
     """Builds the mutated tree, runs sby, and returns (status, failing lines)."""
     root = workdir / case
@@ -170,9 +164,8 @@ def run_case(repo, workdir, sby, config, case):
     (root / "src" / "decoder.v").write_text(mutate(decoder, case))
     (root / "probe.sby").write_text(config)
 
-    # sby's own exit status is not read: FAIL is the required outcome, and a
-    # non-zero status says nothing this file does not read out of the workdir
-    # instead.
+    # sby's own exit status is not read: FAIL is the required outcome, and a non-zero
+    # status says nothing this file does not read out of the workdir instead.
     proc = subprocess.run(
         [sby, "-f", "probe.sby"], cwd=root, capture_output=True, text=True
     )
@@ -191,7 +184,6 @@ def run_case(repo, workdir, sby, config, case):
             r"engine_\d+\.basecase:.*Assert failed in decoder: decoder\.v:(\d+)", log))
     )
     return status[0], failed
-
 
 def main():
     here = pathlib.Path(__file__).resolve().parent
@@ -236,7 +228,6 @@ def main():
         sys.exit(1)
 
     print("Both Zkt-isolation assertions fail for their own reason.")
-
 
 if __name__ == "__main__":
     main()

@@ -1,7 +1,6 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// Two harts on one text storage, data RAM, timer and bus arbiter. Two is the
-// number, not a default: rtl/busarbiter.v is proved for exactly two.
+// Two harts on one text storage, data RAM, timer and bus arbiter.
 module littledual #(
   parameter integer ROM_WORDS = 2048,
   parameter INIT_EVEN = "",
@@ -51,8 +50,8 @@ module littledual #(
   logic [4*NHARTS-1:0]  hart_mem_wstrb;
   logic [NHARTS-1:0]    hart_mem_ren;
 
-  // At most one hart has a transaction out, so three of the four bus outputs join
-  // with an OR.
+  // At most one hart has a transaction out, so three of the four bus outputs join with an
+  // OR.
   logic [31:0] mem_addr, mem_wdata, mem_rdata;
   logic [3:0]  mem_wstrb;
   logic        mem_ren, mem_reservable;
@@ -62,8 +61,7 @@ module littledual #(
   assign mem_ren   = hart_mem_ren[0]     | hart_mem_ren[1];
 
   // `mem_wdata` CANNOT BE ORed: rtl/accessor.v publishes rs2 on it for every issuing
-  // instruction, not only a store. ORed, one hart's rs2 lands in the other's store
-  // whenever a non-memory instruction issues beside it, with no strobe to say so.
+  // instruction, not only a store.
   assign mem_wdata = |hart_mem_wstrb[3:0] ? hart_mem_wdata[31:0]
                                           : hart_mem_wdata[63:32];
   assign mem_rdata = imem_mem_rdata | dmem_mem_rdata | timer_mem_rdata;
@@ -86,8 +84,8 @@ module littledual #(
   for (genvar h = 0; h < NHARTS; h++) begin : l_hart
     localparam int OTHER = 1 - h;
 
-    // An AMO publishes once and makes two transactions; `mem_lock` is high between
-    // them, so the other hart waits through the second even once granted.
+    // An AMO publishes once and makes two transactions; `mem_lock` is high between them,
+    // so the other hart waits through the second even once granted.
     assign bus_wait[h] = bus_request[h] && (!grant[h] || mem_lock[OTHER]);
 
    `ifdef RISCV_FORMAL
@@ -184,8 +182,6 @@ module littledual #(
     .imem_fault(imem_fault)
   );
 
-  // Per hart because every hart asks about its own decode-stage instruction at once;
-  // the bus ports carry the one granted transaction.
   memory #(.NHARTS(NHARTS)) dmem (
     .clk(clk),
     .mem_addr(mem_addr),
