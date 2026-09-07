@@ -34,9 +34,7 @@ if [ -z "$SIM_ROM_BUDGET" ] || [ -z "$SHIP_ROM_BUDGET" ]; then
   exit 1
 fi
 
-# ONE implementation for every route that checks the vendored tree against
-# PINNED.sha256 -- see that script's header for why membership is checked
-# before any hash.
+# ONE implementation for every route that checks the vendored tree against PINNED.sha256.
 "$HERE/coremark_pin_check.sh" "$VENDOR_DIR"
 
 # coremark_port.c restates both 2K runs' CRCs independently, so a mutated literal in

@@ -4717,9 +4717,6 @@ if [ -n "${STUB_SBY_EMPTY_STATUS:-}" ]; then : > "$job/status"; exit 1; fi
 echo "$status 2 0" > "$job/status"
 STUB
   chmod +x "$tmp/sby-busarbiter-stub"
-  # The log line each arm emits is the literal prefix formal/busarbiter-probe.py
-  # parses out of a real sby run; anchoring here ties this stub's shape to that
-  # regex rather than to a format nothing in the tree still produces.
   fixture_anchor "$REPO/formal/busarbiter-probe.py" "Assert failed in busarbiter_check:"
   fixture_anchor "$REPO/formal/busarbiter-probe.py" "Unreached cover statement at busarbiter_check:"
 }
@@ -5690,11 +5687,6 @@ FIXTURE
 probe "a double-quoted heredoc delimiter is masked, so its stray apostrophe cannot hide a real sed -i after it" 1 \
   "sed -i real_after_heredoc.txt" "$(ffr "$d")"
 
-# Bash allows a command to open two heredocs off one line, the first one's body then
-# the second's; the masker used to search a line for only the first opening marker, so
-# the second heredoc's body ran live and its unbalanced apostrophe desynced the tracker
-# for the rest of the file. No call site here opens two heredocs off one line today --
-# this pins drift risk, not an observed miss.
 d=$(ffr_fixture)
 cat >> "$d/test/probe_gates.sh" <<'FIXTURE'
 cat <<A <<B
@@ -5707,12 +5699,6 @@ FIXTURE
 probe "two heredocs opened off one line are both masked, in the order their opening markers appear" 1 \
   "sed -i real_after_two_heredocs.txt" "$(ffr "$d")"
 
-# A plain heredoc's closing line must have NO leading whitespace; only the dash form
-# (opened with a trailing `-`) strips it. The masker used to strip every closing line
-# regardless, so an indented line equal to the token closed a plain heredoc early and
-# exposed the rest of its body -- here, a `sed -i` that is really just heredoc text. No
-# call site here indents a plain heredoc's closing delimiter today -- this pins drift
-# risk, not an observed miss.
 d=$(ffr_fixture)
 cat >> "$d/test/probe_gates.sh" <<'FIXTURE'
 cat <<TOK
@@ -5723,12 +5709,6 @@ FIXTURE
 probe "an indented line equal to a plain heredoc's token does not close it early" 0 \
   "no bare in-place edit" "$(ffr "$d")"
 
-# Inside \$'...', \' is an escaped literal that does not close the string -- the same
-# rule a double-quoted string already gets. The masker used to treat \$'...' as a plain
-# single-quoted string, where backslash is nothing special, so \' closed it early and
-# the stray trailing ' opened a second string that ran to the next ' in the file,
-# masking whatever fell between -- here, a real sed -i. No call site here uses \$'...'
-# today -- this pins drift risk, not an observed miss.
 d=$(ffr_fixture)
 cat >> "$d/test/probe_gates.sh" <<'FIXTURE'
 echo $'it\'s escaped, not closed'
