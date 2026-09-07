@@ -587,7 +587,7 @@ make test           # the test/asm suite (.S and .c) under cxxrtl + unit benches
                     # + every repo-scanning `*-test` target (memmap, march, band-source,
                     # retired-term, adr-numbering, port-connect, compare-geometry,
                     # vexriscv-path, tracked-ignored, tool-cache, pin-bump, abc-engine,
-                    # zkt-isolation, fixture-freshness)
+                    # zkt-isolation, fixture-freshness, makefile-target)
                     # + window-test, imem-share-test, board-elaborate, mutation-probe and
                     # dual-build; graded against EXPECTED_FAIL / OBSERVED_FLOOR
 make test-units     # the unit benches alone; the list is checked against test/*_tb.v both ways
@@ -630,6 +630,9 @@ make icesugar-prog  # load it into SRAM over JTAG. NOT the flash: a flash write 
 make icesugar-read  # read that board's UART for a bounded window
 make icesugar-dhrystone # build Dhrystone for it, load it, read the report it prints itself.
                     # Needs the board, so off `make test` and off CI, like suite-board
+make icesugar-coremark # the same for CoreMark, at SOC_ROM_WORDS=4096: 16 KB of ROM, which
+                    # this part has the spare block RAM for and the up5k does not.
+                    # `make coremark-rom-ecp5` builds that image alone
 make dual-smoke     # two harts, one text storage, one arbiter, under cxxrtl; one program run
                     # both ways. Off `make test` and CI. `make dual-elaborate` is iverilog's look
 make dual-ecp5-timing # the dual top placed, ECP5 only; three censuses GATE, the frequency
@@ -764,7 +767,16 @@ ADR-0038), booting a program out of the flash, an interrupt controller, more int
 a vectored `mtvec`. The full forwarding network is declined, not deferred (ADR-0083); the
 executor-only spelling ships (ADR-0154).
 
-**8 KB of text is the ceiling, and it is the fetch loop's, not the part's.** `rtl/imemory.v`
+**The ECP5 holds 16 KB of text, and that is where CoreMark reaches a board** (ADR-0165).
+`rtl/littlesoc.v` takes `ROM_WORDS` as a parameter and the three `littlesoc` synthesis
+flows `chparam` it before `hierarchy`, so a wider ROM is one override rather than an
+edit; at 4096 words the LFE5U-25F reads `DP16KD` 36 → 40 of 56 and Fmax 35.11 → 34.78 MHz,
+a null. The default is unchanged, so every existing target is a no-op. **Keep every
+`yosys -p` script that names `SOC_ROM_CHPARAM` on ONE line**: a backslash-newline inside
+the single quotes is not a shell continuation, both characters reach yosys, and it stops
+with `No such command: \`.
+
+**8 KB of text is the ceiling on the up5k, and it is the fetch loop's, not the part's.** `rtl/imemory.v`
 refuses a `ROM_WORDS` that is not a power of two because both its range tests are reductions on the
 address bits above the ROM, and 16 KB is 32 block RAMs against the 26 free (ADR-0135); a 12 KB
 window as two power-of-two windows ORed is buildable and declined on period (ADR-0145). The two

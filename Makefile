@@ -441,6 +441,13 @@ mutation-coverage-test:
 adr-numbering-test:
 	@./test/adr_numbering_test.sh
 
+# A target defined twice is last-wins with only a warning, and a `?=` default beside it
+# is first-wins, so two additions of one name pair one route's body with the other's
+# variables. make's own parser is the oracle.
+.PHONY: makefile-target-test
+makefile-target-test:
+	@./test/makefile_target_test.sh
+
 # The cross-core comparison harness states its geometry in several places, read from this
 # Makefile's own COMPARE_TOP/-T lines rather than a second hand-kept list, and this is
 # what says they agree.
@@ -525,7 +532,7 @@ dual-build:
 test: sim test-units probe-gates pin-bump-test tool-cache-test memmap-test \
       adr-numbering-test compare-geometry-test vexriscv-path-test retired-term-test port-connect-test march-test \
       band-source-test zkt-isolation-test fixture-freshness-test window-test imem-share-test \
-      abc-engine-test mutation-probe dual-build board-elaborate \
+      abc-engine-test makefile-target-test mutation-probe dual-build board-elaborate \
       tracked-ignored-test mutation-coverage-test
 	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
@@ -647,6 +654,21 @@ fit: fit-toolchain fit.json
 
 SOC_PROG      ?= datainit.c
 SOC_ROM_WORDS := 2048
+# Named once and referenced by every littlesoc synthesis (ice40, ECP5, the
+# iCESugar-Pro top): chparam before hierarchy/synth_*, so littlesoc's default
+# is what gets elaborated rather than a second copy of the number.
+# EMPTY unless a caller asked for a different ROM size. `origin` is what asks that --
+# `file` when only this Makefile set it, `command line` when a caller or a sub-make
+# overrode it -- so the shipping build states the number once, in rtl/littlesoc.v's own
+# default, which test/memmap_test.sh grades equal to SOC_ROM_WORDS.
+# A chparam at the UNCHANGED value is not free: it moves the up5k SoC netlist from 6289
+# to 6319 mapped cells with nothing to show for it, because yosys derives a parameterised
+# copy of littlesoc and stops sharing across the hierarchy the way it does for the plain
+# module.
+# KEEP EVERY yosys -p SCRIPT USING THIS ON ONE LINE. A backslash-newline inside the
+# single quotes is not a shell continuation -- both characters reach yosys, which reads
+# the lone `\` as a command and stops with "No such command: \".
+SOC_ROM_CHPARAM := $(if $(filter command line,$(origin SOC_ROM_WORDS)),chparam -set ROM_WORDS $(SOC_ROM_WORDS) littlesoc;)
 # Exact rather than budgeted the way FIT_MAX_LC is, because both are properties of the
 # RTL rather than of placement: 2 SPRAM for the 64 KB data RAM, and 16 EBR for the 8 KB
 # banked ROM plus 4 for rtl/regfile.v.
@@ -695,8 +717,12 @@ soc-rom:
 	  --rom-words $(SOC_ROM_WORDS)
 
 # Named once, used verbatim everywhere the netlist matters: a second copy would let the
-# digest and the placement it grades describe different builds.
-SOC_SYNTH := read_verilog -sv $(SOC_SRCS); synth_ice40 -device u -dsp -spram -top littlesoc
+# digest and the placement it grades describe different builds. chparam runs BEFORE
+# synth_ice40's own hierarchy pass, so littlesoc's ROM_WORDS default is what hierarchy
+# elaborates.
+SOC_SYNTH := read_verilog -sv $(SOC_SRCS); \
+             $(SOC_ROM_CHPARAM) \
+             synth_ice40 -device u -dsp -spram -top littlesoc
 SOC_PNR   := nextpnr-ice40 --up5k --package sg48 --pcf soc/littlesoc.pcf
 
 soc.json: $(SOC_SRCS) soc-rom
@@ -795,7 +821,7 @@ ecp5.json: $(SOC_SRCS) soc-rom
 	@# part, so passing `-noabc9` would be as much of a mapper change as turning
 	@# abc9 on is on ice40, and a mapper change landing under a brand-new
 	@# instrument would confound both.
-	@yosys -p 'read_verilog -sv $(SOC_SRCS); synth_ecp5 -top littlesoc -json $@' \
+	@yosys -p 'read_verilog -sv $(SOC_SRCS); $(SOC_ROM_CHPARAM) synth_ecp5 -top littlesoc -json $@' \
 	  > ecp5.synth.log 2>&1 || { tail -40 ecp5.synth.log; exit 1; }
 	@python3 soc/cell_census.py ecp5.synth.log DP16KD $(ECP5_EXPECT_DP16KD) \
 	  "rtl/memory.v's no-change read port was shaped for SPRAM inference and there is no SPRAM on this part, so a spelling that stops matching block RAM falls back to LUT RAM and says nothing" \
@@ -822,7 +848,10 @@ ICESUGAR_ROM     ?= soc-rom
 icesugar.json: $(ICESUGAR_SRCS) soc/icesugar_pro.lpf
 	@$(MAKE) --no-print-directory $(ICESUGAR_ROM) SOC_PROG=$(ICESUGAR_PROG)
 	@echo 'yosys: synthesising $(ICESUGAR_TOP) for $(ICESUGAR_PART) (log: icesugar.synth.log)'
-	@yosys -p 'read_verilog -sv $(ICESUGAR_SRCS); synth_ecp5 -top $(ICESUGAR_TOP) -json $@' \
+	@# chparam names littlesoc, not $(ICESUGAR_TOP): the parameter lives on the
+	@# submodule icesugar_pro_top instantiates at its own default, so setting
+	@# littlesoc's default before hierarchy is what icesugar_pro_top inherits.
+	@yosys -p 'read_verilog -sv $(ICESUGAR_SRCS); $(SOC_ROM_CHPARAM) synth_ecp5 -top $(ICESUGAR_TOP) -json $@' \
 	  > icesugar.synth.log 2>&1 || { tail -40 icesugar.synth.log; exit 1; }
 	@python3 soc/bram_reset_check.py $@ --gate 'make icesugar-bitstream'
 
@@ -874,6 +903,25 @@ icesugar-dhrystone:
 	@$(MAKE) --no-print-directory icesugar-prog
 	@python3 soc/board_read.py --seconds 60 --until 'Self-check' \
 	  --out icesugar_dhrystone.txt
+
+# CoreMark does not fit the shipping 8 KB ROM (test/bench/run_coremark.sh's own
+# header gives the reason); this board is where a 16 KB ROM can actually be
+# placed, so this is the one CoreMark route that reaches silicon.
+# ICESUGAR_COREMARK_ROM_WORDS overrides SOC_ROM_WORDS for both the ROM build
+# and littlesoc's own ROM_WORDS through icesugar.json's chparam, so the image
+# and the fetch window it is placed against cannot disagree.
+ICESUGAR_COREMARK_ROM_WORDS := 4096
+
+.PHONY: icesugar-coremark
+icesugar-coremark:
+	@rm -f icesugar.json icesugar.config icesugar.bit
+	@$(MAKE) --no-print-directory coremark-rom-ecp5 \
+	  SOC_ROM_WORDS=$(ICESUGAR_COREMARK_ROM_WORDS)
+	@$(MAKE) --no-print-directory icesugar.bit ICESUGAR_ROM=noop-rom \
+	  SOC_ROM_WORDS=$(ICESUGAR_COREMARK_ROM_WORDS)
+	@$(MAKE) --no-print-directory icesugar-prog
+	@python3 soc/board_read.py --seconds 60 --until 'Self-check' \
+	  --out icesugar_coremark.txt
 
 ECP5_TOOLS := yosys nextpnr-ecp5 trellis-db
 
@@ -958,6 +1006,58 @@ dhrystone-board:
 	@echo 'Dhrystone is in board.bin. Flash it with `make prog`, then read the'
 	@echo 'report off the UART -- it prints itself, cycles and all.'
 
+# Two board routes compile the same vendored sources at different geometries, so they
+# are two names, not one target with two bodies: this one links the 16 KB region the
+# ECP5 can hold, `coremark-rom-up5k` the 8 KB one the part actually ships. Make
+# resolves a redefined recipe last-wins and a `?=` default first-wins, so one name
+# would pair one route's flags with the other's linker script and report the flags it
+# was not built with.
+COREMARK_ECP5_UART_BASE  ?= $(DHRY_UART_BASE)
+# Not touching COREMARK_CFLAGS is this route's whole point: 16 KB is where the -O2
+# image fits, so the board figure and the simulated one are the same build.
+COREMARK_ECP5_CFLAGS     ?= $(COREMARK_CFLAGS)
+COREMARK_ECP5_ITERATIONS ?= $(COREMARK_ITERATIONS)
+
+.PHONY: coremark-pin-check
+coremark-pin-check:
+	@test/bench/coremark_pin_check.sh $(COREMARK_VENDOR_DIR)
+
+# Builds CoreMark against test/bench/coremark.lds -- the 16 KB region
+# test/testbench.v's simulated ROM already uses -- and writes the board's ROM banks at
+# $(SOC_ROM_WORDS), the same split soc-rom and dhrystone-rom use.
+.PHONY: coremark-rom-ecp5
+coremark-rom-ecp5: coremark-pin-check
+	@set -e; \
+	for candidate in riscv64-elf-gcc riscv64-unknown-elf-gcc; do \
+	  if command -v $$candidate >/dev/null 2>&1; then CC=$$candidate; break; fi; \
+	done; \
+	if [ -z "$$CC" ]; then echo "error: no RISC-V cross compiler; see \`make setup\`." >&2; exit 1; fi; \
+	OBJCOPY=$${CC%gcc}objcopy; \
+	tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/coremark-rom.XXXXXX"); \
+	test -n "$$tmp" -a -d "$$tmp"; \
+	trap 'rm -rf "$$tmp"' EXIT; \
+	flags='$(COREMARK_ECP5_CFLAGS)'; \
+	objects=""; \
+	for unit in coremark/core_list_join coremark/core_main coremark/core_matrix \
+	            coremark/core_state coremark/core_util coremark_port; do \
+	  name=$$(basename "$$unit"); \
+	  $$CC $$flags -I test/bench -I $(COREMARK_VENDOR_DIR) \
+	    -DITERATIONS=$(COREMARK_ECP5_ITERATIONS) "-DCOREMARK_FLAGS=\"$$flags\"" \
+	    -DCOREMARK_UART=$(COREMARK_ECP5_UART_BASE) \
+	    -c "test/bench/$$unit.c" -o "$$tmp/$$name.o"; \
+	  objects="$$objects $$tmp/$$name.o"; \
+	done; \
+	$$CC $$flags -DCOREMARK_UART=$(COREMARK_ECP5_UART_BASE) -nostdlib \
+	  -T test/bench/coremark.lds -o "$$tmp/coremark.elf" \
+	  test/crt0.S $$objects; \
+	$$OBJCOPY -O verilog --verilog-data-width=4 -j .text -j .data \
+	  "$$tmp/coremark.elf" "$$tmp/rom.hex"; \
+	python3 soc/rom_banks.py "$$tmp/rom.hex" soc/rom_even.hex soc/rom_odd.hex \
+	  --rom-words $(SOC_ROM_WORDS)
+
+# ---- a bitstream, and a board to put it on ---------------------------------
+# A separate flow from `soc-timing` on purpose -- different top, different
+# pins -- so a frequency from here is not comparable. Do not merge the two.
 BOARD ?= upduino
 
 BOARD_SRCS := $(SOC_SRCS) soc/miso_share_enable.v soc/board_upduino.v
