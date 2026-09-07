@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# rvc.S Test RVC corner cases.
+# Test RVC corner cases.
 
 #include "riscv_test.h"
 #include "test_macros.h"

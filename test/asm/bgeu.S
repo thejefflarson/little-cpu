@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# bgeu.S Test bgeu instruction.
+# Test bgeu instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"

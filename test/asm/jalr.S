@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# jalr.S Test jalr instruction.
+# Test jalr instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"

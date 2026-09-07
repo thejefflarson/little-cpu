@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# mtimermask.S The two masks, and the two stalls an interrupt has to wait out.
+# The two masks, and the two stalls an interrupt has to wait out.
 
 #include "riscv_test.h"
 #include "test_macros.h"

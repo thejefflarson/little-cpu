@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# lbu.S Test lbu instruction.
+# Test lbu instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"

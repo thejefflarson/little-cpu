@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# blt.S Test blt instruction.
+# Test blt instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"

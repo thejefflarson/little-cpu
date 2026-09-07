@@ -1,7 +1,7 @@
 # See LICENSE for license details.
 
-# csrset.S Two CSRs the RV32 privileged specification lists unconditionally in the
-# machine-mode register tables.
+# Two CSRs the RV32 privileged specification lists unconditionally in the machine-mode
+# register tables.
 
 #include "riscv_test.h"
 #include "test_macros.h"

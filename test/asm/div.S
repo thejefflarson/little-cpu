@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# div.S Test div instruction.
+# Test div instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"

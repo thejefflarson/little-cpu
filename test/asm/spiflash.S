@@ -1,8 +1,7 @@
 # See LICENSE for license details.
 
-# spiflash.S The read-only SPI controller, driven the way a boot loader drives it: select
-# the flash, exchange a command byte, poll, exchange the bytes the answer is made of,
-# release.
+# The read-only SPI controller, driven the way a boot loader drives it: select the flash,
+# exchange a command byte, poll, exchange the bytes the answer is made of, release.
 
 #include "riscv_test.h"
 #include "test_macros.h"

@@ -1,4 +1,4 @@
-# The riscv-formal SHA this repo is pinned to.
+# The riscv-formal SHA this repo is pinned to, and the one place it is written down.
 override RISCV_FORMAL_SHA := c992aa61fdfe0846c5ed90324c596202a1c69b76
 override RISCV_FORMAL_URL := https://github.com/YosysHQ/riscv-formal.git
 

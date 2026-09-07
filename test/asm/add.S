@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# add.S Test add instruction.
+# Test add instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"

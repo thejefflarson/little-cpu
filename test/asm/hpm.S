@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# hpm.S The 87 hardware performance monitor addresses: mhpmcounter3-31 (0xB03-0xB1F),
+# The 87 hardware performance monitor addresses: mhpmcounter3-31 (0xB03-0xB1F),
 # mhpmcounter3h-31h (0xB83-0xB9F) and mhpmevent3-31 (0x323-0x33F).
 
 #include "riscv_test.h"

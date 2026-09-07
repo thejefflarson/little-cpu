@@ -59,7 +59,8 @@ END = "# end-provenance"
 COMMON_REQUIRED = ["date", "base", "dirty", "part", "yosys", "prog", "rom_words",
                    "seeds", "host", "reproduce"]
 
-# What each part's measurement is additionally a property of.
+# The extra provenance each part's measurement is a property of, and which two sweeps
+# must therefore share before they can be subtracted.
 PART_REQUIRED = {
     "up5k": ["nextpnr-ice40", "icetime"],
     "ecp5": ["nextpnr-ecp5", "trellis-db", "corner", "constraint_mhz"],

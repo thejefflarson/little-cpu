@@ -105,7 +105,7 @@ RTL = [
 # expose the next one, so it has to run to a fixpoint.
 SWEEP_PASSES = 6
 
-# Colour-refinement rounds.
+# How many colour-refinement rounds the structural comparison runs before it gives up.
 WL_ROUNDS = 8
 
 # Resolved from this file's own location, not from the working directory: the Makefile

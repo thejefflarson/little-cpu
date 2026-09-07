@@ -1,7 +1,7 @@
 # See LICENSE for license details.
 
-# mtimer.S The machine timer interrupt, taken end to end: armed from software, asserted
-# by rtl/timer.v, gated by mie.MTIE and mstatus.MIE, and committed at a decode boundary.
+# The machine timer interrupt, taken end to end: armed from software, asserted by
+# rtl/timer.v, gated by mie.MTIE and mstatus.MIE, and committed at a decode boundary.
 
 #include "riscv_test.h"
 #include "test_macros.h"

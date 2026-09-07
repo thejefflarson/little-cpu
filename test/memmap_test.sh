@@ -62,7 +62,7 @@ int_param() {  # $1 = file, $2 = parameter name
   echo "$raw"
 }
 
-# the source of the map --
+# The map's source: every BASE and depth below is read out of the RTL that declares it.
 
 RAM_BASE=$(hex_param rtl/memory.v BASE)
 RAM_WORDS=$(int_param rtl/memory.v RAM_WORDS)

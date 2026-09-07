@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# or.S Test or instruction.
+# Test or instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"

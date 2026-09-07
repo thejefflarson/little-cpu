@@ -1,7 +1,7 @@
 # See LICENSE for license details.
 
-# amo.S The nine AMO functions, each against the word it must leave behind as well as the
-# word it must return.
+# The nine AMO functions, each against the word it must leave behind as well as the word
+# it must return.
 
 #include "riscv_test.h"
 #include "test_macros.h"

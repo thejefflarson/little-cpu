@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# csr.S The Zicsr access semantics and this core's CSR set, checked in band.
+# The Zicsr access semantics and this core's CSR set, checked in band.
 
 #include "riscv_test.h"
 #include "test_macros.h"

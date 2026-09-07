@@ -28,7 +28,7 @@ import re
 LABEL = re.compile(r"^([A-Za-z_][A-Za-z0-9_ ]*):\s*$")
 SECTION = re.compile(r"^\[(\w+)\]\s*$")
 
-# The files the script names.
+# The sources traps.sv's own sby script names, in the order it names them.
 SOURCES = ("structs.v", "fetcher.v", "decoder.v", "regsel.v", "csrs.v")
 
 TEMPLATE = """[options]

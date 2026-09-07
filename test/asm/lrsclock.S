@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# lrsclock.S An LR/SC critical section with the machine timer running underneath it.
+# An LR/SC critical section with the machine timer running underneath it.
 
 #include "riscv_test.h"
 #include "test_macros.h"

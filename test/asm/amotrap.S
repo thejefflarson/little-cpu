@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# amotrap.S A misaligned atomic, for all eleven encodings and at all three misalignments.
+# A misaligned atomic, for all eleven encodings and at all three misalignments.
 
 #include "riscv_test.h"
 #include "test_macros.h"

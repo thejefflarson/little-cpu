@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# cebreak.S `c.ebreak` raises a BREAKPOINT (mcause 3), not an illegal instruction.
+# `c.ebreak` raises a BREAKPOINT (mcause 3), not an illegal instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"

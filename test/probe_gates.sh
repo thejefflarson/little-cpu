@@ -1319,11 +1319,10 @@ d=$(bs_fixture)
 probe "a sweep file that is not there reads as missing, not as empty" 1 \
   "nothing to summarise" "$BS $d/gone.csv"
 
-# the part, which is a stamped and compared field and not just a column -- The
-# subtraction these forbid was available for as long as `part` was a CSV column nothing
-# read: two sweeps of two different fabrics, placed by two different engines and graded
-# by two different classes of estimator, would produce a tidy percentage under a heading
-# that says "delta".
+# The part is a stamped and compared field, not just a column. While it was a column
+# nothing read, two sweeps of two different fabrics -- placed by two different engines and
+# graded by two different classes of estimator -- would subtract into a tidy percentage
+# under a heading that says "delta".
 
 bs_pair() {  # an up5k sweep and an ECP5 one, same tree, same everything else
   local d; d=$(new_case)

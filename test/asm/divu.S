@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# divu.S Test divu instruction.
+# Test divu instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"

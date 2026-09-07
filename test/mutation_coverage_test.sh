@@ -34,7 +34,7 @@ first_fields() {  # $1 = file
   sed -e 's/#.*//' "$1" | awk 'NF { print $1 }'
 }
 
-# 1. the manifest names exactly rtl/*.v, both ways round --
+# 1. The manifest names exactly rtl/*.v, both ways round.
 
 listed=$(first_fields "$MANIFEST" | sort)
 if [ -z "$listed" ]; then
@@ -74,7 +74,7 @@ file says so. Add its line -- a mutation name, or \`unpaired\` and the real
 grader that covers it -- in the same commit."
 fi
 
-# 2. every ruling names something real --
+# 2. Every ruling names something real.
 
 valid_mutations=$(first_fields "$DETECTORS" | sort -u)
 

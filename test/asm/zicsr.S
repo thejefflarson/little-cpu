@@ -1,7 +1,7 @@
 # See LICENSE for license details.
 
-# zicsr.S Zicsr's write- and read-suppression rules are tests on the ENCODING, never on a
-# value, and whether an access to a read-only CSR is legal follows from them.
+# Zicsr's write- and read-suppression rules are tests on the ENCODING, never on a value,
+# and whether an access to a read-only CSR is legal follows from them.
 
 #include "riscv_test.h"
 #include "test_macros.h"

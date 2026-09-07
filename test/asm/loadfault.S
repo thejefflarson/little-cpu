@@ -1,7 +1,7 @@
 # See LICENSE for license details.
 
-# loadfault.S A plain load at an address no memory on this platform answers: cause 5,
-# load access fault, committed in decode with every other cause.
+# A plain load at an address no memory on this platform answers: cause 5, load access
+# fault, committed in decode with every other cause.
 
 #include "riscv_test.h"
 #include "test_macros.h"

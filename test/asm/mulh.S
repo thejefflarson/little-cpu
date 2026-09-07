@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# mulh.S Test mulh instruction.
+# Test mulh instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"

@@ -84,7 +84,7 @@ mutate() {  # $1 = output path, $2 = sed script
   fi
 }
 
-# A port renamed on ONE side.
+# A port renamed on ONE side must not elaborate: an unconnected port is silent otherwise.
 if mutate "$TMP/renamed.v" 's/\.uart_tx(uart_tx),/.uart_txx(uart_tx),/'; then
   run_case "a port the SoC does not have" reject "does not have a port named" \
     "${rest[@]}" "$TMP/renamed.v"

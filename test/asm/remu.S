@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# remu.S Test remu instruction.
+# Test remu instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"

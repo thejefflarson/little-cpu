@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# minstret.S The counter rules that nothing else can check.
+# The counter rules that nothing else can check.
 
 #include "riscv_test.h"
 #include "test_macros.h"

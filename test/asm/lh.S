@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# lh.S Test lh instruction.
+# Test lh instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"

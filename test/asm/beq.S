@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# beq.S Test beq instruction.
+# Test beq instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"

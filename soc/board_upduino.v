@@ -7,7 +7,7 @@ module upduino_top #(
   input  logic clk_pin,
   output logic ledr_n,
   output logic ledg_n,
-  // Pin 14, and pin 16 read only.
+  // Pin 14 is the UART line and the flash's MISO at once; pin 16 is read only.
   inout  wire  spi_miso_txd,
   inout  wire  spi_ssn
 );

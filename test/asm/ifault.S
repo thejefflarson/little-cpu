@@ -1,7 +1,7 @@
 # See LICENSE for license details.
 
-# ifault.S Instruction access fault, cause 1: a jump to an address the instruction memory
-# has nothing at.
+# Instruction access fault, cause 1: a jump to an address the instruction memory has
+# nothing at.
 
 #include "riscv_test.h"
 #include "test_macros.h"

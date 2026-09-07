@@ -88,7 +88,7 @@ module dhry_tb;
     if (haz_marks == 1 && dut_haz.wr_pending_q) haz_wait_cycles <= haz_wait_cycles + 1;
   end
 
-  // Every fact this prints is raw.
+  // Every fact this prints is raw, so a reader can recompute every ratio.
   task automatic report(input string core, input int unsigned marks,
                         input int unsigned begin_cycle, input int unsigned end_cycle,
                         input int unsigned verdict, input int unsigned writes);

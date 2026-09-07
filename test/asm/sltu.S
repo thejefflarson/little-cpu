@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# sltu.S Test sltu instruction.
+# Test sltu instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"

@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# lb.S Test lb instruction.
+# Test lb instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"

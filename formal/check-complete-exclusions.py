@@ -81,7 +81,7 @@ WIRE_RE = re.compile(
 # whitespace-separated token.
 FIELD_RE = re.compile(r'^([01]{7})(?:/([01]{3})(?:/([01]{7}))?)?$')
 
-# The four definitions everything above is built out of.
+# The four definitions in complete.sv everything above is built out of.
 REQUIRED_DEFS = {
     'insn_uncompressed': "wire        insn_uncompressed = rvfi_insn[1:0] == 2'b11;",
     'insn_opcode':       "wire [6:0]  insn_opcode       = rvfi_insn[6:0];",

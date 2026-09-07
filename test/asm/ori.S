@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# ori.S Test ori instruction.
+# Test ori instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"

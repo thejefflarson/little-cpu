@@ -14,7 +14,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 CFG = os.path.join(HERE, "checks.cfg")
 PROBE = "fg-probe"
 
-# The two trigs G is taken at.
+# The two trigger depths G is measured at, so a flip point is bracketed rather than
+# sampled once.
 TRIGS = (10, 15)
 
 # How far either side of the declared figure to sweep.

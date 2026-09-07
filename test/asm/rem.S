@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# rem.S Test rem instruction.
+# Test rem instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"

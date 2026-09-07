@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# mul.S Test mul instruction.
+# Test mul instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"

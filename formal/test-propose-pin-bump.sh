@@ -105,7 +105,7 @@ check "too few arguments" 2 "usage: propose-pin-bump.sh" \
 check "an unreadable body file" 2 "cannot read body file" \
   'PATH="$tmp/bin:$PATH" "$SCRIPT" pin/branch title "$tmp/absent.md"'
 
-# A tripwire, not a style rule.
+# A tripwire, not a style rule: this text is what the caller greps for.
 echo
 echo "== no script opens the pull request or dispatches CI"
 for f in propose-pin-bump.sh bump-riscv-formal-pin.sh; do

@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# bltu.S Test bltu instruction.
+# Test bltu instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"

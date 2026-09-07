@@ -1,7 +1,7 @@
 # See LICENSE for license details.
 
-# storefault.S A plain store at an address no memory on this platform answers: cause 7,
-# store/AMO access fault, committed in decode with every other cause.
+# A plain store at an address no memory on this platform answers: cause 7, store/AMO
+# access fault, committed in decode with every other cause.
 
 #include "riscv_test.h"
 #include "test_macros.h"

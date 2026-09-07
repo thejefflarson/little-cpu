@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# sra.S Test sra instruction.
+# Test sra instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"

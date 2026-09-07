@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# sh.S Test sh instruction.
+# Test sh instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"

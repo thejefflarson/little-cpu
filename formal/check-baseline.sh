@@ -14,7 +14,7 @@ CHECKS_DIR=$1
 EXPECTED_FAIL=$2
 EXPECTED_CHECKS=${3:-$(dirname "$0")/EXPECTED_CHECKS}
 
-# READABLE, not merely present.
+# Both baselines must be READABLE, not merely present: an unreadable one grades nothing.
 for f in "$EXPECTED_FAIL" "$EXPECTED_CHECKS"; do
   if [ ! -f "$f" ]; then
     echo "error: no such file: $f" >&2

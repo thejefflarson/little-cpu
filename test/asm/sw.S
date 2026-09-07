@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# sw.S Test sw instruction.
+# Test sw instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"

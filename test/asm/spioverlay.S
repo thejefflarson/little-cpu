@@ -1,7 +1,6 @@
 # See LICENSE for license details.
 
-# spioverlay.S A boot loader's other half: not just reading the flash, but using what it
-# reads.
+# A boot loader's other half: not just reading the flash, but using what it reads.
 
 #include "riscv_test.h"
 #include "test_macros.h"

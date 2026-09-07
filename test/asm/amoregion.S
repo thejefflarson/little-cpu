@@ -1,7 +1,6 @@
 # See LICENSE for license details.
 
-# amoregion.S An atomic outside the data RAM, which is the one region this platform
-# answers one at.
+# An atomic outside the data RAM, which is the one region this platform answers one at.
 
 #include "riscv_test.h"
 #include "test_macros.h"

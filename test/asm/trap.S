@@ -1,8 +1,8 @@
 # See LICENSE for license details.
 
-# trap.S Every trap cause this core implements, taken deliberately, recorded by the
-# opt-in handler in riscv_test.h, and asserted on from the test body — the cause, the
-# saved pc, and what mtval says the trap happened to.
+# Every trap cause this core implements, taken deliberately, recorded by the opt-in
+# handler in riscv_test.h, and asserted on from the test body — the cause, the saved pc,
+# and what mtval says the trap happened to.
 
 #include "riscv_test.h"
 #include "test_macros.h"

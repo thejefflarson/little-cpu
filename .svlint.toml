@@ -37,8 +37,8 @@ generate_for_with_label = true
 generate_if_with_label = true
 parameter_default_value = true
 parameter_in_generate = true
-inout_with_tri = true                 # live over ALL of rtl/: its only source, the flash
-                                      # pins in littlesoc.v, is deleted rather than excluded
+inout_with_tri = true                 # live over ALL of rtl/: its one source, littlesoc.v's
+                                      # flash pins, was deleted rather than exempted here
 
 operator_case_equality = true         # `===` has no synthesised equivalent
 explicit_brackets_for_confusing_precedence = true

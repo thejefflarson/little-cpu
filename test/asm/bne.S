@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# bne.S Test bne instruction.
+# Test bne instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"

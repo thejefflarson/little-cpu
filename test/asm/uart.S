@@ -1,7 +1,7 @@
 # See LICENSE for license details.
 
-# uart.S The transmit-only UART, driven the way firmware drives it: poll the status
-# register, write a byte, poll again.
+# The transmit-only UART, driven the way firmware drives it: poll the status register,
+# write a byte, poll again.
 
 #include "riscv_test.h"
 #include "test_macros.h"
