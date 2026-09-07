@@ -1007,17 +1007,33 @@ dhrystone-board:
 	@echo 'report off the UART -- it prints itself, cycles and all.'
 
 # Two board routes compile the same vendored sources at different geometries, so they
-# are two names, not one target with two bodies: this one links the 16 KB region the
-# ECP5 can hold, `coremark-rom-up5k` the 8 KB one the part actually ships. Make
-# resolves a redefined recipe last-wins and a `?=` default first-wins, so one name
-# would pair one route's flags with the other's linker script and report the flags it
-# was not built with.
+# are two names, not one target with two bodies: `coremark-rom-ecp5` links the 16 KB
+# region the ECP5 can hold, `coremark-rom-up5k` the 8 KB one the part actually ships.
+# Make resolves a redefined recipe last-wins and a `?=` default first-wins, so one name
+# would pair one route's flags with the other's linker script -- and the flags string is
+# compiled INTO the image for EEMBC's disclosure line, so the report would misstate its
+# own build. test/makefile_target_test.sh grades that off make's own warning.
 COREMARK_ECP5_UART_BASE  ?= $(DHRY_UART_BASE)
 # Not touching COREMARK_CFLAGS is this route's whole point: 16 KB is where the -O2
 # image fits, so the board figure and the simulated one are the same build.
 COREMARK_ECP5_CFLAGS     ?= $(COREMARK_CFLAGS)
 COREMARK_ECP5_ITERATIONS ?= $(COREMARK_ITERATIONS)
 
+# -Os -flto, not COREMARK_CFLAGS' -O2: the -O2 image does not fit the part's 8 KB ROM at
+# any port size, and -Os -flto is the smallest combination of standard flags that does.
+COREMARK_UP5K_CFLAGS ?= -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -Os -flto \
+                          -std=c11 -ffreestanding -fno-tree-loop-distribute-patterns \
+                          -Wall -Wextra -Werror
+
+# 800 iterations clears core_main.c's own ">=10 secs" rule at the board's clock with
+# room to spare; COREMARK_HZ travels with it so that check is against the clock the
+# image actually targets. Both move together for a different board.
+COREMARK_UP5K_ITERATIONS ?= 800
+COREMARK_HZ              ?= 12000000
+
+# ONE implementation for both routes, so the one that flashes hardware cannot be the one
+# whose check was forgotten. CoreMark's trademark terms permit the name only for an
+# unmodified copy.
 .PHONY: coremark-pin-check
 coremark-pin-check:
 	@test/bench/coremark_pin_check.sh $(COREMARK_VENDOR_DIR)
@@ -1054,6 +1070,39 @@ coremark-rom-ecp5: coremark-pin-check
 	  "$$tmp/coremark.elf" "$$tmp/rom.hex"; \
 	python3 soc/rom_banks.py "$$tmp/rom.hex" soc/rom_even.hex soc/rom_odd.hex \
 	  --rom-words $(SOC_ROM_WORDS)
+
+.PHONY: coremark-rom-up5k
+coremark-rom-up5k: coremark-pin-check
+	@set -e; \
+	for candidate in riscv64-elf-gcc riscv64-unknown-elf-gcc; do \
+	  if command -v $$candidate >/dev/null 2>&1; then CC=$$candidate; break; fi; \
+	done; \
+	if [ -z "$$CC" ]; then echo "error: no RISC-V cross compiler; see \`make setup\`." >&2; exit 1; fi; \
+	OBJCOPY=$${CC%gcc}objcopy; \
+	tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/coremark-rom.XXXXXX"); \
+	test -n "$$tmp" -a -d "$$tmp"; \
+	trap 'rm -rf "$$tmp"' EXIT; \
+	flags='$(COREMARK_UP5K_CFLAGS)'; \
+	$$CC $$flags -I test/bench -I $(COREMARK_VENDOR_DIR) \
+	  -DITERATIONS=$(COREMARK_UP5K_ITERATIONS) -DCOREMARK_HZ=$(COREMARK_HZ) \
+	  -DCOREMARK_UART=$(DHRY_UART_BASE) "-DCOREMARK_FLAGS=\"$$flags\"" \
+	  -nostdlib -T test/bench/bench.lds -o "$$tmp/coremark.elf" \
+	  test/crt0.S test/bench/coremark/core_list_join.c \
+	  test/bench/coremark/core_main.c test/bench/coremark/core_matrix.c \
+	  test/bench/coremark/core_state.c test/bench/coremark/core_util.c \
+	  test/bench/coremark_port.c; \
+	$$OBJCOPY -O verilog --verilog-data-width=4 -j .text -j .data \
+	  "$$tmp/coremark.elf" "$$tmp/rom.hex"; \
+	python3 soc/rom_banks.py "$$tmp/rom.hex" soc/rom_even.hex soc/rom_odd.hex \
+	  --rom-words $(SOC_ROM_WORDS)
+
+.PHONY: coremark-board
+coremark-board:
+	@rm -f board.json board.asc board.bin
+	@$(MAKE) --no-print-directory board.bin BOARD_OSC=$(BOARD_OSC) BOARD_ROM=coremark-rom-up5k
+	@echo
+	@echo 'CoreMark is in board.bin. Flash it with `make prog`, then read the'
+	@echo 'report off the UART -- it prints itself, cycles and all.'
 
 # ---- a bitstream, and a board to put it on ---------------------------------
 # A separate flow from `soc-timing` on purpose -- different top, different
