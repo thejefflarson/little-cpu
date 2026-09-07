@@ -113,11 +113,10 @@ literal there red.
 
 **No RTL change, no period change, no area change** -- this is all in
 `test/bench/`, `test/PROBES_EXPECTED` and the Makefile's board recipes.
-`make coremark`'s own figure is unmoved: **2.203 CoreMark/MHz**, confirmed
-by re-running it after this change start to finish, including the layout
-inset ADR-0158 gives Dhrystone and the executor-only forwarding ADR-0154
-measured -- the report now runs after `stop_time()` exactly as before, so a
-smaller report costs nothing inside the measured interval.
+`make coremark`'s own figure is unmoved: **2.203 CoreMark/MHz**, confirmed by
+re-running it start to finish after this change -- the report now runs after
+`stop_time()` exactly as before, so a smaller report costs nothing inside the
+measured interval.
 
 **The 7,076-byte figure is a link, not a board run.** `make coremark-rom-up5k`
 links successfully against the shipping 8 KB `bench.lds` and `./sim` runs the
