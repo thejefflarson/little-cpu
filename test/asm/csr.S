@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# The Zicsr access semantics and this core's CSR set, checked in band.
+// The Zicsr access semantics and this core's CSR set, checked in band.
 
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -10,7 +10,7 @@ RVTEST_CODE_BEGIN
 
   RVTEST_INSTALL_TRAP_HANDLER
 
-  # A read/write CSR round-trips.
+  // A read/write CSR round-trips.
 
   TEST_CASE( 2, a1, 0x1234, \
     li a0, 0x1234; \

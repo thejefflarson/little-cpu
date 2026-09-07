@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# Test slli instruction.
+// Test slli instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -8,7 +8,7 @@
 RVTEST_RV64U
 RVTEST_CODE_BEGIN
 
-  # Arithmetic tests
+  // Arithmetic tests
 
   TEST_IMM_OP( 2,  slli, 0x0000000000000001, 0x0000000000000001, 0  );
   TEST_IMM_OP( 3,  slli, 0x0000000000000002, 0x0000000000000001, 1  );

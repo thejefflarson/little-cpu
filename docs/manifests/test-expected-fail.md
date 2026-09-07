@@ -1,0 +1,46 @@
+# `test/EXPECTED_FAIL`
+
+The `.S` suite's regression baseline. `make test` exits 0 only when the set of
+tests that do NOT pass matches this file exactly — in both directions, so an
+unexpected *pass* is caught too, not just an unexpected failure.
+
+Lines come out one at a time, in the same commit as the fix that makes that
+test pass: the deletion is the evidence the fix worked. Never regenerate this
+file wholesale from a run — that launders a regression into the baseline. Edit
+it by hand, and justify any line added back in the PR that adds it.
+
+## Format
+
+Two fields, not one:
+
+```
+<test>.S  <STATUS>
+```
+
+The status is the exact label `test/run_tests.sh` prints in its table:
+`ASSEMBLE-ERROR`, `ASSEMBLE-WARNING`, `OBJCOPY-ERROR <region>`,
+`OBJCOPY-EMPTY <region>`, `FAIL <n>`, `TIMEOUT`, `MONITOR-ERROR <n>`,
+`MONITOR-SILENT`, `TRAP-TO-ZERO`, `BELOW-FLOOR <which>`, `NO-COUNTS`,
+`NO-FLOOR`, or `RUNNER-ERROR <n>`. Whitespace between the fields is free; a
+line with only a name is rejected rather than half-matched.
+
+The status is here because matching on the name alone made the gate blind to
+*why* a test failed. A baselined entry stayed matched if its assembly broke
+(`ASSEMBLE-ERROR`), if the sim binary would not start (`RUNNER-ERROR`), or if
+it hung (`TIMEOUT`) — a broken harness and a broken test both laundered into a
+green gate. Changing a line's status is the same kind of claim as removing it,
+and needs the same justification in the PR that does it.
+
+`OBJCOPY-ERROR`, `OBJCOPY-EMPTY`, `MONITOR-SILENT`, `NO-COUNTS`, `NO-FLOOR` and
+`BELOW-FLOOR` describe a broken build or a blind oracle rather than a
+known-red property. Nothing should ever be baselined under any of them; a line
+carrying one is a review flag.
+
+THIS IS NOT THE PLACE TO PARK A DEFECT IN THE ORACLE. When the generated
+monitor itself is wrong, the repair belongs in `test/sanitize_monitor.py`,
+which is re-applied every time the monitor is regenerated at the pin.
+Baselining the one program that tripped it leaves the oracle wrong for every
+other program.
+
+The history of what was baselined here and when lives in git; it is not
+repeated in this file, which describes the contract in force.

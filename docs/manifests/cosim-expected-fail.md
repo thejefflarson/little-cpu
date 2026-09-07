@@ -1,0 +1,312 @@
+# `test/COSIM_EXPECTED_FAIL`
+
+The co-simulation baseline. `make cosim-suite` exits 0 only when the set of
+programs that do NOT agree with the Sail RISC-V model matches this file
+exactly, in both directions — so an unexpected *agreement* is caught too.
+
+A SHORT FILE IS NOT AN ABSENT ONE, AND NEITHER IS AN EMPTY ONE. Both
+directions still run: every program in `test/asm` not named below must AGREE,
+and any one that does not is red. Deleting the file does not turn the gate
+green — `test/run_cosim.sh` refuses to start without a readable baseline, on
+purpose.
+
+## Format
+
+Two fields, not one:
+
+```
+<test>.S  <STATUS>
+```
+
+The status is the exact label `test/run_cosim.sh` prints in its table:
+
+- `DISAGREE AT <n>` — the two register traces differ at architectural change
+  n (the FIRST one that differs)
+- `DISAGREE LENGTH` — the traces agree as far as the shorter one goes, but one
+  side made more architectural changes than the other
+- `DISAGREE VERDICT` — identical register traces, different pass/fail
+  verdicts
+- `INCONCLUSIVE SAIL-LIMIT` | `INCONCLUSIVE CORE-TIMEOUT` — one side ran out
+  of budget; nothing was compared
+- `COSIM-ERROR <...>` — the harness failed. Nothing should ever be baselined
+  under this — it describes a broken setup, not a known property — but the
+  format admits it, and a line under it is a review flag.
+
+Whitespace between the fields is free; a line with only a name is rejected
+rather than half-matched.
+
+Pinning the divergence POINT is the whole reason the second field is here. A
+baselined program that starts diverging somewhere else is diverging for a new
+reason, and that is a red gate, not a match. Changing a status is the same
+kind of claim as removing the line and needs the same justification in the PR
+that does it. This file is never regenerated wholesale from a run.
+
+## How the two entries that used to be here were closed
+
+Neither was closed by changing the core, and neither was closed the same way,
+which is the part worth reading before the next divergence arrives:
+
+- **`csr.S`** was `DISAGREE AT 17` on `csrr a0, misa` — Sail 0x4034112f
+  against this core's 0x40001104. The reference model was a
+  `--config-override` on the model's DEFAULT RV32 machine, and an override
+  inherits everything it does not mention: A, B, D, F, S, U and V, none of
+  them implemented here then and none of them chosen. It is now a complete
+  `--config` describing RV32IMAC_Zicsr_Zifencei —
+  `test/sail/rv32imac_zicsr.json` — and misa agrees; A is claimed
+  deliberately now and the other six are still false. Two further
+  divergences that this one was masking, `mip.MTIP` and `mie`'s writable
+  bits, are recorded next to the assertions that used to make them, in
+  `test/asm/csr.S`.
+- **`minstret.S`** was `DISAGREE AT 7` on `csrr a0, mcycle`. Neither value
+  was wrong: `mcycle` counts cycles and an ISA model has no pipeline. Its
+  VALUE, and only its value, is now exempt at the one register the read
+  writes — `test/cosim.py`'s `NONCOMPARABLE_CSRS`, printed on every run that
+  uses it. The position of the change in the sequence, the register it
+  names, and everything computed from it afterwards are compared exactly as
+  before.
+
+SO A DIVERGENCE IS NOT AUTOMATICALLY A LINE HERE. Ask, in this order: can the
+reference model be CONFIGURED to be this machine (that closed misa)? Is only
+the VALUE incomparable, with both sides still taking the same branches (that
+closed mcycle)? Does the program ASSERT something implementation-defined that
+the model is entitled to answer differently — in which case the two runs take
+different paths, no value exemption can help, and the assertion belongs in a
+bench with no reference model in it? Only when none of the three fit is it a
+baseline entry, and then it needs a paragraph here, not a line.
+
+## The two timer-interrupt programs: the spec permits both machines
+
+`mtimer.S` and `mtimermask.S` arm this platform's machine timer through its
+memory map and wait for the interrupt. Sail has a timer too. It is a
+different one, and everything that differs is a quantity the privileged spec
+explicitly leaves to the platform:
+
+- **The address.** `mtime` and `mtimecmp` are memory-mapped, and the spec
+  does not say where. This platform puts four words at `0x0002_0000`
+  (`rtl/timer.v`, wired identically in `rtl/littlesoc.v` and
+  `test/testbench.v`); Sail puts a CLINT at its own base with its own
+  layout. A store that arms this timer lands nowhere on the model, so the
+  model never takes an interrupt and spins in the wait loop until its
+  instruction budget runs out. That is the `INCONCLUSIVE SAIL-LIMIT` below:
+  NOTHING WAS COMPARED, which is a weaker entry than a divergence and is
+  recorded as such.
+- **The tick period.** The spec requires only that `mtime` advance at a
+  CONSTANT frequency and that the platform publish the period; it names a
+  fixed-frequency system as the case where driving `mtime` from the cycle
+  counter is right, which is this board. So `mtime` here ticks once per
+  clock cycle. The model's ticks once per two instructions
+  (`instructions_per_tick: 2` in `test/sail/rv32imac_zicsr.json`). Both are
+  constant. Both are conformant. They are not the same clock.
+- **When MTIP follows the comparison.** "If the result of the comparison
+  between mtime and mtimecmp changes, it is guaranteed to be reflected in
+  MTIP eventually, but not necessarily immediately." The spec then warns
+  software that a spurious timer interrupt can follow an increment-and-return
+  for exactly this reason. Two implementations may reflect it at different
+  granularities and both be right.
+
+WHY A VALUE EXEMPTION IS THE WRONG TOOL HERE, having been considered first.
+`test/cosim.py`'s `NONCOMPARABLE_CSRS` is the right mechanism for a register
+whose VALUE is incomparable while both sides still take the same branches —
+that is what closed `mcycle`, and `mip` is already on that list. It cannot
+close this one, and the reason is structural rather than a matter of effort:
+with different tick periods the interrupt lands between a DIFFERENT PAIR OF
+INSTRUCTIONS on the two machines. What differs is the POSITION of the
+architectural change in the sequence, and the position is precisely what that
+mechanism keeps comparing. An exemption wide enough to cover it would be an
+exemption that compared nothing.
+
+SO THIS IS QUESTION 3, ANSWERED HONESTLY. The programs assert against
+implementation-defined platform quantities; the model is entitled to answer
+differently; the two runs take different paths. No configuration reaches it
+either: `platform.clint` has exactly `base`, `size` and `supported`, and
+nothing in the schema names `mtimecmp`, MTIP or the CLINT's internal layout.
+Reconciling the two would mean adopting the model's address map AND its tick
+period, i.e. choosing this platform's timer to make a reference model happy.
+That is a product decision, not a test fix, and it is not being made here.
+
+WHAT COVERS THEM MEANWHILE, since "co-sim is blind here" is only admissible
+with an answer: the interrupt's architectural effect is asserted by
+`formal/traps.sv` under k-induction (entry writes `mcause`, `mepc` and
+`mstatus`, and the interrupted instruction commits nothing), by
+`test/decoder_tb.v` at the decode boundary, by `test/csr_tb.v` on the three
+enable terms, and by `test/timer_tb.v` on the timer itself — including the
+level property and the torn write, each with a demonstrated red direction.
+What co-sim uniquely catches — an architectural register write no
+self-reporting oracle sees — is still checked on every program not named
+below, which is where the property it was built for lives.
+
+`lrsclock.S` IS THE SAME ENTRY FOR THE SAME REASON, and it is here rather than
+folded into the paragraph above because a reader looking it up should not have
+to decide whether "the two timer-interrupt programs" now means three. It runs
+an LR/SC critical section with this platform's machine timer armed underneath
+it, and its wait for the first interrupt is the wait described above: the
+model's CLINT is elsewhere with a different tick period, so the store that
+arms this timer lands nowhere on it and the wait never ends. NOTHING WAS
+COMPARED. What that costs is worth stating plainly, because it is the one
+property of the A extension that co-simulation would otherwise be the natural
+oracle for: whether a reservation survives a trap and an `mret`. It is checked
+instead by `test/sail/reservation_probe.sh`, which asks the model that
+question with no core involved, and in band by `lrsclock.S` itself.
+
+## `amoregion.S` was an entry here and is not one any more
+
+The way it was closed is worth more than the line was. It is written down
+because the entry said the model could not be configured to be this machine,
+and that was true of the machine at the time and stopped being true when the
+machine changed.
+
+It read `DISAGREE AT 18`, at an `sc.w` to `0x0004_0000` where the core wrote
+`rd=1` and the model wrote `rd=0`. What it recorded was that the model has
+exactly two settings for a region's reservability and this core was neither:
+
+- `RsrvEventual` — the `lr.w` takes a reservation and the `sc.w` SUCCEEDS
+- `RsrvNone` — the `lr.w` raises a LOAD ACCESS FAULT, cause 5
+
+The core answered the `lr.w` with zero, took no reservation and raised
+nothing — a third behaviour, and one no configuration of the model describes.
+That was a recorded deviation: the decode-time region test that raises causes
+5 and 7 was built for loads and stores, measured at four logic levels in the
+fetch loop and 10.57-11.00 MHz against a 12.00 MHz requirement, and declined.
+
+THE CORE RAISES BOTH CAUSES FOR AN ATOMIC NOW, so `RsrvNone` is what this
+platform is and the region map in `test/sail/rv32imac_zicsr.json` says so —
+the 64 KB data RAM is `RsrvEventual` and `AMOArithmetic`, everything around it
+`RsrvNone` and `AMONone`. The measurement that declined the general case did
+not transfer, because an atomic's effective address is `rs1` with no adder in
+front of it while a load's and a store's is the top of a 32-bit sum. So the
+answer to question 1 flipped, and the program AGREEs.
+
+WHAT AN ENTRY LIKE THIS COSTS WHILE IT IS OPEN, since that is the reason to
+record how it closed: co-simulation is the only value-checking oracle the A
+extension has — the pin ships no spec model for any of the eleven encodings,
+so `test/monitor.sim.v` grades pc continuity on an A retire and nothing else.
+A baselined program is one this oracle says nothing about at all.
+
+THAT HALF IS CLOSED NOW, AND SO IS THE OTHER ONE. A plain load or store to an
+address no memory answers raises cause 5 or 7 as well, so the model's map is
+the core's map: the 48 KB between the text window and the data RAM is no
+longer a region at all, and the peripheral region is one page rather than
+896 KB. `test/asm/loadfault.S` and `test/asm/storefault.S` AGREE, which is why
+neither is a line below.
+
+WHAT THE MODEL CANNOT BE CONFIGURED TO SAY is a refusal below bit 12: it
+rejects a region that does not end on a 4K page, so the 40 bytes the timer and
+the UART really occupy are a whole page there. Those two programs carry the
+boundary they can test and name where the rest of it is graded.
+
+## `uart.S`: the model has no device there at all
+
+The fourth entry, and the only one that is a divergence rather than a budget.
+`rtl/uart.v` puts a write-only data register and a status register whose bit 0
+is `busy` in eight bytes at `0x0002_0020`, inside the region
+`test/sail/rv32imac_zicsr.json` declares `MainMemory` from `0x0002_0000` up.
+So on the model the store lands in ordinary memory and the status word reads
+back what was last written to it, which is zero. `DISAGREE AT 7` is the first
+read of `busy` after a write: the core's `lw` changes a0 from 0 to 1 and the
+model's does not, so the model's next change is the `li x29, 1` behind it and
+the sequences part there. It was `DISAGREE AT 5` until the program installed a
+trap handler, whose `la t0` writes t0 twice ahead of everything else it does.
+
+THAT IS A STRONGER ENTRY THAN THE THREE ABOVE, AND WORTH SAYING. The six
+architectural changes before it were compared and agreed, and the point is
+pinned: a program that starts diverging anywhere else is diverging for a new
+reason and this gate goes red. The three timer entries compare NOTHING.
+
+THE THREE QUESTIONS, ANSWERED IN ORDER. (1) The model cannot be configured to
+be this machine: a region's attributes describe cacheability, executability,
+atomicity and reservability, and none of them turns a word of memory into a
+transmitter. There is no UART in the schema the way there is a CLINT. (2) It
+is not a value exemption either. `NONCOMPARABLE_CSRS` is keyed on a CSR
+encoding and this is a load from memory, and even if it reached, `busy`
+decides how many times the poll loop goes round — so the POSITION of every
+later change moves, and the position is what that mechanism keeps comparing.
+(3) So it is question 3: the program asserts against a device this platform
+defines and the model has not got, and the two runs take different paths from
+there.
+
+WHAT COVERS IT MEANWHILE. The wire is decoded in `test/uart_tb.v` — every
+sample of the line at the configured divisor, with two wrong divisors, a
+missing stop bit, an idle line and a truncated frame each forced red. The
+memory-mapped half is `uart.S`'s own in-band assertions, run against the whole
+core on both sim legs. What co-simulation uniquely catches — an architectural
+register write no self-reporting oracle sees — is unchecked past change 5 of
+this one program and checked on every other one, which is where the property
+it was built for lives.
+
+THIS ENTRY IS NOT A PRECEDENT FOR THE NEXT DEVICE. A platform register a
+program can read WITHOUT branching on it costs nothing here. What makes this
+one an entry is that the only interesting thing to assert about a transmitter
+is that a write makes it busy, and that assertion is a branch.
+
+## `spiflash.S`: the next device that did cost one
+
+For the same reason and by the same three questions. `rtl/spiflash.v` puts a
+data register and a write-only control register in the eight bytes above the
+UART's two, inside the same declared page, so on the model both are ordinary
+memory: a write to the data register stays there and `busy` is never set.
+`DISAGREE AT 9` is the first read of it after a write — the core's `lw` puts
+`0x100` in a0 and the model's puts back the `0x9f` it stored.
+
+TWO THINGS ABOUT THE PROGRAM ARE SHAPED BY THIS FILE AND SAY SO IN IT. The
+load at the divergence reads over a0 = -1, so it is a CHANGE on both sides and
+the traces differ in a value rather than in a length; left reading over zero
+the model recorded nothing and reported the divergence as the budget it later
+ran out of. And `busy` sits in the data register rather than in the one the
+program writes the chip select to, so the model's plain memory cannot hold the
+poll loop — with the poll on the control register the model spun on the 1 it
+had just stored and this line read `INCONCLUSIVE SAIL-LIMIT`, which compares
+nothing. A device layout is allowed to take an observation like that into
+account; what is not allowed is a program written to agree.
+
+WHAT COVERS IT MEANWHILE: `test/spiflash_tb.v` drives the controller against a
+model of the flash and grades the wire — eight clocks a byte, mode 0's
+sampling edge, the JEDEC id as three literals and a sequential read across a
+256-byte boundary — with four of its own failures forced. `spiflash.S`'s own
+in-band assertions run against the whole core on both sim legs.
+
+## `spioverlay.S`: the same reason, a different consequence
+
+It reads a flash-sourced word into the writable text window and runs it, so it
+is not just a value this program loads and asserts on — it is an INSTRUCTION
+the core fetches next. On the model, every byte `spioverlay.S`'s read loop
+clocks out as its dummy is `0x00`, and plain memory echoes exactly that back,
+so all four bytes patched into the slot come back zero: an illegal
+instruction, where the real controller would have delivered the four bytes
+`test/spioverlay.S`'s own header derives from `test/spiflash_model.v`'s
+formula. `DISAGREE AT 22` is the busy-bit read inside that corrupted word's
+own read loop, sixteen architectural changes after the store that produced
+it — both sides are still inside `spi_read_bytes` at the point named, not yet
+at the patched instruction itself, because `compare()` walks distinct
+register-file states and most of this program's own values do not move on a
+mismatched byte alone.
+
+WHY THIS ONE HAS A TRAP HANDLER WHERE `test/asm/selfmod.S` HAS NONE. Left
+untrapped, the corrupted word is `c.illegal 0x0` on the model, `mtvec` is
+still zero, and the fault restarts the whole program at `_start` — forever,
+since the same corruption recurs every pass. That reproduces as
+`INCONCLUSIVE SAIL-LIMIT` and compares nothing, the same as the three entries
+above. Installing the handler here is not a workaround for the co-simulation
+gate; it is what stops an actual authoring mistake in this program from
+looking identical to the divergence this file already expects, and it happens
+to turn an opaque budget exhaustion into the sharper `DISAGREE` this baseline
+records. With the handler, the model resumes past the fault holding test 2's
+un-overwritten value, test 3's own in-band check takes the branch that a
+genuinely broken loader would also take, and the HTIF verdict it reaches
+(`FAIL 3`) is the same shape `spiflash.S`'s own trap handler produces
+elsewhere in this suite for an unrelated reason.
+
+WHAT COVERS IT MEANWHILE: `test/spiflash_tb.v` is the same oracle
+`spiflash.S` leans on, for the same controller. What this program adds beyond
+`spiflash.S` — that the copied bytes are correct AT THIS ADDRESS and that
+running them does what `test/asm/selfmod.S`'s own local templates prove
+self-modifying code does at all — is checked entirely by the real core on
+both sim legs, never by the model, because the model was never going to see a
+real byte.
+
+## The failure direction is still live
+
+These are name-and-status pairs under set equality, so if a future change
+makes any of the five below AGREE, or makes one diverge some other way, this
+gate goes red and these paragraphs get re-read. That is how the `amoregion.S`
+entry above came out: the program AGREEd, the gate said so, and the line was
+removed with the reason rather than the reason being reconstructed later.

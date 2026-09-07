@@ -1,7 +1,7 @@
 # See LICENSE for license details.
 
-# The nine AMO functions, each against the word it must leave behind as well as the word
-# it must return.
+// The nine AMO functions, each against the word it must leave behind as well as the word
+// it must return.
 
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -9,7 +9,7 @@
 RVTEST_RV64U
 RVTEST_CODE_BEGIN
 
-  # The nine functions.
+  // The nine functions.
 
   TEST_AMO(  2, amoswap.w, 0x12345678, 0xdeadbeef, 0x12345678, 0xdeadbeef );
   TEST_AMO(  3, amoadd.w,  0x00000010, 0x00000022, 0x00000010, 0x00000032 );
@@ -28,7 +28,7 @@ RVTEST_CODE_BEGIN
   TEST_AMO( 14, amoadd.w.rl,   0x00000010, 0x00000022, 0x00000010, 0x00000032 );
   TEST_AMO( 15, amoadd.w.aqrl, 0x00000010, 0x00000022, 0x00000010, 0x00000032 );
 
-  # rd == rs2: the returned word overwrites the operand that was added to it.
+  // rd == rs2: the returned word overwrites the operand that was added to it.
   TEST_CASE( 16, x4, 0x00000010, \
     la  x1, amodat; \
     li  x2, 0x00000010; \

@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# The counter rules that nothing else can check.
+// The counter rules that nothing else can check.
 
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -18,7 +18,7 @@ RVTEST_CODE_BEGIN
     csrr a1, minstret; \
     sub  a2, a1, a0; )
 
-  # mcycle advances on its own.
+  // mcycle advances on its own.
 
   TEST_CASE( 3, a2, 1, \
     csrr a0, mcycle; \

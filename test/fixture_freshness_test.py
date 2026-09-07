@@ -41,11 +41,8 @@ import os
 import re
 import sys
 
-# Every remaining raw in-place edit in test/probe_gates.sh, normalized
-# (leading and trailing whitespace stripped). Empty on purpose: every call
-# site converted to `mutate`/`mutate_remove` in the same change that added
-# them. An entry here is a call site not yet converted -- state which one and
-# why it is still bare.
+# Every remaining raw in-place edit in test/probe_gates.sh, normalized (leading and
+# trailing whitespace stripped).
 RAW_EDIT_ALLOWLIST = []
 
 # Fixture functions (name containing "fixture") that type out an artifact's shape with a
@@ -66,24 +63,17 @@ FIXTURE_ANCHOR_ALLOWLIST = {
     "cd_fixture": "soc/compare/coremark_dmips.py's run.log shape",
 }
 
-# `{` need not be last on the line: a head that opens its body on the same
-# line is a definition too, and _find_function_end reads from the head itself,
-# so the rest of that line is already counted.
+# `{` need not be last on the line: a head that opens its body on the same line is a
+# definition too, and _find_function_end reads from the head itself, so the rest of that
+# line is already counted.
 FUNC_START_RE = re.compile(r'^([a-zA-Z0-9_]+)\(\)\s*\{')
-# ONE definition of "a heredoc opens here", read by both the masker below and
-# the anchor check: an earlier pair of regexes disagreed about the UNQUOTED
-# delimiter a fixture needs when its body interpolates a `$1`, so the anchor
-# check skipped `br_fixture` -- the fixture behind the only detector of a block
-# RAM read through its own reset -- while the masker saw it. The delimiter may
-# be bare, single-quoted or double-quoted; `\1` requires the closing mark, if
-# any, to match the opening one.
-# `(?<!<)`/`(?!<)` rule out a here-string (`<<<`), which is not a heredoc and
-# has no closing delimiter line to hunt for -- matching it here sent an
-# earlier version of this scan looking for a line that never comes and masked
-# the rest of the file. Group 1 is the `-` of `<<-`, which is the ONLY form
-# that strips the closing delimiter line's leading whitespace; a plain
-# `<<TOK` requires that line to have none, and stripping it anyway closes the
-# mask early on an indented line that merely equals TOK after stripping.
+# ONE definition of "a heredoc opens here", read by both the masker below and the anchor
+# check: an earlier pair of regexes disagreed about the UNQUOTED delimiter a fixture
+# needs when its body interpolates a `$1`, so the anchor check skipped `br_fixture` --
+# the fixture behind the only detector of a block RAM read through its own reset -- while
+# the masker saw it. Group 1 is the `-` of `<<-`, the only form that strips the closing
+# line's leading whitespace; a plain `<<TOK` requires that line to have none, and `\2`
+# requires the closing mark, if any, to match the opening quote.
 HEREDOC_START_RE = re.compile(
     r"(?<!<)<<(-)?(?!<)\s*([\"'])?([A-Za-z_][A-Za-z_0-9]*)\2?"
 )
@@ -116,7 +106,6 @@ def heredoc_mask(lines):
         else:
             i += 1
     return mask
-
 
 def _live_chars(lines, mask):
     """Yields (lineno, char) for every character of real, unquoted,
@@ -193,7 +182,6 @@ def _live_chars(lines, mask):
             yield (lineno, '\n')
             at_word_start = True
 
-
 def _find_function_end(lines, mask, start, name):
     """Real brace depth from `start`'s opening `{`, over the live-code
     stream, so a nested `helper() { ...; }` or a bare `{ ...; }` grouping
@@ -212,7 +200,6 @@ def _find_function_end(lines, mask, start, name):
         f"error: test/probe_gates.sh:{start + 1} {name}() never closes its "
         f"opening brace."
     )
-
 
 def function_bodies(lines, mask):
     """name -> list of (start, end), 0-based, end inclusive, for every
@@ -237,17 +224,10 @@ def function_bodies(lines, mask):
             i += 1
     return bodies
 
-
-# Each tool's flag shape, checked against every token on the same statement
-# after the tool's own word (i.e. up to the next real newline in the
-# live-code stream). sed and perl both accept a suffix glued directly onto
-# the flag (`-i.bak`), so `\S*` rather than `\b` closes those patterns; perl
-# also combines `-i` with other single-letter flags in one token (`-pi`,
-# `-npi`), restricted to the ones it actually combines with to avoid an
-# unrelated flag that merely contains the letter i (`-Iinc`).
+# Each tool's flag shape, checked against every token on the same statement after the
+# tool's own word (i.e. up to the next real newline in the live-code stream).
 _SED_FLAG_RE = re.compile(r'^(-i\S*|--in-place\S*)$')
 _PERL_FLAG_RE = re.compile(r'^-[pn]*i(\.\S+)?$')
-
 
 def _raw_edit_hits(lines, mask, exclude_ranges):
     """(lineno, call-text) for every raw in-place edit -- `sed -i`,
@@ -284,7 +264,6 @@ def _raw_edit_hits(lines, mask, exclude_ranges):
             hits.append((lineno, lines[lineno].strip()))
     return hits
 
-
 def check_raw_edits(lines, mask, exclude_ranges):
     rc = 0
     allowed = set(RAW_EDIT_ALLOWLIST)
@@ -312,7 +291,6 @@ def check_raw_edits(lines, mask, exclude_ranges):
                 file=sys.stderr,
             )
     return rc
-
 
 def check_fixture_anchors(lines, mask, bodies):
     rc = 0

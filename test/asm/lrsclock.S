@@ -1,12 +1,12 @@
 # See LICENSE for license details.
 
-# An LR/SC critical section with the machine timer running underneath it.
+// An LR/SC critical section with the machine timer running underneath it.
 
 #include "riscv_test.h"
 #include "test_macros.h"
 
-# How many acquisitions part 2 may make before giving up on the second interrupt, and how
-# many times one acquisition may retry its sc.w.
+// How many acquisitions part 2 may make before giving up on the second interrupt, and how
+// many times one acquisition may retry its sc.w.
 #define ACQUIRE_LIMIT 200
 #define RETRY_LIMIT   64
 
@@ -14,7 +14,7 @@ RVTEST_RV64U
 RVTEST_CODE_BEGIN
 
   RVTEST_INSTALL_TIMER_HANDLER
-  # mtimecmp resets to zero, so mtip is asserted before the enables go on.
+  // mtimecmp resets to zero, so mtip is asserted before the enables go on.
   RVTEST_DISARM_TIMER
   RVTEST_ENABLE_MTIE
   RVTEST_ENABLE_MIE

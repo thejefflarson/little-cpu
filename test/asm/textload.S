@@ -1,29 +1,15 @@
 #include "riscv_test.h"
 #include "test_macros.h"
 
-// The handler reads the faulting instruction out of .text, works out whether
-// it was two bytes or four, and resumes past it.
-//
-// That is why none of the trapping instructions below is wrapped in
-// `.option norvc`. riscv_test.h's shared handler resumes at mepc+4 and has no
-// way to tell the two lengths apart, so every other trapping test in this
-// suite has to keep the assembler from compressing the instruction that
-// faults. Text and data share one address space here, so a load can reach the
-// encoding and the wrapper is not needed.
-//
-// mepc can sit two bytes past a word boundary, so the handler word-aligns it
-// before the load and takes the upper halfword when bit 1 is set. A word load
-// at an odd halfword would fault inside the handler.
-//
-// The handler clobbers t0, t1 and t2, so nothing here holds a live value in
-// any of them across a fault.
+// The handler reads the faulting instruction out of .text, works out whether it was two
+// bytes or four, and resumes past it.
 
 RVTEST_CODE_BEGIN
 
-  # mtvec resets to 0, which is _start -- install before faulting.
+  // mtvec resets to 0, which is _start -- install before faulting.
   RVTEST_INSTALL_TRAP_HANDLER
 
-  # A compressed breakpoint at pc % 4 == 0.
+  // A compressed breakpoint at pc % 4 == 0.
 
   li    a0, 0
 
@@ -44,9 +30,6 @@ test_4:
   la    x29, cebrk_aligned
   li    TESTNUM, 4
   bne   a4, x29, fail
-
-  # The same at pc % 4 == 2, which is the halfword the handler has to shift down before
-  # it looks at the low two bits.
 
   li    a1, 0
 
@@ -70,7 +53,7 @@ test_8:
   li    TESTNUM, 8
   bne   a4, x29, fail
 
-  # A four-byte fault, so the other arm of the length decision runs.
+  // A four-byte fault, so the other arm of the length decision runs.
 
   li    a2, 0
   ecall
@@ -106,7 +89,6 @@ test_14:
 
   TEST_PASSFAIL
 
-  # Reached only through mtvec.
   .align 2
 trap_handler:
   .option push

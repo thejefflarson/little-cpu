@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# `c.ebreak` raises a BREAKPOINT (mcause 3), not an illegal instruction.
+// `c.ebreak` raises a BREAKPOINT (mcause 3), not an illegal instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -8,10 +8,10 @@
 RVTEST_RV64U
 RVTEST_CODE_BEGIN
 
-  # mtvec resets to 0, which is _start — install before faulting.
+  // mtvec resets to 0, which is _start — install before faulting.
   RVTEST_INSTALL_TRAP_HANDLER
 
-  # c.ebreak at pc % 4 == 0.
+  // c.ebreak at pc % 4 == 0.
 
   .option push
   .option rvc

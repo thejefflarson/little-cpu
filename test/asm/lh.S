@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# Test lh instruction.
+// Test lh instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -8,7 +8,7 @@
 RVTEST_RV64U
 RVTEST_CODE_BEGIN
 
-  # Basic tests
+  // Basic tests
 
   TEST_LD_OP( 2, lh, 0x00000000000000ff, 0,  tdat );
   TEST_LD_OP( 3, lh, 0xffffffffffffff00, 2,  tdat );

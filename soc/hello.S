@@ -18,7 +18,7 @@ main_loop:
   addi  s1, s1, 1
   j     1b
 2:
-  # A long pause so the line is readable and the LEDs are visible.
+  // A long pause so the line is readable and the LEDs are visible.
   li    t0, 1500000
 3:
   addi  t0, t0, -1

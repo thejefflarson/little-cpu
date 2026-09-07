@@ -1,0 +1,111 @@
+# `formal/EXPECTED_FAIL`
+
+The riscv-formal check set's regression baseline: `formal/check-baseline.sh`
+exits 0 only when the set of `formal/checks/*` whose status is not PASS matches
+this file EXACTLY — in both directions. A check that starts failing is caught;
+a check that starts *passing* is also caught, because this is a set equality,
+not a ceiling.
+
+Edit by hand; never regenerate from a run — that launders a regression into the
+baseline. Removing a line is a claim the same commit backs up. Adding one back
+is a regression and needs a stated justification in the PR that adds it.
+
+## Format
+
+Two fields, not one, the same two `test/EXPECTED_FAIL` carries:
+
+```
+<check>  <STATUS>
+```
+
+The status is the FIRST WORD of `formal/checks/<check>/status` — sby's verdict,
+without the engine and depth numbers it prints after it (`PASS 0 31`,
+`ERROR 16 2`). Whitespace between the fields is free, so entries can be column-
+aligned. A line with only a name is REJECTED with an error naming the format,
+not half-matched: silently accepting the old spelling would make every legacy
+entry unmatchable in a way that reads exactly like a regression.
+
+THE VOCABULARY IS ENUMERATED, IN BOTH DIRECTIONS, and the two lists differ:
+
+- sby can write `PASS`, `FAIL`, `ERROR`, `UNKNOWN`, `TIMEOUT` (plus
+  `check-baseline.sh`'s own `NO-STATUS`, for a check with no status file at all
+  — never generated, never scheduled, or still running)
+- MAY BE BASELINED: `FAIL`, `TIMEOUT`, `UNKNOWN`
+
+Anything else on a line is rejected loudly rather than matched:
+
+- `PASS` cannot appear in a failure set at all, so a line carrying it could
+  never match anything — a comparison with no reachable success branch, which
+  is this repo's recurring defect and not a thing to add on purpose.
+- `ERROR` is sby failing to RUN or to render a trace, not the core failing a
+  property, and is never a legitimate baselined value.
+- `NO-STATUS` is a broken or incomplete harness for the same reason.
+
+`TIMEOUT` and `UNKNOWN` are legitimate: they are budget exhaustion, a recorded
+verdict about a check that did not converge, and a change from one to the
+other is a change worth reporting — which is only possible if both spellings
+exist.
+
+## Why the status is here at all
+
+Matching on the name alone made this gate blind to *why* a check was red, and
+the consequence was measured rather than argued: a run on a machine without
+`btorsim` printed "82 checks: 72 pass, 10 fail / Failure list matches
+EXPECTED_FAIL exactly" and exited 0, with all ten of those checks at
+`ERROR 16 2`. `btormc` had found the counterexamples correctly; `sby` could not
+render the traces, because that step shells out to `btorsim`. A real
+counterexample and a missing trace renderer were the same result to this file.
+The inverse is the case that matters: if `btorsim` left CI's OSS CAD Suite,
+every red check would flip FAIL → ERROR, the set equality would still match,
+and the gate would stay green having stopped distinguishing a proof failure
+from a tooling failure.
+
+CHANGING A LINE'S STATUS IS THE SAME KIND OF CLAIM AS REMOVING THE LINE, and
+needs the same justification in the PR that does it. That is the whole point
+of the second field.
+
+## What this file does not answer
+
+It reports whether a check's verdict moved. It cannot report whether a check
+stopped existing — a check with no `formal/checks.cfg` `[depth]` line is never
+generated, so it is absent from the results AND absent from here at once, and
+set equality on this file alone would call that a clean match on a smaller
+check set. Its sibling `formal/EXPECTED_CHECKS` asserts which checks exist;
+`check-baseline.sh` enforces both, and a name in `EXPECTED_CHECKS` with no
+status file counts as non-PASS here.
+
+## What an empty file does and does not mean
+
+Emptiness is a NECESSARY, not sufficient, M2 signal — an empty baseline is
+reachable without the milestone. Read it beside:
+
+- `formal/EXPECTED_CHECKS`, which is what asserts the set did not merely
+  shrink
+- the paragraphs below, which state what a green run does not cover
+
+Every check here is `mode bmc` (`checks.cfg`'s `solver btormc`, which
+genchecks turns into `btor btormc`). A PASS means "no counterexample found
+within the check's configured depth" — a bounded result, not an unbounded
+proof, whichever engine found it. Switching engines changes how fast a check
+converges, not what a PASS means.
+
+Everything runs under `RISCV_FORMAL_ALTOPS`, so a green `insn_mul`/`insn_div`/
+`insn_rem` says nothing whatever about the real multiplier or divider.
+
+That RVFI instrumentation does not perturb the core is established by
+`make -C formal nonperturbation`, not by any check listed here. It is
+structural — the instrumentation is unread — and strictly weaker than
+sequential equivalence.
+
+`[csrs]` in `checks.cfg` is `mcycle`, `minstret` AND `mscratch`, NOT THE CSR
+SET THE CORE IMPLEMENTS, and the reason is recorded next to that list:
+`rvfi_csrw_check.sv` has no WARL model, so a correctly WARL-masked
+`mtvec`/`mepc`/`mcause`/`mstatus` on that list would FAIL on a CORRECT core.
+Those are checked in `test/csr_tb.v` instead. riscv-formal also ships no spec
+model at all for `ecall`/`ebreak`/`mret`/`csrr*` at the pin, so those
+instructions' semantics are checked by `test/asm/trap.S`, `test/asm/csr.S`,
+`test/csr_tb.v`, `test/decoder_tb.v` and the decoder and traps proofs —
+assertions this repo wrote, not an oracle.
+
+The history of what was baselined here and when lives in git and in
+`docs/adr/`; it is not repeated here, which describes the contract in force.

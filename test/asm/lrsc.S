@@ -10,7 +10,7 @@
 RVTEST_RV64U
 RVTEST_CODE_BEGIN
 
-  # A store-conditional with no reservation behind it.
+  // A store-conditional with no reservation behind it.
 
   TEST_CASE(  2, a2, 1, \
     la  a0, ldat; \
@@ -19,15 +19,15 @@ RVTEST_CODE_BEGIN
   )
   TEST_CASE(  3, a4, 0x0ff00ff0, la a0, ldat; lw a4, 0(a0); )
 
-  # lr.w reads the word, and the sc.w behind it stores rs2.
+  // lr.w reads the word, and the sc.w behind it stores rs2.
 
   TEST_CASE(  4, a1, 0x0ff00ff0, la a0, ldat; lr.w a1, (a0); )
 
   TEST_CASE(  5, a2, 0, li a5, 0x12345678; sc.w a2, a5, (a0); )
   TEST_CASE(  6, a4, 0x12345678, la a0, ldat; lw a4, 0(a0); )
 
-  # The store-conditional consumed the reservation, so the next one fails with no other
-  # event in between.
+  // The store-conditional consumed the reservation, so the next one fails with no other
+  // event in between.
   TEST_CASE(  7, a2, 1, li a5, 0xbad0bad0; sc.w a2, a5, (a0); )
   TEST_CASE(  8, a4, 0x12345678, la a0, ldat; lw a4, 0(a0); )
 

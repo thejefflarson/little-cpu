@@ -1,15 +1,6 @@
 #!/bin/sh
-# CoreMark's trademark terms permit the name only for an unmodified copy, so every
-# route that compiles the vendored sources checks them against PINNED.sha256 first.
-# ONE implementation for every route that reaches hardware: `make coremark-rom-ecp5`
-# and `make coremark-rom-up5k` both run this, so the route that flashes a board
-# cannot be the one whose check was forgotten.
-#
-# Membership before hashes: `shasum -c` cannot see a file the manifest never named,
-# so an unlisted `core_portme.h` beside the vendored ones would shadow the port's own
-# header and pass a hash check that never looked at it.
-#
-# Usage: coremark_pin_check.sh <vendor-dir>
+# CoreMark's trademark terms permit the name only for an unmodified copy, so every route
+# that compiles the vendored sources checks them against PINNED.sha256 first.
 set -e
 
 VENDOR_DIR=${1:?usage: coremark_pin_check.sh <vendor-dir>}

@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# Test srl instruction.
+// Test srl instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -8,7 +8,7 @@
 RVTEST_RV64U
 RVTEST_CODE_BEGIN
 
-  # Arithmetic tests
+  // Arithmetic tests
 
 #define TEST_SRL(n, v, a) \
   TEST_RR_OP(n, srl, ((v) & ((1 << (__riscv_xlen-1) << 1) - 1)) >> (a), v, a)
