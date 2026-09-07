@@ -64,8 +64,8 @@ module dhry_tb;
   );
   dhry_monitor mon_haz (
     .clk(clk), .cycle(cycle),
-    .mem_addr(dut_haz.mem_addr_mux), .mem_wdata(dut_haz.hwdata),
-    .mem_wstrb(dut_haz.mem_wstrb_mux),
+    .mem_addr(dut_haz.dmem_addr_mux), .mem_wdata(dut_haz.d_hwdata),
+    .mem_wstrb(dut_haz.dmem_wstrb_mux),
     .marks(haz_marks), .begin_cycle(haz_begin), .end_cycle(haz_end),
     .writes(haz_writes), .verdict(haz_verdict)
   );
@@ -88,7 +88,7 @@ module dhry_tb;
     if (haz_marks == 1 && dut_haz.wr_pending_q) haz_wait_cycles <= haz_wait_cycles + 1;
   end
 
-  // Every fact this prints is raw, so a reader can recompute every ratio.
+  // Every fact this prints is raw.
   task automatic report(input string core, input int unsigned marks,
                         input int unsigned begin_cycle, input int unsigned end_cycle,
                         input int unsigned verdict, input int unsigned writes);

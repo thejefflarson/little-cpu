@@ -65,8 +65,8 @@ module coremark_tb;
   );
   dhry_monitor mon_haz (
     .clk(clk), .cycle(cycle),
-    .mem_addr(dut_haz.mem_addr_mux), .mem_wdata(dut_haz.hwdata),
-    .mem_wstrb(dut_haz.mem_wstrb_mux),
+    .mem_addr(dut_haz.dmem_addr_mux), .mem_wdata(dut_haz.d_hwdata),
+    .mem_wstrb(dut_haz.dmem_wstrb_mux),
     .marks(haz_marks), .begin_cycle(haz_begin), .end_cycle(haz_end),
     .writes(haz_writes), .verdict(haz_verdict)
   );

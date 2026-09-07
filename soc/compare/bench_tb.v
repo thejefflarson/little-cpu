@@ -38,9 +38,9 @@ module bench_tb;
       vex_seen[vex_n] <= dut_vex.dbus_cmd_data;
       vex_n           <= vex_n + 1;
     end
-    if (dut_haz.mem_wstrb_mux == 4'b1111 && dut_haz.mem_addr_mux == PUBLISH
+    if (dut_haz.dmem_wstrb_mux == 4'b1111 && dut_haz.dmem_addr_mux == PUBLISH
         && haz_n < 64) begin
-      haz_seen[haz_n] <= dut_haz.hwdata;
+      haz_seen[haz_n] <= dut_haz.d_hwdata;
       haz_n           <= haz_n + 1;
     end
   end

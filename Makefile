@@ -1172,7 +1172,7 @@ endif
 COMPARE_MIN_RATIO := 0.8
 
 HAZARD3_HDL  := $(HAZARD3_DIR)/hdl
-HAZARD3_SRCS := $(HAZARD3_HDL)/hazard3_core.v $(HAZARD3_HDL)/hazard3_cpu_1port.v \
+HAZARD3_SRCS := $(HAZARD3_HDL)/hazard3_core.v $(HAZARD3_HDL)/hazard3_cpu_2port.v \
                 $(HAZARD3_HDL)/arith/hazard3_alu.v \
                 $(HAZARD3_HDL)/arith/hazard3_branchcmp.v \
                 $(HAZARD3_HDL)/arith/hazard3_mul_fast.v \
@@ -1206,8 +1206,8 @@ COMPARE_TOP  := bench_hazard3
 COMPARE_SRCS := $(HAZARD3_SRCS) rtl/memory.v soc/compare/bench_hazard3.v
 COMPARE_READ := read_verilog -sv -I $(HAZARD3_HDL) $(COMPARE_SRCS)
 COMPARE_CORE_READ := read_verilog -sv -I $(HAZARD3_HDL) $(HAZARD3_SRCS); \
-                     hierarchy -top hazard3_cpu_1port
-COMPARE_CORE_TOP  := hazard3_cpu_1port
+                     hierarchy -top hazard3_cpu_2port
+COMPARE_CORE_TOP  := hazard3_cpu_2port
 COMPARE_DEPS      := $(COMPARE_SRCS) | $(HAZARD3_DIR)
 COMPARE_CORE_DEPS := $(HAZARD3_SRCS) | $(HAZARD3_DIR)
 else

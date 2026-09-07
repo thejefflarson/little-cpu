@@ -13,7 +13,6 @@ module bench_hazard3 #(
   output logic led1_n
 );
   localparam int ROM_BITS = $clog2(ROM_WORDS);
-  localparam bit [31:0] ROM_BYTES = ROM_WORDS * 4;
 
   logic [3:0] por_count = 4'b0;
   logic       por_done  = 1'b0;
@@ -26,18 +25,26 @@ module bench_hazard3 #(
     rst_n <= por_done;
   end
 
-  logic [31:0] haddr, hwdata, hrdata;
-  logic        hwrite;
-  logic [1:0]  htrans;
-  logic [2:0]  hsize, hburst;
-  logic [3:0]  hprot;
-  logic        hmastlock, hexcl;
-  logic [7:0]  hmaster;
-  logic        hready;
+  logic [31:0] i_haddr, i_hwdata, i_hrdata;
+  logic        i_hwrite;
+  logic [1:0]  i_htrans;
+  logic [2:0]  i_hsize, i_hburst;
+  logic [3:0]  i_hprot;
+  logic        i_hmastlock;
+  logic [7:0]  i_hmaster;
+
+  logic [31:0] d_haddr, d_hwdata, d_hrdata;
+  logic        d_hwrite;
+  logic [1:0]  d_htrans;
+  logic [2:0]  d_hsize, d_hburst;
+  logic [3:0]  d_hprot;
+  logic        d_hmastlock, d_hexcl;
+  logic [7:0]  d_hmaster;
+  logic        d_hready;
 
   logic pwrup_req, unblock_out;
 
-  hazard3_cpu_1port #(
+  hazard3_cpu_2port #(
     .RESET_VECTOR         (32'h0000_0000),
     .MTVEC_INIT           (32'h0000_0000),
     .CSR_M_MANDATORY      (1),
@@ -78,20 +85,33 @@ module bench_hazard3 #(
     .unblock_out (unblock_out),
     .unblock_in  (unblock_out),
 
-    .haddr     (haddr),
-    .hwrite    (hwrite),
-    .htrans    (htrans),
-    .hsize     (hsize),
-    .hburst    (hburst),
-    .hprot     (hprot),
-    .hmastlock (hmastlock),
-    .hmaster   (hmaster),
-    .hexcl     (hexcl),
-    .hready    (hready),
-    .hresp     (1'b0),
-    .hexokay   (1'b1),
-    .hwdata    (hwdata),
-    .hrdata    (hrdata),
+    .i_haddr     (i_haddr),
+    .i_hwrite    (i_hwrite),
+    .i_htrans    (i_htrans),
+    .i_hsize     (i_hsize),
+    .i_hburst    (i_hburst),
+    .i_hprot     (i_hprot),
+    .i_hmastlock (i_hmastlock),
+    .i_hmaster   (i_hmaster),
+    .i_hready    (1'b1),
+    .i_hresp     (1'b0),
+    .i_hwdata    (i_hwdata),
+    .i_hrdata    (i_hrdata),
+
+    .d_haddr     (d_haddr),
+    .d_hwrite    (d_hwrite),
+    .d_htrans    (d_htrans),
+    .d_hsize     (d_hsize),
+    .d_hburst    (d_hburst),
+    .d_hprot     (d_hprot),
+    .d_hmastlock (d_hmastlock),
+    .d_hmaster   (d_hmaster),
+    .d_hexcl     (d_hexcl),
+    .d_hready    (d_hready),
+    .d_hresp     (1'b0),
+    .d_hexokay   (1'b1),
+    .d_hwdata    (d_hwdata),
+    .d_hrdata    (d_hrdata),
 
     .fence_i_vld (),
     .fence_d_vld (),
@@ -128,68 +148,62 @@ module bench_hazard3 #(
     .timer_irq(1'b0)
   );
 
-  // hwdata is NOT valid in a write's address phase -- AHB5 presents it one cycle later,
-  // in the data phase, overlapping the NEXT transfer's own address phase.
-  logic        wr_pending_q;
-  logic [31:0] wr_addr_q;
-  logic [3:0]  wr_strb_q;
-  assign hready = !wr_pending_q;
-
-  logic [3:0] size_mask;
-  // A continuous assign, not a `case` in an `always_comb`: iverilog will not fully
-  // evaluate a constant part-select (`hsize[1:0]`) used as a case expression inside a
-  // process, and this repo allowlists that "sorry" only for rtl/writeback.v's struct
-  // reads.
-  assign size_mask = hsize[1:0] == 2'b00 ? 4'b0001 :
-                      hsize[1:0] == 2'b01 ? 4'b0011 : 4'b1111;
-  logic want_write;
-  assign want_write = htrans[1] && hwrite;
-
-  always_ff @(posedge clk) begin
-    if (!rst_n) begin
-      wr_pending_q <= 1'b0;
-    end else if (hready) begin
-      wr_pending_q <= want_write;
-      wr_addr_q    <= haddr;
-      wr_strb_q    <= want_write ? (size_mask << haddr[1:0]) : 4'b0000;
-    end else begin
-      wr_pending_q <= 1'b0;
-    end
-  end
-
-  logic [31:0] mem_addr_mux;
-  logic [3:0]  mem_wstrb_mux;
-  assign mem_addr_mux  = wr_pending_q ? wr_addr_q : haddr;
-  assign mem_wstrb_mux = wr_pending_q ? wr_strb_q : 4'b0000;
-
-  logic is_rom_next, is_rom_q;
-  assign is_rom_next = mem_addr_mux < ROM_BYTES;
-  always_ff @(posedge clk) is_rom_q <= is_rom_next;
-
+  // I-port: fetch only, always ROM, answered exactly one cycle later -- `i_hready` above
+  // is a tied constant, so this array never has to be asked to wait.
   logic [ROM_BITS-1:0] rom_index;
   logic [31:0]         rom_rdata;
-  assign rom_index = mem_addr_mux[ROM_BITS+1:2];
+  assign rom_index = i_haddr[ROM_BITS+1:2];
 
   logic [31:0] rom[0:ROM_WORDS-1];
   generate if (INIT_ROM != "") begin : l_rom_init
     initial $readmemh(INIT_ROM, rom);
   end endgenerate
 
+  // Unconditional every cycle, the same shape soc/compare/bench_vexriscv.v uses for its
+  // own ROM: block RAM has no write port to conflict with here, so there is no no-change
+  // rule to observe the way rtl/memory.v has one.
   always_ff @(posedge clk) rom_rdata <= rom[rom_index];
+  assign i_hrdata = rom_rdata;
 
-  logic [31:0] ram_rdata;
+  // D-port: every load and store, against rtl/memory.v.
+  logic        wr_pending_q;
+  logic [31:0] wr_addr_q;
+  logic [3:0]  wr_strb_q;
+  assign d_hready = !wr_pending_q;
+
+  logic [3:0] size_mask;
+  assign size_mask = d_hsize[1:0] == 2'b00 ? 4'b0001 :
+                      d_hsize[1:0] == 2'b01 ? 4'b0011 : 4'b1111;
+  logic want_write;
+  assign want_write = d_htrans[1] && d_hwrite;
+
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      wr_pending_q <= 1'b0;
+    end else if (d_hready) begin
+      wr_pending_q <= want_write;
+      wr_addr_q    <= d_haddr;
+      wr_strb_q    <= want_write ? (size_mask << d_haddr[1:0]) : 4'b0000;
+    end else begin
+      wr_pending_q <= 1'b0;
+    end
+  end
+
+  logic [31:0] dmem_addr_mux;
+  logic [3:0]  dmem_wstrb_mux;
+  assign dmem_addr_mux  = wr_pending_q ? wr_addr_q : d_haddr;
+  assign dmem_wstrb_mux = wr_pending_q ? wr_strb_q : 4'b0000;
+
   memory #(.RAM_WORDS(RAM_WORDS)) dmem (
     .clk(clk),
-    .mem_addr(mem_addr_mux),
-    .mem_wdata(hwdata),
-    .mem_wstrb(mem_wstrb_mux),
-    .mem_rdata(ram_rdata)
+    .mem_addr(dmem_addr_mux),
+    .mem_wdata(d_hwdata),
+    .mem_wstrb(dmem_wstrb_mux),
+    .mem_rdata(d_hrdata)
   );
 
-  assign hrdata = is_rom_q ? rom_rdata : ram_rdata;
-
   logic ram_read_q;
-  always_ff @(posedge clk) ram_read_q <= !is_rom_next && !wr_pending_q;
+  always_ff @(posedge clk) ram_read_q <= d_htrans[1] && !d_hwrite && d_hready;
 
   logic store_bit, load_bit;
   always_ff @(posedge clk) begin
@@ -197,8 +211,8 @@ module bench_hazard3 #(
       store_bit <= 1'b0;
       load_bit  <= 1'b0;
     end else begin
-      if (wr_pending_q) store_bit <= hwdata[0];
-      if (ram_read_q)  load_bit  <= hrdata[0];
+      if (wr_pending_q) store_bit <= d_hwdata[0];
+      if (ram_read_q)  load_bit  <= d_hrdata[0];
     end
   end
   assign led0_n = !store_bit;
