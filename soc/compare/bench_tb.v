@@ -15,12 +15,11 @@
 // retire at different rates, so what is compared is the sequence, not the
 // timing.
 //
-// soc/compare/bench_hazard3.v has no separate data bus to watch -- one AHB5
-// port carries fetch and load/store both, and a write's data trails its
-// address by a cycle on that bus -- so its publications are read off the
-// same captured signals the harness itself performs the write against:
-// `mem_wstrb_mux == 4'b1111` at `mem_addr_mux`, with `hwdata` (now valid)
-// as the value, rather than off `haddr`/`hwdata` on their own cycle.
+// soc/compare/bench_hazard3.v's D-port write data trails its own address by
+// a cycle on AHB5, so its publications are read off the same captured
+// signals the harness itself performs the write against: `dmem_wstrb_mux ==
+// 4'b1111` at `dmem_addr_mux`, with `d_hwdata` (now valid) as the value,
+// rather than off `d_haddr`/`d_hwdata` on their own cycle.
 module bench_tb;
   localparam int      CYCLES  = 120000;
   localparam int      WANT    = 6;
@@ -57,9 +56,9 @@ module bench_tb;
       vex_seen[vex_n] <= dut_vex.dbus_cmd_data;
       vex_n           <= vex_n + 1;
     end
-    if (dut_haz.mem_wstrb_mux == 4'b1111 && dut_haz.mem_addr_mux == PUBLISH
+    if (dut_haz.dmem_wstrb_mux == 4'b1111 && dut_haz.dmem_addr_mux == PUBLISH
         && haz_n < 64) begin
-      haz_seen[haz_n] <= dut_haz.hwdata;
+      haz_seen[haz_n] <= dut_haz.d_hwdata;
       haz_n           <= haz_n + 1;
     end
   end

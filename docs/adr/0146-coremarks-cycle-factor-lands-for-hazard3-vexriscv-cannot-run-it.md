@@ -407,3 +407,105 @@ it, the way the ticket that first asked for a CoreMark comparison wanted.
 own block-RAM census lines; `soc/compare/coremark_dmips.py` is generalised from a fixed two-core
 grader to the same N-core, first-is-reference shape `soc/compare/dhry_dmips.py` already had, so a
 future fourth core is a wiring change there too rather than a rewrite.
+
+## Route 4, 2026-09-06: `hazard3_cpu_2port` removes the shared-port cause
+
+Route 3 (declined above) treated the symptom: it tried to make the single-AHB-port adapter's
+`hready` selective without costing the clock, and every spelling failed that trade. The cause it
+traced but did not fix is upstream of the adapter entirely — **this harness gave Hazard3 one shared
+AHB5 port while its two neighbours each have two.** `bench_littlecpu.v` has a dedicated
+`imemory`/`memory` pair; `bench_vexriscv.v` has separate `iBus`/`dBus`. `soc/compare/bench_hazard3.v`
+instantiated `hazard3_cpu_1port` — the one Hazard3 top this harness had ever built — which arbitrates
+fetch and load/store onto ONE port, and it was that arbitration, not AHB5's write-data-lag, that put
+a real cost on every fetch that happened to follow a store. Hazard3 ships a two-port top,
+`hazard3_cpu_2port`, with separate `i_*`/`d_*` AHB5 ports; this harness had never used it. ADR-0139,
+which chose the one-port top, said it "drops into the same one-memory-map shape `bench_littlecpu.v`
+and `bench_vexriscv.v` already share" — true of the address MAP, false of the PORT count, and that
+conflation is what this route corrects (ADR-0139 carries a short pointer amendment saying so).
+
+**The fix**: `soc/compare/bench_hazard3.v` now instantiates `hazard3_cpu_2port`. The I-port fetches
+only, from its own `rom` array, with `i_hready` tied high — no wait state is ever needed, matching
+`bench_littlecpu.v`'s own dedicated imem port. The D-port carries every load and store against
+`rtl/memory.v`, with the pre-existing write-buffer mechanism (`wr_pending_q`, unchanged in shape)
+still holding `d_hready` low for one cycle after a write's own data phase, but now with **no
+dependence on `d_haddr` at all** — nothing on the D-port is ever a fetch, so the buffer never has to
+ask what the next transaction IS, only whether there is one. `hready` is therefore the same bare
+flip-flop output it was on the declined-route-3 adapter, and route 3's timing problem does not
+recur because nothing about either port's own `hready` reads the other port's address.
+
+**The D-port has no path to ROM**, the choice `soc/compare/bench_vexriscv.v` already makes and
+CLAUDE.md already states as this harness's standing rule for that core. This harness pokes every
+program's initialised data and read-only data straight into simulated RAM before the run rather than
+having the program copy it out of ROM at boot — `soc/compare/dhry_start.S` and
+`soc/compare/coremark_start.S` are `test/crt0.S` with that copy removed, for exactly the reason their
+own header comments already give for VexRiscv. Checked before building anything: no program this
+harness runs issues a single load from a ROM address, so the D-port needs no second ROM array and no
+read-side ROM decode. (A design that DID need one would duplicate the array the way
+`bench_littlecpu.v`'s own `rom_even`/`rom_odd` split already does for its two-word fetch — the same
+answer to "two block RAM reads in one cycle," reached only if a future program needs it.)
+
+**Re-measured against this ADR's own RV32IM, three-DUT tree (the "VexRiscv joins" amendment above),
+one toolchain, one session — "before" is the declined route-3-adapter's own baseline on that same
+tree, `hazard3_cpu_1port` unmodified:**
+
+```
+DHRY  core=littlecpu marks=2 cycles=290825 verdict=1 writes=31474
+DHRY  core=vexriscv  marks=2 cycles=254026 verdict=1 writes=31474
+DHRY  core=hazard3   marks=2 cycles=252825 verdict=1 writes=31474
+DHRY  core=hazard3 wait_cycles=28805
+DHRY  ramdiff core=vexriscv diff=0 of=4096 words
+DHRY  ramdiff core=hazard3  diff=0 of=4096 words
+COREMARK core=littlecpu marks=2 cycles=433240 verdict=1 writes=15701
+COREMARK core=vexriscv  marks=2 cycles=427008 verdict=1 writes=15701
+COREMARK core=hazard3   marks=2 cycles=665416 verdict=1 writes=15701
+COREMARK core=hazard3 wait_cycles=14176
+COREMARK ramdiff core=vexriscv diff=0 of=4096 words
+COREMARK ramdiff core=hazard3  diff=0 of=4096 words
+```
+
+All verdicts PASS, every RAM comparison bit-identical.
+
+| | Dhrystone cycles (hazard3) | hazard3/littlecpu | DMIPS/MHz | CoreMark cycles (hazard3) | hazard3/littlecpu | CoreMark/MHz |
+|---|---|---|---|---|---|---|
+| one-port adapter, declined (before) | 331,632 | 1.140× | 0.686 | 714,984 | 1.650× | 1.399 |
+| two-port adapter (this route) | **252,825** | **0.869×** | **0.900** | **665,416** | **1.536×** | **1.503** |
+
+**Dhrystone reverses: Hazard3 is now faster than littlecpu in raw cycles** (0.900 DMIPS/MHz against
+0.783) **and effectively level with VexRiscv** (0.900 against 0.896, cycles 252,825 against
+254,026 — closer than either is to littlecpu). CoreMark's gap narrows (1.650× → 1.536×) without
+closing, because writes are a smaller share of CoreMark's own cycles than of Dhrystone's
+struct-copying loop; littlecpu's real M-extension-plus-forwarding lead there stands.
+
+**The clock, twelve seeds (`default 1 2 … 11`), `soc/compare/sweep.sh COMPARE_CORES=hazard3
+COMPARE_PART=up5k`, this tree, paired against the same twelve seeds on the declined one-port text:**
+
+| | worst | median | best |
+|---|---|---|---|
+| one-port adapter, declined (before) | 12.58 MHz | 13.04 MHz | 13.67 MHz |
+| two-port adapter (this route) | **14.30 MHz** | **14.57 MHz** | **14.95 MHz** |
+
+Every seed on both sides already clears 12 MHz — the declined adapter was never the one that missed
+the requirement, route 3 was — and the two-port top is faster at every seed sampled regardless, not
+merely null: the arbitration logic the one-port top needed to interleave fetch and load/store onto
+its shared port is gone, not replaced. `make compare-ecp5-timing`, one placement each, this session's
+toolchain: 48.50 MHz (one port) → **50.39 MHz** (two ports), now above littlecpu's own 33.23 MHz on
+this part.
+
+**Geometry**: `soc/compare/placed_vs_synth.py`'s ratio holds at 0.96× against the 0.80× floor on both
+texts (3374/3505 declined, 3276/3414 two-port — the two-port top's own standalone synthesis is
+SMALLER, not larger, for the same reason its placement is faster: no arbitration mux to build).
+`ICESTORM_RAM`/`ICESTORM_SPRAM` counts are unchanged (12/30, 2/4) since no second ROM array was
+needed. `make compare-smoke` is green — all three cores still publish the same six values off
+`bench.S`.
+
+**Verdict**: Hazard3's iCE40 build is no longer clock-limited on up5k by anything this harness's own
+adapter did to it, Dhrystone reads essentially level with VexRiscv and ahead of littlecpu in raw
+cycles, and CoreMark still favours littlecpu by the same real, M-extension-and-forwarding margin the
+write-wait disclosure was never responsible for.
+
+**Consequences**: `HAZARD3_SRCS` now lists `hazard3_cpu_2port.v` in place of `hazard3_cpu_1port.v`,
+and `COMPARE_CORE_TOP` follows; the Makefile comment that used to justify excluding the two-port top
+is rewritten rather than deleted, so the next reader sees the SHAPE of the old reasoning and not just
+its absence. `soc/compare/bench_tb.v`, `dhry_tb.v` and `coremark_tb.v` read the D-port's own renamed
+internal signals (`dmem_addr_mux`/`dmem_wstrb_mux`/`d_hwdata`); `wr_pending_q` kept its name, so the
+wait-cycle disclosure needed no change to what it counts, only to what the count now means.

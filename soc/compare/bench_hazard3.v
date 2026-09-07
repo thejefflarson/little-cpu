@@ -38,28 +38,54 @@
 //
 // ---- the bus ----------------------------------------------------------
 //
-// hazard3_cpu_1port arbitrates fetch and load/store down to ONE AHB5 master
-// port, unlike VexRiscv's separate iBus/dBus in this harness's other bench.
-// The adapter below answers a read at zero wait states -- a read's address
-// phase in cycle N is the read rtl/memory.v (reused unmodified for the RAM
-// half) registers into its data phase in cycle N+1. A WRITE is not zero
-// wait states: AHB5 presents `hwdata` one cycle after the write's own
-// address phase, so `hready` is held low for that one cycle while the write
-// is serviced against the captured address -- see the fuller comment beside
-// `wr_pending_q` below for why a single-ported memory needs this.
-// AHB has no separate read/write bus, so the ROM and the RAM answer the same
-// haddr, distinguished purely by which side of ROM_WORDS*4 it falls on.
+// hazard3_cpu_2port gives fetch and load/store each their own AHB5 master
+// port, matching the topology soc/compare/bench_littlecpu.v (dedicated
+// imemory/memory) and soc/compare/bench_vexriscv.v (separate iBus/dBus)
+// already have. This harness used to instantiate hazard3_cpu_1port instead,
+// which arbitrates both onto ONE shared port -- the one core here forced
+// through a single memory port while its two neighbours each got two. That
+// forced sharing was what put a real AHB5 protocol cost (a write's data
+// trails its own address by one cycle, so a single-ported RAM slave must
+// hold the bus for it) onto every fetch that happened to follow a store,
+// not only onto a genuinely conflicting load or store; measured, that cost
+// 9.01% of Hazard3's own Dhrystone cycles and 1.98% of its CoreMark ones.
+// Giving Hazard3 the same two-memory topology its two neighbours already
+// have removes the forced sharing rather than trying to out-schedule it.
+//
+// The I-port fetches only, from its own `rom` array below. Nothing on this
+// port ever writes, so `i_hready` is a tied-high constant with no logic
+// behind it -- the same zero-wait-state promise
+// soc/compare/bench_littlecpu.v's own dedicated imem port makes.
+//
+// The D-port carries every load and store, against `rtl/memory.v` (reused
+// unmodified). Its write buffer is the pre-two-port mechanism, unchanged:
+// AHB5 presents `d_hwdata` one cycle after a write's own address phase, so
+// the address and strobe are captured here and drained the following cycle,
+// with `d_hready` held low for exactly that one cycle if another D-port
+// transaction lands on it -- see `wr_pending_q` below. What this buffer no
+// longer has to decide is whether the transaction it might be holding back
+// is a fetch: fetches are never on this port, so `d_hready` needs no
+// dependence on `d_haddr` at all, and stays the bare flip-flop output it
+// was before either of the other two cores in this harness had an AHB5
+// write cost to arbitrate.
+//
+// The D-port has NO PATH TO ROM, the same choice soc/compare/bench_vexriscv.v
+// already makes and CLAUDE.md already states as this harness's standing
+// rule: a load from a ROM address reads back whatever rtl/memory.v's own
+// out-of-range arm returns (zero). This is not a new gap opened for
+// Hazard3 -- no program this harness runs needs the opposite. The harness
+// pokes every program's initialised data and read-only data straight into
+// the simulated RAM before the run rather than having the program copy it
+// out of ROM at boot: soc/compare/dhry_start.S and
+// soc/compare/coremark_start.S are test/crt0.S with that copy removed, and
+// soc/compare/coremark.lds keeps CoreMark's own string tables in the poked
+// RAM region for the identical reason. So the two-port split needs no
+// second ROM array and no read-side ROM decode on the D-port.
 // hwdata is not shifted to byte 0 for a narrow store -- hazard3_core.v
 // replicates it across all four lanes (MEMOP_SB/MEMOP_SH), the same
 // replication soc/compare/bench_vexriscv.v's own comment names for VexRiscv
 // -- so the byte strobe alone, shifted by the low address bits, is what
 // picks the right byte out of a lane that already holds it everywhere.
-//
-// This harness's memory map keeps text and data in disjoint ranges (ROM at
-// 0, RAM at rtl/memory.v's own default BASE), so a RAM-range read response is
-// necessarily a data load and never an instruction fetch, even though both
-// travel the one AHB port -- that is what lets led1_n below single out loads
-// the way the other two benches' own dedicated data buses do for free.
 module bench_hazard3 #(
   parameter integer ROM_WORDS = 1024,
   parameter integer RAM_WORDS = 16384,
@@ -70,7 +96,6 @@ module bench_hazard3 #(
   output logic led1_n
 );
   localparam int ROM_BITS = $clog2(ROM_WORDS);
-  localparam bit [31:0] ROM_BYTES = ROM_WORDS * 4;
 
   logic [3:0] por_count = 4'b0;
   logic       por_done  = 1'b0;
@@ -83,18 +108,26 @@ module bench_hazard3 #(
     rst_n <= por_done;
   end
 
-  logic [31:0] haddr, hwdata, hrdata;
-  logic        hwrite;
-  logic [1:0]  htrans;
-  logic [2:0]  hsize, hburst;
-  logic [3:0]  hprot;
-  logic        hmastlock, hexcl;
-  logic [7:0]  hmaster;
-  logic        hready;
+  logic [31:0] i_haddr, i_hwdata, i_hrdata;
+  logic        i_hwrite;
+  logic [1:0]  i_htrans;
+  logic [2:0]  i_hsize, i_hburst;
+  logic [3:0]  i_hprot;
+  logic        i_hmastlock;
+  logic [7:0]  i_hmaster;
+
+  logic [31:0] d_haddr, d_hwdata, d_hrdata;
+  logic        d_hwrite;
+  logic [1:0]  d_htrans;
+  logic [2:0]  d_hsize, d_hburst;
+  logic [3:0]  d_hprot;
+  logic        d_hmastlock, d_hexcl;
+  logic [7:0]  d_hmaster;
+  logic        d_hready;
 
   logic pwrup_req, unblock_out;
 
-  hazard3_cpu_1port #(
+  hazard3_cpu_2port #(
     .RESET_VECTOR         (32'h0000_0000),
     .MTVEC_INIT           (32'h0000_0000),
     .CSR_M_MANDATORY      (1),
@@ -135,20 +168,33 @@ module bench_hazard3 #(
     .unblock_out (unblock_out),
     .unblock_in  (unblock_out),
 
-    .haddr     (haddr),
-    .hwrite    (hwrite),
-    .htrans    (htrans),
-    .hsize     (hsize),
-    .hburst    (hburst),
-    .hprot     (hprot),
-    .hmastlock (hmastlock),
-    .hmaster   (hmaster),
-    .hexcl     (hexcl),
-    .hready    (hready),
-    .hresp     (1'b0),
-    .hexokay   (1'b1),
-    .hwdata    (hwdata),
-    .hrdata    (hrdata),
+    .i_haddr     (i_haddr),
+    .i_hwrite    (i_hwrite),
+    .i_htrans    (i_htrans),
+    .i_hsize     (i_hsize),
+    .i_hburst    (i_hburst),
+    .i_hprot     (i_hprot),
+    .i_hmastlock (i_hmastlock),
+    .i_hmaster   (i_hmaster),
+    .i_hready    (1'b1),
+    .i_hresp     (1'b0),
+    .i_hwdata    (i_hwdata),
+    .i_hrdata    (i_hrdata),
+
+    .d_haddr     (d_haddr),
+    .d_hwrite    (d_hwrite),
+    .d_htrans    (d_htrans),
+    .d_hsize     (d_hsize),
+    .d_hburst    (d_hburst),
+    .d_hprot     (d_hprot),
+    .d_hmastlock (d_hmastlock),
+    .d_hmaster   (d_hmaster),
+    .d_hexcl     (d_hexcl),
+    .d_hready    (d_hready),
+    .d_hresp     (1'b0),
+    .d_hexokay   (1'b1),
+    .d_hwdata    (d_hwdata),
+    .d_hrdata    (d_hrdata),
 
     .fence_i_vld (),
     .fence_d_vld (),
@@ -185,75 +231,12 @@ module bench_hazard3 #(
     .timer_irq(1'b0)
   );
 
-  // hwdata is NOT valid in a write's address phase -- AHB5 presents it one
-  // cycle later, in the data phase, overlapping the NEXT transfer's own
-  // address phase. rtl/memory.v takes one address for both a read and a
-  // write on the SAME cycle, so a write cannot be performed until its data
-  // phase, and that cycle's one memory port cannot also serve a new
-  // transfer's address phase. So this slave is NOT zero-wait-state: it holds
-  // `hready` low for exactly one cycle after a write's address phase,
-  // finishing the write with the now-valid `hwdata` against the CAPTURED
-  // address, and only then accepts what the core presents next. A plain
-  // synchronous SRAM slave with one port needs exactly this for a write
-  // immediately followed by a read of the same word -- `sw`/`lw` back to
-  // back, which soc/compare/bench.S does on every iteration -- and running
-  // this at true zero wait states once produced silently wrong store data,
-  // read back and folded into the program's own accumulator until it went X.
-  logic        wr_pending_q;
-  logic [31:0] wr_addr_q;
-  logic [3:0]  wr_strb_q;
-  assign hready = !wr_pending_q;
-
-  logic [3:0] size_mask;
-  // A continuous assign, not a `case` in an `always_comb`: iverilog will not
-  // fully evaluate a constant part-select (`hsize[1:0]`) used as a case
-  // expression inside a process, and this repo allowlists that "sorry" only
-  // for rtl/writeback.v's struct reads.
-  assign size_mask = hsize[1:0] == 2'b00 ? 4'b0001 :
-                      hsize[1:0] == 2'b01 ? 4'b0011 : 4'b1111;
-  // htrans[1] is the bit that separates {NONSEQ, SEQ} from {IDLE, BUSY} --
-  // hazard3_cpu_1port.v's own `bus_hold_aph` reads it for the same purpose --
-  // so a stale hwrite on an idle cycle cannot raise a strobe here.
-  logic want_write;
-  assign want_write = htrans[1] && hwrite;
-
-  always_ff @(posedge clk) begin
-    if (!rst_n) begin
-      wr_pending_q <= 1'b0;
-    end else if (hready) begin
-      // Accepting a new address phase this cycle (or an idle one): latch it
-      // in case it turns out to be a write, which is serviced next cycle.
-      wr_pending_q <= want_write;
-      wr_addr_q    <= haddr;
-      wr_strb_q    <= want_write ? (size_mask << haddr[1:0]) : 4'b0000;
-    end else begin
-      // The write latched last cycle is serviced THIS cycle, below; nothing
-      // new was accepted, so there is nothing left pending after it.
-      wr_pending_q <= 1'b0;
-    end
-  end
-
-  // The one memory port this cycle: the captured write if one is pending,
-  // otherwise whatever address is live on the bus (a read, or an address
-  // phase that has not yet resolved into anything). ROM/RAM range is decided
-  // off the SAME muxed address, since a write is never serviced except
-  // against the RAM range in this harness's map.
-  logic [31:0] mem_addr_mux;
-  logic [3:0]  mem_wstrb_mux;
-  assign mem_addr_mux  = wr_pending_q ? wr_addr_q : haddr;
-  assign mem_wstrb_mux = wr_pending_q ? wr_strb_q : 4'b0000;
-
-  // A transfer's address phase and a read's data phase are one cycle apart,
-  // so which side of ROM_BYTES the address this cycle's memory port serves
-  // falls on has to be latched for the cycle hrdata actually carries the
-  // answer.
-  logic is_rom_next, is_rom_q;
-  assign is_rom_next = mem_addr_mux < ROM_BYTES;
-  always_ff @(posedge clk) is_rom_q <= is_rom_next;
-
+  // I-port: fetch only, always ROM, answered exactly one cycle later --
+  // `i_hready` above is a tied constant, so this array never has to be
+  // asked to wait.
   logic [ROM_BITS-1:0] rom_index;
   logic [31:0]         rom_rdata;
-  assign rom_index = mem_addr_mux[ROM_BITS+1:2];
+  assign rom_index = i_haddr[ROM_BITS+1:2];
 
   logic [31:0] rom[0:ROM_WORDS-1];
   generate if (INIT_ROM != "") begin : l_rom_init
@@ -264,23 +247,64 @@ module bench_hazard3 #(
   // uses for its own ROM: block RAM has no write port to conflict with here,
   // so there is no no-change rule to observe the way rtl/memory.v has one.
   always_ff @(posedge clk) rom_rdata <= rom[rom_index];
+  assign i_hrdata = rom_rdata;
 
-  logic [31:0] ram_rdata;
+  // D-port: every load and store, against rtl/memory.v.
+  logic        wr_pending_q;
+  logic [31:0] wr_addr_q;
+  logic [3:0]  wr_strb_q;
+  assign d_hready = !wr_pending_q;
+
+  logic [3:0] size_mask;
+  // A continuous assign, not a `case` in an `always_comb`: iverilog will not
+  // fully evaluate a constant part-select (`d_hsize[1:0]`) used as a case
+  // expression inside a process, and this repo allowlists that "sorry" only
+  // for rtl/writeback.v's struct reads.
+  assign size_mask = d_hsize[1:0] == 2'b00 ? 4'b0001 :
+                      d_hsize[1:0] == 2'b01 ? 4'b0011 : 4'b1111;
+  // d_htrans[1] is the bit that separates {NONSEQ, SEQ} from {IDLE, BUSY} --
+  // hazard3_cpu_2port.v's own `bus_hold_aph` reads it for the same purpose --
+  // so a stale d_hwrite on an idle cycle cannot raise a strobe here.
+  logic want_write;
+  assign want_write = d_htrans[1] && d_hwrite;
+
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      wr_pending_q <= 1'b0;
+    end else if (d_hready) begin
+      // Accepting a new address phase this cycle (or an idle one): latch it
+      // in case it turns out to be a write, which is serviced next cycle.
+      wr_pending_q <= want_write;
+      wr_addr_q    <= d_haddr;
+      wr_strb_q    <= want_write ? (size_mask << d_haddr[1:0]) : 4'b0000;
+    end else begin
+      // The write latched last cycle is serviced THIS cycle, below; nothing
+      // new was accepted, so there is nothing left pending after it.
+      wr_pending_q <= 1'b0;
+    end
+  end
+
+  // The one RAM port this cycle: the captured write if one is pending,
+  // otherwise whatever address is live on the D-port (a read, or an address
+  // phase that has not yet resolved into anything).
+  logic [31:0] dmem_addr_mux;
+  logic [3:0]  dmem_wstrb_mux;
+  assign dmem_addr_mux  = wr_pending_q ? wr_addr_q : d_haddr;
+  assign dmem_wstrb_mux = wr_pending_q ? wr_strb_q : 4'b0000;
+
   memory #(.RAM_WORDS(RAM_WORDS)) dmem (
     .clk(clk),
-    .mem_addr(mem_addr_mux),
-    .mem_wdata(hwdata),
-    .mem_wstrb(mem_wstrb_mux),
-    .mem_rdata(ram_rdata)
+    .mem_addr(dmem_addr_mux),
+    .mem_wdata(d_hwdata),
+    .mem_wstrb(dmem_wstrb_mux),
+    .mem_rdata(d_hrdata)
   );
 
-  assign hrdata = is_rom_q ? rom_rdata : ram_rdata;
-
-  // A RAM-range read (not a ROM fetch, not a write) is a data load, and
-  // rtl/memory.v answers it exactly one cycle later -- the same cycle this
-  // becomes true.
+  // A D-port read (not a write, not a stalled address phase) is a data
+  // load, and rtl/memory.v answers it exactly one cycle later -- the same
+  // cycle this becomes true.
   logic ram_read_q;
-  always_ff @(posedge clk) ram_read_q <= !is_rom_next && !wr_pending_q;
+  always_ff @(posedge clk) ram_read_q <= d_htrans[1] && !d_hwrite && d_hready;
 
   logic store_bit, load_bit;
   always_ff @(posedge clk) begin
@@ -288,8 +312,8 @@ module bench_hazard3 #(
       store_bit <= 1'b0;
       load_bit  <= 1'b0;
     end else begin
-      if (wr_pending_q) store_bit <= hwdata[0];
-      if (ram_read_q)  load_bit  <= hrdata[0];
+      if (wr_pending_q) store_bit <= d_hwdata[0];
+      if (ram_read_q)  load_bit  <= d_hrdata[0];
     end
   end
   assign led0_n = !store_bit;
