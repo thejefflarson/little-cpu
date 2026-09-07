@@ -2,9 +2,11 @@
 `default_nettype none
 // SPRAM cannot be initialised, so `.data` rides in ROM and startup copies it out.
 module littlesoc #(
-  // The board's clock, from which rtl/uart.v derives its divisor. Defaulted to the up5k's
-  // 12 MHz.
-  parameter integer CLOCK_HZ = 12_000_000
+  // The board's clock, so rtl/uart.v can derive its divisor.
+  parameter integer CLOCK_HZ = 12_000_000,
+  // One parameter drives both the fetch window and the ROM behind it, so the two cannot
+  // disagree the way two separate literals could.
+  parameter integer ROM_WORDS = 2048
 ) (
   input  logic clk,
   input  logic btn_n,
@@ -18,8 +20,7 @@ module littlesoc #(
   input  logic spi_miso,
   output logic spi_cs_n
 );
-  // The FPGA comes out of configuration with no reset of its own. KEEP `reset`
-  // REGISTERED: unregistered, the button pin headed the design's longest path.
+  // KEEP `reset` REGISTERED: unregistered, the button pin headed the design's longest path.
   logic [3:0] por_count = 4'b0;
   logic       por_done  = 1'b0;
   logic [1:0] btn_sync  = 2'b0;
@@ -45,7 +46,7 @@ module littlesoc #(
   logic [31:0] imem_addr, imem_addr2, imem_addr_next;
   logic [31:0] imem_data, imem_data2;
 
-  littlecpu #(.LS_TEXT_WORDS(2048)) riscv (
+  littlecpu #(.LS_TEXT_WORDS(ROM_WORDS)) riscv (
     .clk(clk),
     .reset(reset),
     .imem_addr(imem_addr),
@@ -73,7 +74,7 @@ module littlesoc #(
   );
 
   imemory #(
-    .ROM_WORDS(2048),
+    .ROM_WORDS(ROM_WORDS),
     .INIT_EVEN("soc/rom_even.hex"),
     .INIT_ODD("soc/rom_odd.hex")
   ) imem (

@@ -258,7 +258,7 @@ succeeds here has to be one that machine can hold."
   fi
 }
 
-SOC_ROM_WORDS_RTL=$(sed -nE "s/.*\.ROM_WORDS\(([0-9]+)\).*/\1/p" "$REPO/rtl/littlesoc.v" | head -1)
+SOC_ROM_WORDS_RTL=$(int_param rtl/littlesoc.v ROM_WORDS)
 TB_ROM_WORDS=$(sed -nE "s/.*localparam[[:space:]]+int[[:space:]]+ROM_WORDS[[:space:]]*=[[:space:]]*([0-9]+).*/\1/p" \
                  "$REPO/test/testbench.v" | head -1)
 

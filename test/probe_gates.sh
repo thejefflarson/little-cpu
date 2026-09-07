@@ -2623,10 +2623,13 @@ d=$(mm_fixture); mutate "$d/rtl/littlecpu.v" 's/LS_TEXT_WORDS = 2048/LS_TEXT_WOR
 probe "the default text window is the part's, not the harness's" 1 \
   "LS_TEXT_WORDS is 4096 against rtl/littlesoc.v's 2048" "$MM $d"
 
+# rtl/littlesoc.v's own ROM_WORDS parameter drives both instantiations, so the two cannot
+# drift on their own; this is the one way left to disagree, one instantiation respelled
+# off the shared parameter and onto a literal.
 d=$(mm_fixture); mutate "$d/rtl/littlesoc.v" \
-  's/littlecpu #(.LS_TEXT_WORDS(2048))/littlecpu #(.LS_TEXT_WORDS(4096))/'
+  's/littlecpu #(.LS_TEXT_WORDS(ROM_WORDS))/littlecpu #(.LS_TEXT_WORDS(4096))/'
 probe "an integrator telling the core a text size its ROM has not got" 1 \
-  "gives its \`imemory\` 2048 words of ROM and tells the core the text" "$MM $d"
+  "gives its \`imemory\` ROM_WORDS words of ROM and tells the core the text" "$MM $d"
 
 d=$(mm_fixture); mutate "$d/test/testbench.v" \
   's/littlecpu #(.LS_TEXT_WORDS(ROM_WORDS))/littlecpu #(.LS_TEXT_WORDS(2048))/'
@@ -2784,6 +2787,48 @@ rm "$d/docs/adr/0001-finish-the-staged-rewrite.md"
 mutate "$d/docs/adr/README.md" '/\[0001\](0001-finish-the-staged-rewrite\.md)/d'
 probe "a gap in the sequence is not a defect" 0 \
   "each with exactly one README row, no number claimed twice" "$AN $d"
+
+begin_group "test/makefile_target_test.sh"
+
+MT_TGT="$HERE/makefile_target_test.sh"
+
+mt_fixture() {  # the Makefile plus every .mk it includes, at their own paths
+  local d; d=$(new_case)
+  cp "$REPO/Makefile" "$d/Makefile"
+  local mk
+  for mk in $(sed -nE 's/^-?include[[:space:]]+(.+\.mk)[[:space:]]*$/\1/p' "$REPO/Makefile"); do
+    mkdir -p "$d/$(dirname "$mk")"
+    cp "$REPO/$mk" "$d/$mk"
+  done
+  printf '%s' "$d"
+}
+
+d=$(mt_fixture)
+probe "control: the shipping Makefile defines no target twice" 0 \
+  "no target defined twice" "$MT_TGT $d"
+
+# The shape this exists for: two routes that each added `coremark-rom`, whose bodies
+# differ in linker script, flags and whether they check PINNED.sha256 at all.
+d=$(mt_fixture)
+printf '\ncoremark-rom-ecp5:\n\t@echo second body\n' >> "$d/Makefile"
+probe "one recipe name with two bodies is red, naming both lines" 1 \
+  "is defined more than once" "$MT_TGT $d"
+
+d=$(mt_fixture)
+printf '\ncoremark-rom-ecp5:\n\t@echo second body\n' >> "$d/Makefile"
+probe "...and the report names the target make actually overrode" 1 \
+  "coremark-rom-ecp5" "$MT_TGT $d"
+
+d=$(mt_fixture); rm "$d/Makefile"
+probe "a tree with no Makefile is red, not a scan of nothing" 1 \
+  "there is nothing to read" "$MT_TGT $d"
+
+# A Makefile make cannot parse at all must not read as "no duplicates": the check
+# requires make to have reached the missing-rule failure before it trusts the warnings.
+d=$(mt_fixture)
+printf '\ninclude /no/such/file.mk\n' >> "$d/Makefile"
+probe "a Makefile make cannot parse does not pass by silence" 1 \
+  "did not parse the Makefile the way this check assumes" "$MT_TGT $d"
 
 begin_group "test/retired_term_test.sh"
 
@@ -5598,9 +5643,6 @@ FIXTURE
 probe "a fixture that opens its body on the head line is still inspected" 1 \
   "oneline_head_fixture() types out" "$(ffr "$d")"
 
-# A nested `helper() { ...; }` closing on its own line used to end the OUTER fixture
-# early: the previous scan stopped at the first line that was exactly `}`, with no
-# brace-depth counter to tell an inner close from the fixture's own.
 d=$(ffr_fixture)
 cat >> "$d/test/probe_gates.sh" <<'FIXTURE'
 nested_brace_fixture() {
@@ -5615,9 +5657,6 @@ FIXTURE
 probe "a nested helper's own closing brace does not end the outer fixture early" 1 \
   "nested_brace_fixture() types out" "$(ffr "$d")"
 
-# `#` only opens a comment at the start of a word in bash; the previous scan treated
-# every unquoted `#` as a comment opener, so a decoy like this masked a real invocation
-# sitting right after it.
 d=$(ffr_fixture)
 printf '\nx=foo#bar sed -i decoy.txt\n' >> "$d/test/probe_gates.sh"
 probe "a mid-word # does not hide a real sed -i after it" 1 \

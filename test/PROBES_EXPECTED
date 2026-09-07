@@ -40,6 +40,7 @@
 ...and so does the file it injects into going away
 ...and the count that site was declared with is red too
 ...and the report names the parameter, not merely 'changed'
+...and the report names the target make actually overrode
 ...and the same for the second mutation, which shares that line
 ...and their second copy is compared whole, not just its ISA
 CONTROL_FIELDS emptied is red against the shipping decoder (finding 5)
@@ -62,6 +63,7 @@ a CoreMark run that never made the cross-core check is red
 a CoreMark simulation this cannot parse is a run that did not happen
 a CoreMark testbench simulating a different map than the image is linked for is red
 a MAP_TOP inside the topmost window is red
+a Makefile make cannot parse does not pass by silence
 a Makefile naming $(VEXRISCV_V) nowhere is red, not vacuously clean
 a PASS with no counts line is not a pass
 a RAM comparison over no words is named as unable to fail
@@ -391,6 +393,7 @@ a tree git cannot list is a scan of nothing, not a green one
 a tree git cannot list is a scan of nothing, not a green one
 a tree that instantiates the core nowhere is not a clean one
 a tree that names no synth script of its own says whose was used
+a tree with no Makefile is red, not a scan of nothing
 a tree with no source file at all is red rather than vacuously green
 a trip prints the trend too, since that is the run that needs it
 a truncated netlist is refused, which is what a full disk leaves
@@ -575,6 +578,7 @@ control: the measured CoreMark image reports the shortfall it has
 control: the measured image reports the shortfall it has
 control: the note a delta is read against carries the part too
 control: the pc hop reaches the pc bin, by the declared net's bits
+control: the shipping Makefile defines no target twice
 control: the shipping Makefile owes nothing but themselves to the two targets
 control: the shipping decoder reaches region_stall only, gated
 control: the shipping exclusion set matches its baseline both ways
@@ -632,6 +636,7 @@ one build site left at the narrower ISA is red, and located
 one core's ROM growing behind the other's is red
 one core's data RAM shrinking behind the other's is red
 one netlist placed twice giving two bitstreams voids the gate
+one recipe name with two bodies is red, naming both lines
 one red tool leaves no partial stamp on stdout
 one side alone is not a cross-core figure
 over budget names the count and the budget
