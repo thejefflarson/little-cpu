@@ -130,11 +130,13 @@ def _live_chars(lines, mask):
 
     `$'...'` is its own quote form, not a `$` beside a plain `'...'`: inside
     it a backslash escapes the next character, so `\\'` is a literal quote
-    that does NOT close the string -- the same rule `in_dquote` already
-    applies, unlike a plain single-quoted string where backslash is nothing
-    special.
+    that does NOT close the string, the same escaping rule a double-quoted
+    string already gets and a plain single-quoted one does not.
+    `escaping_quote` holds the two escaping forms in one state, closed by
+    whichever character opened it (`"` or `'`), so that rule is written once.
     """
-    in_squote = in_dquote = in_dollar_squote = False
+    in_squote = False
+    escaping_quote = None
     at_word_start = True
     for lineno, raw in enumerate(lines):
         if mask[lineno]:
@@ -144,12 +146,12 @@ def _live_chars(lines, mask):
         continued = False
         while i < n:
             c = line[i]
-            if in_dollar_squote:
+            if escaping_quote is not None:
                 if c == '\\' and i + 1 < n:
                     i += 2
                     continue
-                if c == "'":
-                    in_dollar_squote = False
+                if c == escaping_quote:
+                    escaping_quote = None
                 i += 1
                 continue
             if in_squote:
@@ -160,14 +162,6 @@ def _live_chars(lines, mask):
             if c == '\\' and i + 1 == n:
                 continued = True
                 break
-            if in_dquote:
-                if c == '\\' and i + 1 < n:
-                    i += 2
-                    continue
-                if c == '"':
-                    in_dquote = False
-                i += 1
-                continue
             if c == '\\' and i + 1 < n:
                 i += 2
                 at_word_start = False
@@ -181,14 +175,14 @@ def _live_chars(lines, mask):
                 break
             if c == "'":
                 if i > 0 and line[i - 1] == '$':
-                    in_dollar_squote = True
+                    escaping_quote = "'"
                 else:
                     in_squote = True
                 at_word_start = False
                 i += 1
                 continue
             if c == '"':
-                in_dquote = True
+                escaping_quote = '"'
                 at_word_start = False
                 i += 1
                 continue

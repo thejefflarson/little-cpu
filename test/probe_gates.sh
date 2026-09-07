@@ -4820,57 +4820,6 @@ begin_group "formal/busarbiter-probe.py"
 
 BA="python3 $REPO/formal/busarbiter-probe.py"
 
-sby_busarbiter_stub_fixture() {
-  cat > "$tmp/sby-busarbiter-stub" <<'STUB'
-#!/bin/sh
-# Stands in for sby. The case is the name of the directory it runs in and the
-# job is the .sby it was handed, and every line number is read out of the copy
-# of busarbiter.sv beside it -- so a respelled assertion moves this stub's
-# answer exactly the way it moves the real solver's.
-for a in "$@"; do last=$a; done
-job=${last%.sby}
-line_of() { grep -nF -- "$1" src/busarbiter.sv | cut -d: -f1; }
-lock=$(line_of 'if (settled && past_grant[h] && past_mem_lock[h]) assert(grant[h]);')
-bound=$(line_of 'always_comb if (clocked) assert(waited <= BOUND);')
-cover=$(line_of 'cover (settled && grant[h] && past_grant[h] && past_mem_lock[h] &&')
-mkdir -p "$job"
-: > "$job/logfile.txt"
-assert_red() {
-  echo "SBY [probe] engine_0.basecase: Assert failed in busarbiter_check:" \
-       "busarbiter.sv:$1.9-$1.26" >> "$job/logfile.txt"
-}
-cover_red() {
-  echo "SBY [probe] engine_0: Unreached cover statement at busarbiter_check:" \
-       "busarbiter.sv:$1.7-$1.30" >> "$job/logfile.txt"
-}
-status=PASS
-case "$(basename "$PWD")/$job" in
-  shipping/prove) status=${STUB_SHIP_PROVE:-PASS} ;;
-  shipping/cover) status=${STUB_SHIP_COVER:-PASS} ;;
-  fixed-priority/prove)
-    status=${STUB_FIXED:-FAIL}
-    if [ "$status" = FAIL ]; then
-      assert_red "${STUB_FIXED_LINE:-$bound}"
-      [ -n "${STUB_FIXED_ALSO_LOCK:-}" ] && assert_red "$lock"
-    fi ;;
-  grant-mid-lock/prove)
-    status=${STUB_MIDLOCK:-FAIL}
-    [ "$status" = FAIL ] && assert_red "${STUB_MIDLOCK_LINE:-$lock}" ;;
-  grant-mid-lock/cover)
-    status=${STUB_COVER_MID:-FAIL}
-    [ "$status" = FAIL ] && cover_red "${STUB_COVER_MID_LINE:-$cover}" ;;
-esac
-[ -n "${STUB_SBY_NO_STATUS:-}" ] && exit 1
-if [ -n "${STUB_SBY_EMPTY_STATUS:-}" ]; then : > "$job/status"; exit 1; fi
-echo "$status 2 0" > "$job/status"
-STUB
-  chmod +x "$tmp/sby-busarbiter-stub"
-  # The log line each arm emits is the literal prefix formal/busarbiter-probe.py
-  # parses out of a real sby run; anchoring here ties this stub's shape to that
-  # regex rather than to a format nothing in the tree still produces.
-  fixture_anchor "$REPO/formal/busarbiter-probe.py" "Assert failed in busarbiter_check:"
-  fixture_anchor "$REPO/formal/busarbiter-probe.py" "Unreached cover statement at busarbiter_check:"
-}
 sby_busarbiter_stub_fixture
 
 ba_fixture() {
