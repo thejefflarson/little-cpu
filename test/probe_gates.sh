@@ -3044,7 +3044,7 @@ d=$(ma_fixture)
 ma_edit "$d" Makefile \
   's/^DHRY_CFLAGS := -march=rv32imac_zicsr_zifencei_zkt/DHRY_CFLAGS := -march=rv32imc_zicsr_zifencei_zkt/'
 probe "the Dhrystone flags drifting from the suite's ISA is red" 1 \
-  "Makefile states -march=rv32imac_zicsr_zifencei_zkt 3 time(s), not 4" "$MA $d"
+  "Makefile states -march=rv32imac_zicsr_zifencei_zkt 4 time(s), not 5" "$MA $d"
 
 probe "...and their second copy is compared whole, not just its ISA" 1 \
   "the Dhrystone flags are stated twice and they disagree" "$MA $d"
@@ -5032,7 +5032,7 @@ rc_fixture() {
   local d; d=$(new_case)
   mkdir -p "$d/test/bench/coremark"
   cp "$REPO/test/bench/run_coremark.sh" "$REPO/test/bench/coremark.lds" \
-     "$REPO/test/bench/bench.lds" "$d/test/bench/"
+     "$REPO/test/bench/bench.lds" "$REPO/test/bench/coremark_port.c" "$d/test/bench/"
   cp "$REPO"/test/bench/coremark/*.c "$REPO"/test/bench/coremark/*.h \
      "$REPO/test/bench/coremark/PINNED.sha256" \
      "$REPO/test/bench/coremark/LICENSE.md" \
@@ -5067,6 +5067,19 @@ d=$(rc_fixture)
 mutate -E "$d/test/bench/coremark/PINNED.sha256" 's/^[0-9a-f]{64}(  core_list_join\.c)$/deadbeef\1/'
 probe "a malformed manifest line is red under --strict, not a silent pass" 1 \
   "improperly formatted" "$(rc "$d")"
+
+# coremark_port.c is outside PINNED.sha256; both its 2K CRC sets are cross-checked.
+d=$(rc_fixture)
+mutate "$d/test/bench/coremark_port.c" \
+  's/#define COREMARK_2K_VALIDATION_CRCLIST 0xe3c1u/#define COREMARK_2K_VALIDATION_CRCLIST 0xdeadu/'
+probe "a mutated validation CRC literal in coremark_port.c is caught before a compiler runs" 1 \
+  "does not match" "$(rc "$d")"
+
+d=$(rc_fixture)
+mutate "$d/test/bench/coremark_port.c" \
+  's/#define COREMARK_2K_PERF_CRCLIST 0xe714u/#define COREMARK_2K_PERF_CRCLIST 0xdeadu/'
+probe "a mutated performance CRC literal is caught the same way" 1 \
+  "COREMARK_2K_PERF_CRCLIST" "$(rc "$d")"
 
 begin_group "make revendor-coremark"
 

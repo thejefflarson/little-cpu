@@ -1,5 +1,7 @@
-// The porting layer CoreMark's own documentation asks for: seeds it cannot read from
-// argv, a timer, a memory block, and a report.
+/* CoreMark's porting layer. Undefined this is the 2K performance run; with
+ * COREMARK_VALIDATION the 2K validation run, which prints no score. portable_fini()
+ * re-derives "the checked configuration ran" rather than trusting core_main.c's `err`,
+ * which stays zero when the seed/size CRC matches no known configuration. */
 
 #include "coremark.h"
 #include "core_portme.h"
@@ -10,37 +12,59 @@
 #error "COREMARK_FLAGS must be defined with the exact compiler flags this was built with"
 #endif
 
-// The riscv-tests HTIF window, exactly as test/bench/dhry_port.c uses it.
 volatile unsigned tohost[2] __attribute__((section(".tohost"), aligned(8), used));
 
-// Read out of RAM by the runner's `--console`.
 char coremark_console[2048] __attribute__((used));
 static unsigned console_len;
 
-// Seeds : SEED_VOLATILE reads these, and the values below are the ones core_main.c's own
-// default-value fixup already recognises as the 2K performance run (seed1=seed2=0,
-// seed3=0x66) once TOTAL_DATA_SIZE is coremark.h's own default of 2000 -- so this file
-// sets no size and no seed that core_main.c does not already treat as a documented
-// configuration.
+// Both sets unconditionally, so either can be checked against the pin.
+#define COREMARK_2K_SEED3 0x66
+#define COREMARK_2K_SIZE 666
+
+#define COREMARK_2K_PERF_SEED1 0
+#define COREMARK_2K_PERF_SEED2 0
+#define COREMARK_2K_PERF_CRCLIST 0xe714u
+#define COREMARK_2K_PERF_CRCMATRIX 0x1fd7u
+#define COREMARK_2K_PERF_CRCSTATE 0x8e3au
+
+#define COREMARK_2K_VALIDATION_SEED1 0x3415
+#define COREMARK_2K_VALIDATION_SEED2 0x3415
+#define COREMARK_2K_VALIDATION_CRCLIST 0xe3c1u
+#define COREMARK_2K_VALIDATION_CRCMATRIX 0x0747u
+#define COREMARK_2K_VALIDATION_CRCSTATE 0x8d84u
+
+#ifdef COREMARK_VALIDATION
+#define COREMARK_2K_SEED1 COREMARK_2K_VALIDATION_SEED1
+#define COREMARK_2K_SEED2 COREMARK_2K_VALIDATION_SEED2
+#define COREMARK_2K_CRCLIST COREMARK_2K_VALIDATION_CRCLIST
+#define COREMARK_2K_CRCMATRIX COREMARK_2K_VALIDATION_CRCMATRIX
+#define COREMARK_2K_CRCSTATE COREMARK_2K_VALIDATION_CRCSTATE
+#else
+#define COREMARK_2K_SEED1 COREMARK_2K_PERF_SEED1
+#define COREMARK_2K_SEED2 COREMARK_2K_PERF_SEED2
+#define COREMARK_2K_CRCLIST COREMARK_2K_PERF_CRCLIST
+#define COREMARK_2K_CRCMATRIX COREMARK_2K_PERF_CRCMATRIX
+#define COREMARK_2K_CRCSTATE COREMARK_2K_PERF_CRCSTATE
+#endif
+
+// seed4_volatile is the iteration count; iterate() latches the CRCs on the first only.
 #ifndef ITERATIONS
 #error "ITERATIONS must be defined -- the number of CoreMark iterations to run"
 #endif
-volatile ee_s32 seed1_volatile = 0;
-volatile ee_s32 seed2_volatile = 0;
-volatile ee_s32 seed3_volatile = 0x66;
+volatile ee_s32 seed1_volatile = COREMARK_2K_SEED1;
+volatile ee_s32 seed2_volatile = COREMARK_2K_SEED2;
+volatile ee_s32 seed3_volatile = COREMARK_2K_SEED3;
 volatile ee_s32 seed4_volatile = ITERATIONS;
 volatile ee_s32 seed5_volatile = 0;
 
 ee_u32 default_num_contexts = 1;
 
-// Nominal only: it is what turns a cycle count into the "seconds" core_main.c checks
-// against its own ">=10 secs" rule, and it is NOT what the CoreMark/MHz figure below is
-// computed from -- that figure is iterations * 1e6 / cycles, frequency-independent by
-// construction, the same way DMIPS/MHz is.
-#define NOMINAL_HZ 12000000u
+// Reaches only core_main.c's ">=10 secs" rule; the score is frequency-independent.
+#ifndef COREMARK_HZ
+#define COREMARK_HZ 12000000u
+#endif
 
 static CORE_TICKS start_ticks, stop_ticks;
-static unsigned start_instret, stop_instret;
 
 static inline unsigned read_mcycle(void) {
   unsigned value;
@@ -48,25 +72,13 @@ static inline unsigned read_mcycle(void) {
   return value;
 }
 
-static inline unsigned read_minstret(void) {
-  unsigned value;
-  __asm__ volatile("csrr %0, minstret" : "=r"(value) : : "memory");
-  return value;
-}
+void start_time(void) { start_ticks = (CORE_TICKS)read_mcycle(); }
 
-void start_time(void) {
-  start_instret = read_minstret();
-  start_ticks = (CORE_TICKS)read_mcycle();
-}
-
-void stop_time(void) {
-  stop_ticks = (CORE_TICKS)read_mcycle();
-  stop_instret = read_minstret();
-}
+void stop_time(void) { stop_ticks = (CORE_TICKS)read_mcycle(); }
 
 CORE_TICKS get_time(void) { return stop_ticks - start_ticks; }
 
-secs_ret time_in_secs(CORE_TICKS ticks) { return ticks / NOMINAL_HZ; }
+secs_ret time_in_secs(CORE_TICKS ticks) { return ticks / COREMARK_HZ; }
 
 void portable_init(core_portable *p, int *argc, char *argv[]) {
   (void)argc;
@@ -129,8 +141,7 @@ static void put_hex(unsigned long value, unsigned width, int zero_pad) {
   }
 }
 
-// Only the specifiers the vendored CoreMark sources actually call with: %d, %u, %lu,
-// %04x-style widths on %x, %s, and %%.
+// Only the specifiers the vendored sources call with: %d, %u, %lu, %0Nx, %s, %%.
 int ee_printf(const char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
@@ -194,6 +205,15 @@ int ee_printf(const char *fmt, ...) {
   return 0;
 }
 
+// riscv_test.h's shape: an unvalidated run cannot exit the way a PASS does.
+enum coremark_verdict {
+  COREMARK_PASS = 1,
+  COREMARK_FAIL = 3,
+  COREMARK_UNVALIDATED = 5,
+};
+
+#ifndef COREMARK_VALIDATION
+// Written out because -nostdlib links no libgcc.
 static unsigned long long umul64(unsigned a, unsigned b) {
   return (unsigned long long)a * (unsigned long long)b;
 }
@@ -228,66 +248,49 @@ static void put_fixed(unsigned value, unsigned places) {
   }
 }
 
-static void put_line(const char *label, const char *text) {
-  put_str(label);
-  put_str(text);
-  put_str("\n");
+// Both linker scripts give `rom` origin 0, so `.data`'s load address plus its size is
+// the ROM image's byte count -- the same one run_coremark.sh reads back with objcopy.
+extern char __data_load_start[];
+extern char __data_start[];
+extern char __data_end[];
+
+static unsigned long rom_bytes(void) {
+  return (unsigned long)__data_load_start +
+         ((unsigned long)__data_end - (unsigned long)__data_start);
 }
+#endif
 
-enum coremark_verdict {
-  COREMARK_PASS = 1,
-  COREMARK_FAIL = 3,
-  COREMARK_UNVALIDATED = 5,
-};
-
+// EEMBC's one-line report syntax, performance build only. The caveats that travel with
+// the number are printed host-side by run_coremark.sh, where they cost the ROM nothing.
 static void coremark_report(unsigned iterations, unsigned cycles,
-                             unsigned instructions,
                              enum coremark_verdict verdict) {
-  put_str("\n== this core's own CoreMark/MHz, not core_main.c's own report "
-          "above ==\n");
-  put_line("Compiler       : ", __VERSION__);
-  put_line("Compiler flags : ", COREMARK_FLAGS);
-  put_str("Memory config  : MEM_STACK, TOTAL_DATA_SIZE 2000 bytes, "
-          "SEED_VOLATILE performance run\n");
-  put_str("SIMULATED AT 16 KB OF ROM -- double this part's 8 KB. This "
-          "figure describes a machine that cannot be built until the ROM "
-          "grows; see the caveat this run prints below.\n\n");
-  put_str("Iterations     : ");
-  put_udec(iterations, 0, 0);
-  put_str("\nCycles         : ");
-  put_udec(cycles, 0, 0);
-  put_str("\nInstructions   : ");
-  put_udec(instructions, 0, 0);
-  put_str("\nCPI            : ");
-  put_fixed((unsigned)udiv64(umul64(cycles, 100u), instructions), 2);
-  put_str("\nCoreMark/MHz   : ");
+#ifndef COREMARK_VALIDATION
+  put_str("CoreMark 1.0 : ");
   put_fixed((unsigned)udiv64(umul64(iterations, 1000000000u), cycles), 3);
+  put_str(" / GCC ");
+  put_str(__VERSION__);
+  put_str(" ");
+  put_str(COREMARK_FLAGS);
+  put_str(" / STACK, ROM ");
+  put_udec(rom_bytes(), 0, 0);
+  put_str(", RAM 64K / 1\n");
+#endif
+  put_str("Cycles         : ");
+  put_udec(cycles, 0, 0);
+  put_str("\nIterations     : ");
+  put_udec(iterations, 0, 0);
   put_str("\nSelf-check     : ");
   switch (verdict) {
   case COREMARK_PASS:
-    put_str("PASS (2K performance seeds and size, list/matrix/state CRCs "
-            "matched against EEMBC's published values, check_data_types "
-            "clean)\n");
+    put_str("PASS\n");
     break;
   case COREMARK_FAIL:
-    put_str("FAIL (ran the 2K performance configuration; see the CRC lines "
-            "core_main.c printed above, or a check_data_types error)\n");
+    put_str("FAIL\n");
     break;
   default:
-    put_str("COULD NOT BE VALIDATED (seeds, size or the executed-algorithm "
-            "mask did not match EEMBC's 2K performance run -- this figure "
-            "is not a scored CoreMark result)\n");
+    put_str("UNVALIDATED\n");
     break;
   }
-  put_str("\n"
-          "READ THE FLAGS AND THE ROM SIZE WITH THE NUMBER. CoreMark is\n"
-          "less string-dominated than Dhrystone and harder for the optimiser\n"
-          "to delete, but it is still a compiled figure: the compiler, the\n"
-          "flags and the iteration count travel with it because EEMBC's own\n"
-          "run rules require disclosing all three. This core is stall-only\n"
-          "with no bitmanip extension, and CoreMark leans on both -- a figure\n"
-          "well under a core built with forwarding and Zba/Zbb/Zbs is the\n"
-          "price of this core's four goals, not a defect in the port.\n");
 
   tohost[1] = 0;
   tohost[0] = (unsigned)verdict;
@@ -306,24 +309,16 @@ static void coremark_report(unsigned iterations, unsigned cycles,
 #endif
 }
 
-#define COREMARK_2K_SEED1 0
-#define COREMARK_2K_SEED2 0
-#define COREMARK_2K_SEED3 0x66
-#define COREMARK_2K_SIZE 666
-#define COREMARK_2K_CRCLIST 0xe714u
-#define COREMARK_2K_CRCMATRIX 0x1fd7u
-#define COREMARK_2K_CRCSTATE 0x8e3au
-
 void portable_fini(core_portable *p) {
   core_results *res =
       (core_results *)((char *)p - offsetof(core_results, port));
-  int ran_2k_performance = res->execs == ALL_ALGORITHMS_MASK &&
-                            res->seed1 == COREMARK_2K_SEED1 &&
-                            res->seed2 == COREMARK_2K_SEED2 &&
-                            res->seed3 == COREMARK_2K_SEED3 &&
-                            res->size == COREMARK_2K_SIZE;
+  int ran_2k_config = res->execs == ALL_ALGORITHMS_MASK &&
+                       res->seed1 == COREMARK_2K_SEED1 &&
+                       res->seed2 == COREMARK_2K_SEED2 &&
+                       res->seed3 == COREMARK_2K_SEED3 &&
+                       res->size == COREMARK_2K_SIZE;
   enum coremark_verdict verdict = COREMARK_UNVALIDATED;
-  if (ran_2k_performance) {
+  if (ran_2k_config) {
     int crcs_ok = res->crclist == COREMARK_2K_CRCLIST &&
                   res->crcmatrix == COREMARK_2K_CRCMATRIX &&
                   res->crcstate == COREMARK_2K_CRCSTATE;
@@ -331,6 +326,5 @@ void portable_fini(core_portable *p) {
                   ? COREMARK_PASS
                   : COREMARK_FAIL;
   }
-  coremark_report((unsigned)res->iterations, stop_ticks - start_ticks,
-                   stop_instret - start_instret, verdict);
+  coremark_report((unsigned)res->iterations, stop_ticks - start_ticks, verdict);
 }

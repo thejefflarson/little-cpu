@@ -986,9 +986,19 @@ dhrystone-board:
 	@echo 'Dhrystone is in board.bin. Flash it with `make prog`, then read the'
 	@echo 'report off the UART -- it prints itself, cycles and all.'
 
+# Two names, not one target with two bodies: make's last-wins recipe and first-wins `?=`
+# would pair one route's flags with the other's script. test/makefile_target_test.sh.
 COREMARK_ECP5_UART_BASE  ?= $(DHRY_UART_BASE)
 COREMARK_ECP5_CFLAGS     ?= $(COREMARK_CFLAGS)
 COREMARK_ECP5_ITERATIONS ?= $(COREMARK_ITERATIONS)
+
+# -O2 does not fit the part's 8 KB ROM at any port size; this is the smallest that does.
+COREMARK_UP5K_CFLAGS ?= -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -Os -flto \
+                          -std=c11 -ffreestanding -fno-tree-loop-distribute-patterns \
+                          -Wall -Wextra -Werror
+
+COREMARK_UP5K_ITERATIONS ?= 800
+COREMARK_HZ              ?= 12000000
 
 .PHONY: coremark-pin-check
 coremark-pin-check:
@@ -1023,6 +1033,39 @@ coremark-rom-ecp5: coremark-pin-check
 	  "$$tmp/coremark.elf" "$$tmp/rom.hex"; \
 	python3 soc/rom_banks.py "$$tmp/rom.hex" soc/rom_even.hex soc/rom_odd.hex \
 	  --rom-words $(SOC_ROM_WORDS)
+
+.PHONY: coremark-rom-up5k
+coremark-rom-up5k: coremark-pin-check
+	@set -e; \
+	for candidate in riscv64-elf-gcc riscv64-unknown-elf-gcc; do \
+	  if command -v $$candidate >/dev/null 2>&1; then CC=$$candidate; break; fi; \
+	done; \
+	if [ -z "$$CC" ]; then echo "error: no RISC-V cross compiler; see \`make setup\`." >&2; exit 1; fi; \
+	OBJCOPY=$${CC%gcc}objcopy; \
+	tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/coremark-rom.XXXXXX"); \
+	test -n "$$tmp" -a -d "$$tmp"; \
+	trap 'rm -rf "$$tmp"' EXIT; \
+	flags='$(COREMARK_UP5K_CFLAGS)'; \
+	$$CC $$flags -I test/bench -I $(COREMARK_VENDOR_DIR) \
+	  -DITERATIONS=$(COREMARK_UP5K_ITERATIONS) -DCOREMARK_HZ=$(COREMARK_HZ) \
+	  -DCOREMARK_UART=$(DHRY_UART_BASE) "-DCOREMARK_FLAGS=\"$$flags\"" \
+	  -nostdlib -T test/bench/bench.lds -o "$$tmp/coremark.elf" \
+	  test/crt0.S test/bench/coremark/core_list_join.c \
+	  test/bench/coremark/core_main.c test/bench/coremark/core_matrix.c \
+	  test/bench/coremark/core_state.c test/bench/coremark/core_util.c \
+	  test/bench/coremark_port.c; \
+	$$OBJCOPY -O verilog --verilog-data-width=4 -j .text -j .data \
+	  "$$tmp/coremark.elf" "$$tmp/rom.hex"; \
+	python3 soc/rom_banks.py "$$tmp/rom.hex" soc/rom_even.hex soc/rom_odd.hex \
+	  --rom-words $(SOC_ROM_WORDS)
+
+.PHONY: coremark-board
+coremark-board:
+	@rm -f board.json board.asc board.bin
+	@$(MAKE) --no-print-directory board.bin BOARD_OSC=$(BOARD_OSC) BOARD_ROM=coremark-rom-up5k
+	@echo
+	@echo 'CoreMark is in board.bin. Flash it with `make prog`, then read the'
+	@echo 'report off the UART -- it prints itself, cycles and all.'
 
 BOARD ?= upduino
 

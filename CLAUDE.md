@@ -432,6 +432,12 @@ top, ECP5 only.
   conventional one when ADR-0158 measured it, and executor-only forwarding took the inset figure
   to 2.203 afterwards (ADR-0154). Hazard3's published 4.15 CoreMark/MHz is its RP2350 build, not its iCE40
   one, and quoting it against an ice40 core is the mixed-configuration error ADR-0098 names.
+  **`make coremark-rom-up5k` links a CoreMark image the part can actually hold** — 7,076 of the shipping
+  8 KB, `-Os -flto` rather than `COREMARK_CFLAGS`'s `-O2` (1.780 CoreMark/MHz, a 19.2% cost, legal
+  under EEMBC's own build-option allowance) and `COREMARK_UP5K_ITERATIONS`'s 800 iterations, which
+  clears `core_main.c`'s own ">=10 secs" self-check for real at 12 MHz (ADR-0165). No board has run
+  it yet — `make coremark-board` is off `make test` and CI, the same standing as
+  `make dhrystone-board` before ADR-0130.
 - **The only cross-core comparison that means anything is one harness**, `soc/compare/`: same part,
 memories, program, toolchain and seeds, against the VexRiscv in the pinned riscv-formal clone and
 Hazard3's iCE40 build (`soc/compare/hazard3_pin.mk`, ADR-0139). **A product is a measurement only
@@ -623,6 +629,9 @@ make bitstream      # icepack the board wrapper into board.bin; BOARD_OSC=intern
 make prog           # iceprog board.bin onto the UPduino; root on macOS
 make suite-board    # the .S suite on the part, in batches, read back over the UART; root
 make dhrystone-board # Dhrystone built for the board; flash with `make prog`, read the UART
+make coremark-board # CoreMark built for the up5k at COREMARK_UP5K_CFLAGS (-Os -flto, not
+                    # COREMARK_CFLAGS' -O2); flash with `make prog`, read the UART.
+                    # `make coremark-rom-up5k` builds that image alone
 make icesugar-bitstream # the iCESugar-Pro (ECP5) bitstream; ICESUGAR_PROG picks the program,
                     # ICESUGAR_ROM=noop-rom takes banks another recipe already wrote
 make icesugar-prog  # load it into SRAM over JTAG. NOT the flash: a flash write leaves the

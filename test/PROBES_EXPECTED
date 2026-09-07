@@ -232,6 +232,8 @@ a must-trap proof going red somewhere else is not evidence
 a mutant that left no trace demonstrates nothing, and says so
 a mutant the digest calls equal placing elsewhere voids it too
 a mutate whose sed expression matches nothing is fixture-stale, named
+a mutated performance CRC literal is caught the same way
+a mutated validation CRC literal in coremark_port.c is caught before a compiler runs
 a mutated vendored byte fails the pin, and says so
 a mutated vendored byte fails the pin, and says so
 a mutation line with a stray extra field is red rather than read as the name
