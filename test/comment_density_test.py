@@ -51,6 +51,8 @@ HASH_MANIFESTS = {
     "formal/MULTIHART_TIE_OFF",
     "formal/INTERRUPT_TIE_OFF",
     "formal/COMPLETE_EXCLUSIONS",
+    "nano/formal/EXPECTED_FAIL",
+    "nano/formal/EXPECTED_CHECKS",
 }
 
 EXCLUDE_PREFIXES = (
