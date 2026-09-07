@@ -144,3 +144,19 @@ read is read-first, so a two-instruction loop misses on its second pass and hits
 
 The hit rate is not a ratchet and nothing grades it. A change that made every lookup miss would cost
 8% of Dhrystone and pass every check in the tree.
+
+## Amendment, 2026-09-06: the deferral this ADR filed is re-opened, not closed
+
+[ADR-0113](0113-the-successor-pair-table-is-declined-and-its-price-is-the-tail.md) closed this ADR's
+deferral by declining the table on the placement tail. **That decline has been re-taken on today's
+tree and it inverted**; the full measurement is ADR-0113's own amendment of 2026-09-06 and is not
+repeated here. In short: rebuilt from the description above, sixteen paired seeds, the worst
+placement is 12.60 MHz against ADR-0113's 11.93 with none of the sixteen under the requirement,
+`make fit` is under its ratchet, and the payoff has grown to −9.05% of Dhrystone's cycles and
+0.853 DMIPS/MHz — a product 11.2% better at the worst placement and 12.6% at the median.
+
+**The three shape decisions this ADR recorded are what the rebuild started from and all three still
+hold**: read off `next_pc` on the edge the instruction memory latches `imem_addr_next`; tagged, so a
+collision is a miss rather than another instruction's pair; stored against the PREVIOUS issue's
+address. Nothing in the rebuild needed to be re-derived, which is what that paragraph was written
+for.

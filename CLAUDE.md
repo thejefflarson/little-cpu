@@ -533,13 +533,16 @@ harness gives VexRiscv no data path to its ROM, so keep read-only data out of RO
   so is a CPI cost, so re-take one in the tree you mean to spend it in.
 - **Read logic levels apart**: a LUT level costs ~3.3 ns with interconnect, a carry hop ~0.34 ns
   without, so a change that trades a carry hop for a LUT level gets shallower by icetime's count
-  and slower in nanoseconds. **The fetch loop will not take a LUT level at any area price**: the
-  largest decode edit measured, −103 SoC LUTs for one `next_pc` adder, missed 12 MHz at six of six
-  (ADR-0097). `soc/depth/path_stages.py` attributes a path, not a decision, and its level count
-  orders nothing (ADR-0116); `soc/routing_bins.py` shows the routing on that path is flat, with no
-  long hop and no column to pin (ADR-0114). The SoC is routing-dominated and **there is no single
-  lever**: reading `soc.timing.rpt` finds candidates, not wins, the decode head is a plateau at 3.3%
-  deleted whole, and the period is in the fetch loop, whose inputs to `next_pc` are worth 21% only
+  and slower in nanoseconds. **The fetch loop charges for a LUT level, and the charge is
+  perishable**: the largest decode edit measured, −103 SoC LUTs for one `next_pc` adder, missed
+  12 MHz at six of six when it was priced and, re-taken on the tree that had ADR-0154 in it, clears
+  12 MHz at sixteen of sixteen with a worst of 12.18 — still slower at every one of those sixteen,
+  +2.40% of median, so still declined, but on the period cost and no longer on the requirement
+  (ADR-0097 as amended). `soc/depth/path_stages.py` attributes a path, not a decision, and its
+  level count orders nothing (ADR-0116); `soc/routing_bins.py` shows the routing on that path is
+  flat, with no long hop and no column to pin (ADR-0114). The SoC is routing-dominated and
+  **there is no single lever**: reading `soc.timing.rpt` finds candidates, not wins, the decode
+  head is a plateau at 3.3% deleted whole, and the period is in the fetch loop, whose inputs to `next_pc` are worth 21% only
   all together — collecting that means the pc stops depending on this cycle's decode, which is the
   no-wrong-path-state commitment (ADR-0076). **Measure the whole set**: a ceiling over one term
   bounds only that term.

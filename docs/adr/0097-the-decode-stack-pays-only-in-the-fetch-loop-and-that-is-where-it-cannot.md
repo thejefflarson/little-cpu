@@ -173,3 +173,40 @@ it, and the ratchet was not what declined anything here.
   period, −103 cells) is what a future reader needs and no argument would have supplied.
 - **`make soc-timing`'s `SB_LUT4` is not stable across spellings of one fact**, by 44 LUTs on the
   same three edits. Quote a group's number with the tree and the text it was measured on.
+
+## Amendment, 2026-09-06: candidate 4 re-taken — still declined, but no longer for this reason
+
+Candidate 4 — one adder for both `fetcher_pc` arms of `next_pc`, `pc_addend = (instr_jal ||
+branch_taken) ? immediate : pc_inc` feeding a single `fetcher_pc + pc_addend` default arm — rebuilt
+from this ADR's own description on top of `main` at `1b66af2`. Candidate tree `b4f0b0e`. Sixteen
+paired seeds (`default 1`…`15`), `SOC_MIN_MHZ=0`, one toolchain on both arms: OSS CAD Suite — Yosys
+0.68+48 (`ff5817c34-dirty`), nextpnr-0.11-1-g62e659ed, icetime oss-cad-suite 20260811
+(`sha256:25a4ecb76c094f00`).
+
+| arm | worst | median | best | spread | placed `ICESTORM_LC` | under 12.00 MHz |
+|---|---|---|---|---|---|---|
+| base `4697eb8` | 80.41 ns / 12.44 MHz | 78.03 / 12.82 | 76.38 / 13.09 | 5.3% | 4904 | 0 of 16 |
+| candidate 4 `b4f0b0e` | 82.10 ns / **12.18 MHz** | 79.90 / 12.52 | 77.50 / 12.90 | 5.9% | 4872 | **0 of 16** |
+
+**The +9.1% of median period does not reproduce, and neither does the miss.** It is +2.40% of median,
++2.10% at the worst placement, per-seed median +1.84% — and **sixteen of sixteen placements are
+slower, none faster**, which is what says it is the edit and not the placement. Twelve MHz now holds
+at every one of the sixteen; when this was filed the same edit was under the requirement at six of
+six. The area result reproduces in kind and shrinks in size: `make fit` 4101 → 4017 (**−84 cells**,
+outside the ±50 churn band, against the recorded −75) and the placed SoC 4904 → 4872 (−32, inside
+it, against the recorded −110).
+
+**`make test` passes outright on the candidate** — exit 0, the whole `.S`/`.c` suite, all thirteen
+unit benches (the seven decode vectors this ADR shipped included) and every probe gate — which is
+what a change that alters no behaviour should do.
+
+`make cycles` and `make dhrystone` are **bit-identical** on both arms — 38 746 suite cycles and
+1 506 772 Dhrystone cycles, 0.777 DMIPS/MHz either way — which is what a pure respelling of one
+expression should be, and is the control saying the candidate really is only that.
+
+**HELD, but the sentence that declined it is now wrong.** It is no longer "it costs the board clock";
+it is "it costs 1.8–2.4% of period, at a sign consistency no churn band explains, for 84 `fit` cells
+and no cycles at all". That is still a decline under the standing rule not to take a tidier spelling
+that costs measured speed, and it is a much narrower one than this ADR recorded. The trade this ADR
+names — a LUT level in, a 32-bit carry chain out — is still what the netlist does; what changed is
+that the tree around it has enough slack at 12 MHz to absorb it. The RTL is not carried on `main`.
