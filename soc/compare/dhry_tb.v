@@ -101,10 +101,9 @@ module dhry_tb;
   int unsigned haz_begin, haz_end, haz_marks;
   int unsigned ours_writes, vex_writes, haz_writes;
   int unsigned ours_verdict, vex_verdict, haz_verdict;
-  // Cycles inside the measured window that Hazard3's AHB5 adapter still
-  // holds `hready` low: a RAM read landing on the same port a buffered
-  // write is draining into, one it cannot answer by forwarding -- see
-  // soc/compare/bench_hazard3.v's `ram_conflict` comment. littlecpu drives
+  // Cycles inside the measured window that Hazard3's AHB5 adapter spends
+  // holding `hready` low for a write's data phase -- see
+  // soc/compare/bench_hazard3.v's `wr_pending_q` comment. littlecpu drives
   // `.bus_wait(1'b0)` and VexRiscv's bus here is always-ready, so neither of
   // the other two cores pays this; disclosing it beside Hazard3's cycle count
   // is what keeps that difference from hiding inside a single "cycles" number.
@@ -154,7 +153,7 @@ module dhry_tb;
 
   always_ff @(posedge clk) begin
     cycle <= cycle + 1;
-    if (haz_marks == 1 && dut_haz.ram_conflict) haz_wait_cycles <= haz_wait_cycles + 1;
+    if (haz_marks == 1 && dut_haz.wr_pending_q) haz_wait_cycles <= haz_wait_cycles + 1;
   end
 
   // Every fact this prints is raw. soc/compare/dhry_dmips.py grades them and

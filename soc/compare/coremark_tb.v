@@ -16,13 +16,12 @@
 // the shared mechanism -- built for VexRiscv's CSR-free gap, reused rather
 // than reinvented here, the way Hazard3's own CSR_COUNTER=0 already reuses it.
 //
-// Hazard3's AHB5 adapter still holds `hready` low when a RAM read lands on
-// the same port a buffered write is draining into and cannot be answered by
-// forwarding (soc/compare/bench_hazard3.v's `ram_conflict`) -- see that
-// comment for why -- and neither littlecpu's nor VexRiscv's harness pays an
-// equivalent cost. Those cycles are counted directly, the same way
-// dhry_tb.v counts them, rather than left folded into the cycle count with
-// no way to size them back out.
+// Hazard3's AHB5 adapter holds `hready` low for one cycle after every write's
+// address phase (soc/compare/bench_hazard3.v's `wr_pending_q`), correctly --
+// see that comment for why -- and neither littlecpu's nor VexRiscv's harness
+// pays an equivalent cost. Those cycles are counted directly, the same way
+// dhry_tb.v counts them, rather than left folded into the cycle count with no
+// way to size them back out.
 //
 // THE GEOMETRY HERE IS NOT soc/compare/bench_hx8k.pcf'S EITHER. CoreMark's
 // linked image is roughly four times Dhrystone's even at RV32IM with no
@@ -108,8 +107,8 @@ module coremark_tb;
   int unsigned ours_writes, vex_writes, haz_writes;
   int unsigned ours_verdict, vex_verdict, haz_verdict;
   // Cycles inside the measured window that Hazard3's AHB5 adapter spends
-  // unable to forward a read that lands on a buffered write's drain -- see
-  // soc/compare/bench_hazard3.v's `ram_conflict` comment. littlecpu drives
+  // holding `hready` low for a write's data phase -- see
+  // soc/compare/bench_hazard3.v's `wr_pending_q` comment. littlecpu drives
   // `.bus_wait(1'b0)` and VexRiscv's bus here is always-ready, so neither of
   // the other two cores pays this; disclosing it beside Hazard3's cycle count
   // is what keeps that difference from hiding inside a single "cycles" number.
@@ -159,7 +158,7 @@ module coremark_tb;
 
   always_ff @(posedge clk) begin
     cycle <= cycle + 1;
-    if (haz_marks == 1 && dut_haz.ram_conflict) haz_wait_cycles <= haz_wait_cycles + 1;
+    if (haz_marks == 1 && dut_haz.wr_pending_q) haz_wait_cycles <= haz_wait_cycles + 1;
   end
 
   // Every fact this prints is raw. soc/compare/coremark_dmips.py grades them
