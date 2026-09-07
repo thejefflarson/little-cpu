@@ -5779,6 +5779,97 @@ d=$(cd_case_pointer_only)
 probe "a comment-only file's single pointer line is excused by MIN_COMMENT_LINES" 0 \
   "all at or under" "$CD $d"
 
+begin_group "nano/area_report.py"
+
+AR="python3 $REPO/nano/area_report.py"
+
+ar_sha() {
+  if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | cut -d ' ' -f 1; \
+  else sha256sum "$1" | cut -d ' ' -f 1; fi
+}
+
+ar_liberty() {
+  local d; d=$(new_case)
+  cat > "$d/fake.lib" <<'LIB'
+library(fake) {
+  cell(FAKE_NAND2) {
+    area: 4.256;
+  }
+  cell(FAKE_INV) {
+    area: 1.9152;
+  }
+}
+LIB
+  printf '%s' "$d"
+}
+
+ar_stat() {
+  cat > "$1/stat.json" <<'JSON'
+{
+  "design": {
+    "num_cells": 2,
+    "area": 6.1712,
+    "sequential_area": 0.0,
+    "num_cells_by_type": {
+      "FAKE_INV": 1,
+      "FAKE_NAND2": 1
+    }
+  }
+}
+JSON
+}
+
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"
+probe "control: a measurement within budget is green" 0 "RATCHET:" \
+  "$AR $d/stat.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
+
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"
+probe "total above the ratchet names the figure and the budget" 1 \
+  "is over the 5.0 um2 budget" \
+  "$AR $d/stat.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 5"
+
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib")
+probe "a missing stat.json is refused, not read as a zero-area design" 1 \
+  "does not exist" \
+  "$AR $d/missing.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
+
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib")
+printf 'not json' > "$d/bad.json"
+probe "a truncated stat.json is refused, not read as an empty report" 1 \
+  "is not JSON" \
+  "$AR $d/bad.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
+
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib")
+cat > "$d/zero.json" <<'JSON'
+{"design": {"num_cells": 0, "area": 0.0, "sequential_area": 0.0, "num_cells_by_type": {}}}
+JSON
+probe "zero cells is refused, not read as a zero-area design" 1 \
+  "reports zero cells" \
+  "$AR $d/zero.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
+
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib")
+cat > "$d/unknown.json" <<'JSON'
+{"design": {"num_cells": 1, "area": 2.0, "sequential_area": 0.0, "num_cells_by_type": {"$_DFF_": 1}}}
+JSON
+probe "a cell type outside the read liberty is refused, not priced at zero" 1 \
+  "not in" \
+  "$AR $d/unknown.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
+
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"
+probe "a missing liberty file is refused before the JSON is even opened" 1 \
+  "no liberty file at" \
+  "$AR $d/stat.json --liberty $d/does-not-exist.lib --liberty-sha256 $sha --max-um2 10"
+
+d=$(ar_liberty); ar_stat "$d"
+probe "a liberty file that does not match the pinned digest is refused" 1 \
+  "does not match the pinned digest" \
+  "$AR $d/stat.json --liberty $d/fake.lib --liberty-sha256 0000000000000000000000000000000000000000000000000000000000000000 --max-um2 10"
+
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"
+probe "the trend against a recorded figure is printed beside the verdict" 0 \
+  "TREND: +2.2" \
+  "$AR $d/stat.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10 --previous 4"
+
 actual_labels=$(printf '%s\n' "${probe_labels[@]}" | LC_ALL=C sort)
 expected_labels=$(grep -vE '^#|^[[:space:]]*$' "$PROBES_MANIFEST" | LC_ALL=C sort)
 if [ "$actual_labels" != "$expected_labels" ]; then
