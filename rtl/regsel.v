@@ -5,13 +5,14 @@ module regsel (
   output logic [4:0]  rs1,
   output logic [4:0]  rs2
 );
-  // Masked, a compressed encoding no arm below names reads x0 out of the uncompressed
-  // field positions, which is what such an encoding means.
+  // The upper half of a compressed word belongs to the instruction after it, so it is
+  // masked away. A compressed encoding no arm below names then reads x0 out of the
+  // uncompressed field positions, which is what such an encoding means.
   logic [31:0] instr;
   assign instr = (word[1:0] == 2'b11) ? word : {16'b0, word[15:0]};
 
-  // iverilog cannot build a precise sensitivity entry for a constant select inside an
-  // always_comb.
+  // Named continuous assigns rather than part-selects inside the always_comb blocks
+  // below, for which iverilog cannot build a precise sensitivity entry.
   logic [4:0] rd_field, rs1_field, rs2_field, c_rs2_field;
   logic [2:0] c_rd_rs1_prime, c_rs2_prime;
   assign rd_field       = instr[11:7];

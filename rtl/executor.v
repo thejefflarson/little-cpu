@@ -14,7 +14,7 @@ module executor(
   assign rs2 = in.rs2;
 
   // Wider than rtl/decoder.v's `instr_math`: `is_add` also carries AUIPC, LUI, JAL/JALR
-  // and a register-form CSR read, whose results are ready this cycle.
+  // and a register-form CSR read, whose results are all ready this cycle.
   logic in_has_result;
   assign in_has_result = in.is_add || in.is_sub || in.is_xor || in.is_or || in.is_and ||
     in.is_sll || in.is_slt || in.is_sltu || in.is_srl || in.is_sra ||
@@ -39,13 +39,15 @@ module executor(
   assign shift_wide = $signed({shift_fill, shift_src}) >>> rs2[4:0];
   assign shift_res  = shift_wide[31:0];
 
-  // The divider is unsigned; signed div and rem hand it magnitudes.
+  // The divider is unsigned, so signed div and rem hand it magnitudes and restore the
+  // sign on completion.
   logic [31:0] div_x, div_y;
   assign div_x = (in.is_div || in.is_rem) && rs1[31] ? ~(rs1 - 32'd1) : rs1;
   assign div_y = (in.is_div || in.is_rem) && rs2[31] ? ~(rs2 - 32'd1) : rs2;
 
-  // A dividend whose top half is zero would spend sixteen iterations shifting zeros past
-  // the divisor, so the loop starts sixteen in with the state they would leave.
+  // A dividend whose top half is zero would spend sixteen iterations shifting those zeros
+  // past the divisor, so the loop starts sixteen in, loaded with the state they would
+  // have left.
   logic div_skip;
   assign div_skip = div_x[31:16] == 16'b0;
 
@@ -59,8 +61,6 @@ module executor(
   logic [31:0] div_divisor;
   assign div_divisor = ~div_divisor_n;
 
-  // The borrow out is the quotient bit's inverse, and div_rem < div_divisor every
-  // iteration is what makes 33 bits enough.
   logic [32:0] rem_shifted, rem_sub;
   assign rem_shifted = {div_rem, div_quot[31]};
   assign rem_sub     = rem_shifted + {1'b1, div_divisor_n} + 33'd1;
@@ -113,7 +113,8 @@ module executor(
       op_sign_x <= 0;
       op_sign_y <= 0;
     end else begin
-      // Outside the case: a completing divide publishes its own answer.
+      // Assigned outside the case on purpose: the cycle a divide completes must publish
+      // its own answer, not the one latched when it issued.
       out.rd_ready <= in_has_result;
       (* parallel_case, full_case *)
       case (state)
@@ -226,7 +227,8 @@ module executor(
   initial state = init;
   always_comb if (clocked) assume(!reset);
 
-  // `is_valid_instr` and `is_amo` are left out on purpose.
+  // `is_valid_instr` and `is_amo` are left out on purpose: the first is every no-result
+  // instruction's arm, the second the OR of nine flags already listed here.
   always_comb assume($onehot0({in.is_add, in.is_sub, in.is_xor, in.is_or, in.is_and,
     in.is_sll, in.is_slt, in.is_sltu, in.is_srl, in.is_sra,
     in.is_mul, in.is_mulh, in.is_mulhu, in.is_mulhsu,
@@ -286,8 +288,6 @@ module executor(
         $past(in.is_mul || in.is_mulh || in.is_mulhu || in.is_mulhsu))
       assert(state == init);
 
-  // Constant multipliers, so the solver sees shifts and adds rather than a second `bvmul`
-  // term; a miter against a signed 33x33 product returns no verdict.
   logic [63:0] mul_result;
   assign mul_result = {mul_hi, mul_lo};
   always_comb if (in.rs1 == 32'b0) assert(mul_result == 64'b0);

@@ -1,6 +1,7 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// Transmit-only, 8N1. A byte written while `busy` is set is DROPPED, not queued.
+// A transmit-only UART, 8N1. A byte written while `busy` is set is DROPPED, not queued,
+// so software polls the status register between bytes.
 module uart #(
   parameter logic [31:0] BASE     = 32'h0002_0020,
   parameter integer      CLOCK_HZ = 12_000_000,

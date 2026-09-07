@@ -1,6 +1,8 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// A single-lane, mode-0 SPI shift register for the configuration flash.
+// A single-lane, mode-0 SPI shift register for the configuration flash. It decodes no
+// commands, so it sends a write enable or a sector erase as readily as a read, and the
+// bottom of that flash is the bitstream itself.
 module spiflash #(
   parameter logic [31:0] BASE = 32'h0002_0028
 ) (

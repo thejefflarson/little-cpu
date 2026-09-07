@@ -1,13 +1,13 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
 // A ROM in block RAM, banked by word parity so the two neighbouring words fetch asks for
-// come out of one copy of the storage.
+// every cycle come out of one copy of the storage. The read takes a cycle.
 module imemory #(
   // Whole 256-word `SB_RAM40_4K` depths, or the mapping picks up leftover logic.
   parameter integer ROM_WORDS = 2048,
   parameter integer NHARTS = 1,
-  // Two files: yosys does not turn an `initial` loop copying between arrays into memory
-  // init.
+  // Two files, because yosys does not turn an `initial` loop copying between arrays into
+  // memory init.
   parameter INIT_EVEN = "",
   parameter INIT_ODD  = ""
 ) (
@@ -54,7 +54,7 @@ module imemory #(
   assign data_odd   = data_word[0];
   assign text_range = ~|data_word[29:ROM_BITS];
 
-  // A store takes the port too: reading a word while it is written is undefined.
+  // A store takes the port too: reading a word while it is being written is undefined.
   logic text_access, text_write_even, text_write_odd;
   assign text_access     = (mem_ren || |mem_wstrb) && text_range;
   assign text_write_even = |mem_wstrb && text_range && !data_odd;

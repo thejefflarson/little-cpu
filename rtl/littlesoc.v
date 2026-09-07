@@ -1,8 +1,9 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// The SPRAM cannot be initialised, so a program's `.data` is copied out of ROM.
+// SPRAM cannot be initialised, so `.data` rides in ROM and startup copies it out.
 module littlesoc #(
-  // Defaulted to the up5k board's 12 MHz: a board file that does not say runs unchanged.
+  // The board's clock, from which rtl/uart.v derives its divisor. Defaulted to the up5k's
+  // 12 MHz.
   parameter integer CLOCK_HZ = 12_000_000
 ) (
   input  logic clk,
@@ -10,15 +11,15 @@ module littlesoc #(
   output logic ledr_n,
   output logic ledg_n,
   output logic uart_tx,
-  // Its pins are the programmer's too, so a board file must not drive these three
-  // unconditionally.
+  // The configuration flash. Its pins are the programmer's, so a board file must not
+  // drive these three unconditionally.
   output logic spi_sck,
   output logic spi_mosi,
   input  logic spi_miso,
   output logic spi_cs_n
 );
-  // KEEP `reset` REGISTERED: unregistered, the button pin headed the design's longest
-  // path.
+  // The FPGA comes out of configuration with no reset of its own. KEEP `reset`
+  // REGISTERED: unregistered, the button pin headed the design's longest path.
   logic [3:0] por_count = 4'b0;
   logic       por_done  = 1'b0;
   logic [1:0] btn_sync  = 2'b0;

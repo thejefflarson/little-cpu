@@ -1,7 +1,7 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// ECP5 only: two fetch windows are two copies of the banked ROM, 32 block RAMs against
-// the up5k's 30.
+// rtl/littledual.v with its pins and a power-on reset. ECP5 only: two fetch windows are
+// two copies of the banked ROM, 32 block RAMs against the up5k's 30.
 module littledualsoc (
   input  logic clk,
   input  logic btn_n,

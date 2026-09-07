@@ -64,7 +64,9 @@ module writeback(
   assign in_rd_data = in.rd_data;
 
   assign wen   = !reset && in_valid && (in_rd != 5'b0);
-  // PRESENTED UNMASKED. Every consumer in rtl/regfile.v tests `wen`.
+  // PRESENTED UNMASKED. Every consumer in rtl/regfile.v tests `wen`, and masking these
+  // with `wen` measured as a period cost: it spends a mux in front of a bypass with no
+  // LUT input left to fold it into.
   assign waddr = in_rd;
   assign wdata = in_rd_data;
 

@@ -3,7 +3,6 @@
 `include "structs.v"
 module littlecpu #(
   parameter logic [31:0] HART_ID = 32'd0,
-  // Restated because a module cannot read another's parameters.
   parameter integer      LS_TEXT_WORDS = 2048,
   parameter logic [31:0] LS_RAM_BASE   = 32'h0001_0000,
   parameter integer      LS_RAM_WORDS  = 16384,
@@ -20,8 +19,8 @@ module littlecpu #(
   // The value `imem_addr` takes on the next edge, so a synchronous memory can latch it a
   // cycle early.
   output logic [31:0] imem_addr_next,
-  // A text-range load or store takes the fetch port; the fetch that lost it comes back as
-  // `fetch_stall`.
+  // The data bus. A load or store to the text range takes the instruction memory's read
+  // port for that cycle, and the fetch that lost it comes back as `fetch_stall`.
   output logic [31:0] mem_addr,
   output logic [31:0] mem_wdata,
   output logic [3:0]  mem_wstrb,
@@ -30,15 +29,18 @@ module littlecpu #(
   input  logic        fetch_stall,
   input  logic        imem_fault,
   input  logic        mem_reservable,
-  // Arrives with the address, so decode commits the fault there.
+  // The address an atomic in decode would use. The platform's answer arrives with it, so
+  // decode commits the fault in the cycle it reads the word.
   output logic [31:0] atomic_addr,
   input  logic        atomic_supported,
-  // `snoop_*` is that initiator's write, which clears a reservation on its word.
+  // `bus_wait` says the bus is another initiator's this cycle, and `snoop_*` is that
+  // initiator's write, which clears a reservation on its word.
   input  logic        bus_wait,
   input  logic        snoop_write,
   input  logic [31:0] snoop_addr,
   output logic        mem_lock,
-  // A cycle before the transaction; the platform ANDs it against its grant.
+  // Decode's request for the data bus, a cycle before the transaction; the platform ANDs
+  // it against its grant and answers on `bus_wait`.
   output logic        bus_request,
   input  logic        irq_timer,
   output logic trap
@@ -83,7 +85,6 @@ module littlecpu #(
   output logic [31:0] rvfi_csr_mscratch_rdata,
   output logic [31:0] rvfi_csr_mscratch_wdata
   `ifdef RISCV_FORMAL_CSR_MCAUSE
-  // The comma leads: yosys accepts a trailing one and iverilog does not.
   ,
   output logic [31:0] rvfi_csr_mcause_rmask,
   output logic [31:0] rvfi_csr_mcause_wmask,
@@ -92,8 +93,8 @@ module littlecpu #(
   `endif
   `endif //  `ifdef RISCV_FORMAL
   );
-  // The region arithmetic would go on classifying addresses against a window that is not
-  // a power of two on its own boundary.
+  // The region arithmetic assumes a power-of-two window on its own boundary, and would go
+  // on classifying addresses against one that is not.
   localparam int LS_TEXT_ADDR_BITS = $clog2(LS_TEXT_WORDS);
   localparam int LS_RAM_ADDR_BITS  = $clog2(LS_RAM_WORDS);
   if (LS_TEXT_WORDS != (1 << LS_TEXT_ADDR_BITS)) begin : l_ls_text_words_power_of_two
@@ -118,7 +119,8 @@ module littlecpu #(
   decoder_output decoder_out;
   executor_output executor_out;
   logic divider_stalled;
-  // A store writes no register, so the scoreboard cannot see one still in the accessor.
+  // A store writes no register, so the scoreboard cannot see one still in the accessor;
+  // the serializing wait reads this instead.
   logic accessor_out_valid;
   logic decoder_trap_entry;
   assign trap = decoder_trap_entry;
@@ -168,8 +170,6 @@ module littlecpu #(
   `ifdef RISCV_FORMAL_CSR_MCAUSE
   rvfi_csr32 csr_rvfi_mcause;
   `endif
-  // Instrumentation only. `probe_rs1` is the issuing instruction's own rs1, not the pair
-  // presented to the register file.
   logic [4:0] probe_rs1;
   logic       probe_ls_issuing;
  `endif
@@ -268,8 +268,8 @@ module littlecpu #(
 
   accessor_output accessor_out;
   assign accessor_out_valid = accessor_out.valid;
-  // Launches from `decoder_out` a stage early, on the one cycle the executor takes it;
-  // any other cycle would present a store twice.
+  // The bus transaction launches from `decoder_out`, a stage early, on the one cycle the
+  // executor takes it. Any other cycle would present a store twice.
   accessor accessor(
     .clk(clk),
     .reset(reset),
@@ -347,7 +347,6 @@ module littlecpu #(
   assign rvfi_mode = 2'd3;
   assign rvfi_ixl = 2'd1;
 
-  // Two counters for `make cycles`, unread by the core.
   localparam int LS_BLOCK_BITS = 11;              // 2 KB: a 12-bit offset's reach
   localparam int LS_BLOCK_NUM_BITS = 32 - LS_BLOCK_BITS;
   localparam logic [31:0] LS_TIMER_BYTES = 32'd16;
@@ -373,8 +372,9 @@ module littlecpu #(
   logic [LS_BLOCK_NUM_BITS-1:0] ls_block;
   assign ls_block = reg_rs1[31:LS_BLOCK_BITS];
 
-  // Not a shared function: iverilog derives a continuous assign's sensitivity from the
-  // call's arguments.
+  // Not a shared function, because iverilog derives a continuous assign's sensitivity
+  // from the call's arguments. `1'b1`, not `1`: an integer literal would widen the
+  // compare to 32 bits, and the block below zero must wrap to the top.
   logic ls_at_edge;
   assign ls_at_edge =
     ls_block == LS_TEXT_LO - 1'b1  || ls_block == LS_TEXT_LO  ||

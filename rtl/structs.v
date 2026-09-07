@@ -5,7 +5,8 @@ typedef struct packed {
   logic        valid;
   logic [31:0] pc;
   logic [31:0] instr;
-  // The raw 32 bits following `instr`.
+  // The raw 32 bits following `instr`. Decode reads a register-number guess out of them a
+  // cycle early, so this need not be an instruction at all.
   logic [31:0] next_instr;
 } fetcher_output;
 
@@ -33,12 +34,11 @@ typedef struct packed {
   logic [31:0] rs1_rdata;
   logic [31:0] rs2_rdata;
   logic        trap;
-  // Only an interrupt sets this: an exception reports mtvec in the faulting instruction's
-  // own pc_wdata, so the pc chain stays unbroken.
+  // Only an interrupt sets this. An exception reports mtvec in the faulting instruction's
+  // own pc_wdata, so the pc chain stays unbroken there.
   logic        intr;
-  // The access never reached the accessor, so its address and masks are reported from
-  // here: both masks clear is a refused fetch, a read mask alone a load or lr.w, any
-  // write mask a store, sc.w or AMO.
+  // The platform had no memory at an address this instruction touched, so its address and
+  // masks are reported from here rather than by the accessor it never reached.
   logic        mem_fault;
   logic [3:0]  mem_fault_rmask;
   logic [3:0]  mem_fault_wmask;

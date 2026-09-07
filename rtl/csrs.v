@@ -1,9 +1,9 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
 `include "structs.v"
-// Every access reads and commits in decode on the edge its instruction issues; the
-// decoder serializes them and decides illegal-CSR traps, so nothing here stalls or
-// faults.
+// Every access reads and commits in decode, on the edge its instruction issues. The
+// decoder serializes CSR instructions and decides illegal-CSR traps, so nothing here
+// stalls or faults.
 module csrs #(
   parameter logic [31:0] HART_ID = 32'd0
 ) (
@@ -24,8 +24,8 @@ module csrs #(
   input  logic [31:0] trap_epc,
   input  logic [31:0] trap_tval,
   input  logic        mret_entry,
-  // MUST ARRIVE REGISTERED: `interrupt_pending` is one AND from `next_pc`, so an
-  // unregistered 64-bit compare would land in the fetch loop.
+  // MUST ARRIVE REGISTERED. `interrupt_pending` is one AND away from `next_pc`, so an
+  // unregistered 64-bit compare here would land in the fetch loop.
   input  logic        irq_timer,
   output logic [31:0] mtvec_value,
   output logic [31:0] mepc_value,
@@ -60,7 +60,7 @@ module csrs #(
   localparam logic [11:0] MIMPID    = 12'hF13;
   localparam logic [11:0] MHARTID   = 12'hF14;
 
-  // MXL = 1; extensions I, M, A and C.
+  // MXL = 1, and extensions I, M, A and C.
   localparam logic [31:0] MISA_VALUE = 32'h4000_1105;
 
   logic [63:0] mcycle, minstret;
@@ -78,14 +78,14 @@ module csrs #(
   // MPP = 2'b11 at [12:11]; MPIE at [7]; MIE at [3]; everything else 0.
   assign mstatus_value = {19'b0, 2'b11, 3'b0, mstatus_mpie, 3'b0, mstatus_mie, 3'b0};
 
-  // Bit 7 is MTIE in mie and MTIP in mip.
+  // Bit 7 is MTIE in `mie` and MTIP in `mip`.
   logic [31:0] mie_value, mip_value;
   assign mie_value = {24'b0, mie_mtie, 7'b0};
   assign mip_value = {24'b0, irq_timer, 7'b0};
 
   assign interrupt_pending = irq_timer && mie_mtie && mstatus_mie;
 
-  // The 87 performance-monitor addresses, all read-only zero.
+  // The 87 performance-monitor addresses, every one of them read-only zero.
   localparam logic [6:0] MHPMCOUNTER_WINDOW  = 7'h58; // 0xB00-0xB1F
   localparam logic [6:0] MHPMCOUNTERH_WINDOW = 7'h5C; // 0xB80-0xB9F
   localparam logic [6:0] MHPMEVENT_WINDOW    = 7'h19; // 0x320-0x33F
@@ -127,7 +127,7 @@ module csrs #(
   end
 
   logic [31:0] wdata_mtvec, wdata_mepc, wdata_mstatus, wdata_mie;
-  // Direct mode only: mtvec[1:0] is the mode field.
+  // Direct mode only, so a write forces the two mode bits at `mtvec[1:0]` to zero.
   assign wdata_mtvec   = {wdata[31:2], 2'b00};
   assign wdata_mepc    = {wdata[31:1], 1'b0};
   assign wdata_mstatus = {19'b0, 2'b11, 3'b0, wdata[7], 3'b0, wdata[3], 3'b0};
@@ -153,8 +153,8 @@ module csrs #(
   assign warl_mpie = warl[7];
   assign warl_mtie = warl[7];
 
-  // BIT 1 MUST SURVIVE: C makes 2-byte targets legal, and without it a fault on a
-  // compressed instruction resumes two bytes early.
+  // BIT 1 MUST SURVIVE. C makes 2-byte targets legal, so masking it would resume a fault
+  // on a compressed instruction two bytes early.
   logic [31:0] trap_epc_warl;
   assign trap_epc_warl = {trap_epc[31:1], 1'b0};
 

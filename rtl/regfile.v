@@ -10,7 +10,7 @@ module regfile(
   input  logic [4:0]  waddr,
   input  logic [31:0] wdata
 );
-  // Two copies of one register file: an ice40 EBR has one read port.
+  // Two copies of one register file, because an ice40 EBR has one read port.
   logic [31:0] regs_a[31:0];
   logic [31:0] regs_b[31:0];
   logic [31:0] read_a;

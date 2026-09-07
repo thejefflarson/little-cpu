@@ -1,6 +1,6 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// Single-port SPRAM, byte-strobed, synchronous read.
+// The data RAM: single-port SPRAM, byte-strobed, synchronous read.
 module memory #(
   parameter logic [31:0] BASE = 32'h0001_0000,
   parameter integer RAM_WORDS = 16384,
@@ -12,7 +12,6 @@ module memory #(
   input  logic [3:0]  mem_wstrb,
   output logic [31:0] mem_rdata,
   output logic        reservable,
-  // The same range test, asked from decode two stages before it reaches `mem_addr`.
   input  logic [32*NHARTS-1:0] atomic_addr,
   output logic [NHARTS-1:0]    atomic_supported
 );
@@ -52,5 +51,6 @@ module memory #(
       in_range_q <= in_range;
     end
   end
+  // A mux on the output, never a synchronous constant: soc/bram_reset_check.py says why.
   assign mem_rdata = in_range_q ? ram_q : 32'b0;
 endmodule

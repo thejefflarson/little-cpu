@@ -4,30 +4,30 @@
 module accessor(
     input  logic clk,
     input  logic reset,
-    // One stage ahead of `in`; its transaction goes out now so a synchronous memory
-    // answers when it arrives.
+    // The executor's instruction, one stage ahead of `in`. Its transaction goes out now,
+    // so a synchronous memory answers as the instruction arrives.
     input  decoder_output launch,
-    // A held instruction presented again would be a second transaction: one write for
-    // RAM, two for a device.
+    // High on the cycle the executor consumes `launch`. Re-presenting a held instruction
+    // would make a second transaction: harmless for RAM, two writes for a device.
     input  logic launch_taken,
     input  executor_output in,
     output logic [31:0] mem_addr,
     output logic [3:0]  mem_wstrb,
     output logic [31:0] mem_wdata,
     input  logic [31:0] mem_rdata,
-    // The fetch port is shared, so an idle bus showing address 0 must not read as a load.
+    // A real load, not an idle bus. The instruction memory shares one port between fetch
+    // and data, and an idle bus shows address 0, which is a text address.
     output logic mem_ren,
-    // `lr.w` elsewhere sets no reservation, so every `sc.w` there fails.
+    // The platform's answer that this address is reservable. `lr.w` elsewhere sets no
+    // reservation.
     input  logic mem_reservable,
     input  logic        snoop_write,
     input  logic [31:0] snoop_addr,
-    // High on the cycle an AMO's read goes out, promising the write-back cycle after it;
-    // never high on two cycles running.
+    // High on the cycle an AMO's read goes out, promising an arbiter the write-back cycle
+    // after it. Never high on two cycles running.
     output logic        mem_lock,
     output accessor_output out
 );
-  // iverilog cannot derive a sensitivity list for a struct field read inside an always_*
-  // block, so every field is read through a continuous assign.
   logic launch_is_lb;
   logic launch_is_lbu;
   logic launch_is_lh;
@@ -106,7 +106,8 @@ module accessor(
 
   assign mem_lock = requesting && launch_is_amo;
 
-  // Outranks a same-cycle `lr.w`, so a reservation is never kept over a foreign write.
+  // A foreign write to the reserved word. It outranks the `lr.w` below, so a reservation
+  // never survives another initiator's store to it.
   logic snoop_clear;
   assign snoop_clear = snoop_write && rsrv_held && snoop_addr[31:2] == rsrv_word;
 
@@ -123,8 +124,8 @@ module accessor(
       end else if (launch_is_sc ||
                    (rsrv_hit && (launch_is_sb || launch_is_sh || launch_is_sw ||
                                  launch_is_amo))) begin
-        // Not cleared on a trap or `mret`, so a timer handler that leaves the lock word
-        // alone cannot fail the store-conditional it interrupted.
+        // A trap and an `mret` leave the reservation alone, so a timer handler that
+        // ignores the lock word cannot fail the store-conditional it interrupted.
         rsrv_held <= 1'b0;
       end
     end
@@ -138,7 +139,6 @@ module accessor(
   assign take_load = take_is_lb || take_is_lbu || take_is_lh || take_is_lhu || take_is_lw ||
     take_is_lr || take_amo;
 
-  // Misalignment traps in decode, so nothing here checks alignment.
   logic [31:0] load_lane1, load_lane, load_value;
   logic        load_byte, load_half, load_sign;
   assign load_lane1 = take_lane[0] ? {8'b0,  mem_rdata[31:8]}   : mem_rdata;
@@ -164,7 +164,6 @@ module accessor(
   logic [31:0] amo_mem;
   assign amo_mem = mem_rdata;
 
-  // One 33-bit adder/subtractor for the add and all four compares.
   logic amo_compare, amo_signed;
   assign amo_compare = take_amo_min || take_amo_max || take_amo_minu || take_amo_maxu;
   assign amo_signed  = take_amo_min || take_amo_max;
@@ -184,8 +183,8 @@ module accessor(
   logic [31:0] amo_add_result;
   assign amo_add_result = amo_sum[31:0];
 
-  // A per-bit truth table indexed by {memory bit, rs2 bit}; the add depends on the carry
-  // into each bit, so it stays a mux over the sum.
+  // A per-bit truth table indexed by {memory bit, rs2 bit}. The add is the exception: it
+  // depends on the carry into each bit, so it stays a mux over the sum.
   logic [3:0] amo_fn;
   always_comb begin
     (* parallel_case *)
