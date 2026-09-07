@@ -647,6 +647,30 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
+      - name: Generate and run the nanocpu checks (make -C nano/formal check)
+        run: make -C nano/formal check JOBS=4
+
+      - name: Gate on nano/formal/EXPECTED_FAIL + EXPECTED_CHECKS
+        if: ${{ !cancelled() }}
+        run: |
+          set +e
+          formal/check-baseline.sh nano/formal/checks \
+            nano/formal/EXPECTED_FAIL nano/formal/EXPECTED_CHECKS \
+            > "$RUNNER_TEMP/nano-baseline-report.txt" 2>&1
+          status=$?
+          set -e
+          cat "$RUNNER_TEMP/nano-baseline-report.txt"
+          {
+            echo "### nanocpu riscv-formal checks vs nano/formal/EXPECTED_{FAIL,CHECKS}"
+            echo '```'
+            cat "$RUNNER_TEMP/nano-baseline-report.txt"
+            echo '```'
+            echo "Same caveats as the main core's checks above: bounded \`mode bmc\`,"
+            echo "and \`RISCV_FORMAL_ALTOPS\` means the mul/div checks do not exercise"
+            echo "the real multiplier or divider."
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
       - name: Report job wall time
         if: always()
         run: |
@@ -685,6 +709,15 @@ jobs:
 
       - name: complete_cover (anti-vacuity — every non-excluded class retires)
         run: make -C formal complete_cover
+
+      - name: nanocpu imemcheck
+        run: make -C nano/formal imemcheck
+
+      - name: nanocpu dmemcheck
+        run: make -C nano/formal dmemcheck
+
+      - name: nanocpu complete (whole-ISA BMC walk, depth 20)
+        run: make -C nano/formal complete
 
       - name: Report job wall time
         if: always()
