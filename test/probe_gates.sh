@@ -5532,7 +5532,7 @@ ffr_fixture() {
 
 d=$(ffr_fixture)
 probe "control: the shipping fixtures are all mutate/mutate_remove, every anchor holds" 0 \
-  "no bare sed -i" "$(ffr "$d")"
+  "no bare in-place edit" "$(ffr "$d")"
 
 d=$(ffr_fixture)
 printf '\nsed -i.bak "s/x/y/" foo.txt\n' >> "$d/test/probe_gates.sh"
@@ -5562,15 +5562,133 @@ probe "a hand-typed fixture is red on an unquoted heredoc delimiter too" 1 \
   "another_synthetic_fixture() types out" "$(ffr "$d")"
 
 d=$(ffr_fixture)
-mutate "$d/test/fixture_freshness_test.py" 's/SED_I_ALLOWLIST = \[\]/SED_I_ALLOWLIST = ["bogus entry"]/'
+mutate "$d/test/fixture_freshness_test.py" 's/RAW_EDIT_ALLOWLIST = \[\]/RAW_EDIT_ALLOWLIST = ["bogus entry"]/'
 probe "an allow-listed sed -i that no longer appears anywhere is red too" 1 \
-  "SED_I_ALLOWLIST exempts 'bogus entry'" "$(ffr "$d")"
+  "RAW_EDIT_ALLOWLIST exempts 'bogus entry'" "$(ffr "$d")"
 
 d=$(ffr_fixture)
 mutate "$d/test/probe_gates.sh" \
   's|cp_fixture() {|cp_fixture() {\n  fixture_anchor "$REPO/test/cosim.py" "#!/usr/bin/env python3"|'
 probe "an allow-listed fixture that gained a real anchor is red until the entry is deleted" 1 \
   "is no longer an anchorless synthetic fixture" "$(ffr "$d")"
+
+# A name defined twice used to let the SECOND definition silently exempt the
+# FIRST from the anchor check: `function_bodies()` stored one range per name
+# in a plain dict, so an earlier body -- possibly the anchorless one -- went
+# invisible the moment a later definition reused its name.
+d=$(ffr_fixture)
+cat >> "$d/test/probe_gates.sh" <<'FIXTURE'
+dup_name_fixture() {
+  cat > "$d/x" <<'TOK'
+foo
+TOK
+}
+dup_name_fixture() {
+  fixture_anchor "$REPO/test/cosim.py" "#!/usr/bin/env python3"
+}
+FIXTURE
+probe "a name defined twice is checked at both definitions, not just the last" 1 \
+  "dup_name_fixture() types out" "$(ffr "$d")"
+
+# A head that opens its body on the same line is a definition too. The anchor
+# used to require `{` to be last on the line, so this shape registered as no
+# function at all and its heredoc was invisible to the anchor check.
+d=$(ffr_fixture)
+cat >> "$d/test/probe_gates.sh" <<'FIXTURE'
+oneline_head_fixture() { cat > "$d/x" <<'TOK'
+foo
+TOK
+}
+FIXTURE
+probe "a fixture that opens its body on the head line is still inspected" 1 \
+  "oneline_head_fixture() types out" "$(ffr "$d")"
+
+# A nested `helper() { ...; }` closing on its own line used to end the OUTER
+# fixture early: the previous scan stopped at the first line that was
+# exactly `}`, with no brace-depth counter to tell an inner close from the
+# fixture's own. The truncated body excluded the heredoc entirely, so the
+# fixture went invisible to the anchor check rather than red.
+d=$(ffr_fixture)
+cat >> "$d/test/probe_gates.sh" <<'FIXTURE'
+nested_brace_fixture() {
+  helper() {
+    :
+}
+  cat > "$d/x" <<'TOK'
+foo
+TOK
+}
+FIXTURE
+probe "a nested helper's own closing brace does not end the outer fixture early" 1 \
+  "nested_brace_fixture() types out" "$(ffr "$d")"
+
+# `#` only opens a comment at the start of a word in bash; the previous scan
+# treated every unquoted `#` as a comment opener, so a decoy like this masked
+# a real invocation sitting right after it.
+d=$(ffr_fixture)
+printf '\nx=foo#bar sed -i decoy.txt\n' >> "$d/test/probe_gates.sh"
+probe "a mid-word # does not hide a real sed -i after it" 1 \
+  "sed -i decoy.txt" "$(ffr "$d")"
+
+# A regression pin, not a fix: outside quotes, an escaped quote character was
+# already treated as literal DATA rather than as opening a string, so this
+# stays green. Planted because a broad security pass flagged the shape as
+# suspect; this proves it does not reproduce against the shipping scanner.
+d=$(ffr_fixture)
+cat >> "$d/test/probe_gates.sh" <<'FIXTURE'
+echo \' ; sed -i real.txt
+FIXTURE
+probe "an escaped apostrophe outside quotes does not mask a real sed -i" 1 \
+  "sed -i real.txt" "$(ffr "$d")"
+
+d=$(ffr_fixture)
+printf '\nsed --in-place file.txt\n' >> "$d/test/probe_gates.sh"
+probe "sed --in-place is a raw edit exactly like sed -i" 1 \
+  "sed --in-place file.txt" "$(ffr "$d")"
+
+# -i is not always the first flag, and the scan checks every token after
+# `sed`, not just the first, for exactly this reason.
+d=$(ffr_fixture)
+printf "\nsed -e 's/x/y/' -i file.txt\n" >> "$d/test/probe_gates.sh"
+probe "sed -i is a raw edit even when it is not the first flag" 1 \
+  "-e 's/x/y/' -i file.txt" "$(ffr "$d")"
+
+d=$(ffr_fixture)
+printf '\nperl -pi -e "s/x/y/" file.txt\n' >> "$d/test/probe_gates.sh"
+probe "perl -pi is a raw edit like sed -i" 1 \
+  "perl -pi -e" "$(ffr "$d")"
+
+d=$(ffr_fixture)
+printf "\nawk -i inplace '{print}' file.txt\n" >> "$d/test/probe_gates.sh"
+probe "awk -i inplace is a raw edit like sed -i" 1 \
+  "awk -i inplace" "$(ffr "$d")"
+
+# Backslash-newline continuations are joined before searching, so a wrapped
+# invocation -- this file wraps long commands exactly this way throughout --
+# cannot hide a real sed -i between the two physical lines.
+d=$(ffr_fixture)
+cat >> "$d/test/probe_gates.sh" <<'FIXTURE'
+sed \
+  -i file.txt
+FIXTURE
+probe "a backslash-continued sed -i is still a raw edit" 1 \
+  "directly: sed" "$(ffr "$d")"
+
+# A double-quoted heredoc delimiter used to be invisible to the masker, so
+# its raw body text fed the quote tracker; an unbalanced quote inside it
+# (ordinary prose, not an attack) desynced the tracker for the rest of the
+# file and swallowed a real sed -i after the heredoc closed.
+d=$(ffr_fixture)
+cat >> "$d/test/probe_gates.sh" <<'FIXTURE'
+dq_delim_fixture() {
+  cat > "$d/x" <<"TOK"
+don't break the quote tracker
+TOK
+}
+sed -i real_after_heredoc.txt
+FIXTURE
+probe "a double-quoted heredoc delimiter is masked, so its stray apostrophe cannot hide a real sed -i after it" 1 \
+  "sed -i real_after_heredoc.txt" "$(ffr "$d")"
 
 actual_labels=$(printf '%s\n' "${probe_labels[@]}" | LC_ALL=C sort)
 expected_labels=$(grep -vE '^#|^[[:space:]]*$' "$PROBES_MANIFEST" | LC_ALL=C sort)
