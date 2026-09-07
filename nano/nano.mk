@@ -47,21 +47,15 @@ nano-liberty-setup:
 # The donor's own measured figure; nano.v does not exist here yet to take a churn band from.
 NANO_MAX_UM2 := 84291
 
-NANO_LAST_UM2 := 84291
-
 NANO_SRCS := nano/nano.v
 
 .PHONY: nano-area
-ifeq ($(wildcard $(NANO_SRCS)),)
 nano-area:
-	@echo "make nano-area: no $(NANO_SRCS) -- the donor import has not landed" >&2
-	@echo "in this tree yet. Nothing to measure; this is not a failure." >&2
-else
-nano/area.json: $(NANO_SRCS)
-	@yosys -p 'read_verilog -sv $(NANO_SRCS); hierarchy -auto-top; synth; dfflibmap -liberty $(NANO_LIBERTY); abc -liberty $(NANO_LIBERTY); tee -o $@ stat -liberty $(NANO_LIBERTY) -json' > nano/area.synth.log 2>&1 || { tail -40 nano/area.synth.log; exit 1; }
-
-nano-area: nano/area.json
-	@python3 nano/area_report.py $< --liberty $(NANO_LIBERTY) \
-	  --liberty-sha256 $(NANO_LIBERTY_SHA256) --max-um2 $(NANO_MAX_UM2) \
-	  --previous $(NANO_LAST_UM2)
-endif
+	@test -e $(NANO_SRCS) || { \
+	  echo "make nano-area: no $(NANO_SRCS) -- the donor import has not landed" >&2; \
+	  echo "in this tree yet. Nothing to measure; this is not a failure." >&2; \
+	  exit 0; \
+	}; \
+	yosys -p 'read_verilog -sv $(NANO_SRCS); hierarchy -auto-top; synth; dfflibmap -liberty $(NANO_LIBERTY); abc -liberty $(NANO_LIBERTY); tee -o nano/area.json stat -liberty $(NANO_LIBERTY) -json' > nano/area.synth.log 2>&1 || { tail -40 nano/area.synth.log; exit 1; }; \
+	python3 nano/area_report.py nano/area.json --liberty $(NANO_LIBERTY) \
+	  --liberty-sha256 $(NANO_LIBERTY_SHA256) --max-um2 $(NANO_MAX_UM2)

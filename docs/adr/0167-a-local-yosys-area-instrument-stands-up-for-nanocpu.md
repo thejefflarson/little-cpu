@@ -54,8 +54,9 @@ lands," not "set the ceiling to 56k and leave it red." Each reshaping step
 re-takes `NANO_MAX_UM2` the way `FIT_MAX_LC` gets re-taken, starting from a
 real `make nano-area` run rather than the brief's number, until it reaches
 the 56,000 um2 target the brief and CLAUDE.md's eventual ratchet cite.
-`--previous` prints the trend against the last recorded figure as a
-diagnostic; only the ratchet itself can fail the build.
+`area_report.py` takes an optional `--previous` to print a trend line once a
+step actually has a distinct prior figure to compare against; nothing passes
+it yet, since `NANO_MAX_UM2` has no history of its own before this ADR.
 
 **Not wired into `make test`.** The same standing `make fit` and
 `make soc-timing` have — a real instrument, run and graded on its own, but
@@ -68,12 +69,13 @@ parallel ticket has not landed yet. Neither is acceptable; CLAUDE.md's own
 instrument list keeps `fit`, `soc-timing` and `ecp5-timing` off `test` for
 the same reason.
 
-**The missing-donor case is a coordination point, not an error.** `nano.mk`
-makes `nano/nano.v` the target's own prerequisite and, when it is absent,
-substitutes a `nano-area` recipe that prints why and exits 0 rather than
-letting make's own "No rule to make target" stop the build. Once
-`nano/nano.v` lands (a separate ticket), the real recipe takes over with no
-edit here.
+**The missing-donor case is a coordination point, not an error.** `nano-area`
+opens with a `test -e $(NANO_SRCS)` guard, the same shape `noop-rom` uses for
+its own "something should have written this first" check, rather than a
+parse-time `$(wildcard)` split into two competing target bodies. Absent, it
+prints why and exits 0; present, the same recipe runs `synth` straight
+through. Once `nano/nano.v` lands, in a separate ticket, this file needs no
+edit.
 
 ## What this does not settle
 
@@ -84,6 +86,6 @@ freeze criteria (TT-flow synthesis ≤ 56k, the GDS action clean, STA at
 design is closer to freeze. **No `nano/nano.v` exists yet** — `make
 nano-area` was smoke-tested against a throwaway one-flop scratch module in
 this session (not committed) to confirm the full path — liberty fetch,
-`synth`, the ratchet's pass and fail arms — runs green and red for real,
-not only against `test/probe_gates.sh`'s fixtures. The donor import is
-JEF-983's.
+`synth`, the ratchet's pass and fail arms, and the missing-source guard —
+runs green and red for real, not only against `test/probe_gates.sh`'s
+fixtures. The donor import is a separate ticket's.

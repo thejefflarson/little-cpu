@@ -116,6 +116,18 @@ fixture_anchor() {
   fi
 }
 
+# The Makefile plus every .mk it `include`s or `-include`s, at their own paths -- shared
+# by every fixture that actually invokes `make` against a copy, so a new pin file needs
+# no second fixture taught to remember it.
+copy_makefile_includes() {  # $1 = destination dir
+  local d=$1 mk
+  cp "$REPO/Makefile" "$d/Makefile"
+  for mk in $(sed -nE 's/^-?include[[:space:]]+(.+\.mk)[[:space:]]*$/\1/p' "$REPO/Makefile"); do
+    mkdir -p "$d/$(dirname "$mk")"
+    cp "$REPO/$mk" "$d/$mk"
+  done
+}
+
 # Written once and shared by every fixture, as are the scratch copies of the scripts
 # under test: macOS re-scans an executable the first time it is exec'd after being
 # written, so a probe that created its own stub tree measured 1.5-3.3s of wall against
@@ -2104,14 +2116,8 @@ probe "a path that does not reconcile blames the script, not the design" 1 \
 # files describe THIS run.
 ecp5_stale_fixture() {  # stdin = the stub nextpnr-ecp5's body, after --version
   local d; d=$(new_case)
-  mkdir -p "$d/soc/compare" "$d/formal" "$d/bin" "$d/nano"
-  cp "$REPO/Makefile" "$d/Makefile"
-  cp "$REPO/formal/pin.mk" "$d/formal/"
-  cp "$REPO/soc/compare/hazard3_pin.mk" "$d/soc/compare/"
-  # The Makefile `include`s this one HARD, not with `-include`: a missing pin should stop
-  # a measurement, not silently unpin the core it describes.
-  cp "$REPO/soc/compare/vexriscv_pin.mk" "$d/soc/compare/"
-  cp "$REPO/nano/nano.mk" "$d/nano/"
+  mkdir -p "$d/soc/compare" "$d/bin"
+  copy_makefile_includes "$d"
   cp "$REPO/soc/littlesoc.lpf" "$REPO/soc/ecp5_report.py" \
      "$REPO/soc/print_toolchain.sh" "$d/soc/"
   cp -R "$REPO/rtl" "$d/"
@@ -2799,12 +2805,7 @@ MT_TGT="$HERE/makefile_target_test.sh"
 
 mt_fixture() {  # the Makefile plus every .mk it includes, at their own paths
   local d; d=$(new_case)
-  cp "$REPO/Makefile" "$d/Makefile"
-  local mk
-  for mk in $(sed -nE 's/^-?include[[:space:]]+(.+\.mk)[[:space:]]*$/\1/p' "$REPO/Makefile"); do
-    mkdir -p "$d/$(dirname "$mk")"
-    cp "$REPO/$mk" "$d/$mk"
-  done
+  copy_makefile_includes "$d"
   printf '%s' "$d"
 }
 

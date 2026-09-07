@@ -25,22 +25,19 @@ import sys
 CELL_LINE = re.compile(r'^\s*cell\s*\(\s*"?([A-Za-z_][A-Za-z0-9_.]*)"?\s*\)\s*\{')
 
 
-def liberty_cell_names(path):
+def liberty_digest_and_cells(path):
+    """Hashes the liberty file and collects its cell names in one pass over its bytes,
+    rather than two -- this file is the multi-megabyte sky130hd liberty.
+    """
+    digest = hashlib.sha256()
     names = set()
-    with open(path, errors="replace") as handle:
+    with open(path, "rb") as handle:
         for line in handle:
-            m = CELL_LINE.match(line)
+            digest.update(line)
+            m = CELL_LINE.match(line.decode(errors="replace"))
             if m:
                 names.add(m.group(1))
-    return names
-
-
-def sha256_of(path):
-    digest = hashlib.sha256()
-    with open(path, "rb") as handle:
-        for chunk in iter(lambda: handle.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return digest.hexdigest(), names
 
 
 def check_liberty(path, want_sha256):
@@ -51,7 +48,7 @@ def check_liberty(path, want_sha256):
     THIS liberty, so a substituted or stale one has to be caught first.
     """
     try:
-        got = sha256_of(path)
+        got, names = liberty_digest_and_cells(path)
     except FileNotFoundError:
         sys.exit(
             f"*** make nano-area: no liberty file at {path}. Run\n"
@@ -66,7 +63,7 @@ def check_liberty(path, want_sha256):
             "*** RISCV_FORMAL_SHA are: bytes this repo has not verified do not\n"
             "*** get read into an area figure. Re-fetch with `make nano-liberty-setup`."
         )
-    return liberty_cell_names(path)
+    return names
 
 
 def load_stat(path):
