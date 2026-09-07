@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# Test srli instruction.
+// Test srli instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"

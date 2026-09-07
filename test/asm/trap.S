@@ -1,8 +1,8 @@
 # See LICENSE for license details.
 
-# Every trap cause this core implements, taken deliberately, recorded by the opt-in
-# handler in riscv_test.h, and asserted on from the test body — the cause, the saved pc,
-# and what mtval says the trap happened to.
+// Every trap cause this core implements, taken deliberately, recorded by the opt-in
+// handler in riscv_test.h, and asserted on from the test body — the cause, the saved pc,
+// and what mtval says the trap happened to.
 
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -10,10 +10,10 @@
 RVTEST_RV64U
 RVTEST_CODE_BEGIN
 
-  # mtvec resets to 0, which is _start — install before faulting.
+  // mtvec resets to 0, which is _start — install before faulting.
   RVTEST_INSTALL_TRAP_HANDLER
 
-  # Load address misaligned: cause 4.
+  // Load address misaligned: cause 4.
 
   la    a0, tdat
   addi  a0, a0, 1
@@ -43,10 +43,10 @@ test_4:
   li    TESTNUM, 4
   bne   a4, x29, fail
 
-  # A trapping load writes no register: a1 still holds its sentinel.
+  // A trapping load writes no register: a1 still holds its sentinel.
   TEST_CASE( 5, a1, 0x5a5, nop; )
 
-  # Store address misaligned: cause 6.
+  // Store address misaligned: cause 6.
 
   la    a0, tdat
 

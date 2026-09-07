@@ -1,126 +1,27 @@
-# What each declared mutation must be caught by. `make mutation-check` applies
-# every patch in test/mutations/, runs the detectors, and requires the set that
-# goes red to be exactly the set named here — in both directions, the way
-# test/EXPECTED_FAIL and test/OBSERVED_FLOOR are read.
-#
-# The name is not MUTATIONS because test/mutations/ already exists and macOS
-# would make them the same path.
-#
-# WHAT THIS FILE IS FOR. `make probe-gates` asks whether a graded comparison can
-# report a failure at all. It is hermetic, so it cannot mutate the design, and it
-# says nothing about whether a program still detects the hardware property it was
-# written to detect. That is a separate question with a measured answer, and the
-# answer is not always yes: a store landing a cycle earlier is a win everywhere
-# except in the program whose job was to notice it used to land late. Every claim
-# of the form "this program catches that" rested on someone running the mutation
-# once, by hand, on the day it was written. These lines are the ones that get
-# re-run.
-#
-# FORMAT — one pairing per line, one leg per line:
-#
-#     <mutation>  bench  <bench>
-#     <mutation>  asm    <program> <STATUS>
-#
-# <mutation> is the name of test/mutations/<mutation>.patch, and that set is
-# checked against this file's first column in both directions before anything
-# runs. <bench> is a test/*_tb.v run by `make test-unit-<bench>`. <STATUS> is the
-# exact label test/run_tests.sh prints for that program, so a program that goes
-# red a different way is red here too — the same rule test/EXPECTED_FAIL carries.
-#
-# BOTH LEGS RUN FOR EVERY MUTATION, so a mutation with no `asm` line is the claim
-# that the whole test/asm suite stays green under it. That is a real result and
-# four of the eleven below are it. Do not add an `asm` line to make one look
-# better covered: the grading is a set equality, and a line that does not fire
-# is red.
-#
-# ADDING ONE. Measure it, do not assert it: apply the patch, `make sim`, run
-# ./test/run_tests.sh and the benches, and write down what actually went red. A
-# mutation nothing catches does not belong here as a red entry — it is either a
-# gap to close with a new program or a fact about the machine to record in an
-# ADR, and the fence.i pair below is both of those stories.
-#
-# NOT ON `make test`'s PATH. It rebuilds the cxxrtl runner once per mutation.
-# It adds no ratchet.
+# What each mutation must be caught by; format and the reasoning behind each pairing are in docs/manifests/mutation-detectors.md.
 
-# The fence.i half of the serialization commitment. No `.S` program can see this
-# one and none is paired against it: a text store takes the instruction memory's
-# read port for its write cycle, so the earliest fetch the wait could still be
-# covering is one the memory already holds back. The whole suite stays green and
-# test/decoder_tb.v is the grader — five named mismatches.
 serialize-drops-fencei      bench decoder_tb
 
-# The CSR and mret half, which shares the mechanism for a different reason: a
-# one-cycle architectural update must not interleave with older instructions.
-# The suite stays green here too, and that is measured rather than argued.
-# test/asm/minstret.S's exactness case reads `minstret` before and after three
-# nops and still gets 4 without the wait, because the counter advances when an
-# instruction issues and both reads are issues.
 serialize-drops-csr-mret    bench decoder_tb
 
-# Both mechanisms that order a text store against the fetch behind it, deleted
-# together. test/asm/selfmod.S is a live grader for the pair and for neither
-# term alone, which is why this mutation is two deletions and the one above is
-# one. imem_tb sees the port half by itself.
 fencei-wait-and-store-port  bench decoder_tb
 fencei-wait-and-store-port  bench imem_tb
 fencei-wait-and-store-port  asm   selfmod.S FAIL 2
 
-# A store-conditional that reports SUCCESS whatever the reservation says. rd is
-# the only thing an sc.w writes, so this is the whole instruction going wrong,
-# and lrsc.S's first case catches it: an sc.w with no lr.w anywhere before it.
-# lrsclock.S is NOT a detector and that is right -- every sc.w in it is meant to
-# succeed, so a core that always says so finishes it.
-#
-# amoregion.S WAS the second detector, at an sc.w outside the region the
-# platform will reserve, and it stopped being one when that sc.w started
-# faulting: an atomic the data RAM does not answer raises cause 7 in decode now,
-# so it never reaches the accessor and the reservation refusal behind it is no
-# longer reachable from software at all. The refusal stays in rtl/accessor.v as
-# the second half of one statement -- a platform that tied the fault bit high
-# would still not let an sc.w claim a write that went nowhere -- and
-# accessor_tb is what grades it. This paragraph is here so the next reader finds
-# the reason rather than a shorter table.
 sc-reports-success          bench accessor_tb
 sc-reports-success          asm   lrsc.S FAIL 2
 
-# The platform's answer about an atomic's address, ignored: every atomic
-# executes wherever it is pointed, which is the behaviour the two causes
-# replaced. amoregion.S's first refused case is what sees it, and decoder_tb
-# sees it at the decode boundary. amo.S, amominmax.S, lrsc.S and lrsclock.S do
-# NOT, and that is right -- every atomic in them is inside the data RAM, so a
-# core that never refuses one finishes them all.
 atomic-region-ignored       bench decoder_tb
 atomic-region-ignored       asm   amoregion.S FAIL 4
 loadstore-region-ignored    bench decoder_tb
 loadstore-region-ignored    asm   loadfault.S FAIL 3
 loadstore-region-ignored    asm   storefault.S FAIL 3
-# uart.S is a detector by accident of what it was written to prove, and it is
-# kept because an accident that grades is still a grader. Its case 9 stores to
-# the word just past the device's two registers to show the UART does not answer
-# its neighbourhood; with the region refusal deleted that store is dropped
-# silently and the case reads back the value it was checking is absent.
 loadstore-region-ignored    asm   uart.S FAIL 9
-# spiflash.S is a detector for exactly uart.S's reason, one window further up:
-# its case 12 stores to the word past the controller's two registers to show the
-# region decode grew to cover the new window and stopped there. That store is
-# the same shape and is dropped by the same deletion.
 loadstore-region-ignored    asm   spiflash.S FAIL 12
 
-# All four min/max compares read unsigned: the sign-bit correction on the shared
-# 33-bit adder/subtractor deleted. amominmax.S is the ONLY program that catches
-# it and amo.S is measured not to, which is the whole argument for the two being
-# separate files -- amo.S's operands are 5 against 3, where the signed and
-# unsigned answers agree and a comparator read either way looks right.
 amo-compares-unsigned       bench accessor_tb
 amo-compares-unsigned       asm   amominmax.S FAIL 4
 
-# The load half of the same shared port: a load from .text no longer takes the
-# port, so it answers with whatever the fetch put there. Five programs watch
-# this one, and textload.S is the only one of the five that neither writes text
-# nor contains a fence.i. spioverlay.S joined by the same route selfmod.S did:
-# its baseline step reads a patch template out of .text with `lw` before it
-# ever touches the flash, and that plain read is what the mutation breaks --
-# FAIL 2 is that same first template, read wrong before anything is patched.
 text-port-drops-load        bench imem_tb
 text-port-drops-load        asm   contend.S FAIL 2
 text-port-drops-load        asm   datainit.c FAIL 1
@@ -128,29 +29,9 @@ text-port-drops-load        asm   selfmod.S FAIL 2
 text-port-drops-load        asm   spioverlay.S FAIL 2
 text-port-drops-load        asm   textload.S FAIL 3
 
-# misa gives bit 0 back, so the core executes the eleven atomics without
-# claiming them. A self-description register has no other consequence -- the
-# eleven still decode, still retire and still agree with the reference model --
-# so this pairing is the measurement of how thin the claim's coverage is, and
-# the answer is one asm case and two bench reads. csr.S FAILs at the first of
-# its two misa reads; csr_tb catches the read AND the write it must swallow.
 misa-drops-the-a-bit        bench csr_tb
 misa-drops-the-a-bit        asm   csr.S FAIL 5
 
-# mhartid back in the shared read-only-zero arm it came out of, ignoring
-# HART_ID. This pairing is the whole grader rather than a sample of one: mhartid
-# is a self-description register, nothing in the datapath reads it, and this
-# design has only ever had hart 0 -- so at the default the mutation changes no
-# bit anywhere, and no `.S` program, no formal check and no co-simulation run
-# can see it. csr_tb is the only detector because it holds the only csrs
-# instance at a non-zero HART_ID, and the suite staying green is the
-# measurement rather than a gap.
 mhartid-ignores-hart-id     bench csr_tb
 
-# mtip raised one tick before mtime reaches mtimecmp -- an interrupt taken
-# before the deadline software armed. It is the direction the spec forbids: a
-# change in the comparison may reach mtip late, never early. timer_tb is the
-# only detector and the whole suite stays green, which is the measurement here:
-# no `.S` program pins the tick an interrupt arrives on, because arming a timer
-# and waiting for it cannot tell one tick from the next.
 mtip-fires-a-tick-early     bench timer_tb

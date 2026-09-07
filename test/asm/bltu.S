@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# Test bltu instruction.
+// Test bltu instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -8,7 +8,7 @@
 RVTEST_RV64U
 RVTEST_CODE_BEGIN
 
-  # Branch tests
+  // Branch tests
 
   TEST_BR2_OP_TAKEN( 2, bltu, 0x00000000, 0x00000001 );
   TEST_BR2_OP_TAKEN( 3, bltu, 0xfffffffe, 0xffffffff );

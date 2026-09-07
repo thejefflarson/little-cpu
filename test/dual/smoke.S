@@ -1,10 +1,10 @@
-# The one dual smoke program: enough to prove the harness sees two harts, and
-# deliberately no more.
+// The one dual smoke program: enough to prove the harness sees two harts, and
+// deliberately no more.
 
 #include "riscv_test.h"
 
 #define ITERS 16
-# How many times hart 0 polls for hart 1's completion flag before giving up.
+// How many times hart 0 polls for hart 1's completion flag before giving up.
 #define POLL_LIMIT 256
 
 RVTEST_RV64U
@@ -13,7 +13,7 @@ RVTEST_CODE_BEGIN
   csrr    t0, mhartid
   bnez    t0, hart1
 
-  # Release hart 1, which is spinning on `mailbox` below.
+  // Release hart 1, which is spinning on `mailbox` below.
   la      t1, mailbox
   li      t2, 1
   sw      t2, 0(t1)

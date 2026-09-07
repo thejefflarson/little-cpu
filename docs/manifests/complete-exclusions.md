@@ -1,0 +1,61 @@
+# `formal/COMPLETE_EXCLUSIONS`
+
+The opcode classes `formal/complete.sv`'s assertion declines to cover, and the
+reason each is declined. Every check this repo declines has a recorded
+reason, and this file is that record for `complete`: a BASELINE in exactly
+the sense `formal/EXPECTED_FAIL` and `test/EXPECTED_FAIL` are, so
+`formal/check-complete-exclusions.py` exits 0 only when this set and the set
+declared in `complete.sv` match EXACTLY, in both directions. An entry added
+to the RTL side without a line here fails; a line here with no entry in
+`complete.sv` fails too.
+
+## Why this file is not just a comment
+
+`complete` is a required CI gate, so the cheapest way to make a future red go
+green is to widen this set. Making the widening a tracked, reviewable diff —
+rather than an edit to a predicate nobody diffs — is the whole control.
+Excluding an opcode from an assertion IS weakening a check. Answer these four
+questions before adding a line:
+
+1. Does riscv-formal really ship no spec model for the encoding at
+   `formal/pin.mk`'s SHA? The script checks this for you and will refuse a
+   mnemonic that HAS a model — so if it accepts your line, the answer is
+   yes, and if it rejects it, the exclusion is not the fix.
+2. Is the failure the SPEC's absence, or this core's behaviour? A retire the
+   model recognises and calls trapping (`spec_valid && spec_trap`) is a core
+   defect wearing a spec-gap costume. `complete`'s counterexample prints
+   `imem_data`; decode it before believing anything.
+3. Is something else checking the excluded behaviour? Say what, on the
+   entry, at the `complete.sv` site. "Nothing" is an acceptable answer and a
+   loud one, but it must be written.
+4. Is the whole opcode class unmodelled, or only the one row you are adding?
+   The script re-derives every encoding the pin models under the class's
+   opcode and refuses a class-wide line where any of them land — narrow the
+   entry with a funct3, or a funct3 and a funct7, until it excuses only the
+   row that has no model. A class stays whole-opcode only where nothing under
+   it is modelled at all, the way MISC-MEM, SYSTEM and AMO are today.
+
+## Format
+
+Three fields, whitespace-separated, the third running to end of line:
+
+```
+<CLASS>  <encoding>  <mnemonic> [<mnemonic> ...]
+```
+
+`<CLASS>` is the RISC-V opcode-map name (plus whatever distinguishes the row,
+once an entry narrows past the opcode — OP-SH2ADD, not a second OP).
+`<encoding>` is `<opcode>[/<funct3>[/<funct7>]]`, each field the literal bits
+the predicate in `complete.sv` matches on — opcode alone excuses the whole
+class, opcode/funct3 one funct3 row of it, opcode/funct3/funct7 one exact
+row. The rest of the line is the mnemonics that encoding covers in this
+core's ISA. Mnemonics are compared against riscv-formal's `isa_rv32imc.txt`
+and the `insns/insn_<mnemonic>.v` it names, so they must be spelled as
+riscv-formal would (`fence.i`, not `fencei`; the script maps `.` to `_` for
+the filename). A model riscv-formal ships for some OTHER isa variant — Zba,
+Zbb, the rest of `insns/` — is not a model this check can see:
+`formal/complete.sv`'s spec instance is built from `isa_rv32imc.txt` alone.
+
+The per-entry REASON lives at the `complete.sv` site, next to the predicate
+it governs, not here — one place for the prose, and it is the place a reader
+of the check will actually be standing.

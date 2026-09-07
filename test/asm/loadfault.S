@@ -1,33 +1,25 @@
 # See LICENSE for license details.
 
-# A plain load at an address no memory on this platform answers: cause 5, load access
-# fault, committed in decode with every other cause.
+// A plain load at an address no memory on this platform answers: cause 5, load access
+// fault, committed in decode with every other cause.
 
 #include "riscv_test.h"
 #include "test_macros.h"
 
-# Above the machine timer's four words and below the 1 MB the linker script may grow
-# into.
+// Above the machine timer's four words and below the 1 MB the linker script may grow
+// into.
 #define UNMAPPED 0x00040000
 
-# The last word of the 16 KB text window, and the first word past it.
+// The last word of the 16 KB text window, and the first word past it.
 #define TEXT_TOP  0x00003FFC
-// One past the top of the text window -- and it is NOT the same on every
-// machine this runs on. test/testbench.v gives a simulator 4096 words, the part
-// has 2048, and test/memmap_test.sh prints both: "rom 2048 words on the part /
-// 4096 simulated". Hardcoding the simulator's number made this program test an
-// address the part does not have: the load below was answered under simulation
-// and correctly REFUSED on hardware, so the check failed on a core that was
-// right. Overridable, and the board build passes the part's value.
 #ifndef TEXT_PAST
 #define TEXT_PAST 0x00004000
 #endif
 
-# The base of the 64 KB data RAM, and the last word below it.
+// The base of the 64 KB data RAM, and the last word below it.
 #define RAM_BASE  0x00010000
 #define RAM_BELOW 0x0000FFFC
 
-# One refused load: the cause, then that rd was not written.
 #define TEST_REFUSED_LOAD( testnum, inst, base, off ) \
 test_ ## testnum: \
     li  TESTNUM, testnum; \

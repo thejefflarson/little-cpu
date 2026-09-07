@@ -112,6 +112,7 @@ a classification naming a port the netlist has never seen is red
 a clock for a core nobody graded is named rather than ignored
 a clock turns the CoreMark per-MHz figure into an absolute one
 a clock turns the per-MHz figure into an absolute one
+a comment-only file's single pointer line is excused by MIN_COMMENT_LINES
 a configuration for another corner is refused, not reported
 a configuration nextpnr never wrote is a failed run, not a fast design
 a configuration truncated to nothing is caught, which test -e cannot be
@@ -157,6 +158,7 @@ a failure reported only by the induction leg is not evidence
 a field the runner stopped printing is named, not counted as zero
 a field with no value is a malformed line
 a file named twice is red rather than averaging into one pass
+a file pushed over the comment-density budget is named and red
 a file that moved away takes the check with it, loudly
 a file that moved out from under the check is fatal, not skipped
 a file the manifest stopped naming is red before shasum ever runs
@@ -510,6 +512,7 @@ control: a complete --measured call writes a valid pair
 control: a count matching the declaration is green
 control: a derived part states both figures and names itself
 control: a deterministic placer and a forgiven mutant pass
+control: a file within the comment-density budget is not reported
 control: a fresh stamp with nothing changed prints clean and exits 0
 control: a full-pass check set against an empty baseline is green
 control: a good CoreMark run reports all three cores' figures

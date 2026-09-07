@@ -1,11 +1,11 @@
 # See LICENSE for license details.
 
-# A misaligned atomic, for all eleven encodings and at all three misalignments.
+// A misaligned atomic, for all eleven encodings and at all three misalignments.
 
 #include "riscv_test.h"
 #include "test_macros.h"
 
-# A misaligned AMO or sc.w: the cause, then that rd and the word are untouched.
+// A misaligned AMO or sc.w: the cause, then that rd and the word are untouched.
 #define TEST_MIS_AMO( testnum, inst, off, cause ) \
 test_ ## testnum: \
     li  TESTNUM, testnum; \
@@ -30,7 +30,7 @@ test_ ## testnum: \
     li  x29, 0x0ff00ff0; \
     bne x13, x29, fail;
 
-# The same for lr.w, which takes no rs2.
+// The same for lr.w, which takes no rs2.
 #define TEST_MIS_LR( testnum, off ) \
 test_ ## testnum: \
     li  TESTNUM, testnum; \
@@ -57,10 +57,10 @@ test_ ## testnum: \
 RVTEST_RV64U
 RVTEST_CODE_BEGIN
 
-  # mtvec resets to 0, which is _start -- install before faulting.
+  // mtvec resets to 0, which is _start -- install before faulting.
   RVTEST_INSTALL_TRAP_HANDLER
 
-  # lr.w: cause 4, at each of the three misalignments a word address can have.
+  // lr.w: cause 4, at each of the three misalignments a word address can have.
 
   TEST_MIS_LR(  2, 1 );
   TEST_MIS_LR(  3, 2 );

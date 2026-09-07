@@ -1,11 +1,11 @@
-# The first program written to be looked at rather than graded.
+// The first program written to be looked at rather than graded.
 
 #include "riscv_test.h"
 
   .section .text
   .globl _start
 _start:
-  # A STACK, because print_count keeps `ra` on one.
+  // A STACK, because print_count keeps `ra` on one.
   li      sp, 0x0001F000
 
   li      s0, 0                   # the blink counter, printed each time round
@@ -13,7 +13,7 @@ _start:
   li      s2, 0x00010190          # scratch: a store here is only ever the LED
 
 blink:
-  # LED on. The value stored is what reaches the latch, so bit 0 is the LED.
+  // LED on. The value stored is what reaches the latch, so bit 0 is the LED.
   li      t0, 1
   sw      t0, 0(s2)
   jal     ra, delay

@@ -2,11 +2,10 @@
 `default_nettype none
 // SPRAM cannot be initialised, so `.data` rides in ROM and startup copies it out.
 module littlesoc #(
-  // The board's clock, so rtl/uart.v can derive its divisor. Defaulted to the
-  // up5k board's 12 MHz: a board file that does not say runs unchanged.
+  // The board's clock, so rtl/uart.v can derive its divisor.
   parameter integer CLOCK_HZ = 12_000_000,
-  // One parameter drives both the fetch window and the ROM behind it, so the
-  // two cannot disagree the way two separate literals could.
+  // One parameter drives both the fetch window and the ROM behind it, so the two cannot
+  // disagree the way two separate literals could.
   parameter integer ROM_WORDS = 2048
 ) (
   input  logic clk,
@@ -21,8 +20,7 @@ module littlesoc #(
   input  logic spi_miso,
   output logic spi_cs_n
 );
-  // The FPGA comes out of configuration with no reset of its own. KEEP `reset`
-  // REGISTERED: unregistered, the button pin headed the design's longest path.
+  // KEEP `reset` REGISTERED: unregistered, the button pin headed the design's longest path.
   logic [3:0] por_count = 4'b0;
   logic       por_done  = 1'b0;
   logic [1:0] btn_sync  = 2'b0;

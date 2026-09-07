@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# The two masks, and the two stalls an interrupt has to wait out.
+// The two masks, and the two stalls an interrupt has to wait out.
 
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -10,7 +10,7 @@ RVTEST_CODE_BEGIN
 
   RVTEST_INSTALL_TIMER_HANDLER
 
-  # mstatus.MIE clear, mie.MTIE set.
+  // mstatus.MIE clear, mie.MTIE set.
 
   RVTEST_DISARM_TIMER
   RVTEST_ENABLE_MTIE
@@ -25,7 +25,7 @@ RVTEST_CODE_BEGIN
 
   TEST_CASE( 3, a0, 0x80, csrr a0, mip; )
 
-  # Unmasking takes the interrupt that was already pending.
+  // Unmasking takes the interrupt that was already pending.
   RVTEST_ENABLE_MIE
 
   TEST_CASE( 4, a4, 1, \

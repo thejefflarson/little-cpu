@@ -1,7 +1,7 @@
 # See LICENSE for license details.
 
-# The transmit-only UART, driven the way firmware drives it: poll the status register,
-# write a byte, poll again.
+// The transmit-only UART, driven the way firmware drives it: poll the status register,
+// write a byte, poll again.
 
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -13,7 +13,7 @@ RVTEST_CODE_BEGIN
 
   li    t0, UART_BASE
 
-  # Nothing has been written, so nothing is in flight.
+  // Nothing has been written, so nothing is in flight.
   TEST_CASE( 2, a0, 0, lw a0, UART_STATUS_OFFSET(t0); )
 
   TEST_CASE( 3, a0, 0, lw a0, 0(t0); )

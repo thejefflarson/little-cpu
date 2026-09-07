@@ -16,9 +16,8 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 TEST_DIR=$(cd "$HERE/.." && pwd)
 VENDOR_DIR="$HERE/coremark"
 
-# Read out of the linker scripts rather than hardcoded, the same reason run_dhrystone.sh
-# reads bench.lds: a second copy of either budget would be free to drift, and the copy
-# that drifted would be the one printed next to the result.
+# Read out of the linker scripts rather than hardcoded: a second copy of either budget
+# would be free to drift, and the copy that drifted is the one printed with the result.
 lds_region_bytes() {  # $1 = lds path, $2 = region name
   awk -v region="$2" \
     '{ sub(/^[ \t]+/, "") }
@@ -87,19 +86,15 @@ fi
 cat "$pin_check" >&2
 rm -f "$pin_check"
 
-# coremark_port.c restates BOTH 2K runs' CRCs independently -- the performance set the
-# scored `make coremark` compares against, and the validation set EEMBC's run rules also
-# require -- so a mutated literal in either copy is caught against the pinned vendor
-# array before a compiler runs. The performance set is the one every published figure
-# rests on, so it is not the one to leave ungraded.
+# coremark_port.c restates both 2K runs' CRCs independently, so a mutated literal in
+# either copy is caught against the pinned vendor array before a compiler runs.
 known_crc() {  # $1 = array name in core_main.c, $2 = 1-based entry
   awk "/$1\\[\\]/,/;/" "$VENDOR_DIR/core_main.c" | grep -oE '0x[0-9a-fA-F]+' | sed -n "$2p"
 }
 port_crc() {  # $1 = #define name in coremark_port.c
   grep -m1 -oE "#define $1 0x[0-9a-fA-F]+" "$HERE/coremark_port.c" | grep -oE '0x[0-9a-fA-F]+'
 }
-# core_main.c indexes both arrays by `known_id`: the 2K performance run is the fourth
-# entry, the 2K validation run the fifth.
+# core_main.c indexes both arrays by `known_id`: performance fourth, validation fifth.
 for triple in "list_known_crc:4:COREMARK_2K_PERF_CRCLIST" \
               "matrix_known_crc:4:COREMARK_2K_PERF_CRCMATRIX" \
               "state_known_crc:4:COREMARK_2K_PERF_CRCSTATE" \
@@ -284,12 +279,8 @@ CoreMark leans on both harder than Dhrystone does. Reading this table against
 either DMIPS/MHz or CoreMark/MHz against a number this repo did not measure on
 its own hardware, at its own ROM size, is not something either supports."
 
-# EEMBC's "Required 2": the 2K VALIDATION configuration (seeds 0x3415/0x3415,
-# size 666) must also pass, not just the scored performance one -- the same
-# five vendored objects, relinked against one more compilation of
-# coremark_port.c built with COREMARK_VALIDATION. crclist/crcmatrix/crcstate
-# are latched from the first iteration only (core_main.c's iterate()), so one
-# iteration is enough to check them and the run stays short.
+# EEMBC's "Required 2": the 2K validation configuration must also pass. iterate() latches
+# the three CRCs from the first iteration, so one iteration checks them.
 echo
 echo "== CoreMark, 2K validation configuration -- EEMBC's second required"
 echo "   self-check, not a second score; see coremark_port.c's header =="

@@ -1,49 +1,6 @@
 #include "dual_test.h"
 
-// One hart's write must end the other hart's reservation. Hart 0 reserves a
-// word, hart 1 writes it, and hart 0's store-conditional has to notice.
-//
-// THREE SHAPES, AND THE THIRD IS THE ONE THAT MATTERS.
-//
-// Round 1 is ordered: hart 0 reserves, hands over, waits for hart 1's write to
-// be acknowledged, and only then attempts the sc.w. It must fail, and the word
-// must still hold hart 1's value. That is the whole snoop, tested with tens of
-// cycles of slack, and a design with no snoop at all fails it.
-//
-// Round 2 is the other direction: hart 1 writes a DIFFERENT word. The sc.w must
-// succeed. Without it, a design that dropped every reservation on any foreign
-// write would pass round 1 and look correct.
-//
-// Rounds 3 upwards are a sweep, and they exist for the off-by-one. A snoop that
-// arrives one cycle late passes round 1 with room to spare: by then the write
-// is ancient. It goes wrong only when the sc.w is granted the bus on the cycle
-// after the write landed -- the reservation has not been told yet, the sc.w
-// succeeds, and it overwrites a store that was already committed. So hart 0
-// hands over and then delays a computed number of cycles before its sc.w,
-// walking its attempt one cycle at a time across hart 1's write.
-//
-// WHAT THE SWEEP ASSERTS IS NOT WHO WON. Either order is legal: if the sc.w got
-// there first the reservation was still good and the store-conditional was
-// entitled to store; if the write got there first the reservation was gone. The
-// invariant across both is that hart 1's value is what survives -- the write
-// either came second, or it came first and killed the reservation. A sc.w that
-// stores AFTER the write is the only way the word ends up holding hart 0's
-// value, and that is exactly what the late snoop produces.
-//
-// AND THE SWEEP GRADES ITSELF. A sweep whose whole range sits on one side of
-// the crossing tests nothing and passes. So hart 0 counts the rounds each side
-// won and requires both to be nonzero: at least one round where the sc.w failed
-// (the sweep reached hart 1's write) and at least one where it succeeded (it
-// started before it). If a change to the machine moves the crossing outside the
-// swept range these go red, which is the correct outcome -- the program has
-// stopped covering the case it exists for and the sweep needs re-measuring, not
-// the assertion relaxing.
-//
-// SC_SWEEP AND THE TWO COUNTS ARE OWED A MEASUREMENT. Nothing has run this
-// program; the range is sized from the handshake's shape -- hart 1 notices the
-// handover inside one four-instruction spin and stores immediately, so the
-// crossing sits some tens of cycles after the handover -- and not from a
-// waveform.
+// One hart's write must end the other hart's reservation.
 
 #define SC_SENTINEL 0x0ff00ff0
 #define SC_AVAL     0x0000cafe
@@ -72,14 +29,12 @@ DUALTEST_CODE_BEGIN
   la    s3, go
   li    a5, SC_BVAL
 
-  # Round 1 -- ordered. The write is long finished before the sc.w attempts.
+  // Round 1 -- ordered. The write is long finished before the sc.w attempts.
 
   addi  s0, s0, 1
   li    a7, SC_SENTINEL
   sw    a7, 0(s1)
   lr.w  a1, (s1)
-  # The handover is a store to a different word, which leaves the reservation alone --
-  # the single-hart suite is what establishes that half.
   sw    s0, 0(s3)
   DUALTEST_WAIT_REG( TN_W1, done, s0 )
   li    a6, SC_AVAL
@@ -88,7 +43,7 @@ DUALTEST_CODE_BEGIN
   TEST_CASE( 11, a2, 1, nop; )
   TEST_CASE( 12, a4, SC_BVAL, lw a4, 0(s1); )
 
-  # Round 2 -- hart 1 writes somewhere else, so the reservation must survive.
+  // Round 2 -- hart 1 writes somewhere else, so the reservation must survive.
 
   addi  s0, s0, 1
   li    a7, SC_SENTINEL
@@ -102,8 +57,6 @@ DUALTEST_CODE_BEGIN
   TEST_CASE( 13, a2, 0, nop; )
   TEST_CASE( 14, a4, SC_AVAL, lw a4, 0(s1); )
 
-  # Rounds 3 upwards -- the sweep.
-
   li    s5, 0
   li    s6, 0
   li    s7, 0
@@ -113,15 +66,12 @@ sweep:
   sw    a7, 0(s1)
   lr.w  a1, (s1)
   li    a6, SC_AVAL
-  # The handover. Everything from here to the sc.w is a fixed number of cycles plus the
-  # sled.
   sw    s0, 0(s3)
   slli  t0, s5, 2
   la    t1, sled_end
   sub   t1, t1, t0
   jr    t1
 
-  # Uncompressed, so the entry point is sled_end - 4*s5 and each nop is one issue cycle.
   .option push
   .option norvc
 sled:

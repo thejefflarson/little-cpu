@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# Test sra instruction.
+// Test sra instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -8,7 +8,7 @@
 RVTEST_RV64U
 RVTEST_CODE_BEGIN
 
-  # Arithmetic tests
+  // Arithmetic tests
 
   TEST_RR_OP( 2,  sra, 0xffffffff80000000, 0xffffffff80000000, 0  );
   TEST_RR_OP( 3,  sra, 0xffffffffc0000000, 0xffffffff80000000, 1  );

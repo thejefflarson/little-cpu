@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# Test sll instruction.
+// Test sll instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -8,7 +8,7 @@
 RVTEST_RV64U
 RVTEST_CODE_BEGIN
 
-  # Arithmetic tests
+  // Arithmetic tests
 
   TEST_RR_OP( 2,  sll, 0x0000000000000001, 0x0000000000000001, 0  );
   TEST_RR_OP( 3,  sll, 0x0000000000000002, 0x0000000000000001, 1  );
@@ -28,7 +28,7 @@ RVTEST_CODE_BEGIN
   TEST_RR_OP( 15, sll, 0x0000084848484000, 0x0000000021212121, 14 );
   TEST_RR_OP( 16, sll, 0x1090909080000000, 0x0000000021212121, 31 );
 
-  # Verify that shifts only use bottom six(rv64) or five(rv32) bits
+  // Verify that shifts only use bottom six(rv64) or five(rv32) bits
 
   TEST_RR_OP( 17, sll, 0x0000000021212121, 0x0000000021212121, 0xffffffffffffffc0 );
   TEST_RR_OP( 18, sll, 0x0000000042424242, 0x0000000021212121, 0xffffffffffffffc1 );
