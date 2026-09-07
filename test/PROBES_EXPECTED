@@ -436,6 +436,7 @@ an empty status file is refused rather than read as a verdict
 an empty term table is a scan of nothing, not a green one
 an empty trace is fatal rather than an empty comparison
 an encoding failure reported only by the induction leg is not evidence
+an escaped apostrophe inside a $'...' string does not close it early
 an escaped apostrophe outside quotes does not mask a real sed -i
 an exception whose port is connected now is red
 an exception whose site stopped naming that ISA is red
@@ -444,6 +445,7 @@ an executor_out.rd_data bit routed into a stall reason is red
 an exemption naming no program is red, not a program quietly excused
 an fmax entry that stopped carrying both halves is refused, not read
 an image objcopy wrote nothing into is red, not empty and accepted
+an indented line equal to a plain heredoc's token does not close it early
 an injection site that moved stops the control, loudly
 an integrator telling the core a text size its ROM has not got
 an integrator that stopped stating it at all is red, not defaulted
@@ -747,6 +749,7 @@ two clocks named clk makes the frequency a guess, so it refuses to guess
 two copies of the flags agreeing about -march and nothing else
 two cores whose RAMs differ are red, not a 1.2x result
 two files claiming the same number is named
+two heredocs opened off one line are both masked, in the order their opening markers appear
 two parts are refused rather than subtracted
 two rtl/*.v paths on one line is a second copy, and is red
 two toolchains are named, which is the disagreement that flipped a sign

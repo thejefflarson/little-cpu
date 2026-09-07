@@ -35,57 +35,10 @@ if [ -z "$SIM_ROM_BUDGET" ] || [ -z "$SHIP_ROM_BUDGET" ]; then
   exit 1
 fi
 
-# Membership is a two-way match, not just shasum -c's one-way one: shasum only verifies
-# the names PINNED.sha256 lists, and says nothing about a file dropped in beside them.
-manifest_files=$(awk '!/^#/ && NF { print $NF }' "$VENDOR_DIR/PINNED.sha256" | sort)
-tree_files=$(cd "$VENDOR_DIR" && for f in *; do
-  if [ -f "$f" ] && [ "$f" != "PINNED.sha256" ]; then
-    echo "$f"
-  fi
-done | sort)
-# comm, the same two-way idiom test/check_suite_shape.sh and test/dual_build.sh use for a
-# manifest against a directory: -23 is named but missing, -13 is present but unnamed.
-missing=$(comm -23 <(printf '%s\n' "$manifest_files") <(printf '%s\n' "$tree_files"))
-unlisted=$(comm -13 <(printf '%s\n' "$manifest_files") <(printf '%s\n' "$tree_files"))
-if [ -n "$missing" ] || [ -n "$unlisted" ]; then
-  echo "error: $VENDOR_DIR does not have exactly the files PINNED.sha256" >&2
-  echo "lists -- shasum -c cannot see a file that manifest never named." >&2
-  if [ -n "$missing" ]; then
-    echo "named in the manifest but missing from the directory:" >&2
-    echo "$missing" | sed 's/^/  /' >&2
-  fi
-  if [ -n "$unlisted" ]; then
-    echo "in the directory but not named in the manifest:" >&2
-    echo "$unlisted" | sed 's/^/  /' >&2
-  fi
-  exit 1
-fi
-
-if command -v shasum >/dev/null 2>&1; then
-  SHA_CHECK=(shasum -a 256 -c --strict)
-elif command -v sha256sum >/dev/null 2>&1; then
-  SHA_CHECK=(sha256sum -c --strict)
-else
-  echo "error: neither shasum nor sha256sum is on PATH, so the vendored" >&2
-  echo "CoreMark sources cannot be checked against $VENDOR_DIR/PINNED.sha256." >&2
-  exit 1
-fi
-pin_check=$(mktemp "${TMPDIR:-/tmp}/coremark_pin_check.XXXXXX") || {
-  echo "error: could not create a temporary file under ${TMPDIR:-/tmp}." >&2
-  exit 1
-}
-trap 'rm -f "$pin_check"' EXIT
-if ! (cd "$VENDOR_DIR" && "${SHA_CHECK[@]}" PINNED.sha256) >"$pin_check" 2>&1; then
-  cat "$pin_check" >&2
-  echo >&2
-  echo "*** $VENDOR_DIR no longer matches PINNED.sha256. CoreMark's own" >&2
-  echo "*** trademark terms permit quoting the name only for an unmodified" >&2
-  echo "*** copy of the benchmark -- re-vendor from the pinned commit" >&2
-  echo "*** rather than editing a file in that directory." >&2
-  exit 1
-fi
-cat "$pin_check" >&2
-rm -f "$pin_check"
+# ONE implementation for every route that checks the vendored tree against
+# PINNED.sha256 -- see that script's header for why membership is checked
+# before any hash.
+"$HERE/coremark_pin_check.sh" "$VENDOR_DIR"
 
 # coremark_port.c restates BOTH 2K runs' CRCs independently -- the performance set the
 # scored `make coremark` compares against, and the validation set EEMBC's run rules also

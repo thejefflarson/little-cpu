@@ -80,29 +80,39 @@ FUNC_START_RE = re.compile(r'^([a-zA-Z0-9_]+)\(\)\s*\{')
 # `(?<!<)`/`(?!<)` rule out a here-string (`<<<`), which is not a heredoc and
 # has no closing delimiter line to hunt for -- matching it here sent an
 # earlier version of this scan looking for a line that never comes and masked
-# the rest of the file.
+# the rest of the file. Group 1 is the `-` of `<<-`, which is the ONLY form
+# that strips the closing delimiter line's leading whitespace; a plain
+# `<<TOK` requires that line to have none, and stripping it anyway closes the
+# mask early on an indented line that merely equals TOK after stripping.
 HEREDOC_START_RE = re.compile(
-    r"(?<!<)<<(?!<)-?\s*([\"'])?([A-Za-z_][A-Za-z_0-9]*)\1?"
+    r"(?<!<)<<(-)?(?!<)\s*([\"'])?([A-Za-z_][A-Za-z_0-9]*)\2?"
 )
 
 def heredoc_mask(lines):
     """True at every line that is BODY TEXT of a heredoc (or its own closing
     delimiter), so neither check below mistakes planted fixture text -- this
     file's own probes for these checks plant a fake `sed -i` and a fake
-    `_fixture() {` this way -- for a real invocation or a real function."""
+    `_fixture() {` this way -- for a real invocation or a real function.
+    `cmd <<A <<B` is legal bash and opens two heredocs off one line, A's body
+    first and then B's, so every `<<` on the line is walked in order rather
+    than just the first."""
     mask = [False] * len(lines)
     i, n = 0, len(lines)
     while i < n:
-        m = HEREDOC_START_RE.search(lines[i])
-        if m:
-            token = m.group(2)
+        matches = list(HEREDOC_START_RE.finditer(lines[i]))
+        if matches:
             j = i + 1
-            while j < n and lines[j].rstrip('\n').strip() != token:
-                mask[j] = True
-                j += 1
-            if j < n:
-                mask[j] = True
-            i = j + 1
+            for m in matches:
+                token = m.group(3)
+                strip = m.group(1) == '-'
+                while j < n:
+                    body_line = lines[j].rstrip('\n')
+                    delim = body_line.strip() if strip else body_line
+                    mask[j] = True
+                    j += 1
+                    if delim == token:
+                        break
+            i = j
         else:
             i += 1
     return mask
@@ -117,8 +127,14 @@ def _live_chars(lines, mask):
     A trailing unescaped backslash eats its own newline the way bash does,
     and every other line boundary yields a real newline, so two lines that
     are not continued cannot glue into one word.
+
+    `$'...'` is its own quote form, not a `$` beside a plain `'...'`: inside
+    it a backslash escapes the next character, so `\\'` is a literal quote
+    that does NOT close the string -- the same rule `in_dquote` already
+    applies, unlike a plain single-quoted string where backslash is nothing
+    special.
     """
-    in_squote = in_dquote = False
+    in_squote = in_dquote = in_dollar_squote = False
     at_word_start = True
     for lineno, raw in enumerate(lines):
         if mask[lineno]:
@@ -128,6 +144,14 @@ def _live_chars(lines, mask):
         continued = False
         while i < n:
             c = line[i]
+            if in_dollar_squote:
+                if c == '\\' and i + 1 < n:
+                    i += 2
+                    continue
+                if c == "'":
+                    in_dollar_squote = False
+                i += 1
+                continue
             if in_squote:
                 if c == "'":
                     in_squote = False
@@ -156,7 +180,10 @@ def _live_chars(lines, mask):
             if c == '#' and at_word_start:
                 break
             if c == "'":
-                in_squote = True
+                if i > 0 and line[i - 1] == '$':
+                    in_dollar_squote = True
+                else:
+                    in_squote = True
                 at_word_start = False
                 i += 1
                 continue

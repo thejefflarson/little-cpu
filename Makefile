@@ -488,6 +488,10 @@ tracked-ignored-test:
 band-source-test:
 	@python3 ./test/band_source_test.py
 
+.PHONY: lut4-site-test
+lut4-site-test:
+	@./test/lut4_site_test.sh
+
 .PHONY: zkt-isolation-test
 zkt-isolation-test:
 	@python3 ./test/zkt_isolation_test.py
@@ -533,7 +537,7 @@ test: sim test-units probe-gates pin-bump-test tool-cache-test memmap-test \
       adr-numbering-test compare-geometry-test vexriscv-path-test retired-term-test port-connect-test march-test \
       band-source-test zkt-isolation-test fixture-freshness-test window-test imem-share-test \
       abc-engine-test makefile-target-test mutation-probe dual-build board-elaborate \
-      tracked-ignored-test mutation-coverage-test
+      tracked-ignored-test mutation-coverage-test lut4-site-test
 	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 .PHONY: cycles

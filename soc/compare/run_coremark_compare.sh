@@ -65,57 +65,10 @@ for tool in "$OBJCOPY" "$SIZE" "$NM"; do
   }
 done
 
-# Membership is a two-way match against PINNED.sha256, the same reason
-# test/bench/run_coremark.sh checks it: a file dropped in beside the vendored tree that
-# shasum was never told to look at is invisible to a one-way check.
-manifest_files=$(awk '!/^#/ && NF { print $NF }' "$VENDOR_DIR/PINNED.sha256" | sort)
-tree_files=$(cd "$VENDOR_DIR" && for f in *; do
-  if [ -f "$f" ] && [ "$f" != "PINNED.sha256" ]; then
-    echo "$f"
-  fi
-done | sort)
-missing=$(comm -23 <(printf '%s\n' "$manifest_files") <(printf '%s\n' "$tree_files"))
-unlisted=$(comm -13 <(printf '%s\n' "$manifest_files") <(printf '%s\n' "$tree_files"))
-if [ -n "$missing" ] || [ -n "$unlisted" ]; then
-  echo "error: $VENDOR_DIR does not have exactly the files PINNED.sha256" >&2
-  echo "lists -- shasum -c cannot see a file that manifest never named." >&2
-  if [ -n "$missing" ]; then
-    echo "named in the manifest but missing from the directory:" >&2
-    echo "$missing" | sed 's/^/  /' >&2
-  fi
-  if [ -n "$unlisted" ]; then
-    echo "in the directory but not named in the manifest:" >&2
-    echo "$unlisted" | sed 's/^/  /' >&2
-  fi
-  exit 1
-fi
-
-if command -v shasum >/dev/null 2>&1; then
-  SHA_CHECK=(shasum -a 256 -c --strict)
-elif command -v sha256sum >/dev/null 2>&1; then
-  SHA_CHECK=(sha256sum -c --strict)
-else
-  echo "error: neither shasum nor sha256sum is on PATH, so the vendored" >&2
-  echo "CoreMark sources cannot be checked against $VENDOR_DIR/PINNED.sha256." >&2
-  exit 1
-fi
-pin_check=$(mktemp "${TMPDIR:-/tmp}/coremark_compare_pin_check.XXXXXX") || {
-  echo "error: could not create a temporary file under ${TMPDIR:-/tmp}." >&2
-  exit 1
-}
-trap 'rm -f "$pin_check"' EXIT
-if ! (cd "$VENDOR_DIR" && "${SHA_CHECK[@]}" PINNED.sha256) >"$pin_check" 2>&1; then
-  cat "$pin_check" >&2
-  echo >&2
-  echo "error: $VENDOR_DIR no longer matches PINNED.sha256; run" >&2
-  echo "'make coremark' first, which checks this the same way and explains it." >&2
-  exit 1
-fi
-# --strict makes a malformed manifest line fail the check above; this is the quieter half
-# of the same guard -- a WARNING for a line that is merely unusual (a comment shasum
-# tolerates, say) does not fail the run, so it must not be silently dropped either.
-cat "$pin_check" >&2
-rm -f "$pin_check"
+# ONE implementation for every route that checks the vendored tree against
+# PINNED.sha256, the same one 'make coremark' runs -- see that script's header for why
+# membership is checked before any hash.
+"$REPO/test/bench/coremark_pin_check.sh" "$VENDOR_DIR"
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/compare-coremark.XXXXXX")
 test -n "$tmp" -a -d "$tmp"
