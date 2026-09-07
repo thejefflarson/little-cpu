@@ -1,36 +1,11 @@
-// The fetcher, the decoder and the CSR file, wired together the way
-// rtl/littlecpu.v wires them, so that mtvec, mepc, mcause and mstatus are real
-// registers rather than free inputs. That is the whole reason this file exists.
-// The generated riscv-formal checks stop comparing values the moment an
-// instruction traps -- the instruction check keeps only the trap flag itself --
-// and the two pc checks accept any target the core reports, mtvec of 0
-// included. So nothing else in the tree says where a trap goes or what it
-// writes.
-//
-// Keep reading the RTL without -formal for this task; formal/components.sby
-// does. With -formal the decoder brings its own assume(in.pc == pc) along, and
-// the fetcher instance below is what answers that question here.
-//
-// mcause, mstatus and the two counters are internal to rtl/csrs.v. They are read
-// here the way software reads them: `csr_addr` is instr[31:20] every cycle,
-// whatever the instruction, and `csr_rdata` answers it combinationally. The
-// instruction word is a free input, so the solver can point that address
-// anywhere it likes on any cycle -- including the cycle after a trap.
+// The fetcher, the decoder and the CSR file, wired together the way rtl/littlecpu.v wires
+// them, so that mtvec, mepc, mcause and mstatus are real registers rather than free
+// inputs.
 `default_nettype none
 
 module traps #(
-    // The data bus's map: the addresses at which some memory on it answers a
-    // plain load or store. rtl/memory.v's, rtl/timer.v's, rtl/uart.v's and
-    // rtl/spiflash.v's own parameter defaults and the text window
-    // rtl/littlesoc.v gives its `imemory`, restated here because a module
-    // cannot read another module's parameters; test/memmap_test.sh is what
-    // compares the copies.
-    //
-    // It is a map here and a port for an atomic because that is how the core
-    // is built: the platform answers about an atomic's address on
-    // `atomic_supported`, and hands the decoder this map at elaboration for a
-    // plain load's or store's. The same six parameters go to the instance
-    // below, so the model and the core under it are reading one map.
+    // The data bus's map: the addresses at which some memory on it answers a plain load
+    // or store.
     parameter integer      LS_TEXT_WORDS = 2048,
     parameter logic [31:0] LS_RAM_BASE   = 32'h0001_0000,
     parameter integer      LS_RAM_WORDS  = 16384,
@@ -47,31 +22,20 @@ module traps #(
     input executor_output executor_out,
     input logic divider_stall,
     input logic fetch_stall,
-    // Free, like the other two: a hart waiting for the shared bus issues
-    // nothing, so no trap is committed on that cycle either.
+    // Free, like the other two: a hart waiting for the shared bus issues nothing, so no
+    // trap is committed on that cycle either.
     input logic bus_wait,
-    // Free, like everything else not instantiated here. It redirects the pc,
-    // and the increment assertion skips a redirect because the decoder's own
-    // `branch_jump` names the trap it raises.
+    // Free, like everything else not instantiated here.
     input logic imem_fault,
     // The platform's answer about the address an atomic in decode would use.
-    // Free, like the fetch bus's refusal, so the two causes it decides are
-    // asserted below against the encodings the ISA fixes rather than against
-    // the map above. The map decides the same two causes for a plain load or
-    // store, an access the core asks the platform nothing about at runtime.
     input logic atomic_supported,
     input logic accessor_out_valid,
-    // The platform's timer line, free every cycle. rtl/csrs.v decides what to
-    // do with it, so `interrupt_pending` below is a real signal of this design
-    // rather than something the solver picks -- which is what lets the mie and
-    // mstatus.MIE gates be asserted rather than assumed.
+    // The platform's timer line, free every cycle.
     input logic irq_timer
 );
   logic [31:0] pc, next_pc;
   logic [31:0] imem_addr, imem_addr2, imem_addr_next;
-  // The address the decoder publishes for a platform to decode. Unread here:
-  // `atomic_supported` is a free input, so the region decision is the
-  // solver's rather than a map's.
+  // The address the decoder publishes for a platform to decode.
   logic [31:0] atomic_addr;
   fetcher_output fetcher_out;
   decoder_output decoder_out;
@@ -81,10 +45,9 @@ module traps #(
   logic [31:0] csr_wdata, csr_rdata;
   logic        csr_implemented;
   logic        trap_entry, mret_entry;
-  // Unread here, and declared anyway: an output connected to an undeclared
-  // identifier is an implicit net, which `default_nettype none` makes an error
-  // in iverilog and a warning in yosys. Both frontends have to elaborate this
-  // file -- iverilog is what replays a counterexample trace from it.
+  // Unread here, and declared anyway: an output connected to an undeclared identifier is
+  // an implicit net, which `default_nettype none` makes an error in iverilog and a
+  // warning in yosys.
   logic        bus_request;
   logic [31:0] trap_cause, trap_epc, trap_tval;
   logic [31:0] mtvec_value, mepc_value;
@@ -195,24 +158,11 @@ module traps #(
   always_ff @(posedge clk) clocked <= 1;
 
   // Assumed: reset is high before the first clock edge and low forever after.
-  // Every harness in this tree drives it that way, and rtl/littlesoc.v holds it
-  // over a power-on counter. Nothing proves it, so this is a convention.
-  //
-  // It carries more weight here than it does in formal/pcloop.sv. mtvec, mepc,
-  // mcause and mstatus have no initial value in the RTL, so without a reset the
-  // first step of the base case starts them anywhere, and the two WARL
-  // assertions below would fail on a register nothing had written yet.
   initial assume(reset);
   always_comb if (!clocked) assume(reset);
   always_comb if (clocked) assume(!reset);
 
-  // Build every guard from this module's own signals. Do not write
-  // `decoder.trap_pending` or anything like it: yosys does not reach into the
-  // instance, it declares a new undriven wire with that name and the solver
-  // picks its value, so the proof passes having asked nothing.
-  //
-  // Mask the upper half exactly as the decoder does. A compressed instruction
-  // sits in the low 16 bits and the high 16 are the next instruction in memory.
+  // Build every guard from this module's own signals.
   logic [31:0] instr;
   assign instr = (fetcher_out.instr[1:0] == 2'b11) ? fetcher_out.instr
                                                    : {16'b0, fetcher_out.instr[15:0]};
@@ -223,52 +173,15 @@ module traps #(
   assign opcode = instr[6:2];
   assign funct3 = instr[14:12];
 
-  // `issuing` is not a port, but it is exactly this: the decoder counts a
-  // retired instruction on every cycle it issues one that does not trap, and
-  // raises trap_entry on every cycle it issues one that does. Nothing else
-  // raises either.
+  // `issuing` is not a port, but it is exactly this: the decoder counts a retired
+  // instruction on every cycle it issues one that does not trap, and raises trap_entry on
+  // every cycle it issues one that does.
   logic issuing;
   assign issuing = instret || trap_entry;
 
-  // The three stall reasons that arrive as inputs. Each one on its own forces
-  // the decoder to hold, so this is a sufficient condition for a stall and
-  // never a necessary one -- the scoreboard, serialization, operand-fetch,
-  // atomic-write and region-wait reasons are decided inside the decoder and
-  // are not visible here.
   logic hard_stall;
   assign hard_stall = divider_stall || fetch_stall || bus_wait;
 
-  // A HELD INSTRUCTION IS STILL THE SAME INSTRUCTION, AND NOTHING IN THIS FILE
-  // DISCHARGES IT. The decoder answers the load/store region question a cycle
-  // late: an access whose base register sits near a window's edge waits one
-  // cycle, decode registers the answer about its own effective address on that
-  // cycle, and the trap chain reads the flip-flop on the next one. That is an
-  // answer about the same access only while the word and the register it was
-  // computed from stay put -- and this is the first thing in the core to read a
-  // decode input across a cycle boundary at all, which is why the sentence has
-  // to be written down here rather than relied on the way formal/pcloop.sv's
-  // comments rely on it.
-  //
-  // In the core neither can move. A stalled cycle holds the pc and `imem_addr`
-  // is the pc, so the memory answers the same address with the same word; and a
-  // stalled cycle issues nothing, so no write to rs1 can be started on it, while
-  // the decode scoreboard holds any instruction whose rs1 is already in flight
-  // until that write has gone through. Here all three are free inputs with no
-  // memory and no register file behind them.
-  //
-  // Stated on `issuing` rather than on the wait itself, because the wait is
-  // internal to the decoder: this covers every stalled cycle, which is wider
-  // than the property needs and costs nothing -- the solver still picks all
-  // three freely on every cycle an assertion fires, and every assertion here
-  // fires on an issuing cycle or the one after a trap. rtl/imemory.v,
-  // rtl/regfile.v and the scoreboard are what provide it; the generated
-  // riscv-formal checks are what run over all three.
-  // STATED OVER `fetcher_out`, WHICH IS WHAT THE DECODER ACTUALLY READS. An
-  // earlier spelling held `imem_data` and `imem_data2` instead and was weaker
-  // than this comment claims: rtl/fetcher.v sits between them and carries state,
-  // so the same memory words can still produce a different `fetcher_out` on the
-  // next cycle. The decoder's input is the thing that has to stand still, so it
-  // is the thing assumed.
   logic [31:0] prev_reg_rs1;
   fetcher_output prev_fetcher_out;
   logic        prev_issuing;
@@ -282,24 +195,10 @@ module traps #(
     assume(fetcher_out == prev_fetcher_out);
   end
 
-
-  // Which instructions must trap, and with which cause. Written from the ISA,
-  // not transcribed from rtl/decoder.v: each encoding below is one this core
-  // must either execute or fault on, and the cause is the one the privileged
-  // spec names. A decoder that changed its mind about any of them disagrees
-  // with this, which is the point of writing it out a second way.
-  //
-  // The list is deliberately small. Working out whether an arbitrary word is
-  // legal is most of decode, and a copy of decode makes a poor oracle for
-  // decode.
   logic [31:0] i_immediate, s_immediate;
   assign i_immediate = {{20{instr[31]}}, instr[31:20]};
   assign s_immediate = {{20{instr[31]}}, instr[31:25], instr[11:7]};
 
-  // Each address is its own statement with both operands marked signed. A
-  // signed sum written as an arm of a conditional takes its signedness from the
-  // other arms, and that has silently produced unsigned arithmetic in this repo
-  // twice.
   logic [31:0] load_addr, store_addr;
   assign load_addr  = $signed(i_immediate) + $signed(reg_rs1);
   assign store_addr = $signed(s_immediate) + $signed(reg_rs1);
@@ -314,28 +213,12 @@ module traps #(
   assign sw_misaligned = is_store_op && funct3 == 3'b010 && store_addr[1:0] != 2'b00;
   assign sh_misaligned = is_store_op && funct3 == 3'b001 && store_addr[0];
 
-  // Which of those addresses a memory answers. Five ranges compared against
-  // the whole sum, not the window equalities
-  // rtl/{imemory,memory,timer,uart,spiflash}.v
-  // reduce them to: nothing in a model is timed, so it may add the immediate to
-  // rs1 and wait for the carry out of the top, which is exactly what the core
-  // cannot afford in the cycle it chooses the next pc.
   localparam logic [31:0] LS_TEXT_TOP  = LS_TEXT_WORDS * 4;
   localparam logic [31:0] LS_RAM_TOP   = LS_RAM_BASE + LS_RAM_WORDS * 4;
-  // The eight words the map reserves for one `mtimecmp` per hart, not the four
-  // a one-hart build decodes. The core's window is the reserved span for the
-  // same reason -- rounding out reads zero where rounding in would fault an
-  // address the two-hart machine answers -- and this model states the machine
-  // the core describes, so the two spans are the same span.
   localparam logic [31:0] LS_TIMER_TOP = LS_TIMER_BASE + 32'd32;
-  // rtl/uart.v's two.
   localparam logic [31:0] LS_UART_TOP  = LS_UART_BASE + 32'd8;
-  // rtl/spiflash.v's two.
   localparam logic [31:0] LS_FLASH_TOP = LS_FLASH_BASE + 32'd8;
 
-  // Selected here rather than added here: each sum above is a self-determined
-  // signed statement and stays one. Every reader below is an opcode test, so
-  // the arm this picks for anything else is not read.
   logic [31:0] data_addr;
   logic        data_mapped;
   assign data_addr = is_store_op ? store_addr : load_addr;
@@ -345,30 +228,15 @@ module traps #(
                        (data_addr >= LS_UART_BASE && data_addr < LS_UART_TOP) ||
                        (data_addr >= LS_FLASH_BASE && data_addr < LS_FLASH_TOP);
 
-  // The eight plain load and store encodings. The other three funct3 values of
-  // each opcode are not instructions in RV32 and are left out for the reason the
-  // list here is small: this core may call them illegal, and a model must not
-  // hold an opinion about the cause of an encoding it does not recognise.
   logic is_load, is_store;
   assign is_load  = is_load_op && (funct3 == 3'b000 || funct3 == 3'b001 ||
                                    funct3 == 3'b010 || funct3 == 3'b100 || funct3 == 3'b101);
   assign is_store = is_store_op && (funct3 == 3'b000 || funct3 == 3'b001 || funct3 == 3'b010);
 
-  // A plain load or store at an address no memory answers. Misalignment
-  // outranks the region, the order the atomic term states, so the four data
-  // causes stay disjoint.
   logic load_region_fault, store_region_fault;
   assign load_region_fault  = is_load  && !data_mapped && !lw_misaligned && !lh_misaligned;
   assign store_region_fault = is_store && !data_mapped && !sw_misaligned && !sh_misaligned;
 
-  // The A encodings, read off the ISA's table rather than off the decoder's
-  // flags. An atomic's effective address is rs1: funct5, aq, rl and rs2 occupy
-  // the bits an I-immediate would come from, so there is no immediate to add.
-  // `lr.w` is the one whose rs2 field is an encoding constant, and a non-zero
-  // one is a different encoding, so it is checked here rather than assumed.
-  // The nine funct5 values are written out rather than reduced to a range: the
-  // values between them are reserved, and an encoding this core is free to call
-  // illegal must reach neither list below.
   logic is_amo_op, is_lr, is_sc, is_amo, is_atomic;
   logic atomic_word_aligned, atomic_refused;
   assign is_amo_op = uncompressed && opcode == 5'b01011 && funct3 == 3'b010;
@@ -383,10 +251,6 @@ module traps #(
   assign atomic_word_aligned = reg_rs1[1:0] == 2'b00;
   assign atomic_refused = !atomic_supported && atomic_word_aligned;
 
-  // Opcode 7'b1111111 is reserved for instructions longer than 32 bits, and an
-  // all-zero halfword is the encoding the C extension defines as illegal. Both
-  // are illegal in every conforming RV32 implementation, so neither depends on
-  // what this core chose to decode.
   logic reserved_opcode, zero_halfword, is_illegal;
   assign reserved_opcode = uncompressed && opcode == 5'b11111;
   assign zero_halfword = instr == 32'h0000_0000;
@@ -396,30 +260,6 @@ module traps #(
   assign is_ecall  = instr == 32'h0000_0073;
   assign is_ebreak = instr == 32'h0010_0073 || instr == 32'h0000_9002;
 
-  // The order is illegal, breakpoint, environment call, load misaligned, store
-  // misaligned, load access fault, store access fault. No two of the terms above
-  // can hold at once -- a reserved opcode is not a load, an atomic the platform
-  // refuses is aligned by construction, and a plain load or store is neither --
-  // so the chain states the order rather than resolving anything. Make two
-  // causes overlap and this is what decides which one the core is allowed to
-  // report.
-  //
-  // The cause AND what mtval must report with it are decided in ONE chain. Two
-  // chains over the same conditions would be two readings of one instruction
-  // that could drift apart, and a cause paired with the wrong value is exactly
-  // what the mtval arm exists to catch.
-  //
-  // mtval is zero for a breakpoint and for an environment call by this
-  // platform's choice, not by the spec's requirement: its rule is that a value
-  // written must be the faulting address, not that one must be. A core
-  // reporting an address for either disagrees with THIS model and with nothing
-  // else.
-  //
-  // `data_addr` on the region arms because each already implies which of the
-  // two sums it selects. The last arm is an atomic the platform refused, whose
-  // effective address is rs1: the A encodings put funct5, aq, rl and rs2 where
-  // an I-immediate would be read from, so there is no immediate to add and this
-  // is not `load_addr` with a zero in it.
   logic expected_trap;
   logic [31:0] expected_cause, expected_tval;
   assign expected_trap = is_illegal || is_ebreak || is_ecall ||
@@ -457,25 +297,9 @@ module traps #(
     end
   end
 
-  // The two region terms are inside `expected_trap` now, so this model requires
-  // the trap as well as its cause. It required only the cause for as long as an
-  // address no memory answered was read as zero and a store to one was dropped
-  // -- the privileged spec recommends the fault rather than mandating it, so
-  // requiring it would have stated a decision the platform had not taken. The
-  // decoder decides it against this same map now, so the decision is taken and
-  // the weaker half is gone. `cause_modelled` stays as a name for the cycles the
-  // mcause comparison below is allowed to fire on.
   logic cause_modelled;
   assign cause_modelled = expected_trap;
 
-  // The other direction. Without these a core that trapped on everything would
-  // satisfy most of this file. The last three are the half that keeps a region
-  // decode honest: an access at an address the platform DOES answer executes,
-  // so a core that faulted every atomic, or every load past some line it drew
-  // for itself, would not pass here. `data_mapped` is what a load and a store
-  // are excused by, and it is what makes the pair above and this pair the two
-  // halves of one statement rather than two opinions -- an aligned `lw` the map
-  // answers must not trap, and one it does not answer must.
   logic must_not_trap;
   assign must_not_trap =
       (uncompressed && opcode == 5'b01100 && instr[31:25] == 7'b0 && funct3 == 3'b000) ||
@@ -483,26 +307,15 @@ module traps #(
       (is_store_op && funct3 == 3'b010 && store_addr[1:0] == 2'b00 && data_mapped) ||
       (is_atomic && atomic_supported && atomic_word_aligned);
 
-  // mstatus changes on three edges and no others: a write to it, a trap and an
-  // mret. The write term is any write, not just one to this address -- coarser
-  // than it needs to be, which only narrows the cycles the mret assertion below
-  // fires on.
   logic mstatus_addressed, mstatus_static;
   assign mstatus_addressed = csr_addr == MSTATUS;
   assign mstatus_static = !csr_wen && !trap_entry && !mret_entry;
 
-  // These change without any instruction asking, so a held address reading one
-  // of them says nothing about side effects. mcycle counts every cycle;
-  // minstret counts only the cycles an instruction retires, so it is excluded
-  // only on those; mip is a live view of the platform's interrupt lines, which
-  // are free inputs here and are asserted about separately below.
   logic counter_ticking;
   assign counter_ticking = csr_addr == MCYCLE || csr_addr == MCYCLEH ||
       csr_addr == MIP ||
       (instret && (csr_addr == MINSTRET || csr_addr == MINSTRETH));
 
-  // Trap entry writes mepc, mcause and mstatus. mret writes mstatus. Every
-  // other address must read back the same value it read last cycle.
   logic csr_written_by_trap;
   assign csr_written_by_trap =
       (trap_entry && (csr_addr == MEPC || csr_addr == MCAUSE || csr_addr == MTVAL ||
@@ -544,119 +357,65 @@ module traps #(
     prev2_mstatus_static    <= prev_mstatus_static;
   end
 
-  // The address held across an edge, so that two reads of csr_rdata are two
-  // reads of the same register.
   logic addr_held;
   assign addr_held = csr_addr == prev_csr_addr;
 
-  // Reset holds only before the first edge, so the CSR registers carry no
-  // defined value until then and neither does any history register above.
-  // Every assertion that compares two cycles waits for this.
   logic settled, settled2;
   assign settled = clocked && !prev_reset;
   assign settled2 = settled && !prev2_reset;
 
-  // Nothing raises a CSR enable, a retire or a redirect on a cycle the decoder
-  // did not issue an instruction. This is the interlock, and it is what a change
-  // to the stall protocol would break without anything else noticing: a trap
-  // committed on a stalled cycle is a trap taken twice.
   always_comb if (clocked && hard_stall) assert(!issuing);
   always_comb if (clocked && !issuing) assert(!csr_wen && !csr_ren && !mret_entry);
 
-  // The other half of the same property, and stated on the write enables rather
-  // than on the stall, so it covers the five stall reasons the decoder keeps to
-  // itself as well. mtvec moves only through a write to it; mepc through a write
-  // or a trap.
   always_comb if (settled && !prev_csr_wen && !prev_trap_entry) begin
     assert(mtvec_value == prev_mtvec);
     assert(mepc_value == prev_mepc);
   end
 
-  // A CSR reads back what it read last cycle unless one of the three write
-  // paths named it. This is one assertion over every register the read mux
-  // answers for, so a fourth way to change CSR state has to come through a port
-  // this file already watches.
   always_comb if (settled && addr_held && !prev_counter_ticking && !prev_csr_wen &&
                   !prev_written_by_trap)
     assert(csr_rdata == prev_rdata);
 
-  // Where the trap goes. mtvec is the register the CSR file held when the
-  // trapping instruction issued, not a free input.
   always_comb if (settled && prev_trap_entry) assert(pc == prev_mtvec);
   always_comb if (settled && prev_mret_entry) assert(pc == prev_mepc);
 
-  // mepc is the faulting instruction's own address with bit 0 cleared, which is
-  // what lets a handler read the instruction and resume past it. Bit 1 survives
-  // because a compressed instruction can sit at a two-byte address.
   always_comb if (settled && prev_trap_entry) assert(mepc_value == {past_pc[31:1], 1'b0});
 
-  // `!prev_interrupt_pending` because an interrupted instruction did not
-  // execute, so whatever it would have faulted on is not what happened. Its own
-  // cause is asserted below. `!prev_imem_fault` for the same reason one step
-  // earlier: a word the memory never supplied has no cause of its own, and the
-  // instruction access fault is what mcause holds instead.
   always_comb if (settled && prev_trap_entry && !prev_interrupt_pending &&
                   !prev_imem_fault && prev_cause_modelled && csr_addr == MCAUSE)
     assert(csr_rdata == prev_cause);
 
-  // ...and that is the cause it holds. The two together are the whole of what a
-  // fetch the memory could not answer does to architectural state: mcause is 1,
-  // and mepc and mtvec are asserted above whatever the cause.
   always_comb if (settled && prev_trap_entry && !prev_interrupt_pending &&
                   prev_imem_fault && csr_addr == MCAUSE)
     assert(csr_rdata == 32'd1);
 
-  // mtval says what the trap happened to. Same three guards as the cause
-  // comparison above and for the same reasons, so the two arms cover the same
-  // cycles and a core that reported the right cause about the wrong access
-  // fails here alone.
   always_comb if (settled && prev_trap_entry && !prev_interrupt_pending &&
                   !prev_imem_fault && prev_cause_modelled && csr_addr == MTVAL)
     assert(csr_rdata == prev_tval);
 
-  // A fetch the memory could not answer reports the address it was refused at,
-  // which is the address the instruction would have been at -- so this is the
-  // one cause whose mtval and mepc carry the same number, and the model reads
-  // it off `past_pc` rather than off a word that was never supplied.
   always_comb if (settled && prev_trap_entry && !prev_interrupt_pending &&
                   prev_imem_fault && csr_addr == MTVAL)
     assert(csr_rdata == past_pc);
 
-  // An interrupt happened to nothing. The instruction it displaced did not
-  // execute, so neither its address nor its encoding is what mtval is about.
   always_comb if (settled && prev_interrupt_entry && csr_addr == MTVAL)
     assert(csr_rdata == 32'b0);
 
-  // MIE moves into MPIE and interrupts go off. Both halves need the value
-  // mstatus held before the trap, so this fires only when the trapping
-  // instruction happened to address mstatus -- the instruction word is free, so
-  // the solver can always arrange that.
   always_comb if (settled && prev_trap_entry && prev_mstatus_addressed && mstatus_addressed) begin
     assert(csr_rdata[3] == 1'b0);
     assert(csr_rdata[7] == prev_rdata[3]);
   end
 
-  // mret pops the pair back. MPIE is observable on the cycle after, but MIE
-  // needs the value from before the mret, and an mret's own instruction word
-  // addresses 0x302 rather than mstatus. So this reaches one cycle further
-  // back, and holds mstatus still across the cycle in between.
   always_comb if (settled && prev_mret_entry && mstatus_addressed) begin
     assert(csr_rdata[7] == 1'b1);
     if (settled2 && prev2_mstatus_addressed && prev2_mstatus_static)
       assert(csr_rdata[3] == prev2_rdata[7]);
   end
 
-  // A trapping instruction issues and reaches the end of the pipeline having
-  // done nothing. No register write, and no memory access for the accessor to
-  // start.
   always_comb if (settled && prev_trap_entry) begin
     assert(decoder_out.rd == 5'b0);
     assert(!decoder_out.is_lb && !decoder_out.is_lbu && !decoder_out.is_lh &&
            !decoder_out.is_lhu && !decoder_out.is_lw);
     assert(!decoder_out.is_sb && !decoder_out.is_sh && !decoder_out.is_sw);
-    // The eleven too, which is what says a refused atomic issues no transaction
-    // rather than faulting and reading the address anyway. The published AMO bit
-    // with them: it is what rtl/accessor.v starts the read-modify-write from.
     assert(!decoder_out.is_amo);
     assert(!decoder_out.is_amoswap && !decoder_out.is_amoadd && !decoder_out.is_amoxor &&
            !decoder_out.is_amoand && !decoder_out.is_amoor && !decoder_out.is_amomin &&
@@ -664,9 +423,6 @@ module traps #(
            !decoder_out.is_lr && !decoder_out.is_sc);
   end
 
-  // minstret counts instructions that retired, and a trapping one did not.
-  // Asserted twice: once on the count enable, and once on the register, because
-  // a counter that ticked from somewhere else would satisfy the first.
   always_comb if (clocked) assert(!(trap_entry && instret));
   always_comb if (settled && prev_trap_entry && addr_held &&
                   (csr_addr == MINSTRET || csr_addr == MINSTRETH))
@@ -674,69 +430,31 @@ module traps #(
 
   always_comb if (clocked) assert(!(trap_entry && mret_entry));
 
-  // A trapping instruction commits no CSR access, whatever else it was. Today
-  // this is belt to the address decode's braces: an access can only trap by
-  // naming an address that is read-only or not implemented, and rtl/csrs.v
-  // writes neither. Drop the gate and nothing about the architectural state
-  // changes, so this assertion is the only thing that would say so.
   always_comb if (clocked) assert(!(trap_entry && (csr_wen || csr_ren)));
 
-  // The encodings the ISA fixes: these fault, those do not, whatever else the
-  // decoder decides about them. The second one carries `!interrupt_pending` and
-  // `!imem_fault` for one reason between them: both are redirects the
-  // instruction had no part in. `imem_fault` says the memory never supplied a
-  // word, so the encoding this assertion is about is not what the core is
-  // looking at.
   always_comb if (clocked && issuing && expected_trap) assert(trap_entry);
   always_comb if (clocked && issuing && must_not_trap && !interrupt_pending && !imem_fault)
     assert(!trap_entry);
 
-  // ---- the machine timer interrupt ----------------------------------------
-  //
-  // riscv-formal ships no model of any of this at the pin -- its two pc checks
-  // read `rvfi_intr` only to stop expecting pc continuity, and no check names
-  // mie, mip, mstatus or an interrupt cause. So these assertions are the oracle,
-  // not a second opinion.
-
-  // Nothing arms without a source, an enable and the global enable, and each is
-  // read the way software reads it rather than out of the CSR file's internals.
   always_comb if (clocked && !irq_timer) assert(!interrupt_pending);
   always_comb if (clocked && csr_addr == MIE && !csr_rdata[7]) assert(!interrupt_pending);
   always_comb if (clocked && mstatus_addressed && !csr_rdata[3]) assert(!interrupt_pending);
 
-  // mip.MTIP is the platform line and nothing else; MSIP and MEIP read zero
-  // because this platform has neither source.
   always_comb if (clocked && csr_addr == MIP)
     assert(csr_rdata == {24'b0, irq_timer, 7'b0});
 
-  // The instruction the interrupt displaced committed nothing. It did not
-  // retire, it wrote no CSR, it did not `mret`, and it never reached the
-  // executor -- so there is no state a later cycle has to take back, which is
-  // the whole reason an asynchronous event can be committed in decode.
   always_comb if (clocked && interrupt_pending)
     assert(!instret && !csr_wen && !csr_ren && !mret_entry);
   always_comb if (settled && prev_interrupt_entry) assert(!decoder_out.valid);
 
-  // Its address is in mepc, so `mret` re-executes it. The general form is
-  // asserted further up against `past_pc`; this says the interrupt is not an
-  // exception to it.
   always_comb if (settled && prev_interrupt_entry)
     assert(mepc_value == {past_pc[31:1], 1'b0});
 
   always_comb if (settled && prev_interrupt_entry && csr_addr == MCAUSE)
     assert(csr_rdata == CAUSE_TIMER_IRQ);
 
-  // What bounds the response. Entry clears MIE on the same edge it redirects,
-  // so the cycle after cannot take a second interrupt and nothing re-arms until
-  // an `mret` or an explicit write to mstatus. Together with the decoder's own
-  // proof that an armed interrupt is taken on the first cycle that is not
-  // stalled, that is the bound: one entry per arming, on the next issuing cycle.
   always_comb if (settled && prev_trap_entry) assert(!interrupt_pending);
 
-  // WARL. mtvec is direct mode only, so its low two bits are a mode field that
-  // must stay zero; mepc's bit 0 must stay zero because instructions are at
-  // least two bytes apart; MPP is hardwired to machine mode because there is no
-  // other mode.
   always_comb if (clocked) assert(mtvec_value[1:0] == 2'b00);
   always_comb if (clocked) assert(mepc_value[0] == 1'b0);
   always_comb if (clocked && mstatus_addressed) assert(csr_rdata[12:11] == 2'b11);

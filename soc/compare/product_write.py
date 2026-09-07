@@ -56,7 +56,6 @@ from datetime import datetime, timezone
 SCHEMA = "compare-product v2"
 NOTE = "written by soc/compare/run_product.sh (make compare-product); do not hand-edit"
 
-
 def kv(spec, what):
     if "=" not in spec:
         sys.exit(f"error: {what} wants NAME=VALUE, got '{spec}'")
@@ -64,7 +63,6 @@ def kv(spec, what):
     if not name:
         sys.exit(f"error: {what} '{spec}' names no core or tool")
     return name, value
-
 
 def floats(spec, what):
     name, value = kv(spec, what)
@@ -75,7 +73,6 @@ def floats(spec, what):
     if not values:
         sys.exit(f"error: {what} '{spec}' names no placements")
     return name, values
-
 
 def clock_stats(ns_values):
     worst = max(ns_values)
@@ -88,12 +85,11 @@ def clock_stats(ns_values):
         "worst_mhz": 1000.0 / worst,
         "median_mhz": 1000.0 / statistics.median(ns_values),
         "best_mhz": 1000.0 / best,
-        # Best-to-worst as a percentage of the best placement, the same
-        # convention soc/baseline_summary.py's stats() uses -- so a reader who
-        # already knows that column's shape does not have to learn a second one.
+        # Best-to-worst as a percentage of the best placement, the same convention
+        # soc/baseline_summary.py's stats() uses -- so a reader who already knows that
+        # column's shape does not have to learn a second one.
         "spread_pct": 100.0 * (worst - best) / best,
     }
-
 
 def measured_pair(args):
     if len(args.clock_ns) < 2:
@@ -182,7 +178,6 @@ def measured_pair(args):
         "products": products,
     }
 
-
 def unmeasured_pair(args):
     if not args.reason:
         sys.exit("error: --not-yet-measured wants --reason")
@@ -192,7 +187,6 @@ def unmeasured_pair(args):
         "cores": args.core,
         "reason": args.reason,
     }
-
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
@@ -245,7 +239,6 @@ def main():
         json.dump(doc, handle, indent=2, sort_keys=True)
         handle.write("\n")
     print(f"wrote {args.benchmark} ({pair['status']}) into {args.out}")
-
 
 if __name__ == "__main__":
     main()

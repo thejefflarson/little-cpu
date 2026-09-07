@@ -1,54 +1,10 @@
 #!/bin/bash
-# Asserts that every file describing the comparison harness's geometry describes
-# the same one.
-#
-# Usage: geometry_test.sh [repo-root]     # defaults to this script's grandparent
-#
-# The harness's whole claim is that all three cores were measured in ONE geometry.
-# The Makefile's variables, every comparison-harness top's parameter defaults,
-# the linker script's two regions and the program's RAM base state part of it,
-# and nothing but this compares them. A ROM that is 1024 words in the Makefile
-# and 2048 in the RTL still synthesises, still places and still reports a
-# critical path; it just reports it for a design the other cores were not
-# measured against.
-#
-# THE FILE LIST IS DERIVED, NOT HAND-MAINTAINED. This script used to name the
-# three comparison cores as a literal list, so a fourth core -- or any other
-# soc/compare/bench_*.v declaring a chparam'able ROM_WORDS -- could land with no
-# comparison to trip: adding a name here was a step nothing forced anyone to
-# remember, which is why PR #243 adding soc/compare/coremark.lds and
-# coremark_tb.v could not have tripped anything -- there was no comparison to
-# trip. `chparam -set ROM_WORDS ... $(COMPARE_TOP)` in the Makefile is the
-# actual mechanism that makes a top's ROM_WORDS the harness's ROM_WORDS, so this
-# script reads its list of tops from the Makefile's own `COMPARE_TOP := ...`
-# lines instead of keeping a second copy, and requires every
-# soc/compare/bench_*.v that declares `parameter integer ROM_WORDS` -- the
-# module-parameter form chparam can reach, as against a `localparam`, which it
-# cannot -- to be one of those names. A file matching that glob with no such
-# parameter (a testbench, an adapter) states no geometry of its own and is
-# silently exempt: the exemption is by DECLARATION, not by a second hand-kept
-# list this check would only ever be as complete as.
-#
-# The same argument covers the one *.lds file this geometry's numeric
-# comparison actually reads: the Makefile links it directly
-# (`-T soc/compare/<name>.lds`), which is the one thing that ties a linker
-# script to THIS chparam'd geometry rather than to a differently-sized
-# simulation of its own -- soc/compare/dhry.lds links a deliberately larger map
-# that does not fit this one, and soc/compare/dhry_fit.py is the check that
-# grades it against soc/compare/dhry_tb.v instead. Every OTHER soc/compare/*.lds
-# must be named by some other soc/compare/*.sh or *.py script, so a linker
-# script that is neither the Makefile's own nor read by anything else states a
-# geometry nothing grades.
-#
-# Hermetic: grep, sed and shell arithmetic. No toolchain, no simulator, no yosys.
+# Asserts that every file describing the comparison harness's geometry describes the same
+# one.
 set -euo pipefail
 
-# On once, for the whole script, rather than toggled around each glob: nothing
-# here relies on the unexpanded-pattern behaviour nullglob turns off. /bin/bash
-# on macOS is 3.2, whose `set -u` treats a zero-element array's `"${arr[@]}"`
-# as an unbound variable, so every glob below is a plain `for` loop rather than
-# an array -- that degenerates to zero iterations under nullglob instead of an
-# error, with nothing to unset back.
+# On once, for the whole script, rather than toggled around each glob: nothing here
+# relies on the unexpanded-pattern behaviour nullglob turns off.
 shopt -s nullglob
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -75,9 +31,8 @@ for f in Makefile soc/compare/bench.S rtl/memory.v; do
   fi
 done
 
-# A declaration this cannot read is fatal rather than empty: comparing against
-# an empty string is how a check goes on reporting green over a file it has
-# stopped understanding.
+# A declaration this cannot read is fatal rather than empty: comparing against an empty
+# string is how a check goes on reporting green over a file it has stopped understanding.
 read_or_die() {  # $1 = label, $2 = file, $3 = sed program
   local value
   value=$(sed -n "$3" "$REPO/$2" | head -1)
@@ -90,9 +45,6 @@ read_or_die() {  # $1 = label, $2 = file, $3 = sed program
   printf '%s' "$value"
 }
 
-# The Makefile's own list of comparison-harness tops: every `COMPARE_TOP := X`
-# line names an X that `chparam -set ROM_WORDS ...` reaches, which is what
-# makes a name here worth cross-checking at all.
 mk_tops=$(sed -n 's/^COMPARE_TOP *:= *\(bench_[A-Za-z0-9_]*\) *$/\1/p' \
   "$REPO/Makefile" | sort -u)
 if [ -z "$mk_tops" ]; then
@@ -102,9 +54,6 @@ if [ -z "$mk_tops" ]; then
   exit 1
 fi
 
-# The Makefile's own linker-script reference: `-T soc/compare/<name>.lds` is
-# what ties a script to THIS chparam'd geometry, the same way COMPARE_TOP ties
-# a .v file to it.
 mk_lds=$(sed -n 's#.*-T soc/compare/\([A-Za-z0-9_]*\)\.lds.*#\1#p' \
   "$REPO/Makefile" | sort -u)
 if [ -z "$mk_lds" ]; then
@@ -119,11 +68,6 @@ mk_rom=$(read_or_die "COMPARE_ROM_WORDS" Makefile \
 mk_ram=$(read_or_die "COMPARE_RAM_WORDS" Makefile \
   's/^COMPARE_RAM_WORDS *:= *\([0-9]*\).*/\1/p')
 
-# The program reaches RAM through a literal, because it has no .data for the
-# linker to place there. rtl/memory.v's default base is what all three harnesses
-# instantiate, so the literal has to be that number. Read here, ahead of the
-# lds loop below, because neither depends on mk_lds and the lds loop's own
-# ORIGIN check needs rtl_base already in hand.
 prog_base=$(read_or_die "RAM base literal" soc/compare/bench.S \
   's/.*li *t0, *\(0x[0-9a-fA-F]*\).*/\1/p')
 rtl_base=$(read_or_die "BASE parameter default" rtl/memory.v \
@@ -149,14 +93,6 @@ for top in $mk_tops; do
     "soc/compare/$top.v has RAM_WORDS=$v_ram, the Makefile has COMPARE_RAM_WORDS=$mk_ram"
 done
 
-# Both ways: every soc/compare/bench_*.v that DECLARES a chparam'able ROM_WORDS
-# must be one of the Makefile's own tops -- a file the Makefile's COMPARE_CORE
-# selection cannot reach is measured by nothing, however faithfully its own
-# ROM_WORDS agrees with a number nobody chparams it to. `parameter integer` is
-# the distinguishing test rather than the filename: soc/compare/bench_tb.v
-# matches the glob and states no geometry of its own, and a `localparam` (the
-# shape soc/compare/dhry_tb.v uses) is fixed at authoring time and never
-# reaches chparam at all, so neither is asked to agree with anything.
 for f in "$REPO"/soc/compare/bench_*.v; do
   base=$(basename "$f" .v)
   if grep -q 'parameter integer ROM_WORDS' "$f" \
@@ -167,8 +103,6 @@ for f in "$REPO"/soc/compare/bench_*.v; do
   fi
 done
 
-# `LENGTH = 4K` -> bytes. Only K is accepted: a script that quietly read `4M` as
-# 4 would compare two numbers that agree and mean different sizes.
 lds_bytes() {  # $1 = region name, $2 = lds path relative to $REPO
   local raw
   raw=$(read_or_die "$1 region" "$2" \
@@ -196,19 +130,6 @@ for name in $mk_lds; do
   fi
 done
 
-# Both ways again: every soc/compare/*.lds the Makefile does NOT link itself
-# must be named by some other soc/compare/*.sh or *.py -- a linker script
-# neither this check nor anything else reads states a geometry nobody grades.
-# Every OTHER script's own *.lds references are collected once, as whole
-# `name.lds` tokens rather than a bare substring test: a substring test would
-# let soc/compare/not_orphan.lds' own name satisfy the check for
-# soc/compare/orphan.lds, since the shorter name sits inside the longer one.
-# SELF is excluded so a comment naming a file (like this one naming
-# soc/compare/dhry.lds above) can never stand in for a real reference.
-# `|| true`: a script naming no .lds at all is a normal outcome (most of
-# soc/compare/ names none), not a failure -- without it, that grep's exit 1
-# becomes the `for` loop's own exit status, which `pipefail` then blames on
-# the whole assignment, aborting the script here with no message at all.
 referenced_lds=$(for s in "$REPO"/soc/compare/*.sh "$REPO"/soc/compare/*.py; do
   [ "$s" = "$SELF" ] && continue
   grep -ohE '[A-Za-z0-9_]+\.lds' "$s" || true

@@ -1,25 +1,6 @@
 #!/bin/bash
-# Asserts that every ADR file has a unique number and exactly one row in the
-# index, both ways round.
-#
-# Usage: adr_numbering_test.sh [repo-root]     # defaults to this script's parent
-#
-# WHY THIS EXISTS. Two PRs once claimed the same ADR number under two
-# different filenames. The README row each one added is a full line in the
-# same region of one table, so the two insertions collided and git refused to
-# merge them -- that half caught itself. The filename did not: `NNNN-a.md`
-# and `NNNN-b.md` are two different paths git has never seen conflict, and
-# only one README row need exist for the pair to slip through undetected. An
-# architect caught it by reading the table; this script is the mechanism.
-#
-# A gap in the sequence is not a defect -- work merges around a reserved
-# number sometimes and leaves it unused -- so this checks for a COLLISION
-# (two files claiming one number) and an ORPHAN (a row with no file, or a
-# file with no row), never for a number the sequence skipped.
-#
-# Hermetic: ls, grep and sed. No git, no toolchain, so this runs inside
-# `make test` anywhere, and a fixture directory that is not a checkout can be
-# graded the same way the shipping tree is.
+# Asserts that every ADR file has a unique number and exactly one row in the index, both
+# ways round.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -37,9 +18,6 @@ rc=0
 files=$(cd "$ADR" && ls -1 | grep -E '^[0-9]{4}-.*\.md$' | sort)
 [ -n "$files" ] || { echo "error: no NNNN-*.md files found under $ADR." >&2; exit 1; }
 
-# $files is already sorted by full filename, and a 4-digit prefix of an
-# already-sorted list can't be out of order -- so a duplicate number is
-# already adjacent and `uniq -d` alone finds it, with no re-sort.
 dupes=$(sed -E 's/^([0-9]{4})-.*/\1/' <<< "$files" | uniq -d)
 if [ -n "$dupes" ]; then
   rc=1
@@ -49,17 +27,9 @@ if [ -n "$dupes" ]; then
   done <<< "$dupes"
 fi
 
-# The linked filename, not the displayed number in brackets -- the filename is
-# what a second insertion at the same number would fail to collide on.
 rows=$(grep -oE '^\| \[[0-9]{4}\]\([0-9]{4}-[a-z0-9-]+\.md\)' "$README" \
          | sed -E 's/.*\(([0-9]{4}-[a-z0-9-]+\.md)\)/\1/' | sort)
 
-# Both directions in one linear pass each over the two already-sorted lists,
-# via `comm`, rather than one `grep` subprocess per file -- the same idiom
-# test/check_suite_shape.sh and test/dual_build.sh already use for a name-set
-# comparison. `rows_unique` collapses a file with more than one row to one
-# entry, so it does not read as an orphan on either side; `uniq -d` on the
-# (still sorted) `rows` catches that case on its own.
 rows_unique=$(sort -u <<< "$rows")
 
 while IFS= read -r f; do

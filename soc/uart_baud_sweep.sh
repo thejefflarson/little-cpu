@@ -1,16 +1,4 @@
 #!/bin/bash
-# Measures the board's real clock through its own UART.
-#
-# rtl/uart.v divides the clock by a constant for 115200, so the rate on the wire
-# moves with the oscillator:  wire_baud = 115200 * f / 12e6.  Move the HOST to
-# meet it and the rate that decodes tells you f.
-#
-# READ THE PLATEAU, NOT A WINNER. 8N1 tolerates a few percent, so a band of
-# rates decodes cleanly; its centre is the board's rate and its width is the
-# uncertainty. A single best score is noise -- an early version of this sampled
-# 900ms per rate against a board that printed once a second, and "won" at
-# whichever window happened to catch a line. Hence the long windows and the
-# minimum byte count below.
 set -uo pipefail
 FTREAD=${FTREAD:-$(cd "$(dirname "$0")" && pwd)/ftread}
 MS=${MS:-6000}

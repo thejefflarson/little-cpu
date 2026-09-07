@@ -39,8 +39,8 @@ RVTEST_CODE_BEGIN
   TEST_CASE( 2, a1, 0x12345678, nop )
   TEST_CASE( 3, a2, 0x0000FFFF, nop )
 
-  # They must also not disturb the PC: falling through to here at all is the
-  # check, and the counter proves we executed rather than skipped.
+  # They must also not disturb the PC: falling through to here at all is the check, and
+  # the counter proves we executed rather than skipped.
   li    a3, 0
   fence
   addi  a3, a3, 1

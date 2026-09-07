@@ -1,11 +1,3 @@
-# The comparison bench on up5k/sg48 -- the UPduino's own part and package, and
-# the same three pads soc/compare/bench_hx8k.pcf constrains: a clock and two
-# LEDs. The pin numbers are soc/upduino.pcf's, so a bitstream built from this
-# runs on the board `make prog` already flashes.
-#
-# THE CLOCK HERE IS NOT A FREQUENCY. up5k's clock is a step function -- the
-# board's 12 MHz crystal, or SB_HFOSC's 48/24/12/6 -- so what a placement says
-# about a core on this part is which STEP it reaches, not how many MHz it made.
 set_io clk    20
 set_io led0_n 41
 set_io led1_n 39

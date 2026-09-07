@@ -46,10 +46,8 @@ import subprocess
 import sys
 
 # The two jobs, each a copy of the .sby that ships it -- formal/components.sby's
-# `busarbiter` task including its engine, and formal/busarbiter_cover.sby
-# including its depth -- paired with the line that job complains on. Read WITH
-# -formal, the way both of them do: rtl/busarbiter.v has no `ifdef FORMAL` block,
-# so there is no assume of its own to compile into the instance.
+# `busarbiter` task including its engine, and formal/busarbiter_cover.sby including its
+# depth -- paired with the line that job complains on.
 JOBS = {
     "prove": (
         """[options]
@@ -98,13 +96,12 @@ LOCK_COVER = "cover (settled && grant[h] && past_grant[h] && past_mem_lock[h] &&
 TIE_SITE = "  assign winner = (request == 2'b11) ? (grant[0] ? 2'b10 : 2'b01) : request;\n"
 HOLD_SITE = "    else grant <= held ? grant : winner;\n"
 
-# Each case's replacement for its site. `shipping` mutates nothing.
+# Each case's replacement for its site.
 CASES = {
     "shipping": None,
     "fixed-priority": (TIE_SITE, "  assign winner = (request == 2'b11) ? 2'b01 : request;\n"),
     "grant-mid-lock": (HOLD_SITE, "    else grant <= winner;\n"),
 }
-
 
 def stop(message):
     """Exit 2: the probe's own inputs are broken, which is not a red proof.
@@ -114,7 +111,6 @@ def stop(message):
     """
     print(f"error: {message}", file=sys.stderr)
     sys.exit(2)
-
 
 def line_of(harness, text, what):
     """The line formal/busarbiter.sv states `text` on, 1-based."""
@@ -127,7 +123,6 @@ def line_of(harness, text, what):
             "a proof that went red somewhere else entirely."
         )
     return hits[0]
-
 
 def mutate(arbiter_v, case):
     """rtl/busarbiter.v with this case's one line replaced."""
@@ -145,7 +140,6 @@ def mutate(arbiter_v, case):
         stop(f"this probe's {case} replacement is its own site, so the core is unmutated.")
     return arbiter_v.replace(site, replacement)
 
-
 def run_case(repo, workdir, sby, case, job):
     """Builds the mutated tree, runs one sby job, and returns (status, lines).
 
@@ -160,9 +154,9 @@ def run_case(repo, workdir, sby, case, job):
     (root / "src" / "busarbiter.v").write_text(mutate(arbiter, case))
     (root / f"{job}.sby").write_text(sby_text)
 
-    # sby's own exit status is not read: FAIL is the required outcome of two of
-    # these runs, and a non-zero status there says nothing this file does not
-    # read out of the workdir instead.
+    # sby's own exit status is not read: FAIL is the required outcome of two of these
+    # runs, and a non-zero status there says nothing this file does not read out of the
+    # workdir instead.
     proc = subprocess.run(
         [sby, "-f", f"{job}.sby"], cwd=root, capture_output=True, text=True
     )
@@ -177,7 +171,6 @@ def run_case(repo, workdir, sby, case, job):
         stop(f"sby's status file for the {case} core's {job} run is empty.")
     log = (root / job / "logfile.txt").read_text()
     return status[0], sorted(set(int(n) for n in re.findall(pattern, log)))
-
 
 def main():
     here = pathlib.Path(__file__).resolve().parent
@@ -279,7 +272,6 @@ def main():
         sys.exit(1)
 
     print("Both arms admit the shipping arbiter and fail on their own mutation.")
-
 
 if __name__ == "__main__":
     main()

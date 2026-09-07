@@ -1,19 +1,8 @@
 #!/bin/bash
-# Links one batch of `.S` suite programs against test/board/board_suite.S and
-# writes the ROM banks for it, plus the index->name map the host needs to read
-# the verdicts back.
-#
-# SYMBOL COLLISIONS ARE THE REASON FOR objcopy. Every program defines `_start`
-# and `tohost` and reuses the same local labels, so several cannot be linked
-# together as they are. Each is assembled alone and then has ITS OWN symbols
-# prefixed -- p0_, p1_ -- which makes each `_start` a distinct address the
-# driver's table can hold.
-#
-# Usage: build_batch.sh <out-dir> <prog.S> [prog.S ...]
+# Links one batch of `.S` suite programs against test/board/board_suite.S and writes the
+# ROM banks for it, plus the index->name map the host needs to read the verdicts back.
 set -euo pipefail
 OUT=$1; shift
-# The part's instruction memory, in words, read from the Makefile so it cannot
-# drift from what soc/rom_banks.py is told to pad to.
 ROM_WORDS=${ROM_WORDS:-$(awk -F'= *' '/^SOC_ROM_WORDS/{print $2; exit}' "$(dirname "$0")/../../Makefile" | tr -d ' ')}
 : "${ROM_WORDS:=2048}"
 mkdir -p "$OUT"
@@ -30,31 +19,15 @@ OBJCOPY=${CC%gcc}objcopy
 objs=(); names=(); i=0
 for prog in "$@"; do
   base=$(basename "$prog")
-  # TEXT_PAST is the top of the instruction memory and differs between a
-  # simulator and the part -- 4096 words against 2048. loadfault.S and
-  # storefault.S probe just below it, so a program built with the simulator's
-  # value tests an address this machine does not have and fails on a core that
-  # refused it correctly.
   $CC -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -nostdlib -DBOARD_SUITE \
       -DTEXT_PAST=$(( ROM_WORDS * 4 )) \
       -I "$ROOT/test/asm" -c -o "$OUT/p$i.o" "$prog"
   $OBJCOPY --prefix-symbols="p${i}_" "$OUT/p$i.o"
-  # --prefix-symbols renames UNDEFINED symbols too, so the program's reference to
-  # the driver's `board_next` became `pN_board_next` and resolves to nothing.
-  # Put every external the driver provides back the way it was.
   $OBJCOPY --redefine-sym "p${i}_board_next=board_next" "$OUT/p$i.o"
   objs+=("$OUT/p$i.o"); names+=("$base"); i=$((i+1))
 done
 
-# The table the driver indexes. Written here rather than in the driver because
-# only this script knows how many programs went in.
 {
-  # .align 2 IS LOAD-BEARING. These are read with `lw`, and where .rodata lands
-  # depends on how much of it the batch's programs contributed -- so without an
-  # explicit alignment a batch can put board_count on a 2-byte boundary and the
-  # driver takes a load-misaligned trap reading it, before any program has
-  # installed a handler, with mtvec still zero. Seven programs did exactly that
-  # where six were fine, and the batch went silent with no verdict at all.
   echo '  .section .rodata'
   echo '  .align 2'
   echo '  .globl board_table'
@@ -71,8 +44,6 @@ $CC -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -nostdlib -DBOARD_SUITE \
     -I "$ROOT/test/asm" -T "$HERE/board.lds" -o "$OUT/batch.elf" \
     "$HERE/board_suite.S" "$OUT/table.o" "${objs[@]}"
 
-# ld does not police the 8K rom region for an overflow it can satisfy by
-# spilling, so the size is checked here rather than assumed.
 bytes=$(${CC%gcc}size "$OUT/batch.elf" | awk 'NR==2{print $1+$2}')
 if [ "$bytes" -gt 8192 ]; then
   echo "error: batch is $bytes bytes and the ROM is 8192." >&2

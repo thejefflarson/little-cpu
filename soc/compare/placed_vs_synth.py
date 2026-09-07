@@ -38,11 +38,10 @@ import argparse
 import re
 import sys
 
-# nextpnr's utilisation table: `Info: \t ICESTORM_LC:  7447/  7680    96%`
+# nextpnr's utilisation table: `Info: \t ICESTORM_LC: 7447/ 7680 96%`
 PLACED = re.compile(r"ICESTORM_LC:\s*(\d+)\s*/\s*(\d+)")
 # yosys's `stat` census, the same line shape soc/cell_census.py matches.
 SYNTH = re.compile(r"^\s+(\d+)\s+SB_LUT4\s*$")
-
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -68,8 +67,8 @@ def main():
             f"finish placing, so there is no placed design to check."
         )
 
-    # The LAST census, matching soc/cell_census.py: yosys prints one per pass
-    # and the final one is the whole-design total.
+    # The LAST census, matching soc/cell_census.py: yosys prints one per pass and the
+    # final one is the whole-design total.
     synthesised = None
     for line in open(args.synth_log):
         found = SYNTH.match(line)
@@ -96,7 +95,6 @@ def main():
             f"*** exactly this. Fix the harness or the program; do not lower the floor."
         )
     print(f"RATCHET: {ratio:.2f}x against a {args.min_ratio:.2f}x floor -- OK")
-
 
 if __name__ == "__main__":
     main()

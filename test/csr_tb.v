@@ -3,16 +3,6 @@
 `include "structs.v"
 
 // rtl/csrs.v's access port, driven directly.
-//
-// Two things here are checked nowhere else. `implemented` feeds
-// rtl/decoder.v's `instr_valid`, so an address wrongly accepted becomes an
-// instruction the core executes and one wrongly rejected becomes an illegal
-// instruction -- in a `.S` test either reads as an execution bug rather than a
-// CSR one. And the WARL masks cannot be checked by riscv-formal at
-// all: rvfi_csrw_check.sv compares the write against the value the core says it
-// wrote, with no model of a register that legally keeps only some bits, so a
-// correctly masked CSR fails it. That is why mtvec, mepc and mstatus are kept
-// off the `[csrs]` list in formal/checks.cfg.
 module csr_tb;
   logic clk = 0;
   always #5 clk = ~clk;
@@ -24,8 +14,8 @@ module csr_tb;
   logic [31:0] rdata;
   logic        implemented;
   logic        instret;
-  // The second write port, driven for exactly the cycle rtl/decoder.v commits
-  // a trap or an mret.
+  // The second write port, driven for exactly the cycle rtl/decoder.v commits a trap or
+  // an mret.
   logic        trap_entry, mret_entry;
   logic [31:0] trap_cause, trap_epc, trap_tval;
   logic [31:0] mtvec_value, mepc_value;
@@ -64,12 +54,8 @@ module csr_tb;
    `endif
   );
 
-  // A second copy of the same module at a non-zero HART_ID, sharing every input
-  // with the DUT so the parameter is the only thing that can differ between the
-  // two reads. A parameter never instantiated away from its default is
-  // indistinguishable from the constant it replaced, and hart 0's mhartid is
-  // that constant. Top bit and bottom bit both set, so a value that arrived
-  // truncated does not read as this one.
+  // A second copy of the same module at a non-zero HART_ID, sharing every input with the
+  // DUT so the parameter is the only thing that can differ between the two reads.
   localparam logic [31:0] OTHER_HART_ID = 32'h8000_0001;
   logic [31:0] other_rdata;
   csrs #(.HART_ID(OTHER_HART_ID)) other_hart (
@@ -148,10 +134,10 @@ module csr_tb;
     end
   endtask
 
-  // The same read taken from the second instance instead, which differs from
-  // the DUT in nothing but HART_ID. Only the value is compared: `implemented`
-  // has no HART_ID in its cone, so checking it here could not fail for a reason
-  // the DUT's own read at the same address has not already covered.
+  // The same read taken from the second instance instead, which differs from the DUT in
+  // nothing but HART_ID. Only the value is compared: `implemented` has no HART_ID in its
+  // cone, so checking it here could not fail for a reason the DUT's own read at the same
+  // address has not already covered.
   task automatic check_other_read(input string what, input logic [11:0] a,
                                   input logic [31:0] expected);
     begin
@@ -215,10 +201,8 @@ module csr_tb;
     check_read("marchid", 12'hF12, 32'h0);
     check_read("mimpid", 12'hF13, 32'h0);
     check_read("mhartid", 12'hF14, 32'h0);
-    // Hart 0 keeps id 0 because the spec requires some hart to have it, so the
-    // read above cannot tell the parameter from the read-only zero mhartid used
-    // to be spelled as. The first line below is what does; the second says the
-    // split left mhartid's four neighbours in the shared arm.
+    // Hart 0 keeps id 0 because the spec requires some hart to have it, so the read above
+    // cannot tell the parameter from the read-only zero mhartid used to be spelled as.
     check_other_read("mhartid reads HART_ID", 12'hF14, OTHER_HART_ID);
     check_other_read("...and mimpid beside it still reads 0", 12'hF13, 32'h0);
     check_read("minstret", 12'hB02, 32'h0);
@@ -230,14 +214,13 @@ module csr_tb;
     check_read("mstatush reads 0", 12'h310, 32'h0);
     check_read("mconfigptr reads 0", 12'hF15, 32'h0);
 
-    // Writable by encoding with no implemented fields, so a write is a legal
-    // WARL no-op: neither trapping nor retaining, which are conformance bugs in
-    // opposite directions.
+    // Writable by encoding with no implemented fields, so a write is a legal WARL no-op:
+    // neither trapping nor retaining, which are conformance bugs in opposite directions.
     poke(12'h310, 32'hFFFF_FFFF);
     check_read("mstatush still reads 0 after a write", 12'h310, 32'h0);
 
-    // Read-only by encoding, so the decoder rejects a write before rtl/csrs.v
-    // is asked; only the read side is this module's half.
+    // Read-only by encoding, so the decoder rejects a write before rtl/csrs.v is asked;
+    // only the read side is this module's half.
     check_read("mconfigptr reads 0 after an attempted write", 12'hF15, 32'h0);
 
     peek(12'h7C0); // a custom/unimplemented machine CSR
@@ -266,8 +249,8 @@ module csr_tb;
 
     poke(12'h305, 32'h0000_0103);
     check_read("mtvec masks bits [1:0]", 12'h305, 32'h0000_0100);
-    // Bit 1 of mepc is a legal value, because C makes 2-byte targets legal, so
-    // masking it too would be a bug rather than extra safety.
+    // Bit 1 of mepc is a legal value, because C makes 2-byte targets legal, so masking it
+    // too would be a bug rather than extra safety.
     poke(12'h341, 32'h0000_0103);
     check_read("mepc masks bit 0 only", 12'h341, 32'h0000_0102);
     poke(12'h300, 32'h0000_0000);
@@ -277,18 +260,10 @@ module csr_tb;
     poke(12'h300, 32'h0000_0008);
     check_read("mstatus MIE alone", 12'h300, 32'h0000_1808);
 
-    // rtl/csrs.v never decides an access is illegal -- the read-only test on
-    // the address is in rtl/decoder.v with every other trap cause -- so the
-    // WARL fallback that swallows these is what makes the RVFI report tell the
-    // truth about what landed.
     poke(12'h301, 32'hffff_ffff);
     check_read("misa ignores a write", 12'h301, 32'h4000_1105);
     poke(12'h344, 32'hffff_ffff);
     check_read("mip ignores a write -- MTIP is the platform's line", 12'h344, 32'h0);
-    // Writable in full, with no legal-value mask: every 32-bit pattern is one
-    // some trap could have left here, and a handler that nests traps has to be
-    // able to save and restore it. All ones is the vector that separates
-    // "writable" from "writable except for a field somebody masked".
     poke(12'h343, 32'hffff_ffff);
     check_read("mtval round-trips every bit", 12'h343, 32'hffff_ffff);
     poke(12'h343, 32'h0000_0000);
@@ -317,7 +292,6 @@ module csr_tb;
     peek(12'hB02);
     check_hex("minstret counts an issue", rdata, before_lo + 32'd1);
 
-    // Driven with instret high, the case that would otherwise land value+1.
     instret = 1'b1;
     poke(12'hB02, 32'h0000_0100);
     instret = 1'b0;
@@ -334,14 +308,6 @@ module csr_tb;
     check_read("an explicit mcycle write beats the increment", 12'hB00, 32'h0000_0000);
     check_read("...and does not disturb mcycleh", 12'hB80, before_hi);
 
-    // Do not drop these as duplicates of the two vectors above. A CSR write
-    // takes precedence over that cycle's automatic increment for the whole
-    // 64-bit counter, not just for the half the address names, so the carry
-    // boundary is the one place the rule can be broken: with the low half at
-    // 0xffff_ffff a write to it must also suppress the carry into the high
-    // half. Nothing else reaches that cycle -- the generated CSR checks read
-    // only what the core reports writing and never look at the register, and a
-    // `.S` program lands a write there only by calibrating instruction spacing.
     poke(12'hB80, 32'h0000_0000);
     poke(12'hB00, 32'hffff_fffe);
     @(posedge clk);
@@ -362,16 +328,6 @@ module csr_tb;
     check_read("a write at the boundary still beats the increment", 12'hB02, 32'h0000_0000);
     check_read("...and its discarded carry does not reach minstreth", 12'hB82, 32'h0000_0000);
 
-    //-----------------------------------------------------------------------
-    // The 87 hardware performance monitor addresses. The spec asks for all 29
-    // counters and their event selectors and permits both to be read-only
-    // zero, so `implemented` high with a zero read is the whole contract --
-    // and there is no state behind them for a `.S` program to observe. Each is
-    // recognised by an address range, so BOTH ENDS of every range are read
-    // here and so are the addresses just outside it: a range one address too
-    // wide swallows a neighbour and nothing else in this file would say so.
-    //-----------------------------------------------------------------------
-
     check_read("mhpmcounter3 reads 0", 12'hB03, 32'h0);
     check_read("mhpmcounter31 reads 0", 12'hB1F, 32'h0);
     check_read("mhpmcounter3h reads 0", 12'hB83, 32'h0);
@@ -379,8 +335,6 @@ module csr_tb;
     check_read("mhpmevent3 reads 0", 12'h323, 32'h0);
     check_read("mhpmevent31 reads 0", 12'h33F, 32'h0);
 
-    // Writable by encoding with no implemented fields, so a write is a legal
-    // WARL no-op on all three ranges, the way mstatush's is.
     poke(12'hB03, 32'hffff_ffff);
     check_read("mhpmcounter3 still reads 0 after a write", 12'hB03, 32'h0);
     poke(12'hB9F, 32'hffff_ffff);
@@ -388,16 +342,10 @@ module csr_tb;
     poke(12'h33F, 32'hffff_ffff);
     check_read("mhpmevent31 still reads 0 after a write", 12'h33F, 32'h0);
 
-    // One past the top of each range, and the counter numbers 0-2 inside each
-    // window that belong to something else or to nothing.
     peek(12'hB20);
     check_bit("0xb20 is one past mhpmcounter31", implemented, 1'b0);
     peek(12'hBA0);
     check_bit("0xba0 is one past mhpmcounter31h", implemented, 1'b0);
-    // Number 3 of the window ABOVE each range. A compare that took one bit too
-    // few of the address would double every range's width, and these are the
-    // only addresses that see it: the three above are number 0 of that window
-    // and stay illegal on the counter-number test alone.
     peek(12'hB23);
     check_bit("0xb23 is number 3 of the window above the counters", implemented, 1'b0);
     peek(12'hBA3);
@@ -413,18 +361,10 @@ module csr_tb;
     peek(12'h322);
     check_bit("0x322 is one below mhpmevent3", implemented, 1'b0);
 
-    // The implemented neighbours must still answer with their own register
-    // rather than the ranges' zero. mscratch was written 0xdeadbeef above and
-    // nothing since has touched it.
     poke(12'hB02, 32'h5a5a_5a5a);
     check_read("minstret still answers 0xb02, one below mhpmcounter3", 12'hB02, 32'h5a5a_5a5a);
     check_read("mscratch still answers 0x340, one past mhpmevent31", 12'h340, 32'hdead_beef);
 
-    // Nothing in the generated riscv-formal checks sees any of this. Their
-    // per-instruction checks drop every value assertion for a retire that
-    // traps, and the CSRs a trap writes are the WARL ones the header explains
-    // cannot go on the `[csrs]` list, so this bench and test/asm/trap.S are all
-    // there is.
     poke(12'h305, 32'h0000_0100);   // mtvec = 0x100
     poke(12'h300, 32'h0000_0008);   // mstatus.MIE = 1, MPIE = 0
     check_hex("mtvec_value echoes mtvec for the decoder", mtvec_value, 32'h0000_0100);
@@ -432,14 +372,10 @@ module csr_tb;
     take_trap(32'd4, 32'h0000_0080, 32'h0001_0049);
     check_read("a trap records the cause", 12'h342, 32'd4);
     check_read("...and the faulting pc in mepc", 12'h341, 32'h0000_0080);
-    // Unmasked, unlike mepc: an effective address may be odd, and a misaligned
-    // one always is -- masking mtval the way mepc is masked would report the
-    // aligned address the access did not use, for cause 4 and cause 6 alike.
     check_read("...and what it happened to in mtval", 12'h343, 32'h0001_0049);
     check_read("...pushes MIE into MPIE and clears MIE", 12'h300, 32'h0000_1880);
     check_hex("mepc_value echoes mepc for the decoder", mepc_value, 32'h0000_0080);
 
-    // mepc is not touched by mret; the handler's own `csrw mepc` moves it.
     take_mret();
     check_read("mret restores MIE from MPIE and sets MPIE", 12'h300, 32'h0000_1888);
     check_read("...and leaves mepc alone", 12'h341, 32'h0000_0080);
@@ -450,24 +386,14 @@ module csr_tb;
     take_trap(32'd2, 32'h0000_0200, 32'h7c00_2573);
     check_read("a trap with MIE clear pushes a clear MPIE", 12'h300, 32'h0000_1800);
     check_read("...and records the new cause", 12'h342, 32'd2);
-    // The instruction word, for cause 2. Not sticky: an mtval still carrying
-    // the previous trap's address here is a handler reading the wrong trap's
-    // report, which is what a register written only on the first entry does.
     check_read("...and replaces mtval rather than keeping the older one",
                12'h343, 32'h7c00_2573);
 
-    // A software write and then a trap, in that order. The two write paths land
-    // on one register, and trap entry has to beat what software parked there --
-    // a nested handler restores mtval on its way out, and the next trap must
-    // not report the restored value.
     poke(12'h343, 32'h5a5a_5a5a);
     check_read("software owns mtval between traps", 12'h343, 32'h5a5a_5a5a);
     take_trap(32'd6, 32'h0000_0240, 32'h0001_0102);
     check_read("...and the next trap overwrites it", 12'h343, 32'h0001_0102);
 
-    // A compressed instruction faulting at pc % 4 == 2 must record an mepc with
-    // bit 1 set, or the handler resumes two bytes early. test/asm/trap.S faults
-    // a real `c.lw` at that alignment for the same reason.
     take_trap(32'd4, 32'h0000_0146, 32'h0001_0002);
     check_read("mepc preserves bit 1 on a 2-aligned faulting pc", 12'h341, 32'h0000_0146);
     take_trap(32'd4, 32'h0000_0147, 32'h0001_0003);
@@ -475,32 +401,17 @@ module csr_tb;
     check_read("...while mtval keeps the odd address that faulted",
                12'h343, 32'h0001_0003);
 
-    //-----------------------------------------------------------------------
-    // mie, mip and the interrupt decision. No riscv-formal check at the pin
-    // names any of these, so this bench and test/asm/mtimer*.S are the whole
-    // oracle for them.
-    //-----------------------------------------------------------------------
-
-    // MTIE is the only writable bit. MSIE and MEIE name sources this platform
-    // does not have, and a WARL field with no source behind it reads zero
-    // however it was written -- so writing all ones is the vector that
-    // separates "one writable bit" from "a writable register".
     poke(12'h304, 32'hffff_ffff);
     check_read("mie keeps only MTIE", 12'h304, 32'h0000_0080);
     poke(12'h304, 32'h0000_0000);
     check_read("...and MTIE clears again", 12'h304, 32'h0);
 
-    // mip is read-only and reports the line. Software lowers MTIP by moving
-    // mtimecmp, which is a store to rtl/timer.v and not a CSR write at all.
     irq_timer = 1'b1;
     #1;
     check_read("mip.MTIP follows the platform line", 12'h344, 32'h0000_0080);
     poke(12'h344, 32'h0000_0000);
     check_read("...and a write cannot clear it", 12'h344, 32'h0000_0080);
 
-    // The three-term gate, one term at a time. Each of these has been a real
-    // bug in somebody's core: an interrupt that fires with MIE clear, one that
-    // ignores its enable bit, and one that fires with no source at all.
     poke(12'h300, 32'h0000_0000);   // mstatus.MIE = 0
     poke(12'h304, 32'h0000_0080);   // mie.MTIE = 1
     #1;
@@ -518,20 +429,11 @@ module csr_tb;
     #1;
     check_bit("all three together arm it", interrupt_pending, 1'b1);
 
-    // This is what bounds interrupt entry: taking one clears MIE on the same
-    // edge, so the pending bit is already down on the next cycle and nothing
-    // re-arms until `mret`. Delete the `mstatus_mie <= 1'b0` in rtl/csrs.v's
-    // trap block and the core takes an interrupt every cycle forever, with
-    // this vector the only thing that says so.
     take_trap(32'h8000_0007, 32'h0000_0400, 32'h0);
     check_bit("entry disarms it, so there is no second entry", interrupt_pending, 1'b0);
     check_read("...recording the interrupt cause", 12'h342, 32'h8000_0007);
     check_read("...and mepc, which points AT the un-executed instruction",
                12'h341, 32'h0000_0400);
-    // An interrupt happened to nothing: the instruction it displaced did not
-    // execute, so neither its address nor its encoding is what mtval reports.
-    // Its predecessor above left 0x00010003 there, so a register that failed to
-    // take the interrupt's zero would still be holding an address.
     check_read("...and mtval, which an interrupt reports nothing in", 12'h343, 32'h0);
     check_read("...having pushed MIE into MPIE", 12'h300, 32'h0000_1880);
 

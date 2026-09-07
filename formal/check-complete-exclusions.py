@@ -62,21 +62,12 @@ import os
 import re
 import sys
 
-# `// EXCLUDE <CLASS> <encoding> <mnemonics...>`. The word boundary after
-# EXCLUDE is load-bearing: complete.sv's prose says "EXCLUDING AN OPCODE FROM
-# AN ASSERTION IS WEAKENING A CHECK" a few lines above, and a looser pattern
-# would read that as an entry. <encoding> is validated by parse_encoding_field
-# rather than folded into this regex, so a malformed one gets a specific
-# error instead of silently failing to match at all.
+# `// EXCLUDE <CLASS> <encoding> <mnemonics...>`.
 DECL_RE = re.compile(r'^\s*//\s*EXCLUDE\s+(\S+)\s+(\S+)\s+(\S.*?)\s*$')
 
-# The three predicate shapes an entry is allowed to have: opcode alone,
-# opcode+funct3, or opcode+funct3+funct7 -- never funct7 without funct3, which
-# RISC-V's own encoding never discriminates on either. Anything else -- a
-# decoder flag, a spec_* signal, an rvfi_trap term -- is rejected rather than
-# parsed, because the point is that the reader of a green `complete` can trust
-# the exclusions are encoding-keyed without reading them. A fourth field is a
-# design change and belongs in an ADR, not in a regex.
+# The three predicate shapes an entry is allowed to have: opcode alone, opcode+funct3, or
+# opcode+funct3+funct7 -- never funct7 without funct3, which RISC-V's own encoding never
+# discriminates on either.
 WIRE_RE = re.compile(
     r"^\s*wire\s+(\w+)\s*=\s*insn_uncompressed\s*&&\s*"
     r"insn_opcode\s*==\s*7'b([01]{7})"
@@ -84,16 +75,13 @@ WIRE_RE = re.compile(
     r"(?:\s*&&\s*insn_funct7\s*==\s*7'b([01]{7}))?"
     r")?\s*;\s*$")
 
-# The encoding field of a declaration or a baseline line: a bare opcode, or an
-# opcode narrowed by a funct3, or by a funct3 and a funct7 -- the same three
-# shapes WIRE_RE accepts, spelled as `7 bits[/3 bits[/7 bits]]` so the format
-# stays a single whitespace-separated token.
+# The encoding field of a declaration or a baseline line: a bare opcode, or an opcode
+# narrowed by a funct3, or by a funct3 and a funct7 -- the same three shapes WIRE_RE
+# accepts, spelled as `7 bits[/3 bits[/7 bits]]` so the format stays a single
+# whitespace-separated token.
 FIELD_RE = re.compile(r'^([01]{7})(?:/([01]{3})(?:/([01]{7}))?)?$')
 
-# The four definitions everything above is built out of. Pinned literally: if
-# `insn_opcode` were ever redefined off something other than rvfi_insn, every
-# WIRE_RE match above would still pass while meaning something entirely
-# different.
+# The four definitions in complete.sv everything above is built out of.
 REQUIRED_DEFS = {
     'insn_uncompressed': "wire        insn_uncompressed = rvfi_insn[1:0] == 2'b11;",
     'insn_opcode':       "wire [6:0]  insn_opcode       = rvfi_insn[6:0];",
@@ -106,25 +94,20 @@ EXCLUDED_RE = re.compile(r'^\s*wire\s+insn_excluded\s*=\s*(.+?)\s*;\s*$')
 # A modelled instruction's own spec_valid line, out of insns/insn_<m>.v.
 SPEC_VALID_RE = re.compile(r'assign\s+spec_valid\s*=(.*?);', re.S)
 MODEL_OPCODE_RE = re.compile(r"insn_opcode\s*==\s*7'b\s*([01]{7})")
-# A compressed mnemonic's own module redeclares insn_opcode as a 2-bit
-# quadrant field local to that file; it can never match an
-# insn_uncompressed-gated predicate, so it is recognised and skipped rather
-# than reported as an unresolvable encoding.
+# A compressed mnemonic's own module redeclares insn_opcode as a 2-bit quadrant field
+# local to that file; it can never match an insn_uncompressed-gated predicate, so it is
+# recognised and skipped rather than reported as an unresolvable encoding.
 MODEL_COMPRESSED_OPCODE_RE = re.compile(r"insn_opcode\s*==\s*2'b\s*[01]{2}")
 MODEL_FUNCT3_RE = re.compile(r"insn_funct3\s*==\s*3'b\s*([01]{3})")
 MODEL_FUNCT7_RE = re.compile(r"insn_funct7\s*==\s*7'b\s*([01]{7})")
-# RV32's shift-immediate family (SLLI/SRLI/SRAI and their bit-manip cousins)
-# tests funct6 -- bits [31:26] -- leaving bit 25 (funct7's low bit, the RV64
-# half of a 6-bit shift amount) free. Represented as a funct7 pattern with
-# that bit a wildcard, so it still narrows an opcode+funct3 match instead of
-# silently vanishing from the index.
+# RV32's shift-immediate family (SLLI/SRLI/SRAI and their bit-manip cousins) tests funct6
+# -- bits [31:26] -- leaving bit 25 (funct7's low bit, the RV64 half of a 6-bit shift
+# amount) free.
 MODEL_FUNCT6_RE = re.compile(r"insn_funct6\s*==\s*6'b\s*([01]{6})")
-
 
 def slug(cls):
     """CLASS name -> the wire name complete.sv must use for it."""
     return 'exclude_' + cls.lower().replace('-', '_')
-
 
 def format_encoding(opcode, funct3, funct7):
     """The human-readable form of a declared (opcode, funct3, funct7) triple,
@@ -136,7 +119,6 @@ def format_encoding(opcode, funct3, funct7):
         parts.append(f"funct7 7'b{funct7}")
     return ', '.join(parts)
 
-
 def parse_encoding_field(raw):
     """`<opcode>[/<funct3>[/<funct7>]]` -> (opcode, funct3_or_None,
     funct7_or_None), or None if the token does not have that shape."""
@@ -144,7 +126,6 @@ def parse_encoding_field(raw):
     if not m:
         return None
     return m.group(1), m.group(2), m.group(3)
-
 
 def parse_complete_sv(path):
     """Return {class: (opcode, funct3, funct7, [mnemonics])} plus the wired
@@ -181,9 +162,7 @@ def parse_complete_sv(path):
             errors.append(f'{path}:{i + 1}: duplicate exclusion class {cls}')
         declared[cls] = (opcode, funct3, funct7, mnemonics, i + 1)
 
-        # Clause 2: a reason, on the continuation comment lines under the
-        # header. A bare entry with no prose is exactly the "recorded" that
-        # records nothing.
+        # Clause 2: a reason, on the continuation comment lines under the header.
         reason = []
         j = i + 1
         while j < len(lines) and lines[j].lstrip().startswith('//'):
@@ -223,7 +202,6 @@ def parse_complete_sv(path):
                 f'{format_encoding(opcode, funct3, funct7)} but its wire '
                 f'matches {format_encoding(*wire_encoding)}')
 
-    # Clause 3: insn_excluded is exactly the disjunction of the declared wires.
     wired = None
     for i, line in enumerate(lines):
         m = EXCLUDED_RE.match(line)
@@ -243,7 +221,6 @@ def parse_complete_sv(path):
         wired = []
 
     return declared, wired, errors
-
 
 def parse_baseline(path):
     entries = {}
@@ -271,7 +248,6 @@ def parse_baseline(path):
                 errors.append(f'{path}:{i}: duplicate exclusion class {cls}')
             entries[cls] = (opcode, funct3, funct7, mnemonics)
     return entries, errors
-
 
 def load_modelled_encodings(rf_dir):
     """Clauses 5 and 6's oracle: {mnemonic: (opcode, funct3_or_None,
@@ -318,9 +294,6 @@ def load_modelled_encodings(rf_dir):
         op = MODEL_OPCODE_RE.search(expr)
         if not op:
             if MODEL_COMPRESSED_OPCODE_RE.search(expr):
-                # A compressed mnemonic: no exclusion in complete.sv can ever
-                # match it, since every predicate there is insn_uncompressed-
-                # gated. Not an entry in the index, and not an error either.
                 continue
             errors.append(
                 f"{path}: spec_valid names no 7-bit insn_opcode and no 2-bit "
@@ -335,12 +308,10 @@ def load_modelled_encodings(rf_dir):
         encodings[m] = (op.group(1), f3.group(1) if f3 else None, funct7)
     return encodings, errors
 
-
 def _funct7_compatible(pattern, value):
     """`pattern` may carry a wildcard bit from a funct6-only model; True if
     every bit `pattern` actually constrains agrees with `value`."""
     return all(p == '?' or p == v for p, v in zip(pattern, value))
-
 
 def encoding_overlaps(excl, model):
     """True if a declared exclusion's (opcode, funct3_or_None, funct7_or_None)
@@ -358,7 +329,6 @@ def encoding_overlaps(excl, model):
         if not _funct7_compatible(model_f7, excl_f7):
             return False
     return True
-
 
 def check_encodings(baseline, rf_dir):
     """Clauses 5 and 6 against every declared exclusion in COMPLETE_EXCLUSIONS,
@@ -390,7 +360,6 @@ def check_encodings(baseline, rf_dir):
                 f'widening this script exists to catch.')
     return errors
 
-
 def main():
     if len(sys.argv) != 4:
         print(__doc__.strip().splitlines()[-1], file=sys.stderr)
@@ -401,10 +370,6 @@ def main():
     baseline, berrors = parse_baseline(baseline_path)
     errors += berrors
 
-    # The set equality, in both directions. Compared on (class, opcode,
-    # funct3, funct7, mnemonic tuple), so a line that keeps its name and
-    # quietly widens its opcode, narrows to a different funct3/funct7, or
-    # widens its mnemonic list is a mismatch too.
     decl_set = {(c, o, f3, f7, tuple(m)) for c, (o, f3, f7, m, _) in declared.items()}
     base_set = {(c, o, f3, f7, tuple(m)) for c, (o, f3, f7, m) in baseline.items()}
     for cls, opcode, funct3, funct7, mnemonics in sorted(decl_set - base_set):
@@ -447,7 +412,6 @@ def main():
               f"{' '.join(mnemonics)}")
     print('COMPLETE EXCLUSION SET: PASS')
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

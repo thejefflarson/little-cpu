@@ -40,11 +40,8 @@ import sys
 
 SEARCHED_SUFFIXES = ('.v', '.sv')
 
-# What counts as tied off: a literal, not a wire that happens to be low. The
-# second reads the same to a human and means something no reader can check
-# locally. Sized (32'b0), unsized (0) and based (8'hff) literals all match.
+# What counts as tied off: a literal, not a wire that happens to be low.
 CONSTANT = re.compile(r"^(\d+\s*'\s*[sS]?[bodhBODH][0-9a-fA-FxXzZ_]+|\d+)$")
-
 
 def load_parser(repo):
     """test/port_connect_test.py, imported as the one Verilog parser here."""
@@ -58,7 +55,6 @@ def load_parser(repo):
     sys.path.insert(0, path)
     import port_connect_test
     return port_connect_test
-
 
 def parse_baseline(path):
     harnesses, ports, elsewhere, errors = set(), {}, {}, []
@@ -86,7 +82,6 @@ def parse_baseline(path):
                 f'or `ELSEWHERE <name> <baseline>`, got {line!r}')
     return harnesses, ports, elsewhere, errors
 
-
 def scan_harnesses(pct, formal_dir):
     """Files in formal/ instantiating littlecpu, each as {port: expression}."""
     found = {}
@@ -107,7 +102,6 @@ def scan_harnesses(pct, formal_dir):
                            for port, _macro, _lineno, expr, _guard in conns
                            if port is not None}
     return found, errors
-
 
 def main():
     if len(sys.argv) != 4:
@@ -169,8 +163,7 @@ def main():
                     f'  there is a different machine, checked against a spec that\n'
                     f'  does not describe it.')
 
-    # The sweep for a tie-off nobody wrote down. An input every harness holds at
-    # a constant is a restriction on all of them, whatever it is called.
+    # The sweep for a tie-off nobody wrote down.
     if declared_harnesses and declared_harnesses <= set(found):
         for port in sorted(inputs - set(declared_ports) - set(elsewhere)):
             values = {found[name].get(port) for name in declared_harnesses}
@@ -201,7 +194,6 @@ def main():
           f'{len(declared_harnesses)}')
     print('MULTI-HART TIE-OFF: PASS')
     return 0
-
 
 if __name__ == '__main__':
     sys.exit(main())

@@ -1,16 +1,6 @@
-/*
- * The machine-side half of the Dhrystone port: the four string/memory routines
- * the benchmark calls, the two counters it is measured with, storage in place
- * of malloc, and the report.
- *
- * THE REPORT IS THE PROGRAM'S OWN OUTPUT, not the runner's. It is formatted
- * into `dhry_console` in RAM and the runner does nothing but copy those bytes
- * to its stdout, so the compiler version, the flags and the string-routine
- * caveat travel with the number and cannot be dropped when someone quotes it.
- * That is also why the build breaks below if DHRY_FLAGS was not defined: a
- * DMIPS/MHz figure whose flags are unknown is not a measurement, and this repo
- * already treats `make fit` and `make soc-timing` the same way.
- */
+// The machine-side half of the Dhrystone port: the four string/memory routines the
+// benchmark calls, the two counters it is measured with, storage in place of malloc, and
+// the report.
 
 #include "dhry.h"
 #include "dhry_port.h"
@@ -19,13 +9,12 @@
 #error "DHRY_FLAGS must be defined with the exact compiler flags this was built with"
 #endif
 
-/* The riscv-tests HTIF window at the base of RAM. Two 32-bit stores rather than
- * one 64-bit store so the verdict is the write that stops the run, matching
- * test/asm/riscv_test.h's RVTEST_PASS. */
+// The riscv-tests HTIF window at the base of RAM. Two 32-bit stores rather than one
+// 64-bit store so the verdict is the write that stops the run, matching
+// test/asm/riscv_test.h's RVTEST_PASS.
 volatile unsigned tohost[2] __attribute__((section(".tohost"), aligned(8), used));
 
-/* Read out of RAM by the runner's `--console`, which is given this symbol's
- * address. In .bss, so the startup's zeroing is what terminates the string. */
+// Read out of RAM by the runner's `--console`, which is given this symbol's address.
 char dhry_console[2048] __attribute__((used));
 
 static unsigned console_len;
@@ -62,9 +51,7 @@ void *memset(void *dst, int c, size_t n) {
   return dst;
 }
 
-/* The `memory` clobber is what keeps these at the edges of the measured loop.
- * Without it the compiler may hoist the second read above work it can prove is
- * unrelated, and the run would report fewer cycles than it took. */
+// The `memory` clobber is what keeps these at the edges of the measured loop.
 unsigned dhry_mcycle(void) {
   unsigned value;
   __asm__ volatile("csrr %0, mcycle" : "=r"(value) : : "memory");
@@ -77,9 +64,6 @@ unsigned dhry_minstret(void) {
   return value;
 }
 
-/* Two records is all the published source ever asks for, and a bump allocator
- * over a static array is closer to what malloc gives it than a general one --
- * neither is ever freed. */
 static Rec_Type record_pool[2];
 static unsigned records_taken;
 
@@ -90,24 +74,7 @@ Rec_Pointer dhry_alloc_record(void) {
   return &record_pool[records_taken++];
 }
 
-/* THE SAME BYTES, ALSO DOWN THE WIRE, when this is built for a board.
- *
- * The report is written into `dhry_console` for the runner's `--console` to copy
- * out, and on a part there is no runner and nothing copies it. So every byte the
- * report produces is ALSO pushed through rtl/uart.v when DHRY_UART names its
- * base -- the buffer is left exactly as it was, so the simulated path is
- * unchanged and the two cannot disagree about what was reported.
- *
- * It goes through the same one function every byte already went through, rather
- * than being flushed at the end: the buffer is 2048 bytes and truncates, and a
- * report that overran it would go out the wire complete while the copy in RAM
- * was short. Streaming makes the wire the longer of the two, never the shorter.
- *
- * COSTS CYCLES, AND NOT THE MEASURED ONES. Every character busy-waits on a
- * 10-bit frame -- about a thousand cycles each at 115200 and 12 MHz. The report
- * is printed after `dhry_mcycle` has been read for the last time, so none of it
- * lands inside the interval the DMIPS figure is computed from. Print anything
- * from inside the loop and that stops being true. */
+// THE SAME BYTES, ALSO DOWN THE WIRE, when this is built for a board.
 #ifdef DHRY_UART
 static void uart_putc(char c) {
   volatile unsigned *uart = (volatile unsigned *)(unsigned long)DHRY_UART;
@@ -144,9 +111,6 @@ static void put_u32(unsigned value) {
   }
 }
 
-/* `value` is the quantity scaled by 10^places, so 5301 at 3 places is 5.301.
- * The fraction is printed digit by digit rather than as one number so that a
- * leading zero in it survives -- 0.048 must not come out as 0.48. */
 static void put_fixed(unsigned value, unsigned places) {
   unsigned scale = 1u;
   for (unsigned i = 0; i < places; i++) {
@@ -165,10 +129,6 @@ static void put_line(const char *label, const char *text) {
   put_str("\n");
 }
 
-/* 32x32 -> 64 and 64/64, written out because -nostdlib links no libgcc and the
- * report needs more range than 32 bits has. Both stay inside what the compiler
- * expands inline: the multiply is the widening pattern gcc turns into
- * mul/mulhu, and every shift below is by a constant. */
 static unsigned long long umul64(unsigned a, unsigned b) {
   return (unsigned long long)a * (unsigned long long)b;
 }
@@ -192,7 +152,6 @@ static unsigned long long udiv64(unsigned long long n, unsigned long long d) {
   return quotient;
 }
 
-/* The VAX 11/780 rate that turns Dhrystones per second into DMIPS. */
 #define VAX_DHRYSTONES_PER_SEC 1757u
 
 void dhry_report(int runs, unsigned cycles, unsigned instructions, int ok) {
@@ -240,17 +199,6 @@ void dhry_report(int runs, unsigned cycles, unsigned instructions, int ok) {
   tohost[1] = 0;
   tohost[0] = ok ? 1u : 3u;
 
-  /* ON A BOARD, SAY IT AGAIN UNTIL SOMEONE IS LISTENING. The report is printed
-   * once, a couple of seconds after the part configures itself out of flash, and
-   * whoever is reading the wire is generally not attached yet -- the first
-   * attempt here caught one stray byte in twenty seconds for exactly that
-   * reason. There is no handshake to wait for on a transmit-only UART and no
-   * host to ask, so the only thing that makes the report catchable is repeating
-   * it.
-   *
-   * AFTER `tohost`, deliberately: the verdict is written before this loop, so a
-   * simulated run still stops at the same store and its output is unchanged.
-   * Only a build with DHRY_UART set ever reaches the repeat. */
 #ifdef DHRY_UART
   for (;;) {
     for (volatile unsigned d = 0; d < 2000000u; d++) {

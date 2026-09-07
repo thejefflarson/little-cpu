@@ -1,17 +1,5 @@
 name: riscv-formal pin bump
 
-# Notices when upstream YosysHQ/riscv-formal's `main` has moved past
-# formal/pin.mk's SHA, pushes a branch bumping it with test/monitor.v
-# regenerated against the new pin, and opens an issue asking a human
-# to open the pull request from that branch. The existing gates --
-# monitor-freshness, formal/check-genchecks.py,
-# formal/check-complete-exclusions.py, the generated checks -- grade the bump;
-# this workflow only notices and proposes.
-#
-# It opens an issue rather than a pull request because a PR opened by this
-# workflow would get no CI and could never merge; formal/propose-pin-bump.sh has
-# the mechanism. No auto-merge either: dependabot-automerge.yml is scoped to
-# `dependabot[bot]` and does not apply here.
 on:
   schedule:
     - cron: "17 6 * * 1" # weekly, Monday

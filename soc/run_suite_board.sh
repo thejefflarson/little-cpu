@@ -1,36 +1,11 @@
 #!/bin/bash
 # Runs the .S suite on the FPGA, in batches, and grades the verdicts.
-#
-# WHY BATCHES. One program per bitstream is 71 flashes at about thirty seconds
-# each. The ROM holds several at once, so test/board/board_suite.S runs a batch
-# and reports each verdict over the UART; the flash count falls to the number of
-# batches. Placement is re-run per batch rather than patched with icebram --
-# nextpnr is ~40s and icebram would have to match two banks, so the simple thing
-# is also the fast enough thing.
-#
-# WHAT IT DOES NOT ISOLATE. The programs share a machine: CSRs, mtvec and the
-# reservation carry from one to the next, and only the registers and the stack
-# are reset between them. Where a batched verdict disagrees with the simulated
-# suite, the single-program build is the one to believe.
-#
-# SHOW_RAW=1 dumps every byte the wire carried and the block that was parsed out
-# of it, which is what to reach for when a verdict is missing: it separates "the
-# board said nothing" from "the board said something this could not read".
-#
-# NEEDS ROOT, for the reason `make prog` does: Apple's FTDI dext owns the
-# FT232H's only interface and root takes it anyway.
 set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
 export PATH="$HOME/.cache/little-cpu/oss-cad-suite/bin:$PATH"
 
-# How much of the 8192-byte ROM a batch's PROGRAMS may fill. Computed rather
-# than guessed: the driver has to fit beside them, so does a four-byte table
-# entry per program, and the per-program sizes below are measured on OBJECTS,
-# which understate the linked result because the linker aligns each one. The
-# margin covers that. build_batch.sh still refuses a batch that overflows, so
-# this only decides how well packed the batches are, never whether they are
-# correct.
+# How much of the 8192-byte ROM a batch's PROGRAMS may fill.
 DRIVER_BYTES=$(riscv64-elf-gcc -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -nostdlib \
                  -DBOARD_SUITE -I test/asm -c -o /tmp/.drv.$$.o test/board/board_suite.S 2>/dev/null \
                && riscv64-elf-size /tmp/.drv.$$.o | awk 'NR==2{print $1+$2}')
@@ -42,11 +17,7 @@ FTREAD=${FTREAD:-$ROOT/ftread}
 OUT=$(mktemp -d "${TMPDIR:-/tmp}/suiteboard.XXXXXX")
 trap 'rm -rf "$OUT"' EXIT
 
-# RESULTS ARE WRITTEN AS THEY ARRIVE, to a path that outlives this script. A
-# ten-minute run that records nothing until its last line loses everything to
-# any interruption -- which is exactly what happened the first time the whole
-# suite ran, when the file was edited underneath a running bash and the
-# interpreter resumed at a shifted offset. Sixty-seven verdicts went with it.
+# RESULTS ARE WRITTEN AS THEY ARRIVE, to a path that outlives this script.
 RESULTS=${RESULTS:-/tmp/suite_board_results.txt}
 : > "$RESULTS"
 # Every raw capture, kept. Diagnosing a missing verdict without the bytes means
@@ -54,8 +25,7 @@ RESULTS=${RESULTS:-/tmp/suite_board_results.txt}
 RAWDIR=${RAWDIR:-/tmp/suite_board_raw}
 rm -rf "$RAWDIR"; mkdir -p "$RAWDIR"
 
-# rvc.S is 12256 bytes and does not fit an 8192-byte ROM even alone. That is a
-# fact about the program and the part, not a thing to work around here.
+# rvc.S is 12256 bytes and does not fit an 8192-byte ROM even alone.
 SKIP="rvc.S"
 
 echo "== driver is ${DRIVER_BYTES} bytes; budgeting ${BUDGET} per batch of the 8192-byte ROM"
@@ -64,9 +34,6 @@ sizes=""
 for f in test/asm/*.S; do
   b=$(basename "$f")
   case " $SKIP " in *" $b "*) echo "   skip $b (larger than the ROM)"; continue;; esac
-  # Sized as an OBJECT, not as a link: linking one program with the driver needs
-  # board_table and board_count, which build_batch.sh generates per batch and
-  # cannot exist here. The object's text+data is what the batch will carry.
   riscv64-elf-gcc -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -nostdlib -DBOARD_SUITE \
     -I test/asm -c -o "$OUT/one.o" "$f" 2>/dev/null || { echo "   skip $b (does not assemble)"; continue; }
   n=$(riscv64-elf-size "$OUT/one.o" | awk 'NR==2{print $1+$2}')
@@ -86,10 +53,6 @@ done < <(printf '%s' "$sizes" | sort -rn)
 [ -n "$cur" ] && { echo "$cur" >> "$OUT/plan"; batches=$((batches+1)); }
 echo "== $batches batches"
 
-# ONE PLACEMENT FOR THE WHOLE RUN. The design is identical across batches --
-# only the ROM's contents differ -- so nextpnr runs once here and icebram
-# rewrites the ROM per batch. Against `icebram -g` random data, so the pattern
-# is unique enough to find again.
 echo
 echo "== placing once (the design does not change between batches)"
 icebram -g 32 1024 > "$OUT/ph_even.hex"
@@ -126,16 +89,6 @@ while read -r progs; do
   fi
   echo "   link:  $(tail -1 "$OUT/link.log")  [$((SECONDS-t0))s]"
 
-  # SWAPPED, NOT RE-PLACED. Placement is 60s and everything else in a batch is
-  # seconds, so re-running nextpnr seven times was seven eighths of the runtime
-  # for a design that never changes -- only its ROM does. icebram rewrites a
-  # block RAM's contents inside an already-placed .asc.
-  #
-  # It needs the placed image to carry a UNIQUE pattern, which is why the
-  # placement above is done against `icebram -g` random data rather than against
-  # a real program: a zero-padded ROM appears identically in both banks and
-  # icebram refuses it -- "Conflicting from pattern for bit slice" -- because it
-  # cannot tell which bank it is being asked to rewrite.
   t0=$SECONDS
   if ! icebram "$OUT/ph_even.hex" soc/rom_even.hex < "$OUT/base.asc" > "$OUT/b0.asc" 2>"$OUT/ib.log" \
      || ! icebram "$OUT/ph_odd.hex" soc/rom_odd.hex < "$OUT/b0.asc" > "$OUT/b1.asc" 2>>"$OUT/ib.log"; then
@@ -144,17 +97,6 @@ while read -r progs; do
   icepack "$OUT/b1.asc" board.bin || { echo "   PACK FAILED"; continue; }
   echo "   swap:  $(wc -c < board.bin | tr -d ' ') bytes, no re-placement  [$((SECONDS-t0))s]"
 
-  # iceprog's own output, live and unfiltered. It takes about thirty seconds and
-  # prints its progress as it goes, so hiding it makes a working flash
-  # indistinguishable from a hung one -- which is exactly how it looked the first
-  # time this ran quietly.
-  # RETRIED, AND THE DESIGN SHOULD NOT NEED IT ANY MORE. The UART used to drive
-  # pin 14 unconditionally and pin 14 is the flash's data line, so a board
-  # replaying its report fought iceprog for the wire. soc/board_upduino.v
-  # releases it whenever the host asserts the chip select; read that file for
-  # how. The loop stays until a board has run without it -- it costs nothing
-  # when the first attempt wins, and removing it on an argument rather than on a
-  # run is how this project has been wrong before.
   t0=$SECONDS
   flashed=""
   for attempt in 1 2 3 4; do
@@ -171,10 +113,6 @@ while read -r progs; do
   [ -n "$flashed" ] || { echo "   FLASH FAILED after 4 attempts"; continue; }
   echo "   flash: VERIFY OK  [$((SECONDS-t0))s]"
 
-  # RETRIED UNTIL THE BLOCK IS WHOLE, and every capture kept. A short read is
-  # indistinguishable from a batch that did not run unless the bytes are on
-  # disk to look at, and re-running the whole suite to see them costs minutes.
-  # The board replays forever, so another read is nearly free.
   t0=$SECONDS
   want=$(printf '%s' "$progs" | wc -w | tr -d ' ')
   for attempt in 1 2 3; do

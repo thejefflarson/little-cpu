@@ -1,11 +1,6 @@
 # See LICENSE for license details.
 
-#*****************************************************************************
-# auipc.S
-#-----------------------------------------------------------------------------
-#
 # Test auipc instruction.
-#
 
 #include "riscv_test.h"
 #include "test_macros.h"

@@ -2,15 +2,6 @@
 `default_nettype none
 
 // rtl/timer.v's bus port, driven directly.
-//
-// Nothing else checks this module. It is outside the core, so `make fit` does
-// not see it and no riscv-formal check instantiates it -- the generated checks
-// tie the core's `irq_timer` off. The `.S` programs exercise it through real
-// loads and stores, but only along the paths a working program takes; the
-// awkward cases are here: an out-of-range access, a byte-granular write, a
-// write racing the free-running increment, and the torn 64-bit `mtimecmp`
-// update, which is the one sequence software has to get right and the one this
-// module has to make safe.
 module timer_tb;
   logic clk = 0;
   always #5 clk = ~clk;
@@ -37,11 +28,7 @@ module timer_tb;
     .mtip(mtip)
   );
 
-  // A second instance with two harts, on the same bus. One `mtime` against one
-  // `mtimecmp` per hart is what the privileged spec mandates, and the shipping
-  // SoC has one hart -- so that the second `mtimecmp` is a register of its own,
-  // that its `mtip` is a line of its own, and that the window grew to hold them
-  // are only checkable here.
+  // A second instance with two harts, on the same bus.
   localparam logic [31:0] CMP1_LO = BASE + 32'd16;
   localparam logic [31:0] CMP1_HI = BASE + 32'd20;
 
@@ -78,8 +65,8 @@ module timer_tb;
     end
   endtask
 
-  // The bus is idle unless a task is driving it, so nothing here accidentally
-  // holds a write strobe over an edge it did not mean to.
+  // The bus is idle unless a task is driving it, so nothing here accidentally holds a
+  // write strobe over an edge it did not mean to.
   task automatic idle();
     begin
       mem_addr  = 32'h0;
@@ -101,9 +88,9 @@ module timer_tb;
     end
   endtask
 
-  // The read port is registered, so the answer belongs to the address that was
-  // presented across the previous edge -- the same one-cycle turnaround
-  // rtl/accessor.v gives every load.
+  // The read port is registered, so the answer belongs to the address that was presented
+  // across the previous edge -- the same one-cycle turnaround rtl/accessor.v gives every
+  // load.
   task automatic load(input logic [31:0] a);
     begin
       mem_addr  = a;
@@ -115,22 +102,15 @@ module timer_tb;
 
   logic [31:0] first_read;
 
-  // The level the privileged spec defines, read off the two architectural
-  // registers rather than off whatever mtip was built from. mtip is a function
-  // of these and of nothing else, and the bus vectors above are what say the
-  // registers themselves hold what software wrote.
+  // The level the privileged spec defines, read off the two architectural registers
+  // rather than off whatever mtip was built from.
   logic level;
   assign level = dut.mtime >= dut.mtimecmp;
 
-  // A store lands on the edge that ends the cycle driving it and both sides of
-  // the comparison come out of flip-flops, so the cycle after one is a cycle
-  // the spec lets mtip be stale for -- a change in the comparison is reflected
-  // eventually, not immediately. Skipping that one cycle, and cycles the level
-  // itself moved across, leaves cycles where mtip is owed the level exactly, in
-  // BOTH directions: high with the level absent is a spurious interrupt, low
-  // with the level present is one that never arrives. A scheme that produced
-  // mtip a cycle late would still pass here, which is what makes this a check
-  // on earliness rather than on one particular spelling of the compare.
+  // A store lands on the edge that ends the cycle driving it and both sides of the
+  // comparison come out of flip-flops, so the cycle after one is a cycle the spec lets
+  // mtip be stale for -- a change in the comparison is reflected eventually, not
+  // immediately.
   logic level_prev, wrote_prev;
   int high_checks = 0, low_checks = 0;
   // A plain `always`: iverilog warns about the $display below in an `always_ff`.
@@ -161,11 +141,6 @@ module timer_tb;
     #1;
     reset = 1'b0;
 
-    // Every register here resets to zero, so mtime >= mtimecmp holds from the
-    // first cycle and mtip is asserted out of reset. Nothing is taken, because
-    // mstatus.MIE and mie.MTIE reset to zero too; software sets mtimecmp before
-    // it enables either. Asserted rather than left implicit, because it is the
-    // one thing about this module a reader would guess wrong.
     load(MTIMECMP_LO);
     check_hex("mtimecmp resets to zero (low)", mem_rdata, 32'h0);
     load(MTIMECMP_HI);
@@ -176,8 +151,7 @@ module timer_tb;
     load(MTIME_HI);
     check_hex("mtimeh starts at zero", mem_rdata, 32'h0);
 
-    // Disarming is a store, and it is what a boot path does before enabling
-    // anything.
+    // Disarming is a store, and it is what a boot path does before enabling anything.
     store(MTIMECMP_HI, 32'hffff_ffff, 4'b1111);
     store(MTIMECMP_LO, 32'hffff_ffff, 4'b1111);
     idle();
@@ -188,9 +162,6 @@ module timer_tb;
     load(MTIME_LO);
     check_hex("mtime advances one per cycle", mem_rdata, first_read + 32'd1);
 
-    // Out of range in both directions, and the word just past the end, which is
-    // the one an index built from truncated address bits would alias onto
-    // mtime.
     load(BASE - 32'd4);
     check_hex("below the range reads zero", mem_rdata, 32'h0);
     load(BASE + 32'd16);
@@ -198,23 +169,13 @@ module timer_tb;
     load(32'h0001_0000);
     check_hex("the data RAM's base reads zero here", mem_rdata, 32'h0);
 
-    // A store outside the range must not land either.
     store(BASE + 32'd16, 32'hdead_beef, 4'b1111);
     load(MTIME_HI);
     check_hex("an out-of-range store lands nowhere", mem_rdata, 32'h0);
 
-    //-----------------------------------------------------------------------
-    // mtip is `mtime >= mtimecmp`, a level rather than a pulse. Both sides come
-    // out of flip-flops, so every check below spends one idle cycle first --
-    // the write lands on one edge and the comparison of what landed on the
-    // next.
-    //-----------------------------------------------------------------------
-
     store(MTIMECMP_HI, 32'h0000_0000, 4'b1111);
     store(MTIMECMP_LO, 32'h0000_0200, 4'b1111);
     store(MTIME_HI, 32'h0000_0000, 4'b1111);
-    // One short, with the increment suppressed by this very write, so the next
-    // cycle lands mtime exactly ON mtimecmp.
     store(MTIME_LO, 32'h0000_01ff, 4'b1111);
     check_bit("mtime below mtimecmp raises nothing", mtip, 1'b0);
     idle();
@@ -227,24 +188,15 @@ module timer_tb;
     idle();
     check_bit("...still", mtip, 1'b1);
 
-    // The only way software lowers it.
     store(MTIMECMP_LO, 32'hffff_ffff, 4'b1111);
     idle();
     check_bit("moving mtimecmp forward is what clears it", mtip, 1'b0);
 
-    // mtime = 0x1_0000_0000 against mtimecmp = 0x0_ffff_ffff. Pending over 64
-    // bits; a comparison that looked at the low halves alone would read
-    // 0x0000_0000 >= 0xffff_ffff and say no.
     store(MTIME_HI, 32'h0000_0001, 4'b1111);
     store(MTIME_LO, 32'h0000_0000, 4'b1111);
     idle();
     check_bit("the compare is over all 64 bits, not the low half", mtip, 1'b1);
 
-    // The crossing software actually waits on: mtimecmp parked four ticks ahead
-    // and no store anywhere near it. The count is what makes this a check --
-    // mtip low on each of the three ticks before the one that reaches
-    // mtimecmp, and high on that one. A comparison that fired a tick early
-    // would be an interrupt taken before the deadline it was armed for.
     store(MTIMECMP_HI, 32'h0000_0000, 4'b1111);
     store(MTIMECMP_LO, 32'h0000_0204, 4'b1111);
     store(MTIME_HI, 32'h0000_0000, 4'b1111);
@@ -260,21 +212,6 @@ module timer_tb;
     idle();
     check_bit("...and the tick that reaches mtimecmp raises it", mtip, 1'b1);
 
-    //-----------------------------------------------------------------------
-    // The torn 64-bit write, and the red direction that makes it a check.
-    //
-    // A 32-bit store touches one half, so an update to mtimecmp is a sequence.
-    // The privileged spec's own sample code for RV32 writes the LOW half all
-    // ones, then the high half, then the low half -- every intermediate is then
-    // at least as large as the smaller of the old and new values, so nothing
-    // fires on the way through.
-    //
-    // The vectors below use a case where the naive order is genuinely unsafe:
-    // mtime = 0x1_0000_0050, mtimecmp = {2, 0x10}, target {1, 0xffff_fff0}.
-    // Writing the high half first passes through {1, 0x10}, which mtime is
-    // past.
-    //-----------------------------------------------------------------------
-
     store(MTIMECMP_HI, 32'h0000_0002, 4'b1111);
     store(MTIMECMP_LO, 32'h0000_0010, 4'b1111);
     store(MTIME_HI, 32'h0000_0001, 4'b1111);
@@ -282,20 +219,15 @@ module timer_tb;
     idle();
     check_bit("mtime under mtimecmp over 64 bits raises nothing", mtip, 1'b0);
 
-    // The wrong way, on purpose. A sequence whose failure path has never run is
-    // not a check, and this is that failure path.
     store(MTIMECMP_HI, 32'h0000_0001, 4'b1111);
     idle();
     check_bit("high half first passes through a reachable pair, and it FIRES",
               mtip, 1'b1);
     store(MTIMECMP_LO, 32'hffff_fff0, 4'b1111);
     idle();
-    // The end state is safe, which is what makes the transient the only thing
-    // that was wrong.
     check_bit("...even though the end state it reaches is out of reach again",
               mtip, 1'b0);
 
-    // The spec's way, over the same values.
     store(MTIMECMP_HI, 32'h0000_0002, 4'b1111);
     store(MTIMECMP_LO, 32'h0000_0010, 4'b1111);
     store(MTIME_HI, 32'h0000_0001, 4'b1111);
@@ -316,11 +248,6 @@ module timer_tb;
     check_bit("step 3: the new low half, and nothing fired on the way",
               mtip, 1'b0);
 
-    //-----------------------------------------------------------------------
-    // mtime wraps on overflow, which the spec states normatively rather than
-    // leaving undefined.
-    //-----------------------------------------------------------------------
-
     store(MTIME_HI, 32'hffff_ffff, 4'b1111);
     store(MTIME_LO, 32'hffff_ffff, 4'b1111);
     idle();
@@ -329,11 +256,6 @@ module timer_tb;
               mem_rdata, 32'h0000_0000);
     load(MTIME_HI);
     check_hex("...both halves, so it is one 64-bit counter", mem_rdata, 32'h0000_0000);
-
-    //-----------------------------------------------------------------------
-    // Byte strobes. `sb` to one byte of mtimecmp must not disturb the other
-    // three, or the sequence above stops being safe.
-    //-----------------------------------------------------------------------
 
     store(MTIMECMP_LO, 32'h1122_3344, 4'b1111);
     store(MTIMECMP_LO, 32'h0000_00ff, 4'b0001);
@@ -346,22 +268,11 @@ module timer_tb;
     load(MTIMECMP_HI);
     check_hex("...and into the high word", mem_rdata, 32'h0000_5566);
 
-    //-----------------------------------------------------------------------
-    // A write to either half of mtime beats that cycle's increment, for the
-    // whole 64-bit register. Suppressing per half instead differs only at the
-    // carry boundary, where the carry would land in the high half while the
-    // write replaced the low one -- so a `sw` of zero to mtime would advance
-    // mtimeh. Nothing else in the tree reaches that cycle.
-    //-----------------------------------------------------------------------
-
     store(MTIME_HI, 32'h0000_0000, 4'b1111);
     store(MTIME_LO, 32'h0000_0040, 4'b1111);
     load(MTIME_LO);
     check_hex("a write to mtime beats that cycle's increment", mem_rdata, 32'h0000_0040);
 
-    // Every `load` costs a cycle, and mtime is running, so the expectations
-    // below count them: the read port answers with the value the counter held
-    // during the cycle the address was presented.
     store(MTIME_LO, 32'hffff_ffff, 4'b1111);
     idle();
     load(MTIME_LO);
@@ -375,15 +286,9 @@ module timer_tb;
     load(MTIME_HI);
     check_hex("a write at the carry boundary discards the carry too", mem_rdata, 32'h0000_0000);
     load(MTIME_LO);
-    // Plus the one cycle the mtimeh read above took.
     check_hex("...and the low half restarts from what was written",
               mem_rdata, 32'h0000_0001);
 
-    //-----------------------------------------------------------------------
-    // Two harts: one mtime, one mtimecmp and one mtip each
-    //-----------------------------------------------------------------------
-
-    // Disarm both, in the order the spec's own RV32 sample uses.
     store(MTIMECMP_LO, 32'hffff_ffff, 4'b1111);
     store(MTIMECMP_HI, 32'hffff_ffff, 4'b1111);
     store(CMP1_LO,     32'hffff_ffff, 4'b1111);
@@ -392,9 +297,6 @@ module timer_tb;
     check_hex("two harts: neither mtip is posted with both disarmed",
               {30'b0, d_mtip}, 32'h0);
 
-    // The two windows above hart 0's four words are hart 1's own registers, and
-    // a write there must not reach hart 0's -- the defect a truncated register
-    // select produces.
     store(CMP1_LO, 32'h1234_5678, 4'b1111);
     store(CMP1_HI, 32'h9abc_def0, 4'b1111);
     load(CMP1_LO);
@@ -406,15 +308,12 @@ module timer_tb;
     load(MTIMECMP_HI);
     check_hex("...and so is its high half", d_mem_rdata, 32'hffff_ffff);
 
-    // One counter for the machine, not one per hart: the same two words answer
-    // at the same addresses and advance once per cycle.
     load(MTIME_LO);
     first_read = d_mem_rdata;
     load(MTIME_LO);
     check_hex("two harts: mtime is shared and still advances one per cycle",
               d_mem_rdata, first_read + 32'd1);
 
-    // Arm hart 1 alone. Its line is its own, so hart 0's must stay low.
     store(CMP1_LO, 32'h0000_0000, 4'b1111);
     store(CMP1_HI, 32'h0000_0000, 4'b1111);
     idle();
@@ -431,8 +330,6 @@ module timer_tb;
     check_hex("...and disarming hart 1 lowers only its line",
               {30'b0, d_mtip}, 32'h1);
 
-    // The window is rounded up to eight words, so the two above hart 1's read
-    // zero rather than aliasing a register, and a store there lands nowhere.
     store(BASE + 32'd24, 32'hdead_beef, 4'b1111);
     store(BASE + 32'd28, 32'hdead_beef, 4'b1111);
     load(BASE + 32'd24);
@@ -443,19 +340,13 @@ module timer_tb;
     check_hex("...and neither store aliased hart 1's mtimecmp",
               d_mem_rdata, 32'hffff_ffff);
 
-    // Just past the widened window, which is the address a select built from
-    // the one-hart window's two bits would fold onto mtime.
     load(BASE + 32'd32);
     check_hex("just past the eight-word window reads zero, not mtime",
               d_mem_rdata, 32'h0);
-    // And inside it: at one hart this address is out of range and reads zero,
-    // which is what makes the two instances describe different maps.
     load(CMP1_LO);
     check_hex("the one-hart instance does not answer hart 1's address",
               mem_rdata, 32'h0);
 
-    // The window check above grades every quiet cycle in this file, so it is
-    // worth nothing if the vectors above stopped reaching one of its two arms.
     if (high_checks == 0 || low_checks == 0) begin
       $display("MISMATCH the level check never ran both ways: %0d high, %0d low",
                high_checks, low_checks);

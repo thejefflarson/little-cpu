@@ -8,11 +8,6 @@ RISCV_FORMAL_MACROS := RISCV_FORMAL RISCV_FORMAL_COMPRESSED RISCV_FORMAL_ALIGNED
 rvfi_macros.vh: $(RISCV_FORMAL_DIR)/checks/rvfi_macros.py
 	python3 $^ > $@
 
-# Both sim legs build from this list. Do not copy it anywhere else — a second
-# copy goes stale and the gate then checks a different design than it says it
-# does. The CI job had one; it missed rtl/imemory.v and rtl/memory.v when they
-# landed, and spent a run elaborating a testbench whose memories were not there.
-# That job calls `make elaborate-strict` now, so there is one list to update.
 SIM_RTL_SRCS := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v \
                 rtl/fetcher.v rtl/imemory.v rtl/memory.v rtl/regfile.v rtl/regsel.v \
                 rtl/timer.v rtl/uart.v rtl/spiflash.v rtl/writeback.v rtl/littlecpu.v
@@ -28,19 +23,15 @@ waves.vcd: testbench.vvp
 	vvp $<
 	mv testbench.vcd $@
 
-# SIM_OPT is a knob for one caller. test/mutation_check.sh rebuilds this for
-# every mutation and the compile is 75% of that job: -O2 is 38.7s to build and
-# 5.6s to run the suite, -O0 is 6.9s and 19.0s, so the cheap build wins by 18s a
-# mutation there and loses everywhere else. Nothing a test can see changes --
-# the runner's budget is 5000 SIMULATED CYCLES, not wall time.
+# SIM_OPT is a knob for one caller: mutation-check builds eleven times and wants -O0.
 SIM_OPT ?= -O2
 
 sim: test/cxxrtl.cc test/rtl.cc
 	clang++ $(SIM_OPT) -DNDEBUG -std=c++17 -Wall -Wextra -Werror \
 	  -isystem $$(yosys-config --datdir)/include/backends/cxxrtl/runtime $< -o $@
 
-# Outside the checkout: a worktree gets tracked files only, so tools installed
-# inside it are invisible from every other worktree.
+# Outside the checkout, because a worktree gets tracked files only and a tool installed
+# inside one is invisible from every other.
 TOOL_CACHE := $(if $(XDG_CACHE_HOME),$(XDG_CACHE_HOME),$(HOME)/.cache)/little-cpu
 
 ifneq ($(filter command line environment,$(origin SAIL_RISCV_VERSION)),)
@@ -75,8 +66,8 @@ SAIL_DOWNLOAD_DIR := $(TOOL_CACHE)/download
 SAIL_TARBALL      := $(SAIL_DOWNLOAD_DIR)/$(SAIL_ASSET)-$(SAIL_RISCV_VERSION).tar.gz
 SAIL_CACHE_KEY    := sail-$(SAIL_RISCV_VERSION)-$(SAIL_ASSET)-$(SAIL_SHA256)
 
-# Scoped to the goals that run the binary -- an unscoped check would break
-# `make test` for everyone on a stale local cache.
+# Scoped to the goals that run the binary -- an unscoped check would break `make test`
+# for everyone on a stale local cache.
 ifneq ($(filter cosim-run cosim-suite sail-reservation-probe,$(MAKECMDGOALS)),)
 ifneq ($(wildcard $(SAIL_SIM_BIN)),)
 SAIL_PIN_ON_DISK := $(shell sed -n 1p $(SAIL_STAMP) 2>/dev/null)
@@ -187,17 +178,15 @@ cosim-suite: cosim
 sail-reservation-probe:
 	./test/sail/reservation_probe.sh $(SAIL_SIM_BIN)
 
-# Both sim legs check every retire against this file; edit
-# test/sanitize_monitor.py, not this rule, or the change is silent.
+# Both sim legs check every retire against this file; edit test/sanitize_monitor.py, not
+# this rule, or the change is silent.
 test/monitor.sim.v: test/monitor.v test/sanitize_monitor.py
 	python3 test/sanitize_monitor.py $< > $@
 
 test/rtl.cc: $(SIM_RTL_SRCS) rvfi_macros.vh $(SIM_TB_SRCS) test/monitor.sim.v
 	yosys -p 'read_verilog -sv $(addprefix -D ,$(RISCV_FORMAL_MACROS)) $^; hierarchy -top testbench; write_cxxrtl $@'
 
-# ---- the dual configuration ------------------------------------------------
-# A separate harness, not a configuration axis: two monitor instances roughly
-# double a 7000-line generated module, so none of this is on `make test`'s path.
+# A separate harness, not a configuration axis: none of this is on `make test`'s path.
 DUAL_RTL_SRCS := $(SIM_RTL_SRCS) rtl/busarbiter.v rtl/littledual.v
 
 test/dual_rtl.cc: $(DUAL_RTL_SRCS) rvfi_macros.vh test/dual_testbench.v test/monitor.sim.v
@@ -216,11 +205,8 @@ dual-elaborate: $(DUAL_RTL_SRCS) rvfi_macros.vh test/dual_testbench.v test/monit
 dual-smoke: dual-sim
 	@./test/dual_smoke.sh ./dual-sim
 
-# Dhrystone on the dual configuration, in two shapes that answer different
-# questions -- see test/dual/bench/run_contention.sh and run_aggregate.sh's
-# own headers. Neither is a gate or a ratchet, the same standing as
-# `make dhrystone`; DHRY_RUNS/DHRY_CYCLES/DHRY_CFLAGS are that target's own,
-# reused rather than duplicated.
+# Dhrystone on the dual configuration, in two shapes; the two runner scripts have their
+# own headers.
 .PHONY: dual-dhrystone-contention
 dual-dhrystone-contention: dual-sim
 	@./test/dual/bench/run_contention.sh ./dual-sim $(DHRY_RUNS) $(DHRY_CYCLES) '$(DHRY_CFLAGS)'
@@ -229,16 +215,16 @@ dual-dhrystone-contention: dual-sim
 dual-dhrystone-aggregate: dual-sim
 	@./test/dual/bench/run_aggregate.sh ./dual-sim $(DHRY_RUNS) $(DHRY_CYCLES) '$(DHRY_CFLAGS)'
 
-# Keep this yosys -p script on one line: a backslash split inside its single
-# quotes stays literal, and yosys dies on it on CI's make though not on macOS's.
+# Keep this yosys -p script on one line: a backslash split inside its single quotes stays
+# literal, and yosys dies on it on CI's make though not on macOS's.
 .PHONY: elaborate-strict
 elaborate-strict: $(SIM_RTL_SRCS) $(SIM_TB_SRCS)
 	yosys -p 'read_verilog -sv $(SIM_RTL_SRCS) $(SIM_TB_SRCS); hierarchy -top testbench; proc; opt_clean; check; write_cxxrtl /tmp/elaborate-strict.cc'
 
 MONITOR_GEN = cd $(RISCV_FORMAL_DIR)/monitor && python3 generate.py -i rv32imc -c 1 -a -p monitor
 
-# Order-only (after `|`): a normal prerequisite goes stale on any write inside
-# that directory and rewrites this checked-in file into someone else's commit.
+# Order-only (after `|`): a normal prerequisite goes stale on any write inside that
+# directory and rewrites this checked-in file into someone else's commit.
 test/monitor.v: $(RISCV_FORMAL_DIR)/monitor/generate.py formal/pin.mk | $(RISCV_FORMAL_DIR)
 	$(MONITOR_GEN) > $(CURDIR)/$@
 
@@ -277,8 +263,8 @@ $(error SVLINT_VERSION must be a three-part release version like 0.9.5, not a \
   branch, a moving tag or a range: '$(SVLINT_VERSION)')
 endif
 
-# Names omit $(SVLINT_VERSION) on purpose: bumping the version without adding
-# digests then makes the lookup empty, and lint-setup refuses rather than fetches.
+# Names omit $(SVLINT_VERSION) on purpose: bumping the version without adding digests
+# then makes the lookup empty, and lint-setup refuses rather than fetches.
 SVLINT_SHA256_svlint-v0.9.5-x86_64-lnx  := 0bbb3850b8ef604d7ccf25c2b0d2a751154ac2e18b2a12753ae1648f237a8ceb
 SVLINT_SHA256_svlint-v0.9.5-x86_64-mac  := 53838f356862b6492777347999ccf44c1b44bc78f51cb032759b9e17bd213519
 SVLINT_SHA256_svlint-v0.9.5-aarch64-mac := d032be600f0ee04130e0663daa05da3cc562d3d34bbc4305d6b70cb99310c6df
@@ -368,8 +354,8 @@ UNIT_BENCH_SRC_spiflash_tb := rtl/spiflash.v test/spiflash_model.v
 UNIT_BENCH_SRC_pin_lockout_tb := soc/pin_lockout.v
 UNIT_BENCH_SRC_miso_share_enable_tb := soc/miso_share_enable.v
 
-# `present` reads the directory in the recipe, not via $(wildcard) -- make
-# caches that and a stale listing could miss a bench that is really there.
+# `present` reads the directory in the recipe, not via $(wildcard) -- make caches that
+# and a stale listing could miss a bench that is really there.
 .PHONY: check-unit-benches
 check-unit-benches:
 	@set -e; \
@@ -442,40 +428,29 @@ tool-cache-test:
 memmap-test:
 	@./test/memmap_test.sh
 
-# Asserts that every rtl/*.v file has a ruling on whether a mutation of it is
-# caught by anything -- a named mutation, or `unpaired` and a real bench or
-# formal task -- checked against `ls rtl/*.v` both ways round. Hangs off
-# `test` like the other bash checks -- grep, sed and comm, no cross compiler,
-# no simulator, no yosys -- so the answer arrives before CI rather than from
-# `make mutation-check`, which is required but off this path.
+# Asserts that every rtl/*.v file has a ruling on whether a mutation of it is caught by
+# anything -- a named mutation, or `unpaired` and a real bench or formal task -- checked
+# against `ls rtl/*.v` both ways round.
 .PHONY: mutation-coverage-test
 mutation-coverage-test:
 	@./test/mutation_coverage_test.sh
 
 # Asserts that every ADR file has a unique number and exactly one row in
-# docs/adr/README.md, both ways round. Hangs off `test` like the other bash
-# checks -- ls, grep and sed, no cross compiler, no simulator, no yosys.
-# Catches the failure a README-row conflict does not: two files claiming the
-# same reserved number under two different filenames merge with no conflict
-# at all, because only one of them needs a row.
+# docs/adr/README.md, both ways round.
 .PHONY: adr-numbering-test
 adr-numbering-test:
 	@./test/adr_numbering_test.sh
 
-# The cross-core comparison harness states its geometry in several places, read
-# from this Makefile's own COMPARE_TOP/-T lines rather than a second hand-kept
-# list, and this is what says they agree. Hangs off `test` like the other bash
-# checks -- grep and sed only -- because the harness itself needs yosys,
-# nextpnr and the pinned clone, so nothing else on this machine would notice
-# it rotting.
+# The cross-core comparison harness states its geometry in several places, read from this
+# Makefile's own COMPARE_TOP/-T lines rather than a second hand-kept list, and this is
+# what says they agree.
 .PHONY: compare-geometry-test
 compare-geometry-test:
 	@./soc/compare/geometry_test.sh
 
-# The two IVERILOG comparison recipes must read VexRiscv through $(VEXRISCV_V)
-# and never through the riscv-formal clone -- see soc/compare/vexriscv_pin.mk
-# for why the two builds are not peers. grep and sed only, so this hangs off
-# `test` the same way compare-geometry-test does.
+# The two IVERILOG comparison recipes must read VexRiscv through $(VEXRISCV_V) and never
+# through the riscv-formal clone -- see soc/compare/vexriscv_pin.mk for why the two
+# builds are not peers.
 .PHONY: vexriscv-path-test
 vexriscv-path-test:
 	@./soc/compare/vexriscv_path_test.sh
@@ -488,23 +463,16 @@ port-connect-test:
 retired-term-test:
 	@./test/retired_term_test.sh
 
-# The ISA string is stated at seven sites and three of them build programs that
-# use no atomic, so a site left behind goes on producing numbers rather than
-# failing to assemble. Hangs off `test` like the other bash checks -- git, grep,
-# sed and awk only -- because the two sites it would otherwise take a Dhrystone
-# run and an SoC place-and-route to notice are exactly the silent ones.
+# The ISA string is stated at seven sites and three of them build programs that use no
+# atomic, so a site left behind goes on producing numbers rather than failing to
+# assemble.
 .PHONY: march-test
 march-test:
 	@./test/march_test.sh
 
-# A `.gitignore` rule never applies to a file git already tracks, so a tracked
-# file matching one is always a mistake -- a dead rule, or a commit that should
-# not have happened. `git ls-files | git check-ignore --stdin --no-index -v` is
-# the query that finds the class; nothing ran it, and five nextpnr build
-# artifacts sat tracked for as long as their own .gitignore lines did nothing.
-# Hangs off `test` like the other bash checks -- git only -- for the same
-# reason `retired-term-test` does: the mistake is a commit, and no review of
-# the commit that adds the ignore rule can see that tracking predates it.
+# A `.gitignore` rule never applies to a file git already tracks, so a tracked file
+# matching one is always a mistake -- a dead rule, or a commit that should not have
+# happened.
 .PHONY: tracked-ignored-test
 tracked-ignored-test:
 	@./test/tracked_ignored_test.sh
@@ -517,20 +485,15 @@ band-source-test:
 zkt-isolation-test:
 	@python3 ./test/zkt_isolation_test.py
 
-# Refuses a bare `sed -i` in test/probe_gates.sh's own fixtures (it proves
-# nothing when the pattern matches nothing) and a hand-typed fixture with no
-# fixture_anchor tying it to the real shape it imitates. Hangs off `test` like
-# the other repo-scanning checks -- reads probe_gates.sh as text, no toolchain.
+# Refuses a bare `sed -i` in test/probe_gates.sh's own fixtures (it proves nothing when
+# the pattern matches nothing) and a hand-typed fixture with no fixture_anchor tying it
+# to the real shape it imitates.
 .PHONY: fixture-freshness-test
 fixture-freshness-test:
 	@python3 ./test/fixture_freshness_test.py
 
-# Forces the elaboration checks in rtl/{imemory,memory,timer,uart,spiflash}.v
-# and rtl/littlecpu.v's copy of that map to fire, in both frontends. Hangs off
-# `test` because the parameter shapes they guard are the ones the SoC and the
-# benches pass, so nothing else here would notice a check that had stopped
-# checking. It needs iverilog and yosys, which `sim` and `test-units` already
-# require.
+# Forces the elaboration checks in rtl/{imemory,memory,timer,uart,spiflash}.v and
+# rtl/littlecpu.v's copy of that map to fire, in both frontends.
 .PHONY: window-test
 window-test:
 	@./test/window_test.sh
@@ -543,10 +506,8 @@ imem-share-test:
 abc-engine-test:
 	@./formal/test-abc-engine.sh
 
-# MUTATION_SHARD=<i>/<n> grades every nth mutation starting at i, so CI can run
-# the eleven of them as several jobs. Each shard still checks the manifest whole
-# and still measures its own baseline; the run is critical-path-bound rather
-# than throughput-bound, so that duplicated baseline lands in idle capacity.
+# MUTATION_SHARD=<i>/<n> grades every nth mutation starting at i, so CI can run the
+# eleven of them as several jobs.
 .PHONY: mutation-check
 mutation-check:
 	@./test/mutation_check.sh $(if $(MUTATION_SHARD),--shard $(MUTATION_SHARD))
@@ -555,12 +516,7 @@ mutation-check:
 mutation-probe:
 	@./test/mutation_probe.sh
 
-# The two-hart programs. Only one of them runs (`make dual-smoke`, off `test`'s
-# path): this assembles and links every one and checks it against the pairing
-# that claims it catches something, in both directions, so the four the runner
-# does not yet grade cannot rot silently, and the pairings cannot rot with
-# them. It needs the same cross compiler `make test` already needs and no
-# simulator, so it runs wherever the suite runs.
+# The two-hart programs. Only one of them runs (`make dual-smoke`, off `test`'s path).
 .PHONY: dual-build
 dual-build:
 	@./test/dual_build.sh test/dual test/asm test/dual/MUTATION_PAIRINGS
@@ -578,9 +534,6 @@ cycles: sim
 	@STALL_REPORT=1 ./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 # Dhrystone 2.1, the one number this core can be quoted against other cores'.
-# Not a prerequisite of anything and not on CI. 2000 runs: test/crt0.S's
-# Arr_2_Glob zeroing loop is under 3% of accounted cycles by then. Flags fixed
-# for comparability with the cores in the comparison set.
 DHRY_RUNS   ?= 2000
 DHRY_CYCLES ?= 4000000
 DHRY_CFLAGS := -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -O2 -std=c11 \
@@ -591,10 +544,8 @@ DHRY_CFLAGS := -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -O2 -std=c11 \
 dhrystone: sim
 	@./test/bench/run_dhrystone.sh ./sim $(DHRY_RUNS) $(DHRY_CYCLES) '$(DHRY_CFLAGS)'
 
-# CoreMark, SIMULATED AT 16 KB OF ROM -- double the part's 8, because it does
-# not fit the smaller one. Not a prerequisite of anything and not on CI. 100
-# iterations: the CoreMark/MHz ratio is already stable to three decimals by 10.
-# Flags fixed for comparability with the cores in the comparison set.
+# CoreMark, SIMULATED AT 16 KB OF ROM -- double the part's 8, because it does not fit the
+# smaller one.
 COREMARK_ITERATIONS ?= 100
 COREMARK_CYCLES     ?= 200000000
 COREMARK_CFLAGS := -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -O2 -std=c11 \
@@ -666,10 +617,8 @@ coremark: sim
 	@./test/bench/run_coremark.sh ./sim $(COREMARK_ITERATIONS) $(COREMARK_CYCLES) \
 	  '$(COREMARK_CFLAGS)'
 
-# Count logic cells from nextpnr, never cell counts from yosys. A flip-flop that
-# cannot share a cell with the LUT feeding it takes a whole cell by itself, and
-# over a thousand of this design's cells are like that. Counting `SB_LUT4`
-# instead gave two planning estimates that were wrong in opposite directions.
+# Count logic cells from nextpnr, never cell counts from yosys: the two disagree in
+# magnitude and in sign on the same netlist.
 FIT_SRCS := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v \
             rtl/fetcher.v rtl/regfile.v rtl/regsel.v rtl/writeback.v rtl/littlecpu.v
 
@@ -678,9 +627,8 @@ fit.json: $(FIT_SRCS)
 	@yosys -p 'read_verilog -sv $^; synth_ice40 -dsp -top littlecpu -json $@' \
 	  > fit.synth.log 2>&1 || { tail -40 fit.synth.log; exit 1; }
 
-# 4219 = 4097 + 68 + 54: the fit job's measured count, the measured churn
-# band, and the widest toolchain gap measured on one tree.
-# If this goes red, find out what grew; raising it to pass defeats the point.
+# 4219 = 4097 + 68 + 54: the fit job's measured count, the measured churn band, and the
+# widest toolchain gap measured on one tree.
 FIT_MAX_LC := 4219
 
 FIT_LAST_LC := 4097
@@ -699,9 +647,9 @@ fit: fit-toolchain fit.json
 
 SOC_PROG      ?= datainit.c
 SOC_ROM_WORDS := 2048
-# Exact rather than budgeted the way FIT_MAX_LC is, because both are properties
-# of the RTL rather than of placement: 2 SPRAM for the 64 KB data RAM, and 16
-# EBR for the 8 KB banked ROM plus 4 for rtl/regfile.v.
+# Exact rather than budgeted the way FIT_MAX_LC is, because both are properties of the
+# RTL rather than of placement: 2 SPRAM for the 64 KB data RAM, and 16 EBR for the 8 KB
+# banked ROM plus 4 for rtl/regfile.v.
 SOC_EXPECT_SPRAM := 2
 SOC_EXPECT_EBR   := 20
 
@@ -710,7 +658,8 @@ SOC_SRCS      := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v \
                  rtl/regfile.v rtl/regsel.v rtl/timer.v rtl/uart.v rtl/spiflash.v \
                  rtl/writeback.v rtl/littlecpu.v rtl/littlesoc.v
 
-# PHONY: SOC_PROG changes what this builds and make cannot see that.
+# PHONY because SOC_PROG changes what this builds and make cannot see that from a
+# timestamp.
 .PHONY: soc-rom
 soc-rom:
 	@set -e; \
@@ -745,8 +694,8 @@ soc-rom:
 	python3 soc/rom_banks.py "$$tmp/rom.hex" soc/rom_even.hex soc/rom_odd.hex \
 	  --rom-words $(SOC_ROM_WORDS)
 
-# Named once, used verbatim everywhere the netlist matters: a second copy
-# would let the digest and the placement it grades describe different builds.
+# Named once, used verbatim everywhere the netlist matters: a second copy would let the
+# digest and the placement it grades describe different builds.
 SOC_SYNTH := read_verilog -sv $(SOC_SRCS); synth_ice40 -device u -dsp -spram -top littlesoc
 SOC_PNR   := nextpnr-ice40 --up5k --package sg48 --pcf soc/littlesoc.pcf
 
@@ -766,8 +715,8 @@ soc.json: $(SOC_SRCS) soc-rom
 	@python3 soc/cell_census.py soc.synth.log SB_RAM40_4K $(SOC_EXPECT_EBR) \
 	  "rtl/imemory.v or rtl/regfile.v has stopped inferring block RAM, or the ROM size changed"
 
-# `|| true` matters: nextpnr's exit status is not the signal (icetime's report
-# of the .asc is), and without it .DELETE_ON_ERROR deletes the .asc unread.
+# `|| true` matters: nextpnr's exit status is not the signal (icetime's report of the
+# .asc is), and without it .DELETE_ON_ERROR deletes the .asc unread.
 SOC_SEED ?=
 
 soc.asc: soc.json soc/littlesoc.pcf
@@ -788,8 +737,8 @@ soc.asc: soc.json soc/littlesoc.pcf
 	  exit 1; \
 	}
 
-# 12 MHz is the board crystal's own step (the next one down is 6) -- a
-# requirement, not a regression floor. When it trips, fix the design.
+# 12 MHz is the board crystal's own step (the next one down is 6) -- a requirement, not a
+# regression floor.
 SOC_MIN_MHZ := 12.0
 
 SOC_TIMING_TOOLS := yosys nextpnr-ice40 icetime
@@ -822,18 +771,14 @@ soc-timing: soc-timing-toolchain soc.asc
 	@# second one was the one holding the gate.
 	@python3 soc/timing_split.py soc.timing.rpt --min-mhz $(SOC_MIN_MHZ)
 
-# ---- the ECP5 instrument ----------------------------------------------------
-# A third instrument over a third design (same littlesoc, placed on an ECP5);
-# none of its numbers merge with `make fit`'s or `make soc-timing`'s.
+# A third instrument over a third design (same littlesoc, placed on an ECP5); none of its
+# numbers merge with `make fit`'s or `make soc-timing`'s.
 
 ECP5_DEVICE  := --25k
 ECP5_PACKAGE := CABGA381
 ECP5_SPEED   := 6
 ECP5_PART    := LFE5U-25F-6CABGA381
 
-# The constraint is deliberately far above this design's real Fmax: nextpnr
-# stops optimising a path once the constraint is met, so pinning it at the
-# board's real 25 MHz would measure the constraint, not the design.
 ECP5_TARGET_MHZ := 200.0
 
 ECP5_CLOCK := clk
@@ -863,18 +808,6 @@ ecp5.json: $(SOC_SRCS) soc-rom
 	  --gate 'make ecp5-timing' --declared ECP5_EXPECT_DSP
 	@python3 soc/bram_reset_check.py $@ --gate 'make ecp5-timing'
 
-# ---- the iCESugar-Pro, the second board this design has run on ---------------
-#
-# A MuseLab iCESugar-Pro: ECP5 LFE5U-25F in a caBGA256, 25 MHz on P6, flashed by
-# dropping the .bit on the iCELink volume the on-board debugger presents. This
-# is a BITSTREAM target and not an instrument: nothing here is graded, no
-# ratchet reads it, and its frequency constraint is the board's real 25 MHz
-# rather than `make ecp5-timing`'s deliberately-unreachable 200, because the
-# question here is "does it run" and not "how fast could it".
-#
-# Different die package from ECP5_PACKAGE, so its numbers and ecp5-timing's are
-# not comparable: caBGA256 against caBGA381 is a different pinout and a
-# different placement problem on the same 25k die.
 ICESUGAR_DEVICE  := --25k
 ICESUGAR_PACKAGE := CABGA256
 ICESUGAR_SPEED   := 6
@@ -884,9 +817,6 @@ ICESUGAR_TOP     := icesugar_pro_top
 ICESUGAR_SRCS    := $(SOC_SRCS) soc/board_icesugar_pro.v
 ICESUGAR_PROG    ?= soc/blink.S
 
-# As BOARD_ROM is to the UPduino: `noop-rom` means the banks are already written
-# and must not be rebuilt, which is how a benchmark's own ROM recipe hands its
-# image to this flow. noop-rom ignores SOC_PROG.
 ICESUGAR_ROM     ?= soc-rom
 
 icesugar.json: $(ICESUGAR_SRCS) soc/icesugar_pro.lpf
@@ -896,8 +826,6 @@ icesugar.json: $(ICESUGAR_SRCS) soc/icesugar_pro.lpf
 	  > icesugar.synth.log 2>&1 || { tail -40 icesugar.synth.log; exit 1; }
 	@python3 soc/bram_reset_check.py $@ --gate 'make icesugar-bitstream'
 
-# No `|| true` here, unlike ecp5.config: that constraint is meant to be missed
-# and this one is meant to be met, so a nextpnr failure IS a failure.
 icesugar.config: icesugar.json
 	@rm -f $@
 	@echo 'nextpnr: placing $(ICESUGAR_TOP) on $(ICESUGAR_PART) at $(ICESUGAR_MHZ) MHz (log: icesugar.pnr.log)'
@@ -921,17 +849,6 @@ icesugar-bitstream: icesugar.bit
 	@echo 'the placement does is above; a board is the only thing that can'
 	@echo 'disagree.'
 
-# ---- putting a program on that board, and reading what it says --------------
-#
-# SRAM OVER JTAG, NOT THE FLASH. Copying the .bit onto the iCELink volume, and
-# `icesprog -w`, both write the SPI flash correctly -- a readback compares equal
-# -- and both leave the ECP5 reporting `@cdone:0`, unconfigured, until the board
-# is physically power-cycled. Loading SRAM configures the part the moment the
-# load finishes, which is what makes a run here a command rather than a chore.
-#
-# The vid/pid are the iCELink's own CMSIS-DAP interface. openFPGALoader finds no
-# probe without them on this machine: it looks for a v2 device, fails, and never
-# reaches the HID path the debugger actually speaks.
 ICESUGAR_LOADER  ?= openFPGALoader
 ICESUGAR_VID     ?= 0x1d50
 ICESUGAR_PID     ?= 0x602b
@@ -949,8 +866,6 @@ icesugar-prog: icesugar.bit
 icesugar-read:
 	@python3 soc/board_read.py --seconds $(ICESUGAR_READ_S)
 
-# The whole loop: build Dhrystone for the board, put it on, and read the report
-# the program prints itself. Off `make test` and off CI -- it needs the board.
 .PHONY: icesugar-dhrystone
 icesugar-dhrystone:
 	@rm -f icesugar.json icesugar.config icesugar.bit
@@ -966,11 +881,6 @@ ECP5_TOOLS := yosys nextpnr-ecp5 trellis-db
 ecp5-timing-toolchain:
 	@soc/print_toolchain.sh $(ECP5_TOOLS)
 
-# nextpnr exits 1 on every successful run here (the constraint is meant to be
-# missed), so `|| true` is required. The first line deletes both outputs for
-# the same reason: a run that dies before nextpnr's last line must not leave a
-# stale, internally-consistent pair from the PREVIOUS run for the report reader
-# to trust. Do not drop this line.
 ecp5.config: ecp5.json soc/littlesoc.lpf
 	@rm -f $@ ecp5.report.json
 	@echo 'nextpnr: placing and routing littlesoc on $(ECP5_PART) (log: ecp5.pnr.log)'
@@ -1012,16 +922,6 @@ suite-board: ftread
 	@echo
 	@sudo ./soc/run_suite_board.sh
 
-# THE FLAGS STRING IS PART OF THE RESULT: an unquoted parenthetical once let the
-# report print a truncated -- and therefore wrong -- flags line. Quoted here and
-# reused from DHRY_CFLAGS so the board and simulated numbers stay comparable.
-#
-# SHARING THE FLAGS IS NOT ENOUGH TO MAKE THE TWO NUMBERS COMPARABLE. The recipe
-# below also defines DHRY_UART, which compiles in the transmit busy-wait and the
-# repeat loop and moves `.text`; `make dhrystone` does not, and the two builds
-# differ by one cycle per run in the measured loop. To pair a board figure
-# against a simulated one, give the simulated side the same define:
-#   make dhrystone DHRY_CFLAGS='$(DHRY_CFLAGS) -DDHRY_UART=$(DHRY_UART_BASE)'
 DHRY_BOARD_CFLAGS ?= $(DHRY_CFLAGS)
 
 .PHONY: dhrystone-rom
@@ -1046,8 +946,6 @@ dhrystone-rom:
 	python3 soc/rom_banks.py "$$tmp/rom.hex" soc/rom_even.hex soc/rom_odd.hex \
 	  --rom-words $(SOC_ROM_WORDS)
 
-# Not policed by test/memmap_test.sh -- if the UART base ever moves in the
-# RTL, move it here too.
 DHRY_UART_BASE   ?= 0x00020020
 
 DHRY_BOARD_RUNS  ?= 20000
@@ -1060,9 +958,6 @@ dhrystone-board:
 	@echo 'Dhrystone is in board.bin. Flash it with `make prog`, then read the'
 	@echo 'report off the UART -- it prints itself, cycles and all.'
 
-# ---- a bitstream, and a board to put it on ---------------------------------
-# A separate flow from `soc-timing` on purpose -- different top, different
-# pins -- so a frequency from here is not comparable. Do not merge the two.
 BOARD ?= upduino
 
 BOARD_SRCS := $(SOC_SRCS) soc/miso_share_enable.v soc/board_upduino.v
@@ -1074,8 +969,6 @@ BOARD_OSC_PARAM := $(if $(filter internal,$(BOARD_OSC)),1,0)
 
 BOARD_ROM ?= soc-rom
 
-# BOARD_ROM=noop-rom means the banks are already written (by
-# soc/run_suite_board.sh) and must not be rebuilt.
 .PHONY: noop-rom
 noop-rom:
 	@test -s soc/rom_even.hex -a -s soc/rom_odd.hex || { \
@@ -1084,9 +977,6 @@ noop-rom:
 	  exit 1; \
 	}
 
-# Also needs $(BOARD_ROM): rtl/imemory.v's $readmemh treats missing
-# soc/rom_*.hex as a fatal yosys ERROR, which once failed this on a clean
-# checkout while a working tree with leftover files still passed.
 .PHONY: board-elaborate
 board-elaborate: $(BOARD_SRCS) $(BOARD_ROM)
 	@./soc/board_elaborate.sh yosys $(BOARD_TOP) $(BOARD_SRCS)
@@ -1129,10 +1019,6 @@ bitstream: board.bin
 	@echo 'This says what the TOOLS think the placement does. A board is the only'
 	@echo 'thing that can disagree, and none has run this yet.'
 
-# Not a prerequisite of anything: flashing hardware is an outward-facing act.
-# ROOT, ON macOS, NOT A STYLE CHOICE: Apple's DriverKit extension claims the
-# FT232H's only interface at enumeration, so every unprivileged libftdi tool
-# sees zero devices; root opens it anyway. Linux needs none.
 ICEPROG_DEV  ?=
 ICEPROG_SUDO ?= $(if $(filter Darwin,$(shell uname -s)),sudo,)
 .PHONY: prog
@@ -1145,9 +1031,6 @@ prog: board.bin
 	@echo 'Flashing $(BOARD). On macOS this needs root -- see the comment above.'
 	$(ICEPROG_SUDO) iceprog $(if $(ICEPROG_DEV),-d '$(ICEPROG_DEV)') board.bin
 
-# ---- the dual configuration, placed ----------------------------------------
-# ECP5 only -- two fetch windows are two copies of the banked ROM -- so no
-# number here merges with an up5k flow.
 DUAL_SRCS := $(DUAL_RTL_SRCS) rtl/littledualsoc.v
 
 DUAL_EXPECT_DP16KD := 40
@@ -1204,10 +1087,6 @@ TOOLS ?= $(sort $(FIT_TOOLS) $(SOC_TIMING_TOOLS) $(ECP5_TOOLS))
 print-toolchain:
 	@soc/print_toolchain.sh $(TOOLS)
 
-# Runs the checks `make fit` and `make soc-timing` already run before they place
-# anything, plus the RISC-V compiler those two don't need, in one command a
-# fresh machine (or one that just fixed a toolchain) can run before spending a
-# placement or a sweep on it.
 .PHONY: doctor
 doctor:
 	@set -e; \
@@ -1219,13 +1098,6 @@ doctor:
 	fi; \
 	soc/print_toolchain.sh "$$CC" $(SOC_TIMING_TOOLS)
 
-# ---- the mapped netlist's digest -------------------------------------------
-# THE DIGEST REPLACES A SWEEP, NEVER A GATE. `make fit` and `make soc-timing`
-# are graded against exactly what they are graded against today; what an equal
-# digest buys is the sixteen placements a tied-off change would otherwise owe.
-# It is sound in one direction only: equal means the placer's input moved by
-# nothing but dead nets and source attributes, and different means nothing at
-# all except that the seeds have to be spent.
 NETLIST_PART ?= up5k
 NETLIST_OUT  ?= netlist.out
 
@@ -1242,8 +1114,6 @@ NETLIST_ENV = NETLIST_SYNTH='$(NETLIST_SYNTH)' NETLIST_PNR='$(NETLIST_PNR)' \
               NETLIST_MUTANT='$(NETLIST_MUTANT)' NETLIST_OUT='$(NETLIST_OUT)' \
               SOC_PROG='$(SOC_PROG)'
 
-# Refuses an unlisted NETLIST_PART rather than digesting nothing: two empty
-# trees would otherwise compare equal, which this gate must never do by accident.
 define netlist-part-check
 test -n '$(NETLIST_SYNTH)' || { \
 	  echo '*** NETLIST_PART=$(NETLIST_PART) has no synthesis flow here.'; \
@@ -1265,9 +1135,6 @@ netlist-digest: netlist-determinism
 	@python3 soc/netlist_digest.py digest $(NETLIST_OUT)/this.canon.json \
 	  --label '$(NETLIST_PART), $(SOC_PROG)'
 
-# BASE reaches the shell only through the environment, never as recipe text:
-# git allows a quote, a semicolon and a backtick in a ref name (e.g. from
-# `gh pr checkout`), which pasted into '$(BASE)' would break out and run.
 .PHONY: netlist-diff
 netlist-diff: export BASE := $(BASE)
 netlist-diff: netlist-determinism
@@ -1282,44 +1149,11 @@ netlist-diff: netlist-determinism
 	  $(NETLIST_OUT)/base.canon.json $(NETLIST_OUT)/this.canon.json \
 	  --base-label "$$BASE" --new-label 'this tree'
 
-# ---- the cross-core comparison harness -------------------------------------
-#
-# Places THIS core, VexRiscv and Hazard3's iCE40 build in one harness -- one
-# geometry, one program, one part, one toolchain, the same seeds -- so the Fmax
-# figures are one experiment instead of several. Only this core and VexRiscv are
-# cycle-measurable here: Hazard3's iCE40 configuration sets CSR_COUNTER=0, so it
-# has no mcycle to self-time a Dhrystone run with, and compare-dhrystone below is
-# two cores, not three. Nothing here is a gate on the shipping design and nothing
-# here touches rtl/: `make soc-timing` remains the SoC's measurement and this
-# target's numbers are not comparable to it.
-#
-# `COMPARE_CORE=littlecpu` (default), `vexriscv` or `hazard3`;
-# `COMPARE_SEED=<n>` picks a placement. soc/compare/sweep.sh runs littlecpu and
-# vexriscv over four seeds each by default, which is a look at a distribution
-# and not a verdict on one: a decision costs twelve to sixteen. This harness
-# places hx8k, whose spread nobody has swept -- `soc/bands.py hx8k` is where
-# that is stated, and it does not hand back up5k's figures for it.
 COMPARE_CORE  ?= littlecpu
 COMPARE_SEED  ?=
-# 4 KB of ROM (8 SB_RAM40_4K) and 2 KB of data RAM (4 more). Shrunk from the
-# shipping 8 KB / 64 KB so both designs fit one hx8k: VexRiscv takes 18 of the
-# part's 32 block RAMs before either memory -- 4 for a register file the same
-# size as this core's, 14 for a 1024-entry branch predictor -- and 30 is what
-# its side of the harness then comes to. soc/compare/bench.lds states the same
-# two sizes in its own syntax and soc/compare/geometry_test.sh compares them.
 COMPARE_ROM_WORDS := 1024
 COMPARE_RAM_WORDS := 16384
 
-# ONE HARNESS, TWO PARTS, AND THE PART IS PART OF THE NUMBER. up5k is the
-# default because it is what this design ships to -- the UPduino's own part and
-# package -- and because its clock is a STEP FUNCTION: the board's 12 MHz
-# crystal, or SB_HFOSC's 48/24/12/6. A core that closes at 19 MHz there runs at
-# 12, exactly as one that closes at 13 does, so what a placement says on this
-# part is which STEP a core reaches and not how many MHz it made. ECP5 has no
-# such quantisation and answers the other question. Never average the two.
-#
-# The data RAM is 64 KB and costs no block RAM on up5k because it infers SPRAM,
-# which is why the ROM is what the geometry is really trading against.
 COMPARE_PART ?= up5k
 
 ifeq ($(COMPARE_PART),up5k)
@@ -1335,18 +1169,8 @@ COMPARE_ICETIME_ARG := -d hx8k -P ct256
 else
 $(error COMPARE_PART is '$(COMPARE_PART)'; this harness knows up5k and hx8k)
 endif
-# The placed design must be at least this fraction of what the core synthesises
-# to alone. soc/compare/placed_vs_synth.py carries why, and it is the check that
-# stops this flow reporting a number for a core yosys folded away.
 COMPARE_MIN_RATIO := 0.8
 
-# Hazard3's own file list (soc/compare/hazard3/hdl/hazard3.f), minus
-# hazard3_cpu_1port.v: this harness gives Hazard3 its own fetch and
-# load/store ports, the same two-memory topology soc/compare/bench_littlecpu.v
-# and soc/compare/bench_vexriscv.v already have, rather than forcing it
-# through the single shared AHB5 port the one-port top arbitrates
-# (soc/compare/bench_hazard3.v's own header says why). HAZARD3_DIR comes
-# from soc/compare/hazard3_pin.mk.
 HAZARD3_HDL  := $(HAZARD3_DIR)/hdl
 HAZARD3_SRCS := $(HAZARD3_HDL)/hazard3_core.v $(HAZARD3_HDL)/hazard3_cpu_2port.v \
                 $(HAZARD3_HDL)/arith/hazard3_alu.v \
@@ -1370,36 +1194,16 @@ include soc/compare/vexriscv_pin.mk
 ifeq ($(COMPARE_CORE),vexriscv)
 COMPARE_TOP  := bench_vexriscv
 COMPARE_SRCS := soc/compare/bench_vexriscv.v rtl/memory.v
-# GENERATED HERE, not taken from the riscv-formal clone. That clone's copy is
-# FormalSimple -- riscv-formal's own VERIFICATION config, with no MulPlugin, no
-# CsrPlugin and every hazard bypass disabled -- which is not a peer for this
-# core and distorted both halves of the product at once. soc/compare/
-# vexriscv_pin.mk carries the reasoning, the upstream SHA and the generator.
-#
-# Its RVFI outputs are left unconnected in the harness, where synthesis prunes
-# them; on the standalone run below they are the top's own ports, and there
-# `delete -port` -- formal/check-nonperturbation.py's technique -- is what stops
-# 556 SB_IO no ice40 package can place.
 COMPARE_READ := read_verilog $(VEXRISCV_V); \
                 read_verilog -sv $(COMPARE_SRCS)
 COMPARE_CORE_READ := read_verilog $(VEXRISCV_V); \
                      hierarchy -top VexRiscv; delete -port VexRiscv/rvfi_*
 COMPARE_CORE_TOP  := VexRiscv
-# vexriscv-pin-check on BOTH, so the digest gates the clock half of the product
-# and not only the cycle half: these two are the recipes that synthesise and
-# place the core whose period gets published. It is phony, so it forces a
-# rebuild -- which .json already took from `compare-rom` anyway. The standalone
-# synthesis no longer reads the riscv-formal clone at all, so it no longer
-# waits on one being fetched.
 COMPARE_DEPS      := $(COMPARE_SRCS) $(VEXRISCV_V) vexriscv-pin-check
 COMPARE_CORE_DEPS := $(VEXRISCV_V) vexriscv-pin-check
 else ifeq ($(COMPARE_CORE),hazard3)
 COMPARE_TOP  := bench_hazard3
 COMPARE_SRCS := $(HAZARD3_SRCS) rtl/memory.v soc/compare/bench_hazard3.v
-# `-I` reaches hazard3_config.vh, hazard3_config_inst.vh and the three other
-# headers hdl/hazard3.f's `include .` names -- soc/compare/bench_hazard3.v is
-# fpga_icebreaker.v's own configuration, read straight out of the SHA-pinned
-# clone soc/compare/hazard3_pin.mk materialises, and never copied into rtl/.
 COMPARE_READ := read_verilog -sv -I $(HAZARD3_HDL) $(COMPARE_SRCS)
 COMPARE_CORE_READ := read_verilog -sv -I $(HAZARD3_HDL) $(HAZARD3_SRCS); \
                      hierarchy -top hazard3_cpu_2port
@@ -1408,9 +1212,6 @@ COMPARE_DEPS      := $(COMPARE_SRCS) | $(HAZARD3_DIR)
 COMPARE_CORE_DEPS := $(HAZARD3_SRCS) | $(HAZARD3_DIR)
 else
 COMPARE_TOP  := bench_littlecpu
-# FIT_SRCS is already this repo's list of "the core and nothing else", which is
-# exactly what the standalone reference synthesis wants. A second copy of it
-# here would be the stale-list defect SIM_RTL_SRCS's comment describes.
 COMPARE_SRCS := $(FIT_SRCS) rtl/imemory.v rtl/memory.v \
                 soc/compare/bench_littlecpu.v
 COMPARE_READ := read_verilog -sv $(COMPARE_SRCS)
@@ -1421,10 +1222,6 @@ COMPARE_DEPS      := $(COMPARE_SRCS)
 COMPARE_CORE_DEPS := $(FIT_SRCS)
 endif
 
-# PHONY for the same reason `soc-rom` is: the image depends on nothing make can
-# see a change to, and a stale ROM would make the measurement describe a
-# program nobody asked for. Both images come out of one objcopy run, so the two
-# harnesses cannot come to be running different code.
 .PHONY: compare-rom
 compare-rom: compare-geometry-test
 	@set -e; \
@@ -1448,19 +1245,11 @@ compare-rom: compare-geometry-test
 	python3 soc/compare/rom_flat.py "$$tmp/bench.hex" \
 	  soc/compare/rom_flat.hex --rom-words $(COMPARE_ROM_WORDS)
 
-# The core on its own, with no harness to fold against. This is the reference
-# soc/compare/placed_vs_synth.py grades the placement against; it never places
-# (both cores present far more SB_IO than any package has) and is not meant to.
 compare.$(COMPARE_CORE).core.log: $(COMPARE_CORE_DEPS)
 	@echo 'yosys: synthesising $(COMPARE_CORE_TOP) alone for hx8k (log: $@)'
 	@yosys -p '$(COMPARE_CORE_READ); synth_ice40 $(COMPARE_SYNTH_FLAGS) -top $(COMPARE_CORE_TOP); stat' \
 	  > $@ 2>&1 || { tail -40 $@; exit 1; }
 
-# `compare-rom` FIRST. COMPARE_DEPS ends with an order-only `| $(HAZARD3_DIR)`
-# for Hazard3, and everything after a `|` is order-only -- so written the other
-# way round the phony stopped forcing a rebuild, `--seed` reached nextpnr on a
-# netlist make never regenerated, and four "placements" of that core reported
-# one number to the millisecond.
 compare.$(COMPARE_CORE).json: compare-rom $(COMPARE_DEPS)
 	@echo 'yosys: synthesising $(COMPARE_TOP) for $(COMPARE_PART) (log: compare.$(COMPARE_CORE).synth.log)'
 	@# The synthesis flags come from the part table above. hx8k gets none: it has
@@ -1475,9 +1264,6 @@ compare.$(COMPARE_CORE).json: compare-rom $(COMPARE_DEPS)
 	  > compare.$(COMPARE_CORE).synth.log 2>&1 \
 	  || { tail -40 compare.$(COMPARE_CORE).synth.log; exit 1; }
 
-# nextpnr's own status is not the signal, for the reason `soc.asc` records: it
-# grades its own default clock with its own estimator, and what is graded here
-# is icetime's report of the .asc it wrote.
 compare.$(COMPARE_CORE).asc: compare.$(COMPARE_CORE).json $(COMPARE_PCF)
 	@echo 'nextpnr: placing $(COMPARE_TOP) on $(COMPARE_PART) (log: compare.$(COMPARE_CORE).pnr.log)'
 	@nextpnr-ice40 $(COMPARE_PNR_FLAGS) --json $< --pcf $(COMPARE_PCF) \
@@ -1491,20 +1277,10 @@ compare.$(COMPARE_CORE).asc: compare.$(COMPARE_CORE).json $(COMPARE_PCF)
 	  exit 1; \
 	}
 
-# All three harnesses in one simulation, running the one image, required to
-# publish the same values. soc/compare/placed_vs_synth.py says a core is still
-# in the netlist; this says the netlist runs. Not a prerequisite of
-# `compare-timing`: it needs iverilog and the cross compiler, and a timing
-# measurement of a design that does not execute is a defect this catches
-# rather than one it prevents.
 COMPARE_SMOKE_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
                       soc/compare/bench_vexriscv.v soc/compare/bench_hazard3.v \
                       soc/compare/bench_tb.v
 
-# $(VEXRISCV_V) is a real prerequisite, not order-only: a stale build here must
-# rebuild when the vendored core changes, the way any other source file would.
-# vexriscv-pin-check runs first so a hand-edited VexRiscv.v fails the digest
-# check rather than quietly simulating.
 compare.vvp: $(COMPARE_SMOKE_SRCS) compare-rom $(VEXRISCV_V) vexriscv-pin-check \
              | $(HAZARD3_DIR)
 	iverilog -I./rtl/ -I$(HAZARD3_HDL) -g2012 -o $@ \
@@ -1515,31 +1291,6 @@ compare.vvp: $(COMPARE_SMOKE_SRCS) compare-rom $(VEXRISCV_V) vexriscv-pin-check 
 compare-smoke: compare.vvp
 	@vvp $<
 
-# The OTHER factor of throughput. `compare-timing` above reports each core's
-# clock; this reports the cycles each takes for the same work, so a DMIPS figure
-# for any of the three is measured here rather than quoted from a project's
-# README.
-#
-# IT IS A SIMULATION, AND CANNOT BE A PLACEMENT. Dhrystone needs more memory
-# than an hx8k has block RAM for -- soc/compare/dhry_fit.py prints that
-# arithmetic on every run -- so the memories are enlarged for all three cores
-# together and the clock to multiply these cycles by comes from the smaller
-# placed geometry. That is the caveat on the result, and it travels with it.
-#
-# COMPARE_DHRY_CFLAGS is not DHRY_CFLAGS and must not be made to match it: this
-# image has to run on all three cores, and their shared ISA is RV32IM --
-# Hazard3's iCE40 build has EXTENSION_C=0, and the generated VexRiscv build
-# has no AtomicPlugin, so RV32IM is the widest subset every core here
-# executes. All three implement M in hardware (soc/compare/vexriscv_pin.mk's
-# generated core carries MulPlugin/DivPlugin), so multiply and divide are real
-# instructions rather than libgcc calls; the run is still timed on the bus
-# instead of by `mcycle`, the same choice made uniformly for every core here
-# regardless of which one has a CSR file. `make dhrystone`'s number is a
-# different workload on a different machine and the two are not comparable.
-# 400 runs. The measured window is the benchmark's loop and nothing else, so the
-# figure is flat in this: 100 runs and 400 differ by 0.02% on this core and 0.26%
-# on VexRiscv. The count is set by how long three cores in one iverilog
-# simulation take, not by what the number needs.
 COMPARE_DHRY_RUNS   ?= 400
 COMPARE_DHRY_CYCLES ?= 2000000
 COMPARE_DHRY_CFLAGS := -march=rv32im -mabi=ilp32 -O2 -std=c11 \
@@ -1550,31 +1301,18 @@ COMPARE_DHRY_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
                      soc/compare/bench_vexriscv.v soc/compare/bench_hazard3.v \
                      soc/compare/dhry_monitor.v soc/compare/dhry_tb.v
 
-# Same reasoning as compare.vvp above: $(VEXRISCV_V) is a real prerequisite and
-# vexriscv-pin-check gates the digest before this simulates anything.
 compare.dhry.vvp: $(COMPARE_DHRY_SRCS) $(VEXRISCV_V) vexriscv-pin-check \
                   | $(HAZARD3_DIR)
 	iverilog -I./rtl/ -I$(HAZARD3_HDL) -g2012 -o $@ \
 	  $(VEXRISCV_V) $(HAZARD3_SRCS) \
 	  $(COMPARE_DHRY_SRCS)
 
-# THE ISA-COST ROW: this core alone, at soc/compare/dhry_tb.v's own geometry,
-# built at its native ISA instead of the three-way row's shared RV32I --
-# DHRY_CFLAGS is `make dhrystone`'s own -march, unchanged, so the only variable
-# between this row and the shared-subset one is the instruction set the
-# compiler was allowed to use. soc/compare/dhry_solo_tb.v is one core rather
-# than dhry_tb.v's three because there is nothing on the other two sides to run
-# this ISA against.
 COMPARE_DHRY_SOLO_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
                           soc/compare/dhry_monitor.v soc/compare/dhry_solo_tb.v
 
 compare.dhry.solo.vvp: $(COMPARE_DHRY_SOLO_SRCS)
 	iverilog -I./rtl/ -g2012 -o $@ $(COMPARE_DHRY_SOLO_SRCS)
 
-# Every core's standalone census, because the fit arithmetic reads how much
-# block RAM each core needs before either memory out of them rather than
-# carrying a copy. Recursive, because those log names are COMPARE_CORE's and
-# this target needs all three sides at once.
 .PHONY: compare-dhrystone
 compare-dhrystone: compare.dhry.vvp compare.dhry.solo.vvp
 	@$(MAKE) --no-print-directory COMPARE_CORE=littlecpu compare.littlecpu.core.log
@@ -1600,32 +1338,10 @@ compare-dhrystone: compare.dhry.vvp compare.dhry.solo.vvp
 	  echo 'no soc/compare/product.json yet -- `make compare-product` stamps one'; \
 	fi
 
-# Both factors of both cross-core pairs (Dhrystone against VexRiscv, CoreMark
-# against Hazard3 once make compare-coremark exists) in one command, written
-# into soc/compare/product.json -- soc/compare/run_product.sh's header has the
-# reasoning. COMPARE_PRODUCT_SEEDS defaults to twelve, this file's own floor for
-# a verdict rather than a look; COMPARE_PRODUCT_OUT overrides where it lands,
-# for a dry run that should not touch the tracked artifact.
 .PHONY: compare-product
 compare-product:
 	@./soc/compare/run_product.sh
 
-# CoreMark's cycle factor, for all three cores. VexRiscv was excluded here
-# for having no M extension at all in the FormalSimple build this harness used
-# to read; the generated build soc/compare/vexriscv_pin.mk now pins carries
-# MulPlugin and DivPlugin, so that exclusion no longer holds. Otherwise this
-# mirrors compare-dhrystone exactly: a simulation and not a placement,
-# soc/compare/coremark_fit.py printing why every run.
-#
-# COMPARE_COREMARK_CFLAGS drops C and A -- Hazard3's iCE40 build has no C, and
-# the generated VexRiscv build has no AtomicPlugin -- so RV32IM is the widest
-# subset all three implement in hardware, neither COMPARE_DHRY_CFLAGS' RV32IM
-# at Dhrystone's own geometry nor COREMARK_CFLAGS' RV32IMAC_Zicsr_Zifencei_Zkt
-# (this core alone). 1 iteration: `iterate()`'s measured loop is the identical
-# seed-determined call pair every time with no cache on any core to warm
-# or cool, so the per-iteration cost is constant by construction and nothing
-# past 1 buys new information for the wall-clock cost of an RTL core
-# simulation over two more.
 COMPARE_COREMARK_ITERATIONS ?= 1
 COMPARE_COREMARK_CYCLES     ?= 200000000
 COMPARE_COREMARK_CFLAGS := -march=rv32im -mabi=ilp32 -O2 -std=c11 \
@@ -1636,9 +1352,6 @@ COMPARE_COREMARK_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
                          soc/compare/bench_vexriscv.v soc/compare/bench_hazard3.v \
                          soc/compare/dhry_monitor.v soc/compare/coremark_tb.v
 
-# Same reasoning as compare.dhry.vvp above: $(VEXRISCV_V) is a real
-# prerequisite and vexriscv-pin-check gates the digest before this simulates
-# anything.
 compare.coremark.vvp: $(COMPARE_COREMARK_SRCS) $(VEXRISCV_V) vexriscv-pin-check \
                        | $(HAZARD3_DIR)
 	iverilog -I./rtl/ -I$(HAZARD3_HDL) -g2012 -o $@ \
@@ -1654,18 +1367,6 @@ compare-coremark: compare.coremark.vvp
 	  $(COMPARE_COREMARK_CYCLES) '$(COMPARE_COREMARK_CFLAGS)' compare.coremark.vvp
 
 .PHONY: compare-timing
-# The comparison on ECP5, which is a DIFFERENT CLASS OF INSTRUMENT from the
-# ice40 path above and deliberately not folded into COMPARE_PART: there is no
-# icetime on this part, so nextpnr both places and grades, and the frequency it
-# reports is its own estimate rather than a report read back off a bitstream.
-# soc/ecp5_report.py is the single reader for both, and it refuses every shape
-# of "nothing was measured".
-#
-# WHY BOTH PARTS. up5k's clock is quantised -- SB_HFOSC gives 48/24/12/6 and the
-# board has a 12 MHz crystal -- so a core closing at 19 MHz there runs at 12,
-# exactly as one closing at 13 does. ECP5 has no such step, so a critical-path
-# advantage is one a design can actually spend. The two parts answer two
-# questions and their numbers NEVER merge (ADR-0160).
 compare_ecp5.$(COMPARE_CORE).json: compare-rom $(COMPARE_DEPS)
 	@echo 'yosys: synthesising $(COMPARE_TOP) for ECP5 (log: compare_ecp5.$(COMPARE_CORE).synth.log)'
 	@yosys -p '$(COMPARE_READ); \
@@ -1755,5 +1456,3 @@ clean:
 	@# NOT $(SVLINT_DIR) either, and for the same reason: a network fetch that
 	@# `clean` was never asked to rebuild. `make lint-setup` re-fetches
 	@# unconditionally, so `rm -rf` of it by hand is the blunt instrument there.
-
-# The riscv-formal clone rule and its pin guard live in formal/pin.mk.

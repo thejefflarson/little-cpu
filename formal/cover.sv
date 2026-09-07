@@ -15,15 +15,11 @@ module testbench (
 
   `RVFI_WIRES
   logic trap;
-  // The fetch address one cycle early. Unread here -- this environment answers
-  // `imem_data` freely against `imem_addr` in the same cycle -- but connected
-  // rather than left dangling, so every instantiation of the core names every
-  // port.
+  // The fetch address one cycle early.
   logic [31:0] imem_addr_next;
-  // The address the core publishes for the platform to decode. Unread here:
-  // `atomic_supported` is tied high, so no atomic can fault in this task.
+  // The address the core publishes for the platform to decode.
   logic [31:0] atomic_addr;
-  // The lock an arbiter would read. Unread here: one hart, one bus initiator.
+  // The lock an arbiter would read.
   logic mem_lock;
   logic bus_request;
   logic        mem_ren;
@@ -53,25 +49,16 @@ module testbench (
     .mem_ren(mem_ren),
     .mem_rdata(mem_rdata),
     .fetch_stall(fetch_stall),
-    // Tied off: this task's memory model answers every address, so there is no
-    // window for a fetch to fall outside of.
     .imem_fault(1'b0),
-    // Tied off high: this task's memory model answers every address, so every
-    // address it answers is one a reservation may be held at, and one an atomic
-    // is answered at.
     .mem_reservable(1'b1),
     .atomic_addr(atomic_addr),
     .atomic_supported(1'b1),
-    // Tied off; formal/check-multihart-tie-off.py enforces it. formal/wrapper.v
-    // carries the reason the riscv-formal side of the tree describes one hart.
+    // Tied off; formal/check-multihart-tie-off.py enforces it.
     .bus_wait(1'b0),
     .snoop_write(1'b0),
     .snoop_addr(32'b0),
     .mem_lock(mem_lock),
     .bus_request(bus_request),
-    // Tied off; formal/check-interrupt-tie-off.py enforces it. formal/wrapper.v
-    // carries the reason the riscv-formal side of the tree runs with no
-    // interrupt in the trace.
     .irq_timer(1'b0),
     .trap(trap),
     `RVFI_CONN

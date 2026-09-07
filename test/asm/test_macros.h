@@ -1,12 +1,9 @@
 // See LICENSE for license details.
-//
-// Vendored from riscv-tests, including its RV64 and floating-point macros,
-// which no program in test/asm invokes. MASK_XLEN keys off __riscv_xlen, so it
-// narrows to 32 bits here on its own.
+// Vendored from riscv-tests, including its RV64 and floating-point macros, which no
+// program in test/asm invokes.
 
 #ifndef __TEST_MACROS_SCALAR_H
 #define __TEST_MACROS_SCALAR_H
-
 
 #define MASK_XLEN(x) ((x) & ((1 << (__riscv_xlen - 1) << 1) - 1))
 
@@ -28,7 +25,6 @@ test_ ## testnum: \
 #define TEST_INSERT_NOPS_8  nop; TEST_INSERT_NOPS_7
 #define TEST_INSERT_NOPS_9  nop; TEST_INSERT_NOPS_8
 #define TEST_INSERT_NOPS_10 nop; TEST_INSERT_NOPS_9
-
 
 #define SEXT_IMM(x) ((x) | (-(((x) >> 11) & 1) << 11))
 
@@ -338,7 +334,6 @@ test_ ## testnum: \
     li  x5, 2; \
     bne x4, x5, 1b \
 
-
 #define qNaNf 0f:7fc00000
 #define sNaNf 0f:7f800001
 #define qNaN 0d:7ff8000000000000
@@ -594,7 +589,6 @@ fail: \
         RVTEST_FAIL; \
 pass: \
         RVTEST_PASS \
-
 
 #define TEST_DATA
 

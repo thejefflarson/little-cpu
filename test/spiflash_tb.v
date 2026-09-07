@@ -1,22 +1,8 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
 
-// rtl/spiflash.v's bus port driven directly, against test/spiflash_model.v on
-// the other end of four wires.
-//
-// WHAT THE ORACLE IS. The three JEDEC bytes are literals -- `0xEF 0x70 0x16`,
-// which is what `iceprog` prints for the part the UPduino carries -- so a
-// controller that shifted the wrong number of bits, sampled the wrong edge or
-// dropped the most significant bit first cannot produce them. The data array's
-// bytes are a function the model states and this bench restates, which is a
-// weaker oracle and is used only for what the id cannot show: that a sequential
-// read advances, and that it advances across a 256-byte boundary.
-//
-// A BENCH THAT MATCHES NOTHING PASSES EVERY TEST WRITTEN AGAINST A WORKING
-// DEVICE, so four failures are forced here rather than argued: an expectation
-// deliberately off by one, a line held high for a whole transaction, a line
-// held low for a whole transaction, and a sequential byte compared against the
-// wrong address.
+// rtl/spiflash.v's bus port driven directly, against test/spiflash_model.v on the other
+// end of four wires.
 module spiflash_tb;
   logic clk = 0;
   always #5 clk = ~clk;
@@ -32,8 +18,7 @@ module spiflash_tb;
   localparam logic [31:0] SPI_CONTROL = BASE + 32'd4;
   localparam logic [31:0] SPI_BUSY    = 32'h0000_0100;
 
-  // The line the device reads. Normally the model's; `force_line` replaces it
-  // so a dead flash and a stuck flash can both be shown to be visible here.
+  // The line the device reads.
   logic model_miso;
   logic force_line = 1'b0;
   logic forced_value = 1'b1;
@@ -60,8 +45,7 @@ module spiflash_tb;
     .miso(model_miso)
   );
 
-  // The model's data array, restated. See the header: this is the weaker of the
-  // two oracles here and it is used for exactly two claims.
+  // The model's data array, restated.
   function automatic logic [7:0] flash_byte(input logic [23:0] a);
     flash_byte = a[7:0] ^ a[15:8] ^ 8'h5a;
   endfunction
@@ -96,8 +80,7 @@ module spiflash_tb;
     end
   endtask
 
-  // The other direction: a comparison that MUST differ. Without these the file
-  // grades a working device and nothing else.
+  // The other direction: a comparison that MUST differ.
   task automatic force_red(input string what, input logic [31:0] got, input logic [31:0] wrong);
     begin
       if (got === wrong) begin
@@ -109,9 +92,7 @@ module spiflash_tb;
     end
   endtask
 
-  //--------------------------------------------------------------------------
   // The bus. Idle unless a task is driving it.
-  //--------------------------------------------------------------------------
 
   task automatic idle();
     begin
@@ -134,9 +115,8 @@ module spiflash_tb;
     end
   endtask
 
-  // The read port is registered, so the answer belongs to the address presented
-  // across the previous edge -- the same one-cycle turnaround rtl/accessor.v
-  // gives every load.
+  // The read port is registered, so the answer belongs to the address presented across
+  // the previous edge -- the same one-cycle turnaround rtl/accessor.v gives every load.
   task automatic load(input logic [31:0] a);
     begin
       mem_addr  = a;
@@ -146,10 +126,8 @@ module spiflash_tb;
     end
   endtask
 
-  //--------------------------------------------------------------------------
-  // Counting the wire, because a byte that came back right off eight clocks and
-  // a byte that came back right off nine are the same byte.
-  //--------------------------------------------------------------------------
+  // Counting the wire, because a byte that came back right off eight clocks and a byte
+  // that came back right off nine are the same byte.
 
   logic sck_prev = 1'b0;
   int   sck_rises = 0;
@@ -165,9 +143,6 @@ module spiflash_tb;
     end
   endtask
 
-  // The poll firmware writes, and the only place this file spells the busy
-  // bit's position: a bench that read it in five places would be five copies of
-  // a fact rtl/spiflash.v states once.
   task automatic wait_idle();
     begin
       load(SPI_DATA);
@@ -183,8 +158,7 @@ module spiflash_tb;
     end
   endtask
 
-  // A whole id read, down to the first byte of the answer. Three call sites
-  // want exactly this and differ only in what the line is doing meanwhile.
+  // A whole id read, down to the first byte of the answer.
   task automatic read_id_first(output logic [7:0] got);
     logic [7:0] cmd_ignored;
     begin
@@ -195,8 +169,6 @@ module spiflash_tb;
     end
   endtask
 
-  // A whole `0x03` sequential read: command, three address bytes, then one
-  // exchange per byte wanted.
   task automatic read_at(input logic [23:0] addr, input int count, output logic [7:0] out[]);
     logic [7:0] got;
     begin
@@ -225,10 +197,6 @@ module spiflash_tb;
     reset = 1'b0;
     idle();
 
-    //-----------------------------------------------------------------------
-    // The reset state, which is also the state that lets the host have the
-    // flash: nothing selected, the clock low, nothing busy.
-    //-----------------------------------------------------------------------
     check_bit("cs_n is released out of reset", cs_n, 1'b1);
     check_bit("sck idles low",                 sck,  1'b0);
     load(SPI_DATA);
@@ -236,31 +204,22 @@ module spiflash_tb;
     load(SPI_CONTROL);
     check_hex("the control register is write-only", mem_rdata, 32'h0);
 
-    // An address this device does not occupy reads zero, so the read buses on
-    // the shared bus can be ORed rather than muxed.
     load(BASE + 32'd8);
     check_hex("an address above the window reads zero", mem_rdata, 32'h0);
     load(BASE - 32'd8);
     check_hex("an address below the window reads zero", mem_rdata, 32'h0);
 
-    // A write to a lane other than 0 is not a transaction started with whatever
-    // was on the bus.
     store(SPI_DATA, 32'hffff_ff00, 4'b1110);
     idle();
     load(SPI_DATA);
     check_hex("a write outside byte lane 0 starts nothing", mem_rdata, 32'h0);
 
-    //-----------------------------------------------------------------------
     // The chip select, which is also soc/board_upduino.v's output enable.
-    //-----------------------------------------------------------------------
     select_flash(1'b1);
     check_bit("writing 1 to the control register selects the flash", cs_n, 1'b0);
     select_flash(1'b0);
     check_bit("writing 0 releases it",                               cs_n, 1'b1);
 
-    //-----------------------------------------------------------------------
-    // The JEDEC id: three literal bytes no shift-order mistake produces.
-    //-----------------------------------------------------------------------
     select_flash(1'b1);
     store(SPI_DATA, 32'h0000_009f, 4'b0001);
     load(SPI_DATA);
@@ -276,46 +235,29 @@ module spiflash_tb;
     check_hex("JEDEC type",         {24'b0, id1}, 32'h0000_0070);
     check_hex("JEDEC capacity",     {24'b0, id2}, 32'h0000_0016);
 
-    // The id survives being asked for twice, which a model carrying state
-    // across a chip select would not manage.
     read_id_first(id0);
     check_hex("the id again after a chip select", {24'b0, id0}, 32'h0000_00ef);
 
-    //-----------------------------------------------------------------------
-    // `0x03`, and the only thing the id cannot show: that the address advances.
-    // The window straddles a 256-byte boundary on purpose -- a controller that
-    // stopped incrementing the high half would agree with a bench that read
-    // only the low one.
-    //-----------------------------------------------------------------------
     read_at(24'h01_00fe, 4, data);
     for (int i = 0; i < 4; i++)
       check_hex($sformatf("sequential byte %0d", i),
                 {24'b0, data[i]}, {24'b0, flash_byte(24'h01_00fe + 24'(i))});
 
-    // ...and at an unrelated offset, so the four above are not four reads of
-    // one word.
     read_at(24'h00_1234, 2, data);
     check_hex("a second offset, byte 0", {24'b0, data[0]}, {24'b0, flash_byte(24'h00_1234)});
     check_hex("a second offset, byte 1", {24'b0, data[1]}, {24'b0, flash_byte(24'h00_1235)});
 
-    //-----------------------------------------------------------------------
-    // No queue: a write arriving mid-exchange is dropped, and the device is not
-    // merely dead afterwards.
-    //-----------------------------------------------------------------------
     select_flash(1'b1);
     rises_before = sck_rises;
     store(SPI_DATA, 32'h0000_009f, 4'b0001);
     store(SPI_DATA, 32'h0000_00ff, 4'b0001);   // arrives while busy
     wait_idle();
     check_int("a write while busy is dropped, not queued", sck_rises - rises_before, 8);
-    // The command that landed was the first one, so the id still comes back.
     xfer(8'h00, id0);
     check_hex("...and the exchange that ran was the first one",
               {24'b0, id0}, 32'h0000_00ef);
     select_flash(1'b0);
 
-    // A control write while busy is dropped too, so a program cannot release
-    // the chip select out from under its own transaction.
     select_flash(1'b1);
     store(SPI_DATA, 32'h0000_009f, 4'b0001);
     store(SPI_CONTROL, 32'h0000_0000, 4'b0001);
@@ -323,35 +265,23 @@ module spiflash_tb;
     wait_idle();
     select_flash(1'b0);
 
-    //-----------------------------------------------------------------------
-    // The four forced failures.
-    //-----------------------------------------------------------------------
-
-    // 1. The comparison itself can fail: the id against the byte beside it.
     force_red("an expectation off by one still compares",
               {24'b0, id0}, 32'h0000_00f0);
 
-    // 2. A flash that answers nothing. Every bit sampled is a one, so the id
-    // cannot come back -- if it does, this bench is reading the model's
-    // parameters rather than the wire.
     force_line = 1'b1; forced_value = 1'b1;
     read_id_first(id0);
     force_red("a line held high cannot produce the id", {24'b0, id0}, 32'h0000_00ef);
     check_hex("...it produces all ones",                {24'b0, id0}, 32'h0000_00ff);
 
-    // 3. And held low, which is the other way a wire fails.
     forced_value = 1'b0;
     read_id_first(id0);
     force_red("a line held low cannot produce the id",  {24'b0, id0}, 32'h0000_00ef);
     check_hex("...it produces all zeroes",              {24'b0, id0}, 32'h0000_0000);
     force_line = 1'b0;
 
-    // 4. The sequential-read oracle can fail: the byte at the wrong address.
     read_at(24'h00_1234, 1, data);
     force_red("a sequential byte compared against the wrong address",
               {24'b0, data[0]}, {24'b0, flash_byte(24'h00_1235)});
-
-    //-----------------------------------------------------------------------
 
     if (reds_forced != 4) begin
       $display("MISMATCH the forced failures did not all run: %0d of 4", reds_forced);

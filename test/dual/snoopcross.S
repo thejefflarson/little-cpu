@@ -72,16 +72,14 @@ DUALTEST_CODE_BEGIN
   la    s3, go
   li    a5, SC_BVAL
 
-  #-------------------------------------------------------------
   # Round 1 -- ordered. The write is long finished before the sc.w attempts.
-  #-------------------------------------------------------------
 
   addi  s0, s0, 1
   li    a7, SC_SENTINEL
   sw    a7, 0(s1)
   lr.w  a1, (s1)
-  # The handover is a store to a different word, which leaves the reservation
-  # alone -- the single-hart suite is what establishes that half.
+  # The handover is a store to a different word, which leaves the reservation alone --
+  # the single-hart suite is what establishes that half.
   sw    s0, 0(s3)
   DUALTEST_WAIT_REG( TN_W1, done, s0 )
   li    a6, SC_AVAL
@@ -90,9 +88,7 @@ DUALTEST_CODE_BEGIN
   TEST_CASE( 11, a2, 1, nop; )
   TEST_CASE( 12, a4, SC_BVAL, lw a4, 0(s1); )
 
-  #-------------------------------------------------------------
   # Round 2 -- hart 1 writes somewhere else, so the reservation must survive.
-  #-------------------------------------------------------------
 
   addi  s0, s0, 1
   li    a7, SC_SENTINEL
@@ -106,9 +102,7 @@ DUALTEST_CODE_BEGIN
   TEST_CASE( 13, a2, 0, nop; )
   TEST_CASE( 14, a4, SC_AVAL, lw a4, 0(s1); )
 
-  #-------------------------------------------------------------
   # Rounds 3 upwards -- the sweep.
-  #-------------------------------------------------------------
 
   li    s5, 0
   li    s6, 0
@@ -119,17 +113,15 @@ sweep:
   sw    a7, 0(s1)
   lr.w  a1, (s1)
   li    a6, SC_AVAL
-  # The handover. Everything from here to the sc.w is a fixed number of cycles
-  # plus the sled, so incrementing s5 moves the attempt exactly one cycle later
-  # against a write whose timing is anchored to this store.
+  # The handover. Everything from here to the sc.w is a fixed number of cycles plus the
+  # sled.
   sw    s0, 0(s3)
   slli  t0, s5, 2
   la    t1, sled_end
   sub   t1, t1, t0
   jr    t1
 
-  # Uncompressed, so the entry point is sled_end - 4*s5 and each nop is one
-  # issue cycle. A nop cannot stall, which is what makes the step exactly one.
+  # Uncompressed, so the entry point is sled_end - 4*s5 and each nop is one issue cycle.
   .option push
   .option norvc
 sled:
@@ -146,8 +138,6 @@ sled_end:
 4:
   addi  s7, s7, 1
 5:
-  # Wait for the write to be acknowledged before reading, so the round's result
-  # is the whole round's and not a snapshot taken mid-handshake.
   DUALTEST_WAIT_REG( TN_W3, done, s0 )
   lw    a4, 0(s1)
   li    TESTNUM, TN_LOST
@@ -157,7 +147,6 @@ sled_end:
   li    a7, SC_SWEEP
   blt   s5, a7, sweep
 
-  # The sweep's own coverage, asserted rather than hoped for.
   li    TESTNUM, TN_NO_KILL
   beqz  s6, fail
   li    TESTNUM, TN_NO_WIN
@@ -168,10 +157,6 @@ sled_end:
 
   TEST_PASSFAIL
 
-  #-------------------------------------------------------------
-  # Hart 1: wait for the handover, write, acknowledge. It writes the other word
-  # in exactly one round and the shared word in every other.
-  #-------------------------------------------------------------
 hart1:
   li    s0, 0
   la    s1, shared

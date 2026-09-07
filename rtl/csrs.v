@@ -1,16 +1,15 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
 `include "structs.v"
-// Every access reads and commits in decode on the edge its instruction issues;
-// the decoder serializes CSR instructions and decides both illegal-CSR traps,
-// so nothing here stalls or faults.
+// Every access reads and commits in decode, on the edge its instruction issues. The
+// decoder serializes CSR instructions and decides illegal-CSR traps, so nothing here
+// stalls or faults.
 module csrs #(
   parameter logic [31:0] HART_ID = 32'd0
 ) (
   input  logic clk,
   input  logic reset,
 
-  // wen is already past Zicsr's suppression rules: high means commit.
   input  logic [11:0] addr,
   input  logic        ren,
   input  logic        wen,
@@ -18,18 +17,15 @@ module csrs #(
   output logic [31:0] rdata,
   output logic        implemented,
 
-  // One pulse per non-trapping issue: minstret counts issues, not retires.
   input  logic        instret,
 
-  // trap_entry, mret_entry and wen are mutually exclusive by construction in
-  // the decoder, so the three write paths below need no priority.
   input  logic        trap_entry,
   input  logic [31:0] trap_cause,
   input  logic [31:0] trap_epc,
   input  logic [31:0] trap_tval,
   input  logic        mret_entry,
-  // Must arrive registered: interrupt_pending is one AND from the decoder's
-  // next_pc, so an unregistered 64-bit compare would land in the fetch loop.
+  // MUST ARRIVE REGISTERED. `interrupt_pending` is one AND away from `next_pc`, so an
+  // unregistered 64-bit compare here would land in the fetch loop.
   input  logic        irq_timer,
   output logic [31:0] mtvec_value,
   output logic [31:0] mepc_value,
@@ -64,7 +60,7 @@ module csrs #(
   localparam logic [11:0] MIMPID    = 12'hF13;
   localparam logic [11:0] MHARTID   = 12'hF14;
 
-  // MXL = 1; extensions I, M, A and C.
+  // MXL = 1, and extensions I, M, A and C.
   localparam logic [31:0] MISA_VALUE = 32'h4000_1105;
 
   logic [63:0] mcycle, minstret;
@@ -72,8 +68,6 @@ module csrs #(
   logic        mstatus_mie, mstatus_mpie;
   logic        mie_mtie;
 
-  // Part-selected out here: a constant part-select inside an always_* block
-  // draws iverilog's `sorry:` sensitivity note.
   logic [31:0] mcycle_lo, mcycle_hi, minstret_lo, minstret_hi;
   assign mcycle_lo   = mcycle[31:0];
   assign mcycle_hi   = mcycle[63:32];
@@ -84,15 +78,14 @@ module csrs #(
   // MPP = 2'b11 at [12:11]; MPIE at [7]; MIE at [3]; everything else 0.
   assign mstatus_value = {19'b0, 2'b11, 3'b0, mstatus_mpie, 3'b0, mstatus_mie, 3'b0};
 
-  // Bit 7 is MTIE in mie and MTIP in mip.
+  // Bit 7 is MTIE in `mie` and MTIP in `mip`.
   logic [31:0] mie_value, mip_value;
   assign mie_value = {24'b0, mie_mtie, 7'b0};
   assign mip_value = {24'b0, irq_timer, 7'b0};
 
   assign interrupt_pending = irq_timer && mie_mtie && mstatus_mie;
 
-  // The 87 performance-monitor addresses, all read-only zero: counters 3-31 in
-  // each of three aligned 32-address windows, the number in addr[4:0].
+  // The 87 performance-monitor addresses, every one of them read-only zero.
   localparam logic [6:0] MHPMCOUNTER_WINDOW  = 7'h58; // 0xB00-0xB1F
   localparam logic [6:0] MHPMCOUNTERH_WINDOW = 7'h5C; // 0xB80-0xB9F
   localparam logic [6:0] MHPMEVENT_WINDOW    = 7'h19; // 0x320-0x33F
@@ -133,11 +126,9 @@ module csrs #(
     endcase
   end
 
-  // What the addressed CSR holds after this write, legal-value mask applied.
   logic [31:0] wdata_mtvec, wdata_mepc, wdata_mstatus, wdata_mie;
-  // Direct mode only: mtvec[1:0] is the mode field.
+  // Direct mode only, so a write forces the two mode bits at `mtvec[1:0]` to zero.
   assign wdata_mtvec   = {wdata[31:2], 2'b00};
-  // Bit 1 survives: C makes 2-byte targets legal.
   assign wdata_mepc    = {wdata[31:1], 1'b0};
   assign wdata_mstatus = {19'b0, 2'b11, 3'b0, wdata[7], 3'b0, wdata[3], 3'b0};
   assign wdata_mie     = {24'b0, wdata[7], 7'b0};
@@ -154,7 +145,6 @@ module csrs #(
       MCAUSE:    warl = wdata;
       MTVAL:     warl = wdata;
       MCYCLE, MCYCLEH, MINSTRET, MINSTRETH: warl = wdata;
-      // Read-only or unimplemented: the value after the write is the one before.
       default:   warl = rdata;
     endcase
   end
@@ -163,9 +153,8 @@ module csrs #(
   assign warl_mpie = warl[7];
   assign warl_mtie = warl[7];
 
-  // The same mask as wdata_mepc: bit 1 must survive it, or a fault on a
-  // compressed instruction resumes two bytes early. test/asm/trap.S faults at
-  // exactly that alignment.
+  // BIT 1 MUST SURVIVE. C makes 2-byte targets legal, so masking it would resume a fault
+  // on a compressed instruction two bytes early.
   logic [31:0] trap_epc_warl;
   assign trap_epc_warl = {trap_epc[31:1], 1'b0};
 
@@ -176,8 +165,6 @@ module csrs #(
   assign wr_minstreth = wen && addr == MINSTRETH;
   assign wr_mscratch  = wen && addr == MSCRATCH;
 
-  // A write to either half suppresses the whole 64-bit increment; suppressing
-  // per half would let the carry advance mcycleh on a csrw mcycle.
   logic mcycle_tick, minstret_tick;
   assign mcycle_tick   = !wr_mcycle   && !wr_mcycleh;
   assign minstret_tick = !wr_minstret && !wr_minstreth && instret;
@@ -229,8 +216,6 @@ module csrs #(
           default: ;
         endcase
       end
-      // Clearing MIE here drops interrupt_pending on the edge the decoder
-      // redirects, so the cycle after a trap cannot take another.
       if (trap_entry) begin
         mepc         <= trap_epc_warl;
         mcause       <= trap_cause;
@@ -245,9 +230,6 @@ module csrs #(
   end
 
  `ifdef RISCV_FORMAL
-  // Write-only with respect to the core: nothing below drives a signal any
-  // non-ifdef logic reads. `make -C formal nonperturbation` rests on that, so
-  // do not break it.
   logic rd_mcycle, rd_mcycleh, rd_minstret, rd_minstreth, rd_mscratch;
   assign rd_mcycle    = ren && addr == MCYCLE;
   assign rd_mcycleh   = ren && addr == MCYCLEH;
@@ -255,7 +237,6 @@ module csrs #(
   assign rd_minstreth = ren && addr == MINSTRETH;
   assign rd_mscratch  = ren && addr == MSCRATCH;
 
-  // RVFI wdata is the instruction's own write, so the increment is left out.
   logic [31:0] mcycle_next_lo_reported, mcycle_next_hi_reported;
   logic [31:0] minstret_next_lo_reported, minstret_next_hi_reported;
   assign mcycle_next_lo_reported   = wr_mcycle    ? warl : mcycle_lo;
@@ -281,7 +262,6 @@ module csrs #(
   end
 
   `ifdef RISCV_FORMAL_CSR_MCAUSE
-  // A trap's write to mcause is the trapping instruction's own, so report it.
   logic rd_mcause, wr_mcause;
   assign rd_mcause = ren && addr == MCAUSE;
   assign wr_mcause = wen && addr == MCAUSE;

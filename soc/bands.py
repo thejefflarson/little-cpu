@@ -36,20 +36,10 @@ prose. `sentence()` answers for a known part whether or not a band was derived;
 import argparse
 import sys
 
-
 class Underived(Exception):
     """Asked for figures that were never measured for this part."""
 
-
-# Every part this repo places, with what has been measured on it. A part with
-# `spread` and `churn` set to None is one nothing has been swept on: the entry
-# exists so that asking about it gets an answer about THAT part rather than a
-# KeyError that invites someone to substitute another part's numbers.
-#
-# `spread` is best-to-worst over an UNCHANGED netlist, as a percentage of the
-# best placement. `churn` is how far functionally identical texts of one design
-# move the number. They are different measurements and only the first comes from
-# seeds alone -- the second needs several texts, each swept.
+# Every part this repo places, with what has been measured on it.
 BANDS = {
     "up5k": {
         "instrument": "make soc-timing",
@@ -67,14 +57,11 @@ BANDS = {
         "instrument": "make compare-timing",
         "spread": None,
         "churn": None,
-        # The cross-core harness places on this part and no sweep has ever been
-        # taken of its spread. up5k's is NOT the answer: different part, and the
-        # harness is a different design as well -- 4 KB of ROM and 2 KB of block
-        # RAM against 8 KB and 64 KB of SPRAM, and no timer.
+        # The cross-core harness places on this part and no sweep has ever been taken of
+        # its spread.
         "derived": "no sweep has been taken on this part",
     },
 }
-
 
 def band(part):
     """The figures for one part, or refuse. Never another part's."""
@@ -85,10 +72,8 @@ def band(part):
         raise Underived(part)
     return entry
 
-
 def parts():
     return sorted(BANDS)
-
 
 def sentence(part):
     """One line, naming the part it belongs to.
@@ -107,7 +92,6 @@ def sentence(part):
     return (f"{part} ({entry['instrument']}): placement spread {low:g}-{high:g}% "
             f"best-to-worst on an unchanged netlist, edit-churn band ~{entry['churn']:g}%.")
 
-
 def note(part):
     """The paragraph a delta is read against."""
     lines = [sentence(part)]
@@ -123,7 +107,6 @@ def note(part):
                  "Read the paired")
     lines.append("  per-seed column before either of them.")
     return "\n".join(lines)
-
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -159,7 +142,6 @@ def main():
                      "*** Another part's does not transfer -- different fabric,\n"
                      "*** different placer, different estimator. Sweep it.")
     print(note(args.part) if args.note else sentence(args.part))
-
 
 if __name__ == "__main__":
     main()

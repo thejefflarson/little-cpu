@@ -5,14 +5,9 @@ module testbench(
 	input reset
 `endif
 );
-  // ROM_WORDS is the ONLY thing this harness sizes differently from
-  // rtl/littlesoc.v, and it is deliberate: simulation has no block RAM to run
-  // out of, and rvc.S pads past what the part's 30 EBRs allow. The data RAM and
-  // the timer take rtl/memory.v's and rtl/timer.v's own parameter defaults --
-  // the same ones rtl/littlesoc.v takes -- so neither file states the map and
-  // neither can drift from the other. This harness once modelled a RAM sixteen
-  // times smaller than the SoC's, and every program fit, so nothing said so.
-  // test/memmap_test.sh is what keeps an override from reappearing here.
+  // ROM_WORDS is the ONLY thing this harness sizes differently from rtl/littlesoc.v, and
+  // it is deliberate: simulation has no block RAM to run out of, and rvc.S pads past what
+  // the part's 30 EBRs allow.
   localparam int ROM_WORDS = 4096;
   logic [31:0] imem_addr;
   logic [31:0] imem_data;
@@ -32,18 +27,16 @@ module testbench(
   logic        bus_request;
   logic [31:0] atomic_addr;
   logic        irq_timer;
-  // All five memories answer zero outside their own range, so the buses join
-  // with an OR, exactly as rtl/littlesoc.v joins them.
+  // All five memories answer zero outside their own range, so the buses join with an OR,
+  // exactly as rtl/littlesoc.v joins them.
   logic [31:0] imem_mem_rdata, dmem_mem_rdata, timer_mem_rdata, uart_mem_rdata;
   logic [31:0] flash_mem_rdata;
   assign mem_rdata = imem_mem_rdata | dmem_mem_rdata | timer_mem_rdata | uart_mem_rdata
                    | flash_mem_rdata;
-  // Left unread on purpose: this harness grades programs through `tohost`, and
-  // the serial line itself is decoded bit by bit in test/uart_tb.v instead.
+  // Left unread on purpose: this harness grades programs through `tohost`, and the serial
+  // line itself is decoded bit by bit in test/uart_tb.v instead.
   logic        uart_tx;
-  // The flash's four wires, with test/spiflash_model.v on the other end of
-  // them. The board has a real part there; a program cannot tell the difference
-  // through the controller, which is the point of putting one here.
+  // The flash's four wires, with test/spiflash_model.v on the other end of them.
   logic        spi_sck, spi_mosi, spi_miso, spi_cs_n;
   logic        trap;
  `ifdef RISCV_FORMAL
@@ -147,10 +140,8 @@ module testbench(
     .miso(spi_miso)
   );
 
-  // The same localparam the `imemory` above is given, so the core's copy of the
-  // map describes THIS machine's text window rather than the part's. It is the
-  // one parameter of the map an integrator states, for the same reason it is the
-  // one memory sized here.
+  // The same localparam the `imemory` above is given, so the core's copy of the map
+  // describes THIS machine's text window rather than the part's.
   littlecpu #(.LS_TEXT_WORDS(ROM_WORDS)) uut (
     .clk(clk),
     .reset(reset),
@@ -169,8 +160,8 @@ module testbench(
     .mem_reservable(mem_reservable),
     .atomic_addr(atomic_addr),
     .atomic_supported(atomic_supported),
-    // One bus initiator in this machine, so the bus is never withheld and nothing
-    // but the core writes memory. `mem_lock` has no arbiter to tell.
+    // One bus initiator in this machine, so the bus is never withheld and nothing but the
+    // core writes memory.
     .bus_wait(1'b0),
     .snoop_write(1'b0),
     .snoop_addr(32'b0),
@@ -206,21 +197,8 @@ module testbench(
    `endif
   );
  `ifdef RISCV_FORMAL
-  // The monitor, the spec probe and the counters all read rvfi_valid through
-  // this one wire. Keep it that way. A counter that could stay high while the
-  // monitor stopped looking would only be counting itself.
-  //
-  // It is also how to test the counters: set this to 1'b0 and every program
-  // should report MONITOR-SILENT. Do the same on a tree without the counters
-  // and the whole suite still passes, because each program reaches tohost on
-  // its own assertions with nothing checking a single instruction.
-  //
-  // What it is NOT is where a refused access is excused. The spec model has no
-  // memory map, so a retire this platform refused disagrees with it -- but
-  // hiding the retire here leaves a hole in `rvfi_order` that the monitor's
-  // reorder buffer reads as a lost instruction, and every retire after it is
-  // graded against the wrong shadow. `rvfi_mem_fault` goes to the monitor
-  // instead and test/sanitize_monitor.py's rules 4 to 6 are what read it.
+  // The monitor, the spec probe and the counters all read rvfi_valid through this one
+  // wire.
   logic rvfi_valid_observed;
   assign rvfi_valid_observed = rvfi_valid;
 
@@ -251,9 +229,7 @@ module testbench(
   );
 
  `ifdef ICARUS
-  // The error code is high for one cycle only; test/monitor.sim.v clears it
-  // every cycle. Check it every cycle -- reading it once at the end misses it.
-  // Same failure as test/cxxrtl.cc's exit 4.
+  // The error code is high for one cycle only; test/monitor.sim.v clears it every cycle.
   always @(posedge clk) begin
     if (rvfi_monitor_errcode != 16'b0) begin
       $display("RVFI MONITOR ERROR %0d -- see the diagnostic above", rvfi_monitor_errcode);
@@ -262,17 +238,6 @@ module testbench(
   end
  `endif
 
-  // A second monitor_isa_spec, rather than reading ch0_spec_valid inside the
-  // monitor. Two reasons. test/monitor.v is generated and gets regenerated, so
-  // an edit exporting that signal would be lost. And yosys will not reach into
-  // the instance: it makes a new undriven wire with that name, so the counter
-  // would read a constant and the build would look fine.
-  //
-  // Keep these connections the same as the monitor's above. Rewire one and not
-  // the other and this counts instructions the monitor never checked.
-  //
-  // A low spec-checked count is normal. riscv-formal has no model for ecall,
-  // ebreak, mret or csrr*, so those retire unchecked. Only zero is wrong.
   logic       probe_spec_valid;
   logic       probe_spec_trap;
   logic [4:0] probe_spec_rs1_addr;
@@ -305,8 +270,6 @@ module testbench(
     .spec_mem_wdata(probe_spec_mem_wdata)
   );
 
-  // Nothing in the design reads these, so without (* keep *) yosys removes
-  // them. The gating matches the monitor's own, so they count what it looked at.
   (* keep *) logic [31:0] rvfi_retires;
   (* keep *) logic [31:0] rvfi_spec_retires;
   initial begin
@@ -323,8 +286,6 @@ module testbench(
   end
 
  `ifdef ICARUS
-  // Independent of the retire count: a pipeline can keep retiring with no
-  // stores at all, which a retire-only floor would miss.
   (* keep *) logic [31:0] mem_write_count;
   initial mem_write_count = 32'b0;
   always @(posedge clk) begin
@@ -333,17 +294,9 @@ module testbench(
     end
   end
 
-  // The program below does 20 writes and 79 retires. These sit under both, so a
-  // few extra stall cycles still pass but a pipeline that has stopped making
-  // progress fails. Write rtl/decoder.v's live_rs1 and live_rs2 as a function
-  // call instead of continuous assigns and this drops to 0 writes and 1 retire:
-  // iverilog builds the sensitivity list from the call arguments, so the assign
-  // never runs again when the signals inside the function change.
   localparam int unsigned WRITE_FLOOR  = 15;
   localparam int unsigned RETIRE_FLOOR = 60;
 
-  // Drives reset and ends the run. It lives here because the check above needs
-  // the counters, and iverilog will not look forward for them.
   initial begin
     $dumpfile("testbench.vcd");
     $dumpvars(0, testbench);
@@ -362,21 +315,6 @@ module testbench(
  `endif
  `endif
 `ifdef ICARUS
-  // `make waves`' program, written into rtl/imemory.v's two banks (word 2i is
-  // even, 2i+1 odd). It counts in RAM because an address in the text range
-  // would take the banks' write port and steal the fetch behind it.
-  //
-  // `ifdef ICARUS` because it is a hierarchical reference, which yosys does not
-  // resolve (see the spec probe above).
-  //
-  // The banks are zeroed first and that is not tidiness. Fetch reads two
-  // adjacent words every cycle and decode reads the second one's register
-  // fields, so the word after the LAST instruction of the program is read on
-  // every pass through it. A bitstream defines every word of a block RAM; an
-  // array poked at six addresses does not, and one X there reaches the register
-  // file's address port and turns the whole pipeline X. cxxrtl is two-state and
-  // cannot see it; this leg is the only place it shows. Do not add a program
-  // here without the loop.
   initial begin
     for (int i = 0; i < ROM_WORDS / 2; i++) begin
       imem.rom_even[i] = 32'b0;
@@ -411,12 +349,6 @@ module testbench(
     end
   end
 
-  // mtvec resets to 0 and sections.lds puts .text there. So a trap before a
-  // test installs its handler jumps to _start and the program starts over. It
-  // looks like a hang, and the real fault was several instructions back.
-  //
-  // This belongs in the harness, not the RTL: a real program is allowed to put
-  // a handler at address 0.
   logic trap_taken_d;
   (* keep *) logic trap_to_zero;
   initial begin
@@ -435,9 +367,6 @@ module testbench(
     end
   end
 
-  // Two different stores back to back are fine, so this looks for the same
-  // request repeating, not for two busy cycles in a row. $fatal is Icarus-only
-  // because yosys does not implement it.
   logic [31:0] prev_wstrb_mem_addr, prev_wstrb_mem_wdata;
   logic [3:0]  prev_mem_wstrb;
   initial prev_mem_wstrb = 4'b0000;

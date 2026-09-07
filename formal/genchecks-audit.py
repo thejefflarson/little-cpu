@@ -1,32 +1,5 @@
 #!/usr/bin/env python3
-#
 # Generates the riscv-formal check set and reports which checks came out of it.
-# Run from formal/, the same way `python3 genchecks-local.py` was.
-#
-# The `[depth]` section of checks.cfg looks like a tuning table. It is really the
-# list of checks that exist. Both call sites in genchecks end with
-#
-#     if depth_cfg is None: return
-#
-# so a check with no depth line is never generated: no `.sby`, no warning, exit
-# 0. It then disappears from the results and from EXPECTED_FAIL together, and
-# comparing failures alone sees nothing wrong.
-#
-# The trace below is not a second copy of the naming logic. genchecks-local.py
-# has to stay a byte-for-byte copy of the upstream file except for two lines, so
-# it cannot be edited to report anything. Instead `sys.settrace` watches each
-# `get_depth_cfg` call and records its `patterns` argument and whether it
-# returned None. The last pattern is the check name and the FIRST is the family
-# it belongs to -- "insn" for all 70 insn_*, "csrc_upcnt" for one per CSR --
-# which is what checks.cfg's [depth] table and its `#floor` lines are keyed on.
-#
-# main() then checks that guess rather than trusting it, against genchecks' own
-# lists and against the `.sby` files on disk.
-#
-# It also grades every generated check's depth against the floor its family
-# declares. That arithmetic is the only thing standing between this repo and a
-# check that runs, reports PASS, and asked a shorter question than the one it
-# was configured for -- a shallow depth is not an error anywhere in sby.
 
 import os
 import re
@@ -41,16 +14,12 @@ CFG = os.path.join(HERE, "checks.cfg")
 EXPECTED_CHECKS = os.path.join(HERE, "EXPECTED_CHECKS")
 CHECKS_DIR = os.path.join(HERE, "checks")
 
-# The three cycles genchecks writes into every .sby it generates. Read back off
-# the generated file rather than recomputed from the [depth] columns, because
-# which column is which lives in genchecks' call sites and this script does not
-# get to hold a second opinion about that.
+# The three cycles genchecks writes into every .sby it generates.
 DEFINE_RE = re.compile(r"^`define\s+RISCV_FORMAL_(\w+_CYCLES?)\s+(\d+)\s*$")
 
-# genchecks' own parser drops every `#` line before it sees a section, so these
-# cannot perturb generation.
+# genchecks' own parser drops every `#` line before it sees a section, so these cannot
+# perturb generation.
 OMIT_RE = re.compile(r"^#omit\s+(\S+)\s+(\S.*)$")
-
 
 def read_name_list(path):
     """One name per line. `#` comments and blank lines are ignored, the same way
@@ -63,7 +32,6 @@ def read_name_list(path):
                 names.append(line)
     return names
 
-
 def read_omit_decls(path):
     decls = {}
     with open(path) as f:
@@ -72,7 +40,6 @@ def read_omit_decls(path):
             if match:
                 decls[match.group(1)] = match.group(2).strip()
     return decls
-
 
 def report_set_diff(label, expected, actual, expected_label, actual_label):
     """Compare both ways round. Returns True on mismatch."""
@@ -87,7 +54,6 @@ def report_set_diff(label, expected, actual, expected_label, actual_label):
         print(f"  in {actual_label} but not {expected_label}: {name}", file=sys.stderr)
     return True
 
-
 def read_check_cycles(name):
     """The START, TRIG and CHECK cycles out of checks/<name>.sby."""
     cycles = {}
@@ -97,7 +63,6 @@ def read_check_cycles(name):
             if match:
                 cycles[match.group(1)] = int(match.group(2))
     return cycles
-
 
 def audit_depths(families):
     """Every generated check's CHECK cycle against its family's `#floor` rule.
@@ -115,9 +80,8 @@ def audit_depths(families):
     if failed:
         return True
 
-    # Reported per family, because a family is what one [depth] line
-    # configures: naming all 70 insn_* checks would bury the one line that has
-    # to move. The evidence is still a generated file, so one of them is named.
+    # Reported per family, because a family is what one [depth] line configures: naming
+    # all 70 insn_* checks would bury the one line that has to move.
     short = {}
     for name, family in sorted(families.items()):
         cycles = read_check_cycles(name)
@@ -176,26 +140,22 @@ def audit_depths(families):
     )
     return True
 
-
 records = []
-
 
 def return_tracer(frame, event, arg):
     if event == "return":
         records.append((tuple(frame.f_locals["patterns"]), arg))
     return None
 
-
 def call_tracer(frame, event, arg):
     if event == "call" and frame.f_code.co_name == "get_depth_cfg":
         return return_tracer
     return None
 
-
 def main():
-    # genchecks reads `checks.cfg` and writes `checks/` relative to the cwd and
-    # takes `corename` from its last component, so running it elsewhere silently
-    # produces a check set elsewhere.
+    # genchecks reads `checks.cfg` and writes `checks/` relative to the cwd and takes
+    # `corename` from its last component, so running it elsewhere silently produces a
+    # check set elsewhere.
     if os.path.realpath(os.getcwd()) != os.path.realpath(HERE):
         print(f"error: run from {HERE}, not {os.getcwd()}", file=sys.stderr)
         return 1
@@ -237,8 +197,8 @@ def main():
 
     failed = False
 
-    # If the trace disagrees with genchecks' own bookkeeping, none of the set
-    # equalities below mean anything.
+    # If the trace disagrees with genchecks' own bookkeeping, none of the set equalities
+    # below mean anything.
     genchecks_own = set(genchecks["consistency_checks"]) | set(
         genchecks["instruction_checks"]
     )
@@ -270,8 +230,6 @@ def main():
         "generated",
     )
 
-    # Every check upstream offered and this repo declined is declined in
-    # writing, next to [depth].
     omitted = read_omit_decls(CFG)
     failed |= report_set_diff(
         "dropped checks vs checks.cfg #omit declarations",
@@ -281,9 +239,6 @@ def main():
         "dropped",
     )
 
-    # Last, because a depth is only worth grading once the set carrying it is
-    # the set this repo committed to. Its verdict is kept apart from the shape's
-    # so the diagnostic below answers only the question it was written for.
     depths_failed = audit_depths(families)
 
     print(
@@ -306,7 +261,6 @@ def main():
         f"checks.cfg #omit: {len(omitted)} names, exact match."
     )
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -1,27 +1,6 @@
 #!/bin/bash
-# Grades test/MUTATION_COVERAGE: every rtl/*.v file must have a ruling, and
-# every ruling must name something real.
-#
-# Usage: mutation_coverage_test.sh [repo-root]     # defaults to this script's
-#                                                   # parent
-#
-# WHY THIS EXISTS. `make mutation-check` grades test/MUTATION_DETECTORS
-# against test/mutations/*.patch, both ways round -- a claim about the eleven
-# patches that exist. It says nothing about an rtl/*.v file no patch touches,
-# so a new file joins fourteen others in silence by default. This script is
-# the other set-equality check: test/MUTATION_COVERAGE's file column against
-# `ls rtl/*.v`, both ways round, plus a check that every claim in the second
-# column names something real rather than a plausible-looking word.
-#
-# A bare `unpaired` with no grader would defeat the whole point -- a manifest
-# that permits one teaches people to write it, and the coverage ratchet
-# becomes the thing it was written to prevent. So every `unpaired` line's
-# grader is checked against the real bench list, the real formal component
-# tasks, and a short list of other named `make` targets, each validated
-# against the Makefiles that define them rather than assumed.
-#
-# Hermetic: grep, sed, sort, comm. No toolchain, no simulator, no yosys, so
-# this runs inside `make test` anywhere.
+# Grades test/MUTATION_COVERAGE: every rtl/*.v file must have a ruling, and every ruling
+# must name something real.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -51,13 +30,11 @@ fail() {
 }
 
 # Strips comments and blank lines, prints each remaining line's first field.
-# Used against both this file and test/MUTATION_DETECTORS, which share the
-# convention.
 first_fields() {  # $1 = file
   sed -e 's/#.*//' "$1" | awk 'NF { print $1 }'
 }
 
-# ---- 1. the manifest names exactly rtl/*.v, both ways round ----------------
+# 1. The manifest names exactly rtl/*.v, both ways round.
 
 listed=$(first_fields "$MANIFEST" | sort)
 if [ -z "$listed" ]; then
@@ -97,24 +74,16 @@ file says so. Add its line -- a mutation name, or \`unpaired\` and the real
 grader that covers it -- in the same commit."
 fi
 
-# ---- 2. every ruling names something real -----------------------------------
+# 2. Every ruling names something real.
 
 valid_mutations=$(first_fields "$DETECTORS" | sort -u)
 
 # Every test/*_tb.v bench, by the name `make test-unit-<bench>` runs it under.
 valid_benches=$(cd "$REPO" && ls test/*_tb.v 2>/dev/null | xargs -n1 basename | sed -e 's/\.v$//' | sort -u)
 
-# Every formal component task declared in formal/components.sby's [tasks]
-# section, prefixed the way `make -C formal components_<task>` names it.
-# Parsed rather than listed here by hand, so a task added or renamed there is
-# picked up without a second edit.
 valid_components=$(awk '/^\[tasks\]/ { f=1; next } /^\[/ { f=0 } f && NF { print "components_" $1 }' \
                       "$COMPONENTS_SBY" | sort -u)
 
-# The rest are named `make` targets this file's own graders are, checked
-# against the Makefiles that declare them rather than trusted on sight. Kept
-# to the ones test/MUTATION_COVERAGE actually names: a grader nothing here
-# claims does not need to be enumerable.
 other_graders="check memmap-test dual-smoke dual-ecp5-timing"
 for g in $other_graders; do
   if ! grep -qE "^${g}:" "$REPO/Makefile" "$REPO/formal/Makefile" 2>/dev/null; then

@@ -1,8 +1,8 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// A single-lane, mode-0 SPI shift register for the configuration flash. It
-// decodes no commands, so it sends a write enable and a sector erase as
-// readily as a read, and the bottom of that flash is the bitstream itself.
+// A single-lane, mode-0 SPI shift register for the configuration flash. It decodes no
+// commands, so it sends a write enable or a sector erase as readily as a read, and the
+// bottom of that flash is the bitstream itself.
 module spiflash #(
   parameter logic [31:0] BASE = 32'h0002_0028
 ) (
@@ -59,8 +59,6 @@ module spiflash #(
         if (!sck) begin
           sck <= 1'b1;
         end else begin
-          // Sampled a cycle after the rise, once the flash has seen the edge;
-          // the next bit is presented while the clock is low.
           shift_in  <= {shift_in[6:0], miso};
           sck       <= 1'b0;
           shift_out <= {shift_out[6:0], 1'b0};
@@ -68,7 +66,6 @@ module spiflash #(
         end
       end
 
-      // Zero out of range: rtl/littlesoc.v ORs the read buses together.
       rd_word <= (in_range && !is_control) ? {busy, shift_in} : 9'b0;
     end
   end

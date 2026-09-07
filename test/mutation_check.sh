@@ -1,43 +1,6 @@
 #!/bin/bash
-# Applies a declared RTL mutation, runs the detectors, and requires exactly the
-# detectors it is paired with to go red.
-#
-# Usage: mutation_check.sh [--only <mutation>] [--shard <i>/<n>] [--repo <dir>]
-#                          [--manifest <file>] [--patches <dir>]
-#                          [--expected-fail <file>]
-#
-# WHY THIS EXISTS, and how it differs from `make probe-gates`. probe-gates asks
-# whether a graded comparison can report a failure at all; it is hermetic, so it
-# cannot mutate the design and says nothing about whether a program still detects
-# the hardware property it was written to detect. That question has a measured
-# answer and it is not always yes: deleting `instr_fencei` from `serialize` in
-# rtl/decoder.v leaves the whole test/asm suite green, and test/asm/selfmod.S
-# carried a note claiming it caught exactly that. Every red-direction claim about
-# a program in this repo rests on someone having run the mutation once, by hand,
-# on the day it was written. This is what re-runs them.
-#
-# BOTH DIRECTIONS, against test/MUTATION_DETECTORS. A mutation nothing catches
-# is red --
-# the oracle it was paired with has gone quiet. A detector that goes red for a
-# mutation it is not paired with is red too, because the pairing is the claim
-# being graded and a set that drifts is a set nobody is reading. The better the
-# pipeline gets the more likely the first case is: a store landing earlier is a
-# win everywhere except in the program whose job was to notice it used to land
-# late.
-#
-# NOT ON `make test`'s PATH. It rebuilds the cxxrtl runner for every mutation,
-# which is most of a minute each, and it adds no ratchet.
-#
-# THE MUTATIONS ARE PATCHES, applied with `git apply`, which takes exact context
-# or nothing. A patch that no longer applies is reported as such and the run
-# stops: the RTL under it moved, so whatever the pairing claims was measured
-# against a design that is gone.
-#
-# REVERTING IS NOT LEFT TO THE PATCH. rtl/ is snapshotted before anything is
-# applied and restored from that snapshot on every exit path -- success, failure
-# and SIGINT -- because a left-behind mutation is worse than no check at all.
-# test/mutation_probe.sh forces that path, and the graded comparisons below,
-# against a fixture.
+# Applies a declared RTL mutation, runs the detectors, and requires exactly the detectors
+# it is paired with to go red.
 set -euo pipefail
 # comm and sort have to agree on collation, and they only do if both are told.
 export LC_ALL=C
@@ -66,9 +29,9 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-# Checked HERE and not beside the selection below, which is after the baseline:
-# a malformed shard spent forty-five seconds measuring a baseline before being
-# told its arguments were wrong.
+# Checked HERE and not beside the selection below, which is after the baseline: a
+# malformed shard spent forty-five seconds measuring a baseline before being told its
+# arguments were wrong.
 shard_i=""
 shard_n=""
 if [ -n "$SHARD" ]; then
@@ -99,9 +62,7 @@ command -v git >/dev/null 2>&1 || fail "git is not on PATH; the mutations are pa
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-mutation.XXXXXX")
 test -n "$tmp" -a -d "$tmp" || fail "mktemp -d produced no usable directory."
 
-# The snapshot is taken below, once the manifest has been read. Until then there
-# is nothing to restore, and `restore` is a no-op in that window rather than
-# depending on where the trap was installed.
+# The snapshot is taken below, once the manifest has been read.
 SNAPSHOT=""
 restore() {
   [ -n "$SNAPSHOT" ] || return 0
@@ -111,23 +72,17 @@ restore() {
     cmp -s "$f" "$REPO/rtl/$base" || cp "$f" "$REPO/rtl/$base"
   done
 }
-# `sim` goes too: this script builds it SIM_OPT=-O0, and a binary left behind at
-# that level is newer than its prerequisites, so a later `make test` in the same
-# tree would quietly reuse the slow one. restore() bumps an mtime often enough to
-# hide that most of the time, which is worse than not hiding it.
+# `sim` goes too: this script builds it SIM_OPT=-O0, and a binary left behind at that
+# level is newer than its prerequisites, so a later `make test` in the same tree would
+# quietly reuse the slow one.
 cleanup() { restore; rm -f "$REPO/sim"; rm -rf "$tmp"; }
-# INT and TERM are trapped so that the EXIT trap runs at all: bash does not
-# promise to run one when the shell dies from a signal it has no handler for,
-# and an interrupted run is exactly when a mutation would be left in the tree.
-# A shell started with `&` from a script has SIGINT ignored on entry and cannot
-# trap it, so check this path with SIGTERM rather than concluding it is broken.
+# INT and TERM are trapped so that the EXIT trap runs at all: bash does not promise to
+# run one when the shell dies from a signal it has no handler for, and an interrupted run
+# is exactly when a mutation would be left in the tree.
 trap cleanup EXIT
 trap 'echo; echo "interrupted -- reverting rtl/" >&2; exit 130' INT TERM
 
-# ---------------------------------------------------------------- the manifest
-#
-# All of this runs before a single mutation is applied. A manifest that does not
-# describe the tree is not something to discover four minutes into a run.
+# All of this runs before a single mutation is applied.
 
 [ -f "$MANIFEST" ] && [ -r "$MANIFEST" ] || fail \
 "manifest '$MANIFEST' does not exist or is not readable. It is the pairing
@@ -162,11 +117,8 @@ if [ -n "$duplicates" ]; then
   exit 1
 fi
 
-# A detector naming something that is not there could never fire, and the run
-# would read that as an oracle gone quiet.
-#
-# `if` rather than `case`: the bash macOS ships is 3.2, whose parser reads the
-# `)` closing a case pattern inside `$( )` as the one closing the substitution.
+# A detector naming something that is not there could never fire, and the run would read
+# that as an oracle gone quiet.
 missing_detector=$(printf '%s\n' "$lines" | while read -r m leg det rest; do
   if [ "$leg" = bench ]; then
     [ -f "$REPO/test/$det.v" ] || echo "  $m bench $det   (no test/$det.v)"
@@ -208,14 +160,9 @@ if [ -n "$undeclared" ]; then
 fi
 [ "$rc" -eq 0 ] || exit 1
 
-# Every patch is checked here rather than at the moment it is applied, so one
-# whose context has moved is reported before anything is built.
 for p in "${patches[@]}"; do
   name=$(basename "$p" .patch)
   [ -s "$p" ] || fail "$p is empty; it would apply cleanly and mutate nothing."
-  # Both sides, so a patch that creates or deletes a file is rejected rather
-  # than half-checked: /dev/null on either side does not match the pattern
-  # below, and a file this run created is one the snapshot cannot restore.
   touched=$(awk '/^(---|\+\+\+) /{ sub(/^[ab]\//, "", $2); print $2 }' "$p")
   [ -n "$touched" ] || fail "$p names no files to patch."
   outside=$(printf '%s\n' "$touched" | grep -v '^rtl/[A-Za-z0-9_]*\.v$' || true)
@@ -243,12 +190,6 @@ SNAPSHOT=$tmp/pristine
 mkdir -p "$SNAPSHOT"
 cp "$REPO"/rtl/*.v "$SNAPSHOT/"
 
-# ------------------------------------------------------------------- the legs
-#
-# Each prints the detectors that went red, one per line, and exits nonzero only
-# if it could not run at all. Both are overridable so test/mutation_probe.sh can
-# drive this script's grading without a toolchain; nothing else sets them.
-
 bench_leg() {
   if [ -n "${MUTATION_BENCH_LEG:-}" ]; then "$MUTATION_BENCH_LEG"; return; fi
   make -s check-unit-benches > "$tmp/benches.log" 2>&1 || {
@@ -260,18 +201,12 @@ bench_leg() {
   list=$(make -s unit-bench-list) || { echo "cannot read the bench list" >&2; return 1; }
   [ -n "$list" ] || { echo "the bench list is empty" >&2; return 1; }
   for b in $list; do
-    # A bench that will not elaborate under the mutation counts as red. The
-    # suite leg below treats a design that will not build as an error, so a
-    # mutation the compiler rejects outright never reaches a verdict at all.
     make -s "test-unit-$b" > "$tmp/bench.$b.log" 2>&1 || echo "$b"
   done
 }
 
 suite_leg() {
   if [ -n "${MUTATION_SUITE_LEG:-}" ]; then "$MUTATION_SUITE_LEG"; return; fi
-  # SIM_OPT=-O0: this rebuild is 75% of the run's wall time and the suite is
-  # short enough that the slower simulator does not pay it back. The verdicts
-  # are identical -- the runner's budget is simulated cycles, not wall time.
   if ! make sim SIM_OPT=-O0 > "$tmp/sim.log" 2>&1; then
     echo "the design under this mutation does not build:" >&2
     tail -20 "$tmp/sim.log" >&2
@@ -288,10 +223,6 @@ suite_leg() {
     tail -20 "$tmp/suite.log" >&2
     return 1
   fi
-  # The table is parsed rather than the verdict line read, so each program's
-  # status travels with its name. A row shape this cannot read would quietly
-  # report an empty detector set, so the same pass counts the rows it read and
-  # nothing is published until that count meets the verdict's own denominator.
   awk -v countfile="$tmp/rows" '
     $1 ~ /^[A-Za-z0-9_]+\.[Sc]$/ && /retires=/ {
       rows++
@@ -311,7 +242,6 @@ suite_leg() {
   cat "$tmp/suite.rows"
 }
 
-# observe <label> -> $tmp/observed.<label>, one sorted detector token per line
 observe() {
   local label=$1 out=$tmp/observed.$1
   export MUTATION_NAME=$label
@@ -320,11 +250,6 @@ observe() {
   { awk 'NF { print "bench", $0 }' "$tmp/leg.bench"
     awk 'NF { print "asm", $0 }'   "$tmp/leg.asm"; } | sort > "$out"
 }
-
-# ---------------------------------------------------------------- the baseline
-#
-# Measured, not assumed. Without it a program that is already red is charged to
-# the first mutation applied, and a bench that is already red to all of them.
 
 echo
 echo "== baseline: the tree as it stands, unmutated"
@@ -351,8 +276,6 @@ if [ "$baseline_asm" != "$expected_asm" ]; then
 fi
 echo "baseline clean: no bench red, and the suite matches $EXPECTED_FAIL."
 
-# --------------------------------------------------------------- the mutations
-
 to_run=$(cat "$tmp/declared_mutations")
 if [ -n "$ONLY" ]; then
   grep -qxF "$ONLY" "$tmp/declared_mutations" \
@@ -360,20 +283,10 @@ if [ -n "$ONLY" ]; then
   to_run=$ONLY
 fi
 
-# --shard i/n takes every nth mutation starting at i, over the SAME sorted list
-# every shard reads. Round-robin and not contiguous blocks: the mutations differ
-# in cost, and a block split puts a run of slow ones in one shard.
-#
-# THE MANIFEST COMPARISON ABOVE IS NOT SHARDED. Declared-against-present runs in
-# full in every shard, both directions, so a mutation added without a pairing is
-# caught by all of them rather than by whichever shard happened to own it. Only
-# the applying-and-grading below is divided.
 if [ -n "$SHARD" ]; then
   to_run=$(printf '%s\n' "$to_run" | awk -v i="$shard_i" -v n="$shard_n" 'NR % n == i % n')
   echo "shard $shard_i of $shard_n: $(printf '%s\n' "$to_run" | grep -c . ) of \
 $(grep -c . "$tmp/declared_mutations") mutations."
-  # An empty shard is a real configuration -- more shards than mutations -- and
-  # it must not report success for grading nothing.
   [ -n "$to_run" ] || fail "shard $shard_i of $shard_n has no mutations in it: \
 there are fewer mutations than shards, so some shard grades nothing."
 fi
@@ -396,7 +309,6 @@ for m in $to_run; do
   printf '%s\n' "$lines" | awk -v m="$m" '$1 == m { $1 = ""; sub(/^ /, ""); print }' \
     | sort > "$tmp/declared.$m"
 
-  # What this mutation did, over and above what the unmutated tree already does.
   comm -13 "$tmp/observed.baseline" "$tmp/observed.$m" > "$tmp/fired.$m"
   quieted=$(comm -23 "$tmp/observed.baseline" "$tmp/observed.$m")
 
@@ -433,8 +345,6 @@ for m in $to_run; do
 done
 
 restore
-# Contents and the file list both, so "rtl/ came back" is the whole statement
-# rather than a statement about the files that happened to be there first.
 leftover=$({
   for f in "$SNAPSHOT"/*.v; do
     base=$(basename "$f")

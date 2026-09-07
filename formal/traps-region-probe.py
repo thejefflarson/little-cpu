@@ -58,17 +58,14 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from traps_probe_sby import SOURCES, probe_sby  # noqa: E402
 
-# The two comparisons being probed, found in traps.sv by their text. Each is the
-# only statement in that file that says what it says.
+# The two comparisons being probed, found in traps.sv by their text.
 ASSERTS = {
     "no-trap": "assert(trap_entry);",
     "wrong-cause": "assert(csr_rdata == prev_cause);",
 }
 
-# The lines of rtl/decoder.v each mutation replaces, matched in full so a
-# respelling stops this file rather than silently probing nothing. The value is
-# what the key is replaced by; an empty replacement is not allowed, because a
-# mutation that deletes nothing builds the shipping core twice.
+# The lines of rtl/decoder.v each mutation replaces, matched in full so a respelling
+# stops this file rather than silently probing nothing.
 MUTATIONS = {
     "no-trap": (
         """  assign ls_fault = ls_access && ls_answer_valid && !ls_answer &&
@@ -89,7 +86,6 @@ MUTATIONS = {
     ),
 }
 
-
 def stop(message):
     """Exit 2: the probe's own inputs are broken, which is not a red proof.
 
@@ -98,7 +94,6 @@ def stop(message):
     """
     print(f"error: {message}", file=sys.stderr)
     sys.exit(2)
-
 
 def assert_line(traps_sv, case):
     """The line traps.sv states this case's assertion on, 1-based."""
@@ -112,7 +107,6 @@ def assert_line(traps_sv, case):
             "for a proof that went red somewhere else entirely."
         )
     return hits[0]
-
 
 def mutate(decoder_v, case):
     """rtl/decoder.v with this case's one line replaced."""
@@ -130,7 +124,6 @@ def mutate(decoder_v, case):
         )
     return decoder_v.replace(old, new, 1)
 
-
 def run_case(repo, workdir, sby, config, case):
     """Builds the mutated tree, runs sby, and returns (status, failing lines)."""
     root = workdir / case
@@ -143,9 +136,9 @@ def run_case(repo, workdir, sby, config, case):
     (root / "src" / "decoder.v").write_text(mutate(decoder, case))
     (root / "probe.sby").write_text(config)
 
-    # sby's own exit status is not read: FAIL is the required outcome of one of
-    # the two cases, and a non-zero status there says nothing this file does not
-    # read out of the workdir instead.
+    # sby's own exit status is not read: FAIL is the required outcome of one of the two
+    # cases, and a non-zero status there says nothing this file does not read out of the
+    # workdir instead.
     proc = subprocess.run(
         [sby, "-f", "probe.sby"], cwd=root, capture_output=True, text=True
     )
@@ -162,7 +155,6 @@ def run_case(repo, workdir, sby, config, case):
     failed = sorted(set(int(n) for n in re.findall(r"Assert failed in traps: traps\.sv:(\d+)", log)))
     return status[0], failed
 
-
 def main():
     here = pathlib.Path(__file__).resolve().parent
     parser = argparse.ArgumentParser(description=__doc__)
@@ -178,9 +170,9 @@ def main():
     workdir = pathlib.Path(args.workdir).resolve()
     workdir.mkdir(parents=True, exist_ok=True)
 
-    # Built once, with the other input checks: the script is an input to this
-    # file the way traps.sv and decoder.v are, and a missing one is a reason not
-    # to start rather than something to discover per case.
+    # Built once, with the other input checks: the script is an input to this file the
+    # way traps.sv and decoder.v are, and a missing one is a reason not to start rather
+    # than something to discover per case.
     config = probe_sby(repo, stop)
     traps_sv = (repo / "formal" / "traps.sv").read_text()
     red = []
@@ -209,7 +201,6 @@ def main():
         sys.exit(1)
 
     print("Both load/store region arms fail for their own reason.")
-
 
 if __name__ == "__main__":
     main()

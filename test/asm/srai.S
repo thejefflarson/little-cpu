@@ -1,21 +1,12 @@
 # See LICENSE for license details.
 
-#*****************************************************************************
-# srai.S
-#-----------------------------------------------------------------------------
-#
 # Test srai instruction.
-#
 
 #include "riscv_test.h"
 #include "test_macros.h"
 
 RVTEST_RV64U
 RVTEST_CODE_BEGIN
-
-  #-------------------------------------------------------------
-  # Arithmetic tests
-  #-------------------------------------------------------------
 
   TEST_IMM_OP( 2,  srai, 0xffffff8000000000, 0xffffff8000000000, 0  );
   TEST_IMM_OP( 3,  srai, 0xffffffffc0000000, 0xffffffff80000000, 1  );
@@ -35,15 +26,7 @@ RVTEST_CODE_BEGIN
   TEST_IMM_OP( 15, srai, 0xfffffffffffe0606, 0xffffffff81818181, 14 );
   TEST_IMM_OP( 16, srai, 0xffffffffffffffff, 0xffffffff81818181, 31 );
 
-  #-------------------------------------------------------------
-  # Source/Destination tests
-  #-------------------------------------------------------------
-
   TEST_IMM_SRC1_EQ_DEST( 17, srai, 0xffffffffff000000, 0xffffffff80000000, 7 );
-
-  #-------------------------------------------------------------
-  # Bypassing tests
-  #-------------------------------------------------------------
 
   TEST_IMM_DEST_BYPASS( 18, 0, srai, 0xffffffffff000000, 0xffffffff80000000, 7  );
   TEST_IMM_DEST_BYPASS( 19, 1, srai, 0xfffffffffffe0000, 0xffffffff80000000, 14 );

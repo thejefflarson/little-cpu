@@ -55,39 +55,20 @@ import sys
 SOURCE = "soc/bands.py"
 
 # The figures live in the source, so the source is imported rather than parsed.
-# A checker with its own copy of the numbers would be the seventh copy.
-# test/PROBES_EXPECTED is exempt for test/probe_gates.sh's own reason: it holds
-# that script's probe labels verbatim, so the same strings are scanned twice and
-# an exemption that covered only one of the two files would be inconsistent by
-# accident. One shipping label already names the churn band and another already
-# carries a percentage; they are apart today only because the file is sorted and
-# nobody chooses a future label's alphabetical neighbours.
 EXEMPT_FILES = {SOURCE, "CLAUDE.md", "test/band_source_test.py",
                 "test/probe_gates.sh", "test/PROBES_EXPECTED"}
 EXEMPT_PREFIXES = ("docs/adr/", "docs/ideas/")
 
-# A band figure is a percentage. Ranges are written with a hyphen or an en dash
-# depending on whether the file is prose or code, so both are matched.
+# A band figure is a percentage.
 PERCENT = re.compile(r"\d+(?:\.\d+)?\s*(?:[-–—]\s*\d+(?:\.\d+)?)?\s*%")
 
 # The words that turn a percentage in a comment into a claim about a band.
-#
-# WHAT IS DELIBERATELY NOT CHECKED: the bare digits. An earlier version of this
-# also banned soc/bands.py's own figure spellings wherever they appeared, and it
-# went red on rtl/memory.v recording that a nested spelling of its write/read
-# arms costs 3.6% of Fmax -- a real measurement of the design that happens to
-# round to the same number as the churn band. Banning the digits bans arithmetic.
-# A percentage only claims to be a band when it is written beside one of these
-# words, and a copy that does not say what it is a band of is not one a reader
-# would rely on either.
 BAND_WORD = re.compile(r"churn|spread", re.IGNORECASE)
-
 
 def tracked(root):
     out = subprocess.run(["git", "-C", root, "ls-files"], check=True,
                          capture_output=True, text=True).stdout
     return [line for line in out.splitlines() if line]
-
 
 def scanned(root):
     for path in tracked(root):
@@ -101,7 +82,6 @@ def scanned(root):
             # A binary or unreadable tracked file states no band figure.
             continue
 
-
 def spellings(band):
     """Each of soc/bands.py's figures, with every way it gets written down.
 
@@ -114,7 +94,6 @@ def spellings(band):
         "churn band": {f"{band['churn']:g}%"},
         "placement spread": {f"{low:g}{dash}{high:g}%" for dash in "-–—"},
     }
-
 
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
@@ -135,11 +114,9 @@ def main():
 
     failures = []
 
-    # ---- no band figure stated anywhere outside the source ----
-    #
-    # A three-line window rather than a line, because a wrapped comment puts the
-    # word and the number on different lines and every one of the six copies this
-    # replaced was wrapped that way.
+    # no band figure stated anywhere outside the source -- A three-line window rather
+    # than a line, because a wrapped comment puts the word and the number on different
+    # lines and every one of the six copies this replaced was wrapped that way.
     for path, lines in scanned(root):
         for number, line in enumerate(lines, 1):
             window = "\n".join(lines[max(0, number - 2):number + 1])
@@ -151,7 +128,6 @@ def main():
                     f"there rather than\n"
                     f"    writing a number into a comment that cannot go red.")
 
-    # ---- the rulebook's copy has to agree with the source ----
     claude = os.path.join(root, "CLAUDE.md")
     if not os.path.exists(claude):
         failures.append("CLAUDE.md is not there, so the rulebook's band figures "
@@ -185,7 +161,6 @@ def main():
         sys.exit(1)
     print(f"band-source: every band figure is {SOURCE}'s, and CLAUDE.md agrees "
           f"with it.")
-
 
 if __name__ == "__main__":
     main()

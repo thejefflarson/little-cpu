@@ -1,11 +1,6 @@
 # See LICENSE for license details.
 
-#*****************************************************************************
-# sh.S
-#-----------------------------------------------------------------------------
-#
 # Test sh instruction.
-#
 
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -13,9 +8,7 @@
 RVTEST_RV64U
 RVTEST_CODE_BEGIN
 
-  #-------------------------------------------------------------
   # Basic tests
-  #-------------------------------------------------------------
 
   TEST_ST_OP( 2, lh, sh, 0x00000000000000aa, 0, tdat );
   TEST_ST_OP( 3, lh, sh, 0xffffffffffffaa00, 2, tdat );
@@ -29,8 +22,6 @@ RVTEST_CODE_BEGIN
   TEST_ST_OP( 8, lh, sh, 0x0000000000000aa0, -2, tdat8 );
   TEST_ST_OP( 9, lh, sh, 0xffffffffffffa00a, 0,  tdat8 );
 
-  # Test with a negative base
-
   TEST_CASE( 10, x5, 0x5678, \
     la  x1, tdat9; \
     li  x2, 0x12345678; \
@@ -38,8 +29,6 @@ RVTEST_CODE_BEGIN
     sh x2, 32(x4); \
     lh x5, 0(x1); \
   )
-
-  # Test with unaligned base
 
   TEST_CASE( 11, x5, 0x3098, \
     la  x1, tdat9; \
@@ -49,10 +38,6 @@ RVTEST_CODE_BEGIN
     la  x4, tdat10; \
     lh x5, 0(x4); \
   )
-
-  #-------------------------------------------------------------
-  # Bypassing tests
-  #-------------------------------------------------------------
 
   TEST_ST_SRC12_BYPASS( 12, 0, 0, lh, sh, 0xffffffffffffccdd, 0,  tdat );
   TEST_ST_SRC12_BYPASS( 13, 0, 1, lh, sh, 0xffffffffffffbccd, 2,  tdat );

@@ -1,48 +1,6 @@
-// The co-simulation runner: a second cxxrtl runner (alongside test/cxxrtl.cc)
-// whose only job is to emit the core's REAL architectural register-file state
-// as it changes, so test/cosim.py can diff it against the Sail RISC-V model.
-//
-// `make test` neither builds nor runs it; `make cosim` does, and CI requires it
-// on main in a job of its own that fetches Sail first.
-//
-// WHY A SEPARATE BINARY, AND WHY IT READS `regs` RATHER THAN RVFI.
-//
-// The RVFI monitor (test/monitor.v) and the riscv-formal check set both check
-// what the core SAYS it did: rvfi_rd_wdata against a spec model evaluated on
-// rvfi_rs1_rdata / rvfi_rs2_rdata / rvfi_insn. A core that mis-reports a
-// value and then computes with that same mis-reported value tells an
-// internally consistent story and passes both. This runner never reads a
-// single rvfi_* signal. It samples the `uut regfile regs` array -- the actual
-// 32x32 memory in rtl/regfile.v -- once per cycle and prints a line whenever
-// it changes.
-//
-// Comparing STATE, not WRITE EVENTS, is deliberate. A write of a value a
-// register already holds is architecturally invisible, and Sail traces it
-// while a state snapshot does not; comparing the sequence of distinct
-// register-file states makes both sides agree on what counts as an event
-// without either having to special-case that.
-//
-// The PC is printed as diagnostic context only, and is deliberately NOT
-// compared: `uut decoder pc` is the PC of the instruction currently in
-// DECODE, several stages ahead of the write retiring this cycle, so it is a
-// pipeline landmark rather than an architectural fact. test/cosim.py reports
-// the Sail-side PC as the authoritative location of a divergence.
-//
-// Output format, one line per architectural change (stdout):
-//     CS <change-index> <cycle> x<n>=<hex> [x<n>=<hex> ...] @pc=<hex>
-// followed by exactly one terminator line:
-//     CS END PASS <cycle> | CS END FAIL <testnum> <cycle> | CS END TIMEOUT
-//
-// The `CS ` prefix exists because test/testbench.v $displays a line or two
-// per cycle (ifetch/read/write chatter) onto the same stdout, and cxxrtl
-// implements $display natively. Prefixing is what lets test/cosim.py treat
-// an unrecognised `CS ` line as a hard error instead of having to guess
-// which unparseable lines were the bench talking.
-//
-// Exit codes match test/cxxrtl.cc where they overlap: 0 = ran to a tohost
-// verdict (PASS or FAIL -- either is a successful TRACE, and cosim.py, not
-// this runner, decides whether the trace matches), 2 = cycle-limit timeout,
-// 3 = usage/setup error.
+// The co-simulation runner: a second cxxrtl runner (alongside test/cxxrtl.cc) whose only
+// job is to emit the core's REAL architectural register-file state as it changes, so
+// test/cosim.py can diff it against the Sail RISC-V model.
 #include "rtl.cc"
 
 #include <cstdint>
@@ -57,8 +15,8 @@
 
 namespace {
 
-// A copy of rtl/memory.v's `BASE`, as in test/cxxrtl.cc; C++ cannot read the
-// RTL's parameter. test/memmap_test.sh compares both against it.
+// A copy of rtl/memory.v's `BASE`, as in test/cxxrtl.cc; C++ cannot read the RTL's
+// parameter.
 constexpr uint32_t kRamBase = 0x00010000;
 
 using HexImage = std::map<uint32_t, uint32_t>;
@@ -109,15 +67,8 @@ bool load_image(cxxrtl::debug_items &items, const std::string &name,
   return true;
 }
 
-// The instruction ROM is two INTERLEAVED BANKS: word W lives in
-// `imem rom_even` at index W/2 when W is even, and in `imem rom_odd` at the
-// same index when it is odd. Banking is what removed the duplicated ROM the SoC
-// needed for the dual-word fetch window, so the de-interleaving has to happen
-// somewhere -- here, at load time, rather than in RTL that would cost hardware.
-//
-// The split is derived from the word address alone, so it cannot disagree with
-// rtl/imemory.v's read side without test/imem_tb.v -- which checks that side
-// against a flat reference at every alignment -- saying so.
+// The instruction ROM is two INTERLEAVED BANKS: word W lives in `imem rom_even` at index
+// W/2 when W is even, and in `imem rom_odd` at the same index when it is odd.
 bool load_rom_banks(cxxrtl::debug_items &items, const HexImage &image) {
   static const char *kBankName[2] = {"imem rom_even", "imem rom_odd"};
   const cxxrtl::debug_item *bank[2];
@@ -208,22 +159,7 @@ int main(int argc, char **argv) {
   const cxxrtl::debug_item &memory_item = all_debug_items.at("dmem ram").at(0);
   uint32_t *ram_data = memory_item.curr;
 
-  // The real register file inside rtl/regfile.v. `hierarchy -top testbench`
-  // flattens the instance path to a space-separated debug-item name, the same
-  // convention test/cxxrtl.cc uses for "monitor errcode".
-  //
-  // `regs_a`, not `regs`: an ice40 EBR has one read port, so rtl/regfile.v
-  // holds two identical copies of the array, one per read port. This probe
-  // reads ONE of them, which is the whole point of the cross-check below.
-  //
-  // WHY THIS BEING RIGHT MATTERS MORE THAN IT LOOKS. This is the only oracle in
-  // the repo that reads the core's architectural state directly rather than its
-  // RVFI self-report, so a probe that silently pointed at the wrong
-  // item -- or at a stale copy, or at nothing -- would turn the whole
-  // co-simulation leg into a comparison of nothing against nothing, which is
-  // docs/THREAT_MODEL.md's category 1. The name lookup and the shape check
-  // below fail closed; that they read the array the core actually commits to
-  // is established by mutation.
+  // The real register file inside rtl/regfile.v.
   const cxxrtl::debug_item *regs_item = nullptr;
   const cxxrtl::debug_item *regs_b_item = nullptr;
   const cxxrtl::debug_item *pc_item = nullptr;
@@ -254,10 +190,8 @@ int main(int argc, char **argv) {
 
   top.p_reset.set(true);
   top.step();
-  // The regfile has no reset, so its contents here are whatever cxxrtl
-  // zero-initialised them to and the reset edge below leaves them alone. Seed
-  // the shadow from them so the first printed change is a real write and not
-  // the initialisation.
+  // The regfile has no reset, so its contents here are whatever cxxrtl zero-initialised
+  // them to and the reset edge below leaves them alone.
   std::memcpy(shadow, regs, sizeof(shadow));
 
   long change_index = 0;
@@ -270,22 +204,9 @@ int main(int argc, char **argv) {
     top.p_clk.set<bool>(true);
     top.step();
 
-    // Reset spans exactly one rising edge and is released after it, the shape
-    // test/testbench.v drives and rtl/littlesoc.v's power-on counter
-    // generalizes. Clearing the pin BEFORE the first edge instead runs no
-    // `if (reset)` in the design at all, and only a stalled cycle re-reading
-    // the ROM hides that -- so cycle 0 is the reset cycle and every printed
-    // cycle number counts it.
     if (cycle == 0)
       top.p_reset.set(false);
 
-    // The two arrays are one architectural register file, written
-    // from one address and one data word. Nothing else in this program would
-    // notice them diverging -- every comparison below reads regs_a alone -- so
-    // a rs2-side write defect would produce a co-simulation that agrees
-    // perfectly while the core computes wrong answers on its rs2 port.
-    // test/regfile_tb.v asserts this over a handful of directed vectors; this
-    // asserts it on every cycle of every program in the suite.
     if (std::memcmp(regs, regs_b, sizeof(shadow)) != 0) {
       std::fprintf(stderr,
                    "error: rtl/regfile.v's two arrays diverged at cycle %ld -- "

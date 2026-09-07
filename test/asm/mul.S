@@ -1,11 +1,6 @@
 # See LICENSE for license details.
 
-#*****************************************************************************
-# mul.S
-#-----------------------------------------------------------------------------
-#
 # Test mul instruction.
-#
 
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -13,9 +8,7 @@
 RVTEST_RV64U
 RVTEST_CODE_BEGIN
 
-  #-------------------------------------------------------------
   # Arithmetic tests
-  #-------------------------------------------------------------
 
   TEST_RR_OP(32,  mul, 0x00001200, 0x00007e00, 0xb6db6db7 );
   TEST_RR_OP(33,  mul, 0x00001240, 0x00007fc0, 0xb6db6db7 );
@@ -37,17 +30,9 @@ RVTEST_CODE_BEGIN
   TEST_RR_OP(36,  mul, 0xffffffff, 0xffffffff, 0x00000001 );
   TEST_RR_OP(37,  mul, 0xffffffff, 0x00000001, 0xffffffff );
 
-  #-------------------------------------------------------------
-  # Source/Destination tests
-  #-------------------------------------------------------------
-
   TEST_RR_SRC1_EQ_DEST( 8, mul, 143, 13, 11 );
   TEST_RR_SRC2_EQ_DEST( 9, mul, 154, 14, 11 );
   TEST_RR_SRC12_EQ_DEST( 10, mul, 169, 13 );
-
-  #-------------------------------------------------------------
-  # Bypassing tests
-  #-------------------------------------------------------------
 
   TEST_RR_DEST_BYPASS( 11, 0, mul, 143, 13, 11 );
   TEST_RR_DEST_BYPASS( 12, 1, mul, 154, 14, 11 );

@@ -28,7 +28,6 @@ import bands  # noqa: E402
 
 ORDER = ["base", "addr", "data", "both"]
 
-
 def endpoint(name):
     """The readable part of an icetime endpoint name.
 
@@ -40,12 +39,10 @@ def endpoint(name):
     head = name.split("_SB_")[0]
     return head + "..." if head != name else name
 
-
 def span(values):
     """`22-23` where the seeds disagree, `22` where they do not."""
     low, high = min(values), max(values)
     return f"{low}-{high}" if low != high else str(low)
-
 
 def load(path):
     """The placements in one sweep, grouped by variant, worst placement last.
@@ -67,7 +64,6 @@ def load(path):
     for group in by.values():
         group.sort(key=lambda r: float(r["ns"]))
     return by
-
 
 def report(path):
     by = load(path)
@@ -95,20 +91,16 @@ def report(path):
         median = 100 * (statistics.median(ns) - statistics.median(base)) / statistics.median(base)
         print(f"  {variant} against base: worst {worst:+.1f}%, median {median:+.1f}%")
     print()
-    # Every part these rows were placed on, each with its own band. Read off the
-    # rows rather than taken from a flag, so a file concatenated from two sweeps
-    # cannot be judged against one of the two parts' figures.
+    # Every part these rows were placed on, each with its own band.
     for part in sorted({row["part"] for group in by.values() for row in group}):
         print(bands.note(part))
     print()
-
 
 def main():
     if len(sys.argv) < 2:
         sys.exit("usage: summary.py <csv> [<csv> ...]")
     for path in sys.argv[1:]:
         report(path)
-
 
 if __name__ == "__main__":
     main()

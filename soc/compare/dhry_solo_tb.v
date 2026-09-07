@@ -1,22 +1,8 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// Runs Dhrystone on THIS core alone, at soc/compare/dhry_tb.v's own enlarged
-// geometry (8 KB ROM, 16 KB RAM -- the same map, the same linker script, the
-// same markers, the same soc/compare/dhry_monitor.v mechanism), so its cycle
-// count is comparable to soc/compare/dhry_tb.v's three-way RV32I row with only
-// the ISA differing.
-//
-// soc/compare/dhry_tb.v answers "what does the shared subset cost all three
-// cores"; this answers "what does the shared subset cost THIS core, against
-// its own native one" -- the second half of that question needs a core that
-// executes an ISA the other two do not share, so it cannot be asked inside the
-// three-way harness without also asking the RAM-comparison and the marker
-// protocol to survive two different opcodes reaching two different vintages of
-// hardware. One core, one image, one geometry keeps that isolated to the ISA
-// the caller compiled the image with.
 module dhry_solo_tb;
-  // Held against soc/compare/dhry.lds by soc/compare/run_dhrystone.sh, the same
-  // way soc/compare/dhry_tb.v is.
+  // Held against soc/compare/dhry.lds by soc/compare/run_dhrystone.sh, the same way
+  // soc/compare/dhry_tb.v is.
   localparam int ROM_WORDS = 2048;
   localparam int RAM_WORDS = 4096;
 
@@ -62,7 +48,6 @@ module dhry_solo_tb;
     while (cycle < cycle_limit && verdict == 0) begin
       @(posedge clk);
     end
-    // One more edge so the last write's registered effects are visible.
     @(posedge clk);
 
     $display("DHRY ran %0d cycles of a %0d cycle limit", cycle, cycle_limit);

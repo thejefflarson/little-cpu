@@ -53,13 +53,9 @@ hart1:
   jal   ra, lock_burst
   DUALTEST_HART1_DONE
 
-  #-------------------------------------------------------------
-  # Both harts run everything below. Control cannot fall in: hart 0 ends in
-  # TEST_PASSFAIL's loop and hart 1 in DUALTEST_HART1_DONE's.
-  #-------------------------------------------------------------
+  # Both harts run everything below.
 
   # LOCK_N times: take the lock, run the critical section, release it.
-  # Clobbers a0-a6, t0-t2, s0, s2 and TESTNUM.
 lock_burst:
   mv    s2, ra
   li    s0, LOCK_N
@@ -67,8 +63,6 @@ lock_burst:
   la    a0, lock
   jal   ra, lock_acquire
   jal   ra, critical
-  # The release is a plain store, so the other hart's `lr.w` sees zero on its
-  # next attempt and this hart's own reservation is already spent.
   la    a0, lock
   sw    x0, 0(a0)
   addi  s0, s0, -1
@@ -76,10 +70,6 @@ lock_burst:
   mv    ra, s2
   ret
 
-  # a0 = &lock. Spins on lr.w until the word reads zero, then claims it with
-  # sc.w and retries the whole thing if the store-conditional failed. The
-  # sequence between the lr.w and the sc.w is a branch and nothing else, which
-  # is what the specification's constrained form asks for.
 lock_acquire:
   li    t2, DUALTEST_SPIN_LIMIT
   li    t1, 1
@@ -98,8 +88,6 @@ lock_stuck:
 
   # The critical section. Clobbers a1-a6 and TESTNUM.
 critical:
-  # Nobody else may be in here. This is the loud witness: it fails at the breach
-  # rather than at the total.
   la    a1, occupancy
   lw    a2, 0(a1)
   li    TESTNUM, TN_OCCUPIED
@@ -107,10 +95,6 @@ critical:
   li    a2, 1
   sw    a2, 0(a1)
 
-  # The quiet one. Deliberately not an AMO: load, add, store, and read the
-  # result back. Under exclusion the read-back is this hart's own value; without
-  # it, the other hart's store lands in between and one of the two increments is
-  # gone.
   la    a3, wcount
   lw    a4, 0(a3)
   addi  a5, a4, 1

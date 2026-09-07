@@ -1,16 +1,2 @@
-# The comparison bench on ECP5. Only `clk` is located, and to soc/littlesoc.lpf's
-# own SITE "P3" -- the pad that file's header records as the one that mattered,
-# because the pad decides where the global network is entered. The two LEDs are
-# left to `--lpf-allow-unconstrained` the way the SoC's own flow leaves its
-# unconstrained pins: a placed LED pad is not part of what this measures, and
-# inventing sites for them would put two made-up numbers in a timing report.
-#
-# ECP5's clock is NOT continuous either -- `EHXPLLL` synthesises ref x M / N / D
-# with integer dividers, from whatever reference the board carries -- but its
-# grid is fine where up5k's is four frequencies wide. Rounding down to a
-# reachable output costs a fraction of a percent here and half the machine
-# there. That difference in DEGREE is why the comparison runs on two parts:
-# up5k answers "what is fastest on the board this ships to", and this answers
-# "what is architecturally faster when the clock is close to yours to choose".
 LOCATE COMP "clk" SITE "P3";
 IOBUF PORT "clk" IO_TYPE=LVCMOS33;

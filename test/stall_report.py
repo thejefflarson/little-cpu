@@ -53,30 +53,12 @@ does not close it, so this is measured, not proved.
 import argparse
 import sys
 
-# The eight the decoder has, in the order it tries them: it holds `decoder_out`
-# for the divider and bubbles for the other seven. The runner writes these names,
-# so a rename has to happen in both places at once -- which the field check
-# below turns into an error rather than a silent zero.
-#
-# `bus` is zero on every machine in this repo and is counted all the same: with
-# one bus initiator nothing ever takes the bus away, and a reason left out of this
-# list is charged to `unattributed`, which exits nonzero.
-#
-# `region` is last, and that is what makes its column the cost of the wait
-# rather than of the access: the signal is also high while the same load or
-# store waits on the scoreboard or on its operands, and the decoder registers
-# the region answer only on the cycle nothing else is holding it. So this column
-# counts capture cycles -- one per load or store whose base register sits near a
-# window edge -- and the earlier cycles stay with the reason that came first.
+# The eight the decoder has, in the order it tries them: it holds `decoder_out` for the
+# divider and bubbles for the other seven.
 REASONS = ["divider", "atomic", "hazard", "serialize", "operand", "fetch", "bus",
            "region"]
 
-# What the CPI above it describes. It is an argument the caller has to supply,
-# because the honest one differs: `make cycles` runs the hand-written assembly
-# suite and `make dhrystone` runs compiled code, and printing the sentence below
-# under a table of the second would be a claim about the workload that is simply
-# false. The default is the suite's because that is the caller with a merge gate
-# behind it.
+# What the CPI above it describes.
 SUITE_WORKLOAD = (
     "READ THE CPI AS A PROPERTY OF THIS SUITE. These are small hand-written\n"
     "assembly programs with dense back-to-back dependencies and almost no\n"
@@ -95,25 +77,19 @@ HEADINGS = {
     "bus": "BUS",
     "region": "REGION",
 }
-# The load/store locality counters, in the order the line below prints them:
-# every issuing load and store, then the two subsets. Required like every other
-# field rather than optional -- a counter that stopped being printed would take
-# its line out of the report with nothing to say so, which is the same silence
-# the missing-field check above exists for.
+# The load/store locality counters, in the order the line below prints them: every
+# issuing load and store, then the two subsets.
 LS_ISSUES = "lsissue"
 LS_SUBSETS = {
     "lsedge": "with rs1 within 2 KB of a mapped-region edge",
     "lsbypass": "issuing on a write-through to rs1",
 }
-# HAZARD's three causes, rs1 before rs2 and then A before B before C in the
-# runner that charges them (test/cxxrtl.cc). hzA + hzB + hzC must equal
-# hazard exactly, checked below the same way the eight columns are checked
-# against cycles.
+# HAZARD's three causes, rs1 before rs2 and then A before B before C in the runner that
+# charges them (test/cxxrtl.cc).
 HAZARD_SPLIT = ["hzA", "hzB", "hzC"]
 HAZARD_CSR = "hzCcsr"
 REQUIRED = (["cycles", "issue", "retires", "unattributed"] + REASONS +
             [LS_ISSUES] + list(LS_SUBSETS) + HAZARD_SPLIT + [HAZARD_CSR])
-
 
 def parse(path):
     """`<program> key=value ...` per line. Returns a list of (name, counts)."""
@@ -142,10 +118,8 @@ def parse(path):
         rows.append((name, counts))
     return rows
 
-
 def cpi(cycles, retires):
     return f"{cycles / retires:.2f}" if retires else "-"
-
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -172,16 +146,15 @@ def main():
         for key in REQUIRED:
             total[key] += counts[key]
 
-    # Checked per program as well as over the suite. One program whose columns
-    # do not add up is invisible in a total that happens to.
+    # Checked per program as well as over the suite.
     broken = []
     for name, counts in rows:
         parts = counts["issue"] + counts["unattributed"] + sum(counts[r] for r in REASONS)
         if parts != counts["cycles"]:
             broken.append(f"  {name}: columns sum to {parts}, cycles is {counts['cycles']}")
 
-    # The same identity, one level down: hazard's three causes have to sum to
-    # exactly the hazard column they split, per program and not just in total.
+    # The same identity, one level down: hazard's three causes have to sum to exactly the
+    # hazard column they split, per program and not just in total.
     hazard_broken = [
         f"  {name}: hzA+hzB+hzC is {counts['hzA'] + counts['hzB'] + counts['hzC']}"
         f", hazard is {counts['hazard']}"
@@ -189,10 +162,9 @@ def main():
         if counts["hzA"] + counts["hzB"] + counts["hzC"] != counts["hazard"]
     ]
 
-    # Per program for the same reason, and the same way round: a subset counted
-    # over a wider set of cycles than its denominator is how the two counters
-    # come apart, and over the suite one program's excess hides in another's
-    # slack.
+    # Per program for the same reason, and the same way round: a subset counted over a
+    # wider set of cycles than its denominator is how the two counters come apart, and
+    # over the suite one program's excess hides in another's slack.
     ls_broken = [
         f"  {name}: {key} is {counts[key]} against {counts[LS_ISSUES]} issuing "
         f"loads and stores"
@@ -263,8 +235,6 @@ def main():
     print()
     print(f"{issues} of those instructions were loads or stores. Of them:")
     for key, what in LS_SUBSETS.items():
-        # Not `share()` above: that one is a share of CYCLES, and these are a
-        # share of the accesses. Reusing it would divide by the wrong total.
         of_issues = f"{100 * total[key] / issues:.1f}%" if issues else "-"
         print(f"  {total[key]} ({of_issues}) {what}.")
     print(
@@ -322,7 +292,6 @@ def main():
             "*** one of hzA/hzB/hzC, so this is a mis-charged sub-bucket there,\n"
             "*** not a slower core."
         )
-
 
 if __name__ == "__main__":
     main()

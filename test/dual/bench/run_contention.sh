@@ -1,21 +1,7 @@
 #!/bin/bash
-# Measures what the bus arbiter costs hart 0's Dhrystone: the same image, run
-# twice on the DUAL harness -- once with hart 1 streaming real loads and
-# stores, once with hart 1 held in reset -- and the delta between hart 0's own
-# two `Cycles` figures.
-#
-# test/dual/bench/dhry_contend.S is the program: hart 0 is the unmodified
-# Dhrystone port (test/bench/dhry_1.c, dhry_2.c, dhry_port.c), linked with
-# test/bench/bench.lds exactly as `make dhrystone` links it, and hart 1 is a
-# tight lw/sw stream over a buffer instead of test/crt0.S's read-only park
-# loop. THE ISOLATED RUN IS NOT `make dhrystone`'s NUMBER: both runs here go
-# through rtl/littledual.v's bus arbiter, which registers its grant one cycle
-# before decode's transaction proceeds -- an overhead the single-hart
-# `littlesoc` never pays, present or not present a second hart. Isolated and
-# contended are two runs of the SAME dual design, and the delta between them
-# is the arbiter's contention cost alone, not the whole dual tax.
-#
-# Usage: run_contention.sh <dual-sim-binary> <runs> <cycle-limit> <cflags>
+# Measures what the bus arbiter costs hart 0's Dhrystone: the same image, run twice on
+# the DUAL harness -- once with hart 1 streaming real loads and stores, once with hart 1
+# held in reset -- and the delta between hart 0's own two `Cycles` figures.
 set -euo pipefail
 
 if [ "$#" -ne 4 ]; then
@@ -83,9 +69,6 @@ if [ -z "$console_addr" ]; then
   exit 1
 fi
 
-# The two runs share no state -- same image, same cycle limit, different
-# `--hold-hart1` -- so they run as background jobs rather than back to back,
-# each writing its own exit status beside its own log.
 run_one() {  # $1 = label, $2 = extra flag (may be empty)
   local out="$tmp/$1.log"
   set +e
@@ -102,10 +85,8 @@ wait
 contended_status=$(cat "$tmp/contended.status")
 held_status=$(cat "$tmp/isolated.status")
 
-# Exit 0 (PASS) is the contended run's expected outcome: both harts retire and
-# hart 0's own verdict reaches `tohost`. Exit 6 is the held run's -- hart 1
-# genuinely retired nothing, which test/dual_smoke.sh already establishes as
-# the correct answer for `--hold-hart1` rather than a failure.
+# Exit 0 (PASS) is the contended run's expected outcome: both harts retire and hart 0's
+# own verdict reaches `tohost`.
 if [ "$contended_status" -ne 0 ]; then
   cat "$tmp/contended.log"
   echo "*** the contended run did not reach a PASS verdict (exit $contended_status)." >&2

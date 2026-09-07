@@ -42,7 +42,7 @@
 
 DUALTEST_CODE_BEGIN
 
-  # The stub as the image holds it. Ordered before the patch by `bready`.
+  # The stub as the image holds it.
   li    a0, 0
   jal   ra, patch_stub
   TEST_CASE( 6, a0, PATCH_OLD, nop; )
@@ -53,9 +53,7 @@ DUALTEST_CODE_BEGIN
 
   DUALTEST_WAIT( TN_WAIT_PATCH, patched, 1 )
 
-  # The other half of the protocol. Hart 1's store is committed and its data
-  # fence has retired; this is what makes the new word visible to THIS hart's
-  # instruction fetch.
+  # The other half of the protocol.
   fence.i
 
   li    a0, 0
@@ -68,17 +66,13 @@ DUALTEST_CODE_BEGIN
 hart1:
   DUALTEST_WAIT( TN_WAIT_READY, bready, 1 )
 
-  # A load from `.text`, issued by the hart that does not own the window a load
-  # is answered from.
+  # A load from `.text`, issued by the hart that does not own the window a load is
+  # answered from.
   la    t0, tmpl_new
   lw    t1, 0(t0)
   la    t0, patch_stub
   sw    t1, 0(t0)
 
-  # The specification asks the writing hart for a data fence before it tells the
-  # others to fence their instruction fetch. It orders nothing extra on this
-  # machine -- one bus, no store buffer, one outstanding access per hart -- and
-  # is executed because the protocol is the specification's, not this machine's.
   fence
 
   li    t1, 1
@@ -86,9 +80,6 @@ hart1:
   sw    t1, 0(t0)
   DUALTEST_HART1_DONE
 
-  # Control cannot fall in here: both harts above end in an infinite loop. The
-  # stub is only ever entered by the two `jal`s, and the template is never
-  # executed at all -- it is loaded as data.
   .align 2
   .option push
   .option norvc

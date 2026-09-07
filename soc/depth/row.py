@@ -28,9 +28,9 @@ move is a variant that measured nothing, and the row has to be able to say so.
 import os
 import sys
 
-# No `soc/__pycache__` for the sake of one import: nothing else here is a
-# package, and a build artifact in a source directory is one more thing that has
-# to be told not to be committed.
+# No `soc/__pycache__` for the sake of one import: nothing else here is a package, and a
+# build artifact in a source directory is one more thing that has to be told not to be
+# committed.
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import ecp5_report  # noqa: E402
@@ -39,16 +39,12 @@ import timing_split  # noqa: E402
 COLUMNS = ["part", "variant", "seed", "ns", "mhz", "lut_levels", "carry_hops",
            "logic_ns", "routing_ns", "lc", "start", "end"]
 
-# The four columns an ECP5 row cannot fill, and the spelling soc/baseline_summary.py
-# recognises. A literal rather than an empty field: a blank column reads as a bug
-# in whatever wrote the row, and this is a statement that no such number exists.
 NA = "NA"
 
 USAGE = ("usage: row.py --header\n"
          "       row.py <icetime-report> <part> <variant> <seed> <lc>\n"
          "       row.py --ecp5 <report.json> <config> <trellis-part> <clock> "
          "<constraint-mhz> <variant> <seed>")
-
 
 def ecp5_row(argv):
     """One ECP5 placement, through soc/ecp5_report.py's own refusals.
@@ -69,7 +65,6 @@ def ecp5_row(argv):
             NA, NA, NA, NA, comb,
             s["hops"][0]["from"]["cell"], s["hops"][-1]["to"]["cell"]]
 
-
 def main():
     if len(sys.argv) == 2 and sys.argv[1] == "--header":
         print(",".join(COLUMNS))
@@ -87,7 +82,6 @@ def main():
     else:
         sys.exit(USAGE)
     print(",".join(str(v) for v in values))
-
 
 if __name__ == "__main__":
     main()

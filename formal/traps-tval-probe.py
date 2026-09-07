@@ -49,14 +49,11 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from traps_probe_sby import SOURCES, probe_sby  # noqa: E402
 
-# The comparison being probed, found in traps.sv by its text. It is the only
-# statement in that file comparing a CSR read-back against the modelled mtval.
+# The comparison being probed, found in traps.sv by its text.
 MTVAL_ASSERT = "assert(csr_rdata == prev_tval);"
 
-# One arm of rtl/decoder.v's mtval mux per case, matched in full so a respelling
-# stops this file rather than silently probing nothing. Each replacement leaves
-# the cause chain alone, so a core built from it reports the right cause about
-# the wrong thing -- which is the only shape that isolates this arm.
+# One arm of rtl/decoder.v's mtval mux per case, matched in full so a respelling stops
+# this file rather than silently probing nothing.
 CASES = {
     "wrong-addr": (
         "      data_fault:        trap_tval = mem_addr_calc;",
@@ -68,7 +65,6 @@ CASES = {
     ),
 }
 
-
 def stop(message):
     """Exit 2: the probe's own inputs are broken, which is not a red proof.
 
@@ -77,7 +73,6 @@ def stop(message):
     """
     print(f"error: {message}", file=sys.stderr)
     sys.exit(2)
-
 
 def mtval_assert_line(traps_sv):
     """The line traps.sv states the mtval comparison on, 1-based."""
@@ -90,7 +85,6 @@ def mtval_assert_line(traps_sv):
             "passes for a proof that went red somewhere else entirely."
         )
     return hits[0]
-
 
 def mutate(decoder_v, case):
     """rtl/decoder.v with one arm of the mtval mux reporting the wrong thing."""
@@ -112,7 +106,6 @@ def mutate(decoder_v, case):
         )
     return decoder_v.replace(site, replacement)
 
-
 def run_case(repo, workdir, sby, config, case):
     """Builds the mutated tree, runs sby, and returns (status, failing lines)."""
     root = workdir / case
@@ -125,9 +118,9 @@ def run_case(repo, workdir, sby, config, case):
     (root / "src" / "decoder.v").write_text(mutate(decoder, case))
     (root / "probe.sby").write_text(config)
 
-    # sby's own exit status is not read: FAIL is the required outcome of two of
-    # the three cases, and a non-zero status there says nothing this file does
-    # not read out of the workdir instead.
+    # sby's own exit status is not read: FAIL is the required outcome of two of the three
+    # cases, and a non-zero status there says nothing this file does not read out of the
+    # workdir instead.
     proc = subprocess.run(
         [sby, "-f", "probe.sby"], cwd=root, capture_output=True, text=True
     )
@@ -144,7 +137,6 @@ def run_case(repo, workdir, sby, config, case):
     failed = sorted(set(int(n) for n in re.findall(r"Assert failed in traps: traps\.sv:(\d+)", log)))
     return status[0], failed
 
-
 def main():
     here = pathlib.Path(__file__).resolve().parent
     parser = argparse.ArgumentParser(description=__doc__)
@@ -160,9 +152,6 @@ def main():
     workdir = pathlib.Path(args.workdir).resolve()
     workdir.mkdir(parents=True, exist_ok=True)
 
-    # Built once, with the other input checks: the script is an input to this
-    # file the way traps.sv and decoder.v are, and a missing one is a reason not
-    # to start rather than something to discover per case.
     config = probe_sby(repo, stop)
     line = mtval_assert_line((repo / "formal" / "traps.sv").read_text())
     print(f"formal/traps.sv states the mtval comparison on line {line}.")
@@ -201,7 +190,6 @@ def main():
         sys.exit(1)
 
     print("The mtval arm proves for the shipping core and fails on the value.")
-
 
 if __name__ == "__main__":
     main()

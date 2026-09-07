@@ -38,17 +38,14 @@ import sys
 
 INSTANTIATES = re.compile(r'^\s*littlecpu\s+\w+\s*\(\s*$', re.M)
 
-# The one spelling a tie-off is allowed to have. A wire that happens to be low,
-# or a parameter, would read the same to a human and mean something a reader
-# cannot check locally.
+# The one spelling a tie-off is allowed to have.
 TIE_OFF = re.compile(r"^\s*\.irq_timer\(1'b0\)\s*,?\s*$", re.M)
 
 INTR_SIGNAL = 'rvfi_intr'
 
-# Bounded by anything that is not a letter or a digit, so `rvfi_csr_mstatus_wdata`
-# counts -- an underscore-separated component of an identifier is the shape a
-# CSR name actually takes upstream -- while `premier` does not. `\b` would miss
-# exactly the identifiers that matter.
+# Bounded by anything that is not a letter or a digit, so `rvfi_csr_mstatus_wdata` counts
+# -- an underscore-separated component of an identifier is the shape a CSR name actually
+# takes upstream -- while `premier` does not.
 CSR_NAMES = ('mie', 'mip', 'mstatus')
 CSR_RE = {csr: re.compile(rf'(?<![A-Za-z0-9]){csr}(?![A-Za-z0-9])')
           for csr in CSR_NAMES}
@@ -57,7 +54,6 @@ SEARCHED_SUFFIXES = ('.v', '.sv', '.vh')
 
 # The files upstream that carry assertions, as opposed to port declarations.
 CHECK_FILE = re.compile(r'^rvfi_\w+_check\.sv$')
-
 
 def scan_harnesses(formal_dir):
     """Files in formal/ that instantiate littlecpu, and whether each ties off."""
@@ -77,7 +73,6 @@ def scan_harnesses(formal_dir):
         if INSTANTIATES.search(text):
             found[name] = bool(TIE_OFF.search(text))
     return found, errors
-
 
 def scan_upstream(rf_dir):
     """checks/ files at the pin that mention rvfi_intr, and any CSR modelling."""
@@ -109,7 +104,6 @@ def scan_upstream(rf_dir):
                     csr_hits.append((f'checks/{name}', csr))
     return mentions, csr_hits, errors
 
-
 def parse_baseline(path):
     harnesses, upstream, errors = set(), set(), []
     try:
@@ -131,7 +125,6 @@ def parse_baseline(path):
             errors.append(f'{path}:{i}: duplicate entry {fields[1]}')
         target.add(fields[1])
     return harnesses, upstream, errors
-
 
 def main():
     if len(sys.argv) != 4:
@@ -201,7 +194,6 @@ def main():
           f'and no rvfi_*_check.sv names mie, mip or mstatus')
     print('INTERRUPT TIE-OFF: PASS')
     return 0
-
 
 if __name__ == '__main__':
     sys.exit(main())

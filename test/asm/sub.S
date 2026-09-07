@@ -1,11 +1,6 @@
 # See LICENSE for license details.
 
-#*****************************************************************************
-# sub.S
-#-----------------------------------------------------------------------------
-#
 # Test sub instruction.
-#
 
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -13,9 +8,7 @@
 RVTEST_RV64U
 RVTEST_CODE_BEGIN
 
-  #-------------------------------------------------------------
   # Arithmetic tests
-  #-------------------------------------------------------------
 
   TEST_RR_OP( 2,  sub, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000 );
   TEST_RR_OP( 3,  sub, 0x0000000000000000, 0x0000000000000001, 0x0000000000000001 );
@@ -36,17 +29,9 @@ RVTEST_CODE_BEGIN
   TEST_RR_OP( 14, sub, 0xfffffffffffffffe, 0xffffffffffffffff, 0x0000000000000001 );
   TEST_RR_OP( 15, sub, 0x0000000000000000, 0xffffffffffffffff, 0xffffffffffffffff );
 
-  #-------------------------------------------------------------
-  # Source/Destination tests
-  #-------------------------------------------------------------
-
   TEST_RR_SRC1_EQ_DEST( 16, sub, 2, 13, 11 );
   TEST_RR_SRC2_EQ_DEST( 17, sub, 3, 14, 11 );
   TEST_RR_SRC12_EQ_DEST( 18, sub, 0, 13 );
-
-  #-------------------------------------------------------------
-  # Bypassing tests
-  #-------------------------------------------------------------
 
   TEST_RR_DEST_BYPASS( 19, 0, sub, 2, 13, 11 );
   TEST_RR_DEST_BYPASS( 20, 1, sub, 3, 14, 11 );

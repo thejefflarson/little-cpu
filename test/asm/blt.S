@@ -1,11 +1,6 @@
 # See LICENSE for license details.
 
-#*****************************************************************************
-# blt.S
-#-----------------------------------------------------------------------------
-#
 # Test blt instruction.
-#
 
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -13,11 +8,7 @@
 RVTEST_RV64U
 RVTEST_CODE_BEGIN
 
-  #-------------------------------------------------------------
   # Branch tests
-  #-------------------------------------------------------------
-
-  # Each test checks both forward and backward branches
 
   TEST_BR2_OP_TAKEN( 2, blt,  0,  1 );
   TEST_BR2_OP_TAKEN( 3, blt, -1,  1 );
@@ -27,10 +18,6 @@ RVTEST_CODE_BEGIN
   TEST_BR2_OP_NOTTAKEN( 6, blt,  1, -1 );
   TEST_BR2_OP_NOTTAKEN( 7, blt, -1, -2 );
   TEST_BR2_OP_NOTTAKEN( 8, blt,  1, -2 );
-
-  #-------------------------------------------------------------
-  # Bypassing tests
-  #-------------------------------------------------------------
 
   TEST_BR2_SRC12_BYPASS( 9,  0, 0, blt, 0, -1 );
   TEST_BR2_SRC12_BYPASS( 10, 0, 1, blt, 0, -1 );
@@ -45,10 +32,6 @@ RVTEST_CODE_BEGIN
   TEST_BR2_SRC12_BYPASS( 18, 1, 0, blt, 0, -1 );
   TEST_BR2_SRC12_BYPASS( 19, 1, 1, blt, 0, -1 );
   TEST_BR2_SRC12_BYPASS( 20, 2, 0, blt, 0, -1 );
-
-  #-------------------------------------------------------------
-  # Test delay slot instructions not executed nor bypassed
-  #-------------------------------------------------------------
 
   TEST_CASE( 21, x1, 3, \
     li  x1, 1; \

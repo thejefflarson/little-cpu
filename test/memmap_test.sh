@@ -1,30 +1,5 @@
 #!/bin/bash
-# Asserts that every file describing this machine's memory map describes the
-# same one.
-#
-# Usage: memmap_test.sh [repo-root]     # defaults to this script's parent
-#
-# WHY THIS EXISTS. test/testbench.v is what every program in the suite runs
-# against and rtl/littlesoc.v is what places on the part, and for the project's
-# whole life nothing compared them. The harness modelled a 4 KB data RAM against
-# the SoC's 64 KB -- sixteen times smaller -- and no program was large enough to
-# notice, so the suite was grading a machine that did not exist. Two more copies
-# of the same map went stale the same way in the same day.
-#
-# The map itself is no longer stated twice: rtl/memory.v, rtl/timer.v,
-# rtl/uart.v and rtl/spiflash.v carry the base and the size as their own
-# parameter defaults, and rtl/littlesoc.v and test/testbench.v both instantiate
-# them without overriding anything, so the two integrators have nothing to
-# disagree about. THE FIRST CHECK BELOW IS WHAT KEEPS THAT TRUE -- an override
-# reappearing in either file is the whole defect coming back, and it would
-# otherwise be invisible.
-#
-# The rest cannot share a parameter, because they are C++, linker scripts,
-# assembly, make -- and one SystemVerilog module that instantiates no memory at
-# all. For those a comparison is the only instrument left.
-#
-# Hermetic: grep, sed and shell arithmetic. No toolchain, no simulator, no
-# yosys, so this runs inside `make test` anywhere.
+# Asserts that every file describing this machine's memory map describes the same one.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -42,8 +17,7 @@ fail() {
   rc=1
 }
 
-# Reads one file, or stops. A check that silently skips a missing file is a
-# check that deletes itself the day the file is renamed.
+# Reads one file, or stops.
 need() {
   local path=$1
   if [ ! -f "$REPO/$path" ]; then
@@ -62,9 +36,8 @@ for f in rtl/memory.v rtl/timer.v rtl/uart.v rtl/spiflash.v rtl/imemory.v \
   need "$f"
 done
 
-# A declaration this cannot read is fatal rather than empty: comparing against
-# an empty string is how a check goes on reporting green over a file it has
-# stopped understanding.
+# A declaration this cannot read is fatal rather than empty: comparing against an empty
+# string is how a check goes on reporting green over a file it has stopped understanding.
 no_param() {  # $1 = file, $2 = parameter name
   echo "error: no \`$2\` parameter default found in $1. This check reads the" >&2
   echo "RTL as the source of the map; if the declaration was respelled, teach" >&2
@@ -72,8 +45,7 @@ no_param() {  # $1 = file, $2 = parameter name
   exit 1
 }
 
-# `32'h0001_0000` -> 65536. The underscores are the readable spelling in the
-# RTL and mean nothing to arithmetic.
+# `32'h0001_0000` -> 65536.
 hex_param() {  # $1 = file, $2 = parameter name
   local raw
   raw=$(sed -nE "s/.*parameter[[:space:]]+logic[[:space:]]*\[31:0\][[:space:]]*$2[[:space:]]*=[[:space:]]*32'h([0-9a-fA-F_]*).*/\1/p" \
@@ -90,7 +62,7 @@ int_param() {  # $1 = file, $2 = parameter name
   echo "$raw"
 }
 
-# ---- the source of the map ------------------------------------------------
+# The map's source: every BASE and depth below is read out of the RTL that declares it.
 
 RAM_BASE=$(hex_param rtl/memory.v BASE)
 RAM_WORDS=$(int_param rtl/memory.v RAM_WORDS)
@@ -100,20 +72,16 @@ UART_BASE=$(hex_param rtl/uart.v BASE)
 FLASH_BASE=$(hex_param rtl/spiflash.v BASE)
 RAM_BYTES=$((RAM_WORDS * 4))
 RAM_TOP=$((RAM_BASE + RAM_BYTES))
-# The UART does not size itself with a parameter -- two words, written into its
-# range test -- so this is the one part of the map this file states rather than
-# reads. It is here and not in three places because the two integrators take the
-# default untouched. The timer's size is computed from NHARTS just below.
+# The UART does not size itself with a parameter -- two words, written into its range
+# test -- so this is the one part of the map this file states rather than reads.
 UART_BYTES=8
-# rtl/spiflash.v's window is two words for the same reason and stated the same
-# way: a data register and a control register, written into its range test.
+# rtl/spiflash.v's window is two words for the same reason and stated the same way: a
+# data register and a control register, written into its range test.
 FLASH_BYTES=8
 UART_TOP=$((UART_BASE + UART_BYTES))
 
-# The timer's window is two words of `mtime` plus two per hart, rounded up to a
-# power of two: four words at one hart and eight at two. Computed the way
-# rtl/timer.v computes it rather than copied, because a copied constant is the
-# drift this file exists to catch.
+# The timer's window is two words of `mtime` plus two per hart, rounded up to a power of
+# two: four words at one hart and eight at two.
 timer_bytes() {  # $1 = NHARTS
   local words=$(( 2 + 2 * $1 )) rounded=1
   while [ "$rounded" -lt "$words" ]; do rounded=$((rounded * 2)); done
@@ -121,24 +89,15 @@ timer_bytes() {  # $1 = NHARTS
 }
 
 TIMER_BYTES=$(timer_bytes "$TIMER_HARTS")
-# THE MAP RESERVES THE WIDEST WINDOW THE TIMER CAN BE BUILT WITH, not the one
-# this build decodes. Two harts need eight words where one needs four, and a
-# device placed in the four words between them would have to move on the day the
-# second hart lands -- silently, because at one hart those addresses read zero
-# and nothing would report the overlap. So the reservation is stated here and
-# checked below, and the cost is 16 bytes of address space that read zero on the
-# shipping machine.
+# THE MAP RESERVES THE WIDEST WINDOW THE TIMER CAN BE BUILT WITH, not the one this build
+# decodes.
 TIMER_RESERVED_HARTS=2
 TIMER_RESERVED=$(timer_bytes "$TIMER_RESERVED_HARTS")
 TIMER_RESERVED_TOP=$((TIMER_BASE + TIMER_RESERVED))
 
 hexfmt() { printf '0x%08x' "$1"; }
 
-# ---- 1. neither integrator restates it ------------------------------------
-#
-# The shared default is only shared while both files stay silent. `imemory` is
-# excluded from the `memory` pattern by the leading boundary: it is a different
-# module with a size of its own.
+# The shared default is only shared while both files stay silent.
 
 for f in rtl/littlesoc.v test/testbench.v; do
   for m in memory timer uart spiflash; do
@@ -146,21 +105,14 @@ for f in rtl/littlesoc.v test/testbench.v; do
       fail "$f does not instantiate \`$m\` at all. The comparison below would
 pass vacuously, so a deleted memory is red here rather than silent."
     fi
-    # THE MAP IS WHAT MAY NOT BE RESTATED, not every parameter. `uart`'s
-    # CLOCK_HZ is the board's clock rate rather than a region: two boards run
-    # this one SoC at 12 and 25 MHz and rtl/uart.v divides it down to the baud
-    # rate, so a top that does not say it would transmit at twice the speed the
-    # receiver expects. It names no address and no size, so it cannot make these
-    # two files describe different machines, which is the whole subject here.
-    # Every other parameter of all four modules stays refused.
+    # THE MAP IS WHAT MAY NOT BE RESTATED, not every parameter.
     override=$(grep -E "(^|[^[:alnum:]_])$m[[:space:]]*#\(" "$REPO/$f" || true)
     if [ -n "$override" ]; then
       allowed=""
       [ "$m" = uart ] && allowed="CLOCK_HZ"
-      # A parameter list this cannot read whole is refused rather than skimmed:
-      # no closing parenthesis on the line means it is spread over several, and
-      # a check that shrugged at that would be the silence this file exists to
-      # prevent.
+      # A parameter list this cannot read whole is refused rather than skimmed: no
+      # closing parenthesis on the line means it is spread over several, and a check that
+      # shrugged at that would be the silence this file exists to prevent.
       case $override in
         *')'*) ;;
         *) fail "$f spreads \`$m\`'s parameter list over more than one line, which
@@ -183,8 +135,6 @@ names no address; \`$m\`'s \`$param\` is not it."
     fi
   done
 done
-
-# ---- 2. the regions abut ---------------------------------------------------
 
 if [ "$TIMER_RESERVED_TOP" -ne "$UART_BASE" ]; then
   fail "the timer reserves through $(hexfmt $((TIMER_RESERVED_TOP - 1))) and the
@@ -210,11 +160,6 @@ not overlap; a gap is merely wasted map, but an overlap ORs two live answers
 together and neither simulator would report it."
 fi
 
-# Its range test is an equality on the bits above the window, which is only the
-# window while the base is a multiple of the whole of it. rtl/timer.v refuses to
-# elaborate otherwise and `make window-test` forces that both ways; this says the
-# same thing about the RESERVED span, so a base that is legal for this build and
-# not for the two-hart one is caught here rather than on the day it is built.
 if [ $((TIMER_BASE % TIMER_RESERVED)) -ne 0 ]; then
   fail "the timer's base $(hexfmt "$TIMER_BASE") is off its reserved
 ${TIMER_RESERVED}-byte window. It decodes $TIMER_BYTES bytes at
@@ -223,16 +168,6 @@ not -- the range test reads the bits above the window and admits addresses the
 timer does not occupy at any other alignment."
 fi
 
-# NOTHING ELSE MAY SIT IN THE RESERVED SPAN. Every peripheral on this bus states
-# its own base as a `BASE` parameter default, so they are read from rtl/ rather
-# than listed here -- a list is what goes stale when a device is added, and a
-# device landing in the timer's reserved words is exactly the change that would
-# not be noticed: at one hart those addresses read zero from every memory on the
-# bus, so the new device would work perfectly until the second hart needed them.
-#
-# The loop cannot come up empty: rtl/memory.v is in the `need` list above and
-# states a `BASE`, and the `hex_param` that reads it stops the whole run rather
-# than comparing against an empty string if that is ever respelled.
 for f in "$REPO"/rtl/*.v; do
   name=$(basename "$f")
   [ "$name" = timer.v ] && continue
@@ -249,13 +184,6 @@ nothing here would overlap today and nothing would report it either."
   fi
 done
 
-# Each device's window is a power of two on a multiple of its own size, which is
-# what lets its range test be an equality on the bits above the window rather
-# than a subtraction. rtl/timer.v, rtl/uart.v, rtl/spiflash.v and
-# rtl/littlecpu.v each refuse to elaborate otherwise and `make window-test`
-# forces them; this is the same statement made about the numbers this file has
-# already read, so a base that drifted is caught here rather than at the next
-# elaboration.
 aligned_window() {  # $1 = whose, $2 = base, $3 = window size in bytes
   if [ $(($2 % $3)) -ne 0 ]; then
     fail "the $1's base $(hexfmt "$2") is not a multiple of its own
@@ -268,19 +196,11 @@ occupy at any other alignment."
 aligned_window uart "$UART_BASE" "$UART_BYTES"
 aligned_window "SPI controller" "$FLASH_BASE" "$FLASH_BYTES"
 
-# ---- 3. the linker scripts -------------------------------------------------
-#
-# `LENGTH = 64K` -> bytes. ld also accepts M and a bare count.
-
 lds_field() {  # $1 = file, $2 = region, $3 = ORIGIN|LENGTH
   sed -nE "s/^[[:space:]]*$2[[:space:]]*\([^)]*\)[[:space:]]*:.*$3[[:space:]]*=[[:space:]]*([0-9A-Za-zx_]*).*/\1/p" \
     "$REPO/$1" | head -1
 }
 
-# A size bash cannot read must stop the run. Left to arithmetic expansion, a
-# non-numeric literal is treated as a VARIABLE NAME and quietly becomes 0, which
-# compares unequal and reports a drift that is really a parse failure. So the
-# digits are checked before any arithmetic sees them.
 as_bytes() {  # $1 = an ld size literal
   local v=$1 mult=1 digits
   case "$v" in
@@ -355,14 +275,9 @@ check_lds_ram test/asm/sections.lds
 check_lds_ram test/asm/boot.lds
 check_lds_ram test/bench/bench.lds
 
-# The suite's two scripts link against the SIMULATED ROM, which is larger than
-# the part's on purpose. bench.lds links against the part's, because the point of
-# building a benchmark is to find out whether it fits.
 check_lds_rom test/asm/sections.lds "$TB_ROM_WORDS" "test/testbench.v"
 check_lds_rom test/asm/boot.lds     "$TB_ROM_WORDS" "test/testbench.v"
 check_lds_rom test/bench/bench.lds  "$SOC_ROM_WORDS_RTL" "rtl/littlesoc.v"
-
-# ---- 4. the runners --------------------------------------------------------
 
 check_ram_base_cc() {  # $1 = file
   local raw
@@ -382,8 +297,6 @@ before poking it in, so the whole image would land at the wrong offset."
 check_ram_base_cc test/cxxrtl.cc
 check_ram_base_cc test/cosim.cc
 check_ram_base_cc test/dual_cxxrtl.cc
-
-# ---- 5. the assembly header ------------------------------------------------
 
 MTIMER_RAW=$(sed -nE "s/^#define[[:space:]]+MTIMER_BASE[[:space:]]+0[xX]([0-9a-fA-F]*).*/\1/p" \
                "$REPO/test/asm/riscv_test.h" | head -1)
@@ -434,8 +347,6 @@ wrong address reads zero from every memory on the bus, so spiflash.S would see a
 controller that is never busy and read back nothing but zeroes."
 fi
 
-# ---- 6. the SoC ROM image --------------------------------------------------
-
 MK_ROM_WORDS=$(sed -nE 's/^SOC_ROM_WORDS[[:space:]]*:=[[:space:]]*([0-9]+).*/\1/p' \
                  "$REPO/Makefile" | head -1)
 if [ -z "$MK_ROM_WORDS" ]; then
@@ -449,23 +360,12 @@ rejects a program that fits or splits one that does not into banks the bitstream
 then truncates."
 fi
 
-# ---- 7. the one deliberate difference --------------------------------------
-
 if [ "$TB_ROM_WORDS" -lt "$SOC_ROM_WORDS_RTL" ]; then
   fail "test/testbench.v simulates $TB_ROM_WORDS words of ROM against
 rtl/littlesoc.v's $SOC_ROM_WORDS_RTL. The harness is allowed to be larger --
 simulation has no block RAM to run out of, and rvc.S needs it -- but never
 smaller, or a program the part can hold would fail in simulation."
 fi
-
-# ---- 8. the core's own copy ------------------------------------------------
-#
-# rtl/littlecpu.v restates the map, because a module cannot read another
-# module's parameters, and hands it to rtl/decoder.v -- which decides from it
-# which loads and stores the platform refuses (causes 5 and 7) and which wait a
-# cycle for their region answer -- and to its own load/store locality counters.
-# A copy that drifted would fault accesses a memory answers, or answer ones it
-# does not, with no memory on the bus saying so.
 
 CPU_RAM_BASE=$(hex_param rtl/littlecpu.v LS_RAM_BASE)
 CPU_RAM_WORDS=$(int_param rtl/littlecpu.v LS_RAM_WORDS)
@@ -488,15 +388,8 @@ cpu_copy LS_RAM_WORDS  "$CPU_RAM_WORDS"  "$RAM_WORDS"  rtl/memory.v
 cpu_copy LS_TIMER_BASE "$CPU_TIMER_BASE" "$TIMER_BASE" rtl/timer.v
 cpu_copy LS_UART_BASE  "$CPU_UART_BASE"  "$UART_BASE"  rtl/uart.v
 cpu_copy LS_FLASH_BASE "$CPU_FLASH_BASE" "$FLASH_BASE" rtl/spiflash.v
-# The default is what every harness that does not state a ROM size gets --
-# formal/wrapper.v, soc/compare/bench_littlecpu.v -- so it is the part's.
 cpu_copy LS_TEXT_WORDS "$CPU_TEXT_WORDS" "$SOC_ROM_WORDS_RTL" rtl/littlesoc.v
 
-# The text window is the one part of the map an integrator states, because the
-# harness simulates a larger ROM than the part has. Compared as the TEXT each
-# file passes rather than as a number: in test/testbench.v both are the same
-# localparam, and a check that resolved it would stop being able to say so. Each
-# of these two names appears on exactly one instantiation in either file.
 named_param() {  # $1 = file, $2 = parameter name
   sed -nE "s/.*\.$2\(([^)]*)\).*/\1/p" "$REPO/$1" | head -1
 }
@@ -516,14 +409,6 @@ window is $text. The core counts an access near the top of text against the
 second, and the memory answers according to the first."
   fi
 done
-
-# ---- 9. the trap proof's copy ----------------------------------------------
-#
-# formal/traps.sv models a load or store access fault, so it needs to know which
-# addresses a memory here answers -- and no port of the core carries that, so it
-# restates the map. Nothing else reads its copy, which is why a drifted one is
-# silent: the proof would go on passing, having excused the wrong accesses from
-# `must_not_trap` and demanded causes 5 and 7 for a machine no file describes.
 
 TRAPS_RAM_BASE=$(hex_param formal/traps.sv LS_RAM_BASE)
 TRAPS_RAM_WORDS=$(int_param formal/traps.sv LS_RAM_WORDS)
@@ -545,8 +430,6 @@ traps_copy LS_RAM_WORDS  "$TRAPS_RAM_WORDS"  "$RAM_WORDS"  rtl/memory.v
 traps_copy LS_TIMER_BASE "$TRAPS_TIMER_BASE" "$TIMER_BASE" rtl/timer.v
 traps_copy LS_UART_BASE  "$TRAPS_UART_BASE"  "$UART_BASE"  rtl/uart.v
 traps_copy LS_FLASH_BASE "$TRAPS_FLASH_BASE" "$FLASH_BASE" rtl/spiflash.v
-# The part's text window, not the harness's larger simulated one: the proof has
-# no imemory in it to size, so what it describes is the machine that ships.
 traps_copy LS_TEXT_WORDS "$TRAPS_TEXT_WORDS" "$SOC_ROM_WORDS_RTL" rtl/littlesoc.v
 
 if [ "$rc" -ne 0 ]; then

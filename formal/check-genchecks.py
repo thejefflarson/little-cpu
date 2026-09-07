@@ -23,16 +23,12 @@ Usage: check-genchecks.py <upstream genchecks.py> <vendored genchecks-local.py>
 import difflib
 import sys
 
-# The header this repo prepends, delimited by text that exists in both files:
-# everything between the shebang's trailing bare `#` and upstream's copyright
-# line. Upstream has nothing there, so removing it should leave the two equal.
+# The header this repo prepends, delimited by text that exists in both files: everything
+# between the shebang's trailing bare `#` and upstream's copyright line.
 HEADER_START = '#!/usr/bin/env python3\n#\n'
 HEADER_END = '# Copyright (C) 2017'
 
-# The `basedir` change, in both the places it is spelled. Each must
-# appear exactly once: a re-vendor that forgets one leaves genchecks resolving
-# paths against the caller's cwd, which fails in a way that looks like a broken
-# clone rather than a botched re-sync.
+# The `basedir` change, in both the places it is spelled.
 BASEDIR_EDITS = (
     (
         'basedir assignment',
@@ -46,7 +42,6 @@ BASEDIR_EDITS = (
         'open(f"../../insns/isa_{isa}.txt", "r")',
     ),
 )
-
 
 def strip_header(text, path):
     """Remove this repo's header block, returning upstream-shaped text."""
@@ -65,9 +60,7 @@ def strip_header(text, path):
             f'checks/genchecks.py at all.'
         )
     header = text[start:end]
-    # Guard the delete: only comment lines may be removed this way. Code hidden
-    # in the header region would otherwise be stripped before the comparison and
-    # so would never show up as drift.
+    # Guard the delete: only comment lines may be removed this way.
     stray = [line for line in header.splitlines() if line and not line.startswith('#')]
     if stray:
         raise SystemExit(
@@ -76,7 +69,6 @@ def strip_header(text, path):
             + '\n'.join(f'    {line}' for line in stray)
         )
     return text[:start] + text[end:]
-
 
 def main(argv):
     if len(argv) != 3:
@@ -122,7 +114,6 @@ def main(argv):
         tofile=f'{vendored_path} (header and basedir normalized away)',
     ))
     return 1
-
 
 if __name__ == '__main__':
     sys.exit(main(sys.argv))

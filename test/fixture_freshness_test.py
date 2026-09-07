@@ -33,17 +33,13 @@ import os
 import re
 import sys
 
-# Every remaining raw `sed -i` in test/probe_gates.sh, normalized (leading and
-# trailing whitespace stripped). Empty on purpose: every call site converted to
-# `mutate`/`mutate_remove` in the same change that added them. An entry here is
-# a call site not yet converted -- state which one and why it is still bare.
+# Every remaining raw `sed -i` in test/probe_gates.sh, normalized (leading and trailing
+# whitespace stripped).
 SED_I_ALLOWLIST = []
 
-# Fixture functions (name containing "fixture") that type out an artifact's
-# shape with a literal heredoc, copy no real file, and carry no
-# `fixture_anchor` -- so a rewritten format would leave them grading nothing
-# real, silently. Not yet converted; each entry is a function name to anchor
-# next, not a permanent exemption.
+# Fixture functions (name containing "fixture") that type out an artifact's shape with a
+# literal heredoc, copy no real file, and carry no `fixture_anchor` -- so a rewritten
+# format would leave them grading nothing real, silently.
 FIXTURE_ANCHOR_ALLOWLIST = {
     "cp_fixture": "test/cosim.py's own trace/dut-output shapes, invented for this suite",
     "ts_fixture": "an icetime timing report, invented for soc/timing_split.py",
@@ -60,17 +56,12 @@ FIXTURE_ANCHOR_ALLOWLIST = {
 }
 
 FUNC_START_RE = re.compile(r'^([a-zA-Z0-9_]+)\(\) \{(\s*#.*)?$')
-# ONE definition of "a heredoc opens here", read by both the masker below and
-# the anchor check: an earlier pair of regexes disagreed about the UNQUOTED
-# delimiter a fixture needs when its body interpolates a `$1`, so the anchor
-# check skipped `br_fixture` -- the fixture behind the only detector of a block
-# RAM read through its own reset -- while the masker saw it.
-# `(?<!<)`/`(?!<)` rule out a here-string (`<<<`), which is not a heredoc and
-# has no closing delimiter line to hunt for -- matching it here sent an
-# earlier version of this scan looking for a line that never comes and masked
-# the rest of the file.
+# ONE definition of "a heredoc opens here", read by both the masker below and the anchor
+# check: an earlier pair of regexes disagreed about the UNQUOTED delimiter a fixture
+# needs when its body interpolates a `$1`, so the anchor check skipped `br_fixture` --
+# the fixture behind the only detector of a block RAM read through its own reset -- while
+# the masker saw it.
 HEREDOC_START_RE = re.compile(r"(?<!<)<<(?!<)-?\s*'?([A-Za-z_][A-Za-z_0-9]*)'?")
-
 
 def heredoc_mask(lines):
     """True at every line that is BODY TEXT of a heredoc (or its own closing
@@ -93,7 +84,6 @@ def heredoc_mask(lines):
         else:
             i += 1
     return mask
-
 
 def function_bodies(lines, mask):
     """name -> (start, end), 0-based, end inclusive, for every top-level
@@ -118,7 +108,6 @@ def function_bodies(lines, mask):
             i += 1
     return bodies
 
-
 def unquoted_sed_i_lines(text):
     """0-based line indices where `sed -i` starts OUTSIDE any quote, tracking
     quote state across the whole file the way a shell would. This is what
@@ -142,12 +131,8 @@ def unquoted_sed_i_lines(text):
             continue
         if in_dquote:
             if c == '\\' and i + 1 < n:
-                # A backslash escapes the next character, and that character
-                # is a NEWLINE on every line-continued command here. Counting
-                # it is what keeps the index reported below the line the text
-                # is actually on: an earlier version skipped it, drifted 58
-                # lines by the end of the file, and dropped a real `sed -i`
-                # because the line it named happened to be masked.
+                # A backslash escapes the next character, and that character is a NEWLINE
+                # on every line-continued command here.
                 if text[i + 1] == '\n':
                     line += 1
                 i += 2
@@ -177,7 +162,6 @@ def unquoted_sed_i_lines(text):
             hits.append(line)
         i += 1
     return hits
-
 
 def check_sed_i(lines, mask, exclude_ranges):
     text = ''.join(lines)
@@ -216,7 +200,6 @@ def check_sed_i(lines, mask, exclude_ranges):
             )
     return rc
 
-
 def check_fixture_anchors(lines, mask):
     bodies = function_bodies(lines, mask)
     rc = 0
@@ -253,7 +236,6 @@ def check_fixture_anchors(lines, mask):
             )
     return rc
 
-
 def main():
     repo = sys.argv[1] if len(sys.argv) > 1 else os.path.join(
         os.path.dirname(os.path.abspath(__file__)), '..'
@@ -287,7 +269,6 @@ def main():
         "no bare sed -i outside mutate()/mutate_remove(), "
         f"{len(FIXTURE_ANCHOR_ALLOWLIST)} fixtures still owed an anchor"
     )
-
 
 if __name__ == '__main__':
     main()

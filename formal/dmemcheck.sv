@@ -33,10 +33,9 @@ module testbench (
   logic [31:0] imem_addr2;
   logic [31:0] imem_data2;
   logic [31:0] imem_addr_next;
-  // The address the core publishes for the platform to decode. Unread here:
-  // `atomic_supported` is tied high, so no atomic can fault in this task.
+  // The address the core publishes for the platform to decode.
   logic [31:0] atomic_addr;
-  // The lock an arbiter would read. Unread here: one hart, one bus initiator.
+  // The lock an arbiter would read.
   logic mem_lock;
   logic bus_request;
   logic [31:0] mem_addr;
@@ -56,12 +55,7 @@ module testbench (
     .text_write()
   );
 
-  // rvfi_dmem_check does its own tracking and does not need this. What this is
-  // for: mem_rdata is otherwise a free input every cycle, and no design could
-  // satisfy the check against a memory that answers anything it likes. It reads
-  // the bus directly because rvfi_dmem_check only sees cycles that retire a
-  // load or a store. Watching mem_wstrb alone is enough, because rtl/accessor.v
-  // sets it to 0 on every cycle that is not a store.
+  // rvfi_dmem_check does its own tracking and does not need this.
   logic [31:0] dmem_data;
   always_ff @(posedge clk) begin
     if (!reset && mem_addr == dmem_addr) begin
@@ -72,25 +66,6 @@ module testbench (
     end
   end
 
-  // Assumed: the bus returns whatever was last written to that address, one
-  // cycle after the request.
-  //
-  // test/mem_tb.v checks that rtl/memory.v really does this, but only inside
-  // the mapped region. Outside it the real memory drops the write and reads
-  // zero, where this keeps the value. dmem_addr is a free 32-bit input, so over
-  // most of the address space this assumes a memory the core does not have.
-  //
-  // It reaches only the one rvfi_dmem_check assertion below. It constrains an
-  // input to the core rather than an output, so it can narrow what the solver
-  // may try but it cannot excuse a bug.
-  //
-  // Compared against last cycle's mem_addr, because that is the cycle the data
-  // arriving now was asked for.
-  //
-  // An AMO puts its write on the bus at the same address on the very cycle its
-  // read is answered, so the block above and this one fire in the same time
-  // step there. The read still sees the old word, and what makes that true is
-  // that the shadow's update is non-blocking; neither may become blocking.
   always_ff @(posedge clk) begin
     if (!reset && $past(mem_addr) == dmem_addr && !$past(mem_wstrb))
       assume(dmem_data == mem_rdata);
@@ -110,25 +85,16 @@ module testbench (
     .mem_ren(mem_ren),
     .mem_rdata(mem_rdata),
     .fetch_stall(fetch_stall),
-    // Tied off: this task's memory model answers every address, so there is no
-    // window for a fetch to fall outside of.
     .imem_fault(1'b0),
-    // Tied off high: this task's memory model answers every address, so every
-    // address it answers is one a reservation may be held at, and one an atomic
-    // is answered at.
     .mem_reservable(1'b1),
     .atomic_addr(atomic_addr),
     .atomic_supported(1'b1),
-    // Tied off; formal/check-multihart-tie-off.py enforces it. formal/wrapper.v
-    // carries the reason the riscv-formal side of the tree describes one hart.
+    // Tied off; formal/check-multihart-tie-off.py enforces it.
     .bus_wait(1'b0),
     .snoop_write(1'b0),
     .snoop_addr(32'b0),
     .mem_lock(mem_lock),
     .bus_request(bus_request),
-    // Tied off; formal/check-interrupt-tie-off.py enforces it. formal/wrapper.v
-    // carries the reason the riscv-formal side of the tree runs with no
-    // interrupt in the trace.
     .irq_timer(1'b0),
     .trap(trap),
     `RVFI_CONN

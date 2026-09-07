@@ -17,11 +17,10 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-# Otherwise the import drops a `soc/__pycache__` into a source directory, which
-# is untracked build detritus nothing else here produces.
+# Otherwise the import drops a `soc/__pycache__` into a source directory, which is
+# untracked build detritus nothing else here produces.
 sys.dont_write_bytecode = True
 from rom_banks import parse_verilog_hex  # noqa: E402
-
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -48,8 +47,6 @@ def main():
             f"than the ROM."
         )
 
-    # Full depth, zero-padded: iverilog warns at run time about a short
-    # $readmemh, and a warning fails the build here.
     words = [0] * args.rom_words
     for addr, word in image.items():
         words[addr] = word
@@ -62,7 +59,6 @@ def main():
         f"{args.image}: {len(image)} words -> {args.out} "
         f"({args.rom_words * 4} byte ROM)"
     )
-
 
 if __name__ == "__main__":
     main()

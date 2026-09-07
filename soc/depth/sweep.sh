@@ -1,29 +1,6 @@
 #!/usr/bin/env bash
-# Places and times the four fetch-loop depths soc/depth/variants.py writes, on
-# both parts, over as many seeds as asked for, and prints one CSV row per
-# placement. soc/depth/summary.py turns the rows into distributions.
-#
-# A SPIKE. Nothing here is a gate, nothing here grades the shipping design, and
-# the memory it measures is functionally wrong on purpose -- see that script's
-# header. The output is a distribution to read against the part's own bands,
-# which are soc/bands.py's and are printed at the end from there rather than
-# restated here. One of the two parts below has no band derived at all, and that
-# script says so instead of lending it the other's.
-#
-# Two parts because neither one alone answers the question. up5k is the board and
-# carries `SOC_MIN_MHZ`; hx8k is where soc/compare/ put both cores side by side,
-# so a level count here is comparable with VexRiscv's 17. They are different
-# designs -- 8 KB of ROM and 64 KB of SPRAM against 4 KB and 2 KB of block RAM,
-# and no timer on hx8k -- so their nanoseconds are never merged.
-#
-# THE `base` VARIANT IS THE CONTROL. It is the generated memory with both
-# parameters zero, where each added register has no reader and yosys deletes it,
-# so it has to reproduce rtl/imemory.v's own placement and cell count. Measured:
-# 4790 logic cells against the shipping SoC's 4769, which is inside the +/-50
-# churn band, and the same critical path endpoints. A `base` that had drifted
-# would move every delta below with nothing to say so.
-#
-# Usage: soc/depth/sweep.sh <up5k|hx8k> [seed ...]
+# Places and times the four fetch-loop depths soc/depth/variants.py writes, on both
+# parts, over as many seeds as asked for, and prints one CSV row per placement.
 set -euo pipefail
 
 part=${1:-up5k}
@@ -38,11 +15,6 @@ mkdir -p "$out"
 mem=$out/imemory_depth.v
 python3 soc/depth/variants.py "$mem"
 
-# The spike memory sits in rtl/imemory.v's place in the list rather than at the
-# end of it. yosys names cells in the order it reads them and ABC's mapping
-# follows those names, so a reordered source list moves the number by about as
-# much as the whole edit-churn band on its own -- measured, and it is one of the
-# functionally identical texts that band is derived from.
 CORE_SRCS="rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v \
 rtl/fetcher.v $mem rtl/memory.v rtl/regfile.v rtl/regsel.v"
 
@@ -59,8 +31,6 @@ case "$part" in
     make -s soc-rom
     ;;
   hx8k)
-    # soc/compare/'s geometry, so the level count is comparable with the
-    # VexRiscv row in the same harness.
     srcs="$CORE_SRCS rtl/writeback.v rtl/littlecpu.v soc/compare/bench_littlecpu.v"
     top=bench_littlecpu
     synth_args=""
@@ -83,11 +53,6 @@ for variant in base addr data both; do
     both) ra=1; rd=1 ;;
   esac
   tag="$part.$variant"
-  # Synthesised once per variant: the seed only reaches nextpnr, and re-running
-  # yosys per seed would spend minutes producing the same netlist. The ROM is
-  # rebuilt above rather than depended on through make, because everything after
-  # an order-only `|` in a prerequisite list is order-only and that has already
-  # cost this repository four "placements" that were one placement.
   yosys -p "read_verilog -sv $srcs; \
             chparam -set REG_ADDR $ra -set REG_DATA $rd imemory; $chp \
             synth_ice40 $synth_args -top $top -json $out/$tag.json; stat" \
@@ -96,8 +61,6 @@ for variant in base addr data both; do
 
   for seed in "${seeds[@]}"; do
     asc="$out/$tag.$seed.asc"
-    # Seed 0 is nextpnr's default placement with no `--seed` at all, which is
-    # the one `make soc-timing` and `make compare-timing` report.
     seed_arg=""
     [ "$seed" = 0 ] || seed_arg="--seed $seed"
     nextpnr-ice40 $pnr_args $seed_arg --json "$out/$tag.json" --pcf "$pcf" \
@@ -115,6 +78,4 @@ for variant in base addr data both; do
   done
 done
 
-# The band these rows are read against, for the part they were placed on. Printed
-# to stderr so it cannot land in the CSV a caller is redirecting stdout into.
 python3 soc/bands.py "$part" --note >&2

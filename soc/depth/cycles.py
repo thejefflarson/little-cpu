@@ -36,8 +36,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 ANCHORS = {
     "probes": "  uint64_t stall_cycles[kStallBuckets] = {};",
     "count": "      if ((stall_any->curr[0] & 1) == 0) {",
-    # The last line of `report_counts`, which every path that simulated anything
-    # goes through and which has already returned early without `--stalls`.
+    # The last line of `report_counts`, which every path that simulated anything goes
+    # through and which has already returned early without `--stalls`.
     "report": '    std::printf(" unattributed=%llu\\n", (unsigned long long)unattributed_cycles);',
 }
 
@@ -63,8 +63,8 @@ COUNT = r"""
           if ((item->curr[0] & 1) != 0) { redirect_cycles++; break; }
 """
 
-# test/run_tests.sh keeps only the `STALLS` line off a run's stdout, so this goes
-# to a file named in the environment instead of competing for it.
+# test/run_tests.sh keeps only the `STALLS` line off a run's stdout, so this goes to a
+# file named in the environment instead of competing for it.
 REPORT = r"""
     if (const char *path = std::getenv("DEPTH_LOG")) {
       if (std::FILE *f = std::fopen(path, "a")) {
@@ -76,7 +76,6 @@ REPORT = r"""
       }
     }
 """
-
 
 def patch(runner_source):
     text = runner_source.read_text()
@@ -93,7 +92,6 @@ def patch(runner_source):
     text = text.replace(ANCHORS["report"], ANCHORS["report"] + REPORT, 1)
     return text
 
-
 def totals(log):
     cycles = issues = redirects = 0
     programs = 0
@@ -106,7 +104,6 @@ def totals(log):
         issues += int(m.group(2))
         redirects += int(m.group(3))
     return programs, cycles, issues, redirects
-
 
 def report(label, log):
     programs, cycles, issues, redirects = totals(log)
@@ -124,7 +121,6 @@ def report(label, log):
         print(f"  +{stages} fetch stage{'s' if stages > 1 else ' '}: "
               f"one bubble per issue {per_issue / cycles:.3f}x cycles; "
               f"one per redirect {per_redirect / cycles:.3f}x cycles")
-
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -166,7 +162,6 @@ def main():
 
     report("the .S and .c suite", suite_log)
     report(f"Dhrystone, {args.runs} runs", dhry_log)
-
 
 if __name__ == "__main__":
     main()

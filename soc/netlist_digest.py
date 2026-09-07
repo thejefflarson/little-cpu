@@ -58,14 +58,10 @@ import sys
 from collections import Counter
 from itertools import islice
 
-# The two attributes a comment moves and nothing else reads. Widening this list
-# is how the gate would go quiet: every attribute dropped here is a difference
-# the digest forgives, and the placer is not obliged to agree.
+# The two attributes a comment moves and nothing else reads.
 DROPPED_ATTRS = ("src", "module_src")
 
-# What a difference means at today's margin. Printed by both subcommands,
-# because the number it turns on is not in this file and cannot be read off the
-# digest.
+# What a difference means at today's margin.
 MEANING = """\
 digest-equal    the placer's input differs only in dead nets and source
                 attributes, which `make netlist-determinism` has just placed
@@ -81,12 +77,10 @@ digest-different implies NOTHING about the placement -- this gate is sound in on
 REFUSED = 2
 DIFFERENT = 1
 
-
 def refuse(path, why):
     print(f"*** {path}: {why}.", file=sys.stderr)
     print("*** That is a failed digest, not an equal one.", file=sys.stderr)
     sys.exit(REFUSED)
-
 
 def load(path):
     """One canonical netlist and its top module, or exit saying why not."""
@@ -119,7 +113,6 @@ def load(path):
                      "failed synthesis")
     return design, tops[0]
 
-
 def strip_attributes(node):
     """`node` with the source attributes dropped, and nothing else dropped."""
     if not isinstance(node, dict):
@@ -129,7 +122,6 @@ def strip_attributes(node):
         return node
     kept = {k: v for k, v in attributes.items() if k not in DROPPED_ATTRS}
     return {**node, "attributes": kept}
-
 
 def canonical(design):
     """The design in the form the digest is taken over.
@@ -150,11 +142,9 @@ def canonical(design):
         modules[name] = canon
     return {**design, "modules": modules}
 
-
 def digest(design):
     text = json.dumps(canonical(design), sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(text.encode()).hexdigest()
-
 
 def summarise(design, top_name):
     top = design["modules"][top_name]
@@ -169,7 +159,6 @@ def summarise(design, top_name):
                   for name, port in ports.items()},
         "nets": len(top.get("netnames", {})),
     }
-
 
 def report(path, label, design, top_name, sha):
     facts = summarise(design, top_name)
@@ -186,12 +175,10 @@ def report(path, label, design, top_name, sha):
     print(f"  digest    sha256:{sha}")
     return facts
 
-
 def name_list(names, limit=8):
     names = sorted(names)
     shown = ", ".join(names[:limit])
     return shown + (f", ... ({len(names)} in all)" if len(names) > limit else "")
-
 
 def paths_differing(base, new, path=""):
     """Every place the two canonical forms disagree, by path, lazily.
@@ -219,11 +206,9 @@ def paths_differing(base, new, path=""):
     elif base != new:
         yield f"{path}: {short(base)} -> {short(new)}"
 
-
 def short(value):
     text = str(value)
     return text if len(text) <= 48 else text[:45] + "..."
-
 
 def structural_difference(base_facts, new_facts):
     """The named differences between two summaries, in the order they explain."""
@@ -268,7 +253,6 @@ def structural_difference(base_facts, new_facts):
         lines.append(f"  named nets: {base_facts['nets']} -> {new_facts['nets']}")
     return lines
 
-
 def compare(args):
     base, base_top = load(args.base)
     new, new_top = load(args.new)
@@ -303,7 +287,6 @@ def compare(args):
         print(f"    {line}")
     return DIFFERENT
 
-
 def main():
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -327,7 +310,6 @@ def main():
         print(MEANING)
         return 0
     return compare(args)
-
 
 if __name__ == "__main__":
     sys.exit(main())

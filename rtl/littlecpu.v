@@ -3,9 +3,6 @@
 `include "structs.v"
 module littlecpu #(
   parameter logic [31:0] HART_ID = 32'd0,
-  // The data bus's memory map, restated here because a module cannot read
-  // another module's parameters. The text window's size is the integrator's:
-  // the simulated machine's ROM is larger than the part's.
   parameter integer      LS_TEXT_WORDS = 2048,
   parameter logic [31:0] LS_RAM_BASE   = 32'h0001_0000,
   parameter integer      LS_RAM_WORDS  = 16384,
@@ -19,35 +16,32 @@ module littlecpu #(
   input  logic [31:0] imem_data,
   output logic [31:0] imem_addr2,
   input  logic [31:0] imem_data2,
-  // The value `imem_addr` takes on the next edge, so a synchronous memory can
-  // latch it a cycle early; a combinational memory leaves it unread.
+  // The value `imem_addr` takes on the next edge, so a synchronous memory can latch it a
+  // cycle early.
   output logic [31:0] imem_addr_next,
-  // A load or store to the text range takes the instruction memory's read port
-  // for that cycle, and the fetch that lost it comes back as `fetch_stall`.
+  // The data bus. A load or store to the text range takes the instruction memory's read
+  // port for that cycle, and the fetch that lost it comes back as `fetch_stall`.
   output logic [31:0] mem_addr,
   output logic [31:0] mem_wdata,
   output logic [3:0]  mem_wstrb,
   output logic        mem_ren,
   input  logic [31:0] mem_rdata,
   input  logic        fetch_stall,
-  // Nothing at the address being answered; arrives with the word, not after it.
   input  logic        imem_fault,
   input  logic        mem_reservable,
-  // The address an atomic in decode would use and the platform's answer about
-  // it, arriving with the address so decode can commit the fault there.
+  // The address an atomic in decode would use. The platform's answer arrives with it, so
+  // decode commits the fault in the cycle it reads the word.
   output logic [31:0] atomic_addr,
   input  logic        atomic_supported,
-  // `bus_wait`: the bus is another initiator's this cycle. `snoop_*`: that
-  // initiator's write, which clears a reservation on its word. `mem_lock`:
-  // high on the cycle an AMO reads, so an arbiter holds the bus for its write.
+  // `bus_wait` says the bus is another initiator's this cycle, and `snoop_*` is that
+  // initiator's write, which clears a reservation on its word.
   input  logic        bus_wait,
   input  logic        snoop_write,
   input  logic [31:0] snoop_addr,
   output logic        mem_lock,
-  // Decode's request for the data bus, a cycle before the transaction; the
-  // platform ANDs it against its grant and answers on `bus_wait`.
+  // Decode's request for the data bus, a cycle before the transaction; the platform ANDs
+  // it against its grant and answers on `bus_wait`.
   output logic        bus_request,
-  // Registered at its source: in here it is one gate from the fetch loop.
   input  logic        irq_timer,
   output logic trap
   `ifdef RISCV_FORMAL
@@ -91,8 +85,6 @@ module littlecpu #(
   output logic [31:0] rvfi_csr_mscratch_rdata,
   output logic [31:0] rvfi_csr_mscratch_wdata
   `ifdef RISCV_FORMAL_CSR_MCAUSE
-  // The comma leads because with the macro absent the port above is last in
-  // the list; yosys accepts a trailing one there and iverilog does not.
   ,
   output logic [31:0] rvfi_csr_mcause_rmask,
   output logic [31:0] rvfi_csr_mcause_wmask,
@@ -101,8 +93,8 @@ module littlecpu #(
   `endif
   `endif //  `ifdef RISCV_FORMAL
   );
-  // The region arithmetic assumes a power-of-two window on its own boundary
-  // and would go on classifying addresses against one that is not.
+  // The region arithmetic assumes a power-of-two window on its own boundary, and would go
+  // on classifying addresses against one that is not.
   localparam int LS_TEXT_ADDR_BITS = $clog2(LS_TEXT_WORDS);
   localparam int LS_RAM_ADDR_BITS  = $clog2(LS_RAM_WORDS);
   if (LS_TEXT_WORDS != (1 << LS_TEXT_ADDR_BITS)) begin : l_ls_text_words_power_of_two
@@ -127,10 +119,9 @@ module littlecpu #(
   decoder_output decoder_out;
   executor_output executor_out;
   logic divider_stalled;
-  // A store writes no register, so the scoreboard cannot see one still in the
-  // accessor; the serializing wait reads this instead.
+  // A store writes no register, so the scoreboard cannot see one still in the accessor;
+  // the serializing wait reads this instead.
   logic accessor_out_valid;
-  // One cycle per trap, not a level.
   logic decoder_trap_entry;
   assign trap = decoder_trap_entry;
   logic  [31:0] pc;
@@ -179,8 +170,6 @@ module littlecpu #(
   `ifdef RISCV_FORMAL_CSR_MCAUSE
   rvfi_csr32 csr_rvfi_mcause;
   `endif
-  // Instrumentation only. `probe_rs1` is the issuing instruction's own rs1, not
-  // the pair presented to the register file, which is the next instruction's.
   logic [4:0] probe_rs1;
   logic       probe_ls_issuing;
  `endif
@@ -279,8 +268,8 @@ module littlecpu #(
 
   accessor_output accessor_out;
   assign accessor_out_valid = accessor_out.valid;
-  // The bus transaction launches from `decoder_out`, a stage early, on the one
-  // cycle the executor takes it; any other cycle would present a store twice.
+  // The bus transaction launches from `decoder_out`, a stage early, on the one cycle the
+  // executor takes it. Any other cycle would present a store twice.
   accessor accessor(
     .clk(clk),
     .reset(reset),
@@ -358,9 +347,6 @@ module littlecpu #(
   assign rvfi_mode = 2'd3;
   assign rvfi_ixl = 2'd1;
 
-  // Two counters for `make cycles`, unread by the core: issues whose base
-  // register sits within a 2 KB block of a region edge, where a 12-bit offset
-  // can cross it, and issues whose base register is written in the same cycle.
   localparam int LS_BLOCK_BITS = 11;              // 2 KB: a 12-bit offset's reach
   localparam int LS_BLOCK_NUM_BITS = 32 - LS_BLOCK_BITS;
   localparam logic [31:0] LS_TIMER_BYTES = 32'd16;
@@ -386,8 +372,8 @@ module littlecpu #(
   logic [LS_BLOCK_NUM_BITS-1:0] ls_block;
   assign ls_block = reg_rs1[31:LS_BLOCK_BITS];
 
-  // Not a shared function: iverilog derives a continuous assign's sensitivity
-  // from the call's arguments. `1'b1`, not `1`: an integer literal widens the
+  // Not a shared function, because iverilog derives a continuous assign's sensitivity
+  // from the call's arguments. `1'b1`, not `1`: an integer literal would widen the
   // compare to 32 bits, and the block below zero must wrap to the top.
   logic ls_at_edge;
   assign ls_at_edge =
@@ -402,7 +388,6 @@ module littlecpu #(
     ls_block == LS_FLASH_LO - 1'b1 || ls_block == LS_FLASH_LO ||
     ls_block == LS_FLASH_HI        || ls_block == LS_FLASH_HI + 1'b1;
 
-  // `wen` is low for a write to x0, so a match is a real write to a real base.
   logic ls_at_bypass;
   assign ls_at_bypass = wen && waddr == probe_rs1;
 
