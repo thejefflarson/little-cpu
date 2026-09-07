@@ -69,7 +69,9 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # ubuntu-latest carries no cross compiler.
+      # ubuntu-latest has no cross compiler, and the self-hosted image bakes one in
+      # because its pods are runAsNonRoot and apt cannot install one there. On the pool
+      # this step's condition is false.
       - name: Install the RISC-V cross compiler (fork PR routing only)
         if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
         run: sudo apt-get update && sudo apt-get install -y gcc-riscv64-unknown-elf clang
@@ -137,9 +139,8 @@ jobs:
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # THE REQUIRED CHECK KEEPS ITS NAME. A required context that stops reporting blocks
-  # every pull request rather than failing one, including the pull request that would
-  # rename it.
+  # THE REQUIRED CHECK KEEPS ITS NAME: a required context that stops reporting blocks
+  # every pull request rather than failing one.
   mutation-check:
     name: mutation-check
     needs: mutation-check-shard
@@ -186,8 +187,6 @@ jobs:
           cat "$RUNNER_TEMP/sail-pin.txt"
           grep -E '^(key|path)=' "$RUNNER_TEMP/sail-pin.txt" >> "$GITHUB_OUTPUT"
 
-      # Cache the tarball, not the unpacked tree: the restored bytes still meet the
-      # SHA-256.
       - name: Restore the pinned sail-riscv tarball
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -226,7 +225,6 @@ jobs:
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # Every task in formal/components.sby needs a step here or it runs nowhere.
   components:
     name: components
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
@@ -274,7 +272,7 @@ jobs:
       - name: Trap commit proof
         run: make -C formal components_traps
 
-      # Starvation has no other grader -- no torture program can catch it.
+      # Starvation has no other grader: no torture program can catch it.
       - name: Bus arbiter proof (+ its cover and its forced red directions)
         run: make -C formal components_busarbiter
 
@@ -418,8 +416,8 @@ jobs:
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # Gates the MAPPING and publishes the frequency; no Fmax ratchet, because one placement
-  # is a sample and ECP5's churn band has not been derived.
+  # Gates the MAPPING and publishes the frequency. No Fmax ratchet: one placement is a
+  # sample, and ECP5's churn band has not been derived.
   ecp5-timing:
     name: ecp5-timing
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
@@ -442,8 +440,9 @@ jobs:
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
 
-      # A missing tool under a gate that is otherwise green is invisible until the day
-      # something goes red.
+      # Asserted before any verdict is reported: a missing tool under a gate that is
+      # otherwise green stays invisible until the day something goes red, and the
+      # diagnostic then describes the wrong thing.
       - name: Confirm the ECP5 toolchain is complete
         run: |
           set -euo pipefail
@@ -510,7 +509,8 @@ jobs:
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # Shows the RVFI instrumentation is unread, not that two designs behave alike.
+  # This is strictly weaker than sequential equivalence: it shows the RVFI
+  # instrumentation is unread, not that the two designs behave alike.
   nonperturbation:
     name: nonperturbation
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
@@ -579,9 +579,9 @@ jobs:
   # .sby carries `expect pass,fail`, so sby exits 0 either way.
   formal-checks:
     name: formal-checks
-    # JOBS is a MEMORY budget, not a speed knob: one check peaks around 876 MiB, so the
-    # footprint is roughly JOBS GiB. Below 3 GiB use JOBS=2 -- an OOM-killed pod takes
-    # its logs with it and reads as a job that merely failed.
+    # JOBS is a MEMORY budget, not a speed knob: one check peaks near 876 MiB, so the
+    # footprint is roughly JOBS GiB. Below 3 GiB use JOBS=2, since an OOM-killed pod
+    # takes its logs with it.
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
     timeout-minutes: 20
     steps:
@@ -593,7 +593,8 @@ jobs:
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
 
-      # Without btorsim every red check reports ERROR instead of FAIL.
+      # sby replays a counterexample with btorsim, so only a check that found one reaches
+      # it. Without btorsim every red check reports ERROR instead of FAIL.
       - name: Confirm the BMC toolchain is complete
         run: |
           set -euo pipefail
@@ -657,8 +658,8 @@ jobs:
 
   formal-extra:
     name: formal-extra
-    # Measured: dmemcheck 400 MB, imemcheck 364 MB, complete 277 MB, complete_cover 113
-    # MB, cover 64 MB. The depth-50 whole-ISA walk is not the heavy one.
+    # Measured: dmemcheck 400 MB, imemcheck 364, complete 277, complete_cover 113, cover
+    # 64.
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
     timeout-minutes: 20
     steps:
@@ -694,7 +695,6 @@ jobs:
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # THE REQUIRED CHECK KEEPS ITS NAME, for the reason `mutation-check` does.
   formal:
     name: formal
     needs: [formal-checks, formal-extra]

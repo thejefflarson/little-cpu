@@ -8,7 +8,6 @@ RISCV_FORMAL_MACROS := RISCV_FORMAL RISCV_FORMAL_COMPRESSED RISCV_FORMAL_ALIGNED
 rvfi_macros.vh: $(RISCV_FORMAL_DIR)/checks/rvfi_macros.py
 	python3 $^ > $@
 
-# Both sim legs build from this list.
 SIM_RTL_SRCS := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v \
                 rtl/fetcher.v rtl/imemory.v rtl/memory.v rtl/regfile.v rtl/regsel.v \
                 rtl/timer.v rtl/uart.v rtl/spiflash.v rtl/writeback.v rtl/littlecpu.v
@@ -24,15 +23,15 @@ waves.vcd: testbench.vvp
 	vvp $<
 	mv testbench.vcd $@
 
-# SIM_OPT is a knob for one caller.
+# SIM_OPT is a knob for one caller: mutation-check builds eleven times and wants -O0.
 SIM_OPT ?= -O2
 
 sim: test/cxxrtl.cc test/rtl.cc
 	clang++ $(SIM_OPT) -DNDEBUG -std=c++17 -Wall -Wextra -Werror \
 	  -isystem $$(yosys-config --datdir)/include/backends/cxxrtl/runtime $< -o $@
 
-# Outside the checkout: a worktree gets tracked files only, so tools installed inside it
-# are invisible from every other worktree.
+# Outside the checkout, because a worktree gets tracked files only and a tool installed
+# inside one is invisible from every other.
 TOOL_CACHE := $(if $(XDG_CACHE_HOME),$(XDG_CACHE_HOME),$(HOME)/.cache)/little-cpu
 
 ifneq ($(filter command line environment,$(origin SAIL_RISCV_VERSION)),)
@@ -187,8 +186,7 @@ test/monitor.sim.v: test/monitor.v test/sanitize_monitor.py
 test/rtl.cc: $(SIM_RTL_SRCS) rvfi_macros.vh $(SIM_TB_SRCS) test/monitor.sim.v
 	yosys -p 'read_verilog -sv $(addprefix -D ,$(RISCV_FORMAL_MACROS)) $^; hierarchy -top testbench; write_cxxrtl $@'
 
-# A separate harness, not a configuration axis: two monitor instances roughly double a
-# 7000-line generated module, so none of this is on `make test`'s path.
+# A separate harness, not a configuration axis: none of this is on `make test`'s path.
 DUAL_RTL_SRCS := $(SIM_RTL_SRCS) rtl/busarbiter.v rtl/littledual.v
 
 test/dual_rtl.cc: $(DUAL_RTL_SRCS) rvfi_macros.vh test/dual_testbench.v test/monitor.sim.v
@@ -207,8 +205,8 @@ dual-elaborate: $(DUAL_RTL_SRCS) rvfi_macros.vh test/dual_testbench.v test/monit
 dual-smoke: dual-sim
 	@./test/dual_smoke.sh ./dual-sim
 
-# Dhrystone on the dual configuration, in two shapes that answer different questions --
-# see test/dual/bench/run_contention.sh and run_aggregate.sh's own headers.
+# Dhrystone on the dual configuration, in two shapes; the two runner scripts have their
+# own headers.
 .PHONY: dual-dhrystone-contention
 dual-dhrystone-contention: dual-sim
 	@./test/dual/bench/run_contention.sh ./dual-sim $(DHRY_RUNS) $(DHRY_CYCLES) '$(DHRY_CFLAGS)'
@@ -619,7 +617,8 @@ coremark: sim
 	@./test/bench/run_coremark.sh ./sim $(COREMARK_ITERATIONS) $(COREMARK_CYCLES) \
 	  '$(COREMARK_CFLAGS)'
 
-# Count logic cells from nextpnr, never cell counts from yosys.
+# Count logic cells from nextpnr, never cell counts from yosys: the two disagree in
+# magnitude and in sign on the same netlist.
 FIT_SRCS := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v \
             rtl/fetcher.v rtl/regfile.v rtl/regsel.v rtl/writeback.v rtl/littlecpu.v
 
@@ -659,7 +658,8 @@ SOC_SRCS      := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v \
                  rtl/regfile.v rtl/regsel.v rtl/timer.v rtl/uart.v rtl/spiflash.v \
                  rtl/writeback.v rtl/littlecpu.v rtl/littlesoc.v
 
-# PHONY: SOC_PROG changes what this builds and make cannot see that.
+# PHONY because SOC_PROG changes what this builds and make cannot see that from a
+# timestamp.
 .PHONY: soc-rom
 soc-rom:
 	@set -e; \

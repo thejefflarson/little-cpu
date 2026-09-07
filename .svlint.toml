@@ -1,8 +1,9 @@
 # svlint configuration -- the structural lint gate (`make lint`).
 
-# NO exclude_paths, deliberately.
+# NO exclude_paths, deliberately: a rule this repo cannot live under is turned off by
+# name here, so that every file in rtl/ is held to the same set.
 
-# Text rules -- all off. header_copyright, style_directives, style_semicolon.
+# The text rules are all off: this gate grades structure, not house style.
 [textrules]
 header_copyright = false   # no per-file copyright header convention in this repo
 style_directives = false   # style: indentation of `ifdef`/`endif`
@@ -36,9 +37,8 @@ generate_for_with_label = true
 generate_if_with_label = true
 parameter_default_value = true
 parameter_in_generate = true
-inout_with_tri = true                 # live over ALL of rtl/: its only source, littlesoc.v's
-                                      # flash pins, is deleted rather than excluded (see
-                                      # above)
+inout_with_tri = true                 # live over ALL of rtl/: its only source, the flash
+                                      # pins in littlesoc.v, is deleted rather than excluded
 
 operator_case_equality = true         # `===` has no synthesised equivalent
 explicit_brackets_for_confusing_precedence = true
