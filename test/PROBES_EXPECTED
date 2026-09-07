@@ -74,6 +74,7 @@ a Sail install back inside the checkout is red
 a SoC with no SPI controller at all does not pass by silence
 a SoC with no UART at all does not pass by silence
 a UART base off its own window is red
+a backslash-continued sed -i is still a raw edit
 a bare unpaired with no grader does not pass by silence
 a base tree whose make fails is refused, not quietly given ours
 a base tree whose synth flags moved is digested with ITS flags, and says so
@@ -143,6 +144,7 @@ a design that MET the target has measured the target
 a differing value is a divergence, located by change index
 a directory the glob stopped matching is red, not a suite of size zero
 a dirty tree names no base, so its sweep is not subtracted either
+a double-quoted heredoc delimiter is masked, so its stray apostrophe cannot hide a real sed -i after it
 a download whose bytes are not the pin is refused before extraction
 a dual directory that is not there is the failure this exists to see
 a duplicated manifest line would make comm non-symmetric
@@ -159,6 +161,7 @@ a file the manifest stopped naming is red before shasum ever runs
 a file the manifest stopped naming is red before shasum ever runs
 a file with no row in the index is named as orphaned
 a file with two rows in the index is named
+a fixture that opens its body on the head line is still inspected
 a floor line this loop cannot parse is a floor that is not enforced
 a formal harness that stops wiring rvfi at all is red
 a fourth core's ROM_WORDS with no Makefile entry to reach it is red
@@ -205,6 +208,7 @@ a malformed baseline line is named rather than skipped
 a malformed baseline line is named rather than skipped
 a malformed manifest line is red under --strict, not a silent pass
 a manifest entry that names no program is a typo, not a phantom
+a mid-word # does not hide a real sed -i after it
 a missing Sail install stops the run rather than scoring it
 a missing artifact refuses rather than reporting on nothing
 a missing asm directory is named
@@ -228,6 +232,8 @@ a mutated vendored byte fails the pin, and says so
 a mutated vendored byte fails the pin, and says so
 a mutation line with a stray extra field is red rather than read as the name
 a mutation with no program leg is a real entry, not a missing file
+a name defined twice is checked at both definitions, not just the last
+a nested helper's own closing brace does not end the outer fixture early
 a netlist from another tree is named, not binned as `neither`
 a netlist that is not there is refused, not read as equal
 a netlist with no block RAM at all is refused, not silently green
@@ -425,6 +431,7 @@ an empty status file is refused rather than read as a verdict
 an empty term table is a scan of nothing, not a green one
 an empty trace is fatal rather than an empty comparison
 an encoding failure reported only by the induction leg is not evidence
+an escaped apostrophe outside quotes does not mask a real sed -i
 an exception whose port is connected now is red
 an exception whose site stopped naming that ISA is red
 an exclusion with no reason written under it is rejected
@@ -476,6 +483,7 @@ and the reverse: a divergence reported with exit 0
 and the same for the check-set baseline
 assembler output on a successful build is still a defect
 assembler output on a successful build is still a defect
+awk -i inplace is a raw edit like sed -i
 baselining ERROR would re-create the btorsim hole with this gate's blessing
 bench.lds putting .data back at ram's origin is red
 bench.lds putting the stack back at the top of ram is red
@@ -624,6 +632,7 @@ one netlist placed twice giving two bitstreams voids the gate
 one red tool leaves no partial stamp on stdout
 one side alone is not a cross-core figure
 over budget names the count and the budget
+perl -pi is a raw edit like sed -i
 reg_rs1 laundered through out.rs1's own register is still red
 retires that stopped being spec-checked is its own status
 rule 1 declares a site count, so a generator change cannot ship unapplied
@@ -639,6 +648,8 @@ runner exit 6 is MONITOR-SILENT: the oracle never looked
 running the generator from the wrong directory is refused, not done
 sby's trailing engine numbers are not part of the status
 sections.lds putting .data back at ram's origin is red
+sed --in-place is a raw edit exactly like sed -i
+sed -i is a raw edit even when it is not the first flag
 starvation going red somewhere other than the bound is not evidence
 starvation going red somewhere other than the bound is not evidence
 status AGREE with a nonzero exit is a broken harness, not agreement
