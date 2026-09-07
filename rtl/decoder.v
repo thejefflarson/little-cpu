@@ -2,8 +2,6 @@
 `default_nettype none
 `include "structs.v"
 module decoder #(
-  // The data bus's memory map: where some memory answers a plain load or store.
-  // Handed down from the memories' own parameters so the map is stated once.
   parameter integer      LS_TEXT_WORDS = 2048,
   parameter logic [31:0] LS_RAM_BASE   = 32'h0001_0000,
   parameter integer      LS_RAM_WORDS  = 16384,
@@ -18,40 +16,22 @@ module decoder #(
   input  logic [31:0] reg_rs2,
   input  executor_output executor_out,
   input  logic divider_stall,
-  // The instruction memory gave its port to a load or store, so `in.instr` is a
-  // data word this cycle.
+  // The fetch port went to a load or store, so `in.instr` is a data word.
   input  logic fetch_stall,
-  // The platform has not granted this core the shared data bus this cycle. A
-  // single-initiator platform ties it low.
   input  logic bus_wait,
-  // This cycle would publish a memory transaction if the bus were granted.
-  // `bus_wait` is deliberately not a term: the platform ANDs this against its
-  // grant, and a term here would close the loop through the arbiter.
+  // The platform ANDs this against its grant. A `bus_wait` term here would close
+  // the loop through the arbiter.
   output logic bus_request,
-  // The instruction memory has nothing at `pc`; it arrives with the word it is
-  // about, so the fault is committed here with every other cause.
   input  logic imem_fault,
-  // An atomic's effective address, for the platform to decode.
   output logic [31:0] atomic_addr,
-  // The platform's answer about `atomic_addr`; low means the atomic faults.
   input  logic atomic_supported,
-  // Serialization needs it: a store writes no register, so the scoreboard
-  // cannot see one still in the accessor.
   input  logic       accessor_out_valid,
   output logic [31:0] pc,
-  // Published a cycle early, so a synchronous memory latches it on the edge
-  // `pc` moves.
   output logic [31:0] next_pc,
-  // The pair this instruction names, read by instrumentation and by
-  // formal/pcloop.sv; the register file is asked for `read_rs1`/`read_rs2`.
   output logic [4:0] rs1,
   output logic [4:0] rs2,
-  // The pair presented to the register file: on an issuing cycle, a guess at
-  // the next instruction's pair.
   output logic [4:0] read_rs1,
   output logic [4:0] read_rs2,
-  // rtl/csrs.v answers in the same cycle and commits on the edge the
-  // instruction issues.
   output logic [11:0] csr_addr,
   output logic        csr_ren,
   output logic        csr_wen,
@@ -66,7 +46,6 @@ module decoder #(
   output logic        mret_entry,
   input  logic [31:0] mtvec,
   input  logic [31:0] mepc,
-  // Already ANDed with `mie` and `mstatus.MIE` in rtl/csrs.v, and registered.
   input  logic        interrupt_pending,
  `ifdef RISCV_FORMAL
   input  rvfi_csr64   csr_rvfi_mcycle,
@@ -75,13 +54,10 @@ module decoder #(
   `ifdef RISCV_FORMAL_CSR_MCAUSE
   input  rvfi_csr32   csr_rvfi_mcause,
   `endif
-  // A plain load or store committing, for rtl/littlecpu.v's locality counters.
   output logic        probe_ls_issuing,
  `endif
   output decoder_output out
 );
-  // For a 16-bit instruction the upper half of the window is the next
-  // instruction in memory, so it is zeroed rather than read by mistake.
   logic [31:0] instr;
   assign instr = (in.instr[1:0] == 2'b11) ? in.instr : {16'b0, in.instr[15:0]};
 
@@ -112,7 +88,6 @@ module decoder #(
   logic [6:0] funct7;
   assign funct7 = instr[31:25];
 
-  // Declared here because iverilog requires a declaration before the first use.
   logic instr_lui_op, instr_jal_op, instr_jalr_op, instr_cj, instr_cjal, instr_cjr, instr_cjalr,
     instr_clui;
   logic instr_branch_op, instr_cbeqz, instr_cbnez;
@@ -164,8 +139,6 @@ module decoder #(
       instr_jal_op: immediate = j_immediate;
       instr_branch_op: immediate = b_immediate;
       instr_math_immediate_op: immediate = i_immediate;
-      // Not redundant with the default: an atomic's address is rs1 alone, and
-      // its funct5, aq, rl and rs2 sit where the I-immediate is read.
       instr_amo_op: immediate = 32'b0;
       instr_clwsp: immediate = clwsp_immediate;
       instr_cswsp: immediate = css_immediate;
@@ -225,8 +198,6 @@ module decoder #(
   assign instr_cswsp = quadrant == 2'b10 && cfunct3 == 3'b110;
   assign instr_csw = quadrant == 2'b00 && cfunct3 == 3'b110;
 
-  // instr[26:25] are `aq` and `rl`, read by nothing: one hart, in order, with
-  // one outstanding access makes memory order program order.
   logic [4:0] funct5;
   assign funct5 = instr[31:27];
   assign instr_amo_op = opcode == 5'b01011 && uncompressed && funct3 == 3'b010;
@@ -239,7 +210,6 @@ module decoder #(
   assign instr_amomax  = instr_amo_op && funct5 == 5'b10100;
   assign instr_amominu = instr_amo_op && funct5 == 5'b11000;
   assign instr_amomaxu = instr_amo_op && funct5 == 5'b11100;
-  // lr.w's rs2 field is an encoding constant of zero, not a register number.
   assign instr_lr = instr_amo_op && funct5 == 5'b00010 && instr[24:20] == 5'b0;
   assign instr_sc = instr_amo_op && funct5 == 5'b00011;
   assign instr_amo = instr_amoswap || instr_amoadd || instr_amoxor || instr_amoand ||
@@ -303,8 +273,6 @@ module decoder #(
   assign instr_rem = instr_m && funct3 == 3'b110;
   assign instr_remu = instr_m && funct3 == 3'b111;
 
-  // The immediate forms stay named apart: their rs1 field is a constant, not a
-  // register to wait on.
   logic instr_csr, instr_csrrwi, instr_csrrsi, instr_csrrci;
   assign instr_csr = opcode == 5'b11100 && uncompressed;
   assign instr_csrrw = instr_csr && funct3 == 3'b001 || instr_csrrwi;
@@ -321,10 +289,8 @@ module decoder #(
   logic [31:0] csr_arg;
   assign csr_arg = is_csr_imm ? {27'b0, rs1_field} : reg_rs1;
 
-  // Zicsr's suppression rules; skipping the write is what makes `csrr` legal
-  // on a read-only CSR. Skipping the read when rd is x0 already happens
-  // because rd == 0 gates rtl/writeback.v's `wen`; `csr_read_op` exists only
-  // so RVFI reports the right read mask.
+  // Skipping the write is what makes `csrr` legal on a read-only CSR; `csr_read_op`
+  // exists only so RVFI reports the right read mask.
   logic csr_src_zero, csr_write_op, csr_read_op;
   assign csr_src_zero = rs1_field == 5'b0;
   assign csr_write_op = instr_csr_access && !((instr_csrrs || instr_csrrc) && csr_src_zero);
@@ -333,23 +299,18 @@ module decoder #(
                      instr_csrrs ? (csr_rdata | csr_arg) :
                                    (csr_rdata & ~csr_arg);
 
-  // Read off the raw fields, not the muxed `rs1`/`rd`, which would put the
-  // compressed register-select decode in the trap arm of `next_pc`. A SYSTEM
-  // opcode is uncompressed, so the two agree.
+  // Raw fields, not the muxed `rs1`/`rd`, which would put the compressed
+  // register-select decode in the trap arm of `next_pc`.
   logic instr_error, instr_mret, instr_wfi, instr_cebreak;
   assign instr_error = opcode == 5'b11100 && uncompressed && funct3 == 0 &&
     rs1_field == 5'b0 && rd_field == 5'b0;
   assign instr_ecall = instr_error && instr[31:20] == 12'h0;
-  // `instr_cjalr` and `instr_cadd` each exclude C.EBREAK by a different field,
-  // so it needs its own line.
   assign instr_cebreak = quadrant == 2'b10 && cfunct4 == 4'b1001 &&
     instr[11:7] == 5'b0 && instr[6:2] == 5'b0;
   assign instr_ebreak = (instr_error && instr[31:20] == 12'h1) || instr_cebreak;
   assign instr_mret = instr_error && instr[31:20] == 12'h302;
-  // `wfi` is a NOP; the spec lets an implementation resume for any reason.
   assign instr_wfi = instr_error && instr[31:20] == 12'h105;
 
-  // Both are NOPs here, except that `fence.i` serializes (below).
   logic instr_miscmem, instr_fence, instr_fencei;
   assign instr_miscmem = opcode == 5'b00011 && uncompressed;
   assign instr_fence  = instr_miscmem && funct3 == 3'b000;
@@ -368,18 +329,13 @@ module decoder #(
   logic [31:0] mem_addr_calc;
   assign mem_addr_calc = $signed(immediate) + $signed(reg_rs1);
 
-  // Deliberately not `mem_addr_calc`, which equals it for every atomic: the
-  // point is the register output with no adder in front of it.
   assign atomic_addr = reg_rs1;
 
   logic instr_ls_load, instr_ls_store;
   assign instr_ls_load  = instr_lb || instr_lbu || instr_lh || instr_lhu || instr_lw;
   assign instr_ls_store = instr_sb || instr_sh || instr_sw;
 
-  // Does some memory answer a load or store at `immediate + reg_rs1`? It drives
-  // only the flip-flop below, so reading the whole sum keeps the carry chain
-  // out of the fetch loop. The timer's window is the eight words the map
-  // reserves, not the four one hart decodes.
+  // Drives only the flip-flop below, so the carry chain stays out of the fetch loop.
   localparam logic [31:0] LS_TEXT_BYTES = LS_TEXT_WORDS * 4;
   localparam logic [31:0] LS_RAM_BYTES  = LS_RAM_WORDS * 4;
   logic ls_supported;
@@ -391,9 +347,9 @@ module decoder #(
     (mem_addr_calc[31:3] == LS_FLASH_BASE[31:3]);
 
   // Whether that answer can depend on the immediate at all, asked of `reg_rs1`
-  // alone: a 12-bit offset reaches 2 KB, so a base block with a whole block of
-  // the same window on each side is answered whatever the immediate is. Low
-  // means "wait for the flip-flop", never "fault".
+  // alone: a 12-bit offset reaches 2 KB, so a base block with a whole block of the
+  // same window on each side is answered whatever the immediate is. Low means
+  // "wait for the flip-flop", never "fault".
   localparam int LS_BLOCK_BITS = 11;
   localparam int LS_BLOCK_NUM  = 32 - LS_BLOCK_BITS;
   localparam logic [LS_BLOCK_NUM-1:0] LS_TEXT_BLOCK = '0;
@@ -407,7 +363,6 @@ module decoder #(
   logic [LS_BLOCK_NUM-1:0] ls_block;
   assign ls_block = reg_rs1[31:LS_BLOCK_BITS];
 
-  // In the window, and neither its first block nor its last.
   logic ls_text_deep, ls_ram_deep, ls_settled;
   assign ls_text_deep = ((ls_block ^ LS_TEXT_BLOCK) & ~LS_TEXT_BMASK) == '0 &&
                         (ls_block & LS_TEXT_BMASK) != '0 &&
@@ -417,27 +372,21 @@ module decoder #(
                         (ls_block & LS_RAM_BMASK) != LS_RAM_BMASK;
   assign ls_settled = ls_text_deep || ls_ram_deep;
 
-  // Added here rather than read off `mem_addr_calc`: a misalignment trap
-  // reaches `next_pc`, and this waits on two bits, not a 32-bit carry chain.
   logic [1:0] mem_addr_low;
   assign mem_addr_low = immediate[1:0] + reg_rs1[1:0];
 
-  // A load or store whose base register sits near a window's edge bubbles one
-  // cycle; the answer about its effective address is registered on that cycle
-  // and read on the next. `ls_capture` requires every other stall reason low,
-  // so nothing in flight can write rs1 between the capture and the issue.
+  // `ls_capture` requires every other stall reason low, so nothing can write rs1
+  // between the capture and the issue.
   logic ls_access, ls_capture, ls_answer, ls_answer_valid, region_stall, ls_fault;
   logic stall_other, stall_own;
   assign ls_access = instr_ls_load || instr_ls_store;
   assign region_stall = ls_access && !ls_settled && !ls_answer_valid;
   assign ls_capture = region_stall && !stall_own;
 
-  // Held until the access issues, not for one cycle: under a bus wait a
-  // one-cycle answer expires, `region_stall` returns and drops `bus_request`,
-  // and the two livelock -- invisible to any single-hart run. Held on exactly
-  // the two reasons that can newly assert over a captured access; holding on
-  // `stall` would carry the answer across an operand-fetch cycle into the next
-  // access.
+  // HELD UNTIL THE ACCESS ISSUES, not for one cycle. Under a bus wait a one-cycle
+  // answer expires, `region_stall` returns and drops `bus_request`, and the two
+  // livelock -- invisible to any single-hart run. Holding on `stall` instead would
+  // carry the answer across an operand-fetch cycle into the next access.
   always_ff @(posedge clk) begin
     if (reset) begin
       ls_answer       <= 1'b0;
@@ -451,8 +400,6 @@ module decoder #(
     end
   end
 
-  // An unaligned atomic faults rather than being split; `lr.w` reports as a
-  // load and the ten that write as stores.
   logic instr_atomic_write, word_misaligned;
   assign instr_atomic_write = instr_amo || instr_sc;
   assign word_misaligned = mem_addr_low != 2'b00;
@@ -465,10 +412,8 @@ module decoder #(
                             (instr_sh && mem_addr_low[0] != 1'b0) ||
                             (instr_atomic_write && word_misaligned);
 
-  // `!word_misaligned` keeps the four data causes disjoint: an atomic both
-  // unaligned and out of region reports the misalignment, as the reference
-  // model does. One term reaches `next_pc`; which cause it is feeds only
-  // `trap_cause`, off the fetch loop.
+  // Keeps the four data causes disjoint. One term reaches `next_pc`; which cause it
+  // is feeds only `trap_cause`, off the fetch loop.
   logic atomic_fault;
   assign atomic_fault = instr_atomic && !atomic_supported && !word_misaligned;
   assign ls_fault = ls_access && ls_answer_valid && !ls_answer &&
@@ -483,8 +428,6 @@ module decoder #(
   assign csr_readonly_write = instr_csr_access && csr_write_op && csr_addr[11:10] == 2'b11;
   assign instr_illegal = !instr_valid || csr_readonly_write;
 
-  // Instruction-address-misaligned (0) is absent because C makes 2-byte targets
-  // legal, so it is unreachable.
   localparam logic [31:0] CAUSE_INSTRUCTION_FAULT   = 32'd1;
   localparam logic [31:0] CAUSE_ILLEGAL_INSTRUCTION = 32'd2;
   localparam logic [31:0] CAUSE_BREAKPOINT          = 32'd3;
@@ -496,8 +439,6 @@ module decoder #(
   localparam logic [31:0] CAUSE_MACHINE_TIMER       = 32'h8000_0007;
 
  `ifdef RISCV_FORMAL
-  // The strobe the refused store would have driven: the RVFI fault check wants
-  // the write mask exact, where a superset of the read mask is legal.
   logic [3:0] ls_fault_wstrb;
   always_comb begin
     if (instr_sb)      ls_fault_wstrb = 4'b0001 << mem_addr_calc[1:0];
@@ -506,7 +447,6 @@ module decoder #(
   end
  `endif
 
-  // One name for the trap chain and the mtval mux, so they cannot disagree.
   logic data_fault;
   assign data_fault = load_misaligned || store_misaligned || atomic_fault || ls_fault;
 
@@ -517,11 +457,10 @@ module decoder #(
   logic trap_taken;
   assign trap_taken = trap_pending || interrupt_pending;
 
-  // No `(* parallel_case *)`: the top two arms deliberately overlap the eight
-  // below, which the `ifdef FORMAL` block proves disjoint. An interrupt wins
-  // because the displaced instruction does not execute; a fetch that read
-  // nothing wins because its word is not an instruction -- out of range the
-  // memory answers zero, which would report illegal.
+  // No `(* parallel_case *)`: the top two arms deliberately overlap the eight below,
+  // which the FORMAL block proves disjoint. An interrupt wins because the displaced
+  // instruction does not execute; a fetch that read nothing wins because out of
+  // range the memory answers zero, which would report illegal.
   always_comb begin
     case (1'b1)
       interrupt_pending: trap_cause = CAUSE_MACHINE_TIMER;
@@ -537,12 +476,8 @@ module decoder #(
     endcase
   end
 
-  // For an interrupt this is the instruction that did not issue, so `mret`
-  // re-executes it.
   assign trap_epc = fetcher_pc;
 
-  // All four data causes share one arm: `mem_addr_calc` equals `atomic_addr`
-  // for every atomic, which the `ifdef FORMAL` block asserts.
   always_comb begin
     case (1'b1)
       interrupt_pending: trap_tval = 32'b0;
@@ -566,9 +501,6 @@ module decoder #(
     endcase
   end // always_comb
 
-  // One mapping instantiated twice, so the guess and the pair it is checked
-  // against cannot disagree. Both take the raw word: rtl/regsel.v masks a
-  // compressed one itself.
   logic [4:0] next_rs1, next_rs2;
   regsel current_regs (.word(in.instr), .rs1(rs1), .rs2(rs2));
   regsel next_regs (.word(in.next_instr), .rs1(next_rs1), .rs2(next_rs2));
@@ -579,20 +511,15 @@ module decoder #(
     instr_divu || instr_rem || instr_remu;
   assign instr_shift = instr_slli || instr_srli || instr_srai;
 
-  // Whether the instruction reads the register its field names -- not a shift
-  // amount, not a Zicsr constant.
   logic uses_rs1, uses_rs2;
   assign uses_rs1 = !(instr_lui || instr_jal || instr_auipc || is_csr_imm);
   assign uses_rs2 = (instr_math && !instr_math_immediate) || instr_sb || instr_sh || instr_sw ||
     instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu ||
     instr_amo || instr_sc;
 
-  // Forwarding may only reach `out.rs1`/`out.rs2`, so an eligible encoding must
-  // have no other decode-side reader of the same register: the branch
-  // comparator, the jalr target, an effective address, an atomic's own address
-  // and a register-form CSR's operand all read `reg_rs1`/`reg_rs2` directly.
-  // Widening either set past that issues an instruction against a stale
-  // register.
+  // An eligible encoding must have no other decode-side reader of the same register:
+  // the branch comparator, the jalr target, an effective address, an atomic's own
+  // address and a register-form CSR's operand all read `reg_rs1`/`reg_rs2` directly.
   logic rs1_fwd_eligible, rs2_fwd_eligible;
   assign rs1_fwd_eligible = instr_math;
   assign rs2_fwd_eligible = (instr_math && !instr_math_immediate) ||
@@ -604,17 +531,12 @@ module decoder #(
   assign ex_match_rs1 = executor_out.valid && executor_out.rd == rs1;
   assign ex_match_rs2 = executor_out.valid && executor_out.rd == rs2;
 
-  // `out`'s instruction has not reached the executor, so a match there is the
-  // more recent write and has no result yet. `uses_rs1`/`uses_rs2` are not
-  // retested because both eligible sets already imply them.
   logic ex_fwd_rs1, ex_fwd_rs2;
   assign ex_fwd_rs1 = rs1_fwd_eligible && rs1 != 0 && ex_match_rs1 &&
     executor_out.rd_ready && !out_match_rs1;
   assign ex_fwd_rs2 = rs2_fwd_eligible && rs2 != 0 && ex_match_rs2 &&
     executor_out.rd_ready && !out_match_rs2;
 
-  // Continuous assigns rather than a struct field read inside an always_* block,
-  // which iverilog cannot build a precise sensitivity list for and warns about.
   logic [31:0] rs1_forwarded, rs2_forwarded;
   assign rs1_forwarded = ex_fwd_rs1 ? executor_out.rd_data : reg_rs1;
   assign rs2_forwarded = ex_fwd_rs2 ? executor_out.rd_data : reg_rs2;
@@ -627,19 +549,17 @@ module decoder #(
   logic [31:0] pc_inc;
   assign pc_inc = uncompressed ? 4 : 2;
 
-  // Do not fold these into a function: iverilog builds a continuous assign's
-  // sensitivity list from the call's arguments, so a body that read `out` or
-  // `executor_out` would stop re-evaluating when they changed. It gives no
-  // warning, and yosys gets the function right, so every other check stays
-  // green.
+  // DO NOT FOLD THESE INTO A FUNCTION. iverilog builds a continuous assign's
+  // sensitivity list from the call's arguments, so a body reading `out` or
+  // `executor_out` stops re-evaluating when they change -- silently, and yosys
+  // gets it right, so every other check stays green.
   logic live_rs1, live_rs2;
   assign live_rs1 = out_match_rs1 || ex_match_rs1;
   assign live_rs2 = out_match_rs2 || ex_match_rs2;
 
-  // Two reasons share one wait, and narrowing it to suit one breaks the other:
-  // a CSR access or `mret` must not interleave with older instructions still
-  // in flight, and `fence.i` waits because text is writable and the fetch
-  // address goes out a cycle early, so an older store's write edge must pass.
+  // Two reasons share one wait and narrowing it to suit one breaks the other: a CSR
+  // access or `mret` must not interleave, and `fence.i` waits because text is
+  // writable and the fetch address goes out a cycle early.
   logic pipe_drained, serialize;
   assign pipe_drained = !out.valid && !executor_out.valid && !accessor_out_valid;
   assign serialize = (instr_csr_access || instr_mret || instr_fencei) && !pipe_drained;
@@ -650,16 +570,12 @@ module decoder #(
   assign hazard = hazard_rs1 || hazard_rs2 || serialize;
 
  `ifdef RISCV_FORMAL
-  // The monitor checks any register reported here against its own record of
-  // writes, so report only what the instruction really reads.
   logic rvfi_rs1_valid, rvfi_rs2_valid;
   assign rvfi_rs1_valid = !instr_lui && !instr_jal && !instr_auipc && !is_csr_imm;
   assign rvfi_rs2_valid = uses_rs2;
  `endif
-  // The register file answers a cycle late, so this asks whether what was
-  // presented last cycle is what this instruction reads, for the ports it
-  // reads. It does not care where that request came from, which is what lets
-  // `read_rs1` below be a guess: wrong, and the instruction asks again.
+  // The register file answers a cycle late, so this asks whether what was presented
+  // last cycle is what this instruction reads -- which is what lets `read_rs1` be a guess.
   logic [4:0] prev_rs1, prev_rs2;
   logic       read_taken, operand_stall;
   always_ff @(posedge clk) begin
@@ -676,43 +592,29 @@ module decoder #(
   assign operand_stall = !read_taken || (uses_rs1 && prev_rs1 != rs1) ||
                                         (uses_rs2 && prev_rs2 != rs2);
 
-  // An AMO's read-modify-write goes back out from rtl/accessor.v on the cycle
-  // after the executor takes it, so that cycle is spent here to keep everything
-  // else off the bus. `!divider_stall` because a held `out` has not been taken
-  // yet, so the write cycle is not next.
   logic atomic_stall;
   assign atomic_stall = out.valid && out.is_amo && !divider_stall;
 
-  // `stall_own` guards the region capture and leaves the bus out on purpose:
-  // the region wait suppresses `bus_request`, so a capture that waited for the
-  // grant would wait forever.
   assign stall_own = hazard || operand_stall || divider_stall || fetch_stall ||
                      atomic_stall;
   assign stall_other = stall_own || bus_wait;
   assign stall = stall_other || region_stall;
 
-  // `stall` with `bus_wait` left out, over the encodings that reach the data
-  // bus. Over-asking is deliberate -- a store-conditional with no reservation
-  // makes no transaction -- because under-asking would put two initiators on
-  // the bus at once.
+  // Over-asking is deliberate: under-asking puts two initiators on the bus at once.
   assign bus_request = !reset && !trap_taken && !region_stall && !stall_own &&
     (instr_lb || instr_lbu || instr_lh || instr_lhu || instr_lw ||
      instr_sb || instr_sh || instr_sw || instr_atomic);
 
-  // On an issuing cycle, the next instruction's pair; on a stalled one, its
-  // own, since the same instruction comes back and guessing again would
-  // alternate forever; on a stolen fetch window, neither, since that word is
-  // data. The register file's write-through bypass selects on a registered
-  // copy of this and is right only because `operand_stall` lets nothing issue
-  // until the held pair is the issuing instruction's.
+  // On a stalled cycle its own, since the same instruction comes back; on a stolen
+  // fetch window, neither. The register file's bypass selects on a registered copy
+  // and is right only because `operand_stall` lets nothing issue until the held
+  // pair is the issuing one's.
   assign read_rs1 = fetch_stall ? prev_rs1 : stall ? rs1 : next_rs1;
   assign read_rs2 = fetch_stall ? prev_rs2 : stall ? rs2 : next_rs2;
 
-  // All six branch tests from one subtraction: unsigned less-than is the
-  // borrow, signed differs only when the sign bits disagree, equal is a zero
-  // difference. Deliberately no signed expression: a signed comparison written
-  // as an arm of a conditional takes its signedness from the other arms, and
-  // has silently turned unsigned here twice.
+  // All six branch tests from one subtraction. DELIBERATELY NO SIGNED EXPRESSION:
+  // a signed comparison written as an arm of a conditional takes its signedness from
+  // the other arms, and has silently turned unsigned here twice.
   logic [32:0] cmp_sub;
   logic        cmp_eq, cmp_ltu, cmp_lt;
   assign cmp_sub = {1'b0, reg_rs1} - {1'b0, reg_rs2};
@@ -734,8 +636,6 @@ module decoder #(
     endcase
   end
 
-  // No `(* parallel_case *)`: `stall` and `trap_taken` can both be true, and
-  // `stall` winning is what makes an interrupt wait for the pipeline.
   always_comb begin
     case (1'b1)
       reset:                     next_pc = 32'b0;
@@ -748,9 +648,8 @@ module decoder #(
     endcase
   end
 
-  // Term for term the guard on the publish block's last two arms. Do not add
-  // `&& in.valid`: those arms do not test it, and if the two disagree a CSR
-  // write fires once per stalled cycle with nothing to say so.
+  // DO NOT ADD `&& in.valid`: those arms do not test it, and if the two disagree a
+  // CSR write fires once per stalled cycle with nothing to say so.
   logic issuing;
   assign issuing = !reset && !stall;
 
@@ -764,8 +663,6 @@ module decoder #(
   assign mret_entry = committing && instr_mret;
 
  `ifdef RISCV_FORMAL
-  // RVFI's `intr`: only an interrupt breaks pc continuity, since an exception
-  // reports its own redirect in `pc_wdata`.
   logic intr_report;
   always_ff @(posedge clk) begin
     if (reset) intr_report <= 1'b0;
@@ -783,13 +680,10 @@ module decoder #(
     if (reset) begin
       out <= '0;
     end else if (divider_stall) begin
-      // The executor has not taken this instruction yet, so it is held; above
-      // the bubble arm so a coinciding `fetch_stall` cannot zero it.
+      // Held, above the bubble arm so a coinciding `fetch_stall` cannot zero it.
       out <= out;
     end else if (hazard || operand_stall || fetch_stall || atomic_stall || bus_wait ||
                  region_stall || interrupt_pending) begin
-      // Bubbles: the executor reads `in` every cycle, so a held `out` would
-      // execute twice.
       out <= '0;
     end else begin
       out.valid <= 1'b1;
@@ -798,24 +692,19 @@ module decoder #(
       out.rs2 <= instr_math ? math_arg : rs2_forwarded;
       out.rd <= rd;
      `ifdef RISCV_FORMAL
-      // `next_pc`, not `pc`: this arm runs only when `stall` is low, so it is
-      // the real target.
       out.rvfi.pc_wdata <= next_pc;
       out.rvfi.insn <= instr;
       out.rvfi.pc_rdata <= fetcher_pc;
       out.rvfi.trap <= trap_pending;
       out.rvfi.intr <= intr_report;
       out.rvfi.mem_fault <= imem_fault || load_access_fault || store_access_fault;
-      // The access the instruction would have made: an AMO both reads and
-      // writes, so its read mask is set under the store cause too.
       out.rvfi.mem_fault_rmask <= {4{load_access_fault || (store_access_fault && instr_amo)}};
       out.rvfi.mem_fault_wmask <= store_access_fault ? ls_fault_wstrb : 4'b0;
       out.rvfi.mem_fault_addr <= {mem_addr_calc[31:2], 2'b00};
       out.rvfi.rs1_addr <= rvfi_rs1_valid ? rs1 : 5'b0;
       out.rvfi.rs2_addr <= rvfi_rs2_valid ? rs2 : 5'b0;
-      // The forwarded value, not the register file's: the monitor checks
-      // `rd_wdata` against exactly these two fields, so reporting `reg_rs1`/
-      // `reg_rs2` makes every forwarded retire self-contradictory.
+      // THE FORWARDED VALUE, not the register file's: the monitor checks `rd_wdata`
+      // against exactly these two fields.
       out.rvfi.rs1_rdata <= rvfi_rs1_valid ? rs1_forwarded : 32'b0;
       out.rvfi.rs2_rdata <= rvfi_rs2_valid ? rs2_forwarded : 32'b0;
       out.rvfi.csr_mcycle   <= csr_rvfi_mcycle;
@@ -900,8 +789,6 @@ module decoder #(
         end
       endcase
 
-      // Last so it wins over every arm above; `out.valid` stays high so the
-      // trapping instruction still retires, with no flag and no rd.
       if (trap_pending) begin
         out.is_add <= 0; out.is_sub <= 0; out.is_xor <= 0; out.is_or <= 0; out.is_and <= 0;
         out.is_mul <= 0; out.is_mulh <= 0; out.is_mulhu <= 0; out.is_mulhsu <= 0;
@@ -922,22 +809,13 @@ module decoder #(
   logic clocked;
   initial clocked = 0;
   always_ff @(posedge clk) clocked <= 1;
-  // Reset is high before the first edge; every harness does it, nothing proves
-  // it.
   initial assume(reset);
   always_comb if(!clocked) assume(reset);
-  // Reset never returns; the pc-increment assertions below would otherwise
-  // have to allow for it.
   always_comb if (clocked) assume(!reset);
 
-  // The fetcher hands back the pc it was given; formal/pcloop.sv asserts this
-  // over the real fetcher.
   always_comb assume(in.pc == pc);
 
-  // A held instruction is the same instruction: a stalled cycle holds the pc,
-  // so the memory re-presents the same words, and issues nothing, so no write
-  // to rs1 starts. This module can see neither, so it is assumed here and
-  // dropped with `-noassume` where the composed proof can check it.
+  // Assumed here and dropped with `-noassume` where the composed proof can check it.
   fetcher_output prev_in;
   logic [31:0] prev_reg_rs1;
   logic        prev_issued;
@@ -951,9 +829,6 @@ module decoder #(
     assume(reg_rs1 == prev_reg_rs1);
   end
 
-  // Own copies of last cycle's values rather than `$past()`, which through a
-  // free input would let the solver fill in a value from before reset.
-  // `trap_taken` and `instr_mret` are in `branch_jump` because both redirect.
   logic branch_jump;
   always_ff @(posedge clk) if (reset) branch_jump <= 1'b0;
     else branch_jump <= instr_jal || instr_jalr || instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu || trap_taken || instr_mret;
@@ -970,8 +845,7 @@ module decoder #(
 
   always_ff @(posedge clk) if (clocked && prev_stall && !prev_reset) assert(pc == past_pc);
 
-  // Arm order in the publish block, both ways round; nothing else enforces it
-  // and both ways of getting it wrong are silent.
+  // Arm order in the publish block, both ways round; both ways of getting it wrong are silent.
   decoder_output past_out;
   logic prev_hold_and_steal, prev_steal_only, prev_atomic_stall;
   logic prev_hold_and_wait, prev_wait_only;
@@ -994,22 +868,19 @@ module decoder #(
   always_comb if (clocked && !prev_reset && prev_hold_and_region) assert(out == past_out);
   always_comb if (clocked && !prev_reset && prev_region_only)     assert(out == '0);
 
-  // Fails the moment anything else writes `pc`.
   logic [31:0] past_next_pc;
   always_ff @(posedge clk) past_next_pc <= next_pc;
   always_comb if (clocked) assert(pc == past_next_pc);
 
   always_comb if (clocked && !out.valid) assert(out.rd == 0);
 
-  // `atomic_stall` and rtl/accessor.v both take `is_amo` on trust.
   always_comb if (clocked)
     assert(out.is_amo == (out.is_amoswap || out.is_amoadd || out.is_amoxor ||
       out.is_amoand || out.is_amoor || out.is_amomin || out.is_amomax ||
       out.is_amominu || out.is_amomaxu));
 
   // The one stall reason that reads a register value asserts only alongside
-  // `ls_access`, and `ls_access` is exactly the eight base load/store
-  // encodings; the Zkt isolation argument stands on both.
+  // `ls_access`; the Zkt isolation argument stands on both.
   always_comb if (clocked) assert(!region_stall || ls_access);
   always_comb if (clocked)
     assert(ls_access == (instr_lb || instr_lbu || instr_lh || instr_lhu ||
@@ -1024,8 +895,6 @@ module decoder #(
     instr_mul, instr_mulh, instr_mulhu, instr_mulhsu, instr_div, instr_divu, instr_rem,
     instr_remu, instr_sll, instr_slt, instr_sltu, instr_srl, instr_sra, instr_lui, instr_lb,
     instr_lbu, instr_lh, instr_lhu, instr_lw, instr_sb, instr_sh, instr_sw, instr_ecall,
-    // Every term of `instr_valid`, with forms that differ only in funct3 or
-    // funct12 kept on separate terms.
     instr_ebreak, instr_csrrw, instr_csrrs, instr_csrrc,
     instr_mret, instr_wfi, instr_fence, instr_fencei,
     instr_amoswap, instr_amoadd, instr_amoxor, instr_amoand, instr_amoor, instr_amomin,
@@ -1033,15 +902,12 @@ module decoder #(
 
   always_comb if (instr_valid) assert(one_of);
 
-  // One list per `(* parallel_case *)` above, transcribed rather than shared,
-  // so an arm added there and not here still trips.
-  // immediate
+  // One list per `(* parallel_case *)` above, transcribed rather than shared.
   always_comb assert($onehot0({instr_load_op || instr_jalr_op, instr_store_op,
     instr_lui_op || instr_auipc, instr_jal_op, instr_branch_op, instr_math_immediate_op,
     instr_amo_op, instr_clwsp, instr_cswsp, instr_csw, instr_clw, instr_cj || instr_cjal,
     instr_cbeqz || instr_cbnez, instr_cli, instr_clui, instr_caddi, instr_caddi16sp,
     instr_caddi4spn, instr_candi}));
-  // rd
   always_comb assert($onehot0({
     instr_beq || instr_bne || instr_blt || instr_bge || instr_bltu || instr_bgeu ||
       instr_sb || instr_sh || instr_sw || instr_cj || instr_cjr,
@@ -1049,47 +915,32 @@ module decoder #(
     instr_clw || instr_caddi4spn,
     instr_csrai || instr_csrli || instr_candi || instr_cand ||
       instr_cor || instr_cxor || instr_csub}));
-  // the operand overrides in the publish block
   always_comb assert($onehot0({instr_auipc, instr_csr_access, instr_lui,
     instr_jal || instr_jalr,
     instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu}));
 
-  // What lets the trap-cause case go unmarked. Under `!imem_fault` because that
-  // arm deliberately overlaps all of them: a word the memory never supplied
-  // decodes as zero and can name any register.
   always_comb if (!imem_fault)
     assert($onehot0({instr_illegal, instr_ebreak, instr_ecall,
                      load_misaligned, store_misaligned,
                      load_access_fault, store_access_fault}));
 
-  // `atomic_addr` skips the adder on purpose, so nothing else says the fault
-  // and the transaction name one address.
   always_comb if (instr_atomic) assert(mem_addr_calc == atomic_addr);
 
-  // The fast path never skips a fault: `ls_settled` is answered from `reg_rs1`
-  // alone, so it has to imply the answer about the effective address. The
-  // first line is what that stands on: a sign-extended immediate cannot leave
-  // the block `reg_rs1` names or the two beside it.
+  // THE FAST PATH NEVER SKIPS A FAULT. `ls_settled` is answered from `reg_rs1`
+  // alone, so it must imply the answer about the effective address: a sign-extended
+  // immediate cannot leave the block `reg_rs1` names or the two beside it.
   always_comb if (ls_access) begin
     assert(immediate[31:12] == {20{immediate[31]}});
     if (ls_settled) assert(ls_supported);
   end
 
-  // The answer never outlives the access it was taken for; stated on
-  // `prev_issued` rather than on the two hold reasons, so it is a claim about
-  // the design and not the assignment read back.
   logic prev_answer_valid;
   always_ff @(posedge clk) prev_answer_valid <= ls_answer_valid;
   always_comb if (clocked && prev_answer_valid && prev_issued)
     assert(!ls_answer_valid);
 
-  // `ls_fault` reads the flip-flop with no term of its own about the address,
-  // so this is the whole of what keeps the region causes about the access that
-  // raised them.
   always_comb if (clocked && ls_answer_valid) assert(ls_answer == ls_supported);
 
-  // One line per cause rather than a copy of the case, so reordering its arms
-  // trips these. `word_decides` is the two top arms' priority, named once.
   logic word_decides;
   assign word_decides = !interrupt_pending && !imem_fault;
   always_comb if (interrupt_pending) assert(trap_cause == CAUSE_MACHINE_TIMER);
@@ -1105,8 +956,6 @@ module decoder #(
     assert(trap_cause == CAUSE_STORE_ACCESS_FAULT);
   always_comb if (!trap_taken)       assert(trap_cause == 32'b0);
 
-  // `mtvec`/`mepc` are free inputs here, so these are registered copies rather
-  // than reads of the live input.
   logic        prev_trap_entry, prev_mret_entry;
   logic [31:0] prev_mtvec, prev_mepc;
   always_ff @(posedge clk) begin
@@ -1116,8 +965,6 @@ module decoder #(
     prev_mepc       <= mepc;
   end
 
-  // No riscv-formal check sees that a trap lands on `mtvec`; its pc checks
-  // accept any target the core reports.
   always_comb if (clocked && !prev_reset && prev_trap_entry) assert(pc == prev_mtvec);
   always_comb if (clocked && !prev_reset && prev_mret_entry) assert(pc == prev_mepc);
 
@@ -1128,24 +975,16 @@ module decoder #(
     assert(!out.is_amo && !out.is_lr && !out.is_sc);
   end
 
-  // On `trap_taken`, not `instr_valid`: an instruction can decode fine and
-  // still trap.
   always_comb if (trap_taken) assert(!instret && !csr_wen && !csr_ren);
   always_comb assert(!(trap_entry && mret_entry));
 
   always_comb if (interrupt_pending && !stall && !reset) assert(trap_entry);
   always_comb if (stall || reset) assert(!trap_entry);
 
-  // An interrupt publishes nothing: the instruction it displaced has not
-  // issued.
   logic prev_interrupt_entry;
   always_ff @(posedge clk) prev_interrupt_entry <= !reset && !stall && interrupt_pending;
   always_comb if (clocked && !prev_reset && prev_interrupt_entry) assert(!out.valid);
 
-  // The references for the branch compare and the two-bit misalignment add,
-  // against the operators they replaced. Each is a self-determined signed
-  // statement, never an arm of a conditional, which is where a signed
-  // comparison loses its signedness.
   logic signed [31:0] cmp_ref_x, cmp_ref_y;
   assign cmp_ref_x = reg_rs1;
   assign cmp_ref_y = reg_rs2;

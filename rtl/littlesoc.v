@@ -1,27 +1,24 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// The ROM is initialised from the bitstream and the SPRAM cannot be, so a
-// program's `.data` is copied out of ROM by its startup code.
+// The SPRAM cannot be initialised, so a program's `.data` is copied out of ROM.
 module littlesoc #(
-  // The board's clock, so rtl/uart.v can derive its divisor. Defaulted to the
-  // up5k board's 12 MHz: a board file that does not say runs unchanged.
+  // Defaulted to the up5k board's 12 MHz: a board file that does not say runs unchanged.
   parameter integer CLOCK_HZ = 12_000_000
 ) (
   input  logic clk,
   input  logic btn_n,
-  // Without an output something can see, yosys deletes the whole design.
   output logic ledr_n,
   output logic ledg_n,
   output logic uart_tx,
-  // The configuration flash. Its pins are the programmer's too, so a board file
-  // must not drive these three outputs unconditionally.
+  // Its pins are the programmer's too, so a board file must not drive these three
+  // unconditionally.
   output logic spi_sck,
   output logic spi_mosi,
   input  logic spi_miso,
   output logic spi_cs_n
 );
-  // The FPGA comes out of configuration with no reset of its own. Keep `reset`
-  // registered: unregistered, the button pin headed the design's longest path.
+  // KEEP `reset` REGISTERED: unregistered, the button pin headed the design's
+  // longest path.
   logic [3:0] por_count = 4'b0;
   logic       por_done  = 1'b0;
   logic [1:0] btn_sync  = 2'b0;
@@ -67,7 +64,6 @@ module littlesoc #(
     .mem_reservable(mem_reservable),
     .atomic_addr(atomic_addr),
     .atomic_supported(atomic_supported),
-    // One bus initiator: nothing takes the bus away and nothing else writes.
     .bus_wait(1'b0),
     .snoop_write(1'b0),
     .snoop_addr(32'b0),
@@ -77,8 +73,6 @@ module littlesoc #(
     .trap(trap)
   );
 
-  // `imem_addr` and `imem_addr2` are unconnected on purpose: the ROM takes its
-  // address a cycle early on `imem_addr_next`.
   imemory #(
     .ROM_WORDS(2048),
     .INIT_EVEN("soc/rom_even.hex"),
@@ -141,11 +135,9 @@ module littlesoc #(
     .cs_n(spi_cs_n)
   );
 
-  // Every source but the one addressed answers zero, so the OR never mixes two.
   assign mem_rdata = imem_mem_rdata | dmem_mem_rdata | timer_mem_rdata | uart_mem_rdata
                    | flash_mem_rdata;
 
-  // The low two bits of the last store to any address, one per LED.
   logic led_green, led_red;
   always_ff @(posedge clk) begin
     if (reset) begin

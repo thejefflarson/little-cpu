@@ -1,7 +1,6 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// A transmit-only UART, 8N1. A byte written while `busy` is set is dropped,
-// not queued, so software polls the status register between bytes.
+// Transmit-only, 8N1. A byte written while `busy` is set is DROPPED, not queued.
 module uart #(
   parameter logic [31:0] BASE     = 32'h0002_0020,
   parameter integer      CLOCK_HZ = 12_000_000,
@@ -65,7 +64,6 @@ module uart #(
       end else if (busy) begin
         baud_count <= baud_count - 1'b1;
       end
-      // Zero out of range: rtl/littlesoc.v ORs the read buses together.
       rd_busy <= in_range && is_status && busy;
     end
   end

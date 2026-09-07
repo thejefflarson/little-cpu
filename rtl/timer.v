@@ -1,8 +1,7 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// The machine timer. `mtip` is a level, held while `mtime >= mtimecmp`, and
-// the layout -- `mtime`, then one `mtimecmp` per hart, two words each -- is
-// not a CLINT's.
+// `mtip` is a LEVEL, held while `mtime >= mtimecmp`. The layout -- `mtime`, then
+// one `mtimecmp` per hart -- is not a CLINT's.
 module timer #(
   parameter logic [31:0] BASE = 32'h0002_0000,
   parameter integer      NHARTS = 1
@@ -39,8 +38,7 @@ module timer #(
   assign wr_cmp_lo  = writing && word == 2'd2;
   assign wr_cmp_hi  = writing && word == 2'd3;
 
-  // Named continuous assigns: a constant part-select inside an always block
-  // draws iverilog's `sorry:` note, allowlisted only for rtl/writeback.v.
+  // A constant part-select inside an always block draws iverilog's `sorry:` note.
   logic [31:0] mtime_lo, mtime_hi, mtimecmp_lo, mtimecmp_hi;
   assign mtime_lo    = mtime[31:0];
   assign mtime_hi    = mtime[63:32];
@@ -50,8 +48,8 @@ module timer #(
   logic [63:0] mtime_next;
   assign mtime_next = (wr_time_lo || wr_time_hi) ? mtime : mtime + 64'd1;
 
-  // Hart 0 has an arm of its own because folding it into the general mux maps
-  // the single-hart SoC to a different netlist. Change one arm, change both.
+  // Hart 0 has an arm of its own: folding it into the general mux maps the
+  // single-hart SoC differently. Change one arm, change both.
   logic [31:0] read_word;
   generate if (NHARTS == 1) begin : l_read_one
     always_comb begin
@@ -114,8 +112,8 @@ module timer #(
   always_ff @(posedge clk) begin
     if (reset) begin
       mtime    <= 64'b0;
-      // Zero puts `mtip` up from the first cycle; rtl/csrs.v resets both
-      // interrupt enables to zero, so nothing is taken until software arms it.
+      // Zero puts `mtip` up from the first cycle; rtl/csrs.v resets both enables to
+      // zero, so nothing is taken until software arms it.
       mtimecmp  <= 64'b0;
       mtip[0]   <= 1'b0;
       mem_rdata <= 32'b0;
@@ -145,10 +143,9 @@ module timer #(
         if (mem_wstrb[2]) mtimecmp[55:48] <= mem_wdata[23:16];
         if (mem_wstrb[3]) mtimecmp[63:56] <= mem_wdata[31:24];
       end
-      // Registered because it feeds the decoder's trap term on the fetch loop;
-      // a write to `mtimecmp` therefore reaches `mtip` one cycle later.
+      // Registered because it feeds the decoder's trap term on the fetch loop, so a
+      // `mtimecmp` write reaches `mtip` one cycle later.
       mtip[0] <= mtime_next >= mtimecmp;
-      // Zero out of range: rtl/littlesoc.v ORs the read buses together.
       mem_rdata <= in_range ? read_word : 32'b0;
     end
   end

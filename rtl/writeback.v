@@ -55,8 +55,7 @@ module writeback(
  `endif
 );
   // Struct-field reads are continuous assigns wherever they can be: inside an
-  // `always_*` each one is a constant part-select iverilog cannot build a
-  // precise sensitivity entry for, and it emits a `sorry:` note per read.
+  // `always_*` each is a constant part-select drawing iverilog's `sorry:` note.
   logic        in_valid;
   logic [4:0]  in_rd;
   logic [31:0] in_rd_data;
@@ -65,11 +64,9 @@ module writeback(
   assign in_rd_data = in.rd_data;
 
   assign wen   = !reset && in_valid && (in_rd != 5'b0);
-  // Presented unmasked. Every consumer in rtl/regfile.v tests `wen`, and
-  // test/regfile_tb.v aims a live address and word at the register both ports
-  // are reading with `wen` low to prove it. Masking these with `wen` has been
-  // measured twice and now costs period: it spends a mux in front of a bypass
-  // with no LUT input left to fold it into.
+  // PRESENTED UNMASKED. Every consumer in rtl/regfile.v tests `wen`. Masking these
+  // with `wen` has been measured twice and now costs period: it spends a mux in
+  // front of a bypass with no LUT input left to fold it into.
   assign waddr = in_rd;
   assign wdata = in_rd_data;
 

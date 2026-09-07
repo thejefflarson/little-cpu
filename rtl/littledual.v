@@ -1,20 +1,17 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
 // Two harts on one text storage, data RAM, timer and bus arbiter. Two is the
-// number, not a default: rtl/busarbiter.v is proved for exactly two. Its grant
-// is registered, so a hart asks from decode a cycle before its transaction.
+// number, not a default: rtl/busarbiter.v is proved for exactly two.
 module littledual #(
   parameter integer ROM_WORDS = 2048,
   parameter INIT_EVEN = "",
   parameter INIT_ODD  = ""
 ) (
   input  logic       clk,
-  // One per hart, low hart first.
   input  logic [1:0] reset,
   output logic [1:0] trap
  `ifdef RISCV_FORMAL
   ,
-  // One retire channel per hart, packed low hart first.
   output logic [1:0]   rvfi_valid,
   output logic [127:0] rvfi_order,
   output logic [63:0]  rvfi_insn,
@@ -37,14 +34,12 @@ module littledual #(
  `ifdef RISCV_FORMAL_MEM_FAULT
   output logic [1:0]   rvfi_mem_fault,
  `endif
-  // Which harts have a transaction on the shared bus this cycle.
   output logic [1:0]   probe_bus_active,
   output logic [63:0]  probe_imem_addr
  `endif
 );
   localparam int NHARTS = 2;
 
-  // Per-hart nets, packed low hart first.
   logic [32*NHARTS-1:0] imem_addr, imem_addr2, imem_addr_next;
   logic [32*NHARTS-1:0] imem_data, imem_data2;
   logic [NHARTS-1:0]    fetch_stall, imem_fault;
@@ -56,8 +51,8 @@ module littledual #(
   logic [4*NHARTS-1:0]  hart_mem_wstrb;
   logic [NHARTS-1:0]    hart_mem_ren;
 
-  // At most one hart publishes a memory instruction per cycle, so at most one
-  // has a transaction out and three of the four bus outputs join with an OR.
+  // At most one hart has a transaction out, so three of the four bus outputs join
+  // with an OR.
   logic [31:0] mem_addr, mem_wdata, mem_rdata;
   logic [3:0]  mem_wstrb;
   logic        mem_ren, mem_reservable;
@@ -66,10 +61,9 @@ module littledual #(
   assign mem_wstrb = hart_mem_wstrb[3:0] | hart_mem_wstrb[7:4];
   assign mem_ren   = hart_mem_ren[0]     | hart_mem_ren[1];
 
-  // `mem_wdata` cannot be ORed: rtl/accessor.v publishes rs2 on it for every
-  // issuing instruction, not only a store. ORed, one hart's rs2 lands in the
-  // other's store whenever a non-memory instruction issues beside it, with
-  // neither a read enable nor a strobe raised to say so.
+  // `mem_wdata` CANNOT BE ORed: rtl/accessor.v publishes rs2 on it for every issuing
+  // instruction, not only a store. ORed, one hart's rs2 lands in the other's store
+  // whenever a non-memory instruction issues beside it, with no strobe to say so.
   assign mem_wdata = |hart_mem_wstrb[3:0] ? hart_mem_wdata[31:0]
                                           : hart_mem_wdata[63:32];
   assign mem_rdata = imem_mem_rdata | dmem_mem_rdata | timer_mem_rdata;
@@ -83,7 +77,6 @@ module littledual #(
 
   busarbiter arbiter (
     .clk(clk),
-    // In reset only while both harts are; a hart in reset asks for nothing.
     .reset(&reset),
     .request(bus_request),
     .mem_lock(mem_lock),
@@ -93,9 +86,8 @@ module littledual #(
   for (genvar h = 0; h < NHARTS; h++) begin : l_hart
     localparam int OTHER = 1 - h;
 
-    // An AMO publishes once and makes two transactions, its read and then its
-    // write-back; `mem_lock` is high between them, so the other hart waits
-    // through the second even when the arbiter has already granted it.
+    // An AMO publishes once and makes two transactions; `mem_lock` is high between
+    // them, so the other hart waits through the second even once granted.
     assign bus_wait[h] = bus_request[h] && (!grant[h] || mem_lock[OTHER]);
 
    `ifdef RISCV_FORMAL
@@ -130,8 +122,7 @@ module littledual #(
       .atomic_addr(atomic_addr[32*h+31:32*h]),
       .atomic_supported(atomic_supported[h]),
       .bus_wait(bus_wait[h]),
-      // Taken from the other hart's own port rather than the shared bus, so a
-      // hart never snoops its own store and drops its own reservation.
+      // From the other hart's own port, so a hart never snoops its own store.
       .snoop_write(|hart_mem_wstrb[4*OTHER+3:4*OTHER]),
       .snoop_addr(hart_mem_addr[32*OTHER+31:32*OTHER]),
       .mem_lock(mem_lock[h]),
@@ -145,8 +136,6 @@ module littledual #(
       .rvfi_trap(rvfi_trap[h]),
       .rvfi_halt(rvfi_halt[h]),
       .rvfi_intr(rvfi_intr[h]),
-      // Named rather than left empty: test/port_connect_test.py refuses an
-      // empty connection at a littlecpu site.
       .rvfi_mode(u_mode),
       .rvfi_ixl(u_ixl),
       .rvfi_rs1_addr(rvfi_rs1_addr[5*h+4:5*h]),
@@ -195,9 +184,8 @@ module littledual #(
     .imem_fault(imem_fault)
   );
 
-  // `atomic_addr` is per hart because every hart asks about its own
-  // decode-stage instruction at once; the bus ports carry the one granted
-  // transaction.
+  // Per hart because every hart asks about its own decode-stage instruction at once;
+  // the bus ports carry the one granted transaction.
   memory #(.NHARTS(NHARTS)) dmem (
     .clk(clk),
     .mem_addr(mem_addr),
