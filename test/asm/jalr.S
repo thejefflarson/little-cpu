@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# Test jalr instruction.
+// Test jalr instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -8,7 +8,7 @@
 RVTEST_RV64U
 RVTEST_CODE_BEGIN
 
-  # Test 2: Basic test
+  // Test 2: Basic test
 
 test_2:
   li  TESTNUM, 2

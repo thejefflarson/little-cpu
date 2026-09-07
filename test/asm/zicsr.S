@@ -1,7 +1,7 @@
 # See LICENSE for license details.
 
-# Zicsr's write- and read-suppression rules are tests on the ENCODING, never on a value,
-# and whether an access to a read-only CSR is legal follows from them.
+// Zicsr's write- and read-suppression rules are tests on the ENCODING, never on a value,
+// and whether an access to a read-only CSR is legal follows from them.
 
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -9,7 +9,7 @@
 RVTEST_RV64U
 RVTEST_CODE_BEGIN
 
-  # mtvec resets to 0, which is _start — install before faulting.
+  // mtvec resets to 0, which is _start — install before faulting.
   RVTEST_INSTALL_TRAP_HANDLER
 
   li    a5, 0

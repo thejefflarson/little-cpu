@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# Test RVC corner cases.
+// Test RVC corner cases.
 
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -33,9 +33,8 @@ RVTEST_CODE_BEGIN
   RVC_TEST_CASE (4, sp, 0x1234 + 496, c.addi16sp sp, 496)
   RVC_TEST_CASE (5, sp, 0x1234 + 496 - 512, c.addi16sp sp, -512)
 
-  // RAM-resident twin of `data:`, for the load/store tests below
-  // (upstream reads and writes `data:` itself, which is in ROM here -- see
-  // the file header).
+  // RAM-resident twin of `data:`, for the load/store tests below (upstream reads and
+  // writes `data:` itself, which is in ROM here -- see the file header).
   .pushsection .data
   .align 3
   ram_data:

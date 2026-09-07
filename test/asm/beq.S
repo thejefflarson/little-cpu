@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# Test beq instruction.
+// Test beq instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -8,7 +8,7 @@
 RVTEST_RV64U
 RVTEST_CODE_BEGIN
 
-  # Branch tests
+  // Branch tests
 
   TEST_BR2_OP_TAKEN( 2, beq,  0,  0 );
   TEST_BR2_OP_TAKEN( 3, beq,  1,  1 );

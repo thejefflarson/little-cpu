@@ -431,6 +431,10 @@ memmap-test:
 # Asserts that every rtl/*.v file has a ruling on whether a mutation of it is caught by
 # anything -- a named mutation, or `unpaired` and a real bench or formal task -- checked
 # against `ls rtl/*.v` both ways round.
+.PHONY: comment-density-test
+comment-density-test:
+	@python3 ./test/comment_density_test.py
+
 .PHONY: mutation-coverage-test
 mutation-coverage-test:
 	@./test/mutation_coverage_test.sh
@@ -526,7 +530,7 @@ test: sim test-units probe-gates pin-bump-test tool-cache-test memmap-test \
       adr-numbering-test compare-geometry-test vexriscv-path-test retired-term-test port-connect-test march-test \
       band-source-test zkt-isolation-test fixture-freshness-test window-test imem-share-test \
       abc-engine-test mutation-probe dual-build board-elaborate \
-      tracked-ignored-test mutation-coverage-test
+      tracked-ignored-test mutation-coverage-test comment-density-test
 	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 .PHONY: cycles

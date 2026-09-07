@@ -1,15 +1,15 @@
 # See LICENSE for license details.
 
-# An atomic outside the data RAM, which is the one region this platform answers one at.
+// An atomic outside the data RAM, which is the one region this platform answers one at.
 
 #include "riscv_test.h"
 #include "test_macros.h"
 
-# Above the machine timer's four words and below the 1 MB the linker script may grow
-# into.
+// Above the machine timer's four words and below the 1 MB the linker script may grow
+// into.
 #define UNMAPPED 0x00040000
 
-# One refused atomic with an rs2: the cause, then that rd was not written.
+// One refused atomic with an rs2: the cause, then that rd was not written.
 #define TEST_REFUSED_AMO( testnum, inst, addr, cause ) \
 test_ ## testnum: \
     li  TESTNUM, testnum; \

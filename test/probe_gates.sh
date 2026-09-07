@@ -5572,6 +5572,68 @@ mutate "$d/test/probe_gates.sh" \
 probe "an allow-listed fixture that gained a real anchor is red until the entry is deleted" 1 \
   "is no longer an anchorless synthetic fixture" "$(ffr "$d")"
 
+begin_group "test/comment_density_test.py"
+
+CD="python3 $HERE/comment_density_test.py"
+
+# Synthetic on purpose: the ratio is invented, so none of this is owed a fixture_anchor.
+cd_case_ok() {
+  local d; d=$(new_case)
+  cat > "$d/example.py" <<'CASE'
+def add(a, b):
+    return a + b
+CASE
+  git -c init.defaultBranch=main -C "$d" init -q
+  git -C "$d" add -A
+  printf '%s' "$d"
+}
+
+cd_case_over() {
+  local d; d=$(new_case)
+  cat > "$d/example.py" <<'CASE'
+# one
+# two
+# three
+# four
+# five
+# six
+# seven
+# eight
+# nine
+def add(a, b):
+    return a + b
+CASE
+  git -c init.defaultBranch=main -C "$d" init -q
+  git -C "$d" add -A
+  printf '%s' "$d"
+}
+
+# All comment, no code: the shape the manifests were reduced to.
+cd_case_pointer_only() {
+  local d; d=$(new_case)
+  cat > "$d/pointer.sh" <<'CASE'
+# See docs/example.md for the format and the reasoning.
+CASE
+  git -c init.defaultBranch=main -C "$d" init -q
+  git -C "$d" add -A
+  printf '%s' "$d"
+}
+
+d=$(cd_case_ok)
+probe "control: a file within the comment-density budget is not reported" 0 \
+  "all at or under" "$CD $d"
+
+d=$(cd_case_over)
+probe "a file pushed over the comment-density budget is named and red" 1 \
+  "example.py" "$CD $d"
+
+d=$(cd_case_pointer_only)
+probe "a comment-only file's single pointer line is excused by MIN_COMMENT_LINES" 0 \
+  "all at or under" "$CD $d"
+
+# Labels compare as a MULTISET, not a count: a count survives one probe swapped for another.
+
+
 actual_labels=$(printf '%s\n' "${probe_labels[@]}" | LC_ALL=C sort)
 expected_labels=$(grep -vE '^#|^[[:space:]]*$' "$PROBES_MANIFEST" | LC_ALL=C sort)
 if [ "$actual_labels" != "$expected_labels" ]; then

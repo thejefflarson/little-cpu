@@ -1,36 +1,6 @@
 #include "dual_test.h"
 
-// One hart patches an instruction; the other hart runs it. This is the program
-// private text could never have passed, so it is also the grader for the two
-// harts fetching out of one storage.
-//
-// The sequence is the specification's own protocol for cross-hart instruction
-// patching, and nothing else:
-//
-//   hart 0 calls the stub and observes the OLD instruction, then signals;
-//   hart 1 writes the new word, executes a data FENCE, then signals;
-//   hart 0 executes its own FENCE.I and calls the stub again.
-//
-// The old-value call comes first and is ordered before the patch by a flag, so
-// an image that already held the patched word is caught rather than passed:
-// without it a stub that returned the new value from power-on would look
-// identical.
-//
-// WHICH HART PATCHES IS DELIBERATE. Hart 1 does, and it reads the replacement
-// encoding out of `.text` with an ordinary load. A load has to come out of one
-// window's read port and the windows all hold the same words, so a load from
-// the hart that does not own that window has to steal it from the hart that
-// does. Putting the template load on hart 1 is what puts that steal on this
-// program's path; on hart 0 it would be an ordinary read of its own window.
-//
-// WHAT THIS DOES NOT TEST, and the distinction is easy to lose. `fence.i` on
-// this core also waits for the pipeline to drain, and no program can observe
-// that: a store into text takes the instruction memory's write cycle, which
-// holds the next fetch back by itself. That finding was measured on one hart
-// and nothing here changes it -- the write reaches every window on one edge and
-// stalls every window's fetch, so the earliest fetch the wait could still be
-// covering is one the memory already held back on both harts. What this program
-// exercises is the software protocol above and the storage being one storage.
+// One hart patches an instruction; the other hart runs it.
 
 #define PATCH_OLD 0x11
 #define PATCH_NEW 0x2a
@@ -42,7 +12,6 @@
 
 DUALTEST_CODE_BEGIN
 
-  # The stub as the image holds it.
   li    a0, 0
   jal   ra, patch_stub
   TEST_CASE( 6, a0, PATCH_OLD, nop; )
@@ -53,7 +22,6 @@ DUALTEST_CODE_BEGIN
 
   DUALTEST_WAIT( TN_WAIT_PATCH, patched, 1 )
 
-  # The other half of the protocol.
   fence.i
 
   li    a0, 0
@@ -66,8 +34,6 @@ DUALTEST_CODE_BEGIN
 hart1:
   DUALTEST_WAIT( TN_WAIT_READY, bready, 1 )
 
-  # A load from `.text`, issued by the hart that does not own the window a load is
-  # answered from.
   la    t0, tmpl_new
   lw    t1, 0(t0)
   la    t0, patch_stub

@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# Test sltiu instruction.
+// Test sltiu instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"

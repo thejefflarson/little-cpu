@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# Test andi instruction.
+// Test andi instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"

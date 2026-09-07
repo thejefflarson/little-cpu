@@ -8,7 +8,7 @@ RVTEST_CODE_BEGIN
   .option push
   .option norvc
 
-  # Straight-line: a 32-bit instruction immediately after a compressed one.
+  // Straight-line: a 32-bit instruction immediately after a compressed one.
   li TESTNUM, 2
   .option push
   .option rvc

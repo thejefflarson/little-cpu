@@ -1,6 +1,6 @@
 # See LICENSE for license details.
 
-# Test sltu instruction.
+// Test sltu instruction.
 
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -8,7 +8,7 @@
 RVTEST_RV64U
 RVTEST_CODE_BEGIN
 
-  # Arithmetic tests
+  // Arithmetic tests
 
   TEST_RR_OP( 2,  sltu, 0, 0x00000000, 0x00000000 );
   TEST_RR_OP( 3,  sltu, 0, 0x00000001, 0x00000001 );
