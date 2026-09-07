@@ -1,4 +1,4 @@
-# ADR-0167: A local yosys area instrument stands up for nanocpu
+# ADR-0169: A local yosys area instrument stands up for nanocpu
 
 **Status:** Accepted · 2026-09-07
 
@@ -89,3 +89,30 @@ this session (not committed) to confirm the full path — liberty fetch,
 `synth`, the ratchet's pass and fail arms, and the missing-source guard —
 runs green and red for real, not only against `test/probe_gates.sh`'s
 fixtures. The donor import is a separate ticket's.
+
+## Amendment · 2026-09-07 · the donor landed the same day, and the instrument was run against it
+
+The donor import this ADR defers to merged first, so `nano/nano.v` now exists
+and the ratchet has been run against the real thing for the first time, on
+yosys 0.68+post (git sha1 c12172f) against the pinned liberty:
+
+    RATCHET: 84290.8 of 84291.0 um2 budgeted -- OK
+
+The instrument composes — liberty fetch, `synth`, `dfflibmap`, `abc -liberty`,
+`stat -liberty -json`, and the ratchet's pass arm all run end to end on the
+donor, not on a scratch module — and the brief's 84,291 um2 reproduces to
+within 0.2 um2 on a different machine and toolchain than the brief's.
+Reproducing that closely is the finding: it says the brief's figure and this
+recipe measure the same thing.
+
+**It also leaves 0.2 um2 of margin, and that is not a band.** This ADR declined
+to invent a churn band because there was no donor here to measure one from.
+There is now, and the number above is a single run — the first this repo has
+taken. `FIT_MAX_LC` budgets a whole measured span for exactly this reason
+(ADR-0142), and a budget set to one run's value trips on the next
+functionally-neutral respelling or toolchain bump with nothing wrong with the
+design. Deriving that span — six functionally identical spellings of
+`nano/nano.v`, the way `FIT_MAX_LC`'s derivation was taken — and re-setting
+`NANO_MAX_UM2` to cover it is a follow-up, not this ADR's. Until it is taken,
+read a `nano-area` failure as "re-derive the budget," not "the design grew."
+Nothing is gated on it: `nano-area` is off `make test` and off CI.
