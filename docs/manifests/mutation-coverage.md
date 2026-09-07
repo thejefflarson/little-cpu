@@ -115,3 +115,31 @@ whole set `test/mutations/` has for it.
   `make dual-ecp5-timing`, which gates three exact mapping censuses (two
   register files, two multipliers, two ROM copies) before it publishes a
   frequency.
+
+## `rtl/pairtable.v` — `unpaired  check`
+
+A mutation of the learned successor-pair table is **architecturally undetectable by
+construction**, and that is a fact about the design rather than a gap in the graders.
+Everything the table produces is a *guess* at the next instruction's register pair, and
+`operand_stall` in `rtl/decoder.v` lets nothing issue until the pair the register file
+holds is the pair the issuing instruction reads. A wrong guess costs a cycle and can
+change no architectural value.
+
+Measured, not assumed. Deleting the tag comparison outright — `hit = entry[10]` in place
+of the tag equality, the one term that makes an entry belong to the address reading it —
+leaves all 75 suite programs passing with the same 22,081 retires, and moves only the
+operand column of `make cycles`, 608 cycles to 1448. The one mutation that did go red,
+always-hit with an inverted pair, went red as `uart.S BELOW-FLOOR retires` — which is
+`test/run_tests.sh`'s 5000-cycle budget running out, not a value comparison. A detector
+built on that would be grading slowness.
+
+So `check` is named for what it *grades*, not for what goes red: `formal/wrapper.v`
+instantiates `rtl/littlecpu.v`, which instantiates this file, and the generated
+per-instruction checks compare `rvfi_rs1_rdata`/`rs2_rdata` against the spec model on
+every retire while `reg_ch0` grades the register file under the write-through bypass this
+guess feeds. Those are what say the table cannot corrupt a retire whatever it answers.
+
+**The trap this leaves.** The ruling holds only while the guess is checked before use. If
+a later change ever consumes the table's output without `operand_stall` standing behind
+it, nothing in the mutation suite would notice, because there is no detector here to go
+red. That is the line to re-read before touching either.

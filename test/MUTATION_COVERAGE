@@ -18,6 +18,7 @@ rtl/busarbiter.v  unpaired  components_busarbiter
 rtl/fetcher.v     unpaired  components_pcloop
 
 rtl/littlecpu.v      unpaired  check
+rtl/pairtable.v      unpaired  check
 rtl/writeback.v      unpaired  check
 rtl/littlesoc.v      unpaired  memmap-test
 rtl/littledual.v     unpaired  dual-smoke

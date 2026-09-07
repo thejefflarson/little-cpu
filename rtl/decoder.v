@@ -20,13 +20,21 @@ module decoder #(
   // rather than an instruction.
   input  logic fetch_stall,
   input  logic bus_wait,
-  // Decode's request for the data bus, a cycle before the transaction. The platform ANDs
-  // it against its own grant; a grant term here would close the loop through the arbiter.
+  // Decode's request for the data bus, a cycle before the transaction.
   output logic bus_request,
   input  logic imem_fault,
   output logic [31:0] atomic_addr,
   input  logic atomic_supported,
   input  logic       accessor_out_valid,
+  // The learned successor pair, arriving beside the instruction whose
+  // successor it describes.
+  input  logic       pair_hit,
+  input  logic [4:0] pair_rs1,
+  input  logic [4:0] pair_rs2,
+  output logic       pair_wen,
+  output logic [31:0] pair_write_pc,
+  output logic [4:0] pair_write_rs1,
+  output logic [4:0] pair_write_rs2,
   output logic [31:0] pc,
   output logic [31:0] next_pc,
   output logic [4:0] rs1,
@@ -348,9 +356,7 @@ module decoder #(
     (mem_addr_calc[31:3] == LS_UART_BASE[31:3]) ||
     (mem_addr_calc[31:3] == LS_FLASH_BASE[31:3]);
 
-  // Whether that answer can depend on the immediate at all, asked of `reg_rs1` alone. A
-  // 12-bit offset reaches 2 KB, so a base block with a whole block of the same window on
-  // each side answers the same whatever the immediate is.
+  // Whether that answer can depend on the immediate at all, asked of `reg_rs1` alone.
   localparam int LS_BLOCK_BITS = 11;
   localparam int LS_BLOCK_NUM  = 32 - LS_BLOCK_BITS;
   localparam logic [LS_BLOCK_NUM-1:0] LS_TEXT_BLOCK = '0;
@@ -602,9 +608,31 @@ module decoder #(
 
   // On an issuing cycle the next instruction's pair; on a stalled cycle its own, since
   // the same instruction comes back; on a stolen fetch window, last cycle's, since that
-  // word is data.
-  assign read_rs1 = fetch_stall ? prev_rs1 : stall ? rs1 : next_rs1;
-  assign read_rs2 = fetch_stall ? prev_rs2 : stall ? rs2 : next_rs2;
+  // word is data. The learned pair outranks the sequential guess when its tag matches;
+  // a wrong guess is what `operand_stall` already covers.
+  logic [4:0] guess_rs1, guess_rs2;
+  assign guess_rs1 = pair_hit ? pair_rs1 : next_rs1;
+  assign guess_rs2 = pair_hit ? pair_rs2 : next_rs2;
+  assign read_rs1 = fetch_stall ? prev_rs1 : stall ? rs1 : guess_rs1;
+  assign read_rs2 = fetch_stall ? prev_rs2 : stall ? rs2 : guess_rs2;
+
+  // The entry is stored against the PREVIOUS issue's address: storing it against this
+  // one would answer a question decode already knows.
+  logic [31:0] prev_issue_pc;
+  logic        prev_issue_valid;
+  always_ff @(posedge clk) begin
+    if (reset) begin
+      prev_issue_pc    <= 32'b0;
+      prev_issue_valid <= 1'b0;
+    end else if (!stall) begin
+      prev_issue_pc    <= fetcher_pc;
+      prev_issue_valid <= 1'b1;
+    end
+  end
+  assign pair_wen       = !reset && !stall && prev_issue_valid;
+  assign pair_write_pc  = prev_issue_pc;
+  assign pair_write_rs1 = rs1;
+  assign pair_write_rs2 = rs2;
 
   logic [32:0] cmp_sub;
   logic        cmp_eq, cmp_ltu, cmp_lt;

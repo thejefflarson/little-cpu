@@ -43,7 +43,7 @@ genchecks-check: $(RISCV_FORMAL_DIR)/checks/genchecks.py genchecks-local.py | $(
 	python3 check-genchecks.py $^
 
 RTL_SOURCES := ../rtl/structs.v ../rtl/fetcher.v ../rtl/regfile.v \
-               ../rtl/csrs.v ../rtl/decoder.v ../rtl/regsel.v ../rtl/executor.v \
+               ../rtl/csrs.v ../rtl/decoder.v ../rtl/regsel.v ../rtl/pairtable.v ../rtl/executor.v \
                ../rtl/accessor.v ../rtl/writeback.v ../rtl/littlecpu.v
 
 .PHONY: remeasure-fg

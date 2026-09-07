@@ -5277,7 +5277,7 @@ mcov_fixture() {
 
 d=$(mcov_fixture)
 probe "control: the shipping manifest rules on every rtl/*.v file" 0 \
-  "19 rtl/*.v files, each ruled on" "$MCOV $d"
+  "20 rtl/*.v files, each ruled on" "$MCOV $d"
 
 probe "a repo root that does not exist is red before anything is parsed" 1 \
   "is not a directory" "$MCOV $d/nowhere"

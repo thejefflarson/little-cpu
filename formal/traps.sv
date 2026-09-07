@@ -30,6 +30,9 @@ module traps #(
     // The platform's answer about the address an atomic in decode would use.
     input logic atomic_supported,
     input logic accessor_out_valid,
+    input logic pair_hit,
+    input logic [4:0] pair_rs1,
+    input logic [4:0] pair_rs2,
     // The platform's timer line, free every cycle.
     input logic irq_timer
 );
@@ -88,6 +91,13 @@ module traps #(
     .atomic_addr(atomic_addr),
     .atomic_supported(atomic_supported),
     .accessor_out_valid(accessor_out_valid),
+    .pair_hit(pair_hit),
+    .pair_rs1(pair_rs1),
+    .pair_rs2(pair_rs2),
+    .pair_wen(),
+    .pair_write_pc(),
+    .pair_write_rs1(),
+    .pair_write_rs2(),
     .csr_rdata(csr_rdata),
     .csr_implemented(csr_implemented),
     .mtvec(mtvec_value),

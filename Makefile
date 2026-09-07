@@ -9,7 +9,7 @@ rvfi_macros.vh: $(RISCV_FORMAL_DIR)/checks/rvfi_macros.py
 	python3 $^ > $@
 
 SIM_RTL_SRCS := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v \
-                rtl/fetcher.v rtl/imemory.v rtl/memory.v rtl/regfile.v rtl/regsel.v \
+                rtl/fetcher.v rtl/imemory.v rtl/memory.v rtl/regfile.v rtl/regsel.v rtl/pairtable.v \
                 rtl/timer.v rtl/uart.v rtl/spiflash.v rtl/writeback.v rtl/littlecpu.v
 
 SIM_TB_SRCS := test/testbench.v test/spiflash_model.v
@@ -631,7 +631,7 @@ coremark: sim
 # Count logic cells from nextpnr, never cell counts from yosys: the two disagree in
 # magnitude and in sign on the same netlist.
 FIT_SRCS := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v \
-            rtl/fetcher.v rtl/regfile.v rtl/regsel.v rtl/writeback.v rtl/littlecpu.v
+            rtl/fetcher.v rtl/regfile.v rtl/regsel.v rtl/pairtable.v rtl/writeback.v rtl/littlecpu.v
 
 fit.json: $(FIT_SRCS)
 	@echo 'yosys: synthesising littlecpu for ice40 (log: fit.synth.log)'
@@ -666,11 +666,11 @@ SOC_ROM_CHPARAM := $(if $(filter command line,$(origin SOC_ROM_WORDS)),chparam -
 # RTL rather than of placement: 2 SPRAM for the 64 KB data RAM, and 16 EBR for the 8 KB
 # banked ROM plus 4 for rtl/regfile.v.
 SOC_EXPECT_SPRAM := 2
-SOC_EXPECT_EBR   := 20
+SOC_EXPECT_EBR   := 22
 
 SOC_SRCS      := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v \
                  rtl/executor.v rtl/fetcher.v rtl/imemory.v rtl/memory.v \
-                 rtl/regfile.v rtl/regsel.v rtl/timer.v rtl/uart.v rtl/spiflash.v \
+                 rtl/regfile.v rtl/regsel.v rtl/pairtable.v rtl/timer.v rtl/uart.v rtl/spiflash.v \
                  rtl/writeback.v rtl/littlecpu.v rtl/littlesoc.v
 
 # PHONY because SOC_PROG changes what this builds and make cannot see that from a
@@ -795,7 +795,7 @@ ECP5_TARGET_MHZ := 200.0
 
 ECP5_CLOCK := clk
 
-ECP5_EXPECT_DP16KD := 36
+ECP5_EXPECT_DP16KD := 37
 ECP5_EXPECT_LUTRAM := 32
 ECP5_EXPECT_DSP    := 4
 

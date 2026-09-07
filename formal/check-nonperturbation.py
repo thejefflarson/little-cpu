@@ -95,6 +95,7 @@ RTL = [
     "csrs.v",
     "decoder.v",
     "regsel.v",
+    "pairtable.v",
     "executor.v",
     "accessor.v",
     "writeback.v",

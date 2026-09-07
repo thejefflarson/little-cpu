@@ -27,6 +27,11 @@ module decoder_tb;
   logic atomic_supported = 1'b1;
   logic [31:0] atomic_addr;
   logic accessor_out_valid = 1'b0;
+  logic pair_hit = 1'b0;
+  logic [4:0] pair_rs1 = 5'd0, pair_rs2 = 5'd0;
+  logic pair_wen;
+  logic [31:0] pair_write_pc;
+  logic [4:0] pair_write_rs1, pair_write_rs2;
   // rtl/csrs.v is a sibling of the decoder, not part of it, so it is stubbed.
   logic [31:0] csr_rdata = 32'b0;
   logic csr_implemented = 1'b0;
@@ -55,6 +60,13 @@ module decoder_tb;
     .atomic_addr(atomic_addr),
     .atomic_supported(atomic_supported),
     .accessor_out_valid(accessor_out_valid),
+    .pair_hit(pair_hit),
+    .pair_rs1(pair_rs1),
+    .pair_rs2(pair_rs2),
+    .pair_wen(pair_wen),
+    .pair_write_pc(pair_write_pc),
+    .pair_write_rs1(pair_write_rs1),
+    .pair_write_rs2(pair_write_rs2),
     .csr_rdata(csr_rdata),
     .csr_implemented(csr_implemented),
     .mtvec(mtvec),

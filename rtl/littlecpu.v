@@ -155,6 +155,10 @@ module littlecpu #(
     .wdata(wdata)
   );
 
+  logic        pair_hit, pair_wen;
+  logic [4:0]  pair_rs1, pair_rs2, pair_write_rs1, pair_write_rs2;
+  logic [31:0] pair_write_pc;
+
   logic [11:0] csr_addr;
   logic        csr_ren, csr_wen;
   logic [31:0] csr_wdata, csr_rdata;
@@ -196,6 +200,13 @@ module littlecpu #(
     .atomic_addr(atomic_addr),
     .atomic_supported(atomic_supported),
     .accessor_out_valid(accessor_out_valid),
+    .pair_hit(pair_hit),
+    .pair_rs1(pair_rs1),
+    .pair_rs2(pair_rs2),
+    .pair_wen(pair_wen),
+    .pair_write_pc(pair_write_pc),
+    .pair_write_rs1(pair_write_rs1),
+    .pair_write_rs2(pair_write_rs2),
     .csr_rdata(csr_rdata),
     .csr_implemented(csr_implemented),
     .mtvec(csr_mtvec),
@@ -286,6 +297,18 @@ module littlecpu #(
     .snoop_addr(snoop_addr),
     .mem_lock(mem_lock),
     .out(accessor_out)
+  );
+
+  pairtable pairs(
+    .clk(clk),
+    .read_pc(next_pc),
+    .hit(pair_hit),
+    .hit_rs1(pair_rs1),
+    .hit_rs2(pair_rs2),
+    .wen(pair_wen),
+    .write_pc(pair_write_pc),
+    .write_rs1(pair_write_rs1),
+    .write_rs2(pair_write_rs2)
   );
 
   writeback writeback(
