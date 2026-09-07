@@ -466,10 +466,10 @@ VexRiscv**); CoreMark cycles are littlecpu 433240 (2.308 CoreMark/MHz), VexRiscv
 littlecpu — the closest pair this harness has measured on either benchmark**, 2.342 CoreMark/MHz),
 Hazard3 665416 (1.536×, 1.503 CoreMark/MHz). Up5k, twelve seeds: littlecpu 12.40/12.85/13.23 MHz
 and VexRiscv 21.92/22.78/23.65 MHz both reach the 12 MHz step; **Hazard3 reads 14.30/14.57/14.95
-MHz** (ADR-0146 as amended twice: a same-cycle-address `hready` fix cost this a 6 MHz-step
-regression first, then a two-port adapter — dedicated fetch and load/store AHB5 ports, the
-topology this harness's other two cores already had — removed the regression outright rather than
-tuning it). **All three cores quantise to the same 12 MHz step** (`SB_HFOSC` gives 48/24/12/6, and
+MHz**, above even the declined one-port adapter's own 12.58/13.04/13.67 (ADR-0146 as amended a
+third time) — the two-port top's fetch and load/store ports removing the arbitration the one-port
+top needed, not merely avoiding route 3's own measured cost of trying to remove it in place.
+**All three cores quantise to the same 12 MHz step** (`SB_HFOSC` gives 48/24/12/6, and
 none of the three clears 24), so the up5k product is the cycle ratio directly at one shared clock:
 littlecpu 9.40 DMIPS/27.70 CoreMark, VexRiscv 10.75 DMIPS/28.10 CoreMark, Hazard3 10.80 DMIPS/18.04
 CoreMark — **Hazard3 and VexRiscv read level on Dhrystone (1.15×/1.14× over littlecpu), and
