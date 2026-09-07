@@ -2104,13 +2104,14 @@ probe "a path that does not reconcile blames the script, not the design" 1 \
 # files describe THIS run.
 ecp5_stale_fixture() {  # stdin = the stub nextpnr-ecp5's body, after --version
   local d; d=$(new_case)
-  mkdir -p "$d/soc/compare" "$d/formal" "$d/bin"
+  mkdir -p "$d/soc/compare" "$d/formal" "$d/bin" "$d/nano"
   cp "$REPO/Makefile" "$d/Makefile"
   cp "$REPO/formal/pin.mk" "$d/formal/"
   cp "$REPO/soc/compare/hazard3_pin.mk" "$d/soc/compare/"
   # The Makefile `include`s this one HARD, not with `-include`: a missing pin should stop
   # a measurement, not silently unpin the core it describes.
   cp "$REPO/soc/compare/vexriscv_pin.mk" "$d/soc/compare/"
+  cp "$REPO/nano/nano.mk" "$d/nano/"
   cp "$REPO/soc/littlesoc.lpf" "$REPO/soc/ecp5_report.py" \
      "$REPO/soc/print_toolchain.sh" "$d/soc/"
   cp -R "$REPO/rtl" "$d/"
@@ -2312,29 +2313,33 @@ tc_cache="$tmp/cache/little-cpu"
 
 probe "control: agreeing paths outside the checkout are green" 0 \
   "outside the checkout and agreed on" \
-  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint $tc_cache/download"
+  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint $tc_cache/download $tc_cache/sky130"
 
 probe "the Makefile and test/cosim.py drifting apart is red" 1 \
   "do not agree on where the Sail" \
-  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/elsewhere $tc_cache/svlint $tc_cache/download"
+  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/elsewhere $tc_cache/svlint $tc_cache/download $tc_cache/sky130"
 
 probe "a Sail install back inside the checkout is red" 1 \
   "test/cosim.py installs tools inside the checkout" \
-  "XDG_CACHE_HOME=$REPO/cache $TCT $REPO/cache/little-cpu/sail $tc_cache/svlint $tc_cache/download"
+  "XDG_CACHE_HOME=$REPO/cache $TCT $REPO/cache/little-cpu/sail $tc_cache/svlint $tc_cache/download $tc_cache/sky130"
 
 probe "an svlint install inside the checkout is red on its own" 1 \
   "$REPO/tools/svlint" \
-  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $REPO/tools/svlint $tc_cache/download"
+  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $REPO/tools/svlint $tc_cache/download $tc_cache/sky130"
 
 # The kept release tarball is what a CI cache holds, so a download directory back inside
 # the checkout would be cached under a path no worktree can read.
 probe "the Sail download directory inside the checkout is red on its own" 1 \
   "$REPO/tools/download" \
-  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint $REPO/tools/download"
+  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint $REPO/tools/download $tc_cache/sky130"
+
+probe "the nano liberty install directory inside the checkout is red on its own" 1 \
+  "$REPO/tools/sky130" \
+  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint $tc_cache/download $REPO/tools/sky130"
 
 probe "a relative install directory is red before it is compared" 1 \
   "names a relative tool install directory" \
-  "XDG_CACHE_HOME=$tmp/cache $TCT tools/sail tools/svlint tools/download"
+  "XDG_CACHE_HOME=$tmp/cache $TCT tools/sail tools/svlint tools/download tools/sky130"
 
 begin_group "make sail-setup"
 

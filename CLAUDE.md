@@ -699,6 +699,13 @@ make cosim-run      # co-sim one program (PROG=add.S)
 make cosim-suite    # the whole suite, graded against COSIM_EXPECTED_FAIL
 make sail-reservation-probe  # ask the MODEL what a trap and an mret do to an LR
                     # reservation. No core runs. Not on CI
+
+make nano-liberty-setup # once: fetch the pinned sky130hd liberty nanocpu's area
+                    # instrument reads
+make nano-area      # nanocpu's area, local `synth; dfflibmap; abc -liberty`, never
+                    # merged with the brief's own TT-flow/LibreLane number; ratchet
+                    # on NANO_MAX_UM2. Not on `make test`'s path; no-ops until
+                    # nano/nano.v lands
 ```
 
 `make sail-setup` and `make lint-setup` unpack into `~/.cache/little-cpu` (`XDG_CACHE_HOME` moves

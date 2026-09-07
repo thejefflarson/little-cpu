@@ -34,7 +34,6 @@ sim: test/cxxrtl.cc test/rtl.cc
 # inside one is invisible from every other.
 TOOL_CACHE := $(if $(XDG_CACHE_HOME),$(XDG_CACHE_HOME),$(HOME)/.cache)/little-cpu
 
-# After TOOL_CACHE: nano/nano.mk's liberty cache path is derived from it.
 include nano/nano.mk
 
 ifneq ($(filter command line environment,$(origin SAIL_RISCV_VERSION)),)

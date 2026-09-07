@@ -1,4 +1,4 @@
-# The sky130hd liberty nanocpu synthesises against, pinned the way formal/pin.mk pins riscv-formal: a raw URL at a commit, SHA-256-verified before anything reads it.
+# The sky130hd liberty nanocpu synthesises against, pinned the way formal/pin.mk pins riscv-formal.
 ifneq ($(filter command line environment,$(origin NANO_LIBERTY_COMMIT)),)
 $(error NANO_LIBERTY_COMMIT cannot be set from the command line or the environment: it \
   pins bytes this repo executes. Change it in nano/nano.mk, together with the SHA-256 \
@@ -44,15 +44,24 @@ nano-liberty-setup:
 	echo "sha256 ok: $$got"; \
 	mv "$$tmp" '$(NANO_LIBERTY)'
 
-# 84510 = 84291 + 219: the donor's measured area and the churn band measured on this tree across six functionally identical spellings of it.
-NANO_MAX_UM2 := 84510
+# The donor's own measured figure; nano.v does not exist here yet to take a churn band from.
+NANO_MAX_UM2 := 84291
+
+NANO_LAST_UM2 := 84291
 
 NANO_SRCS := nano/nano.v
 
+.PHONY: nano-area
+ifeq ($(wildcard $(NANO_SRCS)),)
+nano-area:
+	@echo "make nano-area: no $(NANO_SRCS) -- the donor import has not landed" >&2
+	@echo "in this tree yet. Nothing to measure; this is not a failure." >&2
+else
 nano/area.json: $(NANO_SRCS)
 	@yosys -p 'read_verilog -sv $(NANO_SRCS); hierarchy -auto-top; synth; dfflibmap -liberty $(NANO_LIBERTY); abc -liberty $(NANO_LIBERTY); tee -o $@ stat -liberty $(NANO_LIBERTY) -json' > nano/area.synth.log 2>&1 || { tail -40 nano/area.synth.log; exit 1; }
 
-.PHONY: nano-area
 nano-area: nano/area.json
 	@python3 nano/area_report.py $< --liberty $(NANO_LIBERTY) \
-	  --liberty-sha256 $(NANO_LIBERTY_SHA256) --max-um2 $(NANO_MAX_UM2)
+	  --liberty-sha256 $(NANO_LIBERTY_SHA256) --max-um2 $(NANO_MAX_UM2) \
+	  --previous $(NANO_LAST_UM2)
+endif

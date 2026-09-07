@@ -712,6 +712,7 @@ the model moving away takes this probe with it too
 the module file moving away takes the check with it, loudly
 the monitor generator's -i swept along with them is red as well
 the mutated core proving is red
+the nano liberty install directory inside the checkout is red on its own
 the other direction for a .c: the glob has to see it too
 the other direction: a .S that landed without a manifest line
 the other direction: a program no pairing claims to catch anything
