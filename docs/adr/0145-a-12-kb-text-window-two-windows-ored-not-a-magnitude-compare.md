@@ -125,3 +125,26 @@ attempt that moves either off that path (the way ADR-0128's same-cycle region te
 cycle late in ADR-0129, recovering the clock at the cost of CPI) is the shape most likely to reopen
 this. Absent that, the ceiling this ADR measures is ADR-0135's own: 8 KB is what a range test in the
 fetch loop can afford, not what the part has room for.
+
+## Amendment, 2026-09-06: re-taken, and it held
+
+Re-built from this ADR's own description directly on top of `main` at `d6aef74` (the RTL touches
+`rtl/imemory.v`, `rtl/decoder.v`, `rtl/littlecpu.v`, `rtl/littlesoc.v` and `SOC_ROM_WORDS`/
+`SOC_EXPECT_EBR` in the Makefile, identical in shape to the original) — candidate tree `dc9c12b`.
+`soc/baseline_sweep.sh`, twelve paired seeds, one Homebrew Yosys 0.68+post
+(`c12172fbae8af5e20f6fb52e3d4e92d56ed587b6`) toolchain on both arms, `SOC_MIN_MHZ=0` so a
+below-floor seed is recorded rather than stopping the sweep:
+
+| arm | worst | median | best | placed LC | spread |
+|---|---|---|---|---|---|
+| 2048 words (base) | 12.44 MHz | 12.82 | 13.09 | 4904 | 5.3% |
+| 3072 words (candidate) | **11.75 MHz** | **12.01** | 12.26 | **5194** | 4.3% |
+
+**+5.9% at the worst placement, +6.7% at the median, +6.8% at the best — every placement slower, none
+faster — and +290 placed cells.** Five of the twelve candidate placements (11.92, 11.93, 11.75, 11.85,
+11.82 MHz) are under the 12.00 MHz requirement, the same fraction (5 of 16) the original sweep found.
+**The decline holds, and by a wider margin than when it was filed**: the worst placement here is
+11.75 MHz against the original's 11.86, so the tree moved against this candidate rather than for it.
+`make sim` and the full `.S`/`.c` suite pass at the 3072-word shape (75/75, `test/EXPECTED_FAIL`
+exact) and the cell census reads `SB_RAM40_4K: 28, as declared` — the candidate is functionally
+correct, not merely unbuilt. The RTL is not carried on `main`; only this amendment is.

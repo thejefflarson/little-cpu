@@ -55,8 +55,8 @@ ADDR = """  // With REG_ADDR clear this register has no reader and yosys deletes
   assign fetch_addr = (REG_ADDR != 0) ? addr_q : imem_addr_next;
   assign next_word  = fetch_addr[31:2];"""
 
-DATA_ANCHOR = """  assign imem_data  = in_range  ? window_lo : 32'b0;
-  assign imem_data2 = in_range2 ? window_hi : 32'b0;"""
+DATA_ANCHOR = """  assign imem_data [31:0] = in_range  ? window_lo : 32'b0;
+  assign imem_data2[31:0] = in_range2 ? window_hi : 32'b0;"""
 DATA = """  // The window mux and the range gate stay on the memory's side of the new
   // register: the point is to leave the loop starting at a flip-flop rather than
   // at `SB_RAM40_4K`'s clock-to-output.
@@ -67,8 +67,8 @@ DATA = """  // The window mux and the range gate stay on the memory's side of th
     data_q  <= window_gated;
     data2_q <= window2_gated;
   end
-  assign imem_data  = (REG_DATA != 0) ? data_q  : window_gated;
-  assign imem_data2 = (REG_DATA != 0) ? data2_q : window2_gated;"""
+  assign imem_data [31:0] = (REG_DATA != 0) ? data_q  : window_gated;
+  assign imem_data2[31:0] = (REG_DATA != 0) ? data2_q : window2_gated;"""
 
 EDITS = [("parameter list", PARAMS_ANCHOR, PARAMS),
          ("fetch address", ADDR_ANCHOR, ADDR),

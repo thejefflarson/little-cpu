@@ -199,3 +199,67 @@ the requirement is graded at the tail.
 
 That the suite is now a proxy for Dhrystone. It is not. The two programs in it that agree with
 Dhrystone agree because they have the loop structure Dhrystone has, and 47 that do not, do not.
+
+## Amendment, 2026-09-06: re-taken, and **the decline is INVERTED**
+
+**Read this before quoting the decline above. The price this ADR declined the table on is gone: the
+worst of sixteen placements is 12.60 MHz, not 11.93, and `make fit` is under its ratchet rather than
+over it. Both halves of the 2026-08-16 decline were re-measured and neither reproduces.** The RTL is
+still not carried on `main` and this amendment does not land it — the decision to spend it is the
+owner's, and it is now a decision about what to spend 172 placed cells and two block RAMs on, not
+about whether the design fits the part.
+
+Rebuilt from ADR-0101's own "What was built" description on a new `rtl/pairtable.v` — 256 tagged
+entries, six tag bits over an eight-bit halfword index, read off `next_pc` on the edge the
+instruction memory latches `imem_addr_next`, written against the PREVIOUS issue's address, zeroed in
+an `initial` block — wired into `rtl/decoder.v`'s `read_rs1`/`read_rs2` guess ahead of `rtl/regsel.v`'s
+sequential one, on top of `main` at `1b66af2`. Candidate tree `35ccb70`. **Sixteen** paired seeds
+(`default 1`…`15`), which is what this ADR's own finding about eight-versus-sixteen requires,
+`SOC_MIN_MHZ=0`, one toolchain on both arms: OSS CAD Suite — Yosys 0.68+48 (`ff5817c34-dirty`),
+nextpnr-0.11-1-g62e659ed, icetime oss-cad-suite 20260811 (`sha256:25a4ecb76c094f00`).
+
+| arm | worst | median | best | spread | placed `ICESTORM_LC` | under 12.00 MHz |
+|---|---|---|---|---|---|---|
+| base `4697eb8` | 80.41 ns / 12.44 MHz | 78.03 / 12.82 | 76.38 / 13.09 | 5.3% | 4904 | 0 of 16 |
+| pair table `35ccb70` | 79.36 ns / **12.60 MHz** | 76.11 / **13.14** | 74.27 / 13.46 | 6.9% | 5076 | **0 of 16** |
+
+**−2.45% of median period, −1.31% at the worst placement, per-seed median −2.85% over a 12-faster /
+4-slower split.** That magnitude is inside the ~3.6% edit-churn band and should be read as a null
+rather than as a speed-up — the honest statement is *the table no longer costs period*. What is
+not inside any band is the tail: **the worst of sixteen is 12.60 MHz against this ADR's 11.93, and
+none of the sixteen is under the requirement.** `make fit` reads 4164 against `FIT_MAX_LC` 4219 and
+passes; when this was filed it was over.
+
+**The payoff reproduces and has grown.**
+
+| | base `4697eb8` | pair table `35ccb70` |
+|---|---|---|
+| suite | 38 746 cycles, 21 911 retired, CPI 1.77 | 38 476, 22 081, CPI 1.74 (**−0.70%**) |
+| suite operand column | 1 218 | 608 |
+| Dhrystone, 2000 runs | 1 506 772 cycles, CPI 1.59, 0.777 DMIPS/MHz | 1 370 424, CPI 1.44, **0.853** (**−9.05%**) |
+| Dhrystone operand column | 238 562 | 99 131 |
+
+−136 348 Dhrystone cycles against this ADR's −129 183 and ADR-0101's −129 179. The suite still moves
+the other way from Dhrystone, and by less than it did (+0.48% then, −0.70% now, the sign having
+flipped as the operand column shrank around it).
+
+**The product, which is the whole question.** At the worst placement of each distribution,
+0.777 DMIPS/MHz × 12.44 MHz = 9.67 DMIPS against 0.853 × 12.60 = **10.75, +11.2%**; at the median,
+9.96 against 11.21, **+12.6%**. When this ADR was filed the same arithmetic could not be written down
+at all, because the candidate's worst placement was under the board clock.
+
+**What it costs.** +172 placed `ICESTORM_LC` and +63 `fit` cells, both real and both affordable
+today; and **two more `SB_RAM40_4K`, 20 → 22 of the part's 30**, which is the figure to weigh against
+the 8 KB text ceiling ADR-0135 records — the table and a larger fetch window are competing for the
+same eight remaining block RAMs.
+
+**What was not re-taken.** `make test` is green on the candidate through the whole `.S`/`.c` suite
+(75/75, `test/EXPECTED_FAIL` exact), all thirteen unit benches and every probe gate except one:
+`test/mutation_coverage_test.sh` goes red because `rtl/pairtable.v` is a new `rtl/*.v` file with no
+ruling in `test/MUTATION_COVERAGE`, which is that grader working as designed and is a line the
+landing commit would owe. The riscv-formal checks, the component proofs and Sail co-simulation were
+**not** run on this candidate, and F and G were not re-measured; a table that changes what
+`operand_stall` sees owes all of that before it ships.
+
+**INVERTED.** The measurement that declined this is a measurement with a date on it, and the date has
+passed.

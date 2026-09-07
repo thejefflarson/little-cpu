@@ -215,3 +215,53 @@ On the built pair, before it was reverted:
 - **Neither amendment is landing, and the pair is not a route to 24 MHz.** With ADR-0091's ceiling not
   reproducing on either base, the fetch-loop direction ADR-0087 ranked has no unpriced candidate left
   in it that this repository has identified.
+
+## Amendment, 2026-09-06: re-taken on the forwarding tree, and the decline is wider
+
+Rebuilt from this ADR's own "What was built" list on top of `main` at `1b66af2` — `rtl/regfile.v`
+(both `always_comb` arms lose the `(wen && waddr == held_rsN) ? wdata :` term), `rtl/decoder.v` (a
+fourth `live_rsN` term on a new `accessor_out_rd` input), `rtl/littlecpu.v` (`.accessor_out_rd(
+accessor_out.rd)`), plus the same port through `test/decoder_tb.v`, `formal/traps.sv` and
+`formal/pcloop.sv`, whose over-approximated stall list takes the fourth term as this ADR said it
+must. Candidate tree `9ad9887`. Sixteen paired seeds (`default 1`…`15`), `SOC_MIN_MHZ=0` so a
+below-floor placement is recorded rather than stopping the sweep, one toolchain on both arms: OSS CAD
+Suite — Yosys 0.68+48 (`ff5817c34-dirty`), nextpnr-0.11-1-g62e659ed, icetime oss-cad-suite 20260811
+(`sha256:25a4ecb76c094f00`).
+
+| arm | worst | median | best | spread | placed `ICESTORM_LC` |
+|---|---|---|---|---|---|
+| base `4697eb8` | 80.41 ns / 12.44 MHz | 78.03 / 12.82 | 76.38 / 13.09 | 5.3% | 4904 |
+| fourth slot `9ad9887` | 80.06 ns / 12.49 MHz | 78.56 / 12.73 | 77.17 / 12.96 | 3.7% | 4887 |
+
+**The −2.8% of median period this ADR measured does not reproduce. It is a null: +0.69% of median,
+−0.44% at the worst placement, and a per-seed median of +0.31% over a 9-slower / 7-faster split
+against a ~3.6% churn band.** Twelve MHz holds at all 32 placements. `make fit` reads 4101 → 3996,
+**−105 cells**, which is outside the ±50 churn band and is the one thing here that moved the way the
+original said it would; the placed SoC is −17, inside the band, and the two instruments disagree in
+magnitude again.
+
+**The cycle cost has roughly doubled since this was filed, and executor-only forwarding is why.**
+
+| | base `4697eb8` | fourth slot `9ad9887` |
+|---|---|---|
+| suite | 38 746 cycles, CPI 1.77 | 44 353, CPI 2.04 (**+14.5%**) |
+| Dhrystone, 2000 runs | 1 506 772 cycles, CPI 1.59 | 1 717 497, CPI 1.81 (**+14.0%**) |
+| DMIPS/MHz | 0.777 | **0.681 (−12.4%)** |
+| Dhrystone hazard column | 317 207 | 532 107 |
+| Dhrystone `lsbypass` counter | 74 099 | 0 |
+
+The original measured +8.6% of Dhrystone's cycles; it is +14.0% now. The reading it offered for the
+gap between `a8d6f46` and `c2fa29b` — that a cost rises as the cheaper stalls around it are removed —
+happens again and harder: ADR-0154's executor-only forwarding has already collected the RAWs that
+were cheap to collect, so every write-through the bypass was covering is now charged in full. The
+`lsbypass` counter says exactly how many: 74 099 of Dhrystone's 375 915 load/store issues (19.7%)
+issue on a write-through to rs1 today, and the candidate pays a stall for every one of them.
+
+**`make test` is 74/75 on the candidate**, and the one failure is the cycle cost rather than a wrong
+answer: `uart.S` reports 1193 retires against a floor of 1381, a floor whose own note says the number
+of times its poll loops go round is a CPI question. Every other program passes with its baseline
+status and the `.S` suite's spec-checked counts move with its retire counts.
+
+**HELD, and by a wider margin than when it was filed.** The clock this buys is now nothing at all and
+the cycles it costs are 12.4% of the figure this project quotes. The RTL is not carried on `main`;
+only this amendment is.
