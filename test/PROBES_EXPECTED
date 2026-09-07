@@ -714,6 +714,7 @@ the model moving away takes this probe with it too
 the module file moving away takes the check with it, loudly
 the monitor generator's -i swept along with them is red as well
 the mutated core proving is red
+the nano liberty install directory inside the checkout is red on its own
 the other direction for a .c: the glob has to see it too
 the other direction: a .S that landed without a manifest line
 the other direction: a program no pairing claims to catch anything
@@ -770,3 +771,12 @@ wrong argument count is exit 2
 wrong argument count is exit 2 -- the inputs are broken, not the checks
 zero CoreMark iterations would divide the work by nothing
 zero runs would divide the work by nothing
+a cell type outside the read liberty is refused, not priced at zero
+a liberty file that does not match the pinned digest is refused
+a missing liberty file is refused before the JSON is even opened
+a missing stat.json is refused, not read as a zero-area design
+a truncated stat.json is refused, not read as an empty report
+control: a measurement within budget is green
+the trend against a recorded figure is printed beside the verdict
+total above the ratchet names the figure and the budget
+zero cells is refused, not read as a zero-area design

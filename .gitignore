@@ -4,6 +4,8 @@
 fit.json
 fit.log
 fit.synth.log
+nano/area.json
+nano/area.synth.log
 # `make soc-timing`: the SoC netlist, the placed bitstream ASCII, the three logs and the
 # `icetime` report.
 soc.json
@@ -79,6 +81,12 @@ formal/busarbiter-probe/
 formal/tval-probe/
 formal/decoder-zkt-probe/
 formal/executor-zkt-probe/
+nano/formal/checks
+nano/formal/complete
+nano/formal/dmemcheck
+nano/formal/imemcheck
+nano/formal/fg-probe.cfg
+nano/formal/fg-probe/
 __pycache__/
 test/rtl.cc
 test/dual_rtl.cc

@@ -1,0 +1,5 @@
+# The nanocpu donor's riscv-formal regression baseline. Same format as formal/EXPECTED_FAIL:
+# '<check> <STATUS>', graded both ways by ../../formal/check-baseline.sh.
+
+csrw_mcycle_ch0 FAIL
+csrw_minstret_ch0 FAIL
