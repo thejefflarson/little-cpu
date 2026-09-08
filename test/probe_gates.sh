@@ -3772,6 +3772,7 @@ rcc_fixture() {
   mkdir -p "$d/soc/compare" "$d/test/bench/coremark"
   cp "$REPO/soc/compare/run_coremark_compare.sh" "$REPO/soc/compare/bench.lds" \
      "$REPO/soc/compare/coremark.lds" "$d/soc/compare/"
+  cp "$REPO/test/bench/coremark_pin_check.sh" "$d/test/bench/"
   cp "$REPO"/test/bench/coremark/*.c "$REPO"/test/bench/coremark/*.h \
      "$REPO/test/bench/coremark/PINNED.sha256" \
      "$REPO/test/bench/coremark/LICENSE.md" \
@@ -4677,7 +4678,8 @@ begin_group "formal/busarbiter-probe.py"
 
 BA="python3 $REPO/formal/busarbiter-probe.py"
 
-cat > "$tmp/sby-busarbiter-stub" <<'STUB'
+sby_busarbiter_stub_fixture() {
+  cat > "$tmp/sby-busarbiter-stub" <<'STUB'
 #!/bin/sh
 # Stands in for sby. The case is the name of the directory it runs in and the
 # job is the .sby it was handed, and every line number is read out of the copy
@@ -4720,7 +4722,11 @@ esac
 if [ -n "${STUB_SBY_EMPTY_STATUS:-}" ]; then : > "$job/status"; exit 1; fi
 echo "$status 2 0" > "$job/status"
 STUB
-chmod +x "$tmp/sby-busarbiter-stub"
+  chmod +x "$tmp/sby-busarbiter-stub"
+  fixture_anchor "$REPO/formal/busarbiter-probe.py" "Assert failed in busarbiter_check:"
+  fixture_anchor "$REPO/formal/busarbiter-probe.py" "Unreached cover statement at busarbiter_check:"
+}
+sby_busarbiter_stub_fixture
 
 ba_fixture() {
   local d; d=$(new_case)
@@ -4814,50 +4820,7 @@ begin_group "formal/busarbiter-probe.py"
 
 BA="python3 $REPO/formal/busarbiter-probe.py"
 
-cat > "$tmp/sby-busarbiter-stub" <<'STUB'
-#!/bin/sh
-# Stands in for sby. The case is the name of the directory it runs in and the
-# job is the .sby it was handed, and every line number is read out of the copy
-# of busarbiter.sv beside it -- so a respelled assertion moves this stub's
-# answer exactly the way it moves the real solver's.
-for a in "$@"; do last=$a; done
-job=${last%.sby}
-line_of() { grep -nF -- "$1" src/busarbiter.sv | cut -d: -f1; }
-lock=$(line_of 'if (settled && past_grant[h] && past_mem_lock[h]) assert(grant[h]);')
-bound=$(line_of 'always_comb if (clocked) assert(waited <= BOUND);')
-cover=$(line_of 'cover (settled && grant[h] && past_grant[h] && past_mem_lock[h] &&')
-mkdir -p "$job"
-: > "$job/logfile.txt"
-assert_red() {
-  echo "SBY [probe] engine_0.basecase: Assert failed in busarbiter_check:" \
-       "busarbiter.sv:$1.9-$1.26" >> "$job/logfile.txt"
-}
-cover_red() {
-  echo "SBY [probe] engine_0: Unreached cover statement at busarbiter_check:" \
-       "busarbiter.sv:$1.7-$1.30" >> "$job/logfile.txt"
-}
-status=PASS
-case "$(basename "$PWD")/$job" in
-  shipping/prove) status=${STUB_SHIP_PROVE:-PASS} ;;
-  shipping/cover) status=${STUB_SHIP_COVER:-PASS} ;;
-  fixed-priority/prove)
-    status=${STUB_FIXED:-FAIL}
-    if [ "$status" = FAIL ]; then
-      assert_red "${STUB_FIXED_LINE:-$bound}"
-      [ -n "${STUB_FIXED_ALSO_LOCK:-}" ] && assert_red "$lock"
-    fi ;;
-  grant-mid-lock/prove)
-    status=${STUB_MIDLOCK:-FAIL}
-    [ "$status" = FAIL ] && assert_red "${STUB_MIDLOCK_LINE:-$lock}" ;;
-  grant-mid-lock/cover)
-    status=${STUB_COVER_MID:-FAIL}
-    [ "$status" = FAIL ] && cover_red "${STUB_COVER_MID_LINE:-$cover}" ;;
-esac
-[ -n "${STUB_SBY_NO_STATUS:-}" ] && exit 1
-if [ -n "${STUB_SBY_EMPTY_STATUS:-}" ]; then : > "$job/status"; exit 1; fi
-echo "$status 2 0" > "$job/status"
-STUB
-chmod +x "$tmp/sby-busarbiter-stub"
+sby_busarbiter_stub_fixture
 
 ba_fixture() {
   local d; d=$(new_case)
@@ -5037,8 +5000,9 @@ begin_group "test/bench/run_coremark.sh"
 rc_fixture() {
   local d; d=$(new_case)
   mkdir -p "$d/test/bench/coremark"
-  cp "$REPO/test/bench/run_coremark.sh" "$REPO/test/bench/coremark.lds" \
-     "$REPO/test/bench/bench.lds" "$REPO/test/bench/coremark_port.c" "$d/test/bench/"
+  cp "$REPO/test/bench/run_coremark.sh" "$REPO/test/bench/coremark_pin_check.sh" \
+     "$REPO/test/bench/coremark.lds" "$REPO/test/bench/bench.lds" \
+     "$REPO/test/bench/coremark_port.c" "$d/test/bench/"
   cp "$REPO"/test/bench/coremark/*.c "$REPO"/test/bench/coremark/*.h \
      "$REPO/test/bench/coremark/PINNED.sha256" \
      "$REPO/test/bench/coremark/LICENSE.md" \
@@ -5195,7 +5159,8 @@ l4_fixture() {
   cp "$REPO/CLAUDE.md" "$d/"
   cp "$REPO/Makefile" "$d/"
   cp "$REPO/soc/baseline_summary.py" "$REPO/soc/baseline_sweep.sh" "$d/soc/"
-  cp "$REPO/soc/compare/dhry_fit.py" "$REPO/soc/compare/placed_vs_synth.py" "$d/soc/compare/"
+  cp "$REPO/soc/compare/dhry_fit.py" "$REPO/soc/compare/coremark_fit.py" \
+    "$REPO/soc/compare/placed_vs_synth.py" "$d/soc/compare/"
   cp "$REPO/soc/depth/path_stages.py" "$d/soc/depth/"
   cp "$REPO/test/probe_gates.sh" "$REPO/test/lut4_site_test.sh" "$d/test/"
   cp "$REPO/docs/adr/0038-area-is-measured-in-logic-cells-and-two-levers-are-rejected.md" \
@@ -5727,6 +5692,36 @@ sed -i real_after_heredoc.txt
 FIXTURE
 probe "a double-quoted heredoc delimiter is masked, so its stray apostrophe cannot hide a real sed -i after it" 1 \
   "sed -i real_after_heredoc.txt" "$(ffr "$d")"
+
+d=$(ffr_fixture)
+cat >> "$d/test/probe_gates.sh" <<'FIXTURE'
+cat <<A <<B
+sed -i should-stay-masked.txt
+A
+don't let this apostrophe desync the tracker
+B
+sed -i real_after_two_heredocs.txt
+FIXTURE
+probe "two heredocs opened off one line are both masked, in the order their opening markers appear" 1 \
+  "sed -i real_after_two_heredocs.txt" "$(ffr "$d")"
+
+d=$(ffr_fixture)
+cat >> "$d/test/probe_gates.sh" <<'FIXTURE'
+cat <<TOK
+  TOK
+sed -i this-is-just-heredoc-body-text.txt
+TOK
+FIXTURE
+probe "an indented line equal to a plain heredoc's token does not close it early" 0 \
+  "no bare in-place edit" "$(ffr "$d")"
+
+d=$(ffr_fixture)
+cat >> "$d/test/probe_gates.sh" <<'FIXTURE'
+echo $'it\'s escaped, not closed'
+sed -i real_after_ansi_c_quote.txt
+FIXTURE
+probe "an escaped apostrophe inside a \$'...' string does not close it early" 1 \
+  "sed -i real_after_ansi_c_quote.txt" "$(ffr "$d")"
 
 begin_group "test/comment_density_test.py"
 

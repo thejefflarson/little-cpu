@@ -71,29 +71,38 @@ FUNC_START_RE = re.compile(r'^([a-zA-Z0-9_]+)\(\)\s*\{')
 # check: an earlier pair of regexes disagreed about the UNQUOTED delimiter a fixture
 # needs when its body interpolates a `$1`, so the anchor check skipped `br_fixture` --
 # the fixture behind the only detector of a block RAM read through its own reset -- while
-# the masker saw it.
+# the masker saw it. Group 1 is the `-` of `<<-`, the only form that strips the closing
+# line's leading whitespace; a plain `<<TOK` requires that line to have none, and `\2`
+# requires the closing mark, if any, to match the opening quote.
 HEREDOC_START_RE = re.compile(
-    r"(?<!<)<<(?!<)-?\s*([\"'])?([A-Za-z_][A-Za-z_0-9]*)\1?"
+    r"(?<!<)<<(-)?(?!<)\s*([\"'])?([A-Za-z_][A-Za-z_0-9]*)\2?"
 )
 
 def heredoc_mask(lines):
     """True at every line that is BODY TEXT of a heredoc (or its own closing
     delimiter), so neither check below mistakes planted fixture text -- this
     file's own probes for these checks plant a fake `sed -i` and a fake
-    `_fixture() {` this way -- for a real invocation or a real function."""
+    `_fixture() {` this way -- for a real invocation or a real function.
+    `cmd <<A <<B` is legal bash and opens two heredocs off one line, A's body
+    first and then B's, so every `<<` on the line is walked in order rather
+    than just the first."""
     mask = [False] * len(lines)
     i, n = 0, len(lines)
     while i < n:
-        m = HEREDOC_START_RE.search(lines[i])
-        if m:
-            token = m.group(2)
+        matches = list(HEREDOC_START_RE.finditer(lines[i]))
+        if matches:
             j = i + 1
-            while j < n and lines[j].rstrip('\n').strip() != token:
-                mask[j] = True
-                j += 1
-            if j < n:
-                mask[j] = True
-            i = j + 1
+            for m in matches:
+                token = m.group(3)
+                strip = m.group(1) == '-'
+                while j < n:
+                    body_line = lines[j].rstrip('\n')
+                    delim = body_line.strip() if strip else body_line
+                    mask[j] = True
+                    j += 1
+                    if delim == token:
+                        break
+            i = j
         else:
             i += 1
     return mask
@@ -107,8 +116,16 @@ def _live_chars(lines, mask):
     A trailing unescaped backslash eats its own newline the way bash does,
     and every other line boundary yields a real newline, so two lines that
     are not continued cannot glue into one word.
+
+    `$'...'` is its own quote form, not a `$` beside a plain `'...'`: inside
+    it a backslash escapes the next character, so `\\'` is a literal quote
+    that does NOT close the string, the same escaping rule a double-quoted
+    string already gets and a plain single-quoted one does not.
+    `escaping_quote` holds the two escaping forms in one state, closed by
+    whichever character opened it (`"` or `'`), so that rule is written once.
     """
-    in_squote = in_dquote = False
+    in_squote = False
+    escaping_quote = None
     at_word_start = True
     for lineno, raw in enumerate(lines):
         if mask[lineno]:
@@ -118,6 +135,14 @@ def _live_chars(lines, mask):
         continued = False
         while i < n:
             c = line[i]
+            if escaping_quote is not None:
+                if c == '\\' and i + 1 < n:
+                    i += 2
+                    continue
+                if c == escaping_quote:
+                    escaping_quote = None
+                i += 1
+                continue
             if in_squote:
                 if c == "'":
                     in_squote = False
@@ -126,14 +151,6 @@ def _live_chars(lines, mask):
             if c == '\\' and i + 1 == n:
                 continued = True
                 break
-            if in_dquote:
-                if c == '\\' and i + 1 < n:
-                    i += 2
-                    continue
-                if c == '"':
-                    in_dquote = False
-                i += 1
-                continue
             if c == '\\' and i + 1 < n:
                 i += 2
                 at_word_start = False
@@ -146,12 +163,15 @@ def _live_chars(lines, mask):
             if c == '#' and at_word_start:
                 break
             if c == "'":
-                in_squote = True
+                if i > 0 and line[i - 1] == '$':
+                    escaping_quote = "'"
+                else:
+                    in_squote = True
                 at_word_start = False
                 i += 1
                 continue
             if c == '"':
-                in_dquote = True
+                escaping_quote = '"'
                 at_word_start = False
                 i += 1
                 continue
