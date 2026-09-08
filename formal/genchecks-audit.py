@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 # Generates the riscv-formal check set and reports which checks came out of it.
+# Takes the harness directory (the one holding checks.cfg and EXPECTED_CHECKS) as its
+# one argument, so a second harness -- nano/formal, sharing this file and
+# genchecks-local.py rather than forking either -- can run the same audit against its
+# own checks.cfg.
 
 import os
 import re
@@ -8,11 +12,10 @@ import sys
 
 import depth_rules
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-GENCHECKS = os.path.join(HERE, "genchecks-local.py")
-CFG = os.path.join(HERE, "checks.cfg")
-EXPECTED_CHECKS = os.path.join(HERE, "EXPECTED_CHECKS")
-CHECKS_DIR = os.path.join(HERE, "checks")
+# genchecks-local.py is this script's own sibling regardless of which harness is being
+# audited; the harness directory is a separate, caller-supplied path.
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+GENCHECKS = os.path.join(SCRIPT_DIR, "genchecks-local.py")
 
 # The three cycles genchecks writes into every .sby it generates.
 DEFINE_RE = re.compile(r"^`define\s+RISCV_FORMAL_(\w+_CYCLES?)\s+(\d+)\s*$")
@@ -54,21 +57,21 @@ def report_set_diff(label, expected, actual, expected_label, actual_label):
         print(f"  in {actual_label} but not {expected_label}: {name}", file=sys.stderr)
     return True
 
-def read_check_cycles(name):
+def read_check_cycles(checks_dir, name):
     """The START, TRIG and CHECK cycles out of checks/<name>.sby."""
     cycles = {}
-    with open(os.path.join(CHECKS_DIR, f"{name}.sby")) as f:
+    with open(os.path.join(checks_dir, f"{name}.sby")) as f:
         for line in f:
             match = DEFINE_RE.match(line)
             if match:
                 cycles[match.group(1)] = int(match.group(2))
     return cycles
 
-def audit_depths(families):
+def audit_depths(cfg, checks_dir, families):
     """Every generated check's CHECK cycle against its family's `#floor` rule.
     `families` maps a generated check name to the family it came from."""
-    derived = depth_rules.read_derived(CFG)
-    floors = depth_rules.read_floors(CFG)
+    derived = depth_rules.read_derived(cfg)
+    floors = depth_rules.read_floors(cfg)
 
     failed = report_set_diff(
         "checks.cfg #floor rules vs the check families generated",
@@ -84,7 +87,7 @@ def audit_depths(families):
     # all 70 insn_* checks would bury the one line that has to move.
     short = {}
     for name, family in sorted(families.items()):
-        cycles = read_check_cycles(name)
+        cycles = read_check_cycles(checks_dir, name)
         depth = cycles.get("CHECK_CYCLE")
         if depth is None:
             print(
@@ -153,18 +156,32 @@ def call_tracer(frame, event, arg):
     return None
 
 def main():
+    if len(sys.argv) != 2:
+        print(f"usage: {sys.argv[0]} <harness-dir>", file=sys.stderr)
+        return 1
+    base = os.path.abspath(sys.argv[1])
+    cfg = os.path.join(base, "checks.cfg")
+    expected_checks_path = os.path.join(base, "EXPECTED_CHECKS")
+    checks_dir = os.path.join(base, "checks")
+
     # genchecks reads `checks.cfg` and writes `checks/` relative to the cwd and takes
     # `corename` from its last component, so running it elsewhere silently produces a
     # check set elsewhere.
-    if os.path.realpath(os.getcwd()) != os.path.realpath(HERE):
-        print(f"error: run from {HERE}, not {os.getcwd()}", file=sys.stderr)
+    if os.path.realpath(os.getcwd()) != os.path.realpath(base):
+        print(f"error: run from {base}, not {os.getcwd()}", file=sys.stderr)
         return 1
 
+    # genchecks-local.py runs in this same process via runpy and reads its own
+    # sys.argv[1] as a cfg name to read instead of "checks" -- so this script's own
+    # <harness-dir> argument must not leak into it.
+    saved_argv = sys.argv
+    sys.argv = [GENCHECKS]
     sys.settrace(call_tracer)
     try:
         genchecks = runpy.run_path(GENCHECKS, run_name="__main__")
     finally:
         sys.settrace(None)
+        sys.argv = saved_argv
 
     if not records:
         print(
@@ -211,7 +228,7 @@ def main():
     )
 
     on_disk = {
-        e[: -len(".sby")] for e in os.listdir(CHECKS_DIR) if e.endswith(".sby")
+        e[: -len(".sby")] for e in os.listdir(checks_dir) if e.endswith(".sby")
     }
     failed |= report_set_diff(
         "generated check names vs checks/*.sby on disk",
@@ -221,16 +238,16 @@ def main():
         "disk",
     )
 
-    expected = set(read_name_list(EXPECTED_CHECKS))
+    expected = set(read_name_list(expected_checks_path))
     failed |= report_set_diff(
-        "generated checks vs formal/EXPECTED_CHECKS",
+        "generated checks vs EXPECTED_CHECKS",
         expected,
         generated,
         "EXPECTED_CHECKS",
         "generated",
     )
 
-    omitted = read_omit_decls(CFG)
+    omitted = read_omit_decls(cfg)
     failed |= report_set_diff(
         "dropped checks vs checks.cfg #omit declarations",
         set(omitted),
@@ -239,7 +256,7 @@ def main():
         "dropped",
     )
 
-    depths_failed = audit_depths(families)
+    depths_failed = audit_depths(cfg, checks_dir, families)
 
     print(
         f"Check-set shape: {len(generated)} generated, {len(dropped)} declined "
@@ -248,7 +265,7 @@ def main():
     if failed:
         print(
             "\nThe check set is not the shape this repo committed to. Either the\n"
-            "change was intended -- in which case update formal/EXPECTED_CHECKS\n"
+            "change was intended -- in which case update EXPECTED_CHECKS\n"
             "and/or checks.cfg's #omit list in the same commit, and say why --\n"
             "or a [depth] line was lost, which is the failure ADR-0033 named.",
             file=sys.stderr,
@@ -257,7 +274,7 @@ def main():
         return 1
 
     print(
-        f"formal/EXPECTED_CHECKS: {len(expected)} names, exact match. "
+        f"EXPECTED_CHECKS: {len(expected)} names, exact match. "
         f"checks.cfg #omit: {len(omitted)} names, exact match."
     )
     return 0
