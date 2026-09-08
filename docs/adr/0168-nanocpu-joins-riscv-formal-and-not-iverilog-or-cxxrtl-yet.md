@@ -100,3 +100,45 @@ nothing here grades that margin automatically yet -- nanocpu has no audit
 script of its own, and building one is follow-up work rather than a silent
 gap, since the alternative (skipping the derivation) is exactly the failure
 mode CLAUDE.md names.
+
+## Amendment, 2026-09-08 — the gap above is closed: nano's own `[depth]` floors are graded
+
+`nano/formal/Makefile`'s `checks:` target called `genchecks-local.py` directly, so the
+`#derive`/`#floor` lines this ADR's own body derived were prose the tooling never read: a
+depth lowered under its floor still generated, still ran, and still reported PASS with
+the check-name set unchanged, which is exactly the failure mode this file already names
+above. `formal/genchecks-audit.py` was the fix on the main core's side and did the
+grading nano needed, but it hardcoded its own location as the one harness directory it
+would run against and refused a second one.
+
+**`genchecks-audit.py` now takes the harness directory as an argument** rather than
+deriving `checks.cfg`/`EXPECTED_CHECKS`/`checks/` from its own file's location; only
+`genchecks-local.py` -- the vendored, unforked generator this repo already shares between
+the two harnesses -- stays pinned to the script's own directory, since it is the same
+file either way. `nano/formal/Makefile`'s `checks:` target now runs
+`genchecks-audit.py .` in place of `genchecks-local.py`, so `make -C nano/formal check`
+generates through the same audited path the main core's `make -C formal check` does.
+`formal/Makefile`'s own invocation gained the matching `.` argument and is unchanged in
+every other respect -- re-run, it still reports 86 generated, 13 declined, all depths
+at or above their floors.
+
+**`nano/formal/checks.cfg` gains eighteen `#omit` lines**, one per check family the
+harness drops today, in the same `#omit <check> [DESIGN|BLOCKED] <reason>` format
+`formal/checks.cfg` already uses: the `bus_*` and `causal_io` families nano's
+`imemcheck.sv`/`dmemcheck.sv` already hold against the real bus, or that need
+`rvformal_addr_io` over an MMIO region nano does not define; `fault_ch0` and the
+`bus_*_fault` families, because the shared `mem_valid`/`mem_ready` bus carries no fault
+line; `csrc_inc_{mcycle,minstret}_ch0` and `csrc_upcnt_{mcycle,minstret}_ch0`, because
+nano decodes the CSR instruction encodings but implements no CSR register file behind
+them -- the same reason `csrw_mcycle_ch0`/`csrw_minstret_ch0` are already baselined
+FAIL; `causal_mem_ch0`, `ill_ch0` and `cover`, for which no `[depth]` floor or standalone
+cover harness exists yet. None of these families is added by this amendment -- a
+missing family staying missing is a separate ticket's, not this one's.
+
+A forced-red probe (`test/probe_gates.sh`) copies nano's own `checks.cfg` and
+`EXPECTED_CHECKS` into a fixture, lowers `hang`'s depth below its `F+1` floor, and
+requires generation to fail naming the breach -- the direction this whole ADR exists to
+close. `make -C nano/formal check` reproduces 79 generated, 77 pass, 2 known-fail
+(`csrw_mcycle_ch0`, `csrw_minstret_ch0`), unchanged from this ADR's own body; `make -C
+formal check` reproduces its own unchanged baseline. Neither harness's baseline moved --
+only whether a future depth cut is caught.
