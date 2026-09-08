@@ -1,5 +1,6 @@
 #!/bin/sh
-# Search SOC_SEED (soc/seed_hash.py's sha256 draw by default, never 1..N -- ADR-0170)
+# Search SOC_SEED (soc/seed_hash.py's sha256 draw by default, never 1..N: small
+# integers span a low-dimensional subspace of nextpnr's xorshift state)
 # for a placement that clears SOC_MIN_MHZ with margin, then write soc/pin.json.
 set -eu
 
@@ -59,7 +60,7 @@ if ! awk -v m="$margin_pct" -v need="$MIN_MARGIN_PCT" 'BEGIN{exit !(m>=need)}'; 
   echo "*** soc/soc_seed_search.sh: no seed cleared a ${MIN_MARGIN_PCT}% margin over" >&2
   echo "*** $min_mhz MHz -- the placer-seed dimension is exhausted at this seed" >&2
   echo "*** count. The next lever is synthesis cell-name order (yosys's" >&2
-  echo "*** 'rename -scramble-name'), documented in ADR-0170 and not wired into" >&2
+  echo "*** 'rename -scramble-name'), documented in the pinned-placement ADR and not wired into" >&2
   echo "*** this script; verify it is seedable and byte-reproducible before" >&2
   echo "*** relying on it. Nothing was pinned." >&2
   exit 1

@@ -374,7 +374,7 @@ top, ECP5 only.
   what `SOC_MIN_MHZ` grades, and eight seeds passed a candidate sixteen declined (ADR-0113). **A
   median inside the band is a null that does not even reproduce** (ADR-0121).
 - **With no `SOC_SEED` override, `make soc-timing` grades ONE pinned placement, not a
-  sweep's worst** (ADR-0170, amending ADR-0066: the 12.0 requirement is unchanged, only
+  sweep's worst** (ADR-0171, amending ADR-0066: the 12.0 requirement is unchanged, only
   what is measured against it). Three re-rolls of one netlist's RTL semantics — yosys's
   generated cell names carry `file:line`, ABC9 sorts by that name string, and a comment
   or a blank line is enough to reorder what it hands the placer — span about 3.7%
@@ -667,7 +667,7 @@ make monitor-check  # regenerate test/monitor.v at the pin into a temp file and 
 make fit            # the core's area number; ratchet on FIT_MAX_LC
 make soc-timing     # the SoC place-and-time flow; requirement on SOC_MIN_MHZ. With no
                     # SOC_SEED override this grades the pinned placement (soc/pin.json,
-                    # ADR-0170), RE-PIN NEEDED on a digest mismatch. An explicit SOC_SEED
+                    # ADR-0171), RE-PIN NEEDED on a digest mismatch. An explicit SOC_SEED
                     # (soc/timing_sweep.sh runs four) bypasses the pin
 make soc-seed-search # off `make test` and CI, like `make fit`: sweeps high-entropy seeds
                     # and writes soc/pin.json at >=5% margin over SOC_MIN_MHZ.

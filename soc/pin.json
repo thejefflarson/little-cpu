@@ -2,7 +2,7 @@
   "date": "2026-09-08",
   "distribution": {
     "chosen_seed": 125781539,
-    "note": "Seeds 1..N are a structured lattice in nextpnr-ice40's xorshift RNG state (state(3) = state(1) XOR state(2) over GF(2)), not an independent sample -- read the spread here as one search's outcome, not as the design's placement distribution. See ADR-0170.",
+    "note": "Seeds 1..N are a structured lattice in nextpnr-ice40's xorshift RNG state (state(3) = state(1) XOR state(2) over GF(2)), not an independent sample -- read the spread here as one search's outcome, not as the design's placement distribution. See ADR-0171.",
     "samples": [
       {
         "mhz": 12.13,

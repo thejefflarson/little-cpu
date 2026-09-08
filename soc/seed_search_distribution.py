@@ -26,7 +26,7 @@ def main():
                 "RNG state (state(3) = state(1) XOR state(2) over GF(2)), not an "
                 "independent sample -- read the spread here as one search's "
                 "outcome, not as the design's placement distribution. See "
-                "ADR-0170.",
+                "ADR-0171.",
         "seeds_source": seeds_source,
         "samples": samples,
         "chosen_seed": chosen_seed,

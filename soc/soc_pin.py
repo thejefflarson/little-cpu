@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The pinned placement: what `make soc-timing` grades by default.
 
-ADR-0170's evidence is that three re-rolls of IDENTICAL RTL semantics -- the same
+The evidence is that three re-rolls of IDENTICAL RTL semantics -- the same
 netlist under yosys's chaotic-but-deterministic cell-name ordering -- place close
 enough to `SOC_MIN_MHZ` that one draw of a sixteen-seed sweep already landed under
 it. A sixteen-seed sweep is the honest instrument for "does this change move the
@@ -28,7 +28,7 @@ requirement". Reporting one as the other would send a reader to the wrong fix
 -- re-synthesise and re-place versus find what lengthened the path.
 
 `make soc-seed-search` is what writes a pin: it sweeps high-entropy seeds
-(never 1..N -- ADR-0170 records why a small integer seed is not an
+(never 1..N -- a small integer seed is not an
 independent draw on this placer), and writes the seed with the best margin
 over `SOC_MIN_MHZ` alongside the whole distribution it was chosen from, so a
 future reader can see it was a considered choice and not a lucky one.
@@ -142,7 +142,7 @@ def cmd_write(args):
     if args.margin_pct < MIN_MARGIN_PCT:
         refuse(REFUSED,
                f"a {args.margin_pct:.2f}% margin over min-mhz is under the "
-               f"{MIN_MARGIN_PCT:.1f}% floor this pin requires (ADR-0170): the "
+               f"{MIN_MARGIN_PCT:.1f}% floor this pin requires: the "
                "pin has to survive toolchain drift, not merely clear the "
                "requirement today.")
     if args.distribution == "-":

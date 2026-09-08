@@ -3,7 +3,7 @@
 
 Seeds 1..N are not an independent draw on nextpnr-ice40's placer: `rngstate = seed`
 followed by five xorshift warm-up rounds is linear over GF(2), so seeds 1..16 span only
-a 4-dimensional subspace of a 64-dimensional state (ADR-0170). `soc/soc_seed_search.sh`'s
+a 4-dimensional subspace of a 64-dimensional state. `soc/soc_seed_search.sh`'s
 default search draws from here instead: sha256 of a plain, reproducible string, truncated
 to 28 bits so it sits well inside nextpnr's signed-int `--seed` argument.
 

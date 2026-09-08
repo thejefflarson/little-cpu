@@ -748,7 +748,7 @@ soc.json: $(SOC_SRCS) soc-rom
 # .asc is), and without it .DELETE_ON_ERROR deletes the .asc unread.
 SOC_SEED ?=
 
-# With no SOC_SEED override, `make soc-timing` places at the PINNED seed (ADR-0170); `origin` tells that apart from an explicit `SOC_SEED=`, since both read empty.
+# With no SOC_SEED override, `make soc-timing` places at the PINNED seed; `origin` tells that apart from an explicit `SOC_SEED=`, since both read empty.
 SOC_PIN := soc/pin.json
 ifeq ($(origin SOC_SEED),command line)
 SOC_SEED_PINNED :=
@@ -816,7 +816,7 @@ soc-timing: soc-timing-toolchain soc.asc
 	@echo 'toolchain-dependent the same way `make fit` is. 12 MHz is a'
 	@echo 'REQUIREMENT as of ADR-0066: it is the board clock, and the step below'
 	@echo 'it is 6 MHz. With no SOC_SEED override this places at the PINNED seed'
-	@echo '(soc/pin.json, ADR-0170) -- a digest mismatch fails as RE-PIN NEEDED'
+	@echo '(soc/pin.json) -- a digest mismatch fails as RE-PIN NEEDED'
 	@echo 'before nextpnr ever runs, which is a stale pin and not a slow design.'
 	@echo 'soc/timing_sweep.sh and an explicit SOC_SEED= still print the spread.'
 	@# The ratchet is applied by the thing that already parses the report. It
