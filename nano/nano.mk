@@ -44,15 +44,11 @@ nano-liberty-setup:
 	echo "sha256 ok: $$got"; \
 	mv "$$tmp" '$(NANO_LIBERTY)'
 
-# A ratchet, not a pin -- unlike NANO_LIBERTY_COMMIT it is meant to move, but only in a
-# reviewed commit that edits this line, never from the command line or the environment:
-# `NANO_MAX_UM2=nan` would otherwise reach area_report.py's `>` comparison, which is
-# false against a non-finite value on either side of it.
+# A ratchet, moved only in a reviewed commit: `NANO_MAX_UM2=nan` would otherwise beat area_report.py's `>` comparison, which is false against any non-finite value.
 ifneq ($(filter command line environment,$(origin NANO_MAX_UM2)),)
 $(error NANO_MAX_UM2 cannot be set from the command line or the environment: it is a \
   ratchet, and raising it needs a reason in the commit that edits nano/nano.mk)
 endif
-# The donor's own measured figure, at c55efd6.
 override NANO_MAX_UM2 := 84291
 
 NANO_SRCS := nano/nano.v
