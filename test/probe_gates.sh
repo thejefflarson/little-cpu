@@ -5856,7 +5856,10 @@ probe "a cell type outside the read liberty is refused, not priced at zero" 1 \
   "not in" \
   "$AR $d/unknown.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
 
-d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"
+# `stat.json` is left unwritten on purpose: if `load_stat` ran before `check_liberty`, this
+# would report "does not exist" instead, so the message below can only appear when the
+# liberty really is checked first -- swapping the two calls in `summarise()` turns this red.
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib")
 probe "a missing liberty file is refused before the JSON is even opened" 1 \
   "no liberty file at" \
   "$AR $d/stat.json --liberty $d/does-not-exist.lib --liberty-sha256 $sha --max-um2 10"
@@ -5866,10 +5869,93 @@ probe "a liberty file that does not match the pinned digest is refused" 1 \
   "does not match the pinned digest" \
   "$AR $d/stat.json --liberty $d/fake.lib --liberty-sha256 0000000000000000000000000000000000000000000000000000000000000000 --max-um2 10"
 
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib")
+cat > "$d/nodesign.json" <<'JSON'
+{"not_design_at_all": true}
+JSON
+probe "a report with no 'design' key at all is refused, not read as zero" 1 \
+  "carries no 'design' totals" \
+  "$AR $d/nodesign.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
+
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib")
+cat > "$d/badshape.json" <<'JSON'
+{"design": {"num_cells": 1}}
+JSON
+probe "a design entry missing area/num_cells/by_type is refused, not read as what is left" 1 \
+  "not the area, num_cells and num_cells_by_type fields" \
+  "$AR $d/badshape.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
+
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib")
+cat > "$d/nanarea.json" <<'JSON'
+{"design": {"num_cells": 1, "area": NaN, "sequential_area": 0.0, "num_cells_by_type": {"FAKE_INV": 1}}}
+JSON
+probe "a non-finite area in the JSON is refused, not compared as if it were real" 1 \
+  "is not a finite number" \
+  "$AR $d/nanarea.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
+
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"
+probe "a non-finite --max-um2 is refused before the ratchet compares anything" 2 \
+  "not a finite, positive um2 budget" \
+  "$AR $d/stat.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 nan"
+
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"
 probe "the trend against a recorded figure is printed beside the verdict" 0 \
   "TREND: +2.2" \
   "$AR $d/stat.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10 --previous 4"
+
+begin_group "nano/srcs_guard.sh"
+
+SG="$REPO/nano/srcs_guard.sh"
+
+d=$(new_case); touch "$d/a.v" "$d/b.v"
+probe "control: every named source present proceeds" 0 \
+  "all of" "$SG $d/a.v $d/b.v"
+
+d=$(new_case)
+probe "no named source at all is reported, and is not a failure" 2 \
+  "the donor import has not landed" "$SG $d/missing1.v $d/missing2.v"
+
+d=$(new_case); touch "$d/a.v"
+probe "one source present and a second missing is refused, not read as nothing landed" 1 \
+  "a partial NANO_SRCS" "$SG $d/a.v $d/missing.v"
+
+begin_group "nano/synth_script.sh"
+
+SS_SCRIPT="$REPO/nano/synth_script.sh"
+
+probe "control: a plain liberty and source produce the expected yosys script" 0 \
+  'dfflibmap -liberty "/tmp/lib.lib"' \
+  "$SS_SCRIPT /tmp/lib.lib nano/nano.v"
+
+probe "a semicolon in the liberty path stays inside its own quoted token" 0 \
+  '"/tmp/lib;evil.lib"' \
+  "$SS_SCRIPT '/tmp/lib;evil.lib' nano/nano.v"
+
+probe "a space in a source path does not split it into a second yosys argument" 0 \
+  '"a b/c.v"' \
+  "$SS_SCRIPT /tmp/lib.lib 'a b/c.v'"
+
+begin_group "make nano-liberty-setup"
+
+NL="MAKEFLAGS= MFLAGS= MAKELEVEL= PATH='$tmp/bin-curl:$PATH' \
+    make --no-print-directory -C '$REPO' nano-liberty-setup"
+
+nl_aftermath() {  # $1 = case dir
+  local log=$1/setup.log
+  eval "XDG_CACHE_HOME=$1/cache $NL" > "$log" 2>&1
+  printf 'refused=%s kept=%s\n' \
+    "$(grep -qF 'MISMATCH -- refusing to keep it' "$log" && echo yes || echo no)" \
+    "$([ -e "$1/cache/little-cpu/sky130/sky130_fd_sc_hd__tt_025C_1v80.lib" ] \
+       && echo yes || echo no)"
+}
+
+d=$(new_case)
+probe "a liberty download whose bytes are not the pin is refused before it is kept" 1 \
+  "SHA-256 MISMATCH -- refusing to keep it" "XDG_CACHE_HOME=$d/cache $NL"
+
+d=$(new_case)
+probe "the refused liberty download is not kept to be served again" 0 \
+  "refused=yes kept=no" "nl_aftermath $d"
 
 actual_labels=$(printf '%s\n' "${probe_labels[@]}" | LC_ALL=C sort)
 expected_labels=$(grep -vE '^#|^[[:space:]]*$' "$PROBES_MANIFEST" | LC_ALL=C sort)
