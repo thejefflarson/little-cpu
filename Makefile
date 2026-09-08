@@ -748,10 +748,44 @@ soc.json: $(SOC_SRCS) soc-rom
 # .asc is), and without it .DELETE_ON_ERROR deletes the .asc unread.
 SOC_SEED ?=
 
-soc.asc: soc.json soc/littlesoc.pcf
+# With no SOC_SEED override, `make soc-timing` places at the PINNED seed and grades that
+# one recorded placement (ADR-0170) rather than an unseeded or fresh-every-run one: a
+# sixteen-seed sweep is the instrument for "did this edit move the design", never for
+# "does the shipping build clear the board clock", because one draw of sixteen can land
+# under 12.0 while the design that produced it is unchanged. `origin` tells an explicit
+# `SOC_SEED=` (soc/timing_sweep.sh's "default" entry, and every other sweep row) apart
+# from no override at all, even though both leave the variable empty.
+SOC_PIN := soc/pin.json
+ifeq ($(origin SOC_SEED),command line)
+SOC_SEED_PINNED :=
+else
+SOC_SEED_PINNED := 1
+endif
+
+# The same canonical form soc/netlist_digest.py hashes -- dead nets purged, source-line
+# attributes dropped so a comment cannot move it -- taken from the already-mapped
+# soc.json rather than by re-running synth_ice40 the way `make netlist-determinism` does
+# for its placement-equality proof. That proof is what a pin's soundness rests on, taken
+# once when the pin is written, not re-derived on every `make soc-timing`.
+soc.canon.json: soc.json
+	@yosys -p 'read_json $<; opt_clean -purge; write_json $@' > soc.canon.log 2>&1 \
+	  || { tail -40 soc.canon.log; exit 1; }
+
+.PHONY: soc-pin-check
+soc-pin-check: soc.canon.json
+	@python3 soc/soc_pin.py check-digest $< $(SOC_PIN)
+
+soc.asc: soc.json soc/littlesoc.pcf $(if $(SOC_SEED_PINNED),soc-pin-check)
 	@echo 'nextpnr: placing and routing littlesoc on up5k/sg48 (log: soc.pnr.log)'
-	@$(SOC_PNR) --json $< $(if $(SOC_SEED),--seed '$(SOC_SEED)') \
-	  --asc $@ > soc.pnr.log 2>&1 || true
+	@seed='$(SOC_SEED)'; \
+	if [ -n '$(SOC_SEED_PINNED)' ]; then \
+	  seed=$$(python3 soc/soc_pin.py seed $(SOC_PIN)) || exit 1; \
+	fi; \
+	if [ -n "$$seed" ]; then \
+	  $(SOC_PNR) --json $< --seed "$$seed" --asc $@ > soc.pnr.log 2>&1 || true; \
+	else \
+	  $(SOC_PNR) --json $< --asc $@ > soc.pnr.log 2>&1 || true; \
+	fi
 	@test -s $@ || { \
 	  echo '*** make soc-timing: nextpnr produced no bitstream, so NOTHING was'; \
 	  echo '*** measured. That is a failed placement, not a slow design.'; \
@@ -791,12 +825,20 @@ soc-timing: soc-timing-toolchain soc.asc
 	@echo 'one placement of one build at the worst-case corner, and it is'
 	@echo 'toolchain-dependent the same way `make fit` is. 12 MHz is a'
 	@echo 'REQUIREMENT as of ADR-0066: it is the board clock, and the step below'
-	@echo 'it is 6 MHz. One placement is a sample: soc/timing_sweep.sh prints the'
-	@echo 'spread, and a requirement has to hold at all of them.'
+	@echo 'it is 6 MHz. With no SOC_SEED override this places at the PINNED seed'
+	@echo '(soc/pin.json, ADR-0170) -- a digest mismatch fails as RE-PIN NEEDED'
+	@echo 'before nextpnr ever runs, which is a stale pin and not a slow design.'
+	@echo 'soc/timing_sweep.sh and an explicit SOC_SEED= still print the spread.'
 	@# The ratchet is applied by the thing that already parses the report. It
 	@# was a `python3 -c` here, i.e. a SECOND parser of the same file -- and the
 	@# second one was the one holding the gate.
 	@python3 soc/timing_split.py soc.timing.rpt --min-mhz $(SOC_MIN_MHZ)
+
+# Off `make test` and CI, the same standing `make fit` has: this writes soc/pin.json,
+# it does not grade anything. `make soc-timing` is the grader.
+.PHONY: soc-seed-search
+soc-seed-search: soc-timing-toolchain
+	@soc/soc_seed_search.sh
 
 ECP5_DEVICE  := --25k
 ECP5_PACKAGE := CABGA381
