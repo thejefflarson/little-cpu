@@ -1,0 +1,65 @@
+{
+  "date": "2026-09-08",
+  "distribution": {
+    "chosen_seed": 125781539,
+    "note": "Seeds 1..N are a structured lattice in nextpnr-ice40's xorshift RNG state (state(3) = state(1) XOR state(2) over GF(2)), not an independent sample -- read the spread here as one search's outcome, not as the design's placement distribution. See ADR-0170.",
+    "samples": [
+      {
+        "mhz": 12.13,
+        "seed": 195147338
+      },
+      {
+        "mhz": 12.24,
+        "seed": 218749127
+      },
+      {
+        "mhz": 12.29,
+        "seed": 20740127
+      },
+      {
+        "mhz": 12.61,
+        "seed": 125781539
+      },
+      {
+        "mhz": 12.39,
+        "seed": 14871351
+      },
+      {
+        "mhz": 12.14,
+        "seed": 156842832
+      },
+      {
+        "mhz": 12.47,
+        "seed": 233595587
+      },
+      {
+        "mhz": 12.46,
+        "seed": 20382078
+      },
+      {
+        "mhz": 12.43,
+        "seed": 105970731
+      },
+      {
+        "mhz": 12.35,
+        "seed": 67306537
+      },
+      {
+        "mhz": 12.22,
+        "seed": 188692556
+      },
+      {
+        "mhz": 11.91,
+        "seed": 56599761
+      }
+    ],
+    "seeds_source": "sha256(little-cpu-soc-seed-<i>) default, count=12"
+  },
+  "margin_pct": 5.0833,
+  "measured_mhz": 12.61,
+  "min_mhz": 12.0,
+  "netlist_digest": "sha256:cd83a72f9a212db18570649de878a96eac84bce803daf80f7276234767f81dd2",
+  "seed": 125781539,
+  "synth_knob": null,
+  "toolchain": "# yosys: Yosys 0.68+post (git sha1 c12172fbae8af5e20f6fb52e3d4e92d56ed587b6, Release, AppleClang clang++ 21.0.0.21000101) [/opt/homebrew/bin/yosys]\n# nextpnr-ice40: \"nextpnr-ice40\" -- Next Generation Place and Route (Version ) [/opt/homebrew/bin/nextpnr-ice40]\n# icetime: no version string sha256:4ba28c34e2628592 [/opt/homebrew/bin/icetime]"
+}

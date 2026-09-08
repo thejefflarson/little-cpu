@@ -107,14 +107,19 @@ a pin is produced; this ADR is the argument, that file is the implementation.
 
 ## What shipped
 
-Today's netlist (digest `sha256:c8b778eb756e2ea55321a7f5ed83721c2ce17367f77863b95876eb671e17cbef`)
-already had a seed on record clearing the floor with room to spare — seed 11 at **12.80 MHz**,
-6.7% over 12.0 — so no further placer-seed search was needed to produce the shipping pin; the
-first mitigation in the decision (a better seed) already clears the target on this tree. The
-`rename -scramble-name` lever `soc/soc_seed_search.sh` names as the next one, should a future
-netlist's seed search be exhausted at count without reaching 5%, is not wired into that script
-and is not verified here to be seedable and byte-reproducible; a future ADR should verify that
-before relying on it.
+`make soc-seed-search`'s default twelve-seed draw against today's netlist (digest
+`sha256:cd83a72f9a212db18570649de878a96eac84bce803daf80f7276234767f81dd2`) read
+11.91–12.61 MHz — every one of the twelve within the table's own ~3.7% spread, and the
+worst of them (11.91 MHz) itself under the 12.0 floor, which is this ADR's argument
+reproducing on the very sweep that picked the pin. The best, seed 125781539 at
+**12.61 MHz**, clears `SOC_MIN_MHZ` by 5.08%: over the 5% floor this ADR's decision
+requires, but only just, which is consistent with the placer-seed dimension being a
+genuinely narrow lever on this tree rather than a wide one. `soc/pin.json` records that
+seed, the digest, and the full twelve-seed distribution it was chosen from. Should a
+future netlist's search be exhausted at count without reaching 5%, the next lever is
+synthesis cell-name order (yosys's `rename -scramble-name`), named in the decision above
+but not wired into `soc/soc_seed_search.sh` and not verified here to be seedable and
+byte-reproducible; a future ADR should verify that before relying on it.
 
 ## What this does not say
 
