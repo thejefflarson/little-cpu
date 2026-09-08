@@ -748,13 +748,7 @@ soc.json: $(SOC_SRCS) soc-rom
 # .asc is), and without it .DELETE_ON_ERROR deletes the .asc unread.
 SOC_SEED ?=
 
-# With no SOC_SEED override, `make soc-timing` places at the PINNED seed and grades that
-# one recorded placement (ADR-0170) rather than an unseeded or fresh-every-run one: a
-# sixteen-seed sweep is the instrument for "did this edit move the design", never for
-# "does the shipping build clear the board clock", because one draw of sixteen can land
-# under 12.0 while the design that produced it is unchanged. `origin` tells an explicit
-# `SOC_SEED=` (soc/timing_sweep.sh's "default" entry, and every other sweep row) apart
-# from no override at all, even though both leave the variable empty.
+# With no SOC_SEED override, `make soc-timing` places at the PINNED seed (ADR-0170); `origin` tells that apart from an explicit `SOC_SEED=`, since both read empty.
 SOC_PIN := soc/pin.json
 ifeq ($(origin SOC_SEED),command line)
 SOC_SEED_PINNED :=
@@ -762,11 +756,7 @@ else
 SOC_SEED_PINNED := 1
 endif
 
-# The same canonical form soc/netlist_digest.py hashes -- dead nets purged, source-line
-# attributes dropped so a comment cannot move it -- taken from the already-mapped
-# soc.json rather than by re-running synth_ice40 the way `make netlist-determinism` does
-# for its placement-equality proof. That proof is what a pin's soundness rests on, taken
-# once when the pin is written, not re-derived on every `make soc-timing`.
+# The same canonical form soc/netlist_digest.py hashes, taken from the already-mapped soc.json.
 soc.canon.json: soc.json
 	@yosys -p 'read_json $<; opt_clean -purge; write_json $@' > soc.canon.log 2>&1 \
 	  || { tail -40 soc.canon.log; exit 1; }
@@ -834,8 +824,6 @@ soc-timing: soc-timing-toolchain soc.asc
 	@# second one was the one holding the gate.
 	@python3 soc/timing_split.py soc.timing.rpt --min-mhz $(SOC_MIN_MHZ)
 
-# Off `make test` and CI, the same standing `make fit` has: this writes soc/pin.json,
-# it does not grade anything. `make soc-timing` is the grader.
 .PHONY: soc-seed-search
 soc-seed-search: soc-timing-toolchain
 	@soc/soc_seed_search.sh

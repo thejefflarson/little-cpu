@@ -1,17 +1,12 @@
 #!/bin/sh
-# Search SOC_SEED for a placement that clears SOC_MIN_MHZ with room to spare, then pin
-# it (ADR-0170). Off `make test` and CI, the same standing `make fit` has.
+# Search SOC_SEED (soc/seed_hash.py's sha256 draw by default, never 1..N -- ADR-0170)
+# for a placement that clears SOC_MIN_MHZ with margin, then write soc/pin.json.
 set -eu
 
 cd "$(dirname "$0")/.."
 
 MIN_MARGIN_PCT=5.0
 
-# Seeds 1..N are a structured lattice in nextpnr-ice40's xorshift RNG state, not an
-# independent sample (ADR-0170), so the default draws from outside it:
-# sha256("little-cpu-soc-seed-<i>"), 28 bits of it, reproducible from the index alone.
-# SOC_SEARCH_SEEDS overrides with an explicit space-separated list, e.g. to re-check a
-# seed a past search already named.
 if [ -n "${SOC_SEARCH_SEEDS-}" ]; then
   seeds=$SOC_SEARCH_SEEDS
   seeds_source="explicit SOC_SEARCH_SEEDS"
@@ -35,9 +30,6 @@ trap 'rm -f "$samples" "$dist"' EXIT
 best_seed=
 best_mhz=0
 for seed in $seeds; do
-  # SOC_MIN_MHZ=0 so a seed that places fine but reads under the real floor is a low
-  # sample to record, not a `make soc-timing` failure that stops the whole search --
-  # the ratchet against the real $min_mhz is this script's own, below.
   out=$(make soc-timing SOC_SEED="$seed" SOC_MIN_MHZ=0 2>&1) || {
     printf '%s\n' "$out" >&2
     echo "*** soc/soc_seed_search.sh: seed $seed failed to PLACE (nextpnr produced no" >&2

@@ -2,13 +2,13 @@
 """The pinned placement: what `make soc-timing` grades by default.
 
 ADR-0170's evidence is that three re-rolls of IDENTICAL RTL semantics -- the same
-netlist under yosys's chaotic-but-deterministic cell-name ordering -- span a
-worst-of-sixteen placement spread of about 3.7%, against a 3.5% clearance over
-`SOC_MIN_MHZ`. A sixteen-seed sweep is the honest instrument for "does this
-change move the design", never for "does the shipping build clear the board
-clock": nothing stops one draw from landing under 12.0 while the design that
-produced it is unchanged. So `make soc-timing` grades ONE recorded placement,
-`soc/pin.json`, rather than the worst of a sweep taken fresh every run.
+netlist under yosys's chaotic-but-deterministic cell-name ordering -- place close
+enough to `SOC_MIN_MHZ` that one draw of a sixteen-seed sweep already landed under
+it. A sixteen-seed sweep is the honest instrument for "does this change move the
+design", never for "does the shipping build clear the board clock": nothing stops
+one draw from landing under 12.0 while the design that produced it is unchanged.
+So `make soc-timing` grades ONE recorded placement, `soc/pin.json`, rather than
+the worst of a sweep taken fresh every run.
 
 A pin is a claim about ONE netlist, never about the design's typical Fmax. It
 is sound only while `soc.json`'s canonicalised form -- the same form
