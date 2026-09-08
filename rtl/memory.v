@@ -38,8 +38,6 @@ module memory #(
       atomic_addr[32*h+31:32*h+ADDR_BITS+2] == BASE[31:ADDR_BITS+2];
   end
 
-  logic [31:0] ram_q;
-  logic        in_range_q;
   always_ff @(posedge clk) begin
     if (in_range && |mem_wstrb) begin
       if (mem_wstrb[0]) ram[index][7:0]   <= mem_wdata[7:0];
@@ -47,10 +45,7 @@ module memory #(
       if (mem_wstrb[2]) ram[index][23:16] <= mem_wdata[23:16];
       if (mem_wstrb[3]) ram[index][31:24] <= mem_wdata[31:24];
     end else if (!(|mem_wstrb)) begin
-      ram_q      <= ram[index];
-      in_range_q <= in_range;
+      mem_rdata <= in_range ? ram[index] : 32'b0;
     end
   end
-  // A mux on the output, never a synchronous constant: soc/bram_reset_check.py says why.
-  assign mem_rdata = in_range_q ? ram_q : 32'b0;
 endmodule
