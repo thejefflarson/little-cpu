@@ -151,8 +151,9 @@ before any other gate ran.
 
 Sixteen seeds on unrelated `main` (932d021) were swept the same session and put
 its own worst seed (9) at 11.99 MHz, under the 12.0 requirement — a property of
-that tree independent of this spelling, and filed separately (JEF-993). It is
-reported here only so seed 9's reading in the mux column below is not mistaken
+that tree independent of this spelling, and tracked as its own requirements
+decision about `SOC_MIN_MHZ`'s tail rather than as a defect in any one edit. It
+is reported here only so seed 9's reading in the mux column below is not mistaken
 for a defect this amendment introduces: `main` already ships the mux spelling,
 so the mux arm below and `main`'s own sweep are one and the same tree, and the
 numbers agree to the seed — worst 11.99 MHz, median 12.445 MHz (12.45 rounded),
@@ -190,15 +191,16 @@ formula ADR-0121 derives:
 
 **The single-seed number this section opened with does not survive the sweep,
 and the direction reverses.** One seed read the mux spelling 3.0% faster; the
-median of sixteen reads it (12.965 − 12.445) / 12.965 = **4.0% slower** than
+median of sixteen reads it (12.968 − 12.445) / 12.968 = **4.0% slower** than
 the pre-fix spelling, and the mux arm's only sub-12.0 seed is exactly the seed
 `main`'s own sweep already reports missing for reasons this amendment did not
-introduce (JEF-993). Read together: the fix has a real median cost on the
-up5k SoC, not the null the one-seed figure suggested, and it clears the
-requirement at 15 of its 16 seeds with the sixteenth attributable to a
-tracked, separately-owned tree property rather than to the mux itself —
-`SOC_MIN_MHZ` does not move on that basis (CLAUDE.md: 12.0 is a requirement,
-not a regression floor), and JEF-993 is where that miss is decided.
+introduce. Read together: the fix has a real median cost on the up5k SoC, not
+the null the one-seed figure suggested, and it clears the requirement at 15 of
+its 16 seeds with the sixteenth attributable to a tracked, separately-owned
+tree property rather than to the mux itself — `SOC_MIN_MHZ` does not move on
+that basis (CLAUDE.md: 12.0 is a requirement, not a regression floor), and
+that separate requirements decision, not this ADR, is where the miss gets
+settled.
 
 **Decision: the mux spelling still ships**, because correctness is not up for
 trade against period. `rtl/memory.v`'s sync arm is the shape
