@@ -141,9 +141,12 @@ are present and some are not.
 script and reached synthesis before `area_report.py` ever checked the liberty's
 digest, both derived from `TOOL_CACHE`. `nano/synth_script.sh` now quotes every
 path as its own yosys-script token, so a `;` cannot read as a second command and
-a space cannot split an argument, and `nano-area: | nano-liberty-setup` makes
-the digest check an order-only prerequisite of the synthesis that reads the
-file it checks.
+a space cannot split an argument, and `nano-area`'s recipe calls
+`$(MAKE) nano-liberty-setup` between the `srcs_guard.sh` check and the `yosys`
+line, so the digest is verified before synthesis reads the file it checks
+without paying that verification on the fast "donor not landed" exit the guard
+is for -- an order-only prerequisite would have run it unconditionally, ahead
+of even that guard.
 
 Two of the nine refusals `area_report.py` states — no `design` key at all, and a
 `design` entry missing `area`/`num_cells`/`num_cells_by_type` — had never been

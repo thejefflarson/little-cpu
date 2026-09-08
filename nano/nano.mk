@@ -54,10 +54,11 @@ override NANO_MAX_UM2 := 84291
 NANO_SRCS := nano/nano.v
 
 .PHONY: nano-area
-nano-area: | nano-liberty-setup
+nano-area:
 	@nano/srcs_guard.sh $(NANO_SRCS); rc=$$?; \
 	if [ $$rc -eq 2 ]; then exit 0; fi; \
 	if [ $$rc -ne 0 ]; then exit $$rc; fi; \
+	$(MAKE) --no-print-directory nano-liberty-setup; \
 	yosys -p "$$(nano/synth_script.sh '$(NANO_LIBERTY)' $(NANO_SRCS))" \
 	  > nano/area.synth.log 2>&1 || { tail -40 nano/area.synth.log; exit 1; }; \
 	python3 nano/area_report.py nano/area.json --liberty '$(NANO_LIBERTY)' \
