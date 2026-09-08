@@ -4550,6 +4550,98 @@ PY
 probe "a top module with no cells in it is a failed synthesis" 2 \
   "has no cells in it" "$ND compare $d/base.json $d/new.json"
 
+begin_group "soc/soc_pin.py"
+
+SP="python3 $REPO/soc/soc_pin.py"
+
+sp_canon() {  # <file> -- a minimal valid canonical netlist, netlist_digest.py's own shape
+  cat > "$1" <<'JSON'
+{
+  "creator": "Yosys 0.68 (git sha1 abcdef0)",
+  "modules": {
+    "littlesoc": {
+      "attributes": { "top": "00000000000000000000000000000001" },
+      "ports": {},
+      "cells": {
+        "lut.1": { "hide_name": 1, "type": "SB_LUT4", "parameters": {}, "attributes": {}, "connections": {} }
+      },
+      "netnames": {}
+    }
+  }
+}
+JSON
+}
+
+sp_pin_matching() {  # <fixture dir> -- canon.json and a pin.json whose digest matches it
+  local d; d=$(new_case)
+  sp_canon "$d/canon.json"
+  local digest
+  digest=$(python3 "$REPO/soc/netlist_digest.py" digest "$d/canon.json" \
+             | sed -n 's/^  digest    //p')
+  cat > "$d/pin.json" <<PINJSON
+{
+  "netlist_digest": "$digest",
+  "seed": 11,
+  "measured_mhz": 12.8,
+  "min_mhz": 12.0,
+  "margin_pct": 6.67,
+  "toolchain": "stub toolchain",
+  "date": "2026-09-07",
+  "distribution": {"note": "stub"}
+}
+PINJSON
+  printf '%s' "$d"
+}
+
+d=$(sp_pin_matching)
+probe "control: a pin whose digest matches the netlist checks OK" 0 "pin OK" \
+  "$SP check-digest $d/canon.json $d/pin.json"
+
+d=$(sp_pin_matching)
+probe "control: a matching pin names its own seed and MHz" 0 "seed 11, measured 12.80 MHz" \
+  "$SP check-digest $d/canon.json $d/pin.json"
+
+d=$(sp_pin_matching)
+mutate "$d/pin.json" \
+  's/"netlist_digest": "[^"]*"/"netlist_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"/'
+probe "a corrupted pin's digest is RE-PIN NEEDED, not a timing miss" 3 \
+  "RE-PIN NEEDED" "$SP check-digest $d/canon.json $d/pin.json"
+
+d=$(sp_pin_matching)
+mutate "$d/pin.json" \
+  's/"netlist_digest": "[^"]*"/"netlist_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"/'
+probe "RE-PIN NEEDED is not phrased as a timing failure" 3 \
+  "NOT a timing failure" "$SP check-digest $d/canon.json $d/pin.json"
+
+d=$(new_case)
+printf '{"seed": 195147338, "mhz": 12.13}' > "$d/dist.json"
+probe "a seed clearing SOC_MIN_MHZ by under 5% is refused, not pinned" 2 \
+  "is under the 5.0% floor this pin requires" \
+  "$SP write $d/pin.json --digest sha256:0000 --seed 195147338 --mhz 12.13 \
+     --min-mhz 12.0 --margin-pct 1.08 --toolchain stub --date 2026-09-07 \
+     --distribution $d/dist.json"
+
+d=$(new_case)
+printf '{"seed": 195147338, "mhz": 12.13}' > "$d/dist.json"
+"$SP" write "$d/pin.json" --digest sha256:0000 --seed 195147338 --mhz 12.13 \
+    --min-mhz 12.0 --margin-pct 1.08 --toolchain stub --date 2026-09-07 \
+    --distribution "$d/dist.json" > /dev/null 2>&1 || true
+probe "...and a margin under the floor writes no pin file at all" 0 \
+  "no pin written" "test -e $d/pin.json && echo 'pin written' || echo 'no pin written'"
+
+d=$(new_case)
+probe "a pin file that does not exist is refused, not read as absent-is-fine" 2 \
+  "so there is no pin to check against" \
+  "$SP check-digest $d/canon.json $d/gone.json"
+
+d=$(new_case); printf 'not json' > "$d/pin.json"
+probe "a hand-edited pin that no longer parses is as invalid as unwritten" 2 \
+  "not parseable as JSON" "$SP check-digest $d/canon.json $d/pin.json"
+
+d=$(new_case); printf '{"seed": 11}' > "$d/pin.json"
+probe "a partial pin missing required fields is not a pin" 2 \
+  "missing netlist_digest" "$SP check-digest $d/canon.json $d/pin.json"
+
 begin_group "soc/netlist_determinism.sh"
 
 nl_stub_yosys() {  # $1 = bin dir, $2 = fixture dir

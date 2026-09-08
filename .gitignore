@@ -14,6 +14,8 @@ soc.synth.log
 soc.pnr.log
 soc.timing.rpt
 soc.icetime.log
+soc.canon.json
+soc.canon.log
 ecp5.json
 ecp5.config
 ecp5.report.json

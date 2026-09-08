@@ -36,6 +36,7 @@
 --require-news is news the moment --current disagrees with the older stamp
 --require-news is news the moment rtl/ moved under the older stamp too
 --require-news refuses on its own status, not on "no news"
+...and a margin under the floor writes no pin file at all
 ...and one the purge did not remove means the digest is equal by luck
 ...and so does the file it injects into going away
 ...and the count that site was declared with is red too
@@ -49,6 +50,7 @@ CoreMark's own FAIL verdict stops the number being quoted
 JSON that is not a netlist is refused
 NO-STATUS is a broken harness and is not baselineable either
 PASS in a failure set is a comparison whose only branch is failure
+RE-PIN NEEDED is not phrased as a timing failure
 a --measured call with no --isa is refused the same way as a missing --cflags
 a --measured call with no --tool is refused rather than stamping an unknown toolchain
 a C floor copied out of the measured table is rejected, not honoured
@@ -128,6 +130,7 @@ a core that cannot hold the image is named, not left to the reader
 a core that reached the start of the loop and not the end is red
 a core under the step FAILS rather than scoring a fraction
 a core yosys folded away is red, not a fast design
+a corrupted pin's digest is RE-PIN NEEDED, not a timing miss
 a cosim.py that cannot be executed stops the run
 a count that is not a number stops rather than summing to nonsense
 a cover red for some other goal says nothing about the lock
@@ -184,6 +187,7 @@ a graded target quietly depending on netlist-digest is red, and named
 a graph with no edges out of reg_rs1 is red, not a vacuous pass
 a half-installed toolchain says so once, up front
 a half-installed toolchain says so once, up front
+a hand-edited pin that no longer parses is as invalid as unwritten
 a hand-typed fixture is red on an unquoted heredoc delimiter too
 a hand-typed fixture with no anchor and no cp of a real file is red
 a harness that is red at rest makes the two mutations meaningless
@@ -271,9 +275,11 @@ a part this repo stopped placing is refused too, not kept as a row
 a part this script cannot grade a stamp for is rejected, not guessed at
 a part with no cell-name row is refused rather than defaulted
 a part with no icetime walk reads NA rather than a fabricated zero
+a partial pin missing required fields is not a pin
 a path that does not reconcile blames the script, not the design
 a path with no LUT level at all reports zero rather than dividing by it
 a peripheral inside the timer's reserved span is red
+a pin file that does not exist is refused, not read as absent-is-fine
 a pin that makes another check read rvfi_intr is red
 a pin that models an interrupt CSR makes the tie-off an argument again
 a placement at zero MHz is not a placement
@@ -356,6 +362,7 @@ a run that printed no COSIM-STATUS is COSIM-ERROR, not a verdict
 a runner that printed no CS END terminator is a broken harness
 a runner that reports no cycles at all cannot produce a clean table
 a second occurrence of a counted exception value is red
+a seed clearing SOC_MIN_MHZ by under 5% is refused, not pinned
 a signal in scope only in an earlier module stops it too
 a simulated ROM smaller than the part's is red
 a simulation this cannot parse is a run that did not happen
@@ -535,6 +542,7 @@ control: a full-pass check set against an empty baseline is green
 control: a good CoreMark run reports all three cores' figures
 control: a good run reports both cores' figures
 control: a good three-way run reports all three cores' figures
+control: a matching pin names its own seed and MHz
 control: a measurement within budget is green
 control: a measurement within budget is green
 control: a model file OUTSIDE isa_rv32imc.txt is not one this check can see
@@ -542,6 +550,7 @@ control: a netlist digests, and the digest is a sha256
 control: a nextpnr that wrote its pair is graded, exit 1 and all
 control: a passing suite against an empty baseline is green
 control: a peripheral above the reserved span is accepted
+control: a pin whose digest matches the netlist checks OK
 control: a placement holding the whole core is green
 control: a report clearing the floor is green
 control: a rule from this clone's $GIT_DIR/info/exclude is not this repository's to grade

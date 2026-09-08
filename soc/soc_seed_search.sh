@@ -35,9 +35,14 @@ trap 'rm -f "$samples" "$dist"' EXIT
 best_seed=
 best_mhz=0
 for seed in $seeds; do
-  out=$(make soc-timing SOC_SEED="$seed" 2>&1) || {
+  # SOC_MIN_MHZ=0 so a seed that places fine but reads under the real floor is a low
+  # sample to record, not a `make soc-timing` failure that stops the whole search --
+  # the ratchet against the real $min_mhz is this script's own, below.
+  out=$(make soc-timing SOC_SEED="$seed" SOC_MIN_MHZ=0 2>&1) || {
     printf '%s\n' "$out" >&2
-    echo "*** soc/soc_seed_search.sh: seed $seed failed to place; the search stops here." >&2
+    echo "*** soc/soc_seed_search.sh: seed $seed failed to PLACE (nextpnr produced no" >&2
+    echo "*** bitstream, or wrote no utilisation table) -- a toolchain or netlist" >&2
+    echo "*** problem, not merely a slow seed, so the search stops here." >&2
     exit 1
   }
   line=$(printf '%s\n' "$out" | grep '^critical path :') || {
