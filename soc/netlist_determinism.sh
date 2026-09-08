@@ -130,8 +130,7 @@ text = open(path).read()
 lines = text.splitlines(True)
 if len(lines) < 2:
     sys.exit(f"{path}: too short to insert into")
-lines.insert(1, "// A comment that says nothing, so every line under it moves.\n")
-lines.insert(2, "\n")
+lines.insert(1, "\n")
 text = "".join(lines)
 
 marker = "\nendmodule"
