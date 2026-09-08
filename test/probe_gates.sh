@@ -5167,7 +5167,7 @@ l4_fixture() {
   mkdir -p "$d/soc/compare" "$d/soc/depth" "$d/test" "$d/docs/adr" "$d/docs/ideas"
   cp "$REPO/CLAUDE.md" "$d/"
   cp "$REPO/Makefile" "$d/"
-  cp "$REPO/soc/baseline_summary.py" "$REPO/soc/baseline_sweep.sh" "$d/soc/"
+  cp "$REPO/soc/baseline_summary.py" "$REPO/soc/baseline_sweep.sh" "$REPO/soc/netlist_digest.py" "$d/soc/"
   cp "$REPO/soc/compare/dhry_fit.py" "$REPO/soc/compare/coremark_fit.py" \
     "$REPO/soc/compare/placed_vs_synth.py" "$d/soc/compare/"
   cp "$REPO/soc/depth/path_stages.py" "$d/soc/depth/"
