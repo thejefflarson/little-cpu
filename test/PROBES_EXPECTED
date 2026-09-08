@@ -751,6 +751,7 @@ the nano liberty install directory inside the checkout is red on its own
 the other direction for a .c: the glob has to see it too
 the other direction: a .S that landed without a manifest line
 the other direction: a program no pairing claims to catch anything
+the pin's digest excludes the toolchain string, unlike netlist_digest.py's own
 the override prints the mismatch it was passed to get past
 the program addressing RAM somewhere the harness has none is red
 the proof describes the part's text window, not the harness's

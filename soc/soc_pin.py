@@ -14,13 +14,18 @@ A pin is a claim about ONE netlist, never about the design's typical Fmax. It
 is sound only while `soc.json`'s canonicalised form -- the same form
 `soc/netlist_digest.py` takes a sha256 of, dead nets purged and source-line
 attributes dropped so a comment cannot move it -- still hashes to what the pin
-recorded. A netlist that moved invalidates every placement recorded against
-the old one; this is the RE-PIN NEEDED failure, and it is deliberately not the
-same failure as a placement that reproduces but falls under `SOC_MIN_MHZ`. The
-first says "this pin describes a different design"; the second says "this
-design does not meet its requirement". Reporting one as the other would send a
-reader to the wrong fix -- re-synthesise and re-place versus find what
-lengthened the path.
+recorded, MINUS the toolchain's own `creator` string that form deliberately
+keeps: a pin's required margin exists precisely so it survives ordinary
+toolchain drift (a floating OSS CAD Suite release), and folding the toolchain
+into the digest would force a re-pin on every one of those even when nothing
+about the netlist moved. The toolchain that measured a pin is recorded
+separately, in its own field, never inside the digest. A netlist that moved
+invalidates every placement recorded against the old one; this is the RE-PIN
+NEEDED failure, and it is deliberately not the same failure as a placement
+that reproduces but falls under `SOC_MIN_MHZ`. The first says "this pin
+describes a different design"; the second says "this design does not meet its
+requirement". Reporting one as the other would send a reader to the wrong fix
+-- re-synthesise and re-place versus find what lengthened the path.
 
 `make soc-seed-search` is what writes a pin: it sweeps high-entropy seeds
 (never 1..N -- ADR-0170 records why a small integer seed is not an
@@ -28,14 +33,16 @@ independent draw on this placer), and writes the seed with the best margin
 over `SOC_MIN_MHZ` alongside the whole distribution it was chosen from, so a
 future reader can see it was a considered choice and not a lucky one.
 
-Usage: soc_pin.py check-digest <canon.json> <pin.json>
+Usage: soc_pin.py digest       <canon.json>
+       soc_pin.py check-digest <canon.json> <pin.json>
        soc_pin.py seed          <pin.json>
        soc_pin.py write         <pin.json> --digest <hex> --seed <n> --mhz <f>
                                  --min-mhz <f> --toolchain <text>
                                  --distribution <json file, or - for stdin>
                                  [--synth-knob <text>] [--date <text>]
 
-Exit (check-digest): 0 pin matches this netlist, 3 RE-PIN NEEDED, 2 refused
+Exit (digest):       0 printed
+      (check-digest): 0 pin matches this netlist, 3 RE-PIN NEEDED, 2 refused
       (seed):        0 printed, 1 refused
       (write):        0 written, 2 refused (margin too thin, bad input)
 """
@@ -81,9 +88,27 @@ def load_pin(path):
     return pin
 
 def canon_digest(canon_path):
-    """sha256:<hex> of a canonicalised netlist, reusing netlist_digest.py's form."""
+    """sha256:<hex> of a canonicalised netlist, reusing netlist_digest.py's form --
+    minus the `creator` field that form deliberately keeps.
+
+    netlist_digest.py folds the toolchain's version string into its digest on purpose,
+    to catch a build that moved under an unchanged tree (its own docstring: "the
+    direction this repo has been bitten in"). A pin's digest asks a different question
+    -- is this still the netlist a seed was chosen for -- and a pin is required to
+    clear its margin precisely so it SURVIVES ordinary toolchain drift; folding the
+    toolchain string in here would force a re-pin on every OSS CAD Suite release even
+    when the RTL, and everything synthesis derived from it, is unchanged. The
+    toolchain that measured a pin is recorded separately, in its own field.
+    """
     design, _top = netlist_digest.load(canon_path)
+    design = {k: v for k, v in design.items() if k != "creator"}
     return f"sha256:{netlist_digest.digest(design)}"
+
+def cmd_digest(args):
+    """Printed rather than recomputed by each caller, so `check-digest` and
+    `soc_seed_search.sh`'s write path can never compute this two different ways."""
+    print(canon_digest(args.canon))
+    return 0
 
 def cmd_check_digest(args):
     pin = load_pin(args.pin)
@@ -154,6 +179,9 @@ def main():
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
 
+    digest_cmd = sub.add_parser("digest")
+    digest_cmd.add_argument("canon", help="this build's canonicalised netlist JSON")
+
     check = sub.add_parser("check-digest")
     check.add_argument("canon", help="this build's canonicalised netlist JSON")
     check.add_argument("pin", help="soc/pin.json")
@@ -180,6 +208,7 @@ def main():
 
     args = parser.parse_args()
     return {
+        "digest": cmd_digest,
         "check-digest": cmd_check_digest,
         "seed": cmd_seed,
         "write": cmd_write,

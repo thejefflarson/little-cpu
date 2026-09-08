@@ -73,10 +73,8 @@ if ! awk -v m="$margin_pct" -v need="$MIN_MARGIN_PCT" 'BEGIN{exit !(m>=need)}'; 
   exit 1
 fi
 
-# The netlist does not depend on the seed, so one canonical digest covers every row
-# above.
 make -s soc.canon.json > /dev/null
-digest=$(python3 soc/netlist_digest.py digest soc.canon.json | sed -n 's/^  digest    //p')
+digest=$(python3 soc/soc_pin.py digest soc.canon.json)
 
 python3 soc/seed_search_distribution.py "$samples" "$best_seed" "$seeds_source" > "$dist"
 

@@ -4575,9 +4575,16 @@ JSON
 sp_pin_matching() {  # <fixture dir> -- canon.json and a pin.json whose digest matches it
   local d; d=$(new_case)
   sp_canon "$d/canon.json"
+  # soc_pin.py's own digest excludes `creator`, unlike netlist_digest.py's -- computed
+  # the same way here rather than via the CLI, which has no flag for that exclusion.
   local digest
-  digest=$(python3 "$REPO/soc/netlist_digest.py" digest "$d/canon.json" \
-             | sed -n 's/^  digest    //p')
+  digest=$(cd "$REPO/soc" && python3 -c '
+import sys
+import netlist_digest
+design, _top = netlist_digest.load(sys.argv[1])
+design = {k: v for k, v in design.items() if k != "creator"}
+print(f"sha256:{netlist_digest.digest(design)}")
+' "$d/canon.json")
   cat > "$d/pin.json" <<PINJSON
 {
   "netlist_digest": "$digest",
@@ -4600,6 +4607,11 @@ probe "control: a pin whose digest matches the netlist checks OK" 0 "pin OK" \
 d=$(sp_pin_matching)
 probe "control: a matching pin names its own seed and MHz" 0 "seed 11, measured 12.80 MHz" \
   "$SP check-digest $d/canon.json $d/pin.json"
+
+d=$(sp_pin_matching)
+mutate "$d/canon.json" 's/"creator": "[^"]*"/"creator": "Yosys 9.99 (git sha1 totallydifferent)"/'
+probe "the pin's digest excludes the toolchain string, unlike netlist_digest.py's own" 0 \
+  "pin OK" "$SP check-digest $d/canon.json $d/pin.json"
 
 d=$(sp_pin_matching)
 mutate "$d/pin.json" \
