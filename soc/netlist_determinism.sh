@@ -8,7 +8,8 @@ cd "$(dirname "$0")/.."
 # this one is probed, and a status that moves with /bin/sh is a probe that passes on one
 # machine and not the next.
 for required in "NETLIST_SYNTH=${NETLIST_SYNTH:-}" "NETLIST_PNR=${NETLIST_PNR:-}" \
-                "NETLIST_MUTANT=${NETLIST_MUTANT:-}"; do
+                "NETLIST_MUTANT=${NETLIST_MUTANT:-}" \
+                "NETLIST_COMMENT_FILE=${NETLIST_COMMENT_FILE:-}"; do
   case $required in
     *=) echo "*** make netlist-determinism: ${required%=} is not set, so there" >&2
         echo "*** is nothing to synthesise or place. The Makefile's part table" >&2
@@ -100,6 +101,24 @@ for f in soc/*.hex soc/*.pcf; do
   if [ -e "$f" ]; then cp "$f" "$mutant/soc/"; fi
 done
 
+# The comment class lands in a large file, not $MUTANT_FILE: a small file such as
+# littlesoc.v has never been measured to move (soc/netlist_digest.py's header).
+comment_target=$mutant/$NETLIST_COMMENT_FILE
+test -f "$comment_target" ||
+  fail "$NETLIST_COMMENT_FILE is not in this tree, so the comment class has nowhere to land."
+python3 - "$comment_target" <<'PY' || fail "the comment mutation could not be built; read soc/netlist_determinism.sh's injection."
+import sys
+
+path = sys.argv[1]
+text = open(path).read()
+lines = text.splitlines(True)
+if len(lines) < 2:
+    sys.exit(f"{path}: too short to insert into")
+lines.insert(1, "// A comment that says nothing, so every line under it moves.\n")
+lines.insert(2, "\n")
+open(path, "w").write("".join(lines))
+PY
+
 target=$mutant/$MUTANT_FILE
 test -f "$target" || fail "$MUTANT_FILE is not in this tree, so the mutant could not be built."
 python3 - "$target" "$MUTANT_SIGNAL" "$DEAD_NET" <<'PY' || fail "the mutant could not be built; read soc/netlist_determinism.sh's injection."
@@ -141,8 +160,8 @@ synth "$mutant" "$PWD/$out/mutant.json" "$PWD/$out/mutant.canon.json" "$out/muta
 if cmp -s "$out/this.json" "$out/mutant.json"; then
   fail "the mutant's shipping netlist is byte-identical to this tree's, so" \
        "nothing was injected and this control demonstrates nothing." \
-       "The injection site in the Makefile's part table has gone stale:" \
-       "$MUTANT_FILE no longer carries what it reaches for."
+       "The injection sites in the Makefile's part table have gone stale:" \
+       "neither $MUTANT_FILE nor $NETLIST_COMMENT_FILE carries what it reaches for."
 fi
 echo "   the mutant's shipping netlist differs from this tree's, as it must"
 
@@ -163,9 +182,11 @@ echo "   the dead net reaches the shipping netlist and is purged from the canoni
 if ! python3 soc/netlist_digest.py compare "$out/this.canon.json" "$out/mutant.canon.json" \
      --base-label "this tree" --new-label "this tree, mutated" > "$out/mutant.digest.log" 2>&1; then
   cat "$out/mutant.digest.log" >&2
-  fail "the canonical form no longer forgives a comment, a blank line and a" \
-       "dead tie-off. The digest would now report 'different' for the change" \
-       "class it exists for, which makes it a grader with one verdict."
+  fail "a comment moved the mapped netlist on this toolchain -- measured in" \
+       "$NETLIST_COMMENT_FILE, not assumed. The digest reports 'different' for" \
+       "the change class it exists to forgive; read $out/mutant.digest.log and" \
+       "spend the seeds. This is the observation, not a claim about why: read" \
+       "soc/netlist_digest.py's header before assuming the cause has not moved."
 fi
 echo "   the mutant's canonical digest equals this tree's, as it must"
 
@@ -180,6 +201,11 @@ fi
 echo "   the mutant places to this tree's bitstream, byte for byte"
 echo
 echo "netlist-determinism: PASS. Placement is a function of the netlist here, and"
-echo "the three edit classes the digest forgives do not move it. What is under"
-echo "$out/ is a classifier and not a design: the canonical netlist there is not"
-echo "what ships, and nothing may hand it to nextpnr."
+echo "the three edit classes the digest forgives -- a comment (in $NETLIST_COMMENT_FILE,"
+echo "large enough for the effect to be demonstrable), a blank line and a dead"
+echo "tie-off (both in the top module, $MUTANT_FILE) -- do not move it, on this"
+echo "tree, today. That is a re-taken fact and not a guarantee: a comment"
+echo "elsewhere, or at another line, has moved this design's mapped netlist"
+echo "before (soc/netlist_digest.py's header). What is under $out/ is a"
+echo "classifier and not a design: the canonical netlist there is not what"
+echo "ships, and nothing may hand it to nextpnr."
