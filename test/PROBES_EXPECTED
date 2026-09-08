@@ -239,6 +239,7 @@ a mutated vendored byte fails the pin, and says so
 a mutation line with a stray extra field is red rather than read as the name
 a mutation with no program leg is a real entry, not a missing file
 a name defined twice is checked at both definitions, not just the last
+a nano [depth] entry lowered below its own floor fails generation, not just the baseline diff
 a nested helper's own closing brace does not end the outer fixture early
 a netlist from another tree is named, not binned as `neither`
 a netlist that is not there is refused, not read as equal
@@ -627,6 +628,7 @@ no components.sby is exit 2, not a probe against an invented script
 no components.sby is exit 2, not a probe against an invented script
 no constraint found is red, which is the shape of the recorded defects
 no critical path in the report is a failed measurement, not a fast design
+no harness-directory argument is a usage error, not a silent default
 no placer on PATH is refused the same way
 no programs at all would report a clean 0 of 0
 no standalone count leaves nothing to compare against
