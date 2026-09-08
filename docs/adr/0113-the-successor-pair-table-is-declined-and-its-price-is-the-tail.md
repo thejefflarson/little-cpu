@@ -263,3 +263,49 @@ landing commit would owe. The riscv-formal checks, the component proofs and Sail
 
 **INVERTED.** The measurement that declined this is a measurement with a date on it, and the date has
 passed.
+
+## Amendment, 2026-09-08: built, verified, and DECLINED AGAIN — on where the gain lands
+
+The 2026-09-06 amendment above stands as a measurement and is wrong as a recommendation. Both halves
+of the original decline really are gone: the candidate clears the board clock at sixteen of sixteen
+placements where the base misses at one, `make fit` is under its ratchet, and the product is +14.3%
+at the worst placement. It was rebuilt on today's tree, carried through every gate this repo has —
+the 86 generated checks, all six component proofs, `complete`, Sail co-simulation, `mutation-check`,
+both ECP5 censuses — and F and G never moved. None of that is retracted. It is declined anyway, and
+the reason is one this ADR's own closing section already wrote down before the re-take was run.
+
+**The gain is a loop gain.** Dhrystone falls 9.05% and CoreMark 9.90%; the `.S` and `.c` suite falls
+**0.70%**. That gap is not noise and it is not a proxy failure — it is the mechanism working exactly
+as designed. A successor-pair table pays where control flow repeats, and Dhrystone and CoreMark are
+small hot loops. The section above headed "What was not claimed" says it plainly: the suite programs
+that agree with Dhrystone agree because they share its loop structure, and the 47 that do not, do
+not.
+
+**And this machine's program is unlikely to be a loop.** 8 KB of text is the whole program (ADR-0135;
+the 16 KB in `test/testbench.v` exists only so CoreMark can simulate). Measured on this tree,
+Dhrystone at `-O2` is 3568 bytes of it. What fits and is worth building — a constant-time primitive
+under the Zkt claim, a telemetry or control loop, a protocol master — is mostly straight-line code
+over 64 KB of data, and **nobody has measured what the table does there.** The two workloads that
+moved 9% are the two this repo keeps for cross-core comparison, not the two it ships.
+
+**So the spend is the objection, not the price.** 144 placed cells and two of the eight remaining
+block RAMs take `ICESTORM_LC` occupancy to 95.9%, the highest this SoC has run at, leaving about 216
+cells. The radix-4 divider, an interrupt controller, more interrupt sources, a vectored `mtvec` and
+the flash's data path are all still deferred and all compete for exactly that. Buying benchmark
+throughput with the last of the headroom is the wrong currency, and it is a one-way door.
+
+Two smaller things, recorded so a future re-take does not have to rediscover them. The period claim
+is a **null, not a win**: −3.05% of median is inside the ~3.6% churn band, and the whole period case
+rests on the tail of one sixteen-seed sweep. And the module has **no mutation detector and cannot
+have one** — deleting the tag comparison outright leaves all 75 suite programs passing with identical
+retires, because a guess that `operand_stall` always checks cannot corrupt a retire. That ruling is
+correct and it means nothing in `make mutation-check` would notice if the guess ever stopped being
+checked.
+
+**What would reopen this**, and it is a measurement rather than an argument: `make cycles` on a
+program of the shape this machine actually runs. If a straight-line 8 KB workload sees most of the
+9%, the spend is defensible and the tail evidence is already in hand. If it sees the suite's 0.70%,
+this is closed for good.
+
+`pairtable-candidate` carried the working RTL and is not merged; the branch is the record of what was
+built, and nothing under `rtl/` lands from it.
