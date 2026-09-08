@@ -5950,7 +5950,8 @@ nl_aftermath() {  # $1 = case dir
 }
 
 d=$(new_case)
-probe "a liberty download whose bytes are not the pin is refused before it is kept" 1 \
+# Exit 2, not 1: the recipe's own `exit 1` reaches the probe as make's status.
+probe "a liberty download whose bytes are not the pin is refused before it is kept" 2 \
   "SHA-256 MISMATCH -- refusing to keep it" "XDG_CACHE_HOME=$d/cache $NL"
 
 d=$(new_case)
