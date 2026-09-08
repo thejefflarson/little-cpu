@@ -128,8 +128,8 @@ two spellings of `rtl/memory.v` on ONE tree: the shipping mux spelling, and the
 pre-fix synchronous-constant spelling reconstructed against this tree's current
 `memory.v` (the `NHARTS`/`atomic_supported` shape ADR-0163's one-seed number
 predates). The edit between the two files is the minimal one — the
-`always_ff` body and the two lines it declares — and both files hold at 56
-lines, so nothing about line count or unrelated text moved. `make
+`always_ff` body and the two lines it declares, 51 lines against the shipping
+file's 56, with no other line touched. `make
 netlist-digest` on each arm, same toolchain (`oss-cad-suite`, yosys
 0.68+48/ff5817c34), reads:
 
@@ -188,6 +188,20 @@ formula ADR-0121 derives:
 |---|---|---|---|---|---|
 | sync (pre-fix, never ships) | 13.40 MHz | 12.968 MHz | **12.28 MHz** | 9.12% | 0 of 16 |
 | mux (shipping) | 12.80 MHz | 12.445 MHz | **11.99 MHz** | 6.76% | 1 of 16 (seed 9) |
+
+**Seeds 1–16 are not an independent sample, so read the spread as a span
+of the sweep taken, not as a distribution estimate.** `nextpnr-ice40`
+assigns `SOC_SEED` straight into its placer's xorshift `rngstate` (five
+warm-up rounds, then draws), and xorshift's state update is linear over
+GF(2) — arithmetic where addition is XOR and the state is a vector, so
+`state(n)` is a linear function of the seed's bits, which forces relations
+like `state(3) == state(1) XOR state(2)` across low seed values. Seeds
+1–16 therefore span at most a 4-dimensional subspace of the placer's state
+space rather than sixteen draws spread over it. Whether that correlation
+shows up in the *placements* themselves — as opposed to the raw RNG
+state — is unmeasured here; the worst/median/spread above is quoted as
+the reading this sixteen-seed sweep took, not as an estimate of a wider
+distribution.
 
 **The single-seed number this section opened with does not survive the sweep,
 and the direction reverses.** One seed read the mux spelling 3.0% faster; the
