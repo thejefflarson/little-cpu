@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
-# Generates the riscv-formal check set and reports which checks came out of it.
-# Takes the harness directory (the one holding checks.cfg and EXPECTED_CHECKS) as its
-# one argument, so a second harness -- nano/formal, sharing this file and
-# genchecks-local.py rather than forking either -- can run the same audit against its
-# own checks.cfg.
+# Generates the riscv-formal check set and reports what came out of it, against
+# whichever harness directory (formal/, nano/formal/) is passed as argv[1].
 
 import os
 import re
@@ -12,16 +9,14 @@ import sys
 
 import depth_rules
 
-# genchecks-local.py is this script's own sibling regardless of which harness is being
-# audited; the harness directory is a separate, caller-supplied path.
+# genchecks-local.py is this script's sibling; the harness dir is a separate argument.
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 GENCHECKS = os.path.join(SCRIPT_DIR, "genchecks-local.py")
 
 # The three cycles genchecks writes into every .sby it generates.
 DEFINE_RE = re.compile(r"^`define\s+RISCV_FORMAL_(\w+_CYCLES?)\s+(\d+)\s*$")
 
-# genchecks' own parser drops every `#` line before it sees a section, so these cannot
-# perturb generation.
+# genchecks' parser drops `#` lines before a section, so these don't perturb generation.
 OMIT_RE = re.compile(r"^#omit\s+(\S+)\s+(\S.*)$")
 
 def read_name_list(path):
@@ -83,8 +78,7 @@ def audit_depths(cfg, checks_dir, families):
     if failed:
         return True
 
-    # Reported per family, because a family is what one [depth] line configures: naming
-    # all 70 insn_* checks would bury the one line that has to move.
+    # Per family: naming all 70 insn_* checks would bury the one [depth] line to move.
     short = {}
     for name, family in sorted(families.items()):
         cycles = read_check_cycles(checks_dir, name)
@@ -164,16 +158,14 @@ def main():
     expected_checks_path = os.path.join(base, "EXPECTED_CHECKS")
     checks_dir = os.path.join(base, "checks")
 
-    # genchecks reads `checks.cfg` and writes `checks/` relative to the cwd and takes
-    # `corename` from its last component, so running it elsewhere silently produces a
-    # check set elsewhere.
+    # genchecks reads checks.cfg and writes checks/ relative to the cwd, so running it
+    # elsewhere silently produces a check set elsewhere.
     if os.path.realpath(os.getcwd()) != os.path.realpath(base):
         print(f"error: run from {base}, not {os.getcwd()}", file=sys.stderr)
         return 1
 
-    # genchecks-local.py runs in this same process via runpy and reads its own
-    # sys.argv[1] as a cfg name to read instead of "checks" -- so this script's own
-    # <harness-dir> argument must not leak into it.
+    # genchecks-local.py runs in-process via runpy and reads sys.argv[1] as a cfg name,
+    # so this script's own <harness-dir> argument must not leak into it.
     saved_argv = sys.argv
     sys.argv = [GENCHECKS]
     sys.settrace(call_tracer)
@@ -214,8 +206,7 @@ def main():
 
     failed = False
 
-    # If the trace disagrees with genchecks' own bookkeeping, none of the set equalities
-    # below mean anything.
+    # A trace disagreeing with genchecks' own bookkeeping voids every check below.
     genchecks_own = set(genchecks["consistency_checks"]) | set(
         genchecks["instruction_checks"]
     )
