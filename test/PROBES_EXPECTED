@@ -99,6 +99,7 @@ a capitalised spelling is the same word and is caught too
 a carry hop is counted apart from a LUT level
 a casing keyword the table does not define stops rather than guessing
 a cause proof going red somewhere else is not evidence either
+a cell type outside the read liberty is refused, not priced at zero
 a cell type that moved is reported as a count, both ways
 a cell type the log never mentions reads as zero, not a crash
 a census under the other gate names that gate, not the ice40 one
@@ -190,6 +191,7 @@ a harness with no line in the baseline is red
 a harness with no line in the baseline is red
 a hop class nothing classifies would move the split silently
 a hop sum that does not reconcile blames the script, not the design
+a liberty file that does not match the pinned digest is refused
 a line naming a mutation test/mutations/ does not have is red
 a line with no harness behind it is red too
 a line with no harness behind it is red too
@@ -217,9 +219,11 @@ a missing Sail install stops the run rather than scoring it
 a missing artifact refuses rather than reporting on nothing
 a missing asm directory is named
 a missing baseline file is exit 2, not an empty expected set
+a missing liberty file is refused before the JSON is even opened
 a missing parser stops the run rather than grading with a second one
 a missing ramdiff for the SECOND CoreMark core is red, not silently skipped
 a missing ramdiff for the SECOND core is red, not silently skipped
+a missing stat.json is refused, not read as a zero-area design
 a mistyped baseline path cannot compare nothing and pass
 a mistyped baseline path cannot compare nothing and pass
 a mistyped floor path cannot make every floor lookup miss
@@ -400,6 +404,7 @@ a tree with no source file at all is red rather than vacuously green
 a trip prints the trend too, since that is the run that needs it
 a truncated netlist is refused, which is what a full disk leaves
 a truncated report blames the run rather than parsing what is left
+a truncated stat.json is refused, not read as an empty report
 a wait bound that admits a starved hart is red
 a wait bound that admits a starved hart is red
 a wire that does not carry its class's name is named
@@ -521,6 +526,7 @@ control: a good CoreMark run reports all three cores' figures
 control: a good run reports both cores' figures
 control: a good three-way run reports all three cores' figures
 control: a measurement within budget is green
+control: a measurement within budget is green
 control: a model file OUTSIDE isa_rv32imc.txt is not one this check can see
 control: a netlist digests, and the digest is a sha256
 control: a nextpnr that wrote its pair is graded, exit 1 and all
@@ -607,6 +613,7 @@ data past the end of the simulated RAM is red, not silent
 decoder_output.rd widened past 5 bits is red (finding 5)
 deleting an rtl file and leaving its line is red
 every source line moving is the comment class, and is forgiven
+excluding the artifact does not blind the check to a real soc/compare/ change
 fixture_anchor whose literal left the real file is fixture-stale, named
 half of a macro-guarded group is red, where none of it is not
 hazard reading ls_answer_valid directly is red (finding 1)
@@ -684,6 +691,7 @@ the UART moving in the core's copy alone is red
 the UART moving in the proof's copy alone is red
 the address the flash-reading program uses is checked against the controller
 the address the printing program writes is checked against the UART
+the artifact moving does not make its own stamp stale
 the baud rate is still refused beside the clock a top may set
 the benchmark script must keep linking against the part's rom
 the benchmark's own FAIL verdict stops the number being quoted
@@ -739,12 +747,14 @@ the third core's ROM drifting behind the other two is red
 the timer address the programs arm is checked against the timer
 the timer moving in the core's copy alone is red
 the timer moving in the proof's copy alone is red
+the trend against a recorded figure is printed beside the verdict
 the trend against the recorded count is printed beside the verdict
 the two definitions the predicates are built from are pinned literally
 the wait-state bias is disclosed as a percentage of hazard3's own cycles
 the word coming back in a formal harness comment is red, and located
 the wrong count is named against the log's real one
 three sweeps have no one difference, so they are refused
+total above the ratchet names the figure and the budget
 two CoreMark cores whose RAMs differ are red, not a ratio
 two arms that cannot be told apart are not two arms
 two arms that cannot be told apart are not two arms
@@ -770,13 +780,5 @@ wrong argument count is exit 2
 wrong argument count is exit 2
 wrong argument count is exit 2 -- the inputs are broken, not the checks
 zero CoreMark iterations would divide the work by nothing
-zero runs would divide the work by nothing
-a cell type outside the read liberty is refused, not priced at zero
-a liberty file that does not match the pinned digest is refused
-a missing liberty file is refused before the JSON is even opened
-a missing stat.json is refused, not read as a zero-area design
-a truncated stat.json is refused, not read as an empty report
-control: a measurement within budget is green
-the trend against a recorded figure is printed beside the verdict
-total above the ratchet names the figure and the budget
 zero cells is refused, not read as a zero-area design
+zero runs would divide the work by nothing
