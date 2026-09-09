@@ -5357,6 +5357,33 @@ git -C "$d/repo" -c user.email=probe@example -c user.name=probe commit -qam touc
 probe "a soc/compare/ change since the stamp's base is STALE, and the file is named" 1 \
   "soc/compare/dhry_tb.v" "$(product_check_run "$d" dhrystone 'cflags=-march=rv32ic -O2')"
 
+# The artifact really lives at soc/compare/product.json, INSIDE a watched prefix, and the
+# fixture above deliberately does not: that is why nothing caught `make compare-product`
+# invalidating its own dhrystone stamp by writing coremark next to it.
+product_check_real_layout() {
+  local d; d=$(product_check_fixture)
+  mkdir -p "$d/repo/soc/compare"
+  git -C "$d/repo" -c user.email=probe@example -c user.name=probe \
+    mv product.json soc/compare/product.json >/dev/null 2>&1 \
+    || mv "$d/repo/product.json" "$d/repo/soc/compare/product.json"
+  git -C "$d/repo" add -A
+  git -C "$d/repo" -c user.email=probe@example -c user.name=probe commit -qm artifact
+  printf '%s' "$d"
+}
+
+d=$(product_check_real_layout)
+printf '\n' >> "$d/repo/soc/compare/product.json"
+probe "the artifact moving does not make its own stamp stale" 0 \
+  "dhrystone: fresh, stamped" \
+  "python3 $REPO/soc/compare/product_check.py $d/repo/soc/compare/product.json dhrystone --repo $d/repo --current 'cflags=-march=rv32ic -O2'"
+
+d=$(product_check_real_layout)
+printf '\n' >> "$d/repo/soc/compare/product.json"
+echo '/* touched */' >> "$d/repo/soc/compare/dhry_tb.v"
+probe "excluding the artifact does not blind the check to a real soc/compare/ change" 1 \
+  "soc/compare/dhry_tb.v" \
+  "python3 $REPO/soc/compare/product_check.py $d/repo/soc/compare/product.json dhrystone --repo $d/repo --current 'cflags=-march=rv32ic -O2'"
+
 d=$(product_check_fixture)
 probe "a CFLAGS change with no rtl/ or soc/compare/ move is STALE too, named by field" 1 \
   "cflags changed: stamped '-march=rv32ic -O2', now '-march=rv32ic -O3'" \
