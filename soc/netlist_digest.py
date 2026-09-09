@@ -23,8 +23,46 @@ object and dropping nothing else. Both halves are load-bearing and were measured
 apart: the purge is what removes the dead net and restores the numbering, and the
 attribute drop is what survives a comment moving a line. Under it, a tree with a
 comment inserted, a tree with a blank line inserted and a tree with a dead
-tie-off injected all digest to the base tree's value, and a one-bit constant
+tie-off injected usually digest to the base tree's value, and a one-bit constant
 change does not.
+
+THAT "USUALLY" IS THE CAVEAT, AND IT IS MEASURED. This script drops `src` and
+`module_src` but keeps every cell and net NAME, and yosys's auto-generated names
+embed the source line number (`$eq$rtl/csrs.v:101$1753_Y` and so on). A comment
+can shift that number far enough to change the BYTE ORDER those names sort into,
+which is a real, mapped-netlist difference this script does not and should not
+forgive. Measured 2026-09-07 (Yosys 0.68+48 `ff5817c34`, nextpnr-ice40
+0.11-1-`g62e659ed`): a comment-only edit to `rtl/csrs.v` moved the SoC's mapped
+cell count 6266 -> 6289 (+23 `SB_LUT4`, a move `make fit`'s own ratchet would
+treat as noise from re-mapping alone), deterministically and reproducibly,
+while the two versions parse to an
+identical AST and identical RTLIL once `src` is masked -- zero code bytes
+differ, every changed line matches `^\s*//`. The cause is `abc9_ops`,
+which topologically sorts cells for ABC9 starting from a byte-wise sort of their
+names (`IdString::lt_by_name`, a `memcmp`), so a line-number shift that crosses
+another cell's name in byte order changes the order ABC9's order-sensitive
+passes (`&dch`/`&if`) see the same gates in, and so which of several
+functionally equivalent mappings they pick. This is a property of the FLOW, not
+of one file: putting `rtl/csrs.v` first on the synth command line -- which
+renumbers yosys's own `$autoidx` in every generated name -- produced two more,
+different digests (6231, 6258) from the same two source trees. Renaming a file
+does not reproduce it on its own -- `flatten` prefixes the instance name onto
+every cell, so the filename affects sort order only through where it pushes
+`$autoidx`, not through appearing in a compared string.
+`soc/netlist_determinism.sh` now exercises the comment class on a large
+representative file (`NETLIST_COMMENT_FILE`) for exactly this reason -- a small
+file such as `littlesoc.v` has never been measured to move.
+
+So: **digest-equal remains sound** -- nothing here found a counterexample to it,
+and every measurement above where the digest stayed equal also placed identically.
+**Digest-different no longer implies a semantic change.** It used to be reasonable
+to read "different" as "the RTL's meaning moved"; it can now mean nothing more
+than a comment crossing a lexical-rank boundary in a large file, with the mapped
+LOGIC unchanged and only its placement-relevant SHAPE (which of several
+functionally equivalent LUT mappings ABC9 picked) different. Either way the
+placement can move, so "spend the sweep" is still the right response --
+`netlist-different` was never a claim about RTL meaning, only about whether the
+16-seed sweep is owed.
 
 THE CANONICAL JSON IS A CLASSIFIER, NOT A NETLIST TO PLACE. Measured: the purged
 form places to a different bitstream than the shipping form at the same seed,

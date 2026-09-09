@@ -1,4 +1,4 @@
-# 0170 — The comparison places on up5k and ECP5 only, and the up5k clock is a gate
+# 0171 — The comparison places on up5k and ECP5 only, and the up5k clock is a gate
 
 Status: Accepted · 2026-09-09 · completes
 [ADR-0160](0160-the-comparison-moves-to-the-parts-this-design-ships-to.md), which moved

@@ -446,7 +446,7 @@ ITS LEAST EXAMINED ASSUMPTION** — this harness has been wrong about the part (
 the opponent's configuration (ADR-0160 as amended: `FormalSimple` had no `MulPlugin`, no `CsrPlugin`
 and no hazard forwarding, which flattered VexRiscv on period and this core on cycles at once), and
 the shared ISA (this amendment) — each corrected once found, never all at once.
-**It places on exactly the two parts this design ships to, and hx8k is gone** (ADR-0170).
+**It places on exactly the two parts this design ships to, and hx8k is gone** (ADR-0171).
 `COMPARE_PART` selects `up5k` (the default) or `ecp5` and anything else is a hard error; there is
 no third row to add without measuring one. The two arms answer different questions and are never
 averaged. **On up5k the clock is a step function** — the board's crystal, or `SB_HFOSC`'s
@@ -507,7 +507,7 @@ cycle disadvantage there, which up5k's shared 12 MHz step cannot do). **The tool
 detail**: the same twelve seeds moved VexRiscv 4.5% at its worst placement between two yosys builds
 while this core's up5k SoC came out bit-identical, so halves synthesised by different toolchains do
 not form a product — re-take both halves together. **The two benchmarks no longer carry the same
-map caveat** (ADR-0170): on up5k the placed geometry is a 4 KB ROM and 64 KB of SPRAM, and
+map caveat** (ADR-0171): on up5k the placed geometry is a 4 KB ROM and 64 KB of SPRAM, and
 Dhrystone's image (1,332 bytes of text, 10,592 of RAM) FITS it, so nothing in that row is distorted
 by memory size; CoreMark's 10,768 bytes of text do not, so its cycles are still simulated at a
 larger map than the clock is placed at. `make compare-dhrystone` and `make compare-coremark` print
@@ -671,7 +671,13 @@ make ecp5-timing    # the SoC on ECP5 at a declared corner; three censuses GATE,
                     # frequency PUBLISHES, no ratchet. ECP5_SEED picks a placement
 make netlist-digest # the mapped netlist's digest; `make netlist-diff BASE=<ref>` names what
                     # moved. Digest unchanged, NO SWEEP IS OWED; changed, sixteen seeds are.
-                    # Sound in one direction only. netlist-determinism is a prerequisite
+                    # Sound in ONE direction: digest-equal implies the placer's input is
+                    # unmoved. Digest-different no longer implies a semantic (RTL-meaning)
+                    # change -- on this toolchain a comment CAN move the mapped netlist of
+                    # a large file, measured on rtl/csrs.v (ADR-0170) -- so it still means
+                    # spend the sweep. netlist-determinism is a prerequisite, and its
+                    # comment-class case now exercises a large representative file rather
+                    # than the small one that could never have caught this
 make compare-timing # this core, VexRiscv and Hazard3 in ONE harness, on the two parts
                     # this design ships to. COMPARE_PART picks one -- up5k (default),
                     # where the 12 MHz step GATES pass/fail and the comparison is
