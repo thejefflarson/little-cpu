@@ -495,15 +495,18 @@ none of the three clears 24), so the up5k product is the cycle ratio directly at
 littlecpu 9.40 DMIPS/27.70 CoreMark, VexRiscv 10.75 DMIPS/28.10 CoreMark, Hazard3 10.80 DMIPS/18.04
 CoreMark — **Hazard3 and VexRiscv read level on Dhrystone (1.15×/1.14× over littlecpu), and
 littlecpu keeps its CoreMark lead over Hazard3 (1.54×) on the same real M-extension-and-forwarding
-margin the wait-state artifact was never responsible for.** ECP5 has no quantisation step, so its
-own product uses each core's own clock there directly: littlecpu 33.23 MHz, VexRiscv 57.64 MHz,
-Hazard3 50.39 MHz (against the one-port adapter's own 48.50 on this session's toolchain — a
-smaller move than up5k's, and a clock 1.52× littlecpu's own on this part, not merely no longer
-last). Dhrystone: littlecpu 26.02 DMIPS, VexRiscv 51.65 (**1.99× littlecpu**), Hazard3 45.35
-(**1.74× littlecpu, 1.14× VexRiscv** — closer to VexRiscv than to littlecpu, the opposite ordering
-from up5k's quantised tie). CoreMark: littlecpu 76.69, VexRiscv 134.99 (1.76×), Hazard3 75.74
-(**1.01× littlecpu — essentially level**, Hazard3's own higher ECP5 clock nearly cancelling its
-cycle disadvantage there, which up5k's shared 12 MHz step cannot do). **The toolchain is part of the stamp, not a
+margin the wait-state artifact was never responsible for.** ECP5 has no quantisation step, so its own
+product uses each core's own clock there — **read at the WORST of twelve paired placements, never at
+one**. littlecpu 32.01 MHz worst / 33.70 median (10.23% spread), VexRiscv 52.91 / 54.91 (8.93%),
+Hazard3 48.88 / 50.39 (7.46%). Dhrystone at each core's worst: littlecpu 25.06 DMIPS, VexRiscv 47.41
+(**1.89× littlecpu**), Hazard3 43.99 (**1.76×**) — closer to VexRiscv than to littlecpu, the
+opposite ordering from up5k's quantised tie. CoreMark: littlecpu 73.88, VexRiscv 123.92 (1.68×),
+Hazard3 73.46 (**littlecpu 1.01×, essentially level** — Hazard3's higher ECP5 clock nearly cancels
+the cycle disadvantage that up5k's shared step cannot). **The figures this row carried until now were
+single placements, and one was a best-of-twelve**: VexRiscv's 57.64 MHz is exactly the best of the
+sweep that replaced it, its worst is 52.91, −8.2%, and reading the worst moves its published
+Dhrystone lead 1.99× → 1.89×. No ECP5 band is derived, so that gap cannot be called inside or outside
+one; it is simply wider than up5k's entire placement spread. **The toolchain is part of the stamp, not a
 detail**: the same twelve seeds moved VexRiscv 4.5% at its worst placement between two yosys builds
 while this core's up5k SoC came out bit-identical, so halves synthesised by different toolchains do
 not form a product — re-take both halves together. **The two benchmarks no longer carry the same
