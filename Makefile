@@ -34,6 +34,16 @@ sim: test/cxxrtl.cc test/rtl.cc
 # inside one is invisible from every other.
 TOOL_CACHE := $(if $(XDG_CACHE_HOME),$(XDG_CACHE_HOME),$(HOME)/.cache)/little-cpu
 
+# Every MHz and cell figure in this tree comes from the suite in that cache, so a
+# different yosys or a stale icetime ahead of it on PATH changes a measurement
+# with no error and no way to tell from the number. Put the cache first rather
+# than trust a shell to. CI installs its own copy and puts that on PATH itself,
+# where this directory does not exist and the prepend does not happen.
+OSS_CAD_BIN := $(TOOL_CACHE)/oss-cad-suite/bin
+ifneq ($(wildcard $(OSS_CAD_BIN)/yosys),)
+export PATH := $(OSS_CAD_BIN):$(PATH)
+endif
+
 include nano/nano.mk
 
 ifneq ($(filter command line environment,$(origin SAIL_RISCV_VERSION)),)
