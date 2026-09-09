@@ -31,6 +31,10 @@ soc/compare/coremark_fit.py
 # A comment about how a generated cell gets NAMED after flattening, not a count.
 soc/depth/path_stages.py
 
+# A dated measurement quoted in prose -- the pre-place count a comment-only
+# edit moved, not a ratchet or a budget derived from it.
+soc/netlist_digest.py
+
 # The probes that force placed_vs_synth.py and the netlist-digest structural
 # diff red plant SB_LUT4 fixture lines and JSON cell types. A probe that
 # cannot name what it is planting is not a probe.
