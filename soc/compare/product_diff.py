@@ -7,8 +7,9 @@ to write a pull request body a maintainer can review in one pass, and safe to
 run by hand: `python3 soc/compare/product_diff.py before.json after.json`.
 
 "NEWS" IS soc/compare/product_check.py's OWN QUESTION, ASKED OF THE OLDER
-SNAPSHOT. No churn band has ever been derived for hx8k, the part this harness
-places (soc/bands.py's own entry says so), so this script does not invent a
+SNAPSHOT. No churn band has been derived for the comparison bench on either part
+it places (soc/bands.py has none for ecp5 at all, and up5k's own was derived on
+littlesoc rather than on this bench), so this script does not invent a
 percentage threshold to decide whether a moved number is worth a pull request
 -- CLAUDE.md's own rule is to measure a conflict rather than assume one, and a
 threshold nobody swept is an assumption wearing a number. Instead `--require-news`

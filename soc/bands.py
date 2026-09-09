@@ -26,7 +26,7 @@ period change on identical RTL. Re-derive rather than inherit across time, too.
   soc/bands.py up5k            # the sentence, naming the part
   soc/bands.py up5k --note     # the paragraph printed under a delta
   soc/bands.py --list          # every part, derived or not
-  soc/bands.py hx8k --require  # non-zero: no band has been derived for it
+  soc/bands.py ecp5 --require  # non-zero: no band has been derived for it
 
 Usage from Python is `band(part)` for the figures and `sentence(part)` for the
 prose. `sentence()` answers for a known part whether or not a band was derived;
@@ -52,14 +52,6 @@ BANDS = {
         "spread": None,
         "churn": None,
         "derived": "PLACEHOLDER",
-    },
-    "hx8k": {
-        "instrument": "make compare-timing",
-        "spread": None,
-        "churn": None,
-        # The cross-core harness places on this part and no sweep has ever been taken of
-        # its spread.
-        "derived": "no sweep has been taken on this part",
     },
 }
 
@@ -110,7 +102,7 @@ def note(part):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("part", nargs="?", help="up5k, ecp5 or hx8k")
+    parser.add_argument("part", nargs="?", help="up5k or ecp5")
     parser.add_argument("--note", action="store_true",
                         help="the paragraph printed under a delta")
     parser.add_argument("--list", action="store_true",

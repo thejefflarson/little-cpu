@@ -446,6 +446,21 @@ ITS LEAST EXAMINED ASSUMPTION** — this harness has been wrong about the part (
 the opponent's configuration (ADR-0160 as amended: `FormalSimple` had no `MulPlugin`, no `CsrPlugin`
 and no hazard forwarding, which flattered VexRiscv on period and this core on cycles at once), and
 the shared ISA (this amendment) — each corrected once found, never all at once.
+**It places on exactly the two parts this design ships to, and hx8k is gone** (ADR-0170).
+`COMPARE_PART` selects `up5k` (the default) or `ecp5` and anything else is a hard error; there is
+no third row to add without measuring one. The two arms answer different questions and are never
+averaged. **On up5k the clock is a step function** — the board's crystal, or `SB_HFOSC`'s
+48/24/12/6 — so `make compare-timing` grades it PASS/FAIL at 12 MHz through
+`soc/compare/step_gate.py`, prints the margin above the step as unspendable, and the comparison is
+then CYCLES ALONE; a core under the step is out of the comparison rather than slower in it, because
+its next clock is 6. **On ECP5 `EHXPLLL` synthesises `ref × M / N / D` on a fine grid**, so Fmax is
+a real factor there and both halves of the product vary; the frequency PUBLISHES with no ratchet,
+since `soc/bands.py` has no band for that part and up5k's own was derived on `littlesoc` rather than
+on this bench. The ECP5 arm carries the same gates the SoC's own ECP5 flow does — `DP16KD`,
+`TRELLIS_DPR16X4` and `MULT18X18D` censuses plus `soc/bram_reset_check.py` — and
+`placed_vs_synth.py` reads `TRELLIS_COMB` against `LUT4` there rather than the ice40 pair.
+**Hazard3's multiplier maps to soft logic on ECP5 and the other two cores' do not**
+(`COMPARE_ECP5_EXPECT_DSP_hazard3` is 0 against 4), which is declared rather than rediscovered.
 **RV32IM, not RV32I or RV32IMA, is the widest ISA all three cores share**: Hazard3's iCE40 build has
 no C, and the generated VexRiscv has no `AtomicPlugin`, so `COMPARE_DHRY_CFLAGS` and
 `COMPARE_COREMARK_CFLAGS` both build at `rv32im`, and CoreMark now runs all three cores in one
@@ -491,9 +506,12 @@ from up5k's quantised tie). CoreMark: littlecpu 76.69, VexRiscv 134.99 (1.76×),
 cycle disadvantage there, which up5k's shared 12 MHz step cannot do). **The toolchain is part of the stamp, not a
 detail**: the same twelve seeds moved VexRiscv 4.5% at its worst placement between two yosys builds
 while this core's up5k SoC came out bit-identical, so halves synthesised by different toolchains do
-not form a product — re-take both halves together, with the caveat that Dhrystone's and CoreMark's
-cycles are simulated at a larger map than the clock is placed at (`make compare-dhrystone` and
-`make compare-coremark` print the block arithmetic; ADR-0098 lists the distortions).
+not form a product — re-take both halves together. **The two benchmarks no longer carry the same
+map caveat** (ADR-0170): on up5k the placed geometry is a 4 KB ROM and 64 KB of SPRAM, and
+Dhrystone's image (1,332 bytes of text, 10,592 of RAM) FITS it, so nothing in that row is distorted
+by memory size; CoreMark's 10,768 bytes of text do not, so its cycles are still simulated at a
+larger map than the clock is placed at. `make compare-dhrystone` and `make compare-coremark` print
+the block arithmetic and say which, every run; ADR-0098 lists the distortions.
 `soc/compare/product.json` is not re-stamped by this pass and is already stale on its own check
 against this tree; re-taking that stamp is a separate ticket's. Two graded checks stand in front of
 every number: `soc/compare/placed_vs_synth.py` refuses a placed
@@ -654,9 +672,13 @@ make ecp5-timing    # the SoC on ECP5 at a declared corner; three censuses GATE,
 make netlist-digest # the mapped netlist's digest; `make netlist-diff BASE=<ref>` names what
                     # moved. Digest unchanged, NO SWEEP IS OWED; changed, sixteen seeds are.
                     # Sound in one direction only. netlist-determinism is a prerequisite
-make compare-timing # this core, VexRiscv and Hazard3 in ONE hx8k harness; COMPARE_CORE
-                    # picks one, soc/compare/sweep.sh's COMPARE_CORES sweeps a subset.
-                    # The placed-vs-synthesised check inside it is graded
+make compare-timing # this core, VexRiscv and Hazard3 in ONE harness, on the two parts
+                    # this design ships to. COMPARE_PART picks one -- up5k (default),
+                    # where the 12 MHz step GATES pass/fail and the comparison is
+                    # cycles alone, or ecp5, where Fmax is a factor and PUBLISHES with
+                    # no ratchet. COMPARE_CORE picks a core, soc/compare/sweep.sh's
+                    # COMPARE_CORES sweeps a subset. The placed-vs-synthesised check
+                    # and, on up5k, the step gate are both graded
 make compare-smoke  # all three harnesses run one image in iverilog and must agree
 make compare-dhrystone  # Dhrystone on all THREE cores, one RV32I image, one simulation ->
                     # DMIPS/MHz each, plus a fourth row of this core alone at its native

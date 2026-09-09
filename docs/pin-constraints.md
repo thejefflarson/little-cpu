@@ -68,15 +68,24 @@ would override the pinned `--freq` the Makefile hands the placer, and a 25 MHz t
 25 MHz would report the constraint instead of the design -- which is the whole reason that
 constant exists.
 
-## `soc/compare/bench_hx8k.pcf` -- The cross-core bench on ice40 hx8k
+## `soc/compare/bench_up5k.pcf` -- The cross-core bench on up5k
 
-Pin constraints for all three harnesses in this directory, on an ice40 hx8k in a ct256
-package -- the Lattice iCE40-HX8K Breakout Board's own assignments for its 12 MHz oscillator
-and the first two of its eight LEDs.
+The comparison bench on up5k/sg48 -- the UPduino's own part and package, and three pads: a
+clock and two LEDs. The pin numbers are soc/upduino.pcf's, so a bitstream built from this
+runs on the board `make prog` already flashes.
 
-hx8k rather than the up5k this project ships on because every VexRiscv iCE40 figure their
-project publishes is hx8k, and it is the only ice40 with enough logic to hold this core at
-all -- and it has no SPRAM, so the harness's data RAM is block RAM for every core.
+up5k is one of the two parts this project ships to, and the harness dropped the ice40 hx8k
+it used to place on as well. That part was chosen because every VexRiscv iCE40 figure their
+project publishes is hx8k, on the belief that it was the only ice40 with enough logic to
+hold this core at all. That belief expired: all three cores fit up5k, this one the largest
+of them at 84% of ICESTORM_LC, and hx8k cannot hold `littlesoc` itself (no SPRAM, so 64 KB
+of data RAM is 128 block RAMs against the part's 32). A cross-core number taken on a part
+nothing here ships to is a measurement of a machine nobody can build.
+
+THE CLOCK HERE IS NOT A FREQUENCY. up5k's clock is a step function -- the board's 12 MHz
+crystal, or SB_HFOSC's 48/24/12/6 -- so what a placement says about a core on this part is
+which STEP it reaches, not how many MHz it made. `make compare-timing` grades that pass/fail
+through soc/compare/step_gate.py and the comparison is then cycles alone.
 
 THREE PADS, and all three tops present exactly these three. rtl/littlesoc.v also takes a
 reset button; there is none here because VexRiscv has no second input to give one to, and an
@@ -85,17 +94,6 @@ varies. Three pads cannot move a fabric critical path either way.
 
 No `-nowarn` flags: icetime's .pcf parser accepts exactly `set_io <name> <pin>` and asserts
 out on anything longer. Every port here is constrained.
-
-## `soc/compare/bench_up5k.pcf` -- The cross-core bench on up5k
-
-The comparison bench on up5k/sg48 -- the UPduino's own part and package, and the same three
-pads soc/compare/bench_hx8k.pcf constrains: a clock and two LEDs. The pin numbers are
-soc/upduino.pcf's, so a bitstream built from this runs on the board `make prog` already
-flashes.
-
-THE CLOCK HERE IS NOT A FREQUENCY. up5k's clock is a step function -- the board's 12 MHz
-crystal, or SB_HFOSC's 48/24/12/6 -- so what a placement says about a core on this part is
-which STEP it reaches, not how many MHz it made.
 
 ## `soc/compare/bench_ecp5.lpf` -- The cross-core bench on ECP5
 
