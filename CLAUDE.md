@@ -653,7 +653,13 @@ make ecp5-timing    # the SoC on ECP5 at a declared corner; three censuses GATE,
                     # frequency PUBLISHES, no ratchet. ECP5_SEED picks a placement
 make netlist-digest # the mapped netlist's digest; `make netlist-diff BASE=<ref>` names what
                     # moved. Digest unchanged, NO SWEEP IS OWED; changed, sixteen seeds are.
-                    # Sound in one direction only. netlist-determinism is a prerequisite
+                    # Sound in ONE direction: digest-equal implies the placer's input is
+                    # unmoved. Digest-different no longer implies a semantic (RTL-meaning)
+                    # change -- on this toolchain a comment CAN move the mapped netlist of
+                    # a large file, measured on rtl/csrs.v (ADR-0170) -- so it still means
+                    # spend the sweep. netlist-determinism is a prerequisite, and its
+                    # comment-class case now exercises a large representative file rather
+                    # than the small one that could never have caught this
 make compare-timing # this core, VexRiscv and Hazard3 in ONE hx8k harness; COMPARE_CORE
                     # picks one, soc/compare/sweep.sh's COMPARE_CORES sweeps a subset.
                     # The placed-vs-synthesised check inside it is graded
