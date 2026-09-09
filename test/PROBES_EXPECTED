@@ -701,6 +701,7 @@ the carry chain's own interconnect is charged to the carry hop
 the cell count names its own unit rather than borrowing the other's
 the clock-rate exception belongs to the UART alone
 the co-sim runner's kRamBase drifting is red on its own
+the comment class lands nowhere if its own file is gone
 the compensation going missing is caught after every rule
 the core hitting its cycle budget is INCONCLUSIVE too
 the core's copy of the RAM base drifting from the RAM is red
