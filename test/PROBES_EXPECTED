@@ -1,33 +1,33 @@
-# The manifest test/probe_gates.sh's own coverage ratchet is checked against:
-# every probe's LABEL, one per line, sorted. `make probe-gates` collects the
-# label passed to every `probe` call that actually ran and compares that list
-# to this file under SET EQUALITY IN BOTH DIRECTIONS, the same rule
-# test/EXPECTED_FAIL and test/OBSERVED_FLOOR already use — a probe this file
-# has and the run does not is as red as one the run has and this file does
-# not, so a probe that is deleted, skipped, or stranded behind an early
-# `return` is caught by name rather than by a total going out of sync with a
-# different total.
 #
-# TWO IDENTICAL LABELS ARE TWO LINES, not one. A handful of probes across
-# different fixtures share the same English description on purpose (the same
-# usage-error message, checked against a different script); the comparison is
-# a MULTISET, so losing one occurrence of a repeated label is still a mismatch
-# even though the label survives elsewhere in the file.
+#
 #
 # Edit this file by hand, in the same commit that adds, removes, or renames a
-# `probe` call — the same discipline test/EXPECTED_FAIL's header states.
 # Never regenerate it wholesale from a run: that launders a dropped probe into
-# the baseline the same way regenerating test/EXPECTED_FAIL would launder a
-# regression. To add a line for a probe you just wrote, copy its label
-# literally out of the `probe "..."` call — not a description of it — and
-# insert it in sorted order; `LC_ALL=C sort` matches how make probe-gates
-# reads this file.
-#
 # Sorted rather than left in the order the probes run: two commits adding
-# unrelated probes almost never claim the same alphabetical neighbourhood, so
-# most additions land as independent line insertions a merge or a rebase
+# TWO IDENTICAL LABELS ARE TWO LINES, not one. A handful of probes across
+# The manifest test/probe_gates.sh's own coverage ratchet is checked against:
+# `probe` call — the same discipline test/EXPECTED_FAIL's header states.
+# `return` is caught by name rather than by a total going out of sync with a
+# a MULTISET, so losing one occurrence of a repeated label is still a mismatch
 # applies cleanly on their own, rather than two commits both rewriting the
+# different fixtures share the same English description on purpose (the same
+# different total.
+# even though the label survives elsewhere in the file.
+# every probe's LABEL, one per line, sorted. `make probe-gates` collects the
+# has and the run does not is as red as one the run has and this file does
+# insert it in sorted order; `LC_ALL=C sort` matches how make probe-gates
+# label passed to every `probe` call that actually ran and compares that list
+# literally out of the `probe "..."` call — not a description of it — and
+# most additions land as independent line insertions a merge or a rebase
+# not, so a probe that is deleted, skipped, or stranded behind an early
 # one line a bare counter used to be.
+# reads this file.
+# regression. To add a line for a probe you just wrote, copy its label
+# test/EXPECTED_FAIL and test/OBSERVED_FLOOR already use — a probe this file
+# the baseline the same way regenerating test/EXPECTED_FAIL would launder a
+# to this file under SET EQUALITY IN BOTH DIRECTIONS, the same rule
+# unrelated probes almost never claim the same alphabetical neighbourhood, so
+# usage-error message, checked against a different script); the comparison is
 --clock-ns and --cycle-factor naming different core sets is refused
 --cores naming no CoreMark core at all is red before anything is parsed
 --cores naming no core at all is red before anything is parsed
@@ -622,6 +622,7 @@ data past the end of the simulated RAM is red, not silent
 decoder_output.rd widened past 5 bits is red (finding 5)
 deleting an rtl file and leaving its line is red
 every source line moving is the comment class, and is forgiven
+excluding the artifact does not blind the check to a real soc/compare/ change
 fixture_anchor whose literal left the real file is fixture-stale, named
 half of a macro-guarded group is red, where none of it is not
 hazard reading ls_answer_valid directly is red (finding 1)
@@ -701,6 +702,7 @@ the UART moving in the core's copy alone is red
 the UART moving in the proof's copy alone is red
 the address the flash-reading program uses is checked against the controller
 the address the printing program writes is checked against the UART
+the artifact moving does not make its own stamp stale
 the baud rate is still refused beside the clock a top may set
 the benchmark script must keep linking against the part's rom
 the benchmark's own FAIL verdict stops the number being quoted
