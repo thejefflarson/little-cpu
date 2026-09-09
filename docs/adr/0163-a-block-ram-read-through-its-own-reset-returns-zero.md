@@ -119,6 +119,115 @@ Faster, by 3.0% — inside the ~3.6% edit-churn band, so a null rather than a wi
 and not a regression. **A sixteen-seed paired sweep is owed before this is
 quoted as anything but "it did not cost the requirement."**
 
+### Amendment 2026-09-08: the sixteen-seed sweep
+
+**Method.** A comment-only edit has been measured to move the mapped netlist by
+tens of cells with no semantic change, so pairing this commit against its
+parent conflates the mux with whatever else rode along. Both arms are instead
+two spellings of `rtl/memory.v` on ONE tree: the shipping mux spelling, and the
+pre-fix synchronous-constant spelling reconstructed against this tree's current
+`memory.v` (the `NHARTS`/`atomic_supported` shape ADR-0163's one-seed number
+predates). The edit between the two files is the minimal one — the
+`always_ff` body and the two lines it declares, 51 lines against the shipping
+file's 56, with no other line touched. `make
+netlist-digest` on each arm, same toolchain (`oss-cad-suite`, yosys
+0.68+48/ff5817c34), reads:
+
+| | cells | `SB_LUT4` | `SB_DFFESR` | digest |
+|---|---|---|---|---|
+| sync (pre-fix) | 6326 | 4465 | 712 | `sha256:eee1a824…` |
+| mux (shipping) | 6289 | 4428 | 711 | `sha256:9e6f7aa8…` |
+
+37 cells apart, all attributable to the register the mux spelling splits into
+two flops (`ram_q`, `in_range_q`) where the sync spelling gates one
+(`mem_rdata`) directly — the shape the edit predicts, not a re-roll's
+unexplained churn. Re-taken independently at the start of this amendment: the
+digest, cell and type counts above reproduce to the digit against the draft
+that first recorded them, so the control stands.
+
+Sixteen seeds (1–16), paired by seed, `make soc-timing SOC_SEED=<n>` each side,
+swapping `rtl/memory.v` between runs and restoring the shipping mux spelling
+before any other gate ran.
+
+Sixteen seeds on unrelated `main` (932d021) were swept the same session and put
+its own worst seed (9) at 11.99 MHz, under the 12.0 requirement — a property of
+that tree independent of this spelling, and tracked as its own requirements
+decision about `SOC_MIN_MHZ`'s tail rather than as a defect in any one edit. It
+is reported here only so seed 9's reading in the mux column below is not mistaken
+for a defect this amendment introduces: `main` already ships the mux spelling,
+so the mux arm below and `main`'s own sweep are one and the same tree, and the
+numbers agree to the seed — worst 11.99 MHz, median 12.445 MHz (12.45 rounded),
+best 12.80 MHz, all at seed 9, 9, 11 respectively in both sweeps.
+
+Per-seed critical path, both arms, `oss-cad-suite` yosys 0.68+48/ff5817c34
+throughout:
+
+| seed | sync ns | sync MHz | mux ns | mux MHz |
+|---|---|---|---|---|
+| 1 | 75.91 | 13.17 | 82.75 | 12.08 |
+| 2 | 76.40 | 13.09 | 79.69 | 12.55 |
+| 3 | 78.20 | 12.79 | 82.34 | 12.14 |
+| 4 | 75.91 | 13.17 | 80.06 | 12.49 |
+| 5 | 77.09 | 12.97 | 78.18 | 12.79 |
+| 6 | 74.64 | 13.40 | 81.08 | 12.33 |
+| 7 | 77.38 | 12.92 | 80.04 | 12.49 |
+| 8 | 77.17 | 12.96 | 80.30 | 12.45 |
+| 9 | 76.43 | 13.08 | 83.38 | 11.99 |
+| 10 | 78.49 | 12.74 | 80.88 | 12.36 |
+| 11 | 80.02 | 12.50 | 78.10 | 12.80 |
+| 12 | 79.71 | 12.55 | 79.90 | 12.52 |
+| 13 | 81.45 | 12.28 | 80.41 | 12.44 |
+| 14 | 77.09 | 12.97 | 80.73 | 12.39 |
+| 15 | 76.27 | 13.11 | 80.48 | 12.43 |
+| 16 | 77.14 | 12.96 | 80.07 | 12.49 |
+
+**Worst, median, spread**, `spread = (worst_ns − best_ns) / best_ns`, the same
+formula ADR-0121 derives:
+
+| arm | best | median | worst | spread | under 12.00 MHz |
+|---|---|---|---|---|---|
+| sync (pre-fix, never ships) | 13.40 MHz | 12.968 MHz | **12.28 MHz** | 9.12% | 0 of 16 |
+| mux (shipping) | 12.80 MHz | 12.445 MHz | **11.99 MHz** | 6.76% | 1 of 16 (seed 9) |
+
+**Seeds 1–16 are not an independent sample, so read the spread as a span
+of the sweep taken, not as a distribution estimate.** `nextpnr-ice40`
+assigns `SOC_SEED` straight into its placer's xorshift `rngstate` (five
+warm-up rounds, then draws), and xorshift's state update is linear over
+GF(2) — arithmetic where addition is XOR and the state is a vector, so
+`state(n)` is a linear function of the seed's bits, which forces relations
+like `state(3) == state(1) XOR state(2)` across low seed values. Seeds
+1–16 therefore span at most a 4-dimensional subspace of the placer's state
+space rather than sixteen draws spread over it. Whether that correlation
+shows up in the *placements* themselves — as opposed to the raw RNG
+state — is unmeasured here; the worst/median/spread above is quoted as
+the reading this sixteen-seed sweep took, not as an estimate of a wider
+distribution.
+
+**The single-seed number this section opened with does not survive the sweep,
+and the direction reverses.** One seed read the mux spelling 3.0% faster; the
+median of sixteen reads it (12.968 − 12.445) / 12.968 = **4.0% slower** than
+the pre-fix spelling, and the mux arm's only sub-12.0 seed is exactly the seed
+`main`'s own sweep already reports missing for reasons this amendment did not
+introduce. Read together: the fix has a real median cost on the up5k SoC, not
+the null the one-seed figure suggested, and it clears the requirement at 15 of
+its 16 seeds with the sixteenth attributable to a tracked, separately-owned
+tree property rather than to the mux itself — `SOC_MIN_MHZ` does not move on
+that basis (CLAUDE.md: 12.0 is a requirement, not a regression floor), and
+that separate requirements decision, not this ADR, is where the miss gets
+settled.
+
+**Decision: the mux spelling still ships**, because correctness is not up for
+trade against period. `rtl/memory.v`'s sync arm is the shape
+`soc/bram_reset_check.py` exists to refuse — it returns zero from every
+address on the ECP5 part (this ADR's whole subject) — so it is not a candidate
+regardless of what the sweep reads; the sweep's job was only to price the fix
+honestly, and it now has. No alternative spelling (masking at the SoC's
+wired-OR read bus, or a differently-shaped output mux) was tried: the measured
+cost is a median shift with margin at 15 of 16 seeds, not a tail that misses
+the board clock for a reason this edit owns, so ADR-0163's "Alternative
+spellings if the tail is bad" branch is not taken here. A later change that
+wants that margin back owns its own sweep.
+
 ## What it bought
 
 Dhrystone runs on the iCESugar-Pro at **0.775 DMIPS/MHz, 19.4 DMIPS at 25 MHz**,
