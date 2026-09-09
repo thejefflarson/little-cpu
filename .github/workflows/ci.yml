@@ -225,8 +225,26 @@ jobs:
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  components:
-    name: components
+  components-proof:
+    name: components-proof
+    # One job per proof: independent sby tasks, serial only because they shared a job.
+    strategy:
+      fail-fast: false
+      matrix:
+        proof: [executor, decoder, accessor, pcloop, traps, busarbiter]
+        include:
+          - proof: executor
+            title: Executor arithmetic BMC
+          - proof: decoder
+            title: Decoder component proof
+          - proof: accessor
+            title: Accessor one-transaction proof
+          - proof: pcloop
+            title: Fetcher/decoder PC-loop proof (+ its anti-vacuity cover)
+          - proof: traps
+            title: Trap commit proof
+          - proof: busarbiter
+            title: Bus arbiter proof (+ its cover and its forced red directions)
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
     timeout-minutes: 20
     steps:
@@ -257,33 +275,35 @@ jobs:
           echo "host free -h (NOT the pod's limit):"
           free -h 2>/dev/null || true
 
-      - name: Executor arithmetic BMC
-        run: make -C formal components_executor
-
-      - name: Decoder component proof
-        run: make -C formal components_decoder
-
-      - name: Accessor one-transaction proof
-        run: make -C formal components_accessor
-
-      - name: Fetcher/decoder PC-loop proof (+ its anti-vacuity cover)
-        run: make -C formal components_pcloop
-
-      - name: Trap commit proof
-        run: make -C formal components_traps
-
-      # Starvation has no other grader: no torture program can catch it.
-      - name: Bus arbiter proof (+ its cover and its forced red directions)
-        run: make -C formal components_busarbiter
+      - name: ${{ matrix.title }}
+        run: make -C formal components_${{ matrix.proof }}
 
       - name: Report job wall time
         if: always()
         run: |
           elapsed=$(( $(date +%s) - JOB_START ))
           {
-            echo "### components"
+            echo "### components-proof (${{ matrix.proof }})"
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  components:
+    name: components
+    # THE REQUIRED CHECK KEEPS ITS NAME. `if: always()` is what makes it run when a proof
+    # did not -- a skipped required check leaves the pull request waiting, not red.
+    needs: components-proof
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every component proof to have passed
+        run: |
+          set -euo pipefail
+          result='${{ needs.components-proof.result }}'
+          echo "components-proof: $result"
+          if [ "$result" != success ]; then
+            echo "::error::a component proof did not pass; read components-proof"
+            exit 1
+          fi
 
   lint:
     name: lint
@@ -647,6 +667,50 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
+      - name: Report job wall time
+        if: always()
+        run: |
+          elapsed=$(( $(date +%s) - JOB_START ))
+          {
+            echo "### formal-checks"
+            echo "wall time: ${elapsed}s"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  formal-checks-nano:
+    name: formal-checks-nano
+    # A SECOND check set, 79 against littlecpu's 86, and each grades a complete baseline.
+    # Split by set rather than sharded, because a shard of one set grades nothing.
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
+    timeout-minutes: 20
+    steps:
+      - name: Record job start
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up OSS CAD Suite
+        uses: ./.github/actions/setup-oss-cad-suite
+
+      # As in the other half: without btorsim this gate goes green on a set that never ran.
+      - name: Confirm the BMC toolchain is complete
+        run: |
+          set -euo pipefail
+          missing=0
+          for tool in yosys sby btormc btorsim; do
+            if path=$(command -v "$tool"); then
+              echo "$tool: $path"
+            else
+              echo "::error::$tool is not on PATH in the OSS CAD Suite"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::formal/check-baseline.sh cannot tell ERROR from FAIL," \
+                 "so an incomplete toolchain would make this gate green on a" \
+                 "check set that never really ran. Refusing to report a verdict."
+            exit 1
+          fi
+
       - name: Generate and run the nanocpu checks (make -C nano/formal check)
         run: make -C nano/formal check JOBS=4
 
@@ -676,7 +740,7 @@ jobs:
         run: |
           elapsed=$(( $(date +%s) - JOB_START ))
           {
-            echo "### formal-checks"
+            echo "### formal-checks-nano"
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -730,17 +794,18 @@ jobs:
 
   formal:
     name: formal
-    needs: [formal-checks, formal-extra]
+    needs: [formal-checks, formal-checks-nano, formal-extra]
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - name: Require both halves to have passed
+      - name: Require every formal half to have passed
         run: |
           set -euo pipefail
           checks='${{ needs.formal-checks.result }}'
+          nano='${{ needs.formal-checks-nano.result }}'
           extra='${{ needs.formal-extra.result }}'
-          echo "formal-checks: $checks   formal-extra: $extra"
-          if [ "$checks" != success ] || [ "$extra" != success ]; then
+          echo "formal-checks: $checks   nano: $nano   formal-extra: $extra"
+          if [ "$checks" != success ] || [ "$nano" != success ] || [ "$extra" != success ]; then
             echo "::error::a formal half did not pass; read formal-checks and formal-extra"
             exit 1
           fi
