@@ -1138,8 +1138,27 @@ probe "the compensation going missing is caught after every rule" 1 \
 
 begin_group "formal/genchecks-audit.py"
 
+probe "no harness-directory argument is a usage error, not a silent default" 1 \
+  "usage:" "python3 '$REPO/formal/genchecks-audit.py'"
+
 probe "running the generator from the wrong directory is refused, not done" 1 \
-  "error: run from" "cd '$tmp' && python3 '$REPO/formal/genchecks-audit.py'"
+  "error: run from" "cd '$tmp' && python3 '$REPO/formal/genchecks-audit.py' '$REPO/formal'"
+
+GA="python3 $REPO/formal/genchecks-audit.py"
+
+# A second harness's checks.cfg: genchecks-audit.py takes the harness directory as
+# an argument, so this fixture never touches the real nano/formal tree.
+ga_nano_fixture() {
+  local d; d=$(new_case)
+  cp "$REPO/nano/formal/checks.cfg" "$d/checks.cfg"
+  cp "$REPO/nano/formal/EXPECTED_CHECKS" "$d/EXPECTED_CHECKS"
+  printf '%s' "$d"
+}
+
+d=$(ga_nano_fixture)
+mutate "$d/checks.cfg" 's/^hang     1     14$/hang     1     10/'
+probe "a nano [depth] entry lowered below its own floor fails generation, not just the baseline diff" 1 \
+  "hang: depth 10 is below F+1 = 13" "cd '$d' && $GA ."
 
 begin_group "soc/timing_split.py"
 
