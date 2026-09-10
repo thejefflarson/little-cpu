@@ -10,10 +10,12 @@ busarbiter all
 all: mode prove
 
 [engines]
-all: smtbmc
+# No `all:` line: sby ADDS it to a task's own engine instead of replacing it.
+decoder: smtbmc
+accessor: smtbmc
+traps: smtbmc
 pcloop: smtbmc boolector
-# The executor task is most of this job's wall time and bitwuzla proves it in 101s
-# against the default's 245s.
+# executor is most of this job's clock; bitwuzla proves it in 101s against 245s.
 executor: smtbmc bitwuzla
 
 busarbiter: smtbmc --keep-going

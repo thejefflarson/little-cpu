@@ -50,6 +50,7 @@ CoreMark's own FAIL verdict stops the number being quoted
 JSON that is not a netlist is refused
 NO-STATUS is a broken harness and is not baselineable either
 PASS in a failure set is a comparison whose only branch is failure
+TOOLS_ON_PATH stops the real tools shadowing a fixture's stubs
 a --measured call with no --isa is refused the same way as a missing --cflags
 a --measured call with no --tool is refused rather than stamping an unknown toolchain
 a C floor copied out of the measured table is rejected, not honoured
@@ -153,6 +154,7 @@ a declared harness that does not tie the input off is red
 a declared port littlecpu does not have is red
 a declared-but-unwired exclusion over-reports the restriction
 a decoder.v that does not exist is exit 2, not a vacuous pass
+a design entry missing area/num_cells/by_type is refused, not read as what is left
 a design that MET the target has measured the target
 a differing value is a divergence, located by change index
 a directory the glob stopped matching is red, not a suite of size zero
@@ -187,6 +189,7 @@ a gap opening between the UART and the SPI controller is red
 a gap opening between the data RAM and the timer is red
 a gap opening between the timer's reservation and the UART is red
 a gate failure reported only by the induction leg is not evidence
+a generated .sby whose depth drifted from what was swept is refused, not read anyway
 a generated check that was never scheduled resolves to NO-STATUS
 a graded target quietly depending on netlist-digest is red, and named
 a graph with no edges out of reg_rs1 is red, not a vacuous pass
@@ -202,6 +205,7 @@ a harness with no line in the baseline is red
 a harness with no line in the baseline is red
 a hop class nothing classifies would move the split silently
 a hop sum that does not reconcile blames the script, not the design
+a liberty download whose bytes are not the pin is refused before it is kept
 a liberty file that does not match the pinned digest is refused
 a line naming a mutation test/mutations/ does not have is red
 a line with no harness behind it is red too
@@ -267,6 +271,8 @@ a new site naming an ISA nothing declared is red, and located
 a new wide input port with no classification is red (finding 3)
 a nextpnr that died early is NOT graded on the last run's pair
 a non-comparable CSR value is exempted -- and every exemption printed
+a non-finite --max-um2 is refused before the ratchet compares anything
+a non-finite area in the JSON is refused, not compared as if it were real
 a non-numeric floor is named rather than compared arithmetically
 a not-yet-measured pair is reported, not graded as stale
 a one-bit constant is a different digest
@@ -336,9 +342,11 @@ a repo with no .github/workflows is red rather than a scan of nothing
 a report naming some other clock does not stand in for this one
 a report that does not exist is named, not read as zero
 a report under the floor fails, because the floor is the board clock
+a report with no 'design' key at all is refused, not read as zero
 a report with no routing hop in it is a failed read, not a wired design
 a report with no utilisation table is missing half the measurement
 a respelled address arm stops rather than proving the shipping core
+a respelled anchor stops rather than pinning nothing
 a respelled cause comparison stops rather than pinning nothing
 a respelled constant-latency assertion stops rather than pinning nothing
 a respelled divide case item stops the same way
@@ -371,7 +379,9 @@ a runner that printed no CS END terminator is a broken harness
 a runner that reports no cycles at all cannot produce a clean table
 a second occurrence of a counted exception value is red
 a seed clearing SOC_MIN_MHZ by under 5% is refused, not pinned
+a semicolon in the liberty path stays inside its own quoted token
 a shard spec that is not <i>/<n> is refused before anything runs
+a shipping harness that cannot reach its own goals is red
 a signal in scope only in an earlier module stops it too
 a simulated ROM smaller than the part's is red
 a simulation this cannot parse is a run that did not happen
@@ -386,11 +396,14 @@ a solver that wrote no verdict is exit 2, not a red arm
 a solver that wrote no verdict is exit 2, not a red arm
 a solver that wrote no verdict is exit 2, not a red arm
 a solver that wrote no verdict is exit 2, not a red arm
+a solver that wrote no verdict is exit 2, not a red arm
 a source this tree synthesises that the base lacks is not comparable
+a space in a source path does not split it into a second yosys argument
 a stale pin warns and does not fail, because the gate is Fmax
 a stall nothing in the list explains is a reason nobody wrote down
 a stall reason the accounting cannot name is red even with every test passing
 a stall reason with no driving cell stops the run
+a stalled-bus mutant red for only some goals is not full evidence
 a stamp measured on a dirty tree is STALE even if nothing has moved since
 a stamp with no table under it is a failed measurement
 a standalone synthesis of zero cells is named, not divided by
@@ -403,6 +416,7 @@ a suite script linking against a rom the harness has not got
 a sweep file that is not there reads as missing, not as empty
 a sweep of the part with no icetime is refused, not walked
 a sweep that names no part says which instrument is missing
+a sweep whose lowest value already passes is refused a flip point, not reported one
 a synthesis that failed is not a passed control either
 a table with no placements in it is one too
 a tarball already in the cache is reused, and still meets the digest
@@ -445,6 +459,7 @@ an allow-listed fixture that gained a real anchor is red until the entry is dele
 an allow-listed sed -i that no longer appears anywhere is red too
 an anti-vacuity cover that cannot go red is not a control
 an anti-vacuity cover that cannot go red is not a control
+an anti-vacuity cover that cannot go red is not a control
 an arm that admits a fault the core never commits is red
 an arm that admits a zero where the faulting word belongs is red
 an arm that admits rs1 where the effective address belongs is red
@@ -459,6 +474,7 @@ an empty manifest matches an empty suite and is rejected
 an empty netlist is a synthesis that wrote nothing
 an empty part table synthesises nothing, so it is refused
 an empty seed list stops the sweep instead of placing the default
+an empty status file is refused rather than read as a verdict
 an empty status file is refused rather than read as a verdict
 an empty status file is refused rather than read as a verdict
 an empty status file is refused rather than read as a verdict
@@ -564,6 +580,7 @@ control: a passing suite against an empty baseline is green
 control: a peripheral above the reserved span is accepted
 control: a pin whose sources match checks OK
 control: a placement holding the whole core is green
+control: a plain liberty and source produce the expected yosys script
 control: a report clearing the floor is green
 control: a rule from this clone's $GIT_DIR/info/exclude is not this repository's to grade
 control: a rule from this developer's $GIT_TEMPLATE_DIR is not this repository's to grade
@@ -600,6 +617,7 @@ control: both arms fail, each at its own line
 control: both sides failing the same test number still AGREE
 control: each subset is printed as a share of that number
 control: every allowed site is covered and nothing else carries the string
+control: every named source present proceeds
 control: every site names every port of littlecpu
 control: fixture_anchor finds its literal in the real file
 control: icetime whose chip database resolves is stamped like any tool
@@ -612,6 +630,7 @@ control: the ECP5 arm reads its own fabric's two cell names
 control: the MUL constant-latency assertion fails at its own line
 control: the arm proves for the shipping core and fails on both values
 control: the block RAM is named at the end of the path it sits at
+control: the cached suite is put first when nothing claims PATH
 control: the caveats travel with the number, on every run
 control: the declared list matches the tree exactly
 control: the digest states what its two verdicts mean
@@ -628,6 +647,7 @@ control: the shipping decoder reaches region_stall only, gated
 control: the shipping exclusion set matches its baseline both ways
 control: the shipping files describe one machine
 control: the shipping fixtures are all mutate/mutate_remove, every anchor holds
+control: the shipping harness reaches every goal and the stalled-bus mutant reaches none
 control: the shipping harness states one geometry
 control: the shipping harnesses tie off, both directions
 control: the shipping harnesses tie off, both directions
@@ -675,8 +695,10 @@ no critical path in the report is a failed measurement, not a fast design
 no critical path is a failed placement, not a core that cleared the step
 no frequency constraint at all cannot pass for agreement
 no harness-directory argument is a usage error, not a silent default
+no named source at all is reported, and is not a failure
 no placer on PATH is refused the same way
 no programs at all would report a clean 0 of 0
+no riscv-formal checkout is exit 2, not a probe against nothing
 no standalone count leaves nothing to compare against
 no utilisation table is a failure, not a 0% fit
 no utilisation table means nothing was placed, not that nothing was lost
@@ -691,6 +713,7 @@ one netlist placed twice giving two bitstreams voids the gate
 one recipe name with two bodies is red, naming both lines
 one red tool leaves no partial stamp on stdout
 one side alone is not a cross-core figure
+one source present and a second missing is refused, not read as nothing landed
 over budget names the count and the budget
 perl -pi is a raw edit like sed -i
 reg_rs1 laundered through out.rs1's own register is still red
@@ -719,6 +742,7 @@ the Dhrystone flags drifting from the suite's ISA is red
 the Makefile and test/cosim.py drifting apart is red
 the REPORT goes too, which .DELETE_ON_ERROR cannot do for a non-target
 the ROM image built to a different size than the ROM is red
+the RTL moving away takes the probe with it, loudly
 the RTL moving away takes the probe with it, loudly
 the RTL moving away takes the probe with it, loudly
 the SECOND CoreMark core's RAM diverging is graded, not only the first
@@ -758,6 +782,7 @@ the generated check set's isa line swept along with the flags is red
 the harness giving the UART its own baud rate is red
 the harness moving away takes the probe with it, loudly
 the harness moving away takes the probe with it, loudly
+the harness moving away takes the probe with it, loudly
 the harness passing a literal instead of the size it sized
 the harness sizing its own RAM again is red
 the isa list is what wires a model in, not the insns/ directory alone
@@ -784,9 +809,11 @@ the refusal names the cell and the port, not just a count
 the refusal names the flow that stopped, not another part's
 the refusal points at the spelling that fixes it
 the refused download is neither unpacked nor kept to be served again
+the refused liberty download is not kept to be served again
 the rulebook quoting a figure the source no longer states is red
 the same for the bypass counter, per program rather than in total
 the same path repeated on one line is not a second copy
+the sby script moving away takes the probe with it, loudly
 the stale ISA name coming back in a formal harness comment is red
 the suite's shape is asserted before a single program is assembled
 the third core's ROM drifting behind the other two is red

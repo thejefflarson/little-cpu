@@ -84,10 +84,12 @@ formal/decoder-zkt-probe/
 formal/executor-zkt-probe/
 nano/formal/checks
 nano/formal/complete
+nano/formal/complete_cover
 nano/formal/dmemcheck
 nano/formal/imemcheck
 nano/formal/fg-probe.cfg
 nano/formal/fg-probe/
+nano/formal/complete-cover-probe/
 __pycache__/
 test/rtl.cc
 test/dual_rtl.cc
