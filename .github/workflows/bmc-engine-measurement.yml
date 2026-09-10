@@ -1,10 +1,8 @@
 name: bmc-engine-measurement
 
-# Throwaway instrument. #303 split components into one proof per pod, so the
-# figure that gates an engine change is each proof's OWN high-water mark and the
-# headroom it leaves under the 3Gi burst ceiling -- not a whole job's concurrent
-# peak. Two ceilings rest on this: bitwuzla for traps, and rIC3's decline, both
-# taken when the limit was 1.5Gi.
+# Throwaway instrument, unmerged. Reads each proof's own pod high-water mark,
+# since #303 gave every proof a pod and a burst ceiling is what OOM-kills.
+
 on:
   workflow_dispatch:
   push:
