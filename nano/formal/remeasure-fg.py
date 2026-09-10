@@ -159,7 +159,8 @@ def main():
     print(
         "\nThe declaration is stale. Update the `#derive` lines in "
         "nano/formal/checks.cfg and\nrun `make -C nano/formal checks`, "
-        "which grades every [depth] entry against them.",
+        "which regenerates the check set and refuses to generate one whose "
+        "depth\nis below its family's [depth] floor.",
         file=sys.stderr,
     )
     return 1
