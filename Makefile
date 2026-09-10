@@ -34,6 +34,12 @@ sim: test/cxxrtl.cc test/rtl.cc
 # inside one is invisible from every other.
 TOOL_CACHE := $(if $(XDG_CACHE_HOME),$(XDG_CACHE_HOME),$(HOME)/.cache)/little-cpu
 
+# A stale yosys or icetime ahead of the suite changes every figure, silently.
+OSS_CAD_BIN := $(TOOL_CACHE)/oss-cad-suite/bin
+ifneq ($(wildcard $(OSS_CAD_BIN)/yosys),)
+export PATH := $(OSS_CAD_BIN):$(PATH)
+endif
+
 include nano/nano.mk
 
 ifneq ($(filter command line environment,$(origin SAIL_RISCV_VERSION)),)
