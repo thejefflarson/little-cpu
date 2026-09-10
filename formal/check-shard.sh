@@ -1,14 +1,7 @@
 #!/bin/bash
-# Runs every nth generated check, starting at i, out of an already-generated checks
-# directory. Shared by formal/ and nano/formal/, whose check sets differ but whose
-# layout does not.
-#
-# IT GRADES NOTHING, and that is the design. formal/check-baseline.sh compares two
-# SETS in both directions and needs every check's status at once; a shard holds a
-# fraction of them and could only ever grade a fraction of the question. The job that
-# collects the shards runs the baseline over the union. A shard that never ran leaves
-# no status file behind, check-baseline.sh reads that as NO-STATUS, and NO-STATUS is
-# not PASS -- so a lost shard fails the baseline rather than quietly shrinking it.
+# Runs every nth generated check and GRADES NOTHING: the collector grades the union, and
+# a shard that never ran leaves no status, which reads as NO-STATUS and fails the baseline.
+
 set -uo pipefail
 
 if [ $# -lt 2 ] || [ $# -gt 3 ]; then
@@ -48,9 +41,6 @@ fi
 count=$(printf '%s\n' $names | wc -l | tr -d ' ')
 total=$(cd "$CHECKS_DIR" && ls -- *.sby 2>/dev/null | wc -l | tr -d ' ')
 echo "shard $SPEC: $count of $total checks, $JOBS at a time"
-# sby's own status is not read: `expect pass,fail` means it exits 0 either way, and the
-# verdict is the baseline the collecting job runs. What matters here is that every
-# selected check got as far as writing a status.
 make -C "$CHECKS_DIR" -j"$JOBS" -k $names || true
 
 missing=""
