@@ -3,6 +3,8 @@
 # is derived from -- and grades what it measures against the `#derive` lines that declare
 # them.
 
+import argparse
+import importlib.util
 import os
 import shutil
 import subprocess
@@ -13,6 +15,19 @@ import depth_rules
 HERE = os.path.dirname(os.path.abspath(__file__))
 CFG = os.path.join(HERE, "checks.cfg")
 PROBE = "fg-probe"
+GENCHECKS_DEFAULT = os.path.join(HERE, "genchecks-local.py")
+
+def _load_sibling(name):
+    """genchecks-audit.py is a hyphenated filename, so it is loaded by path rather
+    than imported by name."""
+    spec = importlib.util.spec_from_file_location(
+        name.replace("-", "_"), os.path.join(HERE, f"{name}.py")
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+genchecks_audit = _load_sibling("genchecks-audit")
 
 # The two trigger depths G is measured at, so a flip point is bracketed rather than
 # sampled once.
@@ -21,7 +36,19 @@ TRIGS = (10, 15)
 # How far either side of the declared figure to sweep.
 BELOW, ABOVE = 2, 1
 
-def probe(depth_line, check):
+def expected_cycles(depth_line):
+    """The RISCV_FORMAL_*_CYCLE(S) values `depth_line` should produce, read off the
+    same fields genchecks-local.py's check generation indexes into: hang is
+    (start, depth), liveness is (start, trig, depth)."""
+    label, *nums = depth_line.split()
+    nums = [int(n) for n in nums]
+    if label == "hang":
+        return {"CHECK_CYCLE": nums[1]}
+    if label == "liveness":
+        return {"CHECK_CYCLE": nums[2], "TRIG_CYCLE": nums[1]}
+    raise SystemExit(f"error: don't know which fields of {depth_line!r} are which")
+
+def probe(depth_line, check, genchecks):
     """Generate a one-check set from checks.cfg with `depth_line` as the whole
     of [depth], run it, and return sby's status."""
     lines = []
@@ -43,7 +70,7 @@ def probe(depth_line, check):
 
     shutil.rmtree(os.path.join(HERE, PROBE), ignore_errors=True)
     subprocess.run(
-        [sys.executable, "genchecks-local.py", PROBE],
+        [sys.executable, genchecks, PROBE],
         cwd=HERE,
         check=True,
         stdout=subprocess.DEVNULL,
@@ -54,6 +81,24 @@ def probe(depth_line, check):
             f"error: `{depth_line}` generated no {check} check. The [depth] key "
             "that names it has been renamed upstream, or the line is malformed."
         )
+
+    generated = {}
+    with open(sby) as f:
+        for line in f:
+            match = genchecks_audit.DEFINE_RE.match(line.rstrip("\n"))
+            if match:
+                generated[match.group(1)] = int(match.group(2))
+    for name, want in expected_cycles(depth_line).items():
+        got = generated.get(name)
+        if got != want:
+            raise SystemExit(
+                f"error: {PROBE}/{check}.sby defines RISCV_FORMAL_{name} = {got}, "
+                f"not the {want} this row swept ('{depth_line}'). genchecks-local.py's "
+                "[depth] field order has drifted from what this script assumes, so "
+                "every row would run at the same unasked-for depth while still "
+                "reporting PASS/FAIL."
+            )
+
     subprocess.run(
         ["sby", "-f", f"{PROBE}/{check}.sby"],
         cwd=HERE,
@@ -70,13 +115,14 @@ def probe(depth_line, check):
     with open(status_file) as f:
         return f.read().split()[0]
 
-def sweep(label, check, rows):
+def sweep(label, check, rows, genchecks):
     """Run one sweep of `check` and return the lowest value that PASSes, or
     None. `rows` is a list of (value, description, depth_line)."""
     print(f"\n{label}")
     flip = None
+    saw_fail = False
     for value, description, depth_line in rows:
-        status = probe(depth_line, check)
+        status = probe(depth_line, check, genchecks)
         print(f"  {description:<28} {status}")
         if status not in ("PASS", "FAIL"):
             raise SystemExit(
@@ -86,12 +132,22 @@ def sweep(label, check, rows):
             )
         if status == "PASS":
             if flip is None:
+                if not saw_fail:
+                    raise SystemExit(
+                        f"error: {check} passed at {value}, the lowest value "
+                        "swept, with no FAIL beneath it. A flip point needs a "
+                        "red direction to bracket it, not just a green one; "
+                        "widen BELOW in this file so the sweep reaches one."
+                    )
                 flip = value
-        elif flip is not None:
-            raise SystemExit(
-                f"error: {check} is red at {value} and green below it. The "
-                "sweep is not monotonic, so there is no flip point to report."
-            )
+        else:
+            saw_fail = True
+            if flip is not None:
+                raise SystemExit(
+                    f"error: {check} is red at {value} and green below it. The "
+                    "sweep is not monotonic, so there is no flip point to "
+                    "report."
+                )
     if flip is None:
         raise SystemExit(
             f"error: {check} is red at every value swept, so the flip point is "
@@ -101,6 +157,15 @@ def sweep(label, check, rows):
     return flip
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--genchecks",
+        default=GENCHECKS_DEFAULT,
+        help="generator to run against checks.cfg; overridable so a probe can "
+        "substitute one that reproduces a drifted [depth] field order",
+    )
+    args = parser.parse_args()
+
     if os.path.realpath(os.getcwd()) != os.path.realpath(HERE):
         print(f"error: run from {HERE}, not {os.getcwd()}", file=sys.stderr)
         return 1
@@ -121,6 +186,7 @@ def main():
             (cycle, f"check cycle {cycle}", f"hang     1     {cycle}")
             for cycle in range(max(1, f_declared - BELOW), f_declared + 1 + ABOVE)
         ],
+        args.genchecks,
     )
     # rvfi_hang_check.sv asserts a registered flag, so it first holds one cycle after the
     # last cycle a trace can go without retiring.
@@ -140,6 +206,7 @@ def main():
                 )
                 for gap in range(max(1, g_declared - BELOW), g_declared + 1 + ABOVE)
             ],
+            args.genchecks,
         )
         print(f"  => flip point {flip}, so G = {flip}")
         if g_measured is not None and flip != g_measured:

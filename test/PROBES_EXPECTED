@@ -134,6 +134,7 @@ a constraint file that describes a different oscillator is red
 a constraint that is not the declared one is a different measurement
 a copy wrapped across lines is caught, not read as two harmless ones
 a core folded away on ECP5 is red against the same floor
+a core sweep whose lowest value already passes is refused a flip point, not reported one
 a core that cannot hold the CoreMark image is named, not left to the reader
 a core that cannot hold the image is named, not left to the reader
 a core that reached the start of the loop and not the end is red
@@ -192,6 +193,7 @@ a gap opening between the UART and the SPI controller is red
 a gap opening between the data RAM and the timer is red
 a gap opening between the timer's reservation and the UART is red
 a gate failure reported only by the induction leg is not evidence
+a generated .sby whose depth drifted from what the core's sweep asked for is refused, not read anyway
 a generated .sby whose depth drifted from what was swept is refused, not read anyway
 a generated check that was never scheduled resolves to NO-STATUS
 a generation that produced no checks at all is refused

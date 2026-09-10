@@ -1160,6 +1160,45 @@ mutate "$d/checks.cfg" 's/^hang     1     14$/hang     1     10/'
 probe "a nano [depth] entry lowered below its own floor fails generation, not just the baseline diff" 1 \
   "hang: depth 10 is below F+1 = 13" "cd '$d' && $GA ."
 
+begin_group "formal/remeasure-fg.py"
+
+# fg-probe.cfg and fg-probe/ are gitignored scratch, the same as `make -C formal
+# remeasure-fg` writes into the real formal directory; both probes clean up after.
+RFG_MAIN="cd '$REPO/formal' && rm -rf fg-probe fg-probe.cfg"
+
+mkdir -p "$tmp/bin-sby-pass-main"
+cat > "$tmp/bin-sby-pass-main/sby" <<'STUB'
+#!/bin/sh
+# Stands in for sby: reports PASS unconditionally.
+d=$(dirname "$2")
+check=$(basename "$2" .sby)
+mkdir -p "$d/$check"
+echo "PASS 2 0" > "$d/$check/status"
+STUB
+chmod +x "$tmp/bin-sby-pass-main/sby"
+
+probe "a core sweep whose lowest value already passes is refused a flip point, not reported one" 1 \
+  "with no FAIL beneath it" \
+  "$RFG_MAIN && PATH='$tmp/bin-sby-pass-main':\$PATH python3 remeasure-fg.py; rc=\$?; rm -rf fg-probe fg-probe.cfg; exit \$rc"
+
+cat > "$tmp/fake-genchecks-main.py" <<'PY'
+#!/usr/bin/env python3
+# Stands in for formal/genchecks-local.py, writing cycles that never match what was swept.
+import os, sys
+cfgname = sys.argv[1]
+with open(f"{cfgname}.cfg") as f:
+    lines = f.read().splitlines()
+check = lines[lines.index("[depth]") + 1].split()[0]
+name = "hang.sby" if check == "hang" else "liveness_ch0.sby"
+os.makedirs(cfgname, exist_ok=True)
+with open(os.path.join(cfgname, name), "w") as f:
+    f.write("`define RISCV_FORMAL_CHECK_CYCLE 1\n`define RISCV_FORMAL_TRIG_CYCLE 1\n")
+PY
+
+probe "a generated .sby whose depth drifted from what the core's sweep asked for is refused, not read anyway" 1 \
+  "not the 4 this row swept" \
+  "$RFG_MAIN && python3 remeasure-fg.py --genchecks '$tmp/fake-genchecks-main.py'; rc=\$?; rm -rf fg-probe fg-probe.cfg; exit \$rc"
+
 begin_group "nano/formal/remeasure-fg.py"
 
 # fg-probe.cfg and fg-probe/ are gitignored scratch, the same as `make -C nano/formal
