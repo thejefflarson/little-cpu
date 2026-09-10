@@ -32,13 +32,19 @@ check-baseline: ../../formal/check-baseline.sh EXPECTED_FAIL EXPECTED_CHECKS
 dmemcheck: dmemcheck.sby dmemcheck.sv ../nano.v | $(RISCV_FORMAL_DIR)
 imemcheck: imemcheck.sby imemcheck.sv ../nano.v | $(RISCV_FORMAL_DIR)
 complete:  complete.sby  complete.sv  ../nano.v | $(RISCV_FORMAL_DIR)
+complete_cover: complete_cover.sby complete.sv ../nano.v complete-cover-probe | $(RISCV_FORMAL_DIR)
+
+.PHONY: complete-cover-probe
+complete-cover-probe: complete-cover-probe.py complete.sv complete_cover.sby ../nano.v | $(RISCV_FORMAL_DIR)
+	python3 $<
 
 .PHONY: remeasure-fg
 remeasure-fg: remeasure-fg.py ../../formal/depth_rules.py checks.cfg ../nano.v | $(RISCV_FORMAL_DIR)
 	python3 $<
 
 clean:
-	rm -rf checks complete dmemcheck imemcheck fg-probe fg-probe.cfg
+	rm -rf checks complete complete_cover dmemcheck imemcheck fg-probe fg-probe.cfg
+	rm -rf complete-cover-probe
 
 .PHONY: all clean
-all: check dmemcheck imemcheck complete
+all: check dmemcheck imemcheck complete complete_cover

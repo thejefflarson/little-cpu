@@ -5026,6 +5026,96 @@ d=$(ba_fixture); rm "$d/formal/busarbiter.sv"
 probe "the harness moving away takes the probe with it, loudly" 2 \
   "formal/busarbiter.sv is missing from" "$(bas "$d")"
 
+begin_group "nano/formal/complete-cover-probe.py"
+
+CC="python3 $REPO/nano/formal/complete-cover-probe.py"
+
+cat > "$tmp/sby-cc-stub" <<'STUB'
+#!/bin/sh
+# Stands in for sby. This probe never asks the real solver to copy source into a
+# src/ directory the way sby itself does, so the shipping case is told apart from
+# the stalled-bus mutant by reading complete.sv directly out of this stub's own
+# cwd -- the same directory the probe wrote it into before invoking sby.
+mkdir -p complete_cover
+: > complete_cover/logfile.txt
+lines=$(grep -nE '^[[:space:]]*cover property \(' complete.sv | cut -d: -f1)
+unreached_line() {
+  echo "SBY [probe] engine_0: ##   0:00:00  Unreached cover statement at rvfi_testbench: complete.sv:$1.1-$1.1" \
+    >> complete_cover/logfile.txt
+}
+if grep -q "assume(mem_ready" complete.sv; then
+  status=${STUB_STALLED:-FAIL}
+  if [ "$status" = FAIL ]; then
+    if [ -n "${STUB_STALLED_PARTIAL:-}" ]; then
+      unreached_line "$(echo "$lines" | head -1)"
+    else
+      for l in $lines; do unreached_line "$l"; done
+    fi
+  fi
+else
+  status=${STUB_SHIP:-PASS}
+fi
+[ -n "${STUB_SBY_NO_STATUS:-}" ] && exit 1
+if [ -n "${STUB_SBY_EMPTY_STATUS:-}" ]; then : > complete_cover/status; exit 1; fi
+echo "$status 0 12" > complete_cover/status
+STUB
+chmod +x "$tmp/sby-cc-stub"
+
+cc_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/nano/formal" "$d/formal/riscv-formal"
+  cp "$REPO"/nano/nano.v "$d/nano/"
+  cp "$REPO"/nano/formal/complete_cover.sby "$REPO"/nano/formal/complete.sv "$d/nano/formal/"
+  printf '%s' "$d"
+}
+
+ccs() { printf "%s --repo %s --workdir %s/work --sby %s" "$CC" "$1" "$1" "$tmp/sby-cc-stub"; }
+
+d=$(cc_fixture)
+probe "control: the shipping harness reaches every goal and the stalled-bus mutant reaches none" 0 \
+  "The stalled-bus mutant makes every cover goal unreachable" "$(ccs "$d")"
+
+d=$(cc_fixture)
+probe "a shipping harness that cannot reach its own goals is red" 1 \
+  "the shipping harness does not reach every cover goal" "STUB_SHIP=FAIL $(ccs "$d")"
+
+d=$(cc_fixture)
+probe "an anti-vacuity cover that cannot go red is not a control" 1 \
+  "cannot go red is not a control" "STUB_STALLED=PASS $(ccs "$d")"
+
+d=$(cc_fixture)
+probe "a stalled-bus mutant red for only some goals is not full evidence" 1 \
+  "which does not cover" "STUB_STALLED_PARTIAL=1 $(ccs "$d")"
+
+d=$(cc_fixture)
+probe "a solver that wrote no verdict is exit 2, not a red arm" 2 \
+  "wrote no status for the shipping case" "STUB_SBY_NO_STATUS=1 $(ccs "$d")"
+
+d=$(cc_fixture)
+probe "an empty status file is refused rather than read as a verdict" 2 \
+  "status file for the shipping case is empty" "STUB_SBY_EMPTY_STATUS=1 $(ccs "$d")"
+
+d=$(cc_fixture)
+mutate "$d/nano/formal/complete.sv" 's/  logic trap;/  logic trap ;/'
+probe "a respelled anchor stops rather than pinning nothing" 2 \
+  "no longer spells what the stalled-bus mutation" "$(ccs "$d")"
+
+d=$(cc_fixture); rm "$d/nano/formal/complete_cover.sby"
+probe "the sby script moving away takes the probe with it, loudly" 2 \
+  "nano/formal/complete_cover.sby is missing from" "$(ccs "$d")"
+
+d=$(cc_fixture); rm "$d/nano/formal/complete.sv"
+probe "the harness moving away takes the probe with it, loudly" 2 \
+  "nano/formal/complete.sv is missing from" "$(ccs "$d")"
+
+d=$(cc_fixture); rm "$d/nano/nano.v"
+probe "the RTL moving away takes the probe with it, loudly" 2 \
+  "nano/nano.v is missing from" "$(ccs "$d")"
+
+d=$(cc_fixture); rmdir "$d/formal/riscv-formal"
+probe "no riscv-formal checkout is exit 2, not a probe against nothing" 2 \
+  "Fetch the pin first" "$(ccs "$d")"
+
 begin_group "test/dual_build.sh"
 
 DB="$REPO/test/dual_build.sh"

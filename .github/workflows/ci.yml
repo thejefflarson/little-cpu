@@ -783,6 +783,9 @@ jobs:
       - name: nanocpu complete (whole-ISA BMC walk, depth 20)
         run: make -C nano/formal complete
 
+      - name: nanocpu complete_cover (anti-vacuity — every opcode class retires)
+        run: make -C nano/formal complete_cover
+
       - name: Report job wall time
         if: always()
         run: |

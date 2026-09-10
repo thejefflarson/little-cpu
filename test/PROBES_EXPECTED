@@ -325,6 +325,7 @@ a report under the floor fails, because the floor is the board clock
 a report with no routing hop in it is a failed read, not a wired design
 a report with no utilisation table is missing half the measurement
 a respelled address arm stops rather than proving the shipping core
+a respelled anchor stops rather than pinning nothing
 a respelled cause comparison stops rather than pinning nothing
 a respelled constant-latency assertion stops rather than pinning nothing
 a respelled divide case item stops the same way
@@ -356,6 +357,7 @@ a run that printed no COSIM-STATUS is COSIM-ERROR, not a verdict
 a runner that printed no CS END terminator is a broken harness
 a runner that reports no cycles at all cannot produce a clean table
 a second occurrence of a counted exception value is red
+a shipping harness that cannot reach its own goals is red
 a signal in scope only in an earlier module stops it too
 a simulated ROM smaller than the part's is red
 a simulation this cannot parse is a run that did not happen
@@ -369,10 +371,12 @@ a solver that wrote no verdict is exit 2, not a red arm
 a solver that wrote no verdict is exit 2, not a red arm
 a solver that wrote no verdict is exit 2, not a red arm
 a solver that wrote no verdict is exit 2, not a red arm
+a solver that wrote no verdict is exit 2, not a red arm
 a source this tree synthesises that the base lacks is not comparable
 a stall nothing in the list explains is a reason nobody wrote down
 a stall reason the accounting cannot name is red even with every test passing
 a stall reason with no driving cell stops the run
+a stalled-bus mutant red for only some goals is not full evidence
 a stamp measured on a dirty tree is STALE even if nothing has moved since
 a stamp with no table under it is a failed measurement
 a standalone synthesis of zero cells is named, not divided by
@@ -427,6 +431,7 @@ an allow-listed fixture that gained a real anchor is red until the entry is dele
 an allow-listed sed -i that no longer appears anywhere is red too
 an anti-vacuity cover that cannot go red is not a control
 an anti-vacuity cover that cannot go red is not a control
+an anti-vacuity cover that cannot go red is not a control
 an arm that admits a fault the core never commits is red
 an arm that admits a zero where the faulting word belongs is red
 an arm that admits rs1 where the effective address belongs is red
@@ -441,6 +446,7 @@ an empty manifest matches an empty suite and is rejected
 an empty netlist is a synthesis that wrote nothing
 an empty part table synthesises nothing, so it is refused
 an empty seed list stops the sweep instead of placing the default
+an empty status file is refused rather than read as a verdict
 an empty status file is refused rather than read as a verdict
 an empty status file is refused rather than read as a verdict
 an empty status file is refused rather than read as a verdict
@@ -605,6 +611,7 @@ control: the shipping decoder reaches region_stall only, gated
 control: the shipping exclusion set matches its baseline both ways
 control: the shipping files describe one machine
 control: the shipping fixtures are all mutate/mutate_remove, every anchor holds
+control: the shipping harness reaches every goal and the stalled-bus mutant reaches none
 control: the shipping harness states one geometry
 control: the shipping harnesses tie off, both directions
 control: the shipping harnesses tie off, both directions
@@ -651,6 +658,7 @@ no critical path is a failed placement, not a core that cleared the step
 no harness-directory argument is a usage error, not a silent default
 no placer on PATH is refused the same way
 no programs at all would report a clean 0 of 0
+no riscv-formal checkout is exit 2, not a probe against nothing
 no standalone count leaves nothing to compare against
 no utilisation table is a failure, not a 0% fit
 no utilisation table means nothing was placed, not that nothing was lost
@@ -695,6 +703,7 @@ the REPORT goes too, which .DELETE_ON_ERROR cannot do for a non-target
 the ROM image built to a different size than the ROM is red
 the RTL moving away takes the probe with it, loudly
 the RTL moving away takes the probe with it, loudly
+the RTL moving away takes the probe with it, loudly
 the SECOND CoreMark core's RAM diverging is graded, not only the first
 the SECOND core's RAM diverging is graded, not only the first
 the SPI controller moving in the core's copy alone is red
@@ -728,6 +737,7 @@ the generated check set's isa line swept along with the flags is red
 the harness giving the UART its own baud rate is red
 the harness moving away takes the probe with it, loudly
 the harness moving away takes the probe with it, loudly
+the harness moving away takes the probe with it, loudly
 the harness passing a literal instead of the size it sized
 the harness sizing its own RAM again is red
 the isa list is what wires a model in, not the insns/ directory alone
@@ -757,6 +767,7 @@ the refused download is neither unpacked nor kept to be served again
 the rulebook quoting a figure the source no longer states is red
 the same for the bypass counter, per program rather than in total
 the same path repeated on one line is not a second copy
+the sby script moving away takes the probe with it, loudly
 the stale ISA name coming back in a formal harness comment is red
 the suite's shape is asserted before a single program is assembled
 the third core's ROM drifting behind the other two is red
