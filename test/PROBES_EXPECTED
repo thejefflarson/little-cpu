@@ -66,6 +66,8 @@ a MAP_TOP inside the topmost window is red
 a Makefile make cannot parse does not pass by silence
 a Makefile naming $(VEXRISCV_V) nowhere is red, not vacuously clean
 a PASS with no counts line is not a pass
+a PLL fed by something other than the constrained pad is red
+a PLL told its input is something the pad is not is red
 a RAM comparison over no words is named as unable to fail
 a RAM half the size in the core's copy is red
 a RAM half the size in the proof's copy is red
@@ -76,6 +78,7 @@ a Sail install back inside the checkout is red
 a SoC with no SPI controller at all does not pass by silence
 a SoC with no UART at all does not pass by silence
 a UART base off its own window is red
+a VCO outside the range the part locks over is red
 a backslash-continued sed -i is still a raw edit
 a bare unpaired with no grader does not pass by silence
 a base tree whose make fails is refused, not quietly given ours
@@ -120,6 +123,7 @@ a configuration truncated to nothing is caught, which test -e cannot be
 a configuration written without its report is half a run, not a run
 a connection by position stops rather than being half-read
 a connection to a port littlecpu no longer has is red
+a constraint file that describes a different oscillator is red
 a constraint that is not the declared one is a different measurement
 a copy wrapped across lines is caught, not read as two harmless ones
 a core that cannot hold the CoreMark image is named, not left to the reader
@@ -156,6 +160,7 @@ a failing assembler is ASSEMBLE-ERROR
 a failing assembler is fatal, not a divergence
 a failing objcopy names the region that failed
 a failure reported only by the induction leg is not evidence
+a feedback path the divider formula does not describe is red
 a field the runner stopped printing is named, not counted as zero
 a field with no value is a malformed line
 a file named twice is red rather than averaging into one pass
@@ -215,6 +220,7 @@ a malformed baseline line is named rather than skipped
 a malformed manifest line is red under --strict, not a silent pass
 a manifest entry that names no program is a typo, not a phantom
 a mid-word # does not hide a real sed -i after it
+a missing PLL file is refused rather than read as agreement
 a missing Sail install stops the run rather than scoring it
 a missing artifact refuses rather than reporting on nothing
 a missing asm directory is named
@@ -258,6 +264,7 @@ a non-numeric floor is named rather than compared arithmetically
 a not-yet-measured pair is reported, not graded as stale
 a one-bit constant is a different digest
 a one-field baseline line is rejected before the suite runs
+a pad frequency that is not whole hertz cannot be compared exactly
 a pair measured for the first time is news on its own, with no --current at all
 a pairing naming a program nobody wrote is red
 a parameter list spread over several lines is refused, not skimmed
@@ -288,6 +295,7 @@ a program that stopped assembling is ASSEMBLE-ERROR
 a program that went quiet is BELOW-FLOOR on retires
 a proof going red somewhere else is not evidence about the mtval arm
 a prose copy of a band figure goes red where it is written
+a ratio with no whole-hertz answer cannot be stated as CLOCK_HZ
 a raw sed -i outside mutate/mutate_remove is red, naming the line
 a real archive missing one vendored member is caught, and named
 a real archive with one byte-mutated file is caught, and named
@@ -590,6 +598,7 @@ control: the note a delta is read against carries the part too
 control: the pc hop reaches the pc bin, by the declared net's bits
 control: the shipping Makefile defines no target twice
 control: the shipping Makefile owes nothing but themselves to the two targets
+control: the shipping board agrees with its own PLL and constraint file
 control: the shipping decoder reaches region_stall only, gated
 control: the shipping exclusion set matches its baseline both ways
 control: the shipping files describe one machine
@@ -612,6 +621,7 @@ cores given with no --target-core among them is refused
 data past the end of the simulated RAM is red, not silent
 decoder_output.rd widened past 5 bits is red (finding 5)
 deleting an rtl file and leaving its line is red
+dividers that make a frequency CORE_HZ does not state is red
 every source line moving is the comment class, and is forgiven
 excluding the artifact does not blind the check to a real soc/compare/ change
 fixture_anchor whose literal left the real file is fixture-stale, named
@@ -634,6 +644,7 @@ no components.sby is exit 2, not a probe against an invented script
 no components.sby is exit 2, not a probe against an invented script
 no constraint found is red, which is the shape of the recorded defects
 no critical path in the report is a failed measurement, not a fast design
+no frequency constraint at all cannot pass for agreement
 no placer on PATH is refused the same way
 no programs at all would report a clean 0 of 0
 no standalone count leaves nothing to compare against
@@ -687,11 +698,13 @@ the SPI controller moving in the proof's copy alone is red
 the Sail download directory inside the checkout is red on its own
 the SoC restating the timer base is red too
 the Trellis database cannot be stamped without the tool it belongs to
+the UART divided by anything but the graded figure is red
 the UART moving in the core's copy alone is red
 the UART moving in the proof's copy alone is red
 the address the flash-reading program uses is checked against the controller
 the address the printing program writes is checked against the UART
 the artifact moving does not make its own stamp stale
+the attribute nextpnr places against disagreeing with CORE_HZ is red
 the baud rate is still refused beside the clock a top may set
 the benchmark script must keep linking against the part's rom
 the benchmark's own FAIL verdict stops the number being quoted
@@ -705,6 +718,7 @@ the core hitting its cycle budget is INCONCLUSIVE too
 the core's copy of the RAM base drifting from the RAM is red
 the cxxrtl runner's kRamBase drifting is red
 the default text window is the part's, not the harness's
+the defect this exists for: a core clocked from the pad, not the PLL
 the dominant reason is the suite's, not the first program's
 the encoding proof going red somewhere else is not evidence either
 the exemption does not extend to a write of the WRONG register
@@ -761,6 +775,7 @@ two arms that cannot be told apart are not two arms
 two arms that cannot be told apart are not two arms
 two base commits refuse the delta rather than warning above it
 two clocks named clk makes the frequency a guess, so it refuses to guess
+two constraints on one pad are two chances to disagree
 two copies of the flags agreeing about -march and nothing else
 two cores whose RAMs differ are red, not a 1.2x result
 two files claiming the same number is named

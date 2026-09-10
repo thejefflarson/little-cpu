@@ -68,6 +68,32 @@ would override the pinned `--freq` the Makefile hands the placer, and a 25 MHz t
 25 MHz would report the constraint instead of the design -- which is the whole reason that
 constant exists.
 
+## `soc/icesugar_pro.lpf` -- The iCESugar-Pro board (ECP5 LFE5U-25F, caBGA256)
+
+Pin constraints for `soc/board_icesugar_pro.v` on a MuseLab iCESugar-Pro. Same die as
+soc/littlesoc.lpf's, different package and a different board, so no pin is shared with it:
+the oscillator is P6 here and P3 there, and both are real facts about their own module.
+Four pins are located -- the clock pad, the two LEDs and the UART's transmit line -- and
+nothing else on the board is reached, so this file needs no `--lpf-allow-unconstrained`.
+
+THERE IS A `FREQUENCY` LINE HERE, and soc/littlesoc.lpf's tripwire against one does not
+apply to this file. The two flows ask different questions. `make ecp5-timing` measures the
+design, so its constraint is a pinned constant the design must MISS; this file builds a
+bitstream that has to run, so its constraint is what the board's oscillator really is. That
+one line is also load-bearing rather than informational: `soc/icesugar_pro_pll.v` multiplies
+the pad by its own dividers, and nextpnr derives the core domain's constraint by doing that
+arithmetic itself -- but only if it has been told what the input is. Without the line the
+PLL's output net is unconstrained, nothing grades the placement, and a bitstream that misses
+its period is written in silence. `test/pll_clock_test.py` requires exactly one such line
+and requires every other statement of the same frequency to agree with it.
+
+25 MHZ IS THE BOARD'S FIGURE, not a measured one. It is what MuseLab states for the module's
+oscillator, and no instrument here has ever checked it -- the up5k's `SB_HFOSC` was measured
+because a datasheet's worst case was being quoted to argue the UART could not work, and no
+such argument has been made about this part. Everything downstream is derived from this
+number, the UART's divisor included, so it is the one place where a wrong figure would be
+invisible in every log and obvious on the wire.
+
 ## `soc/compare/bench_hx8k.pcf` -- The cross-core bench on ice40 hx8k
 
 Pin constraints for all three harnesses in this directory, on an ice40 hx8k in a ct256
