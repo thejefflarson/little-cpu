@@ -1232,19 +1232,21 @@ NETLIST_SYNTH   := $(SOC_SYNTH)
 NETLIST_PNR     := $(SOC_PNR)
 NETLIST_PNR_OUT := --asc
 NETLIST_MUTANT  := rtl/littlesoc.v mem_addr
+NETLIST_COMMENT_FILE := rtl/csrs.v
 endif
 
 NETLIST_ENV = NETLIST_SYNTH='$(NETLIST_SYNTH)' NETLIST_PNR='$(NETLIST_PNR)' \
               NETLIST_PNR_OUT='$(NETLIST_PNR_OUT)' NETLIST_PNR_DONE='$(NETLIST_PNR_DONE)' \
-              NETLIST_MUTANT='$(NETLIST_MUTANT)' NETLIST_OUT='$(NETLIST_OUT)' \
-              SOC_PROG='$(SOC_PROG)'
+              NETLIST_MUTANT='$(NETLIST_MUTANT)' NETLIST_COMMENT_FILE='$(NETLIST_COMMENT_FILE)' \
+              NETLIST_OUT='$(NETLIST_OUT)' SOC_PROG='$(SOC_PROG)'
 
 define netlist-part-check
 test -n '$(NETLIST_SYNTH)' || { \
 	  echo '*** NETLIST_PART=$(NETLIST_PART) has no synthesis flow here.'; \
 	  echo '*** Parts with one: up5k. A new part needs NETLIST_ROM, NETLIST_SYNTH,'; \
-	  echo '*** NETLIST_PNR, NETLIST_PNR_OUT and NETLIST_MUTANT set in the Makefile'; \
-	  echo '*** block above. Nothing was digested.'; \
+	  echo '*** NETLIST_PNR, NETLIST_PNR_OUT, NETLIST_MUTANT and'; \
+	  echo '*** NETLIST_COMMENT_FILE set in the Makefile block above. Nothing was'; \
+	  echo '*** digested.'; \
 	  exit 2; }
 endef
 

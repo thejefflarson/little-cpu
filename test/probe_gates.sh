@@ -4520,6 +4520,11 @@ module decoder (input logic [31:0] reg_rs1, output logic [31:0] out);
   assign out = reg_rs1;
 endmodule
 RTL
+  cat > "$d/repo/rtl/csrs.v" <<'RTL'
+module csrs (input logic [31:0] wdata, output logic [31:0] rdata);
+  assign rdata = wdata;
+endmodule
+RTL
   nd_netlist "$d/fix/canon.json"
   nd_netlist "$d/fix/canon.moved.json"
   mutate "$d/fix/canon.moved.json" 's/1010101010101010/1010101010101011/'
@@ -4534,7 +4539,7 @@ nl_run() {  # <fixture dir> [what follows the stubs on PATH]
   printf '%s' "PATH=$1/bin:${2:-\$PATH} \
     NETLIST_SYNTH='read_verilog -sv rtl/decoder.v; synth_ice40 -top littlesoc' \
     NETLIST_PNR='nextpnr-ice40 --up5k' NETLIST_PNR_OUT=--asc \
-    NETLIST_MUTANT='rtl/decoder.v reg_rs1' \
+    NETLIST_MUTANT='rtl/decoder.v reg_rs1' NETLIST_COMMENT_FILE='rtl/csrs.v' \
     sh $1/repo/soc/netlist_determinism.sh"
 }
 
@@ -4557,7 +4562,7 @@ probe "a mutant that left no trace demonstrates nothing, and says so" 1 \
 
 d=$(nl_fixture)
 probe "a canonical form that stopped forgiving the class is red" 1 \
-  "no longer forgives a comment" "STUB_YOSYS_CANON_MOVED=1 $(nl_run "$d")"
+  "moved the mapped netlist" "STUB_YOSYS_CANON_MOVED=1 $(nl_run "$d")"
 
 d=$(nl_fixture)
 probe "a placer that wrote no bitstream placed nothing, which is not a pass" 1 \
@@ -4606,6 +4611,10 @@ probe "a signal in scope only in an earlier module stops it too" 1 \
 d=$(nl_fixture); rm "$d/repo/rtl/decoder.v"
 probe "...and so does the file it injects into going away" 1 \
   "is not in this tree" "$(nl_run "$d")"
+
+d=$(nl_fixture); rm "$d/repo/rtl/csrs.v"
+probe "the comment class lands nowhere if its own file is gone" 1 \
+  "has nowhere to land" "$(nl_run "$d")"
 
 d=$(nl_fixture)
 probe "an empty part table synthesises nothing, so it is refused" 2 \
@@ -5158,7 +5167,7 @@ l4_fixture() {
   mkdir -p "$d/soc/compare" "$d/soc/depth" "$d/test" "$d/docs/adr" "$d/docs/ideas"
   cp "$REPO/CLAUDE.md" "$d/"
   cp "$REPO/Makefile" "$d/"
-  cp "$REPO/soc/baseline_summary.py" "$REPO/soc/baseline_sweep.sh" "$d/soc/"
+  cp "$REPO/soc/baseline_summary.py" "$REPO/soc/baseline_sweep.sh" "$REPO/soc/netlist_digest.py" "$d/soc/"
   cp "$REPO/soc/compare/dhry_fit.py" "$REPO/soc/compare/coremark_fit.py" \
     "$REPO/soc/compare/placed_vs_synth.py" "$d/soc/compare/"
   cp "$REPO/soc/depth/path_stages.py" "$d/soc/depth/"
