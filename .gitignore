@@ -90,6 +90,9 @@ nano/formal/imemcheck
 nano/formal/fg-probe.cfg
 nano/formal/fg-probe/
 nano/formal/complete-cover-probe/
+nano/formal/ill_e
+nano/formal/ill_e_cover
+nano/formal/ill-e-probe/
 __pycache__/
 test/rtl.cc
 test/dual_rtl.cc

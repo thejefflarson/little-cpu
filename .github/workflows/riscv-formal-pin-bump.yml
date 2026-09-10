@@ -1,3 +1,4 @@
+# Re-syncs test/monitor.v and nano/formal/rvfi_insn_check.sv -- see bump-riscv-formal-pin.sh.
 name: riscv-formal pin bump
 
 on:

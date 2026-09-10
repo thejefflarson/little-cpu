@@ -89,6 +89,11 @@ PATHS
 docs/adr/
 docs/ideas/
 
+# nano/nano.v's OWN, current, true ISA (the donor commit, ADR-0167) -- a
+# different design from this core, not this core's retired one. The two
+# designs' prose collides on the same six characters; this site says which one.
+test/ill_e_wiring_test.py
+
 # The probes that force this check red plant the string in their fixtures and
 # quote it in their labels. A probe that cannot name what it is planting is not
 # a probe.

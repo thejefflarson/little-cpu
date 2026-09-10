@@ -1,0 +1,13 @@
+[options]
+mode bmc
+depth 2
+
+[engines]
+smtbmc boolector
+
+[script]
+read_verilog -sv ill_e.sv
+prep -nordff -top ill_e_top
+
+[files]
+ill_e.sv
