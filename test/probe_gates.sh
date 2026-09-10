@@ -1142,9 +1142,8 @@ probe "running the generator from the wrong directory is refused, not done" 1 \
 
 GA="python3 $REPO/formal/genchecks-audit.py"
 
-# A second harness's checks.cfg, the way nano/formal's own is one -- genchecks-audit.py
-# takes the harness directory as an argument rather than deriving it from its own
-# location, so this fixture never touches the real nano/formal tree.
+# A second harness's checks.cfg: genchecks-audit.py takes the harness directory as
+# an argument, so this fixture never touches the real nano/formal tree.
 ga_nano_fixture() {
   local d; d=$(new_case)
   cp "$REPO/nano/formal/checks.cfg" "$d/checks.cfg"
