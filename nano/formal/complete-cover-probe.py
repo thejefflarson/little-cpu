@@ -33,7 +33,12 @@ import subprocess
 import sys
 
 COVER_LINE = re.compile(r"^\s*cover property \(")
-UNREACHED = re.compile(r"Unreached cover statement.*complete\.sv:(\d+)\.")
+# sby names a cover statement by a SOURCE RANGE -- `complete.sv:<line>.<col>-<line>.<col>`
+# -- whose start sits on the line BEFORE the statement. Both sets below are read with this
+# one pattern, so whatever convention sby uses cancels out of the comparison.
+COVER_SITE = re.compile(
+    r"(?P<un>[Uu]n)?[Rr]eached cover statement.*?complete\.sv:(?P<site>[\d.]+-[\d.]+)"
+)
 
 # Grown in place rather than inserted as a new line: every cover property below is
 # pinned by line number, and a new line would shift them all by one.
@@ -102,8 +107,10 @@ def run_case(repo, workdir, sby, case, complete_sv):
     if not status:
         stop(f"sby's status file for the {case} case is empty.")
     log = (nano_formal / "complete_cover" / "logfile.txt").read_text()
-    unreached = sorted(set(int(n) for n in UNREACHED.findall(log)))
-    return status[0], unreached
+    sites = {"reached": set(), "unreached": set()}
+    for m in COVER_SITE.finditer(log):
+        sites["unreached" if m.group("un") else "reached"].add(m.group("site"))
+    return status[0], sites
 
 
 def main():
@@ -133,30 +140,40 @@ def main():
 
     red = []
 
-    status, unreached = run_case(repo, workdir, args.sby, "shipping", complete_sv)
-    print(f"shipping: {status}, unreached cover goals {unreached or 'none'}")
+    status, ship = run_case(repo, workdir, args.sby, "shipping", complete_sv)
+    reached = sorted(ship["reached"])
+    print(f"shipping: {status}, reached {len(reached)} of {len(goals)} goals, "
+          f"unreached {sorted(ship['unreached']) or 'none'}")
+    if len(reached) != len(goals):
+        red.append(
+            f"the shipping harness reached {len(reached)} cover sites but complete.sv\n"
+            f"states {len(goals)} `cover property` lines. The goal set this control\n"
+            "grades is not the goal set the harness has.")
     if status != "PASS":
         red.append(
             "the shipping harness does not reach every cover goal. That is what\n"
             "make -C nano/formal complete_cover is meant to prove about the design\n"
             "as it ships, so a control that starts red proves nothing about a mutant."
         )
-    elif unreached:
-        red.append(f"the shipping harness reported PASS but still lists unreached goals {unreached}.")
+    elif ship["unreached"]:
+        red.append("the shipping harness reported PASS but still lists unreached goals "
+                   f"{sorted(ship['unreached'])}.")
 
-    status, unreached = run_case(repo, workdir, args.sby, "stalled-bus", mutate(complete_sv))
-    print(f"stalled-bus: {status}, unreached cover goals {unreached or 'none'}")
+    status, mut = run_case(repo, workdir, args.sby, "stalled-bus", mutate(complete_sv))
+    print(f"stalled-bus: {status}, unreached {len(mut['unreached'])} of {len(reached)} goals")
     if status != "FAIL":
         red.append(
             "the stalled-bus mutant proves. Assuming mem_ready low forever is exactly\n"
             "what should make every retire-gated cover goal unreachable, so an\n"
             "anti-vacuity control that cannot go red is not a control."
         )
-    elif unreached != goals:
+    elif mut["unreached"] != set(reached):
+        missed = sorted(set(reached) - mut["unreached"])
         red.append(
-            f"the stalled-bus mutant went red at {unreached}, which does not cover\n"
-            f"every goal in {goals} -- a cover job red for some other reason says\n"
-            "nothing about whether a stalled bus reaches this harness's own goals."
+            f"the stalled-bus mutant left {sorted(mut['unreached'])} unreached, which is\n"
+            f"not every site the shipping harness reached. Still reached under a stalled\n"
+            f"bus: {missed} -- a cover job red for some other reason says nothing about\n"
+            "whether a stalled bus reaches this harness's own goals."
         )
 
     if red:
