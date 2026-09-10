@@ -2994,7 +2994,8 @@ rn_fixture() {
   cp "$REPO/docs/THREAT_MODEL.md" "$d/docs/"
   cp "$REPO/docs/adr/README.md" "$d/docs/adr/"
   cp "$REPO/docs/ideas/finish-the-rewrite.md" "$d/docs/ideas/"
-  cp "$REPO/test/probe_gates.sh" "$REPO/test/retired_term_test.sh" "$d/test/"
+  cp "$REPO/test/probe_gates.sh" "$REPO/test/retired_term_test.sh" \
+     "$REPO/test/ill_e_wiring_test.py" "$d/test/"
   cp "$REPO/formal/wrapper.v" "$d/formal/"
   git -c init.defaultBranch=main -C "$d" init -q
   git -C "$d" add -A
