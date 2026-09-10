@@ -68,4 +68,21 @@ module rvfi_testbench (
       end
     end
   end
+
+  wire       insn_uncompressed = rvfi_insn[1:0] == 2'b11;
+  wire [6:0] insn_opcode       = rvfi_insn[6:0];
+
+  wire complete_live = !reset && rvfi_valid && !rvfi_trap;
+  cover property (complete_live && insn_uncompressed && insn_opcode == 7'b0000011); // LOAD
+  cover property (complete_live && insn_uncompressed && insn_opcode == 7'b0010011); // OP-IMM
+  cover property (complete_live && insn_uncompressed && insn_opcode == 7'b0010111); // AUIPC
+  cover property (complete_live && insn_uncompressed && insn_opcode == 7'b0100011); // STORE
+  cover property (complete_live && insn_uncompressed && insn_opcode == 7'b0110011); // OP
+  cover property (complete_live && insn_uncompressed && insn_opcode == 7'b0110111); // LUI
+  cover property (complete_live && insn_uncompressed && insn_opcode == 7'b1100011); // BRANCH
+  cover property (complete_live && insn_uncompressed && insn_opcode == 7'b1100111); // JALR
+  cover property (complete_live && insn_uncompressed && insn_opcode == 7'b1101111); // JAL
+  cover property (complete_live && rvfi_insn[1:0] == 2'b00);                        // RVC quadrant 0
+  cover property (complete_live && rvfi_insn[1:0] == 2'b01);                        // RVC quadrant 1
+  cover property (complete_live && rvfi_insn[1:0] == 2'b10);                        // RVC quadrant 2
 endmodule
