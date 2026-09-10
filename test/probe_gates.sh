@@ -4791,6 +4791,55 @@ git -C "$d/repo" rm -q rtl/decoder.v
 git -C "$d/repo" -c user.email=probe@example -c user.name=probe commit -qm drop
 probe "a source this tree synthesises that the base lacks is not comparable" 2 \
   "has no rtl/decoder.v" "$(nb_run "$d" HEAD)"
+begin_group "formal/retune-checks.py"
+
+RT="python3 $REPO/formal/retune-checks.py"
+
+# A fixture that looks like a generated check set: the two lines the retune
+# rewrites, and a non-insn check it must leave alone.
+rt_fixture() {
+  local d; d=$(new_case); mkdir -p "$d/checks"
+  for n in insn_add_ch0 insn_mul_ch0; do
+    printf '[options]\ndepth 20\nskip 19\n\n[engines]\nbtor btormc\n' > "$d/checks/$n.sby"
+  done
+  printf '[options]\ndepth 20\nskip 19\n\n[engines]\nbtor btormc\n' > "$d/checks/causal_ch0.sby"
+  printf '%s' "$d"
+}
+
+d=$(rt_fixture)
+probe "control: the insn checks move to pono and the others do not" 0 \
+  "retuned 2 insn_* checks" "$RT $d/checks"
+
+d=$(rt_fixture)
+probe "a non-insn check keeps its engine and its skip" 0 \
+  "btor btormc" "$RT $d/checks >/dev/null && cat $d/checks/causal_ch0.sby"
+
+d=$(rt_fixture)
+probe "a suite with no pono stops before rewriting anything" 1 \
+  "not on PATH" "PATH=/usr/bin:/bin $RT $d/checks"
+
+probe "a checks directory that is not there is refused" 1 \
+  "not a directory" "$RT /nonexistent/checks"
+
+d=$(new_case); mkdir -p "$d/checks"
+probe "a generation that produced no checks at all is refused" 1 \
+  "holds no .sby files" "$RT $d/checks"
+
+d=$(new_case); mkdir -p "$d/checks"
+printf '[options]\nskip 19\n\n[engines]\nbtor btormc\n' > "$d/checks/causal_ch0.sby"
+probe "a check set with no insn_* family is refused, not retuned silently" 1 \
+  "none is named insn_" "$RT $d/checks"
+
+d=$(rt_fixture)
+mutate "$d/checks/insn_add_ch0.sby" 's/^btor btormc$/btor somethingelse/'
+probe "an engine genchecks no longer emits is refused" 1 \
+  "not once" "$RT $d/checks"
+
+d=$(rt_fixture)
+mutate "$d/checks/insn_mul_ch0.sby" '/^skip 19$/d'
+probe "a check with no skip line is refused, not handed to pono anyway" 1 \
+  "no single \`skip\` line" "$RT $d/checks"
+
 begin_group "formal/busarbiter-probe.py"
 
 BA="python3 $REPO/formal/busarbiter-probe.py"
