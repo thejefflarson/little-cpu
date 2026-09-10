@@ -144,17 +144,17 @@ def main():
     reached = sorted(ship["reached"])
     print(f"shipping: {status}, reached {len(reached)} of {len(goals)} goals, "
           f"unreached {sorted(ship['unreached']) or 'none'}")
-    if len(reached) != len(goals):
-        red.append(
-            f"the shipping harness reached {len(reached)} cover sites but complete.sv\n"
-            f"states {len(goals)} `cover property` lines. The goal set this control\n"
-            "grades is not the goal set the harness has.")
     if status != "PASS":
         red.append(
             "the shipping harness does not reach every cover goal. That is what\n"
             "make -C nano/formal complete_cover is meant to prove about the design\n"
             "as it ships, so a control that starts red proves nothing about a mutant."
         )
+    elif len(reached) != len(goals):
+        red.append(
+            f"the shipping harness reached {len(reached)} cover sites but complete.sv\n"
+            f"states {len(goals)} `cover property` lines. The goal set this control\n"
+            "grades is not the goal set the harness has.")
     elif ship["unreached"]:
         red.append("the shipping harness reported PASS but still lists unreached goals "
                    f"{sorted(ship['unreached'])}.")

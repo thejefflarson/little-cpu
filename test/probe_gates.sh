@@ -5043,6 +5043,13 @@ unreached_line() {
   echo "SBY [probe] engine_0: ##   0:00:00  Unreached cover statement at rvfi_testbench: complete.sv:$1.1-$1.1" \
     >> complete_cover/logfile.txt
 }
+# Real sby reports the sites it DID reach too, and the probe compares that set
+# against the mutant's unreached one. A stub that wrote only the unreached half
+# left the reached set empty, which reads identically to a harness with no goals.
+reached_line() {
+  echo "SBY [probe] engine_0: ##   0:00:00  Reached cover statement in step 5 at rvfi_testbench: complete.sv:$1.1-$1.1" \
+    >> complete_cover/logfile.txt
+}
 if grep -q "assume(mem_ready" complete.sv; then
   status=${STUB_STALLED:-FAIL}
   if [ "$status" = FAIL ]; then
@@ -5054,6 +5061,9 @@ if grep -q "assume(mem_ready" complete.sv; then
   fi
 else
   status=${STUB_SHIP:-PASS}
+  if [ "$status" = PASS ]; then
+    for l in $lines; do reached_line "$l"; done
+  fi
 fi
 [ -n "${STUB_SBY_NO_STATUS:-}" ] && exit 1
 if [ -n "${STUB_SBY_EMPTY_STATUS:-}" ]; then : > complete_cover/status; exit 1; fi
@@ -5085,7 +5095,7 @@ probe "an anti-vacuity cover that cannot go red is not a control" 1 \
 
 d=$(cc_fixture)
 probe "a stalled-bus mutant red for only some goals is not full evidence" 1 \
-  "which does not cover" "STUB_STALLED_PARTIAL=1 $(ccs "$d")"
+  "not every site the shipping harness reached" "STUB_STALLED_PARTIAL=1 $(ccs "$d")"
 
 d=$(cc_fixture)
 probe "a solver that wrote no verdict is exit 2, not a red arm" 2 \
