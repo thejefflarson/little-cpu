@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """Report a Dhrystone image against the memory the comparison harness can place.
 
-THE ANSWER THIS PRINTS IS NORMALLY "IT DOES NOT FIT", AND THAT IS THE POINT.
-`make compare-timing` places both cores on an ice40 hx8k, which has 32
-`SB_RAM40_4K` and no SPRAM -- 16 KB of memory for everything, including each
-core's own register file and, on the VexRiscv side, a 1024-entry branch
-predictor. Dhrystone's `Arr_2_Glob` is 10 KB by itself. So the benchmark runs in
-simulation at a geometry no ice40 in this flow can hold, and the cycle counts it
-produces have to be multiplied by a clock measured at the smaller placed
-geometry. That mismatch is the headline caveat on the result and this script is
-what prints it, every run, next to the numbers.
+THE ANSWER THIS PRINTS DECIDES WHETHER THE CYCLE COUNTS BELOW IT CARRY A CAVEAT.
+`make compare-timing` places every core on an ice40 up5k, which has 30
+`SB_RAM40_4K` for the fetch window and the register files and four
+`SB_SPRAM256KA` -- 128 KB in pairs -- for the data RAM. When the image outgrows
+that, the benchmark runs in simulation at a geometry no part in this flow can
+hold and the cycle counts have to be multiplied by a clock measured at the
+smaller placed geometry; when it does not, nothing below is distorted by memory
+size. Either way this script says which, every run, next to the numbers.
 
 Trimming the benchmark to fit is not an option: a trimmed Dhrystone is not
 Dhrystone and its number could not be compared with anything, which is the whole
@@ -43,10 +42,17 @@ PARAM = r"^\s*localparam\s+int\s+{}\s*=\s*(\d+)\s*;"
 # One SB_RAM40_4K is 4096 bits, and yosys builds a 32-bit word out of two of them 256
 # words deep.
 WORDS_PER_BLOCK_PAIR = 256
+# One SB_SPRAM256KA is 16384 x 16, so a 32-bit word takes two of them.
+WORDS_PER_SPRAM_PAIR = 16384
 
 def blocks_for(byte_count):
     words = (byte_count + 3) // 4
     pairs = (words + WORDS_PER_BLOCK_PAIR - 1) // WORDS_PER_BLOCK_PAIR
+    return pairs * 2
+
+def spram_for(byte_count):
+    words = (byte_count + 3) // 4
+    pairs = (words + WORDS_PER_SPRAM_PAIR - 1) // WORDS_PER_SPRAM_PAIR
     return pairs * 2
 
 def read_core_blocks(spec):
@@ -104,10 +110,17 @@ def main():
     parser.add_argument(
         "--part-blocks",
         type=int,
-        default=32,
-        help="SB_RAM40_4K on the part the harness places on (hx8k: 32)",
+        default=30,
+        help="SB_RAM40_4K on the part the harness places on (up5k: 30)",
     )
-    parser.add_argument("--part", default="hx8k")
+    parser.add_argument(
+        "--part-spram",
+        type=int,
+        default=4,
+        help="SB_SPRAM256KA on that part (up5k: 4). Zero means the data RAM has "
+        "to come out of block RAM like everything else",
+    )
+    parser.add_argument("--part", default="up5k")
     args = parser.parse_args()
 
     for label, value in (
@@ -136,20 +149,28 @@ def main():
         )
 
     rom_blocks = blocks_for(args.rom_bytes)
-    ram_blocks = blocks_for(args.ram_bytes)
+    # The data RAM goes to SPRAM where the part has it, which is what makes 64 KB of
+    # RAM affordable on a part with 30 block RAMs; on a part with none it falls back to
+    # block RAM and competes with the fetch window for the same 30.
+    ram_spram = spram_for(args.ram_bytes) if args.part_spram else 0
+    ram_blocks = 0 if ram_spram else blocks_for(args.ram_bytes)
+    image_blocks = rom_blocks + ram_blocks
     print(
-        f"the image needs {rom_blocks} + {ram_blocks} = {rom_blocks + ram_blocks} "
-        f"SB_RAM40_4K, and {args.part} has {args.part_blocks} in total"
+        f"the image needs {image_blocks} SB_RAM40_4K and {ram_spram} "
+        f"SB_SPRAM256KA, and {args.part} has {args.part_blocks} and "
+        f"{args.part_spram}"
     )
 
     fits_placed = args.rom_bytes <= args.placed_rom and args.ram_bytes <= args.placed_ram
+    spram_fits = ram_spram <= args.part_spram
     for spec in args.core:
         name, core_blocks = read_core_blocks(spec)
-        total = core_blocks + rom_blocks + ram_blocks
-        verdict = "fits" if total <= args.part_blocks else "DOES NOT FIT"
+        total = core_blocks + image_blocks
+        fits = total <= args.part_blocks and spram_fits
         print(
-            f"  {name:<10} {core_blocks:>2} of its own + {rom_blocks + ram_blocks} "
-            f"for the image = {total:>3} blocks: {verdict}"
+            f"  {name:<10} {core_blocks:>2} of its own + {image_blocks} "
+            f"for the image = {total:>3} blocks: "
+            f"{'fits' if fits else 'DOES NOT FIT'}"
         )
 
     if fits_placed:
