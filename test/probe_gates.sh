@@ -6035,6 +6035,95 @@ probe "TOOLS_ON_PATH stops the real tools shadowing a fixture's stubs" 0 \
   "respected" \
   "env XDG_CACHE_HOME=$d/cache TOOLS_ON_PATH=1 make -C $REPO -s print-PATH | cut -d: -f1 | grep -qx '$d/cache/little-cpu/oss-cad-suite/bin' && echo shadowed || echo respected"
 
+begin_group "test/pll_clock_test.py"
+
+PLLC="python3 $HERE/pll_clock_test.py"
+
+pllc_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/soc" "$d/test"
+  cp "$REPO/soc/icesugar_pro.lpf" "$REPO/soc/icesugar_pro_pll.v" \
+     "$REPO/soc/board_icesugar_pro.v" "$d/soc/"
+  cp "$REPO/test/pll_clock_test.py" "$d/test/"
+  printf '%s' "$d"
+}
+
+d=$(pllc_fixture)
+probe "control: the shipping board agrees with its own PLL and constraint file" 0 \
+  "and rtl/uart.v divides by the same figure nextpnr placed against" "$PLLC $d"
+
+d=$(pllc_fixture)
+mutate "$d/soc/icesugar_pro.lpf" 's/25 MHZ/24 MHZ/'
+probe "a constraint file that describes a different oscillator is red" 1 \
+  "constrains the pad at 24000000 Hz" "$PLLC $d"
+
+d=$(pllc_fixture)
+mutate "$d/soc/icesugar_pro_pll.v" 's/FREQUENCY_PIN_CLKI="25"/FREQUENCY_PIN_CLKI="24"/'
+probe "a PLL told its input is something the pad is not is red" 1 \
+  "says its input is 24000000 Hz" "$PLLC $d"
+
+d=$(pllc_fixture)
+mutate "$d/soc/icesugar_pro_pll.v" 's/FEEDBK_PATH("CLKOP")/FEEDBK_PATH("CLKOS")/'
+probe "a feedback path the divider formula does not describe is red" 1 \
+  "sets FEEDBK_PATH to CLKOS" "$PLLC $d"
+
+d=$(pllc_fixture)
+mutate "$d/soc/icesugar_pro_pll.v" 's/CLKFB_DIV(6)/CLKFB_DIV(7)/'
+probe "dividers that make a frequency CORE_HZ does not state is red" 1 \
+  "make 35000000 Hz from a 25000000 Hz pad" "$PLLC $d"
+
+d=$(pllc_fixture)
+mutate "$d/soc/icesugar_pro_pll.v" 's/CLKI_DIV(5)/CLKI_DIV(7)/'
+probe "a ratio with no whole-hertz answer cannot be stated as CLOCK_HZ" 1 \
+  "is not divisible by CLKI_DIV" "$PLLC $d"
+
+d=$(pllc_fixture)
+mutate "$d/soc/icesugar_pro_pll.v" 's/CLKOP_DIV(20)/CLKOP_DIV(10)/'
+probe "a VCO outside the range the part locks over is red" 1 \
+  "outside the 400000000-800000000 Hz range" "$PLLC $d"
+
+d=$(pllc_fixture)
+mutate "$d/soc/icesugar_pro_pll.v" 's/FREQUENCY_PIN_CLKOP="30"/FREQUENCY_PIN_CLKOP="25"/'
+probe "the attribute nextpnr places against disagreeing with CORE_HZ is red" 1 \
+  "advertises FREQUENCY_PIN_CLKOP = 25000000 Hz" "$PLLC $d"
+
+d=$(pllc_fixture)
+mutate "$d/soc/board_icesugar_pro.v" 's/CLOCK_HZ(CORE_HZ)/CLOCK_HZ(PAD_HZ)/'
+probe "the UART divided by anything but the graded figure is red" 1 \
+  "passes PAD_HZ to littlesoc's CLOCK_HZ" "$PLLC $d"
+
+d=$(pllc_fixture)
+mutate "$d/soc/board_icesugar_pro.v" 's/clk_pad(clk_pin)/clk_pad(clk_core)/'
+probe "a PLL fed by something other than the constrained pad is red" 1 \
+  "The PLL must be fed by the pad the frequency constraint names" "$PLLC $d"
+
+d=$(pllc_fixture)
+mutate "$d/soc/board_icesugar_pro.v" 's/^    \.clk(clk_core),$/    .clk(clk_pin),/'
+probe "the defect this exists for: a core clocked from the pad, not the PLL" 1 \
+  "clocks littlesoc from 'clk_pin'" "$PLLC $d"
+
+d=$(pllc_fixture)
+mutate "$d/soc/icesugar_pro.lpf" '/^FREQUENCY PORT/d'
+probe "no frequency constraint at all cannot pass for agreement" 1 \
+  "states 0 FREQUENCY PORT constraint" "$PLLC $d"
+
+d=$(pllc_fixture)
+mutate "$d/soc/icesugar_pro.lpf" \
+  's|^FREQUENCY PORT "clk_pin" 25 MHZ;$|FREQUENCY PORT "clk_pin" 25 MHZ;\
+FREQUENCY PORT "clk_pin" 30 MHZ;|'
+probe "two constraints on one pad are two chances to disagree" 1 \
+  "states 2 FREQUENCY PORT constraint" "$PLLC $d"
+
+d=$(pllc_fixture)
+mutate "$d/soc/icesugar_pro.lpf" 's/25 MHZ/25.0000005 MHZ/'
+probe "a pad frequency that is not whole hertz cannot be compared exactly" 1 \
+  "which is not a whole number of hertz" "$PLLC $d"
+
+d=$(pllc_fixture)
+mutate_remove "$d/soc/icesugar_pro_pll.v"
+probe "a missing PLL file is refused rather than read as agreement" 1 \
+  "cannot grade a missing one" "$PLLC $d"
+
 actual_labels=$(printf '%s\n' "${probe_labels[@]}" | LC_ALL=C sort)
 expected_labels=$(grep -vE '^#|^[[:space:]]*$' "$PROBES_MANIFEST" | LC_ALL=C sort)
 if [ "$actual_labels" != "$expected_labels" ]; then

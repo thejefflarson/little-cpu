@@ -462,6 +462,10 @@ adr-numbering-test:
 makefile-target-test:
 	@./test/makefile_target_test.sh
 
+.PHONY: pll-clock-test
+pll-clock-test:
+	@python3 ./test/pll_clock_test.py
+
 # The cross-core comparison harness states its geometry in several places, read from this
 # Makefile's own COMPARE_TOP/-T lines rather than a second hand-kept list, and this is
 # what says they agree.
@@ -551,7 +555,8 @@ test: sim test-units probe-gates pin-bump-test tool-cache-test memmap-test \
       adr-numbering-test compare-geometry-test vexriscv-path-test retired-term-test port-connect-test march-test \
       band-source-test zkt-isolation-test fixture-freshness-test window-test imem-share-test \
       abc-engine-test makefile-target-test mutation-probe dual-build board-elaborate \
-      tracked-ignored-test mutation-coverage-test comment-density-test lut4-site-test
+      tracked-ignored-test mutation-coverage-test comment-density-test lut4-site-test \
+      pll-clock-test
 	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 .PHONY: cycles
@@ -838,9 +843,8 @@ ICESUGAR_DEVICE  := --25k
 ICESUGAR_PACKAGE := CABGA256
 ICESUGAR_SPEED   := 6
 ICESUGAR_PART    := LFE5U-25F-6BG256C
-ICESUGAR_MHZ     := 25
 ICESUGAR_TOP     := icesugar_pro_top
-ICESUGAR_SRCS    := $(SOC_SRCS) soc/board_icesugar_pro.v
+ICESUGAR_SRCS    := $(SOC_SRCS) soc/icesugar_pro_pll.v soc/board_icesugar_pro.v
 ICESUGAR_PROG    ?= soc/blink.S
 
 ICESUGAR_ROM     ?= soc-rom
@@ -857,9 +861,13 @@ icesugar.json: $(ICESUGAR_SRCS) soc/icesugar_pro.lpf
 
 icesugar.config: icesugar.json
 	@rm -f $@
-	@echo 'nextpnr: placing $(ICESUGAR_TOP) on $(ICESUGAR_PART) at $(ICESUGAR_MHZ) MHz (log: icesugar.pnr.log)'
+	@echo 'nextpnr: placing $(ICESUGAR_TOP) on $(ICESUGAR_PART) (log: icesugar.pnr.log)'
+	@# DO NOT ADD `--freq` HERE. The LPF states the pad and nextpnr multiplies it by the
+	@# EHXPLLL's dividers; a flat --freq overwrites that derived figure, and the design is
+	@# then graded against a period it does not run at. Missing the derived one is an
+	@# ERROR from nextpnr, which is what makes this recipe the bitstream's timing gate.
 	@nextpnr-ecp5 $(ICESUGAR_DEVICE) --package $(ICESUGAR_PACKAGE) --speed $(ICESUGAR_SPEED) \
-	  --json $< --lpf soc/icesugar_pro.lpf --freq $(ICESUGAR_MHZ) \
+	  --json $< --lpf soc/icesugar_pro.lpf \
 	  --textcfg $@ > icesugar.pnr.log 2>&1 || { tail -30 icesugar.pnr.log; exit 1; }
 	@test -s $@ || { echo '*** nextpnr wrote no configuration.'; tail -30 icesugar.pnr.log; exit 1; }
 
@@ -871,7 +879,7 @@ icesugar.bit: icesugar.config
 icesugar-bitstream: icesugar.bit
 	@echo
 	@echo '== $(ICESUGAR_PART): a bitstream, not a measurement =='
-	@grep -E 'Max frequency for clock' icesugar.pnr.log | tail -2
+	@grep -E 'Max frequency for clock' icesugar.pnr.log | tail -1
 	@ls -l icesugar.bit | awk '{ print "icesugar.bit  " $$5 " bytes" }'
 	@echo
 	@echo 'Put it on the board with `make icesugar-prog`. What the tools think'
