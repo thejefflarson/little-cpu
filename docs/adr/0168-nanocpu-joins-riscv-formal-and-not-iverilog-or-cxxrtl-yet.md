@@ -175,11 +175,19 @@ own parsing and mutation logic against a stub `sby`, not the real solver -- the 
 split every other sby-driving probe script in this tree already uses -- so
 `make probe-gates` stays free of a third real-tool dependency.
 
-**The generated `cover` check stays `#omit`-ed, reason changed from BLOCKED to
-DESIGN**: it is now run standalone by `complete_cover.sby`, the same choice
-`formal/checks.cfg` already made for the main core's own generated `cover` family in
-favor of its own standalone `cover.sby`.
+**The generated `cover` check is restored rather than left `#omit`-ed.** The donor's own
+`riscv-formal/cores/picorv32/checks.cfg` states it -- `cover 1 15` in `[depth]` plus a
+`[cover]` section, `always @* if (!reset) cover (channel[0].cnt_insns == 2);` --
+and `cnt_insns` is riscv-formal's own generic per-channel retire counter
+(`checks/rvfi_cover_check.sv`), not a picorv32 signal, so the same section works
+unmodified against nano. `checks.cfg` gains a `#floor cover 1` line -- a reachability
+search has no F/G-derived soundness bound the way `bmc` mode's families do, so the
+floor is the bare literal `depth_rules.py` already allows one to be -- and
+`EXPECTED_CHECKS` gains `cover`. `make -C nano/formal check` now reports 80 generated
+(was 79), 78 pass, the same 2 known-fail, `cover` among the passes; this is a second,
+weaker signal (two retires, any two) alongside `complete_cover.sby`'s twelve
+opcode-specific ones, not a replacement for it.
 
 CI's `formal-extra` job gained a `nanocpu complete_cover` step beside the existing
-`nanocpu complete` one. Neither `EXPECTED_CHECKS` nor `EXPECTED_FAIL` moved -- this
-amendment adds a control, not a new check family.
+`nanocpu complete` one. `EXPECTED_FAIL` did not move -- this amendment adds a control
+and restores a check family, neither of which changes what is expected to fail.
