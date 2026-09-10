@@ -3,6 +3,10 @@
 # each one goes red for the reason it was written for.
 set -euo pipefail
 
+# Fixtures stub tools by putting their own bin dir on PATH; this stops the Makefile
+# prepending the real suite in front of them, which CI never sees because it has no cache.
+export TOOLS_ON_PATH=1
+
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/.." && pwd)
 
@@ -5994,6 +5998,26 @@ d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"
 probe "the trend against a recorded figure is printed beside the verdict" 0 \
   "TREND: +2.2" \
   "$AR $d/stat.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10 --previous 4"
+
+begin_group "the Makefile's tool-path prepend"
+
+# XDG_CACHE_HOME moves TOOL_CACHE, so this grades the same with a cache and without one.
+tp_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/cache/little-cpu/oss-cad-suite/bin"
+  : > "$d/cache/little-cpu/oss-cad-suite/bin/yosys"
+  printf '%s' "$d"
+}
+
+d=$(tp_fixture)
+probe "control: the cached suite is put first when nothing claims PATH" 0 \
+  "$d/cache/little-cpu/oss-cad-suite/bin" \
+  "env -u TOOLS_ON_PATH XDG_CACHE_HOME=$d/cache make -C $REPO -s print-PATH | cut -d: -f1"
+
+d=$(tp_fixture)
+probe "TOOLS_ON_PATH stops the real tools shadowing a fixture's stubs" 0 \
+  "respected" \
+  "env XDG_CACHE_HOME=$d/cache TOOLS_ON_PATH=1 make -C $REPO -s print-PATH | cut -d: -f1 | grep -qx '$d/cache/little-cpu/oss-cad-suite/bin' && echo shadowed || echo respected"
 
 actual_labels=$(printf '%s\n' "${probe_labels[@]}" | LC_ALL=C sort)
 expected_labels=$(grep -vE '^#|^[[:space:]]*$' "$PROBES_MANIFEST" | LC_ALL=C sort)
