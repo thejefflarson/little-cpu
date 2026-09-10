@@ -278,6 +278,12 @@ a new rtl file with no line is red, naming the file
 a new site naming an ISA nothing declared is red, and located
 a new wide input port with no classification is red (finding 3)
 a nextpnr that died early is NOT graded on the last run's pair
+a no-illegal mutant that names no unreached site is not evidence
+a no-illegal mutant that still proves is not a control
+a no-mem-clear mutant that still proves is not a control
+a no-rd-clear mutant that still proves is not a control
+a no-trap mutant that fails at the wrong line is not evidence about this arm
+a no-trap mutant that still proves is not a control
 a non-comparable CSR value is exempted -- and every exemption printed
 a non-finite --max-um2 is refused before the ratchet compares anything
 a non-finite area in the JSON is refused, not compared as if it were real
@@ -362,6 +368,7 @@ a respelled divide case item stops the same way
 a respelled fault site stops rather than building the shipping core twice
 a respelled flag declaration stops rather than comparing nothing
 a respelled gate assertion stops rather than pinning nothing
+a respelled illegal anchor stops rather than pinning nothing
 a respelled indivisibility arm stops rather than pinning nothing
 a respelled indivisibility arm stops rather than pinning nothing
 a respelled lock cover stops rather than pinning nothing
@@ -376,6 +383,7 @@ a respelled mutation site stops rather than proving the shipping core thrice
 a respelled op_is_divu latch stops the same way too
 a respelled parameter stops rather than comparing nothing
 a respelled region_stall site stops rather than building the shipping core twice
+a respelled trap anchor stops rather than pinning nothing
 a respelled wait bound stops rather than pinning nothing
 a respelled wait bound stops rather than pinning nothing
 a respelled word arm stops the same way
@@ -391,6 +399,8 @@ a seed clearing SOC_MIN_MHZ by under 5% is refused, not pinned
 a semicolon in the liberty path stays inside its own quoted token
 a shard spec that is not <i>/<n> is refused before anything runs
 a shipping harness that cannot reach its own goals is red
+a shipping reference that does not reach every cover goal is red
+a shipping reference that fails its own assertions is red
 a signal in scope only in an earlier module stops it too
 a simulated ROM smaller than the part's is red
 a simulation this cannot parse is a run that did not happen
@@ -399,6 +409,7 @@ a slice that selects no checks is an error, not an empty success
 a soc/compare script naming no .lds at all does not sink the scan
 a soc/compare/ change since the stamp's base is STALE, and the file is named
 a solo run needs no ramdiff line -- there is no reference to compare
+a solver that wrote no verdict is exit 2, not a red arm
 a solver that wrote no verdict is exit 2, not a red arm
 a solver that wrote no verdict is exit 2, not a red arm
 a solver that wrote no verdict is exit 2, not a red arm
@@ -484,6 +495,7 @@ an empty manifest matches an empty suite and is rejected
 an empty netlist is a synthesis that wrote nothing
 an empty part table synthesises nothing, so it is refused
 an empty seed list stops the sweep instead of placing the default
+an empty status file is refused rather than read as a verdict
 an empty status file is refused rather than read as a verdict
 an empty status file is refused rather than read as a verdict
 an empty status file is refused rather than read as a verdict
@@ -628,6 +640,7 @@ control: both arms fail, each at its own line
 control: both sides failing the same test number still AGREE
 control: each subset is printed as a share of that number
 control: every allowed site is covered and nothing else carries the string
+control: every assertion mutant fails at its own line and the shipping reference passes both
 control: every named source present proceeds
 control: every site names every port of littlecpu
 control: fixture_anchor finds its literal in the real file
@@ -770,18 +783,21 @@ the UART moving in the proof's copy alone is red
 the address the flash-reading program uses is checked against the controller
 the address the printing program writes is checked against the UART
 the artifact moving does not make its own stamp stale
+the assert sby moving away takes the probe with it, loudly
 the attribute nextpnr places against disagreeing with CORE_HZ is red
 the baud rate is still refused beside the clock a top may set
 the benchmark script must keep linking against the part's rom
 the benchmark's own FAIL verdict stops the number being quoted
 the carry chain's own interconnect is charged to the carry hop
 the cell count names its own unit rather than borrowing the other's
+the checker moving away takes the probe with it, loudly
 the clock-rate exception belongs to the UART alone
 the co-sim runner's kRamBase drifting is red on its own
 the comment class lands nowhere if its own file is gone
 the compensation going missing is caught after every rule
 the core hitting its cycle budget is INCONCLUSIVE too
 the core's copy of the RAM base drifting from the RAM is red
+the cover sby moving away takes the probe with it, loudly
 the cxxrtl runner's kRamBase drifting is red
 the default text window is the part's, not the harness's
 the defect this exists for: a core clocked from the pad, not the PLL

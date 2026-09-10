@@ -586,6 +586,9 @@ jobs:
       - name: make -C formal genchecks-check
         run: make -C formal genchecks-check
 
+      - name: make -C nano/formal check-rvfi-insn-check
+        run: make -C nano/formal check-rvfi-insn-check
+
       - name: Report job wall time
         if: always()
         run: |
@@ -868,6 +871,12 @@ jobs:
 
       - name: nanocpu complete_cover (anti-vacuity — every opcode class retires)
         run: make -C nano/formal complete_cover
+
+      - name: nanocpu ill_e (RV32E register-naming restriction, against a reference core)
+        run: make -C nano/formal ill_e
+
+      - name: nanocpu ill_e_cover (anti-vacuity — every encoding class reaches it)
+        run: make -C nano/formal ill_e_cover
 
       - name: Report job wall time
         if: always()

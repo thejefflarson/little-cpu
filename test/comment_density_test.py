@@ -63,6 +63,7 @@ EXCLUDE_PREFIXES = (
 EXCLUDE_FILES = {
     "test/monitor.v",             # generated at the riscv-formal pin
     "formal/genchecks-local.py",  # must differ from the pin by header and basedir only
+    "nano/formal/rvfi_insn_check.sv",  # must differ from the pin by header and one ifdef only
     "test/bench/dhry.h",          # Dhrystone 2.1 as Weicker published it
     "test/bench/dhry_1.c",
     "test/bench/dhry_2.c",

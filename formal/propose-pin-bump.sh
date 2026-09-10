@@ -1,5 +1,6 @@
 #!/bin/bash
 # Opens an issue naming a pin-bump branch that has already been committed and pushed.
+# The body file is formal/bump-riscv-formal-pin.sh's, passed through unedited.
 set -euo pipefail
 
 if [ "$#" -ne 3 ]; then
