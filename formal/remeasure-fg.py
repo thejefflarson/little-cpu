@@ -43,9 +43,9 @@ def expected_cycles(depth_line):
     label, *nums = depth_line.split()
     nums = [int(n) for n in nums]
     if label == "hang":
-        return {"CHECK_CYCLE": nums[1]}
+        return {"CHECK_CYCLE": nums[1], "RESET_CYCLES": nums[0]}
     if label == "liveness":
-        return {"CHECK_CYCLE": nums[2], "TRIG_CYCLE": nums[1]}
+        return {"CHECK_CYCLE": nums[2], "TRIG_CYCLE": nums[1], "RESET_CYCLES": nums[0]}
     raise SystemExit(f"error: don't know which fields of {depth_line!r} are which")
 
 def probe(depth_line, check, genchecks):

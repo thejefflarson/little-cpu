@@ -52,7 +52,8 @@ RTL_SOURCES := ../rtl/structs.v ../rtl/fetcher.v ../rtl/regfile.v \
                ../rtl/accessor.v ../rtl/writeback.v ../rtl/littlecpu.v
 
 .PHONY: remeasure-fg
-remeasure-fg: remeasure-fg.py depth_rules.py genchecks-local.py checks.cfg $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
+remeasure-fg: remeasure-fg.py depth_rules.py genchecks-local.py checks.cfg $(RTL_SOURCES) \
+              interrupt-tie-off multihart-tie-off | $(RISCV_FORMAL_DIR)
 	python3 $<
 
 dmemcheck: dmemcheck.sby dmemcheck.sv arbiter.v $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)

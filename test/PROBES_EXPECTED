@@ -195,6 +195,7 @@ a gap opening between the timer's reservation and the UART is red
 a gate failure reported only by the induction leg is not evidence
 a generated .sby whose depth drifted from what the core's sweep asked for is refused, not read anyway
 a generated .sby whose depth drifted from what was swept is refused, not read anyway
+a generated .sby whose reset window drifted from what the core's sweep asked for is refused, not read anyway
 a generated check that was never scheduled resolves to NO-STATUS
 a generation that produced no checks at all is refused
 a graded target quietly depending on netlist-digest is red, and named
