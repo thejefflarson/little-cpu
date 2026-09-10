@@ -172,7 +172,7 @@ def main():
         print(
             f"error: {riscv_formal_dir} is missing. genchecks-local.py reads its\n"
             "       instruction list out of that clone, so its absence surfaces\n"
-            "       downstream as \"Current isa string '...' not supported\" -- \n"
+            "       downstream as \"Current isa string '...' not supported\" --\n"
             "       nothing is wrong with the ISA string. Fetch the pinned clone:\n"
             "       make -C formal riscv-formal (formal/pin.mk has the SHA).",
             file=sys.stderr,
