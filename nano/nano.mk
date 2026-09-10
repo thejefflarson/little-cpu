@@ -44,18 +44,22 @@ nano-liberty-setup:
 	echo "sha256 ok: $$got"; \
 	mv "$$tmp" '$(NANO_LIBERTY)'
 
-# The donor's own measured figure; nano.v does not exist here yet to take a churn band from.
-NANO_MAX_UM2 := 84291
+# A ratchet, moved only in a reviewed commit: `NANO_MAX_UM2=nan` would otherwise beat area_report.py's `>` comparison, which is false against any non-finite value.
+ifneq ($(filter command line environment,$(origin NANO_MAX_UM2)),)
+$(error NANO_MAX_UM2 cannot be set from the command line or the environment: it is a \
+  ratchet, and raising it needs a reason in the commit that edits nano/nano.mk)
+endif
+override NANO_MAX_UM2 := 84291
 
 NANO_SRCS := nano/nano.v
 
 .PHONY: nano-area
 nano-area:
-	@test -e $(NANO_SRCS) || { \
-	  echo "make nano-area: no $(NANO_SRCS) -- the donor import has not landed" >&2; \
-	  echo "in this tree yet. Nothing to measure; this is not a failure." >&2; \
-	  exit 0; \
-	}; \
-	yosys -p 'read_verilog -sv $(NANO_SRCS); hierarchy -auto-top; synth; dfflibmap -liberty $(NANO_LIBERTY); abc -liberty $(NANO_LIBERTY); tee -o nano/area.json stat -liberty $(NANO_LIBERTY) -json' > nano/area.synth.log 2>&1 || { tail -40 nano/area.synth.log; exit 1; }; \
-	python3 nano/area_report.py nano/area.json --liberty $(NANO_LIBERTY) \
-	  --liberty-sha256 $(NANO_LIBERTY_SHA256) --max-um2 $(NANO_MAX_UM2)
+	@nano/srcs_guard.sh $(NANO_SRCS); rc=$$?; \
+	if [ $$rc -eq 2 ]; then exit 0; fi; \
+	if [ $$rc -ne 0 ]; then exit $$rc; fi; \
+	$(MAKE) --no-print-directory nano-liberty-setup; \
+	yosys -p "$$(nano/synth_script.sh '$(NANO_LIBERTY)' $(NANO_SRCS))" \
+	  > nano/area.synth.log 2>&1 || { tail -40 nano/area.synth.log; exit 1; }; \
+	python3 nano/area_report.py nano/area.json --liberty '$(NANO_LIBERTY)' \
+	  --liberty-sha256 '$(NANO_LIBERTY_SHA256)' --max-um2 '$(NANO_MAX_UM2)'
