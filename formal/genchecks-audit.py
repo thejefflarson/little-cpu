@@ -164,10 +164,7 @@ def main():
         print(f"error: run from {base}, not {os.getcwd()}", file=sys.stderr)
         return 1
 
-    # genchecks-local.py resolves its instruction-list clone relative to its own
-    # realpath, not to <harness-dir>, so a gitignored clone missing from a fresh
-    # worktree is invisible until it opens `{clone}/insns/isa_<isa>.txt` and gets a
-    # FileNotFoundError it blames on the ISA string. Catch the real cause first.
+    # A missing gitignored clone otherwise surfaces later as an ISA-string error.
     riscv_formal_dir = os.path.join(
         os.path.dirname(os.path.realpath(GENCHECKS)), "riscv-formal"
     )
