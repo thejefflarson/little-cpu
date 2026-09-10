@@ -43,7 +43,7 @@ def main():
         sys.exit(
             f"{args.image} reaches word {top} (byte 0x{top * 4:08x}), which is past "
             f"the {args.rom_words}-word ({args.rom_words * 4} byte) ROM. The harness's "
-            f"ROM is small so that both cores fit one hx8k; shrink the program rather "
+            f"ROM is small so that every core fits one up5k; shrink the program rather "
             f"than the ROM."
         )
 

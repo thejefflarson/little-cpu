@@ -1,4 +1,4 @@
-# ADR-0171: The iCESugar-Pro bitstream clocks the core from a PLL
+# ADR-0172: The iCESugar-Pro bitstream clocks the core from a PLL
 
 **Status:** Accepted · 2026-09-09
 
