@@ -1487,21 +1487,24 @@ probe "control: a derived part states both figures and names itself" 0 \
 probe "control: the note a delta is read against carries the part too" 0 \
   "up5k" "$BD up5k --note"
 
-# hx8k is the cross-core harness's part and nothing has ever been swept on it.
+# ecp5 is placed by three flows and nothing has ever been swept on it.
 probe "an underived part says so rather than borrowing another part's band" 0 \
-  "no other part's transfer" "$BD hx8k"
+  "no other part's transfer" "$BD ecp5"
 
 probe "a caller that needs the figures rather than the prose is refused" 1 \
-  "no band has been derived for hx8k" "$BD hx8k --require"
+  "no band has been derived for ecp5" "$BD ecp5 --require"
 
 probe "and is told that another part's does not transfer" 1 \
-  "does not transfer" "$BD hx8k --require"
+  "does not transfer" "$BD ecp5 --require"
 
 probe "a part this repo does not place is refused, not added by asking" 1 \
   "is not a part this repo places" "$BD xc7"
 
+probe "a part this repo stopped placing is refused too, not kept as a row" 1 \
+  "is not a part this repo places" "$BD hx8k"
+
 probe "--list answers for every part, derived or not" 0 \
-  "hx8k: no placement spread" "$BD --list"
+  "ecp5: no placement spread" "$BD --list"
 
 begin_group "test/band_source_test.py"
 
@@ -3320,24 +3323,100 @@ LOG
 
 d=$(ps_fixture)
 probe "control: a placement holding the whole core is green" 0 "RATCHET:" \
-  "$PS $d/pnr.log $d/core.log vexriscv --min-ratio 0.8"
+  "$PS $d/pnr.log $d/core.log vexriscv --part up5k --min-ratio 0.8"
 
 d=$(ps_fixture); mutate "$d/pnr.log" 's/2379\/   7680    30%/ 449\/   7680     5%/'
 probe "a core yosys folded away is red, not a fast design" 1 \
-  "under the 0.80x floor" "$PS $d/pnr.log $d/core.log vexriscv --min-ratio 0.8"
+  "under the 0.80x floor" "$PS $d/pnr.log $d/core.log vexriscv --part up5k --min-ratio 0.8"
 
 d=$(ps_fixture); mutate "$d/pnr.log" '/ICESTORM_LC/d'
 probe "no utilisation table means nothing was placed, not that nothing was lost" 1 \
   "no ICESTORM_LC utilisation line" \
-  "$PS $d/pnr.log $d/core.log vexriscv --min-ratio 0.8"
+  "$PS $d/pnr.log $d/core.log vexriscv --part up5k --min-ratio 0.8"
 
 d=$(ps_fixture); mutate "$d/core.log" '/SB_LUT4/d'
 probe "no standalone count leaves nothing to compare against" 1 \
-  "no SB_LUT4 count" "$PS $d/pnr.log $d/core.log vexriscv --min-ratio 0.8"
+  "no SB_LUT4 count" "$PS $d/pnr.log $d/core.log vexriscv --part up5k --min-ratio 0.8"
 
 d=$(ps_fixture); mutate "$d/core.log" 's/^     1711   SB_LUT4/        0   SB_LUT4/'
 probe "a standalone synthesis of zero cells is named, not divided by" 1 \
-  "no SB_LUT4 count" "$PS $d/pnr.log $d/core.log vexriscv --min-ratio 0.8"
+  "no SB_LUT4 count" "$PS $d/pnr.log $d/core.log vexriscv --part up5k --min-ratio 0.8"
+
+# The wrong part's names find no count at all, which reads as a broken log unless said.
+ps_ecp5_fixture() {
+  local d; d=$(new_case)
+  fixture_anchor "$REPO/soc/compare/placed_vs_synth.py" "TRELLIS_COMB"
+  cat > "$d/pnr.log" <<'LOG'
+Info: Device utilisation:
+Info: 	        TRELLIS_COMB:    5201/  24288    21%
+Info: 	              DP16KD:      34/     56    60%
+LOG
+  cat > "$d/core.log" <<'LOG'
+      335   CCU2C
+     4669   LUT4
+LOG
+  printf '%s' "$d"
+}
+
+d=$(ps_ecp5_fixture)
+probe "control: the ECP5 arm reads its own fabric's two cell names" 0 "RATCHET:" \
+  "$PS $d/pnr.log $d/core.log littlecpu --part ecp5 --min-ratio 0.8"
+
+d=$(ps_ecp5_fixture)
+probe "an ECP5 placement read with ice40 names names the part, not a bad log" 1 \
+  "no ICESTORM_LC utilisation line for up5k" \
+  "$PS $d/pnr.log $d/core.log littlecpu --part up5k --min-ratio 0.8"
+
+d=$(ps_ecp5_fixture); mutate "$d/pnr.log" 's/5201\/  24288    21%/ 900\/  24288     3%/'
+probe "a core folded away on ECP5 is red against the same floor" 1 \
+  "under the 0.80x floor" \
+  "$PS $d/pnr.log $d/core.log littlecpu --part ecp5 --min-ratio 0.8"
+
+d=$(ps_ecp5_fixture)
+probe "a part with no cell-name row is refused rather than defaulted" 2 \
+  "invalid choice" "$PS $d/pnr.log $d/core.log littlecpu --part hx8k --min-ratio 0.8"
+
+begin_group "soc/compare/step_gate.py"
+
+# A core at 22 MHz runs at 12 like every other; one at 11 runs at 6 and is out entirely.
+SG="python3 $REPO/soc/compare/step_gate.py"
+
+sg_fixture() {  # $1 = total path delay in ns
+  local d; d=$(new_case)
+  fixture_anchor "$REPO/soc/compare/step_gate.py" "UP5K_STEPS"
+  cat > "$d/report.rpt" <<RPT
+ lut1 (LogicCell40) LC: $1 ns
+   $1 ns netA (start_point)
+              lcout -> end_point
+Total path delay: $1 ns
+Total number of logic levels: 1
+RPT
+  printf '%s' "$d"
+}
+
+d=$(sg_fixture 78.75)
+probe "control: a core over the step passes and is compared on cycles" 0 \
+  "PASSES at 12 MHz" "$SG $d/report.rpt --core littlecpu --step 12.0"
+
+d=$(sg_fixture 44.13)
+probe "margin above the step is reported as unspendable, not as speed" 0 \
+  "unspendable : 10.66 MHz" "$SG $d/report.rpt --core vexriscv --step 12.0"
+
+d=$(sg_fixture 90.00)
+probe "a core under the step FAILS rather than scoring a fraction" 1 \
+  "it is out of it" "$SG $d/report.rpt --core littlecpu --step 12.0"
+
+d=$(sg_fixture 90.00)
+probe "and the refusal names the clock it would actually have to run at" 1 \
+  "next clock down is 6 MHz" "$SG $d/report.rpt --core littlecpu --step 12.0"
+
+d=$(sg_fixture 78.75)
+probe "a step between the oscillator's own is refused, not graded against" 1 \
+  "not a clock this part offers" "$SG $d/report.rpt --core littlecpu --step 13.0"
+
+d=$(sg_fixture 78.75); mutate "$d/report.rpt" '/^Total path delay:/d'
+probe "no critical path is a failed placement, not a core that cleared the step" 1 \
+  "does not look like an" "$SG $d/report.rpt --core littlecpu --step 12.0"
 
 begin_group "soc/compare/geometry_test.sh"
 
@@ -3485,10 +3564,19 @@ d=$(df_fixture)
 probe "control: the measured image reports the shortfall it has" 0 \
   "DOES NOT FIT THE PLACED GEOMETRY" "$DF $(df_args "$d")"
 
+# --part-spram 0 is a part with no SPRAM, where this image's RAM costs 22 blocks not 2.
 d=$(df_fixture)
 probe "a core that cannot hold the image is named, not left to the reader" 0 \
   "vexriscv   18 of its own + 26 for the image =  44 blocks: DOES NOT FIT" \
-  "$DF $(df_args "$d")"
+  "$DF $(df_args "$d") --part-spram 0"
+
+d=$(df_fixture)
+probe "an image whose RAM outgrows the part's SPRAM does not fit either" 0 \
+  "22 blocks: DOES NOT FIT" "$DF $(df_args "$d") --part-spram 1"
+
+d=$(df_fixture)
+probe "control: with the part's own four SPRAM the same image fits" 0 \
+  "22 blocks: fits" "$DF $(df_args "$d")"
 
 d=$(df_fixture); mutate "$d/tb.v" 's/RAM_WORDS = 4096/RAM_WORDS = 2048/'
 probe "a testbench simulating a different map than the image is linked for is red" 1 \
@@ -3657,7 +3745,7 @@ probe "control: the measured CoreMark image reports the shortfall it has" 0 \
 
 d=$(cf_fixture)
 probe "a core that cannot hold the CoreMark image is named, not left to the reader" 0 \
-  "hazard3    20 of its own + 28 for the image =  48 blocks: DOES NOT FIT" \
+  "hazard3    20 of its own + 22 for the image =  42 blocks: DOES NOT FIT" \
   "$CF $(cf_args "$d")"
 
 d=$(cf_fixture); mutate "$d/tb.v" 's/RAM_WORDS = 4096/RAM_WORDS = 2048/'

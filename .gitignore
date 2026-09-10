@@ -44,8 +44,7 @@ soc/compare/rom_flat.hex
 compare_ecp5.*.json
 compare_ecp5.*.config
 compare_ecp5.*.report.json
-compare_ecp5.*.synth.log
-compare_ecp5.*.pnr.log
+compare_ecp5.*.log
 compare.dhry.vvp
 soc/compare/dhry_even.hex
 soc/compare/dhry_odd.hex
