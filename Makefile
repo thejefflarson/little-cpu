@@ -691,6 +691,7 @@ SOC_SRCS      := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v \
                  rtl/executor.v rtl/fetcher.v rtl/imemory.v rtl/memory.v \
                  rtl/regfile.v rtl/regsel.v rtl/timer.v rtl/uart.v rtl/spiflash.v \
                  rtl/writeback.v rtl/littlecpu.v rtl/littlesoc.v
+SOC_ROM_HEX   := soc/rom_even.hex soc/rom_odd.hex
 
 # PHONY because SOC_PROG changes what this builds and make cannot see that from a
 # timestamp.
@@ -755,10 +756,29 @@ soc.json: $(SOC_SRCS) soc-rom
 # .asc is), and without it .DELETE_ON_ERROR deletes the .asc unread.
 SOC_SEED ?=
 
-soc.asc: soc.json soc/littlesoc.pcf
+# With no SOC_SEED override, `make soc-timing` places at the PINNED seed; `origin` tells that apart from an explicit `SOC_SEED=`, since both read empty.
+SOC_PIN := soc/pin.json
+ifeq ($(origin SOC_SEED),command line)
+SOC_SEED_PINNED :=
+else
+SOC_SEED_PINNED := 1
+endif
+
+.PHONY: soc-pin-check
+soc-pin-check: soc-rom
+	@python3 soc/soc_pin.py check-sources $(SOC_PIN) $(SOC_SRCS) $(SOC_ROM_HEX)
+
+soc.asc: soc.json soc/littlesoc.pcf $(if $(SOC_SEED_PINNED),soc-pin-check)
 	@echo 'nextpnr: placing and routing littlesoc on up5k/sg48 (log: soc.pnr.log)'
-	@$(SOC_PNR) --json $< $(if $(SOC_SEED),--seed '$(SOC_SEED)') \
-	  --asc $@ > soc.pnr.log 2>&1 || true
+	@seed='$(SOC_SEED)'; \
+	if [ -n '$(SOC_SEED_PINNED)' ]; then \
+	  seed=$$(python3 soc/soc_pin.py seed $(SOC_PIN)) || exit 1; \
+	fi; \
+	if [ -n "$$seed" ]; then \
+	  $(SOC_PNR) --json $< --seed "$$seed" --asc $@ > soc.pnr.log 2>&1 || true; \
+	else \
+	  $(SOC_PNR) --json $< --asc $@ > soc.pnr.log 2>&1 || true; \
+	fi
 	@test -s $@ || { \
 	  echo '*** make soc-timing: nextpnr produced no bitstream, so NOTHING was'; \
 	  echo '*** measured. That is a failed placement, not a slow design.'; \
@@ -798,12 +818,18 @@ soc-timing: soc-timing-toolchain soc.asc
 	@echo 'one placement of one build at the worst-case corner, and it is'
 	@echo 'toolchain-dependent the same way `make fit` is. 12 MHz is a'
 	@echo 'REQUIREMENT as of ADR-0066: it is the board clock, and the step below'
-	@echo 'it is 6 MHz. One placement is a sample: soc/timing_sweep.sh prints the'
-	@echo 'spread, and a requirement has to hold at all of them.'
+	@echo 'it is 6 MHz. With no SOC_SEED override this places at the PINNED seed'
+	@echo '(soc/pin.json) -- a digest mismatch fails as RE-PIN NEEDED'
+	@echo 'before nextpnr ever runs, which is a stale pin and not a slow design.'
+	@echo 'soc/timing_sweep.sh and an explicit SOC_SEED= still print the spread.'
 	@# The ratchet is applied by the thing that already parses the report. It
 	@# was a `python3 -c` here, i.e. a SECOND parser of the same file -- and the
 	@# second one was the one holding the gate.
 	@python3 soc/timing_split.py soc.timing.rpt --min-mhz $(SOC_MIN_MHZ)
+
+.PHONY: soc-seed-search
+soc-seed-search: soc-timing-toolchain
+	@soc/soc_seed_search.sh
 
 ECP5_DEVICE  := --25k
 ECP5_PACKAGE := CABGA381

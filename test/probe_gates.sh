@@ -4590,6 +4590,90 @@ PY
 probe "a top module with no cells in it is a failed synthesis" 2 \
   "has no cells in it" "$ND compare $d/base.json $d/new.json"
 
+begin_group "soc/soc_pin.py"
+
+SP="python3 $REPO/soc/soc_pin.py"
+
+sp_sources() {  # <dir> -- two stand-in source files, the shape SOC_SRCS names
+  printf 'module a; endmodule\n' > "$1/a.v"
+  printf 'module b; endmodule\n' > "$1/b.v"
+}
+
+sp_pin_matching() {  # -> a case dir with sources and a pin whose digest matches them
+  local d; d=$(new_case)
+  sp_sources "$d"
+  local digest; digest=$($SP digest "$d/a.v" "$d/b.v")
+  cat > "$d/pin.json" <<PINJSON
+{
+  "sources_digest": "$digest",
+  "seed": 125781539,
+  "measured_mhz": 12.61,
+  "min_mhz": 12.0,
+  "margin_pct": 5.08,
+  "toolchain": "stub toolchain",
+  "date": "2026-09-09",
+  "distribution": {"note": "stub"}
+}
+PINJSON
+  printf '%s' "$d"
+}
+
+d=$(sp_pin_matching)
+probe "control: a pin whose sources match checks OK" 0 \
+  "pin OK" "$SP check-sources $d/pin.json $d/a.v $d/b.v"
+
+d=$(sp_pin_matching)
+probe "control: a matching pin names its own seed and MHz" 0 \
+  "seed 125781539, measured 12.61 MHz" "$SP check-sources $d/pin.json $d/a.v $d/b.v"
+
+# Over the files synthesis READS: the suite floats, so a netlist-keyed pin would
+# stale itself on a toolchain bump alone.
+d=$(sp_pin_matching)
+probe "the digest is over the sources, so it does not move when only the tools do" 0 \
+  "pin OK" "env YOSYS_VERSION=whatever $SP check-sources $d/pin.json $d/a.v $d/b.v"
+
+d=$(sp_pin_matching)
+printf 'module a; /* edited */ endmodule\n' > "$d/a.v"
+probe "moved sources say so, naming both digests" 0 \
+  "PIN STALE" "$SP check-sources $d/pin.json $d/a.v $d/b.v"
+
+# The load-bearing one: a stale pin must NOT fail the build. soc-timing still places
+# at the pinned seed and grades that measurement, which is real either way.
+d=$(sp_pin_matching)
+printf 'module a; /* edited */ endmodule\n' > "$d/a.v"
+probe "a stale pin warns and does not fail, because the gate is Fmax" 0 \
+  "Not a failure" "$SP check-sources $d/pin.json $d/a.v $d/b.v"
+
+d=$(sp_pin_matching)
+printf 'module a; /* edited */ endmodule\n' > "$d/a.v"
+probe "the warning says a regression can hide behind a pin that still clears" 0 \
+  "regression can hide" "$SP check-sources $d/pin.json $d/a.v $d/b.v"
+
+d=$(new_case)
+sp_sources "$d"
+probe "a seed clearing SOC_MIN_MHZ by under 5% is refused, not pinned" 2 \
+  "margin" \
+  "$SP write $d/pin.json --digest sha256:0000 --seed 195147338 --mhz 12.13 \
+     --min-mhz 12.0 --margin-pct 1.08 --toolchain stub --date 2026-09-09 \
+     --distribution /dev/null"
+
+probe "...and a margin under the floor writes no pin file at all" 0 \
+  "absent" "test -e $d/pin.json && echo present || echo absent"
+
+d=$(sp_pin_matching)
+probe "a pin file that does not exist is refused, not read as absent-is-fine" 2 \
+  "" "$SP check-sources $d/gone.json $d/a.v $d/b.v"
+
+d=$(sp_pin_matching)
+printf 'not json at all\n' > "$d/pin.json"
+probe "a hand-edited pin that no longer parses is as invalid as unwritten" 2 \
+  "not parseable as JSON" "$SP check-sources $d/pin.json $d/a.v $d/b.v"
+
+d=$(sp_pin_matching)
+printf '{"seed": 1}\n' > "$d/pin.json"
+probe "a partial pin missing required fields is not a pin" 2 \
+  "missing sources_digest" "$SP check-sources $d/pin.json $d/a.v $d/b.v"
+
 begin_group "soc/netlist_determinism.sh"
 
 nl_stub_yosys() {  # $1 = bin dir, $2 = fixture dir

@@ -373,6 +373,27 @@ top, ECP5 only.
   (ADR-0106). **A candidate whose cost is a variance needs sixteen seeds, not eight** — the tail is
   what `SOC_MIN_MHZ` grades, and eight seeds passed a candidate sixteen declined (ADR-0113). **A
   median inside the band is a null that does not even reproduce** (ADR-0121).
+- **With no `SOC_SEED` override, `make soc-timing` grades ONE pinned placement, not a
+  sweep's worst** (ADR-0171, amending ADR-0066: the 12.0 requirement is unchanged, only
+  what is measured against it). Three re-rolls of one netlist's RTL semantics — yosys's
+  generated cell names carry `file:line`, ABC9 sorts by that name string, and a comment
+  or a blank line is enough to reorder what it hands the placer — span about 3.7%
+  worst-of-sixteen against a 3.5% clearance, so one draw of sixteen can land under 12.0
+  while the design that produced it is unchanged. `soc/pin.json` records a digest of the
+  files synthesis READS, a placer seed, the measured MHz and the distribution it was chosen
+  from; keying that on the netlist instead does not work, because the OSS CAD Suite floats
+  and the same sources map to a different netlist on every release. A source change **warns**
+  as PIN STALE and does not fail: the gate is Fmax, and the warning's job is that a
+  regression can hide behind a pinned seed that still clears. **Seeds 1..16 are not an independent sample**:
+  nextpnr's RNG state update is linear over GF(2), so small-integer seeds span a
+  low-dimensional subspace of the state — provable, but whether that correlates
+  placements is unmeasured, and the decision does not lean on it either way.
+  `make soc-seed-search`, off `make test` and CI like `make fit`, draws high-entropy
+  seeds (never 1..N) and refuses to write a pin under a 5% margin over `SOC_MIN_MHZ`, so
+  a pin has to survive the same toolchain drift `fit`'s own churn band already accounts
+  for. An explicit `SOC_SEED=` — `soc/timing_sweep.sh`'s every row included — bypasses
+  the pin entirely; `$(origin SOC_SEED)` is what tells that apart from no override at
+  all, since both read as an empty string.
 - **A tied-off PORT is not a tied-off change.** An input held constant folds before mapping; an
   **output the integrator does not read does not fold**, and adding one unread output to
   `rtl/littlecpu.v` moves the SoC +44 `SB_LUT4` on its own. So a ports-only change can still owe
@@ -658,8 +679,14 @@ make waves          # iverilog leg -> waves.vcd; one baked-in program, not the s
 make monitor-check  # regenerate test/monitor.v at the pin into a temp file and diff it;
                     # `make test/monitor.v` rewrites the tracked copy
 make fit            # the core's area number; ratchet on FIT_MAX_LC
-make soc-timing     # the SoC place-and-time flow; requirement on SOC_MIN_MHZ. SOC_SEED picks
-                    # a placement; soc/timing_sweep.sh runs four
+make soc-timing     # the SoC place-and-time flow; requirement on SOC_MIN_MHZ. With no
+                    # SOC_SEED override this grades the pinned placement (soc/pin.json,
+                    # ADR-0171), PIN STALE on a source change. An explicit SOC_SEED
+                    # (soc/timing_sweep.sh runs four) bypasses the pin
+make soc-seed-search # off `make test` and CI, like `make fit`: sweeps high-entropy seeds
+                    # and writes soc/pin.json at >=5% margin over SOC_MIN_MHZ.
+                    # SOC_SEARCH_SEEDS overrides the seed list, SOC_SEARCH_COUNT the
+                    # default draw's size
 make bitstream      # icepack the board wrapper into board.bin; BOARD_OSC=internal uses
                     # SB_HFOSC instead of the crystal. No board needed
 make prog           # iceprog board.bin onto the UPduino; root on macOS
