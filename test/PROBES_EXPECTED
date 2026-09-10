@@ -246,6 +246,7 @@ a missing liberty file is refused before the JSON is even opened
 a missing parser stops the run rather than grading with a second one
 a missing ramdiff for the SECOND CoreMark core is red, not silently skipped
 a missing ramdiff for the SECOND core is red, not silently skipped
+a missing riscv-formal clone is named, not blamed on the ISA string
 a missing stat.json is refused, not read as a zero-area design
 a mistyped baseline path cannot compare nothing and pass
 a mistyped baseline path cannot compare nothing and pass
