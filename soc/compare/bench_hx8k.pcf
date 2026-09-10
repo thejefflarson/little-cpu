@@ -1,3 +1,0 @@
-set_io clk    J3
-set_io led0_n B5
-set_io led1_n B4

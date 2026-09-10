@@ -34,6 +34,12 @@ sim: test/cxxrtl.cc test/rtl.cc
 # inside one is invisible from every other.
 TOOL_CACHE := $(if $(XDG_CACHE_HOME),$(XDG_CACHE_HOME),$(HOME)/.cache)/little-cpu
 
+# A stale yosys or icetime ahead of the suite changes every figure, silently.
+OSS_CAD_BIN := $(TOOL_CACHE)/oss-cad-suite/bin
+ifneq ($(wildcard $(OSS_CAD_BIN)/yosys),)
+export PATH := $(OSS_CAD_BIN):$(PATH)
+endif
+
 include nano/nano.mk
 
 ifneq ($(filter command line environment,$(origin SAIL_RISCV_VERSION)),)
@@ -1271,20 +1277,17 @@ COMPARE_SEED  ?=
 COMPARE_ROM_WORDS := 1024
 COMPARE_RAM_WORDS := 16384
 
+# The step is pass/fail, not a ratchet: up5k offers 48/24/12/6 MHz and nothing between.
 COMPARE_PART ?= up5k
+COMPARE_STEP_MHZ := 12.0
 
 ifeq ($(COMPARE_PART),up5k)
 COMPARE_PNR_FLAGS   := --up5k --package sg48
 COMPARE_PCF         := soc/compare/bench_up5k.pcf
-COMPARE_SYNTH_FLAGS := -device u -dsp -spram
 COMPARE_ICETIME_ARG := -d up5k -P sg48
-else ifeq ($(COMPARE_PART),hx8k)
-COMPARE_PNR_FLAGS   := --hx8k --package ct256
-COMPARE_PCF         := soc/compare/bench_hx8k.pcf
-COMPARE_SYNTH_FLAGS :=
-COMPARE_ICETIME_ARG := -d hx8k -P ct256
+else ifeq ($(COMPARE_PART),ecp5)
 else
-$(error COMPARE_PART is '$(COMPARE_PART)'; this harness knows up5k and hx8k)
+$(error COMPARE_PART is '$(COMPARE_PART)'; this harness knows up5k and ecp5)
 endif
 COMPARE_MIN_RATIO := 0.8
 
@@ -1363,21 +1366,18 @@ compare-rom: compare-geometry-test
 	  soc/compare/rom_flat.hex --rom-words $(COMPARE_ROM_WORDS)
 
 compare.$(COMPARE_CORE).core.log: $(COMPARE_CORE_DEPS)
-	@echo 'yosys: synthesising $(COMPARE_CORE_TOP) alone for hx8k (log: $@)'
-	@yosys -p '$(COMPARE_CORE_READ); synth_ice40 $(COMPARE_SYNTH_FLAGS) -top $(COMPARE_CORE_TOP); stat' \
+	@echo 'yosys: synthesising $(COMPARE_CORE_TOP) alone for up5k (log: $@)'
+	@yosys -p '$(COMPARE_CORE_READ); synth_ice40 -device u -dsp -spram -top $(COMPARE_CORE_TOP); stat' \
 	  > $@ 2>&1 || { tail -40 $@; exit 1; }
 
 compare.$(COMPARE_CORE).json: compare-rom $(COMPARE_DEPS)
-	@echo 'yosys: synthesising $(COMPARE_TOP) for $(COMPARE_PART) (log: compare.$(COMPARE_CORE).synth.log)'
-	@# The synthesis flags come from the part table above. hx8k gets none: it has
-	@# no SB_MAC16 and no SPRAM, so the multiplier is soft logic there and the
-	@# 64 KB data RAM will not fit at all -- which is why up5k is the default.
+	@echo 'yosys: synthesising $(COMPARE_TOP) for up5k (log: compare.$(COMPARE_CORE).synth.log)'
 	@# chparam BEFORE hierarchy, so the harness's geometry has one source -- the
 	@# variables above -- rather than a second copy in each .v file's defaults.
 	@yosys -p '$(COMPARE_READ); \
 	  chparam -set ROM_WORDS $(COMPARE_ROM_WORDS) -set RAM_WORDS $(COMPARE_RAM_WORDS) $(COMPARE_TOP); \
 	  hierarchy -top $(COMPARE_TOP); \
-	  synth_ice40 $(COMPARE_SYNTH_FLAGS) -top $(COMPARE_TOP) -json $@; stat' \
+	  synth_ice40 -device u -dsp -spram -top $(COMPARE_TOP) -json $@; stat' \
 	  > compare.$(COMPARE_CORE).synth.log 2>&1 \
 	  || { tail -40 compare.$(COMPARE_CORE).synth.log; exit 1; }
 
@@ -1484,6 +1484,19 @@ compare-coremark: compare.coremark.vvp
 	  $(COMPARE_COREMARK_CYCLES) '$(COMPARE_COREMARK_CFLAGS)' compare.coremark.vvp
 
 .PHONY: compare-timing
+# The memories are shared; the DSP count is the core's own, and Hazard3's is soft logic.
+COMPARE_ECP5_EXPECT_DP16KD := 34
+COMPARE_ECP5_EXPECT_LUTRAM := 32
+COMPARE_ECP5_EXPECT_DSP_littlecpu := 4
+COMPARE_ECP5_EXPECT_DSP_vexriscv  := 4
+COMPARE_ECP5_EXPECT_DSP_hazard3   := 0
+COMPARE_ECP5_EXPECT_DSP := $(COMPARE_ECP5_EXPECT_DSP_$(COMPARE_CORE))
+
+compare_ecp5.$(COMPARE_CORE).core.log: $(COMPARE_CORE_DEPS)
+	@echo 'yosys: synthesising $(COMPARE_CORE_TOP) alone for ECP5 (log: $@)'
+	@yosys -p '$(COMPARE_CORE_READ); synth_ecp5 -top $(COMPARE_CORE_TOP); stat' \
+	  > $@ 2>&1 || { tail -40 $@; exit 1; }
+
 compare_ecp5.$(COMPARE_CORE).json: compare-rom $(COMPARE_DEPS)
 	@echo 'yosys: synthesising $(COMPARE_TOP) for ECP5 (log: compare_ecp5.$(COMPARE_CORE).synth.log)'
 	@yosys -p '$(COMPARE_READ); \
@@ -1491,6 +1504,20 @@ compare_ecp5.$(COMPARE_CORE).json: compare-rom $(COMPARE_DEPS)
 	  synth_ecp5 -top $(COMPARE_TOP) -json $@; stat' \
 	  > compare_ecp5.$(COMPARE_CORE).synth.log 2>&1 \
 	  || { tail -40 compare_ecp5.$(COMPARE_CORE).synth.log; exit 1; }
+	@python3 soc/cell_census.py compare_ecp5.$(COMPARE_CORE).synth.log DP16KD \
+	  $(COMPARE_ECP5_EXPECT_DP16KD) \
+	  'the harness memories fell out of block RAM, which is silent in a frequency and enormous in area' \
+	  --gate 'make compare-timing COMPARE_PART=ecp5' --declared COMPARE_ECP5_EXPECT_DP16KD
+	@python3 soc/cell_census.py compare_ecp5.$(COMPARE_CORE).synth.log TRELLIS_DPR16X4 \
+	  $(COMPARE_ECP5_EXPECT_LUTRAM) \
+	  'a register file fell out of LUT RAM into flip-flops, which no frequency reports' \
+	  --gate 'make compare-timing COMPARE_PART=ecp5' --declared COMPARE_ECP5_EXPECT_LUTRAM
+	@python3 soc/cell_census.py compare_ecp5.$(COMPARE_CORE).synth.log MULT18X18D \
+	  $(COMPARE_ECP5_EXPECT_DSP) \
+	  'this core mapped a different number of hard multipliers than the comparison declares for it' \
+	  --gate 'make compare-timing COMPARE_PART=ecp5' \
+	  --declared COMPARE_ECP5_EXPECT_DSP_$(COMPARE_CORE)
+	@python3 soc/bram_reset_check.py $@ --gate 'make compare-timing COMPARE_PART=ecp5'
 
 compare_ecp5.$(COMPARE_CORE).config: compare_ecp5.$(COMPARE_CORE).json soc/compare/bench_ecp5.lpf
 	@rm -f $@ compare_ecp5.$(COMPARE_CORE).report.json
@@ -1511,19 +1538,31 @@ compare_ecp5.$(COMPARE_CORE).config: compare_ecp5.$(COMPARE_CORE).json soc/compa
 	}
 
 .PHONY: compare-ecp5-timing
-compare-ecp5-timing: compare_ecp5.$(COMPARE_CORE).config
+compare-ecp5-timing: compare_ecp5.$(COMPARE_CORE).config compare_ecp5.$(COMPARE_CORE).core.log
+	@echo
+	@echo '== is the core still there? =='
+	@python3 soc/compare/placed_vs_synth.py compare_ecp5.$(COMPARE_CORE).pnr.log \
+	  compare_ecp5.$(COMPARE_CORE).core.log $(COMPARE_CORE) --part ecp5 \
+	  --min-ratio $(COMPARE_MIN_RATIO)
 	@echo
 	@echo '== nextpnr-ecp5: $(COMPARE_CORE) on $(ECP5_PART) =='
 	@python3 soc/ecp5_report.py compare_ecp5.$(COMPARE_CORE).report.json \
 	  compare_ecp5.$(COMPARE_CORE).config --clock clk --part $(ECP5_PART) \
 	  --constraint-mhz $(ECP5_TARGET_MHZ)
+	@echo
+	@echo 'ECP5 SYNTHESISES ITS CLOCK: EHXPLLL gives ref x M / N / D on a fine grid,'
+	@echo 'so Fmax times cycles is a real product here and BOTH factors vary. The'
+	@echo 'frequency above PUBLISHES and carries no ratchet:'
+	@python3 soc/bands.py ecp5 --note
 
-compare-timing: compare.$(COMPARE_CORE).asc compare.$(COMPARE_CORE).core.log
+.PHONY: compare-up5k-timing
+compare-up5k-timing: compare.$(COMPARE_CORE).asc compare.$(COMPARE_CORE).core.log
 	@sed -n '/^Info: Device utilisation:/,/^$$/s/^Info: //p' compare.$(COMPARE_CORE).pnr.log
 	@echo
 	@echo '== is the core still there? =='
 	@python3 soc/compare/placed_vs_synth.py compare.$(COMPARE_CORE).pnr.log \
-	  compare.$(COMPARE_CORE).core.log $(COMPARE_CORE) --min-ratio $(COMPARE_MIN_RATIO)
+	  compare.$(COMPARE_CORE).core.log $(COMPARE_CORE) --part up5k \
+	  --min-ratio $(COMPARE_MIN_RATIO)
 	@echo
 	@echo '== icetime: the critical path, and the LOGIC/ROUTING SPLIT =='
 	@icetime $(COMPARE_ICETIME_ARG) -p $(COMPARE_PCF) -t \
@@ -1538,6 +1577,16 @@ compare-timing: compare.$(COMPARE_CORE).asc compare.$(COMPARE_CORE).core.log
 	@echo 'for Hazard3. Quote the ISA and the geometry with the number. One'
 	@echo 'placement is a sample: soc/compare/sweep.sh runs four each.'
 	@python3 soc/timing_split.py compare.$(COMPARE_CORE).timing.rpt
+	@echo
+	@echo '== the step gate: does this core reach the only clock the board has? =='
+	@python3 soc/compare/step_gate.py compare.$(COMPARE_CORE).timing.rpt \
+	  --core $(COMPARE_CORE) --step $(COMPARE_STEP_MHZ)
+
+ifeq ($(COMPARE_PART),ecp5)
+compare-timing: compare-ecp5-timing
+else
+compare-timing: compare-up5k-timing
+endif
 
 clean:
 	rm -f fit.json fit.log fit.synth.log
@@ -1548,6 +1597,7 @@ clean:
 	rm -f test/dual_rtl.cc dual-sim
 	rm -f soc/rom_even.hex soc/rom_odd.hex
 	rm -f compare.*.json compare.*.asc compare.*.log compare.*.rpt compare.vvp
+	rm -f compare_ecp5.*.json compare_ecp5.*.config compare_ecp5.*.log
 	rm -f compare.dhry.vvp compare.dhry.solo.vvp compare.coremark.vvp
 	rm -f soc/compare/rom_even.hex soc/compare/rom_odd.hex soc/compare/rom_flat.hex
 	rm -f soc/compare/dhry_even.hex soc/compare/dhry_odd.hex soc/compare/dhry_flat.hex
