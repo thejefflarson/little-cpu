@@ -1160,6 +1160,45 @@ mutate "$d/checks.cfg" 's/^hang     1     14$/hang     1     10/'
 probe "a nano [depth] entry lowered below its own floor fails generation, not just the baseline diff" 1 \
   "hang: depth 10 is below F+1 = 13" "cd '$d' && $GA ."
 
+begin_group "nano/formal/remeasure-fg.py"
+
+# fg-probe.cfg and fg-probe/ are gitignored scratch, the same as `make -C nano/formal
+# remeasure-fg` writes into the real nano/formal directory; both probes clean up after.
+RFG="cd '$REPO/nano/formal' && rm -rf fg-probe fg-probe.cfg"
+
+mkdir -p "$tmp/bin-sby-pass"
+cat > "$tmp/bin-sby-pass/sby" <<'STUB'
+#!/bin/sh
+# Stands in for sby: reports PASS unconditionally.
+d=$(dirname "$2")
+check=$(basename "$2" .sby)
+mkdir -p "$d/$check"
+echo "PASS 2 0" > "$d/$check/status"
+STUB
+chmod +x "$tmp/bin-sby-pass/sby"
+
+probe "a sweep whose lowest value already passes is refused a flip point, not reported one" 1 \
+  "with no FAIL beneath it" \
+  "$RFG && PATH='$tmp/bin-sby-pass':\$PATH python3 remeasure-fg.py; rc=\$?; rm -rf fg-probe fg-probe.cfg; exit \$rc"
+
+cat > "$tmp/fake-genchecks.py" <<'PY'
+#!/usr/bin/env python3
+# Stands in for formal/genchecks-local.py, writing cycles that never match what was swept.
+import os, sys
+cfgname = sys.argv[1]
+with open(f"{cfgname}.cfg") as f:
+    lines = f.read().splitlines()
+check = lines[lines.index("[depth]") + 1].split()[0]
+name = "hang.sby" if check == "hang" else "liveness_ch0.sby"
+os.makedirs(cfgname, exist_ok=True)
+with open(os.path.join(cfgname, name), "w") as f:
+    f.write("`define RISCV_FORMAL_CHECK_CYCLE 1\n`define RISCV_FORMAL_TRIG_CYCLE 1\n")
+PY
+
+probe "a generated .sby whose depth drifted from what was swept is refused, not read anyway" 1 \
+  "not the 10 this row swept" \
+  "$RFG && python3 remeasure-fg.py --genchecks '$tmp/fake-genchecks.py'; rc=\$?; rm -rf fg-probe fg-probe.cfg; exit \$rc"
+
 begin_group "soc/timing_split.py"
 
 TS="python3 $REPO/soc/timing_split.py"
@@ -5076,6 +5115,106 @@ d=$(ba_fixture); rm "$d/formal/busarbiter.sv"
 probe "the harness moving away takes the probe with it, loudly" 2 \
   "formal/busarbiter.sv is missing from" "$(bas "$d")"
 
+begin_group "nano/formal/complete-cover-probe.py"
+
+CC="python3 $REPO/nano/formal/complete-cover-probe.py"
+
+cat > "$tmp/sby-cc-stub" <<'STUB'
+#!/bin/sh
+# Stands in for sby. This probe never asks the real solver to copy source into a
+# src/ directory the way sby itself does, so the shipping case is told apart from
+# the stalled-bus mutant by reading complete.sv directly out of this stub's own
+# cwd -- the same directory the probe wrote it into before invoking sby.
+mkdir -p complete_cover
+: > complete_cover/logfile.txt
+lines=$(grep -nE '^[[:space:]]*cover property \(' complete.sv | cut -d: -f1)
+unreached_line() {
+  echo "SBY [probe] engine_0: ##   0:00:00  Unreached cover statement at rvfi_testbench: complete.sv:$1.1-$1.1" \
+    >> complete_cover/logfile.txt
+}
+# Real sby reports the sites it DID reach too, and the probe compares that set
+# against the mutant's unreached one. A stub that wrote only the unreached half
+# left the reached set empty, which reads identically to a harness with no goals.
+reached_line() {
+  echo "SBY [probe] engine_0: ##   0:00:00  Reached cover statement in step 5 at rvfi_testbench: complete.sv:$1.1-$1.1" \
+    >> complete_cover/logfile.txt
+}
+if grep -q "assume(mem_ready" complete.sv; then
+  status=${STUB_STALLED:-FAIL}
+  if [ "$status" = FAIL ]; then
+    if [ -n "${STUB_STALLED_PARTIAL:-}" ]; then
+      unreached_line "$(echo "$lines" | head -1)"
+    else
+      for l in $lines; do unreached_line "$l"; done
+    fi
+  fi
+else
+  status=${STUB_SHIP:-PASS}
+  if [ "$status" = PASS ]; then
+    for l in $lines; do reached_line "$l"; done
+  fi
+fi
+[ -n "${STUB_SBY_NO_STATUS:-}" ] && exit 1
+if [ -n "${STUB_SBY_EMPTY_STATUS:-}" ]; then : > complete_cover/status; exit 1; fi
+echo "$status 0 12" > complete_cover/status
+STUB
+chmod +x "$tmp/sby-cc-stub"
+
+cc_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/nano/formal" "$d/formal/riscv-formal"
+  cp "$REPO"/nano/nano.v "$d/nano/"
+  cp "$REPO"/nano/formal/complete_cover.sby "$REPO"/nano/formal/complete.sv "$d/nano/formal/"
+  printf '%s' "$d"
+}
+
+ccs() { printf "%s --repo %s --workdir %s/work --sby %s" "$CC" "$1" "$1" "$tmp/sby-cc-stub"; }
+
+d=$(cc_fixture)
+probe "control: the shipping harness reaches every goal and the stalled-bus mutant reaches none" 0 \
+  "The stalled-bus mutant makes every cover goal unreachable" "$(ccs "$d")"
+
+d=$(cc_fixture)
+probe "a shipping harness that cannot reach its own goals is red" 1 \
+  "the shipping harness does not reach every cover goal" "STUB_SHIP=FAIL $(ccs "$d")"
+
+d=$(cc_fixture)
+probe "an anti-vacuity cover that cannot go red is not a control" 1 \
+  "cannot go red is not a control" "STUB_STALLED=PASS $(ccs "$d")"
+
+d=$(cc_fixture)
+probe "a stalled-bus mutant red for only some goals is not full evidence" 1 \
+  "not every site the shipping harness reached" "STUB_STALLED_PARTIAL=1 $(ccs "$d")"
+
+d=$(cc_fixture)
+probe "a solver that wrote no verdict is exit 2, not a red arm" 2 \
+  "wrote no status for the shipping case" "STUB_SBY_NO_STATUS=1 $(ccs "$d")"
+
+d=$(cc_fixture)
+probe "an empty status file is refused rather than read as a verdict" 2 \
+  "status file for the shipping case is empty" "STUB_SBY_EMPTY_STATUS=1 $(ccs "$d")"
+
+d=$(cc_fixture)
+mutate "$d/nano/formal/complete.sv" 's/  logic trap;/  logic trap ;/'
+probe "a respelled anchor stops rather than pinning nothing" 2 \
+  "no longer spells what the stalled-bus mutation" "$(ccs "$d")"
+
+d=$(cc_fixture); rm "$d/nano/formal/complete_cover.sby"
+probe "the sby script moving away takes the probe with it, loudly" 2 \
+  "nano/formal/complete_cover.sby is missing from" "$(ccs "$d")"
+
+d=$(cc_fixture); rm "$d/nano/formal/complete.sv"
+probe "the harness moving away takes the probe with it, loudly" 2 \
+  "nano/formal/complete.sv is missing from" "$(ccs "$d")"
+
+d=$(cc_fixture); rm "$d/nano/nano.v"
+probe "the RTL moving away takes the probe with it, loudly" 2 \
+  "nano/nano.v is missing from" "$(ccs "$d")"
+
+d=$(cc_fixture); rmdir "$d/formal/riscv-formal"
+probe "no riscv-formal checkout is exit 2, not a probe against nothing" 2 \
+  "Fetch the pin first" "$(ccs "$d")"
+
 begin_group "test/dual_build.sh"
 
 DB="$REPO/test/dual_build.sh"
@@ -6049,7 +6188,10 @@ probe "a cell type outside the read liberty is refused, not priced at zero" 1 \
   "not in" \
   "$AR $d/unknown.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
 
-d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"
+# `stat.json` is left unwritten on purpose: if `load_stat` ran before `check_liberty`, this
+# would report "does not exist" instead, so the message below can only appear when the
+# liberty really is checked first -- swapping the two calls in `summarise()` turns this red.
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib")
 probe "a missing liberty file is refused before the JSON is even opened" 1 \
   "no liberty file at" \
   "$AR $d/stat.json --liberty $d/does-not-exist.lib --liberty-sha256 $sha --max-um2 10"
@@ -6059,10 +6201,94 @@ probe "a liberty file that does not match the pinned digest is refused" 1 \
   "does not match the pinned digest" \
   "$AR $d/stat.json --liberty $d/fake.lib --liberty-sha256 0000000000000000000000000000000000000000000000000000000000000000 --max-um2 10"
 
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib")
+cat > "$d/nodesign.json" <<'JSON'
+{"not_design_at_all": true}
+JSON
+probe "a report with no 'design' key at all is refused, not read as zero" 1 \
+  "carries no 'design' totals" \
+  "$AR $d/nodesign.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
+
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib")
+cat > "$d/badshape.json" <<'JSON'
+{"design": {"num_cells": 1}}
+JSON
+probe "a design entry missing area/num_cells/by_type is refused, not read as what is left" 1 \
+  "not the area, num_cells and num_cells_by_type fields" \
+  "$AR $d/badshape.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
+
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib")
+cat > "$d/nanarea.json" <<'JSON'
+{"design": {"num_cells": 1, "area": NaN, "sequential_area": 0.0, "num_cells_by_type": {"FAKE_INV": 1}}}
+JSON
+probe "a non-finite area in the JSON is refused, not compared as if it were real" 1 \
+  "is not a finite number" \
+  "$AR $d/nanarea.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
+
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"
+probe "a non-finite --max-um2 is refused before the ratchet compares anything" 2 \
+  "not a finite, positive um2 budget" \
+  "$AR $d/stat.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 nan"
+
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"
 probe "the trend against a recorded figure is printed beside the verdict" 0 \
   "TREND: +2.2" \
   "$AR $d/stat.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10 --previous 4"
+
+begin_group "nano/srcs_guard.sh"
+
+SG="$REPO/nano/srcs_guard.sh"
+
+d=$(new_case); touch "$d/a.v" "$d/b.v"
+probe "control: every named source present proceeds" 0 \
+  "all of" "$SG $d/a.v $d/b.v"
+
+d=$(new_case)
+probe "no named source at all is reported, and is not a failure" 2 \
+  "the donor import has not landed" "$SG $d/missing1.v $d/missing2.v"
+
+d=$(new_case); touch "$d/a.v"
+probe "one source present and a second missing is refused, not read as nothing landed" 1 \
+  "a partial NANO_SRCS" "$SG $d/a.v $d/missing.v"
+
+begin_group "nano/synth_script.sh"
+
+SS_SCRIPT="$REPO/nano/synth_script.sh"
+
+probe "control: a plain liberty and source produce the expected yosys script" 0 \
+  'dfflibmap -liberty "/tmp/lib.lib"' \
+  "$SS_SCRIPT /tmp/lib.lib nano/nano.v"
+
+probe "a semicolon in the liberty path stays inside its own quoted token" 0 \
+  '"/tmp/lib;evil.lib"' \
+  "$SS_SCRIPT '/tmp/lib;evil.lib' nano/nano.v"
+
+probe "a space in a source path does not split it into a second yosys argument" 0 \
+  '"a b/c.v"' \
+  "$SS_SCRIPT /tmp/lib.lib 'a b/c.v'"
+
+begin_group "make nano-liberty-setup"
+
+NL="MAKEFLAGS= MFLAGS= MAKELEVEL= PATH='$tmp/bin-curl:$PATH' \
+    make --no-print-directory -C '$REPO' nano-liberty-setup"
+
+nl_aftermath() {  # $1 = case dir
+  local log=$1/setup.log
+  eval "XDG_CACHE_HOME=$1/cache $NL" > "$log" 2>&1
+  printf 'refused=%s kept=%s\n' \
+    "$(grep -qF 'MISMATCH -- refusing to keep it' "$log" && echo yes || echo no)" \
+    "$([ -e "$1/cache/little-cpu/sky130/sky130_fd_sc_hd__tt_025C_1v80.lib" ] \
+       && echo yes || echo no)"
+}
+
+d=$(new_case)
+# Exit 2, not 1: the recipe's own `exit 1` reaches the probe as make's status.
+probe "a liberty download whose bytes are not the pin is refused before it is kept" 2 \
+  "SHA-256 MISMATCH -- refusing to keep it" "XDG_CACHE_HOME=$d/cache $NL"
+
+d=$(new_case)
+probe "the refused liberty download is not kept to be served again" 0 \
+  "refused=yes kept=no" "nl_aftermath $d"
 
 begin_group "the Makefile's tool-path prepend"
 

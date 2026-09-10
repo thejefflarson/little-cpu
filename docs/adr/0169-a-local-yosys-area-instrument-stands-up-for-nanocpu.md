@@ -116,3 +116,46 @@ design. Deriving that span — six functionally identical spellings of
 `NANO_MAX_UM2` to cover it is a follow-up, not this ADR's. Until it is taken,
 read a `nano-area` failure as "re-derive the budget," not "the design grew."
 Nothing is gated on it: `nano-area` is off `make test` and off CI.
+
+## Amendment · 2026-09-08 · the ratchet is hardened against five ways it went green for the wrong reason
+
+The instrument's first cut had five defects, each a way `nano-area` could print
+`RATCHET: ... OK` without having measured anything. `json.load` accepts the
+literals `NaN`/`Infinity`/`-Infinity`, and `area_report.py`'s `>` comparison is
+`False` against a non-finite value on either side of it — both `area.json`
+carrying one and `NANO_MAX_UM2=nan` cleared the budget silently. `area_report.py`
+now refuses a non-finite `area` before the ratchet reads it, `--max-um2` takes a
+custom argparse type requiring `math.isfinite(v) and v > 0`, and `nano.mk` gives
+`NANO_MAX_UM2` the same `override`/command-line-and-environment refusal
+`NANO_LIBERTY_COMMIT` already had, so `make nano-area NANO_MAX_UM2=nan` stops at
+the Makefile rather than reaching the comparison at all.
+
+`test -e $(NANO_SRCS)` mis-tested a list variable: a second entry in `NANO_SRCS`
+made `test` fail with "too many arguments" whether or not the files existed, so
+the guard read a partial import as "nothing has landed" and exited 0. `nano/
+srcs_guard.sh` now tests each named source with its own `test -e`, exits 2 only
+when every one is absent (the legitimate "not landed yet" case) and 1 when some
+are present and some are not.
+
+`NANO_LIBERTY` and `NANO_SRCS` went unquoted into the single-quoted `yosys -p`
+script and reached synthesis before `area_report.py` ever checked the liberty's
+digest, both derived from `TOOL_CACHE`. `nano/synth_script.sh` now quotes every
+path as its own yosys-script token, so a `;` cannot read as a second command and
+a space cannot split an argument, and `nano-area`'s recipe calls
+`$(MAKE) nano-liberty-setup` between the `srcs_guard.sh` check and the `yosys`
+line, so the digest is verified before synthesis reads the file it checks
+without paying that verification on the fast "donor not landed" exit the guard
+is for -- an order-only prerequisite would have run it unconditionally, ahead
+of even that guard.
+
+Two of the nine refusals `area_report.py` states — no `design` key at all, and a
+`design` entry missing `area`/`num_cells`/`num_cells_by_type` — had never been
+forced red; `test/probe_gates.sh` now carries a fixture for each. The probe for
+"a missing liberty file is refused before the JSON is even opened" had been
+passing a valid, in-budget `stat.json` alongside the missing liberty, so the
+message would have appeared whether `check_liberty` or `load_stat` ran first;
+the fixture now leaves `stat.json` unwritten, so the probe only stays green
+while the liberty really is checked first. `nano/srcs_guard.sh`,
+`nano/synth_script.sh` and `make nano-liberty-setup`'s own SHA-256 mismatch arm
+— modeled on `make sail-setup`'s forced-red group — each gained their own probe
+group; all twenty-one labels are in `test/PROBES_EXPECTED`.

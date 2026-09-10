@@ -2,10 +2,6 @@ name: CI
 
 on:
   pull_request:
-  # A merge queue tests each PR against the tip it will actually land on, so
-  # branch protection no longer has to demand every branch be up to date --
-  # which re-staled all six other PRs on every merge.
-  merge_group:
   push:
     branches: [main]
 
@@ -869,6 +865,9 @@ jobs:
 
       - name: nanocpu complete (whole-ISA BMC walk, depth 20)
         run: make -C nano/formal complete
+
+      - name: nanocpu complete_cover (anti-vacuity — every opcode class retires)
+        run: make -C nano/formal complete_cover
 
       - name: Report job wall time
         if: always()

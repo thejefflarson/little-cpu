@@ -19,6 +19,7 @@ and `make ecp5-timing` apart.
 import argparse
 import hashlib
 import json
+import math
 import re
 import sys
 
@@ -108,6 +109,16 @@ def summarise(stat_path, liberty_path, liberty_sha256, max_um2):
             "*** rather than reading what is left."
         )
 
+    if not isinstance(area, (int, float)) or not math.isfinite(area):
+        sys.exit(
+            f"*** make nano-area: {stat_path}'s area ({area!r}) is not a finite "
+            "number.\n"
+            "*** `stat -liberty -json` never writes NaN or an Infinity; a report\n"
+            "*** that does was not read from a real synthesis run, and the\n"
+            "*** ratchet's `>` comparison is false against every non-finite value\n"
+            "*** on either side of it."
+        )
+
     if num_cells <= 0 or not by_type:
         sys.exit(
             f"*** make nano-area: {stat_path} reports zero cells. That is a run\n"
@@ -136,6 +147,23 @@ def summarise(stat_path, liberty_path, liberty_sha256, max_um2):
     }
 
 
+def finite_positive_um2(raw):
+    """argparse type for --max-um2: `type=float` alone accepts the strings "nan" and
+    "inf", against which `area > args.max_um2` is false for every area, real or
+    forged -- closing that route the same way the area-side isfinite check above
+    closes json.load's NaN/Infinity/-Infinity literals.
+    """
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"{raw!r} is not a number") from exc
+    if not math.isfinite(value) or value <= 0:
+        raise argparse.ArgumentTypeError(
+            f"{raw!r} is not a finite, positive um2 budget"
+        )
+    return value
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("stat_json", help="yosys `stat -liberty -json` output")
@@ -144,7 +172,9 @@ def main():
         "--liberty-sha256", required=True,
         help="NANO_LIBERTY_SHA256: the pinned digest the liberty file must match",
     )
-    parser.add_argument("--max-um2", type=float, required=True, help="NANO_MAX_UM2 budget")
+    parser.add_argument(
+        "--max-um2", type=finite_positive_um2, required=True, help="NANO_MAX_UM2 budget"
+    )
     parser.add_argument(
         "--previous", type=float,
         help="the figure NANO_MAX_UM2 was last derived from, printed as a trend. "
