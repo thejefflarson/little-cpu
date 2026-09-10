@@ -1468,21 +1468,24 @@ probe "control: a derived part states both figures and names itself" 0 \
 probe "control: the note a delta is read against carries the part too" 0 \
   "up5k" "$BD up5k --note"
 
-# hx8k is the cross-core harness's part and nothing has ever been swept on it.
+# ecp5 is placed by three flows and nothing has ever been swept on it.
 probe "an underived part says so rather than borrowing another part's band" 0 \
-  "no other part's transfer" "$BD hx8k"
+  "no other part's transfer" "$BD ecp5"
 
 probe "a caller that needs the figures rather than the prose is refused" 1 \
-  "no band has been derived for hx8k" "$BD hx8k --require"
+  "no band has been derived for ecp5" "$BD ecp5 --require"
 
 probe "and is told that another part's does not transfer" 1 \
-  "does not transfer" "$BD hx8k --require"
+  "does not transfer" "$BD ecp5 --require"
 
 probe "a part this repo does not place is refused, not added by asking" 1 \
   "is not a part this repo places" "$BD xc7"
 
+probe "a part this repo stopped placing is refused too, not kept as a row" 1 \
+  "is not a part this repo places" "$BD hx8k"
+
 probe "--list answers for every part, derived or not" 0 \
-  "hx8k: no placement spread" "$BD --list"
+  "ecp5: no placement spread" "$BD --list"
 
 begin_group "test/band_source_test.py"
 
@@ -3301,24 +3304,100 @@ LOG
 
 d=$(ps_fixture)
 probe "control: a placement holding the whole core is green" 0 "RATCHET:" \
-  "$PS $d/pnr.log $d/core.log vexriscv --min-ratio 0.8"
+  "$PS $d/pnr.log $d/core.log vexriscv --part up5k --min-ratio 0.8"
 
 d=$(ps_fixture); mutate "$d/pnr.log" 's/2379\/   7680    30%/ 449\/   7680     5%/'
 probe "a core yosys folded away is red, not a fast design" 1 \
-  "under the 0.80x floor" "$PS $d/pnr.log $d/core.log vexriscv --min-ratio 0.8"
+  "under the 0.80x floor" "$PS $d/pnr.log $d/core.log vexriscv --part up5k --min-ratio 0.8"
 
 d=$(ps_fixture); mutate "$d/pnr.log" '/ICESTORM_LC/d'
 probe "no utilisation table means nothing was placed, not that nothing was lost" 1 \
   "no ICESTORM_LC utilisation line" \
-  "$PS $d/pnr.log $d/core.log vexriscv --min-ratio 0.8"
+  "$PS $d/pnr.log $d/core.log vexriscv --part up5k --min-ratio 0.8"
 
 d=$(ps_fixture); mutate "$d/core.log" '/SB_LUT4/d'
 probe "no standalone count leaves nothing to compare against" 1 \
-  "no SB_LUT4 count" "$PS $d/pnr.log $d/core.log vexriscv --min-ratio 0.8"
+  "no SB_LUT4 count" "$PS $d/pnr.log $d/core.log vexriscv --part up5k --min-ratio 0.8"
 
 d=$(ps_fixture); mutate "$d/core.log" 's/^     1711   SB_LUT4/        0   SB_LUT4/'
 probe "a standalone synthesis of zero cells is named, not divided by" 1 \
-  "no SB_LUT4 count" "$PS $d/pnr.log $d/core.log vexriscv --min-ratio 0.8"
+  "no SB_LUT4 count" "$PS $d/pnr.log $d/core.log vexriscv --part up5k --min-ratio 0.8"
+
+# The wrong part's names find no count at all, which reads as a broken log unless said.
+ps_ecp5_fixture() {
+  local d; d=$(new_case)
+  fixture_anchor "$REPO/soc/compare/placed_vs_synth.py" "TRELLIS_COMB"
+  cat > "$d/pnr.log" <<'LOG'
+Info: Device utilisation:
+Info: 	        TRELLIS_COMB:    5201/  24288    21%
+Info: 	              DP16KD:      34/     56    60%
+LOG
+  cat > "$d/core.log" <<'LOG'
+      335   CCU2C
+     4669   LUT4
+LOG
+  printf '%s' "$d"
+}
+
+d=$(ps_ecp5_fixture)
+probe "control: the ECP5 arm reads its own fabric's two cell names" 0 "RATCHET:" \
+  "$PS $d/pnr.log $d/core.log littlecpu --part ecp5 --min-ratio 0.8"
+
+d=$(ps_ecp5_fixture)
+probe "an ECP5 placement read with ice40 names names the part, not a bad log" 1 \
+  "no ICESTORM_LC utilisation line for up5k" \
+  "$PS $d/pnr.log $d/core.log littlecpu --part up5k --min-ratio 0.8"
+
+d=$(ps_ecp5_fixture); mutate "$d/pnr.log" 's/5201\/  24288    21%/ 900\/  24288     3%/'
+probe "a core folded away on ECP5 is red against the same floor" 1 \
+  "under the 0.80x floor" \
+  "$PS $d/pnr.log $d/core.log littlecpu --part ecp5 --min-ratio 0.8"
+
+d=$(ps_ecp5_fixture)
+probe "a part with no cell-name row is refused rather than defaulted" 2 \
+  "invalid choice" "$PS $d/pnr.log $d/core.log littlecpu --part hx8k --min-ratio 0.8"
+
+begin_group "soc/compare/step_gate.py"
+
+# A core at 22 MHz runs at 12 like every other; one at 11 runs at 6 and is out entirely.
+SG="python3 $REPO/soc/compare/step_gate.py"
+
+sg_fixture() {  # $1 = total path delay in ns
+  local d; d=$(new_case)
+  fixture_anchor "$REPO/soc/compare/step_gate.py" "UP5K_STEPS"
+  cat > "$d/report.rpt" <<RPT
+ lut1 (LogicCell40) LC: $1 ns
+   $1 ns netA (start_point)
+              lcout -> end_point
+Total path delay: $1 ns
+Total number of logic levels: 1
+RPT
+  printf '%s' "$d"
+}
+
+d=$(sg_fixture 78.75)
+probe "control: a core over the step passes and is compared on cycles" 0 \
+  "PASSES at 12 MHz" "$SG $d/report.rpt --core littlecpu --step 12.0"
+
+d=$(sg_fixture 44.13)
+probe "margin above the step is reported as unspendable, not as speed" 0 \
+  "unspendable : 10.66 MHz" "$SG $d/report.rpt --core vexriscv --step 12.0"
+
+d=$(sg_fixture 90.00)
+probe "a core under the step FAILS rather than scoring a fraction" 1 \
+  "it is out of it" "$SG $d/report.rpt --core littlecpu --step 12.0"
+
+d=$(sg_fixture 90.00)
+probe "and the refusal names the clock it would actually have to run at" 1 \
+  "next clock down is 6 MHz" "$SG $d/report.rpt --core littlecpu --step 12.0"
+
+d=$(sg_fixture 78.75)
+probe "a step between the oscillator's own is refused, not graded against" 1 \
+  "not a clock this part offers" "$SG $d/report.rpt --core littlecpu --step 13.0"
+
+d=$(sg_fixture 78.75); mutate "$d/report.rpt" '/^Total path delay:/d'
+probe "no critical path is a failed placement, not a core that cleared the step" 1 \
+  "does not look like an" "$SG $d/report.rpt --core littlecpu --step 12.0"
 
 begin_group "soc/compare/geometry_test.sh"
 
@@ -3466,10 +3545,19 @@ d=$(df_fixture)
 probe "control: the measured image reports the shortfall it has" 0 \
   "DOES NOT FIT THE PLACED GEOMETRY" "$DF $(df_args "$d")"
 
+# --part-spram 0 is a part with no SPRAM, where this image's RAM costs 22 blocks not 2.
 d=$(df_fixture)
 probe "a core that cannot hold the image is named, not left to the reader" 0 \
   "vexriscv   18 of its own + 26 for the image =  44 blocks: DOES NOT FIT" \
-  "$DF $(df_args "$d")"
+  "$DF $(df_args "$d") --part-spram 0"
+
+d=$(df_fixture)
+probe "an image whose RAM outgrows the part's SPRAM does not fit either" 0 \
+  "22 blocks: DOES NOT FIT" "$DF $(df_args "$d") --part-spram 1"
+
+d=$(df_fixture)
+probe "control: with the part's own four SPRAM the same image fits" 0 \
+  "22 blocks: fits" "$DF $(df_args "$d")"
 
 d=$(df_fixture); mutate "$d/tb.v" 's/RAM_WORDS = 4096/RAM_WORDS = 2048/'
 probe "a testbench simulating a different map than the image is linked for is red" 1 \
@@ -3638,7 +3726,7 @@ probe "control: the measured CoreMark image reports the shortfall it has" 0 \
 
 d=$(cf_fixture)
 probe "a core that cannot hold the CoreMark image is named, not left to the reader" 0 \
-  "hazard3    20 of its own + 28 for the image =  48 blocks: DOES NOT FIT" \
+  "hazard3    20 of its own + 22 for the image =  42 blocks: DOES NOT FIT" \
   "$CF $(cf_args "$d")"
 
 d=$(cf_fixture); mutate "$d/tb.v" 's/RAM_WORDS = 4096/RAM_WORDS = 2048/'
@@ -4520,6 +4608,11 @@ module decoder (input logic [31:0] reg_rs1, output logic [31:0] out);
   assign out = reg_rs1;
 endmodule
 RTL
+  cat > "$d/repo/rtl/csrs.v" <<'RTL'
+module csrs (input logic [31:0] wdata, output logic [31:0] rdata);
+  assign rdata = wdata;
+endmodule
+RTL
   nd_netlist "$d/fix/canon.json"
   nd_netlist "$d/fix/canon.moved.json"
   mutate "$d/fix/canon.moved.json" 's/1010101010101010/1010101010101011/'
@@ -4534,7 +4627,7 @@ nl_run() {  # <fixture dir> [what follows the stubs on PATH]
   printf '%s' "PATH=$1/bin:${2:-\$PATH} \
     NETLIST_SYNTH='read_verilog -sv rtl/decoder.v; synth_ice40 -top littlesoc' \
     NETLIST_PNR='nextpnr-ice40 --up5k' NETLIST_PNR_OUT=--asc \
-    NETLIST_MUTANT='rtl/decoder.v reg_rs1' \
+    NETLIST_MUTANT='rtl/decoder.v reg_rs1' NETLIST_COMMENT_FILE='rtl/csrs.v' \
     sh $1/repo/soc/netlist_determinism.sh"
 }
 
@@ -4557,7 +4650,7 @@ probe "a mutant that left no trace demonstrates nothing, and says so" 1 \
 
 d=$(nl_fixture)
 probe "a canonical form that stopped forgiving the class is red" 1 \
-  "no longer forgives a comment" "STUB_YOSYS_CANON_MOVED=1 $(nl_run "$d")"
+  "moved the mapped netlist" "STUB_YOSYS_CANON_MOVED=1 $(nl_run "$d")"
 
 d=$(nl_fixture)
 probe "a placer that wrote no bitstream placed nothing, which is not a pass" 1 \
@@ -4606,6 +4699,10 @@ probe "a signal in scope only in an earlier module stops it too" 1 \
 d=$(nl_fixture); rm "$d/repo/rtl/decoder.v"
 probe "...and so does the file it injects into going away" 1 \
   "is not in this tree" "$(nl_run "$d")"
+
+d=$(nl_fixture); rm "$d/repo/rtl/csrs.v"
+probe "the comment class lands nowhere if its own file is gone" 1 \
+  "has nowhere to land" "$(nl_run "$d")"
 
 d=$(nl_fixture)
 probe "an empty part table synthesises nothing, so it is refused" 2 \
@@ -5158,7 +5255,7 @@ l4_fixture() {
   mkdir -p "$d/soc/compare" "$d/soc/depth" "$d/test" "$d/docs/adr" "$d/docs/ideas"
   cp "$REPO/CLAUDE.md" "$d/"
   cp "$REPO/Makefile" "$d/"
-  cp "$REPO/soc/baseline_summary.py" "$REPO/soc/baseline_sweep.sh" "$d/soc/"
+  cp "$REPO/soc/baseline_summary.py" "$REPO/soc/baseline_sweep.sh" "$REPO/soc/netlist_digest.py" "$d/soc/"
   cp "$REPO/soc/compare/dhry_fit.py" "$REPO/soc/compare/coremark_fit.py" \
     "$REPO/soc/compare/placed_vs_synth.py" "$d/soc/compare/"
   cp "$REPO/soc/depth/path_stages.py" "$d/soc/depth/"
@@ -5336,6 +5433,33 @@ echo '/* touched */' >> "$d/repo/soc/compare/dhry_tb.v"
 git -C "$d/repo" -c user.email=probe@example -c user.name=probe commit -qam touch
 probe "a soc/compare/ change since the stamp's base is STALE, and the file is named" 1 \
   "soc/compare/dhry_tb.v" "$(product_check_run "$d" dhrystone 'cflags=-march=rv32ic -O2')"
+
+# The artifact really lives at soc/compare/product.json, INSIDE a watched prefix, and the
+# fixture above deliberately does not: that is why nothing caught `make compare-product`
+# invalidating its own dhrystone stamp by writing coremark next to it.
+product_check_real_layout() {
+  local d; d=$(product_check_fixture)
+  mkdir -p "$d/repo/soc/compare"
+  git -C "$d/repo" -c user.email=probe@example -c user.name=probe \
+    mv product.json soc/compare/product.json >/dev/null 2>&1 \
+    || mv "$d/repo/product.json" "$d/repo/soc/compare/product.json"
+  git -C "$d/repo" add -A
+  git -C "$d/repo" -c user.email=probe@example -c user.name=probe commit -qm artifact
+  printf '%s' "$d"
+}
+
+d=$(product_check_real_layout)
+printf '\n' >> "$d/repo/soc/compare/product.json"
+probe "the artifact moving does not make its own stamp stale" 0 \
+  "dhrystone: fresh, stamped" \
+  "python3 $REPO/soc/compare/product_check.py $d/repo/soc/compare/product.json dhrystone --repo $d/repo --current 'cflags=-march=rv32ic -O2'"
+
+d=$(product_check_real_layout)
+printf '\n' >> "$d/repo/soc/compare/product.json"
+echo '/* touched */' >> "$d/repo/soc/compare/dhry_tb.v"
+probe "excluding the artifact does not blind the check to a real soc/compare/ change" 1 \
+  "soc/compare/dhry_tb.v" \
+  "python3 $REPO/soc/compare/product_check.py $d/repo/soc/compare/product.json dhrystone --repo $d/repo --current 'cflags=-march=rv32ic -O2'"
 
 d=$(product_check_fixture)
 probe "a CFLAGS change with no rtl/ or soc/compare/ move is STALE too, named by field" 1 \

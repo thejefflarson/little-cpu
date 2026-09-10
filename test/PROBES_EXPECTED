@@ -99,6 +99,7 @@ a capitalised spelling is the same word and is caught too
 a carry hop is counted apart from a LUT level
 a casing keyword the table does not define stops rather than guessing
 a cause proof going red somewhere else is not evidence either
+a cell type outside the read liberty is refused, not priced at zero
 a cell type that moved is reported as a count, both ways
 a cell type the log never mentions reads as zero, not a crash
 a census under the other gate names that gate, not the ice40 one
@@ -121,9 +122,11 @@ a connection by position stops rather than being half-read
 a connection to a port littlecpu no longer has is red
 a constraint that is not the declared one is a different measurement
 a copy wrapped across lines is caught, not read as two harmless ones
+a core folded away on ECP5 is red against the same floor
 a core that cannot hold the CoreMark image is named, not left to the reader
 a core that cannot hold the image is named, not left to the reader
 a core that reached the start of the loop and not the end is red
+a core under the step FAILS rather than scoring a fraction
 a core yosys folded away is red, not a fast design
 a cosim.py that cannot be executed stops the run
 a count that is not a number stops rather than summing to nonsense
@@ -190,6 +193,7 @@ a harness with no line in the baseline is red
 a harness with no line in the baseline is red
 a hop class nothing classifies would move the split silently
 a hop sum that does not reconcile blames the script, not the design
+a liberty file that does not match the pinned digest is refused
 a line naming a mutation test/mutations/ does not have is red
 a line with no harness behind it is red too
 a line with no harness behind it is red too
@@ -217,9 +221,11 @@ a missing Sail install stops the run rather than scoring it
 a missing artifact refuses rather than reporting on nothing
 a missing asm directory is named
 a missing baseline file is exit 2, not an empty expected set
+a missing liberty file is refused before the JSON is even opened
 a missing parser stops the run rather than grading with a second one
 a missing ramdiff for the SECOND CoreMark core is red, not silently skipped
 a missing ramdiff for the SECOND core is red, not silently skipped
+a missing stat.json is refused, not read as a zero-area design
 a mistyped baseline path cannot compare nothing and pass
 a mistyped baseline path cannot compare nothing and pass
 a mistyped floor path cannot make every floor lookup miss
@@ -260,7 +266,9 @@ a parameter list spread over several lines is refused, not skimmed
 a parameter this cannot read stops rather than comparing nothing
 a part this repo does not place is refused, not added by asking
 a part this repo does not place stops the sweep before any placement
+a part this repo stopped placing is refused too, not kept as a row
 a part this script cannot grade a stamp for is rejected, not guessed at
+a part with no cell-name row is refused rather than defaulted
 a part with no icetime walk reads NA rather than a fabricated zero
 a path that does not reconcile blames the script, not the design
 a path with no LUT level at all reports zero rather than dividing by it
@@ -369,6 +377,7 @@ a stamp with no table under it is a failed measurement
 a standalone synthesis of zero cells is named, not divided by
 a status sby cannot produce is rejected at format time
 a status sby has never written here is reported on its own
+a step between the oscillator's own is refused, not graded against
 a stray comma in a connection list is named as one
 a substituted, non-archive download is refused for every file, not silently skipped
 a suite script linking against a rom the harness has not got
@@ -400,10 +409,12 @@ a tree with no source file at all is red rather than vacuously green
 a trip prints the trend too, since that is the run that needs it
 a truncated netlist is refused, which is what a full disk leaves
 a truncated report blames the run rather than parsing what is left
+a truncated stat.json is refused, not read as an empty report
 a wait bound that admits a starved hart is red
 a wait bound that admits a starved hart is red
 a wire that does not carry its class's name is named
 a wire that names a funct7 without a funct3 is rejected, not parsed
+an ECP5 placement read with ice40 names names the part, not a bad log
 an ECP5 stamp carrying up5k's tools is missing its own
 an EXTRA architectural write the model never made is caught
 an SPI base off its own window is red
@@ -447,6 +458,7 @@ an executor_out.rd_data bit routed into a stall reason is red
 an exemption naming no program is red, not a program quietly excused
 an fmax entry that stopped carrying both halves is refused, not read
 an image objcopy wrote nothing into is red, not empty and accepted
+an image whose RAM outgrows the part's SPRAM does not fit either
 an indented line equal to a plain heredoc's token does not close it early
 an injection site that moved stops the control, loudly
 an integrator telling the core a text size its ROM has not got
@@ -488,6 +500,7 @@ and the diagnostic says git rm --cached, not an edit to the rule
 and the diagnostic says what it costs, not just that it is missing
 and the diagnostic says what to write instead, not just what is wrong
 and the diagnostic states the corollary this check is enforcing
+and the refusal names the clock it would actually have to run at
 and the reverse: a divergence reported with exit 0
 and the same for the check-set baseline
 assembler output on a successful build is still a defect
@@ -511,6 +524,7 @@ control: a baselined divergence at the baselined point is green
 control: a baselined failure that fails exactly that way is green
 control: a baselined red check at the baselined status is green
 control: a complete --measured call writes a valid pair
+control: a core over the step passes and is compared on cycles
 control: a count matching the declaration is green
 control: a derived part states both figures and names itself
 control: a deterministic placer and a forgiven mutant pass
@@ -520,6 +534,7 @@ control: a full-pass check set against an empty baseline is green
 control: a good CoreMark run reports all three cores' figures
 control: a good run reports both cores' figures
 control: a good three-way run reports all three cores' figures
+control: a measurement within budget is green
 control: a measurement within budget is green
 control: a model file OUTSIDE isa_rv32imc.txt is not one this check can see
 control: a netlist digests, and the digest is a sha256
@@ -570,6 +585,7 @@ control: mutate on a real match rewrites the file and returns 0
 control: mutate_remove deletes a file that is there
 control: programs that build and are paired are green
 control: rule 6 gates the trap comparison and writes its compensation
+control: the ECP5 arm reads its own fabric's two cell names
 control: the MUL constant-latency assertion fails at its own line
 control: the arm proves for the shipping core and fails on both values
 control: the block RAM is named at the end of the path it sits at
@@ -600,6 +616,7 @@ control: the tracked monitor sanitizes, and rule 3 fires
 control: two identical netlists are equal
 control: two identical snapshots print a null delta and no news
 control: two sweeps measured the same way are subtracted
+control: with the part's own four SPRAM the same image fits
 coremark.lds putting .data back at ram's origin is red
 coremark.lds putting the stack back at the top of ram is red
 cores given with no --target-core among them is refused
@@ -607,6 +624,7 @@ data past the end of the simulated RAM is red, not silent
 decoder_output.rd widened past 5 bits is red (finding 5)
 deleting an rtl file and leaving its line is red
 every source line moving is the comment class, and is forgiven
+excluding the artifact does not blind the check to a real soc/compare/ change
 fixture_anchor whose literal left the real file is fixture-stale, named
 half of a macro-guarded group is red, where none of it is not
 hazard reading ls_answer_valid directly is red (finding 1)
@@ -617,6 +635,7 @@ insn_excluded must be a plain disjunction, not an expression
 layer 1: the trap comparison moved INTO the span is refused, not gated
 layer 2: the enclosed handle_error multiset is pinned, not merely counted
 layer 3: error 101 vanishing from the OUTPUT is caught after every rule
+margin above the step is reported as unspendable, not as speed
 more accesses near an edge than there were accesses is red
 moving the declared string alone, with every site unchanged, is red
 mutate_remove on a path that was never there is fixture-stale, not silent
@@ -627,6 +646,7 @@ no components.sby is exit 2, not a probe against an invented script
 no components.sby is exit 2, not a probe against an invented script
 no constraint found is red, which is the shape of the recorded defects
 no critical path in the report is a failed measurement, not a fast design
+no critical path is a failed placement, not a core that cleared the step
 no placer on PATH is refused the same way
 no programs at all would report a clean 0 of 0
 no standalone count leaves nothing to compare against
@@ -684,6 +704,7 @@ the UART moving in the core's copy alone is red
 the UART moving in the proof's copy alone is red
 the address the flash-reading program uses is checked against the controller
 the address the printing program writes is checked against the UART
+the artifact moving does not make its own stamp stale
 the baud rate is still refused beside the clock a top may set
 the benchmark script must keep linking against the part's rom
 the benchmark's own FAIL verdict stops the number being quoted
@@ -691,6 +712,7 @@ the carry chain's own interconnect is charged to the carry hop
 the cell count names its own unit rather than borrowing the other's
 the clock-rate exception belongs to the UART alone
 the co-sim runner's kRamBase drifting is red on its own
+the comment class lands nowhere if its own file is gone
 the compensation going missing is caught after every rule
 the core hitting its cycle budget is INCONCLUSIVE too
 the core's copy of the RAM base drifting from the RAM is red
@@ -739,12 +761,14 @@ the third core's ROM drifting behind the other two is red
 the timer address the programs arm is checked against the timer
 the timer moving in the core's copy alone is red
 the timer moving in the proof's copy alone is red
+the trend against a recorded figure is printed beside the verdict
 the trend against the recorded count is printed beside the verdict
 the two definitions the predicates are built from are pinned literally
 the wait-state bias is disclosed as a percentage of hazard3's own cycles
 the word coming back in a formal harness comment is red, and located
 the wrong count is named against the log's real one
 three sweeps have no one difference, so they are refused
+total above the ratchet names the figure and the budget
 two CoreMark cores whose RAMs differ are red, not a ratio
 two arms that cannot be told apart are not two arms
 two arms that cannot be told apart are not two arms
@@ -770,13 +794,5 @@ wrong argument count is exit 2
 wrong argument count is exit 2
 wrong argument count is exit 2 -- the inputs are broken, not the checks
 zero CoreMark iterations would divide the work by nothing
-zero runs would divide the work by nothing
-a cell type outside the read liberty is refused, not priced at zero
-a liberty file that does not match the pinned digest is refused
-a missing liberty file is refused before the JSON is even opened
-a missing stat.json is refused, not read as a zero-area design
-a truncated stat.json is refused, not read as an empty report
-control: a measurement within budget is green
-the trend against a recorded figure is printed beside the verdict
-total above the ratchet names the figure and the budget
 zero cells is refused, not read as a zero-area design
+zero runs would divide the work by nothing

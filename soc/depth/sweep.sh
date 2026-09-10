@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Places and times the four fetch-loop depths soc/depth/variants.py writes, on both
-# parts, over as many seeds as asked for, and prints one CSV row per placement.
+# soc/depth/variants.py's four fetch-loop depths, placed on up5k, one CSV row per seed.
 set -euo pipefail
 
 part=${1:-up5k}
@@ -15,8 +14,8 @@ mkdir -p "$out"
 mem=$out/imemory_depth.v
 python3 soc/depth/variants.py "$mem"
 
-# Each part asks make for the list its own flow places; the copy this had went stale. The
-# spike memory substitutes in place: read order sets ABC's mapping, appending would not.
+# make owns the source list; the copy this had went stale. The spike memory substitutes
+# IN PLACE because read order sets ABC's mapping, and appending would not.
 spike_srcs() {
   list=$(make -s "$@")
   case " $list " in
@@ -43,17 +42,7 @@ case "$part" in
     ice_args="-d up5k -P sg48"
     make -s soc-rom
     ;;
-  hx8k)
-    srcs=$(spike_srcs print-COMPARE_SRCS COMPARE_CORE=littlecpu)
-    top=bench_littlecpu
-    synth_args=""
-    chp="chparam -set ROM_WORDS 1024 -set RAM_WORDS 512 $top;"
-    pcf=soc/compare/bench_hx8k.pcf
-    pnr_args="--hx8k --package ct256"
-    ice_args="-d hx8k -P ct256"
-    make -s compare-rom
-    ;;
-  *) echo "usage: $0 <up5k|hx8k> [seed ...]" >&2; exit 2 ;;
+  *) echo "usage: $0 up5k [seed ...]" >&2; exit 2 ;;
 esac
 
 python3 soc/depth/row.py --header

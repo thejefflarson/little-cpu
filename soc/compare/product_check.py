@@ -48,6 +48,7 @@ Usage:
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 
@@ -68,15 +69,23 @@ def load(path):
     except (OSError, json.JSONDecodeError) as exc:
         refuse(f"*** {path} could not be read as the product artifact: {exc}")
 
-def moved_paths(repo, base):
+# The artifact lives INSIDE a watched prefix, so writing it counts as the tree moving:
+# stamping dhrystone and then writing coremark made dhrystone stale against its own file,
+# and `make compare-product` could never exit 0. Excluded by the path the caller actually
+# gave, not by a prefix -- a prefix would stop this noticing a real soc/compare/ change.
+def moved_paths(repo, base, artifact=None):
     """Every path under rtl/ or soc/compare/ that differs between `base` and the
     working tree (committed or not -- a stamp is stale the moment either
     factor's inputs move, whether or not the move has been committed yet).
     """
     try:
+        pathspec = ["rtl/", "soc/compare/"]
+        if artifact is not None:
+            rel = os.path.relpath(os.path.abspath(artifact), os.path.abspath(repo))
+            if not rel.startswith(os.pardir):
+                pathspec.append(":(exclude)" + rel)
         out = subprocess.run(
-            ["git", "-C", repo, "diff", "--name-only", base, "--",
-             "rtl/", "soc/compare/"],
+            ["git", "-C", repo, "diff", "--name-only", base, "--"] + pathspec,
             capture_output=True, text=True, check=True,
         )
     except FileNotFoundError:
@@ -89,7 +98,7 @@ def moved_paths(repo, base):
                "this check can confirm is still current.")
     return [line for line in out.stdout.splitlines() if line]
 
-def stale_reasons(pair, repo, current):
+def stale_reasons(pair, repo, current, artifact=None):
     """Every reason a MEASURED `pair` is stale, or [] if it is fresh.
 
     `current` is a dict of field name to the value the build has right now --
@@ -120,7 +129,7 @@ def stale_reasons(pair, repo, current):
         reasons.append("it was measured on a tree with uncommitted changes, so "
                        "its base commit does not fully describe what was "
                        "measured")
-    paths = moved_paths(repo, pair["base"])
+    paths = moved_paths(repo, pair["base"], artifact)
     if paths:
         reasons.append("rtl/ or soc/compare/ changed since "
                        f"{pair['base'][:12]}: {', '.join(paths)}")
@@ -140,7 +149,7 @@ def report_pair(benchmark, pair, args):
                "'measured' nor 'not_yet_measured'. That is not a stamp this "
                "script knows how to grade.")
 
-    reasons = stale_reasons(pair, args.repo, args.current)
+    reasons = stale_reasons(pair, args.repo, args.current, args.product_json)
     if reasons:
         print(f"*** STALE: {benchmark}'s product stamp is from "
              f"{pair['base'][:12]} ({pair['date']}), and:")
