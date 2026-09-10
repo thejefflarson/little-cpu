@@ -164,6 +164,24 @@ def main():
         print(f"error: run from {base}, not {os.getcwd()}", file=sys.stderr)
         return 1
 
+    # genchecks-local.py resolves its instruction-list clone relative to its own
+    # realpath, not to <harness-dir>, so a gitignored clone missing from a fresh
+    # worktree is invisible until it opens `{clone}/insns/isa_<isa>.txt` and gets a
+    # FileNotFoundError it blames on the ISA string. Catch the real cause first.
+    riscv_formal_dir = os.path.join(
+        os.path.dirname(os.path.realpath(GENCHECKS)), "riscv-formal"
+    )
+    if not os.path.isdir(riscv_formal_dir):
+        print(
+            f"error: {riscv_formal_dir} is missing. genchecks-local.py reads its\n"
+            "       instruction list out of that clone, so its absence surfaces\n"
+            "       downstream as \"Current isa string '...' not supported\" -- \n"
+            "       nothing is wrong with the ISA string. Fetch the pinned clone:\n"
+            "       make -C formal riscv-formal (formal/pin.mk has the SHA).",
+            file=sys.stderr,
+        )
+        return 1
+
     # genchecks-local.py runs in-process via runpy and reads sys.argv[1] as a cfg name,
     # so this script's own <harness-dir> argument must not leak into it.
     saved_argv = sys.argv

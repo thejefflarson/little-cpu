@@ -1146,6 +1146,22 @@ probe "running the generator from the wrong directory is refused, not done" 1 \
 
 GA="python3 $REPO/formal/genchecks-audit.py"
 
+# genchecks-local.py resolves its riscv-formal clone relative to its own realpath, not
+# to the <harness-dir> argument, so this fixture copies both scripts for real -- a
+# symlink back to formal/ would resolve through it to the clone this checkout already
+# has, passing the probe while testing nothing.
+ga_missing_clone_fixture() {
+  local d; d=$(new_case)
+  cp "$REPO/formal/genchecks-audit.py" "$d/genchecks-audit.py"
+  cp "$REPO/formal/genchecks-local.py" "$d/genchecks-local.py"
+  cp "$REPO/formal/depth_rules.py" "$d/depth_rules.py"
+  printf '%s' "$d"
+}
+
+d=$(ga_missing_clone_fixture)
+probe "a missing riscv-formal clone is named, not blamed on the ISA string" 1 \
+  "riscv-formal is missing" "cd '$d' && python3 genchecks-audit.py ."
+
 # A second harness's checks.cfg: genchecks-audit.py takes the harness directory as
 # an argument, so this fixture never touches the real nano/formal tree.
 ga_nano_fixture() {
