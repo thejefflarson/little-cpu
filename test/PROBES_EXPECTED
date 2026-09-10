@@ -36,6 +36,7 @@
 --require-news is news the moment --current disagrees with the older stamp
 --require-news is news the moment rtl/ moved under the older stamp too
 --require-news refuses on its own status, not on "no news"
+...and a margin under the floor writes no pin file at all
 ...and one the purge did not remove means the digest is equal by luck
 ...and so does the file it injects into going away
 ...and the count that site was declared with is red too
@@ -198,6 +199,7 @@ a graded target quietly depending on netlist-digest is red, and named
 a graph with no edges out of reg_rs1 is red, not a vacuous pass
 a half-installed toolchain says so once, up front
 a half-installed toolchain says so once, up front
+a hand-edited pin that no longer parses is as invalid as unwritten
 a hand-typed fixture is red on an unquoted heredoc delimiter too
 a hand-typed fixture with no anchor and no cp of a real file is red
 a harness that is red at rest makes the two mutations meaningless
@@ -291,9 +293,11 @@ a part this repo stopped placing is refused too, not kept as a row
 a part this script cannot grade a stamp for is rejected, not guessed at
 a part with no cell-name row is refused rather than defaulted
 a part with no icetime walk reads NA rather than a fabricated zero
+a partial pin missing required fields is not a pin
 a path that does not reconcile blames the script, not the design
 a path with no LUT level at all reports zero rather than dividing by it
 a peripheral inside the timer's reserved span is red
+a pin file that does not exist is refused, not read as absent-is-fine
 a pin that makes another check read rvfi_intr is red
 a pin that models an interrupt CSR makes the tie-off an argument again
 a placement at zero MHz is not a placement
@@ -379,6 +383,7 @@ a run that printed no COSIM-STATUS is COSIM-ERROR, not a verdict
 a runner that printed no CS END terminator is a broken harness
 a runner that reports no cycles at all cannot produce a clean table
 a second occurrence of a counted exception value is red
+a seed clearing SOC_MIN_MHZ by under 5% is refused, not pinned
 a semicolon in the liberty path stays inside its own quoted token
 a shard spec that is not <i>/<n> is refused before anything runs
 a shipping harness that cannot reach its own goals is red
@@ -399,6 +404,7 @@ a solver that wrote no verdict is exit 2, not a red arm
 a solver that wrote no verdict is exit 2, not a red arm
 a source this tree synthesises that the base lacks is not comparable
 a space in a source path does not split it into a second yosys argument
+a stale pin warns and does not fail, because the gate is Fmax
 a stall nothing in the list explains is a reason nobody wrote down
 a stall reason the accounting cannot name is red even with every test passing
 a stall reason with no driving cell stops the run
@@ -571,6 +577,7 @@ control: a full-pass check set against an empty baseline is green
 control: a good CoreMark run reports all three cores' figures
 control: a good run reports both cores' figures
 control: a good three-way run reports all three cores' figures
+control: a matching pin names its own seed and MHz
 control: a measurement within budget is green
 control: a measurement within budget is green
 control: a model file OUTSIDE isa_rv32imc.txt is not one this check can see
@@ -578,6 +585,7 @@ control: a netlist digests, and the digest is a sha256
 control: a nextpnr that wrote its pair is graded, exit 1 and all
 control: a passing suite against an empty baseline is green
 control: a peripheral above the reserved span is accepted
+control: a pin whose sources match checks OK
 control: a placement holding the whole core is green
 control: a plain liberty and source produce the expected yosys script
 control: a report clearing the floor is green
@@ -682,6 +690,7 @@ layer 2: the enclosed handle_error multiset is pinned, not merely counted
 layer 3: error 101 vanishing from the OUTPUT is caught after every rule
 margin above the step is reported as unspendable, not as speed
 more accesses near an edge than there were accesses is red
+moved sources say so, naming both digests
 moving the declared string alone, with every site unchanged, is red
 mutate_remove on a path that was never there is fixture-stale, not silent
 netlist-diff reaches the same check as netlist-digest does
@@ -772,6 +781,7 @@ the core's copy of the RAM base drifting from the RAM is red
 the cxxrtl runner's kRamBase drifting is red
 the default text window is the part's, not the harness's
 the defect this exists for: a core clocked from the pad, not the PLL
+the digest is over the sources, so it does not move when only the tools do
 the dominant reason is the suite's, not the first program's
 the encoding proof going red somewhere else is not evidence either
 the exemption does not extend to a write of the WRONG register
@@ -822,6 +832,7 @@ the trend against a recorded figure is printed beside the verdict
 the trend against the recorded count is printed beside the verdict
 the two definitions the predicates are built from are pinned literally
 the wait-state bias is disclosed as a percentage of hazard3's own cycles
+the warning says a regression can hide behind a pin that still clears
 the word coming back in a formal harness comment is red, and located
 the wrong count is named against the log's real one
 three sweeps have no one difference, so they are refused
