@@ -1,8 +1,7 @@
 #!/bin/bash
-# Bumps formal/pin.mk's riscv-formal SHA on a branch when upstream's `main` has moved
-# past it, regenerating test/monitor.v so monitor-freshness is a real verdict on the bump
-# rather than a guaranteed failure, and then opens an issue asking a human to open the
-# pull request. Also checks nano/formal/rvfi_insn_check.sv, a hand-maintained fork with no
+# Bumps formal/pin.mk's riscv-formal SHA on a branch when upstream's `main` has moved past
+# it, regenerating test/monitor.v and opening an issue asking a human to open the pull
+# request. Also checks nano/formal/rvfi_insn_check.sv, a hand-maintained fork with no
 # generator to re-run, against the new pin, and reports that in the issue body.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
@@ -55,17 +54,21 @@ DIFFSTAT=$(git -C "$CLONE_DIR" diff --stat "$PIN_SHA..$UPSTREAM_SHA" -- checks/ 
 FULLDIFF=$(git -C "$CLONE_DIR" diff "$PIN_SHA..$UPSTREAM_SHA" -- checks/ insns/ monitor/)
 DIFF_LINES=$(printf '%s\n' "$FULLDIFF" | wc -l | tr -d ' ')
 
+# git show, not the clone's working tree, which sits at whatever HEAD was at clone time.
 RVFI_INSN_CHECK_REPORT="$CLONE_DIR/rvfi-insn-check-report.txt"
+UPSTREAM_RVFI_INSN_CHECK="$CLONE_DIR/upstream-rvfi_insn_check.sv"
 RVFI_INSN_CHECK_STATUS=0
-if [ -f "$CLONE_DIR/checks/rvfi_insn_check.sv" ]; then
+if git -C "$CLONE_DIR" show "$UPSTREAM_SHA:checks/rvfi_insn_check.sv" \
+    > "$UPSTREAM_RVFI_INSN_CHECK" 2>/dev/null; then
   python3 nano/formal/check-rvfi-insn-check.py \
-    "$CLONE_DIR/checks/rvfi_insn_check.sv" nano/formal/rvfi_insn_check.sv \
+    "$UPSTREAM_RVFI_INSN_CHECK" nano/formal/rvfi_insn_check.sv \
     > "$RVFI_INSN_CHECK_REPORT" 2>&1 || RVFI_INSN_CHECK_STATUS=$?
 else
   RVFI_INSN_CHECK_STATUS=2
   echo "upstream no longer ships checks/rvfi_insn_check.sv at $UPSTREAM_SHA" \
     > "$RVFI_INSN_CHECK_REPORT"
 fi
+RVFI_INSN_CHECK_REPORT_LINES=$(wc -l < "$RVFI_INSN_CHECK_REPORT" | tr -d ' ')
 
 git checkout -b "$BRANCH"
 
@@ -131,9 +134,18 @@ BODY_FILE="$CLONE_DIR/issue-body.md"
     echo "fork, not a vendored copy. Re-apply the \`RISCV_FORMAL_E\` assumption block by"
     echo "hand before merging; \`monitor-freshness\` will not pass otherwise."
     echo
-    echo '```'
-    cat "$RVFI_INSN_CHECK_REPORT"
-    echo '```'
+    # Tildes, not backticks: SystemVerilog's own preprocessor directives are backtick-prefixed.
+    if [ "$RVFI_INSN_CHECK_REPORT_LINES" -le 300 ]; then
+      echo '~~~diff'
+      cat "$RVFI_INSN_CHECK_REPORT"
+      echo '~~~'
+    else
+      echo "Report is ${RVFI_INSN_CHECK_REPORT_LINES} lines; run"
+      echo '~~~'
+      echo "python3 nano/formal/check-rvfi-insn-check.py <upstream file at $UPSTREAM_SHA> nano/formal/rvfi_insn_check.sv"
+      echo '~~~'
+      echo "locally against the new pin to see it."
+    fi
   fi
   echo
   echo "### Diff under checks/, insns/, monitor/"

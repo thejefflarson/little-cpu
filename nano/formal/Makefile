@@ -43,7 +43,7 @@ complete_cover: complete_cover.sby complete.sv ../nano.v complete-cover-probe | 
 complete-cover-probe: complete-cover-probe.py complete.sv complete_cover.sby ../nano.v | $(RISCV_FORMAL_DIR)
 	python3 $<
 
-ill_e:       ill_e.sby       ill_e.sv
+ill_e:       ill_e.sby       ill_e.sv ill-e-probe
 ill_e_cover: ill_e_cover.sby ill_e.sv ill-e-probe
 
 .PHONY: ill-e-probe

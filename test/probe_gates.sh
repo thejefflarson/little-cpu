@@ -5393,8 +5393,15 @@ cat > "$tmp/sby-ie-stub" <<'STUB'
 # Stands in for sby. Distinguishes the assert check from the cover check by the .sby
 # filename sby was called with, and the shipping case from its mutant by grepping
 # ill_e.sv for the mutation this probe applies -- the same technique
-# nano/formal/complete-cover-probe.py's own stub uses. The failing line is read out of
-# the fixture's own ill_e.sv rather than hardcoded, so it tracks that file's real content.
+# nano/formal/complete-cover-probe.py's own stub uses. A witness name embeds the real
+# script's own line-number convention (one less than the text line, +1 in cover_result),
+# and its own kept-in-sync copy of e_illegal's term names, so it can name which single
+# (class, field) membership a drop-<term> mutant is missing without special-casing one.
+ALL_TERMS="ill_load_rd ill_load_rs1 ill_opimm_rd ill_opimm_rs1 ill_auipc_rd ill_store_rs1
+ill_store_rs2 ill_op_rd ill_op_rs1 ill_op_rs2 ill_lui_rd ill_branch_rs1 ill_branch_rs2
+ill_jalr_rd ill_jalr_rs1 ill_jal_rd ill_sysreg_rd ill_sysreg_rs1 ill_sysimm_rd
+ill_ccr_rdrs1 ill_ccr_rs2 ill_cci_rdrs1 ill_ccss_rs2"
+
 sby_file=$2
 case "$sby_file" in
   ill_e.sby) task=ill_e ;;
@@ -5408,6 +5415,18 @@ fail_at() {
   needle=$1
   line=$(grep -nF "$needle" ill_e.sv | head -1 | cut -d: -f1)
   echo "SBY [probe] engine_0: ##   0:00:00  Assert failed in ill_e_top: ill_e.sv:$line.7-$line.20" \
+    >> "$task/logfile.txt"
+}
+
+reached_line() {
+  w=$(( $1 - 1 ))
+  echo "SBY [probe] engine_0: ##   0:00:00  Reached cover statement in step 1 at ill_e_top: ill_e.sv:$w.1-$1.1 (_witness_.check_cover_ill_e_sv_${w}_1)" \
+    >> "$task/logfile.txt"
+}
+
+unreached_line() {
+  w=$(( $1 - 1 ))
+  echo "SBY [probe] engine_0: ##   0:00:00  Unreached cover statement at ill_e_top: ill_e.sv:$w.1-$1.1 (_witness_.check_cover_ill_e_sv_${w}_1)" \
     >> "$task/logfile.txt"
 }
 
@@ -5433,20 +5452,39 @@ if [ "$task" = ill_e ]; then
     status=${STUB_ASSERT_SHIP:-PASS}
   fi
 else
-  if grep -q "wire e_illegal = 1'b0;" ill_e.sv; then
-    status=${STUB_NO_ILLEGAL:-FAIL}
-    if [ "$status" = FAIL ] && [ -z "${STUB_NO_ILLEGAL_EMPTY:-}" ]; then
-      line=$(grep -nE '^[[:space:]]*cover property \(' ill_e.sv | head -1 | cut -d: -f1)
-      echo "SBY [probe] engine_0: ##   0:00:00  Unreached cover statement at ill_e_top: ill_e.sv:$line.1-$line.1" \
-        >> "$task/logfile.txt"
+  e_block=$(awk '/wire e_illegal =/{f=1} f{print} f && /;/{exit}' ill_e.sv)
+  if printf '%s' "$e_block" | grep -q "1'b0"; then
+    status=${STUB_TIE_LOW:-FAIL}
+    if [ "$status" = FAIL ]; then
+      if [ -n "${STUB_TIE_LOW_BAD_SITE:-}" ]; then
+        unreached_line 999
+      else
+        line=$(grep -nF "cover property (live && e_illegal && ill_load_rd)" ill_e.sv | head -1 | cut -d: -f1)
+        unreached_line "$line"
+      fi
     fi
   else
-    status=${STUB_COVER_SHIP:-PASS}
-    if [ "$status" = PASS ]; then
-      for l in $(grep -nE '^[[:space:]]*cover property \(' ill_e.sv | cut -d: -f1); do
-        echo "SBY [probe] engine_0: ##   0:00:00  Reached cover statement in step 1 at ill_e_top: ill_e.sv:$l.1-$l.1" \
-          >> "$task/logfile.txt"
-      done
+    missing=""
+    for t in $ALL_TERMS; do
+      if ! printf '%s' "$e_block" | grep -qw "$t"; then missing=$t; break; fi
+    done
+    if [ -n "$missing" ]; then
+      status=${STUB_DROP_TERM:-FAIL}
+      if [ "$status" = FAIL ]; then
+        if [ -n "${STUB_DROP_TERM_BAD_SITE:-}" ]; then
+          unreached_line 999
+        else
+          line=$(grep -nF "cover property (live && e_illegal && ${missing})" ill_e.sv | head -1 | cut -d: -f1)
+          unreached_line "$line"
+        fi
+      fi
+    else
+      status=${STUB_COVER_SHIP:-PASS}
+      if [ "$status" = PASS ]; then
+        for l in $(grep -nE '^[[:space:]]*cover property \(' ill_e.sv | cut -d: -f1); do
+          reached_line "$l"
+        done
+      fi
     fi
   fi
 fi
@@ -5468,8 +5506,8 @@ ie_fixture() {
 ies() { printf "%s --repo %s --workdir %s/work --sby %s" "$IE" "$1" "$1" "$tmp/sby-ie-stub"; }
 
 d=$(ie_fixture)
-probe "control: every assertion mutant fails at its own line and the shipping reference passes both" 0 \
-  "the shipping reference passes both" "$(ies "$d")"
+probe "control: every mutant fails for its own reason and the shipping reference passes all of it" 0 \
+  "the shipping reference passes all of it" "$(ies "$d")"
 
 d=$(ie_fixture)
 probe "a shipping reference that fails its own assertions is red" 1 \
@@ -5496,12 +5534,20 @@ probe "a shipping reference that does not reach every cover goal is red" 1 \
   "the shipping reference does not reach every cover goal" "STUB_COVER_SHIP=FAIL $(ies "$d")"
 
 d=$(ie_fixture)
-probe "a no-illegal mutant that still proves is not a control" 1 \
-  "anti-vacuity control that cannot go red is not a control" "STUB_NO_ILLEGAL=PASS $(ies "$d")"
+probe "a tie-low mutant that still proves is not a control" 1 \
+  "anti-vacuity control that cannot go red is not a control" "STUB_TIE_LOW=PASS $(ies "$d")"
 
 d=$(ie_fixture)
-probe "a no-illegal mutant that names no unreached site is not evidence" 1 \
-  "without naming a single unreached" "STUB_NO_ILLEGAL_EMPTY=1 $(ies "$d")"
+probe "a tie-low mutant that names an unrelated site is not evidence" 1 \
+  "which is not one of e_illegal's own membership goals" "STUB_TIE_LOW_BAD_SITE=1 $(ies "$d")"
+
+d=$(ie_fixture)
+probe "a drop-<term> mutant that still proves witnesses nothing" 1 \
+  "a drop that cannot go red witnesses" "STUB_DROP_TERM=PASS $(ies "$d")"
+
+d=$(ie_fixture)
+probe "a drop-<term> mutant that loses the wrong goal is not evidence about that membership" 1 \
+  "not evidence this membership" "STUB_DROP_TERM_BAD_SITE=1 $(ies "$d")"
 
 d=$(ie_fixture)
 mutate "$d/nano/formal/ill_e.sv" "s/  assign trap      = e_illegal;/  assign trap = e_illegal;/"
@@ -5509,10 +5555,9 @@ probe "a respelled trap anchor stops rather than pinning nothing" 2 \
   "no longer spells what the no-trap mutation" "$(ies "$d")"
 
 d=$(ie_fixture)
-mutate "$d/nano/formal/ill_e.sv" \
-  "s/  wire e_illegal = (uses_rd && rd\[4\]) || (uses_rs1 && rs1\[4\]) || (uses_rs2 && rs2\[4\]);/  wire e_illegal = (uses_rd \& rd[4]) || (uses_rs1 \&\& rs1[4]) || (uses_rs2 \&\& rs2[4]);/"
-probe "a respelled illegal anchor stops rather than pinning nothing" 2 \
-  "no longer spells what the no-illegal mutation" "$(ies "$d")"
+mutate "$d/nano/formal/ill_e.sv" 's/wire e_illegal =/wire E_ILLEGAL_RESPELLED =/'
+probe "a missing e_illegal statement stops rather than mutating nothing" 2 \
+  "states no \`wire e_illegal =\` statement" "$(ies "$d")"
 
 d=$(ie_fixture); rm "$d/nano/formal/ill_e.sv"
 probe "the checker moving away takes the probe with it, loudly" 2 \
@@ -5533,6 +5578,60 @@ probe "a solver that wrote no verdict is exit 2, not a red arm" 2 \
 d=$(ie_fixture)
 probe "an empty status file is refused rather than read as a verdict" 2 \
   "status file for the assert-shipping case is empty" "STUB_SBY_EMPTY_STATUS=1 $(ies "$d")"
+
+begin_group "nano/formal/check-rvfi-insn-check.py"
+
+CRIC="python3 $REPO/nano/formal/check-rvfi-insn-check.py"
+
+cric_fixture() {
+  local d; d=$(new_case)
+  cp "$REPO/formal/riscv-formal/checks/rvfi_insn_check.sv" "$d/upstream.sv"
+  cp "$REPO/nano/formal/rvfi_insn_check.sv" "$d/fork.sv"
+  printf '%s' "$d"
+}
+
+d=$(cric_fixture)
+probe "control: the fork matches the pin once its header and RISCV_FORMAL_E block are undone" 0 \
+  "matches" "$CRIC $d/upstream.sv $d/fork.sv"
+
+d=$(cric_fixture)
+mutate "$d/fork.sv" "s/assert(spec_trap == trap);/assert(spec_trap != trap);/"
+probe "a hand-drifted fork is red, and its residual diff is printed" 1 \
+  "has DRIFTED" "$CRIC $d/upstream.sv $d/fork.sv"
+
+begin_group "test/ill_e_wiring_test.py"
+
+IEW="python3 $REPO/test/ill_e_wiring_test.py"
+
+iew_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/nano/formal"
+  cp "$REPO/nano/formal/checks.cfg" "$REPO/nano/formal/ill_e.sv" "$d/nano/formal/"
+  printf '%s' "$d"
+}
+
+d=$(iew_fixture)
+probe "control: RISCV_FORMAL_E is not yet wired, so there is nothing to check it against" 0 \
+  "not yet wired into" "$IEW $d"
+
+d=$(iew_fixture)
+printf '`define RISCV_FORMAL_E\n' >> "$d/nano/formal/checks.cfg"
+probe "RISCV_FORMAL_E live while ill_e.sv still checks the reference model is red" 1 \
+  "checked by nothing until ill_e.sv wires the real core in" "$IEW $d"
+
+d=$(iew_fixture)
+printf '`define RISCV_FORMAL_E\n' >> "$d/nano/formal/checks.cfg"
+printf '  riscv wrapper (\n' >> "$d/nano/formal/ill_e.sv"
+probe "RISCV_FORMAL_E live once ill_e.sv wires the real core in is not red" 0 \
+  "and nano/formal/ill_e.sv instantiates the real core" "$IEW $d"
+
+d=$(iew_fixture); rm "$d/nano/formal/checks.cfg"
+probe "a missing checks.cfg is refused rather than read as not-live" 1 \
+  "nano/formal/checks.cfg is missing" "$IEW $d"
+
+d=$(iew_fixture); rm "$d/nano/formal/ill_e.sv"
+probe "a missing ill_e.sv is refused rather than read as not-wired" 1 \
+  "nano/formal/ill_e.sv is missing" "$IEW $d"
 
 begin_group "test/dual_build.sh"
 
