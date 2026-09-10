@@ -11,9 +11,10 @@ FORCE:
 .PHONY: FORCE
 
 .PHONY: checks
-checks: ../../formal/genchecks-local.py checks.cfg | $(RISCV_FORMAL_DIR)
+checks: ../../formal/genchecks-audit.py ../../formal/genchecks-local.py checks.cfg \
+        EXPECTED_CHECKS | $(RISCV_FORMAL_DIR)
 	rm -rf checks
-	python3 $<
+	python3 $< .
 
 .PHONY: check
 check: checks $(RISCV_FORMAL_DIR)
