@@ -29,6 +29,10 @@ check: checks interrupt-tie-off multihart-tie-off $(RISCV_FORMAL_DIR)
 	-$(MAKE) -C $< -j$(JOBS) -k
 	$(MAKE) check-baseline
 
+.PHONY: check-shard
+check-shard: checks interrupt-tie-off multihart-tie-off $(RISCV_FORMAL_DIR)
+	./check-shard.sh checks '$(CHECK_SHARD)' $(JOBS)
+
 .PHONY: check-baseline
 check-baseline: check-baseline.sh EXPECTED_FAIL EXPECTED_CHECKS
 	./check-baseline.sh checks EXPECTED_FAIL EXPECTED_CHECKS
