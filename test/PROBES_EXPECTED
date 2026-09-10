@@ -111,6 +111,8 @@ a change the core never made is a length divergence
 a check set that was never generated is exit 2, not zero checks passing
 a check that APPEARED needs a line -- the shape check runs both ways
 a check that went red is red here
+a check that wrote no status fails the shard, named, rather than reaching the baseline
+a checks directory that was never generated is named, not treated as empty
 a class-wide predicate over an opcode the pin partly models is rejected
 a classification naming a port the netlist has never seen is red
 a clock for a core nobody graded is named rather than ignored
@@ -365,11 +367,13 @@ a run that printed no COSIM-STATUS is COSIM-ERROR, not a verdict
 a runner that printed no CS END terminator is a broken harness
 a runner that reports no cycles at all cannot produce a clean table
 a second occurrence of a counted exception value is red
+a shard spec that is not <i>/<n> is refused before anything runs
 a shipping harness that cannot reach its own goals is red
 a signal in scope only in an earlier module stops it too
 a simulated ROM smaller than the part's is red
 a simulation this cannot parse is a run that did not happen
 a size the parser cannot read stops rather than comparing as zero
+a slice that selects no checks is an error, not an empty success
 a soc/compare script naming no .lds at all does not sink the scan
 a soc/compare/ change since the stamp's base is STALE, and the file is named
 a solo run needs no ramdiff line -- there is no reference to compare
@@ -518,6 +522,7 @@ and the diagnostic states the corollary this check is enforcing
 and the refusal names the clock it would actually have to run at
 and the reverse: a divergence reported with exit 0
 and the same for the check-set baseline
+asking for shard i of n where i exceeds n is refused
 assembler output on a successful build is still a defect
 assembler output on a successful build is still a defect
 awk -i inplace is a raw edit like sed -i
@@ -562,6 +567,7 @@ control: a rule from this clone's $GIT_DIR/info/exclude is not this repository's
 control: a rule from this developer's $GIT_TEMPLATE_DIR is not this repository's to grade
 control: a rule from this developer's core.excludesFile is not this repository's to grade
 control: a rule from this developer's init.templateDir is not this repository's to grade
+control: a shard runs its slice and writes a status for every check in it
 control: a single rtl/*.v mention is prose, not a list
 control: a stamped sweep summarises
 control: a stamped sweep with its reports behind it is binned

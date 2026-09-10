@@ -6114,6 +6114,57 @@ probe "the trend against a recorded figure is printed beside the verdict" 0 \
   "TREND: +2.2" \
   "$AR $d/stat.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10 --previous 4"
 
+begin_group "formal/check-shard.sh"
+
+# A synthetic checks directory: two .sby names and a Makefile that writes the status
+# files sby would. The real set takes minutes to run and the thing under test is the
+# slicing, not the solving.
+cs_fixture() {  # stdin = the recipe body for each check target
+  local d; d=$(new_case)
+  mkdir -p "$d/checks"
+  : > "$d/checks/alpha.sby"
+  : > "$d/checks/beta.sby"
+  { echo 'alpha beta:'; sed 's/^/\t/'; } > "$d/checks/Makefile"
+  printf '%s' "$d"
+}
+
+d=$(cs_fixture <<'RECIPE'
+mkdir -p $@ && echo PASS > $@/status
+RECIPE
+)
+probe "control: a shard runs its slice and writes a status for every check in it" 0 \
+  "statuses written" "$REPO/formal/check-shard.sh $d/checks 1/2"
+
+d=$(cs_fixture <<'RECIPE'
+true
+RECIPE
+)
+probe "a check that wrote no status fails the shard, named, rather than reaching the baseline" 1 \
+  "finished with no status" "$REPO/formal/check-shard.sh $d/checks 1/2"
+
+d=$(cs_fixture <<'RECIPE'
+mkdir -p $@ && echo PASS > $@/status
+RECIPE
+)
+probe "a shard spec that is not <i>/<n> is refused before anything runs" 2 \
+  "not <i>/<n>" "$REPO/formal/check-shard.sh $d/checks bogus"
+
+d=$(cs_fixture <<'RECIPE'
+mkdir -p $@ && echo PASS > $@/status
+RECIPE
+)
+probe "asking for shard i of n where i exceeds n is refused" 2 \
+  "asks for shard 5 of 4" "$REPO/formal/check-shard.sh $d/checks 5/4"
+
+d=$(cs_fixture <<'RECIPE'
+mkdir -p $@ && echo PASS > $@/status
+RECIPE
+)
+probe "a slice that selects no checks is an error, not an empty success" 2 \
+  "selected no checks" "$REPO/formal/check-shard.sh $d/checks 3/3"
+
+probe "a checks directory that was never generated is named, not treated as empty" 2 \
+  "no such checks directory" "$REPO/formal/check-shard.sh $REPO/formal/nosuchdir 1/4"
 
 begin_group "test/pll_clock_test.py"
 
