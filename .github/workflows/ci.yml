@@ -597,11 +597,14 @@ jobs:
 
   # What is gated is formal/check-baseline.sh's exit status, not sby's: every generated
   # .sby carries `expect pass,fail`, so sby exits 0 either way.
-  formal-checks:
-    name: formal-checks
-    # JOBS is a MEMORY budget, not a speed knob: one check peaks near 876 MiB, so the
-    # footprint is roughly JOBS GiB. Below 3 GiB use JOBS=2, since an OOM-killed pod
-    # takes its logs with it.
+  formal-checks-shard:
+    name: formal-checks-shard
+    # A slice of the set, and it GRADES NOTHING: check-baseline.sh compares two sets
+    # in both directions and needs every status at once. The collector below does that.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
     timeout-minutes: 20
     steps:
@@ -613,8 +616,6 @@ jobs:
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
 
-      # sby replays a counterexample with btorsim, so only a check that found one reaches
-      # it. Without btorsim every red check reports ERROR instead of FAIL.
       - name: Confirm the BMC toolchain is complete
         run: |
           set -euo pipefail
@@ -634,17 +635,54 @@ jobs:
             exit 1
           fi
 
-      - name: Generate and run the checks (make -C formal check)
+      - name: Run the generated checks (shard ${{ matrix.shard }} of 4)
+        run: make -C formal check-shard CHECK_SHARD=${{ matrix.shard }}/4 JOBS=4
+
+      - name: Hand the statuses to the collector
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: formal-status-${{ matrix.shard }}
+          path: formal/checks/*/status
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Report job wall time
+        if: always()
         run: |
-          set -uo pipefail
-          echo "nproc:            $(nproc)"
-          echo "cgroup cpu.max:   $(cat /sys/fs/cgroup/cpu.max 2>/dev/null || echo unavailable)"
-          echo "cgroup memory.max:$(cat /sys/fs/cgroup/memory.max 2>/dev/null \
-            || cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null \
-            || echo unavailable)"
-          echo "host free -h (NOT the pod's limit):"
-          free -h 2>/dev/null || true
-          make -C formal check JOBS=4
+          elapsed=$(( $(date +%s) - JOB_START ))
+          {
+            echo "### formal-checks-shard (shard ${{ matrix.shard }})"
+            echo "wall time: ${elapsed}s"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  formal-checks:
+    name: formal-checks
+    # THE COLLECTOR, and the only thing here that grades. It regenerates the .sby set
+    # (deterministic), gathers every shard's statuses, and runs the two set-equalities
+    # over the union. A shard that never ran leaves no status, which reads as NO-STATUS,
+    # which is not PASS -- so a lost shard fails the baseline instead of shrinking it.
+    needs: formal-checks-shard
+    if: ${{ !cancelled() }}
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
+    timeout-minutes: 20
+    steps:
+      - name: Record job start
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up OSS CAD Suite
+        uses: ./.github/actions/setup-oss-cad-suite
+
+      - name: Regenerate the check set
+        run: make -C formal checks
+
+      - name: Collect every shard's statuses
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: formal-status-*
+          merge-multiple: true
+          path: formal/checks
 
       - name: Gate on formal/EXPECTED_FAIL + formal/EXPECTED_CHECKS
         if: ${{ !cancelled() }}
@@ -676,10 +714,13 @@ jobs:
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  formal-checks-nano:
-    name: formal-checks-nano
-    # A SECOND check set, 79 against littlecpu's 86, and each grades a complete baseline.
-    # Split by set rather than sharded, because a shard of one set grades nothing.
+  formal-checks-nano-shard:
+    name: formal-checks-nano-shard
+    # nano's 79, sliced the same way and grading nothing for the same reason.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
     timeout-minutes: 20
     steps:
@@ -691,7 +732,6 @@ jobs:
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
 
-      # As in the other half: without btorsim this gate goes green on a set that never ran.
       - name: Confirm the BMC toolchain is complete
         run: |
           set -euo pipefail
@@ -711,8 +751,51 @@ jobs:
             exit 1
           fi
 
-      - name: Generate and run the nanocpu checks (make -C nano/formal check)
-        run: make -C nano/formal check JOBS=4
+      - name: Run the nanocpu checks (shard ${{ matrix.shard }} of 4)
+        run: make -C nano/formal check-shard CHECK_SHARD=${{ matrix.shard }}/4 JOBS=4
+
+      - name: Hand the statuses to the collector
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nano-status-${{ matrix.shard }}
+          path: nano/formal/checks/*/status
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Report job wall time
+        if: always()
+        run: |
+          elapsed=$(( $(date +%s) - JOB_START ))
+          {
+            echo "### formal-checks-nano-shard (shard ${{ matrix.shard }})"
+            echo "wall time: ${elapsed}s"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  formal-checks-nano:
+    name: formal-checks-nano
+    # The collector for nano's set; grades the union, same as littlecpu's.
+    needs: formal-checks-nano-shard
+    if: ${{ !cancelled() }}
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
+    timeout-minutes: 20
+    steps:
+      - name: Record job start
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up OSS CAD Suite
+        uses: ./.github/actions/setup-oss-cad-suite
+
+      - name: Regenerate the nanocpu check set
+        run: make -C nano/formal checks
+
+      - name: Collect every shard's statuses
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: nano-status-*
+          merge-multiple: true
+          path: nano/formal/checks
 
       - name: Gate on nano/formal/EXPECTED_FAIL + EXPECTED_CHECKS
         if: ${{ !cancelled() }}
