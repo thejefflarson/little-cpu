@@ -684,25 +684,6 @@ jobs:
           merge-multiple: true
           path: formal/checks
 
-        run: |
-          set +e
-          formal/check-baseline.sh formal/checks formal/EXPECTED_FAIL > "$RUNNER_TEMP/baseline-report.txt" 2>&1
-          status=$?
-          set -e
-          cat "$RUNNER_TEMP/baseline-report.txt"
-          {
-            echo "### riscv-formal checks vs formal/EXPECTED_{FAIL,CHECKS}"
-            echo '```'
-            cat "$RUNNER_TEMP/baseline-report.txt"
-            echo '```'
-            echo "A match here means the check set still agrees with its baseline."
-            echo "It is not a correctness result: every check is \`mode bmc\` (no"
-            echo "counterexample within a bounded depth, not a proof), and the"
-            echo "checks run under \`RISCV_FORMAL_ALTOPS\`, so the mul/div checks"
-            echo "do not exercise the real multiplier or divider (ADR-0010)."
-          } >> "$GITHUB_STEP_SUMMARY"
-          exit "$status"
-
       - name: Gate on formal/EXPECTED_FAIL + formal/EXPECTED_CHECKS
         if: ${{ !cancelled() }}
         run: |
