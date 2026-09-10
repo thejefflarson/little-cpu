@@ -10,7 +10,7 @@ busarbiter all
 all: mode prove
 
 [engines]
-# No `all:` line: on a one-CPU pod it races a task's own engine, never replacing it.
+# No `all:` line: sby ADDS it to a task's own engine instead of replacing it.
 decoder: smtbmc
 accessor: smtbmc
 traps: smtbmc
