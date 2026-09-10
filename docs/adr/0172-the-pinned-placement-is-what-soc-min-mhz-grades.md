@@ -1,4 +1,4 @@
-# ADR-0171: The pinned placement is what `SOC_MIN_MHZ` grades
+# ADR-0172: The pinned placement is what `SOC_MIN_MHZ` grades
 
 **Status:** Accepted · 2026-09-07 · *Amends [ADR-0066](0066-twelve-megahertz-is-a-requirement.md).
 The requirement is unchanged — `SOC_MIN_MHZ` stays 12.0, the board crystal, with 6 MHz the

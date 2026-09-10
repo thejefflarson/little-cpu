@@ -756,7 +756,6 @@ else
 SOC_SEED_PINNED := 1
 endif
 
-# The same canonical form soc/netlist_digest.py hashes, taken from the already-mapped soc.json.
 soc.canon.json: soc.json
 	@yosys -p 'read_json $<; opt_clean -purge; write_json $@' > soc.canon.log 2>&1 \
 	  || { tail -40 soc.canon.log; exit 1; }
