@@ -36,7 +36,7 @@ check-baseline: check-baseline.sh EXPECTED_FAIL EXPECTED_CHECKS
 .PHONY: checks
 checks: genchecks-audit.py genchecks-local.py checks.cfg EXPECTED_CHECKS | $(RISCV_FORMAL_DIR)
 	rm -rf $@
-	python3 $<
+	python3 $< .
 
 .PHONY: genchecks-check
 genchecks-check: $(RISCV_FORMAL_DIR)/checks/genchecks.py genchecks-local.py | $(RISCV_FORMAL_DIR)
