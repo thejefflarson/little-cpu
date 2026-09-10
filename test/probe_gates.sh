@@ -4554,46 +4554,24 @@ begin_group "soc/soc_pin.py"
 
 SP="python3 $REPO/soc/soc_pin.py"
 
-sp_canon() {  # <file> -- a minimal valid canonical netlist, netlist_digest.py's own shape
-  cat > "$1" <<'JSON'
-{
-  "creator": "Yosys 0.68 (git sha1 abcdef0)",
-  "modules": {
-    "littlesoc": {
-      "attributes": { "top": "00000000000000000000000000000001" },
-      "ports": {},
-      "cells": {
-        "lut.1": { "hide_name": 1, "type": "SB_LUT4", "parameters": {}, "attributes": {}, "connections": {} }
-      },
-      "netnames": {}
-    }
-  }
-}
-JSON
+sp_sources() {  # <dir> -- two stand-in source files, the shape SOC_SRCS names
+  printf 'module a; endmodule\n' > "$1/a.v"
+  printf 'module b; endmodule\n' > "$1/b.v"
 }
 
-sp_pin_matching() {  # <fixture dir> -- canon.json and a pin.json whose digest matches it
+sp_pin_matching() {  # -> a case dir with sources and a pin whose digest matches them
   local d; d=$(new_case)
-  sp_canon "$d/canon.json"
-  # soc_pin.py's own digest excludes `creator`, unlike netlist_digest.py's -- computed
-  # the same way here rather than via the CLI, which has no flag for that exclusion.
-  local digest
-  digest=$(cd "$REPO/soc" && python3 -c '
-import sys
-import netlist_digest
-design, _top = netlist_digest.load(sys.argv[1])
-design = {k: v for k, v in design.items() if k != "creator"}
-print(f"sha256:{netlist_digest.digest(design)}")
-' "$d/canon.json")
+  sp_sources "$d"
+  local digest; digest=$($SP digest "$d/a.v" "$d/b.v")
   cat > "$d/pin.json" <<PINJSON
 {
-  "netlist_digest": "$digest",
-  "seed": 11,
-  "measured_mhz": 12.8,
+  "sources_digest": "$digest",
+  "seed": 125781539,
+  "measured_mhz": 12.61,
   "min_mhz": 12.0,
-  "margin_pct": 6.67,
+  "margin_pct": 5.08,
   "toolchain": "stub toolchain",
-  "date": "2026-09-07",
+  "date": "2026-09-09",
   "distribution": {"note": "stub"}
 }
 PINJSON
@@ -4601,58 +4579,60 @@ PINJSON
 }
 
 d=$(sp_pin_matching)
-probe "control: a pin whose digest matches the netlist checks OK" 0 "pin OK" \
-  "$SP check-digest $d/canon.json $d/pin.json"
+probe "control: a pin whose sources match checks OK" 0 \
+  "pin OK" "$SP check-sources $d/pin.json $d/a.v $d/b.v"
 
 d=$(sp_pin_matching)
-probe "control: a matching pin names its own seed and MHz" 0 "seed 11, measured 12.80 MHz" \
-  "$SP check-digest $d/canon.json $d/pin.json"
+probe "control: a matching pin names its own seed and MHz" 0 \
+  "seed 125781539, measured 12.61 MHz" "$SP check-sources $d/pin.json $d/a.v $d/b.v"
+
+# Over the files synthesis READS: the suite floats, so a netlist-keyed pin would
+# stale itself on a toolchain bump alone.
+d=$(sp_pin_matching)
+probe "the digest is over the sources, so it does not move when only the tools do" 0 \
+  "pin OK" "env YOSYS_VERSION=whatever $SP check-sources $d/pin.json $d/a.v $d/b.v"
 
 d=$(sp_pin_matching)
-mutate "$d/canon.json" 's/"creator": "[^"]*"/"creator": "Yosys 9.99 (git sha1 totallydifferent)"/'
-probe "the pin's digest excludes the toolchain string, unlike netlist_digest.py's own" 0 \
-  "pin OK" "$SP check-digest $d/canon.json $d/pin.json"
+printf 'module a; /* edited */ endmodule\n' > "$d/a.v"
+probe "moved sources say so, naming both digests" 0 \
+  "PIN STALE" "$SP check-sources $d/pin.json $d/a.v $d/b.v"
+
+# The load-bearing one: a stale pin must NOT fail the build. soc-timing still places
+# at the pinned seed and grades that measurement, which is real either way.
+d=$(sp_pin_matching)
+printf 'module a; /* edited */ endmodule\n' > "$d/a.v"
+probe "a stale pin warns and does not fail, because the gate is Fmax" 0 \
+  "Not a failure" "$SP check-sources $d/pin.json $d/a.v $d/b.v"
 
 d=$(sp_pin_matching)
-mutate "$d/pin.json" \
-  's/"netlist_digest": "[^"]*"/"netlist_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"/'
-probe "a corrupted pin's digest is RE-PIN NEEDED, not a timing miss" 3 \
-  "RE-PIN NEEDED" "$SP check-digest $d/canon.json $d/pin.json"
-
-d=$(sp_pin_matching)
-mutate "$d/pin.json" \
-  's/"netlist_digest": "[^"]*"/"netlist_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"/'
-probe "RE-PIN NEEDED is not phrased as a timing failure" 3 \
-  "NOT a timing failure" "$SP check-digest $d/canon.json $d/pin.json"
+printf 'module a; /* edited */ endmodule\n' > "$d/a.v"
+probe "the warning says a regression can hide behind a pin that still clears" 0 \
+  "regression can hide" "$SP check-sources $d/pin.json $d/a.v $d/b.v"
 
 d=$(new_case)
-printf '{"seed": 195147338, "mhz": 12.13}' > "$d/dist.json"
+sp_sources "$d"
 probe "a seed clearing SOC_MIN_MHZ by under 5% is refused, not pinned" 2 \
-  "is under the 5.0% floor this pin requires" \
+  "margin" \
   "$SP write $d/pin.json --digest sha256:0000 --seed 195147338 --mhz 12.13 \
-     --min-mhz 12.0 --margin-pct 1.08 --toolchain stub --date 2026-09-07 \
-     --distribution $d/dist.json"
+     --min-mhz 12.0 --margin-pct 1.08 --toolchain stub --date 2026-09-09 \
+     --distribution /dev/null"
 
-d=$(new_case)
-printf '{"seed": 195147338, "mhz": 12.13}' > "$d/dist.json"
-"$SP" write "$d/pin.json" --digest sha256:0000 --seed 195147338 --mhz 12.13 \
-    --min-mhz 12.0 --margin-pct 1.08 --toolchain stub --date 2026-09-07 \
-    --distribution "$d/dist.json" > /dev/null 2>&1 || true
 probe "...and a margin under the floor writes no pin file at all" 0 \
-  "no pin written" "test -e $d/pin.json && echo 'pin written' || echo 'no pin written'"
+  "absent" "test -e $d/pin.json && echo present || echo absent"
 
-d=$(new_case)
+d=$(sp_pin_matching)
 probe "a pin file that does not exist is refused, not read as absent-is-fine" 2 \
-  "so there is no pin to check against" \
-  "$SP check-digest $d/canon.json $d/gone.json"
+  "" "$SP check-sources $d/gone.json $d/a.v $d/b.v"
 
-d=$(new_case); printf 'not json' > "$d/pin.json"
+d=$(sp_pin_matching)
+printf 'not json at all\n' > "$d/pin.json"
 probe "a hand-edited pin that no longer parses is as invalid as unwritten" 2 \
-  "not parseable as JSON" "$SP check-digest $d/canon.json $d/pin.json"
+  "not parseable as JSON" "$SP check-sources $d/pin.json $d/a.v $d/b.v"
 
-d=$(new_case); printf '{"seed": 11}' > "$d/pin.json"
+d=$(sp_pin_matching)
+printf '{"seed": 1}\n' > "$d/pin.json"
 probe "a partial pin missing required fields is not a pin" 2 \
-  "missing netlist_digest" "$SP check-digest $d/canon.json $d/pin.json"
+  "missing sources_digest" "$SP check-sources $d/pin.json $d/a.v $d/b.v"
 
 begin_group "soc/netlist_determinism.sh"
 

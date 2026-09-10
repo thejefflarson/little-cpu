@@ -50,7 +50,6 @@ CoreMark's own FAIL verdict stops the number being quoted
 JSON that is not a netlist is refused
 NO-STATUS is a broken harness and is not baselineable either
 PASS in a failure set is a comparison whose only branch is failure
-RE-PIN NEEDED is not phrased as a timing failure
 a --measured call with no --isa is refused the same way as a missing --cflags
 a --measured call with no --tool is refused rather than stamping an unknown toolchain
 a C floor copied out of the measured table is rejected, not honoured
@@ -130,7 +129,6 @@ a core that cannot hold the image is named, not left to the reader
 a core that reached the start of the loop and not the end is red
 a core under the step FAILS rather than scoring a fraction
 a core yosys folded away is red, not a fast design
-a corrupted pin's digest is RE-PIN NEEDED, not a timing miss
 a cosim.py that cannot be executed stops the run
 a count that is not a number stops rather than summing to nonsense
 a cover red for some other goal says nothing about the lock
@@ -377,6 +375,7 @@ a solver that wrote no verdict is exit 2, not a red arm
 a solver that wrote no verdict is exit 2, not a red arm
 a solver that wrote no verdict is exit 2, not a red arm
 a source this tree synthesises that the base lacks is not comparable
+a stale pin warns and does not fail, because the gate is Fmax
 a stall nothing in the list explains is a reason nobody wrote down
 a stall reason the accounting cannot name is red even with every test passing
 a stall reason with no driving cell stops the run
@@ -550,7 +549,7 @@ control: a netlist digests, and the digest is a sha256
 control: a nextpnr that wrote its pair is graded, exit 1 and all
 control: a passing suite against an empty baseline is green
 control: a peripheral above the reserved span is accepted
-control: a pin whose digest matches the netlist checks OK
+control: a pin whose sources match checks OK
 control: a placement holding the whole core is green
 control: a report clearing the floor is green
 control: a rule from this clone's $GIT_DIR/info/exclude is not this repository's to grade
@@ -647,6 +646,7 @@ layer 2: the enclosed handle_error multiset is pinned, not merely counted
 layer 3: error 101 vanishing from the OUTPUT is caught after every rule
 margin above the step is reported as unspendable, not as speed
 more accesses near an edge than there were accesses is red
+moved sources say so, naming both digests
 moving the declared string alone, with every site unchanged, is red
 mutate_remove on a path that was never there is fixture-stale, not silent
 netlist-diff reaches the same check as netlist-digest does
@@ -729,6 +729,7 @@ the core hitting its cycle budget is INCONCLUSIVE too
 the core's copy of the RAM base drifting from the RAM is red
 the cxxrtl runner's kRamBase drifting is red
 the default text window is the part's, not the harness's
+the digest is over the sources, so it does not move when only the tools do
 the dominant reason is the suite's, not the first program's
 the encoding proof going red somewhere else is not evidence either
 the exemption does not extend to a write of the WRONG register
@@ -752,7 +753,6 @@ the other direction for a .c: the glob has to see it too
 the other direction: a .S that landed without a manifest line
 the other direction: a program no pairing claims to catch anything
 the override prints the mismatch it was passed to get past
-the pin's digest excludes the toolchain string, unlike netlist_digest.py's own
 the program addressing RAM somewhere the harness has none is red
 the proof describes the part's text window, not the harness's
 the proof going red somewhere else is not evidence
@@ -777,6 +777,7 @@ the trend against a recorded figure is printed beside the verdict
 the trend against the recorded count is printed beside the verdict
 the two definitions the predicates are built from are pinned literally
 the wait-state bias is disclosed as a percentage of hazard3's own cycles
+the warning says a regression can hide behind a pin that still clears
 the word coming back in a formal harness comment is red, and located
 the wrong count is named against the log's real one
 three sweeps have no one difference, so they are refused

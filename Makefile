@@ -684,6 +684,7 @@ SOC_SRCS      := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v \
                  rtl/executor.v rtl/fetcher.v rtl/imemory.v rtl/memory.v \
                  rtl/regfile.v rtl/regsel.v rtl/timer.v rtl/uart.v rtl/spiflash.v \
                  rtl/writeback.v rtl/littlecpu.v rtl/littlesoc.v
+SOC_ROM_HEX   := soc/rom_even.hex soc/rom_odd.hex
 
 # PHONY because SOC_PROG changes what this builds and make cannot see that from a
 # timestamp.
@@ -756,13 +757,9 @@ else
 SOC_SEED_PINNED := 1
 endif
 
-soc.canon.json: soc.json
-	@yosys -p 'read_json $<; opt_clean -purge; write_json $@' > soc.canon.log 2>&1 \
-	  || { tail -40 soc.canon.log; exit 1; }
-
 .PHONY: soc-pin-check
-soc-pin-check: soc.canon.json
-	@python3 soc/soc_pin.py check-digest $< $(SOC_PIN)
+soc-pin-check: soc-rom
+	@python3 soc/soc_pin.py check-sources $(SOC_PIN) $(SOC_SRCS) $(SOC_ROM_HEX)
 
 soc.asc: soc.json soc/littlesoc.pcf $(if $(SOC_SEED_PINNED),soc-pin-check)
 	@echo 'nextpnr: placing and routing littlesoc on up5k/sg48 (log: soc.pnr.log)'

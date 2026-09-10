@@ -66,8 +66,7 @@ if ! awk -v m="$margin_pct" -v need="$MIN_MARGIN_PCT" 'BEGIN{exit !(m>=need)}'; 
   exit 1
 fi
 
-make -s soc.canon.json > /dev/null
-digest=$(python3 soc/soc_pin.py digest soc.canon.json)
+digest=$(python3 soc/soc_pin.py digest $(make -s print-SOC_SRCS) $(make -s print-SOC_ROM_HEX))
 
 python3 soc/seed_search_distribution.py "$samples" "$best_seed" "$seeds_source" > "$dist"
 

@@ -379,10 +379,12 @@ top, ECP5 only.
   generated cell names carry `file:line`, ABC9 sorts by that name string, and a comment
   or a blank line is enough to reorder what it hands the placer — span about 3.7%
   worst-of-sixteen against a 3.5% clearance, so one draw of sixteen can land under 12.0
-  while the design that produced it is unchanged. `soc/pin.json` records a netlist
-  digest, a placer seed, the measured MHz and the distribution it was chosen from;
-  `make soc-timing` fails **RE-PIN NEEDED** on a digest mismatch, a distinct failure from
-  a timing miss, before nextpnr ever runs. **Seeds 1..16 are not an independent sample**:
+  while the design that produced it is unchanged. `soc/pin.json` records a digest of the
+  files synthesis READS, a placer seed, the measured MHz and the distribution it was chosen
+  from; keying that on the netlist instead does not work, because the OSS CAD Suite floats
+  and the same sources map to a different netlist on every release. A source change **warns**
+  as PIN STALE and does not fail: the gate is Fmax, and the warning's job is that a
+  regression can hide behind a pinned seed that still clears. **Seeds 1..16 are not an independent sample**:
   nextpnr's RNG state update is linear over GF(2), so small-integer seeds span a
   low-dimensional subspace of the state — provable, but whether that correlates
   placements is unmeasured, and the decision does not lean on it either way.
@@ -667,7 +669,7 @@ make monitor-check  # regenerate test/monitor.v at the pin into a temp file and 
 make fit            # the core's area number; ratchet on FIT_MAX_LC
 make soc-timing     # the SoC place-and-time flow; requirement on SOC_MIN_MHZ. With no
                     # SOC_SEED override this grades the pinned placement (soc/pin.json,
-                    # ADR-0171), RE-PIN NEEDED on a digest mismatch. An explicit SOC_SEED
+                    # ADR-0171), PIN STALE on a source change. An explicit SOC_SEED
                     # (soc/timing_sweep.sh runs four) bypasses the pin
 make soc-seed-search # off `make test` and CI, like `make fit`: sweeps high-entropy seeds
                     # and writes soc/pin.json at >=5% margin over SOC_MIN_MHZ.

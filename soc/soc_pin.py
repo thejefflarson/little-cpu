@@ -10,22 +10,20 @@ one draw from landing under 12.0 while the design that produced it is unchanged.
 So `make soc-timing` grades ONE recorded placement, `soc/pin.json`, rather than
 the worst of a sweep taken fresh every run.
 
-A pin is a claim about ONE netlist, never about the design's typical Fmax. It
-is sound only while `soc.json`'s canonicalised form -- the same form
-`soc/netlist_digest.py` takes a sha256 of, dead nets purged and source-line
-attributes dropped so a comment cannot move it -- still hashes to what the pin
-recorded, MINUS the toolchain's own `creator` string that form deliberately
-keeps: a pin's required margin exists precisely so it survives ordinary
-toolchain drift (a floating OSS CAD Suite release), and folding the toolchain
-into the digest would force a re-pin on every one of those even when nothing
-about the netlist moved. The toolchain that measured a pin is recorded
-separately, in its own field, never inside the digest. A netlist that moved
-invalidates every placement recorded against the old one; this is the RE-PIN
-NEEDED failure, and it is deliberately not the same failure as a placement
-that reproduces but falls under `SOC_MIN_MHZ`. The first says "this pin
-describes a different design"; the second says "this design does not meet its
-requirement". Reporting one as the other would send a reader to the wrong fix
--- re-synthesise and re-place versus find what lengthened the path.
+A pin is a claim about ONE set of sources, never about the design's typical
+Fmax. Its staleness is keyed on the files synthesis READS, not the netlist it
+produces: yosys is deterministic for one input and one build, but the OSS CAD
+Suite floats, so identical sources map to a different netlist on every release.
+A netlist-keyed pin would demand a re-pin for a reason that is not a design
+change, and would do it on every CI run. Hashing the inputs asks the question
+that has a stable answer.
+
+A stale pin WARNS, it does not fail. The gate is Fmax: `soc-timing` places at
+the pinned seed and grades that measurement, which is real whether or not the
+sources moved. The warning says only that a better seed may now exist -- and,
+the reason it matters, that a regression can hide behind a pinned seed which
+still clears while the design got worse. A comment edit counts as moved,
+because a comment re-rolls the mapping and so re-rolls the draw.
 
 `make soc-seed-search` is what writes a pin: it sweeps high-entropy seeds
 (never 1..N -- a small integer seed is not an
@@ -33,29 +31,27 @@ independent draw on this placer), and writes the seed with the best margin
 over `SOC_MIN_MHZ` alongside the whole distribution it was chosen from, so a
 future reader can see it was a considered choice and not a lucky one.
 
-Usage: soc_pin.py digest       <canon.json>
-       soc_pin.py check-digest <canon.json> <pin.json>
+Usage: soc_pin.py digest        <source file>...
+       soc_pin.py check-sources <pin.json> <source file>...
        soc_pin.py seed          <pin.json>
        soc_pin.py write         <pin.json> --digest <hex> --seed <n> --mhz <f>
                                  --min-mhz <f> --toolchain <text>
                                  --distribution <json file, or - for stdin>
                                  [--synth-knob <text>] [--date <text>]
 
-Exit (digest):       0 printed
-      (check-digest): 0 pin matches this netlist, 3 RE-PIN NEEDED, 2 refused
+Exit (digest):        0 printed
+      (check-sources): 0 always -- a mismatch warns on stderr, it does not fail
       (seed):        0 printed, 1 refused
       (write):        0 written, 2 refused (margin too thin, bad input)
 """
 
 import argparse
 import json
+import hashlib
+import pathlib
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import netlist_digest  # noqa: E402  -- sibling module, path fixed above
-
-RE_PIN_NEEDED = 3
 REFUSED = 2
 
 MIN_MARGIN_PCT = 5.0
@@ -79,7 +75,7 @@ def load_pin(path):
         refuse(REFUSED, f"{path}: not parseable as JSON ({err}). A hand-edited "
                         "pin that no longer parses is as invalid as one that "
                         "was never written.")
-    required = ("netlist_digest", "seed", "measured_mhz", "min_mhz", "toolchain")
+    required = ("sources_digest", "seed", "measured_mhz", "min_mhz", "toolchain")
     missing = [key for key in required if key not in pin]
     if missing:
         refuse(REFUSED, f"{path}: missing {', '.join(missing)}. A pin file "
@@ -87,48 +83,52 @@ def load_pin(path):
                         "it was chosen with; a partial write is not a pin.")
     return pin
 
-def canon_digest(canon_path):
-    """sha256:<hex> of a canonicalised netlist, reusing netlist_digest.py's form --
-    minus the `creator` field that form deliberately keeps.
+def sources_digest(paths):
+    """sha256:<hex> over the files synthesis reads, not the netlist it produces.
 
-    netlist_digest.py folds the toolchain's version string into its digest on purpose,
-    to catch a build that moved under an unchanged tree (its own docstring: "the
-    direction this repo has been bitten in"). A pin's digest asks a different question
-    -- is this still the netlist a seed was chosen for -- and a pin is required to
-    clear its margin precisely so it SURVIVES ordinary toolchain drift; folding the
-    toolchain string in here would force a re-pin on every OSS CAD Suite release even
-    when the RTL, and everything synthesis derived from it, is unchanged. The
-    toolchain that measured a pin is recorded separately, in its own field.
+    A netlist digest cannot answer "is this pin stale": yosys is deterministic for
+    one input and one build, but the OSS CAD Suite floats, so the same sources map
+    to a different netlist on every release and a netlist-keyed pin would demand a
+    re-pin for a reason that is not a design change. Hashing the inputs asks the
+    question that has a stable answer -- have the sources this seed was chosen for
+    moved. A comment counts as moved, because a comment re-rolls the mapping.
     """
-    design, _top = netlist_digest.load(canon_path)
-    design = {k: v for k, v in design.items() if k != "creator"}
-    return f"sha256:{netlist_digest.digest(design)}"
+    h = hashlib.sha256()
+    for path in sorted(paths):
+        body = pathlib.Path(path).read_bytes()
+        h.update(path.encode())
+        h.update(hashlib.sha256(body).hexdigest().encode())
+    return f"sha256:{h.hexdigest()}"
 
 def cmd_digest(args):
-    """Printed rather than recomputed by each caller, so `check-digest` and
+    """Printed rather than recomputed by each caller, so `check-sources` and
     `soc_seed_search.sh`'s write path can never compute this two different ways."""
-    print(canon_digest(args.canon))
+    print(sources_digest(args.sources))
     return 0
 
-def cmd_check_digest(args):
+def cmd_check_sources(args):
+    """WARNS, never refuses. A stale pin still measures a real placement, and
+    `soc-timing` grades that measurement -- so the gate is Fmax, and this only
+    says whether a better seed may now exist. Refusing here would fail a build
+    for a comment edit."""
     pin = load_pin(args.pin)
-    current = canon_digest(args.canon)
-    pinned = pin["netlist_digest"]
+    current = sources_digest(args.sources)
+    pinned = pin.get("sources_digest")
     if current == pinned:
-        print(f"pin OK: {current} matches {args.pin}")
+        print(f"pin OK: sources match {args.pin}")
         print(f"  seed {pin['seed']}, measured {pin['measured_mhz']:.2f} MHz "
               f"on {pin.get('date', '(no date recorded)')}")
         return 0
-    refuse(
-        RE_PIN_NEEDED,
-        f"RE-PIN NEEDED: {args.canon}'s digest does not match {args.pin}.",
-        f"  pinned:  {pinned}",
-        f"  current: {current}",
-        "This is NOT a timing failure -- the netlist this pin was measured "
-        "against no longer exists, so the recorded MHz is evidence about a "
-        "different design. Run `make soc-seed-search` to place the current "
-        "netlist and write a new pin.",
-    )
+    print(f"*** PIN STALE: the sources moved since {args.pin} was written.",
+          file=sys.stderr)
+    print(f"***   pinned:  {pinned}", file=sys.stderr)
+    print(f"***   current: {current}", file=sys.stderr)
+    print("*** Not a failure: soc-timing still places at the pinned seed and "
+          "grades that. But the recorded distribution describes different "
+          "sources, so a better seed may exist and a regression can hide behind "
+          "one that still clears. Run `make soc-seed-search` to re-take it.",
+          file=sys.stderr)
+    return 0
 
 def cmd_seed(args):
     pin = load_pin(args.pin)
@@ -159,7 +159,7 @@ def cmd_write(args):
         refuse(REFUSED, f"--distribution: not parseable as JSON ({err}).")
 
     pin = {
-        "netlist_digest": args.digest,
+        "sources_digest": args.digest,
         "seed": args.seed,
         "synth_knob": args.synth_knob,
         "measured_mhz": args.mhz,
@@ -180,11 +180,11 @@ def main():
     sub = parser.add_subparsers(dest="command", required=True)
 
     digest_cmd = sub.add_parser("digest")
-    digest_cmd.add_argument("canon", help="this build's canonicalised netlist JSON")
+    digest_cmd.add_argument("sources", nargs="+", help="the files synthesis reads")
 
-    check = sub.add_parser("check-digest")
-    check.add_argument("canon", help="this build's canonicalised netlist JSON")
+    check = sub.add_parser("check-sources")
     check.add_argument("pin", help="soc/pin.json")
+    check.add_argument("sources", nargs="+", help="the files synthesis reads")
 
     seed = sub.add_parser("seed")
     seed.add_argument("pin")
@@ -209,7 +209,7 @@ def main():
     args = parser.parse_args()
     return {
         "digest": cmd_digest,
-        "check-digest": cmd_check_digest,
+        "check-sources": cmd_check_sources,
         "seed": cmd_seed,
         "write": cmd_write,
     }[args.command](args)

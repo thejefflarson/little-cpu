@@ -36,11 +36,11 @@ it is deliberately exploited in the other direction by
 [yosys#3277](https://github.com/YosysHQ/yosys/pull/3277)'s `rename -scramble-name`, which
 exists to let a user reach a different point in the same chaos on purpose.
 
-`soc/netlist_digest.py` (ADR-0122's line of work) already answers "did this edit change what
-reaches the placer" for the comment and dead-net classes. It does not answer "does the
-shipping build clear the board clock" — a netlist that digests unchanged still places to a
-spread of placements, and this ADR's table is exactly that spread measured on one unchanged
-netlist.
+`soc/netlist_digest.py` (ADR-0122's line of work) answers "did this edit change what reaches
+the placer" for the comment and dead-net classes. It does not answer "does the shipping build
+clear the board clock" — a netlist that digests unchanged still places to a spread of
+placements, and this ADR's table is exactly that spread measured on one unchanged netlist. Nor
+can it key a pin: its digest is over the mapper's output, which moves with the mapper.
 
 ## Seeds 1..16 are not an independent sample — state the provable part, no further
 
@@ -96,9 +96,12 @@ number is quoted with ("Homebrew Yosys 0.67+post... four placements... on the br
    already been measured moving another core's placement 4.5% between two yosys builds on this
    harness (CLAUDE.md's cross-core comparison section). A candidate that cannot clear 12.6 MHz
    is not written as a pin.
-5. **A digest mismatch is a distinct failure from a timing miss** — RE-PIN NEEDED, never
-   phrased as "the design got slower" — because the two point a reader at different fixes:
-   re-synthesise and re-place, versus find what lengthened the path.
+5. **A stale pin warns; it does not fail.** The gate is Fmax: `soc-timing` places at the
+   pinned seed and grades that measurement, which is real whether or not the sources moved.
+   The warning says a better seed may now exist — and, the reason it is worth saying at all,
+   that **a regression can hide behind a pinned seed that still clears** while the design got
+   worse. Worst-of-sixteen would have caught that; one pinned placement cannot, so the warning
+   is what points a reader at `make soc-seed-search`.
 6. **`SOC_MIN_MHZ` itself does not move.** It is still the board crystal; nothing about a
    chaotic mapper changes what clock the up5k actually has.
 
