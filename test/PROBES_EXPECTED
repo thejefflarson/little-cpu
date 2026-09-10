@@ -111,9 +111,12 @@ a census under the other gate names that gate, not the ice40 one
 a census with no block RAM line is a synthesis that did not finish
 a change the core never made is a length divergence
 a check set that was never generated is exit 2, not zero checks passing
+a check set with no insn_* family is refused, not retuned silently
 a check that APPEARED needs a line -- the shape check runs both ways
 a check that went red is red here
 a check that wrote no status fails the shard, named, rather than reaching the baseline
+a check with no skip line is refused, not handed to pono anyway
+a checks directory that is not there is refused
 a checks directory that was never generated is named, not treated as empty
 a class-wide predicate over an opcode the pin partly models is rejected
 a classification naming a port the netlist has never seen is red
@@ -191,6 +194,7 @@ a gap opening between the timer's reservation and the UART is red
 a gate failure reported only by the induction leg is not evidence
 a generated .sby whose depth drifted from what was swept is refused, not read anyway
 a generated check that was never scheduled resolves to NO-STATUS
+a generation that produced no checks at all is refused
 a graded target quietly depending on netlist-digest is red, and named
 a graph with no edges out of reg_rs1 is red, not a vacuous pass
 a half-installed toolchain says so once, up front
@@ -273,6 +277,7 @@ a nextpnr that died early is NOT graded on the last run's pair
 a non-comparable CSR value is exempted -- and every exemption printed
 a non-finite --max-um2 is refused before the ratchet compares anything
 a non-finite area in the JSON is refused, not compared as if it were real
+a non-insn check keeps its engine and its skip
 a non-numeric floor is named rather than compared arithmetically
 a not-yet-measured pair is reported, not graded as stale
 a one-bit constant is a different digest
@@ -413,6 +418,7 @@ a step between the oscillator's own is refused, not graded against
 a stray comma in a connection list is named as one
 a substituted, non-archive download is refused for every file, not silently skipped
 a suite script linking against a rom the harness has not got
+a suite with no pono stops before rewriting anything
 a sweep file that is not there reads as missing, not as empty
 a sweep of the part with no icetime is refused, not walked
 a sweep that names no part says which instrument is missing
@@ -484,6 +490,7 @@ an empty status file is refused rather than read as a verdict
 an empty term table is a scan of nothing, not a green one
 an empty trace is fatal rather than an empty comparison
 an encoding failure reported only by the induction leg is not evidence
+an engine genchecks no longer emits is refused
 an escaped apostrophe inside a $'...' string does not close it early
 an escaped apostrophe outside quotes does not mask a real sed -i
 an exception whose port is connected now is red
@@ -635,6 +642,7 @@ control: the caveats travel with the number, on every run
 control: the declared list matches the tree exactly
 control: the digest states what its two verdicts mean
 control: the formal flow's lower-case rv32imc is a different thing
+control: the insn checks move to pono and the others do not
 control: the locality counters are reported under the table
 control: the measured CoreMark image reports the shortfall it has
 control: the measured image reports the shortfall it has
