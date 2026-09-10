@@ -1,0 +1,68 @@
+name: bmc-engine-measurement
+
+# Throwaway. A shard runs four checks at once (JOBS=4), so per-check RSS does
+# not predict an OOM: the pod's 3Gi is a burst ceiling against a 1Gi request.
+# This reads cgroup memory.peak, which is the whole pod's high-water mark, for
+# one shard with and without the retune. Separate jobs because memory.peak is
+# cumulative within a pod.
+on:
+  workflow_dispatch:
+  push:
+    branches: [thejefflarson/bmc-engine-measurement]
+
+permissions:
+  contents: read
+
+jobs:
+  shard:
+    name: shard (${{ matrix.engine }})
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [btormc-baseline, pono-retuned]
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up OSS CAD Suite
+        uses: ./.github/actions/setup-oss-cad-suite
+
+      - name: Pod limits
+        run: |
+          for f in /sys/fs/cgroup/cpu.max /sys/fs/cgroup/memory.max \
+                   /sys/fs/cgroup/memory.peak; do
+            [ -r "$f" ] && echo "$f = $(cat "$f")"
+          done
+
+      - name: Generate the check set
+        run: |
+          make -C formal checks
+          if [ "${{ matrix.engine }}" = btormc-baseline ]; then
+            rm -rf formal/checks
+            ( cd formal && python3 genchecks-audit.py . )
+            echo "baseline: generated WITHOUT the retune"
+          fi
+          echo "engine of insn_add_ch0:"
+          awk '/^\[engines\]/{getline; print; exit}' formal/checks/insn_add_ch0.sby
+          echo "skip lines in insn_add_ch0: $(grep -c '^skip ' formal/checks/insn_add_ch0.sby)"
+
+      - name: Run one shard at JOBS=4 and read the pod high-water mark
+        run: |
+          before=$(cat /sys/fs/cgroup/memory.peak)
+          start=$(date +%s)
+          ./formal/check-shard.sh formal/checks 1/4 4
+          end=$(date +%s)
+          after=$(cat /sys/fs/cgroup/memory.peak)
+          limit=$(cat /sys/fs/cgroup/memory.max)
+          {
+            echo "### ${{ matrix.engine }}"
+            echo ""
+            echo "| metric | value |"
+            echo "|---|---|"
+            echo "| shard wall time | $((end - start))s |"
+            echo "| memory.peak before | $((before / 1048576)) MB |"
+            echo "| memory.peak after | $((after / 1048576)) MB |"
+            echo "| memory.max (limit) | $((limit / 1048576)) MB |"
+            echo "| headroom at peak | $(( (limit - after) / 1048576 )) MB |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "peak $((after / 1048576)) MB of $((limit / 1048576)) MB, shard $((end - start))s"
