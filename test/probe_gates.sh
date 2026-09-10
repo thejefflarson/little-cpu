@@ -1176,6 +1176,75 @@ mutate "$d/checks.cfg" 's/^hang     1     14$/hang     1     10/'
 probe "a nano [depth] entry lowered below its own floor fails generation, not just the baseline diff" 1 \
   "hang: depth 10 is below F+1 = 13" "cd '$d' && $GA ."
 
+begin_group "formal/remeasure-fg.py"
+
+# fg-probe.cfg and fg-probe/ are gitignored scratch, the same as `make -C formal
+# remeasure-fg` writes into the real formal directory; both probes clean up after.
+RFG_MAIN="cd '$REPO/formal' && rm -rf fg-probe fg-probe.cfg"
+
+mkdir -p "$tmp/bin-sby-pass-main"
+cat > "$tmp/bin-sby-pass-main/sby" <<'STUB'
+#!/bin/sh
+# Stands in for sby: reports PASS unconditionally.
+d=$(dirname "$2")
+check=$(basename "$2" .sby)
+mkdir -p "$d/$check"
+echo "PASS 2 0" > "$d/$check/status"
+STUB
+chmod +x "$tmp/bin-sby-pass-main/sby"
+
+probe "a core sweep whose lowest value already passes is refused a flip point, not reported one" 1 \
+  "with no FAIL beneath it" \
+  "$RFG_MAIN && PATH='$tmp/bin-sby-pass-main':\$PATH python3 remeasure-fg.py; rc=\$?; rm -rf '$REPO/formal/fg-probe' '$REPO/formal/fg-probe.cfg'; exit \$rc"
+
+cat > "$tmp/fake-genchecks-main.py" <<'PY'
+#!/usr/bin/env python3
+# Stands in for formal/genchecks-local.py, writing cycles that never match what was swept.
+import os, sys
+cfgname = sys.argv[1]
+with open(f"{cfgname}.cfg") as f:
+    lines = f.read().splitlines()
+check = lines[lines.index("[depth]") + 1].split()[0]
+name = "hang.sby" if check == "hang" else "liveness_ch0.sby"
+os.makedirs(cfgname, exist_ok=True)
+with open(os.path.join(cfgname, name), "w") as f:
+    f.write("`define RISCV_FORMAL_CHECK_CYCLE 1\n`define RISCV_FORMAL_TRIG_CYCLE 1\n")
+PY
+
+probe "a generated .sby whose depth drifted from what the core's sweep asked for is refused, not read anyway" 1 \
+  "not the 4 this row swept" \
+  "$RFG_MAIN && python3 remeasure-fg.py --genchecks '$tmp/fake-genchecks-main.py'; rc=\$?; rm -rf '$REPO/formal/fg-probe' '$REPO/formal/fg-probe.cfg'; exit \$rc"
+
+cat > "$tmp/fake-genchecks-main-reset.py" <<'PY'
+#!/usr/bin/env python3
+# Stands in for formal/genchecks-local.py, writing a correct CHECK_CYCLE/TRIG_CYCLE but a
+# RESET_CYCLES that ignores what this row actually swept -- the reset-window half of a
+# [depth] field-order drift, which a check_cycle-only readback would miss.
+import os, sys
+cfgname = sys.argv[1]
+with open(f"{cfgname}.cfg") as f:
+    lines = f.read().splitlines()
+label, *nums = lines[lines.index("[depth]") + 1].split()
+nums = [int(n) for n in nums]
+os.makedirs(cfgname, exist_ok=True)
+if label == "hang":
+    body = f"`define RISCV_FORMAL_RESET_CYCLES 99\n`define RISCV_FORMAL_CHECK_CYCLE {nums[1]}\n"
+    name = "hang.sby"
+else:
+    body = (
+        f"`define RISCV_FORMAL_RESET_CYCLES 99\n"
+        f"`define RISCV_FORMAL_TRIG_CYCLE {nums[1]}\n"
+        f"`define RISCV_FORMAL_CHECK_CYCLE {nums[2]}\n"
+    )
+    name = "liveness_ch0.sby"
+with open(os.path.join(cfgname, name), "w") as f:
+    f.write(body)
+PY
+
+probe "a generated .sby whose reset window drifted from what the core's sweep asked for is refused, not read anyway" 1 \
+  "RISCV_FORMAL_RESET_CYCLES = 99, not the 1 this row swept" \
+  "$RFG_MAIN && python3 remeasure-fg.py --genchecks '$tmp/fake-genchecks-main-reset.py'; rc=\$?; rm -rf '$REPO/formal/fg-probe' '$REPO/formal/fg-probe.cfg'; exit \$rc"
+
 begin_group "nano/formal/remeasure-fg.py"
 
 # fg-probe.cfg and fg-probe/ are gitignored scratch, the same as `make -C nano/formal
@@ -1195,7 +1264,7 @@ chmod +x "$tmp/bin-sby-pass/sby"
 
 probe "a sweep whose lowest value already passes is refused a flip point, not reported one" 1 \
   "with no FAIL beneath it" \
-  "$RFG && PATH='$tmp/bin-sby-pass':\$PATH python3 remeasure-fg.py; rc=\$?; rm -rf fg-probe fg-probe.cfg; exit \$rc"
+  "$RFG && PATH='$tmp/bin-sby-pass':\$PATH python3 remeasure-fg.py; rc=\$?; rm -rf '$REPO/nano/formal/fg-probe' '$REPO/nano/formal/fg-probe.cfg'; exit \$rc"
 
 cat > "$tmp/fake-genchecks.py" <<'PY'
 #!/usr/bin/env python3
@@ -1213,7 +1282,7 @@ PY
 
 probe "a generated .sby whose depth drifted from what was swept is refused, not read anyway" 1 \
   "not the 10 this row swept" \
-  "$RFG && python3 remeasure-fg.py --genchecks '$tmp/fake-genchecks.py'; rc=\$?; rm -rf fg-probe fg-probe.cfg; exit \$rc"
+  "$RFG && python3 remeasure-fg.py --genchecks '$tmp/fake-genchecks.py'; rc=\$?; rm -rf '$REPO/nano/formal/fg-probe' '$REPO/nano/formal/fg-probe.cfg'; exit \$rc"
 
 begin_group "soc/timing_split.py"
 
