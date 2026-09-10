@@ -638,7 +638,8 @@ make test           # the test/asm suite (.S and .c) under cxxrtl + unit benches
                     # + every repo-scanning `*-test` target (memmap, march, band-source,
                     # retired-term, adr-numbering, port-connect, compare-geometry,
                     # vexriscv-path, tracked-ignored, tool-cache, pin-bump, abc-engine,
-                    # zkt-isolation, fixture-freshness, makefile-target, lut4-site)
+                    # zkt-isolation, fixture-freshness, makefile-target, lut4-site,
+                    # pll-clock)
                     # + window-test, imem-share-test, board-elaborate, mutation-probe and
                     # dual-build; graded against EXPECTED_FAIL / OBSERVED_FLOOR
 make test-units     # the unit benches alone; the list is checked against test/*_tb.v both ways
@@ -684,7 +685,9 @@ make coremark-board # CoreMark built for the up5k at COREMARK_UP5K_CFLAGS (-Os -
                     # COREMARK_CFLAGS' -O2); flash with `make prog`, read the UART.
                     # `make coremark-rom-up5k` builds that image alone
 make icesugar-bitstream # the iCESugar-Pro (ECP5) bitstream; ICESUGAR_PROG picks the program,
-                    # ICESUGAR_ROM=noop-rom takes banks another recipe already wrote
+                    # ICESUGAR_ROM=noop-rom takes banks another recipe already wrote.
+                    # No --freq: the LPF states the pad, nextpnr derives the core
+                    # domain from the PLL's dividers, and missing it is an ERROR
 make icesugar-prog  # load it into SRAM over JTAG. NOT the flash: a flash write leaves the
                     # part at `@cdone:0`, unconfigured, until it is physically power-cycled
 make icesugar-read  # read that board's UART for a bounded window
@@ -836,7 +839,16 @@ digit-perfect, and Dhrystone on the part matched cxxrtl to the cycle (ADR-0130).
 and `make dhrystone-board` run the suite and Dhrystone there; neither is graded on CI, because a
 board is not always plugged in. **The same source runs on a second part**: a MuseLab
 iCESugar-Pro (ECP5 LFE5U-25F) reports Dhrystone at **0.775 DMIPS/MHz, 19.4 DMIPS at 25 MHz** over
-`make icesugar-dhrystone`, **cycle-identical to cxxrtl on the same binary** (ADR-0163). Sharing
+`make icesugar-dhrystone`, **cycle-identical to cxxrtl on the same binary** (ADR-0163). **That
+bitstream now clocks the core from an `EHXPLLL` at 30 MHz rather than from the 25 MHz pad**, which
+is spendable on this part and would not be on the up5k, whose clock is a step function
+(ADR-0172): the frequency is picked under the WORST of twelve paired seeds on the shipping top and
+under `make ecp5-timing`'s own worst of twelve, and `--freq` is gone from the recipe so nextpnr
+derives the core domain from the PLL's dividers and a missed period is an ERROR rather than a
+slow board. **`CLOCK_HZ` is `rtl/uart.v`'s baud divisor, so the clock and that parameter must move
+together or the board's only output is garbage**; the frequency is stated in four places and
+`test/pll_clock_test.py` recomputes them from the pad and the dividers. Predicted 23.3 DMIPS at an
+unchanged 0.775 DMIPS/MHz, and **no board has run it**. Sharing
 `DHRY_CFLAGS` does not make a board figure and a simulated one comparable: `dhrystone-rom` also
 defines `DHRY_UART` and `make dhrystone` does not, which moves `.text` and costs a cycle a run.
 Getting there needed the data RAM's out-of-range arm off the block RAM's reset, and that board is
