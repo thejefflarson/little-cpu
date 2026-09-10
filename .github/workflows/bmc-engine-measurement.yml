@@ -1,10 +1,10 @@
 name: bmc-engine-measurement
 
-# Throwaway. A shard runs four checks at once (JOBS=4), so per-check RSS does
-# not predict an OOM: the pod's 3Gi is a burst ceiling against a 1Gi request.
-# This reads cgroup memory.peak, which is the whole pod's high-water mark, for
-# one shard with and without the retune. Separate jobs because memory.peak is
-# cumulative within a pod.
+# Throwaway instrument. #303 split components into one proof per pod, so the
+# figure that gates an engine change is each proof's OWN high-water mark and the
+# headroom it leaves under the 3Gi burst ceiling -- not a whole job's concurrent
+# peak. Two ceilings rest on this: bitwuzla for traps, and rIC3's decline, both
+# taken when the limit was 1.5Gi.
 on:
   workflow_dispatch:
   push:
@@ -14,55 +14,31 @@ permissions:
   contents: read
 
 jobs:
-  shard:
-    name: shard (${{ matrix.engine }})
+  proof:
+    name: proof (${{ matrix.proof }})
     strategy:
       fail-fast: false
       matrix:
-        engine: [btormc-baseline, pono-retuned]
+        proof: [executor, decoder, accessor, pcloop, traps, busarbiter]
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
 
-      - name: Pod limits
+      - name: Run the proof as it ships, and read the pod high-water mark
         run: |
-          for f in /sys/fs/cgroup/cpu.max /sys/fs/cgroup/memory.max \
-                   /sys/fs/cgroup/memory.peak; do
-            [ -r "$f" ] && echo "$f = $(cat "$f")"
-          done
-
-      - name: Generate the check set
-        run: |
-          make -C formal checks
-          if [ "${{ matrix.engine }}" = btormc-baseline ]; then
-            rm -rf formal/checks
-            ( cd formal && python3 genchecks-audit.py . )
-            echo "baseline: generated WITHOUT the retune"
-          fi
-          echo "engine of insn_add_ch0:"
-          awk '/^\[engines\]/{getline; print; exit}' formal/checks/insn_add_ch0.sby
-          echo "skip lines in insn_add_ch0: $(grep -c '^skip ' formal/checks/insn_add_ch0.sby)"
-
-      - name: Run one shard at JOBS=4 and read the pod high-water mark
-        run: |
+          limit=$(cat /sys/fs/cgroup/memory.max)
           before=$(cat /sys/fs/cgroup/memory.peak)
           start=$(date +%s)
-          ./formal/check-shard.sh formal/checks 1/4 4
+          make -C formal components_${{ matrix.proof }}
           end=$(date +%s)
           after=$(cat /sys/fs/cgroup/memory.peak)
-          limit=$(cat /sys/fs/cgroup/memory.max)
-          {
-            echo "### ${{ matrix.engine }}"
-            echo ""
-            echo "| metric | value |"
-            echo "|---|---|"
-            echo "| shard wall time | $((end - start))s |"
-            echo "| memory.peak before | $((before / 1048576)) MB |"
-            echo "| memory.peak after | $((after / 1048576)) MB |"
-            echo "| memory.max (limit) | $((limit / 1048576)) MB |"
-            echo "| headroom at peak | $(( (limit - after) / 1048576 )) MB |"
-          } >> "$GITHUB_STEP_SUMMARY"
-          echo "peak $((after / 1048576)) MB of $((limit / 1048576)) MB, shard $((end - start))s"
+          if [ "$after" -le "$before" ]; then
+            echo "memory.peak did not move ($before -> $after): nothing was measured." >&2
+            exit 1
+          fi
+          echo "| ${{ matrix.proof }} | $((end - start))s | $((after / 1048576)) MB | $(( (limit - after) / 1048576 )) MB |" \
+            >> "$GITHUB_STEP_SUMMARY"
+          echo "${{ matrix.proof }}: $((end - start))s, peak $((after / 1048576)) MB, headroom $(( (limit - after) / 1048576 )) MB of $((limit / 1048576)) MB"
