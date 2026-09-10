@@ -21,6 +21,11 @@ check: checks $(RISCV_FORMAL_DIR)
 	-$(MAKE) -C checks -j$(JOBS) -k
 	$(MAKE) check-baseline
 
+# The same slice-and-stop as formal/'s, and the same script: two sets, one layout.
+.PHONY: check-shard
+check-shard: checks $(RISCV_FORMAL_DIR)
+	../../formal/check-shard.sh checks '$(CHECK_SHARD)' $(JOBS)
+
 .PHONY: check-baseline
 check-baseline: ../../formal/check-baseline.sh EXPECTED_FAIL EXPECTED_CHECKS
 	../../formal/check-baseline.sh checks EXPECTED_FAIL EXPECTED_CHECKS
