@@ -49,6 +49,7 @@ CoreMark's own FAIL verdict stops the number being quoted
 JSON that is not a netlist is refused
 NO-STATUS is a broken harness and is not baselineable either
 PASS in a failure set is a comparison whose only branch is failure
+TOOLS_ON_PATH stops the real tools shadowing a fixture's stubs
 a --measured call with no --isa is refused the same way as a missing --cflags
 a --measured call with no --tool is refused rather than stamping an unknown toolchain
 a C floor copied out of the measured table is rejected, not honoured
@@ -604,6 +605,7 @@ control: the ECP5 arm reads its own fabric's two cell names
 control: the MUL constant-latency assertion fails at its own line
 control: the arm proves for the shipping core and fails on both values
 control: the block RAM is named at the end of the path it sits at
+control: the cached suite is put first when nothing claims PATH
 control: the caveats travel with the number, on every run
 control: the declared list matches the tree exactly
 control: the digest states what its two verdicts mean

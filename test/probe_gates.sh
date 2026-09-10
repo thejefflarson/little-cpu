@@ -3,6 +3,10 @@
 # each one goes red for the reason it was written for.
 set -euo pipefail
 
+# Fixtures stub tools by putting their own bin dir on PATH; this stops the Makefile
+# prepending the real suite in front of them, which CI never sees because it has no cache.
+export TOOLS_ON_PATH=1
+
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/.." && pwd)
 
@@ -1388,7 +1392,6 @@ d=$(bs_fixture); mutate "$d/before.csv" 's/^# part: up5k/# part: ecp5x/'
 probe "a part this script cannot grade a stamp for is rejected, not guessed at" 1 \
   "not one this" "$BS $d/before.csv"
 
-# Both directions of "the stamp describes a run that did not happen".
 d=$(bs_fixture); mutate "$d/before.csv" 's/^# part: up5k/# part: ecp5/'
 probe "an ECP5 stamp carrying up5k's tools is missing its own" 1 \
   "missing nextpnr-ecp5, trellis-db" "$BS $d/before.csv"
@@ -1711,7 +1714,6 @@ PYEOF
 probe "decoder_output.rd widened past 5 bits is red (finding 5)" 2 \
   "wider than a register NUMBER" "$ZKT $d/decoder.v"
 
-# THE OTHER DIRECTION: a classification whose port the netlist no longer has.
 d=$(new_case)
 cp "$HERE/zkt_isolation_test.py" "$d/zkt_isolation_test.py"
 mutate "$d/zkt_isolation_test.py" \
@@ -1937,7 +1939,6 @@ probe "the refusal names the cell and the port, not just a count" 1   "littlesoc
 d=$(br_fixture '[42]')
 probe "the refusal points at the spelling that fixes it" 1   "mux on the" "$BR $d/ecp5.json"
 
-# The two ways this grader could pass without grading anything.
 d=$(new_case); printf '{ "modules": { "DP16KD": { "cells": {} } } }\n' > "$d/ecp5.json"
 probe "a netlist with no block RAM at all is refused, not silently green" 2   "instantiates no DP16KD" "$BR $d/ecp5.json"
 
@@ -6014,6 +6015,25 @@ probe "the trend against a recorded figure is printed beside the verdict" 0 \
   "TREND: +2.2" \
   "$AR $d/stat.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10 --previous 4"
 
+begin_group "the Makefile's tool-path prepend"
+
+# XDG_CACHE_HOME moves TOOL_CACHE, so this grades the same with a cache and without one.
+tp_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/cache/little-cpu/oss-cad-suite/bin"
+  : > "$d/cache/little-cpu/oss-cad-suite/bin/yosys"
+  printf '%s' "$d"
+}
+
+d=$(tp_fixture)
+probe "control: the cached suite is put first when nothing claims PATH" 0 \
+  "$d/cache/little-cpu/oss-cad-suite/bin" \
+  "env -u TOOLS_ON_PATH XDG_CACHE_HOME=$d/cache make -C $REPO -s print-PATH | cut -d: -f1"
+
+d=$(tp_fixture)
+probe "TOOLS_ON_PATH stops the real tools shadowing a fixture's stubs" 0 \
+  "respected" \
+  "env XDG_CACHE_HOME=$d/cache TOOLS_ON_PATH=1 make -C $REPO -s print-PATH | cut -d: -f1 | grep -qx '$d/cache/little-cpu/oss-cad-suite/bin' && echo shadowed || echo respected"
 begin_group "formal/check-shard.sh"
 
 # A synthetic checks directory: two .sby names and a Makefile that writes the status
