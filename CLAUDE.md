@@ -815,7 +815,7 @@ iCESugar-Pro (ECP5 LFE5U-25F) reports Dhrystone at **0.775 DMIPS/MHz, 19.4 DMIPS
 `make icesugar-dhrystone`, **cycle-identical to cxxrtl on the same binary** (ADR-0163). **That
 bitstream now clocks the core from an `EHXPLLL` at 30 MHz rather than from the 25 MHz pad**, which
 is spendable on this part and would not be on the up5k, whose clock is a step function
-(ADR-0171): the frequency is picked under the WORST of twelve paired seeds on the shipping top and
+(ADR-0172): the frequency is picked under the WORST of twelve paired seeds on the shipping top and
 under `make ecp5-timing`'s own worst of twelve, and `--freq` is gone from the recipe so nextpnr
 derives the core domain from the PLL's dividers and a missed period is an ERROR rather than a
 slow board. **`CLOCK_HZ` is `rtl/uart.v`'s baud divisor, so the clock and that parameter must move
