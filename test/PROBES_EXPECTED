@@ -179,6 +179,7 @@ a gap opening between the UART and the SPI controller is red
 a gap opening between the data RAM and the timer is red
 a gap opening between the timer's reservation and the UART is red
 a gate failure reported only by the induction leg is not evidence
+a generated .sby whose depth drifted from what was swept is refused, not read anyway
 a generated check that was never scheduled resolves to NO-STATUS
 a graded target quietly depending on netlist-digest is red, and named
 a graph with no edges out of reg_rs1 is red, not a vacuous pass
@@ -385,6 +386,7 @@ a suite script linking against a rom the harness has not got
 a sweep file that is not there reads as missing, not as empty
 a sweep of the part with no icetime is refused, not walked
 a sweep that names no part says which instrument is missing
+a sweep whose lowest value already passes is refused a flip point, not reported one
 a synthesis that failed is not a passed control either
 a table with no placements in it is one too
 a tarball already in the cache is reused, and still meets the digest
