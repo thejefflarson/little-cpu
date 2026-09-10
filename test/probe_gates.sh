@@ -1392,7 +1392,6 @@ d=$(bs_fixture); mutate "$d/before.csv" 's/^# part: up5k/# part: ecp5x/'
 probe "a part this script cannot grade a stamp for is rejected, not guessed at" 1 \
   "not one this" "$BS $d/before.csv"
 
-# Both directions of "the stamp describes a run that did not happen".
 d=$(bs_fixture); mutate "$d/before.csv" 's/^# part: up5k/# part: ecp5/'
 probe "an ECP5 stamp carrying up5k's tools is missing its own" 1 \
   "missing nextpnr-ecp5, trellis-db" "$BS $d/before.csv"
@@ -1715,7 +1714,6 @@ PYEOF
 probe "decoder_output.rd widened past 5 bits is red (finding 5)" 2 \
   "wider than a register NUMBER" "$ZKT $d/decoder.v"
 
-# THE OTHER DIRECTION: a classification whose port the netlist no longer has.
 d=$(new_case)
 cp "$HERE/zkt_isolation_test.py" "$d/zkt_isolation_test.py"
 mutate "$d/zkt_isolation_test.py" \
@@ -1941,7 +1939,6 @@ probe "the refusal names the cell and the port, not just a count" 1   "littlesoc
 d=$(br_fixture '[42]')
 probe "the refusal points at the spelling that fixes it" 1   "mux on the" "$BR $d/ecp5.json"
 
-# The two ways this grader could pass without grading anything.
 d=$(new_case); printf '{ "modules": { "DP16KD": { "cells": {} } } }\n' > "$d/ecp5.json"
 probe "a netlist with no block RAM at all is refused, not silently green" 2   "instantiates no DP16KD" "$BR $d/ecp5.json"
 
