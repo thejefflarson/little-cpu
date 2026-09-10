@@ -678,7 +678,7 @@ jobs:
 
   formal-checks-nano:
     name: formal-checks-nano
-    # A SECOND check set, 79 against littlecpu's 86, and each grades a complete baseline.
+    # A SECOND check set, 80 against littlecpu's 86, and each grades a complete baseline.
     # Split by set rather than sharded, because a shard of one set grades nothing.
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
     timeout-minutes: 20
