@@ -142,3 +142,52 @@ close. `make -C nano/formal check` reproduces 79 generated, 77 pass, 2 known-fai
 (`csrw_mcycle_ch0`, `csrw_minstret_ch0`), unchanged from this ADR's own body; `make -C
 formal check` reproduces its own unchanged baseline. Neither harness's baseline moved --
 only whether a future depth cut is caught.
+
+## Amendment, 2026-09-09 — `complete` gets the anti-vacuity control this ADR left open
+
+`complete.sv`'s only assertion is guarded by `!reset && rvfi_valid && !rvfi_trap`, and
+nothing in `complete.sby` (mode bmc) ever required a retire to be reachable: `mem_ready`
+is a free top-level input, so the solver could hold the bus stalled forever and the
+assertion would never enable. A green `complete` carried no evidence about what the walk
+actually visited, the same gap the main core closed with `formal/complete_cover.sby`
+(ADR unnumbered at the time; see its own header comment).
+
+**`nano/formal/complete_cover.sby`** now mirrors it exactly -- same `[script]`/`[files]`
+against `complete.sv`, `mode cover`, `depth 100`, `smtbmc boolector` -- and
+`complete.sv` states one `cover property` per opcode class nano's walk is meant to
+reach: the nine 32-bit classes (LOAD, OP-IMM, AUIPC, STORE, OP, LUI, BRANCH, JALR, JAL,
+by `rvfi_insn[6:0]` gated on `rvfi_insn[1:0] == 2'b11`) and the three RVC quadrants (by
+`rvfi_insn[1:0]`), each ANDed with the same `!reset && rvfi_valid && !rvfi_trap` gate
+the assertion uses. `make -C nano/formal complete_cover` reaches all twelve in 11s of
+solver time.
+
+**A forced-red probe demonstrates the control can fail.** `nano/formal/
+complete-cover-probe.py` builds a mutant one line away from the shipping harness --
+`logic trap;` grown in place to also `assume(mem_ready == 1'b0)`, so nano's fetch/data
+bus never answers, `rvfi_valid` never rises, and every one of the twelve cover
+properties must go unreached. Measured: the shipping harness reaches all twelve (PASS);
+the stalled-bus mutant reaches none (FAIL, all twelve lines named unreached). It is
+wired as a real prerequisite of `complete_cover` in `nano/formal/Makefile`, so
+`make -C nano/formal complete_cover` always re-proves the control before trusting it,
+the same standing `traps-region-probe`/`traps-tval-probe` and `busarbiter-probe` have
+for their own targets on the main core. `test/probe_gates.sh` exercises the script's
+own parsing and mutation logic against a stub `sby`, not the real solver -- the same
+split every other sby-driving probe script in this tree already uses -- so
+`make probe-gates` stays free of a third real-tool dependency.
+
+**The generated `cover` check is restored rather than left `#omit`-ed.** The donor's own
+`riscv-formal/cores/picorv32/checks.cfg` states it -- `cover 1 15` in `[depth]` plus a
+`[cover]` section, `always @* if (!reset) cover (channel[0].cnt_insns == 2);` --
+and `cnt_insns` is riscv-formal's own generic per-channel retire counter
+(`checks/rvfi_cover_check.sv`), not a picorv32 signal, so the same section works
+unmodified against nano. `checks.cfg` gains a `#floor cover 1` line -- a reachability
+search has no F/G-derived soundness bound the way `bmc` mode's families do, so the
+floor is the bare literal `depth_rules.py` already allows one to be -- and
+`EXPECTED_CHECKS` gains `cover`. `make -C nano/formal check` now reports 80 generated
+(was 79), 78 pass, the same 2 known-fail, `cover` among the passes; this is a second,
+weaker signal (two retires, any two) alongside `complete_cover.sby`'s twelve
+opcode-specific ones, not a replacement for it.
+
+CI's `formal-extra` job gained a `nanocpu complete_cover` step beside the existing
+`nanocpu complete` one. `EXPECTED_FAIL` did not move -- this amendment adds a control
+and restores a check family, neither of which changes what is expected to fail.

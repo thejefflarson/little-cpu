@@ -49,6 +49,7 @@ CoreMark's own FAIL verdict stops the number being quoted
 JSON that is not a netlist is refused
 NO-STATUS is a broken harness and is not baselineable either
 PASS in a failure set is a comparison whose only branch is failure
+TOOLS_ON_PATH stops the real tools shadowing a fixture's stubs
 a --measured call with no --isa is refused the same way as a missing --cflags
 a --measured call with no --tool is refused rather than stamping an unknown toolchain
 a C floor copied out of the measured table is rejected, not honoured
@@ -111,6 +112,8 @@ a change the core never made is a length divergence
 a check set that was never generated is exit 2, not zero checks passing
 a check that APPEARED needs a line -- the shape check runs both ways
 a check that went red is red here
+a check that wrote no status fails the shard, named, rather than reaching the baseline
+a checks directory that was never generated is named, not treated as empty
 a class-wide predicate over an opcode the pin partly models is rejected
 a classification naming a port the netlist has never seen is red
 a clock for a core nobody graded is named rather than ignored
@@ -185,6 +188,7 @@ a gap opening between the UART and the SPI controller is red
 a gap opening between the data RAM and the timer is red
 a gap opening between the timer's reservation and the UART is red
 a gate failure reported only by the induction leg is not evidence
+a generated .sby whose depth drifted from what was swept is refused, not read anyway
 a generated check that was never scheduled resolves to NO-STATUS
 a graded target quietly depending on netlist-digest is red, and named
 a graph with no edges out of reg_rs1 is red, not a vacuous pass
@@ -338,6 +342,7 @@ a report with no 'design' key at all is refused, not read as zero
 a report with no routing hop in it is a failed read, not a wired design
 a report with no utilisation table is missing half the measurement
 a respelled address arm stops rather than proving the shipping core
+a respelled anchor stops rather than pinning nothing
 a respelled cause comparison stops rather than pinning nothing
 a respelled constant-latency assertion stops rather than pinning nothing
 a respelled divide case item stops the same way
@@ -370,13 +375,17 @@ a runner that printed no CS END terminator is a broken harness
 a runner that reports no cycles at all cannot produce a clean table
 a second occurrence of a counted exception value is red
 a semicolon in the liberty path stays inside its own quoted token
+a shard spec that is not <i>/<n> is refused before anything runs
+a shipping harness that cannot reach its own goals is red
 a signal in scope only in an earlier module stops it too
 a simulated ROM smaller than the part's is red
 a simulation this cannot parse is a run that did not happen
 a size the parser cannot read stops rather than comparing as zero
+a slice that selects no checks is an error, not an empty success
 a soc/compare script naming no .lds at all does not sink the scan
 a soc/compare/ change since the stamp's base is STALE, and the file is named
 a solo run needs no ramdiff line -- there is no reference to compare
+a solver that wrote no verdict is exit 2, not a red arm
 a solver that wrote no verdict is exit 2, not a red arm
 a solver that wrote no verdict is exit 2, not a red arm
 a solver that wrote no verdict is exit 2, not a red arm
@@ -388,6 +397,7 @@ a space in a source path does not split it into a second yosys argument
 a stall nothing in the list explains is a reason nobody wrote down
 a stall reason the accounting cannot name is red even with every test passing
 a stall reason with no driving cell stops the run
+a stalled-bus mutant red for only some goals is not full evidence
 a stamp measured on a dirty tree is STALE even if nothing has moved since
 a stamp with no table under it is a failed measurement
 a standalone synthesis of zero cells is named, not divided by
@@ -400,6 +410,7 @@ a suite script linking against a rom the harness has not got
 a sweep file that is not there reads as missing, not as empty
 a sweep of the part with no icetime is refused, not walked
 a sweep that names no part says which instrument is missing
+a sweep whose lowest value already passes is refused a flip point, not reported one
 a synthesis that failed is not a passed control either
 a table with no placements in it is one too
 a tarball already in the cache is reused, and still meets the digest
@@ -442,6 +453,7 @@ an allow-listed fixture that gained a real anchor is red until the entry is dele
 an allow-listed sed -i that no longer appears anywhere is red too
 an anti-vacuity cover that cannot go red is not a control
 an anti-vacuity cover that cannot go red is not a control
+an anti-vacuity cover that cannot go red is not a control
 an arm that admits a fault the core never commits is red
 an arm that admits a zero where the faulting word belongs is red
 an arm that admits rs1 where the effective address belongs is red
@@ -456,6 +468,7 @@ an empty manifest matches an empty suite and is rejected
 an empty netlist is a synthesis that wrote nothing
 an empty part table synthesises nothing, so it is refused
 an empty seed list stops the sweep instead of placing the default
+an empty status file is refused rather than read as a verdict
 an empty status file is refused rather than read as a verdict
 an empty status file is refused rather than read as a verdict
 an empty status file is refused rather than read as a verdict
@@ -519,6 +532,7 @@ and the diagnostic states the corollary this check is enforcing
 and the refusal names the clock it would actually have to run at
 and the reverse: a divergence reported with exit 0
 and the same for the check-set baseline
+asking for shard i of n where i exceeds n is refused
 assembler output on a successful build is still a defect
 assembler output on a successful build is still a defect
 awk -i inplace is a raw edit like sed -i
@@ -564,6 +578,7 @@ control: a rule from this clone's $GIT_DIR/info/exclude is not this repository's
 control: a rule from this developer's $GIT_TEMPLATE_DIR is not this repository's to grade
 control: a rule from this developer's core.excludesFile is not this repository's to grade
 control: a rule from this developer's init.templateDir is not this repository's to grade
+control: a shard runs its slice and writes a status for every check in it
 control: a single rtl/*.v mention is prose, not a list
 control: a stamped sweep summarises
 control: a stamped sweep with its reports behind it is binned
@@ -607,6 +622,7 @@ control: the ECP5 arm reads its own fabric's two cell names
 control: the MUL constant-latency assertion fails at its own line
 control: the arm proves for the shipping core and fails on both values
 control: the block RAM is named at the end of the path it sits at
+control: the cached suite is put first when nothing claims PATH
 control: the caveats travel with the number, on every run
 control: the declared list matches the tree exactly
 control: the digest states what its two verdicts mean
@@ -623,6 +639,7 @@ control: the shipping decoder reaches region_stall only, gated
 control: the shipping exclusion set matches its baseline both ways
 control: the shipping files describe one machine
 control: the shipping fixtures are all mutate/mutate_remove, every anchor holds
+control: the shipping harness reaches every goal and the stalled-bus mutant reaches none
 control: the shipping harness states one geometry
 control: the shipping harnesses tie off, both directions
 control: the shipping harnesses tie off, both directions
@@ -672,6 +689,7 @@ no harness-directory argument is a usage error, not a silent default
 no named source at all is reported, and is not a failure
 no placer on PATH is refused the same way
 no programs at all would report a clean 0 of 0
+no riscv-formal checkout is exit 2, not a probe against nothing
 no standalone count leaves nothing to compare against
 no utilisation table is a failure, not a 0% fit
 no utilisation table means nothing was placed, not that nothing was lost
@@ -717,6 +735,7 @@ the REPORT goes too, which .DELETE_ON_ERROR cannot do for a non-target
 the ROM image built to a different size than the ROM is red
 the RTL moving away takes the probe with it, loudly
 the RTL moving away takes the probe with it, loudly
+the RTL moving away takes the probe with it, loudly
 the SECOND CoreMark core's RAM diverging is graded, not only the first
 the SECOND core's RAM diverging is graded, not only the first
 the SPI controller moving in the core's copy alone is red
@@ -753,6 +772,7 @@ the generated check set's isa line swept along with the flags is red
 the harness giving the UART its own baud rate is red
 the harness moving away takes the probe with it, loudly
 the harness moving away takes the probe with it, loudly
+the harness moving away takes the probe with it, loudly
 the harness passing a literal instead of the size it sized
 the harness sizing its own RAM again is red
 the isa list is what wires a model in, not the insns/ directory alone
@@ -783,6 +803,7 @@ the refused liberty download is not kept to be served again
 the rulebook quoting a figure the source no longer states is red
 the same for the bypass counter, per program rather than in total
 the same path repeated on one line is not a second copy
+the sby script moving away takes the probe with it, loudly
 the stale ISA name coming back in a formal harness comment is red
 the suite's shape is asserted before a single program is assembled
 the third core's ROM drifting behind the other two is red

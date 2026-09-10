@@ -259,3 +259,46 @@ answer, and no simulation available here can supply it. The edit ties `RSTA` low
 *and* moves the mux after the register; those two were not isolated. And the
 gate is structural: it refuses the shape that failed here, which is not the same
 as proving the part honours every other shape.
+
+### Amendment 2026-09-09: nextpnr/Trellis encodes faithfully; the mux alone does not fix it
+
+`docs/investigations/ecp5-bram-reset-rsta/` narrows, without a board, which
+tool the first question points at. Four minimal one-`DP16KD` designs, each
+`synth_ecp5` and `nextpnr-ecp5 --textcfg`'d on this machine: the pre-fix
+idiom, the shipped fix, an idiom that combines a logic-driven reset with the
+shipped fix's downstream mux, and a hand-written `PDPW16KD` instantiation
+that bypasses `memory_bram`'s inference pass entirely.
+
+**`REGMODE_A`/`REGMODE_B` read `NOREG` in both the pre-fix and the fixed
+spelling** — identical in the broken and the working case, so it is not
+what the defect turns on despite this ADR's own text naming it. What
+differs in yosys's JSON netlist is `RESETMODE` (`SYNC` in the pre-fix arm,
+`ASYNC` — immaterial once the port is tied off — in the fixed one) and
+whether `RSTA`/`RSTB` connects to a real net or a constant. **Every field
+that reaches nextpnr's placed `--textcfg` output is an unmodified copy of
+the corresponding field in yosys's JSON**, including for the hand-written
+primitive instantiation, which nextpnr places identically to the
+inference-produced cell carrying the same parameters. `nextpnr-ecp5`'s own
+binary validates only `REGMODE_A`/`REGMODE_B` against their two-entry enum;
+nothing found there treats `RESETMODE=SYNC` under `REGMODE=NOREG` with a
+logic-driven reset as unusual. **This rules out nextpnr/Trellis silently
+mis-encoding, dropping, or reinterpreting what yosys asks for** — the
+investigation found no such divergence anywhere it looked. It does not
+resolve whether yosys's model of that primitive configuration matches real
+`DP16KD` silicon, which needs Lattice's own EBR documentation or a board,
+neither available on this machine: an honest could-not-fully-distinguish,
+with the encoding-fidelity half settled and the silicon-semantics half not.
+A draft report against yosys, built from this reproducer, sits unfiled at
+`docs/investigations/ecp5-bram-reset-rsta/upstream-issue-draft.md`.
+
+**The mux placement and the tied-low reset were also isolated, and only one
+is load-bearing.** A design with a genuine logic-driven synchronous clear
+folded into the block's own reset, *plus* the shipped fix's downstream
+output mux, still reads through the reset on both the checker and the
+placed tile's `RESETMODE SYNC` / `RSTBMUX RSTB` signature. The downstream
+mux alone does not neutralize a logic-driven block RAM reset; what the fix
+needed was tying the reset pin to a constant, and the mux is a necessary
+consequence of implementing the zero arm without delegating it to the
+block's own reset feature rather than an independently load-bearing half of
+the fix. `soc/bram_reset_check.py`'s criterion — any block RAM reset port
+connected to a non-constant net — checks the invariant that matters.
