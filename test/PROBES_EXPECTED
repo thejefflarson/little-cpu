@@ -213,6 +213,7 @@ a hand-drifted fork is red, and its residual diff is printed
 a hand-edited pin that no longer parses is as invalid as unwritten
 a hand-typed fixture is red on an unquoted heredoc delimiter too
 a hand-typed fixture with no anchor and no cp of a real file is red
+a harness directory with no checks.cfg is named, not measured as empty
 a harness that is red at rest makes the two mutations meaningless
 a harness that is red at rest makes the two mutations meaningless
 a harness with no data RAM at all does not pass by silence
