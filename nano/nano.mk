@@ -49,7 +49,7 @@ ifneq ($(filter command line environment,$(origin NANO_MAX_UM2)),)
 $(error NANO_MAX_UM2 cannot be set from the command line or the environment: it is a \
   ratchet, and raising it needs a reason in the commit that edits nano/nano.mk)
 endif
-override NANO_MAX_UM2 := 84291
+override NANO_MAX_UM2 := 60759
 
 NANO_SRCS := nano/nano.v
 

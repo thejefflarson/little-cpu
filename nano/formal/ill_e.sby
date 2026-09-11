@@ -1,0 +1,23 @@
+[options]
+mode bmc
+depth 40
+
+[engines]
+btor btormc
+
+[script]
+verilog_defines -D RISCV_FORMAL
+verilog_defines -D RISCV_FORMAL_NRET=1
+verilog_defines -D RISCV_FORMAL_XLEN=32
+verilog_defines -D RISCV_FORMAL_ILEN=32
+verilog_defines -D RISCV_FORMAL_COMPRESSED
+verilog_defines -D RISCV_FORMAL_ALIGNED_MEM
+read_verilog -sv rvfi_macros.vh
+read_verilog -sv nano.v
+read_verilog -sv ill_e.sv
+prep -nordff -top rvfi_testbench
+
+[files]
+ill_e.sv
+../nano.v
+../../formal/riscv-formal/checks/rvfi_macros.vh
