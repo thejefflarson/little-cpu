@@ -1,11 +1,12 @@
 #!/bin/bash
-# Builds one CoreMark image for all three cores of this directory's harness, reports it
-# against the geometry the harness can actually place, and runs all three on it in one
-# iverilog simulation.
+# Builds one CoreMark image for the core(s) named on the command line, reports it against
+# the geometry the harness can actually place, and runs it in one iverilog simulation --
+# the same split soc/compare/run_dhrystone.sh uses for Dhrystone.
 set -euo pipefail
 
-if [ "$#" -lt 3 ] || [ "$#" -gt 4 ]; then
-  echo "usage: run_coremark_compare.sh <iterations> <cycle-limit> <cflags> [vvp-binary]" >&2
+if [ "$#" -lt 3 ]; then
+  echo "usage: run_coremark_compare.sh <iterations> <cycle-limit> <cflags> \\" >&2
+  echo "         [vvp-binary [cores-csv [core=standalone-log]...]]" >&2
   exit 1
 fi
 
@@ -13,9 +14,24 @@ ITERATIONS=$1
 CYCLE_LIMIT=$2
 CFLAGS=$3
 VVP_BIN=${4:-compare.coremark.vvp}
+CORES_CSV=${5:-littlecpu,vexriscv,hazard3}
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/../.." && pwd)
 VENDOR_DIR="$REPO/test/bench/coremark"
+
+# Explicit core=log pairs win; otherwise derive one standalone-log path per core named in
+# CORES_CSV, so the default core list has one source rather than a second, separately
+# maintained array that could drift from it.
+if [ "$#" -ge 6 ]; then
+  shift 5
+  CORE_LOGS=("$@")
+else
+  CORE_LOGS=()
+  IFS=',' read -ra default_cores <<< "$CORES_CSV"
+  for core in "${default_cores[@]}"; do
+    CORE_LOGS+=("$core=$REPO/compare.$core.core.log")
+  done
+fi
 
 lds_field() {  # $1 = region, $2 = LENGTH|ORIGIN, $3 = linker script
   awk -v region="$1" -v key="$2" \
@@ -121,7 +137,7 @@ fi
 echo "== CoreMark in the cross-core harness =="
 echo "compiler : $CC $($CC -dumpversion)"
 echo "flags    : $built_flags"
-echo "mul/div  : hardware, all three cores' own -- this image is RV32IM"
+echo "mul/div  : hardware, every core here has its own real M"
 echo "iterations : $ITERATIONS"
 echo
 
@@ -130,12 +146,14 @@ printf 'rom (.text):                       %s bytes; placed budget %s\n' \
   "$rom_bytes" "$PLACED_ROM"
 printf 'ram (.coremarkctl + .data + .bss): %s bytes; placed budget %s\n' \
   "$ram_bytes" "$PLACED_RAM"
+fit_core_args=()
+for spec in "${CORE_LOGS[@]}"; do
+  fit_core_args+=(--core "$spec")
+done
 python3 "$HERE/coremark_fit.py" --rom-bytes "$rom_bytes" --ram-bytes "$ram_bytes" \
   --placed-rom "$PLACED_ROM" --placed-ram "$PLACED_RAM" \
   --sim-rom "$SIM_ROM" --sim-ram "$SIM_RAM" --tb "$HERE/coremark_tb.v" \
-  --core "littlecpu=$REPO/compare.littlecpu.core.log" \
-  --core "vexriscv=$REPO/compare.vexriscv.core.log" \
-  --core "hazard3=$REPO/compare.hazard3.core.log"
+  "${fit_core_args[@]}"
 echo
 
 $OBJCOPY -O verilog --verilog-data-width=4 -j .text "$elf" "$tmp/rom.hex"
@@ -165,7 +183,7 @@ if [ ! -s "$VVP_BIN" ]; then
   exit 1
 fi
 
-echo "== all three cores, one image, one simulation =="
+echo "== $CORES_CSV, one image, one simulation =="
 set +e
 vvp "$VVP_BIN" +cycles="$CYCLE_LIMIT" > "$tmp/run.log" 2>&1
 sim_status=$?
@@ -182,4 +200,4 @@ for spec in ${COMPARE_COREMARK_MHZ:-}; do
   mhz_args+=(--mhz "$spec")
 done
 python3 "$HERE/coremark_dmips.py" "$tmp/run.log" --iterations "$ITERATIONS" \
-  "${mhz_args[@]+"${mhz_args[@]}"}"
+  --cores "$CORES_CSV" "${mhz_args[@]+"${mhz_args[@]}"}"

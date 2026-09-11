@@ -88,6 +88,16 @@ Makefile rv32i 1
 # has no AtomicPlugin, so the CoreMark image cannot ask for A either.
 Makefile rv32im 2
 
+# COMPARE_DHRY_VEXC_CFLAGS and COMPARE_COREMARK_VEXC_CFLAGS: the pairwise-C
+# rows, littlecpu and VexRiscv alone, at the widest ISA that pair shares --
+# VexRiscv's generated build has C but no AtomicPlugin.
+Makefile rv32imc 2
+
+# COMPARE_DHRY_HAZA_CFLAGS and COMPARE_COREMARK_HAZA_CFLAGS: the pairwise-A
+# rows, littlecpu and Hazard3 alone, at the widest ISA that pair shares --
+# Hazard3's iCE40 build has A but no C.
+Makefile rv32ima 2
+
 # Not a flag at all: a grep pattern that finds the `-march=` in the command line
 # the Dhrystone runner PRINTS, so the flags travel with the number. It has no
 # ISA after it, which is what the `(empty)` says. One, not two, since the comment
