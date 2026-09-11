@@ -1,4 +1,5 @@
 include pin.mk
+include ../mk/toolchain.mk
 
 .DELETE_ON_ERROR:
 
@@ -24,6 +25,11 @@ FORCE:
 %: %.sby FORCE
 	rm -rf $@
 	sby -f $<
+
+# Refuses by name rather than letting sby fail on it opaquely.
+.PHONY: check-solver-%
+check-solver-%:
+	@../mk/check-solvers.sh $*
 
 check: checks interrupt-tie-off multihart-tie-off $(RISCV_FORMAL_DIR)
 	-$(MAKE) -C $< -j$(JOBS) -k
@@ -52,8 +58,8 @@ RTL_SOURCES := ../rtl/structs.v ../rtl/fetcher.v ../rtl/regfile.v \
                ../rtl/accessor.v ../rtl/writeback.v ../rtl/littlecpu.v
 
 .PHONY: remeasure-fg
-remeasure-fg: remeasure-fg.py depth_rules.py genchecks-local.py checks.cfg $(RTL_SOURCES) \
-              interrupt-tie-off multihart-tie-off | $(RISCV_FORMAL_DIR)
+remeasure-fg: remeasure-fg.py depth_rules.py genchecks-local.py checks.cfg check-solver-btorsim \
+              $(RTL_SOURCES) interrupt-tie-off multihart-tie-off | $(RISCV_FORMAL_DIR)
 	python3 $<
 
 dmemcheck: dmemcheck.sby dmemcheck.sv arbiter.v $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
@@ -100,7 +106,8 @@ components_decoder: components.sby decoder-zkt-probe ../rtl/decoder.v ../rtl/reg
 .PHONY: decoder-zkt-probe
 decoder-zkt-probe: decoder-zkt-probe.py ../rtl/decoder.v components.sby
 	python3 $<
-components_executor: components.sby executor-zkt-probe ../rtl/executor.v ../rtl/structs.v
+components_executor: components.sby executor-zkt-probe check-solver-bitwuzla ../rtl/executor.v \
+                      ../rtl/structs.v
 	rm -rf $@
 	sby -f $< executor
 
