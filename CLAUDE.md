@@ -98,10 +98,19 @@ references still resolve.
   lands on: Dhrystone's hazard column falls 357,798 → 317,207 cycles and the run
   1,543,497 → 1,506,943, which is 0.758 → **0.777 DMIPS/MHz**; the `.S` suite goes
   41,052 → 39,096 (ADR-0154).
+  **The hazard column itself splits into three causes** (`hzA`/`hzB`/`hzC`, `test/stall_report.py`):
+  `hzA`, a producer still in `out` with no result anywhere yet, and `hzB`, a producer in
+  `executor_out` whose result is not unpacked (`rd_ready` low), are both structural — there is no
+  result yet for forwarding to reach. Only `hzC`, a ready result forwarding has no path to, is
+  a candidate, and on Dhrystone it is a ceiling smaller than the gap to VexRiscv: spending all of it
+  reaches 660.3 cycles/Dhrystone against VexRiscv's 635.1–640.1 (ADR-0175).
   Still declined on the clock: forwarding to every operand reader (ADR-0083), a fourth scoreboard
-  slot in place of the write-through bypass (ADR-0092) and writing a committed result into the idle
-  register port a cycle early (ADR-0100), which is the evidence to beat — every candidate so far
-  touched the write-through bypass or the fetch loop it sits in.
+  slot in place of the write-through bypass (ADR-0092), writing a committed result into the idle
+  register port a cycle early (ADR-0100), and spending hazard cause C (ADR-0175) — unlike
+  ADR-0083's confined-forwarding spelling, which ADR-0154 re-took on a tree that had moved, cause
+  C's ceiling is a population count no later tree changes, not a placement margin — which is the
+  evidence to beat: every candidate so far touched the write-through bypass or the fetch loop it
+  sits in.
 - **CSR instructions, `mret` and `fence.i` serialize** (5) — held in decode until execute, access
   and writeback are empty. Two reasons share the mechanism and must not be collapsed: the first two
   so a one-cycle architectural update cannot interleave with older instructions; `fence.i` because

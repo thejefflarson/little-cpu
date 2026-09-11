@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-# Re-measures F and G -- the two figures every depth in formal/checks.cfg's [depth] table
-# is derived from -- and grades what it measures against the `#derive` lines that declare
-# them.
+# Re-measures F and G -- the two figures every depth in a [depth] table is derived from --
+# against whichever harness directory (formal/, nano/formal/) is passed as argv[1], and
+# grades what it measures against that harness's own `#derive` lines.
 
 import argparse
 import importlib.util
@@ -12,16 +12,18 @@ import sys
 
 import depth_rules
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-CFG = os.path.join(HERE, "checks.cfg")
+# genchecks-local.py and genchecks-audit.py are this script's siblings; the harness is a
+# separate argument, so one implementation measures either core.
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+GENCHECKS_DEFAULT = os.path.join(SCRIPT_DIR, "genchecks-local.py")
 PROBE = "fg-probe"
-GENCHECKS_DEFAULT = os.path.join(HERE, "genchecks-local.py")
+HARNESS = SCRIPT_DIR
 
 def _load_sibling(name):
     """genchecks-audit.py is a hyphenated filename, so it is loaded by path rather
     than imported by name."""
     spec = importlib.util.spec_from_file_location(
-        name.replace("-", "_"), os.path.join(HERE, f"{name}.py")
+        name.replace("-", "_"), os.path.join(SCRIPT_DIR, f"{name}.py")
     )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -53,7 +55,7 @@ def probe(depth_line, check, genchecks):
     of [depth], run it, and return sby's status."""
     lines = []
     in_depth = False
-    with open(CFG) as f:
+    with open(os.path.join(HARNESS, "checks.cfg")) as f:
         for line in f:
             line = line.rstrip("\n")
             if in_depth:
@@ -65,17 +67,17 @@ def probe(depth_line, check, genchecks):
                 lines += [line, depth_line]
                 continue
             lines.append(line)
-    with open(os.path.join(HERE, f"{PROBE}.cfg"), "w") as f:
+    with open(os.path.join(HARNESS, f"{PROBE}.cfg"), "w") as f:
         f.write("\n".join(lines) + "\n")
 
-    shutil.rmtree(os.path.join(HERE, PROBE), ignore_errors=True)
+    shutil.rmtree(os.path.join(HARNESS, PROBE), ignore_errors=True)
     subprocess.run(
         [sys.executable, genchecks, PROBE],
-        cwd=HERE,
+        cwd=HARNESS,
         check=True,
         stdout=subprocess.DEVNULL,
     )
-    sby = os.path.join(HERE, PROBE, f"{check}.sby")
+    sby = os.path.join(HARNESS, PROBE, f"{check}.sby")
     if not os.path.exists(sby):
         raise SystemExit(
             f"error: `{depth_line}` generated no {check} check. The [depth] key "
@@ -101,16 +103,16 @@ def probe(depth_line, check, genchecks):
 
     subprocess.run(
         ["sby", "-f", f"{PROBE}/{check}.sby"],
-        cwd=HERE,
+        cwd=HARNESS,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
-    status_file = os.path.join(HERE, PROBE, check, "status")
+    status_file = os.path.join(HARNESS, PROBE, check, "status")
     if not os.path.exists(status_file):
         raise SystemExit(
             f"error: sby wrote no status for {check}. It is on PATH and the "
             "pinned clone is present, or this script would not have got here, "
-            f"so read formal/{PROBE}/{check}/logfile.txt."
+            f"so read {os.path.join(HARNESS, PROBE, check)}/logfile.txt."
         )
     with open(status_file) as f:
         return f.read().split()[0]
@@ -157,7 +159,14 @@ def sweep(label, check, rows, genchecks):
     return flip
 
 def main():
+    global HARNESS
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "harness",
+        nargs="?",
+        default=SCRIPT_DIR,
+        help="harness directory holding checks.cfg (formal/ or nano/formal/)",
+    )
     parser.add_argument(
         "--genchecks",
         default=GENCHECKS_DEFAULT,
@@ -165,16 +174,22 @@ def main():
         "substitute one that reproduces a drifted [depth] field order",
     )
     args = parser.parse_args()
+    HARNESS = os.path.abspath(args.harness)
 
-    if os.path.realpath(os.getcwd()) != os.path.realpath(HERE):
-        print(f"error: run from {HERE}, not {os.getcwd()}", file=sys.stderr)
+    if os.path.realpath(os.getcwd()) != os.path.realpath(HARNESS):
+        print(f"error: run from {HARNESS}, not {os.getcwd()}", file=sys.stderr)
         return 1
 
-    derived = depth_rules.read_derived(CFG)
+    cfg = os.path.join(HARNESS, "checks.cfg")
+    if not os.path.isfile(cfg):
+        print(f"error: {cfg} does not exist, so there is no [depth] table to grade",
+              file=sys.stderr)
+        return 1
+    derived = depth_rules.read_derived(cfg)
     f_declared, g_declared = derived["F"], derived["G"]
 
     print(
-        "Re-measuring F and G against formal/checks.cfg, under the interrupt\n"
+        f"Re-measuring F and G against {cfg}, under the interrupt\n"
         "tie-off formal/check-interrupt-tie-off.py enforces.\n"
         f"Declared: F = {f_declared}, G = {g_declared}."
     )

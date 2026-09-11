@@ -1,10 +1,12 @@
 # The nanocpu donor's generated riscv-formal check set. Same format as formal/EXPECTED_CHECKS.
 
 causal_ch0
+causal_mem_ch0
 cover
 csrw_mcycle_ch0
 csrw_minstret_ch0
 hang
+ill_ch0
 insn_add_ch0
 insn_addi_ch0
 insn_and_ch0

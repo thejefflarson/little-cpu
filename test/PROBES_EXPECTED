@@ -102,6 +102,7 @@ a bitstream the placer never finished writing is not a placement
 a block RAM read through its own reset is refused
 a block short of a tool is named, not summarised around
 a block with no end is truncated, and a truncated one is not read
+a branch already on this repository stops the bump
 a caller that needs the figures rather than the prose is refused
 a canonical form that stopped forgiving the class is red
 a capitalised spelling is the same word and is caught too
@@ -120,6 +121,7 @@ a check that APPEARED needs a line -- the shape check runs both ways
 a check that went red is red here
 a check that wrote no status fails the shard, named, rather than reaching the baseline
 a check with no skip line is refused, not handed to pono anyway
+a checkout that leaves the token in .git/config is red
 a checks directory that is not there is refused
 a checks directory that was never generated is named, not treated as empty
 a class-wide predicate over an opcode the pin partly models is rejected
@@ -128,6 +130,7 @@ a clock for a core nobody graded is named rather than ignored
 a clock turns the CoreMark per-MHz figure into an absolute one
 a clock turns the per-MHz figure into an absolute one
 a comment-only file's single pointer line is excused by MIN_COMMENT_LINES
+a commit under the age floor stops the bump, naming its age
 a configuration for another corner is refused, not reported
 a configuration nextpnr never wrote is a failed run, not a fast design
 a configuration truncated to nothing is caught, which test -e cannot be
@@ -212,6 +215,7 @@ a hand-drifted fork is red, and its residual diff is printed
 a hand-edited pin that no longer parses is as invalid as unwritten
 a hand-typed fixture is red on an unquoted heredoc delimiter too
 a hand-typed fixture with no anchor and no cp of a real file is red
+a harness directory with no checks.cfg is named, not measured as empty
 a harness that is red at rest makes the two mutations meaningless
 a harness that is red at rest makes the two mutations meaningless
 a harness with no data RAM at all does not pass by silence
@@ -259,8 +263,10 @@ a missing liberty file is refused before the JSON is even opened
 a missing parser stops the run rather than grading with a second one
 a missing ramdiff for the SECOND CoreMark core is red, not silently skipped
 a missing ramdiff for the SECOND core is red, not silently skipped
+a missing regenerate output is refused rather than committing nothing
 a missing riscv-formal clone is named, not blamed on the ISA string
 a missing stat.json is refused, not read as a zero-area design
+a missing workflow file is an error, not an empty pass
 a mistyped baseline path cannot compare nothing and pass
 a mistyped baseline path cannot compare nothing and pass
 a mistyped floor path cannot make every floor lookup miss
@@ -269,6 +275,7 @@ a mistyped pairings path cannot leave every program unclaimed and pass
 a model that cannot prove the shipping core makes both reds meaningless
 a module that appeared is named too
 a move far outside the churn band still cannot fail the job
+a multi-line answer from the remote is refused, not truncated to its first line
 a must-trap proof going red somewhere else is not evidence
 a mutant that left no trace demonstrates nothing, and says so
 a mutant the digest calls equal placing elsewhere voids it too
@@ -457,6 +464,7 @@ a tie-low mutant that names an unrelated site is not evidence
 a tie-low mutant that still proves is not a control
 a tie-off at every harness that no baseline declares is red
 a timer base aligned only for one hart is red
+a token handed to the step that executes upstream code is red
 a tool that exits nonzero while printing is refused on its status
 a tool that is not installed names itself rather than the list
 a tool that prints nothing is refused, not stamped blank
@@ -611,6 +619,7 @@ control: a matching pin names its own seed and MHz
 control: a measurement within budget is green
 control: a measurement within budget is green
 control: a model file OUTSIDE isa_rv32imc.txt is not one this check can see
+control: a moved, settled upstream with no branch here proceeds
 control: a netlist digests, and the digest is a sha256
 control: a nextpnr that wrote its pair is graded, exit 1 and all
 control: a passing suite against an empty baseline is green
@@ -695,6 +704,7 @@ control: the shipping harnesses tie off, both directions
 control: the shipping harnesses tie off, both directions
 control: the shipping index has one row per file and no number twice
 control: the shipping manifest rules on every rtl/*.v file
+control: the shipping pin-bump workflow keeps credentials off the upstream-code step
 control: the shipping tree keeps the retired term inside its allow-list
 control: the shipping tree names one ISA at every site
 control: the shipping tree states every band figure in one place
@@ -761,6 +771,7 @@ one source present and a second missing is refused, not read as nothing landed
 over budget names the count and the budget
 perl -pi is a raw edit like sed -i
 reg_rs1 laundered through out.rs1's own register is still red
+renaming the upstream-code step out of reach stops rather than passing
 retires that stopped being spec-checked is its own status
 rule 1 declares a site count, so a generator change cannot ship unapplied
 rule 2 likewise -- ADR-0019's DIV/REM repair cannot silently stop applying
@@ -857,6 +868,7 @@ the refusal names the flow that stopped, not another part's
 the refusal points at the spelling that fixes it
 the refused download is neither unpacked nor kept to be served again
 the refused liberty download is not kept to be served again
+the regenerate step refuses to run holding a token
 the rulebook quoting a figure the source no longer states is red
 the same for the bypass counter, per program rather than in total
 the same path repeated on one line is not a second copy
@@ -896,6 +908,8 @@ wrong argument count is a usage error
 wrong argument count is a usage error
 wrong argument count is a usage error, not a silent pass
 wrong argument count is a usage error, not a silent pass
+wrong argument count is exit 2
+wrong argument count is exit 2
 wrong argument count is exit 2
 wrong argument count is exit 2
 wrong argument count is exit 2
