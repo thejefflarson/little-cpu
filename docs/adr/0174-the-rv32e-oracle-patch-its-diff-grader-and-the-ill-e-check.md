@@ -299,6 +299,11 @@ rejected: this ADR already stated in writing that its assertions were tautologie
 shipped anyway, so a sentence is not the bar. A label in `PROBES_EXPECTED` is, because
 `make probe-gates` requires every listed label to run and go red for its own reason --
 requiring the label requires a working probe.
+That is the gate's whole reach: it proves such a probe ran and went red, not that
+the mutation it plants is a wrong rule worth catching. A probe whose label carries
+the phrase but mutates something trivial would open the gate, so reviewing that one
+probe is the reviewer's job; grading the grader again would rebuild what this
+amendment removes.
 
 **`nano/nano.v` never changed while any of this was built.** `make nano-area` reads
 84,290.8 um2 on `0f66638`, the donor's own figure to the decimal. The general lesson is
