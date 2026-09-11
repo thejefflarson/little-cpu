@@ -1229,9 +1229,6 @@ dual-ecp5-timing: ecp5-timing-toolchain dual_ecp5.config
 	@echo
 	@echo "Placement, routing and nextpnr's own timing analysis: dual_ecp5.pnr.log"
 
-print-%:
-	@echo '$($*)'
-
 TOOLS ?= $(sort $(FIT_TOOLS) $(SOC_TIMING_TOOLS) $(ECP5_TOOLS))
 
 .PHONY: print-toolchain

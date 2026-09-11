@@ -3,9 +3,6 @@ include ../../mk/toolchain.mk
 
 .DELETE_ON_ERROR:
 
-print-%:
-	@echo '$($*)'
-
 JOBS := $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 ifeq ($(shell printf '%s' '$(JOBS)' | grep -cE '^[1-9][0-9]{0,3}$$'),0)
 override JOBS := 4

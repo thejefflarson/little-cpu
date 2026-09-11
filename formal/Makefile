@@ -3,9 +3,6 @@ include ../mk/toolchain.mk
 
 .DELETE_ON_ERROR:
 
-print-%:
-	@echo '$($*)'
-
 # JOBS is spliced into a shell command line, so anything that is not a plain decimal --
 # an error message, an empty string -- falls back rather than being passed through.
 JOBS := $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
