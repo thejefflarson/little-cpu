@@ -6393,6 +6393,43 @@ d=$(tp_fixture)
 probe "TOOLS_ON_PATH stops the real tools shadowing a fixture's stubs" 0 \
   "respected" \
   "env XDG_CACHE_HOME=$d/cache TOOLS_ON_PATH=1 make -C $REPO -s print-PATH | cut -d: -f1 | grep -qx '$d/cache/little-cpu/oss-cad-suite/bin' && echo shadowed || echo respected"
+
+begin_group "mk/toolchain.mk in the formal sub-makes"
+
+# `make -C formal` starts a fresh make with no memory of the root Makefile's PATH, so
+# the same regression #314 fixed at the root is a separate failure mode here.
+d=$(tp_fixture)
+probe "control: formal/Makefile also puts the cached suite first" 0 \
+  "$d/cache/little-cpu/oss-cad-suite/bin" \
+  "env -u TOOLS_ON_PATH XDG_CACHE_HOME=$d/cache make -C $REPO/formal -s print-PATH | cut -d: -f1"
+
+d=$(tp_fixture)
+probe "TOOLS_ON_PATH stops formal/Makefile shadowing a fixture's stubs too" 0 \
+  "respected" \
+  "env XDG_CACHE_HOME=$d/cache TOOLS_ON_PATH=1 make -C $REPO/formal -s print-PATH | cut -d: -f1 | grep -qx '$d/cache/little-cpu/oss-cad-suite/bin' && echo shadowed || echo respected"
+
+d=$(tp_fixture)
+probe "control: nano/formal/Makefile also puts the cached suite first" 0 \
+  "$d/cache/little-cpu/oss-cad-suite/bin" \
+  "env -u TOOLS_ON_PATH XDG_CACHE_HOME=$d/cache make -C $REPO/nano/formal -s print-PATH | cut -d: -f1"
+
+d=$(tp_fixture)
+probe "TOOLS_ON_PATH stops nano/formal/Makefile shadowing a fixture's stubs too" 0 \
+  "respected" \
+  "env XDG_CACHE_HOME=$d/cache TOOLS_ON_PATH=1 make -C $REPO/nano/formal -s print-PATH | cut -d: -f1 | grep -qx '$d/cache/little-cpu/oss-cad-suite/bin' && echo shadowed || echo respected"
+
+probe "a missing bitwuzla is refused by name before sby ever runs" 2 \
+  "bitwuzla is not on PATH" \
+  "PATH=/usr/bin:/bin make -C $REPO/formal check-solver-bitwuzla"
+
+probe "a missing btorsim is refused by name before formal's own sweep runs" 2 \
+  "btorsim is not on PATH" \
+  "PATH=/usr/bin:/bin make -C $REPO/formal check-solver-btorsim"
+
+probe "a missing btorsim is refused by name before nano's own sweep runs" 2 \
+  "btorsim is not on PATH" \
+  "PATH=/usr/bin:/bin make -C $REPO/nano/formal check-solver-btorsim"
+
 begin_group "formal/check-shard.sh"
 
 # A synthetic checks directory: two .sby names and a Makefile that writes the status

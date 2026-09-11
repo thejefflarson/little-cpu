@@ -1,6 +1,10 @@
 include ../../formal/pin.mk
+include ../../mk/toolchain.mk
 
 .DELETE_ON_ERROR:
+
+print-%:
+	@echo '$($*)'
 
 JOBS := $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 ifeq ($(shell printf '%s' '$(JOBS)' | grep -cE '^[1-9][0-9]{0,3}$$'),0)
@@ -34,6 +38,12 @@ check-baseline: ../../formal/check-baseline.sh EXPECTED_FAIL EXPECTED_CHECKS
 	rm -rf $@
 	sby -f $<
 
+# A missing solver otherwise surfaces as an opaque sby failure -- refuse by name before
+# spending the time to find that out.
+.PHONY: check-solver-%
+check-solver-%:
+	@../../mk/check-solvers.sh $*
+
 dmemcheck: dmemcheck.sby dmemcheck.sv ../nano.v | $(RISCV_FORMAL_DIR)
 imemcheck: imemcheck.sby imemcheck.sv ../nano.v | $(RISCV_FORMAL_DIR)
 complete:  complete.sby  complete.sv  ../nano.v | $(RISCV_FORMAL_DIR)
@@ -44,7 +54,8 @@ complete-cover-probe: complete-cover-probe.py complete.sv complete_cover.sby ../
 	python3 $<
 
 .PHONY: remeasure-fg
-remeasure-fg: remeasure-fg.py ../../formal/depth_rules.py checks.cfg ../nano.v | $(RISCV_FORMAL_DIR)
+remeasure-fg: remeasure-fg.py ../../formal/depth_rules.py checks.cfg check-solver-btorsim \
+              ../nano.v | $(RISCV_FORMAL_DIR)
 	python3 $<
 
 clean:

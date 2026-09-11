@@ -1,6 +1,10 @@
 include pin.mk
+include ../mk/toolchain.mk
 
 .DELETE_ON_ERROR:
+
+print-%:
+	@echo '$($*)'
 
 # JOBS is spliced into a shell command line, so anything that is not a plain decimal --
 # an error message, an empty string -- falls back rather than being passed through.
@@ -24,6 +28,13 @@ FORCE:
 %: %.sby FORCE
 	rm -rf $@
 	sby -f $<
+
+# A missing solver otherwise surfaces as an opaque sby failure -- refuse by name before
+# spending the time to find that out. `checks` already does this for pono, inside
+# retune-checks.py; components_executor and remeasure-fg have no such check of their own.
+.PHONY: check-solver-%
+check-solver-%:
+	@../mk/check-solvers.sh $*
 
 check: checks interrupt-tie-off multihart-tie-off $(RISCV_FORMAL_DIR)
 	-$(MAKE) -C $< -j$(JOBS) -k
@@ -52,7 +63,8 @@ RTL_SOURCES := ../rtl/structs.v ../rtl/fetcher.v ../rtl/regfile.v \
                ../rtl/accessor.v ../rtl/writeback.v ../rtl/littlecpu.v
 
 .PHONY: remeasure-fg
-remeasure-fg: remeasure-fg.py depth_rules.py genchecks-local.py checks.cfg $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
+remeasure-fg: remeasure-fg.py depth_rules.py genchecks-local.py checks.cfg check-solver-btorsim \
+              $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
 	python3 $<
 
 dmemcheck: dmemcheck.sby dmemcheck.sv arbiter.v $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
@@ -99,7 +111,8 @@ components_decoder: components.sby decoder-zkt-probe ../rtl/decoder.v ../rtl/reg
 .PHONY: decoder-zkt-probe
 decoder-zkt-probe: decoder-zkt-probe.py ../rtl/decoder.v components.sby
 	python3 $<
-components_executor: components.sby executor-zkt-probe ../rtl/executor.v ../rtl/structs.v
+components_executor: components.sby executor-zkt-probe check-solver-bitwuzla ../rtl/executor.v \
+                      ../rtl/structs.v
 	rm -rf $@
 	sby -f $< executor
 
