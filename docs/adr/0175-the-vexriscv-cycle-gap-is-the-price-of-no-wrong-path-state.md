@@ -23,7 +23,7 @@ than the gap.
 
 ## What Dhrystone's cycle accounting says
 
-`make dhrystone`, `-O2`, 2000 runs, this tree:
+`make dhrystone`, `-O2`, 2000 runs, on the tree this ADR merged on (commit `13f5f48`):
 
 ```
 RETIRES 950437 SPEC-CHECKED 950432
@@ -51,8 +51,9 @@ candidate for anything.
 `rs1_fwd_eligible` is exactly `instr_math` (line 517) and `rs2_fwd_eligible` adds a store's, an AMO's
 and `sc.w`'s write data (line 518). Every other category that reads `reg_rs1`/`reg_rs2` directly,
 rather than through `rs1_forwarded`/`rs2_forwarded`, is a `hzC` reader by construction — there is no
-sixth category, because these are the only two assignments in the file that read the raw register
-inputs outside the eligibility-gated forwarding mux itself:
+sixth category, because `rs1_fwd_eligible` and `rs2_fwd_eligible` are the only two
+forwarding-eligibility gates in the file, and every reader that falls outside them is one of the
+following:
 
 - `csr_arg` (line 291): a register-form CSR's operand.
 - `mem_addr_calc` (line 331), `ls_block` (line 365) and `mem_addr_low` (line 377): a load's or
@@ -119,7 +120,7 @@ concessions could move it, and both are unavailable structurally, not provisiona
 - **The operand-column-recapture concession is unavailable because ADR-0154 measured the opposite on
   this exact benchmark.** Dhrystone's hazard column fell 357,798 → 317,207 cycles when executor-only
   forwarding shipped, and roughly 4,000 of the 40,591-cycle drop reappeared as *new* operand-fetch
-  cycles (234,533 → 238,565) rather than converting straight to throughput — about 10% of a hazard
+  cycles (234,533 → 238,562) rather than converting straight to throughput — about 10% of a hazard
   reduction on this workload has already been shown to recur elsewhere in the same accounting, not to
   vanish.
 
@@ -170,3 +171,24 @@ this line's behavior is not a route to closing the gap either.
 - **Nothing in `rtl/`, `formal/` or `test/` ships from this ADR.** It records a measurement and a
   decision against a gap that already exists in the tree; the hazard split's own graders
   (`test/stall_report.py`'s identity check, `test/cxxrtl.cc`'s bucket order) are unchanged.
+
+## Amendment, 2026-09-10 — three accuracy corrections
+
+A security review of this ADR found three defects; the decision is unchanged by all three.
+
+1. **The operand-column figure disagreed with itself**: 238,562 in the cycle-accounting table
+   above and 238,565 in the ceiling section's before/after pair. Re-running `make dhrystone` on
+   this ADR's own tree (commit `13f5f48`) reproduces the table's figure exactly; the ceiling
+   section's copy is corrected to 238,562 to match.
+2. **The sentence introducing cause C's reader sites mis-described what it was counting.** It said
+   "these are the only two assignments in the file that read the raw register inputs outside the
+   eligibility-gated forwarding mux itself" immediately before listing five more sites that do
+   exactly that — the sentence was describing `rs1_fwd_eligible`/`rs2_fwd_eligible`, the two
+   forwarding-eligibility gates, not the raw-register readers the list names. Reworded to say what
+   it means: those two are the only eligibility gates, and every reader outside them is one of the
+   sites listed.
+3. **This ADR's total (1,506,772 cycles) differs from CLAUDE.md's Dhrystone total (1,506,943).**
+   Both are correct: they were measured on different trees. CLAUDE.md's figure is ADR-0154's own
+   measurement, taken on the tree that landed executor-only forwarding, before this ADR's hazard
+   split existed. This ADR's figure is this run, on the tree named above. Neither total is owed a
+   re-take against the other — the cause-C split this ADR reads did not exist on ADR-0154's tree.
