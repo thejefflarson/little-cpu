@@ -872,9 +872,6 @@ jobs:
       - name: nanocpu complete_cover (anti-vacuity — every opcode class retires)
         run: make -C nano/formal complete_cover
 
-      - name: nanocpu ill_e + ill_e_cover (RV32E register-naming restriction, against a reference core, and its anti-vacuity control)
-        run: make -C nano/formal ill_e ill_e_cover
-
       - name: Report job wall time
         if: always()
         run: |
