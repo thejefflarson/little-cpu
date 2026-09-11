@@ -430,6 +430,10 @@ probe-gates:
 pin-bump-test:
 	@./formal/test-propose-pin-bump.sh
 
+.PHONY: pin-bump-token-test
+pin-bump-token-test:
+	@python3 ./test/pin_bump_token_test.py
+
 .PHONY: tool-cache-test
 tool-cache-test:
 	@./test/tool_cache_test.sh '$(SAIL_RISCV_DIR)' '$(SVLINT_DIR)' '$(SAIL_DOWNLOAD_DIR)' '$(NANO_LIBERTY_DIR)'
@@ -555,7 +559,7 @@ dual-build:
 	@./test/dual_build.sh test/dual test/asm test/dual/MUTATION_PAIRINGS
 
 .PHONY: test
-test: sim test-units probe-gates pin-bump-test tool-cache-test memmap-test \
+test: sim test-units probe-gates pin-bump-test pin-bump-token-test tool-cache-test memmap-test \
       adr-numbering-test compare-geometry-test vexriscv-path-test retired-term-test port-connect-test march-test \
       band-source-test zkt-isolation-test fixture-freshness-test window-test imem-share-test \
       abc-engine-test makefile-target-test mutation-probe dual-build board-elaborate \

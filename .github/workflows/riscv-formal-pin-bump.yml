@@ -8,8 +8,7 @@ on:
 
 permissions:
   contents: write # git push, for the branch carrying the bump
-  issues: write # gh issue list, then gh issue create
-  pull-requests: read # gh pr list, to notice a bump a human has already opened
+  issues: write # gh issue create
 
 jobs:
   check-and-bump:
@@ -20,8 +19,32 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
-      - name: formal/bump-riscv-formal-pin.sh
-        run: formal/bump-riscv-formal-pin.sh
+      - name: decide
+        id: decide
+        run: formal/pin-bump-decide.sh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # No GH_TOKEN: this step executes upstream code.
+      - name: regenerate
+        if: steps.decide.outputs.proceed == 'yes'
+        run: |
+          formal/bump-riscv-formal-pin.sh \
+            '${{ steps.decide.outputs.pin_sha }}' \
+            '${{ steps.decide.outputs.upstream_sha }}' \
+            '${{ steps.decide.outputs.branch }}' \
+            '${{ steps.decide.outputs.title }}' \
+            "$RUNNER_TEMP/pin-bump"
+
+      - name: publish
+        if: steps.decide.outputs.proceed == 'yes'
+        run: |
+          gh auth setup-git
+          formal/publish-pin-bump.sh \
+            '${{ steps.decide.outputs.branch }}' \
+            '${{ steps.decide.outputs.title }}' \
+            "$RUNNER_TEMP/pin-bump"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

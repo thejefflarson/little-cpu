@@ -1,50 +1,27 @@
 #!/bin/bash
-# Bumps formal/pin.mk's riscv-formal SHA on a branch when upstream's `main` has moved past
-# it, regenerating test/monitor.v and opening an issue asking a human to open the pull
-# request. Also checks nano/formal/rvfi_insn_check.sv, a hand-maintained fork with no
-# generator to re-run, against the new pin, and reports that in the issue body.
+# Runs `make test/monitor.v`, which executes upstream's own generate.py -- so this
+# step is given no GH_TOKEN and its checkout carries no credential.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
+if [ "$#" -ne 5 ]; then
+  echo "usage: bump-riscv-formal-pin.sh <pin-sha> <upstream-sha> <branch> <title> <out-dir>" >&2
+  exit 2
+fi
+
+PIN_SHA=$1
+UPSTREAM_SHA=$2
+BRANCH=$3
+TITLE=$4
+OUT_DIR=$5
+
+if [ -n "${GH_TOKEN:-}" ]; then
+  echo "bump-riscv-formal-pin.sh: GH_TOKEN is set; this step runs upstream code and must not hold one" >&2
+  exit 2
+fi
+
+mkdir -p "$OUT_DIR"
 UPSTREAM_URL="https://github.com/YosysHQ/riscv-formal.git"
-
-PIN_SHA=$(python3 -c "
-import re, pathlib
-text = pathlib.Path('formal/pin.mk').read_text()
-m = re.search(r'override RISCV_FORMAL_SHA := ([0-9a-f]{40})', text)
-assert m, 'could not find RISCV_FORMAL_SHA in formal/pin.mk'
-print(m.group(1))
-")
-
-UPSTREAM_SHA=$(git ls-remote "$UPSTREAM_URL" HEAD | cut -f1)
-if ! printf '%s' "$UPSTREAM_SHA" | grep -qE '^[0-9a-f]{40}$'; then
-  echo "upstream HEAD for $UPSTREAM_URL is not a 40-hex SHA: '$UPSTREAM_SHA'" >&2
-  exit 1
-fi
-
-echo "pinned:   $PIN_SHA"
-echo "upstream: $UPSTREAM_SHA"
-
-if [ "$PIN_SHA" = "$UPSTREAM_SHA" ]; then
-  echo "pin is current; nothing to do"
-  exit 0
-fi
-
-BRANCH="riscv-formal-pin/bump-${UPSTREAM_SHA:0:12}"
-TITLE="Bump riscv-formal pin to ${UPSTREAM_SHA:0:12}"
-
-OPEN_COUNT=$(gh pr list --state open --head "$BRANCH" --json number --jq 'length')
-if [ "$OPEN_COUNT" -gt 0 ]; then
-  echo "a PR already proposes $UPSTREAM_SHA (branch $BRANCH); nothing to do"
-  exit 0
-fi
-
-ISSUE_COUNT=$(gh issue list --state open --limit 200 --json title \
-  --jq "[.[] | select(.title == \"$TITLE\")] | length")
-if [ "$ISSUE_COUNT" -gt 0 ]; then
-  echo "an issue already proposes $UPSTREAM_SHA; nothing to do"
-  exit 0
-fi
 
 CLONE_DIR=$(mktemp -d)
 trap 'rm -rf "$CLONE_DIR"' EXIT
@@ -96,21 +73,16 @@ if git diff --quiet -- formal/pin.mk test/monitor.v; then
 fi
 
 COMPARE_URL="https://github.com/YosysHQ/riscv-formal/compare/${PIN_SHA}...${UPSTREAM_SHA}"
+printf '%s\n' "$TITLE" > "$OUT_DIR/title"
+printf '%s\n' "$BRANCH" > "$OUT_DIR/branch"
+{
+  echo "pinned:   $PIN_SHA"
+  echo "upstream: $UPSTREAM_SHA"
+  echo "compare:  $COMPARE_URL"
+  echo
+  printf '%s\n' "$DIFFSTAT"
+} > "$OUT_DIR/commit-trailer"
 
-git config user.name "github-actions[bot]"
-git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-git add formal/pin.mk test/monitor.v
-git commit --quiet -m "$TITLE
-
-pinned:   $PIN_SHA
-upstream: $UPSTREAM_SHA
-compare:  $COMPARE_URL
-
-$DIFFSTAT"
-
-git push --quiet origin "$BRANCH"
-
-BODY_FILE="$CLONE_DIR/issue-body.md"
 {
   echo "Upstream riscv-formal moved."
   echo
@@ -169,6 +141,6 @@ BODY_FILE="$CLONE_DIR/issue-body.md"
       echo "Full diff is ${DIFF_LINES} lines; see the compare link above."
     fi
   fi
-} > "$BODY_FILE"
+} > "$OUT_DIR/issue-body.md"
 
-formal/propose-pin-bump.sh "$BRANCH" "$TITLE" "$BODY_FILE"
+echo "regenerated against $UPSTREAM_SHA on $BRANCH; body in $OUT_DIR/issue-body.md"
