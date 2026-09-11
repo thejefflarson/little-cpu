@@ -394,6 +394,7 @@ a respelled mutation site stops rather than proving the shipping core thrice
 a respelled op_is_divu latch stops the same way too
 a respelled parameter stops rather than comparing nothing
 a respelled region_stall site stops rather than building the shipping core twice
+a respelled rule line stops rather than pinning nothing
 a respelled wait bound stops rather than pinning nothing
 a respelled wait bound stops rather than pinning nothing
 a respelled word arm stops the same way
@@ -408,6 +409,7 @@ a second occurrence of a counted exception value is red
 a seed clearing SOC_MIN_MHZ by under 5% is refused, not pinned
 a semicolon in the liberty path stays inside its own quoted token
 a shard spec that is not <i>/<n> is refused before anything runs
+a shipping core that fails ill_e is red before any mutant runs
 a shipping harness that cannot reach its own goals is red
 a signal in scope only in an earlier module stops it too
 a simulated ROM smaller than the part's is red
@@ -417,6 +419,7 @@ a slice that selects no checks is an error, not an empty success
 a soc/compare script naming no .lds at all does not sink the scan
 a soc/compare/ change since the stamp's base is STALE, and the file is named
 a solo run needs no ramdiff line -- there is no reference to compare
+a solver that wrote no verdict is exit 2, not a red arm
 a solver that wrote no verdict is exit 2, not a red arm
 a solver that wrote no verdict is exit 2, not a red arm
 a solver that wrote no verdict is exit 2, not a red arm
@@ -476,6 +479,7 @@ a wait bound that admits a starved hart is red
 a wait bound that admits a starved hart is red
 a wire that does not carry its class's name is named
 a wire that names a funct7 without a funct3 is rejected, not parsed
+a wrong-rule mutant that still passes is not a control
 an ECP5 placement read with ice40 names names the part, not a bad log
 an ECP5 stamp carrying up5k's tools is missing its own
 an EXTRA architectural write the model never made is caught
@@ -503,6 +507,7 @@ an empty manifest matches an empty suite and is rejected
 an empty netlist is a synthesis that wrote nothing
 an empty part table synthesises nothing, so it is refused
 an empty seed list stops the sweep instead of placing the default
+an empty status file is refused rather than read as a verdict
 an empty status file is refused rather than read as a verdict
 an empty status file is refused rather than read as a verdict
 an empty status file is refused rather than read as a verdict
@@ -715,6 +720,7 @@ hazard reading ls_answer_valid directly is red (finding 1)
 hazard's three causes losing a cycle between them is red
 icetime that cannot resolve its chip database is refused before a version is stamped
 identical traces with different verdicts is DISAGREE VERDICT
+ill_e catches a wrong RV32E rule, and the shipping core still passes
 insn_excluded must be a plain disjunction, not an expression
 layer 1: the trap comparison moved INTO the span is refused, not gated
 layer 2: the enclosed handle_error multiset is pinned, not merely counted
@@ -739,6 +745,7 @@ no named source at all is reported, and is not a failure
 no placer on PATH is refused the same way
 no programs at all would report a clean 0 of 0
 no riscv-formal checkout is exit 2, not a probe against nothing
+no riscv-formal checkout is exit 2, not an ill_e probe against nothing
 no standalone count leaves nothing to compare against
 no utilisation table is a failure, not a 0% fit
 no utilisation table means nothing was placed, not that nothing was lost
@@ -783,6 +790,7 @@ the Dhrystone flags drifting from the suite's ISA is red
 the Makefile and test/cosim.py drifting apart is red
 the REPORT goes too, which .DELETE_ON_ERROR cannot do for a non-target
 the ROM image built to a different size than the ROM is red
+the RTL moving away takes the ill_e probe with it, loudly
 the RTL moving away takes the probe with it, loudly
 the RTL moving away takes the probe with it, loudly
 the RTL moving away takes the probe with it, loudly
@@ -805,6 +813,7 @@ the benchmark script must keep linking against the part's rom
 the benchmark's own FAIL verdict stops the number being quoted
 the carry chain's own interconnect is charged to the carry hop
 the cell count names its own unit rather than borrowing the other's
+the check moving away takes the ill_e probe with it, loudly
 the clock-rate exception belongs to the UART alone
 the co-sim runner's kRamBase drifting is red on its own
 the comment class lands nowhere if its own file is gone
@@ -855,6 +864,7 @@ the regenerate step refuses to run holding a token
 the rulebook quoting a figure the source no longer states is red
 the same for the bypass counter, per program rather than in total
 the same path repeated on one line is not a second copy
+the sby script moving away takes the ill_e probe with it, loudly
 the sby script moving away takes the probe with it, loudly
 the stale ISA name coming back in a formal harness comment is red
 the suite's shape is asserted before a single program is assembled

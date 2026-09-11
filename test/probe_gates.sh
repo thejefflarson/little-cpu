@@ -5389,6 +5389,77 @@ d=$(cc_fixture); rmdir "$d/formal/riscv-formal"
 probe "no riscv-formal checkout is exit 2, not a probe against nothing" 2 \
   "Fetch the pin first" "$(ccs "$d")"
 
+begin_group "nano/formal/ill-e-probe.py"
+
+IE="python3 $REPO/nano/formal/ill-e-probe.py"
+
+cat > "$tmp/sby-ie-stub" <<'STUB'
+#!/bin/sh
+# Stands in for sby. Tells the shipping core from the wrong-rule mutant by reading
+# is_e_illegal's own line out of ../nano.v, the same file the probe wrote it into.
+mkdir -p ill_e
+if grep -q 'rd\[3\]' ../nano.v; then
+  status=${STUB_WRONG:-FAIL}
+else
+  status=${STUB_SHIP:-PASS}
+fi
+[ -n "${STUB_SBY_NO_STATUS:-}" ] && exit 1
+if [ -n "${STUB_SBY_EMPTY_STATUS:-}" ]; then : > ill_e/status; exit 1; fi
+echo "$status 0 1" > ill_e/status
+STUB
+chmod +x "$tmp/sby-ie-stub"
+
+ie_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/nano/formal" "$d/formal/riscv-formal"
+  cp "$REPO"/nano/nano.v "$d/nano/"
+  cp "$REPO"/nano/formal/ill_e.sby "$REPO"/nano/formal/ill_e.sv "$d/nano/formal/"
+  printf '%s' "$d"
+}
+
+ies() { printf "%s --repo %s --workdir %s/work --sby %s" "$IE" "$1" "$1" "$tmp/sby-ie-stub"; }
+
+d=$(ie_fixture)
+probe "ill_e catches a wrong RV32E rule, and the shipping core still passes" 0 \
+  "The wrong-rule mutant fails ill_e, and the shipping core passes it." "$(ies "$d")"
+
+d=$(ie_fixture)
+probe "a shipping core that fails ill_e is red before any mutant runs" 1 \
+  "the shipping core does not pass ill_e" "STUB_SHIP=FAIL $(ies "$d")"
+
+d=$(ie_fixture)
+probe "a wrong-rule mutant that still passes is not a control" 1 \
+  "the wrong-rule mutant passes" "STUB_WRONG=PASS $(ies "$d")"
+
+d=$(ie_fixture)
+probe "a solver that wrote no verdict is exit 2, not a red arm" 2 \
+  "wrote no status for the shipping case" "STUB_SBY_NO_STATUS=1 $(ies "$d")"
+
+d=$(ie_fixture)
+probe "an empty status file is refused rather than read as a verdict" 2 \
+  "status file for the shipping case is empty" "STUB_SBY_EMPTY_STATUS=1 $(ies "$d")"
+
+d=$(ie_fixture)
+mutate "$d/nano/nano.v" 's/assign is_e_illegal = rd\[4\]/assign is_e_illegal = rd [4]/'
+probe "a respelled rule line stops rather than pinning nothing" 2 \
+  "no longer spells is_e_illegal" "$(ies "$d")"
+
+d=$(ie_fixture); rm "$d/nano/formal/ill_e.sby"
+probe "the sby script moving away takes the ill_e probe with it, loudly" 2 \
+  "nano/formal/ill_e.sby is missing from" "$(ies "$d")"
+
+d=$(ie_fixture); rm "$d/nano/formal/ill_e.sv"
+probe "the check moving away takes the ill_e probe with it, loudly" 2 \
+  "nano/formal/ill_e.sv is missing from" "$(ies "$d")"
+
+d=$(ie_fixture); rm "$d/nano/nano.v"
+probe "the RTL moving away takes the ill_e probe with it, loudly" 2 \
+  "nano/nano.v is missing from" "$(ies "$d")"
+
+d=$(ie_fixture); rmdir "$d/formal/riscv-formal"
+probe "no riscv-formal checkout is exit 2, not an ill_e probe against nothing" 2 \
+  "Fetch the pin first" "$(ies "$d")"
+
 begin_group "nano/formal/check-rvfi-insn-check.py"
 
 CRIC="python3 $REPO/nano/formal/check-rvfi-insn-check.py"
@@ -5416,8 +5487,12 @@ IEW="python3 $REPO/test/ill_e_wiring_test.py"
 iew_fixture() {
   local d; d=$(new_case)
   mkdir -p "$d/nano/formal" "$d/test"
-  cp "$REPO/nano/formal/checks.cfg" "$d/nano/formal/"
-  cp "$REPO/test/PROBES_EXPECTED" "$d/test/"
+  # Synthetic and minimal rather than copies of the real files: RISCV_FORMAL_E is now
+  # live in the real checks.cfg, and its wrong-rule label is now in the real
+  # PROBES_EXPECTED, so copying either would make the "not yet wired" baseline below
+  # false the moment either file states what it now states.
+  printf '[options]\nisa rv32imc\n' > "$d/nano/formal/checks.cfg"
+  printf 'a placeholder probe label\n' > "$d/test/PROBES_EXPECTED"
   printf '%s' "$d"
 }
 

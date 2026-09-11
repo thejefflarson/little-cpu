@@ -149,6 +149,36 @@ def call_tracer(frame, event, arg):
         return return_tracer
     return None
 
+def patch_local_insn_check(base, pin_basedir, checks_dir):
+    """Point every generated insn_* check at a harness-local rvfi_insn_check.sv fork
+    instead of the pinned clone's copy, when one exists beside checks.cfg.
+
+    genchecks-local.py is vendored and always writes @basedir@/checks/rvfi_insn_check.sv
+    into [files]; that basedir is the ONE riscv-formal clone every harness shares, so
+    editing the clone's own copy in place would also change formal/'s checks for
+    littlecpu, which has no register-count restriction to assume. nano/formal carries its
+    own rvfi_insn_check.sv (a fork adding the RISCV_FORMAL_E assumption,
+    check-rvfi-insn-check.py grades it against the pin) precisely so the substitution can
+    be local to the .sby files this call generates, never to the shared clone.
+    """
+    local_fork = os.path.join(base, "rvfi_insn_check.sv")
+    if not os.path.isfile(local_fork):
+        return
+    pinned = os.path.join(pin_basedir, "checks", "rvfi_insn_check.sv")
+    patched = 0
+    for name in os.listdir(checks_dir):
+        if not name.endswith(".sby"):
+            continue
+        path = os.path.join(checks_dir, name)
+        with open(path) as f:
+            text = f.read()
+        if pinned not in text:
+            continue
+        with open(path, "w") as f:
+            f.write(text.replace(pinned, local_fork))
+        patched += 1
+    print(f"patch_local_insn_check: {patched} check(s) now read {local_fork}")
+
 def main():
     if len(sys.argv) != 2:
         print(f"usage: {sys.argv[0]} <harness-dir>", file=sys.stderr)
@@ -199,6 +229,8 @@ def main():
             file=sys.stderr,
         )
         return 1
+
+    patch_local_insn_check(base, genchecks["basedir"], checks_dir)
 
     considered = {}
     families = {}
