@@ -70,13 +70,13 @@ EXCLUDE_FILES = {
 }
 
 # Lines that carry a comment marker and are CODE. Each is parsed by something:
-# `#derive`/`#floor`/`#omit` by formal/depth_rules.py and genchecks-audit.py,
+# `#derive`/`#floor`/`#omit`/`#insn-check` by depth_rules.py and genchecks-audit.py,
 # `// EXCLUDE` by formal/check-complete-exclusions.py (which also requires 40
 # characters of prose under it), a shebang by the kernel, and the rest by a
 # linter. Exempting the whole file instead would stop grading its real prose.
 FUNCTIONAL = re.compile(
     r"^(#!"
-    r"|\s*(#derive|#floor|#omit)\b"
+    r"|\s*(#derive|#floor|#omit|#insn-check)\b"
     r"|\s*//\s*EXCLUDE\b"
     r"|\s*(#|//)\s*(shellcheck|noqa|pylint|type:|nosec|yamllint|codespell|ruff:|mypy:"
     r"|fmt:|isort:|pragma|coding[:=]|-\*-|SPDX|Copyright|See LICENSE|Licensed under"

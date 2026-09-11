@@ -18,6 +18,7 @@ DEFINE_RE = re.compile(r"^`define\s+RISCV_FORMAL_(\w+_CYCLES?)\s+(\d+)\s*$")
 
 # genchecks' parser drops `#` lines before a section, so these don't perturb generation.
 OMIT_RE = re.compile(r"^#omit\s+(\S+)\s+(\S.*)$")
+INSN_CHECK_RE = re.compile(r"^#insn-check\s+(\S+)\s*$")
 
 def read_name_list(path):
     """One name per line. `#` comments and blank lines are ignored, the same way
@@ -149,35 +150,54 @@ def call_tracer(frame, event, arg):
         return return_tracer
     return None
 
-def patch_local_insn_check(base, pin_basedir, checks_dir):
-    """Point every generated insn_* check at a harness-local rvfi_insn_check.sv fork
-    instead of the pinned clone's copy, when one exists beside checks.cfg.
+def declared_insn_fork(base, cfg):
+    """The fork a harness names with `#insn-check <file>`, or an error when the
+    declaration is ambiguous, names nothing, or a fork sits there undeclared."""
+    with open(cfg) as f:
+        names = [m.group(1) for m in map(INSN_CHECK_RE.match, f.read().splitlines()) if m]
+    if len(names) > 1:
+        return None, f"error: {cfg} declares #insn-check {len(names)} times; one fork per harness."
+    if names:
+        fork = os.path.join(base, names[0])
+        if not os.path.isfile(fork):
+            return None, f"error: {cfg} declares #insn-check {names[0]}, which does not exist."
+        return fork, None
+    stray = os.path.join(base, "rvfi_insn_check.sv")
+    if os.path.exists(stray):
+        return None, (
+            f"error: {stray} sits beside checks.cfg with no #insn-check line,\n"
+            "       so it would decide which oracle this harness's insn_* checks read\n"
+            "       without saying so. Declare it in checks.cfg, or remove it."
+        )
+    return None, None
 
-    genchecks-local.py is vendored and always writes @basedir@/checks/rvfi_insn_check.sv
-    into [files]; that basedir is the ONE riscv-formal clone every harness shares, so
-    editing the clone's own copy in place would also change formal/'s checks for
-    littlecpu, which has no register-count restriction to assume. nano/formal carries its
-    own rvfi_insn_check.sv (a fork adding the RISCV_FORMAL_E assumption,
-    check-rvfi-insn-check.py grades it against the pin) precisely so the substitution can
-    be local to the .sby files this call generates, never to the shared clone.
-    """
-    local_fork = os.path.join(base, "rvfi_insn_check.sv")
-    if not os.path.isfile(local_fork):
-        return
+def redirect_insn_checks(fork, pin_basedir, checks_dir):
+    """Re-point the generated checks, never the shared clone, from its rvfi_insn_check.sv
+    to `fork`, then read every insn_* .sby back rather than trusting a tally."""
     pinned = os.path.join(pin_basedir, "checks", "rvfi_insn_check.sv")
-    patched = 0
-    for name in os.listdir(checks_dir):
-        if not name.endswith(".sby"):
-            continue
+    sbys = sorted(n for n in os.listdir(checks_dir) if n.endswith(".sby"))
+    for name in sbys:
         path = os.path.join(checks_dir, name)
         with open(path) as f:
             text = f.read()
-        if pinned not in text:
-            continue
-        with open(path, "w") as f:
-            f.write(text.replace(pinned, local_fork))
-        patched += 1
-    print(f"patch_local_insn_check: {patched} check(s) now read {local_fork}")
+        if pinned in text:
+            with open(path, "w") as f:
+                f.write(text.replace(pinned, fork))
+    insn = [n for n in sbys if n.startswith("insn_")]
+    missed = []
+    for name in insn:
+        with open(os.path.join(checks_dir, name)) as f:
+            if fork not in f.read():
+                missed.append(name)
+    if missed:
+        return (
+            f"error: #insn-check names {fork}, but {len(missed)} of {len(insn)} insn_*\n"
+            f"       checks do not read it (e.g. {missed[0]}). The generator no longer\n"
+            f"       writes {pinned} in the form this redirect replaces -- a pin bump\n"
+            "       respelling [files] does it -- so those checks read the unpatched oracle."
+        )
+    print(f"insn-check: {len(insn)} of {len(insn)} insn_* checks read {fork}")
+    return None
 
 def main():
     if len(sys.argv) != 2:
@@ -209,6 +229,11 @@ def main():
         )
         return 1
 
+    fork, insn_error = declared_insn_fork(base, cfg)
+    if insn_error:
+        print(insn_error, file=sys.stderr)
+        return 1
+
     # genchecks-local.py runs in-process via runpy and reads sys.argv[1] as a cfg name,
     # so this script's own <harness-dir> argument must not leak into it.
     saved_argv = sys.argv
@@ -230,7 +255,11 @@ def main():
         )
         return 1
 
-    patch_local_insn_check(base, genchecks["basedir"], checks_dir)
+    if fork:
+        insn_error = redirect_insn_checks(fork, genchecks["basedir"], checks_dir)
+        if insn_error:
+            print(insn_error, file=sys.stderr)
+            return 1
 
     considered = {}
     families = {}
