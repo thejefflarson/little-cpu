@@ -279,3 +279,148 @@ on ECP5 regardless: 1.99× littlecpu and 1.55× hazard3 on Dhrystone, 1.76× and
 (base `122ef7b`, dirty, pre-peer-VexRiscv, hx8k-derived clocks) and re-taking that stamp is a
 separate ticket's job. Every number above is this session's own fresh run, quoted rather than read
 off the artifact.
+
+## Amendment, 2026-09-10 — pairwise rows at the ISA each pair actually shares
+
+Every row above puts all three cores on RV32IM, the widest ISA the three-way intersection allows.
+That is sound for the three-way row, but it throws away an extension every PAIR in it actually
+implements: littlecpu and VexRiscv both have C (`compressedGen = true`,
+`soc/compare/vexriscv/GenLittleCpuCompare.scala`); littlecpu and Hazard3 both have A
+(`EXTENSION_A(1)`, `soc/compare/bench_hazard3.v`, the same file's `EXTENSION_C(0)` being why the
+three-way row cannot use it). C is the one that matters — ADR-0002 and ADR-0003 keep it specifically
+because code density is a product constraint on the up5k's 8 KB ROM, and the littlecpu-vs-VexRiscv
+pair above is exactly where this ADR's headline loss sits, measured with the kept extension switched
+off.
+
+Four new rows, printed **alongside** the three-way and ISA-cost rows above, never replacing them:
+littlecpu-vs-VexRiscv at RV32IMC and littlecpu-vs-Hazard3 at RV32IMA, on both `make compare-dhrystone`
+and `make compare-coremark`, plus CoreMark's own "littlecpu alone at its native ISA" row mirroring
+the one Dhrystone already had (`soc/compare/dhry_solo_tb.v`). Each pairwise row is its own two-DUT
+testbench (`soc/compare/dhry_vexc_tb.v`, `dhry_haza_tb.v`, `coremark_vexc_tb.v`, `coremark_haza_tb.v`)
+rather than a three-DUT one fed a richer image, because Hazard3 has no C to decode a compressed
+image with and VexRiscv has no `AtomicPlugin` to decode an atomic with.
+
+**No RTL changed to take these rows** — `rtl/`, the three `bench_*.v` wrappers and `rtl/memory.v` are
+byte-identical to the tree this amendment lands on. `make compare-timing`'s synthesis inputs are
+therefore unmoved, and CLAUDE.md's own netlist-digest rule applies without qualification: digest
+unchanged, no sweep is owed. Every clock figure below is this ADR's own existing twelve-seed up5k
+and worst/median-of-twelve ECP5 figures, cited rather than re-measured.
+
+### Cycle counts, one tree, one toolchain (`riscv64-elf-gcc 16.2.0`, `-O2`)
+
+Dhrystone, 400 runs (`make compare-dhrystone`):
+
+| row | ISA | littlecpu | VexRiscv | Hazard3 |
+|---|---|---|---|---|
+| three-way (above) | RV32IM | 290825 (0.783 DMIPS/MHz) | 254026 (0.896) | 252825 (0.900) |
+| ISA-cost (above) | RV32IMAC (littlecpu native) | 294025 (0.774) | - | - |
+| pairwise-C (new) | RV32IMC | 294025 (0.774) | 278828 (0.816) | - |
+| pairwise-A (new) | RV32IMA | 290825 (0.783) | - | 252825 (0.900) |
+
+CoreMark, 1 iteration (`make compare-coremark`):
+
+| row | ISA | littlecpu | VexRiscv | Hazard3 |
+|---|---|---|---|---|
+| three-way (above) | RV32IM | 433240 (2.308 CoreMark/MHz) | 427008 (2.342) | 665416 (1.503) |
+| ISA-cost (new) | RV32IMAC (littlecpu native) | 446610 (2.239) | - | - |
+| pairwise-C (new) | RV32IMC | 446610 (2.239) | 443224 (2.256) | - |
+| pairwise-A (new) | RV32IMA | 433240 (2.308) | - | 665416 (1.503) |
+
+`soc/compare/placed_vs_synth.py`'s `COMPARE_MIN_RATIO` and `make compare-smoke` both pass for every
+core present in every configuration above.
+
+### What A buys: nothing measurable, on either benchmark
+
+The pairwise-A row's cycle counts are **numerically identical, digit for digit**, to the three-way
+row's, for both cores on both benchmarks. Expected, and a consistency check on the harness rather
+than a result: neither `test/bench/dhry_port.c` nor CoreMark's vendored sources emit an atomic
+memory instruction, so `-march=rv32ima` and `-march=rv32im` select the same code. The littlecpu-alone
+row confirms it from the other side — RV32IMAC (littlecpu's native, shipping ISA) reads exactly the
+same cycle count as RV32IMC on both benchmarks. A is a free rider on top of whatever C costs, for
+these two programs.
+
+### What C buys: it costs cycles on BOTH cores, and costs VexRiscv more
+
+This disagrees with the hypothesis this ticket asked to test — that C would move littlecpu more than
+VexRiscv, implying littlecpu improves. The measurement: C costs littlecpu 1.10% more Dhrystone cycles
+(290825 → 294025) and 3.09% more CoreMark cycles (433240 → 446610); it costs VexRiscv 9.76% more
+Dhrystone cycles (254026 → 278828) and 3.80% more CoreMark cycles (427008 → 443224). Both cores get
+slower with C, not faster — RV32C restricts most compressed opcodes to 8 of 32 registers (x8-x15),
+and a `-march=rv32imc` build can spend extra register-shuffling instructions a `-march=rv32im` build
+of the same source would not whenever a compressible value lives outside that window, which is at
+least a plausible mechanism for a regression neither this core's decode guess (ADR-0089/ADR-0093,
+built specifically to make a compressed successor free) nor VexRiscv's own decompressor should
+otherwise predict. That mechanism is not chased further here — it is out of scope for a benchmark
+harness amendment, and the number is reported as measured, not explained away.
+
+**Because VexRiscv pays a larger cycle penalty than littlecpu does, the littlecpu-vs-VexRiscv gap
+narrows when both get the ISA they actually share** — the opposite mechanism from the tested
+hypothesis, same net direction. Reading the pure cycle-count ratio (clock cancels out, since a
+benchmark's ISA does not change either core's placed Fmax):
+
+- **Dhrystone**: littlecpu takes 14.48% more cycles than VexRiscv at RV32IM; at RV32IMC that gap is
+  5.45% — **62.4% of the gap closes**.
+- **CoreMark**: littlecpu takes 1.46% more cycles than VexRiscv at RV32IM; at RV32IMC that gap is
+  0.76% — **47.6% of the gap closes**, off a much smaller RV32IM gap to begin with (this pair was
+  already "the closest pair this harness has measured on either benchmark" above).
+
+The littlecpu-vs-Hazard3 gap does not move under A on either benchmark, because A costs neither core
+anything measurable: 15.03% (Dhrystone) and 53.59% (CoreMark) unchanged between the RV32IM and
+RV32IMA rows.
+
+### Products: clock cited, not re-measured
+
+Up5k is a step function: all three cores clear the shared 12 MHz step regardless of which benchmark
+ISA is loaded, so the up5k product is DMIPS/MHz (or CoreMark/MHz) times 12, cycles alone, same as
+above.
+
+| pair | ISA | benchmark | littlecpu | opponent | opponent/littlecpu |
+|---|---|---|---|---|---|
+| vs VexRiscv | RV32IMC | Dhrystone | 9.29 DMIPS | 9.79 DMIPS | 1.054x |
+| vs VexRiscv | RV32IMC | CoreMark | 26.87 CoreMark | 27.07 CoreMark | 1.007x |
+| vs Hazard3 | RV32IMA | Dhrystone | 9.40 DMIPS (unchanged) | 10.80 DMIPS (unchanged) | 1.149x (unchanged) |
+| vs Hazard3 | RV32IMA | CoreMark | 27.70 CoreMark (unchanged) | 18.04 CoreMark (unchanged) | 0.651x (unchanged) |
+| alone, native | RV32IMAC | Dhrystone | 9.29 DMIPS | - | - |
+| alone, native | RV32IMAC | CoreMark | 26.87 CoreMark | - | - |
+
+ECP5 has no quantisation step and both halves of the product vary; the clock is CLAUDE.md's own
+existing worst-of-twelve/median-of-twelve figure (littlecpu 32.01/33.70 MHz, VexRiscv 52.91/54.91,
+Hazard3 48.88/50.39), unmoved because no RTL changed:
+
+| pair | ISA | benchmark | at WORST clock: littlecpu | opponent | opponent/littlecpu |
+|---|---|---|---|---|---|
+| vs VexRiscv | RV32IMC | Dhrystone | 24.78 DMIPS | 43.17 DMIPS | 1.742x (was 1.892x at RV32IM) |
+| vs VexRiscv | RV32IMC | CoreMark | 71.68 CoreMark | 119.36 CoreMark | 1.665x (was 1.677x at RV32IM) |
+| vs Hazard3 | RV32IMA | Dhrystone | 25.06 DMIPS (unchanged) | 43.99 DMIPS (unchanged) | 1.76x (unchanged) |
+| vs Hazard3 | RV32IMA | CoreMark | 73.88 CoreMark (unchanged) | 73.46 CoreMark (unchanged) | 0.994x (unchanged) |
+
+At ECP5's own clock the VexRiscv-pair product still favours VexRiscv by a wide margin on both
+benchmarks — its own clock there is 1.65-1.71x littlecpu's, a factor C does not touch — but the
+Dhrystone multiple visibly narrows (1.89x → 1.74x) the same direction the cycle-only reading shows;
+CoreMark's multiple barely moves (1.68x → 1.67x) because both cores' C-cost was close to proportional
+on that benchmark, so the gap-closing effect the pure cycle ratio shows (47.6%) is mostly cancelled by
+ECP5's much larger VexRiscv/littlecpu clock ratio once the two are multiplied together. **A pairwise
+row at a richer ISA is not comparable to the three-way row above** — different image, different
+instruction mix on two of the three cores — and neither table here should be quoted against the
+RV32IM figures without naming which row and which ISA it is.
+
+### Decision
+
+Ship all four new rows alongside the existing three-way and ISA-cost rows, in both
+`make compare-dhrystone` and `make compare-coremark`, unconditionally — every row states its own pair
+and ISA in its own `@echo` header line, the same split the three-way and ISA-cost rows already used.
+`soc/compare/run_coremark_compare.sh` gains the `[vvp-binary [cores-csv [core=standalone-log]...]]`
+tail `soc/compare/run_dhrystone.sh` already had, defaulting to the original three-core behaviour so
+the one remaining 5-argument call site is unaffected. `soc/compare/product.json`'s existing staleness
+(recorded above, predating this amendment) is untouched, and nothing here changes which pairs
+`soc/compare/run_product.sh` measures — CLAUDE.md already states that re-taking that stamp is a
+separate ticket's.
+
+No new graded comparison was added: every new row reuses `soc/compare/dhry_dmips.py` and
+`soc/compare/coremark_dmips.py` unmodified, and both already grade an arbitrary `--cores` subset,
+ramdiff cross-check included — so the existing `test/probe_gates.sh` coverage of those two scripts
+already exercises the code path every new row runs through.
+
+**Falsifier for the closed part of this amendment**: if a later tree touches `rtl/`,
+`soc/compare/bench_*.v` or `rtl/memory.v`, the sixteen-seed sweep this amendment declined (because
+nothing moved) becomes owed again the normal way, and the clock figures cited here stop applying.

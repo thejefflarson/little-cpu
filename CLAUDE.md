@@ -564,6 +564,20 @@ quarter of this core with a plausible critical path beside it (ADR-0086) — and
 requires all three cores to publish the same values, which caught Hazard3's first bus adapter
 publishing all-X words (ADR-0139). The harness gives VexRiscv no data path to its ROM, so keep
 read-only data out of ROM there.
+**A pairwise row at the ISA that ONE pair actually shares beyond RV32IM is a fourth, fifth, sixth
+and seventh row, printed alongside the three-way one rather than replacing it** (ADR-0160 as
+amended, 2026-09-10):
+littlecpu-vs-VexRiscv at rv32imc and littlecpu-vs-Hazard3 at RV32IMA, on both benchmarks, plus
+CoreMark's own "littlecpu alone at its native ISA" row mirroring the one Dhrystone already had. No
+RTL moved to take these, so every clock is the figure already recorded above, cited rather than
+re-measured. **A costs neither core anything on either benchmark** — the pairwise-A cycle counts are
+identical, digit for digit, to the RV32IM row's, because neither Dhrystone nor CoreMark's source
+emits an atomic. **C costs cycles on BOTH cores, not just littlecpu — disagreeing with the tested
+hypothesis that it would move littlecpu more — but costs VexRiscv more** (Dhrystone: littlecpu
++1.10%, VexRiscv +9.76%; CoreMark: littlecpu +3.09%, VexRiscv +3.80%), so the cycle-ratio gap
+between them narrows **62.4% on Dhrystone and 47.6% on CoreMark** once both run the ISA they
+actually share, though ECP5's much larger VexRiscv clock keeps the placed product still favouring
+VexRiscv on both.
 - **A register in the fetch loop is a fetch stage, and it is priced and declined** (ADR-0087): the
   loop's tail comes out for 3–4 levels, its head not at all (a bank output mux is one `SB_LUT4`
   that ABC folds into the decode reading it, and a register there forbids the sharing), the two

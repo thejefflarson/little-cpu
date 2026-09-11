@@ -1457,6 +1457,12 @@ COMPARE_DHRY_CYCLES ?= 2000000
 COMPARE_DHRY_CFLAGS := -march=rv32im -mabi=ilp32 -O2 -std=c11 \
                        -ffreestanding -fno-tree-loop-distribute-patterns \
                        -Wall -Wextra -Werror
+# The widest ISA one pair shares beyond RV32IM: VexRiscv has C, not A; Hazard3 has A, not C.
+# Every flag but the ISA itself is shared with COMPARE_DHRY_CFLAGS above.
+COMPARE_BENCH_CFLAGS_TAIL := -mabi=ilp32 -O2 -std=c11 -ffreestanding \
+                             -fno-tree-loop-distribute-patterns -Wall -Wextra -Werror
+COMPARE_DHRY_VEXC_CFLAGS := -march=rv32imc $(COMPARE_BENCH_CFLAGS_TAIL)
+COMPARE_DHRY_HAZA_CFLAGS := -march=rv32ima $(COMPARE_BENCH_CFLAGS_TAIL)
 
 COMPARE_DHRY_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
                      soc/compare/bench_vexriscv.v soc/compare/bench_hazard3.v \
@@ -1474,8 +1480,24 @@ COMPARE_DHRY_SOLO_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
 compare.dhry.solo.vvp: $(COMPARE_DHRY_SOLO_SRCS)
 	iverilog -I./rtl/ -g2012 -o $@ $(COMPARE_DHRY_SOLO_SRCS)
 
+COMPARE_DHRY_VEXC_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
+                          soc/compare/bench_vexriscv.v \
+                          soc/compare/dhry_monitor.v soc/compare/dhry_vexc_tb.v
+
+compare.dhry.vexc.vvp: $(COMPARE_DHRY_VEXC_SRCS) $(VEXRISCV_V) vexriscv-pin-check
+	iverilog -I./rtl/ -g2012 -o $@ $(VEXRISCV_V) $(COMPARE_DHRY_VEXC_SRCS)
+
+COMPARE_DHRY_HAZA_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
+                          soc/compare/bench_hazard3.v \
+                          soc/compare/dhry_monitor.v soc/compare/dhry_haza_tb.v
+
+compare.dhry.haza.vvp: $(COMPARE_DHRY_HAZA_SRCS) | $(HAZARD3_DIR)
+	iverilog -I./rtl/ -I$(HAZARD3_HDL) -g2012 -o $@ \
+	  $(HAZARD3_SRCS) $(COMPARE_DHRY_HAZA_SRCS)
+
 .PHONY: compare-dhrystone
-compare-dhrystone: compare.dhry.vvp compare.dhry.solo.vvp
+compare-dhrystone: compare.dhry.vvp compare.dhry.solo.vvp compare.dhry.vexc.vvp \
+                   compare.dhry.haza.vvp
 	@$(MAKE) --no-print-directory COMPARE_CORE=littlecpu compare.littlecpu.core.log
 	@$(MAKE) --no-print-directory COMPARE_CORE=vexriscv compare.vexriscv.core.log
 	@$(MAKE) --no-print-directory COMPARE_CORE=hazard3 compare.hazard3.core.log
@@ -1489,6 +1511,16 @@ compare-dhrystone: compare.dhry.vvp compare.dhry.solo.vvp
 	@./soc/compare/run_dhrystone.sh $(COMPARE_DHRY_RUNS) $(COMPARE_DHRY_CYCLES) \
 	  '$(DHRY_CFLAGS)' hardware compare.dhry.solo.vvp littlecpu \
 	  littlecpu=compare.littlecpu.core.log
+	@echo
+	@echo '== the pairwise-C row: littlecpu and VexRiscv alone, both at rv32imc =='
+	@./soc/compare/run_dhrystone.sh $(COMPARE_DHRY_RUNS) $(COMPARE_DHRY_CYCLES) \
+	  '$(COMPARE_DHRY_VEXC_CFLAGS)' hardware compare.dhry.vexc.vvp littlecpu,vexriscv \
+	  littlecpu=compare.littlecpu.core.log vexriscv=compare.vexriscv.core.log
+	@echo
+	@echo '== the pairwise-A row: littlecpu and Hazard3 alone, both at RV32IMA =='
+	@./soc/compare/run_dhrystone.sh $(COMPARE_DHRY_RUNS) $(COMPARE_DHRY_CYCLES) \
+	  '$(COMPARE_DHRY_HAZA_CFLAGS)' hardware compare.dhry.haza.vvp littlecpu,hazard3 \
+	  littlecpu=compare.littlecpu.core.log hazard3=compare.hazard3.core.log
 	@if [ -f soc/compare/product.json ]; then \
 	  echo '== the stamped cross-core product, if the stamp still matches this tree =='; \
 	  python3 soc/compare/product_check.py soc/compare/product.json dhrystone \
@@ -1508,6 +1540,9 @@ COMPARE_COREMARK_CYCLES     ?= 200000000
 COMPARE_COREMARK_CFLAGS := -march=rv32im -mabi=ilp32 -O2 -std=c11 \
                            -ffreestanding -fno-tree-loop-distribute-patterns \
                            -Wall -Wextra -Werror
+# CoreMark's own image at the same two pairwise ISAs the Dhrystone flags above state.
+COMPARE_COREMARK_VEXC_CFLAGS := -march=rv32imc $(COMPARE_BENCH_CFLAGS_TAIL)
+COMPARE_COREMARK_HAZA_CFLAGS := -march=rv32ima $(COMPARE_BENCH_CFLAGS_TAIL)
 
 COMPARE_COREMARK_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
                          soc/compare/bench_vexriscv.v soc/compare/bench_hazard3.v \
@@ -1519,13 +1554,54 @@ compare.coremark.vvp: $(COMPARE_COREMARK_SRCS) $(VEXRISCV_V) vexriscv-pin-check 
 	  $(VEXRISCV_V) $(HAZARD3_SRCS) \
 	  $(COMPARE_COREMARK_SRCS)
 
+COMPARE_COREMARK_SOLO_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
+                              soc/compare/dhry_monitor.v soc/compare/coremark_solo_tb.v
+
+compare.coremark.solo.vvp: $(COMPARE_COREMARK_SOLO_SRCS)
+	iverilog -I./rtl/ -g2012 -o $@ $(COMPARE_COREMARK_SOLO_SRCS)
+
+COMPARE_COREMARK_VEXC_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
+                              soc/compare/bench_vexriscv.v \
+                              soc/compare/dhry_monitor.v soc/compare/coremark_vexc_tb.v
+
+compare.coremark.vexc.vvp: $(COMPARE_COREMARK_VEXC_SRCS) $(VEXRISCV_V) vexriscv-pin-check
+	iverilog -I./rtl/ -g2012 -o $@ $(VEXRISCV_V) $(COMPARE_COREMARK_VEXC_SRCS)
+
+COMPARE_COREMARK_HAZA_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
+                              soc/compare/bench_hazard3.v \
+                              soc/compare/dhry_monitor.v soc/compare/coremark_haza_tb.v
+
+compare.coremark.haza.vvp: $(COMPARE_COREMARK_HAZA_SRCS) | $(HAZARD3_DIR)
+	iverilog -I./rtl/ -I$(HAZARD3_HDL) -g2012 -o $@ \
+	  $(HAZARD3_SRCS) $(COMPARE_COREMARK_HAZA_SRCS)
+
 .PHONY: compare-coremark
-compare-coremark: compare.coremark.vvp
+compare-coremark: compare.coremark.vvp compare.coremark.solo.vvp \
+                  compare.coremark.vexc.vvp compare.coremark.haza.vvp
 	@$(MAKE) --no-print-directory COMPARE_CORE=littlecpu compare.littlecpu.core.log
 	@$(MAKE) --no-print-directory COMPARE_CORE=vexriscv compare.vexriscv.core.log
 	@$(MAKE) --no-print-directory COMPARE_CORE=hazard3 compare.hazard3.core.log
+	@echo '== the three-way row: littlecpu, VexRiscv and Hazard3, all at RV32IM =='
 	@./soc/compare/run_coremark_compare.sh $(COMPARE_COREMARK_ITERATIONS) \
-	  $(COMPARE_COREMARK_CYCLES) '$(COMPARE_COREMARK_CFLAGS)' compare.coremark.vvp
+	  $(COMPARE_COREMARK_CYCLES) '$(COMPARE_COREMARK_CFLAGS)' compare.coremark.vvp \
+	  littlecpu,vexriscv,hazard3
+	@echo
+	@echo '== the ISA-cost row: littlecpu alone, at its native ISA =='
+	@./soc/compare/run_coremark_compare.sh $(COMPARE_COREMARK_ITERATIONS) \
+	  $(COMPARE_COREMARK_CYCLES) '$(COREMARK_CFLAGS)' compare.coremark.solo.vvp \
+	  littlecpu littlecpu=compare.littlecpu.core.log
+	@echo
+	@echo '== the pairwise-C row: littlecpu and VexRiscv alone, both at rv32imc =='
+	@./soc/compare/run_coremark_compare.sh $(COMPARE_COREMARK_ITERATIONS) \
+	  $(COMPARE_COREMARK_CYCLES) '$(COMPARE_COREMARK_VEXC_CFLAGS)' \
+	  compare.coremark.vexc.vvp littlecpu,vexriscv \
+	  littlecpu=compare.littlecpu.core.log vexriscv=compare.vexriscv.core.log
+	@echo
+	@echo '== the pairwise-A row: littlecpu and Hazard3 alone, both at RV32IMA =='
+	@./soc/compare/run_coremark_compare.sh $(COMPARE_COREMARK_ITERATIONS) \
+	  $(COMPARE_COREMARK_CYCLES) '$(COMPARE_COREMARK_HAZA_CFLAGS)' \
+	  compare.coremark.haza.vvp littlecpu,hazard3 \
+	  littlecpu=compare.littlecpu.core.log hazard3=compare.hazard3.core.log
 
 .PHONY: compare-timing
 # The memories are shared; the DSP count is the core's own, and Hazard3's is soft logic.
@@ -1642,7 +1718,9 @@ clean:
 	rm -f soc/rom_even.hex soc/rom_odd.hex
 	rm -f compare.*.json compare.*.asc compare.*.log compare.*.rpt compare.vvp
 	rm -f compare_ecp5.*.json compare_ecp5.*.config compare_ecp5.*.log
-	rm -f compare.dhry.vvp compare.dhry.solo.vvp compare.coremark.vvp
+	rm -f compare.dhry.vvp compare.dhry.solo.vvp compare.dhry.vexc.vvp compare.dhry.haza.vvp
+	rm -f compare.coremark.vvp compare.coremark.solo.vvp compare.coremark.vexc.vvp \
+	      compare.coremark.haza.vvp
 	rm -f soc/compare/rom_even.hex soc/compare/rom_odd.hex soc/compare/rom_flat.hex
 	rm -f soc/compare/dhry_even.hex soc/compare/dhry_odd.hex soc/compare/dhry_flat.hex
 	rm -f soc/compare/dhry_ram.hex
