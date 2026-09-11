@@ -18,7 +18,7 @@
 // five bits. Left alone, the model is free to retire e.g. `add x20, x5, x3`
 // as ordinary, non-trapping arithmetic -- a real property of RV32I's `add`
 // that is simply not true of an E core, which has no x20 and must trap it
-// (that is what nano/formal/ill_e.sv separately checks). Without a bound, a
+// (a future real-core check separately states that). Without a bound, a
 // correct E core reads as broken on every insn_* check the moment BMC
 // exercises a register above x15.
 //
