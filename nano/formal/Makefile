@@ -1,4 +1,5 @@
 include ../../formal/pin.mk
+include ../../mk/toolchain.mk
 
 .DELETE_ON_ERROR:
 
@@ -34,6 +35,11 @@ check-baseline: ../../formal/check-baseline.sh EXPECTED_FAIL EXPECTED_CHECKS
 	rm -rf $@
 	sby -f $<
 
+# Refuses by name rather than letting sby fail on it opaquely.
+.PHONY: check-solver-%
+check-solver-%:
+	@../../mk/check-solvers.sh $*
+
 dmemcheck: dmemcheck.sby dmemcheck.sv ../nano.v | $(RISCV_FORMAL_DIR)
 imemcheck: imemcheck.sby imemcheck.sv ../nano.v | $(RISCV_FORMAL_DIR)
 complete:  complete.sby  complete.sv  ../nano.v | $(RISCV_FORMAL_DIR)
@@ -49,8 +55,8 @@ check-rvfi-insn-check: $(RISCV_FORMAL_DIR)/checks/rvfi_insn_check.sv rvfi_insn_c
 	python3 check-rvfi-insn-check.py $(RISCV_FORMAL_DIR)/checks/rvfi_insn_check.sv rvfi_insn_check.sv
 
 .PHONY: remeasure-fg
-remeasure-fg: ../../formal/remeasure-fg.py ../../formal/depth_rules.py checks.cfg ../nano.v \
-              | $(RISCV_FORMAL_DIR)
+remeasure-fg: ../../formal/remeasure-fg.py ../../formal/depth_rules.py checks.cfg check-solver-btorsim \
+              ../nano.v | $(RISCV_FORMAL_DIR)
 	python3 $< .
 
 clean:
