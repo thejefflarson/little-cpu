@@ -38,8 +38,7 @@ check-baseline: ../../formal/check-baseline.sh EXPECTED_FAIL EXPECTED_CHECKS
 	rm -rf $@
 	sby -f $<
 
-# A missing solver otherwise surfaces as an opaque sby failure -- refuse by name before
-# spending the time to find that out.
+# Refuses by name rather than letting sby fail on it opaquely.
 .PHONY: check-solver-%
 check-solver-%:
 	@../../mk/check-solvers.sh $*

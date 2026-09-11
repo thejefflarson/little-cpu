@@ -29,9 +29,7 @@ FORCE:
 	rm -rf $@
 	sby -f $<
 
-# A missing solver otherwise surfaces as an opaque sby failure -- refuse by name before
-# spending the time to find that out. `checks` already does this for pono, inside
-# retune-checks.py; components_executor and remeasure-fg have no such check of their own.
+# Refuses by name rather than letting sby fail on it opaquely.
 .PHONY: check-solver-%
 check-solver-%:
 	@../mk/check-solvers.sh $*

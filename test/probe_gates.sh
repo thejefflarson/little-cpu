@@ -6765,6 +6765,20 @@ probe "a missing btorsim is refused by name before nano's own sweep runs" 2 \
   "btorsim is not on PATH" \
   "PATH=/usr/bin:/bin make -C $REPO/nano/formal check-solver-btorsim"
 
+# The three probes above grade the checker script; these grade that each target still
+# WIRES it in as a prerequisite (`make -p -n` reads the expanded rule, running nothing).
+probe "formal's remeasure-fg still lists check-solver-btorsim as a prerequisite" 0 \
+  "check-solver-btorsim" \
+  "make -C $REPO/formal -p -n remeasure-fg 2>/dev/null | grep '^remeasure-fg:'"
+
+probe "nano's remeasure-fg still lists check-solver-btorsim as a prerequisite" 0 \
+  "check-solver-btorsim" \
+  "make -C $REPO/nano/formal -p -n remeasure-fg 2>/dev/null | grep '^remeasure-fg:'"
+
+probe "components_executor still lists check-solver-bitwuzla as a prerequisite" 0 \
+  "check-solver-bitwuzla" \
+  "make -C $REPO/formal -p -n components_executor 2>/dev/null | grep '^components_executor:'"
+
 begin_group "formal/check-shard.sh"
 
 # A synthetic checks directory: two .sby names and a Makefile that writes the status

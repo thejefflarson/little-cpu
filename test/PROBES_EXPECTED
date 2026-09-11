@@ -52,6 +52,8 @@ NO-STATUS is a broken harness and is not baselineable either
 PASS in a failure set is a comparison whose only branch is failure
 RISCV_FORMAL_E live once ill_e.sv wires the real core in is not red
 RISCV_FORMAL_E live while ill_e.sv still checks the reference model is red
+TOOLS_ON_PATH stops formal/Makefile shadowing a fixture's stubs too
+TOOLS_ON_PATH stops nano/formal/Makefile shadowing a fixture's stubs too
 TOOLS_ON_PATH stops the real tools shadowing a fixture's stubs
 a --measured call with no --isa is refused the same way as a missing --cflags
 a --measured call with no --tool is refused rather than stamping an unknown toolchain
@@ -247,6 +249,9 @@ a missing Sail install stops the run rather than scoring it
 a missing artifact refuses rather than reporting on nothing
 a missing asm directory is named
 a missing baseline file is exit 2, not an empty expected set
+a missing bitwuzla is refused by name before sby ever runs
+a missing btorsim is refused by name before formal's own sweep runs
+a missing btorsim is refused by name before nano's own sweep runs
 a missing checks.cfg is refused rather than read as not-live
 a missing e_illegal statement stops rather than mutating nothing
 a missing ill_e.sv is refused rather than read as not-wired
@@ -582,6 +587,7 @@ boot.lds putting the stack back at the top of ram is red
 branch_taken carrying reg_rs1/reg_rs2 into hazard is red
 columns that do not add up blame the report, not the core
 columns that no longer add up to the cycle count are red
+components_executor still lists check-solver-bitwuzla as a prerequisite
 control: .PHONY declaring netlist-digest is not a dependency edge
 control: RISCV_FORMAL_E is not yet wired, so there is nothing to check it against
 control: STALL_REPORT prints the accounting and keeps the suite green
@@ -652,10 +658,12 @@ control: every mutant fails for its own reason and the shipping reference passes
 control: every named source present proceeds
 control: every site names every port of littlecpu
 control: fixture_anchor finds its literal in the real file
+control: formal/Makefile also puts the cached suite first
 control: icetime whose chip database resolves is stamped like any tool
 control: identical register traces and verdicts AGREE
 control: mutate on a real match rewrites the file and returns 0
 control: mutate_remove deletes a file that is there
+control: nano/formal/Makefile also puts the cached suite first
 control: programs that build and are paired are green
 control: rule 6 gates the trap comparison and writes its compensation
 control: the ECP5 arm reads its own fabric's two cell names
@@ -705,6 +713,7 @@ dividers that make a frequency CORE_HZ does not state is red
 every source line moving is the comment class, and is forgiven
 excluding the artifact does not blind the check to a real soc/compare/ change
 fixture_anchor whose literal left the real file is fixture-stale, named
+formal's remeasure-fg still lists check-solver-btorsim as a prerequisite
 half of a macro-guarded group is red, where none of it is not
 hazard reading ls_answer_valid directly is red (finding 1)
 hazard's three causes losing a cycle between them is red
@@ -719,6 +728,7 @@ more accesses near an edge than there were accesses is red
 moved sources say so, naming both digests
 moving the declared string alone, with every site unchanged, is red
 mutate_remove on a path that was never there is fixture-stale, not silent
+nano's remeasure-fg still lists check-solver-btorsim as a prerequisite
 netlist-diff reaches the same check as netlist-digest does
 no components.sby is exit 2 here too, not a green control
 no components.sby is exit 2, not a probe against an invented script

@@ -1,7 +1,5 @@
 #!/bin/sh
-# Refuses by name when a solver a formal target needs is not on PATH, rather than
-# letting sby fail downstream with an opaque "ERROR (rc=16)" or a bare "command not
-# found" from inside the sby process it spawned.
+# Refuses by name rather than letting sby fail on a missing one opaquely.
 set -eu
 
 if [ "$#" -eq 0 ]; then
