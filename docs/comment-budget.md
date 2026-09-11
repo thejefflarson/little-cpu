@@ -40,8 +40,9 @@ specific about seven cases, each of which broke something real when it was got w
 Vendored and generated files, because editing them is either forbidden or pointless:
 CoreMark (`test/bench/coremark/`, pinned by SHA-256), Dhrystone 2.1's three published
 sources, the generated `soc/compare/vexriscv/`, `test/monitor.v` (generated at the
-riscv-formal pin), and `formal/genchecks-local.py` (must differ from the pin by header and
-basedir only).
+riscv-formal pin), `formal/genchecks-local.py` (must differ from the pin by header and
+basedir only), and `nano/formal/rvfi_insn_check.sv` (must differ from the pin by header
+and one `ifdef` block only, graded by `nano/formal/check-rvfi-insn-check.py`).
 
 ## Where prose goes instead of away
 

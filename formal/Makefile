@@ -64,7 +64,7 @@ RTL_SOURCES := ../rtl/structs.v ../rtl/fetcher.v ../rtl/regfile.v \
 
 .PHONY: remeasure-fg
 remeasure-fg: remeasure-fg.py depth_rules.py genchecks-local.py checks.cfg check-solver-btorsim \
-              $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
+              $(RTL_SOURCES) interrupt-tie-off multihart-tie-off | $(RISCV_FORMAL_DIR)
 	python3 $<
 
 dmemcheck: dmemcheck.sby dmemcheck.sv arbiter.v $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)

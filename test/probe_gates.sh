@@ -1146,6 +1146,22 @@ probe "running the generator from the wrong directory is refused, not done" 1 \
 
 GA="python3 $REPO/formal/genchecks-audit.py"
 
+# genchecks-local.py resolves its riscv-formal clone relative to its own realpath, not
+# to the <harness-dir> argument, so this fixture copies both scripts for real -- a
+# symlink back to formal/ would resolve through it to the clone this checkout already
+# has, passing the probe while testing nothing.
+ga_missing_clone_fixture() {
+  local d; d=$(new_case)
+  cp "$REPO/formal/genchecks-audit.py" "$d/genchecks-audit.py"
+  cp "$REPO/formal/genchecks-local.py" "$d/genchecks-local.py"
+  cp "$REPO/formal/depth_rules.py" "$d/depth_rules.py"
+  printf '%s' "$d"
+}
+
+d=$(ga_missing_clone_fixture)
+probe "a missing riscv-formal clone is named, not blamed on the ISA string" 1 \
+  "riscv-formal is missing" "cd '$d' && python3 genchecks-audit.py ."
+
 # A second harness's checks.cfg: genchecks-audit.py takes the harness directory as
 # an argument, so this fixture never touches the real nano/formal tree.
 ga_nano_fixture() {
@@ -1159,6 +1175,75 @@ d=$(ga_nano_fixture)
 mutate "$d/checks.cfg" 's/^hang     1     14$/hang     1     10/'
 probe "a nano [depth] entry lowered below its own floor fails generation, not just the baseline diff" 1 \
   "hang: depth 10 is below F+1 = 13" "cd '$d' && $GA ."
+
+begin_group "formal/remeasure-fg.py"
+
+# fg-probe.cfg and fg-probe/ are gitignored scratch, the same as `make -C formal
+# remeasure-fg` writes into the real formal directory; both probes clean up after.
+RFG_MAIN="cd '$REPO/formal' && rm -rf fg-probe fg-probe.cfg"
+
+mkdir -p "$tmp/bin-sby-pass-main"
+cat > "$tmp/bin-sby-pass-main/sby" <<'STUB'
+#!/bin/sh
+# Stands in for sby: reports PASS unconditionally.
+d=$(dirname "$2")
+check=$(basename "$2" .sby)
+mkdir -p "$d/$check"
+echo "PASS 2 0" > "$d/$check/status"
+STUB
+chmod +x "$tmp/bin-sby-pass-main/sby"
+
+probe "a core sweep whose lowest value already passes is refused a flip point, not reported one" 1 \
+  "with no FAIL beneath it" \
+  "$RFG_MAIN && PATH='$tmp/bin-sby-pass-main':\$PATH python3 remeasure-fg.py; rc=\$?; rm -rf '$REPO/formal/fg-probe' '$REPO/formal/fg-probe.cfg'; exit \$rc"
+
+cat > "$tmp/fake-genchecks-main.py" <<'PY'
+#!/usr/bin/env python3
+# Stands in for formal/genchecks-local.py, writing cycles that never match what was swept.
+import os, sys
+cfgname = sys.argv[1]
+with open(f"{cfgname}.cfg") as f:
+    lines = f.read().splitlines()
+check = lines[lines.index("[depth]") + 1].split()[0]
+name = "hang.sby" if check == "hang" else "liveness_ch0.sby"
+os.makedirs(cfgname, exist_ok=True)
+with open(os.path.join(cfgname, name), "w") as f:
+    f.write("`define RISCV_FORMAL_CHECK_CYCLE 1\n`define RISCV_FORMAL_TRIG_CYCLE 1\n")
+PY
+
+probe "a generated .sby whose depth drifted from what the core's sweep asked for is refused, not read anyway" 1 \
+  "not the 4 this row swept" \
+  "$RFG_MAIN && python3 remeasure-fg.py --genchecks '$tmp/fake-genchecks-main.py'; rc=\$?; rm -rf '$REPO/formal/fg-probe' '$REPO/formal/fg-probe.cfg'; exit \$rc"
+
+cat > "$tmp/fake-genchecks-main-reset.py" <<'PY'
+#!/usr/bin/env python3
+# Stands in for formal/genchecks-local.py, writing a correct CHECK_CYCLE/TRIG_CYCLE but a
+# RESET_CYCLES that ignores what this row actually swept -- the reset-window half of a
+# [depth] field-order drift, which a check_cycle-only readback would miss.
+import os, sys
+cfgname = sys.argv[1]
+with open(f"{cfgname}.cfg") as f:
+    lines = f.read().splitlines()
+label, *nums = lines[lines.index("[depth]") + 1].split()
+nums = [int(n) for n in nums]
+os.makedirs(cfgname, exist_ok=True)
+if label == "hang":
+    body = f"`define RISCV_FORMAL_RESET_CYCLES 99\n`define RISCV_FORMAL_CHECK_CYCLE {nums[1]}\n"
+    name = "hang.sby"
+else:
+    body = (
+        f"`define RISCV_FORMAL_RESET_CYCLES 99\n"
+        f"`define RISCV_FORMAL_TRIG_CYCLE {nums[1]}\n"
+        f"`define RISCV_FORMAL_CHECK_CYCLE {nums[2]}\n"
+    )
+    name = "liveness_ch0.sby"
+with open(os.path.join(cfgname, name), "w") as f:
+    f.write(body)
+PY
+
+probe "a generated .sby whose reset window drifted from what the core's sweep asked for is refused, not read anyway" 1 \
+  "RISCV_FORMAL_RESET_CYCLES = 99, not the 1 this row swept" \
+  "$RFG_MAIN && python3 remeasure-fg.py --genchecks '$tmp/fake-genchecks-main-reset.py'; rc=\$?; rm -rf '$REPO/formal/fg-probe' '$REPO/formal/fg-probe.cfg'; exit \$rc"
 
 begin_group "nano/formal/remeasure-fg.py"
 
@@ -1179,7 +1264,7 @@ chmod +x "$tmp/bin-sby-pass/sby"
 
 probe "a sweep whose lowest value already passes is refused a flip point, not reported one" 1 \
   "with no FAIL beneath it" \
-  "$RFG && PATH='$tmp/bin-sby-pass':\$PATH python3 remeasure-fg.py; rc=\$?; rm -rf fg-probe fg-probe.cfg; exit \$rc"
+  "$RFG && PATH='$tmp/bin-sby-pass':\$PATH python3 remeasure-fg.py; rc=\$?; rm -rf '$REPO/nano/formal/fg-probe' '$REPO/nano/formal/fg-probe.cfg'; exit \$rc"
 
 cat > "$tmp/fake-genchecks.py" <<'PY'
 #!/usr/bin/env python3
@@ -1197,7 +1282,7 @@ PY
 
 probe "a generated .sby whose depth drifted from what was swept is refused, not read anyway" 1 \
   "not the 10 this row swept" \
-  "$RFG && python3 remeasure-fg.py --genchecks '$tmp/fake-genchecks.py'; rc=\$?; rm -rf fg-probe fg-probe.cfg; exit \$rc"
+  "$RFG && python3 remeasure-fg.py --genchecks '$tmp/fake-genchecks.py'; rc=\$?; rm -rf '$REPO/nano/formal/fg-probe' '$REPO/nano/formal/fg-probe.cfg'; exit \$rc"
 
 begin_group "soc/timing_split.py"
 
@@ -2909,7 +2994,8 @@ rn_fixture() {
   cp "$REPO/docs/THREAT_MODEL.md" "$d/docs/"
   cp "$REPO/docs/adr/README.md" "$d/docs/adr/"
   cp "$REPO/docs/ideas/finish-the-rewrite.md" "$d/docs/ideas/"
-  cp "$REPO/test/probe_gates.sh" "$REPO/test/retired_term_test.sh" "$d/test/"
+  cp "$REPO/test/probe_gates.sh" "$REPO/test/retired_term_test.sh" \
+     "$REPO/test/ill_e_wiring_test.py" "$d/test/"
   cp "$REPO/formal/wrapper.v" "$d/formal/"
   git -c init.defaultBranch=main -C "$d" init -q
   git -C "$d" add -A
@@ -5298,6 +5384,255 @@ probe "the RTL moving away takes the probe with it, loudly" 2 \
 d=$(cc_fixture); rmdir "$d/formal/riscv-formal"
 probe "no riscv-formal checkout is exit 2, not a probe against nothing" 2 \
   "Fetch the pin first" "$(ccs "$d")"
+
+begin_group "nano/formal/ill-e-probe.py"
+
+IE="python3 $REPO/nano/formal/ill-e-probe.py"
+
+cat > "$tmp/sby-ie-stub" <<'STUB'
+#!/bin/sh
+# Stands in for sby. Distinguishes the assert check from the cover check by the .sby
+# filename sby was called with, and the shipping case from its mutant by grepping
+# ill_e.sv for the mutation this probe applies -- the same technique
+# nano/formal/complete-cover-probe.py's own stub uses. A witness name embeds the real
+# script's own line-number convention (one less than the text line, +1 in cover_result),
+# and its own kept-in-sync copy of e_illegal's term names, so it can name which single
+# (class, field) membership a drop-<term> mutant is missing without special-casing one.
+ALL_TERMS="ill_load_rd ill_load_rs1 ill_opimm_rd ill_opimm_rs1 ill_auipc_rd ill_store_rs1
+ill_store_rs2 ill_op_rd ill_op_rs1 ill_op_rs2 ill_lui_rd ill_branch_rs1 ill_branch_rs2
+ill_jalr_rd ill_jalr_rs1 ill_jal_rd ill_sysreg_rd ill_sysreg_rs1 ill_sysimm_rd
+ill_ccr_rdrs1 ill_ccr_rs2 ill_cci_rdrs1 ill_ccss_rs2"
+
+sby_file=$2
+case "$sby_file" in
+  ill_e.sby) task=ill_e ;;
+  ill_e_cover.sby) task=ill_e_cover ;;
+  *) echo "stub sby: unexpected script '$sby_file'" >&2; exit 1 ;;
+esac
+mkdir -p "$task"
+: > "$task/logfile.txt"
+
+fail_at() {
+  needle=$1
+  line=$(grep -nF "$needle" ill_e.sv | head -1 | cut -d: -f1)
+  echo "SBY [probe] engine_0: ##   0:00:00  Assert failed in ill_e_top: ill_e.sv:$line.7-$line.20" \
+    >> "$task/logfile.txt"
+}
+
+reached_line() {
+  w=$(( $1 - 1 ))
+  echo "SBY [probe] engine_0: ##   0:00:00  Reached cover statement in step 1 at ill_e_top: ill_e.sv:$w.1-$1.1 (_witness_.check_cover_ill_e_sv_${w}_1)" \
+    >> "$task/logfile.txt"
+}
+
+unreached_line() {
+  w=$(( $1 - 1 ))
+  echo "SBY [probe] engine_0: ##   0:00:00  Unreached cover statement at ill_e_top: ill_e.sv:$w.1-$1.1 (_witness_.check_cover_ill_e_sv_${w}_1)" \
+    >> "$task/logfile.txt"
+}
+
+if [ "$task" = ill_e ]; then
+  if grep -q "assign trap      = 1'b0;" ill_e.sv; then
+    status=${STUB_NO_TRAP:-FAIL}
+    if [ "$status" = FAIL ]; then
+      if [ -n "${STUB_NO_TRAP_LINE:-}" ]; then
+        line=$STUB_NO_TRAP_LINE
+        echo "SBY [probe] engine_0: ##   0:00:00  Assert failed in ill_e_top: ill_e.sv:$line.7-$line.20" \
+          >> "$task/logfile.txt"
+      else
+        fail_at "assert (trap);"
+      fi
+    fi
+  elif grep -q "assign rd_addr   = rd;" ill_e.sv; then
+    status=${STUB_NO_RD_CLEAR:-FAIL}
+    [ "$status" = FAIL ] && fail_at "assert (rd_addr == 5'd0);"
+  elif grep -q "assign mem_write = class_store;" ill_e.sv; then
+    status=${STUB_NO_MEM_CLEAR:-FAIL}
+    [ "$status" = FAIL ] && fail_at "assert (!mem_write);"
+  else
+    status=${STUB_ASSERT_SHIP:-PASS}
+  fi
+else
+  e_block=$(awk '/wire e_illegal =/{f=1} f{print} f && /;/{exit}' ill_e.sv)
+  if printf '%s' "$e_block" | grep -q "1'b0"; then
+    status=${STUB_TIE_LOW:-FAIL}
+    if [ "$status" = FAIL ]; then
+      if [ -n "${STUB_TIE_LOW_BAD_SITE:-}" ]; then
+        unreached_line 999
+      else
+        line=$(grep -nF "cover property (live && e_illegal && ill_load_rd)" ill_e.sv | head -1 | cut -d: -f1)
+        unreached_line "$line"
+      fi
+    fi
+  else
+    missing=""
+    for t in $ALL_TERMS; do
+      if ! printf '%s' "$e_block" | grep -qw "$t"; then missing=$t; break; fi
+    done
+    if [ -n "$missing" ]; then
+      status=${STUB_DROP_TERM:-FAIL}
+      if [ "$status" = FAIL ]; then
+        if [ -n "${STUB_DROP_TERM_BAD_SITE:-}" ]; then
+          unreached_line 999
+        else
+          line=$(grep -nF "cover property (live && e_illegal && ${missing})" ill_e.sv | head -1 | cut -d: -f1)
+          unreached_line "$line"
+        fi
+      fi
+    else
+      status=${STUB_COVER_SHIP:-PASS}
+      if [ "$status" = PASS ]; then
+        for l in $(grep -nE '^[[:space:]]*cover property \(' ill_e.sv | cut -d: -f1); do
+          reached_line "$l"
+        done
+      fi
+    fi
+  fi
+fi
+
+[ -n "${STUB_SBY_NO_STATUS:-}" ] && exit 1
+if [ -n "${STUB_SBY_EMPTY_STATUS:-}" ]; then : > "$task/status"; exit 1; fi
+echo "$status 0 12" > "$task/status"
+STUB
+chmod +x "$tmp/sby-ie-stub"
+
+ie_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/nano/formal"
+  cp "$REPO"/nano/formal/ill_e.sv "$REPO"/nano/formal/ill_e.sby "$REPO"/nano/formal/ill_e_cover.sby \
+    "$d/nano/formal/"
+  printf '%s' "$d"
+}
+
+ies() { printf "%s --repo %s --workdir %s/work --sby %s" "$IE" "$1" "$1" "$tmp/sby-ie-stub"; }
+
+d=$(ie_fixture)
+probe "control: every mutant fails for its own reason and the shipping reference passes all of it" 0 \
+  "the shipping reference passes all of it" "$(ies "$d")"
+
+d=$(ie_fixture)
+probe "a shipping reference that fails its own assertions is red" 1 \
+  "the shipping reference fails its own assertions" "STUB_ASSERT_SHIP=FAIL $(ies "$d")"
+
+d=$(ie_fixture)
+probe "a no-trap mutant that still proves is not a control" 1 \
+  "assertion exists to catch, so an arm" "STUB_NO_TRAP=PASS $(ies "$d")"
+
+d=$(ie_fixture)
+probe "a no-trap mutant that fails at the wrong line is not evidence about this arm" 1 \
+  "does not include" "STUB_NO_TRAP_LINE=999 $(ies "$d")"
+
+d=$(ie_fixture)
+probe "a no-rd-clear mutant that still proves is not a control" 1 \
+  "assertion exists to catch, so an arm" "STUB_NO_RD_CLEAR=PASS $(ies "$d")"
+
+d=$(ie_fixture)
+probe "a no-mem-clear mutant that still proves is not a control" 1 \
+  "assertion exists to catch, so an arm" "STUB_NO_MEM_CLEAR=PASS $(ies "$d")"
+
+d=$(ie_fixture)
+probe "a shipping reference that does not reach every cover goal is red" 1 \
+  "the shipping reference does not reach every cover goal" "STUB_COVER_SHIP=FAIL $(ies "$d")"
+
+d=$(ie_fixture)
+probe "a tie-low mutant that still proves is not a control" 1 \
+  "anti-vacuity control that cannot go red is not a control" "STUB_TIE_LOW=PASS $(ies "$d")"
+
+d=$(ie_fixture)
+probe "a tie-low mutant that names an unrelated site is not evidence" 1 \
+  "which is not one of e_illegal's own membership goals" "STUB_TIE_LOW_BAD_SITE=1 $(ies "$d")"
+
+d=$(ie_fixture)
+probe "a drop-<term> mutant that still proves witnesses nothing" 1 \
+  "a drop that cannot go red witnesses" "STUB_DROP_TERM=PASS $(ies "$d")"
+
+d=$(ie_fixture)
+probe "a drop-<term> mutant that loses the wrong goal is not evidence about that membership" 1 \
+  "not evidence this membership" "STUB_DROP_TERM_BAD_SITE=1 $(ies "$d")"
+
+d=$(ie_fixture)
+mutate "$d/nano/formal/ill_e.sv" "s/  assign trap      = e_illegal;/  assign trap = e_illegal;/"
+probe "a respelled trap anchor stops rather than pinning nothing" 2 \
+  "no longer spells what the no-trap mutation" "$(ies "$d")"
+
+d=$(ie_fixture)
+mutate "$d/nano/formal/ill_e.sv" 's/wire e_illegal =/wire E_ILLEGAL_RESPELLED =/'
+probe "a missing e_illegal statement stops rather than mutating nothing" 2 \
+  "states no \`wire e_illegal =\` statement" "$(ies "$d")"
+
+d=$(ie_fixture); rm "$d/nano/formal/ill_e.sv"
+probe "the checker moving away takes the probe with it, loudly" 2 \
+  "nano/formal/ill_e.sv is missing from" "$(ies "$d")"
+
+d=$(ie_fixture); rm "$d/nano/formal/ill_e.sby"
+probe "the assert sby moving away takes the probe with it, loudly" 2 \
+  "nano/formal/ill_e.sby is missing from" "$(ies "$d")"
+
+d=$(ie_fixture); rm "$d/nano/formal/ill_e_cover.sby"
+probe "the cover sby moving away takes the probe with it, loudly" 2 \
+  "nano/formal/ill_e_cover.sby is missing from" "$(ies "$d")"
+
+d=$(ie_fixture)
+probe "a solver that wrote no verdict is exit 2, not a red arm" 2 \
+  "wrote no status for the assert-shipping case" "STUB_SBY_NO_STATUS=1 $(ies "$d")"
+
+d=$(ie_fixture)
+probe "an empty status file is refused rather than read as a verdict" 2 \
+  "status file for the assert-shipping case is empty" "STUB_SBY_EMPTY_STATUS=1 $(ies "$d")"
+
+begin_group "nano/formal/check-rvfi-insn-check.py"
+
+CRIC="python3 $REPO/nano/formal/check-rvfi-insn-check.py"
+
+cric_fixture() {
+  local d; d=$(new_case)
+  cp "$REPO/formal/riscv-formal/checks/rvfi_insn_check.sv" "$d/upstream.sv"
+  cp "$REPO/nano/formal/rvfi_insn_check.sv" "$d/fork.sv"
+  printf '%s' "$d"
+}
+
+d=$(cric_fixture)
+probe "control: the fork matches the pin once its header and RISCV_FORMAL_E block are undone" 0 \
+  "matches" "$CRIC $d/upstream.sv $d/fork.sv"
+
+d=$(cric_fixture)
+mutate "$d/fork.sv" "s/assert(spec_trap == trap);/assert(spec_trap != trap);/"
+probe "a hand-drifted fork is red, and its residual diff is printed" 1 \
+  "has DRIFTED" "$CRIC $d/upstream.sv $d/fork.sv"
+
+begin_group "test/ill_e_wiring_test.py"
+
+IEW="python3 $REPO/test/ill_e_wiring_test.py"
+
+iew_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/nano/formal"
+  cp "$REPO/nano/formal/checks.cfg" "$REPO/nano/formal/ill_e.sv" "$d/nano/formal/"
+  printf '%s' "$d"
+}
+
+d=$(iew_fixture)
+probe "control: RISCV_FORMAL_E is not yet wired, so there is nothing to check it against" 0 \
+  "not yet wired into" "$IEW $d"
+
+d=$(iew_fixture)
+printf '`define RISCV_FORMAL_E\n' >> "$d/nano/formal/checks.cfg"
+probe "RISCV_FORMAL_E live while ill_e.sv still checks the reference model is red" 1 \
+  "checked by nothing until ill_e.sv wires the real core in" "$IEW $d"
+
+d=$(iew_fixture)
+printf '`define RISCV_FORMAL_E\n' >> "$d/nano/formal/checks.cfg"
+printf '  riscv wrapper (\n' >> "$d/nano/formal/ill_e.sv"
+probe "RISCV_FORMAL_E live once ill_e.sv wires the real core in is not red" 0 \
+  "and nano/formal/ill_e.sv instantiates the real core" "$IEW $d"
+
+d=$(iew_fixture); rm "$d/nano/formal/checks.cfg"
+probe "a missing checks.cfg is refused rather than read as not-live" 1 \
+  "nano/formal/checks.cfg is missing" "$IEW $d"
+
+d=$(iew_fixture); rm "$d/nano/formal/ill_e.sv"
+probe "a missing ill_e.sv is refused rather than read as not-wired" 1 \
+  "nano/formal/ill_e.sv is missing" "$IEW $d"
 
 begin_group "test/dual_build.sh"
 

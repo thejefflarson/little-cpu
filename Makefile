@@ -456,6 +456,10 @@ makefile-target-test:
 pll-clock-test:
 	@python3 ./test/pll_clock_test.py
 
+.PHONY: ill-e-wiring-test
+ill-e-wiring-test:
+	@python3 ./test/ill_e_wiring_test.py
+
 # The cross-core comparison harness states its geometry in several places, read from this
 # Makefile's own COMPARE_TOP/-T lines rather than a second hand-kept list, and this is
 # what says they agree.
@@ -546,7 +550,7 @@ test: sim test-units probe-gates pin-bump-test tool-cache-test memmap-test \
       band-source-test zkt-isolation-test fixture-freshness-test window-test imem-share-test \
       abc-engine-test makefile-target-test mutation-probe dual-build board-elaborate \
       tracked-ignored-test mutation-coverage-test comment-density-test lut4-site-test \
-      pll-clock-test
+      pll-clock-test ill-e-wiring-test
 	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 .PHONY: cycles

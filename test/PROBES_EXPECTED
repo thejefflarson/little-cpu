@@ -50,6 +50,8 @@ CoreMark's own FAIL verdict stops the number being quoted
 JSON that is not a netlist is refused
 NO-STATUS is a broken harness and is not baselineable either
 PASS in a failure set is a comparison whose only branch is failure
+RISCV_FORMAL_E live once ill_e.sv wires the real core in is not red
+RISCV_FORMAL_E live while ill_e.sv still checks the reference model is red
 TOOLS_ON_PATH stops the real tools shadowing a fixture's stubs
 a --measured call with no --isa is refused the same way as a missing --cflags
 a --measured call with no --tool is refused rather than stamping an unknown toolchain
@@ -134,6 +136,7 @@ a constraint file that describes a different oscillator is red
 a constraint that is not the declared one is a different measurement
 a copy wrapped across lines is caught, not read as two harmless ones
 a core folded away on ECP5 is red against the same floor
+a core sweep whose lowest value already passes is refused a flip point, not reported one
 a core that cannot hold the CoreMark image is named, not left to the reader
 a core that cannot hold the image is named, not left to the reader
 a core that reached the start of the loop and not the end is red
@@ -164,6 +167,8 @@ a directory the glob stopped matching is red, not a suite of size zero
 a dirty tree names no base, so its sweep is not subtracted either
 a double-quoted heredoc delimiter is masked, so its stray apostrophe cannot hide a real sed -i after it
 a download whose bytes are not the pin is refused before extraction
+a drop-<term> mutant that loses the wrong goal is not evidence about that membership
+a drop-<term> mutant that still proves witnesses nothing
 a dual directory that is not there is the failure this exists to see
 a duplicated manifest line would make comm non-symmetric
 a failing assembler is ASSEMBLE-ERROR
@@ -192,13 +197,16 @@ a gap opening between the UART and the SPI controller is red
 a gap opening between the data RAM and the timer is red
 a gap opening between the timer's reservation and the UART is red
 a gate failure reported only by the induction leg is not evidence
+a generated .sby whose depth drifted from what the core's sweep asked for is refused, not read anyway
 a generated .sby whose depth drifted from what was swept is refused, not read anyway
+a generated .sby whose reset window drifted from what the core's sweep asked for is refused, not read anyway
 a generated check that was never scheduled resolves to NO-STATUS
 a generation that produced no checks at all is refused
 a graded target quietly depending on netlist-digest is red, and named
 a graph with no edges out of reg_rs1 is red, not a vacuous pass
 a half-installed toolchain says so once, up front
 a half-installed toolchain says so once, up front
+a hand-drifted fork is red, and its residual diff is printed
 a hand-edited pin that no longer parses is as invalid as unwritten
 a hand-typed fixture is red on an unquoted heredoc delimiter too
 a hand-typed fixture with no anchor and no cp of a real file is red
@@ -239,10 +247,14 @@ a missing Sail install stops the run rather than scoring it
 a missing artifact refuses rather than reporting on nothing
 a missing asm directory is named
 a missing baseline file is exit 2, not an empty expected set
+a missing checks.cfg is refused rather than read as not-live
+a missing e_illegal statement stops rather than mutating nothing
+a missing ill_e.sv is refused rather than read as not-wired
 a missing liberty file is refused before the JSON is even opened
 a missing parser stops the run rather than grading with a second one
 a missing ramdiff for the SECOND CoreMark core is red, not silently skipped
 a missing ramdiff for the SECOND core is red, not silently skipped
+a missing riscv-formal clone is named, not blamed on the ISA string
 a missing stat.json is refused, not read as a zero-area design
 a mistyped baseline path cannot compare nothing and pass
 a mistyped baseline path cannot compare nothing and pass
@@ -274,6 +286,10 @@ a new rtl file with no line is red, naming the file
 a new site naming an ISA nothing declared is red, and located
 a new wide input port with no classification is red (finding 3)
 a nextpnr that died early is NOT graded on the last run's pair
+a no-mem-clear mutant that still proves is not a control
+a no-rd-clear mutant that still proves is not a control
+a no-trap mutant that fails at the wrong line is not evidence about this arm
+a no-trap mutant that still proves is not a control
 a non-comparable CSR value is exempted -- and every exemption printed
 a non-finite --max-um2 is refused before the ratchet compares anything
 a non-finite area in the JSON is refused, not compared as if it were real
@@ -372,6 +388,7 @@ a respelled mutation site stops rather than proving the shipping core thrice
 a respelled op_is_divu latch stops the same way too
 a respelled parameter stops rather than comparing nothing
 a respelled region_stall site stops rather than building the shipping core twice
+a respelled trap anchor stops rather than pinning nothing
 a respelled wait bound stops rather than pinning nothing
 a respelled wait bound stops rather than pinning nothing
 a respelled word arm stops the same way
@@ -387,6 +404,8 @@ a seed clearing SOC_MIN_MHZ by under 5% is refused, not pinned
 a semicolon in the liberty path stays inside its own quoted token
 a shard spec that is not <i>/<n> is refused before anything runs
 a shipping harness that cannot reach its own goals is red
+a shipping reference that does not reach every cover goal is red
+a shipping reference that fails its own assertions is red
 a signal in scope only in an earlier module stops it too
 a simulated ROM smaller than the part's is red
 a simulation this cannot parse is a run that did not happen
@@ -395,6 +414,7 @@ a slice that selects no checks is an error, not an empty success
 a soc/compare script naming no .lds at all does not sink the scan
 a soc/compare/ change since the stamp's base is STALE, and the file is named
 a solo run needs no ramdiff line -- there is no reference to compare
+a solver that wrote no verdict is exit 2, not a red arm
 a solver that wrote no verdict is exit 2, not a red arm
 a solver that wrote no verdict is exit 2, not a red arm
 a solver that wrote no verdict is exit 2, not a red arm
@@ -428,6 +448,8 @@ a table with no placements in it is one too
 a tarball already in the cache is reused, and still meets the digest
 a term with no allow-list behind it stops rather than grading nothing
 a testbench simulating a different map than the image is linked for is red
+a tie-low mutant that names an unrelated site is not evidence
+a tie-low mutant that still proves is not a control
 a tie-off at every harness that no baseline declares is red
 a timer base aligned only for one hart is red
 a tool that exits nonzero while printing is refused on its status
@@ -480,6 +502,7 @@ an empty manifest matches an empty suite and is rejected
 an empty netlist is a synthesis that wrote nothing
 an empty part table synthesises nothing, so it is refused
 an empty seed list stops the sweep instead of placing the default
+an empty status file is refused rather than read as a verdict
 an empty status file is refused rather than read as a verdict
 an empty status file is refused rather than read as a verdict
 an empty status file is refused rather than read as a verdict
@@ -560,6 +583,7 @@ branch_taken carrying reg_rs1/reg_rs2 into hazard is red
 columns that do not add up blame the report, not the core
 columns that no longer add up to the cycle count are red
 control: .PHONY declaring netlist-digest is not a dependency edge
+control: RISCV_FORMAL_E is not yet wired, so there is nothing to check it against
 control: STALL_REPORT prints the accounting and keeps the suite green
 control: TIMEOUT is a real verdict and IS baselineable
 control: a THIRD core's --clock-ns/--cycle-factor adds a second product, not a rewrite
@@ -624,6 +648,7 @@ control: both arms fail, each at its own line
 control: both sides failing the same test number still AGREE
 control: each subset is printed as a share of that number
 control: every allowed site is covered and nothing else carries the string
+control: every mutant fails for its own reason and the shipping reference passes all of it
 control: every named source present proceeds
 control: every site names every port of littlecpu
 control: fixture_anchor finds its literal in the real file
@@ -641,6 +666,7 @@ control: the cached suite is put first when nothing claims PATH
 control: the caveats travel with the number, on every run
 control: the declared list matches the tree exactly
 control: the digest states what its two verdicts mean
+control: the fork matches the pin once its header and RISCV_FORMAL_E block are undone
 control: the formal flow's lower-case rv32imc is a different thing
 control: the insn checks move to pono and the others do not
 control: the locality counters are reported under the table
@@ -766,18 +792,21 @@ the UART moving in the proof's copy alone is red
 the address the flash-reading program uses is checked against the controller
 the address the printing program writes is checked against the UART
 the artifact moving does not make its own stamp stale
+the assert sby moving away takes the probe with it, loudly
 the attribute nextpnr places against disagreeing with CORE_HZ is red
 the baud rate is still refused beside the clock a top may set
 the benchmark script must keep linking against the part's rom
 the benchmark's own FAIL verdict stops the number being quoted
 the carry chain's own interconnect is charged to the carry hop
 the cell count names its own unit rather than borrowing the other's
+the checker moving away takes the probe with it, loudly
 the clock-rate exception belongs to the UART alone
 the co-sim runner's kRamBase drifting is red on its own
 the comment class lands nowhere if its own file is gone
 the compensation going missing is caught after every rule
 the core hitting its cycle budget is INCONCLUSIVE too
 the core's copy of the RAM base drifting from the RAM is red
+the cover sby moving away takes the probe with it, loudly
 the cxxrtl runner's kRamBase drifting is red
 the default text window is the part's, not the harness's
 the defect this exists for: a core clocked from the pad, not the PLL
