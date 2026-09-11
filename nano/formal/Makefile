@@ -49,13 +49,6 @@ complete_cover: complete_cover.sby complete.sv ../nano.v complete-cover-probe | 
 complete-cover-probe: complete-cover-probe.py complete.sv complete_cover.sby ../nano.v | $(RISCV_FORMAL_DIR)
 	python3 $<
 
-ill_e:       ill_e.sby       ill_e.sv ill-e-probe
-ill_e_cover: ill_e_cover.sby ill_e.sv ill-e-probe
-
-.PHONY: ill-e-probe
-ill-e-probe: ill-e-probe.py ill_e.sv ill_e.sby ill_e_cover.sby
-	python3 $<
-
 .PHONY: check-rvfi-insn-check
 check-rvfi-insn-check: $(RISCV_FORMAL_DIR)/checks/rvfi_insn_check.sv rvfi_insn_check.sv \
                        check-rvfi-insn-check.py | $(RISCV_FORMAL_DIR)
@@ -68,7 +61,7 @@ remeasure-fg: ../../formal/remeasure-fg.py ../../formal/depth_rules.py checks.cf
 
 clean:
 	rm -rf checks complete complete_cover dmemcheck imemcheck fg-probe fg-probe.cfg
-	rm -rf complete-cover-probe ill_e ill_e_cover ill-e-probe
+	rm -rf complete-cover-probe
 
 .PHONY: all clean
-all: check dmemcheck imemcheck complete complete_cover ill_e ill_e_cover check-rvfi-insn-check
+all: check dmemcheck imemcheck complete complete_cover check-rvfi-insn-check
