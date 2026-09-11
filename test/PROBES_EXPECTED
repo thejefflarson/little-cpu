@@ -207,6 +207,7 @@ a generated .sby whose depth drifted from what was swept is refused, not read an
 a generated .sby whose reset window drifted from what the core's sweep asked for is refused, not read anyway
 a generated check that was never scheduled resolves to NO-STATUS
 a generation that produced no checks at all is refused
+a generator whose checker path no longer matches is refused, not read as a redirected set
 a graded target quietly depending on netlist-digest is red, and named
 a graph with no edges out of reg_rs1 is red, not a vacuous pass
 a half-installed toolchain says so once, up front
@@ -405,6 +406,7 @@ a run that never made the cross-core check is red
 a run that printed no COSIM-STATUS is COSIM-ERROR, not a verdict
 a runner that printed no CS END terminator is a broken harness
 a runner that reports no cycles at all cannot produce a clean table
+a rvfi_insn_check.sv beside littlecpu's checks.cfg with no #insn-check line is refused
 a second occurrence of a counted exception value is red
 a seed clearing SOC_MIN_MHZ by under 5% is refused, not pinned
 a semicolon in the liberty path stays inside its own quoted token
@@ -480,6 +482,7 @@ a wait bound that admits a starved hart is red
 a wire that does not carry its class's name is named
 a wire that names a funct7 without a funct3 is rejected, not parsed
 a wrong-rule mutant that still passes is not a control
+an #insn-check naming a file that does not exist is refused
 an ECP5 placement read with ice40 names names the part, not a bad log
 an ECP5 stamp carrying up5k's tools is missing its own
 an EXTRA architectural write the model never made is caught
@@ -663,6 +666,7 @@ control: icetime whose chip database resolves is stamped like any tool
 control: identical register traces and verdicts AGREE
 control: mutate on a real match rewrites the file and returns 0
 control: mutate_remove deletes a file that is there
+control: nano's declared fork redirects every generated insn_* check
 control: nano/formal/Makefile also puts the cached suite first
 control: programs that build and are paired are green
 control: rule 6 gates the trap comparison and writes its compensation
@@ -881,6 +885,7 @@ the word coming back in a formal harness comment is red, and located
 the wrong count is named against the log's real one
 three sweeps have no one difference, so they are refused
 total above the ratchet names the figure and the budget
+two #insn-check lines are refused rather than one silently winning
 two CoreMark cores whose RAMs differ are red, not a ratio
 two arms that cannot be told apart are not two arms
 two arms that cannot be told apart are not two arms

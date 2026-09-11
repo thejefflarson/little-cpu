@@ -1168,6 +1168,7 @@ ga_nano_fixture() {
   local d; d=$(new_case)
   cp "$REPO/nano/formal/checks.cfg" "$d/checks.cfg"
   cp "$REPO/nano/formal/EXPECTED_CHECKS" "$d/EXPECTED_CHECKS"
+  cp "$REPO/nano/formal/rvfi_insn_check.sv" "$d/rvfi_insn_check.sv"
   printf '%s' "$d"
 }
 
@@ -1175,6 +1176,34 @@ d=$(ga_nano_fixture)
 mutate "$d/checks.cfg" 's/^hang     1     14$/hang     1     10/'
 probe "a nano [depth] entry lowered below its own floor fails generation, not just the baseline diff" 1 \
   "hang: depth 10 is below F+1 = 13" "cd '$d' && $GA ."
+
+d=$(ga_nano_fixture)
+probe "control: nano's declared fork redirects every generated insn_* check" 0 \
+  "insn_* checks read" "cd '$d' && $GA ."
+
+d=$(new_case)
+cp "$REPO/formal/checks.cfg" "$REPO/formal/EXPECTED_CHECKS" "$d/"
+cp "$REPO/formal/riscv-formal/checks/rvfi_insn_check.sv" "$d/rvfi_insn_check.sv"
+probe "a rvfi_insn_check.sv beside littlecpu's checks.cfg with no #insn-check line is refused" 1 \
+  "sits beside checks.cfg with no #insn-check line" "cd '$d' && $GA ."
+
+d=$(ga_nano_fixture); rm "$d/rvfi_insn_check.sv"
+probe "an #insn-check naming a file that does not exist is refused" 1 \
+  "which does not exist" "cd '$d' && $GA ."
+
+d=$(ga_nano_fixture); printf '#insn-check rvfi_insn_check.sv\n' >> "$d/checks.cfg"
+probe "two #insn-check lines are refused rather than one silently winning" 1 \
+  "declares #insn-check 2 times" "cd '$d' && $GA ."
+
+# The real generator with its vendored [files] line respelled, as a pin bump could do:
+# the redirect then recognises nothing to replace, and must say so rather than finish.
+d=$(new_case); mkdir -p "$d/formal" "$d/h"
+cp "$REPO/formal/genchecks-audit.py" "$REPO/formal/genchecks-local.py" "$REPO/formal/depth_rules.py" "$d/formal/"
+ln -s "$REPO/formal/riscv-formal" "$d/formal/riscv-formal"
+cp "$REPO/nano/formal/checks.cfg" "$REPO/nano/formal/EXPECTED_CHECKS" "$REPO/nano/formal/rvfi_insn_check.sv" "$d/h/"
+mutate "$d/formal/genchecks-local.py" 's|@basedir@/checks/rvfi_insn_check.sv|@basedir@/checks/./rvfi_insn_check.sv|'
+probe "a generator whose checker path no longer matches is refused, not read as a redirected set" 1 \
+  "checks do not read it" "cd '$d/h' && python3 '$d/formal/genchecks-audit.py' ."
 
 begin_group "formal/remeasure-fg.py"
 
