@@ -5851,7 +5851,7 @@ probe "a repo root with no Makefile is red before anything is parsed" 1 \
 
 d=$(nd_fixture)
 mutate "$d/Makefile" \
-  's/^test: sim test-units probe-gates pin-bump-test tool-cache-test memmap-test \\$/test: sim test-units probe-gates netlist-digest pin-bump-test tool-cache-test memmap-test \\/'
+  's/^test: sim test-units probe-gates /test: sim test-units probe-gates netlist-digest /'
 probe "a graded target quietly depending on netlist-digest is red, and named" 1 \
   "test: depends on netlist-digest" "$ND $d"
 
@@ -6869,6 +6869,103 @@ mutate_remove "$d/soc/icesugar_pro_pll.v"
 probe "a missing PLL file is refused rather than read as agreement" 1 \
   "cannot grade a missing one" "$PLLC $d"
 
+begin_group "test/pin_bump_token_test.py"
+
+# The workflow's shape is the control: the step that runs upstream code must hold no
+# credential, so each red direction reconnects one and the grader has to notice.
+pbt_fixture() {  # $1 = sed program applied to the workflow
+  local d; d=$(new_case)
+  mkdir -p "$d/.github/workflows" "$d/test"
+  cp "$REPO/test/pin_bump_token_test.py" "$d/test/"
+  sed "$1" "$REPO/.github/workflows/riscv-formal-pin-bump.yml" \
+    > "$d/.github/workflows/riscv-formal-pin-bump.yml"
+  printf '%s' "$d"
+}
+
+d=$(pbt_fixture '')
+probe "control: the shipping pin-bump workflow keeps credentials off the upstream-code step" 0 \
+  "keeps credentials away from the upstream-code step" \
+  "cd '$d' && python3 test/pin_bump_token_test.py ."
+
+d=$(pbt_fixture 's|          formal/bump-riscv-formal-pin.sh \\|          formal/bump-riscv-formal-pin.sh \\\n        env:\n          GH_TOKEN: x|')
+probe "a token handed to the step that executes upstream code is red" 1 \
+  "must hold no credential" \
+  "cd '$d' && python3 test/pin_bump_token_test.py ."
+
+d=$(pbt_fixture '/persist-credentials: false/d')
+probe "a checkout that leaves the token in .git/config is red" 1 \
+  "persist-credentials: false" \
+  "cd '$d' && python3 test/pin_bump_token_test.py ."
+
+d=$(pbt_fixture 's|formal/bump-riscv-formal-pin.sh|formal/renamed.sh|')
+probe "renaming the upstream-code step out of reach stops rather than passing" 1 \
+  "no step in" \
+  "cd '$d' && python3 test/pin_bump_token_test.py ."
+
+d=$(new_case); mkdir -p "$d/test"; cp "$REPO/test/pin_bump_token_test.py" "$d/test/"
+probe "a missing workflow file is an error, not an empty pass" 1 \
+  "is missing" "cd '$d' && python3 test/pin_bump_token_test.py ."
+
+begin_group "formal/pin-bump-decide.sh"
+
+# Stubs stand in for the two remotes the decision reads: upstream's HEAD and whether a
+# branch is already here. Both are network calls, and both decide whether a bump runs.
+pbd_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/formal" "$d/bin"
+  cp "$REPO/formal/pin-bump-decide.sh" "$d/formal/"
+  printf 'override RISCV_FORMAL_SHA := %040d\n' 1 > "$d/formal/pin.mk"
+  cat > "$d/bin/git" <<'GITSTUB'
+#!/bin/bash
+if [ "$1" = "ls-remote" ]; then
+  case "$*" in
+    *"--heads origin"*) [ -n "${STUB_BRANCH_EXISTS:-}" ] && { echo "abc refs/heads/x"; exit 0; }; exit 2 ;;
+    *) printf '%s\tHEAD\n' "${STUB_UPSTREAM:-$(printf '%040d' 2)}"; exit 0 ;;
+  esac
+fi
+exec /usr/bin/git "$@"
+GITSTUB
+  printf '#!/bin/bash\necho "${STUB_DATE:-2020-01-01T00:00:00Z}"\n' > "$d/bin/gh"
+  chmod +x "$d/bin/git" "$d/bin/gh"
+  printf '%s' "$d"
+}
+
+d=$(pbd_fixture)
+probe "control: a moved, settled upstream with no branch here proceeds" 0 \
+  "proceed=yes" "cd '$d' && PATH='$d/bin:$PATH' formal/pin-bump-decide.sh"
+
+d=$(pbd_fixture)
+probe "a branch already on this repository stops the bump" 0 \
+  "proceed=no" "cd '$d' && PATH='$d/bin:$PATH' STUB_BRANCH_EXISTS=1 formal/pin-bump-decide.sh"
+
+d=$(pbd_fixture)
+probe "a commit under the age floor stops the bump, naming its age" 0 \
+  "under the 7d floor" \
+  "cd '$d' && PATH='$d/bin:$PATH' STUB_DATE=\$(date -u '+%Y-%m-%dT%H:%M:%SZ') formal/pin-bump-decide.sh"
+
+d=$(pbd_fixture)
+probe "a multi-line answer from the remote is refused, not truncated to its first line" 1 \
+  "is not one 40-hex SHA" \
+  "cd '$d' && PATH='$d/bin:$PATH' STUB_UPSTREAM=\$(printf '%040d\\nnot-a-sha' 2) formal/pin-bump-decide.sh"
+
+begin_group "formal/bump-riscv-formal-pin.sh"
+
+probe "the regenerate step refuses to run holding a token" 2 \
+  "must not hold one" \
+  "GH_TOKEN=x '$REPO/formal/bump-riscv-formal-pin.sh' a b c d '$tmp/out'"
+
+probe "wrong argument count is exit 2" 2 \
+  "usage:" "'$REPO/formal/bump-riscv-formal-pin.sh' only-one"
+
+begin_group "formal/publish-pin-bump.sh"
+
+probe "a missing regenerate output is refused rather than committing nothing" 2 \
+  "cannot read" \
+  "'$REPO/formal/publish-pin-bump.sh' br title '$tmp/nonexistent-out'"
+
+probe "wrong argument count is exit 2" 2 \
+  "usage:" "'$REPO/formal/publish-pin-bump.sh' only-one"
+
 actual_labels=$(printf '%s\n' "${probe_labels[@]}" | LC_ALL=C sort)
 expected_labels=$(grep -vE '^#|^[[:space:]]*$' "$PROBES_MANIFEST" | LC_ALL=C sort)
 if [ "$actual_labels" != "$expected_labels" ]; then
@@ -6880,6 +6977,7 @@ if [ "$actual_labels" != "$expected_labels" ]; then
   diff <(printf '%s\n' "$expected_labels") <(printf '%s\n' "$actual_labels") >&2 || true
   exit 1
 fi
+
 
 if [ "$failed" -ne 0 ]; then
   echo "error: a graded comparison did not go red where it was supposed to." >&2
