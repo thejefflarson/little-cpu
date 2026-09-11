@@ -1,6 +1,6 @@
 # ADR-0174: The RV32E oracle patch, its diff-grader, and `ill_e`
 
-**Status:** Accepted · 2026-09-10, amended the same day
+**Status:** Accepted · 2026-09-10; `ill_e` reverted 2026-09-11, oracle patch kept
 
 ## Context
 
@@ -259,3 +259,54 @@ day nothing checks it. None of the three is a claim about `nano.v`; all three ar
 green on this tree today, at the current pin, with `nano.v` unreshaped. Wiring
 `RISCV_FORMAL_E` into a real generated E check set, and swapping `ill_e_top` for the
 reshaped `nano.v`, are the reshape's to do, not this ticket's.
+
+## Amendment · 2026-09-11 · `ill_e` reverted, oracle patch kept
+
+**`ill_e` is reverted.** It could not tell a right RV32E rule from a wrong one: changing
+every "register at x16 or above" test in `ill_e.sv` to test bit 3 instead of bit 4, 23
+sites, left both `ill_e.sby` and `ill_e_cover.sby` passing. Only breaking one of the
+file's own `assign` lines against the `assert` below it made the check fail, which is
+this ADR's own tautology admission read the other way round: the three assertion clauses
+compared three `assign` lines with three `assert` lines restating them, and the
+mutation probes that were supposed to carry the safety case only ever showed that the
+*probe* could go red, never that the *property* could be falsified against `ill_e_top`.
+The reference model made the same mistake at the term level: each of the 23 (class,
+field) memberships carried an isolation condition so it could own its own cover goal
+(`ill_load_rd` required `!rs1[4]`), so a load naming x16 *and* x17 matched no term at all
+and was not flagged illegal, even though the stated property covers it. Nothing noticed,
+because nothing compared the model against anything but itself. `nano/formal/ill_e.sv`,
+`ill_e.sby`, `ill_e_cover.sby` and `ill-e-probe.py` are removed, along with their
+Makefile targets, CI step and probe group.
+
+**The oracle patch and its diff-grader are kept, because nanocpu is now going RV32E.**
+The repo owner decided the cut on area: keeping every planned feature costs about
+87,700 um2 in Tiny Tapeout's layout flow, against a 2x2 tile's 72,565 um2 of core area,
+so RV32E -- 16 registers instead of 32 -- is the one cut taken, with M and the
+mcycle/minstret counters kept. That reverses the premise this ADR shipped under, that
+nanocpu would stay RV32I and the patch would have nothing to grade. The patch itself was
+never the problem: `nano/formal/rvfi_insn_check.sv`'s one `ifdef RISCV_FORMAL_E` block,
+`check-rvfi-insn-check.py`'s byte-equality grader, and the pin-bump path's re-sync are
+untouched and still needed the day the generated checks turn the assumption on.
+
+**The wiring tripwire now enforces the wrong-rule direction mechanically, not in
+prose.** `test/ill_e_wiring_test.py` still refuses to let `RISCV_FORMAL_E` go live in
+`nano/formal/checks.cfg` without a real-core `ill_e.sv` -- the `riscv wrapper (`
+instantiation `complete.sv` already uses -- wired in. It now also refuses unless
+`test/PROBES_EXPECTED` names a forced-red probe containing the phrase "a wrong RV32E
+rule": a probe proving the future `ill_e` catches a mutated rule, not just its own
+`assign`/`assert` pair. Stating that requirement in an error message was tried and
+rejected: this ADR already stated in writing that its assertions were tautologies, and
+shipped anyway, so a sentence is not the bar. A label in `PROBES_EXPECTED` is, because
+`make probe-gates` requires every listed label to run and go red for its own reason --
+requiring the label requires a working probe.
+That is the gate's whole reach: it proves such a probe ran and went red, not that
+the mutation it plants is a wrong rule worth catching. A probe whose label carries
+the phrase but mutates something trivial would open the gate, so reviewing that one
+probe is the reviewer's job; grading the grader again would rebuild what this
+amendment removes.
+
+**`nano/nano.v` never changed while any of this was built.** `make nano-area` reads
+84,290.8 um2 on `0f66638`, the donor's own figure to the decimal. The general lesson is
+that a grader built ahead of the thing it grades is only worth something once that thing
+is decided -- true whether the decision lands on "not now" or, as here, on "yes, cut
+this".
