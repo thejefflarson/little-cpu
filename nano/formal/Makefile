@@ -56,8 +56,9 @@ check-rvfi-insn-check: $(RISCV_FORMAL_DIR)/checks/rvfi_insn_check.sv rvfi_insn_c
 	python3 check-rvfi-insn-check.py $(RISCV_FORMAL_DIR)/checks/rvfi_insn_check.sv rvfi_insn_check.sv
 
 .PHONY: remeasure-fg
-remeasure-fg: remeasure-fg.py ../../formal/depth_rules.py checks.cfg ../nano.v | $(RISCV_FORMAL_DIR)
-	python3 $<
+remeasure-fg: ../../formal/remeasure-fg.py ../../formal/depth_rules.py checks.cfg ../nano.v \
+              | $(RISCV_FORMAL_DIR)
+	python3 $< .
 
 clean:
 	rm -rf checks complete complete_cover dmemcheck imemcheck fg-probe fg-probe.cfg
