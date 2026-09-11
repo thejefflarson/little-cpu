@@ -1,4 +1,4 @@
-# ADR-0175: The pin bump runs upstream code without a credential
+# ADR-0176: The pin bump runs upstream code without a credential
 
 **Status:** Accepted · 2026-09-10
 
