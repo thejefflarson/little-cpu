@@ -364,9 +364,10 @@ benchmark's ISA does not change either core's placed Fmax):
   0.76% — **47.6% of the gap closes**, off a much smaller RV32IM gap to begin with (this pair was
   already "the closest pair this harness has measured on either benchmark" above).
 
-The littlecpu-vs-Hazard3 gap does not move under A on either benchmark, because A costs neither core
-anything measurable: 15.03% (Dhrystone) and 53.59% (CoreMark) unchanged between the RV32IM and
-RV32IMA rows.
+The littlecpu-vs-Hazard3 gap does not move under A on either benchmark, because **neither benchmark
+exercises A**: 15.03% (Dhrystone) and 53.59% (CoreMark) are unchanged between the RV32IM and RV32IMA
+rows. That is a fact about Dhrystone and CoreMark, not a measurement of A -- neither source emits an
+atomic, so these rows say A's cycle cost is untested here, never that it is zero.
 
 ### Products: clock cited, not re-measured
 
