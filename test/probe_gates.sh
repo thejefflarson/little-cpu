@@ -1245,10 +1245,10 @@ probe "a generated .sby whose reset window drifted from what the core's sweep as
   "RISCV_FORMAL_RESET_CYCLES = 99, not the 1 this row swept" \
   "$RFG_MAIN && python3 remeasure-fg.py --genchecks '$tmp/fake-genchecks-main-reset.py'; rc=\$?; rm -rf '$REPO/formal/fg-probe' '$REPO/formal/fg-probe.cfg'; exit \$rc"
 
-begin_group "nano/formal/remeasure-fg.py"
+begin_group "formal/remeasure-fg.py against nano/formal"
 
-# fg-probe.cfg and fg-probe/ are gitignored scratch, the same as `make -C nano/formal
-# remeasure-fg` writes into the real nano/formal directory; both probes clean up after.
+# One implementation, a second harness: these run formal/remeasure-fg.py against
+# nano/formal's own checks.cfg, which is what the harness-directory argument is for.
 RFG="cd '$REPO/nano/formal' && rm -rf fg-probe fg-probe.cfg"
 
 mkdir -p "$tmp/bin-sby-pass"
@@ -1264,7 +1264,7 @@ chmod +x "$tmp/bin-sby-pass/sby"
 
 probe "a sweep whose lowest value already passes is refused a flip point, not reported one" 1 \
   "with no FAIL beneath it" \
-  "$RFG && PATH='$tmp/bin-sby-pass':\$PATH python3 remeasure-fg.py; rc=\$?; rm -rf '$REPO/nano/formal/fg-probe' '$REPO/nano/formal/fg-probe.cfg'; exit \$rc"
+  "$RFG && PATH='$tmp/bin-sby-pass':\$PATH python3 ../../formal/remeasure-fg.py .; rc=\$?; rm -rf '$REPO/nano/formal/fg-probe' '$REPO/nano/formal/fg-probe.cfg'; exit \$rc"
 
 cat > "$tmp/fake-genchecks.py" <<'PY'
 #!/usr/bin/env python3
@@ -1282,7 +1282,11 @@ PY
 
 probe "a generated .sby whose depth drifted from what was swept is refused, not read anyway" 1 \
   "not the 10 this row swept" \
-  "$RFG && python3 remeasure-fg.py --genchecks '$tmp/fake-genchecks.py'; rc=\$?; rm -rf '$REPO/nano/formal/fg-probe' '$REPO/nano/formal/fg-probe.cfg'; exit \$rc"
+  "$RFG && python3 ../../formal/remeasure-fg.py . --genchecks '$tmp/fake-genchecks.py'; rc=\$?; rm -rf '$REPO/nano/formal/fg-probe' '$REPO/nano/formal/fg-probe.cfg'; exit \$rc"
+
+probe "a harness directory with no checks.cfg is named, not measured as empty" 1 \
+  "there is no [depth] table to grade" \
+  "cd '$tmp' && python3 '$REPO/formal/remeasure-fg.py' ."
 
 begin_group "soc/timing_split.py"
 
