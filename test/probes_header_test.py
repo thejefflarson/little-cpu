@@ -13,7 +13,7 @@ and the header is written so that its own lines are not.
 import pathlib
 import sys
 
-MIN_LINES = 2
+MIN_LINES = 3
 
 
 def main(argv):

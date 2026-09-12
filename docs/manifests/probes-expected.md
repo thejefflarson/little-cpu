@@ -28,7 +28,7 @@ one line a bare counter used to be.
 
 The file's own comment header keeps the two tripwires above -- duplicates are deliberate,
 never regenerate -- and a pointer here. `make probes-header-test` refuses a header shorter
-than two lines, or one whose lines are in `LC_ALL=C` order. A whole-file `sort` reorders the
+than three lines, so none of the three can go quietly, or one whose lines are in `LC_ALL=C` order. A whole-file `sort` reorders the
 header in place rather than interleaving it with the labels, because `#` sorts below every
 label, so a header in C order is how a sorted file shows itself. Write the header so its
 lines are not in that order.

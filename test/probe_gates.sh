@@ -6997,6 +6997,10 @@ d=$(new_case); grep -v '^#' "$REPO/test/PROBES_EXPECTED" > "$d/PROBES_EXPECTED"
 probe "a PROBES_EXPECTED with its header deleted is refused" 1 \
   "header line(s), under" "$PH $d/PROBES_EXPECTED"
 
+d=$(new_case); grep -v '^# TWO IDENTICAL LABELS' "$REPO/test/PROBES_EXPECTED" > "$d/PROBES_EXPECTED"
+probe "a PROBES_EXPECTED header that lost only its multiset line is refused" 1 \
+  "2 header line(s), under 3" "$PH $d/PROBES_EXPECTED"
+
 actual_labels=$(printf '%s\n' "${probe_labels[@]}" | LC_ALL=C sort)
 expected_labels=$(grep -vE '^#|^[[:space:]]*$' "$PROBES_MANIFEST" | LC_ALL=C sort)
 if [ "$actual_labels" != "$expected_labels" ]; then

@@ -49,6 +49,7 @@ a Makefile naming $(VEXRISCV_V) nowhere is red, not vacuously clean
 a PASS with no counts line is not a pass
 a PLL fed by something other than the constrained pad is red
 a PLL told its input is something the pad is not is red
+a PROBES_EXPECTED header that lost only its multiset line is refused
 a PROBES_EXPECTED run through a whole-file LC_ALL=C sort is refused
 a PROBES_EXPECTED with its header deleted is refused
 a RAM comparison over no words is named as unable to fail
