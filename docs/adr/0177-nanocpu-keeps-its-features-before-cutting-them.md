@@ -41,3 +41,7 @@ A 3×2 tile would hold every feature, at six tiles instead of four, about +€14
 **The fit is tight, and the RV32E saving is not yet measured.** About 66,200 µm² in the layout flow is 91% of the tile, and above the 56,000 µm² freeze line the nanocpu plan set for itself. The RV32E saving, −23,400 µm² local, is an upper bound: it was measured on register files synthesized alone. In the real core, yosys folds the register file's read multiplexers into the logic that consumes them, so the saving actually realized can only be smaller. The RV32E reshape measures it. If it comes in short, the cut order above applies before any feature goes.
 
 **The RV32E oracle patch is needed and kept.** The `RISCV_FORMAL_E` assumption in `nano/formal/rvfi_insn_check.sv` is what stops riscv-formal from failing a correct RV32E core. The `ill_e` check built beside it is reverted, as ADR-0174's amendment records. A new one, wired to the real core, must go red on a wrong-rule mutation before RV32E is switched on.
+
+## Amendment · 2026-09-12
+
+The Context's "FazyRV-ExoTiny at 56,448 µm², 91% of the tile" conflates two measures: 91.0% is the utilisation its stats file reports against the flow's own denominator, while 56,448 is 77.8% of the 72,565 µm² core area. The table's "~66,200 µm², at ~91%" is area ÷ 72,565 and stands. ADR-0179 replaces the brief's 56k freeze line with 66,006 µm².
