@@ -1,0 +1,42 @@
+project:
+  title:        "nanocpu area spike"
+  author:       "Jeff Larson"
+  discord:      ""
+  description:  "One hardened Tiny Tapeout area number for nano/nano.v, wrapped to keep every core input driven and every output observable"
+  language:     "SystemVerilog"
+  clock_hz:     64000000
+  tiles: "2x2"
+  top_module:  "tt_um_thejefflarson_nanocpu"
+  source_files:
+    - "tt_um_thejefflarson_nanocpu.v"
+    - "../nano/nano.v"
+
+pinout:
+  ui[0]: "observed byte select, bit 0"
+  ui[1]: "observed byte select, bit 1"
+  ui[2]: "observed byte select, bit 2"
+  ui[3]: "observed byte select, bit 3"
+  ui[4]: ""
+  ui[5]: ""
+  ui[6]: ""
+  ui[7]: "mem_ready"
+
+  uo[0]: "observed byte, bit 0"
+  uo[1]: "observed byte, bit 1"
+  uo[2]: "observed byte, bit 2"
+  uo[3]: "observed byte, bit 3"
+  uo[4]: "observed byte, bit 4"
+  uo[5]: "observed byte, bit 5"
+  uo[6]: "observed byte, bit 6"
+  uo[7]: "observed byte, bit 7"
+
+  uio[0]: "mem_rdata shift-in byte, bit 0"
+  uio[1]: "mem_rdata shift-in byte, bit 1"
+  uio[2]: "mem_rdata shift-in byte, bit 2"
+  uio[3]: "mem_rdata shift-in byte, bit 3"
+  uio[4]: "mem_rdata shift-in byte, bit 4"
+  uio[5]: "mem_rdata shift-in byte, bit 5"
+  uio[6]: "mem_rdata shift-in byte, bit 6"
+  uio[7]: "mem_rdata shift-in byte, bit 7"
+
+yaml_version: 6
