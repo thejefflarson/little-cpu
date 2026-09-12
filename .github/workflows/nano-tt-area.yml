@@ -1,0 +1,40 @@
+name: nano-tt-area
+
+on:
+  push:
+    branches:
+      - thejefflarson/jef-981-nanocpu-spike-the-tiny-tapeout-flow-get-one-hardened-number
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nano-tt-area-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  harden:
+    name: harden (ttsky26c)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Record job start
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - name: Harden tt_um_thejefflarson_nanocpu with tt-gds-action
+        uses: TinyTapeout/tt-gds-action@85a4c4128c10aa024ea8a02c7b3828d11c14ed90 # ttsky26c
+        with:
+          pdk: sky130A
+          librelane-version: "3.0.5"
+          tools-ref: 01d5d2814fa9dd61e9d211e0b235a4a592a9316a
+
+      - name: Report job wall time
+        if: always()
+        run: |
+          elapsed=$(( $(date +%s) - JOB_START ))
+          {
+            echo "### nano-tt-area harden (ttsky26c)"
+            echo "wall time: ${elapsed}s"
+          } >> "$GITHUB_STEP_SUMMARY"
