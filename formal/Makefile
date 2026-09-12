@@ -16,9 +16,8 @@ all: complete complete_cover complete-exclusions interrupt-tie-off \
      components_decoder components_executor components_accessor \
      components_pcloop components_traps components_busarbiter
 
-# Every sby target here names a directory sby creates, and a directory's mtime bumps
-# whenever an entry is written inside it -- so after one run the workdir is newer than
-# every prerequisite and make calls the target up to date forever.
+# A sby target names the workdir sby creates, whose mtime bumps on every write inside
+# it: without FORCE, make would call the target up to date after its first run.
 FORCE:
 .PHONY: FORCE
 
@@ -26,9 +25,8 @@ FORCE:
 	rm -rf $@
 	sby -f $<
 
-# Refuses by name rather than letting sby fail on it opaquely.
-.PHONY: check-solver-%
-check-solver-%:
+# FORCE, not .PHONY: .PHONY takes `%` literally, and listing the expansions disables this rule.
+check-solver-%: FORCE
 	@../mk/check-solvers.sh $*
 
 check: checks interrupt-tie-off multihart-tie-off $(RISCV_FORMAL_DIR)

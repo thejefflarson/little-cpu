@@ -22,7 +22,7 @@ trap 'rm -rf "$tmp"' EXIT
 cases=0
 failed=0
 
-# Pinned as a literal, for the reason test/PROBES_EXPECTED gives: a case deleted, or one
+# Pinned as a literal, for the reason docs/manifests/probes-expected.md gives: a case deleted, or one
 # stopped being reached by an early return, would otherwise cut this file's coverage
 # while it went on printing a green summary.
 CASES_EXPECTED=9

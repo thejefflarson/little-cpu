@@ -35,9 +35,8 @@ check-baseline: ../../formal/check-baseline.sh EXPECTED_FAIL EXPECTED_CHECKS
 	rm -rf $@
 	sby -f $<
 
-# Refuses by name rather than letting sby fail on it opaquely.
-.PHONY: check-solver-%
-check-solver-%:
+# FORCE, not .PHONY: .PHONY takes `%` literally, and listing the expansions disables this rule.
+check-solver-%: FORCE
 	@../../mk/check-solvers.sh $*
 
 dmemcheck: dmemcheck.sby dmemcheck.sv ../nano.v | $(RISCV_FORMAL_DIR)

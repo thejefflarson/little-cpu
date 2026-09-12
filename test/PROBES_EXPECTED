@@ -1,33 +1,6 @@
-# The manifest test/probe_gates.sh's own coverage ratchet is checked against:
-# every probe's LABEL, one per line, sorted. `make probe-gates` collects the
-# label passed to every `probe` call that actually ran and compares that list
-# to this file under SET EQUALITY IN BOTH DIRECTIONS, the same rule
-# test/EXPECTED_FAIL and test/OBSERVED_FLOOR already use — a probe this file
-# has and the run does not is as red as one the run has and this file does
-# not, so a probe that is deleted, skipped, or stranded behind an early
-# `return` is caught by name rather than by a total going out of sync with a
-# different total.
-#
-# TWO IDENTICAL LABELS ARE TWO LINES, not one. A handful of probes across
-# different fixtures share the same English description on purpose (the same
-# usage-error message, checked against a different script); the comparison is
-# a MULTISET, so losing one occurrence of a repeated label is still a mismatch
-# even though the label survives elsewhere in the file.
-#
-# Edit this file by hand, in the same commit that adds, removes, or renames a
-# `probe` call — the same discipline test/EXPECTED_FAIL's header states.
-# Never regenerate it wholesale from a run: that launders a dropped probe into
-# the baseline the same way regenerating test/EXPECTED_FAIL would launder a
-# regression. To add a line for a probe you just wrote, copy its label
-# literally out of the `probe "..."` call — not a description of it — and
-# insert it in sorted order; `LC_ALL=C sort` matches how make probe-gates
-# reads this file.
-#
-# Sorted rather than left in the order the probes run: two commits adding
-# unrelated probes almost never claim the same alphabetical neighbourhood, so
-# most additions land as independent line insertions a merge or a rebase
-# applies cleanly on their own, rather than two commits both rewriting the
-# one line a bare counter used to be.
+# make probe-gates's label manifest; format and rationale in docs/manifests/probes-expected.md.
+# TWO IDENTICAL LABELS ARE TWO LINES: some fixtures share a description on purpose.
+# Hand-edit in LC_ALL=C order. Never regenerate from a run: it launders a dropped probe.
 --clock-ns and --cycle-factor naming different core sets is refused
 --cores naming no CoreMark core at all is red before anything is parsed
 --cores naming no core at all is red before anything is parsed
@@ -76,6 +49,9 @@ a Makefile naming $(VEXRISCV_V) nowhere is red, not vacuously clean
 a PASS with no counts line is not a pass
 a PLL fed by something other than the constrained pad is red
 a PLL told its input is something the pad is not is red
+a PROBES_EXPECTED header that lost only its multiset line is refused
+a PROBES_EXPECTED run through a whole-file LC_ALL=C sort is refused
+a PROBES_EXPECTED with its header deleted is refused
 a RAM comparison over no words is named as unable to fail
 a RAM half the size in the core's copy is red
 a RAM half the size in the proof's copy is red
@@ -244,6 +220,7 @@ a lookalike sibling is not covered by the directory entry above it
 a lookalike sibling is not covered by the directory entry above it
 a lookalike sibling is not covered by the directory entry above it
 a lost [depth] line trips the shape check AND the verdict check
+a make that fails only under TOOLS_ON_PATH is red, not read as respected
 a malformed baseline line is named rather than skipped
 a malformed baseline line is named rather than skipped
 a malformed manifest line is red under --strict, not a silent pass
@@ -443,6 +420,7 @@ a status sby cannot produce is rejected at format time
 a status sby has never written here is reported on its own
 a step between the oscillator's own is refused, not graded against
 a stray comma in a connection list is named as one
+a stray file named after the check-solver target does not skip the guard
 a substituted, non-archive download is refused for every file, not silently skipped
 a suite script linking against a rom the harness has not got
 a suite with no pono stops before rewriting anything
@@ -688,6 +666,7 @@ control: the note a delta is read against carries the part too
 control: the pc hop reaches the pc bin, by the declared net's bits
 control: the shipping Makefile defines no target twice
 control: the shipping Makefile owes nothing but themselves to the two targets
+control: the shipping PROBES_EXPECTED header is present and not in C order
 control: the shipping board agrees with its own PLL and constraint file
 control: the shipping decoder reaches region_stall only, gated
 control: the shipping exclusion set matches its baseline both ways
@@ -734,6 +713,8 @@ more accesses near an edge than there were accesses is red
 moved sources say so, naming both digests
 moving the declared string alone, with every site unchanged, is red
 mutate_remove on a path that was never there is fixture-stale, not silent
+nano's check-solver guard also runs past a stray file of its name
+nano's check-solver guard runs on a clean tree, not only when a file forces it
 nano's remeasure-fg still lists check-solver-btorsim as a prerequisite
 netlist-diff reaches the same check as netlist-digest does
 no components.sby is exit 2 here too, not a green control

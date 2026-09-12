@@ -632,9 +632,9 @@ jobs:
             fi
           done
           if [ "$missing" -ne 0 ]; then
-            echo "::error::formal/check-baseline.sh cannot tell ERROR from FAIL," \
-                 "so an incomplete toolchain would make this gate green on a" \
-                 "check set that never really ran. Refusing to report a verdict."
+            echo "::error::stopping on the missing tool named above, rather than" \
+                 "letting every check report ERROR and leaving the cause to be" \
+                 "inferred from that. check-baseline.sh would go red either way."
             exit 1
           fi
 
@@ -748,9 +748,9 @@ jobs:
             fi
           done
           if [ "$missing" -ne 0 ]; then
-            echo "::error::formal/check-baseline.sh cannot tell ERROR from FAIL," \
-                 "so an incomplete toolchain would make this gate green on a" \
-                 "check set that never really ran. Refusing to report a verdict."
+            echo "::error::stopping on the missing tool named above, rather than" \
+                 "letting every check report ERROR and leaving the cause to be" \
+                 "inferred from that. check-baseline.sh would go red either way."
             exit 1
           fi
 
