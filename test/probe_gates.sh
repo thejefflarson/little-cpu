@@ -6642,6 +6642,16 @@ tp_fixture() {
   printf '%s' "$d"
 }
 
+# Captured, not piped: in a pipeline, a make that failed read as "respected".
+tp_respects() {  # $1 = directory for make -C, $2 = a tp_fixture
+  local out rc
+  out=$(env XDG_CACHE_HOME="$2/cache" TOOLS_ON_PATH=1 make -C "$1" -s print-PATH 2>&1)
+  rc=$?
+  if [ "$rc" -ne 0 ]; then echo "make exited $rc under TOOLS_ON_PATH: $out"; return 1; fi
+  if [ "${out%%:*}" = "$2/cache/little-cpu/oss-cad-suite/bin" ]; then echo shadowed; return 1; fi
+  echo respected
+}
+
 d=$(tp_fixture)
 probe "control: the cached suite is put first when nothing claims PATH" 0 \
   "$d/cache/little-cpu/oss-cad-suite/bin" \
@@ -6650,7 +6660,18 @@ probe "control: the cached suite is put first when nothing claims PATH" 0 \
 d=$(tp_fixture)
 probe "TOOLS_ON_PATH stops the real tools shadowing a fixture's stubs" 0 \
   "respected" \
-  "env XDG_CACHE_HOME=$d/cache TOOLS_ON_PATH=1 make -C $REPO -s print-PATH | cut -d: -f1 | grep -qx '$d/cache/little-cpu/oss-cad-suite/bin' && echo shadowed || echo respected"
+  "tp_respects $REPO $d"
+
+mkdir -p "$tmp/bin-make-optout-fails"
+cat > "$tmp/bin-make-optout-fails/make" <<STUB
+#!/bin/sh
+[ -n "\${TOOLS_ON_PATH:-}" ] && { echo "planted: make fails under the opt-out" >&2; exit 2; }
+exec $(command -v make) "\$@"
+STUB
+chmod +x "$tmp/bin-make-optout-fails/make"
+d=$(tp_fixture)
+probe "a make that fails only under TOOLS_ON_PATH is red, not read as respected" 1 \
+  "make exited 2 under TOOLS_ON_PATH" "PATH='$tmp/bin-make-optout-fails':\$PATH tp_respects $REPO $d"
 
 begin_group "mk/toolchain.mk in the formal sub-makes"
 
@@ -6664,7 +6685,7 @@ probe "control: formal/Makefile also puts the cached suite first" 0 \
 d=$(tp_fixture)
 probe "TOOLS_ON_PATH stops formal/Makefile shadowing a fixture's stubs too" 0 \
   "respected" \
-  "env XDG_CACHE_HOME=$d/cache TOOLS_ON_PATH=1 make -C $REPO/formal -s print-PATH | cut -d: -f1 | grep -qx '$d/cache/little-cpu/oss-cad-suite/bin' && echo shadowed || echo respected"
+  "tp_respects $REPO/formal $d"
 
 d=$(tp_fixture)
 probe "control: nano/formal/Makefile also puts the cached suite first" 0 \
@@ -6674,11 +6695,32 @@ probe "control: nano/formal/Makefile also puts the cached suite first" 0 \
 d=$(tp_fixture)
 probe "TOOLS_ON_PATH stops nano/formal/Makefile shadowing a fixture's stubs too" 0 \
   "respected" \
-  "env XDG_CACHE_HOME=$d/cache TOOLS_ON_PATH=1 make -C $REPO/nano/formal -s print-PATH | cut -d: -f1 | grep -qx '$d/cache/little-cpu/oss-cad-suite/bin' && echo shadowed || echo respected"
+  "tp_respects $REPO/nano/formal $d"
 
 probe "a missing bitwuzla is refused by name before sby ever runs" 2 \
   "bitwuzla is not on PATH" \
   "PATH=/usr/bin:/bin make -C $REPO/formal check-solver-bitwuzla"
+
+cs_guard_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/formal" "$d/nano/formal" "$d/mk"
+  cp "$REPO/formal/Makefile" "$REPO/formal/pin.mk" "$d/formal/"
+  cp "$REPO/nano/formal/Makefile" "$d/nano/formal/"
+  cp "$REPO/mk/toolchain.mk" "$REPO/mk/check-solvers.sh" "$d/mk/"
+  printf '%s' "$d"
+}
+
+d=$(cs_guard_fixture); : > "$d/formal/check-solver-bitwuzla"
+probe "a stray file named after the check-solver target does not skip the guard" 2 \
+  "bitwuzla is not on PATH" "PATH=/usr/bin:/bin make -C $d/formal check-solver-bitwuzla"
+
+d=$(cs_guard_fixture); : > "$d/nano/formal/check-solver-btorsim"
+probe "nano's check-solver guard also runs past a stray file of its name" 2 \
+  "btorsim is not on PATH" "PATH=/usr/bin:/bin make -C $d/nano/formal check-solver-btorsim"
+
+d=$(cs_guard_fixture)
+probe "nano's check-solver guard runs on a clean tree, not only when a file forces it" 2 \
+  "btorsim is not on PATH" "PATH=/usr/bin:/bin make -C $d/nano/formal check-solver-btorsim"
 
 probe "a missing btorsim is refused by name before formal's own sweep runs" 2 \
   "btorsim is not on PATH" \
@@ -6939,6 +6981,21 @@ probe "a missing regenerate output is refused rather than committing nothing" 2 
 
 probe "wrong argument count is exit 2" 2 \
   "usage:" "'$REPO/formal/publish-pin-bump.sh' only-one"
+
+begin_group "test/probes_header_test.py"
+
+PH="python3 $REPO/test/probes_header_test.py"
+
+probe "control: the shipping PROBES_EXPECTED header is present and not in C order" 0 \
+  "not in C order" "$PH"
+
+d=$(new_case); LC_ALL=C sort "$REPO/test/PROBES_EXPECTED" > "$d/PROBES_EXPECTED"
+probe "a PROBES_EXPECTED run through a whole-file LC_ALL=C sort is refused" 1 \
+  "header is in LC_ALL=C order" "$PH $d/PROBES_EXPECTED"
+
+d=$(new_case); grep -v '^#' "$REPO/test/PROBES_EXPECTED" > "$d/PROBES_EXPECTED"
+probe "a PROBES_EXPECTED with its header deleted is refused" 1 \
+  "header line(s), under" "$PH $d/PROBES_EXPECTED"
 
 actual_labels=$(printf '%s\n' "${probe_labels[@]}" | LC_ALL=C sort)
 expected_labels=$(grep -vE '^#|^[[:space:]]*$' "$PROBES_MANIFEST" | LC_ALL=C sort)

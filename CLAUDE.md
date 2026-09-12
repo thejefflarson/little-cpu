@@ -673,7 +673,7 @@ make test           # the test/asm suite (.S and .c) under cxxrtl + unit benches
                     # retired-term, adr-numbering, port-connect, compare-geometry,
                     # vexriscv-path, tracked-ignored, tool-cache, pin-bump, abc-engine,
                     # zkt-isolation, fixture-freshness, makefile-target, lut4-site,
-                    # pll-clock)
+                    # pll-clock, probes-header)
                     # + window-test, imem-share-test, board-elaborate, mutation-probe and
                     # dual-build; graded against EXPECTED_FAIL / OBSERVED_FLOOR
 make test-units     # the unit benches alone; the list is checked against test/*_tb.v both ways
