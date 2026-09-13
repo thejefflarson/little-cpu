@@ -3,6 +3,10 @@
   .section .text.init,"ax",@progbits
   .globl _start
 _start:
+  .option push
+  .option norelax
+  la      gp, __global_pointer$
+  .option pop
   la      sp, __stack_top
 
   la      a1, __bss_start

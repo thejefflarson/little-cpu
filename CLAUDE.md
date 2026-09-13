@@ -674,8 +674,9 @@ make test           # the test/asm suite (.S and .c) under cxxrtl + unit benches
                     # vexriscv-path, tracked-ignored, tool-cache, pin-bump, abc-engine,
                     # zkt-isolation, fixture-freshness, makefile-target, lut4-site,
                     # pll-clock, probes-header, dhry-board-parity)
-                    # + window-test, imem-share-test, board-elaborate, mutation-probe and
-                    # dual-build; graded against EXPECTED_FAIL / OBSERVED_FLOOR
+                    # + window-test, imem-share-test, board-elaborate, mutation-probe,
+                    # dual-build, nano-test and nano-startup-test; graded against
+                    # EXPECTED_FAIL / OBSERVED_FLOOR
 make test-units     # the unit benches alone; the list is checked against test/*_tb.v both ways
 make elaborate-strict # yosys elaborates every simulation source through `check`; the
                     # required `elaborate` CI job
@@ -801,6 +802,13 @@ make nano-area      # nanocpu's area, local `synth; dfflibmap; abc -liberty`, ne
                     # merged with the brief's own TT-flow/LibreLane number; ratchet
                     # on NANO_MAX_UM2. Not on `make test`'s path; no-ops until
                     # nano/nano.v lands
+make nano-test      # nano/asm's six hand-written x0-x15 programs under nano-sim, graded
+                    # against nano/asm/EXPECTED_FAIL / OBSERVED_FLOOR. On `make test`'s path
+make nano-startup-test # the shared nano/bench/start.S initializes gp before any
+                    # gp-relative reference runs; PASS/FAIL over tohost. On `make test`'s path
+make nano-dhrystone # Dhrystone on nanocpu under nano-sim --bench, core-only, zero-wait-state,
+                    # 80 KB flat memory (nano/tb/nano_memory.v). Not on `make test`'s path
+make nano-coremark  # CoreMark on nanocpu, same memory model and standing as nano-dhrystone
 ```
 
 `make sail-setup` and `make lint-setup` unpack into `~/.cache/little-cpu` (`XDG_CACHE_HOME` moves
@@ -819,11 +827,14 @@ svlint (`SAIL_RISCV_VERSION`, `SVLINT_VERSION`), Hazard3 (`soc/compare/hazard3_p
 
 ## Engineering rules
 
-- **Compiler and elaboration warnings are errors.** Two allowlisted exceptions, both documented
-  where they are allowlisted: iverilog's `sorry: constant selects in always_* processes` for
+- **Compiler and elaboration warnings are errors.** Three allowlisted exceptions, each documented
+  where it is allowlisted: iverilog's `sorry: constant selects in always_* processes` for
   `rtl/writeback.v`'s `always_comb` struct reads (over-sensitivity, provably safe; do not add new
-  ones outside that file), and yosys's `Deep recursion in AST simplifier` notice on the
-  `elaborate` CI job.
+  ones outside that file); yosys's `Deep recursion in AST simplifier` notice on the
+  `elaborate` CI job; and `nano/tb/nano_exec_cxxrtl.cc`'s `#pragma GCC diagnostic ignored
+  "-Wunused-parameter"` around its `#include` of the generated cxxrtl code, whose `eval(performer *)`
+  takes that argument unconditionally with nothing on this wrapper's path ever calling `$display`
+  through it.
 - **No file may be more than 5% comment lines**, graded per file by
   `test/comment_density_test.py` on `make test`; `docs/comment-budget.md` is the derivation
   and says which comment-shaped lines are code. Prose that outgrows the budget moves to
