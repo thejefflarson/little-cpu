@@ -116,9 +116,6 @@ cosim.dSYM/
 nano-sim
 nano-sim.dSYM/
 nano/tb/nano_rtl.cc
-nano-exec-sim
-nano-exec-sim.dSYM/
-nano/tb/nano_exec_rtl.cc
 tools/
 test/a.out.dSYM/
 .claude/worktrees/

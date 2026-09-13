@@ -1,6 +1,6 @@
 #!/bin/bash
-# The forced-red direction for nano_exec_cxxrtl.cc: reintroduces each divider defect it
-# exists to catch into a scratch copy of nano.v and requires a reported mismatch.
+# The forced-red direction for nano_exec_cxxrtl.cc: reintroduces a real divider or
+# multiplier defect into a scratch copy of nano.v and requires a reported mismatch.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -40,5 +40,7 @@ run_mutation "iteration-count" \
   "s/mul_div_counter <= 32;/mul_div_counter <= 65;/" || status=1
 run_mutation "no-magnitude-conversion" \
   "s/mul_div_x <= {32'b0, div_abs_rs1};/mul_div_x <= {32'b0, regs[rs1[3:0]]};/" || status=1
+run_mutation "mulhsu-sign-extends-rs2" \
+  "s/mul_div_y <= {{32'b0},regs\[rs2\[3:0\]\]};/mul_div_y <= {{32{regs[rs2[3:0]][31]}},regs[rs2[3:0]]};/" || status=1
 
 exit $status

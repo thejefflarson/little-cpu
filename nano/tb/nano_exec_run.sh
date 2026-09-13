@@ -15,10 +15,10 @@ trap 'rm -rf "$tmp"' EXIT
 
 cp "$HERE/nano_exec_cxxrtl.cc" "$tmp/nano_exec_cxxrtl.cc" # its #include resolves next to itself, not $HERE
 
-yosys -p "read_verilog -sv $NANO_V $HERE/nano_exec_tb.v; hierarchy -top nano_exec_tb; write_cxxrtl $tmp/nano_exec_rtl.cc" \
+yosys -p "read_verilog -sv \"$NANO_V\" \"$HERE/nano_exec_tb.v\"; hierarchy -top nano_exec_tb; write_cxxrtl \"$tmp/nano_exec_rtl.cc\"" \
   > "$tmp/synth.log" 2>&1 || { echo "error: yosys could not elaborate $NANO_V" >&2; tail -40 "$tmp/synth.log" >&2; exit 1; }
 
-clang++ -O2 -DNDEBUG -std=c++17 -Wall -Wextra -Werror -Wno-unused-parameter \
+clang++ -O2 -DNDEBUG -std=c++17 -Wall -Wextra -Werror \
   -isystem "$(yosys-config --datdir)/include/backends/cxxrtl/runtime" \
   "$tmp/nano_exec_cxxrtl.cc" -o "$tmp/nano-exec-sim" \
   > "$tmp/build.log" 2>&1 || { echo "error: clang++ could not build the oracle against $NANO_V" >&2; cat "$tmp/build.log" >&2; exit 1; }
