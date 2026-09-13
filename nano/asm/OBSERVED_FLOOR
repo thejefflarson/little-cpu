@@ -1,0 +1,8 @@
+# nano's suite manifest and retire floor, graded both ways by test/check_suite_shape.sh
+# and nano/asm/run_nano_tests.sh, the same rule test/OBSERVED_FLOOR states for littlecpu.
+alu.S          66
+branch.S       33
+loadstore.S    44
+mul.S          29
+divide.S        5
+compressed.S   75

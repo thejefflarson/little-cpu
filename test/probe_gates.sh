@@ -205,6 +205,23 @@ STUB
   chmod +x "$1"
 }
 
+make_nano_sim_stub() {  # $1 = path
+  cat > "$1" <<'STUB'
+#!/bin/sh
+# Stands in for ./nano-sim (nano/tb/nano_cxxrtl.cc): one `RETIRES <n>` line, no
+# spec-checked column -- nano's suite has no A/CSR retire the monitor cannot
+# spec-check, so run_nano_tests.sh tracks one count, not two.
+[ -z "${STUB_SIM_NOCOUNTS:-}" ] && echo "RETIRES ${STUB_SIM_RETIRES:-10}"
+case ${STUB_SIM_EXIT:-0} in
+  0) echo "PASS" ;;
+  1) echo "FAIL 7" ;;
+  4) echo "RVFI monitor error 105 at cycle 12" >&2 ;;
+esac
+exit ${STUB_SIM_EXIT:-0}
+STUB
+  chmod +x "$1"
+}
+
 make_cosim_py_stub() {  # $1 = path
   cat > "$1" <<'STUB'
 #!/bin/sh
@@ -317,7 +334,7 @@ STUB
 
 # `leg-rt` / `leg-rc` are scratch copies of the two suite runners, because each resolves
 # its helper scripts relative to its own path.
-mkdir -p "$tmp/bin-none" "$tmp/bin-curl" "$tmp/leg-rt" "$tmp/leg-rc" "$tmp/leg-rc-nopy"
+mkdir -p "$tmp/bin-none" "$tmp/bin-curl" "$tmp/leg-rt" "$tmp/leg-rc" "$tmp/leg-rc-nopy" "$tmp/leg-nano"
 
 # For the one probe that claims "no cross compiler", `bin-none` has to be the WHOLE path:
 # with /usr/bin behind it, run_tests.sh finds a real riscv64-unknown-elf-gcc on any host
@@ -337,12 +354,18 @@ make_toolchain_stubs "$tmp/bin"
 make_toolchain_stubs "$tmp/bin-noobjcopy"
 rm "$tmp/bin-noobjcopy/riscv64-elf-objcopy"
 make_sim_stub "$tmp/sim"
+make_nano_sim_stub "$tmp/nano-sim"
 make_sail_stub "$tmp/sail"
 make_curl_stub "$tmp/bin-curl/curl"
 make_version_stubs "$tmp/bin-tools"
 make_icetime_stub "$tmp/icetime-stub"
 make_cosim_bin_stub "$tmp/dut"
 cp "$HERE/run_tests.sh" "$HERE/check_suite_shape.sh" "$HERE/stall_report.py" "$tmp/leg-rt/"
+# nano/asm/run_nano_tests.sh finds test/check_suite_shape.sh two directories up from its
+# own path, the same way it finds it in the real tree, so the copy has to keep that shape.
+mkdir -p "$tmp/leg-nano/nano/asm" "$tmp/leg-nano/test"
+cp "$REPO/nano/asm/run_nano_tests.sh" "$tmp/leg-nano/nano/asm/"
+cp "$HERE/check_suite_shape.sh" "$tmp/leg-nano/test/"
 cp "$HERE/run_cosim.sh" "$HERE/check_suite_shape.sh" "$tmp/leg-rc/"
 make_cosim_py_stub "$tmp/leg-rc/cosim.py"
 cp "$HERE/run_cosim.sh" "$HERE/check_suite_shape.sh" "$tmp/leg-rc-nopy/"
@@ -539,6 +562,45 @@ probe "columns that no longer add up to the cycle count are red" 1 \
 
 probe "a runner that reports no cycles at all cannot produce a clean table" 1 \
   "no program reported its cycles" "STALL_REPORT=1 STUB_SIM_NOSTALLS=1 $(rt "$d")"
+
+begin_group "nano/asm/run_nano_tests.sh"
+
+nano_rt_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/asm"
+  : > "$d/asm/alu.S"
+  : > "$d/asm/nano.lds"
+  printf 'alu.S 10\n' > "$d/FLOOR"
+  : > "$d/BASELINE"
+  printf '%s' "$d"
+}
+
+NANO_RT="$tmp/leg-nano/nano/asm/run_nano_tests.sh"
+nano_rt() { printf "PATH='%s/bin:%s/bin-none:/usr/bin:/bin' %s %s/nano-sim %s/asm %s/BASELINE %s/FLOOR 'x'" \
+  "$tmp" "$tmp" "$NANO_RT" "$tmp" "$1" "$1" "$1"; }
+
+d=$(nano_rt_fixture)
+probe "control: nano's own suite is graded the same way, and it is green" 0 \
+  "Failure list matches" "$(nano_rt "$d")"
+
+d=$(nano_rt_fixture); printf 'alu.S ten\n' > "$d/FLOOR"
+probe "nano's floor is one column, and one that does not parse is named" 1 \
+  "are not '<program> <retires>'" "$(nano_rt "$d")"
+
+d=$(nano_rt_fixture); : > "$d/asm/unlisted.S"
+probe "nano's suite goes through the same shape check first" 1 \
+  "nothing was run" "$(nano_rt "$d")"
+
+d=$(nano_rt_fixture)
+probe "nano's runner exit 4 is MONITOR-ERROR too, carrying nano's own code" 1 \
+  "MONITOR-ERROR 105" "STUB_SIM_EXIT=4 $(nano_rt "$d")"
+
+d=$(nano_rt_fixture); printf 'alu.S MONITOR-ERROR 105\n' > "$d/BASELINE"
+probe "control: nano's real divider defect is a baselined green, not a hidden one" 0 \
+  "Failure list matches" "STUB_SIM_EXIT=4 $(nano_rt "$d")"
+
+probe "an unexpected PASS is red for nano's suite too" 1 \
+  "does NOT match" "$(nano_rt "$d")"
 
 begin_group "test/run_cosim.sh"
 
@@ -3187,10 +3249,11 @@ MA="$HERE/march_test.sh"
 ma_fixture() {
   local d; d=$(new_case)
   mkdir -p "$d/test/sail" "$d/soc/depth" "$d/soc/compare" "$d/formal" \
-           "$d/docs/adr" "$d/docs/ideas"
+           "$d/docs/adr" "$d/docs/ideas" "$d/nano"
   cp "$REPO/CLAUDE.md" "$REPO/Makefile" "$d/"
   cp "$REPO/test/run_tests.sh" "$REPO/test/cosim.py" "$REPO/test/march_test.sh" \
      "$REPO/test/dual_build.sh" "$REPO/test/probe_gates.sh" "$d/test/"
+  cp "$REPO/nano/tb.mk" "$d/nano/"
   cp "$REPO/test/sail/reservation_probe.sh" "$d/test/sail/"
   cp "$REPO/soc/depth/cycles.py" "$d/soc/depth/"
   cp "$REPO/soc/compare/run_dhrystone.sh" "$d/soc/compare/"
