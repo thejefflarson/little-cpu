@@ -191,3 +191,36 @@ opcode-specific ones, not a replacement for it.
 CI's `formal-extra` job gained a `nanocpu complete_cover` step beside the existing
 `nanocpu complete` one. `EXPECTED_FAIL` did not move -- this amendment adds a control
 and restores a check family, neither of which changes what is expected to fail.
+
+## Amendment, 2026-09-13 — `complete`'s SYSTEM guard is deleted, and the memchecks split the bus on `mem_instr`
+
+`complete.sv` skipped its assertion for any retire whose opcode was SYSTEM (`1110011`), and
+nothing graded the constant it matched: the kind of exclusion `formal/COMPLETE_EXCLUSIONS`
+exists to make visible on the main core. The guard excused nothing. nano has no CSR or trap
+layer yet, so every SYSTEM encoding traps, and the `!rvfi_trap` term one line up already
+excuses a trapping retire. With the guard deleted, `make -C nano/formal complete` still
+passes, which is the measurement that it was dead.
+
+**The CSR and trap layer owes `complete` a graded exclusion.** Once `csrrw` or `mret` retires
+without trapping, `complete` goes red, because the pinned riscv-formal ships no spec model for
+SYSTEM and `spec_valid` is low for every SYSTEM encoding. The fix is the main core's shape --
+an `// EXCLUDE` line in `complete.sv` and a nano exclusion baseline, graded against each other
+the way `formal/check-complete-exclusions.py` grades the main core's -- never a bare opcode
+test. `complete.sv` carries the same warning beside its assertion.
+
+**Both memchecks now gate their memory assume on `mem_instr`**, which `nano.v` sets high in
+`fetch_instr` and low when it issues a load or store: `dmemcheck.sv` constrains data reads
+only, `imemcheck.sv` fetches only. Each gate narrows when its assume applies, so each check
+explores a superset of the traces it explored before and can still fail on every trace it
+could fail on before; both still pass. `imemcheck.sv` wires the unforked
+`rvfi_imem_check.sv`, whose watched halfword is a constant for the whole trace, so it does not
+model a store into text; a comment says so rather than forking the checker.
+
+**This change owes no forced-red probe, and the older gap it exposes is recorded here.** A
+change that only removes environment constraints cannot remove a red direction. The gap is
+shared by both cores: no `dmemcheck` or `imemcheck` in this tree has a committed red
+direction -- no probe prerequisite in either `Makefile`, no entry in `test/MUTATION_DETECTORS`.
+nano's pair was shown red by hand when this landed (`rvfi_mem_rdata` and `rvfi_insn` each
+inverted in a scratch copy of `nano.v`, and the matching check FAILing), which is evidence on
+the day, not a gate. A committed probe for all four checks, in the shape
+`complete-cover-probe.py` already has, is follow-up work.

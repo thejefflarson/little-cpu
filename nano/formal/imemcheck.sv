@@ -37,8 +37,10 @@ module testbench (
     `RVFI_CONN
   );
 
+  // Holds only while the watched halfword is never stored to: imem_data is a
+  // rand_const fixed for the whole trace, so a store there goes unnoticed.
   always_comb begin
-    if (!reset && mem_valid && mem_ready) begin
+    if (!reset && mem_valid && mem_ready && mem_instr) begin
       if (mem_addr == imem_addr)
         assume(mem_rdata[15:0] == imem_data);
       if (mem_addr + 2 == imem_addr)
