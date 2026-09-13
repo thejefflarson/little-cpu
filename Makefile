@@ -1415,10 +1415,7 @@ compare.$(COMPARE_CORE).json: compare-rom $(COMPARE_DEPS)
 	@echo 'yosys: synthesising $(COMPARE_TOP) for up5k (log: compare.$(COMPARE_CORE).synth.log)'
 	@# chparam BEFORE hierarchy, so the harness's geometry has one source -- the
 	@# variables above -- rather than a second copy in each .v file's defaults.
-	@yosys -p '$(COMPARE_READ); \
-	  chparam -set ROM_WORDS $(COMPARE_ROM_WORDS) -set RAM_WORDS $(COMPARE_RAM_WORDS) $(COMPARE_TOP); \
-	  hierarchy -top $(COMPARE_TOP); \
-	  synth_ice40 -device u -dsp -spram -top $(COMPARE_TOP) -json $@; stat' \
+	@yosys -p '$(COMPARE_READ); chparam -set ROM_WORDS $(COMPARE_ROM_WORDS) -set RAM_WORDS $(COMPARE_RAM_WORDS) $(COMPARE_TOP); hierarchy -top $(COMPARE_TOP); synth_ice40 -device u -dsp -spram -top $(COMPARE_TOP) -json $@; stat' \
 	  > compare.$(COMPARE_CORE).synth.log 2>&1 \
 	  || { tail -40 compare.$(COMPARE_CORE).synth.log; exit 1; }
 
@@ -1616,9 +1613,7 @@ compare_ecp5.$(COMPARE_CORE).core.log: $(COMPARE_CORE_DEPS)
 
 compare_ecp5.$(COMPARE_CORE).json: compare-rom $(COMPARE_DEPS)
 	@echo 'yosys: synthesising $(COMPARE_TOP) for ECP5 (log: compare_ecp5.$(COMPARE_CORE).synth.log)'
-	@yosys -p '$(COMPARE_READ); \
-	  chparam -set ROM_WORDS $(COMPARE_ROM_WORDS) -set RAM_WORDS $(COMPARE_RAM_WORDS) $(COMPARE_TOP); \
-	  synth_ecp5 -top $(COMPARE_TOP) -json $@; stat' \
+	@yosys -p '$(COMPARE_READ); chparam -set ROM_WORDS $(COMPARE_ROM_WORDS) -set RAM_WORDS $(COMPARE_RAM_WORDS) $(COMPARE_TOP); synth_ecp5 -top $(COMPARE_TOP) -json $@; stat' \
 	  > compare_ecp5.$(COMPARE_CORE).synth.log 2>&1 \
 	  || { tail -40 compare_ecp5.$(COMPARE_CORE).synth.log; exit 1; }
 	@python3 soc/cell_census.py compare_ecp5.$(COMPARE_CORE).synth.log DP16KD \

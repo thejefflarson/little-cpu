@@ -11,6 +11,7 @@
 --require-news is news the moment rtl/ moved under the older stamp too
 --require-news refuses on its own status, not on "no news"
 --require-news's own artifact does not make itself the news
+--step-mhz refuses a core whose worst placement is under the step
 --step-mhz replaces each core's own placed clock with one fixed step in its product
 ...and a margin under the floor writes no pin file at all
 ...and one the purge did not remove means the digest is equal by luck

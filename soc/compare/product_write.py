@@ -124,6 +124,14 @@ def measured_pair(args):
     cores = {core: {"clock_mhz": clocks[core], "cycle_factor": factors[core]}
              for core in clocks}
 
+    # Crediting a core the step must not depend on the caller having run step_gate.py.
+    if args.step_mhz is not None:
+        under = sorted(c for c in clocks if clocks[c]["worst_mhz"] < args.step_mhz)
+        if under:
+            sys.exit(f"error: --step-mhz {args.step_mhz:g} is above the worst placement "
+                     f"of {', '.join(under)}; a core under the step is out of the "
+                     "comparison, not credited the step")
+
     products = {}
     target = args.target_core
     for core in clocks:

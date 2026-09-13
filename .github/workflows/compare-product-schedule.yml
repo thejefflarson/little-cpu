@@ -20,9 +20,9 @@ jobs:
     # so it only ever measures and publishes from main.
     if: github.ref == 'refs/heads/main'
     runs-on: little-cpu-runners
-    # Three cores, twelve seeds, two parts is 72 placements, both benchmarks' cycle
-    # counts on top -- measured at just under 70 minutes on this pool.
-    timeout-minutes: 150
+    # 72 placements plus both benchmarks: ~60 min on a machine that runs `make ecp5-timing`
+    # 2.3x faster than this pool, so ~140 here. Never yet timed on the pool itself.
+    timeout-minutes: 300
     steps:
       - name: Record job start
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"

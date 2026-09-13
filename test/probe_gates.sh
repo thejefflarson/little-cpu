@@ -6403,6 +6403,17 @@ probe "--step-mhz replaces each core's own placed clock with one fixed step in i
     --cycle-factor littlecpu=1.0 --cycle-factor vexriscv=2.0 \
     && cat $d/p.json"
 
+d=$(new_case)
+probe "--step-mhz refuses a core whose worst placement is under the step" 1 \
+  "a core under the step is out of the comparison" \
+  "python3 $REPO/soc/compare/product_write.py $d/p.json dhrystone --measured \
+    --target-core littlecpu --base aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+    --dirty no --date 2026-08-16T00:00:00Z --seeds default \
+    --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --step-mhz 12 --clock-ns littlecpu=80.0,90.0 --clock-ns vexriscv=20.0,21.0 \
+    --cycle-factor littlecpu=1.0 --cycle-factor vexriscv=2.0"
+
 # Unlike pd_fixture, after.json lives at the real soc/compare/product.json path, so
 # --require-news's own artifact exclusion (the same fix product_check.py already has)
 # is what is under test here, not the ordinary staleness question pd_fixture covers.

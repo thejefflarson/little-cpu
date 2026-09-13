@@ -90,7 +90,10 @@ same `--current cflags/rom_words/ram_words` the Dhrystone ones already did;
 and an ECP5 pair now stamps its own `ecp5_part`/`ecp5_target_mhz` fields
 (via a new generic `--field NAME=VALUE`) and the Trellis database's digest
 (via `soc/print_toolchain.sh trellis-db`, asked for only when ECP5 is being
-placed), checked with `--current` the same generic way `cflags` already is.
+placed). `product_check.py --current` can compare the two fields the way it
+compares `cflags`, but no caller passes them yet, and nothing compares the
+`tools` block the digest sits in; both belong with watching the Makefile,
+which is deferred.
 `.github/workflows/compare-product-schedule.yml` gets `persist-credentials:
 false` on its checkout, `gh auth setup-git` plus `GH_TOKEN` confined to the
 one step that pushes a branch and opens a PR, and `if: github.ref ==
@@ -143,6 +146,33 @@ column, not Dhrystone's, matching what the ticket that added the ECP5 sweep
 scoped. Hazard3's Dhrystone figures in CLAUDE.md (10.80 DMIPS at up5k, 43.99
 at ECP5, its ratios) stay sourced from the manual `make compare-dhrystone`
 sweep ADR-0146/ADR-0160 already cite.
+
+## Found at integration
+
+**The re-take could not have run on the pool.** The only earlier run of
+`.github/workflows/compare-product-schedule.yml` (2026-09-07) stopped 39 seconds
+in, at yosys's `ERROR: No such command: \`, inside `compare.$(COMPARE_CORE).json`.
+That recipe and `compare_ecp5.$(COMPARE_CORE).json` continued their `yosys -p`
+scripts with a backslash-newline inside the single quotes. GNU Make 3.81, which
+macOS ships as `/usr/bin/make`, hides the backslash from yosys, so every local run
+passed; GNU Make 4.4.1 hands yosys both characters, and yosys given the
+backslash directly fails the same way. Both recipes are now one line, the rule
+CLAUDE.md already states for `SOC_ROM_CHPARAM` (ADR-0165). `board.json` has the
+same shape and is not on this path.
+
+**`--step-mhz` now refuses a core under the step itself.** It had relied on the
+caller: `run_product.sh` only reaches `product_write.py` after `make
+compare-timing`'s `step_gate.py` passed every seed, but a hand run with a core at
+11 MHz was credited 12. `product_write.py` now exits if any core's worst
+placement is under the step it was given.
+
+**The pool's wall time is unmeasured, and 150 minutes was too tight for it.**
+The measurement above took about 60 minutes on a developer machine; no run of
+this workflow has reached its sweep on the pool. That machine runs `make
+ecp5-timing` in 31 seconds where the pool's CI job took 72, a ratio of 2.3,
+which puts the whole re-take near 140 minutes against the 150 the workflow
+allowed. `timeout-minutes` is now 300, and the first dispatch's own reported wall
+time replaces this estimate.
 
 ## Consequence
 
