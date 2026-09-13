@@ -115,6 +115,48 @@ bool parse_args(int argc, char **argv, Args &args) {
   return true;
 }
 
+// nano has no mcause CSR, so the runner classifies a trap itself, reading the same
+// combinational decode signals nano.v's own cpu_trap arms read off the parked pc/instr
+// pair. A signal absent from a future build degrades this to "unclassified" rather than
+// aborting the run.
+struct CauseSignals {
+  std::map<std::string, const cxxrtl::debug_item *> bits;
+
+  bool flag(const char *name) const {
+    auto it = bits.find(name);
+    return it != bits.end() && it->second != nullptr && (it->second->curr[0] & 1) != 0;
+  }
+  uint32_t raw(const char *name) const {
+    auto it = bits.find(name);
+    return (it != bits.end() && it->second != nullptr) ? it->second->curr[0] : 0;
+  }
+};
+
+std::string classify_trap_cause(const CauseSignals &s) {
+  if (!s.flag("uut is_valid")) {
+    if (s.flag("uut is_e_illegal"))
+      return "E-illegal: instruction names a register above x15";
+    return "illegal instruction: opcode not implemented";
+  }
+  if (s.flag("uut is_ecall"))
+    return "ecall";
+  if (s.flag("uut is_ebreak"))
+    return "ebreak";
+  if ((s.flag("uut is_jal") || s.flag("uut is_jalr") || s.flag("uut is_branch")) &&
+      (s.raw("uut pc_wdata") & 1) != 0)
+    return "misaligned jump/branch target";
+  bool addr24_nonzero = s.raw("uut addr24") != 0;
+  bool addr8_set = s.flag("uut addr8");
+  if ((s.flag("uut is_load_op") || s.flag("uut is_clwsp") || s.flag("uut is_clw")) &&
+      ((s.flag("uut is_lw") && addr24_nonzero) ||
+       ((s.flag("uut is_lh") || s.flag("uut is_lhu")) && addr8_set)))
+    return "misaligned load";
+  if ((s.flag("uut is_store_op") || s.flag("uut is_cswsp") || s.flag("uut is_csw")) &&
+      ((s.flag("uut is_sw") && addr24_nonzero) || (s.flag("uut is_sh") && addr8_set)))
+    return "misaligned store";
+  return "unclassified (decoded valid, no known trap arm matched)";
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -163,6 +205,21 @@ int main(int argc, char **argv) {
   const cxxrtl::debug_item &bench_end = items.at("bench_end_cycle").at(0);
   const cxxrtl::debug_item &bench_writes = items.at("bench_writes").at(0);
   const cxxrtl::debug_item &bench_verdict = items.at("bench_verdict").at(0);
+
+  // pc/instr stay parked once cpu_state reaches cpu_trap; the cause signals are best-effort.
+  const cxxrtl::debug_item *trap_pc = must_find("uut pc", "did nano.v rename its pc register?");
+  const cxxrtl::debug_item *trap_instr =
+      must_find("uut instr", "did nano.v rename its instr register?");
+  if (!trap_pc || !trap_instr)
+    return 3;
+  CauseSignals cause_signals;
+  for (const char *name :
+       {"uut is_valid", "uut is_e_illegal", "uut is_ecall", "uut is_ebreak", "uut is_jal",
+        "uut is_jalr", "uut is_branch", "uut pc_wdata", "uut addr24", "uut addr8",
+        "uut is_load_op", "uut is_clwsp", "uut is_clw", "uut is_lw", "uut is_lh", "uut is_lhu",
+        "uut is_store_op", "uut is_cswsp", "uut is_csw", "uut is_sw", "uut is_sh"}) {
+    cause_signals.bits[name] = items.count(name) != 0 ? &items.at(name).at(0) : nullptr;
+  }
 
   auto print_bench = [&]() {
     std::printf("BENCH marks=%u cycles=%u verdict=%u writes=%u\n",
@@ -223,8 +280,11 @@ int main(int argc, char **argv) {
     }
 
     if ((trap_latched.curr[0] & 1) != 0) {
-      std::fprintf(stderr, "trap taken at cycle %ld -- nano halts permanently on a trap\n",
-                   cycle);
+      std::fprintf(stderr,
+                   "trap taken at cycle %ld -- nano halts permanently on a trap\n"
+                   "  pc=0x%08x instr=0x%08x cause=%s\n",
+                   cycle, trap_pc->curr[0], trap_instr->curr[0],
+                   classify_trap_cause(cause_signals).c_str());
       return finish(5);
     }
 

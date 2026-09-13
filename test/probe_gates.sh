@@ -606,6 +606,17 @@ d=$(nano_rt_fixture); printf 'alu.S\n' > "$d/BASELINE"
 probe "nano's baseline is checked for a one-field line too" 1 \
   "entries with no status" "$(nano_rt "$d")"
 
+begin_group "nano/bench/run_startup_test.sh"
+
+nano_startup_rt() { printf "PATH='%s/bin:%s/bin-none:/usr/bin:/bin' %s/nano/bench/run_startup_test.sh %s/nano-sim 'x'" \
+  "$tmp" "$tmp" "$REPO" "$tmp"; }
+
+probe "control: nano's startup check is graded the same way, and it is green" 0 \
+  "initializes gp" "STUB_SIM_EXIT=0 $(nano_startup_rt)"
+
+probe "a FAIL verdict from the underlying sim is red for nano's startup check too" 1 \
+  "gp is not initialized" "STUB_SIM_EXIT=1 $(nano_startup_rt)"
+
 begin_group "test/run_cosim.sh"
 
 rc_fixture() {
