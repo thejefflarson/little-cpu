@@ -1,10 +1,10 @@
 {
-  "//": "Tiny Tapeout's own template default (2.4.2), with CLOCK_PERIOD moved to 15.625ns",
-  "//": "(64 MHz, the nanocpu brief's target clock) -- everything else here is upstream's.",
+  "//": "Tiny Tapeout's own template default (2.4.2), with CLOCK_PERIOD relaxed to 200ns",
+  "//": "(5 MHz) for a first diagnostic run -- everything else here is upstream's.",
 
   "PL_TARGET_DENSITY_PCT": 60,
 
-  "CLOCK_PERIOD": 15.625,
+  "CLOCK_PERIOD": 200,
 
   "PL_RESIZER_HOLD_SLACK_MARGIN": 0.1,
   "GRT_RESIZER_HOLD_SLACK_MARGIN": 0.05,
