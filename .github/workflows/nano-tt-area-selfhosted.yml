@@ -94,25 +94,13 @@ jobs:
         run: |
           librelane-env bash -c '
             set -euo pipefail
+            for lib in libstdc++.so.6 libexpat.so.1; do
+              found=$(find /nix/store -maxdepth 4 -name "$lib" 2>/dev/null | head -1) || true
+              if [ -n "$found" ]; then export LD_LIBRARY_PATH="$(dirname "$found"):${LD_LIBRARY_PATH:-}"; fi
+            done
             python3 -m venv --system-site-packages .venv-tt
             . .venv-tt/bin/activate
             pip install -r tt/requirements.txt
-            ext=$(find .venv-tt -name "tlcore*.so" | head -1)
-            for pass in 1 2 3 4 5; do
-              missing=$(ldd "$ext" 2>/dev/null | awk "/not found/{print \$1}") || true
-              if [ -z "$missing" ]; then break; fi
-              echo "pass $pass missing: $missing"
-              added=0
-              for lib in $missing; do
-                found=$(find /nix/store -maxdepth 4 -name "$lib" 2>/dev/null | head -1) || true
-                if [ -n "$found" ]; then
-                  export LD_LIBRARY_PATH="$(dirname "$found"):${LD_LIBRARY_PATH:-}"
-                  added=1
-                fi
-              done
-              if [ "$added" = "0" ]; then break; fi
-            done
-            ldd "$ext" || true
             python3 -c "import librelane; print(librelane.__version__)"
             ./tt/tt_tool.py --create-user-config
           '
@@ -132,8 +120,10 @@ jobs:
         run: |
           librelane-env bash -c '
             set -euo pipefail
-            so=$(find /nix/store -maxdepth 3 -path "*-gcc-*-lib/lib/libstdc++.so.6" 2>/dev/null | head -1)
-            if [ -n "$so" ]; then export LD_LIBRARY_PATH="$(dirname "$so"):${LD_LIBRARY_PATH:-}"; fi
+            for lib in libstdc++.so.6 libexpat.so.1; do
+              found=$(find /nix/store -maxdepth 4 -name "$lib" 2>/dev/null | head -1) || true
+              if [ -n "$found" ]; then export LD_LIBRARY_PATH="$(dirname "$found"):${LD_LIBRARY_PATH:-}"; fi
+            done
             . .venv-tt/bin/activate
             rm -rf runs/wokwi
             mkdir -p runs/wokwi
