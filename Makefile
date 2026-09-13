@@ -498,8 +498,6 @@ retired-term-test:
 march-test:
 	@./test/march_test.sh
 
-# nano is RV32E: any instruction naming x16-x31 traps there. test/asm's two shared
-# macro headers are the only place a register could reach every program at once.
 .PHONY: macro-register-test
 macro-register-test:
 	@./test/macro_register_test.sh
