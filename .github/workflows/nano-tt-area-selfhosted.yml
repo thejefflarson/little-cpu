@@ -1,9 +1,6 @@
 name: nano-tt-area-selfhosted
 
 on:
-  push:
-    branches:
-      - thejefflarson/jef-1019-measure-what-moves-nanocpus-area-in-the-tiny-tapeout-flow
   workflow_dispatch:
     inputs:
       synth_strategy:
@@ -33,10 +30,6 @@ on:
         description: "stop at Yosys.Synthesis rather than running the full flow"
         type: boolean
         default: true
-      allow_edfxtp:
-        description: "TEMPORARY: strip edfxtp/edfxbp out of SYNTH_EXCLUDED_CELL_FILE, to size that lever. Not a legal Tiny Tapeout config -- see the ticket report."
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -117,45 +110,6 @@ jobs:
               json.dump(config, f, indent=2)
           PYEOF
 
-      - name: Report the PDK's synthesis cell exclusion list
-        run: |
-          python3 - <<'PYEOF'
-          import json
-          with open("src/config_merged.json") as f:
-              config = json.load(f)
-          path = config.get("SYNTH_EXCLUDED_CELL_FILE")
-          print("SYNTH_EXCLUDED_CELL_FILE:", path)
-          if path:
-              with open(path) as f:
-                  names = [line.strip() for line in f if line.strip()]
-              print(f"{len(names)} cells excluded from synthesis")
-              hits = [n for n in names if "edfxtp" in n or "edfxbp" in n]
-              print("enable-flop entries:", hits)
-          PYEOF
-
-      - name: Allow edfxtp/edfxbp back into synthesis (experiment only)
-        if: ${{ inputs.allow_edfxtp }}
-        run: |
-          python3 - <<'PYEOF'
-          import json, os
-          with open("src/config_merged.json") as f:
-              config = json.load(f)
-          src_path = config["SYNTH_EXCLUDED_CELL_FILE"]
-          with open(src_path) as f:
-              lines = f.readlines()
-          filtered = [
-              line for line in lines
-              if "edfxtp" not in line and "edfxbp" not in line
-          ]
-          dst_path = os.path.abspath("allow_edfxtp.no_synth.cells")
-          with open(dst_path, "w") as f:
-              f.writelines(filtered)
-          config["SYNTH_EXCLUDED_CELL_FILE"] = dst_path
-          with open("src/config_merged.json", "w") as f:
-              json.dump(config, f, indent=2)
-          print(f"removed {len(lines) - len(filtered)} line(s) naming edfxtp/edfxbp")
-          PYEOF
-
       - name: Harden with LibreLane, no Docker
         env:
           NANO_TT_STOP_AFTER_SYNTHESIS: ${{ inputs.stop_after_synthesis == false && '0' || '1' }}
@@ -163,6 +117,8 @@ jobs:
           librelane-env bash -c '
             set -euo pipefail
             . .venv-tt/bin/activate
+            rm -rf runs/wokwi
+            mkdir -p runs/wokwi
             harden_cmd=(python -m librelane --pdk-root "$PDK_ROOT" --run-tag wokwi
               --force-run-dir runs/wokwi)
             if [ "$NANO_TT_STOP_AFTER_SYNTHESIS" = "1" ]; then
