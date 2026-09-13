@@ -1,9 +1,35 @@
 name: nano-tt-area-selfhosted
 
 on:
-  push:
-    branches:
-      - thejefflarson/jef-981-nanocpu-spike-the-tiny-tapeout-flow-get-one-hardened-number
+  workflow_dispatch:
+    inputs:
+      synth_strategy:
+        description: "LibreLane SYNTH_STRATEGY"
+        type: choice
+        default: "AREA 0"
+        options:
+          - "AREA 0"
+          - "AREA 1"
+          - "AREA 2"
+          - "AREA 3"
+          - "DELAY 0"
+          - "DELAY 1"
+          - "DELAY 2"
+          - "DELAY 3"
+          - "DELAY 4"
+      tiles:
+        description: "info.yaml tile size"
+        type: choice
+        default: "2x2"
+        options:
+          - "1x2"
+          - "2x2"
+          - "3x2"
+          - "4x2"
+      stop_after_synthesis:
+        description: "stop at Yosys.Synthesis rather than running the full flow"
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -48,7 +74,23 @@ jobs:
           path: ${{ env.PDK_ROOT }}
           key: nano-tt-area-sky130-pdk-librelane-3.0.5
 
-      - name: Harden with LibreLane, no Docker
+      - name: Set the requested tile size in info.yaml
+        env:
+          NANO_TT_TILES: ${{ inputs.tiles || '2x2' }}
+        run: |
+          python3 - <<'PYEOF'
+          import os, re
+          tiles = os.environ["NANO_TT_TILES"]
+          with open("info.yaml") as f:
+              text = f.read()
+          text = re.sub(r'tiles: ".*?"', f'tiles: "{tiles}"', text)
+          with open("info.yaml", "w") as f:
+              f.write(text)
+          PYEOF
+
+      - name: Create the LibreLane user config, then set SYNTH_STRATEGY
+        env:
+          NANO_TT_STRATEGY: ${{ inputs.synth_strategy || 'AREA 0' }}
         run: |
           librelane-env bash -c '
             set -euo pipefail
@@ -57,11 +99,35 @@ jobs:
             pip install -r tt/requirements.txt
             python3 -c "import librelane; print(librelane.__version__)"
             ./tt/tt_tool.py --create-user-config
+          '
+          python3 - <<'PYEOF'
+          import json, os
+          strategy = os.environ["NANO_TT_STRATEGY"]
+          with open("src/config_merged.json") as f:
+              config = json.load(f)
+          config["SYNTH_STRATEGY"] = strategy
+          with open("src/config_merged.json", "w") as f:
+              json.dump(config, f, indent=2)
+          PYEOF
+
+      - name: Harden with LibreLane, no Docker
+        env:
+          NANO_TT_STOP_AFTER_SYNTHESIS: ${{ inputs.stop_after_synthesis == false && '0' || '1' }}
+        run: |
+          librelane-env bash -c '
+            set -euo pipefail
+            . .venv-tt/bin/activate
+            harden_cmd=(python -m librelane --pdk-root "$PDK_ROOT" --run-tag wokwi
+              --force-run-dir runs/wokwi)
+            if [ "$NANO_TT_STOP_AFTER_SYNTHESIS" = "1" ]; then
+              harden_cmd+=(--to Yosys.Synthesis)
+            fi
+            harden_cmd+=(src/config_merged.json)
             if command -v /usr/bin/time >/dev/null 2>&1; then
-              /usr/bin/time -v ./tt/tt_tool.py --harden --no-docker 2> harden.time.log
+              /usr/bin/time -v "${harden_cmd[@]}" 2> harden.time.log
               cat harden.time.log
             else
-              ./tt/tt_tool.py --harden --no-docker
+              "${harden_cmd[@]}"
             fi
           '
 
@@ -71,6 +137,9 @@ jobs:
           elapsed=$(( $(date +%s) - JOB_START ))
           {
             echo "### nano-tt-area harden (self-hosted)"
+            echo "strategy: ${{ inputs.synth_strategy || 'AREA 0' }}"
+            echo "tiles: ${{ inputs.tiles || '2x2' }}"
+            echo "stop after synthesis: ${{ inputs.stop_after_synthesis || 'true' }}"
             echo "wall time: ${elapsed}s"
             if [ -r /sys/fs/cgroup/memory.peak ]; then
               echo "cgroup memory.peak: $(cat /sys/fs/cgroup/memory.peak) bytes"
