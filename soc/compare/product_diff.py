@@ -28,9 +28,10 @@ import argparse
 import json
 import os
 import sys
+import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from product_check import refuse, stale_reasons  # noqa: E402
+from product_check import base_resolvable, refuse, stale_reasons  # noqa: E402
 
 
 def load(path):
@@ -86,7 +87,7 @@ def diff_pair(name, before, after):
     return lines
 
 
-def is_news(name, before, after, repo, current):
+def is_news(name, before, after, repo, current, artifact=None):
     """Whether `before`'s copy of pair `name` would call itself stale against
     the tree `repo` names right now -- see the module docstring.
     """
@@ -96,7 +97,11 @@ def is_news(name, before, after, repo, current):
     if b.get("status") != "measured":
         a = after.get("pairs", {}).get(name)
         return a is not None and a.get("status") == "measured"
-    return bool(stale_reasons(b, repo, current.get(name, {})))
+    # A squash-merge deletes the branch a stamp's `base` names; that is not
+    # evidence the tree is unchanged, so recover by re-measuring.
+    if not base_resolvable(repo, b["base"]):
+        return True
+    return bool(stale_reasons(b, repo, current.get(name, {}), artifact))
 
 
 def parse_current(specs):
@@ -143,7 +148,8 @@ def main():
         return
 
     if args.require_news:
-        news = any(is_news(name, before, after, args.repo, current) for name in names)
+        news = any(is_news(name, before, after, args.repo, current, args.after)
+                  for name in names)
         print("news" if news else "no news")
         sys.exit(0 if news else 1)
 
@@ -154,4 +160,11 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception:
+        # An uncaught bug must land on 2 (refused), not Python's default 1 (no news).
+        traceback.print_exc()
+        sys.exit(2)

@@ -16,6 +16,9 @@ permissions:
 jobs:
   re-take:
     name: re-take
+    # workflow_dispatch can target any ref; this job pushes a branch and opens a PR,
+    # so it only ever measures and publishes from main.
+    if: github.ref == 'refs/heads/main'
     runs-on: little-cpu-runners
     # Three cores, twelve seeds, two parts is 72 placements, both benchmarks' cycle
     # counts on top -- measured at just under 70 minutes on this pool.
@@ -27,6 +30,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Verify the toolchain is present in the runner image
         uses: ./.github/actions/verify-toolchain
@@ -75,7 +79,17 @@ jobs:
           # Ask the freshly-written stamp which pairs actually exist, rather
           # than hand-typing soc/compare/run_product.sh's dhrystone_ecp5/
           # coremark_ecp5 naming convention a second time here -- a part this
-          # script does not know about still gets checked.
+          # script does not know about still gets checked. Captured into a
+          # variable rather than read from a process substitution: `set -e`
+          # does not see a process substitution's exit status, so a broken
+          # python3 call there would silently iterate zero pairs instead of
+          # failing the step.
+          pairs=$(python3 -c "import json; print('\n'.join(sorted(json.load(open('soc/compare/product.json')).get('pairs', {}))))")
+          if [ -z "$pairs" ]; then
+            echo "*** soc/compare/product.json names no pairs; refusing to" >&2
+            echo "*** check none of them for staleness." >&2
+            exit 1
+          fi
           current_args=()
           while IFS= read -r pair; do
             [ -n "$pair" ] || continue
@@ -87,8 +101,13 @@ jobs:
               coremark|coremark_*)
                 [ -n "$COREMARK_CFLAGS" ] &&
                   current_args+=(--current "$pair:cflags=$COREMARK_CFLAGS") ;;
+              *)
+                echo "*** soc/compare/product.json names a pair '$pair' this" >&2
+                echo "*** step does not recognise; refusing rather than" >&2
+                echo "*** silently not checking it for staleness." >&2
+                exit 1 ;;
             esac
-          done < <(python3 -c "import json; print('\n'.join(sorted(json.load(open('soc/compare/product.json')).get('pairs', {}))))")
+          done <<< "$pairs"
 
           # --require-news asks soc/compare/product_check.py's own question of
           # the OLD stamp against the tree this run checked out -- rtl/,
@@ -133,6 +152,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          gh auth setup-git
           branch="compare-product/refresh-$(date -u +%Y%m%d)"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

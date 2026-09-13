@@ -32,6 +32,10 @@ if git diff --quiet HEAD --; then DIRTY=no; else DIRTY=yes; fi
 DATE=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 ROM_WORDS=$(make -s print-COMPARE_ROM_WORDS)
 RAM_WORDS=$(make -s print-COMPARE_RAM_WORDS)
+# up5k's clock is a step function every swept core has already cleared by here.
+STEP_MHZ=$(make -s print-COMPARE_STEP_MHZ)
+ECP5_PART=$(make -s print-ECP5_PART)
+ECP5_TARGET_MHZ=$(make -s print-ECP5_TARGET_MHZ)
 
 CC=""
 for candidate in riscv64-elf-gcc riscv64-unknown-elf-gcc; do
@@ -42,7 +46,12 @@ if [ -z "$CC" ]; then
   exit 1
 fi
 
-TOOLS_BLOCK=$(soc/print_toolchain.sh yosys nextpnr-ice40 nextpnr-ecp5 icetime iverilog "$CC")
+# nextpnr-ecp5/its Trellis database: only asked for when ECP5 is actually placed.
+set -- yosys nextpnr-ice40 icetime iverilog "$CC"
+case " $PARTS " in
+  *" ecp5 "*) set -- "$@" nextpnr-ecp5 trellis-db ;;
+esac
+TOOLS_BLOCK=$(soc/print_toolchain.sh "$@")
 TOOL_ARGS=""
 while IFS= read -r line; do
   [ -z "$line" ] && continue
@@ -162,6 +171,11 @@ for part in $PARTS; do
   eval "lc_ns=\$NS_${part}_littlecpu"
   eval "vex_ns=\$NS_${part}_vexriscv"
   eval "set -- $TOOL_ARGS"
+  case $part in
+    up5k) set -- "$@" --step-mhz "$STEP_MHZ" ;;
+    ecp5) set -- "$@" --field "ecp5_part=$ECP5_PART" \
+                     --field "ecp5_target_mhz=$ECP5_TARGET_MHZ" ;;
+  esac
   python3 soc/compare/product_write.py "$OUT" "$(pair_name dhrystone "$part")" --measured \
     --target-core littlecpu --base "$BASE" --dirty "$DIRTY" --date "$DATE" \
     --seeds "$SEEDS" --cflags "$DHRY_CFLAGS" --isa "$DHRY_ISA" \
@@ -184,18 +198,25 @@ measure_coremark() {
     VEX_CM_FACTOR=$(python3 -c "print($CM_ITERATIONS * 1e6 / $VEX_CM_CYCLES)")
     HZ_CM_FACTOR=$(python3 -c "print($CM_ITERATIONS * 1e6 / $HZ_CM_CYCLES)")
     CM_ISA=$(isa_from_cflags "$CM_CFLAGS")
+    # `|| return 1`: `set -e` is suspended in this whole function, since it is
+    # the left side of `measure_coremark && COREMARK_OK=1` at the call site.
     for part in $PARTS; do
       eval "lc_ns=\$NS_${part}_littlecpu"
       eval "vex_ns=\$NS_${part}_vexriscv"
       eval "hz_ns=\$NS_${part}_hazard3"
       eval "set -- $TOOL_ARGS"
+      case $part in
+        up5k) set -- "$@" --step-mhz "$STEP_MHZ" ;;
+        ecp5) set -- "$@" --field "ecp5_part=$ECP5_PART" \
+                         --field "ecp5_target_mhz=$ECP5_TARGET_MHZ" ;;
+      esac
       python3 soc/compare/product_write.py "$OUT" "$(pair_name coremark "$part")" --measured \
         --target-core littlecpu --base "$BASE" --dirty "$DIRTY" --date "$DATE" \
         --seeds "$SEEDS" --cflags "$CM_CFLAGS" --isa "$CM_ISA" \
         --rom-words "$ROM_WORDS" --ram-words "$RAM_WORDS" --unit 'CoreMark/MHz' "$@" \
         --clock-ns "littlecpu=$lc_ns" --clock-ns "vexriscv=$vex_ns" --clock-ns "hazard3=$hz_ns" \
         --cycle-factor "littlecpu=$LC_CM_FACTOR" --cycle-factor "vexriscv=$VEX_CM_FACTOR" \
-        --cycle-factor "hazard3=$HZ_CM_FACTOR"
+        --cycle-factor "hazard3=$HZ_CM_FACTOR" || return 1
     done
     return 0
   fi
@@ -209,17 +230,25 @@ measure_coremark() {
 
 echo
 echo "== compare-product: CoreMark (littlecpu against VexRiscv and Hazard3) =="
-COREMARK_OK=0
+COREMARK_CAPABLE=0
 if grep -q '^compare-coremark:' Makefile && [ -f soc/compare/coremark_dmips.py ]; then
+  COREMARK_CAPABLE=1
+fi
+COREMARK_OK=0
+if [ "$COREMARK_CAPABLE" -eq 1 ]; then
   echo "make compare-coremark is on this tree; attempting the measurement."
-  measure_coremark && COREMARK_OK=1
+  if measure_coremark; then
+    COREMARK_OK=1
+  else
+    echo "*** run_product.sh: CoreMark is on this tree but the measurement" >&2
+    echo "*** failed (see above); stopping here rather than falling back to" >&2
+    echo "*** not-yet-measured, which could overwrite a pair an earlier part" >&2
+    echo "*** in this same run already wrote successfully." >&2
+    exit 1
+  fi
 fi
 if [ "$COREMARK_OK" -eq 0 ]; then
-  if grep -q '^compare-coremark:' Makefile; then
-    REASON="make compare-coremark exists on this tree but its output did not match what run_product.sh expects; see the warning above"
-  else
-    REASON="make compare-coremark is not on this tree yet; run_product.sh will measure it once that lands"
-  fi
+  REASON="make compare-coremark is not on this tree yet; run_product.sh will measure it once that lands"
   for part in $PARTS; do
     python3 soc/compare/product_write.py "$OUT" "$(pair_name coremark "$part")" \
       --not-yet-measured --target-core littlecpu --core hazard3 --core vexriscv \
@@ -233,5 +262,11 @@ for part in $PARTS; do
   python3 soc/compare/product_check.py "$OUT" "$(pair_name dhrystone "$part")" --repo . \
     --current "cflags=$DHRY_CFLAGS" --current "rom_words=$ROM_WORDS" \
     --current "ram_words=$RAM_WORDS"
-  python3 soc/compare/product_check.py "$OUT" "$(pair_name coremark "$part")" --repo .
+  if [ "$COREMARK_OK" -eq 1 ]; then
+    python3 soc/compare/product_check.py "$OUT" "$(pair_name coremark "$part")" --repo . \
+      --current "cflags=$CM_CFLAGS" --current "rom_words=$ROM_WORDS" \
+      --current "ram_words=$RAM_WORDS"
+  else
+    python3 soc/compare/product_check.py "$OUT" "$(pair_name coremark "$part")" --repo .
+  fi
 done
