@@ -5,7 +5,7 @@ project:
   description:  "One hardened Tiny Tapeout area number for nano/nano.v, wrapped to keep every core input driven and every output observable"
   language:     "SystemVerilog"
   clock_hz:     64000000
-  tiles: "2x2"
+  tiles: "4x2"
   top_module:  "tt_um_thejefflarson_nanocpu"
   source_files:
     - "tt_um_thejefflarson_nanocpu.v"
