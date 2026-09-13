@@ -425,6 +425,10 @@ pin-bump-test:
 pin-bump-token-test:
 	@python3 ./test/pin_bump_token_test.py
 
+.PHONY: compare-product-schedule-token-test
+compare-product-schedule-token-test:
+	@python3 ./test/compare_product_schedule_token_test.py
+
 .PHONY: tool-cache-test
 tool-cache-test:
 	@./test/tool_cache_test.sh '$(SAIL_RISCV_DIR)' '$(SVLINT_DIR)' '$(SAIL_DOWNLOAD_DIR)' '$(NANO_LIBERTY_DIR)'
@@ -513,6 +517,10 @@ probes-header-test:
 lut4-site-test:
 	@./test/lut4_site_test.sh
 
+.PHONY: dhry-board-parity-test
+dhry-board-parity-test:
+	@./test/dhry_board_parity_test.sh
+
 .PHONY: zkt-isolation-test
 zkt-isolation-test:
 	@python3 ./test/zkt_isolation_test.py
@@ -554,12 +562,13 @@ dual-build:
 	@./test/dual_build.sh test/dual test/asm test/dual/MUTATION_PAIRINGS
 
 .PHONY: test
-test: sim test-units probe-gates pin-bump-test pin-bump-token-test tool-cache-test memmap-test \
+test: sim test-units probe-gates pin-bump-test pin-bump-token-test \
+      compare-product-schedule-token-test tool-cache-test memmap-test \
       adr-numbering-test compare-geometry-test vexriscv-path-test retired-term-test port-connect-test march-test \
       band-source-test zkt-isolation-test fixture-freshness-test window-test imem-share-test \
       abc-engine-test makefile-target-test mutation-probe dual-build board-elaborate \
       tracked-ignored-test mutation-coverage-test comment-density-test lut4-site-test \
-      pll-clock-test ill-e-wiring-test probes-header-test nano-test nano-exec-test nano-startup-test
+      pll-clock-test ill-e-wiring-test probes-header-test dhry-board-parity-test nano-test nano-exec-test nano-startup-test
 	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 .PHONY: cycles
@@ -1003,6 +1012,12 @@ suite-board: ftread
 
 DHRY_BOARD_CFLAGS ?= $(DHRY_CFLAGS)
 
+# The one deliberate difference between this image and `make dhrystone`'s: a board has
+# no other way to show its own report. Naming it here, once, is what
+# test/dhry_board_parity_test.sh compiles against to catch a second, undocumented one --
+# see that script's header.
+DHRY_BOARD_EXTRA_DEFINES = -DDHRY_UART=$(DHRY_UART_BASE)
+
 .PHONY: dhrystone-rom
 dhrystone-rom:
 	@set -e; \
@@ -1015,7 +1030,7 @@ dhrystone-rom:
 	test -n "$$tmp" -a -d "$$tmp"; \
 	trap 'rm -rf "$$tmp"' EXIT; \
 	flags='$(DHRY_BOARD_CFLAGS)'; \
-	$$CC $$flags -DDHRY_UART=$(DHRY_UART_BASE) \
+	$$CC $$flags $(DHRY_BOARD_EXTRA_DEFINES) \
 	  "-DDHRY_FLAGS=\"$$flags\"" \
 	  -DDHRY_RUNS=$(DHRY_BOARD_RUNS) \
 	  -nostdlib -I test/bench -T test/bench/bench.lds -o "$$tmp/dhry.elf" \
@@ -1410,10 +1425,7 @@ compare.$(COMPARE_CORE).json: compare-rom $(COMPARE_DEPS)
 	@echo 'yosys: synthesising $(COMPARE_TOP) for up5k (log: compare.$(COMPARE_CORE).synth.log)'
 	@# chparam BEFORE hierarchy, so the harness's geometry has one source -- the
 	@# variables above -- rather than a second copy in each .v file's defaults.
-	@yosys -p '$(COMPARE_READ); \
-	  chparam -set ROM_WORDS $(COMPARE_ROM_WORDS) -set RAM_WORDS $(COMPARE_RAM_WORDS) $(COMPARE_TOP); \
-	  hierarchy -top $(COMPARE_TOP); \
-	  synth_ice40 -device u -dsp -spram -top $(COMPARE_TOP) -json $@; stat' \
+	@yosys -p '$(COMPARE_READ); chparam -set ROM_WORDS $(COMPARE_ROM_WORDS) -set RAM_WORDS $(COMPARE_RAM_WORDS) $(COMPARE_TOP); hierarchy -top $(COMPARE_TOP); synth_ice40 -device u -dsp -spram -top $(COMPARE_TOP) -json $@; stat' \
 	  > compare.$(COMPARE_CORE).synth.log 2>&1 \
 	  || { tail -40 compare.$(COMPARE_CORE).synth.log; exit 1; }
 
@@ -1611,9 +1623,7 @@ compare_ecp5.$(COMPARE_CORE).core.log: $(COMPARE_CORE_DEPS)
 
 compare_ecp5.$(COMPARE_CORE).json: compare-rom $(COMPARE_DEPS)
 	@echo 'yosys: synthesising $(COMPARE_TOP) for ECP5 (log: compare_ecp5.$(COMPARE_CORE).synth.log)'
-	@yosys -p '$(COMPARE_READ); \
-	  chparam -set ROM_WORDS $(COMPARE_ROM_WORDS) -set RAM_WORDS $(COMPARE_RAM_WORDS) $(COMPARE_TOP); \
-	  synth_ecp5 -top $(COMPARE_TOP) -json $@; stat' \
+	@yosys -p '$(COMPARE_READ); chparam -set ROM_WORDS $(COMPARE_ROM_WORDS) -set RAM_WORDS $(COMPARE_RAM_WORDS) $(COMPARE_TOP); synth_ecp5 -top $(COMPARE_TOP) -json $@; stat' \
 	  > compare_ecp5.$(COMPARE_CORE).synth.log 2>&1 \
 	  || { tail -40 compare_ecp5.$(COMPARE_CORE).synth.log; exit 1; }
 	@python3 soc/cell_census.py compare_ecp5.$(COMPARE_CORE).synth.log DP16KD \

@@ -3064,6 +3064,51 @@ d=$(layout_fixture); mutate "$d/test/board/board.lds" 's/LENGTH(ram) - 2048;/LEN
 probe "board.lds putting the stack back at the top of ram is red" 1 \
   "$LAYOUT_STACK_RED" "layout_link $d test/board/board.lds"
 
+begin_group "test/dhry_board_parity_test.sh"
+
+if ! command -v riscv64-elf-gcc > /dev/null 2>&1 && \
+   ! command -v riscv64-unknown-elf-gcc > /dev/null 2>&1; then
+  echo "error: no RISC-V cross compiler found, so test/dhry_board_parity_test.sh's" >&2
+  echo "own build cannot be forced red. Install one (make setup)." >&2
+  exit 1
+fi
+
+DP="$HERE/dhry_board_parity_test.sh"
+
+dp_fixture() {
+  local d; d=$(new_case)
+  copy_makefile_includes "$d"
+  mkdir -p "$d/test/bench"
+  cp "$REPO"/test/bench/dhry_1.c "$REPO"/test/bench/dhry_2.c \
+     "$REPO"/test/bench/dhry_port.c "$REPO"/test/bench/dhry.h \
+     "$REPO"/test/bench/dhry_port.h "$d/test/bench/"
+  printf '%s' "$d"
+}
+
+d=$(dp_fixture)
+probe "control: the shipping build stays byte-identical outside DHRY_UART" 0 \
+  "differs only through DHRY_BOARD_EXTRA_DEFINES" "$DP $d"
+
+d=$(dp_fixture)
+mutate "$d/Makefile" 's/^DHRY_BOARD_CFLAGS [?]= \$(DHRY_CFLAGS)$/DHRY_BOARD_CFLAGS ?= $(DHRY_CFLAGS) -DNOOP=1/'
+probe "DHRY_BOARD_CFLAGS drifting away from DHRY_CFLAGS is red" 1 \
+  "DHRY_BOARD_CFLAGS no longer matches DHRY_CFLAGS" "$DP $d"
+
+# A second flag riding in on DHRY_BOARD_EXTRA_DEFINES has nowhere to hide: neither
+# dhry_1.c nor dhry_2.c reads DHRY_UART, so an unrelated codegen change moves them too.
+d=$(dp_fixture)
+mutate "$d/Makefile" \
+  's/^DHRY_BOARD_EXTRA_DEFINES = -DDHRY_UART=\$(DHRY_UART_BASE)$/DHRY_BOARD_EXTRA_DEFINES = -DDHRY_UART=$(DHRY_UART_BASE) -O1/'
+probe "an extra flag riding in on DHRY_BOARD_EXTRA_DEFINES is red" 1 \
+  "dhry_1.o differs between the sim and board builds" "$DP $d"
+
+# Neutering the #ifdef so DHRY_UART no longer gates anything makes the two dhry_port.o
+# builds identical, which is the failure this check exists to catch.
+d=$(dp_fixture)
+mutate "$d/test/bench/dhry_port.c" 's/#ifdef DHRY_UART/#ifdef DHRY_UART_NEVER_DEFINED/g'
+probe "DHRY_UART no longer gating any code in dhry_port.c is red" 1 \
+  "dhry_port.o came out byte-identical" "$DP $d"
+
 begin_group "test/adr_numbering_test.sh"
 
 AN="$HERE/adr_numbering_test.sh"
@@ -6350,6 +6395,118 @@ probe "--require-news refuses on its own status, not on \"no news\"" 2 \
   "python3 $REPO/soc/compare/product_diff.py $d/before.json $d/after.json --require-news \
     --repo $d/repo --current 'dhrystone:cflags='"
 
+d=$(product_check_fixture)
+mutate -E "$d/repo/product.json" 's/"base": "[0-9a-f]{40}"/"base": "not-a-real-sha"/'
+probe "a base that is not a 40-character SHA is refused as malformed, not graded stale" 2 \
+  "is not a 40-character commit SHA" "$(product_check_run "$d" dhrystone '')"
+
+d=$(new_case)
+probe "product_write.py refuses a --base that is not a 40-character commit SHA" 1 \
+  "is not a 40-character commit SHA" \
+  "python3 $REPO/soc/compare/product_write.py $d/p.json dhrystone --measured \
+    --target-core littlecpu --base deadbeef \
+    --dirty no --date 2026-08-16T00:00:00Z --seeds default \
+    --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --clock-ns littlecpu=30.0 --clock-ns vexriscv=20.0 \
+    --cycle-factor littlecpu=0.7 --cycle-factor vexriscv=0.5"
+
+d=$(new_case)
+probe "a --field naming a key the schema already reserves is refused" 1 \
+  "already reserves for its own use" \
+  "python3 $REPO/soc/compare/product_write.py $d/p.json dhrystone --measured \
+    --target-core littlecpu --base aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+    --dirty no --date 2026-08-16T00:00:00Z --seeds default \
+    --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --field base=x \
+    --clock-ns littlecpu=30.0 --clock-ns vexriscv=20.0 \
+    --cycle-factor littlecpu=0.7 --cycle-factor vexriscv=0.5"
+
+d=$(new_case)
+probe "--field stamps an extra provenance field verbatim" 0 \
+  "\"ecp5_part\": \"LFE5U-25F-6CABGA381\"" \
+  "python3 $REPO/soc/compare/product_write.py $d/p.json dhrystone --measured \
+    --target-core littlecpu --base aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+    --dirty no --date 2026-08-16T00:00:00Z --seeds default \
+    --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --field ecp5_part=LFE5U-25F-6CABGA381 \
+    --clock-ns littlecpu=30.0 --clock-ns vexriscv=20.0 \
+    --cycle-factor littlecpu=0.7 --cycle-factor vexriscv=0.5 \
+    && cat $d/p.json"
+
+d=$(new_case)
+probe "--step-mhz replaces each core's own placed clock with one fixed step in its product" 0 \
+  "\"worst\": 2.0" \
+  "python3 $REPO/soc/compare/product_write.py $d/p.json dhrystone --measured \
+    --target-core littlecpu --base aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+    --dirty no --date 2026-08-16T00:00:00Z --seeds default \
+    --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --step-mhz 10 --clock-ns littlecpu=30.0,31.0 --clock-ns vexriscv=20.0,21.0 \
+    --cycle-factor littlecpu=1.0 --cycle-factor vexriscv=2.0 \
+    && cat $d/p.json"
+
+d=$(new_case)
+probe "--step-mhz refuses a core whose worst placement is under the step" 1 \
+  "a core under the step is out of the comparison" \
+  "python3 $REPO/soc/compare/product_write.py $d/p.json dhrystone --measured \
+    --target-core littlecpu --base aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+    --dirty no --date 2026-08-16T00:00:00Z --seeds default \
+    --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --step-mhz 12 --clock-ns littlecpu=80.0,90.0 --clock-ns vexriscv=20.0,21.0 \
+    --cycle-factor littlecpu=1.0 --cycle-factor vexriscv=2.0"
+
+# Unlike pd_fixture, after.json lives at the real soc/compare/product.json path, so
+# --require-news's own artifact exclusion (the same fix product_check.py already has)
+# is what is under test here, not the ordinary staleness question pd_fixture covers.
+pd_real_layout_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/repo/rtl" "$d/repo/soc/compare"
+  echo 'module decoder(); endmodule' > "$d/repo/rtl/decoder.v"
+  echo 'module dhry_tb(); endmodule' > "$d/repo/soc/compare/dhry_tb.v"
+  git -c init.defaultBranch=main -C "$d/repo" init -q
+  git -C "$d/repo" add -A
+  git -C "$d/repo" -c user.email=probe@example -c user.name=probe commit -qm base
+  local base; base=$(git -C "$d/repo" rev-parse HEAD)
+  python3 "$REPO/soc/compare/product_write.py" "$d/before.json" dhrystone --measured \
+    --target-core littlecpu --base "$base" \
+    --dirty no --date 2026-08-16T00:00:00Z --seeds default \
+    --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --clock-ns littlecpu=30.0 --clock-ns vexriscv=20.0 \
+    --cycle-factor littlecpu=0.7 --cycle-factor vexriscv=0.5 > /dev/null
+  cp "$d/before.json" "$d/repo/soc/compare/product.json"
+  git -C "$d/repo" add -A
+  git -C "$d/repo" -c user.email=probe@example -c user.name=probe commit -qm artifact
+  printf '%s' "$d"
+}
+
+d=$(pd_real_layout_fixture)
+printf '\n' >> "$d/repo/soc/compare/product.json"
+probe "--require-news's own artifact does not make itself the news" 1 \
+  "no news" \
+  "python3 $REPO/soc/compare/product_diff.py $d/before.json $d/repo/soc/compare/product.json \
+    --require-news --repo $d/repo --current 'dhrystone:cflags=-march=rv32ic -mabi=ilp32' \
+    --current 'dhrystone:rom_words=1024' --current 'dhrystone:ram_words=512'"
+
+d=$(pd_real_layout_fixture)
+printf '\n' >> "$d/repo/soc/compare/product.json"
+echo '/* touched */' >> "$d/repo/soc/compare/dhry_tb.v"
+probe "excluding --require-news's artifact does not blind it to a real soc/compare/ change" 0 \
+  "news" \
+  "python3 $REPO/soc/compare/product_diff.py $d/before.json $d/repo/soc/compare/product.json \
+    --require-news --repo $d/repo --current 'dhrystone:cflags=-march=rv32ic -mabi=ilp32' \
+    --current 'dhrystone:rom_words=1024' --current 'dhrystone:ram_words=512'"
+
+d=$(pd_fixture)
+mutate -E "$d/before.json" 's/"base": "[0-9a-f]{40}"/"base": "0123456789abcdef0123456789abcdef01234567"/'
+probe "an orphaned base recovers --require-news as news rather than refusing the run" 0 \
+  "news" \
+  "python3 $REPO/soc/compare/product_diff.py $d/before.json $d/after.json --require-news --repo $d/repo"
+
 begin_group "test/probe_gates.sh: mutate, mutate_remove and fixture_anchor"
 
 d=$(new_case)
@@ -7093,6 +7250,51 @@ probe "renaming the upstream-code step out of reach stops rather than passing" 1
 d=$(new_case); mkdir -p "$d/test"; cp "$REPO/test/pin_bump_token_test.py" "$d/test/"
 probe "a missing workflow file is an error, not an empty pass" 1 \
   "is missing" "cd '$d' && python3 test/pin_bump_token_test.py ."
+
+begin_group "test/compare_product_schedule_token_test.py"
+
+cpst_fixture() {  # $1 = sed program applied to the workflow
+  local d; d=$(new_case)
+  mkdir -p "$d/.github/workflows" "$d/test"
+  cp "$REPO/test/compare_product_schedule_token_test.py" "$d/test/"
+  sed "$1" "$REPO/.github/workflows/compare-product-schedule.yml" \
+    > "$d/.github/workflows/compare-product-schedule.yml"
+  printf '%s' "$d"
+}
+
+d=$(cpst_fixture '')
+probe "control: the shipping schedule workflow confines its credential to the publish step" 0 \
+  "confines its credential" \
+  "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
+
+d=$(cpst_fixture '/if: github.ref ==/d')
+probe "a job with no main-only guard is red, since workflow_dispatch can target any ref" 1 \
+  "workflow_dispatch against any ref" \
+  "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
+
+d=$(cpst_fixture '/persist-credentials: false/d')
+probe "a checkout that leaves the token in .git/config is red" 1 \
+  "persist-credentials: false" \
+  "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
+
+d=$(cpst_fixture 's|uses: ./.github/actions/verify-toolchain|uses: ./.github/actions/verify-toolchain\n        env:\n          GH_TOKEN: x|')
+probe "a token handed to a step other than the publish step is red" 1 \
+  "confine it to the one step" \
+  "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
+
+d=$(cpst_fixture '/GH_TOKEN: \${{ secrets.GITHUB_TOKEN }}/d')
+probe "the publish step with no GH_TOKEN at all is red" 1 \
+  "has no GH_TOKEN" \
+  "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
+
+d=$(cpst_fixture '/gh auth setup-git/d')
+probe "the publish step pushing with no gh auth setup-git is red" 1 \
+  "no credential once persist-credentials is false" \
+  "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
+
+d=$(new_case); mkdir -p "$d/test"; cp "$REPO/test/compare_product_schedule_token_test.py" "$d/test/"
+probe "a missing schedule workflow file is an error, not an empty pass" 1 \
+  "is missing" "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
 
 begin_group "formal/pin-bump-decide.sh"
 
