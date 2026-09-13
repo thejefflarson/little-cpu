@@ -1,0 +1,78 @@
+# littlecpu's test/asm manifest for nano, graded both ways by test/check_suite_shape.sh: a
+# retire floor, or EXCLUDED and the reason nano cannot run it (CSR, A, fence.i, timer, UART).
+# run_nano_tests.sh still builds and runs each EXCLUDED .S program and fails one that passes.
+add.S          429
+addi.S         206
+amo.S          EXCLUDED A extension
+amominmax.S    EXCLUDED A extension
+amoregion.S    EXCLUDED A extension, CSR (trap handler)
+amotrap.S      EXCLUDED A extension, CSR (trap handler)
+and.S          449
+andi.S         162
+auipc.S         26
+beq.S          255
+bge.S          273
+bgeu.S         298
+blt.S          255
+bltu.S         280
+bne.S          255
+cebreak.S      EXCLUDED CSR (trap handler, ebreak)
+contend.S      113
+csr.S          EXCLUDED CSR
+csrset.S       EXCLUDED CSR
+datainit.c     EXCLUDED not an assembly program; this runner builds .S only
+div.S           60
+divu.S          61
+fencenop.S     EXCLUDED Zifencei (fence.i)
+hazard.S        49
+hpm.S          EXCLUDED CSR (performance-monitor)
+ifault.S       EXCLUDED CSR (trap handler)
+jal.S           19
+jalr.S          73
+lb.S           209
+lbu.S          209
+lh.S           221
+lhu.S          228
+loadfault.S    EXCLUDED CSR (trap handler)
+lrsc.S         EXCLUDED A extension
+lrsclock.S     EXCLUDED A extension, machine timer
+lui.S           29
+lw.S           231
+minstret.S     EXCLUDED CSR
+mtimer.S       EXCLUDED machine timer, CSR
+mtimermask.S   EXCLUDED machine timer, CSR
+mul.S          423
+mulh.S         423
+mulhsu.S       423
+mulhu.S        423
+or.S           452
+ori.S          169
+rem.S           60
+remu.S          60
+rvc.S          184
+sb.S           394
+selfmod.S      EXCLUDED Zifencei (fence.i)
+sh.S           447
+simple.S         5
+sll.S          457
+slli.S         205
+slt.S          423
+slti.S         201
+sltiu.S        201
+sltu.S         423
+spiflash.S     EXCLUDED CSR (trap handler), SPI flash device
+spioverlay.S   EXCLUDED CSR (trap handler), SPI flash device
+sra.S          476
+srai.S         220
+srl.S          470
+srli.S         214
+storefault.S   EXCLUDED CSR (trap handler)
+straddle.S      18
+sub.S          421
+sw.S           454
+textload.S     EXCLUDED CSR (trap handler)
+trap.S         EXCLUDED CSR (trap handler)
+uart.S         EXCLUDED CSR (trap handler), UART device
+xor.S          451
+xori.S         171
+zicsr.S        EXCLUDED CSR

@@ -61,13 +61,15 @@ RVTEST_CODE_BEGIN
   RVC_TEST_CASE (12, s0, 0x000fffe1, c.lui s0, 0xfffe1; c.srli s0, 12)
 #endif
   RVC_TEST_CASE (14, s0, ~0x11, c.li s0, -2; c.andi s0, ~0x10)
-  RVC_TEST_CASE (15, s1, 14, li s1, 20; li a0, 6; c.sub s1, a0)
-  RVC_TEST_CASE (16, s1, 18, li s1, 20; li a0, 6; c.xor s1, a0)
-  RVC_TEST_CASE (17, s1, 22, li s1, 20; li a0, 6; c.or s1, a0)
-  RVC_TEST_CASE (18, s1,  4, li s1, 20; li a0, 6; c.and s1, a0)
+  // a1 rather than upstream's s1 (x9): x9 is test_macros.h's own compare scratch, and a
+  // destination test register colliding with it would compare a value against itself.
+  RVC_TEST_CASE (15, a1, 14, li a1, 20; li a0, 6; c.sub a1, a0)
+  RVC_TEST_CASE (16, a1, 18, li a1, 20; li a0, 6; c.xor a1, a0)
+  RVC_TEST_CASE (17, a1, 22, li a1, 20; li a0, 6; c.or a1, a0)
+  RVC_TEST_CASE (18, a1,  4, li a1, 20; li a0, 6; c.and a1, a0)
 #if __riscv_xlen == 64
-  RVC_TEST_CASE (19, s1, 0xffffffff80000000, li s1, 0x7fffffff; li a0, -1; c.subw s1, a0)
-  RVC_TEST_CASE (20, s1, 0xffffffff80000000, li s1, 0x7fffffff; li a0, 1; c.addw s1, a0)
+  RVC_TEST_CASE (19, a1, 0xffffffff80000000, li a1, 0x7fffffff; li a0, -1; c.subw a1, a0)
+  RVC_TEST_CASE (20, a1, 0xffffffff80000000, li a1, 0x7fffffff; li a0, 1; c.addw a1, a0)
 #endif
   RVC_TEST_CASE (21, s0, 0x12340, li s0, 0x1234; c.slli s0, 4)
 

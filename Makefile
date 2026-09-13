@@ -498,6 +498,10 @@ retired-term-test:
 march-test:
 	@./test/march_test.sh
 
+.PHONY: macro-register-test
+macro-register-test:
+	@./test/macro_register_test.sh
+
 # A `.gitignore` rule never applies to a file git already tracks, so a tracked file
 # matching one is always a mistake -- a dead rule, or a commit that should not have
 # happened.
@@ -568,7 +572,8 @@ test: sim test-units probe-gates pin-bump-test pin-bump-token-test \
       band-source-test zkt-isolation-test fixture-freshness-test window-test imem-share-test \
       abc-engine-test makefile-target-test mutation-probe dual-build board-elaborate \
       tracked-ignored-test mutation-coverage-test comment-density-test lut4-site-test \
-      pll-clock-test ill-e-wiring-test probes-header-test dhry-board-parity-test nano-test nano-exec-test nano-startup-test
+      pll-clock-test ill-e-wiring-test probes-header-test dhry-board-parity-test nano-test \
+      nano-exec-test nano-startup-test macro-register-test nano-littlecpu-test
 	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 .PHONY: cycles

@@ -53,6 +53,10 @@ HASH_MANIFESTS = {
     "formal/COMPLETE_EXCLUSIONS",
     "nano/formal/EXPECTED_FAIL",
     "nano/formal/EXPECTED_CHECKS",
+    "nano/asm/EXPECTED_FAIL",
+    "nano/asm/OBSERVED_FLOOR",
+    "nano/asm/LITTLECPU_FLOOR",
+    "nano/asm/LITTLECPU_EXPECTED_FAIL",
 }
 
 EXCLUDE_PREFIXES = (
