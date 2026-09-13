@@ -66,10 +66,6 @@ pair_name() {  # $1 = benchmark, $2 = part -- ecp5 gets its own pair name, e.g. 
   esac
 }
 
-ns_of() {  # $1 = part, $2 = core; prints that pair's swept comma-separated ns
-  eval "printf '%s' \"\$NS_${1}_${2}\""
-}
-
 # up5k and ecp5 read different report lines here, the split soc/compare/sweep.sh uses.
 sweep_clock() {  # $1 = part, $2 = core; prints comma-separated ns on stdout
   part=$1
@@ -111,19 +107,10 @@ sweep_clock() {  # $1 = part, $2 = core; prints comma-separated ns on stdout
   printf '%s' "$ns_csv"
 }
 
-# Hazard3 is CoreMark's own second core; skip its (expensive) placement
-# sweep entirely on a tree that cannot measure CoreMark at all.
-COREMARK_CAPABLE=0
-if grep -q '^compare-coremark:' Makefile && [ -f soc/compare/coremark_dmips.py ]; then
-  COREMARK_CAPABLE=1
-fi
-
 # One sweep per (core, part) serves both benchmark pairs below.
 for part in $PARTS; do
   echo "== compare-product: clock sweep on $part ($SEEDS) =="
-  cores="littlecpu vexriscv"
-  [ "$COREMARK_CAPABLE" -eq 1 ] && cores="$cores hazard3"
-  for core in $cores; do
+  for core in littlecpu vexriscv hazard3; do
     echo "-- $core --"
     ns=$(sweep_clock "$part" "$core")
     echo "$ns"
@@ -171,10 +158,10 @@ done
 LC_DHRY_FACTOR=$(python3 -c "print($DHRY_RUNS * 1e6 / $LC_CYCLES / $DHRY_VAX_RATE)")
 VEX_DHRY_FACTOR=$(python3 -c "print($DHRY_RUNS * 1e6 / $VEX_CYCLES / $DHRY_VAX_RATE)")
 
-eval "set -- $TOOL_ARGS"
 for part in $PARTS; do
-  lc_ns=$(ns_of "$part" littlecpu)
-  vex_ns=$(ns_of "$part" vexriscv)
+  eval "lc_ns=\$NS_${part}_littlecpu"
+  eval "vex_ns=\$NS_${part}_vexriscv"
+  eval "set -- $TOOL_ARGS"
   python3 soc/compare/product_write.py "$OUT" "$(pair_name dhrystone "$part")" --measured \
     --target-core littlecpu --base "$BASE" --dirty "$DIRTY" --date "$DATE" \
     --seeds "$SEEDS" --cflags "$DHRY_CFLAGS" --isa "$DHRY_ISA" \
@@ -197,11 +184,11 @@ measure_coremark() {
     VEX_CM_FACTOR=$(python3 -c "print($CM_ITERATIONS * 1e6 / $VEX_CM_CYCLES)")
     HZ_CM_FACTOR=$(python3 -c "print($CM_ITERATIONS * 1e6 / $HZ_CM_CYCLES)")
     CM_ISA=$(isa_from_cflags "$CM_CFLAGS")
-    eval "set -- $TOOL_ARGS"
     for part in $PARTS; do
-      lc_ns=$(ns_of "$part" littlecpu)
-      vex_ns=$(ns_of "$part" vexriscv)
-      hz_ns=$(ns_of "$part" hazard3)
+      eval "lc_ns=\$NS_${part}_littlecpu"
+      eval "vex_ns=\$NS_${part}_vexriscv"
+      eval "hz_ns=\$NS_${part}_hazard3"
+      eval "set -- $TOOL_ARGS"
       python3 soc/compare/product_write.py "$OUT" "$(pair_name coremark "$part")" --measured \
         --target-core littlecpu --base "$BASE" --dirty "$DIRTY" --date "$DATE" \
         --seeds "$SEEDS" --cflags "$CM_CFLAGS" --isa "$CM_ISA" \
@@ -223,12 +210,12 @@ measure_coremark() {
 echo
 echo "== compare-product: CoreMark (littlecpu against VexRiscv and Hazard3) =="
 COREMARK_OK=0
-if [ "$COREMARK_CAPABLE" -eq 1 ]; then
+if grep -q '^compare-coremark:' Makefile && [ -f soc/compare/coremark_dmips.py ]; then
   echo "make compare-coremark is on this tree; attempting the measurement."
   measure_coremark && COREMARK_OK=1
 fi
 if [ "$COREMARK_OK" -eq 0 ]; then
-  if [ "$COREMARK_CAPABLE" -eq 1 ]; then
+  if grep -q '^compare-coremark:' Makefile; then
     REASON="make compare-coremark exists on this tree but its output did not match what run_product.sh expects; see the warning above"
   else
     REASON="make compare-coremark is not on this tree yet; run_product.sh will measure it once that lands"
