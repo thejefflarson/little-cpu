@@ -4,11 +4,15 @@
 --clock-ns and --cycle-factor naming different core sets is refused
 --cores naming no CoreMark core at all is red before anything is parsed
 --cores naming no core at all is red before anything is parsed
+--field stamps an extra provenance field verbatim
 --list answers for every part, derived or not
 --require-news against an unchanged repo and matching --current is quiet
 --require-news is news the moment --current disagrees with the older stamp
 --require-news is news the moment rtl/ moved under the older stamp too
 --require-news refuses on its own status, not on "no news"
+--require-news's own artifact does not make itself the news
+--step-mhz refuses a core whose worst placement is under the step
+--step-mhz replaces each core's own placed clock with one fixed step in its product
 ...and a margin under the floor writes no pin file at all
 ...and one the purge did not remove means the digest is equal by luck
 ...and so does the file it injects into going away
@@ -20,6 +24,9 @@
 CONTROL_FIELDS emptied is red against the shipping decoder (finding 5)
 CoreMark data past the end of the simulated RAM is red, not silent
 CoreMark's own FAIL verdict stops the number being quoted
+DHRY_BOARD_CFLAGS drifting away from DHRY_CFLAGS is red
+DHRY_UART no longer gating any code in dhry_port.c is red
+EXCLUDED owes a reason; a bare EXCLUDED with nothing after it is malformed
 JSON that is not a netlist is refused
 NO-STATUS is a broken harness and is not baselineable either
 PASS in a failure set is a comparison whose only branch is failure
@@ -27,9 +34,19 @@ RISCV_FORMAL_E live with a real-core ill_e.sv and a wrong-rule probe label prese
 RISCV_FORMAL_E live with a real-core ill_e.sv and no wrong-rule probe label is red
 RISCV_FORMAL_E live with an ill_e.sv that does not instantiate the real core is red
 RISCV_FORMAL_E live with no ill_e.sv is red
+RVC_TEST_CASE inherits TEST_CASE's guard rather than bypassing it
+TEST_CASE refuses s1 (== x9) as testreg too
+TEST_CASE refuses x9 as testreg, named at the assembler
+TEST_CASE_D32 refuses a5 (== x15) as testreg1 too
+TEST_CASE_D32 refuses a5 (== x15) as testreg2 too
+TEST_CASE_D32 refuses s1 as testreg1 too
+TEST_CASE_D32 refuses x15 as testreg1, the data pointer
+TEST_CASE_D32 refuses x15 as testreg2, the data pointer
+TEST_CASE_D32 refuses x9 as testreg1
 TOOLS_ON_PATH stops formal/Makefile shadowing a fixture's stubs too
 TOOLS_ON_PATH stops nano/formal/Makefile shadowing a fixture's stubs too
 TOOLS_ON_PATH stops the real tools shadowing a fixture's stubs
+a --field naming a key the schema already reserves is refused
 a --measured call with no --isa is refused the same way as a missing --cflags
 a --measured call with no --tool is refused rather than stamping an unknown toolchain
 a C floor copied out of the measured table is rejected, not honoured
@@ -66,6 +83,7 @@ a UART base off its own window is red
 a VCO outside the range the part locks over is red
 a backslash-continued sed -i is still a raw edit
 a bare unpaired with no grader does not pass by silence
+a base that is not a 40-character SHA is refused as malformed, not graded stale
 a base tree whose make fails is refused, not quietly given ours
 a base tree whose synth flags moved is digested with ITS flags, and says so
 a baseline funct3 that is not three binary digits is named
@@ -100,6 +118,7 @@ a check that APPEARED needs a line -- the shape check runs both ways
 a check that went red is red here
 a check that wrote no status fails the shard, named, rather than reaching the baseline
 a check with no skip line is refused, not handed to pono anyway
+a checkout that leaves the token in .git/config is red
 a checkout that leaves the token in .git/config is red
 a checks directory that is not there is refused
 a checks directory that was never generated is named, not treated as empty
@@ -169,7 +188,9 @@ a file the manifest stopped naming is red before shasum ever runs
 a file with no row in the index is named as orphaned
 a file with two rows in the index is named
 a fixture that opens its body on the head line is still inspected
+a floor line that is neither a number nor EXCLUDED is named
 a floor line this loop cannot parse is a floor that is not enforced
+a floor longer than 10 digits is malformed, not a giant integer
 a formal harness that stops wiring rvfi at all is red
 a fourth core's ROM_WORDS with no Makefile entry to reach it is red
 a frequency with no path under it is not a measurement
@@ -187,6 +208,7 @@ a generation that produced no checks at all is refused
 a generator whose checker path no longer matches is refused, not read as a redirected set
 a graded target quietly depending on netlist-digest is red, and named
 a graph with no edges out of reg_rs1 is red, not a vacuous pass
+a grep exit of 2 or more is a real error, not `|| true`'s silent no-match
 a half-installed toolchain says so once, up front
 a half-installed toolchain says so once, up front
 a hand-drifted fork is red, and its residual diff is printed
@@ -201,6 +223,7 @@ a harness with no line in the baseline is red
 a harness with no line in the baseline is red
 a hop class nothing classifies would move the split silently
 a hop sum that does not reconcile blames the script, not the design
+a job with no main-only guard is red, since workflow_dispatch can target any ref
 a liberty download whose bytes are not the pin is refused before it is kept
 a liberty file that does not match the pinned digest is refused
 a line naming a mutation test/mutations/ does not have is red
@@ -209,6 +232,7 @@ a line with no harness behind it is red too
 a linker script back on the old 4 KB ram is red
 a linker script linking past the harness ROM is red
 a linker script named by another soc/compare script is not orphaned
+a linker script override that does not exist is refused, not defaulted
 a linker script promising RAM the harness does not have is red
 a linker script that moves ram off the decoded base is red
 a linker script the Makefile does not link and nothing else names is red
@@ -242,6 +266,7 @@ a missing ramdiff for the SECOND CoreMark core is red, not silently skipped
 a missing ramdiff for the SECOND core is red, not silently skipped
 a missing regenerate output is refused rather than committing nothing
 a missing riscv-formal clone is named, not blamed on the ISA string
+a missing schedule workflow file is an error, not an empty pass
 a missing stat.json is refused, not read as a zero-area design
 a missing workflow file is an error, not an empty pass
 a mistyped baseline path cannot compare nothing and pass
@@ -275,11 +300,13 @@ a new rtl file with no line is red, naming the file
 a new site naming an ISA nothing declared is red, and located
 a new wide input port with no classification is red (finding 3)
 a nextpnr that died early is NOT graded on the last run's pair
+a non-.S program cannot carry a real floor; this runner only globs .S
 a non-comparable CSR value is exempted -- and every exemption printed
 a non-finite --max-um2 is refused before the ratchet compares anything
 a non-finite area in the JSON is refused, not compared as if it were real
 a non-insn check keeps its engine and its skip
 a non-numeric floor is named rather than compared arithmetically
+a non-numeric retire count is graded NO-COUNTS, not compared as an integer
 a not-yet-measured pair is reported, not graded as stale
 a one-bit constant is a different digest
 a one-field baseline line is rejected before the suite runs
@@ -343,6 +370,7 @@ a repo root that does not exist is red before anything is scanned
 a repo root that does not exist is red before anything is scanned
 a repo root that does not exist is red before anything is scanned
 a repo root that does not exist is red before anything is scanned
+a repo root with neither header is red, not an empty pass
 a repo root with no Makefile is red before anything is parsed
 a repo with no .github/workflows is red rather than a scan of nothing
 a report naming some other clock does not stand in for this one
@@ -377,9 +405,11 @@ a respelled rule line stops rather than pinning nothing
 a respelled wait bound stops rather than pinning nothing
 a respelled wait bound stops rather than pinning nothing
 a respelled word arm stops the same way
+a retire count below the floor is graded BELOW-FLOOR, not silently PASS
 a row naming a file that does not exist is named
 a row whose period is not a number stops the read
 a row with no placement behind it stops the read, not just that seed
+a run reporting no retire count at all is graded NO-COUNTS
 a run that never made the cross-core check is red
 a run that printed no COSIM-STATUS is COSIM-ERROR, not a verdict
 a runner that printed no CS END terminator is a broken harness
@@ -394,6 +424,7 @@ a shipping harness that cannot reach its own goals is red
 a signal in scope only in an earlier module stops it too
 a simulated ROM smaller than the part's is red
 a simulation this cannot parse is a run that did not happen
+a single, fully-excluded manifest is red: a run that tests nothing is not a pass
 a size the parser cannot read stops rather than comparing as zero
 a slice that selects no checks is an error, not an empty success
 a soc/compare script naming no .lds at all does not sink the scan
@@ -436,6 +467,7 @@ a term with no allow-list behind it stops rather than grading nothing
 a testbench simulating a different map than the image is linked for is red
 a tie-off at every harness that no baseline declares is red
 a timer base aligned only for one hart is red
+a token handed to a step other than the publish step is red
 a token handed to the step that executes upstream code is red
 a tool that exits nonzero while printing is refused on its status
 a tool that is not installed names itself rather than the list
@@ -462,6 +494,7 @@ a wire that does not carry its class's name is named
 a wire that names a funct7 without a funct3 is rejected, not parsed
 a wrong-rule mutant that still passes is not a control
 an #insn-check naming a file that does not exist is refused
+an ABI alias outside x0-x15 (a7 = x17) is caught the same way
 an ECP5 placement read with ice40 names names the part, not a bad log
 an ECP5 stamp carrying up5k's tools is missing its own
 an EXTRA architectural write the model never made is caught
@@ -505,9 +538,11 @@ an escaped apostrophe inside a $'...' string does not close it early
 an escaped apostrophe outside quotes does not mask a real sed -i
 an exception whose port is connected now is red
 an exception whose site stopped naming that ISA is red
+an excluded program that assembles and passes anyway is red, not silently trusted
 an exclusion with no reason written under it is rejected
 an executor_out.rd_data bit routed into a stall reason is red
 an exemption naming no program is red, not a program quietly excused
+an extra flag riding in on DHRY_BOARD_EXTRA_DEFINES is red
 an fmax entry that stopped carrying both halves is refused, not read
 an image objcopy wrote nothing into is red, not empty and accepted
 an image whose RAM outgrows the part's SPRAM does not fit either
@@ -517,6 +552,7 @@ an integrator telling the core a text size its ROM has not got
 an integrator that stopped stating it at all is red, not defaulted
 an ls_access with an extra encoding proving is red
 an objcopy that refuses names the region it refused for
+an orphaned base recovers --require-news as news rather than refusing the run
 an rtl/ change since the stamp's base is STALE, and the file is named
 an svlint install inside the checkout is red on its own
 an unconditional port connected only inside an ifdef is red
@@ -532,6 +568,7 @@ an unlisted site is red and named, with the file:line quoted
 an unpaired line whose named grader is not a real bench or formal task is red
 an unreadable clone makes 'no spec model' unmeasurable, and fatal
 an unreadable clone makes the re-derivation impossible, and fatal
+an unreadable header is refused, not read as an empty file
 an unreadable netlist is refused rather than read as clean
 an unrecognised CS line is a hard error, never guessed at
 an unstamped file is rejected rather than summarised
@@ -574,6 +611,8 @@ components_executor still lists check-solver-bitwuzla as a prerequisite
 control: .PHONY declaring netlist-digest is not a dependency edge
 control: RISCV_FORMAL_E is not yet wired, so there is nothing to check it against
 control: STALL_REPORT prints the accounting and keeps the suite green
+control: TEST_CASE with an ordinary testreg still assembles
+control: TEST_CASE_D32 with ordinary testregs still assembles
 control: TIMEOUT is a real verdict and IS baselineable
 control: a THIRD core's --clock-ns/--cycle-factor adds a second product, not a rewrite
 control: a baselined divergence at the baselined point is green
@@ -621,7 +660,10 @@ control: all five shipping scripts link at the inset layout
 control: an ECP5 sweep summarises against its own instrument
 control: an accounting that adds up prints the table
 control: an archive matching the vendored tree exactly is endorsed
+control: an excluded program whose own build genuinely fails stays excluded
 control: an exemption whose program exists is accepted
+control: an explicit cycle budget is accepted as the seventh argument
+control: an explicit linker script replaces ASM_DIR/nano.lds
 control: an ignored file that was never tracked is not a defect
 control: an opcode+funct3 predicate is accepted
 control: an opcode+funct3+funct7 predicate is accepted
@@ -635,9 +677,12 @@ control: both Zkt-isolation assertions fail, each at its own line
 control: both arms admit the shipping arbiter and fail on their mutation
 control: both arms admit the shipping arbiter and fail on their mutation
 control: both arms fail, each at its own line
+control: both headers naming only x0-x15 is green
 control: both sides failing the same test number still AGREE
 control: each subset is printed as a share of that number
 control: every allowed site is covered and nothing else carries the string
+control: every line of nano's own manifest marked EXCLUDED is red, not a quiet 0/0
+control: every line of the littlecpu-subset manifest marked EXCLUDED is red too
 control: every named source present proceeds
 control: every site names every port of littlecpu
 control: fixture_anchor finds its literal in the real file
@@ -673,6 +718,7 @@ control: the shipping Makefile defines no target twice
 control: the shipping Makefile owes nothing but themselves to the two targets
 control: the shipping PROBES_EXPECTED header is present and not in C order
 control: the shipping board agrees with its own PLL and constraint file
+control: the shipping build stays byte-identical outside DHRY_UART
 control: the shipping decoder reaches region_stall only, gated
 control: the shipping exclusion set matches its baseline both ways
 control: the shipping files describe one machine
@@ -684,6 +730,7 @@ control: the shipping harnesses tie off, both directions
 control: the shipping index has one row per file and no number twice
 control: the shipping manifest rules on every rtl/*.v file
 control: the shipping pin-bump workflow keeps credentials off the upstream-code step
+control: the shipping schedule workflow confines its credential to the publish step
 control: the shipping tree keeps the retired term inside its allow-list
 control: the shipping tree names one ISA at every site
 control: the shipping tree states every band figure in one place
@@ -700,6 +747,7 @@ decoder_output.rd widened past 5 bits is red (finding 5)
 deleting an rtl file and leaving its line is red
 dividers that make a frequency CORE_HZ does not state is red
 every source line moving is the comment class, and is forgiven
+excluding --require-news's artifact does not blind it to a real soc/compare/ change
 excluding the artifact does not blind the check to a real soc/compare/ change
 fixture_anchor whose literal left the real file is fixture-stale, named
 formal's remeasure-fg still lists check-solver-btorsim as a prerequisite
@@ -715,6 +763,7 @@ layer 2: the enclosed handle_error multiset is pinned, not merely counted
 layer 3: error 101 vanishing from the OUTPUT is caught after every rule
 margin above the step is reported as unspendable, not as speed
 more accesses near an edge than there were accesses is red
+more than seven arguments is a usage error too
 moved sources say so, naming both digests
 moving the declared string alone, with every site unchanged, is red
 mutate_remove on a path that was never there is fixture-stale, not silent
@@ -757,6 +806,7 @@ one side alone is not a cross-core figure
 one source present and a second missing is refused, not read as nothing landed
 over budget names the count and the budget
 perl -pi is a raw edit like sed -i
+product_write.py refuses a --base that is not a 40-character commit SHA
 reg_rs1 laundered through out.rs1's own register is still red
 renaming the upstream-code step out of reach stops rather than passing
 retires that stopped being spec-checked is its own status
@@ -846,6 +896,8 @@ the program addressing RAM somewhere the harness has none is red
 the proof describes the part's text window, not the harness's
 the proof going red somewhere else is not evidence
 the proof's copy of the RAM base drifting from the RAM is red
+the publish step pushing with no gh auth setup-git is red
+the publish step with no GH_TOKEN at all is red
 the quiet one: objcopy exits 0 having written no bytes
 the reference model hitting its budget is INCONCLUSIVE, not a finding
 the refusal is the part, not the four tool mismatches it also produces
@@ -860,6 +912,7 @@ the same for the bypass counter, per program rather than in total
 the same path repeated on one line is not a second copy
 the sby script moving away takes the ill_e probe with it, loudly
 the sby script moving away takes the probe with it, loudly
+the second header is scanned too, not just test_macros.h
 the stale ISA name coming back in a formal harness comment is red
 the suite's shape is asserted before a single program is assembled
 the third core's ROM drifting behind the other two is red
@@ -890,6 +943,7 @@ two parts are refused rather than subtracted
 two rtl/*.v paths on one line is a second copy, and is red
 two toolchains are named, which is the disagreement that flipped a sign
 two walks disagreeing about what routing is refuse to print a histogram
+upstream's own x29 scratch reappearing is named and located
 usage: a missing argument is exit 2
 widening a declared mnemonic list without the baseline is red
 wrong argument count is a usage error

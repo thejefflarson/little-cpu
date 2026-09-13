@@ -1,12 +1,12 @@
 #!/bin/bash
-# Builds every program in nano/asm, runs it under nano's cxxrtl runner (nano-sim), and
-# grades the pass/fail table against nano/asm/EXPECTED_FAIL -- the same shape as
-# test/run_tests.sh, over nano's own march/mabi/linker rather than littlecpu's, since the
-# two cores share no register file width, bus, or crt0 to build against in common.
+# Builds every program in ASM_DIR under nano's cxxrtl runner and grades it against
+# EXPECTED_FAIL. Nano's own six-program suite and littlecpu's portable subset both use
+# this script, the latter with the linker script and cycle budget given explicitly.
 set -euo pipefail
 
-if [ "$#" -ne 5 ]; then
-  echo "usage: run_nano_tests.sh <sim-binary> <asm-dir> <expected-fail-file> <floor-file> <cflags>" >&2
+if [ "$#" -lt 5 ] || [ "$#" -gt 7 ]; then
+  echo "usage: run_nano_tests.sh <sim-binary> <asm-dir> <expected-fail-file>" \
+       "<floor-file> <cflags> [lds-path] [cycles]" >&2
   exit 1
 fi
 
@@ -15,7 +15,8 @@ ASM_DIR=$2
 EXPECTED_FAIL=$3
 OBSERVED_FLOOR=$4
 CFLAGS=$5
-CYCLES=5000
+LDS=${6:-$ASM_DIR/nano.lds}
+CYCLES=${7:-5000}
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/../.." && pwd)
 
@@ -29,16 +30,37 @@ if [ ! -f "$OBSERVED_FLOOR" ] || [ ! -r "$OBSERVED_FLOOR" ]; then
   exit 1
 fi
 
+if [ ! -f "$LDS" ]; then
+  echo "error: linker script '$LDS' does not exist." >&2
+  exit 1
+fi
+
 if ! "$REPO/test/check_suite_shape.sh" "$ASM_DIR" "$OBSERVED_FLOOR"; then
   echo "error: nano's suite does not match its manifest; nothing was run." >&2
   exit 1
 fi
 
+# EXCLUDED, with a reason after it, is the one non-numeric status a second field may
+# hold. A numeric floor is capped at 10 digits, so the later `-ge` is always a plain
+# integer compare, never a parse error `set -u` could read as "not below the floor".
 floors=$(sed -e 's/#.*//' "$OBSERVED_FLOOR" | awk 'NF { $1=$1; print }')
-malformed_floor=$(printf '%s\n' "$floors" | awk 'NF && (NF != 2 || $2 !~ /^[0-9]+$/) { print }')
+malformed_floor=$(printf '%s\n' "$floors" | awk '
+  $2 == "EXCLUDED" { if (NF < 3) print; next }
+  NF != 2 || $2 !~ /^[0-9]{1,10}$/ { print }
+')
 if [ -n "$malformed_floor" ]; then
-  echo "error: $OBSERVED_FLOOR has lines that are not '<program> <retires>':" >&2
+  echo "error: $OBSERVED_FLOOR has lines that are not '<program> <retires>' or" \
+       "'<program> EXCLUDED <reason>':" >&2
   printf '  %s\n' "$malformed_floor" >&2
+  exit 1
+fi
+
+# This runner globs *.S only, so a non-.S name can only ever be EXCLUDED.
+non_s_attempted=$(printf '%s\n' "$floors" | awk '$2 != "EXCLUDED" && $1 !~ /\.S$/ { print $1 }')
+if [ -n "$non_s_attempted" ]; then
+  echo "error: $OBSERVED_FLOOR gives a non-.S program a real floor; this runner only" >&2
+  echo "globs *.S, so it would never be attempted:" >&2
+  printf '  %s\n' "$non_s_attempted" >&2
   exit 1
 fi
 
@@ -72,27 +94,19 @@ tmp=$(mktemp -d "${TMPDIR:-/tmp}/nanocpu-test.XXXXXX") || {
 }
 trap 'rm -rf "$tmp"' EXIT
 
-declare -a failures=()
-declare -a table=()
-passed=0
-
-shopt -s nullglob
-programs=("$ASM_DIR"/*.S)
-shopt -u nullglob
-
-for src in "${programs[@]}"; do
-  name=$(basename "$src")
-  base=${name%.*}
+# Shared by the main loop and the exclusion recheck below: build, objcopy, simulate.
+build_and_run() {  # $1 = src, $2 = base name for this attempt's tmp files
+  local src=$1 base=$2 status retires elf build_log rom_hex ram_hex sim_status num code
   elf="$tmp/$base.elf"
   build_log="$tmp/$base.build.log"
   rom_hex="$tmp/$base.rom.hex"
   ram_hex="$tmp/$base.ram.hex"
-
   status="PASS"
   retires=""
+
   # shellcheck disable=SC2086
   if ! "$CC" $CFLAGS -nostdlib -I "$ASM_DIR" -I "$REPO/test/asm" \
-       -T "$ASM_DIR/nano.lds" "$src" -o "$elf" > "$build_log" 2>&1; then
+       -T "$LDS" "$src" -o "$elf" > "$build_log" 2>&1; then
     status="ASSEMBLE-ERROR"
   elif [ -s "$build_log" ]; then
     status="ASSEMBLE-WARNING"
@@ -127,15 +141,41 @@ for src in "${programs[@]}"; do
     retires=$(awk '/^RETIRES /{print $2; exit}' "$tmp/$base.run.log")
   fi
 
-  if [ "$status" = "PASS" ] && [ -z "$retires" ]; then
+  if [ "$status" = "PASS" ] && ! printf '%s' "$retires" | grep -qE '^[0-9]{1,10}$'; then
     status="NO-COUNTS"
   fi
 
+  printf '%s\t%s\t%s\n' "$status" "$retires" "$build_log"
+}
+
+declare -a failures=()
+declare -a table=()
+declare -a excluded_names=()
+passed=0
+
+shopt -s nullglob
+programs=("$ASM_DIR"/*.S)
+shopt -u nullglob
+
+for src in "${programs[@]}"; do
+  name=$(basename "$src")
+  floor=$(printf '%s\n' "$floors" | awk -v n="$name" '$1 == n { print $2; found = 1 } END { exit !found }') || floor=""
+
+  if [ "$floor" = "EXCLUDED" ]; then
+    excluded_names+=("$name")
+    continue
+  fi
+
+  base=${name%.*}
+  attempt=$(build_and_run "$src" "$base")
+  IFS=$'\t' read -r status retires build_log <<< "$attempt"
+
   if [ "$status" = "PASS" ]; then
-    floor=$(printf '%s\n' "$floors" | awk -v n="$name" '$1 == n { print $2; found = 1 } END { exit !found }') || floor=""
     if [ -z "$floor" ]; then
       status="NO-FLOOR"
-    elif [ "$retires" -lt "$floor" ]; then
+    elif [ "$retires" -ge "$floor" ]; then
+      : # meets its floor
+    else
       status="BELOW-FLOOR retires"
       echo "$name: $retires retires, floor is $floor ($OBSERVED_FLOOR)" >&2
     fi
@@ -153,9 +193,35 @@ for src in "${programs[@]}"; do
   table+=("$(printf '%-16s %-22s retires=%s' "$name" "$status" "${retires:--}")")
 done
 
+if [ "${#table[@]}" -eq 0 ]; then
+  echo "error: this run attempted zero programs. Every entry in $OBSERVED_FLOOR is" >&2
+  echo "EXCLUDED (or the manifest is empty), so nothing here tests anything." >&2
+  exit 1
+fi
+
+# An EXCLUDED program that still assembles and passes here is a stale exclusion.
+excluded_but_passed=()
+for name in "${excluded_names[@]:-}"; do
+  [ -n "$name" ] || continue
+  status=$(build_and_run "$ASM_DIR/$name" "excluded-$name" | cut -f1)
+  if [ "$status" = "PASS" ]; then
+    excluded_but_passed+=("$name")
+  fi
+done
+if [ "${#excluded_but_passed[@]}" -gt 0 ]; then
+  echo "error: these programs are marked EXCLUDED in $OBSERVED_FLOOR but assembled" >&2
+  echo "and passed under this exact toolchain, so the exclusion is stale:" >&2
+  printf '  %s\n' "${excluded_but_passed[@]}" >&2
+  exit 1
+fi
+
 printf '%s\n' "${table[@]}"
 echo
-echo "$passed/${#table[@]} passed"
+if [ "${#excluded_names[@]}" -gt 0 ]; then
+  echo "$passed/${#table[@]} passed (${#excluded_names[@]} excluded)"
+else
+  echo "$passed/${#table[@]} passed"
+fi
 
 actual_sorted=$(printf '%s\n' "${failures[@]:-}" | awk 'NF { $1=$1; print }' | sort)
 expected_sorted=$(sed -e 's/#.*//' "$EXPECTED_FAIL" | awk 'NF { $1=$1; print }' | sort)

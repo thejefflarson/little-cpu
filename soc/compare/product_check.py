@@ -49,11 +49,16 @@ Usage:
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
+import traceback
 
 # THREE exit statuses, and the third one is why this is not `sys.exit(message)`.
 REFUSED = 2
+
+# A full SHA, never an abbreviation the repo could grow into colliding with.
+BASE_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 
 def refuse(message):
     print(message, file=sys.stderr)
@@ -69,10 +74,26 @@ def load(path):
     except (OSError, json.JSONDecodeError) as exc:
         refuse(f"*** {path} could not be read as the product artifact: {exc}")
 
+def base_resolvable(repo, base):
+    """Whether `base` names a commit `repo` still has. A squash-merged PR
+    branch's commit stops resolving anywhere the instant the branch is
+    deleted, which this repo's own merge policy does on every merge -- the
+    stamp that measurement produced is not wrong, it just names a place
+    nothing can look any more.
+    """
+    try:
+        subprocess.run(
+            ["git", "-C", repo, "cat-file", "-e", f"{base}^{{commit}}"],
+            capture_output=True, check=True,
+        )
+        return True
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return False
+
 # The artifact lives INSIDE a watched prefix, so writing it counts as the tree moving:
-# stamping dhrystone and then writing coremark made dhrystone stale against its own file,
-# and `make compare-product` could never exit 0. Excluded by the path the caller actually
-# gave, not by a prefix -- a prefix would stop this noticing a real soc/compare/ change.
+# stamping dhrystone and then writing coremark made dhrystone stale against its own file.
+# Excluded by the path the caller actually gave, not by a prefix -- a prefix would stop
+# this noticing a real soc/compare/ change.
 def moved_paths(repo, base, artifact=None):
     """Every path under rtl/ or soc/compare/ that differs between `base` and the
     working tree (committed or not -- a stamp is stale the moment either
@@ -84,8 +105,10 @@ def moved_paths(repo, base, artifact=None):
             rel = os.path.relpath(os.path.abspath(artifact), os.path.abspath(repo))
             if not rel.startswith(os.pardir):
                 pathspec.append(":(exclude)" + rel)
+        # --end-of-options: belt-and-braces against `base` being read as a git flag.
         out = subprocess.run(
-            ["git", "-C", repo, "diff", "--name-only", base, "--"] + pathspec,
+            ["git", "-C", repo, "diff", "--name-only", "--end-of-options", base, "--"]
+            + pathspec,
             capture_output=True, text=True, check=True,
         )
     except FileNotFoundError:
@@ -124,6 +147,10 @@ def stale_reasons(pair, repo, current, artifact=None):
                    "produced it could not determine the field, most often "
                    "a `make print-VAR` on a VAR this tree does not define. "
                    "Omit the field instead of asking to compare it.")
+    if not BASE_RE.fullmatch(str(pair.get("base", ""))):
+        refuse(f"*** base '{pair.get('base')}' is not a 40-character commit "
+               "SHA. That is a malformed stamp, not a stale one.")
+
     reasons = []
     if pair.get("dirty") == "yes":
         reasons.append("it was measured on a tree with uncommitted changes, so "
@@ -210,4 +237,11 @@ def main():
     sys.exit(report_pair(args.benchmark, pair, args))
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception:
+        # Must not read as "stale" (exit 1) to a caller branching on this exit code.
+        traceback.print_exc()
+        sys.exit(REFUSED)

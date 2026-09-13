@@ -25,7 +25,7 @@
 DUALTEST_CODE_BEGIN
 
   li    s0, 0
-  la    s1, shared
+  la    s2, shared          // s2, not s1 (x9): kept live across TEST_CASE calls
   la    s3, go
   li    a5, SC_BVAL
 
@@ -33,29 +33,29 @@ DUALTEST_CODE_BEGIN
 
   addi  s0, s0, 1
   li    a7, SC_SENTINEL
-  sw    a7, 0(s1)
-  lr.w  a1, (s1)
+  sw    a7, 0(s2)
+  lr.w  a1, (s2)
   sw    s0, 0(s3)
   DUALTEST_WAIT_REG( TN_W1, done, s0 )
   li    a6, SC_AVAL
-  sc.w  a2, a6, (s1)
+  sc.w  a2, a6, (s2)
 
   TEST_CASE( 11, a2, 1, nop; )
-  TEST_CASE( 12, a4, SC_BVAL, lw a4, 0(s1); )
+  TEST_CASE( 12, a4, SC_BVAL, lw a4, 0(s2); )
 
   // Round 2 -- hart 1 writes somewhere else, so the reservation must survive.
 
   addi  s0, s0, 1
   li    a7, SC_SENTINEL
-  sw    a7, 0(s1)
-  lr.w  a1, (s1)
+  sw    a7, 0(s2)
+  lr.w  a1, (s2)
   sw    s0, 0(s3)
   DUALTEST_WAIT_REG( TN_W2, done, s0 )
   li    a6, SC_AVAL
-  sc.w  a2, a6, (s1)
+  sc.w  a2, a6, (s2)
 
   TEST_CASE( 13, a2, 0, nop; )
-  TEST_CASE( 14, a4, SC_AVAL, lw a4, 0(s1); )
+  TEST_CASE( 14, a4, SC_AVAL, lw a4, 0(s2); )
 
   li    s5, 0
   li    s6, 0
@@ -63,8 +63,8 @@ DUALTEST_CODE_BEGIN
 sweep:
   addi  s0, s0, 1
   li    a7, SC_SENTINEL
-  sw    a7, 0(s1)
-  lr.w  a1, (s1)
+  sw    a7, 0(s2)
+  lr.w  a1, (s2)
   li    a6, SC_AVAL
   sw    s0, 0(s3)
   slli  t0, s5, 2
@@ -79,7 +79,7 @@ sled:
   nop
   .endr
 sled_end:
-  sc.w  a2, a6, (s1)
+  sc.w  a2, a6, (s2)
   .option pop
 
   beqz  a2, 4f
@@ -89,7 +89,7 @@ sled_end:
   addi  s7, s7, 1
 5:
   DUALTEST_WAIT_REG( TN_W3, done, s0 )
-  lw    a4, 0(s1)
+  lw    a4, 0(s2)
   li    TESTNUM, TN_LOST
   bne   a4, a5, fail
 
@@ -103,7 +103,7 @@ sled_end:
   beqz  s7, fail
 
   DUALTEST_JOIN( TN_JOIN )
-  TEST_CASE( 15, a4, SC_BVAL, lw a4, 0(s1); )
+  TEST_CASE( 15, a4, SC_BVAL, lw a4, 0(s2); )
 
   TEST_PASSFAIL
 

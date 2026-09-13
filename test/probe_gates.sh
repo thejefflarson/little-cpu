@@ -334,7 +334,8 @@ STUB
 
 # `leg-rt` / `leg-rc` are scratch copies of the two suite runners, because each resolves
 # its helper scripts relative to its own path.
-mkdir -p "$tmp/bin-none" "$tmp/bin-curl" "$tmp/leg-rt" "$tmp/leg-rc" "$tmp/leg-rc-nopy" "$tmp/leg-nano"
+mkdir -p "$tmp/bin-none" "$tmp/bin-curl" "$tmp/leg-rt" "$tmp/leg-rc" "$tmp/leg-rc-nopy" \
+         "$tmp/leg-nano"
 
 # For the one probe that claims "no cross compiler", `bin-none` has to be the WHOLE path:
 # with /usr/bin behind it, run_tests.sh finds a real riscv64-unknown-elf-gcc on any host
@@ -616,6 +617,289 @@ probe "control: nano's startup check is graded the same way, and it is green" 0 
 
 probe "a FAIL verdict from the underlying sim is red for nano's startup check too" 1 \
   "gp is not initialized" "STUB_SIM_EXIT=1 $(nano_startup_rt)"
+
+d=$(nano_rt_fixture); printf 'alu.S EXCLUDED needs a CSR\n' > "$d/FLOOR"
+probe "a single, fully-excluded manifest is red: a run that tests nothing is not a pass" 1 \
+  "attempted zero programs" "$(nano_rt "$d")"
+
+nano_all_excluded_fixture() {  # models nano/asm/OBSERVED_FLOOR's own shape: nano's six
+  local d; d=$(new_case)
+  mkdir -p "$d/asm"
+  for p in alu branch compressed; do : > "$d/asm/$p.S"; done
+  : > "$d/asm/nano.lds"
+  printf 'alu.S EXCLUDED reason\nbranch.S EXCLUDED reason\ncompressed.S EXCLUDED reason\n' \
+    > "$d/FLOOR"
+  : > "$d/BASELINE"
+  printf '%s' "$d"
+}
+
+d=$(nano_all_excluded_fixture)
+probe "control: every line of nano's own manifest marked EXCLUDED is red, not a quiet 0/0" 1 \
+  "attempted zero programs" "$(nano_rt "$d")"
+
+littlecpu_all_excluded_fixture() {  # models nano/asm/LITTLECPU_FLOOR's own shape: a
+                                     # littlecpu-subset manifest naming CSR/A programs
+  local d; d=$(new_case)
+  mkdir -p "$d/asm"
+  for p in amo csr zicsr; do : > "$d/asm/$p.S"; done
+  : > "$d/asm/nano.lds"
+  printf 'amo.S EXCLUDED A extension\ncsr.S EXCLUDED CSR\nzicsr.S EXCLUDED CSR\n' \
+    > "$d/FLOOR"
+  : > "$d/BASELINE"
+  printf '%s' "$d"
+}
+
+d=$(littlecpu_all_excluded_fixture)
+probe "control: every line of the littlecpu-subset manifest marked EXCLUDED is red too" 1 \
+  "attempted zero programs" "$(nano_rt "$d")"
+
+make_exclusion_toolchain_stubs() {  # $1 = bin dir; a *.S source whose name contains
+                                     # "bad" fails to assemble, everything else succeeds
+                                     # -- stands in for a real CSR/A/fence.i refusal
+  local bin=$1
+  mkdir -p "$bin"
+  cat > "$bin/riscv64-elf-gcc" <<'STUB'
+#!/bin/sh
+src=""; out=""; prev=""
+for a in "$@"; do
+  case "$a" in *.S) src=$a ;; esac
+  if [ "$prev" = "-o" ]; then out=$a; fi
+  prev=$a
+done
+case "$src" in *bad*) exit 1 ;; esac
+[ -n "$out" ] && echo stub-elf > "$out"
+exit 0
+STUB
+  cat > "$bin/riscv64-elf-objcopy" <<'STUB'
+#!/bin/sh
+for out; do :; done
+printf '@00000000\n13 00 00 00\n' > "$out"
+exit 0
+STUB
+  chmod +x "$bin/riscv64-elf-gcc" "$bin/riscv64-elf-objcopy"
+}
+make_exclusion_toolchain_stubs "$tmp/bin-exclusion"
+
+excl_two_fixture() {  # $1 = the excluded program's basename (real one plus this one)
+  local d; d=$(new_case)
+  mkdir -p "$d/asm"
+  : > "$d/asm/alu.S"
+  : > "$d/asm/$1.S"
+  : > "$d/asm/nano.lds"
+  printf 'alu.S 10\n%s.S EXCLUDED needs a CSR\n' "$1" > "$d/FLOOR"
+  : > "$d/BASELINE"
+  printf '%s' "$d"
+}
+
+d=$(excl_two_fixture bad)
+probe "control: an excluded program whose own build genuinely fails stays excluded" 0 \
+  "Failure list matches" \
+  "PATH='$tmp/bin-exclusion:$tmp/bin-none:/usr/bin:/bin' $NANO_RT $tmp/nano-sim $d/asm $d/BASELINE $d/FLOOR x"
+
+d=$(excl_two_fixture stale)
+probe "an excluded program that assembles and passes anyway is red, not silently trusted" 1 \
+  "stale.S" "$(nano_rt "$d")"
+
+d=$(nano_rt_fixture)
+probe "a retire count below the floor is graded BELOW-FLOOR, not silently PASS" 1 \
+  "alu.S BELOW-FLOOR retires" "STUB_SIM_RETIRES=1 $(nano_rt "$d")"
+
+d=$(nano_rt_fixture)
+probe "a run reporting no retire count at all is graded NO-COUNTS" 1 \
+  "alu.S NO-COUNTS" "STUB_SIM_NOCOUNTS=1 $(nano_rt "$d")"
+
+d=$(nano_rt_fixture)
+probe "a non-numeric retire count is graded NO-COUNTS, not compared as an integer" 1 \
+  "alu.S NO-COUNTS" "STUB_SIM_RETIRES=abc $(nano_rt "$d")"
+
+d=$(nano_rt_fixture); printf 'alu.S 123456789012\n' > "$d/FLOOR"
+probe "a floor longer than 10 digits is malformed, not a giant integer" 1 \
+  "are not '<program> <retires>'" "$(nano_rt "$d")"
+
+d=$(nano_rt_fixture); printf 'alu.S EXCLUDED\n' > "$d/FLOOR"
+probe "EXCLUDED owes a reason; a bare EXCLUDED with nothing after it is malformed" 1 \
+  "<program> EXCLUDED <reason>" "$(nano_rt "$d")"
+
+nano_nonS_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/asm"
+  : > "$d/asm/alu.S"
+  : > "$d/asm/nano.lds"
+  : > "$d/asm/data.c"
+  printf 'alu.S 10\ndata.c 5\n' > "$d/FLOOR"
+  : > "$d/BASELINE"
+  printf '%s' "$d"
+}
+
+d=$(nano_nonS_fixture)
+probe "a non-.S program cannot carry a real floor; this runner only globs .S" 1 \
+  "globs *.S" "$(nano_rt "$d")"
+
+d=$(nano_rt_fixture); printf 'alu.S maybe\n' > "$d/FLOOR"
+probe "a floor line that is neither a number nor EXCLUDED is named" 1 \
+  "<program> EXCLUDED <reason>" "$(nano_rt "$d")"
+
+nano_lds_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/asm"
+  : > "$d/asm/alu.S"
+  : > "$d/asm/custom.lds"
+  printf 'alu.S 10\n' > "$d/FLOOR"
+  : > "$d/BASELINE"
+  printf '%s' "$d"
+}
+
+d=$(nano_lds_fixture)
+probe "control: an explicit linker script replaces ASM_DIR/nano.lds" 0 \
+  "Failure list matches" \
+  "PATH='$tmp/bin:$tmp/bin-none:/usr/bin:/bin' $NANO_RT $tmp/nano-sim $d/asm $d/BASELINE $d/FLOOR 'x' $d/asm/custom.lds"
+
+probe "a linker script override that does not exist is refused, not defaulted" 1 \
+  "linker script" \
+  "PATH='$tmp/bin:$tmp/bin-none:/usr/bin:/bin' $NANO_RT $tmp/nano-sim $d/asm $d/BASELINE $d/FLOOR 'x' $d/asm/nope.lds"
+
+probe "control: an explicit cycle budget is accepted as the seventh argument" 0 \
+  "Failure list matches" \
+  "PATH='$tmp/bin:$tmp/bin-none:/usr/bin:/bin' $NANO_RT $tmp/nano-sim $d/asm $d/BASELINE $d/FLOOR 'x' $d/asm/custom.lds 20000"
+
+probe "more than seven arguments is a usage error too" 1 "usage:" \
+  "PATH='$tmp/bin:$tmp/bin-none:/usr/bin:/bin' $NANO_RT $tmp/nano-sim $d/asm $d/BASELINE $d/FLOOR x $d/asm/custom.lds 20000 extra"
+
+begin_group "test_macros.h's testreg vacuity guards"
+
+VACUITY_CC=""
+for vacuity_candidate in riscv64-elf-gcc riscv64-unknown-elf-gcc; do
+  if command -v "$vacuity_candidate" > /dev/null 2>&1; then
+    VACUITY_CC=$vacuity_candidate
+    break
+  fi
+done
+if [ -z "$VACUITY_CC" ]; then
+  echo "error: no RISC-V cross compiler found, so the testreg vacuity guards" >&2
+  echo "cannot be forced red. Install one (make setup)." >&2
+  exit 1
+fi
+
+vacuity_fixture() {  # $1 = top-level text (defines), $2 = code inside RVTEST_CODE_BEGIN
+  local d; d=$(new_case)
+  mkdir -p "$d/asm"
+  cp "$REPO/test/asm/test_macros.h" "$REPO/test/asm/riscv_test.h" "$d/asm/"
+  {
+    echo '#include "riscv_test.h"'
+    echo '#include "test_macros.h"'
+    printf '%s\n' "${1:-}"
+    echo 'RVTEST_RV64U'
+    echo 'RVTEST_CODE_BEGIN'
+    printf '%s\n' "$2"
+    echo 'RVTEST_CODE_END'
+    echo '  .data'
+    echo 'RVTEST_DATA_BEGIN'
+    echo 'RVTEST_DATA_END'
+  } > "$d/asm/vacuity.S"
+  printf '%s' "$d"
+}
+
+vacuity_build() {  # $1 = fixture dir -- assemble only: the guard fires at assembly
+                    # time, and a fixture this small links nothing worth chasing
+  "$VACUITY_CC" -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 \
+    -I "$1/asm" -c "$1/asm/vacuity.S" -o "$1/out.o"
+}
+
+d=$(vacuity_fixture "" 'TEST_CASE(2, a2, 0, nop;)')
+probe "control: TEST_CASE with an ordinary testreg still assembles" 0 \
+  "assembled" "vacuity_build $d && echo assembled"
+
+d=$(vacuity_fixture "" 'TEST_CASE(2, x9, 0, nop;)')
+probe "TEST_CASE refuses x9 as testreg, named at the assembler" 1 \
+  "TEST_CASE: testreg cannot be x9" "vacuity_build $d"
+
+d=$(vacuity_fixture "" 'TEST_CASE(2, s1, 0, nop;)')
+probe "TEST_CASE refuses s1 (== x9) as testreg too" 1 \
+  "TEST_CASE: testreg cannot be s1" "vacuity_build $d"
+
+d=$(vacuity_fixture "" 'TEST_CASE_D32(2, a2, a3, 0, nop;)')
+probe "control: TEST_CASE_D32 with ordinary testregs still assembles" 0 \
+  "assembled" "vacuity_build $d && echo assembled"
+
+d=$(vacuity_fixture "" 'TEST_CASE_D32(2, x9, a3, 0, nop;)')
+probe "TEST_CASE_D32 refuses x9 as testreg1" 1 \
+  "TEST_CASE_D32: testreg1 cannot be x9" "vacuity_build $d"
+
+d=$(vacuity_fixture "" 'TEST_CASE_D32(2, s1, a3, 0, nop;)')
+probe "TEST_CASE_D32 refuses s1 as testreg1 too" 1 \
+  "TEST_CASE_D32: testreg1 cannot be s1" "vacuity_build $d"
+
+d=$(vacuity_fixture "" 'TEST_CASE_D32(2, x15, a3, 0, nop;)')
+probe "TEST_CASE_D32 refuses x15 as testreg1, the data pointer" 1 \
+  "TEST_CASE_D32: testreg1 cannot be x15" "vacuity_build $d"
+
+d=$(vacuity_fixture "" 'TEST_CASE_D32(2, a5, a3, 0, nop;)')
+probe "TEST_CASE_D32 refuses a5 (== x15) as testreg1 too" 1 \
+  "TEST_CASE_D32: testreg1 cannot be a5" "vacuity_build $d"
+
+d=$(vacuity_fixture "" 'TEST_CASE_D32(2, a2, x15, 0, nop;)')
+probe "TEST_CASE_D32 refuses x15 as testreg2, the data pointer" 1 \
+  "TEST_CASE_D32: testreg2 cannot be x15" "vacuity_build $d"
+
+d=$(vacuity_fixture "" 'TEST_CASE_D32(2, a2, a5, 0, nop;)')
+probe "TEST_CASE_D32 refuses a5 (== x15) as testreg2 too" 1 \
+  "TEST_CASE_D32: testreg2 cannot be a5" "vacuity_build $d"
+
+d=$(vacuity_fixture '#define RVC_TEST_CASE(n, r, v, code...) TEST_CASE (n, r, v, code)' \
+  'RVC_TEST_CASE(2, s1, 0, nop;)')
+probe "RVC_TEST_CASE inherits TEST_CASE's guard rather than bypassing it" 1 \
+  "TEST_CASE: testreg cannot be s1" "vacuity_build $d"
+
+begin_group "test/macro_register_test.sh"
+
+MRT="$HERE/macro_register_test.sh"
+
+mrt_fixture() {  # $1 = a line to append to test_macros.h, using x0-x15 only unless told otherwise
+  local d; d=$(new_case)
+  mkdir -p "$d/test/asm"
+  printf '#define TEST_CASE(n) li x9, n\n%s\n' "${1:-}" > "$d/test/asm/test_macros.h"
+  printf '#define TEST_AMO(n) li x9, n\n' > "$d/test/asm/riscv_test.h"
+  printf '%s' "$d"
+}
+
+d=$(mrt_fixture)
+probe "control: both headers naming only x0-x15 is green" 0 \
+  "name only x0-x15" "$MRT $d"
+
+probe "a repo root with neither header is red, not an empty pass" 1 \
+  "does not exist" "$MRT $d/nowhere"
+
+d=$(mrt_fixture '#define TEST_OLD(n) li x29, n')
+probe "upstream's own x29 scratch reappearing is named and located" 1 \
+  "test_macros.h:2:#define TEST_OLD(n) li x29, n" "$MRT $d"
+
+d=$(mrt_fixture '#define TEST_HI(n) li a7, n')
+probe "an ABI alias outside x0-x15 (a7 = x17) is caught the same way" 1 \
+  "test_macros.h:2:#define TEST_HI(n) li a7, n" "$MRT $d"
+
+d=$(mrt_fixture)
+mutate "$d/test/asm/riscv_test.h" 's/x9/t4/'
+probe "the second header is scanned too, not just test_macros.h" 1 \
+  "riscv_test.h:1:#define TEST_AMO(n) li t4, n" "$MRT $d"
+
+d=$(mrt_fixture); chmod 000 "$d/test/asm/riscv_test.h"
+probe "an unreadable header is refused, not read as an empty file" 1 \
+  "does not exist or is not readable" "$MRT $d"
+chmod 644 "$d/test/asm/riscv_test.h"
+
+mkdir -p "$tmp/bin-grep-error"
+cat > "$tmp/bin-grep-error/grep" <<'STUB'
+#!/bin/sh
+# Stands in for a grep that hit a real error (not "no match"): exit 2, the code POSIX
+# grep uses for a file it could not read or a pattern it could not compile.
+exit 2
+STUB
+chmod +x "$tmp/bin-grep-error/grep"
+
+d=$(mrt_fixture)
+probe "a grep exit of 2 or more is a real error, not \`|| true\`'s silent no-match" 1 \
+  "grep could not scan" \
+  "PATH='$tmp/bin-grep-error:$tmp/bin-none:/usr/bin:/bin' $MRT $d"
 
 begin_group "test/run_cosim.sh"
 
@@ -3063,6 +3347,51 @@ probe "board.lds putting .data back at ram's origin is red" 1 \
 d=$(layout_fixture); mutate "$d/test/board/board.lds" 's/LENGTH(ram) - 2048;/LENGTH(ram);/'
 probe "board.lds putting the stack back at the top of ram is red" 1 \
   "$LAYOUT_STACK_RED" "layout_link $d test/board/board.lds"
+
+begin_group "test/dhry_board_parity_test.sh"
+
+if ! command -v riscv64-elf-gcc > /dev/null 2>&1 && \
+   ! command -v riscv64-unknown-elf-gcc > /dev/null 2>&1; then
+  echo "error: no RISC-V cross compiler found, so test/dhry_board_parity_test.sh's" >&2
+  echo "own build cannot be forced red. Install one (make setup)." >&2
+  exit 1
+fi
+
+DP="$HERE/dhry_board_parity_test.sh"
+
+dp_fixture() {
+  local d; d=$(new_case)
+  copy_makefile_includes "$d"
+  mkdir -p "$d/test/bench"
+  cp "$REPO"/test/bench/dhry_1.c "$REPO"/test/bench/dhry_2.c \
+     "$REPO"/test/bench/dhry_port.c "$REPO"/test/bench/dhry.h \
+     "$REPO"/test/bench/dhry_port.h "$d/test/bench/"
+  printf '%s' "$d"
+}
+
+d=$(dp_fixture)
+probe "control: the shipping build stays byte-identical outside DHRY_UART" 0 \
+  "differs only through DHRY_BOARD_EXTRA_DEFINES" "$DP $d"
+
+d=$(dp_fixture)
+mutate "$d/Makefile" 's/^DHRY_BOARD_CFLAGS [?]= \$(DHRY_CFLAGS)$/DHRY_BOARD_CFLAGS ?= $(DHRY_CFLAGS) -DNOOP=1/'
+probe "DHRY_BOARD_CFLAGS drifting away from DHRY_CFLAGS is red" 1 \
+  "DHRY_BOARD_CFLAGS no longer matches DHRY_CFLAGS" "$DP $d"
+
+# A second flag riding in on DHRY_BOARD_EXTRA_DEFINES has nowhere to hide: neither
+# dhry_1.c nor dhry_2.c reads DHRY_UART, so an unrelated codegen change moves them too.
+d=$(dp_fixture)
+mutate "$d/Makefile" \
+  's/^DHRY_BOARD_EXTRA_DEFINES = -DDHRY_UART=\$(DHRY_UART_BASE)$/DHRY_BOARD_EXTRA_DEFINES = -DDHRY_UART=$(DHRY_UART_BASE) -O1/'
+probe "an extra flag riding in on DHRY_BOARD_EXTRA_DEFINES is red" 1 \
+  "dhry_1.o differs between the sim and board builds" "$DP $d"
+
+# Neutering the #ifdef so DHRY_UART no longer gates anything makes the two dhry_port.o
+# builds identical, which is the failure this check exists to catch.
+d=$(dp_fixture)
+mutate "$d/test/bench/dhry_port.c" 's/#ifdef DHRY_UART/#ifdef DHRY_UART_NEVER_DEFINED/g'
+probe "DHRY_UART no longer gating any code in dhry_port.c is red" 1 \
+  "dhry_port.o came out byte-identical" "$DP $d"
 
 begin_group "test/adr_numbering_test.sh"
 
@@ -6350,6 +6679,118 @@ probe "--require-news refuses on its own status, not on \"no news\"" 2 \
   "python3 $REPO/soc/compare/product_diff.py $d/before.json $d/after.json --require-news \
     --repo $d/repo --current 'dhrystone:cflags='"
 
+d=$(product_check_fixture)
+mutate -E "$d/repo/product.json" 's/"base": "[0-9a-f]{40}"/"base": "not-a-real-sha"/'
+probe "a base that is not a 40-character SHA is refused as malformed, not graded stale" 2 \
+  "is not a 40-character commit SHA" "$(product_check_run "$d" dhrystone '')"
+
+d=$(new_case)
+probe "product_write.py refuses a --base that is not a 40-character commit SHA" 1 \
+  "is not a 40-character commit SHA" \
+  "python3 $REPO/soc/compare/product_write.py $d/p.json dhrystone --measured \
+    --target-core littlecpu --base deadbeef \
+    --dirty no --date 2026-08-16T00:00:00Z --seeds default \
+    --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --clock-ns littlecpu=30.0 --clock-ns vexriscv=20.0 \
+    --cycle-factor littlecpu=0.7 --cycle-factor vexriscv=0.5"
+
+d=$(new_case)
+probe "a --field naming a key the schema already reserves is refused" 1 \
+  "already reserves for its own use" \
+  "python3 $REPO/soc/compare/product_write.py $d/p.json dhrystone --measured \
+    --target-core littlecpu --base aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+    --dirty no --date 2026-08-16T00:00:00Z --seeds default \
+    --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --field base=x \
+    --clock-ns littlecpu=30.0 --clock-ns vexriscv=20.0 \
+    --cycle-factor littlecpu=0.7 --cycle-factor vexriscv=0.5"
+
+d=$(new_case)
+probe "--field stamps an extra provenance field verbatim" 0 \
+  "\"ecp5_part\": \"LFE5U-25F-6CABGA381\"" \
+  "python3 $REPO/soc/compare/product_write.py $d/p.json dhrystone --measured \
+    --target-core littlecpu --base aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+    --dirty no --date 2026-08-16T00:00:00Z --seeds default \
+    --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --field ecp5_part=LFE5U-25F-6CABGA381 \
+    --clock-ns littlecpu=30.0 --clock-ns vexriscv=20.0 \
+    --cycle-factor littlecpu=0.7 --cycle-factor vexriscv=0.5 \
+    && cat $d/p.json"
+
+d=$(new_case)
+probe "--step-mhz replaces each core's own placed clock with one fixed step in its product" 0 \
+  "\"worst\": 2.0" \
+  "python3 $REPO/soc/compare/product_write.py $d/p.json dhrystone --measured \
+    --target-core littlecpu --base aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+    --dirty no --date 2026-08-16T00:00:00Z --seeds default \
+    --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --step-mhz 10 --clock-ns littlecpu=30.0,31.0 --clock-ns vexriscv=20.0,21.0 \
+    --cycle-factor littlecpu=1.0 --cycle-factor vexriscv=2.0 \
+    && cat $d/p.json"
+
+d=$(new_case)
+probe "--step-mhz refuses a core whose worst placement is under the step" 1 \
+  "a core under the step is out of the comparison" \
+  "python3 $REPO/soc/compare/product_write.py $d/p.json dhrystone --measured \
+    --target-core littlecpu --base aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+    --dirty no --date 2026-08-16T00:00:00Z --seeds default \
+    --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --step-mhz 12 --clock-ns littlecpu=80.0,90.0 --clock-ns vexriscv=20.0,21.0 \
+    --cycle-factor littlecpu=1.0 --cycle-factor vexriscv=2.0"
+
+# Unlike pd_fixture, after.json lives at the real soc/compare/product.json path, so
+# --require-news's own artifact exclusion (the same fix product_check.py already has)
+# is what is under test here, not the ordinary staleness question pd_fixture covers.
+pd_real_layout_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/repo/rtl" "$d/repo/soc/compare"
+  echo 'module decoder(); endmodule' > "$d/repo/rtl/decoder.v"
+  echo 'module dhry_tb(); endmodule' > "$d/repo/soc/compare/dhry_tb.v"
+  git -c init.defaultBranch=main -C "$d/repo" init -q
+  git -C "$d/repo" add -A
+  git -C "$d/repo" -c user.email=probe@example -c user.name=probe commit -qm base
+  local base; base=$(git -C "$d/repo" rev-parse HEAD)
+  python3 "$REPO/soc/compare/product_write.py" "$d/before.json" dhrystone --measured \
+    --target-core littlecpu --base "$base" \
+    --dirty no --date 2026-08-16T00:00:00Z --seeds default \
+    --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --clock-ns littlecpu=30.0 --clock-ns vexriscv=20.0 \
+    --cycle-factor littlecpu=0.7 --cycle-factor vexriscv=0.5 > /dev/null
+  cp "$d/before.json" "$d/repo/soc/compare/product.json"
+  git -C "$d/repo" add -A
+  git -C "$d/repo" -c user.email=probe@example -c user.name=probe commit -qm artifact
+  printf '%s' "$d"
+}
+
+d=$(pd_real_layout_fixture)
+printf '\n' >> "$d/repo/soc/compare/product.json"
+probe "--require-news's own artifact does not make itself the news" 1 \
+  "no news" \
+  "python3 $REPO/soc/compare/product_diff.py $d/before.json $d/repo/soc/compare/product.json \
+    --require-news --repo $d/repo --current 'dhrystone:cflags=-march=rv32ic -mabi=ilp32' \
+    --current 'dhrystone:rom_words=1024' --current 'dhrystone:ram_words=512'"
+
+d=$(pd_real_layout_fixture)
+printf '\n' >> "$d/repo/soc/compare/product.json"
+echo '/* touched */' >> "$d/repo/soc/compare/dhry_tb.v"
+probe "excluding --require-news's artifact does not blind it to a real soc/compare/ change" 0 \
+  "news" \
+  "python3 $REPO/soc/compare/product_diff.py $d/before.json $d/repo/soc/compare/product.json \
+    --require-news --repo $d/repo --current 'dhrystone:cflags=-march=rv32ic -mabi=ilp32' \
+    --current 'dhrystone:rom_words=1024' --current 'dhrystone:ram_words=512'"
+
+d=$(pd_fixture)
+mutate -E "$d/before.json" 's/"base": "[0-9a-f]{40}"/"base": "0123456789abcdef0123456789abcdef01234567"/'
+probe "an orphaned base recovers --require-news as news rather than refusing the run" 0 \
+  "news" \
+  "python3 $REPO/soc/compare/product_diff.py $d/before.json $d/after.json --require-news --repo $d/repo"
+
 begin_group "test/probe_gates.sh: mutate, mutate_remove and fixture_anchor"
 
 d=$(new_case)
@@ -7093,6 +7534,51 @@ probe "renaming the upstream-code step out of reach stops rather than passing" 1
 d=$(new_case); mkdir -p "$d/test"; cp "$REPO/test/pin_bump_token_test.py" "$d/test/"
 probe "a missing workflow file is an error, not an empty pass" 1 \
   "is missing" "cd '$d' && python3 test/pin_bump_token_test.py ."
+
+begin_group "test/compare_product_schedule_token_test.py"
+
+cpst_fixture() {  # $1 = sed program applied to the workflow
+  local d; d=$(new_case)
+  mkdir -p "$d/.github/workflows" "$d/test"
+  cp "$REPO/test/compare_product_schedule_token_test.py" "$d/test/"
+  sed "$1" "$REPO/.github/workflows/compare-product-schedule.yml" \
+    > "$d/.github/workflows/compare-product-schedule.yml"
+  printf '%s' "$d"
+}
+
+d=$(cpst_fixture '')
+probe "control: the shipping schedule workflow confines its credential to the publish step" 0 \
+  "confines its credential" \
+  "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
+
+d=$(cpst_fixture '/if: github.ref ==/d')
+probe "a job with no main-only guard is red, since workflow_dispatch can target any ref" 1 \
+  "workflow_dispatch against any ref" \
+  "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
+
+d=$(cpst_fixture '/persist-credentials: false/d')
+probe "a checkout that leaves the token in .git/config is red" 1 \
+  "persist-credentials: false" \
+  "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
+
+d=$(cpst_fixture 's|uses: ./.github/actions/verify-toolchain|uses: ./.github/actions/verify-toolchain\n        env:\n          GH_TOKEN: x|')
+probe "a token handed to a step other than the publish step is red" 1 \
+  "confine it to the one step" \
+  "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
+
+d=$(cpst_fixture '/GH_TOKEN: \${{ secrets.GITHUB_TOKEN }}/d')
+probe "the publish step with no GH_TOKEN at all is red" 1 \
+  "has no GH_TOKEN" \
+  "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
+
+d=$(cpst_fixture '/gh auth setup-git/d')
+probe "the publish step pushing with no gh auth setup-git is red" 1 \
+  "no credential once persist-credentials is false" \
+  "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
+
+d=$(new_case); mkdir -p "$d/test"; cp "$REPO/test/compare_product_schedule_token_test.py" "$d/test/"
+probe "a missing schedule workflow file is an error, not an empty pass" 1 \
+  "is missing" "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
 
 begin_group "formal/pin-bump-decide.sh"
 
