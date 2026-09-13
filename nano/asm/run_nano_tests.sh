@@ -1,12 +1,14 @@
 #!/bin/bash
-# Builds every program in nano/asm, runs it under nano's cxxrtl runner (nano-sim), and
-# grades the pass/fail table against nano/asm/EXPECTED_FAIL -- the same shape as
-# test/run_tests.sh, over nano's own march/mabi/linker rather than littlecpu's, since the
-# two cores share no register file width, bus, or crt0 to build against in common.
+# Builds every program in ASM_DIR, runs it under nano's cxxrtl runner (nano-sim), and
+# grades the pass/fail table against EXPECTED_FAIL. Two suites share this script: nano's
+# own six programs (the five required arguments) and the portable subset of littlecpu's
+# OWN suite (test/asm, with the linker script and cycle budget given explicitly). A
+# FLOOR line whose second field is EXCLUDED names a program never attempted here.
 set -euo pipefail
 
-if [ "$#" -ne 5 ]; then
-  echo "usage: run_nano_tests.sh <sim-binary> <asm-dir> <expected-fail-file> <floor-file> <cflags>" >&2
+if [ "$#" -lt 5 ] || [ "$#" -gt 7 ]; then
+  echo "usage: run_nano_tests.sh <sim-binary> <asm-dir> <expected-fail-file>" \
+       "<floor-file> <cflags> [lds-path] [cycles]" >&2
   exit 1
 fi
 
@@ -15,7 +17,8 @@ ASM_DIR=$2
 EXPECTED_FAIL=$3
 OBSERVED_FLOOR=$4
 CFLAGS=$5
-CYCLES=5000
+LDS=${6:-$ASM_DIR/nano.lds}
+CYCLES=${7:-5000}
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/../.." && pwd)
 
@@ -29,15 +32,25 @@ if [ ! -f "$OBSERVED_FLOOR" ] || [ ! -r "$OBSERVED_FLOOR" ]; then
   exit 1
 fi
 
+if [ ! -f "$LDS" ]; then
+  echo "error: linker script '$LDS' does not exist." >&2
+  exit 1
+fi
+
 if ! "$REPO/test/check_suite_shape.sh" "$ASM_DIR" "$OBSERVED_FLOOR"; then
   echo "error: nano's suite does not match its manifest; nothing was run." >&2
   exit 1
 fi
 
+# EXCLUDED is the one non-numeric status a second field may hold, reason free-form after it.
 floors=$(sed -e 's/#.*//' "$OBSERVED_FLOOR" | awk 'NF { $1=$1; print }')
-malformed_floor=$(printf '%s\n' "$floors" | awk 'NF && (NF != 2 || $2 !~ /^[0-9]+$/) { print }')
+malformed_floor=$(printf '%s\n' "$floors" | awk '
+  $2 == "EXCLUDED" { next }
+  NF != 2 || $2 !~ /^[0-9]+$/ { print }
+')
 if [ -n "$malformed_floor" ]; then
-  echo "error: $OBSERVED_FLOOR has lines that are not '<program> <retires>':" >&2
+  echo "error: $OBSERVED_FLOOR has lines that are not '<program> <retires>' or" \
+       "'<program> EXCLUDED <reason>':" >&2
   printf '  %s\n' "$malformed_floor" >&2
   exit 1
 fi
@@ -75,6 +88,7 @@ trap 'rm -rf "$tmp"' EXIT
 declare -a failures=()
 declare -a table=()
 passed=0
+excluded=0
 
 shopt -s nullglob
 programs=("$ASM_DIR"/*.S)
@@ -82,6 +96,13 @@ shopt -u nullglob
 
 for src in "${programs[@]}"; do
   name=$(basename "$src")
+  floor=$(printf '%s\n' "$floors" | awk -v n="$name" '$1 == n { print $2; found = 1 } END { exit !found }') || floor=""
+
+  if [ "$floor" = "EXCLUDED" ]; then
+    excluded=$((excluded + 1))
+    continue
+  fi
+
   base=${name%.*}
   elf="$tmp/$base.elf"
   build_log="$tmp/$base.build.log"
@@ -92,7 +113,7 @@ for src in "${programs[@]}"; do
   retires=""
   # shellcheck disable=SC2086
   if ! "$CC" $CFLAGS -nostdlib -I "$ASM_DIR" -I "$REPO/test/asm" \
-       -T "$ASM_DIR/nano.lds" "$src" -o "$elf" > "$build_log" 2>&1; then
+       -T "$LDS" "$src" -o "$elf" > "$build_log" 2>&1; then
     status="ASSEMBLE-ERROR"
   elif [ -s "$build_log" ]; then
     status="ASSEMBLE-WARNING"
@@ -132,7 +153,6 @@ for src in "${programs[@]}"; do
   fi
 
   if [ "$status" = "PASS" ]; then
-    floor=$(printf '%s\n' "$floors" | awk -v n="$name" '$1 == n { print $2; found = 1 } END { exit !found }') || floor=""
     if [ -z "$floor" ]; then
       status="NO-FLOOR"
     elif [ "$retires" -lt "$floor" ]; then
@@ -153,9 +173,15 @@ for src in "${programs[@]}"; do
   table+=("$(printf '%-16s %-22s retires=%s' "$name" "$status" "${retires:--}")")
 done
 
-printf '%s\n' "${table[@]}"
+if [ "${#table[@]}" -gt 0 ]; then
+  printf '%s\n' "${table[@]}"
+fi
 echo
-echo "$passed/${#table[@]} passed"
+if [ "$excluded" -gt 0 ]; then
+  echo "$passed/${#table[@]} passed ($excluded excluded)"
+else
+  echo "$passed/${#table[@]} passed"
+fi
 
 actual_sorted=$(printf '%s\n' "${failures[@]:-}" | awk 'NF { $1=$1; print }' | sort)
 expected_sorted=$(sed -e 's/#.*//' "$EXPECTED_FAIL" | awk 'NF { $1=$1; print }' | sort)

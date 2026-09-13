@@ -178,6 +178,7 @@ a file the manifest stopped naming is red before shasum ever runs
 a file with no row in the index is named as orphaned
 a file with two rows in the index is named
 a fixture that opens its body on the head line is still inspected
+a floor line that is neither a number nor EXCLUDED is named
 a floor line this loop cannot parse is a floor that is not enforced
 a formal harness that stops wiring rvfi at all is red
 a fourth core's ROM_WORDS with no Makefile entry to reach it is red
@@ -219,6 +220,7 @@ a line with no harness behind it is red too
 a linker script back on the old 4 KB ram is red
 a linker script linking past the harness ROM is red
 a linker script named by another soc/compare script is not orphaned
+a linker script override that does not exist is refused, not defaulted
 a linker script promising RAM the harness does not have is red
 a linker script that moves ram off the decoded base is red
 a linker script the Makefile does not link and nothing else names is red
@@ -354,6 +356,7 @@ a repo root that does not exist is red before anything is scanned
 a repo root that does not exist is red before anything is scanned
 a repo root that does not exist is red before anything is scanned
 a repo root that does not exist is red before anything is scanned
+a repo root with neither header is red, not an empty pass
 a repo root with no Makefile is red before anything is parsed
 a repo with no .github/workflows is red rather than a scan of nothing
 a report naming some other clock does not stand in for this one
@@ -474,8 +477,10 @@ a wire that does not carry its class's name is named
 a wire that names a funct7 without a funct3 is rejected, not parsed
 a wrong-rule mutant that still passes is not a control
 an #insn-check naming a file that does not exist is refused
+an ABI alias outside x0-x15 (a7 = x17) is caught the same way
 an ECP5 placement read with ice40 names names the part, not a bad log
 an ECP5 stamp carrying up5k's tools is missing its own
+an EXCLUDED program is skipped even when the stub would otherwise fail it
 an EXTRA architectural write the model never made is caught
 an SPI base off its own window is red
 an UNREADABLE baseline is refused, not read as an empty one
@@ -633,9 +638,12 @@ control: a well-formed report publishes the frequency
 control: agreeing paths outside the checkout are green
 control: all five shipping scripts link at the inset layout
 control: an ECP5 sweep summarises against its own instrument
+control: an EXCLUDED floor line is skipped rather than built
 control: an accounting that adds up prints the table
 control: an archive matching the vendored tree exactly is endorsed
 control: an exemption whose program exists is accepted
+control: an explicit cycle budget is accepted as the seventh argument
+control: an explicit linker script replaces ASM_DIR/nano.lds
 control: an ignored file that was never tracked is not a defect
 control: an opcode+funct3 predicate is accepted
 control: an opcode+funct3+funct7 predicate is accepted
@@ -649,6 +657,7 @@ control: both Zkt-isolation assertions fail, each at its own line
 control: both arms admit the shipping arbiter and fail on their mutation
 control: both arms admit the shipping arbiter and fail on their mutation
 control: both arms fail, each at its own line
+control: both headers naming only x0-x15 is green
 control: both sides failing the same test number still AGREE
 control: each subset is printed as a share of that number
 control: every allowed site is covered and nothing else carries the string
@@ -732,6 +741,7 @@ layer 2: the enclosed handle_error multiset is pinned, not merely counted
 layer 3: error 101 vanishing from the OUTPUT is caught after every rule
 margin above the step is reported as unspendable, not as speed
 more accesses near an edge than there were accesses is red
+more than seven arguments is a usage error too
 moved sources say so, naming both digests
 moving the declared string alone, with every site unchanged, is red
 mutate_remove on a path that was never there is fixture-stale, not silent
@@ -880,6 +890,7 @@ the same for the bypass counter, per program rather than in total
 the same path repeated on one line is not a second copy
 the sby script moving away takes the ill_e probe with it, loudly
 the sby script moving away takes the probe with it, loudly
+the second header is scanned too, not just test_macros.h
 the stale ISA name coming back in a formal harness comment is red
 the suite's shape is asserted before a single program is assembled
 the third core's ROM drifting behind the other two is red
@@ -910,6 +921,7 @@ two parts are refused rather than subtracted
 two rtl/*.v paths on one line is a second copy, and is red
 two toolchains are named, which is the disagreement that flipped a sign
 two walks disagreeing about what routing is refuse to print a histogram
+upstream's own x29 scratch reappearing is named and located
 usage: a missing argument is exit 2
 widening a declared mnemonic list without the baseline is red
 wrong argument count is a usage error

@@ -7,12 +7,15 @@
 
 #define MASK_XLEN(x) ((x) & ((1 << (__riscv_xlen - 1) << 1) - 1))
 
+// x9 holds the expected value at the final compare, in place of upstream's own scratch
+// register: no program in test/asm targets x9 as testreg, so nano's 16-register file
+// stays usable.
 #define TEST_CASE( testnum, testreg, correctval, code... ) \
 test_ ## testnum: \
     code; \
-    li  x29, MASK_XLEN(correctval); \
+    li  x9, MASK_XLEN(correctval); \
     li  TESTNUM, testnum; \
-    bne testreg, x29, fail;
+    bne testreg, x9, fail;
 
 #define TEST_INSERT_NOPS_0
 #define TEST_INSERT_NOPS_1  nop; TEST_INSERT_NOPS_0
@@ -210,8 +213,8 @@ test_ ## testnum: \
     inst x14, offset(x1); \
     TEST_INSERT_NOPS_ ## nop_cycles \
     addi  x6, x14, 0; \
-    li  x29, result; \
-    bne x6, x29, fail; \
+    li  x9, result; \
+    bne x6, x9, fail; \
     addi  x4, x4, 1; \
     li  x5, 2; \
     bne x4, x5, 1b; \
@@ -223,8 +226,8 @@ test_ ## testnum: \
 1:  la  x1, base; \
     TEST_INSERT_NOPS_ ## nop_cycles \
     inst x14, offset(x1); \
-    li  x29, result; \
-    bne x14, x29, fail; \
+    li  x9, result; \
+    bne x14, x9, fail; \
     addi  x4, x4, 1; \
     li  x5, 2; \
     bne x4, x5, 1b \
@@ -239,8 +242,8 @@ test_ ## testnum: \
     TEST_INSERT_NOPS_ ## src2_nops \
     store_inst x1, offset(x2); \
     load_inst x14, offset(x2); \
-    li  x29, result; \
-    bne x14, x29, fail; \
+    li  x9, result; \
+    bne x14, x9, fail; \
     addi  x4, x4, 1; \
     li  x5, 2; \
     bne x4, x5, 1b \
@@ -255,8 +258,8 @@ test_ ## testnum: \
     TEST_INSERT_NOPS_ ## src2_nops \
     store_inst x1, offset(x2); \
     load_inst x14, offset(x2); \
-    li  x29, result; \
-    bne x14, x29, fail; \
+    li  x9, result; \
+    bne x14, x9, fail; \
     addi  x4, x4, 1; \
     li  x5, 2; \
     bne x4, x5, 1b \
@@ -569,10 +572,10 @@ test_ ## testnum: \
 test_ ## testnum: \
     code; \
     la  x15, test_ ## testnum ## _data ; \
-    lw  x29, 0(x15); \
+    lw  x9, 0(x15); \
     lw  x15, 4(x15); \
     li  TESTNUM, testnum; \
-    bne testreg1, x29, fail;\
+    bne testreg1, x9, fail;\
     bne testreg2, x15, fail;\
     .pushsection .data; \
     .align 3; \

@@ -334,7 +334,8 @@ STUB
 
 # `leg-rt` / `leg-rc` are scratch copies of the two suite runners, because each resolves
 # its helper scripts relative to its own path.
-mkdir -p "$tmp/bin-none" "$tmp/bin-curl" "$tmp/leg-rt" "$tmp/leg-rc" "$tmp/leg-rc-nopy" "$tmp/leg-nano"
+mkdir -p "$tmp/bin-none" "$tmp/bin-curl" "$tmp/leg-rt" "$tmp/leg-rc" "$tmp/leg-rc-nopy" \
+         "$tmp/leg-nano"
 
 # For the one probe that claims "no cross compiler", `bin-none` has to be the WHOLE path:
 # with /usr/bin behind it, run_tests.sh finds a real riscv64-unknown-elf-gcc on any host
@@ -616,6 +617,76 @@ probe "control: nano's startup check is graded the same way, and it is green" 0 
 
 probe "a FAIL verdict from the underlying sim is red for nano's startup check too" 1 \
   "gp is not initialized" "STUB_SIM_EXIT=1 $(nano_startup_rt)"
+
+d=$(nano_rt_fixture); printf 'alu.S EXCLUDED needs a CSR\n' > "$d/FLOOR"
+probe "control: an EXCLUDED floor line is skipped rather than built" 0 \
+  "0/0 passed (1 excluded)" "$(nano_rt "$d")"
+
+d=$(nano_rt_fixture); printf 'alu.S EXCLUDED needs a CSR\n' > "$d/FLOOR"
+probe "an EXCLUDED program is skipped even when the stub would otherwise fail it" 0 \
+  "Failure list matches" "STUB_SIM_EXIT=4 $(nano_rt "$d")"
+
+d=$(nano_rt_fixture); printf 'alu.S maybe\n' > "$d/FLOOR"
+probe "a floor line that is neither a number nor EXCLUDED is named" 1 \
+  "<program> EXCLUDED <reason>" "$(nano_rt "$d")"
+
+nano_lds_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/asm"
+  : > "$d/asm/alu.S"
+  : > "$d/asm/custom.lds"
+  printf 'alu.S 10\n' > "$d/FLOOR"
+  : > "$d/BASELINE"
+  printf '%s' "$d"
+}
+
+d=$(nano_lds_fixture)
+probe "control: an explicit linker script replaces ASM_DIR/nano.lds" 0 \
+  "Failure list matches" \
+  "PATH='$tmp/bin:$tmp/bin-none:/usr/bin:/bin' $NANO_RT $tmp/nano-sim $d/asm $d/BASELINE $d/FLOOR 'x' $d/asm/custom.lds"
+
+probe "a linker script override that does not exist is refused, not defaulted" 1 \
+  "linker script" \
+  "PATH='$tmp/bin:$tmp/bin-none:/usr/bin:/bin' $NANO_RT $tmp/nano-sim $d/asm $d/BASELINE $d/FLOOR 'x' $d/asm/nope.lds"
+
+probe "control: an explicit cycle budget is accepted as the seventh argument" 0 \
+  "Failure list matches" \
+  "PATH='$tmp/bin:$tmp/bin-none:/usr/bin:/bin' $NANO_RT $tmp/nano-sim $d/asm $d/BASELINE $d/FLOOR 'x' $d/asm/custom.lds 20000"
+
+probe "more than seven arguments is a usage error too" 1 "usage:" \
+  "PATH='$tmp/bin:$tmp/bin-none:/usr/bin:/bin' $NANO_RT $tmp/nano-sim $d/asm $d/BASELINE $d/FLOOR x $d/asm/custom.lds 20000 extra"
+
+begin_group "test/macro_register_test.sh"
+
+MRT="$HERE/macro_register_test.sh"
+
+mrt_fixture() {  # $1 = a line to append to test_macros.h, using x0-x15 only unless told otherwise
+  local d; d=$(new_case)
+  mkdir -p "$d/test/asm"
+  printf '#define TEST_CASE(n) li x9, n\n%s\n' "${1:-}" > "$d/test/asm/test_macros.h"
+  printf '#define TEST_AMO(n) li x9, n\n' > "$d/test/asm/riscv_test.h"
+  printf '%s' "$d"
+}
+
+d=$(mrt_fixture)
+probe "control: both headers naming only x0-x15 is green" 0 \
+  "name only x0-x15" "$MRT $d"
+
+probe "a repo root with neither header is red, not an empty pass" 1 \
+  "does not exist" "$MRT $d/nowhere"
+
+d=$(mrt_fixture '#define TEST_OLD(n) li x29, n')
+probe "upstream's own x29 scratch reappearing is named and located" 1 \
+  "test_macros.h:2:#define TEST_OLD(n) li x29, n" "$MRT $d"
+
+d=$(mrt_fixture '#define TEST_HI(n) li a7, n')
+probe "an ABI alias outside x0-x15 (a7 = x17) is caught the same way" 1 \
+  "test_macros.h:2:#define TEST_HI(n) li a7, n" "$MRT $d"
+
+d=$(mrt_fixture)
+mutate "$d/test/asm/riscv_test.h" 's/x9/t4/'
+probe "the second header is scanned too, not just test_macros.h" 1 \
+  "riscv_test.h:1:#define TEST_AMO(n) li t4, n" "$MRT $d"
 
 begin_group "test/run_cosim.sh"
 
