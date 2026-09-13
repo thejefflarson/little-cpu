@@ -1,7 +1,7 @@
 name: Cross-core product re-take
 
-# Weekly, re-measures both cross-core throughput pairs soc/compare/ knows -- Dhrystone
-# against VexRiscv, and CoreMark against Hazard3 once `make compare-coremark` exists --
+# Weekly, re-measures every cross-core throughput pair soc/compare/ knows -- Dhrystone
+# against VexRiscv and CoreMark against VexRiscv and Hazard3, on both up5k and ECP5 --
 # and opens a pull request only when the OLD stamp would have called itself stale against
 # the tree this run checked out.
 on:
@@ -16,10 +16,13 @@ permissions:
 jobs:
   re-take:
     name: re-take
+    # workflow_dispatch can target any ref; this job pushes a branch and opens a PR,
+    # so it only ever measures and publishes from main.
+    if: github.ref == 'refs/heads/main'
     runs-on: little-cpu-runners
-    # Twenty-four placements (twelve seeds a side for the Dhrystone pair) is roughly half
-    # an hour; the CoreMark pair, once it exists, is another two sweeps on top of that.
-    timeout-minutes: 90
+    # 72 placements plus both benchmarks: ~60 min on a machine that runs `make ecp5-timing`
+    # 2.3x faster than this pool, so ~140 here. Never yet timed on the pool itself.
+    timeout-minutes: 300
     steps:
       - name: Record job start
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
@@ -27,6 +30,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Verify the toolchain is present in the runner image
         uses: ./.github/actions/verify-toolchain
@@ -62,14 +66,48 @@ jobs:
           # value outright, so build the CoreMark argument only when the build
           # actually has one, and say so either way rather than leaving the
           # field's presence to be inferred from the diff below.
+          DHRY_CFLAGS=$(make -s print-COMPARE_DHRY_CFLAGS)
+          ROM_WORDS=$(make -s print-COMPARE_ROM_WORDS)
+          RAM_WORDS=$(make -s print-COMPARE_RAM_WORDS)
           COREMARK_CFLAGS=$(make -s print-COMPARE_COREMARK_CFLAGS)
           if [ -n "$COREMARK_CFLAGS" ]; then
             echo "COMPARE_COREMARK_CFLAGS is defined; checking CoreMark's cflags for staleness."
-            coremark_current=(--current "coremark:cflags=$COREMARK_CFLAGS")
           else
             echo "COMPARE_COREMARK_CFLAGS is undefined on this tree; not checking CoreMark's cflags for staleness."
-            coremark_current=()
           fi
+
+          # Ask the freshly-written stamp which pairs actually exist, rather
+          # than hand-typing soc/compare/run_product.sh's dhrystone_ecp5/
+          # coremark_ecp5 naming convention a second time here -- a part this
+          # script does not know about still gets checked. Captured into a
+          # variable rather than read from a process substitution: `set -e`
+          # does not see a process substitution's exit status, so a broken
+          # python3 call there would silently iterate zero pairs instead of
+          # failing the step.
+          pairs=$(python3 -c "import json; print('\n'.join(sorted(json.load(open('soc/compare/product.json')).get('pairs', {}))))")
+          if [ -z "$pairs" ]; then
+            echo "*** soc/compare/product.json names no pairs; refusing to" >&2
+            echo "*** check none of them for staleness." >&2
+            exit 1
+          fi
+          current_args=()
+          while IFS= read -r pair; do
+            [ -n "$pair" ] || continue
+            case "$pair" in
+              dhrystone|dhrystone_*)
+                current_args+=(--current "$pair:cflags=$DHRY_CFLAGS" \
+                               --current "$pair:rom_words=$ROM_WORDS" \
+                               --current "$pair:ram_words=$RAM_WORDS") ;;
+              coremark|coremark_*)
+                [ -n "$COREMARK_CFLAGS" ] &&
+                  current_args+=(--current "$pair:cflags=$COREMARK_CFLAGS") ;;
+              *)
+                echo "*** soc/compare/product.json names a pair '$pair' this" >&2
+                echo "*** step does not recognise; refusing rather than" >&2
+                echo "*** silently not checking it for staleness." >&2
+                exit 1 ;;
+            esac
+          done <<< "$pairs"
 
           # --require-news asks soc/compare/product_check.py's own question of
           # the OLD stamp against the tree this run checked out -- rtl/,
@@ -86,10 +124,7 @@ jobs:
           set +e
           python3 soc/compare/product_diff.py /tmp/product.before.json \
                soc/compare/product.json --require-news --repo . \
-               --current "dhrystone:cflags=$(make -s print-COMPARE_DHRY_CFLAGS)" \
-               --current "dhrystone:rom_words=$(make -s print-COMPARE_ROM_WORDS)" \
-               --current "dhrystone:ram_words=$(make -s print-COMPARE_RAM_WORDS)" \
-               "${coremark_current[@]}"
+               "${current_args[@]}"
           rc=$?
           set -e
           case $rc in
@@ -117,6 +152,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          gh auth setup-git
           branch="compare-product/refresh-$(date -u +%Y%m%d)"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
