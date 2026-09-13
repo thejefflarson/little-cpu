@@ -119,6 +119,10 @@ soc/compare/product_write.py (empty) 1
 
 # The same pattern, for the CoreMark runner's own printed command line.
 soc/compare/run_coremark_compare.sh (empty) 1
+
+# nanocpu's own suite: RV32E, ilp32e, x0-x15 only, so this is not a widening of the
+# declared string above -- it is a second core with no ISA in common to share it with.
+nano/tb.mk rv32emc 1
 EXCEPTIONS
 }
 
