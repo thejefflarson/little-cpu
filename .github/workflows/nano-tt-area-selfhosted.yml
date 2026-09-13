@@ -1,0 +1,96 @@
+name: nano-tt-area-selfhosted
+
+on:
+  push:
+    branches:
+      - thejefflarson/jef-981-nanocpu-spike-the-tiny-tapeout-flow-get-one-hardened-number
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nano-tt-area-selfhosted-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TT_SUPPORT_TOOLS_REF: 01d5d2814fa9dd61e9d211e0b235a4a592a9316a
+  PDK_ROOT: /home/runner/pdk
+
+jobs:
+  harden:
+    name: harden (little-cpu-runners, no docker)
+    runs-on: little-cpu-runners
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Record job start
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - name: Resolve librelane-env's toolchain
+        run: |
+          librelane-env python3 -c \
+            "import librelane; print('librelane', librelane.__version__)"
+          for tool in openroad magic netgen klayout verilator; do
+            librelane-env "$tool" --version 2>&1 | head -1
+          done
+
+      - name: Checkout tt-support-tools
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: TinyTapeout/tt-support-tools
+          ref: ${{ env.TT_SUPPORT_TOOLS_REF }}
+          path: tt
+
+      - name: Restore the sky130 PDK
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.PDK_ROOT }}
+          key: nano-tt-area-sky130-pdk-librelane-3.0.5
+
+      - name: Harden with LibreLane, no Docker
+        run: |
+          librelane-env bash -c '
+            set -euo pipefail
+            python3 -m venv --system-site-packages .venv-tt
+            . .venv-tt/bin/activate
+            pip install -r tt/requirements.txt
+            python3 -c "import librelane; print(librelane.__version__)"
+            ./tt/tt_tool.py --create-user-config
+            if command -v /usr/bin/time >/dev/null 2>&1; then
+              /usr/bin/time -v ./tt/tt_tool.py --harden --no-docker 2> harden.time.log
+              cat harden.time.log
+            else
+              ./tt/tt_tool.py --harden --no-docker
+            fi
+          '
+
+      - name: Report peak memory and job wall time
+        if: always()
+        run: |
+          elapsed=$(( $(date +%s) - JOB_START ))
+          {
+            echo "### nano-tt-area harden (self-hosted)"
+            echo "wall time: ${elapsed}s"
+            if [ -r /sys/fs/cgroup/memory.peak ]; then
+              echo "cgroup memory.peak: $(cat /sys/fs/cgroup/memory.peak) bytes"
+            elif [ -r /sys/fs/cgroup/memory/memory.max_usage_in_bytes ]; then
+              echo "cgroup memory.max_usage_in_bytes: $(cat /sys/fs/cgroup/memory/memory.max_usage_in_bytes) bytes"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Collect the stats the local flow is compared against
+        if: always()
+        run: |
+          mkdir -p spike-stats
+          cp runs/wokwi/final/metrics.csv spike-stats/ 2>/dev/null || true
+          for d in runs/wokwi/*-yosys-synthesis; do
+            cp "$d/reports/stat.rpt" spike-stats/synthesis-stats.txt 2>/dev/null || true
+          done
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: nano-tt-area-selfhosted-stats
+          path: spike-stats/*
+          if-no-files-found: warn
