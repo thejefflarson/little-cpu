@@ -46,22 +46,8 @@ import sys
 RAW_EDIT_ALLOWLIST = []
 
 # Fixture functions (name containing "fixture") that type out an artifact's shape with a
-# literal heredoc, copy no real file, and carry no `fixture_anchor` -- so a rewritten
-# format would leave them grading nothing real, silently.
-FIXTURE_ANCHOR_ALLOWLIST = {
-    "cp_fixture": "test/cosim.py's own trace/dut-output shapes, invented for this suite",
-    "ts_fixture": "an icetime timing report, invented for soc/timing_split.py",
-    "ts_carry_fixture": "an icetime timing report with a carry-hop column",
-    "rb_fixture": "soc/routing_bins.py's routing report shape",
-    "cc_fixture": "a yosys cell census, invented for soc/cell_census.py",
-    "ecp5_fixture": "nextpnr-ecp5's report/config pair for soc/ecp5_report.py",
-    "sr_fixture": "test/stall_report.py's own per-program counts line",
-    "fr_fixture": "a fault-channel trace shape",
-    "dd_fixture": "soc/compare/dhry_dmips.py's run.log shape",
-    "dd_fixture3": "the three-core variant of dhry_dmips.py's run.log shape",
-    "dd_fixture_solo": "the solo-core variant of dhry_dmips.py's run.log shape",
-    "cd_fixture": "soc/compare/coremark_dmips.py's run.log shape",
-}
+# literal heredoc, copy no real file, and carry no `fixture_anchor`, grading nothing real.
+FIXTURE_ANCHOR_ALLOWLIST = {}
 
 # `{` need not be last on the line: a head that opens its body on the same line is a
 # definition too, and _find_function_end reads from the head itself, so the rest of that
