@@ -1,6 +1,3 @@
 # nano's baseline failure set, name-and-status pairs under set equality in both
-# directions -- the same rule test/EXPECTED_FAIL states for littlecpu. divide.S is a real,
-# reproducible defect in nano's non-ALTOPS divider (never checked by riscv-formal, which
-# runs under RISCV_FORMAL_ALTOPS, and never checked by anything else before this suite),
-# not a baselining of the harness's own limits.
-divide.S MONITOR-ERROR 105
+# directions -- the same rule test/EXPECTED_FAIL states for littlecpu. Empty: every
+# program in nano/asm passes.

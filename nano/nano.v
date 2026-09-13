@@ -281,6 +281,15 @@ module riscv (
   logic [63:0] mul_div_x;
   logic [63:0] mul_div_y;
 
+  // The shift-subtract loop below compares magnitudes, so a signed dividend or divisor
+  // is negated before it starts and the sign is restored on the way out; DIVU/REMU read
+  // their operand as its own magnitude already.
+  logic want_abs;
+  assign want_abs = is_div || is_rem;
+  logic [31:0] div_abs_rs1, div_abs_rs2;
+  assign div_abs_rs1 = want_abs && regs[rs1[3:0]][31] ? -regs[rs1[3:0]] : regs[rs1[3:0]];
+  assign div_abs_rs2 = want_abs && regs[rs2[3:0]][31] ? -regs[rs2[3:0]] : regs[rs2[3:0]];
+
   // state machine
   logic [3:0] cpu_state;
   logic skip_reg_write;
@@ -470,11 +479,13 @@ module riscv (
                   end
 
                   is_divide: begin
-                    mul_div_counter <= 65;
+                    // The divisor sits pre-shifted into bits [62:31], so it takes
+                    // exactly 32 steps of `mul_div_y >>= 1` to walk it back to bit 0.
+                    mul_div_counter <= 32;
                     cpu_state <= divide;
                     mul_div_store <= 0;
-                    mul_div_x <= {32'b0,regs[rs1[3:0]]};
-                    mul_div_y <= {1'b0,regs[rs2[3:0]],31'b0};
+                    mul_div_x <= {32'b0, div_abs_rs1};
+                    mul_div_y <= {1'b0, div_abs_rs2, 31'b0};
                   end
                 endcase
               end
@@ -564,7 +575,7 @@ module riscv (
         divide: begin
          `ifndef RISCV_FORMAL_ALTOPS
           if (mul_div_counter > 0) begin
-            if (mul_div_x <= mul_div_y) begin
+            if (mul_div_x >= mul_div_y) begin
               mul_div_store <= (mul_div_store << 1) | 1;
               mul_div_x <= mul_div_x - mul_div_y;
             end else begin
@@ -575,7 +586,12 @@ module riscv (
           end else begin
             (* parallel_case, full_case *)
             case(1'b1)
-              is_div: reg_wdata <= regs[rs1[3:0]][31] != regs[rs2[3:0]][31] ? -mul_div_store[31:0] : mul_div_store[31:0];
+              // A zero divisor drives every comparison above true regardless of the
+              // dividend, so the loop always leaves `mul_div_store` all-ones; gating the
+              // sign flip on rs2 being nonzero is what keeps that constant from being
+              // negated when rs1 is negative, rather than restating it in a second arm.
+              is_div: reg_wdata <= (regs[rs2[3:0]] != 32'b0 && regs[rs1[3:0]][31] != regs[rs2[3:0]][31]) ?
+                -mul_div_store[31:0] : mul_div_store[31:0];
               is_divu: reg_wdata <= mul_div_store[31:0];
               is_rem: reg_wdata <= regs[rs1[3:0]][31] ? -mul_div_x[31:0] : mul_div_x[31:0];
               is_remu: reg_wdata <= mul_div_x[31:0];
