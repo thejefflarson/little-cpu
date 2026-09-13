@@ -63,9 +63,7 @@ module rvfi_testbench (
 
   always_comb begin
     if (!reset && rvfi_valid && !rvfi_trap) begin
-      if (rvfi_insn[6:0] != 7'b1110011) begin
-        assert(spec_valid && !spec_trap);
-      end
+      assert(spec_valid && !spec_trap);
     end
   end
 
