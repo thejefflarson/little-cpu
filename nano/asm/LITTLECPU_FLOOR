@@ -5,6 +5,11 @@
 # cannot run at all -- it needs a CSR (Zicsr, Zifencei's fence.i included, since nano has
 # no CSR/traps layer), the A extension, the machine timer or the UART -- is EXCLUDED
 # rather than floored, and run_nano_tests.sh never attempts it.
+#
+# div.S/divu.S/rem.S/remu.S/hazard.S floor at littlecpu's own PASSING counts
+# (test/OBSERVED_FLOOR), not nano's: nano's divider is wrong today (nano/asm/
+# LITTLECPU_EXPECTED_FAIL), so its own passing counts cannot be measured until that
+# lands. Re-measure and lower these five once it does, and drop the baseline lines.
 add.S          429
 addi.S         206
 amo.S          EXCLUDED A extension
@@ -25,10 +30,10 @@ contend.S      113
 csr.S          EXCLUDED CSR
 csrset.S       EXCLUDED CSR
 datainit.c     EXCLUDED not an assembly program; this runner builds .S only
-div.S            4
-divu.S           4
+div.S           60
+divu.S          61
 fencenop.S     EXCLUDED Zifencei (fence.i)
-hazard.S        30
+hazard.S        48
 hpm.S          EXCLUDED CSR (performance-monitor)
 ifault.S       EXCLUDED CSR (trap handler)
 jal.S           19
@@ -51,8 +56,8 @@ mulhsu.S       423
 mulhu.S        423
 or.S           452
 ori.S          169
-rem.S            4
-remu.S           4
+rem.S           60
+remu.S          60
 rvc.S          184
 sb.S           394
 selfmod.S      EXCLUDED Zifencei (fence.i)

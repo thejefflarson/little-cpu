@@ -9,9 +9,12 @@
 
 // x9 holds the expected value at the final compare, in place of upstream's own scratch
 // register: no program in test/asm targets x9 as testreg, so nano's 16-register file
-// stays usable.
+// stays usable. The two .ifc guards below catch a testreg that undoes that by naming
+// x9 under either of its names -- else the compare below is bne against itself.
 #define TEST_CASE( testnum, testreg, correctval, code... ) \
 test_ ## testnum: \
+    .ifc testreg,x9; .error "TEST_CASE: testreg cannot be x9, the compare scratch"; .endif; \
+    .ifc testreg,s1; .error "TEST_CASE: testreg cannot be s1 (== x9), the compare scratch"; .endif; \
     code; \
     li  x9, MASK_XLEN(correctval); \
     li  TESTNUM, testnum; \
@@ -567,9 +570,17 @@ test_ ## testnum: \
   .double result; \
   .popsection
 
-// A 64-bit comparison on a 32-bit arch, done as two 32-bit halves.
+// A 64-bit comparison on a 32-bit arch, done as two 32-bit halves. testreg1 must avoid
+// x9/s1 (the lower-half compare scratch) AND x15/a5 (the address register that still
+// holds the upper half at compare time); testreg2 must avoid x15/a5 for the same reason.
 #define TEST_CASE_D32( testnum, testreg1, testreg2, correctval, code... ) \
 test_ ## testnum: \
+    .ifc testreg1,x9; .error "TEST_CASE_D32: testreg1 cannot be x9, the compare scratch"; .endif; \
+    .ifc testreg1,s1; .error "TEST_CASE_D32: testreg1 cannot be s1 (== x9), the compare scratch"; .endif; \
+    .ifc testreg1,x15; .error "TEST_CASE_D32: testreg1 cannot be x15, the data pointer"; .endif; \
+    .ifc testreg1,a5; .error "TEST_CASE_D32: testreg1 cannot be a5 (== x15), the data pointer"; .endif; \
+    .ifc testreg2,x15; .error "TEST_CASE_D32: testreg2 cannot be x15, the data pointer"; .endif; \
+    .ifc testreg2,a5; .error "TEST_CASE_D32: testreg2 cannot be a5 (== x15), the data pointer"; .endif; \
     code; \
     la  x15, test_ ## testnum ## _data ; \
     lw  x9, 0(x15); \

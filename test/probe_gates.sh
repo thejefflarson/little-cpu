@@ -619,12 +619,121 @@ probe "a FAIL verdict from the underlying sim is red for nano's startup check to
   "gp is not initialized" "STUB_SIM_EXIT=1 $(nano_startup_rt)"
 
 d=$(nano_rt_fixture); printf 'alu.S EXCLUDED needs a CSR\n' > "$d/FLOOR"
-probe "control: an EXCLUDED floor line is skipped rather than built" 0 \
-  "0/0 passed (1 excluded)" "$(nano_rt "$d")"
+probe "a single, fully-excluded manifest is red: a run that tests nothing is not a pass" 1 \
+  "attempted zero programs" "$(nano_rt "$d")"
 
-d=$(nano_rt_fixture); printf 'alu.S EXCLUDED needs a CSR\n' > "$d/FLOOR"
-probe "an EXCLUDED program is skipped even when the stub would otherwise fail it" 0 \
-  "Failure list matches" "STUB_SIM_EXIT=4 $(nano_rt "$d")"
+nano_all_excluded_fixture() {  # models nano/asm/OBSERVED_FLOOR's own shape: nano's six
+  local d; d=$(new_case)
+  mkdir -p "$d/asm"
+  for p in alu branch compressed; do : > "$d/asm/$p.S"; done
+  : > "$d/asm/nano.lds"
+  printf 'alu.S EXCLUDED reason\nbranch.S EXCLUDED reason\ncompressed.S EXCLUDED reason\n' \
+    > "$d/FLOOR"
+  : > "$d/BASELINE"
+  printf '%s' "$d"
+}
+
+d=$(nano_all_excluded_fixture)
+probe "control: every line of nano's own manifest marked EXCLUDED is red, not a quiet 0/0" 1 \
+  "attempted zero programs" "$(nano_rt "$d")"
+
+littlecpu_all_excluded_fixture() {  # models nano/asm/LITTLECPU_FLOOR's own shape: a
+                                     # littlecpu-subset manifest naming CSR/A programs
+  local d; d=$(new_case)
+  mkdir -p "$d/asm"
+  for p in amo csr zicsr; do : > "$d/asm/$p.S"; done
+  : > "$d/asm/nano.lds"
+  printf 'amo.S EXCLUDED A extension\ncsr.S EXCLUDED CSR\nzicsr.S EXCLUDED CSR\n' \
+    > "$d/FLOOR"
+  : > "$d/BASELINE"
+  printf '%s' "$d"
+}
+
+d=$(littlecpu_all_excluded_fixture)
+probe "control: every line of the littlecpu-subset manifest marked EXCLUDED is red too" 1 \
+  "attempted zero programs" "$(nano_rt "$d")"
+
+make_exclusion_toolchain_stubs() {  # $1 = bin dir; a *.S source whose name contains
+                                     # "bad" fails to assemble, everything else succeeds
+                                     # -- stands in for a real CSR/A/fence.i refusal
+  local bin=$1
+  mkdir -p "$bin"
+  cat > "$bin/riscv64-elf-gcc" <<'STUB'
+#!/bin/sh
+src=""; out=""; prev=""
+for a in "$@"; do
+  case "$a" in *.S) src=$a ;; esac
+  if [ "$prev" = "-o" ]; then out=$a; fi
+  prev=$a
+done
+case "$src" in *bad*) exit 1 ;; esac
+[ -n "$out" ] && echo stub-elf > "$out"
+exit 0
+STUB
+  cat > "$bin/riscv64-elf-objcopy" <<'STUB'
+#!/bin/sh
+for out; do :; done
+printf '@00000000\n13 00 00 00\n' > "$out"
+exit 0
+STUB
+  chmod +x "$bin/riscv64-elf-gcc" "$bin/riscv64-elf-objcopy"
+}
+make_exclusion_toolchain_stubs "$tmp/bin-exclusion"
+
+excl_two_fixture() {  # $1 = the excluded program's basename (real one plus this one)
+  local d; d=$(new_case)
+  mkdir -p "$d/asm"
+  : > "$d/asm/alu.S"
+  : > "$d/asm/$1.S"
+  : > "$d/asm/nano.lds"
+  printf 'alu.S 10\n%s.S EXCLUDED needs a CSR\n' "$1" > "$d/FLOOR"
+  : > "$d/BASELINE"
+  printf '%s' "$d"
+}
+
+d=$(excl_two_fixture bad)
+probe "control: an excluded program whose own build genuinely fails stays excluded" 0 \
+  "Failure list matches" \
+  "PATH='$tmp/bin-exclusion:$tmp/bin-none:/usr/bin:/bin' $NANO_RT $tmp/nano-sim $d/asm $d/BASELINE $d/FLOOR x"
+
+d=$(excl_two_fixture stale)
+probe "an excluded program that assembles and passes anyway is red, not silently trusted" 1 \
+  "stale.S" "$(nano_rt "$d")"
+
+d=$(nano_rt_fixture)
+probe "a retire count below the floor is graded BELOW-FLOOR, not silently PASS" 1 \
+  "alu.S BELOW-FLOOR retires" "STUB_SIM_RETIRES=1 $(nano_rt "$d")"
+
+d=$(nano_rt_fixture)
+probe "a run reporting no retire count at all is graded NO-COUNTS" 1 \
+  "alu.S NO-COUNTS" "STUB_SIM_NOCOUNTS=1 $(nano_rt "$d")"
+
+d=$(nano_rt_fixture)
+probe "a non-numeric retire count is graded NO-COUNTS, not compared as an integer" 1 \
+  "alu.S NO-COUNTS" "STUB_SIM_RETIRES=abc $(nano_rt "$d")"
+
+d=$(nano_rt_fixture); printf 'alu.S 123456789012\n' > "$d/FLOOR"
+probe "a floor longer than 10 digits is malformed, not a giant integer" 1 \
+  "are not '<program> <retires>'" "$(nano_rt "$d")"
+
+d=$(nano_rt_fixture); printf 'alu.S EXCLUDED\n' > "$d/FLOOR"
+probe "EXCLUDED owes a reason; a bare EXCLUDED with nothing after it is malformed" 1 \
+  "<program> EXCLUDED <reason>" "$(nano_rt "$d")"
+
+nano_nonS_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/asm"
+  : > "$d/asm/alu.S"
+  : > "$d/asm/nano.lds"
+  : > "$d/asm/data.c"
+  printf 'alu.S 10\ndata.c 5\n' > "$d/FLOOR"
+  : > "$d/BASELINE"
+  printf '%s' "$d"
+}
+
+d=$(nano_nonS_fixture)
+probe "a non-.S program cannot carry a real floor; this runner only globs .S" 1 \
+  "globs *.S" "$(nano_rt "$d")"
 
 d=$(nano_rt_fixture); printf 'alu.S maybe\n' > "$d/FLOOR"
 probe "a floor line that is neither a number nor EXCLUDED is named" 1 \
@@ -655,6 +764,91 @@ probe "control: an explicit cycle budget is accepted as the seventh argument" 0 
 
 probe "more than seven arguments is a usage error too" 1 "usage:" \
   "PATH='$tmp/bin:$tmp/bin-none:/usr/bin:/bin' $NANO_RT $tmp/nano-sim $d/asm $d/BASELINE $d/FLOOR x $d/asm/custom.lds 20000 extra"
+
+begin_group "test_macros.h's testreg vacuity guards"
+
+VACUITY_CC=""
+for vacuity_candidate in riscv64-elf-gcc riscv64-unknown-elf-gcc; do
+  if command -v "$vacuity_candidate" > /dev/null 2>&1; then
+    VACUITY_CC=$vacuity_candidate
+    break
+  fi
+done
+if [ -z "$VACUITY_CC" ]; then
+  echo "error: no RISC-V cross compiler found, so the testreg vacuity guards" >&2
+  echo "cannot be forced red. Install one (make setup)." >&2
+  exit 1
+fi
+
+vacuity_fixture() {  # $1 = top-level text (defines), $2 = code inside RVTEST_CODE_BEGIN
+  local d; d=$(new_case)
+  mkdir -p "$d/asm"
+  cp "$REPO/test/asm/test_macros.h" "$REPO/test/asm/riscv_test.h" "$d/asm/"
+  {
+    echo '#include "riscv_test.h"'
+    echo '#include "test_macros.h"'
+    printf '%s\n' "${1:-}"
+    echo 'RVTEST_RV64U'
+    echo 'RVTEST_CODE_BEGIN'
+    printf '%s\n' "$2"
+    echo 'RVTEST_CODE_END'
+    echo '  .data'
+    echo 'RVTEST_DATA_BEGIN'
+    echo 'RVTEST_DATA_END'
+  } > "$d/asm/vacuity.S"
+  printf '%s' "$d"
+}
+
+vacuity_build() {  # $1 = fixture dir -- assemble only: the guard fires at assembly
+                    # time, and a fixture this small links nothing worth chasing
+  "$VACUITY_CC" -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 \
+    -I "$1/asm" -c "$1/asm/vacuity.S" -o "$1/out.o"
+}
+
+d=$(vacuity_fixture "" 'TEST_CASE(2, a2, 0, nop;)')
+probe "control: TEST_CASE with an ordinary testreg still assembles" 0 \
+  "assembled" "vacuity_build $d && echo assembled"
+
+d=$(vacuity_fixture "" 'TEST_CASE(2, x9, 0, nop;)')
+probe "TEST_CASE refuses x9 as testreg, named at the assembler" 1 \
+  "TEST_CASE: testreg cannot be x9" "vacuity_build $d"
+
+d=$(vacuity_fixture "" 'TEST_CASE(2, s1, 0, nop;)')
+probe "TEST_CASE refuses s1 (== x9) as testreg too" 1 \
+  "TEST_CASE: testreg cannot be s1" "vacuity_build $d"
+
+d=$(vacuity_fixture "" 'TEST_CASE_D32(2, a2, a3, 0, nop;)')
+probe "control: TEST_CASE_D32 with ordinary testregs still assembles" 0 \
+  "assembled" "vacuity_build $d && echo assembled"
+
+d=$(vacuity_fixture "" 'TEST_CASE_D32(2, x9, a3, 0, nop;)')
+probe "TEST_CASE_D32 refuses x9 as testreg1" 1 \
+  "TEST_CASE_D32: testreg1 cannot be x9" "vacuity_build $d"
+
+d=$(vacuity_fixture "" 'TEST_CASE_D32(2, s1, a3, 0, nop;)')
+probe "TEST_CASE_D32 refuses s1 as testreg1 too" 1 \
+  "TEST_CASE_D32: testreg1 cannot be s1" "vacuity_build $d"
+
+d=$(vacuity_fixture "" 'TEST_CASE_D32(2, x15, a3, 0, nop;)')
+probe "TEST_CASE_D32 refuses x15 as testreg1, the data pointer" 1 \
+  "TEST_CASE_D32: testreg1 cannot be x15" "vacuity_build $d"
+
+d=$(vacuity_fixture "" 'TEST_CASE_D32(2, a5, a3, 0, nop;)')
+probe "TEST_CASE_D32 refuses a5 (== x15) as testreg1 too" 1 \
+  "TEST_CASE_D32: testreg1 cannot be a5" "vacuity_build $d"
+
+d=$(vacuity_fixture "" 'TEST_CASE_D32(2, a2, x15, 0, nop;)')
+probe "TEST_CASE_D32 refuses x15 as testreg2, the data pointer" 1 \
+  "TEST_CASE_D32: testreg2 cannot be x15" "vacuity_build $d"
+
+d=$(vacuity_fixture "" 'TEST_CASE_D32(2, a2, a5, 0, nop;)')
+probe "TEST_CASE_D32 refuses a5 (== x15) as testreg2 too" 1 \
+  "TEST_CASE_D32: testreg2 cannot be a5" "vacuity_build $d"
+
+d=$(vacuity_fixture '#define RVC_TEST_CASE(n, r, v, code...) TEST_CASE (n, r, v, code)' \
+  'RVC_TEST_CASE(2, s1, 0, nop;)')
+probe "RVC_TEST_CASE inherits TEST_CASE's guard rather than bypassing it" 1 \
+  "TEST_CASE: testreg cannot be s1" "vacuity_build $d"
 
 begin_group "test/macro_register_test.sh"
 
@@ -687,6 +881,25 @@ d=$(mrt_fixture)
 mutate "$d/test/asm/riscv_test.h" 's/x9/t4/'
 probe "the second header is scanned too, not just test_macros.h" 1 \
   "riscv_test.h:1:#define TEST_AMO(n) li t4, n" "$MRT $d"
+
+d=$(mrt_fixture); chmod 000 "$d/test/asm/riscv_test.h"
+probe "an unreadable header is refused, not read as an empty file" 1 \
+  "does not exist or is not readable" "$MRT $d"
+chmod 644 "$d/test/asm/riscv_test.h"
+
+mkdir -p "$tmp/bin-grep-error"
+cat > "$tmp/bin-grep-error/grep" <<'STUB'
+#!/bin/sh
+# Stands in for a grep that hit a real error (not "no match"): exit 2, the code POSIX
+# grep uses for a file it could not read or a pattern it could not compile.
+exit 2
+STUB
+chmod +x "$tmp/bin-grep-error/grep"
+
+d=$(mrt_fixture)
+probe "a grep exit of 2 or more is a real error, not \`|| true\`'s silent no-match" 1 \
+  "grep could not scan" \
+  "PATH='$tmp/bin-grep-error:$tmp/bin-none:/usr/bin:/bin' $MRT $d"
 
 begin_group "test/run_cosim.sh"
 
