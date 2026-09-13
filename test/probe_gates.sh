@@ -3090,7 +3090,7 @@ probe "control: the shipping build stays byte-identical outside DHRY_UART" 0 \
   "differs only through DHRY_BOARD_EXTRA_DEFINES" "$DP $d"
 
 d=$(dp_fixture)
-mutate "$d/Makefile" 's/^DHRY_BOARD_CFLAGS \?= \$(DHRY_CFLAGS)$/DHRY_BOARD_CFLAGS ?= $(DHRY_CFLAGS) -DNOOP=1/'
+mutate "$d/Makefile" 's/^DHRY_BOARD_CFLAGS [?]= \$(DHRY_CFLAGS)$/DHRY_BOARD_CFLAGS ?= $(DHRY_CFLAGS) -DNOOP=1/'
 probe "DHRY_BOARD_CFLAGS drifting away from DHRY_CFLAGS is red" 1 \
   "DHRY_BOARD_CFLAGS no longer matches DHRY_CFLAGS" "$DP $d"
 
