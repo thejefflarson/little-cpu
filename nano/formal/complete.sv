@@ -61,6 +61,8 @@ module rvfi_testbench (
     .spec_mem_wdata(spec_mem_wdata)
   );
 
+  // The pin has no SYSTEM spec model, so a SYSTEM retire that does not trap fails here. Excuse
+  // it as formal/complete.sv does, with a graded EXCLUDE line, never with a bare opcode test.
   always_comb begin
     if (!reset && rvfi_valid && !rvfi_trap) begin
       assert(spec_valid && !spec_trap);
