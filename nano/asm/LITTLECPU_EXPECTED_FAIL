@@ -1,3 +1,2 @@
-# nano's baseline failure set for littlecpu's portable subset, name-and-status pairs
-# under set equality in both directions -- the same rule test/EXPECTED_FAIL and
-# nano/asm/EXPECTED_FAIL state. Empty: every program in the portable subset passes.
+# nano's baseline failure set for littlecpu's portable subset -- name-and-status pairs
+# under the set-equality rule test/EXPECTED_FAIL uses. Empty: every program passes.

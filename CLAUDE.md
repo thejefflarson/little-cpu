@@ -682,10 +682,10 @@ make test           # the test/asm suite (.S and .c) under cxxrtl + unit benches
                     # retired-term, adr-numbering, port-connect, compare-geometry,
                     # vexriscv-path, tracked-ignored, tool-cache, pin-bump, abc-engine,
                     # zkt-isolation, fixture-freshness, makefile-target, lut4-site,
-                    # pll-clock, probes-header, dhry-board-parity)
+                    # pll-clock, probes-header, dhry-board-parity, macro-register)
                     # + window-test, imem-share-test, board-elaborate, mutation-probe,
-                    # dual-build, nano-test and nano-startup-test; graded against
-                    # EXPECTED_FAIL / OBSERVED_FLOOR
+                    # dual-build, nano-test, nano-startup-test and nano-littlecpu-test;
+                    # graded against EXPECTED_FAIL / OBSERVED_FLOOR
 make test-units     # the unit benches alone; the list is checked against test/*_tb.v both ways
 make elaborate-strict # yosys elaborates every simulation source through `check`; the
                     # required `elaborate` CI job
