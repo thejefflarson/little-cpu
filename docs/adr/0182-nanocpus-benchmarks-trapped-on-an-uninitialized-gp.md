@@ -91,3 +91,16 @@ later by chance, since the two benchmarks reach it by entirely different code pa
 `nano-startup-test` adds well under a second to `make test` (`nano-sim` is already built for
 `nano-test`). Once the divider is fixed, re-running both benchmarks is the next step; if a
 third blocker turns up, it gets the same treatment this one did.
+
+## Amendment · 2026-09-13 · both benchmarks reach a verdict
+
+With the divider fixed (ADR-0181) and `gp` initialised, both benchmarks run to completion on main at `519f28e`, each with two markers and the benchmark's own self-check reporting verdict 1:
+
+| Benchmark | Cycles | Per unit | Figure |
+| -- | -- | -- | -- |
+| Dhrystone, 200 runs | 505,295 | 2,526.5 cycles per run | **0.225 DMIPS/MHz** |
+| CoreMark, 5 iterations | 9,242,400 | 1,848,480 cycles per iteration | **0.541 CoreMark/MHz** |
+
+The stamp these figures carry: riscv64-elf-gcc 16.2.0 at `-march=rv32emc -mabi=ilp32e -O2 -std=c11 -ffreestanding -fno-tree-loop-distribute-patterns`, measured by `make nano-dhrystone` and `make nano-coremark` against `nano/tb/nano_memory.v`, a behavioural, zero-wait, 20,480-word (80 KB) flat memory.
+
+What they are not. They are not the Tiny Tapeout figure: on the chip code comes from QSPI flash, whose fetch latency the brief expects to dominate, and no QSPI front end exists yet. The CoreMark figure is not an official score, since five iterations in simulation is a verdict-checked measurement and an official run must last at least ten seconds. And neither is comparable to littlecpu's figures, which come from a different design with a different memory system.
