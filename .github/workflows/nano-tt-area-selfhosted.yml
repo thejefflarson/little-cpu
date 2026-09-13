@@ -1,6 +1,9 @@
 name: nano-tt-area-selfhosted
 
 on:
+  push:
+    branches:
+      - thejefflarson/jef-1019-measure-what-moves-nanocpus-area-in-the-tiny-tapeout-flow
   workflow_dispatch:
     inputs:
       synth_strategy:
