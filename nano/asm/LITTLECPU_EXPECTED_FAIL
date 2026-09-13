@@ -1,12 +1,3 @@
 # nano's baseline failure set for littlecpu's portable subset, name-and-status pairs
 # under set equality in both directions -- the same rule test/EXPECTED_FAIL and
-# nano/asm/EXPECTED_FAIL state. All five are nano's own real, reproducible divider
-# defect (every real division gives a wrong quotient, MONITOR-ERROR 105 -- mismatch in
-# rd_wdata): div.S and divu.S and rem.S and remu.S exercise it directly, and hazard.S
-# retires a div among its RAW-hazard cases. Not a baselining of the harness's own
-# limits.
-div.S MONITOR-ERROR 105
-divu.S MONITOR-ERROR 105
-rem.S MONITOR-ERROR 105
-remu.S MONITOR-ERROR 105
-hazard.S MONITOR-ERROR 105
+# nano/asm/EXPECTED_FAIL state. Empty: every program in the portable subset passes.
