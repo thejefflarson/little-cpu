@@ -533,6 +533,9 @@ probe "an unstartable runner is RUNNER-ERROR 127, never FAIL" 1 \
 probe "a PASS with no counts line is not a pass" 1 "NO-COUNTS" \
   "STUB_SIM_NOCOUNTS=1 $(rt "$d")"
 
+probe "a non-numeric retire count is NO-COUNTS, not a silent PASS" 1 "NO-COUNTS" \
+  "STUB_SIM_RETIRES=x STUB_SIM_SPEC=x $(rt "$d")"
+
 probe "a program that went quiet is BELOW-FLOOR on retires" 1 \
   "BELOW-FLOOR retires" "STUB_SIM_RETIRES=1 $(rt "$d")"
 

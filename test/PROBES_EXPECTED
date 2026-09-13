@@ -306,6 +306,7 @@ a non-finite --max-um2 is refused before the ratchet compares anything
 a non-finite area in the JSON is refused, not compared as if it were real
 a non-insn check keeps its engine and its skip
 a non-numeric floor is named rather than compared arithmetically
+a non-numeric retire count is NO-COUNTS, not a silent PASS
 a non-numeric retire count is graded NO-COUNTS, not compared as an integer
 a not-yet-measured pair is reported, not graded as stale
 a one-bit constant is a different digest
