@@ -1,8 +1,5 @@
-// Regression for nano/bench/start.S's own gp initialization. GCC's default linker
-// relaxation turns a `la` of a symbol within +-2KB of __global_pointer$ into a single
-// gp-relative addi, so every startup here must set gp before any such reference runs.
-// Left unset, gp reads this simulator's register-file reset value of zero, and a
-// gp-relative store lands near address 0 instead of wherever the symbol actually is.
+// start.S must set gp before any linker-relaxed gp-relative reference runs; left unset, gp
+// is the register file's reset zero and a gp-relative store lands near address 0.
 volatile int tohost __attribute__((section(".tohost"))) = 0;
 
 extern char __global_pointer$[];

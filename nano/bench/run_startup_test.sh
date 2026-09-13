@@ -1,8 +1,6 @@
 #!/bin/bash
-# Builds nano/bench/startup_test.c against nano/bench/start.S and grades it by tohost: a
-# fast, deterministic check that gp is set before any gp-relative reference runs, the
-# defect that once trapped both benchmarks mid-`.bss`-zero. Not a benchmark: a few hundred
-# cycles, PASS/FAIL, on `make test`'s path.
+# Grades nano/bench/start.S's gp initialisation by tohost: a few-hundred-cycle PASS/FAIL on
+# `make test`'s path, not a benchmark. An unset gp once trapped both benchmarks mid-.bss-zero.
 set -euo pipefail
 
 if [ "$#" -ne 2 ]; then

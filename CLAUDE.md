@@ -827,11 +827,14 @@ svlint (`SAIL_RISCV_VERSION`, `SVLINT_VERSION`), Hazard3 (`soc/compare/hazard3_p
 
 ## Engineering rules
 
-- **Compiler and elaboration warnings are errors.** Two allowlisted exceptions, both documented
-  where they are allowlisted: iverilog's `sorry: constant selects in always_* processes` for
+- **Compiler and elaboration warnings are errors.** Three allowlisted exceptions, each documented
+  where it is allowlisted: iverilog's `sorry: constant selects in always_* processes` for
   `rtl/writeback.v`'s `always_comb` struct reads (over-sensitivity, provably safe; do not add new
-  ones outside that file), and yosys's `Deep recursion in AST simplifier` notice on the
-  `elaborate` CI job.
+  ones outside that file); yosys's `Deep recursion in AST simplifier` notice on the
+  `elaborate` CI job; and `nano/tb/nano_exec_cxxrtl.cc`'s `#pragma GCC diagnostic ignored
+  "-Wunused-parameter"` around its `#include` of the generated cxxrtl code, whose `eval(performer *)`
+  takes that argument unconditionally with nothing on this wrapper's path ever calling `$display`
+  through it.
 - **No file may be more than 5% comment lines**, graded per file by
   `test/comment_density_test.py` on `make test`; `docs/comment-budget.md` is the derivation
   and says which comment-shaped lines are code. Prose that outgrows the budget moves to

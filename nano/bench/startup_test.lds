@@ -1,6 +1,5 @@
-/* gp's placement mirrors dhry.lds/coremark.lds: 0x800 into .data, so a real Dhrystone- or
-   CoreMark-shaped .bss reference lands in gp-relative range and exercises the same startup
-   path this checks in isolation. */
+/* gp sits 0x800 into .data, as in dhry.lds and coremark.lds, so a benchmark-shaped .bss
+   reference lands in gp-relative range and exercises the same startup path. */
 MEMORY {
     rom(rx)  : ORIGIN = 0x00000000, LENGTH = 8K
     ram(!rx) : ORIGIN = 0x00010000, LENGTH = 4K
