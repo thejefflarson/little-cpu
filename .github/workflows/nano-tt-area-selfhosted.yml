@@ -94,11 +94,22 @@ jobs:
         run: |
           librelane-env bash -c '
             set -euo pipefail
-            so=$(find /nix/store -maxdepth 3 -path "*-gcc-*-lib/lib/libstdc++.so.6" 2>/dev/null | head -1)
-            if [ -n "$so" ]; then export LD_LIBRARY_PATH="$(dirname "$so"):${LD_LIBRARY_PATH:-}"; fi
             python3 -m venv --system-site-packages .venv-tt
             . .venv-tt/bin/activate
             pip install -r tt/requirements.txt
+            ext=$(find .venv-tt -name "tlcore*.so" | head -1)
+            echo "=== ldd $ext ==="
+            ldd "$ext" || true
+            missing=$(ldd "$ext" 2>/dev/null | awk "/not found/{print \$1}")
+            echo "missing: $missing"
+            libdirs=""
+            for lib in $missing; do
+              found=$(find /nix/store -maxdepth 4 -name "$lib" 2>/dev/null | head -1)
+              echo "$lib -> $found"
+              if [ -n "$found" ]; then libdirs="$libdirs:$(dirname "$found")"; fi
+            done
+            echo "libdirs=$libdirs"
+            if [ -n "$libdirs" ]; then export LD_LIBRARY_PATH="${libdirs#:}:${LD_LIBRARY_PATH:-}"; fi
             python3 -c "import librelane; print(librelane.__version__)"
             ./tt/tt_tool.py --create-user-config
           '
