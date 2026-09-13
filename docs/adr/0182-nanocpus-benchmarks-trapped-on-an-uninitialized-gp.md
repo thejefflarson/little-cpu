@@ -1,4 +1,4 @@
-# ADR-0181: nanocpu's benchmarks trapped on an uninitialized `gp`, not a fetch bug
+# ADR-0182: nanocpu's benchmarks trapped on an uninitialized `gp`, not a fetch bug
 
 **Status:** Accepted · 2026-09-12
 
