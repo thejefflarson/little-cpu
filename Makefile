@@ -559,7 +559,7 @@ test: sim test-units probe-gates pin-bump-test pin-bump-token-test tool-cache-te
       band-source-test zkt-isolation-test fixture-freshness-test window-test imem-share-test \
       abc-engine-test makefile-target-test mutation-probe dual-build board-elaborate \
       tracked-ignored-test mutation-coverage-test comment-density-test lut4-site-test \
-      pll-clock-test ill-e-wiring-test probes-header-test nano-test
+      pll-clock-test ill-e-wiring-test probes-header-test nano-test nano-exec-test
 	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 .PHONY: cycles

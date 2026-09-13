@@ -19,6 +19,21 @@ nano-sim: nano/tb/nano_cxxrtl.cc nano/tb/nano_rtl.cc
 nano-test: nano-sim
 	@./nano/asm/run_nano_tests.sh ./nano-sim nano/asm nano/asm/EXPECTED_FAIL nano/asm/OBSERVED_FLOOR '$(NANO_CFLAGS)'
 
+nano/tb/nano_exec_rtl.cc: nano/nano.v nano/tb/nano_exec_tb.v
+	yosys -p 'read_verilog -sv $^; hierarchy -top nano_exec_tb; write_cxxrtl $@'
+
+nano-exec-sim: nano/tb/nano_exec_cxxrtl.cc nano/tb/nano_exec_rtl.cc
+	clang++ -O2 -DNDEBUG -std=c++17 -Wall -Wextra -Werror -Wno-unused-parameter \
+	  -isystem $$(yosys-config --datdir)/include/backends/cxxrtl/runtime $< -o $@
+
+.PHONY: nano-exec-probe
+nano-exec-probe:
+	@./nano/tb/nano_exec_probe.sh
+
+.PHONY: nano-exec-test
+nano-exec-test: nano-exec-probe nano-exec-sim
+	@./nano-exec-sim
+
 NANO_DHRY_RUNS   ?= 200
 NANO_DHRY_CYCLES ?= 4000000
 
