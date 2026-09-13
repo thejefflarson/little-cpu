@@ -3064,6 +3064,51 @@ d=$(layout_fixture); mutate "$d/test/board/board.lds" 's/LENGTH(ram) - 2048;/LEN
 probe "board.lds putting the stack back at the top of ram is red" 1 \
   "$LAYOUT_STACK_RED" "layout_link $d test/board/board.lds"
 
+begin_group "test/dhry_board_parity_test.sh"
+
+if ! command -v riscv64-elf-gcc > /dev/null 2>&1 && \
+   ! command -v riscv64-unknown-elf-gcc > /dev/null 2>&1; then
+  echo "error: no RISC-V cross compiler found, so test/dhry_board_parity_test.sh's" >&2
+  echo "own build cannot be forced red. Install one (make setup)." >&2
+  exit 1
+fi
+
+DP="$HERE/dhry_board_parity_test.sh"
+
+dp_fixture() {
+  local d; d=$(new_case)
+  copy_makefile_includes "$d"
+  mkdir -p "$d/test/bench"
+  cp "$REPO"/test/bench/dhry_1.c "$REPO"/test/bench/dhry_2.c \
+     "$REPO"/test/bench/dhry_port.c "$REPO"/test/bench/dhry.h \
+     "$REPO"/test/bench/dhry_port.h "$d/test/bench/"
+  printf '%s' "$d"
+}
+
+d=$(dp_fixture)
+probe "control: the shipping build stays byte-identical outside DHRY_UART" 0 \
+  "differs only through DHRY_BOARD_EXTRA_DEFINES" "$DP $d"
+
+d=$(dp_fixture)
+mutate "$d/Makefile" 's/^DHRY_BOARD_CFLAGS [?]= \$(DHRY_CFLAGS)$/DHRY_BOARD_CFLAGS ?= $(DHRY_CFLAGS) -DNOOP=1/'
+probe "DHRY_BOARD_CFLAGS drifting away from DHRY_CFLAGS is red" 1 \
+  "DHRY_BOARD_CFLAGS no longer matches DHRY_CFLAGS" "$DP $d"
+
+# A second flag riding in on DHRY_BOARD_EXTRA_DEFINES has nowhere to hide: neither
+# dhry_1.c nor dhry_2.c reads DHRY_UART, so an unrelated codegen change moves them too.
+d=$(dp_fixture)
+mutate "$d/Makefile" \
+  's/^DHRY_BOARD_EXTRA_DEFINES = -DDHRY_UART=\$(DHRY_UART_BASE)$/DHRY_BOARD_EXTRA_DEFINES = -DDHRY_UART=$(DHRY_UART_BASE) -O1/'
+probe "an extra flag riding in on DHRY_BOARD_EXTRA_DEFINES is red" 1 \
+  "dhry_1.o differs between the sim and board builds" "$DP $d"
+
+# Neutering the #ifdef so DHRY_UART no longer gates anything makes the two dhry_port.o
+# builds identical, which is the failure this check exists to catch.
+d=$(dp_fixture)
+mutate "$d/test/bench/dhry_port.c" 's/#ifdef DHRY_UART/#ifdef DHRY_UART_NEVER_DEFINED/g'
+probe "DHRY_UART no longer gating any code in dhry_port.c is red" 1 \
+  "dhry_port.o came out byte-identical" "$DP $d"
+
 begin_group "test/adr_numbering_test.sh"
 
 AN="$HERE/adr_numbering_test.sh"
