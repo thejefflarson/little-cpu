@@ -1,10 +1,6 @@
-# littlecpu's suite manifest (test/asm's file list) and, for the programs nano can run,
-# the retire floor -- graded both ways by test/check_suite_shape.sh against test/asm's
-# own file list, the same rule nano/asm/OBSERVED_FLOOR states for nano's own suite. A
-# floor is a minimum: a retire count may rise and stay green. A program nano's core
-# cannot run at all -- it needs a CSR (Zicsr, Zifencei's fence.i included, since nano has
-# no CSR/traps layer), the A extension, the machine timer or the UART -- is EXCLUDED
-# rather than floored, and run_nano_tests.sh never attempts it.
+# littlecpu's test/asm manifest for nano, graded both ways by test/check_suite_shape.sh: a
+# retire floor, or EXCLUDED and the reason nano cannot run it (CSR, A, fence.i, timer, UART).
+# run_nano_tests.sh still builds and runs each EXCLUDED .S program and fails one that passes.
 add.S          429
 addi.S         206
 amo.S          EXCLUDED A extension
