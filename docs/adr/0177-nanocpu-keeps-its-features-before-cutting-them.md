@@ -45,3 +45,7 @@ A 3×2 tile would hold every feature, at six tiles instead of four, about +€14
 ## Amendment · 2026-09-12
 
 The Context's "FazyRV-ExoTiny at 56,448 µm², 91% of the tile" conflates two measures: 91.0% is the utilisation its stats file reports against the flow's own denominator, while 56,448 is 77.8% of the 72,565 µm² core area. The table's "~66,200 µm², at ~91%" is area ÷ 72,565 and stands. ADR-0179 replaces the brief's 56k freeze line with 66,006 µm².
+
+## Amendment · 2026-09-13
+
+The 2×2 tile does not hold. Tiny Tapeout's own flow measures today's core at 81,879.78 µm² against the 2×2 die's 72,564.6, and the local-to-flow factor on this design is 1.256×, not the borrowed 0.915× this ADR's table used. ADR-0184 moves nanocpu to a 3×2 tile; the decision here, features before cuts, stands, and on the 3×2 no feature is cut.
