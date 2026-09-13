@@ -679,6 +679,17 @@ begin_group "test/cosim.py"
 # the real cosim.py.
 cp_fixture() {
   local d; d=$(new_case)
+  fixture_anchor "$REPO/test/cosim.py" \
+    'r"^\[(?P<idx>\d+)\]\s+\[\w+\]:\s+0x(?P<pc>[0-9A-Fa-f]+)\s+"'
+  fixture_anchor "$REPO/test/cosim.py" \
+    'r"\((?P<insn>0x[0-9A-Fa-f]+)\)\s+(?P<disasm>.*?)\s*$"'
+  fixture_anchor "$REPO/test/cosim.py" \
+    'GPR_RE = re.compile(r"^x(?P<reg>\d+)\s+<-\s+0x(?P<val>[0-9A-Fa-f]+)\s*$")'
+  fixture_anchor "$REPO/test/cosim.py" \
+    'r"^CS\s+(?P<idx>\d+)\s+(?P<cycle>\d+)\s+(?P<writes>(?:x\d+=[0-9a-f]{8}\s+)+)"'
+  fixture_anchor "$REPO/test/cosim.py" 'r"@pc=(?P<pc>[0-9a-f]{8})\s*$"'
+  fixture_anchor "$REPO/test/cosim.py" 'if line == "SUCCESS":'
+  fixture_anchor "$REPO/test/cosim.py" 'if line.startswith("CS END "):'
   cat > "$d/sail.trace" <<'TRACE'
 [1] [M]: 0x00000000 (0x00100093) addi x1, x0, 1
 x1 <- 0x00000001
@@ -1390,6 +1401,12 @@ TS="python3 $REPO/soc/timing_split.py"
 # 1.50 ns is 666.67 MHz, clear of every floor these probes use.
 ts_fixture() {
   local d; d=$(new_case)
+  fixture_anchor "$REPO/soc/timing_split.py" \
+    'HOP = re.compile(r"^\s+(\S+) \((\w+)\)([^:]*): ([0-9.]+) ns")'
+  fixture_anchor "$REPO/soc/timing_split.py" \
+    'TOTAL = re.compile(r"^Total path delay: ([0-9.]+) ns")'
+  fixture_anchor "$REPO/soc/timing_split.py" \
+    'LEVELS = re.compile(r"^Total number of logic levels: (\d+)")'
   cat > "$d/report.rpt" <<'RPT'
  lut1 (LogicCell40) LC: 1.00 ns
    1.00 ns netA (start_point)
@@ -1421,6 +1438,8 @@ probe "a hop sum that does not reconcile blames the script, not the design" 1 \
 
 ts_carry_fixture() {
   local d; d=$(new_case)
+  fixture_anchor "$REPO/soc/timing_split.py" 'CARRY_HOP = "carryin -> carryout"'
+  fixture_anchor "$REPO/soc/timing_split.py" 'CARRY_ROUTING = {"ICE_CARRY_IN_MUX"}'
   cat > "$d/report.rpt" <<'RPT'
  lut1 (LogicCell40) in0 -> lcout: 1.00 ns
    1.00 ns netA (start_point)
@@ -1974,6 +1993,19 @@ begin_group "soc/routing_bins.py"
 # the stamped sweep that names the report.
 rb_fixture() {
   local d; d=$(new_case)
+  fixture_anchor "$REPO/soc/routing_bins.py" 'EBR = "SB_RAM40_4K"'
+  fixture_anchor "$REPO/soc/routing_bins.py" 'PC = "riscv.pc"'
+  fixture_anchor "$REPO/soc/depth/path_stages.py" \
+    'for port, bits in cell["connections"].items():'
+  fixture_anchor "$REPO/soc/depth/path_stages.py" \
+    'for net_name, net in module["netnames"].items():'
+  fixture_anchor "$REPO/soc/depth/path_stages.py" 'bits_of[net_name] = net["bits"]'
+  fixture_anchor "$REPO/soc/timing_split.py" \
+    'HOP = re.compile(r"^\s+(\S+) \((\w+)\)([^:]*): ([0-9.]+) ns")'
+  fixture_anchor "$REPO/soc/timing_split.py" \
+    'TOTAL = re.compile(r"^Total path delay: ([0-9.]+) ns")'
+  fixture_anchor "$REPO/soc/timing_split.py" \
+    'LEVELS = re.compile(r"^Total number of logic levels: (\d+)")'
   mkdir -p "$d/sweep"
   cat > "$d/sweep/probe.default.timing.rpt" <<'RPT'
         ram0 (SB_RAM40_4K) [clk] -> RDATA[0]: 1.279 ns
@@ -2090,6 +2122,8 @@ CC="python3 $REPO/soc/cell_census.py"
 
 cc_fixture() {
   local d; d=$(new_case)
+  fixture_anchor "$REPO/soc/cell_census.py" \
+    'pattern = re.compile(r"^\s+(\d+)\s+" + re.escape(args.cell) + r"\s*$")'
   cat > "$d/soc.synth.log" <<'LOG'
      4   SB_MAC16
      2   SB_SPRAM256KA
@@ -2182,6 +2216,15 @@ ER_ARGS="--clock clk --part LFE5U-25F-6CABGA381 --constraint-mhz 200.0"
 # arithmetic a reader can check by eye.
 ecp5_fixture() {
   local d; d=$(new_case)
+  fixture_anchor "$REPO/soc/ecp5_report.py" 'if part not in head:'
+  fixture_anchor "$REPO/soc/ecp5_report.py" \
+    'named = [name for name in fmax if clock in name.split("$")]'
+  fixture_anchor "$REPO/soc/ecp5_report.py" 'utilisation = report.get("utilization")'
+  fixture_anchor "$REPO/soc/ecp5_report.py" 'p for p in report.get("critical_paths", [])'
+  fixture_anchor "$REPO/soc/ecp5_report.py" \
+    'if "achieved" not in entry or "constraint" not in entry:'
+  fixture_anchor "$REPO/soc/ecp5_report.py" 'kind = hop["type"]'
+  fixture_anchor "$REPO/soc/ecp5_report.py" 'delay = float(hop["delay"])'
   cat > "$d/ecp5.config" <<'CFG'
 .device LFE5U-25F
 
@@ -2487,6 +2530,18 @@ SR="python3 $REPO/test/stall_report.py"
 # which reason dominates and the total has to decide.
 sr_fixture() {
   local d; d=$(new_case)
+  fixture_anchor "$REPO/test/stall_report.py" \
+    'REASONS = ["divider", "atomic", "hazard", "serialize", "operand", "fetch", "bus",'
+  fixture_anchor "$REPO/test/stall_report.py" '"region"]'
+  fixture_anchor "$REPO/test/stall_report.py" \
+    'REQUIRED = (["cycles", "issue", "retires", "unattributed"] + REASONS +'
+  fixture_anchor "$REPO/test/stall_report.py" 'HAZARD_SPLIT = ["hzA", "hzB", "hzC"]'
+  fixture_anchor "$REPO/test/stall_report.py" 'HAZARD_CSR = "hzCcsr"'
+  fixture_anchor "$REPO/test/stall_report.py" 'LS_ISSUES = "lsissue"'
+  fixture_anchor "$REPO/test/stall_report.py" \
+    '"lsedge": "with rs1 within 2 KB of a mapped-region edge",'
+  fixture_anchor "$REPO/test/stall_report.py" \
+    '"lsbypass": "issuing on a write-through to rs1",'
   cat > "$d/counts" <<'COUNTS'
 add.S cycles=40 issue=10 divider=0 atomic=0 hazard=20 serialize=0 operand=10 fetch=0 bus=0 region=0 hzA=10 hzB=5 hzC=5 hzCcsr=0 unattributed=0 lsissue=4 lsedge=1 lsbypass=0 retires=10
 lw.S cycles=40 issue=10 divider=0 atomic=0 hazard=5 serialize=0 operand=25 fetch=0 bus=0 region=0 hzA=2 hzB=1 hzC=2 hzCcsr=0 unattributed=0 lsissue=6 lsedge=3 lsbypass=2 retires=10
@@ -3364,6 +3419,11 @@ FR="python3 $REPO/soc/fit_report.py"
 
 fr_fixture() {
   local d; d=$(new_case)
+  fixture_anchor "$REPO/soc/fit_report.py" 'UTIL_START = "Info: Device utilisation:"'
+  fixture_anchor "$REPO/soc/fit_report.py" \
+    'LC_LINE = re.compile(r"ICESTORM_LC:\s+(\d+)/\s*(\d+)\s+(\S+)")'
+  fixture_anchor "$REPO/soc/fit_report.py" \
+    'PLACEMENT_ERROR = re.compile(r"^ERROR: Unable to (place cell|find a placement location for cell)")'
   cat > "$d/fit.log" <<'LOG'
 Warning: No PCF file specified; IO pins will be placed automatically
 
@@ -3830,6 +3890,12 @@ DD="python3 $REPO/soc/compare/dhry_dmips.py"
 
 dd_fixture() {
   local d; d=$(new_case)
+  fixture_anchor "$REPO/soc/compare/dhry_dmips.py" \
+    'r"^DHRY core=(?P<core>\S+) marks=(?P<marks>\d+) cycles=(?P<cycles>\d+) "'
+  fixture_anchor "$REPO/soc/compare/dhry_dmips.py" \
+    'r"verdict=(?P<verdict>\d+) writes=(?P<writes>\d+)"'
+  fixture_anchor "$REPO/soc/compare/dhry_dmips.py" \
+    'RAMDIFF = re.compile(r"^DHRY ramdiff core=(?P<core>\S+) diff=(?P<diff>\d+) of=(?P<total>\d+) words")'
   cat > "$d/run.log" <<'LOG'
 DHRY ran 431000 cycles of a 2000000 cycle limit
 DHRY core=littlecpu marks=2 cycles=335229 verdict=1 writes=31474
@@ -3897,6 +3963,14 @@ probe "--cores naming no core at all is red before anything is parsed" 1 \
 
 dd_fixture3() {
   local d; d=$(new_case)
+  fixture_anchor "$REPO/soc/compare/dhry_dmips.py" \
+    'r"^DHRY core=(?P<core>\S+) marks=(?P<marks>\d+) cycles=(?P<cycles>\d+) "'
+  fixture_anchor "$REPO/soc/compare/dhry_dmips.py" \
+    'r"verdict=(?P<verdict>\d+) writes=(?P<writes>\d+)"'
+  fixture_anchor "$REPO/soc/compare/dhry_dmips.py" \
+    'RAMDIFF = re.compile(r"^DHRY ramdiff core=(?P<core>\S+) diff=(?P<diff>\d+) of=(?P<total>\d+) words")'
+  fixture_anchor "$REPO/soc/compare/dhry_dmips.py" \
+    'WAIT = re.compile(r"^DHRY core=(?P<core>\S+) wait_cycles=(?P<n>\d+)")'
   cat > "$d/run.log" <<'LOG'
 DHRY ran 431000 cycles of a 2000000 cycle limit
 DHRY core=littlecpu marks=2 cycles=412000 verdict=1 writes=38000
@@ -3931,6 +4005,10 @@ probe "a missing ramdiff for the SECOND core is red, not silently skipped" 1 \
 
 dd_fixture_solo() {
   local d; d=$(new_case)
+  fixture_anchor "$REPO/soc/compare/dhry_dmips.py" \
+    'r"^DHRY core=(?P<core>\S+) marks=(?P<marks>\d+) cycles=(?P<cycles>\d+) "'
+  fixture_anchor "$REPO/soc/compare/dhry_dmips.py" \
+    'r"verdict=(?P<verdict>\d+) writes=(?P<writes>\d+)"'
   cat > "$d/run.log" <<'LOG'
 DHRY ran 290427 cycles of a 2000000 cycle limit
 DHRY core=littlecpu marks=2 cycles=290427 verdict=1 writes=31474
@@ -4000,6 +4078,14 @@ CD="python3 $REPO/soc/compare/coremark_dmips.py"
 
 cd_fixture() {
   local d; d=$(new_case)
+  fixture_anchor "$REPO/soc/compare/coremark_dmips.py" \
+    'r"^COREMARK core=(?P<core>\S+) marks=(?P<marks>\d+) cycles=(?P<cycles>\d+) "'
+  fixture_anchor "$REPO/soc/compare/coremark_dmips.py" \
+    'r"verdict=(?P<verdict>\d+) writes=(?P<writes>\d+)"'
+  fixture_anchor "$REPO/soc/compare/coremark_dmips.py" \
+    'r"^COREMARK ramdiff core=(?P<core>\S+) diff=(?P<diff>\d+) of=(?P<total>\d+) words"'
+  fixture_anchor "$REPO/soc/compare/coremark_dmips.py" \
+    'WAIT = re.compile(r"^COREMARK core=(?P<core>\S+) wait_cycles=(?P<n>\d+)")'
   cat > "$d/run.log" <<'LOG'
 COREMARK ran 1300000 cycles of a 200000000 cycle limit
 COREMARK core=littlecpu marks=2 cycles=479420 verdict=1 writes=15701
@@ -6334,8 +6420,16 @@ probe "an allow-listed sed -i that no longer appears anywhere is red too" 1 \
   "RAW_EDIT_ALLOWLIST exempts 'bogus entry'" "$(ffr "$d")"
 
 d=$(ffr_fixture)
-mutate "$d/test/probe_gates.sh" \
-  's|cp_fixture() {|cp_fixture() {\n  fixture_anchor "$REPO/test/cosim.py" "#!/usr/bin/env python3"|'
+cat >> "$d/test/probe_gates.sh" <<'FIXTURE'
+stale_allowlist_fixture() {
+  fixture_anchor "$REPO/test/cosim.py" "#!/usr/bin/env python3"
+  cat > "$d/x" <<'TOK'
+foo
+TOK
+}
+FIXTURE
+mutate "$d/test/fixture_freshness_test.py" \
+  's/FIXTURE_ANCHOR_ALLOWLIST = {}/FIXTURE_ANCHOR_ALLOWLIST = {"stale_allowlist_fixture": "synthetic, for this probe"}/'
 probe "an allow-listed fixture that gained a real anchor is red until the entry is deleted" 1 \
   "is no longer an anchorless synthetic fixture" "$(ffr "$d")"
 
