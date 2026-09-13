@@ -267,6 +267,7 @@ a missing ramdiff for the SECOND core is red, not silently skipped
 a missing regenerate output is refused rather than committing nothing
 a missing riscv-formal clone is named, not blamed on the ISA string
 a missing schedule workflow file is an error, not an empty pass
+a missing schedule workflow file is an error, not an empty pass
 a missing stat.json is refused, not read as a zero-area design
 a missing workflow file is an error, not an empty pass
 a mistyped baseline path cannot compare nothing and pass
@@ -730,6 +731,7 @@ control: the shipping harnesses tie off, both directions
 control: the shipping index has one row per file and no number twice
 control: the shipping manifest rules on every rtl/*.v file
 control: the shipping pin-bump workflow keeps credentials off the upstream-code step
+control: the shipping publish step really reaches gh pr create
 control: the shipping schedule workflow confines its credential to the publish step
 control: the shipping tree keeps the retired term inside its allow-list
 control: the shipping tree names one ISA at every site
@@ -808,6 +810,7 @@ over budget names the count and the budget
 perl -pi is a raw edit like sed -i
 product_write.py refuses a --base that is not a 40-character commit SHA
 reg_rs1 laundered through out.rs1's own register is still red
+renaming the publish step out of reach stops rather than passing
 renaming the upstream-code step out of reach stops rather than passing
 retires that stopped being spec-checked is its own status
 rule 1 declares a site count, so a generator change cannot ship unapplied
@@ -892,6 +895,7 @@ the other direction for a .c: the glob has to see it too
 the other direction: a .S that landed without a manifest line
 the other direction: a program no pairing claims to catch anything
 the override prints the mismatch it was passed to get past
+the pre-fix git commit line -- '-m' and '-F' together -- is red for the reason it used to fail
 the program addressing RAM somewhere the harness has none is red
 the proof describes the part's text window, not the harness's
 the proof going red somewhere else is not evidence
