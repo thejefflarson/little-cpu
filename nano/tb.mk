@@ -19,6 +19,10 @@ nano-sim: nano/tb/nano_cxxrtl.cc nano/tb/nano_rtl.cc
 nano-test: nano-sim
 	@./nano/asm/run_nano_tests.sh ./nano-sim nano/asm nano/asm/EXPECTED_FAIL nano/asm/OBSERVED_FLOOR '$(NANO_CFLAGS)'
 
+.PHONY: nano-startup-test
+nano-startup-test: nano-sim
+	@./nano/bench/run_startup_test.sh ./nano-sim '$(NANO_CFLAGS)'
+
 .PHONY: nano-exec-probe
 nano-exec-probe:
 	@./nano/tb/nano_exec_probe.sh

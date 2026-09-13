@@ -674,8 +674,9 @@ make test           # the test/asm suite (.S and .c) under cxxrtl + unit benches
                     # vexriscv-path, tracked-ignored, tool-cache, pin-bump, abc-engine,
                     # zkt-isolation, fixture-freshness, makefile-target, lut4-site,
                     # pll-clock, probes-header)
-                    # + window-test, imem-share-test, board-elaborate, mutation-probe and
-                    # dual-build; graded against EXPECTED_FAIL / OBSERVED_FLOOR
+                    # + window-test, imem-share-test, board-elaborate, mutation-probe,
+                    # dual-build, nano-test and nano-startup-test; graded against
+                    # EXPECTED_FAIL / OBSERVED_FLOOR
 make test-units     # the unit benches alone; the list is checked against test/*_tb.v both ways
 make elaborate-strict # yosys elaborates every simulation source through `check`; the
                     # required `elaborate` CI job
@@ -801,6 +802,13 @@ make nano-area      # nanocpu's area, local `synth; dfflibmap; abc -liberty`, ne
                     # merged with the brief's own TT-flow/LibreLane number; ratchet
                     # on NANO_MAX_UM2. Not on `make test`'s path; no-ops until
                     # nano/nano.v lands
+make nano-test      # nano/asm's six hand-written x0-x15 programs under nano-sim, graded
+                    # against nano/asm/EXPECTED_FAIL / OBSERVED_FLOOR. On `make test`'s path
+make nano-startup-test # the shared nano/bench/start.S initializes gp before any
+                    # gp-relative reference runs; PASS/FAIL over tohost. On `make test`'s path
+make nano-dhrystone # Dhrystone on nanocpu under nano-sim --bench, core-only, zero-wait-state,
+                    # 80 KB flat memory (nano/tb/nano_memory.v). Not on `make test`'s path
+make nano-coremark  # CoreMark on nanocpu, same memory model and standing as nano-dhrystone
 ```
 
 `make sail-setup` and `make lint-setup` unpack into `~/.cache/little-cpu` (`XDG_CACHE_HOME` moves
