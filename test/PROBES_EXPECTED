@@ -20,6 +20,8 @@
 CONTROL_FIELDS emptied is red against the shipping decoder (finding 5)
 CoreMark data past the end of the simulated RAM is red, not silent
 CoreMark's own FAIL verdict stops the number being quoted
+DHRY_BOARD_CFLAGS drifting away from DHRY_CFLAGS is red
+DHRY_UART no longer gating any code in dhry_port.c is red
 JSON that is not a netlist is refused
 NO-STATUS is a broken harness and is not baselineable either
 PASS in a failure set is a comparison whose only branch is failure
@@ -507,6 +509,7 @@ an exception whose site stopped naming that ISA is red
 an exclusion with no reason written under it is rejected
 an executor_out.rd_data bit routed into a stall reason is red
 an exemption naming no program is red, not a program quietly excused
+an extra flag riding in on DHRY_BOARD_EXTRA_DEFINES is red
 an fmax entry that stopped carrying both halves is refused, not read
 an image objcopy wrote nothing into is red, not empty and accepted
 an image whose RAM outgrows the part's SPRAM does not fit either
@@ -671,6 +674,7 @@ control: the shipping Makefile defines no target twice
 control: the shipping Makefile owes nothing but themselves to the two targets
 control: the shipping PROBES_EXPECTED header is present and not in C order
 control: the shipping board agrees with its own PLL and constraint file
+control: the shipping build stays byte-identical outside DHRY_UART
 control: the shipping decoder reaches region_stall only, gated
 control: the shipping exclusion set matches its baseline both ways
 control: the shipping files describe one machine
