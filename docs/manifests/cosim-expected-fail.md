@@ -203,7 +203,7 @@ is `busy` in eight bytes at `0x0002_0020`, inside the region
 So on the model the store lands in ordinary memory and the status word reads
 back what was last written to it, which is zero. `DISAGREE AT 7` is the first
 read of `busy` after a write: the core's `lw` changes a0 from 0 to 1 and the
-model's does not, so the model's next change is the `li x29, 1` behind it and
+model's does not, so the model's next change is the `li x9, 1` behind it and
 the sequences part there. It was `DISAGREE AT 5` until the program installed a
 trap handler, whose `la t0` writes t0 twice ahead of everything else it does.
 

@@ -49,12 +49,14 @@ Usage:
 
 import argparse
 import json
+import re
 import statistics
 import sys
 from datetime import datetime, timezone
 
 SCHEMA = "compare-product v2"
 NOTE = "written by soc/compare/run_product.sh (make compare-product); do not hand-edit"
+BASE_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 
 def kv(spec, what):
     if "=" not in spec:
@@ -122,19 +124,40 @@ def measured_pair(args):
     cores = {core: {"clock_mhz": clocks[core], "cycle_factor": factors[core]}
              for core in clocks}
 
+    # Crediting a core the step must not depend on the caller having run step_gate.py.
+    if args.step_mhz is not None:
+        under = sorted(c for c in clocks if clocks[c]["worst_mhz"] < args.step_mhz)
+        if under:
+            sys.exit(f"error: --step-mhz {args.step_mhz:g} is above the worst placement "
+                     f"of {', '.join(under)}; a core under the step is out of the "
+                     "comparison, not credited the step")
+
     products = {}
     target = args.target_core
     for core in clocks:
         if core == target:
             continue
-        target_dmips = {
-            stat: factors[target] * clocks[target][f"{stat}_mhz"]
-            for stat in ("worst", "median")
-        }
-        other_dmips = {
-            stat: factors[core] * clocks[core][f"{stat}_mhz"]
-            for stat in ("worst", "median")
-        }
+        # up5k's clock is a step function: once every core in a pair clears it
+        # (the caller only reaches here because `make compare-timing`'s own
+        # step_gate.py already refused a placement that did not), the placed
+        # Fmax is unspendable margin, not a factor -- --step-mhz replaces it
+        # with the one clock every core actually runs at, so the product is
+        # cycles alone. ECP5 has no step and omits this, keeping the Fmax
+        # product CLAUDE.md's own rule reserves for that part.
+        if args.step_mhz is not None:
+            target_dmips = {stat: factors[target] * args.step_mhz
+                            for stat in ("worst", "median")}
+            other_dmips = {stat: factors[core] * args.step_mhz
+                          for stat in ("worst", "median")}
+        else:
+            target_dmips = {
+                stat: factors[target] * clocks[target][f"{stat}_mhz"]
+                for stat in ("worst", "median")
+            }
+            other_dmips = {
+                stat: factors[core] * clocks[core][f"{stat}_mhz"]
+                for stat in ("worst", "median")
+            }
         products[core] = {
             f"{target}_dmips": target_dmips,
             f"{core}_dmips": other_dmips,
@@ -160,8 +183,10 @@ def measured_pair(args):
             sys.exit(f"error: --measured wants --{field.replace('_', '-')}")
     if args.rom_words is None or args.ram_words is None:
         sys.exit("error: --measured wants --rom-words and --ram-words")
+    if not BASE_RE.fullmatch(args.base):
+        sys.exit(f"error: --base '{args.base}' is not a 40-character commit SHA")
 
-    return {
+    pair = {
         "status": "measured",
         "target_core": target,
         "unit": args.unit,
@@ -173,10 +198,18 @@ def measured_pair(args):
         "cflags": args.cflags,
         "rom_words": args.rom_words,
         "ram_words": args.ram_words,
+        "step_mhz": args.step_mhz,
         "tools": tools,
         "cores": cores,
         "products": products,
     }
+    for spec in args.field:
+        name, value = kv(spec, "--field")
+        if name in pair:
+            sys.exit(f"error: --field '{spec}' names '{name}', which this "
+                     "schema already reserves for its own use")
+        pair[name] = value
+    return pair
 
 def unmeasured_pair(args):
     if not args.reason:
@@ -214,6 +247,18 @@ def main():
     parser.add_argument("--rom-words", type=int)
     parser.add_argument("--ram-words", type=int)
     parser.add_argument("--unit", help="DMIPS/MHz or CoreMark/MHz")
+    parser.add_argument("--step-mhz", type=float, default=None, help=
+                        "up5k is a 12 MHz step function once step_gate has "
+                        "already passed every core in this pair; when given, "
+                        "every core's product uses this fixed clock instead "
+                        "of its own placed Fmax, which stays in clock_mhz as "
+                        "unspendable margin. ECP5 has no step and omits this.")
+    parser.add_argument("--field", action="append", default=[],
+                        metavar="NAME=VALUE", help="an extra provenance field "
+                        "stamped verbatim (e.g. ecp5_part=..., "
+                        "ecp5_target_mhz=...), checked later the same generic "
+                        "way --current checks cflags/rom_words/ram_words; "
+                        "repeatable")
     parser.add_argument("--tool", action="append", default=[], metavar="NAME=VALUE")
     parser.add_argument("--clock-ns", action="append", default=[],
                         metavar="CORE=ns1,ns2,...")

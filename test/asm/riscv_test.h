@@ -71,11 +71,11 @@ test_ ## testnum:                                                            \
         sw      x2, 0(x1);                                                  \
         li      x4, rs2val;                                                 \
         inst    x5, x4, (x1);                                               \
-        li      x29, oldval;                                                \
-        bne     x5, x29, fail;                                              \
+        li      x9, oldval;                                                 \
+        bne     x5, x9, fail;                                               \
         lw      x6, 0(x1);                                                  \
-        li      x29, newval;                                                \
-        bne     x6, x29, fail;
+        li      x9, newval;                                                 \
+        bne     x6, x9, fail;
 
 // Invoke after RVTEST_DATA_BEGIN so it lands in RAM, the only memory a load can reach on
 // this Harvard core.

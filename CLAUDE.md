@@ -529,8 +529,10 @@ third time) — the two-port top's fetch and load/store ports removing the arbit
 top needed, not merely avoiding route 3's own measured cost of trying to remove it in place.
 **All three cores quantise to the same 12 MHz step** (`SB_HFOSC` gives 48/24/12/6, and
 none of the three clears 24), so the up5k product is the cycle ratio directly at one shared clock:
-littlecpu 9.40 DMIPS/27.70 CoreMark, VexRiscv 10.75 DMIPS/28.10 CoreMark, Hazard3 10.80 DMIPS/18.04
-CoreMark — **Hazard3 and VexRiscv read level on Dhrystone (1.15×/1.14× over littlecpu), and
+littlecpu **9.39** DMIPS/27.70 CoreMark, VexRiscv 10.75 DMIPS/28.10 CoreMark, Hazard3 10.80 DMIPS/**18.03**
+CoreMark (the two corrected figures are a rounding fix, not a re-measurement: multiplying full-precision
+`cycle_factor` by 12 and rounding once, rather than rounding an intermediate first, ADR-0183) —
+**Hazard3 and VexRiscv read level on Dhrystone (1.15×/1.14× over littlecpu), and
 littlecpu keeps its CoreMark lead over Hazard3 (1.54×) on the same real M-extension-and-forwarding
 margin the wait-state artifact was never responsible for.** ECP5 has no quantisation step, so its own
 product uses each core's own clock there — **read at the WORST of twelve paired placements, never at
@@ -539,10 +541,13 @@ Hazard3 48.88 / 50.39 (7.46%). **Every Hazard3 ECP5 clock reading carries a stan
 this same RTL, byte-checksummed, read 33.26 MHz in an earlier session and 48.50 in a later one
 before the two-port adapter, and nextpnr-ecp5 — the one tool this repo does not pin — is the
 likely, unconfirmed explanation; the sweep quotes 48.88/50.39 as measured and inherits that flag
-rather than resolving it. Dhrystone at each core's worst: littlecpu 25.06 DMIPS, VexRiscv 47.41
+rather than resolving it. Dhrystone at each core's worst: littlecpu 25.06 DMIPS, VexRiscv **47.42**
 (**1.89× littlecpu**), Hazard3 43.99 (**1.76×**) — closer to VexRiscv than to littlecpu, the
-opposite ordering from up5k's quantised tie. CoreMark: littlecpu 73.88, VexRiscv 123.92 (1.68×),
-Hazard3 73.46 (**littlecpu 1.01×, essentially level** — Hazard3's higher ECP5 clock nearly cancels
+opposite ordering from up5k's quantised tie; **Hazard3's Dhrystone row is not stamped by
+`soc/compare/run_product.sh`**, whose "dhrystone"/"dhrystone_ecp5" pairs carry only littlecpu and
+VexRiscv, so this figure stays sourced from the sweep this paragraph already cites (ADR-0146,
+ADR-0160), not from `soc/compare/product.json`. CoreMark: littlecpu **73.89**, VexRiscv **123.91**
+(1.68×), Hazard3 **73.45** (**littlecpu 1.01×, essentially level** — Hazard3's higher ECP5 clock nearly cancels
 the cycle disadvantage that up5k's shared step cannot). **The figures this row carried until now were
 single placements, and one was a best-of-twelve**: VexRiscv's 57.64 MHz is exactly the best of the
 sweep that replaced it, its worst is 52.91, −8.2%, and reading the worst moves its published
@@ -556,8 +561,12 @@ Dhrystone's image (1,332 bytes of text, 10,592 of RAM) FITS it, so nothing in th
 by memory size; CoreMark's 10,768 bytes of text do not, so its cycles are still simulated at a
 larger map than the clock is placed at. `make compare-dhrystone` and `make compare-coremark` print
 the block arithmetic and say which, every run; ADR-0098 lists the distortions.
-`soc/compare/product.json` is not re-stamped by this pass and is already stale on its own check
-against this tree; re-taking that stamp is a separate ticket's. Two graded checks stand in front of
+`soc/compare/run_product.sh` now sweeps both parts and gives CoreMark's pair a second column,
+VexRiscv's, alongside Hazard3's (ADR-0183); `soc/compare/product.json` itself is **not** re-stamped
+by that change, because its `base` is a commit on the PR branch that added the sweep, and this repo
+squash-merges and deletes branches, so no checkout could resolve that commit once merged. The
+weekly `.github/workflows/compare-product-schedule.yml` re-take, dispatched on `main` after this
+lands, takes the real stamp from there instead and opens the PR that carries it. Two graded checks stand in front of
 every number: `soc/compare/placed_vs_synth.py` refuses a placed
 count under `COMPARE_MIN_RATIO` of the core's own synthesis — an all-NOP image once placed a
 quarter of this core with a plausible critical path beside it (ADR-0086) — and `make compare-smoke`
@@ -673,10 +682,10 @@ make test           # the test/asm suite (.S and .c) under cxxrtl + unit benches
                     # retired-term, adr-numbering, port-connect, compare-geometry,
                     # vexriscv-path, tracked-ignored, tool-cache, pin-bump, abc-engine,
                     # zkt-isolation, fixture-freshness, makefile-target, lut4-site,
-                    # pll-clock, probes-header)
+                    # pll-clock, probes-header, dhry-board-parity, macro-register)
                     # + window-test, imem-share-test, board-elaborate, mutation-probe,
-                    # dual-build, nano-test and nano-startup-test; graded against
-                    # EXPECTED_FAIL / OBSERVED_FLOOR
+                    # dual-build, nano-test, nano-startup-test and nano-littlecpu-test;
+                    # graded against EXPECTED_FAIL / OBSERVED_FLOOR
 make test-units     # the unit benches alone; the list is checked against test/*_tb.v both ways
 make elaborate-strict # yosys elaborates every simulation source through `check`; the
                     # required `elaborate` CI job
@@ -896,6 +905,10 @@ together or the board's only output is garbage**; the frequency is stated in fou
 unchanged 0.775 DMIPS/MHz, and **no board has run it**. Sharing
 `DHRY_CFLAGS` does not make a board figure and a simulated one comparable: `dhrystone-rom` also
 defines `DHRY_UART` and `make dhrystone` does not, which moves `.text` and costs a cycle a run.
+`DHRY_BOARD_EXTRA_DEFINES` names that one difference in one place, and
+`test/dhry_board_parity_test.sh` compiles both builds' translation units and requires the two files
+`DHRY_UART` never touches to come out byte-identical, so a second, undocumented divergence is
+caught rather than described after the fact.
 Getting there needed the data RAM's out-of-range arm off the block RAM's reset, and that board is
 programmed by loading SRAM over JTAG — a flash write leaves the part unconfigured until it is
 power-cycled. SPRAM cannot be initialised, so `.data` rides in

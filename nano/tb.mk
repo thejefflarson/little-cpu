@@ -31,6 +31,11 @@ nano-exec-probe:
 nano-exec-test: nano-exec-probe
 	@./nano/tb/nano_exec_run.sh nano/nano.v
 
+.PHONY: nano-littlecpu-test
+nano-littlecpu-test: nano-sim
+	@./nano/asm/run_nano_tests.sh ./nano-sim test/asm nano/asm/LITTLECPU_EXPECTED_FAIL \
+	  nano/asm/LITTLECPU_FLOOR '$(NANO_CFLAGS)' nano/asm/nano.lds 10000
+
 NANO_DHRY_RUNS   ?= 200
 NANO_DHRY_CYCLES ?= 4000000
 
