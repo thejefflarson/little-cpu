@@ -143,24 +143,20 @@ int main(int argc, char **argv) {
   if (!load_image(items, "mem mem", ram_image))
     return 3;
 
-  const cxxrtl::debug_item *monitor_errcode = nullptr;
-  try {
-    monitor_errcode = &items.at("monitor errcode").at(0);
-  } catch (const std::out_of_range &) {
-    std::fprintf(stderr,
-                  "error: RVFI monitor ('monitor errcode') not found -- was "
-                  "nano_rtl.cc built without -D RISCV_FORMAL?\n");
+  auto must_find = [&](const char *name, const char *hint) -> const cxxrtl::debug_item * {
+    try {
+      return &items.at(name).at(0);
+    } catch (const std::out_of_range &) {
+      std::fprintf(stderr, "error: '%s' not found -- %s\n", name, hint);
+      return nullptr;
+    }
+  };
+  const cxxrtl::debug_item *monitor_errcode =
+      must_find("monitor errcode", "was nano_rtl.cc built without -D RISCV_FORMAL?");
+  const cxxrtl::debug_item *retires =
+      must_find("rvfi_retires", "did nano_testbench.v lose the (* keep *) on it?");
+  if (!monitor_errcode || !retires)
     return 3;
-  }
-  const cxxrtl::debug_item *retires = nullptr;
-  try {
-    retires = &items.at("rvfi_retires").at(0);
-  } catch (const std::out_of_range &) {
-    std::fprintf(stderr,
-                  "error: the monitor retire counter ('rvfi_retires') was not "
-                  "found -- did nano_testbench.v lose the (* keep *) on it?\n");
-    return 3;
-  }
   const cxxrtl::debug_item &trap_latched = items.at("trap_latched").at(0);
   const cxxrtl::debug_item &bench_marks = items.at("bench_marks").at(0);
   const cxxrtl::debug_item &bench_begin = items.at("bench_begin_cycle").at(0);

@@ -602,6 +602,10 @@ probe "control: nano's real divider defect is a baselined green, not a hidden on
 probe "an unexpected PASS is red for nano's suite too" 1 \
   "does NOT match" "$(nano_rt "$d")"
 
+d=$(nano_rt_fixture); printf 'alu.S\n' > "$d/BASELINE"
+probe "nano's baseline is checked for a one-field line too" 1 \
+  "entries with no status" "$(nano_rt "$d")"
+
 begin_group "test/run_cosim.sh"
 
 rc_fixture() {

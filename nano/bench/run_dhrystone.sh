@@ -39,7 +39,7 @@ trap 'rm -rf "$tmp"' EXIT
 
 objects=()
 # shellcheck disable=SC2086
-for unit in "$REPO/test/bench/dhry_1.c" "$REPO/test/bench/dhry_2.c" "$HERE/dhry_port.c"; do
+for unit in "$REPO/test/bench/dhry_1.c" "$REPO/test/bench/dhry_2.c" "$REPO/soc/compare/dhry_port.c"; do
   out="$tmp/$(basename "${unit%.c}").o"
   $CC $CFLAGS -I "$REPO/test/bench" -DDHRY_RUNS="$RUNS" -DDHRY_FLAGS="\"$CFLAGS\"" \
     -c "$unit" -o "$out"

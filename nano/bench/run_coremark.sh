@@ -44,7 +44,7 @@ trap 'rm -rf "$tmp"' EXIT
 objects=()
 for unit in "$VENDOR_DIR/core_list_join.c" "$VENDOR_DIR/core_main.c" \
             "$VENDOR_DIR/core_matrix.c" "$VENDOR_DIR/core_state.c" \
-            "$VENDOR_DIR/core_util.c" "$HERE/coremark_port.c"; do
+            "$VENDOR_DIR/core_util.c" "$REPO/soc/compare/coremark_compare_port.c"; do
   out="$tmp/$(basename "${unit%.c}").o"
   # shellcheck disable=SC2086
   $CC $CFLAGS -I "$VENDOR_DIR" -I "$REPO/test/bench" -DITERATIONS="$ITERATIONS" \

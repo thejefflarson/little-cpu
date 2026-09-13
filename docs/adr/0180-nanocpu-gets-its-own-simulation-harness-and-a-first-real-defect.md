@@ -96,11 +96,11 @@ and area-ratchet stakes, filed as a follow-up.
 exactly nano's situation (no CSR file at all) and the same gap the module was built for
 (VexRiscv's CSR-free formal build, Hazard3's `CSR_COUNTER=0`). `nano/bench/dhry.lds` and
 `coremark.lds` place `ram` at the same origin `soc/compare/dhry.lds` does, `0x0001_0000`,
-so the monitor's hardcoded `CTL_MARK`/`CTL_DONE` addresses need no change. `nano/bench/dhry_port.c`
-and `coremark_port.c` are nano-local ports modelled on `soc/compare`'s CSR-free ones (both
-already portable C with no CSR read anywhere); `test/bench/dhry_1.c`/`dhry_2.c` and the
-vendored `test/bench/coremark/` tree are reused read-only, exactly as `soc/compare/` already
-reuses them for its own cross-core harness.
+so the monitor's hardcoded `CTL_MARK`/`CTL_DONE` addresses need no change. `nano/bench/`
+compiles `soc/compare/dhry_port.c` and `coremark_compare_port.c` directly rather than
+carrying nano-local copies -- both are already portable C with no CSR read anywhere, so
+there was nothing target-specific to fork; `test/bench/dhry_1.c`/`dhry_2.c` and the
+vendored `test/bench/coremark/` tree are reused read-only the same way.
 
 **Neither benchmark reaches a verdict yet.** `make nano-dhrystone` traps partway through
 zeroing Dhrystone's `.bss` (before the timed region starts), reading an unrelated

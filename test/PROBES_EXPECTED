@@ -716,6 +716,7 @@ more accesses near an edge than there were accesses is red
 moved sources say so, naming both digests
 moving the declared string alone, with every site unchanged, is red
 mutate_remove on a path that was never there is fixture-stale, not silent
+nano's baseline is checked for a one-field line too
 nano's check-solver guard also runs past a stray file of its name
 nano's check-solver guard runs on a clean tree, not only when a file forces it
 nano's floor is one column, and one that does not parse is named

@@ -160,6 +160,14 @@ echo "$passed/${#table[@]} passed"
 actual_sorted=$(printf '%s\n' "${failures[@]:-}" | awk 'NF { $1=$1; print }' | sort)
 expected_sorted=$(sed -e 's/#.*//' "$EXPECTED_FAIL" | awk 'NF { $1=$1; print }' | sort)
 
+malformed=$(printf '%s\n' "$expected_sorted" | awk 'NF == 1 {print}')
+if [ -n "$malformed" ]; then
+  echo "error: $EXPECTED_FAIL has entries with no status (the format is" >&2
+  echo "'<test>.S <STATUS>', e.g. 'divide.S MONITOR-ERROR 105'):" >&2
+  printf '  %s\n' "$malformed" >&2
+  exit 1
+fi
+
 if [ "$actual_sorted" = "$expected_sorted" ]; then
   echo "Failure list matches $EXPECTED_FAIL exactly (name and status)."
   exit 0
