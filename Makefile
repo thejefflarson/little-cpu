@@ -517,6 +517,10 @@ probes-header-test:
 lut4-site-test:
 	@./test/lut4_site_test.sh
 
+.PHONY: dhry-board-parity-test
+dhry-board-parity-test:
+	@./test/dhry_board_parity_test.sh
+
 .PHONY: zkt-isolation-test
 zkt-isolation-test:
 	@python3 ./test/zkt_isolation_test.py
@@ -564,7 +568,7 @@ test: sim test-units probe-gates pin-bump-test pin-bump-token-test \
       band-source-test zkt-isolation-test fixture-freshness-test window-test imem-share-test \
       abc-engine-test makefile-target-test mutation-probe dual-build board-elaborate \
       tracked-ignored-test mutation-coverage-test comment-density-test lut4-site-test \
-      pll-clock-test ill-e-wiring-test probes-header-test nano-test nano-exec-test nano-startup-test
+      pll-clock-test ill-e-wiring-test probes-header-test dhry-board-parity-test nano-test nano-exec-test nano-startup-test
 	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 .PHONY: cycles
@@ -1008,6 +1012,12 @@ suite-board: ftread
 
 DHRY_BOARD_CFLAGS ?= $(DHRY_CFLAGS)
 
+# The one deliberate difference between this image and `make dhrystone`'s: a board has
+# no other way to show its own report. Naming it here, once, is what
+# test/dhry_board_parity_test.sh compiles against to catch a second, undocumented one --
+# see that script's header.
+DHRY_BOARD_EXTRA_DEFINES = -DDHRY_UART=$(DHRY_UART_BASE)
+
 .PHONY: dhrystone-rom
 dhrystone-rom:
 	@set -e; \
@@ -1020,7 +1030,7 @@ dhrystone-rom:
 	test -n "$$tmp" -a -d "$$tmp"; \
 	trap 'rm -rf "$$tmp"' EXIT; \
 	flags='$(DHRY_BOARD_CFLAGS)'; \
-	$$CC $$flags -DDHRY_UART=$(DHRY_UART_BASE) \
+	$$CC $$flags $(DHRY_BOARD_EXTRA_DEFINES) \
 	  "-DDHRY_FLAGS=\"$$flags\"" \
 	  -DDHRY_RUNS=$(DHRY_BOARD_RUNS) \
 	  -nostdlib -I test/bench -T test/bench/bench.lds -o "$$tmp/dhry.elf" \

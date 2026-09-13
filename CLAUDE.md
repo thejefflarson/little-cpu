@@ -682,7 +682,7 @@ make test           # the test/asm suite (.S and .c) under cxxrtl + unit benches
                     # retired-term, adr-numbering, port-connect, compare-geometry,
                     # vexriscv-path, tracked-ignored, tool-cache, pin-bump, abc-engine,
                     # zkt-isolation, fixture-freshness, makefile-target, lut4-site,
-                    # pll-clock, probes-header)
+                    # pll-clock, probes-header, dhry-board-parity)
                     # + window-test, imem-share-test, board-elaborate, mutation-probe,
                     # dual-build, nano-test and nano-startup-test; graded against
                     # EXPECTED_FAIL / OBSERVED_FLOOR
@@ -905,6 +905,10 @@ together or the board's only output is garbage**; the frequency is stated in fou
 unchanged 0.775 DMIPS/MHz, and **no board has run it**. Sharing
 `DHRY_CFLAGS` does not make a board figure and a simulated one comparable: `dhrystone-rom` also
 defines `DHRY_UART` and `make dhrystone` does not, which moves `.text` and costs a cycle a run.
+`DHRY_BOARD_EXTRA_DEFINES` names that one difference in one place, and
+`test/dhry_board_parity_test.sh` compiles both builds' translation units and requires the two files
+`DHRY_UART` never touches to come out byte-identical, so a second, undocumented divergence is
+caught rather than described after the fact.
 Getting there needed the data RAM's out-of-range arm off the block RAM's reset, and that board is
 programmed by loading SRAM over JTAG — a flash write leaves the part unconfigured until it is
 power-cycled. SPRAM cannot be initialised, so `.data` rides in
