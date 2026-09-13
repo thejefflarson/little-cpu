@@ -46,7 +46,7 @@ module testbench (
   end
 
   always_comb begin
-    if (!reset && mem_valid && mem_ready && mem_addr == dmem_addr && !mem_wstrb)
+    if (!reset && mem_valid && mem_ready && !mem_instr && mem_addr == dmem_addr && !mem_wstrb)
       assume(dmem_data == mem_rdata);
   end
 
