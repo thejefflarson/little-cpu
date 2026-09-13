@@ -62,15 +62,33 @@ jobs:
           # value outright, so build the CoreMark argument only when the build
           # actually has one, and say so either way rather than leaving the
           # field's presence to be inferred from the diff below.
+          DHRY_CFLAGS=$(make -s print-COMPARE_DHRY_CFLAGS)
+          ROM_WORDS=$(make -s print-COMPARE_ROM_WORDS)
+          RAM_WORDS=$(make -s print-COMPARE_RAM_WORDS)
           COREMARK_CFLAGS=$(make -s print-COMPARE_COREMARK_CFLAGS)
           if [ -n "$COREMARK_CFLAGS" ]; then
             echo "COMPARE_COREMARK_CFLAGS is defined; checking CoreMark's cflags for staleness."
-            coremark_current=(--current "coremark:cflags=$COREMARK_CFLAGS" \
-                               --current "coremark_ecp5:cflags=$COREMARK_CFLAGS")
           else
             echo "COMPARE_COREMARK_CFLAGS is undefined on this tree; not checking CoreMark's cflags for staleness."
-            coremark_current=()
           fi
+
+          # Ask the freshly-written stamp which pairs actually exist, rather
+          # than hand-typing soc/compare/run_product.sh's dhrystone_ecp5/
+          # coremark_ecp5 naming convention a second time here -- a part this
+          # script does not know about still gets checked.
+          current_args=()
+          while IFS= read -r pair; do
+            [ -n "$pair" ] || continue
+            case "$pair" in
+              dhrystone|dhrystone_*)
+                current_args+=(--current "$pair:cflags=$DHRY_CFLAGS" \
+                               --current "$pair:rom_words=$ROM_WORDS" \
+                               --current "$pair:ram_words=$RAM_WORDS") ;;
+              coremark|coremark_*)
+                [ -n "$COREMARK_CFLAGS" ] &&
+                  current_args+=(--current "$pair:cflags=$COREMARK_CFLAGS") ;;
+            esac
+          done < <(python3 -c "import json; print('\n'.join(sorted(json.load(open('soc/compare/product.json')).get('pairs', {}))))")
 
           # --require-news asks soc/compare/product_check.py's own question of
           # the OLD stamp against the tree this run checked out -- rtl/,
@@ -85,18 +103,9 @@ jobs:
           # to be news" and the run looks identical to a clean negative, which
           # is the shape of silence this whole step exists to avoid.
           set +e
-          DHRY_CFLAGS=$(make -s print-COMPARE_DHRY_CFLAGS)
-          ROM_WORDS=$(make -s print-COMPARE_ROM_WORDS)
-          RAM_WORDS=$(make -s print-COMPARE_RAM_WORDS)
           python3 soc/compare/product_diff.py /tmp/product.before.json \
                soc/compare/product.json --require-news --repo . \
-               --current "dhrystone:cflags=$DHRY_CFLAGS" \
-               --current "dhrystone:rom_words=$ROM_WORDS" \
-               --current "dhrystone:ram_words=$RAM_WORDS" \
-               --current "dhrystone_ecp5:cflags=$DHRY_CFLAGS" \
-               --current "dhrystone_ecp5:rom_words=$ROM_WORDS" \
-               --current "dhrystone_ecp5:ram_words=$RAM_WORDS" \
-               "${coremark_current[@]}"
+               "${current_args[@]}"
           rc=$?
           set -e
           case $rc in
