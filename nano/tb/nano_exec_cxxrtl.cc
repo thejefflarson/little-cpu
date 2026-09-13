@@ -1,6 +1,7 @@
 // A randomized differential oracle for nano's real multiply and divide, in the shape of
 // test/exec_tb.v, but bypassing fetch/decode by poking `regs`/`instr`/`cpu_state` directly
 // through cxxrtl's debug_items: nano has no separate executor module and is not iverilog-elaborable.
+// The generated eval() takes a `performer *` that goes unread in a design with no $display.
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 #include "nano_exec_rtl.cc"

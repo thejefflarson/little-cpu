@@ -47,9 +47,9 @@ point of the acceptance criterion is that this exact program passes.
 
 `nano/tb/nano_exec_cxxrtl.cc`, in the shape of `test/exec_tb.v`: hand-computed literal
 reference values self-tested before any RTL vector runs, then 2,000 random vectors per
-operation plus twelve directed corners (`INT_MIN / -1`, divide/remainder by zero, and
-by zero with a negative dividend, negative/positive and positive/negative operands)
-driven into the real `riscv` state machine. nano has no separate executor module the way
+operation plus nineteen directed vectors (`INT_MIN / -1`, divide/remainder by zero, and
+by zero with a negative dividend, negative/positive and positive/negative operands, rd
+aliasing rs1, rs1 aliasing rs2, and five multiply corners) driven into the real `riscv` state machine. nano has no separate executor module the way
 littlecpu does, and `nano.v` is not iverilog-elaborable (ADR-0180), so `nano/tb/nano_exec_tb.v`
 wraps the real core with its bus tied off and the oracle pokes `regs`/`instr`/`cpu_state`
 directly through cxxrtl's `debug_items`, walking one instruction from `decode_instr`
@@ -58,8 +58,9 @@ the way `test/exec_tb.v` bypasses littlecpu's decoder, just through a different
 mechanism. `make nano-exec-test` joins `make test`.
 
 `nano/tb/nano_exec_probe.sh` is the forced-red direction: it reintroduces each of the
-three RTL bugs above into a scratch copy of `nano.v`, one at a time, rebuilds the oracle
-against it, and requires a reported mismatch. All three are caught. It runs as a
+three RTL bugs above, and a `MULHSU` that sign-extends rs2, into a scratch copy of
+`nano.v`, one at a time, rebuilds the oracle against it, and requires a reported
+mismatch. All four are caught. It runs as a
 prerequisite of `nano-exec-test`, the same relationship `formal/executor-zkt-probe.py`
 has to `components_executor`.
 
@@ -80,3 +81,10 @@ either way, so it never observed either the broken or the fixed sequencer comple
 passing run). `NANO_MAX_UM2` moves 60759 -> 61412, rounding the measured 61411.4 µm² up
 to the next whole µm² the way ADR-0178 did -- the magnitude conversion is new logic on
 `regs[rs1]`/`regs[rs2]`, read on every `DIV`/`REM`, not just inside the (now shorter) loop.
+
+The fix moves ADR-0179's projection with it. That projection started from 60,758 µm²
+local, a core whose divider did not divide; at 61,411.4 µm², with the same +11,500 for the
+two unbuilt layers and the same 0.915 calibration, the finished core projects to about
+66,714 µm² in the layout flow, 708 over the 66,006 line rather than 110. A correct divider
+is not traded against area, so this reopens nothing here: ADR-0179's pre-committed cut
+order is what answers the line if the hardened flow agrees with the projection.
