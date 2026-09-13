@@ -61,6 +61,12 @@ jobs:
             librelane-env "$tool" --version 2>&1 | head -1
           done
 
+      - name: TEMPORARY -- locate libstdc++.so.6 for the pip-installed klayout wheel
+        run: |
+          librelane-env bash -c 'echo "NIX_LD_LIBRARY_PATH=$NIX_LD_LIBRARY_PATH"; echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH"; echo "NIX_CC=$NIX_CC"'
+          librelane-env bash -c 'find /nix/store -maxdepth 1 -iname "*gcc*lib*" 2>/dev/null | head -20'
+          librelane-env bash -c 'find /nix/store -maxdepth 2 -name "libstdc++.so.6" 2>/dev/null | head -5'
+
       - name: Checkout tt-support-tools
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
