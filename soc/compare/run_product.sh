@@ -1,8 +1,6 @@
 #!/bin/sh
-# Runs BOTH factors of the cross-core throughput product for every benchmark pair this
-# repo knows, and writes the result into soc/compare/product.json --collapsing "sweep the
-# clock, run the cycle count, do the arithmetic by hand, edit CLAUDE.md" into one
-# command.
+# Runs both factors of the cross-core throughput product, on every part this design
+# ships to, and writes the result into soc/compare/product.json.
 set -eu
 
 cd "$(dirname "$0")/../.."
@@ -13,6 +11,20 @@ if [ -z "$SEEDS" ]; then
   echo "*** placed. Name the seeds, or unset it for the default twelve." >&2
   exit 2
 fi
+PARTS=${COMPARE_PRODUCT_PARTS:-"up5k ecp5"}
+if [ -z "$PARTS" ]; then
+  echo "*** run_product.sh: COMPARE_PRODUCT_PARTS is empty, so nothing would be" >&2
+  echo "*** placed. Name the parts, or unset it for the default up5k and ecp5." >&2
+  exit 2
+fi
+for part in $PARTS; do
+  case $part in
+    up5k|ecp5) ;;
+    *) echo "*** run_product.sh: COMPARE_PRODUCT_PARTS names '$part'; this" >&2
+       echo "*** harness knows up5k and ecp5. hx8k was removed, not renamed." >&2
+       exit 2 ;;
+  esac
+done
 OUT=${COMPARE_PRODUCT_OUT:-soc/compare/product.json}
 
 BASE=$(git rev-parse HEAD)
@@ -30,14 +42,13 @@ if [ -z "$CC" ]; then
   exit 1
 fi
 
-TOOLS_BLOCK=$(soc/print_toolchain.sh yosys nextpnr-ice40 icetime iverilog "$CC")
+TOOLS_BLOCK=$(soc/print_toolchain.sh yosys nextpnr-ice40 nextpnr-ecp5 icetime iverilog "$CC")
 TOOL_ARGS=""
 while IFS= read -r line; do
   [ -z "$line" ] && continue
   name=${line#\# }; name=${name%%:*}
   value=${line#*: }
-  # `set --` below re-splits on whitespace, so the value's own spaces (every one of these
-  # carries a version string with one in it) travel quoted.
+  # `set --` below re-splits on whitespace, so a version string's own spaces travel quoted.
   TOOL_ARGS="$TOOL_ARGS --tool"
   TOOL_ARGS="$TOOL_ARGS '$name=$value'"
 done <<TOOLS
@@ -48,43 +59,67 @@ isa_from_cflags() {  # $1 = CFLAGS string
   printf '%s\n' "$1" | sed -n 's/.*-march=\([A-Za-z0-9_]*\).*/\1/p'
 }
 
-sweep_clock() {  # $1 = core; prints comma-separated nanoseconds on stdout
-  core=$1
+pair_name() {  # $1 = benchmark, $2 = part -- ecp5 gets its own pair name, e.g. dhrystone_ecp5
+  case $2 in
+    up5k) printf '%s' "$1" ;;
+    ecp5) printf '%s_ecp5' "$1" ;;
+  esac
+}
+
+# up5k and ecp5 read different report lines here, the split soc/compare/sweep.sh uses.
+sweep_clock() {  # $1 = part, $2 = core; prints comma-separated ns on stdout
+  part=$1
+  core=$2
+  case $part in
+    up5k) figure='^critical path :' ;;
+    ecp5) figure='^Fmax          :' ;;
+  esac
   ns_csv=""
   for seed in $SEEDS; do
     case $seed in
       default) arg="" ;;
       *)       arg=$seed ;;
     esac
-    if ! out=$(make compare-timing COMPARE_CORE="$core" COMPARE_SEED="$arg" 2>&1); then
-      echo "*** run_product.sh: $core seed '$seed' failed to place; the run" >&2
-      echo "*** stops here. That is a failed placement, not a fast design." >&2
+    case $part in
+      up5k) out=$(make compare-timing COMPARE_PART=up5k COMPARE_CORE="$core" \
+                     COMPARE_SEED="$arg" 2>&1) && rc=0 || rc=$? ;;
+      ecp5) out=$(make compare-timing COMPARE_PART=ecp5 COMPARE_CORE="$core" \
+                     ECP5_SEED="$arg" 2>&1) && rc=0 || rc=$? ;;
+    esac
+    if [ "$rc" -ne 0 ]; then
+      echo "*** run_product.sh: $core seed '$seed' failed to place on $part; the" >&2
+      echo "*** run stops here. That is a failed placement, not a fast design." >&2
       printf '%s\n' "$out" >&2
       exit 1
     fi
-    line=$(printf '%s\n' "$out" | grep '^critical path :') || {
-      echo "*** run_product.sh: $core seed '$seed' exited 0 with no critical" >&2
-      echo "*** path line, which soc/timing_split.py is supposed to make" >&2
+    line=$(printf '%s\n' "$out" | grep "$figure") || {
+      echo "*** run_product.sh: $core seed '$seed' on $part exited 0 with no" >&2
+      echo "*** '$figure' line, which the reader for $part is supposed to make" >&2
       echo "*** impossible." >&2
       exit 1
     }
-    ns=$(printf '%s\n' "$line" | sed 's/^critical path : \([0-9.]*\) ns.*/\1/')
+    case $part in
+      up5k) ns=$(printf '%s\n' "$line" | sed 's/^critical path : \([0-9.]*\) ns.*/\1/') ;;
+      ecp5) ns=$(printf '%s\n' "$line" | sed 's/.*(\([0-9.]*\) ns).*/\1/') ;;
+    esac
     ns_csv="${ns_csv:+$ns_csv,}$ns"
   done
   printf '%s' "$ns_csv"
 }
 
-echo "== compare-product: littlecpu clock ($SEEDS) =="
-LC_NS=$(sweep_clock littlecpu)
-echo "$LC_NS"
+# One sweep per (core, part) serves both benchmark pairs below.
+for part in $PARTS; do
+  echo "== compare-product: clock sweep on $part ($SEEDS) =="
+  for core in littlecpu vexriscv hazard3; do
+    echo "-- $core --"
+    ns=$(sweep_clock "$part" "$core")
+    echo "$ns"
+    eval "NS_${part}_${core}=\$ns"
+  done
+  echo
+done
 
-echo
-echo "== compare-product: Dhrystone (littlecpu against VexRiscv) =="
-echo "== VexRiscv clock =="
-VEX_NS=$(sweep_clock vexriscv)
-echo "$VEX_NS"
-
-echo "== Dhrystone cycles =="
+echo "== compare-product: Dhrystone cycles (littlecpu against VexRiscv) =="
 if ! DHRY_OUT=$(make compare-dhrystone 2>&1); then
   echo "*** run_product.sh: make compare-dhrystone failed." >&2
   printf '%s\n' "$DHRY_OUT" >&2
@@ -92,8 +127,7 @@ if ! DHRY_OUT=$(make compare-dhrystone 2>&1); then
 fi
 printf '%s\n' "$DHRY_OUT"
 
-# FIRST match only. `make compare-dhrystone` prints a fourth row -- this core alone at
-# its native ISA, so the shared subset's cost is a number.
+# FIRST match: the three-way row, not the ISA-cost/pairwise rows also printed.
 LC_CYCLES=$(printf '%s\n' "$DHRY_OUT" | grep '^DHRY core=littlecpu' | sed -n 's/.*cycles=\([0-9]*\).*/\1/p' | head -1)
 VEX_CYCLES=$(printf '%s\n' "$DHRY_OUT" | grep '^DHRY core=vexriscv' | sed -n 's/.*cycles=\([0-9]*\).*/\1/p' | head -1)
 if [ -z "$LC_CYCLES" ] || [ -z "$VEX_CYCLES" ]; then
@@ -124,34 +158,45 @@ done
 LC_DHRY_FACTOR=$(python3 -c "print($DHRY_RUNS * 1e6 / $LC_CYCLES / $DHRY_VAX_RATE)")
 VEX_DHRY_FACTOR=$(python3 -c "print($DHRY_RUNS * 1e6 / $VEX_CYCLES / $DHRY_VAX_RATE)")
 
-eval "set -- $TOOL_ARGS"
-python3 soc/compare/product_write.py "$OUT" dhrystone --measured \
-  --target-core littlecpu --base "$BASE" --dirty "$DIRTY" --date "$DATE" \
-  --seeds "$SEEDS" --cflags "$DHRY_CFLAGS" --isa "$DHRY_ISA" \
-  --rom-words "$ROM_WORDS" --ram-words "$RAM_WORDS" --unit 'DMIPS/MHz' "$@" \
-  --clock-ns "littlecpu=$LC_NS" --clock-ns "vexriscv=$VEX_NS" \
-  --cycle-factor "littlecpu=$LC_DHRY_FACTOR" --cycle-factor "vexriscv=$VEX_DHRY_FACTOR"
+for part in $PARTS; do
+  eval "lc_ns=\$NS_${part}_littlecpu"
+  eval "vex_ns=\$NS_${part}_vexriscv"
+  eval "set -- $TOOL_ARGS"
+  python3 soc/compare/product_write.py "$OUT" "$(pair_name dhrystone "$part")" --measured \
+    --target-core littlecpu --base "$BASE" --dirty "$DIRTY" --date "$DATE" \
+    --seeds "$SEEDS" --cflags "$DHRY_CFLAGS" --isa "$DHRY_ISA" \
+    --rom-words "$ROM_WORDS" --ram-words "$RAM_WORDS" --unit 'DMIPS/MHz' "$@" \
+    --clock-ns "littlecpu=$lc_ns" --clock-ns "vexriscv=$vex_ns" \
+    --cycle-factor "littlecpu=$LC_DHRY_FACTOR" --cycle-factor "vexriscv=$VEX_DHRY_FACTOR"
+done
 
 measure_coremark() {
-  if HZ_NS=$(sweep_clock hazard3) \
-     && CM_OUT=$(make compare-coremark 2>&1) \
+  if CM_OUT=$(make compare-coremark 2>&1) \
      && LC_CM_CYCLES=$(printf '%s\n' "$CM_OUT" | grep '^COREMARK core=littlecpu' | sed -n 's/.* cycles=\([0-9]*\).*/\1/p' | head -1) \
+     && VEX_CM_CYCLES=$(printf '%s\n' "$CM_OUT" | grep '^COREMARK core=vexriscv' | sed -n 's/.* cycles=\([0-9]*\).*/\1/p' | head -1) \
      && HZ_CM_CYCLES=$(printf '%s\n' "$CM_OUT" | grep '^COREMARK core=hazard3' | sed -n 's/.* cycles=\([0-9]*\).*/\1/p' | head -1) \
      && CM_ITERATIONS=$(make -s print-COMPARE_COREMARK_ITERATIONS) \
      && CM_CFLAGS=$(make -s print-COMPARE_COREMARK_CFLAGS) \
-     && [ -n "$LC_CM_CYCLES" ] && [ -n "$HZ_CM_CYCLES" ] \
+     && [ -n "$LC_CM_CYCLES" ] && [ -n "$VEX_CM_CYCLES" ] && [ -n "$HZ_CM_CYCLES" ] \
      && [ -n "$CM_ITERATIONS" ] && [ -n "$CM_CFLAGS" ]; then
     printf '%s\n' "$CM_OUT"
     LC_CM_FACTOR=$(python3 -c "print($CM_ITERATIONS * 1e6 / $LC_CM_CYCLES)")
+    VEX_CM_FACTOR=$(python3 -c "print($CM_ITERATIONS * 1e6 / $VEX_CM_CYCLES)")
     HZ_CM_FACTOR=$(python3 -c "print($CM_ITERATIONS * 1e6 / $HZ_CM_CYCLES)")
     CM_ISA=$(isa_from_cflags "$CM_CFLAGS")
-    eval "set -- $TOOL_ARGS"
-    python3 soc/compare/product_write.py "$OUT" coremark --measured \
-      --target-core littlecpu --base "$BASE" --dirty "$DIRTY" --date "$DATE" \
-      --seeds "$SEEDS" --cflags "$CM_CFLAGS" --isa "$CM_ISA" \
-      --rom-words "$ROM_WORDS" --ram-words "$RAM_WORDS" --unit 'CoreMark/MHz' "$@" \
-      --clock-ns "littlecpu=$LC_NS" --clock-ns "hazard3=$HZ_NS" \
-      --cycle-factor "littlecpu=$LC_CM_FACTOR" --cycle-factor "hazard3=$HZ_CM_FACTOR"
+    for part in $PARTS; do
+      eval "lc_ns=\$NS_${part}_littlecpu"
+      eval "vex_ns=\$NS_${part}_vexriscv"
+      eval "hz_ns=\$NS_${part}_hazard3"
+      eval "set -- $TOOL_ARGS"
+      python3 soc/compare/product_write.py "$OUT" "$(pair_name coremark "$part")" --measured \
+        --target-core littlecpu --base "$BASE" --dirty "$DIRTY" --date "$DATE" \
+        --seeds "$SEEDS" --cflags "$CM_CFLAGS" --isa "$CM_ISA" \
+        --rom-words "$ROM_WORDS" --ram-words "$RAM_WORDS" --unit 'CoreMark/MHz' "$@" \
+        --clock-ns "littlecpu=$lc_ns" --clock-ns "vexriscv=$vex_ns" --clock-ns "hazard3=$hz_ns" \
+        --cycle-factor "littlecpu=$LC_CM_FACTOR" --cycle-factor "vexriscv=$VEX_CM_FACTOR" \
+        --cycle-factor "hazard3=$HZ_CM_FACTOR"
+    done
     return 0
   fi
   echo "*** run_product.sh: make compare-coremark's output did not match the" >&2
@@ -163,7 +208,7 @@ measure_coremark() {
 }
 
 echo
-echo "== compare-product: CoreMark (littlecpu against Hazard3) =="
+echo "== compare-product: CoreMark (littlecpu against VexRiscv and Hazard3) =="
 COREMARK_OK=0
 if grep -q '^compare-coremark:' Makefile && [ -f soc/compare/coremark_dmips.py ]; then
   echo "make compare-coremark is on this tree; attempting the measurement."
@@ -175,13 +220,18 @@ if [ "$COREMARK_OK" -eq 0 ]; then
   else
     REASON="make compare-coremark is not on this tree yet; run_product.sh will measure it once that lands"
   fi
-  python3 soc/compare/product_write.py "$OUT" coremark --not-yet-measured \
-    --target-core littlecpu --core hazard3 --reason "$REASON"
+  for part in $PARTS; do
+    python3 soc/compare/product_write.py "$OUT" "$(pair_name coremark "$part")" \
+      --not-yet-measured --target-core littlecpu --core hazard3 --core vexriscv \
+      --reason "$REASON"
+  done
 fi
 
 echo
 echo "== $OUT =="
-python3 soc/compare/product_check.py "$OUT" dhrystone --repo . \
-  --current "cflags=$DHRY_CFLAGS" --current "rom_words=$ROM_WORDS" \
-  --current "ram_words=$RAM_WORDS"
-python3 soc/compare/product_check.py "$OUT" coremark --repo .
+for part in $PARTS; do
+  python3 soc/compare/product_check.py "$OUT" "$(pair_name dhrystone "$part")" --repo . \
+    --current "cflags=$DHRY_CFLAGS" --current "rom_words=$ROM_WORDS" \
+    --current "ram_words=$RAM_WORDS"
+  python3 soc/compare/product_check.py "$OUT" "$(pair_name coremark "$part")" --repo .
+done

@@ -1,7 +1,7 @@
 name: Cross-core product re-take
 
-# Weekly, re-measures both cross-core throughput pairs soc/compare/ knows -- Dhrystone
-# against VexRiscv, and CoreMark against Hazard3 once `make compare-coremark` exists --
+# Weekly, re-measures every cross-core throughput pair soc/compare/ knows -- Dhrystone
+# against VexRiscv and CoreMark against VexRiscv and Hazard3, on both up5k and ECP5 --
 # and opens a pull request only when the OLD stamp would have called itself stale against
 # the tree this run checked out.
 on:
@@ -17,9 +17,9 @@ jobs:
   re-take:
     name: re-take
     runs-on: little-cpu-runners
-    # Twenty-four placements (twelve seeds a side for the Dhrystone pair) is roughly half
-    # an hour; the CoreMark pair, once it exists, is another two sweeps on top of that.
-    timeout-minutes: 90
+    # Three cores, twelve seeds, two parts is 72 placements, both benchmarks' cycle
+    # counts on top -- measured at just under 70 minutes on this pool.
+    timeout-minutes: 150
     steps:
       - name: Record job start
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
@@ -65,7 +65,8 @@ jobs:
           COREMARK_CFLAGS=$(make -s print-COMPARE_COREMARK_CFLAGS)
           if [ -n "$COREMARK_CFLAGS" ]; then
             echo "COMPARE_COREMARK_CFLAGS is defined; checking CoreMark's cflags for staleness."
-            coremark_current=(--current "coremark:cflags=$COREMARK_CFLAGS")
+            coremark_current=(--current "coremark:cflags=$COREMARK_CFLAGS" \
+                               --current "coremark_ecp5:cflags=$COREMARK_CFLAGS")
           else
             echo "COMPARE_COREMARK_CFLAGS is undefined on this tree; not checking CoreMark's cflags for staleness."
             coremark_current=()
@@ -84,11 +85,17 @@ jobs:
           # to be news" and the run looks identical to a clean negative, which
           # is the shape of silence this whole step exists to avoid.
           set +e
+          DHRY_CFLAGS=$(make -s print-COMPARE_DHRY_CFLAGS)
+          ROM_WORDS=$(make -s print-COMPARE_ROM_WORDS)
+          RAM_WORDS=$(make -s print-COMPARE_RAM_WORDS)
           python3 soc/compare/product_diff.py /tmp/product.before.json \
                soc/compare/product.json --require-news --repo . \
-               --current "dhrystone:cflags=$(make -s print-COMPARE_DHRY_CFLAGS)" \
-               --current "dhrystone:rom_words=$(make -s print-COMPARE_ROM_WORDS)" \
-               --current "dhrystone:ram_words=$(make -s print-COMPARE_RAM_WORDS)" \
+               --current "dhrystone:cflags=$DHRY_CFLAGS" \
+               --current "dhrystone:rom_words=$ROM_WORDS" \
+               --current "dhrystone:ram_words=$RAM_WORDS" \
+               --current "dhrystone_ecp5:cflags=$DHRY_CFLAGS" \
+               --current "dhrystone_ecp5:rom_words=$ROM_WORDS" \
+               --current "dhrystone_ecp5:ram_words=$RAM_WORDS" \
                "${coremark_current[@]}"
           rc=$?
           set -e
