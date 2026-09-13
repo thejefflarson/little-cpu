@@ -556,8 +556,10 @@ Dhrystone's image (1,332 bytes of text, 10,592 of RAM) FITS it, so nothing in th
 by memory size; CoreMark's 10,768 bytes of text do not, so its cycles are still simulated at a
 larger map than the clock is placed at. `make compare-dhrystone` and `make compare-coremark` print
 the block arithmetic and say which, every run; ADR-0098 lists the distortions.
-`soc/compare/product.json` is not re-stamped by this pass and is already stale on its own check
-against this tree; re-taking that stamp is a separate ticket's. Two graded checks stand in front of
+`soc/compare/product.json` is re-stamped and fresh (ADR-0181): `dirty: no`, twelve seeds a side on
+both parts, all four pairs (`dhrystone`, `dhrystone_ecp5`, `coremark` and `coremark_ecp5`, the last
+two now carrying VexRiscv's column alongside Hazard3's) agreeing with the figures above to within
+rounding. Two graded checks stand in front of
 every number: `soc/compare/placed_vs_synth.py` refuses a placed
 count under `COMPARE_MIN_RATIO` of the core's own synthesis — an all-NOP image once placed a
 quarter of this core with a plausible critical path beside it (ADR-0086) — and `make compare-smoke`
