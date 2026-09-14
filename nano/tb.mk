@@ -15,9 +15,17 @@ nano-sim: nano/tb/nano_cxxrtl.cc nano/tb/nano_rtl.cc
 	clang++ -O2 -DNDEBUG -std=c++17 -Wall -Wextra -Werror \
 	  -isystem "$$(yosys-config --datdir)/include/backends/cxxrtl/runtime" $< -o $@
 
+nano/tb/nano_icarus.vvp: rvfi_macros.vh $(NANO_SIM_RTL_SRCS) $(NANO_SIM_TB_SRCS) test/monitor.sim.v
+	iverilog -I./rtl/ -DICARUS $(addprefix -D,$(NANO_RISCV_FORMAL_MACROS)) -g2012 -o $@ $^
+
+.PHONY: nano-x-probe
+nano-x-probe: rvfi_macros.vh test/monitor.sim.v
+	@./nano/tb/nano_x_probe.sh '$(NANO_CFLAGS)' '$(NANO_SIM_RTL_SRCS)' '$(NANO_RISCV_FORMAL_MACROS)'
+
 .PHONY: nano-test
-nano-test: nano-sim
-	@./nano/asm/run_nano_tests.sh ./nano-sim nano/asm nano/asm/EXPECTED_FAIL nano/asm/OBSERVED_FLOOR '$(NANO_CFLAGS)'
+nano-test: nano-sim nano/tb/nano_icarus.vvp nano-x-probe
+	@./nano/tb/nano_dual_leg_test.sh ./nano-sim ./nano/tb/nano_sim_icarus.sh nano/asm \
+	  nano/asm/EXPECTED_FAIL nano/asm/OBSERVED_FLOOR '$(NANO_CFLAGS)'
 
 .PHONY: nano-startup-test
 nano-startup-test: nano-sim

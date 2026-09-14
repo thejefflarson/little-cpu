@@ -687,7 +687,8 @@ make test           # the test/asm suite (.S and .c) under cxxrtl + unit benches
                     # retired-term, adr-numbering, port-connect, compare-geometry,
                     # vexriscv-path, tracked-ignored, tool-cache, pin-bump, abc-engine,
                     # zkt-isolation, fixture-freshness, makefile-target, lut4-site,
-                    # pll-clock, probes-header, dhry-board-parity, macro-register)
+                    # pll-clock, probes-header, dhry-board-parity, macro-register,
+                    # compare-product-schedule-publish)
                     # + window-test, imem-share-test, board-elaborate, mutation-probe,
                     # dual-build, nano-test, nano-startup-test and nano-littlecpu-test;
                     # graded against EXPECTED_FAIL / OBSERVED_FLOOR
@@ -816,8 +817,13 @@ make nano-area      # nanocpu's area, local `synth; dfflibmap; abc -liberty`, ne
                     # merged with the brief's own TT-flow/LibreLane number; ratchet
                     # on NANO_MAX_UM2. Not on `make test`'s path; no-ops until
                     # nano/nano.v lands
-make nano-test      # nano/asm's six hand-written x0-x15 programs under nano-sim, graded
-                    # against nano/asm/EXPECTED_FAIL / OBSERVED_FLOOR. On `make test`'s path
+make nano-test      # nano/asm's six hand-written x0-x15 programs under BOTH sim legs --
+                    # nano-sim (cxxrtl) and nano/tb/nano_icarus.vvp (iverilog, wrapped by
+                    # nano_sim_icarus.sh behind nano-sim's own CLI) -- graded against
+                    # nano/asm/EXPECTED_FAIL / OBSERVED_FLOOR and required to agree with
+                    # each other program by program (nano_dual_leg_test.sh). A real-tool
+                    # prerequisite, nano_x_probe.sh, forces the iverilog leg to catch an X
+                    # a skipped memory-zeroing loop leaves behind. On `make test`'s path
 make nano-startup-test # the shared nano/bench/start.S initializes gp before any
                     # gp-relative reference runs; PASS/FAIL over tohost. On `make test`'s path
 make nano-dhrystone # Dhrystone on nanocpu under nano-sim --bench, core-only, zero-wait-state,

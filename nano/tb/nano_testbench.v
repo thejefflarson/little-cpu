@@ -12,6 +12,7 @@ module nano_testbench(
 `endif
 
   localparam int MEM_WORDS = 20480;
+  localparam int unsigned TOHOST_INDEX = 32'h0001_0000 / 4;
 
   logic        mem_valid;
   logic        mem_instr;
@@ -129,15 +130,6 @@ module nano_testbench(
     .errcode(rvfi_monitor_errcode)
   );
 
-`ifdef ICARUS
-  always @(posedge clk) begin
-    if (rvfi_monitor_errcode != 16'b0) begin
-      $display("RVFI MONITOR ERROR %0d -- see the diagnostic above", rvfi_monitor_errcode);
-      $fatal(1);
-    end
-  end
-`endif
-
   (* keep *) logic [31:0] rvfi_retires;
   initial rvfi_retires = 32'b0;
   always @(posedge clk) begin
@@ -184,9 +176,57 @@ module nano_testbench(
     if (trap_d) trap_latched <= 1'b1;
   end
 `ifdef ICARUS
+  string icarus_rom_path, icarus_ram_path;
+  int unsigned icarus_cycle_limit, icarus_cycle;
+
+  task automatic finish_run(string msg = "");
+    if (msg.len() > 0) $display("%s", msg);
+    $display("RETIRES %0d", rvfi_retires);
+    $finish;
+  endtask
+
   initial begin
+    for (int unsigned i = 0; i < MEM_WORDS; i = i + 1) mem.mem[i] = 32'b0;
+    if ($value$plusargs("ROM=%s", icarus_rom_path)) $readmemh(icarus_rom_path, mem.mem);
+    if ($value$plusargs("RAM=%s", icarus_ram_path)) $readmemh(icarus_ram_path, mem.mem);
+    if (!$value$plusargs("CYCLES=%d", icarus_cycle_limit)) icarus_cycle_limit = 5000;
+
     $dumpfile("nano_testbench.vcd");
     $dumpvars(0, nano_testbench);
+
+    for (icarus_cycle = 0; icarus_cycle < icarus_cycle_limit; icarus_cycle = icarus_cycle + 1) begin
+      @(posedge clk);
+      #1;
+      // Cycle 0 is the reset edge here too, matching nano_cxxrtl.cc's own timing.
+      if (icarus_cycle == 0) reset <= 0;
+`ifdef RISCV_FORMAL
+      if (rvfi_monitor_errcode != 16'b0) begin
+        finish_run($sformatf("RVFI monitor error %0d at cycle %0d", rvfi_monitor_errcode, icarus_cycle));
+      end
+      // iverilog is four-state and cxxrtl is not; validity itself may read X, not just 1.
+      if ((rvfi_valid_observed === 1'b1 || rvfi_valid_observed === 1'bx) &&
+          (^rvfi_insn === 1'bx || ^rvfi_pc_rdata === 1'bx || ^rvfi_pc_wdata === 1'bx ||
+           ^rvfi_rs1_rdata === 1'bx || ^rvfi_rs2_rdata === 1'bx || ^rvfi_rd_wdata === 1'bx ||
+           ^rvfi_mem_addr === 1'bx ||
+           (rvfi_mem_wmask[0] && ^rvfi_mem_wdata[7:0] === 1'bx) ||
+           (rvfi_mem_wmask[1] && ^rvfi_mem_wdata[15:8] === 1'bx) ||
+           (rvfi_mem_wmask[2] && ^rvfi_mem_wdata[23:16] === 1'bx) ||
+           (rvfi_mem_wmask[3] && ^rvfi_mem_wdata[31:24] === 1'bx))) begin
+        finish_run($sformatf("X reached a retiring instruction's RVFI fields at cycle %0d", icarus_cycle));
+      end
+`endif
+      if (trap_latched) begin
+        finish_run($sformatf("trap taken at cycle %0d", icarus_cycle));
+      end
+      if (mem.mem[TOHOST_INDEX] != 32'b0) begin
+        if (mem.mem[TOHOST_INDEX] == 32'b1) begin
+          finish_run("PASS");
+        end else begin
+          finish_run($sformatf("FAIL %0d", mem.mem[TOHOST_INDEX] >> 1));
+        end
+      end
+    end
+    finish_run("TIMEOUT");
   end
 `endif
 endmodule
