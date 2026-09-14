@@ -183,19 +183,24 @@ jobs:
           else
             stop_after_synthesis_report=false
           fi
-          {
-            echo "### nano-tt-area harden (self-hosted)"
-            echo "strategy: ${{ inputs.synth_strategy || 'AREA 0' }}"
-            echo "tiles: ${{ inputs.tiles || '2x2' }}"
-            echo "stop after synthesis: $stop_after_synthesis_report"
-            echo "disallow congestion: ${{ inputs.disallow_congestion || 'false' }}"
-            echo "wall time: ${elapsed}s"
-            if [ -r /sys/fs/cgroup/memory.peak ]; then
-              echo "cgroup memory.peak: $(cat /sys/fs/cgroup/memory.peak) bytes"
-            elif [ -r /sys/fs/cgroup/memory/memory.max_usage_in_bytes ]; then
-              echo "cgroup memory.max_usage_in_bytes: $(cat /sys/fs/cgroup/memory/memory.max_usage_in_bytes) bytes"
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
+          # A step summary is written to $GITHUB_STEP_SUMMARY only, so nothing in it
+          # reaches `gh run view --log`; echo each line to stdout too rather than pipe
+          # this block through tee, which would hand the step's exit status to tee's.
+          summary_line() {
+            echo "$1"
+            echo "$1" >> "$GITHUB_STEP_SUMMARY"
+          }
+          summary_line "### nano-tt-area harden (self-hosted)"
+          summary_line "strategy: ${{ inputs.synth_strategy || 'AREA 0' }}"
+          summary_line "tiles: ${{ inputs.tiles || '2x2' }}"
+          summary_line "stop after synthesis: $stop_after_synthesis_report"
+          summary_line "disallow congestion: ${{ inputs.disallow_congestion || 'false' }}"
+          summary_line "wall time: ${elapsed}s"
+          if [ -r /sys/fs/cgroup/memory.peak ]; then
+            summary_line "cgroup memory.peak: $(cat /sys/fs/cgroup/memory.peak) bytes"
+          elif [ -r /sys/fs/cgroup/memory/memory.max_usage_in_bytes ]; then
+            summary_line "cgroup memory.max_usage_in_bytes: $(cat /sys/fs/cgroup/memory/memory.max_usage_in_bytes) bytes"
+          fi
 
       # A cancelled or failed run is exactly the case the earlier single-file copy
       # missed reports for, so this walks every step directory rather than naming one.

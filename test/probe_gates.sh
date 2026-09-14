@@ -7553,7 +7553,7 @@ probe "control: the shipping workflow resolves its mode once and saves its PDK c
   "resolves its mode once and saves its PDK cache unconditionally" \
   "cd '$d' && python3 test/nano_tt_area_workflow_test.py ."
 
-d=$(ntawt_fixture 's|echo "stop after synthesis: \$stop_after_synthesis_report"|echo "stop after synthesis: ${{ inputs.stop_after_synthesis \|\| '"'"'true'"'"' }}"|')
+d=$(ntawt_fixture 's|summary_line "stop after synthesis: \$stop_after_synthesis_report"|summary_line "stop after synthesis: ${{ inputs.stop_after_synthesis \|\| '"'"'true'"'"' }}"|')
 probe "the defect this exists for: a summary line re-deriving the mode from inputs." 1 \
   "re-derives the mode from inputs.stop_after_synthesis" \
   "cd '$d' && python3 test/nano_tt_area_workflow_test.py ."
