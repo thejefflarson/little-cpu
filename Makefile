@@ -529,6 +529,10 @@ dhry-board-parity-test:
 zkt-isolation-test:
 	@python3 ./test/zkt_isolation_test.py
 
+.PHONY: nano-tt-area-workflow-test
+nano-tt-area-workflow-test:
+	@python3 ./test/nano_tt_area_workflow_test.py
+
 # Refuses a bare `sed -i` in test/probe_gates.sh's own fixtures (it proves nothing when
 # the pattern matches nothing) and a hand-typed fixture with no fixture_anchor tying it
 # to the real shape it imitates.
@@ -573,7 +577,8 @@ test: sim test-units probe-gates pin-bump-test pin-bump-token-test \
       abc-engine-test makefile-target-test mutation-probe dual-build board-elaborate \
       tracked-ignored-test mutation-coverage-test comment-density-test lut4-site-test \
       pll-clock-test ill-e-wiring-test probes-header-test dhry-board-parity-test nano-test \
-      nano-exec-test nano-startup-test macro-register-test nano-littlecpu-test
+      nano-exec-test nano-startup-test macro-register-test nano-littlecpu-test \
+      nano-tt-area-workflow-test
 	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 .PHONY: cycles

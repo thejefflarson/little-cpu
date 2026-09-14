@@ -30,6 +30,10 @@ on:
         description: "stop at Yosys.Synthesis rather than running the full flow"
         type: boolean
         default: true
+      disallow_congestion:
+        description: "stop at global routing on any remaining overflow, rather than Tiny Tapeout's own default of routing through it"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -41,17 +45,31 @@ concurrency:
 env:
   TT_SUPPORT_TOOLS_REF: 01d5d2814fa9dd61e9d211e0b235a4a592a9316a
   PDK_ROOT: /home/runner/pdk
+  PDK_CACHE_KEY: nano-tt-area-sky130-pdk-librelane-3.0.5
 
 jobs:
   harden:
     name: harden (little-cpu-runners, no docker)
     runs-on: little-cpu-runners
-    timeout-minutes: 120
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Record job start
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      # Both the harden step and the summary step need this in the same words, so it is
+      # resolved once here rather than each re-deriving it from `inputs.` -- a boolean
+      # input reads as the string "false", which `||` treats as unset rather than as no.
+      - name: Resolve the stop-after-synthesis mode
+        env:
+          NANO_TT_STOP_AFTER_SYNTHESIS_INPUT: ${{ inputs.stop_after_synthesis }}
+        run: |
+          if [ "$NANO_TT_STOP_AFTER_SYNTHESIS_INPUT" = "false" ]; then
+            echo "NANO_TT_STOP_AFTER_SYNTHESIS=0" >> "$GITHUB_ENV"
+          else
+            echo "NANO_TT_STOP_AFTER_SYNTHESIS=1" >> "$GITHUB_ENV"
+          fi
 
       - name: Resolve librelane-env's toolchain
         run: |
@@ -69,10 +87,10 @@ jobs:
           path: tt
 
       - name: Restore the sky130 PDK
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ env.PDK_ROOT }}
-          key: nano-tt-area-sky130-pdk-librelane-3.0.5
+          key: ${{ env.PDK_CACHE_KEY }}
 
       - name: Set the requested tile size in info.yaml
         env:
@@ -91,6 +109,7 @@ jobs:
       - name: Create the LibreLane user config, then set SYNTH_STRATEGY
         env:
           NANO_TT_STRATEGY: ${{ inputs.synth_strategy || 'AREA 0' }}
+          NANO_TT_DISALLOW_CONGESTION: ${{ inputs.disallow_congestion && '1' || '0' }}
         run: |
           librelane-env bash -c '
             set -euo pipefail
@@ -111,13 +130,13 @@ jobs:
           with open("src/config_merged.json") as f:
               config = json.load(f)
           config["SYNTH_STRATEGY"] = strategy
+          if os.environ["NANO_TT_DISALLOW_CONGESTION"] == "1":
+              config["GRT_ALLOW_CONGESTION"] = 0
           with open("src/config_merged.json", "w") as f:
               json.dump(config, f, indent=2)
           PYEOF
 
       - name: Harden with LibreLane, no Docker
-        env:
-          NANO_TT_STOP_AFTER_SYNTHESIS: ${{ inputs.stop_after_synthesis == false && '0' || '1' }}
         run: |
           librelane-env bash -c '
             set -euo pipefail
@@ -142,15 +161,32 @@ jobs:
             fi
           '
 
+      # Placed right after the step that resolves the PDK (LibreLane fetches it into
+      # PDK_ROOT on demand) rather than at the end of the job: `if: always()` steps still
+      # run after this job's timeout cancels it, but the PDK the harden step downloaded
+      # is what a re-run should not have to fetch again either way.
+      - name: Save the sky130 PDK
+        if: always()
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.PDK_ROOT }}
+          key: ${{ env.PDK_CACHE_KEY }}
+
       - name: Report peak memory and job wall time
         if: always()
         run: |
           elapsed=$(( $(date +%s) - JOB_START ))
+          if [ "$NANO_TT_STOP_AFTER_SYNTHESIS" = "1" ]; then
+            stop_after_synthesis_report=true
+          else
+            stop_after_synthesis_report=false
+          fi
           {
             echo "### nano-tt-area harden (self-hosted)"
             echo "strategy: ${{ inputs.synth_strategy || 'AREA 0' }}"
             echo "tiles: ${{ inputs.tiles || '2x2' }}"
-            echo "stop after synthesis: ${{ inputs.stop_after_synthesis || 'true' }}"
+            echo "stop after synthesis: $stop_after_synthesis_report"
+            echo "disallow congestion: ${{ inputs.disallow_congestion || 'false' }}"
             echo "wall time: ${elapsed}s"
             if [ -r /sys/fs/cgroup/memory.peak ]; then
               echo "cgroup memory.peak: $(cat /sys/fs/cgroup/memory.peak) bytes"
@@ -159,7 +195,9 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Collect the stats the local flow is compared against
+      # A cancelled or failed run is exactly the case the earlier single-file copy
+      # missed reports for, so this walks every step directory rather than naming one.
+      - name: Collect the run directory's reports and logs
         if: always()
         run: |
           mkdir -p spike-stats
@@ -167,6 +205,16 @@ jobs:
           for d in runs/wokwi/*-yosys-synthesis; do
             cp "$d/reports/stat.rpt" spike-stats/synthesis-stats.txt 2>/dev/null || true
           done
+          while IFS= read -r -d '' report_dir; do
+            dest="spike-stats/${report_dir#runs/wokwi/}"
+            mkdir -p "$dest"
+            cp -r "$report_dir"/. "$dest"/ 2>/dev/null || true
+          done < <(find runs/wokwi -type d -name reports 2>/dev/null -print0)
+          while IFS= read -r -d '' log_file; do
+            dest="spike-stats/${log_file#runs/wokwi/}"
+            mkdir -p "$(dirname "$dest")"
+            cp "$log_file" "$dest" 2>/dev/null || true
+          done < <(find runs/wokwi -maxdepth 2 -name '*.log' 2>/dev/null -print0)
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
