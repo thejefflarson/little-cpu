@@ -663,7 +663,7 @@ control: a model file OUTSIDE isa_rv32imc.txt is not one this check can see
 control: a moved, settled upstream with no branch here proceeds
 control: a netlist digests, and the digest is a sha256
 control: a nextpnr that wrote its pair is graded, exit 1 and all
-control: a one-retire floor is F+1, not F+G+1
+control: a one-retire floor is F+2, not F+G+2
 control: a passing suite against an empty baseline is green
 control: a peripheral above the reserved span is accepted
 control: a pin whose sources match checks OK

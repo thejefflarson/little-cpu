@@ -63,10 +63,10 @@ complete-cover-probe: complete-cover-probe.py ../../formal/depth_rules.py comple
 .PHONY: dmemcheck-cover-probe imemcheck-cover-probe
 dmemcheck-cover-probe: ../../formal/memcheck-cover-probe.py dmemcheck.sv dmemcheck_cover.sby \
                        ../nano.v | $(RISCV_FORMAL_DIR)
-	python3 $< --harness nano/formal --check dmemcheck
+	python3 $< --harness nano/formal --check dmemcheck --workdir memcheck-cover-probe/dmemcheck
 imemcheck-cover-probe: ../../formal/memcheck-cover-probe.py imemcheck.sv imemcheck_cover.sby \
                        ../nano.v | $(RISCV_FORMAL_DIR)
-	python3 $< --harness nano/formal --check imemcheck
+	python3 $< --harness nano/formal --check imemcheck --workdir memcheck-cover-probe/imemcheck
 
 .PHONY: ill-e-probe
 ill-e-probe: ill-e-probe.py ill_e.sv ill_e.sby ../nano.v | $(RISCV_FORMAL_DIR)

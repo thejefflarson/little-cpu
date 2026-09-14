@@ -9,7 +9,7 @@ FLOOR_RE = re.compile(r"^#floor\s+(\S+)\s+(\S+)\s+(\S.*)$")
 DEPTH_RE = re.compile(r"^depth\s+(\d+)\s*$")
 
 # The whole vocabulary a `#floor` term may use.
-TERMS = ("F+1", "F+G", "F+G+1", "F+2G", "start+G", "trig+G")
+TERMS = ("F+1", "F+2", "F+G", "F+G+2", "F+2G", "start+G", "trig+G")
 
 def read_derived(path):
     """The `#derive` lines: {"F": 6, "G": 6}. Both are required, because every
@@ -73,8 +73,10 @@ def evaluate(term, derived, start, trig):
         return derived["F"] + 1
     if term == "F+G":
         return derived["F"] + derived["G"]
-    if term == "F+G+1":
-        return derived["F"] + derived["G"] + 1
+    if term == "F+2":
+        return derived["F"] + 2
+    if term == "F+G+2":
+        return derived["F"] + derived["G"] + 2
     if term == "F+2G":
         return derived["F"] + 2 * derived["G"]
     if term == "start+G":

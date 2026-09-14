@@ -78,6 +78,7 @@ module testbench (
   // Every retire at the watched halfword reports it.
   always_ff @(posedge clk) begin
     if (!reset && rvfi_valid && !shadow_stored) begin
+      cover(rvfi_pc_rdata == shadow_addr);
       if (rvfi_pc_rdata == shadow_addr)
         assert(rvfi_insn[15:0] == shadow_data);
       if (rvfi_insn[1:0] == 2'b11 && rvfi_pc_rdata + 2 == shadow_addr)
@@ -85,7 +86,6 @@ module testbench (
     end
   end
 
-  cover property (!reset && rvfi_valid && !shadow_stored && rvfi_pc_rdata == shadow_addr);
 
   littlecpu uut (
     .clk(clk),

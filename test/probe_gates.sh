@@ -5847,45 +5847,45 @@ CFG
   printf '%s' "$d"
 }
 
-d=$(mcd_fixture 13)
+d=$(mcd_fixture 14)
 probe "control: a depth exactly at the floor passes" 0 \
-  "depth 13 >= F+G+1 = 13 (F=6, G=6)" "$MCD $d dmemcheck.sby 2"
+  "depth 14 >= F+G+2 = 14 (F=6, G=6)" "$MCD $d dmemcheck.sby 2"
 
-d=$(mcd_fixture 12)
+d=$(mcd_fixture 13)
 probe "a depth one below the floor is red, naming F and G" 1 \
-  "depth 12 is below F+G+1 = 13 (F=6, G=6)" "$MCD $d dmemcheck.sby 2"
+  "depth 13 is below F+G+2 = 14 (F=6, G=6)" "$MCD $d dmemcheck.sby 2"
 
-d=$(mcd_fixture 7)
-probe "control: a one-retire floor is F+1, not F+G+1" 0 \
-  "depth 7 >= F+1 = 7 (F=6, G=6)" "$MCD $d dmemcheck.sby 1"
+d=$(mcd_fixture 8)
+probe "control: a one-retire floor is F+2, not F+G+2" 0 \
+  "depth 8 >= F+2 = 8 (F=6, G=6)" "$MCD $d dmemcheck.sby 1"
 
 d=$(new_case)
 probe "a harness directory with no checks.cfg is named, not measured as empty" 1 \
   "does not exist" "$MCD $d dmemcheck.sby 2"
 
-d=$(mcd_fixture 13)
+d=$(mcd_fixture 14)
 probe "a named .sby that does not exist is refused" 1 \
   "does not exist" "$MCD $d missing.sby 2"
 
-d=$(mcd_fixture 13); printf 'mode bmc\n' > "$d/dmemcheck.sby"
+d=$(mcd_fixture 14); printf 'mode bmc\n' > "$d/dmemcheck.sby"
 probe "a missing depth line in the .sby stops rather than comparing nothing" 1 \
   "declares no \`depth NNN\` line" "$MCD $d dmemcheck.sby 2"
 
-d=$(mcd_fixture 13)
+d=$(mcd_fixture 14)
 probe "a <retires> argument that is not 1 or 2 is refused" 2 \
   "<retires> must be 1 or 2" "$MCD $d dmemcheck.sby 3"
 
 probe "wrong argument count is exit 2" 2 "usage:" "$MCD onearg"
 
-d=$(mcd_fixture 13 14)
+d=$(mcd_fixture 14 15)
 probe "a cover .sby deeper than its bmc sibling is red, not a deeper proof" 1 \
-  "depth 14 does not match" "$MCD $d dmemcheck.sby 2"
+  "depth 15 does not match" "$MCD $d dmemcheck.sby 2"
 
-d=$(mcd_fixture 13); rm "$d/dmemcheck_cover.sby"
+d=$(mcd_fixture 14); rm "$d/dmemcheck_cover.sby"
 probe "a memcheck with no cover sibling has an untied depth, and is red" 1 \
   "does not exist, so its anti-vacuity depth is untied" "$MCD $d dmemcheck.sby 2"
 
-d=$(mcd_fixture 13); printf 'mode cover\n' > "$d/dmemcheck_cover.sby"
+d=$(mcd_fixture 14); printf 'mode cover\n' > "$d/dmemcheck_cover.sby"
 probe "a cover .sby with no depth line is untied the same way its bmc sibling is" 1 \
   "declares no \`depth NNN\` line" "$MCD $d dmemcheck.sby 2"
 

@@ -77,10 +77,10 @@ imemcheck_cover: imemcheck_cover.sby imemcheck.sv arbiter.v imemcheck-cover-prob
 .PHONY: dmemcheck-cover-probe imemcheck-cover-probe
 dmemcheck-cover-probe: memcheck-cover-probe.py dmemcheck.sv dmemcheck_cover.sby arbiter.v \
                        $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
-	python3 $< --harness formal --check dmemcheck
+	python3 $< --harness formal --check dmemcheck --workdir memcheck-cover-probe/dmemcheck
 imemcheck-cover-probe: memcheck-cover-probe.py imemcheck.sv imemcheck_cover.sby arbiter.v \
                        $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
-	python3 $< --harness formal --check imemcheck
+	python3 $< --harness formal --check imemcheck --workdir memcheck-cover-probe/imemcheck
 
 pcloop_cover: pcloop_cover.sby pcloop.sv ../rtl/fetcher.v ../rtl/decoder.v ../rtl/regsel.v \
               ../rtl/structs.v

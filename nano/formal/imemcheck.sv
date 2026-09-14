@@ -37,7 +37,8 @@ module testbench (
     `RVFI_CONN
   );
 
-  cover property (!reset && rvfi_valid && rvfi_pc_rdata == imem_addr);
+  always_ff @(posedge clk)
+    if (!reset) cover(rvfi_valid && rvfi_pc_rdata == imem_addr);
 
   // Holds only while the watched halfword is never stored to: imem_data is a
   // rand_const fixed for the whole trace, so a store there goes unnoticed.

@@ -5,10 +5,11 @@ the same harness's checks.cfg #derive lines (F, G).
 dmemcheck.sby and imemcheck.sby are not genchecks-generated, so
 genchecks-audit.py's [depth] floors never see them; this is that same
 discipline, read independently. A one-retire property (imemcheck's: the
-watched address's own retire carries the right word) floors at F+1, hang's own
-reasoning -- the worst-case first retire, plus the cycle the assertion is
-checked on. A two-retire property (dmemcheck's: a store, then a matching load)
-floors at F+G+1 -- the second retire's own worst-case gap on top of the first.
+watched address's own retire carries the right word) floors at F+2, and a
+two-retire property (dmemcheck's: a store, then a matching load) at F+G+2. F
+and G are step indices read off generated checks whose scripts end in
+`chformal -early`; these scripts do not run it, so the checker's clocked assert
+fires the step AFTER the retire it reads, and a depth counts steps from zero.
 
 Also ties <sby-file>_cover.sby (its mode cover anti-vacuity control) to the
 same depth: complete-cover-probe.py grades that tie for complete_cover by
@@ -51,7 +52,7 @@ def main():
         print(f"error: {sby_path} declares no `depth NNN` line to grade.", file=sys.stderr)
         return 1
 
-    label = "F+1" if retires == "1" else "F+G+1"
+    label = "F+2" if retires == "1" else "F+G+2"
     floor = depth_rules.evaluate(label, derived, start=None, trig=None)
 
     if depth < floor:

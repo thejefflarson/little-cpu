@@ -2,9 +2,9 @@
 mode bmc
 append 0
 tbtop testbench.uut
-# Two retires -- a store, then a matching load -- floor at F+G+1 = 12+10+1 = 23
-# against checks.cfg's own #derive lines; check-memcheck-depth.py grades it.
-depth 23
+# A store, then a matching load, then the step the checker's clocked assert fires:
+# F+G+2 = 24 against checks.cfg's #derive lines; check-memcheck-depth.py grades it.
+depth 24
 
 [engines]
 smtbmc --presat --unroll boolector
