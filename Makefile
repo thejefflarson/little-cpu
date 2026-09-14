@@ -429,6 +429,10 @@ pin-bump-token-test:
 compare-product-schedule-token-test:
 	@python3 ./test/compare_product_schedule_token_test.py
 
+.PHONY: compare-product-schedule-publish-test
+compare-product-schedule-publish-test:
+	@python3 ./test/compare_product_schedule_publish_test.py
+
 .PHONY: tool-cache-test
 tool-cache-test:
 	@./test/tool_cache_test.sh '$(SAIL_RISCV_DIR)' '$(SVLINT_DIR)' '$(SAIL_DOWNLOAD_DIR)' '$(NANO_LIBERTY_DIR)'
@@ -550,6 +554,13 @@ window-test:
 imem-share-test:
 	@./test/imem_share_test.sh
 
+.PHONY: memcheck-depth-test
+memcheck-depth-test:
+	@python3 ./formal/check-memcheck-depth.py formal dmemcheck.sby 2
+	@python3 ./formal/check-memcheck-depth.py formal imemcheck.sby 1
+	@python3 ./formal/check-memcheck-depth.py nano/formal dmemcheck.sby 2
+	@python3 ./formal/check-memcheck-depth.py nano/formal imemcheck.sby 1
+
 .PHONY: abc-engine-test
 abc-engine-test:
 	@./formal/test-abc-engine.sh
@@ -571,10 +582,10 @@ dual-build:
 
 .PHONY: test
 test: sim test-units probe-gates pin-bump-test pin-bump-token-test \
-      compare-product-schedule-token-test tool-cache-test memmap-test \
+      compare-product-schedule-token-test compare-product-schedule-publish-test tool-cache-test memmap-test \
       adr-numbering-test compare-geometry-test vexriscv-path-test retired-term-test port-connect-test march-test \
       band-source-test zkt-isolation-test fixture-freshness-test window-test imem-share-test \
-      abc-engine-test makefile-target-test mutation-probe dual-build board-elaborate \
+      memcheck-depth-test abc-engine-test makefile-target-test mutation-probe dual-build board-elaborate \
       tracked-ignored-test mutation-coverage-test comment-density-test lut4-site-test \
       pll-clock-test ill-e-wiring-test probes-header-test dhry-board-parity-test nano-test \
       nano-exec-test nano-startup-test macro-register-test nano-littlecpu-test \
@@ -1213,7 +1224,7 @@ prog: board.bin
 	  echo '*** `make setup` caches -- put its bin/ first on PATH.'; \
 	  exit 1; \
 	}
-	@echo 'Flashing $(BOARD). On macOS this needs root -- see the comment above.'
+	@echo 'Flashing $(BOARD). On macOS this needs root -- see docs/flashing-the-upduino.md.'
 	$(ICEPROG_SUDO) iceprog $(if $(ICEPROG_DEV),-d '$(ICEPROG_DEV)') board.bin
 
 DUAL_SRCS := $(DUAL_RTL_SRCS) rtl/littledualsoc.v

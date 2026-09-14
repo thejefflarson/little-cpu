@@ -39,16 +39,34 @@ check-baseline: ../../formal/check-baseline.sh EXPECTED_FAIL EXPECTED_CHECKS
 check-solver-%: FORCE
 	@../../mk/check-solvers.sh $*
 
-dmemcheck: dmemcheck.sby dmemcheck.sv ../nano.v | $(RISCV_FORMAL_DIR)
-imemcheck: imemcheck.sby imemcheck.sv ../nano.v | $(RISCV_FORMAL_DIR)
+.PHONY: memcheck-depth
+memcheck-depth: ../../formal/check-memcheck-depth.py ../../formal/depth_rules.py checks.cfg \
+                dmemcheck.sby imemcheck.sby
+	python3 ../../formal/check-memcheck-depth.py . dmemcheck.sby 2
+	python3 ../../formal/check-memcheck-depth.py . imemcheck.sby 1
+
+dmemcheck: dmemcheck.sby dmemcheck.sv ../nano.v memcheck-depth | $(RISCV_FORMAL_DIR)
+imemcheck: imemcheck.sby imemcheck.sv ../nano.v memcheck-depth | $(RISCV_FORMAL_DIR)
 complete:  complete.sby  complete.sv  ../nano.v | $(RISCV_FORMAL_DIR)
 complete_cover: complete_cover.sby complete.sv ../nano.v complete-cover-probe | $(RISCV_FORMAL_DIR)
 ill_e: ill_e.sby ill_e.sv ../nano.v ill-e-probe | $(RISCV_FORMAL_DIR)
 ill_e_cover: ill_e_cover.sby ill_e.sv ../nano.v | $(RISCV_FORMAL_DIR)
 
+dmemcheck_cover: dmemcheck_cover.sby dmemcheck.sv ../nano.v dmemcheck-cover-probe | $(RISCV_FORMAL_DIR)
+imemcheck_cover: imemcheck_cover.sby imemcheck.sv ../nano.v imemcheck-cover-probe | $(RISCV_FORMAL_DIR)
+
 .PHONY: complete-cover-probe
-complete-cover-probe: complete-cover-probe.py complete.sv complete_cover.sby ../nano.v | $(RISCV_FORMAL_DIR)
+complete-cover-probe: complete-cover-probe.py ../../formal/depth_rules.py complete.sv \
+                      complete_cover.sby complete.sby ../nano.v | $(RISCV_FORMAL_DIR)
 	python3 $<
+
+.PHONY: dmemcheck-cover-probe imemcheck-cover-probe
+dmemcheck-cover-probe: ../../formal/memcheck-cover-probe.py dmemcheck.sv dmemcheck_cover.sby \
+                       ../nano.v | $(RISCV_FORMAL_DIR)
+	python3 $< --harness nano/formal --check dmemcheck --workdir memcheck-cover-probe/dmemcheck
+imemcheck-cover-probe: ../../formal/memcheck-cover-probe.py imemcheck.sv imemcheck_cover.sby \
+                       ../nano.v | $(RISCV_FORMAL_DIR)
+	python3 $< --harness nano/formal --check imemcheck --workdir memcheck-cover-probe/imemcheck
 
 .PHONY: ill-e-probe
 ill-e-probe: ill-e-probe.py ill_e.sv ill_e.sby ../nano.v | $(RISCV_FORMAL_DIR)
@@ -67,6 +85,8 @@ remeasure-fg: ../../formal/remeasure-fg.py ../../formal/depth_rules.py checks.cf
 clean:
 	rm -rf checks complete complete_cover dmemcheck imemcheck fg-probe fg-probe.cfg
 	rm -rf complete-cover-probe ill_e ill_e_cover ill-e-probe
+	rm -rf dmemcheck_cover imemcheck_cover memcheck-cover-probe
 
 .PHONY: all clean
-all: check dmemcheck imemcheck complete complete_cover ill_e ill_e_cover check-rvfi-insn-check
+all: check dmemcheck imemcheck dmemcheck_cover imemcheck_cover complete complete_cover \
+     ill_e ill_e_cover check-rvfi-insn-check

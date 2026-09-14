@@ -50,6 +50,16 @@ module testbench (
       assume(dmem_data == mem_rdata);
   end
 
+  // Reaches checker_inst's clocked assert guard, a write to dmem_addr then a later
+  // read of it, on the step that assert is checked.
+  logic dmem_touched = 1'b0;
+  always_ff @(posedge clk) begin
+    if (!reset && rvfi_valid && rvfi_mem_addr == dmem_addr && |rvfi_mem_wmask)
+      dmem_touched <= 1'b1;
+    if (!reset)
+      cover(rvfi_valid && dmem_touched && rvfi_mem_addr == dmem_addr && |rvfi_mem_rmask);
+  end
+
   riscv uut (
     .clk(clk),
     .reset(reset),
