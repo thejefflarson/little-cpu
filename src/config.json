@@ -1,10 +1,8 @@
 {
   "//": "Tiny Tapeout's own template default (2.4.2), with CLOCK_PERIOD at 15.625ns",
-  "//": "(64 MHz, the nanocpu brief's target clock) and PL_TARGET_DENSITY_PCT raised from",
-  "//": "the template's 60 to 70, MichaelBell/tt10-tinyQV's accepted multi-tile RISC-V",
-  "//": "submission's own value -- everything else here is upstream's.",
+  "//": "(64 MHz, the nanocpu brief's target clock) -- everything else here is upstream's.",
 
-  "PL_TARGET_DENSITY_PCT": 70,
+  "PL_TARGET_DENSITY_PCT": 60,
 
   "CLOCK_PERIOD": 15.625,
 
