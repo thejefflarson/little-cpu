@@ -6,9 +6,10 @@ import re
 
 DERIVE_RE = re.compile(r"^#derive\s+([FG])\s+(\d+)\s*(\S.*)?$")
 FLOOR_RE = re.compile(r"^#floor\s+(\S+)\s+(\S+)\s+(\S.*)$")
+DEPTH_RE = re.compile(r"^depth\s+(\d+)\s*$")
 
 # The whole vocabulary a `#floor` term may use.
-TERMS = ("F+1", "F+G", "F+2G", "start+G", "trig+G")
+TERMS = ("F+1", "F+G", "F+G+1", "F+2G", "start+G", "trig+G")
 
 def read_derived(path):
     """The `#derive` lines: {"F": 6, "G": 6}. Both are required, because every
@@ -53,6 +54,17 @@ def read_floors(path):
             floors[family] = (terms, reason.strip())
     return floors
 
+def read_sby_depth(path):
+    """The `depth NNN` a .sby's [options] section declares, or None if it states
+    none -- dmemcheck.sby/imemcheck.sby's own depth, read the way checks/*.sby's
+    RISCV_FORMAL_CHECK_CYCLE is read for the genchecks-generated family."""
+    with open(path) as f:
+        for line in f:
+            match = DEPTH_RE.match(line.strip())
+            if match:
+                return int(match.group(1))
+    return None
+
 def evaluate(term, derived, start, trig):
     """One term's lower bound on a check's CHECK cycle."""
     if term.isdigit():
@@ -61,6 +73,8 @@ def evaluate(term, derived, start, trig):
         return derived["F"] + 1
     if term == "F+G":
         return derived["F"] + derived["G"]
+    if term == "F+G+1":
+        return derived["F"] + derived["G"] + 1
     if term == "F+2G":
         return derived["F"] + 2 * derived["G"]
     if term == "start+G":

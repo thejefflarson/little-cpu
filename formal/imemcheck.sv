@@ -85,6 +85,8 @@ module testbench (
     end
   end
 
+  cover property (!reset && rvfi_valid && !shadow_stored && rvfi_pc_rdata == shadow_addr);
+
   littlecpu uut (
     .clk(clk),
     .reset(reset),

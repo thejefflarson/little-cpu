@@ -71,6 +71,8 @@ module rvfi_testbench (
 
   wire       insn_uncompressed = rvfi_insn[1:0] == 2'b11;
   wire [6:0] insn_opcode       = rvfi_insn[6:0];
+  wire [6:0] insn_funct7       = rvfi_insn[31:25];
+  wire       insn_is_m         = insn_opcode == 7'b0110011 && insn_funct7 == 7'b0000001;
 
   wire complete_live = !reset && rvfi_valid && !rvfi_trap;
   cover property (complete_live && insn_uncompressed && insn_opcode == 7'b0000011); // LOAD
@@ -85,4 +87,7 @@ module rvfi_testbench (
   cover property (complete_live && rvfi_insn[1:0] == 2'b00);                        // RVC quadrant 0
   cover property (complete_live && rvfi_insn[1:0] == 2'b01);                        // RVC quadrant 1
   cover property (complete_live && rvfi_insn[1:0] == 2'b10);                        // RVC quadrant 2
+  // Reached only under RISCV_FORMAL_ALTOPS: without it, nano's real multiplier and
+  // divider retire far past complete's own depth, so this walk never checked one.
+  cover property (complete_live && insn_uncompressed && insn_is_m);                 // OP-M
 endmodule

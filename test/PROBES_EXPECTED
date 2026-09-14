@@ -49,6 +49,7 @@ TOOLS_ON_PATH stops the real tools shadowing a fixture's stubs
 a --field naming a key the schema already reserves is refused
 a --measured call with no --isa is refused the same way as a missing --cflags
 a --measured call with no --tool is refused rather than stamping an unknown toolchain
+a <retires> argument that is not 1 or 2 is refused
 a C floor copied out of the measured table is rejected, not honoured
 a CFLAGS change with no rtl/ or soc/compare/ move is STALE too, named by field
 a CoreMark RAM comparison over no words is named as unable to fail
@@ -149,6 +150,8 @@ a core under the step FAILS rather than scoring a fraction
 a core yosys folded away is red, not a fast design
 a cosim.py that cannot be executed stops the run
 a count that is not a number stops rather than summing to nonsense
+a cover .sby deeper than its bmc sibling is red, not a deeper proof
+a cover .sby with no depth line is untied the same way its bmc sibling is
 a cover red for some other goal says nothing about the lock
 a cover red for some other goal says nothing about the lock
 a cover the shipping arbiter cannot reach is red before any mutation
@@ -165,6 +168,8 @@ a declared harness that does not tie the input off is red
 a declared port littlecpu does not have is red
 a declared-but-unwired exclusion over-reports the restriction
 a decoder.v that does not exist is exit 2, not a vacuous pass
+a depth line this cannot parse leaves the tie unenforced, so it stops instead
+a depth one below the floor is red, naming F and G
 a design entry missing area/num_cells/by_type is refused, not read as what is left
 a design that MET the target has measured the target
 a differing value is a divergence, located by change index
@@ -209,6 +214,7 @@ a generated .sby whose reset window drifted from what the core's sweep asked for
 a generated check that was never scheduled resolves to NO-STATUS
 a generation that produced no checks at all is refused
 a generator whose checker path no longer matches is refused, not read as a redirected set
+a goal reached at or beyond complete's own depth is red
 a graded target quietly depending on netlist-digest is red, and named
 a graph with no edges out of reg_rs1 is red, not a vacuous pass
 a grep exit of 2 or more is a real error, not `|| true`'s silent no-match
@@ -218,6 +224,7 @@ a hand-drifted fork is red, and its residual diff is printed
 a hand-edited pin that no longer parses is as invalid as unwritten
 a hand-typed fixture is red on an unquoted heredoc delimiter too
 a hand-typed fixture with no anchor and no cp of a real file is red
+a harness directory with no checks.cfg is named, not measured as empty
 a harness directory with no checks.cfg is named, not measured as empty
 a harness that is red at rest makes the two mutations meaningless
 a harness that is red at rest makes the two mutations meaningless
@@ -253,6 +260,7 @@ a malformed baseline line is named rather than skipped
 a malformed baseline line is named rather than skipped
 a malformed manifest line is red under --strict, not a silent pass
 a manifest entry that names no program is a typo, not a phantom
+a memcheck with no cover sibling has an untied depth, and is red
 a mid-word # does not hide a real sed -i after it
 a missing PLL file is refused rather than read as agreement
 a missing Sail install stops the run rather than scoring it
@@ -263,6 +271,7 @@ a missing bitwuzla is refused by name before sby ever runs
 a missing btorsim is refused by name before formal's own sweep runs
 a missing btorsim is refused by name before nano's own sweep runs
 a missing checks.cfg is refused rather than read as not-live
+a missing depth line in the .sby stops rather than comparing nothing
 a missing liberty file is refused before the JSON is even opened
 a missing parser stops the run rather than grading with a second one
 a missing ramdiff for the SECOND CoreMark core is red, not silently skipped
@@ -293,6 +302,7 @@ a mutated vendored byte fails the pin, and says so
 a mutation line with a stray extra field is red rather than read as the name
 a mutation with no program leg is a real entry, not a missing file
 a name defined twice is checked at both definitions, not just the last
+a named .sby that does not exist is refused
 a nano [depth] entry lowered below its own floor fails generation, not just the baseline diff
 a nested helper's own closing brace does not end the outer fixture early
 a netlist from another tree is named, not binned as `neither`
@@ -389,6 +399,7 @@ a report with no routing hop in it is a failed read, not a wired design
 a report with no utilisation table is missing half the measurement
 a respelled address arm stops rather than proving the shipping core
 a respelled anchor stops rather than pinning nothing
+a respelled anchor stops rather than pinning nothing
 a respelled cause comparison stops rather than pinning nothing
 a respelled constant-latency assertion stops rather than pinning nothing
 a respelled divide case item stops the same way
@@ -429,6 +440,7 @@ a seed clearing SOC_MIN_MHZ by under 5% is refused, not pinned
 a semicolon in the liberty path stays inside its own quoted token
 a shard spec that is not <i>/<n> is refused before anything runs
 a shipping core that fails ill_e is red before any mutant runs
+a shipping harness that cannot reach its own cover goal is red
 a shipping harness that cannot reach its own goals is red
 a signal in scope only in an earlier module stops it too
 a simulated ROM smaller than the part's is red
@@ -439,6 +451,7 @@ a slice that selects no checks is an error, not an empty success
 a soc/compare script naming no .lds at all does not sink the scan
 a soc/compare/ change since the stamp's base is STALE, and the file is named
 a solo run needs no ramdiff line -- there is no reference to compare
+a solver that wrote no verdict is exit 2, not a red arm
 a solver that wrote no verdict is exit 2, not a red arm
 a solver that wrote no verdict is exit 2, not a red arm
 a solver that wrote no verdict is exit 2, not a red arm
@@ -518,6 +531,7 @@ an allow-listed sed -i that no longer appears anywhere is red too
 an anti-vacuity cover that cannot go red is not a control
 an anti-vacuity cover that cannot go red is not a control
 an anti-vacuity cover that cannot go red is not a control
+an anti-vacuity cover that cannot go red is not a control
 an arm that admits a fault the core never commits is red
 an arm that admits a zero where the faulting word belongs is red
 an arm that admits rs1 where the effective address belongs is red
@@ -532,6 +546,7 @@ an empty manifest matches an empty suite and is rejected
 an empty netlist is a synthesis that wrote nothing
 an empty part table synthesises nothing, so it is refused
 an empty seed list stops the sweep instead of placing the default
+an empty status file is refused rather than read as a verdict
 an empty status file is refused rather than read as a verdict
 an empty status file is refused rather than read as a verdict
 an empty status file is refused rather than read as a verdict
@@ -617,6 +632,7 @@ boot.lds putting the stack back at the top of ram is red
 branch_taken carrying reg_rs1/reg_rs2 into hazard is red
 columns that do not add up blame the report, not the core
 columns that no longer add up to the cycle count are red
+complete.sby moving away leaves the depth tie with nothing to read
 components_executor still lists check-solver-bitwuzla as a prerequisite
 control: .PHONY declaring netlist-digest is not a dependency edge
 control: RISCV_FORMAL_E is not yet wired, so there is nothing to check it against
@@ -631,6 +647,7 @@ control: a baselined red check at the baselined status is green
 control: a complete --measured call writes a valid pair
 control: a core over the step passes and is compared on cycles
 control: a count matching the declaration is green
+control: a depth exactly at the floor passes
 control: a derived part states both figures and names itself
 control: a deterministic placer and a forgiven mutant pass
 control: a file within the comment-density budget is not reported
@@ -646,6 +663,7 @@ control: a model file OUTSIDE isa_rv32imc.txt is not one this check can see
 control: a moved, settled upstream with no branch here proceeds
 control: a netlist digests, and the digest is a sha256
 control: a nextpnr that wrote its pair is graded, exit 1 and all
+control: a one-retire floor is F+1, not F+G+1
 control: a passing suite against an empty baseline is green
 control: a peripheral above the reserved span is accepted
 control: a pin whose sources match checks OK
@@ -699,9 +717,13 @@ control: fixture_anchor finds its literal in the real file
 control: formal/Makefile also puts the cached suite first
 control: icetime whose chip database resolves is stamped like any tool
 control: identical register traces and verdicts AGREE
+control: littlecpu's dmemcheck reaches its goal and the stalled-bus mutant does not
+control: littlecpu's imemcheck reaches its goal and the stalled-bus mutant does not
 control: mutate on a real match rewrites the file and returns 0
 control: mutate_remove deletes a file that is there
 control: nano's declared fork redirects every generated insn_* check
+control: nano's dmemcheck reaches its goal and the stalled-bus mutant does not
+control: nano's imemcheck reaches its goal and the stalled-bus mutant does not
 control: nano's own suite is graded the same way, and it is green
 control: nano's real divider defect is a baselined green, not a hidden one
 control: nano's startup check is graded the same way, and it is green
@@ -798,6 +820,7 @@ no harness-directory argument is a usage error, not a silent default
 no named source at all is reported, and is not a failure
 no placer on PATH is refused the same way
 no programs at all would report a clean 0 of 0
+no riscv-formal checkout is exit 2 here too, not a probe against nothing
 no riscv-formal checkout is exit 2, not a probe against nothing
 no riscv-formal checkout is exit 2, not an ill_e probe against nothing
 no standalone count leaves nothing to compare against
@@ -847,6 +870,7 @@ the Makefile and test/cosim.py drifting apart is red
 the REPORT goes too, which .DELETE_ON_ERROR cannot do for a non-target
 the ROM image built to a different size than the ROM is red
 the RTL moving away takes the ill_e probe with it, loudly
+the RTL moving away takes the probe with it, loudly
 the RTL moving away takes the probe with it, loudly
 the RTL moving away takes the probe with it, loudly
 the RTL moving away takes the probe with it, loudly
@@ -925,6 +949,7 @@ the same for the bypass counter, per program rather than in total
 the same path repeated on one line is not a second copy
 the sby script moving away takes the ill_e probe with it, loudly
 the sby script moving away takes the probe with it, loudly
+the sby script moving away takes the probe with it, loudly
 the second header is scanned too, not just test_macros.h
 the stale ISA name coming back in a formal harness comment is red
 the suite's shape is asserted before a single program is assembled
@@ -963,6 +988,7 @@ wrong argument count is a usage error
 wrong argument count is a usage error
 wrong argument count is a usage error, not a silent pass
 wrong argument count is a usage error, not a silent pass
+wrong argument count is exit 2
 wrong argument count is exit 2
 wrong argument count is exit 2
 wrong argument count is exit 2

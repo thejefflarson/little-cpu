@@ -18,6 +18,10 @@ state, rvfi_valid never rises, and every cover property in complete.sv must go
 unreached. The unmutated harness is not built here: it is what
 `make -C nano/formal complete_cover` proves, and this file is a prerequisite of it.
 
+It also ties complete_cover's depth to complete's: a goal complete_cover proves
+reachable only at or after complete.sby's own `depth` is a retire `complete` (mode
+bmc) never actually examines, so reaching one there is red too.
+
 NOT HERMETIC -- it runs sby, up to twice. So it is a prerequisite of
 `make -C nano/formal complete_cover` rather than of `make test`, the same reason
 pcloop_cover and traps-region-probe are: a control that can be run separately from the
@@ -32,12 +36,20 @@ import shutil
 import subprocess
 import sys
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent / "formal"))
+import depth_rules
+
 COVER_LINE = re.compile(r"^\s*cover property \(")
 # sby names a cover statement by a SOURCE RANGE -- `complete.sv:<line>.<col>-<line>.<col>`
 # -- whose start sits on the line BEFORE the statement. Both sets below are read with this
 # one pattern, so whatever convention sby uses cancels out of the comparison.
 COVER_SITE = re.compile(
     r"(?P<un>[Uu]n)?[Rr]eached cover statement.*?complete\.sv:(?P<site>[\d.]+-[\d.]+)"
+)
+# The per-step log line, not the end-of-run summary -- it names the step a site was
+# FIRST reached at, which is what a depth floor has to bound.
+STEP_SITE = re.compile(
+    r"Reached cover statement in step (?P<step>\d+).*?complete\.sv:(?P<site>[\d.]+-[\d.]+)"
 )
 
 # Grown in place rather than inserted as a new line: every cover property below is
@@ -49,6 +61,19 @@ def stop(message):
     """Exit 2: the probe's own inputs are broken, which is not a red proof."""
     print(f"error: {message}", file=sys.stderr)
     sys.exit(2)
+
+
+def read_complete_depth(repo):
+    """complete.sby's own `depth NNN` -- the last step `complete` (mode bmc) ever
+    examines. Read from the repo directly: complete.sby is not itself mutated by
+    either case this file builds."""
+    sby = repo / "nano" / "formal" / "complete.sby"
+    if not sby.is_file():
+        stop(f"{sby} is missing, so there is no depth to tie complete_cover to.")
+    depth = depth_rules.read_sby_depth(sby)
+    if depth is None:
+        stop(f"{sby} declares no `depth NNN` line.")
+    return depth
 
 
 def cover_lines(complete_sv):
@@ -107,9 +132,11 @@ def run_case(repo, workdir, sby, case, complete_sv):
     if not status:
         stop(f"sby's status file for the {case} case is empty.")
     log = (nano_formal / "complete_cover" / "logfile.txt").read_text()
-    sites = {"reached": set(), "unreached": set()}
+    sites = {"reached": set(), "unreached": set(), "steps": {}}
     for m in COVER_SITE.finditer(log):
         sites["unreached" if m.group("un") else "reached"].add(m.group("site"))
+    for m in STEP_SITE.finditer(log):
+        sites["steps"][m.group("site")] = int(m.group("step"))
     return status[0], sites
 
 
@@ -158,6 +185,18 @@ def main():
     elif ship["unreached"]:
         red.append("the shipping harness reported PASS but still lists unreached goals "
                    f"{sorted(ship['unreached'])}.")
+
+    complete_depth = read_complete_depth(repo)
+    late = {site: step for site, step in ship["steps"].items() if step >= complete_depth}
+    print(f"depth tie: complete.sby depth {complete_depth}, "
+          f"latest goal step {max(ship['steps'].values(), default=-1)}")
+    if late:
+        red.append(
+            f"complete_cover reaches {sorted(late)} only at or after step "
+            f"{complete_depth}, complete.sby's own depth. `complete` (mode bmc) never\n"
+            "examines a retire that late, so this anti-vacuity evidence outruns the "
+            "check it is meant to back."
+        )
 
     status, mut = run_case(repo, workdir, args.sby, "stalled-bus", mutate(complete_sv))
     print(f"stalled-bus: {status}, unreached {len(mut['unreached'])} of {len(reached)} goals")

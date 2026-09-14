@@ -71,6 +71,15 @@ module testbench (
       assume(dmem_data == mem_rdata);
   end
 
+  // Reaches checker_inst's own assert guard: a write to dmem_addr, then a read of it.
+  logic dmem_touched = 1'b0;
+  always_ff @(posedge clk) begin
+    if (!reset && rvfi_valid && rvfi_mem_addr == dmem_addr && |rvfi_mem_wmask)
+      dmem_touched <= 1'b1;
+  end
+  cover property (!reset && rvfi_valid && dmem_touched &&
+                   rvfi_mem_addr == dmem_addr && |rvfi_mem_rmask);
+
   littlecpu uut (
     .clk(clk),
     .reset(reset),

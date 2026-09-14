@@ -12,7 +12,7 @@ endif
 
 all: complete complete_cover complete-exclusions interrupt-tie-off \
      multihart-tie-off check \
-     dmemcheck imemcheck \
+     dmemcheck imemcheck dmemcheck_cover imemcheck_cover \
      components_decoder components_executor components_accessor \
      components_pcloop components_traps components_busarbiter
 
@@ -60,9 +60,27 @@ remeasure-fg: remeasure-fg.py depth_rules.py genchecks-local.py checks.cfg check
               $(RTL_SOURCES) interrupt-tie-off multihart-tie-off | $(RISCV_FORMAL_DIR)
 	python3 $<
 
-dmemcheck: dmemcheck.sby dmemcheck.sv arbiter.v $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
-imemcheck: imemcheck.sby imemcheck.sv arbiter.v $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
+.PHONY: memcheck-depth
+memcheck-depth: check-memcheck-depth.py depth_rules.py checks.cfg dmemcheck.sby imemcheck.sby
+	python3 check-memcheck-depth.py . dmemcheck.sby 2
+	python3 check-memcheck-depth.py . imemcheck.sby 1
+
+dmemcheck: dmemcheck.sby dmemcheck.sv arbiter.v memcheck-depth $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
+imemcheck: imemcheck.sby imemcheck.sv arbiter.v memcheck-depth $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
 cover:     cover.sby     cover.sv     arbiter.v $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
+
+dmemcheck_cover: dmemcheck_cover.sby dmemcheck.sv arbiter.v dmemcheck-cover-probe \
+                 $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
+imemcheck_cover: imemcheck_cover.sby imemcheck.sv arbiter.v imemcheck-cover-probe \
+                 $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
+
+.PHONY: dmemcheck-cover-probe imemcheck-cover-probe
+dmemcheck-cover-probe: memcheck-cover-probe.py dmemcheck.sv dmemcheck_cover.sby arbiter.v \
+                       $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
+	python3 $< --harness formal --check dmemcheck
+imemcheck-cover-probe: memcheck-cover-probe.py imemcheck.sv imemcheck_cover.sby arbiter.v \
+                       $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
+	python3 $< --harness formal --check imemcheck
 
 pcloop_cover: pcloop_cover.sby pcloop.sv ../rtl/fetcher.v ../rtl/decoder.v ../rtl/regsel.v \
               ../rtl/structs.v
@@ -143,6 +161,7 @@ busarbiter-probe: busarbiter-probe.py busarbiter.sv ../rtl/busarbiter.v
 
 clean:
 	rm -rf checks complete complete_cover cover dmemcheck imemcheck components components_*
+	rm -rf dmemcheck_cover imemcheck_cover memcheck-cover-probe
 	rm -rf pcloop_cover busarbiter_cover fg-probe fg-probe.cfg
 	rm -rf region-probe tval-probe busarbiter-probe executor-zkt-probe
 	rm -rf $(RISCV_FORMAL_DIR) $(RISCV_FORMAL_DIR).tmp
