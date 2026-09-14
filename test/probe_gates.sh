@@ -222,6 +222,74 @@ STUB
   chmod +x "$1"
 }
 
+# Same protocol as make_nano_sim_stub, but reads a caller-chosen env var prefix so
+# nano_dual_leg_test.sh's two legs can be driven independently in one probe run.
+make_nano_dual_sim_stub() {  # $1 = path, $2 = env var prefix
+  local path=$1 prefix=$2
+  cat > "$path" <<STUB
+#!/bin/sh
+[ -z "\${${prefix}_NOCOUNTS:-}" ] && echo "RETIRES \${${prefix}_RETIRES:-10}"
+case \${${prefix}_EXIT:-0} in
+  0) echo "PASS" ;;
+  1) echo "FAIL 7" ;;
+  4) echo "RVFI monitor error 105 at cycle 12" >&2 ;;
+esac
+exit \${${prefix}_EXIT:-0}
+STUB
+  chmod +x "$path"
+}
+
+# Stands in for iverilog inside nano_x_probe.sh's fixtures: real compilation would need a
+# real cross compiler's hex output to mean anything, so this just succeeds having written
+# something to -o, and STUB_NANO_X_VVP decides what the paired vvp stub below prints.
+make_nano_x_iverilog_stub() {  # $1 = path
+  cat > "$1" <<'STUB'
+#!/bin/sh
+out=; prev=
+for a in "$@"; do
+  if [ "$prev" = "-o" ]; then out=$a; fi
+  prev=$a
+done
+[ -n "$out" ] && : > "$out"
+exit 0
+STUB
+  chmod +x "$1"
+}
+
+# Stands in for vvp: which image (shipping.vvp / mutant.vvp, off -o above) and which
+# program (off +ROM=.../<name>.rom.hex) decide the verdict; STUB_SHIP_RESULT,
+# STUB_STORE_CLEAN_RESULT, STUB_STORE_X_RESULT and STUB_MUT_RESULT override each one.
+make_nano_x_vvp_stub() {  # $1 = path
+  cat > "$1" <<'STUB'
+#!/bin/sh
+image=$1; shift
+program=
+for a in "$@"; do
+  case "$a" in
+    +ROM=*) program=$(basename "${a#+ROM=}" .rom.hex) ;;
+  esac
+done
+case "$image" in
+  *mutant*) result=${STUB_MUT_RESULT:-X} ;;
+  *)
+    case "$program" in
+      store_x)     result=${STUB_STORE_X_RESULT:-X} ;;
+      store_clean) result=${STUB_STORE_CLEAN_RESULT:-CLEAN} ;;
+      *)           result=${STUB_SHIP_RESULT:-CLEAN} ;;
+    esac
+    ;;
+esac
+if [ "$result" = X ]; then
+  echo "X reached a retiring instruction's RVFI fields at cycle 16"
+  echo "RETIRES 2"
+else
+  echo "PASS"
+  echo "RETIRES 7"
+fi
+STUB
+  chmod +x "$1"
+}
+
 make_cosim_py_stub() {  # $1 = path
   cat > "$1" <<'STUB'
 #!/bin/sh
@@ -364,9 +432,12 @@ make_cosim_bin_stub "$tmp/dut"
 cp "$HERE/run_tests.sh" "$HERE/check_suite_shape.sh" "$HERE/stall_report.py" "$tmp/leg-rt/"
 # nano/asm/run_nano_tests.sh finds test/check_suite_shape.sh two directories up from its
 # own path, the same way it finds it in the real tree, so the copy has to keep that shape.
-mkdir -p "$tmp/leg-nano/nano/asm" "$tmp/leg-nano/test"
+mkdir -p "$tmp/leg-nano/nano/asm" "$tmp/leg-nano/nano/tb" "$tmp/leg-nano/test"
 cp "$REPO/nano/asm/run_nano_tests.sh" "$tmp/leg-nano/nano/asm/"
+cp "$REPO/nano/tb/nano_dual_leg_test.sh" "$tmp/leg-nano/nano/tb/"
 cp "$HERE/check_suite_shape.sh" "$tmp/leg-nano/test/"
+make_nano_dual_sim_stub "$tmp/cxxrtl-sim" CXXSIM
+make_nano_dual_sim_stub "$tmp/icarus-sim" ICASIM
 cp "$HERE/run_cosim.sh" "$HERE/check_suite_shape.sh" "$tmp/leg-rc/"
 make_cosim_py_stub "$tmp/leg-rc/cosim.py"
 cp "$HERE/run_cosim.sh" "$HERE/check_suite_shape.sh" "$tmp/leg-rc-nopy/"
@@ -900,6 +971,185 @@ d=$(mrt_fixture)
 probe "a grep exit of 2 or more is a real error, not \`|| true\`'s silent no-match" 1 \
   "grep could not scan" \
   "PATH='$tmp/bin-grep-error:$tmp/bin-none:/usr/bin:/bin' $MRT $d"
+
+begin_group "nano/tb/nano_dual_leg_test.sh"
+
+DLT="$tmp/leg-nano/nano/tb/nano_dual_leg_test.sh"
+dlt() { printf "PATH='%s/bin:%s/bin-none:/usr/bin:/bin' %s %s/cxxrtl-sim %s/icarus-sim %s/asm %s/BASELINE %s/FLOOR 'x'" \
+  "$tmp" "$tmp" "$DLT" "$tmp" "$tmp" "$1" "$1" "$1"; }
+
+d=$(nano_rt_fixture)
+probe "control: two legs that report the same PASS/retires agree" 0 \
+  "Both simulator legs agree" "$(dlt "$d")"
+
+d=$(nano_rt_fixture)
+probe "the cxxrtl leg failing its own baseline is red before any comparison" 1 \
+  "the cxxrtl leg did not clear its own baseline" "CXXSIM_EXIT=1 $(dlt "$d")"
+
+d=$(nano_rt_fixture)
+probe "the iverilog leg failing its own baseline is red before any comparison" 1 \
+  "the iverilog leg did not clear its own baseline" "ICASIM_EXIT=1 $(dlt "$d")"
+
+d=$(nano_rt_fixture)
+probe "two legs that both pass but disagree on retires are red" 1 \
+  "The two simulator legs disagree" "ICASIM_RETIRES=20 $(dlt "$d")"
+
+dlt_noparse_fixture() {  # a runner that passes but prints no per-program table line
+  local d; d=$(new_case)
+  mkdir -p "$d/nano/tb" "$d/nano/asm"
+  cp "$REPO/nano/tb/nano_dual_leg_test.sh" "$d/nano/tb/"
+  cat > "$d/nano/asm/run_nano_tests.sh" <<'STUB'
+#!/bin/sh
+echo "nothing parseable here"
+exit 0
+STUB
+  chmod +x "$d/nano/asm/run_nano_tests.sh"
+  printf '%s' "$d"
+}
+
+d=$(dlt_noparse_fixture)
+probe "a runner that passes but prints no per-program line leaves nothing to compare" 1 \
+  "could not parse either leg's per-program results table" \
+  "$d/nano/tb/nano_dual_leg_test.sh x x x x x x"
+
+begin_group "nano/tb/nano_x_probe.sh"
+
+NANO_X_ZEROING_LINE="    for (int unsigned i = 0; i < MEM_WORDS; i = i + 1) mem.mem[i] = 32'b0;"
+NANO_X_RTL_SRCS="nano/nano.v nano/tb/nano_memory.v soc/compare/dhry_monitor.v"
+
+nano_xp_fixture() {  # $1 = 1 to include the real zeroing line, 0 to omit it
+  local d; d=$(new_case)
+  mkdir -p "$d/nano/tb" "$d/soc/compare" "$d/test"
+  cp "$REPO/nano/tb/nano_x_probe.sh" "$d/nano/tb/"
+  : > "$d/nano/nano.v"
+  : > "$d/nano/tb/nano_memory.v"
+  : > "$d/soc/compare/dhry_monitor.v"
+  : > "$d/rvfi_macros.vh"
+  : > "$d/test/monitor.sim.v"
+  if [ "$1" -eq 1 ]; then
+    printf '%s\n' "$NANO_X_ZEROING_LINE" > "$d/nano/tb/nano_testbench.v"
+  else
+    printf 'no zeroing line here\n' > "$d/nano/tb/nano_testbench.v"
+  fi
+  printf '%s' "$d"
+}
+
+nano_xp_toolbin() {  # $1 = bin dir; iverilog/vvp stubs plus a real cross-compiler stub
+  local bin=$1
+  mkdir -p "$bin"
+  make_toolchain_stubs "$bin"
+  make_nano_x_iverilog_stub "$bin/iverilog"
+  make_nano_x_vvp_stub "$bin/vvp"
+}
+
+nano_xp_toolbin "$tmp/bin-nano-xp"
+
+xp() { printf "PATH='%s/bin-nano-xp:%s/bin-none:/usr/bin:/bin' %s/nano/tb/nano_x_probe.sh 'x' '%s' 'RISCV_FORMAL'" \
+  "$tmp" "$tmp" "$1" "$NANO_X_RTL_SRCS"; }
+
+d=$(nano_xp_fixture 1)
+probe "control: the load and store paths both report an X exactly when one is there" 0 \
+  "report an X exactly when one is really there" "$(xp "$d")"
+
+d=$(nano_xp_fixture 1)
+probe "the shipping build itself reporting an X on the load path is red before any mutant runs" 1 \
+  "the shipping harness itself reports an X reading an unzeroed word" \
+  "STUB_SHIP_RESULT=X $(xp "$d")"
+
+d=$(nano_xp_fixture 1)
+probe "storing a register this program wrote first is not a store-path control" 1 \
+  "is not evidence the store-path term works" "STUB_STORE_CLEAN_RESULT=X $(xp "$d")"
+
+d=$(nano_xp_fixture 1)
+probe "storing a never-written register that reports no X leaves the store path unproven" 1 \
+  "store-path (write-mask-masked mem_wdata) term of the check is not catching it" \
+  "STUB_STORE_X_RESULT=CLEAN $(xp "$d")"
+
+d=$(nano_xp_fixture 1)
+probe "a mutant that reports no X on the load path is not a control" 1 \
+  "does not report an X" "STUB_MUT_RESULT=CLEAN $(xp "$d")"
+
+d=$(nano_xp_fixture 0)
+probe "a respelled zeroing loop stops rather than mutating nothing" 2 \
+  "no longer spells its zeroing loop" "$(xp "$d")"
+
+d=$(nano_xp_fixture 1); rm "$d/rvfi_macros.vh"
+probe "a build artifact missing is exit 2, not a probe against nothing" 2 \
+  "rvfi_macros.vh and test/monitor.sim.v are" "$(xp "$d")"
+
+d=$(nano_xp_fixture 1); rm "$d/nano/nano.v"
+probe "the RTL moving away takes the X probe with it, loudly" 2 \
+  "nano/nano.v is missing from" "$(xp "$d")"
+
+begin_group "nano/tb/nano_sim_icarus.sh"
+
+nsi_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/nano/tb"
+  cp "$REPO/nano/tb/nano_sim_icarus.sh" "$d/nano/tb/"
+  : > "$d/nano/tb/nano_icarus.vvp"
+  printf '%s' "$d"
+}
+
+make_nsi_vvp_stub() {  # $1 = bin dir; prints the file STUB_ICARUS_OUTPUT_FILE names
+  mkdir -p "$1"
+  cat > "$1/vvp" <<'STUB'
+#!/bin/sh
+if [ -n "${STUB_ICARUS_OUTPUT_FILE:-}" ]; then
+  cat "$STUB_ICARUS_OUTPUT_FILE"
+else
+  printf 'PASS\nRETIRES 7\n'
+fi
+STUB
+  chmod +x "$1/vvp"
+}
+make_nsi_vvp_stub "$tmp/bin-nsi"
+
+printf 'PASS\nRETIRES 7\n' > "$tmp/nsi-pass.out"
+printf 'FAIL 3\nRETIRES 7\n' > "$tmp/nsi-fail.out"
+printf 'TIMEOUT\nRETIRES 7\n' > "$tmp/nsi-timeout.out"
+printf 'RVFI monitor error 5 at cycle 10\nRETIRES 7\n' > "$tmp/nsi-monerr.out"
+printf 'trap taken at cycle 10\nRETIRES 7\n' > "$tmp/nsi-trap.out"
+printf "X reached a retiring instruction's RVFI fields at cycle 16\nRETIRES 7\n" \
+  > "$tmp/nsi-xreach.out"
+printf 'PASS\nRETIRES 0\n' > "$tmp/nsi-zero.out"
+printf 'garbage nobody recognizes\n' > "$tmp/nsi-unrecognized.out"
+
+nsi() { printf "PATH='%s/bin-nsi:%s/bin-none:/usr/bin:/bin' %s/nano/tb/nano_sim_icarus.sh --rom r --ram m --cycles 100" \
+  "$tmp" "$tmp" "$1"; }
+
+d=$(nsi_fixture)
+probe "control: PASS with a real retire count exits 0" 0 "PASS" \
+  "STUB_ICARUS_OUTPUT_FILE=$tmp/nsi-pass.out $(nsi "$d")"
+
+d=$(nsi_fixture)
+probe "FAIL carries the test number and exits 1" 1 "FAIL 3" \
+  "STUB_ICARUS_OUTPUT_FILE=$tmp/nsi-fail.out $(nsi "$d")"
+
+d=$(nsi_fixture)
+probe "TIMEOUT exits 2" 2 "TIMEOUT" \
+  "STUB_ICARUS_OUTPUT_FILE=$tmp/nsi-timeout.out $(nsi "$d")"
+
+d=$(nsi_fixture)
+probe "an RVFI monitor error exits 4" 4 "RVFI monitor error 5" \
+  "STUB_ICARUS_OUTPUT_FILE=$tmp/nsi-monerr.out $(nsi "$d")"
+
+d=$(nsi_fixture)
+probe "a trap taken exits 5" 5 "trap taken" \
+  "STUB_ICARUS_OUTPUT_FILE=$tmp/nsi-trap.out $(nsi "$d")"
+
+d=$(nsi_fixture)
+probe "an X reaching a retire exits 7, not the monitor-error 4" 7 \
+  "X reached a retiring instruction" "STUB_ICARUS_OUTPUT_FILE=$tmp/nsi-xreach.out $(nsi "$d")"
+
+d=$(nsi_fixture)
+probe "0 retires overrides every verdict above to exit 6, the blind oracle" 6 \
+  "0 retires" "STUB_ICARUS_OUTPUT_FILE=$tmp/nsi-zero.out $(nsi "$d")"
+
+d=$(nsi_fixture)
+probe "output this script does not recognize is exit 3, not guessed at" 3 \
+  "unrecognized nano_icarus.vvp output" \
+  "STUB_ICARUS_OUTPUT_FILE=$tmp/nsi-unrecognized.out $(nsi "$d")"
 
 begin_group "test/run_cosim.sh"
 
