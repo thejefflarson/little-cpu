@@ -547,6 +547,10 @@ d=$(rt_fixture); printf 'add.S ten 10\n' > "$d/FLOOR"
 probe "a non-numeric floor is named rather than compared arithmetically" 1 \
   "are not '<program> <retires> <spec-checked>'" "$(rt "$d")"
 
+d=$(rt_fixture); printf 'add.S 99999999999999999999 10\n' > "$d/FLOOR"
+probe "a floor too long for the shell's integers is named, not compared" 1 \
+  "are not '<program> <retires> <spec-checked>'" "$(rt "$d")"
+
 # The manifest check runs first, so the fixture needs the .c to exist as well.
 d=$(rt_fixture); : > "$d/asm/boot.c"
 printf 'add.S 10 10\nboot.c 400 400\n' > "$d/FLOOR"
@@ -603,6 +607,18 @@ probe "an unstartable runner is RUNNER-ERROR 127, never FAIL" 1 \
 
 probe "a PASS with no counts line is not a pass" 1 "NO-COUNTS" \
   "STUB_SIM_NOCOUNTS=1 $(rt "$d")"
+
+probe "a non-numeric retire count is NO-COUNTS, not a silent PASS" 1 "NO-COUNTS" \
+  "STUB_SIM_RETIRES=x $(rt "$d")"
+
+probe "a non-numeric spec-checked count is NO-COUNTS too" 1 "NO-COUNTS" \
+  "STUB_SIM_SPEC=x $(rt "$d")"
+
+probe "a retire count too long for the shell's integers is NO-COUNTS" 1 "NO-COUNTS" \
+  "STUB_SIM_RETIRES=99999999999999999999 $(rt "$d")"
+
+probe "a spec-checked count too long for the shell's integers is NO-COUNTS" 1 "NO-COUNTS" \
+  "STUB_SIM_SPEC=99999999999999999999 $(rt "$d")"
 
 probe "a program that went quiet is BELOW-FLOOR on retires" 1 \
   "BELOW-FLOOR retires" "STUB_SIM_RETIRES=1 $(rt "$d")"
@@ -7829,6 +7845,72 @@ probe "the publish step pushing with no gh auth setup-git is red" 1 \
 d=$(new_case); mkdir -p "$d/test"; cp "$REPO/test/compare_product_schedule_token_test.py" "$d/test/"
 probe "a missing schedule workflow file is an error, not an empty pass" 1 \
   "is missing" "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
+
+begin_group "test/compare_product_schedule_publish_test.py"
+
+cpsp_fixture() {  # $1 = sed program applied to the workflow
+  local d; d=$(new_case)
+  mkdir -p "$d/.github/workflows" "$d/test"
+  cp "$REPO/test/compare_product_schedule_publish_test.py" "$d/test/"
+  sed "$1" "$REPO/.github/workflows/compare-product-schedule.yml" \
+    > "$d/.github/workflows/compare-product-schedule.yml"
+  printf '%s' "$d"
+}
+
+d=$(cpsp_fixture '')
+probe "control: the shipping publish step really reaches gh pr create" 0 \
+  "reached gh pr create" \
+  "cd '$d' && python3 test/compare_product_schedule_publish_test.py ."
+
+d=$(new_case); mkdir -p "$d/test"; cp "$REPO/test/compare_product_schedule_publish_test.py" "$d/test/"
+probe "a missing schedule workflow file is an error, not an empty pass" 1 \
+  "is missing" "cd '$d' && python3 test/compare_product_schedule_publish_test.py ."
+
+d=$(cpsp_fixture 's|Open a PR with the refreshed stamp|Open a pull request with the refreshed stamp|')
+probe "renaming the publish step out of reach stops rather than passing" 1 \
+  "no step named" \
+  "cd '$d' && python3 test/compare_product_schedule_publish_test.py ."
+
+d=$(cpsp_fixture '')
+python3 - "$d/.github/workflows/compare-product-schedule.yml" <<'PY'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+old = '''          {
+            echo "Refresh the cross-core product stamp"
+            echo
+            cat /tmp/product-diff.md
+          } > /tmp/commit-message.md
+          git commit -F /tmp/commit-message.md
+'''
+new = '''          git commit -m "Refresh the cross-core product stamp" -F /tmp/product-diff.md
+'''
+assert old in text, "fixture stale: the fixed commit block moved"
+open(path, 'w').write(text.replace(old, new))
+PY
+probe "the pre-fix git commit line -- '-m' and '-F' together -- is red for the reason it used to fail" 1 \
+  "cannot be used together" \
+  "cd '$d' && python3 test/compare_product_schedule_publish_test.py ."
+
+d=$(cpsp_fixture 's|origin "\$branch"$|origin "$branch:main"|')
+probe "a push aimed at main instead of the refresh branch is red" 1 \
+  "did not push exactly the refresh branch" \
+  "cd '$d' && python3 test/compare_product_schedule_publish_test.py ."
+
+d=$(cpsp_fixture 's|--base main|--base develop|')
+probe "a PR opened against a base other than main is red" 1 \
+  "was not given --base main" \
+  "cd '$d' && python3 test/compare_product_schedule_publish_test.py ."
+
+d=$(cpsp_fixture 's|git add soc/compare/product.json|git add -A|')
+probe "a commit that stages more than the stamp is red" 1 \
+  "files other than soc/compare/product.json" \
+  "cd '$d' && python3 test/compare_product_schedule_publish_test.py ."
+
+d=$(cpsp_fixture 's|-\$GITHUB_RUN_ID"|"|')
+probe "a refresh branch without the run id is red" 1 \
+  "expected --head branch name" \
+  "cd '$d' && python3 test/compare_product_schedule_publish_test.py ."
 
 begin_group "formal/pin-bump-decide.sh"
 
