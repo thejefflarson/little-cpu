@@ -682,7 +682,8 @@ make test           # the test/asm suite (.S and .c) under cxxrtl + unit benches
                     # retired-term, adr-numbering, port-connect, compare-geometry,
                     # vexriscv-path, tracked-ignored, tool-cache, pin-bump, abc-engine,
                     # zkt-isolation, fixture-freshness, makefile-target, lut4-site,
-                    # pll-clock, probes-header, dhry-board-parity, macro-register)
+                    # pll-clock, probes-header, dhry-board-parity, macro-register,
+                    # compare-product-schedule-publish)
                     # + window-test, imem-share-test, board-elaborate, mutation-probe,
                     # dual-build, nano-test, nano-startup-test and nano-littlecpu-test;
                     # graded against EXPECTED_FAIL / OBSERVED_FLOOR
