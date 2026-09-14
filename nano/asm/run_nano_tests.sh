@@ -136,6 +136,8 @@ build_and_run() {  # $1 = src, $2 = base name for this attempt's tmp files
          status="MONITOR-ERROR${code:+ $code}" ;;
       5) status="TRAP" ;;
       6) status="MONITOR-SILENT" ;;
+      7) num=$(awk '/^X reached a retiring instruction.*cycle/{print $NF; exit}' "$tmp/$base.run.log")
+         status="X-REACHED${num:+ $num}" ;;
       *) status="RUNNER-ERROR $sim_status" ;;
     esac
     retires=$(awk '/^RETIRES /{print $2; exit}' "$tmp/$base.run.log")
