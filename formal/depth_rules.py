@@ -8,7 +8,7 @@ DERIVE_RE = re.compile(r"^#derive\s+([FG])\s+(\d+)\s*(\S.*)?$")
 FLOOR_RE = re.compile(r"^#floor\s+(\S+)\s+(\S+)\s+(\S.*)$")
 
 # The whole vocabulary a `#floor` term may use.
-TERMS = ("F+1", "F+G", "F+2G", "start+G", "trig+G")
+TERMS = ("F+1", "F+2", "F+G", "F+G+2", "F+2G", "start+G", "trig+G")
 
 def read_derived(path):
     """The `#derive` lines: {"F": 6, "G": 6}. Both are required, because every
@@ -53,6 +53,30 @@ def read_floors(path):
             floors[family] = (terms, reason.strip())
     return floors
 
+def read_sby_depth(path):
+    """The `depth` key of a .sby's [options] section, or None if it states none or
+    states something that is not a number. sby keeps the LAST value a key is given, so
+    a second `depth` is refused rather than read as the first."""
+    section, values = None, []
+    with open(path) as f:
+        for line in f:
+            text = line.strip()
+            if text.startswith("[") and text.endswith("]"):
+                section = text
+                continue
+            key, _, value = text.partition(" ")
+            if section == "[options]" and key == "depth":
+                values.append(value.strip())
+    if len(values) > 1:
+        raise ValueError(
+            f"{path} states `depth` {len(values)} times in [options] "
+            f"({', '.join(values)}); sby searches to the last, so no one of them "
+            "can be graded"
+        )
+    if not values or not values[0].isdigit():
+        return None
+    return int(values[0])
+
 def evaluate(term, derived, start, trig):
     """One term's lower bound on a check's CHECK cycle."""
     if term.isdigit():
@@ -61,6 +85,10 @@ def evaluate(term, derived, start, trig):
         return derived["F"] + 1
     if term == "F+G":
         return derived["F"] + derived["G"]
+    if term == "F+2":
+        return derived["F"] + 2
+    if term == "F+G+2":
+        return derived["F"] + derived["G"] + 2
     if term == "F+2G":
         return derived["F"] + 2 * derived["G"]
     if term == "start+G":
