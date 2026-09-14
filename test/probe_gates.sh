@@ -7626,6 +7626,26 @@ probe "the pre-fix git commit line -- '-m' and '-F' together -- is red for the r
   "cannot be used together" \
   "cd '$d' && python3 test/compare_product_schedule_publish_test.py ."
 
+d=$(cpsp_fixture 's|origin "\$branch"$|origin "$branch:main"|')
+probe "a push aimed at main instead of the refresh branch is red" 1 \
+  "did not push exactly the refresh branch" \
+  "cd '$d' && python3 test/compare_product_schedule_publish_test.py ."
+
+d=$(cpsp_fixture 's|--base main|--base develop|')
+probe "a PR opened against a base other than main is red" 1 \
+  "was not given --base main" \
+  "cd '$d' && python3 test/compare_product_schedule_publish_test.py ."
+
+d=$(cpsp_fixture 's|git add soc/compare/product.json|git add -A|')
+probe "a commit that stages more than the stamp is red" 1 \
+  "files other than soc/compare/product.json" \
+  "cd '$d' && python3 test/compare_product_schedule_publish_test.py ."
+
+d=$(cpsp_fixture 's|-\$GITHUB_RUN_ID"|"|')
+probe "a refresh branch without the run id is red" 1 \
+  "expected --head branch name" \
+  "cd '$d' && python3 test/compare_product_schedule_publish_test.py ."
+
 begin_group "formal/pin-bump-decide.sh"
 
 # Stubs stand in for the two remotes the decision reads: upstream's HEAD and whether a

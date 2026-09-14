@@ -29,7 +29,7 @@ PUBLISH_STEP_NAME = "Open a PR with the refreshed stamp"
 
 GIT_STUB = """#!/bin/bash
 if [ "$1" = "push" ]; then
-  printf 'push %s\\n' "$*" >> "$GIT_PUSH_LOG"
+  printf '%s\\n' "$*" >> "$GIT_PUSH_LOG"
   exit 0
 fi
 exec "$REAL_GIT" "$@"
@@ -41,18 +41,20 @@ case "$1 $2" in
   "auth setup-git")
     exit 0 ;;
   "pr create")
-    body="" head="" title="" prev=""
+    body="" head="" title="" base="" prev=""
     for a in "$@"; do
       case "$prev" in
         --body-file) body=$a ;;
         --head) head=$a ;;
         --title) title=$a ;;
+        --base) base=$a ;;
       esac
       prev=$a
     done
     [ -n "$body" ] && cp "$body" "$GH_PR_BODY"
     printf '%s' "$head" > "$GH_PR_HEAD"
     printf '%s' "$title" > "$GH_PR_TITLE"
+    printf '%s' "$base" > "$GH_PR_BASE"
     echo "https://github.com/o/r/pull/1"
     exit 0 ;;
   *)
@@ -140,35 +142,22 @@ def main(argv):
         repo = tmp / "repo"
         (repo / "soc" / "compare").mkdir(parents=True)
 
-        def real(*args):
-            return subprocess.run([real_git, *args], check=True, cwd=repo,
-                                   capture_output=True, text=True).stdout
-
-        real("init", "-q", "-b", "main")
-        real("config", "user.email", "committer@example.com")
-        real("config", "user.name", "Committer")
-        (repo / "soc" / "compare" / "product.json").write_text('{"pairs": {"dhrystone": 1}}\n')
-        real("add", "-A")
-        real("commit", "-q", "-m", "initial")
-        (repo / "soc" / "compare" / "product.json").write_text('{"pairs": {"dhrystone": 2}}\n')
-
-        (tmp / "product-diff.md").write_text("dhrystone: 1 -> 2 cycles/dhry\n")
-
-        # The step's fixed /tmp paths move under this run's own directory, so two
-        # concurrent runs cannot delete each other's files.
-        script_path = tmp / "publish.sh"
-        script_path.write_text(script.replace("/tmp/", f"{tmp}/"))
-
         gh_log = tmp / "gh.log"
         git_push_log = tmp / "git-push.log"
         pr_body = tmp / "pr-body-seen.md"
         pr_head = tmp / "pr-head.txt"
         pr_title = tmp / "pr-title.txt"
+        pr_base = tmp / "pr-base.txt"
         step_summary = tmp / "step-summary.md"
         for f in (gh_log, git_push_log, step_summary):
             f.write_text("")
 
-        env = dict(os.environ)
+        # Under a git hook GIT_DIR and GIT_INDEX_FILE are exported, and inheriting them
+        # would point every git call here, the step's included, at the real repository.
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        env["GIT_CONFIG_GLOBAL"] = os.devnull
+        env["GIT_CONFIG_NOSYSTEM"] = "1"
+        env["HOME"] = str(tmp)
         env["PATH"] = f"{bindir}{os.pathsep}{env.get('PATH', '')}"
         env["REAL_GIT"] = real_git
         env["GH_TOKEN"] = "test-token"
@@ -176,9 +165,31 @@ def main(argv):
         env["GH_PR_BODY"] = str(pr_body)
         env["GH_PR_HEAD"] = str(pr_head)
         env["GH_PR_TITLE"] = str(pr_title)
+        env["GH_PR_BASE"] = str(pr_base)
         env["GIT_PUSH_LOG"] = str(git_push_log)
         env["GITHUB_STEP_SUMMARY"] = str(step_summary)
         env["GITHUB_RUN_ID"] = "4242"
+
+        def real(*args):
+            return subprocess.run([real_git, *args], check=True, cwd=repo, env=env,
+                                   capture_output=True, text=True).stdout
+
+        real("init", "-q", "-b", "main")
+        real("config", "user.email", "committer@example.com")
+        real("config", "user.name", "Committer")
+        (repo / "soc" / "compare" / "product.json").write_text('{"pairs": {"dhrystone": 1}}\n')
+        (repo / "README.md").write_text("tracked\n")
+        real("add", "-A")
+        real("commit", "-q", "-m", "initial")
+        (repo / "soc" / "compare" / "product.json").write_text('{"pairs": {"dhrystone": 2}}\n')
+        (repo / "README.md").write_text("a stray edit the step must not commit\n")
+
+        (tmp / "product-diff.md").write_text("dhrystone: 1 -> 2 cycles/dhry\n")
+
+        # The step's fixed /tmp paths move under this run's own directory, so two
+        # concurrent runs cannot delete each other's files.
+        script_path = tmp / "publish.sh"
+        script_path.write_text(script.replace("/tmp/", f"{tmp}/"))
 
         result = subprocess.run(["bash", str(script_path)], cwd=repo, env=env,
                                 capture_output=True, text=True)
@@ -191,9 +202,11 @@ def main(argv):
             return 1
 
         failures = []
-        if not pr_head.is_file() or not re.fullmatch(
-                r"compare-product/refresh-\d{8}-4242", pr_head.read_text()):
+        head = pr_head.read_text() if pr_head.is_file() else ""
+        if not re.fullmatch(r"compare-product/refresh-\d{8}-4242", head):
             failures.append("gh pr create was not given the expected --head branch name")
+        if not pr_base.is_file() or pr_base.read_text() != "main":
+            failures.append("gh pr create was not given --base main")
         if not pr_title.is_file() or not pr_title.read_text().startswith(
                 "Refresh the cross-core product stamp ("):
             failures.append("gh pr create was not given the expected --title")
@@ -201,8 +214,9 @@ def main(argv):
             failures.append("gh pr create's --body-file does not carry the measured diff")
         if "auth setup-git" not in gh_log.read_text():
             failures.append("the step never ran `gh auth setup-git`")
-        if not git_push_log.is_file() or "compare-product/refresh-" not in git_push_log.read_text():
-            failures.append("the step never pushed the refresh branch")
+        pushes = git_push_log.read_text().splitlines()
+        if pushes != [f"push --quiet origin {head}"]:
+            failures.append(f"the step did not push exactly the refresh branch to origin: {pushes!r}")
         if step_summary.read_text().strip() == "":
             failures.append("the step wrote nothing to GITHUB_STEP_SUMMARY")
 
@@ -210,6 +224,9 @@ def main(argv):
         if commit_subject != "Refresh the cross-core product stamp":
             failures.append(f"the commit's subject line is {commit_subject!r}, "
                              "not 'Refresh the cross-core product stamp'")
+        committed = real("show", "--name-only", "--format=", "HEAD").split()
+        if committed != ["soc/compare/product.json"]:
+            failures.append(f"the commit touches files other than soc/compare/product.json: {committed!r}")
         commit_body = real("log", "-1", "--pretty=%b")
         if "dhrystone: 1 -> 2 cycles/dhry" not in commit_body:
             failures.append("the commit message does not carry the measured diff")
