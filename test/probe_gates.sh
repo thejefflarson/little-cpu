@@ -6092,8 +6092,8 @@ mcd_fixture() {  # $1 = depth  $2 = cover depth, defaults to $1
 #derive F 6  worst-case first retire, swept out of \`hang\`
 #derive G 6  worst-case gap between two retires, swept out of \`liveness\`
 CFG
-  printf 'depth %s\n' "$1" > "$d/dmemcheck.sby"
-  printf 'depth %s\n' "${2:-$1}" > "$d/dmemcheck_cover.sby"
+  printf '[options]\ndepth %s\n' "$1" > "$d/dmemcheck.sby"
+  printf '[options]\ndepth %s\n' "${2:-$1}" > "$d/dmemcheck_cover.sby"
   printf '%s' "$d"
 }
 
@@ -6117,7 +6117,7 @@ d=$(mcd_fixture 14)
 probe "a named .sby that does not exist is refused" 1 \
   "does not exist" "$MCD $d missing.sby 2"
 
-d=$(mcd_fixture 14); printf 'mode bmc\n' > "$d/dmemcheck.sby"
+d=$(mcd_fixture 14); printf '[options]\nmode bmc\n' > "$d/dmemcheck.sby"
 probe "a missing depth line in the .sby stops rather than comparing nothing" 1 \
   "declares no \`depth NNN\` line" "$MCD $d dmemcheck.sby 2"
 
@@ -6135,9 +6135,21 @@ d=$(mcd_fixture 14); rm "$d/dmemcheck_cover.sby"
 probe "a memcheck with no cover sibling has an untied depth, and is red" 1 \
   "does not exist, so its anti-vacuity depth is untied" "$MCD $d dmemcheck.sby 2"
 
-d=$(mcd_fixture 14); printf 'mode cover\n' > "$d/dmemcheck_cover.sby"
+d=$(mcd_fixture 14); printf '[options]\nmode cover\n' > "$d/dmemcheck_cover.sby"
 probe "a cover .sby with no depth line is untied the same way its bmc sibling is" 1 \
   "declares no \`depth NNN\` line" "$MCD $d dmemcheck.sby 2"
+
+d=$(mcd_fixture 14); printf '[options]\ndepth 14\ndepth 8\n' > "$d/dmemcheck.sby"
+probe "a .sby stating depth twice is refused, since sby searches to the last" 1 \
+  "states \`depth\` 2 times in [options] (14, 8)" "$MCD $d dmemcheck.sby 2"
+
+d=$(mcd_fixture 14); printf '[options]\nmode bmc\n\n[script]\ndepth 24\n' > "$d/dmemcheck.sby"
+probe "a depth line outside [options] is not the depth sby searches" 1 \
+  "declares no \`depth NNN\` line" "$MCD $d dmemcheck.sby 2"
+
+d=$(mcd_fixture 14); mutate "$d/checks.cfg" '/^#derive G/d'
+probe "a checks.cfg with no #derive G is refused by name, not a traceback" 1 \
+  "no \`#derive\` line for G" "$MCD $d dmemcheck.sby 2"
 
 begin_group "nano/formal/complete-cover-probe.py"
 
@@ -6160,6 +6172,11 @@ unreached_line() {
 # against the mutant's unreached one. A stub that wrote only the unreached half
 # left the reached set empty, which reads identically to a harness with no goals.
 reached_line() {
+  if [ -n "${STUB_REACHED_NO_STEP:-}" ]; then
+    echo "SBY [probe] engine_0: ##   0:00:00  Reached cover statement at rvfi_testbench: complete.sv:$1.1-$1.1" \
+      >> complete_cover/logfile.txt
+    return
+  fi
   echo "SBY [probe] engine_0: ##   0:00:00  Reached cover statement in step ${STUB_REACHED_STEP:-5} at rvfi_testbench: complete.sv:$1.1-$1.1" \
     >> complete_cover/logfile.txt
 }
@@ -6248,6 +6265,15 @@ d=$(cc_fixture); mutate "$d/nano/formal/complete.sby" 's/^depth 20$/depth twenty
 probe "a depth line this cannot parse leaves the tie unenforced, so it stops instead" 2 \
   "declares no \`depth NNN\` line" "$(ccs "$d")"
 
+d=$(cc_fixture)
+probe "a reached line whose wording hides its step stops rather than switching the tie off" 2 \
+  "per-step lines disagree" "STUB_REACHED_NO_STEP=1 $(ccs "$d")"
+
+d=$(cc_fixture); mutate "$d/nano/formal/complete.sby" '/^depth 20$/a\
+depth 5'
+probe "complete.sby stating depth twice stops the tie rather than grading the first" 2 \
+  "states \`depth\` 2 times in [options] (20, 5)" "$(ccs "$d")"
+
 d=$(cc_fixture); rmdir "$d/formal/riscv-formal"
 probe "no riscv-formal checkout is exit 2, not a probe against nothing" 2 \
   "Fetch the pin first" "$(ccs "$d")"
@@ -6258,17 +6284,35 @@ MCP="python3 $REPO/formal/memcheck-cover-probe.py"
 
 cat > "$tmp/sby-mcp-stub" <<'STUB'
 #!/bin/sh
-# Stands in for sby for both harnesses' *_cover jobs. The shipping case is told apart
-# from the stalled-bus mutant by which assume() line the check's own .sv file carries --
-# assume(fetch_stall) on littlecpu, assume(mem_ready on nano -- the same line the real
-# mutation grows in place.
+# Stands in for sby for both harnesses' *_cover jobs and writes the per-goal log lines
+# real sby does. The stalled-bus mutant is told apart by the sentinel it states.
 job=$(ls *_cover.sby | sed 's/\.sby$//')
 mkdir -p "$job"
 sv=$(ls *check.sv)
-if grep -qE 'assume\(fetch_stall\)|assume\(mem_ready' "$sv"; then
+log="$job/logfile.txt"
+: > "$log"
+say() { [ -n "${STUB_NO_LOG_LINES:-}" ] || echo "SBY [probe] engine_0: ##   0:00:00  $1" >> "$log"; }
+goal="at testbench: $sv:80.7-80.89"
+sentinel="at testbench: $sv:14.14-14.38"
+if grep -q 'cover property (!reset)' "$sv"; then
   status=${STUB_STALLED:-FAIL}
+  if [ -n "${STUB_NO_TRACE:-}" ]; then
+    say "Unreached cover statement $sentinel"
+  else
+    say "Reached cover statement in step 1 $sentinel"
+  fi
+  if [ "$status" = PASS ]; then
+    say "Reached cover statement in step 3 $goal"
+  else
+    say "Unreached cover statement $goal"
+  fi
 else
   status=${STUB_SHIP:-PASS}
+  if [ "$status" = PASS ]; then
+    say "Reached cover statement in step 7 $goal"
+  else
+    say "Unreached cover statement $goal"
+  fi
 fi
 [ -n "${STUB_SBY_NO_STATUS:-}" ] && exit 1
 if [ -n "${STUB_SBY_EMPTY_STATUS:-}" ]; then : > "$job/status"; exit 1; fi
@@ -6304,19 +6348,19 @@ mcps() {  # $1 = fixture dir  $2 = harness  $3 = check
 
 d=$(mcp_fixture formal dmemcheck)
 probe "control: littlecpu's dmemcheck reaches its goal and the stalled-bus mutant does not" 0 \
-  "The stalled-bus mutant makes the cover goal unreachable" "$(mcps "$d" formal dmemcheck)"
+  "The stalled-bus mutant reaches its sentinel and not the cover goal" "$(mcps "$d" formal dmemcheck)"
 
 d=$(mcp_fixture formal imemcheck)
 probe "control: littlecpu's imemcheck reaches its goal and the stalled-bus mutant does not" 0 \
-  "The stalled-bus mutant makes the cover goal unreachable" "$(mcps "$d" formal imemcheck)"
+  "The stalled-bus mutant reaches its sentinel and not the cover goal" "$(mcps "$d" formal imemcheck)"
 
 d=$(mcp_fixture nano/formal dmemcheck)
 probe "control: nano's dmemcheck reaches its goal and the stalled-bus mutant does not" 0 \
-  "The stalled-bus mutant makes the cover goal unreachable" "$(mcps "$d" nano/formal dmemcheck)"
+  "The stalled-bus mutant reaches its sentinel and not the cover goal" "$(mcps "$d" nano/formal dmemcheck)"
 
 d=$(mcp_fixture nano/formal imemcheck)
 probe "control: nano's imemcheck reaches its goal and the stalled-bus mutant does not" 0 \
-  "The stalled-bus mutant makes the cover goal unreachable" "$(mcps "$d" nano/formal imemcheck)"
+  "The stalled-bus mutant reaches its sentinel and not the cover goal" "$(mcps "$d" nano/formal imemcheck)"
 
 d=$(mcp_fixture formal dmemcheck)
 probe "a shipping harness that cannot reach its own cover goal is red" 1 \
@@ -6351,6 +6395,60 @@ probe "the RTL moving away takes the probe with it, loudly" 2 \
 d=$(mcp_fixture formal dmemcheck); rmdir "$d/formal/riscv-formal"
 probe "no riscv-formal checkout is exit 2 here too, not a probe against nothing" 2 \
   "Fetch the pin first" "$(mcps "$d" formal dmemcheck)"
+
+d=$(mcp_fixture formal dmemcheck)
+probe "a traceless stalled-bus mutant is red, since its FAIL holds for a trivially true goal too" 1 \
+  "does not reach even its trivially true sentinel" "STUB_NO_TRACE=1 $(mcps "$d" formal dmemcheck)"
+
+d=$(mcp_fixture formal dmemcheck)
+probe "a log that names no cover statement is exit 2, not a goal set of none" 2 \
+  "names no cover statement in dmemcheck.sv" "STUB_NO_LOG_LINES=1 $(mcps "$d" formal dmemcheck)"
+
+d=$(mcp_fixture formal imemcheck)
+mutate "$d/formal/imemcheck.sv" '/littlecpu uut (/,$ s/\.fetch_stall(fetch_stall)/.fetch_stall(stall)/'
+probe "a littlecpu harness whose core port moved stops rather than tying nothing" 2 \
+  "no longer connects the core as" "$(mcps "$d" formal imemcheck)"
+
+begin_group "formal/cover-depth-tie.py"
+
+CDT="python3 $REPO/formal/cover-depth-tie.py"
+
+cdt_fixture() {  # $1 = the step the second goal is first reached at
+  local d; d=$(new_case)
+  printf '[options]\nmode bmc\ndepth 50\n' > "$d/complete.sby"
+  printf '%s\n' \
+    "SBY [probe] engine_0: ##   0:00:00  Reached cover statement in step 5 at rvfi_testbench: complete.sv:146.3-146.80" \
+    "SBY [probe] engine_0: ##   0:00:00  Reached cover statement in step $1 at rvfi_testbench: complete.sv:147.3-147.80" \
+    > "$d/logfile.txt"
+  printf '%s' "$d"
+}
+
+cdts() { printf "%s %s/logfile.txt complete.sv %s/complete.sby" "$CDT" "$1" "$1"; }
+
+d=$(cdt_fixture 49)
+probe "control: every goal first reached before complete's depth passes the tie" 0 \
+  "the latest first reached at step 49, under" "$(cdts "$d")"
+
+d=$(cdt_fixture 50)
+probe "a goal first reached at complete's own depth is red" 1 \
+  "first reached only at or after step 50" "$(cdts "$d")"
+
+d=$(cdt_fixture 5); mutate "$d/logfile.txt" 's/statement in step [0-9]* at/statement at/'
+probe "a reached line whose wording hides its step is exit 2, not a tie of nothing" 2 \
+  "per-step lines disagree" "$(cdts "$d")"
+
+d=$(cdt_fixture 5); : > "$d/logfile.txt"
+probe "a log naming no reached goal is exit 2" 2 \
+  "names no reached cover statement in complete.sv" "$(cdts "$d")"
+
+d=$(cdt_fixture 5); printf '[options]\ndepth 50\ndepth 100\n' > "$d/complete.sby"
+probe "a bmc .sby stating depth twice is exit 2 here too" 2 \
+  "states \`depth\` 2 times in [options] (50, 100)" "$(cdts "$d")"
+
+d=$(cdt_fixture 5); rm "$d/logfile.txt"
+probe "a cover run that left no log is exit 2" 2 "logfile.txt does not exist" "$(cdts "$d")"
+
+probe "wrong argument count is exit 2" 2 "usage:" "$CDT onearg"
 
 begin_group "nano/formal/ill-e-probe.py"
 

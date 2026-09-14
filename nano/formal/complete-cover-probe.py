@@ -20,7 +20,8 @@ unreached. The unmutated harness is not built here: it is what
 
 It also ties complete_cover's depth to complete's: a goal complete_cover proves
 reachable only at or after complete.sby's own `depth` is a retire `complete` (mode
-bmc) never actually examines, so reaching one there is red too.
+bmc) never actually examines, so reaching one there is red too. A log whose reached
+sites and per-step lines disagree stops rather than letting the tie compare nothing.
 
 NOT HERMETIC -- it runs sby, up to twice. So it is a prerequisite of
 `make -C nano/formal complete_cover` rather than of `make test`, the same reason
@@ -37,20 +38,10 @@ import subprocess
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent / "formal"))
+import cover_log
 import depth_rules
 
 COVER_LINE = re.compile(r"^\s*cover property \(")
-# sby names a cover statement by a SOURCE RANGE -- `complete.sv:<line>.<col>-<line>.<col>`
-# -- whose start sits on the line BEFORE the statement. Both sets below are read with this
-# one pattern, so whatever convention sby uses cancels out of the comparison.
-COVER_SITE = re.compile(
-    r"(?P<un>[Uu]n)?[Rr]eached cover statement.*?complete\.sv:(?P<site>[\d.]+-[\d.]+)"
-)
-# The per-step log line, not the end-of-run summary -- it names the step a site was
-# FIRST reached at, which is what a depth floor has to bound.
-STEP_SITE = re.compile(
-    r"Reached cover statement in step (?P<step>\d+).*?complete\.sv:(?P<site>[\d.]+-[\d.]+)"
-)
 
 # Grown in place rather than inserted as a new line: every cover property below is
 # pinned by line number, and a new line would shift them all by one.
@@ -70,7 +61,10 @@ def read_complete_depth(repo):
     sby = repo / "nano" / "formal" / "complete.sby"
     if not sby.is_file():
         stop(f"{sby} is missing, so there is no depth to tie complete_cover to.")
-    depth = depth_rules.read_sby_depth(sby)
+    try:
+        depth = depth_rules.read_sby_depth(sby)
+    except ValueError as err:
+        stop(str(err))
     if depth is None:
         stop(f"{sby} declares no `depth NNN` line.")
     return depth
@@ -132,12 +126,7 @@ def run_case(repo, workdir, sby, case, complete_sv):
     if not status:
         stop(f"sby's status file for the {case} case is empty.")
     log = (nano_formal / "complete_cover" / "logfile.txt").read_text()
-    sites = {"reached": set(), "unreached": set(), "steps": {}}
-    for m in COVER_SITE.finditer(log):
-        sites["unreached" if m.group("un") else "reached"].add(m.group("site"))
-    for m in STEP_SITE.finditer(log):
-        sites["steps"][m.group("site")] = int(m.group("step"))
-    return status[0], sites
+    return status[0], cover_log.parse(log, "complete.sv")
 
 
 def main():
@@ -168,6 +157,9 @@ def main():
     red = []
 
     status, ship = run_case(repo, workdir, args.sby, "shipping", complete_sv)
+    gap = cover_log.step_gap(ship)
+    if gap:
+        stop(gap)
     reached = sorted(ship["reached"])
     print(f"shipping: {status}, reached {len(reached)} of {len(goals)} goals, "
           f"unreached {sorted(ship['unreached']) or 'none'}")

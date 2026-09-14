@@ -80,12 +80,31 @@ add under 15s combined.
 `check-memcheck-depth.py` and `complete-cover-probe.py` share one depth-line parser and
 one floor evaluator with `genchecks-audit.py` rather than each carrying its own copy.
 
+## Found by the security audit, fixed before merge
+
+Five defects in this ADR's own graders. `memcheck-cover-probe.py`'s littlecpu mutant
+assumed `fetch_stall` high, but that signal is `formal/arbiter.v`'s register, which
+starts at zero, so the mutant had no traces: measured, it left even a trivially true
+`cover property (!reset)` unreached, and sby's FAIL would have been the same for a goal
+that no longer needed a retire. The mutant now ties the core's own `fetch_stall` port
+high -- that sentinel is reached at step 1 and the goal is not -- every mutant states
+the sentinel and must reach it, and goals are read per site from sby's log rather than
+from its one-word status. `read_sby_depth` returned the first `depth` line where sby
+keeps the last; it now reads only `[options]` and refuses a second one.
+`complete-cover-probe.py` stops when the log's reached sites and per-step lines
+disagree, since its depth tie would otherwise compare nothing, and the three graders
+now share one parse, `formal/cover_log.py`. littlecpu's `complete_cover` searched to
+100 against `complete`'s 50 with no tie; `formal/cover-depth-tie.py` now reads that
+run's own log after it finishes rather than searching again (all 13 goals first reached
+at step 5; the job takes 11s locally). `check-memcheck-depth.py` reports a `checks.cfg`
+missing a `#derive` line instead of raising.
+
 ## Consequence
 
 `nano/formal/dmemcheck.sby`'s depth is 15 -> 24. `nano/formal/complete.sby` and
 `complete_cover.sby` gain `RISCV_FORMAL_ALTOPS`; `complete.sv` gains one cover goal.
 Four new `_cover.sby` files and one new shared probe script
 (`formal/memcheck-cover-probe.py`) plus one shared depth grader
-(`formal/check-memcheck-depth.py`) cover both cores. Twenty-six new labels in
+(`formal/check-memcheck-depth.py`) cover both cores. Forty-one new labels in
 `test/PROBES_EXPECTED`, all forced red at least once. No RTL changed on either core;
 `nano/nano.v` and every `rtl/*.v` file are untouched.

@@ -28,15 +28,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import depth_rules
 
 
-def main():
-    if len(sys.argv) != 4:
-        print(f"usage: {sys.argv[0]} <harness-dir> <sby-file> <retires:1|2>", file=sys.stderr)
-        return 2
-    harness_dir, sby_name, retires = sys.argv[1], sys.argv[2], sys.argv[3]
-    if retires not in ("1", "2"):
-        print(f"error: <retires> must be 1 or 2, not {retires!r}", file=sys.stderr)
-        return 2
-
+def grade(harness_dir, sby_name, retires):
     cfg = os.path.join(harness_dir, "checks.cfg")
     if not os.path.isfile(cfg):
         print(f"error: {cfg} does not exist.", file=sys.stderr)
@@ -87,6 +79,21 @@ def main():
         return 1
     print(f"{cover_path}: depth {cover_depth} == {sby_path}'s depth {depth}")
     return 0
+
+
+def main():
+    if len(sys.argv) != 4:
+        print(f"usage: {sys.argv[0]} <harness-dir> <sby-file> <retires:1|2>", file=sys.stderr)
+        return 2
+    harness_dir, sby_name, retires = sys.argv[1], sys.argv[2], sys.argv[3]
+    if retires not in ("1", "2"):
+        print(f"error: <retires> must be 1 or 2, not {retires!r}", file=sys.stderr)
+        return 2
+    try:
+        return grade(harness_dir, sby_name, retires)
+    except ValueError as err:
+        print(f"error: {err}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

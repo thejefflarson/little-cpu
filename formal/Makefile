@@ -93,7 +93,12 @@ complete:  complete.sby  complete.sv  arbiter.v complete-exclusions abc-engine $
 abc-engine: check-abc-engine.sh
 	@./$<
 
-complete_cover: complete_cover.sby complete.sv arbiter.v complete-exclusions $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
+complete_cover: complete_cover.sby complete.sv arbiter.v complete-exclusions complete.sby \
+                cover-depth-tie.py cover_log.py depth_rules.py $(RTL_SOURCES) FORCE \
+                | $(RISCV_FORMAL_DIR)
+	rm -rf $@
+	sby -f $<
+	python3 cover-depth-tie.py complete_cover/logfile.txt complete.sv complete.sby
 
 .PHONY: complete-exclusions
 complete-exclusions: check-complete-exclusions.py complete.sv COMPLETE_EXCLUSIONS | $(RISCV_FORMAL_DIR)

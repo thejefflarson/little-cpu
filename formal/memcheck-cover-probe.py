@@ -9,28 +9,39 @@ Usage: memcheck-cover-probe.py --harness {formal,nano/formal} --check {imemcheck
 
 WHY THIS EXISTS. Neither memcheck states a cover goal proving it ever reaches the
 property it names, so an over-constraining assume edit could pass vacuously with CI
-green -- the same gap complete_cover closes for `complete`. One mutant is built, one
-line away from the shipping harness: on littlecpu it assumes `fetch_stall`, so nothing
-ever issues; on nano it assumes `mem_ready` low, so nano.v never leaves its wait state.
-Either way rvfi_valid never rises, so the cover goal must go unreached.
+green -- the same gap complete_cover closes for `complete`. One mutant is built without
+moving a line of the shipping harness: on littlecpu it ties the core's own fetch_stall
+input high, so decode never issues; on nano it assumes mem_ready low, so nano.v never
+leaves its wait state. Either way rvfi_valid never rises, so the goal must go unreached.
 
-NOT HERMETIC -- it runs sby, up to twice, so it is a Makefile prerequisite of the
-*_cover targets rather than of `make test`. test/probe_gates.sh covers this file's own
-logic against a stub sby.
+The mutant also states a trivially true sentinel, `cover property (!reset)`, which must
+be REACHED. A mutant whose assumptions contradict each other has no traces, and sby then
+reports every goal unreached, trivially true ones included, so its FAIL says nothing.
+Assuming the arbiter's fetch_stall register high was such a mutant: the register starts
+at zero. Goals are read per site from sby's log, not from its one-word status.
+
+NOT HERMETIC -- it runs sby, twice, so it is a Makefile prerequisite of the *_cover
+targets rather than of `make test`. test/probe_gates.sh covers this file's own logic
+against a stub sby.
 """
 
 import argparse
 import pathlib
-import re
 import shutil
 import subprocess
 import sys
 
-# Grown in place: the line stays the same length class either way, so nothing else in
-# either file is pinned by line number.
-STALLED_BUS_ANCHOR = "  logic trap;\n"
-LITTLECPU_MUTANT = "  logic trap; always_comb assume(fetch_stall);\n"
-NANO_MUTANT = "  logic trap; always_comb assume(mem_ready == 1'b0);\n"
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import cover_log
+
+# Grown in place, and the littlecpu port is rewritten in place, so no line of either
+# harness moves and every cover site keeps the name sby gave it in the shipping run.
+ANCHOR = "  logic trap;\n"
+SENTINEL = "  logic trap; cover property (!reset);"
+NANO_STALL = " always_comb assume(mem_ready == 1'b0);"
+LITTLECPU_INSTANCE = "littlecpu uut ("
+LITTLECPU_PORT = ".fetch_stall(fetch_stall)"
+LITTLECPU_TIED = ".fetch_stall(1'b1)"
 
 LITTLECPU_RTL = (
     "structs.v", "fetcher.v", "regfile.v", "csrs.v", "decoder.v",
@@ -45,13 +56,24 @@ def stop(message):
 
 
 def mutate(sv_text, is_nano):
-    if STALLED_BUS_ANCHOR not in sv_text:
+    if ANCHOR not in sv_text:
         stop(
             "no longer spells what the stalled-bus mutation replaces. Re-anchor it "
             "on the new spelling -- left alone it would build the shipping harness "
             "and prove nothing about a stalled bus."
         )
-    return sv_text.replace(STALLED_BUS_ANCHOR, NANO_MUTANT if is_nano else LITTLECPU_MUTANT, 1)
+    text = sv_text.replace(ANCHOR, SENTINEL + (NANO_STALL if is_nano else "") + "\n", 1)
+    if is_nano:
+        return text
+    start = text.find(LITTLECPU_INSTANCE)
+    port = text.find(LITTLECPU_PORT, start) if start >= 0 else -1
+    if port < 0:
+        stop(
+            f"no longer connects the core as `{LITTLECPU_PORT}` inside "
+            f"`{LITTLECPU_INSTANCE}`, so the stalled-bus mutation has no port to tie "
+            "high. Re-anchor it on the new spelling."
+        )
+    return text[:port] + LITTLECPU_TIED + text[port + len(LITTLECPU_PORT):]
 
 
 def build_case(repo, root, harness, check, sv_text):
@@ -84,6 +106,7 @@ def build_case(repo, root, harness, check, sv_text):
 
 
 def run_case(repo, workdir, sby, harness, check, case, sv_text):
+    """Builds the case, runs its cover job, and returns (status, per-site sets)."""
     harness_dir = build_case(repo, workdir / case, harness, check, sv_text)
     job = f"{check}_cover"
     proc = subprocess.run(
@@ -98,7 +121,10 @@ def run_case(repo, workdir, sby, harness, check, case, sv_text):
     status = status_file.read_text().split()
     if not status:
         stop(f"sby's status file for the {case} case is empty.")
-    return status[0]
+    log_file = harness_dir / job / "logfile.txt"
+    if not log_file.is_file():
+        stop(f"sby wrote no log for the {case} case, so no goal can be read.")
+    return status[0], cover_log.parse(log_file.read_text(), f"{check}.sv")
 
 
 def main():
@@ -123,22 +149,43 @@ def main():
     workdir.mkdir(parents=True, exist_ok=True)
 
     sv_text = (repo / harness / f"{check}.sv").read_text()
+    mutant = mutate(sv_text, is_nano)
 
     red = []
 
-    status = run_case(repo, workdir, args.sby, harness, check, "shipping", sv_text)
-    print(f"shipping: {status}")
-    if status != "PASS":
+    status, ship = run_case(repo, workdir, args.sby, harness, check, "shipping", sv_text)
+    goals = ship["reached"] | ship["unreached"]
+    print(f"shipping: {status}, goals reached {sorted(ship['reached']) or 'none'}")
+    if not goals:
+        stop(
+            f"the shipping case's log names no cover statement in {check}.sv, so "
+            "sby's wording has moved and there is no goal to grade."
+        )
+    if status != "PASS" or ship["unreached"]:
         red.append(
             "the shipping harness does not reach its own cover goal. That is what\n"
             f"make -C {harness} {check}_cover is meant to prove about the design as "
             "it ships, so a control that starts red proves nothing about a mutant."
         )
 
-    status = run_case(repo, workdir, args.sby, harness, check, "stalled-bus",
-                       mutate(sv_text, is_nano))
-    print(f"stalled-bus: {status}")
-    if status != "FAIL":
+    status, mut = run_case(repo, workdir, args.sby, harness, check, "stalled-bus", mutant)
+    named = mut["reached"] | mut["unreached"]
+    sentinel = named - goals
+    print(f"stalled-bus: {status}, sentinel {sorted(sentinel)}, "
+          f"reached {sorted(mut['reached']) or 'none'}")
+    if len(sentinel) != 1 or not goals <= named:
+        stop(
+            f"the stalled-bus case's log names {sorted(named)}, which is not the "
+            f"shipping goal {sorted(goals)} plus the one sentinel the mutant states, so "
+            "it cannot be read."
+        )
+    if not sentinel <= mut["reached"]:
+        red.append(
+            "the stalled-bus mutant does not reach even its trivially true sentinel, so\n"
+            "it has no traces at all: its assumptions contradict each other, and its FAIL\n"
+            "would be the same for a goal that no longer needs a retire."
+        )
+    if status != "FAIL" or goals & mut["reached"]:
         red.append(
             "the stalled-bus mutant proves. Stalling the bus is exactly what should "
             "make\nthe retire-gated cover goal unreachable, so an anti-vacuity "
@@ -151,8 +198,8 @@ def main():
             print("*** " + why.replace("\n", "\n*** "), file=sys.stderr)
         sys.exit(1)
 
-    print("The stalled-bus mutant makes the cover goal unreachable, and the shipping "
-          "harness reaches it.")
+    print("The stalled-bus mutant reaches its sentinel and not the cover goal, and the "
+          "shipping harness reaches the goal.")
 
 
 if __name__ == "__main__":
