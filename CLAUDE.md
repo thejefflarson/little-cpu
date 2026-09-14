@@ -25,7 +25,7 @@ Four habits carry the goals:
 - **An inherited conclusion is not a measurement, and the cheap test outranks it.** A report that
   something cannot work — an upstream issue, a datasheet's worst case, a pin table — is evidence
   about someone else's setup until it has been run here. `sudo iceprog` was reported useless on
-  macOS and is what made the board flashable (the `prog` recipe's comment); `SB_HFOSC`'s ±10% trim
+  macOS and is what made the board flashable (`docs/flashing-the-upduino.md`); `SB_HFOSC`'s ±10% trim
   was quoted to argue the UART could never work, and the part measures nominal (ADR-0130); two
   community pin tables give the UPduino's clock as 41 and 44 against the vendor's own 20
   (`docs/pin-constraints.md`). The cost of testing one is usually a single command.
