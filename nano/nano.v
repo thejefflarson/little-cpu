@@ -15,28 +15,75 @@ module riscv (
  `endif
   );
 
-  // instruction decoder (figure 2.3)
+  // Declared here, ahead of every use, since iverilog needs an identifier in scope first.
   logic [31:0] instr;
   logic [4:0] opcode;
-  assign opcode = instr[6:2];
   logic [1:0] quadrant, cfunct2, cmath_funct2;
-  assign quadrant = instr[1:0];
   logic uncompressed;
-  assign uncompressed = quadrant == 2'b11;
   logic [2:0] funct3, cfunct3;
   logic [3:0] cfunct4;
+  logic [5:0] cfunct6;
+  logic [6:0] funct7;
+  logic [31:0] i_immediate, s_immediate, b_immediate, u_immediate, j_immediate;
+  logic [31:0] cl_immediate, clwsp_immediate, cli_immediate, css_immediate, cj_immediate,
+    cb_immediate, clui_immediate, caddi_immediate, caddi16sp_immediate, caddi4spn_immediate;
+  logic [31:0] immediate;
+  logic is_lui, is_lui_op, is_auipc, is_jal, is_jal_op, is_jalr, is_jalr_op, is_cj, is_cjal, is_cjr,
+    is_cjalr, is_clui;
+  logic [31:0] jump_address;
+  logic is_branch_op, is_branch, is_beq, is_bne, is_blt, is_bltu, is_bge, is_bgeu, is_cbeqz,
+    is_cbnez;
+  logic is_load_op, is_load, is_lb, is_lh, is_lw, is_lbu, is_lhu, is_clwsp, is_clw;
+  logic is_store, is_store_op, is_sb, is_sh, is_sw, is_cswsp, is_csw;
+  logic math_low;
+  logic math_high;
+  logic is_math_immediate_op, is_math_immediate, is_addi, is_slti, is_sltiu, is_xori, is_ori,
+    is_andi, is_slli, is_srli, is_srai, is_cli, is_caddi, is_caddi16sp, is_caddi4spn, is_cslli,
+    is_csrli, is_csrai, is_candi;
+  logic is_math_op, is_math, is_add, is_sub, is_sll, is_slt, is_sltu, is_xor, is_srl, is_sra, is_or,
+    is_and, is_cmv, is_cadd, is_cand, is_cor, is_cxor, is_csub;
+  logic is_m, is_multiply, is_mul, is_mulh, is_mulhu, is_mulhsu, is_divide, is_div, is_divu, is_rem,
+    is_remu;
+  logic [31:0] math_arg;
+  logic [4:0] shamt;
+  logic is_csr, is_csrrw, is_csrrs, is_csrrc, is_csrrwi, is_csrrsi, is_csrrci;
+  logic is_error, is_ecall, is_ebreak;
+  logic rs1_valid, rs2_valid;
+  logic is_e_illegal;
+  logic is_valid;
+  logic [31:0] regs[0:15];
+  logic [31:0] pc;
+  logic [4:0] rd, rs1, rs2;
+  logic [31:0] load_store_address;
+  logic [1:0] addr24;
+  logic addr16;
+  logic addr8;
+  logic [31:0] next_pc;
+  logic [31:0] pc_inc;
+  logic [31:0] reg_wdata;
+  logic [31:0] pc_wdata;
+  logic [63:0] mul_div_store;
+  logic [6:0] mul_div_counter;
+  logic [63:0] mul_div_x;
+  logic [63:0] mul_div_y;
+  logic want_abs;
+  logic [31:0] div_abs_rs1, div_abs_rs2;
+  logic [3:0] cpu_state;
+  logic skip_reg_write;
+
+  // instruction decoder (figure 2.3)
+  assign opcode = instr[6:2];
+  assign quadrant = instr[1:0];
+  assign uncompressed = quadrant == 2'b11;
   assign funct3 = instr[14:12];
   assign cfunct3 = instr[15:13];
   assign cfunct2 = instr[11:10];
   assign cmath_funct2 = instr[6:5];
   assign cfunct4 = instr[15:12];
-  logic [5:0] cfunct6;
   assign cfunct6 = instr[15:10];
-  logic [6:0] funct7;
   assign funct7 = instr[31:25];
 
   // immediate decoder (figure 2.4 & table 16.1)
-  logic [31:0] i_immediate, s_immediate, b_immediate, u_immediate, j_immediate;
   assign i_immediate = {{20{instr[31]}}, instr[31:20]};
   assign s_immediate = {{20{instr[31]}}, instr[31:25], instr[11:7]};
   assign b_immediate = {{20{instr[31]}}, instr[7], instr[30:25], instr[11:8], 1'b0};
@@ -44,8 +91,6 @@ module riscv (
   assign j_immediate = {{12{instr[31]}}, instr[19:12], instr[20], instr[30:21], 1'b0};
 
   // compressed instructions
-  logic [31:0] cl_immediate, clwsp_immediate, cli_immediate, css_immediate, cj_immediate,
-    cb_immediate, clui_immediate, caddi_immediate, caddi16sp_immediate, caddi4spn_immediate;
   assign cl_immediate = {25'b0, instr[5], instr[12:10], instr[6], 2'b00};
   assign clwsp_immediate = {24'b0, instr[3:2], instr[12], instr[6:4], 2'b00};
   assign cli_immediate = {{26{instr[12]}}, instr[12], instr[6:2]};
@@ -58,7 +103,6 @@ module riscv (
   assign caddi16sp_immediate = {{22{instr[12]}}, instr[12], instr[4:3], instr[5], instr[2], instr[6], 4'b0};
   assign caddi4spn_immediate = {22'b0, instr[10:7], instr[12:11], instr[5], instr[6], 2'b00};
 
-  logic [31:0] immediate;
   always_comb begin
     (* parallel_case, full_case *)
     case (1'b1)
@@ -85,8 +129,6 @@ module riscv (
   end
 
   // Table 24.2 RV32I and Table 16.5-7
-  logic is_lui, is_lui_op, is_auipc, is_jal, is_jal_op, is_jalr, is_jalr_op, is_cj, is_cjal, is_cjr,
-    is_cjalr, is_clui;
   assign is_lui_op = opcode == 5'b01101 && uncompressed;
   assign is_lui = is_lui_op || is_clui;
   assign is_clui = quadrant == 2'b01 && cfunct3 == 3'b011 && clui_immediate != 0 &&
@@ -102,13 +144,10 @@ module riscv (
     instr[11:7] != 0;
   assign is_cjalr = quadrant == 2'b10 && cfunct3 == 3'b100 && instr[12] == 1 && instr[6:2] == 0 &&
     instr[11:7] != 0;
-  logic [31:0] jump_address;
   assign jump_address = is_jalr || is_cjr || is_cjalr ?
     ($signed(immediate) + $signed(regs[rs1[3:0]])) & 32'hfffffffe :
     $signed(pc) + $signed(immediate);
 
-  logic is_branch_op, is_branch, is_beq, is_bne, is_blt, is_bltu, is_bge, is_bgeu, is_cbeqz,
-    is_cbnez;
   assign is_branch_op = opcode == 5'b11000 && uncompressed;
   assign is_beq = (is_branch_op && funct3 == 3'b000) || is_cbeqz;
   assign is_bne = (is_branch_op && funct3 == 3'b001) || is_cbnez;
@@ -120,7 +159,6 @@ module riscv (
   assign is_cbnez = quadrant == 2'b01 && cfunct3 == 3'b111;
   assign is_branch = is_beq || is_bne || is_blt || is_bge || is_bltu || is_bgeu;
 
-  logic is_load_op, is_load, is_lb, is_lh, is_lw, is_lbu, is_lhu, is_clwsp, is_clw;
   assign is_load_op = opcode == 5'b00000 && uncompressed;
   assign is_lb = is_load_op && funct3 == 3'b000;
   assign is_lh = is_load_op && funct3 == 3'b001;
@@ -131,7 +169,6 @@ module riscv (
   assign is_clw = quadrant == 2'b00 && cfunct3 == 3'b010;
   assign is_load = is_lb || is_lh || is_lw || is_lbu || is_lhu;
 
-  logic is_store, is_store_op, is_sb, is_sh, is_sw, is_cswsp, is_csw;
   assign is_store_op = opcode == 5'b01000 && uncompressed;
   assign is_sb = is_store_op && funct3 == 3'b000;
   assign is_sh = is_store_op && funct3 == 3'b001;
@@ -140,13 +177,8 @@ module riscv (
   assign is_csw = quadrant == 2'b00 && cfunct3 == 3'b110;
   assign is_store = is_sb || is_sh || is_sw;
 
-  logic math_low;
   assign math_low = funct7 == 7'b0000000;
-  logic math_high;
   assign math_high = funct7 == 7'b0100000;
-  logic is_math_immediate_op, is_math_immediate, is_addi, is_slti, is_sltiu, is_xori, is_ori,
-    is_andi, is_slli, is_srli, is_srai, is_cli, is_caddi, is_caddi16sp, is_caddi4spn, is_cslli,
-    is_csrli, is_csrai, is_candi;
   assign is_math_immediate_op = opcode == 5'b00100 && uncompressed;
   assign is_addi = (is_math_immediate_op && funct3 == 3'b000) || is_cli || is_caddi ||
     is_caddi16sp || is_caddi4spn;
@@ -171,8 +203,6 @@ module riscv (
   assign is_math_immediate = is_addi || is_slti || is_sltiu || is_xori || is_ori || is_andi ||
     is_slli || is_srli || is_srai;
 
-  logic is_math_op, is_math, is_add, is_sub, is_sll, is_slt, is_sltu, is_xor, is_srl, is_sra, is_or,
-    is_and, is_cmv, is_cadd, is_cand, is_cor, is_cxor, is_csub;
   assign is_math_op = opcode == 5'b01100 && uncompressed;
   assign is_add = (is_math_op && math_low && funct3 == 3'b000) || is_cmv || is_cadd;
   assign is_cmv = quadrant == 2'b10 && cfunct4 == 4'b1000 && instr[6:2] != 0;
@@ -193,8 +223,6 @@ module riscv (
   assign is_math = is_add || is_sub || is_sll || is_slt || is_sltu || is_xor || is_srl || is_sra ||
     is_or || is_and;
 
-  logic is_m, is_multiply, is_mul, is_mulh, is_mulhu, is_mulhsu, is_divide, is_div, is_divu, is_rem,
-    is_remu;
   assign is_m = is_math_op && funct7 == 7'b0000001;
   assign is_mul = is_m && funct3 == 3'b000;
   assign is_mulh = is_m && funct3 == 3'b001;
@@ -206,12 +234,9 @@ module riscv (
   assign is_rem = is_m && funct3 == 3'b110;
   assign is_remu = is_m && funct3 == 3'b111;
   assign is_divide = is_div || is_divu || is_rem || is_remu;
-  logic [31:0] math_arg;
   assign math_arg = is_math_immediate ? immediate : regs[rs2[3:0]];
-  logic [4:0] shamt;
   assign shamt = is_math_immediate ? rs2 : regs[rs2[3:0]][4:0];
 
-  logic is_csr, is_csrrw, is_csrrs, is_csrrc, is_csrrwi, is_csrrsi, is_csrrci;
   assign is_csr = opcode == 5'b11100 && uncompressed;
   assign is_csrrw = is_csr && funct3 == 3'b001;
   assign is_csrrs = is_csr && funct3 == 3'b010;
@@ -220,7 +245,6 @@ module riscv (
   assign is_csrrsi = is_csr && funct3 == 3'b110;
   assign is_csrrci = is_csr && funct3 == 3'b111;
 
-  logic is_error, is_ecall, is_ebreak;
   assign is_error = opcode == 5'b11100 && uncompressed && funct3 == 0 && rs1 == 0 && rd == 0;
   assign is_ecall = is_error && !{|instr[31:20]};
   assign is_ebreak = is_error && |instr[31:20];
@@ -231,14 +255,11 @@ module riscv (
   // encodings that actually read a register there, since lui/auipc/jal have no rs1, and
   // jalr/load/math_immediate's would-be rs2 field is immediate or shamt bits instead
   // (math_arg and shamt both read `immediate`/`rs2` directly rather than regs[rs2] there).
-  logic rs1_valid, rs2_valid;
   assign rs1_valid = !is_lui && !is_jal && !is_auipc;
   assign rs2_valid = !is_lui && !is_jal && !is_auipc && !is_jalr && !is_load &&
     !is_math_immediate;
-  logic is_e_illegal;
   assign is_e_illegal = rd[4] || (rs1_valid && rs1[4]) || (rs2_valid && rs2[4]);
 
-  logic is_valid;
   assign is_valid = (is_lui ||
     is_auipc ||
     is_jal ||
@@ -254,45 +275,26 @@ module riscv (
     is_ebreak) && !is_e_illegal;
 
   // registers
-  logic [31:0] regs[0:15];
-  logic [31:0] pc;
-  logic [4:0] rd, rs1, rs2;
-  logic [31:0] load_store_address;
   assign load_store_address = $signed(immediate) + $signed(regs[rs1[3:0]]);
-  logic [1:0] addr24;
   assign addr24 = load_store_address[1:0];
-  logic addr16;
   assign addr16 = load_store_address[1];
-  logic addr8;
   assign addr8 = load_store_address[0];
 
   // storage for the next program counter
-  logic [31:0] next_pc;
-  logic [31:0] pc_inc;
   assign pc_inc = uncompressed ? 4 : 2;
 
   // register write addr
-  logic [31:0] reg_wdata;
   // pc write
-  logic [31:0] pc_wdata;
   // multiply and divide state
-  logic [63:0] mul_div_store;
-  logic [6:0] mul_div_counter;
-  logic [63:0] mul_div_x;
-  logic [63:0] mul_div_y;
 
   // The shift-subtract loop below compares magnitudes, so a signed dividend or divisor
   // is negated before it starts and the sign is restored on the way out; DIVU/REMU read
   // their operand as its own magnitude already.
-  logic want_abs;
   assign want_abs = is_div || is_rem;
-  logic [31:0] div_abs_rs1, div_abs_rs2;
   assign div_abs_rs1 = want_abs && regs[rs1[3:0]][31] ? -regs[rs1[3:0]] : regs[rs1[3:0]];
   assign div_abs_rs2 = want_abs && regs[rs2[3:0]][31] ? -regs[rs2[3:0]] : regs[rs2[3:0]];
 
   // state machine
-  logic [3:0] cpu_state;
-  logic skip_reg_write;
   localparam cpu_trap = 4'b0000;
   localparam fetch_instr = 4'b0001;
   localparam ready_instr = 4'b0010;
@@ -688,43 +690,71 @@ module riscv (
  `ifdef RISCV_FORMAL
   logic is_fetch;
   assign is_fetch = cpu_state == fetch_instr;
+
+  // `RVFI_OUTPUTS types these `wire` under iverilog; each gets a same-width shadow.
+  `define RVFI_SHADOW(name) \
+    logic [$bits(name)-1:0] name``_q; \
+    assign name = name``_q;
+  `RVFI_SHADOW(rvfi_valid)
+  `RVFI_SHADOW(rvfi_order)
+  `RVFI_SHADOW(rvfi_insn)
+  `RVFI_SHADOW(rvfi_trap)
+  `RVFI_SHADOW(rvfi_halt)
+  `RVFI_SHADOW(rvfi_intr)
+  `RVFI_SHADOW(rvfi_mode)
+  `RVFI_SHADOW(rvfi_ixl)
+  `RVFI_SHADOW(rvfi_rs1_addr)
+  `RVFI_SHADOW(rvfi_rs2_addr)
+  `RVFI_SHADOW(rvfi_rs1_rdata)
+  `RVFI_SHADOW(rvfi_rs2_rdata)
+  `RVFI_SHADOW(rvfi_rd_addr)
+  `RVFI_SHADOW(rvfi_rd_wdata)
+  `RVFI_SHADOW(rvfi_pc_rdata)
+  `RVFI_SHADOW(rvfi_pc_wdata)
+  `RVFI_SHADOW(rvfi_mem_addr)
+  `RVFI_SHADOW(rvfi_mem_rmask)
+  `RVFI_SHADOW(rvfi_mem_wmask)
+  `RVFI_SHADOW(rvfi_mem_rdata)
+  `RVFI_SHADOW(rvfi_mem_wdata)
+  `undef RVFI_SHADOW
+
   always_ff @(posedge clk) begin
-    rvfi_valid <= !reset && ((is_fetch && is_valid) || trap);
+    rvfi_valid_q <= !reset && ((is_fetch && is_valid) || trap);
 
     // what were our read registers while this instruction was executing?
     if (cpu_state == execute_instr) begin
-      rvfi_rs1_rdata <= rs1_valid ? regs[rs1[3:0]] : 0;
-      rvfi_rs2_rdata <= rs2_valid ? regs[rs2[3:0]] : 0;
+      rvfi_rs1_rdata_q <= rs1_valid ? regs[rs1[3:0]] : 0;
+      rvfi_rs2_rdata_q <= rs2_valid ? regs[rs2[3:0]] : 0;
     end
 
-    rvfi_rs1_addr <= rs1_valid ? rs1 : 0;
-    rvfi_rs2_addr <= rs2_valid ? rs2 : 0;
-    rvfi_insn <= instr;
+    rvfi_rs1_addr_q <= rs1_valid ? rs1 : 0;
+    rvfi_rs2_addr_q <= rs2_valid ? rs2 : 0;
+    rvfi_insn_q <= instr;
 
-    rvfi_rd_addr <= rd;
-    rvfi_rd_wdata <= |rd ? regs[rd[3:0]] : 0;
-    rvfi_trap <= trap;
-    rvfi_halt <= trap;
-    rvfi_pc_rdata <= pc;
-    rvfi_pc_wdata <= next_pc;
-    rvfi_mode <= 3;
-    rvfi_ixl <= 1;
-    rvfi_intr <= 0;
-    rvfi_order <= !reset ? rvfi_order + rvfi_valid : 0;
+    rvfi_rd_addr_q <= rd;
+    rvfi_rd_wdata_q <= |rd ? regs[rd[3:0]] : 0;
+    rvfi_trap_q <= trap;
+    rvfi_halt_q <= trap;
+    rvfi_pc_rdata_q <= pc;
+    rvfi_pc_wdata_q <= next_pc;
+    rvfi_mode_q <= 3;
+    rvfi_ixl_q <= 1;
+    rvfi_intr_q <= 0;
+    rvfi_order_q <= !reset ? rvfi_order_q + rvfi_valid_q : 0;
 
     if (mem_instr) begin
-      rvfi_mem_addr <= 0;
-      rvfi_mem_wmask <= 0;
-      rvfi_mem_rmask <= 0;
-      rvfi_mem_rdata <= 0;
-      rvfi_mem_wdata <= 0;
+      rvfi_mem_addr_q <= 0;
+      rvfi_mem_wmask_q <= 0;
+      rvfi_mem_rmask_q <= 0;
+      rvfi_mem_rdata_q <= 0;
+      rvfi_mem_wdata_q <= 0;
     // what exactly came back from memory?
     end else if (mem_valid && mem_ready) begin
-      rvfi_mem_addr <= mem_addr;
-      rvfi_mem_wmask <= mem_wstrb;
-      rvfi_mem_rmask <= |mem_wstrb ? 0 : ~0;
-      rvfi_mem_rdata <= mem_rdata;
-      rvfi_mem_wdata <= mem_wdata;
+      rvfi_mem_addr_q <= mem_addr;
+      rvfi_mem_wmask_q <= mem_wstrb;
+      rvfi_mem_rmask_q <= |mem_wstrb ? 0 : ~0;
+      rvfi_mem_rdata_q <= mem_rdata;
+      rvfi_mem_wdata_q <= mem_wdata;
     end
   end
  `endif
