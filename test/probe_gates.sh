@@ -476,6 +476,10 @@ d=$(rt_fixture); printf 'add.S ten 10\n' > "$d/FLOOR"
 probe "a non-numeric floor is named rather than compared arithmetically" 1 \
   "are not '<program> <retires> <spec-checked>'" "$(rt "$d")"
 
+d=$(rt_fixture); printf 'add.S 99999999999999999999 10\n' > "$d/FLOOR"
+probe "a floor too long for the shell's integers is named, not compared" 1 \
+  "are not '<program> <retires> <spec-checked>'" "$(rt "$d")"
+
 # The manifest check runs first, so the fixture needs the .c to exist as well.
 d=$(rt_fixture); : > "$d/asm/boot.c"
 printf 'add.S 10 10\nboot.c 400 400\n' > "$d/FLOOR"
@@ -532,6 +536,18 @@ probe "an unstartable runner is RUNNER-ERROR 127, never FAIL" 1 \
 
 probe "a PASS with no counts line is not a pass" 1 "NO-COUNTS" \
   "STUB_SIM_NOCOUNTS=1 $(rt "$d")"
+
+probe "a non-numeric retire count is NO-COUNTS, not a silent PASS" 1 "NO-COUNTS" \
+  "STUB_SIM_RETIRES=x $(rt "$d")"
+
+probe "a non-numeric spec-checked count is NO-COUNTS too" 1 "NO-COUNTS" \
+  "STUB_SIM_SPEC=x $(rt "$d")"
+
+probe "a retire count too long for the shell's integers is NO-COUNTS" 1 "NO-COUNTS" \
+  "STUB_SIM_RETIRES=99999999999999999999 $(rt "$d")"
+
+probe "a spec-checked count too long for the shell's integers is NO-COUNTS" 1 "NO-COUNTS" \
+  "STUB_SIM_SPEC=99999999999999999999 $(rt "$d")"
 
 probe "a program that went quiet is BELOW-FLOOR on retires" 1 \
   "BELOW-FLOOR retires" "STUB_SIM_RETIRES=1 $(rt "$d")"
