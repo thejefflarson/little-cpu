@@ -8074,6 +8074,64 @@ d=$(new_case); mkdir -p "$d/test"; cp "$REPO/test/pin_bump_token_test.py" "$d/te
 probe "a missing workflow file is an error, not an empty pass" 1 \
   "is missing" "cd '$d' && python3 test/pin_bump_token_test.py ."
 
+begin_group "test/nano_tt_area_workflow_test.py"
+
+# Same shape as pin_bump_token_test.py's fixtures: a sed program applied to the shipping
+# workflow, graded by the script under test rather than by hand-typed YAML.
+ntawt_fixture() {  # $1 = sed program applied to the workflow
+  local d; d=$(new_case)
+  mkdir -p "$d/.github/workflows" "$d/test"
+  cp "$REPO/test/nano_tt_area_workflow_test.py" "$d/test/"
+  sed "$1" "$REPO/.github/workflows/nano-tt-area-selfhosted.yml" \
+    > "$d/.github/workflows/nano-tt-area-selfhosted.yml"
+  printf '%s' "$d"
+}
+
+d=$(ntawt_fixture '')
+probe "control: the shipping workflow resolves its mode once and saves its PDK cache unconditionally" 0 \
+  "resolves its mode once and saves its PDK cache unconditionally" \
+  "cd '$d' && python3 test/nano_tt_area_workflow_test.py ."
+
+d=$(ntawt_fixture 's|summary_line "stop after synthesis: \$stop_after_synthesis_report"|summary_line "stop after synthesis: ${{ inputs.stop_after_synthesis \|\| '"'"'true'"'"' }}"|')
+probe "the defect this exists for: a summary line re-deriving the mode from inputs." 1 \
+  "re-derives the mode from inputs.stop_after_synthesis" \
+  "cd '$d' && python3 test/nano_tt_area_workflow_test.py ."
+
+# A range-address sed delete of just this one step's `if: always()` is not portable
+# between BSD and GNU sed, so this fixture edits the exact block with Python instead.
+ntawt_no_always_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/.github/workflows" "$d/test"
+  cp "$REPO/test/nano_tt_area_workflow_test.py" "$d/test/"
+  python3 - "$REPO/.github/workflows/nano-tt-area-selfhosted.yml" \
+    "$d/.github/workflows/nano-tt-area-selfhosted.yml" <<'PYEOF'
+import sys
+src_path, dst_path = sys.argv[1], sys.argv[2]
+text = open(src_path).read()
+old = "      - name: Save the sky130 PDK\n        if: always()\n        uses: actions/cache/save@"
+new = "      - name: Save the sky130 PDK\n        uses: actions/cache/save@"
+if old not in text:
+    print("error: fixture stale: the Save step's if: always() text is no longer in the workflow", file=sys.stderr)
+    sys.exit(1)
+open(dst_path, "w").write(text.replace(old, new, 1))
+PYEOF
+  printf '%s' "$d"
+}
+
+d=$(ntawt_no_always_fixture)
+probe "a PDK cache save step with no if: always() only saves on job success" 1 \
+  "only saves the PDK when the rest of the job succeeded" \
+  "cd '$d' && python3 test/nano_tt_area_workflow_test.py ."
+
+d=$(ntawt_fixture 's|uses: actions/cache/restore@|uses: actions/cache@|')
+probe "a combined actions/cache step in place of restore is refused" 1 \
+  "no actions/cache/restore step restores the sky130 PDK" \
+  "cd '$d' && python3 test/nano_tt_area_workflow_test.py ."
+
+d=$(new_case); mkdir -p "$d/test"; cp "$REPO/test/nano_tt_area_workflow_test.py" "$d/test/"
+probe "a missing workflow file is an error, not an empty pass" 1 \
+  "is missing" "cd '$d' && python3 test/nano_tt_area_workflow_test.py ."
+
 begin_group "test/compare_product_schedule_token_test.py"
 
 cpst_fixture() {  # $1 = sed program applied to the workflow

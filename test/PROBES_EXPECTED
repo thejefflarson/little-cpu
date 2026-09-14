@@ -70,6 +70,7 @@ a MAP_TOP inside the topmost window is red
 a Makefile make cannot parse does not pass by silence
 a Makefile naming $(VEXRISCV_V) nowhere is red, not vacuously clean
 a PASS with no counts line is not a pass
+a PDK cache save step with no if: always() only saves on job success
 a PLL fed by something other than the constrained pad is red
 a PLL told its input is something the pad is not is red
 a PR opened against a base other than main is red
@@ -136,6 +137,7 @@ a classification naming a port the netlist has never seen is red
 a clock for a core nobody graded is named rather than ignored
 a clock turns the CoreMark per-MHz figure into an absolute one
 a clock turns the per-MHz figure into an absolute one
+a combined actions/cache step in place of restore is refused
 a comment-only file's single pointer line is excused by MIN_COMMENT_LINES
 a commit that stages more than the stamp is red
 a commit under the age floor stops the bump, naming its age
@@ -294,6 +296,7 @@ a missing riscv-formal clone is named, not blamed on the ISA string
 a missing schedule workflow file is an error, not an empty pass
 a missing schedule workflow file is an error, not an empty pass
 a missing stat.json is refused, not read as a zero-area design
+a missing workflow file is an error, not an empty pass
 a missing workflow file is an error, not an empty pass
 a mistyped baseline path cannot compare nothing and pass
 a mistyped baseline path cannot compare nothing and pass
@@ -793,6 +796,7 @@ control: the shipping schedule workflow confines its credential to the publish s
 control: the shipping tree keeps the retired term inside its allow-list
 control: the shipping tree names one ISA at every site
 control: the shipping tree states every band figure in one place
+control: the shipping workflow resolves its mode once and saves its PDK cache unconditionally
 control: the tracked monitor sanitizes, and rule 3 fires
 control: two identical netlists are equal
 control: two identical snapshots print a null delta and no news
@@ -935,6 +939,7 @@ the cxxrtl leg failing its own baseline is red before any comparison
 the cxxrtl runner's kRamBase drifting is red
 the default text window is the part's, not the harness's
 the defect this exists for: a core clocked from the pad, not the PLL
+the defect this exists for: a summary line re-deriving the mode from inputs.
 the digest is over the sources, so it does not move when only the tools do
 the dominant reason is the suite's, not the first program's
 the encoding proof going red somewhere else is not evidence either
