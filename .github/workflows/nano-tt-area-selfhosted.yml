@@ -154,8 +154,10 @@ jobs:
             fi
             harden_cmd+=(src/config_merged.json)
             if command -v /usr/bin/time >/dev/null 2>&1; then
-              /usr/bin/time -v "${harden_cmd[@]}" 2> harden.time.log
+              rc=0
+              /usr/bin/time -v "${harden_cmd[@]}" 2> harden.time.log || rc=$?
               cat harden.time.log
+              exit "$rc"
             else
               "${harden_cmd[@]}"
             fi
@@ -201,6 +203,7 @@ jobs:
         if: always()
         run: |
           mkdir -p spike-stats
+          cp harden.time.log spike-stats/ 2>/dev/null || true
           cp runs/wokwi/final/metrics.csv spike-stats/ 2>/dev/null || true
           for d in runs/wokwi/*-yosys-synthesis; do
             cp "$d/reports/stat.rpt" spike-stats/synthesis-stats.txt 2>/dev/null || true
