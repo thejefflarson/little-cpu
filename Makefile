@@ -1219,7 +1219,7 @@ prog: board.bin
 	  echo '*** `make setup` caches -- put its bin/ first on PATH.'; \
 	  exit 1; \
 	}
-	@echo 'Flashing $(BOARD). On macOS this needs root -- see the comment above.'
+	@echo 'Flashing $(BOARD). On macOS this needs root -- see docs/flashing-the-upduino.md.'
 	$(ICEPROG_SUDO) iceprog $(if $(ICEPROG_DEV),-d '$(ICEPROG_DEV)') board.bin
 
 DUAL_SRCS := $(DUAL_RTL_SRCS) rtl/littledualsoc.v
