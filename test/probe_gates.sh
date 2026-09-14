@@ -6077,6 +6077,80 @@ d=$(ba_fixture); rm "$d/formal/busarbiter.sv"
 probe "the harness moving away takes the probe with it, loudly" 2 \
   "formal/busarbiter.sv is missing from" "$(bas "$d")"
 
+begin_group "formal/check-memcheck-depth.py"
+
+MCD="python3 $REPO/formal/check-memcheck-depth.py"
+
+mcd_fixture() {  # $1 = depth  $2 = cover depth, defaults to $1
+  local d; d=$(new_case)
+  fixture_anchor "$REPO/formal/checks.cfg" \
+    '#derive F 6  worst-case first retire, swept out of `hang`'
+  fixture_anchor "$REPO/formal/checks.cfg" \
+    '#derive G 6  worst-case gap between two retires, swept out of `liveness`'
+  cat > "$d/checks.cfg" <<CFG
+[depth]
+#derive F 6  worst-case first retire, swept out of \`hang\`
+#derive G 6  worst-case gap between two retires, swept out of \`liveness\`
+CFG
+  printf '[options]\ndepth %s\n' "$1" > "$d/dmemcheck.sby"
+  printf '[options]\ndepth %s\n' "${2:-$1}" > "$d/dmemcheck_cover.sby"
+  printf '%s' "$d"
+}
+
+d=$(mcd_fixture 14)
+probe "control: a depth exactly at the floor passes" 0 \
+  "depth 14 >= F+G+2 = 14 (F=6, G=6)" "$MCD $d dmemcheck.sby 2"
+
+d=$(mcd_fixture 13)
+probe "a depth one below the floor is red, naming F and G" 1 \
+  "depth 13 is below F+G+2 = 14 (F=6, G=6)" "$MCD $d dmemcheck.sby 2"
+
+d=$(mcd_fixture 8)
+probe "control: a one-retire floor is F+2, not F+G+2" 0 \
+  "depth 8 >= F+2 = 8 (F=6, G=6)" "$MCD $d dmemcheck.sby 1"
+
+d=$(new_case)
+probe "a harness directory with no checks.cfg is named, not measured as empty" 1 \
+  "does not exist" "$MCD $d dmemcheck.sby 2"
+
+d=$(mcd_fixture 14)
+probe "a named .sby that does not exist is refused" 1 \
+  "does not exist" "$MCD $d missing.sby 2"
+
+d=$(mcd_fixture 14); printf '[options]\nmode bmc\n' > "$d/dmemcheck.sby"
+probe "a missing depth line in the .sby stops rather than comparing nothing" 1 \
+  "declares no \`depth NNN\` line" "$MCD $d dmemcheck.sby 2"
+
+d=$(mcd_fixture 14)
+probe "a <retires> argument that is not 1 or 2 is refused" 2 \
+  "<retires> must be 1 or 2" "$MCD $d dmemcheck.sby 3"
+
+probe "wrong argument count is exit 2" 2 "usage:" "$MCD onearg"
+
+d=$(mcd_fixture 14 15)
+probe "a cover .sby deeper than its bmc sibling is red, not a deeper proof" 1 \
+  "depth 15 does not match" "$MCD $d dmemcheck.sby 2"
+
+d=$(mcd_fixture 14); rm "$d/dmemcheck_cover.sby"
+probe "a memcheck with no cover sibling has an untied depth, and is red" 1 \
+  "does not exist, so its anti-vacuity depth is untied" "$MCD $d dmemcheck.sby 2"
+
+d=$(mcd_fixture 14); printf '[options]\nmode cover\n' > "$d/dmemcheck_cover.sby"
+probe "a cover .sby with no depth line is untied the same way its bmc sibling is" 1 \
+  "declares no \`depth NNN\` line" "$MCD $d dmemcheck.sby 2"
+
+d=$(mcd_fixture 14); printf '[options]\ndepth 14\ndepth 8\n' > "$d/dmemcheck.sby"
+probe "a .sby stating depth twice is refused, since sby searches to the last" 1 \
+  "states \`depth\` 2 times in [options] (14, 8)" "$MCD $d dmemcheck.sby 2"
+
+d=$(mcd_fixture 14); printf '[options]\nmode bmc\n\n[script]\ndepth 24\n' > "$d/dmemcheck.sby"
+probe "a depth line outside [options] is not the depth sby searches" 1 \
+  "declares no \`depth NNN\` line" "$MCD $d dmemcheck.sby 2"
+
+d=$(mcd_fixture 14); mutate "$d/checks.cfg" '/^#derive G/d'
+probe "a checks.cfg with no #derive G is refused by name, not a traceback" 1 \
+  "no \`#derive\` line for G" "$MCD $d dmemcheck.sby 2"
+
 begin_group "nano/formal/complete-cover-probe.py"
 
 CC="python3 $REPO/nano/formal/complete-cover-probe.py"
@@ -6098,7 +6172,12 @@ unreached_line() {
 # against the mutant's unreached one. A stub that wrote only the unreached half
 # left the reached set empty, which reads identically to a harness with no goals.
 reached_line() {
-  echo "SBY [probe] engine_0: ##   0:00:00  Reached cover statement in step 5 at rvfi_testbench: complete.sv:$1.1-$1.1" \
+  if [ -n "${STUB_REACHED_NO_STEP:-}" ]; then
+    echo "SBY [probe] engine_0: ##   0:00:00  Reached cover statement at rvfi_testbench: complete.sv:$1.1-$1.1" \
+      >> complete_cover/logfile.txt
+    return
+  fi
+  echo "SBY [probe] engine_0: ##   0:00:00  Reached cover statement in step ${STUB_REACHED_STEP:-5} at rvfi_testbench: complete.sv:$1.1-$1.1" \
     >> complete_cover/logfile.txt
 }
 if grep -q "assume(mem_ready" complete.sv; then
@@ -6126,7 +6205,8 @@ cc_fixture() {
   local d; d=$(new_case)
   mkdir -p "$d/nano/formal" "$d/formal/riscv-formal"
   cp "$REPO"/nano/nano.v "$d/nano/"
-  cp "$REPO"/nano/formal/complete_cover.sby "$REPO"/nano/formal/complete.sv "$d/nano/formal/"
+  cp "$REPO"/nano/formal/complete_cover.sby "$REPO"/nano/formal/complete.sv \
+     "$REPO"/nano/formal/complete.sby "$d/nano/formal/"
   printf '%s' "$d"
 }
 
@@ -6173,9 +6253,202 @@ d=$(cc_fixture); rm "$d/nano/nano.v"
 probe "the RTL moving away takes the probe with it, loudly" 2 \
   "nano/nano.v is missing from" "$(ccs "$d")"
 
+d=$(cc_fixture)
+probe "a goal reached at or beyond complete's own depth is red" 1 \
+  "only at or after step 20, complete.sby's own depth" "STUB_REACHED_STEP=20 $(ccs "$d")"
+
+d=$(cc_fixture); rm "$d/nano/formal/complete.sby"
+probe "complete.sby moving away leaves the depth tie with nothing to read" 2 \
+  "nano/formal/complete.sby is missing, so there is no depth" "$(ccs "$d")"
+
+d=$(cc_fixture); mutate "$d/nano/formal/complete.sby" 's/^depth 20$/depth twenty/'
+probe "a depth line this cannot parse leaves the tie unenforced, so it stops instead" 2 \
+  "declares no \`depth NNN\` line" "$(ccs "$d")"
+
+d=$(cc_fixture)
+probe "a reached line whose wording hides its step stops rather than switching the tie off" 2 \
+  "per-step lines disagree" "STUB_REACHED_NO_STEP=1 $(ccs "$d")"
+
+d=$(cc_fixture); mutate "$d/nano/formal/complete.sby" '/^depth 20$/a\
+depth 5'
+probe "complete.sby stating depth twice stops the tie rather than grading the first" 2 \
+  "states \`depth\` 2 times in [options] (20, 5)" "$(ccs "$d")"
+
 d=$(cc_fixture); rmdir "$d/formal/riscv-formal"
 probe "no riscv-formal checkout is exit 2, not a probe against nothing" 2 \
   "Fetch the pin first" "$(ccs "$d")"
+
+begin_group "formal/memcheck-cover-probe.py"
+
+MCP="python3 $REPO/formal/memcheck-cover-probe.py"
+
+cat > "$tmp/sby-mcp-stub" <<'STUB'
+#!/bin/sh
+# Stands in for sby for both harnesses' *_cover jobs and writes the per-goal log lines
+# real sby does. The stalled-bus mutant is told apart by the sentinel it states.
+job=$(ls *_cover.sby | sed 's/\.sby$//')
+mkdir -p "$job"
+sv=$(ls *check.sv)
+log="$job/logfile.txt"
+: > "$log"
+say() { [ -n "${STUB_NO_LOG_LINES:-}" ] || echo "SBY [probe] engine_0: ##   0:00:00  $1" >> "$log"; }
+goal="at testbench: $sv:80.7-80.89"
+sentinel="at testbench: $sv:14.14-14.38"
+if grep -q 'cover property (!reset)' "$sv"; then
+  status=${STUB_STALLED:-FAIL}
+  if [ -n "${STUB_NO_TRACE:-}" ]; then
+    say "Unreached cover statement $sentinel"
+  else
+    say "Reached cover statement in step 1 $sentinel"
+  fi
+  if [ "$status" = PASS ]; then
+    say "Reached cover statement in step 3 $goal"
+  else
+    say "Unreached cover statement $goal"
+  fi
+else
+  status=${STUB_SHIP:-PASS}
+  if [ "$status" = PASS ]; then
+    say "Reached cover statement in step 7 $goal"
+  else
+    say "Unreached cover statement $goal"
+  fi
+fi
+[ -n "${STUB_SBY_NO_STATUS:-}" ] && exit 1
+if [ -n "${STUB_SBY_EMPTY_STATUS:-}" ]; then : > "$job/status"; exit 1; fi
+echo "$status 0 12" > "$job/status"
+STUB
+chmod +x "$tmp/sby-mcp-stub"
+
+mcp_fixture() {  # $1 = formal|nano/formal  $2 = imemcheck|dmemcheck
+  local d; d=$(new_case) harness=$1 check=$2
+  mkdir -p "$d/$harness" "$d/formal/riscv-formal"
+  cp "$REPO/$harness/$check.sv" "$REPO/$harness/${check}_cover.sby" "$d/$harness/"
+  if [ "$harness" = "nano/formal" ]; then
+    mkdir -p "$d/nano"
+    cp "$REPO/nano/nano.v" "$d/nano/"
+  else
+    mkdir -p "$d/rtl"
+    # The exact list memcheck-cover-probe.py's own LITTLECPU_RTL names, not every
+    # rtl/*.v file: the stub never reads any of them, but build_case() still copies
+    # each one out of $d, so the fixture has to stock exactly what it will ask for.
+    for f in structs.v fetcher.v regfile.v csrs.v decoder.v regsel.v executor.v \
+             accessor.v writeback.v littlecpu.v; do
+      cp "$REPO/rtl/$f" "$d/rtl/"
+    done
+    cp "$REPO/formal/arbiter.v" "$d/formal/"
+  fi
+  printf '%s' "$d"
+}
+
+mcps() {  # $1 = fixture dir  $2 = harness  $3 = check
+  printf "%s --harness %s --check %s --repo %s --workdir %s/work --sby %s" \
+    "$MCP" "$2" "$3" "$1" "$1" "$tmp/sby-mcp-stub"
+}
+
+d=$(mcp_fixture formal dmemcheck)
+probe "control: littlecpu's dmemcheck reaches its goal and the stalled-bus mutant does not" 0 \
+  "The stalled-bus mutant reaches its sentinel and not the cover goal" "$(mcps "$d" formal dmemcheck)"
+
+d=$(mcp_fixture formal imemcheck)
+probe "control: littlecpu's imemcheck reaches its goal and the stalled-bus mutant does not" 0 \
+  "The stalled-bus mutant reaches its sentinel and not the cover goal" "$(mcps "$d" formal imemcheck)"
+
+d=$(mcp_fixture nano/formal dmemcheck)
+probe "control: nano's dmemcheck reaches its goal and the stalled-bus mutant does not" 0 \
+  "The stalled-bus mutant reaches its sentinel and not the cover goal" "$(mcps "$d" nano/formal dmemcheck)"
+
+d=$(mcp_fixture nano/formal imemcheck)
+probe "control: nano's imemcheck reaches its goal and the stalled-bus mutant does not" 0 \
+  "The stalled-bus mutant reaches its sentinel and not the cover goal" "$(mcps "$d" nano/formal imemcheck)"
+
+d=$(mcp_fixture formal dmemcheck)
+probe "a shipping harness that cannot reach its own cover goal is red" 1 \
+  "the shipping harness does not reach its own cover goal" \
+  "STUB_SHIP=FAIL $(mcps "$d" formal dmemcheck)"
+
+d=$(mcp_fixture nano/formal imemcheck)
+probe "an anti-vacuity cover that cannot go red is not a control" 1 \
+  "cannot go red is not a control" "STUB_STALLED=PASS $(mcps "$d" nano/formal imemcheck)"
+
+d=$(mcp_fixture formal dmemcheck)
+probe "a solver that wrote no verdict is exit 2, not a red arm" 2 \
+  "wrote no status for the shipping case" "STUB_SBY_NO_STATUS=1 $(mcps "$d" formal dmemcheck)"
+
+d=$(mcp_fixture formal dmemcheck)
+probe "an empty status file is refused rather than read as a verdict" 2 \
+  "status file for the shipping case is empty" "STUB_SBY_EMPTY_STATUS=1 $(mcps "$d" formal dmemcheck)"
+
+d=$(mcp_fixture formal dmemcheck)
+mutate "$d/formal/dmemcheck.sv" 's/  logic trap;/  logic trap ;/'
+probe "a respelled anchor stops rather than pinning nothing" 2 \
+  "no longer spells what the stalled-bus mutation" "$(mcps "$d" formal dmemcheck)"
+
+d=$(mcp_fixture formal dmemcheck); rm "$d/formal/dmemcheck_cover.sby"
+probe "the sby script moving away takes the probe with it, loudly" 2 \
+  "formal/dmemcheck_cover.sby is missing from" "$(mcps "$d" formal dmemcheck)"
+
+d=$(mcp_fixture nano/formal dmemcheck); rm "$d/nano/nano.v"
+probe "the RTL moving away takes the probe with it, loudly" 2 \
+  "nano/nano.v is missing from" "$(mcps "$d" nano/formal dmemcheck)"
+
+d=$(mcp_fixture formal dmemcheck); rmdir "$d/formal/riscv-formal"
+probe "no riscv-formal checkout is exit 2 here too, not a probe against nothing" 2 \
+  "Fetch the pin first" "$(mcps "$d" formal dmemcheck)"
+
+d=$(mcp_fixture formal dmemcheck)
+probe "a traceless stalled-bus mutant is red, since its FAIL holds for a trivially true goal too" 1 \
+  "does not reach even its trivially true sentinel" "STUB_NO_TRACE=1 $(mcps "$d" formal dmemcheck)"
+
+d=$(mcp_fixture formal dmemcheck)
+probe "a log that names no cover statement is exit 2, not a goal set of none" 2 \
+  "names no cover statement in dmemcheck.sv" "STUB_NO_LOG_LINES=1 $(mcps "$d" formal dmemcheck)"
+
+d=$(mcp_fixture formal imemcheck)
+mutate "$d/formal/imemcheck.sv" '/littlecpu uut (/,$ s/\.fetch_stall(fetch_stall)/.fetch_stall(stall)/'
+probe "a littlecpu harness whose core port moved stops rather than tying nothing" 2 \
+  "no longer connects the core as" "$(mcps "$d" formal imemcheck)"
+
+begin_group "formal/cover-depth-tie.py"
+
+CDT="python3 $REPO/formal/cover-depth-tie.py"
+
+cdt_fixture() {  # $1 = the step the second goal is first reached at
+  local d; d=$(new_case)
+  printf '[options]\nmode bmc\ndepth 50\n' > "$d/complete.sby"
+  printf '%s\n' \
+    "SBY [probe] engine_0: ##   0:00:00  Reached cover statement in step 5 at rvfi_testbench: complete.sv:146.3-146.80" \
+    "SBY [probe] engine_0: ##   0:00:00  Reached cover statement in step $1 at rvfi_testbench: complete.sv:147.3-147.80" \
+    > "$d/logfile.txt"
+  printf '%s' "$d"
+}
+
+cdts() { printf "%s %s/logfile.txt complete.sv %s/complete.sby" "$CDT" "$1" "$1"; }
+
+d=$(cdt_fixture 49)
+probe "control: every goal first reached before complete's depth passes the tie" 0 \
+  "the latest first reached at step 49, under" "$(cdts "$d")"
+
+d=$(cdt_fixture 50)
+probe "a goal first reached at complete's own depth is red" 1 \
+  "first reached only at or after step 50" "$(cdts "$d")"
+
+d=$(cdt_fixture 5); mutate "$d/logfile.txt" 's/statement in step [0-9]* at/statement at/'
+probe "a reached line whose wording hides its step is exit 2, not a tie of nothing" 2 \
+  "per-step lines disagree" "$(cdts "$d")"
+
+d=$(cdt_fixture 5); : > "$d/logfile.txt"
+probe "a log naming no reached goal is exit 2" 2 \
+  "names no reached cover statement in complete.sv" "$(cdts "$d")"
+
+d=$(cdt_fixture 5); printf '[options]\ndepth 50\ndepth 100\n' > "$d/complete.sby"
+probe "a bmc .sby stating depth twice is exit 2 here too" 2 \
+  "states \`depth\` 2 times in [options] (50, 100)" "$(cdts "$d")"
+
+d=$(cdt_fixture 5); rm "$d/logfile.txt"
+probe "a cover run that left no log is exit 2" 2 "logfile.txt does not exist" "$(cdts "$d")"
+
+probe "wrong argument count is exit 2" 2 "usage:" "$CDT onearg"
 
 begin_group "nano/formal/ill-e-probe.py"
 

@@ -82,11 +82,17 @@ formal/busarbiter-probe/
 formal/tval-probe/
 formal/decoder-zkt-probe/
 formal/executor-zkt-probe/
+formal/dmemcheck_cover
+formal/imemcheck_cover
+formal/memcheck-cover-probe/
 nano/formal/checks
 nano/formal/complete
 nano/formal/complete_cover
 nano/formal/dmemcheck
 nano/formal/imemcheck
+nano/formal/dmemcheck_cover
+nano/formal/imemcheck_cover
+nano/formal/memcheck-cover-probe/
 nano/formal/fg-probe.cfg
 nano/formal/fg-probe/
 nano/formal/complete-cover-probe/

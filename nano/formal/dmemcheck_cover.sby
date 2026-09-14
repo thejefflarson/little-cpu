@@ -1,13 +1,14 @@
+# The anti-vacuity control for dmemcheck: proves its own cover goal reachable at
+# the SAME depth dmemcheck.sby (mode bmc) searches, not a deeper one.
+
 [options]
-mode bmc
+mode cover
 append 0
 tbtop testbench.uut
-# A store, then a matching load, then the step the checker's clocked assert fires:
-# F+G+2 = 24 against checks.cfg's #derive lines; check-memcheck-depth.py grades it.
 depth 24
 
 [engines]
-smtbmc --presat --unroll boolector
+smtbmc boolector
 
 [script]
 read_verilog -sv dmemcheck.sv

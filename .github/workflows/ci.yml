@@ -851,6 +851,9 @@ jobs:
       - name: dmemcheck
         run: make -C formal dmemcheck
 
+      - name: imemcheck_cover / dmemcheck_cover (each memcheck's own anti-vacuity control)
+        run: make -C formal imemcheck_cover dmemcheck_cover
+
       - name: cover (five goals, incl. >=2 compressed retires)
         run: make -C formal cover
 
@@ -865,6 +868,9 @@ jobs:
 
       - name: nanocpu dmemcheck
         run: make -C nano/formal dmemcheck
+
+      - name: nanocpu imemcheck_cover / dmemcheck_cover (each memcheck's own anti-vacuity control)
+        run: make -C nano/formal imemcheck_cover dmemcheck_cover
 
       - name: nanocpu complete (whole-ISA BMC walk, depth 20)
         run: make -C nano/formal complete
