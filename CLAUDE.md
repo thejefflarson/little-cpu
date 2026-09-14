@@ -833,6 +833,17 @@ make nano-startup-test # the shared nano/bench/start.S initializes gp before any
 make nano-dhrystone # Dhrystone on nanocpu under nano-sim --bench, core-only, zero-wait-state,
                     # 80 KB flat memory (nano/tb/nano_memory.v). Not on `make test`'s path
 make nano-coremark  # CoreMark on nanocpu, same memory model and standing as nano-dhrystone
+make nano-qspi-sim  # nano-sim built against nano/tb/nano_qspi_memory.v instead of
+                    # nano_memory.v -- a behavioural QSPI-flash/PSRAM timing model on the
+                    # same bus, nano.v untouched. NANO_QSPI_PREFETCH_DEPTH,
+                    # NANO_QSPI_LOOP_WINDOW and NANO_QSPI_PREAMBLE_CYCLES parameterize it;
+                    # always rebuilt, since the generated file's mtime cannot distinguish
+                    # one parameter set from another
+make nano-qspi-timing # sweeps that model's configurations against Dhrystone and CoreMark,
+                    # reporting cycles, DMIPS/MHz or CoreMark/MHz at an assumed 64 MHz,
+                    # and the {execute, parcel wait, redirect preamble, PSRAM wait} bucket
+                    # split. Reporting only, no ratchet, like `make cycles`. Not on
+                    # `make test`'s path
 ```
 
 `make sail-setup` and `make lint-setup` unpack into `~/.cache/little-cpu` (`XDG_CACHE_HOME` moves

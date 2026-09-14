@@ -57,3 +57,21 @@ NANO_COREMARK_CYCLES     ?= 20000000
 .PHONY: nano-coremark
 nano-coremark: nano-sim
 	@./nano/bench/run_coremark.sh ./nano-sim $(NANO_COREMARK_ITERATIONS) $(NANO_COREMARK_CYCLES) '$(NANO_CFLAGS)'
+
+NANO_QSPI_SIM_RTL_SRCS := nano/nano.v nano/tb/nano_qspi_memory.v soc/compare/dhry_monitor.v
+NANO_QSPI_PREFETCH_DEPTH ?= 0
+NANO_QSPI_LOOP_WINDOW    ?= 0
+NANO_QSPI_PREAMBLE_CYCLES ?= 24
+
+.PHONY: nano/tb/nano_qspi_rtl.cc
+nano/tb/nano_qspi_rtl.cc: rvfi_macros.vh $(NANO_QSPI_SIM_RTL_SRCS) $(NANO_SIM_TB_SRCS) test/monitor.sim.v
+	yosys -p 'read_verilog -sv $(addprefix -D ,$(NANO_RISCV_FORMAL_MACROS)) -D NANO_QSPI_TIMING -D NANO_QSPI_PREFETCH_DEPTH=$(NANO_QSPI_PREFETCH_DEPTH) -D NANO_QSPI_LOOP_WINDOW=$(NANO_QSPI_LOOP_WINDOW) -D NANO_QSPI_PREAMBLE_CYCLES=$(NANO_QSPI_PREAMBLE_CYCLES) $^; hierarchy -top nano_testbench; write_cxxrtl $@'
+
+.PHONY: nano-qspi-sim
+nano-qspi-sim: nano/tb/nano_cxxrtl.cc nano/tb/nano_qspi_rtl.cc
+	clang++ -O2 -DNDEBUG -std=c++17 -Wall -Wextra -Werror -DNANO_RTL_INCLUDE='"nano_qspi_rtl.cc"' \
+	  -isystem "$$(yosys-config --datdir)/include/backends/cxxrtl/runtime" $< -o $@
+
+.PHONY: nano-qspi-timing
+nano-qspi-timing:
+	@./nano/bench/run_qspi_timing.sh '$(NANO_CFLAGS)'

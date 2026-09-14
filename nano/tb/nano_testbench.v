@@ -10,11 +10,20 @@ module nano_testbench(
 `ifndef NANO_WAIT_STATES
 `define NANO_WAIT_STATES 0
 `endif
+`ifndef NANO_QSPI_PREFETCH_DEPTH
+`define NANO_QSPI_PREFETCH_DEPTH 0
+`endif
+`ifndef NANO_QSPI_LOOP_WINDOW
+`define NANO_QSPI_LOOP_WINDOW 0
+`endif
+`ifndef NANO_QSPI_PREAMBLE_CYCLES
+`define NANO_QSPI_PREAMBLE_CYCLES 24
+`endif
 
   localparam int MEM_WORDS = 20480;
   localparam int unsigned TOHOST_INDEX = 32'h0001_0000 / 4;
 
-  logic        mem_valid;
+  (* keep *) logic mem_valid;
   logic        mem_instr;
   logic        mem_ready;
   logic [31:0] mem_addr;
@@ -52,6 +61,30 @@ module nano_testbench(
   always #5 clk = ~clk;
 `endif
 
+`ifdef NANO_QSPI_TIMING
+  (* keep *) logic reason_parcel_wait;
+  (* keep *) logic reason_redirect_preamble;
+  (* keep *) logic reason_psram_wait;
+  nano_qspi_memory #(
+    .WORDS(MEM_WORDS),
+    .PREFETCH_DEPTH(`NANO_QSPI_PREFETCH_DEPTH),
+    .LOOP_WINDOW(`NANO_QSPI_LOOP_WINDOW),
+    .PREAMBLE_CYCLES(`NANO_QSPI_PREAMBLE_CYCLES)
+  ) mem (
+    .clk(clk),
+    .reset(reset),
+    .mem_valid(mem_valid),
+    .mem_instr(mem_instr),
+    .mem_addr(mem_addr),
+    .mem_wdata(mem_wdata),
+    .mem_wstrb(mem_wstrb),
+    .mem_ready(mem_ready),
+    .mem_rdata(mem_rdata),
+    .reason_parcel_wait(reason_parcel_wait),
+    .reason_redirect_preamble(reason_redirect_preamble),
+    .reason_psram_wait(reason_psram_wait)
+  );
+`else
   nano_memory #(.WORDS(MEM_WORDS), .WAIT_STATES(`NANO_WAIT_STATES)) mem (
     .clk(clk),
     .reset(reset),
@@ -62,6 +95,7 @@ module nano_testbench(
     .mem_ready(mem_ready),
     .mem_rdata(mem_rdata)
   );
+`endif
 
   riscv uut (
     .clk(clk),

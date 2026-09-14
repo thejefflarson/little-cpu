@@ -1167,6 +1167,33 @@ probe "output this script does not recognize is exit 3, not guessed at" 3 \
   "unrecognized nano_icarus.vvp output" \
   "STUB_ICARUS_OUTPUT_FILE=$tmp/nsi-unrecognized.out $(nsi "$d")"
 
+begin_group "nano/bench/qspi_timing_report.py"
+
+qtr_fixture() {
+  local d; d=$(new_case)
+  fixture_anchor "$REPO/nano/tb/nano_cxxrtl.cc" \
+    'std::printf("BENCH marks=%u cycles=%u verdict=%u writes=%u\n",'
+  fixture_anchor "$REPO/nano/tb/nano_cxxrtl.cc" \
+    'std::printf("BUCKETS execute=%llu parcel_wait=%llu redirect_preamble=%llu psram_wait=%llu "'
+  fixture_anchor "$REPO/nano/tb/nano_cxxrtl.cc" '"total_cycles=%ld\n",'
+  cat > "$d/good.log" <<'EOF'
+BENCH marks=2 cycles=90 verdict=1 writes=5
+BUCKETS execute=50 parcel_wait=30 redirect_preamble=10 psram_wait=10 total_cycles=100
+EOF
+  cat > "$d/bad.log" <<'EOF'
+BENCH marks=2 cycles=90 verdict=1 writes=5
+BUCKETS execute=50 parcel_wait=30 redirect_preamble=10 psram_wait=5 total_cycles=100
+EOF
+  printf '%s' "$d"
+}
+d=$(qtr_fixture)
+
+probe "control: a QSPI timing log whose buckets sum to its cycle count reports a row" 0 \
+  "DMIPS/MHz=" "python3 '$REPO/nano/bench/qspi_timing_report.py' '$d/good.log' --config c --kind dhrystone --runs 10"
+
+probe "the QSPI timing accounting identity is graded and can fail" 1 \
+  "ACCOUNTING MISMATCH" "python3 '$REPO/nano/bench/qspi_timing_report.py' '$d/bad.log' --config c --kind dhrystone --runs 10"
+
 begin_group "test/run_cosim.sh"
 
 rc_fixture() {
