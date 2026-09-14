@@ -47,10 +47,15 @@ is the same reason it happens to also survive the CSR ticket: the module's own p
 never names an RVFI signal -- it is always whatever `` `RVFI_OUTPUTS `` expands to for
 whatever macros are defined -- so nothing about `nano.v`'s header, or `nano/formal/wrapper.v`'s
 `` `RVFI_WIRES ``/`` `RVFI_CONN ``, has to move when the driven set changes. Landing real
-`mcycle`/`minstret` only costs that ticket eight more `` `RVFI_SHADOW(...) `` lines --
-`rvfi_csr_mcycle_rmask`/`wmask`/`rdata`/`wdata` and the `minstret` equivalents -- each
-assigned from wherever the new CSR write-back logic lives; nothing else in this file, and
-nothing in the wrapper, needs to change to make that pass. Until then, any CSR-extension
+`mcycle`/`minstret` costs that ticket eight more `` `RVFI_SHADOW(...) `` lines --
+`rvfi_csr_mcycle_rmask`/`wmask`/`rdata`/`wdata` and the four `minstret` equivalents, each
+64 bits wide because riscv-formal reports the whole counter on RV32 -- and each group of
+four must sit inside its own `` `ifdef RISCV_FORMAL_CSR_MCYCLE `` or
+`` `ifdef RISCV_FORMAL_CSR_MINSTRET ``. `` `RVFI_OUTPUTS `` declares those ports only when
+that macro is defined; riscv-formal's generated sby files define it and `nano/tb.mk`'s
+`NANO_RISCV_FORMAL_MACROS` does not, so an unguarded `$bits(rvfi_csr_mcycle_rdata)` names a
+port that does not exist and both sim builds stop elaborating. Nothing else in this file,
+and nothing in the wrapper, has to change. Until then, any CSR-extension
 port this file has never driven stays exactly as undriven as it was -- `make -C nano/formal
 check` reproduces 82 checks, 80 pass and the same 2 known-fail (`csrw_mcycle_ch0`,
 `csrw_minstret_ch0`) EXPECTED_FAIL entries, unmoved.
@@ -110,9 +115,15 @@ direction. It has one now: after every retire, the ICARUS block reduction-XORs
 is unknown -- gated on `rvfi_valid_observed === 1'b1 || === 1'bx` rather than a plain
 `&&`, since a validity signal that itself reads X would otherwise skip the cycle silently
 instead of being read as suspect too. `nano.v` never resets `regs[1]`-`regs[15]` (only
-`regs[0]`, every `fetch_instr` cycle), so widening the reduction to the register-read
-fields could have made a program that reads a register before writing it a false positive;
-`make nano-test`'s own six programs stay clean under the wider check, so none of them do.
+`regs[0]`, every `fetch_instr` cycle), so a program that reads a register before writing it
+goes red as `X-REACHED`, and that is the check's intent, not a false positive. The reset
+value is unspecified, so such a program is legal software, but its result then depends on
+state the core does not define: cxxrtl reads the register as zero and reports a verdict the
+hardware does not guarantee, and this leg is the only one that can say so. `store_x.S`
+below spends exactly that property as its red direction, and `make nano-test`'s six
+programs write every register before reading it. The first C program on this leg will trip
+it if its prologue spills a callee-saved register nothing has written; the remedy then is a
+startup file that writes x1-x15 before `main`, not a narrower check.
 
 `nano/tb/nano_x_probe.sh` proves the check both ways, on both paths it now covers. The
 load path: a tiny program (`li x1, 0x00013000; lw x6, 0(x1)`, an address neither its
@@ -142,8 +153,12 @@ against a stub `vvp` that plays back a fixed transcript per case.
 ## Consequence
 
 `make nano-test` costs two builds and two six-program runs instead of one of each, the runs
-in parallel; on this machine that is a few seconds, not the difference between a fast and a
-slow `make test`. The two grep patterns in this change that used GNU-only syntax (`\|`
+in parallel. Measured on one Apple-silicon Mac against `origin/main` at e212bb4, a warm
+`make nano-test` goes from 0.55 s to 1.86 s -- the X probe's two iverilog builds and four
+runs repeat on every call -- and a cold one, dominated by the cxxrtl compile, reads 19.6 s
+on main against 18.6 s here, inside run-to-run noise. `make probe-gates` went from 959
+comparisons in 2:45 to 980 in 2:40, also noise. So `make test` pays about 1.3 s for the
+second leg. The two grep patterns in this change that used GNU-only syntax (`\|`
 alternation, `\S`) are now `-E 'a|b'` and `[^[:space:]]`, portable to a BSD grep that reads
 `\|`/`\S` literally. Nothing here changes nano's ISA, its memory model, or its benchmarks --
 both still-open follow-ups from ADR-0180 (a DMIPS/MHz figure, the flash front end) are
