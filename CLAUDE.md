@@ -10,7 +10,7 @@ makes aggressive simplification safe. Every rule in this file serves one of the 
 stops serving them gets deleted. This file is a rulebook, not a changelog: it states what is true
 and where it is enforced, and cites the ADR under `docs/adr/` that holds the measurement behind a
 rule. The measurement's narrative stays in the ADR. The README is a short front door that points
-here.
+here; it keeps its original format and is edited only to correct a command or a fact.
 
 Four habits carry the goals:
 
@@ -649,6 +649,11 @@ VexRiscv on both.
   all together — collecting that means the pc stops depending on this cycle's decode, which is the
   no-wrong-path-state commitment (ADR-0076). **Measure the whole set**: a ceiling over one term
   bounds only that term.
+- **A machine with spare cores and a CI pod saturated at its quota are different instruments.**
+  Time a CI change as a whole shard at the concurrency CI runs it at, never one item alone: a
+  solver swap read about 31% faster on a laptop and 8% as a real four-job shard in the four-CPU
+  pod. Read pod memory from `/sys/fs/cgroup/memory.peak`, which is cumulative per pod, so compare
+  two configurations in separate jobs.
 
 Baselines and grading:
 
@@ -838,7 +843,10 @@ takes at the latest release; it is the one tool that floats. Everything else dow
 is pinned and refuses a command-line override: riscv-formal (`formal/pin.mk`), sail-riscv and
 svlint (`SAIL_RISCV_VERSION`, `SVLINT_VERSION`), Hazard3 (`soc/compare/hazard3_pin.mk`) and CoreMark
 (`COREMARK_PIN`). CI runs on every PR (`.github/workflows/ci.yml`); read the required set live from
-`gh api repos/thejefflarson/little-cpu/branches/main/protection`, not from comments.
+`gh api repos/thejefflarson/little-cpu/branches/main/protection`, not from comments. The runners
+are self-hosted ARC pods declared in the sibling `cluster` repo (`argocd/apps/runners.yaml`,
+`charts/actions/runners/values.yaml`): read their CPU and memory limits there, and record the date
+a decision was measured against them. `nproc` and `free` inside a pod report the host.
 
 ## Engineering rules
 
@@ -875,6 +883,18 @@ svlint (`SAIL_RISCV_VERSION`, `SVLINT_VERSION`), Hazard3 (`soc/compare/hazard3_p
 - **`git config --local` in a worktree writes the checkout's one shared `.git/config`**, so a
   change meant to be local to one worktree is live in all of them until it is unset. Use an
   isolated clone for anything that needs its own git config.
+- **A fresh `git worktree` has no `formal/riscv-formal`**: the clone is gitignored, and its
+  absence surfaces as `Current isa string 'rv32imc' not supported` plus a list of `insn_*` checks
+  never generated, which reads like a regression in the branch. Symlink the main checkout's clone
+  into the worktree before trusting a red there, and confirm a suspected pre-existing failure
+  against CI, never against another fresh worktree, which fails the same way.
+- **Knowledge about this repo lives in this repo.** A rule goes in this file, a measurement with
+  its date in an ADR, and owed work in the tracker. An agent's private memory (Claude Code's
+  per-project memory directory, outside the checkout) holds only preferences about how to work
+  with the owner, never a fact about the code, the toolchain, CI or a measurement: nothing grades
+  it, and no other session or engineer agent can read it. A session that learns such a fact
+  records it here, in an ADR or in a ticket before it ends; a private memory found to be about the
+  repo moves here and is deleted.
 - Prefer verified/first-party GitHub Actions; simplest approach unless asked otherwise.
 
 ## State
