@@ -152,15 +152,12 @@ def main(argv):
         real("commit", "-q", "-m", "initial")
         (repo / "soc" / "compare" / "product.json").write_text('{"pairs": {"dhrystone": 2}}\n')
 
-        diff_path = pathlib.Path("/tmp/product-diff.md")
-        commit_msg_path = pathlib.Path("/tmp/commit-message.md")
-        pr_body_path = pathlib.Path("/tmp/pr-body.md")
-        diff_path.write_text("dhrystone: 1 -> 2 cycles/dhry\n")
-        for stale in (commit_msg_path, pr_body_path):
-            stale.unlink(missing_ok=True)
+        (tmp / "product-diff.md").write_text("dhrystone: 1 -> 2 cycles/dhry\n")
 
+        # The step's fixed /tmp paths move under this run's own directory, so two
+        # concurrent runs cannot delete each other's files.
         script_path = tmp / "publish.sh"
-        script_path.write_text(script)
+        script_path.write_text(script.replace("/tmp/", f"{tmp}/"))
 
         gh_log = tmp / "gh.log"
         git_push_log = tmp / "git-push.log"
@@ -181,13 +178,10 @@ def main(argv):
         env["GH_PR_TITLE"] = str(pr_title)
         env["GIT_PUSH_LOG"] = str(git_push_log)
         env["GITHUB_STEP_SUMMARY"] = str(step_summary)
+        env["GITHUB_RUN_ID"] = "4242"
 
-        try:
-            result = subprocess.run(["bash", str(script_path)], cwd=repo, env=env,
-                                     capture_output=True, text=True)
-        finally:
-            for stale in (diff_path, commit_msg_path, pr_body_path):
-                stale.unlink(missing_ok=True)
+        result = subprocess.run(["bash", str(script_path)], cwd=repo, env=env,
+                                capture_output=True, text=True)
 
         if result.returncode != 0:
             print(f"error: the '{PUBLISH_STEP_NAME}' step exited {result.returncode}",
@@ -198,7 +192,7 @@ def main(argv):
 
         failures = []
         if not pr_head.is_file() or not re.fullmatch(
-                r"compare-product/refresh-\d{8}", pr_head.read_text()):
+                r"compare-product/refresh-\d{8}-4242", pr_head.read_text()):
             failures.append("gh pr create was not given the expected --head branch name")
         if not pr_title.is_file() or not pr_title.read_text().startswith(
                 "Refresh the cross-core product stamp ("):

@@ -164,7 +164,7 @@ jobs:
         run: |
           set -euo pipefail
           gh auth setup-git
-          branch="compare-product/refresh-$(date -u +%Y%m%d)"
+          branch="compare-product/refresh-$(date -u +%Y%m%d)-$GITHUB_RUN_ID"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b "$branch"
