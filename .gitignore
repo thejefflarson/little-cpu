@@ -123,6 +123,9 @@ cosim.dSYM/
 nano-sim
 nano-sim.dSYM/
 nano/tb/nano_rtl.cc
+nano-latch-sim
+nano-latch-sim.dSYM/
+nano/tb/nano_latch_rtl.cc
 tools/
 test/a.out.dSYM/
 .claude/worktrees/

@@ -328,7 +328,9 @@ module riscv (
           cpu_state <= ready_instr;
           mem_addr <= next_pc;
           skip_reg_write <= 0;
+`ifndef NANO_LATCH_RF
           regs[0] <= 0;
+`endif
         end
 
         ready_instr: begin
@@ -623,7 +625,9 @@ module riscv (
         end
 
         reg_write: begin
+`ifndef NANO_LATCH_RF
           regs[rd[3:0]] <= reg_wdata;
+`endif
           cpu_state <= fetch_instr;
         end
 
@@ -686,6 +690,25 @@ module riscv (
       endcase
     end
   end
+
+`ifdef NANO_LATCH_RF
+  // Transparent-high latches, fed by `cpu_state`/`rd`/`reg_wdata`, flops on this same clk.
+  genvar gi;
+  generate
+    for (gi = 0; gi < 16; gi = gi + 1) begin : g_regs_latch
+      logic sel;
+      logic [31:0] din;
+      if (gi == 0) begin : g_zero
+        assign sel = cpu_state == fetch_instr;
+        assign din = 32'b0;
+      end else begin : g_write
+        assign sel = cpu_state == reg_write && rd[3:0] == gi[3:0];
+        assign din = reg_wdata;
+      end
+      always_latch if (clk && sel) regs[gi] = din;
+    end
+  endgenerate
+`endif
 
  `ifdef RISCV_FORMAL
   logic is_fetch;

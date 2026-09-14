@@ -4,7 +4,7 @@
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
-VVP_IMAGE="$HERE/nano_icarus.vvp"
+VVP_IMAGE="${NANO_VVP_IMAGE:-$HERE/nano_icarus.vvp}"
 
 rom=""
 ram=""

@@ -3,7 +3,10 @@
 // number of cycles, and watches either the riscv-tests tohost word (test/asm/riscv_test.h,
 // the .S suite) or soc/compare/dhry_monitor.v's verdict word (Dhrystone/CoreMark).
 #include <cxxrtl/cxxrtl_vcd.h>
-#include "nano_rtl.cc"
+#ifndef NANO_RTL_HEADER
+#define NANO_RTL_HEADER "nano_rtl.cc"
+#endif
+#include NANO_RTL_HEADER
 
 #include <cstdint>
 #include <cstdio>

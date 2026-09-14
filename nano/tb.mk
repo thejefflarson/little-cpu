@@ -31,6 +31,26 @@ nano-test: nano-sim nano/tb/nano_icarus.vvp nano-x-probe
 nano-startup-test: nano-sim
 	@./nano/bench/run_startup_test.sh ./nano-sim '$(NANO_CFLAGS)'
 
+nano/tb/nano_latch_rtl.cc: rvfi_macros.vh $(NANO_SIM_RTL_SRCS) $(NANO_SIM_TB_SRCS) test/monitor.sim.v
+	yosys -p 'read_verilog -sv $(addprefix -D ,$(NANO_RISCV_FORMAL_MACROS)) -D NANO_LATCH_RF $^; hierarchy -top nano_testbench; write_cxxrtl $@'
+
+nano-latch-sim: nano/tb/nano_cxxrtl.cc nano/tb/nano_latch_rtl.cc
+	clang++ -O2 -DNDEBUG -std=c++17 -Wall -Wextra -Werror -DNANO_RTL_HEADER='"nano_latch_rtl.cc"' \
+	  -isystem "$$(yosys-config --datdir)/include/backends/cxxrtl/runtime" $< -o $@
+
+nano/tb/nano_icarus_latch.vvp: rvfi_macros.vh $(NANO_SIM_RTL_SRCS) $(NANO_SIM_TB_SRCS) test/monitor.sim.v
+	iverilog -I./rtl/ -DICARUS -DNANO_LATCH_RF $(addprefix -D,$(NANO_RISCV_FORMAL_MACROS)) -g2012 -o $@ $^
+
+.PHONY: nano-latch-test
+nano-latch-test: nano-latch-sim nano/tb/nano_icarus_latch.vvp
+	@NANO_VVP_IMAGE="$(CURDIR)/nano/tb/nano_icarus_latch.vvp" \
+	  ./nano/tb/nano_dual_leg_test.sh ./nano-latch-sim ./nano/tb/nano_sim_icarus.sh nano/asm \
+	  nano/asm/EXPECTED_FAIL nano/asm/OBSERVED_FLOOR '$(NANO_CFLAGS)'
+
+.PHONY: nano-latch-startup-test
+nano-latch-startup-test: nano-latch-sim
+	@./nano/bench/run_startup_test.sh ./nano-latch-sim '$(NANO_CFLAGS)'
+
 .PHONY: nano-exec-probe
 nano-exec-probe:
 	@./nano/tb/nano_exec_probe.sh
