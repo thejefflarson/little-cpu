@@ -793,9 +793,13 @@ make -C formal components_pcloop    #   pcloop_cover; traps runs traps-region-pr
 make -C formal components_traps     #   traps-tval-probe; busarbiter runs busarbiter_cover
 make -C formal components_busarbiter #  and busarbiter-probe -- each a forced red direction
 make -C formal complete             # depth-50 whole-ISA walk minus COMPLETE_EXCLUSIONS
-make -C formal complete_cover       # its anti-vacuity control
+make -C formal complete_cover       # its anti-vacuity control, tied to complete's depth
+                                    # by cover-depth-tie.py over the run's own log
 make -C formal imemcheck            # the fetch window's and the data bus's memory-interface
-make -C formal dmemcheck            #   checks, and the cover goals
+make -C formal dmemcheck            #   checks. Depth is graded against F/G by
+                                    # check-memcheck-depth.py, a Makefile prerequisite
+make -C formal imemcheck_cover      # each memcheck's own anti-vacuity control, at the
+make -C formal dmemcheck_cover      #   same depth, behind a forced-red stalled-bus probe
 make -C formal cover
 make -C formal genchecks-check      # the local genchecks copy differs from the pin only by
                                     # header and basedir; the `monitor-freshness` CI job
