@@ -26,6 +26,10 @@ on:
           - "2x2"
           - "3x2"
           - "4x2"
+          - "3x4"
+          - "6x2"
+          - "4x4"
+          - "8x2"
       stop_after_synthesis:
         description: "stop at Yosys.Synthesis rather than running the full flow"
         type: boolean
