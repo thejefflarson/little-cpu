@@ -61,6 +61,7 @@ depth.out/
 depth.*.csv
 baseline.out/
 netlist.out/
+fetch_ahead.out/
 formal/riscv-formal
 formal/riscv-formal.tmp
 soc/compare/hazard3
