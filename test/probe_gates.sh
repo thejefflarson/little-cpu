@@ -8390,6 +8390,35 @@ probe "a missing regenerate output is refused rather than committing nothing" 2 
 probe "wrong argument count is exit 2" 2 \
   "usage:" "'$REPO/formal/publish-pin-bump.sh' only-one"
 
+begin_group "test/riscv_gcc_pin_test.sh"
+
+RGPT="$HERE/riscv_gcc_pin_test.sh"
+
+rgpt_stub() {  # $1 = bin dir; stands in for an installed riscv-none-elf-gcc
+  local bin=$1
+  mkdir -p "$bin"
+  cat > "$bin/riscv-none-elf-gcc" <<'STUB'
+#!/bin/sh
+echo "stub: riscv-none-elf-gcc"
+STUB
+  chmod +x "$bin/riscv-none-elf-gcc"
+}
+
+d=$(new_case); rgpt_stub "$d/pinned"
+probe "control: PATH resolving only the pinned install is green" 0 \
+  "resolves to the pinned install" \
+  "PATH='$d/pinned:/usr/bin:/bin' $RGPT $d/pinned"
+
+d=$(new_case); rgpt_stub "$d/pinned"; rgpt_stub "$d/decoy"
+probe "a different riscv-none-elf-gcc earlier on PATH is red, not silently used" 1 \
+  "PATH resolves riscv-none-elf-gcc to a different install" \
+  "PATH='$d/decoy:$d/pinned:/usr/bin:/bin' $RGPT $d/pinned"
+
+d=$(new_case)
+probe "no riscv-none-elf-gcc on PATH at all is red" 1 \
+  "run \`make riscv-gcc-setup\`" \
+  "PATH='$tmp/bin-none' $RGPT $d/pinned"
+
 begin_group "test/probes_header_test.py"
 
 PH="python3 $REPO/test/probes_header_test.py"
