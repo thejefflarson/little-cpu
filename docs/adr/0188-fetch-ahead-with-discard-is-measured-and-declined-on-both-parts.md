@@ -1,6 +1,24 @@
-# 0188 — Fetch-ahead-with-discard is measured on both parts, and declined on both
+# 0188 — Fetch-ahead-with-discard is measured on both parts, and declined on both;
+# a register-only fetch address is a separate, unfinished attempt
 
-Status: Accepted
+Status: Accepted for K and K+BTFN (declined, both parts). The register-only ("decoupled
+fetch") variant added after review is **inconclusive**: it is not functionally verified,
+and its own Fmax reading is reported as a structural signal only, not a verdict.
+
+**Review found a real gap in the first cut of this ADR.** K and K+BTFN's own fetch
+address (`fetch_pc_next` in the original patch) still combinationally depended on
+`stall` (decode's own eight-reason broadcast) and, for BTFN, on the fetched word's
+opcode and immediate — confirmed directly by reading the synthesized ECP5 critical
+path for both variants: it runs `imem.rom_odd → ... → riscv.decoder.out (a register
+read back combinationally) → riscv.decoder.next_pc's own adder → riscv.decoder.fetch_pc_next
+→ imem.in_range2`, i.e., through decode, exactly as CLAUDE.md's own two-loop
+description says the shipping design's does. This is the same shortfall ADR-0087 was
+built on. **K and K+BTFN's verdict (declined, below) is unaffected — cycles alone
+already declined them on up5k, and ECP5's product was negative even before this was
+found — but "fetch-ahead-with-discard is declined" should not be read as covering a
+genuinely register-only fetch address, which was not what was measured.** A second
+patch, `soc/fetch_ahead/prototype-decoupled.patch`, attempts one; see the section
+below.
 
 ## Context
 
@@ -335,6 +353,86 @@ term to the guess (which would reopen the register-file's own two-loop coupling 
 already prices and declines under `operand_stall`) and without moving F/G's derivation
 past what `make -C formal remeasure-fg` and the pcloop/traps rewiring above cost.
 
+## The decoupled-fetch variant: a register-only fetch address, unfinished
+
+`soc/fetch_ahead/prototype-decoupled.patch` + `apply-decoupled.sh` builds a third
+variant, addressing the gap named above directly rather than patching K/BTFN further.
+**`rtl/fetchqueue.v` is new**: an 8-word circular FIFO. A new `fetch_pc` register in
+`rtl/littlecpu.v` advances by one word pair whenever the queue has room, reading only
+registers — never `stall`, never the word arriving this cycle, never an opcode or an
+immediate. `imem_addr_next` is a direct, unconditional read of `fetch_pc`. Decode's own
+`pc` goes back to being a plain register (`pc <= next_pc`, exactly the shipping design)
+because it no longer drives the fetch address at all, so it is free to depend on the
+full redirect decision same-cycle the way it always has; only `flush`
+(`issuing && is_redirect`) and `redirect_target` (`next_pc`, read combinationally) cross
+out of decode, and they drive `fetch_pc`'s own register update, never this cycle's fetch
+address. `pop` fires when `next_pc`'s word index differs from `pc`'s, so a 4-byte
+instruction straddling two fetched words pops exactly the one it fully leaves; alignment
+(`pc[1]` selecting a half of the fetched pair) happens in `fetcher.v`, unchanged from the
+shipping module except that it reads the queue's head instead of `imemory` directly.
+
+**Two real synchronization bugs were found and fixed** in the controller, both from the
+same root cause: `imemory` answers whatever address `fetch_pc` is presenting *every*
+cycle, with no request/response handshake, so any cycle `fetch_pc` is held generates a
+second, genuine response for an address already accounted for.
+1. On a flush, naively marking the new target's response "due next cycle" instead reads
+   the cycle-old, pre-flush address's answer (whatever `fetch_pc` was presenting *during*
+   the flush cycle, since the register only takes its new value at the following edge)
+   and pushes it as if it were the redirect target's own data. Caught by Dhrystone's
+   loop-exit self-jump landing on a fabricated `c.j 0` and trapping to an all-zero word.
+2. Fixed by tracking "did `fetch_pc` actually change" (a plain one-cycle-delayed
+   comparison, reset to a sentinel `fetch_pc` can never legitimately hold) rather than
+   "did the last check succeed" — the two coincide in steady state, where `fetch_pc`
+   changes every cycle, and diverge whenever it is held (a flush's one settling cycle, or
+   a retry), which is exactly where the double-count happened: the cycle a check
+   succeeds, `fetch_pc` is still presenting the value that just resolved (it only
+   advances the following edge), so treating success as "start tracking a new response"
+   double-answers the same address.
+
+**A third, unresolved defect remains.** After both fixes the suite still fails (1/75,
+`simple.S` only, which has no branches); the surviving symptom is a wrong word delivered
+at a flush target reached shortly after an earlier flush (back-to-back redirects, one
+settling cycle apart) — a specific case the fix above was hand-traced as correct for but
+does not reproduce as correct in simulation, so either the trace missed an interaction
+or `fetchqueue.v`'s own pop/push priority has a bug the trace does not model. **Not
+found within this session's time budget.** The next session should re-add `$display`
+tracing of `fetch_pc`/`req_pending`/`fetch_pc_changed`/`fetch_stall` alongside decode's
+`pc`/`pop`/`flush`, reproduce the corruption on `test/asm/beq.S` (fails within the first
+30 cycles), and check whether a flush arriving during the one-cycle window before a
+prior flush's `fetch_pc_changed` has been sampled needs its own explicit handling.
+
+**Because the bug is in the queue's data path, not its address path, a placement and
+Fmax reading is still informative as a structural check**, the same way ADR-0087's own
+spikes measured a functionally-wrong memory for placement only. The variant elaborates
+and synthesizes cleanly on both parts.
+
+**up5k does not fit at this queue depth**: synthesis reports 5861 `ICESTORM_LC` against
+the part's 5280 (111%), and `nextpnr-ice40` refuses to place it. The queue's own 8 words
+plus head/tail/count logic is real, measurable area a register-only fetch address pays
+that K/BTFN's stall-coupled one does not; a shallower queue (depth 4, matching K/BTFN's
+own two-window lookahead more closely) is the first thing to try if this is picked back
+up, before assuming decoupling requires this much room.
+
+**ECP5 places, four seeds** (0-3, not twelve — time, not policy): 37.30-40.99 MHz,
+`TRELLIS_COMB` 6213 (against base's 5780, proto's 5591, btfn's 5775 — the same area cost
+up5k's failure to fit already shows). This is **higher than base, proto or btfn's own
+ECP5 readings (33.01-35.44 MHz across their twelve seeds)** — a real, structural clock
+improvement, consistent with the fetch address no longer being in the loop. **The
+critical path confirms it moved**: at every one of the four seeds it runs entirely
+inside `riscv.fetchqueue` — `do_pop`'s own register, through `regfile.rs1`/`rs2` and
+`decoder.next_pc`/`redirect_target` (decode's redirect computation, still combinationally
+deep, exactly as expected — it feeds `fetch_pc`'s *update*, not this cycle's fetch
+address) and `imem.fetch_stall`, ending at `fetchqueue.mem[1]`'s own write-enable. The
+loop that used to close through the ROM's address decode now closes through the queue's
+own occupancy bookkeeping — a different loop, matching what review asked to see.
+
+**None of this is a result.** Cycles are unknown (the design does not run correctly), so
+there is no product, no comparison against K/BTFN or against base, and no verdict. The
+Fmax and critical-path readings say the mechanism is structurally what was asked for;
+they do not say fetch-ahead-with-discard, decoupled, is worth building. That question
+stays open until the suite passes and Dhrystone/CoreMark/the suite's cycle counts can be
+taken the way K and K+BTFN's were.
+
 ## Consequences
 
 - **The no-wrong-path-state commitment is not amended.** Nothing here shows all four
@@ -347,7 +445,13 @@ past what `make -C formal remeasure-fg` and the pcloop/traps rewiring above cost
   cycle cost that no static predictor tried here fully recovers.
 - **`soc/fetch_ahead/` is a spike with no gate**, the same standing as `soc/depth/`:
   nothing in it runs on `make test` or CI, and nothing in `rtl/`, `formal/` or `test/`
-  (outside the two prototype trees it builds itself, never committed) changed.
+  (outside the prototype trees it builds itself, never committed) changed.
+- **The register-only fetch address is unfinished, not declined.** Its own section above
+  is the record: two real bugs fixed, a third open, no suite pass, no cycle count, no
+  product. Its ECP5 Fmax (37.30-40.99 MHz over four seeds) and its critical path moving
+  entirely inside `rtl/fetchqueue.v` are structural signals worth carrying into whoever
+  picks this back up, not a verdict — and up5k not fitting at an 8-word queue depth is a
+  real cost that a future attempt should try to shrink before anything else.
 - **The bug this spike found and fixed — `is_redirect` conflating "took a named arm" with
   "the guess was wrong" — is the kind of mistake a static predictor invites generally**:
   any future direction-prediction scheme has to define "mispredict" as a comparison
