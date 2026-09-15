@@ -445,7 +445,7 @@ top, ECP5 only.
   minute (ADR-0078).
 - **`make dhrystone` and `make coremark` are the figures comparable to another project's** —
   Dhrystone to VexRiscv, CoreMark to Hazard3 and most cores published since — and neither is a
-  gate. Dhrystone: **0.722 DMIPS/MHz, 8.66 DMIPS at 12 MHz** at `-O2` (ADR-0189), quoted with the
+  gate. Dhrystone: **0.722 DMIPS/MHz, 8.66 DMIPS at 12 MHz** at `-O2` (ADR-0190), quoted with the
   absolute figure because Fmax above the requirement is margin and not speed (ADR-0089), and with
   the flags, the compiler, the string library and **the linker script** — the program prints the
   first three and will not compile without them, and `test/bench/bench.lds` asserts the fourth at
@@ -455,14 +455,14 @@ top, ECP5 only.
   executor-only forwarding buys the last step in the datapath (ADR-0154), and the last move is the
   compiler alone: pinning xPack's `riscv-none-elf-gcc` 15.2.0-1 in place of whichever of Homebrew's
   16.2.0 or a CI image's 13.2.0 happened to answer to the two names every build used to search for
-  changes what the same C compiles to, with no RTL and no linker script touched (ADR-0189). A CPI
+  changes what the same C compiles to, with no RTL and no linker script touched (ADR-0190). A CPI
   regression with no conformance behind it is still a regression, and a figure recovered by moving the
   software is the firmware ceasing to pay a cost, never the core getting faster; a figure that moves
   with the compiler is neither, and is why the compiler is pinned now. **CoreMark is
   SIMULATED AT 16 KB OF ROM**, double the part's 8, against `test/testbench.v`'s `ROM_WORDS`, and
   every printed figure says so; the five algorithm files are vendored unmodified and pinned by
   `test/bench/coremark/PINNED.sha256` (ADR-0136). **2.155 CoreMark/MHz** under the pinned compiler
-  (ADR-0189; 2.203 under Homebrew's prior 16.2.0, ADR-0154), and it travels with the
+  (ADR-0190; 2.203 under Homebrew's prior 16.2.0, ADR-0154), and it travels with the
   linker script the way the DMIPS figure does: the inset layout read 2.013 against 1.811 on the
   conventional one when ADR-0158 measured it, and executor-only forwarding took the inset figure
   to 2.203 afterwards (ADR-0154). Hazard3's published 4.15 CoreMark/MHz is its RP2350 build, not its iCE40
@@ -471,7 +471,7 @@ top, ECP5 only.
   score below: the shipping image is 6,996 of the 8 KB budget under the pinned compiler (was 7,076
   under Homebrew's 16.2.0), `-Os -flto` rather than `COREMARK_CFLAGS`'s `-O2`. **1.776 CoreMark/MHz**
   under the pinned compiler (1.780 under 16.2.0, essentially unmoved — `-Os -flto` code is far less
-  compiler-version-sensitive than `-O2`'s, ADR-0189), a 17.6% cost against the native-ISA `-O2`
+  compiler-version-sensitive than `-O2`'s, ADR-0190), a 17.6% cost against the native-ISA `-O2`
   figure above, legal under EEMBC's own build-option allowance; `COREMARK_UP5K_ITERATIONS`'s 800
   iterations clears `core_main.c`'s own ">=10 secs" self-check for real at 12 MHz (ADR-0165). No
   board has run it yet — `make coremark-board` is off `make test` and CI, the same standing as
@@ -874,7 +874,7 @@ it), **outside the checkout**: a git worktree is given tracked files only and a 
 gitignored, so an install inside the checkout is invisible from every worktree. `make test`
 enforces it.
 
-Toolchain: `make riscv-gcc-setup` fetches the pinned RISC-V gcc on both platforms (ADR-0189); svlint
+Toolchain: `make riscv-gcc-setup` fetches the pinned RISC-V gcc on both platforms (ADR-0190); svlint
 is `brew install svlint` on macOS or `make lint-setup` on Linux. Tests are freestanding — `.S`, and
 `.c` built `-nostdlib -ffreestanding` against `test/crt0.S` — so no multilib or newlib. Formal needs
 the YosysHQ OSS CAD Suite, which CI takes at the latest release; it is the one tool that floats.

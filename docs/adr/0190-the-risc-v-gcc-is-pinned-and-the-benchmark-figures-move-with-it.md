@@ -1,4 +1,4 @@
-# ADR-0189: The RISC-V gcc is pinned, and the benchmark figures move with it
+# ADR-0190: The RISC-V gcc is pinned, and the benchmark figures move with it
 
 **Status:** Accepted · 2026-09-14
 
