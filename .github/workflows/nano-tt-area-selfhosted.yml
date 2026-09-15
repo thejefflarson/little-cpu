@@ -117,7 +117,7 @@ jobs:
         run: |
           librelane-env bash -c '
             set -euo pipefail
-            for lib in libstdc++.so.6 libexpat.so.1 libcairo.so.2; do
+            for lib in libstdc++.so.6 libexpat.so.1 libcairo.so.2 libz.so.1; do
               found=$(find /nix/store -maxdepth 4 -name "$lib" 2>/dev/null | head -1) || true
               echo "$lib -> $found"
               if [ -n "$found" ]; then export LD_LIBRARY_PATH="$(dirname "$found"):${LD_LIBRARY_PATH:-}"; fi
@@ -144,7 +144,7 @@ jobs:
         run: |
           librelane-env bash -c '
             set -euo pipefail
-            for lib in libstdc++.so.6 libexpat.so.1 libcairo.so.2; do
+            for lib in libstdc++.so.6 libexpat.so.1 libcairo.so.2 libz.so.1; do
               found=$(find /nix/store -maxdepth 4 -name "$lib" 2>/dev/null | head -1) || true
               if [ -n "$found" ]; then export LD_LIBRARY_PATH="$(dirname "$found"):${LD_LIBRARY_PATH:-}"; fi
             done
