@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Place base (shipping rtl/, untouched), proto (predict-not-taken with a one-cycle
-# discard) and btfn (proto plus a static backward-taken guess) on up5k and ECP5, twelve
-# seeds each, one CSV row per seed. Mirrors soc/depth/sweep.sh's shape.
+# Place base (shipping rtl/), proto (predict-not-taken, one-cycle discard), btfn (proto
+# plus a static backward-taken guess) and, on request, decoupled (prototype-decoupled.patch)
+# on up5k or ECP5, one CSV row per seed. Each tree's own Makefile names its sources.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
@@ -14,15 +14,6 @@ shift || true
 seeds=("$@")
 if [ ${#seeds[@]} -eq 0 ]; then seeds=(0 1 2 3 4 5 6 7 8 9 10 11); fi
 
-applied=$out/applied
-if [ ! -d "$applied" ]; then
-  bash soc/fetch_ahead/apply.sh "$applied" >/dev/null
-fi
-
-SOC_SRCS="rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v rtl/fetcher.v \
-rtl/imemory.v rtl/memory.v rtl/regfile.v rtl/regsel.v rtl/timer.v rtl/uart.v rtl/spiflash.v \
-rtl/writeback.v rtl/littlecpu.v rtl/littlesoc.v"
-
 python3 soc/depth/row.py --header
 
 variants=(base proto btfn)
@@ -31,10 +22,17 @@ if [ -n "${FETCH_AHEAD_VARIANTS:-}" ]; then
 fi
 for variant in "${variants[@]}"; do
   case "$variant" in
-    base)  srcdir=$root;   chp="" ;;
-    proto) srcdir=$applied; chp="chparam -set PREDICT_BTFN 0 littlecpu;" ;;
-    btfn)  srcdir=$applied; chp="chparam -set PREDICT_BTFN 1 littlecpu;" ;;
+    base)      srcdir=$root; chp="" ;;
+    proto)     srcdir=$out/applied; chp="chparam -set PREDICT_BTFN 0 littlecpu;" ;;
+    btfn)      srcdir=$out/applied; chp="chparam -set PREDICT_BTFN 1 littlecpu;" ;;
+    decoupled) srcdir=$out/decoupled; chp="" ;;
+    *) echo "unknown variant $variant: base, proto, btfn or decoupled" >&2; exit 2 ;;
   esac
+  case "$variant" in
+    proto|btfn) bash soc/fetch_ahead/apply.sh "$srcdir" >/dev/null ;;
+    decoupled)  bash soc/fetch_ahead/apply-decoupled.sh "$srcdir" >/dev/null ;;
+  esac
+  SOC_SRCS=$(make -s -C "$srcdir" print-SOC_SRCS)
   tag="$part.$variant"
 
   make -C "$srcdir" -s soc-rom SOC_PROG=add.S

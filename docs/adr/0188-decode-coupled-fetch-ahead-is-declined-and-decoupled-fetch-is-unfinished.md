@@ -1,5 +1,4 @@
-# 0188 — Fetch-ahead-with-discard is measured on both parts, and declined on both;
-# a register-only fetch address is a separate, unfinished attempt
+# 0188 — Decode-coupled fetch-ahead (K, K+BTFN) is declined on both parts; a register-only fetch address is unfinished
 
 Status: Accepted for K and K+BTFN (declined, both parts). The register-only ("decoupled
 fetch") variant added after review is **inconclusive**: it is not functionally verified,
@@ -41,7 +40,7 @@ change moves fast, simple, readable and formally verified forward together, meas
 recorded as an ADR. Fetch-and-discard is well understood elsewhere and plausibly meets
 that bar. Two things ADR-0078 and ADR-0087 did not do: measure ECP5, where Fmax is a real
 spendable factor rather than a step function, and try a static predictor better than
-"always sequential" — this ticket asks for both, plus a fresh twelve-seed reading on the
+"always sequential" — this spike does both, plus a fresh twelve-seed reading on the
 tree ADR-0154 and ADR-0158 have since moved.
 
 This is a spike. **`rtl/` is untouched.** Everything below is measured on a full copy of
@@ -49,9 +48,9 @@ the tree with a tracked patch applied, discarded when the measurement is done.
 
 ## Decision
 
-**Declined on both parts, at every workload, at the worst of twelve seeds — but by a
-much smaller margin than ADR-0078 found, and static backward-taken prediction closes
-most of the gap without closing all of it.**
+**K and K+BTFN are declined on both parts, at every workload, at the worst of twelve
+seeds. Static backward-taken prediction recovers about half of K's loss on Dhrystone and
+CoreMark, and neither variant crosses zero.**
 
 Two variants, both built and functionally verified, both discarded:
 
@@ -62,12 +61,12 @@ Two variants, both built and functionally verified, both discarded:
 
 On **up5k** the clock is a step function (48/24/12/6 MHz) and neither variant gets near
 24, so the comparison is cycles alone at the shared 12 MHz step, and both variants cost
-more cycles than they save: K costs 2.87–10.81% depending on workload, K+BTFN roughly
-halves that cost (2.73–4.35%) but never turns it negative. On **ECP5**, where Fmax is a
-real factor, the clock gain is smaller than ADR-0078's own family measured on the
-pre-ADR-0154/ADR-0158 tree — near a wash at the worst of twelve placements — and the
-product (clock × cycles) is negative for both variants on every workload at that worst
-placement, from −0.25% (K+BTFN, the suite) to −9.75% (K, Dhrystone).
+more cycles than they save: K costs 3.33–10.81% more cycles depending on workload and
+K+BTFN 2.87–4.35% — under half of K's cost on Dhrystone and CoreMark, most of it on the
+suite. On **ECP5**, where Fmax is a real factor, the clock gain is a wash at the worst of
+twelve placements and 2.6–3.1% at the median, and the product (clock × cycles) is
+negative for both variants on every workload at the worst placement, from −2.73%
+(K+BTFN, the suite) to −9.75% (K, Dhrystone).
 
 **Static BTFN measurably helps** — it is not a null the way ADR-0087's own register
 placements sometimes were. Cutting Dhrystone's kill rate from 16.93% of issues to 6.26%
@@ -88,18 +87,23 @@ a `wrongpath` term threaded through `issuing`, `bus_request` and `ls_access`) an
 `rtl/littlecpu.v`'s wiring — 181 lines across two files, past what a handful of anchors
 can carry without becoming as hard to read as a second copy of `rtl/decoder.v` would be.
 
-`soc/fetch_ahead/prototype.patch` is a tracked unified diff against `rtl/decoder.v` and
-`rtl/littlecpu.v`. `soc/fetch_ahead/apply.sh <dir>` copies the tree into `<dir>` and
-`git apply`s it there; nothing under `rtl/` in the checkout is ever touched, and a patch
-that stops applying is a loud, specific failure at `apply.sh`'s own exit code rather than
-a silent divergence the way a second hand-maintained copy of `rtl/decoder.v` would be.
+`soc/fetch_ahead/prototype.patch` is a tracked unified diff against `rtl/decoder.v`,
+`rtl/littlecpu.v` and `test/OBSERVED_FLOOR` (see `uart.S` below).
+`soc/fetch_ahead/apply.sh <dir>` copies the tree into `<dir>` and applies the patch there
+with `patch --fuzz=0`: nothing under `rtl/` in the checkout is ever touched, a hunk that
+has drifted fails at `apply.sh`'s exit code rather than landing somewhere nearby, and the
+script refuses to replace a directory it did not make. `apply-decoupled.sh` is the same
+script with the second patch.
 `PREDICT_BTFN` is a module parameter (default 0, matching K): the two variants are one
 tree, chparam'd, so K's own synthesis is bit-for-bit what BTFN's would be with the
-extra comparator constant-folded away — verified below.
+extra comparator constant-folded away — verified below. Simulation cannot `chparam`, so
+`cycles.py --btfn` sets the top's default to 1 in the applied tree before it builds.
 
 `soc/fetch_ahead/sweep.sh {up5k|ecp5} [seeds...]` places `base` (the checkout's own
-`rtl/`), `proto` (the patch, `PREDICT_BTFN=0`) and `btfn` (`PREDICT_BTFN=1`) and appends
-one CSV row per seed, reusing `soc/depth/row.py`'s two readers (`icetime` for up5k,
+`rtl/`), `proto` (the patch, `PREDICT_BTFN=0`), `btfn` (`PREDICT_BTFN=1`) and, when
+`FETCH_AHEAD_VARIANTS` names it, `decoupled` (the second patch, below). It re-stages each
+patched tree, reads that tree's source list from its own Makefile, and appends one CSV
+row per seed, reusing `soc/depth/row.py`'s two readers (`icetime` for up5k,
 `soc/ecp5_report.py` for ECP5) rather than a third parser of either report.
 `soc/fetch_ahead/cycles.py <applied-dir>` patches `test/cxxrtl.cc` at checked anchors —
 the same shape as `soc/depth/cycles.py` — to add a `kill` bucket and a `redirect`
@@ -158,8 +162,9 @@ Both variants, both re-verified after the fix above:
 | `make testbench.vvp` (iverilog elaboration) | clean (only the allowlisted `writeback.v` `sorry`s) | not re-run; same RTL shape as K |
 | `make cosim-suite` (Sail, architectural oracle) | **69/75 AGREE**, divergence list matches `test/COSIM_EXPECTED_FAIL` exactly | **69/75 AGREE**, same match |
 
-The suite's `uart.S` needed its floor lowered from 1381/1375 to 1100/1100 in both
-prototype trees only (`test/OBSERVED_FLOOR`, never the checkout's copy): it counts how
+The suite's `uart.S` needed its floor lowered from 1381/1375 to 1100/1100 in the
+prototype tree only — `prototype.patch` carries that hunk against the copied
+`test/OBSERVED_FLOOR`, never the checkout's; K retires 1143 there: it counts how
 many UART poll loops complete in a fixed cycle window, which is a CPI question, and both
 variants cost more cycles per loop. Not a correctness change; the same reasoning
 CLAUDE.md already gives for `mtimer.S`'s own floor.
@@ -212,12 +217,12 @@ against it — untouched here, and not asked for by this ticket's acceptance cri
 worth naming: **BTFN was not checked against the Zkt claim**, and its branch recognition
 reads no register, so the taint argument likely still holds, but "likely" is not "proved."
 
-`make -C formal remeasure-fg` was not run either. F and G both lengthen by roughly the
-kill's own depth, the same finding ADR-0078 made (F and G held exactly there because the
-worst-case gap was already set by a load turnaround, not a redirect); re-measuring is
-cheap (~20s) but was not spent here because every formal check downstream of a lengthened
-F/G would need the pcloop/traps rewiring above first, and that rewiring itself is the
-larger unspent cost.
+`make -C formal remeasure-fg` was not run either. ADR-0078 found F and G unchanged under
+its K, because the worst-case retire gap is set by a load turnaround and a scoreboard
+chain that a redirect cannot stack onto; whether that still holds on this tree, and under
+BTFN, is unmeasured. Re-measuring is cheap (~20s) but was not spent here, because the
+checks downstream of F and G need the pcloop/traps rewiring above first, and that
+rewiring is the larger unspent cost.
 
 ## Traps: still committed in decode, landing a cycle later
 
@@ -254,9 +259,14 @@ Base's own unseeded worst-of-twelve dips under 12.0 MHz at one of twelve seeds
 *pinned* seed with a required 5% margin specifically because an unseeded sweep can do
 this). Read against that baseline rather than against a hard floor: **both K and K+BTFN
 clear 12.0 MHz at every one of twelve unseeded placements**, and K+BTFN's spread is
-tighter than base's own (3.9% against 6.8%). Neither comes remotely close to 24 MHz, the
+tighter than base's own (3.9% against 6.8%). Against base's median period, K moves
+−2.98%, inside the ~3.6% edit-churn band and so a null (ADR-0121); K+BTFN moves −4.03%,
+clear of the band by 0.4 points. Neither comes remotely close to 24 MHz, the
 next step up — worst case 41.67 ns is needed there, and the best placement measured here
-is 75.67 ns, 45% too slow.
+is 75.67 ns, 45% too slow. The `fit` column is the core alone, and K+BTFN's 4283 is over
+`FIT_MAX_LC` (4219), so it could not land without moving that ratchet. The SoC packs
+4920, 4979 and 5091 `ICESTORM_LC` of the up5k's 5280 (base, K, K+BTFN; re-read at
+review).
 
 **ECP5** (`LFE5U-25F-6CABGA381`, `--freq 200.0` driving the placer, no ratchet):
 
@@ -298,20 +308,20 @@ start/reset — the same "224 of 767 absorbed for free" effect ADR-0078 found. D
 and CoreMark, both far larger and steadier-state, read the two counts within one cycle of
 each other.
 
-**Static backward-taken prediction roughly halves the kill rate on both benchmarks**:
-Dhrystone's mispredict share falls from 16.93% of issues (every backward branch, since K
+**Static backward-taken prediction cuts the kill rate by more than half on both benchmarks**:
+Dhrystone's mispredict share falls from 16.93% of issues (every redirect, since K
 never predicts taken) to 6.26% — the loop-closing branch in Dhrystone's own hot loops is
 backward and taken almost every iteration, and BTFN catches it. CoreMark shows the same
 shape, smaller (13.07% → 5.64%, since CoreMark's branch mix is less loop-dominated than
-Dhrystone's). The suite, built from short, mostly straight-line `.S` programs, barely
-moves (8.58% → 4.89% of issues) — there are fewer loops to predict correctly in the first
+Dhrystone's). The suite, built from short, mostly straight-line `.S` programs, moves
+least (8.58% → 4.89% of issues, a 43% cut) — it has fewer loops to predict in the first
 place.
 
 ## The product, both parts, never merged
 
 **up5k: cycles alone**, both variants clear 12 MHz at every seed measured, so the product
-is exactly the cycle cost table above — **a net loss on every workload, both variants**,
-from K+BTFN's −2.87% (suite) to K's −10.81% (Dhrystone).
+is the inverse of the cycle ratio above — **a net loss on every workload, both variants**,
+from K+BTFN's −2.79% (suite) to K's −9.75% (Dhrystone).
 
 **ECP5: clock × cycles, read at the worst of twelve placements** (never the median, per
 CLAUDE.md's own rule for this instrument):
@@ -323,7 +333,7 @@ CLAUDE.md's own rule for this instrument):
 | Dhrystone | −9.75% | −4.11% |
 
 At the median placement instead (reported for context, not as the verdict): K+BTFN's
-suite product is −0.26%, essentially a wash, and its Dhrystone/CoreMark products are
+suite product is −0.25%, essentially a wash, and its Dhrystone/CoreMark products are
 −1.66%/−1.24% — closer, never positive. **No workload, on either part, at either
 placement statistic, turns positive for either variant.**
 
@@ -332,18 +342,18 @@ placement statistic, turns positive for either variant.**
 - **up5k: declined.** The clock is a step function and neither variant reaches the next
   step (24 MHz, needing 41.67 ns; the best placement measured here is 75.67 ns). The
   comparison is cycles alone, and both variants cost more cycles on every workload. K+BTFN
-  cuts that cost by more than half versus plain K, and both variants measurably widen the
-  worst-case margin over 12.0 MHz (12 clears at every seed against base's 11 of 12) — a
-  real result, just not one this part's oscillator can spend, the same conclusion
-  ADR-0078 reached on a different tree.
+  cuts that cost by more than half on Dhrystone and CoreMark, and both variants clear
+  12.0 MHz at all twelve seeds against base's 11 — though K's median move is inside the
+  edit-churn band and only K+BTFN's clears it, and neither is a clock this part's
+  oscillator can select, the same conclusion ADR-0078 reached on a different tree.
 - **ECP5: declined.** Fmax is real here, and the clock gain is real — but small (a wash
   at worst-of-twelve, +2.6–3.1% at median) — and the cycle cost is not small enough for
   either variant to turn the product positive at the worst placement, which is the
-  reading CLAUDE.md's own methodology requires. K+BTFN comes within −0.25% of a wash on
-  the suite specifically, closer than anything ADR-0078 or ADR-0087 measured, and still
-  does not cross zero.
+  reading CLAUDE.md's own methodology requires. At the median placement K+BTFN comes
+  within −0.25% of a wash on the suite; at the worst placement, the reading this verdict
+  rests on, it is −2.73%.
 
-**If this is reopened, K+BTFN is the form worth reopening, not plain K**: it recovers
+**If the decode-coupled form is reopened, K+BTFN is the spelling to reopen, not plain K**: it recovers
 roughly half of K's cycle cost for a fixed, small (one comparator, no register read)
 addition to the fetch address's own guess, and its worst-case up5k margin over 12.0 MHz
 (12.72 MHz) is the best of the three rows measured here. A future attempt at a *correct*
@@ -401,30 +411,50 @@ tracing of `fetch_pc`/`req_pending`/`fetch_pc_changed`/`fetch_stall` alongside d
 30 cycles), and check whether a flush arriving during the one-cycle window before a
 prior flush's `fetch_pc_changed` has been sampled needs its own explicit handling.
 
-**Because the bug is in the queue's data path, not its address path, a placement and
-Fmax reading is still informative as a structural check**, the same way ADR-0087's own
-spikes measured a functionally-wrong memory for placement only. The variant elaborates
-and synthesizes cleanly on both parts.
+**Found at review: two more controller defects, and fixing both leaves two failures.**
+Neither is in `fetchqueue.v`'s pop/push priority. First, a flush does not cancel the
+response already in flight: `req_pending` for the cycle after a flush comes from whether
+`fetch_pc` moved the cycle before, so while the queue is refilling, the pre-flush address's
+word pair lands in the freshly cleared queue ahead of the target's — the back-to-back
+symptom above. Second, the room check counts a response due this cycle (`req_pending`) but
+not a request issued this cycle (`fetch_pc_changed`), so three pairs can be outstanding
+against room for two, and the ring overwrites its own head. In a scratch tree, clearing
+`req_pending` and resetting `prev_fetch_pc` to its sentinel on `decoder_flush` fixes the
+first, and adding `(fetch_pc_changed ? 4'd2 : 4'd0)` to `committed` fixes the second. The
+suite reads 1/75 with the first alone, 50/75 with the second alone and 73/75 with both.
+The two left are `selfmod.S`, because nothing invalidates queued words when text is
+written (`fence.i` would have to flush the queue), and `uart.S`'s CPI-bound floor. Neither
+edit is in `prototype-decoupled.patch`, because every number in this section was taken
+without them. `make dhrystone` cannot run the variant at all: the patch removes
+`fetch_stall` from the decoder, and the runner refuses a design missing a stall reason.
 
-**up5k does not fit at this queue depth**: synthesis reports 5861 `ICESTORM_LC` against
-the part's 5280 (111%), and `nextpnr-ice40` refuses to place it. The queue's own 8 words
-plus head/tail/count logic is real, measurable area a register-only fetch address pays
-that K/BTFN's stall-coupled one does not; a shallower queue (depth 4, matching K/BTFN's
-own two-window lookahead more closely) is the first thing to try if this is picked back
-up, before assuming decoupling requires this much room.
+**A placement of a design that does not run is a structural check, not a timing
+result**, the same standing as ADR-0087's functionally-wrong memory: a fix may add logic
+to the loop being timed. The variant elaborates and synthesizes cleanly on both parts.
 
-**ECP5 places, four seeds** (0-3, not twelve — time, not policy): 37.30-40.99 MHz,
-`TRELLIS_COMB` 6213 (against base's 5780, proto's 5591, btfn's 5775 — the same area cost
-up5k's failure to fit already shows). This is **higher than base, proto or btfn's own
-ECP5 readings (33.01-35.44 MHz across their twelve seeds)** — a real, structural clock
-improvement, consistent with the fetch address no longer being in the loop. **The
-critical path confirms it moved**: at every one of the four seeds it runs entirely
-inside `riscv.fetchqueue` — `do_pop`'s own register, through `regfile.rs1`/`rs2` and
-`decoder.next_pc`/`redirect_target` (decode's redirect computation, still combinationally
-deep, exactly as expected — it feeds `fetch_pc`'s *update*, not this cycle's fetch
-address) and `imem.fetch_stall`, ending at `fetchqueue.mem[1]`'s own write-enable. The
-loop that used to close through the ROM's address decode now closes through the queue's
-own occupancy bookkeeping — a different loop, matching what review asked to see.
+**up5k does not fit at this queue depth**: nextpnr's packer reports 5861 `ICESTORM_LC`
+against the part's 5280 (111%) and refuses to place it. The queue's 8 words plus its
+head/tail/count logic is area a register-only fetch address pays that K/BTFN's
+stall-coupled one does not. A 4-word queue, measured at review with the pointers and the
+room threshold narrowed, packs 5493 (104%) and does not fit either. Base packs 4920, so a
+queue and its controller have 360 cells to spend, and this spelling — flip-flop storage
+behind two combinational read ports — costs about 90 cells a word plus about 200 of
+control.
+
+**ECP5 places, four seeds** (0–3, not twelve — time, not policy), **from the tree that
+fails 74 of 75 programs**: 37.30–40.99 MHz, `TRELLIS_COMB` 6213 (against base's 5780,
+proto's 5591, btfn's 5775). Base's own seeds 0–3 read 33.87, 34.22, 33.01 and 36.41 MHz,
+so the four-seed worst is 13.0% above base's four-seed worst, and the whole range sits
+above every one of base's and btfn's twelve (their best are 36.41 and 36.51). That is a
+signal from a short sweep, not a clock result: four seeds are a shorter look at the same
+distribution, not a tighter one (ADR-0121), and the per-seed placements were not kept, so
+they cannot be paired seed by seed. **The critical path left the ROM but not decode**: at
+all four seeds it starts and ends at `riscv.fetchqueue`'s registers and crosses
+`regfile.rs1`/`rs2`, `decoder.next_pc`/`redirect_target` and `imem.fetch_stall` on the
+way to `fetchqueue.mem[1]`'s write-enable. The loop is now queue → decode → pop/flush →
+queue rather than ROM → decode → `next_pc` → ROM; decode's redirect cone is still in it
+because `pop` fires on `next_pc`'s word index, so a taken branch's comparator reaches the
+queue's head pointer in the same cycle.
 
 **None of this is a result.** Cycles are unknown (the design does not run correctly), so
 there is no product, no comparison against K/BTFN or against base, and no verdict. The
@@ -440,18 +470,18 @@ taken the way K and K+BTFN's were.
   (a wrong-path word, a kill that is not one of the eight named `stall` reasons, a second
   `next_pc`-shaped signal a reader now has to hold two meanings of), and the product is
   negative on both parts at the reading this repo's own methodology requires.
-- **ADR-0087's gap is closed**: ECP5 is now measured, on the tree ADR-0154 and ADR-0158
+- **ADR-0087's gap is closed for the decode-coupled form**: ECP5 is now measured, on the tree ADR-0154 and ADR-0158
   left, and the finding is the same shape — a real but small clock gain, swamped by a
   cycle cost that no static predictor tried here fully recovers.
 - **`soc/fetch_ahead/` is a spike with no gate**, the same standing as `soc/depth/`:
   nothing in it runs on `make test` or CI, and nothing in `rtl/`, `formal/` or `test/`
   (outside the prototype trees it builds itself, never committed) changed.
 - **The register-only fetch address is unfinished, not declined.** Its own section above
-  is the record: two real bugs fixed, a third open, no suite pass, no cycle count, no
-  product. Its ECP5 Fmax (37.30-40.99 MHz over four seeds) and its critical path moving
-  entirely inside `rtl/fetchqueue.v` are structural signals worth carrying into whoever
-  picks this back up, not a verdict — and up5k not fitting at an 8-word queue depth is a
-  real cost that a future attempt should try to shrink before anything else.
+  is the record: two bugs fixed in the patch, two more found at review (73/75 with both,
+  in a scratch tree only), no cycle count, no product. Its ECP5 Fmax (37.30-40.99 MHz over four seeds of a design that did not run)
+  and its critical path leaving the ROM but not decode are structural signals worth carrying into whoever
+  picks this back up, not a verdict — and up5k not fitting at 8 or at 4 words is a
+  real cost that a future attempt has to solve before anything else.
 - **The bug this spike found and fixed — `is_redirect` conflating "took a named arm" with
   "the guess was wrong" — is the kind of mistake a static predictor invites generally**:
   any future direction-prediction scheme has to define "mispredict" as a comparison

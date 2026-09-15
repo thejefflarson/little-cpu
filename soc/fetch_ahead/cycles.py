@@ -17,7 +17,7 @@ output, never the checkout's own copy), is patched at checked anchors -- the sam
 shape as soc/depth/cycles.py -- to probe `wrongpath` and `is_redirect` and print
 two more fields on the STALLS line. A missing anchor stops this script.
 
-Usage: cycles.py <applied-tree-dir> [--dhry-runs N] [--coremark-iters N]
+Usage: cycles.py <applied-tree-dir> [--btfn] [--dhry-runs N] [--coremark-iters N]
 """
 
 import argparse
@@ -97,6 +97,13 @@ def patch(runner_source):
     text = text.replace(ANCHORS["branch"], BRANCH, 1)
     return text
 
+def set_predictor(top, btfn):
+    text = top.read_text()
+    pattern = r"(parameter integer\s+PREDICT_BTFN = )[01]"
+    if not re.search(pattern, text):
+        sys.exit(f"error: {top} has no PREDICT_BTFN default; was the tree made by apply.sh?")
+    top.write_text(re.sub(pattern, lambda m: m.group(1) + ("1" if btfn else "0"), text, count=1))
+
 def totals(log):
     cycles = issues = redirects = kills = 0
     programs = 0
@@ -130,12 +137,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                       formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("applied", help="soc/fetch_ahead/apply.sh's output directory")
+    parser.add_argument("--btfn", action="store_true",
+                        help="simulate K+BTFN rather than K (sets littlecpu's PREDICT_BTFN)")
     parser.add_argument("--dhry-runs", type=int, default=2000)
-    parser.add_argument("--coremark-iters", type=int, default=400)
+    parser.add_argument("--coremark-iters", type=int, default=100)
     args = parser.parse_args()
 
     root = pathlib.Path(args.applied).resolve()
     os.chdir(root)
+    set_predictor(pathlib.Path("rtl/littlecpu.v"), args.btfn)
     work = pathlib.Path("fetch_ahead_cycles.out")
     work.mkdir(exist_ok=True)
     source = work / "cycles_sim.cc"
