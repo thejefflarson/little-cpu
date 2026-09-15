@@ -1,162 +1,193 @@
 # ADR-0188: nano's register file becomes a latch array under `NANO_LATCH_RF`
 
-**Status:** Accepted · 2026-09-14
+**Status:** Accepted · 2026-09-15
 
 ## Context
 
 Today's flip-flop `nano/nano.v` does not fit a small Tiny Tapeout tile in the real
 `nano-tt-area-selfhosted.yml` flow (LibreLane 3.0.14 on the self-hosted runner image, `AREA 0`,
-`disallow_congestion=true`): a 3×2 fails detailed placement (DPL-0036, 85.723%
-utilisation) and a 4×2 (8 tiles) fails global routing. **A separate wiring-ablation study
-on this same tree, on this same flow, found the register file is the largest single
-contributor to that 4×2 routing demand**: cutting it from sixteen entries to two took
-demand from 101.05% to 54% and cut synthesis area by 23,197 µm², and traced two specific
-structures behind it — the four low read-address bits (`rs1[3:0]`/`rs2[3:0]`) each drive
-128 `mux4` selects, and 515 of the flip-flop build's 941 post-CTS hold-fixing buffers
-terminate at a register-file flop, 408 of those through the per-bit write-enable mux2 fed
-by `reg_wdata`. ADR-0179 already named a latch array as the second fallback if the
-flip-flop design could not close, "declined for v1 over Tiny Tapeout's hold fixing and
-yosys's formal model of latches." A local (non-TT-flow) `make nano-area` measurement on
-an earlier tree read a latch register file at 49,377.36 µm² against 60,758.27 for the
-flip-flop one, −18.7%, but had never been through the real flow this ADR was meant to run
-it through.
-
-**The runner pool (`little-cpu-runners`) was down for this ADR's whole working session**
-(`gh run list --status in_progress`/`--status queued` read empty and a same-day,
-unrelated PR's CI job sat `queued` for three hours) — the flow numbers below are therefore
-the flip-flop 4×2 baseline already on file (LibreLane 3.0.14, run 34848744663) plus this
-session's local structural analysis, and the latch variant's own routed numbers on 4×2,
-2×2 and 3×4 are follow-up work, dispatched the moment the pool is moving again.
+`disallow_congestion=true`): a 3×2 fails detailed placement (DPL-0036, 85.723% utilisation) and a
+4×2 (8 tiles) fails global routing. ADR-0184 ranked the register file and mul/div as the two
+largest contributors to that 4×2 congestion by removing each in turn on this same flow: cutting
+the register file to two entries took synthesis area 81,879.78 → 58,682.53 µm² and routing demand
+101.05% → 54.26%; its two read ports are selector trees whose four low read-address bits each
+drive 128 `mux4` selects, and the PDK's excluded-cell list turns every enabled flip-flop into a
+plain flop plus a `mux2_1`, which also makes the write path fast enough to need most of the
+design's 941 post-CTS hold buffers. ADR-0184's work order is: (1) a latch-array register file,
+(2) mul/div rebuilt around one shared 64-bit register and a 32-bit adder, (3) a one-read-port
+register file — each measured in the flow on 4×2 and 2×2 before the next begins, with M a second
+permitted cut if the three together are still not enough. This ADR is step 1.
 
 ## Decision
 
-`nano/nano.v` gains a `NANO_LATCH_RF`-selected register file, kept inline behind an
-`ifdef` rather than split into a second file. Every one of nano's mutation and probe
-scripts (`test/probe_gates.sh`, `formal/memcheck-cover-probe.py`,
-`nano/formal/complete-cover-probe.py`, `nano/formal/ill-e-probe.py`,
-`nano/tb/nano_exec_probe.sh`, `nano/tb/nano_x_probe.sh`) and every `nano/formal/*.sby`
-file's `[files]`/`[script]` section assume `nano/nano.v` is the one and only RTL source
-they copy or read; a second file would need touching every one of them for no benefit
-the `ifdef` does not already give, and "its own file... if that reads best" in the
-brief's own wording left that call open.
+`nano/nano.v` gains a `NANO_LATCH_RF`-selected register file, kept inline behind an `ifdef` rather
+than split into a second file. Every one of nano's mutation and probe scripts
+(`test/probe_gates.sh`, `formal/memcheck-cover-probe.py`, `nano/formal/complete-cover-probe.py`,
+`nano/formal/ill-e-probe.py`, `nano/tb/nano_exec_probe.sh`, `nano/tb/nano_x_probe.sh`) and every
+`nano/formal/*.sby` file's `[files]`/`[script]` section assume `nano/nano.v` is the one and only
+RTL source they copy or read; a second file would need touching every one of them for no benefit
+the `ifdef` does not already give, and "its own file... if that reads best" in the brief's own
+wording left that call open.
 
-**The design**: sixteen transparent-high latches, matching the scheme TinyQV (the
-brief's own cited example) and lowRISC ibex's `RegFileLatch` both use. `cpu_state`,
-`rd` and `reg_wdata` are flops clocked by the same `clk` a latch here is transparent
-under, so each is stable for the whole high phase after settling — the same split an
-ordinary flip-flop already makes internally between its two internal latches, transparent on opposite clock phases.
-Register 0's latch is gated on `cpu_state == fetch_instr` (zeroing it, matching the
-flip-flop build's own `regs[0] <= 0` every fetch); every other register's is gated on
-`cpu_state == reg_write && rd[3:0] == <its index>`. Select and data are read from plain
-per-generate-instance wires rather than a bit-select inside the `always_latch` process
-itself — iverilog's four-state frontend cannot fully evaluate a constant select inside
-an `always_*` process (the same class of warning `rtl/writeback.v` is already
-allowlisted for in CLAUDE.md) and over-widens the sensitivity list without one.
+**The design is transparent-LOW latches with a registered select and data, not a same-edge
+decode.** A first cut gated each latch on `clk && sel`, `sel`/`din` decoded straight from
+`cpu_state`/`rd`/`reg_wdata` — a real hazard: those three are flops on the very `clk` edge that
+opens the latch, so `sel`/`din` and the latch's own transparent window begin at the identical edge
+with no designed margin between them, and `clk && sel` is a combinational AND on the clock with no
+guarantee of a glitch-free result STA can check. The shipped design instead:
+
+1. Decodes `we[gi]` (one-hot: `cpu_state == fetch_instr` for register 0, `cpu_state == reg_write
+   && rd[3:0] == gi` for the rest) combinationally, exactly as before.
+2. Registers it: `we_q <= we; wdata_q <= reg_wdata;`, on the same `posedge clk` the FSM already
+   runs on.
+3. Opens latch `gi` on `!clk && we_q[gi]`.
+
+`we_q`/`wdata_q` are flip-flop outputs, so they change only at a rising edge and are then stable
+for the *entire* following period — both phases — until the next one. The falling edge that opens
+a latch therefore always finds `we_q`/`wdata_q` already a half period settled, never racing it;
+the coincident rising edge that closes the latch and updates `we_q`/`wdata_q` for the *next* write
+doesn't touch what was already latched, since a transparent latch's stored value is whatever its
+D input held through the whole window that just ended, not a function of what happens exactly as
+it closes. This is the same standard "gate a latch's enable from a registered, same-domain
+control signal" construction OpenSTA's ordinary latch/time-borrowing timing checks are built to
+verify — no `create_generated_clock`, no dedicated `sky130_fd_sc_hd__dlclkp` clock-gate cell,
+because the enable never leaves the data path into a clock tree; it drives one latch's own native
+GATE pin, the same way an unregistered `sel` would have, just now provably settled before the
+window that reads it opens. A `dlclkp`-based scheme (a real ICG cell, registered enable) would be
+no less sound but is the one the brief itself flagged as conditional ("if that maps cleanly
+through the flow"); the registered-AND scheme needs no cell beyond what `dfflibmap`/`abc` already
+map for the rest of the design, so it is the one that ships. Select and data are still read from
+plain per-generate-instance wires rather than a bit-select inside the `always_latch`/`always_ff`
+process itself — iverilog's four-state frontend cannot fully evaluate a constant select inside an
+`always_*` process (the same class of warning `rtl/writeback.v` is already allowlisted for in
+CLAUDE.md) and over-widens the sensitivity list without one; this applied to `we_q[gi]` exactly as
+it did to the original `sel`/`din`, and is worked around the same way.
+
+**Read-after-write.** A retiring write's own latch is still closed (opaque) at the moment of
+retire — `is_fetch = cpu_state == fetch_instr` and `we_q`/`wdata_q` are set at the edge *entering*
+that same fetch_instr cycle, so the latch opens only in that cycle's low phase and closes again
+exactly at the edge ending it. Concretely: nothing in `nano.v`'s own execution ever reads
+`regs[rd[3:0]]` for a *value* during `fetch_instr`, `ready_instr` or `decode_instr` — the next
+real read of the register file is `execute_instr`, reached only after `fetch_instr` → `ready_instr`
+(at least one more cycle, more if the memory answer is not immediate) → `decode_instr`, several
+cycles clear of any write's own retiring cycle either way this design ever committed a write. The
+one thing that *is* sampled synchronously at the exact edge closing the write's own retiring
+cycle is RVFI's own `rvfi_rd_wdata_q <= |rd ? regs[rd[3:0]] : 0;` (for the monitor's benefit, not
+the core's own execution) — captured at the same edge the latch closes, from a value the latch has
+already tracked correctly through its whole low-phase window, so it is not actually stale.
+`NANO_LATCH_RF` still reads `reg_wdata` there directly rather than `regs[rd[3:0]]`, ifdef-gated so
+the default build's text is untouched: `reg_wdata` is the same value the latch is committing, read
+with no dependence on that same-edge coincidence holding on the real, physically-delayed silicon
+this reasoning is idealised over. `nano-latch-test`/`nano-latch-startup-test` are the check this
+claim has to pass, since a stale `rd_wdata` is exactly what makes the monitor's independent
+reference disagree with the core's own report.
 
 **The default build is unchanged.** Every line this ADR adds sits either inside an
-`ifndef NANO_LATCH_RF` wrapping an existing statement, or inside a new
-`ifdef NANO_LATCH_RF` block; preprocessing `nano/nano.v` with no macros set reproduces
-origin/main's file verbatim (`iverilog -E`, diffed modulo the blank lines it pads in for
-line-number parity), and `synth; dfflibmap; abc` against sky130hd lands on the identical
-61,411.3984 µm² both before and after.
+`ifndef NANO_LATCH_RF` wrapping an existing statement, or inside a new `ifdef NANO_LATCH_RF`
+block; preprocessing `nano/nano.v` with no macros set reproduces origin/main's file verbatim
+(`iverilog -E`, diffed modulo the blank lines it pads in for line-number parity), and
+`synth; dfflibmap; abc` against sky130hd lands on the identical 61,411.3984 µm² both before and
+after.
 
-**Tests.** `nano-latch-test` and `nano-latch-startup-test` build the latch variant
-through both of nano's simulator legs (`nano-latch-sim`/cxxrtl,
-`nano/tb/nano_icarus_latch.vvp`/iverilog) and grade it with the exact same graders as
-`nano-test`/`nano-startup-test` — `nano/asm/EXPECTED_FAIL`/`OBSERVED_FLOOR`, dual-leg
-agreement, the startup PASS/FAIL — introducing no new comparison logic, so no new
-`test/probe_gates.sh` entry is owed beyond the ones that already force those graders
-red. Both join `make test`; the added cost is nano-test's own (about 20s locally),
-since it is the same suite built twice. Both variants retire the identical instruction
-counts on all six suite programs and the startup check (18 retires), on both simulator
-legs.
+**Tests.** `nano-latch-test` and `nano-latch-startup-test` build the latch variant through both of
+nano's simulator legs (`nano-latch-sim`/cxxrtl, `nano/tb/nano_icarus_latch.vvp`/iverilog) and grade
+it with the exact same graders as `nano-test`/`nano-startup-test` — `nano/asm/EXPECTED_FAIL`/
+`OBSERVED_FLOOR`, dual-leg agreement, the startup PASS/FAIL — introducing no new comparison logic,
+so no new `test/probe_gates.sh` entry is owed beyond the ones that already force those graders
+red. Both join `make test`; the added cost is nano-test's own (about 20s locally), since it is the
+same suite built twice. Both variants retire the identical instruction counts on all six suite
+programs and the startup check (18 retires), on both simulator legs, under the registered-enable
+scheme.
 
-**Formal cannot read the latch variant as-is.** Probed directly (not fixed, per the
-brief): elaborating `nano/nano.v` under `NANO_LATCH_RF` through the exact script
-`nano/formal/ill_e.sby` and `nano/formal/dmemcheck.sby` run (`prep -nordff`, `flatten`)
-produces fifteen `$dlatch` cells cleanly through `check`, but both backends nano's
-checks depend on refuse them at the write step: `ERROR: Unsupported cell type $dlatch
-for cell ... -- please run clk2fflogic before write_btor` (the `btor btormc` engine
-`ill_e.sby`/`complete.sby` use) and the identical error naming `write_smt2` (the
-`smtbmc` engine `dmemcheck.sby`/`imemcheck.sby` use, and what the generated
-`checks.cfg` family also resolves to). Making the latch variant checkable would mean
-adding `clk2fflogic` (yosys's own suggestion) to the shared script every `.sby` file and
-`nano/formal/checks.cfg`'s `[script-sources]` build from, verifying it does not also
-widen what those checks can prove about the *flip-flop* build's flops (`clk2fflogic`
-changes how every clocked element is modelled, not only latches), and re-deriving F/G
-since the technique changes how the solver sees a cycle boundary. None of that is done
-here.
+**Formal cannot read the latch variant as-is, and it cannot become the default until it can.**
+Probed directly (not fixed, per the brief): elaborating `nano/nano.v` under `NANO_LATCH_RF`
+through the exact script `nano/formal/ill_e.sby` and `nano/formal/dmemcheck.sby` run
+(`prep -nordff`, `flatten`) produces fifteen `$dlatch` cells cleanly through `check`, but both
+backends nano's checks depend on refuse them at the write step: `ERROR: Unsupported cell type
+$dlatch for cell ... -- please run clk2fflogic before write_btor` (the `btor btormc` engine
+`ill_e.sby`/`complete.sby` use) and the identical error naming `write_smt2` (the `smtbmc` engine
+`dmemcheck.sby`/`imemcheck.sby` use, and what the generated `checks.cfg` family also resolves to).
+Making the latch variant checkable means adding `clk2fflogic` (yosys's own suggestion) to the
+shared script every `.sby` file and `nano/formal/checks.cfg`'s `[script-sources]` build from,
+verifying it does not also widen what those checks can prove about the *flip-flop* build's own
+flops (`clk2fflogic` changes how every clocked element is modelled, not only latches), and
+re-deriving F/G since the technique changes how the solver sees a cycle boundary. None of that is
+done here, and it is the gate: `NANO_LATCH_RF` stays a build option, never the default, until
+`make -C nano/formal check` reads it too.
 
-## What the latch array structurally changes, against the wiring ablation's two findings
+## What the latch array structurally changes, against ADR-0184's two findings
 
-Neither of these is a routed-flow number (the runner pool was down); both are read off
-a local `synth; dfflibmap; techmap <dlxtp map>; abc` run against the same sky130hd
-liberty `make nano-area` uses, comparing the flip-flop and `NANO_LATCH_RF` builds cell
-for cell. `dfflibmap` alone leaves every inferred `$_DLATCH_P_` unmapped (it targets
-`$dff`-family cells only), so an ad hoc `techmap` mapping `$_DLATCH_P_` straight to
-`sky130_fd_sc_hd__dlxtp_1` stands in for the real flow's `SYNTH_LATCH_MAP` step here;
-it is not that step, and the resulting 50,203.15 µm² (−18.25% against the flip-flop
-build's 61,411.40) is offered only as a sanity check against the historical 49,377.36
-vs 60,758.27 (−18.7%) figure, not as this ADR's area answer.
+Neither of these is a routed-flow number; both are read off a local
+`synth; dfflibmap; techmap <dlxtp map>; abc` run against the same sky130hd liberty `make nano-area`
+uses, comparing the flip-flop and `NANO_LATCH_RF` builds cell for cell. `dfflibmap` alone leaves
+every inferred `$_DLATCH_P_` unmapped (it targets `$dff`-family cells only), so an ad hoc
+`techmap` mapping `$_DLATCH_P_` straight to `sky130_fd_sc_hd__dlxtp_1` stands in for the real
+flow's `SYNTH_LATCH_MAP` step here; it is not that step, and the resulting 50,870.04 µm²
+(−17.17% against the flip-flop build's 61,411.40) is offered only as a sanity check against the
+historical 49,377.36 vs 60,758.27 (−18.7%) figure, not as this ADR's area answer.
 
-- **The write-enable mux2 the ablation traced 408 of 941 hold buffers through has no
-  equivalent in the latch build.** `sky130_fd_sc_hd__mux4_2` goes 268 → 0 and
-  `sky130_fd_sc_hd__edfxtp_1` (the enable-flop `edfxtp` being excluded from the PDK's
-  usable-cell list forces every gated flop to synthesise as, plain flop plus mux) goes
-  792 → 280, a fall of 512 cells, replaced by 480 `sky130_fd_sc_hd__dlxtp_1` latches
-  (sixteen registers × 32 bits is 512 bits; the missing 32 are register 0's, whose
-  latch data input is the literal constant `regs[0] <= 0` and optimises to a tied-low
-  net in both builds once the mapper sees it, which is why plain `dfxtp_1` barely moves,
-  185 → 177). A latch holds its value with no logic at all when its own select is low,
-  which is the mechanism the write-side hold-vs-load mux existed to provide for a plain
-  flop; removing the mux removes what those 408 buffers were fixing hold on. This is an
-  inference from the cell census, not a measured hold-buffer count for the latch build —
-  that number is owed from the real flow.
-- **The read-address fan-out is untouched by this change, on purpose.** `nano/nano.v`'s
-  roughly twenty `regs[rs1[3:0]]`/`regs[rs2[3:0]]`/`regs[rd[3:0]]` read sites are
-  byte-identical text under both builds — `NANO_LATCH_RF` touches only the two write
-  statements and adds the latch generate block, never a read expression. So the same
-  four address bits drive the same set of reads either way; the local census shows no
-  surviving `mux4_2` cell in either build's read logic (both land on 0 for that
-  specific cell type), meaning ABC maps that 16-way read select through AOI/OAI gates
-  rather than a discrete mux primitive in this liberty regardless of the register
-  file's storage element, so this census cannot separate "unchanged" from "remapped
-  differently." The routing-demand share the ablation attributed to read fan-out is
-  expected to persist into the latch build; only a routed run says by how much.
+- **The write-enable mux2 ADR-0184 named has no equivalent in the latch build.**
+  `sky130_fd_sc_hd__mux4_2` goes 268 → 0 and `sky130_fd_sc_hd__edfxtp_1` (the enable-flop
+  `edfxtp` being excluded from the PDK's usable-cell list forces every gated flop to synthesise as
+  plain flop plus mux) goes 792 → 280, a fall of 512 cells, replaced by 480
+  `sky130_fd_sc_hd__dlxtp_1` latches and a modest rise in plain `dfxtp_1` (185 → 224) for the new
+  `we_q`/`wdata_q` registers this ADR's fix adds. A latch holds its value with no logic at all when
+  its own select is low, which is the mechanism the write-side hold-vs-load mux existed to provide
+  for a plain flop; removing the mux removes what those 408 buffers were fixing hold on. This is an
+  inference from the cell census, not a measured hold-buffer count for the latch build — that
+  number, and the flow's clock-gating check on the new registered enables, are owed from the real
+  flow.
+- **The read-address fan-out is untouched by this change, on purpose.** `nano/nano.v`'s roughly
+  twenty `regs[rs1[3:0]]`/`regs[rs2[3:0]]`/`regs[rd[3:0]]` read sites are byte-identical text under
+  both builds — `NANO_LATCH_RF` touches only the two write statements and adds the latch write
+  logic, never a read expression. So the same four address bits drive the same set of reads either
+  way; the local census shows no surviving `mux4_2` cell in either build's read logic (both land on
+  0 for that specific cell type), meaning ABC maps that 16-way read select through AOI/OAI gates
+  rather than a discrete mux primitive in this liberty regardless of the register file's storage
+  element, so this census cannot separate "unchanged" from "remapped differently." The routing
+  demand ADR-0184 attributed to read fan-out is expected to persist into the latch build; only a
+  routed run says by how much.
 
 ## Measurement
 
-Dispatched on this branch via `nano-tt-area-selfhosted.yml`'s `regfile` input
-(`AREA 0`, `disallow_congestion=true`, `stop_after_synthesis=false`), one run at a time
-(the workflow's own concurrency group cancels a second dispatch on the same ref), on
-LibreLane 3.0.14 throughout.
+Dispatched on this branch via `nano-tt-area-selfhosted.yml`'s `regfile` input (`AREA 0`,
+`disallow_congestion=true`, `stop_after_synthesis=false`), one run at a time (the workflow's own
+concurrency group cancels a second dispatch on the same ref), on LibreLane 3.0.14 throughout, per
+ADR-0184's own work order (4×2 then 2×2 before mul/div's turn begins).
+
+**A first 4×2 latch dispatch on this branch (run 34849107473) was cancelled**: the self-hosted
+runner pool sat with nothing `in_progress`/`queued` moving for the bulk of this ADR's working
+session, and by the time the run had waited over two hours it was cancelled rather than trusted
+further. **A second dispatch (34923698630) was cancelled deliberately**: it started against the
+racy `clk && sel` scheme, before the fix this ADR now ships, so its numbers would have described
+the wrong RTL.
 
 | Tiles | Regfile | Chip area (µm²) | Placement util. | GRT demand | DRT violations | Wall time | Run |
 |---|---|---|---|---|---|---|---|
 | 4×2 | flops | 81,879.78 | 63.638% | 101.05% | — (routing failed) | — | [34848744663](https://github.com/thejefflarson/little-cpu/actions/runs/34848744663) |
-| 4×2 | latches | *not yet measured — runner pool down this session* | | | | | |
-| 2×2 | flops | *no baseline yet* | | | | | |
+| 4×2 | latches | *not yet measured* | | | | | |
+| 2×2 | flops | 81,879.78 (same synthesis; 2×2's own placement/routing not yet run) | | | | | |
 | 2×2 | latches | *not yet measured* | | | | | |
-| 3×4 | flops | see ADR-0179/main's 12-tile measurement | | | | | |
-| 3×4 | latches | *not yet measured* | | | | | |
 
-**DECISION NEEDED**: the central question this ADR was opened to answer — does the
-latch array alone bring nanocpu's routed 4×2 (or 2×2) area/demand down to a closing
-tile — is not yet settled by a routed number. The local structural evidence above
-(the write-side mux and its associated hold buffers are gone; the read-side fan-out the
-ablation found dominant is not addressed by this change alone) predicts a real but
-partial improvement, not a guarantee of closing 4×2 on its own. Dispatch
-`nano-tt-area-selfhosted.yml` with `regfile=latches` at `tiles=4x2`, `2x2`, then `3x4`
-once `gh run list --status in_progress` shows the self-hosted pool moving again, and
-record the routed numbers here.
+**DECISION NEEDED**: the central question this ADR was opened to answer — does the latch array
+alone bring nanocpu's routed 4×2 or 2×2 area/demand down to ADR-0184's 41,498.55 µm² / 69.17%
+budget, or far enough toward it that mul/div's cut (step 2) closes the rest — is not yet settled by
+a routed number. The local structural evidence above (the write-side mux and its associated hold
+buffers are gone; the read-side fan-out ADR-0184 found dominant is not addressed by this change
+alone) predicts a real but partial improvement, not a guarantee of closing 4×2 on its own. Dispatch
+`nano-tt-area-selfhosted.yml` with `regfile=latches` at `tiles=4x2`, then `tiles=2x2`, once
+`gh run list --status in_progress` shows the self-hosted pool moving again, and record the routed
+numbers, the GRT table, and the flow's hold and clock-gating check results for the new registered
+enables, here.
 
 ## Consequences
 
-- `NANO_LATCH_RF` is additive and off by default; nothing about the shipping (flops)
-  configuration changes area, timing, or behaviour.
-- Formal verification of the latch variant is a follow-up, not covered by
-  `make -C nano/formal check` today.
-- ADR-0179's fallback order (one-port register file, then this latch array) is the
-  standing plan if the flip-flop build still cannot close a small tile; this ADR
-  ships the mechanism and the local structural evidence, and the routed measurement
-  that plan was waiting on is still owed.
+- `NANO_LATCH_RF` is additive and off by default; nothing about the shipping (flops) configuration
+  changes area, timing, or behaviour.
+- `NANO_LATCH_RF` cannot become the default until `make -C nano/formal check` reads it: `clk2fflogic`
+  added to every `.sby` script and `checks.cfg`, F/G re-derived, and the flip-flop build's own
+  checks re-confirmed unaffected.
+- ADR-0184's work order (latch register file, then shared-register mul/div, then a one-read-port
+  register file, M a second permitted cut) is the standing plan; this ADR ships step 1's mechanism
+  and its local structural evidence, and the routed 4×2/2×2 measurement that plan needs before step
+  2 begins is still owed.
