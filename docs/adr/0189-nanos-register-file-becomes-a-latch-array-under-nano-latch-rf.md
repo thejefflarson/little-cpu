@@ -1,4 +1,4 @@
-# ADR-0188: nano's register file becomes a latch array under `NANO_LATCH_RF`
+# ADR-0189: nano's register file becomes a latch array under `NANO_LATCH_RF`
 
 **Status:** Accepted · 2026-09-15
 
