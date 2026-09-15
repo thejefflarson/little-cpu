@@ -85,21 +85,42 @@ Every number below is `make dhrystone` / `make coremark` / `make nano-dhrystone`
 `make compare-dhrystone` / `make compare-coremark` give the cycle halves of the
 cross-core comparison; the clock halves do not depend on gcc and are not re-swept here.
 
-- **littlecpu, `make dhrystone`**: REPLACE_DHRYSTONE_LINE
-- **littlecpu, `make coremark`**: REPLACE_COREMARK_LINE
-- **littlecpu, `make coremark-rom-up5k`**: REPLACE_COREMARK_ROM_UP5K_LINE
-- **nanocpu, `make nano-dhrystone`**: REPLACE_NANO_DHRYSTONE_LINE
-- **nanocpu, `make nano-coremark`**: REPLACE_NANO_COREMARK_LINE
-- **cross-core cycle halves, `make compare-dhrystone` / `make compare-coremark`**:
-  REPLACE_COMPARE_LINE
+- **littlecpu, `make dhrystone`** (native ISA, `-O2`, 2000 runs): 788 cycles/Dhrystone,
+  **0.722 DMIPS/MHz, 8.66 DMIPS at 12 MHz** — was 0.777 DMIPS/MHz, 9.32 DMIPS.
+- **littlecpu, `make coremark`** (native ISA, `-O2`, SIMULATED AT 16 KB, 100 iterations):
+  46,397,929 cycles, **2.155 CoreMark/MHz** — was 2.203 CoreMark/MHz.
+- **littlecpu, `make coremark-rom-up5k`**'s score (`-Os -flto`, same 16 KB simulated
+  budget, per-iteration ratio so 20 iterations reproduces the same score ADR-0166's own
+  561,530-cycles/iteration measurement did): 563,013.5 cycles/iteration,
+  **1.776 CoreMark/MHz** — was 1.780 CoreMark/MHz, a null within rounding: `-Os -flto`
+  code is far less sensitive to a compiler-version bump than `-O2`'s is, which is itself
+  evidence for pinning rather than against it. The link is 6,996 of 8,192 bytes, under
+  budget (was 7,076).
+- **nanocpu, `make nano-dhrystone`**: 2516.5 cycles/dhrystone, **0.226 DMIPS/MHz** — was
+  0.225.
+- **nanocpu, `make nano-coremark`**: 1,860,316 cycles/iteration, **0.538 CoreMark/MHz** —
+  was 0.541.
+- **cross-core cycle halves, `make compare-dhrystone`** (RV32IM, one shared C binary,
+  one iverilog simulation): littlecpu 313,627 cycles (was 290,825), VexRiscv 262,827,
+  0.838× littlecpu (was 0.873×), Hazard3 252,026, 0.804× littlecpu (was 0.869×).
+  **littlecpu moved the most of the three** — a compiler swap is not guaranteed to move
+  every core's C the same amount, the same point ADR-0160 makes about widening the ISA.
+- **cross-core cycle halves, `make compare-coremark`** (RV32IM, same harness): littlecpu
+  446,995 cycles / 2.237 CoreMark-MHz-equivalent (was 433,240 / 2.308), VexRiscv 426,430,
+  0.954× littlecpu (was 0.986×), Hazard3 666,552, 1.491× littlecpu (was 1.536×).
 
 `test/OBSERVED_FLOOR`'s `.S` floors did not move (they never depend on which gcc built
 the `.c` programs); no `.c` floor moved either, and none needed a new baseline entry.
-`soc/compare/product.json` is not re-stamped by this PR for the same reason ADR-0183
-gives for not re-stamping it from a PR branch: its `base` has to be a commit reachable on
-`main`, and this repo squash-merges. The weekly
+CLAUDE.md's own cross-core clock-and-cycle PRODUCT paragraph (the up5k-step and ECP5-Fmax
+figures) is left untouched: those are `cycles × clock`, and mixing these freshly-measured
+cycles with a clock sweep taken under the old compiler would violate CLAUDE.md's own rule
+that "a product is a measurement only when both factors were taken on one tree AND one
+toolchain." `soc/compare/product.json` is not re-stamped by this PR for the same reason
+ADR-0183 gives for not re-stamping it from a PR branch: its `base` has to be a commit
+reachable on `main`, and this repo squash-merges. The weekly
 `.github/workflows/compare-product-schedule.yml` re-take, next scheduled after this
-lands on `main`, takes the real stamp under the pinned compiler.
+lands on `main`, takes the real stamp — both factors, one session — under the pinned
+compiler.
 
 ## What this does not do
 

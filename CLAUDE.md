@@ -467,11 +467,14 @@ top, ECP5 only.
   conventional one when ADR-0158 measured it, and executor-only forwarding took the inset figure
   to 2.203 afterwards (ADR-0154). Hazard3's published 4.15 CoreMark/MHz is its RP2350 build, not its iCE40
   one, and quoting it against an ice40 core is the mixed-configuration error ADR-0098 names.
-  **`make coremark-rom-up5k` links a CoreMark image the part can actually hold** — 7,076 of the shipping
-  8 KB, `-Os -flto` rather than `COREMARK_CFLAGS`'s `-O2` (1.780 CoreMark/MHz, a 19.2% cost, legal
-  under EEMBC's own build-option allowance) and `COREMARK_UP5K_ITERATIONS`'s 800 iterations, which
-  clears `core_main.c`'s own ">=10 secs" self-check for real at 12 MHz (ADR-0165). No board has run
-  it yet — `make coremark-board` is off `make test` and CI, the same standing as
+  **`make coremark-rom-up5k` links a CoreMark image the part can actually hold** — a link, not the
+  score below: the shipping image is 6,996 of the 8 KB budget under the pinned compiler (was 7,076
+  under Homebrew's 16.2.0), `-Os -flto` rather than `COREMARK_CFLAGS`'s `-O2`. **1.776 CoreMark/MHz**
+  under the pinned compiler (1.780 under 16.2.0, essentially unmoved — `-Os -flto` code is far less
+  compiler-version-sensitive than `-O2`'s, ADR-0189), a 17.6% cost against the native-ISA `-O2`
+  figure above, legal under EEMBC's own build-option allowance; `COREMARK_UP5K_ITERATIONS`'s 800
+  iterations clears `core_main.c`'s own ">=10 secs" self-check for real at 12 MHz (ADR-0165). No
+  board has run it yet — `make coremark-board` is off `make test` and CI, the same standing as
   `make dhrystone-board` before ADR-0130.
 - **The only cross-core comparison that means anything is one harness**, `soc/compare/`: same part,
 memories, program, toolchain and seeds, against the VexRiscv in the pinned riscv-formal clone and
