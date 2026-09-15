@@ -123,6 +123,8 @@ cosim.dSYM/
 nano-sim
 nano-sim.dSYM/
 nano/tb/nano_rtl.cc
+nano-qspi-sim*
+nano/tb/nano_qspi_rtl*.cc
 tools/
 test/a.out.dSYM/
 .claude/worktrees/

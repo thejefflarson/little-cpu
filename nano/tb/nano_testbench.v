@@ -10,11 +10,29 @@ module nano_testbench(
 `ifndef NANO_WAIT_STATES
 `define NANO_WAIT_STATES 0
 `endif
+`ifndef NANO_QSPI_PREFETCH_DEPTH
+`define NANO_QSPI_PREFETCH_DEPTH 0
+`endif
+`ifndef NANO_QSPI_LOOP_KIND
+`define NANO_QSPI_LOOP_KIND 0
+`endif
+`ifndef NANO_QSPI_LOOP_WINDOW
+`define NANO_QSPI_LOOP_WINDOW 0
+`endif
+`ifndef NANO_QSPI_PREAMBLE_CYCLES
+`define NANO_QSPI_PREAMBLE_CYCLES 24
+`endif
+`ifndef NANO_QSPI_PSRAM_LOAD_CYCLES
+`define NANO_QSPI_PSRAM_LOAD_CYCLES 44
+`endif
+`ifndef NANO_QSPI_PSRAM_STORE_CYCLES
+`define NANO_QSPI_PSRAM_STORE_CYCLES 33
+`endif
 
   localparam int MEM_WORDS = 20480;
   localparam int unsigned TOHOST_INDEX = 32'h0001_0000 / 4;
 
-  logic        mem_valid;
+  (* keep *) logic mem_valid;
   logic        mem_instr;
   logic        mem_ready;
   logic [31:0] mem_addr;
@@ -52,6 +70,55 @@ module nano_testbench(
   always #5 clk = ~clk;
 `endif
 
+`ifdef NANO_QSPI_TIMING
+  (* keep *) logic reason_parcel_wait;
+  (* keep *) logic reason_redirect_preamble;
+  (* keep *) logic reason_loop_hit;
+  (* keep *) logic reason_handshake;
+  (* keep *) logic reason_psram_wait;
+  (* keep *) logic stream_fault;
+  // Echoes this build's own parameters so nano_cxxrtl.cc can print a MODEL line from the
+  // binary itself, rather than trusting the script that invoked its build.
+  (* keep *) int unsigned model_prefetch_depth;
+  (* keep *) int unsigned model_loop_kind;
+  (* keep *) int unsigned model_loop_window;
+  (* keep *) int unsigned model_preamble_cycles;
+  (* keep *) int unsigned model_parcel_cycles;
+  (* keep *) int unsigned model_psram_load_cycles;
+  (* keep *) int unsigned model_psram_store_cycles;
+  assign model_prefetch_depth = `NANO_QSPI_PREFETCH_DEPTH;
+  assign model_loop_kind = `NANO_QSPI_LOOP_KIND;
+  assign model_loop_window = `NANO_QSPI_LOOP_WINDOW;
+  assign model_preamble_cycles = `NANO_QSPI_PREAMBLE_CYCLES;
+  assign model_parcel_cycles = 8;
+  assign model_psram_load_cycles = `NANO_QSPI_PSRAM_LOAD_CYCLES;
+  assign model_psram_store_cycles = `NANO_QSPI_PSRAM_STORE_CYCLES;
+  nano_qspi_memory #(
+    .WORDS(MEM_WORDS),
+    .PREFETCH_DEPTH(`NANO_QSPI_PREFETCH_DEPTH),
+    .LOOP_KIND(`NANO_QSPI_LOOP_KIND),
+    .LOOP_WINDOW(`NANO_QSPI_LOOP_WINDOW),
+    .PREAMBLE_CYCLES(`NANO_QSPI_PREAMBLE_CYCLES),
+    .PSRAM_LOAD_CYCLES(`NANO_QSPI_PSRAM_LOAD_CYCLES),
+    .PSRAM_STORE_CYCLES(`NANO_QSPI_PSRAM_STORE_CYCLES)
+  ) mem (
+    .clk(clk),
+    .reset(reset),
+    .mem_valid(mem_valid),
+    .mem_instr(mem_instr),
+    .mem_addr(mem_addr),
+    .mem_wdata(mem_wdata),
+    .mem_wstrb(mem_wstrb),
+    .mem_ready(mem_ready),
+    .mem_rdata(mem_rdata),
+    .reason_parcel_wait(reason_parcel_wait),
+    .reason_redirect_preamble(reason_redirect_preamble),
+    .reason_loop_hit(reason_loop_hit),
+    .reason_handshake(reason_handshake),
+    .reason_psram_wait(reason_psram_wait),
+    .stream_fault(stream_fault)
+  );
+`else
   nano_memory #(.WORDS(MEM_WORDS), .WAIT_STATES(`NANO_WAIT_STATES)) mem (
     .clk(clk),
     .reset(reset),
@@ -62,6 +129,7 @@ module nano_testbench(
     .mem_ready(mem_ready),
     .mem_rdata(mem_rdata)
   );
+`endif
 
   riscv uut (
     .clk(clk),

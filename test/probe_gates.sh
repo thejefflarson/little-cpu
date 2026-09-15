@@ -1167,6 +1167,96 @@ probe "output this script does not recognize is exit 3, not guessed at" 3 \
   "unrecognized nano_icarus.vvp output" \
   "STUB_ICARUS_OUTPUT_FILE=$tmp/nsi-unrecognized.out $(nsi "$d")"
 
+begin_group "nano/bench/qspi_timing_report.py"
+
+qtr_fixture() {
+  local d; d=$(new_case)
+  fixture_anchor "$REPO/nano/tb/nano_cxxrtl.cc" \
+    'std::printf("BENCH marks=%u cycles=%u verdict=%u writes=%u\n",'
+  fixture_anchor "$REPO/nano/tb/nano_cxxrtl.cc" \
+    'std::printf("MODEL depth=%u loop_kind=%u loop_window=%u preamble=%u parcel=%u "'
+  fixture_anchor "$REPO/nano/tb/nano_cxxrtl.cc" \
+    'std::printf("BUCKETS execute=%llu parcel_wait=%llu redirect_preamble=%llu loop_hit=%llu "'
+  fixture_anchor "$REPO/nano/tb/nano_cxxrtl.cc" '"handshake=%llu psram_wait=%llu window_cycles=%llu\n",'
+  cat > "$d/good.log" <<'EOF'
+BENCH marks=2 cycles=100 verdict=1 writes=5
+MODEL depth=2 loop_kind=0 loop_window=0 preamble=24 parcel=8 psram_load=44 psram_store=33
+BUCKETS execute=50 parcel_wait=20 redirect_preamble=10 loop_hit=5 handshake=5 psram_wait=10 window_cycles=100
+EOF
+  cat > "$d/bad.log" <<'EOF'
+BENCH marks=2 cycles=100 verdict=1 writes=5
+MODEL depth=2 loop_kind=0 loop_window=0 preamble=24 parcel=8 psram_load=44 psram_store=33
+BUCKETS execute=50 parcel_wait=20 redirect_preamble=10 loop_hit=5 handshake=5 psram_wait=5 window_cycles=100
+EOF
+  printf '%s' "$d"
+}
+d=$(qtr_fixture)
+
+probe "control: a QSPI timing log whose buckets sum to its cycle count reports a row" 0 \
+  "DMIPS/MHz=" "python3 '$REPO/nano/bench/qspi_timing_report.py' '$d/good.log' --config c --kind dhrystone --runs 10"
+
+probe "the QSPI timing accounting identity is graded and can fail" 1 \
+  "ACCOUNTING MISMATCH" "python3 '$REPO/nano/bench/qspi_timing_report.py' '$d/bad.log' --config c --kind dhrystone --runs 10"
+
+begin_group "nano_qspi_memory.v's own accounting identity (real build)"
+
+NANO_QSPI_ACCOUNTING_CC=""
+for accounting_candidate in riscv64-elf-gcc riscv64-unknown-elf-gcc; do
+  if command -v "$accounting_candidate" >/dev/null 2>&1; then
+    NANO_QSPI_ACCOUNTING_CC=$accounting_candidate
+    break
+  fi
+done
+if [ -z "$NANO_QSPI_ACCOUNTING_CC" ]; then
+  echo "error: no RISC-V cross compiler found for the accounting-identity probes." >&2
+  exit 1
+fi
+accounting_fixture() {  # $1 = a sed expression mutating nano_qspi_memory.v's reason_* lines, or "" for the control
+    local d; d=$(new_case)
+    mkdir -p "$d/nano/tb" "$d/nano/asm" "$d/nano/bench" "$d/soc/compare" "$d/test/asm"
+    cp "$REPO/nano/nano.v" "$d/nano/"
+    cp "$REPO/nano/tb/nano_qspi_memory.v" "$REPO/nano/tb/nano_testbench.v" \
+      "$REPO/nano/tb/nano_cxxrtl.cc" "$d/nano/tb/"
+    cp "$REPO/soc/compare/dhry_monitor.v" "$d/soc/compare/"
+    cp "$REPO/rvfi_macros.vh" "$d/"
+    cp "$REPO/test/monitor.sim.v" "$d/test/"
+    cp "$REPO/nano/asm/alu.S" "$REPO/nano/asm/nano.lds" "$d/nano/asm/"
+    cp "$REPO/test/asm/riscv_test.h" "$REPO/test/asm/test_macros.h" "$d/test/asm/"
+    if [ -n "$1" ]; then mutate "$d/nano/tb/nano_qspi_memory.v" "$1"; fi
+    printf '%s' "$d"
+  }
+
+  accounting_build_and_run() {  # $1 = fixture dir
+    local d=$1
+    (
+      cd "$d" || exit 1
+      yosys -p "read_verilog -sv -D RISCV_FORMAL -D RISCV_FORMAL_COMPRESSED -D RISCV_FORMAL_ALIGNED_MEM -D RISCV_FORMAL_NRET=1 -D RISCV_FORMAL_XLEN=32 -D RISCV_FORMAL_ILEN=32 -D NANO_QSPI_TIMING -D NANO_QSPI_PREFETCH_DEPTH=2 -D NANO_QSPI_LOOP_KIND=0 -D NANO_QSPI_LOOP_WINDOW=0 -D NANO_QSPI_PREAMBLE_CYCLES=24 rvfi_macros.vh nano/nano.v nano/tb/nano_qspi_memory.v soc/compare/dhry_monitor.v nano/tb/nano_testbench.v test/monitor.sim.v; hierarchy -top nano_testbench; write_cxxrtl nano/tb/nano_qspi_rtl.cc" \
+        > yosys.log 2>&1 || { cat yosys.log >&2; exit 1; }
+      clang++ -O2 -DNDEBUG -std=c++17 -Wall -Wextra -Werror -DNANO_RTL_INCLUDE='"nano_qspi_rtl.cc"' \
+        -isystem "$(yosys-config --datdir)/include/backends/cxxrtl/runtime" nano/tb/nano_cxxrtl.cc \
+        -o sim > clang.log 2>&1 || { cat clang.log >&2; exit 1; }
+      "$NANO_QSPI_ACCOUNTING_CC" -march=rv32emc -mabi=ilp32e -nostdlib -I nano/asm -I test/asm \
+        -T nano/asm/nano.lds nano/asm/alu.S -o alu.elf
+      "${NANO_QSPI_ACCOUNTING_CC%gcc}objcopy" -O verilog --verilog-data-width=4 \
+        --only-section=.text alu.elf rom.hex
+      "${NANO_QSPI_ACCOUNTING_CC%gcc}objcopy" -O verilog --verilog-data-width=4 \
+        --remove-section=.text alu.elf ram.hex
+      ./sim --rom rom.hex --ram ram.hex --cycles 5000
+    )
+  }
+
+  d=$(accounting_fixture "")
+  probe "control: the shipping model's accounting identity holds on a real build" 0 \
+    "PASS" "accounting_build_and_run '$d'"
+
+  d=$(accounting_fixture 's/assign reason_parcel_wait = .*/assign reason_parcel_wait = 1'"'"'b0;/')
+  probe "one reason tied permanently low is a real build's own accounting mismatch" 7 \
+    "QSPI TIMING" "accounting_build_and_run '$d'"
+
+  d=$(accounting_fixture 's/assign reason_parcel_wait = .*/assign reason_parcel_wait = mem_valid \&\& mem_instr \&\& !loop_hit_now \&\& !preamble_active_now;/')
+  probe "two reasons overlapping is a real build's own accounting mismatch too" 7 \
+    "QSPI TIMING" "accounting_build_and_run '$d'"
+
 begin_group "test/run_cosim.sh"
 
 rc_fixture() {

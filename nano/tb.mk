@@ -57,3 +57,36 @@ NANO_COREMARK_CYCLES     ?= 20000000
 .PHONY: nano-coremark
 nano-coremark: nano-sim
 	@./nano/bench/run_coremark.sh ./nano-sim $(NANO_COREMARK_ITERATIONS) $(NANO_COREMARK_CYCLES) '$(NANO_CFLAGS)'
+
+NANO_QSPI_SIM_RTL_SRCS := nano/nano.v nano/tb/nano_qspi_memory.v soc/compare/dhry_monitor.v
+NANO_QSPI_PREFETCH_DEPTH ?= 0
+NANO_QSPI_LOOP_KIND      ?= 0
+NANO_QSPI_LOOP_WINDOW    ?= 0
+NANO_QSPI_PREAMBLE_CYCLES ?= 24
+NANO_QSPI_PSRAM_LOAD_CYCLES ?= 44
+NANO_QSPI_PSRAM_STORE_CYCLES ?= 33
+# A distinct tag per config, so a sweep of several builds never reads a stale binary.
+NANO_QSPI_TAG ?= default
+NANO_QSPI_RTL := nano/tb/nano_qspi_rtl.$(NANO_QSPI_TAG).cc
+NANO_QSPI_OUT := nano-qspi-sim.$(NANO_QSPI_TAG)
+
+.PHONY: $(NANO_QSPI_RTL)
+$(NANO_QSPI_RTL): rvfi_macros.vh $(NANO_QSPI_SIM_RTL_SRCS) $(NANO_SIM_TB_SRCS) test/monitor.sim.v
+	yosys -p 'read_verilog -sv $(addprefix -D ,$(NANO_RISCV_FORMAL_MACROS)) -D NANO_QSPI_TIMING -D NANO_QSPI_PREFETCH_DEPTH=$(NANO_QSPI_PREFETCH_DEPTH) -D NANO_QSPI_LOOP_KIND=$(NANO_QSPI_LOOP_KIND) -D NANO_QSPI_LOOP_WINDOW=$(NANO_QSPI_LOOP_WINDOW) -D NANO_QSPI_PREAMBLE_CYCLES=$(NANO_QSPI_PREAMBLE_CYCLES) -D NANO_QSPI_PSRAM_LOAD_CYCLES=$(NANO_QSPI_PSRAM_LOAD_CYCLES) -D NANO_QSPI_PSRAM_STORE_CYCLES=$(NANO_QSPI_PSRAM_STORE_CYCLES) $^; hierarchy -top nano_testbench; write_cxxrtl $@'
+
+.PHONY: nano-qspi-sim
+nano-qspi-sim: nano/tb/nano_cxxrtl.cc $(NANO_QSPI_RTL)
+	clang++ -O2 -DNDEBUG -std=c++17 -Wall -Wextra -Werror -DNANO_RTL_INCLUDE='"$(notdir $(NANO_QSPI_RTL))"' \
+	  -isystem "$$(yosys-config --datdir)/include/backends/cxxrtl/runtime" -I nano/tb $< -o $(NANO_QSPI_OUT)
+
+.PHONY: nano-qspi-timing
+nano-qspi-timing: nano-sim
+	@./nano/bench/run_qspi_timing.sh '$(NANO_CFLAGS)'
+
+.PHONY: nano-qspi-loop-probe
+nano-qspi-loop-probe: rvfi_macros.vh test/monitor.sim.v
+	@./nano/bench/run_qspi_loop_buffer_probe.sh '$(NANO_CFLAGS)'
+
+.PHONY: nano-qspi-loop-test
+nano-qspi-loop-test: nano-qspi-loop-probe
+	@./nano/bench/run_qspi_loop_buffer_test.sh '$(NANO_CFLAGS)'
