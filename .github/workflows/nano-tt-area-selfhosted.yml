@@ -38,6 +38,13 @@ on:
         description: "stop at global routing on any remaining overflow, rather than Tiny Tapeout's own default of routing through it"
         type: boolean
         default: false
+      regfile:
+        description: "nano/nano.v register file"
+        type: choice
+        default: "flops"
+        options:
+          - "flops"
+          - "latches"
 
 permissions:
   contents: read
@@ -114,6 +121,7 @@ jobs:
         env:
           NANO_TT_STRATEGY: ${{ inputs.synth_strategy || 'AREA 0' }}
           NANO_TT_DISALLOW_CONGESTION: ${{ inputs.disallow_congestion && '1' || '0' }}
+          NANO_TT_REGFILE: ${{ inputs.regfile || 'flops' }}
         run: |
           librelane-env bash -c '
             set -euo pipefail
@@ -136,6 +144,8 @@ jobs:
           config["SYNTH_STRATEGY"] = strategy
           if os.environ["NANO_TT_DISALLOW_CONGESTION"] == "1":
               config["GRT_ALLOW_CONGESTION"] = 0
+          if os.environ["NANO_TT_REGFILE"] == "latches":
+              config["VERILOG_DEFINES"] = config.get("VERILOG_DEFINES", []) + ["NANO_LATCH_RF"]
           with open("src/config_merged.json", "w") as f:
               json.dump(config, f, indent=2)
           PYEOF
@@ -180,6 +190,8 @@ jobs:
 
       - name: Report peak memory and job wall time
         if: always()
+        env:
+          NANO_TT_REGFILE_REPORT: ${{ inputs.regfile || 'flops' }}
         run: |
           elapsed=$(( $(date +%s) - JOB_START ))
           if [ "$NANO_TT_STOP_AFTER_SYNTHESIS" = "1" ]; then
@@ -199,6 +211,7 @@ jobs:
           summary_line "tiles: ${{ inputs.tiles || '2x2' }}"
           summary_line "stop after synthesis: $stop_after_synthesis_report"
           summary_line "disallow congestion: ${{ inputs.disallow_congestion || 'false' }}"
+          summary_line "regfile: $NANO_TT_REGFILE_REPORT"
           summary_line "wall time: ${elapsed}s"
           if [ -r /sys/fs/cgroup/memory.peak ]; then
             summary_line "cgroup memory.peak: $(cat /sys/fs/cgroup/memory.peak) bytes"
