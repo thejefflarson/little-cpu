@@ -3,10 +3,10 @@
 // number of cycles, and watches either the riscv-tests tohost word (test/asm/riscv_test.h,
 // the .S suite) or soc/compare/dhry_monitor.v's verdict word (Dhrystone/CoreMark).
 #include <cxxrtl/cxxrtl_vcd.h>
-#ifndef NANO_RTL_HEADER
-#define NANO_RTL_HEADER "nano_rtl.cc"
+#ifndef NANO_RTL_INCLUDE
+#define NANO_RTL_INCLUDE "nano_rtl.cc"
 #endif
-#include NANO_RTL_HEADER
+#include NANO_RTL_INCLUDE
 
 #include <cstdint>
 #include <cstdio>
@@ -18,7 +18,6 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
-#include <vector>
 
 namespace {
 
@@ -215,6 +214,37 @@ int main(int argc, char **argv) {
       must_find("uut instr", "did nano.v rename its instr register?");
   if (!trap_pc || !trap_instr)
     return 3;
+
+  // Present only when built with NANO_QSPI_TIMING: six positive, independent reasons.
+  const cxxrtl::debug_item *qspi_mem_valid =
+      items.count("mem_valid") ? &items.at("mem_valid").at(0) : nullptr;
+  const cxxrtl::debug_item *qspi_parcel =
+      items.count("reason_parcel_wait") ? &items.at("reason_parcel_wait").at(0) : nullptr;
+  const cxxrtl::debug_item *qspi_preamble =
+      items.count("reason_redirect_preamble") ? &items.at("reason_redirect_preamble").at(0)
+                                               : nullptr;
+  const cxxrtl::debug_item *qspi_loophit =
+      items.count("reason_loop_hit") ? &items.at("reason_loop_hit").at(0) : nullptr;
+  const cxxrtl::debug_item *qspi_handshake =
+      items.count("reason_handshake") ? &items.at("reason_handshake").at(0) : nullptr;
+  const cxxrtl::debug_item *qspi_psram =
+      items.count("reason_psram_wait") ? &items.at("reason_psram_wait").at(0) : nullptr;
+  const cxxrtl::debug_item *qspi_fault =
+      items.count("stream_fault") ? &items.at("stream_fault").at(0) : nullptr;
+  const bool qspi_timing = qspi_mem_valid && qspi_parcel && qspi_preamble && qspi_loophit &&
+                            qspi_handshake && qspi_psram && qspi_fault;
+  uint64_t bucket_execute = 0, bucket_parcel = 0, bucket_preamble = 0, bucket_loophit = 0,
+           bucket_handshake = 0, bucket_psram = 0, bucket_window_cycles = 0;
+  auto print_model = [&]() {
+    auto rd = [&](const char *n) -> uint32_t {
+      return items.count(n) ? items.at(n).at(0).curr[0] : 0xffffffffu;
+    };
+    std::printf("MODEL depth=%u loop_kind=%u loop_window=%u preamble=%u parcel=%u "
+                "psram_load=%u psram_store=%u\n",
+                rd("model_prefetch_depth"), rd("model_loop_kind"), rd("model_loop_window"),
+                rd("model_preamble_cycles"), rd("model_parcel_cycles"),
+                rd("model_psram_load_cycles"), rd("model_psram_store_cycles"));
+  };
   CauseSignals cause_signals;
   for (const char *name :
        {"uut is_valid", "uut is_e_illegal", "uut is_ecall", "uut is_ebreak", "uut is_jal",
@@ -230,11 +260,30 @@ int main(int argc, char **argv) {
                 bench_verdict.curr[0], bench_writes.curr[0]);
   };
 
-  auto finish = [&](int code) {
+  auto finish = [&](int code, long total_cycles) {
+    (void)total_cycles;
     std::printf("RETIRES %u\n", retires->curr[0]);
     if (args.bench)
       print_bench();
-    if (retires->curr[0] == 0) {
+    if (qspi_timing) {
+      print_model();
+      std::printf("BUCKETS execute=%llu parcel_wait=%llu redirect_preamble=%llu loop_hit=%llu "
+                   "handshake=%llu psram_wait=%llu window_cycles=%llu\n",
+                   (unsigned long long)bucket_execute, (unsigned long long)bucket_parcel,
+                   (unsigned long long)bucket_preamble, (unsigned long long)bucket_loophit,
+                   (unsigned long long)bucket_handshake, (unsigned long long)bucket_psram,
+                   (unsigned long long)bucket_window_cycles);
+      uint64_t sum = bucket_execute + bucket_parcel + bucket_preamble + bucket_loophit +
+                     bucket_handshake + bucket_psram;
+      if (sum != bucket_window_cycles) {
+        std::fprintf(stderr,
+                      "QSPI TIMING ACCOUNTING MISMATCH: %llu bucketed cycles against "
+                      "%llu windowed -- some cycle was left unexplained.\n",
+                      (unsigned long long)sum, (unsigned long long)bucket_window_cycles);
+        return 7;
+      }
+    }
+    if (code != 7 && retires->curr[0] == 0) {
       std::fprintf(stderr,
                     "the RVFI monitor observed nothing this run: 0 retires. The "
                     "per-retire oracle was blind, so this run's verdict (exit "
@@ -276,10 +325,53 @@ int main(int argc, char **argv) {
     if (cycle == 0)
       top.p_reset.set(false);
 
+    if (qspi_timing) {
+      // reason_* are combinational outputs with no register fan-out, so cxxrtl compiles
+      // them as debug "outline" functions that must be explicitly re-evaluated before
+      // .curr is read -- the same step cxxrtl_vcd's own sampler takes for such items.
+      if (qspi_parcel->outline) qspi_parcel->outline->eval();
+      if (qspi_preamble->outline) qspi_preamble->outline->eval();
+      if (qspi_loophit->outline) qspi_loophit->outline->eval();
+      if (qspi_handshake->outline) qspi_handshake->outline->eval();
+      if (qspi_psram->outline) qspi_psram->outline->eval();
+      if (qspi_fault->outline) qspi_fault->outline->eval();
+      if (qspi_fault->curr[0]) {
+        std::fprintf(stderr, "QSPI TIMING: cycle %ld serves a fetch from parcels the flash stream "
+                              "never fetched in its current run\n", cycle);
+        return finish(7, cycle + 1);
+      }
+      bool r_execute = !qspi_mem_valid->curr[0];
+      bool r_parcel = qspi_parcel->curr[0];
+      bool r_preamble = qspi_preamble->curr[0];
+      bool r_loophit = qspi_loophit->curr[0];
+      bool r_handshake = qspi_handshake->curr[0];
+      bool r_psram = qspi_psram->curr[0];
+      int reasons = (int)r_execute + r_parcel + r_preamble + r_loophit + r_handshake + r_psram;
+      if (reasons != 1) {
+        std::fprintf(stderr,
+                      "QSPI TIMING: cycle %ld has %d reasons (execute=%d parcel=%d "
+                      "preamble=%d loop_hit=%d handshake=%d psram=%d), not exactly one\n",
+                      cycle, reasons, r_execute, r_parcel, r_preamble, r_loophit, r_handshake,
+                      r_psram);
+        return finish(7, cycle + 1);
+      }
+      // Only cycles inside the benchmark's own measured region count toward the
+      // reported buckets; a plain .S run has no marker region, so everything counts.
+      if (!args.bench || bench_marks.curr[0] == 1) {
+        ++bucket_window_cycles;
+        if (r_execute) ++bucket_execute;
+        if (r_parcel) ++bucket_parcel;
+        if (r_preamble) ++bucket_preamble;
+        if (r_loophit) ++bucket_loophit;
+        if (r_handshake) ++bucket_handshake;
+        if (r_psram) ++bucket_psram;
+      }
+    }
+
     uint32_t errcode = monitor_errcode->curr[0] & 0xffff;
     if (errcode != 0) {
       std::fprintf(stderr, "RVFI monitor error %u at cycle %ld\n", errcode, cycle);
-      return finish(4);
+      return finish(4, cycle + 1);
     }
 
     if ((trap_latched.curr[0] & 1) != 0) {
@@ -288,28 +380,28 @@ int main(int argc, char **argv) {
                    "  pc=0x%08x instr=0x%08x cause=%s\n",
                    cycle, trap_pc->curr[0], trap_instr->curr[0],
                    classify_trap_cause(cause_signals).c_str());
-      return finish(5);
+      return finish(5, cycle + 1);
     }
 
     if (args.bench) {
       if (bench_verdict.curr[0] != 0) {
         std::printf(bench_verdict.curr[0] == 1 ? "PASS\n" : "FAIL\n");
-        return finish(bench_verdict.curr[0] == 1 ? 0 : 1);
+        return finish(bench_verdict.curr[0] == 1 ? 0 : 1, cycle + 1);
       }
     } else {
       uint32_t tohost = mem_item.curr[tohost_index];
       if (tohost != 0) {
         if (tohost == 1) {
           std::printf("PASS\n");
-          return finish(0);
+          return finish(0, cycle + 1);
         }
         uint32_t testnum = tohost >> 1;
         std::printf("FAIL %u\n", testnum);
-        return finish(1);
+        return finish(1, cycle + 1);
       }
     }
   }
 
   std::printf("TIMEOUT\n");
-  return finish(2);
+  return finish(2, args.cycles);
 }

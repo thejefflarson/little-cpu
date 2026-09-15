@@ -691,8 +691,8 @@ make test           # the test/asm suite (.S and .c) under cxxrtl + unit benches
                     # compare-product-schedule-publish)
                     # + window-test, imem-share-test, board-elaborate, mutation-probe,
                     # dual-build, nano-test, nano-latch-test, nano-startup-test,
-                    # nano-latch-startup-test and nano-littlecpu-test; graded against
-                    # EXPECTED_FAIL / OBSERVED_FLOOR
+                    # nano-latch-startup-test, nano-littlecpu-test and nano-qspi-loop-test;
+                    # graded against EXPECTED_FAIL / OBSERVED_FLOOR
 make test-units     # the unit benches alone; the list is checked against test/*_tb.v both ways
 make elaborate-strict # yosys elaborates every simulation source through `check`; the
                     # required `elaborate` CI job
@@ -838,6 +838,24 @@ make nano-latch-startup-test # nano-startup-test's check, same variant. On `make
 make nano-dhrystone # Dhrystone on nanocpu under nano-sim --bench, core-only, zero-wait-state,
                     # 80 KB flat memory (nano/tb/nano_memory.v). Not on `make test`'s path
 make nano-coremark  # CoreMark on nanocpu, same memory model and standing as nano-dhrystone
+make nano-qspi-sim  # nano-sim built against nano/tb/nano_qspi_memory.v instead of
+                    # nano_memory.v -- a behavioural QSPI-flash/PSRAM timing model on the
+                    # same bus, nano.v untouched. NANO_QSPI_PREFETCH_DEPTH, NANO_QSPI_LOOP_KIND,
+                    # NANO_QSPI_LOOP_WINDOW and NANO_QSPI_PREAMBLE_CYCLES parameterize it;
+                    # always rebuilt, since the generated file's mtime cannot distinguish
+                    # one parameter set from another
+make nano-qspi-timing # sweeps that model's configurations against Dhrystone and CoreMark,
+                    # reporting cycles, DMIPS/MHz or CoreMark/MHz at an assumed 64 MHz,
+                    # and the {execute, parcel wait, redirect preamble, loop hit, handshake,
+                    # PSRAM wait} bucket split. Reporting only, no ratchet, like `make cycles`.
+                    # Not on `make test`'s path
+make nano-qspi-loop-test # the loop buffer's three invariants, each able to fail: a branch-free
+                    # program costs the same cycles with the loop buffer on or off; a loop
+                    # resident in it pays no marginal preamble/wait per iteration once warm;
+                    # and a loop with a load and a block-straddling instruction runs to PASS
+                    # in both shapes, where every nano-qspi-sim exits 7 on a fetch served from
+                    # parcels its flash run never streamed (ADR-0186). nano-qspi-loop-probe
+                    # is its forced-red prerequisite. On `make test`'s path
 ```
 
 `make sail-setup` and `make lint-setup` unpack into `~/.cache/little-cpu` (`XDG_CACHE_HOME` moves

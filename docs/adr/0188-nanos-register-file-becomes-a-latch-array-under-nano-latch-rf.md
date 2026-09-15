@@ -167,7 +167,7 @@ registered-enable RTL.**
 | 4×2 | flops | 81,879.78 | 63.638% | 101.05% | GRT-0116 congestion | — | — | [34848744663](https://github.com/thejefflarson/little-cpu/actions/runs/34848744663) |
 | 4×2 | latches | **70,070.95** | **54.980%** | **70.55%** | GRT-0116 congestion (closer, not closed) | 3107s (~51.8 min) | 3,221,188,608 B (~3.00 GiB, at the pod's 3 GiB ceiling) | [34925911447](https://github.com/thejefflarson/little-cpu/actions/runs/34925911447) |
 | 2×2 | flops | *no baseline yet* | | | | | | |
-| 2×2 | latches | *dispatched, [34929665602](https://github.com/thejefflarson/little-cpu/actions/runs/34929665602), not yet complete as this ADR is written* | | | | | | |
+| 2×2 | latches | 70,070.95 | **113.506%** | not reached | GPL-0301: placement utilization exceeds 100% | 294s | 3,221,188,608 B (at the pod's 3 GiB ceiling) | [34929665602](https://github.com/thejefflarson/little-cpu/actions/runs/34929665602) |
 
 **4×2 latches: real, substantial, and still not enough alone.** Global routing's own per-layer
 report (`GRT-0096`): met1 80.77%, met2 81.43%, met3 62.09%, met4 36.37%, **total 70.55%** against
@@ -186,14 +186,15 @@ write-side mux this ADR already traced out of the design. Setup at this same int
 pre-final-routing snapshot reads WNS −0.274 ns / TNS −2.042 ns, a small residual the flow's later
 steps (never reached, since global routing itself failed first) would ordinarily continue closing.
 
-**DECISION NEEDED**: does the latch array alone, or the latch array plus mul/div's cut (step 2 of
-ADR-0184's work order), reach a tile that actually routes? 4×2's answer on its own is now
-measured: **closer, not closed** -- real cuts to area (−14.4%), placement utilization, wirelength
-and GRT demand across every layer, and the hold-buffer population the write-side mux was
-responsible for is more than halved, but disallowed-congestion routing still fails on localized
-overflow the read-address fan-out ADR-0184 already flagged as untouched by this change. The 2×2
-run is dispatched and its result, once in, is the next thing this ADR needs before mul/div's own
-turn (step 2) begins.
+**Answered for both tiles: the latch array alone reaches neither a routable 4×2 nor a placeable
+2×2.** On 4×2 it is **closer, not closed**. It makes real cuts to area (−14.4%), placement
+utilization, wirelength and GRT demand across every layer, and it more than halves the hold-buffer
+population the write-side mux was responsible for. But disallowed-congestion routing still fails on
+localized overflow from the read-address fan-out, which ADR-0184 already flagged as untouched by
+this change. On 2×2 (run 34929665602) the same 70,070.95 µm² needs 113.506% of the placeable area,
+and global placement stops (`GPL-0301`) before routing is reached. The next step is ADR-0184's
+step 2, the shared-register mul/div. The read-address fan-out this change leaves in place is
+step 3's to address.
 
 ## Consequences
 
@@ -206,5 +207,5 @@ turn (step 2) begins.
   register file, M a second permitted cut) is the standing plan. Step 1 measures real: 4×2's GRT
   total demand 101.05% → 70.55%, area 81,879.78 → 70,070.95 µm², hold buffers 941 → 395 -- but 4×2
   still does not route clean under `disallow_congestion=true`, so step 2 (mul/div) is not optional
-  for closing it. The 2×2 result completes the pair ADR-0184's work order asks for before step 2
-  begins.
+  for closing it. On 2×2 the latch build does not even place (113.506% utilization), which
+  completes the pair ADR-0184's work order asks for before step 2 begins.

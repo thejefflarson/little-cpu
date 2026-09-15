@@ -126,6 +126,8 @@ nano/tb/nano_rtl.cc
 nano-latch-sim
 nano-latch-sim.dSYM/
 nano/tb/nano_latch_rtl.cc
+nano-qspi-sim*
+nano/tb/nano_qspi_rtl*.cc
 tools/
 test/a.out.dSYM/
 .claude/worktrees/
