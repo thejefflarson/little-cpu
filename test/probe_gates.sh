@@ -140,7 +140,7 @@ copy_makefile_includes() {  # $1 = destination dir
 make_toolchain_stubs() {  # $1 = bin dir
   local bin=$1
   mkdir -p "$bin"
-  cat > "$bin/riscv64-elf-gcc" <<'STUB'
+  cat > "$bin/riscv-none-elf-gcc" <<'STUB'
 #!/bin/sh
 # Stands in for the cross compiler. Writes a non-empty file at -o and succeeds,
 # so run_tests.sh / cosim.py get past assembly without a toolchain installed.
@@ -153,7 +153,7 @@ done
 [ -n "$out" ] && echo stub-elf > "$out"
 exit ${STUB_CC_EXIT:-0}
 STUB
-  cat > "$bin/riscv64-elf-objcopy" <<'STUB'
+  cat > "$bin/riscv-none-elf-objcopy" <<'STUB'
 #!/bin/sh
 # The last argument is the output image; run_tests.sh and cosim.py both call it
 # that way. STUB_OBJCOPY_FAIL stands in for a full disk or a binutils too old for
@@ -171,7 +171,7 @@ fi
 printf '@00000000\n13 00 00 00\n' > "$out"
 exit 0
 STUB
-  chmod +x "$bin/riscv64-elf-gcc" "$bin/riscv64-elf-objcopy"
+  chmod +x "$bin/riscv-none-elf-gcc" "$bin/riscv-none-elf-objcopy"
 }
 
 make_sim_stub() {  # $1 = path
@@ -406,9 +406,9 @@ mkdir -p "$tmp/bin-none" "$tmp/bin-curl" "$tmp/leg-rt" "$tmp/leg-rc" "$tmp/leg-r
          "$tmp/leg-nano"
 
 # For the one probe that claims "no cross compiler", `bin-none` has to be the WHOLE path:
-# with /usr/bin behind it, run_tests.sh finds a real riscv64-unknown-elf-gcc on any host
-# that has one there, which is every CI runner -- that is how that probe went green here
-# and red on CI. No python3 and no env here on purpose: a python3 that is a
+# with /usr/bin behind it, run_tests.sh could find a real riscv-none-elf-gcc on any host
+# that happened to have one there -- unlikely for this exact pinned name, but not
+# something to rely on. No python3 and no env here on purpose: a python3 that is a
 # version-manager shim would shadow the real interpreter for every OTHER probe, whose
 # PATH has this directory on it too.
 for util in sed awk sort uniq comm basename dirname wc tr cat rm mktemp diff \
@@ -421,7 +421,7 @@ for util in sed awk sort uniq comm basename dirname wc tr cat rm mktemp diff \
 done
 make_toolchain_stubs "$tmp/bin"
 make_toolchain_stubs "$tmp/bin-noobjcopy"
-rm "$tmp/bin-noobjcopy/riscv64-elf-objcopy"
+rm "$tmp/bin-noobjcopy/riscv-none-elf-objcopy"
 make_sim_stub "$tmp/sim"
 make_nano_sim_stub "$tmp/nano-sim"
 make_sail_stub "$tmp/sail"
@@ -745,7 +745,7 @@ make_exclusion_toolchain_stubs() {  # $1 = bin dir; a *.S source whose name cont
                                      # -- stands in for a real CSR/A/fence.i refusal
   local bin=$1
   mkdir -p "$bin"
-  cat > "$bin/riscv64-elf-gcc" <<'STUB'
+  cat > "$bin/riscv-none-elf-gcc" <<'STUB'
 #!/bin/sh
 src=""; out=""; prev=""
 for a in "$@"; do
@@ -757,13 +757,13 @@ case "$src" in *bad*) exit 1 ;; esac
 [ -n "$out" ] && echo stub-elf > "$out"
 exit 0
 STUB
-  cat > "$bin/riscv64-elf-objcopy" <<'STUB'
+  cat > "$bin/riscv-none-elf-objcopy" <<'STUB'
 #!/bin/sh
 for out; do :; done
 printf '@00000000\n13 00 00 00\n' > "$out"
 exit 0
 STUB
-  chmod +x "$bin/riscv64-elf-gcc" "$bin/riscv64-elf-objcopy"
+  chmod +x "$bin/riscv-none-elf-gcc" "$bin/riscv-none-elf-objcopy"
 }
 make_exclusion_toolchain_stubs "$tmp/bin-exclusion"
 
@@ -855,15 +855,12 @@ probe "more than seven arguments is a usage error too" 1 "usage:" \
 begin_group "test_macros.h's testreg vacuity guards"
 
 VACUITY_CC=""
-for vacuity_candidate in riscv64-elf-gcc riscv64-unknown-elf-gcc; do
-  if command -v "$vacuity_candidate" > /dev/null 2>&1; then
-    VACUITY_CC=$vacuity_candidate
-    break
-  fi
-done
+if command -v riscv-none-elf-gcc > /dev/null 2>&1; then
+  VACUITY_CC=riscv-none-elf-gcc
+fi
 if [ -z "$VACUITY_CC" ]; then
-  echo "error: no RISC-V cross compiler found, so the testreg vacuity guards" >&2
-  echo "cannot be forced red. Install one (make setup)." >&2
+  echo "error: riscv-none-elf-gcc not found, so the testreg vacuity guards" >&2
+  echo "cannot be forced red. Run \`make riscv-gcc-setup\`." >&2
   exit 1
 fi
 
@@ -3271,33 +3268,37 @@ tc_cache="$tmp/cache/little-cpu"
 
 probe "control: agreeing paths outside the checkout are green" 0 \
   "outside the checkout and agreed on" \
-  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint $tc_cache/download $tc_cache/sky130"
+  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint $tc_cache/download $tc_cache/sky130 $tc_cache/riscv-gcc"
 
 probe "the Makefile and test/cosim.py drifting apart is red" 1 \
   "do not agree on where the Sail" \
-  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/elsewhere $tc_cache/svlint $tc_cache/download $tc_cache/sky130"
+  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/elsewhere $tc_cache/svlint $tc_cache/download $tc_cache/sky130 $tc_cache/riscv-gcc"
 
 probe "a Sail install back inside the checkout is red" 1 \
   "test/cosim.py installs tools inside the checkout" \
-  "XDG_CACHE_HOME=$REPO/cache $TCT $REPO/cache/little-cpu/sail $tc_cache/svlint $tc_cache/download $tc_cache/sky130"
+  "XDG_CACHE_HOME=$REPO/cache $TCT $REPO/cache/little-cpu/sail $tc_cache/svlint $tc_cache/download $tc_cache/sky130 $tc_cache/riscv-gcc"
 
 probe "an svlint install inside the checkout is red on its own" 1 \
   "$REPO/tools/svlint" \
-  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $REPO/tools/svlint $tc_cache/download $tc_cache/sky130"
+  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $REPO/tools/svlint $tc_cache/download $tc_cache/sky130 $tc_cache/riscv-gcc"
 
 # The kept release tarball is what a CI cache holds, so a download directory back inside
 # the checkout would be cached under a path no worktree can read.
 probe "the Sail download directory inside the checkout is red on its own" 1 \
   "$REPO/tools/download" \
-  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint $REPO/tools/download $tc_cache/sky130"
+  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint $REPO/tools/download $tc_cache/sky130 $tc_cache/riscv-gcc"
 
 probe "the nano liberty install directory inside the checkout is red on its own" 1 \
   "$REPO/tools/sky130" \
-  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint $tc_cache/download $REPO/tools/sky130"
+  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint $tc_cache/download $REPO/tools/sky130 $tc_cache/riscv-gcc"
+
+probe "the riscv-gcc install directory inside the checkout is red on its own" 1 \
+  "$REPO/tools/riscv-gcc" \
+  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint $tc_cache/download $tc_cache/sky130 $REPO/tools/riscv-gcc"
 
 probe "a relative install directory is red before it is compared" 1 \
   "names a relative tool install directory" \
-  "XDG_CACHE_HOME=$tmp/cache $TCT tools/sail tools/svlint tools/download tools/sky130"
+  "XDG_CACHE_HOME=$tmp/cache $TCT tools/sail tools/svlint tools/download tools/sky130 tools/riscv-gcc"
 
 begin_group "make sail-setup"
 
@@ -3626,15 +3627,12 @@ probe "the proof describes the part's text window, not the harness's" 1 \
 begin_group "the linker scripts' layout ASSERTs"
 
 LAYOUT_CC=""
-for layout_candidate in riscv64-elf-gcc riscv64-unknown-elf-gcc; do
-  if command -v "$layout_candidate" > /dev/null 2>&1; then
-    LAYOUT_CC=$layout_candidate
-    break
-  fi
-done
+if command -v riscv-none-elf-gcc > /dev/null 2>&1; then
+  LAYOUT_CC=riscv-none-elf-gcc
+fi
 if [ -z "$LAYOUT_CC" ]; then
-  echo "error: no RISC-V cross compiler found, so the linker scripts' own" >&2
-  echo "ASSERTs cannot be forced red. Install one (make setup)." >&2
+  echo "error: riscv-none-elf-gcc not found, so the linker scripts' own" >&2
+  echo "ASSERTs cannot be forced red. Run \`make riscv-gcc-setup\`." >&2
   exit 1
 fi
 
@@ -3706,10 +3704,9 @@ probe "board.lds putting the stack back at the top of ram is red" 1 \
 
 begin_group "test/dhry_board_parity_test.sh"
 
-if ! command -v riscv64-elf-gcc > /dev/null 2>&1 && \
-   ! command -v riscv64-unknown-elf-gcc > /dev/null 2>&1; then
-  echo "error: no RISC-V cross compiler found, so test/dhry_board_parity_test.sh's" >&2
-  echo "own build cannot be forced red. Install one (make setup)." >&2
+if ! command -v riscv-none-elf-gcc > /dev/null 2>&1; then
+  echo "error: riscv-none-elf-gcc not found, so test/dhry_board_parity_test.sh's" >&2
+  echo "own build cannot be forced red. Run \`make riscv-gcc-setup\`." >&2
   exit 1
 fi
 
@@ -4077,7 +4074,7 @@ probe "the monitor generator's -i swept along with them is red as well" 1 \
   "MONITOR_GEN no longer passes \`-i rv32imc\`" "$MA $d"
 
 d=$(ma_fixture)
-printf '#!/bin/sh\nriscv64-elf-gcc -march=rv32e -o x y.c\n' > "$d/test/newbuild.sh"
+printf '#!/bin/sh\nriscv-none-elf-gcc -march=rv32e -o x y.c\n' > "$d/test/newbuild.sh"
 git -C "$d" add -A
 probe "a new site naming an ISA nothing declared is red, and located" 1 \
   "test/newbuild.sh:2: -march=rv32e" "$MA $d"
@@ -4872,7 +4869,7 @@ RCC_TOOLCHAIN_MARKER="stub: reached the compiler; nothing past the manifest chec
 rcc_bin() {  # $1 = bin dir to create
   local bin=$1
   mkdir -p "$bin"
-  for tool in riscv64-elf-gcc riscv64-elf-objcopy riscv64-elf-size riscv64-elf-nm; do
+  for tool in riscv-none-elf-gcc riscv-none-elf-objcopy riscv-none-elf-size riscv-none-elf-nm; do
     cat > "$bin/$tool" <<STUB
 #!/bin/sh
 echo "$RCC_TOOLCHAIN_MARKER"

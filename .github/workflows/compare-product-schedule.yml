@@ -32,10 +32,8 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Verify the toolchain is present in the runner image
-        uses: ./.github/actions/verify-toolchain
-        with:
-          tools: riscv64-unknown-elf-gcc
+      - name: Set up the pinned RISC-V gcc
+        uses: ./.github/actions/setup-riscv-gcc
 
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite

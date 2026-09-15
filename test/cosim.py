@@ -151,12 +151,12 @@ class Fatal(Exception):
     pass
 
 def find_cross_compiler():
-    for cc in ("riscv64-elf-gcc", "riscv64-unknown-elf-gcc"):
-        if shutil.which(cc):
-            return cc
+    cc = "riscv-none-elf-gcc"
+    if shutil.which(cc):
+        return cc
     raise Fatal(
-        "no RISC-V cross compiler found (tried riscv64-elf-gcc, "
-        "riscv64-unknown-elf-gcc). Run 'make setup'."
+        "no RISC-V cross compiler found (want riscv-none-elf-gcc). "
+        "Run 'make riscv-gcc-setup'."
     )
 
 def sha256(path):

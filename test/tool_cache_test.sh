@@ -3,8 +3,9 @@
 # two files which independently compute that location still agree.
 set -euo pipefail
 
-if [ "$#" -ne 4 ]; then
-  echo "usage: tool_cache_test.sh <sail-dir> <svlint-dir> <sail-download-dir> <nano-liberty-dir>" >&2
+if [ "$#" -ne 5 ]; then
+  echo "usage: tool_cache_test.sh <sail-dir> <svlint-dir> <sail-download-dir>" >&2
+  echo "  <nano-liberty-dir> <riscv-gcc-dir>" >&2
   exit 1
 fi
 
@@ -12,6 +13,7 @@ MAKE_SAIL_DIR=$1
 MAKE_SVLINT_DIR=$2
 MAKE_SAIL_DOWNLOAD_DIR=$3
 MAKE_NANO_LIBERTY_DIR=$4
+MAKE_RISCV_GCC_DIR=$5
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/.." && pwd)
 
@@ -72,6 +74,7 @@ outside_checkout test/cosim.py "$py_sail_dir"
 outside_checkout Makefile "$MAKE_SVLINT_DIR"
 outside_checkout Makefile "$MAKE_SAIL_DOWNLOAD_DIR"
 outside_checkout Makefile "$MAKE_NANO_LIBERTY_DIR"
+outside_checkout Makefile "$MAKE_RISCV_GCC_DIR"
 
 if [ "$rc" -ne 0 ]; then
   exit 1

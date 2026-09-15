@@ -162,6 +162,121 @@ sail-pin:
 	@printf 'path=%s\n' '$(SAIL_DOWNLOAD_DIR)'
 	@printf 'tarball=%s\n' '$(SAIL_TARBALL)'
 
+ifneq ($(filter command line environment,$(origin RISCV_GCC_VERSION)),)
+$(error RISCV_GCC_VERSION cannot be set from the command line or the \
+  environment: it pins the compiler every test and benchmark build runs \
+  through. Change it in the Makefile, together with the SHA-256 digests \
+  below it)
+endif
+override RISCV_GCC_VERSION := 15.2.0-1
+
+ifeq ($(shell printf '%s' '$(RISCV_GCC_VERSION)' | grep -cE '^[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$$'),0)
+$(error RISCV_GCC_VERSION must be an xPack release version like 15.2.0-1, \
+  not a branch, a moving tag or a range: '$(RISCV_GCC_VERSION)')
+endif
+
+# Names embed $(RISCV_GCC_VERSION) on purpose, the way SVLINT_ASSET's do: bumping the
+# version without adding digests then makes the lookup empty, and riscv-gcc-setup
+# refuses rather than fetches.
+RISCV_GCC_SHA256_xpack-riscv-none-elf-gcc-15.2.0-1-darwin-arm64 := 6588e8351455fad8aca37551f0e5a5543f3346bfa9a837cf03cbd3bdd4989f8f
+RISCV_GCC_SHA256_xpack-riscv-none-elf-gcc-15.2.0-1-linux-x64     := aaaa8060c914851a3e5ee1ba82cc3d6f80972f90638a05c6e823a37557a33758
+
+RISCV_GCC_ASSET_Darwin_arm64  := xpack-riscv-none-elf-gcc-$(RISCV_GCC_VERSION)-darwin-arm64
+RISCV_GCC_ASSET_Linux_x86_64  := xpack-riscv-none-elf-gcc-$(RISCV_GCC_VERSION)-linux-x64
+
+RISCV_GCC_DIR   := $(TOOL_CACHE)/riscv-gcc
+RISCV_GCC_BIN   := $(RISCV_GCC_DIR)/bin
+RISCV_GCC_ASSET := $(RISCV_GCC_ASSET_$(shell uname -s)_$(shell uname -m))
+RISCV_GCC_SHA256 := $(RISCV_GCC_SHA256_$(RISCV_GCC_ASSET))
+
+RISCV_GCC_STAMP := $(RISCV_GCC_DIR)/.riscv-gcc-pin
+RISCV_GCC_PIN   := $(RISCV_GCC_VERSION) $(RISCV_GCC_ASSET) $(RISCV_GCC_SHA256)
+RISCV_GCC_CACHE_KEY := riscv-gcc-$(RISCV_GCC_VERSION)-$(RISCV_GCC_ASSET)-$(RISCV_GCC_SHA256)
+
+RISCV_GCC_TARBALL := $(SAIL_DOWNLOAD_DIR)/$(RISCV_GCC_ASSET).tar.gz
+
+.PHONY: riscv-gcc-setup
+riscv-gcc-setup:
+	@set -e; \
+	if [ -z '$(RISCV_GCC_ASSET)' ]; then \
+	  echo "no prebuilt xPack RISC-V gcc for $$(uname -s)/$$(uname -m); this" >&2; \
+	  echo "repo pins macOS arm64 and Linux x86_64 releases only. Add a new" >&2; \
+	  echo "platform's asset name and SHA-256 beside the others in the" >&2; \
+	  echo "Makefile, or build one yourself and point RISCV_GCC at it." >&2; \
+	  exit 1; \
+	fi; \
+	if [ -z '$(RISCV_GCC_SHA256)' ]; then \
+	  echo "no SHA-256 pinned for $(RISCV_GCC_ASSET);" >&2; \
+	  echo "add one beside the others in the Makefile. Fetching an asset this" >&2; \
+	  echo "repo cannot verify is not an option this target offers." >&2; \
+	  exit 1; \
+	fi; \
+	if command -v shasum >/dev/null 2>&1; then sha='shasum -a 256'; \
+	elif command -v sha256sum >/dev/null 2>&1; then sha='sha256sum'; \
+	else \
+	  echo "neither shasum nor sha256sum is on PATH; refusing to unpack a" >&2; \
+	  echo "tarball this machine cannot check." >&2; \
+	  exit 1; \
+	fi; \
+	if [ -x '$(RISCV_GCC_BIN)/riscv-none-elf-gcc' ] && \
+	   [ "$$(sed -n 1p '$(RISCV_GCC_STAMP)' 2>/dev/null)" = '$(RISCV_GCC_PIN)' ]; then \
+	  want=$$(sed -n 2p '$(RISCV_GCC_STAMP)'); \
+	  got=$$($$sha '$(RISCV_GCC_BIN)/riscv-none-elf-gcc' | cut -d ' ' -f 1); \
+	  if [ "$$want" != "$$got" ]; then \
+	    echo "$(RISCV_GCC_BIN)/riscv-none-elf-gcc is not the binary its stamp" >&2; \
+	    echo "was written for:" >&2; \
+	    echo "  recorded : $$want" >&2; \
+	    echo "  on disk  : $$got" >&2; \
+	    echo "the tree changed after it was verified. Start over with:" >&2; \
+	    echo "  rm -rf $(RISCV_GCC_DIR) && make riscv-gcc-setup" >&2; \
+	    exit 1; \
+	  fi; \
+	  echo "riscv-none-elf-gcc $(RISCV_GCC_VERSION) already verified in $(RISCV_GCC_DIR)"; \
+	  exit 0; \
+	fi; \
+	mkdir -p '$(SAIL_DOWNLOAD_DIR)'; \
+	tgz='$(RISCV_GCC_TARBALL)'; \
+	if [ -f "$$tgz" ]; then \
+	  echo "using the tarball already in $(SAIL_DOWNLOAD_DIR)"; \
+	else \
+	  url=https://github.com/xpack-dev-tools/riscv-none-elf-gcc-xpack/releases/download/v$(RISCV_GCC_VERSION)/$(RISCV_GCC_ASSET).tar.gz; \
+	  echo "fetching $$url"; \
+	  curl -fsSL -o "$$tgz".part "$$url"; \
+	  mv "$$tgz".part "$$tgz"; \
+	fi; \
+	got=$$($$sha "$$tgz" | cut -d ' ' -f 1); \
+	if [ "$$got" != '$(RISCV_GCC_SHA256)' ]; then \
+	  echo "riscv-gcc tarball SHA-256 MISMATCH -- refusing to extract:" >&2; \
+	  echo "  asset    : $(RISCV_GCC_ASSET).tar.gz" >&2; \
+	  echo "  expected : $(RISCV_GCC_SHA256)" >&2; \
+	  echo "  actual   : $$got" >&2; \
+	  echo "  tarball  : $$tgz (removed)" >&2; \
+	  rm -f "$$tgz"; \
+	  exit 1; \
+	fi; \
+	echo "sha256 ok: $$got"; \
+	tmp=$$(mktemp -d '$(RISCV_GCC_DIR)'.XXXXXX); \
+	top=xpack-riscv-none-elf-gcc-$(RISCV_GCC_VERSION)/; \
+	tar tzf "$$tgz" | awk -v top="$$top" ' \
+	  index($$0, top) != 1 { print "member outside " top ": " $$0 > "/dev/stderr"; bad = 1 } \
+	  /(^|\/)\.\.(\/|$$)/  { print "traversal in member: " $$0 > "/dev/stderr"; bad = 1 } \
+	  END { exit bad ? 1 : 0 }' \
+	  || { echo "refusing to extract $(RISCV_GCC_ASSET).tar.gz" >&2; rm -rf $$tmp; exit 1; }; \
+	tar xzf "$$tgz" -C $$tmp --strip-components=1 \
+	  --no-same-owner --no-same-permissions; \
+	test -x $$tmp/bin/riscv-none-elf-gcc; \
+	printf '%s\n' '$(RISCV_GCC_PIN)' > $$tmp/.riscv-gcc-pin; \
+	$$sha $$tmp/bin/riscv-none-elf-gcc | cut -d ' ' -f 1 >> $$tmp/.riscv-gcc-pin; \
+	rm -rf '$(RISCV_GCC_DIR)'; \
+	mv $$tmp '$(RISCV_GCC_DIR)'
+	@'$(RISCV_GCC_BIN)/riscv-none-elf-gcc' --version | head -1
+
+.PHONY: riscv-gcc-pin
+riscv-gcc-pin:
+	@printf 'key=%s\n' '$(RISCV_GCC_CACHE_KEY)'
+	@printf 'path=%s\n' '$(SAIL_DOWNLOAD_DIR)'
+	@printf 'tarball=%s\n' '$(RISCV_GCC_TARBALL)'
+
 cosim: test/cosim.cc test/rtl.cc
 	clang++ -O2 -DNDEBUG -std=c++17 -Wall -Wextra -Werror \
 	  -isystem $$(yosys-config --datdir)/include/backends/cxxrtl/runtime $< -o $@
@@ -237,13 +352,10 @@ monitor-check: $(RISCV_FORMAL_DIR)/monitor/generate.py | $(RISCV_FORMAL_DIR)
 	diff -u test/monitor.v "$$tmp"
 
 .PHONY: setup
-setup:
+setup: riscv-gcc-setup
 ifeq ($(shell uname -s),Darwin)
-	brew install riscv64-elf-gcc svlint
+	brew install svlint
 else
-	@echo "On Linux, install the RISC-V cross compiler with:"
-	@echo "  sudo apt-get install gcc-riscv64-unknown-elf"
-	@echo
 	@echo "svlint (the structural lint gate, \`make lint\`) is not packaged by"
 	@echo "apt. Get the pinned release archive with:"
 	@echo "  make lint-setup"
@@ -435,7 +547,12 @@ compare-product-schedule-publish-test:
 
 .PHONY: tool-cache-test
 tool-cache-test:
-	@./test/tool_cache_test.sh '$(SAIL_RISCV_DIR)' '$(SVLINT_DIR)' '$(SAIL_DOWNLOAD_DIR)' '$(NANO_LIBERTY_DIR)'
+	@./test/tool_cache_test.sh '$(SAIL_RISCV_DIR)' '$(SVLINT_DIR)' '$(SAIL_DOWNLOAD_DIR)' \
+	  '$(NANO_LIBERTY_DIR)' '$(RISCV_GCC_DIR)'
+
+.PHONY: riscv-gcc-pin-test
+riscv-gcc-pin-test:
+	@./test/riscv_gcc_pin_test.sh '$(RISCV_GCC_BIN)'
 
 .PHONY: memmap-test
 memmap-test:
@@ -582,7 +699,8 @@ dual-build:
 
 .PHONY: test
 test: sim test-units probe-gates pin-bump-test pin-bump-token-test \
-      compare-product-schedule-token-test compare-product-schedule-publish-test tool-cache-test memmap-test \
+      compare-product-schedule-token-test compare-product-schedule-publish-test tool-cache-test \
+      riscv-gcc-pin-test memmap-test \
       adr-numbering-test compare-geometry-test vexriscv-path-test retired-term-test port-connect-test march-test \
       band-source-test zkt-isolation-test fixture-freshness-test window-test imem-share-test \
       memcheck-depth-test abc-engine-test makefile-target-test mutation-probe dual-build board-elaborate \
@@ -732,9 +850,8 @@ SOC_ROM_HEX   := soc/rom_even.hex soc/rom_odd.hex
 .PHONY: soc-rom
 soc-rom:
 	@set -e; \
-	for candidate in riscv64-elf-gcc riscv64-unknown-elf-gcc; do \
-	  if command -v $$candidate >/dev/null 2>&1; then CC=$$candidate; break; fi; \
-	done; \
+	CC=riscv-none-elf-gcc; \
+	command -v $$CC >/dev/null 2>&1 || CC=""; \
 	if [ -z "$$CC" ]; then \
 	  echo "error: no RISC-V cross compiler found; see \`make setup\`." >&2; exit 1; \
 	fi; \
@@ -1043,9 +1160,8 @@ DHRY_BOARD_EXTRA_DEFINES = -DDHRY_UART=$(DHRY_UART_BASE)
 .PHONY: dhrystone-rom
 dhrystone-rom:
 	@set -e; \
-	for candidate in riscv64-elf-gcc riscv64-unknown-elf-gcc; do \
-	  if command -v $$candidate >/dev/null 2>&1; then CC=$$candidate; break; fi; \
-	done; \
+	CC=riscv-none-elf-gcc; \
+	command -v $$CC >/dev/null 2>&1 || CC=""; \
 	if [ -z "$$CC" ]; then echo "error: no RISC-V cross compiler; see \`make setup\`." >&2; exit 1; fi; \
 	OBJCOPY=$${CC%gcc}objcopy; \
 	tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/dhry-rom.XXXXXX"); \
@@ -1095,9 +1211,8 @@ coremark-pin-check:
 .PHONY: coremark-rom-ecp5
 coremark-rom-ecp5: coremark-pin-check
 	@set -e; \
-	for candidate in riscv64-elf-gcc riscv64-unknown-elf-gcc; do \
-	  if command -v $$candidate >/dev/null 2>&1; then CC=$$candidate; break; fi; \
-	done; \
+	CC=riscv-none-elf-gcc; \
+	command -v $$CC >/dev/null 2>&1 || CC=""; \
 	if [ -z "$$CC" ]; then echo "error: no RISC-V cross compiler; see \`make setup\`." >&2; exit 1; fi; \
 	OBJCOPY=$${CC%gcc}objcopy; \
 	tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/coremark-rom.XXXXXX"); \
@@ -1125,9 +1240,8 @@ coremark-rom-ecp5: coremark-pin-check
 .PHONY: coremark-rom-up5k
 coremark-rom-up5k: coremark-pin-check
 	@set -e; \
-	for candidate in riscv64-elf-gcc riscv64-unknown-elf-gcc; do \
-	  if command -v $$candidate >/dev/null 2>&1; then CC=$$candidate; break; fi; \
-	done; \
+	CC=riscv-none-elf-gcc; \
+	command -v $$CC >/dev/null 2>&1 || CC=""; \
 	if [ -z "$$CC" ]; then echo "error: no RISC-V cross compiler; see \`make setup\`." >&2; exit 1; fi; \
 	OBJCOPY=$${CC%gcc}objcopy; \
 	tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/coremark-rom.XXXXXX"); \
@@ -1284,9 +1398,8 @@ print-toolchain:
 .PHONY: doctor
 doctor:
 	@set -e; \
-	for candidate in riscv64-elf-gcc riscv64-unknown-elf-gcc; do \
-	  if command -v $$candidate >/dev/null 2>&1; then CC=$$candidate; break; fi; \
-	done; \
+	CC=riscv-none-elf-gcc; \
+	command -v $$CC >/dev/null 2>&1 || CC=""; \
 	if [ -z "$$CC" ]; then \
 	  echo "error: no RISC-V cross compiler found; see \`make setup\`." >&2; exit 1; \
 	fi; \
@@ -1418,9 +1531,8 @@ endif
 .PHONY: compare-rom
 compare-rom: compare-geometry-test
 	@set -e; \
-	for candidate in riscv64-elf-gcc riscv64-unknown-elf-gcc; do \
-	  if command -v $$candidate >/dev/null 2>&1; then CC=$$candidate; break; fi; \
-	done; \
+	CC=riscv-none-elf-gcc; \
+	command -v $$CC >/dev/null 2>&1 || CC=""; \
 	if [ -z "$$CC" ]; then \
 	  echo "error: no RISC-V cross compiler found; see \`make setup\`." >&2; exit 1; \
 	fi; \

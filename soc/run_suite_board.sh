@@ -3,12 +3,13 @@
 set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
-export PATH="$HOME/.cache/little-cpu/oss-cad-suite/bin:$PATH"
+RISCV_GCC_CACHE=${XDG_CACHE_HOME:-$HOME/.cache}/little-cpu
+export PATH="$RISCV_GCC_CACHE/riscv-gcc/bin:$RISCV_GCC_CACHE/oss-cad-suite/bin:$PATH"
 
 # How much of the 8192-byte ROM a batch's PROGRAMS may fill.
-DRIVER_BYTES=$(riscv64-elf-gcc -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -nostdlib \
+DRIVER_BYTES=$(riscv-none-elf-gcc -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -nostdlib \
                  -DBOARD_SUITE -I test/asm -c -o /tmp/.drv.$$.o test/board/board_suite.S 2>/dev/null \
-               && riscv64-elf-size /tmp/.drv.$$.o | awk 'NR==2{print $1+$2}')
+               && riscv-none-elf-size /tmp/.drv.$$.o | awk 'NR==2{print $1+$2}')
 rm -f /tmp/.drv.$$.o
 : "${DRIVER_BYTES:=512}"
 BUDGET=${BUDGET:-$(( 8192 - DRIVER_BYTES - 600 ))}
@@ -34,9 +35,9 @@ sizes=""
 for f in test/asm/*.S; do
   b=$(basename "$f")
   case " $SKIP " in *" $b "*) echo "   skip $b (larger than the ROM)"; continue;; esac
-  riscv64-elf-gcc -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -nostdlib -DBOARD_SUITE \
+  riscv-none-elf-gcc -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -nostdlib -DBOARD_SUITE \
     -I test/asm -c -o "$OUT/one.o" "$f" 2>/dev/null || { echo "   skip $b (does not assemble)"; continue; }
-  n=$(riscv64-elf-size "$OUT/one.o" | awk 'NR==2{print $1+$2}')
+  n=$(riscv-none-elf-size "$OUT/one.o" | awk 'NR==2{print $1+$2}')
   sizes="$sizes$n $f"$'\n'
 done
 

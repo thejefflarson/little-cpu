@@ -27,14 +27,11 @@ for name in "${RTL_SRCS[@]}" nano/tb/nano_testbench.v rvfi_macros.vh test/monito
 done
 
 CC=""
-for candidate in riscv64-elf-gcc riscv64-unknown-elf-gcc; do
-  if command -v "$candidate" >/dev/null 2>&1; then
-    CC=$candidate
-    break
-  fi
-done
+if command -v riscv-none-elf-gcc >/dev/null 2>&1; then
+  CC=riscv-none-elf-gcc
+fi
 if [ -z "$CC" ]; then
-  echo "error: no RISC-V cross compiler found (tried riscv64-elf-gcc, riscv64-unknown-elf-gcc)." >&2
+  echo "error: no RISC-V cross compiler found (want riscv-none-elf-gcc)." >&2
   exit 2
 fi
 OBJCOPY=${CC%gcc}objcopy

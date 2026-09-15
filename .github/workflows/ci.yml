@@ -69,17 +69,18 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # ubuntu-latest has no cross compiler, and the self-hosted image bakes one in
-      # because its pods are runAsNonRoot and apt cannot install one there. On the pool
-      # this step's condition is false.
-      - name: Install the RISC-V cross compiler (fork PR routing only)
+      # ubuntu-latest's default image includes clang; this covers the case it doesn't.
+      - name: Install clang (fork PR routing only)
         if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
-        run: sudo apt-get update && sudo apt-get install -y gcc-riscv64-unknown-elf clang
+        run: sudo apt-get update && sudo apt-get install -y clang
 
-      - name: Verify the toolchain is present in the runner image
+      - name: Verify clang++ is present in the runner image
         uses: ./.github/actions/verify-toolchain
         with:
-          tools: riscv64-unknown-elf-gcc clang++
+          tools: clang++
+
+      - name: Set up the pinned RISC-V gcc
+        uses: ./.github/actions/setup-riscv-gcc
 
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
@@ -110,14 +111,18 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install the RISC-V cross compiler (fork PR routing only)
+      # ubuntu-latest's default image includes clang; this covers the case it doesn't.
+      - name: Install clang (fork PR routing only)
         if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
-        run: sudo apt-get update && sudo apt-get install -y gcc-riscv64-unknown-elf clang
+        run: sudo apt-get update && sudo apt-get install -y clang
 
-      - name: Verify the toolchain is present in the runner image
+      - name: Verify clang++ is present in the runner image
         uses: ./.github/actions/verify-toolchain
         with:
-          tools: riscv64-unknown-elf-gcc clang++
+          tools: clang++
+
+      - name: Set up the pinned RISC-V gcc
+        uses: ./.github/actions/setup-riscv-gcc
 
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
@@ -167,14 +172,18 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install the RISC-V cross compiler (fork PR routing only)
+      # ubuntu-latest's default image includes clang; this covers the case it doesn't.
+      - name: Install clang (fork PR routing only)
         if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
-        run: sudo apt-get update && sudo apt-get install -y gcc-riscv64-unknown-elf clang
+        run: sudo apt-get update && sudo apt-get install -y clang
 
-      - name: Verify the toolchain is present in the runner image
+      - name: Verify clang++ is present in the runner image
         uses: ./.github/actions/verify-toolchain
         with:
-          tools: riscv64-unknown-elf-gcc clang++
+          tools: clang++
+
+      - name: Set up the pinned RISC-V gcc
+        uses: ./.github/actions/setup-riscv-gcc
 
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
@@ -391,14 +400,8 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install the RISC-V cross compiler (fork PR routing only)
-        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
-        run: sudo apt-get update && sudo apt-get install -y gcc-riscv64-unknown-elf
-
-      - name: Verify the toolchain is present in the runner image
-        uses: ./.github/actions/verify-toolchain
-        with:
-          tools: riscv64-unknown-elf-gcc
+      - name: Set up the pinned RISC-V gcc
+        uses: ./.github/actions/setup-riscv-gcc
 
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
@@ -448,14 +451,8 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install the RISC-V cross compiler (fork PR routing only)
-        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
-        run: sudo apt-get update && sudo apt-get install -y gcc-riscv64-unknown-elf
-
-      - name: Verify the toolchain is present in the runner image
-        uses: ./.github/actions/verify-toolchain
-        with:
-          tools: riscv64-unknown-elf-gcc
+      - name: Set up the pinned RISC-V gcc
+        uses: ./.github/actions/setup-riscv-gcc
 
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite

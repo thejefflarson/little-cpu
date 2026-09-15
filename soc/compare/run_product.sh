@@ -38,11 +38,9 @@ ECP5_PART=$(make -s print-ECP5_PART)
 ECP5_TARGET_MHZ=$(make -s print-ECP5_TARGET_MHZ)
 
 CC=""
-for candidate in riscv64-elf-gcc riscv64-unknown-elf-gcc; do
-  if command -v "$candidate" >/dev/null 2>&1; then CC=$candidate; break; fi
-done
+if command -v riscv-none-elf-gcc >/dev/null 2>&1; then CC=riscv-none-elf-gcc; fi
 if [ -z "$CC" ]; then
-  echo "*** run_product.sh: no RISC-V cross compiler found; see \`make setup\`." >&2
+  echo "*** run_product.sh: no RISC-V cross compiler found; see \`make riscv-gcc-setup\`." >&2
   exit 1
 fi
 
