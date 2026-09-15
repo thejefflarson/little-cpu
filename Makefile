@@ -589,7 +589,7 @@ test: sim test-units probe-gates pin-bump-test pin-bump-token-test \
       tracked-ignored-test mutation-coverage-test comment-density-test lut4-site-test \
       pll-clock-test ill-e-wiring-test probes-header-test dhry-board-parity-test nano-test \
       nano-exec-test nano-startup-test macro-register-test nano-littlecpu-test \
-      nano-tt-area-workflow-test
+      nano-tt-area-workflow-test nano-qspi-loop-test
 	@./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 .PHONY: cycles

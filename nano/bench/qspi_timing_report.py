@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
 """Turns one nano-qspi-sim --bench run's log into a row of the QSPI timing table.
 
-Reads the same `BENCH marks=<n> cycles=<n> verdict=<n> writes=<n>` line
-bench_report.py reads, plus the `BUCKETS execute=<n> parcel_wait=<n>
-redirect_preamble=<n> psram_wait=<n>` line nano_cxxrtl.cc prints only when built
-against nano_qspi_memory.v. Both must be present, both markers must have landed, and
-the benchmark's own self-check (verdict) must be 1 -- this is the same validity bar
-bench_report.py holds a plain zero-wait run to.
+Reads `BENCH ...`, `MODEL ...` and `BUCKETS ...` (execute/parcel_wait/redirect_preamble/
+loop_hit/handshake/psram_wait/window_cycles) lines nano_cxxrtl.cc prints only when built
+against nano_qspi_memory.v. All three must be present, both markers must have landed, and
+the benchmark's own self-check (verdict) must be 1.
 """
 
 import argparse
@@ -17,12 +15,19 @@ BENCH = re.compile(
     r"^BENCH marks=(?P<marks>\d+) cycles=(?P<cycles>\d+) "
     r"verdict=(?P<verdict>\d+) writes=(?P<writes>\d+)"
 )
+MODEL = re.compile(
+    r"^MODEL depth=(?P<depth>\d+) loop_kind=(?P<loop_kind>\d+) loop_window=(?P<loop_window>\d+) "
+    r"preamble=(?P<preamble>\d+) parcel=(?P<parcel>\d+) psram_load=(?P<psram_load>\d+) "
+    r"psram_store=(?P<psram_store>\d+)"
+)
 BUCKETS = re.compile(
     r"^BUCKETS execute=(?P<execute>\d+) parcel_wait=(?P<parcel_wait>\d+) "
-    r"redirect_preamble=(?P<redirect_preamble>\d+) psram_wait=(?P<psram_wait>\d+) "
-    r"total_cycles=(?P<total_cycles>\d+)"
+    r"redirect_preamble=(?P<redirect_preamble>\d+) loop_hit=(?P<loop_hit>\d+) "
+    r"handshake=(?P<handshake>\d+) psram_wait=(?P<psram_wait>\d+) "
+    r"window_cycles=(?P<window_cycles>\d+)"
 )
 VAX_DHRYSTONES_PER_SEC = 1757.0
+BUCKET_KEYS = ("execute", "parcel_wait", "redirect_preamble", "loop_hit", "handshake", "psram_wait")
 
 
 def parse(path):
@@ -31,24 +36,24 @@ def parse(path):
             text = handle.read()
     except OSError as exc:
         sys.exit(f"cannot read the simulation log: {exc}")
-    bench = buckets = None
+    bench = model = buckets = None
     for line in text.splitlines():
-        if bench is None:
-            m = BENCH.match(line.strip())
-            if m:
-                bench = {k: int(v) for k, v in m.groupdict().items()}
-        if buckets is None:
-            m = BUCKETS.match(line.strip())
-            if m:
-                buckets = {k: int(v) for k, v in m.groupdict().items()}
+        if bench is None and (m := BENCH.match(line.strip())):
+            bench = {k: int(v) for k, v in m.groupdict().items()}
+        if model is None and (m := MODEL.match(line.strip())):
+            model = {k: int(v) for k, v in m.groupdict().items()}
+        if buckets is None and (m := BUCKETS.match(line.strip())):
+            buckets = {k: int(v) for k, v in m.groupdict().items()}
     if bench is None:
         sys.exit(f"no BENCH line in {path}: a run that did not happen, not a run with no result.")
+    if model is None:
+        sys.exit(f"no MODEL line in {path}: this binary did not print its own configuration.")
     if buckets is None:
         sys.exit(
             f"no BUCKETS line in {path}: this log was not produced by a build against "
             "nano_qspi_memory.v (NANO_QSPI_TIMING)."
         )
-    return bench, buckets
+    return bench, model, buckets
 
 
 def main():
@@ -65,7 +70,7 @@ def main():
     if args.runs <= 0:
         sys.exit(f"--runs is {args.runs}; nothing was measured.")
 
-    bench, buckets = parse(args.log)
+    bench, model, buckets = parse(args.log)
     if bench["marks"] != 2:
         sys.exit(f"nano published {bench['marks']} marker(s), not 2 -- the run did not reach both ends.")
     if bench["cycles"] <= 0:
@@ -76,25 +81,27 @@ def main():
             "run's cycle count is not a correct one."
         )
 
-    total_cycles = buckets.pop("total_cycles")
-    bucket_total = sum(buckets.values())
-    if bucket_total != total_cycles:
+    window_cycles = buckets["window_cycles"]
+    bucket_total = sum(buckets[k] for k in BUCKET_KEYS)
+    if bucket_total != window_cycles:
         sys.exit(
             f"QSPI TIMING ACCOUNTING MISMATCH: buckets sum to {bucket_total} against "
-            f"{total_cycles} simulated cycles."
+            f"{window_cycles} windowed cycles."
+        )
+    if window_cycles != bench["cycles"]:
+        sys.exit(
+            f"QSPI TIMING WINDOW MISMATCH: the bucket window covered {window_cycles} "
+            f"cycles against BENCH's own {bench['cycles']} -- they should be the same region."
         )
 
     cycles = bench["cycles"]
     per_unit = cycles / args.runs
-    pct = {k: 100.0 * v / bucket_total for k, v in buckets.items()}
+    pct = {k: 100.0 * buckets[k] / window_cycles for k in BUCKET_KEYS}
     row = {
         "config": args.config,
+        "model": model,
         "cycles": cycles,
         "per_unit": per_unit,
-        "pct_execute": pct["execute"],
-        "pct_parcel_wait": pct["parcel_wait"],
-        "pct_redirect_preamble": pct["redirect_preamble"],
-        "pct_psram_wait": pct["psram_wait"],
     }
     if args.kind == "dhrystone":
         per_mhz = (args.runs * 1e6 / cycles) / VAX_DHRYSTONES_PER_SEC
@@ -113,8 +120,7 @@ def main():
         f"{row['config']}\t{args.kind}\t"
         f"{cycles}\t{per_unit:.1f}\t{row['metric_name']}={row['metric']:.4f}\t"
         f"{row['absolute_name']}={row['absolute']:.2f}\t"
-        f"execute={pct['execute']:.2f}%\tparcel_wait={pct['parcel_wait']:.2f}%\t"
-        f"redirect_preamble={pct['redirect_preamble']:.2f}%\tpsram_wait={pct['psram_wait']:.2f}%"
+        + "\t".join(f"{k}={pct[k]:.2f}%" for k in BUCKET_KEYS)
     )
     return 0
 

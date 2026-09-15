@@ -215,7 +215,7 @@ int main(int argc, char **argv) {
   if (!trap_pc || !trap_instr)
     return 3;
 
-  // Present only when built with NANO_QSPI_TIMING; every cycle goes to exactly one bucket.
+  // Present only when built with NANO_QSPI_TIMING: six positive, independent reasons.
   const cxxrtl::debug_item *qspi_mem_valid =
       items.count("mem_valid") ? &items.at("mem_valid").at(0) : nullptr;
   const cxxrtl::debug_item *qspi_parcel =
@@ -223,10 +223,26 @@ int main(int argc, char **argv) {
   const cxxrtl::debug_item *qspi_preamble =
       items.count("reason_redirect_preamble") ? &items.at("reason_redirect_preamble").at(0)
                                                : nullptr;
+  const cxxrtl::debug_item *qspi_loophit =
+      items.count("reason_loop_hit") ? &items.at("reason_loop_hit").at(0) : nullptr;
+  const cxxrtl::debug_item *qspi_handshake =
+      items.count("reason_handshake") ? &items.at("reason_handshake").at(0) : nullptr;
   const cxxrtl::debug_item *qspi_psram =
       items.count("reason_psram_wait") ? &items.at("reason_psram_wait").at(0) : nullptr;
-  const bool qspi_timing = qspi_mem_valid && qspi_parcel && qspi_preamble && qspi_psram;
-  uint64_t bucket_execute = 0, bucket_parcel = 0, bucket_preamble = 0, bucket_psram = 0;
+  const bool qspi_timing = qspi_mem_valid && qspi_parcel && qspi_preamble && qspi_loophit &&
+                            qspi_handshake && qspi_psram;
+  uint64_t bucket_execute = 0, bucket_parcel = 0, bucket_preamble = 0, bucket_loophit = 0,
+           bucket_handshake = 0, bucket_psram = 0, bucket_window_cycles = 0;
+  auto print_model = [&]() {
+    auto rd = [&](const char *n) -> uint32_t {
+      return items.count(n) ? items.at(n).at(0).curr[0] : 0xffffffffu;
+    };
+    std::printf("MODEL depth=%u loop_kind=%u loop_window=%u preamble=%u parcel=%u "
+                "psram_load=%u psram_store=%u\n",
+                rd("model_prefetch_depth"), rd("model_loop_kind"), rd("model_loop_window"),
+                rd("model_preamble_cycles"), rd("model_parcel_cycles"),
+                rd("model_psram_load_cycles"), rd("model_psram_store_cycles"));
+  };
   CauseSignals cause_signals;
   for (const char *name :
        {"uut is_valid", "uut is_e_illegal", "uut is_ecall", "uut is_ebreak", "uut is_jal",
@@ -243,25 +259,29 @@ int main(int argc, char **argv) {
   };
 
   auto finish = [&](int code, long total_cycles) {
+    (void)total_cycles;
     std::printf("RETIRES %u\n", retires->curr[0]);
     if (args.bench)
       print_bench();
     if (qspi_timing) {
-      std::printf("BUCKETS execute=%llu parcel_wait=%llu redirect_preamble=%llu psram_wait=%llu "
-                   "total_cycles=%ld\n",
+      print_model();
+      std::printf("BUCKETS execute=%llu parcel_wait=%llu redirect_preamble=%llu loop_hit=%llu "
+                   "handshake=%llu psram_wait=%llu window_cycles=%llu\n",
                    (unsigned long long)bucket_execute, (unsigned long long)bucket_parcel,
-                   (unsigned long long)bucket_preamble, (unsigned long long)bucket_psram,
-                   total_cycles);
-      uint64_t sum = bucket_execute + bucket_parcel + bucket_preamble + bucket_psram;
-      if (sum != (uint64_t)total_cycles) {
+                   (unsigned long long)bucket_preamble, (unsigned long long)bucket_loophit,
+                   (unsigned long long)bucket_handshake, (unsigned long long)bucket_psram,
+                   (unsigned long long)bucket_window_cycles);
+      uint64_t sum = bucket_execute + bucket_parcel + bucket_preamble + bucket_loophit +
+                     bucket_handshake + bucket_psram;
+      if (sum != bucket_window_cycles) {
         std::fprintf(stderr,
                       "QSPI TIMING ACCOUNTING MISMATCH: %llu bucketed cycles against "
-                      "%ld simulated -- some cycle was left unexplained.\n",
-                      (unsigned long long)sum, total_cycles);
+                      "%llu windowed -- some cycle was left unexplained.\n",
+                      (unsigned long long)sum, (unsigned long long)bucket_window_cycles);
         return 7;
       }
     }
-    if (retires->curr[0] == 0) {
+    if (code != 7 && retires->curr[0] == 0) {
       std::fprintf(stderr,
                     "the RVFI monitor observed nothing this run: 0 retires. The "
                     "per-retire oracle was blind, so this run's verdict (exit "
@@ -309,20 +329,35 @@ int main(int argc, char **argv) {
       // .curr is read -- the same step cxxrtl_vcd's own sampler takes for such items.
       if (qspi_parcel->outline) qspi_parcel->outline->eval();
       if (qspi_preamble->outline) qspi_preamble->outline->eval();
+      if (qspi_loophit->outline) qspi_loophit->outline->eval();
+      if (qspi_handshake->outline) qspi_handshake->outline->eval();
       if (qspi_psram->outline) qspi_psram->outline->eval();
-      if (!qspi_mem_valid->curr[0])
-        ++bucket_execute;
-      else if (qspi_preamble->curr[0])
-        ++bucket_preamble;
-      else if (qspi_psram->curr[0])
-        ++bucket_psram;
-      else if (qspi_parcel->curr[0])
-        ++bucket_parcel;
-      else
+      bool r_execute = !qspi_mem_valid->curr[0];
+      bool r_parcel = qspi_parcel->curr[0];
+      bool r_preamble = qspi_preamble->curr[0];
+      bool r_loophit = qspi_loophit->curr[0];
+      bool r_handshake = qspi_handshake->curr[0];
+      bool r_psram = qspi_psram->curr[0];
+      int reasons = (int)r_execute + r_parcel + r_preamble + r_loophit + r_handshake + r_psram;
+      if (reasons != 1) {
         std::fprintf(stderr,
-                      "QSPI TIMING: cycle %ld has mem_valid set with no reason bit -- "
-                      "left unexplained\n",
-                      cycle);
+                      "QSPI TIMING: cycle %ld has %d reasons (execute=%d parcel=%d "
+                      "preamble=%d loop_hit=%d handshake=%d psram=%d), not exactly one\n",
+                      cycle, reasons, r_execute, r_parcel, r_preamble, r_loophit, r_handshake,
+                      r_psram);
+        return finish(7, cycle + 1);
+      }
+      // Only cycles inside the benchmark's own measured region count toward the
+      // reported buckets; a plain .S run has no marker region, so everything counts.
+      if (!args.bench || bench_marks.curr[0] == 1) {
+        ++bucket_window_cycles;
+        if (r_execute) ++bucket_execute;
+        if (r_parcel) ++bucket_parcel;
+        if (r_preamble) ++bucket_preamble;
+        if (r_loophit) ++bucket_loophit;
+        if (r_handshake) ++bucket_handshake;
+        if (r_psram) ++bucket_psram;
+      }
     }
 
     uint32_t errcode = monitor_errcode->curr[0] & 0xffff;

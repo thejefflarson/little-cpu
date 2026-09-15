@@ -690,8 +690,8 @@ make test           # the test/asm suite (.S and .c) under cxxrtl + unit benches
                     # pll-clock, probes-header, dhry-board-parity, macro-register,
                     # compare-product-schedule-publish)
                     # + window-test, imem-share-test, board-elaborate, mutation-probe,
-                    # dual-build, nano-test, nano-startup-test and nano-littlecpu-test;
-                    # graded against EXPECTED_FAIL / OBSERVED_FLOOR
+                    # dual-build, nano-test, nano-startup-test, nano-littlecpu-test and
+                    # nano-qspi-loop-test; graded against EXPECTED_FAIL / OBSERVED_FLOOR
 make test-units     # the unit benches alone; the list is checked against test/*_tb.v both ways
 make elaborate-strict # yosys elaborates every simulation source through `check`; the
                     # required `elaborate` CI job
@@ -841,8 +841,13 @@ make nano-qspi-sim  # nano-sim built against nano/tb/nano_qspi_memory.v instead 
                     # one parameter set from another
 make nano-qspi-timing # sweeps that model's configurations against Dhrystone and CoreMark,
                     # reporting cycles, DMIPS/MHz or CoreMark/MHz at an assumed 64 MHz,
-                    # and the {execute, parcel wait, redirect preamble, PSRAM wait} bucket
-                    # split. Reporting only, no ratchet, like `make cycles`. Not on
+                    # and the {execute, parcel wait, redirect preamble, loop hit, handshake,
+                    # PSRAM wait} bucket split. Reporting only, no ratchet, like `make cycles`.
+                    # Not on `make test`'s path
+make nano-qspi-loop-test # the loop buffer's two invariants, each able to fail: a branch-free
+                    # program costs the same cycles with the loop buffer on or off, and a
+                    # loop resident in it pays no marginal preamble/wait per iteration once
+                    # warm. nano-qspi-loop-probe is its forced-red prerequisite. On
                     # `make test`'s path
 ```
 
