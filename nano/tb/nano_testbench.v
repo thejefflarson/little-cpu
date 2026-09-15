@@ -76,6 +76,7 @@ module nano_testbench(
   (* keep *) logic reason_loop_hit;
   (* keep *) logic reason_handshake;
   (* keep *) logic reason_psram_wait;
+  (* keep *) logic stream_fault;
   // Echoes this build's own parameters so nano_cxxrtl.cc can print a MODEL line from the
   // binary itself, rather than trusting the script that invoked its build.
   (* keep *) int unsigned model_prefetch_depth;
@@ -114,7 +115,8 @@ module nano_testbench(
     .reason_redirect_preamble(reason_redirect_preamble),
     .reason_loop_hit(reason_loop_hit),
     .reason_handshake(reason_handshake),
-    .reason_psram_wait(reason_psram_wait)
+    .reason_psram_wait(reason_psram_wait),
+    .stream_fault(stream_fault)
   );
 `else
   nano_memory #(.WORDS(MEM_WORDS), .WAIT_STATES(`NANO_WAIT_STATES)) mem (

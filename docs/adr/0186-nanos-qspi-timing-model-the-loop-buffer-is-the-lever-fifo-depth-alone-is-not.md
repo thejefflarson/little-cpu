@@ -11,13 +11,13 @@ fetch latency puts nano at roughly 2 MIPS, and names a loop buffer as "the only 
 changes the answer" but defers it for area. This ticket measures that, without touching
 `nano.v`.
 
-**This ADR supersedes its own first draft.** A security review of that draft's model found two
-real correctness bugs in the loop buffer — one that undercounted a hit's cost by a cycle, one
-that could deadlock a run outright — and a red-team read of the first draft's own conclusion
-showed its headline gain was largely an artifact of those bugs, not of the loop buffer itself.
-Both are fixed here, the model now carries two tests built specifically to catch them again, and
-the table and conclusions below are re-measured on the fixed model. Where a claim below differs
-from the original draft, it is the corrected one.
+**This ADR supersedes its own two earlier drafts.** A security review of the first draft found
+two correctness bugs in the loop buffer, and a red-team read showed its headline gain was largely
+an artifact of them. A review of the second draft found a third bug that both drafts shared: a
+loop-buffer hit moved the flash queue's head (defined below). That third bug is what hung
+CoreMark at 16-parcel windows, and it also moved the 8-parcel rows the second draft published —
+the tagged block by 4.2% of Dhrystone's cycles. All three are fixed, each has a test that is
+forced red, and every number below is re-measured on the fixed model.
 
 ## The model
 
@@ -51,8 +51,9 @@ overlap. A fetch whose parcels have already streamed in pays nothing beyond the 
 one-cycle bus turnaround.
 
 **PSRAM (data) side.** A load and a store are priced separately, matching TinyQV's own PSRAM
-commands rather than one shared number: a load costs `PSRAM_LOAD_CYCLES` (44, Fast Read `0Bh`
-with its 4-cycle dummy phase), a store `PSRAM_STORE_CYCLES` (33, `02h`, no dummy phase). Either
+commands rather than one shared number: a load holds the bus `PSRAM_LOAD_CYCLES` (44, Fast Read
+`0Bh` with its 4-cycle dummy phase) clocks beyond the one-cycle handshake every access pays, a
+store `PSRAM_STORE_CYCLES` (33, `02h`, no dummy phase). Either
 one drops the flash's chip select, modelled as closing the stream immediately. The flash's
 re-open preamble for the next fetch starts the moment the PSRAM transaction *completes* — not
 when that next fetch actually issues — because the flash's chip select is already free by then
@@ -66,24 +67,39 @@ this model measures two shapes of that idea rather than assuming one:
   of two) with a single base tag and one valid bit per slot, matching the brief's "one shared
   tag for the whole window" reading. A miss — same block or a different one — always re-tags and
   restarts the block at the missed target; there is no attempt to resume a partial fill from
-  wherever the flash's background stream happened to be (the first draft tried that and it could
-  deadlock — see below).
+  wherever the flash's background stream happened to be (the first draft tried that; see below).
 - **`LOOP_KIND=2`, last-N-parcels CAM**: a fully-associative record of the last `LOOP_WINDOW`
   parcels the core was actually delivered, in delivery order, with no alignment requirement.
   This is the architect's "last N parcels fetched" reading of the same area budget, priced
   identically per parcel.
 
-Both are checked on **every** fetch that is not already being sequentially streamed to — a
-redirect never skips the loop-buffer lookup just because the fetch that triggered it wasn't
-itself a hit — and both answer in the cycle the hit is recognized: an on-chip SRAM or CAM read,
-modelled the same way a parcel that has already streamed in also resolves same-cycle, not the
-FIFO's own "already aimed, wait for delivery" path (a bug in the first draft charged a hit an
-extra cycle by gating it on the same signal a streaming delivery uses; see below). A hit is
-charged to the loop-hit bucket, distinct from the FIFO's "pays nothing," representing the
-tag-compare/mux latency the brief's area estimate implies but the FIFO alone does not pay. On a
-redirect that misses the loop buffer, the flash's background stream also retargets toward the
-new address, non-blockingly, so a later fetch outside the window sees an accurate account of
-whatever that resync has or has not finished.
+Both are checked on **every** fetch, sequential ones included, and both answer in the cycle the
+hit is recognized: an on-chip SRAM or CAM read, modelled the way an already-streamed parcel also
+resolves same-cycle. A hit is charged to its own loop-hit bucket. A fetch that misses the loop
+buffer and is not where the flash is aimed is a redirect, and the flash re-aims at it.
+
+**The flash queue's head is tracked apart from the core's position.** `fifo_head` is the next
+parcel the flash's queue will hand the core; `expect_index` is the core's own next sequential
+parcel, which every delivery moves. A fetch the loop buffer does not serve is taken from the
+flash only at `fifo_head`, and only once the flash has streamed its parcels in the current run,
+which starts at the redirect target (`preamble_target`); `fifo_head` never falls below it. A hit
+moves the core, not the queue: `fifo_head` advances only when the delivered instruction starts at
+it. So the parcels a loop's exit falls through to, streamed before the loop began to hit, are
+still queued when it exits. A hit at `fifo_head` before the flash has reached that parcel moves
+the head past the stream, which streams the parcel anyway and drops it, because the flash cannot
+skip ahead without a new address phase.
+
+**Every transaction ends in bounded time.** A hit answers at once. A redirect's preamble counts
+down unconditionally and the flash then streams from `fifo_head`. A fetch waiting at `fifo_head`
+waits on a stream that keeps going while its lead over `fifo_head` (`produce_lead`, signed) is
+below `PREFETCH_DEPTH`, which holds until the fetch's last parcel arrives. That is why
+`PREFETCH_DEPTH` must be 0 or at least 2: at 1, a 32-bit instruction's second parcel could never
+be queued, and the model refuses that value at elaboration. A PSRAM access counts down
+unconditionally.
+
+**One simplification is pessimistic.** A 32-bit instruction that straddles the tagged block's
+edge is never a hit, and it is fetched whole through a redirect even when its first parcel is in
+the block — about 8 clocks more than a controller that fetched only the missing parcel.
 
 **Two assumptions about a front end that does not exist yet**, as the ticket asked to have
 named: (1) a real controller can examine the arriving low parcel's two low bits to decide
@@ -97,9 +113,7 @@ never gating the FIFO's own state machine — the alternative (loop buffer and F
 state machine, serializing the resync behind whatever the FIFO was doing) is not modelled and
 would only ever look worse than what is measured here.
 
-## Two design bugs the model exposed, unrelated to `nano.v`
-
-Deriving and then re-checking the model surfaced two genuine bugs in it, not in `nano.v`.
+## Three bugs in the model, none in `nano.v`
 
 **A loop-buffer hit answered a cycle late.** `mem_ready`'s loop-hit arm read
 `loop_hit_now ? xfer_active : ...`, and `xfer_active` is only true starting a transaction's
@@ -108,30 +122,42 @@ FIFO's own advantage over the loop buffer on the very numbers meant to show the 
 gain. Fixed to `loop_hit_now ? 1'b1 : ...`: a hit is an on-chip lookup and answers the cycle it
 is recognized, same as an already-arrived streaming parcel.
 
-**A same-block miss's resume logic could deadlock.** The first draft, on a `LOOP_KIND=1` miss
-inside the block already tagged, tried to resume the flash's background production from wherever
-it had reached rather than restarting the block — an optimization meant to avoid re-fetching
-parcels the block already had. Under a large sweep at `LOOP_WINDOW=16` this hung an entire
-Dhrystone run: `parcel_wait` consumed nearly the whole windowed cycle count
-(3,758,938 of 3,766,316) with the flash's background stream evidently chasing a target it could
-never actually satisfy in bounded time under some sequence of straddling redirects. Rather than
-formally re-deriving the resume logic's correctness under time pressure, it was removed outright:
-every miss, same-block or not, now re-tags and restarts the block at the missed target, the
-already-reliable behavior the cross-block case already used. This is not only a safety fix —
-`fifo2-tagged8`'s own CoreMark figure *improved* after removing it (0.1210 against the buggy
-code's 0.1165), so the resume optimization was a net loss even where it did not hang outright.
+**A same-block miss resumed a partial fill.** The first draft, on a `LOOP_KIND=1` miss inside
+the block already tagged, resumed the flash from wherever it had reached rather than restarting
+the block. It was blamed for a Dhrystone hang at `LOOP_WINDOW=16` in which `parcel_wait` took
+3,758,938 of 3,766,316 windowed cycles. That signature is also the third bug's, and the first
+draft's code is not re-run here, so which of the two hung that run is not established. The
+resume logic stays removed: every miss re-tags and restarts the block, the simpler rule.
 
-**Both bugs point the same direction: the first draft's loop-buffer gain was overstated by
-mechanisms that had nothing to do with the loop buffer working.** The architect's own read of
-that draft noted that its measured "loop buffer" gain was reproducible with the FIFO alone once
-the two bugs were accounted for — the loop buffer was doing less work than the numbers implied.
-The corrected model's gain (below) is smaller than the first draft's and is now backed by two
-tests built to fail if either bug's shape returns.
+**A loop-buffer hit moved the flash queue's head.** Both earlier drafts used one register,
+`expect_index`, for two things: the core's next sequential parcel, which every delivery moves,
+and the head of the flash's queue, which only the flash's own stream should move. A hit moved it
+without moving the stream, and that went wrong three ways:
 
-## The loop buffer's two invariants are now graded, not just measured
+- **Backward, a phantom fetch.** After a hit to an earlier parcel, a later fetch the buffer did
+  not hold matched `expect_index`, and the stream's last-arrived parcel already lay beyond it, so
+  the model served parcels the flash had never streamed in its current run. The second draft's
+  8-parcel tagged block did this on 2,579 Dhrystone fetches and 10,158 CoreMark fetches.
+- **Forward, a deadlock.** After a hit to a parcel beyond the stream, the stream's room test — an
+  unsigned difference — wrapped, the stream stopped for good, and the next fetch the buffer did
+  not hold waited forever. This is the 16-parcel CoreMark hang. Both shapes stop in the same
+  state: the fetch is aimed, the stream is behind it, and the stream cannot advance — the CAM at
+  parcel 1,372 against a next-to-stream parcel of 1,369, the tagged block at 912 against 907. It
+  is not specific to 16 parcels; a larger buffer only makes a hit past the stream likelier.
+- **A clobber.** The preamble's completion rewrote `expect_index` to where the flash had been
+  aimed, undoing any hits taken during the resync, so the next fetch looked unaimed and paid a
+  redirect it did not owe: 7,697 times in the 8-parcel tagged block's Dhrystone run.
 
-`make nano-qspi-loop-test` (`nano/bench/run_qspi_loop_buffer_test.sh`) checks two properties, each
-built to be able to fail:
+The phantom and the clobber push in opposite directions. Fixing all three moves the 8-parcel
+tagged block from 17,010.5 to 16,290.5 Dhrystone cycles per run (−4.2%) and from 8,265,043.8 to
+8,208,735.2 CoreMark cycles per iteration (−0.7%); the 8-parcel CAM moves +0.006% and +0.022%.
+The three configurations without a loop buffer are cycle-identical before and after, because
+there every delivery comes from the stream and the two registers never disagree.
+
+## The loop buffer's three invariants are graded, not just measured
+
+`make nano-qspi-loop-test` (`nano/bench/run_qspi_loop_buffer_test.sh`) checks three properties,
+each built to be able to fail:
 
 1. **A branch-free program costs identical cycles with the loop buffer off, tagged-block, or
    CAM.** `qspi_loop_micro.S`'s `KIND=0` body is 80 straight-line `addi`s; nothing in it ever
@@ -143,14 +169,30 @@ built to be able to fail:
    marginal 200 iterations must add zero `redirect_preamble`/`parcel_wait` cycles, a positive
    number of `loop_hit`s, and no more than 11 cycles/iteration of total window time (the measured
    figure is 10; 11 gives slack while still catching a hit that costs one cycle too many).
+3. **Every fetch the loop buffer does not serve comes from parcels its flash run streamed.**
+   `nano_qspi_memory.v` publishes `stream_fault`, computed from the run's first parcel and its
+   last-arrived parcel rather than from the aim logic, and every `nano-qspi-sim` exits 7 on the
+   first cycle it is set — on these micro-programs and on every benchmark run of the sweep below.
+   `qspi_loop_micro.S`'s `KIND=2` body is a loop with a load whose 32-bit `addi` straddles the
+   16-byte block's end; it must run to PASS at both `REPS` in both shapes.
 
 `nano/bench/run_qspi_loop_buffer_probe.sh` is the forced-red prerequisite
-(`nano-qspi-loop-probe`, mirroring `nano_exec_probe.sh`'s pattern): it builds two mutated scratch
-copies of `nano_qspi_memory.v` directly via yosys/clang++, bypassing `make` so the probe never
-touches the checked-out tree, and requires each to fail for its own stated reason — reintroducing
-the `xfer_active`-gated hit must fail invariant 2's cycle bound, and disabling the CAM's lookup
-(`if (1'b0) cam_has0 = 1'b1;`) must fail invariant 2's "no marginal preamble/wait" check. Both
-tests and both probe mutations are on `make test`'s path.
+(`nano-qspi-loop-probe`, mirroring `nano_exec_probe.sh`'s pattern): it builds four mutated
+scratch copies of `nano_qspi_memory.v` directly via yosys/clang++, bypassing `make` so the probe
+never touches the checked-out tree, and requires each to fail for its own stated reason.
+Reintroducing the `xfer_active`-gated hit must fail invariant 2's cycle bound. Disabling the
+CAM's lookup must fail invariant 2's "no marginal preamble/wait" check. Letting the queue head
+follow every hit — the phantom shape of the third bug — must trip invariant 3's exit 7 on the
+tagged block's straddling loop. An unsigned `produce_lead` — the deadlock shape — must time out
+on the CAM's. All three tests and all four mutations are on `make test`'s path.
+
+**Two costs re-derived by hand**, as marginal cycles per iteration between 200 and 400
+iterations. A two-instruction loop resident in either shape costs 10: 8 execute cycles plus two
+one-cycle hits, exactly its zero-wait cost. The straddling loop is resident in the 8-parcel CAM
+and costs 75 there: its zero-wait 31 plus 44 for the load, with no preamble or parcel wait. In
+the 8-parcel tagged block it costs 152.5, against 157 with FIFO 2 alone, because the block
+alternates between re-tagging at the straddler and missing at the loop top — 1.5 hits per
+iteration, as measured.
 
 ## The accounting identity is graded, not just printed
 
@@ -178,22 +220,16 @@ DMIPS/MHz; 9,242,400 cycles / 1,848,480.0 cycles/iteration / 0.541 CoreMark/MHz 
 `nano-sim` build path is untouched, and the sweep script now exits nonzero if that control ever
 drifts from these figures rather than only reporting them.
 
-**16-parcel windows are excluded from this sweep.** Both loop-buffer kinds at `LOOP_WINDOW=16`
-show a real, unexplained CoreMark pathology — `fifo2-tagged16` times out at 15,000,000 cycles
-without reaching CoreMark's first marker, and `fifo2-cam16`, re-checked in isolation, times out
-the same way with `parcel_wait` consuming 13,637,776 of 14,555,105 windowed cycles. This
-reproduced on a clean, uncontended run, so it is not a diagnostic-process artifact. It was not
-root-caused under this ticket's time budget; see "Open question" below rather than reading its
-absence from the table as "16 parcels measured worse."
-
 | Configuration | Dhry cycles/run | DMIPS/MHz | DMIPS@64MHz | CoreMark cycles/iter | CoreMark/MHz | CoreMark@64MHz | execute% | parcel wait% | redirect preamble% | loop hit% | handshake% | PSRAM wait% |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | no-overlap (depth 0) | 21,089.7 | 0.0270 | 1.73 | 10,678,943.6 | 0.0936 | 5.99 | 8.84 / 13.84 | 24.72 / 30.60 | 27.35 / 22.69 | 0.00 / 0.00 | 2.23 / 2.76 | 36.85 / 30.10 |
 | FIFO depth 2 | 20,300.5 | 0.0280 | 1.79 | 9,917,092.4 | 0.1008 | 6.45 | 9.18 / 14.91 | 21.80 / 25.27 | 28.41 / 24.44 | 0.00 / 0.00 | 2.32 / 2.97 | 38.28 / 32.42 |
 | FIFO depth 4 | 20,261.5 | 0.0281 | 1.80 | 9,784,145.2 | 0.1022 | 6.54 | 9.20 / 15.11 | 21.65 / 24.25 | 28.47 / 24.77 | 0.00 / 0.00 | 2.33 / 3.01 | 38.36 / 32.86 |
-| FIFO 2 + tagged-block loop 8 | 17,010.5 | 0.0335 | 2.14 | 8,265,043.8 | 0.1210 | 7.74 | 10.96 / 17.89 | 16.78 / 22.42 | 23.80 / 17.24 | 0.95 / 0.85 | 1.82 / 2.72 | 45.69 / 38.90 |
-| FIFO 2 + CAM loop 8 | 16,939.5 | 0.0336 | 2.15 | 8,528,141.4 | 0.1173 | 7.50 | 11.01 / 17.33 | 17.65 / 23.20 | 22.68 / 18.31 | 0.89 / 0.69 | 1.90 / 2.76 | 45.88 / 37.70 |
-| FIFO 2 + CAM loop 8 + QPI (20-cycle preamble) | 16,219.3 | 0.0351 | 2.25 | 8,238,715.0 | 0.1214 | 7.77 | 11.49 / 17.94 | 18.43 / 24.02 | 19.25 / 15.44 | 0.92 / 0.72 | 1.98 / 2.86 | 47.92 / 39.02 |
+| FIFO 2 + tagged-block loop 8 | 16,290.5 | 0.0349 | 2.24 | 8,208,735.2 | 0.1218 | 7.80 | 11.44 / 18.01 | 16.36 / 22.73 | 21.59 / 16.51 | 1.21 / 0.88 | 1.68 / 2.71 | 47.71 / 39.16 |
+| FIFO 2 + CAM loop 8 | 16,940.5 | 0.0336 | 2.15 | 8,530,037.4 | 0.1172 | 7.50 | 11.01 / 17.33 | 17.70 / 23.27 | 22.63 / 18.26 | 0.89 / 0.69 | 1.90 / 2.76 | 45.88 / 37.69 |
+| FIFO 2 + tagged-block loop 16 | 15,387.5 | 0.0370 | 2.37 | 8,117,862.2 | 0.1232 | 7.88 | 12.12 / 18.21 | 15.55 / 22.52 | 18.76 / 16.04 | 1.48 / 0.96 | 1.58 / 2.67 | 50.51 / 39.60 |
+| FIFO 2 + CAM loop 16 | 14,645.5 | 0.0389 | 2.49 | 8,046,371.6 | 0.1243 | 7.95 | 12.73 / 18.37 | 13.07 / 21.75 | 17.91 / 16.27 | 1.80 / 1.09 | 1.41 / 2.57 | 53.07 / 39.95 |
+| FIFO 2 + CAM loop 16 + QPI (20-cycle preamble) | 14,149.3 | 0.0402 | 2.57 | 7,801,608.4 | 0.1282 | 8.20 | 13.18 / 18.95 | 13.53 / 22.41 | 15.03 / 13.66 | 1.87 / 1.12 | 1.46 / 2.65 | 54.93 / 41.21 |
 
 (percentage columns: Dhrystone / CoreMark; every row's six percentages, and every row's retired
 cycle count against its own accounting total, satisfy the exactly-one-reason and
@@ -203,21 +239,24 @@ sum-equals-total identities above — both graded by `nano_cxxrtl.cc` and re-der
 Both benchmarks pass their own validity self-check (`verdict=1`) in every configuration.
 `DMIPS@64MHz`/`CoreMark@64MHz` assume the brief's own target clock, stated so — no clock is
 placed for nano yet. The sweep auto-selects the QPI variant on top of whichever configuration
-reads fewest Dhrystone cycles; that was `fifo2-cam8` here, by 48,400 cycles over
-`fifo2-tagged8` (0.28%), so `fifo2-cam8-qpi` rather than a tagged-block QPI row is what's shown.
+reads fewest Dhrystone cycles; that was `fifo2-cam16` here, by 148,400 cycles over
+`fifo2-tagged16` (4.8% of the tagged block's), so `fifo2-cam16-qpi` is the QPI row shown.
 
 **Instructions retired and effective MIPS at 64 MHz**, the two benchmarks' own retire counts
 (105,767 for Dhrystone's 200 runs, 1,488,936 for CoreMark's 5 iterations) against each
-configuration's total simulated cycles:
+configuration's measured-region cycles. The retire counts cover the whole run, setup included,
+so each figure slightly overstates the region's own rate:
 
 | Configuration | Dhrystone MIPS@64MHz | CoreMark MIPS@64MHz |
 |---|---|---|
 | no-overlap | 1.60 | 1.78 |
 | FIFO depth 2 | 1.67 | 1.92 |
 | FIFO depth 4 | 1.67 | 1.95 |
-| FIFO 2 + tagged-block loop 8 | 1.99 | 2.31 |
+| FIFO 2 + tagged-block loop 8 | 2.08 | 2.32 |
 | FIFO 2 + CAM loop 8 | 2.00 | 2.23 |
-| FIFO 2 + CAM loop 8 + QPI | 2.09 | 2.31 |
+| FIFO 2 + tagged-block loop 16 | 2.20 | 2.35 |
+| FIFO 2 + CAM loop 16 | 2.31 | 2.37 |
+| FIFO 2 + CAM loop 16 + QPI | 2.39 | 2.44 |
 
 The brief's ~2 MIPS estimate sits *above* the measured no-overlap figure (1.60–1.78) and is
 reached only once a loop buffer is added — Dhrystone's `redirect_preamble` bucket alone is
@@ -227,53 +266,44 @@ reached only once a loop buffer is added — Dhrystone's `redirect_preamble` buc
 ## What this says about the front end's design
 
 **FIFO depth alone is nearly free and nearly useless**, unchanged from the first draft's finding:
-depth 2 → 4 moves DMIPS/MHz 0.0280 → 0.0281 (+0.4%, Dhrystone) and 0.1008 → 0.1022 (+1.4%,
+depth 2 → 4 moves DMIPS/MHz 0.0280 → 0.0281 (+0.2%, Dhrystone) and 0.1008 → 0.1022 (+1.4%,
 CoreMark) — both inside the range a reader should read as "does not change the answer,"
 confirming the brief's own fetch-bandwidth argument: with no loop buffer, the core is
 fetch-bound against the flash's raw streaming rate, and a deeper queue in front of a bandwidth
 ceiling does not raise the ceiling.
 
-**The loop buffer is still the lever, but the corrected gain is smaller than the first draft
-reported, and it is now backed by tests rather than table-reading alone.** From FIFO depth 2 to
-an 8-parcel loop buffer: tagged-block reaches 0.0335 DMIPS/MHz (+19.6%) and 0.1210 CoreMark/MHz
-(+20.0%); CAM reaches 0.0336 DMIPS/MHz (+20.0%) and 0.1173 CoreMark/MHz (+16.4%). Both shapes
-of the same 8-parcel area budget land within a few percent of each other, in opposite order on
-the two benchmarks: CAM edges ahead on Dhrystone (+0.3%), tagged-block ahead on CoreMark
-(+3.2%) — neither shape dominates the other, which the two-tests-per-shape grading above exists
-precisely to keep honest as either implementation changes. QPI's shorter re-entry preamble
-(24 → 20 cycles) is a further, smaller, and independent gain layered on top of the
-fewest-Dhrystone-cycles configuration: +4.5% DMIPS/MHz, +3.5% CoreMark/MHz over `fifo2-cam8`.
+**The loop buffer is the lever.** Against FIFO depth 2 alone, as a percentage of FIFO 2's
+DMIPS/MHz and CoreMark/MHz: the 8-parcel tagged block gains 24.6% and 20.8%, the 8-parcel CAM
+19.8% and 16.3%, the 16-parcel tagged block 31.9% and 22.2%, and the 16-parcel CAM 38.6% and
+23.2%.
+
+**Which shape leads flips with the window's size, and on both benchmarks at once.** At 8 parcels
+the tagged block leads: the CAM takes 4.0% more Dhrystone cycles and 3.9% more CoreMark cycles.
+At 16 the CAM leads: the tagged block takes 5.1% more Dhrystone cycles and 0.9% more CoreMark
+cycles. Doubling the window from 8 to 16 parcels cuts the CAM's Dhrystone cycles by 13.5% and
+its CoreMark cycles by 5.7%, and the tagged block's by 5.5% and 1.1%. The measurement does not
+say why the order flips. One candidate, unmeasured: a record of the last N parcels delivered
+evicts a loop's top before reaching it again whenever the body is longer than N, while an aligned
+block keeps whatever part of a longer loop falls inside it. QPI's shorter re-open preamble
+(24 → 20 cycles) is a further, independent gain on the fewest-Dhrystone-cycles configuration:
++3.5% DMIPS/MHz and +3.1% CoreMark/MHz over `fifo2-cam16`.
 
 **Which shape and which window size is worth building, at what area, remains a judgement this
-measurement informs rather than settles.** At 8 parcels the two loop-buffer shapes are close
-enough (within ~3% of each other on either benchmark) that the choice between "one tag, one
-aligned block" and "a fully-associative last-N-parcels record" is more about implementation
-simplicity and the exact area the brief's 4.2k µm² figure assumes than about measured
-performance. Neither figure changes nano's fundamental character: even the best configuration
-measured here (2.25 DMIPS, 7.77 CoreMark at 64 MHz) remains a fetch-bound core against a
-132 Mbit/s bus, not a design a wider buffer alone turns into something else — buffering only
-hides latency for code that revisits addresses already in the window, and neither benchmark is
-dominated by loops that small.
-
-## Open question: 16-parcel windows (DECISION NEEDED)
-
-Both loop-buffer shapes show a real CoreMark-specific slowdown or hang at `LOOP_WINDOW=16` that
-was not root-caused under this ticket. The same-block-miss deadlock fixed above was the first,
-more severe version of this shape of bug and is fixed for both window sizes; what remains at
-window 16 is narrower — Dhrystone was not observed to reproduce it, only CoreMark — but is
-unexplained rather than merely unmeasured, so it is left out of the shipped sweep instead of
-reported as a (possibly wrong) number. Two ways to close this out, neither attempted here for
-lack of time against the ticket's "correctness over speed" priority: instrument the same
-bucket/address tracing this ADR's earlier bug hunt used, on a CoreMark run specifically (its
-larger working set and different branch mix are the one input Dhrystone's clean run at window 16
-does not share); or narrow `LOOP_WINDOW=16`'s state space directly against the invariant tests
-above with a wider `REPS` sweep, since the existing two tests only exercise window 8.
+measurement informs rather than settles.** The shapes sit within about 5% of each other at either
+size, so the choice between "one tag, one aligned block" and "a fully-associative
+last-N-parcels record" turns on area and implementation more than on these cycles; a CAM's
+per-slot comparators cost more area than the brief's one shared tag, and 16 parcels double the
+brief's 128 flops. Neither figure changes nano's fundamental character: even the best
+configuration measured here (2.57 DMIPS, 8.20 CoreMark at 64 MHz) remains a fetch-bound core
+against a 132 Mbit/s bus, not a design a wider buffer alone turns into something else —
+buffering only hides latency for code that revisits addresses already in the window, and neither
+benchmark is dominated by loops that small.
 
 ## Scope
 
 No change to `nano.v`. `nano-qspi-timing` is off `make test`'s path, reporting only, with no
 ratchet — the same standing as `make cycles`, `make nano-dhrystone` and `make nano-coremark`.
 `nano-qspi-loop-test` and its forced-red prerequisite `nano-qspi-loop-probe` are on `make test`'s
-path and graded. The accounting-identity and exactly-one-reason checks are graded and probed; the
-timing model's own comparative numbers are not, since there is nothing yet to ratchet them
-against.
+path and graded. The accounting-identity, exactly-one-reason and stream-fault checks are graded
+and probed, and all three run on every cycle of every benchmark run in the sweep; the timing
+model's own comparative numbers are not, since there is nothing yet to ratchet them against.

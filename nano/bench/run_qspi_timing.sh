@@ -18,11 +18,10 @@ COREMARK_CYCLE_LIMIT=2500000000
 CONTROL_DHRY_CYCLES=505295
 CONTROL_COREMARK_CYCLES=9242400
 
-# 16-parcel windows are excluded: both loop-buffer kinds take over 15M cycles under CoreMark without reaching its first marker; see the ADR for what was tried.
-CONFIG_NAMES=(no-overlap fifo2 fifo4 fifo2-tagged8 fifo2-cam8)
-CONFIG_DEPTHS=(0 2 4 2 2)
-CONFIG_KINDS=(0 0 0 1 2)
-CONFIG_WINDOWS=(0 0 0 8 8)
+CONFIG_NAMES=(no-overlap fifo2 fifo4 fifo2-tagged8 fifo2-cam8 fifo2-tagged16 fifo2-cam16)
+CONFIG_DEPTHS=(0 2 4 2 2 2 2)
+CONFIG_KINDS=(0 0 0 1 2 1 2)
+CONFIG_WINDOWS=(0 0 0 8 8 16 16)
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/nano-qspi-timing.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT

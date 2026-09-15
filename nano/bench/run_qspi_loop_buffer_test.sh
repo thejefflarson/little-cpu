@@ -1,6 +1,7 @@
 #!/bin/bash
-# A branch-free program must cost the same cycles with the loop buffer on or off, and a
-# resident loop must pay no marginal cost per iteration once warm. Builds against the given
+# A branch-free program must cost the same cycles with the loop buffer on or off, a resident
+# loop must pay no marginal cost per iteration once warm, and a loop with a load must run to
+# PASS, the harness refusing any fetch served from parcels the flash never streamed. Builds against the given
 # nano_qspi_memory.v -- the shipping one, or a mutated copy the probe hands it.
 set -euo pipefail
 
@@ -127,3 +128,12 @@ for tag in tagged cam; do
   echo "ok   $tag's resident loop pays zero marginal preamble/wait, +$d_hit loop hits and" \
     "+$d_window cycles (<= $WINDOW_BOUND) over $REPS_DELTA reps"
 done
+
+assemble straddle_lo.elf -DKIND=2 -DREPS=$REPS_LO
+assemble straddle_hi.elf -DKIND=2 -DREPS=$REPS_HI
+for tag in tagged cam; do
+  run_sim "$tag" straddle_lo.elf
+  run_sim "$tag" straddle_hi.elf
+done
+echo "ok   a loop with a load and a block-straddling instruction runs to PASS in both shapes," \
+  "every fetch served by the loop buffer or by parcels its flash run actually streamed"

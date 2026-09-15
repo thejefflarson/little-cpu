@@ -3,7 +3,7 @@
 module nano_qspi_memory #(
   parameter int WORDS = 20480,
   parameter int PREFETCH_DEPTH = 0,
-  // 0: no loop buffer. 1: one aligned LOOP_WINDOW-parcel tagged block. 2: a fully-assoc cache of the last LOOP_WINDOW parcels delivered, in delivery order.
+  // 0: no loop buffer. 1: one aligned LOOP_WINDOW-parcel tagged block. 2: a fully-assoc cache of the last LOOP_WINDOW parcels delivered, index 0 the most recent.
   parameter int LOOP_KIND = 0,
   parameter int LOOP_WINDOW = 0,
   parameter int PREAMBLE_CYCLES = 24,
@@ -24,14 +24,16 @@ module nano_qspi_memory #(
   output logic        reason_redirect_preamble,
   output logic        reason_loop_hit,
   output logic        reason_handshake,
-  output logic        reason_psram_wait
+  output logic        reason_psram_wait,
+  output logic        stream_fault
 );
   initial begin
     if (PARCEL_CYCLES < 1) $fatal(1, "PARCEL_CYCLES must be at least 1");
     if (PREAMBLE_CYCLES < 2) $fatal(1, "PREAMBLE_CYCLES must be at least 2");
     if (PSRAM_LOAD_CYCLES < 1) $fatal(1, "PSRAM_LOAD_CYCLES must be at least 1");
     if (PSRAM_STORE_CYCLES < 1) $fatal(1, "PSRAM_STORE_CYCLES must be at least 1");
-    if (PREFETCH_DEPTH < 0) $fatal(1, "PREFETCH_DEPTH must not be negative");
+    if (PREFETCH_DEPTH < 0 || PREFETCH_DEPTH == 1)
+      $fatal(1, "PREFETCH_DEPTH must be 0 or at least 2: a 32-bit instruction needs two parcels queued");
     if (LOOP_KIND < 0 || LOOP_KIND > 2) $fatal(1, "LOOP_KIND must be 0, 1 or 2");
     if (LOOP_KIND != 0 && LOOP_WINDOW <= 0)
       $fatal(1, "LOOP_WINDOW must be positive when LOOP_KIND is not 0");
@@ -64,6 +66,8 @@ module nano_qspi_memory #(
 
   logic stream_open;
   int unsigned expect_index;
+  // The flash queue's head, apart from the core's own position: a loop-buffer hit moves the core, not the stream.
+  int unsigned fifo_head;
   logic arrived_valid;
   int unsigned arrived_index;
   int unsigned parcel_timer;
@@ -72,17 +76,16 @@ module nano_qspi_memory #(
   int unsigned preamble_target;
 
   int unsigned next_to_produce;
-  assign next_to_produce = arrived_valid ? arrived_index + 1 : expect_index;
+  assign next_to_produce = arrived_valid ? arrived_index + 1 : preamble_target;
+  int produce_lead;
+  assign produce_lead = next_to_produce - fifo_head;
   logic produce_room;
-  assign produce_room = PREFETCH_DEPTH == 0 ? mem_valid
-    : (next_to_produce - expect_index) < PREFETCH_DEPTH;
+  assign produce_room = PREFETCH_DEPTH == 0 ? mem_valid : produce_lead < PREFETCH_DEPTH;
 
   logic already_aimed;
-  assign already_aimed = (stream_open && expect_index == target_index) ||
-    (preamble_pending && preamble_target == target_index);
+  assign already_aimed = (stream_open || preamble_pending) && fifo_head == target_index;
 
-  // LOOP_KIND 1: one aligned block, one tag, and a valid bit per parcel slot. A same-block
-  // miss re-tags and restarts the block, the same as a miss on a different block.
+  // LOOP_KIND 1: one tag and a valid bit per slot; every miss re-tags, one inside the tagged block included.
   logic tag_window_valid;
   logic [31:SLOTBITS] tag_window_tag;
   logic [SLOTS-1:0] tag_window_bits;
@@ -96,7 +99,6 @@ module nano_qspi_memory #(
     target_index_p1[31:SLOTBITS] == tag_window_tag &&
     tag_window_bits[target_index_p1[SLOTBITS-1:0]];
 
-  // LOOP_KIND 2: a fully-associative cache of the last SLOTS parcels delivered to the core, in delivery order -- index 0 is the most recent.
   logic [SLOTS-1:0] cam_valid;
   int unsigned cam_idx [0:SLOTS-1];
   logic cam_has0, cam_has1;
@@ -146,11 +148,15 @@ module nano_qspi_memory #(
   assign reason_handshake = mem_valid && mem_instr && !loop_hit_now && !preamble_active_now && mem_ready;
   assign reason_parcel_wait = mem_valid && mem_instr && !loop_hit_now && !preamble_active_now && !mem_ready;
   assign reason_psram_wait = mem_valid && !mem_instr;
+  // Independent of the aim logic: a fetch the buffer did not serve must lie inside what this flash run has streamed.
+  assign stream_fault = mem_valid && mem_instr && mem_ready && !loop_hit_now &&
+    !(arrived_valid && target_index >= preamble_target && target_last <= arrived_index);
 
   always_ff @(posedge clk) begin
     if (reset) begin
       stream_open <= 1'b0;
       expect_index <= 0;
+      fifo_head <= 0;
       arrived_valid <= 1'b0;
       arrived_index <= 0;
       parcel_timer <= PARCEL_CYCLES;
@@ -174,7 +180,6 @@ module nano_qspi_memory #(
         end else begin
           preamble_pending <= 1'b0;
           stream_open <= 1'b1;
-          expect_index <= preamble_target;
           arrived_valid <= 1'b0;
           parcel_timer <= PARCEL_CYCLES - 1;
         end
@@ -210,6 +215,7 @@ module nano_qspi_memory #(
           preamble_pending <= 1'b1;
           preamble_timer <= PREAMBLE_CYCLES - 2;
           preamble_target <= target_index;
+          fifo_head <= target_index;
           if (LOOP_KIND == 1) begin
             tag_window_valid <= 1'b1;
             tag_window_tag <= target_index[31:SLOTBITS];
@@ -226,6 +232,7 @@ module nano_qspi_memory #(
         xfer_active <= 1'b0;
         if (mem_instr) begin
           expect_index <= target_index + target_len;
+          if (target_index == fifo_head) fifo_head <= target_index + target_len;
           if (LOOP_KIND == 2) begin
             if (target_len == 1) begin
               for (int i = SLOTS - 1; i > 0; i--) begin
@@ -246,13 +253,13 @@ module nano_qspi_memory #(
             end
           end
         end else begin
-          // The next fetch pays the redirect preamble, but need not wait for its own
-          // transaction to start it: the flash's chip select dropped when this PSRAM access began, so the resync can start now, overlapping any execute cycles before that fetch issues.
+          // The flash's chip select dropped when this PSRAM access began, so its resync starts now rather than when the next fetch issues.
           stream_open <= 1'b0;
           arrived_valid <= 1'b0;
           preamble_pending <= 1'b1;
           preamble_timer <= PREAMBLE_CYCLES - 2;
           preamble_target <= expect_index;
+          fifo_head <= expect_index;
         end
         if (mem_wstrb[0]) mem[word_addr][7:0]   <= mem_wdata[7:0];
         if (mem_wstrb[1]) mem[word_addr][15:8]  <= mem_wdata[15:8];

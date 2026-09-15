@@ -229,8 +229,10 @@ int main(int argc, char **argv) {
       items.count("reason_handshake") ? &items.at("reason_handshake").at(0) : nullptr;
   const cxxrtl::debug_item *qspi_psram =
       items.count("reason_psram_wait") ? &items.at("reason_psram_wait").at(0) : nullptr;
+  const cxxrtl::debug_item *qspi_fault =
+      items.count("stream_fault") ? &items.at("stream_fault").at(0) : nullptr;
   const bool qspi_timing = qspi_mem_valid && qspi_parcel && qspi_preamble && qspi_loophit &&
-                            qspi_handshake && qspi_psram;
+                            qspi_handshake && qspi_psram && qspi_fault;
   uint64_t bucket_execute = 0, bucket_parcel = 0, bucket_preamble = 0, bucket_loophit = 0,
            bucket_handshake = 0, bucket_psram = 0, bucket_window_cycles = 0;
   auto print_model = [&]() {
@@ -332,6 +334,12 @@ int main(int argc, char **argv) {
       if (qspi_loophit->outline) qspi_loophit->outline->eval();
       if (qspi_handshake->outline) qspi_handshake->outline->eval();
       if (qspi_psram->outline) qspi_psram->outline->eval();
+      if (qspi_fault->outline) qspi_fault->outline->eval();
+      if (qspi_fault->curr[0]) {
+        std::fprintf(stderr, "QSPI TIMING: cycle %ld serves a fetch from parcels the flash stream "
+                              "never fetched in its current run\n", cycle);
+        return finish(7, cycle + 1);
+      }
       bool r_execute = !qspi_mem_valid->curr[0];
       bool r_parcel = qspi_parcel->curr[0];
       bool r_preamble = qspi_preamble->curr[0];

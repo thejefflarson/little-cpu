@@ -45,5 +45,11 @@ run_mutation "loop-hit-gated-on-xfer-active" \
 run_mutation "cam-lookup-never-hits" \
   "s/if (cam_valid\[i\] && cam_idx\[i\] == target_index) cam_has0 = 1'b1;/if (1'b0) cam_has0 = 1'b1;/" \
   "still pays a marginal preamble/wait cost" || status=1
+run_mutation "queue-head-follows-every-hit" \
+  "s/if (target_index == fifo_head) fifo_head <= target_index + target_len;/fifo_head <= target_index + target_len;/" \
+  "never fetched in its current run" || status=1
+run_mutation "queue-lead-unsigned" \
+  "s/^  int produce_lead;/  int unsigned produce_lead;/" \
+  "TIMEOUT" || status=1
 
 exit $status

@@ -835,7 +835,7 @@ make nano-dhrystone # Dhrystone on nanocpu under nano-sim --bench, core-only, ze
 make nano-coremark  # CoreMark on nanocpu, same memory model and standing as nano-dhrystone
 make nano-qspi-sim  # nano-sim built against nano/tb/nano_qspi_memory.v instead of
                     # nano_memory.v -- a behavioural QSPI-flash/PSRAM timing model on the
-                    # same bus, nano.v untouched. NANO_QSPI_PREFETCH_DEPTH,
+                    # same bus, nano.v untouched. NANO_QSPI_PREFETCH_DEPTH, NANO_QSPI_LOOP_KIND,
                     # NANO_QSPI_LOOP_WINDOW and NANO_QSPI_PREAMBLE_CYCLES parameterize it;
                     # always rebuilt, since the generated file's mtime cannot distinguish
                     # one parameter set from another
@@ -844,11 +844,13 @@ make nano-qspi-timing # sweeps that model's configurations against Dhrystone and
                     # and the {execute, parcel wait, redirect preamble, loop hit, handshake,
                     # PSRAM wait} bucket split. Reporting only, no ratchet, like `make cycles`.
                     # Not on `make test`'s path
-make nano-qspi-loop-test # the loop buffer's two invariants, each able to fail: a branch-free
-                    # program costs the same cycles with the loop buffer on or off, and a
-                    # loop resident in it pays no marginal preamble/wait per iteration once
-                    # warm. nano-qspi-loop-probe is its forced-red prerequisite. On
-                    # `make test`'s path
+make nano-qspi-loop-test # the loop buffer's three invariants, each able to fail: a branch-free
+                    # program costs the same cycles with the loop buffer on or off; a loop
+                    # resident in it pays no marginal preamble/wait per iteration once warm;
+                    # and a loop with a load and a block-straddling instruction runs to PASS
+                    # in both shapes, where every nano-qspi-sim exits 7 on a fetch served from
+                    # parcels its flash run never streamed (ADR-0186). nano-qspi-loop-probe
+                    # is its forced-red prerequisite. On `make test`'s path
 ```
 
 `make sail-setup` and `make lint-setup` unpack into `~/.cache/little-cpu` (`XDG_CACHE_HOME` moves
