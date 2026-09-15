@@ -155,30 +155,45 @@ Dispatched on this branch via `nano-tt-area-selfhosted.yml`'s `regfile` input (`
 concurrency group cancels a second dispatch on the same ref), on LibreLane 3.0.14 throughout, per
 ADR-0184's own work order (4×2 then 2×2 before mul/div's turn begins).
 
-**A first 4×2 latch dispatch on this branch (run 34849107473) was cancelled**: the self-hosted
-runner pool sat with nothing `in_progress`/`queued` moving for the bulk of this ADR's working
-session, and by the time the run had waited over two hours it was cancelled rather than trusted
-further. **A second dispatch (34923698630) was cancelled deliberately**: it started against the
-racy `clk && sel` scheme, before the fix this ADR now ships, so its numbers would have described
-the wrong RTL.
+**Two earlier dispatches on this branch were cancelled, not trusted for numbers.** The first 4×2
+latch dispatch (run 34849107473) sat with the self-hosted runner pool not moving for over two
+hours and was cancelled rather than trusted further. A second (34923698630) was cancelled
+deliberately: it started against the racy `clk && sel` scheme, before the fix this ADR now ships.
+**The measurement below is from a clean dispatch (34925911447) against the corrected,
+registered-enable RTL.**
 
-| Tiles | Regfile | Chip area (µm²) | Placement util. | GRT demand | DRT violations | Wall time | Run |
-|---|---|---|---|---|---|---|---|
-| 4×2 | flops | 81,879.78 | 63.638% | 101.05% | — (routing failed) | — | [34848744663](https://github.com/thejefflarson/little-cpu/actions/runs/34848744663) |
-| 4×2 | latches | *not yet measured* | | | | | |
-| 2×2 | flops | 81,879.78 (same synthesis; 2×2's own placement/routing not yet run) | | | | | |
-| 2×2 | latches | *not yet measured* | | | | | |
+| Tiles | Regfile | Chip area (µm²) | Placement util. | GRT total demand | Result | Wall time | Memory | Run |
+|---|---|---|---|---|---|---|---|---|
+| 4×2 | flops | 81,879.78 | 63.638% | 101.05% | GRT-0116 congestion | — | — | [34848744663](https://github.com/thejefflarson/little-cpu/actions/runs/34848744663) |
+| 4×2 | latches | **70,070.95** | **54.980%** | **70.55%** | GRT-0116 congestion (closer, not closed) | 3107s (~51.8 min) | 3,221,188,608 B (~3.00 GiB, at the pod's 3 GiB ceiling) | [34925911447](https://github.com/thejefflarson/little-cpu/actions/runs/34925911447) |
+| 2×2 | flops | *no baseline yet* | | | | | | |
+| 2×2 | latches | *dispatched, [34929665602](https://github.com/thejefflarson/little-cpu/actions/runs/34929665602), not yet complete as this ADR is written* | | | | | | |
 
-**DECISION NEEDED**: the central question this ADR was opened to answer — does the latch array
-alone bring nanocpu's routed 4×2 or 2×2 area/demand down to ADR-0184's 41,498.55 µm² / 69.17%
-budget, or far enough toward it that mul/div's cut (step 2) closes the rest — is not yet settled by
-a routed number. The local structural evidence above (the write-side mux and its associated hold
-buffers are gone; the read-side fan-out ADR-0184 found dominant is not addressed by this change
-alone) predicts a real but partial improvement, not a guarantee of closing 4×2 on its own. Dispatch
-`nano-tt-area-selfhosted.yml` with `regfile=latches` at `tiles=4x2`, then `tiles=2x2`, once
-`gh run list --status in_progress` shows the self-hosted pool moving again, and record the routed
-numbers, the GRT table, and the flow's hold and clock-gating check results for the new registered
-enables, here.
+**4×2 latches: real, substantial, and still not enough alone.** Global routing's own per-layer
+report (`GRT-0096`): met1 80.77%, met2 81.43%, met3 62.09%, met4 36.37%, **total 70.55%** against
+the flip-flop build's 101.05% -- a 30.5-point drop. Total wirelength 653,002 µm against the
+flip-flop build's 874,050 (−25.3%), 8,146 routed nets. It still fails
+`disallow_congestion=true`: the aggregate usage is under 100%, but `Total Overflow` is nonzero on
+every layer (met1 96, met2 46, met3 157, met4 18, 317 total) -- localized hotspots exceed capacity
+even though the average dropped far below it, and `disallow_congestion=true` fails on any
+remaining overflow, not just an aggregate over 100%. **The hold and clock-gating story the review
+asked for**: OpenSTA's own mid-PnR timing (`nom_tt_025C_1v80`, after CTS, before the routing that
+never finished) names each latch by its actual mechanism -- `Endpoint: _nnnnn_ (positive
+level-sensitive latch clocked by clk')` -- and finds it fully analyzable: hold is clean, WNS 0 /
+TNS 0.0, after `repair_timing -hold` found 885 endpoints with hold violations and inserted **395**
+hold buffers, against the flip-flop build's 941 -- more than half gone, consistent with the
+write-side mux this ADR already traced out of the design. Setup at this same intermediate,
+pre-final-routing snapshot reads WNS −0.274 ns / TNS −2.042 ns, a small residual the flow's later
+steps (never reached, since global routing itself failed first) would ordinarily continue closing.
+
+**DECISION NEEDED**: does the latch array alone, or the latch array plus mul/div's cut (step 2 of
+ADR-0184's work order), reach a tile that actually routes? 4×2's answer on its own is now
+measured: **closer, not closed** -- real cuts to area (−14.4%), placement utilization, wirelength
+and GRT demand across every layer, and the hold-buffer population the write-side mux was
+responsible for is more than halved, but disallowed-congestion routing still fails on localized
+overflow the read-address fan-out ADR-0184 already flagged as untouched by this change. The 2×2
+run is dispatched and its result, once in, is the next thing this ADR needs before mul/div's own
+turn (step 2) begins.
 
 ## Consequences
 
@@ -188,6 +203,8 @@ enables, here.
   added to every `.sby` script and `checks.cfg`, F/G re-derived, and the flip-flop build's own
   checks re-confirmed unaffected.
 - ADR-0184's work order (latch register file, then shared-register mul/div, then a one-read-port
-  register file, M a second permitted cut) is the standing plan; this ADR ships step 1's mechanism
-  and its local structural evidence, and the routed 4×2/2×2 measurement that plan needs before step
-  2 begins is still owed.
+  register file, M a second permitted cut) is the standing plan. Step 1 measures real: 4×2's GRT
+  total demand 101.05% → 70.55%, area 81,879.78 → 70,070.95 µm², hold buffers 941 → 395 -- but 4×2
+  still does not route clean under `disallow_congestion=true`, so step 2 (mul/div) is not optional
+  for closing it. The 2×2 result completes the pair ADR-0184's work order asks for before step 2
+  begins.
