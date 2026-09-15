@@ -1,0 +1,358 @@
+--- a/rtl/decoder.v
++++ b/rtl/decoder.v
+@@ -16,9 +16,9 @@
+   input  logic [31:0] reg_rs2,
+   input  executor_output executor_out,
+   input  logic divider_stall,
+-  // The fetch port went to a load or store this cycle, so `in.instr` holds a data word
+-  // rather than an instruction.
+-  input  logic fetch_stall,
++  // Spike only, decoupled-fetch variant: the fetch port stealing/retry that used to be
++  // `fetch_stall` is now entirely the fetch queue's concern -- a stolen response is never
++  // pushed, so decode never sees it. `q_valid` (below) is what decode waits on instead.
+   input  logic bus_wait,
+   // Decode's request for the data bus, a cycle before the transaction. The platform ANDs
+   // it against its own grant; a grant term here would close the loop through the arbiter.
+@@ -29,6 +29,13 @@
+   input  logic       accessor_out_valid,
+   output logic [31:0] pc,
+   output logic [31:0] next_pc,
++  // Spike only, decoupled-fetch variant: whether the fetch queue has a word ready, and
++  // decode's own pop/flush verdicts, exposed for a register-only fetch address outside
++  // this module to act on.
++  input  logic q_valid,
++  output logic pop,
++  output logic flush,
++  output logic [31:0] redirect_target,
+   output logic [4:0] rs1,
+   output logic [4:0] rs2,
+   output logic [4:0] read_rs1,
+@@ -393,7 +400,7 @@
+       ls_answer_valid <= 1'b1;
+     end else begin
+       ls_answer_valid <= ls_answer_valid && ls_access &&
+-                         (bus_wait || fetch_stall);
++                         (bus_wait || fetch_empty);
+     end
+   end
+ 
+@@ -589,7 +596,14 @@
+   logic atomic_stall;
+   assign atomic_stall = out.valid && out.is_amo && !divider_stall;
+ 
+-  assign stall_own = hazard || operand_stall || divider_stall || fetch_stall ||
++  // Spike only, decoupled-fetch variant: `fetch_empty` (the queue's head is not valid
++  // yet -- right after a flush, or the fetch port lost an arbitration this repo has not
++  // built) waits the same way `fetch_stall` used to, but it names a property of the
++  // queue, never of the word arriving this cycle.
++  logic fetch_empty;
++  assign fetch_empty = !q_valid;
++
++  assign stall_own = hazard || operand_stall || divider_stall || fetch_empty ||
+                      atomic_stall;
+   assign stall_other = stall_own || bus_wait;
+   assign stall = stall_other || region_stall;
+@@ -601,10 +615,9 @@
+      instr_sb || instr_sh || instr_sw || instr_atomic);
+ 
+   // On an issuing cycle the next instruction's pair; on a stalled cycle its own, since
+-  // the same instruction comes back; on a stolen fetch window, last cycle's, since that
+-  // word is data.
+-  assign read_rs1 = fetch_stall ? prev_rs1 : stall ? rs1 : next_rs1;
+-  assign read_rs2 = fetch_stall ? prev_rs2 : stall ? rs2 : next_rs2;
++  // the same instruction comes back.
++  assign read_rs1 = stall ? rs1 : next_rs1;
++  assign read_rs2 = stall ? rs2 : next_rs2;
+ 
+   logic [32:0] cmp_sub;
+   logic        cmp_eq, cmp_ltu, cmp_lt;
+@@ -638,12 +651,25 @@
+       default:                   next_pc = fetcher_pc + pc_inc;
+     endcase
+   end
++
++  // Spike only, decoupled-fetch variant: `flush`/`redirect_target` are read straight off
++  // `next_pc`'s own verdict -- combinational, same cycle -- because they only drive the
++  // fetch-address REGISTER's update, never the fetch address itself; what actually feeds
++  // the ROM this cycle is that register's current (pre-edge) value, which never depends
++  // on this cycle's decode. `pop` fires only when this instruction's own successor
++  // crosses into a different word than the one it was read from -- straddling a 4-byte
++  // instruction over two queue words pops exactly the one it fully leaves behind.
++  logic is_redirect;
++  assign is_redirect = trap_taken || instr_mret || instr_jalr || instr_jal || branch_taken;
+ 
+   // DO NOT ADD `&& in.valid`. The publish block's last two arms do not test it, and if
+   // the two ever disagree a CSR write fires once per stalled cycle with nothing to say
+   // so.
+   logic issuing;
+   assign issuing = !reset && !stall;
++  assign pop = issuing && (next_pc[31:2] != pc[31:2]);
++  assign flush = issuing && is_redirect;
++  assign redirect_target = next_pc;
+ 
+   logic committing;
+   assign committing = issuing && !trap_taken;
+@@ -666,6 +692,9 @@
+      instr_sb || instr_sh || instr_sw);
+  `endif
+ 
++  // `pc` is a plain register again, exactly as the shipping design: it never drives the
++  // fetch address (that is `fetch_pc`, outside this module, register-only), so its
++  // update may read `next_pc`'s full redirect cone same-cycle with no loop reopened.
+   always_ff @(posedge clk) pc <= next_pc;
+ 
+   always_ff @(posedge clk) begin
+@@ -673,7 +702,7 @@
+       out <= '0;
+     end else if (divider_stall) begin
+       out <= out;
+-    end else if (hazard || operand_stall || fetch_stall || atomic_stall || bus_wait ||
++    end else if (hazard || operand_stall || fetch_empty || atomic_stall || bus_wait ||
+                  region_stall || interrupt_pending) begin
+       out <= '0;
+     end else begin
+--- a/rtl/littlecpu.v
++++ b/rtl/littlecpu.v
+@@ -126,18 +126,93 @@
+   assign trap = decoder_trap_entry;
+   logic  [31:0] pc;
+   logic  [31:0] next_pc;
++
++  // Spike only, decoupled-fetch variant: `fetch_pc` advances by one word pair whenever
++  // the queue has room for it, reading only registers -- never `stall`, never the word
++  // arriving this cycle. A stolen response (`fetch_stall`) is retried, not lost: the
++  // request stays pending and `fetch_pc` holds until it lands. `pc` (decoder's own,
++  // below) is a plain register again -- it never drives the fetch address, so it is free
++  // to depend on this cycle's full redirect decision the way the shipping core's does.
++  logic [31:0] fetch_pc;
++  logic        req_pending;
++  logic        decoder_flush;
++  logic [31:0] decoder_redirect_target;
++  logic        decoder_pop;
++  logic        q_valid;
++  logic [31:0] q0, q1;
++  logic [3:0]  q_count;
++  logic [3:0]  committed;
++  logic        committed_full;
++
++  // DEPTH is 8 words; a request in flight reserves the 2 it will push, and a new one is
++  // held back once fewer than 2 slots would be left over for it.
++  assign committed = q_count + (req_pending ? 4'd2 : 4'd0);
++  assign committed_full = committed > 4'd6;
++
++  always_ff @(posedge clk) begin
++    if (reset) begin
++      fetch_pc <= 32'b0;
++    end else if (decoder_flush) begin
++      fetch_pc <= decoder_redirect_target;
++    end else if (req_pending && fetch_stall) begin
++      // hold: retry the same address, its answer was stolen
++    end else if (!committed_full) begin
++      fetch_pc <= fetch_pc + 8;
++    end
++    // else: parked, no room -- hold
++  end
++
++  // `req_pending` names "a response is due this cycle for the word memory answers", and
++  // it must fire on the cycle AFTER `fetch_pc` genuinely took a new value -- never on the
++  // cycle a value merely continues being held (a retry, or the one extra cycle a flush's
++  // target sits before this logic gets to decide whether to advance past it). Basing it
++  // on "the last check succeeded" instead double-counts: `fetch_pc` is still presenting
++  // the same address on the cycle that success is recognized (the advance only lands the
++  // edge after), so memory answers it a second time, and that harmless-looking second
++  // answer would be pushed as if it were new data.
++  logic [31:0] prev_fetch_pc;
++  logic        fetch_pc_changed;
++  // Reset to a value `fetch_pc` itself never legitimately takes on reset (it resets to
++  // 0), so the first real cycle reads as changed too and the very first fetch is not
++  // silently lost.
++  always_ff @(posedge clk) prev_fetch_pc <= reset ? 32'hffff_ffff : fetch_pc;
++  assign fetch_pc_changed = fetch_pc != prev_fetch_pc;
++
++  always_ff @(posedge clk) begin
++    if (reset) req_pending <= 1'b0;
++    else req_pending <= fetch_pc_changed || (req_pending && fetch_stall);
++  end
++
++  assign imem_addr_next = fetch_pc;
++  assign imem_addr  = {fetch_pc[31:2], 2'b00};
++  assign imem_addr2 = imem_addr + 4;
++
++  logic push_valid;
++  assign push_valid = req_pending && !fetch_stall;
++
++  fetchqueue fetchqueue(
++    .clk(clk),
++    .reset(reset),
++    .flush(decoder_flush),
++    .push_valid(push_valid),
++    .push_lo(imem_data),
++    .push_hi(imem_data2),
++    .pop(decoder_pop),
++    .q0(q0),
++    .q1(q1),
++    .q_valid(q_valid),
++    .count(q_count)
++  );
++
+   fetcher_output fetcher_out;
+   fetcher fetcher(
+     .clk(clk),
+     .reset(reset),
++    .q_valid(q_valid),
+     .pc(pc),
+-    .next_pc(next_pc),
+-    .imem_data(imem_data),
+-    .imem_data2(imem_data2),
+-    .out(fetcher_out),
+-    .imem_addr(imem_addr),
+-    .imem_addr2(imem_addr2),
+-    .imem_addr_next(imem_addr_next)
++    .imem_data(q0),
++    .imem_data2(q1),
++    .out(fetcher_out)
+   );
+ 
+   logic [31:0] reg_rs1, reg_rs2, wdata;
+@@ -189,7 +264,6 @@
+     .reg_rs2(reg_rs2),
+     .executor_out(executor_out),
+     .divider_stall(divider_stalled),
+-    .fetch_stall(fetch_stall),
+     .bus_wait(bus_wait),
+     .bus_request(bus_request),
+     .imem_fault(imem_fault),
+@@ -213,6 +287,10 @@
+    `endif
+     .pc(pc),
+     .next_pc(next_pc),
++    .q_valid(q_valid),
++    .pop(decoder_pop),
++    .flush(decoder_flush),
++    .redirect_target(decoder_redirect_target),
+     .read_rs1(read_rs1),
+     .read_rs2(read_rs2),
+     .csr_addr(csr_addr),
+--- a/rtl/fetcher.v
++++ b/rtl/fetcher.v
+@@ -1,25 +1,19 @@
+ `timescale 1 ns / 1 ps
+ `default_nettype none
+ `include "structs.v"
++// Spike only, decoupled-fetch variant: windows the fetch queue's head instead of
++// imemory's own output directly. The shift/window math is unchanged from the shipping
++// module; only where `pc`/`imem_data`/`imem_data2` come from moved.
+ module fetcher(
+   input  logic clk,
+   input  logic reset,
++  input  logic q_valid,
+   input  logic [31:0] pc,
+-  output logic [31:0] imem_addr,
+   input  logic [31:0] imem_data,
+-  output logic [31:0] imem_addr2,
+   input  logic [31:0] imem_data2,
+-  // Published one cycle early, so a synchronous memory answers in the cycle `imem_addr`
+-  // names the word.
+-  input  logic [31:0] next_pc,
+-  output logic [31:0] imem_addr_next,
+   output fetcher_output out
+ );
+ 
+-  assign imem_addr  = {pc[31:2], 2'b00};
+-  assign imem_addr2 = imem_addr + 4;
+-  assign imem_addr_next = {next_pc[31:2], 2'b00};
+-
+   logic [63:0] fetch_pair;
+   assign fetch_pair = {imem_data2, imem_data} >> (pc[1] ? 16 : 0);
+   logic [31:0] windowed_instr;
+@@ -30,7 +24,7 @@
+                                                     : fetch_pair[47:16];
+ 
+   always_comb begin
+-    if (reset) begin
++    if (reset || !q_valid) begin
+       out.valid = 1'b0;
+       out.pc = 32'b0;
+       out.instr = 32'b0;
+--- /dev/null
++++ b/rtl/fetchqueue.v
+@@ -0,0 +1,50 @@
++`timescale 1 ns / 1 ps
++`default_nettype none
++// Spike only, decoupled-fetch variant: a flat FIFO of individual fetched WORDS, not of
++// fixed windows. The shipping fetch logic re-requests "the word at pc, and the one after
++// it" fresh every cycle at whatever 2-byte alignment pc has; a window tied to an 8-byte
++// tile cannot supply that once pc walks into its second half. Words are pushed in pairs
++// (one fetch answers two neighbouring words) and popped one at a time, as decode's own
++// pc crosses each word boundary -- q0/q1 are always "the word at pc" and "the next one".
++module fetchqueue (
++  input  logic clk,
++  input  logic reset,
++  input  logic flush,
++  input  logic push_valid,
++  input  logic [31:0] push_lo,
++  input  logic [31:0] push_hi,
++  input  logic pop,
++  output logic [31:0] q0,
++  output logic [31:0] q1,
++  output logic q_valid,
++  output logic [3:0] count
++);
++  localparam int DEPTH = 8;
++  logic [31:0] mem [0:DEPTH-1];
++  logic [2:0]  head, tail;
++  logic [3:0]  cnt;
++
++  logic do_pop;
++  assign do_pop = pop && (cnt != 4'd0);
++
++  always_ff @(posedge clk) begin
++    if (reset || flush) begin
++      head <= 3'd0;
++      tail <= 3'd0;
++      cnt  <= 4'd0;
++    end else begin
++      if (do_pop) head <= head + 3'd1;
++      if (push_valid) begin
++        mem[tail]      <= push_lo;
++        mem[tail+3'd1] <= push_hi;
++        tail <= tail + 3'd2;
++      end
++      cnt <= cnt - (do_pop ? 4'd1 : 4'd0) + (push_valid ? 4'd2 : 4'd0);
++    end
++  end
++
++  assign q0 = mem[head];
++  assign q1 = mem[head + 3'd1];
++  assign q_valid = cnt >= 4'd2;
++  assign count = cnt;
++endmodule
+--- a/Makefile
++++ b/Makefile
+@@ -9,7 +9,7 @@
+ 	python3 $^ > $@
+ 
+ SIM_RTL_SRCS := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v \
+-                rtl/fetcher.v rtl/imemory.v rtl/memory.v rtl/regfile.v rtl/regsel.v \
++                rtl/fetcher.v rtl/fetchqueue.v rtl/imemory.v rtl/memory.v rtl/regfile.v rtl/regsel.v \
+                 rtl/timer.v rtl/uart.v rtl/spiflash.v rtl/writeback.v rtl/littlecpu.v
+ 
+ SIM_TB_SRCS := test/testbench.v test/spiflash_model.v
+@@ -683,7 +683,7 @@
+ # Count logic cells from nextpnr, never cell counts from yosys: the two disagree in
+ # magnitude and in sign on the same netlist.
+ FIT_SRCS := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v \
+-            rtl/fetcher.v rtl/regfile.v rtl/regsel.v rtl/writeback.v rtl/littlecpu.v
++            rtl/fetcher.v rtl/fetchqueue.v rtl/regfile.v rtl/regsel.v rtl/writeback.v rtl/littlecpu.v
+ 
+ fit.json: $(FIT_SRCS)
+ 	@echo 'yosys: synthesising littlecpu for ice40 (log: fit.synth.log)'
+@@ -721,7 +721,7 @@
+ SOC_EXPECT_EBR   := 20
+ 
+ SOC_SRCS      := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v \
+-                 rtl/executor.v rtl/fetcher.v rtl/imemory.v rtl/memory.v \
++                 rtl/executor.v rtl/fetcher.v rtl/fetchqueue.v rtl/imemory.v rtl/memory.v \
+                  rtl/regfile.v rtl/regsel.v rtl/timer.v rtl/uart.v rtl/spiflash.v \
+                  rtl/writeback.v rtl/littlecpu.v rtl/littlesoc.v
+ SOC_ROM_HEX   := soc/rom_even.hex soc/rom_odd.hex
