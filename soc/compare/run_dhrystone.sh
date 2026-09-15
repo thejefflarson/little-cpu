@@ -157,7 +157,6 @@ python3 "$REPO/soc/rom_banks.py" "$tmp/rom.hex" \
 python3 "$HERE/rom_flat.py" "$tmp/rom.hex" "$HERE/dhry_flat.hex" \
   --rom-words "$sim_rom_words"
 
-# The data RAM every core starts from.
 data_start=$($NM "$elf" | awk '$3 == "__data_start" { print "0x" $1 }')
 if [ -z "$data_start" ]; then
   echo "error: __data_start is not in the linked image, so there is no offset to" >&2

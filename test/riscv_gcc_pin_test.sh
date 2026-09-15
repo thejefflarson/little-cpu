@@ -1,7 +1,6 @@
 #!/bin/bash
 # Confirms a build resolves the pinned riscv-none-elf-gcc, not some other one earlier on
-# PATH -- the compiler is pinned in the Makefile, but PATH order is what a real build
-# actually obeys.
+# PATH, which is what a real build actually obeys.
 set -euo pipefail
 
 if [ "$#" -ne 1 ]; then

@@ -989,6 +989,7 @@ the refusal points at the spelling that fixes it
 the refused download is neither unpacked nor kept to be served again
 the refused liberty download is not kept to be served again
 the regenerate step refuses to run holding a token
+the riscv-gcc install directory inside the checkout is red on its own
 the rulebook quoting a figure the source no longer states is red
 the same for the bypass counter, per program rather than in total
 the same path repeated on one line is not a second copy

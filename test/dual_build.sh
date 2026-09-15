@@ -33,7 +33,6 @@ if [ "${#programs[@]}" -eq 0 ]; then
   exit 1
 fi
 
-# The set check, before anything is built.
 claimed=$(sed -e 's/#.*//' "$PAIRINGS" | awk '$2 == "prog" { print $3 }' | sort -u)
 present=$(for p in "${programs[@]}"; do printf '%s\n' "${p##*/}"; done | sort -u)
 
