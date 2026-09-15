@@ -10,7 +10,7 @@ makes aggressive simplification safe. Every rule in this file serves one of the 
 stops serving them gets deleted. This file is a rulebook, not a changelog: it states what is true
 and where it is enforced, and cites the ADR under `docs/adr/` that holds the measurement behind a
 rule. The measurement's narrative stays in the ADR. The README is a short front door that points
-here.
+here; it keeps its original format and is edited only to correct a command or a fact.
 
 Four habits carry the goals:
 
@@ -25,7 +25,7 @@ Four habits carry the goals:
 - **An inherited conclusion is not a measurement, and the cheap test outranks it.** A report that
   something cannot work — an upstream issue, a datasheet's worst case, a pin table — is evidence
   about someone else's setup until it has been run here. `sudo iceprog` was reported useless on
-  macOS and is what made the board flashable (the `prog` recipe's comment); `SB_HFOSC`'s ±10% trim
+  macOS and is what made the board flashable (`docs/flashing-the-upduino.md`); `SB_HFOSC`'s ±10% trim
   was quoted to argue the UART could never work, and the part measures nominal (ADR-0130); two
   community pin tables give the UPduino's clock as 41 and 44 against the vendor's own 20
   (`docs/pin-constraints.md`). The cost of testing one is usually a single command.
@@ -649,6 +649,11 @@ VexRiscv on both.
   all together — collecting that means the pc stops depending on this cycle's decode, which is the
   no-wrong-path-state commitment (ADR-0076). **Measure the whole set**: a ceiling over one term
   bounds only that term.
+- **A machine with spare cores and a CI pod saturated at its quota are different instruments.**
+  Time a CI change as a whole shard at the concurrency CI runs it at, never one item alone: a
+  solver swap read about 31% faster on a laptop and 8% as a real four-job shard in the four-CPU
+  pod. Read pod memory from `/sys/fs/cgroup/memory.peak`, which is cumulative per pod, so compare
+  two configurations in separate jobs.
 
 Baselines and grading:
 
@@ -682,7 +687,8 @@ make test           # the test/asm suite (.S and .c) under cxxrtl + unit benches
                     # retired-term, adr-numbering, port-connect, compare-geometry,
                     # vexriscv-path, tracked-ignored, tool-cache, pin-bump, abc-engine,
                     # zkt-isolation, fixture-freshness, makefile-target, lut4-site,
-                    # pll-clock, probes-header, dhry-board-parity, macro-register)
+                    # pll-clock, probes-header, dhry-board-parity, macro-register,
+                    # compare-product-schedule-publish)
                     # + window-test, imem-share-test, board-elaborate, mutation-probe,
                     # dual-build, nano-test, nano-startup-test and nano-littlecpu-test;
                     # graded against EXPECTED_FAIL / OBSERVED_FLOOR
@@ -787,9 +793,13 @@ make -C formal components_pcloop    #   pcloop_cover; traps runs traps-region-pr
 make -C formal components_traps     #   traps-tval-probe; busarbiter runs busarbiter_cover
 make -C formal components_busarbiter #  and busarbiter-probe -- each a forced red direction
 make -C formal complete             # depth-50 whole-ISA walk minus COMPLETE_EXCLUSIONS
-make -C formal complete_cover       # its anti-vacuity control
+make -C formal complete_cover       # its anti-vacuity control, tied to complete's depth
+                                    # by cover-depth-tie.py over the run's own log
 make -C formal imemcheck            # the fetch window's and the data bus's memory-interface
-make -C formal dmemcheck            #   checks, and the cover goals
+make -C formal dmemcheck            #   checks. Depth is graded against F/G by
+                                    # check-memcheck-depth.py, a Makefile prerequisite
+make -C formal imemcheck_cover      # each memcheck's own anti-vacuity control, at the
+make -C formal dmemcheck_cover      #   same depth, behind a forced-red stalled-bus probe
 make -C formal cover
 make -C formal genchecks-check      # the local genchecks copy differs from the pin only by
                                     # header and basedir; the `monitor-freshness` CI job
@@ -811,8 +821,13 @@ make nano-area      # nanocpu's area, local `synth; dfflibmap; abc -liberty`, ne
                     # merged with the brief's own TT-flow/LibreLane number; ratchet
                     # on NANO_MAX_UM2. Not on `make test`'s path; no-ops until
                     # nano/nano.v lands
-make nano-test      # nano/asm's six hand-written x0-x15 programs under nano-sim, graded
-                    # against nano/asm/EXPECTED_FAIL / OBSERVED_FLOOR. On `make test`'s path
+make nano-test      # nano/asm's six hand-written x0-x15 programs under BOTH sim legs --
+                    # nano-sim (cxxrtl) and nano/tb/nano_icarus.vvp (iverilog, wrapped by
+                    # nano_sim_icarus.sh behind nano-sim's own CLI) -- graded against
+                    # nano/asm/EXPECTED_FAIL / OBSERVED_FLOOR and required to agree with
+                    # each other program by program (nano_dual_leg_test.sh). A real-tool
+                    # prerequisite, nano_x_probe.sh, forces the iverilog leg to catch an X
+                    # a skipped memory-zeroing loop leaves behind. On `make test`'s path
 make nano-startup-test # the shared nano/bench/start.S initializes gp before any
                     # gp-relative reference runs; PASS/FAIL over tohost. On `make test`'s path
 make nano-dhrystone # Dhrystone on nanocpu under nano-sim --bench, core-only, zero-wait-state,
@@ -832,7 +847,10 @@ takes at the latest release; it is the one tool that floats. Everything else dow
 is pinned and refuses a command-line override: riscv-formal (`formal/pin.mk`), sail-riscv and
 svlint (`SAIL_RISCV_VERSION`, `SVLINT_VERSION`), Hazard3 (`soc/compare/hazard3_pin.mk`) and CoreMark
 (`COREMARK_PIN`). CI runs on every PR (`.github/workflows/ci.yml`); read the required set live from
-`gh api repos/thejefflarson/little-cpu/branches/main/protection`, not from comments.
+`gh api repos/thejefflarson/little-cpu/branches/main/protection`, not from comments. The runners
+are self-hosted ARC pods declared in the sibling `cluster` repo (`argocd/apps/runners.yaml`,
+`charts/actions/runners/values.yaml`): read their CPU and memory limits there, and record the date
+a decision was measured against them. `nproc` and `free` inside a pod report the host.
 
 ## Engineering rules
 
@@ -869,6 +887,18 @@ svlint (`SAIL_RISCV_VERSION`, `SVLINT_VERSION`), Hazard3 (`soc/compare/hazard3_p
 - **`git config --local` in a worktree writes the checkout's one shared `.git/config`**, so a
   change meant to be local to one worktree is live in all of them until it is unset. Use an
   isolated clone for anything that needs its own git config.
+- **A fresh `git worktree` has no `formal/riscv-formal`**: the clone is gitignored, and its
+  absence surfaces as `Current isa string 'rv32imc' not supported` plus a list of `insn_*` checks
+  never generated, which reads like a regression in the branch. Symlink the main checkout's clone
+  into the worktree before trusting a red there, and confirm a suspected pre-existing failure
+  against CI, never against another fresh worktree, which fails the same way.
+- **Knowledge about this repo lives in this repo.** A rule goes in this file, a measurement with
+  its date in an ADR, and owed work in the tracker. An agent's private memory (Claude Code's
+  per-project memory directory, outside the checkout) holds only preferences about how to work
+  with the owner, never a fact about the code, the toolchain, CI or a measurement: nothing grades
+  it, and no other session or engineer agent can read it. A session that learns such a fact
+  records it here, in an ADR or in a ticket before it ends; a private memory found to be about the
+  repo moves here and is deleted.
 - Prefer verified/first-party GitHub Actions; simplest approach unless asked otherwise.
 
 ## State

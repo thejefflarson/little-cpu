@@ -222,6 +222,74 @@ STUB
   chmod +x "$1"
 }
 
+# Same protocol as make_nano_sim_stub, but reads a caller-chosen env var prefix so
+# nano_dual_leg_test.sh's two legs can be driven independently in one probe run.
+make_nano_dual_sim_stub() {  # $1 = path, $2 = env var prefix
+  local path=$1 prefix=$2
+  cat > "$path" <<STUB
+#!/bin/sh
+[ -z "\${${prefix}_NOCOUNTS:-}" ] && echo "RETIRES \${${prefix}_RETIRES:-10}"
+case \${${prefix}_EXIT:-0} in
+  0) echo "PASS" ;;
+  1) echo "FAIL 7" ;;
+  4) echo "RVFI monitor error 105 at cycle 12" >&2 ;;
+esac
+exit \${${prefix}_EXIT:-0}
+STUB
+  chmod +x "$path"
+}
+
+# Stands in for iverilog inside nano_x_probe.sh's fixtures: real compilation would need a
+# real cross compiler's hex output to mean anything, so this just succeeds having written
+# something to -o, and STUB_NANO_X_VVP decides what the paired vvp stub below prints.
+make_nano_x_iverilog_stub() {  # $1 = path
+  cat > "$1" <<'STUB'
+#!/bin/sh
+out=; prev=
+for a in "$@"; do
+  if [ "$prev" = "-o" ]; then out=$a; fi
+  prev=$a
+done
+[ -n "$out" ] && : > "$out"
+exit 0
+STUB
+  chmod +x "$1"
+}
+
+# Stands in for vvp: which image (shipping.vvp / mutant.vvp, off -o above) and which
+# program (off +ROM=.../<name>.rom.hex) decide the verdict; STUB_SHIP_RESULT,
+# STUB_STORE_CLEAN_RESULT, STUB_STORE_X_RESULT and STUB_MUT_RESULT override each one.
+make_nano_x_vvp_stub() {  # $1 = path
+  cat > "$1" <<'STUB'
+#!/bin/sh
+image=$1; shift
+program=
+for a in "$@"; do
+  case "$a" in
+    +ROM=*) program=$(basename "${a#+ROM=}" .rom.hex) ;;
+  esac
+done
+case "$image" in
+  *mutant*) result=${STUB_MUT_RESULT:-X} ;;
+  *)
+    case "$program" in
+      store_x)     result=${STUB_STORE_X_RESULT:-X} ;;
+      store_clean) result=${STUB_STORE_CLEAN_RESULT:-CLEAN} ;;
+      *)           result=${STUB_SHIP_RESULT:-CLEAN} ;;
+    esac
+    ;;
+esac
+if [ "$result" = X ]; then
+  echo "X reached a retiring instruction's RVFI fields at cycle 16"
+  echo "RETIRES 2"
+else
+  echo "PASS"
+  echo "RETIRES 7"
+fi
+STUB
+  chmod +x "$1"
+}
+
 make_cosim_py_stub() {  # $1 = path
   cat > "$1" <<'STUB'
 #!/bin/sh
@@ -364,9 +432,12 @@ make_cosim_bin_stub "$tmp/dut"
 cp "$HERE/run_tests.sh" "$HERE/check_suite_shape.sh" "$HERE/stall_report.py" "$tmp/leg-rt/"
 # nano/asm/run_nano_tests.sh finds test/check_suite_shape.sh two directories up from its
 # own path, the same way it finds it in the real tree, so the copy has to keep that shape.
-mkdir -p "$tmp/leg-nano/nano/asm" "$tmp/leg-nano/test"
+mkdir -p "$tmp/leg-nano/nano/asm" "$tmp/leg-nano/nano/tb" "$tmp/leg-nano/test"
 cp "$REPO/nano/asm/run_nano_tests.sh" "$tmp/leg-nano/nano/asm/"
+cp "$REPO/nano/tb/nano_dual_leg_test.sh" "$tmp/leg-nano/nano/tb/"
 cp "$HERE/check_suite_shape.sh" "$tmp/leg-nano/test/"
+make_nano_dual_sim_stub "$tmp/cxxrtl-sim" CXXSIM
+make_nano_dual_sim_stub "$tmp/icarus-sim" ICASIM
 cp "$HERE/run_cosim.sh" "$HERE/check_suite_shape.sh" "$tmp/leg-rc/"
 make_cosim_py_stub "$tmp/leg-rc/cosim.py"
 cp "$HERE/run_cosim.sh" "$HERE/check_suite_shape.sh" "$tmp/leg-rc-nopy/"
@@ -476,6 +547,10 @@ d=$(rt_fixture); printf 'add.S ten 10\n' > "$d/FLOOR"
 probe "a non-numeric floor is named rather than compared arithmetically" 1 \
   "are not '<program> <retires> <spec-checked>'" "$(rt "$d")"
 
+d=$(rt_fixture); printf 'add.S 99999999999999999999 10\n' > "$d/FLOOR"
+probe "a floor too long for the shell's integers is named, not compared" 1 \
+  "are not '<program> <retires> <spec-checked>'" "$(rt "$d")"
+
 # The manifest check runs first, so the fixture needs the .c to exist as well.
 d=$(rt_fixture); : > "$d/asm/boot.c"
 printf 'add.S 10 10\nboot.c 400 400\n' > "$d/FLOOR"
@@ -532,6 +607,18 @@ probe "an unstartable runner is RUNNER-ERROR 127, never FAIL" 1 \
 
 probe "a PASS with no counts line is not a pass" 1 "NO-COUNTS" \
   "STUB_SIM_NOCOUNTS=1 $(rt "$d")"
+
+probe "a non-numeric retire count is NO-COUNTS, not a silent PASS" 1 "NO-COUNTS" \
+  "STUB_SIM_RETIRES=x $(rt "$d")"
+
+probe "a non-numeric spec-checked count is NO-COUNTS too" 1 "NO-COUNTS" \
+  "STUB_SIM_SPEC=x $(rt "$d")"
+
+probe "a retire count too long for the shell's integers is NO-COUNTS" 1 "NO-COUNTS" \
+  "STUB_SIM_RETIRES=99999999999999999999 $(rt "$d")"
+
+probe "a spec-checked count too long for the shell's integers is NO-COUNTS" 1 "NO-COUNTS" \
+  "STUB_SIM_SPEC=99999999999999999999 $(rt "$d")"
 
 probe "a program that went quiet is BELOW-FLOOR on retires" 1 \
   "BELOW-FLOOR retires" "STUB_SIM_RETIRES=1 $(rt "$d")"
@@ -900,6 +987,185 @@ d=$(mrt_fixture)
 probe "a grep exit of 2 or more is a real error, not \`|| true\`'s silent no-match" 1 \
   "grep could not scan" \
   "PATH='$tmp/bin-grep-error:$tmp/bin-none:/usr/bin:/bin' $MRT $d"
+
+begin_group "nano/tb/nano_dual_leg_test.sh"
+
+DLT="$tmp/leg-nano/nano/tb/nano_dual_leg_test.sh"
+dlt() { printf "PATH='%s/bin:%s/bin-none:/usr/bin:/bin' %s %s/cxxrtl-sim %s/icarus-sim %s/asm %s/BASELINE %s/FLOOR 'x'" \
+  "$tmp" "$tmp" "$DLT" "$tmp" "$tmp" "$1" "$1" "$1"; }
+
+d=$(nano_rt_fixture)
+probe "control: two legs that report the same PASS/retires agree" 0 \
+  "Both simulator legs agree" "$(dlt "$d")"
+
+d=$(nano_rt_fixture)
+probe "the cxxrtl leg failing its own baseline is red before any comparison" 1 \
+  "the cxxrtl leg did not clear its own baseline" "CXXSIM_EXIT=1 $(dlt "$d")"
+
+d=$(nano_rt_fixture)
+probe "the iverilog leg failing its own baseline is red before any comparison" 1 \
+  "the iverilog leg did not clear its own baseline" "ICASIM_EXIT=1 $(dlt "$d")"
+
+d=$(nano_rt_fixture)
+probe "two legs that both pass but disagree on retires are red" 1 \
+  "The two simulator legs disagree" "ICASIM_RETIRES=20 $(dlt "$d")"
+
+dlt_noparse_fixture() {  # a runner that passes but prints no per-program table line
+  local d; d=$(new_case)
+  mkdir -p "$d/nano/tb" "$d/nano/asm"
+  cp "$REPO/nano/tb/nano_dual_leg_test.sh" "$d/nano/tb/"
+  cat > "$d/nano/asm/run_nano_tests.sh" <<'STUB'
+#!/bin/sh
+echo "nothing parseable here"
+exit 0
+STUB
+  chmod +x "$d/nano/asm/run_nano_tests.sh"
+  printf '%s' "$d"
+}
+
+d=$(dlt_noparse_fixture)
+probe "a runner that passes but prints no per-program line leaves nothing to compare" 1 \
+  "could not parse either leg's per-program results table" \
+  "$d/nano/tb/nano_dual_leg_test.sh x x x x x x"
+
+begin_group "nano/tb/nano_x_probe.sh"
+
+NANO_X_ZEROING_LINE="    for (int unsigned i = 0; i < MEM_WORDS; i = i + 1) mem.mem[i] = 32'b0;"
+NANO_X_RTL_SRCS="nano/nano.v nano/tb/nano_memory.v soc/compare/dhry_monitor.v"
+
+nano_xp_fixture() {  # $1 = 1 to include the real zeroing line, 0 to omit it
+  local d; d=$(new_case)
+  mkdir -p "$d/nano/tb" "$d/soc/compare" "$d/test"
+  cp "$REPO/nano/tb/nano_x_probe.sh" "$d/nano/tb/"
+  : > "$d/nano/nano.v"
+  : > "$d/nano/tb/nano_memory.v"
+  : > "$d/soc/compare/dhry_monitor.v"
+  : > "$d/rvfi_macros.vh"
+  : > "$d/test/monitor.sim.v"
+  if [ "$1" -eq 1 ]; then
+    printf '%s\n' "$NANO_X_ZEROING_LINE" > "$d/nano/tb/nano_testbench.v"
+  else
+    printf 'no zeroing line here\n' > "$d/nano/tb/nano_testbench.v"
+  fi
+  printf '%s' "$d"
+}
+
+nano_xp_toolbin() {  # $1 = bin dir; iverilog/vvp stubs plus a real cross-compiler stub
+  local bin=$1
+  mkdir -p "$bin"
+  make_toolchain_stubs "$bin"
+  make_nano_x_iverilog_stub "$bin/iverilog"
+  make_nano_x_vvp_stub "$bin/vvp"
+}
+
+nano_xp_toolbin "$tmp/bin-nano-xp"
+
+xp() { printf "PATH='%s/bin-nano-xp:%s/bin-none:/usr/bin:/bin' %s/nano/tb/nano_x_probe.sh 'x' '%s' 'RISCV_FORMAL'" \
+  "$tmp" "$tmp" "$1" "$NANO_X_RTL_SRCS"; }
+
+d=$(nano_xp_fixture 1)
+probe "control: the load and store paths both report an X exactly when one is there" 0 \
+  "report an X exactly when one is really there" "$(xp "$d")"
+
+d=$(nano_xp_fixture 1)
+probe "the shipping build itself reporting an X on the load path is red before any mutant runs" 1 \
+  "the shipping harness itself reports an X reading an unzeroed word" \
+  "STUB_SHIP_RESULT=X $(xp "$d")"
+
+d=$(nano_xp_fixture 1)
+probe "storing a register this program wrote first is not a store-path control" 1 \
+  "is not evidence the store-path term works" "STUB_STORE_CLEAN_RESULT=X $(xp "$d")"
+
+d=$(nano_xp_fixture 1)
+probe "storing a never-written register that reports no X leaves the store path unproven" 1 \
+  "store-path (write-mask-masked mem_wdata) term of the check is not catching it" \
+  "STUB_STORE_X_RESULT=CLEAN $(xp "$d")"
+
+d=$(nano_xp_fixture 1)
+probe "a mutant that reports no X on the load path is not a control" 1 \
+  "does not report an X" "STUB_MUT_RESULT=CLEAN $(xp "$d")"
+
+d=$(nano_xp_fixture 0)
+probe "a respelled zeroing loop stops rather than mutating nothing" 2 \
+  "no longer spells its zeroing loop" "$(xp "$d")"
+
+d=$(nano_xp_fixture 1); rm "$d/rvfi_macros.vh"
+probe "a build artifact missing is exit 2, not a probe against nothing" 2 \
+  "rvfi_macros.vh and test/monitor.sim.v are" "$(xp "$d")"
+
+d=$(nano_xp_fixture 1); rm "$d/nano/nano.v"
+probe "the RTL moving away takes the X probe with it, loudly" 2 \
+  "nano/nano.v is missing from" "$(xp "$d")"
+
+begin_group "nano/tb/nano_sim_icarus.sh"
+
+nsi_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/nano/tb"
+  cp "$REPO/nano/tb/nano_sim_icarus.sh" "$d/nano/tb/"
+  : > "$d/nano/tb/nano_icarus.vvp"
+  printf '%s' "$d"
+}
+
+make_nsi_vvp_stub() {  # $1 = bin dir; prints the file STUB_ICARUS_OUTPUT_FILE names
+  mkdir -p "$1"
+  cat > "$1/vvp" <<'STUB'
+#!/bin/sh
+if [ -n "${STUB_ICARUS_OUTPUT_FILE:-}" ]; then
+  cat "$STUB_ICARUS_OUTPUT_FILE"
+else
+  printf 'PASS\nRETIRES 7\n'
+fi
+STUB
+  chmod +x "$1/vvp"
+}
+make_nsi_vvp_stub "$tmp/bin-nsi"
+
+printf 'PASS\nRETIRES 7\n' > "$tmp/nsi-pass.out"
+printf 'FAIL 3\nRETIRES 7\n' > "$tmp/nsi-fail.out"
+printf 'TIMEOUT\nRETIRES 7\n' > "$tmp/nsi-timeout.out"
+printf 'RVFI monitor error 5 at cycle 10\nRETIRES 7\n' > "$tmp/nsi-monerr.out"
+printf 'trap taken at cycle 10\nRETIRES 7\n' > "$tmp/nsi-trap.out"
+printf "X reached a retiring instruction's RVFI fields at cycle 16\nRETIRES 7\n" \
+  > "$tmp/nsi-xreach.out"
+printf 'PASS\nRETIRES 0\n' > "$tmp/nsi-zero.out"
+printf 'garbage nobody recognizes\n' > "$tmp/nsi-unrecognized.out"
+
+nsi() { printf "PATH='%s/bin-nsi:%s/bin-none:/usr/bin:/bin' %s/nano/tb/nano_sim_icarus.sh --rom r --ram m --cycles 100" \
+  "$tmp" "$tmp" "$1"; }
+
+d=$(nsi_fixture)
+probe "control: PASS with a real retire count exits 0" 0 "PASS" \
+  "STUB_ICARUS_OUTPUT_FILE=$tmp/nsi-pass.out $(nsi "$d")"
+
+d=$(nsi_fixture)
+probe "FAIL carries the test number and exits 1" 1 "FAIL 3" \
+  "STUB_ICARUS_OUTPUT_FILE=$tmp/nsi-fail.out $(nsi "$d")"
+
+d=$(nsi_fixture)
+probe "TIMEOUT exits 2" 2 "TIMEOUT" \
+  "STUB_ICARUS_OUTPUT_FILE=$tmp/nsi-timeout.out $(nsi "$d")"
+
+d=$(nsi_fixture)
+probe "an RVFI monitor error exits 4" 4 "RVFI monitor error 5" \
+  "STUB_ICARUS_OUTPUT_FILE=$tmp/nsi-monerr.out $(nsi "$d")"
+
+d=$(nsi_fixture)
+probe "a trap taken exits 5" 5 "trap taken" \
+  "STUB_ICARUS_OUTPUT_FILE=$tmp/nsi-trap.out $(nsi "$d")"
+
+d=$(nsi_fixture)
+probe "an X reaching a retire exits 7, not the monitor-error 4" 7 \
+  "X reached a retiring instruction" "STUB_ICARUS_OUTPUT_FILE=$tmp/nsi-xreach.out $(nsi "$d")"
+
+d=$(nsi_fixture)
+probe "0 retires overrides every verdict above to exit 6, the blind oracle" 6 \
+  "0 retires" "STUB_ICARUS_OUTPUT_FILE=$tmp/nsi-zero.out $(nsi "$d")"
+
+d=$(nsi_fixture)
+probe "output this script does not recognize is exit 3, not guessed at" 3 \
+  "unrecognized nano_icarus.vvp output" \
+  "STUB_ICARUS_OUTPUT_FILE=$tmp/nsi-unrecognized.out $(nsi "$d")"
 
 begin_group "test/run_cosim.sh"
 
@@ -5811,6 +6077,80 @@ d=$(ba_fixture); rm "$d/formal/busarbiter.sv"
 probe "the harness moving away takes the probe with it, loudly" 2 \
   "formal/busarbiter.sv is missing from" "$(bas "$d")"
 
+begin_group "formal/check-memcheck-depth.py"
+
+MCD="python3 $REPO/formal/check-memcheck-depth.py"
+
+mcd_fixture() {  # $1 = depth  $2 = cover depth, defaults to $1
+  local d; d=$(new_case)
+  fixture_anchor "$REPO/formal/checks.cfg" \
+    '#derive F 6  worst-case first retire, swept out of `hang`'
+  fixture_anchor "$REPO/formal/checks.cfg" \
+    '#derive G 6  worst-case gap between two retires, swept out of `liveness`'
+  cat > "$d/checks.cfg" <<CFG
+[depth]
+#derive F 6  worst-case first retire, swept out of \`hang\`
+#derive G 6  worst-case gap between two retires, swept out of \`liveness\`
+CFG
+  printf '[options]\ndepth %s\n' "$1" > "$d/dmemcheck.sby"
+  printf '[options]\ndepth %s\n' "${2:-$1}" > "$d/dmemcheck_cover.sby"
+  printf '%s' "$d"
+}
+
+d=$(mcd_fixture 14)
+probe "control: a depth exactly at the floor passes" 0 \
+  "depth 14 >= F+G+2 = 14 (F=6, G=6)" "$MCD $d dmemcheck.sby 2"
+
+d=$(mcd_fixture 13)
+probe "a depth one below the floor is red, naming F and G" 1 \
+  "depth 13 is below F+G+2 = 14 (F=6, G=6)" "$MCD $d dmemcheck.sby 2"
+
+d=$(mcd_fixture 8)
+probe "control: a one-retire floor is F+2, not F+G+2" 0 \
+  "depth 8 >= F+2 = 8 (F=6, G=6)" "$MCD $d dmemcheck.sby 1"
+
+d=$(new_case)
+probe "a harness directory with no checks.cfg is named, not measured as empty" 1 \
+  "does not exist" "$MCD $d dmemcheck.sby 2"
+
+d=$(mcd_fixture 14)
+probe "a named .sby that does not exist is refused" 1 \
+  "does not exist" "$MCD $d missing.sby 2"
+
+d=$(mcd_fixture 14); printf '[options]\nmode bmc\n' > "$d/dmemcheck.sby"
+probe "a missing depth line in the .sby stops rather than comparing nothing" 1 \
+  "declares no \`depth NNN\` line" "$MCD $d dmemcheck.sby 2"
+
+d=$(mcd_fixture 14)
+probe "a <retires> argument that is not 1 or 2 is refused" 2 \
+  "<retires> must be 1 or 2" "$MCD $d dmemcheck.sby 3"
+
+probe "wrong argument count is exit 2" 2 "usage:" "$MCD onearg"
+
+d=$(mcd_fixture 14 15)
+probe "a cover .sby deeper than its bmc sibling is red, not a deeper proof" 1 \
+  "depth 15 does not match" "$MCD $d dmemcheck.sby 2"
+
+d=$(mcd_fixture 14); rm "$d/dmemcheck_cover.sby"
+probe "a memcheck with no cover sibling has an untied depth, and is red" 1 \
+  "does not exist, so its anti-vacuity depth is untied" "$MCD $d dmemcheck.sby 2"
+
+d=$(mcd_fixture 14); printf '[options]\nmode cover\n' > "$d/dmemcheck_cover.sby"
+probe "a cover .sby with no depth line is untied the same way its bmc sibling is" 1 \
+  "declares no \`depth NNN\` line" "$MCD $d dmemcheck.sby 2"
+
+d=$(mcd_fixture 14); printf '[options]\ndepth 14\ndepth 8\n' > "$d/dmemcheck.sby"
+probe "a .sby stating depth twice is refused, since sby searches to the last" 1 \
+  "states \`depth\` 2 times in [options] (14, 8)" "$MCD $d dmemcheck.sby 2"
+
+d=$(mcd_fixture 14); printf '[options]\nmode bmc\n\n[script]\ndepth 24\n' > "$d/dmemcheck.sby"
+probe "a depth line outside [options] is not the depth sby searches" 1 \
+  "declares no \`depth NNN\` line" "$MCD $d dmemcheck.sby 2"
+
+d=$(mcd_fixture 14); mutate "$d/checks.cfg" '/^#derive G/d'
+probe "a checks.cfg with no #derive G is refused by name, not a traceback" 1 \
+  "no \`#derive\` line for G" "$MCD $d dmemcheck.sby 2"
+
 begin_group "nano/formal/complete-cover-probe.py"
 
 CC="python3 $REPO/nano/formal/complete-cover-probe.py"
@@ -5832,7 +6172,12 @@ unreached_line() {
 # against the mutant's unreached one. A stub that wrote only the unreached half
 # left the reached set empty, which reads identically to a harness with no goals.
 reached_line() {
-  echo "SBY [probe] engine_0: ##   0:00:00  Reached cover statement in step 5 at rvfi_testbench: complete.sv:$1.1-$1.1" \
+  if [ -n "${STUB_REACHED_NO_STEP:-}" ]; then
+    echo "SBY [probe] engine_0: ##   0:00:00  Reached cover statement at rvfi_testbench: complete.sv:$1.1-$1.1" \
+      >> complete_cover/logfile.txt
+    return
+  fi
+  echo "SBY [probe] engine_0: ##   0:00:00  Reached cover statement in step ${STUB_REACHED_STEP:-5} at rvfi_testbench: complete.sv:$1.1-$1.1" \
     >> complete_cover/logfile.txt
 }
 if grep -q "assume(mem_ready" complete.sv; then
@@ -5860,7 +6205,8 @@ cc_fixture() {
   local d; d=$(new_case)
   mkdir -p "$d/nano/formal" "$d/formal/riscv-formal"
   cp "$REPO"/nano/nano.v "$d/nano/"
-  cp "$REPO"/nano/formal/complete_cover.sby "$REPO"/nano/formal/complete.sv "$d/nano/formal/"
+  cp "$REPO"/nano/formal/complete_cover.sby "$REPO"/nano/formal/complete.sv \
+     "$REPO"/nano/formal/complete.sby "$d/nano/formal/"
   printf '%s' "$d"
 }
 
@@ -5907,9 +6253,202 @@ d=$(cc_fixture); rm "$d/nano/nano.v"
 probe "the RTL moving away takes the probe with it, loudly" 2 \
   "nano/nano.v is missing from" "$(ccs "$d")"
 
+d=$(cc_fixture)
+probe "a goal reached at or beyond complete's own depth is red" 1 \
+  "only at or after step 20, complete.sby's own depth" "STUB_REACHED_STEP=20 $(ccs "$d")"
+
+d=$(cc_fixture); rm "$d/nano/formal/complete.sby"
+probe "complete.sby moving away leaves the depth tie with nothing to read" 2 \
+  "nano/formal/complete.sby is missing, so there is no depth" "$(ccs "$d")"
+
+d=$(cc_fixture); mutate "$d/nano/formal/complete.sby" 's/^depth 20$/depth twenty/'
+probe "a depth line this cannot parse leaves the tie unenforced, so it stops instead" 2 \
+  "declares no \`depth NNN\` line" "$(ccs "$d")"
+
+d=$(cc_fixture)
+probe "a reached line whose wording hides its step stops rather than switching the tie off" 2 \
+  "per-step lines disagree" "STUB_REACHED_NO_STEP=1 $(ccs "$d")"
+
+d=$(cc_fixture); mutate "$d/nano/formal/complete.sby" '/^depth 20$/a\
+depth 5'
+probe "complete.sby stating depth twice stops the tie rather than grading the first" 2 \
+  "states \`depth\` 2 times in [options] (20, 5)" "$(ccs "$d")"
+
 d=$(cc_fixture); rmdir "$d/formal/riscv-formal"
 probe "no riscv-formal checkout is exit 2, not a probe against nothing" 2 \
   "Fetch the pin first" "$(ccs "$d")"
+
+begin_group "formal/memcheck-cover-probe.py"
+
+MCP="python3 $REPO/formal/memcheck-cover-probe.py"
+
+cat > "$tmp/sby-mcp-stub" <<'STUB'
+#!/bin/sh
+# Stands in for sby for both harnesses' *_cover jobs and writes the per-goal log lines
+# real sby does. The stalled-bus mutant is told apart by the sentinel it states.
+job=$(ls *_cover.sby | sed 's/\.sby$//')
+mkdir -p "$job"
+sv=$(ls *check.sv)
+log="$job/logfile.txt"
+: > "$log"
+say() { [ -n "${STUB_NO_LOG_LINES:-}" ] || echo "SBY [probe] engine_0: ##   0:00:00  $1" >> "$log"; }
+goal="at testbench: $sv:80.7-80.89"
+sentinel="at testbench: $sv:14.14-14.38"
+if grep -q 'cover property (!reset)' "$sv"; then
+  status=${STUB_STALLED:-FAIL}
+  if [ -n "${STUB_NO_TRACE:-}" ]; then
+    say "Unreached cover statement $sentinel"
+  else
+    say "Reached cover statement in step 1 $sentinel"
+  fi
+  if [ "$status" = PASS ]; then
+    say "Reached cover statement in step 3 $goal"
+  else
+    say "Unreached cover statement $goal"
+  fi
+else
+  status=${STUB_SHIP:-PASS}
+  if [ "$status" = PASS ]; then
+    say "Reached cover statement in step 7 $goal"
+  else
+    say "Unreached cover statement $goal"
+  fi
+fi
+[ -n "${STUB_SBY_NO_STATUS:-}" ] && exit 1
+if [ -n "${STUB_SBY_EMPTY_STATUS:-}" ]; then : > "$job/status"; exit 1; fi
+echo "$status 0 12" > "$job/status"
+STUB
+chmod +x "$tmp/sby-mcp-stub"
+
+mcp_fixture() {  # $1 = formal|nano/formal  $2 = imemcheck|dmemcheck
+  local d; d=$(new_case) harness=$1 check=$2
+  mkdir -p "$d/$harness" "$d/formal/riscv-formal"
+  cp "$REPO/$harness/$check.sv" "$REPO/$harness/${check}_cover.sby" "$d/$harness/"
+  if [ "$harness" = "nano/formal" ]; then
+    mkdir -p "$d/nano"
+    cp "$REPO/nano/nano.v" "$d/nano/"
+  else
+    mkdir -p "$d/rtl"
+    # The exact list memcheck-cover-probe.py's own LITTLECPU_RTL names, not every
+    # rtl/*.v file: the stub never reads any of them, but build_case() still copies
+    # each one out of $d, so the fixture has to stock exactly what it will ask for.
+    for f in structs.v fetcher.v regfile.v csrs.v decoder.v regsel.v executor.v \
+             accessor.v writeback.v littlecpu.v; do
+      cp "$REPO/rtl/$f" "$d/rtl/"
+    done
+    cp "$REPO/formal/arbiter.v" "$d/formal/"
+  fi
+  printf '%s' "$d"
+}
+
+mcps() {  # $1 = fixture dir  $2 = harness  $3 = check
+  printf "%s --harness %s --check %s --repo %s --workdir %s/work --sby %s" \
+    "$MCP" "$2" "$3" "$1" "$1" "$tmp/sby-mcp-stub"
+}
+
+d=$(mcp_fixture formal dmemcheck)
+probe "control: littlecpu's dmemcheck reaches its goal and the stalled-bus mutant does not" 0 \
+  "The stalled-bus mutant reaches its sentinel and not the cover goal" "$(mcps "$d" formal dmemcheck)"
+
+d=$(mcp_fixture formal imemcheck)
+probe "control: littlecpu's imemcheck reaches its goal and the stalled-bus mutant does not" 0 \
+  "The stalled-bus mutant reaches its sentinel and not the cover goal" "$(mcps "$d" formal imemcheck)"
+
+d=$(mcp_fixture nano/formal dmemcheck)
+probe "control: nano's dmemcheck reaches its goal and the stalled-bus mutant does not" 0 \
+  "The stalled-bus mutant reaches its sentinel and not the cover goal" "$(mcps "$d" nano/formal dmemcheck)"
+
+d=$(mcp_fixture nano/formal imemcheck)
+probe "control: nano's imemcheck reaches its goal and the stalled-bus mutant does not" 0 \
+  "The stalled-bus mutant reaches its sentinel and not the cover goal" "$(mcps "$d" nano/formal imemcheck)"
+
+d=$(mcp_fixture formal dmemcheck)
+probe "a shipping harness that cannot reach its own cover goal is red" 1 \
+  "the shipping harness does not reach its own cover goal" \
+  "STUB_SHIP=FAIL $(mcps "$d" formal dmemcheck)"
+
+d=$(mcp_fixture nano/formal imemcheck)
+probe "an anti-vacuity cover that cannot go red is not a control" 1 \
+  "cannot go red is not a control" "STUB_STALLED=PASS $(mcps "$d" nano/formal imemcheck)"
+
+d=$(mcp_fixture formal dmemcheck)
+probe "a solver that wrote no verdict is exit 2, not a red arm" 2 \
+  "wrote no status for the shipping case" "STUB_SBY_NO_STATUS=1 $(mcps "$d" formal dmemcheck)"
+
+d=$(mcp_fixture formal dmemcheck)
+probe "an empty status file is refused rather than read as a verdict" 2 \
+  "status file for the shipping case is empty" "STUB_SBY_EMPTY_STATUS=1 $(mcps "$d" formal dmemcheck)"
+
+d=$(mcp_fixture formal dmemcheck)
+mutate "$d/formal/dmemcheck.sv" 's/  logic trap;/  logic trap ;/'
+probe "a respelled anchor stops rather than pinning nothing" 2 \
+  "no longer spells what the stalled-bus mutation" "$(mcps "$d" formal dmemcheck)"
+
+d=$(mcp_fixture formal dmemcheck); rm "$d/formal/dmemcheck_cover.sby"
+probe "the sby script moving away takes the probe with it, loudly" 2 \
+  "formal/dmemcheck_cover.sby is missing from" "$(mcps "$d" formal dmemcheck)"
+
+d=$(mcp_fixture nano/formal dmemcheck); rm "$d/nano/nano.v"
+probe "the RTL moving away takes the probe with it, loudly" 2 \
+  "nano/nano.v is missing from" "$(mcps "$d" nano/formal dmemcheck)"
+
+d=$(mcp_fixture formal dmemcheck); rmdir "$d/formal/riscv-formal"
+probe "no riscv-formal checkout is exit 2 here too, not a probe against nothing" 2 \
+  "Fetch the pin first" "$(mcps "$d" formal dmemcheck)"
+
+d=$(mcp_fixture formal dmemcheck)
+probe "a traceless stalled-bus mutant is red, since its FAIL holds for a trivially true goal too" 1 \
+  "does not reach even its trivially true sentinel" "STUB_NO_TRACE=1 $(mcps "$d" formal dmemcheck)"
+
+d=$(mcp_fixture formal dmemcheck)
+probe "a log that names no cover statement is exit 2, not a goal set of none" 2 \
+  "names no cover statement in dmemcheck.sv" "STUB_NO_LOG_LINES=1 $(mcps "$d" formal dmemcheck)"
+
+d=$(mcp_fixture formal imemcheck)
+mutate "$d/formal/imemcheck.sv" '/littlecpu uut (/,$ s/\.fetch_stall(fetch_stall)/.fetch_stall(stall)/'
+probe "a littlecpu harness whose core port moved stops rather than tying nothing" 2 \
+  "no longer connects the core as" "$(mcps "$d" formal imemcheck)"
+
+begin_group "formal/cover-depth-tie.py"
+
+CDT="python3 $REPO/formal/cover-depth-tie.py"
+
+cdt_fixture() {  # $1 = the step the second goal is first reached at
+  local d; d=$(new_case)
+  printf '[options]\nmode bmc\ndepth 50\n' > "$d/complete.sby"
+  printf '%s\n' \
+    "SBY [probe] engine_0: ##   0:00:00  Reached cover statement in step 5 at rvfi_testbench: complete.sv:146.3-146.80" \
+    "SBY [probe] engine_0: ##   0:00:00  Reached cover statement in step $1 at rvfi_testbench: complete.sv:147.3-147.80" \
+    > "$d/logfile.txt"
+  printf '%s' "$d"
+}
+
+cdts() { printf "%s %s/logfile.txt complete.sv %s/complete.sby" "$CDT" "$1" "$1"; }
+
+d=$(cdt_fixture 49)
+probe "control: every goal first reached before complete's depth passes the tie" 0 \
+  "the latest first reached at step 49, under" "$(cdts "$d")"
+
+d=$(cdt_fixture 50)
+probe "a goal first reached at complete's own depth is red" 1 \
+  "first reached only at or after step 50" "$(cdts "$d")"
+
+d=$(cdt_fixture 5); mutate "$d/logfile.txt" 's/statement in step [0-9]* at/statement at/'
+probe "a reached line whose wording hides its step is exit 2, not a tie of nothing" 2 \
+  "per-step lines disagree" "$(cdts "$d")"
+
+d=$(cdt_fixture 5); : > "$d/logfile.txt"
+probe "a log naming no reached goal is exit 2" 2 \
+  "names no reached cover statement in complete.sv" "$(cdts "$d")"
+
+d=$(cdt_fixture 5); printf '[options]\ndepth 50\ndepth 100\n' > "$d/complete.sby"
+probe "a bmc .sby stating depth twice is exit 2 here too" 2 \
+  "states \`depth\` 2 times in [options] (50, 100)" "$(cdts "$d")"
+
+d=$(cdt_fixture 5); rm "$d/logfile.txt"
+probe "a cover run that left no log is exit 2" 2 "logfile.txt does not exist" "$(cdts "$d")"
+
+probe "wrong argument count is exit 2" 2 "usage:" "$CDT onearg"
 
 begin_group "nano/formal/ill-e-probe.py"
 
@@ -7535,6 +8074,64 @@ d=$(new_case); mkdir -p "$d/test"; cp "$REPO/test/pin_bump_token_test.py" "$d/te
 probe "a missing workflow file is an error, not an empty pass" 1 \
   "is missing" "cd '$d' && python3 test/pin_bump_token_test.py ."
 
+begin_group "test/nano_tt_area_workflow_test.py"
+
+# Same shape as pin_bump_token_test.py's fixtures: a sed program applied to the shipping
+# workflow, graded by the script under test rather than by hand-typed YAML.
+ntawt_fixture() {  # $1 = sed program applied to the workflow
+  local d; d=$(new_case)
+  mkdir -p "$d/.github/workflows" "$d/test"
+  cp "$REPO/test/nano_tt_area_workflow_test.py" "$d/test/"
+  sed "$1" "$REPO/.github/workflows/nano-tt-area-selfhosted.yml" \
+    > "$d/.github/workflows/nano-tt-area-selfhosted.yml"
+  printf '%s' "$d"
+}
+
+d=$(ntawt_fixture '')
+probe "control: the shipping workflow resolves its mode once and saves its PDK cache unconditionally" 0 \
+  "resolves its mode once and saves its PDK cache unconditionally" \
+  "cd '$d' && python3 test/nano_tt_area_workflow_test.py ."
+
+d=$(ntawt_fixture 's|summary_line "stop after synthesis: \$stop_after_synthesis_report"|summary_line "stop after synthesis: ${{ inputs.stop_after_synthesis \|\| '"'"'true'"'"' }}"|')
+probe "the defect this exists for: a summary line re-deriving the mode from inputs." 1 \
+  "re-derives the mode from inputs.stop_after_synthesis" \
+  "cd '$d' && python3 test/nano_tt_area_workflow_test.py ."
+
+# A range-address sed delete of just this one step's `if: always()` is not portable
+# between BSD and GNU sed, so this fixture edits the exact block with Python instead.
+ntawt_no_always_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/.github/workflows" "$d/test"
+  cp "$REPO/test/nano_tt_area_workflow_test.py" "$d/test/"
+  python3 - "$REPO/.github/workflows/nano-tt-area-selfhosted.yml" \
+    "$d/.github/workflows/nano-tt-area-selfhosted.yml" <<'PYEOF'
+import sys
+src_path, dst_path = sys.argv[1], sys.argv[2]
+text = open(src_path).read()
+old = "      - name: Save the sky130 PDK\n        if: always()\n        uses: actions/cache/save@"
+new = "      - name: Save the sky130 PDK\n        uses: actions/cache/save@"
+if old not in text:
+    print("error: fixture stale: the Save step's if: always() text is no longer in the workflow", file=sys.stderr)
+    sys.exit(1)
+open(dst_path, "w").write(text.replace(old, new, 1))
+PYEOF
+  printf '%s' "$d"
+}
+
+d=$(ntawt_no_always_fixture)
+probe "a PDK cache save step with no if: always() only saves on job success" 1 \
+  "only saves the PDK when the rest of the job succeeded" \
+  "cd '$d' && python3 test/nano_tt_area_workflow_test.py ."
+
+d=$(ntawt_fixture 's|uses: actions/cache/restore@|uses: actions/cache@|')
+probe "a combined actions/cache step in place of restore is refused" 1 \
+  "no actions/cache/restore step restores the sky130 PDK" \
+  "cd '$d' && python3 test/nano_tt_area_workflow_test.py ."
+
+d=$(new_case); mkdir -p "$d/test"; cp "$REPO/test/nano_tt_area_workflow_test.py" "$d/test/"
+probe "a missing workflow file is an error, not an empty pass" 1 \
+  "is missing" "cd '$d' && python3 test/nano_tt_area_workflow_test.py ."
+
 begin_group "test/compare_product_schedule_token_test.py"
 
 cpst_fixture() {  # $1 = sed program applied to the workflow
@@ -7579,6 +8176,72 @@ probe "the publish step pushing with no gh auth setup-git is red" 1 \
 d=$(new_case); mkdir -p "$d/test"; cp "$REPO/test/compare_product_schedule_token_test.py" "$d/test/"
 probe "a missing schedule workflow file is an error, not an empty pass" 1 \
   "is missing" "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
+
+begin_group "test/compare_product_schedule_publish_test.py"
+
+cpsp_fixture() {  # $1 = sed program applied to the workflow
+  local d; d=$(new_case)
+  mkdir -p "$d/.github/workflows" "$d/test"
+  cp "$REPO/test/compare_product_schedule_publish_test.py" "$d/test/"
+  sed "$1" "$REPO/.github/workflows/compare-product-schedule.yml" \
+    > "$d/.github/workflows/compare-product-schedule.yml"
+  printf '%s' "$d"
+}
+
+d=$(cpsp_fixture '')
+probe "control: the shipping publish step really reaches gh pr create" 0 \
+  "reached gh pr create" \
+  "cd '$d' && python3 test/compare_product_schedule_publish_test.py ."
+
+d=$(new_case); mkdir -p "$d/test"; cp "$REPO/test/compare_product_schedule_publish_test.py" "$d/test/"
+probe "a missing schedule workflow file is an error, not an empty pass" 1 \
+  "is missing" "cd '$d' && python3 test/compare_product_schedule_publish_test.py ."
+
+d=$(cpsp_fixture 's|Open a PR with the refreshed stamp|Open a pull request with the refreshed stamp|')
+probe "renaming the publish step out of reach stops rather than passing" 1 \
+  "no step named" \
+  "cd '$d' && python3 test/compare_product_schedule_publish_test.py ."
+
+d=$(cpsp_fixture '')
+python3 - "$d/.github/workflows/compare-product-schedule.yml" <<'PY'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+old = '''          {
+            echo "Refresh the cross-core product stamp"
+            echo
+            cat /tmp/product-diff.md
+          } > /tmp/commit-message.md
+          git commit -F /tmp/commit-message.md
+'''
+new = '''          git commit -m "Refresh the cross-core product stamp" -F /tmp/product-diff.md
+'''
+assert old in text, "fixture stale: the fixed commit block moved"
+open(path, 'w').write(text.replace(old, new))
+PY
+probe "the pre-fix git commit line -- '-m' and '-F' together -- is red for the reason it used to fail" 1 \
+  "cannot be used together" \
+  "cd '$d' && python3 test/compare_product_schedule_publish_test.py ."
+
+d=$(cpsp_fixture 's|origin "\$branch"$|origin "$branch:main"|')
+probe "a push aimed at main instead of the refresh branch is red" 1 \
+  "did not push exactly the refresh branch" \
+  "cd '$d' && python3 test/compare_product_schedule_publish_test.py ."
+
+d=$(cpsp_fixture 's|--base main|--base develop|')
+probe "a PR opened against a base other than main is red" 1 \
+  "was not given --base main" \
+  "cd '$d' && python3 test/compare_product_schedule_publish_test.py ."
+
+d=$(cpsp_fixture 's|git add soc/compare/product.json|git add -A|')
+probe "a commit that stages more than the stamp is red" 1 \
+  "files other than soc/compare/product.json" \
+  "cd '$d' && python3 test/compare_product_schedule_publish_test.py ."
+
+d=$(cpsp_fixture 's|-\$GITHUB_RUN_ID"|"|')
+probe "a refresh branch without the run id is red" 1 \
+  "expected --head branch name" \
+  "cd '$d' && python3 test/compare_product_schedule_publish_test.py ."
 
 begin_group "formal/pin-bump-decide.sh"
 

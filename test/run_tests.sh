@@ -39,7 +39,7 @@ fi
 # A line this cannot parse is a floor nothing enforces, so say so rather than skipping
 # it.
 floors=$(sed -e 's/#.*//' "$OBSERVED_FLOOR" | awk 'NF { $1=$1; print }')
-malformed_floor=$(printf '%s\n' "$floors" | awk 'NF && (NF != 3 || $2 !~ /^[0-9]+$/ || $3 !~ /^[0-9]+$/) { print }')
+malformed_floor=$(printf '%s\n' "$floors" | awk 'NF && (NF != 3 || $2 !~ /^[0-9]{1,10}$/ || $3 !~ /^[0-9]{1,10}$/) { print }')
 if [ -n "$malformed_floor" ]; then
   echo "error: $OBSERVED_FLOOR has lines that are not '<program> <retires> <spec-checked>':" >&2
   printf '  %s\n' "$malformed_floor" >&2
@@ -193,7 +193,9 @@ for src in "${programs[@]}"; do
     fi
   fi
 
-  if [ "$status" = "PASS" ] && { [ -z "$retires" ] || [ -z "$spec_retires" ]; }; then
+  if [ "$status" = "PASS" ] \
+     && { ! printf '%s' "$retires" | grep -qE '^[0-9]{1,10}$' \
+          || ! printf '%s' "$spec_retires" | grep -qE '^[0-9]{1,10}$'; }; then
     status="NO-COUNTS"
   fi
 
@@ -205,10 +207,10 @@ for src in "${programs[@]}"; do
       set -- $floor
       floor_retires=$1
       floor_spec=$2
-      if [ "$retires" -lt "$floor_retires" ]; then
+      if ! [ "$retires" -ge "$floor_retires" ]; then
         status="BELOW-FLOOR retires"
         echo "$name: $retires retires, floor is $floor_retires ($OBSERVED_FLOOR)" >&2
-      elif [ "$spec_retires" -lt "$floor_spec" ]; then
+      elif ! [ "$spec_retires" -ge "$floor_spec" ]; then
         status="BELOW-FLOOR spec-checked"
         echo "$name: $spec_retires spec-checked retires, floor is $floor_spec ($OBSERVED_FLOOR)" >&2
       fi

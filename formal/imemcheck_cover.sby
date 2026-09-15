@@ -1,0 +1,43 @@
+# The anti-vacuity control for imemcheck: proves its own cover goal reachable at
+# the SAME depth imemcheck.sby (mode bmc) searches, not a deeper one.
+
+[options]
+mode cover
+append 0
+tbtop testbench.uut
+depth 15
+
+[engines]
+smtbmc boolector
+
+[script]
+read_verilog -sv arbiter.v
+read_verilog -sv imemcheck.sv
+read_verilog -sv structs.v
+read_verilog -sv fetcher.v
+read_verilog -sv regfile.v
+read_verilog -sv csrs.v
+read_verilog -sv decoder.v
+read_verilog -sv regsel.v
+read_verilog -sv executor.v
+read_verilog -sv accessor.v
+read_verilog -sv writeback.v
+read_verilog -sv littlecpu.v
+prep -nordff -top testbench
+
+[files]
+../rtl/structs.v
+../rtl/fetcher.v
+../rtl/regfile.v
+../rtl/csrs.v
+../rtl/decoder.v
+../rtl/regsel.v
+../rtl/executor.v
+../rtl/accessor.v
+../rtl/writeback.v
+../rtl/littlecpu.v
+imemcheck.sv
+arbiter.v
+riscv-formal/checks/rvfi_macros.vh
+riscv-formal/checks/rvfi_channel.sv
+riscv-formal/checks/rvfi_testbench.sv
