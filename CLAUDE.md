@@ -445,19 +445,24 @@ top, ECP5 only.
   minute (ADR-0078).
 - **`make dhrystone` and `make coremark` are the figures comparable to another project's** —
   Dhrystone to VexRiscv, CoreMark to Hazard3 and most cores published since — and neither is a
-  gate. Dhrystone: **0.777 DMIPS/MHz, 9.32 DMIPS at 12 MHz** at `-O2` (ADR-0154), quoted with the
+  gate. Dhrystone: **0.722 DMIPS/MHz, 8.66 DMIPS at 12 MHz** at `-O2` (ADR-0189), quoted with the
   absolute figure because Fmax above the requirement is margin and not speed (ADR-0089), and with
   the flags, the compiler, the string library and **the linker script** — the program prints the
   first three and will not compile without them, and `test/bench/bench.lds` asserts the fourth at
-  link time. **It went 9.10 → 7.97 → 9.10 → 9.32, and the moves differ in kind**: the region wait
-  spends 13.79% of Dhrystone's cycles to make an out-of-region access fault (ADR-0129), insetting
+  link time. **It went 9.10 → 7.97 → 9.10 → 9.32 → 8.66, and the moves differ in kind**: the region
+  wait spends 13.79% of Dhrystone's cycles to make an out-of-region access fault (ADR-0129), insetting
   the layout gives those cycles back with no RTL change and the netlist digest unmoved (ADR-0158),
-  and executor-only forwarding buys the last step in the datapath (ADR-0154). A CPI regression
-  with no conformance behind it is still a regression, and a figure recovered by moving the
-  software is the firmware ceasing to pay a cost, never the core getting faster. **CoreMark is
+  executor-only forwarding buys the last step in the datapath (ADR-0154), and the last move is the
+  compiler alone: pinning xPack's `riscv-none-elf-gcc` 15.2.0-1 in place of whichever of Homebrew's
+  16.2.0 or a CI image's 13.2.0 happened to answer to the two names every build used to search for
+  changes what the same C compiles to, with no RTL and no linker script touched (ADR-0189). A CPI
+  regression with no conformance behind it is still a regression, and a figure recovered by moving the
+  software is the firmware ceasing to pay a cost, never the core getting faster; a figure that moves
+  with the compiler is neither, and is why the compiler is pinned now. **CoreMark is
   SIMULATED AT 16 KB OF ROM**, double the part's 8, against `test/testbench.v`'s `ROM_WORDS`, and
   every printed figure says so; the five algorithm files are vendored unmodified and pinned by
-  `test/bench/coremark/PINNED.sha256` (ADR-0136). **2.203 CoreMark/MHz**, and it travels with the
+  `test/bench/coremark/PINNED.sha256` (ADR-0136). **2.155 CoreMark/MHz** under the pinned compiler
+  (ADR-0189; 2.203 under Homebrew's prior 16.2.0, ADR-0154), and it travels with the
   linker script the way the DMIPS figure does: the inset layout read 2.013 against 1.811 on the
   conventional one when ADR-0158 measured it, and executor-only forwarding took the inset figure
   to 2.203 afterwards (ADR-0154). Hazard3's published 4.15 CoreMark/MHz is its RP2350 build, not its iCE40
@@ -676,12 +681,15 @@ Baselines and grading:
 ## Commands
 
 ```sh
-make setup          # macOS: brew install riscv64-elf-gcc and svlint; Linux: prints the apt line
+make setup          # fetches the pinned RISC-V gcc on both platforms (make riscv-gcc-setup);
+                    # macOS also brews svlint, Linux points at make lint-setup for it
 make doctor         # resolve and verify the RISC-V compiler, yosys, nextpnr-ice40 and
                     # icetime -- path, version, and icetime's chip database actually
                     # loading -- before a placement or a sweep is spent finding out
 make lint           # svlint over rtl/, RVFI macros off and on. A required CI check
 make lint-setup     # fetch the pinned svlint release into the tool cache
+make riscv-gcc-setup # fetch the pinned xPack riscv-none-elf-gcc release into the tool
+                    # cache; make test's riscv-gcc-pin-test grades that PATH resolves it
 make test           # the test/asm suite (.S and .c) under cxxrtl + unit benches + probe-gates
                     # + every repo-scanning `*-test` target (memmap, march, band-source,
                     # retired-term, adr-numbering, port-connect, compare-geometry,
@@ -863,13 +871,14 @@ it), **outside the checkout**: a git worktree is given tracked files only and a 
 gitignored, so an install inside the checkout is invisible from every worktree. `make test`
 enforces it.
 
-Toolchain: macOS `brew install riscv64-elf-gcc svlint`; Linux `apt install gcc-riscv64-unknown-elf`
-and `make lint-setup`. Tests are freestanding — `.S`, and `.c` built `-nostdlib -ffreestanding`
-against `test/crt0.S` — so no multilib or newlib. Formal needs the YosysHQ OSS CAD Suite, which CI
-takes at the latest release; it is the one tool that floats. Everything else downloaded or vendored
-is pinned and refuses a command-line override: riscv-formal (`formal/pin.mk`), sail-riscv and
-svlint (`SAIL_RISCV_VERSION`, `SVLINT_VERSION`), Hazard3 (`soc/compare/hazard3_pin.mk`) and CoreMark
-(`COREMARK_PIN`). CI runs on every PR (`.github/workflows/ci.yml`); read the required set live from
+Toolchain: `make riscv-gcc-setup` fetches the pinned RISC-V gcc on both platforms (ADR-0189); svlint
+is `brew install svlint` on macOS or `make lint-setup` on Linux. Tests are freestanding — `.S`, and
+`.c` built `-nostdlib -ffreestanding` against `test/crt0.S` — so no multilib or newlib. Formal needs
+the YosysHQ OSS CAD Suite, which CI takes at the latest release; it is the one tool that floats.
+Everything else downloaded or vendored is pinned and refuses a command-line override: riscv-formal
+(`formal/pin.mk`), sail-riscv and svlint (`SAIL_RISCV_VERSION`, `SVLINT_VERSION`), the RISC-V gcc
+(`RISCV_GCC_VERSION`), Hazard3 (`soc/compare/hazard3_pin.mk`) and CoreMark (`COREMARK_PIN`). CI runs
+on every PR (`.github/workflows/ci.yml`); read the required set live from
 `gh api repos/thejefflarson/little-cpu/branches/main/protection`, not from comments. The runners
 are self-hosted ARC pods declared in the sibling `cluster` repo (`argocd/apps/runners.yaml`,
 `charts/actions/runners/values.yaml`): read their CPU and memory limits there, and record the date
