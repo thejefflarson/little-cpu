@@ -32,6 +32,6 @@ The same table in the brief records a larger shipped design: **TinyQV on ttsky25
 - Nothing grades this line yet. `NANO_MAX_UM2` (60,759 µm²) bounds regressions on the local instrument and is not this line; the Tiny Tapeout flow in CI is the instrument that will grade it.
 - The QSPI and CSR layers each quote their measured area delta against its estimate here (+5,500 and +6,000 µm² local), so a layer that overruns shows up the day it lands rather than at freeze.
 
-## Amendment · 2026-09-13
+## Amendment · 2026-09-14
 
-Superseded by ADR-0184. The Tiny Tapeout flow measured the core at 81,879.78 µm² on a 72,564.6 µm² 2×2 die, with a local-to-flow factor of 1.256× where this ADR assumed 0.915×. nanocpu moves to a 3×2 tile, and its freeze line is re-derived there from the tile's measured core area rather than carried over from this one.
+This line is void, per ADR-0184. It was 66,006 µm² in Tiny Tapeout flow units, derived with a 0.915× local-to-flow factor. The flow measures 1.256× on this design, and today's core synthesizes to 81,879.78 µm². nanocpu stays on a 2×2, and its line is re-derived from Tiny Tapeout flow runs there rather than from this one.
