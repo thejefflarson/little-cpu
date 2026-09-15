@@ -8245,7 +8245,7 @@ probe "a checkout that leaves the token in .git/config is red" 1 \
   "persist-credentials: false" \
   "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
 
-d=$(cpst_fixture 's|uses: ./.github/actions/verify-toolchain|uses: ./.github/actions/verify-toolchain\n        env:\n          GH_TOKEN: x|')
+d=$(cpst_fixture 's|uses: ./.github/actions/setup-riscv-gcc|uses: ./.github/actions/setup-riscv-gcc\n        env:\n          GH_TOKEN: x|')
 probe "a token handed to a step other than the publish step is red" 1 \
   "confine it to the one step" \
   "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
