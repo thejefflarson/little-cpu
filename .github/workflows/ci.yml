@@ -299,6 +299,7 @@ jobs:
           peak=$(cat /sys/fs/cgroup/memory.peak 2>/dev/null \
             || cat /sys/fs/cgroup/memory/memory.max_usage_in_bytes 2>/dev/null \
             || echo unavailable)
+          echo "wall time: ${elapsed}s, pod peak memory: ${peak}"
           {
             echo "### components-proof (${{ matrix.proof }})"
             echo "wall time: ${elapsed}s"
