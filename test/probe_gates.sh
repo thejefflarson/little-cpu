@@ -3793,6 +3793,15 @@ mutate "$d/docs/adr/README.md" '/\[0001\](0001-finish-the-staged-rewrite\.md)/d'
 probe "a gap in the sequence is not a defect" 0 \
   "each with exactly one README row, no number claimed twice" "$AN $d"
 
+# Two rows can claim the same NUMBER while each links to a different real file -- a
+# rebase that duplicates a row's number without duplicating its filename. Nothing about
+# the filename-keyed checks above sees this.
+d=$(an_fixture)
+mutate "$d/docs/adr/README.md" \
+  "s|\[0003\](0003-dual-word-combinational-fetch-window\.md)|[0002](0003-dual-word-combinational-fetch-window.md)|"
+probe "a row's number duplicated onto a different, real file is named" 1 \
+  "ADR number 0002 appears in more than one row" "$AN $d"
+
 begin_group "test/makefile_target_test.sh"
 
 MT_TGT="$HERE/makefile_target_test.sh"
