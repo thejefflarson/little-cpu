@@ -10,10 +10,8 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
 
 CC=""
-for c in riscv64-elf-gcc riscv64-unknown-elf-gcc; do
-  command -v "$c" >/dev/null 2>&1 && { CC=$c; break; }
-done
-[ -n "$CC" ] || { echo "no RISC-V cross compiler" >&2; exit 1; }
+command -v riscv-none-elf-gcc >/dev/null 2>&1 && CC=riscv-none-elf-gcc
+[ -n "$CC" ] || { echo "no RISC-V cross compiler; run 'make riscv-gcc-setup'" >&2; exit 1; }
 OBJCOPY=${CC%gcc}objcopy
 
 objs=(); names=(); i=0

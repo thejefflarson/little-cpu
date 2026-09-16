@@ -1,0 +1,28 @@
+name: Set up the pinned RISC-V gcc
+description: >-
+  Fetches and SHA-256-verifies the pinned xPack riscv-none-elf-gcc release (`make
+  riscv-gcc-setup`), caching the ~400 MB tarball by the pin -- version, asset name and
+  digest -- so a matching pin reuses the cache instead of downloading it again. Every
+  consumer resolves the compiler through `make`, which puts it on PATH itself
+  (mk/toolchain.mk), so this action does not touch GITHUB_PATH.
+runs:
+  using: composite
+  steps:
+    - name: Resolve the riscv-gcc pin and the directory the fetch is cached in
+      id: pin
+      shell: bash
+      run: |
+        set -euo pipefail
+        make --no-print-directory riscv-gcc-pin > "$RUNNER_TEMP/riscv-gcc-pin.txt"
+        cat "$RUNNER_TEMP/riscv-gcc-pin.txt"
+        grep -E '^(key|path)=' "$RUNNER_TEMP/riscv-gcc-pin.txt" >> "$GITHUB_OUTPUT"
+
+    - name: Restore the pinned riscv-gcc tarball
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.pin.outputs.path }}
+        key: ${{ steps.pin.outputs.key }}
+
+    - name: make riscv-gcc-setup
+      shell: bash
+      run: make riscv-gcc-setup

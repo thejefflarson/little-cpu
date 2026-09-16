@@ -183,6 +183,7 @@ a depth line this cannot parse leaves the tie unenforced, so it stops instead
 a depth one below the floor is red, naming F and G
 a design entry missing area/num_cells/by_type is refused, not read as what is left
 a design that MET the target has measured the target
+a different riscv-none-elf-gcc earlier on PATH is red, not silently used
 a differing value is a divergence, located by change index
 a directory the glob stopped matching is red, not a suite of size zero
 a dirty tree names no base, so its sweep is not subtracted either
@@ -662,6 +663,7 @@ complete.sby stating depth twice stops the tie rather than grading the first
 components_executor still lists check-solver-bitwuzla as a prerequisite
 control: .PHONY declaring netlist-digest is not a dependency edge
 control: PASS with a real retire count exits 0
+control: PATH resolving only the pinned install is green
 control: RISCV_FORMAL_E is not yet wired, so there is nothing to check it against
 control: STALL_REPORT prints the accounting and keeps the suite green
 control: TEST_CASE with an ordinary testreg still assembles
@@ -856,6 +858,7 @@ no programs at all would report a clean 0 of 0
 no riscv-formal checkout is exit 2 here too, not a probe against nothing
 no riscv-formal checkout is exit 2, not a probe against nothing
 no riscv-formal checkout is exit 2, not an ill_e probe against nothing
+no riscv-none-elf-gcc on PATH at all is red
 no standalone count leaves nothing to compare against
 no utilisation table is a failure, not a 0% fit
 no utilisation table means nothing was placed, not that nothing was lost
@@ -986,6 +989,7 @@ the refusal points at the spelling that fixes it
 the refused download is neither unpacked nor kept to be served again
 the refused liberty download is not kept to be served again
 the regenerate step refuses to run holding a token
+the riscv-gcc install directory inside the checkout is red on its own
 the rulebook quoting a figure the source no longer states is red
 the same for the bypass counter, per program rather than in total
 the same path repeated on one line is not a second copy
