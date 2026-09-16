@@ -1036,7 +1036,12 @@ change to one shape's build is a change in FIVE places: `test/run_tests.sh`, `te
 ## Pointers
 
 - Decisions: [`docs/adr/`](docs/adr/) — re-derive the count by listing the directory; this file
-  has been behind on it three times by quoting a number.
+  has been behind on it three times by quoting a number. **A new number is checked against every
+  open PR branch, not only main**: `test/adr_numbering_test.sh` reads one tree, so two branches
+  can each claim the same next number and both pass it, the way #363 and #364 both took ADR-0188
+  in the same week. Before claiming one, run
+  `gh pr list --state open --json headRefName` and `git ls-tree <branch> docs/adr/` on each result,
+  and pick a number none of them already holds.
 - Briefs: [`docs/ideas/`](docs/ideas/) — list the directory rather than trusting an enumeration
   here. Where a brief and an ADR disagree, the ADR wins.
 - Reference text from the old core: `git show 1709433^:rtl/riscv.v` (RVFI retire block),

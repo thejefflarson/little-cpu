@@ -27,6 +27,16 @@ if [ -n "$dupes" ]; then
   done <<< "$dupes"
 fi
 
+row_numbers=$(sed -nE 's/^\| \[([0-9]{4})\].*/\1/p' "$README" | sort)
+number_dupes=$(uniq -d <<< "$row_numbers")
+if [ -n "$number_dupes" ]; then
+  rc=1
+  while IFS= read -r n; do
+    echo "error: ADR number $n appears in more than one row of docs/adr/README.md:" >&2
+    grep -E "^\| \[$n\]" "$README" | sed -e 's|^|  |' >&2
+  done <<< "$number_dupes"
+fi
+
 rows=$(grep -oE '^\| \[[0-9]{4}\]\([0-9]{4}-[a-z0-9-]+\.md\)' "$README" \
          | sed -E 's/.*\(([0-9]{4}-[a-z0-9-]+\.md)\)/\1/' | sort)
 
