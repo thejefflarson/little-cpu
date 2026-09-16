@@ -63,11 +63,16 @@ module riscv (
   logic [31:0] reg_wdata;
   logic [31:0] pc_wdata;
   logic [63:0] mul_div_store;
-  logic [6:0] mul_div_counter;
-  logic [63:0] mul_div_x;
-  logic [63:0] mul_div_y;
+  logic [5:0] mul_div_counter;
+  logic [31:0] mul_div_operand;
   logic want_abs;
   logic [31:0] div_abs_rs1, div_abs_rs2;
+  logic want_neg_mul;
+  logic [31:0] mul_mag_rs1, mul_mag_rs2;
+  logic [31:0] mul_div_a;
+  logic mul_div_op_sub;
+  logic [32:0] mul_div_sum;
+  logic div_qbit;
   logic [3:0] cpu_state;
   logic skip_reg_write;
 
@@ -294,6 +299,27 @@ module riscv (
   assign div_abs_rs1 = want_abs && regs[rs1[3:0]][31] ? -regs[rs1[3:0]] : regs[rs1[3:0]];
   assign div_abs_rs2 = want_abs && regs[rs2[3:0]][31] ? -regs[rs2[3:0]] : regs[rs2[3:0]];
 
+  // MULHU never negates, and MUL only keeps the low 32 bits of the product, which a
+  // two's-complement multiply gets right from the raw bit pattern regardless of sign --
+  // so only MULH/MULHSU convert an operand to its magnitude before the loop runs.
+  assign mul_mag_rs1 = (is_mulh || is_mulhsu) && regs[rs1[3:0]][31] ? -regs[rs1[3:0]] : regs[rs1[3:0]];
+  assign mul_mag_rs2 = is_mulh && regs[rs2[3:0]][31] ? -regs[rs2[3:0]] : regs[rs2[3:0]];
+  assign want_neg_mul = (is_mulh && (regs[rs1[3:0]][31] ^ regs[rs2[3:0]][31])) ||
+    (is_mulhsu && regs[rs1[3:0]][31]);
+
+  // One 32-bit adder/subtractor serves both loops: it adds the multiplicand into the
+  // product's upper half, or subtracts the divisor from the shifted remainder, selected
+  // by which state is running it. Subtracting through the same adder (B's two's
+  // complement, carry-in tied high) turns its carry-out into "no borrow" for divide.
+  assign mul_div_a = cpu_state == divide ?
+    {mul_div_store[62:32], mul_div_store[31]} : mul_div_store[63:32];
+  assign mul_div_op_sub = cpu_state == divide;
+  assign mul_div_sum = {1'b0, mul_div_a} +
+    (mul_div_op_sub ? ({1'b0, ~mul_div_operand} + 33'b1) : {1'b0, mul_div_operand});
+  // The bit shifted out of the remainder's top forces the quotient bit high without a
+  // compare, since a value that large already exceeds any 32-bit divisor.
+  assign div_qbit = mul_div_store[63] | mul_div_sum[32];
+
   // state machine
   localparam cpu_trap = 4'b0000;
   localparam fetch_instr = 4'b0001;
@@ -460,36 +486,17 @@ module riscv (
                   end
 
                   is_multiply: begin
-                    mul_div_counter <= is_mul ? 32 : 64;
+                    mul_div_counter <= 32;
                     cpu_state <= multiply;
-                    mul_div_store <= 0;
-                    (* parallel_case, full_case *)
-                    case(1'b1)
-                      is_mul || is_mulhu: begin
-                        mul_div_x <= {32'b0,regs[rs1[3:0]]};
-                        mul_div_y <= {32'b0,regs[rs2[3:0]]};
-                      end
-
-                      is_mulh: begin
-                        mul_div_x <= {{32{regs[rs1[3:0]][31]}},regs[rs1[3:0]]};
-                        mul_div_y <= {{32{regs[rs2[3:0]][31]}},regs[rs2[3:0]]};
-                      end
-
-                      is_mulhsu: begin
-                        mul_div_x <= {{32{regs[rs1[3:0]][31]}},regs[rs1[3:0]]};
-                        mul_div_y <= {{32'b0},regs[rs2[3:0]]};
-                      end
-                    endcase
+                    mul_div_operand <= mul_mag_rs1;
+                    mul_div_store <= {32'b0, mul_mag_rs2};
                   end
 
                   is_divide: begin
-                    // The divisor sits pre-shifted into bits [62:31], so it takes
-                    // exactly 32 steps of `mul_div_y >>= 1` to walk it back to bit 0.
                     mul_div_counter <= 32;
                     cpu_state <= divide;
-                    mul_div_store <= 0;
-                    mul_div_x <= {32'b0, div_abs_rs1};
-                    mul_div_y <= {1'b0, div_abs_rs2, 31'b0};
+                    mul_div_operand <= div_abs_rs2;
+                    mul_div_store <= {32'b0, div_abs_rs1};
                   end
                 endcase
               end
@@ -552,16 +559,21 @@ module riscv (
         multiply: begin
          `ifndef RISCV_FORMAL_ALTOPS
           if (mul_div_counter > 0) begin
-            mul_div_store <= mul_div_y[0] ? mul_div_store + mul_div_x : mul_div_store;
-            mul_div_x <= mul_div_x << 1;
-            mul_div_y <= mul_div_y >> 1;
+            // The multiplier bit under test shifts out of the low half; the adder's
+            // 33-bit sum (carry included) shifts into the top of the new 64 bits.
+            mul_div_store <= mul_div_store[0]
+              ? {mul_div_sum, mul_div_store[31:1]}
+              : {1'b0, mul_div_store[63:32], mul_div_store[31:1]};
             mul_div_counter <= mul_div_counter - 1;
           end else begin
-            if (is_mul) begin
-              reg_wdata <= mul_div_store[31:0];
-            end else begin
-              reg_wdata <= mul_div_store[63:32];
-            end
+            (* parallel_case, full_case *)
+            case (1'b1)
+              is_mul: reg_wdata <= mul_div_store[31:0];
+              is_mulhu: reg_wdata <= mul_div_store[63:32];
+              default: reg_wdata <= want_neg_mul
+                ? ~mul_div_store[63:32] + {31'b0, mul_div_store[31:0] == 32'b0}
+                : mul_div_store[63:32];
+            endcase
             cpu_state <= reg_write;
           end
          `else
@@ -579,26 +591,26 @@ module riscv (
         divide: begin
          `ifndef RISCV_FORMAL_ALTOPS
           if (mul_div_counter > 0) begin
-            if (mul_div_x >= mul_div_y) begin
-              mul_div_store <= (mul_div_store << 1) | 1;
-              mul_div_x <= mul_div_x - mul_div_y;
-            end else begin
-              mul_div_store <= mul_div_store << 1;
-            end
-            mul_div_y <= mul_div_y >> 1;
+            // Restoring division over the combined {remainder, quotient} register:
+            // shift both halves left together, subtract the fixed divisor from the
+            // shifted remainder, and keep the subtraction only when it did not borrow.
+            mul_div_store <= {div_qbit ? mul_div_sum[31:0] : mul_div_a,
+                               mul_div_store[30:0], div_qbit};
             mul_div_counter <= mul_div_counter - 1;
           end else begin
+            // The loop's own arithmetic never produces "all ones, remainder unchanged"
+            // for a zero divisor here, since the quotient and remainder share one
+            // shifting register rather than a remainder register the loop never
+            // touches -- so a zero divisor is answered directly from the operands.
             (* parallel_case, full_case *)
-            case(1'b1)
-              // A zero divisor drives every comparison above true regardless of the
-              // dividend, so the loop always leaves `mul_div_store` all-ones; gating the
-              // sign flip on rs2 being nonzero is what keeps that constant from being
-              // negated when rs1 is negative, rather than restating it in a second arm.
-              is_div: reg_wdata <= (regs[rs2[3:0]] != 32'b0 && regs[rs1[3:0]][31] != regs[rs2[3:0]][31]) ?
-                -mul_div_store[31:0] : mul_div_store[31:0];
-              is_divu: reg_wdata <= mul_div_store[31:0];
-              is_rem: reg_wdata <= regs[rs1[3:0]][31] ? -mul_div_x[31:0] : mul_div_x[31:0];
-              is_remu: reg_wdata <= mul_div_x[31:0];
+            case (1'b1)
+              is_div: reg_wdata <= (regs[rs2[3:0]] == 32'b0) ? 32'hffffffff :
+                ((regs[rs1[3:0]][31] ^ regs[rs2[3:0]][31]) ?
+                  -mul_div_store[31:0] : mul_div_store[31:0]);
+              is_divu: reg_wdata <= (regs[rs2[3:0]] == 32'b0) ? 32'hffffffff : mul_div_store[31:0];
+              is_rem: reg_wdata <= (regs[rs2[3:0]] == 32'b0) ? regs[rs1[3:0]] :
+                (regs[rs1[3:0]][31] ? -mul_div_store[63:32] : mul_div_store[63:32]);
+              is_remu: reg_wdata <= (regs[rs2[3:0]] == 32'b0) ? regs[rs1[3:0]] : mul_div_store[63:32];
             endcase
             cpu_state <= reg_write;
           end
