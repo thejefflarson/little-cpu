@@ -115,7 +115,8 @@ both regfile builds now carrying this ticket's mul/div on both tiles:
 | 4×2 | latches + this mul/div | *does not map under `AREA 0` — see below* | | | | ABC did not converge, killed at the 150-min job limit | [35363072917](https://github.com/thejefflarson/little-cpu/actions/runs/35363072917) |
 | 4×2 | latches + this mul/div | *does not map under `AREA 0` — see below* | | | | ABC did not converge, killed at the 150-min job limit (reproduced) | [35378685507](https://github.com/thejefflarson/little-cpu/actions/runs/35378685507) |
 | 2×2 | flops + this mul/div | 76,632.25 | — (GPL-0301) | not reached | not reached | GPL-0301: placement utilization 122.611% exceeds 100%, before routing | [35393172755](https://github.com/thejefflarson/little-cpu/actions/runs/35393172755) |
-| 4×2 | latches + this mul/div, `SYNTH_STRATEGY = AREA 2` | *dispatched; see the PR for its result* | | | | | [35393696793](https://github.com/thejefflarson/little-cpu/actions/runs/35393696793) |
+| 4×2 | latches + this mul/div, `SYNTH_STRATEGY = AREA 2` | 65,026.12 | 51.064% | 66.49% | 593,048 | GRT-0116 congestion (59 total overflow: met1 9, met2 1, met3 48, met4 1) | [35393696793](https://github.com/thejefflarson/little-cpu/actions/runs/35393696793) |
+| 2×2 | latches + this mul/div, `SYNTH_STRATEGY = AREA 2` | *dispatched; see the PR for its result* | | | | | |
 
 **Finding: `AREA 0` does not converge in ABC on the latch register file and this mul/div combined.**
 Two dispatches of the identical configuration (4×2, latches, this mul/div, `AREA 0`,
@@ -131,6 +132,12 @@ bound it to this specific combination: the same tile and flow map ABC in 14s wit
 not inherently unmappable, so the suspect is LibreLane's `AREA 0` script specifically on this
 combination. **This is a finding about the flow's synthesis strategy, not a measurement of area** —
 see below for why the number a cancelled run prints cannot be read as one either way.
+
+**Confirmed: it is `AREA 0` specifically, not the combination.** Run 35393696793, identical
+otherwise but `SYNTH_STRATEGY = AREA 2`, ran ABC in 36 seconds and completed the flow. `AREA 2` is
+a legitimate strategy for a Tiny Tapeout submission, not a workaround adopted to dodge the finding
+— ADR-0184 already records TinyQV's own accepted submission choosing a strategy. See the table row
+below for its numbers.
 
 **A run that dies before ABC still prints a `Chip area` line, and it is not a post-mapping figure.**
 Its last `stat` print, before the ABC call that never returns, reports "Chip area for module ...
@@ -162,6 +169,20 @@ before routing is ever attempted. This run is also the control for the finding a
 same flow, same `AREA 0`, and it maps ABC in seconds with flops — which is what isolates the
 non-convergence to the latch-register-file combination specifically, not to this ticket's mul/div
 on its own.
+
+**4×2, latches, `AREA 2`: the combined cut, measured.** Synthesis 65,026.1152 µm², GPL-0019
+utilization 51.064%. Resizer: RSZ-0038 inserted 924 buffers in 299 nets; RSZ-0046 found 815
+endpoints with hold violations. Routing (GRT-0096): met1 77.22%, met2 72.02%, met3 64.74%, met4
+31.58%, total demand 66.49%, overflow 9 / 1 / 48 / 1 by layer, 59 total. GRT-0018 wirelength
+593,048 µm. Wall time 2,873s — this run completed rather than being killed, so, unlike the `AREA 0`
+attempts, that duration is a real measurement. It still fails `disallow_congestion=true` (GRT-0116),
+but 59 overflow points is a different scale of problem than 317 for the latch-only build (ADR-0189)
+or 9,404 for the untouched baseline: against the ADR-0184 baseline, the register file and this
+mul/div together are −20.6% synthesis area (81,879.78 → 65,026.12 µm²) and −34.6 points of routing
+demand (101.05% → 66.49%). With demand this close to closing, the read-address fan-out ADR-0184
+identified and left untouched — step 3's target, a one-read-port register file — is plausibly what
+the residual 59 overflow points are; nothing has measured that yet, so it is a plausibility, not a
+finding.
 
 ## Consequences
 
