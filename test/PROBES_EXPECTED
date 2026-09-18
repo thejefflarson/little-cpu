@@ -1,6 +1,7 @@
 # make probe-gates's label manifest; format and rationale in docs/manifests/probes-expected.md.
 # TWO IDENTICAL LABELS ARE TWO LINES: some fixtures share a description on purpose.
 # Hand-edit in LC_ALL=C order. Never regenerate from a run: it launders a dropped probe.
+--allow-mismatch does not cover the seed-count refusal either
 --clock-ns and --cycle-factor naming different core sets is refused
 --cores naming no CoreMark core at all is red before anything is parsed
 --cores naming no core at all is red before anything is parsed
@@ -353,6 +354,7 @@ a pair measured for the first time is news on its own, with no --current at all
 a pairing naming a program nobody wrote is red
 a parameter list spread over several lines is refused, not skimmed
 a parameter this cannot read stops rather than comparing nothing
+a part this repo does not place is refused before any placement
 a part this repo does not place is refused, not added by asking
 a part this repo does not place stops the sweep before any placement
 a part this repo stopped placing is refused too, not kept as a row
@@ -394,6 +396,7 @@ a real archive with one byte-mutated file is caught, and named
 a reason dropped from one downstream site is red, and named
 a reason dropped from the decoder's own composition is red, and named
 a recipe naming the riscv-formal clone's VexRiscv path instead of $(VEXRISCV_V) is red
+a ref that names no commit here is refused before any placement
 a ref that names no commit is refused, not compared
 a reference model that produced no trace is fatal
 a refresh branch without the run id is red
@@ -549,6 +552,7 @@ a trip prints the trend too, since that is the run that needs it
 a truncated netlist is refused, which is what a full disk leaves
 a truncated report blames the run rather than parsing what is left
 a truncated stat.json is refused, not read as an empty report
+a verdict under twelve seeds is refused with the count named
 a wait bound that admits a starved hart is red
 a wait bound that admits a starved hart is red
 a wire that does not carry its class's name is named
@@ -753,6 +757,7 @@ control: both arms fail, each at its own line
 control: both headers naming only x0-x15 is green
 control: both sides failing the same test number still AGREE
 control: each subset is printed as a share of that number
+control: ecp5 is derived too, and a single sweep states its own figure
 control: every allowed site is covered and nothing else carries the string
 control: every goal first reached before complete's depth passes the tie
 control: every line of nano's own manifest marked EXCLUDED is red, not a quiet 0/0
@@ -823,6 +828,7 @@ control: the tracked monitor sanitizes, and rule 3 fires
 control: two identical netlists are equal
 control: two identical snapshots print a null delta and no news
 control: two legs that report the same PASS/retires agree
+control: two seeds clear a --min-seeds of one
 control: two sweeps measured the same way are subtracted
 control: with the part's own four SPRAM the same image fits
 coremark.lds putting .data back at ram's origin is red
@@ -832,6 +838,7 @@ data past the end of the simulated RAM is red, not silent
 decoder_output.rd widened past 5 bits is red (finding 5)
 deleting an rtl file and leaving its line is red
 dividers that make a frequency CORE_HZ does not state is red
+ecp5 names fewer than twelve seeds and is refused before any placement
 every source line moving is the comment class, and is forgiven
 excluding --require-news's artifact does not blind it to a real soc/compare/ change
 excluding the artifact does not blind the check to a real soc/compare/ change
@@ -861,6 +868,7 @@ nano's remeasure-fg still lists check-solver-btorsim as a prerequisite
 nano's runner exit 4 is MONITOR-ERROR too, carrying nano's own code
 nano's suite goes through the same shape check first
 netlist-diff reaches the same check as netlist-digest does
+no base ref names nothing to sweep against
 no components.sby is exit 2 here too, not a green control
 no components.sby is exit 2, not a probe against an invented script
 no components.sby is exit 2, not a probe against an invented script
@@ -1049,6 +1057,7 @@ two reasons overlapping is a real build's own accounting mismatch too
 two rtl/*.v paths on one line is a second copy, and is red
 two toolchains are named, which is the disagreement that flipped a sign
 two walks disagreeing about what routing is refuse to print a histogram
+up5k names fewer than twelve seeds and is refused before any placement
 upstream's own x29 scratch reappearing is named and located
 usage: a missing argument is exit 2
 widening a declared mnemonic list without the baseline is red

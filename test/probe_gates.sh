@@ -2337,6 +2337,20 @@ d=$(bs_pair)
 probe "the refusal is the part, not the four tool mismatches it also produces" 1 \
   "placed up5k and" "$BS $d/up5k.csv $d/ecp5.csv --allow-mismatch"
 
+# --min-seeds: a THIRD refusal, distinct from --allow-mismatch's -- too few placements
+# to read a worst, a median and a spread from is not a mismatch between two sweeps.
+d=$(bs_fixture)
+probe "control: two seeds clear a --min-seeds of one" 0 \
+  "delta, second sweep against first" "$BS $d/before.csv $d/after.csv --min-seeds 1"
+
+d=$(bs_fixture)
+probe "a verdict under twelve seeds is refused with the count named" 1 \
+  "before.csv has only 2" "$BS $d/before.csv $d/after.csv --min-seeds 12"
+
+d=$(bs_fixture)
+probe "--allow-mismatch does not cover the seed-count refusal either" 1 \
+  "does NOT cover this" "$BS $d/before.csv $d/after.csv --min-seeds 12 --allow-mismatch"
+
 begin_group "soc/baseline_sweep.sh"
 
 probe "a part this repo does not place stops the sweep before any placement" 2 \
@@ -2348,6 +2362,31 @@ probe "a part this repo does not place stops the sweep before any placement" 2 \
 # silently place the default sixteen seeds for someone who asked for none.
 probe "an empty seed list stops the sweep instead of placing the default" 2 \
   "SOC_SEEDS is empty" "SOC_SEEDS= sh $REPO/soc/baseline_sweep.sh"
+
+begin_group "soc/paired_sweep.sh"
+
+PS="sh $REPO/soc/paired_sweep.sh"
+
+probe "no base ref names nothing to sweep against" 2 \
+  "usage: soc/paired_sweep.sh" "$PS"
+
+probe "a part this repo does not place is refused before any placement" 2 \
+  "'bogus' is not a part" "$PS HEAD bogus"
+
+probe "a ref that names no commit here is refused before any placement" 2 \
+  "does not name a commit here" "$PS not-a-real-ref-at-all up5k"
+
+# THE REFUSAL THAT MATTERS: fewer than twelve seeds is never a go/no-go, whatever a
+# caller overrides the seed list to. Both parts' own defaults clear it; only an
+# explicit, short override can trip this, which is the point of testing it this way --
+# no placement tool runs before this check.
+probe "up5k names fewer than twelve seeds and is refused before any placement" 1 \
+  "up5k names 3 seeds" \
+  "PAIRED_SEEDS_UP5K='default 1 2' $PS HEAD up5k"
+
+probe "ecp5 names fewer than twelve seeds and is refused before any placement" 1 \
+  "ecp5 names 4 seeds" \
+  "PAIRED_SEEDS_ECP5='default 1 2 3' $PS HEAD ecp5"
 
 begin_group "soc/print_toolchain.sh"
 
@@ -2408,15 +2447,32 @@ probe "control: a derived part states both figures and names itself" 0 \
 probe "control: the note a delta is read against carries the part too" 0 \
   "up5k" "$BD up5k --note"
 
-# ecp5 is placed by three flows and nothing has ever been swept on it.
+probe "control: ecp5 is derived too, and a single sweep states its own figure" 0 \
+  "ecp5 (make ecp5-timing): placement spread 10.3%" "$BD ecp5"
+
+# Both parts are derived on the shipping tree now, so the underived shape is
+# demonstrated on a copy with one part's figures put back to None -- the same
+# fixture-over-the-live-module pattern band_source_test.py's probes already use.
+bd_underived_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/soc"
+  cp "$REPO/soc/bands.py" "$d/soc/"
+  mutate "$d/soc/bands.py" 's/"spread": 10.3,/"spread": None,/' \
+                            's/"churn": 0.0,/"churn": None,/'
+  printf '%s' "$d"
+}
+
+d=$(bd_underived_fixture)
+BDU="python3 $d/soc/bands.py"
+
 probe "an underived part says so rather than borrowing another part's band" 0 \
-  "no other part's transfer" "$BD ecp5"
+  "no other part's transfer" "$BDU ecp5"
 
 probe "a caller that needs the figures rather than the prose is refused" 1 \
-  "no band has been derived for ecp5" "$BD ecp5 --require"
+  "no band has been derived for ecp5" "$BDU ecp5 --require"
 
 probe "and is told that another part's does not transfer" 1 \
-  "does not transfer" "$BD ecp5 --require"
+  "does not transfer" "$BDU ecp5 --require"
 
 probe "a part this repo does not place is refused, not added by asking" 1 \
   "is not a part this repo places" "$BD xc7"
@@ -2424,8 +2480,9 @@ probe "a part this repo does not place is refused, not added by asking" 1 \
 probe "a part this repo stopped placing is refused too, not kept as a row" 1 \
   "is not a part this repo places" "$BD hx8k"
 
+d=$(bd_underived_fixture)
 probe "--list answers for every part, derived or not" 0 \
-  "ecp5: no placement spread" "$BD --list"
+  "ecp5: no placement spread" "python3 $d/soc/bands.py --list"
 
 begin_group "test/band_source_test.py"
 

@@ -1,6 +1,7 @@
 #!/bin/sh
-# Places the SoC at many seeds ON EITHER PART, KEEPS every seed's report, and stamps the
-# whole sweep with the tree, the part and the toolchain that measured it.
+# Places the SoC at many seeds ON EITHER PART, KEEPS every seed's report, and stamps
+# the sweep. RESUMES rather than restarts: a CSV stamped with this run's own base,
+# dirty flag and part is read, not truncated, and a placed seed is skipped.
 set -eu
 
 cd "$(dirname "$0")/.."
@@ -11,7 +12,6 @@ case $part in
     toolchain_target=soc-timing-toolchain
     place_target=soc-timing
     seed_var=SOC_SEED
-    # `soc.timing.rpt` is icetime's; the other two are nextpnr's.
     artifacts='soc.timing.rpt soc.asc soc.pnr.log'
     ;;
   ecp5)
@@ -54,8 +54,13 @@ if [ "$part" = ecp5 ]; then
   clock=$(make -s print-ECP5_CLOCK "$@")
 fi
 
-base=$(git rev-parse HEAD)
-if git diff --quiet HEAD --; then dirty=no; else dirty=yes; fi
+if [ -n "${BASELINE_BASE_OVERRIDE:-}" ]; then
+  base=$BASELINE_BASE_OVERRIDE
+  dirty=${BASELINE_DIRTY_OVERRIDE:-no}
+else
+  base=$(git rev-parse HEAD)
+  if git diff --quiet HEAD --; then dirty=no; else dirty=yes; fi
+fi
 
 mkdir -p "$out"
 
@@ -79,27 +84,58 @@ block=$(
   echo "# end-provenance"
 )
 
-printf '%s\n' "$block" > "$csv"
-python3 soc/depth/row.py --header >> "$csv"
+resume=0
+if [ -s "$csv" ] && [ "$(sed -n '1p' "$csv")" = "# baseline-sweep v1" ]; then
+  old_base=$(sed -n 's/^# base: //p' "$csv" | head -1)
+  old_dirty=$(sed -n 's/^# dirty: //p' "$csv" | head -1)
+  old_part=$(sed -n 's/^# part: //p' "$csv" | head -1)
+  if [ "$old_base" = "$base" ] && [ "$old_dirty" = "$dirty" ] && [ "$old_part" = "$part" ]; then
+    resume=1
+  fi
+fi
+
+if [ "$resume" = 1 ]; then
+  echo "soc/baseline_sweep.sh: resuming $csv -- same base, dirty flag and part"
+else
+  printf '%s\n' "$block" > "$csv"
+  python3 soc/depth/row.py --header >> "$csv"
+fi
 printf '%s\n' "$block"
 
+first_suffix=$(set -- $artifacts; first=$1; echo "${first#*.}")
+
 for seed in $seeds; do
+  if [ "$resume" = 1 ] && [ -s "$out/$name.$seed.$first_suffix" ] && \
+     awk -F, -v s="$seed" '$3 == s { found = 1 } END { exit !found }' "$csv"; then
+    echo "soc/baseline_sweep.sh: seed '$seed' already placed, skipping"
+    continue
+  fi
   case $seed in
     default) arg="" ;;
     *)       arg=$seed ;;
   esac
-  if ! log=$(make "$place_target" "$seed_var=$arg" "$@" 2>&1); then
+  # up5k's recipe writes soc.timing.rpt before SOC_MIN_MHZ, so a seed under the floor
+  # is real data with a nonzero exit; only a missing artifact stops the sweep below.
+  if log=$(make "$place_target" "$seed_var=$arg" "$@" 2>&1); then
+    make_status=0
+  else
+    make_status=$?
+  fi
+  missing=0
+  for artifact in $artifacts; do
+    [ -s "$artifact" ] || missing=1
+  done
+  if [ "$missing" = 1 ]; then
     printf '%s\n' "$log" >&2
-    echo "*** soc/baseline_sweep.sh: seed '$seed' failed; the sweep stops here." >&2
+    echo "*** soc/baseline_sweep.sh: seed '$seed' left no artifacts behind;" >&2
+    echo "*** that is a failed measurement, not a fast design. The sweep stops here." >&2
     exit 1
   fi
-  for artifact in $artifacts; do
-    if [ ! -s "$artifact" ]; then
-      echo "*** soc/baseline_sweep.sh: seed '$seed' left no $artifact behind." >&2
-      echo "*** That is a failed measurement, not a fast design." >&2
-      exit 1
-    fi
-  done
+  if [ "$make_status" != 0 ]; then
+    echo "soc/baseline_sweep.sh: seed '$seed' exited $make_status (a ratchet or" \
+         "requirement it missed) but left every artifact behind -- recorded as a" \
+         "real placement, not a sweep failure."
+  fi
   for artifact in $artifacts; do
     cp "$artifact" "$out/$name.$seed.${artifact#*.}"
   done
