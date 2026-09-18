@@ -392,9 +392,9 @@ top, ECP5 only.
   median inside the band is a null that does not even reproduce** (ADR-0121). **Both figures are
   re-confirmed with provenance, not merely inherited**: a fresh sixteen-seed sweep on an unchanged
   netlist read 6.8% spread, inside the existing range above, and two real edits to `rtl/csrs.v`
-  (ADR-0170's own
-  comment diff, replayed, and a matched-line-count blank-line-only diff) read worst-case churn of
-  3.6% and 1.7% respectively, so 3.6% stands as the ceiling rather than a number nobody re-took
+  (ADR-0170's own comment diff, replayed, and a matched-line-count blank-line-only diff) read
+  worst-case churn of 3.6% and 1.7% respectively, so 3.6% stands as the ceiling rather than a
+  number nobody re-took
   (ADR-0194). `soc/paired_sweep.sh` is the one-command runner behind that: a named base ref
   against the working tree, both parts, paired by seed, refusing below twelve seeds a side and
   never bypassing `soc/baseline_summary.py`'s own toolchain-mismatch refusal. `soc/bands.py`'s own
