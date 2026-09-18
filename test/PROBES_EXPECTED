@@ -14,6 +14,7 @@
 --step-mhz refuses a core whose worst placement is under the step
 --step-mhz replaces each core's own placed clock with one fixed step in its product
 ...and a margin under the floor writes no pin file at all
+...and a second flush one settling cycle later fails the same way
 ...and one the purge did not remove means the digest is equal by luck
 ...and so does the file it injects into going away
 ...and the count that site was declared with is red too
@@ -195,6 +196,7 @@ a failing assembler is ASSEMBLE-ERROR
 a failing assembler is fatal, not a divergence
 a failing objcopy names the region that failed
 a failure reported only by the induction leg is not evidence
+a fault bit that never reaches its own stored word is red
 a feedback path the divider formula does not describe is red
 a field the runner stopped printing is named, not counted as zero
 a field with no value is a malformed line
@@ -380,6 +382,7 @@ a program that went quiet is BELOW-FLOOR on retires
 a proof going red somewhere else is not evidence about the mtval arm
 a prose copy of a band figure goes red where it is written
 a push aimed at main instead of the refresh branch is red
+a push landing only one word instead of two is red across every occupancy
 a ratio with no whole-hertz answer cannot be stated as CLOCK_HZ
 a raw sed -i outside mutate/mutate_remove is red, naming the line
 a reached line whose wording hides its step is exit 2, not a tie of nothing
@@ -449,6 +452,7 @@ a respelled word arm stops the same way
 a respelled zeroing loop stops rather than mutating nothing
 a retire count below the floor is graded BELOW-FLOOR, not silently PASS
 a retire count too long for the shell's integers is NO-COUNTS
+a room check that forgets the request landing this cycle is red
 a row naming a file that does not exist is named
 a row whose period is not a number stops the read
 a row with no placement behind it stops the read, not just that seed
@@ -790,6 +794,7 @@ control: the shipping board agrees with its own PLL and constraint file
 control: the shipping build stays byte-identical outside DHRY_UART
 control: the shipping decoder reaches region_stall only, gated
 control: the shipping exclusion set matches its baseline both ways
+control: the shipping fetchqueue passes its own bench
 control: the shipping files describe one machine
 control: the shipping fixtures are all mutate/mutate_remove, every anchor holds
 control: the shipping harness reaches every goal and the stalled-bus mutant reaches none
@@ -888,6 +893,7 @@ product_write.py refuses a --base that is not a 40-character commit SHA
 reg_rs1 laundered through out.rs1's own register is still red
 renaming the publish step out of reach stops rather than passing
 renaming the upstream-code step out of reach stops rather than passing
+req_pending surviving a flush lets the overtaken request's reply land
 retires that stopped being spec-checked is its own status
 rule 1 declares a site count, so a generator change cannot ship unapplied
 rule 2 likewise -- ADR-0019's DIV/REM repair cannot silently stop applying
