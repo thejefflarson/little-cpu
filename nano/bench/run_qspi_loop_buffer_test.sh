@@ -16,14 +16,11 @@ REPO=$(cd "$HERE/../.." && pwd)
 QSPI_MEM_V=${2:-$REPO/nano/tb/nano_qspi_memory.v}
 
 CC=""
-for candidate in riscv64-elf-gcc riscv64-unknown-elf-gcc; do
-  if command -v "$candidate" >/dev/null 2>&1; then
-    CC=$candidate
-    break
-  fi
-done
+if command -v riscv-none-elf-gcc >/dev/null 2>&1; then
+  CC=riscv-none-elf-gcc
+fi
 if [ -z "$CC" ]; then
-  echo "error: no RISC-V cross compiler found; see 'make setup'." >&2
+  echo "error: no RISC-V cross compiler found; see 'make riscv-gcc-setup'." >&2
   exit 1
 fi
 OBJCOPY=${CC%gcc}objcopy
