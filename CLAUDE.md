@@ -389,7 +389,16 @@ top, ECP5 only.
   spelling-dependent by more than `fit` is, so quote the distribution of the text that ships
   (ADR-0106). **A candidate whose cost is a variance needs sixteen seeds, not eight** — the tail is
   what `SOC_MIN_MHZ` grades, and eight seeds passed a candidate sixteen declined (ADR-0113). **A
-  median inside the band is a null that does not even reproduce** (ADR-0121).
+  median inside the band is a null that does not even reproduce** (ADR-0121). **Both figures are
+  re-confirmed with provenance, not merely inherited**: a fresh sixteen-seed sweep on an unchanged
+  netlist read 6.8% spread, inside the existing range above, and two real edits to `rtl/csrs.v`
+  (ADR-0170's own comment diff, replayed, and a matched-line-count blank-line-only diff) read
+  worst-case churn of 3.6% and 1.7% respectively, so 3.6% stands as the ceiling rather than a
+  number nobody re-took
+  (ADR-0194). `soc/paired_sweep.sh` is the one-command runner behind that: a named base ref
+  against the working tree, both parts, paired by seed, refusing below twelve seeds a side and
+  never bypassing `soc/baseline_summary.py`'s own toolchain-mismatch refusal. `soc/bands.py`'s own
+  `derived` field carries the tree and both tool versions.
 - **With no `SOC_SEED` override, `make soc-timing` grades ONE pinned placement, not a
   sweep's worst** (ADR-0171, amending ADR-0066: the 12.0 requirement is unchanged, only
   what is measured against it). Three re-rolls of one netlist's RTL semantics — yosys's
@@ -431,8 +440,14 @@ top, ECP5 only.
   program's stores land and read back as nothing (ADR-0163). Nothing else sees it: RTL simulation
   passes, the censuses count the same 36 `DP16KD`, nextpnr places and times it, and **yosys ships
   no behavioural model for `DP16KD`**, so the mapped netlist cannot be simulated on any machine.
-  Spell such an arm as a mux on the block's OUTPUT. No ECP5 band has been derived and
-  `soc/bands.py` refuses to answer for the part; up5k's figures do not transfer. Pinning `clk` to the module's oscillator pin is not
+  Spell such an arm as a mux on the block's OUTPUT. **ECP5 now has a derived band, and it does not
+  transfer to or from up5k's**: one sixteen-seed sweep on an unchanged netlist reads 10.3%
+  placement spread, wider than up5k's own and not yet a range a second sweep could narrow or
+  widen (ADR-0194). Edit-churn reads 0% under the two rtl/csrs.v diffs that moved up5k's netlist,
+  each independently confirmed `DIGEST-DIFFERENT` for up5k by `make netlist-diff` and placed
+  BYTE-IDENTICAL on ecp5 at all sixteen seeds — a measured null under those fixtures, not a proof
+  this part cannot churn. `soc/bands.py`'s `derived` field carries the tree and both tool
+  versions; `soc/bands.py ecp5 --require` now exits zero. Pinning `clk` to the module's oscillator pin is not
   cosmetic: the pad decides where the global network is entered, and `docs/pin-constraints.md`
   records the one placement that read faster unpinned.
 - **The DUAL configuration is a FOURTH design, ECP5 only.** Two fetch windows are two copies of the

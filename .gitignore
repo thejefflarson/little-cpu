@@ -60,6 +60,8 @@ soc/compare/coremark_ram.hex
 depth.out/
 depth.*.csv
 baseline.out/
+paired.out/
+/.worktrees/
 netlist.out/
 fetch_ahead.out/
 formal/riscv-formal

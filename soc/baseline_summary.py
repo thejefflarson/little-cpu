@@ -21,7 +21,9 @@ already off, and the thing it has to survive is a reader in a hurry.
 
 `--allow-mismatch` prints the delta anyway, with the mismatch printed beside it
 rather than instead of it, for the case where the difference is understood and
-deliberate.
+deliberate. `--min-seeds N` covers a different failure and is never bypassable by
+it: a verdict taken under N is not a mismatch between two sweeps, it is one sweep
+with too few placements to read a worst, a median and a spread from.
 
 IT DOES NOT COVER THE PART, AND NOTHING DOES. Every other mismatch names two runs
 of one experiment that a reader may have good reason to subtract anyway: a
@@ -39,7 +41,7 @@ rejected instead of summarised: an unstamped file is a failed measurement, not a
 comparable one, and the whole reason this format exists is that a bare column of
 frequencies looks equally usable either way.
 
-Usage: baseline_summary.py <csv> [<csv> [--allow-mismatch]]
+Usage: baseline_summary.py <csv> [<csv> [--allow-mismatch] [--min-seeds N]]
 """
 
 import argparse
@@ -222,6 +224,26 @@ def refuse_across_parts(first, second):
         "*** Summarise each sweep on its own, against its own part's band."
     )
 
+def refuse_below_min_seeds(loaded, min_seeds):
+    """Stop a verdict, whatever flags were passed, if either sweep is too short.
+
+    Separate from mismatches() for the same reason refuse_across_parts() is: this is
+    not a difference between two sweeps that a reader could have a reason to keep
+    anyway, it is one sweep with too few placements in it to read a worst, a median
+    and a spread from -- CLAUDE.md's own "twelve to sixteen seeds, paired by seed,
+    quoting worst, median and spread -- never worst-of-N against worst-of-N."
+    --allow-mismatch does not cover it.
+    """
+    short = [(path, len(rows)) for path, _, rows in loaded if len(rows) < min_seeds]
+    if not short:
+        return
+    sys.exit(
+        "*** a go/no-go is never taken under "
+        f"{min_seeds} seeds, and:\n"
+        + "\n".join(f"***   {path} has only {n}" for path, n in short)
+        + "\n*** --allow-mismatch does NOT cover this. Sweep more seeds."
+    )
+
 def mismatches(first, second):
     """Every recorded reason these two sweeps are not one experiment.
 
@@ -270,6 +292,13 @@ def main():
         help="print the delta of two sweeps that were not measured the same way, "
         "with the mismatch beside it",
     )
+    parser.add_argument(
+        "--min-seeds",
+        type=int,
+        default=0,
+        help="refuse a two-sweep verdict if either side has fewer placements than "
+        "this, whatever flags were passed",
+    )
     args = parser.parse_args()
 
     if len(args.csv) > 2:
@@ -283,6 +312,8 @@ def main():
         return
     (first_path, first_prov, first_rows), (second_path, second_prov, second_rows) = loaded
 
+    if args.min_seeds:
+        refuse_below_min_seeds(loaded, args.min_seeds)
     refuse_across_parts((first_path, first_prov), (second_path, second_prov))
     reasons = mismatches((first_path, first_prov), (second_path, second_prov))
     if reasons and not args.allow_mismatch:
