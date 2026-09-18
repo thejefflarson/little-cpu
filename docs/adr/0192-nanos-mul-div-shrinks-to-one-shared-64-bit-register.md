@@ -112,28 +112,40 @@ both regfile builds now carrying this ticket's mul/div on both tiles:
 | 4×2 | flops (baseline, ADR-0184) | 81,879.78 | 63.638% | 101.05% | 874,050 | GRT-0116 congestion | [34848744663](https://github.com/thejefflarson/little-cpu/actions/runs/34848744663) |
 | 4×2 | latches only (ADR-0189) | 70,070.95 | 54.980% | 70.55% | 653,002 | GRT-0116 congestion, closer not closed | [34925911447](https://github.com/thejefflarson/little-cpu/actions/runs/34925911447) |
 | 4×2 | flops + this mul/div | 76,632.25 | 59.391% | 94.15% | 827,020 | GRT-0116 congestion (met2 103.28%) | [35043505103](https://github.com/thejefflarson/little-cpu/actions/runs/35043505103) |
-| 4×2 | latches + this mul/div | *cancelled at the 150-minute job limit, never reached ABC — see below* | | | | timed out, `yosys-abc` still orphaned | [35363072917](https://github.com/thejefflarson/little-cpu/actions/runs/35363072917) |
-| 4×2 | latches + this mul/div | *re-dispatched; see the PR for its result* | | | | | [35378685507](https://github.com/thejefflarson/little-cpu/actions/runs/35378685507) |
+| 4×2 | latches + this mul/div | *does not map under `AREA 0` — see below* | | | | ABC did not converge, killed at the 150-min job limit | [35363072917](https://github.com/thejefflarson/little-cpu/actions/runs/35363072917) |
+| 4×2 | latches + this mul/div | *does not map under `AREA 0` — see below* | | | | ABC did not converge, killed at the 150-min job limit (reproduced) | [35378685507](https://github.com/thejefflarson/little-cpu/actions/runs/35378685507) |
 | 2×2 | flops + this mul/div | *not yet dispatched* | | | | | |
-| 2×2 | latches + this mul/div | *not yet dispatched* | | | | | |
+| 4×2 | latches + this mul/div, `SYNTH_STRATEGY = AREA 2` | *not yet dispatched* | | | | | |
+
+**Finding: `AREA 0` does not converge in ABC on the latch register file and this mul/div combined,
+deterministically.** Two dispatches of the identical configuration (4×2, latches, this mul/div,
+`AREA 0`, `disallow_congestion=true`), on an idle runner pool both times, both stalled at "155.
+Executing ABC pass (technology mapping using ABC)" and were killed at the job's 150-minute limit
+with `yosys-abc` still among the orphaned processes: run 35363072917 ran 9,042s (about 2h 27m from
+ABC's start to cancellation) and run 35378685507 ran 9,056s, 14s apart — this is not a pod
+contention artifact, it is the same hang twice. Three comparison points bound it to this specific
+combination: ABC maps the same tile in 14s with latches and the *old* mul/div (run 34925911447), in
+8s with the *new* mul/div and the flip-flop regfile (run 35043505103), and in about 3s of ABC time
+locally through `make nano-area`'s own recipe (`synth; dfflibmap; abc`, `-D NANO_LATCH_RF`, same
+liberty) — the same source that hangs in LibreLane's `AREA 0` strategy maps cleanly everywhere else
+tried. **This is a finding about the flow's synthesis strategy on this combination, not a measurement
+of its area** — see below for why the number a cancelled run prints cannot be read as one either
+way.
 
 **A run that dies before ABC still prints a `Chip area` line, and it is not a post-mapping figure.**
-Run 35363072917 stalled at "155. Executing ABC pass (technology mapping using ABC)" and was killed
-at the job's 150-minute limit with `yosys-abc` still among the orphaned processes; ABC took 14s on
-this same tile with the old mul/div (run 34925911447) and 8s on this mul/div with the flip-flop
-regfile (run 35043505103), so this is ABC failing to converge on the combination, not a slow pod. Its
-last `stat` print, before that ABC call, reports "Chip area for module ... 18,076.0864 µm²" — that
-total sums every cell already carrying a liberty area at that point, sequential and combinational
-alike (10,869.1744 µm², 60.13%, is only the sequential share; the rest, 7,206.912 µm², is other
-already-mapped cells), but the design's combinational logic is still 10,714 generic cells (mostly
-`$_MUX_`/`$_OR_`/`$_ANDNOT_`) that ABC has not yet turned into standard cells, each logged
-"Area for cell type ... is unknown!" and contributing nothing to the total — which is the actual
-reason the printed figure is so small. Against a real post-mapping figure in the 70,000s µm² for
-the comparable configuration, 18,076 µm² is about a quarter of it — low by nearly a factor of four.
-**18,076.0864 µm² is not this configuration's area and is not quoted as one anywhere in this ADR.**
-Only a `Chip area` line from a run whose log reaches ABC is a real figure; the give-away in a
-cancelled log is the "Area for cell type $_MUX_ is unknown!" block sitting immediately above the
-`Chip area` line, which shows in one glance that nothing has been mapped yet.
+Its last `stat` print, before the ABC call that never returns, reports "Chip area for module ...
+18,076.0864 µm²" — that total sums every cell already carrying a liberty area at that point,
+sequential and combinational alike (10,869.1744 µm², 60.13%, is only the sequential share; the
+rest, 7,206.912 µm², is other already-mapped cells), but the design's combinational logic is still
+10,714 generic cells (mostly `$_MUX_`/`$_OR_`/`$_ANDNOT_`) that ABC has not yet turned into standard
+cells, each logged "Area for cell type ... is unknown!" and contributing nothing to the total —
+which is the actual reason the printed figure is so small. Against a real post-mapping figure in
+the 70,000s µm² for the comparable configuration, 18,076 µm² is about a quarter of it — low by
+nearly a factor of four. **18,076.0864 µm² is not this configuration's area and is not quoted as
+one anywhere in this ADR.** Only a `Chip area` line from a run whose log reaches ABC is a real
+figure; the give-away in a cancelled log is the "Area for cell type $_MUX_ is unknown!" block
+sitting immediately above the `Chip area` line, which shows in one glance that nothing has been
+mapped yet.
 
 The 4×2, flops-only-changed row is real evidence that this ticket's cut, alone, is smaller than
 ADR-0184's ablation implied: a non-functional stand-in read 64,285.40 µm² / 56.76% demand, while a
