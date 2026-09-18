@@ -116,7 +116,7 @@ both regfile builds now carrying this ticket's mul/div on both tiles:
 | 4×2 | latches + this mul/div | *does not map under `AREA 0` — see below* | | | | ABC did not converge, killed at the 150-min job limit (reproduced) | [35378685507](https://github.com/thejefflarson/little-cpu/actions/runs/35378685507) |
 | 2×2 | flops + this mul/div | 76,632.25 | — (GPL-0301) | not reached | not reached | GPL-0301: placement utilization 122.611% exceeds 100%, before routing | [35393172755](https://github.com/thejefflarson/little-cpu/actions/runs/35393172755) |
 | 4×2 | latches + this mul/div, `SYNTH_STRATEGY = AREA 2` | 65,026.12 | 51.064% | 66.49% | 593,048 | GRT-0116 congestion (59 total overflow: met1 9, met2 1, met3 48, met4 1) | [35393696793](https://github.com/thejefflarson/little-cpu/actions/runs/35393696793) |
-| 2×2 | latches + this mul/div, `SYNTH_STRATEGY = AREA 2` | *dispatched; see the PR for its result* | | | | | [35398388967](https://github.com/thejefflarson/little-cpu/actions/runs/35398388967) |
+| 2×2 | latches + this mul/div, `SYNTH_STRATEGY = AREA 2` | 65,026.12 | — (GPL-0301) | not reached | not reached | GPL-0301: placement utilization 105.422% exceeds 100%, before routing | [35398388967](https://github.com/thejefflarson/little-cpu/actions/runs/35398388967) |
 
 **Finding: `AREA 0` does not converge in ABC on the latch register file and this mul/div combined.**
 Two dispatches of the identical configuration (4×2, latches, this mul/div, `AREA 0`,
@@ -184,14 +184,28 @@ identified and left untouched — step 3's target, a one-read-port register file
 the residual 59 overflow points are; nothing has measured that yet, so it is a plausibility, not a
 finding.
 
+**2×2, latches, `AREA 2`: closer, not closed, and now the gap has a number.** Run 35398388967
+(231s) reads the same 65,026.1152 µm² synthesis as the 4×2 row above, then `[GPL-0301] Utilization
+105.422% exceeds`, refused before routing — against 122.611% for the rebuilt mul/div alone (2×2,
+flops) and 113.506% for the latch register file alone (2×2, ADR-0189). The pair together is **5.4%
+over** a 2×2's placeable area, not the 13.5% or 22.6% either change alone left. To place at all the
+core needs roughly another 5% off synthesis area — about 61,700 µm² or below, from
+65,026 × 100/105.422 — and that is before routing is even attempted, which on a 2×2 will be tighter
+than the 4×2 row's 66.49% demand and 59 overflow points. Step 3, the one-read-port register file,
+now has a measurable target rather than a hope: it has to clear both this placement gap and
+whatever routing then demands.
+
 ## Consequences
 
 - `nano/nano.v`'s mul/div is a straight replacement, not a define-selected variant: there is no
   path back to the three-64-bit-register design short of `git revert`.
 - The local `NANO_MAX_UM2` ratchet is unaffected (61412, still not tripped); no flow-unit line
   gates nanocpu until a finished, routed core exists (ADR-0184).
-- ADR-0184's step 3, a one-read-port register file, is next; M as a second permitted cut is
-  reached only if steps 1–3 together are still not enough to route a 2×2 under
-  `disallow_congestion=true`.
+- ADR-0184's step 3, a one-read-port register file, is next, with a sized target: roughly another
+  5% off synthesis area (65,026 → about 61,700 µm² or below) to clear 2×2 placement, then whatever
+  routing demands on top of that. M as a second permitted cut is reached only if steps 1–3 together
+  are still not enough to route a 2×2 under `disallow_congestion=true`.
+- `AREA 2` is the synthesis strategy this combination needs to reach ABC at all on the latch
+  register file; step 3's own measurement should carry it forward rather than re-trying `AREA 0`.
 - `nano/tb/nano_exec_probe.sh`'s four mutations are now the graders for this design's shape, not
   the old one's; a future rewrite of this unit owes the same rewrite this ADR gave it.
