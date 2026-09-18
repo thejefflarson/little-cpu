@@ -132,7 +132,7 @@ follow-up if that changes. It does not change any `-march=`/`-mabi=` flag or any
 `test/march_test.sh`'s site count is unmoved, and the figure changes above are entirely
 the compiler's code generation, not a behavior change in the design.
 
-## Amendment, 2026-09-15 — the claim about no remaining fallback was false when it merged
+## Amendment, 2026-09-18 — the claim about no remaining fallback was false when it merged
 
 **"Every consumer... was rewritten" and "nothing outside `mk/toolchain.mk` and the setup target
 names a search path or a fallback compiler" were both false the day this ADR merged.** Two tracked
