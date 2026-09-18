@@ -714,7 +714,7 @@ make test           # the test/asm suite (.S and .c) under cxxrtl + unit benches
                     # vexriscv-path, tracked-ignored, tool-cache, pin-bump, abc-engine,
                     # zkt-isolation, fixture-freshness, makefile-target, lut4-site,
                     # pll-clock, probes-header, dhry-board-parity, macro-register,
-                    # compare-product-schedule-publish, stall-sites)
+                    # compare-product-schedule-publish, stall-sites, pin-help-text)
                     # + window-test, imem-share-test, board-elaborate, mutation-probe,
                     # dual-build, nano-test, nano-latch-test, nano-startup-test,
                     # nano-latch-startup-test, nano-littlecpu-test and nano-qspi-loop-test;

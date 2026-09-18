@@ -5762,6 +5762,41 @@ printf '{"seed": 1}\n' > "$d/pin.json"
 probe "a partial pin missing required fields is not a pin" 2 \
   "missing sources_digest" "$SP check-sources $d/pin.json $d/a.v $d/b.v"
 
+begin_group "test/pin_help_text_test.sh"
+
+# A copy of the shipping Makefile and soc_pin.py: the two halves this checks against
+# each other.
+PHT="$HERE/pin_help_text_test.sh"
+
+pht_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/soc"
+  copy_makefile_includes "$d"
+  cp "$REPO/soc/soc_pin.py" "$d/soc/soc_pin.py"
+  printf '%s' "$d"
+}
+
+d=$(pht_fixture)
+probe "control: the shipping Makefile agrees with check-sources' warn-not-fail exit" 0 \
+  "agrees with" "$PHT $d"
+
+# The defect this exists for, reintroduced: the help text goes back to claiming a
+# mismatch fails the build.
+d=$(pht_fixture)
+mutate "$d/Makefile" \
+  "s|a digest mismatch WARNS as PIN STALE on stderr and|a digest mismatch fails as RE-PIN NEEDED|"
+probe "a help text that says a mismatch fails the build is red" 1 \
+  "no longer says a digest mismatch warns" "$PHT $d"
+
+# The other half of the comparison: the SCRIPT stops warning and starts failing, with
+# the help text untouched. The range anchors on the PIN STALE message cmd_check_sources
+# itself prints, so only its own post-mismatch `return 0` moves, not one of the other
+# four in the file (including the other `return 0` in this same function, on a match).
+d=$(pht_fixture)
+mutate "$d/soc/soc_pin.py" '/PIN STALE/,/^def cmd_seed/{s/return 0/return 2/;}'
+probe "check-sources actually refusing on a mismatch is red even if the text still warns" 1 \
+  "exited 2 on a digest mismatch" "$PHT $d"
+
 begin_group "soc/netlist_determinism.sh"
 
 nl_stub_yosys() {  # $1 = bin dir, $2 = fixture dir
