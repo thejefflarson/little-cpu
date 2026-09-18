@@ -1,6 +1,12 @@
 #!/bin/sh
 # Places the SoC at many seeds ON EITHER PART, KEEPS every seed's report, and stamps the
 # whole sweep with the tree, the part and the toolchain that measured it.
+#
+# RESUMES RATHER THAN RESTARTS. A sixteen-seed sweep is tens of minutes, so a CSV
+# already stamped with this run's own base, dirty flag and part is read rather than
+# truncated, and a seed already carrying both its artifact and its row is skipped. A
+# stamp that disagrees on any of those three fields is a different sweep and starts
+# fresh, same as an empty or absent file.
 set -eu
 
 cd "$(dirname "$0")/.."
@@ -79,27 +85,63 @@ block=$(
   echo "# end-provenance"
 )
 
-printf '%s\n' "$block" > "$csv"
-python3 soc/depth/row.py --header >> "$csv"
+resume=0
+if [ -s "$csv" ] && [ "$(sed -n '1p' "$csv")" = "# baseline-sweep v1" ]; then
+  old_base=$(sed -n 's/^# base: //p' "$csv" | head -1)
+  old_dirty=$(sed -n 's/^# dirty: //p' "$csv" | head -1)
+  old_part=$(sed -n 's/^# part: //p' "$csv" | head -1)
+  if [ "$old_base" = "$base" ] && [ "$old_dirty" = "$dirty" ] && [ "$old_part" = "$part" ]; then
+    resume=1
+  fi
+fi
+
+if [ "$resume" = 1 ]; then
+  echo "soc/baseline_sweep.sh: resuming $csv -- same base, dirty flag and part"
+else
+  printf '%s\n' "$block" > "$csv"
+  python3 soc/depth/row.py --header >> "$csv"
+fi
 printf '%s\n' "$block"
 
+# The first artifact in the part's list, stripped of its `soc.`/`ecp5.` prefix, is
+# what a resumed seed is checked against: it exists only once a placement finished.
+first_suffix=$(set -- $artifacts; first=$1; echo "${first#*.}")
+
 for seed in $seeds; do
+  if [ "$resume" = 1 ] && [ -s "$out/$name.$seed.$first_suffix" ] && \
+     awk -F, -v s="$seed" '$3 == s { found = 1 } END { exit !found }' "$csv"; then
+    echo "soc/baseline_sweep.sh: seed '$seed' already placed, skipping"
+    continue
+  fi
   case $seed in
     default) arg="" ;;
     *)       arg=$seed ;;
   esac
-  if ! log=$(make "$place_target" "$seed_var=$arg" "$@" 2>&1); then
+  # up5k's own recipe writes soc.timing.rpt and THEN applies SOC_MIN_MHZ, so a seed
+  # under the floor is a real placement with a nonzero exit, not a build failure. The
+  # spread this sweep exists to measure is exactly the distribution a ratchet's own
+  # worst-of-N would trip on, so that exit is read past rather than treated as fatal --
+  # only artifacts missing outright (a genuine build or tool failure) stop the sweep.
+  if log=$(make "$place_target" "$seed_var=$arg" "$@" 2>&1); then
+    make_status=0
+  else
+    make_status=$?
+  fi
+  missing=0
+  for artifact in $artifacts; do
+    [ -s "$artifact" ] || missing=1
+  done
+  if [ "$missing" = 1 ]; then
     printf '%s\n' "$log" >&2
-    echo "*** soc/baseline_sweep.sh: seed '$seed' failed; the sweep stops here." >&2
+    echo "*** soc/baseline_sweep.sh: seed '$seed' left no artifacts behind;" >&2
+    echo "*** that is a failed measurement, not a fast design. The sweep stops here." >&2
     exit 1
   fi
-  for artifact in $artifacts; do
-    if [ ! -s "$artifact" ]; then
-      echo "*** soc/baseline_sweep.sh: seed '$seed' left no $artifact behind." >&2
-      echo "*** That is a failed measurement, not a fast design." >&2
-      exit 1
-    fi
-  done
+  if [ "$make_status" != 0 ]; then
+    echo "soc/baseline_sweep.sh: seed '$seed' exited $make_status (a ratchet or" \
+         "requirement it missed) but left every artifact behind -- recorded as a" \
+         "real placement, not a sweep failure."
+  fi
   for artifact in $artifacts; do
     cp "$artifact" "$out/$name.$seed.${artifact#*.}"
   done
