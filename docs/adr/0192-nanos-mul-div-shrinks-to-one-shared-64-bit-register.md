@@ -114,7 +114,7 @@ both regfile builds now carrying this ticket's mul/div on both tiles:
 | 4×2 | flops + this mul/div | 76,632.25 | 59.391% | 94.15% | 827,020 | GRT-0116 congestion (met2 103.28%) | [35043505103](https://github.com/thejefflarson/little-cpu/actions/runs/35043505103) |
 | 4×2 | latches + this mul/div | *does not map under `AREA 0` — see below* | | | | ABC did not converge, killed at the 150-min job limit | [35363072917](https://github.com/thejefflarson/little-cpu/actions/runs/35363072917) |
 | 4×2 | latches + this mul/div | *does not map under `AREA 0` — see below* | | | | ABC did not converge, killed at the 150-min job limit (reproduced) | [35378685507](https://github.com/thejefflarson/little-cpu/actions/runs/35378685507) |
-| 2×2 | flops + this mul/div | *dispatched; see the PR for its result* | | | | | [35393172755](https://github.com/thejefflarson/little-cpu/actions/runs/35393172755) |
+| 2×2 | flops + this mul/div | 76,632.25 | — (GPL-0301) | not reached | not reached | GPL-0301: placement utilization 122.611% exceeds 100%, before routing | [35393172755](https://github.com/thejefflarson/little-cpu/actions/runs/35393172755) |
 | 4×2 | latches + this mul/div, `SYNTH_STRATEGY = AREA 2` | *not yet dispatched* | | | | | |
 
 **Finding: `AREA 0` does not converge in ABC on the latch register file and this mul/div combined.**
@@ -153,8 +153,15 @@ real, working unit reads 76,632.25 µm² / 94.15% — the stand-in removed the w
 replacing it with a smaller one, so it was always an upper bound on headroom, not a prediction of
 this ticket's own result. Total routing demand still falls sharply against the untouched baseline
 (101.05% → 94.15%, a 6.9-point drop) and wirelength by 5.4%, but 4×2 flops-only still fails
-`disallow_congestion=true` on met2's 103.28%. [Remaining rows filled in as their dispatches land;
-see the PR for the final table.]
+`disallow_congestion=true` on met2's 103.28%.
+
+**2×2, flops: this mul/div alone still leaves the core about a quarter too big for the tile.**
+Run 35393172755 finished in 183s — ABC mapped in about 10s to the same 76,632.2464 µm² the 4×2 row
+reads, then global placement refused it outright: `[GPL-0301] Utilization 122.611% exceeds`,
+before routing is ever attempted. This run is also the control for the finding above: same branch,
+same flow, same `AREA 0`, and it maps ABC in seconds with flops — which is what isolates the
+non-convergence to the latch-register-file combination specifically, not to this ticket's mul/div
+on its own.
 
 ## Consequences
 
