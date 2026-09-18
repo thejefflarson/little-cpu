@@ -45,6 +45,13 @@ on:
         options:
           - "flops"
           - "latches"
+      ports:
+        description: "nano/nano.v register-file read ports"
+        type: choice
+        default: "two"
+        options:
+          - "two"
+          - "one"
 
 permissions:
   contents: read
@@ -122,6 +129,7 @@ jobs:
           NANO_TT_STRATEGY: ${{ inputs.synth_strategy || 'AREA 0' }}
           NANO_TT_DISALLOW_CONGESTION: ${{ inputs.disallow_congestion && '1' || '0' }}
           NANO_TT_REGFILE: ${{ inputs.regfile || 'flops' }}
+          NANO_TT_PORTS: ${{ inputs.ports || 'two' }}
         run: |
           librelane-env bash -c '
             set -euo pipefail
@@ -146,6 +154,8 @@ jobs:
               config["GRT_ALLOW_CONGESTION"] = 0
           if os.environ["NANO_TT_REGFILE"] == "latches":
               config["VERILOG_DEFINES"] = config.get("VERILOG_DEFINES", []) + ["NANO_LATCH_RF"]
+          if os.environ["NANO_TT_PORTS"] == "one":
+              config["VERILOG_DEFINES"] = config.get("VERILOG_DEFINES", []) + ["NANO_ONE_PORT_RF"]
           with open("src/config_merged.json", "w") as f:
               json.dump(config, f, indent=2)
           PYEOF
@@ -192,6 +202,7 @@ jobs:
         if: always()
         env:
           NANO_TT_REGFILE_REPORT: ${{ inputs.regfile || 'flops' }}
+          NANO_TT_PORTS_REPORT: ${{ inputs.ports || 'two' }}
         run: |
           elapsed=$(( $(date +%s) - JOB_START ))
           if [ "$NANO_TT_STOP_AFTER_SYNTHESIS" = "1" ]; then
@@ -212,6 +223,7 @@ jobs:
           summary_line "stop after synthesis: $stop_after_synthesis_report"
           summary_line "disallow congestion: ${{ inputs.disallow_congestion || 'false' }}"
           summary_line "regfile: $NANO_TT_REGFILE_REPORT"
+          summary_line "ports: $NANO_TT_PORTS_REPORT"
           summary_line "wall time: ${elapsed}s"
           if [ -r /sys/fs/cgroup/memory.peak ]; then
             summary_line "cgroup memory.peak: $(cat /sys/fs/cgroup/memory.peak) bytes"

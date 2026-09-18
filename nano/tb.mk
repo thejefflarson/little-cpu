@@ -51,6 +51,46 @@ nano-latch-test: nano-latch-sim nano/tb/nano_icarus_latch.vvp
 nano-latch-startup-test: nano-latch-sim
 	@./nano/bench/run_startup_test.sh ./nano-latch-sim '$(NANO_CFLAGS)'
 
+nano/tb/nano_oneport_rtl.cc: rvfi_macros.vh $(NANO_SIM_RTL_SRCS) $(NANO_SIM_TB_SRCS) test/monitor.sim.v
+	yosys -p 'read_verilog -sv $(addprefix -D ,$(NANO_RISCV_FORMAL_MACROS)) -D NANO_ONE_PORT_RF $^; hierarchy -top nano_testbench; write_cxxrtl $@'
+
+nano-oneport-sim: nano/tb/nano_cxxrtl.cc nano/tb/nano_oneport_rtl.cc
+	clang++ -O2 -DNDEBUG -std=c++17 -Wall -Wextra -Werror -DNANO_RTL_INCLUDE='"nano_oneport_rtl.cc"' \
+	  -isystem "$$(yosys-config --datdir)/include/backends/cxxrtl/runtime" $< -o $@
+
+nano/tb/nano_icarus_oneport.vvp: rvfi_macros.vh $(NANO_SIM_RTL_SRCS) $(NANO_SIM_TB_SRCS) test/monitor.sim.v
+	iverilog -I./rtl/ -DICARUS -DNANO_ONE_PORT_RF $(addprefix -D,$(NANO_RISCV_FORMAL_MACROS)) -g2012 -o $@ $^
+
+.PHONY: nano-oneport-test
+nano-oneport-test: nano-oneport-sim nano/tb/nano_icarus_oneport.vvp
+	@NANO_VVP_IMAGE="$(CURDIR)/nano/tb/nano_icarus_oneport.vvp" \
+	  ./nano/tb/nano_dual_leg_test.sh ./nano-oneport-sim ./nano/tb/nano_sim_icarus.sh nano/asm \
+	  nano/asm/EXPECTED_FAIL nano/asm/OBSERVED_FLOOR '$(NANO_CFLAGS)'
+
+.PHONY: nano-oneport-startup-test
+nano-oneport-startup-test: nano-oneport-sim
+	@./nano/bench/run_startup_test.sh ./nano-oneport-sim '$(NANO_CFLAGS)'
+
+nano/tb/nano_oneport_latch_rtl.cc: rvfi_macros.vh $(NANO_SIM_RTL_SRCS) $(NANO_SIM_TB_SRCS) test/monitor.sim.v
+	yosys -p 'read_verilog -sv $(addprefix -D ,$(NANO_RISCV_FORMAL_MACROS)) -D NANO_ONE_PORT_RF -D NANO_LATCH_RF $^; hierarchy -top nano_testbench; write_cxxrtl $@'
+
+nano-oneport-latch-sim: nano/tb/nano_cxxrtl.cc nano/tb/nano_oneport_latch_rtl.cc
+	clang++ -O2 -DNDEBUG -std=c++17 -Wall -Wextra -Werror -DNANO_RTL_INCLUDE='"nano_oneport_latch_rtl.cc"' \
+	  -isystem "$$(yosys-config --datdir)/include/backends/cxxrtl/runtime" $< -o $@
+
+nano/tb/nano_icarus_oneport_latch.vvp: rvfi_macros.vh $(NANO_SIM_RTL_SRCS) $(NANO_SIM_TB_SRCS) test/monitor.sim.v
+	iverilog -I./rtl/ -DICARUS -DNANO_ONE_PORT_RF -DNANO_LATCH_RF $(addprefix -D,$(NANO_RISCV_FORMAL_MACROS)) -g2012 -o $@ $^
+
+.PHONY: nano-oneport-latch-test
+nano-oneport-latch-test: nano-oneport-latch-sim nano/tb/nano_icarus_oneport_latch.vvp
+	@NANO_VVP_IMAGE="$(CURDIR)/nano/tb/nano_icarus_oneport_latch.vvp" \
+	  ./nano/tb/nano_dual_leg_test.sh ./nano-oneport-latch-sim ./nano/tb/nano_sim_icarus.sh nano/asm \
+	  nano/asm/EXPECTED_FAIL nano/asm/OBSERVED_FLOOR '$(NANO_CFLAGS)'
+
+.PHONY: nano-oneport-latch-startup-test
+nano-oneport-latch-startup-test: nano-oneport-latch-sim
+	@./nano/bench/run_startup_test.sh ./nano-oneport-latch-sim '$(NANO_CFLAGS)'
+
 .PHONY: nano-exec-probe
 nano-exec-probe:
 	@./nano/tb/nano_exec_probe.sh
