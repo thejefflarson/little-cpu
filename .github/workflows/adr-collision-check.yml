@@ -1,0 +1,31 @@
+# Pull-request-only, non-hermetic (GitHub API): not part of `make test`. Pairs with,
+# and does not replace, test/adr_numbering_test.sh -- see CLAUDE.md's ADR pointer.
+name: adr collision check
+
+on:
+  pull_request:
+    paths:
+      - "docs/adr/**"
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: adr-collision-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  adr-collision:
+    name: adr-collision
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check every other open pull request for the same ADR number
+        run: .github/scripts/adr-collision-check.sh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
