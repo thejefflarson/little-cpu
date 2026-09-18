@@ -512,6 +512,7 @@ a sweep file that is not there reads as missing, not as empty
 a sweep of the part with no icetime is refused, not walked
 a sweep that names no part says which instrument is missing
 a sweep whose lowest value already passes is refused a flip point, not reported one
+a sweep window narrowed back to BELOW=2, ABOVE=1 cannot bracket a flip point three cycles out
 a synthesis that failed is not a passed control either
 a table with no placements in it is one too
 a tarball already in the cache is reused, and still meets the digest
