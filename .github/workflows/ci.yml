@@ -287,13 +287,23 @@ jobs:
       - name: ${{ matrix.title }}
         run: make -C formal components_${{ matrix.proof }}
 
-      - name: Report job wall time
+      - name: Report job wall time and peak memory
         if: always()
         run: |
           elapsed=$(( $(date +%s) - JOB_START ))
+          # memory.peak is cumulative for the pod's whole lifetime, not just this step,
+          # which is why each configuration under comparison needs its own job run
+          # (CLAUDE.md: "Read pod memory from /sys/fs/cgroup/memory.peak ... compare two
+          # configurations in separate jobs"). cgroup v1 has no peak file; max_usage_in_bytes
+          # is its equivalent.
+          peak=$(cat /sys/fs/cgroup/memory.peak 2>/dev/null \
+            || cat /sys/fs/cgroup/memory/memory.max_usage_in_bytes 2>/dev/null \
+            || echo unavailable)
+          echo "wall time: ${elapsed}s, pod peak memory: ${peak}"
           {
             echo "### components-proof (${{ matrix.proof }})"
             echo "wall time: ${elapsed}s"
+            echo "pod peak memory: ${peak}"
           } >> "$GITHUB_STEP_SUMMARY"
 
   components:
