@@ -186,14 +186,16 @@ finding.
 
 **2×2, latches, `AREA 2`: closer, not closed, and now the gap has a number.** Run 35398388967
 (231s) reads the same 65,026.1152 µm² synthesis as the 4×2 row above, then `[GPL-0301] Utilization
-105.422% exceeds`, refused before routing — against 122.611% for the rebuilt mul/div alone (2×2,
-flops) and 113.506% for the latch register file alone (2×2, ADR-0189). The pair together is **5.4%
-over** a 2×2's placeable area, not the 13.5% or 22.6% either change alone left. To place at all the
-core needs roughly another 5% off synthesis area — about 61,700 µm² or below, from
-65,026 × 100/105.422 — and that is before routing is even attempted, which on a 2×2 will be tighter
-than the 4×2 row's 66.49% demand and 59 overflow points. Step 3, the one-read-port register file,
-now has a measurable target rather than a hope: it has to clear both this placement gap and
-whatever routing then demands.
+105.422% exceeds`, refused before routing. Utilization is not a percentage of area, so reading the
+gap off it directly overstates the fix: 100 − 100/1.05422 converts the pair's 105.422% to **about
+5.1% too much area**, against 11.9% for the latch register file alone (113.506%, 2×2, ADR-0189) and
+18.4% for the rebuilt mul/div alone (122.611%, 2×2, flops). To place at all the core needs roughly
+that much off synthesis area — about 61,700 µm² or below, from 65,026 × 100/105.422 — and that is
+before routing is even attempted, which on a 2×2 will be tighter than the 4×2 row's 66.49% demand
+and 59 overflow points: utilization under 100% is necessary, not sufficient, and the 4×2 pair
+above still carries those 59 overflow points at a comfortable 51.064% utilization. Step 3, the
+one-read-port register file, now has a measurable target rather than a hope: it has to clear both
+this placement gap and whatever routing then demands.
 
 ## Consequences
 
