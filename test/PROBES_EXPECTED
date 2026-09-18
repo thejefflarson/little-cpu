@@ -391,6 +391,7 @@ a ref that names no commit is refused, not compared
 a reference model that produced no trace is fatal
 a refresh branch without the run id is red
 a reg_rs1 bit routed into hazard is red, at hazard's own site
+a reintroduced fallback search in a live consumer is red, and located
 a relative install directory is red before it is compared
 a renamed cell is named by path
 a renamed or deleted netlist-digest target stops the check rather than passing it
@@ -402,6 +403,7 @@ a repo root that does not exist is red before anything is parsed
 a repo root that does not exist is red before anything is parsed
 a repo root that does not exist is red before anything is parsed
 a repo root that does not exist is red before anything is parsed
+a repo root that does not exist is red before anything is scanned
 a repo root that does not exist is red before anything is scanned
 a repo root that does not exist is red before anything is scanned
 a repo root that does not exist is red before anything is scanned
@@ -527,6 +529,7 @@ a trap taken exits 5
 a tree git cannot list is a scan of nothing, not a green one
 a tree git cannot list is a scan of nothing, not a green one
 a tree git cannot list is a scan of nothing, not a green one
+a tree git cannot list is a scan of nothing, not a green one
 a tree that instantiates the core nowhere is not a clean one
 a tree that names no synth script of its own says whose was used
 a tree with no Makefile is red, not a scan of nothing
@@ -549,6 +552,7 @@ an RVFI monitor error exits 4
 an SPI base off its own window is red
 an UNREADABLE baseline is refused, not read as an empty one
 an X reaching a retire exits 7, not the monitor-error 4
+an allow-list entry whose site lost both retired names is red
 an allow-list entry whose site lost the stale ISA name is red
 an allow-list entry whose site lost the string is red
 an allow-list entry whose site no longer has the word is red
@@ -797,6 +801,7 @@ control: the shipping model's accounting identity holds on a real build
 control: the shipping pin-bump workflow keeps credentials off the upstream-code step
 control: the shipping publish step really reaches gh pr create
 control: the shipping schedule workflow confines its credential to the publish step
+control: the shipping tree has no fallback search outside its exceptions
 control: the shipping tree keeps the retired term inside its allow-list
 control: the shipping tree names one ISA at every site
 control: the shipping tree states every band figure in one place
