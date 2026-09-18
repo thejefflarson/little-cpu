@@ -19,13 +19,28 @@ instruments rather than by prose.
 ## What was built
 
 **`soc/paired_sweep.sh`**: one command that takes a base ref and sweeps it against the working
-tree, both parts, paired by seed. It reuses `soc/baseline_sweep.sh` for each half -- a base ref
-sweeps inside a tree extracted with `git archive` (the same pattern `soc/netlist_base.sh` already
-uses for `make netlist-diff`), the working tree sweeps in place -- and calls
-`soc/baseline_summary.py` on the resulting pair with neither `--allow-mismatch` (so a toolchain
-disagreement between the two sweeps refuses the verdict, `soc/baseline_summary.py`'s own existing
-behaviour) nor any way to lower the seed floor: it refuses before touching a placement tool if
-either part's own seed list, including an override, names fewer than twelve.
+tree, both parts, paired by seed, running each part's base and candidate sweep as a pair rather
+than sequentially since they write into two different directories and nothing collides. It reuses
+`soc/baseline_sweep.sh` for each half -- a base ref sweeps inside a tree extracted with
+`git archive` (the same pattern `soc/netlist_base.sh` already uses for `make netlist-diff`), the
+working tree sweeps in place -- and calls `soc/baseline_summary.py` on the resulting pair with
+neither `--allow-mismatch` (so a toolchain disagreement between the two sweeps refuses the
+verdict, `soc/baseline_summary.py`'s own existing behaviour) nor any way to lower the seed floor:
+it refuses before touching a placement tool if either part's own seed list, including an override,
+names fewer than twelve.
+
+**The base leg's extracted tree lands outside this repo, in the tool cache, not a subdirectory of
+it.** First built nested under the sweep's own output directory, inside this repo's working tree:
+`git archive` carries no `.git`, and a plain `git rev-parse`/`git diff` run inside a tree nested in
+a real git working directory does not fail -- it walks up and silently answers for the ENCLOSING
+repo instead, which a first real end-to-end run of this script demonstrated by reading `dirty: yes`
+and the working tree's own state for a base leg whose own copy of `soc/baseline_sweep.sh` (from a
+ref that predates this ticket) had no override to read. `soc/baseline_sweep.sh` gains
+`BASELINE_BASE_OVERRIDE`/`BASELINE_DIRTY_OVERRIDE`, so a base leg swept at or after this commit
+never calls git inside the extracted tree at all; moving the extraction itself to
+`~/.cache/little-cpu/paired-sweep/<sha>`, alongside the OSS CAD Suite and the pinned RISC-V gcc,
+means a base ref whose own script predates the override fails loudly (`fatal: not a git
+repository`) instead of silently sweeping the wrong tree -- confirmed both ways on a real run.
 
 **Resume rather than restart, in `soc/baseline_sweep.sh` itself.** A sixteen-seed sweep is
 tens of minutes; a CSV already stamped with the run's own base commit, dirty flag and part is
