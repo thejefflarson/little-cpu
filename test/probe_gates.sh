@@ -3327,6 +3327,51 @@ d=$(new_case); : > "$d/counts"
 probe "no programs at all would report a clean 0 of 0" 1 \
   "no program reported its cycles" "$SR $d/counts"
 
+begin_group "test/stall_sites_test.py"
+
+SS="python3 $REPO/test/stall_sites_test.py"
+
+ss_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/rtl" "$d/test" "$d/formal"
+  cp "$REPO/rtl/decoder.v" "$d/rtl/"
+  cp "$REPO/test/decoder_tb.v" "$REPO/test/cxxrtl.cc" "$REPO/test/stall_report.py" "$d/test/"
+  cp "$REPO/formal/pcloop.sv" "$d/formal/"
+  cp "$REPO/CLAUDE.md" "$d/"
+  printf '%s' "$d"
+}
+
+d=$(ss_fixture)
+probe "control: the shipping tree names the eight stall reasons consistently" 0 \
+  "agree across all six declared sites" "$SS $d"
+
+probe "a stall-sites repo root that does not exist is red before anything is scanned" 1 \
+  "is not a directory" "$SS $d/nowhere"
+
+d=$(ss_fixture)
+mutate "$d/test/stall_report.py" \
+  's/REASONS = \["divider", "atomic", "hazard", "serialize", "operand", "fetch", "bus",/REASONS = ["divider", "atomic", "hazard", "operand", "fetch", "bus",/'
+probe "a reason dropped from one downstream site is red, and named" 1 \
+  "test/stall_report.py's REASONS is ['divider', 'atomic', 'hazard', 'operand', 'fetch', 'bus', 'region'], not ['divider', 'atomic', 'hazard', 'serialize', 'operand', 'fetch', 'bus', 'region']" \
+  "$SS $d"
+
+d=$(ss_fixture)
+mutate "$d/rtl/decoder.v" \
+  's/assign stall_own = hazard || operand_stall || divider_stall || fetch_stall ||/assign stall_own = hazard || operand_stall || divider_stall ||/'
+probe "a reason dropped from the decoder's own composition is red, and named" 1 \
+  "rtl/decoder.v's stall composition (stall_own/stall_other/stall) is missing reason 'fetch'" \
+  "$SS $d"
+
+d=$(ss_fixture)
+mutate "$d/test/decoder_tb.v" \
+  's/dut.fetch_stall || dut.bus_wait || dut.region_stall)) begin/dut.fetch_stall || dut.bus_wait || dut.region_stall || dut.kill)) begin/'
+probe "a future kill wrongly ORed into the OR-identity is red, and named" 1 \
+  "test/decoder_tb.v's OR-identity check names 'kill'" "$SS $d"
+
+probe "...and the message routes kill to the cycle-accounting identity instead" 1 \
+  "kill belongs in the cycle-accounting identity test/stall_report.py already keeps" \
+  "$SS $d"
+
 begin_group "test/tool_cache_test.sh"
 
 # XDG_CACHE_HOME is what both the Makefile and test/cosim.py resolve the tool cache from,

@@ -18,6 +18,7 @@
 ...and one the purge did not remove means the digest is equal by luck
 ...and so does the file it injects into going away
 ...and the count that site was declared with is red too
+...and the message routes kill to the cycle-accounting identity instead
 ...and the report names the parameter, not merely 'changed'
 ...and the report names the target make actually overrode
 ...and the same for the second mutation, which shares that line
@@ -217,6 +218,7 @@ a formal harness that stops wiring rvfi at all is red
 a fourth core's ROM_WORDS with no Makefile entry to reach it is red
 a frequency with no path under it is not a measurement
 a funct3-only predicate is rejected when a funct7 still separates two modelled rows
+a future kill wrongly ORed into the OR-identity is red, and named
 a gap in the sequence is not a defect
 a gap opening between the UART and the SPI controller is red
 a gap opening between the data RAM and the timer is red
@@ -389,6 +391,8 @@ a reached line whose wording hides its step is exit 2, not a tie of nothing
 a reached line whose wording hides its step stops rather than switching the tie off
 a real archive missing one vendored member is caught, and named
 a real archive with one byte-mutated file is caught, and named
+a reason dropped from one downstream site is red, and named
+a reason dropped from the decoder's own composition is red, and named
 a recipe naming the riscv-formal clone's VexRiscv path instead of $(VEXRISCV_V) is red
 a ref that names no commit is refused, not compared
 a reference model that produced no trace is fatal
@@ -496,6 +500,7 @@ a stale pin warns and does not fail, because the gate is Fmax
 a stall nothing in the list explains is a reason nobody wrote down
 a stall reason the accounting cannot name is red even with every test passing
 a stall reason with no driving cell stops the run
+a stall-sites repo root that does not exist is red before anything is scanned
 a stalled-bus mutant red for only some goals is not full evidence
 a stamp measured on a dirty tree is STALE even if nothing has moved since
 a stamp with no table under it is a failed measurement
@@ -811,6 +816,7 @@ control: the shipping schedule workflow confines its credential to the publish s
 control: the shipping tree has no fallback search outside its exceptions
 control: the shipping tree keeps the retired term inside its allow-list
 control: the shipping tree names one ISA at every site
+control: the shipping tree names the eight stall reasons consistently
 control: the shipping tree states every band figure in one place
 control: the shipping workflow resolves its mode once and saves its PDK cache unconditionally
 control: the tracked monitor sanitizes, and rule 3 fires

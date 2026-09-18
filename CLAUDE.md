@@ -150,7 +150,11 @@ references still resolve.
   load/store region wait. A reason is declared in **six** places: the decoder's signal, its OR, its
   publish arm and its `FORMAL` asserts; `test/decoder_tb.v`'s OR-identity check and its both-ways
   vectors; `test/cxxrtl.cc`'s bucket; `test/stall_report.py`'s `REASONS` and `HEADINGS`;
-  `formal/pcloop.sv`'s `f_may_stall`; and this list. Each hold/bubble ruling is only arm order in
+  `formal/pcloop.sv`'s `f_may_stall`; and this list, all six graded against each other by
+  `test/stall_sites_test.py` on every `make test`. The cycle-accounting identity itself
+  (`test/stall_report.py`'s `unattributed` column) runs there too, not only under `make cycles`:
+  `--stalls` costs the runner leg no measurable wall time, so `STALL_REPORT=1` is now the default
+  for `make test`'s own suite run rather than a second pass. Each hold/bubble ruling is only arm order in
   the publish block, so each is asserted in the `FORMAL` block and vectored both ways in
   `test/decoder_tb.v`. Three arms carry their reason with them: the **atomic write cycle** bubbles
   because the executor has already consumed the AMO and a hold would retire it twice (G is 6 with
@@ -710,11 +714,12 @@ make test           # the test/asm suite (.S and .c) under cxxrtl + unit benches
                     # vexriscv-path, tracked-ignored, tool-cache, pin-bump, abc-engine,
                     # zkt-isolation, fixture-freshness, makefile-target, lut4-site,
                     # pll-clock, probes-header, dhry-board-parity, macro-register,
-                    # compare-product-schedule-publish)
+                    # compare-product-schedule-publish, stall-sites)
                     # + window-test, imem-share-test, board-elaborate, mutation-probe,
                     # dual-build, nano-test, nano-latch-test, nano-startup-test,
                     # nano-latch-startup-test, nano-littlecpu-test and nano-qspi-loop-test;
-                    # graded against EXPECTED_FAIL / OBSERVED_FLOOR
+                    # graded against EXPECTED_FAIL / OBSERVED_FLOOR, with STALL_REPORT=1 so the
+                    # cycle-accounting identity runs on every call, not only `make cycles`
 make test-units     # the unit benches alone; the list is checked against test/*_tb.v both ways
 make elaborate-strict # yosys elaborates every simulation source through `check`; the
                     # required `elaborate` CI job
@@ -731,8 +736,9 @@ make board-elaborate # read soc/board_upduino.v warning-free and force two break
 make imem-share-test # map rtl/imemory.v at one and two fetch windows on both parts and
                     # require two windows to be two copies of ONE storage
 make cycles         # the suite, every cycle charged to an issue or one of the eight stall
-                    # reasons; nonzero on a cycle none explains. Prints the two load/store
-                    # locality counters. Not on CI -- there is no CPI ratchet
+                    # reasons; nonzero on a cycle none explains -- the same check `make test`
+                    # now runs by default, but this target also prints the full CPI table and
+                    # the two load/store locality counters. Not on CI -- there is no CPI ratchet
 make dhrystone      # Dhrystone 2.1 (test/bench) -> DMIPS/MHz and the same accounting;
                     # DHRY_RUNS picks the count. Not on CI, no ratchet
 make coremark       # CoreMark (test/bench) -> CoreMark/MHz, SIMULATED AT 16 KB OF ROM;
