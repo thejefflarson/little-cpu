@@ -1,4 +1,4 @@
-# ADR-0191: nano's mul/div shrinks to one shared 64-bit register
+# ADR-0192: nano's mul/div shrinks to one shared 64-bit register
 
 **Status:** Accepted · 2026-09-18
 
