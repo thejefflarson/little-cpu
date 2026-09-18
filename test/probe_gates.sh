@@ -1964,7 +1964,7 @@ with open(os.path.join(cfgname, name), "w") as f:
 PY
 
 probe "a generated .sby whose depth drifted from what the core's sweep asked for is refused, not read anyway" 1 \
-  "not the 4 this row swept" \
+  "not the 3 this row swept" \
   "$RFG_MAIN && python3 remeasure-fg.py --genchecks '$tmp/fake-genchecks-main.py'; rc=\$?; rm -rf '$REPO/formal/fg-probe' '$REPO/formal/fg-probe.cfg'; exit \$rc"
 
 cat > "$tmp/fake-genchecks-main-reset.py" <<'PY'
@@ -1996,6 +1996,36 @@ PY
 probe "a generated .sby whose reset window drifted from what the core's sweep asked for is refused, not read anyway" 1 \
   "RISCV_FORMAL_RESET_CYCLES = 99, not the 1 this row swept" \
   "$RFG_MAIN && python3 remeasure-fg.py --genchecks '$tmp/fake-genchecks-main-reset.py'; rc=\$?; rm -rf '$REPO/formal/fg-probe' '$REPO/formal/fg-probe.cfg'; exit \$rc"
+
+# A copy with BELOW/ABOVE narrowed back to their pre-widening values (2, 1): a real flip
+# point three cycles past the declared figure sits outside that window, so every row swept
+# has to come back FAIL and the script has to say the window is too narrow rather than
+# guess. The stub sby PASSes only once the swept RISCV_FORMAL_CHECK_CYCLE reaches 8.
+d=$(new_case)
+cp "$REPO/formal/remeasure-fg.py" "$REPO/formal/depth_rules.py" "$REPO/formal/genchecks-audit.py" "$d/"
+mutate "$d/remeasure-fg.py" 's/^BELOW, ABOVE = 3, 3$/BELOW, ABOVE = 2, 1/'
+
+mkdir -p "$tmp/bin-sby-narrow"
+cat > "$tmp/bin-sby-narrow/sby" <<'STUB'
+#!/bin/sh
+# Stands in for sby: FAILs until the swept RISCV_FORMAL_CHECK_CYCLE reaches 8, standing in
+# for a flip point that moved three cycles past what remeasure-fg.py declares.
+sby_file=$2
+out=$(dirname "$sby_file")
+check=$(basename "$sby_file" .sby)
+mkdir -p "$out/$check"
+cycle=$(grep -o 'RISCV_FORMAL_CHECK_CYCLE [0-9]*' "$sby_file" | head -1 | awk '{print $2}')
+if [ "$cycle" -ge 8 ]; then
+  echo "PASS 2 0" > "$out/$check/status"
+else
+  echo "FAIL 2 0" > "$out/$check/status"
+fi
+STUB
+chmod +x "$tmp/bin-sby-narrow/sby"
+
+probe "a sweep window narrowed back to BELOW=2, ABOVE=1 cannot bracket a flip point three cycles out" 1 \
+  "moved by more than 1; widen ABOVE" \
+  "$RFG_MAIN && PATH='$tmp/bin-sby-narrow':\$PATH python3 '$d/remeasure-fg.py' . --genchecks '$REPO/formal/genchecks-local.py'; rc=\$?; rm -rf '$REPO/formal/fg-probe' '$REPO/formal/fg-probe.cfg'; exit \$rc"
 
 begin_group "formal/remeasure-fg.py against nano/formal"
 
@@ -2033,7 +2063,7 @@ with open(os.path.join(cfgname, name), "w") as f:
 PY
 
 probe "a generated .sby whose depth drifted from what was swept is refused, not read anyway" 1 \
-  "not the 10 this row swept" \
+  "not the 9 this row swept" \
   "$RFG && python3 ../../formal/remeasure-fg.py . --genchecks '$tmp/fake-genchecks.py'; rc=\$?; rm -rf '$REPO/nano/formal/fg-probe' '$REPO/nano/formal/fg-probe.cfg'; exit \$rc"
 
 probe "a harness directory with no checks.cfg is named, not measured as empty" 1 \
@@ -3166,6 +3196,47 @@ probe "a declared bench with no file is named the other way" 2 \
 probe "a declared bench with no UNIT_BENCH_SRC_* would build with no design under test" 2 \
   "monitor_tb is in UNIT_BENCHES with no UNIT_BENCH_SRC_monitor_tb" \
   "$MB UNIT_BENCH_SRC_monitor_tb="
+
+begin_group "test/fetchqueue_tb.v"
+
+if ! command -v iverilog > /dev/null 2>&1; then
+  echo "error: iverilog not found, so rtl/fetchqueue.v's own bench cannot be forced" >&2
+  echo "red. Install the OSS CAD Suite." >&2
+  exit 1
+fi
+
+fq_fixture() {  # $1 = sed expression applied to a copy of rtl/fetchqueue.v, or "" for the control
+  local d; d=$(new_case)
+  cp "$REPO/rtl/fetchqueue.v" "$d/fetchqueue.v"
+  if [ -n "$1" ]; then mutate "$d/fetchqueue.v" "$1"; fi
+  printf '%s' "$d"
+}
+
+fq_run() {  # $1 = fixture dir
+  iverilog -g2012 -o "$1/fq.vvp" "$1/fetchqueue.v" "$REPO/test/fetchqueue_tb.v" && vvp "$1/fq.vvp"
+}
+
+d=$(fq_fixture "")
+probe "control: the shipping fetchqueue passes its own bench" 0 \
+  "PASSED: fetchqueue" "fq_run $d"
+
+d=$(fq_fixture "s/cnt <= cnt - (do_pop ? 3'd1 : 3'd0) + (req_pending ? 3'd2 : 3'd0);/cnt <= cnt - (do_pop ? 3'd1 : 3'd0) + (req_pending ? 3'd1 : 3'd0);/")
+probe "a push landing only one word instead of two is red across every occupancy" 1 \
+  "the first request's pair landed" "fq_run $d"
+
+d=$(fq_fixture "s/fault_mem\[tail\]        <= imem_fault;/fault_mem[tail]        <= 1'b0;/")
+probe "a fault bit that never reaches its own stored word is red" 1 \
+  "q0_fault set on the faulting pair's low word" "fq_run $d"
+
+d=$(fq_fixture "s/if (reset || flush) req_pending <= 1'b0;/if (reset) req_pending <= 1'b0;/")
+probe "req_pending surviving a flush lets the overtaken request's reply land" 1 \
+  "the settling cycle: the overtaken request's reply never landed" "fq_run $d"
+probe "...and a second flush one settling cycle later fails the same way" 1 \
+  "settling on the second target: still nothing stale queued" "fq_run $d"
+
+d=$(fq_fixture "s/ + (addr_changed ? 3'd2 : 3'd0);/;/")
+probe "a room check that forgets the request landing this cycle is red" 1 \
+  "a request landing this cycle, on top of one queued pair: no room left" "fq_run $d"
 
 begin_group "test/stall_report.py"
 
@@ -7021,7 +7092,7 @@ mcov_fixture() {
 
 d=$(mcov_fixture)
 probe "control: the shipping manifest rules on every rtl/*.v file" 0 \
-  "19 rtl/*.v files, each ruled on" "$MCOV $d"
+  "20 rtl/*.v files, each ruled on" "$MCOV $d"
 
 probe "a repo root that does not exist is red before anything is parsed" 1 \
   "is not a directory" "$MCOV $d/nowhere"
