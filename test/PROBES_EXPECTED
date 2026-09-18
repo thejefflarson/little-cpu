@@ -249,6 +249,7 @@ a harness that is red at rest makes the two mutations meaningless
 a harness with no data RAM at all does not pass by silence
 a harness with no line in the baseline is red
 a harness with no line in the baseline is red
+a help text that says a mismatch fails the build is red
 a hop class nothing classifies would move the split silently
 a hop sum that does not reconcile blames the script, not the design
 a job with no main-only guard is red, since workflow_dispatch can target any ref
@@ -675,6 +676,7 @@ board.lds putting the stack back at the top of ram is red
 boot.lds putting .data back at ram's origin is red
 boot.lds putting the stack back at the top of ram is red
 branch_taken carrying reg_rs1/reg_rs2 into hazard is red
+check-sources actually refusing on a mismatch is red even if the text still warns
 columns that do not add up blame the report, not the core
 columns that no longer add up to the cycle count are red
 complete.sby moving away leaves the depth tie with nothing to read
@@ -798,6 +800,7 @@ control: the measured CoreMark image reports the shortfall it has
 control: the measured image reports the shortfall it has
 control: the note a delta is read against carries the part too
 control: the pc hop reaches the pc bin, by the declared net's bits
+control: the shipping Makefile agrees with check-sources' warn-not-fail exit
 control: the shipping Makefile defines no target twice
 control: the shipping Makefile owes nothing but themselves to the two targets
 control: the shipping PROBES_EXPECTED header is present and not in C order
