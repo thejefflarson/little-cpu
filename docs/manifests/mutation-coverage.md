@@ -58,6 +58,8 @@ whole set `test/mutations/` has for it.
 - `rtl/executor.v`'s arithmetic is what `test/exec_tb.v` exists to check
   differentially — the riscv-formal checks run under `RISCV_FORMAL_ALTOPS`
   and never touch the real multiplier or divider.
+- `rtl/fetchqueue.v` is not instantiated anywhere yet; `test/fetchqueue_tb.v`
+  is its only grader, with its own forced-red probes in `test/probe_gates.sh`.
 - `rtl/memory.v`'s own bench drives the two corners the suite never reaches:
   an out-of-range access, and the no-change read.
 - `rtl/regfile.v`'s own bench pins the two-cycle read contract and the

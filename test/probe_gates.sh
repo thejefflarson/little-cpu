@@ -3197,6 +3197,47 @@ probe "a declared bench with no UNIT_BENCH_SRC_* would build with no design unde
   "monitor_tb is in UNIT_BENCHES with no UNIT_BENCH_SRC_monitor_tb" \
   "$MB UNIT_BENCH_SRC_monitor_tb="
 
+begin_group "test/fetchqueue_tb.v"
+
+if ! command -v iverilog > /dev/null 2>&1; then
+  echo "error: iverilog not found, so rtl/fetchqueue.v's own bench cannot be forced" >&2
+  echo "red. Install the OSS CAD Suite." >&2
+  exit 1
+fi
+
+fq_fixture() {  # $1 = sed expression applied to a copy of rtl/fetchqueue.v, or "" for the control
+  local d; d=$(new_case)
+  cp "$REPO/rtl/fetchqueue.v" "$d/fetchqueue.v"
+  if [ -n "$1" ]; then mutate "$d/fetchqueue.v" "$1"; fi
+  printf '%s' "$d"
+}
+
+fq_run() {  # $1 = fixture dir
+  iverilog -g2012 -o "$1/fq.vvp" "$1/fetchqueue.v" "$REPO/test/fetchqueue_tb.v" && vvp "$1/fq.vvp"
+}
+
+d=$(fq_fixture "")
+probe "control: the shipping fetchqueue passes its own bench" 0 \
+  "PASSED: fetchqueue" "fq_run $d"
+
+d=$(fq_fixture "s/cnt <= cnt - (do_pop ? 3'd1 : 3'd0) + (req_pending ? 3'd2 : 3'd0);/cnt <= cnt - (do_pop ? 3'd1 : 3'd0) + (req_pending ? 3'd1 : 3'd0);/")
+probe "a push landing only one word instead of two is red across every occupancy" 1 \
+  "the first request's pair landed" "fq_run $d"
+
+d=$(fq_fixture "s/fault_mem\[tail\]        <= imem_fault;/fault_mem[tail]        <= 1'b0;/")
+probe "a fault bit that never reaches its own stored word is red" 1 \
+  "q0_fault set on the faulting pair's low word" "fq_run $d"
+
+d=$(fq_fixture "s/if (reset || flush) req_pending <= 1'b0;/if (reset) req_pending <= 1'b0;/")
+probe "req_pending surviving a flush lets the overtaken request's reply land" 1 \
+  "the settling cycle: the overtaken request's reply never landed" "fq_run $d"
+probe "...and a second flush one settling cycle later fails the same way" 1 \
+  "settling on the second target: still nothing stale queued" "fq_run $d"
+
+d=$(fq_fixture "s/ + (addr_changed ? 3'd2 : 3'd0);/;/")
+probe "a room check that forgets the request landing this cycle is red" 1 \
+  "a request landing this cycle, on top of one queued pair: no room left" "fq_run $d"
+
 begin_group "test/stall_report.py"
 
 SR="python3 $REPO/test/stall_report.py"
@@ -7051,7 +7092,7 @@ mcov_fixture() {
 
 d=$(mcov_fixture)
 probe "control: the shipping manifest rules on every rtl/*.v file" 0 \
-  "19 rtl/*.v files, each ruled on" "$MCOV $d"
+  "20 rtl/*.v files, each ruled on" "$MCOV $d"
 
 probe "a repo root that does not exist is red before anything is parsed" 1 \
   "is not a directory" "$MCOV $d/nowhere"

@@ -7,6 +7,7 @@ rtl/imemory.v   text-port-drops-load
 rtl/timer.v     mtip-fires-a-tick-early
 
 rtl/executor.v  unpaired  exec_tb
+rtl/fetchqueue.v  unpaired  fetchqueue_tb
 rtl/memory.v    unpaired  mem_tb
 rtl/regfile.v   unpaired  regfile_tb
 rtl/regsel.v    unpaired  decoder_tb
