@@ -116,7 +116,7 @@ both regfile builds now carrying this ticket's mul/div on both tiles:
 | 4×2 | latches + this mul/div | *does not map under `AREA 0` — see below* | | | | ABC did not converge, killed at the 150-min job limit (reproduced) | [35378685507](https://github.com/thejefflarson/little-cpu/actions/runs/35378685507) |
 | 2×2 | flops + this mul/div | 76,632.25 | — (GPL-0301) | not reached | not reached | GPL-0301: placement utilization 122.611% exceeds 100%, before routing | [35393172755](https://github.com/thejefflarson/little-cpu/actions/runs/35393172755) |
 | 4×2 | latches + this mul/div, `SYNTH_STRATEGY = AREA 2` | 65,026.12 | 51.064% | 66.49% | 593,048 | GRT-0116 congestion (59 total overflow: met1 9, met2 1, met3 48, met4 1) | [35393696793](https://github.com/thejefflarson/little-cpu/actions/runs/35393696793) |
-| 2×2 | latches + this mul/div, `SYNTH_STRATEGY = AREA 2` | *dispatched; see the PR for its result* | | | | | |
+| 2×2 | latches + this mul/div, `SYNTH_STRATEGY = AREA 2` | *dispatched; see the PR for its result* | | | | | [35398388967](https://github.com/thejefflarson/little-cpu/actions/runs/35398388967) |
 
 **Finding: `AREA 0` does not converge in ABC on the latch register file and this mul/div combined.**
 Two dispatches of the identical configuration (4×2, latches, this mul/div, `AREA 0`,
