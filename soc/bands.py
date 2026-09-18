@@ -39,11 +39,9 @@ import sys
 class Underived(Exception):
     """Asked for figures that were never measured for this part."""
 
-# Every part this repo places, with what has been measured on it. `derived` is
-# `soc/paired_sweep.sh`'s own output for churn, plus `soc/baseline_sweep.sh`'s for
-# spread: the tree, both tool versions and the sweep, so this file's own docstring
-# claim -- a band is a measurement with a date on it -- is checkable against a real
-# run rather than taken on faith.
+# Every part this repo places, with what has been measured on it. `derived` names
+# the tree, both tool versions and the sweep, so this file's own docstring claim --
+# a band is a measurement with a date on it -- is checkable against a real run.
 BANDS = {
     "up5k": {
         "instrument": "make soc-timing",
