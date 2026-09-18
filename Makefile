@@ -649,6 +649,12 @@ probes-header-test:
 stall-sites-test:
 	@python3 ./test/stall_sites_test.py
 
+# soc_pin.py's own usage block says check-sources exits 0 -- a mismatch warns, it does
+# not fail -- and this keeps the soc-timing recipe's help text saying the same thing.
+.PHONY: pin-help-text-test
+pin-help-text-test:
+	@./test/pin_help_text_test.sh
+
 .PHONY: lut4-site-test
 lut4-site-test:
 	@./test/lut4_site_test.sh
@@ -720,7 +726,7 @@ test: sim test-units probe-gates pin-bump-test pin-bump-token-test \
       pll-clock-test ill-e-wiring-test probes-header-test dhry-board-parity-test nano-test \
       nano-latch-test nano-latch-startup-test \
       nano-exec-test nano-startup-test macro-register-test nano-littlecpu-test \
-      nano-tt-area-workflow-test nano-qspi-loop-test stall-sites-test
+      nano-tt-area-workflow-test nano-qspi-loop-test stall-sites-test pin-help-text-test
 	@STALL_REPORT=1 ./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 .PHONY: cycles
@@ -982,8 +988,9 @@ soc-timing: soc-timing-toolchain soc.asc
 	@echo 'toolchain-dependent the same way `make fit` is. 12 MHz is a'
 	@echo 'REQUIREMENT as of ADR-0066: it is the board clock, and the step below'
 	@echo 'it is 6 MHz. With no SOC_SEED override this places at the PINNED seed'
-	@echo '(soc/pin.json) -- a digest mismatch fails as RE-PIN NEEDED'
-	@echo 'before nextpnr ever runs, which is a stale pin and not a slow design.'
+	@echo '(soc/pin.json) -- a digest mismatch WARNS as PIN STALE on stderr and'
+	@echo 'does NOT fail the build: the gate is Fmax, so nextpnr still places at'
+	@echo 'the pinned seed and this line grades that placement either way.'
 	@echo 'soc/timing_sweep.sh and an explicit SOC_SEED= still print the spread.'
 	@# The ratchet is applied by the thing that already parses the report. It
 	@# was a `python3 -c` here, i.e. a SECOND parser of the same file -- and the

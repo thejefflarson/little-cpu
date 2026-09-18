@@ -3277,7 +3277,7 @@ d=$(fq_fixture "")
 probe "control: the shipping fetchqueue passes its own bench" 0 \
   "PASSED: fetchqueue" "fq_run $d"
 
-d=$(fq_fixture "s/cnt <= cnt - (do_pop ? 3'd1 : 3'd0) + (req_pending ? 3'd2 : 3'd0);/cnt <= cnt - (do_pop ? 3'd1 : 3'd0) + (req_pending ? 3'd1 : 3'd0);/")
+d=$(fq_fixture "s/cnt <= cnt - (do_pop ? 3'd1 : 3'd0) + (req_valid ? 3'd2 : 3'd0);/cnt <= cnt - (do_pop ? 3'd1 : 3'd0) + (req_valid ? 3'd1 : 3'd0);/")
 probe "a push landing only one word instead of two is red across every occupancy" 1 \
   "the first request's pair landed" "fq_run $d"
 
@@ -3285,15 +3285,25 @@ d=$(fq_fixture "s/fault_mem\[tail\]        <= imem_fault;/fault_mem[tail]       
 probe "a fault bit that never reaches its own stored word is red" 1 \
   "q0_fault set on the faulting pair's low word" "fq_run $d"
 
-d=$(fq_fixture "s/if (reset || flush) req_pending <= 1'b0;/if (reset) req_pending <= 1'b0;/")
-probe "req_pending surviving a flush lets the overtaken request's reply land" 1 \
+d=$(fq_fixture "s/if (reset || flush) begin/if (reset) begin/")
+probe "a push surviving a flush lets the overtaken request's reply land" 1 \
   "the settling cycle: the overtaken request's reply never landed" "fq_run $d"
 probe "...and a second flush one settling cycle later fails the same way" 1 \
   "settling on the second target: still nothing stale queued" "fq_run $d"
 
-d=$(fq_fixture "s/ + (addr_changed ? 3'd2 : 3'd0);/;/")
-probe "a room check that forgets the request landing this cycle is red" 1 \
-  "a request landing this cycle, on top of one queued pair: no room left" "fq_run $d"
+d=$(fq_fixture "")
+mutate "$d/fetchqueue.v" \
+  '/^  logic \[2:0\]  cnt;$/a\
+  logic req_valid_d;\
+  always_ff @(posedge clk) req_valid_d <= req_valid;' \
+  "s/if (req_valid) begin/if (req_valid_d) begin/" \
+  "s/+ (req_valid ? 3'd2 : 3'd0);/+ (req_valid_d ? 3'd2 : 3'd0);/"
+probe "a retried response gated on a stale, registered req_valid is red" 1 \
+  "the retried request's real response lands exactly once" "fq_run $d"
+
+d=$(fq_fixture "s/assign committed = cnt + (req_valid ? 3'd2 : 3'd0);/assign committed = cnt;/")
+probe "a room check that forgets the response landing this cycle is red" 1 \
+  "a response due this cycle, on top of one queued pair: no room left" "fq_run $d"
 
 begin_group "test/stall_report.py"
 
@@ -5818,6 +5828,41 @@ d=$(sp_pin_matching)
 printf '{"seed": 1}\n' > "$d/pin.json"
 probe "a partial pin missing required fields is not a pin" 2 \
   "missing sources_digest" "$SP check-sources $d/pin.json $d/a.v $d/b.v"
+
+begin_group "test/pin_help_text_test.sh"
+
+# A copy of the shipping Makefile and soc_pin.py: the two halves this checks against
+# each other.
+PHT="$HERE/pin_help_text_test.sh"
+
+pht_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/soc"
+  copy_makefile_includes "$d"
+  cp "$REPO/soc/soc_pin.py" "$d/soc/soc_pin.py"
+  printf '%s' "$d"
+}
+
+d=$(pht_fixture)
+probe "control: the shipping Makefile agrees with check-sources' warn-not-fail exit" 0 \
+  "agrees with" "$PHT $d"
+
+# The defect this exists for, reintroduced: the help text goes back to claiming a
+# mismatch fails the build.
+d=$(pht_fixture)
+mutate "$d/Makefile" \
+  "s|a digest mismatch WARNS as PIN STALE on stderr and|a digest mismatch fails as RE-PIN NEEDED|"
+probe "a help text that says a mismatch fails the build is red" 1 \
+  "no longer says a digest mismatch warns" "$PHT $d"
+
+# The other half of the comparison: the SCRIPT stops warning and starts failing, with
+# the help text untouched. The range anchors on the PIN STALE message cmd_check_sources
+# itself prints, so only its own post-mismatch `return 0` moves, not one of the other
+# four in the file (including the other `return 0` in this same function, on a match).
+d=$(pht_fixture)
+mutate "$d/soc/soc_pin.py" '/PIN STALE/,/^def cmd_seed/{s/return 0/return 2/;}'
+probe "check-sources actually refusing on a mismatch is red even if the text still warns" 1 \
+  "exited 2 on a digest mismatch" "$PHT $d"
 
 begin_group "soc/netlist_determinism.sh"
 

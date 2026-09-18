@@ -34,13 +34,13 @@ run_mutation() {  # <label> <sed-expr>
 }
 
 status=0
-run_mutation "compare-direction" \
-  "s/if (mul_div_x >= mul_div_y) begin/if (mul_div_x <= mul_div_y) begin/" || status=1
+run_mutation "divide-quotient-bit-inverted" \
+  "s/mul_div_store <= {div_qbit ? mul_div_sum\[31:0\] : mul_div_a,/mul_div_store <= {!div_qbit ? mul_div_sum[31:0] : mul_div_a,/" || status=1
 run_mutation "iteration-count" \
-  "s/mul_div_counter <= 32;/mul_div_counter <= 65;/" || status=1
+  "s/mul_div_counter <= 32;/mul_div_counter <= 31;/g" || status=1
 run_mutation "no-magnitude-conversion" \
-  "s/mul_div_x <= {32'b0, div_abs_rs1};/mul_div_x <= {32'b0, regs[rs1[3:0]]};/" || status=1
-run_mutation "mulhsu-sign-extends-rs2" \
-  "s/mul_div_y <= {{32'b0},regs\[rs2\[3:0\]\]};/mul_div_y <= {{32{regs[rs2[3:0]][31]}},regs[rs2[3:0]]};/" || status=1
+  "s/mul_div_operand <= div_abs_rs2;/mul_div_operand <= regs[rs2[3:0]];/" || status=1
+run_mutation "mulhsu-does-not-negate-rs1" \
+  "s/(is_mulhsu \&\& regs\[rs1\[3:0\]\]\[31\]);/(is_mulhsu \&\& 1'b0);/" || status=1
 
 exit $status
