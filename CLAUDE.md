@@ -97,13 +97,17 @@ references still resolve.
   bound on one workload, never the prize. Measured on the tree this
   lands on: Dhrystone's hazard column falls 357,798 → 317,207 cycles and the run
   1,543,497 → 1,506,943, which is 0.758 → **0.777 DMIPS/MHz**; the `.S` suite goes
-  41,052 → 39,096 (ADR-0154).
+  41,052 → 39,096 (ADR-0154). **Both figures predate the gcc pin** — the compiler that built them
+  was whichever of Homebrew's 16.2.0 or a CI image's 13.2.0 answered to the two names every build
+  used to search for, and the pinned-compiler equivalent is the Dhrystone figure ADR-0190 quotes.
   **The hazard column itself splits into three causes** (`hzA`/`hzB`/`hzC`, `test/stall_report.py`):
   `hzA`, a producer still in `out` with no result anywhere yet, and `hzB`, a producer in
   `executor_out` whose result is not unpacked (`rd_ready` low), are both structural — there is no
   result yet for forwarding to reach. Only `hzC`, a ready result forwarding has no path to, is
   a candidate, and on Dhrystone it is a ceiling smaller than the gap to VexRiscv: spending all of it
-  reaches 660.3 cycles/Dhrystone against VexRiscv's 635.1–640.1 (ADR-0175).
+  reaches 660.3 cycles/Dhrystone against VexRiscv's 635.1–640.1 (ADR-0175). **Both figures predate
+  the gcc pin** — quoted under whichever compiler answered to the two retired names at the time —
+  and neither is re-taken here; ADR-0190 is where a pinned-compiler re-measurement would land.
   Still declined on the clock: forwarding to every operand reader (ADR-0083), a fourth scoreboard
   slot in place of the write-through bypass (ADR-0092), writing a committed result into the idle
   register port a cycle early (ADR-0100), and spending hazard cause C (ADR-0175) — unlike
@@ -523,7 +527,10 @@ cycles are littlecpu 290825 (0.783 DMIPS/MHz), VexRiscv 254026 (0.873× littlecp
 Hazard3 252825 (**0.869× littlecpu, 0.900 DMIPS/MHz — ahead of littlecpu, essentially level with
 VexRiscv**); CoreMark cycles are littlecpu 433240 (2.308 CoreMark/MHz), VexRiscv 427008 (**0.986×
 littlecpu — the closest pair this harness has measured on either benchmark**, 2.342 CoreMark/MHz),
-Hazard3 665416 (1.536×, 1.503 CoreMark/MHz). **Hazard3's disclosed adapter wait is still counted,
+Hazard3 665416 (1.536×, 1.503 CoreMark/MHz). **littlecpu's two cycle counts above predate the gcc
+pin** — `make compare-dhrystone` / `make compare-coremark` re-measured under it at 313,627 and
+446,995 cycles (ADR-0190); the other two cores' halves and this whole product are not re-taken
+here, since a product is a measurement only when both factors came from one toolchain. **Hazard3's disclosed adapter wait is still counted,
 and its share moved**: `wait_cycles=28805` of Dhrystone's 252,825 (11.39%) and `wait_cycles=14176`
 of CoreMark's 665,416 (2.13%), against the one-port adapter's own 8.69%/1.98% (ADR-0146) — the
 counter needed no change to what it counts, only to what the count now means, and the Dhrystone

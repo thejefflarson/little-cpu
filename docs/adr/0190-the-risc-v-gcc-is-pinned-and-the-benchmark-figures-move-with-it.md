@@ -131,3 +131,27 @@ platform, so there is nothing to verify a checksum against; adding one is a smal
 follow-up if that changes. It does not change any `-march=`/`-mabi=` flag or any RTL —
 `test/march_test.sh`'s site count is unmoved, and the figure changes above are entirely
 the compiler's code generation, not a behavior change in the design.
+
+## Amendment, 2026-09-18 — the claim about no remaining fallback was false when it merged
+
+**"Every consumer... was rewritten" and "nothing outside `mk/toolchain.mk` and the setup target
+names a search path or a fallback compiler" were both false the day this ADR merged.** Two tracked
+call sites still searched `riscv64-elf-gcc` then `riscv64-unknown-elf-gcc`, both on `make test`'s
+path: `test/probe_gates.sh`'s accounting-identity probes and
+`nano/bench/run_qspi_loop_buffer_test.sh`. The merge's own CI `test` job resolved the self-hosted
+pool's image-baked `riscv64-unknown-elf-gcc` 13.2.0 at both sites — the exact compiler the pin
+exists to stop a build from reaching — while every other consumer in the same run built with the
+pinned 15.2.0-1, and reported green throughout. On a host carrying only the pinned install (a fresh
+Linux box after `make riscv-gcc-setup`, or a fork-PR `ubuntu-latest` runner, which no longer
+apt-installs a RISC-V gcc), the failure mode ran the other way: both sites died with "no RISC-V
+cross compiler found," reading as a repo defect on a required check rather than as what it was, an
+incomplete rewrite.
+
+The root cause was not the two misses; it was that nothing graded the pin's completeness, so a
+manual sweep of every consumer caught most sites and missed two. Both sites now resolve
+`riscv-none-elf-gcc` alone and say `run make riscv-gcc-setup` when it is missing, matching every
+other consumer's wording, and `test/riscv_gcc_search_test.sh` — a repo-scanning grader in the shape
+of `test/march_test.sh`, on `make test`'s path — refuses either retired name in a tracked file
+outside a named allow-list (dated ADRs and proposals, and `soc/compare/product.json`'s own stamp,
+which still names the compiler the runners actually used when it was taken). Its forced-red probe
+is in `test/probe_gates.sh`.

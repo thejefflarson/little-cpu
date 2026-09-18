@@ -1198,14 +1198,12 @@ probe "the QSPI timing accounting identity is graded and can fail" 1 \
 begin_group "nano_qspi_memory.v's own accounting identity (real build)"
 
 NANO_QSPI_ACCOUNTING_CC=""
-for accounting_candidate in riscv64-elf-gcc riscv64-unknown-elf-gcc; do
-  if command -v "$accounting_candidate" >/dev/null 2>&1; then
-    NANO_QSPI_ACCOUNTING_CC=$accounting_candidate
-    break
-  fi
-done
+if command -v riscv-none-elf-gcc > /dev/null 2>&1; then
+  NANO_QSPI_ACCOUNTING_CC=riscv-none-elf-gcc
+fi
 if [ -z "$NANO_QSPI_ACCOUNTING_CC" ]; then
-  echo "error: no RISC-V cross compiler found for the accounting-identity probes." >&2
+  echo "error: riscv-none-elf-gcc not found, so the accounting-identity probes" >&2
+  echo "cannot be forced red. Run \`make riscv-gcc-setup\`." >&2
   exit 1
 fi
 accounting_fixture() {  # $1 = a sed expression mutating nano_qspi_memory.v's reason_* lines, or "" for the control
@@ -8427,6 +8425,49 @@ d=$(new_case)
 probe "no riscv-none-elf-gcc on PATH at all is red" 1 \
   "run \`make riscv-gcc-setup\`" \
   "PATH='$tmp/bin-none' $RGPT $d/pinned"
+
+begin_group "test/riscv_gcc_search_test.sh"
+
+RGS="$HERE/riscv_gcc_search_test.sh"
+
+rgs_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/docs/adr" "$d/soc/compare" "$d/test" "$d/nano/bench"
+  cp "$REPO/docs/adr/0190-the-risc-v-gcc-is-pinned-and-the-benchmark-figures-move-with-it.md" "$d/docs/adr/"
+  cp "$REPO/soc/compare/product.json" "$d/soc/compare/"
+  cp "$REPO/test/probe_gates.sh" "$REPO/test/riscv_gcc_search_test.sh" "$d/test/"
+  cp "$REPO/nano/bench/run_qspi_loop_buffer_test.sh" "$d/nano/bench/"
+  git -c init.defaultBranch=main -C "$d" init -q
+  git -C "$d" add -A
+  printf '%s' "$d"
+}
+
+rgs_edit() {  # $1 = fixture dir, $2 = path within it, $3 = sed expression
+  mutate "$1/$2" "$3"
+  git -C "$1" add -A
+}
+
+d=$(rgs_fixture)
+probe "control: the shipping tree has no fallback search outside its exceptions" 0 \
+  "no riscv64-elf-gcc / riscv64-unknown-elf-gcc search" "$RGS $d"
+
+probe "a repo root that does not exist is red before anything is scanned" 1 \
+  "is not a directory" "$RGS $d/nowhere"
+
+d=$(rgs_fixture)
+rgs_edit "$d" nano/bench/run_qspi_loop_buffer_test.sh \
+  's/^CC=""$/CC=""  # was: for candidate in riscv64-elf-gcc riscv64-unknown-elf-gcc; do/'
+probe "a reintroduced fallback search in a live consumer is red, and located" 1 \
+  "nano/bench/run_qspi_loop_buffer_test.sh:" "$RGS $d"
+
+d=$(rgs_fixture)
+rgs_edit "$d" soc/compare/product.json 's/riscv64-unknown-elf-gcc/pinned-riscv-none-elf-gcc/g'
+probe "an allow-list entry whose site lost both retired names is red" 1 \
+  "the allow-list exempts soc/compare/product.json" "$RGS $d"
+
+d=$(new_case)
+probe "a tree git cannot list is a scan of nothing, not a green one" 1 \
+  "cannot enumerate any tracked files" "$RGS $d"
 
 begin_group "test/probes_header_test.py"
 

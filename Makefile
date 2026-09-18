@@ -619,6 +619,12 @@ retired-term-test:
 march-test:
 	@./test/march_test.sh
 
+# ADR-0190 pinned riscv-none-elf-gcc and rewrote every consumer off a two-name search;
+# this refuses either retired name from coming back anywhere the allow-list does not name.
+.PHONY: riscv-gcc-search-test
+riscv-gcc-search-test:
+	@./test/riscv_gcc_search_test.sh
+
 .PHONY: macro-register-test
 macro-register-test:
 	@./test/macro_register_test.sh
@@ -702,6 +708,7 @@ test: sim test-units probe-gates pin-bump-test pin-bump-token-test \
       compare-product-schedule-token-test compare-product-schedule-publish-test tool-cache-test \
       riscv-gcc-pin-test memmap-test \
       adr-numbering-test compare-geometry-test vexriscv-path-test retired-term-test port-connect-test march-test \
+      riscv-gcc-search-test \
       band-source-test zkt-isolation-test fixture-freshness-test window-test imem-share-test \
       memcheck-depth-test abc-engine-test makefile-target-test mutation-probe dual-build board-elaborate \
       tracked-ignored-test mutation-coverage-test comment-density-test lut4-site-test \
