@@ -1073,7 +1073,16 @@ change to one shape's build is a change in FIVE places: `test/run_tests.sh`, `te
   can each claim the same next number and both pass it, the way #363 and #364 both took ADR-0188
   in the same week. Before claiming one, run
   `gh pr list --state open --json headRefName` and `git ls-tree <branch> docs/adr/` on each result,
-  and pick a number none of them already holds.
+  and pick a number none of them already holds. **This is checked mechanically too**, by a CI job
+  this manual rule does not make redundant: the "adr collision check" workflow
+  (`.github/workflows/adr-collision-check.yml`, `.github/scripts/adr-collision-check.sh`) reads
+  every other open PR's added `docs/adr/` files over the GitHub API and fails naming the number
+  and the other branch when two collide. It runs only on pull requests and is not part of
+  `make test` — the API call is non-hermetic — and it does not replace
+  `test/adr_numbering_test.sh`: that check catches a stale or duplicated row within one tree,
+  which no cross-branch comparison can see, and the CI job catches two branches claiming one
+  number, which no single-tree check can see. Picking a good number stays cheaper than being
+  caught claiming a bad one, so the manual rule stays too.
 - Briefs: [`docs/ideas/`](docs/ideas/) — list the directory rather than trusting an enumeration
   here. Where a brief and an ADR disagree, the ADR wins.
 - Reference text from the old core: `git show 1709433^:rtl/riscv.v` (RVFI retire block),
