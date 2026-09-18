@@ -114,23 +114,23 @@ both regfile builds now carrying this ticket's mul/div on both tiles:
 | 4×2 | flops + this mul/div | 76,632.25 | 59.391% | 94.15% | 827,020 | GRT-0116 congestion (met2 103.28%) | [35043505103](https://github.com/thejefflarson/little-cpu/actions/runs/35043505103) |
 | 4×2 | latches + this mul/div | *does not map under `AREA 0` — see below* | | | | ABC did not converge, killed at the 150-min job limit | [35363072917](https://github.com/thejefflarson/little-cpu/actions/runs/35363072917) |
 | 4×2 | latches + this mul/div | *does not map under `AREA 0` — see below* | | | | ABC did not converge, killed at the 150-min job limit (reproduced) | [35378685507](https://github.com/thejefflarson/little-cpu/actions/runs/35378685507) |
-| 2×2 | flops + this mul/div | *not yet dispatched* | | | | | |
+| 2×2 | flops + this mul/div | *dispatched; see the PR for its result* | | | | | [35393172755](https://github.com/thejefflarson/little-cpu/actions/runs/35393172755) |
 | 4×2 | latches + this mul/div, `SYNTH_STRATEGY = AREA 2` | *not yet dispatched* | | | | | |
 
-**Finding: `AREA 0` does not converge in ABC on the latch register file and this mul/div combined,
-deterministically.** Two dispatches of the identical configuration (4×2, latches, this mul/div,
-`AREA 0`, `disallow_congestion=true`), on an idle runner pool both times, both stalled at "155.
-Executing ABC pass (technology mapping using ABC)" and were killed at the job's 150-minute limit
-with `yosys-abc` still among the orphaned processes: run 35363072917 ran 9,042s (about 2h 27m from
-ABC's start to cancellation) and run 35378685507 ran 9,056s, 14s apart — this is not a pod
-contention artifact, it is the same hang twice. Three comparison points bound it to this specific
-combination: ABC maps the same tile in 14s with latches and the *old* mul/div (run 34925911447), in
-8s with the *new* mul/div and the flip-flop regfile (run 35043505103), and in about 3s of ABC time
-locally through `make nano-area`'s own recipe (`synth; dfflibmap; abc`, `-D NANO_LATCH_RF`, same
-liberty) — the same source that hangs in LibreLane's `AREA 0` strategy maps cleanly everywhere else
-tried. **This is a finding about the flow's synthesis strategy on this combination, not a measurement
-of its area** — see below for why the number a cancelled run prints cannot be read as one either
-way.
+**Finding: `AREA 0` does not converge in ABC on the latch register file and this mul/div combined.**
+Two dispatches of the identical configuration (4×2, latches, this mul/div, `AREA 0`,
+`disallow_congestion=true`) both stalled at "155. Executing ABC pass (technology mapping using ABC)"
+and were killed at the job's 150-minute limit without completing it, `yosys-abc` still among the
+orphaned processes. The second dispatch (35378685507) ran against a runner pool confirmed idle at
+the time — nothing else contending for it — so a hang that reproduces there cannot be attributed to
+contention; that is what makes two runs a finding rather than one slow one. Three comparison points
+bound it to this specific combination: the same tile and flow map ABC in 14s with latches and the
+*old* mul/div (run 34925911447) and in 8s with the *new* mul/div and the flip-flop regfile (run
+35043505103), and the same source maps locally through `make nano-area`'s own recipe
+(`synth; dfflibmap; abc`, `-D NANO_LATCH_RF`, same liberty) with about 3s in ABC — the netlist is
+not inherently unmappable, so the suspect is LibreLane's `AREA 0` script specifically on this
+combination. **This is a finding about the flow's synthesis strategy, not a measurement of area** —
+see below for why the number a cancelled run prints cannot be read as one either way.
 
 **A run that dies before ABC still prints a `Chip area` line, and it is not a post-mapping figure.**
 Its last `stat` print, before the ABC call that never returns, reports "Chip area for module ...
