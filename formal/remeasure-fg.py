@@ -35,8 +35,9 @@ genchecks_audit = _load_sibling("genchecks-audit")
 # sampled once.
 TRIGS = (10, 15)
 
-# How far either side of the declared figure to sweep.
-BELOW, ABOVE = 2, 1
+# How far either side of the declared figure to sweep, wide enough to bracket a flip
+# point that has moved by more than one or two cycles.
+BELOW, ABOVE = 3, 3
 
 def expected_cycles(depth_line):
     """The RISCV_FORMAL_*_CYCLE(S) values `depth_line` should produce, read off the
