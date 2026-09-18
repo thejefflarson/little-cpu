@@ -142,8 +142,9 @@ components_pcloop: components.sby pcloop_cover ../rtl/fetcher.v ../rtl/decoder.v
                    ../rtl/structs.v pcloop.sv
 	rm -rf $@
 	sby -f $< pcloop
-components_traps: components.sby traps-region-probe traps-tval-probe ../rtl/fetcher.v \
-                  ../rtl/decoder.v ../rtl/regsel.v ../rtl/csrs.v ../rtl/structs.v traps.sv
+components_traps: components.sby traps-region-probe traps-tval-probe check-solver-bitwuzla \
+                  ../rtl/fetcher.v ../rtl/decoder.v ../rtl/regsel.v ../rtl/csrs.v \
+                  ../rtl/structs.v traps.sv
 	rm -rf $@
 	sby -f $< traps
 
