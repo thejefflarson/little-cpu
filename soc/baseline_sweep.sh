@@ -1,12 +1,7 @@
 #!/bin/sh
-# Places the SoC at many seeds ON EITHER PART, KEEPS every seed's report, and stamps the
-# whole sweep with the tree, the part and the toolchain that measured it.
-#
-# RESUMES RATHER THAN RESTARTS. A sixteen-seed sweep is tens of minutes, so a CSV
-# already stamped with this run's own base, dirty flag and part is read rather than
-# truncated, and a seed already carrying both its artifact and its row is skipped. A
-# stamp that disagrees on any of those three fields is a different sweep and starts
-# fresh, same as an empty or absent file.
+# Places the SoC at many seeds ON EITHER PART, KEEPS every seed's report, and stamps
+# the sweep. RESUMES rather than restarts: a CSV stamped with this run's own base,
+# dirty flag and part is read, not truncated, and a placed seed is skipped.
 set -eu
 
 cd "$(dirname "$0")/.."
@@ -17,7 +12,6 @@ case $part in
     toolchain_target=soc-timing-toolchain
     place_target=soc-timing
     seed_var=SOC_SEED
-    # `soc.timing.rpt` is icetime's; the other two are nextpnr's.
     artifacts='soc.timing.rpt soc.asc soc.pnr.log'
     ;;
   ecp5)
@@ -60,8 +54,13 @@ if [ "$part" = ecp5 ]; then
   clock=$(make -s print-ECP5_CLOCK "$@")
 fi
 
-base=$(git rev-parse HEAD)
-if git diff --quiet HEAD --; then dirty=no; else dirty=yes; fi
+if [ -n "${BASELINE_BASE_OVERRIDE:-}" ]; then
+  base=$BASELINE_BASE_OVERRIDE
+  dirty=${BASELINE_DIRTY_OVERRIDE:-no}
+else
+  base=$(git rev-parse HEAD)
+  if git diff --quiet HEAD --; then dirty=no; else dirty=yes; fi
+fi
 
 mkdir -p "$out"
 
@@ -103,8 +102,6 @@ else
 fi
 printf '%s\n' "$block"
 
-# The first artifact in the part's list, stripped of its `soc.`/`ecp5.` prefix, is
-# what a resumed seed is checked against: it exists only once a placement finished.
 first_suffix=$(set -- $artifacts; first=$1; echo "${first#*.}")
 
 for seed in $seeds; do
@@ -117,11 +114,8 @@ for seed in $seeds; do
     default) arg="" ;;
     *)       arg=$seed ;;
   esac
-  # up5k's own recipe writes soc.timing.rpt and THEN applies SOC_MIN_MHZ, so a seed
-  # under the floor is a real placement with a nonzero exit, not a build failure. The
-  # spread this sweep exists to measure is exactly the distribution a ratchet's own
-  # worst-of-N would trip on, so that exit is read past rather than treated as fatal --
-  # only artifacts missing outright (a genuine build or tool failure) stop the sweep.
+  # up5k's recipe writes soc.timing.rpt before SOC_MIN_MHZ, so a seed under the floor
+  # is real data with a nonzero exit; only a missing artifact stops the sweep below.
   if log=$(make "$place_target" "$seed_var=$arg" "$@" 2>&1); then
     make_status=0
   else

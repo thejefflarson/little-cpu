@@ -88,11 +88,18 @@ def spellings(band):
     Two figures, not a flat set: a range is hyphenated in code and en-dashed in
     prose, so ONE spelling of each has to be present rather than all of them.
     Requiring all of them would demand that CLAUDE.md write the range twice.
+    A single-sweep spread (a plain float, not a tuple) has no dash to vary --
+    bands.spread_text() is the one place that decides how it reads.
     """
-    low, high = band["spread"]
+    spread = band["spread"]
+    if isinstance(spread, tuple):
+        low, high = spread
+        spread_forms = {f"{low:g}{dash}{high:g}%" for dash in "-–—"}
+    else:
+        spread_forms = {f"{spread:g}%"}
     return {
         "churn band": {f"{band['churn']:g}%"},
-        "placement spread": {f"{low:g}{dash}{high:g}%" for dash in "-–—"},
+        "placement spread": spread_forms,
     }
 
 def main():

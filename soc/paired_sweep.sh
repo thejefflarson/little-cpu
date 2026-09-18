@@ -1,15 +1,6 @@
 #!/bin/sh
-# ONE COMMAND: a named base ref against the working tree, both parts, paired by seed.
-#
-# Reuses soc/baseline_sweep.sh for each half rather than re-implementing placement, so
-# a base ref sweeps in an extracted copy of its own tree (its own Makefile, its own
-# synth scripts) while the working tree sweeps in place, dirty or not. Both write into
-# one BASELINE_OUT, and soc/baseline_sweep.sh's own resume logic means a rerun after an
-# interruption skips every seed it already placed rather than starting the sweep over.
-#
-# Two refusals neither half nor --allow-mismatch can get past: fewer than MIN_SEEDS
-# seeds on a side, and two halves whose toolchain lines disagree (soc/baseline_summary.py's
-# own default, since --allow-mismatch is never passed here).
+# ONE COMMAND: a named base ref against the working tree, both parts, paired by
+# seed, reusing soc/baseline_sweep.sh for each half.
 set -eu
 
 cd "$(dirname "$0")/.."
@@ -70,27 +61,27 @@ for part in $parts; do
   fi
 done
 
-# The base ref's own tree, extracted once per SHA and reused across parts and
-# reruns -- soc/netlist_base.sh's own pattern, so a base ref sweeps with its own
-# Makefile and synth scripts rather than this tree's.
-base_tree="$out/base-tree"
-base_marker="$out/base-tree.sha"
-if [ ! -f "$base_marker" ] || [ "$(cat "$base_marker")" != "$base_sha" ]; then
+# Extracted OUTSIDE this repo, like the toolchain cache: nested inside it, a
+# plain `git rev-parse` there would silently answer for THIS repo instead.
+cache=${XDG_CACHE_HOME:-$HOME/.cache}/little-cpu/paired-sweep
+base_tree="$cache/$base_sha"
+if [ ! -d "$base_tree" ]; then
   echo "soc/paired_sweep.sh: extracting $base_ref ($base_sha) into $base_tree"
-  rm -rf "$base_tree"
   mkdir -p "$base_tree"
   git archive --format=tar "$base_ref" | tar -x -C "$base_tree"
-  echo "$base_sha" > "$base_marker"
 else
   echo "soc/paired_sweep.sh: reusing the extracted tree for $base_sha"
 fi
 
-sweep() {  # <role> <part> <seeds> <treedir>
-  role=$1 part=$2 seeds=$3 treedir=$4
-  echo
-  echo "== $role/$part: sweeping $(count "$seeds") seeds in $treedir =="
-  ( cd "$treedir" && BASELINE_PART="$part" SOC_SEEDS="$seeds" \
-      BASELINE_OUT="$out" BASELINE_NAME="$role-$part" sh soc/baseline_sweep.sh )
+sweep() {  # <role> <part> <seeds> <treedir> <log> [base-sha]
+  role=$1 part=$2 seeds=$3 treedir=$4 log=$5
+  {
+    echo "== $role/$part: sweeping $(count "$seeds") seeds in $treedir =="
+    cd "$treedir" && BASELINE_PART="$part" SOC_SEEDS="$seeds" \
+      BASELINE_OUT="$out" BASELINE_NAME="$role-$part" \
+      BASELINE_BASE_OVERRIDE="${6:-}" BASELINE_DIRTY_OVERRIDE="${6:+no}" \
+      sh soc/baseline_sweep.sh
+  } > "$log" 2>&1
 }
 
 digest() {  # <part>
@@ -111,14 +102,32 @@ digest() {  # <part>
   echo "  (full log: $log)"
 }
 
+# Base and candidate write into two different directories, so running them as a
+# pair rather than sequentially roughly halves this script's own wall time.
 status=0
 for part in $parts; do
   case $part in
     up5k) seeds=$seeds_up5k ;;
     ecp5) seeds=$seeds_ecp5 ;;
   esac
-  sweep base "$part" "$seeds" "$base_tree"
-  sweep candidate "$part" "$seeds" "$PWD"
+  base_log="$out/base-$part.sweep.log"
+  cand_log="$out/candidate-$part.sweep.log"
+  sweep base "$part" "$seeds" "$base_tree" "$base_log" "$base_sha" & base_pid=$!
+  sweep candidate "$part" "$seeds" "$PWD" "$cand_log" & cand_pid=$!
+  base_ok=0
+  cand_ok=0
+  wait "$base_pid" || base_ok=1
+  wait "$cand_pid" || cand_ok=1
+  echo
+  cat "$base_log"
+  echo
+  cat "$cand_log"
+  if [ "$base_ok" != 0 ] || [ "$cand_ok" != 0 ]; then
+    echo "*** soc/paired_sweep.sh: $part's base or candidate sweep failed; see" >&2
+    echo "*** the logs above." >&2
+    status=1
+    continue
+  fi
   digest "$part"
   echo
   echo "== $part: verdict =="

@@ -39,19 +39,51 @@ import sys
 class Underived(Exception):
     """Asked for figures that were never measured for this part."""
 
-# Every part this repo places, with what has been measured on it.
+# Every part this repo places, with what has been measured on it. `derived` is
+# `soc/paired_sweep.sh`'s own output for churn, plus `soc/baseline_sweep.sh`'s for
+# spread: the tree, both tool versions and the sweep, so this file's own docstring
+# claim -- a band is a measurement with a date on it -- is checkable against a real
+# run rather than taken on faith.
 BANDS = {
     "up5k": {
         "instrument": "make soc-timing",
         "spread": (4.0, 9.0),
         "churn": 3.6,
-        "derived": "PLACEHOLDER",
+        "derived": (
+            "2026-09-18, tree 84fe92b7084d (clean), Yosys 0.68+48 (ff5817c34), "
+            "nextpnr-ice40 0.11-1-g62e659ed, icetime oss-cad-suite 20260811. "
+            "Spread: 16 paired seeds on the unchanged netlist -- worst 83.38ns/"
+            "11.99MHz, median 80.44ns/12.43MHz, best 78.10ns/12.80MHz, 6.8% -- "
+            "inside the existing 4-9% and re-confirming it rather than replacing "
+            "it (soc/baseline_sweep.sh BASELINE_NAME=spread-up5k). Churn: two "
+            "real, netlist-digest-different edits to rtl/csrs.v (large "
+            "representative file per ADR-0170) at the same 16 seeds -- "
+            "ADR-0170's own comment diff (42 changed comment lines, replayed) "
+            "worst -3.6%/median -3.0%/best -2.2%, and a matched-line-count "
+            "blank-line-only diff worst -1.7%/median -3.5%/best -3.3% -- the "
+            "3.6% ceiling re-confirmed by the comment class, both within it."
+        ),
     },
     "ecp5": {
         "instrument": "make ecp5-timing",
-        "spread": None,
-        "churn": None,
-        "derived": "PLACEHOLDER",
+        "spread": 10.3,
+        "churn": 0.0,
+        "derived": (
+            "2026-09-18, tree 84fe92b7084d (clean), Yosys 0.68+48 (ff5817c34), "
+            "nextpnr-ecp5 0.11-1-g62e659ed, trellis-db devices.json "
+            "sha256:5a3869c1b6fe7ea1. Spread: ONE 16-seed sweep, the first ever "
+            "taken for this part -- worst 30.29ns/33.01MHz, median 29.37ns/"
+            "34.05MHz, best 27.46ns/36.42MHz, 10.3%, wider than up5k's own -- a "
+            "single sweep, not yet the range a second one taken later would "
+            "narrow or widen (soc/baseline_sweep.sh BASELINE_NAME=spread-ecp5). "
+            "Churn: the SAME two rtl/csrs.v edits that moved up5k's netlist "
+            "(each independently confirmed DIGEST-DIFFERENT for up5k via `make "
+            "netlist-diff`) placed BYTE-IDENTICAL on ecp5 at all 16 seeds -- "
+            "0.0% on both classes. THIS IS A MEASURED NULL UNDER THE TESTED "
+            "FIXTURES, NOT A PROOF ecp5 cannot churn: its own synthesis flow "
+            "evidently did not cross whatever sort-order boundary moved up5k's. "
+            "Treat 0.0% as a floor to re-open, not a guarantee to build on."
+        ),
     },
 }
 
@@ -67,6 +99,16 @@ def band(part):
 def parts():
     return sorted(BANDS)
 
+def spread_text(spread):
+    """A spread as prose: a real range from more than one sweep, or a single
+    sweep's own figure -- ecp5 has had only one, and dressing it as a range
+    (`10.3-10.3%`) would read like a typo rather than the honest fact that
+    nothing has narrowed or widened it yet."""
+    if isinstance(spread, tuple):
+        low, high = spread
+        return f"{low:g}-{high:g}%"
+    return f"{spread:g}% (one sweep, not yet a range)"
+
 def sentence(part):
     """One line, naming the part it belongs to.
 
@@ -80,9 +122,9 @@ def sentence(part):
     if entry["spread"] is None or entry["churn"] is None:
         return (f"{part}: no placement spread and no churn band have been "
                 f"derived for this part, and no other part's transfer.")
-    low, high = entry["spread"]
-    return (f"{part} ({entry['instrument']}): placement spread {low:g}-{high:g}% "
-            f"best-to-worst on an unchanged netlist, edit-churn band ~{entry['churn']:g}%.")
+    return (f"{part} ({entry['instrument']}): placement spread "
+            f"{spread_text(entry['spread'])} best-to-worst on an unchanged "
+            f"netlist, edit-churn band ~{entry['churn']:g}%.")
 
 def note(part):
     """The paragraph a delta is read against."""
@@ -99,6 +141,13 @@ def note(part):
                  "Read the paired")
     lines.append("  per-seed column before either of them.")
     return "\n".join(lines)
+
+def print_derived(part):
+    """The provenance line `--list` and a plain part query print alongside the
+    sentence: the tree, both tool versions and the sweep, so a reader never has
+    to open this file to see what a figure was measured against."""
+    if part in BANDS:
+        print(f"  derived from: {BANDS[part]['derived']}")
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -118,6 +167,7 @@ def main():
     if args.list:
         for part in parts():
             print(sentence(part))
+            print_derived(part)
         return
     if not args.part:
         parser.error("name a part, or pass --list")
@@ -133,7 +183,11 @@ def main():
                      f"{args.part}.\n"
                      "*** Another part's does not transfer -- different fabric,\n"
                      "*** different placer, different estimator. Sweep it.")
-    print(note(args.part) if args.note else sentence(args.part))
+    if args.note:
+        print(note(args.part))
+    else:
+        print(sentence(args.part))
+        print_derived(args.part)
 
 if __name__ == "__main__":
     main()
