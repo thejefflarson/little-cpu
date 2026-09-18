@@ -1964,7 +1964,7 @@ with open(os.path.join(cfgname, name), "w") as f:
 PY
 
 probe "a generated .sby whose depth drifted from what the core's sweep asked for is refused, not read anyway" 1 \
-  "not the 4 this row swept" \
+  "not the 3 this row swept" \
   "$RFG_MAIN && python3 remeasure-fg.py --genchecks '$tmp/fake-genchecks-main.py'; rc=\$?; rm -rf '$REPO/formal/fg-probe' '$REPO/formal/fg-probe.cfg'; exit \$rc"
 
 cat > "$tmp/fake-genchecks-main-reset.py" <<'PY'
@@ -1996,6 +1996,36 @@ PY
 probe "a generated .sby whose reset window drifted from what the core's sweep asked for is refused, not read anyway" 1 \
   "RISCV_FORMAL_RESET_CYCLES = 99, not the 1 this row swept" \
   "$RFG_MAIN && python3 remeasure-fg.py --genchecks '$tmp/fake-genchecks-main-reset.py'; rc=\$?; rm -rf '$REPO/formal/fg-probe' '$REPO/formal/fg-probe.cfg'; exit \$rc"
+
+# A copy with BELOW/ABOVE narrowed back to their pre-widening values (2, 1): a real flip
+# point three cycles past the declared figure sits outside that window, so every row swept
+# has to come back FAIL and the script has to say the window is too narrow rather than
+# guess. The stub sby PASSes only once the swept RISCV_FORMAL_CHECK_CYCLE reaches 8.
+d=$(new_case)
+cp "$REPO/formal/remeasure-fg.py" "$REPO/formal/depth_rules.py" "$REPO/formal/genchecks-audit.py" "$d/"
+mutate "$d/remeasure-fg.py" 's/^BELOW, ABOVE = 3, 3$/BELOW, ABOVE = 2, 1/'
+
+mkdir -p "$tmp/bin-sby-narrow"
+cat > "$tmp/bin-sby-narrow/sby" <<'STUB'
+#!/bin/sh
+# Stands in for sby: FAILs until the swept RISCV_FORMAL_CHECK_CYCLE reaches 8, standing in
+# for a flip point that moved three cycles past what remeasure-fg.py declares.
+sby_file=$2
+out=$(dirname "$sby_file")
+check=$(basename "$sby_file" .sby)
+mkdir -p "$out/$check"
+cycle=$(grep -o 'RISCV_FORMAL_CHECK_CYCLE [0-9]*' "$sby_file" | head -1 | awk '{print $2}')
+if [ "$cycle" -ge 8 ]; then
+  echo "PASS 2 0" > "$out/$check/status"
+else
+  echo "FAIL 2 0" > "$out/$check/status"
+fi
+STUB
+chmod +x "$tmp/bin-sby-narrow/sby"
+
+probe "a sweep window narrowed back to BELOW=2, ABOVE=1 cannot bracket a flip point three cycles out" 1 \
+  "moved by more than 1; widen ABOVE" \
+  "$RFG_MAIN && PATH='$tmp/bin-sby-narrow':\$PATH python3 '$d/remeasure-fg.py' . --genchecks '$REPO/formal/genchecks-local.py'; rc=\$?; rm -rf '$REPO/formal/fg-probe' '$REPO/formal/fg-probe.cfg'; exit \$rc"
 
 begin_group "formal/remeasure-fg.py against nano/formal"
 
@@ -2033,7 +2063,7 @@ with open(os.path.join(cfgname, name), "w") as f:
 PY
 
 probe "a generated .sby whose depth drifted from what was swept is refused, not read anyway" 1 \
-  "not the 10 this row swept" \
+  "not the 9 this row swept" \
   "$RFG && python3 ../../formal/remeasure-fg.py . --genchecks '$tmp/fake-genchecks.py'; rc=\$?; rm -rf '$REPO/nano/formal/fg-probe' '$REPO/nano/formal/fg-probe.cfg'; exit \$rc"
 
 probe "a harness directory with no checks.cfg is named, not measured as empty" 1 \
