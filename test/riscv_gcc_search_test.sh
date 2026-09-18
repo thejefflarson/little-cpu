@@ -1,7 +1,6 @@
 #!/bin/bash
-# Refuses the two RISC-V cross-compiler names ADR-0190 retired: every live consumer now
-# resolves riscv-none-elf-gcc alone, and either old name appearing anywhere else is the
-# fallback the pin exists to remove.
+# Refuses the two RISC-V cross-compiler names ADR-0190 retired, anywhere they are not a
+# named exception below.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -12,8 +11,6 @@ if [ ! -d "$REPO" ]; then
   exit 1
 fi
 
-# THE RETIRED NAMES. Both were searched for on PATH before the pin; a live site naming
-# either one again is exactly the hole this check exists to close.
 RETIRED_NAMES='riscv64-elf-gcc riscv64-unknown-elf-gcc'
 
 # The allow-list: paths where an old name is a measurement's own record, not a live
@@ -55,10 +52,6 @@ if [ ! -s "$tmp/allow" ]; then
   exit 1
 fi
 
-# Tracked files only, and git's index rather than a `find` with a prune list, for the
-# reason test/retired_term_test.sh gives: what this guards against is a name arriving in
-# a commit, and a checkout carries build artifacts, downloaded tools and whole agent
-# worktrees a merge cannot bring anything through.
 if ! git -C "$REPO" ls-files -z > "$tmp/files" 2>/dev/null || [ ! -s "$tmp/files" ]; then
   echo "error: cannot enumerate any tracked files under $REPO. This check reads" >&2
   echo "git's index, because what it guards is a name arriving in a commit; a" >&2
@@ -66,7 +59,7 @@ if ! git -C "$REPO" ls-files -z > "$tmp/files" 2>/dev/null || [ ! -s "$tmp/files
   exit 1
 fi
 
-match_entry() {  # $1 = path
+match_entry() {
   local path=$1 entry
   while IFS= read -r entry; do
     case "$entry" in
@@ -82,8 +75,6 @@ rc=0
 : > "$tmp/covered"
 
 for name in $RETIRED_NAMES; do
-  # `/dev/null` first so grep always prefixes the filename, even when xargs hands it a
-  # single file.
   hits=$( (cd "$REPO" && xargs -0 grep -nIF -e "$name" -- /dev/null < "$tmp/files") || true)
   while IFS= read -r hit; do
     [ -n "$hit" ] || continue
