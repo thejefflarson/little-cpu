@@ -482,7 +482,9 @@ top, ECP5 only.
   `make dhrystone-board` before ADR-0130.
 - **The only cross-core comparison that means anything is one harness**, `soc/compare/`: same part,
 memories, program, toolchain and seeds, against the VexRiscv in the pinned riscv-formal clone and
-Hazard3's iCE40 build (`soc/compare/hazard3_pin.mk`, ADR-0139). **A product is a measurement only
+Hazard3's iCE40 build (`soc/compare/hazard3_pin.mk`, ADR-0139). **Every cycle and clock figure
+below was taken in one pre-pin session, under the Homebrew-installed gcc 16.2.0 the pin later
+replaced** (ADR-0146, ADR-0160, ADR-0190), **except the two flagged inline.** **A product is a measurement only
 when both factors were taken on one tree AND one toolchain**, and **A COMPARISON IS ONLY AS GOOD AS
 ITS LEAST EXAMINED ASSUMPTION** — this harness has been wrong about the part (ADR-0086/ADR-0160),
 the opponent's configuration (ADR-0160 as amended: `FormalSimple` had no `MulPlugin`, no `CsrPlugin`
@@ -527,10 +529,12 @@ cycles are littlecpu 290825 (0.783 DMIPS/MHz), VexRiscv 254026 (0.873× littlecp
 Hazard3 252825 (**0.869× littlecpu, 0.900 DMIPS/MHz — ahead of littlecpu, essentially level with
 VexRiscv**); CoreMark cycles are littlecpu 433240 (2.308 CoreMark/MHz), VexRiscv 427008 (**0.986×
 littlecpu — the closest pair this harness has measured on either benchmark**, 2.342 CoreMark/MHz),
-Hazard3 665416 (1.536×, 1.503 CoreMark/MHz). **littlecpu's two cycle counts above predate the gcc
-pin** — `make compare-dhrystone` / `make compare-coremark` re-measured under it at 313,627 and
-446,995 cycles (ADR-0190); the other two cores' halves and this whole product are not re-taken
-here, since a product is a measurement only when both factors came from one toolchain. **Hazard3's disclosed adapter wait is still counted,
+Hazard3 665416 (1.536×, 1.503 CoreMark/MHz). **All six cycle counts above predate the gcc pin** —
+the one C binary all three cores run is rebuilt with it, so `make compare-dhrystone` /
+`make compare-coremark` re-measured every core's cycle half under the pin (littlecpu 313,627 and
+446,995; VexRiscv 262,827 and 426,430; Hazard3 252,026 and 666,552, ADR-0190) — but the clock
+halves are not re-swept there, and this whole product is not re-taken here, since a product is a
+measurement only when both factors came from one toolchain. **Hazard3's disclosed adapter wait is still counted,
 and its share moved**: `wait_cycles=28805` of Dhrystone's 252,825 (11.39%) and `wait_cycles=14176`
 of CoreMark's 665,416 (2.13%), against the one-port adapter's own 8.69%/1.98% (ADR-0146) — the
 counter needed no change to what it counts, only to what the count now means, and the Dhrystone
