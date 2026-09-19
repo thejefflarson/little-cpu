@@ -1,5 +1,4 @@
-// The fetch queue, its controller, the fetcher and the decoder, wired the way
-// rtl/littlecpu.v wires them.
+// The fetch queue, its controller, the fetcher and the decoder, wired as rtl/littlecpu.v.
 `default_nettype none
 
 module pcloop (
@@ -252,8 +251,7 @@ module pcloop (
     if (clocked && !prev_reset && prev_mret_entry) assert(pc == prev_mepc);
 
   // Property 1: fetch_pc advances by one word pair, holds, retries, takes a guessed target a
-  // cycle after fetchctrl forms it, or a redirect target two cycles after decode computed it --
-  // never the word arriving this cycle.
+  // cycle after fetchctrl forms it, or a redirect target two cycles after decode computes it.
   logic [31:0] past_fetch_pc, past2_fetch_pc;
   logic [31:0] past_next_pc_r, past2_next_pc_r;
   logic        past_redirect_r, past2_redirect_r;
@@ -286,8 +284,7 @@ module pcloop (
            f_fetch_pc_redirected || f_fetch_pc_guessed);
 
   // Property 2: the buffer pops only on the cycle pc actually leaves the word it names,
-  // restated independently of fetcher.v's own `pop` so an edit to either must keep them
-  // agreeing.
+  // restated independently of fetcher.v's own `pop`.
   always_comb if (clocked && !reset)
     assert(fetcher_pop == (next_pc[31:2] != pc[31:2]));
 

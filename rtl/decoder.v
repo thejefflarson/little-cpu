@@ -16,23 +16,18 @@ module decoder #(
   input  logic [31:0] reg_rs2,
   input  executor_output executor_out,
   input  logic divider_stall,
-  // The fetch queue has fewer than two words buffered; a stolen read port is fetchctrl's
-  // problem now, absorbed as a slower fill rate.
+  // The fetch queue has fewer than two words buffered; a stolen read port is fetchctrl's.
   input  logic buffer_empty,
-  // fetchctrl's own view of whether an empty buffer is a redirect's discard in flight; ANDed
-  // with buffer_empty below rather than trusted alone.
+  // fetchctrl's view of whether an empty buffer is a redirect's discard in flight.
   input  logic redirect_recovering,
-  // Fetch's own static BTFN/jal guess, compared against this cycle's own resolution,
-  // never trusted; mispredict is named apart from `redirect`, which also fires for
-  // fence.i's own flush.
+  // Fetch's own static BTFN/jal guess, compared against this cycle's resolution.
   input  logic         predicted_active,
   input  logic [31:0]  predicted_src_pc,
   input  logic [31:0]  predicted_target,
   output logic         predict_resolved,
   output logic         mispredict,
   input  logic bus_wait,
-  // Decode's request for the bus, a cycle early; the platform ANDs it against its own grant
-  // so a grant term here would close the loop through the arbiter.
+  // Decode's request for the bus; a grant term here would close the loop through the arbiter.
   output logic bus_request,
   input  logic imem_fault,
   output logic [31:0] atomic_addr,
@@ -42,8 +37,7 @@ module decoder #(
   output logic [31:0] next_pc,
   // High on an issuing cycle whose next_pc is not the queue's own straight-line advance.
   output logic redirect,
-  // A non-stall bubble, charged to its own column by test/cxxrtl.cc/stall_report.py, never to
-  // `stall`.
+  // A non-stall bubble, charged to its own column by test/cxxrtl.cc, never to `stall`.
   output logic kill,
   output logic [4:0] rs1,
   output logic [4:0] rs2,
