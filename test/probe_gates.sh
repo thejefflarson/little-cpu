@@ -3277,7 +3277,7 @@ d=$(fq_fixture "")
 probe "control: the shipping fetchqueue passes its own bench" 0 \
   "PASSED: fetchqueue" "fq_run $d"
 
-d=$(fq_fixture "s/cnt <= cnt - (do_pop ? 3'd1 : 3'd0) + (req_pending ? 3'd2 : 3'd0);/cnt <= cnt - (do_pop ? 3'd1 : 3'd0) + (req_pending ? 3'd1 : 3'd0);/")
+d=$(fq_fixture "s/cnt <= cnt - (do_pop ? 3'd1 : 3'd0) + (req_valid ? 3'd2 : 3'd0);/cnt <= cnt - (do_pop ? 3'd1 : 3'd0) + (req_valid ? 3'd1 : 3'd0);/")
 probe "a push landing only one word instead of two is red across every occupancy" 1 \
   "the first request's pair landed" "fq_run $d"
 
@@ -3285,15 +3285,25 @@ d=$(fq_fixture "s/fault_mem\[tail\]        <= imem_fault;/fault_mem[tail]       
 probe "a fault bit that never reaches its own stored word is red" 1 \
   "q0_fault set on the faulting pair's low word" "fq_run $d"
 
-d=$(fq_fixture "s/if (reset || flush) req_pending <= 1'b0;/if (reset) req_pending <= 1'b0;/")
-probe "req_pending surviving a flush lets the overtaken request's reply land" 1 \
+d=$(fq_fixture "s/if (reset || flush) begin/if (reset) begin/")
+probe "a push surviving a flush lets the overtaken request's reply land" 1 \
   "the settling cycle: the overtaken request's reply never landed" "fq_run $d"
 probe "...and a second flush one settling cycle later fails the same way" 1 \
   "settling on the second target: still nothing stale queued" "fq_run $d"
 
-d=$(fq_fixture "s/ + (addr_changed ? 3'd2 : 3'd0);/;/")
-probe "a room check that forgets the request landing this cycle is red" 1 \
-  "a request landing this cycle, on top of one queued pair: no room left" "fq_run $d"
+d=$(fq_fixture "")
+mutate "$d/fetchqueue.v" \
+  '/^  logic \[2:0\]  cnt;$/a\
+  logic req_valid_d;\
+  always_ff @(posedge clk) req_valid_d <= req_valid;' \
+  "s/if (req_valid) begin/if (req_valid_d) begin/" \
+  "s/+ (req_valid ? 3'd2 : 3'd0);/+ (req_valid_d ? 3'd2 : 3'd0);/"
+probe "a retried response gated on a stale, registered req_valid is red" 1 \
+  "the retried request's real response lands exactly once" "fq_run $d"
+
+d=$(fq_fixture "s/assign committed = cnt + (req_valid ? 3'd2 : 3'd0);/assign committed = cnt;/")
+probe "a room check that forgets the response landing this cycle is red" 1 \
+  "a response due this cycle, on top of one queued pair: no room left" "fq_run $d"
 
 begin_group "test/stall_report.py"
 
