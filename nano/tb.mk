@@ -1,6 +1,6 @@
 # nanocpu's cxxrtl harness. NANO_CFLAGS is the one place its -march/-mabi is stated;
 # test/march_test.sh's exception list names this line by its exact count.
-NANO_CFLAGS := -march=rv32emc -mabi=ilp32e
+NANO_CFLAGS := -march=rv32ec -mabi=ilp32e
 
 NANO_RISCV_FORMAL_MACROS := RISCV_FORMAL RISCV_FORMAL_COMPRESSED RISCV_FORMAL_ALIGNED_MEM \
                             RISCV_FORMAL_NRET=1 RISCV_FORMAL_XLEN=32 RISCV_FORMAL_ILEN=32
@@ -90,14 +90,6 @@ nano-oneport-latch-test: nano-oneport-latch-sim nano/tb/nano_icarus_oneport_latc
 .PHONY: nano-oneport-latch-startup-test
 nano-oneport-latch-startup-test: nano-oneport-latch-sim
 	@./nano/bench/run_startup_test.sh ./nano-oneport-latch-sim '$(NANO_CFLAGS)'
-
-.PHONY: nano-exec-probe
-nano-exec-probe:
-	@./nano/tb/nano_exec_probe.sh
-
-.PHONY: nano-exec-test
-nano-exec-test: nano-exec-probe
-	@./nano/tb/nano_exec_run.sh nano/nano.v
 
 .PHONY: nano-littlecpu-test
 nano-littlecpu-test: nano-sim

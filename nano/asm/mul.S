@@ -1,4 +1,5 @@
-// nano-local: every register below is x0-x15.
+// nano-local, x0-x15 only. M is cut, so the assembler's rv32ec target refuses the
+// mnemonic itself -- the raw encoding is placed directly to prove the CORE traps it.
 #include "riscv_test.h"
 
 RVTEST_RV64U
@@ -6,36 +7,9 @@ RVTEST_CODE_BEGIN
 
   li x1, 6
   li x2, 7
-  li x5, 42
-  mul x4, x1, x2
-  li gp, 2
-  bne x4, x5, fail
-
-  li x1, -1
-  li x2, -1
-  li x5, 0
-  mulh x4, x1, x2
-  li gp, 3
-  bne x4, x5, fail
-
-  li x1, -1
-  li x2, 4
-  li x5, -1
-  mulhsu x4, x1, x2
-  li gp, 4
-  bne x4, x5, fail
-
-  li x1, 0x80000000
-  li x2, 2
-  li x5, 1
-  mulhu x4, x1, x2
-  li gp, 5
-  bne x4, x5, fail
-
-  RVTEST_PASS
-
-fail:
-  RVTEST_FAIL
+  li x4, 0                   // rd below; RVFI reads regs[rd] even on a trap
+  .word 0x02208233           // mul x4, x1, x2 -- traps illegal, M is cut
+  RVTEST_FAIL                // unreached unless the trap above did not fire
 
 RVTEST_CODE_END
 

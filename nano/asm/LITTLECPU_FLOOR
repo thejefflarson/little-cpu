@@ -1,5 +1,5 @@
 # littlecpu's test/asm manifest for nano, graded both ways by test/check_suite_shape.sh: a
-# retire floor, or EXCLUDED and the reason nano cannot run it (CSR, A, fence.i, timer, UART).
+# retire floor, or EXCLUDED and the reason nano cannot run it (CSR, A, M, fence.i, timer, UART).
 # run_nano_tests.sh still builds and runs each EXCLUDED .S program and fails one that passes.
 add.S          429
 addi.S         206
@@ -21,10 +21,10 @@ contend.S      113
 csr.S          EXCLUDED CSR
 csrset.S       EXCLUDED CSR
 datainit.c     EXCLUDED not an assembly program; this runner builds .S only
-div.S           60
-divu.S          61
+div.S          EXCLUDED M extension
+divu.S         EXCLUDED M extension
 fencenop.S     EXCLUDED Zifencei (fence.i)
-hazard.S        49
+hazard.S       EXCLUDED M extension (div is the hazard-forcing instruction)
 hpm.S          EXCLUDED CSR (performance-monitor)
 ifault.S       EXCLUDED CSR (trap handler)
 jal.S           19
@@ -41,14 +41,14 @@ lw.S           231
 minstret.S     EXCLUDED CSR
 mtimer.S       EXCLUDED machine timer, CSR
 mtimermask.S   EXCLUDED machine timer, CSR
-mul.S          423
-mulh.S         423
-mulhsu.S       423
-mulhu.S        423
+mul.S          EXCLUDED M extension
+mulh.S         EXCLUDED M extension
+mulhsu.S       EXCLUDED M extension
+mulhu.S        EXCLUDED M extension
 or.S           452
 ori.S          169
-rem.S           60
-remu.S          60
+rem.S          EXCLUDED M extension
+remu.S         EXCLUDED M extension
 rvc.S          184
 sb.S           394
 selfmod.S      EXCLUDED Zifencei (fence.i)

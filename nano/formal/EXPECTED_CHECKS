@@ -43,8 +43,6 @@ insn_c_sub_ch0
 insn_c_sw_ch0
 insn_c_swsp_ch0
 insn_c_xor_ch0
-insn_div_ch0
-insn_divu_ch0
 insn_jal_ch0
 insn_jalr_ch0
 insn_lb_ch0
@@ -53,14 +51,8 @@ insn_lh_ch0
 insn_lhu_ch0
 insn_lui_ch0
 insn_lw_ch0
-insn_mul_ch0
-insn_mulh_ch0
-insn_mulhsu_ch0
-insn_mulhu_ch0
 insn_or_ch0
 insn_ori_ch0
-insn_rem_ch0
-insn_remu_ch0
 insn_sb_ch0
 insn_sh_ch0
 insn_sll_ch0

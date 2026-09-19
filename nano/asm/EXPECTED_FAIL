@@ -1,2 +1,5 @@
 # nano's baseline failure set, name-and-status pairs under set equality both ways --
-# the same rule test/EXPECTED_FAIL states for littlecpu. Empty: every program passes.
+# the same rule test/EXPECTED_FAIL states for littlecpu.
+
+mul.S TRAP
+divide.S TRAP
