@@ -65,3 +65,7 @@ Each is measured in Tiny Tapeout's flow on 4×2 and 2×2 before the next begins.
 - `NANO_MAX_UM2` stays a regression bound on the local instrument only. No flow-unit line gates nanocpu until a finished core routes on a 2×2.
 - The CSR/trap layer, the counters and the QSPI front end must fit the same budget. Each block rebuilt here is measured against the 2×2, not against whichever tile it happens to fit.
 - ADR-0177 and ADR-0179 carry amendments pointing here.
+
+## Amendment · 2026-09-18
+
+This ADR permitted M as a second cut "if those three are not enough" — ADR-0195 confirmed they were not, and ADR-0197 spends the permission: `nano/nano.v`'s multiply/divide unit is deleted outright. **This ADR's own "2×2 stays the target" is retired by that ticket's measurement, not reaffirmed by it**: with M gone the 2×2 places but fails routing, and the 4×2 both places and routes to a clean signoff — see ADR-0197 for the full measurement. ADR-0197 leaves the tile choice to the owner rather than continuing to treat 2×2 as fixed; a future tile decision belongs in its own ADR.

@@ -1230,7 +1230,7 @@ accounting_fixture() {  # $1 = a sed expression mutating nano_qspi_memory.v's re
       clang++ -O2 -DNDEBUG -std=c++17 -Wall -Wextra -Werror -DNANO_RTL_INCLUDE='"nano_qspi_rtl.cc"' \
         -isystem "$(yosys-config --datdir)/include/backends/cxxrtl/runtime" nano/tb/nano_cxxrtl.cc \
         -o sim > clang.log 2>&1 || { cat clang.log >&2; exit 1; }
-      "$NANO_QSPI_ACCOUNTING_CC" -march=rv32emc -mabi=ilp32e -nostdlib -I nano/asm -I test/asm \
+      "$NANO_QSPI_ACCOUNTING_CC" -march=rv32ec -mabi=ilp32e -nostdlib -I nano/asm -I test/asm \
         -T nano/asm/nano.lds nano/asm/alu.S -o alu.elf
       "${NANO_QSPI_ACCOUNTING_CC%gcc}objcopy" -O verilog --verilog-data-width=4 \
         --only-section=.text alu.elf rom.hex

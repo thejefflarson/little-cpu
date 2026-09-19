@@ -87,7 +87,7 @@ module rvfi_testbench (
   cover property (complete_live && rvfi_insn[1:0] == 2'b00);                        // RVC quadrant 0
   cover property (complete_live && rvfi_insn[1:0] == 2'b01);                        // RVC quadrant 1
   cover property (complete_live && rvfi_insn[1:0] == 2'b10);                        // RVC quadrant 2
-  // Reached only under RISCV_FORMAL_ALTOPS: without it, nano's real multiplier and
-  // divider retire far past complete's own depth, so this walk never checked one.
-  cover property (complete_live && insn_uncompressed && insn_is_m);                 // OP-M
+  // M is cut from the design, so an OP-M encoding never reaches complete_live: it always
+  // traps. That is what this cover proves instead of a value-checked OP-M retire.
+  cover property (!reset && rvfi_valid && rvfi_trap && insn_uncompressed && insn_is_m);
 endmodule

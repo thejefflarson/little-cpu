@@ -921,14 +921,11 @@ a decision was measured against them. `nproc` and `free` inside a pod report the
 
 ## Engineering rules
 
-- **Compiler and elaboration warnings are errors.** Three allowlisted exceptions, each documented
+- **Compiler and elaboration warnings are errors.** Two allowlisted exceptions, each documented
   where it is allowlisted: iverilog's `sorry: constant selects in always_* processes` for
   `rtl/writeback.v`'s `always_comb` struct reads (over-sensitivity, provably safe; do not add new
-  ones outside that file); yosys's `Deep recursion in AST simplifier` notice on the
-  `elaborate` CI job; and `nano/tb/nano_exec_cxxrtl.cc`'s `#pragma GCC diagnostic ignored
-  "-Wunused-parameter"` around its `#include` of the generated cxxrtl code, whose `eval(performer *)`
-  takes that argument unconditionally with nothing on this wrapper's path ever calling `$display`
-  through it.
+  ones outside that file); and yosys's `Deep recursion in AST simplifier` notice on the
+  `elaborate` CI job.
 - **No file may be more than 5% comment lines**, graded per file by
   `test/comment_density_test.py` on `make test`; `docs/comment-budget.md` is the derivation
   and says which comment-shaped lines are code. Prose that outgrows the budget moves to
@@ -954,11 +951,17 @@ a decision was measured against them. `nproc` and `free` inside a pod report the
 - **`git config --local` in a worktree writes the checkout's one shared `.git/config`**, so a
   change meant to be local to one worktree is live in all of them until it is unset. Use an
   isolated clone for anything that needs its own git config.
-- **A fresh `git worktree` has no `formal/riscv-formal`**: the clone is gitignored, and its
-  absence surfaces as `Current isa string 'rv32imc' not supported` plus a list of `insn_*` checks
-  never generated, which reads like a regression in the branch. Symlink the main checkout's clone
-  into the worktree before trusting a red there, and confirm a suspected pre-existing failure
-  against CI, never against another fresh worktree, which fails the same way.
+- **A fresh `git worktree` has no `formal/riscv-formal`**: its absence surfaces as `Current isa
+  string 'rv32imc' not supported` plus a list of `insn_*` checks never generated, which reads
+  like a regression in the branch. A flat symlink to the main checkout's clone is unsafe too, not
+  just an easy fix: a generated check reaches sources through `../..` from inside the clone, and
+  the OS resolves `..` AFTER following a symlink, so those reads land in the MAIN CHECKOUT's
+  tree, not this worktree's -- silently stale for littlecpu's `rtl/` (the main checkout has its
+  own copy) and loudly broken for `nano/` (the main checkout may have none at all). Make
+  `formal/riscv-formal` a real directory in the worktree instead, holding one symlink per
+  top-level entry of the pinned clone, so `..` from inside it stays in this tree; confirm it by
+  reading which source paths yosys's own log reports opening. Confirm a suspected pre-existing
+  failure against CI, never against another fresh worktree, which fails the same way.
 - **Knowledge about this repo lives in this repo.** A rule goes in this file, a measurement with
   its date in an ADR, and owed work in the tracker. An agent's private memory (Claude Code's
   per-project memory directory, outside the checkout) holds only preferences about how to work

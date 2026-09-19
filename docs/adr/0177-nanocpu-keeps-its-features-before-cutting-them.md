@@ -49,3 +49,7 @@ The Context's "FazyRV-ExoTiny at 56,448 µm², 91% of the tile" conflates two me
 ## Amendment · 2026-09-14
 
 The 2×2 stays the target, but the size estimate behind it does not hold. Tiny Tapeout's own flow reads this design at 1.256× the local figure, not the borrowed 0.915× this ADR's table used. Today's core synthesizes to 81,879.78 µm² against the 2×2's 72,564.6, before its CSR/trap layer and QSPI front end exist. ADR-0184 keeps the 2×2, rebuilds the register file and mul/div to fit, and makes M a second permitted cut if they are not enough. Features before cuts still stands.
+
+## Amendment · 2026-09-18
+
+This ADR's title calls RV32E "the one cut," and that is no longer true: ADR-0184's register-file and mul/div rebuilds (ADR-0189, ADR-0192, ADR-0195) did not close either tile on their own, and ADR-0197 exercises the second cut ADR-0184 already permitted — M is gone from `nano/nano.v` outright. Features-before-cuts still stands as the ordering principle; it has now run to its second cut, not stopped at its first.

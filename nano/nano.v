@@ -42,8 +42,6 @@ module riscv (
     is_csrli, is_csrai, is_candi;
   logic is_math_op, is_math, is_add, is_sub, is_sll, is_slt, is_sltu, is_xor, is_srl, is_sra, is_or,
     is_and, is_cmv, is_cadd, is_cand, is_cor, is_cxor, is_csub;
-  logic is_m, is_multiply, is_mul, is_mulh, is_mulhu, is_mulhsu, is_divide, is_div, is_divu, is_rem,
-    is_remu;
   logic [31:0] math_arg;
   logic [4:0] shamt;
   logic is_csr, is_csrrw, is_csrrs, is_csrrc, is_csrrwi, is_csrrsi, is_csrrci;
@@ -62,17 +60,6 @@ module riscv (
   logic [31:0] pc_inc;
   logic [31:0] reg_wdata;
   logic [31:0] pc_wdata;
-  logic [63:0] mul_div_store;
-  logic [5:0] mul_div_counter;
-  logic [31:0] mul_div_operand;
-  logic want_abs;
-  logic [31:0] div_abs_rs1, div_abs_rs2;
-  logic want_neg_mul;
-  logic [31:0] mul_mag_rs1, mul_mag_rs2;
-  logic [31:0] mul_div_a;
-  logic mul_div_op_sub;
-  logic [32:0] mul_div_sum;
-  logic div_qbit;
   logic [3:0] cpu_state;
   logic skip_reg_write;
 
@@ -240,17 +227,6 @@ module riscv (
   assign is_math = is_add || is_sub || is_sll || is_slt || is_sltu || is_xor || is_srl || is_sra ||
     is_or || is_and;
 
-  assign is_m = is_math_op && funct7 == 7'b0000001;
-  assign is_mul = is_m && funct3 == 3'b000;
-  assign is_mulh = is_m && funct3 == 3'b001;
-  assign is_mulhu = is_m && funct3 == 3'b011;
-  assign is_mulhsu = is_m && funct3 == 3'b010;
-  assign is_multiply = is_mul || is_mulh || is_mulhu || is_mulhsu;
-  assign is_div = is_m && funct3 == 3'b100;
-  assign is_divu = is_m && funct3 == 3'b101;
-  assign is_rem = is_m && funct3 == 3'b110;
-  assign is_remu = is_m && funct3 == 3'b111;
-  assign is_divide = is_div || is_divu || is_rem || is_remu;
   assign math_arg = is_math_immediate ? immediate : `RF_RS2;
   assign shamt = is_math_immediate ? rs2 : `RF_RS2[4:0];
 
@@ -286,8 +262,6 @@ module riscv (
     is_store ||
     is_math ||
     is_math_immediate ||
-    is_multiply ||
-    is_divide ||
     is_ecall ||
     is_ebreak) && !is_e_illegal;
 
@@ -302,20 +276,6 @@ module riscv (
 
   // register write addr
   // pc write
-  // multiply and divide state
-
-  // The shift-subtract loop below compares magnitudes, so a signed dividend or divisor
-  // is negated before it starts and the sign is restored on the way out; DIVU/REMU read
-  // their operand as its own magnitude already.
-  assign want_abs = is_div || is_rem;
-  assign div_abs_rs1 = want_abs && `RF_RS1[31] ? -`RF_RS1 : `RF_RS1;
-  assign div_abs_rs2 = want_abs && `RF_RS2[31] ? -`RF_RS2 : `RF_RS2;
-
-  // MUL's low 32 bits are sign-agnostic, so only MULH/MULHSU take a magnitude.
-  assign mul_mag_rs1 = (is_mulh || is_mulhsu) && `RF_RS1[31] ? -`RF_RS1 : `RF_RS1;
-  assign mul_mag_rs2 = is_mulh && `RF_RS2[31] ? -`RF_RS2 : `RF_RS2;
-  assign want_neg_mul = (is_mulh && (`RF_RS1[31] ^ `RF_RS2[31])) ||
-    (is_mulhsu && `RF_RS1[31]);
 
   // state machine
   localparam cpu_trap = 4'b0000;
@@ -327,23 +287,12 @@ module riscv (
   localparam finish_store = 4'b0110;
   localparam check_pc = 4'b0111;
   localparam reg_write = 4'b1000;
-  localparam multiply = 4'b1001;
-  localparam divide = 4'b1011;
 `ifdef NANO_ONE_PORT_RF
   localparam fetch_rs1 = 4'b1100;
   localparam fetch_rs2 = 4'b1101;
 
   assign rf_raddr = cpu_state == fetch_rs2 ? rs2[3:0] : rs1[3:0];
 `endif
-
-  // One 32-bit adder/subtractor serves both loops; divide's carry-out doubles as "no
-  // borrow", ORed with the shifted-out top bit of a remainder too large for any divisor.
-  assign mul_div_a = cpu_state == divide ?
-    {mul_div_store[62:32], mul_div_store[31]} : mul_div_store[63:32];
-  assign mul_div_op_sub = cpu_state == divide;
-  assign mul_div_sum = {1'b0, mul_div_a} +
-    (mul_div_op_sub ? ({1'b0, ~mul_div_operand} + 33'b1) : {1'b0, mul_div_operand});
-  assign div_qbit = mul_div_store[63] | mul_div_sum[32];
 
   always_ff @(posedge clk) begin
     if (reset) begin
@@ -468,7 +417,7 @@ module riscv (
                 cpu_state <= check_pc;
               end
 
-              is_math || is_math_immediate || is_m: begin
+              is_math || is_math_immediate: begin
                 cpu_state <= reg_write;
                 next_pc <= pc + pc_inc;
                 (* parallel_case, full_case *)
@@ -511,20 +460,6 @@ module riscv (
 
                   is_and || is_andi: begin
                     reg_wdata <= `RF_RS1 & math_arg;
-                  end
-
-                  is_multiply: begin
-                    mul_div_counter <= 32;
-                    cpu_state <= multiply;
-                    mul_div_operand <= mul_mag_rs1;
-                    mul_div_store <= {32'b0, mul_mag_rs2};
-                  end
-
-                  is_divide: begin
-                    mul_div_counter <= 32;
-                    cpu_state <= divide;
-                    mul_div_operand <= div_abs_rs2;
-                    mul_div_store <= {32'b0, div_abs_rs1};
                   end
                 endcase
               end
@@ -582,70 +517,6 @@ module riscv (
               end
             endcase
           end
-        end
-
-        multiply: begin
-         `ifndef RISCV_FORMAL_ALTOPS
-          if (mul_div_counter > 0) begin
-            mul_div_store <= mul_div_store[0]
-              ? {mul_div_sum, mul_div_store[31:1]}
-              : {1'b0, mul_div_store[63:32], mul_div_store[31:1]};
-            mul_div_counter <= mul_div_counter - 1;
-          end else begin
-            (* parallel_case, full_case *)
-            case (1'b1)
-              is_mul: reg_wdata <= mul_div_store[31:0];
-              is_mulhu: reg_wdata <= mul_div_store[63:32];
-              default: reg_wdata <= want_neg_mul
-                ? ~mul_div_store[63:32] + {31'b0, mul_div_store[31:0] == 32'b0}
-                : mul_div_store[63:32];
-            endcase
-            cpu_state <= reg_write;
-          end
-         `else
-          cpu_state <= reg_write;
-          (* parallel_case, full_case *)
-          case (1'b1)
-            is_mul: reg_wdata <= (`RF_RS1 + `RF_RS2) ^ 32'h5876063e;
-            is_mulh: reg_wdata <= (`RF_RS1 + `RF_RS2) ^ 32'hf6583fb7;
-            is_mulhu: reg_wdata <= (`RF_RS1 + `RF_RS2) ^ 32'h949ce5e8;
-            is_mulhsu: reg_wdata <= (`RF_RS1 - `RF_RS2) ^ 32'hecfbe137;
-          endcase
-         `endif
-        end
-
-        divide: begin
-         `ifndef RISCV_FORMAL_ALTOPS
-          if (mul_div_counter > 0) begin
-            // Restoring division: keep the subtraction only where it did not borrow.
-            mul_div_store <= {div_qbit ? mul_div_sum[31:0] : mul_div_a,
-                               mul_div_store[30:0], div_qbit};
-            mul_div_counter <= mul_div_counter - 1;
-          end else begin
-            // A zero divisor is answered from the operands: unlike a remainder register
-            // the loop leaves untouched, this shifting one never settles on all-ones.
-            (* parallel_case, full_case *)
-            case (1'b1)
-              is_div: reg_wdata <= (`RF_RS2 == 32'b0) ? 32'hffffffff :
-                ((`RF_RS1[31] ^ `RF_RS2[31]) ?
-                  -mul_div_store[31:0] : mul_div_store[31:0]);
-              is_divu: reg_wdata <= (`RF_RS2 == 32'b0) ? 32'hffffffff : mul_div_store[31:0];
-              is_rem: reg_wdata <= (`RF_RS2 == 32'b0) ? `RF_RS1 :
-                (`RF_RS1[31] ? -mul_div_store[63:32] : mul_div_store[63:32]);
-              is_remu: reg_wdata <= (`RF_RS2 == 32'b0) ? `RF_RS1 : mul_div_store[63:32];
-            endcase
-            cpu_state <= reg_write;
-          end
-         `else
-          cpu_state <= reg_write;
-          (* parallel_case, full_case *)
-          case (1'b1)
-            is_div: reg_wdata <= (`RF_RS1 - `RF_RS2) ^ 32'h7f8529ec;
-            is_divu: reg_wdata <= (`RF_RS1 - `RF_RS2) ^ 32'h10e8fd70;
-            is_rem: reg_wdata <= (`RF_RS1 - `RF_RS2) ^ 32'h8da68fa5;
-            is_remu: reg_wdata <= (`RF_RS1 - `RF_RS2) ^ 32'h3138d0e1;
-          endcase
-         `endif
         end
 
         // for branches and jumps: if the next program counter is misaligned we need to trap
