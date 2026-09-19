@@ -18,10 +18,8 @@ module decoder_tb;
   // hazard scoreboard is test/regfile_tb.v's and hazard.S's.
   executor_output executor_out = '0;
   logic divider_stall = 1'b0;
-  // The fetch queue has fewer than two words buffered.
   logic buffer_empty = 1'b0;
-  // fetchctrl's own view of whether the empty buffer above is a redirect's discard in
-  // flight, driven by hand here since this bench has no fetchctrl instance.
+  // fetchctrl's view of the buffer above, driven by hand since this bench has no fetchctrl.
   logic redirect_recovering = 1'b0;
   // The platform has not granted this core the shared bus.
   logic bus_wait = 1'b0;
@@ -129,8 +127,7 @@ module decoder_tb;
     end
   end
 
-  // A killed cycle never issues -- decoder.v's own FORMAL block proves this by
-  // construction; this is the same check run under real vectors rather than a solver.
+  // A killed cycle never issues -- the same check decoder.v's FORMAL block proves, run under real vectors.
   always @(clk) begin
     if (dut.kill && dut.issuing) begin
       $display("MISMATCH kill and issuing are both asserted on the same cycle");

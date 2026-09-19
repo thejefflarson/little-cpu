@@ -16,19 +16,12 @@ module decoder #(
   input  logic [31:0] reg_rs2,
   input  executor_output executor_out,
   input  logic divider_stall,
-  // The fetch queue has fewer than two words buffered, so there is no instruction to
-  // decode this cycle. A text load or store stealing imemory's read port is fetchctrl's
-  // problem now, not decode's: the queue absorbs the retry, and decode only ever sees a
-  // slower fill rate.
+  // The fetch queue has fewer than two words buffered; a stolen read port is fetchctrl's problem now, absorbed as a slower fill rate.
   input  logic buffer_empty,
-  // Set from the cycle a redirect fires until the queue holds a fresh pair again --
-  // fetchctrl's own view of whether an empty buffer is a discard in flight. ANDed with
-  // buffer_empty below rather than trusted alone, so `kill` cannot assert on a cycle this
-  // decoder itself would call issuing, in any harness that drives this free.
+  // fetchctrl's own view of whether an empty buffer is a redirect's discard in flight; ANDed with buffer_empty below rather than trusted alone.
   input  logic redirect_recovering,
   input  logic bus_wait,
-  // Decode's request for the data bus, a cycle before the transaction. The platform ANDs
-  // it against its own grant; a grant term here would close the loop through the arbiter.
+  // Decode's request for the bus, a cycle early; the platform ANDs it against its own grant so a grant term here would close the loop through the arbiter.
   output logic bus_request,
   input  logic imem_fault,
   output logic [31:0] atomic_addr,
@@ -36,13 +29,9 @@ module decoder #(
   input  logic       accessor_out_valid,
   output logic [31:0] pc,
   output logic [31:0] next_pc,
-  // High on an issuing cycle whose next_pc is not the fetch queue's own straight-line
-  // advance -- fetchctrl registers this and the target it comes with before either
-  // reaches imemory.
+  // High on an issuing cycle whose next_pc is not the queue's own straight-line advance.
   output logic redirect,
-  // A non-stall bubble: this cycle issues nothing because the buffer is empty and the
-  // reason is a redirect's own discard-and-refill, not one of the eight stall reasons.
-  // test/cxxrtl.cc and test/stall_report.py charge it to its own column, never to `stall`.
+  // A non-stall bubble, charged to its own column by test/cxxrtl.cc/stall_report.py, never to `stall`.
   output logic kill,
   output logic [4:0] rs1,
   output logic [4:0] rs2,
@@ -305,8 +294,7 @@ module decoder #(
   logic [31:0] csr_arg;
   assign csr_arg = is_csr_imm ? {27'b0, rs1_field} : reg_rs1;
 
-  // Zicsr's suppression rules. Skipping the write is what makes `csrr` legal on a
-  // read-only CSR; `csr_read_op` exists only so RVFI reports the right read mask.
+  // Zicsr's suppression rules: skipping the write is what makes `csrr` legal on a read-only CSR.
   logic csr_src_zero, csr_write_op, csr_read_op;
   assign csr_src_zero = rs1_field == 5'b0;
   assign csr_write_op = instr_csr_access && !((instr_csrrs || instr_csrrc) && csr_src_zero);
@@ -351,8 +339,7 @@ module decoder #(
   assign instr_ls_load  = instr_lb || instr_lbu || instr_lh || instr_lhu || instr_lw;
   assign instr_ls_store = instr_sb || instr_sh || instr_sw;
 
-  // Reads the whole sum, and drives only the flip-flop below, which keeps the carry chain
-  // out of the fetch loop.
+  // Reads the whole sum but drives only the flip-flop below, keeping the carry chain out of the fetch loop.
   localparam logic [31:0] LS_TEXT_BYTES = LS_TEXT_WORDS * 4;
   localparam logic [31:0] LS_RAM_BYTES  = LS_RAM_WORDS * 4;
   logic ls_supported;
@@ -397,8 +384,7 @@ module decoder #(
   assign region_stall = ls_access && !ls_settled && !ls_answer_valid;
   assign ls_capture = region_stall && !stall_own;
 
-  // Held until the access issues, not for one cycle: under a bus wait a one-cycle answer
-  // expires, drops `bus_request`, and the two livelock.
+  // Held until the access issues, not one cycle: a bus wait would otherwise expire it, dropping `bus_request` into a livelock.
   always_ff @(posedge clk) begin
     if (reset) begin
       ls_answer       <= 1'b0;
@@ -467,8 +453,7 @@ module decoder #(
   logic trap_taken;
   assign trap_taken = trap_pending || interrupt_pending;
 
-  // No `(* parallel_case *)` here: the top two arms deliberately overlap the eight below,
-  // and the FORMAL block proves those eight disjoint.
+  // No `(* parallel_case *)`: the top two arms deliberately overlap the eight below.
   always_comb begin
     case (1'b1)
       interrupt_pending: trap_cause = CAUSE_MACHINE_TIMER;
@@ -609,11 +594,7 @@ module decoder #(
   assign stall_other = stall_own || bus_wait;
   assign stall = stall_other || region_stall;
 
-  // NEVER OR THIS INTO stall_own/stall_other/stall: kill is the eight reasons' non-stall
-  // sibling, not a ninth one, and test/stall_sites_test.py reads that literally. The AND
-  // with buffer_empty (itself one of the eight, already covering every kill cycle) is
-  // what makes `kill => !issuing` true by this module's own structure alone, in any
-  // harness that drives redirect_recovering free.
+  // NEVER OR THIS INTO stall_own/stall_other/stall: test/stall_sites_test.py reads kill as the eight reasons' non-stall sibling, not a ninth one.
   assign kill = buffer_empty && redirect_recovering;
 
   // Over-asking is deliberate -- a store-conditional with no reservation makes no
@@ -835,8 +816,7 @@ module decoder #(
 
   always_comb assume(in.pc == pc);
 
-  // Assumed here, and dropped with `-noassume` where the composed proof can check it
-  // against the real fetcher.
+  // Assumed here, dropped with `-noassume` where the composed proof checks it against the real fetcher.
   fetcher_output prev_in;
   logic [31:0] prev_reg_rs1;
   logic        prev_issued;
@@ -888,9 +868,7 @@ module decoder #(
   always_comb if (clocked && !prev_reset && prev_hold_and_region) assert(out == past_out);
   always_comb if (clocked && !prev_reset && prev_region_only)     assert(out == '0);
 
-  // A killed cycle never issues, in any harness -- redirect_recovering is a free input
-  // here (this module cannot see fetchctrl's own definition of it), and kill is still
-  // provably gated by this module's own `buffer_empty`, which is already inside `stall`.
+  // A killed cycle never issues, provable since kill is gated by this module's own buffer_empty, already inside `stall`, with redirect_recovering free.
   always_comb if (clocked) assert(!kill || !issuing);
 
   logic [31:0] past_next_pc;

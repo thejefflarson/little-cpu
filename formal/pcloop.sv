@@ -1,5 +1,4 @@
-// The fetch queue, its controller, the fetcher and the decoder, wired together the way
-// rtl/littlecpu.v wires them.
+// The fetch queue, its controller, the fetcher and the decoder, wired the way rtl/littlecpu.v wires them.
 `default_nettype none
 
 module pcloop (
@@ -12,27 +11,20 @@ module pcloop (
     input executor_output executor_out,
     input logic divider_stall,
     input logic fetch_stall,
-    // Free, like every other stall input here: a hart that has not been granted the
-    // shared bus holds the pc, and the increment assertion has to skip that cycle the
-    // same way it skips an empty fetch buffer.
+    // Free: an ungranted bus holds the pc, so the increment assertion skips that cycle too.
     input logic bus_wait,
-    // Free, like everything else not instantiated here.
     input logic imem_fault,
-    // Free for the same reason and with the same effect: an atomic the platform does not
-    // answer redirects the pc, and `branch_jump` names that trap too.
     input logic atomic_supported,
     input logic accessor_out_valid,
     input logic [31:0] csr_rdata,
     input logic csr_implemented,
     input logic [31:0] mtvec,
     input logic [31:0] mepc,
-    // Free, like everything else not instantiated here.
     input logic interrupt_pending
 );
   logic [31:0] pc;
   logic [31:0] next_pc;
   logic redirect;
-  // The address the decoder publishes for a platform to decode.
   logic [31:0] atomic_addr;
   fetcher_output fetcher_out;
   decoder_output decoder_out;
@@ -243,11 +235,7 @@ module pcloop (
   always_ff @(posedge clk)
     if (clocked && !prev_reset && prev_mret_entry) assert(pc == prev_mepc);
 
-  // Property 1: fetch_pc is a register updated from registers only, and every cycle it
-  // either advances by one word pair, holds (no room, or retrying a stolen ROM read), or
-  // lands on a registered redirect target two cycles after decode computed it (one cycle
-  // to capture the verdict, one more to apply it) -- never on the word arriving this
-  // cycle.
+  // Property 1: fetch_pc advances, holds, retries, or takes a redirect target two cycles after decode computed it -- never the word arriving this cycle.
   logic [31:0] past_fetch_pc, past2_fetch_pc;
   logic [31:0] past_next_pc_r, past2_next_pc_r;
   logic        past_redirect_r, past2_redirect_r;
@@ -274,28 +262,17 @@ module pcloop (
     assert(f_fetch_pc_advanced || f_fetch_pc_held || f_fetch_pc_retried ||
            f_fetch_pc_redirected);
 
-  // Property 2: the buffer's word and pc stay consistent -- popping the queue's head
-  // never happens except on the one cycle decode's own pc actually leaves the word that
-  // head names, the same word-index test rtl/fetcher.v's `pop` is built from. This is
-  // restated here as an independent check on pcloop's own signals, not a re-statement of
-  // fetcher.v's assign, so a future edit to either has to keep them agreeing.
+  // Property 2: the buffer pops only on the cycle pc actually leaves the word it names, restated independently of fetcher.v's own `pop` so an edit to either must keep them agreeing.
   always_comb if (clocked && !reset)
     assert(fetcher_pop == (next_pc[31:2] != pc[31:2]));
 
-  // Property 3: a word that never reaches decode never issues. decoder_out.valid this
-  // cycle reports what issued last cycle (out is registered), so it is graded against
-  // the buffer's occupancy last cycle, not this one -- and a divider hold republishes
-  // last cycle's out unchanged, which is not a fresh issue and carries no opinion about
-  // this cycle's buffer at all.
+  // Property 3: a word that never reaches decode never issues, graded against last cycle's
+  // buffer occupancy since decoder_out.valid reports what issued THEN (out is registered).
   always_comb if (clocked && !prev_reset && !prev_hard_stall)
     assert(!prev_buffer_empty || !decoder_out.valid);
 
-  // The strengthened half: a word fetchctrl is actively discarding never issues either,
-  // stated over `kill` rather than over `buffer_empty` so a future stage that narrows
-  // buffer_empty's OTHER causes (a cold start, a steal-drained queue) still has this
-  // half nailed down. Decoder's own FORMAL block proves `kill => !issuing` from its local
-  // signals alone; this restates it one cycle later, against the composed queue's own
-  // `redirect_recovering`, so a future edit that decouples the two is caught here too.
+  // The strengthened half, over `kill` rather than `buffer_empty`: restates decoder's own
+  // `kill => !issuing` one cycle later, against the composed queue's `redirect_recovering`.
   logic prev_kill;
   always_ff @(posedge clk) prev_kill <= kill;
   always_comb if (clocked && !prev_reset && !prev_hard_stall)

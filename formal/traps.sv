@@ -1,5 +1,4 @@
-// The fetcher, the decoder and the CSR file, wired together the way rtl/littlecpu.v wires
-// them, so that mtvec, mepc, mcause and mstatus are real registers rather than free inputs.
+// The fetcher, the decoder and the CSR file, wired the way rtl/littlecpu.v wires them, so mtvec/mepc/mcause/mstatus are real registers rather than free inputs.
 `default_nettype none
 
 module traps #(
@@ -21,14 +20,11 @@ module traps #(
     input logic divider_stall,
     // Free: this harness models no queue, so a buffer's emptiness is left to the solver.
     input logic buffer_empty,
-    // Free for the same reason: this harness has no fetchctrl to say whether an empty
-    // buffer is a discard in flight.
+    // Free: this harness has no fetchctrl to say whether an empty buffer is a discard in flight.
     input logic redirect_recovering,
-    // Free, like the other two: a hart waiting for the shared bus issues nothing, so no
-    // trap is committed on that cycle either.
+    // Free, like the other two: a hart waiting for the shared bus issues nothing either.
     input logic bus_wait,
-    // Free, but coupled to fetcher_out below: rtl/fetchqueue.v answers a fault bit out of
-    // the same slot its word comes from, so the two hold or move together.
+    // Free, but coupled to fetcher_out below: rtl/fetchqueue.v answers a fault bit out of the same slot its word comes from.
     input logic imem_fault,
     // The platform's answer about the address an atomic in decode would use.
     input logic atomic_supported,
@@ -38,11 +34,8 @@ module traps #(
 );
   logic [31:0] pc, next_pc;
   logic        redirect;
-  // Unread here, and declared anyway for the same reason bus_request is: an output
-  // connected to an undeclared identifier is an implicit net, which `default_nettype
-  // none` makes an error in iverilog and a warning in yosys.
+  // Unread, declared anyway: `default_nettype none` makes an undeclared output identifier an error in iverilog and a warning in yosys.
   logic        kill;
-  // The address the decoder publishes for a platform to decode.
   logic [31:0] atomic_addr;
   fetcher_output fetcher_out;
   decoder_output decoder_out;
@@ -52,15 +45,13 @@ module traps #(
   logic [31:0] csr_wdata, csr_rdata;
   logic        csr_implemented;
   logic        trap_entry, mret_entry;
-  // Unread here, and declared anyway: an output wired to an undeclared identifier is an
-  // implicit net, which `default_nettype none` turns into an iverilog error.
+  // Unread here too, for the same reason.
   logic        bus_request;
   logic [31:0] trap_cause, trap_epc, trap_tval;
   logic [31:0] mtvec_value, mepc_value;
   logic        interrupt_pending;
 
-  // q0/q1 are free here, the same standing imem_data/imem_data2 had: this harness models
-  // no queue, so whatever word the solver picks stands in for the buffer's head pair.
+  // q0/q1 are free here, the same standing imem_data/imem_data2 had: no queue, so the solver's pick stands in for the buffer's head pair.
   fetcher fetcher (
     .clk(clk),
     .reset(reset),
@@ -181,8 +172,7 @@ module traps #(
   assign opcode = instr[6:2];
   assign funct3 = instr[14:12];
 
-  // `issuing` is not a port: the decoder counts a retire on a non-trapping issuing cycle
-  // and raises trap_entry on a trapping one, so it is exactly the OR of those two.
+  // `issuing` is not a port: exactly the OR of a non-trapping retire and a trapping trap_entry.
   logic issuing;
   assign issuing = instret || trap_entry;
 
@@ -199,8 +189,7 @@ module traps #(
     prev_held_imem_fault <= imem_fault;
     prev_issuing         <= issuing || reset;
   end
-  // A non-issuing cycle re-presents the same buffered word, so its fault answer -- read
-  // out of the same slot -- can no more move than fetcher_out's own fields can.
+  // A non-issuing cycle re-presents the same buffered word, so its fault answer can no more move than fetcher_out's own fields can.
   always_comb if (clocked && !reset && !prev_issuing) begin
     assume(reg_rs1 == prev_reg_rs1);
     assume(fetcher_out == prev_fetcher_out);

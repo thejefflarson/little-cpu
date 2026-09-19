@@ -21,11 +21,8 @@ module testbench (
   logic [31:0] uut_imem_data;
   logic [31:0] uut_imem_addr2;
   logic [31:0] uut_imem_data2;
-  // The fetch address one cycle early.
   logic [31:0] uut_imem_addr_next;
-  // The address the core publishes for the platform to decode.
   logic [31:0] atomic_addr;
-  // The lock an arbiter would read.
   logic mem_lock;
   logic bus_request;
   logic [31:0] mem_addr;
@@ -66,13 +63,9 @@ module testbench (
     end
   end
 
-  // imem_data answers the address the fetch controller (rtl/fetchctrl.v) published as
-  // imem_addr_next the CYCLE BEFORE, not uut_imem_addr -- that is decode's own pc, which
-  // a queue now runs ahead of rather than tracks cycle for cycle. imem_data2 answers the
-  // word after it, the same dual-word pair rtl/imemory.v has always returned. A redirect
-  // target can land on any 2-byte (compressed) boundary, so fetch_pc, unlike the old
-  // design's word-truncated imem_addr, is not always word-aligned; rtl/imemory.v ignores
-  // its low two bits (`next_word = imem_addr_next[31:2]`), so this has to as well.
+  // imem_data answers imem_addr_next from the CYCLE BEFORE, not uut_imem_addr (decode's
+  // own pc, which the queue now runs ahead of); word-aligned like rtl/imemory.v's own
+  // `next_word = imem_addr_next[31:2]`, since a redirect target need not be.
   logic [31:0] past_imem_addr_next;
   logic [31:0] past_imem_word;
   always_ff @(posedge clk) past_imem_addr_next <= uut_imem_addr_next;

@@ -15,7 +15,6 @@ decoder: smtbmc
 accessor: smtbmc
 traps: smtbmc bitwuzla
 pcloop: smtbmc boolector
-# executor is most of this job's clock; bitwuzla proves it in 101s against 245s.
 executor: smtbmc bitwuzla
 
 busarbiter: smtbmc --keep-going
@@ -35,9 +34,7 @@ prep -top accessor
 
 pcloop:
 read -sv structs.v fetcher.v decoder.v regsel.v
-# fetchctrl's own contract -- the room invariant it owes fetchqueue -- is checked here,
-# not assumed for free: a harness cannot reach inside an instance, so this is where that
-# submodule's own FORMAL block is read into the composed proof.
+# -noassume reads fetchctrl's own FORMAL block (the room invariant it owes fetchqueue) into the proof rather than assuming it for free.
 read -sv -formal -noassume structs.v fetchctrl.v fetchqueue.v
 read -sv -formal structs.v pcloop.sv
 prep -top pcloop

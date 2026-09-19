@@ -1,9 +1,7 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
 `include "structs.v"
-// Windows a decoded instruction out of the fetch queue's head pair. `pop` fires when
-// decode's next pc leaves the word `pc` names, so a 4-byte instruction straddling two
-// queued words pops exactly the one it fully leaves.
+// Windows a decoded instruction out of the queue's head pair; `pop` fires when next_pc leaves the word `pc` names.
 module fetcher(
   input  logic clk,
   input  logic reset,
