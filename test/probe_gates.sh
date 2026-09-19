@@ -3602,8 +3602,10 @@ d=$(mm_fixture); mutate "$d/rtl/littlesoc.v" 's/^  uart #(/  nouart #(/'
 probe "a SoC with no UART at all does not pass by silence" 1 \
   "does not instantiate \`uart\` at all" "$MM $d"
 
-d=$(mm_fixture); mutate "$d/rtl/littlesoc.v" 's/^  spiflash flash (/  nospiflash flash (/'
-probe "a SoC with no SPI controller at all does not pass by silence" 1 \
+# The placed SoC carries no SPI controller at all, by design (its pins are not wired to
+# the board), so only the simulated harness is graded for one going missing.
+d=$(mm_fixture); mutate "$d/test/testbench.v" 's/^  spiflash flash (/  nospiflash flash (/'
+probe "a harness with no SPI controller at all does not pass by silence" 1 \
   "does not instantiate \`spiflash\` at all" "$MM $d"
 
 # Without this the check above passes vacuously on a file that lost its memory.
