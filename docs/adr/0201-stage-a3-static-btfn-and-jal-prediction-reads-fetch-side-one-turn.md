@@ -175,6 +175,8 @@ before synthesis removes it), and Stage A's own placement question is still Stag
 - **A pre-existing comment-density gap, not caused by this ticket**, was found on `formal/pcloop.sv`,
   `formal/traps.sv`, `rtl/decoder.v`, `rtl/littlecpu.v` and `formal/components.sby` — each was
   already over `docs/comment-budget.md`'s 5% on A2's own branch, before this ticket touched them.
-  This ticket keeps every file it added net comment lines to under budget
-  (`rtl/fetchctrl.v`, `test/cxxrtl.cc`, `test/decoder_tb.v`, `test/zkt_isolation_test.py`) but does
-  not attempt the unrelated cleanup the other five would need.
+  This ticket condenses (never deletes the substance of) the comments in the four it touches —
+  `formal/pcloop.sv`, `formal/traps.sv`, `rtl/decoder.v`, `rtl/littlecpu.v` — to bring each under
+  budget, alongside keeping every file it added net comment lines to under budget
+  (`rtl/fetchctrl.v`, `test/cxxrtl.cc`, `test/decoder_tb.v`, `test/zkt_isolation_test.py`).
+  `formal/components.sby`, untouched by this ticket, is left as found.
