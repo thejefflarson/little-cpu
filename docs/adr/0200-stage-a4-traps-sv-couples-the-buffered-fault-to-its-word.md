@@ -277,7 +277,21 @@ until 6 and 14 minutes in. Once a shard IS running it still burns its own full ~
 BMC work; the queue delay extends the PR's total wall time on top of that, but is not itself why a
 shard times out.
 
-**Fix: `formal-checks-shard` widens from four shards to eight** (`CHECK_SHARD=<i>/8`, same
-`JOBS=4` per shard) — half the checks per shard, which the measurement above supports as sufficient
-headroom without touching F, G, or any check's generated depth. `formal-checks-nano-shard` is
-unaffected (it already clears the wall at four). Re-confirm on #383's next CI run.
+**Fix, first try: `formal-checks-shard` widens from four shards to eight** (`CHECK_SHARD=<i>/8`,
+same `JOBS=4` per shard) — half the checks per shard. Re-confirmed on #383's next CI run, and it
+was not enough: five of the eight (shards 1, 5, 6, 7, 8) were still cancelled at 20m18-20m19s;
+three (2, 3, 4) succeeded at 12-17 minutes. Cross-referencing the cancelled shards' membership
+(`NR % 8 == i % 8` over the 86 sorted check names) against a local, `nproc`-wide `make -C formal
+all` run's own completion gaps names the real outliers: `reg_ch0` alone (shard 5, ~191s of its own
+gap with nothing else finishing meanwhile — this is the standing liveness probe CLAUDE.md already
+names as expensive) and a cluster of `insn_c_*`/`insn_beq_ch0`/`insn_lh_ch0`/`insn_c_swsp_ch0`
+checks landing together in shards 1, 6 and 8. Shard 7's own cancellation, with none of its ten
+members appearing as an outlier in that local run, says the local timing is at best a lower bound
+under real CI's `JOBS=4` contention — a shard with no single dominant check can still time out on
+a bad pod.
+
+**Fix, second try: sixteen shards** (`CHECK_SHARD=<i>/16`), landed here. Halving membership again
+(≈5-6 checks per shard) gives `reg_ch0` and every `insn_c_*` outlier far fewer companions, and
+gives an unlucky pod more margin even without a single obvious cause. `formal-checks-nano-shard`
+is unaffected (it already clears the wall at four; nano's own check set carries no equivalent of
+`reg_ch0`). Re-confirm on #383's next CI run.
