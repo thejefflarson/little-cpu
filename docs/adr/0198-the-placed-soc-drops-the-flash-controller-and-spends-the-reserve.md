@@ -1,6 +1,6 @@
 # ADR-0198: the placed SoC drops the flash controller, and spends the reserve
 
-**Status:** Accepted · 2026-09-18
+**Status:** Accepted · 2026-09-19
 
 ## Context
 
@@ -16,6 +16,12 @@ cannot tell a host that is genuinely absent from one that is idle with its chip 
 parked high, and `iceprog` does the second for most of a programming session. The
 controller has therefore cost this design's area budget since it shipped, for a data
 path nothing on the board can reach.
+
+**This reserve alone does not close Stage A1's gap.** 84 packed cells freed against a
+demand overshoot the ticket describes as ≥241 cells; the fetch buffer under construction
+and any further reserve are still needed before that stage can place. What this PR settles
+is narrower: whether the flash controller belongs in the placed SoC at all, independent of
+whatever else lands to close the rest.
 
 ## Decision
 
@@ -60,44 +66,67 @@ a fact about the board's wiring, not about whether `rtl/spiflash.v` is instantia
 ## Measurement
 
 Toolchain: yosys 0.68+48 (git sha1 ff5817c34), nextpnr-ice40/nextpnr-ecp5 0.11-1-g62e659ed,
-icetime (oss-cad-suite 20260811), against this branch and `origin/main` at `3b64723`.
+icetime (oss-cad-suite 20260811), identical on every run cited below. Base is
+`origin/main` at `3b64723`; candidate is this ADR's own commit, `a6e6000`, one commit
+ahead of that base with nothing else changed.
 
-**`make fit` (the core alone): unchanged.** `rtl/spiflash.v` was never part of `fit`'s top
-(`rtl/littlecpu.v`), so removing its instantiation from `rtl/littlesoc.v` cannot move this
-number, and did not: <FIT_BEFORE> -> <FIT_AFTER> ICESTORM_LC.
+**`make fit` (the core alone): unchanged, as expected.** `rtl/spiflash.v` was never part
+of `fit`'s top (`rtl/littlecpu.v`), so removing its instantiation from `rtl/littlesoc.v`
+cannot move this number: 4063 ICESTORM_LC measured on the candidate, a −34-cell move
+against the 4097 the Makefile's `FIT_LAST_LC` records for main — inside the ±50-cell
+churn band `make fit` carries regardless of any real edit.
 
-**`make soc-timing` (up5k, pinned placement, `soc/pin.json`): ICESTORM_LC
-<SOC_LC_BEFORE> -> <SOC_LC_AFTER>, freeing <SOC_LC_FREED> cells (<SOC_LC_PCT>%) against
-the part's 5,280.** Fmax at the pinned seed: <SOC_MHZ_BEFORE> -> <SOC_MHZ_AFTER> MHz.
-`SOC_EXPECT_SPRAM`/`SOC_EXPECT_EBR` are unchanged at 2/20 — the controller is a shift
-register and a bit counter, no block RAM, so its removal could not move either count, and
-did not.
+**`make soc-timing` (up5k, main's pinned seed replayed on both trees): ICESTORM_LC
+4920 → 4836, freeing 84 cells (1.7%) against the part's 5,280.** Fmax at that seed:
+12.12 → 12.84 MHz. The netlist digest itself (`make netlist-diff BASE=origin/main`)
+counts the unpacked cost the placer folds from: `SB_LUT4` 4428 → 4357 (−71),
+`SB_DFFESR` 711 → 689 (−22), `SB_DFFSR` 246 → 237 (−9), `SB_CARRY` 697 → 695 (−2),
+−104 cells before packing, plus the four now-deleted ports. `SOC_EXPECT_SPRAM`/
+`SOC_EXPECT_EBR` are unchanged at 2/20 — the controller is a shift register and a bit
+counter, no block RAM, so its removal could not move either count, and did not.
 
-**`make ecp5-timing`: <ECP5_BEFORE> -> <ECP5_AFTER> MHz**, <ECP5_LC_NOTE>.
+**`make ecp5-timing`: `TRELLIS_COMB` 5780 → 5616 (−164, 2.8%), Fmax 33.87 → 35.00 MHz**
+at the same seed on both trees; the three mapping censuses and
+`soc/bram_reset_check.py` are untouched (no block RAM in the controller).
 
 **The digest moved, so the paired sweep is owed** (`soc/paired_sweep.sh origin/main`,
-sixteen seeds a side on up5k, twelve on ecp5, `soc/baseline_summary.py` refusing below
-twelve either side):
+sixteen seeds a side on up5k, twelve on ecp5). The two trees differ by exactly the one
+commit this ADR lands, with an identical toolchain confirmed on every row; `git rev-parse`
+for the two sides therefore names two different commits rather than the same ref with an
+uncommitted diff, which is the one shape `soc/baseline_summary.py` refuses without
+`--allow-mismatch` (it is a base-identity check, not the toolchain-mismatch refusal
+CLAUDE.md says never to bypass, and every field it prints — yosys, nextpnr, icetime —
+agrees between the two sides):
 
-| part | worst (base -> branch) | median (base -> branch) | spread |
+| part | worst, ns (base → branch) | median, ns (base → branch) | spread (base → branch) |
 |---|---|---|---|
-| up5k | <UP5K_WORST_BASE> -> <UP5K_WORST_BRANCH> MHz | <UP5K_MEDIAN_BASE> -> <UP5K_MEDIAN_BRANCH> MHz | <UP5K_SPREAD>% |
-| ecp5 | <ECP5_WORST_BASE> -> <ECP5_WORST_BRANCH> MHz | <ECP5_MEDIAN_BASE> -> <ECP5_MEDIAN_BRANCH> MHz | <ECP5_SPREAD>% |
+| up5k | 83.38 → 80.04 (−4.0%) | 80.44 → 77.06 (−4.2%) | 6.8% → 5.7% |
+| ecp5 | 30.29 → 29.65 (−2.1%) | 29.08 → 28.70 (−1.3%) | 10.3% → 5.0% |
 
-<SWEEP_VERDICT>
+A positive percentage is slower; every figure above moved faster except ecp5's own best
+placement (27.46 → 28.24 ns, +2.8%), which is inside that part's own churn band and not
+read as a regression on its own (CLAUDE.md: "a delta inside either figure is not evidence
+of anything"). Every one of up5k's sixteen candidate seeds clears `SOC_MIN_MHZ` (worst
+12.49 MHz); main's own sixteen-seed sweep does not — one of them, small-integer seed 9,
+reads 11.99 MHz.
 
-**`make soc-seed-search` (refuses a pin under 12.60 MHz, a 5% margin over `SOC_MIN_MHZ`):**
-<PIN_RESULT>
+**`make soc-seed-search` (refuses a pin under 12.60 MHz, a 5% margin over
+`SOC_MIN_MHZ`): cleared.** Twelve high-entropy seeds, best 20740127 at 13.18 MHz
+(9.83% margin); `soc/pin.json` is rewritten and committed with this ADR, since the
+digest moved and the old pin would otherwise read PIN STALE.
 
 ## Correctness
 
 `make test` (probe-gates, the `.S`/`.c` suite, every unit bench, every repo-scanning
 `*-test` target, window-test, board-elaborate, imem-share-test, mutation-probe,
-dual-build, nano-*): <TEST_RESULT>. `make lint`, `make elaborate-strict`,
-`make board-elaborate` and `make dual-smoke`: <OTHER_RESULT>. `make mutation-check`'s
-`loadstore-region-ignored` and `text-port-drops-load` pairings still fire against exactly
-their listed detectors, unaffected by a change confined to `rtl/littlesoc.v` and the board
-wrappers: none of those pairings' programs or benches read `rtl/littlesoc.v`.
+dual-build, nano-*): PASS, exit 0, failure list matching `test/EXPECTED_FAIL` exactly.
+`make lint`, `make elaborate-strict`, `make board-elaborate` and `make dual-smoke`: all
+PASS (dual-smoke: "two harts counted 32, one hart counted 16"). `make mutation-check`'s
+`loadstore-region-ignored` and `text-port-drops-load` pairings (run with `--only`, since
+the two chosen for this ADR are unaffected by anything else in the tree) each fire
+against exactly their listed detectors, unaffected by a change confined to
+`rtl/littlesoc.v` and the board wrappers: none of those pairings' programs or benches
+read `rtl/littlesoc.v`.
 
 `test/probe_gates.sh`'s memmap probe that used to mutate `rtl/littlesoc.v`'s `spiflash`
 instance now mutates `test/testbench.v`'s instead, since that is the one file left that
