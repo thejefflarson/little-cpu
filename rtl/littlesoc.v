@@ -12,13 +12,7 @@ module littlesoc #(
   input  logic btn_n,
   output logic ledr_n,
   output logic ledg_n,
-  output logic uart_tx,
-  // The configuration flash. Its pins are the programmer's, so a board file must not
-  // drive these three unconditionally.
-  output logic spi_sck,
-  output logic spi_mosi,
-  input  logic spi_miso,
-  output logic spi_cs_n
+  output logic uart_tx
 );
   // KEEP `reset` REGISTERED: unregistered, the button pin headed the design's longest path.
   logic [3:0] por_count = 4'b0;
@@ -38,7 +32,6 @@ module littlesoc #(
   logic        trap;
   logic [31:0] mem_addr, mem_wdata, mem_rdata;
   logic [31:0] imem_mem_rdata, dmem_mem_rdata, timer_mem_rdata, uart_mem_rdata;
-  logic [31:0] flash_mem_rdata;
   logic [3:0]  mem_wstrb;
   logic        mem_ren, fetch_stall, irq_timer, imem_fault, mem_reservable;
   logic        atomic_supported, mem_lock, bus_request;
@@ -122,21 +115,8 @@ module littlesoc #(
     .tx(uart_tx)
   );
 
-  spiflash flash (
-    .clk(clk),
-    .reset(reset),
-    .mem_addr(mem_addr),
-    .mem_wdata(mem_wdata),
-    .mem_wstrb(mem_wstrb),
-    .mem_rdata(flash_mem_rdata),
-    .sck(spi_sck),
-    .mosi(spi_mosi),
-    .miso(spi_miso),
-    .cs_n(spi_cs_n)
-  );
-
-  assign mem_rdata = imem_mem_rdata | dmem_mem_rdata | timer_mem_rdata | uart_mem_rdata
-                   | flash_mem_rdata;
+  // No SPI flash controller here: test/testbench.v carries the only instance left.
+  assign mem_rdata = imem_mem_rdata | dmem_mem_rdata | timer_mem_rdata | uart_mem_rdata;
 
   logic led_green, led_red;
   always_ff @(posedge clk) begin
