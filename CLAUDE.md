@@ -51,11 +51,21 @@ design rots. Older ADRs cite these as `invariant N`; the numbers are kept in par
 references still resolve.
 
 - **No wrong-path state** (1). No state may exist that a later cycle must un-commit — no flush
-  logic, no kill signal. The decoder owns the PC and is its only driver; the fetch address is
-  published a cycle early (`next_pc` → `imem_addr_next`), and a stalled cycle re-presents the same
-  words. This keeps the BMC depths small and derivable, retire unfiltered, and `pcloop`'s
-  induction free of speculative state. Enforced by `formal/pcloop.sv`, `rtl/decoder.v`'s `FORMAL`
-  block and `test/decoder_tb.v`.
+  logic downstream of issue, no kill signal. **Amended for the register-only fetch controller**
+  (ADR-0196): the decoder no longer owns the fetch address. `rtl/fetchctrl.v` owns a separate
+  `fetch_pc` register, updated from registers only — a redirect target registered one cycle after
+  decode computes it, else `+8` when `rtl/fetchqueue.v` has room, else a hold or a retry of a
+  stolen ROM read — and `imem_addr_next` is `fetch_pc` unconditionally. The queue's own `flush`
+  discards buffered-but-undecoded words on a redirect; this is legal under the commitment's own
+  test, because nothing flushed has been decoded, issued, or committed — a bubble undoes nothing a
+  stalled cycle does not already undo. Decode itself is unchanged: it still owns issue, still
+  reads register values and resolves branches same-cycle, and a stalled cycle still re-presents
+  the same word. No predictor and no kill exist yet — every redirect pays a full queue refill, and
+  the next two stages spend that cost. Enforced by `formal/pcloop.sv`'s three fetch-controller
+  properties (`fetch_pc`'s own legality, the buffer/pc word-boundary consistency, and a killed word
+  never issuing — trivially true here since nothing kills yet), `rtl/fetchctrl.v`'s own `FORMAL`
+  block (the room invariant `rtl/fetchqueue.v` only assumes, checked here with `-noassume` in the
+  composed proof), `rtl/decoder.v`'s `FORMAL` block and `test/decoder_tb.v`.
 - **All traps are detected and committed in decode** (2). Nothing faults after decode; a trap is a
   branch to `mtvec` on the same override the jumps use, which is what makes CSR commit precise with
   no reorder buffer. A refusal counts as committed in decode only when it arrives with the
@@ -142,12 +152,19 @@ references still resolve.
   believing any `reg_ch0` result under a changed configuration.
 - **Stalls are one global broadcast over two mechanisms** (8): a divider stall **holds**
   `decoder_out` unchanged (an issued instruction the executor has not consumed); every other reason
-  **bubbles** (nothing issued). A `fetch_stall` coinciding with a freeze HOLDS — bubbling would drop
-  an issued instruction. Every in-flight non-`x0` `rd` must be visible to the scoreboard on every
-  cycle between issue and the regfile write-through, with no gap. **Eight** reasons raise `stall`,
-  and it is exactly their OR: the divider, the atomic write cycle, the decode scoreboard,
-  serialization, the operand-fetch cycle, the stolen fetch window, the ungranted bus, the
-  load/store region wait. A reason is declared in **six** places: the decoder's signal, its OR, its
+  **bubbles** (nothing issued). An empty fetch buffer coinciding with a freeze HOLDS — bubbling
+  would drop an issued instruction. Every in-flight non-`x0` `rd` must be visible to the scoreboard
+  on every cycle between issue and the regfile write-through, with no gap. **Eight** reasons raise
+  `stall`, and it is exactly their OR: the divider, the atomic write cycle, the decode scoreboard,
+  serialization, the operand-fetch cycle, an empty fetch buffer, the ungranted bus, the
+  load/store region wait. **The register-only fetch controller retimes the sixth of those**
+  (ADR-0196): a text load or store stealing `rtl/imemory.v`'s read port is `rtl/fetchctrl.v`'s
+  problem now, not decode's — the queue absorbs the retry with no cycle decode ever sees, and what
+  decode stalls on instead is `rtl/fetchqueue.v` holding fewer than two words. `fetch_stall` itself
+  still exists as a wire, feeding the controller and `rtl/decoder.v`'s `ls_answer_valid` latch (a
+  text-range load or store's own eventual bus transaction, unrelated to the queue), but it left
+  `stall`'s OR, the publish arm and the read-register-pair mux; `buffer_empty` joined all three in
+  its place. A reason is declared in **six** places: the decoder's signal, its OR, its
   publish arm and its `FORMAL` asserts; `test/decoder_tb.v`'s OR-identity check and its both-ways
   vectors; `test/cxxrtl.cc`'s bucket; `test/stall_report.py`'s `REASONS` and `HEADINGS`;
   `formal/pcloop.sv`'s `f_may_stall`; and this list, all six graded against each other by

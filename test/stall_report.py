@@ -249,10 +249,10 @@ def main():
     print(
         "A COLUMN IS CYCLES CHARGED, NOT CYCLES THE SIGNAL WAS HIGH. Several\n"
         "reasons are true on the same cycle often, and each cycle goes to the\n"
-        "first one the decoder itself would try, so the columns add up. Measured\n"
-        "on the three writable-text programs: fetch_stall is high on 26 cycles\n"
-        "and is charged 8, because on the other 18 something else was already\n"
-        "holding the same instruction."
+        "first one the decoder itself would try, so the columns add up. The\n"
+        "'fetch' column now charges an empty fetch buffer rather than a stolen\n"
+        "ROM port: a text load or store still steals that port, but the queue\n"
+        "absorbs the retry, so decode only sees it as a slower fill rate."
     )
 
     if broken:

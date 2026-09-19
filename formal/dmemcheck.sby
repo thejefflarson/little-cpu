@@ -14,6 +14,8 @@ read_verilog -sv arbiter.v
 read_verilog -sv dmemcheck.sv
 read_verilog -sv structs.v
 read_verilog -sv fetcher.v
+read_verilog -sv fetchctrl.v
+read_verilog -sv fetchqueue.v
 read_verilog -sv regfile.v
 read_verilog -sv csrs.v
 read_verilog -sv decoder.v
@@ -27,6 +29,8 @@ prep -nordff -top testbench
 [files]
 ../rtl/structs.v
 ../rtl/fetcher.v
+../rtl/fetchctrl.v
+../rtl/fetchqueue.v
 ../rtl/regfile.v
 ../rtl/csrs.v
 ../rtl/decoder.v

@@ -35,6 +35,10 @@ prep -top accessor
 
 pcloop:
 read -sv structs.v fetcher.v decoder.v regsel.v
+# fetchctrl's own contract -- the room invariant it owes fetchqueue -- is checked here,
+# not assumed for free: a harness cannot reach inside an instance, so this is where that
+# submodule's own FORMAL block is read into the composed proof.
+read -sv -formal -noassume structs.v fetchctrl.v fetchqueue.v
 read -sv -formal structs.v pcloop.sv
 prep -top pcloop
 
@@ -64,6 +68,8 @@ accessor:
 
 pcloop:
 ../rtl/fetcher.v
+../rtl/fetchctrl.v
+../rtl/fetchqueue.v
 ../rtl/decoder.v
 ../rtl/regsel.v
 ../rtl/structs.v

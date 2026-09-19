@@ -21,7 +21,9 @@ module traps #(
     input logic [31:0] reg_rs2,
     input executor_output executor_out,
     input logic divider_stall,
-    input logic fetch_stall,
+    // Free, like everything else not instantiated here: this harness models no queue, so
+    // whether the (nonexistent) buffer would be empty is left to the solver.
+    input logic buffer_empty,
     // Free, like the other two: a hart waiting for the shared bus issues nothing, so no
     // trap is committed on that cycle either.
     input logic bus_wait,
@@ -34,7 +36,7 @@ module traps #(
     input logic irq_timer
 );
   logic [31:0] pc, next_pc;
-  logic [31:0] imem_addr, imem_addr2, imem_addr_next;
+  logic        redirect;
   // The address the decoder publishes for a platform to decode.
   logic [31:0] atomic_addr;
   fetcher_output fetcher_out;
@@ -53,16 +55,16 @@ module traps #(
   logic [31:0] mtvec_value, mepc_value;
   logic        interrupt_pending;
 
+  // q0/q1 are free here, the same standing imem_data/imem_data2 had: this harness models
+  // no queue, so whatever word the solver picks stands in for the buffer's head pair.
   fetcher fetcher (
     .clk(clk),
     .reset(reset),
     .pc(pc),
     .next_pc(next_pc),
-    .imem_addr(imem_addr),
-    .imem_data(imem_data),
-    .imem_addr2(imem_addr2),
-    .imem_data2(imem_data2),
-    .imem_addr_next(imem_addr_next),
+    .q0(imem_data),
+    .q1(imem_data2),
+    .pop(),
     .out(fetcher_out)
   );
 
@@ -81,7 +83,7 @@ module traps #(
     .reg_rs2(reg_rs2),
     .executor_out(executor_out),
     .divider_stall(divider_stall),
-    .fetch_stall(fetch_stall),
+    .buffer_empty(buffer_empty),
     .bus_wait(bus_wait),
     .bus_request(bus_request),
     .imem_fault(imem_fault),
@@ -95,6 +97,7 @@ module traps #(
     .interrupt_pending(interrupt_pending),
     .pc(pc),
     .next_pc(next_pc),
+    .redirect(redirect),
     .read_rs1(read_rs1),
     .read_rs2(read_rs2),
     .csr_addr(csr_addr),
@@ -180,7 +183,7 @@ module traps #(
   assign issuing = instret || trap_entry;
 
   logic hard_stall;
-  assign hard_stall = divider_stall || fetch_stall || bus_wait;
+  assign hard_stall = divider_stall || buffer_empty || bus_wait;
 
   logic [31:0] prev_reg_rs1;
   fetcher_output prev_fetcher_out;

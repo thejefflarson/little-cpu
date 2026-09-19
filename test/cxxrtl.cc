@@ -120,7 +120,7 @@ constexpr StallReason kStallReasons[] = {
     {"uut decoder hazard_rs2", 2},
     {"uut decoder serialize", 3},
     {"uut decoder operand_stall", 4},
-    {"uut decoder fetch_stall", 5},
+    {"uut decoder buffer_empty", 5},
     // The shared bus given to another initiator.
     {"uut decoder bus_wait", 6},
     // The load/store region wait.

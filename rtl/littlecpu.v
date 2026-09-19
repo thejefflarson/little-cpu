@@ -126,18 +126,46 @@ module littlecpu #(
   assign trap = decoder_trap_entry;
   logic  [31:0] pc;
   logic  [31:0] next_pc;
+  logic         decoder_redirect;
+  logic [31:0]  fetch_pc;
+  logic [31:0]  queue_q0, queue_q1;
+  logic         queue_q0_fault, queue_q1_fault;
+  logic         buffer_empty;
+  logic         fetcher_pop;
   fetcher_output fetcher_out;
   fetcher fetcher(
     .clk(clk),
     .reset(reset),
     .pc(pc),
     .next_pc(next_pc),
+    .q0(queue_q0),
+    .q1(queue_q1),
+    .pop(fetcher_pop),
+    .out(fetcher_out)
+  );
+
+  // The word backing the currently decoded instruction, not the fetch port's own address
+  // -- the two are no longer the same cycle's value.
+  assign imem_addr  = {pc[31:2], 2'b00};
+  assign imem_addr2 = imem_addr + 32'd4;
+  assign imem_addr_next = fetch_pc;
+
+  fetchctrl fetchctrl(
+    .clk(clk),
+    .reset(reset),
+    .redirect(decoder_redirect),
+    .redirect_target(next_pc),
+    .fetch_pc(fetch_pc),
     .imem_data(imem_data),
     .imem_data2(imem_data2),
-    .out(fetcher_out),
-    .imem_addr(imem_addr),
-    .imem_addr2(imem_addr2),
-    .imem_addr_next(imem_addr_next)
+    .imem_fault(imem_fault),
+    .fetch_stall(fetch_stall),
+    .pop(fetcher_pop),
+    .q0(queue_q0),
+    .q0_fault(queue_q0_fault),
+    .q1(queue_q1),
+    .q1_fault(queue_q1_fault),
+    .buffer_empty(buffer_empty)
   );
 
   logic [31:0] reg_rs1, reg_rs2, wdata;
@@ -189,10 +217,10 @@ module littlecpu #(
     .reg_rs2(reg_rs2),
     .executor_out(executor_out),
     .divider_stall(divider_stalled),
-    .fetch_stall(fetch_stall),
+    .buffer_empty(buffer_empty),
     .bus_wait(bus_wait),
     .bus_request(bus_request),
-    .imem_fault(imem_fault),
+    .imem_fault(queue_q0_fault),
     .atomic_addr(atomic_addr),
     .atomic_supported(atomic_supported),
     .accessor_out_valid(accessor_out_valid),
@@ -213,6 +241,7 @@ module littlecpu #(
    `endif
     .pc(pc),
     .next_pc(next_pc),
+    .redirect(decoder_redirect),
     .read_rs1(read_rs1),
     .read_rs2(read_rs2),
     .csr_addr(csr_addr),

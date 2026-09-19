@@ -1,4 +1,5 @@
-// The fetcher and the decoder, wired together the way rtl/littlecpu.v wires them.
+// The fetch queue, its controller, the fetcher and the decoder, wired together the way
+// rtl/littlecpu.v wires them.
 `default_nettype none
 
 module pcloop (
@@ -13,7 +14,7 @@ module pcloop (
     input logic fetch_stall,
     // Free, like every other stall input here: a hart that has not been granted the
     // shared bus holds the pc, and the increment assertion has to skip that cycle the
-    // same way it skips a stolen fetch window.
+    // same way it skips an empty fetch buffer.
     input logic bus_wait,
     // Free, like everything else not instantiated here.
     input logic imem_fault,
@@ -29,8 +30,8 @@ module pcloop (
     input logic interrupt_pending
 );
   logic [31:0] pc;
-  logic [31:0] imem_addr, imem_addr2;
-  logic [31:0] next_pc, imem_addr_next;
+  logic [31:0] next_pc;
+  logic redirect;
   // The address the decoder publishes for a platform to decode.
   logic [31:0] atomic_addr;
   fetcher_output fetcher_out;
@@ -42,17 +43,39 @@ module pcloop (
   logic        trap_entry, mret_entry;
   logic [31:0] trap_cause, trap_epc, trap_tval;
 
+  logic [31:0] fetch_pc;
+  logic [31:0] queue_q0, queue_q1;
+  logic        queue_q0_fault, queue_q1_fault;
+  logic        buffer_empty;
+  logic        fetcher_pop;
+
   fetcher fetcher (
     .clk(clk),
     .reset(reset),
     .pc(pc),
     .next_pc(next_pc),
-    .imem_addr(imem_addr),
-    .imem_data(imem_data),
-    .imem_addr2(imem_addr2),
-    .imem_data2(imem_data2),
-    .imem_addr_next(imem_addr_next),
+    .q0(queue_q0),
+    .q1(queue_q1),
+    .pop(fetcher_pop),
     .out(fetcher_out)
+  );
+
+  fetchctrl fetchctrl (
+    .clk(clk),
+    .reset(reset),
+    .redirect(redirect),
+    .redirect_target(next_pc),
+    .fetch_pc(fetch_pc),
+    .imem_data(imem_data),
+    .imem_data2(imem_data2),
+    .imem_fault(imem_fault),
+    .fetch_stall(fetch_stall),
+    .pop(fetcher_pop),
+    .q0(queue_q0),
+    .q0_fault(queue_q0_fault),
+    .q1(queue_q1),
+    .q1_fault(queue_q1_fault),
+    .buffer_empty(buffer_empty)
   );
 
   decoder decoder (
@@ -63,10 +86,10 @@ module pcloop (
     .reg_rs2(reg_rs2),
     .executor_out(executor_out),
     .divider_stall(divider_stall),
-    .fetch_stall(fetch_stall),
+    .buffer_empty(buffer_empty),
     .bus_wait(bus_wait),
     .bus_request(bus_request),
-    .imem_fault(imem_fault),
+    .imem_fault(queue_q0_fault),
     .atomic_addr(atomic_addr),
     .atomic_supported(atomic_supported),
     .accessor_out_valid(accessor_out_valid),
@@ -77,6 +100,7 @@ module pcloop (
     .interrupt_pending(interrupt_pending),
     .pc(pc),
     .next_pc(next_pc),
+    .redirect(redirect),
     .rs1(rs1),
     .rs2(rs2),
     .read_rs1(read_rs1),
@@ -158,7 +182,7 @@ module pcloop (
       ((f_instr[1:0] == 2'b00 || f_instr[1:0] == 2'b10) &&
          (f_instr[15:13] == 3'b010 || f_instr[15:13] == 3'b110));
 
-  assign f_may_stall = divider_stall || fetch_stall || bus_wait ||
+  assign f_may_stall = divider_stall || buffer_empty || bus_wait ||
       f_live_rs1 || f_live_rs2 || f_system || f_fencei || f_operand_fetch ||
       f_amo_wait || f_load_store;
 
@@ -167,13 +191,13 @@ module pcloop (
 
   logic [31:0] past_pc, prev_mtvec, prev_mepc;
   logic prev_reset, prev_may_stall, prev_hard_stall, prev_jump_branch, prev_uncompressed;
-  logic prev_trap_entry, prev_mret_entry, prev_fetch_stall, prev_pair_moved, prev_bus_wait;
+  logic prev_trap_entry, prev_mret_entry, prev_buffer_empty, prev_pair_moved, prev_bus_wait;
   always_ff @(posedge clk) begin
     past_pc           <= pc;
     prev_reset        <= reset;
     prev_may_stall    <= f_may_stall;
     prev_hard_stall   <= divider_stall;
-    prev_fetch_stall  <= fetch_stall;
+    prev_buffer_empty <= buffer_empty;
     prev_bus_wait     <= bus_wait;
     prev_jump_branch  <= f_jump_branch || f_redirect;
     prev_uncompressed <= f_uncompressed;
@@ -185,10 +209,6 @@ module pcloop (
   end
 
   always_comb if (clocked && !reset) assert(fetcher_out.pc == pc);
-
-  logic [31:0] past_imem_addr_next;
-  always_ff @(posedge clk) past_imem_addr_next <= imem_addr_next;
-  always_comb if (clocked) assert(imem_addr == past_imem_addr_next);
 
   logic f_increment_checked;
   assign f_increment_checked =
@@ -208,7 +228,7 @@ module pcloop (
     if (clocked && prev_hard_stall && !prev_reset) assert(pc == past_pc);
 
   always_ff @(posedge clk)
-    if (clocked && prev_fetch_stall && !prev_reset) assert(pc == past_pc);
+    if (clocked && prev_buffer_empty && !prev_reset) assert(pc == past_pc);
 
   always_ff @(posedge clk)
     if (clocked && prev_bus_wait && !prev_reset) assert(pc == past_pc);
@@ -217,6 +237,56 @@ module pcloop (
     if (clocked && !prev_reset && prev_trap_entry) assert(pc == prev_mtvec);
   always_ff @(posedge clk)
     if (clocked && !prev_reset && prev_mret_entry) assert(pc == prev_mepc);
+
+  // Property 1: fetch_pc is a register updated from registers only, and every cycle it
+  // either advances by one word pair, holds (no room, or retrying a stolen ROM read), or
+  // lands on a registered redirect target two cycles after decode computed it (one cycle
+  // to capture the verdict, one more to apply it) -- never on the word arriving this
+  // cycle.
+  logic [31:0] past_fetch_pc, past2_fetch_pc;
+  logic [31:0] past_next_pc_r, past2_next_pc_r;
+  logic        past_redirect_r, past2_redirect_r;
+  always_ff @(posedge clk) begin
+    past_fetch_pc    <= fetch_pc;
+    past2_fetch_pc   <= past_fetch_pc;
+    past_next_pc_r   <= next_pc;
+    past2_next_pc_r  <= past_next_pc_r;
+    past_redirect_r  <= redirect;
+    past2_redirect_r <= past_redirect_r;
+  end
+
+  logic f_fetch_pc_advanced, f_fetch_pc_held, f_fetch_pc_retried, f_fetch_pc_redirected;
+  assign f_fetch_pc_advanced   = fetch_pc == past_fetch_pc + 32'd8;
+  assign f_fetch_pc_held       = fetch_pc == past_fetch_pc;
+  assign f_fetch_pc_retried    = fetch_pc == past2_fetch_pc;
+  assign f_fetch_pc_redirected = past2_redirect_r && fetch_pc == past2_next_pc_r;
+
+  logic f_fetch_pc_prev2_ok;
+  always_ff @(posedge clk) if (reset) f_fetch_pc_prev2_ok <= 1'b0;
+    else f_fetch_pc_prev2_ok <= clocked && !reset;
+
+  always_comb if (clocked && !reset && f_fetch_pc_prev2_ok)
+    assert(f_fetch_pc_advanced || f_fetch_pc_held || f_fetch_pc_retried ||
+           f_fetch_pc_redirected);
+
+  // Property 2: the buffer's word and pc stay consistent -- popping the queue's head
+  // never happens except on the one cycle decode's own pc actually leaves the word that
+  // head names, the same word-index test rtl/fetcher.v's `pop` is built from. This is
+  // restated here as an independent check on pcloop's own signals, not a re-statement of
+  // fetcher.v's assign, so a future edit to either has to keep them agreeing.
+  always_comb if (clocked && !reset)
+    assert(fetcher_pop == (next_pc[31:2] != pc[31:2]));
+
+  // Property 3: a word that never reaches decode never issues. decoder_out.valid this
+  // cycle reports what issued last cycle (out is registered), so it is graded against
+  // the buffer's occupancy last cycle, not this one -- and a divider hold republishes
+  // last cycle's out unchanged, which is not a fresh issue and carries no opinion about
+  // this cycle's buffer at all. Nothing discards a buffered word in this stage -- there
+  // is no predictor and no kill -- so this is trivially true by construction; it is
+  // written now so the next stage, which adds a real kill, only has to strengthen it
+  // rather than invent it.
+  always_comb if (clocked && !prev_reset && !prev_hard_stall)
+    assert(!prev_buffer_empty || !decoder_out.valid);
  `endif
 endmodule
 

@@ -66,7 +66,10 @@ module fetchqueue (
 
   always_comb assume(!req_valid || cnt <= (DEPTH - 2));
 
-  always_comb assert(cnt <= DEPTH);
+  // `cnt` has no initial value, so an unclocked assert here is free to fail on the
+  // very first step before any reset has run -- found composing this module into
+  // formal/pcloop.sv for the first time.
+  always_comb if (clocked) assert(cnt <= DEPTH);
   always_ff @(posedge clk)
     if (clocked) assert(!$past(flush) || cnt == 3'd0);
  `endif

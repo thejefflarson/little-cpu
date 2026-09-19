@@ -51,7 +51,8 @@ checks: genchecks-audit.py genchecks-local.py checks.cfg EXPECTED_CHECKS retune-
 genchecks-check: $(RISCV_FORMAL_DIR)/checks/genchecks.py genchecks-local.py | $(RISCV_FORMAL_DIR)
 	python3 check-genchecks.py $^
 
-RTL_SOURCES := ../rtl/structs.v ../rtl/fetcher.v ../rtl/regfile.v \
+RTL_SOURCES := ../rtl/structs.v ../rtl/fetcher.v ../rtl/fetchctrl.v ../rtl/fetchqueue.v \
+               ../rtl/regfile.v \
                ../rtl/csrs.v ../rtl/decoder.v ../rtl/regsel.v ../rtl/executor.v \
                ../rtl/accessor.v ../rtl/writeback.v ../rtl/littlecpu.v
 
@@ -82,8 +83,8 @@ imemcheck-cover-probe: memcheck-cover-probe.py imemcheck.sv imemcheck_cover.sby 
                        $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
 	python3 $< --harness formal --check imemcheck --workdir memcheck-cover-probe/imemcheck
 
-pcloop_cover: pcloop_cover.sby pcloop.sv ../rtl/fetcher.v ../rtl/decoder.v ../rtl/regsel.v \
-              ../rtl/structs.v
+pcloop_cover: pcloop_cover.sby pcloop.sv ../rtl/fetcher.v ../rtl/fetchctrl.v \
+              ../rtl/fetchqueue.v ../rtl/decoder.v ../rtl/regsel.v ../rtl/structs.v
 
 busarbiter_cover: busarbiter_cover.sby busarbiter.sv ../rtl/busarbiter.v
 
@@ -138,7 +139,8 @@ executor-zkt-probe: executor-zkt-probe.py ../rtl/executor.v components.sby
 components_accessor: components.sby ../rtl/accessor.v ../rtl/structs.v
 	rm -rf $@
 	sby -f $< accessor
-components_pcloop: components.sby pcloop_cover ../rtl/fetcher.v ../rtl/decoder.v ../rtl/regsel.v \
+components_pcloop: components.sby pcloop_cover ../rtl/fetcher.v ../rtl/fetchctrl.v \
+                   ../rtl/fetchqueue.v ../rtl/decoder.v ../rtl/regsel.v \
                    ../rtl/structs.v pcloop.sv
 	rm -rf $@
 	sby -f $< pcloop
