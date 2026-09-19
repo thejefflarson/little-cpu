@@ -130,3 +130,12 @@ cxxrtl elaboration and compile; a warm rebuild is under a second). `make nano-dh
 `make nano-coremark` stay off `make test` and CI, the same standing littlecpu's own
 `make dhrystone`/`make coremark` already have, and neither prints a comparable figure to
 littlecpu's -- different design, different memory system, and for now, no verdict at all.
+
+## Correction · 2026-09-18
+
+The exception entry this ADR describes as landing at "a new required site" rather than as one is
+misleading: `test/march_test.sh`'s exception list is itself graded both ways (an exception that
+stops matching anything is red, the same as one that starts matching too much), and
+`test/march_test.sh` is on `make test`'s required path. Calling nano's declaration a non-required
+site reads as though this ISA statement is nano-local and unenforced; it is not — it is required
+CI, just required to name a different string than littlecpu's rather than the same one.
