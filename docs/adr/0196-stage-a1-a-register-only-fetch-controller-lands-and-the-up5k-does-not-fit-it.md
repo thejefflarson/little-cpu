@@ -255,17 +255,80 @@ as a candidate next check rather than assumed.
   right about pc timing but cannot be placed on the board it is meant for is not "done," and
   abandoning correct, verified work over an area number that has two named recovery paths already
   in the brief is not the right call either.
-- **Two graders are owed and not run**: `make -C formal check` (the generated per-instruction
-  checks, 86 of them, all rebuilt at F=8/G=8) and `make -C formal complete`/`complete_cover`/
-  `cover`/`imemcheck`/`imemcheck_cover`/`dmemcheck`/`dmemcheck_cover` were started but this session's
-  time ran out before every one of them finished; see the PR body for which, if any, completed and
-  what they reported. `imemcheck.sv` in particular carries a real, unresolved question independent
-  of whether it happened to finish: its oracle assumes `imem_addr` (the currently-decoded
-  instruction's own address) and `imem_data` (whatever `fetch_pc` most recently requested) are the
-  same cycle's value, which was true by construction in the old design and is not anymore now that
-  a queue decouples them. Nothing in this session establishes whether that makes the check
-  vacuous, wrong, or accidentally still sound; it is flagged rather than fixed.
 - **CI's own `fit` job number, not this local run's, is the one to re-quote `FIT_MAX_LC` against**
   once available, per CLAUDE.md's own toolchain-dependence caveat.
 - **Stage A2 and A3** (the predictor and the kill) are what this stage's own cycle cost is spent
   recovering, per the brief's sequence; neither is started here.
+
+## Addendum: CI's mechanical failures, `imemcheck.sv` re-derived, and the depth-2 skid attempted
+
+A follow-up session fixed everything #383's first CI run found mechanically red, re-derived
+`imemcheck.sv` for the decoupled interface (finding and fixing a real bug doing it), and
+attempted the depth-2 fallback this ADR's own body names as the next step. Recorded here rather
+than in a second ADR because all three are direct continuations of the same finding.
+
+**File-list registrations.** `formal/check-nonperturbation.py`'s own `RTL` list,
+`formal/memcheck-cover-probe.py`'s `LITTLECPU_RTL` tuple (and the `test/probe_gates.sh` fixture
+required to name exactly the same list) were all missing `rtl/fetchctrl.v`/`rtl/fetchqueue.v` --
+every "fetcher.v" reference in the tree was re-audited (not just the ones CI happened to run) to
+find them. `test/stall_sites_test.py`'s own probe fixture in `test/probe_gates.sh` still mutated
+the pre-amendment `fetch_stall` spelling of `stall_own` and the OR-identity check; retargeted to
+`buffer_empty`, matching the shipped RTL.
+
+**`text-port-drops-load`'s `spioverlay.S` pairing moved from `FAIL 2` to a stable `TIMEOUT`.**
+Confirmed at 5000 (the runner's own limit), 50,000 and 200,000 cycles, with retires still
+climbing at all three rather than settling -- a real livelock the mutation causes under the
+queue's own independent fetch timing (the corrupted read's wrong value is no longer the same-cycle
+fetch content decode was tightly coupled to, so it occasionally satisfies a retry condition in the
+test instead of failing the comparison outright), not the runner's cycle limit landing on a
+slower-but-still-terminating failure. `test/MUTATION_DETECTORS` re-paired; the other four
+pairings (`contend.S`, `datainit.c`, `selfmod.S`, `textload.S`) are unaffected, confirmed by
+re-running each individually against the mutated tree.
+
+**`formal/imemcheck.sv`'s oracle was stale, re-derived, and composing it found a real RTL bug.**
+Its assume block keyed shadow-content correctness off `imem_addr` (decode's own `pc`) matching
+`imem_data` (whatever `fetch_pc` most recently requested) the same cycle -- true by construction
+in the old tightly-coupled design, false now that a queue decouples the two. Re-derived against
+`$past(imem_addr_next)`, word-aligned the way `rtl/imemory.v`'s own `next_word = imem_addr_next[31:2]`
+already is (a redirect target can land on any compressed-instruction boundary, so `fetch_pc` is not
+always word-aligned the way the old `imem_addr` was). The re-derived check found a genuine bug in
+`rtl/fetchctrl.v`: `stolen_pc`, the register a steal retries, was being overwritten by an
+unconditional `stolen_pc <= fetch_pc` on every cycle, including a retry cycle itself -- so two
+steals in a row (`imem_arbiter`'s own free model has no real bus's transaction spacing to bound
+it, but nothing in the RTL bounds it either) silently dropped the *first* stolen address from the
+fetch stream, retrying the second one instead and never recovering the first. Fixed by only
+writing `stolen_pc` on a cycle that is not itself a retry (`redirect_apply` or the room-having/
+holding `else` arm, never the `fetch_stall` arm) so it survives however many consecutive steals it
+takes to land cleanly. Re-verified: the full suite (75/75), `components_pcloop`, `components_traps`,
+`imemcheck`, `imemcheck_cover` (and its forced-red `memcheck-cover-probe.py` prerequisite) and
+`dmemcheck`/`dmemcheck_cover` (unaffected, unchanged, re-run as a control) all pass.
+
+**The depth-2 skid was attempted and is not correct; no area or timing number is reported for
+it.** `rtl/fetchqueue2.v` is a from-scratch two-word skid (no head pointer, no array index, "no
+output mux" exactly as the brief names it) behind a new `fetchctrl`/`littlecpu` parameter
+(`SHALLOW_QUEUE`/`SHALLOW_FETCH_QUEUE`, off by default -- the shipping configuration is untouched
+and re-confirmed 75/75, clean `lint`/`elaborate-strict`, and `make fit` unmoved within the churn
+band after this refactor). Building it found two real bugs, of which only the first is fixed:
+
+1. **A hard deadlock**, not merely a slowdown. Depth-2's `q_valid` first attempt copied
+   depth-4's own `cnt >= 2` (both words present) -- correct at depth 4, where consuming one word
+   still leaves the queue above that threshold, but at depth 2 the very first word popped from a
+   full pair drops `q_valid` to false immediately, which stalls decode, which is the only thing
+   that ever pops the second word. The queue can never drain past one word and never reopens
+   room. Fixed: a word crossing only ever lands decode exactly at a word boundary, so the word it
+   reaches immediately after one is never itself a straddle into the not-yet-fetched next pair --
+   one live word is enough to proceed, and gating on both is what deadlocks. `q_valid` is `cnt !=
+   0` in `rtl/fetchqueue2.v`, not `cnt == 2`. This alone took the suite from every program timing
+   out to `simple.S` passing and most others reaching `TRAP-TO-ZERO` instead -- forward progress,
+   not yet correctness.
+2. **A second, unresolved bug** causes most of the suite (all but `simple.S` in a quick check) to
+   fetch wrong content and trap. `$display` tracing added to `rtl/fetchctrl.v` produced no output
+   under cxxrtl (a `translate_off`-guarded block yosys warns about but this session did not
+   confirm actually executes in a `write_cxxrtl` build), and this session's time ran out before
+   switching to the iverilog leg, which is four-state and has never silently dropped a `$display`
+   here. **Not fixed.** `rtl/fetchqueue2.v` and the `SHALLOW_QUEUE` parameter ship disabled by
+   default, the same standing ADR-0189's `NANO_LATCH_RF` had before its own formal gap closed:
+   built, one real defect found and fixed, a second named and left for whoever picks this back up,
+   never the default. Measuring area or timing against a design that does not run correctly would
+   be reporting a number about nothing; the stop-and-report checkpoint this step was written for is
+   this defect, not a placement result.

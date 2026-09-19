@@ -3,6 +3,9 @@
 `include "structs.v"
 module littlecpu #(
   parameter logic [31:0] HART_ID = 32'd0,
+  // The up5k area fallback measured alongside the shipping depth-4 fetch queue; see
+  // rtl/fetchctrl.v.
+  parameter bit          SHALLOW_FETCH_QUEUE = 1'b0,
   parameter integer      LS_TEXT_WORDS = 2048,
   parameter logic [31:0] LS_RAM_BASE   = 32'h0001_0000,
   parameter integer      LS_RAM_WORDS  = 16384,
@@ -150,7 +153,9 @@ module littlecpu #(
   assign imem_addr2 = imem_addr + 32'd4;
   assign imem_addr_next = fetch_pc;
 
-  fetchctrl fetchctrl(
+  fetchctrl #(
+    .SHALLOW_QUEUE(SHALLOW_FETCH_QUEUE)
+  ) fetchctrl(
     .clk(clk),
     .reset(reset),
     .redirect(decoder_redirect),
