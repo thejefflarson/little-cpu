@@ -62,7 +62,8 @@ jobs:
   test:
     name: test
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
-    timeout-minutes: 25
+    # main's last four green runs took 16/17/18/23 minutes against the old 25-minute wall; Stage A's extra probes and +27% CPI push it over (cancelled once at 25m19s).
+    timeout-minutes: 40
     steps:
       - name: Record job start
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
@@ -611,10 +612,13 @@ jobs:
     name: formal-checks-shard
     # A slice of the set, and it GRADES NOTHING: check-baseline.sh compares two sets
     # in both directions and needs every status at once. The collector below does that.
+    # Sixteen: eight still left five of eight shards cancelled at the wall (reg_ch0 and a
+    # few insn_c_* checks are the real outliers; halving membership again gives each one
+    # far fewer companions).
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
     timeout-minutes: 20
     steps:
@@ -645,8 +649,8 @@ jobs:
             exit 1
           fi
 
-      - name: Run the generated checks (shard ${{ matrix.shard }} of 4)
-        run: make -C formal check-shard CHECK_SHARD=${{ matrix.shard }}/4 JOBS=4
+      - name: Run the generated checks (shard ${{ matrix.shard }} of 16)
+        run: make -C formal check-shard CHECK_SHARD=${{ matrix.shard }}/16 JOBS=4
 
       - name: Hand the statuses to the collector
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

@@ -1,27 +1,22 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
 `include "structs.v"
+// Windows a decoded instruction out of the queue's head pair; `pop` fires when next_pc leaves the word `pc` names.
 module fetcher(
   input  logic clk,
   input  logic reset,
   input  logic [31:0] pc,
-  output logic [31:0] imem_addr,
-  input  logic [31:0] imem_data,
-  output logic [31:0] imem_addr2,
-  input  logic [31:0] imem_data2,
-  // Published one cycle early, so a synchronous memory answers in the cycle `imem_addr`
-  // names the word.
   input  logic [31:0] next_pc,
-  output logic [31:0] imem_addr_next,
+  input  logic [31:0] q0,
+  input  logic [31:0] q1,
+  output logic         pop,
   output fetcher_output out
 );
 
-  assign imem_addr  = {pc[31:2], 2'b00};
-  assign imem_addr2 = imem_addr + 4;
-  assign imem_addr_next = {next_pc[31:2], 2'b00};
+  assign pop = next_pc[31:2] != pc[31:2];
 
   logic [63:0] fetch_pair;
-  assign fetch_pair = {imem_data2, imem_data} >> (pc[1] ? 16 : 0);
+  assign fetch_pair = {q1, q0} >> (pc[1] ? 16 : 0);
   logic [31:0] windowed_instr;
   assign windowed_instr = fetch_pair[31:0];
 

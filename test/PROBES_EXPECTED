@@ -197,6 +197,7 @@ a failing assembler is ASSEMBLE-ERROR
 a failing assembler is fatal, not a divergence
 a failing objcopy names the region that failed
 a failure reported only by the induction leg is not evidence
+a failure reported only by the induction leg is not evidence
 a fault bit that never reaches its own stored word is red
 a feedback path the divider formula does not describe is red
 a field the runner stopped printing is named, not counted as zero
@@ -410,6 +411,7 @@ a renamed or deleted netlist-digest target stops the check rather than passing i
 a renamed task stops rather than probing some other design
 a renamed task stops rather than probing some other design
 a renamed task stops rather than probing some other design
+a renamed task stops rather than probing some other design
 a renamed task stops this probe rather than moving its control
 a repo root that does not exist is red before anything is parsed
 a repo root that does not exist is red before anything is parsed
@@ -434,6 +436,7 @@ a report with no utilisation table is missing half the measurement
 a respelled address arm stops rather than proving the shipping core
 a respelled anchor stops rather than pinning nothing
 a respelled anchor stops rather than pinning nothing
+a respelled assertion stops rather than pinning nothing
 a respelled cause comparison stops rather than pinning nothing
 a respelled constant-latency assertion stops rather than pinning nothing
 a respelled divide case item stops the same way
@@ -442,6 +445,7 @@ a respelled flag declaration stops rather than comparing nothing
 a respelled gate assertion stops rather than pinning nothing
 a respelled indivisibility arm stops rather than pinning nothing
 a respelled indivisibility arm stops rather than pinning nothing
+a respelled kill site stops rather than building the shipping core twice
 a respelled lock cover stops rather than pinning nothing
 a respelled lock cover stops rather than pinning nothing
 a respelled ls_access site stops rather than building the shipping core twice
@@ -490,6 +494,7 @@ a slice that selects no checks is an error, not an empty success
 a soc/compare script naming no .lds at all does not sink the scan
 a soc/compare/ change since the stamp's base is STALE, and the file is named
 a solo run needs no ramdiff line -- there is no reference to compare
+a solver that wrote no verdict is exit 2, not a red arm
 a solver that wrote no verdict is exit 2, not a red arm
 a solver that wrote no verdict is exit 2, not a red arm
 a solver that wrote no verdict is exit 2, not a red arm
@@ -594,6 +599,7 @@ an empty manifest matches an empty suite and is rejected
 an empty netlist is a synthesis that wrote nothing
 an empty part table synthesises nothing, so it is refused
 an empty seed list stops the sweep instead of placing the default
+an empty status file is refused rather than read as a verdict
 an empty status file is refused rather than read as a verdict
 an empty status file is refused rather than read as a verdict
 an empty status file is refused rather than read as a verdict
@@ -772,6 +778,7 @@ control: fixture_anchor finds its literal in the real file
 control: formal/Makefile also puts the cached suite first
 control: icetime whose chip database resolves is stamped like any tool
 control: identical register traces and verdicts AGREE
+control: kill's assertion fails at its own line
 control: littlecpu's dmemcheck reaches its goal and the stalled-bus mutant does not
 control: littlecpu's imemcheck reaches its goal and the stalled-bus mutant does not
 control: mutate on a real match rewrites the file and returns 0
@@ -856,6 +863,7 @@ icetime that cannot resolve its chip database is refused before a version is sta
 identical traces with different verdicts is DISAGREE VERDICT
 ill_e catches a wrong RV32E rule, and the shipping core still passes
 insn_excluded must be a plain disjunction, not an expression
+kill-not-gated-by-buffer-empty proving is red
 layer 1: the trap comparison moved INTO the span is refused, not gated
 layer 2: the enclosed handle_error multiset is pinned, not merely counted
 layer 3: error 101 vanishing from the OUTPUT is caught after every rule
@@ -875,6 +883,7 @@ nano's suite goes through the same shape check first
 netlist-diff reaches the same check as netlist-digest does
 no base ref names nothing to sweep against
 no components.sby is exit 2 here too, not a green control
+no components.sby is exit 2, not a probe against an invented script
 no components.sby is exit 2, not a probe against an invented script
 no components.sby is exit 2, not a probe against an invented script
 no components.sby is exit 2, not a probe against an invented script
@@ -947,6 +956,7 @@ the RTL moving away takes the probe with it, loudly
 the RTL moving away takes the probe with it, loudly
 the RTL moving away takes the probe with it, loudly
 the RTL moving away takes the probe with it, loudly
+the RTL moving away takes the probe with it, loudly
 the SECOND CoreMark core's RAM diverging is graded, not only the first
 the SECOND core's RAM diverging is graded, not only the first
 the SPI controller moving in the core's copy alone is red
@@ -1007,6 +1017,7 @@ the override prints the mismatch it was passed to get past
 the pre-fix git commit line -- '-m' and '-F' together -- is red for the reason it used to fail
 the program addressing RAM somewhere the harness has none is red
 the proof describes the part's text window, not the harness's
+the proof going red somewhere else is not evidence
 the proof going red somewhere else is not evidence
 the proof's copy of the RAM base drifting from the RAM is red
 the publish step pushing with no gh auth setup-git is red

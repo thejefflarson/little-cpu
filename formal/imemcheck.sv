@@ -21,11 +21,8 @@ module testbench (
   logic [31:0] uut_imem_data;
   logic [31:0] uut_imem_addr2;
   logic [31:0] uut_imem_data2;
-  // The fetch address one cycle early.
   logic [31:0] uut_imem_addr_next;
-  // The address the core publishes for the platform to decode.
   logic [31:0] atomic_addr;
-  // The lock an arbiter would read.
   logic mem_lock;
   logic bus_request;
   logic [31:0] mem_addr;
@@ -66,12 +63,20 @@ module testbench (
     end
   end
 
+  // imem_data answers imem_addr_next from the CYCLE BEFORE, not uut_imem_addr (decode's
+  // own pc, which the queue now runs ahead of); word-aligned like rtl/imemory.v's own
+  // `next_word = imem_addr_next[31:2]`, since a redirect target need not be.
+  logic [31:0] past_imem_addr_next;
+  logic [31:0] past_imem_word;
+  always_ff @(posedge clk) past_imem_addr_next <= uut_imem_addr_next;
+  assign past_imem_word = {past_imem_addr_next[31:2], 2'b00};
+
   always_comb begin
     if (!reset && !fetch_stall) begin
-      if (uut_imem_addr      == shadow_addr) assume(uut_imem_data [15: 0] == shadow_data);
-      if (uut_imem_addr + 2  == shadow_addr) assume(uut_imem_data [31:16] == shadow_data);
-      if (uut_imem_addr2     == shadow_addr) assume(uut_imem_data2[15: 0] == shadow_data);
-      if (uut_imem_addr2 + 2 == shadow_addr) assume(uut_imem_data2[31:16] == shadow_data);
+      if (past_imem_word     == shadow_addr) assume(uut_imem_data [15: 0] == shadow_data);
+      if (past_imem_word + 2 == shadow_addr) assume(uut_imem_data [31:16] == shadow_data);
+      if (past_imem_word + 4 == shadow_addr) assume(uut_imem_data2[15: 0] == shadow_data);
+      if (past_imem_word + 6 == shadow_addr) assume(uut_imem_data2[31:16] == shadow_data);
     end
   end
 

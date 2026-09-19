@@ -46,7 +46,7 @@ SIGNAL_TO_REASON = {
     "hazard_rs2": "hazard",
     "serialize": "serialize",
     "operand_stall": "operand",
-    "fetch_stall": "fetch",
+    "buffer_empty": "fetch",
     "bus_wait": "bus",
     "region_stall": "region",
 }
@@ -55,7 +55,7 @@ SIGNAL_TO_REASON = {
 # an instance), so it is graded as its own fixed vocabulary rather than through
 # SIGNAL_TO_REASON.
 PCLOOP_MAY_STALL_TERMS = {
-    "divider_stall", "fetch_stall", "bus_wait", "f_live_rs1", "f_live_rs2", "f_system",
+    "divider_stall", "buffer_empty", "bus_wait", "f_live_rs1", "f_live_rs2", "f_system",
     "f_fencei", "f_operand_fetch", "f_amo_wait", "f_load_store",
 }
 
@@ -65,7 +65,7 @@ CLAUDE_PHRASES = {
     "hazard": "the decode scoreboard",
     "serialize": "serialization",
     "operand": "the operand-fetch cycle",
-    "fetch": "the stolen fetch window",
+    "fetch": "an empty fetch buffer",
     "bus": "the ungranted bus",
     "region": "the load/store region wait",
 }
@@ -146,14 +146,14 @@ def check_decoder_v(text):
                                       allowed_extra={"interrupt_pending"})
 
     label = "rtl/decoder.v's FORMAL asserts (the hold/bubble combo block)"
-    start = text.find("logic prev_hold_and_steal")
+    start = text.find("logic prev_hold_and_empty")
     end_marker = "prev_region_only)     assert(out == '0);"
     end = text.find(end_marker, start) if start != -1 else -1
     if start == -1 or end == -1:
         errors.append(f"error: {label} could not be found.")
     else:
         block = text[start:end + len(end_marker)]
-        for sig in ("divider_stall", "fetch_stall", "bus_wait", "region_stall",
+        for sig in ("divider_stall", "buffer_empty", "bus_wait", "region_stall",
                     "atomic_stall"):
             if not re.search(r"\b" + re.escape(sig) + r"\b", block):
                 errors.append(f"error: {label} no longer names '{sig}'.")

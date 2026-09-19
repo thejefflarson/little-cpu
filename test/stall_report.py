@@ -8,13 +8,13 @@ like that is much easier to defend, and to revisit honestly, with an invoice
 attached. This is the invoice. It is the same move `make fit` made for area:
 one aggregate figure, argued about from structure, replaced by a measurement.
 
-EVERY CYCLE IS CHARGED EXACTLY ONCE. test/cxxrtl.cc reads the decoder's own
-`stall` signal and its nine named signals every cycle. A cycle where `stall` is
-low is an issue cycle; a cycle where it is high goes to the first reason that is
-true, in the order rtl/decoder.v tries them. So the columns add up to the cycle
-count by construction, and this script checks that they do -- a mismatch means
-the runner and the report disagree about the field names, not that the core got
-slower.
+EVERY CYCLE IS CHARGED EXACTLY ONCE. test/cxxrtl.cc reads `kill` first -- a
+redirect's discard-and-refill, not one of the eight stall reasons even though
+`stall` is also true on it -- then falls back to the first true reason, in
+the order rtl/decoder.v tries them, for a cycle where `stall` is high; low is
+an issue cycle. So issue + kill + the eight reasons add up to the cycle
+count, and this script checks that they do -- a mismatch means the runner
+and the report disagree about the field names, not that the core got slower.
 
 `unattributed` IS THE ONE THAT MATTERS. It counts cycles the decoder called a
 stall that none of the eight named reasons explains. It is zero, and if it ever is
@@ -88,7 +88,8 @@ LS_SUBSETS = {
 # charges them (test/cxxrtl.cc).
 HAZARD_SPLIT = ["hzA", "hzB", "hzC"]
 HAZARD_CSR = "hzCcsr"
-REQUIRED = (["cycles", "issue", "retires", "unattributed"] + REASONS +
+KILL = "kill"  # beside `issue`, never inside REASONS
+REQUIRED = (["cycles", "issue", KILL, "retires", "unattributed"] + REASONS +
             [LS_ISSUES] + list(LS_SUBSETS) + HAZARD_SPLIT + [HAZARD_CSR])
 
 def parse(path):
@@ -146,10 +147,12 @@ def main():
         for key in REQUIRED:
             total[key] += counts[key]
 
-    # Checked per program as well as over the suite.
+    # Checked per program as well as over the suite: issue + kill + the eight reasons sum
+    # to the cycle count.
     broken = []
     for name, counts in rows:
-        parts = counts["issue"] + counts["unattributed"] + sum(counts[r] for r in REASONS)
+        parts = (counts["issue"] + counts[KILL] + counts["unattributed"] +
+                 sum(counts[r] for r in REASONS))
         if parts != counts["cycles"]:
             broken.append(f"  {name}: columns sum to {parts}, cycles is {counts['cycles']}")
 
@@ -175,6 +178,7 @@ def main():
 
     width = max(len(name) for name, _ in rows)
     header = f"{'PROGRAM':<{width}} {'CYCLES':>8} {'RETIRED':>8} {'CPI':>6} {'ISSUE':>8}"
+    header += f"{'KILL':>8}"
     header += "".join(f"{HEADINGS[r]:>9}" for r in REASONS)
     header += f"{'UNATTR':>8}"
 
@@ -187,6 +191,7 @@ def main():
             f"{name:<{width}} {counts['cycles']:>8} {counts['retires']:>8} "
             f"{cpi(counts['cycles'], counts['retires']):>6} {counts['issue']:>8}"
         )
+        line += f"{counts[KILL]:>8}"
         line += "".join(f"{counts[r]:>9}" for r in REASONS)
         line += f"{counts['unattributed']:>8}"
         print(line)
@@ -195,6 +200,7 @@ def main():
         f"{'SUITE':<{width}} {total['cycles']:>8} {total['retires']:>8} "
         f"{cpi(total['cycles'], total['retires']):>6} {total['issue']:>8}"
     )
+    suite += f"{total[KILL]:>8}"
     suite += "".join(f"{total[r]:>9}" for r in REASONS)
     suite += f"{total['unattributed']:>8}"
     print(suite)
@@ -203,20 +209,24 @@ def main():
         return f"{100 * n / total['cycles']:.1f}%"
 
     pct = f"{'% of cycles':<{width}} {'':>8} {'':>8} {'':>6} {share(total['issue']):>8}"
+    pct += f"{share(total[KILL]):>8}"
     pct += "".join(f"{share(total[r]):>9}" for r in REASONS)
     pct += f"{share(total['unattributed']):>8}"
     print(pct)
 
     stalled = sum(total[r] for r in REASONS) + total["unattributed"]
+    bubbled = stalled + total[KILL]
     biggest = max(REASONS, key=lambda r: total[r])
     print()
     print(
         f"{len(rows)} programs, {total['cycles']} cycles, {total['retires']} "
         f"instructions retired, CPI {cpi(total['cycles'], total['retires'])}."
     )
-    print(f"{stalled} of those cycles ({share(stalled)}) issued nothing.")
+    print(f"{bubbled} of those cycles ({share(bubbled)}) issued nothing: {stalled} "
+          f"({share(stalled)}) a stall, {total[KILL]} ({share(total[KILL])}) a "
+          f"redirect's own discard-and-refill (kill, not a stall).")
     print(
-        f"The largest single reason is {biggest}: {total[biggest]} cycles, "
+        f"The largest single STALL reason is {biggest}: {total[biggest]} cycles, "
         f"{share(total[biggest])} of all cycles and "
         f"{100 * total[biggest] / stalled:.1f}% of the stalled ones."
     )
@@ -249,10 +259,13 @@ def main():
     print(
         "A COLUMN IS CYCLES CHARGED, NOT CYCLES THE SIGNAL WAS HIGH. Several\n"
         "reasons are true on the same cycle often, and each cycle goes to the\n"
-        "first one the decoder itself would try, so the columns add up. Measured\n"
-        "on the three writable-text programs: fetch_stall is high on 26 cycles\n"
-        "and is charged 8, because on the other 18 something else was already\n"
-        "holding the same instruction."
+        "first one the decoder itself would try, so the columns add up. The\n"
+        "'fetch' column charges an empty fetch buffer that is NOT a redirect's\n"
+        "own discard-and-refill -- a text load or store still steals imemory's\n"
+        "read port, but the queue absorbs the retry, so decode only sees it as\n"
+        "a slower fill rate. The redirect-caused share of an empty buffer moved\n"
+        "to KILL, its own non-stall column: a mispredict-free design pays zero\n"
+        "there, and a full queue refill per redirect pays what fetch used to."
     )
 
     if broken:

@@ -18,7 +18,9 @@ module decoder_tb;
   // hazard scoreboard is test/regfile_tb.v's and hazard.S's.
   executor_output executor_out = '0;
   logic divider_stall = 1'b0;
-  logic fetch_stall = 1'b0;
+  logic buffer_empty = 1'b0;
+  // fetchctrl's view of the buffer above, driven by hand since this bench has no fetchctrl.
+  logic redirect_recovering = 1'b0;
   // The platform has not granted this core the shared bus.
   logic bus_wait = 1'b0;
   // The instruction memory had nothing at `pc`.
@@ -49,7 +51,8 @@ module decoder_tb;
     .reg_rs2(reg_rs2),
     .executor_out(executor_out),
     .divider_stall(divider_stall),
-    .fetch_stall(fetch_stall),
+    .buffer_empty(buffer_empty),
+    .redirect_recovering(redirect_recovering),
     .bus_wait(bus_wait),
     .imem_fault(imem_fault),
     .atomic_addr(atomic_addr),
@@ -115,11 +118,19 @@ module decoder_tb;
   always @(clk) begin
     if (dut.stall !== (dut.divider_stall || dut.atomic_stall || dut.hazard_rs1 ||
                        dut.hazard_rs2 || dut.serialize || dut.operand_stall ||
-                       dut.fetch_stall || dut.bus_wait || dut.region_stall)) begin
-      $display("MISMATCH stall is not the OR of the eight named reasons: stall=%b divider=%b atomic=%b rs1=%b rs2=%b serialize=%b operand=%b fetch=%b bus=%b region=%b",
+                       dut.buffer_empty || dut.bus_wait || dut.region_stall)) begin
+      $display("MISMATCH stall is not the OR of the eight named reasons: stall=%b divider=%b atomic=%b rs1=%b rs2=%b serialize=%b operand=%b empty=%b bus=%b region=%b",
                dut.stall, dut.divider_stall, dut.atomic_stall, dut.hazard_rs1,
-               dut.hazard_rs2, dut.serialize, dut.operand_stall, dut.fetch_stall,
+               dut.hazard_rs2, dut.serialize, dut.operand_stall, dut.buffer_empty,
                dut.bus_wait, dut.region_stall);
+      errors++;
+    end
+  end
+
+  // A killed cycle never issues -- the same check decoder.v's FORMAL block proves, run under real vectors.
+  always @(clk) begin
+    if (dut.kill && dut.issuing) begin
+      $display("MISMATCH kill and issuing are both asserted on the same cycle");
       errors++;
     end
   end
@@ -171,8 +182,7 @@ module decoder_tb;
     #1;
     reset = 0;
 
-    // xori x1, x2, -1 => imm=0xfff (sign -1), rs1=x2, funct3=100, rd=x1, opcode=0010011
-    // (I-type math-immediate).
+    // xori x1, x2, -1 => imm=0xfff (sign -1), rs1=x2, funct3=100, rd=x1, I-type math-immediate.
     in.instr = 32'hfff14093;
     in.pc = 32'h0;
     #1;
@@ -739,27 +749,40 @@ module decoder_tb;
     check_bit("the instruction issued", out.valid, 1'b1);
     check_hex("...into decoder_out", {27'b0, out.rd}, 32'd1);
 
-    fetch_stall = 1'b1;
+    buffer_empty = 1'b1;
     #1;
-    check_bit("a stolen fetch window is a stall", dut.stall, 1'b1);
+    check_bit("an empty fetch buffer is a stall", dut.stall, 1'b1);
     check_bit("...so nothing issues", dut.issuing, 1'b0);
     check_hex("...and the pc holds, so the instruction is presented again",
               next_pc, pc);
-    check_bit("...and no trap is committed out of the stolen window", trap_entry, 1'b0);
+    check_bit("...and no trap is committed out of an empty buffer", trap_entry, 1'b0);
+    check_bit("...and on its own that is not a kill", dut.kill, 1'b0);
+
+    redirect_recovering = 1'b1;
+    #1;
+    check_bit("an empty buffer while fetchctrl is still recovering IS a kill", dut.kill, 1'b1);
+    check_bit("...which is still a stall too -- kill narrows the reason, not the gate",
+              dut.stall, 1'b1);
+    check_bit("...so nothing issues", dut.issuing, 1'b0);
+    redirect_recovering = 1'b0;
+    #1;
+    check_bit("clearing redirect_recovering alone (buffer still empty) clears kill",
+              dut.kill, 1'b0);
+    check_bit("...and the cycle is still charged as a plain stall", dut.stall, 1'b1);
 
     divider_stall = 1'b1;
     #1;
     @(posedge clk);
     #1;
-    check_bit("a steal coinciding with a divide holds decoder_out",
+    check_bit("an empty buffer coinciding with a divide holds decoder_out",
               out.valid, 1'b1);
     check_hex("...unchanged", {27'b0, out.rd}, 32'd1);
     divider_stall = 1'b0;
     #1;
     @(posedge clk);
     #1;
-    check_bit("a steal on its own bubbles decoder_out instead", out.valid, 1'b0);
-    fetch_stall = 1'b0;
+    check_bit("an empty buffer on its own bubbles decoder_out instead", out.valid, 1'b0);
+    buffer_empty = 1'b0;
     #1;
     @(posedge clk);
     #1;
@@ -771,21 +794,21 @@ module decoder_tb;
     present_and_fetch(32'h00100093);   // addi x1, x0, 1
     in.next_instr = 32'h00110193;      // addi x3, x2, 1 -- reads x2
     #1;
-    check_hex("the cycle before a steal presents the successor's rs1",
+    check_hex("the cycle before the buffer empties presents the successor's rs1",
               {27'b0, read_rs1}, 32'd2);
     @(posedge clk);
     #1;
-    fetch_stall = 1'b1;
+    buffer_empty = 1'b1;
     in.instr = 32'hdead_beef;
     #1;
-    check_hex("a stolen window presents the pair from before it, not one off a data word",
+    check_hex("an empty buffer presents the pair from before it, not one off a stale word",
               {27'b0, read_rs1}, 32'd2);
     @(posedge clk);
     #1;
-    fetch_stall = 1'b0;
+    buffer_empty = 1'b0;
     in.instr = 32'h00110193;           // the successor, arriving for real now
     #1;
-    check_bit("...so the instruction behind the steal owes no operand-fetch cycle",
+    check_bit("...so the instruction behind the empty cycle owes no operand-fetch cycle",
               dut.operand_stall, 1'b0);
     check_bit("...and issues in the cycle the window comes back", dut.issuing, 1'b1);
     in.next_instr = 32'b0;
@@ -850,10 +873,10 @@ module decoder_tb;
     check_bit("a divide holds the interrupt off", trap_entry, 1'b0);
     check_hex("...and the pc with it", next_pc, pc);
     divider_stall = 1'b0;
-    fetch_stall = 1'b1;
+    buffer_empty = 1'b1;
     #1;
-    check_bit("so does a stolen fetch window", trap_entry, 1'b0);
-    fetch_stall = 1'b0;
+    check_bit("so does an empty fetch buffer", trap_entry, 1'b0);
+    buffer_empty = 1'b0;
     #1;
     check_bit("and the interrupt is taken the moment they clear", trap_entry, 1'b1);
     @(posedge clk);

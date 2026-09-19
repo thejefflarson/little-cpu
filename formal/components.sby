@@ -15,7 +15,6 @@ decoder: smtbmc
 accessor: smtbmc
 traps: smtbmc bitwuzla
 pcloop: smtbmc boolector
-# executor is most of this job's clock; bitwuzla proves it in 101s against 245s.
 executor: smtbmc bitwuzla
 
 busarbiter: smtbmc --keep-going
@@ -35,6 +34,8 @@ prep -top accessor
 
 pcloop:
 read -sv structs.v fetcher.v decoder.v regsel.v
+# -noassume reads fetchctrl's own FORMAL block (the room invariant it owes fetchqueue) into the proof rather than assuming it for free.
+read -sv -formal -noassume structs.v fetchctrl.v fetchqueue.v
 read -sv -formal structs.v pcloop.sv
 prep -top pcloop
 
@@ -64,6 +65,8 @@ accessor:
 
 pcloop:
 ../rtl/fetcher.v
+../rtl/fetchctrl.v
+../rtl/fetchqueue.v
 ../rtl/decoder.v
 ../rtl/regsel.v
 ../rtl/structs.v

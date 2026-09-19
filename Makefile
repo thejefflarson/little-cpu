@@ -9,7 +9,7 @@ rvfi_macros.vh: $(RISCV_FORMAL_DIR)/checks/rvfi_macros.py
 	python3 $^ > $@
 
 SIM_RTL_SRCS := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v \
-                rtl/fetcher.v rtl/imemory.v rtl/memory.v rtl/regfile.v rtl/regsel.v \
+                rtl/fetcher.v rtl/fetchctrl.v rtl/fetchqueue.v rtl/imemory.v rtl/memory.v rtl/regfile.v rtl/regsel.v \
                 rtl/timer.v rtl/uart.v rtl/spiflash.v rtl/writeback.v rtl/littlecpu.v
 
 SIM_TB_SRCS := test/testbench.v test/spiflash_model.v
@@ -821,18 +821,18 @@ coremark: sim
 # Count logic cells from nextpnr, never cell counts from yosys: the two disagree in
 # magnitude and in sign on the same netlist.
 FIT_SRCS := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v \
-            rtl/fetcher.v rtl/regfile.v rtl/regsel.v rtl/writeback.v rtl/littlecpu.v
+            rtl/fetcher.v rtl/fetchctrl.v rtl/fetchqueue.v rtl/regfile.v rtl/regsel.v rtl/writeback.v rtl/littlecpu.v
 
 fit.json: $(FIT_SRCS)
 	@echo 'yosys: synthesising littlecpu for ice40 (log: fit.synth.log)'
 	@yosys -p 'read_verilog -sv $^; synth_ice40 -dsp -top littlecpu -json $@' \
 	  > fit.synth.log 2>&1 || { tail -40 fit.synth.log; exit 1; }
 
-# 4219 = 4097 + 68 + 54: the fit job's measured count, the measured churn band, and the
-# widest toolchain gap measured on one tree.
-FIT_MAX_LC := 4219
+# 4802 = 4680 + 68 + 54: a local measured count (re-derive against CI's own fit job once
+# available), the measured churn band, and the widest toolchain gap measured on one tree.
+FIT_MAX_LC := 4802
 
-FIT_LAST_LC := 4097
+FIT_LAST_LC := 4680
 
 FIT_TOOLS := yosys nextpnr-ice40
 
@@ -859,7 +859,7 @@ SOC_EXPECT_SPRAM := 2
 SOC_EXPECT_EBR   := 20
 
 SOC_SRCS      := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v \
-                 rtl/executor.v rtl/fetcher.v rtl/imemory.v rtl/memory.v \
+                 rtl/executor.v rtl/fetcher.v rtl/fetchctrl.v rtl/fetchqueue.v rtl/imemory.v rtl/memory.v \
                  rtl/regfile.v rtl/regsel.v rtl/timer.v rtl/uart.v \
                  rtl/writeback.v rtl/littlecpu.v rtl/littlesoc.v
 SOC_ROM_HEX   := soc/rom_even.hex soc/rom_odd.hex

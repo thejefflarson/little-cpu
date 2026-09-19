@@ -16,12 +16,12 @@ module decoder #(
   input  logic [31:0] reg_rs2,
   input  executor_output executor_out,
   input  logic divider_stall,
-  // The fetch port went to a load or store this cycle, so `in.instr` holds a data word
-  // rather than an instruction.
-  input  logic fetch_stall,
+  // The fetch queue has fewer than two words buffered; a stolen read port is fetchctrl's problem now, absorbed as a slower fill rate.
+  input  logic buffer_empty,
+  // fetchctrl's own view of whether an empty buffer is a redirect's discard in flight; ANDed with buffer_empty below rather than trusted alone.
+  input  logic redirect_recovering,
   input  logic bus_wait,
-  // Decode's request for the data bus, a cycle before the transaction. The platform ANDs
-  // it against its own grant; a grant term here would close the loop through the arbiter.
+  // Decode's request for the bus, a cycle early; the platform ANDs it against its own grant so a grant term here would close the loop through the arbiter.
   output logic bus_request,
   input  logic imem_fault,
   output logic [31:0] atomic_addr,
@@ -29,6 +29,10 @@ module decoder #(
   input  logic       accessor_out_valid,
   output logic [31:0] pc,
   output logic [31:0] next_pc,
+  // High on an issuing cycle whose next_pc is not the queue's own straight-line advance.
+  output logic redirect,
+  // A non-stall bubble, charged to its own column by test/cxxrtl.cc/stall_report.py, never to `stall`.
+  output logic kill,
   output logic [4:0] rs1,
   output logic [4:0] rs2,
   output logic [4:0] read_rs1,
@@ -290,8 +294,7 @@ module decoder #(
   logic [31:0] csr_arg;
   assign csr_arg = is_csr_imm ? {27'b0, rs1_field} : reg_rs1;
 
-  // Zicsr's suppression rules. Skipping the write is what makes `csrr` legal on a
-  // read-only CSR; `csr_read_op` exists only so RVFI reports the right read mask.
+  // Zicsr's suppression rules: skipping the write is what makes `csrr` legal on a read-only CSR.
   logic csr_src_zero, csr_write_op, csr_read_op;
   assign csr_src_zero = rs1_field == 5'b0;
   assign csr_write_op = instr_csr_access && !((instr_csrrs || instr_csrrc) && csr_src_zero);
@@ -336,8 +339,7 @@ module decoder #(
   assign instr_ls_load  = instr_lb || instr_lbu || instr_lh || instr_lhu || instr_lw;
   assign instr_ls_store = instr_sb || instr_sh || instr_sw;
 
-  // Reads the whole sum, and drives only the flip-flop below, which keeps the carry chain
-  // out of the fetch loop.
+  // Reads the whole sum but drives only the flip-flop below, keeping the carry chain out of the fetch loop.
   localparam logic [31:0] LS_TEXT_BYTES = LS_TEXT_WORDS * 4;
   localparam logic [31:0] LS_RAM_BYTES  = LS_RAM_WORDS * 4;
   logic ls_supported;
@@ -382,8 +384,7 @@ module decoder #(
   assign region_stall = ls_access && !ls_settled && !ls_answer_valid;
   assign ls_capture = region_stall && !stall_own;
 
-  // Held until the access issues, not for one cycle: under a bus wait a one-cycle answer
-  // expires, drops `bus_request`, and the two livelock.
+  // Held until the access issues, not one cycle: a bus wait would otherwise expire it, dropping `bus_request` into a livelock.
   always_ff @(posedge clk) begin
     if (reset) begin
       ls_answer       <= 1'b0;
@@ -393,7 +394,7 @@ module decoder #(
       ls_answer_valid <= 1'b1;
     end else begin
       ls_answer_valid <= ls_answer_valid && ls_access &&
-                         (bus_wait || fetch_stall);
+                         (bus_wait || buffer_empty);
     end
   end
 
@@ -452,8 +453,7 @@ module decoder #(
   logic trap_taken;
   assign trap_taken = trap_pending || interrupt_pending;
 
-  // No `(* parallel_case *)` here: the top two arms deliberately overlap the eight below,
-  // and the FORMAL block proves those eight disjoint.
+  // No `(* parallel_case *)`: the top two arms deliberately overlap the eight below.
   always_comb begin
     case (1'b1)
       interrupt_pending: trap_cause = CAUSE_MACHINE_TIMER;
@@ -589,10 +589,13 @@ module decoder #(
   logic atomic_stall;
   assign atomic_stall = out.valid && out.is_amo && !divider_stall;
 
-  assign stall_own = hazard || operand_stall || divider_stall || fetch_stall ||
+  assign stall_own = hazard || operand_stall || divider_stall || buffer_empty ||
                      atomic_stall;
   assign stall_other = stall_own || bus_wait;
   assign stall = stall_other || region_stall;
+
+  // NEVER OR THIS INTO stall_own/stall_other/stall: test/stall_sites_test.py reads kill as the eight reasons' non-stall sibling, not a ninth one.
+  assign kill = buffer_empty && redirect_recovering;
 
   // Over-asking is deliberate -- a store-conditional with no reservation makes no
   // transaction -- because under-asking would put two initiators on the bus at once.
@@ -601,10 +604,10 @@ module decoder #(
      instr_sb || instr_sh || instr_sw || instr_atomic);
 
   // On an issuing cycle the next instruction's pair; on a stalled cycle its own, since
-  // the same instruction comes back; on a stolen fetch window, last cycle's, since that
-  // word is data.
-  assign read_rs1 = fetch_stall ? prev_rs1 : stall ? rs1 : next_rs1;
-  assign read_rs2 = fetch_stall ? prev_rs2 : stall ? rs2 : next_rs2;
+  // the same instruction comes back; on an empty buffer, last cycle's, since there is no
+  // instruction here yet to read a pair out of.
+  assign read_rs1 = buffer_empty ? prev_rs1 : stall ? rs1 : next_rs1;
+  assign read_rs2 = buffer_empty ? prev_rs2 : stall ? rs2 : next_rs2;
 
   logic [32:0] cmp_sub;
   logic        cmp_eq, cmp_ltu, cmp_lt;
@@ -645,6 +648,12 @@ module decoder #(
   logic issuing;
   assign issuing = !reset && !stall;
 
+  // fence.i does not redirect architecturally -- next_pc's default arm already names the
+  // following address -- but text is writable and the queue prefetches ahead of decode,
+  // so a store retired just before it can leave stale words already buffered.
+  assign redirect = issuing &&
+    (trap_taken || instr_mret || instr_jalr || instr_jal || branch_taken || instr_fencei);
+
   logic committing;
   assign committing = issuing && !trap_taken;
   assign csr_ren = committing && csr_read_op;
@@ -673,7 +682,7 @@ module decoder #(
       out <= '0;
     end else if (divider_stall) begin
       out <= out;
-    end else if (hazard || operand_stall || fetch_stall || atomic_stall || bus_wait ||
+    end else if (hazard || operand_stall || buffer_empty || atomic_stall || bus_wait ||
                  region_stall || interrupt_pending) begin
       out <= '0;
     end else begin
@@ -807,8 +816,7 @@ module decoder #(
 
   always_comb assume(in.pc == pc);
 
-  // Assumed here, and dropped with `-noassume` where the composed proof can check it
-  // against the real fetcher.
+  // Assumed here, dropped with `-noassume` where the composed proof checks it against the real fetcher.
   fetcher_output prev_in;
   logic [31:0] prev_reg_rs1;
   logic        prev_issued;
@@ -839,26 +847,29 @@ module decoder #(
   always_ff @(posedge clk) if (clocked && prev_stall && !prev_reset) assert(pc == past_pc);
 
   decoder_output past_out;
-  logic prev_hold_and_steal, prev_steal_only, prev_atomic_stall;
+  logic prev_hold_and_empty, prev_empty_only, prev_atomic_stall;
   logic prev_hold_and_wait, prev_wait_only;
   logic prev_hold_and_region, prev_region_only;
   always_ff @(posedge clk) begin
     past_out             <= out;
-    prev_hold_and_steal  <= fetch_stall && divider_stall;
-    prev_steal_only      <= fetch_stall && !divider_stall;
+    prev_hold_and_empty  <= buffer_empty && divider_stall;
+    prev_empty_only      <= buffer_empty && !divider_stall;
     prev_atomic_stall    <= atomic_stall;
     prev_hold_and_wait   <= bus_wait && divider_stall;
     prev_wait_only       <= bus_wait && !divider_stall;
     prev_hold_and_region <= region_stall && divider_stall;
     prev_region_only     <= region_stall && !divider_stall;
   end
-  always_comb if (clocked && !prev_reset && prev_hold_and_steal) assert(out == past_out);
-  always_comb if (clocked && !prev_reset && prev_steal_only)     assert(out == '0);
+  always_comb if (clocked && !prev_reset && prev_hold_and_empty) assert(out == past_out);
+  always_comb if (clocked && !prev_reset && prev_empty_only)     assert(out == '0);
   always_comb if (clocked && !prev_reset && prev_hold_and_wait) assert(out == past_out);
   always_comb if (clocked && !prev_reset && prev_wait_only)     assert(out == '0);
   always_comb if (clocked && !prev_reset && prev_atomic_stall) assert(out == '0);
   always_comb if (clocked && !prev_reset && prev_hold_and_region) assert(out == past_out);
   always_comb if (clocked && !prev_reset && prev_region_only)     assert(out == '0);
+
+  // A killed cycle never issues, provable since kill is gated by this module's own buffer_empty, already inside `stall`, with redirect_recovering free.
+  always_comb if (clocked) assert(!kill || !issuing);
 
   logic [31:0] past_next_pc;
   always_ff @(posedge clk) past_next_pc <= next_pc;
