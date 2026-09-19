@@ -17,6 +17,7 @@ rtl/uart.v      unpaired  uart_tb
 
 rtl/busarbiter.v  unpaired  components_busarbiter
 rtl/fetcher.v     unpaired  components_pcloop
+rtl/fetchctrl.v   unpaired  components_pcloop
 
 rtl/littlecpu.v      unpaired  check
 rtl/writeback.v      unpaired  check

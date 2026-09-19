@@ -21,6 +21,11 @@ module decoder #(
   // problem now, not decode's: the queue absorbs the retry, and decode only ever sees a
   // slower fill rate.
   input  logic buffer_empty,
+  // Set from the cycle a redirect fires until the queue holds a fresh pair again --
+  // fetchctrl's own view of whether an empty buffer is a discard in flight. ANDed with
+  // buffer_empty below rather than trusted alone, so `kill` cannot assert on a cycle this
+  // decoder itself would call issuing, in any harness that drives this free.
+  input  logic redirect_recovering,
   input  logic bus_wait,
   // Decode's request for the data bus, a cycle before the transaction. The platform ANDs
   // it against its own grant; a grant term here would close the loop through the arbiter.
@@ -35,6 +40,10 @@ module decoder #(
   // advance -- fetchctrl registers this and the target it comes with before either
   // reaches imemory.
   output logic redirect,
+  // A non-stall bubble: this cycle issues nothing because the buffer is empty and the
+  // reason is a redirect's own discard-and-refill, not one of the eight stall reasons.
+  // test/cxxrtl.cc and test/stall_report.py charge it to its own column, never to `stall`.
+  output logic kill,
   output logic [4:0] rs1,
   output logic [4:0] rs2,
   output logic [4:0] read_rs1,
@@ -600,6 +609,13 @@ module decoder #(
   assign stall_other = stall_own || bus_wait;
   assign stall = stall_other || region_stall;
 
+  // NEVER OR THIS INTO stall_own/stall_other/stall: kill is the eight reasons' non-stall
+  // sibling, not a ninth one, and test/stall_sites_test.py reads that literally. The AND
+  // with buffer_empty (itself one of the eight, already covering every kill cycle) is
+  // what makes `kill => !issuing` true by this module's own structure alone, in any
+  // harness that drives redirect_recovering free.
+  assign kill = buffer_empty && redirect_recovering;
+
   // Over-asking is deliberate -- a store-conditional with no reservation makes no
   // transaction -- because under-asking would put two initiators on the bus at once.
   assign bus_request = !reset && !trap_taken && !region_stall && !stall_own &&
@@ -871,6 +887,11 @@ module decoder #(
   always_comb if (clocked && !prev_reset && prev_atomic_stall) assert(out == '0);
   always_comb if (clocked && !prev_reset && prev_hold_and_region) assert(out == past_out);
   always_comb if (clocked && !prev_reset && prev_region_only)     assert(out == '0);
+
+  // A killed cycle never issues, in any harness -- redirect_recovering is a free input
+  // here (this module cannot see fetchctrl's own definition of it), and kill is still
+  // provably gated by this module's own `buffer_empty`, which is already inside `stall`.
+  always_comb if (clocked) assert(!kill || !issuing);
 
   logic [31:0] past_next_pc;
   always_ff @(posedge clk) past_next_pc <= next_pc;

@@ -20,6 +20,9 @@ module decoder_tb;
   logic divider_stall = 1'b0;
   // The fetch queue has fewer than two words buffered.
   logic buffer_empty = 1'b0;
+  // fetchctrl's own view of whether the empty buffer above is a redirect's discard in
+  // flight, driven by hand here since this bench has no fetchctrl instance.
+  logic redirect_recovering = 1'b0;
   // The platform has not granted this core the shared bus.
   logic bus_wait = 1'b0;
   // The instruction memory had nothing at `pc`.
@@ -51,6 +54,7 @@ module decoder_tb;
     .executor_out(executor_out),
     .divider_stall(divider_stall),
     .buffer_empty(buffer_empty),
+    .redirect_recovering(redirect_recovering),
     .bus_wait(bus_wait),
     .imem_fault(imem_fault),
     .atomic_addr(atomic_addr),
@@ -121,6 +125,15 @@ module decoder_tb;
                dut.stall, dut.divider_stall, dut.atomic_stall, dut.hazard_rs1,
                dut.hazard_rs2, dut.serialize, dut.operand_stall, dut.buffer_empty,
                dut.bus_wait, dut.region_stall);
+      errors++;
+    end
+  end
+
+  // A killed cycle never issues -- decoder.v's own FORMAL block proves this by
+  // construction; this is the same check run under real vectors rather than a solver.
+  always @(clk) begin
+    if (dut.kill && dut.issuing) begin
+      $display("MISMATCH kill and issuing are both asserted on the same cycle");
       errors++;
     end
   end
@@ -746,6 +759,19 @@ module decoder_tb;
     check_hex("...and the pc holds, so the instruction is presented again",
               next_pc, pc);
     check_bit("...and no trap is committed out of an empty buffer", trap_entry, 1'b0);
+    check_bit("...and on its own that is not a kill", dut.kill, 1'b0);
+
+    redirect_recovering = 1'b1;
+    #1;
+    check_bit("an empty buffer while fetchctrl is still recovering IS a kill", dut.kill, 1'b1);
+    check_bit("...which is still a stall too -- kill narrows the reason, not the gate",
+              dut.stall, 1'b1);
+    check_bit("...so nothing issues", dut.issuing, 1'b0);
+    redirect_recovering = 1'b0;
+    #1;
+    check_bit("clearing redirect_recovering alone (buffer still empty) clears kill",
+              dut.kill, 1'b0);
+    check_bit("...and the cycle is still charged as a plain stall", dut.stall, 1'b1);
 
     divider_stall = 1'b1;
     #1;

@@ -190,7 +190,7 @@ stalls=
 for a in "$@"; do [ "$a" = "--stalls" ] && stalls=1; done
 if [ -n "$stalls" ] && [ -z "${STUB_SIM_NOSTALLS:-}" ]; then
   unattr=${STUB_SIM_UNATTR:-0}
-  echo "STALLS cycles=$((20 + unattr + ${STUB_SIM_SKEW:-0})) issue=10 divider=0" \
+  echo "STALLS cycles=$((20 + unattr + ${STUB_SIM_SKEW:-0})) issue=10 kill=0 divider=0" \
        "atomic=0 hazard=10 serialize=0 operand=0 fetch=0 bus=0 region=0" \
        "hzA=4 hzB=3 hzC=3 hzCcsr=0" \
        "unattributed=$unattr lsissue=4 lsedge=2 lsbypass=1"
@@ -3318,8 +3318,9 @@ sr_fixture() {
   fixture_anchor "$REPO/test/stall_report.py" \
     'REASONS = ["divider", "atomic", "hazard", "serialize", "operand", "fetch", "bus",'
   fixture_anchor "$REPO/test/stall_report.py" '"region"]'
+  fixture_anchor "$REPO/test/stall_report.py" 'KILL = "kill"'
   fixture_anchor "$REPO/test/stall_report.py" \
-    'REQUIRED = (["cycles", "issue", "retires", "unattributed"] + REASONS +'
+    'REQUIRED = (["cycles", "issue", KILL, "retires", "unattributed"] + REASONS +'
   fixture_anchor "$REPO/test/stall_report.py" 'HAZARD_SPLIT = ["hzA", "hzB", "hzC"]'
   fixture_anchor "$REPO/test/stall_report.py" 'HAZARD_CSR = "hzCcsr"'
   fixture_anchor "$REPO/test/stall_report.py" 'LS_ISSUES = "lsissue"'
@@ -3328,8 +3329,8 @@ sr_fixture() {
   fixture_anchor "$REPO/test/stall_report.py" \
     '"lsbypass": "issuing on a write-through to rs1",'
   cat > "$d/counts" <<'COUNTS'
-add.S cycles=40 issue=10 divider=0 atomic=0 hazard=20 serialize=0 operand=10 fetch=0 bus=0 region=0 hzA=10 hzB=5 hzC=5 hzCcsr=0 unattributed=0 lsissue=4 lsedge=1 lsbypass=0 retires=10
-lw.S cycles=40 issue=10 divider=0 atomic=0 hazard=5 serialize=0 operand=25 fetch=0 bus=0 region=0 hzA=2 hzB=1 hzC=2 hzCcsr=0 unattributed=0 lsissue=6 lsedge=3 lsbypass=2 retires=10
+add.S cycles=40 issue=10 kill=0 divider=0 atomic=0 hazard=20 serialize=0 operand=10 fetch=0 bus=0 region=0 hzA=10 hzB=5 hzC=5 hzCcsr=0 unattributed=0 lsissue=4 lsedge=1 lsbypass=0 retires=10
+lw.S cycles=40 issue=10 kill=0 divider=0 atomic=0 hazard=5 serialize=0 operand=25 fetch=0 bus=0 region=0 hzA=2 hzB=1 hzC=2 hzCcsr=0 unattributed=0 lsissue=6 lsedge=3 lsbypass=2 retires=10
 COUNTS
   printf '%s' "$d"
 }
@@ -3339,7 +3340,7 @@ probe "control: an accounting that adds up prints the table" 0 \
   "cycle accounting" "$SR $d/counts"
 
 probe "the dominant reason is the suite's, not the first program's" 0 \
-  "The largest single reason is operand" "$SR $d/counts"
+  "The largest single STALL reason is operand" "$SR $d/counts"
 
 d=$(sr_fixture); mutate "$d/counts" 's/^add.S cycles=40/add.S cycles=41/'
 probe "columns that do not add up blame the report, not the core" 1 \
@@ -5409,6 +5410,89 @@ d=$(dz_fixture); mutate "$d/formal/components.sby" 's/^decoder:$/decoderx:/'
 probe "a renamed task stops rather than probing some other design" 2 \
   "block under [script]" "$(dzs "$d")"
 
+begin_group "formal/decoder-kill-probe.py"
+
+DK="python3 $REPO/formal/decoder-kill-probe.py"
+
+cat > "$tmp/sby-dk-stub" <<'STUB'
+#!/bin/sh
+# Stands in for sby. There is one case, so the assertion line is read out of
+# the copy of decoder.v this run was handed and PASS/FAIL/the reporting leg
+# come from the environment, the same shape sby-dz-stub uses.
+mkdir -p probe
+line=$(grep -n 'assert(!kill || !issuing);' src/decoder.v | cut -d: -f1)
+status=${STUB_SBY_KILL:-FAIL}; line=${STUB_SBY_KILL_LINE:-$line}
+leg=${STUB_SBY_KILL_LEG:-engine_0.basecase}
+: > probe/logfile.txt
+if [ "$status" = FAIL ]; then
+  echo "SBY [probe] $leg: ##   0:00:00  Assert failed in decoder: decoder.v:$line.5-$line.36" \
+    > probe/logfile.txt
+fi
+[ -n "${STUB_SBY_NO_STATUS:-}" ] && exit 1
+if [ -n "${STUB_SBY_EMPTY_STATUS:-}" ]; then : > probe/status; exit 1; fi
+echo "$status 2 0" > probe/status
+STUB
+chmod +x "$tmp/sby-dk-stub"
+
+dk_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/rtl" "$d/formal"
+  cp "$REPO"/rtl/structs.v "$REPO"/rtl/decoder.v "$REPO"/rtl/regsel.v "$d/rtl/"
+  cp "$REPO"/formal/components.sby "$d/formal/"
+  printf '%s' "$d"
+}
+
+dks() { printf "%s --repo %s --workdir %s/work --sby %s" "$DK" "$1" "$1" "$tmp/sby-dk-stub"; }
+
+d=$(dk_fixture)
+probe "control: kill's assertion fails at its own line" 0 \
+  "kill's assertion fails for its own reason" "$(dks "$d")"
+
+d=$(dk_fixture)
+probe "kill-not-gated-by-buffer-empty proving is red" 1 \
+  "the mutated core proves" "STUB_SBY_KILL=PASS $(dks "$d")"
+
+d=$(dk_fixture)
+probe "the proof going red somewhere else is not evidence" 1 \
+  "which does not include line" "STUB_SBY_KILL_LINE=9 $(dks "$d")"
+
+d=$(dk_fixture)
+probe "a failure reported only by the induction leg is not evidence" 1 \
+  "which does not include line" "STUB_SBY_KILL_LEG=engine_0.induction $(dks "$d")"
+
+d=$(dk_fixture)
+probe "a solver that wrote no verdict is exit 2, not a red arm" 2 \
+  "wrote no status for the" "STUB_SBY_NO_STATUS=1 $(dks "$d")"
+
+d=$(dk_fixture)
+probe "an empty status file is refused rather than read as a verdict" 2 \
+  "status file for the mutated core is empty" \
+  "STUB_SBY_EMPTY_STATUS=1 $(dks "$d")"
+
+d=$(dk_fixture)
+mutate "$d/rtl/decoder.v" \
+  's/assert(!kill || !issuing);/assert(!kill \&\& !issuing);/'
+probe "a respelled assertion stops rather than pinning nothing" 2 \
+  "states \`assert(!kill || !issuing);\` 0 times" "$(dks "$d")"
+
+d=$(dk_fixture)
+mutate "$d/rtl/decoder.v" \
+  's/assign kill = buffer_empty && redirect_recovering;/assign kill = buffer_empty \&\& redirect_recovering ;/'
+probe "a respelled kill site stops rather than building the shipping core twice" 2 \
+  "no longer spells what the kill mutation replaces" "$(dks "$d")"
+
+d=$(dk_fixture); rm "$d/rtl/decoder.v"
+probe "the RTL moving away takes the probe with it, loudly" 2 \
+  "rtl/decoder.v is missing from" "$(dks "$d")"
+
+d=$(dk_fixture); rm "$d/formal/components.sby"
+probe "no components.sby is exit 2, not a probe against an invented script" 2 \
+  "formal/components.sby is missing" "$(dks "$d")"
+
+d=$(dk_fixture); mutate "$d/formal/components.sby" 's/^decoder:$/decoderx:/'
+probe "a renamed task stops rather than probing some other design" 2 \
+  "block under [script]" "$(dks "$d")"
+
 begin_group "formal/executor-zkt-probe.py"
 
 EZ="python3 $REPO/formal/executor-zkt-probe.py"
@@ -6426,15 +6510,15 @@ d=$(new_case)
 probe "a harness directory with no checks.cfg is named, not measured as empty" 1 \
   "does not exist" "$MCD $d dmemcheck.sby 2"
 
-d=$(mcd_fixture 14)
+d=$(mcd_fixture 18)
 probe "a named .sby that does not exist is refused" 1 \
   "does not exist" "$MCD $d missing.sby 2"
 
-d=$(mcd_fixture 14); printf '[options]\nmode bmc\n' > "$d/dmemcheck.sby"
+d=$(mcd_fixture 18); printf '[options]\nmode bmc\n' > "$d/dmemcheck.sby"
 probe "a missing depth line in the .sby stops rather than comparing nothing" 1 \
   "declares no \`depth NNN\` line" "$MCD $d dmemcheck.sby 2"
 
-d=$(mcd_fixture 14)
+d=$(mcd_fixture 18)
 probe "a <retires> argument that is not 1 or 2 is refused" 2 \
   "<retires> must be 1 or 2" "$MCD $d dmemcheck.sby 3"
 
@@ -6452,15 +6536,15 @@ d=$(mcd_fixture 18); printf '[options]\nmode cover\n' > "$d/dmemcheck_cover.sby"
 probe "a cover .sby with no depth line is untied the same way its bmc sibling is" 1 \
   "declares no \`depth NNN\` line" "$MCD $d dmemcheck.sby 2"
 
-d=$(mcd_fixture 14); printf '[options]\ndepth 14\ndepth 8\n' > "$d/dmemcheck.sby"
+d=$(mcd_fixture 18); printf '[options]\ndepth 14\ndepth 8\n' > "$d/dmemcheck.sby"
 probe "a .sby stating depth twice is refused, since sby searches to the last" 1 \
   "states \`depth\` 2 times in [options] (14, 8)" "$MCD $d dmemcheck.sby 2"
 
-d=$(mcd_fixture 14); printf '[options]\nmode bmc\n\n[script]\ndepth 24\n' > "$d/dmemcheck.sby"
+d=$(mcd_fixture 18); printf '[options]\nmode bmc\n\n[script]\ndepth 24\n' > "$d/dmemcheck.sby"
 probe "a depth line outside [options] is not the depth sby searches" 1 \
   "declares no \`depth NNN\` line" "$MCD $d dmemcheck.sby 2"
 
-d=$(mcd_fixture 14); mutate "$d/checks.cfg" '/^#derive G/d'
+d=$(mcd_fixture 18); mutate "$d/checks.cfg" '/^#derive G/d'
 probe "a checks.cfg with no #derive G is refused by name, not a traceback" 1 \
   "no \`#derive\` line for G" "$MCD $d dmemcheck.sby 2"
 
@@ -7240,7 +7324,7 @@ mcov_fixture() {
 
 d=$(mcov_fixture)
 probe "control: the shipping manifest rules on every rtl/*.v file" 0 \
-  "20 rtl/*.v files, each ruled on" "$MCOV $d"
+  "21 rtl/*.v files, each ruled on" "$MCOV $d"
 
 probe "a repo root that does not exist is red before anything is parsed" 1 \
   "is not a directory" "$MCOV $d/nowhere"

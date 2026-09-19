@@ -47,6 +47,8 @@ module pcloop (
   logic [31:0] queue_q0, queue_q1;
   logic        queue_q0_fault, queue_q1_fault;
   logic        buffer_empty;
+  logic        redirect_recovering;
+  logic        kill;
   logic        fetcher_pop;
 
   fetcher fetcher (
@@ -75,7 +77,8 @@ module pcloop (
     .q0_fault(queue_q0_fault),
     .q1(queue_q1),
     .q1_fault(queue_q1_fault),
-    .buffer_empty(buffer_empty)
+    .buffer_empty(buffer_empty),
+    .redirect_recovering(redirect_recovering)
   );
 
   decoder decoder (
@@ -87,6 +90,8 @@ module pcloop (
     .executor_out(executor_out),
     .divider_stall(divider_stall),
     .buffer_empty(buffer_empty),
+    .redirect_recovering(redirect_recovering),
+    .kill(kill),
     .bus_wait(bus_wait),
     .bus_request(bus_request),
     .imem_fault(queue_q0_fault),
@@ -281,12 +286,20 @@ module pcloop (
   // cycle reports what issued last cycle (out is registered), so it is graded against
   // the buffer's occupancy last cycle, not this one -- and a divider hold republishes
   // last cycle's out unchanged, which is not a fresh issue and carries no opinion about
-  // this cycle's buffer at all. Nothing discards a buffered word in this stage -- there
-  // is no predictor and no kill -- so this is trivially true by construction; it is
-  // written now so the next stage, which adds a real kill, only has to strengthen it
-  // rather than invent it.
+  // this cycle's buffer at all.
   always_comb if (clocked && !prev_reset && !prev_hard_stall)
     assert(!prev_buffer_empty || !decoder_out.valid);
+
+  // The strengthened half: a word fetchctrl is actively discarding never issues either,
+  // stated over `kill` rather than over `buffer_empty` so a future stage that narrows
+  // buffer_empty's OTHER causes (a cold start, a steal-drained queue) still has this
+  // half nailed down. Decoder's own FORMAL block proves `kill => !issuing` from its local
+  // signals alone; this restates it one cycle later, against the composed queue's own
+  // `redirect_recovering`, so a future edit that decouples the two is caught here too.
+  logic prev_kill;
+  always_ff @(posedge clk) prev_kill <= kill;
+  always_comb if (clocked && !prev_reset && !prev_hard_stall)
+    assert(!prev_kill || !decoder_out.valid);
  `endif
 endmodule
 

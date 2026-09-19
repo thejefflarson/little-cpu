@@ -21,7 +21,11 @@ module traps #(
     input logic divider_stall,
     // Free: this harness models no queue, so a buffer's emptiness is left to the solver.
     input logic buffer_empty,
-    // Free too: a hart waiting for the shared bus issues nothing, so no trap commits then.
+    // Free for the same reason: this harness has no fetchctrl to say whether an empty
+    // buffer is a discard in flight.
+    input logic redirect_recovering,
+    // Free, like the other two: a hart waiting for the shared bus issues nothing, so no
+    // trap is committed on that cycle either.
     input logic bus_wait,
     // Free, but coupled to fetcher_out below: rtl/fetchqueue.v answers a fault bit out of
     // the same slot its word comes from, so the two hold or move together.
@@ -34,6 +38,10 @@ module traps #(
 );
   logic [31:0] pc, next_pc;
   logic        redirect;
+  // Unread here, and declared anyway for the same reason bus_request is: an output
+  // connected to an undeclared identifier is an implicit net, which `default_nettype
+  // none` makes an error in iverilog and a warning in yosys.
+  logic        kill;
   // The address the decoder publishes for a platform to decode.
   logic [31:0] atomic_addr;
   fetcher_output fetcher_out;
@@ -80,6 +88,8 @@ module traps #(
     .executor_out(executor_out),
     .divider_stall(divider_stall),
     .buffer_empty(buffer_empty),
+    .redirect_recovering(redirect_recovering),
+    .kill(kill),
     .bus_wait(bus_wait),
     .bus_request(bus_request),
     .imem_fault(imem_fault),

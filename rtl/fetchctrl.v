@@ -24,7 +24,11 @@ module fetchctrl (
   output logic         q0_fault,
   output logic [31:0]  q1,
   output logic         q1_fault,
-  output logic         buffer_empty
+  output logic         buffer_empty,
+  // Set the cycle a redirect fires, held until the queue holds a fresh pair again. decode
+  // ANDs this with its own buffer_empty to attribute an empty-buffer cycle to a discard
+  // in flight rather than to any of the eight stall reasons.
+  output logic         redirect_recovering
 );
   logic redirect_apply, redirect_apply_d1;
   logic [31:0] redirect_target_reg;
@@ -73,6 +77,7 @@ module fetchctrl (
       redirect_apply_d1  <= 1'b0;
       waiting            <= 1'b0;
       fetch_stall_d1     <= 1'b0;
+      redirect_recovering <= 1'b0;
       // Undriven on reset otherwise: a steal on the very first post-reset cycle would
       // retry into whatever this register powered up holding. cxxrtl zero-initializes
       // registers, which hid this from every simulation leg; only BMC's free step-0
@@ -85,6 +90,12 @@ module fetchctrl (
       redirect_target_reg <= redirect_target;
       waiting        <= fetch_stall ? 1'b1 : launch;
       fetch_stall_d1 <= fetch_stall;
+      // Cleared off buffer_empty, not q_valid: q_valid still reads true for one cycle
+      // after a redirect (the flush zeroing it lands on the NEXT edge), and clearing off
+      // it directly let that cycle's own genuine discard read as an ordinary empty buffer
+      // instead of the redirect recovery it is.
+      if (redirect) redirect_recovering <= 1'b1;
+      else if (!buffer_empty) redirect_recovering <= 1'b0;
       if (redirect_apply) begin
         fetch_pc  <= redirect_target_reg;
         stolen_pc <= redirect_target_reg;
