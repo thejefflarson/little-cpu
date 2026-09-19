@@ -32,7 +32,13 @@ module fetchctrl (
   logic [2:0] queue_count;
   // A steal is confirmed one cycle after it happens, by which cycle fetch_pc has already
   // advanced to a second, honestly-requested address -- that response is also discarded
-  // and re-requested once the retry lands, so the two never arrive out of order.
+  // and re-requested once the retry lands, so the two never arrive out of order. stolen_pc
+  // is only written when fetch_pc is about to move past a presentation that is not itself
+  // a retry (redirect_apply or room), never while fetch_stall is retrying: two steals in a
+  // row must keep retrying the FIRST address, not the second one the earlier bug drifted
+  // onto, silently dropping the first from the fetch stream. formal/imemcheck.sv's own
+  // free imem_arbiter, unconstrained by any real bus's transaction spacing, is what forced
+  // this rather than the shipping suite's own (always single-steal) traffic.
   logic [31:0] stolen_pc;
   logic        fetch_stall_d1;
 
@@ -79,10 +85,23 @@ module fetchctrl (
       redirect_target_reg <= redirect_target;
       waiting        <= fetch_stall ? 1'b1 : launch;
       fetch_stall_d1 <= fetch_stall;
-      stolen_pc      <= fetch_pc;
-      if (redirect_apply)  fetch_pc <= redirect_target_reg;
-      else if (fetch_stall) fetch_pc <= stolen_pc;
-      else if (room)         fetch_pc <= fetch_pc + 32'd8;
+      if (redirect_apply) begin
+        fetch_pc  <= redirect_target_reg;
+        stolen_pc <= redirect_target_reg;
+      end else if (fetch_stall) begin
+        fetch_pc <= stolen_pc;
+        // stolen_pc UNCHANGED: this is the one branch that must not overwrite it, or a
+        // second steal in a row retries the address the first one just drifted onto
+        // instead of the one still waiting.
+      end else begin
+        // Covers both a room-having advance (stolen_pc becomes the address fetch_pc is
+        // about to leave) and a no-room hold (fetch_pc does not move, so this is a
+        // same-value refresh) -- either way stolen_pc tracks whatever fetch_pc is
+        // CURRENTLY presenting, ready to be the retry target the moment a steal is
+        // confirmed against it.
+        stolen_pc <= fetch_pc;
+        if (room) fetch_pc <= fetch_pc + 32'd8;
+      end
     end
   end
 

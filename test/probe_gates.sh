@@ -3424,14 +3424,14 @@ probe "a reason dropped from one downstream site is red, and named" 1 \
 
 d=$(ss_fixture)
 mutate "$d/rtl/decoder.v" \
-  's/assign stall_own = hazard || operand_stall || divider_stall || fetch_stall ||/assign stall_own = hazard || operand_stall || divider_stall ||/'
+  's/assign stall_own = hazard || operand_stall || divider_stall || buffer_empty ||/assign stall_own = hazard || operand_stall || divider_stall ||/'
 probe "a reason dropped from the decoder's own composition is red, and named" 1 \
   "rtl/decoder.v's stall composition (stall_own/stall_other/stall) is missing reason 'fetch'" \
   "$SS $d"
 
 d=$(ss_fixture)
 mutate "$d/test/decoder_tb.v" \
-  's/dut.fetch_stall || dut.bus_wait || dut.region_stall)) begin/dut.fetch_stall || dut.bus_wait || dut.region_stall || dut.kill)) begin/'
+  's/dut.buffer_empty || dut.bus_wait || dut.region_stall)) begin/dut.buffer_empty || dut.bus_wait || dut.region_stall || dut.kill)) begin/'
 probe "a future kill wrongly ORed into the OR-identity is red, and named" 1 \
   "test/decoder_tb.v's OR-identity check names 'kill'" "$SS $d"
 
@@ -6644,8 +6644,8 @@ mcp_fixture() {  # $1 = formal|nano/formal  $2 = imemcheck|dmemcheck
     # The exact list memcheck-cover-probe.py's own LITTLECPU_RTL names, not every
     # rtl/*.v file: the stub never reads any of them, but build_case() still copies
     # each one out of $d, so the fixture has to stock exactly what it will ask for.
-    for f in structs.v fetcher.v regfile.v csrs.v decoder.v regsel.v executor.v \
-             accessor.v writeback.v littlecpu.v; do
+    for f in structs.v fetcher.v fetchctrl.v fetchqueue.v regfile.v csrs.v decoder.v \
+             regsel.v executor.v accessor.v writeback.v littlecpu.v; do
       cp "$REPO/rtl/$f" "$d/rtl/"
     done
     cp "$REPO/formal/arbiter.v" "$d/formal/"

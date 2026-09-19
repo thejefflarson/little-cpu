@@ -26,7 +26,7 @@ text-port-drops-load        bench imem_tb
 text-port-drops-load        asm   contend.S FAIL 2
 text-port-drops-load        asm   datainit.c FAIL 1
 text-port-drops-load        asm   selfmod.S FAIL 2
-text-port-drops-load        asm   spioverlay.S FAIL 2
+text-port-drops-load        asm   spioverlay.S TIMEOUT
 text-port-drops-load        asm   textload.S FAIL 3
 
 misa-drops-the-a-bit        bench csr_tb

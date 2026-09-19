@@ -114,8 +114,17 @@ adds no ratchet.
   only one of the five that neither writes text nor contains a fence.i.
   `spioverlay.S` joined by the same route `selfmod.S` did: its baseline step
   reads a patch template out of `.text` with `lw` before it ever touches the
-  flash, and that plain read is what the mutation breaks — `FAIL 2` is that
-  same first template, read wrong before anything is patched.
+  flash, and that plain read is what the mutation breaks. Under the
+  register-only fetch controller (`rtl/fetchctrl.v`) the wrong value it reads
+  is no longer the same-cycle fetch content decode was tightly coupled to —
+  it is whatever `rtl/fetchqueue.v` happens to be prefetching several words
+  ahead, timed independently of decode — and that value occasionally
+  satisfies a retry condition in the test rather than failing the comparison
+  outright, so the pairing's verdict is `TIMEOUT`, not `FAIL 2`: confirmed
+  stable at 5000 (the runner's own limit), 50,000 and 200,000 cycles, with
+  retires still climbing at all three rather than settling, so it is a real
+  livelock this mutation causes and not the runner's cycle limit landing on
+  a slower but still-terminating failure.
 - **`misa-drops-the-a-bit`** — `misa` gives bit 0 back, so the core executes
   the eleven atomics without claiming them. A self-description register has
   no other consequence — the eleven still decode, still retire and still

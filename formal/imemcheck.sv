@@ -66,12 +66,24 @@ module testbench (
     end
   end
 
+  // imem_data answers the address the fetch controller (rtl/fetchctrl.v) published as
+  // imem_addr_next the CYCLE BEFORE, not uut_imem_addr -- that is decode's own pc, which
+  // a queue now runs ahead of rather than tracks cycle for cycle. imem_data2 answers the
+  // word after it, the same dual-word pair rtl/imemory.v has always returned. A redirect
+  // target can land on any 2-byte (compressed) boundary, so fetch_pc, unlike the old
+  // design's word-truncated imem_addr, is not always word-aligned; rtl/imemory.v ignores
+  // its low two bits (`next_word = imem_addr_next[31:2]`), so this has to as well.
+  logic [31:0] past_imem_addr_next;
+  logic [31:0] past_imem_word;
+  always_ff @(posedge clk) past_imem_addr_next <= uut_imem_addr_next;
+  assign past_imem_word = {past_imem_addr_next[31:2], 2'b00};
+
   always_comb begin
     if (!reset && !fetch_stall) begin
-      if (uut_imem_addr      == shadow_addr) assume(uut_imem_data [15: 0] == shadow_data);
-      if (uut_imem_addr + 2  == shadow_addr) assume(uut_imem_data [31:16] == shadow_data);
-      if (uut_imem_addr2     == shadow_addr) assume(uut_imem_data2[15: 0] == shadow_data);
-      if (uut_imem_addr2 + 2 == shadow_addr) assume(uut_imem_data2[31:16] == shadow_data);
+      if (past_imem_word     == shadow_addr) assume(uut_imem_data [15: 0] == shadow_data);
+      if (past_imem_word + 2 == shadow_addr) assume(uut_imem_data [31:16] == shadow_data);
+      if (past_imem_word + 4 == shadow_addr) assume(uut_imem_data2[15: 0] == shadow_data);
+      if (past_imem_word + 6 == shadow_addr) assume(uut_imem_data2[31:16] == shadow_data);
     end
   end
 

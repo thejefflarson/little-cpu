@@ -91,6 +91,8 @@ import tempfile
 RTL = [
     "structs.v",
     "fetcher.v",
+    "fetchctrl.v",
+    "fetchqueue.v",
     "regfile.v",
     "csrs.v",
     "decoder.v",
