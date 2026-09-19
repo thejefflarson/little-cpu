@@ -251,3 +251,33 @@ consider if F or G grows again.
   four-way shard split's wall time, not just F+2G, before it lands — a rebalanced split (by
   measured cost, not sorted name) or a wider shard count is the more likely fix than a fifth
   measurement showing the same shape.
+
+## The BMC wall, amended 2026-09-19: real CI, not a laptop, and all four shards over
+
+Stage A1, A2 and A4 merged into one branch (the integration this amendment records), pushed to
+#383, and read from `gh run view` rather than a local `JOBS=4` estimate. F/G are unmoved at 8/8 —
+neither A2 nor A4 touches an instruction check's generation — so the same 86-check set, sharded
+four ways, hits real CI:
+
+| shard | started | ended | wall time | outcome |
+|---|---|---|---|---|
+| 1/4 | 09:54:38 | 10:14:57 | 20m19s | cancelled at the timeout, mid-BMC (`insn_mulhu_ch0` still stepping through its bound) |
+| 3/4 | 09:54:49 | 10:15:09 | 20m20s | cancelled at the timeout |
+| 4/4 | 10:01:09 | 10:21:29 | 20m20s | queued ~6 minutes for a runner before starting, then cancelled at the timeout |
+| 2/4 | 10:08:45 | 10:29:04 | 20m19s | queued ~14 minutes for a runner before starting, then cancelled at the timeout |
+
+**Every shard runs into the wall, not only the round-robin's heaviest member.** The prior
+local measurement (shards 1-3 at 65-70%, shard 4 at 121%) undercounted because a laptop and a
+contended CI pod are different instruments (CLAUDE.md's own rule): the little-cpu ARC scale set
+caps at 8 concurrent runner pods for the WHOLE workflow run, not per job type, and one PR run here
+launches on the order of thirty jobs (mutation-check's four shards, the nano formal shards, six
+component proofs, `test`, `cosim`, `fit`, `soc-timing`, `ecp5-timing`, `formal-extra`, and more)
+competing for those eight pods at once — which is why shards 4 and 2 above did not even start
+until 6 and 14 minutes in. Once a shard IS running it still burns its own full ~20 minutes of real
+BMC work; the queue delay extends the PR's total wall time on top of that, but is not itself why a
+shard times out.
+
+**Fix: `formal-checks-shard` widens from four shards to eight** (`CHECK_SHARD=<i>/8`, same
+`JOBS=4` per shard) — half the checks per shard, which the measurement above supports as sufficient
+headroom without touching F, G, or any check's generated depth. `formal-checks-nano-shard` is
+unaffected (it already clears the wall at four). Re-confirm on #383's next CI run.
