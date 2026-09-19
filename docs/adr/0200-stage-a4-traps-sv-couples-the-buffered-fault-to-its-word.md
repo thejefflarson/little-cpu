@@ -1,4 +1,4 @@
-# 0198 — Stage A4: `formal/traps.sv` couples the buffered fault to its word, and the
+# 0200 — Stage A4: `formal/traps.sv` couples the buffered fault to its word, and the
 decoder bench needed no further retiming
 
 Status: Accepted. 2026-09-18.

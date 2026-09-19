@@ -1,4 +1,4 @@
-# 0198 — Stage A2: `kill` is a real, proved signal, charged to its own column
+# 0199 — Stage A2: `kill` is a real, proved signal, charged to its own column
 
 Status: Accepted. 2026-09-18.
 

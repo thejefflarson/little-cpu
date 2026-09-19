@@ -62,7 +62,7 @@ references still resolve.
   reads register values and resolves branches same-cycle, and a stalled cycle still re-presents
   the same word. No predictor exists yet — every redirect still pays a full queue refill, and the
   next two stages spend that cost. **`kill` names the discard for accounting, but changes no
-  control signal** (ADR-0198): `rtl/decoder.v`'s `kill` output attributes the cycles this flush
+  control signal** (ADR-0199): `rtl/decoder.v`'s `kill` output attributes the cycles this flush
   already paid to their own column instead of the generic `buffer_empty` stall reason, so the
   redirect's cost is visible rather than miscounted as a resource wait; the discard mechanism
   itself is the two-cycle `flush` window this ADR already describes, unchanged. Enforced by
@@ -172,7 +172,7 @@ references still resolve.
   still exists as a wire, feeding the controller and `rtl/decoder.v`'s `ls_answer_valid` latch (a
   text-range load or store's own eventual bus transaction, unrelated to the queue), but it left
   `stall`'s OR, the publish arm and the read-register-pair mux; `buffer_empty` joined all three in
-  its place. **`kill` is a non-stall bubble, not a ninth reason** (ADR-0198): the redirect-caused
+  its place. **`kill` is a non-stall bubble, not a ninth reason** (ADR-0199): the redirect-caused
   share of an empty buffer — the two-cycle discard `rtl/fetchctrl.v` already computed plus however
   many cycles the queue then takes to hold a fresh pair — is `rtl/decoder.v`'s `kill` output,
   `buffer_empty && redirect_recovering`. It stays out of `stall`'s OR by construction — `kill`
