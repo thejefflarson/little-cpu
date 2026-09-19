@@ -125,9 +125,16 @@ adds back, and by more than it saves in area even though not in cell count, is a
 inference, clearly labelled as such, not a further measurement.** ADR-0184's own
 finding was that the register file's two read ports were the dominant source of
 routing congestion: "52% of net crossings in overflowing routing cells were
-register-file nets." **That attribution does not survive this measurement.** Cutting
-the read ports in half took overflow from 59 to 1,414 and wirelength up 15.5%, the
-opposite of what removing the dominant congestion source should do. The plausible
+register-file nets." **That finding was association, not mechanism, and this
+measurement is what exposes the gap.** A net count says where the congestion sat and
+which structure's wires ran through it; it does not say that structure caused the
+congestion, only that it was there. Reading it as causal — cut the read ports, cut the
+congestion — was the inference step, and this measurement breaks it: halving the read
+ports removed half the read fan-out and made routing worse in every column that
+matters (demand 66.49% → 75.86%, overflow 59 → 1,414, wirelength +15.5%). An ablation
+locates where a cost appears; it does not by itself establish which structure creates
+it, and a lever aimed at the located nets can make the real problem worse rather than
+better. The plausible
 mechanism, offered as inference only: `op_rs1`/`op_rs2` are read at roughly twenty
 sites scattered across the ALU, load/store address, branch comparator, and multiply/
 divide operand paths — the same set of consumers the old `regs[rs1[3:0]]`/
