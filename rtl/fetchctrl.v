@@ -154,7 +154,7 @@ module fetchctrl (
       else if (!buffer_empty) redirect_recovering <= 1'b0;
       if (redirect_apply) predicted_active <= 1'b0;
       else if (predict_resolved) predicted_active <= 1'b0;
-      else if (predict_trusted) begin
+      else if (predict_commit) begin
         predicted_active <= 1'b1;
         predicted_src_pc <= predict_src;
         predicted_target <= predict_tgt;
