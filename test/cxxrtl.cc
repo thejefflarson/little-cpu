@@ -266,6 +266,7 @@ int main(int argc, char **argv) {
   std::vector<std::pair<const cxxrtl::debug_item *, int>> stall_probes;
   const cxxrtl::debug_item *stall_any = nullptr;
   const cxxrtl::debug_item *kill_item = nullptr;
+  const cxxrtl::debug_item *mispredict_item = nullptr;
   const cxxrtl::debug_item *hazard_rs1_item = nullptr;
   const cxxrtl::debug_item *hazard_rs2_item = nullptr;
   const cxxrtl::debug_item *out_match_rs1 = nullptr;
@@ -281,6 +282,7 @@ int main(int argc, char **argv) {
     try {
       stall_any = &all_debug_items.at("uut decoder stall").at(0);
       kill_item = &all_debug_items.at("uut decoder kill").at(0);
+      mispredict_item = &all_debug_items.at("uut decoder mispredict").at(0);
       for (const StallReason &reason : kStallReasons)
         stall_probes.emplace_back(&all_debug_items.at(reason.item).at(0),
                                   reason.bucket);
@@ -318,6 +320,7 @@ int main(int argc, char **argv) {
   uint64_t counted_cycles = 0;
   uint64_t issue_cycles = 0;
   uint64_t kill_cycles = 0;
+  uint64_t mispredict_cycles = 0;
   uint64_t unattributed_cycles = 0;
   uint64_t stall_cycles[kStallBuckets] = {};
   uint64_t hazard_a = 0, hazard_b = 0, hazard_c = 0, hazard_c_csr = 0;
@@ -329,10 +332,11 @@ int main(int argc, char **argv) {
                  spec_retires->curr[0]);
     if (!args.stalls)
       return;
-    std::printf("STALLS cycles=%llu issue=%llu kill=%llu",
+    std::printf("STALLS cycles=%llu issue=%llu kill=%llu mispredict=%llu",
                  (unsigned long long)counted_cycles,
                  (unsigned long long)issue_cycles,
-                 (unsigned long long)kill_cycles);
+                 (unsigned long long)kill_cycles,
+                 (unsigned long long)mispredict_cycles);
     for (int b = 0; b < kStallBuckets; ++b)
       std::printf(" %s=%llu", kStallLabels[b],
                    (unsigned long long)stall_cycles[b]);
@@ -385,6 +389,7 @@ int main(int argc, char **argv) {
     if (args.stalls) {
       top.debug_eval();
       counted_cycles++;
+      if ((mispredict_item->curr[0] & 1) != 0) mispredict_cycles++;
       if ((kill_item->curr[0] & 1) != 0) {
         kill_cycles++;
       } else if ((stall_any->curr[0] & 1) == 0) {

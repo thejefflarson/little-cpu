@@ -27,6 +27,10 @@ module traps #(
     // Free for the same reason: this harness has no fetchctrl to say whether an empty
     // buffer is a discard in flight.
     input logic redirect_recovering,
+    // Free, like the other two: this harness has no fetchctrl to form a guess either.
+    input logic         predicted_active,
+    input logic [31:0]  predicted_src_pc,
+    input logic [31:0]  predicted_target,
     // Free, like the other two: a hart waiting for the shared bus issues nothing, so no
     // trap is committed on that cycle either.
     input logic bus_wait,
@@ -44,6 +48,9 @@ module traps #(
   // connected to an undeclared identifier is an implicit net, which `default_nettype
   // none` makes an error in iverilog and a warning in yosys.
   logic        kill;
+  // Unread here too, and declared for the same reason as `kill`.
+  logic        predict_resolved;
+  logic        mispredict;
   // The address the decoder publishes for a platform to decode.
   logic [31:0] atomic_addr;
   fetcher_output fetcher_out;
@@ -92,6 +99,11 @@ module traps #(
     .divider_stall(divider_stall),
     .buffer_empty(buffer_empty),
     .redirect_recovering(redirect_recovering),
+    .predicted_active(predicted_active),
+    .predicted_src_pc(predicted_src_pc),
+    .predicted_target(predicted_target),
+    .predict_resolved(predict_resolved),
+    .mispredict(mispredict),
     .kill(kill),
     .bus_wait(bus_wait),
     .bus_request(bus_request),

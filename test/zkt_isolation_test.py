@@ -154,6 +154,7 @@ NON_VALUE_PORTS = {
     # mtvec, mepc: trap CSRs, read only on the trap and mret arms of next_pc, neither of
     # which is on Zkt's list either.
     'mtvec', 'mepc',
+    'predicted_src_pc', 'predicted_target',
 }
 
 # Struct-typed decoder INPUT ports: the typedef name (declared in rtl/structs.v, used to

@@ -136,6 +136,11 @@ module littlecpu #(
   // Unread past decode: this is a cycle-accounting output test/cxxrtl.cc reads as a debug
   // item, not a control signal anything downstream consumes.
   logic         decoder_kill;
+  logic         decoder_mispredict;
+  logic         predicted_active;
+  logic  [31:0] predicted_src_pc;
+  logic  [31:0] predicted_target;
+  logic         predict_resolved;
   fetcher_output fetcher_out;
   fetcher fetcher(
     .clk(clk),
@@ -170,7 +175,11 @@ module littlecpu #(
     .q1(queue_q1),
     .q1_fault(queue_q1_fault),
     .buffer_empty(buffer_empty),
-    .redirect_recovering(redirect_recovering)
+    .redirect_recovering(redirect_recovering),
+    .predicted_active(predicted_active),
+    .predicted_src_pc(predicted_src_pc),
+    .predicted_target(predicted_target),
+    .predict_resolved(predict_resolved)
   );
 
   logic [31:0] reg_rs1, reg_rs2, wdata;
@@ -224,6 +233,11 @@ module littlecpu #(
     .divider_stall(divider_stalled),
     .buffer_empty(buffer_empty),
     .redirect_recovering(redirect_recovering),
+    .predicted_active(predicted_active),
+    .predicted_src_pc(predicted_src_pc),
+    .predicted_target(predicted_target),
+    .predict_resolved(predict_resolved),
+    .mispredict(decoder_mispredict),
     .kill(decoder_kill),
     .bus_wait(bus_wait),
     .bus_request(bus_request),

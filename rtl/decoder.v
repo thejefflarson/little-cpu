@@ -26,6 +26,19 @@ module decoder #(
   // buffer_empty below rather than trusted alone, so `kill` cannot assert on a cycle this
   // decoder itself would call issuing, in any harness that drives this free.
   input  logic redirect_recovering,
+  // Fetch's own static BTFN/jal guess: whether one is outstanding, the address of the
+  // instruction it is about, and the target it queued for it. Compared against this
+  // cycle's own resolution, never trusted, so a wrong guess is caught the same way an
+  // unpredicted taken branch always was.
+  input  logic         predicted_active,
+  input  logic [31:0]  predicted_src_pc,
+  input  logic [31:0]  predicted_target,
+  // The outstanding guess's own instruction, if any, just issued -- fetchctrl retires it
+  // whether it matched or not.
+  output logic         predict_resolved,
+  // A mispredict, named separately from `redirect` for accounting only: `redirect` also
+  // fires for fence.i's queue flush, which is not a guess gone wrong.
+  output logic         mispredict,
   input  logic bus_wait,
   // Decode's request for the data bus, a cycle before the transaction. The platform ANDs
   // it against its own grant; a grant term here would close the loop through the arbiter.
@@ -667,11 +680,27 @@ module decoder #(
   logic issuing;
   assign issuing = !reset && !stall;
 
+  // This issuing instruction is the one fetch's outstanding guess was about.
+  logic predicted_this;
+  assign predicted_this = predicted_active && (fetcher_pc == predicted_src_pc);
+  // What fetch already has queued as the next word address: the guessed target if this
+  // is the guess's own instruction, else the ordinary straight-line advance -- the same
+  // default `next_pc` already uses when nothing redirects.
+  logic [31:0] expected_fetch;
+  assign expected_fetch = predicted_this ? predicted_target : (fetcher_pc + pc_inc);
+
+  assign predict_resolved = issuing && predicted_this;
+  // "Mispredict" is this comparison and nothing else (ADR-0188's recorded bug was
+  // defining it as "next_pc took a non-default arm", which discards a correctly-guessed
+  // backward branch's already-fetched word along with a wrongly-guessed one).
+  assign mispredict = issuing && predicted_this && (next_pc != predicted_target);
+
   // fence.i does not redirect architecturally -- next_pc's default arm already names the
   // following address -- but text is writable and the queue prefetches ahead of decode,
-  // so a store retired just before it can leave stale words already buffered.
-  assign redirect = issuing &&
-    (trap_taken || instr_mret || instr_jalr || instr_jal || branch_taken || instr_fencei);
+  // so a store retired just before it can leave stale words already buffered. It is ORed
+  // in separately from the guess comparison: a fence.i's own next_pc always equals
+  // expected_fetch (nothing predicts it), so without this arm it would never flush.
+  assign redirect = issuing && ((next_pc != expected_fetch) || instr_fencei);
 
   logic committing;
   assign committing = issuing && !trap_taken;

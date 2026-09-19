@@ -49,7 +49,12 @@ module pcloop (
   logic        buffer_empty;
   logic        redirect_recovering;
   logic        kill;
+  logic        mispredict;
   logic        fetcher_pop;
+  logic        predicted_active;
+  logic [31:0] predicted_src_pc;
+  logic [31:0] predicted_target;
+  logic        predict_resolved;
 
   fetcher fetcher (
     .clk(clk),
@@ -78,7 +83,11 @@ module pcloop (
     .q1(queue_q1),
     .q1_fault(queue_q1_fault),
     .buffer_empty(buffer_empty),
-    .redirect_recovering(redirect_recovering)
+    .redirect_recovering(redirect_recovering),
+    .predicted_active(predicted_active),
+    .predicted_src_pc(predicted_src_pc),
+    .predicted_target(predicted_target),
+    .predict_resolved(predict_resolved)
   );
 
   decoder decoder (
@@ -91,6 +100,11 @@ module pcloop (
     .divider_stall(divider_stall),
     .buffer_empty(buffer_empty),
     .redirect_recovering(redirect_recovering),
+    .predicted_active(predicted_active),
+    .predicted_src_pc(predicted_src_pc),
+    .predicted_target(predicted_target),
+    .predict_resolved(predict_resolved),
+    .mispredict(mispredict),
     .kill(kill),
     .bus_wait(bus_wait),
     .bus_request(bus_request),
@@ -244,13 +258,14 @@ module pcloop (
     if (clocked && !prev_reset && prev_mret_entry) assert(pc == prev_mepc);
 
   // Property 1: fetch_pc is a register updated from registers only, and every cycle it
-  // either advances by one word pair, holds (no room, or retrying a stolen ROM read), or
-  // lands on a registered redirect target two cycles after decode computed it (one cycle
-  // to capture the verdict, one more to apply it) -- never on the word arriving this
-  // cycle.
+  // either advances by one word pair, holds (no room, or retrying a stolen ROM read),
+  // takes a guessed target one cycle after fetchctrl forms it, or lands on a registered
+  // redirect target two cycles after decode computed it -- never on the word arriving
+  // this cycle.
   logic [31:0] past_fetch_pc, past2_fetch_pc;
   logic [31:0] past_next_pc_r, past2_next_pc_r;
   logic        past_redirect_r, past2_redirect_r;
+  logic        past_predicted_active;
   always_ff @(posedge clk) begin
     past_fetch_pc    <= fetch_pc;
     past2_fetch_pc   <= past_fetch_pc;
@@ -258,13 +273,17 @@ module pcloop (
     past2_next_pc_r  <= past_next_pc_r;
     past_redirect_r  <= redirect;
     past2_redirect_r <= past_redirect_r;
+    past_predicted_active <= predicted_active;
   end
 
-  logic f_fetch_pc_advanced, f_fetch_pc_held, f_fetch_pc_retried, f_fetch_pc_redirected;
+  logic f_fetch_pc_advanced, f_fetch_pc_held, f_fetch_pc_retried, f_fetch_pc_redirected,
+        f_fetch_pc_guessed;
   assign f_fetch_pc_advanced   = fetch_pc == past_fetch_pc + 32'd8;
   assign f_fetch_pc_held       = fetch_pc == past_fetch_pc;
   assign f_fetch_pc_retried    = fetch_pc == past2_fetch_pc;
   assign f_fetch_pc_redirected = past2_redirect_r && fetch_pc == past2_next_pc_r;
+  assign f_fetch_pc_guessed    = predicted_active && !past_predicted_active &&
+                                  fetch_pc == predicted_target;
 
   logic f_fetch_pc_prev2_ok;
   always_ff @(posedge clk) if (reset) f_fetch_pc_prev2_ok <= 1'b0;
@@ -272,7 +291,7 @@ module pcloop (
 
   always_comb if (clocked && !reset && f_fetch_pc_prev2_ok)
     assert(f_fetch_pc_advanced || f_fetch_pc_held || f_fetch_pc_retried ||
-           f_fetch_pc_redirected);
+           f_fetch_pc_redirected || f_fetch_pc_guessed);
 
   // Property 2: the buffer's word and pc stay consistent -- popping the queue's head
   // never happens except on the one cycle decode's own pc actually leaves the word that
