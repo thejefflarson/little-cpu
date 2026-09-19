@@ -120,13 +120,17 @@ nonperturbation: check-nonperturbation.py
 
 .PHONY: components_decoder components_executor components_accessor components_pcloop components_traps \
         components_busarbiter
-components_decoder: components.sby decoder-zkt-probe ../rtl/decoder.v ../rtl/regsel.v \
-                     ../rtl/structs.v
+components_decoder: components.sby decoder-zkt-probe decoder-kill-probe ../rtl/decoder.v \
+                     ../rtl/regsel.v ../rtl/structs.v
 	rm -rf $@
 	sby -f $< decoder
 
 .PHONY: decoder-zkt-probe
 decoder-zkt-probe: decoder-zkt-probe.py ../rtl/decoder.v components.sby
+	python3 $<
+
+.PHONY: decoder-kill-probe
+decoder-kill-probe: decoder-kill-probe.py ../rtl/decoder.v components.sby
 	python3 $<
 components_executor: components.sby executor-zkt-probe check-solver-bitwuzla ../rtl/executor.v \
                       ../rtl/structs.v
@@ -171,7 +175,7 @@ clean:
 	rm -rf checks complete complete_cover cover dmemcheck imemcheck components components_*
 	rm -rf dmemcheck_cover imemcheck_cover memcheck-cover-probe
 	rm -rf pcloop_cover busarbiter_cover fg-probe fg-probe.cfg
-	rm -rf region-probe tval-probe busarbiter-probe executor-zkt-probe
+	rm -rf region-probe tval-probe busarbiter-probe executor-zkt-probe decoder-kill-probe
 	rm -rf $(RISCV_FORMAL_DIR) $(RISCV_FORMAL_DIR).tmp
 
 .PHONY: all clean

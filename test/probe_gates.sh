@@ -190,7 +190,7 @@ stalls=
 for a in "$@"; do [ "$a" = "--stalls" ] && stalls=1; done
 if [ -n "$stalls" ] && [ -z "${STUB_SIM_NOSTALLS:-}" ]; then
   unattr=${STUB_SIM_UNATTR:-0}
-  echo "STALLS cycles=$((20 + unattr + ${STUB_SIM_SKEW:-0})) issue=10 divider=0" \
+  echo "STALLS cycles=$((20 + unattr + ${STUB_SIM_SKEW:-0})) issue=10 kill=0 divider=0" \
        "atomic=0 hazard=10 serialize=0 operand=0 fetch=0 bus=0 region=0" \
        "hzA=4 hzB=3 hzC=3 hzCcsr=0" \
        "unattributed=$unattr lsissue=4 lsedge=2 lsbypass=1"
@@ -1964,7 +1964,7 @@ with open(os.path.join(cfgname, name), "w") as f:
 PY
 
 probe "a generated .sby whose depth drifted from what the core's sweep asked for is refused, not read anyway" 1 \
-  "not the 3 this row swept" \
+  "not the 5 this row swept" \
   "$RFG_MAIN && python3 remeasure-fg.py --genchecks '$tmp/fake-genchecks-main.py'; rc=\$?; rm -rf '$REPO/formal/fg-probe' '$REPO/formal/fg-probe.cfg'; exit \$rc"
 
 cat > "$tmp/fake-genchecks-main-reset.py" <<'PY'
@@ -2008,14 +2008,15 @@ mutate "$d/remeasure-fg.py" 's/^BELOW, ABOVE = 3, 3$/BELOW, ABOVE = 2, 1/'
 mkdir -p "$tmp/bin-sby-narrow"
 cat > "$tmp/bin-sby-narrow/sby" <<'STUB'
 #!/bin/sh
-# Stands in for sby: FAILs until the swept RISCV_FORMAL_CHECK_CYCLE reaches 8, standing in
-# for a flip point that moved three cycles past what remeasure-fg.py declares.
+# Stands in for sby: FAILs until the swept RISCV_FORMAL_CHECK_CYCLE reaches 10, one past
+# the narrowed F window's own upper bound (declared F=8, ABOVE=1 => 9), standing in for a
+# flip point the narrowed window cannot bracket.
 sby_file=$2
 out=$(dirname "$sby_file")
 check=$(basename "$sby_file" .sby)
 mkdir -p "$out/$check"
 cycle=$(grep -o 'RISCV_FORMAL_CHECK_CYCLE [0-9]*' "$sby_file" | head -1 | awk '{print $2}')
-if [ "$cycle" -ge 8 ]; then
+if [ "$cycle" -ge 10 ]; then
   echo "PASS 2 0" > "$out/$check/status"
 else
   echo "FAIL 2 0" > "$out/$check/status"
@@ -3317,8 +3318,9 @@ sr_fixture() {
   fixture_anchor "$REPO/test/stall_report.py" \
     'REASONS = ["divider", "atomic", "hazard", "serialize", "operand", "fetch", "bus",'
   fixture_anchor "$REPO/test/stall_report.py" '"region"]'
+  fixture_anchor "$REPO/test/stall_report.py" 'KILL = "kill"'
   fixture_anchor "$REPO/test/stall_report.py" \
-    'REQUIRED = (["cycles", "issue", "retires", "unattributed"] + REASONS +'
+    'REQUIRED = (["cycles", "issue", KILL, "retires", "unattributed"] + REASONS +'
   fixture_anchor "$REPO/test/stall_report.py" 'HAZARD_SPLIT = ["hzA", "hzB", "hzC"]'
   fixture_anchor "$REPO/test/stall_report.py" 'HAZARD_CSR = "hzCcsr"'
   fixture_anchor "$REPO/test/stall_report.py" 'LS_ISSUES = "lsissue"'
@@ -3327,8 +3329,8 @@ sr_fixture() {
   fixture_anchor "$REPO/test/stall_report.py" \
     '"lsbypass": "issuing on a write-through to rs1",'
   cat > "$d/counts" <<'COUNTS'
-add.S cycles=40 issue=10 divider=0 atomic=0 hazard=20 serialize=0 operand=10 fetch=0 bus=0 region=0 hzA=10 hzB=5 hzC=5 hzCcsr=0 unattributed=0 lsissue=4 lsedge=1 lsbypass=0 retires=10
-lw.S cycles=40 issue=10 divider=0 atomic=0 hazard=5 serialize=0 operand=25 fetch=0 bus=0 region=0 hzA=2 hzB=1 hzC=2 hzCcsr=0 unattributed=0 lsissue=6 lsedge=3 lsbypass=2 retires=10
+add.S cycles=40 issue=10 kill=0 divider=0 atomic=0 hazard=20 serialize=0 operand=10 fetch=0 bus=0 region=0 hzA=10 hzB=5 hzC=5 hzCcsr=0 unattributed=0 lsissue=4 lsedge=1 lsbypass=0 retires=10
+lw.S cycles=40 issue=10 kill=0 divider=0 atomic=0 hazard=5 serialize=0 operand=25 fetch=0 bus=0 region=0 hzA=2 hzB=1 hzC=2 hzCcsr=0 unattributed=0 lsissue=6 lsedge=3 lsbypass=2 retires=10
 COUNTS
   printf '%s' "$d"
 }
@@ -3338,7 +3340,7 @@ probe "control: an accounting that adds up prints the table" 0 \
   "cycle accounting" "$SR $d/counts"
 
 probe "the dominant reason is the suite's, not the first program's" 0 \
-  "The largest single reason is operand" "$SR $d/counts"
+  "The largest single STALL reason is operand" "$SR $d/counts"
 
 d=$(sr_fixture); mutate "$d/counts" 's/^add.S cycles=40/add.S cycles=41/'
 probe "columns that do not add up blame the report, not the core" 1 \
@@ -5408,6 +5410,89 @@ d=$(dz_fixture); mutate "$d/formal/components.sby" 's/^decoder:$/decoderx:/'
 probe "a renamed task stops rather than probing some other design" 2 \
   "block under [script]" "$(dzs "$d")"
 
+begin_group "formal/decoder-kill-probe.py"
+
+DK="python3 $REPO/formal/decoder-kill-probe.py"
+
+cat > "$tmp/sby-dk-stub" <<'STUB'
+#!/bin/sh
+# Stands in for sby. There is one case, so the assertion line is read out of
+# the copy of decoder.v this run was handed and PASS/FAIL/the reporting leg
+# come from the environment, the same shape sby-dz-stub uses.
+mkdir -p probe
+line=$(grep -n 'assert(!kill || !issuing);' src/decoder.v | cut -d: -f1)
+status=${STUB_SBY_KILL:-FAIL}; line=${STUB_SBY_KILL_LINE:-$line}
+leg=${STUB_SBY_KILL_LEG:-engine_0.basecase}
+: > probe/logfile.txt
+if [ "$status" = FAIL ]; then
+  echo "SBY [probe] $leg: ##   0:00:00  Assert failed in decoder: decoder.v:$line.5-$line.36" \
+    > probe/logfile.txt
+fi
+[ -n "${STUB_SBY_NO_STATUS:-}" ] && exit 1
+if [ -n "${STUB_SBY_EMPTY_STATUS:-}" ]; then : > probe/status; exit 1; fi
+echo "$status 2 0" > probe/status
+STUB
+chmod +x "$tmp/sby-dk-stub"
+
+dk_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/rtl" "$d/formal"
+  cp "$REPO"/rtl/structs.v "$REPO"/rtl/decoder.v "$REPO"/rtl/regsel.v "$d/rtl/"
+  cp "$REPO"/formal/components.sby "$d/formal/"
+  printf '%s' "$d"
+}
+
+dks() { printf "%s --repo %s --workdir %s/work --sby %s" "$DK" "$1" "$1" "$tmp/sby-dk-stub"; }
+
+d=$(dk_fixture)
+probe "control: kill's assertion fails at its own line" 0 \
+  "kill's assertion fails for its own reason" "$(dks "$d")"
+
+d=$(dk_fixture)
+probe "kill-not-gated-by-buffer-empty proving is red" 1 \
+  "the mutated core proves" "STUB_SBY_KILL=PASS $(dks "$d")"
+
+d=$(dk_fixture)
+probe "the proof going red somewhere else is not evidence" 1 \
+  "which does not include line" "STUB_SBY_KILL_LINE=9 $(dks "$d")"
+
+d=$(dk_fixture)
+probe "a failure reported only by the induction leg is not evidence" 1 \
+  "which does not include line" "STUB_SBY_KILL_LEG=engine_0.induction $(dks "$d")"
+
+d=$(dk_fixture)
+probe "a solver that wrote no verdict is exit 2, not a red arm" 2 \
+  "wrote no status for the" "STUB_SBY_NO_STATUS=1 $(dks "$d")"
+
+d=$(dk_fixture)
+probe "an empty status file is refused rather than read as a verdict" 2 \
+  "status file for the mutated core is empty" \
+  "STUB_SBY_EMPTY_STATUS=1 $(dks "$d")"
+
+d=$(dk_fixture)
+mutate "$d/rtl/decoder.v" \
+  's/assert(!kill || !issuing);/assert(!kill \&\& !issuing);/'
+probe "a respelled assertion stops rather than pinning nothing" 2 \
+  "states \`assert(!kill || !issuing);\` 0 times" "$(dks "$d")"
+
+d=$(dk_fixture)
+mutate "$d/rtl/decoder.v" \
+  's/assign kill = buffer_empty && redirect_recovering;/assign kill = buffer_empty \&\& redirect_recovering ;/'
+probe "a respelled kill site stops rather than building the shipping core twice" 2 \
+  "no longer spells what the kill mutation replaces" "$(dks "$d")"
+
+d=$(dk_fixture); rm "$d/rtl/decoder.v"
+probe "the RTL moving away takes the probe with it, loudly" 2 \
+  "rtl/decoder.v is missing from" "$(dks "$d")"
+
+d=$(dk_fixture); rm "$d/formal/components.sby"
+probe "no components.sby is exit 2, not a probe against an invented script" 2 \
+  "formal/components.sby is missing" "$(dks "$d")"
+
+d=$(dk_fixture); mutate "$d/formal/components.sby" 's/^decoder:$/decoderx:/'
+probe "a renamed task stops rather than probing some other design" 2 \
+  "block under [script]" "$(dks "$d")"
+
 begin_group "formal/executor-zkt-probe.py"
 
 EZ="python3 $REPO/formal/executor-zkt-probe.py"
@@ -6396,70 +6481,70 @@ MCD="python3 $REPO/formal/check-memcheck-depth.py"
 mcd_fixture() {  # $1 = depth  $2 = cover depth, defaults to $1
   local d; d=$(new_case)
   fixture_anchor "$REPO/formal/checks.cfg" \
-    '#derive F 6  worst-case first retire, swept out of `hang`'
+    '#derive F 8  worst-case first retire, swept out of `hang`'
   fixture_anchor "$REPO/formal/checks.cfg" \
-    '#derive G 6  worst-case gap between two retires, swept out of `liveness`'
+    '#derive G 8  worst-case gap between two retires, swept out of `liveness`'
   cat > "$d/checks.cfg" <<CFG
 [depth]
-#derive F 6  worst-case first retire, swept out of \`hang\`
-#derive G 6  worst-case gap between two retires, swept out of \`liveness\`
+#derive F 8  worst-case first retire, swept out of \`hang\`
+#derive G 8  worst-case gap between two retires, swept out of \`liveness\`
 CFG
   printf '[options]\ndepth %s\n' "$1" > "$d/dmemcheck.sby"
   printf '[options]\ndepth %s\n' "${2:-$1}" > "$d/dmemcheck_cover.sby"
   printf '%s' "$d"
 }
 
-d=$(mcd_fixture 14)
+d=$(mcd_fixture 18)
 probe "control: a depth exactly at the floor passes" 0 \
-  "depth 14 >= F+G+2 = 14 (F=6, G=6)" "$MCD $d dmemcheck.sby 2"
+  "depth 18 >= F+G+2 = 18 (F=8, G=8)" "$MCD $d dmemcheck.sby 2"
 
-d=$(mcd_fixture 13)
+d=$(mcd_fixture 17)
 probe "a depth one below the floor is red, naming F and G" 1 \
-  "depth 13 is below F+G+2 = 14 (F=6, G=6)" "$MCD $d dmemcheck.sby 2"
+  "depth 17 is below F+G+2 = 18 (F=8, G=8)" "$MCD $d dmemcheck.sby 2"
 
-d=$(mcd_fixture 8)
+d=$(mcd_fixture 10)
 probe "control: a one-retire floor is F+2, not F+G+2" 0 \
-  "depth 8 >= F+2 = 8 (F=6, G=6)" "$MCD $d dmemcheck.sby 1"
+  "depth 10 >= F+2 = 10 (F=8, G=8)" "$MCD $d dmemcheck.sby 1"
 
 d=$(new_case)
 probe "a harness directory with no checks.cfg is named, not measured as empty" 1 \
   "does not exist" "$MCD $d dmemcheck.sby 2"
 
-d=$(mcd_fixture 14)
+d=$(mcd_fixture 18)
 probe "a named .sby that does not exist is refused" 1 \
   "does not exist" "$MCD $d missing.sby 2"
 
-d=$(mcd_fixture 14); printf '[options]\nmode bmc\n' > "$d/dmemcheck.sby"
+d=$(mcd_fixture 18); printf '[options]\nmode bmc\n' > "$d/dmemcheck.sby"
 probe "a missing depth line in the .sby stops rather than comparing nothing" 1 \
   "declares no \`depth NNN\` line" "$MCD $d dmemcheck.sby 2"
 
-d=$(mcd_fixture 14)
+d=$(mcd_fixture 18)
 probe "a <retires> argument that is not 1 or 2 is refused" 2 \
   "<retires> must be 1 or 2" "$MCD $d dmemcheck.sby 3"
 
 probe "wrong argument count is exit 2" 2 "usage:" "$MCD onearg"
 
-d=$(mcd_fixture 14 15)
+d=$(mcd_fixture 18 19)
 probe "a cover .sby deeper than its bmc sibling is red, not a deeper proof" 1 \
-  "depth 15 does not match" "$MCD $d dmemcheck.sby 2"
+  "depth 19 does not match" "$MCD $d dmemcheck.sby 2"
 
-d=$(mcd_fixture 14); rm "$d/dmemcheck_cover.sby"
+d=$(mcd_fixture 18); rm "$d/dmemcheck_cover.sby"
 probe "a memcheck with no cover sibling has an untied depth, and is red" 1 \
   "does not exist, so its anti-vacuity depth is untied" "$MCD $d dmemcheck.sby 2"
 
-d=$(mcd_fixture 14); printf '[options]\nmode cover\n' > "$d/dmemcheck_cover.sby"
+d=$(mcd_fixture 18); printf '[options]\nmode cover\n' > "$d/dmemcheck_cover.sby"
 probe "a cover .sby with no depth line is untied the same way its bmc sibling is" 1 \
   "declares no \`depth NNN\` line" "$MCD $d dmemcheck.sby 2"
 
-d=$(mcd_fixture 14); printf '[options]\ndepth 14\ndepth 8\n' > "$d/dmemcheck.sby"
+d=$(mcd_fixture 18); printf '[options]\ndepth 14\ndepth 8\n' > "$d/dmemcheck.sby"
 probe "a .sby stating depth twice is refused, since sby searches to the last" 1 \
   "states \`depth\` 2 times in [options] (14, 8)" "$MCD $d dmemcheck.sby 2"
 
-d=$(mcd_fixture 14); printf '[options]\nmode bmc\n\n[script]\ndepth 24\n' > "$d/dmemcheck.sby"
+d=$(mcd_fixture 18); printf '[options]\nmode bmc\n\n[script]\ndepth 24\n' > "$d/dmemcheck.sby"
 probe "a depth line outside [options] is not the depth sby searches" 1 \
   "declares no \`depth NNN\` line" "$MCD $d dmemcheck.sby 2"
 
-d=$(mcd_fixture 14); mutate "$d/checks.cfg" '/^#derive G/d'
+d=$(mcd_fixture 18); mutate "$d/checks.cfg" '/^#derive G/d'
 probe "a checks.cfg with no #derive G is refused by name, not a traceback" 1 \
   "no \`#derive\` line for G" "$MCD $d dmemcheck.sby 2"
 
@@ -7239,7 +7324,7 @@ mcov_fixture() {
 
 d=$(mcov_fixture)
 probe "control: the shipping manifest rules on every rtl/*.v file" 0 \
-  "20 rtl/*.v files, each ruled on" "$MCOV $d"
+  "21 rtl/*.v files, each ruled on" "$MCOV $d"
 
 probe "a repo root that does not exist is red before anything is parsed" 1 \
   "is not a directory" "$MCOV $d/nowhere"

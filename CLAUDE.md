@@ -60,12 +60,20 @@ references still resolve.
   test, because nothing flushed has been decoded, issued, or committed — a bubble undoes nothing a
   stalled cycle does not already undo. Decode itself is unchanged: it still owns issue, still
   reads register values and resolves branches same-cycle, and a stalled cycle still re-presents
-  the same word. No predictor and no kill exist yet — every redirect pays a full queue refill, and
-  the next two stages spend that cost. Enforced by `formal/pcloop.sv`'s three fetch-controller
+  the same word. No predictor exists yet — every redirect still pays a full queue refill, and the
+  next two stages spend that cost. **`kill` names the discard for accounting, but changes no
+  control signal** (ADR-0198): `rtl/decoder.v`'s `kill` output attributes the cycles this flush
+  already paid to their own column instead of the generic `buffer_empty` stall reason, so the
+  redirect's cost is visible rather than miscounted as a resource wait; the discard mechanism
+  itself is the two-cycle `flush` window this ADR already describes, unchanged. Enforced by
+  `formal/pcloop.sv`'s three fetch-controller
   properties (`fetch_pc`'s own legality, the buffer/pc word-boundary consistency, and a killed word
-  never issuing — trivially true here since nothing kills yet), `rtl/fetchctrl.v`'s own `FORMAL`
+  never issuing — proved against the real `kill` signal now, restating `rtl/decoder.v`'s own
+  `kill ⇒ !issuing` one cycle later over the composed queue), `rtl/fetchctrl.v`'s own `FORMAL`
   block (the room invariant `rtl/fetchqueue.v` only assumes, checked here with `-noassume` in the
-  composed proof), `rtl/decoder.v`'s `FORMAL` block and `test/decoder_tb.v`.
+  composed proof), `rtl/decoder.v`'s `FORMAL` block (`kill ⇒ !issuing`, provable with no assumption
+  since `kill` is ANDed with `buffer_empty` locally; `formal/decoder-kill-probe.py` is its forced-red
+  prerequisite) and `test/decoder_tb.v`.
 - **All traps are detected and committed in decode** (2). Nothing faults after decode; a trap is a
   branch to `mtvec` on the same override the jumps use, which is what makes CSR commit precise with
   no reorder buffer. A refusal counts as committed in decode only when it arrives with the
@@ -164,7 +172,18 @@ references still resolve.
   still exists as a wire, feeding the controller and `rtl/decoder.v`'s `ls_answer_valid` latch (a
   text-range load or store's own eventual bus transaction, unrelated to the queue), but it left
   `stall`'s OR, the publish arm and the read-register-pair mux; `buffer_empty` joined all three in
-  its place. A reason is declared in **six** places: the decoder's signal, its OR, its
+  its place. **`kill` is a non-stall bubble, not a ninth reason** (ADR-0198): the redirect-caused
+  share of an empty buffer — the two-cycle discard `rtl/fetchctrl.v` already computed plus however
+  many cycles the queue then takes to hold a fresh pair — is `rtl/decoder.v`'s `kill` output,
+  `buffer_empty && redirect_recovering`. It stays out of `stall`'s OR by construction — `kill`
+  implies `buffer_empty`, never the reverse, and `test/stall_sites_test.py` reads decoder.v's own
+  composition literally to keep it that way — so `kill ⇒ !issuing` is provable from `rtl/decoder.v`
+  alone with no assumption, in every harness including `formal/traps.sv`'s (where
+  `redirect_recovering` is as free as `buffer_empty` always was), and `formal/pcloop.sv`'s Property
+  3 restates it one cycle later against the real queue's own signal. `test/cxxrtl.cc` charges a
+  killed cycle before consulting any stall bucket, so `fetch` now counts only a buffer emptied for
+  a reason that is not a redirect (a cold start, a run of steals), and `test/stall_report.py`'s
+  identity becomes issue + kill + the eight reasons = cycles. A reason is declared in **six** places: the decoder's signal, its OR, its
   publish arm and its `FORMAL` asserts; `test/decoder_tb.v`'s OR-identity check and its both-ways
   vectors; `test/cxxrtl.cc`'s bucket; `test/stall_report.py`'s `REASONS` and `HEADINGS`;
   `formal/pcloop.sv`'s `f_may_stall`; and this list, all six graded against each other by

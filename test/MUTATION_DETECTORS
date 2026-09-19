@@ -6,7 +6,6 @@ serialize-drops-csr-mret    bench decoder_tb
 
 fencei-wait-and-store-port  bench decoder_tb
 fencei-wait-and-store-port  bench imem_tb
-fencei-wait-and-store-port  asm   selfmod.S FAIL 2
 
 sc-reports-success          bench accessor_tb
 sc-reports-success          asm   lrsc.S FAIL 2

@@ -63,7 +63,6 @@ baseline.out/
 paired.out/
 /.worktrees/
 netlist.out/
-fetch_ahead.out/
 formal/riscv-formal
 formal/riscv-formal.tmp
 soc/compare/hazard3
@@ -84,6 +83,7 @@ formal/region-probe/
 formal/busarbiter-probe/
 formal/tval-probe/
 formal/decoder-zkt-probe/
+formal/decoder-kill-probe/
 formal/executor-zkt-probe/
 formal/dmemcheck_cover
 formal/imemcheck_cover
