@@ -1,7 +1,8 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// Drives fetchqueue.v from registers only. See the ADR index for the static BTFN/jal
-// predictor computed below and why it is not yet spent (predict_found tied low).
+// Drives fetchqueue.v from registers only: fetch_pc advances, holds, retries a steal, or takes a
+// registered redirect target two cycles out; flush spans both cycles a redirect leaves in flight.
+// See the ADR index for the static BTFN/jal predictor computed below and its spend gate.
 module fetchctrl (
   input  logic         clk,
   input  logic         reset,
@@ -28,6 +29,8 @@ module fetchctrl (
   logic [31:0] redirect_target_reg;
   logic waiting, launch, room, q_valid, flush, req_valid;
   logic [2:0] queue_count;
+  // Updates only when fetch_pc leaves a non-retry presentation, never while fetch_stall retries,
+  // or two steals in a row silently drop the first stolen address.
   logic [31:0] stolen_pc;
   logic        fetch_stall_d1;
   logic        fetch_odd;
@@ -124,6 +127,7 @@ module fetchctrl (
       waiting            <= 1'b0;
       fetch_stall_d1     <= 1'b0;
       redirect_recovering <= 1'b0;
+      // Undriven otherwise, a steal on the first post-reset cycle retries a garbage address.
       stolen_pc          <= 32'b0;
       redirect_target_reg <= 32'b0;
       predicted_active    <= 1'b0;
@@ -136,6 +140,8 @@ module fetchctrl (
       redirect_target_reg <= redirect_target;
       waiting        <= fetch_stall ? 1'b1 : launch;
       fetch_stall_d1 <= fetch_stall;
+      // Cleared off buffer_empty, not q_valid: q_valid still reads true for one cycle after a
+      // redirect before flush's zeroing lands.
       if (redirect) redirect_recovering <= 1'b1;
       else if (!buffer_empty) redirect_recovering <= 1'b0;
       if (redirect_apply) predicted_active <= 1'b0;

@@ -18,10 +18,8 @@ module decoder_tb;
   // hazard scoreboard is test/regfile_tb.v's and hazard.S's.
   executor_output executor_out = '0;
   logic divider_stall = 1'b0;
-  // The fetch queue has fewer than two words buffered.
   logic buffer_empty = 1'b0;
-  // fetchctrl's own view of whether the empty buffer above is a redirect's discard in
-  // flight, driven by hand here since this bench has no fetchctrl instance.
+  // fetchctrl's view of the buffer above, driven by hand since this bench has no fetchctrl.
   logic redirect_recovering = 1'b0;
   logic predicted_active = 1'b0;
   logic [31:0] predicted_src_pc = 32'b0;
@@ -135,8 +133,7 @@ module decoder_tb;
     end
   end
 
-  // A killed cycle never issues -- decoder.v's own FORMAL block proves this by
-  // construction; this is the same check run under real vectors rather than a solver.
+  // A killed cycle never issues -- the same check decoder.v's FORMAL block proves, run under real vectors.
   always @(clk) begin
     if (dut.kill && dut.issuing) begin
       $display("MISMATCH kill and issuing are both asserted on the same cycle");
@@ -191,8 +188,7 @@ module decoder_tb;
     #1;
     reset = 0;
 
-    // xori x1, x2, -1 => imm=0xfff (sign -1), rs1=x2, funct3=100, rd=x1, opcode=0010011
-    // (I-type math-immediate).
+    // xori x1, x2, -1 => imm=0xfff (sign -1), rs1=x2, funct3=100, rd=x1, I-type math-immediate.
     in.instr = 32'hfff14093;
     in.pc = 32'h0;
     #1;

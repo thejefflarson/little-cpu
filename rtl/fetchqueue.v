@@ -1,8 +1,6 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// A 4-word FIFO of individually fetched words: q0/q1 are the pair at the issuing pc.
-// req_valid marks a genuine due response, never a stolen-cycle retry -- the caller
-// drives it as `waiting && !fetch_stall`, `waiting` next-stating `fetch_stall ? 1 : launch`.
+// A 4-word FIFO of individually fetched words: q0/q1 are the pair at the issuing pc; req_valid marks a genuine due response, never a stolen-cycle retry.
 module fetchqueue (
   input  logic         clk,
   input  logic         reset,
@@ -66,9 +64,7 @@ module fetchqueue (
 
   always_comb assume(!req_valid || cnt <= (DEPTH - 2));
 
-  // `cnt` has no initial value, so an unclocked assert here is free to fail on the
-  // very first step before any reset has run -- found composing this module into
-  // formal/pcloop.sv for the first time.
+  // `cnt` has no initial value, so an unclocked assert here is free to fail at step 0.
   always_comb if (clocked) assert(cnt <= DEPTH);
   always_ff @(posedge clk)
     if (clocked) assert(!$past(flush) || cnt == 3'd0);

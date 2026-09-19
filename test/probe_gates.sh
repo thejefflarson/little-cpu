@@ -2008,15 +2008,15 @@ mutate "$d/remeasure-fg.py" 's/^BELOW, ABOVE = 3, 3$/BELOW, ABOVE = 2, 1/'
 mkdir -p "$tmp/bin-sby-narrow"
 cat > "$tmp/bin-sby-narrow/sby" <<'STUB'
 #!/bin/sh
-# Stands in for sby: FAILs until the swept RISCV_FORMAL_CHECK_CYCLE reaches 10, one past
-# the narrowed F window's own upper bound (declared F=8, ABOVE=1 => 9), standing in for a
-# flip point the narrowed window cannot bracket.
+# Stands in for sby: FAILs until the swept RISCV_FORMAL_CHECK_CYCLE reaches 11 (the
+# declared F=8, +3), standing in for a flip point that moved three cycles past what
+# remeasure-fg.py declares.
 sby_file=$2
 out=$(dirname "$sby_file")
 check=$(basename "$sby_file" .sby)
 mkdir -p "$out/$check"
 cycle=$(grep -o 'RISCV_FORMAL_CHECK_CYCLE [0-9]*' "$sby_file" | head -1 | awk '{print $2}')
-if [ "$cycle" -ge 10 ]; then
+if [ "$cycle" -ge 11 ]; then
   echo "PASS 2 0" > "$out/$check/status"
 else
   echo "FAIL 2 0" > "$out/$check/status"
@@ -3602,8 +3602,10 @@ d=$(mm_fixture); mutate "$d/rtl/littlesoc.v" 's/^  uart #(/  nouart #(/'
 probe "a SoC with no UART at all does not pass by silence" 1 \
   "does not instantiate \`uart\` at all" "$MM $d"
 
-d=$(mm_fixture); mutate "$d/rtl/littlesoc.v" 's/^  spiflash flash (/  nospiflash flash (/'
-probe "a SoC with no SPI controller at all does not pass by silence" 1 \
+# The placed SoC carries no SPI controller at all, by design (its pins are not wired to
+# the board), so only the simulated harness is graded for one going missing.
+d=$(mm_fixture); mutate "$d/test/testbench.v" 's/^  spiflash flash (/  nospiflash flash (/'
+probe "a harness with no SPI controller at all does not pass by silence" 1 \
   "does not instantiate \`spiflash\` at all" "$MM $d"
 
 # Without this the check above passes vacuously on a file that lost its memory.

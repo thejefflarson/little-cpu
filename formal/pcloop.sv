@@ -1,4 +1,5 @@
-// The fetch queue, its controller, the fetcher and the decoder, wired as rtl/littlecpu.v.
+// The fetch queue, its controller, the fetcher and the decoder, wired the way
+// rtl/littlecpu.v wires them.
 `default_nettype none
 
 module pcloop (
@@ -26,7 +27,6 @@ module pcloop (
   logic [31:0] pc;
   logic [31:0] next_pc;
   logic redirect;
-  // The address the decoder publishes for a platform to decode.
   logic [31:0] atomic_addr;
   fetcher_output fetcher_out;
   decoder_output decoder_out;
@@ -251,8 +251,9 @@ module pcloop (
   always_ff @(posedge clk)
     if (clocked && !prev_reset && prev_mret_entry) assert(pc == prev_mepc);
 
-  // Property 1: fetch_pc advances by one word pair, holds, takes a guessed target a
-  // cycle after fetchctrl forms it, or a redirect target two cycles after decode does.
+  // Property 1: fetch_pc advances by one word pair, holds, retries, takes a guessed target a
+  // cycle after fetchctrl forms it, or a redirect target two cycles after decode computed it --
+  // never the word arriving this cycle.
   logic [31:0] past_fetch_pc, past2_fetch_pc;
   logic [31:0] past_next_pc_r, past2_next_pc_r;
   logic        past_redirect_r, past2_redirect_r;
@@ -284,19 +285,21 @@ module pcloop (
     assert(f_fetch_pc_advanced || f_fetch_pc_held || f_fetch_pc_retried ||
            f_fetch_pc_redirected || f_fetch_pc_guessed);
 
-  // Property 2: popping the head happens only when decode's pc leaves the word it names,
-  // restated independently of rtl/fetcher.v's own `pop` so the two stay in step.
+  // Property 2: the buffer pops only on the cycle pc actually leaves the word it names,
+  // restated independently of fetcher.v's own `pop` so an edit to either must keep them
+  // agreeing.
   always_comb if (clocked && !reset)
     assert(fetcher_pop == (next_pc[31:2] != pc[31:2]));
 
-  // Property 3: a word that never reaches decode never issues. decoder_out.valid reports
-  // last cycle's issue (out is registered), graded against the buffer's occupancy last
-  // cycle; a divider hold republishes out unchanged and is not a fresh issue.
+  // Property 3: a word that never reaches decode never issues, graded against last cycle's
+  // buffer occupancy since decoder_out.valid reports what issued THEN (out is registered); a
+  // divider hold republishes out unchanged and is not a fresh issue.
   always_comb if (clocked && !prev_reset && !prev_hard_stall)
     assert(!prev_buffer_empty || !decoder_out.valid);
 
-  // Strengthened over `kill`, not `buffer_empty`, so a future narrowing of the latter's
-  // other causes stays covered; decoder's FORMAL block proves the one-cycle version.
+  // The strengthened half, over `kill` rather than `buffer_empty` so a future narrowing of the
+  // latter's other causes stays covered: restates decoder's own `kill => !issuing` one cycle
+  // later, against the composed queue's `redirect_recovering`.
   logic prev_kill;
   always_ff @(posedge clk) prev_kill <= kill;
   always_comb if (clocked && !prev_reset && !prev_hard_stall)

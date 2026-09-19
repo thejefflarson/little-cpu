@@ -1,9 +1,9 @@
 // The fetcher, the decoder and the CSR file, wired the way rtl/littlecpu.v wires them, so
-// mtvec, mepc, mcause and mstatus are real registers rather than free inputs.
+// mtvec/mepc/mcause/mstatus are real registers rather than free inputs.
 `default_nettype none
 
 module traps #(
-    // The data bus's map: the addresses at which some memory on it answers a load/store.
+    // The data bus's map: the addresses some memory on it answers a plain load or store at.
     parameter integer      LS_TEXT_WORDS = 2048,
     parameter logic [31:0] LS_RAM_BASE   = 32'h0001_0000,
     parameter integer      LS_RAM_WORDS  = 16384,
@@ -22,11 +22,15 @@ module traps #(
     // Free, like every input below: this harness models no queue, no fetchctrl, no bus
     // arbiter and no timer, so each is whatever the solver picks.
     input logic buffer_empty,
+    // Free: this harness has no fetchctrl to say whether an empty buffer is a discard in flight.
     input logic redirect_recovering,
     input logic         predicted_active,
     input logic [31:0]  predicted_src_pc,
     input logic [31:0]  predicted_target,
+    // Free, like the other two: a hart waiting for the shared bus issues nothing either.
     input logic bus_wait,
+    // Free, but coupled to fetcher_out below: rtl/fetchqueue.v answers a fault bit out of the
+    // same slot its word comes from.
     input logic imem_fault,
     // The platform's answer about the address an atomic in decode would use.
     input logic atomic_supported,
@@ -35,13 +39,12 @@ module traps #(
 );
   logic [31:0] pc, next_pc;
   logic        redirect;
-  // kill/predict_resolved/mispredict/bus_request below: unread here, and declared anyway
-  // -- an output connected to an undeclared identifier is an implicit net, which
-  // `default_nettype none` makes an error in iverilog and a warning in yosys.
+  // kill/predict_resolved/mispredict below, bus_request further down: unread here, and
+  // declared anyway -- an output connected to an undeclared identifier is an implicit net,
+  // which `default_nettype none` makes an error in iverilog and a warning in yosys.
   logic        kill;
   logic        predict_resolved;
   logic        mispredict;
-  // The address the decoder publishes for a platform to decode.
   logic [31:0] atomic_addr;
   fetcher_output fetcher_out;
   decoder_output decoder_out;
@@ -51,13 +54,14 @@ module traps #(
   logic [31:0] csr_wdata, csr_rdata;
   logic        csr_implemented;
   logic        trap_entry, mret_entry;
+  // Unread here too, for the same reason.
   logic        bus_request;
   logic [31:0] trap_cause, trap_epc, trap_tval;
   logic [31:0] mtvec_value, mepc_value;
   logic        interrupt_pending;
 
-  // q0/q1 are free here: this harness models no queue, so whatever word the solver picks
-  // stands in for the buffer's head pair.
+  // q0/q1 are free here, the same standing imem_data/imem_data2 had: no queue, so the
+  // solver's pick stands in for the buffer's head pair.
   fetcher fetcher (
     .clk(clk),
     .reset(reset),
@@ -173,7 +177,6 @@ module traps #(
   always_comb if (!clocked) assume(reset);
   always_comb if (clocked) assume(!reset);
 
-  // Build every guard from this module's own signals.
   logic [31:0] instr;
   assign instr = (fetcher_out.instr[1:0] == 2'b11) ? fetcher_out.instr
                                                    : {16'b0, fetcher_out.instr[15:0]};
@@ -184,9 +187,7 @@ module traps #(
   assign opcode = instr[6:2];
   assign funct3 = instr[14:12];
 
-  // `issuing` is not a port, but it is exactly this: the decoder counts a retired
-  // instruction on every cycle it issues one that does not trap, and raises trap_entry on
-  // every cycle it issues one that does.
+  // `issuing` is not a port: exactly the OR of a non-trapping retire and a trapping trap_entry.
   logic issuing;
   assign issuing = instret || trap_entry;
 
@@ -195,15 +196,19 @@ module traps #(
 
   logic [31:0] prev_reg_rs1;
   fetcher_output prev_fetcher_out;
+  logic        prev_held_imem_fault;
   logic        prev_issuing;
   always_ff @(posedge clk) begin
-    prev_reg_rs1     <= reg_rs1;
-    prev_fetcher_out <= fetcher_out;
-    prev_issuing     <= issuing || reset;
+    prev_reg_rs1         <= reg_rs1;
+    prev_fetcher_out     <= fetcher_out;
+    prev_held_imem_fault <= imem_fault;
+    prev_issuing         <= issuing || reset;
   end
+  // A non-issuing cycle re-presents the same buffered word, so its fault answer can no more move than fetcher_out's own fields can.
   always_comb if (clocked && !reset && !prev_issuing) begin
     assume(reg_rs1 == prev_reg_rs1);
     assume(fetcher_out == prev_fetcher_out);
+    assume(imem_fault == prev_held_imem_fault);
   end
 
   logic [31:0] i_immediate, s_immediate;

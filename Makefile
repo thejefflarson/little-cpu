@@ -828,9 +828,8 @@ fit.json: $(FIT_SRCS)
 	@yosys -p 'read_verilog -sv $^; synth_ice40 -dsp -top littlecpu -json $@' \
 	  > fit.synth.log 2>&1 || { tail -40 fit.synth.log; exit 1; }
 
-# 4802 = 4680 + 68 + 54: the register-only fetch controller's measured count (a local
-# run, ADR-0196 -- re-derive against the CI fit job's own number when one is available),
-# the measured churn band, and the widest toolchain gap measured on one tree.
+# 4802 = 4680 + 68 + 54: a local measured count (re-derive against CI's own fit job once
+# available), the measured churn band, and the widest toolchain gap measured on one tree.
 FIT_MAX_LC := 4802
 
 FIT_LAST_LC := 4680
@@ -861,7 +860,7 @@ SOC_EXPECT_EBR   := 20
 
 SOC_SRCS      := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v \
                  rtl/executor.v rtl/fetcher.v rtl/fetchctrl.v rtl/fetchqueue.v rtl/imemory.v rtl/memory.v \
-                 rtl/regfile.v rtl/regsel.v rtl/timer.v rtl/uart.v rtl/spiflash.v \
+                 rtl/regfile.v rtl/regsel.v rtl/timer.v rtl/uart.v \
                  rtl/writeback.v rtl/littlecpu.v rtl/littlesoc.v
 SOC_ROM_HEX   := soc/rom_even.hex soc/rom_odd.hex
 

@@ -97,10 +97,12 @@ TIMER_RESERVED_TOP=$((TIMER_BASE + TIMER_RESERVED))
 
 hexfmt() { printf '0x%08x' "$1"; }
 
-# The shared default is only shared while both files stay silent.
+# Every file instantiates memory/timer/uart; only test/testbench.v also owes spiflash, absent from the placed SoC.
 
 for f in rtl/littlesoc.v test/testbench.v; do
-  for m in memory timer uart spiflash; do
+  mods="memory timer uart"
+  [ "$f" = test/testbench.v ] && mods="$mods spiflash"
+  for m in $mods; do
     if ! grep -qE "(^|[^[:alnum:]_])$m[[:space:]]*(#\(|[a-z_]+[[:space:]]*\()" "$REPO/$f"; then
       fail "$f does not instantiate \`$m\` at all. The comparison below would
 pass vacuously, so a deleted memory is red here rather than silent."
@@ -441,4 +443,4 @@ if [ "$rc" -ne 0 ]; then
   exit 1
 fi
 
-echo "Memory map agreed on: ram $(hexfmt "$RAM_BASE")+${RAM_BYTES}B, timer $(hexfmt "$TIMER_BASE")+${TIMER_BYTES}B of ${TIMER_RESERVED}B reserved, uart $(hexfmt "$UART_BASE"), spi $(hexfmt "$FLASH_BASE"), rom ${SOC_ROM_WORDS_RTL} words on the part / ${TB_ROM_WORDS} simulated"
+echo "Memory map agreed on: ram $(hexfmt "$RAM_BASE")+${RAM_BYTES}B, timer $(hexfmt "$TIMER_BASE")+${TIMER_BYTES}B of ${TIMER_RESERVED}B reserved, uart $(hexfmt "$UART_BASE"), spi $(hexfmt "$FLASH_BASE") (simulated only -- the placed SoC carries no flash controller), rom ${SOC_ROM_WORDS_RTL} words on the part / ${TB_ROM_WORDS} simulated"
