@@ -725,6 +725,7 @@ test: sim test-units probe-gates pin-bump-test pin-bump-token-test \
       tracked-ignored-test mutation-coverage-test comment-density-test lut4-site-test \
       pll-clock-test ill-e-wiring-test probes-header-test dhry-board-parity-test nano-test \
       nano-latch-test nano-latch-startup-test \
+      nano-oneport-test nano-oneport-startup-test nano-oneport-latch-test nano-oneport-latch-startup-test \
       nano-exec-test nano-startup-test macro-register-test nano-littlecpu-test \
       nano-tt-area-workflow-test nano-qspi-loop-test stall-sites-test pin-help-text-test
 	@STALL_REPORT=1 ./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR

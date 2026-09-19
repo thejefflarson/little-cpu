@@ -76,6 +76,18 @@ module riscv (
   logic [3:0] cpu_state;
   logic skip_reg_write;
 
+`ifdef NANO_ONE_PORT_RF
+  // One held register per operand; `rf_raddr` (assigned in the state machine below) is
+  // the one address that ever indexes `regs[]` for a read.
+  logic [31:0] op_rs1, op_rs2;
+  logic [3:0] rf_raddr;
+`define RF_RS1 op_rs1
+`define RF_RS2 op_rs2
+`else
+`define RF_RS1 regs[rs1[3:0]]
+`define RF_RS2 regs[rs2[3:0]]
+`endif
+
   // instruction decoder (figure 2.3)
   assign opcode = instr[6:2];
   assign quadrant = instr[1:0];
@@ -150,7 +162,7 @@ module riscv (
   assign is_cjalr = quadrant == 2'b10 && cfunct3 == 3'b100 && instr[12] == 1 && instr[6:2] == 0 &&
     instr[11:7] != 0;
   assign jump_address = is_jalr || is_cjr || is_cjalr ?
-    ($signed(immediate) + $signed(regs[rs1[3:0]])) & 32'hfffffffe :
+    ($signed(immediate) + $signed(`RF_RS1)) & 32'hfffffffe :
     $signed(pc) + $signed(immediate);
 
   assign is_branch_op = opcode == 5'b11000 && uncompressed;
@@ -239,8 +251,8 @@ module riscv (
   assign is_rem = is_m && funct3 == 3'b110;
   assign is_remu = is_m && funct3 == 3'b111;
   assign is_divide = is_div || is_divu || is_rem || is_remu;
-  assign math_arg = is_math_immediate ? immediate : regs[rs2[3:0]];
-  assign shamt = is_math_immediate ? rs2 : regs[rs2[3:0]][4:0];
+  assign math_arg = is_math_immediate ? immediate : `RF_RS2;
+  assign shamt = is_math_immediate ? rs2 : `RF_RS2[4:0];
 
   assign is_csr = opcode == 5'b11100 && uncompressed;
   assign is_csrrw = is_csr && funct3 == 3'b001;
@@ -280,7 +292,7 @@ module riscv (
     is_ebreak) && !is_e_illegal;
 
   // registers
-  assign load_store_address = $signed(immediate) + $signed(regs[rs1[3:0]]);
+  assign load_store_address = $signed(immediate) + $signed(`RF_RS1);
   assign addr24 = load_store_address[1:0];
   assign addr16 = load_store_address[1];
   assign addr8 = load_store_address[0];
@@ -296,14 +308,14 @@ module riscv (
   // is negated before it starts and the sign is restored on the way out; DIVU/REMU read
   // their operand as its own magnitude already.
   assign want_abs = is_div || is_rem;
-  assign div_abs_rs1 = want_abs && regs[rs1[3:0]][31] ? -regs[rs1[3:0]] : regs[rs1[3:0]];
-  assign div_abs_rs2 = want_abs && regs[rs2[3:0]][31] ? -regs[rs2[3:0]] : regs[rs2[3:0]];
+  assign div_abs_rs1 = want_abs && `RF_RS1[31] ? -`RF_RS1 : `RF_RS1;
+  assign div_abs_rs2 = want_abs && `RF_RS2[31] ? -`RF_RS2 : `RF_RS2;
 
   // MUL's low 32 bits are sign-agnostic, so only MULH/MULHSU take a magnitude.
-  assign mul_mag_rs1 = (is_mulh || is_mulhsu) && regs[rs1[3:0]][31] ? -regs[rs1[3:0]] : regs[rs1[3:0]];
-  assign mul_mag_rs2 = is_mulh && regs[rs2[3:0]][31] ? -regs[rs2[3:0]] : regs[rs2[3:0]];
-  assign want_neg_mul = (is_mulh && (regs[rs1[3:0]][31] ^ regs[rs2[3:0]][31])) ||
-    (is_mulhsu && regs[rs1[3:0]][31]);
+  assign mul_mag_rs1 = (is_mulh || is_mulhsu) && `RF_RS1[31] ? -`RF_RS1 : `RF_RS1;
+  assign mul_mag_rs2 = is_mulh && `RF_RS2[31] ? -`RF_RS2 : `RF_RS2;
+  assign want_neg_mul = (is_mulh && (`RF_RS1[31] ^ `RF_RS2[31])) ||
+    (is_mulhsu && `RF_RS1[31]);
 
   // state machine
   localparam cpu_trap = 4'b0000;
@@ -317,6 +329,12 @@ module riscv (
   localparam reg_write = 4'b1000;
   localparam multiply = 4'b1001;
   localparam divide = 4'b1011;
+`ifdef NANO_ONE_PORT_RF
+  localparam fetch_rs1 = 4'b1100;
+  localparam fetch_rs2 = 4'b1101;
+
+  assign rf_raddr = cpu_state == fetch_rs2 ? rs2[3:0] : rs1[3:0];
+`endif
 
   // One 32-bit adder/subtractor serves both loops; divide's carry-out doubles as "no
   // borrow", ORed with the shifted-out top bit of a remainder too large for any divisor.
@@ -392,8 +410,24 @@ module riscv (
             is_cbeqz || is_cbnez: rs2 <= 0;
             default: rs2 <= instr[24:20];
           endcase
+`ifdef NANO_ONE_PORT_RF
+          cpu_state <= fetch_rs1;
+`else
+          cpu_state <= execute_instr;
+`endif
+        end
+
+`ifdef NANO_ONE_PORT_RF
+        fetch_rs1: begin
+          op_rs1 <= regs[rf_raddr];
+          cpu_state <= rs2_valid ? fetch_rs2 : execute_instr;
+        end
+
+        fetch_rs2: begin
+          op_rs2 <= regs[rf_raddr];
           cpu_state <= execute_instr;
         end
+`endif
 
         execute_instr: begin
           if (!is_valid) begin
@@ -423,12 +457,12 @@ module riscv (
               is_branch: begin
                 (* parallel_case, full_case *)
                 case(1'b1)
-                  is_beq: pc_wdata <= regs[rs1[3:0]] == regs[rs2[3:0]] ? pc + immediate : pc + pc_inc;
-                  is_bne: pc_wdata <= regs[rs1[3:0]] != regs[rs2[3:0]] ? pc + immediate : pc + pc_inc;
-                  is_blt: pc_wdata <= $signed(regs[rs1[3:0]]) < $signed(regs[rs2[3:0]]) ? pc + immediate : pc + 4;
-                  is_bltu: pc_wdata <= regs[rs1[3:0]] < regs[rs2[3:0]] ? pc + immediate : pc + 4;
-                  is_bge: pc_wdata <= $signed(regs[rs1[3:0]]) >= $signed(regs[rs2[3:0]]) ? pc + immediate : pc + 4;
-                  is_bgeu: pc_wdata <= regs[rs1[3:0]] >= regs[rs2[3:0]] ? pc + immediate : pc + 4;
+                  is_beq: pc_wdata <= `RF_RS1 == `RF_RS2 ? pc + immediate : pc + pc_inc;
+                  is_bne: pc_wdata <= `RF_RS1 != `RF_RS2 ? pc + immediate : pc + pc_inc;
+                  is_blt: pc_wdata <= $signed(`RF_RS1) < $signed(`RF_RS2) ? pc + immediate : pc + 4;
+                  is_bltu: pc_wdata <= `RF_RS1 < `RF_RS2 ? pc + immediate : pc + 4;
+                  is_bge: pc_wdata <= $signed(`RF_RS1) >= $signed(`RF_RS2) ? pc + immediate : pc + 4;
+                  is_bgeu: pc_wdata <= `RF_RS1 >= `RF_RS2 ? pc + immediate : pc + 4;
                 endcase
                 skip_reg_write <= 1;
                 cpu_state <= check_pc;
@@ -440,43 +474,43 @@ module riscv (
                 (* parallel_case, full_case *)
                 case(1'b1)
                   is_add || is_addi: begin
-                    reg_wdata <= regs[rs1[3:0]] + math_arg;
+                    reg_wdata <= `RF_RS1 + math_arg;
                   end
 
                   is_sub: begin
-                    reg_wdata <= regs[rs1[3:0]] - math_arg;
+                    reg_wdata <= `RF_RS1 - math_arg;
                   end
 
                   is_sll || is_slli: begin
-                    reg_wdata <= regs[rs1[3:0]] << shamt;
+                    reg_wdata <= `RF_RS1 << shamt;
                   end
 
                   is_slt || is_slti: begin
-                    reg_wdata <= {31'b0, $signed(regs[rs1[3:0]]) < $signed(math_arg)};
+                    reg_wdata <= {31'b0, $signed(`RF_RS1) < $signed(math_arg)};
                   end
 
                   is_sltu || is_sltiu: begin
-                    reg_wdata <= {31'b0, regs[rs1[3:0]] < math_arg};
+                    reg_wdata <= {31'b0, `RF_RS1 < math_arg};
                   end
 
                   is_xor || is_xori: begin
-                    reg_wdata <= regs[rs1[3:0]] ^ math_arg;
+                    reg_wdata <= `RF_RS1 ^ math_arg;
                   end
 
                   is_srl || is_srli: begin
-                    reg_wdata <= regs[rs1[3:0]] >> shamt;
+                    reg_wdata <= `RF_RS1 >> shamt;
                   end
 
                   is_sra || is_srai: begin
-                    reg_wdata <= $signed(regs[rs1[3:0]]) >>> shamt;
+                    reg_wdata <= $signed(`RF_RS1) >>> shamt;
                   end
 
                   is_or || is_ori: begin
-                    reg_wdata <= regs[rs1[3:0]] | math_arg;
+                    reg_wdata <= `RF_RS1 | math_arg;
                   end
 
                   is_and || is_andi: begin
-                    reg_wdata <= regs[rs1[3:0]] & math_arg;
+                    reg_wdata <= `RF_RS1 & math_arg;
                   end
 
                   is_multiply: begin
@@ -518,18 +552,18 @@ module riscv (
                     is_sw: begin
                       mem_addr <= load_store_address;
                       mem_wstrb <= 4'b1111;
-                      mem_wdata <= regs[rs2[3:0]];
+                      mem_wdata <= `RF_RS2;
                     end
 
                     is_sh: begin
                       // Offset to the right position
                       mem_wstrb <= addr16 ? 4'b1100 : 4'b0011;
-                      mem_wdata <= {2{regs[rs2[3:0]][15:0]}};
+                      mem_wdata <= {2{`RF_RS2[15:0]}};
                     end
 
                     is_sb: begin
                       mem_wstrb <= 4'b0001 << addr24;
-                      mem_wdata <= {4{regs[rs2[3:0]][7:0]}};
+                      mem_wdata <= {4{`RF_RS2[7:0]}};
                     end
                   endcase
                   mem_addr <= {load_store_address[31:2], 2'b00};
@@ -572,10 +606,10 @@ module riscv (
           cpu_state <= reg_write;
           (* parallel_case, full_case *)
           case (1'b1)
-            is_mul: reg_wdata <= (regs[rs1[3:0]] + regs[rs2[3:0]]) ^ 32'h5876063e;
-            is_mulh: reg_wdata <= (regs[rs1[3:0]] + regs[rs2[3:0]]) ^ 32'hf6583fb7;
-            is_mulhu: reg_wdata <= (regs[rs1[3:0]] + regs[rs2[3:0]]) ^ 32'h949ce5e8;
-            is_mulhsu: reg_wdata <= (regs[rs1[3:0]] - regs[rs2[3:0]]) ^ 32'hecfbe137;
+            is_mul: reg_wdata <= (`RF_RS1 + `RF_RS2) ^ 32'h5876063e;
+            is_mulh: reg_wdata <= (`RF_RS1 + `RF_RS2) ^ 32'hf6583fb7;
+            is_mulhu: reg_wdata <= (`RF_RS1 + `RF_RS2) ^ 32'h949ce5e8;
+            is_mulhsu: reg_wdata <= (`RF_RS1 - `RF_RS2) ^ 32'hecfbe137;
           endcase
          `endif
         end
@@ -592,13 +626,13 @@ module riscv (
             // the loop leaves untouched, this shifting one never settles on all-ones.
             (* parallel_case, full_case *)
             case (1'b1)
-              is_div: reg_wdata <= (regs[rs2[3:0]] == 32'b0) ? 32'hffffffff :
-                ((regs[rs1[3:0]][31] ^ regs[rs2[3:0]][31]) ?
+              is_div: reg_wdata <= (`RF_RS2 == 32'b0) ? 32'hffffffff :
+                ((`RF_RS1[31] ^ `RF_RS2[31]) ?
                   -mul_div_store[31:0] : mul_div_store[31:0]);
-              is_divu: reg_wdata <= (regs[rs2[3:0]] == 32'b0) ? 32'hffffffff : mul_div_store[31:0];
-              is_rem: reg_wdata <= (regs[rs2[3:0]] == 32'b0) ? regs[rs1[3:0]] :
-                (regs[rs1[3:0]][31] ? -mul_div_store[63:32] : mul_div_store[63:32]);
-              is_remu: reg_wdata <= (regs[rs2[3:0]] == 32'b0) ? regs[rs1[3:0]] : mul_div_store[63:32];
+              is_divu: reg_wdata <= (`RF_RS2 == 32'b0) ? 32'hffffffff : mul_div_store[31:0];
+              is_rem: reg_wdata <= (`RF_RS2 == 32'b0) ? `RF_RS1 :
+                (`RF_RS1[31] ? -mul_div_store[63:32] : mul_div_store[63:32]);
+              is_remu: reg_wdata <= (`RF_RS2 == 32'b0) ? `RF_RS1 : mul_div_store[63:32];
             endcase
             cpu_state <= reg_write;
           end
@@ -606,10 +640,10 @@ module riscv (
           cpu_state <= reg_write;
           (* parallel_case, full_case *)
           case (1'b1)
-            is_div: reg_wdata <= (regs[rs1[3:0]] - regs[rs2[3:0]]) ^ 32'h7f8529ec;
-            is_divu: reg_wdata <= (regs[rs1[3:0]] - regs[rs2[3:0]]) ^ 32'h10e8fd70;
-            is_rem: reg_wdata <= (regs[rs1[3:0]] - regs[rs2[3:0]]) ^ 32'h8da68fa5;
-            is_remu: reg_wdata <= (regs[rs1[3:0]] - regs[rs2[3:0]]) ^ 32'h3138d0e1;
+            is_div: reg_wdata <= (`RF_RS1 - `RF_RS2) ^ 32'h7f8529ec;
+            is_divu: reg_wdata <= (`RF_RS1 - `RF_RS2) ^ 32'h10e8fd70;
+            is_rem: reg_wdata <= (`RF_RS1 - `RF_RS2) ^ 32'h8da68fa5;
+            is_remu: reg_wdata <= (`RF_RS1 - `RF_RS2) ^ 32'h3138d0e1;
           endcase
          `endif
         end
@@ -759,8 +793,8 @@ module riscv (
 
     // what were our read registers while this instruction was executing?
     if (cpu_state == execute_instr) begin
-      rvfi_rs1_rdata_q <= rs1_valid ? regs[rs1[3:0]] : 0;
-      rvfi_rs2_rdata_q <= rs2_valid ? regs[rs2[3:0]] : 0;
+      rvfi_rs1_rdata_q <= rs1_valid ? `RF_RS1 : 0;
+      rvfi_rs2_rdata_q <= rs2_valid ? `RF_RS2 : 0;
     end
 
     rvfi_rs1_addr_q <= rs1_valid ? rs1 : 0;

@@ -41,6 +41,6 @@ run_mutation "iteration-count" \
 run_mutation "no-magnitude-conversion" \
   "s/mul_div_operand <= div_abs_rs2;/mul_div_operand <= regs[rs2[3:0]];/" || status=1
 run_mutation "mulhsu-does-not-negate-rs1" \
-  "s/(is_mulhsu \&\& regs\[rs1\[3:0\]\]\[31\]);/(is_mulhsu \&\& 1'b0);/" || status=1
+  "s/(is_mulhsu \&\& \`RF_RS1\[31\]);/(is_mulhsu \&\& 1'b0);/" || status=1
 
 exit $status
