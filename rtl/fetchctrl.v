@@ -161,8 +161,10 @@ module fetchctrl (
         fetch_pc <= stolen_pc;
       end else begin
         stolen_pc <= fetch_pc;
-        if (predict_found) fetch_pc <= predict_tgt;
-        else if (room) fetch_pc <= fetch_pc + 32'd8;
+        // room gates a guessed launch exactly like a sequential one: dropping it here let a
+        // candidate found while the queue was full launch anyway, silently losing the correct
+        // continuation address once room did free up (fourth Dhrystone-scale corruption).
+        if (room) fetch_pc <= predict_found ? predict_tgt : fetch_pc + 32'd8;
       end
     end
   end
