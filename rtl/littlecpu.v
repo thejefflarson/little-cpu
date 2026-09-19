@@ -16,8 +16,7 @@ module littlecpu #(
   input  logic [31:0] imem_data,
   output logic [31:0] imem_addr2,
   input  logic [31:0] imem_data2,
-  // The value `imem_addr` takes on the next edge, so a synchronous memory can latch it a
-  // cycle early.
+  // The value `imem_addr` takes on the next edge, latched a cycle early.
   output logic [31:0] imem_addr_next,
   // The data bus. A load or store to the text range takes the instruction memory's read
   // port for that cycle, and the fetch that lost it comes back as `fetch_stall`.
@@ -133,8 +132,7 @@ module littlecpu #(
   logic         buffer_empty;
   logic         redirect_recovering;
   logic         fetcher_pop;
-  // Unread past decode: this is a cycle-accounting output test/cxxrtl.cc reads as a debug
-  // item, not a control signal anything downstream consumes.
+  // Unread past decode: test/cxxrtl.cc reads it as a debug item, not a control signal.
   logic         decoder_kill;
   logic         decoder_mispredict;
   logic         predicted_active;

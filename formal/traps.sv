@@ -1,11 +1,9 @@
-// The fetcher, the decoder and the CSR file, wired together the way rtl/littlecpu.v wires
-// them, so that mtvec, mepc, mcause and mstatus are real registers rather than free
-// inputs.
+// The fetcher, the decoder and the CSR file, wired the way rtl/littlecpu.v wires them, so
+// mtvec, mepc, mcause and mstatus are real registers rather than free inputs.
 `default_nettype none
 
 module traps #(
-    // The data bus's map: the addresses at which some memory on it answers a plain load
-    // or store.
+    // The data bus's map: the addresses at which some memory on it answers a load/store.
     parameter integer      LS_TEXT_WORDS = 2048,
     parameter logic [31:0] LS_RAM_BASE   = 32'h0001_0000,
     parameter integer      LS_RAM_WORDS  = 16384,
@@ -21,34 +19,26 @@ module traps #(
     input logic [31:0] reg_rs2,
     input executor_output executor_out,
     input logic divider_stall,
-    // Free, like everything else not instantiated here: this harness models no queue, so
-    // whether the (nonexistent) buffer would be empty is left to the solver.
+    // Free, like every input below: this harness models no queue, no fetchctrl, no bus
+    // arbiter and no timer, so each is whatever the solver picks.
     input logic buffer_empty,
-    // Free for the same reason: this harness has no fetchctrl to say whether an empty
-    // buffer is a discard in flight.
     input logic redirect_recovering,
-    // Free, like the other two: this harness has no fetchctrl to form a guess either.
     input logic         predicted_active,
     input logic [31:0]  predicted_src_pc,
     input logic [31:0]  predicted_target,
-    // Free, like the other two: a hart waiting for the shared bus issues nothing, so no
-    // trap is committed on that cycle either.
     input logic bus_wait,
-    // Free, like everything else not instantiated here.
     input logic imem_fault,
     // The platform's answer about the address an atomic in decode would use.
     input logic atomic_supported,
     input logic accessor_out_valid,
-    // The platform's timer line, free every cycle.
     input logic irq_timer
 );
   logic [31:0] pc, next_pc;
   logic        redirect;
-  // Unread here, and declared anyway for the same reason bus_request is: an output
-  // connected to an undeclared identifier is an implicit net, which `default_nettype
-  // none` makes an error in iverilog and a warning in yosys.
+  // kill/predict_resolved/mispredict/bus_request below: unread here, and declared anyway
+  // -- an output connected to an undeclared identifier is an implicit net, which
+  // `default_nettype none` makes an error in iverilog and a warning in yosys.
   logic        kill;
-  // Unread here too, and declared for the same reason as `kill`.
   logic        predict_resolved;
   logic        mispredict;
   // The address the decoder publishes for a platform to decode.
@@ -61,16 +51,13 @@ module traps #(
   logic [31:0] csr_wdata, csr_rdata;
   logic        csr_implemented;
   logic        trap_entry, mret_entry;
-  // Unread here, and declared anyway: an output connected to an undeclared identifier is
-  // an implicit net, which `default_nettype none` makes an error in iverilog and a
-  // warning in yosys.
   logic        bus_request;
   logic [31:0] trap_cause, trap_epc, trap_tval;
   logic [31:0] mtvec_value, mepc_value;
   logic        interrupt_pending;
 
-  // q0/q1 are free here, the same standing imem_data/imem_data2 had: this harness models
-  // no queue, so whatever word the solver picks stands in for the buffer's head pair.
+  // q0/q1 are free here: this harness models no queue, so whatever word the solver picks
+  // stands in for the buffer's head pair.
   fetcher fetcher (
     .clk(clk),
     .reset(reset),

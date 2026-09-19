@@ -16,32 +16,20 @@ module decoder #(
   input  logic [31:0] reg_rs2,
   input  executor_output executor_out,
   input  logic divider_stall,
-  // The fetch queue has fewer than two words buffered, so there is no instruction to
-  // decode this cycle. A text load or store stealing imemory's read port is fetchctrl's
-  // problem now, not decode's: the queue absorbs the retry, and decode only ever sees a
-  // slower fill rate.
+  // The fetch queue has fewer than two words buffered; a steal is fetchctrl's problem now.
   input  logic buffer_empty,
-  // Set from the cycle a redirect fires until the queue holds a fresh pair again --
-  // fetchctrl's own view of whether an empty buffer is a discard in flight. ANDed with
-  // buffer_empty below rather than trusted alone, so `kill` cannot assert on a cycle this
-  // decoder itself would call issuing, in any harness that drives this free.
+  // Set from the cycle a redirect fires until the queue holds a fresh pair again.
   input  logic redirect_recovering,
-  // Fetch's own static BTFN/jal guess: whether one is outstanding, the address of the
-  // instruction it is about, and the target it queued for it. Compared against this
-  // cycle's own resolution, never trusted, so a wrong guess is caught the same way an
-  // unpredicted taken branch always was.
+  // Fetch's own static BTFN/jal guess, compared against this cycle's own resolution,
+  // never trusted; mispredict is named apart from `redirect`, which also fires for
+  // fence.i's own flush.
   input  logic         predicted_active,
   input  logic [31:0]  predicted_src_pc,
   input  logic [31:0]  predicted_target,
-  // The outstanding guess's own instruction, if any, just issued -- fetchctrl retires it
-  // whether it matched or not.
   output logic         predict_resolved,
-  // A mispredict, named separately from `redirect` for accounting only: `redirect` also
-  // fires for fence.i's queue flush, which is not a guess gone wrong.
   output logic         mispredict,
   input  logic bus_wait,
-  // Decode's request for the data bus, a cycle before the transaction. The platform ANDs
-  // it against its own grant; a grant term here would close the loop through the arbiter.
+  // Decode's request for the data bus; a grant term here would close the arbiter's loop.
   output logic bus_request,
   input  logic imem_fault,
   output logic [31:0] atomic_addr,
@@ -49,13 +37,9 @@ module decoder #(
   input  logic       accessor_out_valid,
   output logic [31:0] pc,
   output logic [31:0] next_pc,
-  // High on an issuing cycle whose next_pc is not the fetch queue's own straight-line
-  // advance -- fetchctrl registers this and the target it comes with before either
-  // reaches imemory.
+  // High when next_pc is not the queue's own straight-line advance.
   output logic redirect,
-  // A non-stall bubble: this cycle issues nothing because the buffer is empty and the
-  // reason is a redirect's own discard-and-refill, not one of the eight stall reasons.
-  // test/cxxrtl.cc and test/stall_report.py charge it to its own column, never to `stall`.
+  // A non-stall bubble, charged to its own column, never to `stall`.
   output logic kill,
   output logic [4:0] rs1,
   output logic [4:0] rs2,
@@ -318,8 +302,7 @@ module decoder #(
   logic [31:0] csr_arg;
   assign csr_arg = is_csr_imm ? {27'b0, rs1_field} : reg_rs1;
 
-  // Zicsr's suppression rules. Skipping the write is what makes `csrr` legal on a
-  // read-only CSR; `csr_read_op` exists only so RVFI reports the right read mask.
+  // Skipping the write is what makes `csrr` legal on a read-only CSR.
   logic csr_src_zero, csr_write_op, csr_read_op;
   assign csr_src_zero = rs1_field == 5'b0;
   assign csr_write_op = instr_csr_access && !((instr_csrrs || instr_csrrc) && csr_src_zero);
@@ -328,8 +311,7 @@ module decoder #(
                      instr_csrrs ? (csr_rdata | csr_arg) :
                                    (csr_rdata & ~csr_arg);
 
-  // Read off the raw instruction fields, not the muxed `rs1`/`rd`: those would put the
-  // compressed register-select decode in the trap arm of `next_pc`.
+  // Raw fields, not the muxed `rs1`/`rd`, which would decode compressed registers here.
   logic instr_error, instr_mret, instr_wfi, instr_cebreak;
   assign instr_error = opcode == 5'b11100 && uncompressed && funct3 == 0 &&
     rs1_field == 5'b0 && rd_field == 5'b0;
@@ -364,8 +346,7 @@ module decoder #(
   assign instr_ls_load  = instr_lb || instr_lbu || instr_lh || instr_lhu || instr_lw;
   assign instr_ls_store = instr_sb || instr_sh || instr_sw;
 
-  // Reads the whole sum, and drives only the flip-flop below, which keeps the carry chain
-  // out of the fetch loop.
+  // Drives only the flip-flop below, keeping the carry chain out of the fetch loop.
   localparam logic [31:0] LS_TEXT_BYTES = LS_TEXT_WORDS * 4;
   localparam logic [31:0] LS_RAM_BYTES  = LS_RAM_WORDS * 4;
   logic ls_supported;
@@ -376,9 +357,8 @@ module decoder #(
     (mem_addr_calc[31:3] == LS_UART_BASE[31:3]) ||
     (mem_addr_calc[31:3] == LS_FLASH_BASE[31:3]);
 
-  // Whether that answer can depend on the immediate at all, asked of `reg_rs1` alone. A
-  // 12-bit offset reaches 2 KB, so a base block with a whole block of the same window on
-  // each side answers the same whatever the immediate is.
+  // Asked of `reg_rs1` alone: a 12-bit offset reaches 2 KB, so a whole block of margin
+  // on each side answers the same whatever the immediate is.
   localparam int LS_BLOCK_BITS = 11;
   localparam int LS_BLOCK_NUM  = 32 - LS_BLOCK_BITS;
   localparam logic [LS_BLOCK_NUM-1:0] LS_TEXT_BLOCK = '0;
@@ -410,8 +390,7 @@ module decoder #(
   assign region_stall = ls_access && !ls_settled && !ls_answer_valid;
   assign ls_capture = region_stall && !stall_own;
 
-  // Held until the access issues, not for one cycle: under a bus wait a one-cycle answer
-  // expires, drops `bus_request`, and the two livelock.
+  // Held until the access issues: a one-cycle answer under a bus wait would livelock.
   always_ff @(posedge clk) begin
     if (reset) begin
       ls_answer       <= 1'b0;
@@ -480,8 +459,7 @@ module decoder #(
   logic trap_taken;
   assign trap_taken = trap_pending || interrupt_pending;
 
-  // No `(* parallel_case *)` here: the top two arms deliberately overlap the eight below,
-  // and the FORMAL block proves those eight disjoint.
+  // No `(* parallel_case *)`: the top two arms deliberately overlap the eight below.
   always_comb begin
     case (1'b1)
       interrupt_pending: trap_cause = CAUSE_MACHINE_TIMER;
@@ -538,9 +516,8 @@ module decoder #(
     instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu ||
     instr_amo || instr_sc;
 
-  // An eligible encoding must have no other decode-side reader of the same register. The
-  // branch comparator, the jalr target, an effective address, an atomic's own address and
-  // a register-form CSR's operand all read `reg_rs1`/`reg_rs2` directly.
+  // An eligible encoding has no other decode-side reader of the register: the branch
+  // comparator, the jalr target, an effective address and a CSR operand all read it raw.
   logic rs1_fwd_eligible, rs2_fwd_eligible;
   assign rs1_fwd_eligible = instr_math;
   assign rs2_fwd_eligible = (instr_math && !instr_math_immediate) ||
@@ -570,16 +547,13 @@ module decoder #(
   logic [31:0] pc_inc;
   assign pc_inc = uncompressed ? 4 : 2;
 
-  // DO NOT FOLD THESE INTO A FUNCTION. iverilog builds a continuous assign's sensitivity
-  // list from the call's arguments, so a body reading `out` or `executor_out` silently
-  // stops re-evaluating when they change -- and yosys gets it right, so every other check
-  // stays green.
+  // DO NOT FOLD INTO A FUNCTION: iverilog builds a continuous assign's sensitivity from
+  // the call's arguments, so a body reading `out`/`executor_out` silently goes stale.
   logic live_rs1, live_rs2;
   assign live_rs1 = out_match_rs1 || ex_match_rs1;
   assign live_rs2 = out_match_rs2 || ex_match_rs2;
 
-  // Two reasons share one wait, and narrowing it to suit one breaks the other: a CSR
-  // access or `mret` must not interleave with older instructions, and `fence.i` waits
+  // A CSR access or `mret` must not interleave with older instructions; `fence.i` waits
   // because text is writable and the fetch address goes out a cycle early.
   logic pipe_drained, serialize;
   assign pipe_drained = !out.valid && !executor_out.valid && !accessor_out_valid;
@@ -595,9 +569,8 @@ module decoder #(
   assign rvfi_rs1_valid = !instr_lui && !instr_jal && !instr_auipc && !is_csr_imm;
   assign rvfi_rs2_valid = uses_rs2;
  `endif
-  // The register file answers a cycle late, so this asks whether what was presented last
-  // cycle is what this instruction reads. It does not ask where that request came from,
-  // which is what lets `read_rs1` be a guess.
+  // Whether what was presented last cycle is what this instruction reads -- not where
+  // that request came from, which is what lets `read_rs1` be a guess.
   logic [4:0] prev_rs1, prev_rs2;
   logic       read_taken, operand_stall;
   always_ff @(posedge clk) begin
@@ -622,22 +595,17 @@ module decoder #(
   assign stall_other = stall_own || bus_wait;
   assign stall = stall_other || region_stall;
 
-  // NEVER OR THIS INTO stall_own/stall_other/stall: kill is the eight reasons' non-stall
-  // sibling, not a ninth one, and test/stall_sites_test.py reads that literally. The AND
-  // with buffer_empty (itself one of the eight, already covering every kill cycle) is
-  // what makes `kill => !issuing` true by this module's own structure alone, in any
-  // harness that drives redirect_recovering free.
+  // NEVER OR THIS IN: kill is the eight reasons' non-stall sibling, and the AND with
+  // buffer_empty is what makes `kill => !issuing` true by this module's structure alone.
   assign kill = buffer_empty && redirect_recovering;
 
-  // Over-asking is deliberate -- a store-conditional with no reservation makes no
-  // transaction -- because under-asking would put two initiators on the bus at once.
+  // Over-asking is deliberate: under-asking would put two initiators on the bus at once.
   assign bus_request = !reset && !trap_taken && !region_stall && !stall_own &&
     (instr_lb || instr_lbu || instr_lh || instr_lhu || instr_lw ||
      instr_sb || instr_sh || instr_sw || instr_atomic);
 
-  // On an issuing cycle the next instruction's pair; on a stalled cycle its own, since
-  // the same instruction comes back; on an empty buffer, last cycle's, since there is no
-  // instruction here yet to read a pair out of.
+  // On an issuing cycle the next pair; on a stall its own; on an empty buffer last
+  // cycle's, since there is no instruction here yet to read a pair out of.
   assign read_rs1 = buffer_empty ? prev_rs1 : stall ? rs1 : next_rs1;
   assign read_rs2 = buffer_empty ? prev_rs2 : stall ? rs2 : next_rs2;
 
@@ -680,26 +648,20 @@ module decoder #(
   logic issuing;
   assign issuing = !reset && !stall;
 
-  // This issuing instruction is the one fetch's outstanding guess was about.
+  // This issuing instruction is the one fetch's outstanding guess was about, and
+  // expected_fetch is what fetch already has queued next -- the guessed target if so,
+  // else the ordinary straight-line advance next_pc's own default arm already uses.
   logic predicted_this;
   assign predicted_this = predicted_active && (fetcher_pc == predicted_src_pc);
-  // What fetch already has queued as the next word address: the guessed target if this
-  // is the guess's own instruction, else the ordinary straight-line advance -- the same
-  // default `next_pc` already uses when nothing redirects.
   logic [31:0] expected_fetch;
   assign expected_fetch = predicted_this ? predicted_target : (fetcher_pc + pc_inc);
 
   assign predict_resolved = issuing && predicted_this;
-  // "Mispredict" is this comparison and nothing else (ADR-0188's recorded bug was
-  // defining it as "next_pc took a non-default arm", which discards a correctly-guessed
-  // backward branch's already-fetched word along with a wrongly-guessed one).
   assign mispredict = issuing && predicted_this && (next_pc != predicted_target);
 
-  // fence.i does not redirect architecturally -- next_pc's default arm already names the
-  // following address -- but text is writable and the queue prefetches ahead of decode,
-  // so a store retired just before it can leave stale words already buffered. It is ORed
-  // in separately from the guess comparison: a fence.i's own next_pc always equals
-  // expected_fetch (nothing predicts it), so without this arm it would never flush.
+  // fence.i's own next_pc always equals expected_fetch (nothing predicts it), so it is
+  // ORed in separately -- text is writable and the queue prefetches ahead of decode, so a
+  // store retired just before it can leave stale words buffered that must still flush.
   assign redirect = issuing && ((next_pc != expected_fetch) || instr_fencei);
 
   logic committing;
@@ -864,8 +826,7 @@ module decoder #(
 
   always_comb assume(in.pc == pc);
 
-  // Assumed here, and dropped with `-noassume` where the composed proof can check it
-  // against the real fetcher.
+  // Assumed here, dropped with `-noassume` where the composed proof checks the real fetcher.
   fetcher_output prev_in;
   logic [31:0] prev_reg_rs1;
   logic        prev_issued;
