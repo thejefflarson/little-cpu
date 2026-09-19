@@ -62,7 +62,8 @@ jobs:
   test:
     name: test
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
-    timeout-minutes: 25
+    # main's last four green runs took 16/17/18/23 minutes against the old 25-minute wall; Stage A's extra probes and +27% CPI push it over (cancelled once at 25m19s).
+    timeout-minutes: 40
     steps:
       - name: Record job start
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
