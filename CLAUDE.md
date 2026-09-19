@@ -1037,21 +1037,26 @@ two 32-bit banks, and at 16 bits wide a fetch window is four SPRAMs, the whole p
 `test/asm/rvc.S`, at 12 256 bytes, still cannot run on silicon, and `soc/run_suite_board.sh`
 batches.
 
-**The configuration flash has a read-only controller, `rtl/spiflash.v`, and its own pins are not
-wired to this board** (ADR-0135). Eight bytes at `0x0002_0028`: a data register whose read gives
-`busy` in bit 8 above the byte the last exchange shifted in, and a write-only control register
-whose bit 0 is the chip select; it is a mode-0 shift register that knows no commands. `busy` sits
-beside the byte rather than in a register software writes because the reference model has plain
-memory here, and polling a stored bit would spin on Sail and compare nothing. What is wired is the
-UART's pin, and it is shared: the UPduino's pin 14 is `serial_txd` and `spi_miso` at once, so
-`soc/board_upduino.v` drives it only while pin 16, the flash's chip select, reads released —
-turn-on through a two-flop synchroniser, turn-off combinational, because a synchronised-only enable
-would drive against the flash's own driver for two clock periods (`soc/miso_share_enable.v`). That
-predicate answers "is the flash's driver off", not "is a host there" — `iceprog` parks the select
-high for most of a session — so it cannot grant the on-chip controller its own pins.
-`soc/pin_lockout.v` was built for that, ships bounded and graded standalone, and is not wired;
-`sck`, `mosi` and `cs_n` are tied off. Reaching the flash's data path owes a real-board measurement
-of that contention window first.
+**The configuration flash has a read-only controller, `rtl/spiflash.v`, and it no longer ships in
+the placed SoC at all** (ADR-0135 wired its pins nowhere on the board; ADR-0198 removes the
+controller itself from `rtl/littlesoc.v`, spending the up5k cells it cost). `test/testbench.v`
+carries the only instance that remains, so `test/asm/spiflash.S` and `spioverlay.S` still run in
+simulation against it, and `test/memmap_test.sh` states on every run that the simulated and placed
+maps now differ by this one peripheral. Eight bytes at `0x0002_0028`: a data register whose read
+gives `busy` in bit 8 above the byte the last exchange shifted in, and a write-only control
+register whose bit 0 is the chip select; it is a mode-0 shift register that knows no commands.
+`busy` sits beside the byte rather than in a register software writes because the reference model
+has plain memory here, and polling a stored bit would spin on Sail and compare nothing. What is
+wired to the board is the UART's pin, and it is shared: the UPduino's pin 14 is `serial_txd` and
+`spi_miso` at once, so `soc/board_upduino.v` drives it only while pin 16, the flash's chip select,
+reads released — turn-on through a two-flop synchroniser, turn-off combinational, because a
+synchronised-only enable would drive against the flash's own driver for two clock periods
+(`soc/miso_share_enable.v`). That predicate answers "is the flash's driver off", not "is a host
+there" — `iceprog` parks the select high for most of a session — so it never could have granted the
+on-chip controller its own pins; `soc/pin_lockout.v`, built for that, ships bounded and graded
+standalone, and is still not wired to anything. Reaching the flash's data path from the placed SoC
+now owes rebuilding the bus slot this ADR removed, on top of a real-board measurement of that
+contention window.
 
 **A transmit-only UART is the only observable output a flashed bitstream has** — eight bytes at
 `0x0002_0020`, above the timer's reservation because the four words between belong to a second

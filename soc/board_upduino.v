@@ -56,10 +56,6 @@ module upduino_top #(
     .btn_n(1'b1),
     .ledr_n(ledr_n),
     .ledg_n(ledg_n),
-    .uart_tx(uart_tx),
-    .spi_sck(),
-    .spi_mosi(),
-    .spi_miso(1'b1),
-    .spi_cs_n()
+    .uart_tx(uart_tx)
   );
 endmodule
