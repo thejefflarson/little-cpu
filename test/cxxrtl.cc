@@ -135,6 +135,7 @@ struct Args {
   bool stalls = false;
   bool console = false;
   uint32_t console_addr = 0;
+  long retire_trace = 0;
 };
 
 // Walks `ram_data` from `addr` and writes what it finds to stdout, stopping at the first
@@ -182,6 +183,10 @@ bool parse_args(int argc, char **argv, Args &args) {
       args.vcd_path = v;
     } else if (arg == "--stalls") {
       args.stalls = true;
+    } else if (arg == "--retire-trace") {
+      const char *v = next("--retire-trace");
+      if (!v) return false;
+      args.retire_trace = std::strtol(v, nullptr, 10);
     } else if (arg == "--console") {
       const char *v = next("--console");
       if (!v) return false;
@@ -192,10 +197,15 @@ bool parse_args(int argc, char **argv, Args &args) {
       return false;
     }
   }
+  if (args.retire_trace > 0 && !args.stalls) {
+    std::fprintf(stderr, "error: --retire-trace needs --stalls (it reuses that "
+                          "leg's kill/mispredict probes).\n");
+    return false;
+  }
   if (args.rom_path.empty() || args.ram_path.empty() || args.cycles <= 0) {
     std::fprintf(stderr,
                   "usage: sim --rom <hex> --ram <hex> --cycles N [--vcd out.vcd] "
-                  "[--stalls]\n");
+                  "[--stalls] [--retire-trace N]\n");
     return false;
   }
   return true;
@@ -317,6 +327,99 @@ int main(int argc, char **argv) {
     }
   }
 
+  // Last args.retire_trace retires, for a post-mortem dump on any fatal exit --
+  // the .S suite and formal both already say what a retire must look like, so
+  // this exists only to show a human the tail leading up to one that should not
+  // have happened.
+  const cxxrtl::debug_item *rvfi_valid_item = nullptr;
+  const cxxrtl::debug_item *rvfi_pc_item = nullptr;
+  const cxxrtl::debug_item *rvfi_insn_item = nullptr;
+  std::vector<std::tuple<long, uint32_t, uint32_t>> retire_ring;
+  size_t retire_ring_next = 0;
+  if (args.retire_trace > 0) {
+    try {
+      rvfi_valid_item = &all_debug_items.at("rvfi_valid").at(0);
+      rvfi_pc_item = &all_debug_items.at("rvfi_pc_rdata").at(0);
+      rvfi_insn_item = &all_debug_items.at("rvfi_insn").at(0);
+    } catch (const std::out_of_range &) {
+      std::fprintf(stderr,
+                    "error: --retire-trace needs rvfi_valid/rvfi_pc_rdata/"
+                    "rvfi_insn as top-level debug items.\n");
+      return 3;
+    }
+    retire_ring.resize((size_t)args.retire_trace, {-1, 0, 0});
+  }
+
+  // Same depth, one entry per cycle rather than per retire: the fetch-side control
+  // signals a corrupted redirect would show wrong, read whether or not the cycle issued.
+  struct CycleSnap {
+    long cycle = -1;
+    uint32_t pc = 0, next_pc = 0, fetch_pc = 0;
+    uint32_t predicted_src_pc = 0, predicted_target = 0;
+    uint32_t instr = 0, trap_cause = 0;
+    bool redirect = false, kill = false, mispredict = false;
+    bool predicted_active = false, buffer_empty = false, instr_illegal = false;
+  };
+  const cxxrtl::debug_item *dec_pc = nullptr, *dec_next_pc = nullptr;
+  const cxxrtl::debug_item *dec_redirect = nullptr, *dec_buffer_empty = nullptr;
+  const cxxrtl::debug_item *fc_fetch_pc = nullptr, *fc_predicted_active = nullptr;
+  const cxxrtl::debug_item *fc_predicted_src_pc = nullptr, *fc_predicted_target = nullptr;
+  const cxxrtl::debug_item *dec_instr = nullptr, *dec_trap_cause = nullptr;
+  const cxxrtl::debug_item *dec_instr_illegal = nullptr;
+  std::vector<CycleSnap> cycle_ring;
+  size_t cycle_ring_next = 0;
+  if (args.retire_trace > 0) {
+    try {
+      dec_pc = &all_debug_items.at("uut decoder pc").at(0);
+      dec_next_pc = &all_debug_items.at("uut decoder next_pc").at(0);
+      dec_redirect = &all_debug_items.at("uut decoder redirect").at(0);
+      dec_buffer_empty = &all_debug_items.at("uut decoder buffer_empty").at(0);
+      fc_fetch_pc = &all_debug_items.at("uut fetchctrl fetch_pc").at(0);
+      fc_predicted_active = &all_debug_items.at("uut fetchctrl predicted_active").at(0);
+      fc_predicted_src_pc = &all_debug_items.at("uut fetchctrl predicted_src_pc").at(0);
+      fc_predicted_target = &all_debug_items.at("uut fetchctrl predicted_target").at(0);
+      dec_instr = &all_debug_items.at("uut decoder instr").at(0);
+      dec_trap_cause = &all_debug_items.at("uut decoder trap_cause").at(0);
+      dec_instr_illegal = &all_debug_items.at("uut decoder instr_illegal").at(0);
+    } catch (const std::out_of_range &) {
+      std::fprintf(stderr,
+                    "error: --retire-trace needs the decoder's and fetchctrl's "
+                    "fetch-side control signals as debug items.\n");
+      return 3;
+    }
+    cycle_ring.resize((size_t)args.retire_trace);
+  }
+  auto dump_cycle_trace = [&]() {
+    if (args.retire_trace <= 0) return;
+    std::fprintf(stderr,
+                  "-- last %ld cycles (cycle pc next_pc fetch_pc redirect kill "
+                  "mispredict pred_active pred_src pred_tgt buf_empty instr "
+                  "illegal cause) --\n",
+                  args.retire_trace);
+    for (size_t i = 0; i < cycle_ring.size(); ++i) {
+      const CycleSnap &s = cycle_ring[(cycle_ring_next + i) % cycle_ring.size()];
+      if (s.cycle < 0) continue;
+      std::fprintf(stderr,
+                    "%8ld 0x%08x 0x%08x 0x%08x %d %d %d %d 0x%08x 0x%08x %d "
+                    "0x%08x %d %u\n",
+                    s.cycle, s.pc, s.next_pc, s.fetch_pc, s.redirect, s.kill,
+                    s.mispredict, s.predicted_active, s.predicted_src_pc,
+                    s.predicted_target, s.buffer_empty, s.instr,
+                    s.instr_illegal, s.trap_cause);
+    }
+  };
+  auto dump_retire_trace = [&]() {
+    if (args.retire_trace <= 0) return;
+    std::fprintf(stderr, "-- last %ld retires (cycle pc insn) --\n",
+                 args.retire_trace);
+    for (size_t i = 0; i < retire_ring.size(); ++i) {
+      const auto &[cyc, pc, insn] = retire_ring[(retire_ring_next + i) %
+                                                 retire_ring.size()];
+      if (cyc < 0) continue;
+      std::fprintf(stderr, "%8ld 0x%08x 0x%08x\n", cyc, pc, insn);
+    }
+  };
+
   uint64_t counted_cycles = 0;
   uint64_t issue_cycles = 0;
   uint64_t kill_cycles = 0;
@@ -386,8 +489,27 @@ int main(int argc, char **argv) {
   for (long cycle = 0; cycle < args.cycles; ++cycle) {
     top.p_clk.set<bool>(false);
     top.step();
-    if (args.stalls) {
+    if (args.stalls || args.retire_trace > 0) {
       top.debug_eval();
+    }
+    if (args.retire_trace > 0 && (rvfi_valid_item->curr[0] & 1) != 0) {
+      retire_ring[retire_ring_next] = {cycle, rvfi_pc_item->curr[0],
+                                        rvfi_insn_item->curr[0]};
+      retire_ring_next = (retire_ring_next + 1) % retire_ring.size();
+    }
+    if (args.retire_trace > 0) {
+      cycle_ring[cycle_ring_next] = {
+          cycle, dec_pc->curr[0], dec_next_pc->curr[0], fc_fetch_pc->curr[0],
+          fc_predicted_src_pc->curr[0], fc_predicted_target->curr[0],
+          dec_instr->curr[0], dec_trap_cause->curr[0],
+          (dec_redirect->curr[0] & 1) != 0, (kill_item->curr[0] & 1) != 0,
+          (mispredict_item->curr[0] & 1) != 0,
+          (fc_predicted_active->curr[0] & 1) != 0,
+          (dec_buffer_empty->curr[0] & 1) != 0,
+          (dec_instr_illegal->curr[0] & 1) != 0};
+      cycle_ring_next = (cycle_ring_next + 1) % cycle_ring.size();
+    }
+    if (args.stalls) {
       counted_cycles++;
       if ((mispredict_item->curr[0] & 1) != 0) mispredict_cycles++;
       if ((kill_item->curr[0] & 1) != 0) {
@@ -442,6 +564,8 @@ int main(int argc, char **argv) {
     if (errcode != 0) {
       std::fprintf(stderr, "RVFI monitor error %u at cycle %ld\n", errcode, cycle);
       report_counts();
+      dump_retire_trace();
+      dump_cycle_trace();
       return 4;
     }
 
@@ -451,6 +575,8 @@ int main(int argc, char **argv) {
                     "never installed and the program has restarted at _start\n",
                     cycle);
       report_counts();
+      dump_retire_trace();
+      dump_cycle_trace();
       return 5;
     }
 
@@ -467,5 +593,7 @@ int main(int argc, char **argv) {
   }
 
   std::printf("TIMEOUT\n");
+  dump_retire_trace();
+  dump_cycle_trace();
   return finish(2);
 }

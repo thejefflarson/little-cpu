@@ -34,6 +34,14 @@ module fetchctrl (
   logic [31:0] stolen_pc;
   logic        fetch_stall_d1;
   logic        fetch_odd;
+  // Unconditionally one cycle behind fetch_pc, with no redirect/retry exception --
+  // the ROM's own one-cycle latency, restated so a candidate is always checked
+  // against the pair imem_data2 actually holds. stolen_pc cannot serve this: its
+  // redirect_apply arm catches up to the new fetch_pc immediately, a cycle before
+  // that address's own data arrives, and a candidate read against imem_data2 in
+  // that gap was reading a different, unrelated pair's bits (fourth corruption).
+  logic [31:0] fetch_addr_d1;
+  logic        predict_commit_d1;
 
   logic [15:0] lane0, lane1, lane2, lane3;
   assign lane0 = imem_data[15:0];
@@ -54,7 +62,7 @@ module fetchctrl (
   assign boundary4 = (boundary2 && lane2_wide) || (boundary3 && !lane3_wide);
 
   logic [31:0] pair_base;
-  assign pair_base = {stolen_pc[31:2], 2'b00};
+  assign pair_base = {fetch_addr_d1[31:2], 2'b00};
 
   logic cand_a_eligible, cand_b_eligible;
   assign cand_a_eligible = boundary2 && lane2_wide;
@@ -91,7 +99,7 @@ module fetchctrl (
   logic predict_found, fetch_odd_next;
   logic [31:0] predict_src, predict_tgt;
   // Computed, not spent: see the ADR for the bisection and what a follow-up owes.
-  assign predict_found = 1'b0;
+  assign predict_found = cand_a_jal && !cand_a_same_pair;
   assign predict_src   = cand_a_taken ? (pair_base + 32'd4) : (pair_base + 32'd6);
   assign predict_tgt   = cand_a_taken ? cand_a_target : cand_b_target;
   assign fetch_odd_next = !boundary4;
@@ -100,6 +108,17 @@ module fetchctrl (
   assign flush = redirect_apply || redirect_apply_d1;
   assign launch = redirect_apply || room;
   assign buffer_empty = !q_valid || redirect_apply;
+
+  // predict_found alone is a pulse over whatever pair imem_data2 currently shows,
+  // never checked against whether that pair is the one this cycle's queue push (if
+  // any) is actually for. On the cycle a genuine response lands (req_valid), the
+  // two agree and the guess is real; on every other cycle -- most importantly the
+  // one right after a guess commits, when imem_data2 is still the abandoned pair's
+  // successor and hasn't caught up to the guessed target yet -- they can disagree,
+  // and trusting predict_found there was the fourth corruption (see the ADR).
+  logic predict_trusted, predict_commit;
+  assign predict_trusted = req_valid && predict_found;
+  assign predict_commit  = !redirect_apply && !fetch_stall && room && predict_trusted;
 
   fetchqueue fq (
     .clk(clk),
@@ -134,11 +153,19 @@ module fetchctrl (
       predicted_src_pc    <= 32'b0;
       predicted_target    <= 32'b0;
       fetch_odd           <= 1'b0;
+      fetch_addr_d1        <= 32'b0;
+      predict_commit_d1   <= 1'b0;
     end else begin
       redirect_apply_d1 <= redirect_apply;
       redirect_apply    <= redirect;
       redirect_target_reg <= redirect_target;
-      waiting        <= fetch_stall ? 1'b1 : launch;
+      fetch_addr_d1     <= fetch_pc;
+      predict_commit_d1 <= predict_commit;
+      // A committed guess abandons whatever request is already in flight for the
+      // guessed-past pair's own sequential successor (launched a cycle earlier,
+      // before the guess was known); !predict_commit drops that one response
+      // rather than queuing it behind the guessed target's real words.
+      waiting        <= fetch_stall ? 1'b1 : (launch && !predict_commit);
       fetch_stall_d1 <= fetch_stall;
       // Cleared off buffer_empty, not q_valid: q_valid still reads true for one cycle after a
       // redirect before flush's zeroing lands.
@@ -146,13 +173,15 @@ module fetchctrl (
       else if (!buffer_empty) redirect_recovering <= 1'b0;
       if (redirect_apply) predicted_active <= 1'b0;
       else if (predict_resolved) predicted_active <= 1'b0;
-      else if (predict_found) begin
+      else if (predict_trusted) begin
         predicted_active <= 1'b1;
         predicted_src_pc <= predict_src;
         predicted_target <= predict_tgt;
       end
-      if (redirect_apply) fetch_odd <= redirect_target_reg[1];
-      else if (req_valid && predict_found) fetch_odd <= predict_tgt[1];
+      // fetch_pc already holds the jump target by the cycle its own pair's data
+      // arrives (redirect_apply_d1/predict_commit_d1), so reading it here needs no
+      // separate copy of redirect_target_reg/predict_tgt held over the extra cycle.
+      if (redirect_apply_d1 || predict_commit_d1) fetch_odd <= fetch_pc[1];
       else if (req_valid) fetch_odd <= fetch_odd_next;
       if (redirect_apply) begin
         fetch_pc  <= redirect_target_reg;
@@ -163,8 +192,8 @@ module fetchctrl (
         stolen_pc <= fetch_pc;
         // room gates a guessed launch exactly like a sequential one: dropping it here let a
         // candidate found while the queue was full launch anyway, silently losing the correct
-        // continuation address once room did free up (fourth Dhrystone-scale corruption).
-        if (room) fetch_pc <= predict_found ? predict_tgt : fetch_pc + 32'd8;
+        // continuation address once room did free up.
+        if (room) fetch_pc <= predict_trusted ? predict_tgt : fetch_pc + 32'd8;
       end
     end
   end
