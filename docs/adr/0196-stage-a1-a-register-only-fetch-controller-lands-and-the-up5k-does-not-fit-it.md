@@ -1,7 +1,8 @@
 # 0196 — Stage A1's register-only fetch controller lands, correct and proven, and the up5k does not fit it
 
 Status: Accepted for the mechanism; the up5k area result is a named kill criterion, hit and
-reported rather than absorbed. 2026-09-18.
+reported rather than absorbed. The depth-2 skid named as the recovery was attempted and is
+abandoned with a proven counterexample, not shipped disabled -- see the addendum. 2026-09-18.
 
 ## What this is
 
@@ -308,27 +309,70 @@ it.** `rtl/fetchqueue2.v` is a from-scratch two-word skid (no head pointer, no a
 output mux" exactly as the brief names it) behind a new `fetchctrl`/`littlecpu` parameter
 (`SHALLOW_QUEUE`/`SHALLOW_FETCH_QUEUE`, off by default -- the shipping configuration is untouched
 and re-confirmed 75/75, clean `lint`/`elaborate-strict`, and `make fit` unmoved within the churn
-band after this refactor). Building it found two real bugs, of which only the first is fixed:
+band after this refactor). Building it found two real bugs. **The second is a fundamental property
+of the "no output mux, two total slots" design as specified, not an implementation slip, and it is
+where this attempt stops.**
 
-1. **A hard deadlock**, not merely a slowdown. Depth-2's `q_valid` first attempt copied
+1. **A hard deadlock**, not merely a slowdown, fixed. Depth-2's `q_valid` first attempt copied
    depth-4's own `cnt >= 2` (both words present) -- correct at depth 4, where consuming one word
    still leaves the queue above that threshold, but at depth 2 the very first word popped from a
    full pair drops `q_valid` to false immediately, which stalls decode, which is the only thing
    that ever pops the second word. The queue can never drain past one word and never reopens
-   room. Fixed: a word crossing only ever lands decode exactly at a word boundary, so the word it
-   reaches immediately after one is never itself a straddle into the not-yet-fetched next pair --
-   one live word is enough to proceed, and gating on both is what deadlocks. `q_valid` is `cnt !=
-   0` in `rtl/fetchqueue2.v`, not `cnt == 2`. This alone took the suite from every program timing
-   out to `simple.S` passing and most others reaching `TRAP-TO-ZERO` instead -- forward progress,
-   not yet correctness.
-2. **A second, unresolved bug** causes most of the suite (all but `simple.S` in a quick check) to
-   fetch wrong content and trap. `$display` tracing added to `rtl/fetchctrl.v` produced no output
-   under cxxrtl (a `translate_off`-guarded block yosys warns about but this session did not
-   confirm actually executes in a `write_cxxrtl` build), and this session's time ran out before
-   switching to the iverilog leg, which is four-state and has never silently dropped a `$display`
-   here. **Not fixed.** `rtl/fetchqueue2.v` and the `SHALLOW_QUEUE` parameter ship disabled by
-   default, the same standing ADR-0189's `NANO_LATCH_RF` had before its own formal gap closed:
-   built, one real defect found and fixed, a second named and left for whoever picks this back up,
-   never the default. Measuring area or timing against a design that does not run correctly would
-   be reporting a number about nothing; the stop-and-report checkpoint this step was written for is
-   this defect, not a placement result.
+   room. A word crossing only ever lands decode exactly at a word boundary, so the *first*
+   instruction reached immediately after one is never itself a straddle into the not-yet-fetched
+   next pair -- one live word is enough to proceed there. `q_valid` became `cnt != 0`. This alone
+   took the suite from every program timing out to `simple.S` passing and most others reaching
+   `TRAP-TO-ZERO` instead.
+
+2. **A proven, reproducible content-corruption bug, confirmed on the iverilog leg with a concrete
+   counterexample, and not fixed because the design as specified cannot be fixed without
+   reintroducing what "no output mux" was trying to avoid.** The "one live word is enough" argument
+   above is true for the *first* instruction after a crossing but false for the *second* one, and
+   the coordinator was right to ask for the proof rather than accept the code: after a pop slides
+   the surviving word into `mem0` (`cnt` 2 -> 1), `mem1` is not cleared -- it still holds `mem0`'s
+   own former content, a stale duplicate, because nothing can refill it until `cnt` reaches 0 and a
+   fresh pair lands (the queue has exactly two physical slots and a push always fills both, so
+   there is no room for "one old word plus a fresh pair" at once). If the *first* instruction
+   inside the slid word is compressed, decode reaches a *second* instruction at the odd halfword of
+   that same word while `cnt` is still 1 -- and if that second instruction is uncompressed, it
+   straddles into `mem1` for its own upper 16 bits, reading the stale duplicate instead of the
+   genuinely next word.
+   **Reproduced on `add.S`'s own first three words** (`rtl/fetchqueue2.v` behind
+   `SHALLOW_FETCH_QUEUE`, iverilog leg, `$display` on `fetchctrl`'s internal state every cycle):
+   word0 = `0x40814181` (two compressed `li`s, filling the word exactly, so no pop occurs inside
+   it), word1 = `0x87334101` (`li sp,0` compressed at the low half, the low half of an uncompressed
+   `add` at the high half), word2 = `0x20008144` (the upper half of that `add`, the word the
+   straddle genuinely needs). Traced signal values:
+   ```
+   pc=0 cnt=2 q0=40814181 q1=87334101   -- fresh pair, both words valid
+   pc=4 cnt=1 q0=87334101 q1=87334101   -- popped once; q1 is a STALE COPY of q0, not word2
+   pc=6 cnt=1 q0=87334101 q1=87334101   -- the straddling `add` reads q1[15:0]=4101 here,
+                                             not word2's correct 8144
+   ```
+   The instruction decoded at `pc=6` is `{q1[15:0], q0[31:16]} = 0x41018733` instead of the correct
+   `0x20008733` (`add a4,ra,sp`) -- a different instruction entirely, which is what turns into
+   `TRAP-TO-ZERO` a few cycles later on the real program.
+
+   **Why this cannot be patched without giving up "no output mux."** Fixing it needs `mem1`
+   refreshed with the genuinely next word while `mem0` is still resident and still needed (its
+   upper half is the straddling instruction's own low 16 bits) -- a "top up just the empty slot"
+   push, distinct from the queue's only push mode (fill both slots from a flushed-empty state).
+   That needs either a third physical slot (at which point this is depth-4's own array-based
+   design at depth 3, not the "no output mux" shape at all, and still needs a head-selecting mux),
+   or a new partial-push mode that fetches a redundant pair and discards its own low word -- real,
+   new logic, not the simplification the brief named. Neither is "no output mux, work shifted
+   toward D," and this session did not build either given the time available and the risk of
+   shipping a second unverified mechanism under the same time pressure that let the first bug
+   through review. **`rtl/fetchqueue2.v` and the `SHALLOW_QUEUE`/`SHALLOW_FETCH_QUEUE` parameters
+   are removed rather than shipped disabled**: unlike ADR-0189's `NANO_LATCH_RF`, which is racy
+   only under a stress the shipping design never hits, this is wrong on the *first* program in the
+   suite that happens to pair a word-filling compressed instruction with a following straddle, and
+   a known-broken module behind an off-by-default parameter is not a state to leave in the tree.
+
+**No area or timing number is reported for the skid.** A depth-3, array-based redesign (reusing
+`rtl/fetchqueue.v`'s own head/tail mechanism at three slots instead of four, which the corrected
+argument above shows has room for "one old word plus a fresh pair" and so does not hit this bug) is
+a plausible next avenue, but it needs a mux the brief's "no output mux" phrasing did not budget
+area for, and would save proportionally less than the ~100 LC estimated for a true depth-2 (a
+25%-smaller array against a 50%-smaller one) -- likely not enough against the SoC's measured
+241+-cell shortfall on its own. Untried here; named for whoever picks this back up next.

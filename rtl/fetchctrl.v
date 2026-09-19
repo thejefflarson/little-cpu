@@ -6,12 +6,7 @@
 // after that, so two responses already in flight when the redirect fires are wrong-path
 // and must never reach the queue -- flush stays asserted for both of those cycles, not
 // just the one the redirect is captured in.
-module fetchctrl #(
-  // The up5k area fallback named alongside the depth-4 queue: rtl/fetchqueue2.v holds
-  // exactly one word pair, no head pointer, no array index. Off by default; measured
-  // standalone, never mixed with a depth-4 figure.
-  parameter bit SHALLOW_QUEUE = 1'b0
-) (
+module fetchctrl (
   input  logic         clk,
   input  logic         reset,
   // Decode's own redirect decision and target, both combinational this cycle.
@@ -53,45 +48,23 @@ module fetchctrl #(
   assign launch = redirect_apply || room;
   assign buffer_empty = !q_valid || redirect_apply;
 
-  generate
-    if (SHALLOW_QUEUE) begin : l_shallow_queue
-      fetchqueue2 fq (
-        .clk(clk),
-        .reset(reset),
-        .flush(flush),
-        .req_valid(req_valid),
-        .imem_data(imem_data),
-        .imem_data2(imem_data2),
-        .imem_fault(imem_fault),
-        .pop(pop),
-        .q0(q0),
-        .q0_fault(q0_fault),
-        .q1(q1),
-        .q1_fault(q1_fault),
-        .q_valid(q_valid),
-        .count(queue_count),
-        .room(room)
-      );
-    end else begin : l_deep_queue
-      fetchqueue fq (
-        .clk(clk),
-        .reset(reset),
-        .flush(flush),
-        .req_valid(req_valid),
-        .imem_data(imem_data),
-        .imem_data2(imem_data2),
-        .imem_fault(imem_fault),
-        .pop(pop),
-        .q0(q0),
-        .q0_fault(q0_fault),
-        .q1(q1),
-        .q1_fault(q1_fault),
-        .q_valid(q_valid),
-        .count(queue_count),
-        .room(room)
-      );
-    end
-  endgenerate
+  fetchqueue fq (
+    .clk(clk),
+    .reset(reset),
+    .flush(flush),
+    .req_valid(req_valid),
+    .imem_data(imem_data),
+    .imem_data2(imem_data2),
+    .imem_fault(imem_fault),
+    .pop(pop),
+    .q0(q0),
+    .q0_fault(q0_fault),
+    .q1(q1),
+    .q1_fault(q1_fault),
+    .q_valid(q_valid),
+    .count(queue_count),
+    .room(room)
+  );
 
   always_ff @(posedge clk) begin
     if (reset) begin
