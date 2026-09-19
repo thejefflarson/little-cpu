@@ -146,13 +146,48 @@ This is the control for "the redefinition changes nothing when nothing is guesse
 Dhrystone's issues as mispredicts and 3.00 cycles/redirect is A2's own already-measured kill cost;
 neither figure moves here because the mechanism that would spend them is switched off.
 
-`make lint`: clean, both passes. `make elaborate-strict`: clean. `make fit`: unchanged from A2 to
-within its own churn band — the predictor's logic is present but every output of
-`assign predict_found = 1'b0;`'s cone folds before mapping, the same as any other tied-off branch
-CLAUDE.md's own measurements already describe. `make ecp5-timing`/`make soc-timing`: not
-separately re-taken here; A2's own SoC does not place on the up5k for a reason this ticket does
-not touch (`rtl/fetchctrl.v`'s own area is unchanged in shape, only in what its unused cone costs
-before synthesis removes it), and Stage A's own placement question is still Stage B's to answer.
+`make lint`: clean, both passes. `make elaborate-strict`: clean.
+
+`make -C formal all`: **100 PASS, 0 FAIL** — the generated set (86 checks, `[depth]` floors F=8/G=8,
+all 86 at or above theirs, `EXPECTED_CHECKS` matches exactly), `complete`/`complete_cover`,
+`imemcheck`/`dmemcheck`, and all six component proofs by k-induction (`components_decoder` with
+its two Zkt probes, `components_executor`, `components_accessor`, `components_pcloop`,
+`components_traps` with both its region and tval probes, `components_busarbiter`).
+
+`make cosim-suite`: 69/75 agree; the divergence list matches `test/COSIM_EXPECTED_FAIL` exactly —
+unchanged from A2, since nothing about what co-sim can and cannot see moved.
+
+`make mutation-check`: 11 mutations, every one caught by exactly its paired detectors; `rtl/`
+restored cleanly afterward (`git status` clean).
+
+`make dual-smoke`: OK — two harts counted 32, one hart (held in reset) counted 16.
+
+`make fit`: **4732 of 5280 `ICESTORM_LC`** (89%), +52 against the 4680 the Makefile's own comment
+cites (inside the churn band), ratchet `FIT_MAX_LC` 4802 not tripped. This is not a pure null: the
+alignment-tracking machinery (`fetch_odd`, the four-lane boundary walk) runs on every accepted
+pair regardless of `predict_found`, since `fetch_odd`'s own next state depends on it unconditionally
+— only the candidate-to-`fetch_pc` mux is dead code with `predict_found` tied low, not the walk that
+would feed it. `make ecp5-timing`/`make soc-timing`: not separately re-taken here; A2's own SoC
+does not place on the up5k for a reason this ticket does not touch, and Stage A's own placement
+question is still Stage B's to answer.
+
+**CoreMark**, `make coremark`: **1.712 CoreMark/MHz**, `Total ticks 58399413`, `Iterations 100`,
+self-check PASS, 2K validation configuration PASS. Not compared against a prior Stage-A figure —
+neither ADR-0196 nor ADR-0198 measured CoreMark — but consistent with the Dhrystone control: since
+`predict_found` is tied low, this is what A1/A2's own CoreMark figure already is.
+
+**The cycle-by-cycle mispredict breakdown the ticket asks for has no live guess to trace**: with
+`predict_found` tied to `1'b0`, `predicted_active` never rises, so no waveform of the shipped
+binary shows one. The closest available evidence is `test/decoder_tb.v`'s three hand-driven
+vectors, which exercise `rtl/decoder.v`'s own mispredict logic directly: cycle N presents the
+guessed instruction with `predicted_active`/`predicted_src_pc`/`predicted_target` already set;
+`next_pc`, `redirect`, `mispredict` and `predict_resolved` are combinational off that same cycle,
+so a correct guess resolves with `redirect=0`/`mispredict=0` and a wrong one with both `1`, on the
+identical cycle decode issues the branch — there is no separate "kill" cycle to trace in decode
+itself, since `kill` is `rtl/fetchctrl.v`'s own accounting for the cycles *after* that redirect
+while the queue refills (`buffer_empty && redirect_recovering`), which A2's own 3.00
+cycles/redirect figure already measured. A real trace of a live mispredict needs the predictor
+re-enabled, which this ADR declines to do for a diagnostic screenshot given the unfound fourth bug.
 
 ## Consequences
 
