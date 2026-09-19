@@ -98,7 +98,11 @@ module fetchctrl (
 
   logic predict_found, fetch_odd_next;
   logic [31:0] predict_src, predict_tgt;
-  // Computed, not spent: see the ADR for the bisection and what a follow-up owes.
+  // jal only: cand_a_taken's branch half and candidate B are still computed
+  // (predict_src/predict_tgt's own ternaries) but unreachable here. Either one
+  // reproduces a real, distinct bug from the fourth corruption this gate fixed --
+  // a livelock, millions of excess retires with zero recorded mispredicts over a
+  // Dhrystone run ten times its own cycle budget -- not yet root-caused. See the ADR.
   assign predict_found = cand_a_jal && !cand_a_same_pair;
   assign predict_src   = cand_a_taken ? (pair_base + 32'd4) : (pair_base + 32'd6);
   assign predict_tgt   = cand_a_taken ? cand_a_target : cand_b_target;
