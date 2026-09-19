@@ -1,11 +1,9 @@
 // The fetcher, the decoder and the CSR file, wired together the way rtl/littlecpu.v wires
-// them, so that mtvec, mepc, mcause and mstatus are real registers rather than free
-// inputs.
+// them, so that mtvec, mepc, mcause and mstatus are real registers rather than free inputs.
 `default_nettype none
 
 module traps #(
-    // The data bus's map: the addresses at which some memory on it answers a plain load
-    // or store.
+    // The data bus's map: the addresses some memory on it answers a plain load or store at.
     parameter integer      LS_TEXT_WORDS = 2048,
     parameter logic [31:0] LS_RAM_BASE   = 32'h0001_0000,
     parameter integer      LS_RAM_WORDS  = 16384,
@@ -21,13 +19,12 @@ module traps #(
     input logic [31:0] reg_rs2,
     input executor_output executor_out,
     input logic divider_stall,
-    // Free, like everything else not instantiated here: this harness models no queue, so
-    // whether the (nonexistent) buffer would be empty is left to the solver.
+    // Free: this harness models no queue, so a buffer's emptiness is left to the solver.
     input logic buffer_empty,
-    // Free, like the other two: a hart waiting for the shared bus issues nothing, so no
-    // trap is committed on that cycle either.
+    // Free too: a hart waiting for the shared bus issues nothing, so no trap commits then.
     input logic bus_wait,
-    // Free, like everything else not instantiated here.
+    // Free, but coupled to fetcher_out below: rtl/fetchqueue.v answers a fault bit out of
+    // the same slot its word comes from, so the two hold or move together.
     input logic imem_fault,
     // The platform's answer about the address an atomic in decode would use.
     input logic atomic_supported,
@@ -47,9 +44,8 @@ module traps #(
   logic [31:0] csr_wdata, csr_rdata;
   logic        csr_implemented;
   logic        trap_entry, mret_entry;
-  // Unread here, and declared anyway: an output connected to an undeclared identifier is
-  // an implicit net, which `default_nettype none` makes an error in iverilog and a
-  // warning in yosys.
+  // Unread here, and declared anyway: an output wired to an undeclared identifier is an
+  // implicit net, which `default_nettype none` turns into an iverilog error.
   logic        bus_request;
   logic [31:0] trap_cause, trap_epc, trap_tval;
   logic [31:0] mtvec_value, mepc_value;
@@ -165,7 +161,6 @@ module traps #(
   always_comb if (!clocked) assume(reset);
   always_comb if (clocked) assume(!reset);
 
-  // Build every guard from this module's own signals.
   logic [31:0] instr;
   assign instr = (fetcher_out.instr[1:0] == 2'b11) ? fetcher_out.instr
                                                    : {16'b0, fetcher_out.instr[15:0]};
@@ -176,9 +171,8 @@ module traps #(
   assign opcode = instr[6:2];
   assign funct3 = instr[14:12];
 
-  // `issuing` is not a port, but it is exactly this: the decoder counts a retired
-  // instruction on every cycle it issues one that does not trap, and raises trap_entry on
-  // every cycle it issues one that does.
+  // `issuing` is not a port: the decoder counts a retire on a non-trapping issuing cycle
+  // and raises trap_entry on a trapping one, so it is exactly the OR of those two.
   logic issuing;
   assign issuing = instret || trap_entry;
 
@@ -187,15 +181,20 @@ module traps #(
 
   logic [31:0] prev_reg_rs1;
   fetcher_output prev_fetcher_out;
+  logic        prev_held_imem_fault;
   logic        prev_issuing;
   always_ff @(posedge clk) begin
-    prev_reg_rs1     <= reg_rs1;
-    prev_fetcher_out <= fetcher_out;
-    prev_issuing     <= issuing || reset;
+    prev_reg_rs1         <= reg_rs1;
+    prev_fetcher_out     <= fetcher_out;
+    prev_held_imem_fault <= imem_fault;
+    prev_issuing         <= issuing || reset;
   end
+  // A non-issuing cycle re-presents the same buffered word, so its fault answer -- read
+  // out of the same slot -- can no more move than fetcher_out's own fields can.
   always_comb if (clocked && !reset && !prev_issuing) begin
     assume(reg_rs1 == prev_reg_rs1);
     assume(fetcher_out == prev_fetcher_out);
+    assume(imem_fault == prev_held_imem_fault);
   end
 
   logic [31:0] i_immediate, s_immediate;

@@ -1964,7 +1964,7 @@ with open(os.path.join(cfgname, name), "w") as f:
 PY
 
 probe "a generated .sby whose depth drifted from what the core's sweep asked for is refused, not read anyway" 1 \
-  "not the 3 this row swept" \
+  "not the 5 this row swept" \
   "$RFG_MAIN && python3 remeasure-fg.py --genchecks '$tmp/fake-genchecks-main.py'; rc=\$?; rm -rf '$REPO/formal/fg-probe' '$REPO/formal/fg-probe.cfg'; exit \$rc"
 
 cat > "$tmp/fake-genchecks-main-reset.py" <<'PY'
@@ -2008,14 +2008,15 @@ mutate "$d/remeasure-fg.py" 's/^BELOW, ABOVE = 3, 3$/BELOW, ABOVE = 2, 1/'
 mkdir -p "$tmp/bin-sby-narrow"
 cat > "$tmp/bin-sby-narrow/sby" <<'STUB'
 #!/bin/sh
-# Stands in for sby: FAILs until the swept RISCV_FORMAL_CHECK_CYCLE reaches 8, standing in
-# for a flip point that moved three cycles past what remeasure-fg.py declares.
+# Stands in for sby: FAILs until the swept RISCV_FORMAL_CHECK_CYCLE reaches 11 (the
+# declared F=8, +3), standing in for a flip point that moved three cycles past what
+# remeasure-fg.py declares.
 sby_file=$2
 out=$(dirname "$sby_file")
 check=$(basename "$sby_file" .sby)
 mkdir -p "$out/$check"
 cycle=$(grep -o 'RISCV_FORMAL_CHECK_CYCLE [0-9]*' "$sby_file" | head -1 | awk '{print $2}')
-if [ "$cycle" -ge 8 ]; then
+if [ "$cycle" -ge 11 ]; then
   echo "PASS 2 0" > "$out/$check/status"
 else
   echo "FAIL 2 0" > "$out/$check/status"
@@ -6396,30 +6397,30 @@ MCD="python3 $REPO/formal/check-memcheck-depth.py"
 mcd_fixture() {  # $1 = depth  $2 = cover depth, defaults to $1
   local d; d=$(new_case)
   fixture_anchor "$REPO/formal/checks.cfg" \
-    '#derive F 6  worst-case first retire, swept out of `hang`'
+    '#derive F 8  worst-case first retire, swept out of `hang`'
   fixture_anchor "$REPO/formal/checks.cfg" \
-    '#derive G 6  worst-case gap between two retires, swept out of `liveness`'
+    '#derive G 8  worst-case gap between two retires, swept out of `liveness`'
   cat > "$d/checks.cfg" <<CFG
 [depth]
-#derive F 6  worst-case first retire, swept out of \`hang\`
-#derive G 6  worst-case gap between two retires, swept out of \`liveness\`
+#derive F 8  worst-case first retire, swept out of \`hang\`
+#derive G 8  worst-case gap between two retires, swept out of \`liveness\`
 CFG
   printf '[options]\ndepth %s\n' "$1" > "$d/dmemcheck.sby"
   printf '[options]\ndepth %s\n' "${2:-$1}" > "$d/dmemcheck_cover.sby"
   printf '%s' "$d"
 }
 
-d=$(mcd_fixture 14)
+d=$(mcd_fixture 18)
 probe "control: a depth exactly at the floor passes" 0 \
-  "depth 14 >= F+G+2 = 14 (F=6, G=6)" "$MCD $d dmemcheck.sby 2"
+  "depth 18 >= F+G+2 = 18 (F=8, G=8)" "$MCD $d dmemcheck.sby 2"
 
-d=$(mcd_fixture 13)
+d=$(mcd_fixture 17)
 probe "a depth one below the floor is red, naming F and G" 1 \
-  "depth 13 is below F+G+2 = 14 (F=6, G=6)" "$MCD $d dmemcheck.sby 2"
+  "depth 17 is below F+G+2 = 18 (F=8, G=8)" "$MCD $d dmemcheck.sby 2"
 
-d=$(mcd_fixture 8)
+d=$(mcd_fixture 10)
 probe "control: a one-retire floor is F+2, not F+G+2" 0 \
-  "depth 8 >= F+2 = 8 (F=6, G=6)" "$MCD $d dmemcheck.sby 1"
+  "depth 10 >= F+2 = 10 (F=8, G=8)" "$MCD $d dmemcheck.sby 1"
 
 d=$(new_case)
 probe "a harness directory with no checks.cfg is named, not measured as empty" 1 \
@@ -6439,15 +6440,15 @@ probe "a <retires> argument that is not 1 or 2 is refused" 2 \
 
 probe "wrong argument count is exit 2" 2 "usage:" "$MCD onearg"
 
-d=$(mcd_fixture 14 15)
+d=$(mcd_fixture 18 19)
 probe "a cover .sby deeper than its bmc sibling is red, not a deeper proof" 1 \
-  "depth 15 does not match" "$MCD $d dmemcheck.sby 2"
+  "depth 19 does not match" "$MCD $d dmemcheck.sby 2"
 
-d=$(mcd_fixture 14); rm "$d/dmemcheck_cover.sby"
+d=$(mcd_fixture 18); rm "$d/dmemcheck_cover.sby"
 probe "a memcheck with no cover sibling has an untied depth, and is red" 1 \
   "does not exist, so its anti-vacuity depth is untied" "$MCD $d dmemcheck.sby 2"
 
-d=$(mcd_fixture 14); printf '[options]\nmode cover\n' > "$d/dmemcheck_cover.sby"
+d=$(mcd_fixture 18); printf '[options]\nmode cover\n' > "$d/dmemcheck_cover.sby"
 probe "a cover .sby with no depth line is untied the same way its bmc sibling is" 1 \
   "declares no \`depth NNN\` line" "$MCD $d dmemcheck.sby 2"
 

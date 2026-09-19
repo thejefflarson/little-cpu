@@ -172,8 +172,7 @@ module decoder_tb;
     #1;
     reset = 0;
 
-    // xori x1, x2, -1 => imm=0xfff (sign -1), rs1=x2, funct3=100, rd=x1, opcode=0010011
-    // (I-type math-immediate).
+    // xori x1, x2, -1 => imm=0xfff (sign -1), rs1=x2, funct3=100, rd=x1, I-type math-immediate.
     in.instr = 32'hfff14093;
     in.pc = 32'h0;
     #1;
