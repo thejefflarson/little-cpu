@@ -150,6 +150,7 @@ jobs:
           with open("src/config_merged.json") as f:
               config = json.load(f)
           config["SYNTH_STRATEGY"] = strategy
+          config["CLOCK_PERIOD"] = 24.0
           if os.environ["NANO_TT_DISALLOW_CONGESTION"] == "1":
               config["GRT_ALLOW_CONGESTION"] = 0
           if os.environ["NANO_TT_REGFILE"] == "latches":
