@@ -133,68 +133,72 @@ already-fully-assembled register with a stale extra nibble; a missing
 read-modify-write path for partial-word stores (see above); and a wraparound-unsafe
 formal invariant (see invariant 3, above).
 
-**A sixth issue was found, root-caused, and is being fixed against a graded regression
-test rather than by inspection.** It is a real bug in the controller, not in the
-pin-level model -- confirmed by reproducing it with no nano.v involved, across three
-independently-timed testbench synchronization patterns, all giving the identical
-corruption signature, which rules out a testbench race as the cause.
+**A sixth issue was found. The first diagnosis of it was wrong, and named the controller;
+the real bug is in the pin-level test models, and the controller's pause/resume protocol
+is correct.** Getting this backwards once is worth stating plainly, because a reader who
+trusted the earlier text here would go fix a controller that was never broken.
 
-**The mechanism.** `nano_qspi_ctrl` detects "the parcel's 4th nibble was just captured"
-one cycle *after* the capture itself, on the following `sio_phase == 1` decrement-check
-cycle -- not at the capture. That decision cycle costs one more SCK half-period than the
-data needs: the 4th nibble was already fully captured the cycle before. When the stream
-is going to keep running, that extra half-period is put to use -- its trailing falling
-edge is exactly what pre-positions the flash at the next parcel's first nibble, and the
-very next capture consumes that position immediately. When the stream is about to
-*pause* (the prefetch queue is filling), the same trailing falling edge still happens --
-SCK must return to its idle-low level regardless -- but nothing is left running to
-consume the resulting advance before the clock freezes. A real QSPI slave has no way to
-tell "one more real bit" from "the master is just idling the clock": it advances its
-internal bit position on every falling edge it sees, full stop. So the flash ends up one
-nibble-position ahead of where `nano_qspi_ctrl`'s own `stream_next_addr` bookkeeping
-assumes it is, and the next resume samples the wrong nibble as its first one.
+**The real mechanism: two independent one-clock bugs in
+`nano/tb/nano_qspi_flash_model.v`, each invisible alone, that stop cancelling exactly
+where a pause exposes them.** Both reacted to a clk-registered copy of `sck`
+(`sck_rise`/`sck_fall` compared against a `posedge clk`-sampled `sck_d`) rather than to
+`sck` itself, which is one real clock late launching an output -- harmless for *sampling*
+an input, since the controller doesn't read `sio_captured` until well after the edge
+either way, but wrong for an edge the model itself must react to in time. That lateness
+hid a second bug: `dummy_left <= DUMMY_SCK` loaded on the mode byte's own *rising* edge,
+while the dummy countdown runs on *falling* edges, so the very next fall -- the mode
+byte's own, not a dummy one -- was spent as dummy cycle one, and `DUMMY_SCK` bought only
+`DUMMY_SCK - 1` real dummy clocks. While SCK free-runs, being a clock late and starting
+one clock short cancel: the model's output timing and the controller's own sampling stay
+aligned by accident. A pause freezes SCK. The one-clock-late reaction stops mattering (there
+is nothing left to react to), but the short dummy count does not un-happen -- it already
+consumed one real edge the controller's own accounting did not spend, so the flash is left
+one nibble position ahead of where the controller assumes it is. That is exactly the
+"trailing falling edge" the earlier text blamed on the controller: it is real, it is
+load-bearing (a continuing stream's own next capture consumes it), and removing it -- which
+is what the first, reverted fix attempt did -- breaks a correct controller instead of fixing
+a broken model. That also explains that attempt's own second regression: forcing the
+completion decision one cycle earlier fought a protocol that did not need fighting.
+
+**The decisive test:** with `nano/qspi.v` completely untouched, a copy of the flash model
+that reacts to the real `sck` edges (`@(posedge sck)` for the command/address/mode bytes,
+`@(negedge sck)` for the dummy countdown and the nibble advance) and loads
+`DUMMY_SCK + 1` makes all four chained fetches in the reproduction below PASS. Both
+changes are needed together -- fixing the dummy count alone, still reacting a clock late,
+makes the corruption worse, not better. `nano/tb/nano_qspi_psram_model.v` carries the
+identical pair of bugs (a clk-registered edge comparison, a dummy count loaded one short
+on the address's own rising edge) and is fixed the same way, but the PSRAM read path
+never pauses mid-transfer, so nothing in this tree exercises the defect there; a real
+part would show it under a pause this controller does not currently issue.
 
 **What the three proofs do not cover, and why this slipped past them.** All three proved
 invariants -- CS mutual exclusion, the PSRAM CS-low bound, and the prefetch buffer's
 address-tag contiguity -- are properties of the controller's *own* state bookkeeping.
 None of them says the bytes arriving off the wire are the bytes the flash actually sent;
 that is a claim about an external device's behavior, which a proof confined to the
-controller's own signals structurally cannot make. The isolated ten-scenario protocol
-test also missed it, for a narrower reason: it never chains two "fetch_hit0 &&
-!queue_full" resumes back to back (an uncompressed instruction's second parcel,
-immediately followed by another uncompressed instruction's own second-parcel need) --
-the specific pattern that exposes the drift, which `loadstore.S` happens to hit and the
-hand-written scenarios happened not to.
+controller's own signals structurally cannot make -- and in this case the external
+device was the thing actually wrong. The isolated ten-scenario protocol test missed it
+for a narrower, separate reason: it never chains two "fetch_hit0 && !queue_full" resumes
+back to back (an uncompressed instruction's second parcel, immediately followed by
+another uncompressed instruction's own second-parcel need) -- the specific pattern that
+exposes the drift, which `loadstore.S` happens to hit and the hand-written scenarios
+happened not to.
 
-A first fix attempt (moving the completion decision to the capture cycle, so a pause
-never lets SCK rise again for the wasted confirming pulse) was verified to eliminate
-this exact corruption pattern, but introduced a second, distinct regression -- a
-spurious immediate hit on the fetch immediately following a resume -- that was not
-isolated before time ran out on that attempt. That fix was reverted rather than shipped
-half-verified: a regression nobody has seen fail for the right reason is not evidence it
-works.
+**The minimal reproduction, `nano/tb/nano_qspi_resume_tb.v` (run by `make
+nano-qspi-resume-test`), now passes, for the right reason.** It talks to
+`nano_qspi_ctrl` and the pin-level flash/PSRAM models directly, no `nano.v` involved: a
+compressed parcel followed by three uncompressed ones in a row, each needing the parcel
+after it, chaining two "`fetch_hit0 && !queue_full`" resumes back to back. Against the
+fixed models and the unmodified controller it reports the exact parcels the flash sent.
+`nano/tb/nano_qspi_resume_probe.sh` is its forced-red probe, re-anchored now that the
+shipping pair actually passes: it shrinks the resume branch's own nibble count by one in
+a scratch copy of the controller and requires the shipping pair to PASS while that
+mutant FAILS -- the ordinary shape this repo's probes take, in place of the
+comparison-neutering stand-in the still-broken pair needed before a real PASS existed to
+compare against.
 
-**The minimal reproduction is landed as `nano/tb/nano_qspi_resume_tb.v`, run by `make
-nano-qspi-resume-test`, and is committed red.** It talks to `nano_qspi_ctrl` and the
-pin-level flash/PSRAM models directly, no `nano.v` involved: a compressed parcel (a
-complete instruction on its own) followed by three uncompressed ones in a row, each
-needing the parcel after it. The first uncompressed fetch is the first "`fetch_hit0 &&
-!queue_full`" resume; the second, chained immediately after it once the queue has
-emptied again, is the pattern `loadstore.S` and no hand-written scenario hits. Run
-against the shipping controller it reports two of the three chained fetches back a
-value with its top nibble replaced by the next parcel's low nibble -- the exact
-one-nibble-early signature the mechanism above predicts, not a timeout or a crash.
-`nano/tb/nano_qspi_resume_probe.sh` is its forced-red probe: it neuters every value
-comparison in a scratch copy of the testbench and requires that version to report PASS
-against the very same, still-buggy controller, which is what says the FAIL is the
-comparisons and not an incidental artifact. Work on the fix continues against this test
-as its grader, which is the only way this repo trusts a fix for a bug that a mode-prove
-proof and a hand-written protocol test both missed. Neither the test nor its probe is
-wired into `make test`'s required path while the test is expected to fail.
-
-**`nano-qspi-pins-test` is therefore built as infrastructure but is not wired into
-`make test`'s required path**, and no Dhrystone or CoreMark figure is taken through the
-pin-level harness.
+**Fixing the models alone turns `nano-qspi-resume-test` green and `nano-qspi-pins-test`
+red**, and that residual is its own section below.
 
 ## MIPS: the abstract model's own machinery, re-run at this controller's real costs
 
