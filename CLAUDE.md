@@ -865,6 +865,11 @@ make nano-area      # nanocpu's area, local `synth; dfflibmap; abc -liberty`, ne
                     # merged with the brief's own TT-flow/LibreLane number; ratchet
                     # on NANO_MAX_UM2. Not on `make test`'s path; no-ops until
                     # nano/nano.v lands
+make nano-timing    # area AND delay from one delay-oriented synthesis run, both
+                    # register-file builds, typical corner only; no ratchet, a ranking
+                    # instrument like `make cycles`. Prints its own limits and the
+                    # dated, stale correlation against the last real flow run. Not on
+                    # `make test`'s path, the same standing as `make nano-area`
 make nano-test      # nano/asm's six hand-written x0-x15 programs under BOTH sim legs --
                     # nano-sim (cxxrtl) and nano/tb/nano_icarus.vvp (iverilog, wrapped by
                     # nano_sim_icarus.sh behind nano-sim's own CLI) -- graded against
