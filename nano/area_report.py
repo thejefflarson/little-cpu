@@ -41,23 +41,25 @@ def liberty_digest_and_cells(path):
     return digest.hexdigest(), names
 
 
-def check_liberty(path, want_sha256):
+def check_liberty(path, want_sha256, target_name="nano-area"):
     """Refuses a liberty file that is not on disk or is not the pinned bytes.
 
     This is checked before the JSON at all, the way `soc/ecp5_report.py` reads the
     textcfg before the report: every other refusal below is a statement about
-    THIS liberty, so a substituted or stale one has to be caught first.
+    THIS liberty, so a substituted or stale one has to be caught first. `target_name`
+    is the `make` target quoting this refusal -- `nano/timing_report.py` shares this
+    function and is not `nano-area`.
     """
     try:
         got, names = liberty_digest_and_cells(path)
     except FileNotFoundError:
         sys.exit(
-            f"*** make nano-area: no liberty file at {path}. Run\n"
+            f"*** make {target_name}: no liberty file at {path}. Run\n"
             "*** `make nano-liberty-setup` to fetch the pin into the tool cache."
         )
     if got != want_sha256:
         sys.exit(
-            f"*** make nano-area: {path} does not match the pinned digest --\n"
+            f"*** make {target_name}: {path} does not match the pinned digest --\n"
             f"***   expected : {want_sha256}\n"
             f"***   actual   : {got}\n"
             "*** The liberty is a pin, exactly as SAIL_RISCV_VERSION and\n"
@@ -67,40 +69,41 @@ def check_liberty(path, want_sha256):
     return names
 
 
-def load_stat(path):
+def load_stat(path, target_name="nano-area"):
     try:
         with open(path) as handle:
             report = json.load(handle)
     except FileNotFoundError:
         sys.exit(
-            f"*** make nano-area: {path} does not exist, so NOTHING was\n"
+            f"*** make {target_name}: {path} does not exist, so NOTHING was\n"
             "*** measured. That is a failed run, not a zero-area design."
         )
     except json.JSONDecodeError as exc:
         sys.exit(
-            f"*** make nano-area: {path} is not JSON ({exc}). yosys writes this\n"
+            f"*** make {target_name}: {path} is not JSON ({exc}). yosys writes this\n"
             "*** file last via `tee`, so a truncated one means the run died\n"
             "*** mid-script."
         )
     design = report.get("design")
     if not isinstance(design, dict):
         sys.exit(
-            f"*** make nano-area: {path} carries no 'design' totals. `stat -json`\n"
+            f"*** make {target_name}: {path} carries no 'design' totals. `stat -json`\n"
             "*** always emits one; a report missing it measured nothing."
         )
     return design
 
 
-def summarise(stat_path, liberty_path, liberty_sha256, max_um2):
-    liberty_cells = check_liberty(liberty_path, liberty_sha256)
-    design = load_stat(stat_path)
-
+def validate_design(design, stat_path, liberty_path, liberty_cells, target_name="nano-area"):
+    """Checks one `stat -liberty -json` `design` entry against every shape of "nothing
+    was measured". `nano/timing_report.py` shares this with `summarise` below, since
+    both read the same report shape off a different ABC script's own mapping.
+    """
     by_type = design.get("num_cells_by_type")
     area = design.get("area")
     num_cells = design.get("num_cells")
     if not isinstance(by_type, dict) or area is None or num_cells is None:
         sys.exit(
-            f"*** make nano-area: {stat_path}'s design entry carries "
+            f"*** make {target_name}: {stat_path}'s design entry carries "
             f"{sorted(design)},\n"
             "*** not the area, num_cells and num_cells_by_type fields "
             "`stat -liberty -json`\n"
@@ -111,17 +114,16 @@ def summarise(stat_path, liberty_path, liberty_sha256, max_um2):
 
     if not isinstance(area, (int, float)) or not math.isfinite(area):
         sys.exit(
-            f"*** make nano-area: {stat_path}'s area ({area!r}) is not a finite "
+            f"*** make {target_name}: {stat_path}'s area ({area!r}) is not a finite "
             "number.\n"
             "*** `stat -liberty -json` never writes NaN or an Infinity; a report\n"
-            "*** that does was not read from a real synthesis run, and the\n"
-            "*** ratchet's `>` comparison is false against every non-finite value\n"
-            "*** on either side of it."
+            "*** that does was not read from a real synthesis run, and every\n"
+            "*** numeric comparison against it is false on either side of it."
         )
 
     if num_cells <= 0 or not by_type:
         sys.exit(
-            f"*** make nano-area: {stat_path} reports zero cells. That is a run\n"
+            f"*** make {target_name}: {stat_path} reports zero cells. That is a run\n"
             "*** that mapped nothing -- a failed `synth -top`, an empty top\n"
             "*** module, an `abc -liberty` that never ran -- not a design with\n"
             "*** no area."
@@ -130,7 +132,7 @@ def summarise(stat_path, liberty_path, liberty_sha256, max_um2):
     unknown = sorted(set(by_type) - liberty_cells)
     if unknown:
         sys.exit(
-            f"*** make nano-area: {stat_path} names cell type(s) not in\n"
+            f"*** make {target_name}: {stat_path} names cell type(s) not in\n"
             f"*** {liberty_path}: {', '.join(unknown)}.\n"
             "*** `stat -liberty` only prints a cell's liberty name once it is\n"
             "*** actually mapped to one; a name outside the read liberty means\n"
@@ -145,6 +147,12 @@ def summarise(stat_path, liberty_path, liberty_sha256, max_um2):
         "num_cells": int(num_cells),
         "by_type": by_type,
     }
+
+
+def summarise(stat_path, liberty_path, liberty_sha256, max_um2):
+    liberty_cells = check_liberty(liberty_path, liberty_sha256, target_name="nano-area")
+    design = load_stat(stat_path)
+    return validate_design(design, stat_path, liberty_path, liberty_cells, target_name="nano-area")
 
 
 def finite_positive_um2(raw):

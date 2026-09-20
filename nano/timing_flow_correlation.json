@@ -1,0 +1,8 @@
+{
+  "local_um2": 63565.96,
+  "flow_um2": 79862.84,
+  "flow_tool": "LibreLane 3.0.5",
+  "flow_tag": "ttsky26c",
+  "local_tree": "the RV32IM tree, before M was dropped and before the register file moved to latches or one read port",
+  "note": "STALE: nano.v has changed since this pair was measured, and `make nano-area` on the current tree no longer reads 63565.96 um2. Re-take both halves together -- a fresh nano-tt-area-selfhosted run against the tree that carries this file -- before trusting the 1.256x factor for anything but its own history."
+}

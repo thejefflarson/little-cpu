@@ -8043,6 +8043,98 @@ probe "the trend against a recorded figure is printed beside the verdict" 0 \
   "TREND: +2.2" \
   "$AR $d/stat.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10 --previous 4"
 
+begin_group "nano/timing_report.py"
+
+TR="python3 $REPO/nano/timing_report.py"
+
+tr_log() {  # $1 = path, $2 = delay in ps
+  cat > "$1" <<EOF
+ABC: WireLoad = "Small"  Gates =   10 ( 1.0 %)   Cap =  1.0 ff (  1.0 %)   Area =    5.0 ( 1.0 %)   Delay =  $2 ps  (  1.0 %)
+EOF
+}
+
+tr_correlation() {  # $1 = path
+  cat > "$1" <<'EOF'
+{"local_um2": 100.0, "flow_um2": 125.0, "flow_tool": "LibreLane 0", "flow_tag": "t",
+ "local_tree": "a fixture tree", "note": "a fixture note"}
+EOF
+}
+
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"; tr_log "$d/flops.log" 100.00
+probe "control: one register-file build reports its area and delay" 0 \
+  "delay : 100.00 ps" \
+  "$TR --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/stat.json"
+
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"
+tr_log "$d/flops.log" 100.00; tr_log "$d/latches.log" 200.00
+probe "control: both register-file builds are reported from one call" 0 \
+  "delay : 200.00 ps" \
+  "$TR --liberty $d/fake.lib --liberty-sha256 $sha \
+     --variant flops:$d/flops.log:$d/stat.json --variant latches:$d/latches.log:$d/stat.json"
+
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib")
+probe "a missing synthesis log is refused, not read as a zero-delay design" 1 \
+  "no synthesis log at" \
+  "$TR --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/missing.log:$d/stat.json"
+
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"
+: > "$d/noline.log"
+probe "a log with no ABC stime Delay line is refused" 1 \
+  "carries no ABC" \
+  "$TR --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/noline.log:$d/stat.json"
+
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); tr_log "$d/flops.log" 100.00
+probe "a missing stat.json is refused, not read as a zero-area design" 1 \
+  "does not exist, so NOTHING was" \
+  "$TR --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/missing.json"
+
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); tr_log "$d/flops.log" 100.00
+cat > "$d/badshape.json" <<'JSON'
+{"design": {"num_cells": 1}}
+JSON
+probe "a stat.json missing area/num_cells/by_type is refused, not read as what is left" 1 \
+  "the area, num_cells and num_cells_by_type fields" \
+  "$TR --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/badshape.json"
+
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); tr_log "$d/flops.log" 100.00
+cat > "$d/unknown.json" <<'JSON'
+{"design": {"num_cells": 1, "area": 2.0, "num_cells_by_type": {"$_DFF_": 1}}}
+JSON
+probe "a cell type outside the read liberty is refused, not priced at zero" 1 \
+  "not in" \
+  "$TR --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/unknown.json"
+
+d=$(ar_liberty); ar_stat "$d"; tr_log "$d/flops.log" 100.00
+probe "a liberty file that does not match the pinned digest is refused" 1 \
+  "does not match the pinned digest" \
+  "$TR --liberty $d/fake.lib --liberty-sha256 0000000000000000000000000000000000000000000000000000000000000000 \
+     --variant flops:$d/flops.log:$d/stat.json"
+
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); tr_log "$d/flops.log" 100.00; ar_stat "$d"
+probe "a missing liberty file is refused before any variant is read" 1 \
+  "no liberty file at" \
+  "$TR --liberty $d/does-not-exist.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/stat.json"
+
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"; tr_log "$d/flops.log" 100.00
+probe "a missing correlation record is refused, not silently skipped" 1 \
+  "no correlation record at" \
+  "$TR --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/stat.json \
+     --flow-correlation $d/does-not-exist.json"
+
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"; tr_log "$d/flops.log" 100.00
+printf '{"local_um2": 1.0}' > "$d/bare.json"
+probe "a correlation record missing a required field is refused" 1 \
+  "correlation record with no provenance is not a correlation" \
+  "$TR --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/stat.json \
+     --flow-correlation $d/bare.json"
+
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"; tr_log "$d/flops.log" 100.00
+tr_correlation "$d/corr.json"
+probe "control: the correlation prints its factor and both halves' provenance" 0 \
+  "1.250x the local figure" \
+  "$TR --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/stat.json \
+     --flow-correlation $d/corr.json"
+
 begin_group "nano/srcs_guard.sh"
 
 SG="$REPO/nano/srcs_guard.sh"
@@ -8075,28 +8167,61 @@ probe "a space in a source path does not split it into a second yosys argument" 
   '"a b/c.v"' \
   "$SS_SCRIPT /tmp/lib.lib 'a b/c.v'"
 
+begin_group "nano/timing_script.sh"
+
+TS_SCRIPT="$REPO/nano/timing_script.sh"
+
+probe "control: a plain liberty and latchmap produce the expected yosys script" 0 \
+  'techmap -map "/tmp/latch.v"; abc -liberty "/tmp/lib.lib" -script +strash;dch,-f;map,-B,0.2;topo;stime,-c' \
+  "$TS_SCRIPT /tmp/lib.lib /tmp/latch.v /tmp/out.json '' nano/nano.v"
+
+probe "no register-file define reads the default (flops) build" 0 \
+  'read_verilog -sv "nano/nano.v"' \
+  "$TS_SCRIPT /tmp/lib.lib /tmp/latch.v /tmp/out.json '' nano/nano.v"
+
+probe "a register-file define is passed straight through to read_verilog" 0 \
+  'read_verilog -sv -D NANO_LATCH_RF "nano/nano.v"' \
+  "$TS_SCRIPT /tmp/lib.lib /tmp/latch.v /tmp/out.json NANO_LATCH_RF nano/nano.v"
+
+probe "a semicolon in the latchmap path stays inside its own quoted token" 0 \
+  '"/tmp/latch;evil.v"' \
+  "$TS_SCRIPT /tmp/lib.lib '/tmp/latch;evil.v' /tmp/out.json '' nano/nano.v"
+
+probe "a source list feeds read_verilog the same way synth_script.sh's does" 0 \
+  'read_verilog -sv "a.v" "b.v"' \
+  "$TS_SCRIPT /tmp/lib.lib /tmp/latch.v /tmp/out.json '' a.v b.v"
+
 begin_group "make nano-liberty-setup"
 
 NL="MAKEFLAGS= MFLAGS= MAKELEVEL= PATH='$tmp/bin-curl:$PATH' \
     make --no-print-directory -C '$REPO' nano-liberty-setup"
 
-nl_aftermath() {  # $1 = case dir
+nl_aftermath() {  # $1 = case dir, $2 = cached filename
   local log=$1/setup.log
   eval "XDG_CACHE_HOME=$1/cache $NL" > "$log" 2>&1
   printf 'refused=%s kept=%s\n' \
-    "$(grep -qF 'MISMATCH -- refusing to keep it' "$log" && echo yes || echo no)" \
-    "$([ -e "$1/cache/little-cpu/sky130/sky130_fd_sc_hd__tt_025C_1v80.lib" ] \
-       && echo yes || echo no)"
+    "$(grep -qF "MISMATCH for" "$log" && echo yes || echo no)" \
+    "$([ -e "$1/cache/little-cpu/sky130/$2" ] && echo yes || echo no)"
 }
 
 d=$(new_case)
 # Exit 2, not 1: the recipe's own `exit 1` reaches the probe as make's status.
 probe "a liberty download whose bytes are not the pin is refused before it is kept" 2 \
-  "SHA-256 MISMATCH -- refusing to keep it" "XDG_CACHE_HOME=$d/cache $NL"
+  "sky130_fd_sc_hd__tt_025C_1v80.lib -- refusing to keep it" \
+  "XDG_CACHE_HOME=$d/cache $NL"
 
 d=$(new_case)
 probe "the refused liberty download is not kept to be served again" 0 \
-  "refused=yes kept=no" "nl_aftermath $d"
+  "refused=yes kept=no" "nl_aftermath $d sky130_fd_sc_hd__tt_025C_1v80.lib"
+
+d=$(new_case)
+probe "a latchmap download whose bytes are not the pin is refused before it is kept" 2 \
+  "cells_latch_hd.v -- refusing to keep it" \
+  "XDG_CACHE_HOME=$d/cache $NL"
+
+d=$(new_case)
+probe "the refused latchmap download is not kept to be served again" 0 \
+  "refused=yes kept=no" "nl_aftermath $d cells_latch_hd.v"
 
 begin_group "the Makefile's tool-path prepend"
 
