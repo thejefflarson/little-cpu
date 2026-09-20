@@ -111,20 +111,22 @@ jobs:
           key: ${{ env.PDK_CACHE_KEY }}
 
       - name: Set the requested tile size in info.yaml
+        working-directory: nano/tt
         env:
           NANO_TT_TILES: ${{ inputs.tiles || '2x2' }}
         run: |
           python3 - <<'PYEOF'
           import os, re
           tiles = os.environ["NANO_TT_TILES"]
-          with open("nano/tt/info.yaml") as f:
+          with open("info.yaml") as f:
               text = f.read()
           text = re.sub(r'tiles: ".*?"', f'tiles: "{tiles}"', text)
-          with open("nano/tt/info.yaml", "w") as f:
+          with open("info.yaml", "w") as f:
               f.write(text)
           PYEOF
 
       - name: Create the LibreLane user config, then set SYNTH_STRATEGY
+        working-directory: nano/tt
         env:
           NANO_TT_STRATEGY: ${{ inputs.synth_strategy || 'AREA 0' }}
           NANO_TT_DISALLOW_CONGESTION: ${{ inputs.disallow_congestion && '1' || '0' }}
@@ -140,14 +142,14 @@ jobs:
             done
             python3 -m venv --system-site-packages .venv-tt
             . .venv-tt/bin/activate
-            pip install -r tt/requirements.txt
+            pip install -r ../../tt/requirements.txt
             python3 -c "import librelane; print(librelane.__version__)"
-            (cd nano/tt && ../../tt/tt_tool.py --create-user-config)
+            ../../tt/tt_tool.py --create-user-config
           '
           python3 - <<'PYEOF'
           import json, os
           strategy = os.environ["NANO_TT_STRATEGY"]
-          with open("nano/tt/src/config_merged.json") as f:
+          with open("src/config_merged.json") as f:
               config = json.load(f)
           config["SYNTH_STRATEGY"] = strategy
           if os.environ["NANO_TT_DISALLOW_CONGESTION"] == "1":
@@ -156,11 +158,12 @@ jobs:
               config["VERILOG_DEFINES"] = config.get("VERILOG_DEFINES", []) + ["NANO_LATCH_RF"]
           if os.environ["NANO_TT_PORTS"] == "one":
               config["VERILOG_DEFINES"] = config.get("VERILOG_DEFINES", []) + ["NANO_ONE_PORT_RF"]
-          with open("nano/tt/src/config_merged.json", "w") as f:
+          with open("src/config_merged.json", "w") as f:
               json.dump(config, f, indent=2)
           PYEOF
 
       - name: Harden with LibreLane, no Docker
+        working-directory: nano/tt
         run: |
           librelane-env bash -c '
             set -euo pipefail
@@ -169,14 +172,14 @@ jobs:
               if [ -n "$found" ]; then export LD_LIBRARY_PATH="$(dirname "$found"):${LD_LIBRARY_PATH:-}"; fi
             done
             . .venv-tt/bin/activate
-            rm -rf nano/tt/runs/wokwi
-            mkdir -p nano/tt/runs/wokwi
+            rm -rf runs/wokwi
+            mkdir -p runs/wokwi
             harden_cmd=(python -m librelane --pdk-root "$PDK_ROOT" --run-tag wokwi
-              --force-run-dir nano/tt/runs/wokwi)
+              --force-run-dir runs/wokwi)
             if [ "$NANO_TT_STOP_AFTER_SYNTHESIS" = "1" ]; then
               harden_cmd+=(--to Yosys.Synthesis)
             fi
-            harden_cmd+=(nano/tt/src/config_merged.json)
+            harden_cmd+=(src/config_merged.json)
             if command -v /usr/bin/time >/dev/null 2>&1; then
               rc=0
               /usr/bin/time -v "${harden_cmd[@]}" 2> harden.time.log || rc=$?
@@ -237,7 +240,7 @@ jobs:
         if: always()
         run: |
           mkdir -p spike-stats
-          cp harden.time.log spike-stats/ 2>/dev/null || true
+          cp nano/tt/harden.time.log spike-stats/ 2>/dev/null || true
           cp nano/tt/runs/wokwi/final/metrics.csv spike-stats/ 2>/dev/null || true
           for d in nano/tt/runs/wokwi/*-yosys-synthesis; do
             cp "$d/reports/stat.rpt" spike-stats/synthesis-stats.txt 2>/dev/null || true
