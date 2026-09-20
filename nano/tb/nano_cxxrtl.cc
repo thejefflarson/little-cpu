@@ -179,12 +179,20 @@ int main(int argc, char **argv) {
   // Every word of the simulated memory is zeroed before either image is poked in: an
   // undefined word turns the whole pipeline X under iverilog and stays green under
   // cxxrtl, which is the divergence test/testbench.v's own zeroing loop exists to avoid.
-  const cxxrtl::debug_item &mem_item = items.at("mem mem").at(0);
-  std::memset(mem_item.curr, 0, mem_item.depth * sizeof(uint32_t));
+  // A pin-level QSPI build has no single flat array -- "flash mem"/"psram mem" instead.
+  const bool qspi_pins = items.count("mem mem") == 0;
+  const char *rom_mem_name = qspi_pins ? "flash mem" : "mem mem";
+  const char *ram_mem_name = qspi_pins ? "psram mem" : "mem mem";
 
-  if (!load_image(items, "mem mem", rom_image))
+  const cxxrtl::debug_item &rom_mem_item = items.at(rom_mem_name).at(0);
+  const cxxrtl::debug_item &ram_mem_item = items.at(ram_mem_name).at(0);
+  std::memset(rom_mem_item.curr, 0, rom_mem_item.depth * sizeof(uint32_t));
+  if (qspi_pins)
+    std::memset(ram_mem_item.curr, 0, ram_mem_item.depth * sizeof(uint32_t));
+
+  if (!load_image(items, rom_mem_name, rom_image))
     return 3;
-  if (!load_image(items, "mem mem", ram_image))
+  if (!load_image(items, ram_mem_name, ram_image))
     return 3;
 
   auto must_find = [&](const char *name, const char *hint) -> const cxxrtl::debug_item * {
@@ -389,7 +397,7 @@ int main(int argc, char **argv) {
         return finish(bench_verdict.curr[0] == 1 ? 0 : 1, cycle + 1);
       }
     } else {
-      uint32_t tohost = mem_item.curr[tohost_index];
+      uint32_t tohost = ram_mem_item.curr[tohost_index];
       if (tohost != 0) {
         if (tohost == 1) {
           std::printf("PASS\n");

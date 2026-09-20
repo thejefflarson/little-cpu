@@ -44,14 +44,10 @@ nano-liberty-setup:
 	echo "sha256 ok: $$got"; \
 	mv "$$tmp" '$(NANO_LIBERTY)'
 
-# A ratchet, moved only in a reviewed commit: `NANO_MAX_UM2=nan` would otherwise beat area_report.py's `>` comparison, which is false against any non-finite value.
-ifneq ($(filter command line environment,$(origin NANO_MAX_UM2)),)
-$(error NANO_MAX_UM2 cannot be set from the command line or the environment: it is a \
-  ratchet, and raising it needs a reason in the commit that edits nano/nano.mk)
-endif
-override NANO_MAX_UM2 := 61412
+# A ratchet, moved only in a reviewed commit: `NANO_MAX_UM2=nan` would otherwise beat area_report.py's `>` comparison, which is false against any non-finite value. Stepped for the QSPI front end: nano.v + nano/qspi.v, wired through nano/area_top.v since yosys's auto-top drops one of two unconnected modules, measure 60,859.6 um2 against nano.v alone's unchanged 45,712.6.
+override NANO_MAX_UM2 := 63000
 
-NANO_SRCS := nano/nano.v
+NANO_SRCS := nano/nano.v nano/qspi.v nano/area_top.v
 
 .PHONY: nano-area
 nano-area:

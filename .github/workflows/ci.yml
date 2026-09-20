@@ -885,6 +885,9 @@ jobs:
       - name: nanocpu complete_cover (anti-vacuity — every opcode class retires)
         run: make -C nano/formal complete_cover
 
+      - name: nanocpu components_qspi (QSPI front end's three invariants, k-induction)
+        run: make -C nano/formal components_qspi
+
       - name: Report job wall time
         if: always()
         run: |

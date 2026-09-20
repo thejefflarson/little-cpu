@@ -102,6 +102,8 @@ nano/formal/complete-cover-probe/
 nano/formal/ill_e
 nano/formal/ill_e_cover
 nano/formal/ill-e-probe/
+nano/formal/qspi
+nano/formal/qspi-probe/
 nano/tb/nano-x-probe/
 __pycache__/
 test/rtl.cc
@@ -137,6 +139,10 @@ nano-oneport-latch-sim.dSYM/
 nano/tb/nano_oneport_latch_rtl.cc
 nano-qspi-sim*
 nano/tb/nano_qspi_rtl*.cc
+nano-qspi-pins-sim
+nano-qspi-pins-sim.dSYM/
+nano/tb/nano_qspi_pins_rtl.cc
+nano/tb/nano-qspi-pins-probe/
 tools/
 test/a.out.dSYM/
 .claude/worktrees/

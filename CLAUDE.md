@@ -899,6 +899,16 @@ make nano-qspi-loop-test # the loop buffer's three invariants, each able to fail
                     # in both shapes, where every nano-qspi-sim exits 7 on a fetch served from
                     # parcels its flash run never streamed (ADR-0186). nano-qspi-loop-probe
                     # is its forced-red prerequisite. On `make test`'s path
+make nano-qspi-pins-sim  # nano.v -> nano/qspi.v (the real bit-serial QSPI controller) ->
+                    # pin-level flash/PSRAM behavioural models, sck/cs_n/sio rather than
+                    # nano_qspi_memory.v's abstract bus. nano-qspi-pins-test reruns the
+                    # suite through it; NOT on `make test`'s path -- a chained-resume bug
+                    # in multi-instruction programs is not yet root-caused
+make -C nano/formal components_qspi  # nano_qspi_ctrl's three invariants (CS0/CS1/CS2
+                    # never low together; no PSRAM CS-low interval exceeds
+                    # PSRAM_CS_LOW_LIMIT clocks; the prefetch buffer holds exactly the
+                    # parcels at [fetch_pc, fetch_pc+N)) by k-induction; qspi-probe is
+                    # its forced-red prerequisite
 ```
 
 `make sail-setup` and `make lint-setup` unpack into `~/.cache/little-cpu` (`XDG_CACHE_HOME` moves
