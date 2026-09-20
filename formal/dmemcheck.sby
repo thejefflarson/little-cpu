@@ -1,6 +1,6 @@
 [options]
-# depth clears F+G+2 (check-memcheck-depth.py) at today's F=10/G=10 (floor 22), which the
-# live fetch-side guess moved from 8/8: a first-word guess waits for its target pair.
+# depth clears F+G+2 (check-memcheck-depth.py) at today's F=10/G=8 (floor 20), with margin
+# left over: the live fetch-side guess moved F from 8, a first-word guess waiting for its target pair.
 mode bmc
 append 0
 tbtop testbench.uut

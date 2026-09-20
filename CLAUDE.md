@@ -326,8 +326,9 @@ What a green result does and does not mean:
   `test/mutations/`, so `make mutation-check` does not re-run that table.
 - **Every generated riscv-formal check is `mode bmc`**: PASS means no counterexample within that
   depth, not that the property holds. Depths derive from F (worst-case first retire, from `hang`)
-  and G (worst-case retire gap, from `liveness`), both 10 since the fetch-side guess went live
-  (ADR-0201: a first-word guess waits for its target pair), declared in `formal/checks.cfg`'s
+  and G (worst-case retire gap, from `liveness`), F 10 and G 8 since the fetch-side guess went
+  live (ADR-0201: a first-word guess waits for its target pair, which lengthens the first retire
+  and not the gap), declared in `formal/checks.cfg`'s
   `#derive` lines. **Any change that adds a stall reason, lengthens a stage, or widens the
   scoreboard must re-measure F and G before it lands** (ADR-0046); `make -C formal remeasure-fg` is
   that sweep. `formal/genchecks-audit.py` grades every depth against its family's floor and a depth

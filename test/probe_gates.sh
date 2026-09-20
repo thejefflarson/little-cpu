@@ -6485,7 +6485,7 @@ mcd_fixture() {  # $1 = depth  $2 = cover depth, defaults to $1
   fixture_anchor "$REPO/formal/checks.cfg" \
     '#derive F 10 worst-case first retire, swept out of `hang`'
   fixture_anchor "$REPO/formal/checks.cfg" \
-    '#derive G 10 worst-case gap between two retires, swept out of `liveness`'
+    '#derive G 8  worst-case gap between two retires, swept out of `liveness`'
   cat > "$d/checks.cfg" <<CFG
 [depth]
 #derive F 8  worst-case first retire, swept out of \`hang\`
