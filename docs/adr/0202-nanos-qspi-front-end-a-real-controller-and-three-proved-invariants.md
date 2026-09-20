@@ -131,20 +131,52 @@ already-fully-assembled register with a stale extra nibble; a missing
 read-modify-write path for partial-word stores (see above); and a wraparound-unsafe
 formal invariant (see invariant 3, above).
 
-**A sixth issue is not yet fixed.** Running `nano/asm/loadstore.S` through the pin-level
-harness surfaced a bug this ADR does not close: after the queue's `!mem_ready` guard
-(added to stop a hit's retire from being re-read as a spurious miss on the one cycle
-`mem_valid` and `mem_ready` legitimately overlap, per nano.v's own bus protocol), a
-resumed stream that follows a prior resumed stream can leave the flash model's own
-`nibble_idx` one position ahead of what `nano_qspi_ctrl`'s bookkeeping assumes,
-corrupting the first nibble of the next parcel. It reproduces specifically when two
-consecutive "fetch_hit0 && !queue_full" resumes chain (an uncompressed instruction's
-second parcel, immediately followed by another uncompressed instruction's first
-parcel needing its own second parcel) and was not root-caused in the time this ticket
-had: the isolated ten-scenario test above never chains two resumes back to back, which
-is why it did not catch this. **`nano-qspi-pins-test` is therefore built as
-infrastructure but is not wired into `make test`'s required path**, and no Dhrystone or
-CoreMark figure is taken through the pin-level harness.
+**A sixth issue was found, root-caused, and is being fixed against a graded regression
+test rather than by inspection.** It is a real bug in the controller, not in the
+pin-level model -- confirmed by reproducing it with no nano.v involved, across three
+independently-timed testbench synchronization patterns, all giving the identical
+corruption signature, which rules out a testbench race as the cause.
+
+**The mechanism.** `nano_qspi_ctrl` detects "the parcel's 4th nibble was just captured"
+one cycle *after* the capture itself, on the following `sio_phase == 1` decrement-check
+cycle -- not at the capture. That decision cycle costs one more SCK half-period than the
+data needs: the 4th nibble was already fully captured the cycle before. When the stream
+is going to keep running, that extra half-period is put to use -- its trailing falling
+edge is exactly what pre-positions the flash at the next parcel's first nibble, and the
+very next capture consumes that position immediately. When the stream is about to
+*pause* (the prefetch queue is filling), the same trailing falling edge still happens --
+SCK must return to its idle-low level regardless -- but nothing is left running to
+consume the resulting advance before the clock freezes. A real QSPI slave has no way to
+tell "one more real bit" from "the master is just idling the clock": it advances its
+internal bit position on every falling edge it sees, full stop. So the flash ends up one
+nibble-position ahead of where `nano_qspi_ctrl`'s own `stream_next_addr` bookkeeping
+assumes it is, and the next resume samples the wrong nibble as its first one.
+
+**What the three proofs do not cover, and why this slipped past them.** All three proved
+invariants -- CS mutual exclusion, the PSRAM CS-low bound, and the prefetch buffer's
+address-tag contiguity -- are properties of the controller's *own* state bookkeeping.
+None of them says the bytes arriving off the wire are the bytes the flash actually sent;
+that is a claim about an external device's behavior, which a proof confined to the
+controller's own signals structurally cannot make. The isolated ten-scenario protocol
+test also missed it, for a narrower reason: it never chains two "fetch_hit0 &&
+!queue_full" resumes back to back (an uncompressed instruction's second parcel,
+immediately followed by another uncompressed instruction's own second-parcel need) --
+the specific pattern that exposes the drift, which `loadstore.S` happens to hit and the
+hand-written scenarios happened not to.
+
+A first fix attempt (moving the completion decision to the capture cycle, so a pause
+never lets SCK rise again for the wasted confirming pulse) was verified to eliminate
+this exact corruption pattern, but introduced a second, distinct regression -- a
+spurious immediate hit on the fetch immediately following a resume -- that was not
+isolated before time ran out on that attempt. That fix was reverted rather than shipped
+half-verified: a regression nobody has seen fail for the right reason is not evidence it
+works. Work on the fix continues against a graded, forced-red regression test (below),
+which is the only way this repo trusts a fix for a bug that a mode-prove proof and a
+hand-written protocol test both missed.
+
+**`nano-qspi-pins-test` is therefore built as infrastructure but is not wired into
+`make test`'s required path**, and no Dhrystone or CoreMark figure is taken through the
+pin-level harness.
 
 ## MIPS: the abstract model's own machinery, re-run at this controller's real costs
 
