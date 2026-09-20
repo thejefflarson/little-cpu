@@ -11,6 +11,9 @@ module fetchctrl (
   input  logic [31:0]  imem_data2,
   input  logic         imem_fault,
   input  logic         fetch_stall,
+  // A store landing in the fetch window this cycle, from the platform's own address
+  // decode -- the same shape every other refusal in this design arrives in.
+  input  logic         text_write,
   input  logic         pop,
   output logic [31:0]  q0,
   output logic         q0_fault,
@@ -90,7 +93,8 @@ module fetchctrl (
 
   logic predict_found, fetch_odd_next;
   logic [31:0] predict_src, predict_tgt;
-  // Held false: a self-modifying store can retire a stale predicted word (see the ADR).
+  // Held false: imemcheck still finds a counterexample with jal-only prediction live, even
+  // after the redirect-window and text-write fixes below (see the ADR).
   assign predict_found = 1'b0;
   assign predict_src   = cand_a_taken ? (pair_base + 32'd4) : (pair_base + 32'd6);
   assign predict_tgt   = cand_a_taken ? cand_a_target : cand_b_target;
@@ -103,7 +107,10 @@ module fetchctrl (
 
   logic predict_trusted, predict_commit;
   assign predict_trusted = req_valid && predict_found;
-  assign predict_commit  = !redirect_apply && !fetch_stall && room && predict_trusted;
+  // The pair a redirect is abandoning still arrives one cycle after redirect_apply itself
+  // drops, so a candidate found in it must be excluded for the same two cycles flush is.
+  assign predict_commit  = !redirect_apply && !redirect_apply_d1 && !fetch_stall && room &&
+                            predict_trusted;
 
   fetchqueue fq (
     .clk(clk),
@@ -154,6 +161,7 @@ module fetchctrl (
       else if (!buffer_empty) redirect_recovering <= 1'b0;
       if (redirect_apply) predicted_active <= 1'b0;
       else if (predict_resolved) predicted_active <= 1'b0;
+      else if (text_write) predicted_active <= 1'b0;
       else if (predict_commit) begin
         predicted_active <= 1'b1;
         predicted_src_pc <= predict_src;
@@ -180,5 +188,17 @@ module fetchctrl (
   always_ff @(posedge clk) clocked <= 1'b1;
 
   always_comb if (clocked) assert(!req_valid || queue_count <= 3'd2);
+
+  // A text write clears whatever guess is active by the very next edge, unless that same
+  // edge already resolves or redirects it for an unrelated reason.
+  logic past_text_write, past_redirect_apply, past_predict_resolved;
+  always_ff @(posedge clk) begin
+    past_text_write     <= text_write;
+    past_redirect_apply <= redirect_apply;
+    past_predict_resolved <= predict_resolved;
+  end
+  always_comb if (clocked && past_text_write && !past_redirect_apply &&
+                   !past_predict_resolved)
+    assert(!predicted_active);
  `endif
 endmodule

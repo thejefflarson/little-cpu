@@ -157,6 +157,13 @@ module littlecpu #(
   assign imem_addr2 = imem_addr + 32'd4;
   assign imem_addr_next = fetch_pc;
 
+  // A guess can queue a word from far outside the small sequential lookahead, so unlike a
+  // plain fetch (bounded by queue depth, never caught by imemcheck within its own derived
+  // depth) it needs its own invalidation: any store into the fetch window forces the guess
+  // to be treated as unresolved, which the existing redirect path already flushes.
+  logic mem_text_write;
+  assign mem_text_write = |mem_wstrb && (mem_addr[31:LS_TEXT_ADDR_BITS+2] == '0);
+
   fetchctrl fetchctrl(
     .clk(clk),
     .reset(reset),
@@ -167,6 +174,7 @@ module littlecpu #(
     .imem_data2(imem_data2),
     .imem_fault(imem_fault),
     .fetch_stall(fetch_stall),
+    .text_write(mem_text_write),
     .pop(fetcher_pop),
     .q0(queue_q0),
     .q0_fault(queue_q0_fault),
