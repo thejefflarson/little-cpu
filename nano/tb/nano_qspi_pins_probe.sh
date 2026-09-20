@@ -1,10 +1,7 @@
 #!/bin/bash
-# Forces the pin-level QSPI harness to catch a broken partial-word store: nano/qspi.v's
-# read-modify-write merge picks the wrong bytes, and nano/asm/loadstore.S -- which
-# stores and reads back individual bytes and halfwords through this same PSRAM model --
-# must fail against it. Requires the shipping harness to pass loadstore.S first.
-# NOT HERMETIC -- runs the real cross compiler and iverilog; prerequisite of
-# `make nano-qspi-pins-test`. test/probe_gates.sh covers its own logic.
+# Inverts which bytes the read-modify-write merge keeps and requires nano/asm/loadstore.S
+# to fail against it after passing the shipping controller. NOT HERMETIC -- runs the real
+# cross compiler and iverilog; prerequisite of `make nano-qspi-pins-test`.
 set -euo pipefail
 
 if [ "$#" -ne 3 ]; then
@@ -76,8 +73,7 @@ build_vvp() {  # $1 = qspi.v to use, $2 = vvp output path
 }
 
 run_image() {  # $1 = vvp path
-  # A redirect over QSPI costs tens of cycles rather than one, so this program's own
-  # 44-retire floor needs far more than the zero-wait suite's usual few thousand.
+  # A QSPI redirect costs tens of cycles, so this needs far more than the usual few thousand.
   (cd "$WORKDIR" && vvp "$1" "+ROM=$WORKDIR/loadstore.rom.hex" \
     "+RAM=$WORKDIR/loadstore.ram.hex" +CYCLES=200000) 2>&1
 }
@@ -94,9 +90,7 @@ That is the control 'make nano-qspi-pins-test' relies on, so a mutant failing
 the same way would prove nothing.")
 fi
 
-# Invert which bytes the read-modify-write merge takes from the store versus the word
-# it just read back, so a partial-word store silently keeps the OLD byte and discards
-# the new one.
+# Keeps the OLD byte and discards the new one on a partial-word store.
 mutant_qspi="$WORKDIR/qspi.mutant.v"
 if ! sed "s/(psram_wdata_pending & psram_byte_mask) |/(psram_wdata_pending \& ~psram_byte_mask) |/;
           s/(rx_shift & ~psram_byte_mask);/(rx_shift \& psram_byte_mask);/" \

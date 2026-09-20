@@ -1,6 +1,5 @@
-// A synthesis-only top that wires nano.v's core to nano_qspi_ctrl the way the shipped
-// design does, so `make nano-area` measures the pair together rather than letting
-// yosys's auto-top synthesize one and drop the other as unconnected.
+// A synthesis-only top wiring nano.v's core to nano_qspi_ctrl, so `make nano-area`
+// measures the pair together instead of yosys's auto-top dropping one as unconnected.
 module nano_area_top (
   input  logic        clk,
   input  logic        reset,

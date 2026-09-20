@@ -1,10 +1,7 @@
 `timescale 1 ns / 1 ps
-// A pin-level behavioural model of the flash half of nano_qspi_ctrl's Pmod: it answers
-// on the wire (sck/cs_n/sio), not on the abstract mem_valid/mem_ready bus
-// nano_qspi_memory.v models. It tracks its OWN continuous-read mode bit exactly as a
-// real W25Q128JV would: a command byte is expected only while that bit is clear, and
-// the mode byte on every address phase decides whether it stays set afterward. Mode 0:
-// sio_in is sampled on sck's rising edge, sio_out is launched on its falling edge.
+// A pin-level behavioural model of the flash half of nano_qspi_ctrl's Pmod: it answers on
+// the wire (sck/cs_n/sio), tracking its own continuous-read mode bit as a real W25Q128JV
+// would. Mode 0: sio_in is sampled on sck's rising edge, sio_out launched on its falling.
 module nano_qspi_flash_model #(
   parameter int WORDS = 20480,
   parameter int DUMMY_SCK = 4
@@ -61,8 +58,7 @@ module nano_qspi_flash_model #(
       cont_mode <= 1'b0;
       phase     <= PH_IGNORE;
     end else if (cs_n) begin
-      // Deasserted: the next assertion starts fresh, at a command byte only if this
-      // chip is not already latched into continuous read.
+      // Deasserted: the next assertion starts fresh, at a command byte unless latched.
       phase        <= cont_mode ? PH_ADDR : PH_CMD;
       nibbles_done <= 0;
     end else if (!cs_n_d) begin

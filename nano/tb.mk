@@ -143,9 +143,9 @@ nano-qspi-loop-probe: rvfi_macros.vh test/monitor.sim.v
 nano-qspi-loop-test: nano-qspi-loop-probe
 	@./nano/bench/run_qspi_loop_buffer_test.sh '$(NANO_CFLAGS)'
 
-# nano.v -> nano_qspi_ctrl -> a flash model and a PSRAM model, speaking sck/cs_n/sio
-# rather than the abstract bus nano_qspi_memory.v times. Not on `make test`'s path: a
-# chained-resume bug corrupts multi-instruction programs and is not yet root-caused.
+# nano.v -> nano_qspi_ctrl -> a flash model and a PSRAM model, speaking sck/cs_n/sio rather
+# than the abstract bus nano_qspi_memory.v times. Not on `make test`'s path: a chained-resume
+# bug, root-caused and reproduced standalone by nano-qspi-resume-test below.
 NANO_QSPI_PINS_RTL_SRCS := nano/nano.v nano/qspi.v nano/tb/nano_qspi_flash_model.v \
                            nano/tb/nano_qspi_psram_model.v soc/compare/dhry_monitor.v
 
@@ -176,3 +176,18 @@ nano-qspi-pins-dhrystone: nano-qspi-pins-sim
 .PHONY: nano-qspi-pins-coremark
 nano-qspi-pins-coremark: nano-qspi-pins-sim
 	@./nano/bench/run_coremark.sh ./nano-qspi-pins-sim $(NANO_COREMARK_ITERATIONS) $(NANO_COREMARK_CYCLES) '$(NANO_CFLAGS)'
+
+# The minimal reproduction, no nano.v; expected to FAIL until the fix lands.
+NANO_QSPI_RESUME_SRCS := nano/qspi.v nano/tb/nano_qspi_flash_model.v \
+                          nano/tb/nano_qspi_psram_model.v nano/tb/nano_qspi_resume_tb.v
+
+nano/tb/nano_qspi_resume.vvp: $(NANO_QSPI_RESUME_SRCS)
+	iverilog -g2012 -o $@ $(NANO_QSPI_RESUME_SRCS)
+
+.PHONY: nano-qspi-resume-probe
+nano-qspi-resume-probe:
+	@./nano/tb/nano_qspi_resume_probe.sh
+
+.PHONY: nano-qspi-resume-test
+nano-qspi-resume-test: nano/tb/nano_qspi_resume.vvp nano-qspi-resume-probe
+	@out=$$(vvp nano/tb/nano_qspi_resume.vvp); echo "$$out"; grep -q '^PASS$$' <<< "$$out"

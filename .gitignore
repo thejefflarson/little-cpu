@@ -143,6 +143,8 @@ nano-qspi-pins-sim
 nano-qspi-pins-sim.dSYM/
 nano/tb/nano_qspi_pins_rtl.cc
 nano/tb/nano-qspi-pins-probe/
+nano/tb/nano_qspi_resume.vvp
+nano/tb/nano-qspi-resume-probe/
 tools/
 test/a.out.dSYM/
 .claude/worktrees/

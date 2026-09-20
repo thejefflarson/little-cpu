@@ -903,7 +903,12 @@ make nano-qspi-pins-sim  # nano.v -> nano/qspi.v (the real bit-serial QSPI contr
                     # pin-level flash/PSRAM behavioural models, sck/cs_n/sio rather than
                     # nano_qspi_memory.v's abstract bus. nano-qspi-pins-test reruns the
                     # suite through it; NOT on `make test`'s path -- a chained-resume bug
-                    # in multi-instruction programs is not yet root-caused
+                    # in multi-instruction programs, root-caused in docs/adr/0202, fix
+                    # in progress
+make nano-qspi-resume-test  # the chained-resume bug's minimal reproduction: nano_qspi_ctrl
+                    # and the pin-level models directly, no nano.v. Committed red until
+                    # the fix lands; nano-qspi-resume-probe is its forced-red prerequisite,
+                    # proving the comparisons -- not a crash or a timeout -- drive the FAIL
 make -C nano/formal components_qspi  # nano_qspi_ctrl's three invariants (CS0/CS1/CS2
                     # never low together; no PSRAM CS-low interval exceeds
                     # PSRAM_CS_LOW_LIMIT clocks; the prefetch buffer holds exactly the

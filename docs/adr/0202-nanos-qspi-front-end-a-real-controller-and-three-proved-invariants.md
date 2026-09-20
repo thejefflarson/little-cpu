@@ -170,9 +170,25 @@ this exact corruption pattern, but introduced a second, distinct regression -- a
 spurious immediate hit on the fetch immediately following a resume -- that was not
 isolated before time ran out on that attempt. That fix was reverted rather than shipped
 half-verified: a regression nobody has seen fail for the right reason is not evidence it
-works. Work on the fix continues against a graded, forced-red regression test (below),
-which is the only way this repo trusts a fix for a bug that a mode-prove proof and a
-hand-written protocol test both missed.
+works.
+
+**The minimal reproduction is landed as `nano/tb/nano_qspi_resume_tb.v`, run by `make
+nano-qspi-resume-test`, and is committed red.** It talks to `nano_qspi_ctrl` and the
+pin-level flash/PSRAM models directly, no `nano.v` involved: a compressed parcel (a
+complete instruction on its own) followed by three uncompressed ones in a row, each
+needing the parcel after it. The first uncompressed fetch is the first "`fetch_hit0 &&
+!queue_full`" resume; the second, chained immediately after it once the queue has
+emptied again, is the pattern `loadstore.S` and no hand-written scenario hits. Run
+against the shipping controller it reports two of the three chained fetches back a
+value with its top nibble replaced by the next parcel's low nibble -- the exact
+one-nibble-early signature the mechanism above predicts, not a timeout or a crash.
+`nano/tb/nano_qspi_resume_probe.sh` is its forced-red probe: it neuters every value
+comparison in a scratch copy of the testbench and requires that version to report PASS
+against the very same, still-buggy controller, which is what says the FAIL is the
+comparisons and not an incidental artifact. Work on the fix continues against this test
+as its grader, which is the only way this repo trusts a fix for a bug that a mode-prove
+proof and a hand-written protocol test both missed. Neither the test nor its probe is
+wired into `make test`'s required path while the test is expected to fail.
 
 **`nano-qspi-pins-test` is therefore built as infrastructure but is not wired into
 `make test`'s required path**, and no Dhrystone or CoreMark figure is taken through the
