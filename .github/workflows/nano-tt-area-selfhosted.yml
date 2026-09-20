@@ -97,12 +97,17 @@ jobs:
             librelane-env "$tool" --version 2>&1 | head -1
           done
 
+      # LibreLane resolves a "dir::" config value relative to the directory
+      # holding config_merged.json (nano/tt/src), and create_user_config()
+      # points FP_DEF_TEMPLATE at "dir::../tt/tech/...". Checking tt-support-tools
+      # out one level below nano/tt, not at the repo root, keeps that resolving
+      # to a real directory.
       - name: Checkout tt-support-tools
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: TinyTapeout/tt-support-tools
           ref: ${{ env.TT_SUPPORT_TOOLS_REF }}
-          path: tt
+          path: nano/tt/tt
 
       - name: Restore the sky130 PDK
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -142,9 +147,9 @@ jobs:
             done
             python3 -m venv --system-site-packages .venv-tt
             . .venv-tt/bin/activate
-            pip install -r ../../tt/requirements.txt
+            pip install -r tt/requirements.txt
             python3 -c "import librelane; print(librelane.__version__)"
-            ../../tt/tt_tool.py --create-user-config
+            tt/tt_tool.py --create-user-config
           '
           python3 - <<'PYEOF'
           import json, os
