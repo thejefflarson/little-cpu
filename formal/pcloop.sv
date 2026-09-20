@@ -43,7 +43,7 @@ module pcloop (
   logic        redirect_recovering;
   logic        kill;
   logic        mispredict;
-  logic        fetcher_pop;
+  logic        fetcher_pop, fetcher_pop2;
   logic        predicted_active;
   logic [31:0] predicted_src_pc;
   logic [31:0] predicted_target;
@@ -57,6 +57,7 @@ module pcloop (
     .q0(queue_q0),
     .q1(queue_q1),
     .pop(fetcher_pop),
+    .pop2(fetcher_pop2),
     .out(fetcher_out)
   );
 
@@ -71,6 +72,7 @@ module pcloop (
     .imem_fault(imem_fault),
     .fetch_stall(fetch_stall),
     .pop(fetcher_pop),
+    .pop2(fetcher_pop2),
     .q0(queue_q0),
     .q0_fault(queue_q0_fault),
     .q1(queue_q1),
@@ -283,10 +285,14 @@ module pcloop (
     assert(f_fetch_pc_advanced || f_fetch_pc_held || f_fetch_pc_retried ||
            f_fetch_pc_redirected || f_fetch_pc_guessed);
 
-  // Property 2: the buffer pops only on the cycle pc actually leaves the word it names,
-  // restated independently of fetcher.v's own `pop`.
+  // Property 2: the buffer pops only on the cycle pc actually leaves the word it names, and
+  // a second word only when a straddling instruction leaves that one too; restated
+  // independently of fetcher.v's own `pop` and `pop2`.
   always_comb if (clocked && !reset)
     assert(fetcher_pop == (next_pc[31:2] != pc[31:2]));
+  always_comb if (clocked && !reset)
+    assert(fetcher_pop2 == (fetcher_pop && pc[1] && f_uncompressed &&
+                            next_pc[31:2] != pc[31:2] + 30'd1));
 
   // Property 3: a word that never reaches decode never issues, graded against last cycle's
   // buffer occupancy since decoder_out.valid reports what issued THEN (out is registered); a

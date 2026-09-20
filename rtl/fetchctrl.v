@@ -12,6 +12,7 @@ module fetchctrl (
   input  logic         imem_fault,
   input  logic         fetch_stall,
   input  logic         pop,
+  input  logic         pop2,
   output logic [31:0]  q0,
   output logic         q0_fault,
   output logic [31:0]  q1,
@@ -31,6 +32,9 @@ module fetchctrl (
   logic [31:0] stolen_pc;
   logic        fetch_stall_d1;
   logic        fetch_odd;
+  // Lane 3 of the last accepted pair, and whether a 32-bit instruction started there.
+  logic [15:0] prev_lane3;
+  logic        straddle_in;
   // One cycle behind fetch_pc always, unlike stolen_pc (whose redirect_apply arm jumps early).
   logic [31:0] fetch_addr_d1;
   logic        predict_commit_d1;
@@ -67,33 +71,46 @@ module fetchctrl (
                    ((lane2[15:13] == 3'b110 || lane2[15:13] == 3'b111) && lane2[12]));
   assign lane3_c = lane3[1:0] == 2'b01 && (lane3[15:13] == 3'b101 || lane3[15:13] == 3'b001 ||
                    ((lane3[15:13] == 3'b110 || lane3[15:13] == 3'b111) && lane3[12]));
-  // The same for a whole word: a jal, or a branch pointing backward.
-  logic word0_j, word1_j;
-  assign word0_j = imem_data[6:0]  == 7'b1101111 || (imem_data[6:0]  == 7'b1100011 && imem_data[31]);
-  assign word1_j = imem_data2[6:0] == 7'b1101111 || (imem_data2[6:0] == 7'b1100011 && imem_data2[31]);
+  // The same for a whole word: a jal, or a branch pointing backward. Two of the four words
+  // straddle: lanes 1-2, and the previous pair's lane 3 with this pair's lane 0.
+  logic [31:0] word_s0, word_s1;
+  assign word_s0 = {lane0, prev_lane3};
+  assign word_s1 = {lane2, lane1};
+  logic word0_j, word1_j, word_s0_j, word_s1_j;
+  assign word0_j   = imem_data[6:0]  == 7'b1101111 || (imem_data[6:0]  == 7'b1100011 && imem_data[31]);
+  assign word1_j   = imem_data2[6:0] == 7'b1101111 || (imem_data2[6:0] == 7'b1100011 && imem_data2[31]);
+  assign word_s0_j = word_s0[6:0]    == 7'b1101111 || (word_s0[6:0]    == 7'b1100011 && word_s0[31]);
+  assign word_s1_j = word_s1[6:0]    == 7'b1101111 || (word_s1[6:0]    == 7'b1100011 && word_s1[31]);
 
   // The first taken candidate in program order wins; everything after it is never reached
-  // on the guessed path. One in the first word is a half push: only that word is queued, so
-  // the target's pair follows it. A 32-bit instruction straddling the pair is never one.
-  logic sel_l0, sel_w0, sel_l1, sel_l2, sel_w1, sel_l3, sel_first;
+  // on the guessed path. One ending in the first word is a half push: only that word is
+  // queued, so the target's pair follows it. A straddling one leaves both its words behind,
+  // which is fetcher's pop2.
+  logic sel_s0, sel_l0, sel_w0, sel_l1, sel_s1, sel_l2, sel_w1, sel_l3, sel_first, sel_early;
+  assign sel_s0 = straddle_in && word_s0_j;
   assign sel_l0 = boundary0 && !lane0_wide && lane0_c;
   assign sel_w0 = boundary0 &&  lane0_wide && word0_j;
-  assign sel_l1 = boundary1 && !lane1_wide && lane1_c && !sel_l0;
-  assign sel_first = sel_l0 || sel_w0 || sel_l1;
-  assign sel_l2 = boundary2 && !lane2_wide && lane2_c && !sel_first;
-  assign sel_w1 = boundary2 &&  lane2_wide && word1_j && !sel_first;
-  assign sel_l3 = boundary3 && !lane3_wide && lane3_c && !sel_first && !sel_l2;
+  assign sel_l1 = boundary1 && !lane1_wide && lane1_c && !sel_s0 && !sel_l0;
+  assign sel_s1 = boundary1 &&  lane1_wide && word_s1_j && !sel_s0 && !sel_l0;
+  assign sel_first = sel_s0 || sel_l0 || sel_w0 || sel_l1;
+  assign sel_early = sel_first || sel_s1;
+  assign sel_l2 = boundary2 && !lane2_wide && lane2_c && !sel_early;
+  assign sel_w1 = boundary2 &&  lane2_wide && word1_j && !sel_early;
+  assign sel_l3 = boundary3 && !lane3_wide && lane3_c && !sel_early && !sel_l2;
 
   logic [15:0] cand_c;
   logic [31:0] cand_w;
-  logic        cand_wide, cand_jal, cand_cj;
-  logic [1:0]  cand_off;
+  logic        cand_wide, cand_straddle, cand_jal, cand_cj;
+  logic [2:0]  cand_off;
   assign cand_c    = sel_l0 ? lane0 : sel_l1 ? lane1 : sel_l2 ? lane2 : lane3;
-  assign cand_w    = sel_w0 ? imem_data : imem_data2;
-  assign cand_wide = sel_w0 || sel_w1;
+  assign cand_w    = sel_s0 ? word_s0 : sel_w0 ? imem_data : sel_s1 ? word_s1 : imem_data2;
+  assign cand_straddle = sel_s0 || sel_s1;
+  assign cand_wide = cand_straddle || sel_w0 || sel_w1;
   assign cand_jal  = cand_w[6:0] == 7'b1101111;
   assign cand_cj   = cand_c[15:13] == 3'b101 || cand_c[15:13] == 3'b001;
-  assign cand_off  = (sel_l0 || sel_w0) ? 2'd0 : sel_l1 ? 2'd1 : (sel_l2 || sel_w1) ? 2'd2 : 2'd3;
+  // Halfwords from pair_base, and -1 for the straddler that began in the previous pair.
+  assign cand_off  = sel_s0 ? 3'b111 : (sel_l0 || sel_w0) ? 3'd0 : (sel_l1 || sel_s1) ? 3'd1 :
+                     (sel_l2 || sel_w1) ? 3'd2 : 3'd3;
 
   logic [31:0] cand_imm;
   always_comb begin
@@ -111,18 +128,19 @@ module fetchctrl (
     endcase
   end
 
-  // A target inside the candidate's own word would leave pop with nothing to advance over;
-  // read off the immediate, since the source is two-byte aligned within a word.
+  // A target inside a word the candidate itself occupies would leave pop with nothing to
+  // advance over; read off the immediate, since the source is two-byte aligned in its word.
   logic cand_same_word;
   assign cand_same_word = cand_imm == 32'd0 ||
                           (cand_imm == 32'd2 && !cand_off[0]) ||
-                          (cand_imm == 32'hffff_fffe && cand_off[0]);
+                          (cand_imm == 32'hffff_fffe && cand_off[0]) ||
+                          (cand_straddle && (cand_imm == 32'd2 || cand_imm == 32'd4));
 
   logic predict_found, predict_half, fetch_odd_next;
   logic [31:0] predict_src, predict_tgt;
-  assign predict_found = (sel_first || sel_l2 || sel_w1 || sel_l3) && !cand_same_word;
+  assign predict_found = (sel_early || sel_l2 || sel_w1 || sel_l3) && !cand_same_word;
   assign predict_half  = sel_first;
-  assign predict_src   = pair_base + {29'b0, cand_off, 1'b0};
+  assign predict_src   = pair_base + {{28{cand_off[2]}}, cand_off, 1'b0};
   assign predict_tgt   = predict_src + cand_imm;
   assign fetch_odd_next = !boundary4;
 
@@ -148,6 +166,7 @@ module fetchctrl (
     .imem_data2(imem_data2),
     .imem_fault(imem_fault),
     .pop(pop),
+    .pop2(pop2),
     .q0(q0),
     .q0_fault(q0_fault),
     .q1(q1),
@@ -172,6 +191,8 @@ module fetchctrl (
       predicted_src_pc    <= 32'b0;
       predicted_target    <= 32'b0;
       fetch_odd           <= 1'b0;
+      prev_lane3          <= 16'b0;
+      straddle_in         <= 1'b0;
       fetch_addr_d1       <= 32'b0;
       predict_commit_d1   <= 1'b0;
     end else begin
@@ -193,8 +214,14 @@ module fetchctrl (
         predicted_target <= predict_tgt;
       end
       // fetch_pc already holds the jump target by the cycle its pair's data arrives.
-      if (redirect_apply_d1 || predict_commit_d1) fetch_odd <= fetch_pc[1];
-      else if (req_valid) fetch_odd <= fetch_odd_next;
+      if (redirect_apply_d1 || predict_commit_d1) begin
+        fetch_odd   <= fetch_pc[1];
+        straddle_in <= 1'b0;
+      end else if (req_valid) begin
+        fetch_odd   <= fetch_odd_next;
+        straddle_in <= boundary3 && lane3_wide;
+        prev_lane3  <= lane3;
+      end
       if (redirect_apply) begin
         fetch_pc  <= redirect_target_reg;
         stolen_pc <= redirect_target_reg;

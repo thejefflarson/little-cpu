@@ -6,7 +6,7 @@ module fetchqueue_tb;
   logic clk = 0;
   always #5 clk = ~clk;
 
-  logic         reset, flush, req_valid, req_half, imem_fault, pop;
+  logic         reset, flush, req_valid, req_half, imem_fault, pop, pop2;
   logic [31:0]  imem_data, imem_data2;
   logic [31:0]  q0, q1;
   logic         q0_fault, q1_fault, q_valid, room;
@@ -22,6 +22,7 @@ module fetchqueue_tb;
     .imem_data2(imem_data2),
     .imem_fault(imem_fault),
     .pop(pop),
+    .pop2(pop2),
     .q0(q0),
     .q0_fault(q0_fault),
     .q1(q1),
@@ -94,6 +95,7 @@ module fetchqueue_tb;
     flush      = 1'b0;
     req_valid  = 1'b0;
     req_half   = 1'b0;
+    pop2       = 1'b0;
     imem_data  = 32'b0;
     imem_data2 = 32'b0;
     imem_fault = 1'b0;
@@ -218,6 +220,26 @@ module fetchqueue_tb;
     cycle(32'h0, 32'h0, 1'b0, 1'b0, 1'b0, 1'b1);
     cycle(32'h0, 32'h0, 1'b0, 1'b0, 1'b0, 1'b1);
     check_count("drained after the half-push scenario", count, 3'd0);
+
+    // --- A double pop leaves both words of a straddling instruction at once. ---
+    cycle(32'h3333_0000, 32'h3333_0004, 1'b0, 1'b1, 1'b0, 1'b0);
+    cycle(32'h0, 32'h0, 1'b0, 1'b0, 1'b0, 1'b0);
+    cycle(32'h4444_0000, 32'h4444_0004, 1'b0, 1'b1, 1'b0, 1'b0);
+    check_count("two pairs queued for the double-pop scenario", count, 3'd4);
+    pop2 = 1'b1;
+    cycle(32'h0, 32'h0, 1'b0, 1'b0, 1'b0, 1'b1);
+    pop2 = 1'b0;
+    check_count("a double pop takes two words", count, 3'd2);
+    check_hex("q0 skipped the first pair whole", q0, 32'h4444_0000);
+    pop2 = 1'b1;
+    cycle(32'h0, 32'h0, 1'b0, 1'b0, 1'b0, 1'b0);
+    pop2 = 1'b0;
+    check_count("pop2 without pop is nothing", count, 3'd2);
+    cycle(32'h0, 32'h0, 1'b0, 1'b0, 1'b0, 1'b1);
+    pop2 = 1'b1;
+    cycle(32'h0, 32'h0, 1'b0, 1'b0, 1'b0, 1'b1);
+    pop2 = 1'b0;
+    check_count("a double pop on a lone word takes only that word", count, 3'd0);
 
     cycle(32'hC0FF_0000, 32'hC0FF_0004, 1'b0, 1'b1, 1'b0, 1'b0);
     check_count("the second target's own request lands", count, 3'd2);

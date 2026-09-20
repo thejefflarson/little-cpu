@@ -132,7 +132,7 @@ module littlecpu #(
   logic         queue_q0_fault, queue_q1_fault;
   logic         buffer_empty;
   logic         redirect_recovering;
-  logic         fetcher_pop;
+  logic         fetcher_pop, fetcher_pop2;
   // Unread past decode: test/cxxrtl.cc reads it as a debug item, not a control signal.
   logic         decoder_kill;
   logic         decoder_mispredict;
@@ -149,6 +149,7 @@ module littlecpu #(
     .q0(queue_q0),
     .q1(queue_q1),
     .pop(fetcher_pop),
+    .pop2(fetcher_pop2),
     .out(fetcher_out)
   );
 
@@ -168,6 +169,7 @@ module littlecpu #(
     .imem_fault(imem_fault),
     .fetch_stall(fetch_stall),
     .pop(fetcher_pop),
+    .pop2(fetcher_pop2),
     .q0(queue_q0),
     .q0_fault(queue_q0_fault),
     .q1(queue_q1),

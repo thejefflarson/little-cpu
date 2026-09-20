@@ -70,6 +70,7 @@ module traps #(
     .q0(imem_data),
     .q1(imem_data2),
     .pop(),
+    .pop2(),
     .out(fetcher_out)
   );
 

@@ -49,6 +49,7 @@ ori.S               169    169
 predhalf.S           31     31
 predstale.S          48     48
 predsteal.S         251    251
+predstraddle.S       34     34
 predtwice.S          25     25
 predword.S           25     25
 rem.S                60     60

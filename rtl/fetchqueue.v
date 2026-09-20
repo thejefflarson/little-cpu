@@ -11,6 +11,7 @@ module fetchqueue (
   input  logic [31:0]  imem_data2,
   input  logic         imem_fault,
   input  logic         pop,
+  input  logic         pop2,
   output logic [31:0]  q0,
   output logic         q0_fault,
   output logic [31:0]  q1,
@@ -26,8 +27,8 @@ module fetchqueue (
   logic [1:0]  head, tail;
   logic [2:0]  cnt;
 
-  logic do_pop;
-  assign do_pop = pop && (cnt != 3'd0);
+  logic [2:0] popped;
+  assign popped = !pop || cnt == 3'd0 ? 3'd0 : pop2 && cnt != 3'd1 ? 3'd2 : 3'd1;
   logic [2:0] pushed;
   assign pushed = !req_valid ? 3'd0 : req_half ? 3'd1 : 3'd2;
 
@@ -37,7 +38,7 @@ module fetchqueue (
       tail <= 2'd0;
       cnt  <= 3'd0;
     end else begin
-      if (do_pop) head <= head + 2'd1;
+      head <= head + popped[1:0];
       if (req_valid) begin
         mem[tail]              <= imem_data;
         fault_mem[tail]        <= imem_fault;
@@ -47,7 +48,7 @@ module fetchqueue (
         end
         tail <= tail + (req_half ? 2'd1 : 2'd2);
       end
-      cnt <= cnt - (do_pop ? 3'd1 : 3'd0) + pushed;
+      cnt <= cnt - popped + pushed;
     end
   end
 

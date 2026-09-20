@@ -1,7 +1,7 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
 `include "structs.v"
-// Windows a decoded instruction out of the queue's head pair; `pop` fires when next_pc leaves the word `pc` names.
+// Windows a decoded instruction out of the queue's head pair; `pop` fires when next_pc leaves the word `pc` names, and `pop2` with it when a straddling instruction leaves its second word too.
 module fetcher(
   input  logic clk,
   input  logic reset,
@@ -10,6 +10,7 @@ module fetcher(
   input  logic [31:0] q0,
   input  logic [31:0] q1,
   output logic         pop,
+  output logic         pop2,
   output fetcher_output out
 );
 
@@ -19,6 +20,9 @@ module fetcher(
   assign fetch_pair = {q1, q0} >> (pc[1] ? 16 : 0);
   logic [31:0] windowed_instr;
   assign windowed_instr = fetch_pair[31:0];
+  logic straddles;
+  assign straddles = pc[1] && windowed_instr[1:0] == 2'b11;
+  assign pop2 = 1'b0;
 
   logic [31:0] next_word;
   assign next_word = (windowed_instr[1:0] == 2'b11) ? fetch_pair[63:32]
