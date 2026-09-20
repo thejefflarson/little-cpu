@@ -118,6 +118,7 @@ a carry hop is counted apart from a LUT level
 a casing keyword the table does not define stops rather than guessing
 a cause proof going red somewhere else is not evidence either
 a cell type outside the read liberty is refused, not priced at zero
+a cell type outside the read liberty is refused, not priced at zero
 a cell type that moved is reported as a count, both ways
 a cell type the log never mentions reads as zero, not a crash
 a census under the other gate names that gate, not the ice40 one
@@ -159,6 +160,7 @@ a core that cannot hold the image is named, not left to the reader
 a core that reached the start of the loop and not the end is red
 a core under the step FAILS rather than scoring a fraction
 a core yosys folded away is red, not a fast design
+a correlation record missing a required field is refused
 a cosim.py that cannot be executed stops the run
 a count that is not a number stops rather than summing to nonsense
 a cover .sby deeper than its bmc sibling is red, not a deeper proof
@@ -253,7 +255,9 @@ a help text that says a mismatch fails the build is red
 a hop class nothing classifies would move the split silently
 a hop sum that does not reconcile blames the script, not the design
 a job with no main-only guard is red, since workflow_dispatch can target any ref
+a latchmap download whose bytes are not the pin is refused before it is kept
 a liberty download whose bytes are not the pin is refused before it is kept
+a liberty file that does not match the pinned digest is refused
 a liberty file that does not match the pinned digest is refused
 a line naming a mutation test/mutations/ does not have is red
 a line with no harness behind it is red too
@@ -271,6 +275,7 @@ a lock arm that admits a grant mid-AMO is red
 a lock arm that admits a grant mid-AMO is red
 a log naming no reached goal is exit 2
 a log that names no cover statement is exit 2, not a goal set of none
+a log with no ABC stime Delay line is refused
 a lone target core with no other core is refused, not written as an empty pair
 a longer name sharing the substring does not stand in for the real one
 a lookalike sibling is not covered by the directory entry above it
@@ -293,7 +298,9 @@ a missing bitwuzla is refused by name before sby ever runs
 a missing btorsim is refused by name before formal's own sweep runs
 a missing btorsim is refused by name before nano's own sweep runs
 a missing checks.cfg is refused rather than read as not-live
+a missing correlation record is refused, not silently skipped
 a missing depth line in the .sby stops rather than comparing nothing
+a missing liberty file is refused before any variant is read
 a missing liberty file is refused before the JSON is even opened
 a missing parser stops the run rather than grading with a second one
 a missing ramdiff for the SECOND CoreMark core is red, not silently skipped
@@ -303,6 +310,8 @@ a missing riscv-formal clone is named, not blamed on the ISA string
 a missing schedule workflow file is an error, not an empty pass
 a missing schedule workflow file is an error, not an empty pass
 a missing stat.json is refused, not read as a zero-area design
+a missing stat.json is refused, not read as a zero-area design
+a missing synthesis log is refused, not read as a zero-delay design
 a missing workflow file is an error, not an empty pass
 a missing workflow file is an error, not an empty pass
 a mistyped baseline path cannot compare nothing and pass
@@ -403,6 +412,7 @@ a ref that names no commit is refused, not compared
 a reference model that produced no trace is fatal
 a refresh branch without the run id is red
 a reg_rs1 bit routed into hazard is red, at hazard's own site
+a register-file define is passed straight through to read_verilog
 a reintroduced fallback search in a live consumer is red, and located
 a relative install directory is red before it is compared
 a renamed cell is named by path
@@ -476,6 +486,7 @@ a runner that reports no cycles at all cannot produce a clean table
 a rvfi_insn_check.sv beside littlecpu's checks.cfg with no #insn-check line is refused
 a second occurrence of a counted exception value is red
 a seed clearing SOC_MIN_MHZ by under 5% is refused, not pinned
+a semicolon in the latchmap path stays inside its own quoted token
 a semicolon in the liberty path stays inside its own quoted token
 a shard spec that is not <i>/<n> is refused before anything runs
 a shipping core that fails ill_e is red before any mutant runs
@@ -499,6 +510,7 @@ a solver that wrote no verdict is exit 2, not a red arm
 a solver that wrote no verdict is exit 2, not a red arm
 a solver that wrote no verdict is exit 2, not a red arm
 a solver that wrote no verdict is exit 2, not a red arm
+a source list feeds read_verilog the same way synth_script.sh's does
 a source this tree synthesises that the base lacks is not comparable
 a space in a source path does not split it into a second yosys argument
 a spec-checked count too long for the shell's integers is NO-COUNTS
@@ -511,6 +523,7 @@ a stalled-bus mutant red for only some goals is not full evidence
 a stamp measured on a dirty tree is STALE even if nothing has moved since
 a stamp with no table under it is a failed measurement
 a standalone synthesis of zero cells is named, not divided by
+a stat.json missing area/num_cells/by_type is refused, not read as what is left
 a status sby cannot produce is rejected at format time
 a status sby has never written here is reported on its own
 a step between the oscillator's own is refused, not graded against
@@ -721,6 +734,7 @@ control: a passing suite against an empty baseline is green
 control: a peripheral above the reserved span is accepted
 control: a pin whose sources match checks OK
 control: a placement holding the whole core is green
+control: a plain liberty and latchmap produce the expected yosys script
 control: a plain liberty and source produce the expected yosys script
 control: a report clearing the floor is green
 control: a rule from this clone's $GIT_DIR/info/exclude is not this repository's to grade
@@ -759,6 +773,7 @@ control: both arms admit the shipping arbiter and fail on their mutation
 control: both arms admit the shipping arbiter and fail on their mutation
 control: both arms fail, each at its own line
 control: both headers naming only x0-x15 is green
+control: both register-file builds are reported from one call
 control: both sides failing the same test number still AGREE
 control: each subset is printed as a share of that number
 control: ecp5 is derived too, and a single sweep states its own figure
@@ -783,6 +798,7 @@ control: nano's own suite is graded the same way, and it is green
 control: nano's real divider defect is a baselined green, not a hidden one
 control: nano's startup check is graded the same way, and it is green
 control: nano/formal/Makefile also puts the cached suite first
+control: one register-file build reports its area and delay
 control: programs that build and are paired are green
 control: rule 6 gates the trap comparison and writes its compensation
 control: the ECP5 arm reads its own fabric's two cell names
@@ -791,6 +807,7 @@ control: the arm proves for the shipping core and fails on both values
 control: the block RAM is named at the end of the path it sits at
 control: the cached suite is put first when nothing claims PATH
 control: the caveats travel with the number, on every run
+control: the correlation prints its factor and both halves' provenance
 control: the declared list matches the tree exactly
 control: the digest states what its two verdicts mean
 control: the fork matches the pin once its header and RISCV_FORMAL_E block are undone
@@ -886,6 +903,7 @@ no harness-directory argument is a usage error, not a silent default
 no named source at all is reported, and is not a failure
 no placer on PATH is refused the same way
 no programs at all would report a clean 0 of 0
+no register-file define reads the default (flops) build
 no riscv-formal checkout is exit 2 here too, not a probe against nothing
 no riscv-formal checkout is exit 2, not a probe against nothing
 no riscv-formal checkout is exit 2, not an ill_e probe against nothing
@@ -1018,6 +1036,7 @@ the refusal names the cell and the port, not just a count
 the refusal names the flow that stopped, not another part's
 the refusal points at the spelling that fixes it
 the refused download is neither unpacked nor kept to be served again
+the refused latchmap download is not kept to be served again
 the refused liberty download is not kept to be served again
 the regenerate step refuses to run holding a token
 the riscv-gcc install directory inside the checkout is red on its own
