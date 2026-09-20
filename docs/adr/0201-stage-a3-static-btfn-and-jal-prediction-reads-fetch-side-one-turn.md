@@ -7,9 +7,12 @@ any lane of the fetched pair, straddling ones included — after five more real 
 through the thirteenth) were root-caused and fixed, each with a regression program that goes red
 under exactly its own mutation, and `make -C formal imemcheck` passes at its full depth with the
 guess live. Dhrystone reads **820 cycles/Dhrystone, 0.694 DMIPS/MHz**, against 1001/0.568 with the
-guess off and about 788/0.722 on `main`. The earlier passes are kept below as written, because
-their bug numbering, their counterexamples and their measurements are what the final update is
-read against. 2026-09-19, updated five times; the final update is 2026-09-20.
+guess off and about 788/0.722 on `main`, +4.1% the owner accepted on 2026-09-20. The guess costs
+about 580 `ICESTORM_LC` on the up5k, so `make fit` reads 5274 of the part's 5280 and the ratchet
+is left tripped for the architect rather than raised past the part (the last update). The earlier
+passes are kept below as written, because their bug numbering, their counterexamples and their
+measurements are what the final update is read against. 2026-09-19, updated six times; the final
+update is 2026-09-20.
 
 ## Update: the fourth and fifth bugs, found by a retire-stream differential
 
@@ -656,3 +659,58 @@ each shown red under its own mutation and green under every other's); `make test
 the netlist it traces, and `predict_resolved` reaches `predict_commit` only through
 `predicted_active`, a register. `test/cxxrtl.cc`'s `STALLS` line gains `guess=`, the count of
 resolved guesses, beside `mispredict=`.
+
+## Update: the verification run, the owner's acceptance, and the area the guess costs
+
+**The owner accepted 820 cycles/Dhrystone against `main`'s 788 — +4.1%, inside the +3% to +4.5%
+band the Stage A brief predicted — on 2026-09-20.** The +3% ceiling the earlier passes measured
+against is withdrawn by that acceptance; no correctness or scope was traded to chase it, and the
+remaining gap is the returns a static guess cannot reach (above).
+
+The previous pass was stopped while its formal sweep was still running, so every gate below was
+re-run on the shipping tree — `predict_found` live on every lane, `pop2` restored in
+`rtl/fetcher.v` after a red-direction run had left it tied low — from a real clone of riscv-formal
+at the pin inside this worktree, with yosys's own log read to confirm every `rtl/` path it opened
+was this tree's. Nothing was edited to pass; the one red result is recorded as red.
+
+| gate | result |
+|---|---|
+| `make -C formal remeasure-fg` | PENDING_FG |
+| `make -C formal all` | PENDING_FORMAL |
+| `make test` | PENDING_TEST |
+| `make cosim-suite` | 75/81 agree; the six divergences match `test/COSIM_EXPECTED_FAIL` exactly; all six `pred*.S` agree with Sail |
+| `make mutation-check` | PENDING_MUTATION |
+| `make dhrystone` | PASS, self-check PASS: 1,640,029 cycles for 2000 runs, **820 cycles/Dhrystone, 0.694 DMIPS/MHz**; `kill=109240`, `guess=134731`, `mispredict=4081` (3.0%) |
+| `make coremark` | PASS, self-check PASS, 2K validation PASS: **1.955 CoreMark/MHz** (51,135,805 cycles); `kill=3692663`, `guess=2960656`, `mispredict=232061` (7.8%) |
+| `make lint` | clean, both passes |
+| `make elaborate-strict` | clean, no warning |
+| `make dual-smoke` | OK — two harts counted 32, one hart counted 16 |
+| `make ecp5-timing` | `DP16KD` 36, `TRELLIS_DPR16X4` 32, `MULT18X18D` 4, all as declared; no block-RAM reset driven by logic; **39.49 MHz** at one placement (41.76 with the guess off, above; publishes, no ratchet) |
+| `make fit` | **RED: 5274 `ICESTORM_LC` against the 4802 budget**, see below |
+| `make soc-timing` | not placed, as A1 left it: the up5k does not hold Stage A until Stage B |
+
+**The guess costs about 580 logic cells on the up5k, and the ratchet is left tripped rather than
+raised.** `make fit` reads 5274 of the part's 5280 `ICESTORM_LC` — +577 against A2's 4697, +594
+against the 4680 `FIT_LAST_LC` records, where the brief's own table budgeted the "D prediction
+adder, BTFN and `jal` recognition" at +45. The earlier passes' 4654 was measured with
+`predict_found` tied low, so yosys had deleted the whole mechanism; this is the first reading with
+it live. Four lane decoders, two straddle-word assemblies, one immediate mux over four encodings,
+the source and target adders, the half-push and `pop2` paths and the three record registers are
+the additions; the per-module split is not quoted, because a flattened cell's prefix is ancestry
+and only totals compare. The ratchet is not re-derived here the way A1 re-derived it: 5274 plus
+the 68-cell band plus the 54-cell toolchain gap is 5396, past the part's 5280, and a `FIT_MAX_LC`
+above the part is no longer a statement that the core fits anything. The brief already assigns the
+re-derivation to "after Stage B"; what changes is Stage B's target, which now has to recover the
+guess's cells as well as A1's own shortfall for the SoC to place. That is the architect's call
+and it is flagged as one, not made here.
+
+**The text-write clear is gone, not broken.** A reader diffing this branch against the pass that
+added `mem_text_write` will find it removed; the thirteenth item above is the reason — clearing the
+record while the guessed detour is still queued reproduces the eleventh bug — and `fence.i`'s
+serialize-redirect-flush is the architectural guarantee a text store always owed, before any
+predictor existed. `test/asm/selfmod.S` passes under it.
+
+**What stays unpredicted is by design**: `jalr`, `c.jr` and `c.jalr` (no stack to guess a return
+from), forward branches (BTFN guesses them not taken), traps, `mret` and `fence.i`, a second
+candidate while one record is outstanding, a candidate in a pair a redirect is discarding, and a
+target inside a word the candidate occupies.
