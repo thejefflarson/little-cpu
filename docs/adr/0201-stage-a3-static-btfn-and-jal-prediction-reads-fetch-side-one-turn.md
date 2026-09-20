@@ -17,7 +17,10 @@ is fixed here; both are recorded as scoped future work. The fourth, fifth and si
 the fixes for the fourth and fifth, are structural and worth keeping regardless: a future session
 that spends the time budget this one did not have inherits three fewer bugs to rediscover, not
 zero — but the seventh finding says that budget must also cover a correctness gap this session did
-not diagnose, not only the sixth bug's known one. 2026-09-19, updated three times the same day.
+not diagnose, not only the sixth bug's known one. An eighth bug is fixed below (`predict_commit`
+missed half of `flush`'s own two-cycle window) and a ninth, distinct `imemcheck` counterexample was
+found after fixing it, not self-modifying code and not root-caused; `predict_found` stays `1'b0`.
+2026-09-19, updated four times the same day.
 
 ## Update: the fourth and fifth bugs, found by a retire-stream differential
 
@@ -420,3 +423,97 @@ prediction cannot mispredict by construction (above) and branches are not shippe
   properties, pushing files A3's own first pass had already brought under budget back over it.
   Condensed again here, alongside `rtl/fetchctrl.v`'s own comments for the fourth and fifth bugs'
   fix, without losing the mechanism each states.
+
+## Update: an eighth bug (`predict_commit`'s own redirect window), and a ninth counterexample
+
+A follow-up session took the sixth bug's own suggestion — snoop the write bus and invalidate a
+guess that a store has outrun — and found a *different* bug first, by reproducing `imemcheck`'s
+step-12 counterexample and reading its own waveform rather than trusting the shadow-address value
+alone. **The counterexample this session first reproduced had no store in it at all**:
+`mem_wstrb` stayed zero the entire fifteen-step trace, and `shadow_stored` never left `0` — so the
+sixth bug's own "a write with no invalidation path" story does not describe it. Reading `pair_base`,
+`fetch_odd`, `predicted_src_pc`/`predicted_target` and `redirect_apply`/`redirect_apply_d1` cycle by
+cycle against the trace found this instead:
+
+**`predict_commit` only excluded `redirect_apply`, not `redirect_apply_d1`.** `flush` itself is
+`redirect_apply || redirect_apply_d1` — two cycles — because the pair a redirect is abandoning
+still arrives one cycle *after* `redirect_apply` itself has already dropped back to zero (the ROM's
+own one-cycle latency for the request the abandoned path made the cycle before). `predict_commit`
+read only the first of those two cycles, so a candidate detected in that stale, being-discarded
+pair could still commit a guess — `predicted_src_pc`/`predicted_target` built from a `pair_base`
+that has nothing to do with the redirect's own real target. Fixed by widening the exclusion to
+match `flush`'s own window: `predict_commit = !redirect_apply && !redirect_apply_d1 && !fetch_stall
+&& room && predict_trusted`. This is a real, reproducible defect, independent of the sixth bug and
+of self-modifying code — waveform inspection of `formal/imemcheck`'s own counterexample is the
+red-then-green proof: before the fix, `imemcheck` failed at `imemcheck.sv:88` (the low-half
+retire-value assertion) with `shadow_addr = 0xeac90`, `mem_wstrb = 0` throughout, `predicted_active`
+having latched a guess whose own `predicted_target` (`0xeac90`) reused a `pair_base` computed one
+cycle before a real, unrelated redirect had actually settled fetch there. After the fix, that exact
+trace closes; `imemcheck` finds a *different* counterexample instead (below), which is the proof the
+fix changed the behaviour it targeted rather than merely relabeling the same failure.
+
+**The text-write invalidation the sixth bug called for is also built now** (`rtl/littlecpu.v`
+computes `mem_text_write` from the accessor's own `mem_addr`/`mem_wstrb` against `LS_TEXT_WORDS`,
+the same range test `rtl/decoder.v`'s own `ls_supported` already makes for a different reason;
+`rtl/fetchctrl.v` takes it as a new `text_write` input and clears `predicted_active` on it,
+ahead of `predict_commit`'s own set arm so a same-cycle collision favours invalidation). Clearing
+`predicted_active` is sufficient on its own — exactly as the fifth bug's fix already established —
+because it makes the eventual resolution look unpredicted, which the existing redirect path already
+flushes correctly; no second flush mechanism was added. This is coarser than address-exact (any
+write anywhere in the 8 KB text window clears whatever guess is outstanding, not only a write to the
+guessed target's own address), which costs nothing measurable on Dhrystone or CoreMark since neither
+benchmark ever writes its own text, and avoids adding an address-range comparison to the fetch
+loop's own critical path — `predicted_active`'s clear is a register-enable input, not a term in
+`fetch_pc`'s combinational next-state logic, so it does not extend the fetch loop's own cone.
+
+**Both fixes are inert with `predict_found` held at `1'b0`**: `predict_commit` can never fire
+without a real, currently-eligible candidate (`predict_trusted`), so the redirect-window widening
+changes nothing when nothing is ever eligible; `mem_text_write` only clears a register that is
+never set. `make -C formal imemcheck` was re-run a third time, jal-only prediction OFF, and passed
+exactly as A3 left it — no behavioural change to the shipped configuration. `make lint` and
+`make elaborate-strict` are clean with both fixes present.
+
+**With jal-only prediction live again and the eighth bug fixed, `imemcheck` still fails, at a
+different assertion (`imemcheck.sv:90`, the high-half check) and a different `shadow_addr`
+(`0x30010`).** Reading that trace the same way found no write either (`mem_wstrb = 0` throughout
+again) and, this time, no active guess at the failing retire (`predicted_active` had already
+cleared several cycles earlier, after an unrelated real redirect, and never rose again for the rest
+of the trace) — so this ninth counterexample is not obviously the eighth bug's own class, and not
+obviously prediction's own bookkeeping either, at least not by inspection of the signals this
+session captured. **Not root-caused.** Continuing to fix one `imemcheck` counterexample at a time
+and finding another is the same pattern the owner's brief warned this exact ticket has produced
+twice already; this session stops here rather than repeat it a third time, and records what it
+found rather than guess further. `predict_found` ships `1'b0`, unchanged from A3's own shipped
+configuration — the net change this session makes is two structural fixes, both inert, plus a
+narrower, better-characterized description of what is still open: at least one more defect in the
+guess mechanism's interaction with an ordinary (non-predicted) redirect, reachable by `imemcheck`
+within its own derived depth with no store involved.
+
+**Items 2 and 3 of the follow-up ticket were not reached.** Both need `predict_found` live to
+reproduce (CoreMark's own corruption, and the branch/candidate-B livelock), and this session could
+not certify any live configuration against the one check that already twice found a real
+counterexample in one. Investigating either against a mechanism this session cannot ship would be
+guessing at a moving target; both stay exactly as A3 left them, open, for whoever next lands a
+configuration that clears `imemcheck` outright.
+
+### Consequences (this update)
+
+- **Eighth bug fixed, inert in the shipped tree**: `predict_commit`'s own redirect-window exclusion
+  now matches `flush`'s two cycles. A future session enabling jal-only prediction inherits one fewer
+  bug to rediscover.
+- **The sixth bug's own proposed fix (a text-write snoop) is built**, also inert in the shipped
+  tree, and is not by itself sufficient to clear `imemcheck` with prediction live — the ninth
+  counterexample below has no write in it, so a working invalidation path does not imply the guess
+  mechanism is otherwise sound.
+- **A ninth, distinct, undiagnosed `imemcheck` counterexample is open**: no store, no active guess
+  at the failing retire, a different assertion and a different address than either the sixth bug or
+  the eighth. Whoever picks this up next should read the counterexample's own waveform (`sby`'s
+  `engine_0/trace.vcd`) rather than the summary line alone — both bugs this session found were
+  invisible in the summary and only became clear from `pair_base`/`fetch_odd`/`redirect_apply*`
+  read cycle by cycle.
+- **`predict_found` stays `1'b0`.** Dhrystone and CoreMark figures are unchanged from A3's own
+  shipped configuration (1001 cycles/Dhrystone, 0.568 DMIPS/MHz; CoreMark `PASS` at 1.712
+  CoreMark/MHz) because nothing observable changed for that configuration.
+- **Items 2 (CoreMark's own corruption) and 3 (the branch/candidate-B livelock) are untouched** —
+  reproducing either needs a live configuration this session could not certify safe to run to
+  completion against the one check built to catch exactly this class of defect.
